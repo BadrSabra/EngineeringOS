@@ -27,8 +27,20 @@ A live campaign process exit of zero may mean only that its redacted receipt pas
 
 **How to apply:** Judge campaign outcomes from `outcomeClass`, `terminalStatus`, `accepted`, and `evidence`, not from the process exit code alone.
 
+An OpenRouter catalog entry, including a free-priced model, does not prove its inference route is available. Preserve only bounded HTTP status and classified failure in campaign receipts; never retain provider bodies or messages.
+
+**Why:** Live free-model requests returned HTTP 404 despite catalog eligibility, while other attempts reached an upstream shared-pool 429; catalog metadata cannot distinguish those runtime outcomes.
+
+**How to apply:** Validate actual completion requests separately from catalog refreshes, and use the sanitized status to distinguish model-route availability from rate limiting without exposing provider payloads.
+
 Exact-model live campaigns must bound both provider fallback and agent-level retries; a pinned model must also bypass the shared lane cursor.
 
 **Why:** A campaign configured with one OpenRouter fallback still made four free-model attempts because the agent retried and the shared lane cursor ignored the requested model.
 
 **How to apply:** For a single-model measurement, stop after the first model response, cap the provider chain at one, disable shared-lane rotation, and verify the receipt's attempted-model list before interpreting the result.
+
+An `upstream_shared_pool` cooldown may extend to sibling model IDs only when the provider's metadata matches their namespace; do not block every OpenRouter free model from one upstream error.
+
+**Why:** OpenRouter can name a specific upstream provider in the 429 metadata, while other providers may remain healthy; a global pause would suppress usable free capacity.
+
+**How to apply:** Use only the exact provider-supplied Retry-After, persist a provider-namespace cooldown when the namespace match is exact, and otherwise cool only the failed model.

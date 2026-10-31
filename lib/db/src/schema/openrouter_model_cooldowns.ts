@@ -1,9 +1,10 @@
 import { index, pgTable, primaryKey, text, timestamp } from "drizzle-orm/pg-core";
 
 /**
- * Shared, model-only cooldowns for OpenRouter upstream shared-pool limits.
- * Rows expire by cooling_until; the composite key makes updates atomic across
- * API instances without blocking other models or providers.
+ * Shared cooldowns for exact OpenRouter models and confidently matched
+ * upstream-provider namespaces. Rows expire by cooling_until; the composite
+ * key makes updates atomic across API instances without blocking unrelated
+ * models or providers.
  */
 export const openrouterModelCooldownsTable = pgTable(
   "openrouter_model_cooldowns",

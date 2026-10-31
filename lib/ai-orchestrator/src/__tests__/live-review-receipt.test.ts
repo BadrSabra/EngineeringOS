@@ -91,6 +91,7 @@ describe("structured live review receipts", () => {
           providerMessage: "raw provider response",
           providerModel: "second-model:free",
           providerAttemptedModels: ["first-model:free", "second-model?token=secret"],
+          providerStatus: 422,
           rateLimitScope: "upstream_shared_pool",
           retryAfterMs: 1750,
         },
@@ -110,6 +111,7 @@ describe("structured live review receipts", () => {
     expect(outageReceipt.failureCode).toBe("RATE_LIMITED");
     expect(outageReceipt.rateLimitScope).toBe("upstream_shared_pool");
     expect(outageReceipt.retryAfterMs).toBe(1750);
+    expect(outageReceipt.providerStatus).toBe(422);
     expect(outageReceipt.failureModel).toBe("second-model:free");
     expect(outageReceipt.recoveryAction).toBe("wait");
   });

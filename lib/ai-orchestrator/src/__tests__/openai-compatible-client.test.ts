@@ -890,6 +890,67 @@ describe("openrouterCompleteWithFallback — error classification", () => {
     }]);
   });
 
+  it("cools matching upstream-provider siblings but leaves unrelated free vendors available", async () => {
+    const poolsideModel = "poolside/laguna-s-2.1:free";
+    const poolsideSibling = "poolside/laguna-xs-2.1:free";
+    const unrelatedModel = "liquid/lfm-2.5-2.6b:free";
+    const attemptedModels: string[] = [];
+    const fetchMock = vi.fn(async (_url: string | URL, init?: RequestInit) => {
+      const model = String((JSON.parse(String(init?.body ?? "{}")) as { model?: string }).model);
+      attemptedModels.push(model);
+      if (model.startsWith("poolside/")) {
+        return textResponse(JSON.stringify({
+          error: {
+            message: "Provider returned error",
+            metadata: {
+              limit_source: "upstream_provider_shared_pool",
+              provider_name: "Poolside",
+            },
+          },
+        }), 429, new Headers({ "Retry-After": "120" }));
+      }
+      return jsonResponse({
+        choices: [{ message: { content: "unrelated vendor remains available" } }],
+        model,
+        usage: { prompt_tokens: 1, completion_tokens: 1 },
+      });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const pinnedOptions = {
+      apiKey: "test-key",
+      maxFallbackModels: 1,
+      maxTokens: 10,
+      retryTransient: false,
+    };
+    await expect(
+      openrouterCompleteWithFallback(baseMessages as any, {
+        ...pinnedOptions,
+        model: poolsideModel,
+      }),
+    ).rejects.toMatchObject({
+      code: "RATE_LIMITED",
+      rateLimitScope: "upstream_shared_pool",
+    });
+
+    expect(isModelCoolingDown("openrouter", "__upstream_pool__:poolside")).toBe(true);
+    expect(isModelCoolingDown("openrouter", "__upstream_pool__:liquid")).toBe(false);
+    expect(persistedCooldownWrites).toContainEqual({
+      provider: "openrouter",
+      model: "__upstream_pool__:poolside",
+      cooldownMs: 120_000,
+    });
+
+    const recoveredResult = await openrouterCompleteWithFallback(baseMessages as any, {
+      ...pinnedOptions,
+      model: poolsideSibling,
+    });
+    expect(recoveredResult.content).toBe("unrelated vendor remains available");
+    expect(attemptedModels).toEqual([poolsideModel, unrelatedModel]);
+    expect(attemptedModels).not.toContain(poolsideSibling);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
   it("does not create local or durable cooldowns when a shared-pool 429 omits Retry-After", async () => {
     vi.stubGlobal("fetch", vi.fn(async () => textResponse(JSON.stringify({
       error: {

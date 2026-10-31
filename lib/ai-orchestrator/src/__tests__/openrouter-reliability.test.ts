@@ -1374,6 +1374,7 @@ describe("openrouterCompleteStream — bounded retry and disconnect safety", () 
       quality: "fast" as const,
       capability: "chat" as const,
       maxFallbackModels: 1,
+      model: "poolside/laguna-s-2.1:free",
     };
 
     const firstRequest = async () => {
@@ -1391,6 +1392,7 @@ describe("openrouterCompleteStream — bounded retry and disconnect safety", () 
     expect(isModelCoolingDown("openrouter", attemptedModels[0]!)).toBe(true);
     expect(getModelCooldownRemainingMs("openrouter", attemptedModels[0]!)).toBeGreaterThan(119_000);
     expect(getModelCooldownRemainingMs("openrouter", attemptedModels[0]!)).toBeLessThanOrEqual(120_000);
+    expect(getModelCooldownRemainingMs("openrouter", "__upstream_pool__:poolside")).toBeGreaterThan(119_000);
 
     const chunks: string[] = [];
     for await (const chunk of openrouterCompleteStream(
@@ -1402,7 +1404,8 @@ describe("openrouterCompleteStream — bounded retry and disconnect safety", () 
 
     expect(chunks.join("")).toBe("recovered");
     expect(attemptedModels).toHaveLength(2);
-    expect(attemptedModels[1]).not.toBe(attemptedModels[0]);
+    expect(attemptedModels[0]).toBe("poolside/laguna-s-2.1:free");
+    expect(attemptedModels[1]).not.toMatch(/^poolside\//);
   });
 
   it("retries a transient failure before the first chunk within one bounded retry", async () => {

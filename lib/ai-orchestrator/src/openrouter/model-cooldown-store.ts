@@ -3,6 +3,41 @@ import {
   rememberModelCooldownUntil,
 } from "./circuit-breaker.js";
 
+const UPSTREAM_POOL_COOLDOWN_PREFIX = "__upstream_pool__:";
+
+function normalizeProviderNamespace(value: string): string {
+  return value.trim().toLowerCase().replace(/[^a-z0-9]/g, "");
+}
+
+function modelNamespace(model: string): string | undefined {
+  const namespace = model.split("/", 1)[0];
+  const normalized = namespace ? normalizeProviderNamespace(namespace) : "";
+  return normalized || undefined;
+}
+
+function upstreamPoolCooldownKey(namespace: string): string {
+  return `${UPSTREAM_POOL_COOLDOWN_PREFIX}${namespace}`;
+}
+
+export function isUpstreamPoolCooldownKey(value: string): boolean {
+  return value.startsWith(UPSTREAM_POOL_COOLDOWN_PREFIX);
+}
+
+/**
+ * Scope a shared-pool cooldown only when OpenRouter's upstream provider name
+ * exactly matches the model namespace. Unknown mappings stay model-local.
+ */
+export function upstreamPoolCooldownKeyForModel(
+  model: string,
+  upstreamProvider: string | undefined,
+): string | undefined {
+  if (!upstreamProvider) return undefined;
+  const namespace = modelNamespace(model);
+  const provider = normalizeProviderNamespace(upstreamProvider);
+  if (!namespace || !provider || namespace !== provider) return undefined;
+  return upstreamPoolCooldownKey(namespace);
+}
+
 export type PersistedModelCooldown = {
   model: string;
   remainingMs: number;
@@ -88,6 +123,12 @@ export async function readModelCooldowns(
   const cooldowns = new Map<string, number>();
   const uniqueModels = [...new Set(models)];
   const unresolvedModels: string[] = [];
+  const poolKeysByModel = new Map<string, string>();
+
+  for (const model of uniqueModels) {
+    const namespace = modelNamespace(model);
+    if (namespace) poolKeysByModel.set(model, upstreamPoolCooldownKey(namespace));
+  }
 
   for (const model of uniqueModels) {
     const remainingMs = getModelCooldownRemainingMs(provider, model);
@@ -95,15 +136,35 @@ export async function readModelCooldowns(
     else unresolvedModels.push(model);
   }
 
-  if (unresolvedModels.length === 0) return cooldowns;
+  for (const poolKey of new Set(poolKeysByModel.values())) {
+    const remainingMs = getModelCooldownRemainingMs(provider, poolKey);
+    if (remainingMs !== null) {
+      cooldowns.set(poolKey, remainingMs);
+      for (const [model, candidateKey] of poolKeysByModel) {
+        if (candidateKey !== poolKey) continue;
+        cooldowns.set(model, Math.max(cooldowns.get(model) ?? 0, remainingMs));
+      }
+    } else {
+      unresolvedModels.push(poolKey);
+    }
+  }
+
+  const modelsToRead = [...new Set(unresolvedModels)];
+  if (modelsToRead.length === 0) return cooldowns;
 
   try {
-    const persisted = await (persistenceOverride ?? persistence).readActive(provider, unresolvedModels);
+    const persisted = await (persistenceOverride ?? persistence).readActive(provider, modelsToRead);
     for (const entry of persisted) {
-      if (!unresolvedModels.includes(entry.model) || entry.remainingMs <= 0) continue;
+      if (!modelsToRead.includes(entry.model) || entry.remainingMs <= 0) continue;
       const remainingMs = Math.floor(entry.remainingMs);
       cooldowns.set(entry.model, remainingMs);
       rememberModelCooldownUntil(provider, entry.model, remainingMs);
+      if (isUpstreamPoolCooldownKey(entry.model)) {
+        for (const [model, poolKey] of poolKeysByModel) {
+          if (poolKey !== entry.model) continue;
+          cooldowns.set(model, Math.max(cooldowns.get(model) ?? 0, remainingMs));
+        }
+      }
     }
   } catch {
     logPersistenceUnavailable("read");
@@ -113,7 +174,7 @@ export async function readModelCooldowns(
 }
 
 /**
- * Persists only the exact model that received an upstream shared-pool limit.
+ * Persists one exact model or reserved upstream-namespace cooldown key.
  * The in-memory circuit-breaker state is recorded by the caller first, so a
  * database outage still protects requests handled by this process.
  */

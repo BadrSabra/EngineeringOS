@@ -76,6 +76,14 @@ export function validateAndSummarizeCampaignReceipt(receipt) {
   ) {
     throw new Error("invalid_receipt");
   }
+  if (
+    receipt.providerStatus !== undefined &&
+    (!Number.isInteger(receipt.providerStatus) ||
+      receipt.providerStatus < 400 ||
+      receipt.providerStatus > 599)
+  ) {
+    throw new Error("invalid_receipt");
+  }
 
   const summary = {
     kind: receipt.kind,
@@ -90,6 +98,7 @@ export function validateAndSummarizeCampaignReceipt(receipt) {
   }
   if (receipt.rateLimitScope) summary.rateLimitScope = receipt.rateLimitScope;
   if (receipt.retryAfterMs !== undefined) summary.retryAfterMs = receipt.retryAfterMs;
+  if (receipt.providerStatus !== undefined) summary.providerStatus = receipt.providerStatus;
   if (typeof receipt.failureModel === "string" && safeModelPattern.test(receipt.failureModel)) {
     summary.failureModel = receipt.failureModel;
   }

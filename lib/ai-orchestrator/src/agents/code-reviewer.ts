@@ -122,6 +122,7 @@ export type CodeReviewCampaignReceipt = {
   outcomeClass: "fallback-success" | "terminal-incomplete";
   terminalStatus: "COMPLETE" | "INCOMPLETE";
   failureCode?: string;
+  providerStatus?: number;
   rateLimitScope?: ProviderRateLimitScope;
   retryAfterMs?: number;
   failureModel?: string;
@@ -439,6 +440,12 @@ export function buildCodeReviewCampaignReceipt(params: {
     && (params.error.code === "RATE_LIMITED" || params.error.code === "QUOTA")
     ? params.error.rateLimitScope
     : undefined;
+  const providerStatus = params.error instanceof GroqClientError
+    && Number.isInteger(params.error.providerStatus)
+    && params.error.providerStatus! >= 400
+    && params.error.providerStatus! <= 599
+    ? params.error.providerStatus
+    : undefined;
   const retryAfterMs = params.error instanceof GroqClientError
     && Number.isSafeInteger(params.error.retryAfterMs)
     && params.error.retryAfterMs! > 0
@@ -459,6 +466,7 @@ export function buildCodeReviewCampaignReceipt(params: {
     outcomeClass: hasAcceptedFinding ? "fallback-success" : "terminal-incomplete",
     terminalStatus: hasAcceptedFinding ? "COMPLETE" : "INCOMPLETE",
     ...(errorCode ? { failureCode: errorCode } : {}),
+    ...(providerStatus !== undefined ? { providerStatus } : {}),
     ...(rateLimitScope ? { rateLimitScope } : {}),
     ...(retryAfterMs !== undefined ? { retryAfterMs } : {}),
     ...(failureModel ? { failureModel } : {}),

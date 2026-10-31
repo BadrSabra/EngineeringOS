@@ -76,6 +76,21 @@ test("retry delay is preserved only when it is a positive safe integer", () => {
   );
 });
 
+test("provider HTTP status is retained only as a valid numeric status", () => {
+  const summary = validateAndSummarizeCampaignReceipt(validReceipt({
+    providerStatus: 422,
+  }));
+  assert.equal(summary.providerStatus, 422);
+  assert.throws(
+    () => validateAndSummarizeCampaignReceipt(validReceipt({ providerStatus: 200 })),
+    /invalid_receipt/,
+  );
+  assert.throws(
+    () => validateAndSummarizeCampaignReceipt(validReceipt({ providerStatus: "422" })),
+    /invalid_receipt/,
+  );
+});
+
 test("success receipts require exactly one accepted finding", () => {
   assert.throws(
     () => validateAndSummarizeCampaignReceipt(validReceipt({

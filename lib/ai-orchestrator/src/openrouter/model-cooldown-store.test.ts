@@ -10,6 +10,7 @@ import {
   clearSharedPoolModelCooldown,
   persistSharedPoolModelCooldown,
   readModelCooldowns,
+  upstreamPoolCooldownKeyForModel,
 } from "./model-cooldown-store.js";
 
 describe("shared OpenRouter model cooldown persistence", () => {
@@ -100,5 +101,46 @@ describe("shared OpenRouter model cooldown persistence", () => {
     _resetCircuitsForTest();
     expect(persisted.has(`openrouter:${recoveredModel}`)).toBe(false);
     await expect(readModelCooldowns("openrouter", [recoveredModel])).resolves.toEqual(new Map());
+  });
+
+  it("shares an upstream pool Retry-After only with matching model namespaces", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-09-30T12:00:00.000Z"));
+    const persisted = new Map<string, number>();
+    _setModelCooldownPersistenceForTest({
+      readActive: async (provider, models) => models.flatMap((model) => {
+        const coolingUntil = persisted.get(`${provider}:${model}`);
+        return coolingUntil && coolingUntil > Date.now()
+          ? [{ model, remainingMs: coolingUntil - Date.now() }]
+          : [];
+      }),
+      write: async (provider, model, cooldownMs) => {
+        persisted.set(`${provider}:${model}`, Date.now() + cooldownMs);
+      },
+      clear: async (provider, model) => {
+        persisted.delete(`${provider}:${model}`);
+      },
+    });
+
+    const first = "poolside/laguna-s-2.1:free";
+    const sibling = "poolside/laguna-xs-2.1:free";
+    const unrelated = "liquid/lfm-2.5-2.6b:free";
+    const poolKey = upstreamPoolCooldownKeyForModel(first, "Poolside");
+    expect(poolKey).toBeDefined();
+    expect(upstreamPoolCooldownKeyForModel(unrelated, "Poolside")).toBeUndefined();
+
+    recordModelFailure("openrouter", poolKey!, 5_000);
+    await persistSharedPoolModelCooldown("openrouter", poolKey!, 5_000);
+    _resetCircuitsForTest();
+
+    const recoveredState = await readModelCooldowns("openrouter", [first, sibling, unrelated]);
+    expect(recoveredState.get(first)).toBe(5_000);
+    expect(recoveredState.get(sibling)).toBe(5_000);
+    expect(recoveredState.has(unrelated)).toBe(false);
+    expect(recoveredState.get(poolKey!)).toBe(5_000);
+
+    await vi.advanceTimersByTimeAsync(5_001);
+    _resetCircuitsForTest();
+    expect(await readModelCooldowns("openrouter", [first, sibling, unrelated])).toEqual(new Map());
   });
 });
