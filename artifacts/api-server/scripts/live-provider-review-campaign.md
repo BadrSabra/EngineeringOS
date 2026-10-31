@@ -4,6 +4,23 @@ This campaign is a credential-gated observation, not part of the normal
 provider-free release checks. Run it only against a disposable project and
 repeat it once per scenario:
 
+For a positive end-to-end structured-review acceptance using one exact
+OpenRouter free model, use `structured-review`. The pinned model is the only
+candidate: cross-model fallback is capped at one, and the scenario rejects paid
+fallback configuration. The receipt is complete only if the model returns an
+accepted finding for the disposable selected file.
+
+```sh
+RUN_LIVE_PROVIDER_REVIEW_CAMPAIGN=1 \
+LIVE_REVIEW_DISPOSABLE=1 \
+LIVE_REVIEW_PROVIDER=openrouter \
+LIVE_REVIEW_SCENARIO=structured-review \
+LIVE_REVIEW_PROJECT_ID=<disposable-project-id> \
+LIVE_REVIEW_MODEL='<registered-model:free>' \
+LIVE_REVIEW_OUTPUT_PATH=test-results/live-structured-review.json \
+pnpm run validate:live-provider-review
+```
+
 ```sh
 RUN_LIVE_PROVIDER_REVIEW_CAMPAIGN=1 \
 LIVE_REVIEW_DISPOSABLE=1 \

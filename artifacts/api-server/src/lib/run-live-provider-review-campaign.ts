@@ -81,6 +81,25 @@ function requireCampaignConfiguration(): {
   if (!outputPath) {
     throw new Error("LIVE_REVIEW_OUTPUT_PATH is required so campaign output is explicit.");
   }
+  const configuredModel = process.env.LIVE_REVIEW_MODEL?.trim();
+  if (
+    scenario === "structured-review"
+    && provider === "openrouter"
+    && !configuredModel?.endsWith(":free")
+  ) {
+    throw new Error("Structured OpenRouter review requires one explicitly pinned :free model.");
+  }
+  if (
+    scenario === "structured-review"
+    && provider === "openrouter"
+    && (
+      process.env.OPENROUTER_ALLOW_PAID_FALLBACK?.trim() === "1"
+      || process.env.OPENROUTER_PAID_MODEL?.trim()
+      || process.env.OPENROUTER_PAID_MODEL_CAPABILITIES?.trim()
+    )
+  ) {
+    throw new Error("Structured OpenRouter review is free-only and rejects paid fallback configuration.");
+  }
   const apiKey = process.env[providerKeys[provider]]?.trim();
   if (!apiKey) {
     throw new Error(`Provider configuration is missing ${providerKeys[provider]}.`);
@@ -140,7 +159,7 @@ async function main(): Promise<void> {
         {
           provider: campaignProvider,
           apiKey: process.env[providerKeys[provider]],
-          maxFallbackModels: 3,
+          maxFallbackModels: campaignProvider === "openrouter" && configuredModel ? 1 : 3,
           retryTransient: false,
           qualityProfile: "code_review",
           onModelAttempt: (attempt) => {

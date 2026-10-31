@@ -36,6 +36,24 @@ function review(overrides: Partial<CodeReviewResult> = {}): CodeReviewResult {
 }
 
 describe("structured live review receipts", () => {
+  it("accepts structured-review evidence only when it cites the selected file", () => {
+    const receipt = buildCodeReviewCampaignReceipt({
+      ...base,
+      scenario: "structured-review",
+      result: review(),
+    });
+
+    expect(receipt).toMatchObject({
+      scenario: "structured-review",
+      outcomeClass: "fallback-success",
+      terminalStatus: "COMPLETE",
+      evidenceStatus: "complete",
+      accepted: true,
+    });
+    expect(receipt.evidence).toHaveLength(1);
+    expect(receipt.evidence[0]?.file).toBe(selectedFile);
+  });
+
   it("accepts only a selected-file finding as fallback success", () => {
     const receipt = buildCodeReviewCampaignReceipt({
       ...base,

@@ -9,6 +9,7 @@ import {
 } from "./live-provider-review-receipt.mjs";
 
 const scenarios = new Set([
+  "structured-review",
   "reasoning-only",
   "agent-harness",
   "rate-limit",
@@ -47,11 +48,31 @@ if (!providerKeys[provider]) {
 }
 if (!scenarios.has(scenario)) {
   console.error(
-    "BLOCKED: LIVE_REVIEW_SCENARIO must be reasoning-only, agent-harness, rate-limit, empty, or malformed.",
+    "BLOCKED: LIVE_REVIEW_SCENARIO must be structured-review, reasoning-only, agent-harness, rate-limit, empty, or malformed.",
   );
   process.exit(2);
 }
 const missing = required.filter((name) => !name || !process.env[name]?.trim());
+if (
+  scenario === "structured-review"
+  && provider === "openrouter"
+  && !process.env.LIVE_REVIEW_MODEL?.trim().endsWith(":free")
+) {
+  console.error("BLOCKED: structured-review requires one explicitly pinned OpenRouter :free model.");
+  process.exit(2);
+}
+if (
+  scenario === "structured-review"
+  && provider === "openrouter"
+  && (
+    process.env.OPENROUTER_ALLOW_PAID_FALLBACK?.trim() === "1"
+    || process.env.OPENROUTER_PAID_MODEL?.trim()
+    || process.env.OPENROUTER_PAID_MODEL_CAPABILITIES?.trim()
+  )
+) {
+  console.error("BLOCKED: structured-review is free-only and cannot include paid fallback configuration.");
+  process.exit(2);
+}
 if (missing.length > 0) {
   const outputPath = process.env.LIVE_REVIEW_OUTPUT_PATH?.trim();
   if (outputPath) {

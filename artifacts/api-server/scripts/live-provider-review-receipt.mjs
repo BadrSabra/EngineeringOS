@@ -1,4 +1,5 @@
 const scenarios = new Set([
+  "structured-review",
   "reasoning-only",
   "agent-harness",
   "rate-limit",

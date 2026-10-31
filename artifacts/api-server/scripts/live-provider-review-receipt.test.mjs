@@ -43,6 +43,21 @@ test("safe receipt summary retains only bounded campaign and model status", () =
   });
 });
 
+test("structured-review is a valid receipt scenario with a selected-file finding", () => {
+  const summary = validateAndSummarizeCampaignReceipt(validReceipt({
+    scenario: "structured-review",
+    outcomeClass: "fallback-success",
+    terminalStatus: "COMPLETE",
+    evidenceStatus: "complete",
+    accepted: true,
+    evidence: [{ file: "src/provider-review-fixture.ts", findingHash: "abc123" }],
+  }));
+  assert.equal(summary.scenario, "structured-review");
+  assert.equal(summary.outcome, "fallback-success");
+  assert.equal(summary.terminal, "COMPLETE");
+  assert.equal(summary.evidenceCount, 1);
+});
+
 test("provider credential cooldown scope is preserved as a safe enum", () => {
   const summary = validateAndSummarizeCampaignReceipt(validReceipt({
     rateLimitScope: "provider_credential",

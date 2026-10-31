@@ -5741,6 +5741,106 @@ describe("POST /api/ai/projects/:projectId/analyze", () => {
     }
   });
 
+  it("allows structured analysis after a provider-scoped Retry-After expires", async () => {
+    const { analyzeScan: mockAnalyzeScan } = await import("@workspace/ai-orchestrator");
+    const projectId = await insertProject();
+    projectIds.push(projectId);
+    const sessionId = randomUUID();
+    const retryAt = new Date(Date.now() - 1_000).toISOString();
+    const now = new Date();
+
+    await db.insert(aiChatSessionsTable).values({
+      id: sessionId,
+      projectId,
+      title: "Scan analysis",
+      createdAt: now,
+      updatedAt: now,
+    });
+    const previous = await createAiExecution({
+      userId: "test-user",
+      projectId,
+      sessionId,
+      idempotencyKey: randomUUID(),
+      request: {
+        projectId,
+        sessionId,
+        message: "Analyze the latest scan results and suggest the top 3 improvements.",
+        modelMessage: "Analyze the latest scan results and suggest the top 3 improvements.",
+        turnIntent: "STRUCTURED_ANALYZE",
+        validationTargetPaths: [],
+        proofRequired: false,
+      },
+    });
+    await db.update(aiExecutionsTable).set({
+      status: "failed",
+      checkpoint: JSON.stringify({
+        stage: "failed",
+        sequence: 1,
+        retryAfterMs: 30_000,
+        retryAt,
+        providerAttempts: [{ provider: "OpenRouter", code: "RATE_LIMITED" }],
+        updatedAt: now.toISOString(),
+      }),
+      updatedAt: now,
+      completedAt: now,
+    }).where(eq(aiExecutionsTable.id, previous.execution.id));
+    await db.insert(aiExecutionAcceptancesTable).values({
+      id: randomUUID(),
+      executionId: previous.execution.id,
+      projectId,
+      attempt: 0,
+      finalizationKey: `execution:${previous.execution.id}:attempt:0:credential-expired`,
+      terminalStatus: "failed",
+      outcome: "FAILED",
+      reasonCode: "EXECUTION_PROVIDER_FAILURE",
+      nextActionCode: "RETRY_AFTER_RATE_LIMIT",
+      disposition: {
+        outcome: "FAILED",
+        retryAfterMs: 30_000,
+        retryAt,
+        retryAfterSource: "provider",
+        rateLimitScope: "provider_credential",
+        failureKind: "RATE_LIMIT",
+        recoveryState: "REQUIRED",
+        nextActionCode: "RETRY_AFTER_RATE_LIMIT",
+      },
+      resumable: 0,
+      createdAt: now,
+    });
+
+    const previousOpenRouterKey = process.env.OPENROUTER_API_KEY;
+    const previousGroqKey = process.env.GROQ_API_KEY;
+    process.env.OPENROUTER_API_KEY = "test-openrouter-key";
+    delete process.env.GROQ_API_KEY;
+    vi.mocked(mockAnalyzeScan).mockResolvedValueOnce({
+      summary: "Analysis complete",
+      overallAssessment: "The provider cooldown has expired.",
+      insights: [],
+      topPriority: "None",
+      estimatedImpact: "None",
+    });
+    try {
+      const response = await request(app)
+        .post(`/api/ai/projects/${projectId}/analyze/stream`)
+        .send({ sessionId });
+
+      expect(response.status).toBe(200);
+      expect(response.text).toContain('"type":"task_done"');
+      const executions = await db.select({ id: aiExecutionsTable.id })
+        .from(aiExecutionsTable)
+        .where(and(
+          eq(aiExecutionsTable.projectId, projectId),
+          eq(aiExecutionsTable.userId, "test-user"),
+        ));
+      expect(executions).toHaveLength(2);
+    } finally {
+      if (previousOpenRouterKey === undefined) delete process.env.OPENROUTER_API_KEY;
+      else process.env.OPENROUTER_API_KEY = previousOpenRouterKey;
+      if (previousGroqKey === undefined) delete process.env.GROQ_API_KEY;
+      else process.env.GROQ_API_KEY = previousGroqKey;
+    }
+  });
+
   it("uses only positive provider or project retry durations", async () => {
     await expect(resolveStructuredRetryAfter({
       providerRetryAfterMs: undefined,

@@ -101,6 +101,7 @@ export type CodeReviewOptions = {
 };
 
 export const CODE_REVIEW_CAMPAIGN_SCENARIOS = [
+  "structured-review",
   "reasoning-only",
   "agent-harness",
   "rate-limit",
