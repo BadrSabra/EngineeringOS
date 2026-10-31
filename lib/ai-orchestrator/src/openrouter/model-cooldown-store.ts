@@ -8,11 +8,18 @@ const LOCAL_ADAPTIVE_COOLDOWN_PREFIX = "__local_adaptive_model__:";
 const LOCAL_ADAPTIVE_BASE_MS = 30_000;
 const LOCAL_ADAPTIVE_MAX_MS = 10 * 60_000;
 const LOCAL_ADAPTIVE_HISTORY_MS = 60 * 60_000;
+const OPENROUTER_MODEL_ATTEMPT_LOCK_NAMESPACE = 1007;
+const MODEL_ATTEMPT_LOCK_WAIT_MS = 5_000;
+const MODEL_ATTEMPT_LOCK_POLL_MS = 75;
+const MAX_LOCAL_MODEL_ATTEMPT_WAITERS = 64;
 
 export type ModelCooldownSource = "provider" | "local_adaptive";
 export type ModelCooldown = {
   remainingMs: number;
   source: ModelCooldownSource;
+};
+export type ModelAttemptLease = {
+  release(): Promise<void>;
 };
 
 const localAdaptiveHistory = new Map<
@@ -80,6 +87,12 @@ export type ModelCooldownPersistence = {
   readActive(provider: string, models: string[]): Promise<PersistedModelCooldown[]>;
   write(provider: string, model: string, cooldownMs: number): Promise<void>;
   clear(provider: string, model: string): Promise<void>;
+  acquireAttemptLease?(
+    provider: string,
+    model: string,
+    maxWaitMs: number,
+    signal?: AbortSignal,
+  ): Promise<ModelAttemptLease | undefined>;
   readRecentCooldownMs?(
     provider: string,
     model: string,
@@ -88,6 +101,102 @@ export type ModelCooldownPersistence = {
 };
 
 const PERSISTENCE_WARNING_INTERVAL_MS = 60_000;
+const localAttemptTails = new Map<string, Promise<void>>();
+const localAttemptWaiters = new Map<string, number>();
+
+function advisoryLockHash(value: string): number {
+  let hash = 5381;
+  for (let index = 0; index < value.length; index++) {
+    hash = (((hash << 5) + hash) ^ value.charCodeAt(index)) | 0;
+  }
+  return hash;
+}
+
+function waitForAttemptSignal(
+  ms: number,
+  signal?: AbortSignal,
+): Promise<"elapsed" | "aborted"> {
+  if (signal?.aborted) return Promise.resolve("aborted");
+  return new Promise((resolve) => {
+    const timer = setTimeout(() => {
+      signal?.removeEventListener("abort", onAbort);
+      resolve("elapsed");
+    }, ms);
+    const onAbort = () => {
+      clearTimeout(timer);
+      signal?.removeEventListener("abort", onAbort);
+      resolve("aborted");
+    };
+    signal?.addEventListener("abort", onAbort, { once: true });
+  });
+}
+
+function waitForLocalLease(
+  previous: Promise<void>,
+  maxWaitMs: number,
+  signal?: AbortSignal,
+): Promise<"acquired" | "timed_out" | "aborted"> {
+  if (signal?.aborted) return Promise.resolve("aborted");
+  return new Promise((resolve) => {
+    let settled = false;
+    const finish = (result: "acquired" | "timed_out" | "aborted") => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      signal?.removeEventListener("abort", onAbort);
+      resolve(result);
+    };
+    const timer = setTimeout(() => finish("timed_out"), maxWaitMs);
+    const onAbort = () => finish("aborted");
+    signal?.addEventListener("abort", onAbort, { once: true });
+    previous.then(() => finish("acquired"));
+  });
+}
+
+async function acquireLocalModelAttemptLease(
+  provider: string,
+  model: string,
+  maxWaitMs: number,
+  signal?: AbortSignal,
+): Promise<ModelAttemptLease | undefined> {
+  const key = cooldownStateKey(provider, model);
+  const waiting = localAttemptWaiters.get(key) ?? 0;
+  if (waiting >= MAX_LOCAL_MODEL_ATTEMPT_WAITERS) return undefined;
+  localAttemptWaiters.set(key, waiting + 1);
+
+  const previous = localAttemptTails.get(key) ?? Promise.resolve();
+  let releaseCurrent!: () => void;
+  const current = new Promise<void>((resolve) => {
+    releaseCurrent = resolve;
+  });
+  const tail = previous.then(() => current);
+  localAttemptTails.set(key, tail);
+  void tail.then(() => {
+    if (localAttemptTails.get(key) === tail) localAttemptTails.delete(key);
+  });
+
+  const outcome = await waitForLocalLease(previous, maxWaitMs, signal);
+  if (outcome !== "acquired") {
+    releaseCurrent();
+    const currentWaiters = localAttemptWaiters.get(key) ?? 1;
+    if (currentWaiters <= 1) localAttemptWaiters.delete(key);
+    else localAttemptWaiters.set(key, currentWaiters - 1);
+    return undefined;
+  }
+
+  let released = false;
+  return {
+    async release() {
+      if (released) return;
+      released = true;
+      releaseCurrent();
+      const currentWaiters = localAttemptWaiters.get(key) ?? 1;
+      if (currentWaiters <= 1) localAttemptWaiters.delete(key);
+      else localAttemptWaiters.set(key, currentWaiters - 1);
+      await tail;
+    },
+  };
+}
 
 const postgresPersistence: ModelCooldownPersistence = {
   async readActive(provider, models) {
@@ -168,6 +277,56 @@ const postgresPersistence: ModelCooldownPersistence = {
       [provider, model],
     );
   },
+
+  async acquireAttemptLease(provider, model, maxWaitMs, signal) {
+    const { pool } = await import("@workspace/db");
+    const lockKey = advisoryLockHash(`${provider}\u0000${model}`);
+    const startedAt = Date.now();
+    while (!signal?.aborted) {
+      const client = await pool.connect();
+      let acquired = false;
+      try {
+        const result = await client.query<{ acquired: boolean }>(
+          "SELECT pg_try_advisory_lock($1, $2) AS acquired",
+          [OPENROUTER_MODEL_ATTEMPT_LOCK_NAMESPACE, lockKey],
+        );
+        acquired = result.rows[0]?.acquired === true;
+      } catch (error) {
+        client.release(error instanceof Error ? error : true);
+        throw error;
+      }
+
+      if (acquired) {
+        return {
+          async release() {
+            try {
+              await client.query(
+                "SELECT pg_advisory_unlock($1, $2)",
+                [OPENROUTER_MODEL_ATTEMPT_LOCK_NAMESPACE, lockKey],
+              );
+              client.release();
+            } catch {
+              // Destroying the session also releases its advisory lock.
+              client.release(true);
+            }
+          },
+        };
+      }
+      client.release();
+
+      const remainingMs = maxWaitMs - (Date.now() - startedAt);
+      if (remainingMs <= 0) return undefined;
+      if (
+        await waitForAttemptSignal(
+          Math.min(MODEL_ATTEMPT_LOCK_POLL_MS, remainingMs),
+          signal,
+        ) === "aborted"
+      ) {
+        return undefined;
+      }
+    }
+    return undefined;
+  },
 };
 
 let persistence: ModelCooldownPersistence = postgresPersistence;
@@ -182,6 +341,34 @@ function logPersistenceUnavailable(operation: "read" | "write" | "clear"): void 
     code: "SHARED_STORE_UNAVAILABLE",
     operation,
   }));
+}
+
+/**
+ * Reserve one exact provider/model attempt. Production uses a PostgreSQL
+ * session advisory lock; isolated persistence fixtures use a bounded local
+ * queue so they never fall through to the application's shared database.
+ */
+export async function acquireModelAttemptLease(
+  provider: string,
+  model: string,
+  persistenceOverride?: ModelCooldownPersistence,
+  signal?: AbortSignal,
+): Promise<ModelAttemptLease | undefined> {
+  const store = persistenceOverride ?? persistence;
+  if (store.acquireAttemptLease) {
+    return store.acquireAttemptLease(
+      provider,
+      model,
+      MODEL_ATTEMPT_LOCK_WAIT_MS,
+      signal,
+    );
+  }
+  return acquireLocalModelAttemptLease(
+    provider,
+    model,
+    MODEL_ATTEMPT_LOCK_WAIT_MS,
+    signal,
+  );
 }
 
 /**

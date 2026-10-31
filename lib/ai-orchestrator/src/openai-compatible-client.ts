@@ -42,6 +42,7 @@ import {
   recordModelSuccess,
 } from "./openrouter/circuit-breaker.js";
 import {
+  acquireModelAttemptLease,
   clearSharedPoolModelCooldown,
   isUpstreamPoolCooldownKey,
   persistSharedPoolModelCooldown,
@@ -1807,6 +1808,50 @@ async function scheduleOpenRouterFreeLane(
     slot,
   }));
   return scheduled;
+}
+
+function modelAttemptBusyError(
+  model: string,
+  providerCode: string,
+  attemptedModels: string[],
+): GroqClientError {
+  return new GroqClientError(
+    "MODEL_ATTEMPT_BUSY",
+    "A matching OpenRouter model attempt is already active; no provider request was sent.",
+    {
+      context: {
+        providerName: "OpenRouter",
+        providerCode,
+        providerModel: model,
+        providerAttemptedModels: [...attemptedModels],
+      },
+    },
+  );
+}
+
+function modelCooldownError(
+  model: string,
+  cooldown: { remainingMs: number; source: "provider" | "local_adaptive" },
+  cooldowns: Map<string, { remainingMs: number; source: "provider" | "local_adaptive" }>,
+  attemptedModels: string[],
+): GroqClientError {
+  const sharedPoolCooldown = [...cooldowns.keys()].some(isUpstreamPoolCooldownKey);
+  return new GroqClientError(
+    "RATE_LIMITED",
+    "The OpenRouter model entered cooldown before this request could start.",
+    {
+      context: {
+        providerName: "OpenRouter",
+        providerCode: "MODEL_COOLDOWN",
+        providerModel: model,
+        ...(cooldown.source === "provider"
+          ? { retryAfterMs: cooldown.remainingMs }
+          : {}),
+        ...(sharedPoolCooldown ? { rateLimitScope: "upstream_shared_pool" as const } : {}),
+        providerAttemptedModels: [...attemptedModels],
+      },
+    },
+  );
 }
 
 /**

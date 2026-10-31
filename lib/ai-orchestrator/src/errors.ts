@@ -77,6 +77,7 @@ export type GroqErrorCode =
   | "EMPTY_RESPONSE"
   | "INVALID_TOOL_CALL"
   | "INVALID_PROVIDER_RESPONSE"
+  | "MODEL_ATTEMPT_BUSY" // local model admission lease was busy; provider was not called
   // configuration
   | "INVALID_CONFIG";
 
