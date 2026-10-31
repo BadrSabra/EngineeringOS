@@ -128,12 +128,12 @@ describe("shared OpenRouter model cooldown persistence", () => {
       },
     });
 
-    const first = "poolside/laguna-s-2.1:free";
-    const sibling = "poolside/laguna-xs-2.1:free";
+    const first = "thinkingmachines/inkling:free";
+    const sibling = "thinkingmachines/inkling-small:free";
     const unrelated = "liquid/lfm-2.5-2.6b:free";
-    const poolKey = upstreamPoolCooldownKeyForModel(first, "Poolside");
+    const poolKey = upstreamPoolCooldownKeyForModel(first, "Thinking Machines");
     expect(poolKey).toBeDefined();
-    expect(upstreamPoolCooldownKeyForModel(unrelated, "Poolside")).toBeUndefined();
+    expect(upstreamPoolCooldownKeyForModel(unrelated, "Thinking Machines")).toBeUndefined();
 
     recordModelFailure("openrouter", poolKey!, 5_000);
     await persistSharedPoolModelCooldown("openrouter", poolKey!, 5_000);

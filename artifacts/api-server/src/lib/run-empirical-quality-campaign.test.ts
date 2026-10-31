@@ -115,12 +115,10 @@ describe("empirical provider campaign adapter", () => {
     const nativeModel = FREE_MODELS.find((model) => model.id === "google/gemma-4-26b-a4b-it:free");
     const promptOnlyModel = FREE_MODELS.find((model) => model.id === "nvidia/nemotron-3.5-lightning:free");
     const newlyEligiblePromptOnlyModel = FREE_MODELS.find((model) => model.id === "cohere/north-mini-code:free");
-    const poolsidePromptOnlyModel = FREE_MODELS.find((model) => model.id === "poolside/laguna-s-2.1:free");
     const lightningPromptOnlyModel = FREE_MODELS.find((model) => model.id === "nvidia/nemotron-3.5-lightning:free");
     const inklingSmallPromptOnlyModel = FREE_MODELS.find((model) => model.id === "thinkingmachines/inkling-small:free");
     const ultraPromptOnlyModel = FREE_MODELS.find((model) => model.id === "nvidia/nemotron-3-ultra-550b-a55b:free");
     const nanoPromptOnlyModel = FREE_MODELS.find((model) => model.id === "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free");
-    const poolsideXsPromptOnlyModel = FREE_MODELS.find((model) => model.id === "poolside/laguna-xs-2.1:free");
     const inklingPromptOnlyModel = FREE_MODELS.find((model) => model.id === "thinkingmachines/inkling:free");
     const unsupportedModel = FREE_MODELS.find((model) => model.id === "google/gemma-4-31b-it:free");
 
@@ -141,13 +139,6 @@ describe("empirical provider campaign adapter", () => {
       mode: "prompt_only_json",
       promptOnlyJson: true,
       jsonObjectOnly: false,
-    });
-    expect(selectEmpiricalJsonMode(poolsidePromptOnlyModel, {
-      supportsJsonObject: false,
-      supportsJsonSchema: false,
-    })).toMatchObject({
-      mode: "prompt_only_json",
-      promptOnlyJson: true,
     });
     expect(selectEmpiricalJsonMode(lightningPromptOnlyModel, {
       supportsJsonObject: false,
@@ -171,13 +162,6 @@ describe("empirical provider campaign adapter", () => {
       promptOnlyJson: true,
     });
     expect(selectEmpiricalJsonMode(nanoPromptOnlyModel, {
-      supportsJsonObject: false,
-      supportsJsonSchema: false,
-    })).toMatchObject({
-      mode: "prompt_only_json",
-      promptOnlyJson: true,
-    });
-    expect(selectEmpiricalJsonMode(poolsideXsPromptOnlyModel, {
       supportsJsonObject: false,
       supportsJsonSchema: false,
     })).toMatchObject({
@@ -666,7 +650,7 @@ describe("empirical provider campaign adapter", () => {
   });
 
   it("resumes only the pending case under the exact model, corpus, and mode binding", async () => {
-    const model = "poolside/laguna-xs-2.1:free";
+    const model = "nvidia/nemotron-3.5-lightning:free";
     const attempted: string[] = [];
     const review = async ({
       testCase,

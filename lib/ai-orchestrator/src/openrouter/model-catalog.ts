@@ -122,17 +122,6 @@ export const FREE_MODELS: readonly OpenRouterFreeModel[] = [
     quality: "fast",
   },
   {
-    id: "poolside/laguna-xs-2.1:free",
-    label: "Laguna XS 2.1",
-    capabilities: ["chat", "coding", "tool_calling", "json"],
-    context: 262_144,
-    supportsTools: true,
-    supportsJson: true,
-    supportsPromptOnlyJson: true,
-    free: true,
-    quality: "fast",
-  },
-  {
     id: "thinkingmachines/inkling:free",
     label: "Inkling",
     capabilities: ["chat", "coding", "tool_calling", "json", "long_context"],
@@ -145,17 +134,6 @@ export const FREE_MODELS: readonly OpenRouterFreeModel[] = [
   },
   // ── Powerful tier — high-capability models; dynamic catalog filters them
   //    out if they move to paid between static refreshes.
-  {
-    id: "poolside/laguna-s-2.1:free",
-    label: "Laguna S 2.1",
-    capabilities: ["chat", "coding", "tool_calling", "json", "long_context"],
-    context: 262_144,
-    supportsTools: true,
-    supportsJson: true,
-    supportsPromptOnlyJson: true,
-    free: true,
-    quality: "powerful",
-  },
   {
     id: "cohere/north-mini-code:free",
     label: "North Mini Code",
