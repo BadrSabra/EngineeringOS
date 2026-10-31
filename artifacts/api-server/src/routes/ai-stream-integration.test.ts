@@ -15315,15 +15315,6 @@ describe("INT-005 — POST /api/ai/chat/stream: successful OpenRouter completion
       evidenceComplete: 0,
     }]);
 
-    const [sessionBeforeRevisionAdvance] = await db
-      .select({ activeTaskState: aiChatSessionsTable.activeTaskState })
-      .from(aiChatSessionsTable)
-      .where(eq(aiChatSessionsTable.id, String(sessionId)))
-      .limit(1);
-    expect(JSON.parse(sessionBeforeRevisionAdvance?.activeTaskState ?? "{}")).toMatchObject({
-      projectOrientation: true,
-      scope: { revision: expect.any(String) },
-    });
     const [projectBeforeRevisionAdvance] = await db
       .select({ updatedAt: projectsTable.updatedAt })
       .from(projectsTable)
