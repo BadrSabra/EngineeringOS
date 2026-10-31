@@ -219,6 +219,8 @@ type ChatMessage = {
   providerFailureCategory?: AiStreamErrorEvent['providerFailureCategory'];
   rateLimitScope?: 'upstream_shared_pool' | 'provider_credential' | 'account_quota' | 'unknown' | 'project';
   retryAfterMs?: number;
+  /** Conservative client receipt deadline when the server supplied only Retry-After. */
+  retryAt?: string;
   /** Optional persisted release report attached to a historical run. */
   missionCorrelationReport?: MissionCorrelationReport | null;
   /** The API found a non-null persisted report that is not readable by this dashboard. */
@@ -1817,6 +1819,71 @@ function providerFailureCategoryGuidance(
     case 'UNKNOWN': return 'تعذر إكمال الطلب لدى المزود. أعد المحاولة بعد قليل أو اختر مزودًا آخر.';
     default: return null;
   }
+}
+
+function projectQueryRateLimitRetryAt(message: ChatMessage): number | null {
+  const candidate = message.acceptanceDisposition?.retryAt ?? message.retryAt;
+  if (typeof candidate !== 'string') return null;
+  const parsed = Date.parse(candidate);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function ProjectQueryRetryButton(props: {
+  rateLimited: boolean;
+  retryAt: number | null;
+  pending: boolean;
+  onRetry: () => void;
+}) {
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    if (!props.rateLimited || props.retryAt === null || props.retryAt <= Date.now()) return;
+    const timer = window.setInterval(() => {
+      const currentTime = Date.now();
+      setNow(currentTime);
+      if (currentTime >= props.retryAt!) window.clearInterval(timer);
+    }, 1_000);
+    return () => window.clearInterval(timer);
+  }, [props.rateLimited, props.retryAt]);
+
+  const remainingSeconds = props.retryAt === null
+    ? null
+    : Math.max(0, Math.ceil((props.retryAt - now) / 1_000));
+  const retryBlocked = props.rateLimited
+    && (remainingSeconds === null || remainingSeconds > 0);
+
+  return (
+    <>
+      {props.rateLimited && retryBlocked && (
+        <p role="status" className="mt-2 text-xs text-amber-100/80">
+          {remainingSeconds === null
+            ? 'No safe retry time was recorded. Check the execution status before retrying.'
+            : `Waiting for the provider retry window: about ${remainingSeconds}s remaining.`}
+        </p>
+      )}
+      <Button
+        type="button"
+        size="sm"
+        variant="outline"
+        className="mt-2 h-8 justify-center text-xs"
+        onClick={props.onRetry}
+        disabled={props.pending || retryBlocked}
+        aria-label={retryBlocked && remainingSeconds !== null
+          ? `Retry project analysis in ${remainingSeconds} seconds`
+          : 'Retry project analysis'}
+      >
+        {props.pending
+          ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
+          : <RotateCcw className="mr-1.5 h-3.5 w-3.5" />}
+        {props.pending
+          ? 'Retrying…'
+          : retryBlocked && remainingSeconds !== null
+            ? `Retry in ${remainingSeconds}s`
+            : retryBlocked
+              ? 'Retry unavailable'
+              : 'Retry project analysis'}
+      </Button>
+    </>
+  );
 }
 
 function safeChatRecoveryMessage(message: Pick<ChatMessage, 'failureKind' | 'providerFailureCategory' | 'rateLimitScope' | 'retryAfterMs' | 'errorCode' | 'errorMessage' | 'content'>): string {
@@ -6355,6 +6422,13 @@ function MessageBubble({
     )
     && onRetryProjectQuery,
   );
+  const rateLimitedProjectQueryRetry = Boolean(
+    msg.providerFailureCategory === 'RATE_LIMITED'
+    && (
+      msg.acceptanceDisposition?.nextActionCode === 'RETRY_AFTER_RATE_LIMIT'
+      || msg.terminalProjection?.nextActionCode === 'RETRY_AFTER_RATE_LIMIT'
+    ),
+  );
   const behaviorEvidenceCount = parseBehaviorEvidence(msg.behaviorEvidence).length;
   const hasEvidenceDetails = !isUser && Boolean(
     msg.contextProvenance
@@ -6497,20 +6571,12 @@ function MessageBubble({
                     )}
                   </div>
                    {canRetryProjectQuery && (
-                     <Button
-                       type="button"
-                       size="sm"
-                       variant="outline"
-                       className="mt-2 h-8 justify-center text-xs"
-                       onClick={() => onRetryProjectQuery?.(msg.id)}
-                       disabled={projectQueryRetryPending}
-                       aria-label="Retry project analysis"
-                     >
-                       {projectQueryRetryPending
-                         ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
-                         : <RotateCcw className="mr-1.5 h-3.5 w-3.5" />}
-                       {projectQueryRetryPending ? 'Retrying…' : 'Retry project analysis'}
-                     </Button>
+                     <ProjectQueryRetryButton
+                       rateLimited={rateLimitedProjectQueryRetry}
+                       retryAt={rateLimitedProjectQueryRetry ? projectQueryRateLimitRetryAt(msg) : null}
+                       pending={Boolean(projectQueryRetryPending)}
+                       onRetry={() => onRetryProjectQuery?.(msg.id)}
+                     />
                    )}
                   <AcceptanceDispositionNotice disposition={msg.acceptanceDisposition} />
                 </>
@@ -13047,6 +13113,12 @@ export default function AiChat() {
                 providerFailureCategory: err.providerFailureCategory,
                  rateLimitScope: err.rateLimitScope,
                  retryAfterMs: err.retryAfterMs,
+                 retryAt: err.providerFailureCategory === 'RATE_LIMITED'
+                   && typeof err.retryAfterMs === 'number'
+                   && Number.isFinite(err.retryAfterMs)
+                   && err.retryAfterMs > 0
+                   ? new Date(Date.now() + err.retryAfterMs).toISOString()
+                   : undefined,
                 retryable: err.retryable,
                 recoveryState: err.recoveryState,
                 acceptanceDisposition: err.acceptanceDisposition,

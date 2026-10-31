@@ -8379,6 +8379,110 @@ it.each([
     )).toBeInTheDocument();
   });
 
+  it('blocks a rate-limited project-query retry until the recorded provider deadline', async () => {
+    mocks.serverProposal = { proposalId: 'rate-limit-wait', changes: [] };
+    mocks.proposalMessages = [
+      {
+        id: 'user-rate-limit-wait',
+        role: 'user',
+        content: 'What is this project?',
+        createdAt: '2026-08-13T00:00:00.000Z',
+      },
+      {
+        ...mocks.proposalMessages[0],
+        id: 'assistant-rate-limit-wait',
+        content: '',
+        turnIntent: 'PROJECT_QUERY',
+        projectQueryTarget: { mode: 'bounded_unresolved_hint' },
+        executionId: 'execution-rate-limit-wait',
+        outcome: 'FAILED',
+        errorCode: 'RATE_LIMITED',
+        providerFailureCategory: 'RATE_LIMITED',
+        retryAfterMs: 60_000,
+        retryable: true,
+        acceptanceDisposition: {
+          reasonCodes: ['EXECUTION_PROVIDER_FAILURE'],
+          outcome: 'FAILED',
+          recoveryState: 'REQUIRED',
+          nextActionCode: 'RETRY_AFTER_RATE_LIMIT',
+          retryAt: new Date(Date.now() + 60_000).toISOString(),
+        },
+      },
+    ] as typeof mocks.proposalMessages;
+    const fetchSpy = vi.spyOn(globalThis, 'fetch');
+
+    renderAiChat();
+    fireEvent.click(await screen.findByRole('button', { name: 'Existing session' }));
+    const retryButton = await screen.findByRole('button', { name: /Retry project analysis in/ });
+
+    expect(retryButton).toBeDisabled();
+    expect(screen.getByText(/Waiting for the provider retry window/)).toBeInTheDocument();
+    fireEvent.click(retryButton);
+    expect(fetchSpy).not.toHaveBeenCalledWith(
+      expect.stringContaining('/retry-capability'),
+      expect.anything(),
+    );
+    expect(mocks.sentParams).toBeUndefined();
+    fetchSpy.mockRestore();
+  });
+
+  it('allows a rate-limited project-query retry once the recorded deadline has passed', async () => {
+    mocks.serverProposal = { proposalId: 'rate-limit-retry', changes: [] };
+    mocks.proposalMessages = [
+      {
+        id: 'user-rate-limit-retry',
+        role: 'user',
+        content: 'What is this project?',
+        createdAt: '2026-08-13T00:00:00.000Z',
+      },
+      {
+        ...mocks.proposalMessages[0],
+        id: 'assistant-rate-limit-retry',
+        content: '',
+        turnIntent: 'PROJECT_QUERY',
+        projectQueryTarget: { mode: 'bounded_unresolved_hint' },
+        executionId: 'execution-rate-limit-retry',
+        outcome: 'FAILED',
+        errorCode: 'RATE_LIMITED',
+        providerFailureCategory: 'RATE_LIMITED',
+        retryAfterMs: 60_000,
+        retryable: true,
+        acceptanceDisposition: {
+          reasonCodes: ['EXECUTION_PROVIDER_FAILURE'],
+          outcome: 'FAILED',
+          recoveryState: 'REQUIRED',
+          nextActionCode: 'RETRY_AFTER_RATE_LIMIT',
+          retryAt: new Date(Date.now() - 1_000).toISOString(),
+        },
+      },
+    ] as typeof mocks.proposalMessages;
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        executionId: 'execution-rate-limit-retry',
+        resumeToken: 'rate-limit-resume-token',
+      }),
+    } as Response);
+
+    renderAiChat();
+    fireEvent.click(await screen.findByRole('button', { name: 'Existing session' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Retry project analysis' }));
+
+    await waitFor(() => {
+      expect(fetchSpy).toHaveBeenCalledWith(
+        '/api/ai/executions/execution-rate-limit-retry/retry-capability',
+        expect.objectContaining({ method: 'POST', credentials: 'include' }),
+      );
+      expect(mocks.sentParams).toEqual(expect.objectContaining({
+        message: 'What is this project?',
+        executionId: 'execution-rate-limit-retry',
+        resumeToken: 'rate-limit-resume-token',
+      }));
+    });
+    fetchSpy.mockRestore();
+  });
+
   it('resumes a failed project query with the original user message and saved execution', async () => {
     mocks.serverProposal = { proposalId: 'orientation-retry', changes: [] };
     mocks.proposalMessages = [
