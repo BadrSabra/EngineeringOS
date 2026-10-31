@@ -5,12 +5,14 @@
  *   • Model Removed (404)           → MODEL_NOT_FOUND, automatic fallback
  *   • Free Tier Restricted (402)    → PLAN_RESTRICTED, automatic fallback
  *   • Invalid API Key (401)         → AUTH_ERROR, no fallback
- *   • Rate Limit (429)              → RATE_LIMITED, transient retry
+ *   • Rate Limit (429)              → RATE_LIMITED; terminal for this request
+ *   • Missing Retry-After           → exact-model local adaptive admission cooldown
  *   • Credits Exhausted (429+body)  → QUOTA
  *   • Empty Model Catalog           → static fallback, never throws
- *   • Provider Failover             → MODEL_UNAVAILABLE triggers next model
- *   • Circuit Breaker Activation    → opens after threshold, skips provider
+ *   • Provider Failover             → eligible model failures advance the free chain
+ *   • Provider circuit              → no provider-wide local circuit; model cooldowns are separate
  *   • Runtime Model Refresh         → dynamic catalog filters stale IDs
+ *   • Empty completion              → advances only to another eligible free model
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
