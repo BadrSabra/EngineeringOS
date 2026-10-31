@@ -112,6 +112,50 @@ function safeRetryAfterMs(value) {
   return Number.isSafeInteger(value) && value > 0 ? value : null;
 }
 
+function safeAttemptTrace(value, maxAttempts) {
+  const attempts = Array.isArray(value?.attempts)
+    ? value.attempts.slice(0, maxAttempts).flatMap((entry, index) => {
+      const model = safeModelId(entry?.model);
+      if (!model || entry?.operation !== "provider_health_probe") return [];
+      const outcome = entry?.outcome === "usable" ? "usable" : "unavailable";
+      return [{
+        sequence: index + 1,
+        operation: "provider_health_probe",
+        model,
+        outcome,
+        failureCategory: entry?.failureCategory === null
+          ? null
+          : safeFailureCategory(entry?.failureCategory),
+        rateLimitScope: safeRateLimitScope(entry?.rateLimitScope),
+        retryAfterMs: safeRetryAfterMs(entry?.retryAfterMs),
+      }];
+    })
+    : [];
+  const suppressedAfterRateLimit = Array.isArray(value?.suppressedAfterRateLimit)
+    ? value.suppressedAfterRateLimit.slice(0, maxAttempts).flatMap((entry) => {
+      const model = safeModelId(entry?.model);
+      const sequence = entry?.sequence;
+      if (
+        !model ||
+        entry?.operation !== "provider_health_probe" ||
+        entry?.reason !== "rate-limit" ||
+        !Number.isSafeInteger(sequence) ||
+        sequence < 1 ||
+        sequence > maxAttempts
+      ) {
+        return [];
+      }
+      return [{
+        sequence,
+        operation: "provider_health_probe",
+        model,
+        reason: "rate-limit",
+      }];
+    })
+    : [];
+  return { attempts, suppressedAfterRateLimit };
+}
+
 function safeModelId(value) {
   return typeof value === "string"
     && /^[A-Za-z0-9][A-Za-z0-9._:/+-]{0,127}$/.test(value)
@@ -127,6 +171,7 @@ function baseResult({
   selectedModel = null,
   actualModel = null,
   attemptedModels = [],
+  attemptTrace = null,
   maxAttempts,
   healthStatus = "unavailable",
   failureCategory = "unknown",
@@ -150,6 +195,7 @@ function baseResult({
     actualModel: safeModelId(actualModel),
     attemptedModels: attempted,
     attemptCount: attempted.length,
+    attemptTrace: safeAttemptTrace(attemptTrace, maxAttempts),
     maxAttempts,
     freePolicy: attempted.length > 0 && actualModelFreeVerified !== false,
     paidFallbackEnabled: false,
@@ -295,8 +341,12 @@ export async function runOpenRouterFreeSmoke({
       let rateLimitScope = null;
       let retryAfterMs = null;
       let actualModelFreeVerified = null;
+      const attemptTrace = {
+        attempts: [],
+        suppressedAfterRateLimit: [],
+      };
 
-      for (const model of chain) {
+      for (const [chainIndex, model] of chain.entries()) {
         attempted.push(model);
         let health;
         try {
@@ -321,12 +371,26 @@ export async function runOpenRouterFreeSmoke({
         }
         healthStatus = health?.status === "usable" ? "usable" : "unavailable";
         const report = health?.report;
-        rateLimitScope = safeRateLimitScope(
+        const attemptRateLimitScope = safeRateLimitScope(
           health?.rateLimitScope ?? report?.rateLimitScope,
-        ) ?? rateLimitScope;
-        retryAfterMs = safeRetryAfterMs(
+        );
+        const attemptRetryAfterMs = safeRetryAfterMs(
           health?.retryAfterMs ?? report?.retryAfterMs,
-        ) ?? retryAfterMs;
+        );
+        rateLimitScope = attemptRateLimitScope ?? rateLimitScope;
+        retryAfterMs = attemptRetryAfterMs ?? retryAfterMs;
+        const failureCategory = healthStatus === "usable"
+          ? null
+          : safeFailureCategory(report?.failureCategory);
+        attemptTrace.attempts.push({
+          sequence: chainIndex + 1,
+          operation: "provider_health_probe",
+          model,
+          outcome: healthStatus,
+          failureCategory,
+          rateLimitScope: attemptRateLimitScope,
+          retryAfterMs: attemptRetryAfterMs,
+        });
 
         if (healthStatus === "usable") {
           // Never report the requested candidate as the actual model. The
@@ -339,13 +403,23 @@ export async function runOpenRouterFreeSmoke({
           break;
         }
 
-        const failureCategory = safeFailureCategory(health?.report?.failureCategory);
         failureCategories.push(failureCategory);
         if (
           failureCategory === "rate-limit" ||
           failureCategory === "quota" ||
           failureCategory === "authentication"
         ) {
+          if (failureCategory === "rate-limit") {
+            for (const [suppressedIndex, suppressedModel] of chain.entries()) {
+              if (suppressedIndex <= chainIndex) continue;
+              attemptTrace.suppressedAfterRateLimit.push({
+                sequence: suppressedIndex + 1,
+                operation: "provider_health_probe",
+                model: suppressedModel,
+                reason: "rate-limit",
+              });
+            }
+          }
           break;
         }
       }
@@ -394,6 +468,7 @@ export async function runOpenRouterFreeSmoke({
         selectedModel: chain[0],
         actualModel,
         attemptedModels: attempted,
+        attemptTrace,
         maxAttempts: options.maxAttempts,
         healthStatus,
         failureCategory,

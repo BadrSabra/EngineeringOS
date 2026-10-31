@@ -105,6 +105,7 @@ test("catalog refresh unavailable is safe and does not leak refresh diagnostics"
     actualModel: null,
     attemptedModels: [],
     attemptCount: 0,
+    attemptTrace: { attempts: [], suppressedAfterRateLimit: [] },
     maxAttempts: 3,
     catalogFailure: null,
     freePolicy: false,
@@ -334,27 +335,70 @@ test("rate limits stay typed, sanitized, and bounded to the configured attempt c
 
 test("a rate limit stops the smoke before it probes another free model", async () => {
   const calls = [];
-  const result = await runOpenRouterFreeSmoke({
-    apiKey: "fixture-key",
-    maxAttempts: 4,
-    dependencies: dependencies({
-      probe: async ({ model }) => {
-        calls.push(model);
-        return {
-          status: "unavailable",
-          rateLimitScope: "upstream_shared_pool",
-          retryAfterMs: 1_000,
-          report: { failureCategory: "rate-limit" },
-        };
-      },
-    }),
-  });
+  const providerBody = "raw provider diagnostics /private/provider/path sk-or-fixture-secret";
+  const originalFetch = globalThis.fetch;
+  let networkRequests = 0;
+  globalThis.fetch = async () => {
+    networkRequests++;
+    throw new Error("network is forbidden in the local 429 fixture");
+  };
+  let result;
+  try {
+    result = await runOpenRouterFreeSmoke({
+      apiKey: "fixture-key",
+      maxAttempts: 4,
+      dependencies: dependencies({
+        probe: async ({ model }) => {
+          calls.push(model);
+          return {
+            status: "unavailable",
+            rateLimitScope: "upstream_shared_pool",
+            retryAfterMs: 1_000,
+            report: {
+              failureCategory: "rate-limit",
+              providerBody,
+              exception: providerBody,
+            },
+          };
+        },
+      }),
+    });
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
 
   assert.deepEqual(calls, [MODELS[0].id]);
+  assert.equal(networkRequests, 0);
   assert.deepEqual(result.attemptedModels, [MODELS[0].id]);
   assert.equal(result.maxAttempts, 4);
   assert.equal(result.failureCategory, "rate-limit");
   assert.equal(result.retryAfterMs, 1_000);
+  assert.deepEqual(result.attemptTrace, {
+    attempts: [{
+      sequence: 1,
+      operation: "provider_health_probe",
+      model: MODELS[0].id,
+      outcome: "unavailable",
+      failureCategory: "rate-limit",
+      rateLimitScope: "upstream_shared_pool",
+      retryAfterMs: 1_000,
+    }],
+    suppressedAfterRateLimit: [
+      {
+        sequence: 2,
+        operation: "provider_health_probe",
+        model: MODELS[1].id,
+        reason: "rate-limit",
+      },
+      {
+        sequence: 3,
+        operation: "provider_health_probe",
+        model: MODELS[2].id,
+        reason: "rate-limit",
+      },
+    ],
+  });
+  assert.doesNotMatch(JSON.stringify(result), /raw provider diagnostics|private\/provider|sk-or-fixture-secret/);
 });
 
 test("the smoke passes isolated cooldown stores to its health probe", async () => {
