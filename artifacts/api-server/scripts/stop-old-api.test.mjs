@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { stopOldApi } from "./stop-old-api.mjs";
+import { fileURLToPath } from "node:url";
+import { isMainInvocation, stopOldApi } from "./stop-old-api.mjs";
 
 function procFixture(entries) {
   const files = new Map();
@@ -21,6 +22,15 @@ function procFixture(entries) {
     resolvePath: async (file) => file === "/api-server" ? file : files.get(file),
   };
 }
+
+test("recognizes a relative script path when run as the CLI entrypoint", () => {
+  const scriptUrl = new URL("./stop-old-api.mjs", import.meta.url).href;
+  const apiDir = fileURLToPath(new URL("../", import.meta.url));
+
+  assert.equal(isMainInvocation(scriptUrl, "./scripts/stop-old-api.mjs", apiDir), true);
+  assert.equal(isMainInvocation(scriptUrl, "./scripts/other.mjs", apiDir), false);
+  assert.equal(isMainInvocation(scriptUrl, undefined, apiDir), false);
+});
 
 test("stops only a stale API process in this artifact", async () => {
   const fixture = procFixture({

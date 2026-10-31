@@ -108,7 +108,12 @@ export async function stopOldApi({
   return stopped;
 }
 
-if (fileURLToPath(import.meta.url) === process.argv[1]) {
+export function isMainInvocation(moduleUrl, argvScriptPath, cwd = process.cwd()) {
+  return Boolean(argvScriptPath)
+    && path.resolve(cwd, argvScriptPath) === fileURLToPath(moduleUrl);
+}
+
+if (isMainInvocation(import.meta.url, process.argv[1])) {
   stopOldApi().catch((error) => {
     console.error("Failed to stop stale API process:", error);
     process.exitCode = 1;
