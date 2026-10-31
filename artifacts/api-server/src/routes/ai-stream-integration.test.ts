@@ -15314,6 +15314,50 @@ describe("INT-005 — POST /api/ai/chat/stream: successful OpenRouter completion
       outcome: "FAILED",
       evidenceComplete: 0,
     }]);
+
+    const [sessionBeforeRevisionAdvance] = await db
+      .select({ activeTaskState: aiChatSessionsTable.activeTaskState })
+      .from(aiChatSessionsTable)
+      .where(eq(aiChatSessionsTable.id, String(sessionId)))
+      .limit(1);
+    expect(JSON.parse(sessionBeforeRevisionAdvance?.activeTaskState ?? "{}")).toMatchObject({
+      projectOrientation: true,
+      scope: { revision: expect.any(String) },
+    });
+    const [projectBeforeRevisionAdvance] = await db
+      .select({ updatedAt: projectsTable.updatedAt })
+      .from(projectsTable)
+      .where(eq(projectsTable.id, projectId))
+      .limit(1);
+    await db.update(projectsTable)
+      .set({
+        updatedAt: new Date(projectBeforeRevisionAdvance!.updatedAt.getTime() + 60_000),
+      })
+      .where(eq(projectsTable.id, projectId));
+    const providerCallsBeforeStaleContinuation = vi.mocked(chatWithFallback).mock.calls.length;
+    const executionsBeforeStaleContinuation = await db
+      .select({ id: aiExecutionsTable.id })
+      .from(aiExecutionsTable)
+      .where(eq(aiExecutionsTable.sessionId, String(sessionId)));
+    const staleContinuation = await request(app)
+      .post("/api/ai/chat")
+      .set("Content-Type", "application/json")
+      .send({
+        projectId,
+        sessionId,
+        message: "أكمل",
+      });
+    expect(staleContinuation.status).toBe(409);
+    expect(staleContinuation.body).toMatchObject({
+      code: "RESUME_REVISION_STALE",
+      outcome: "ANALYSIS_INCOMPLETE",
+    });
+    expect(vi.mocked(chatWithFallback).mock.calls).toHaveLength(providerCallsBeforeStaleContinuation);
+    const executionsAfterStaleContinuation = await db
+      .select({ id: aiExecutionsTable.id })
+      .from(aiExecutionsTable)
+      .where(eq(aiExecutionsTable.sessionId, String(sessionId)));
+    expect(executionsAfterStaleContinuation).toHaveLength(executionsBeforeStaleContinuation.length);
   });
 
   it("keeps stale repair-oriented memory untrusted and read-only on SSE", async () => {
