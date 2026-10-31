@@ -668,6 +668,7 @@ export function classifyOpenRouterFailure(
       return { action: "narrow-request", terminal: true, evidenceStatus: "incomplete" };
     case "AUTH_ERROR":
     case "QUOTA":
+    case "MODEL_ATTEMPT_BUSY":
     case "INVALID_CONFIG":
       return { action: "stop-safely", terminal: true, evidenceStatus: "incomplete" };
   }
@@ -1385,11 +1386,17 @@ async function* oacCompleteStreamUntracked(
     stream: true,
   };
 
+  const timeoutMs = opts.timeoutMs ?? DEFAULT_TIMEOUT_MS;
   const controller = new AbortController();
+  const timer = setTimeout(
+    () => controller.abort(new Error(`${providerName} stream timed out`)),
+    timeoutMs,
+  );
   const onAbort = () => controller.abort(signal?.reason);
   if (signal?.aborted) onAbort();
   else signal?.addEventListener("abort", onAbort, { once: true });
   const cleanup = () => {
+    clearTimeout(timer);
     signal?.removeEventListener("abort", onAbort);
   };
 
@@ -2070,9 +2077,50 @@ export async function openrouterCompleteWithFallback(
 
   for (let i = 0; i < chain.length; i++) {
     const model = chain[i] as string;
-    attemptedModels.push(model);
+    let attemptLease;
     try {
-      const response = await openrouterCompleteRaw(messages, { ...opts, model });
+      attemptLease = await acquireModelAttemptLease(
+        "openrouter",
+        model,
+        opts.modelCooldownPersistence,
+        opts.signal ?? opts.executionLedger?.signal,
+        opts.timeoutMs ?? DEFAULT_TIMEOUT_MS,
+      );
+    } catch {
+      lastError = modelAttemptBusyError(
+        model,
+        "MODEL_ATTEMPT_LOCK_UNAVAILABLE",
+        attemptedModels,
+      );
+      continue;
+    }
+    if (!attemptLease) {
+      lastError = modelAttemptBusyError(
+        model,
+        "MODEL_ATTEMPT_LOCK_BUSY",
+        attemptedModels,
+      );
+      continue;
+    }
+    try {
+      const afterWaitCooldowns = await readModelCooldowns(
+        "openrouter",
+        [model],
+        opts.modelCooldownPersistence,
+      );
+      const afterWaitCooldown = afterWaitCooldowns.get(model);
+      if (afterWaitCooldown) {
+        lastError = modelCooldownError(
+          model,
+          afterWaitCooldown,
+          afterWaitCooldowns,
+          attemptedModels,
+        );
+        continue;
+      }
+      attemptedModels.push(model);
+      try {
+        const response = await openrouterCompleteRaw(messages, { ...opts, model });
       if (opts.taskContract) {
         recordModelContractOutput(model, opts.taskContract, "content");
       }
@@ -2082,8 +2130,8 @@ export async function openrouterCompleteWithFallback(
         model,
         opts.modelCooldownPersistence,
       );
-      return response;
-    } catch (err) {
+        return response;
+      } catch (err) {
       if (
         opts.taskContract
         && err instanceof GroqClientError
@@ -2197,7 +2245,10 @@ export async function openrouterCompleteWithFallback(
           },
         });
       }
-      throw err;
+        throw err;
+      }
+    } finally {
+      await attemptLease.release();
     }
   }
 
@@ -2328,121 +2379,165 @@ export async function* openrouterCompleteStream(
 
   for (let index = 0; index < chain.length; index++) {
     const model = chain[index]!;
-    attemptedModels.push(model);
-    let emitted = false;
-    let transientRetried = false;
-    while (true) {
-      try {
-        for await (const delta of oacCompleteStream(trimmed, { ...fullOpts, model })) {
-          emitted = true;
-          yield delta;
-        }
-        recordModelSuccess("openrouter", model);
-        await clearSharedPoolModelCooldown(
-          "openrouter",
+    let attemptLease;
+    try {
+      attemptLease = await acquireModelAttemptLease(
+        "openrouter",
+        model,
+        fullOpts.modelCooldownPersistence,
+        fullOpts.signal,
+        fullOpts.timeoutMs ?? DEFAULT_TIMEOUT_MS,
+      );
+    } catch {
+      lastError = modelAttemptBusyError(
+        model,
+        "MODEL_ATTEMPT_LOCK_UNAVAILABLE",
+        attemptedModels,
+      );
+      continue;
+    }
+    if (!attemptLease) {
+      lastError = modelAttemptBusyError(
+        model,
+        "MODEL_ATTEMPT_LOCK_BUSY",
+        attemptedModels,
+      );
+      continue;
+    }
+    try {
+      const afterWaitCooldowns = await readModelCooldowns(
+        "openrouter",
+        [model],
+        fullOpts.modelCooldownPersistence,
+      );
+      const afterWaitCooldown = afterWaitCooldowns.get(model);
+      if (afterWaitCooldown) {
+        lastError = modelCooldownError(
           model,
-          fullOpts.modelCooldownPersistence,
+          afterWaitCooldown,
+          afterWaitCooldowns,
+          attemptedModels,
         );
-        return;
-      } catch (err) {
-        const providerError = err instanceof GroqClientError ? err : undefined;
-        await recordOpenRouterCredentialCooldown(
-          fullOpts.apiKey,
-          providerError,
-        );
-        if (
-          providerError &&
-          (providerError.code === "RATE_LIMITED" || providerError.code === "QUOTA")
-        ) {
-          const hasProviderRetryAfter = Number.isSafeInteger(providerError.retryAfterMs)
-            && providerError.retryAfterMs! > 0;
-          if (hasProviderRetryAfter) {
-            if (
-              providerError.rateLimitScope !== "provider_credential" &&
-              providerError.rateLimitScope !== "account_quota"
-            ) {
-              recordModelFailure("openrouter", model, providerError.retryAfterMs);
-              if (providerError.rateLimitScope === "upstream_shared_pool") {
-                await persistSharedPoolModelCooldown(
-                  "openrouter",
-                  model,
-                  providerError.retryAfterMs,
-                  fullOpts.modelCooldownPersistence,
-                );
-                const upstreamPoolKey = upstreamPoolCooldownKeyForModel(
-                  model,
-                  providerError.upstreamProvider,
-                );
-                if (upstreamPoolKey) {
-                  recordModelFailure("openrouter", upstreamPoolKey, providerError.retryAfterMs);
+        continue;
+      }
+      attemptedModels.push(model);
+      let emitted = false;
+      let transientRetried = false;
+      while (true) {
+        try {
+          for await (const delta of oacCompleteStream(trimmed, { ...fullOpts, model })) {
+            emitted = true;
+            yield delta;
+          }
+          recordModelSuccess("openrouter", model);
+          await clearSharedPoolModelCooldown(
+            "openrouter",
+            model,
+            fullOpts.modelCooldownPersistence,
+          );
+          return;
+        } catch (err) {
+          const providerError = err instanceof GroqClientError ? err : undefined;
+          await recordOpenRouterCredentialCooldown(
+            fullOpts.apiKey,
+            providerError,
+          );
+          if (
+            providerError &&
+            (providerError.code === "RATE_LIMITED" || providerError.code === "QUOTA")
+          ) {
+            const hasProviderRetryAfter = Number.isSafeInteger(providerError.retryAfterMs)
+              && providerError.retryAfterMs! > 0;
+            if (hasProviderRetryAfter) {
+              if (
+                providerError.rateLimitScope !== "provider_credential" &&
+                providerError.rateLimitScope !== "account_quota"
+              ) {
+                recordModelFailure("openrouter", model, providerError.retryAfterMs);
+                if (providerError.rateLimitScope === "upstream_shared_pool") {
                   await persistSharedPoolModelCooldown(
                     "openrouter",
-                    upstreamPoolKey,
+                    model,
                     providerError.retryAfterMs,
                     fullOpts.modelCooldownPersistence,
                   );
+                  const upstreamPoolKey = upstreamPoolCooldownKeyForModel(
+                    model,
+                    providerError.upstreamProvider,
+                  );
+                  if (upstreamPoolKey) {
+                    recordModelFailure("openrouter", upstreamPoolKey, providerError.retryAfterMs);
+                    await persistSharedPoolModelCooldown(
+                      "openrouter",
+                      upstreamPoolKey,
+                      providerError.retryAfterMs,
+                      fullOpts.modelCooldownPersistence,
+                    );
+                  }
                 }
               }
+            } else if (providerError.code === "RATE_LIMITED") {
+              await recordLocalAdaptiveModelCooldown(
+                "openrouter",
+                model,
+                fullOpts.modelCooldownPersistence,
+              );
             }
-          } else if (providerError.code === "RATE_LIMITED") {
-            await recordLocalAdaptiveModelCooldown(
-              "openrouter",
-              model,
-              fullOpts.modelCooldownPersistence,
-            );
           }
+          // Once bytes have been emitted, retrying would duplicate or splice the
+          // answer. The caller must terminalize the partial stream instead.
+          if (emitted || !providerError) {
+            const terminalError = providerError ?? new GroqClientError(
+              "NETWORK_ERROR",
+              err instanceof Error ? err.message : "OpenRouter stream disconnected",
+              { cause: err, context: { providerName: "OpenRouter", providerModel: model } },
+            );
+            throw new GroqClientError(terminalError.code, terminalError.message, {
+              cause: terminalError,
+              context: {
+                ...terminalError.toProviderContext(),
+                providerModel: terminalError.providerModel ?? model,
+                providerAttemptedModels: [...attemptedModels],
+              },
+            });
+          }
+          if (
+            !transientRetried &&
+            opts.retryTransient !== false &&
+            isTransientError(providerError) &&
+            !isRateLimitFailure(providerError) &&
+            providerError.retryAfterMs === undefined
+          ) {
+            transientRetried = true;
+            continue;
+          }
+          const canAdvance = !isRateLimitFailure(providerError) &&
+            (isModelUnavailableError(providerError) ||
+              (opts.retryTransient === false && isTransientError(providerError)));
+          if (!canAdvance || index >= chain.length - 1) {
+            throw new GroqClientError(providerError.code, providerError.message, {
+              cause: providerError,
+              context: {
+                ...providerError.toProviderContext(),
+                providerModel: providerError.providerModel ?? model,
+                providerAttemptedModels: [...attemptedModels],
+              },
+            });
+          }
+          lastError = providerError;
+          console.warn(JSON.stringify({
+            scope: "openrouter-fallback",
+            code: "STREAM_MODEL_FALLBACK",
+            reason: providerError.code,
+            failedModel: model,
+            nextModel: chain[index + 1],
+            attempt: index + 1,
+          }));
+          break;
         }
-        // Once bytes have been emitted, retrying would duplicate or splice the
-        // answer. The caller must terminalize the partial stream instead.
-        if (emitted || !providerError) {
-          const terminalError = providerError ?? new GroqClientError(
-            "NETWORK_ERROR",
-            err instanceof Error ? err.message : "OpenRouter stream disconnected",
-            { cause: err, context: { providerName: "OpenRouter", providerModel: model } },
-          );
-          throw new GroqClientError(terminalError.code, terminalError.message, {
-            cause: terminalError,
-            context: {
-              ...terminalError.toProviderContext(),
-              providerModel: terminalError.providerModel ?? model,
-              providerAttemptedModels: [...attemptedModels],
-            },
-          });
-        }
-        if (
-          !transientRetried &&
-          opts.retryTransient !== false &&
-          isTransientError(providerError) &&
-          !isRateLimitFailure(providerError) &&
-          providerError.retryAfterMs === undefined
-        ) {
-          transientRetried = true;
-          continue;
-        }
-        const canAdvance = !isRateLimitFailure(providerError) &&
-          (isModelUnavailableError(providerError) ||
-            (opts.retryTransient === false && isTransientError(providerError)));
-        if (!canAdvance || index >= chain.length - 1) {
-          throw new GroqClientError(providerError.code, providerError.message, {
-            cause: providerError,
-            context: {
-              ...providerError.toProviderContext(),
-              providerModel: providerError.providerModel ?? model,
-              providerAttemptedModels: [...attemptedModels],
-            },
-          });
-        }
-        lastError = providerError;
-        console.warn(JSON.stringify({
-          scope: "openrouter-fallback",
-          code: "STREAM_MODEL_FALLBACK",
-          reason: providerError.code,
-          failedModel: model,
-          nextModel: chain[index + 1],
-          attempt: index + 1,
-        }));
-        break;
       }
+    } finally {
+      await attemptLease.release();
     }
   }
   if (lastError) {

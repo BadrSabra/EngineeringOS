@@ -11,6 +11,12 @@ Model-scoped throttling must remain separate from the provider circuit. Any Open
 
 Controlled live-run diagnostics may correlate provider-attempt sequence, execution, operation, model, result, and rate-limit scope only when explicitly enabled. They must exclude prompt/response bodies, credentials, and raw provider messages; keep the trace disabled by default.
 
+Distributed OpenRouter model-attempt admission uses a bounded, exact-model lease in the existing cooldown table; acquire it atomically with database time, release only by the returned exact expiry token, and let a short expiry recover abandoned work after process death. Do not hold a shared database-pool connection or session advisory lock across remote inference: concurrent leases can consume the pool and deadlock the cooldown writes that release them. After acquiring a lease, re-read persisted cooldown state before sending; local lease contention or lease-store failure is a local admission outcome, never a provider 429, automatic retry, or permission to use a paid route. The lease expiry must exceed the provider request timeout, including streams, and the in-process waiter queue must remain bounded.
+
+**Why:** A model-level queue prevents concurrent replicas from spending free quota against the same exact model, while a durable expiring row avoids holding database sessions throughout network waits. Explicit stream timeouts keep an abandoned request from outliving its lease and admitting a duplicate provider call.
+
+**How to apply:** Keep the lease scoped to the exact provider/model, apply it to both completion and streaming paths, recheck model and shared-pool cooldowns after acquisition, and always release it in `finally`. Test simultaneous calls, a 429 followed by a queued call, lease-store failure with zero provider requests, cancellation, and stale-lease recovery.
+
 **Projection check:** A correctly typed provider error does not guarantee durable scope or Retry-After telemetry. Test the full chain from HTTP classification through the final ledger event and persistence projection, since explicit ledger completion builders can drop added fields; persist only positive safe-integer Retry-After values on classified rate-limit failures.
 
 An `EMPTY_RESPONSE` may advance to the next distinct model already present in the caller's eligible free chain, but every candidate must still satisfy the same capability and response-format contract. This does not permit a retry after `RATE_LIMITED`/`QUOTA`, nor does it treat malformed or unaccepted content as success.

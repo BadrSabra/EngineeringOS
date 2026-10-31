@@ -1396,6 +1396,127 @@ describe("openrouterCompleteWithFallback — error classification", () => {
     expect(new Set(seenModels).size).toBe(1);
   });
 
+  it("serializes concurrent same-model completions and rechecks cooldown before the queued call", async () => {
+    let resolveProviderResponse!: (response: Response) => void;
+    let notifyProviderStarted!: () => void;
+    const providerStarted = new Promise<void>((resolve) => {
+      notifyProviderStarted = resolve;
+    });
+    const pendingResponse = new Promise<Response>((resolve) => {
+      resolveProviderResponse = resolve;
+    });
+    const fetchMock = vi.fn(async () => {
+      notifyProviderStarted();
+      return pendingResponse;
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const options = {
+      apiKey: "test-key",
+      model: primaryModel,
+      maxFallbackModels: 1,
+      maxTokens: 10,
+      retryTransient: false,
+    } as const;
+    const first = openrouterCompleteWithFallback(baseMessages as any, options);
+    await providerStarted;
+    const second = openrouterCompleteWithFallback(baseMessages as any, options);
+    await Promise.resolve();
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+
+    resolveProviderResponse(
+      textResponse('{"error":{"message":"temporarily rate limited"}}', 429),
+    );
+
+    await expect(first).rejects.toSatisfy(
+      (error: unknown) => error instanceof GroqClientError && error.code === "RATE_LIMITED",
+    );
+    await expect(second).rejects.toSatisfy(
+      (error: unknown) =>
+        error instanceof GroqClientError &&
+        error.code === "RATE_LIMITED" &&
+        error.providerCode === "MODEL_COOLDOWN" &&
+        error.retryAfterMs === undefined,
+    );
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("serializes concurrent same-model streams and does not send a queued request after a 429", async () => {
+    let resolveProviderResponse!: (response: Response) => void;
+    let notifyProviderStarted!: () => void;
+    const providerStarted = new Promise<void>((resolve) => {
+      notifyProviderStarted = resolve;
+    });
+    const pendingResponse = new Promise<Response>((resolve) => {
+      resolveProviderResponse = resolve;
+    });
+    const fetchMock = vi.fn(async () => {
+      notifyProviderStarted();
+      return pendingResponse;
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const options = {
+      apiKey: "test-key",
+      model: primaryModel,
+      maxFallbackModels: 1,
+      maxTokens: 10,
+      retryTransient: false,
+    } as const;
+    const consume = async (stream: AsyncGenerator<string>) => {
+      for await (const _chunk of stream) {
+        // A 429 should occur before any chunks are emitted.
+      }
+    };
+    const first = consume(openrouterCompleteStream(baseMessages as any, options));
+    await providerStarted;
+    const second = consume(openrouterCompleteStream(baseMessages as any, options));
+    await Promise.resolve();
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+
+    resolveProviderResponse(
+      textResponse('{"error":{"message":"temporarily rate limited"}}', 429),
+    );
+
+    await expect(first).rejects.toSatisfy(
+      (error: unknown) => error instanceof GroqClientError && error.code === "RATE_LIMITED",
+    );
+    await expect(second).rejects.toSatisfy(
+      (error: unknown) =>
+        error instanceof GroqClientError &&
+        error.code === "RATE_LIMITED" &&
+        error.providerCode === "MODEL_COOLDOWN" &&
+        error.retryAfterMs === undefined,
+    );
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("fails locally without contacting OpenRouter when the distributed lease is unavailable", async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+    const modelCooldownPersistence = {
+      readActive: async () => [],
+      write: async () => {},
+      clear: async () => {},
+      acquireAttemptLease: async () => undefined,
+    };
+
+    await expect(
+      openrouterCompleteWithFallback(baseMessages as any, {
+        apiKey: "test-key",
+        model: primaryModel,
+        maxFallbackModels: 1,
+        modelCooldownPersistence,
+      }),
+    ).rejects.toSatisfy(
+      (error: unknown) =>
+        error instanceof GroqClientError &&
+        error.code === "MODEL_ATTEMPT_BUSY" &&
+        error.providerCode === "MODEL_ATTEMPT_LOCK_BUSY",
+    );
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
   it("does not immediately retry a 429 whose rate-limit scope is unknown", async () => {
     let callCount = 0;
     vi.stubGlobal("fetch", vi.fn(async () => {
@@ -1758,6 +1879,50 @@ describe("openrouterCompleteWithFallback — error classification", () => {
         usage: { promptTokens: 23, completionTokens: 7, usageStatus: "known" },
       }),
     ]));
+  });
+});
+
+describe("OpenAI-compatible stream timeout", () => {
+  it("aborts a stream that never yields a response within its configured deadline", async () => {
+    vi.useFakeTimers();
+    let notifyFetchStarted!: () => void;
+    const fetchStarted = new Promise<void>((resolve) => {
+      notifyFetchStarted = resolve;
+    });
+    vi.stubGlobal("fetch", vi.fn((_url: string | URL, init?: RequestInit) => {
+      notifyFetchStarted();
+      return new Promise<Response>((_resolve, reject) => {
+        init?.signal?.addEventListener(
+          "abort",
+          () => reject(new Error("request aborted")),
+          { once: true },
+        );
+      });
+    }));
+
+    const consume = async () => {
+      for await (const _chunk of oacCompleteStream(baseMessages as any, {
+        apiKey: "test-key",
+        baseUrl: "https://openrouter.ai/api/v1",
+        providerName: "OpenRouter",
+        model: FREE_MODELS[0]!.id,
+        timeoutMs: 25,
+      })) {
+        // The mocked provider never sends content.
+      }
+    };
+    const request = consume();
+    const expectedTimeout = expect(request).rejects.toSatisfy(
+      (error: unknown) =>
+        error instanceof GroqClientError && error.code === "TIMEOUT",
+    );
+    try {
+      await fetchStarted;
+      await vi.advanceTimersByTimeAsync(25);
+      await expectedTimeout;
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
 

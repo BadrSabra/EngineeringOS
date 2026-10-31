@@ -126,8 +126,10 @@ function structuredFailureDetails(err: unknown): {
     code === "RATE_LIMITED" ? "RATE_LIMIT" :
     code === "INVALID_CONFIG" || code === "AUTH_ERROR" || code === "MODEL_NOT_FOUND" || code === "PLAN_RESTRICTED" ? "CONFIGURATION" :
     code === "TIMEOUT" || code === "NETWORK_ERROR" || code === "NON_200" || code === "SERVER_ERROR" ? "PROVIDER_FAILURE" :
+    code === "MODEL_ATTEMPT_BUSY" ? "TRANSPORT" :
     "PROVIDER_FAILURE";
   const message =
+    code === "MODEL_ATTEMPT_BUSY" ? "This model is already processing another request; no new provider request was sent." :
     failureKind === "RATE_LIMIT" ? "The AI provider is rate-limited. Please wait before retrying." :
     failureKind === "CONFIGURATION" ? "The AI provider configuration needs attention before this can run." :
     failureKind === "QUALITY_REVIEW" ? "The AI result did not meet the quality checks required for completion." :

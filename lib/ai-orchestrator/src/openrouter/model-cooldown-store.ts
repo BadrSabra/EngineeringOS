@@ -8,7 +8,8 @@ const LOCAL_ADAPTIVE_COOLDOWN_PREFIX = "__local_adaptive_model__:";
 const LOCAL_ADAPTIVE_BASE_MS = 30_000;
 const LOCAL_ADAPTIVE_MAX_MS = 10 * 60_000;
 const LOCAL_ADAPTIVE_HISTORY_MS = 60 * 60_000;
-const OPENROUTER_MODEL_ATTEMPT_LOCK_NAMESPACE = 1007;
+const MODEL_ATTEMPT_LEASE_PREFIX = "__attempt_lease__:";
+const MODEL_ATTEMPT_LEASE_DURATION_MS = 90_000;
 const MODEL_ATTEMPT_LOCK_WAIT_MS = 5_000;
 const MODEL_ATTEMPT_LOCK_POLL_MS = 75;
 const MAX_LOCAL_MODEL_ATTEMPT_WAITERS = 64;
@@ -92,6 +93,7 @@ export type ModelCooldownPersistence = {
     model: string,
     maxWaitMs: number,
     signal?: AbortSignal,
+    requestTimeoutMs?: number,
   ): Promise<ModelAttemptLease | undefined>;
   readRecentCooldownMs?(
     provider: string,
@@ -103,14 +105,6 @@ export type ModelCooldownPersistence = {
 const PERSISTENCE_WARNING_INTERVAL_MS = 60_000;
 const localAttemptTails = new Map<string, Promise<void>>();
 const localAttemptWaiters = new Map<string, number>();
-
-function advisoryLockHash(value: string): number {
-  let hash = 5381;
-  for (let index = 0; index < value.length; index++) {
-    hash = (((hash << 5) + hash) ^ value.charCodeAt(index)) | 0;
-  }
-  return hash;
-}
 
 function waitForAttemptSignal(
   ms: number,
@@ -127,7 +121,8 @@ function waitForAttemptSignal(
       signal?.removeEventListener("abort", onAbort);
       resolve("aborted");
     };
-    signal?.addEventListener("abort", onAbort, { once: true });
+    if (signal?.aborted) onAbort();
+    else signal?.addEventListener("abort", onAbort, { once: true });
   });
 }
 
@@ -148,7 +143,8 @@ function waitForLocalLease(
     };
     const timer = setTimeout(() => finish("timed_out"), maxWaitMs);
     const onAbort = () => finish("aborted");
-    signal?.addEventListener("abort", onAbort, { once: true });
+    if (signal?.aborted) onAbort();
+    else signal?.addEventListener("abort", onAbort, { once: true });
     previous.then(() => finish("acquired"));
   });
 }
@@ -278,41 +274,57 @@ const postgresPersistence: ModelCooldownPersistence = {
     );
   },
 
-  async acquireAttemptLease(provider, model, maxWaitMs, signal) {
+  async acquireAttemptLease(provider, model, maxWaitMs, signal, requestTimeoutMs = 60_000) {
     const { pool } = await import("@workspace/db");
-    const lockKey = advisoryLockHash(`${provider}\u0000${model}`);
+    const leaseModel = `${MODEL_ATTEMPT_LEASE_PREFIX}${model}`;
+    const boundedRequestTimeoutMs =
+      Number.isFinite(requestTimeoutMs) && requestTimeoutMs > 0
+        ? Math.ceil(requestTimeoutMs)
+        : 60_000;
+    const leaseDurationMs = Math.max(
+      MODEL_ATTEMPT_LEASE_DURATION_MS,
+      boundedRequestTimeoutMs + 30_000,
+    );
     const startedAt = Date.now();
     while (!signal?.aborted) {
-      const client = await pool.connect();
-      let acquired = false;
-      try {
-        const result = await client.query<{ acquired: boolean }>(
-          "SELECT pg_try_advisory_lock($1, $2) AS acquired",
-          [OPENROUTER_MODEL_ATTEMPT_LOCK_NAMESPACE, lockKey],
-        );
-        acquired = result.rows[0]?.acquired === true;
-      } catch (error) {
-        client.release(error instanceof Error ? error : true);
-        throw error;
-      }
-
-      if (acquired) {
+      const result = await pool.query<{ lease_token: string }>(
+        `INSERT INTO openrouter_model_cooldowns
+           (provider, model, cooling_until, updated_at)
+         VALUES (
+           $1,
+           $2,
+           clock_timestamp() + ($3::double precision * interval '1 millisecond'),
+           clock_timestamp()
+         )
+         ON CONFLICT (provider, model) DO UPDATE
+         SET cooling_until = clock_timestamp() + ($3::double precision * interval '1 millisecond'),
+             updated_at = clock_timestamp()
+         WHERE openrouter_model_cooldowns.cooling_until <= clock_timestamp()
+         RETURNING to_char(
+           cooling_until AT TIME ZONE 'UTC',
+           'YYYY-MM-DD"T"HH24:MI:SS.US"Z"'
+         ) AS lease_token`,
+        [provider, leaseModel, leaseDurationMs],
+      );
+      const leaseToken = result.rows[0]?.lease_token;
+      if (leaseToken) {
         return {
           async release() {
             try {
-              await client.query(
-                "SELECT pg_advisory_unlock($1, $2)",
-                [OPENROUTER_MODEL_ATTEMPT_LOCK_NAMESPACE, lockKey],
+              await pool.query(
+                `DELETE FROM openrouter_model_cooldowns
+                 WHERE provider = $1
+                   AND model = $2
+                   AND cooling_until = $3::timestamptz`,
+                [provider, leaseModel, leaseToken],
               );
-              client.release();
             } catch {
-              // Destroying the session also releases its advisory lock.
-              client.release(true);
+              // The short lease expires automatically if release persistence fails.
+              logPersistenceUnavailable("clear");
             }
           },
         };
       }
-      client.release();
 
       const remainingMs = maxWaitMs - (Date.now() - startedAt);
       if (remainingMs <= 0) return undefined;
@@ -353,22 +365,54 @@ export async function acquireModelAttemptLease(
   model: string,
   persistenceOverride?: ModelCooldownPersistence,
   signal?: AbortSignal,
+  requestTimeoutMs = 60_000,
 ): Promise<ModelAttemptLease | undefined> {
   const store = persistenceOverride ?? persistence;
-  if (store.acquireAttemptLease) {
-    return store.acquireAttemptLease(
-      provider,
-      model,
-      MODEL_ATTEMPT_LOCK_WAIT_MS,
-      signal,
-    );
-  }
-  return acquireLocalModelAttemptLease(
+  const startedAt = Date.now();
+  const localLease = await acquireLocalModelAttemptLease(
     provider,
     model,
     MODEL_ATTEMPT_LOCK_WAIT_MS,
     signal,
   );
+  if (!localLease) return undefined;
+
+  if (!store.acquireAttemptLease) return localLease;
+
+  const remainingMs = Math.max(
+    0,
+    MODEL_ATTEMPT_LOCK_WAIT_MS - (Date.now() - startedAt),
+  );
+  if (remainingMs <= 0) {
+    await localLease.release();
+    return undefined;
+  }
+  let distributedLease: ModelAttemptLease | undefined;
+  try {
+    distributedLease = await store.acquireAttemptLease(
+      provider,
+      model,
+      remainingMs,
+      signal,
+      requestTimeoutMs,
+    );
+  } catch (error) {
+    await localLease.release();
+    throw error;
+  }
+  if (!distributedLease) {
+    await localLease.release();
+    return undefined;
+  }
+  return {
+    async release() {
+      try {
+        await distributedLease!.release();
+      } finally {
+        await localLease.release();
+      }
+    },
+  };
 }
 
 /**
