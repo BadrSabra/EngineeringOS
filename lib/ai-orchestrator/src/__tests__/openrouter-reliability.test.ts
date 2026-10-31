@@ -34,6 +34,8 @@ import {
   resolvePaidFallbackChain,
   _resetModelLaneSchedulerForTest,
 } from "../openrouter/model-resolver.js";
+import { resolveExecutionDecision } from "../model-selection/decision-engine.js";
+import { resolveExecutionModel } from "../model-selection/model-resolver.js";
 import {
   getDynamicModelIds,
   getUsableDynamicModelFormatSupport,
@@ -120,6 +122,71 @@ describe("static free-model capability metadata", () => {
 
     expect(model?.capabilities).toContain("chat");
     expect(isCatalogFreeModelForCapability(modelId, { capability: "coding" })).toBe(true);
+  });
+
+  it("routes JSON Schema only to models with live structured-output support", async () => {
+    const schemaModel = "dots-studio/dots-3-note-preview:free";
+    const objectOnlyModel = "liquid/lfm-2.5-2.6b:free";
+    global.fetch = vi.fn().mockResolvedValue(fetchResponse(200, {
+      data: [
+        {
+          id: schemaModel,
+          pricing: { prompt: "0", completion: "0" },
+          supported_parameters: ["response_format", "structured_outputs"],
+        },
+        {
+          id: objectOnlyModel,
+          pricing: { prompt: "0", completion: "0" },
+          supported_parameters: ["response_format"],
+        },
+      ],
+    })) as typeof fetch;
+
+    await refreshDynamicCatalog("test-key");
+
+    expect(getUsableDynamicModelFormatSupport(objectOnlyModel)).toEqual({
+      supportsJsonObject: true,
+      supportsJsonSchema: false,
+    });
+    expect(isCatalogFreeModelForCapability(schemaModel, {
+      capability: "json",
+      requireJson: true,
+      requireJsonSchema: true,
+    })).toBe(true);
+    expect(isCatalogFreeModelForCapability(objectOnlyModel, {
+      capability: "json",
+      requireJson: true,
+      requireJsonSchema: true,
+    })).toBe(false);
+    expect(resolveFallbackChain({
+      capability: "json",
+      requireJson: true,
+      requireJsonSchema: true,
+    }).map((model) => model.id)).toEqual([schemaModel]);
+    expect(buildFallbackChainFromId(objectOnlyModel, undefined, {
+      capability: "json",
+      requireJson: true,
+      requireJsonSchema: true,
+    })).toEqual([]);
+    const configuredModel = process.env.OPENROUTER_MODEL;
+    delete process.env.OPENROUTER_MODEL;
+    try {
+      const decision = resolveExecutionModel(
+        "openrouter",
+        resolveExecutionDecision("code-reviewer", { qualityProfile: "code_review" }),
+        { requireJsonSchema: true },
+      );
+      expect(decision.model).toBe(schemaModel);
+      process.env.OPENROUTER_MODEL = objectOnlyModel;
+      const invalidOverrideDecision = resolveExecutionModel(
+        "openrouter",
+        resolveExecutionDecision("code-reviewer", { qualityProfile: "code_review" }),
+        { requireJsonSchema: true },
+      );
+      expect(invalidOverrideDecision.model).toBe(schemaModel);
+    } finally {
+      if (configuredModel !== undefined) process.env.OPENROUTER_MODEL = configuredModel;
+    }
   });
 });
 

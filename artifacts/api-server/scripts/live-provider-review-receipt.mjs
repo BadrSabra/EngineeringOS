@@ -63,6 +63,60 @@ export function validateAndSummarizeCampaignReceipt(receipt) {
     }
     return { model: attempt.model, tier: attempt.tier };
   });
+  const attemptedModels = Array.isArray(receipt.attemptedModels)
+    ? receipt.attemptedModels.slice(0, 8)
+    : [];
+  if (
+    attemptedModels.some((model) => typeof model !== "string" || !safeModelPattern.test(model)) ||
+    (typeof receipt.requestedModel === "string" &&
+      !safeModelPattern.test(receipt.requestedModel)) ||
+    (receipt.requestedModel !== undefined &&
+      typeof receipt.requestedModel !== "string") ||
+    (receipt.modelIdentityMatched !== undefined &&
+      typeof receipt.modelIdentityMatched !== "boolean")
+  ) {
+    throw new Error("invalid_receipt");
+  }
+  if (
+    attemptedModels.length !== modelAttempts.length ||
+    attemptedModels.some((model, index) => model !== modelAttempts[index]?.model)
+  ) {
+    throw new Error("invalid_receipt");
+  }
+  if (receipt.requestedModel !== undefined) {
+    const expectedIdentityMatch =
+      attemptedModels.length === 1 && attemptedModels[0] === receipt.requestedModel;
+    if (
+      receipt.modelIdentityMatched !== expectedIdentityMatch ||
+      (receipt.accepted === true && !expectedIdentityMatch)
+    ) {
+      throw new Error("invalid_receipt");
+    }
+  }
+  if (receipt.modelCatalogSnapshot !== undefined) {
+    const snapshot = receipt.modelCatalogSnapshot;
+    if (
+      !snapshot ||
+      typeof snapshot !== "object" ||
+      Array.isArray(snapshot) ||
+      Object.keys(snapshot).some((key) => ![
+        "checkedAt",
+        "freeModelSetHash",
+        "requestedModelListed",
+        "requestedModelStaticEligible",
+        "requestedModelSupportsJsonSchema",
+      ].includes(key)) ||
+      typeof snapshot.checkedAt !== "string" ||
+      !Number.isFinite(Date.parse(snapshot.checkedAt)) ||
+      typeof snapshot.freeModelSetHash !== "string" ||
+      !/^[a-f0-9]{16}$/.test(snapshot.freeModelSetHash) ||
+      typeof snapshot.requestedModelListed !== "boolean" ||
+      typeof snapshot.requestedModelStaticEligible !== "boolean" ||
+      ![true, false, null].includes(snapshot.requestedModelSupportsJsonSchema)
+    ) {
+      throw new Error("invalid_receipt");
+    }
+  }
 
   if (
     receipt.rateLimitScope !== undefined &&
@@ -93,6 +147,20 @@ export function validateAndSummarizeCampaignReceipt(receipt) {
     evidenceCount: receipt.evidence.length,
     modelAttempts,
   };
+  if (typeof receipt.requestedModel === "string") {
+    summary.requestedModel = receipt.requestedModel;
+    summary.modelIdentityMatched = receipt.modelIdentityMatched;
+    summary.attemptedModels = attemptedModels;
+  }
+  if (receipt.modelCatalogSnapshot) {
+    summary.modelCatalogSnapshot = {
+      checkedAt: receipt.modelCatalogSnapshot.checkedAt,
+      freeModelSetHash: receipt.modelCatalogSnapshot.freeModelSetHash,
+      requestedModelListed: receipt.modelCatalogSnapshot.requestedModelListed,
+      requestedModelStaticEligible: receipt.modelCatalogSnapshot.requestedModelStaticEligible,
+      requestedModelSupportsJsonSchema: receipt.modelCatalogSnapshot.requestedModelSupportsJsonSchema,
+    };
+  }
   if (typeof receipt.failureCode === "string" && /^[A-Z][A-Z0-9_]{0,63}$/.test(receipt.failureCode)) {
     summary.failureCode = receipt.failureCode;
   }

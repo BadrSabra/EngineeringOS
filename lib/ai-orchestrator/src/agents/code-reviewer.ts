@@ -119,6 +119,15 @@ export type CodeReviewCampaignReceipt = {
   operationId: string;
   projectId: string;
   projectRevision: string;
+  requestedModel?: string;
+  modelIdentityMatched?: boolean;
+  modelCatalogSnapshot?: {
+    checkedAt: string;
+    freeModelSetHash: string;
+    requestedModelListed: boolean;
+    requestedModelStaticEligible: boolean;
+    requestedModelSupportsJsonSchema: boolean | null;
+  };
   outcomeClass: "fallback-success" | "terminal-incomplete";
   terminalStatus: "COMPLETE" | "INCOMPLETE";
   failureCode?: string;
@@ -365,6 +374,7 @@ const AGENT_FAILURE_CODES = new Set([
   "MALFORMED_JSON",
   "SCHEMA_VALIDATION_FAILED",
   "QUALITY_REVIEW_LOW",
+  "CAMPAIGN_MODEL_MISMATCH",
 ]);
 const SAFE_FAILURE_CODES = new Set([...PROVIDER_ERROR_CODES, ...AGENT_FAILURE_CODES]);
 
@@ -419,6 +429,8 @@ export function buildCodeReviewCampaignReceipt(params: {
   projectId: string;
   projectRevision: string;
   selectedFile: string;
+  requestedModel?: string;
+  modelCatalogSnapshot?: CodeReviewCampaignReceipt["modelCatalogSnapshot"];
   result?: CodeReviewResult;
   error?: unknown;
   attemptedModels?: readonly string[];
@@ -428,14 +440,24 @@ export function buildCodeReviewCampaignReceipt(params: {
 }): CodeReviewCampaignReceipt {
   const selectedFile = params.selectedFile.trim();
   const safeSelectedFile = SAFE_RELATIVE_FILE_PATTERN.test(selectedFile);
+  const attemptedModels = safeModels(params.attemptedModels);
+  const requestedModel = params.requestedModel
+    ? safeModels([params.requestedModel])[0]
+    : undefined;
+  const modelIdentityMatched = requestedModel
+    ? attemptedModels.length === 1 && attemptedModels[0] === requestedModel
+    : undefined;
   const citedIssue = safeSelectedFile && params.result && !params.result._parseError
     ? params.result.issues.find((issue) => issue.file === selectedFile)
     : undefined;
-  const hasAcceptedFinding = Boolean(citedIssue);
-  const errorCode = safeFailureCode(
+  const hasAcceptedFinding = Boolean(citedIssue)
+    && (modelIdentityMatched === undefined || modelIdentityMatched);
+  const providerFailureCode = safeFailureCode(
     params.result?._parseError?.code ??
       (params.error instanceof GroqClientError ? params.error.code : undefined),
   );
+  const errorCode = providerFailureCode
+    ?? (modelIdentityMatched === false ? "CAMPAIGN_MODEL_MISMATCH" : undefined);
   const rateLimitScope = params.error instanceof GroqClientError
     && (params.error.code === "RATE_LIMITED" || params.error.code === "QUOTA")
     ? params.error.rateLimitScope
@@ -463,6 +485,9 @@ export function buildCodeReviewCampaignReceipt(params: {
     operationId: safeIdentifier(params.operationId),
     projectId: safeIdentifier(params.projectId),
     projectRevision: safeIdentifier(params.projectRevision),
+    ...(requestedModel ? { requestedModel } : {}),
+    ...(modelIdentityMatched !== undefined ? { modelIdentityMatched } : {}),
+    ...(params.modelCatalogSnapshot ? { modelCatalogSnapshot: params.modelCatalogSnapshot } : {}),
     outcomeClass: hasAcceptedFinding ? "fallback-success" : "terminal-incomplete",
     terminalStatus: hasAcceptedFinding ? "COMPLETE" : "INCOMPLETE",
     ...(errorCode ? { failureCode: errorCode } : {}),
@@ -471,7 +496,7 @@ export function buildCodeReviewCampaignReceipt(params: {
     ...(retryAfterMs !== undefined ? { retryAfterMs } : {}),
     ...(failureModel ? { failureModel } : {}),
     recoveryAction: recoveryActionFor(errorCode),
-    attemptedModels: safeModels(params.attemptedModels),
+    attemptedModels,
     modelAttempts: (params.modelAttempts ?? [])
       .filter((attempt) => SAFE_MODEL_PATTERN.test(attempt.model))
       .slice(0, 8)

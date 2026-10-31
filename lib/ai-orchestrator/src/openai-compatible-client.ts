@@ -1757,6 +1757,8 @@ export type OpenRouterFallbackOptions = Omit<
   capability?: ModelCapability;
   /** Execution-plan tool contract, including calls with tools supplied later. */
   requireTools?: boolean;
+  /** Require live metadata for provider-native JSON Schema response support. */
+  requireJsonSchema?: boolean;
   /** Paid fallback is opt-in through server policy and never part of free resolution. */
   allowPaidFallback?: boolean;
   /**
@@ -1856,6 +1858,7 @@ export async function openrouterCompleteWithFallback(
     quality: opts.quality ?? "fast",
     requireTools,
     requireJson: Boolean(opts.responseFormat),
+    requireJsonSchema: opts.responseFormat?.type === "json_schema",
     taskType: opts.taskType,
     taskContract: opts.taskContract,
   };
@@ -1863,7 +1866,12 @@ export async function openrouterCompleteWithFallback(
     initialModel && !opts.taskContract && !opts.useSharedLaneCursor,
   );
   const resolvedChain = isPinnedRequest
-    ? buildFallbackChainFromId(initialModel!, opts.taskType, { capability, requireTools })
+    ? buildFallbackChainFromId(initialModel!, opts.taskType, {
+        capability,
+        requireTools,
+        requireJson: Boolean(opts.responseFormat),
+        requireJsonSchema: opts.responseFormat?.type === "json_schema",
+      })
     : resolveFallbackChainUnrotated(resolveOptions).map((m) => m.id);
   if (initialModel && resolvedChain.length === 0) {
     const catalog = getDynamicCatalogStatus();
@@ -1987,6 +1995,7 @@ export async function openrouterCompleteWithFallback(
       quality: opts.quality ?? "fast",
       requireTools,
       requireJson: Boolean(opts.responseFormat),
+      requireJsonSchema: opts.responseFormat?.type === "json_schema",
     });
     if (paid.length === 0) return false;
     const nextModel = paid[0]!.id;
@@ -2184,7 +2193,13 @@ export async function* openrouterCompleteStream(
   };
   const capability = opts.capability;
   const initialModel = opts.model;
-  if (initialModel && capability && !isCatalogFreeModelForCapability(initialModel, { capability })) {
+  if (
+    initialModel &&
+    capability &&
+    !isCatalogFreeModelForCapability(initialModel, {
+      capability,
+    })
+  ) {
     throw new GroqClientError(
       "INVALID_CONFIG",
       `OpenRouter stream requires a currently-free model matching capability="${capability}"`,
@@ -2201,7 +2216,9 @@ export async function* openrouterCompleteStream(
   };
   const isPinnedRequest = Boolean(initialModel && !opts.useSharedLaneCursor);
   const resolved = isPinnedRequest
-    ? buildFallbackChainFromId(initialModel!, opts.taskType, capability ? { capability } : {})
+    ? buildFallbackChainFromId(initialModel!, opts.taskType, {
+        ...(capability ? { capability } : {}),
+      })
     : resolveFallbackChainUnrotated(resolveOptions).map((model) => model.id);
   const maxFallbackModels =
     Number.isInteger(opts.maxFallbackModels) && opts.maxFallbackModels! > 0

@@ -44,3 +44,9 @@ An `upstream_shared_pool` cooldown may extend to sibling model IDs only when the
 **Why:** OpenRouter can name a specific upstream provider in the 429 metadata, while other providers may remain healthy; a global pause would suppress usable free capacity.
 
 **How to apply:** Use only the exact provider-supplied Retry-After, persist a provider-namespace cooldown when the namespace match is exact, and otherwise cool only the failed model.
+
+JSON-object support is not proof of JSON-Schema support. Strict structured tasks must filter the primary model and every fallback against live `structured_outputs` metadata, in addition to the server-owned free-model allowlist.
+
+**Why:** A JSON-object-capable free model was selected for a JSON-Schema code-review contract, then silently ignored in favor of a different model; its catalog ID existed, but its schema capability was not verified.
+
+**How to apply:** Pass the requested response-format contract through model resolution, fallback construction, and campaign preflight. Keep `requestedModel` separate from actual attempted models, bind it to a timestamped catalog fingerprint, and never accept a single-model receipt unless exactly that model was attempted.

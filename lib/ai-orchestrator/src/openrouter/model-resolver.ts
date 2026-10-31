@@ -27,7 +27,11 @@ import {
   type OpenRouterFreeModel,
   type OpenRouterPaidModel,
 } from "./model-catalog.js";
-import { getUsableDynamicModelIds, getUsablePaidModelCandidates } from "./dynamic-catalog.js";
+import {
+  getUsableDynamicModelFormatSupport,
+  getUsableDynamicModelIds,
+  getUsablePaidModelCandidates,
+} from "./dynamic-catalog.js";
 import { isModelBehaviorallyDemoted } from "../behavioral-scorecard.js";
 import {
   getModelContractAvailabilityWeight,
@@ -53,8 +57,14 @@ export type FreeModelCapabilityOptions = {
   capability?: ModelCapability;
   requireTools?: boolean;
   requireJson?: boolean;
+  /** Requires live metadata for response_format: json_schema. */
+  requireJsonSchema?: boolean;
   requireStreaming?: boolean;
 };
+
+function supportsJsonSchema(modelId: string): boolean {
+  return getUsableDynamicModelFormatSupport(modelId)?.supportsJsonSchema === true;
+}
 
 function satisfiesChatCompletionCapability(
   capabilities: readonly ModelCapability[],
@@ -76,6 +86,7 @@ export function isCatalogFreeModelForCapability(
     satisfiesChatCompletionCapability(model.capabilities, options.capability) &&
     (!options.requireTools || model.supportsTools) &&
     (!options.requireJson || model.supportsJson) &&
+    (!options.requireJsonSchema || supportsJsonSchema(model.id)) &&
     (!options.requireStreaming || model.supportsStreaming !== false);
 }
 
@@ -93,6 +104,7 @@ export function isCatalogPaidModelForCapability(
     satisfiesChatCompletionCapability(model.capabilities, options.capability) &&
     (!options.requireTools || model.supportsTools) &&
     (!options.requireJson || model.supportsJson) &&
+    (!options.requireJsonSchema || supportsJsonSchema(model.id)) &&
     (!options.requireStreaming || model.supportsStreaming);
 }
 
@@ -108,6 +120,7 @@ export type ResolveModelOpts = {
   quality?: "fast" | "powerful";
   requireTools?: boolean;
   requireJson?: boolean;
+  requireJsonSchema?: boolean;
   requireStreaming?: boolean;
   /** Apply behavioral demotion only to the task execution fallback chain. */
   taskType?: TaskType;
@@ -337,6 +350,7 @@ function buildFallbackChain(
     quality = "fast",
     requireTools = false,
     requireJson = false,
+    requireJsonSchema = false,
     requireStreaming = false,
   } = opts;
   // Emit resolution trace so stale catalog entries and empty chains are visible.
@@ -348,6 +362,7 @@ function buildFallbackChain(
       satisfiesChatCompletionCapability(m.capabilities, capability) &&
       (!requireTools || m.supportsTools) &&
       (!requireJson || m.supportsJson) &&
+      (!requireJsonSchema || supportsJsonSchema(m.id)) &&
       (!requireStreaming || m.supportsStreaming !== false),
   );
 
@@ -401,6 +416,7 @@ function buildFallbackChain(
       quality,
       requireTools,
       requireJson,
+      requireJsonSchema,
       requireStreaming,
       preferFreeTier: opts.preferFreeTier ?? true,
       catalogLoaded,
@@ -429,12 +445,20 @@ export function resolveFallbackChainUnrotated(opts: ResolveModelOpts): ResolvedM
  * produced a classified fallback-eligible failure.
  */
 export function resolvePaidFallbackChain(opts: ResolveModelOpts): ResolvedModel[] {
-  const { capability, quality = "fast", requireTools = false, requireJson = false, requireStreaming = false } = opts;
+  const {
+    capability,
+    quality = "fast",
+    requireTools = false,
+    requireJson = false,
+    requireJsonSchema = false,
+    requireStreaming = false,
+  } = opts;
   const candidates = getUsablePaidModelCandidates()
     .filter((model) =>
       model.capabilities.includes(capability) &&
       (!requireTools || model.supportsTools) &&
       (!requireJson || model.supportsJson) &&
+      (!requireJsonSchema || supportsJsonSchema(model.id)) &&
       (!requireStreaming || model.supportsStreaming),
     )
     .sort((a, b) => (a.quality === quality ? 0 : 1) - (b.quality === quality ? 0 : 1));
@@ -446,6 +470,7 @@ export function resolvePaidFallbackChain(opts: ResolveModelOpts): ResolvedModel[
     quality,
     requireTools,
     requireJson,
+    requireJsonSchema,
     requireStreaming,
     candidates: candidates.map((model) => model.id),
     chainLength: candidates.length,
@@ -528,6 +553,7 @@ export function buildFallbackChainFromId(
     satisfiesChatCompletionCapability(initial.capabilities, capabilityOptions.capability) &&
     (!capabilityOptions.requireTools || initial.supportsTools) &&
     (!capabilityOptions.requireJson || initial.supportsJson) &&
+    (!capabilityOptions.requireJsonSchema || supportsJsonSchema(initial.id)) &&
     (!capabilityOptions.requireStreaming || initial.supportsStreaming !== false);
   if (!initiallyCapable) return [];
 
@@ -537,6 +563,7 @@ export function buildFallbackChainFromId(
     satisfiesChatCompletionCapability(m.capabilities, capabilityOptions.capability) &&
     (!capabilityOptions.requireTools || m.supportsTools) &&
     (!capabilityOptions.requireJson || m.supportsJson) &&
+    (!capabilityOptions.requireJsonSchema || supportsJsonSchema(m.id)) &&
     (!capabilityOptions.requireStreaming || m.supportsStreaming !== false);
   const sameQualityRaw = FREE_MODELS
     .filter((m) => m.quality === quality && m.id !== initialModelId && isCapable(m));

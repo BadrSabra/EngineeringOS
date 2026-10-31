@@ -91,6 +91,64 @@ test("provider HTTP status is retained only as a valid numeric status", () => {
   );
 });
 
+test("requested and actually attempted models remain distinct in the receipt", () => {
+  const snapshot = {
+    checkedAt: "2026-10-31T01:00:00.000Z",
+    freeModelSetHash: "0123456789abcdef",
+    requestedModelListed: true,
+    requestedModelStaticEligible: true,
+    requestedModelSupportsJsonSchema: true,
+  };
+  const summary = validateAndSummarizeCampaignReceipt(validReceipt({
+    scenario: "structured-review",
+    requestedModel: "example/model:free",
+    modelIdentityMatched: true,
+    modelCatalogSnapshot: snapshot,
+    attemptedModels: ["example/model:free"],
+    modelAttempts: [{ model: "example/model:free", tier: "free" }],
+  }));
+  assert.equal(summary.requestedModel, "example/model:free");
+  assert.equal(summary.modelIdentityMatched, true);
+  assert.deepEqual(summary.attemptedModels, ["example/model:free"]);
+  assert.deepEqual(summary.modelCatalogSnapshot, snapshot);
+});
+
+test("accepted receipts reject model identity mismatch", () => {
+  assert.throws(
+    () => validateAndSummarizeCampaignReceipt(validReceipt({
+      scenario: "structured-review",
+      outcomeClass: "fallback-success",
+      terminalStatus: "COMPLETE",
+      accepted: true,
+      evidence: [{ file: "src/review.ts", findingHash: "abc123" }],
+      requestedModel: "expected/model:free",
+      modelIdentityMatched: false,
+      attemptedModels: ["actual/model:free"],
+      modelAttempts: [{ model: "actual/model:free", tier: "free" }],
+    })),
+    /invalid_receipt/,
+  );
+});
+
+test("catalog snapshots require a valid hash and explicit static/schema eligibility", () => {
+  assert.throws(
+    () => validateAndSummarizeCampaignReceipt(validReceipt({
+      requestedModel: "example/model:free",
+      modelIdentityMatched: true,
+      attemptedModels: ["example/model:free"],
+      modelAttempts: [{ model: "example/model:free", tier: "free" }],
+      modelCatalogSnapshot: {
+        checkedAt: "2026-10-31T01:00:00.000Z",
+        freeModelSetHash: "not-a-hash",
+        requestedModelListed: true,
+        requestedModelStaticEligible: true,
+        requestedModelSupportsJsonSchema: true,
+      },
+    })),
+    /invalid_receipt/,
+  );
+});
+
 test("success receipts require exactly one accepted finding", () => {
   assert.throws(
     () => validateAndSummarizeCampaignReceipt(validReceipt({

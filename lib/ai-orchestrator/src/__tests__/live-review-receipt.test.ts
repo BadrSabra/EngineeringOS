@@ -71,6 +71,58 @@ describe("structured live review receipts", () => {
     expect(receipt.attemptedModels).toEqual(["first-model:free", "second-model:free"]);
   });
 
+  it("accepts a requested-model measurement only when exactly that model was attempted", () => {
+    const requestedModel = "expected/model:free";
+    const receipt = buildCodeReviewCampaignReceipt({
+      ...base,
+      scenario: "structured-review",
+      requestedModel,
+      attemptedModels: [requestedModel],
+      modelCatalogSnapshot: {
+        checkedAt: "2026-10-31T01:00:00.000Z",
+        freeModelSetHash: "0123456789abcdef",
+        requestedModelListed: true,
+        requestedModelStaticEligible: true,
+        requestedModelSupportsJsonSchema: true,
+      },
+      result: review(),
+    });
+
+    expect(receipt).toMatchObject({
+      outcomeClass: "fallback-success",
+      requestedModel,
+      attemptedModels: [requestedModel],
+      modelIdentityMatched: true,
+      modelCatalogSnapshot: {
+        requestedModelListed: true,
+        requestedModelStaticEligible: true,
+        requestedModelSupportsJsonSchema: true,
+      },
+    });
+    expect(receipt.accepted).toBe(true);
+  });
+
+  it("keeps a model-attribution mismatch incomplete and without evidence", () => {
+    const receipt = buildCodeReviewCampaignReceipt({
+      ...base,
+      scenario: "structured-review",
+      requestedModel: "expected/model:free",
+      attemptedModels: ["actual/model:free"],
+      result: review(),
+    });
+
+    expect(receipt).toMatchObject({
+      outcomeClass: "terminal-incomplete",
+      terminalStatus: "INCOMPLETE",
+      failureCode: "CAMPAIGN_MODEL_MISMATCH",
+      requestedModel: "expected/model:free",
+      attemptedModels: ["actual/model:free"],
+      modelIdentityMatched: false,
+      accepted: false,
+      evidence: [],
+    });
+  });
+
   it("keeps malformed output and provider outages terminally incomplete", () => {
     const parseReceipt = buildCodeReviewCampaignReceipt({
       ...base,

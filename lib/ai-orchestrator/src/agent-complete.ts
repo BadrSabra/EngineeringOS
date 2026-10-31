@@ -259,6 +259,7 @@ export async function agentComplete(
       await refreshDynamicCatalog(apiKey);
       const modelDecision = resolveExecutionModel(providerId, executionPlan, {
         allowPromptOnlyJson: opts.promptOnlyJson,
+        requireJsonSchema: opts.responseFormat?.type === "json_schema",
       });
       const result = await openrouterCompleteWithFallback(messages, {
         model: modelDecision.model,
@@ -272,6 +273,7 @@ export async function agentComplete(
         capability: modelDecision.capability,
         quality: modelDecision.quality,
         requireTools: qualityHints?.requireTools ?? false,
+        requireJsonSchema: opts.responseFormat?.type === "json_schema",
         maxFallbackModels: opts.maxFallbackModels,
         excludeModels: opts.excludeModels,
         retryTransient: opts.retryTransient,

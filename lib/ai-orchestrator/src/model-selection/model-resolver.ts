@@ -87,7 +87,10 @@ function selectCapability(plan: ExecutionPlan): ModelCapability {
 export function resolveExecutionModel(
   providerId: ProviderId,
   plan: ExecutionPlan,
-  options: { allowPromptOnlyJson?: boolean } = {},
+  options: {
+    allowPromptOnlyJson?: boolean;
+    requireJsonSchema?: boolean;
+  } = {},
 ): ExecutionModelDecision {
   const provider = loadProvider(providerId);
   // Capability probes are deliberately a fast, tool-capable contract. They
@@ -101,6 +104,8 @@ export function resolveExecutionModel(
     ? "coding"
     : selectCapability(plan);
   const requireTools = isCapabilityProbe ? true : plan.strictHints.requireTools ?? false;
+  const requireJsonSchema = options.requireJsonSchema === true;
+  const requireJson = capability === "json" || requireJsonSchema;
 
   let decision: ExecutionModelDecision;
 
@@ -109,6 +114,8 @@ export function resolveExecutionModel(
       capability,
       quality: wantPowerful ? "powerful" : "fast",
       requireTools,
+      requireJson,
+      requireJsonSchema,
       taskType: plan.taskProfile.taskType,
     }).map((model) => model.id);
 
@@ -121,6 +128,8 @@ export function resolveExecutionModel(
         liveModel = resolveFreeModelOverride(configuredModel, {
           capability,
           requireTools,
+          requireJson,
+          requireJsonSchema,
         });
       } catch (error) {
         // An environment-pinned model can become paid, retired, or lose the

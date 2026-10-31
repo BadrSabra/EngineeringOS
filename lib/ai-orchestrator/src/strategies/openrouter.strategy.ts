@@ -234,7 +234,9 @@ export const openrouterStrategy: ProviderStrategy = {
     try {
       const pinnedModelIsCurrent = opts.model
         ? (opts.capability
-          ? isCatalogFreeModelForCapability(opts.model, { capability: opts.capability })
+          ? isCatalogFreeModelForCapability(opts.model, {
+              capability: opts.capability,
+            })
           : isCatalogFreeModel(opts.model))
         : true;
       const requestOpts = pinnedModelIsCurrent ? opts : { ...opts, model: undefined };

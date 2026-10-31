@@ -12,6 +12,11 @@ import process from "node:process";
 import {
   buildCodeReviewCampaignReceipt,
   CODE_REVIEW_CAMPAIGN_SCENARIOS,
+  getDynamicCatalogStatus,
+  getUsableDynamicModelFormatSupport,
+  getUsableDynamicModelIds,
+  resolveFreeModelOverride,
+  refreshDynamicCatalog,
   reviewCode,
   type CodeReviewCampaignScenario,
   type ProviderId,
@@ -35,6 +40,14 @@ const runState = {
   projectRevision: "runtime-failure",
   observedModels: [] as string[],
   fallbackReason: undefined as string | undefined,
+  requestedModel: undefined as string | undefined,
+  modelCatalogSnapshot: undefined as {
+    checkedAt: string;
+    freeModelSetHash: string;
+    requestedModelListed: boolean;
+    requestedModelStaticEligible: boolean;
+    requestedModelSupportsJsonSchema: boolean | null;
+  } | undefined,
 };
 // The campaign must exercise accepted selected-file evidence, not merely prove
 // that a model can return an empty clean-review result. Keep one obvious,
@@ -126,6 +139,52 @@ async function main(): Promise<void> {
     projectId: campaignProjectId,
     outputPath: campaignOutputPath,
   } = configuration;
+  const configuredModel = process.env.LIVE_REVIEW_MODEL?.trim();
+  const requestedModel = campaignProvider === "openrouter" ? configuredModel : undefined;
+  runState.requestedModel = requestedModel;
+  if (requestedModel) {
+    const apiKey = process.env[providerKeys[campaignProvider]]?.trim();
+    if (!apiKey) throw new Error("provider_key_missing");
+    await refreshDynamicCatalog(apiKey);
+    const catalogStatus = getDynamicCatalogStatus();
+    const currentFreeIds = getUsableDynamicModelIds();
+    if (!catalogStatus.usable || !currentFreeIds) {
+      throw new Error("current_free_catalog_unavailable");
+    }
+    const formatSupport = getUsableDynamicModelFormatSupport(requestedModel);
+    let requestedModelStaticEligible = false;
+    try {
+      resolveFreeModelOverride(requestedModel, {
+        capability: "json",
+        requireJson: true,
+        requireJsonSchema: true,
+      });
+      requestedModelStaticEligible = true;
+    } catch {
+      // A dynamic catalog entry is not enough: execution must also accept the
+      // exact ID through the current server-owned free-model allowlist.
+    }
+    const modelCatalogSnapshot = {
+      checkedAt: new Date().toISOString(),
+      freeModelSetHash: createHash("sha256")
+        .update([...currentFreeIds].sort().join("\n"))
+        .digest("hex")
+        .slice(0, 16),
+      requestedModelListed: currentFreeIds.has(requestedModel),
+      requestedModelStaticEligible,
+      requestedModelSupportsJsonSchema: formatSupport?.supportsJsonSchema ?? null,
+    };
+    runState.modelCatalogSnapshot = modelCatalogSnapshot;
+    if (!modelCatalogSnapshot.requestedModelListed) {
+      throw new Error("requested_model_not_in_current_free_catalog");
+    }
+    if (!modelCatalogSnapshot.requestedModelStaticEligible) {
+      throw new Error("requested_model_not_in_static_free_allowlist");
+    }
+    if (modelCatalogSnapshot.requestedModelSupportsJsonSchema !== true) {
+      throw new Error("requested_model_json_schema_capability_not_verified");
+    }
+  }
   const rootPath = await createHostDisposableTempDirectory("engineeringos-live-review-");
   try {
     await fs.mkdir(path.dirname(path.join(rootPath, selectedFile)), { recursive: true });
@@ -135,11 +194,10 @@ async function main(): Promise<void> {
     // body. It lets an audit distinguish runs without retaining source text.
     const projectRevision = createHash("sha256").update(fixtureContents).digest("hex").slice(0, 16);
     runState.projectRevision = projectRevision;
-    const configuredModel = process.env.LIVE_REVIEW_MODEL?.trim();
-    if (campaignProvider === "openrouter" && configuredModel) {
+    if (requestedModel) {
       // OpenRouter's existing resolver validates this override against the
       // current free catalog before making a request.
-      process.env.OPENROUTER_MODEL = configuredModel;
+      process.env.OPENROUTER_MODEL = requestedModel;
     }
 
     let result: Awaited<ReturnType<typeof reviewCode>> | undefined;
@@ -158,7 +216,7 @@ async function main(): Promise<void> {
         { [selectedFile]: fixtureContents },
         {
           provider: campaignProvider,
-          apiKey: process.env[providerKeys[provider]],
+          apiKey: process.env[providerKeys[campaignProvider]],
           maxFallbackModels: campaignProvider === "openrouter" && configuredModel ? 1 : 3,
           retryTransient: false,
           qualityProfile: "code_review",
@@ -187,16 +245,16 @@ async function main(): Promise<void> {
       projectId: campaignProjectId,
       projectRevision,
       selectedFile,
+      requestedModel,
+      modelCatalogSnapshot: runState.modelCatalogSnapshot,
       result,
       error,
       attemptedModels: [
         ...runState.observedModels,
-        ...(configuredModel ? [configuredModel] : []),
         ...attemptedModelsFrom(error),
       ],
       modelAttempts: [...new Set([
         ...runState.observedModels,
-        ...(configuredModel ? [configuredModel] : []),
         ...attemptedModelsFrom(error),
       ])].map((model) => ({
         model,
@@ -220,6 +278,10 @@ async function main(): Promise<void> {
       outcomeClass: receipt.outcomeClass,
       terminalStatus: receipt.terminalStatus,
       failureCode: receipt.failureCode ?? null,
+      requestedModel: receipt.requestedModel ?? null,
+      modelIdentityMatched: receipt.modelIdentityMatched ?? null,
+      attemptedModels: receipt.attemptedModels,
+      modelCatalogSnapshot: receipt.modelCatalogSnapshot ?? null,
       evidenceCount: receipt.evidence.length,
     }));
   } finally {
@@ -244,6 +306,8 @@ try {
       projectId: projectId ?? "campaign-runtime-failure",
       projectRevision: runState.projectRevision,
       selectedFile,
+      requestedModel: runState.requestedModel,
+      modelCatalogSnapshot: runState.modelCatalogSnapshot,
       error,
       attemptedModels: models,
       modelAttempts: [...new Set(models)].map((model) => ({
