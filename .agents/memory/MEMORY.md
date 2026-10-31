@@ -155,3 +155,4 @@
 - [Home work summary policy](work-summary-policy.md) — advisory sampling avoids proof/recovery work during polling; preserve coherent reads and independent review coverage.
 - [Live benchmark failure attribution](live-benchmark-failure-attribution.md) — use the resolved fixture and sanitized proof; do not infer scope or typecheck causes from partial maps.
 - [Node CLI entrypoint paths](node-cli-entrypoint-paths.md) — normalize relative `argv[1]` against the working directory before comparing it with `import.meta.url`.
+- [Replit dev-banner base path](replit-dev-banner-base-path.md) — the dev-banner injects a root-absolute script URL; only enable it for root-mounted artifacts.

@@ -21,9 +21,16 @@ const developmentPlugins =
             root: path.resolve(import.meta.dirname, '..'),
           }),
         ),
-        await import('@replit/vite-plugin-dev-banner').then((m) =>
-          m.devBanner(),
-        ),
+        // The plugin injects its script at the origin root. Path-routed
+        // artifacts are served under BASE_PATH, so that request misses the
+        // artifact router and returns 404. Keep it only for root-mounted apps.
+        ...(process.env.BASE_PATH === '/'
+          ? [
+              await import('@replit/vite-plugin-dev-banner').then((m) =>
+                m.devBanner(),
+              ),
+            ]
+          : []),
       ]
     : [];
 
