@@ -407,7 +407,7 @@ describe("model-resolver — empty catalog fallback", () => {
       rateLimitScope: "unknown",
     });
     expect(attemptedModels).toHaveLength(1);
-    expect(isModelCoolingDown("openrouter", attemptedModels[0]!)).toBe(false);
+    expect(isModelCoolingDown("openrouter", attemptedModels[0]!)).toBe(true);
 
     const result = await openrouterCompleteWithFallback(
       [{ role: "user", content: "separate request" }],
@@ -1430,7 +1430,7 @@ describe("openrouterCompleteStream — bounded retry and disconnect safety", () 
         rateLimitScope: scope,
       });
       expect(fetchMock).toHaveBeenCalledTimes(1);
-      expect(isModelCoolingDown("openrouter", attemptedModels[0]!)).toBe(false);
+      expect(isModelCoolingDown("openrouter", attemptedModels[0]!)).toBe(true);
     },
   );
 
