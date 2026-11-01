@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   buildAiReleaseCheckEnvironment,
   evaluateAiReleaseQuality,
+  getAiReleaseExecutionProfile,
   getAiReleaseChecks,
   type AiReleaseCheckResult,
 } from "./ai-release-quality-gate.js";
@@ -25,6 +26,31 @@ describe("AI release quality gate", () => {
     const checks = getAiReleaseChecks();
     expect(checks.find((check) => check.id === "dashboard-preview-contract")?.enabled).toBe(true);
     expect(checks.some((check) => check.id === "live-provider-quality")).toBe(false);
+  });
+
+  it("uses server-owned argv profiles for every executable release check", () => {
+    const checks = getAiReleaseChecks({ enableLiveProvider: true })
+      .filter((check) => check.id !== "benchmark-runtime-oracle-preflight");
+    for (const check of checks) {
+      const profile = getAiReleaseExecutionProfile(check.id);
+      expect(profile, check.id).toBeDefined();
+      expect(profile?.length, check.id).toBeGreaterThan(0);
+      for (const step of profile ?? []) {
+        expect(step.executable, check.id).toBe("pnpm");
+        expect(step.args.length, check.id).toBeGreaterThan(0);
+        expect(
+          step.args.some((argument) =>
+            ["&&", "||", ";"].includes(argument)
+            || argument.includes("`")
+            || argument.includes("$("),
+          ),
+          check.id,
+        ).toBe(false);
+      }
+    }
+    expect(getAiReleaseExecutionProfile("ai-contract-and-json")).toHaveLength(2);
+    expect(getAiReleaseExecutionProfile("ai-sse-and-redaction")).toHaveLength(2);
+    expect(getAiReleaseExecutionProfile("not-registered")).toBeUndefined();
   });
 
   it("allows an explicit local opt-out without changing the standard release default", () => {
@@ -134,13 +160,31 @@ describe("AI release quality gate", () => {
     const previewCheck = getAiReleaseChecks().find(
       (candidate) => candidate.id === "dashboard-preview-contract",
     )!;
-    expect(buildAiReleaseCheckEnvironment(previewCheck, baseEnv)).toMatchObject({
+    expect(buildAiReleaseCheckEnvironment(previewCheck, {
+      ...baseEnv,
+      REPLIT_DEV_DOMAIN: "fixture.replit.dev",
+    })).toMatchObject({
       RELEASE_VALIDATION_LOCK_HELD: "1",
       RELEASE_AI_STREAM_LOCK_HELD: "1",
       RUN_CONTROLLED_RELEASE_VALIDATION: "1",
       AI_PROVIDER_EGRESS_DISABLED: "1",
       DASHBOARD_E2E_TEST_MODE: "fixture",
+      RELEASE_VALIDATION_WAIT_FOR_LOCK: "1",
+      DASHBOARD_E2E_BROWSER: "firefox",
+      DASHBOARD_E2E_SKIP_API_CONTRACTS: "1",
+      APP_ORIGINS: "https://fixture.replit.dev",
     });
+  });
+
+  it("does not interpolate an invalid preview origin into child environment", () => {
+    const previewCheck = getAiReleaseChecks().find(
+      (candidate) => candidate.id === "dashboard-preview-contract",
+    )!;
+    const env = buildAiReleaseCheckEnvironment(previewCheck, {
+      APP_ORIGINS: "https://attacker.example",
+      REPLIT_DEV_DOMAIN: "fixture.replit.dev;curl.example",
+    });
+    expect(env).not.toHaveProperty("APP_ORIGINS");
   });
 
   it("gives pending-workspace safety validation bounded typecheck headroom", () => {

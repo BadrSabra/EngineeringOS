@@ -206,6 +206,83 @@ const CHECKS: readonly Omit<AiReleaseCheckDefinition, "enabled">[] = [
   },
 ];
 
+export type AiReleaseCommandStep = {
+  executable: "pnpm";
+  args: readonly string[];
+  environment?: Readonly<Record<string, string>>;
+};
+
+const pnpmStep = (
+  ...args: string[]
+): AiReleaseCommandStep => ({ executable: "pnpm", args });
+
+/**
+ * The display command on each check is receipt metadata only. Runtime
+ * execution is selected from this server-owned argv registry; it is never
+ * interpolated into a shell.
+ */
+const AI_RELEASE_COMMAND_PROFILES: Readonly<Record<string, readonly AiReleaseCommandStep[]>> = {
+  "api-typecheck": [pnpmStep("--filter", "@workspace/api-server", "run", "typecheck")],
+  "dashboard-typecheck": [pnpmStep("--filter", "@workspace/dashboard", "run", "typecheck")],
+  "openapi-client-parity": [pnpmStep("run", "codegen:check")],
+  "truth-flow-parity": [pnpmStep("run", "truth:validate")],
+  "ai-contract-and-json": [
+    pnpmStep("--filter", "@workspace/api-server", "exec", "vitest", "run", "src/routes/ai-route-parity.test.ts"),
+    pnpmStep("--filter", "@workspace/api-server", "exec", "vitest", "run", "src/routes/ai.test.ts"),
+  ],
+  "ai-structured-review-fallback": [
+    pnpmStep("--filter", "@workspace/ai-orchestrator", "run", "test:structured-review-fallback-release"),
+  ],
+  "ai-capability-probe-provider-matrix": [
+    pnpmStep("--filter", "@workspace/ai-orchestrator", "run", "test:capability-probe-release"),
+  ],
+  "ai-sse-and-redaction": [
+    pnpmStep("--filter", "@workspace/api-server", "exec", "vitest", "run", "src/routes/ai-stream-integration.test.ts"),
+    pnpmStep("--filter", "@workspace/api-server", "exec", "vitest", "run", "src/routes/ai/chat-sse.test.ts"),
+  ],
+  "ai-stream-release-smoke": [
+    pnpmStep("--filter", "@workspace/api-server", "run", "test:release-ai-stream-smoke"),
+  ],
+  "ai-long-run-ownership": [{
+    ...pnpmStep("--filter", "@workspace/api-server", "exec", "node", "scripts/run-release-ai-stream.mjs"),
+    environment: {
+      RELEASE_AI_STREAM_TEST_NAME:
+        "renews ownership through a bounded long provider/tool phase beyond one heartbeat interval and cleans up after success",
+    },
+  }],
+  "ai-operational-safety": [
+    pnpmStep(
+      "--filter",
+      "@workspace/api-server",
+      "exec",
+      "vitest",
+      "run",
+      "src/routes/ai-repair-loop-e2e.test.ts",
+      "src/lib/ai-repair-validation.test.ts",
+      "src/lib/job-concurrency.test.ts",
+    ),
+  ],
+  "ai-deterministic-benchmark": [
+    pnpmStep("--filter", "@workspace/ai-orchestrator", "run", "benchmark:code-agent:deterministic"),
+  ],
+  "benchmark-baseline-regression": [pnpmStep("run", "benchmark:baseline:check")],
+  "dashboard-preview-contract": [pnpmStep("run", "validate:dashboard-journey")],
+  "live-provider-quality": [
+    pnpmStep("--filter", "@workspace/api-server", "run", "validate:live-provider-review"),
+  ],
+};
+
+export function getAiReleaseExecutionProfile(
+  checkId: string,
+): readonly AiReleaseCommandStep[] | undefined {
+  const profile = AI_RELEASE_COMMAND_PROFILES[checkId];
+  return profile?.map((step) => ({
+    ...step,
+    args: [...step.args],
+    ...(step.environment ? { environment: { ...step.environment } } : {}),
+  }));
+}
+
 export function getAiReleaseChecks(options: {
   enablePreview?: boolean;
   enableLiveProvider?: boolean;
@@ -386,6 +463,19 @@ export function buildAiReleaseCheckEnvironment(
   if (check.kind === "preview") {
     childEnv.AI_PROVIDER_EGRESS_DISABLED = "1";
     childEnv.DASHBOARD_E2E_TEST_MODE = "fixture";
+    childEnv.RELEASE_VALIDATION_WAIT_FOR_LOCK = "1";
+    childEnv.DASHBOARD_E2E_BROWSER = "firefox";
+    childEnv.DASHBOARD_E2E_SKIP_API_CONTRACTS = "1";
+    delete childEnv.APP_ORIGINS;
+    const devDomain = baseEnv.REPLIT_DEV_DOMAIN?.trim();
+    if (
+      devDomain
+      && devDomain.length <= 253
+      && /^[a-z0-9](?:[a-z0-9.-]*[a-z0-9])?$/i.test(devDomain)
+      && !devDomain.includes("..")
+    ) {
+      childEnv.APP_ORIGINS = `https://${devDomain}`;
+    }
   } else {
     delete childEnv.AI_PROVIDER_EGRESS_DISABLED;
   }
@@ -461,42 +551,77 @@ export function evaluateAiReleaseQuality(results: readonly AiReleaseCheckResult[
 
 async function runCommand(check: AiReleaseCheckDefinition, cwd: string): Promise<AiReleaseCheckResult> {
   const started = Date.now();
-  return await new Promise((resolve) => {
-    // Output is deliberately drained but never included in the report. This
-    // keeps prompts, model output, source snippets, and credentials out of
-    // persisted release artifacts.
-    const childEnv = buildAiReleaseCheckEnvironment(check);
-    let output = "";
-    const capture = (chunk: Buffer | string): void => {
-      if (output.length >= MAX_CAPTURED_OUTPUT) return;
-      output += chunk.toString().slice(0, MAX_CAPTURED_OUTPUT - output.length);
-    };
-    const child = spawn("sh", ["-c", check.command], {
-      cwd,
-      env: childEnv,
-      stdio: ["ignore", "pipe", "pipe"],
-    });
-    child.stdout?.on("data", capture);
-    child.stderr?.on("data", capture);
-    child.once("error", () => resolve({
+  const profile = getAiReleaseExecutionProfile(check.id);
+  if (!profile?.length) {
+    return {
       ...check,
       status: "failed",
       failureCode: failureCode(check, null, null),
-      diagnostic: failureDiagnostic(check, output, false),
+      diagnostic: failureDiagnostic(check, "", false),
       durationMs: Date.now() - started,
-    }));
-    child.once("exit", (exitCode, signal) => resolve({
-      ...check,
-      status: exitCode === 0 ? "passed" : "failed",
-      ...(exitCode === 0
-        ? {}
-        : {
-            failureCode: failureCode(check, exitCode, signal),
-            diagnostic: failureDiagnostic(check, output, true),
-          }),
-      durationMs: Date.now() - started,
-    }));
-  });
+    };
+  }
+
+  // Output is deliberately drained but never included in the report. This
+  // keeps prompts, model output, source snippets, and credentials out of
+  // persisted release artifacts.
+  let output = "";
+  const capture = (chunk: Buffer | string): void => {
+    if (output.length >= MAX_CAPTURED_OUTPUT) return;
+    output += chunk.toString().slice(0, MAX_CAPTURED_OUTPUT - output.length);
+  };
+  const childEnv = buildAiReleaseCheckEnvironment(check);
+  for (const step of profile) {
+    const result = await new Promise<{
+      exitCode: number | null;
+      signal: NodeJS.Signals | null;
+      spawnError: boolean;
+    }>((resolve) => {
+      let settled = false;
+      const finish = (value: {
+        exitCode: number | null;
+        signal: NodeJS.Signals | null;
+        spawnError: boolean;
+      }): void => {
+        if (settled) return;
+        settled = true;
+        resolve(value);
+      };
+      let child: ReturnType<typeof spawn>;
+      try {
+        child = spawn(step.executable, [...step.args], {
+          cwd,
+          env: { ...childEnv, ...step.environment },
+          stdio: ["ignore", "pipe", "pipe"],
+        });
+      } catch {
+        finish({ exitCode: null, signal: null, spawnError: true });
+        return;
+      }
+      child.stdout?.on("data", capture);
+      child.stderr?.on("data", capture);
+      child.once("error", () => finish({ exitCode: null, signal: null, spawnError: true }));
+      child.once("close", (exitCode, signal) => finish({
+        exitCode,
+        signal,
+        spawnError: false,
+      }));
+    });
+    if (result.spawnError || result.exitCode !== 0) {
+      return {
+        ...check,
+        status: "failed",
+        failureCode: failureCode(check, result.exitCode, result.signal),
+        diagnostic: failureDiagnostic(check, output, result.exitCode !== null),
+        durationMs: Date.now() - started,
+      };
+    }
+  }
+  return {
+    ...check,
+    status: "passed",
+    durationMs: Date.now() - started,
+  };
 }
 
 export async function runAiReleaseQualityGate(options: {
