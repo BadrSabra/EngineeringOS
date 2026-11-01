@@ -8,6 +8,7 @@ import {
   projectsTable,
 } from "@workspace/db";
 import { lockEpisodeExecutionPair } from "./episode-execution-lock.js";
+import { materializeServerOwnedObservations } from "./observation-materializer.js";
 
 const projectIds: string[] = [];
 
@@ -83,6 +84,33 @@ async function waitForExecutionLockWaiter() {
   throw new Error("Timed out waiting for the proof reader to wait on the Execution row.");
 }
 
+async function waitForObservationMaterializerLockWait() {
+  const deadline = Date.now() + 10_000;
+  while (Date.now() < deadline) {
+    const result = await db.execute(sql`
+      SELECT waiting.pid, waiting.query, pg_blocking_pids(waiting.pid) AS blockers
+      FROM pg_stat_activity AS waiting
+      WHERE waiting.pid <> pg_backend_pid()
+        AND waiting.datname = current_database()
+        AND waiting.wait_event_type = 'Lock'
+        AND cardinality(pg_blocking_pids(waiting.pid)) > 0
+        AND (
+          waiting.query ILIKE '%ai_executions%'
+          OR waiting.query ILIKE '%ai_agent_observations%'
+        )
+    `);
+    const rows = (result as unknown as {
+      rows?: Array<{ pid: number; query: string | null; blockers: number[] }>;
+    }).rows ?? [];
+    const matching = rows.filter((row) =>
+      /ai_executions|ai_agent_observations/i.test(row.query ?? "")
+    );
+    if (matching.length > 0) return matching;
+    await new Promise((resolve) => setTimeout(resolve, 25));
+  }
+  throw new Error("Timed out waiting for observation materialization to reach its row lock.");
+}
+
 function errorCodes(value: unknown): string[] {
   const codes: string[] = [];
   const seen = new Set<unknown>();
@@ -155,6 +183,76 @@ it("locks Execution before Episode while acceptance finalization closes an accep
       throw new Error("Expected the proof reader to complete after finalization released Execution.");
     }
     expect(outcomes[1].value.kind).toBe("locked");
+  } finally {
+    continueToEpisodeLock();
+    await Promise.allSettled(pending);
+  }
+});
+
+it("locks Execution before Episode while post-acceptance observations are materialized", async () => {
+  const fixture = await createFixture();
+  let announceExecutionLock!: () => void;
+  let continueToEpisodeLock!: () => void;
+  const executionLocked = new Promise<void>((resolve) => {
+    announceExecutionLock = resolve;
+  });
+  const canLockEpisode = new Promise<void>((resolve) => {
+    continueToEpisodeLock = resolve;
+  });
+  const pending: Promise<unknown>[] = [];
+
+  const finalizer = db.transaction(async (tx) => {
+    await tx.select({ id: aiExecutionsTable.id })
+      .from(aiExecutionsTable)
+      .where(eq(aiExecutionsTable.id, fixture.executionId))
+      .for("update");
+    announceExecutionLock();
+    await canLockEpisode;
+    const [episode] = await tx.select({ id: aiAgentEpisodesTable.id })
+      .from(aiAgentEpisodesTable)
+      .where(eq(aiAgentEpisodesTable.id, fixture.episodeId))
+      .for("update");
+    if (!episode) throw new Error("Expected the finalizer to find its episode.");
+  });
+  pending.push(finalizer);
+  try {
+    await executionLocked;
+    const materialization = materializeServerOwnedObservations({
+      projectId: fixture.projectId,
+      executionId: fixture.executionId,
+      attempt: 0,
+      episodeId: fixture.episodeId,
+      projectRevision: "a".repeat(40),
+      materializeWorldState: false,
+      sources: [{
+        kind: "direct_observation",
+        sourceId: `post-acceptance-lock-order:${fixture.executionId}`,
+        subject: `execution:${fixture.executionId}`,
+        predicate: "acceptance.lock_order",
+        value: { status: "materialized" },
+        sourceRevision: "a".repeat(40),
+        observedAt: new Date(),
+      }],
+    });
+    pending.push(materialization);
+    const lockWaiters = await waitForObservationMaterializerLockWait();
+    continueToEpisodeLock();
+
+    const outcomes = await Promise.allSettled([finalizer, materialization] as const);
+    const deadlocks = outcomes.filter((outcome) =>
+      outcome.status === "rejected" && errorCodes(outcome.reason).includes("40P01"),
+    );
+    expect(deadlocks, JSON.stringify({
+      lockWaiters,
+      outcomes: outcomes.map((outcome) =>
+        outcome.status === "fulfilled" ? "fulfilled" : errorCodes(outcome.reason),
+      ),
+    })).toHaveLength(0);
+    expect(outcomes.map((outcome) => outcome.status)).toEqual(["fulfilled", "fulfilled"]);
+    if (outcomes[1]?.status !== "fulfilled") {
+      throw new Error("Expected post-acceptance observation materialization to complete after finalization.");
+    }
+    expect(outcomes[1].value).toMatchObject({ inserted: 1, duplicates: 0 });
   } finally {
     continueToEpisodeLock();
     await Promise.allSettled(pending);

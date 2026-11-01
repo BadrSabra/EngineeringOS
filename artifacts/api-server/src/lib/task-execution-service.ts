@@ -1232,16 +1232,24 @@ async function persistMissionRepairCandidateProposal(params: {
         }),
       },
     );
-    if (
-      validation.status !== "passed"
-      || !validation.evidence.evidenceId
-      || !validation.evidence.artifactRef
-      || validation.evidence.validatorProfile !== params.draft.validationProfile
-      || await hashDeliveryTree(deliveryWorkspace.workspaceRoot) !== deliveryWorkspace.candidateTreeHash
-      || await hashDeliveryTree(params.rootPath) !== deliveryWorkspace.baseTreeHash
-    ) {
-      throw new Error("mission_candidate_delivery_validation_not_proven");
-    }
+    const candidateTreeStillMatches = await hashDeliveryTree(deliveryWorkspace.workspaceRoot)
+      === deliveryWorkspace.candidateTreeHash;
+    const baseTreeStillMatches = await hashDeliveryTree(params.rootPath)
+      === deliveryWorkspace.baseTreeHash;
+    const validationFailureCode = validation.status !== "passed"
+      ? "mission_candidate_validator_not_passed"
+      : !validation.evidence.evidenceId
+        ? "mission_candidate_validator_evidence_missing"
+        : !validation.evidence.artifactRef
+          ? "mission_candidate_validator_artifact_missing"
+          : validation.evidence.validatorProfile !== params.draft.validationProfile
+            ? "mission_candidate_validator_profile_mismatch"
+            : !candidateTreeStillMatches
+              ? "mission_candidate_candidate_tree_changed_during_validation"
+              : !baseTreeStillMatches
+                ? "mission_candidate_base_tree_changed_during_validation"
+                : undefined;
+    if (validationFailureCode) throw new Error(validationFailureCode);
 
     const [handoff] = await db
       .select({ sessionId: aiMissionHandoffsTable.sessionId })
@@ -4973,10 +4981,17 @@ export async function executeTaskLifecycle(params: {
       } catch (error) {
         missionExecution.proof.status = "INCOMPLETE";
         delete missionExecution.proof.candidateProposalDraft;
+        const failureCode = error instanceof Error
+          && /^mission_candidate_[a-z0-9_]+$/.test(error.message)
+          ? error.message
+          : error instanceof Error
+            ? error.name
+            : "untyped_error";
         logger.warn(
           {
             scope: "task-execution",
             code: "mission_candidate_proposal_persistence_failed",
+            failureCode,
             taskId: before.id,
             executionId,
             error,

@@ -1,7 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { and, desc, eq, isNull } from "drizzle-orm";
 import {
-  aiExecutionsTable,
   aiAgentEpisodesTable,
   aiAgentObservationsTable,
   db,
@@ -22,6 +21,7 @@ import {
   childProcessBindingDigest,
   type ChildProcessEnvironmentAttestation,
 } from "./child-process-attestation.js";
+import { lockEpisodeExecutionPair } from "./episode-execution-lock.js";
 import { materializeWorldStateForProject } from "./world-state.js";
 
 const MAX_SOURCES = 32;
@@ -687,25 +687,53 @@ export async function materializeServerOwnedObservations(
     }
   }
   const result = await db.transaction(async (tx) => {
+    const episodeFilters = [
+      eq(aiAgentEpisodesTable.projectId, input.projectId),
+      eq(aiAgentEpisodesTable.executionId, input.executionId),
+      eq(aiAgentEpisodesTable.attempt, input.attempt),
+    ];
+    if (input.episodeId) episodeFilters.push(eq(aiAgentEpisodesTable.id, input.episodeId));
+    const [episodeIdentity] = await tx
+      .select({ id: aiAgentEpisodesTable.id })
+      .from(aiAgentEpisodesTable)
+      .where(and(...episodeFilters))
+      .limit(1);
+    if (!episodeIdentity) throw new Error("observation_materialization_episode_not_found");
+
+    // Observations reference both Execution and Episode. Use the shared
+    // execution-before-episode lock boundary even for post-acceptance writes
+    // without a worker lease; otherwise the observation FK can request an
+    // Execution key-share lock while this transaction already holds Episode.
+    const lockedPair = await lockEpisodeExecutionPair(tx, {
+      projectId: input.projectId,
+      episodeId: episodeIdentity.id,
+    });
+    if (lockedPair.kind === "episode_not_found") {
+      throw new Error("observation_materialization_episode_not_found");
+    }
+    if (lockedPair.kind === "execution_not_found") {
+      throw new Error("observation_materialization_execution_not_found");
+    }
+    if (lockedPair.kind === "episode_changed") {
+      throw new Error("observation_materialization_episode_identity_changed");
+    }
+    if (lockedPair.kind !== "locked") {
+      throw new Error("observation_materialization_episode_identity_changed");
+    }
+    const { execution, episode } = lockedPair;
+    if (
+      execution.projectId !== input.projectId
+      || execution.id !== input.executionId
+      || execution.attempt !== input.attempt
+      || episode.executionId !== input.executionId
+      || episode.attempt !== input.attempt
+    ) {
+      throw new Error("observation_materialization_episode_identity_changed");
+    }
+
     if (input.workerLease) {
-      // Match terminalization's lock order: execution first, then Episode.
-      const [execution] = await tx
-        .select({
-          projectId: aiExecutionsTable.projectId,
-          attempt: aiExecutionsTable.attempt,
-          status: aiExecutionsTable.status,
-          workerId: aiExecutionsTable.workerId,
-          leaseUntil: aiExecutionsTable.leaseUntil,
-          cancelRequestedAt: aiExecutionsTable.cancelRequestedAt,
-        })
-        .from(aiExecutionsTable)
-        .where(eq(aiExecutionsTable.id, input.executionId))
-        .for("update");
       if (
-        !execution
-        || execution.projectId !== input.projectId
-        || execution.attempt !== input.attempt
-        || execution.status !== "running"
+        execution.status !== "running"
         || execution.workerId !== input.workerLease.workerId
         || !execution.leaseUntil
         || execution.leaseUntil.getTime() <= Date.now()
@@ -714,18 +742,6 @@ export async function materializeServerOwnedObservations(
         throw new Error("observation_materialization_stale_worker");
       }
     }
-    const episodeFilters = [
-      eq(aiAgentEpisodesTable.projectId, input.projectId),
-      eq(aiAgentEpisodesTable.executionId, input.executionId),
-      eq(aiAgentEpisodesTable.attempt, input.attempt),
-    ];
-    if (input.episodeId) episodeFilters.push(eq(aiAgentEpisodesTable.id, input.episodeId));
-    const [episode] = await tx
-      .select()
-      .from(aiAgentEpisodesTable)
-      .where(and(...episodeFilters))
-      .for("update");
-    if (!episode) throw new Error("observation_materialization_episode_not_found");
     for (const source of input.sources) {
       if (
         source.kind !== "child_process_attestation"

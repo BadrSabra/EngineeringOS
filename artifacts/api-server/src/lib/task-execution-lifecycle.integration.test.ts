@@ -30,6 +30,7 @@ import {
   aiChatMessagesTable,
   aiChatSessionsTable,
   aiExecutionsTable,
+  aiChangeProposalsTable,
   aiGoalsTable,
   aiMissionsTable,
   aiUsageEventsTable,
@@ -82,9 +83,19 @@ const providerStrategyState = vi.hoisted(() => ({
     toolsCount: number;
   }>,
 }));
-const runRepairValidation = vi.hoisted(() => vi.fn(async (..._args: unknown[]) => ({
+const runRepairValidation = vi.hoisted(() => vi.fn(async (...args: unknown[]) => ({
   status: "passed" as const,
-  evidence: { artifactRef: "fixture-validation-receipt" },
+  evidence: {
+    evidenceId: "fixture-validation-evidence",
+    artifactRef: "fixture-validation-receipt",
+    validatorProfile: String(args[1]),
+    observedAt: new Date().toISOString(),
+  } as {
+    evidenceId?: string;
+    artifactRef: string;
+    validatorProfile?: string;
+    observedAt?: string;
+  },
 })));
 const pendingObservationMaterializations = vi.hoisted(() => [] as Promise<unknown>[]);
 const missionRepairProcessFixture = vi.hoisted(() => ({
@@ -395,6 +406,28 @@ async function waitForTaskUpdateLock(timeoutMs = 10_000) {
     await new Promise((resolveDelay) => setTimeout(resolveDelay, 25));
   }
   throw new Error("Task execution did not reach its row-locked Task claim.");
+}
+
+async function waitForExecutionRowLock(timeoutMs = 10_000) {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    const result = await db.execute(sql`
+      SELECT waiting.query
+      FROM pg_stat_activity AS waiting
+      WHERE waiting.pid <> pg_backend_pid()
+        AND waiting.datname = current_database()
+        AND waiting.wait_event_type = 'Lock'
+        AND cardinality(pg_blocking_pids(waiting.pid)) > 0
+        AND waiting.query ILIKE '%ai_executions%'
+    `);
+    const rows = (result as unknown as { rows?: Array<{ query: string | null }> }).rows ?? [];
+    const blockedExecutionQuery = rows.find((row) =>
+      /ai_executions/i.test(row.query ?? "")
+    );
+    if (blockedExecutionQuery) return blockedExecutionQuery.query;
+    await new Promise((resolveDelay) => setTimeout(resolveDelay, 25));
+  }
+  throw new Error("Task execution did not reach its row-locked execution claim.");
 }
 
 async function drainPendingObservationMaterializations(): Promise<unknown[]> {
@@ -1025,9 +1058,14 @@ describe("real durable task execution lifecycle", () => {
       },
       effectiveProvider: "groq" as const,
     }));
-    runRepairValidation.mockReset().mockImplementation(async () => ({
+    runRepairValidation.mockReset().mockImplementation(async (...args: unknown[]) => ({
       status: "passed" as const,
-      evidence: { artifactRef: "fixture-validation-receipt" },
+      evidence: {
+        evidenceId: "fixture-validation-evidence",
+        artifactRef: "fixture-validation-receipt",
+        validatorProfile: String(args[1]),
+        observedAt: new Date().toISOString(),
+      },
     }));
     missionRepairProcessFixture.candidateWorkspacePath = null;
   });
@@ -1317,19 +1355,24 @@ describe("real durable task execution lifecycle", () => {
         }
         outcome = await lifecyclePromise;
       } else {
-        const actualRecoverAiExecutionResumeToken =
-          aiExecutionState.recoverAiExecutionResumeToken;
-        const recoverySpy = vi.spyOn(aiExecutionState, "recoverAiExecutionResumeToken")
-          .mockImplementation(async (params) => {
-            if (params.executionId === created.execution.id) {
-              await db.update(aiExecutionsTable)
-                .set({ attempt: created.execution.attempt + 1, updatedAt: new Date() })
-                .where(eq(aiExecutionsTable.id, created.execution.id));
-            }
-            return actualRecoverAiExecutionResumeToken(params);
-          });
+        let releaseBlocker!: () => void;
+        let signalBlockerReady!: () => void;
+        const blockerReady = new Promise<void>((resolveReady) => {
+          signalBlockerReady = resolveReady;
+        });
+        const waitForRelease = new Promise<void>((resolveRelease) => {
+          releaseBlocker = resolveRelease;
+        });
+        const blocker = db.transaction(async (tx) => {
+          await tx.update(aiExecutionsTable)
+            .set({ attempt: created.execution.attempt + 1, updatedAt: new Date() })
+            .where(eq(aiExecutionsTable.id, created.execution.id));
+          signalBlockerReady();
+          await waitForRelease;
+        });
+        await blockerReady;
         try {
-          outcome = await executeTaskLifecycle({
+          const lifecyclePromise = executeTaskLifecycle({
             taskId,
             userId,
             provider: { provider: "groq", apiKey: "fixture-provider" },
@@ -1340,8 +1383,23 @@ describe("real durable task execution lifecycle", () => {
             expectedResumeAttempt: created.execution.attempt,
             resumeExecutionId: created.execution.id,
           });
+          let lockWaitError: unknown;
+          try {
+            await waitForExecutionRowLock();
+          } catch (error) {
+            lockWaitError = error;
+          } finally {
+            releaseBlocker();
+            await blocker;
+          }
+          if (lockWaitError) {
+            await lifecyclePromise.catch(() => undefined);
+            throw lockWaitError;
+          }
+          outcome = await lifecyclePromise;
         } finally {
-          recoverySpy.mockRestore();
+          releaseBlocker();
+          await blocker;
         }
       }
       expect(outcome).toMatchObject({
@@ -3410,7 +3468,7 @@ describe("real durable task execution lifecycle", () => {
     }
   });
 
-  it("requires a directly observed candidate effect for an approved Mission repair", async () => {
+  it("stages a directly observed Mission repair candidate without changing the live tree", async () => {
     const fixture = await createMissionToolLoopFixture({
       phase: "execute",
       approvalRequired: false,
@@ -3582,13 +3640,74 @@ describe("real durable task execution lifecycle", () => {
       });
 
       expect(outcome.ok).toBe(true);
+      const [proposalBinding] = outcome.executionId
+        ? await db
+            .select({
+              status: aiExecutionsTable.status,
+              proposalId: aiExecutionsTable.proposalId,
+            })
+            .from(aiExecutionsTable)
+            .where(eq(aiExecutionsTable.id, outcome.executionId))
+            .limit(1)
+        : [];
       expect(outcome.status).toBe("completed");
+      expect(proposalBinding).toMatchObject({
+        status: "completed",
+        proposalId: expect.any(String),
+      });
+      const [proposal] = await db
+        .select({
+          projectId: aiChangeProposalsTable.projectId,
+          status: aiChangeProposalsTable.status,
+          approvalRequired: aiChangeProposalsTable.approvalRequired,
+          lifecycle: aiChangeProposalsTable.lifecycle,
+          candidateTreeHash: aiChangeProposalsTable.candidateTreeHash,
+          validationEvidence: aiChangeProposalsTable.validationEvidence,
+        })
+        .from(aiChangeProposalsTable)
+        .where(eq(aiChangeProposalsTable.id, proposalBinding!.proposalId!))
+        .limit(1);
+      expect(proposal).toMatchObject({
+        projectId: fixture.projectId,
+        status: "pending",
+        approvalRequired: true,
+        lifecycle: "validated",
+        candidateTreeHash: expect.stringMatching(/^[a-f0-9]{64}$/),
+      });
+      const proposalEvidence = JSON.parse(proposal?.validationEvidence ?? "[]") as Array<{
+        projectId?: string;
+        executionId?: string;
+        missionId?: string;
+        goalId?: string;
+        candidateTreeHash?: string;
+        evidence?: { candidateHash?: string; projectRevision?: string };
+      }>;
+      expect(proposalEvidence).toHaveLength(1);
+      expect(proposalEvidence[0]).toMatchObject({
+        projectId: fixture.projectId,
+        executionId: outcome.executionId,
+        missionId: fixture.missionId,
+        goalId: fixture.goalId,
+        candidateTreeHash: proposal?.candidateTreeHash,
+        evidence: {
+          candidateHash: proposal?.candidateTreeHash,
+          projectRevision: expect.any(String),
+        },
+      });
       expect(await readFile(join(fixture.rootPath, "src", "target.ts"), "utf8"))
         .toBe("export const value = 'base';\n");
-      expect(runRepairValidation).toHaveBeenCalledTimes(1);
+      expect(runRepairValidation).toHaveBeenCalledTimes(2);
       expect(runRepairValidation.mock.calls[0]?.[4]).toEqual([
         { path: "src/target.ts", newContent: candidateContent },
       ]);
+      expect(runRepairValidation.mock.calls[1]?.[4]).toEqual([
+      ]);
+      expect(runRepairValidation.mock.calls[1]?.[0]).not.toBe(fixture.rootPath);
+      expect(runRepairValidation.mock.calls[1]?.[5]).toMatchObject({
+        operationId: expect.any(String),
+        projectRevision: expect.any(String),
+        candidateHash: proposal?.candidateTreeHash,
+      });
 
       const [acceptance] = await db
         .select({
@@ -7054,7 +7173,14 @@ describe("real durable task execution lifecycle", () => {
       }
       expect(recoveredOutcome, JSON.stringify(recoveredOutcome)).toMatchObject({ ok: true, status: "completed" });
       expect(chatWithFallback).toHaveBeenCalledTimes(1);
-      expect(runRepairValidation).toHaveBeenCalledTimes(2);
+      expect(runRepairValidation).toHaveBeenCalledTimes(3);
+      expect(runRepairValidation.mock.calls[2]?.[4]).toEqual([]);
+      expect(runRepairValidation.mock.calls[2]?.[0]).not.toBe(fixture.rootPath);
+      expect(runRepairValidation.mock.calls[2]?.[5]).toMatchObject({
+        operationId: expect.any(String),
+        projectRevision: expect.any(String),
+        candidateHash: expect.any(String),
+      });
       expect(recoveryRun).toBe(1);
       expect(await readFile(join(fixture.rootPath, "src", "target.ts"), "utf8"))
         .toBe("export const value = 'base';\n");
@@ -7409,6 +7535,13 @@ describe("real durable task execution lifecycle", () => {
           expectedStatuses: ["verifying"],
           workspaceRevision: fixture.now.toISOString(),
         });
+        const materializationFailures = await drainPendingObservationMaterializations();
+        if (materializationFailures.length > 0) {
+          throw new AggregateError(
+            materializationFailures,
+            "Observation materialization failed after committed Mission recovery.",
+          );
+        }
         throw new Error("simulated_worker_exit_after_committed_checkpoint");
       })
       .mockImplementationOnce(async (...args: unknown[]) => {
@@ -7703,6 +7836,13 @@ describe("real durable task execution lifecycle", () => {
           expectedStatuses: ["verifying"],
           workspaceRevision: fixture.now.toISOString(),
         });
+        const materializationFailures = await drainPendingObservationMaterializations();
+        if (materializationFailures.length > 0) {
+          throw new AggregateError(
+            materializationFailures,
+            "Observation materialization failed after effect-classified recovery.",
+          );
+        }
         throw new Error("simulated_worker_exit_after_effect_classification");
       })
       .mockImplementationOnce(async (...args: unknown[]) => {
