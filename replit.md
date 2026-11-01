@@ -6,7 +6,7 @@ An engineering operations platform — one console for how your code actually mo
 
 - **API server**: Express + TypeScript, Clerk auth, Drizzle ORM + PostgreSQL, pino logging
 - **Dashboard**: React + Vite + Tailwind v4, Wouter routing, TanStack Query, Clerk React
-- **AI orchestrator**: Groq / OpenRouter / Gemini / DeepSeek via provider registry with fallback
+- **AI orchestrator**: provider strategies are registered for Groq / OpenRouter / Gemini / DeepSeek; product priority is currently OpenRouter free-only, and a registered provider is not automatically eligible for product routing.
 - **Knowledge engine**: BFS graph queries, centrality/cluster inference
 - **Scanner**: TS compiler API AST extraction, Python AST subprocess for Python files
 
@@ -16,6 +16,8 @@ The UX documents distinguish current source observations, historical changes,
 proposed implementation, and checks that still need independent verification.
 
 - Current UX plan: `docs/dashboard-goal-first-execution-plan.md`.
+- AI cost and availability policy: `docs/free-only-ai-execution-plan.md`.
+- OpenRouter free-lane rotation RFC: `docs/openrouter-shared-free-lane-cursor-rfc.md`.
 - UX review and historical implementation notes: `docs/dashboard-user-experience-review.md`.
 - Architectural boundaries and current versus proposed UX: `docs/architecture.md`.
 
