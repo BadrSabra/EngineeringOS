@@ -67,6 +67,7 @@ const actualChatWithFallbackRef = vi.hoisted(() => ({
 }));
 const providerStrategyState = vi.hoisted(() => ({
   callCount: 0,
+  failOnCall: 0,
   toolCallId: "",
   toolName: "read_file" as "read_file" | "run_validation",
   toolArguments: {} as Record<string, string>,
@@ -197,6 +198,15 @@ vi.mock("../../../../lib/ai-orchestrator/src/provider-registry.js", async () => 
               ? Object.keys(rawTools).length
               : 0,
         });
+        if (providerStrategyState.failOnCall === providerStrategyState.callCount) {
+          throw new GroqClientError("RATE_LIMITED", "fixture provider rate limit", {
+            context: {
+              providerCode: "HTTP_429",
+              retryAfterMs: 60_000,
+              rateLimitScope: "provider_credential",
+            },
+          });
+        }
         if (providerStrategyState.callCount === 1) {
           providerStrategyState.requestedToolName = providerStrategyState.toolName;
           return {
@@ -2490,7 +2500,9 @@ describe("real durable task execution lifecycle", () => {
     }
   }, 20_000);
 
-  it("persists provider failure as retryable terminal acceptance", async () => {
+  it.each(["generic", "EMPTY_RESPONSE"] as const)(
+    "persists %s provider failure as retryable terminal acceptance",
+    async (failureKind) => {
     const projectId = randomUUID();
     const taskId = randomUUID();
     const userId = "lifecycle-test-user";
@@ -2518,7 +2530,9 @@ describe("real durable task execution lifecycle", () => {
       updatedAt: now,
     });
     runAgentWithFallback.mockImplementationOnce(async (..._args: unknown[]) => {
-      throw new Error(privateProviderFailure);
+      throw failureKind === "EMPTY_RESPONSE"
+        ? new GroqClientError("EMPTY_RESPONSE", privateProviderFailure)
+        : new Error(privateProviderFailure);
     });
     taskProgressFixture.failTerminalOutcome = "FAILED";
 
@@ -2594,7 +2608,9 @@ describe("real durable task execution lifecycle", () => {
       await db.delete(tasksTable).where(eq(tasksTable.id, taskId));
       await db.delete(projectsTable).where(eq(projectsTable.id, projectId));
     }
-  }, 20_000);
+    },
+    20_000,
+  );
 
   it("persists a provider 429 window and blocks task resume before token rotation", async () => {
     const projectId = randomUUID();
@@ -3621,12 +3637,20 @@ describe("real durable task execution lifecycle", () => {
     },
   ] as const;
   const durableToolHandoffCases = durableToolMarkers.flatMap((marker) =>
-    (["started", "completed"] as const).map((markerStatus) => ({ ...marker, markerStatus })),
-  );
+    (["started", "completed"] as const).map((markerStatus) => ({
+      ...marker,
+      markerStatus,
+      failAfterCompletedTool: false,
+    })),
+  ).concat([{
+    ...durableToolMarkers[0],
+    markerStatus: "completed" as const,
+    failAfterCompletedTool: true,
+  }]);
 
   it.each(durableToolHandoffCases)(
-    "reloads a durable $markerStatus $tool marker after worker handoff",
-    async ({ markerStatus, tool, args: markerArgs, key }) => {
+    "reloads a durable $markerStatus $tool marker after worker handoff (rate limited: $failAfterCompletedTool)",
+    async ({ markerStatus, tool, args: markerArgs, key, failAfterCompletedTool }) => {
     const fixture = await createMissionToolLoopFixture({
       phase: "validate",
       approvalRequired: false,
@@ -3746,6 +3770,7 @@ describe("real durable task execution lifecycle", () => {
           throw new Error("The real chatWithFallback helper was not captured.");
         }
         providerStrategyState.callCount = 0;
+        providerStrategyState.failOnCall = failAfterCompletedTool ? 2 : 0;
         providerStrategyState.toolCallId = `db-handoff-${tool}-${markerStatus}`;
         providerStrategyState.toolName = tool;
         providerStrategyState.toolArguments = markerArgs;
@@ -3806,7 +3831,58 @@ describe("real durable task execution lifecycle", () => {
         workspaceRevision: fixture.now.toISOString(),
       });
 
-      if (markerStatus === "started" && tool === "run_validation") {
+      if (failAfterCompletedTool) {
+        expect(recoveredOutcome).toMatchObject({
+          ok: false,
+          status: "failed",
+          errorCode: "provider_rate_limited",
+        });
+        expect(chatWithFallback).toHaveBeenCalledTimes(2);
+        expect(providerStrategyState.callCount).toBe(2);
+        expect(reloadedToolCalls).toContainEqual({
+          key,
+          tool,
+          args: markerArgs,
+          status: "completed",
+        });
+        expect(resumedToolResults).toContainEqual({
+          tool: "run_validation",
+          outputLength: 0,
+          cached: true,
+          resultKind: "ok",
+          resultSummary: "replayed action skipped by durable marker",
+        });
+        expect(toolValidationRunnerCalls).toBe(0);
+        if (!checkpointedExecutionId) {
+          throw new Error("Rate-limited Mission execution identity was not checkpointed.");
+        }
+        const [execution] = await db
+          .select({ status: aiExecutionsTable.status })
+          .from(aiExecutionsTable)
+          .where(eq(aiExecutionsTable.id, checkpointedExecutionId))
+          .limit(1);
+        expect(execution?.status).toBe("failed");
+        const [acceptance] = await db
+          .select({
+            outcome: aiExecutionAcceptancesTable.outcome,
+            reasonCode: aiExecutionAcceptancesTable.reasonCode,
+            resumable: aiExecutionAcceptancesTable.resumable,
+            disposition: aiExecutionAcceptancesTable.disposition,
+          })
+          .from(aiExecutionAcceptancesTable)
+          .where(eq(aiExecutionAcceptancesTable.executionId, checkpointedExecutionId))
+          .limit(1);
+        expect(acceptance).toMatchObject({
+          outcome: "FAILED",
+          reasonCode: "EXECUTION_PROVIDER_FAILURE",
+          resumable: 1,
+          disposition: {
+            retryAfterMs: 60_000,
+            retryAfterSource: "provider",
+            rateLimitScope: "provider_credential",
+          },
+        });
+      } else if (markerStatus === "started" && tool === "run_validation") {
         expect(recoveredOutcome).toMatchObject({
           ok: false,
           status: "failed",
@@ -7536,7 +7612,15 @@ describe("real durable task execution lifecycle", () => {
             validatorProfile: String(args[1]),
           },
         };
-      });
+      })
+      .mockImplementation(async (...args: unknown[]) => ({
+        status: "passed" as const,
+        evidence: {
+          evidenceId: "mission-repair-candidate-proposal-validation",
+          artifactRef: "mission-repair-candidate-proposal-validator-pass",
+          validatorProfile: String(args[1]),
+        },
+      }));
 
     try {
       const initialOutcome = await executeTaskLifecycle({
@@ -7554,6 +7638,12 @@ describe("real durable task execution lifecycle", () => {
       expect(recoveredOutcome).toMatchObject({ ok: true, status: "completed" });
       expect(validationCalls).toBe(2);
       expect(chatWithFallback).toHaveBeenCalledTimes(1);
+      const [execution] = await db
+        .select({ proposalId: aiExecutionsTable.proposalId })
+        .from(aiExecutionsTable)
+        .where(eq(aiExecutionsTable.id, recoveredOutcome.executionId!))
+        .limit(1);
+      expect(execution?.proposalId).toEqual(expect.any(String));
       expect(await readFile(join(fixture.rootPath, "src", "target.ts"), "utf8"))
         .toBe("export const value = 'base';\n");
       const effects = await db

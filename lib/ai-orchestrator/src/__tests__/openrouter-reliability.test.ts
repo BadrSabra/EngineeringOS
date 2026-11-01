@@ -864,6 +864,57 @@ describe("paid OpenRouter fallback — explicit free-first policy", () => {
     expect(attemptedModels).toEqual([firstModel, secondModel]);
   });
 
+  it("stops after a fallback model is rate limited following an empty response", async () => {
+    const firstModel = "dots-studio/dots-3-note-preview:free";
+    const secondModel = "liquid/lfm-2.5-2.6b:free";
+    const thirdModel = "google/gemma-3-4b-it:free";
+    const attemptedModels: string[] = [];
+    global.fetch = vi.fn(async (url: string | URL, init?: RequestInit) => {
+      if (String(url).endsWith("/models")) {
+        return fetchResponse(200, {
+          data: [firstModel, secondModel, thirdModel].map((id) => ({
+            id,
+            pricing: { prompt: "0", completion: "0" },
+            supported_parameters: ["response_format", "structured_outputs"],
+          })),
+        });
+      }
+
+      const body = JSON.parse(String(init?.body ?? "{}")) as { model?: string };
+      const model = body.model ?? "";
+      attemptedModels.push(model);
+      if (model === firstModel) {
+        return fetchResponse(200, {
+          choices: [{ message: { content: "" } }],
+          model,
+          usage: { prompt_tokens: 1, completion_tokens: 0 },
+        });
+      }
+      if (model === secondModel) {
+        return new Response(JSON.stringify({ error: { message: "rate limit" } }), {
+          status: 429,
+          headers: { "content-type": "application/json", "retry-after": "120" },
+        });
+      }
+      return fetchResponse(200, {
+        choices: [{ message: { content: "third-model-must-not-run" } }],
+        model,
+        usage: { prompt_tokens: 1, completion_tokens: 1 },
+      });
+    }) as typeof fetch;
+
+    await refreshDynamicCatalog("fixture-key");
+    await expect(openrouterCompleteWithFallback(
+      [{ role: "user", content: "Return a short response." }],
+      { apiKey: "fixture-key", model: firstModel, maxFallbackModels: 3 },
+    )).rejects.toMatchObject({
+      code: "RATE_LIMITED",
+      providerAttemptedModels: [firstModel, secondModel],
+    });
+    expect(attemptedModels).toEqual([firstModel, secondModel]);
+    expect(attemptedModels.every((model) => model.endsWith(":free"))).toBe(true);
+  });
+
   it("does not spend on paid fallback for authorization or request-contract failures", async () => {
     const freeModel = FREE_MODELS.find((model) => model.capabilities.includes("chat"))!.id;
     const calls: string[] = [];
