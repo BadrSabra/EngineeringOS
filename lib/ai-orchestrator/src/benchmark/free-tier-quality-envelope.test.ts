@@ -46,7 +46,10 @@ function makeRun(
         repairAttempts: 0,
         rejectedChanges: 0,
         conflict: false,
-        typecheckPassed: null,
+        typecheckPassed: testCase.expected.validation === "typecheck" ||
+          testCase.expected.validation === "tests-and-typecheck"
+          ? true
+          : null,
         testsPassed: testCase.expected.validation === "typecheck" ? null : true,
         providerUnavailable: unavailable,
       };

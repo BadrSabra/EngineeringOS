@@ -6,11 +6,11 @@
  *   • Free Tier Restricted (402)    → PLAN_RESTRICTED, automatic fallback
  *   • Invalid API Key (401)         → AUTH_ERROR, no fallback
  *   • Rate Limit (429)              → RATE_LIMITED; terminal for this request
- *   • Missing Retry-After           → exact-model local adaptive admission cooldown
+ *   • Missing Retry-After           → scope-aware local adaptive admission hold
  *   • Credits Exhausted (429+body)  → QUOTA
  *   • Empty Model Catalog           → static fallback, never throws
  *   • Provider Failover             → eligible model failures advance the free chain
- *   • Provider circuit              → no provider-wide local circuit; model cooldowns are separate
+ *   • Provider circuit              → no general provider circuit; unknown 429s hold the credential
  *   • Runtime Model Refresh         → dynamic catalog filters stale IDs
  *   • Empty completion              → advances only to another eligible free model
  */
@@ -29,6 +29,11 @@ import {
   _resetCircuitsForTest,
 } from "../openrouter/circuit-breaker.js";
 import { _setModelCooldownPersistenceForTest } from "../openrouter/model-cooldown-store.js";
+import {
+  _resetOpenRouterCredentialCooldownsForTest,
+  _setOpenRouterCredentialCooldownPersistenceForTest,
+  assertOpenRouterCredentialAvailable,
+} from "../openrouter/credential-cooldown.js";
 import {
   resolveFallbackChain,
   buildFallbackChainFromId,
@@ -58,7 +63,7 @@ import {
 } from "../strategies/openrouter.strategy.js";
 
 const STATIC_FREE_CHAT_TEST_MODEL = FREE_MODELS.find((model) =>
-  model.capabilities.includes("chat"),
+  model.capabilities.includes("chat") && model.supportsJson,
 )!.id;
 
 // ── helpers ──────────────────────────────────────────────────────────────────
@@ -111,6 +116,11 @@ function sseDelta(text: string): string {
 
 beforeEach(() => {
   _resetCircuitsForTest();
+  _resetOpenRouterCredentialCooldownsForTest();
+  _setOpenRouterCredentialCooldownPersistenceForTest({
+    readActive: async () => null,
+    write: async () => {},
+  });
   _setModelCooldownPersistenceForTest({
     readActive: async () => [],
     write: async () => {},
@@ -371,9 +381,14 @@ describe("model-resolver — empty catalog fallback", () => {
     }
     _resetModelLaneSchedulerForTest();
   });
+
+afterEach(() => {
+  _resetOpenRouterCredentialCooldownsForTest();
+  _setOpenRouterCredentialCooldownPersistenceForTest(undefined);
+});
 });
 
-  it("starts a later independent request on the next free lane after an unscoped 429", async () => {
+  it("blocks later free lanes after an unscoped 429", async () => {
     _resetModelLaneSchedulerForTest();
     const attemptedModels: string[] = [];
     const fetchMock = vi.fn(async (_url: string | URL, init?: RequestInit) => {
@@ -413,17 +428,18 @@ describe("model-resolver — empty catalog fallback", () => {
       rateLimitScope: "unknown",
     });
     expect(attemptedModels).toHaveLength(1);
-    expect(isModelCoolingDown("openrouter", attemptedModels[0]!)).toBe(true);
-
-    const result = await openrouterCompleteWithFallback(
+    expect(isModelCoolingDown("openrouter", attemptedModels[0]!)).toBe(false);
+    await expect(openrouterCompleteWithFallback(
       [{ role: "user", content: "separate request" }],
       options,
-    );
+    )).rejects.toMatchObject({
+      code: "RATE_LIMITED",
+      providerCode: "CREDENTIAL_RETRY_AFTER",
+      rateLimitScope: "unknown",
+    });
 
-    expect(attemptedModels).toHaveLength(2);
-    expect(attemptedModels[1]).not.toBe(attemptedModels[0]);
-    expect(FREE_MODELS.some((model) => model.id === attemptedModels[1])).toBe(true);
-    expect(result.model).toBe(attemptedModels[1]);
+    expect(attemptedModels).toHaveLength(1);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
     _resetModelLaneSchedulerForTest();
   });
 
@@ -917,10 +933,24 @@ describe("error classification", () => {
         apiKey: "sk-test",
         baseUrl: "https://openrouter.ai/api/v1",
         providerName: "OpenRouter",
-        model: "inclusionai/ling-3.0-flash:free",
+        model: STATIC_FREE_CHAT_TEST_MODEL,
       },
     );
   }
+
+  async function enableStrictJsonSchemaForTestModel() {
+    _resetDynamicCatalog();
+    global.fetch = vi.fn().mockResolvedValue(fetchResponse(200, {
+      data: [{
+        id: STATIC_FREE_CHAT_TEST_MODEL,
+        pricing: { prompt: "0", completion: "0" },
+        supported_parameters: ["response_format", "structured_outputs"],
+      }],
+    })) as typeof fetch;
+    await refreshDynamicCatalog("fixture-key");
+  }
+
+  afterEach(() => _resetDynamicCatalog());
 
   it("404 → MODEL_NOT_FOUND", async () => {
     await expect(
@@ -954,7 +984,7 @@ describe("error classification", () => {
         apiKey: "sk-test",
         baseUrl: "https://openrouter.ai/api/v1",
         providerName: "OpenRouter",
-        model: "requested/model:free",
+        model: STATIC_FREE_CHAT_TEST_MODEL,
       },
     );
 
@@ -979,7 +1009,7 @@ describe("error classification", () => {
         apiKey: "sk-test",
         baseUrl: "https://openrouter.ai/api/v1",
         providerName: "OpenRouter",
-        model: "requested/model:free",
+        model: STATIC_FREE_CHAT_TEST_MODEL,
       },
     );
 
@@ -1009,7 +1039,7 @@ describe("error classification", () => {
         apiKey: "sk-test",
         baseUrl: "https://openrouter.ai/api/v1",
         providerName: "OpenRouter",
-        model: "requested/model:free",
+        model: STATIC_FREE_CHAT_TEST_MODEL,
       },
     );
 
@@ -1079,6 +1109,7 @@ describe("error classification", () => {
   });
 
   it("requires a supporting OpenRouter endpoint for strict structured outputs", async () => {
+    await enableStrictJsonSchemaForTestModel();
     const { openrouterCompleteRaw } = await import("../openai-compatible-client.js");
     const fetchMock = vi.fn().mockResolvedValueOnce(fetchResponse(200, {
       choices: [{
@@ -1158,6 +1189,7 @@ describe("error classification", () => {
   });
 
   it("does not downgrade strict JSON Schema mode after a provider rejection", async () => {
+    await enableStrictJsonSchemaForTestModel();
     const { openrouterCompleteRaw } = await import("../openai-compatible-client.js");
     const fetchMock = vi.fn().mockResolvedValueOnce(fetchResponse(400, {
       error: { code: "invalid_request", message: "json_schema is unsupported" },
@@ -1182,6 +1214,7 @@ describe("error classification", () => {
   });
 
   it("falls back from rejected JSON Schema to JSON-object mode before prompt-only mode", async () => {
+    await enableStrictJsonSchemaForTestModel();
     const { openrouterCompleteRaw } = await import("../openai-compatible-client.js");
     const fetchMock = vi
       .fn()
@@ -1228,6 +1261,7 @@ describe("error classification", () => {
   });
 
   it("falls back on OpenRouter parameter-routing 404s without changing models", async () => {
+    await enableStrictJsonSchemaForTestModel();
     const { openrouterCompleteRaw } = await import("../openai-compatible-client.js");
     const fetchMock = vi
       .fn()
@@ -1419,7 +1453,11 @@ describe("openrouterCompleteStream — bounded retry and disconnect safety", () 
         rateLimitScope: scope,
       });
       expect(fetchMock).toHaveBeenCalledTimes(1);
-      expect(isModelCoolingDown("openrouter", attemptedModels[0]!)).toBe(true);
+      expect(isModelCoolingDown("openrouter", attemptedModels[0]!)).toBe(false);
+      await expect(assertOpenRouterCredentialAvailable("fixture-key")).rejects.toMatchObject({
+        code: "RATE_LIMITED",
+        providerCode: "CREDENTIAL_RETRY_AFTER",
+      });
     },
   );
 
@@ -1449,6 +1487,18 @@ describe("openrouterCompleteStream — bounded retry and disconnect safety", () 
     await expect(run()).rejects.toMatchObject({
       code: "RATE_LIMITED",
       rateLimitScope: "unknown",
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+
+    const alternateModel = FREE_MODELS.find(
+      (model) => model.id !== FREE_MODELS[0]?.id && model.capabilities.includes("chat"),
+    )!.id;
+    await expect(openrouterCompleteWithFallback(
+      [{ role: "user", content: "new request" }],
+      { apiKey: "fixture-key", model: alternateModel, maxFallbackModels: 1 },
+    )).rejects.toMatchObject({
+      code: "RATE_LIMITED",
+      providerCode: "CREDENTIAL_RETRY_AFTER",
     });
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });

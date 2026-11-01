@@ -43,10 +43,12 @@ import {
   acquireModelAttemptLease,
   clearSharedPoolModelCooldown,
   isUpstreamPoolCooldownKey,
+  modelPublisherAttemptLaneKeyForModel,
   persistSharedPoolModelCooldown,
   recordLocalAdaptiveModelCooldown,
   readModelCooldowns,
   upstreamPoolCooldownKeyForModel,
+  type ModelAttemptLease,
   type ModelCooldownPersistence,
 } from "./openrouter/model-cooldown-store.js";
 import {
@@ -55,7 +57,11 @@ import {
 } from "./openrouter/model-lane-cursor-store.js";
 import {
   assertOpenRouterCredentialAvailable,
+  clearAdaptiveOpenRouterCredentialFailures,
+  openRouterCredentialAttemptLaneKey,
+  recordAdaptiveOpenRouterCredentialCooldown,
   recordOpenRouterCredentialCooldown,
+  resolveOpenRouterCredential,
   type CredentialCooldownPersistence,
 } from "./openrouter/credential-cooldown.js";
 import type { TaskType } from "./quality/task-profile.js";
@@ -120,6 +126,8 @@ export type OpenAICompatibleOptions = {
   operation?: string;
   /** Bearer API key — required. */
   apiKey: string;
+  /** Shared credential-level cooldown persistence for OpenRouter admission. */
+  credentialCooldownPersistence?: CredentialCooldownPersistence;
   tools?: ToolDefinition[];
   /** Full authorized execution manifest; omitted for no-tool synthesis calls. */
   toolManifest?: ToolDefinition[];
@@ -1347,6 +1355,9 @@ export async function oacCompleteRaw(
       ...opts,
       signal: opts.signal ?? opts.executionLedger?.signal,
     });
+    if (opts.providerName.toLowerCase() === "openrouter") {
+      clearAdaptiveOpenRouterCredentialFailures(opts.apiKey);
+    }
     providerUsage = result.providerUsage ?? providerUsage;
     return result;
   } catch (err) {
@@ -1594,6 +1605,9 @@ export async function* oacCompleteStream(
       ...opts,
       signal: opts.signal ?? opts.executionLedger?.signal,
     });
+    if (opts.providerName.toLowerCase() === "openrouter") {
+      clearAdaptiveOpenRouterCredentialFailures(opts.apiKey);
+    }
   } catch (err) {
     error = err;
     throw err;
@@ -1833,6 +1847,166 @@ function modelCooldownError(
   );
 }
 
+type OpenRouterAdmissionContext = Pick<
+  OpenAICompatibleOptions,
+  | "apiKey"
+  | "model"
+  | "capability"
+  | "tools"
+  | "responseFormat"
+  | "signal"
+  | "executionLedger"
+  | "timeoutMs"
+  | "credentialCooldownPersistence"
+> & {
+  modelCooldownPersistence?: ModelCooldownPersistence;
+  requireTools?: boolean;
+  requireJsonSchema?: boolean;
+};
+
+async function reserveOpenRouterInferencePermit(
+  model: string,
+  opts: OpenRouterAdmissionContext,
+  attemptedModels: string[] = [],
+  requireStreaming = false,
+): Promise<OpenRouterAdmissionPermit> {
+  assertOpenRouterFreeModel(model);
+  const apiKey = resolveOpenRouterCredential(opts.apiKey);
+  if (!apiKey) {
+    throw new GroqClientError(
+      "INVALID_CONFIG",
+      "OpenRouter inference requires a configured credential.",
+      { context: { providerName: "OpenRouter", providerModel: model } },
+    );
+  }
+  await assertOpenRouterCredentialAvailable(
+    apiKey,
+    opts.credentialCooldownPersistence,
+  );
+  const capability = opts.capability ?? "chat";
+  const requireTools = opts.requireTools ?? Boolean(opts.tools?.length);
+  const requireJsonSchema = opts.requireJsonSchema ??
+    opts.responseFormat?.type === "json_schema";
+  if (!isCatalogFreeModelForCapability(model, {
+    capability,
+    requireTools,
+    requireJson: Boolean(opts.responseFormat),
+    requireJsonSchema,
+    requireStreaming,
+  })) {
+    throw new GroqClientError(
+      "INVALID_CONFIG",
+      "OpenRouter admission rejected a model that does not satisfy the free task contract.",
+      { context: { providerName: "OpenRouter", providerModel: model } },
+    );
+  }
+
+  const beforeLeaseCooldowns = await readModelCooldowns(
+    "openrouter",
+    [model],
+    opts.modelCooldownPersistence,
+  );
+  const beforeLeaseCooldown = beforeLeaseCooldowns.get(model);
+  if (beforeLeaseCooldown) {
+    throw modelCooldownError(model, beforeLeaseCooldown, beforeLeaseCooldowns, attemptedModels);
+  }
+
+  const leaseKeys = [
+    openRouterCredentialAttemptLaneKey(apiKey),
+    modelPublisherAttemptLaneKeyForModel(model),
+    model,
+  ].filter((key): key is string => Boolean(key));
+  const leases: ModelAttemptLease[] = [];
+  const releaseLeases = async () => {
+    for (const lease of [...leases].reverse()) {
+      try {
+        await lease.release();
+      } catch {
+        // The shared lease has a bounded expiry if release persistence fails.
+      }
+    }
+  };
+
+  try {
+    for (const leaseKey of leaseKeys) {
+      let lease: ModelAttemptLease | undefined;
+      try {
+        lease = await acquireModelAttemptLease(
+          "openrouter",
+          leaseKey,
+          opts.modelCooldownPersistence,
+          opts.signal ?? opts.executionLedger?.signal,
+          opts.timeoutMs ?? DEFAULT_TIMEOUT_MS,
+        );
+      } catch {
+        throw modelAttemptBusyError(
+          model,
+          "MODEL_ATTEMPT_LOCK_UNAVAILABLE",
+          attemptedModels,
+        );
+      }
+      if (!lease) {
+        throw modelAttemptBusyError(
+          model,
+          "MODEL_ATTEMPT_LOCK_BUSY",
+          attemptedModels,
+        );
+      }
+      leases.push(lease);
+    }
+
+    await assertOpenRouterCredentialAvailable(
+      apiKey,
+      opts.credentialCooldownPersistence,
+    );
+    const afterLeaseCooldowns = await readModelCooldowns(
+      "openrouter",
+      [model],
+      opts.modelCooldownPersistence,
+    );
+    const afterLeaseCooldown = afterLeaseCooldowns.get(model);
+    if (afterLeaseCooldown) {
+      throw modelCooldownError(model, afterLeaseCooldown, afterLeaseCooldowns, attemptedModels);
+    }
+  } catch (error) {
+    await releaseLeases();
+    throw error;
+  }
+
+  const permit = Object.freeze({
+    [OPENROUTER_ADMISSION_PERMIT_BRAND]: true as const,
+    model,
+  });
+  activeOpenRouterAdmissionPermits.set(permit, {
+    active: true,
+    release: releaseLeases,
+  });
+  return permit;
+}
+
+function assertOpenRouterAdmissionPermit(
+  permit: OpenRouterAdmissionPermit,
+  model: string,
+): void {
+  const state = activeOpenRouterAdmissionPermits.get(permit);
+  if (!state?.active || permit.model !== model) {
+    throw new GroqClientError(
+      "INVALID_CONFIG",
+      "OpenRouter transport requires a live admission permit for the exact model.",
+      { context: { providerName: "OpenRouter", providerModel: model } },
+    );
+  }
+}
+
+async function releaseOpenRouterAdmissionPermit(
+  permit: OpenRouterAdmissionPermit,
+): Promise<void> {
+  const state = activeOpenRouterAdmissionPermits.get(permit);
+  if (!state?.active) return;
+  state.active = false;
+  await state.release();
+}
+
 /**
  * Non-streaming completion via OpenRouter with automatic free-model fallback
  * (STORY-03).
@@ -1988,52 +2162,34 @@ export async function openrouterCompleteWithFallback(
 
   for (let i = 0; i < chain.length; i++) {
     const model = chain[i] as string;
-    let attemptLease;
+    let attemptPermit: OpenRouterAdmissionPermit;
     try {
-      attemptLease = await acquireModelAttemptLease(
-        "openrouter",
-        model,
-        opts.modelCooldownPersistence,
-        opts.signal ?? opts.executionLedger?.signal,
-        opts.timeoutMs ?? DEFAULT_TIMEOUT_MS,
-      );
-    } catch {
-      lastError = modelAttemptBusyError(
-        model,
-        "MODEL_ATTEMPT_LOCK_UNAVAILABLE",
-        attemptedModels,
-      );
-      // A persistence failure means admission could not be verified. Do not
-      // try another candidate in this request without the shared lease guard.
-      break;
-    }
-    if (!attemptLease) {
-      lastError = modelAttemptBusyError(
-        model,
-        "MODEL_ATTEMPT_LOCK_BUSY",
-        attemptedModels,
-      );
-      continue;
-    }
-    try {
-      const afterWaitCooldowns = await readModelCooldowns(
-        "openrouter",
-        [model],
-        opts.modelCooldownPersistence,
-      );
-      const afterWaitCooldown = afterWaitCooldowns.get(model);
-      if (afterWaitCooldown) {
-        lastError = modelCooldownError(
+      attemptPermit = await reserveOpenRouterInferencePermit(model, opts, attemptedModels);
+    } catch (error) {
+      lastError = error instanceof GroqClientError
+        ? error
+        : modelAttemptBusyError(
           model,
-          afterWaitCooldown,
-          afterWaitCooldowns,
+          "MODEL_ADMISSION_STATE_UNAVAILABLE",
           attemptedModels,
         );
-        continue;
-      }
+      const retryableAdmissionState =
+        lastError.code === "MODEL_ATTEMPT_BUSY" &&
+        lastError.providerCode === "MODEL_ATTEMPT_LOCK_BUSY";
+      const candidateCoolingDown =
+        lastError.code === "RATE_LIMITED" &&
+        lastError.providerCode === "MODEL_COOLDOWN";
+      if (retryableAdmissionState || candidateCoolingDown) continue;
+      break;
+    }
+    try {
       attemptedModels.push(model);
       try {
-        const response = await openrouterCompleteRaw(messages, { ...opts, model });
+        const response = await openrouterCompleteRaw(messages, {
+          ...opts,
+          model,
+          admissionPermit: attemptPermit,
+        });
       if (opts.taskContract) {
         recordModelContractOutput(model, opts.taskContract, "content");
       }
@@ -2052,57 +2208,80 @@ export async function openrouterCompleteWithFallback(
       ) {
         recordModelContractOutput(model, opts.taskContract, "empty");
       }
-      // Do not turn a provider-scoped 429 into a burst against the next model
-      // in this request. Cool the exact model and, only when provider metadata
-      // matches its namespace, sibling models in that upstream shared pool.
+      // A rate limit is terminal for this request. Cool only a scope we can
+      // identify; unknown/account-wide scopes pause the credential so a new
+      // request cannot rotate around the same shared free quota.
       const providerScopedRateLimit =
         err instanceof GroqClientError &&
         (err.code === "RATE_LIMITED" || err.code === "QUOTA");
       if (providerScopedRateLimit) {
-        const providerRateLimitScope =
-          err instanceof GroqClientError ? err.rateLimitScope : undefined;
+        const rateLimitError = err as GroqClientError;
+        const providerRateLimitScope = rateLimitError.rateLimitScope;
+        const providerRetryAfterMs = rateLimitError.retryAfterMs;
+        let effectiveRetryAfterMs = providerRetryAfterMs;
+        let effectiveProviderCode = rateLimitError.providerCode;
+        const upstreamPoolKey = providerRateLimitScope === "upstream_shared_pool"
+          ? upstreamPoolCooldownKeyForModel(model, rateLimitError.upstreamProvider)
+          : undefined;
         await recordOpenRouterCredentialCooldown(
           opts.apiKey,
-          err,
+          rateLimitError,
           opts.credentialCooldownPersistence,
         );
-        const shouldCoolFailedModel =
-          providerRateLimitScope !== "provider_credential" &&
-          providerRateLimitScope !== "account_quota";
-        const providerRetryAfterMs = err instanceof GroqClientError
-          ? err.retryAfterMs
-          : undefined;
         if (Number.isSafeInteger(providerRetryAfterMs) && providerRetryAfterMs! > 0) {
-          if (shouldCoolFailedModel) {
+          if (providerRateLimitScope === "upstream_shared_pool" && upstreamPoolKey) {
             recordModelFailure("openrouter", model, providerRetryAfterMs);
-            if (providerRateLimitScope === "upstream_shared_pool") {
-              await persistSharedPoolModelCooldown(
-                "openrouter",
-                model,
-                providerRetryAfterMs,
-                opts.modelCooldownPersistence,
-              );
-              const upstreamPoolKey = upstreamPoolCooldownKeyForModel(
-                model,
-                err instanceof GroqClientError ? err.upstreamProvider : undefined,
-              );
-              if (upstreamPoolKey) {
-                recordModelFailure("openrouter", upstreamPoolKey, providerRetryAfterMs);
-                await persistSharedPoolModelCooldown(
-                  "openrouter",
-                  upstreamPoolKey,
-                  providerRetryAfterMs,
-                  opts.modelCooldownPersistence,
-                );
-              }
-            }
+            await persistSharedPoolModelCooldown(
+              "openrouter",
+              model,
+              providerRetryAfterMs,
+              opts.modelCooldownPersistence,
+            );
+            recordModelFailure("openrouter", upstreamPoolKey, providerRetryAfterMs);
+            await persistSharedPoolModelCooldown(
+              "openrouter",
+              upstreamPoolKey,
+              providerRetryAfterMs,
+              opts.modelCooldownPersistence,
+            );
+          } else if (providerRateLimitScope === "upstream_shared_pool") {
+            // The provider identified a shared pool but not one we can safely
+            // map to candidates. Hold this credential instead of guessing.
+            await recordOpenRouterCredentialCooldown(
+              opts.apiKey,
+              new GroqClientError(rateLimitError.code, rateLimitError.message, {
+                context: {
+                  providerName: "OpenRouter",
+                  providerCode: "UNMAPPED_SHARED_POOL",
+                  rateLimitScope: "unknown",
+                  retryAfterMs: providerRetryAfterMs,
+                },
+              }),
+              opts.credentialCooldownPersistence,
+            );
           }
-        } else if (err.code === "RATE_LIMITED") {
-          await recordLocalAdaptiveModelCooldown(
+        } else if (
+          providerRateLimitScope === "upstream_shared_pool" &&
+          upstreamPoolKey
+        ) {
+          effectiveRetryAfterMs = await recordLocalAdaptiveModelCooldown(
             "openrouter",
-            model,
+            upstreamPoolKey,
             opts.modelCooldownPersistence,
           );
+          effectiveProviderCode = "LOCAL_ADAPTIVE_MODEL_COOLDOWN";
+        } else {
+          const adaptiveCredentialScope =
+            providerRateLimitScope === "provider_credential" ||
+            providerRateLimitScope === "account_quota"
+              ? providerRateLimitScope
+              : "unknown";
+          effectiveRetryAfterMs = await recordAdaptiveOpenRouterCredentialCooldown(
+            opts.apiKey,
+            opts.credentialCooldownPersistence,
+            adaptiveCredentialScope,
+          );
+          effectiveProviderCode = "LOCAL_ADAPTIVE_CREDENTIAL_COOLDOWN";
         }
         // Every rate limit is terminal for this OpenRouter request, including
         // unknown/account-wide scopes. Do not advance to another model or tier.
@@ -2110,6 +2289,10 @@ export async function openrouterCompleteWithFallback(
           cause: err,
           context: {
             ...err.toProviderContext(),
+            ...(effectiveProviderCode ? { providerCode: effectiveProviderCode } : {}),
+            ...(Number.isSafeInteger(effectiveRetryAfterMs) && effectiveRetryAfterMs! > 0
+              ? { retryAfterMs: effectiveRetryAfterMs }
+              : {}),
             providerModel: err.providerModel ?? model,
             providerAttemptedModels: [...attemptedModels],
           },
@@ -2157,7 +2340,7 @@ export async function openrouterCompleteWithFallback(
         throw err;
       }
     } finally {
-      await attemptLease.release();
+      await releaseOpenRouterAdmissionPermit(attemptPermit);
     }
   }
 
@@ -2287,54 +2470,42 @@ export async function* openrouterCompleteStream(
 
   for (let index = 0; index < chain.length; index++) {
     const model = chain[index]!;
-    let attemptLease;
+    let attemptPermit: OpenRouterAdmissionPermit;
     try {
-      attemptLease = await acquireModelAttemptLease(
-        "openrouter",
+      attemptPermit = await reserveOpenRouterInferencePermit(
         model,
-        fullOpts.modelCooldownPersistence,
-        fullOpts.signal,
-        fullOpts.timeoutMs ?? DEFAULT_TIMEOUT_MS,
-      );
-    } catch {
-      lastError = modelAttemptBusyError(
-        model,
-        "MODEL_ATTEMPT_LOCK_UNAVAILABLE",
+        fullOpts,
         attemptedModels,
+        true,
       );
-      // Keep streaming fail-closed when shared admission state is unavailable.
-      break;
-    }
-    if (!attemptLease) {
-      lastError = modelAttemptBusyError(
-        model,
-        "MODEL_ATTEMPT_LOCK_BUSY",
-        attemptedModels,
-      );
-      continue;
-    }
-    try {
-      const afterWaitCooldowns = await readModelCooldowns(
-        "openrouter",
-        [model],
-        fullOpts.modelCooldownPersistence,
-      );
-      const afterWaitCooldown = afterWaitCooldowns.get(model);
-      if (afterWaitCooldown) {
-        lastError = modelCooldownError(
+    } catch (error) {
+      lastError = error instanceof GroqClientError
+        ? error
+        : modelAttemptBusyError(
           model,
-          afterWaitCooldown,
-          afterWaitCooldowns,
+          "MODEL_ADMISSION_STATE_UNAVAILABLE",
           attemptedModels,
         );
-        continue;
-      }
+      const retryableAdmissionState =
+        lastError.code === "MODEL_ATTEMPT_BUSY" &&
+        lastError.providerCode === "MODEL_ATTEMPT_LOCK_BUSY";
+      const candidateCoolingDown =
+        lastError.code === "RATE_LIMITED" &&
+        lastError.providerCode === "MODEL_COOLDOWN";
+      if (retryableAdmissionState || candidateCoolingDown) continue;
+      break;
+    }
+    try {
       attemptedModels.push(model);
       let emitted = false;
       let transientRetried = false;
       while (true) {
         try {
-          for await (const delta of oacCompleteStream(trimmed, { ...fullOpts, model })) {
+          for await (const delta of oacCompleteStream(trimmed, {
+            ...fullOpts,
+            model,
+            admissionPermit: attemptPermit,
+          })) {
             emitted = true;
             yield delta;
           }
@@ -2350,6 +2521,7 @@ export async function* openrouterCompleteStream(
           await recordOpenRouterCredentialCooldown(
             fullOpts.apiKey,
             providerError,
+            fullOpts.credentialCooldownPersistence,
           );
           if (
             providerError &&
@@ -2357,39 +2529,59 @@ export async function* openrouterCompleteStream(
           ) {
             const hasProviderRetryAfter = Number.isSafeInteger(providerError.retryAfterMs)
               && providerError.retryAfterMs! > 0;
+            const upstreamPoolKey =
+              providerError.rateLimitScope === "upstream_shared_pool"
+                ? upstreamPoolCooldownKeyForModel(model, providerError.upstreamProvider)
+                : undefined;
             if (hasProviderRetryAfter) {
-              if (
-                providerError.rateLimitScope !== "provider_credential" &&
-                providerError.rateLimitScope !== "account_quota"
-              ) {
+              if (providerError.rateLimitScope === "upstream_shared_pool" && upstreamPoolKey) {
                 recordModelFailure("openrouter", model, providerError.retryAfterMs);
-                if (providerError.rateLimitScope === "upstream_shared_pool") {
-                  await persistSharedPoolModelCooldown(
-                    "openrouter",
-                    model,
-                    providerError.retryAfterMs,
-                    fullOpts.modelCooldownPersistence,
-                  );
-                  const upstreamPoolKey = upstreamPoolCooldownKeyForModel(
-                    model,
-                    providerError.upstreamProvider,
-                  );
-                  if (upstreamPoolKey) {
-                    recordModelFailure("openrouter", upstreamPoolKey, providerError.retryAfterMs);
-                    await persistSharedPoolModelCooldown(
-                      "openrouter",
-                      upstreamPoolKey,
-                      providerError.retryAfterMs,
-                      fullOpts.modelCooldownPersistence,
-                    );
-                  }
-                }
+                await persistSharedPoolModelCooldown(
+                  "openrouter",
+                  model,
+                  providerError.retryAfterMs,
+                  fullOpts.modelCooldownPersistence,
+                );
+                recordModelFailure("openrouter", upstreamPoolKey, providerError.retryAfterMs);
+                await persistSharedPoolModelCooldown(
+                  "openrouter",
+                  upstreamPoolKey,
+                  providerError.retryAfterMs,
+                  fullOpts.modelCooldownPersistence,
+                );
+              } else if (providerError.rateLimitScope === "upstream_shared_pool") {
+                await recordOpenRouterCredentialCooldown(
+                  fullOpts.apiKey,
+                  new GroqClientError(providerError.code, providerError.message, {
+                    context: {
+                      providerName: "OpenRouter",
+                      providerCode: "UNMAPPED_SHARED_POOL",
+                      rateLimitScope: "unknown",
+                      retryAfterMs: providerError.retryAfterMs,
+                    },
+                  }),
+                  fullOpts.credentialCooldownPersistence,
+                );
               }
-            } else if (providerError.code === "RATE_LIMITED") {
+            } else if (
+              providerError.rateLimitScope === "upstream_shared_pool" &&
+              upstreamPoolKey
+            ) {
               await recordLocalAdaptiveModelCooldown(
                 "openrouter",
-                model,
+                upstreamPoolKey,
                 fullOpts.modelCooldownPersistence,
+              );
+            } else {
+              const adaptiveCredentialScope =
+                providerError.rateLimitScope === "provider_credential" ||
+                providerError.rateLimitScope === "account_quota"
+                  ? providerError.rateLimitScope
+                  : "unknown";
+              await recordAdaptiveOpenRouterCredentialCooldown(
+                fullOpts.apiKey,
+                fullOpts.credentialCooldownPersistence,
+                adaptiveCredentialScope,
               );
             }
           }
@@ -2446,7 +2638,7 @@ export async function* openrouterCompleteStream(
         }
       }
     } finally {
-      await attemptLease.release();
+      await releaseOpenRouterAdmissionPermit(attemptPermit);
     }
   }
   if (lastError) {

@@ -169,9 +169,9 @@ describe("structured review provider fallback release check", () => {
           message: "This model is only available through an agent harness.",
         },
       }, 400),
-      // JSON-mode incompatibility is retried once without response_format
-      // before the fallback chain advances.
-      failureResponseCount: 2,
+      // The unavailable candidate gets one response; recovery must use the
+      // single permitted alternate rather than expanding the model chain.
+      failureResponseCount: 1,
     },
     {
       name: "rate-limit response",

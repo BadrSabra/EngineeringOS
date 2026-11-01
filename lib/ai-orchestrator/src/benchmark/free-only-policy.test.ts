@@ -80,10 +80,14 @@ describe("free-only benchmark model policy", () => {
   it("rejects the catalog's tool-capable model when it lacks chat-completions support", () => {
     const cohere = FREE_MODELS.find((model) => model.id === "cohere/north-mini-code:free")!;
     expect(cohere.supportsTools).toBe(true);
-    expect(cohere.capabilities).not.toContain("chat");
+    expect(cohere.capabilities).toContain("chat");
+    const incompatible = {
+      ...cohere,
+      capabilities: cohere.capabilities.filter((capability) => capability !== "chat"),
+    };
 
     expect(selectFreeOnlyBenchmarkModels({
-      catalog: FREE_MODELS,
+      catalog: [incompatible],
       liveModelIds: new Set([cohere.id]),
       requestedModels: [cohere.id],
       requiredCapability: "tool_calling",

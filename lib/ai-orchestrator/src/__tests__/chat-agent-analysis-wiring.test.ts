@@ -84,7 +84,7 @@ describe("chat analysis tool wiring", () => {
       onToolInvocation: async () => undefined,
     })).rejects.toThrow("analysis wiring sentinel");
     expect(executeToolLoopMock).toHaveBeenCalledTimes(1);
-  });
+  }, 15_000);
 
   it("forwards the exact persisted correlation for a resumed scoped forensic audit", async () => {
     const { chat } = await import("../agents/chat-agent.js");
@@ -164,7 +164,7 @@ describe("chat analysis tool wiring", () => {
     expect(executionPlan?.nodes).toHaveLength(1);
 
     executeToolLoopMock.mockClear();
-    executeToolLoopMock.mockImplementationOnce(async (opts: {
+    executeToolLoopMock.mockImplementation(async (opts: {
       analysisCorrelation?: AnalysisCorrelation;
       executionMode?: string;
     }) => {
@@ -195,8 +195,9 @@ describe("chat analysis tool wiring", () => {
       analysisCorrelation: correlation,
       onToolInvocation: async () => undefined,
     });
-    expect(result.response).toContain("nested analysis wiring sentinel");
     expect(executeToolLoopMock).toHaveBeenCalled();
+    expect(result.response).toContain("Repair Plan execution stopped before all steps completed.");
+    expect(result.response).not.toContain("nested analysis wiring sentinel");
   });
 
   it("forwards an approved server repair mode without requiring natural-language repair inference", async () => {

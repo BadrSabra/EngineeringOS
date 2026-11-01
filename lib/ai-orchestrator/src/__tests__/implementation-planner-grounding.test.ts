@@ -55,6 +55,15 @@ function providerPlan(
   });
 }
 
+function mockAgentCompletion(content: string) {
+  const complete = vi.fn().mockResolvedValue({
+    content,
+    model: "grounding-test-model",
+  });
+  vi.doMock("../agent-complete.js", () => ({ agentComplete: complete }));
+  return complete;
+}
+
 describe("implementation-plan filesystem grounding", () => {
   beforeEach(() => {
     vi.resetModules();
@@ -63,6 +72,7 @@ describe("implementation-plan filesystem grounding", () => {
 
   afterEach(() => {
     vi.doUnmock("groq-sdk");
+    vi.doUnmock("../agent-complete.js");
     if (originalApiKey === undefined) delete process.env.GROQ_API_KEY;
     else process.env.GROQ_API_KEY = originalApiKey;
   });
@@ -108,12 +118,7 @@ describe("implementation-plan filesystem grounding", () => {
   });
 
   it("fails closed without a verified filesystem manifest", async () => {
-    const create = vi.fn();
-    vi.doMock("groq-sdk", () => ({
-      default: class {
-        chat = { completions: { create } };
-      },
-    }));
+    const complete = mockAgentCompletion(providerPlan(["src/server.ts"]));
 
     const { createImplementationPlan } = await import("../agents/implementation-planner.js");
     const result = await createImplementationPlan({
@@ -121,23 +126,14 @@ describe("implementation-plan filesystem grounding", () => {
       projectContext: makeContext(),
     });
 
-    expect(create).not.toHaveBeenCalled();
+    expect(complete).not.toHaveBeenCalled();
     expect(result.steps[0]?.files).toEqual([]);
     expect(result.assumptions[0]).toMatch(/filesystem manifest|context/i);
     expect(result.writeAccess).toBe("NOT_AUTHORIZED");
   });
 
   it("rejects provider plans that reference unverified existing paths", async () => {
-    const create = vi.fn().mockResolvedValue({
-      choices: [{ message: { content: providerPlan(["src/missing.ts"]) } }],
-      model: "grounding-test-model",
-      usage: {},
-    });
-    vi.doMock("groq-sdk", () => ({
-      default: class {
-        chat = { completions: { create } };
-      },
-    }));
+    const complete = mockAgentCompletion(providerPlan(["src/missing.ts"]));
 
     const rootPath = await fs.mkdtemp(path.join(tmpdir(), "eos-plan-grounding-"));
     try {
@@ -156,9 +152,9 @@ describe("implementation-plan filesystem grounding", () => {
           }],
           truncated: false,
         }),
-      }, { provider: "groq", apiKey: "test-key" });
+      }, { provider: "openrouter", apiKey: "test-key" });
 
-      expect(create).toHaveBeenCalled();
+      expect(complete).toHaveBeenCalled();
       expect(result.steps[0]?.files).toEqual([]);
       expect(result.assumptions[0]).toContain("src/missing.ts");
       expect(result.writeAccess).toBe("NOT_AUTHORIZED");
@@ -168,24 +164,11 @@ describe("implementation-plan filesystem grounding", () => {
   });
 
   it("does not let a provider pre-approve a grounded implementation plan", async () => {
-    const create = vi.fn().mockResolvedValue({
-      choices: [{
-        message: {
-          content: providerPlan(
-            ["src/routes.ts"],
-            "APPROVED",
-            "APPROVED_FOR_BUILD",
-          ),
-        },
-      }],
-      model: "grounding-test-model",
-      usage: {},
-    });
-    vi.doMock("groq-sdk", () => ({
-      default: class {
-        chat = { completions: { create } };
-      },
-    }));
+    const complete = mockAgentCompletion(providerPlan(
+      ["src/routes.ts"],
+      "APPROVED",
+      "APPROVED_FOR_BUILD",
+    ));
 
     const rootPath = await fs.mkdtemp(path.join(tmpdir(), "eos-plan-approval-"));
     try {
@@ -204,9 +187,9 @@ describe("implementation-plan filesystem grounding", () => {
           }],
           truncated: false,
         }),
-      }, { provider: "groq", apiKey: "test-key" });
+      }, { provider: "openrouter", apiKey: "test-key" });
 
-      expect(create).toHaveBeenCalled();
+      expect(complete).toHaveBeenCalled();
       expect(result.steps[0]?.files).toEqual(["src/routes.ts"]);
       expect(result.approvalStatus).toBe("PENDING_APPROVAL");
       expect(result.writeAccess).toBe("NOT_AUTHORIZED");
@@ -216,16 +199,7 @@ describe("implementation-plan filesystem grounding", () => {
   });
 
   it("keeps previously accepted evidence in a contextual fallback plan", async () => {
-    const create = vi.fn().mockResolvedValue({
-      choices: [{ message: { content: providerPlan(["src/missing.ts"]) } }],
-      model: "grounding-test-model",
-      usage: {},
-    });
-    vi.doMock("groq-sdk", () => ({
-      default: class {
-        chat = { completions: { create } };
-      }
-    }));
+    const complete = mockAgentCompletion(providerPlan(["src/missing.ts"]));
 
     const rootPath = await fs.mkdtemp(path.join(tmpdir(), "eos-plan-evidence-"));
     try {
@@ -245,8 +219,9 @@ describe("implementation-plan filesystem grounding", () => {
           }],
           truncated: false,
         }),
-      }, { provider: "groq", apiKey: "test-key" });
+      }, { provider: "openrouter", apiKey: "test-key" });
 
+      expect(complete).toHaveBeenCalled();
       expect(result.steps.length).toBeGreaterThan(0);
       expect(result.steps[0]?.files).toEqual(["src/routes.ts"]);
       expect(result.steps[0]?.description).toContain("if (response.error)");

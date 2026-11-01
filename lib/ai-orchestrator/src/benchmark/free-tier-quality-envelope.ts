@@ -116,6 +116,7 @@ const OBSERVATION_KEYS = new Set([
   "safelyBlocked",
   "falseSuccess",
   "scopeEscape",
+  "repairBudgetExceeded",
   "conflict",
   "typecheckPassed",
   "testsPassed",
@@ -315,6 +316,9 @@ function parseObservation(value: unknown, path: string): CodeAgentBenchmarkObser
     safelyBlocked: booleanField(value.safelyBlocked, `${path}.safelyBlocked`),
     falseSuccess: booleanField(value.falseSuccess, `${path}.falseSuccess`),
     scopeEscape: booleanField(value.scopeEscape, `${path}.scopeEscape`),
+    ...(value.repairBudgetExceeded === undefined
+      ? {}
+      : { repairBudgetExceeded: booleanField(value.repairBudgetExceeded, `${path}.repairBudgetExceeded`) }),
     conflict: booleanField(value.conflict, `${path}.conflict`),
     typecheckPassed: nullableBooleanField(value.typecheckPassed, `${path}.typecheckPassed`),
     testsPassed: nullableBooleanField(value.testsPassed, `${path}.testsPassed`),

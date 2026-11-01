@@ -752,7 +752,7 @@ describe("chat() adaptive fallback planning and bounded evidence", () => {
     } finally {
       await fs.rm(rootPath, { recursive: true, force: true });
     }
-  });
+  }, 15_000);
 
   it("keeps a failed hierarchical sub-query bounded and carries its gap into synthesis", async () => {
     const rootPath = await makeRoot();

@@ -4,7 +4,11 @@ import {
   _resetOpenRouterCredentialCooldownsForTest,
   _setOpenRouterCredentialCooldownPersistenceForTest,
   assertOpenRouterCredentialAvailable,
+  clearAdaptiveOpenRouterCredentialFailures,
+  openRouterCredentialAttemptLaneKey,
+  recordAdaptiveOpenRouterCredentialCooldown,
   recordOpenRouterCredentialCooldown,
+  resolveOpenRouterCredential,
   type CredentialCooldownPersistence,
 } from "./credential-cooldown.js";
 
@@ -147,6 +151,104 @@ describe("OpenRouter credential cooldown persistence", () => {
 
     await expect(assertOpenRouterCredentialAvailable(fixtureApiKey)).resolves.toBeUndefined();
     expect(persistence.write).not.toHaveBeenCalled();
+  });
+
+  it("uses the configured credential consistently without exposing it in the shared lease key", async () => {
+    const previousOpenRouterKey = process.env.OPENROUTER_API_KEY;
+    const configuredKey = "fixture-environment-openrouter-key";
+    process.env.OPENROUTER_API_KEY = configuredKey;
+    const persistence: CredentialCooldownPersistence = {
+      readActive: vi.fn(async () => null),
+      write: vi.fn(async () => undefined),
+    };
+    _setOpenRouterCredentialCooldownPersistenceForTest(persistence);
+
+    try {
+      expect(resolveOpenRouterCredential(undefined)).toBe(configuredKey);
+      const laneKey = openRouterCredentialAttemptLaneKey(configuredKey);
+      expect(laneKey).toMatch(/^__openrouter_credential_attempt_lane__:[a-f0-9]{64}$/);
+      expect(laneKey).not.toContain(configuredKey);
+
+      await recordOpenRouterCredentialCooldown(
+        undefined,
+        new GroqClientError("RATE_LIMITED", "fixture environment credential limit", {
+          context: { retryAfterMs: 10_000 },
+        }),
+      );
+      await expect(assertOpenRouterCredentialAvailable(undefined)).rejects.toMatchObject({
+        code: "RATE_LIMITED",
+        rateLimitScope: "unknown",
+      });
+      expect(persistence.write).toHaveBeenCalledWith(
+        expect.not.stringContaining(configuredKey),
+        expect.objectContaining({ scope: "unknown" }),
+      );
+    } finally {
+      if (previousOpenRouterKey === undefined) {
+        delete process.env.OPENROUTER_API_KEY;
+      } else {
+        process.env.OPENROUTER_API_KEY = previousOpenRouterKey;
+      }
+    }
+  });
+
+  it("applies a bounded progressive credential hold for unscoped 429s without Retry-After", async () => {
+    vi.useFakeTimers({ now: 0 });
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const stored: Array<{ scope: string; coolingUntil: number }> = [];
+    const persistence: CredentialCooldownPersistence = {
+      readActive: vi.fn(async () => {
+        const active = stored.at(-1);
+        if (!active) return null;
+        const remainingMs = active.coolingUntil - Date.now();
+        return remainingMs > 0
+          ? {
+              remainingMs,
+              code: "RATE_LIMITED" as const,
+              scope: active.scope as "provider_credential" | "account_quota" | "unknown",
+            }
+          : null;
+      }),
+      write: vi.fn(async (_fingerprint, cooldown) => {
+        stored.push({ scope: cooldown.scope, coolingUntil: cooldown.coolingUntil });
+      }),
+    };
+    _setOpenRouterCredentialCooldownPersistenceForTest(persistence);
+
+    try {
+      expect(await recordAdaptiveOpenRouterCredentialCooldown(
+        fixtureApiKey,
+        persistence,
+        "account_quota",
+      )).toBe(30_000);
+      await expect(assertOpenRouterCredentialAvailable(fixtureApiKey)).rejects.toMatchObject({
+        code: "RATE_LIMITED",
+        rateLimitScope: "account_quota",
+      });
+
+      vi.setSystemTime(30_001);
+      expect(await recordAdaptiveOpenRouterCredentialCooldown(
+        fixtureApiKey,
+        persistence,
+        "account_quota",
+      )).toBe(60_000);
+
+      clearAdaptiveOpenRouterCredentialFailures(fixtureApiKey);
+      vi.setSystemTime(90_002);
+      expect(await recordAdaptiveOpenRouterCredentialCooldown(
+        fixtureApiKey,
+        persistence,
+        "account_quota",
+      )).toBe(30_000);
+      expect(stored.map((entry) => entry.scope)).toEqual([
+        "account_quota",
+        "account_quota",
+        "account_quota",
+      ]);
+    } finally {
+      warn.mockRestore();
+      vi.useRealTimers();
+    }
   });
 
   it("leaves upstream shared-pool throttling to the model cooldown path", async () => {

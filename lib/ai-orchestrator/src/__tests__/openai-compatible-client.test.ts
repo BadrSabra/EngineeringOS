@@ -47,10 +47,16 @@ import {
   _setModelCooldownPersistenceForTest,
 } from "../openrouter/model-cooldown-store.js";
 import type { ModelLaneCursorPersistence } from "../openrouter/model-lane-cursor-store.js";
-import { _resetOpenRouterCredentialCooldownsForTest } from "../openrouter/credential-cooldown.js";
+import {
+  _resetOpenRouterCredentialCooldownsForTest,
+  assertOpenRouterCredentialAvailable,
+  recordOpenRouterCredentialCooldown,
+} from "../openrouter/credential-cooldown.js";
 import { createExecutionLedger } from "../execution-ledger.js";
 
 const baseMessages = [{ role: "user", content: "hello" } as const];
+const cataloguedFreeModel = FREE_MODELS[0]!.id;
+const toolCapableFreeModel = FREE_MODELS.find((model) => model.supportsTools)!.id;
 let persistedCooldownWrites: Array<{ provider: string; model: string; cooldownMs: number }> = [];
 let persistedCooldownClears: Array<{ provider: string; model: string }> = [];
 
@@ -249,7 +255,7 @@ describe("OpenAI-compatible outbound metadata", () => {
       captured = JSON.parse(String(init?.body ?? "{}")) as Record<string, unknown>;
       return jsonResponse({
           choices: [{ message: { content: "ok" } }],
-          model: "openrouter-test",
+          model: cataloguedFreeModel,
           usage: { prompt_tokens: 1, completion_tokens: 1 },
         });
     }));
@@ -269,7 +275,7 @@ describe("OpenAI-compatible outbound metadata", () => {
       { role: "tool", tool_call_id: "gemini-call", content: '{"result":"source"}' },
     ] as any, {
       apiKey: "test-key",
-      model: "openrouter-test",
+      model: cataloguedFreeModel,
       providerName: "OpenRouter",
       baseUrl: "https://openrouter.example/v1",
     });
@@ -873,7 +879,7 @@ describe("openrouterCompleteWithFallback — error classification", () => {
     ).rejects.toSatisfy((err: unknown) => err instanceof GroqClientError && err.code === "RATE_LIMITED");
   });
 
-  it("applies a local model-only cooldown when shared-pool Retry-After is missing", async () => {
+  it("holds the credential when an upstream pool cannot be mapped without Retry-After", async () => {
     vi.stubGlobal("fetch", vi.fn(async () => textResponse(JSON.stringify({
         error: {
           code: 429,
@@ -899,16 +905,21 @@ describe("openrouterCompleteWithFallback — error classification", () => {
         err.rateLimitScope === "upstream_shared_pool" &&
         err.upstreamProvider === "Poolside",
     );
-    expect(isModelCoolingDown("openrouter", primaryModel)).toBe(true);
-    expect(persistedCooldownWrites).toContainEqual({
-      provider: "openrouter",
-      model: `__local_adaptive_model__:${encodeURIComponent(primaryModel)}`,
-      cooldownMs: 30_000,
-    });
-    expect(persistedCooldownWrites.some((row) => row.model.startsWith("__upstream_pool__:"))).toBe(false);
+    expect(isModelCoolingDown("openrouter", primaryModel)).toBe(false);
+    await expect(assertOpenRouterCredentialAvailable("test-key")).rejects.toSatisfy(
+      (error: unknown) =>
+        error instanceof GroqClientError &&
+        error.code === "RATE_LIMITED" &&
+        error.providerCode === "CREDENTIAL_RETRY_AFTER" &&
+        error.rateLimitScope === "unknown" &&
+        error.retryAfterMs !== undefined &&
+        error.retryAfterMs > 0 &&
+        error.retryAfterMs <= 30_000,
+    );
+    expect(persistedCooldownWrites).toEqual([]);
   });
 
-  it("cools only the failed model after a shared-pool limit across later requests", async () => {
+  it("holds the credential when a retry window names an unmapped upstream pool", async () => {
     const attemptedModels: string[] = [];
     const fetchMock = vi.fn(async (_url: string | URL, init?: RequestInit) => {
       const model = String(
@@ -948,18 +959,24 @@ describe("openrouterCompleteWithFallback — error classification", () => {
       code: "RATE_LIMITED",
       rateLimitScope: "upstream_shared_pool",
     });
-    expect(isModelCoolingDown("openrouter", attemptedModels[0]!)).toBe(true);
-
-    const result = await openrouterCompleteWithFallback(baseMessages as any, options);
-    expect(result.content).toBe("recovered");
-    expect(attemptedModels).toHaveLength(2);
-    expect(attemptedModels[1]).not.toBe(attemptedModels[0]);
-    expect(fetchMock).toHaveBeenCalledTimes(2);
-    expect(persistedCooldownWrites).toEqual([{
-      provider: "openrouter",
-      model: attemptedModels[0]!,
-      cooldownMs: 120_000,
-    }]);
+    expect(isModelCoolingDown("openrouter", attemptedModels[0]!)).toBe(false);
+    await expect(assertOpenRouterCredentialAvailable("test-key")).rejects.toSatisfy(
+      (error: unknown) =>
+        error instanceof GroqClientError &&
+        error.code === "RATE_LIMITED" &&
+        error.providerCode === "CREDENTIAL_RETRY_AFTER" &&
+        error.rateLimitScope === "unknown" &&
+        error.retryAfterMs !== undefined &&
+        error.retryAfterMs > 0 &&
+        error.retryAfterMs <= 120_000,
+    );
+    await expect(openrouterCompleteWithFallback(baseMessages as any, options)).rejects.toMatchObject({
+      code: "RATE_LIMITED",
+      providerCode: "CREDENTIAL_RETRY_AFTER",
+    });
+    expect(attemptedModels).toHaveLength(1);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(persistedCooldownWrites).toEqual([]);
   });
 
   it("cools matching upstream-provider siblings but leaves unrelated free vendors available", async () => {
@@ -1023,7 +1040,7 @@ describe("openrouterCompleteWithFallback — error classification", () => {
     expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 
-  it("does not broaden a missing-header cooldown to sibling models or the pool", async () => {
+  it("fails closed across the credential when a missing-header pool is unmapped", async () => {
     vi.stubGlobal("fetch", vi.fn(async () => textResponse(JSON.stringify({
       error: {
         message: "Provider returned error",
@@ -1041,13 +1058,13 @@ describe("openrouterCompleteWithFallback — error classification", () => {
       }),
     ).rejects.toMatchObject({ code: "RATE_LIMITED", rateLimitScope: "upstream_shared_pool" });
 
-    expect(isModelCoolingDown("openrouter", primaryModel)).toBe(true);
-    expect(persistedCooldownWrites).toContainEqual({
-      provider: "openrouter",
-      model: `__local_adaptive_model__:${encodeURIComponent(primaryModel)}`,
-      cooldownMs: 30_000,
+    expect(isModelCoolingDown("openrouter", primaryModel)).toBe(false);
+    await expect(assertOpenRouterCredentialAvailable("test-key")).rejects.toMatchObject({
+      code: "RATE_LIMITED",
+      providerCode: "CREDENTIAL_RETRY_AFTER",
+      rateLimitScope: "unknown",
     });
-    expect(persistedCooldownWrites.some((row) => row.model.startsWith("__upstream_pool__:"))).toBe(false);
+    expect(persistedCooldownWrites).toEqual([]);
   });
 
   it.each([
@@ -1180,7 +1197,7 @@ describe("openrouterCompleteWithFallback — error classification", () => {
     },
   );
 
-  it("does not create a credential cooldown when Retry-After is absent", async () => {
+  it("applies a local credential hold when a credential 429 omits Retry-After", async () => {
     const fetchMock = vi.fn()
       .mockResolvedValueOnce(textResponse(
         JSON.stringify({
@@ -1207,10 +1224,12 @@ describe("openrouterCompleteWithFallback — error classification", () => {
 
     await expect(openrouterCompleteWithFallback(baseMessages as any, options))
       .rejects.toMatchObject({ code: "RATE_LIMITED", rateLimitScope: "provider_credential" });
-    await expect(openrouterCompleteWithFallback(baseMessages as any, options)).resolves.toMatchObject({
-      content: "fixture response",
+    await expect(openrouterCompleteWithFallback(baseMessages as any, options)).rejects.toMatchObject({
+      code: "RATE_LIMITED",
+      providerCode: "CREDENTIAL_RETRY_AFTER",
+      rateLimitScope: "provider_credential",
     });
-    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
   it("returns a 429 with Retry-After instead of retrying within the request", async () => {
@@ -1377,11 +1396,16 @@ describe("openrouterCompleteWithFallback — error classification", () => {
         JSON.stringify(err.providerAttemptedModels) === JSON.stringify([seenModels[0]]),
     );
     expect(callCount).toBe(1);
-    expect(persistedCooldownWrites).toContainEqual({
-      provider: "openrouter",
-      model: `__local_adaptive_model__:${encodeURIComponent(primaryModel)}`,
-      cooldownMs: 30_000,
-    });
+    await expect(assertOpenRouterCredentialAvailable("test-key")).rejects.toSatisfy(
+      (error: unknown) =>
+        error instanceof GroqClientError &&
+        error.code === "RATE_LIMITED" &&
+        error.providerCode === "CREDENTIAL_RETRY_AFTER" &&
+        error.rateLimitScope === "unknown" &&
+        error.retryAfterMs !== undefined &&
+        error.retryAfterMs > 0 &&
+        error.retryAfterMs <= 30_000,
+    );
   });
 
   it("preserves Retry-After and avoids retrying the same model", async () => {
@@ -1533,10 +1557,89 @@ describe("openrouterCompleteWithFallback — error classification", () => {
       (error: unknown) =>
         error instanceof GroqClientError &&
         error.code === "RATE_LIMITED" &&
-        error.providerCode === "MODEL_COOLDOWN" &&
-        error.retryAfterMs === undefined,
+        error.providerCode === "CREDENTIAL_RETRY_AFTER" &&
+        error.rateLimitScope === "unknown" &&
+        error.retryAfterMs !== undefined &&
+        error.retryAfterMs > 0 &&
+        error.retryAfterMs <= 30_000,
     );
     expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it.each([
+    {
+      label: "one credential across different model publishers",
+      firstModel: primaryModel,
+      secondModel: FREE_MODELS.find(
+        (candidate) => candidate.id.split("/", 1)[0] !== primaryModel.split("/", 1)[0],
+      )!.id,
+      firstApiKey: "shared-test-key",
+      secondApiKey: "shared-test-key",
+    },
+    {
+      label: "one publisher across different credentials",
+      firstModel: "thinkingmachines/inkling-small:free",
+      secondModel: "thinkingmachines/inkling:free",
+      firstApiKey: "first-test-key",
+      secondApiKey: "second-test-key",
+    },
+  ])("serializes $label before provider send", async ({
+    firstModel,
+    secondModel,
+    firstApiKey,
+    secondApiKey,
+  }) => {
+    let resolveFirstResponse!: (response: Response) => void;
+    let notifyFirstStarted!: () => void;
+    const firstStarted = new Promise<void>((resolve) => {
+      notifyFirstStarted = resolve;
+    });
+    const firstResponse = new Promise<Response>((resolve) => {
+      resolveFirstResponse = resolve;
+    });
+    const seenModels: string[] = [];
+    const fetchMock = vi.fn(async (_url: string | URL, init?: RequestInit) => {
+      const body = JSON.parse(String(init?.body ?? "{}")) as Record<string, unknown>;
+      seenModels.push(String(body.model));
+      if (seenModels.length === 1) {
+        notifyFirstStarted();
+        return firstResponse;
+      }
+      return jsonResponse({
+        choices: [{ message: { content: "second response" }, finish_reason: "stop" }],
+        model: body.model,
+        usage: { prompt_tokens: 1, completion_tokens: 1 },
+      });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const first = openrouterCompleteWithFallback(baseMessages as any, {
+      apiKey: firstApiKey,
+      model: firstModel,
+      maxFallbackModels: 0,
+      maxTokens: 10,
+      retryTransient: false,
+    });
+    await firstStarted;
+    const second = openrouterCompleteWithFallback(baseMessages as any, {
+      apiKey: secondApiKey,
+      model: secondModel,
+      maxFallbackModels: 0,
+      maxTokens: 10,
+      retryTransient: false,
+    });
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+
+    resolveFirstResponse(jsonResponse({
+      choices: [{ message: { content: "first response" }, finish_reason: "stop" }],
+      model: firstModel,
+      usage: { prompt_tokens: 1, completion_tokens: 1 },
+    }));
+    await Promise.all([first, second]);
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(seenModels).toEqual([firstModel, secondModel]);
   });
 
   it("serializes concurrent same-model streams and does not send a queued request after a 429", async () => {
@@ -1583,8 +1686,11 @@ describe("openrouterCompleteWithFallback — error classification", () => {
       (error: unknown) =>
         error instanceof GroqClientError &&
         error.code === "RATE_LIMITED" &&
-        error.providerCode === "MODEL_COOLDOWN" &&
-        error.retryAfterMs === undefined,
+        error.providerCode === "CREDENTIAL_RETRY_AFTER" &&
+        error.rateLimitScope === "unknown" &&
+        error.retryAfterMs !== undefined &&
+        error.retryAfterMs > 0 &&
+        error.retryAfterMs <= 30_000,
     );
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
@@ -1641,6 +1747,44 @@ describe("openrouterCompleteWithFallback — error classification", () => {
         error.providerCode === "MODEL_ATTEMPT_LOCK_BUSY",
     );
     expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("reserves credential, publisher, and exact-model lanes before sending", async () => {
+    const acquiredModels: string[] = [];
+    const releasedModels: string[] = [];
+    const fetchMock = vi.fn(async (_url: string | URL, init?: RequestInit) => {
+      const body = JSON.parse(String(init?.body ?? "{}")) as Record<string, unknown>;
+      return jsonResponse({
+        choices: [{ message: { content: "bounded response" }, finish_reason: "stop" }],
+        model: body.model,
+        usage: { prompt_tokens: 1, completion_tokens: 1 },
+      });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const modelCooldownPersistence = {
+      readActive: async () => [],
+      write: async () => {},
+      clear: async () => {},
+      acquireAttemptLease: async (_provider: string, leaseKey: string) => {
+        acquiredModels.push(leaseKey);
+        return { release: async () => { releasedModels.push(leaseKey); } };
+      },
+    };
+
+    await openrouterCompleteWithFallback(baseMessages as any, {
+      apiKey: "test-key",
+      model: primaryModel,
+      maxFallbackModels: 0,
+      modelCooldownPersistence,
+    });
+
+    expect(acquiredModels).toHaveLength(3);
+    expect(acquiredModels[0]).toMatch(/^__openrouter_credential_attempt_lane__:[a-f0-9]{64}$/);
+    expect(acquiredModels[0]).not.toContain("test-key");
+    expect(acquiredModels[1]).toMatch(/^__publisher_attempt_lane__:/);
+    expect(acquiredModels[2]).toBe(primaryModel);
+    expect(releasedModels).toEqual([...acquiredModels].reverse());
+    expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
   it("fails closed across the free candidate chain when lease persistence throws", async () => {
@@ -1761,7 +1905,10 @@ describe("openrouterCompleteWithFallback — error classification", () => {
         return textResponse(JSON.stringify({
           error: {
             message: "shared pool limit",
-            metadata: { limit_source: "upstream_provider_shared_pool" },
+            metadata: {
+              limit_source: "upstream_provider_shared_pool",
+              provider_name: "Thinking Machines",
+            },
           },
         }), 429);
       }
@@ -1775,7 +1922,7 @@ describe("openrouterCompleteWithFallback — error classification", () => {
     const executionLedger = createExecutionLedger({ id: "private-execution-id" });
     const requestOptions = {
       apiKey: "private-provider-credential",
-      model: primaryModel,
+      model: "thinkingmachines/inkling:free",
       maxTokens: 10,
       maxFallbackModels: 1,
       retryTransient: false,
@@ -1797,7 +1944,11 @@ describe("openrouterCompleteWithFallback — error classification", () => {
 
       const accepted = await openrouterCompleteWithFallback(
         [{ role: "user", content: "private prompt marker" }] as any,
-        { ...requestOptions, operation: "project_query_no_tools_synthesis" },
+        {
+          ...requestOptions,
+          model: "liquid/lfm-2.5-2.6b:free",
+          operation: "project_query_no_tools_synthesis",
+        },
       );
       expect(accepted.content).toBe("accepted response");
       expect(callCount).toBe(2);
@@ -2155,7 +2306,7 @@ describe("stream usage accounting", () => {
       apiKey: "fixture-key",
       baseUrl: "https://example.test/v1",
       providerName: "OpenRouter",
-      model: "fixture-model",
+      model: cataloguedFreeModel,
       executionLedger: ledger,
     })) {
       chunks.push(chunk);
@@ -2239,7 +2390,7 @@ describe("OpenRouter tool selection", () => {
               }],
             },
           }],
-          model: "test-model",
+          model: toolCapableFreeModel,
           usage: { prompt_tokens: 1, completion_tokens: 1 },
         });
     }));
@@ -2248,7 +2399,7 @@ describe("OpenRouter tool selection", () => {
       apiKey: "test-key",
       baseUrl: "https://example.test/v1",
       providerName: "OpenRouter",
-      model: "test-model",
+      model: toolCapableFreeModel,
       tools: [{
         type: "function",
         function: { name: "read_file", description: "Read a file", parameters: {} },
@@ -2265,7 +2416,7 @@ describe("OpenRouter tool selection", () => {
       captured = JSON.parse(String(init?.body ?? "{}")) as Record<string, unknown>;
       return jsonResponse({
           choices: [{ message: { content: "plain prose" } }],
-          model: "test-model",
+          model: cataloguedFreeModel,
           usage: { prompt_tokens: 1, completion_tokens: 1 },
         });
     }));
@@ -2274,12 +2425,66 @@ describe("OpenRouter tool selection", () => {
       apiKey: "test-key",
       baseUrl: "https://example.test/v1",
       providerName: "OpenRouter",
-      model: "test-model",
+      model: cataloguedFreeModel,
       toolChoice: "none",
     });
 
     expect(captured?.tool_choice).toBe("none");
     expect(captured).not.toHaveProperty("tools");
+  });
+});
+
+describe("OpenRouter inference admission", () => {
+  it("checks credential-wide cooldown before direct transport can send", async () => {
+    _resetOpenRouterCredentialCooldownsForTest();
+    vi.stubEnv("AI_PROVIDER_EGRESS_DISABLED", "0");
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+    const persistence = {
+      readActive: async () => null,
+      write: async () => {},
+    };
+    await recordOpenRouterCredentialCooldown(
+      "synthetic-openrouter-key",
+      new GroqClientError("RATE_LIMITED", "fixture cooldown", {
+        context: {
+          retryAfterMs: 60_000,
+          rateLimitScope: "account_quota",
+        },
+      }),
+      persistence as any,
+    );
+
+    try {
+      await expect(oacCompleteRaw(baseMessages as any, {
+        apiKey: "synthetic-openrouter-key",
+        baseUrl: "https://example.test/v1",
+        providerName: "OpenRouter",
+        model: cataloguedFreeModel,
+        credentialCooldownPersistence: persistence as any,
+      })).rejects.toMatchObject({
+        code: "RATE_LIMITED",
+        providerCode: "CREDENTIAL_RETRY_AFTER",
+      });
+      expect(fetchMock).not.toHaveBeenCalled();
+    } finally {
+      _resetOpenRouterCredentialCooldownsForTest();
+    }
+  });
+
+  it("rejects a caller-forged permit before transport can send", async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(oacCompleteRaw(baseMessages as any, {
+      apiKey: "test-key",
+      baseUrl: "https://example.test/v1",
+      providerName: "OpenRouter",
+      model: cataloguedFreeModel,
+      admissionPermit: { model: cataloguedFreeModel } as any,
+    })).rejects.toMatchObject({ code: "INVALID_CONFIG" });
+
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 });
 

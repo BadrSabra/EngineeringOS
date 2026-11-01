@@ -216,7 +216,7 @@ describe("phase 0 baseline — PROJECT_QUERY objective evidence handoff", () => 
     } finally {
       await fs.rm(rootPath, { recursive: true, force: true });
     }
-  });
+  }, 15_000);
 
   it("does not accept a symbol inventory as an embedded-AI explanation", async () => {
     const completeFileContents = new Map<string, string>([

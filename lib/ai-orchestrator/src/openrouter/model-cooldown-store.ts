@@ -9,6 +9,7 @@ const LOCAL_ADAPTIVE_BASE_MS = 30_000;
 const LOCAL_ADAPTIVE_MAX_MS = 10 * 60_000;
 const LOCAL_ADAPTIVE_HISTORY_MS = 60 * 60_000;
 const MODEL_ATTEMPT_LEASE_PREFIX = "__attempt_lease__:";
+const MODEL_PUBLISHER_ATTEMPT_LANE_PREFIX = "__publisher_attempt_lane__:";
 const MODEL_ATTEMPT_LEASE_DURATION_MS = 90_000;
 const MODEL_ATTEMPT_LOCK_WAIT_MS = 5_000;
 const MODEL_ATTEMPT_LOCK_POLL_MS = 75;
@@ -37,6 +38,16 @@ function modelNamespace(model: string): string | undefined {
   const namespace = model.split("/", 1)[0];
   const normalized = namespace ? normalizeProviderNamespace(namespace) : "";
   return normalized || undefined;
+}
+
+/**
+ * Groups catalog models by their declared owner namespace for conservative
+ * pre-request serialization. This is a local concurrency lane, not evidence
+ * about remaining provider quota or an upstream routing decision.
+ */
+export function modelPublisherAttemptLaneKeyForModel(model: string): string | undefined {
+  const namespace = modelNamespace(model);
+  return namespace ? `${MODEL_PUBLISHER_ATTEMPT_LANE_PREFIX}${namespace}` : undefined;
 }
 
 function upstreamPoolCooldownKey(namespace: string): string {

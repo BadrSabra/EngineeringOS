@@ -24,11 +24,27 @@ export type CredentialCooldownPersistence = {
 const COOLDOWN_SWEEP_INTERVAL_MS = 60_000;
 const PERSISTENCE_WARNING_INTERVAL_MS = 60_000;
 const credentialCooldowns = new Map<string, CredentialCooldown>();
+const adaptiveCredentialFailures = new Map<
+  string,
+  { cooldownMs: number; recordedAt: number }
+>();
+const ADAPTIVE_CREDENTIAL_BASE_MS = 30_000;
+const ADAPTIVE_CREDENTIAL_MAX_MS = 10 * 60_000;
+const ADAPTIVE_CREDENTIAL_HISTORY_MS = 60 * 60_000;
 let lastSweepAt = 0;
 let lastPersistenceWarningAt = Number.NEGATIVE_INFINITY;
 
+export function resolveOpenRouterCredential(apiKey?: string): string | undefined {
+  return apiKey?.trim() || process.env.OPENROUTER_API_KEY?.trim() || undefined;
+}
+
 function credentialFingerprint(apiKey: string): string {
   return createHash("sha256").update(apiKey, "utf8").digest("hex");
+}
+
+/** Non-secret shared-lease identity; the raw credential is never persisted. */
+export function openRouterCredentialAttemptLaneKey(apiKey: string): string {
+  return `__openrouter_credential_attempt_lane__:${credentialFingerprint(apiKey)}`;
 }
 
 function persistentCredentialFingerprint(apiKey: string): string | null {
@@ -120,6 +136,11 @@ function sweepExpired(now: number): void {
   for (const [fingerprint, cooldown] of credentialCooldowns) {
     if (cooldown.coolingUntil <= now) credentialCooldowns.delete(fingerprint);
   }
+  for (const [fingerprint, failure] of adaptiveCredentialFailures) {
+    if (now - failure.recordedAt > ADAPTIVE_CREDENTIAL_HISTORY_MS) {
+      adaptiveCredentialFailures.delete(fingerprint);
+    }
+  }
   lastSweepAt = now;
 }
 
@@ -133,8 +154,9 @@ export async function recordOpenRouterCredentialCooldown(
   error: unknown,
   persistenceOverride?: CredentialCooldownPersistence,
 ): Promise<void> {
+  const resolvedApiKey = resolveOpenRouterCredential(apiKey);
   if (
-    !apiKey ||
+    !resolvedApiKey ||
     !(error instanceof GroqClientError) ||
     (error.code !== "RATE_LIMITED" && error.code !== "QUOTA") ||
     error.rateLimitScope === "upstream_shared_pool" ||
@@ -149,7 +171,7 @@ export async function recordOpenRouterCredentialCooldown(
   if (!Number.isSafeInteger(coolingUntil)) return;
   sweepExpired(now);
 
-  const fingerprint = credentialFingerprint(apiKey);
+  const fingerprint = credentialFingerprint(resolvedApiKey);
   const previous = credentialCooldowns.get(fingerprint);
   const cooldown: CredentialCooldown = previous && previous.coolingUntil > coolingUntil
     ? previous
@@ -164,7 +186,7 @@ export async function recordOpenRouterCredentialCooldown(
       };
   credentialCooldowns.set(fingerprint, cooldown);
 
-  const persistentFingerprint = persistentCredentialFingerprint(apiKey);
+  const persistentFingerprint = persistentCredentialFingerprint(resolvedApiKey);
   if (!persistentFingerprint) {
     logPersistenceUnavailable("write", "encryption_key_unavailable");
     return;
@@ -177,6 +199,57 @@ export async function recordOpenRouterCredentialCooldown(
 }
 
 /**
+ * Unknown, credential-wide, or account-wide 429s without Retry-After are
+ * contained at the credential boundary. The active hold uses the existing
+ * shared persistence; only the bounded escalation counter is process-local.
+ */
+export async function recordAdaptiveOpenRouterCredentialCooldown(
+  apiKey: string | undefined,
+  persistenceOverride?: CredentialCooldownPersistence,
+  scope: CredentialLimitScope = "unknown",
+): Promise<number> {
+  const resolvedApiKey = resolveOpenRouterCredential(apiKey);
+  if (!resolvedApiKey) return 0;
+  const now = Date.now();
+  const fingerprint = credentialFingerprint(resolvedApiKey);
+  const previous = adaptiveCredentialFailures.get(fingerprint);
+  const cooldownMs = previous && now - previous.recordedAt <= ADAPTIVE_CREDENTIAL_HISTORY_MS
+    ? Math.min(previous.cooldownMs * 2, ADAPTIVE_CREDENTIAL_MAX_MS)
+    : ADAPTIVE_CREDENTIAL_BASE_MS;
+  adaptiveCredentialFailures.set(fingerprint, { cooldownMs, recordedAt: now });
+
+  const error = new GroqClientError(
+    "RATE_LIMITED",
+    "OpenRouter admission applied a bounded local hold after a rate limit without a usable retry window.",
+    {
+      context: {
+        providerName: "OpenRouter",
+        providerCode: "LOCAL_ADAPTIVE_CREDENTIAL_COOLDOWN",
+        rateLimitScope: scope,
+        retryAfterMs: cooldownMs,
+      },
+    },
+  );
+  await recordOpenRouterCredentialCooldown(resolvedApiKey, error, persistenceOverride);
+  console.warn(JSON.stringify({
+    scope: "openrouter-credential-cooldown",
+    code: "LOCAL_ADAPTIVE_UNKNOWN_SCOPE_COOLDOWN",
+    rateLimitScope: scope,
+    cooldownMs,
+  }));
+  return cooldownMs;
+}
+
+/** Clear only the escalation history after a successful accepted response. */
+export function clearAdaptiveOpenRouterCredentialFailures(
+  apiKey: string | undefined,
+): void {
+  const resolvedApiKey = resolveOpenRouterCredential(apiKey);
+  if (!resolvedApiKey) return;
+  adaptiveCredentialFailures.delete(credentialFingerprint(resolvedApiKey));
+}
+
+/**
  * Rejects all OpenRouter model lanes for this credential until Retry-After.
  * Reads shared state on every admission so another API process can extend the
  * exact provider-supplied window while this process is still running.
@@ -185,13 +258,14 @@ export async function assertOpenRouterCredentialAvailable(
   apiKey: string | undefined,
   persistenceOverride?: CredentialCooldownPersistence,
 ): Promise<void> {
-  if (!apiKey) return;
+  const resolvedApiKey = resolveOpenRouterCredential(apiKey);
+  if (!resolvedApiKey) return;
   const now = Date.now();
   sweepExpired(now);
 
-  const fingerprint = credentialFingerprint(apiKey);
+  const fingerprint = credentialFingerprint(resolvedApiKey);
   let cooldown = credentialCooldowns.get(fingerprint);
-  const persistentFingerprint = persistentCredentialFingerprint(apiKey);
+  const persistentFingerprint = persistentCredentialFingerprint(resolvedApiKey);
   if (!persistentFingerprint) {
     logPersistenceUnavailable("read", "encryption_key_unavailable");
   } else {
@@ -246,6 +320,7 @@ export async function assertOpenRouterCredentialAvailable(
 /** Test seam for deterministic process-local credential cooldown checks. */
 export function _resetOpenRouterCredentialCooldownsForTest(): void {
   credentialCooldowns.clear();
+  adaptiveCredentialFailures.clear();
   lastSweepAt = 0;
   lastPersistenceWarningAt = Number.NEGATIVE_INFINITY;
 }
