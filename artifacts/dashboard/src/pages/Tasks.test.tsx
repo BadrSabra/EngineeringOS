@@ -205,6 +205,42 @@ beforeEach(() => {
   } as ReturnType<typeof useDeleteTask>);
 });
 
+function renderTaskAcceptanceWithRetryAt(retryAt: string) {
+  vi.mocked(useGetTask).mockReturnValue({
+    data: {
+      status: 'verifying',
+      acceptance: {
+        attempt: 2,
+        terminalStatus: 'failed',
+        outcome: 'FAILED',
+        reasonCode: 'EXECUTION_PROVIDER_FAILURE',
+        nextActionCode: 'RESUME_ALLOWED',
+        evidenceComplete: false,
+        evidenceRequired: false,
+        resumable: true,
+        disposition: {
+          reasonCodes: ['EXECUTION_PROVIDER_FAILURE'],
+          outcome: 'FAILED',
+          recoveryState: 'REQUIRED',
+          nextActionCode: 'RESUME_ALLOWED',
+          operatorAction: 'Resume after the provider retry window.',
+          retryAt,
+        },
+      },
+    },
+    isLoading: false,
+    isFetching: false,
+    isError: false,
+    error: null,
+  } as ReturnType<typeof useGetTask>);
+  const rendered = renderPage();
+  fireEvent.click(screen.getByRole('button', { name: 'عرض تفاصيل المهمة: Repair provider authentication' }));
+  return {
+    ...rendered,
+    panel: screen.getByRole('region', { name: 'نتيجة قبول الخادم' }),
+  };
+}
+
 describe('project-scoped task list contracts', () => {
   it('sends the selected owned project in the list request', () => {
     renderPage();
@@ -596,6 +632,29 @@ describe('Tasks recovery rendering', () => {
     expect(within(acceptance).getByText('Resume the saved task checkpoint.')).toBeInTheDocument();
     expect(within(acceptance).getByRole('button', { name: 'استئناف تنفيذ المهمة' })).toBeInTheDocument();
     expect(within(acceptance).queryByText(/providerPayload/i)).not.toBeInTheDocument();
+  });
+
+  it('shows a live wait countdown and withholds resume while the provider retry window is active', () => {
+    const retryAt = new Date(Date.now() + 60_000).toISOString();
+    const { panel } = renderTaskAcceptanceWithRetryAt(retryAt);
+
+    expect(within(panel).getByText(/يمكن استئناف المهمة بعد \d+ ثانية/)).toBeInTheDocument();
+    expect(within(panel).getByRole('status')).toHaveTextContent(
+      'نافذة انتظار المزوّد ما زالت فعّالة؛ لن يُرسل طلب استئناف قبل انتهائها.',
+    );
+    expect(within(panel).queryByRole('button', { name: 'استئناف تنفيذ المهمة' })).not.toBeInTheDocument();
+  });
+
+  it('fails closed for a malformed retry deadline and enables resume only after a valid deadline expires', () => {
+    const invalid = renderTaskAcceptanceWithRetryAt('not-a-date');
+    expect(within(invalid.panel).getByRole('alert')).toHaveTextContent(
+      'موعد إعادة المحاولة غير صالح أو غير متاح؛ لن يظهر خيار الاستئناف.',
+    );
+    expect(within(invalid.panel).queryByRole('button', { name: 'استئناف تنفيذ المهمة' })).not.toBeInTheDocument();
+    invalid.unmount();
+
+    const expired = renderTaskAcceptanceWithRetryAt(new Date(Date.now() - 1_000).toISOString());
+    expect(within(expired.panel).getByRole('button', { name: 'استئناف تنفيذ المهمة' })).toBeInTheDocument();
   });
 
   it('withholds a cached prior-attempt acceptance while current Task details refresh', () => {

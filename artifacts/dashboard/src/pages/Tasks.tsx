@@ -181,8 +181,35 @@ type TaskAcceptance = {
     recoveryState: 'NONE' | 'REQUIRED' | 'INCOMPLETE';
     nextActionCode: TaskAcceptance['nextActionCode'];
     operatorAction: string;
+    retryAt?: string;
+    retryAfterMs?: number;
   };
 };
+
+type TaskRetryGate =
+  | { state: 'none' | 'ready' }
+  | { state: 'waiting'; remainingSeconds: number }
+  | { state: 'unavailable' };
+
+function taskRetryGate(retryAt: unknown, nowMs: number): TaskRetryGate {
+  if (retryAt === undefined) return { state: 'none' };
+  if (typeof retryAt !== 'string') return { state: 'unavailable' };
+  const retryAtMs = Date.parse(retryAt);
+  const retryAtDate = new Date(retryAtMs);
+  if (
+    !Number.isFinite(retryAtMs)
+    || !Number.isFinite(retryAtDate.getTime())
+    || retryAtDate.toISOString() !== retryAt
+    || !Number.isFinite(nowMs)
+  ) {
+    return { state: 'unavailable' };
+  }
+  if (retryAtMs <= nowMs) return { state: 'ready' };
+  return {
+    state: 'waiting',
+    remainingSeconds: Math.max(1, Math.ceil((retryAtMs - nowMs) / 1_000)),
+  };
+}
 
 function parseExecutionReceipt(raw: string | undefined): TaskExecutionReceipt | null {
   if (!raw) return null;
@@ -374,6 +401,15 @@ function TaskAcceptancePanel({
   const taskDetails = data as { status?: string; acceptance?: TaskAcceptance } | undefined;
   const acceptance = taskDetails?.acceptance;
   const taskCanResume = ["pending", "queued", "verifying"].includes(taskDetails?.status ?? "");
+  const retryAt = acceptance?.disposition?.retryAt;
+  const [clockMs, setClockMs] = useState(() => Date.now());
+  useEffect(() => {
+    setClockMs(Date.now());
+    if (typeof retryAt !== 'string') return;
+    const timer = window.setInterval(() => setClockMs(Date.now()), 1_000);
+    return () => window.clearInterval(timer);
+  }, [retryAt]);
+  const retryGate = taskRetryGate(retryAt, clockMs);
 
   if (isLoading) {
     return (
@@ -415,7 +451,11 @@ function TaskAcceptancePanel({
   const status = acceptanceStatus(acceptance);
   const acceptanceOffersResume =
     acceptance.resumable && acceptance.nextActionCode === "RESUME_ALLOWED";
-  const nextAction =
+  const nextAction = retryGate.state === 'waiting'
+    ? `يمكن استئناف المهمة بعد ${retryGate.remainingSeconds} ثانية.`
+    : retryGate.state === 'unavailable'
+      ? 'تعذر التحقق من موعد إعادة المحاولة؛ حدّث تفاصيل المهمة قبل أي استئناف.'
+      :
     acceptanceOffersResume && !taskCanResume
       ? "حالة المهمة لا تسمح بالاستئناف الآن. حدّث تفاصيلها لمعرفة الإجراء المتاح."
       : acceptanceNextAction(acceptance);
@@ -439,13 +479,25 @@ function TaskAcceptancePanel({
         <span className="font-semibold text-foreground">الإجراء التالي: </span>
         <span dir="auto">{nextAction}</span>
       </div>
+      {retryGate.state === 'waiting' && (
+        <div role="status" className="mt-2 rounded-md border border-amber-500/30 bg-amber-500/5 p-2 text-amber-700 dark:text-amber-300">
+          نافذة انتظار المزوّد ما زالت فعّالة؛ لن يُرسل طلب استئناف قبل انتهائها.
+        </div>
+      )}
+      {retryGate.state === 'unavailable' && (
+        <div role="alert" className="mt-2 rounded-md border border-destructive/30 bg-destructive/5 p-2 text-destructive">
+          موعد إعادة المحاولة غير صالح أو غير متاح؛ لن يظهر خيار الاستئناف.
+        </div>
+      )}
       <div className="mt-1 text-muted-foreground">
         لا تُعرض تفاصيل تشخيص المزوّد أو بيانات الوصول.
       </div>
       {taskCanResume
         && acceptance.resumable
         && acceptance.nextActionCode === 'RESUME_ALLOWED'
-        && acceptance.disposition?.recoveryState === 'REQUIRED' && (
+        && acceptance.disposition?.recoveryState === 'REQUIRED'
+        && retryGate.state !== 'waiting'
+        && retryGate.state !== 'unavailable' && (
         <button
           type="button"
           onClick={onResume}
