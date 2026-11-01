@@ -153,7 +153,6 @@ async function probeProviderKey(provider: ProviderConfig, apiKey: string): Promi
         capability: probeModelDecision.capability,
         quality: probeModelDecision.quality,
         requireTools: probePlan.strictHints.requireTools ?? false,
-        allowPaidFallback: false,
       });
       return;
     case "gemini":

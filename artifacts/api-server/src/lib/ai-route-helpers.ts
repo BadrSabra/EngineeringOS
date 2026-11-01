@@ -25,7 +25,6 @@ import {
   getProviderLifecycleSnapshot,
   recordProviderLifecycleOutcome,
   invalidateProviderLifecycle,
-  validateGeminiDefaultModels,
   probeProviderHealth,
   getCapabilityProbePreflightTools,
   toPublicExecutionLedgerSnapshot,
@@ -146,6 +145,7 @@ export async function getProviderSelectionFailure(
   let transientProvider: ProviderId | undefined;
 
   for (const provider of PROVIDER_PRIORITY) {
+    if (provider !== "openrouter") continue;
     const credential = await resolveProviderCredential(userId, provider);
     if (!credential || !providerCanHandleRequest(provider, options)) continue;
     sawCredential = true;
@@ -174,7 +174,7 @@ export async function getProviderSelectionFailure(
   if (sawTransientLifecycle) {
     return new GroqClientError(
       "RATE_LIMITED",
-      "All configured AI providers are temporarily unavailable.",
+      "The OpenRouter free route is temporarily unavailable.",
       {
         context: {
           providerName: transientProvider,
@@ -187,8 +187,8 @@ export async function getProviderSelectionFailure(
   return new GroqClientError(
     "INVALID_CONFIG",
     sawCredential
-      ? "No configured AI provider can satisfy this request."
-      : "No AI provider is configured.",
+      ? "No eligible free OpenRouter model can satisfy this request."
+      : "No OpenRouter API key is configured.",
   );
 }
 
@@ -204,7 +204,6 @@ async function collectAvailableProviders(
   options?: ProviderSelectionOptions,
 ): Promise<Array<{ provider: ProviderId; apiKey: string; source: "user" | "server" }>> {
   const openRouterCredential = await resolveProviderCredential(userId, "openrouter");
-  const openRouterFreeOnly = Boolean(openRouterCredential);
   const available: Array<{ provider: ProviderId; apiKey: string; source: "user" | "server" }> = [];
   const skipped: Array<{
     provider: ProviderId;
@@ -220,8 +219,8 @@ async function collectAvailableProviders(
   }> = [];
 
   for (const provider of PROVIDER_PRIORITY) {
-    if (openRouterFreeOnly && provider !== "openrouter") {
-      skipped.push({ provider, reason: "openrouter_free_only" });
+    if (provider !== "openrouter") {
+      skipped.push({ provider, reason: "product_route_openrouter_free_only" });
       continue;
     }
     const credential = provider === "openrouter"
@@ -239,24 +238,6 @@ async function collectAvailableProviders(
       );
       skipped.push({ provider, reason });
       continue;
-    }
-    // Preserve the existing deterministic Gemini catalog contract in Vitest,
-    // where the package export is intentionally mocked. Production lifecycle
-    // checks remain controlled by AI_LIFECYCLE_LIVE_CHECKS.
-    if (
-      provider === "gemini" &&
-      process.env.NODE_ENV === "test" &&
-      process.env.AI_LIFECYCLE_LIVE_CHECKS !== "1" &&
-      process.env.RUN_CONTROLLED_RELEASE_VALIDATION !== "1"
-    ) {
-      const validation = await validateGeminiDefaultModels(
-        credential.apiKey,
-        PROVIDER_REGISTRY.gemini.defaultModels,
-      );
-      if (!validation.valid) {
-        skipped.push({ provider, reason: "model_missing" });
-        continue;
-      }
     }
     const lifecycle = await getProviderLifecycleSnapshot({
       provider,
@@ -347,12 +328,9 @@ async function collectAvailableProviders(
  * a potentially billable request to a different provider.
  */
 export function applyOpenRouterFreeOnlyFallbackPolicy<T extends { provider: ProviderId }>(
-  openRouterFreeOnly: boolean,
   candidates: readonly T[],
 ): T[] {
-  return openRouterFreeOnly
-    ? candidates.filter((candidate) => candidate.provider === "openrouter")
-    : [...candidates];
+  return candidates.filter((candidate) => candidate.provider === "openrouter");
 }
 
 let modelContractHistoryLoadPromise: Promise<void> | undefined;
@@ -752,13 +730,10 @@ export async function runAgentWithFallback<T>(
     onModelAttempt?: (attempt: AgentModelAttempt & { provider: ProviderId }) => void | Promise<void>;
   },
 ): Promise<{ result: T; effectiveProvider: ProviderId }> {
-  const openRouterFreeOnly = Boolean(
-    await resolveProviderCredential(userId, "openrouter"),
-  );
   let orderedProviders = await collectAvailableProviders(userId, options);
   if (
     !orderedProviders.some((candidate) => candidate.provider === initialProvider.provider)
-    && !(openRouterFreeOnly && initialProvider.provider !== "openrouter")
+    && initialProvider.provider === "openrouter"
   ) {
     const lifecycle = await getProviderLifecycleSnapshot({
       provider: initialProvider.provider,
@@ -771,10 +746,7 @@ export async function runAgentWithFallback<T>(
       orderedProviders.unshift({ ...initialProvider, source: initialProvider.source ?? "user" });
     }
   }
-  orderedProviders = applyOpenRouterFreeOnlyFallbackPolicy(
-    openRouterFreeOnly,
-    orderedProviders,
-  );
+  orderedProviders = applyOpenRouterFreeOnlyFallbackPolicy(orderedProviders);
   if (orderedProviders.length === 0) {
     throw await getProviderSelectionFailure(userId, options);
   }
@@ -991,9 +963,8 @@ export async function runAgentWithFallback<T>(
 /**
  * Call `chat()` with automatic provider fallback on recoverable errors.
  *
- * Iterates through ALL configured providers in PROVIDER_PRIORITY order until
- * one succeeds.  Fallback is triggered for any error code in FALLBACK_TRIGGER_CODES.
- * Both primary and fallback providers support streaming via `onDelta`.
+ * Tries only product-enabled free OpenRouter candidates. Recoverable failures
+ * may advance to another eligible OpenRouter model, never to another provider.
  */
 export async function chatWithFallback(
   userId: string,
@@ -1130,9 +1101,6 @@ export async function chatWithFallback(
   const selectionOptions = capabilityProbeTurn
     ? { ...options, refreshLifecycle: true }
     : options;
-  const openRouterFreeOnly = Boolean(
-    await resolveProviderCredential(userId, "openrouter"),
-  );
   let orderedProviders = await collectAvailableProviders(userId, selectionOptions);
   if (process.env.MISSION_E2E_PROVIDER_FIXTURE === "1") {
     logger.info({
@@ -1146,7 +1114,7 @@ export async function chatWithFallback(
   }
   if (
     !orderedProviders.some((candidate) => candidate.provider === initialProvider.provider)
-    && !(openRouterFreeOnly && initialProvider.provider !== "openrouter")
+    && initialProvider.provider === "openrouter"
   ) {
     const lifecycle = await getProviderLifecycleSnapshot({
       provider: initialProvider.provider,
@@ -1160,10 +1128,7 @@ export async function chatWithFallback(
       orderedProviders.unshift({ ...initialProvider, source: initialProvider.source ?? "user" });
     }
   }
-  orderedProviders = applyOpenRouterFreeOnlyFallbackPolicy(
-    openRouterFreeOnly,
-    orderedProviders,
-  );
+  orderedProviders = applyOpenRouterFreeOnlyFallbackPolicy(orderedProviders);
 
   if (orderedProviders.length === 0) {
     executionLedger.setTerminal("provider_exhausted");
@@ -1548,7 +1513,6 @@ export async function chatWithFallback(
             providerEntry.provider,
           ]);
           const refreshedProviders = applyOpenRouterFreeOnlyFallbackPolicy(
-            openRouterFreeOnly,
             await collectAvailableProviders(userId, {
               ...options,
               refreshLifecycle: true,
@@ -1657,22 +1621,22 @@ export async function requireProvider(
     const selectionFailure = await getProviderSelectionFailure(userId, options);
     const temporarilyUnavailable = selectionFailure.code === "RATE_LIMITED";
     const hint = options?.requireTools
-      ? "Save a tool-capable API key via PUT /api/ai/providers/:provider/key (openrouter, deepseek, or groq). Gemini is available for text-only requests."
-      : "Save an API key via PUT /api/ai/providers/:provider/key (openrouter, deepseek, groq, or gemini).";
+      ? "Configure an OpenRouter API key and ensure an eligible free model supports tool calls."
+      : "Configure an OpenRouter API key and ensure an eligible free model supports this request.";
     res.status(temporarilyUnavailable ? 429 : 428).json({
       error: temporarilyUnavailable
-        ? "The configured AI providers are temporarily unavailable."
-        : "AI provider not configured",
+        ? "The OpenRouter free route is temporarily unavailable."
+        : "OpenRouter is not configured",
       code: selectionFailure.code,
       retryable: temporarilyUnavailable,
       failureKind: temporarilyUnavailable ? "RATE_LIMIT" : "CONFIGURATION",
       hint: temporarilyUnavailable
-        ? "Wait for the provider cooldown to finish, then retry."
+        ? "Wait for Retry-After or the local OpenRouter cooldown before manually resuming. No provider switch or automatic retry is allowed."
         : hint,
       availabilityState: temporarilyUnavailable ? "temporarily_unavailable" : "missing_credentials",
       operatorAction: temporarilyUnavailable
-        ? "Wait for the provider cooldown to finish, then retry or configure another provider."
-        : "Save an API key for at least one supported provider, then retry.",
+        ? "Wait for OpenRouter's cooldown to expire before resuming the request."
+        : "Configure an OpenRouter API key; paid and unverified model routes are disabled.",
       retryAfterMs: selectionFailure.retryAfterMs,
       correlationId: randomUUID(),
     });
@@ -1863,8 +1827,8 @@ export function handleOrchestratorError(
           ? `retry after ${retryAfterSeconds} seconds`
           : "the provider did not specify a retry delay";
         const retryHint = retryAfterSeconds !== undefined
-          ? `Wait for the provider-specified delay before retrying, or configure another provider at ${providerConsole}.`
-          : `The provider did not provide a retry delay. No automatic retry is available; wait before trying again or configure another provider at ${providerConsole}.`;
+          ? `Wait for OpenRouter's provider-specified delay before retrying. The product will not switch providers or use a paid route.`
+          : `OpenRouter did not provide a retry delay. No automatic retry is available; wait before trying again. The product will not switch providers or use a paid route.`;
         res.status(429).json({
           ...base,
           error: `${providerLabel} rate limit reached — ${retryMessage}.`,
@@ -1889,7 +1853,7 @@ export function handleOrchestratorError(
         ...base,
         error: `${providerLabel} model has been discontinued or removed.`,
         hint: isOpenRouter
-          ? `All OpenRouter free-tier models are currently unavailable — the model may have been discontinued. Try a different provider (Groq, DeepSeek, or Gemini) by saving another API key.`
+          ? `The selected model is no longer in the eligible free catalog. Refresh the catalog or choose another listed free OpenRouter model.`
           : `The configured model slug is no longer accepted by ${providerLabel}. Re-save the provider key or try again after the model catalog refreshes.`,
       });
       return true;
@@ -1899,9 +1863,9 @@ export function handleOrchestratorError(
       const isOpenRouter = providerId === "openrouter";
       res.status(402).json({
         ...base,
-        error: `${providerLabel} model requires a paid plan or credit balance.`,
+        error: `${providerLabel} rejected the model under the free-only policy.`,
         hint: isOpenRouter
-          ? `The selected OpenRouter model is only available on paid plans. Add a small credit balance at ${providerConsole}, or save a Groq or Gemini API key as a free fallback.`
+          ? `This product only uses server-catalogued free OpenRouter models. No credit purchase or paid fallback is available.`
           : `${providerLabel} requires a paid plan for this model. Check your plan at ${providerConsole}.`,
       });
       return true;
@@ -1911,7 +1875,9 @@ export function handleOrchestratorError(
       res.status(503).json({
         ...base,
         error: `${providerLabel} model is temporarily unavailable.`,
-        hint: `The model is temporarily offline or being retired. Try again in a moment, or save a fallback provider key (Groq, DeepSeek, or Gemini) for automatic retry.`,
+        hint: providerId === "openrouter"
+          ? "The request remains incomplete. Wait for the free OpenRouter catalog or cooldown to recover; no other provider or paid route will be used."
+          : `The model is temporarily offline or being retired at ${providerLabel}.`,
       });
       return true;
     }
@@ -1919,8 +1885,12 @@ export function handleOrchestratorError(
     case "QUOTA": {
       res.status(402).json({
         ...base,
-        error: `${providerLabel} billing quota or credits are exhausted.`,
-        hint: `Replenish your ${providerLabel} credits at ${providerConsole}, or save a Groq or Gemini API key as a free fallback.`,
+        error: providerId === "openrouter"
+          ? "OpenRouter's free quota is unavailable."
+          : `${providerLabel} billing quota or credits are exhausted.`,
+        hint: providerId === "openrouter"
+          ? "Wait for the provider's free quota window to recover. The product will not buy credits or switch to another provider."
+          : `This provider is not part of the product's free-only route.`,
       });
       return true;
     }
@@ -1935,14 +1905,18 @@ export function handleOrchestratorError(
       res.status(502).json({
         ...base,
         error: `${providerLabel} returned an empty response.`,
-        hint: `This may be a transient ${providerLabel} issue — try again.`,
+        hint: providerId === "openrouter"
+          ? "The answer is incomplete and was rejected. Do not treat it as success; a later retry may use only an eligible free OpenRouter model."
+          : `This may be a transient ${providerLabel} issue — try again.`,
       });
       return true;
     case "INVALID_PROVIDER_RESPONSE":
       res.status(502).json({
         ...base,
         error: `${providerLabel} returned an invalid completion response.`,
-        hint: `The model returned an error-shaped completion. Try again or use another ${providerLabel} model.`,
+        hint: providerId === "openrouter"
+          ? "The response was rejected as incomplete. A later attempt may use only another eligible free OpenRouter model."
+          : `The model returned an error-shaped completion from ${providerLabel}.`,
       });
       return true;
     case "INVALID_CONFIG":
@@ -1952,7 +1926,7 @@ export function handleOrchestratorError(
           error: "No compatible free OpenRouter model is currently available.",
           hint: err.catalogStatus === "failed" || err.catalogStatus === "empty"
             ? "OpenRouter's model catalog could not be refreshed. Try again shortly."
-            : "OpenRouter currently has no free model matching this request. Try again later or configure another provider.",
+          : "OpenRouter currently has no free model matching this request. Retry later or simplify the request to match the free model capabilities.",
         });
         return true;
       }
@@ -2014,7 +1988,7 @@ export function providerAvailabilityProjection(
   if (err.providerCode === "CIRCUIT_OPEN") {
     return {
       availabilityState: "circuit_open",
-      operatorAction: "Wait for the provider cooldown to finish, then retry or configure another provider.",
+      operatorAction: "Wait for the OpenRouter free-route cooldown to finish; no other provider is enabled.",
     };
   }
   if (
@@ -2025,19 +1999,19 @@ export function providerAvailabilityProjection(
   ) {
     return {
       availabilityState: "incompatible_model",
-      operatorAction: "Choose a compatible current model or configure another provider, then retry.",
+      operatorAction: "Choose another currently compatible free OpenRouter model, if available, then retry.",
     };
   }
   if (err.code === "RATE_LIMITED") {
     return {
       availabilityState: "rate_limited",
-      operatorAction: "Wait for the rate-limit window to reset, then retry or configure another provider.",
+      operatorAction: "Honor OpenRouter's Retry-After or local cooldown; no automatic cross-provider retry is allowed.",
     };
   }
   if (err.code === "QUOTA" || err.code === "PLAN_RESTRICTED") {
     return {
       availabilityState: "quota_exhausted",
-      operatorAction: `Add provider credits at ${providerConsole}, or configure another provider.`,
+      operatorAction: "Wait for OpenRouter's free quota window to recover; the product will not buy credits or switch providers.",
     };
   }
   if (
@@ -2047,26 +2021,26 @@ export function providerAvailabilityProjection(
   ) {
     return {
       availabilityState: "catalog_stale",
-      operatorAction: "Retry shortly so OpenRouter can refresh its model catalog; configure another provider if it persists.",
+      operatorAction: "Retry after OpenRouter's catalog refresh; if it stays unavailable, leave the request incomplete.",
       catalogStatus: err.catalogStatus,
     };
   }
   if (providerId === "openrouter" && err.providerCode === "NO_COMPATIBLE_FREE_MODEL") {
     return {
       availabilityState: "no_compatible_free_model",
-      operatorAction: "Select another compatible model or configure another provider, then retry.",
+      operatorAction: "Select another compatible free OpenRouter model, if available, then retry.",
       catalogStatus: err.catalogStatus,
     };
   }
   if (err.code === "TIMEOUT" || err.code === "NETWORK_ERROR" || err.code === "SERVER_ERROR") {
     return {
       availabilityState: "provider_outage",
-      operatorAction: `Retry in a moment; if the issue continues, check ${providerStatus} or configure another provider.`,
+      operatorAction: `Retry later; if the issue continues, check ${providerStatus}. The product will not switch providers.`,
     };
   }
   return {
     availabilityState: "provider_outage",
-    operatorAction: `Retry in a moment or configure another provider. Check ${providerStatus} if it persists.`,
+    operatorAction: `Retry in a moment. Check ${providerStatus} if it persists; the product will not switch providers.`,
   };
 }
 

@@ -35,6 +35,7 @@ import {
 } from "./openrouter/model-resolver.js";
 import { getDynamicCatalogStatus } from "./openrouter/dynamic-catalog.js";
 import { FREE_MODELS, type ModelCapability } from "./openrouter/model-catalog.js";
+import { assertOpenRouterFreeModel } from "./openrouter/free-model-policy.js";
 import {
   recordModelFailure,
   recordModelSuccess,
@@ -1585,25 +1586,7 @@ export async function* oacCompleteStream(
 const OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1";
 const OPENROUTER_EXTRA_HEADERS = { "X-Title": "EngineeringOS" };
 
-/**
- * Hard product boundary: only server-catalogued free OpenRouter models may
- * reach the inference transport. Environment variables and caller options
- * cannot authorize a paid or unknown model.
- */
-export function assertOpenRouterFreeModel(model: string | undefined): asserts model is string {
-  if (model && FREE_MODELS.some((candidate) => candidate.id === model)) return;
-  throw new GroqClientError(
-    "INVALID_CONFIG",
-    "OpenRouter inference requires a server-catalogued free model.",
-    {
-      context: {
-        providerName: "OpenRouter",
-        providerModel: model,
-        providerCode: "FREE_MODEL_REQUIRED",
-      },
-    },
-  );
-}
+export { assertOpenRouterFreeModel } from "./openrouter/free-model-policy.js";
 
 /**
  * Non-streaming completion via OpenRouter.

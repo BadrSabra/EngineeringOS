@@ -300,7 +300,7 @@ describe("Dashboard goal-first home", () => {
 });
 
 describe("Dashboard operator alerts", () => {
-  it("shows a durable Groq drift alert outside provider settings", () => {
+  it("shows a Groq drift alert as historical because the route is disabled", () => {
     vi.mocked(useListOperatorAlerts).mockReturnValue({
       data: {
         alerts: [{
@@ -330,10 +330,10 @@ describe("Dashboard operator alerts", () => {
     fireEvent.click(screen.getByTestId("summary-advanced-dashboard"));
 
     const alerts = screen.getByRole("region", { name: "تنبيهات خدمات المساعد" });
-    expect(within(alerts).getByText("نموذج Groq السريع غير متاح")).toBeInTheDocument();
+    expect(within(alerts).getByText("تنبيه محفوظ من مسار Groq غير المفعّل")).toBeInTheDocument();
     expect(within(alerts).getByText("openai/retired-fast")).toBeInTheDocument();
-    expect(within(alerts).getByText("النموذج السريع المضبوط لدى Groq غير موجود في قائمة النماذج الحالية.")).toBeInTheDocument();
-    expect(within(alerts).getByText(/اختر نموذجًا متاحًا.*أعد تشغيل خدمة API/)).toBeInTheDocument();
+    expect(within(alerts).getByText("هذا سجل تاريخي لفحص نموذج Groq؛ لا يستخدم المنتج Groq في التوجيه الحالي.")).toBeInTheDocument();
+    expect(within(alerts).getByText(/لا تغيّر إعدادات Groq لهذا التنبيه/)).toBeInTheDocument();
     expect(within(alerts).getByRole("link", { name: "إعدادات مزود المساعد" })).toHaveAttribute("href", "/ai");
     expect(within(alerts).queryByText("Groq Fast model is unavailable")).not.toBeInTheDocument();
   });
@@ -445,8 +445,8 @@ describe("Dashboard operator alerts", () => {
     fireEvent.click(screen.getByTestId("summary-advanced-dashboard"));
 
     const alerts = screen.getByRole("region", { name: "تنبيهات خدمات المساعد" });
-    expect(within(alerts).getByText("انقطاع مؤقت")).toBeInTheDocument();
-    expect(within(alerts).getByText(/لم نعتبر النماذج المضبوطة متوقفة/)).toBeInTheDocument();
+    expect(within(alerts).getByText("مسار غير مفعّل")).toBeInTheDocument();
+    expect(within(alerts).getByText(/لا يحدث فحص أو طلب Groq ضمن التوجيه الحالي/)).toBeInTheDocument();
     expect(alerts).toHaveTextContent(/النطاق: قائمة نماذج Groq/);
     expect(within(alerts).queryByText(/نوع النموذج:/)).not.toBeInTheDocument();
   });

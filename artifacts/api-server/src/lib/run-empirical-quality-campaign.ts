@@ -539,6 +539,11 @@ const defaultWorkspaceFactory: EmpiricalCaseWorkspaceFactory = cloneReviewedRepo
 export async function runApiEmpiricalQualityCampaign(
   options: ApiEmpiricalQualityCampaignOptions,
 ): Promise<EmpiricalQualityScorecard> {
+  assertFreeOnlyEmpiricalProvider(options.provider);
+  if (options.model && !FREE_MODELS.some((candidate) => candidate.id === options.model)) {
+    throw new Error("Empirical quality model must be in the server-catalogued free OpenRouter set.");
+  }
+
   const corpus = validateEmpiricalQualityCorpus(options.corpus);
   const registeredModel = options.provider === "openrouter" && options.model
     ? FREE_MODELS.find((candidate) => candidate.id === options.model)
@@ -721,8 +726,15 @@ export async function writeEmpiricalQualityScorecard(filePath: string, scorecard
 }
 
 export function empiricalQualityProviderKey(provider: string): string {
-  if (!isProvider(provider)) throw new Error("Unsupported empirical quality provider.");
+  assertFreeOnlyEmpiricalProvider(provider);
   return PROVIDER_KEY_ENV[provider];
+}
+
+function assertFreeOnlyEmpiricalProvider(provider: string): asserts provider is ProviderId {
+  if (!isProvider(provider)) throw new Error("Unsupported empirical quality provider.");
+  if (provider !== "openrouter") {
+    throw new Error("Empirical quality campaigns are restricted to the free-only OpenRouter route.");
+  }
 }
 
 async function main(): Promise<void> {
@@ -734,7 +746,8 @@ async function main(): Promise<void> {
   }
 
   const providerValue = process.env.EMPIRICAL_QUALITY_PROVIDER?.trim() || "openrouter";
-  const provider = providerValue as ProviderId;
+  assertFreeOnlyEmpiricalProvider(providerValue);
+  const provider = providerValue;
   const apiKey = process.env[empiricalQualityProviderKey(provider)];
   if (!apiKey?.trim()) {
     throw new Error(`Missing ${empiricalQualityProviderKey(provider)} for empirical quality execution.`);

@@ -28,8 +28,6 @@ import {
   getCircuitState,
   getProviderLifecycleSnapshot,
   invalidateProviderLifecycle,
-  validateGroqDefaultModels,
-  GroqClientError,
 } from "@workspace/ai-orchestrator";
 import { getDynamicCatalogStatus } from "@workspace/ai-orchestrator";
 import type { ProviderId } from "@workspace/ai-orchestrator";
@@ -56,45 +54,6 @@ function publicLifecycle(snapshot: Awaited<ReturnType<typeof getProviderLifecycl
   return safe;
 }
 
-type LegacyGroqAvailability = {
-  status: "available" | "unavailable" | "check_unavailable" | "invalid_credential" | "not_configured";
-  source: "personal" | "server" | "none";
-  checkedModels: { fast: string; powerful: string };
-  unavailableRoles: Array<"fast" | "powerful">;
-  checkedAt: string;
-};
-
-async function getLegacyGroqAvailability(
-  apiKey: string | undefined,
-  source: LegacyGroqAvailability["source"],
-): Promise<LegacyGroqAvailability> {
-  const checkedModels = PROVIDER_REGISTRY.groq.defaultModels;
-  const checkedAt = new Date().toISOString();
-  if (!apiKey) {
-    return { status: "not_configured", source: "none", checkedModels, unavailableRoles: [], checkedAt };
-  }
-  try {
-    const validation = await validateGroqDefaultModels(apiKey, checkedModels);
-    return {
-      status: validation.valid ? "available" : "unavailable",
-      source,
-      checkedModels: validation.checkedModels,
-      unavailableRoles: validation.missing,
-      checkedAt,
-    };
-  } catch (error) {
-    return {
-      status: error instanceof GroqClientError && error.code === "AUTH_ERROR"
-        ? "invalid_credential"
-        : "check_unavailable",
-      source,
-      checkedModels,
-      unavailableRoles: [],
-      checkedAt,
-    };
-  }
-}
-
 /** Shared GET handler — return key status (never the key itself). */
 async function handleGetKey(req: Request, res: Response, provider: ProviderId) {
   const [row] = await db
@@ -113,15 +72,12 @@ async function handleGetKey(req: Request, res: Response, provider: ProviderId) {
     .limit(1);
 
   if (!row) {
-    const envKey = process.env[`${provider.toUpperCase()}_API_KEY`];
-    const modelAvailability = provider === "groq"
-      ? await getLegacyGroqAvailability(envKey, envKey ? "server" : "none")
-      : undefined;
+    const envKey = provider === "openrouter" ? process.env.OPENROUTER_API_KEY : undefined;
     const lifecycle = await getProviderLifecycleSnapshot({
       provider,
       apiKey: envKey,
       source: envKey ? "server" : undefined,
-      check: provider !== "groq" && Boolean(envKey),
+      check: false,
     });
     return res.json({
       configured: false,
@@ -129,7 +85,16 @@ async function handleGetKey(req: Request, res: Response, provider: ProviderId) {
       last4: null,
       updatedAt: null,
       lifecycle: publicLifecycle(lifecycle),
-      ...(modelAvailability ? { modelAvailability } : {}),
+    });
+  }
+
+  if (provider !== "openrouter") {
+    const lifecycle = await getProviderLifecycleSnapshot({ provider, check: false });
+    return res.json({
+      configured: true,
+      last4: row.last4,
+      updatedAt: row.updatedAt,
+      lifecycle: publicLifecycle(lifecycle),
     });
   }
 
@@ -147,17 +112,13 @@ async function handleGetKey(req: Request, res: Response, provider: ProviderId) {
     provider,
     apiKey,
     source,
-    check: provider !== "groq" && Boolean(apiKey),
+    check: false,
   });
-  const modelAvailability = provider === "groq"
-    ? await getLegacyGroqAvailability(apiKey, source === "server" ? "server" : "personal")
-    : undefined;
   return res.json({
     configured: true,
     last4: row.last4,
     updatedAt: row.updatedAt,
     lifecycle: publicLifecycle(lifecycle),
-    ...(modelAvailability ? { modelAvailability } : {}),
   });
 }
 
@@ -173,14 +134,18 @@ async function handlePutKey(req: Request, res: Response, provider: ProviderId) {
   const label = config?.label ?? provider;
   const consoleUrl = config?.consoleUrl ?? "your provider's dashboard";
 
-  // OpenRouter key validation currently performs a real completion request.
-  // Saving a key must not spend a free-generation request or turn a 429 into
-  // a misleading "invalid key" result. Its catalog status is reported by the
-  // readiness snapshot below; actual generation is tested by the user's real
-  // request. Keep existing validation behavior for the other providers.
+  // OpenRouter key validation must not spend a request from its shared free
+  // quota. Non-OpenRouter providers are not enabled on the product's current
+  // free-only route, so validateProviderKey rejects them without probing.
   if (provider !== "openrouter") {
     const validation = await validateProviderKey(provider, trimmed);
     if (!validation.valid) {
+      if (validation.reason === "provider_not_enabled_for_free_route") {
+        return res.status(409).json({
+          error: `${label} is not enabled for the current free-only AI route; the key was not tested or stored.`,
+          reasonCode: validation.reason,
+        });
+      }
       return res.status(422).json({
         error: `${label} API key is invalid or unauthorized`,
         hint: `Check your key at ${consoleUrl} — it was rejected by the ${label} API.`,
@@ -383,9 +348,9 @@ router.get("/ai/metrics", async (req, res) => {
       operatorAction: !isConfigured
         ? "Save an API key for this provider to enable it."
         : circuit.open
-          ? "Wait for the cooldown to finish, then retry or configure another provider."
+          ? "Wait for the OpenRouter free-route cooldown to finish; no other provider is enabled."
           : isCatalogStale
-            ? "Retry shortly so the model catalog can refresh; configure another provider if it persists."
+            ? "Retry after OpenRouter refreshes its catalog; leave the request incomplete if it remains unavailable."
             : null,
       // This is a stable runtime health identity, not a fake per-response
       // operation id. Durable operation correlation is exposed in `usage`.

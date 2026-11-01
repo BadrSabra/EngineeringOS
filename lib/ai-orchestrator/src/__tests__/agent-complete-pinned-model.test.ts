@@ -65,7 +65,6 @@ describe("agentComplete pinned OpenRouter model selection", () => {
         model: "liquid/lfm-2.5-2.6b:free",
         useSharedLaneCursor: false,
         maxFallbackModels: 1,
-        allowPaidFallback: false,
       }),
     );
   });
@@ -83,7 +82,6 @@ describe("agentComplete pinned OpenRouter model selection", () => {
       expect.any(Array),
       expect.objectContaining({
         useSharedLaneCursor: true,
-        allowPaidFallback: false,
       }),
     );
   });

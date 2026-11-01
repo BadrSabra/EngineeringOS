@@ -57,6 +57,38 @@ afterEach(async () => {
 });
 
 describe("empirical quality timeout defaults", () => {
+  it.each(["groq", "deepseek", "gemini"] as const)(
+    "rejects %s before creating a case workspace or invoking a reviewer",
+    async (provider) => {
+      const workspaceFactory = vi.fn();
+      const reviewCase = vi.fn();
+      await expect(runApiEmpiricalQualityCampaign({
+        corpus,
+        provider,
+        apiKey: "synthetic-test-credential",
+        workspaceFactory,
+        reviewCase,
+      })).rejects.toThrow("restricted to the free-only OpenRouter route");
+      expect(workspaceFactory).not.toHaveBeenCalled();
+      expect(reviewCase).not.toHaveBeenCalled();
+    },
+  );
+
+  it("rejects an unknown or paid model before creating a case workspace", async () => {
+    const workspaceFactory = vi.fn();
+    const reviewCase = vi.fn();
+    await expect(runApiEmpiricalQualityCampaign({
+      corpus,
+      provider: "openrouter",
+      apiKey: "synthetic-test-credential",
+      model: "fixture/unknown:free",
+      workspaceFactory,
+      reviewCase,
+    })).rejects.toThrow("server-catalogued free OpenRouter set");
+    expect(workspaceFactory).not.toHaveBeenCalled();
+    expect(reviewCase).not.toHaveBeenCalled();
+  });
+
   it("does not impose a case or campaign timeout by default", async () => {
     const observedTimeouts: Array<number | undefined> = [];
     const scorecard = await runApiEmpiricalQualityCampaign({

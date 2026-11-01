@@ -12,6 +12,7 @@ import process from "node:process";
 import {
   buildCodeReviewCampaignReceipt,
   CODE_REVIEW_CAMPAIGN_SCENARIOS,
+  FREE_MODELS,
   getDynamicCatalogStatus,
   getUsableDynamicModelFormatSupport,
   getUsableDynamicModelIds,
@@ -43,7 +44,6 @@ const runState = {
   startedAt: Date.now(),
   projectRevision: "runtime-failure",
   observedModels: [] as string[],
-  fallbackReason: undefined as string | undefined,
   requestedModel: undefined as string | undefined,
   modelCatalogSnapshot: undefined as {
     checkedAt: string;
@@ -92,6 +92,27 @@ function requireCampaignConfiguration(): {
   if (!isProvider(provider)) {
     throw new Error("LIVE_REVIEW_PROVIDER must identify a supported provider.");
   }
+  if (provider !== "openrouter") {
+    throw new Error("Live AI campaigns require a provider verified for the free-only product route.");
+  }
+  const configuredModel = process.env.LIVE_REVIEW_MODEL?.trim();
+  if (configuredModel && !FREE_MODELS.some((model) => model.id === configuredModel)) {
+    throw new Error("Live review model must be in the server-catalogued free OpenRouter set.");
+  }
+  const configuredOpenRouterModel = process.env.OPENROUTER_MODEL?.trim();
+  if (
+    configuredOpenRouterModel &&
+    !FREE_MODELS.some((model) => model.id === configuredOpenRouterModel)
+  ) {
+    throw new Error("OPENROUTER_MODEL must be in the server-catalogued free OpenRouter set.");
+  }
+  if (
+    process.env.OPENROUTER_ALLOW_PAID_FALLBACK?.trim()
+    || process.env.OPENROUTER_PAID_MODEL?.trim()
+    || process.env.OPENROUTER_PAID_MODEL_CAPABILITIES?.trim()
+  ) {
+    throw new Error("Live AI campaigns reject paid fallback configuration.");
+  }
   if (!projectId) {
     throw new Error("LIVE_REVIEW_PROJECT_ID must identify the disposable project.");
   }
@@ -105,25 +126,6 @@ function requireCampaignConfiguration(): {
   }
   if (!outputPath) {
     throw new Error("LIVE_REVIEW_OUTPUT_PATH is required so campaign output is explicit.");
-  }
-  const configuredModel = process.env.LIVE_REVIEW_MODEL?.trim();
-  if (
-    scenario === "structured-review"
-    && provider === "openrouter"
-    && !configuredModel?.endsWith(":free")
-  ) {
-    throw new Error("Structured OpenRouter review requires one explicitly pinned :free model.");
-  }
-  if (
-    scenario === "structured-review"
-    && provider === "openrouter"
-    && (
-      process.env.OPENROUTER_ALLOW_PAID_FALLBACK?.trim() === "1"
-      || process.env.OPENROUTER_PAID_MODEL?.trim()
-      || process.env.OPENROUTER_PAID_MODEL_CAPABILITIES?.trim()
-    )
-  ) {
-    throw new Error("Structured OpenRouter review is free-only and rejects paid fallback configuration.");
   }
   const apiKey = process.env[providerKeys[provider]]?.trim();
   if (!apiKey) {
@@ -240,14 +242,6 @@ async function main(): Promise<void> {
           onModelAttempt: (attempt) => {
             if (attempt.model) runState.observedModels.push(attempt.model);
           },
-          onProviderFallback: (event) => {
-            runState.fallbackReason = event.reason;
-            // Record both sides of the transition before the next request is
-            // made. A terminal paid-provider error may not reach onModelAttempt,
-            // but the receipt must still show that the paid lane was actually
-            // attempted.
-            runState.observedModels.push(event.fromModel, event.toModel);
-          },
         },
       );
     } catch (caught) {
@@ -274,13 +268,8 @@ async function main(): Promise<void> {
         ...attemptedModelsFrom(error),
       ])].map((model) => ({
         model,
-        tier: model === process.env.OPENROUTER_PAID_MODEL?.trim()
-          ? "paid" as const
-          : model.endsWith(":free")
-            ? "free" as const
-            : "unknown" as const,
+        tier: model.endsWith(":free") ? "free" as const : "unknown" as const,
       })),
-      fallbackReason: runState.fallbackReason,
       latencyMs: Date.now() - runState.startedAt,
     });
 
@@ -330,7 +319,6 @@ try {
         model,
         tier: model.endsWith(":free") ? "free" as const : "unknown" as const,
       })),
-      fallbackReason: runState.fallbackReason,
       latencyMs: Date.now() - runState.startedAt,
     });
     const output = {

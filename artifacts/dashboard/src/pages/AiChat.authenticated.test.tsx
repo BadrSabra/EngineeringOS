@@ -1182,7 +1182,7 @@ describe('AiChat settings disclosure', () => {
 
     const settingsToggle = screen.getByRole('button', { name: 'إعدادات المساعد والتشخيص' });
     expect(settingsToggle).toHaveAttribute('aria-expanded', 'false');
-    expect(screen.getByText('المزودون وبيانات الوصول وجودة النماذج')).toHaveClass('text-xs');
+    expect(screen.getByText('مسار OpenRouter المجاني والمفاتيح المحفوظة وجودة النماذج')).toHaveClass('text-xs');
     expect(screen.queryByRole('region', { name: 'جودة إجابات المساعد' })).not.toBeInTheDocument();
     const emptyAudits = screen.getByText('لا توجد سجلات تدقيق ملغاة أو غير مكتملة لهذا المشروع.');
     expect(emptyAudits).toHaveClass('text-xs', 'leading-5');
@@ -4309,35 +4309,16 @@ describe('AiChat authenticated generated mutations', () => {
     expect(screen.queryByText(/Execution executio…/)).not.toBeInTheDocument();
   });
 
-  it('sends a provider key through the generated mutation and reports success/error', async () => {
-    const { invalidateQueries } = renderAiChat();
+  it('does not offer a key-entry or save path for a disabled non-OpenRouter provider', () => {
+    renderAiChat();
     openProviderSettings();
-    const input = await screen.findByPlaceholderText('sk-…');
-    fireEvent.change(input, { target: { value: 'sk_test_key_123' } });
-    fireEvent.click(input.parentElement?.querySelector('button') as HTMLElement);
-
-    expect(mocks.mutations.saveDeepSeek.mutate).toHaveBeenCalledWith({
-      data: { apiKey: 'sk_test_key_123' },
-    });
-
-    act(() => {
-      mocks.mutationOptions.saveDeepSeek?.onSuccess?.({
-        configured: true,
-        last4: '0123',
-        updatedAt: null,
-      });
-    });
-    expect(invalidateQueries).toHaveBeenCalledWith({ queryKey: ['active-provider'] });
-    expect(mocks.toast).toHaveBeenCalledWith(expect.objectContaining({ title: 'حُفظ مفتاح DeepSeek' }));
-
-    act(() => {
-      mocks.mutationOptions.saveDeepSeek?.onError?.(new Error('provider rejected key'));
-    });
-    expect(mocks.toast).toHaveBeenCalledWith(expect.objectContaining({
-      title: 'تعذر حفظ المفتاح',
-      description: 'provider rejected key',
-      variant: 'destructive',
-    }));
+    const card = screen.getByText('مفتاح DeepSeek', { exact: true }).closest('.provider-key-card');
+    expect(card).not.toBeNull();
+    expect(card).toHaveTextContent('غير مفعّل');
+    expect(card).toHaveTextContent('لا تُرسل إليه أي طلبات');
+    expect(within(card as HTMLElement).queryByLabelText('مفتاح الوصول إلى DeepSeek')).not.toBeInTheDocument();
+    expect(within(card as HTMLElement).queryByRole('button', { name: 'حفظ مفتاح DeepSeek' })).not.toBeInTheDocument();
+    expect(mocks.mutations.saveDeepSeek.mutate).not.toHaveBeenCalled();
   });
 
   it('explains that saving an OpenRouter key does not send a generation probe', async () => {
@@ -4367,7 +4348,7 @@ describe('AiChat authenticated generated mutations', () => {
     expect(screen.getByText(/حفظ المفتاح لا يرسل طلب توليد/)).toBeInTheDocument();
   });
 
-it('shows the affected Groq model role and a safe correction when a default is retired', async () => {
+it('does not present retired Groq model diagnostics as an enabled route', async () => {
   mocks.groqStatus = {
     configured: true,
     last4: '0123',
@@ -4388,13 +4369,15 @@ it('shows the affected Groq model role and a safe correction when a default is r
   renderAiChat();
   openProviderSettings();
 
-  expect(await screen.findByText(/اجتازت بيانات وصول Groq الفحص، لكن النموذج السريع المحدد/))
-    .toBeInTheDocument();
-  expect(screen.getByText(/يلزم تحديث معرّف نموذج Groq.*إعادة تشغيل خادم API/)).toBeInTheDocument();
+  const card = screen.getByText('مفتاح Groq', { exact: true }).closest('.provider-key-card') as HTMLElement;
+  expect(within(card).getByText('غير مفعّل')).toBeInTheDocument();
+  expect(within(card).getByText(/هذا المزود غير مفعّل؛ لا تُرسل إليه أي طلبات/)).toBeInTheDocument();
+  expect(card.textContent).not.toContain('اجتازت بيانات وصول Groq الفحص');
+  expect(card.textContent).not.toContain('openai/retired-fast');
   expect(document.body.textContent).not.toContain('gsk_');
 });
 
-it('shows Groq model readiness without requiring a personal key when the server key is active', async () => {
+it('does not display a server-side Groq catalog check for the disabled route', async () => {
   mocks.groqStatus = {
     configured: false,
     last4: null,
@@ -4414,9 +4397,10 @@ it('shows Groq model readiness without requiring a personal key when the server 
   renderAiChat();
   openProviderSettings();
 
-  expect(await screen.findByText(/نماذج Groq متاحة بحسب الفحص/))
-    .toBeInTheDocument();
-  expect(screen.getByText(/لا يوجد مفتاح شخصي محفوظ/)).toBeInTheDocument();
+  const card = screen.getByText('مفتاح Groq', { exact: true }).closest('.provider-key-card') as HTMLElement;
+  expect(within(card).getByText('غير مفعّل')).toBeInTheDocument();
+  expect(within(card).queryByText(/نماذج Groq متاحة بحسب الفحص/)).not.toBeInTheDocument();
+  expect(within(card).getByText(/المسار المدعوم حاليًا هو نماذج OpenRouter المجانية فقط/)).toBeInTheDocument();
 });
 
 it.each([
@@ -4600,7 +4584,7 @@ it.each([
     expect(drawer.querySelector('.drawer-scroll-region')).toHaveClass('overflow-y-auto', 'overscroll-contain', 'md:overflow-hidden');
     expect(drawer.querySelector('.provider-key-cards')).not.toHaveClass('overflow-y-auto');
     expect(drawer.querySelectorAll('.provider-key-card')).toHaveLength(4);
-    expect(document.querySelectorAll('input[type="password"]')).toHaveLength(4);
+    expect(document.querySelectorAll('input[type="password"]')).toHaveLength(1);
     expect(document.body.style.overflow).toBe('hidden');
 
     fireEvent.click(screen.getByRole('button', { name: 'إغلاق قائمة المحادثات من الخلفية' }));
@@ -4637,7 +4621,7 @@ it.each([
     expect(drawer).not.toHaveAttribute('aria-modal', 'true');
   });
 
-  it('keeps every provider key card control available in the mobile drawer', async () => {
+  it('keeps OpenRouter key entry available and other provider cards visibly inactive in the mobile drawer', async () => {
     renderAiChat(false);
 
     fireEvent.click(screen.getByRole('button', { name: 'فتح المحادثات' }));
@@ -4649,17 +4633,20 @@ it.each([
         .getByText(`مفتاح ${provider}`, { exact: true })
         .closest('.provider-key-card');
       expect(card).not.toBeNull();
-      expect(card?.querySelector('input[type="password"]')).toBeInTheDocument();
-      expect(
-        within(card as HTMLElement).getByRole('button', { name: `حفظ مفتاح ${provider}`, exact: true }),
-      ).toBeInTheDocument();
+      if (provider === 'OpenRouter') {
+        expect(card?.querySelector('input[type="password"]')).toBeInTheDocument();
+        expect(within(card as HTMLElement).getByRole('button', { name: 'حفظ مفتاح OpenRouter', exact: true }))
+          .toBeInTheDocument();
+      } else {
+        expect(card?.querySelector('input[type="password"]')).not.toBeInTheDocument();
+        expect(within(card as HTMLElement).queryByRole('button', { name: `حفظ مفتاح ${provider}`, exact: true }))
+          .not.toBeInTheDocument();
+        expect(within(card as HTMLElement).getByText('غير مفعّل')).toBeInTheDocument();
+      }
     }
   });
 
   it.each([
-    ['DeepSeek', 'saveDeepSeek'],
-    ['Groq', 'saveGroq'],
-    ['Gemini', 'saveGemini'],
     ['OpenRouter', 'saveOpenRouter'],
   ] as const)('keeps %s key validation, masking, trimming, and Arabic save feedback', async (provider, saveName) => {
     const { invalidateQueries } = renderAiChat();
@@ -4689,9 +4676,6 @@ it.each([
   });
 
   it.each([
-    ['DeepSeek', 'saveDeepSeek', 'deleteDeepSeek'],
-    ['Groq', 'saveGroq', 'deleteGroq'],
-    ['Gemini', 'saveGemini', 'deleteGemini'],
     ['OpenRouter', 'saveOpenRouter', 'deleteOpenRouter'],
   ] as const)('keeps %s key editing separate from explicit personal-key deletion', async (provider, saveName, deleteName) => {
     mocks.keyStatusConfigured = true;
@@ -4714,6 +4698,28 @@ it.each([
     expect(mocks.toast).toHaveBeenCalledWith(expect.objectContaining({
       title: 'تعذر إزالة المفتاح', description: 'fixture deletion rejected', variant: 'destructive',
     }));
+    expect(mocks.mutations[saveName].mutate).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ['DeepSeek', 'saveDeepSeek', 'deleteDeepSeek'],
+    ['Groq', 'saveGroq', 'deleteGroq'],
+    ['Gemini', 'saveGemini', 'deleteGemini'],
+  ] as const)('keeps disabled %s keys removable but not editable', async (provider, saveName, deleteName) => {
+    mocks.keyStatusConfigured = true;
+    const { invalidateQueries } = renderAiChat();
+    openProviderSettings();
+    const card = screen.getByText(`مفتاح ${provider}`, { exact: true }).closest('.provider-key-card') as HTMLElement;
+
+    expect(within(card).getByText('غير مفعّل')).toBeInTheDocument();
+    expect(within(card).queryByLabelText(`مفتاح الوصول إلى ${provider}`)).not.toBeInTheDocument();
+    expect(within(card).queryByRole('button', { name: `تغيير مفتاح ${provider}` })).not.toBeInTheDocument();
+    expect(mocks.mutations[saveName].mutate).not.toHaveBeenCalled();
+
+    fireEvent.click(within(card).getByRole('button', { name: `إزالة مفتاح ${provider} الشخصي` }));
+    expect(mocks.mutations[deleteName].mutate).toHaveBeenCalledWith();
+    act(() => mocks.mutationOptions[deleteName]?.onSuccess?.(undefined));
+    expect(invalidateQueries).toHaveBeenCalledWith({ queryKey: ['active-provider'] });
     expect(mocks.mutations[saveName].mutate).not.toHaveBeenCalled();
   });
 

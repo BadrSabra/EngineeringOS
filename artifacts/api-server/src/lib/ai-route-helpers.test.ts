@@ -51,14 +51,16 @@ describe("OpenRouter free-only fallback policy", () => {
     { provider: "groq" as const, model: "groq-default" },
   ];
 
-  it("keeps a configured OpenRouter lane on OpenRouter only", () => {
-    expect(applyOpenRouterFreeOnlyFallbackPolicy(true, candidates)).toEqual([
+  it("keeps product routing on OpenRouter only", () => {
+    expect(applyOpenRouterFreeOnlyFallbackPolicy(candidates)).toEqual([
       candidates[0],
     ]);
   });
 
-  it("keeps alternate-provider chains when no OpenRouter credential is configured", () => {
-    expect(applyOpenRouterFreeOnlyFallbackPolicy(false, candidates)).toEqual(candidates);
+  it("does not permit alternate providers when the OpenRouter key is missing", () => {
+    expect(applyOpenRouterFreeOnlyFallbackPolicy(candidates)).toEqual([
+      candidates[0],
+    ]);
   });
 });
 
@@ -449,6 +451,7 @@ describe("provider health failure contract", () => {
     const projection = providerAvailabilityProjection(error, provider, consoleUrl, statusUrl);
     expect(projection.availabilityState).toBe(expected);
     expect(projection.operatorAction).toMatch(/retry|configure|replace|select|choose|wait|credits/i);
+    expect(projection.operatorAction).not.toMatch(/another provider|paid/i);
     expect(JSON.stringify(projection)).not.toContain("sk-or-v1-secret");
     expect(JSON.stringify(projection)).not.toContain("raw upstream");
     expect(JSON.stringify(projection)).not.toContain("/srv/catalog.ts");

@@ -1121,6 +1121,41 @@ describe("PUT /api/ai/providers/openrouter/key", () => {
   });
 });
 
+describe("PUT /api/ai/providers/non-OpenRouter/key", () => {
+  it("rejects non-route credentials without probing or persisting them", async () => {
+    const { validateProviderKey } = await import("@workspace/ai-orchestrator");
+    const validateProviderKeyMock = vi.mocked(validateProviderKey);
+    validateProviderKeyMock.mockClear();
+    validateProviderKeyMock.mockResolvedValueOnce({
+      valid: false,
+      reason: "provider_not_enabled_for_free_route",
+    });
+    await db.delete(aiProviderCredentialsTable).where(and(
+      eq(aiProviderCredentialsTable.ownerId, "test-user"),
+      eq(aiProviderCredentialsTable.provider, "groq"),
+    ));
+
+    const response = await request(app)
+      .put("/api/ai/providers/groq/key")
+      .send({ apiKey: "synthetic-groq-credential" });
+
+    expect(response.status).toBe(409);
+    expect(response.body).toMatchObject({
+      reasonCode: "provider_not_enabled_for_free_route",
+    });
+    expect(JSON.stringify(response.body)).not.toContain("synthetic-groq-credential");
+    expect(validateProviderKeyMock).toHaveBeenCalledWith("groq", "synthetic-groq-credential");
+    const persisted = await db
+      .select({ id: aiProviderCredentialsTable.id })
+      .from(aiProviderCredentialsTable)
+      .where(and(
+        eq(aiProviderCredentialsTable.ownerId, "test-user"),
+        eq(aiProviderCredentialsTable.provider, "groq"),
+      ));
+    expect(persisted).toHaveLength(0);
+  });
+});
+
 // ─── POST /api/ai/chat ────────────────────────────────────────────────────────
 
 describe("POST /api/ai/chat", () => {

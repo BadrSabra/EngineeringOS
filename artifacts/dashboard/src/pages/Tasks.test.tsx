@@ -64,7 +64,7 @@ const recoveryCases = [
     title: 'Recover from provider quota',
     availabilityState: 'quota_exhausted',
     heading: 'انتهت حصة الاستخدام لدى المزود',
-    action: 'Add provider credits or configure another provider.',
+    action: "Wait for OpenRouter's free quota window to recover; the product will not buy credits or switch providers.",
     correlationId: 'task-quota-support',
   },
   {
@@ -72,7 +72,7 @@ const recoveryCases = [
     title: 'Recover from provider outage',
     availabilityState: 'provider_outage',
     heading: 'المزود غير متاح مؤقتًا',
-    action: 'Retry in a moment; configure another provider if the issue persists.',
+    action: 'Retry in a moment. Check provider status if it persists; the product will not switch providers.',
     correlationId: 'task-outage-support',
   },
 ] as const;

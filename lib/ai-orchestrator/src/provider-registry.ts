@@ -53,13 +53,15 @@ export type ProviderConfig = {
 
 /**
  * Product AI requests are restricted to OpenRouter. Model selection within
- * OpenRouter is separately constrained by its free-model catalog.
+ * OpenRouter is separately constrained by its free-model catalog. Priority is
+ * mutable only for registry/startup validation; product authorization is not.
  */
-export const PROVIDER_PRIORITY: readonly ProviderId[] = Object.freeze(["openrouter"]);
+export const PRODUCT_ENABLED_PROVIDERS: readonly ProviderId[] = Object.freeze(["openrouter"]);
+export const PROVIDER_PRIORITY: ProviderId[] = ["openrouter"];
 
 /** Whether a provider is currently authorized for product inference. */
 export function isProductProviderEnabled(providerId: ProviderId): boolean {
-  return PROVIDER_PRIORITY.includes(providerId);
+  return PRODUCT_ENABLED_PROVIDERS.includes(providerId);
 }
 
 export function assertProductProviderEnabled(providerId: ProviderId): void {
@@ -252,7 +254,6 @@ const STRATEGY_MAP = new Map<ProviderId, ProviderStrategy>([
  * PROVIDER_REGISTRY without a corresponding strategy entry — caught at dev time).
  */
 export function getStrategy(id: ProviderId): ProviderStrategy {
-  assertProductProviderEnabled(id);
   const strategy = STRATEGY_MAP.get(id);
   if (!strategy) throw new Error(`No ProviderStrategy registered for provider: ${id}`);
   return strategy;

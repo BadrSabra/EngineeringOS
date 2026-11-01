@@ -20,6 +20,7 @@ import {
   openrouterCompleteWithFallback,
   openrouterCompleteStream,
 } from "../openai-compatible-client.js";
+import { assertOpenRouterFreeModel } from "../openrouter/free-model-policy.js";
 import { GroqClientError } from "../errors.js";
 import { refreshDynamicCatalog } from "../openrouter/dynamic-catalog.js";
 import {
@@ -75,6 +76,8 @@ export const openrouterStrategy: ProviderStrategy = {
         "OpenRouter requires an API key — save one in the AI settings panel",
       );
     }
+    const configuredModel = process.env.OPENROUTER_MODEL?.trim();
+    if (configuredModel) assertOpenRouterFreeModel(configuredModel);
 
     // PR-07: reject immediately when circuit is open (cooldown not elapsed).
     if (isCircuitOpen("openrouter")) {
@@ -197,6 +200,8 @@ export const openrouterStrategy: ProviderStrategy = {
         "OpenRouter requires an API key — save one in the AI settings panel",
       );
     }
+    const configuredModel = process.env.OPENROUTER_MODEL?.trim();
+    if (configuredModel) assertOpenRouterFreeModel(configuredModel);
 
     // PR-07: same circuit check for streaming.
     if (isCircuitOpen("openrouter")) {

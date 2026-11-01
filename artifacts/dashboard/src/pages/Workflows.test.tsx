@@ -86,7 +86,7 @@ beforeEach(() => {
       errorMessage: 'Internal provider diagnostic: provider-secret-token-123456789',
       recovery: {
         availabilityState: 'provider_outage',
-        operatorAction: 'Retry in a moment; configure another provider if the issue persists.',
+        operatorAction: 'Retry in a moment. Check provider status if it persists; the product will not switch providers.',
         correlationId: 'workflow-support-42',
         upstreamMessage: 'raw upstream response with credentials',
       },
@@ -122,7 +122,7 @@ describe('Workflows recovery rendering', () => {
     const card = screen.getByRole('region', { name: 'إرشادات استعادة جاهزية المزود' });
     expect(within(card).getByRole('heading', { name: 'المزود غير متاح مؤقتًا' })).toBeInTheDocument();
     expect(within(card).getByText('provider_outage')).toHaveAttribute('dir', 'ltr');
-    expect(within(card).getByText('Retry in a moment; configure another provider if the issue persists.')).toHaveAttribute('dir', 'auto');
+    expect(within(card).getByText('Retry in a moment. Check provider status if it persists; the product will not switch providers.')).toHaveAttribute('dir', 'auto');
     expect(within(card).getByText(/مرجع الدعم:/)).toHaveTextContent('workflow-support-42');
     expect(screen.getByText('فشل التشغيل · لم يُسجل اكتماله بنجاح')).toBeInTheDocument();
     const completedPhase = screen.getAllByText('build').find(

@@ -1752,16 +1752,16 @@ function describeAiError(err: unknown): string {
       case 400: return err.errorMessage + suffix;
       case 401: return (err.errorMessage || err.hint || 'AI API key is invalid — delete it and save a valid key from your provider\'s dashboard.') + suffix;
       case 403: return 'Access denied — you may not have permission on this project.';
-      case 429: return (err.errorMessage || err.hint || 'بلغ مزود الذكاء الاصطناعي حد الاستخدام ولم يحدد موعدًا للمحاولة التالية. انتظر قبل إعادة المحاولة أو اختر مزودًا آخر.') + suffix;
+      case 429: return (err.errorMessage || err.hint || 'بلغ OpenRouter حد الاستخدام. انتظر Retry-After أو التبريد المحلي قبل استئناف الطلب؛ لن ينتقل التطبيق إلى مزود آخر أو مسار مدفوع.') + suffix;
       case 422:
         if (err.code === 'model_output_invalid') {
           return 'The AI returned an unexpected response format — try rephrasing your message.';
         }
         if (err.code === 'MODEL_NOT_FOUND') {
-          return (err.errorMessage || err.hint || 'The selected AI model is unavailable — try again or switch providers.') + suffix;
+          return (err.errorMessage || err.hint || 'نموذج OpenRouter غير متاح؛ اختر نموذجًا مجانيًا مؤهلًا آخر أو أعد المحاولة بعد تحديث الكتالوج.') + suffix;
         }
         return (err.errorMessage || err.hint || 'AI provider configuration is invalid. Re-save your API key.') + suffix;
-      case 428: return (err.errorMessage || err.hint || 'No AI key configured — save an OpenRouter, DeepSeek, or Groq API key first.') + suffix;
+      case 428: return (err.errorMessage || err.hint || 'لم يُضبط مفتاح OpenRouter. الطلبات تستخدم نماذج OpenRouter المجانية فقط.') + suffix;
       case 502: return (err.errorMessage || err.hint || 'AI provider returned an error. Check your API key or try again.') + suffix;
       case 503: return (err.errorMessage || err.hint || 'AI provider is temporarily unreachable — try again in a moment.') + suffix;
       default:  return (err.errorMessage || `Request failed (${err.status}).`) + suffix;
@@ -6841,7 +6841,7 @@ function MessageBubble({
   );
 }
 
-function DeepSeekKeyCard({ runtimeMetric }: { runtimeMetric?: ProviderRuntimeMetric }) {
+function DeepSeekKeyCard({ runtimeMetric, disabled = true }: { runtimeMetric?: ProviderRuntimeMetric; disabled?: boolean }) {
   const { toast } = useToast();
   const qc = useQueryClient();
   const [keyInput, setKeyInput] = useState('');
@@ -6895,8 +6895,13 @@ function DeepSeekKeyCard({ runtimeMetric }: { runtimeMetric?: ProviderRuntimeMet
       <div className="flex min-w-0 flex-wrap items-center gap-1.5 mb-2">
         <Key className="w-3 h-3 shrink-0 text-muted-foreground" />
         <span className="min-w-0 flex-1 text-muted-foreground">مفتاح DeepSeek</span>
-        <span className="ml-auto shrink-0 text-xs text-muted-foreground">اختياري</span>
+        <span className="ml-auto shrink-0 text-xs text-muted-foreground">غير مفعّل</span>
       </div>
+      {disabled && (
+        <p className="mb-2 break-words text-muted-foreground">
+          هذا المزود غير مفعّل؛ لا تُرسل إليه أي طلبات. يمكنك إزالة المفتاح المحفوظ أدناه.
+        </p>
+      )}
 
       {isLoading ? (
         <p className="text-muted-foreground">جارٍ تحميل حالة المفتاح…</p>
@@ -6907,9 +6912,11 @@ function DeepSeekKeyCard({ runtimeMetric }: { runtimeMetric?: ProviderRuntimeMet
             <span dir="ltr" className="break-all">···{status.last4}</span>
           </div>
           <div className="flex shrink-0 gap-1">
-            <Button size="sm" variant="ghost" className="h-5 px-1.5 text-xs max-md:min-h-7 max-md:px-2" aria-label="تغيير مفتاح DeepSeek" onClick={() => setShowInput((v) => !v)}>
-              تغيير
-            </Button>
+            {!disabled && (
+              <Button size="sm" variant="ghost" className="h-5 px-1.5 text-xs max-md:min-h-7 max-md:px-2" aria-label="تغيير مفتاح DeepSeek" onClick={() => setShowInput((v) => !v)}>
+                تغيير
+              </Button>
+            )}
             <Button
               size="sm" variant="ghost"
               className="h-5 px-1.5 text-xs text-destructive hover:text-destructive max-md:min-h-7 max-md:px-2"
@@ -6924,13 +6931,15 @@ function DeepSeekKeyCard({ runtimeMetric }: { runtimeMetric?: ProviderRuntimeMet
         </div>
       ) : (
         <p className="mb-2 break-words text-muted-foreground">
-          يمكنك إدارة مفتاح DeepSeek عبر <bdi dir="ltr" className="font-mono break-all">platform.deepseek.com</bdi> ثم إدخاله هنا لاستخدام المزود.
+          {disabled
+            ? 'لا يلزم مفتاح DeepSeek؛ المسار المدعوم حاليًا هو نماذج OpenRouter المجانية فقط.'
+            : <>يمكنك إدارة مفتاح DeepSeek عبر <bdi dir="ltr" className="font-mono break-all">platform.deepseek.com</bdi> ثم إدخاله هنا لاستخدام المزود.</>}
         </p>
       )}
 
       <ProviderRuntimeBadge metric={runtimeMetric} />
 
-      {(showInput || !status?.configured) && (
+      {!disabled && (showInput || !status?.configured) && (
         <div className="flex min-w-0 gap-1 mt-2">
           <Input
             type="password"
@@ -6957,7 +6966,7 @@ function DeepSeekKeyCard({ runtimeMetric }: { runtimeMetric?: ProviderRuntimeMet
   );
 }
 
-function GroqKeyCard({ runtimeMetric }: { runtimeMetric?: ProviderRuntimeMetric }) {
+function GroqKeyCard({ runtimeMetric, disabled = true }: { runtimeMetric?: ProviderRuntimeMetric; disabled?: boolean }) {
   const { toast } = useToast();
   const qc = useQueryClient();
   const [keyInput, setKeyInput] = useState('');
@@ -6993,7 +7002,7 @@ function GroqKeyCard({ runtimeMetric }: { runtimeMetric?: ProviderRuntimeMetric 
         void qc.invalidateQueries({ queryKey: ['groq-key-status'] });
         void qc.invalidateQueries({ queryKey: ['ai-metrics'] });
         void qc.invalidateQueries({ queryKey: ['active-provider'] });
-        toast({ title: 'أُزيل مفتاح Groq الشخصي', description: 'سيُستخدم الإعداد الافتراضي للخادم إن كان متاحًا.' });
+        toast({ title: 'أُزيل مفتاح Groq الشخصي', description: 'هذا المفتاح لم يعد مستخدمًا؛ المسار المتاح هو OpenRouter المجاني فقط.' });
       },
       onError: (err) => {
         toast({ title: 'تعذر إزالة المفتاح', description: describeAiError(err), variant: 'destructive' });
@@ -7015,7 +7024,13 @@ function GroqKeyCard({ runtimeMetric }: { runtimeMetric?: ProviderRuntimeMetric 
       <div className="flex min-w-0 flex-wrap items-center gap-1.5 mb-2">
         <Key className="w-3 h-3 shrink-0 text-muted-foreground" />
         <span className="min-w-0 flex-1 text-muted-foreground">مفتاح Groq</span>
+        <span className="ml-auto shrink-0 text-xs text-muted-foreground">غير مفعّل</span>
       </div>
+      {disabled && (
+        <p className="mb-2 break-words text-muted-foreground">
+          هذا المزود غير مفعّل؛ لا تُرسل إليه أي طلبات. يمكنك إزالة المفتاح المحفوظ أدناه.
+        </p>
+      )}
 
       {isLoading ? (
         <p className="text-muted-foreground">جارٍ تحميل حالة المفتاح…</p>
@@ -7026,9 +7041,11 @@ function GroqKeyCard({ runtimeMetric }: { runtimeMetric?: ProviderRuntimeMetric 
             <span dir="ltr" className="break-all">···{status.last4}</span>
           </div>
           <div className="flex shrink-0 gap-1">
-            <Button size="sm" variant="ghost" className="h-5 px-1.5 text-xs max-md:min-h-7 max-md:px-2" aria-label="تغيير مفتاح Groq" onClick={() => setShowInput((v) => !v)}>
-              تغيير
-            </Button>
+            {!disabled && (
+              <Button size="sm" variant="ghost" className="h-5 px-1.5 text-xs max-md:min-h-7 max-md:px-2" aria-label="تغيير مفتاح Groq" onClick={() => setShowInput((v) => !v)}>
+                تغيير
+              </Button>
+            )}
             <Button
               size="sm"
               variant="ghost"
@@ -7043,14 +7060,18 @@ function GroqKeyCard({ runtimeMetric }: { runtimeMetric?: ProviderRuntimeMetric 
           </div>
         </div>
       ) : (
-        <p className="mb-2 break-words text-muted-foreground">لا يوجد مفتاح شخصي محفوظ؛ يُستخدم مفتاح الخادم إن كان معدًّا.</p>
+        <p className="mb-2 break-words text-muted-foreground">
+          {disabled
+            ? 'لا يلزم مفتاح Groq؛ المسار المدعوم حاليًا هو نماذج OpenRouter المجانية فقط.'
+            : 'لا يوجد مفتاح شخصي محفوظ؛ يُستخدم مفتاح الخادم إن كان معدًّا.'}
+        </p>
       )}
 
-      <GroqModelAvailabilityNotice availability={status?.modelAvailability} />
+      {!disabled && <GroqModelAvailabilityNotice availability={status?.modelAvailability} />}
       <ProviderLifecycleNotice lifecycle={status?.lifecycle} />
       <ProviderRuntimeBadge metric={runtimeMetric} />
 
-      {(showInput || !status?.configured) && (
+      {!disabled && (showInput || !status?.configured) && (
         <div className="flex min-w-0 gap-1 mt-2">
           <Input
             type="password"
@@ -7078,7 +7099,7 @@ function GroqKeyCard({ runtimeMetric }: { runtimeMetric?: ProviderRuntimeMetric 
   );
 }
 
-function GeminiKeyCard({ runtimeMetric }: { runtimeMetric?: ProviderRuntimeMetric }) {
+function GeminiKeyCard({ runtimeMetric, disabled = true }: { runtimeMetric?: ProviderRuntimeMetric; disabled?: boolean }) {
   const { toast } = useToast();
   const qc = useQueryClient();
   const [keyInput, setKeyInput] = useState('');
@@ -7132,8 +7153,13 @@ function GeminiKeyCard({ runtimeMetric }: { runtimeMetric?: ProviderRuntimeMetri
       <div className="flex min-w-0 flex-wrap items-center gap-1.5 mb-2">
         <Key className="w-3 h-3 shrink-0 text-muted-foreground" />
         <span className="min-w-0 flex-1 text-muted-foreground">مفتاح Gemini</span>
-        <span className="ml-auto shrink-0 text-xs text-muted-foreground">أولوية</span>
+        <span className="ml-auto shrink-0 text-xs text-muted-foreground">غير مفعّل</span>
       </div>
+      {disabled && (
+        <p className="mb-2 break-words text-muted-foreground">
+          هذا المزود غير مفعّل؛ لا تُرسل إليه أي طلبات. يمكنك إزالة المفتاح المحفوظ أدناه.
+        </p>
+      )}
 
       {isLoading ? (
         <p className="text-muted-foreground">جارٍ تحميل حالة المفتاح…</p>
@@ -7144,9 +7170,11 @@ function GeminiKeyCard({ runtimeMetric }: { runtimeMetric?: ProviderRuntimeMetri
             <span dir="ltr" className="break-all">···{status.last4}</span>
           </div>
           <div className="flex shrink-0 gap-1">
-            <Button size="sm" variant="ghost" className="h-5 px-1.5 text-xs max-md:min-h-7 max-md:px-2" aria-label="تغيير مفتاح Gemini" onClick={() => setShowInput((v) => !v)}>
-              تغيير
-            </Button>
+            {!disabled && (
+              <Button size="sm" variant="ghost" className="h-5 px-1.5 text-xs max-md:min-h-7 max-md:px-2" aria-label="تغيير مفتاح Gemini" onClick={() => setShowInput((v) => !v)}>
+                تغيير
+              </Button>
+            )}
             <Button
               size="sm" variant="ghost"
               className="h-5 px-1.5 text-xs text-destructive hover:text-destructive max-md:min-h-7 max-md:px-2"
@@ -7161,14 +7189,16 @@ function GeminiKeyCard({ runtimeMetric }: { runtimeMetric?: ProviderRuntimeMetri
         </div>
       ) : (
         <p className="mb-2 break-words text-muted-foreground">
-          يمكنك إدارة مفتاح Gemini عبر <bdi dir="ltr" className="font-mono break-all">aistudio.google.com/apikey</bdi> ثم إدخاله هنا. تخضع حدود الاستخدام لحسابك لدى المزود.
+          {disabled
+            ? 'لا يلزم مفتاح Gemini؛ المسار المدعوم حاليًا هو نماذج OpenRouter المجانية فقط.'
+            : <>يمكنك إدارة مفتاح Gemini عبر <bdi dir="ltr" className="font-mono break-all">aistudio.google.com/apikey</bdi> ثم إدخاله هنا. تخضع حدود الاستخدام لحسابك لدى المزود.</>}
         </p>
       )}
 
       <ProviderLifecycleNotice lifecycle={status?.lifecycle} />
       <ProviderRuntimeBadge metric={runtimeMetric} />
 
-      {(showInput || !status?.configured) && (
+      {!disabled && (showInput || !status?.configured) && (
         <div className="flex min-w-0 gap-1 mt-2">
           <Input
             type="password"
@@ -7282,7 +7312,7 @@ function OpenRouterKeyCard({ runtimeMetric }: { runtimeMetric?: ProviderRuntimeM
         </div>
       ) : (
         <p className="mb-2 break-words text-muted-foreground">
-          يمكنك إدارة مفاتيح OpenRouter عبر <bdi dir="ltr" className="font-mono break-all">openrouter.ai/keys</bdi> ثم إدخال مفتاحك هنا. يظل ترتيب اختيار المزود تابعًا للإعداد القائم.
+          يمكنك إدارة مفاتيح OpenRouter عبر <bdi dir="ltr" className="font-mono break-all">openrouter.ai/keys</bdi> ثم إدخال مفتاحك هنا. يستخدم التطبيق النماذج المجانية المؤهلة فقط ولا ينتقل إلى مزود آخر أو نموذج مدفوع.
         </p>
       )}
 
@@ -14366,7 +14396,7 @@ export default function AiChat() {
             </div>
           </div>
 
-          {/* Provider key cards — bottom of sidebar (priority order: OpenRouter → Gemini → DeepSeek → Groq) */}
+          {/* OpenRouter is the sole enabled route; other saved keys remain deletable but inactive. */}
           <div className="provider-key-cards min-h-0 shrink-0 border-t border-border pt-2">
             <button
               type="button"
@@ -14378,7 +14408,7 @@ export default function AiChat() {
             >
               <span className="min-w-0 flex-1">
                 <span className="block text-xs font-medium text-foreground">إعدادات المساعد والتشخيص</span>
-                <span className="mt-0.5 block text-xs text-muted-foreground">المزودون وبيانات الوصول وجودة النماذج</span>
+                <span className="mt-0.5 block text-xs text-muted-foreground">مسار OpenRouter المجاني والمفاتيح المحفوظة وجودة النماذج</span>
               </span>
               <ChevronRight className={`h-3.5 w-3.5 shrink-0 text-muted-foreground transition-transform ${providerSettingsOpen ? 'rotate-90' : ''}`} />
             </button>
@@ -14402,9 +14432,9 @@ export default function AiChat() {
                 isExporting={qualityExportPending}
               />
               <OpenRouterKeyCard runtimeMetric={metricsMap.get('openrouter')} />
-              <GeminiKeyCard runtimeMetric={metricsMap.get('gemini')} />
-              <DeepSeekKeyCard runtimeMetric={metricsMap.get('deepseek')} />
-              <GroqKeyCard runtimeMetric={metricsMap.get('groq')} />
+              <GeminiKeyCard disabled runtimeMetric={metricsMap.get('gemini')} />
+              <DeepSeekKeyCard disabled runtimeMetric={metricsMap.get('deepseek')} />
+              <GroqKeyCard disabled runtimeMetric={metricsMap.get('groq')} />
             </div>
           </div>
         </div>

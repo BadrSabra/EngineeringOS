@@ -1656,7 +1656,6 @@ describe("openrouterCompleteWithFallback — error classification", () => {
       maxTokens: 10,
       maxFallbackModels: 1,
       retryTransient: false,
-      allowPaidFallback: false,
       executionLedger,
     } as const;
 

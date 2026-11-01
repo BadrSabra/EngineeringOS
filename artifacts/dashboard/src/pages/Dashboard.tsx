@@ -49,20 +49,20 @@ type OperatorAlertCopy = {
 function getOperatorAlertCopy(alert: OperatorAlert): OperatorAlertCopy {
   switch (alert.kind) {
     case 'groq_model_catalog_drift': {
-      const role = alert.modelRole === 'fast' ? 'السريع' : 'المتقدم';
       return {
-        title: `نموذج Groq ${role} غير متاح`,
-        message: `النموذج ${role} المضبوط لدى Groq غير موجود في قائمة النماذج الحالية.`,
-        remediation: 'اختر نموذجًا متاحًا من إعدادات مزود المساعد، ثم أعد تشغيل خدمة API.',
+        title: 'تنبيه محفوظ من مسار Groq غير المفعّل',
+        message: 'هذا سجل تاريخي لفحص نموذج Groq؛ لا يستخدم المنتج Groq في التوجيه الحالي.',
+        remediation: 'لا تغيّر إعدادات Groq لهذا التنبيه. يستخدم المنتج نماذج OpenRouter المجانية فقط.',
+        badge: 'مسار غير مفعّل',
         destination: 'provider-settings',
       };
     }
     case 'groq_model_catalog_unavailable':
       return {
-        title: 'تعذر التحقق من قائمة نماذج Groq',
-        message: 'تعذر فحص قائمة نماذج Groq الحالية مؤقتًا. لم نعتبر النماذج المضبوطة متوقفة.',
-        remediation: 'أعد الفحص بعد عودة الخدمة. لا تغيّر معرّفات النماذج بسبب هذا الانقطاع المؤقت.',
-        badge: 'انقطاع مؤقت',
+        title: 'سجل فحص قديم لمسار Groq غير المفعّل',
+        message: 'تعذر الفحص التاريخي لقائمة Groq وقت تسجيل التنبيه؛ لا يحدث فحص أو طلب Groq ضمن التوجيه الحالي.',
+        remediation: 'لا حاجة لإعادة فحص Groq. يستخدم المنتج نماذج OpenRouter المجانية فقط.',
+        badge: 'مسار غير مفعّل',
         destination: 'provider-settings',
       };
     case 'ai_budget_warning':

@@ -1,8 +1,7 @@
 import {
-  assertProductProviderEnabled,
   discoverProviders,
   isProductProviderEnabled,
-  PROVIDER_PRIORITY,
+  PRODUCT_ENABLED_PROVIDERS,
   type ProviderId,
 } from "../provider-registry.js";
 import type { ExecutionPlan } from "./execution-plan.js";
@@ -30,7 +29,6 @@ export function resolveExecutionProvider(
   const { contextIntensity, graphMode } = plan.taskProfile;
 
   if (preferredProvider) {
-    assertProductProviderEnabled(preferredProvider);
     return {
       providerId: preferredProvider,
       candidates: [preferredProvider],
@@ -63,7 +61,7 @@ export function resolveExecutionProvider(
     };
   }
 
-  const fallbackProvider = PROVIDER_PRIORITY[0];
+  const fallbackProvider = PRODUCT_ENABLED_PROVIDERS[0];
   if (!fallbackProvider) {
     throw new Error("No provider is enabled for the free-only product route.");
   }

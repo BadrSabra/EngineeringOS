@@ -57,6 +57,10 @@ import {
   shouldRecordCircuitFailure,
 } from "../strategies/openrouter.strategy.js";
 
+const STATIC_FREE_CHAT_TEST_MODEL = FREE_MODELS.find((model) =>
+  model.capabilities.includes("chat"),
+)!.id;
+
 // ── helpers ──────────────────────────────────────────────────────────────────
 
 /** Build a minimal fetch mock that returns a given HTTP status and body. */
@@ -663,22 +667,12 @@ describe("paid OpenRouter fallback — explicit free-first policy", () => {
     expect(calls).toEqual([freeModel]);
   });
 
-  it("ignores a paid pinned model and resolves a free catalog candidate", async () => {
-    const freeModel = FREE_MODELS.find((model) => model.capabilities.includes("chat"))!.id;
+  it("rejects a paid pinned model before catalog or inference egress", async () => {
     process.env.OPENROUTER_MODEL = "fixture/paid-tool-model";
-    const calls: string[] = [];
-    global.fetch = vi.fn(async (url: string | URL, init?: RequestInit) => {
-      if (String(url).endsWith("/models")) return catalogResponse(freeModel) as Response;
-      const body = JSON.parse(String(init?.body ?? "{}")) as { model?: string };
-      calls.push(body.model ?? "");
-      return fetchResponse(200, {
-        choices: [{ message: { content: "free-only success" } }],
-        model: body.model,
-        usage: {},
-      }) as Response;
-    }) as typeof fetch;
+    const fetchMock = vi.fn();
+    global.fetch = fetchMock as typeof fetch;
 
-    const result = await openrouterStrategy.call(
+    await expect(openrouterStrategy.call(
       [{ role: "user", content: "hello" }],
       {
         apiKey: "fixture-key",
@@ -686,14 +680,19 @@ describe("paid OpenRouter fallback — explicit free-first policy", () => {
         capability: "chat",
         quality: "fast",
       },
-    );
+    )).rejects.toMatchObject({
+      code: "INVALID_CONFIG",
+      providerCode: "FREE_MODEL_REQUIRED",
+    });
 
-    expect(result.content).toBe("free-only success");
-    expect(calls).toEqual([freeModel]);
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 
-  it("keeps paid candidates out of the free resolver and selects paid only after free exhaustion", async () => {
+  it("never sends a paid request even when paid fallback environment settings are present", async () => {
     const freeModel = FREE_MODELS.find((model) => model.capabilities.includes("chat"))!.id;
+    process.env.OPENROUTER_ALLOW_PAID_FALLBACK = "1";
+    process.env.OPENROUTER_PAID_MODEL = "fixture/paid-tool-model";
+    process.env.OPENROUTER_PAID_MODEL_CAPABILITIES = "chat,tool_calling,json";
     const calls: string[] = [];
     global.fetch = vi.fn(async (url: string | URL, init?: RequestInit) => {
       if (String(url).endsWith("/models")) return catalogResponse(freeModel) as Response;
@@ -703,7 +702,7 @@ describe("paid OpenRouter fallback — explicit free-first policy", () => {
         return new Response(JSON.stringify({ error: { code: "model_not_found", message: "fixture unavailable" } }), { status: 404 });
       }
       return new Response(JSON.stringify({
-        choices: [{ message: { content: "paid success" } }],
+        choices: [{ message: { content: "unexpected paid response" } }],
         model: body.model,
         usage: {},
       }), { status: 200 });
@@ -713,32 +712,21 @@ describe("paid OpenRouter fallback — explicit free-first policy", () => {
     expect(getUsablePaidModelCandidates().map((model) => model.id)).toEqual(["fixture/paid-tool-model"]);
     expect(resolveFallbackChain({ capability: "chat", requireTools: true }).map((model) => model.id))
       .toEqual([freeModel]);
-    expect(resolvePaidFallbackChain({
-      capability: "chat",
-      requireTools: true,
-      requireJson: true,
-    }).map((model) => model.id)).toEqual(["fixture/paid-tool-model"]);
 
-    const transitions: Array<{ reason: string; toModel: string }> = [];
-    const result = await openrouterCompleteWithFallback(
+    await expect(openrouterCompleteWithFallback(
       [{ role: "user", content: "hello" }],
       {
         apiKey: "fixture-key",
         model: freeModel,
         capability: "chat",
-        requireTools: true,
-        responseFormat: { type: "json_object" },
-        maxFallbackModels: 3,
-        allowPaidFallback: true,
-        onProviderFallback: (event) => {
-          transitions.push({ reason: event.reason, toModel: event.toModel });
-        },
+        maxFallbackModels: 1,
       },
-    );
+    )).rejects.toMatchObject({
+      code: "MODEL_NOT_FOUND",
+      providerAttemptedModels: [freeModel],
+    });
 
-    expect(result.content).toBe("paid success");
-    expect(calls).toEqual([freeModel, "fixture/paid-tool-model"]);
-    expect(transitions).toEqual([{ reason: "MODEL_NOT_FOUND", toModel: "fixture/paid-tool-model" }]);
+    expect(calls).toEqual([freeModel]);
   });
 
   it.each([
@@ -791,7 +779,6 @@ describe("paid OpenRouter fallback — explicit free-first policy", () => {
           apiKey: "fixture-key",
           model: freeModel,
           maxFallbackModels: 2,
-          allowPaidFallback: true,
           retryTransient: false,
         },
       )).rejects.toMatchObject({
@@ -874,7 +861,7 @@ describe("paid OpenRouter fallback — explicit free-first policy", () => {
     await refreshDynamicCatalog("fixture-key");
     await expect(openrouterCompleteWithFallback(
       [{ role: "user", content: "hello" }],
-      { apiKey: "fixture-key", model: freeModel, maxFallbackModels: 2, allowPaidFallback: true },
+      { apiKey: "fixture-key", model: freeModel, maxFallbackModels: 2 },
     )).rejects.toSatisfy((error: unknown) =>
       error instanceof GroqClientError &&
       error.providerAttemptedModels?.length === 1 &&
@@ -1057,7 +1044,7 @@ describe("error classification", () => {
     expect(body.model).toBe(expectedNext);
   });
 
-  it("retries the same model without JSON mode when OpenRouter rejects it", async () => {
+  it("retries the same free model without JSON mode when OpenRouter rejects it", async () => {
     const { openrouterCompleteRaw } = await import("../openai-compatible-client.js");
     const fetchMock = vi
       .fn()
@@ -1069,7 +1056,7 @@ describe("error classification", () => {
             finish_reason: "stop",
             message: { content: '{"response":"ok","sources":[]}' },
           }],
-          model: "same/model:free",
+          model: STATIC_FREE_CHAT_TEST_MODEL,
           usage: {},
         }));
     global.fetch = fetchMock as typeof fetch;
@@ -1078,7 +1065,7 @@ describe("error classification", () => {
       [{ role: "user", content: "return JSON" }],
       {
         apiKey: "sk-test",
-        model: "same/model:free",
+        model: STATIC_FREE_CHAT_TEST_MODEL,
         responseFormat: { type: "json_object" },
       },
     );
@@ -1098,14 +1085,14 @@ describe("error classification", () => {
         finish_reason: "stop",
         message: { content: '{"result":"ok"}' },
       }],
-      model: "same/model:free",
+      model: STATIC_FREE_CHAT_TEST_MODEL,
       usage: {},
     }));
     global.fetch = fetchMock as typeof fetch;
 
     await openrouterCompleteRaw([{ role: "user", content: "return structured JSON" }], {
       apiKey: "sk-test",
-      model: "same/model:free",
+      model: STATIC_FREE_CHAT_TEST_MODEL,
       responseFormat: {
         type: "json_schema",
         json_schema: {
@@ -1137,14 +1124,14 @@ describe("error classification", () => {
         finish_reason: "stop",
         message: { content: '{"result":"ok"}' },
       }],
-      model: "same/model:free",
+      model: STATIC_FREE_CHAT_TEST_MODEL,
       usage: {},
     }));
     global.fetch = fetchMock as typeof fetch;
 
     await openrouterCompleteRaw([{ role: "user", content: "return structured JSON" }], {
       apiKey: "sk-test",
-      model: "same/model:free",
+      model: STATIC_FREE_CHAT_TEST_MODEL,
       responseFormat: { type: "json_object" },
       requireResponseFormatParameters: true,
     });
@@ -1163,7 +1150,7 @@ describe("error classification", () => {
 
     await expect(openrouterCompleteRaw([{ role: "user", content: "return structured JSON" }], {
       apiKey: "sk-test",
-      model: "same/model:free",
+      model: STATIC_FREE_CHAT_TEST_MODEL,
       responseFormat: { type: "json_object" },
       requireResponseFormatParameters: true,
     })).rejects.toBeInstanceOf(GroqClientError);
@@ -1179,7 +1166,7 @@ describe("error classification", () => {
 
     await expect(openrouterCompleteRaw([{ role: "user", content: "return structured JSON" }], {
       apiKey: "sk-test",
-      model: "same/model:free",
+      model: STATIC_FREE_CHAT_TEST_MODEL,
       responseFormat: {
         type: "json_schema",
         json_schema: {
@@ -1206,14 +1193,14 @@ describe("error classification", () => {
           finish_reason: "stop",
           message: { content: '{"result":"ok"}' },
         }],
-        model: "same/model:free",
+        model: STATIC_FREE_CHAT_TEST_MODEL,
         usage: {},
       }));
     global.fetch = fetchMock as typeof fetch;
 
     const result = await openrouterCompleteRaw([{ role: "user", content: "return structured JSON" }], {
       apiKey: "sk-test",
-      model: "same/model:free",
+      model: STATIC_FREE_CHAT_TEST_MODEL,
       responseFormat: {
         type: "json_schema",
         json_schema: {
@@ -1256,14 +1243,14 @@ describe("error classification", () => {
           finish_reason: "stop",
           message: { content: '{"result":"ok"}' },
         }],
-        model: "same/model:free",
+        model: STATIC_FREE_CHAT_TEST_MODEL,
         usage: {},
       }));
     global.fetch = fetchMock as typeof fetch;
 
     const result = await openrouterCompleteRaw([{ role: "user", content: "return structured JSON" }], {
       apiKey: "sk-test",
-      model: "same/model:free",
+      model: STATIC_FREE_CHAT_TEST_MODEL,
       responseFormat: {
         type: "json_schema",
         json_schema: {
@@ -1284,9 +1271,9 @@ describe("error classification", () => {
     expect(fetchMock).toHaveBeenCalledTimes(2);
     const firstBody = JSON.parse(fetchMock.mock.calls[0]![1].body as string);
     const secondBody = JSON.parse(fetchMock.mock.calls[1]![1].body as string);
-    expect(firstBody.model).toBe("same/model:free");
+    expect(firstBody.model).toBe(STATIC_FREE_CHAT_TEST_MODEL);
     expect(firstBody.response_format.type).toBe("json_schema");
-    expect(secondBody.model).toBe("same/model:free");
+    expect(secondBody.model).toBe(STATIC_FREE_CHAT_TEST_MODEL);
     expect(secondBody.response_format).toEqual({ type: "json_object" });
     expect(secondBody.provider).toBeUndefined();
   });
