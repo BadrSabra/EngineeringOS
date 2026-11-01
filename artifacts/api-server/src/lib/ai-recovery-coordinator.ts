@@ -64,6 +64,13 @@ const RECOVERY_EXECUTION_STATUSES = ["paused", "failed"] as const;
 const MAX_RECOVERY_CANDIDATES = 64;
 const MAX_AUTOMATIC_CHAT_PARSER_RECOVERY_ATTEMPTS = 2;
 const MAX_AUTOMATIC_CHAT_PROVIDER_RECOVERY_ATTEMPTS = 3;
+const PROVIDER_LIMIT_FAILURE_KINDS = new Set([
+  "RATE_LIMIT",
+  "RATE_LIMITED",
+  "QUOTA",
+  "QUOTA_EXCEEDED",
+  "QUOTA_EXHAUSTED",
+]);
 
 type RecoveryAction = (typeof RECOVERY_ACTIONS)[number];
 type RecoveryTaskStatus = (typeof RECOVERY_TASK_STATUSES)[number];
@@ -71,6 +78,9 @@ type RecoveryTaskStatus = (typeof RECOVERY_TASK_STATUSES)[number];
 type RecoveryDisposition = {
   recoveryState?: unknown;
   retryAt?: unknown;
+  failureKind?: unknown;
+  retryAfterSource?: unknown;
+  rateLimitScope?: unknown;
   automaticRecoveryBlocked?: unknown;
 };
 
@@ -135,6 +145,7 @@ export type TaskRecoveryPlan =
       | "revision_changed"
       | "retry_not_due"
       | "rate_limit_window_unavailable"
+      | "provider_rate_limit_requires_manual_action"
       | "unknown_action";
   };
 
@@ -177,6 +188,7 @@ export type ChatRecoveryPlan =
       | "revision_changed"
       | "retry_not_due"
       | "rate_limit_window_unavailable"
+      | "provider_rate_limit_requires_manual_action"
       | "not_a_resumable_turn"
       | "automatic_recovery_blocked"
       | "automatic_recovery_exhausted";
@@ -190,6 +202,33 @@ function asRecord(value: unknown): Record<string, unknown> {
 
 function asDisposition(value: unknown): RecoveryDisposition {
   return asRecord(value) as RecoveryDisposition;
+}
+
+function requiresManualProviderLimitAction(
+  action: string,
+  disposition: RecoveryDisposition,
+): boolean {
+  const retryAfterSource = typeof disposition.retryAfterSource === "string"
+    ? disposition.retryAfterSource
+    : undefined;
+  if (retryAfterSource === "project_rate_limit" || retryAfterSource === "local_admission") {
+    return false;
+  }
+
+  const failureKind = typeof disposition.failureKind === "string"
+    ? disposition.failureKind.trim().toUpperCase()
+    : "";
+  const providerLimitFailure = PROVIDER_LIMIT_FAILURE_KINDS.has(failureKind);
+  const hasRateLimitScope = typeof disposition.rateLimitScope === "string"
+    && disposition.rateLimitScope.trim().length > 0;
+  const hasProviderRetrySource = retryAfterSource === "provider"
+    || retryAfterSource === "adaptive_default"
+    || retryAfterSource === "server_default";
+
+  return action === "RETRY_AFTER_RATE_LIMIT"
+    || providerLimitFailure
+    || hasRateLimitScope
+    || hasProviderRetrySource;
 }
 
 function parseRetryAt(value: unknown): number | undefined {
@@ -398,6 +437,9 @@ export function planTaskRecovery(
   if (retryAtMs !== undefined && retryAtMs > nowMs) {
     return { kind: "skip", reason: "retry_not_due" };
   }
+  if (requiresManualProviderLimitAction(action, disposition)) {
+    return { kind: "skip", reason: "provider_rate_limit_requires_manual_action" };
+  }
 
   if (action === "RESUME_ALLOWED") {
     if (candidate.resumable !== 1) {
@@ -512,6 +554,9 @@ export function planChatRecovery(
   }
   if (automaticRecoveryExhausted) {
     return { kind: "skip", reason: "automatic_recovery_exhausted" };
+  }
+  if (requiresManualProviderLimitAction(candidate.action, disposition)) {
+    return { kind: "skip", reason: "provider_rate_limit_requires_manual_action" };
   }
   if (candidate.action === "RESUME_ALLOWED") {
     if (candidate.resumable !== 1) {

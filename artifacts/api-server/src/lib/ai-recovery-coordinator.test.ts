@@ -158,7 +158,7 @@ describe("automatic task recovery admission", () => {
     });
   });
 
-  it("does not schedule a rate-limit retry before its durable retryAt", () => {
+  it("does not schedule an upstream rate-limit retry before or after its durable retryAt", () => {
     expect(planTaskRecovery(candidate({
       action: "RETRY_AFTER_RATE_LIMIT",
       disposition: {
@@ -176,9 +176,9 @@ describe("automatic task recovery admission", () => {
         recoveryState: "REQUIRED",
         retryAt: "2026-09-17T12:00:10.000Z",
       },
-    }), Date.parse("2026-09-17T12:00:10.000Z"))).toMatchObject({
-      kind: "retry",
-      action: "RETRY_AFTER_RATE_LIMIT",
+    }), Date.parse("2026-09-17T12:00:10.000Z"))).toEqual({
+      kind: "skip",
+      reason: "provider_rate_limit_requires_manual_action",
     });
   });
 
@@ -204,11 +204,104 @@ describe("automatic task recovery admission", () => {
 
     expect.soft(taskPlan).toEqual({
       kind: "skip",
-      reason: "rate_limit_requires_manual_action",
+      reason: "provider_rate_limit_requires_manual_action",
     });
     expect.soft(chatPlan).toEqual({
       kind: "skip",
-      reason: "rate_limit_requires_manual_action",
+      reason: "provider_rate_limit_requires_manual_action",
+    });
+  });
+
+  it("fails closed for rate-limit provider failures even when Retry-After is absent", () => {
+    const taskPlan = planTaskRecovery(candidate({
+      action: "RETRY_AFTER_TIMEOUT",
+      disposition: {
+        recoveryState: "REQUIRED",
+        failureKind: "RATE_LIMIT",
+        retryAfterSource: "adaptive_default",
+        rateLimitScope: "unknown",
+      },
+    }));
+    const chatPlan = planChatRecovery(chatCandidate({
+      action: "RETRY_AFTER_TIMEOUT",
+      reasonCode: "EXECUTION_PROVIDER_FAILURE",
+      resumable: 0,
+      disposition: {
+        recoveryState: "REQUIRED",
+        failureKind: "RATE_LIMIT",
+        retryAfterSource: "adaptive_default",
+        rateLimitScope: "unknown",
+      },
+    }));
+
+    expect.soft(taskPlan).toEqual({
+      kind: "skip",
+      reason: "provider_rate_limit_requires_manual_action",
+    });
+    expect.soft(chatPlan).toEqual({
+      kind: "skip",
+      reason: "provider_rate_limit_requires_manual_action",
+    });
+  });
+
+  it("blocks automatic resume when provider-limit evidence conflicts with the action code", () => {
+    const disposition = {
+      recoveryState: "REQUIRED",
+      failureKind: "RATE_LIMITED",
+      retryAfterSource: "provider",
+      rateLimitScope: "account_quota",
+    };
+    const taskPlan = planTaskRecovery(candidate({
+      action: "RESUME_ALLOWED",
+      resumable: 1,
+      disposition,
+    }));
+    const chatPlan = planChatRecovery(chatCandidate({
+      action: "RESUME_ALLOWED",
+      reasonCode: "MODEL_OUTPUT_INVALID",
+      resumable: 1,
+      disposition,
+    }));
+
+    expect.soft(taskPlan).toEqual({
+      kind: "skip",
+      reason: "provider_rate_limit_requires_manual_action",
+    });
+    expect.soft(chatPlan).toEqual({
+      kind: "skip",
+      reason: "provider_rate_limit_requires_manual_action",
+    });
+  });
+
+  it("keeps local project rate-limit backoff eligible for bounded automatic recovery", () => {
+    const retryAt = "2026-09-17T12:00:10.000Z";
+    const nowMs = Date.parse(retryAt);
+    const taskPlan = planTaskRecovery(candidate({
+      action: "RETRY_AFTER_RATE_LIMIT",
+      disposition: {
+        recoveryState: "REQUIRED",
+        retryAt,
+        retryAfterSource: "project_rate_limit",
+      },
+    }), nowMs);
+    const chatPlan = planChatRecovery(chatCandidate({
+      action: "RETRY_AFTER_RATE_LIMIT",
+      reasonCode: "EXECUTION_PROVIDER_FAILURE",
+      resumable: 0,
+      disposition: {
+        recoveryState: "REQUIRED",
+        retryAt,
+        retryAfterSource: "project_rate_limit",
+      },
+    }), nowMs);
+
+    expect.soft(taskPlan).toMatchObject({
+      kind: "retry",
+      action: "RETRY_AFTER_RATE_LIMIT",
+    });
+    expect.soft(chatPlan).toMatchObject({
+      kind: "retry",
+      action: "RETRY_AFTER_RATE_LIMIT",
     });
   });
 

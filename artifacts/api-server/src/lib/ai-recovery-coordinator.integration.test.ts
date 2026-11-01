@@ -1238,6 +1238,75 @@ describe("durable automatic conversational recovery", () => {
     }
   });
 
+  it("does not enqueue upstream rate-limit or quota failures for autonomous retry", async () => {
+    const taskFixture = await insertFixture();
+    const chatFixture = await insertProviderFailureChatFixture();
+    const retryAt = new Date(Date.now() - 1_000).toISOString();
+    await db.update(aiExecutionAcceptancesTable)
+      .set({
+        reasonCode: "EXECUTION_PROVIDER_FAILURE",
+        nextActionCode: "RETRY_AFTER_TIMEOUT",
+        disposition: {
+          recoveryState: "REQUIRED",
+          nextActionCode: "RETRY_AFTER_TIMEOUT",
+          failureKind: "QUOTA_EXHAUSTED",
+        },
+        resumable: 0,
+      })
+      .where(eq(aiExecutionAcceptancesTable.executionId, taskFixture.executionId));
+    await db.update(aiExecutionAcceptancesTable)
+      .set({
+        nextActionCode: "RETRY_AFTER_RATE_LIMIT",
+        disposition: {
+          recoveryState: "REQUIRED",
+          nextActionCode: "RETRY_AFTER_RATE_LIMIT",
+          failureKind: "RATE_LIMIT",
+          retryAt,
+          retryAfterMs: 1_000,
+          retryAfterSource: "provider",
+          rateLimitScope: "upstream_shared_pool",
+        },
+      })
+      .where(eq(aiExecutionAcceptancesTable.executionId, chatFixture.executionId));
+
+    expect(await dispatchAutonomousTaskRecoveries({ projectId: taskFixture.projectId })).toBe(0);
+    expect(await dispatchAutonomousTaskRecoveries({ projectId: chatFixture.projectId })).toBe(0);
+    expect(queuedJobs).toHaveLength(0);
+    expect(executeTaskLifecycle).not.toHaveBeenCalled();
+    expect(runChatExecutionRecovery).not.toHaveBeenCalled();
+
+    const [taskState] = await db.select({
+      taskRetryCount: tasksTable.retryCount,
+      executionAttempt: aiExecutionsTable.attempt,
+      executionStatus: aiExecutionsTable.status,
+    }).from(tasksTable)
+      .innerJoin(aiExecutionsTable, eq(aiExecutionsTable.linkedTaskId, tasksTable.id))
+      .where(eq(tasksTable.id, taskFixture.taskId));
+    expect(taskState).toEqual({
+      taskRetryCount: 0,
+      executionAttempt: 0,
+      executionStatus: "failed",
+    });
+
+    const [chatState] = await db.select({
+      executionAttempt: aiExecutionsTable.attempt,
+      executionStatus: aiExecutionsTable.status,
+      nextActionCode: aiExecutionAcceptancesTable.nextActionCode,
+      disposition: aiExecutionAcceptancesTable.disposition,
+    }).from(aiExecutionsTable)
+      .innerJoin(
+        aiExecutionAcceptancesTable,
+        eq(aiExecutionAcceptancesTable.executionId, aiExecutionsTable.id),
+      )
+      .where(eq(aiExecutionsTable.id, chatFixture.executionId));
+    expect(chatState).toMatchObject({
+      executionAttempt: 0,
+      executionStatus: "failed",
+      nextActionCode: "RETRY_AFTER_RATE_LIMIT",
+      disposition: { retryAt, rateLimitScope: "upstream_shared_pool" },
+    });
+  });
+
   it("persists a 409 block without deleting the acceptance or disabling manual recovery", async () => {
     const fixture = await insertChatFixture();
     try {
