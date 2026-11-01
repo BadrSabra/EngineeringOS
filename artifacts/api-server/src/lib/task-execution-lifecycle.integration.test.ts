@@ -2704,6 +2704,65 @@ describe("real durable task execution lifecycle", () => {
         .limit(1);
       expect(executionAfterResume).toEqual(executionBeforeResume);
       expect(taskProgressFixture.terminalOutcomes).toEqual(["FAILED"]);
+
+      if (!disposition) throw new Error("Rate-limit acceptance disposition was not persisted.");
+      await db.update(aiExecutionAcceptancesTable)
+        .set({
+          disposition: {
+            ...disposition,
+            retryAt: new Date(Date.now() - 1_000).toISOString(),
+          },
+        })
+        .where(and(
+          eq(aiExecutionAcceptancesTable.executionId, failed.executionId),
+          eq(aiExecutionAcceptancesTable.attempt, 0),
+        ));
+
+      const callsBeforeEligibleResume = runAgentWithFallback.mock.calls.length;
+      const resumed = await executeTaskLifecycle({
+        taskId,
+        userId,
+        provider: { provider: "groq", apiKey: "fixture-provider" },
+        trigger: "reconciliation",
+        expectedStatuses: ["verifying"],
+        workspaceRevision: now.toISOString(),
+        resumeExecutionId: failed.executionId,
+      });
+      expect(resumed).toMatchObject({
+        ok: true,
+        status: "completed",
+        executionId: failed.executionId,
+      });
+      expect(runAgentWithFallback).toHaveBeenCalledTimes(callsBeforeEligibleResume + 1);
+
+      const [completedExecution] = await db
+        .select({
+          attempt: aiExecutionsTable.attempt,
+          status: aiExecutionsTable.status,
+        })
+        .from(aiExecutionsTable)
+        .where(eq(aiExecutionsTable.id, failed.executionId))
+        .limit(1);
+      expect(completedExecution).toEqual({ attempt: 1, status: "completed" });
+
+      const [completedAcceptance] = await db
+        .select({
+          outcome: aiExecutionAcceptancesTable.outcome,
+          terminalStatus: aiExecutionAcceptancesTable.terminalStatus,
+          resumable: aiExecutionAcceptancesTable.resumable,
+        })
+        .from(aiExecutionAcceptancesTable)
+        .where(and(
+          eq(aiExecutionAcceptancesTable.executionId, failed.executionId),
+          eq(aiExecutionAcceptancesTable.attempt, 1),
+        ))
+        .limit(1);
+      expect(completedAcceptance).toEqual({
+        outcome: "SUCCEEDED",
+        terminalStatus: "completed",
+        resumable: 0,
+      });
+      expect(taskProgressFixture.terminalOutcomes).toEqual(["FAILED", "SUCCEEDED"]);
     } finally {
       await cleanupProjectExecutionData(projectId);
       await db.delete(tasksTable).where(eq(tasksTable.id, taskId));
