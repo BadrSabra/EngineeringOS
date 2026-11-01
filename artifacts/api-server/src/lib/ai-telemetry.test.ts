@@ -277,12 +277,43 @@ describe("durable AI telemetry", () => {
       modelTaskContract: "project_query_no_tools_synthesis",
       modelTaskOutcome: "accepted",
     }]);
+    await recordAiUsageAttempt(context, {
+      attemptId: `model-task:${correlationId}:synthesis-rejected`,
+      provider: "openrouter",
+      model: "fixture/free-model",
+      outcome: "success",
+      usageStatus: "unknown",
+      modelTaskContract: "project_query_no_tools_synthesis",
+      modelTaskOutcome: "rejected",
+    });
+    await recordAiUsageAttempt(context, {
+      attemptId: `model-task:${correlationId}:synthesis-empty`,
+      provider: "openrouter",
+      model: "fixture/free-model",
+      outcome: "success",
+      usageStatus: "unknown",
+      modelTaskContract: "project_query_no_tools_synthesis",
+      modelTaskOutcome: "empty",
+    });
+    await recordAiUsageAttempt({
+      ...context,
+      userId: `${context.userId}-other`,
+    }, {
+      attemptId: `model-task:${correlationId}:other-owner`,
+      provider: "openrouter",
+      model: "fixture/free-model",
+      outcome: "success",
+      usageStatus: "unknown",
+      modelTaskContract: "project_query_no_tools_synthesis",
+      modelTaskOutcome: "accepted",
+    });
 
     const summary = await getAiUsageSummary({
       userId: context.userId,
       projectId: context.projectId,
       days: 7,
     });
+    expect(summary.schemaVersion).toBe(3);
     expect(summary.totalAttempts).toBe(1);
     expect(summary.providers).toHaveLength(1);
     expect(summary.providers[0]).toMatchObject({
@@ -293,6 +324,18 @@ describe("durable AI telemetry", () => {
     });
     expect(summary.providers[0]?.models).toEqual([
       expect.objectContaining({ model: "fixture/free-model", attempts: 1, successes: 1 }),
+    ]);
+    expect(summary.modelTaskQuality).toEqual([
+      {
+        provider: "openrouter",
+        model: "fixture/free-model",
+        contract: "project_query_no_tools_synthesis",
+        samples: 3,
+        accepted: 1,
+        rejected: 1,
+        emptyResponses: 1,
+        acceptanceRate: 0.3333,
+      },
     ]);
 
     const diagnostics = await getAiExecutionDiagnostics({

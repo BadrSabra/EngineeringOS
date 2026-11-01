@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { and, desc, eq, gte, isNull, lte, sql } from "drizzle-orm";
+import { and, desc, eq, gte, isNotNull, isNull, lte, sql } from "drizzle-orm";
 import {
   db,
   aiUsageEventsTable,
@@ -599,6 +599,25 @@ export async function getAiUsageSummary(params: {
     .where(and(...conditions, isNull(aiUsageEventsTable.modelTaskContract)))
     .orderBy(desc(aiUsageEventsTable.occurredAt))
     .limit(5000);
+  const modelTaskRows = await db.select({
+    provider: aiUsageEventsTable.provider,
+    model: aiUsageEventsTable.model,
+    contract: aiUsageEventsTable.modelTaskContract,
+    outcome: aiUsageEventsTable.modelTaskOutcome,
+    samples: sql<number>`count(*)::int`,
+  }).from(aiUsageEventsTable)
+    .where(and(
+      ...conditions,
+      eq(aiUsageEventsTable.provider, "openrouter"),
+      isNotNull(aiUsageEventsTable.modelTaskContract),
+      isNotNull(aiUsageEventsTable.modelTaskOutcome),
+    ))
+    .groupBy(
+      aiUsageEventsTable.provider,
+      aiUsageEventsTable.model,
+      aiUsageEventsTable.modelTaskContract,
+      aiUsageEventsTable.modelTaskOutcome,
+    );
 
   const byProvider = new Map<string, typeof rows>();
   for (const row of rows) {
@@ -650,6 +669,51 @@ export async function getAiUsageSummary(params: {
       lastOccurredAt: entries[0]?.occurredAt?.toISOString() ?? null,
     };
   });
+  const validModelTaskContracts = new Set<string>(Object.values(MODEL_TASK_CONTRACTS));
+  const modelTaskQualityByKey = new Map<string, {
+    provider: "openrouter";
+    model: string;
+    contract: ModelTaskContract;
+    samples: number;
+    accepted: number;
+    rejected: number;
+    emptyResponses: number;
+  }>();
+  for (const row of modelTaskRows) {
+    if (
+      row.provider !== "openrouter"
+      || !row.model
+      || !row.contract
+      || !validModelTaskContracts.has(row.contract)
+      || !MODEL_TASK_OUTCOMES.includes(row.outcome as ModelTaskOutcome)
+    ) continue;
+    const contract = row.contract as ModelTaskContract;
+    const outcome = row.outcome as ModelTaskOutcome;
+    const key = JSON.stringify([row.provider, row.model, contract]);
+    const current = modelTaskQualityByKey.get(key) ?? {
+      provider: "openrouter" as const,
+      model: row.model,
+      contract,
+      samples: 0,
+      accepted: 0,
+      rejected: 0,
+      emptyResponses: 0,
+    };
+    const sampleCount = Math.max(0, Math.trunc(Number(row.samples) || 0));
+    current.samples += sampleCount;
+    if (outcome === "accepted") current.accepted += sampleCount;
+    else if (outcome === "rejected") current.rejected += sampleCount;
+    else current.emptyResponses += sampleCount;
+    modelTaskQualityByKey.set(key, current);
+  }
+  const modelTaskQuality = [...modelTaskQualityByKey.values()]
+    .map((entry) => ({
+      ...entry,
+      acceptanceRate: entry.samples
+        ? Number((entry.accepted / entry.samples).toFixed(4))
+        : null,
+    }))
+    .sort((a, b) => a.model.localeCompare(b.model) || a.contract.localeCompare(b.contract));
   const timeline = new Map<string, {
     attempts: number;
     successes: number;
@@ -709,7 +773,7 @@ export async function getAiUsageSummary(params: {
     timeline.set(day, current);
   }
   return {
-    schemaVersion: 2,
+    schemaVersion: 3,
     windowDays: days,
     retentionDays: AI_USAGE_RETENTION_DAYS,
     totalAttempts: rows.length,
@@ -717,6 +781,7 @@ export async function getAiUsageSummary(params: {
     totalFailures: rows.filter((row) => row.outcome === "failure").length,
     totalFallbackAttempts: rows.reduce((sum, row) => sum + row.fallbackCount, 0),
     providers,
+    modelTaskQuality,
     timeline: [...timeline.entries()]
       .sort(([a], [b]) => a.localeCompare(b))
       .map(([day, value]) => ({

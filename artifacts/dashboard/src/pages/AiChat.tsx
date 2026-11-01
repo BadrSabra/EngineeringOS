@@ -1396,7 +1396,7 @@ function ModelQualityTrend({
       </div>
       {timeline.length === 0 ? (
         <p className="mt-2 rounded border border-dashed border-border/70 px-2 py-2 text-center text-[10px] text-muted-foreground">
-          لا يوجد سجل جودة يطابق المشروع والمزود والفترة المحددة.
+          لا توجد نتائج قبول أو استشهاد مرتبطة بطلبات المزود ضمن المرشحات المحددة.
         </p>
       ) : (
         <div className="mt-2 space-y-1.5">
@@ -1476,6 +1476,7 @@ function ModelContractQualityCard({
     provider.models.map((model) => ({ provider: provider.provider, ...model })),
   ) ?? [];
   const sortedModels = [...models].sort((a, b) => b.attempts - a.attempts || a.model.localeCompare(b.model));
+  const taskQuality = usage?.modelTaskQuality ?? [];
 
   return (
     <section dir="rtl" lang="ar" className="mx-2 mb-2 min-w-0 rounded-lg border border-border bg-secondary/50 p-3 text-xs" aria-label="جودة إجابات المساعد">
@@ -1552,9 +1553,58 @@ function ModelContractQualityCard({
       ) : (
         <>
           <ModelQualityTrend timeline={usage?.timeline ?? []} />
+          <div
+            className="mt-3 rounded border border-border/60 bg-background/20 p-2.5"
+            aria-label="نتائج عينات عقد المهمة"
+            data-testid="model-task-quality-summary"
+          >
+            <div className="flex items-baseline justify-between gap-2">
+              <h3 className="font-medium text-foreground">عينات عقد المهمة</h3>
+              <span className="text-[10px] text-muted-foreground">مقياس منفصل عن استدعاءات المزود</span>
+            </div>
+            {taskQuality.length === 0 ? (
+              <p
+                className="mt-2 rounded border border-dashed border-border/70 px-2 py-2 text-center text-[10px] text-muted-foreground"
+                data-testid="model-task-quality-empty"
+              >
+                لا توجد عينات تقييم محفوظة ضمن الفترة والمرشحات المحددة.
+              </p>
+            ) : (
+              <div className="mt-2 space-y-1.5">
+                {taskQuality.map((sample) => (
+                  <div
+                    key={`${sample.provider}:${sample.model}:${sample.contract}`}
+                    className="rounded border border-border/40 bg-secondary/30 px-2 py-1.5"
+                    data-testid={`model-task-quality-${sample.model}`}
+                  >
+                    <div className="flex min-w-0 items-center justify-between gap-2 text-[10px]">
+                      <bdi dir="ltr" className="min-w-0 truncate font-mono text-foreground" title={sample.model}>
+                        {sample.model}
+                      </bdi>
+                      <span className="shrink-0 text-muted-foreground">
+                        {sample.contract === 'project_query_no_tools_synthesis' ? 'صياغة إجابة المشروع' : sample.contract}
+                      </span>
+                    </div>
+                    <div className="mt-1 grid grid-cols-2 gap-x-2 gap-y-1 text-[10px] text-muted-foreground sm:grid-cols-4">
+                      <span>العينات <strong className="font-medium text-foreground">{sample.samples}</strong></span>
+                      <span>مقبول <strong className="font-medium text-emerald-200">{sample.accepted}</strong></span>
+                      <span>مرفوض <strong className="font-medium text-amber-200">{sample.rejected}</strong></span>
+                      <span>فارغ <strong className="font-medium text-red-200">{sample.emptyResponses}</strong></span>
+                      <span className="col-span-2 sm:col-span-4">
+                        معدل القبول <strong dir="ltr" className="font-medium text-emerald-200">{contractRate(sample.acceptanceRate)}</strong>
+                      </span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+            <p className="mt-1.5 text-[10px] leading-4 text-muted-foreground">
+              هذه نتائج تقييم عقد المهمة؛ لا تُضاف إلى عدد طلبات OpenRouter ولا تكفي وحدها لإثبات اكتمال أي مهمة.
+            </p>
+          </div>
           {sortedModels.length === 0 ? (
             <p className="mt-3 rounded border border-dashed border-border/70 px-2 py-2 text-center text-xs leading-5 text-muted-foreground">
-              لا توجد بيانات جودة تطابق المشروع والمزود والفترة المحددة.
+              لا توجد سجلات جودة مرتبطة باستدعاءات المزود؛ عينات عقود المهام تظهر منفصلة أعلاه.
             </p>
           ) : (
             <div className="mt-3 space-y-2">

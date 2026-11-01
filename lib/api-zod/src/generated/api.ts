@@ -5855,6 +5855,17 @@ export const getAiMissionControlResponseUsageTimelineItemRecoveryAcceptedMin = 0
 
 export const getAiMissionControlResponseUsageTimelineItemFailureKindsMinOne = 0;
 
+
+
+export const getAiMissionControlResponseUsageModelTaskQualityItemAcceptedMin = 0;
+
+export const getAiMissionControlResponseUsageModelTaskQualityItemRejectedMin = 0;
+
+export const getAiMissionControlResponseUsageModelTaskQualityItemEmptyResponsesMin = 0;
+
+export const getAiMissionControlResponseUsageModelTaskQualityItemAcceptanceRateMin = 0;
+export const getAiMissionControlResponseUsageModelTaskQualityItemAcceptanceRateMax = 1;
+
 export const getAiMissionControlResponseBudgetOneDailyAttemptLimitMax = 10000;
 
 export const getAiMissionControlResponseBudgetOneDailyTokenLimitMin = 1000;
@@ -6095,7 +6106,7 @@ export const GetAiMissionControlResponse = zod.object({
   "completedAt": zod.coerce.date().nullish()
 })),
   "usage": zod.object({
-  "schemaVersion": zod.union([zod.literal(1),zod.literal(2)]),
+  "schemaVersion": zod.union([zod.literal(1),zod.literal(2),zod.literal(3)]),
   "windowDays": zod.number().int().min(1).max(getAiMissionControlResponseUsageWindowDaysMax),
   "retentionDays": zod.number().int().min(1).max(getAiMissionControlResponseUsageRetentionDaysMax),
   "totalAttempts": zod.number().int().min(getAiMissionControlResponseUsageTotalAttemptsMin),
@@ -6168,6 +6179,16 @@ export const GetAiMissionControlResponse = zod.object({
   "recoveryAccepted": zod.number().int().min(getAiMissionControlResponseUsageTimelineItemRecoveryAcceptedMin),
   "recoveryAcceptanceRate": zod.number().nullable(),
   "failureKinds": zod.record(zod.string(), zod.number().int().min(getAiMissionControlResponseUsageTimelineItemFailureKindsMinOne))
+})),
+  "modelTaskQuality": zod.array(zod.object({
+  "provider": zod.enum(['openrouter']),
+  "model": zod.string().min(1),
+  "contract": zod.enum(['project_query_no_tools_synthesis']),
+  "samples": zod.number().int().min(1),
+  "accepted": zod.number().int().min(getAiMissionControlResponseUsageModelTaskQualityItemAcceptedMin),
+  "rejected": zod.number().int().min(getAiMissionControlResponseUsageModelTaskQualityItemRejectedMin),
+  "emptyResponses": zod.number().int().min(getAiMissionControlResponseUsageModelTaskQualityItemEmptyResponsesMin),
+  "acceptanceRate": zod.number().min(getAiMissionControlResponseUsageModelTaskQualityItemAcceptanceRateMin).max(getAiMissionControlResponseUsageModelTaskQualityItemAcceptanceRateMax).nullable()
 }))
 }),
   "budget": zod.union([zod.object({
@@ -9919,6 +9940,17 @@ export const getAiMetricsResponseUsageTimelineItemFailureKindsMinOne = 0;
 
 
 
+export const getAiMetricsResponseUsageModelTaskQualityItemAcceptedMin = 0;
+
+export const getAiMetricsResponseUsageModelTaskQualityItemRejectedMin = 0;
+
+export const getAiMetricsResponseUsageModelTaskQualityItemEmptyResponsesMin = 0;
+
+export const getAiMetricsResponseUsageModelTaskQualityItemAcceptanceRateMin = 0;
+export const getAiMetricsResponseUsageModelTaskQualityItemAcceptanceRateMax = 1;
+
+
+
 export const GetAiMetricsResponse = zod.object({
   "metrics": zod.array(zod.object({
   "provider": zod.enum(['groq', 'deepseek', 'openrouter', 'gemini']),
@@ -9983,7 +10015,7 @@ export const GetAiMetricsResponse = zod.object({
   "lastEventAt": zod.coerce.date()
 })),
   "usage": zod.object({
-  "schemaVersion": zod.union([zod.literal(1),zod.literal(2)]),
+  "schemaVersion": zod.union([zod.literal(1),zod.literal(2),zod.literal(3)]),
   "windowDays": zod.number().int().min(1).max(getAiMetricsResponseUsageWindowDaysMax),
   "retentionDays": zod.number().int().min(1).max(getAiMetricsResponseUsageRetentionDaysMax),
   "totalAttempts": zod.number().int().min(getAiMetricsResponseUsageTotalAttemptsMin),
@@ -10056,6 +10088,16 @@ export const GetAiMetricsResponse = zod.object({
   "recoveryAccepted": zod.number().int().min(getAiMetricsResponseUsageTimelineItemRecoveryAcceptedMin),
   "recoveryAcceptanceRate": zod.number().nullable(),
   "failureKinds": zod.record(zod.string(), zod.number().int().min(getAiMetricsResponseUsageTimelineItemFailureKindsMinOne))
+})),
+  "modelTaskQuality": zod.array(zod.object({
+  "provider": zod.enum(['openrouter']),
+  "model": zod.string().min(1),
+  "contract": zod.enum(['project_query_no_tools_synthesis']),
+  "samples": zod.number().int().min(1),
+  "accepted": zod.number().int().min(getAiMetricsResponseUsageModelTaskQualityItemAcceptedMin),
+  "rejected": zod.number().int().min(getAiMetricsResponseUsageModelTaskQualityItemRejectedMin),
+  "emptyResponses": zod.number().int().min(getAiMetricsResponseUsageModelTaskQualityItemEmptyResponsesMin),
+  "acceptanceRate": zod.number().min(getAiMetricsResponseUsageModelTaskQualityItemAcceptanceRateMin).max(getAiMetricsResponseUsageModelTaskQualityItemAcceptanceRateMax).nullable()
 }))
 })
 })

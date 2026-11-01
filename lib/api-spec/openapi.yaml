@@ -7035,9 +7035,9 @@ components:
       type: object
       additionalProperties: false
       required: [schemaVersion, windowDays, retentionDays, totalAttempts, totalSuccesses,
-                 totalFailures, totalFallbackAttempts, providers, timeline]
+                 totalFailures, totalFallbackAttempts, providers, timeline, modelTaskQuality]
       properties:
-        schemaVersion: { type: integer, enum: [1, 2] }
+        schemaVersion: { type: integer, enum: [1, 2, 3] }
         windowDays: { type: integer, minimum: 1, maximum: 90 }
         retentionDays: { type: integer, minimum: 1, maximum: 3650 }
         totalAttempts: { type: integer, minimum: 0 }
@@ -7052,6 +7052,28 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/AiUsageTimelinePoint"
+        modelTaskQuality:
+          type: array
+          items:
+            $ref: "#/components/schemas/AiUsageModelTaskQuality"
+
+    AiUsageModelTaskQuality:
+      type: object
+      additionalProperties: false
+      required: [provider, model, contract, samples, accepted, rejected, emptyResponses, acceptanceRate]
+      properties:
+        provider:
+          type: string
+          enum: [openrouter]
+        model: { type: string, minLength: 1 }
+        contract:
+          type: string
+          enum: [project_query_no_tools_synthesis]
+        samples: { type: integer, minimum: 1 }
+        accepted: { type: integer, minimum: 0 }
+        rejected: { type: integer, minimum: 0 }
+        emptyResponses: { type: integer, minimum: 0 }
+        acceptanceRate: { type: ["number", "null"], minimum: 0, maximum: 1 }
 
     AiUsageProviderSummary:
       type: object

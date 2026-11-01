@@ -718,7 +718,7 @@ describe('AiChat Mission action gateway', () => {
     const projection = {
       mission,
       engineeringAgent: {
-        schemaVersion: 2,
+        schemaVersion: 3,
         state: 'PLANNING',
         nextAction: expectedDecision,
         availableCommands: [],
@@ -1485,6 +1485,16 @@ describe('AiChat authenticated generated mutations', () => {
           recoveryAcceptanceRate: 1,
           failureKinds: { missing_citation: 1 },
         }],
+        modelTaskQuality: [{
+          provider: 'openrouter',
+          model: 'openrouter/free-fixture',
+          contract: 'project_query_no_tools_synthesis',
+          samples: 5,
+          accepted: 2,
+          rejected: 1,
+          emptyResponses: 2,
+          acceptanceRate: 0.4,
+        }],
       },
     };
 
@@ -1498,6 +1508,13 @@ describe('AiChat authenticated generated mutations', () => {
     expect(card).toHaveTextContent('الاسترداد 1/1 · 100.0%');
     expect(card).toHaveTextContent('missing_citation (1)');
     expect(card).toHaveTextContent('الجودة حسب اليوم');
+    expect(card).toHaveTextContent('عينات عقد المهمة');
+    expect(card).toHaveTextContent('openrouter/free-fixture');
+    expect(card).toHaveTextContent('العينات 5');
+    expect(card).toHaveTextContent('مقبول 2');
+    expect(card).toHaveTextContent('مرفوض 1');
+    expect(card).toHaveTextContent('فارغ 2');
+    expect(card).toHaveTextContent('معدل القبول 40.0%');
     expect(card).toHaveTextContent(new Date('2026-08-12T00:00:00Z').toLocaleDateString('ar', { month: 'short', day: 'numeric' }));
     expect(card).toHaveTextContent('الإخفاقات: missing_citation (1)');
     expect(card).toHaveAttribute('dir', 'rtl');

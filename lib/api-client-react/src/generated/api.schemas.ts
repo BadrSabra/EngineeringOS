@@ -1914,6 +1914,7 @@ export type AiUsageSummarySchemaVersion = typeof AiUsageSummarySchemaVersion[key
 export const AiUsageSummarySchemaVersion = {
   NUMBER_1: 1,
   NUMBER_2: 2,
+  NUMBER_3: 3,
 } as const;
 
 export type AiUsageContractSummaryFailureKinds = {[key: string]: number};
@@ -2045,6 +2046,41 @@ export interface AiUsageTimelinePoint {
   failureKinds: AiUsageTimelinePointFailureKinds;
 }
 
+export type AiUsageModelTaskQualityProvider = typeof AiUsageModelTaskQualityProvider[keyof typeof AiUsageModelTaskQualityProvider];
+
+
+export const AiUsageModelTaskQualityProvider = {
+  openrouter: 'openrouter',
+} as const;
+
+export type AiUsageModelTaskQualityContract = typeof AiUsageModelTaskQualityContract[keyof typeof AiUsageModelTaskQualityContract];
+
+
+export const AiUsageModelTaskQualityContract = {
+  project_query_no_tools_synthesis: 'project_query_no_tools_synthesis',
+} as const;
+
+export interface AiUsageModelTaskQuality {
+  provider: AiUsageModelTaskQualityProvider;
+  /** @minLength 1 */
+  model: string;
+  contract: AiUsageModelTaskQualityContract;
+  /** @minimum 1 */
+  samples: number;
+  /** @minimum 0 */
+  accepted: number;
+  /** @minimum 0 */
+  rejected: number;
+  /** @minimum 0 */
+  emptyResponses: number;
+  /**
+     * @minimum 0
+     * @maximum 1
+     * @nullable
+     */
+  acceptanceRate: number | null;
+}
+
 export interface AiUsageSummary {
   schemaVersion: AiUsageSummarySchemaVersion;
   /**
@@ -2067,6 +2103,7 @@ export interface AiUsageSummary {
   totalFallbackAttempts: number;
   providers: AiUsageProviderSummary[];
   timeline: AiUsageTimelinePoint[];
+  modelTaskQuality: AiUsageModelTaskQuality[];
 }
 
 export type AiProjectBudgetSummarySchemaVersion = typeof AiProjectBudgetSummarySchemaVersion[keyof typeof AiProjectBudgetSummarySchemaVersion];

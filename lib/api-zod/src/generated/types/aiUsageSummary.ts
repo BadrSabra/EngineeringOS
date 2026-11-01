@@ -5,6 +5,7 @@
  * EngineeringOS - Autonomous AI Engineering Platform API
  * OpenAPI spec version: 1.0.0
  */
+import type { AiUsageModelTaskQuality } from './aiUsageModelTaskQuality';
 import type { AiUsageProviderSummary } from './aiUsageProviderSummary';
 import type { AiUsageSummarySchemaVersion } from './aiUsageSummarySchemaVersion';
 import type { AiUsageTimelinePoint } from './aiUsageTimelinePoint';
@@ -31,4 +32,5 @@ export interface AiUsageSummary {
   totalFallbackAttempts: number;
   providers: AiUsageProviderSummary[];
   timeline: AiUsageTimelinePoint[];
+  modelTaskQuality: AiUsageModelTaskQuality[];
 }
