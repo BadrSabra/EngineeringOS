@@ -7,6 +7,7 @@ import request from "supertest";
 import app from "../app.js";
 import { db, aiUsageEventsTable } from "@workspace/db";
 import {
+  getAiExecutionDiagnostics,
   deriveAiContractTelemetry,
   getAiUsageSummary,
   projectAiExecutionDiagnostics,
@@ -230,6 +231,64 @@ describe("durable AI telemetry", () => {
       contractCitationMatchCount: 5,
       contractFailureKind: null,
     });
+  });
+
+  it("does not count a model-task quality sample as a second provider request", async () => {
+    const correlationId = `telemetry-model-sample-${crypto.randomUUID()}`;
+    const executionId = `telemetry-model-sample-execution-${crypto.randomUUID()}`;
+    createdCorrelations.push(correlationId);
+    const context = {
+      userId: "telemetry-model-sample-owner",
+      projectId: "telemetry-model-sample-project",
+      executionId,
+      operationId: correlationId,
+      correlationId,
+    };
+    await recordAiUsageAttempt(context, {
+      attemptId: `${correlationId}:provider-request`,
+      provider: "openrouter",
+      model: "fixture/free-model",
+      outcome: "success",
+      promptTokens: 18,
+      completionTokens: 9,
+      usageStatus: "known",
+      attemptNumber: 1,
+    });
+    await recordAiUsageAttempt(context, {
+      attemptId: `model-task:${correlationId}:synthesis`,
+      provider: "openrouter",
+      model: "fixture/free-model",
+      outcome: "success",
+      usageStatus: "unknown",
+      modelTaskContract: "project_query_no_tools_synthesis",
+      modelTaskOutcome: "accepted",
+    });
+
+    const summary = await getAiUsageSummary({
+      userId: context.userId,
+      projectId: context.projectId,
+      days: 7,
+    });
+    expect(summary.totalAttempts).toBe(1);
+    expect(summary.providers).toHaveLength(1);
+    expect(summary.providers[0]).toMatchObject({
+      provider: "openrouter",
+      attempts: 1,
+      successes: 1,
+      usage: { status: "known", promptTokens: 18, completionTokens: 9 },
+    });
+    expect(summary.providers[0]?.models).toEqual([
+      expect.objectContaining({ model: "fixture/free-model", attempts: 1, successes: 1 }),
+    ]);
+
+    const diagnostics = await getAiExecutionDiagnostics({
+      userId: context.userId,
+      executionId,
+    });
+    expect(diagnostics.attempts).toBe(1);
+    expect(diagnostics.providers).toEqual([
+      expect.objectContaining({ provider: "openrouter", attempts: 1 }),
+    ]);
   });
 
   it("deduplicates concurrent attempts and represents missing usage as unknown", async () => {

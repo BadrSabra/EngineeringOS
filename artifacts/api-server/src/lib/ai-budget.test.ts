@@ -87,6 +87,76 @@ describe("AI project budget admission", () => {
     expect(reservations.map((row) => row.attemptId)).toEqual(["budget-attempt-1"]);
   });
 
+  it("does not charge a durable model-task quality sample as another provider attempt", async () => {
+    const projectId = crypto.randomUUID();
+    const ownerId = "budget-model-sample-user";
+    const attemptId = `budget-model-sample-attempt-${projectId}`;
+    const now = new Date();
+    projectIds.push(projectId);
+
+    await db.insert(projectsTable).values({
+      id: projectId,
+      ownerId,
+      name: `ai-budget-sample-${projectId.slice(0, 8)}`,
+      rootPath: `/tmp/ai-budget-sample-${projectId}`,
+      language: "typescript",
+      status: "active",
+      createdAt: now,
+      updatedAt: now,
+    });
+    await db.insert(aiProjectBudgetsTable).values({
+      id: crypto.randomUUID(),
+      schemaVersion: 1,
+      projectId,
+      ownerId,
+      dailyAttemptLimit: 2,
+      dailyTokenLimit: 17_000,
+      warningThreshold: 0.8,
+      resetAt: new Date(now.getTime() + 86_400_000),
+      createdAt: now,
+      updatedAt: now,
+    });
+
+    await admitAiProviderAttempt({ ownerId, projectId, attemptId });
+    await recordAiUsageAttempt({
+      userId: ownerId,
+      projectId,
+      executionId: `execution-${projectId}`,
+      operationId: `operation-${projectId}`,
+      correlationId: `correlation-${projectId}`,
+    }, {
+      attemptId,
+      provider: "openrouter",
+      model: "fixture/free-model",
+      outcome: "success",
+      usageStatus: "unknown",
+    });
+    await recordAiUsageAttempt({
+      userId: ownerId,
+      projectId,
+      executionId: `execution-${projectId}`,
+      operationId: `operation-${projectId}`,
+      correlationId: `correlation-${projectId}`,
+    }, {
+      attemptId: `model-task:${attemptId}`,
+      provider: "openrouter",
+      model: "fixture/free-model",
+      outcome: "success",
+      usageStatus: "unknown",
+      modelTaskContract: "project_query_no_tools_synthesis",
+      modelTaskOutcome: "accepted",
+    });
+
+    await expect(admitAiProviderAttempt({
+      ownerId,
+      projectId,
+      attemptId: `${attemptId}:next`,
+    })).resolves.toMatchObject({
+      projected: 2,
+      state: "exhausted",
+    });
+  });
+
   it("charges a conservative reservation when provider token usage is unknown", async () => {
     const projectId = crypto.randomUUID();
     const ownerId = "budget-token-user";
