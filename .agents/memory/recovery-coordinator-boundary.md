@@ -20,3 +20,9 @@ Generic execution recovery endpoints must reject executions linked to a Task. Ta
 **Why:** A generic recovery action can otherwise bypass the Task retry budget and leave Task status or correlation identity inconsistent with its execution.
 
 **How to apply:** Keep Task-linked executions out of generic resume/retry capability and operator recovery routes; only the Task lifecycle may claim them after validating the current Task row. Conversational recovery remains a separate adapter for unlinked executions.
+
+Local cooldown metadata must not override independent provider-limit evidence in a persisted acceptance. A quota failure, provider retry source, or non-local/unknown limit scope takes precedence over a later project cooldown marker; only a purely local limit remains eligible for bounded automatic retry.
+
+**Why:** The coordinator can persist a local project backoff onto an existing failed acceptance. If that replaces the source without clearing the original failure kind or scope, treating the local marker as authoritative can accidentally resume an upstream-quota failure.
+
+**How to apply:** Evaluate provider/quota signals and scope conflicts before local cooldown exemptions. Permit automatic recovery for local source/scope only when no stronger provider or unknown-scope evidence is present; otherwise require explicit manual action.
