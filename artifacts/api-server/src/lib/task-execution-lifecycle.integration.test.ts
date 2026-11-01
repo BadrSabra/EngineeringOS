@@ -73,6 +73,7 @@ const providerStrategyState = vi.hoisted(() => ({
   toolArguments: {} as Record<string, string>,
   requestedToolName: "",
   callOptionsSummary: [] as Array<{
+    providerId: "groq" | "deepseek" | "openrouter" | "gemini";
     keys: string[];
     toolNames: string[];
     toolChoice: string;
@@ -136,8 +137,10 @@ vi.mock("@workspace/ai-orchestrator", async () => {
       return actual.executeTask(...args);
     },
     invalidateContextCache: vi.fn(),
-    getProviderLifecycleSnapshot: vi.fn(async () => ({
-      provider: "groq" as const,
+    getProviderLifecycleSnapshot: vi.fn(async (params: {
+      provider: "groq" | "deepseek" | "openrouter" | "gemini";
+    }) => ({
+      provider: params.provider,
       source: "server" as const,
       keyIdentity: null,
       revision: 1,
@@ -165,8 +168,8 @@ vi.mock("../../../../lib/ai-orchestrator/src/provider-registry.js", async () => 
   >("../../../../lib/ai-orchestrator/src/provider-registry.js");
   return {
     ...actual,
-    getStrategy: vi.fn(() => ({
-      providerId: "groq",
+    getStrategy: vi.fn((providerId: "groq" | "deepseek" | "openrouter" | "gemini") => ({
+      providerId,
       supportsNativeStream: false,
       call: async (_messages: unknown[], options?: unknown) => {
         providerStrategyState.callCount += 1;
@@ -180,6 +183,7 @@ vi.mock("../../../../lib/ai-orchestrator/src/provider-registry.js", async () => 
         const rawTools = callOptions.tools;
         const toolEntries = Array.isArray(rawTools) ? rawTools : [];
         providerStrategyState.callOptionsSummary.push({
+          providerId,
           keys: Object.keys(callOptions).sort(),
           toolNames: toolEntries.flatMap((tool) => {
                 if (!tool || typeof tool !== "object") return [];
@@ -3659,6 +3663,10 @@ describe("real durable task execution lifecycle", () => {
         ? { prompt: "Run the server-authorized validation profile workspace-typecheck and report its status." }
         : {}),
     });
+    const providerForTest = {
+      provider: "openrouter" as const,
+      apiKey: "fixture-openrouter-api-key",
+    };
     const validationEvidenceId = randomUUID();
     runRepairValidation.mockImplementation(async (...args: unknown[]) => ({
       status: "passed" as const,
@@ -3753,7 +3761,7 @@ describe("real durable task execution lifecycle", () => {
         recoveredOutcome = await executeTaskLifecycle({
           taskId: fixture.taskId,
           userId: "mission-effect-test-user",
-          provider: { provider: "groq", apiKey: "fixture-provider" },
+          provider: providerForTest,
           trigger: "reconciliation",
           expectedStatuses: ["verifying"],
           workspaceRevision: fixture.now.toISOString(),
@@ -3816,16 +3824,17 @@ describe("real durable task execution lifecycle", () => {
         return resumedHelperResult as Awaited<ReturnType<typeof chatWithFallback>>;
       });
 
-    vi.stubEnv("OPENROUTER_API_KEY", "");
+    vi.stubEnv("OPENROUTER_API_KEY", "fixture-openrouter-api-key");
     vi.stubEnv("GEMINI_API_KEY", "");
     vi.stubEnv("DEEPSEEK_API_KEY", "");
-    vi.stubEnv("GROQ_API_KEY", "fixture-groq-api-key");
+    vi.stubEnv("GROQ_API_KEY", "");
+    vi.stubEnv("AI_PROVIDER_EGRESS_DISABLED", "1");
 
     try {
       await executeTaskLifecycle({
         taskId: fixture.taskId,
         userId: "mission-effect-test-user",
-        provider: { provider: "groq", apiKey: "fixture-provider" },
+        provider: providerForTest,
         trigger: "reconciliation",
         expectedStatuses: ["verifying"],
         workspaceRevision: fixture.now.toISOString(),
@@ -3839,6 +3848,8 @@ describe("real durable task execution lifecycle", () => {
         });
         expect(chatWithFallback).toHaveBeenCalledTimes(2);
         expect(providerStrategyState.callCount).toBe(2);
+        expect(providerStrategyState.callOptionsSummary.map((call) => call.providerId))
+          .toEqual(["openrouter", "openrouter"]);
         expect(reloadedToolCalls).toContainEqual({
           key,
           tool,
@@ -3927,7 +3938,7 @@ describe("real durable task execution lifecycle", () => {
         });
 
         expect(resumedHelperResult).toMatchObject({
-          effectiveProvider: "groq",
+          effectiveProvider: "openrouter",
           result: { response: expect.any(String) },
         });
         expect(providerStrategyState.callCount).toBeGreaterThan(0);
