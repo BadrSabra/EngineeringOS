@@ -2092,7 +2092,9 @@ export async function openrouterCompleteWithFallback(
         "MODEL_ATTEMPT_LOCK_UNAVAILABLE",
         attemptedModels,
       );
-      continue;
+      // A persistence failure means admission could not be verified. Do not
+      // try another candidate in this request without the shared lease guard.
+      break;
     }
     if (!attemptLease) {
       lastError = modelAttemptBusyError(
@@ -2394,7 +2396,8 @@ export async function* openrouterCompleteStream(
         "MODEL_ATTEMPT_LOCK_UNAVAILABLE",
         attemptedModels,
       );
-      continue;
+      // Keep streaming fail-closed when shared admission state is unavailable.
+      break;
     }
     if (!attemptLease) {
       lastError = modelAttemptBusyError(
