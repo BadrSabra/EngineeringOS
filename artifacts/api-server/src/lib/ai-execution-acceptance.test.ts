@@ -6,6 +6,7 @@ import {
   normalizeEvidenceSnapshot,
   projectExecutionAcceptance,
   resolveTaskObjectiveStatus,
+  type EvidenceArtifactInput,
 } from "./ai-execution-acceptance.js";
 import {
   buildExecutionProofProjection,
@@ -97,6 +98,59 @@ describe("server-owned execution acceptance", () => {
     });
     expect(snapshot.complete).toBe(false);
     expect(snapshot.artifacts).toHaveLength(0);
+  });
+
+  it("retains typed Gate C source-revision provenance and rejects mismatched provenance", () => {
+    const sourceRevision = `workspace-tree-v1:${"a".repeat(64)}`;
+    const artifact = {
+      kind: "runtime_start_gate_c" as const,
+      version: 2 as const,
+      executionId: "execution-1",
+      attempt: 0,
+      operationId: "operation-1",
+      sourceRevision,
+      sourceRevisionKind: "workspace_tree" as const,
+      sourceRevisionSource: "delivery_tree_digest_v1" as const,
+      workspaceIdentity: "b".repeat(64),
+      candidateIdentity: null,
+      episodeId: "episode-1",
+      actionId: "action-1",
+      actionEventId: "action-event-1",
+      committedEventId: "committed-event-1",
+      effectBundleId: "effect-bundle-1",
+      effectId: "effect-1",
+      actionHash: "c".repeat(64),
+      effectContractHash: "d".repeat(64),
+      environmentRevision: `env-v1:${"e".repeat(64)}`,
+      beforeObservationIds: ["before-1", "before-2"],
+      afterObservationIds: ["after-1", "after-2"],
+    };
+    const valid = normalizeEvidenceSnapshot({
+      required: true,
+      sourceEvidenceRequired: false,
+      operationId: "operation-1",
+      workspaceRoot: "/tmp/fixture",
+      sourceRevision,
+      verdict: "PROVEN",
+      artifacts: [artifact],
+    });
+    expect(valid.complete).toBe(true);
+    expect(valid.artifacts).toContainEqual(artifact);
+
+    const mismatched = normalizeEvidenceSnapshot({
+      required: true,
+      sourceEvidenceRequired: false,
+      operationId: "operation-1",
+      workspaceRoot: "/tmp/fixture",
+      sourceRevision,
+      verdict: "PROVEN",
+      artifacts: [{
+        ...artifact,
+        sourceRevisionSource: "git_commit_object_id",
+      } as unknown as EvidenceArtifactInput],
+    });
+    expect(mismatched.complete).toBe(false);
+    expect(mismatched.artifacts).toHaveLength(0);
   });
 
   it("accepts an artifact-only validation snapshot without source reads", () => {

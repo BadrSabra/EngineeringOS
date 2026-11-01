@@ -7,6 +7,8 @@ import {
   discardDeliveryWorkspace,
   hashChangeSet,
   hashDeliveryTree,
+  resolveWorkspaceTreeRevision,
+  WORKSPACE_TREE_REVISION_PREFIX,
   DELIVERY_TREE_DIGEST_VERSION,
   transitionDeliveryLifecycle,
   atomicallyPromoteFile,
@@ -52,6 +54,7 @@ describe("delivery workspaces", () => {
     await writeFile(join(fixture, ".gitignore"), "ignored\n");
     try {
       const baseHash = await hashDeliveryTree(fixture);
+      const workspaceRevision = await resolveWorkspaceTreeRevision(fixture);
       const workspace = await createDeliveryWorkspace({
         rootPath: fixture,
         operationId,
@@ -60,6 +63,8 @@ describe("delivery workspaces", () => {
       });
       expect(workspace.baseTreeHash).toBe(baseHash);
       expect(workspace.candidateTreeHash).toBe(baseHash);
+      expect(WORKSPACE_TREE_REVISION_PREFIX).toBe("workspace-tree-v1:");
+      expect(workspaceRevision).toBe(`${WORKSPACE_TREE_REVISION_PREFIX}${baseHash}`);
       expect(DELIVERY_TREE_DIGEST_VERSION).toBe("delivery-tree-v1");
       await writeFile(join(fixture, ".engineeringos-delivery-runtime.sock"), "ignored");
       expect(await hashDeliveryTree(fixture)).toBe(baseHash);

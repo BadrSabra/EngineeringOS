@@ -14,6 +14,7 @@ import {
   aiAgentObservationsTable,
   aiChangeProposalsTable,
   aiExecutionAcceptancesTable,
+  aiExecutionEvidenceSnapshotsTable,
   aiExecutionsTable,
   aiGoalsTable,
   aiMissionsTable,
@@ -84,7 +85,11 @@ import {
 } from "./agent-state/strategy-replay-case-runner.js";
 import { loadCanonicalProof } from "./proof-foundation.js";
 import { executeVerifiedGitHubDelivery } from "./github-delivery-service.js";
-import { DELIVERY_TREE_DIGEST_VERSION, hashDeliveryTree } from "./delivery-workspace.js";
+import {
+  DELIVERY_TREE_DIGEST_VERSION,
+  hashDeliveryTree,
+  resolveWorkspaceTreeRevision,
+} from "./delivery-workspace.js";
 
 const validationCalls: string[] = [];
 const validationEvidenceContexts: unknown[] = [];
@@ -937,6 +942,128 @@ describe("recipe operation preparation", () => {
         revision: "revision-runtime",
       },
     }]);
+  });
+
+  it("persists workspace-tree provenance in the bound runtime.start Canonical Proof", async () => {
+    const fixture = await createGateCRecipeFixture("runtime.start");
+    const { projectId, operationId, rootPath } = fixture.params;
+    const manager = new WorkspaceRuntimeManager({
+      store: createInMemoryWorkspaceRuntimeStore(),
+      startPreStateObserver: async ({ projectId: observedProjectId, revision }) => ({
+        status: "observed" as const,
+        runtimeStatus: "stopped" as const,
+        projectId: observedProjectId,
+        revision,
+        sessionId: null,
+        pid: null,
+        port: null,
+        processAlive: false,
+        portReady: false,
+        source: "test_observer" as const,
+        inventoryComplete: true,
+        unknownListenerPorts: [],
+        observedAt: new Date().toISOString(),
+        detail: "The isolated test observer confirms the runtime is stopped.",
+      }),
+    });
+    let executionId: string | undefined;
+
+    try {
+      await writeFile(
+        path.join(rootPath, "package.json"),
+        JSON.stringify({ scripts: { dev: "node server.mjs" } }),
+        "utf8",
+      );
+      await writeFile(
+        path.join(rootPath, "server.mjs"),
+        [
+          "import http from 'node:http';",
+          "import { readFileSync } from 'node:fs';",
+          "const revision = readFileSync('node_modules/.cache/revision.txt', 'utf8').trim();",
+          "const server = http.createServer((_req, res) => { res.setHeader('x-engineeringos-revision', revision); res.end('runtime-ready'); });",
+          "server.listen(Number(process.env.PORT), '127.0.0.1');",
+          "process.once('SIGTERM', () => server.close(() => process.exit(0)));",
+        ].join("\n"),
+        "utf8",
+      );
+      await writeFile(path.join(rootPath, ".gitignore"), "node_modules/\n", "utf8");
+      await execFileAsync("git", ["-C", rootPath, "init", "-q"]);
+      await execFileAsync("git", ["-C", rootPath, "config", "user.name", "EngineeringOS Fixture"]);
+      await execFileAsync("git", ["-C", rootPath, "config", "user.email", "fixture@example.com"]);
+      await execFileAsync("git", ["-C", rootPath, "add", ".gitignore", "package.json", "server.mjs"]);
+      await execFileAsync("git", ["-C", rootPath, "commit", "-qm", "workspace revision fixture"]);
+
+      const sourceRevision = await resolveWorkspaceTreeRevision(rootPath);
+      expect(sourceRevision).toMatch(/^workspace-tree-v1:[a-f0-9]{64}$/);
+      await mkdir(path.join(rootPath, "node_modules/.cache"), { recursive: true });
+      await writeFile(
+        path.join(rootPath, "node_modules/.cache/revision.txt"),
+        `${sourceRevision}\n`,
+        "utf8",
+      );
+      expect(await resolveWorkspaceTreeRevision(rootPath)).toBe(sourceRevision);
+
+      const result = await runRecipeOperation({
+        ...fixture.params,
+        sourceRevision,
+        runtimeStartRunner: createRuntimeStartRunner(manager),
+      });
+      executionId = result.executionId;
+      expect(result.status).toBe("completed");
+
+      const [acceptance] = await db.select({
+        id: aiExecutionAcceptancesTable.id,
+        attempt: aiExecutionAcceptancesTable.attempt,
+        outcome: aiExecutionAcceptancesTable.outcome,
+        evidenceSnapshotId: aiExecutionAcceptancesTable.evidenceSnapshotId,
+        sourceRevision: aiExecutionAcceptancesTable.sourceRevision,
+      }).from(aiExecutionAcceptancesTable).where(and(
+        eq(aiExecutionAcceptancesTable.executionId, executionId),
+        eq(aiExecutionAcceptancesTable.outcome, "SUCCEEDED"),
+      )).limit(1);
+      expect(acceptance).toMatchObject({
+        attempt: 0,
+        outcome: "SUCCEEDED",
+        evidenceSnapshotId: expect.any(String),
+        sourceRevision,
+      });
+      if (!acceptance?.evidenceSnapshotId) {
+        throw new Error("Workspace-tree runtime.start acceptance has no evidence snapshot.");
+      }
+      const [snapshot] = await db.select().from(aiExecutionEvidenceSnapshotsTable)
+        .where(eq(aiExecutionEvidenceSnapshotsTable.id, acceptance.evidenceSnapshotId))
+        .limit(1);
+      expect(snapshot).toMatchObject({
+        projectId,
+        executionId,
+        attempt: acceptance.attempt,
+        sourceRevision,
+        complete: 1,
+        verdict: "PROVEN",
+      });
+      const gateCArtifact = Array.isArray(snapshot?.artifactRefs)
+        ? snapshot.artifactRefs.find((artifact) => (
+            Boolean(artifact)
+            && typeof artifact === "object"
+            && !Array.isArray(artifact)
+            && (artifact as Record<string, unknown>).kind === "runtime_start_gate_c"
+          ))
+        : undefined;
+      expect(gateCArtifact).toMatchObject({
+        kind: "runtime_start_gate_c",
+        version: 2,
+        executionId,
+        attempt: acceptance.attempt,
+        operationId,
+        sourceRevision,
+        sourceRevisionKind: "workspace_tree",
+        sourceRevisionSource: "delivery_tree_digest_v1",
+      });
+      await assertCanonicalRecipeProof({ projectId, operationId, sourceRevision }, executionId);
+    } finally {
+      await manager.shutdown();
+      await fixture.cleanup(executionId);
+    }
   });
 
   it("does not infer a stopped runtime from a missing independent inventory", async () => {
@@ -2081,6 +2208,37 @@ describe("recipe operation preparation", () => {
         effectBundleId: bundle?.id,
         sourceRevision,
         operationId,
+      });
+      const [evidenceSnapshot] = acceptance?.evidenceSnapshotId
+        ? await db.select().from(aiExecutionEvidenceSnapshotsTable)
+          .where(eq(aiExecutionEvidenceSnapshotsTable.id, acceptance.evidenceSnapshotId))
+          .limit(1)
+        : [];
+      expect(evidenceSnapshot).toMatchObject({
+        projectId,
+        executionId,
+        attempt: acceptance?.attempt,
+        sourceRevision,
+        complete: 1,
+        verdict: "PROVEN",
+      });
+      const gateCArtifact = Array.isArray(evidenceSnapshot?.artifactRefs)
+        ? evidenceSnapshot.artifactRefs.find((artifact) => (
+            Boolean(artifact)
+            && typeof artifact === "object"
+            && !Array.isArray(artifact)
+            && (artifact as Record<string, unknown>).kind === "runtime_start_gate_c"
+          ))
+        : undefined;
+      expect(gateCArtifact).toMatchObject({
+        kind: "runtime_start_gate_c",
+        version: 2,
+        executionId,
+        attempt: acceptance?.attempt,
+        operationId,
+        sourceRevision,
+        sourceRevisionKind: "git_commit",
+        sourceRevisionSource: "git_commit_object_id",
       });
       const observations = await db.select().from(aiAgentObservationsTable)
         .where(eq(aiAgentObservationsTable.executionId, executionId));

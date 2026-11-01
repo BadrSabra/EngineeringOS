@@ -9,12 +9,23 @@ import {
 } from "@workspace/db";
 import { canonicalJsonHash, hashEffectContract } from "@workspace/ai-orchestrator";
 import { buildGateCAction, buildGateCEffectContract, gateCEffectIdentity } from "./agent-state/gate-c-effect.js";
+import { WORKSPACE_TREE_REVISION_PREFIX } from "./delivery-workspace.js";
 
 export const RUNTIME_START_GATE_C_PROOF_MODE = "runtime_start_gate_c_v1" as const;
 
+export type RuntimeStartGateCSourceRevisionIdentity =
+  | {
+      sourceRevisionKind: "workspace_tree";
+      sourceRevisionSource: "delivery_tree_digest_v1";
+    }
+  | {
+      sourceRevisionKind: "git_commit";
+      sourceRevisionSource: "git_commit_object_id";
+    };
+
 export type RuntimeStartGateCProofArtifact = {
   kind: "runtime_start_gate_c";
-  version: 1;
+  version: 2;
   executionId: string;
   attempt: number;
   operationId: string;
@@ -32,7 +43,7 @@ export type RuntimeStartGateCProofArtifact = {
   environmentRevision: string;
   beforeObservationIds: string[];
   afterObservationIds: string[];
-};
+} & RuntimeStartGateCSourceRevisionIdentity;
 
 type RuntimeStartProofTransaction = Parameters<Parameters<typeof import("@workspace/db").db.transaction>[0]>[0];
 
@@ -54,8 +65,63 @@ function sameStrings(left: unknown, right: readonly string[]): boolean {
   return Boolean(values && values.length === right.length && values.every((value, index) => value === right[index]));
 }
 
-function revision(value: unknown): value is string {
-  return typeof value === "string" && /^[a-f0-9]{40}(?:[a-f0-9]{24})?$/i.test(value);
+export function classifyRuntimeStartGateCSourceRevision(
+  value: unknown,
+): RuntimeStartGateCSourceRevisionIdentity | undefined {
+  if (typeof value !== "string") return undefined;
+  if (value.startsWith(WORKSPACE_TREE_REVISION_PREFIX)) {
+    return /^[a-f0-9]{64}$/.test(value.slice(WORKSPACE_TREE_REVISION_PREFIX.length))
+      ? {
+          sourceRevisionKind: "workspace_tree",
+          sourceRevisionSource: "delivery_tree_digest_v1",
+        }
+      : undefined;
+  }
+  return /^[a-f0-9]{40}(?:[a-f0-9]{24})?$/i.test(value)
+    ? {
+        sourceRevisionKind: "git_commit",
+        sourceRevisionSource: "git_commit_object_id",
+      }
+    : undefined;
+}
+
+/**
+ * Upgrade persisted v1 Git-commit artifacts for comparison with the current
+ * proof contract. Older Gate C code only emitted raw Git object IDs, so that
+ * legacy representation has an unambiguous provenance. Workspace-tree
+ * revisions were never valid in v1 and are not upgraded.
+ */
+export function normalizeStoredRuntimeStartGateCProofArtifact(
+  value: unknown,
+): RuntimeStartGateCProofArtifact | undefined {
+  const artifact = record(value);
+  if (
+    !artifact
+    || artifact.kind !== "runtime_start_gate_c"
+    || typeof artifact.sourceRevision !== "string"
+  ) return undefined;
+  const identity = classifyRuntimeStartGateCSourceRevision(artifact.sourceRevision);
+  if (!identity) return undefined;
+  if (
+    artifact.version === 2
+    && artifact.sourceRevisionKind === identity.sourceRevisionKind
+    && artifact.sourceRevisionSource === identity.sourceRevisionSource
+  ) {
+    return artifact as unknown as RuntimeStartGateCProofArtifact;
+  }
+  if (
+    artifact.version === 1
+    && identity.sourceRevisionKind === "git_commit"
+    && !("sourceRevisionKind" in artifact)
+    && !("sourceRevisionSource" in artifact)
+  ) {
+    return {
+      ...artifact,
+      version: 2,
+      ...identity,
+    } as unknown as RuntimeStartGateCProofArtifact;
+  }
+  return undefined;
 }
 
 function digest(value: unknown): value is string {
@@ -111,6 +177,7 @@ export async function deriveRuntimeStartGateCProof(input: {
   const operationId = execution.operationId;
   const rootPath = execution.workspaceRoot;
   const sourceRevision = input.sourceRevision;
+  const sourceRevisionIdentity = classifyRuntimeStartGateCSourceRevision(sourceRevision);
   const candidateIdentity = input.candidateIdentity;
   if (
     !operationId
@@ -118,7 +185,7 @@ export async function deriveRuntimeStartGateCProof(input: {
     || !rootPath
     || request.workspaceRoot !== rootPath
     || !sourceRevision
-    || !revision(sourceRevision)
+    || !sourceRevisionIdentity
     || sourceRevision !== request.workspaceRevision
     || sourceRevision !== execution.baseRevision
     || !input.effectBundleId
@@ -388,11 +455,12 @@ export async function deriveRuntimeStartGateCProof(input: {
   });
   return {
     kind: "runtime_start_gate_c",
-    version: 1,
+    version: 2,
     executionId: execution.id,
     attempt: execution.attempt,
     operationId,
     sourceRevision,
+    ...sourceRevisionIdentity,
     workspaceIdentity,
     candidateIdentity,
     episodeId: episode.id,
