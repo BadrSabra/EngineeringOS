@@ -2621,6 +2621,78 @@ describe("real durable task execution lifecycle", () => {
     20_000,
   );
 
+  it("does not accept a Mission repair when its tool loop ends with EMPTY_RESPONSE", async () => {
+    const fixture = await createMissionToolLoopFixture({
+      phase: "execute",
+      approvalRequired: false,
+    });
+    const privateProviderFailure = "T8_PRIVATE_MISSION_EMPTY_RESPONSE";
+    chatWithFallback.mockImplementationOnce(async (...args: unknown[]) => {
+      const baseParams = args[1] as {
+        onMutationInvocation?: import("@workspace/ai-orchestrator").MutationToolInvocationCallback;
+      };
+      const invocation = {
+        toolCallId: "provider-call-mission-empty-response",
+        toolName: "write_file" as const,
+        path: "src/target.ts",
+        inputHash: "e".repeat(64),
+      };
+      await baseParams.onMutationInvocation?.({ ...invocation, phase: "requested" });
+      await baseParams.onMutationInvocation?.({ ...invocation, phase: "committed" });
+      throw new GroqClientError("EMPTY_RESPONSE", privateProviderFailure);
+    });
+
+    try {
+      const outcome = await executeTaskLifecycle({
+        taskId: fixture.taskId,
+        userId: "mission-effect-test-user",
+        provider: { provider: "groq", apiKey: "fixture-provider" },
+        trigger: "reconciliation",
+        expectedStatuses: ["verifying"],
+        workspaceRevision: fixture.now.toISOString(),
+      });
+
+      expect(outcome).toMatchObject({ ok: false, status: "failed" });
+      expect(outcome.executionId).toEqual(expect.any(String));
+      expect(chatWithFallback).toHaveBeenCalledTimes(1);
+      expect(runRepairValidation).not.toHaveBeenCalled();
+      expect(await readFile(join(fixture.rootPath, "src", "target.ts"), "utf8"))
+        .toBe("export const value = 'base';\n");
+
+      const [acceptance] = await db
+        .select({
+          outcome: aiExecutionAcceptancesTable.outcome,
+          terminalStatus: aiExecutionAcceptancesTable.terminalStatus,
+          reasonCode: aiExecutionAcceptancesTable.reasonCode,
+          resumable: aiExecutionAcceptancesTable.resumable,
+          effectBundleId: aiExecutionAcceptancesTable.effectBundleId,
+        })
+        .from(aiExecutionAcceptancesTable)
+        .where(eq(aiExecutionAcceptancesTable.executionId, outcome.executionId!))
+        .limit(1);
+      expect(acceptance).toMatchObject({
+        outcome: "FAILED",
+        terminalStatus: "failed",
+        reasonCode: "EXECUTION_PROVIDER_FAILURE",
+        resumable: 1,
+        effectBundleId: null,
+      });
+
+      const events = await db
+        .select({ eventType: aiAgentEpisodeEventsTable.eventType, payload: aiAgentEpisodeEventsTable.payload })
+        .from(aiAgentEpisodeEventsTable)
+        .where(eq(aiAgentEpisodeEventsTable.executionId, outcome.executionId!));
+      expect(events.filter((event) =>
+        event.eventType === "ACTION_COMMITTED"
+        && (event.payload as { actionId?: unknown } | null)?.actionId
+          === `mission-repair:${outcome.executionId}:0`
+      )).toHaveLength(0);
+      expect(JSON.stringify(events)).not.toContain(privateProviderFailure);
+    } finally {
+      await fixture.cleanup();
+    }
+  });
+
   it("persists a provider 429 window and blocks task resume before token rotation", async () => {
     const projectId = randomUUID();
     const taskId = randomUUID();
