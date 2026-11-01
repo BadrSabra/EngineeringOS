@@ -22,6 +22,7 @@ import { geminiStrategy } from "./strategies/gemini.strategy.js";
 import { MODEL_FAST, MODEL_POWERFUL } from "./groq-client.js";
 import { FREE_MODELS } from "./openrouter/model-catalog.js";
 import { recordBehavioralModelCall } from "./behavioral-scorecard.js";
+import { GroqClientError } from "./errors.js";
 // RC-03: avoid hardcoding a dead OpenRouter model ID at module-load time.
 // The emergency fallback is derived from the current static free-tier catalog
 // so the registry never points at a model that the local codebase no longer
@@ -54,7 +55,21 @@ export type ProviderConfig = {
  * Product AI requests are restricted to OpenRouter. Model selection within
  * OpenRouter is separately constrained by its free-model catalog.
  */
-export const PROVIDER_PRIORITY: ProviderId[] = ["openrouter"];
+export const PROVIDER_PRIORITY: readonly ProviderId[] = Object.freeze(["openrouter"]);
+
+/** Whether a provider is currently authorized for product inference. */
+export function isProductProviderEnabled(providerId: ProviderId): boolean {
+  return PROVIDER_PRIORITY.includes(providerId);
+}
+
+export function assertProductProviderEnabled(providerId: ProviderId): void {
+  if (isProductProviderEnabled(providerId)) return;
+  throw new GroqClientError(
+    "INVALID_CONFIG",
+    `${providerId} is not verified for the product's free-only AI route.`,
+    { context: { providerName: providerId, providerCode: "FREE_ROUTE_NOT_VERIFIED" } },
+  );
+}
 
 export const PROVIDER_REGISTRY: Record<ProviderId, ProviderConfig> = {
   openrouter: {
@@ -237,6 +252,7 @@ const STRATEGY_MAP = new Map<ProviderId, ProviderStrategy>([
  * PROVIDER_REGISTRY without a corresponding strategy entry — caught at dev time).
  */
 export function getStrategy(id: ProviderId): ProviderStrategy {
+  assertProductProviderEnabled(id);
   const strategy = STRATEGY_MAP.get(id);
   if (!strategy) throw new Error(`No ProviderStrategy registered for provider: ${id}`);
   return strategy;

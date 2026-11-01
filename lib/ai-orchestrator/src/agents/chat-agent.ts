@@ -58,7 +58,13 @@ import {
   type ProjectQueryAnswerCandidate,
   type ProjectQueryAnswerObjective,
 } from "./project-query-answer-contract.js";
-import { getStrategy, recordProviderTelemetry, type ProviderId } from "../provider-registry.js";
+import {
+  assertProductProviderEnabled,
+  getStrategy,
+  isProductProviderEnabled,
+  recordProviderTelemetry,
+  type ProviderId,
+} from "../provider-registry.js";
 import { recordBehavioralFailure } from "../behavioral-scorecard.js";
 import { resolveExecutionDecision } from "../model-selection/decision-engine.js";
 import type { ExecutionPlan } from "../model-selection/execution-plan.js";
@@ -2971,20 +2977,17 @@ async function callCapabilityRecoveryWithFallback(opts: {
   result: CapabilityRecoveryCallResult;
   provider: ProviderId;
 }> {
-  const openRouterFreeOnly =
-    opts.primary.provider === "openrouter" &&
-    Boolean(opts.primary.apiKey?.trim() || process.env.OPENROUTER_API_KEY?.trim());
+  assertProductProviderEnabled(opts.primary.provider);
   const candidates = [
     opts.primary,
-    ...(opts.fallbacks ?? []).filter(
-      (candidate) => !openRouterFreeOnly || candidate.provider === "openrouter",
-    ),
-  ].filter((candidate, index, all) =>
-    all.findIndex((item) =>
-      item.provider === candidate.provider &&
-      (item.model ?? "") === (candidate.model ?? ""),
-    ) === index,
-  );
+    ...(opts.fallbacks ?? []),
+  ].filter((candidate) => isProductProviderEnabled(candidate.provider))
+    .filter((candidate, index, all) =>
+      all.findIndex((item) =>
+        item.provider === candidate.provider &&
+        (item.model ?? "") === (candidate.model ?? ""),
+      ) === index,
+    );
   let lastError: unknown;
 
   for (const [candidateIndex, candidate] of candidates.entries()) {

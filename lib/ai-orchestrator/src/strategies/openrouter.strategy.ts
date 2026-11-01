@@ -138,9 +138,6 @@ export const openrouterStrategy: ProviderStrategy = {
       const result = await openrouterCompleteWithFallback(messages, {
         ...requestOpts,
         apiKey: opts.apiKey,
-        // Product routing is strictly free-only, regardless of environment
-        // opt-ins used by isolated lower-level validation tools.
-        allowPaidFallback: false,
       });
       // PR-07: successful call closes any open circuit.
       recordCircuitSuccess("openrouter");

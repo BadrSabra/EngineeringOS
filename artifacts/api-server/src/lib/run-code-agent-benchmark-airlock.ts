@@ -71,6 +71,20 @@ const benchmarkTargetPaths = [
   ...new Set(allCases.flatMap((testCase) => defaultApiBenchmarkTargetPaths(testCase))),
 ];
 const freeOnly = process.env.BENCHMARK_FREE_ONLY === "true";
+if (!freeOnly) {
+  throw new Error("Live benchmark campaigns require BENCHMARK_FREE_ONLY=true.");
+}
+if (
+  process.env.OPENROUTER_ALLOW_PAID_FALLBACK?.trim()
+  || process.env.OPENROUTER_PAID_MODEL?.trim()
+  || process.env.OPENROUTER_PAID_MODEL_CAPABILITIES?.trim()
+) {
+  throw new Error("Live benchmark campaigns reject paid fallback configuration.");
+}
+const configuredOpenRouterModel = process.env.OPENROUTER_MODEL?.trim();
+if (configuredOpenRouterModel && !configuredOpenRouterModel.endsWith(":free")) {
+  throw new Error("OPENROUTER_MODEL must be explicitly free.");
+}
 const liveCampaign = process.env.BENCHMARK_LIVE_CAMPAIGN === "1";
 const campaignModeSelection = process.env.BENCHMARK_MODE?.trim() || "live";
 if (campaignModeSelection !== "live") {

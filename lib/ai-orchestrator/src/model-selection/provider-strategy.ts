@@ -1,4 +1,10 @@
-import { discoverProviders, type ProviderId } from "../provider-registry.js";
+import {
+  assertProductProviderEnabled,
+  discoverProviders,
+  isProductProviderEnabled,
+  PROVIDER_PRIORITY,
+  type ProviderId,
+} from "../provider-registry.js";
 import type { ExecutionPlan } from "./execution-plan.js";
 import type { ContextIntensity, GraphMode } from "./execution-plan.js";
 
@@ -24,6 +30,7 @@ export function resolveExecutionProvider(
   const { contextIntensity, graphMode } = plan.taskProfile;
 
   if (preferredProvider) {
+    assertProductProviderEnabled(preferredProvider);
     return {
       providerId: preferredProvider,
       candidates: [preferredProvider],
@@ -32,7 +39,9 @@ export function resolveExecutionProvider(
     };
   }
 
-  const strictCandidates = discoverProviders(plan.strictHints).map((p) => p.providerId);
+  const strictCandidates = discoverProviders(plan.strictHints)
+    .map((p) => p.providerId)
+    .filter(isProductProviderEnabled);
   if (strictCandidates.length > 0) {
     return {
       providerId: strictCandidates[0],
@@ -42,7 +51,9 @@ export function resolveExecutionProvider(
     };
   }
 
-  const relaxedCandidates = discoverProviders(plan.relaxedHints).map((p) => p.providerId);
+  const relaxedCandidates = discoverProviders(plan.relaxedHints)
+    .map((p) => p.providerId)
+    .filter(isProductProviderEnabled);
   if (relaxedCandidates.length > 0) {
     return {
       providerId: relaxedCandidates[0],
@@ -52,9 +63,13 @@ export function resolveExecutionProvider(
     };
   }
 
+  const fallbackProvider = PROVIDER_PRIORITY[0];
+  if (!fallbackProvider) {
+    throw new Error("No provider is enabled for the free-only product route.");
+  }
   return {
-    providerId: "groq",
-    candidates: ["groq"],
+    providerId: fallbackProvider,
+    candidates: [fallbackProvider],
     source: "fallback",
     rationale: { drivingField: "fallback", contextIntensity, graphMode },
   };

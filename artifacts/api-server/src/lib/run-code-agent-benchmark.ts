@@ -18,6 +18,8 @@ import {
   type CodeAgentExecutionTelemetry,
   type ProjectContext,
   type ProviderId,
+  isFreeOpenRouterModel,
+  resolveFreeModelOverride,
 } from "@workspace/ai-orchestrator";
 import { createHostDisposableTempDirectory } from "./disposable-temp.js";
 import {
@@ -270,6 +272,7 @@ const sourceRoot = path.resolve(
   process.env.BENCHMARK_SOURCE_ROOT ?? path.resolve(process.cwd(), "../.."),
 );
 const provider = (process.env.BENCHMARK_PROVIDER ?? "openrouter") as ProviderId;
+const configuredModel = process.env.BENCHMARK_MODEL?.trim() || undefined;
 const caseTimeoutMs = Number.parseInt(process.env.BENCHMARK_CASE_TIMEOUT_MS ?? "90000", 10);
 const providerHealthTimeoutRaw = process.env.BENCHMARK_PROVIDER_HEALTH_TIMEOUT_MS?.trim();
 const providerHealthTimeoutMs = providerHealthTimeoutRaw
@@ -294,6 +297,32 @@ if (
 }
 if (!(provider in PROVIDER_KEY_ENV)) {
   throw new Error(`Unsupported BENCHMARK_PROVIDER: ${provider}`);
+}
+if (!replayInput) {
+  if (provider !== "openrouter") {
+    throw new Error("Live benchmarks only allow the current OpenRouter free-only product route.");
+  }
+  if (process.env.BENCHMARK_FREE_ONLY !== "true") {
+    throw new Error("Live benchmarks require BENCHMARK_FREE_ONLY=true.");
+  }
+  if (
+    process.env.OPENROUTER_ALLOW_PAID_FALLBACK?.trim()
+    || process.env.OPENROUTER_PAID_MODEL?.trim()
+    || process.env.OPENROUTER_PAID_MODEL_CAPABILITIES?.trim()
+  ) {
+    throw new Error("Live benchmarks reject paid fallback configuration.");
+  }
+  const configuredOpenRouterModel = process.env.OPENROUTER_MODEL?.trim();
+  if (configuredOpenRouterModel && !isFreeOpenRouterModel(configuredOpenRouterModel)) {
+    throw new Error("OPENROUTER_MODEL is not in the server-owned free model catalog.");
+  }
+  if (configuredModel) {
+    try {
+      resolveFreeModelOverride(configuredModel, { capability: "tool_calling" });
+    } catch {
+      throw new Error("BENCHMARK_MODEL must be a server-catalogued free tool-calling model.");
+    }
+  }
 }
 
 const allCases = getCodeAgentBenchmarkCases();
@@ -381,7 +410,6 @@ try {
   const replayPath = process.env.BENCHMARK_REPLAY_OUTPUT
     ? path.resolve(process.env.BENCHMARK_REPLAY_OUTPUT)
     : undefined;
-  const configuredModel = process.env.BENCHMARK_MODEL?.trim() || undefined;
   let initialResults: CodeAgentBenchmarkObservation[] = [];
   let generatedAt = new Date().toISOString();
   const replayEntries = new Map<string, CodeAgentBenchmarkReplayEntry>();

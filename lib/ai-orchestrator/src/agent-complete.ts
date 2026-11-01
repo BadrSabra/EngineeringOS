@@ -12,7 +12,10 @@ import {
   geminiCompleteRaw,
   type OpenAICompatibleResponseFormat,
 } from "./openai-compatible-client.js";
-import { loadProvider } from "./provider-registry.js";
+import {
+  assertProductProviderEnabled,
+  loadProvider,
+} from "./provider-registry.js";
 import { buildQualityHints, type QualityProfile } from "./quality-engine.js";
 import { GroqClientError } from "./errors.js";
 import type { Message } from "./groq-client.js";
@@ -92,13 +95,6 @@ export type AgentCompleteOpts = {
   modelLaneCursorPersistence?: ModelLaneCursorPersistence;
   /** Reports each completed model response after local contract parsing. */
   onModelAttempt?: (attempt: AgentModelAttempt) => void | Promise<void>;
-  /** Reports a bounded transition from exhausted free models to paid policy. */
-  onProviderFallback?: (event: {
-    fromModel: string;
-    toModel: string;
-    reason: string;
-    tier: "paid";
-  }) => void | Promise<void>;
 };
 
 function requireApiKey(provider: ProviderConfig, apiKey?: string): string {
@@ -184,6 +180,15 @@ export async function validateProviderKey(
   provider: ProviderId,
   apiKey: string,
 ): Promise<{ valid: boolean; reason?: string }> {
+  if (!apiKey.trim()) {
+    return { valid: false, reason: "credentials_missing" };
+  }
+  try {
+    assertProductProviderEnabled(provider);
+  } catch {
+    // Key validation must never send a paid or unverified probe request.
+    return { valid: false, reason: "provider_not_enabled_for_free_route" };
+  }
   const config = loadProvider(provider);
   try {
     await probeProviderKey(config, apiKey);
@@ -285,8 +290,6 @@ export async function agentComplete(
         excludeModels: opts.excludeModels,
         retryTransient: opts.retryTransient,
         waitOnRateLimit: opts.waitOnRateLimit,
-        allowPaidFallback: false,
-        onProviderFallback: opts.onProviderFallback,
         responseFormat: opts.promptOnlyJson
           ? undefined
           : opts.responseFormat ?? (qualityHints?.requireJsonMode ? { type: "json_object" } : undefined),

@@ -29,8 +29,6 @@ import {
   buildFallbackChainFromId,
   getFreeModelLaneRotationPlan,
   isCatalogFreeModelForCapability,
-  isCatalogPaidModelForCapability,
-  resolvePaidFallbackChain,
   resolveFallbackChainUnrotated,
   rotateFreeModelFallbackChainAtSlot,
   type ResolveModelOpts,
@@ -1588,6 +1586,26 @@ const OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1";
 const OPENROUTER_EXTRA_HEADERS = { "X-Title": "EngineeringOS" };
 
 /**
+ * Hard product boundary: only server-catalogued free OpenRouter models may
+ * reach the inference transport. Environment variables and caller options
+ * cannot authorize a paid or unknown model.
+ */
+export function assertOpenRouterFreeModel(model: string | undefined): asserts model is string {
+  if (model && FREE_MODELS.some((candidate) => candidate.id === model)) return;
+  throw new GroqClientError(
+    "INVALID_CONFIG",
+    "OpenRouter inference requires a server-catalogued free model.",
+    {
+      context: {
+        providerName: "OpenRouter",
+        providerModel: model,
+        providerCode: "FREE_MODEL_REQUIRED",
+      },
+    },
+  );
+}
+
+/**
  * Non-streaming completion via OpenRouter.
  *
  * OR-003: trims context to `OPENROUTER_MAX_MESSAGES` non-system turns and
@@ -1608,6 +1626,7 @@ export async function openrouterCompleteRaw(
     providerName: "OpenRouter",
     extraHeaders: OPENROUTER_EXTRA_HEADERS,
   };
+  assertOpenRouterFreeModel(fullOpts.model);
   const retrySignal = opts.signal ?? opts.executionLedger?.signal;
 
   try {
@@ -1768,8 +1787,6 @@ export type OpenRouterFallbackOptions = Omit<
   requireTools?: boolean;
   /** Require live metadata for provider-native JSON Schema response support. */
   requireJsonSchema?: boolean;
-  /** Paid fallback is opt-in through server policy and never part of free resolution. */
-  allowPaidFallback?: boolean;
   /**
    * Optional cooldown-store adapters used by isolated provider probes.
    * Product requests leave these unset to use durable shared PostgreSQL state.
@@ -1780,13 +1797,6 @@ export type OpenRouterFallbackOptions = Omit<
   /** Internal automatic-selection hint; explicit user/model probes remain pinned by default. */
   useSharedLaneCursor?: boolean;
   credentialCooldownPersistence?: CredentialCooldownPersistence;
-  /** Reports the one bounded free-to-paid transition, without provider content. */
-  onProviderFallback?: (event: {
-    fromModel: string;
-    toModel: string;
-    reason: string;
-    tier: "paid";
-  }) => void | Promise<void>;
 };
 
 async function scheduleOpenRouterFreeLane(
@@ -1877,27 +1887,11 @@ export async function openrouterCompleteWithFallback(
   messages: RawMessage[],
   opts: OpenRouterFallbackOptions,
 ): Promise<RawGroqResponse> {
-  await assertOpenRouterCredentialAvailable(opts.apiKey, opts.credentialCooldownPersistence);
   const initialModel = opts.model;
+  if (initialModel) assertOpenRouterFreeModel(initialModel);
+  await assertOpenRouterCredentialAvailable(opts.apiKey, opts.credentialCooldownPersistence);
   const capability = opts.capability ?? "chat";
   const requireTools = opts.requireTools ?? !!(opts.tools?.length);
-  const paidFallbackEnabled =
-    opts.allowPaidFallback ?? process.env.OPENROUTER_ALLOW_PAID_FALLBACK === "1";
-  const knownInitialModel = initialModel
-    ? FREE_MODELS.some((candidate) => candidate.id === initialModel) ||
-      (paidFallbackEnabled && isCatalogPaidModelForCapability(initialModel, {
-        capability,
-        requireTools,
-        requireJson: Boolean(opts.responseFormat),
-      }))
-    : true;
-  if (initialModel && !knownInitialModel) {
-    throw new GroqClientError(
-      "INVALID_CONFIG",
-      `OpenRouter configured model is not an eligible catalog model: ${initialModel}`,
-      { context: { providerName: "OpenRouter", providerModel: initialModel, providerCode: "STALE_CONFIGURED_MODEL" } },
-    );
-  }
 
   // RC-04 / PR-01: when no model is specified, use the resolver to build a full
   // fallback chain from the live free-tier catalog at call time.
@@ -2027,53 +2021,6 @@ export async function openrouterCompleteWithFallback(
   }
   let lastError: GroqClientError | undefined;
   const attemptedModels: string[] = [];
-  let paidTransitioned = false;
-  const appendPaidFallback = async (failure: GroqClientError, fromModel: string): Promise<boolean> => {
-    if (paidTransitioned || !paidFallbackEnabled) return false;
-    // OpenRouter uses MODEL_UNAVAILABLE for some 400 request-shape failures.
-    // Those are contract/configuration defects, not a reason to spend on a
-    // different tier. INVALID_TOOL_CALL is likewise a local contract failure.
-    if (
-      failure.code === "INVALID_TOOL_CALL" ||
-      (failure.code === "MODEL_UNAVAILABLE" && failure.providerStatus === 400)
-    ) {
-      return false;
-    }
-    if (!["MODEL_NOT_FOUND", "MODEL_UNAVAILABLE", "PLAN_RESTRICTED", "RATE_LIMITED", "QUOTA", "EMPTY_RESPONSE"].includes(failure.code)) {
-      return false;
-    }
-    // maxFallbackModels bounds free attempts. An explicitly enabled paid
-    // policy gets one additional paid attempt, keeping the total bounded while
-    // preserving the free-first ordering.
-    if (maxFallbackModels && attemptedModels.length >= maxFallbackModels && !paidFallbackEnabled) return false;
-    const paid = resolvePaidFallbackChain({
-      capability,
-      quality: opts.quality ?? "fast",
-      requireTools,
-      requireJson: Boolean(opts.responseFormat),
-      requireJsonSchema: opts.responseFormat?.type === "json_schema",
-    });
-    if (paid.length === 0) return false;
-    const nextModel = paid[0]!.id;
-    if (attemptedModels.includes(nextModel)) return false;
-    chain = [...chain, nextModel];
-    paidTransitioned = true;
-    console.warn(JSON.stringify({
-      scope: "openrouter-fallback",
-      code: "PAID_MODEL_TRANSITION",
-      reason: failure.code,
-      fromModel,
-      toModel: nextModel,
-      tier: "paid",
-    }));
-    await opts.onProviderFallback?.({
-      fromModel,
-      toModel: nextModel,
-      reason: failure.code,
-      tier: "paid",
-    });
-    return true;
-  };
 
   for (let i = 0; i < chain.length; i++) {
     const model = chain[i] as string;
@@ -2233,10 +2180,6 @@ export async function openrouterCompleteWithFallback(
         lastError = err;
         continue;
       }
-      if (err instanceof GroqClientError && await appendPaidFallback(err, model)) {
-        lastError = err;
-        continue;
-      }
       if (err instanceof GroqClientError) {
         throw new GroqClientError(err.code, err.message, {
           cause: err,
@@ -2287,6 +2230,7 @@ export async function* openrouterCompleteStream(
   messages: RawMessage[],
   opts: Omit<OpenAICompatibleStreamOptions, "baseUrl" | "providerName" | "extraHeaders">,
 ): AsyncGenerator<string> {
+  if (opts.model) assertOpenRouterFreeModel(opts.model);
   await assertOpenRouterCredentialAvailable(opts.apiKey);
   const trimmed = trimMessagesForOpenRouter(messages);
   const fullOpts: OpenAICompatibleStreamOptions = {
@@ -2298,13 +2242,9 @@ export async function* openrouterCompleteStream(
   };
   const capability = opts.capability;
   const initialModel = opts.model;
-  if (
-    initialModel &&
-    capability &&
-    !isCatalogFreeModelForCapability(initialModel, {
-      capability,
-    })
-  ) {
+  if (initialModel && !isCatalogFreeModelForCapability(initialModel, {
+    capability: capability ?? "chat",
+  })) {
     throw new GroqClientError(
       "INVALID_CONFIG",
       `OpenRouter stream requires a currently-free model matching capability="${capability}"`,
