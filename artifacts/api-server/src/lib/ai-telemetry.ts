@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { and, desc, eq, gte, lte, sql } from "drizzle-orm";
+import { and, desc, eq, gte, isNull, lte, sql } from "drizzle-orm";
 import {
   db,
   aiUsageEventsTable,
@@ -247,6 +247,7 @@ export async function getAiExecutionDiagnostics(params: {
     .where(and(
       eq(aiUsageEventsTable.userId, params.userId),
       eq(aiUsageEventsTable.executionId, params.executionId),
+      isNull(aiUsageEventsTable.modelTaskContract),
     ))
     .orderBy(aiUsageEventsTable.occurredAt, aiUsageEventsTable.id)
     .limit(AI_EXECUTION_DIAGNOSTICS_MAX_ATTEMPTS);
@@ -491,7 +492,11 @@ export async function recordAiUsageAttempt(
     dayStart.setUTCHours(0, 0, 0, 0);
     const daily = await db.select({ count: sql<number>`count(*)` })
       .from(aiUsageEventsTable)
-      .where(and(eq(aiUsageEventsTable.userId, context.userId), gte(aiUsageEventsTable.occurredAt, dayStart)));
+      .where(and(
+        eq(aiUsageEventsTable.userId, context.userId),
+        gte(aiUsageEventsTable.occurredAt, dayStart),
+        isNull(aiUsageEventsTable.modelTaskContract),
+      ));
     if (Number(daily[0]?.count ?? 0) >= AI_USAGE_DAILY_ATTEMPT_LIMIT) {
       const fingerprint = `ai_usage_quota_exceeded:user:${context.userId}`;
       await db.insert(operatorAlertsTable).values({
@@ -591,7 +596,7 @@ export async function getAiUsageSummary(params: {
   if (params.projectId) conditions.push(eq(aiUsageEventsTable.projectId, params.projectId));
   if (params.provider) conditions.push(eq(aiUsageEventsTable.provider, params.provider));
   const rows = await db.select().from(aiUsageEventsTable)
-    .where(and(...conditions))
+    .where(and(...conditions, isNull(aiUsageEventsTable.modelTaskContract)))
     .orderBy(desc(aiUsageEventsTable.occurredAt))
     .limit(5000);
 

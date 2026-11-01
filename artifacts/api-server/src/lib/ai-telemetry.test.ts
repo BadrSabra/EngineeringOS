@@ -1,11 +1,11 @@
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { eq } from "drizzle-orm";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { pathToFileURL } from "node:url";
 import request from "supertest";
 import app from "../app.js";
-import { db, aiUsageEventsTable } from "@workspace/db";
+import { db, aiUsageEventsTable, operatorAlertsTable } from "@workspace/db";
 import {
   getAiExecutionDiagnostics,
   deriveAiContractTelemetry,
@@ -15,11 +15,17 @@ import {
 } from "./ai-telemetry.js";
 
 const createdCorrelations: string[] = [];
+const createdAlertUsers: string[] = [];
 const execFileAsync = promisify(execFile);
 
 afterEach(async () => {
+  vi.unstubAllEnvs();
   for (const correlationId of createdCorrelations.splice(0)) {
     await db.delete(aiUsageEventsTable).where(eq(aiUsageEventsTable.correlationId, correlationId));
+  }
+  for (const userId of createdAlertUsers.splice(0)) {
+    await db.delete(operatorAlertsTable)
+      .where(eq(operatorAlertsTable.fingerprint, `ai_usage_quota_exceeded:user:${userId}`));
   }
 });
 
@@ -263,6 +269,14 @@ describe("durable AI telemetry", () => {
       modelTaskContract: "project_query_no_tools_synthesis",
       modelTaskOutcome: "accepted",
     });
+    const qualitySamples = await db.select({
+      modelTaskContract: aiUsageEventsTable.modelTaskContract,
+      modelTaskOutcome: aiUsageEventsTable.modelTaskOutcome,
+    }).from(aiUsageEventsTable).where(eq(aiUsageEventsTable.attemptId, `model-task:${correlationId}:synthesis`));
+    expect(qualitySamples).toEqual([{
+      modelTaskContract: "project_query_no_tools_synthesis",
+      modelTaskOutcome: "accepted",
+    }]);
 
     const summary = await getAiUsageSummary({
       userId: context.userId,
@@ -289,6 +303,44 @@ describe("durable AI telemetry", () => {
     expect(diagnostics.providers).toEqual([
       expect.objectContaining({ provider: "openrouter", attempts: 1 }),
     ]);
+  });
+
+  it("does not raise the daily provider-attempt alert for a model-task quality sample", async () => {
+    const correlationId = `telemetry-daily-alert-${crypto.randomUUID()}`;
+    const userId = `telemetry-daily-alert-owner-${crypto.randomUUID()}`;
+    createdCorrelations.push(correlationId);
+    createdAlertUsers.push(userId);
+    vi.stubEnv("AI_USAGE_DAILY_ATTEMPT_LIMIT", "2");
+    vi.resetModules();
+    const { recordAiUsageAttempt: recordWithTestLimit } = await import("./ai-telemetry.js");
+    const context = {
+      userId,
+      projectId: `telemetry-daily-alert-project-${crypto.randomUUID()}`,
+      executionId: `telemetry-daily-alert-execution-${crypto.randomUUID()}`,
+      operationId: correlationId,
+      correlationId,
+    };
+
+    await recordWithTestLimit(context, {
+      attemptId: `${correlationId}:provider-request`,
+      provider: "openrouter",
+      model: "fixture/free-model",
+      outcome: "success",
+      usageStatus: "unknown",
+    });
+    await recordWithTestLimit(context, {
+      attemptId: `model-task:${correlationId}:synthesis`,
+      provider: "openrouter",
+      model: "fixture/free-model",
+      outcome: "success",
+      usageStatus: "unknown",
+      modelTaskContract: "project_query_no_tools_synthesis",
+      modelTaskOutcome: "accepted",
+    });
+
+    const alerts = await db.select().from(operatorAlertsTable)
+      .where(eq(operatorAlertsTable.fingerprint, `ai_usage_quota_exceeded:user:${userId}`));
+    expect(alerts).toHaveLength(0);
   });
 
   it("deduplicates concurrent attempts and represents missing usage as unknown", async () => {

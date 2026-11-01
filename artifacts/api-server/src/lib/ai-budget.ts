@@ -167,6 +167,7 @@ async function usageForDay(executor: BudgetExecutor, projectId: string, day: str
     executor.select({ value: count() }).from(aiUsageEventsTable).where(and(
       eq(aiUsageEventsTable.projectId, projectId),
       gte(aiUsageEventsTable.occurredAt, since),
+      isNull(aiUsageEventsTable.modelTaskContract),
       notExists(executor.select({ id: aiBudgetReservationsTable.id })
         .from(aiBudgetReservationsTable)
         .where(and(
@@ -192,6 +193,7 @@ async function usageForDay(executor: BudgetExecutor, projectId: string, day: str
     }).from(aiUsageEventsTable).where(and(
       eq(aiUsageEventsTable.projectId, projectId),
       gte(aiUsageEventsTable.occurredAt, since),
+      isNull(aiUsageEventsTable.modelTaskContract),
     )),
     executor.select({
       value: sql<number>`coalesce(sum(case
@@ -203,6 +205,7 @@ async function usageForDay(executor: BudgetExecutor, projectId: string, day: str
     }).from(aiUsageEventsTable).where(and(
       eq(aiUsageEventsTable.projectId, projectId),
       gte(aiUsageEventsTable.occurredAt, since),
+      isNull(aiUsageEventsTable.modelTaskContract),
       notExists(executor.select({ id: aiBudgetReservationsTable.id })
         .from(aiBudgetReservationsTable)
         .where(and(
@@ -221,6 +224,7 @@ async function usageForDay(executor: BudgetExecutor, projectId: string, day: str
     ).where(and(
       eq(aiUsageEventsTable.projectId, projectId),
       eq(aiBudgetReservationsTable.utcDay, day),
+      isNull(aiUsageEventsTable.modelTaskContract),
       eq(aiUsageEventsTable.usageStatus, "known"),
       isNotNull(aiUsageEventsTable.promptTokens),
       isNotNull(aiUsageEventsTable.completionTokens),

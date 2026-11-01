@@ -29,12 +29,13 @@ export const AI_RATE_LIMIT_SCOPES = [
 export type AiRateLimitScope = (typeof AI_RATE_LIMIT_SCOPES)[number];
 
 /**
- * Durable, content-free AI provider attempt telemetry.
+ * Durable, content-free AI provider attempt and model-task quality telemetry.
  *
- * This is intentionally separate from ai_executions, audit logs, and proof:
- * it describes provider consumption and reliability only. Nullable token
- * counts are deliberate — providers that omit usage are represented as
- * unknown, never as a fabricated zero.
+ * This is intentionally separate from ai_executions, audit logs, and proof.
+ * Rows with a non-null model_task_contract are model-task quality samples,
+ * not HTTP attempts, and must not be budgeted as separate provider
+ * consumption. Nullable token counts are deliberate — providers that omit
+ * usage are represented as unknown, never as fabricated zero.
  */
 export const aiUsageEventsTable = pgTable("ai_usage_events", {
   id: text("id").primaryKey(),
@@ -61,7 +62,7 @@ export const aiUsageEventsTable = pgTable("ai_usage_events", {
   contractCitationMatchCount: integer("contract_citation_match_count").notNull().default(0),
   contractRecoveryLatencyMs: integer("contract_recovery_latency_ms"),
   contractFailureKind: text("contract_failure_kind"),
-  /** Exact server-owned model task contract; nullable for ordinary attempts. */
+  /** Non-null marks a model-quality sample, not a provider HTTP attempt. */
   modelTaskContract: text("model_task_contract"),
   /** Terminal result used only with model_task_contract. */
   modelTaskOutcome: text("model_task_outcome"),
