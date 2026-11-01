@@ -7037,7 +7037,7 @@ components:
       required: [schemaVersion, windowDays, retentionDays, totalAttempts, totalSuccesses,
                  totalFailures, totalFallbackAttempts, providers, timeline, modelTaskQuality]
       properties:
-        schemaVersion: { type: integer, enum: [1, 2, 3] }
+        schemaVersion: { type: integer, enum: [1, 2, 3, 4] }
         windowDays: { type: integer, minimum: 1, maximum: 90 }
         retentionDays: { type: integer, minimum: 1, maximum: 3650 }
         totalAttempts: { type: integer, minimum: 0 }
@@ -7060,7 +7060,9 @@ components:
     AiUsageModelTaskQuality:
       type: object
       additionalProperties: false
-      required: [provider, model, contract, samples, accepted, rejected, emptyResponses, acceptanceRate]
+      required: [provider, model, contract, samples, accepted, rejected, emptyResponses,
+                 acceptanceRate, usageKnownSamples, usageIncompleteSamples,
+                 tokenUsageCoverage, promptTokens, completionTokens, tokensPerAcceptedSample]
       properties:
         provider:
           type: string
@@ -7074,6 +7076,12 @@ components:
         rejected: { type: integer, minimum: 0 }
         emptyResponses: { type: integer, minimum: 0 }
         acceptanceRate: { type: ["number", "null"], minimum: 0, maximum: 1 }
+        usageKnownSamples: { type: integer, minimum: 0 }
+        usageIncompleteSamples: { type: integer, minimum: 0 }
+        tokenUsageCoverage: { type: number, minimum: 0, maximum: 1 }
+        promptTokens: { type: ["integer", "null"], minimum: 0 }
+        completionTokens: { type: ["integer", "null"], minimum: 0 }
+        tokensPerAcceptedSample: { type: ["number", "null"], minimum: 0 }
 
     AiUsageProviderSummary:
       type: object

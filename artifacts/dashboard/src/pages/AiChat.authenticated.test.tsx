@@ -718,7 +718,7 @@ describe('AiChat Mission action gateway', () => {
     const projection = {
       mission,
       engineeringAgent: {
-        schemaVersion: 3,
+        schemaVersion: 2,
         state: 'PLANNING',
         nextAction: expectedDecision,
         availableCommands: [],
@@ -1494,6 +1494,27 @@ describe('AiChat authenticated generated mutations', () => {
           rejected: 1,
           emptyResponses: 2,
           acceptanceRate: 0.4,
+          usageKnownSamples: 5,
+          usageIncompleteSamples: 0,
+          tokenUsageCoverage: 1,
+          promptTokens: 80,
+          completionTokens: 40,
+          tokensPerAcceptedSample: 60,
+        }, {
+          provider: 'openrouter',
+          model: 'openrouter/free-no-usage',
+          contract: 'project_query_no_tools_synthesis',
+          samples: 1,
+          accepted: 0,
+          rejected: 0,
+          emptyResponses: 1,
+          acceptanceRate: 0,
+          usageKnownSamples: 0,
+          usageIncompleteSamples: 1,
+          tokenUsageCoverage: 0,
+          promptTokens: null,
+          completionTokens: null,
+          tokensPerAcceptedSample: null,
         }],
       },
     };
@@ -1507,6 +1528,10 @@ describe('AiChat authenticated generated mutations', () => {
     expect(card).toHaveTextContent('مطابقة الاستشهادات 75.0%');
     expect(card).toHaveTextContent('الاسترداد 1/1 · 100.0%');
     expect(card).toHaveTextContent('missing_citation (1)');
+    expect(card).toHaveTextContent('تغطية رموز العقد 5/5 · 100.0%');
+    expect(card).toHaveTextContent('إجمالي الرموز 120');
+    expect(card).toHaveTextContent('الرموز لكل قبول 60');
+    expect(card).toHaveTextContent('إجمالي الرموز غير متاح');
     expect(card).toHaveTextContent('الجودة حسب اليوم');
     expect(card).toHaveTextContent('عينات عقد المهمة');
     expect(card).toHaveTextContent('openrouter/free-fixture');
@@ -1625,8 +1650,8 @@ describe('AiChat authenticated generated mutations', () => {
       fireEvent.click(within(card).getByRole('button', { name: 'إعادة تحميل تقرير الجودة' }));
       expect(mocks.refetchMetrics).toHaveBeenCalledTimes(1);
     } else {
-      expect(within(card).getByText('لا توجد بيانات جودة تطابق المشروع والمزود والفترة المحددة.')).toBeInTheDocument();
-      expect(within(card).getByText('لا يوجد سجل جودة يطابق المشروع والمزود والفترة المحددة.')).toBeInTheDocument();
+      expect(within(card).getByText('لا توجد نتائج قبول أو استشهاد مرتبطة بطلبات المزود ضمن المرشحات المحددة.')).toBeInTheDocument();
+      expect(within(card).getByText('لا توجد سجلات جودة مرتبطة باستدعاءات المزود؛ عينات عقود المهام تظهر منفصلة أعلاه.')).toBeInTheDocument();
       expect(exportButton).toBeEnabled();
       if (state === 'refreshing') expect(within(card).getByText('جارٍ تحديث البيانات…')).toBeInTheDocument();
     }

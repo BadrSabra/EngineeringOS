@@ -265,24 +265,34 @@ describe("durable AI telemetry", () => {
       provider: "openrouter",
       model: "fixture/free-model",
       outcome: "success",
-      usageStatus: "unknown",
+      promptTokens: 10,
+      completionTokens: 5,
+      usageStatus: "known",
       modelTaskContract: "project_query_no_tools_synthesis",
       modelTaskOutcome: "accepted",
     });
     const qualitySamples = await db.select({
       modelTaskContract: aiUsageEventsTable.modelTaskContract,
       modelTaskOutcome: aiUsageEventsTable.modelTaskOutcome,
+      promptTokens: aiUsageEventsTable.promptTokens,
+      completionTokens: aiUsageEventsTable.completionTokens,
+      usageStatus: aiUsageEventsTable.usageStatus,
     }).from(aiUsageEventsTable).where(eq(aiUsageEventsTable.attemptId, `model-task:${correlationId}:synthesis`));
     expect(qualitySamples).toEqual([{
       modelTaskContract: "project_query_no_tools_synthesis",
       modelTaskOutcome: "accepted",
+      promptTokens: 10,
+      completionTokens: 5,
+      usageStatus: "known",
     }]);
     await recordAiUsageAttempt(context, {
       attemptId: `model-task:${correlationId}:synthesis-rejected`,
       provider: "openrouter",
       model: "fixture/free-model",
       outcome: "success",
-      usageStatus: "unknown",
+      promptTokens: 4,
+      completionTokens: 2,
+      usageStatus: "known",
       modelTaskContract: "project_query_no_tools_synthesis",
       modelTaskOutcome: "rejected",
     });
@@ -294,6 +304,17 @@ describe("durable AI telemetry", () => {
       usageStatus: "unknown",
       modelTaskContract: "project_query_no_tools_synthesis",
       modelTaskOutcome: "empty",
+    });
+    await recordAiUsageAttempt(context, {
+      attemptId: `model-task:${correlationId}:complete-usage`,
+      provider: "openrouter",
+      model: "fixture/complete-usage-model",
+      outcome: "success",
+      promptTokens: 7,
+      completionTokens: 3,
+      usageStatus: "known",
+      modelTaskContract: "project_query_no_tools_synthesis",
+      modelTaskOutcome: "accepted",
     });
     await recordAiUsageAttempt({
       ...context,
@@ -313,7 +334,7 @@ describe("durable AI telemetry", () => {
       projectId: context.projectId,
       days: 7,
     });
-    expect(summary.schemaVersion).toBe(3);
+    expect(summary.schemaVersion).toBe(4);
     expect(summary.totalAttempts).toBe(1);
     expect(summary.providers).toHaveLength(1);
     expect(summary.providers[0]).toMatchObject({
@@ -328,12 +349,34 @@ describe("durable AI telemetry", () => {
     expect(summary.modelTaskQuality).toEqual([
       {
         provider: "openrouter",
+        model: "fixture/complete-usage-model",
+        contract: "project_query_no_tools_synthesis",
+        samples: 1,
+        accepted: 1,
+        rejected: 0,
+        emptyResponses: 0,
+        usageKnownSamples: 1,
+        usageIncompleteSamples: 0,
+        tokenUsageCoverage: 1,
+        promptTokens: 7,
+        completionTokens: 3,
+        tokensPerAcceptedSample: 10,
+        acceptanceRate: 1,
+      },
+      {
+        provider: "openrouter",
         model: "fixture/free-model",
         contract: "project_query_no_tools_synthesis",
         samples: 3,
         accepted: 1,
         rejected: 1,
         emptyResponses: 1,
+        usageKnownSamples: 2,
+        usageIncompleteSamples: 1,
+        tokenUsageCoverage: 0.6667,
+        promptTokens: null,
+        completionTokens: null,
+        tokensPerAcceptedSample: null,
         acceptanceRate: 0.3333,
       },
     ]);

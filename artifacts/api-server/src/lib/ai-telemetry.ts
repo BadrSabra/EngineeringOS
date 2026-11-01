@@ -605,6 +605,21 @@ export async function getAiUsageSummary(params: {
     contract: aiUsageEventsTable.modelTaskContract,
     outcome: aiUsageEventsTable.modelTaskOutcome,
     samples: sql<number>`count(*)::int`,
+    usageKnownSamples: sql<number>`count(*) FILTER (
+      WHERE ${aiUsageEventsTable.usageStatus} = 'known'
+        AND ${aiUsageEventsTable.promptTokens} IS NOT NULL
+        AND ${aiUsageEventsTable.completionTokens} IS NOT NULL
+    )::int`,
+    promptTokens: sql<string>`COALESCE(SUM(${aiUsageEventsTable.promptTokens}) FILTER (
+      WHERE ${aiUsageEventsTable.usageStatus} = 'known'
+        AND ${aiUsageEventsTable.promptTokens} IS NOT NULL
+        AND ${aiUsageEventsTable.completionTokens} IS NOT NULL
+    ), 0)::text`,
+    completionTokens: sql<string>`COALESCE(SUM(${aiUsageEventsTable.completionTokens}) FILTER (
+      WHERE ${aiUsageEventsTable.usageStatus} = 'known'
+        AND ${aiUsageEventsTable.promptTokens} IS NOT NULL
+        AND ${aiUsageEventsTable.completionTokens} IS NOT NULL
+    ), 0)::text`,
   }).from(aiUsageEventsTable)
     .where(and(
       ...conditions,
@@ -678,6 +693,10 @@ export async function getAiUsageSummary(params: {
     accepted: number;
     rejected: number;
     emptyResponses: number;
+    usageKnownSamples: number;
+    promptTokens: number;
+    completionTokens: number;
+    tokenSumsSafe: boolean;
   }>();
   for (const row of modelTaskRows) {
     if (
@@ -698,21 +717,67 @@ export async function getAiUsageSummary(params: {
       accepted: 0,
       rejected: 0,
       emptyResponses: 0,
+      usageKnownSamples: 0,
+      promptTokens: 0,
+      completionTokens: 0,
+      tokenSumsSafe: true,
     };
     const sampleCount = Math.max(0, Math.trunc(Number(row.samples) || 0));
+    const usageKnownSamples = Math.max(0, Math.trunc(Number(row.usageKnownSamples) || 0));
+    const promptTokens = Number(row.promptTokens);
+    const completionTokens = Number(row.completionTokens);
+    const tokenSumsSafe = Number.isSafeInteger(promptTokens)
+      && promptTokens >= 0
+      && Number.isSafeInteger(completionTokens)
+      && completionTokens >= 0;
     current.samples += sampleCount;
+    current.usageKnownSamples += usageKnownSamples;
+    if (tokenSumsSafe) {
+      current.promptTokens += promptTokens;
+      current.completionTokens += completionTokens;
+      current.tokenSumsSafe &&= Number.isSafeInteger(current.promptTokens)
+        && Number.isSafeInteger(current.completionTokens);
+    } else {
+      current.tokenSumsSafe = false;
+    }
     if (outcome === "accepted") current.accepted += sampleCount;
     else if (outcome === "rejected") current.rejected += sampleCount;
     else current.emptyResponses += sampleCount;
     modelTaskQualityByKey.set(key, current);
   }
   const modelTaskQuality = [...modelTaskQualityByKey.values()]
-    .map((entry) => ({
-      ...entry,
-      acceptanceRate: entry.samples
+    .map((entry) => {
+      const rawTotalTokens = entry.promptTokens + entry.completionTokens;
+      const tokenUsageComplete = entry.samples > 0
+        && entry.usageKnownSamples === entry.samples
+        && entry.tokenSumsSafe
+        && Number.isSafeInteger(rawTotalTokens);
+      const totalTokens = tokenUsageComplete
+        ? rawTotalTokens
+        : null;
+      return {
+        provider: entry.provider,
+        model: entry.model,
+        contract: entry.contract,
+        samples: entry.samples,
+        accepted: entry.accepted,
+        rejected: entry.rejected,
+        emptyResponses: entry.emptyResponses,
+        usageKnownSamples: entry.usageKnownSamples,
+        usageIncompleteSamples: Math.max(0, entry.samples - entry.usageKnownSamples),
+        tokenUsageCoverage: entry.samples
+          ? Number((entry.usageKnownSamples / entry.samples).toFixed(4))
+          : null,
+        promptTokens: tokenUsageComplete ? entry.promptTokens : null,
+        completionTokens: tokenUsageComplete ? entry.completionTokens : null,
+        tokensPerAcceptedSample: totalTokens !== null && entry.accepted > 0
+          ? Number((totalTokens / entry.accepted).toFixed(2))
+          : null,
+        acceptanceRate: entry.samples
         ? Number((entry.accepted / entry.samples).toFixed(4))
         : null,
-    }))
+      };
+    })
     .sort((a, b) => a.model.localeCompare(b.model) || a.contract.localeCompare(b.contract));
   const timeline = new Map<string, {
     attempts: number;
@@ -773,7 +838,7 @@ export async function getAiUsageSummary(params: {
     timeline.set(day, current);
   }
   return {
-    schemaVersion: 3,
+    schemaVersion: 4,
     windowDays: days,
     retentionDays: AI_USAGE_RETENTION_DAYS,
     totalAttempts: rows.length,

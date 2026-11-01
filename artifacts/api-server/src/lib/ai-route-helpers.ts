@@ -1391,6 +1391,9 @@ export async function chatWithFallback(
           outcome,
           attemptId,
           latencyMs,
+          promptTokens,
+          completionTokens,
+          usageStatus,
         }: {
           provider: ProviderId;
           model: string;
@@ -1398,6 +1401,9 @@ export async function chatWithFallback(
           outcome: "accepted" | "rejected" | "empty";
           attemptId: string;
           latencyMs: number;
+          promptTokens: number | null;
+          completionTokens: number | null;
+          usageStatus: "known" | "partial" | "unknown";
         }) => {
           const context = baseParams.telemetryContext;
           if (!modelContractHistoryPersistenceReady || !context) return;
@@ -1408,7 +1414,9 @@ export async function chatWithFallback(
             model,
             outcome: outcome === "empty" ? "failure" : "success",
             latencyMs,
-            usageStatus: "unknown",
+            promptTokens,
+            completionTokens,
+            usageStatus,
             modelTaskContract: contract,
             modelTaskOutcome: outcome,
             providerFailureKind: outcome === "empty" ? "EMPTY_RESPONSE" : null,

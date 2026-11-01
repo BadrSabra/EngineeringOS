@@ -1915,6 +1915,7 @@ export const AiUsageSummarySchemaVersion = {
   NUMBER_1: 1,
   NUMBER_2: 2,
   NUMBER_3: 3,
+  NUMBER_4: 4,
 } as const;
 
 export type AiUsageContractSummaryFailureKinds = {[key: string]: number};
@@ -2079,6 +2080,30 @@ export interface AiUsageModelTaskQuality {
      * @nullable
      */
   acceptanceRate: number | null;
+  /** @minimum 0 */
+  usageKnownSamples: number;
+  /** @minimum 0 */
+  usageIncompleteSamples: number;
+  /**
+     * @minimum 0
+     * @maximum 1
+     */
+  tokenUsageCoverage: number;
+  /**
+     * @minimum 0
+     * @nullable
+     */
+  promptTokens: number | null;
+  /**
+     * @minimum 0
+     * @nullable
+     */
+  completionTokens: number | null;
+  /**
+     * @minimum 0
+     * @nullable
+     */
+  tokensPerAcceptedSample: number | null;
 }
 
 export interface AiUsageSummary {

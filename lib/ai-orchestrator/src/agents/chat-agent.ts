@@ -6592,6 +6592,9 @@ export async function chat(opts: {
       outcome: ModelTaskOutcome;
       attemptId: string;
       latencyMs: number;
+      promptTokens: number | null;
+      completionTokens: number | null;
+      usageStatus: "known" | "partial" | "unknown";
     }) => void | Promise<void>;
 }): Promise<ChatResult> {
   const {
@@ -10561,6 +10564,10 @@ export async function chat(opts: {
         failureScope?: ProjectQuerySynthesisRateLimitScope;
         recoveryAction: "accepted" | "repair" | "next_provider" | "stop" | "deterministic_fallback";
         model?: string;
+        usage?: {
+          promptTokens?: number | null;
+          completionTokens?: number | null;
+        };
         extraDetails?: string[];
       }): Promise<void> => {
         const sampleOutcome: ModelTaskOutcome | undefined =
@@ -10573,6 +10580,15 @@ export async function chat(opts: {
                 : undefined;
         if (params.candidate.provider === "openrouter" && params.model && sampleOutcome) {
           const contract = MODEL_TASK_CONTRACTS.PROJECT_QUERY_NO_TOOLS_SYNTHESIS;
+          const safeTokenCount = (value: number | null | undefined): number | null =>
+            typeof value === "number" && Number.isSafeInteger(value) && value >= 0 ? value : null;
+          const promptTokens = safeTokenCount(params.usage?.promptTokens);
+          const completionTokens = safeTokenCount(params.usage?.completionTokens);
+          const usageStatus = promptTokens !== null && completionTokens !== null
+            ? "known"
+            : promptTokens !== null || completionTokens !== null
+              ? "partial"
+              : "unknown";
           if (sampleOutcome === "empty") {
             recordModelContractOutput(params.model, contract, "empty");
           } else {
@@ -10587,6 +10603,9 @@ export async function chat(opts: {
               outcome: sampleOutcome,
               attemptId: params.attemptId,
               latencyMs: Math.max(0, Date.now() - params.startedAt),
+              promptTokens,
+              completionTokens,
+              usageStatus,
             });
           } catch (callbackError) {
             console.warn("Project-query model contract telemetry callback failed", callbackError);
@@ -11012,6 +11031,7 @@ export async function chat(opts: {
                 outputHash,
                 recoveryAction: "accepted",
                 model: recovery.model,
+                usage,
                 extraDetails: [
                   `claimsComplete=${candidateClaimsComplete ? "true" : "false"}`,
                   `languageValid=${candidateLanguageValid ? "true" : "false"}`,
@@ -11050,6 +11070,7 @@ export async function chat(opts: {
               failureClass,
               recoveryAction,
               model: recovery.model,
+              usage,
               extraDetails: [
                 `claimsComplete=${candidateClaimsComplete ? "true" : "false"}`,
                 `languageValid=${candidateLanguageValid ? "true" : "false"}`,

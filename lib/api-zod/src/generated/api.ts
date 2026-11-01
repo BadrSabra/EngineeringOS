@@ -5866,6 +5866,19 @@ export const getAiMissionControlResponseUsageModelTaskQualityItemEmptyResponsesM
 export const getAiMissionControlResponseUsageModelTaskQualityItemAcceptanceRateMin = 0;
 export const getAiMissionControlResponseUsageModelTaskQualityItemAcceptanceRateMax = 1;
 
+export const getAiMissionControlResponseUsageModelTaskQualityItemUsageKnownSamplesMin = 0;
+
+export const getAiMissionControlResponseUsageModelTaskQualityItemUsageIncompleteSamplesMin = 0;
+
+export const getAiMissionControlResponseUsageModelTaskQualityItemTokenUsageCoverageMin = 0;
+export const getAiMissionControlResponseUsageModelTaskQualityItemTokenUsageCoverageMax = 1;
+
+export const getAiMissionControlResponseUsageModelTaskQualityItemPromptTokensMin = 0;
+
+export const getAiMissionControlResponseUsageModelTaskQualityItemCompletionTokensMin = 0;
+
+export const getAiMissionControlResponseUsageModelTaskQualityItemTokensPerAcceptedSampleMin = 0;
+
 export const getAiMissionControlResponseBudgetOneDailyAttemptLimitMax = 10000;
 
 export const getAiMissionControlResponseBudgetOneDailyTokenLimitMin = 1000;
@@ -6106,7 +6119,7 @@ export const GetAiMissionControlResponse = zod.object({
   "completedAt": zod.coerce.date().nullish()
 })),
   "usage": zod.object({
-  "schemaVersion": zod.union([zod.literal(1),zod.literal(2),zod.literal(3)]),
+  "schemaVersion": zod.union([zod.literal(1),zod.literal(2),zod.literal(3),zod.literal(4)]),
   "windowDays": zod.number().int().min(1).max(getAiMissionControlResponseUsageWindowDaysMax),
   "retentionDays": zod.number().int().min(1).max(getAiMissionControlResponseUsageRetentionDaysMax),
   "totalAttempts": zod.number().int().min(getAiMissionControlResponseUsageTotalAttemptsMin),
@@ -6188,7 +6201,13 @@ export const GetAiMissionControlResponse = zod.object({
   "accepted": zod.number().int().min(getAiMissionControlResponseUsageModelTaskQualityItemAcceptedMin),
   "rejected": zod.number().int().min(getAiMissionControlResponseUsageModelTaskQualityItemRejectedMin),
   "emptyResponses": zod.number().int().min(getAiMissionControlResponseUsageModelTaskQualityItemEmptyResponsesMin),
-  "acceptanceRate": zod.number().min(getAiMissionControlResponseUsageModelTaskQualityItemAcceptanceRateMin).max(getAiMissionControlResponseUsageModelTaskQualityItemAcceptanceRateMax).nullable()
+  "acceptanceRate": zod.number().min(getAiMissionControlResponseUsageModelTaskQualityItemAcceptanceRateMin).max(getAiMissionControlResponseUsageModelTaskQualityItemAcceptanceRateMax).nullable(),
+  "usageKnownSamples": zod.number().int().min(getAiMissionControlResponseUsageModelTaskQualityItemUsageKnownSamplesMin),
+  "usageIncompleteSamples": zod.number().int().min(getAiMissionControlResponseUsageModelTaskQualityItemUsageIncompleteSamplesMin),
+  "tokenUsageCoverage": zod.number().min(getAiMissionControlResponseUsageModelTaskQualityItemTokenUsageCoverageMin).max(getAiMissionControlResponseUsageModelTaskQualityItemTokenUsageCoverageMax),
+  "promptTokens": zod.number().int().min(getAiMissionControlResponseUsageModelTaskQualityItemPromptTokensMin).nullable(),
+  "completionTokens": zod.number().int().min(getAiMissionControlResponseUsageModelTaskQualityItemCompletionTokensMin).nullable(),
+  "tokensPerAcceptedSample": zod.number().min(getAiMissionControlResponseUsageModelTaskQualityItemTokensPerAcceptedSampleMin).nullable()
 }))
 }),
   "budget": zod.union([zod.object({
@@ -9949,6 +9968,19 @@ export const getAiMetricsResponseUsageModelTaskQualityItemEmptyResponsesMin = 0;
 export const getAiMetricsResponseUsageModelTaskQualityItemAcceptanceRateMin = 0;
 export const getAiMetricsResponseUsageModelTaskQualityItemAcceptanceRateMax = 1;
 
+export const getAiMetricsResponseUsageModelTaskQualityItemUsageKnownSamplesMin = 0;
+
+export const getAiMetricsResponseUsageModelTaskQualityItemUsageIncompleteSamplesMin = 0;
+
+export const getAiMetricsResponseUsageModelTaskQualityItemTokenUsageCoverageMin = 0;
+export const getAiMetricsResponseUsageModelTaskQualityItemTokenUsageCoverageMax = 1;
+
+export const getAiMetricsResponseUsageModelTaskQualityItemPromptTokensMin = 0;
+
+export const getAiMetricsResponseUsageModelTaskQualityItemCompletionTokensMin = 0;
+
+export const getAiMetricsResponseUsageModelTaskQualityItemTokensPerAcceptedSampleMin = 0;
+
 
 
 export const GetAiMetricsResponse = zod.object({
@@ -10015,7 +10047,7 @@ export const GetAiMetricsResponse = zod.object({
   "lastEventAt": zod.coerce.date()
 })),
   "usage": zod.object({
-  "schemaVersion": zod.union([zod.literal(1),zod.literal(2),zod.literal(3)]),
+  "schemaVersion": zod.union([zod.literal(1),zod.literal(2),zod.literal(3),zod.literal(4)]),
   "windowDays": zod.number().int().min(1).max(getAiMetricsResponseUsageWindowDaysMax),
   "retentionDays": zod.number().int().min(1).max(getAiMetricsResponseUsageRetentionDaysMax),
   "totalAttempts": zod.number().int().min(getAiMetricsResponseUsageTotalAttemptsMin),
@@ -10097,7 +10129,13 @@ export const GetAiMetricsResponse = zod.object({
   "accepted": zod.number().int().min(getAiMetricsResponseUsageModelTaskQualityItemAcceptedMin),
   "rejected": zod.number().int().min(getAiMetricsResponseUsageModelTaskQualityItemRejectedMin),
   "emptyResponses": zod.number().int().min(getAiMetricsResponseUsageModelTaskQualityItemEmptyResponsesMin),
-  "acceptanceRate": zod.number().min(getAiMetricsResponseUsageModelTaskQualityItemAcceptanceRateMin).max(getAiMetricsResponseUsageModelTaskQualityItemAcceptanceRateMax).nullable()
+  "acceptanceRate": zod.number().min(getAiMetricsResponseUsageModelTaskQualityItemAcceptanceRateMin).max(getAiMetricsResponseUsageModelTaskQualityItemAcceptanceRateMax).nullable(),
+  "usageKnownSamples": zod.number().int().min(getAiMetricsResponseUsageModelTaskQualityItemUsageKnownSamplesMin),
+  "usageIncompleteSamples": zod.number().int().min(getAiMetricsResponseUsageModelTaskQualityItemUsageIncompleteSamplesMin),
+  "tokenUsageCoverage": zod.number().min(getAiMetricsResponseUsageModelTaskQualityItemTokenUsageCoverageMin).max(getAiMetricsResponseUsageModelTaskQualityItemTokenUsageCoverageMax),
+  "promptTokens": zod.number().int().min(getAiMetricsResponseUsageModelTaskQualityItemPromptTokensMin).nullable(),
+  "completionTokens": zod.number().int().min(getAiMetricsResponseUsageModelTaskQualityItemCompletionTokensMin).nullable(),
+  "tokensPerAcceptedSample": zod.number().min(getAiMetricsResponseUsageModelTaskQualityItemTokensPerAcceptedSampleMin).nullable()
 }))
 })
 })

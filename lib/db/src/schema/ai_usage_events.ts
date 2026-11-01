@@ -34,7 +34,9 @@ export type AiRateLimitScope = (typeof AI_RATE_LIMIT_SCOPES)[number];
  * This is intentionally separate from ai_executions, audit logs, and proof.
  * Rows with a non-null model_task_contract are model-task quality samples,
  * not HTTP attempts, and must not be budgeted as separate provider
- * consumption. Nullable token counts are deliberate — providers that omit
+ * consumption. Token counts on these rows attribute the returned response's
+ * usage to its contract outcome; physical request and budget totals must
+ * exclude them. Nullable token counts are deliberate — providers that omit
  * usage are represented as unknown, never as fabricated zero.
  */
 export const aiUsageEventsTable = pgTable("ai_usage_events", {

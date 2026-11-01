@@ -2404,7 +2404,7 @@ describe("chat agent — OpenRouter streaming normalisation (AI-03)", () => {
             content: "The provider returned an incomplete project answer.",
             toolCalls: [],
             model: "bad-model",
-            usage: {},
+            usage: { promptTokens: 9, completionTokens: 3 },
           };
         }
         return {
@@ -2419,7 +2419,7 @@ describe("chat agent — OpenRouter streaming normalisation (AI-03)", () => {
           }),
           toolCalls: [],
           model: "good-model",
-          usage: {},
+          usage: { promptTokens: 14, completionTokens: 6 },
         };
       }),
     };
@@ -2464,6 +2464,9 @@ describe("chat agent — OpenRouter streaming normalisation (AI-03)", () => {
         outcome: string;
         attemptId: string;
         latencyMs: number;
+        promptTokens: number | null;
+        completionTokens: number | null;
+        usageStatus: "known" | "partial" | "unknown";
       }> = [];
       const executionLedger = createExecutionLedger({
         budget: { providerChanges: 0 },
@@ -2576,6 +2579,15 @@ describe("chat agent — OpenRouter streaming normalisation (AI-03)", () => {
       ]);
       expect(new Set(modelTaskSamples.map((sample) => sample.attemptId)).size).toBe(2);
       expect(modelTaskSamples.every((sample) => sample.latencyMs >= 0)).toBe(true);
+      expect(modelTaskSamples.map((sample) => ({
+        model: sample.model,
+        promptTokens: sample.promptTokens,
+        completionTokens: sample.completionTokens,
+        usageStatus: sample.usageStatus,
+      }))).toEqual([
+        { model: "bad-model", promptTokens: 9, completionTokens: 3, usageStatus: "known" },
+        { model: "good-model", promptTokens: 14, completionTokens: 6, usageStatus: "known" },
+      ]);
     } finally {
       await fs.rm(rootPath, { recursive: true, force: true });
     }

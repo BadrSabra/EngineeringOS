@@ -27,4 +27,28 @@ export interface AiUsageModelTaskQuality {
      * @nullable
      */
   acceptanceRate: number | null;
+  /** @minimum 0 */
+  usageKnownSamples: number;
+  /** @minimum 0 */
+  usageIncompleteSamples: number;
+  /**
+     * @minimum 0
+     * @maximum 1
+     */
+  tokenUsageCoverage: number;
+  /**
+     * @minimum 0
+     * @nullable
+     */
+  promptTokens: number | null;
+  /**
+     * @minimum 0
+     * @nullable
+     */
+  completionTokens: number | null;
+  /**
+     * @minimum 0
+     * @nullable
+     */
+  tokensPerAcceptedSample: number | null;
 }

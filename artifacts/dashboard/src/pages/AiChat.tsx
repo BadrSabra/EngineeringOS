@@ -1593,13 +1593,35 @@ function ModelContractQualityCard({
                       <span className="col-span-2 sm:col-span-4">
                         معدل القبول <strong dir="ltr" className="font-medium text-emerald-200">{contractRate(sample.acceptanceRate)}</strong>
                       </span>
+                      <span className="col-span-2 sm:col-span-4">
+                        تغطية رموز العقد{' '}
+                        <strong dir="ltr" className="font-medium text-foreground">
+                          {sample.usageKnownSamples}/{sample.samples} · {contractRate(sample.tokenUsageCoverage)}
+                        </strong>
+                      </span>
+                      <span>
+                        إجمالي الرموز{' '}
+                        <strong dir="ltr" className="font-medium text-foreground">
+                          {sample.promptTokens === null || sample.completionTokens === null
+                            ? 'غير متاح'
+                            : sample.promptTokens + sample.completionTokens}
+                        </strong>
+                      </span>
+                      <span>
+                        الرموز لكل قبول{' '}
+                        <strong dir="ltr" className="font-medium text-foreground">
+                          {sample.tokensPerAcceptedSample === null
+                            ? 'غير متاح'
+                            : sample.tokensPerAcceptedSample.toLocaleString('en-US', { maximumFractionDigits: 2 })}
+                        </strong>
+                      </span>
                     </div>
                   </div>
                 ))}
               </div>
             )}
             <p className="mt-1.5 text-[10px] leading-4 text-muted-foreground">
-              هذه نتائج تقييم عقد المهمة؛ لا تُضاف إلى عدد طلبات OpenRouter ولا تكفي وحدها لإثبات اكتمال أي مهمة.
+              هذه النتائج تخص عينات صياغة الإجابة فقط؛ لا تمثل تكلفة المهمة كاملة ولا تُضاف إلى عدد طلبات OpenRouter ولا تثبت اكتمال المهمة. لا نحسب الرموز لكل قبول عند نقص بيانات الاستخدام.
             </p>
           </div>
           {sortedModels.length === 0 ? (
