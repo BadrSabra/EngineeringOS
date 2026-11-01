@@ -280,8 +280,10 @@ describe("automatic task recovery admission", () => {
       action: "RETRY_AFTER_RATE_LIMIT",
       disposition: {
         recoveryState: "REQUIRED",
+        failureKind: "RATE_LIMIT",
         retryAt,
         retryAfterSource: "project_rate_limit",
+        rateLimitScope: "project",
       },
     }), nowMs);
     const chatPlan = planChatRecovery(chatCandidate({
@@ -290,8 +292,10 @@ describe("automatic task recovery admission", () => {
       resumable: 0,
       disposition: {
         recoveryState: "REQUIRED",
+        failureKind: "RATE_LIMIT",
         retryAt,
         retryAfterSource: "project_rate_limit",
+        rateLimitScope: "project",
       },
     }), nowMs);
 
@@ -303,6 +307,53 @@ describe("automatic task recovery admission", () => {
       kind: "retry",
       action: "RETRY_AFTER_RATE_LIMIT",
     });
+  });
+
+  it("does not let local cooldown metadata mask an upstream or unknown quota signal", () => {
+    const retryAt = "2026-09-17T12:00:10.000Z";
+    const nowMs = Date.parse(retryAt);
+    const conflictingDispositions = [
+      {
+        recoveryState: "REQUIRED",
+        failureKind: "QUOTA_EXHAUSTED",
+        retryAt,
+        retryAfterSource: "project_rate_limit",
+        rateLimitScope: "project",
+      },
+      {
+        recoveryState: "REQUIRED",
+        failureKind: "RATE_LIMIT",
+        retryAt,
+        retryAfterSource: "local_admission",
+        rateLimitScope: "upstream_shared_pool",
+      },
+      {
+        recoveryState: "REQUIRED",
+        failureKind: "RATE_LIMIT",
+        retryAt,
+        retryAfterSource: "project_rate_limit",
+        rateLimitScope: "unknown",
+      },
+    ] as const;
+
+    for (const disposition of conflictingDispositions) {
+      expect(planTaskRecovery(candidate({
+        action: "RETRY_AFTER_RATE_LIMIT",
+        disposition,
+      }), nowMs)).toEqual({
+        kind: "skip",
+        reason: "provider_rate_limit_requires_manual_action",
+      });
+      expect(planChatRecovery(chatCandidate({
+        action: "RETRY_AFTER_RATE_LIMIT",
+        reasonCode: "EXECUTION_PROVIDER_FAILURE",
+        resumable: 0,
+        disposition,
+      }), nowMs)).toEqual({
+        kind: "skip",
+        reason: "provider_rate_limit_requires_manual_action",
+      });
+    }
   });
 
   it("does not schedule automatic rate-limit recovery without a positive retry window", () => {

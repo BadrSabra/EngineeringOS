@@ -211,24 +211,42 @@ function requiresManualProviderLimitAction(
   const retryAfterSource = typeof disposition.retryAfterSource === "string"
     ? disposition.retryAfterSource
     : undefined;
-  if (retryAfterSource === "project_rate_limit" || retryAfterSource === "local_admission") {
-    return false;
-  }
-
   const failureKind = typeof disposition.failureKind === "string"
     ? disposition.failureKind.trim().toUpperCase()
     : "";
-  const providerLimitFailure = PROVIDER_LIMIT_FAILURE_KINDS.has(failureKind);
-  const hasRateLimitScope = typeof disposition.rateLimitScope === "string"
-    && disposition.rateLimitScope.trim().length > 0;
+  const rateLimitScope = typeof disposition.rateLimitScope === "string"
+    ? disposition.rateLimitScope.trim().toLowerCase()
+    : "";
+  const hasNonLocalRateLimitScope = Boolean(rateLimitScope)
+    && rateLimitScope !== "project"
+    && rateLimitScope !== "local_admission";
   const hasProviderRetrySource = retryAfterSource === "provider"
     || retryAfterSource === "adaptive_default"
     || retryAfterSource === "server_default";
+  const hasProviderSpecificLimitFailure = failureKind !== "RATE_LIMIT"
+    && PROVIDER_LIMIT_FAILURE_KINDS.has(failureKind);
+
+  // Provider/quota evidence and an unknown or upstream scope take precedence
+  // over a local source that may have been written by a later project cooldown.
+  if (
+    hasProviderSpecificLimitFailure
+    || hasNonLocalRateLimitScope
+    || hasProviderRetrySource
+  ) {
+    return true;
+  }
+
+  if (
+    retryAfterSource === "project_rate_limit"
+    || retryAfterSource === "local_admission"
+    || rateLimitScope === "project"
+    || rateLimitScope === "local_admission"
+  ) {
+    return false;
+  }
 
   return action === "RETRY_AFTER_RATE_LIMIT"
-    || providerLimitFailure
-    || hasRateLimitScope
-    || hasProviderRetrySource;
+    || PROVIDER_LIMIT_FAILURE_KINDS.has(failureKind);
 }
 
 function parseRetryAt(value: unknown): number | undefined {
