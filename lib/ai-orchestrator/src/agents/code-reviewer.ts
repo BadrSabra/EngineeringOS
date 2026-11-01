@@ -286,7 +286,6 @@ class CodeReviewAgent extends BaseAgent<ProjectContext, CodeReviewOutput> {
     // same-model success from a later response.
     return {
       retryTransient: false,
-      waitOnRateLimit: false,
       ...(this.repairAttempt || this.qualityCorrectionAttempt || this.promptOnlyJson ? { temperature: 0 } : {}),
       promptOnlyJson: this.promptOnlyJson,
       strictResponseFormat: this.strictResponseFormat,

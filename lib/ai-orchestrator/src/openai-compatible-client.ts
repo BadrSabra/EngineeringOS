@@ -21,7 +21,6 @@ import type { RawMessage, ToolDefinition, ToolCall, RawGroqResponse } from "./gr
 import {
   GroqClientError,
   isRateLimitFailure,
-  isProviderScopedRateLimit,
   type GroqErrorCode,
   type ProviderRateLimitScope,
 } from "./errors.js";
@@ -89,8 +88,21 @@ import { assertProviderEgressEnabled } from "./provider-egress.js";
 import type { ModelTaskContract } from "./openrouter/model-contract-acceptance.js";
 import { recordModelContractOutput } from "./openrouter/model-contract-acceptance.js";
 
+const OPENROUTER_ADMISSION_PERMIT_BRAND = Symbol("openrouter-inference-admission");
+type OpenRouterAdmissionPermit = {
+  readonly [OPENROUTER_ADMISSION_PERMIT_BRAND]: true;
+  readonly model: string;
+};
+const activeOpenRouterAdmissionPermits = new WeakMap<
+  OpenRouterAdmissionPermit,
+  { active: boolean; release: () => Promise<void> }
+>();
+
 export type OpenAICompatibleOptions = {
   model?: string;
+  capability?: ModelCapability;
+  /** Internal capability minted by the OpenRouter admission coordinator. */
+  admissionPermit?: OpenRouterAdmissionPermit;
   taskType?: TaskType;
   taskContract?: ModelTaskContract;
   temperature?: number;
@@ -100,13 +112,7 @@ export type OpenAICompatibleOptions = {
   timeoutMs?: number;
   /** Disable transient retry when the caller owns bounded model fallback. */
   retryTransient?: boolean;
-  /**
-   * Honor a provider Retry-After once before surfacing a rate-limit failure.
-   * This is separate from retryTransient because provider throttling needs a
-   * bounded wait even when the caller owns model fallback.
-   */
-  waitOnRateLimit?: boolean;
-  /** Cap provider-owned fallback candidates for bounded callers. */
+  /** Requested candidate count; a single request is always capped at two models. */
   maxFallbackModels?: number;
   /** Skip models that already produced an unusable structured result. */
   excludeModels?: string[];
@@ -416,24 +422,6 @@ export const _trimMessagesForOpenRouter = trimMessagesForOpenRouter;
  * Do not import this from application code.
  */
 export const _groupMessages = groupMessages;
-
-/** Resolve after `ms` milliseconds (used for retry back-off). */
-const sleep = (ms: number, signal?: AbortSignal): Promise<void> =>
-  new Promise((resolve, reject) => {
-    if (signal?.aborted) {
-      reject(new GroqClientError("TIMEOUT", "Provider retry backoff cancelled"));
-      return;
-    }
-    const onAbort = () => {
-      clearTimeout(timer);
-      reject(new GroqClientError("TIMEOUT", "Provider retry backoff cancelled"));
-    };
-    const timer = setTimeout(() => {
-      signal?.removeEventListener("abort", onAbort);
-      resolve();
-    }, ms);
-    signal?.addEventListener("abort", onAbort, { once: true });
-  });
 
 type ProviderAttemptTrace = {
   execution: string;
@@ -1319,6 +1307,25 @@ export async function oacCompleteRaw(
   opts: OpenAICompatibleOptions,
 ): Promise<RawGroqResponse> {
   const model = opts.model ?? FALLBACK_DEFAULT_MODEL;
+  if (opts.providerName.toLowerCase() === "openrouter") {
+    if (opts.admissionPermit) {
+      assertOpenRouterAdmissionPermit(opts.admissionPermit, model);
+    } else {
+      const permit = await reserveOpenRouterInferencePermit(
+        model,
+        { ...opts, model },
+      );
+      try {
+        return await oacCompleteRaw(messages, {
+          ...opts,
+          model,
+          admissionPermit: permit,
+        });
+      } finally {
+        await releaseOpenRouterAdmissionPermit(permit);
+      }
+    }
+  }
   const providerAttempt = await admitProviderAttempt(
     opts.executionLedger,
     opts.providerName,
@@ -1545,6 +1552,28 @@ export async function* oacCompleteStream(
   opts: OpenAICompatibleStreamOptions,
 ): AsyncGenerator<string> {
   const model = opts.model ?? FALLBACK_DEFAULT_MODEL;
+  if (opts.providerName.toLowerCase() === "openrouter") {
+    if (opts.admissionPermit) {
+      assertOpenRouterAdmissionPermit(opts.admissionPermit, model);
+    } else {
+      const permit = await reserveOpenRouterInferencePermit(
+        model,
+        { ...opts, model },
+        [],
+        true,
+      );
+      try {
+        yield* oacCompleteStream(messages, {
+          ...opts,
+          model,
+          admissionPermit: permit,
+        });
+        return;
+      } finally {
+        await releaseOpenRouterAdmissionPermit(permit);
+      }
+    }
+  }
   const providerAttempt = await admitProviderAttempt(
     opts.executionLedger,
     opts.providerName,
@@ -1585,6 +1614,7 @@ export async function* oacCompleteStream(
 
 const OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1";
 const OPENROUTER_EXTRA_HEADERS = { "X-Title": "EngineeringOS" };
+const MAX_OPENROUTER_FREE_MODEL_ATTEMPTS_PER_REQUEST = 2;
 
 export { assertOpenRouterFreeModel } from "./openrouter/free-model-policy.js";
 
@@ -1593,9 +1623,8 @@ export { assertOpenRouterFreeModel } from "./openrouter/free-model-policy.js";
  *
  * OR-003: trims context to `OPENROUTER_MAX_MESSAGES` non-system turns and
  *         defaults `maxTokens` to `OPENROUTER_DEFAULT_MAX_TOKENS` (2 048).
- * OR-005: retries once immediately on transient transport errors
- *         and rate limits without a known broader scope. A shared-pool or
- *         provider-credential limit is surfaced for route-level recovery.
+ * Rate limits are terminal for the current request. Transient transport
+ * failures may retry once when the caller has not disabled that behavior.
  */
 export async function openrouterCompleteRaw(
   messages: RawMessage[],
@@ -1610,8 +1639,6 @@ export async function openrouterCompleteRaw(
     extraHeaders: OPENROUTER_EXTRA_HEADERS,
   };
   assertOpenRouterFreeModel(fullOpts.model);
-  const retrySignal = opts.signal ?? opts.executionLedger?.signal;
-
   try {
     return await oacCompleteRaw(trimmed, fullOpts);
   } catch (err) {
@@ -1682,54 +1709,6 @@ export async function openrouterCompleteRaw(
         responseFormat: undefined,
         requireResponseFormatParameters: false,
       });
-    }
-    if (
-      err instanceof GroqClientError &&
-      err.code === "RATE_LIMITED" &&
-      err.retryAfterMs !== undefined &&
-      opts.waitOnRateLimit === true &&
-      !isProviderScopedRateLimit(err)
-    ) {
-      const remainingMs = opts.executionLedger
-        ? opts.executionLedger.timeoutMs()
-        : err.retryAfterMs;
-      const recoveryReserveMs = opts.executionLedger
-        ? Math.min(10_000, Math.floor(remainingMs / 4))
-        : 0;
-      const availableWaitMs = Math.max(0, remainingMs - recoveryReserveMs);
-      if (err.retryAfterMs > 0 && err.retryAfterMs <= availableWaitMs) {
-        const waitMs = err.retryAfterMs;
-        console.warn(
-          JSON.stringify({
-            scope: "openrouter-client",
-            code: "RATE_LIMIT_WAIT",
-            model: fullOpts.model,
-            waitMs,
-            retryAfterMs: err.retryAfterMs,
-            remainingMs,
-            recoveryReserveMs,
-          }),
-        );
-        await sleep(waitMs, retrySignal);
-        return oacCompleteRaw(trimmed, {
-          ...fullOpts,
-          waitOnRateLimit: false,
-        });
-      }
-      console.warn(
-        JSON.stringify({
-          scope: "openrouter-client",
-          code: "RATE_LIMIT_WAIT_SKIPPED",
-          model: fullOpts.model,
-          retryAfterMs: err.retryAfterMs,
-          remainingMs,
-          recoveryReserveMs,
-          reason: err.retryAfterMs <= 0
-            ? "provider_retry_after_zero"
-            : "provider_retry_after_exceeds_request_budget",
-        }),
-      );
-      throw err;
     }
     if (
       !isTransientError(err) ||
@@ -1921,10 +1900,12 @@ export async function openrouterCompleteWithFallback(
       },
     );
   }
-  const maxFallbackModels =
+  const maxFallbackModels = Math.min(
     Number.isInteger(opts.maxFallbackModels) && opts.maxFallbackModels! > 0
-      ? opts.maxFallbackModels
-      : undefined;
+      ? opts.maxFallbackModels!
+      : MAX_OPENROUTER_FREE_MODEL_ATTEMPTS_PER_REQUEST,
+    MAX_OPENROUTER_FREE_MODEL_ATTEMPTS_PER_REQUEST,
+  );
   const excludedModels = new Set(
     (opts.excludeModels ?? [])
       .map((model) => model.trim())
@@ -2206,8 +2187,8 @@ export async function openrouterCompleteWithFallback(
  * Streaming completion via OpenRouter.
  *
  * OR-003: same context trim and conservative maxTokens as `openrouterCompleteRaw`.
- * OR-005: retries the stream once on transient errors unless the rate limit
- *         scope is broader than the current model/provider attempt.
+ * Rate limits terminate the current stream request. Transient transport
+ * failures may retry once only before any response bytes have been emitted.
  */
 export async function* openrouterCompleteStream(
   messages: RawMessage[],
@@ -2248,10 +2229,12 @@ export async function* openrouterCompleteStream(
         ...(capability ? { capability } : {}),
       })
     : resolveFallbackChainUnrotated(resolveOptions).map((model) => model.id);
-  const maxFallbackModels =
+  const maxFallbackModels = Math.min(
     Number.isInteger(opts.maxFallbackModels) && opts.maxFallbackModels! > 0
-      ? opts.maxFallbackModels
-      : undefined;
+      ? opts.maxFallbackModels!
+      : MAX_OPENROUTER_FREE_MODEL_ATTEMPTS_PER_REQUEST,
+    MAX_OPENROUTER_FREE_MODEL_ATTEMPTS_PER_REQUEST,
+  );
   const modelCooldowns = await readModelCooldowns(
     "openrouter",
     resolved,

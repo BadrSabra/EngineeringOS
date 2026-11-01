@@ -680,6 +680,65 @@ describe("openrouterCompleteWithFallback — error classification", () => {
     expect(seenModels[1]).not.toBe(seenModels[0]);
   });
 
+  it("limits the default EMPTY_RESPONSE fallback to one free alternative", async () => {
+    const seenModels: string[] = [];
+    vi.stubGlobal("fetch", vi.fn(async (_url: string | URL, init?: RequestInit) => {
+      const body = JSON.parse(String(init?.body ?? "{}")) as Record<string, unknown>;
+      seenModels.push(String(body.model));
+      if (seenModels.length <= 2) {
+        return jsonResponse({
+          choices: [{ message: { content: null, tool_calls: [] } }],
+          model: String(body.model),
+          usage: {},
+        });
+      }
+      return jsonResponse({
+        choices: [{ message: { content: "third-model-should-not-run" } }],
+        model: String(body.model),
+        usage: {},
+      });
+    }));
+
+    await expect(openrouterCompleteWithFallback(baseMessages as any, {
+      apiKey: "test-key",
+      model: primaryModel,
+      maxTokens: 10,
+    })).rejects.toMatchObject({ code: "EMPTY_RESPONSE" });
+
+    expect(seenModels).toHaveLength(2);
+    expect(new Set(seenModels).size).toBe(2);
+  });
+
+  it("does not let an explicit fallback count exceed the per-request ceiling", async () => {
+    const seenModels: string[] = [];
+    vi.stubGlobal("fetch", vi.fn(async (_url: string | URL, init?: RequestInit) => {
+      const body = JSON.parse(String(init?.body ?? "{}")) as Record<string, unknown>;
+      seenModels.push(String(body.model));
+      if (seenModels.length <= 2) {
+        return jsonResponse({
+          choices: [{ message: { content: null, tool_calls: [] } }],
+          model: String(body.model),
+          usage: {},
+        });
+      }
+      return jsonResponse({
+        choices: [{ message: { content: "over-limit-model-should-not-run" } }],
+        model: String(body.model),
+        usage: {},
+      });
+    }));
+
+    await expect(openrouterCompleteWithFallback(baseMessages as any, {
+      apiKey: "test-key",
+      model: primaryModel,
+      maxTokens: 10,
+      maxFallbackModels: 9,
+    })).rejects.toMatchObject({ code: "EMPTY_RESPONSE" });
+
+    expect(seenModels).toHaveLength(2);
+    expect(new Set(seenModels).size).toBe(2);
+  });
+
   it("classifies a successful provider response with no choices as EMPTY_RESPONSE", async () => {
     vi.stubGlobal("fetch", vi.fn(async () => jsonResponse({ model: primaryModel, usage: {} })));
 
@@ -781,7 +840,7 @@ describe("openrouterCompleteWithFallback — error classification", () => {
       const body = JSON.parse(String(init?.body ?? "{}")) as { model?: string };
       callCount++;
       seenModels.push(String(body.model));
-      if (callCount <= 2) {
+      if (callCount === 1) {
         throw new Error("socket closed");
       }
       return jsonResponse({
@@ -801,8 +860,8 @@ describe("openrouterCompleteWithFallback — error classification", () => {
     });
 
     expect(result.content).toBe("ok-after-network-error");
-    expect(callCount).toBe(3);
-    expect(new Set(seenModels).size).toBe(3);
+    expect(callCount).toBe(2);
+    expect(new Set(seenModels).size).toBe(2);
   });
 
   it("429 with no quota keywords → RATE_LIMITED (not fallback-worthy)", async () => {
@@ -1154,7 +1213,7 @@ describe("openrouterCompleteWithFallback — error classification", () => {
     expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 
-  it("does not retry before a provider Retry-After that exceeds the remaining request budget", async () => {
+  it("returns a 429 with Retry-After instead of retrying within the request", async () => {
     const fetchMock = vi.fn(async () =>
       textResponse('{"error":{"message":"temporarily rate limited"}}', 429, new Headers({ "Retry-After": "120" })));
     vi.stubGlobal("fetch", fetchMock);
@@ -1167,7 +1226,6 @@ describe("openrouterCompleteWithFallback — error classification", () => {
       model: primaryModel,
       maxTokens: 10,
       timeoutMs: 180_000,
-      waitOnRateLimit: true,
       executionLedger,
       baseUrl: "https://example.test/v1",
       providerName: "OpenRouter",
@@ -1206,7 +1264,28 @@ describe("openrouterCompleteWithFallback — error classification", () => {
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
-  it("does not spend a Retry-After wait on an upstream shared-pool limit", async () => {
+  it("fails closed for an unknown-scope 429 with a Retry-After", async () => {
+    const fetchMock = vi.fn(async () =>
+      textResponse('{"error":{"message":"temporarily rate limited"}}', 429, new Headers({ "Retry-After": "1" })));
+    vi.stubGlobal("fetch", fetchMock);
+    const executionLedger = createExecutionLedger({
+      budget: { deadlineMs: 10_000 },
+    });
+
+    await expect(oacCompleteRaw(baseMessages as any, {
+      apiKey: "test-key",
+      model: primaryModel,
+      maxTokens: 10,
+      executionLedger,
+      baseUrl: "https://example.test/v1",
+      providerName: "OpenRouter",
+    })).rejects.toMatchObject({ code: "RATE_LIMITED", rateLimitScope: "unknown" });
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    executionLedger.setTerminal("failed");
+  });
+
+  it("does not retry an upstream shared-pool 429 within the request", async () => {
     const fetchMock = vi.fn(async () => textResponse(JSON.stringify({
         error: {
           message: "Provider returned error",
@@ -1223,7 +1302,6 @@ describe("openrouterCompleteWithFallback — error classification", () => {
         apiKey: "test-key",
         model: primaryModel,
         maxTokens: 10,
-        waitOnRateLimit: true,
         executionLedger,
         baseUrl: "https://example.test/v1",
         providerName: "OpenRouter",
@@ -1509,6 +1587,34 @@ describe("openrouterCompleteWithFallback — error classification", () => {
         error.retryAfterMs === undefined,
     );
     expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("caps an EMPTY_RESPONSE stream at the primary and one free alternative", async () => {
+    const seenModels: string[] = [];
+    const fetchMock = vi.fn(async (_url: string | URL, init?: RequestInit) => {
+      const body = JSON.parse(String(init?.body ?? "{}")) as Record<string, unknown>;
+      seenModels.push(String(body.model));
+      return new Response("data: [DONE]\n\n", {
+        headers: { "content-type": "text/event-stream" },
+      });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const consume = async (stream: AsyncGenerator<string>) => {
+      for await (const _chunk of stream) {
+        // Empty stream output is not accepted as task completion.
+      }
+    };
+
+    await expect(
+      consume(openrouterCompleteStream(baseMessages as any, {
+        apiKey: "test-key",
+        model: primaryModel,
+        maxTokens: 10,
+      })),
+    ).rejects.toMatchObject({ code: "EMPTY_RESPONSE" });
+
+    expect(seenModels).toHaveLength(2);
+    expect(new Set(seenModels).size).toBe(2);
   });
 
   it("fails locally without contacting OpenRouter when the distributed lease is unavailable", async () => {
