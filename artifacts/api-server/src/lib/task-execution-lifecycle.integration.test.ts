@@ -6849,7 +6849,7 @@ describe("real durable task execution lifecycle", () => {
       if (!recoveredOutcome) {
         throw new Error(`Candidate-ready recovery did not reach lease handoff: ${JSON.stringify(initialOutcome)}`);
       }
-      expect(recoveredOutcome).toMatchObject({ ok: true, status: "completed" });
+      expect(recoveredOutcome, JSON.stringify(recoveredOutcome)).toMatchObject({ ok: true, status: "completed" });
       expect(chatWithFallback).toHaveBeenCalledTimes(1);
       expect(runRepairValidation).toHaveBeenCalledTimes(2);
       expect(recoveryRun).toBe(1);
