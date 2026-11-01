@@ -1144,7 +1144,7 @@ describe("PUT /api/ai/providers/non-OpenRouter/key", () => {
       reasonCode: "provider_not_enabled_for_free_route",
     });
     expect(JSON.stringify(response.body)).not.toContain("synthetic-groq-credential");
-    expect(validateProviderKeyMock).toHaveBeenCalledWith("groq", "synthetic-groq-credential");
+    expect(validateProviderKeyMock).not.toHaveBeenCalled();
     const persisted = await db
       .select({ id: aiProviderCredentialsTable.id })
       .from(aiProviderCredentialsTable)

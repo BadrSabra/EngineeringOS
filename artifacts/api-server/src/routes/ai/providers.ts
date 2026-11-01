@@ -20,7 +20,6 @@ import { decryptApiKey, encryptApiKey } from "../../lib/credentials-crypto.js";
 import { logger } from "../../lib/logger.js";
 import { resolveProvider } from "../../lib/ai-route-helpers.js";
 import {
-  validateProviderKey,
   PROVIDER_REGISTRY,
   PROVIDER_PRIORITY,
   getProviderMetrics,
@@ -132,26 +131,15 @@ async function handlePutKey(req: Request, res: Response, provider: ProviderId) {
 
   const config = PROVIDER_REGISTRY[provider];
   const label = config?.label ?? provider;
-  const consoleUrl = config?.consoleUrl ?? "your provider's dashboard";
 
-  // OpenRouter key validation must not spend a request from its shared free
-  // quota. Non-OpenRouter providers are not enabled on the product's current
-  // free-only route, so validateProviderKey rejects them without probing.
+  // Enforce the free-only product boundary at the HTTP entrypoint. Do not
+  // delegate authorization to a credential validator: even a mocked or
+  // changed validator must not turn this request into a provider probe.
   if (provider !== "openrouter") {
-    const validation = await validateProviderKey(provider, trimmed);
-    if (!validation.valid) {
-      if (validation.reason === "provider_not_enabled_for_free_route") {
-        return res.status(409).json({
-          error: `${label} is not enabled for the current free-only AI route; the key was not tested or stored.`,
-          reasonCode: validation.reason,
-        });
-      }
-      return res.status(422).json({
-        error: `${label} API key is invalid or unauthorized`,
-        hint: `Check your key at ${consoleUrl} — it was rejected by the ${label} API.`,
-        reasonCode: validation.reason ?? "credentials_invalid",
-      });
-    }
+    return res.status(409).json({
+      error: `${label} is not enabled for the current free-only AI route; the key was not tested or stored.`,
+      reasonCode: "provider_not_enabled_for_free_route",
+    });
   }
 
   const last4 = trimmed.slice(-4);
