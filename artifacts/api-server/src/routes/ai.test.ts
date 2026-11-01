@@ -5146,6 +5146,8 @@ describe("POST /api/ai/projects/:projectId/analyze", () => {
         code: "RATE_LIMITED",
         failureKind: "RATE_LIMIT",
         outcome: "FAILED",
+        retryAfterMs: 2_000,
+        retryAfterSource: "provider",
         terminalProjection: {
           status: "failed",
           outcome: "FAILED",
@@ -5168,7 +5170,14 @@ describe("POST /api/ai/projects/:projectId/analyze", () => {
       expect(detail.body.terminalProjection).toEqual(terminalProjection);
       expect(history.body.find((entry: { id: string }) => entry.id === executionId).terminalProjection)
         .toEqual(terminalProjection);
-      expect(messages.body.find((entry: { role: string }) => entry.role === "assistant").terminalProjection)
+      const assistantMessage = messages.body.find((entry: { role: string }) => entry.role === "assistant");
+      expect(assistantMessage).toMatchObject({
+        acceptanceDisposition: {
+          retryAfterMs: 2_000,
+          retryAfterSource: "provider",
+        },
+      });
+      expect(assistantMessage.terminalProjection)
         .toEqual(terminalProjection);
       expect(messages.body.filter((entry: { role: string }) => entry.role === "assistant")).toHaveLength(1);
 

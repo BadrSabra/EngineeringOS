@@ -389,6 +389,16 @@ const PROVIDER_FAILURE_CATEGORIES = new Set<ProviderFailureCategory>([
   'UNKNOWN',
 ]);
 
+function sanitizeRetryAfterSource(value: unknown): AiStreamErrorEvent['retryAfterSource'] | undefined {
+  return value === 'provider'
+    || value === 'server_default'
+    || value === 'adaptive_default'
+    || value === 'project_rate_limit'
+    || value === 'local_admission'
+    ? value
+    : undefined;
+}
+
 function sanitizeStreamError(event: AiStreamErrorEvent): AiStreamErrorEvent {
   const safeCode = /^[A-Za-z][A-Za-z0-9_]{2,79}$/.test(event.code)
     ? event.code
@@ -417,6 +427,7 @@ function sanitizeStreamError(event: AiStreamErrorEvent): AiStreamErrorEvent {
     && event.retryAfterMs > 0
     ? event.retryAfterMs
     : undefined;
+  const safeRetryAfterSource = sanitizeRetryAfterSource(event.retryAfterSource);
   const safeQuality = event.quality
     ? {
         code: 'QUALITY_REVIEW_LOW' as const,
@@ -462,6 +473,7 @@ function sanitizeStreamError(event: AiStreamErrorEvent): AiStreamErrorEvent {
   delete safeEvent.providerFailureCategory;
   delete safeEvent.rateLimitScope;
   delete safeEvent.retryAfterMs;
+  delete safeEvent.retryAfterSource;
   delete safeEvent.quality;
   return {
     ...safeEvent,
@@ -471,6 +483,7 @@ function sanitizeStreamError(event: AiStreamErrorEvent): AiStreamErrorEvent {
     ...(safeProviderFailureCategory ? { providerFailureCategory: safeProviderFailureCategory } : {}),
     ...(safeRateLimitScope ? { rateLimitScope: safeRateLimitScope } : {}),
     ...(safeRetryAfterMs !== undefined ? { retryAfterMs: safeRetryAfterMs } : {}),
+    ...(safeRetryAfterSource ? { retryAfterSource: safeRetryAfterSource } : {}),
     ...(safeQuality ? { quality: safeQuality } : {}),
     ...(safeAcceptance ? { acceptanceDisposition: safeAcceptance } : {}),
   };
@@ -1326,8 +1339,15 @@ export function useAiChatStream() {
 
       // Handle non-SSE error responses (e.g. 400/401/428/429 before the stream starts)
       if (!res.ok) {
-        let parsed: { code?: string; error?: string; rateLimitScope?: string; retryAfterMs?: number } = {};
+        let parsed: {
+          code?: string;
+          error?: string;
+          rateLimitScope?: string;
+          retryAfterMs?: number;
+          retryAfterSource?: AiStreamErrorEvent['retryAfterSource'];
+        } = {};
         try { parsed = await res.json() as typeof parsed; } catch { /* ignore */ }
+        const retryAfterSource = sanitizeRetryAfterSource(parsed.retryAfterSource);
 
         // HTTP 401 without a structured code means the Clerk session expired
         // (the auth middleware rejected the request before it reached the AI handler).
@@ -1353,6 +1373,7 @@ export function useAiChatStream() {
             && parsed.retryAfterMs > 0
             ? { retryAfterMs: parsed.retryAfterMs }
             : {}),
+          ...(retryAfterSource ? { retryAfterSource } : {}),
         });
         return;
       }
@@ -1506,7 +1527,7 @@ export function useAiTaskStream() {
           retryable: parsed.retryable ?? failureKind !== 'CONFIGURATION',
           retryAfterMs: parsed.retryAfterMs,
           retryAt: parsed.retryAt,
-          retryAfterSource: parsed.retryAfterSource,
+          retryAfterSource: sanitizeRetryAfterSource(parsed.retryAfterSource),
           failureKind,
           providerFailureCategory: parsed.providerFailureCategory,
           outcome: 'FAILED',

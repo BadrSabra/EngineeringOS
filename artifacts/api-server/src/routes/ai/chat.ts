@@ -7423,29 +7423,37 @@ router.post("/ai/chat", async (req, res) => {
           operationId: analysisCorrelation.operationId ?? sessionIdToUse,
           sourceRevision: analysisCorrelation.projectRevision,
         });
-        const terminalOutcome = classifyAiTerminalOutcome({
-          trace: traceSteps,
-          requiresEvidence: sourceEvidenceRequiredForTurn,
-          forensic: turnIntent.kind === "FORENSIC_AUDIT"
-            || (isCapabilityProbeRequest(message) && sourceEvidenceRequiredForTurn),
-          cancelled: false,
-          endedBeforeEvidence: sourceEvidenceRequiredForTurn && endedBeforeFirstSourceRead(traceSteps),
-          ...terminalEvidenceState(providerEvidenceSummary, failureEvidenceProgress),
-          providerEmptyBeforeEvidence:
-            sourceEvidenceRequiredForTurn
-            && err.code === "EMPTY_RESPONSE"
-            && endedBeforeFirstSourceRead(traceSteps),
-          providerError: {
-            code: err.code,
-            providerCode: err.providerCode,
-            providerStatus: err.providerStatus,
-            fallbackExhausted: true,
-            retryable: err.code === "TIMEOUT"
-              || err.code === "NETWORK_ERROR"
-              || err.code === "SERVER_ERROR"
-              || err.code === "RATE_LIMITED",
-          },
+        const retryAfterSource = resolveAiRetryAfterSource({
+          retryAfterMs: err.retryAfterMs,
+          providerStatus: err.providerStatus,
+          providerCode: err.providerCode,
         });
+        const terminalOutcome = {
+          ...classifyAiTerminalOutcome({
+            trace: traceSteps,
+            requiresEvidence: sourceEvidenceRequiredForTurn,
+            forensic: turnIntent.kind === "FORENSIC_AUDIT"
+              || (isCapabilityProbeRequest(message) && sourceEvidenceRequiredForTurn),
+            cancelled: false,
+            endedBeforeEvidence: sourceEvidenceRequiredForTurn && endedBeforeFirstSourceRead(traceSteps),
+            ...terminalEvidenceState(providerEvidenceSummary, failureEvidenceProgress),
+            providerEmptyBeforeEvidence:
+              sourceEvidenceRequiredForTurn
+              && err.code === "EMPTY_RESPONSE"
+              && endedBeforeFirstSourceRead(traceSteps),
+            providerError: {
+              code: err.code,
+              providerCode: err.providerCode,
+              providerStatus: err.providerStatus,
+              fallbackExhausted: true,
+              retryable: err.code === "TIMEOUT"
+                || err.code === "NETWORK_ERROR"
+                || err.code === "SERVER_ERROR"
+                || err.code === "RATE_LIMITED",
+            },
+          }),
+          ...(retryAfterSource ? { retryAfterSource } : {}),
+        };
         await persistFailedChatTurn({
           sessionId: sessionIdToUse,
           projectId,

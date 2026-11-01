@@ -173,6 +173,7 @@ describe('useAiChatStream — terminal callback delivery', () => {
         error: 'Project rate limit reached.',
         rateLimitScope: 'project',
         retryAfterMs: 2_500,
+        retryAfterSource: 'project_rate_limit',
       }),
     })));
 
@@ -195,6 +196,7 @@ describe('useAiChatStream — terminal callback delivery', () => {
       code: 'PROJECT_RATE_LIMIT',
       rateLimitScope: 'project',
       retryAfterMs: 2_500,
+      retryAfterSource: 'project_rate_limit',
     }));
     root.unmount();
   });
@@ -318,7 +320,9 @@ describe('processAiStream — semantic trace dispatch', () => {
         parseCode: 'RAW_PROVIDER_PARSE',
         outcome: 'FAILED',
         failureKind: 'TOOL_FAILURE',
-         providerFailureCategory: 'RATE_LIMITED',
+        providerFailureCategory: 'RATE_LIMITED',
+        retryAfterMs: 30_000,
+        retryAfterSource: 'adaptive_default',
         retryable: true,
         recoveryState: 'REQUIRED',
       })),
@@ -329,13 +333,33 @@ describe('processAiStream — semantic trace dispatch', () => {
       code: 'TOOL_FAILURE',
       message: 'provider secret at [runtime path]',
       failureKind: 'TOOL_FAILURE',
-       providerFailureCategory: 'RATE_LIMITED',
+      providerFailureCategory: 'RATE_LIMITED',
+      retryAfterMs: 30_000,
+      retryAfterSource: 'adaptive_default',
       retryable: true,
       recoveryState: 'REQUIRED',
     }));
     expect(onError.mock.calls[0]?.[0]).not.toHaveProperty('raw');
     expect(onError.mock.calls[0]?.[0]).not.toHaveProperty('providerContext');
     expect(onError.mock.calls[0]?.[0]).not.toHaveProperty('parseCode');
+  });
+
+  it('drops unrecognized retry-delay provenance from stream errors', async () => {
+    const onError = vi.fn();
+    await processAiStream(
+      makeSseStream(sseFrame({
+        type: 'error',
+        code: 'RATE_LIMITED',
+        message: 'Rate limit reached.',
+        outcome: 'FAILED',
+        retryAfterMs: 30_000,
+        retryAfterSource: 'untrusted_upstream_claim',
+      })),
+      { onError },
+    );
+
+    expect(onError).toHaveBeenCalledTimes(1);
+    expect(onError.mock.calls[0]?.[0]).not.toHaveProperty('retryAfterSource');
   });
 
   it('treats EOF after a structured task starts as an interrupted run', async () => {

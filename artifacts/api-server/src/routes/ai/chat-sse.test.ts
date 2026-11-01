@@ -1517,11 +1517,70 @@ describe("POST /api/ai/chat/stream — forensic_status SSE emission (onStep inte
       providerFailureCategory: "RATE_LIMITED",
       rateLimitScope: "upstream_shared_pool",
       retryAfterMs,
+      retryAfterSource: "provider",
       retryable: true,
     });
     expect(chatWithFallback).toHaveBeenCalledTimes(1);
     expect(res.text).not.toContain("private shared-pool detail");
     expect(frames.some((frame) => frame.type === "done")).toBe(false);
+
+    const dbFixture = (await import("@workspace/db") as unknown as {
+      __chatTestFixture: { messages: Array<Record<string, unknown>> };
+    }).__chatTestFixture;
+    const assistant = dbFixture.messages.find((message) => message.role === "assistant");
+    const trace = JSON.parse(String(assistant?.toolTrace)) as Array<Record<string, unknown>>;
+    expect(trace.find((entry) => entry.kind === "terminal_outcome")).toMatchObject({
+      retryAfterMs,
+      retryAfterSource: "provider",
+    });
+  });
+
+  it("preserves a local adaptive cooldown as local provenance in SSE and terminal history", async () => {
+    const retryAfterMs = 30_000;
+    vi.mocked(requireProvider).mockResolvedValueOnce({
+      provider: "openrouter" as never,
+      apiKey: "test-only-key",
+    });
+    vi.mocked(chatWithFallback as (...a: unknown[]) => unknown)
+      .mockRejectedValueOnce(new GroqClientError("RATE_LIMITED", "private local cooldown detail", {
+        context: {
+          providerName: "OpenRouter",
+          providerModel: "liquid/lfm-2.5-2.6b:free",
+          providerStatus: 429,
+          providerCode: "LOCAL_ADAPTIVE_CREDENTIAL_COOLDOWN",
+          rateLimitScope: "provider_credential",
+          retryAfterMs,
+        },
+      }));
+
+    const res = await request(app)
+      .post("/api/ai/chat/stream")
+      .send({ projectId: "test-project-id", message: "مرحبا" });
+
+    expect(res.status).toBe(200);
+    const frames = parseSseFrames(res.text).filter((frame): frame is Record<string, unknown> =>
+      Boolean(frame) && typeof frame === "object",
+    );
+    const errorFrame = frames.find((frame) => frame.type === "error");
+    expect(errorFrame).toMatchObject({
+      type: "error",
+      code: "RATE_LIMITED",
+      outcome: "FAILED",
+      retryAfterMs,
+      retryAfterSource: "adaptive_default",
+      rateLimitScope: "provider_credential",
+    });
+    expect(res.text).not.toContain("private local cooldown detail");
+
+    const dbFixture = (await import("@workspace/db") as unknown as {
+      __chatTestFixture: { messages: Array<Record<string, unknown>> };
+    }).__chatTestFixture;
+    const assistant = dbFixture.messages.find((message) => message.role === "assistant");
+    const trace = JSON.parse(String(assistant?.toolTrace)) as Array<Record<string, unknown>>;
+    expect(trace.find((entry) => entry.kind === "terminal_outcome")).toMatchObject({
+      retryAfterMs,
+      retryAfterSource: "adaptive_default",
+    });
   });
 
   it("projects EMPTY_RESPONSE as failure instead of accepting an empty assistant result", async () => {
@@ -1646,8 +1705,9 @@ describe("POST /api/ai/chat/stream — forensic_status SSE emission (onStep inte
     });
   });
 
-  it("keeps non-stream provider failures redacted and terminal", async () => {
+  it("preserves non-stream provider retry provenance in the response and terminal history", async () => {
     const privateProviderDetail = "private non-stream provider response";
+    const retryAfterMs = 2_500;
     const actualHelpers = await vi.importActual<
       typeof import("../../lib/ai-route-helpers.js")
     >("../../lib/ai-route-helpers.js");
@@ -1665,6 +1725,7 @@ describe("POST /api/ai/chat/stream — forensic_status SSE emission (onStep inte
           providerModel: "liquid/lfm-2.5-2.6b:free",
           providerStatus: 429,
           rateLimitScope: "unknown",
+          retryAfterMs,
         },
       }));
     const loggerErrorSpy = vi.spyOn(logger, "error").mockImplementation(() => {});
@@ -1712,8 +1773,68 @@ describe("POST /api/ai/chat/stream — forensic_status SSE emission (onStep inte
       code: "RATE_LIMITED",
       outcome: "FAILED",
       retryable: true,
+      rateLimitScope: "unknown",
+      retryAfterMs,
+      retryAfterSource: "provider",
+    });
+    const dbFixture = (await import("@workspace/db") as unknown as {
+      __chatTestFixture: { messages: Array<Record<string, unknown>> };
+    }).__chatTestFixture;
+    const assistant = dbFixture.messages.find((message) => message.role === "assistant");
+    const trace = JSON.parse(String(assistant?.toolTrace)) as Array<Record<string, unknown>>;
+    expect(trace.find((entry) => entry.kind === "terminal_outcome")).toMatchObject({
+      retryAfterMs,
+      retryAfterSource: "provider",
     });
     expect(chatWithFallback).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps a local adaptive cooldown out of provider Retry-After in non-stream responses", async () => {
+    const retryAfterMs = 30_000;
+    const actualHelpers = await vi.importActual<
+      typeof import("../../lib/ai-route-helpers.js")
+    >("../../lib/ai-route-helpers.js");
+    vi.mocked(handleOrchestratorError).mockImplementation(
+      actualHelpers.handleOrchestratorError,
+    );
+    vi.mocked(requireProvider).mockResolvedValueOnce({
+      provider: "openrouter" as never,
+      apiKey: "test-only-key",
+    });
+    vi.mocked(chatWithFallback as (...a: unknown[]) => unknown)
+      .mockRejectedValueOnce(new GroqClientError("RATE_LIMITED", "private local cooldown detail", {
+        context: {
+          providerName: "OpenRouter",
+          providerModel: "liquid/lfm-2.5-2.6b:free",
+          providerStatus: 429,
+          providerCode: "LOCAL_ADAPTIVE_CREDENTIAL_COOLDOWN",
+          rateLimitScope: "provider_credential",
+          retryAfterMs,
+        },
+      }));
+
+    const res = await request(app)
+      .post("/api/ai/chat")
+      .send({ projectId: "test-project-id", message: "ما هذا المشروع؟" });
+
+    expect(res.status).toBe(429);
+    expect(res.body).toMatchObject({
+      code: "RATE_LIMITED",
+      rateLimitScope: "provider_credential",
+      retryAfterMs,
+      retryAfterSource: "adaptive_default",
+    });
+    expect(res.text).not.toContain("private local cooldown detail");
+
+    const dbFixture = (await import("@workspace/db") as unknown as {
+      __chatTestFixture: { messages: Array<Record<string, unknown>> };
+    }).__chatTestFixture;
+    const assistant = dbFixture.messages.find((message) => message.role === "assistant");
+    const trace = JSON.parse(String(assistant?.toolTrace)) as Array<Record<string, unknown>>;
+    expect(trace.find((entry) => entry.kind === "terminal_outcome")).toMatchObject({
+      retryAfterMs,
+      retryAfterSource: "adaptive_default",
+    });
   });
 
   it("persists only safe provider-failure metadata for a rate-limited project query", async () => {

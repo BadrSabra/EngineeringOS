@@ -70,6 +70,7 @@ import {
 } from "./ai-budget.js";
 import { decryptApiKey } from "./credentials-crypto.js";
 import { classifyProviderFailure } from "./provider-failure-diagnostics.js";
+import { resolveAiRetryAfterSource } from "./ai-terminal-outcome.js";
 
 export type { ProviderId };
 /**
@@ -1722,6 +1723,16 @@ export function handleOrchestratorError(
     providerCode: err.providerCode,
     providerStatus: err.providerStatus,
   });
+  const retryAfterMs = typeof err.retryAfterMs === "number"
+    && Number.isSafeInteger(err.retryAfterMs)
+    && err.retryAfterMs > 0
+    ? err.retryAfterMs
+    : undefined;
+  const retryAfterSource = resolveAiRetryAfterSource({
+    retryAfterMs,
+    providerStatus: err.providerStatus,
+    providerCode: err.providerCode,
+  });
 
   logger.error({
     code: /^[A-Z][A-Z0-9_]{2,79}$/.test(err.code) ? err.code : "AI_PROVIDER_FAILURE",
@@ -1762,6 +1773,9 @@ export function handleOrchestratorError(
       retryable,
       recoveryState: "REQUIRED",
       correlationId: randomUUID(),
+      ...(err.rateLimitScope ? { rateLimitScope: err.rateLimitScope } : {}),
+      ...(retryAfterMs !== undefined ? { retryAfterMs } : {}),
+      ...(retryAfterSource ? { retryAfterSource } : {}),
       ...(ctx.executionLedger
         ? { executionLedger: toPublicExecutionLedgerSnapshot(ctx.executionLedger.snapshot()) }
         : {}),

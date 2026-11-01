@@ -1797,8 +1797,8 @@ describe('AiChat authenticated generated mutations', () => {
     fireEvent.click(await screen.findByRole('button', { name: 'Existing session' }));
 
     const assertSafeRecovery = () => {
-      expect(screen.getByText(/المزود غير متاح مؤقتًا/)).toBeInTheDocument();
-      expect(screen.getByText(/أعد المحاولة بعد قليل/)).toBeInTheDocument();
+      expect(screen.getByText(/OpenRouter غير متاح مؤقتًا/)).toBeInTheDocument();
+      expect(screen.getByText(/بعد عودة الاتصال/)).toBeInTheDocument();
       const visibleText = document.body.textContent ?? '';
       expect(visibleText).toContain('مرجع الدعم: support-chat-outage-34');
       expect(visibleText).not.toMatch(/secret-model-name|\/home\/runner|sk-live-provider-secret/i);
@@ -1973,14 +1973,17 @@ describe('AiChat authenticated generated mutations', () => {
         outcome: 'FAILED',
         failureKind: 'RECOVERY_FAILURE',
         providerFailureCategory: 'RATE_LIMITED',
+        retryAfterMs: 30_000,
+        retryAfterSource: 'adaptive_default',
         retryable: true,
         recoveryState: 'REQUIRED',
       });
     });
 
     expect(await screen.findByText('بلغ المزود حد الاستخدام')).toBeInTheDocument();
-    expect(screen.getByText(/أوقف المزود هذا الطلب بسبب حد الاستخدام/)).toBeInTheDocument();
-    expect(screen.getByText(/لا تتوفر إعادة محاولة تلقائية/)).toBeInTheDocument();
+    expect(screen.getByText(/توقف الإرسال بسبب حد الاستخدام/)).toBeInTheDocument();
+    expect(screen.getByText(/مهلة تبريد تكيفية محلية، وليست موعدًا حدده OpenRouter/)).toBeInTheDocument();
+    expect(screen.queryByText(/اختر مزودًا آخر/)).not.toBeInTheDocument();
     expect(document.body.textContent).not.toContain('30–60 seconds');
     expect(document.body.textContent).not.toMatch(
       /provider\.example|provider-secret|x-provider-secret|private-model|provider-runtime/i,
@@ -1994,6 +1997,18 @@ describe('AiChat authenticated generated mutations', () => {
       errorMessage: unsafeDiagnostic,
       failureKind: 'RECOVERY_FAILURE',
       providerFailureCategory: 'RATE_LIMITED',
+      acceptanceDisposition: {
+        reasonCodes: ['EXECUTION_PROVIDER_FAILURE'],
+        outcome: 'FAILED',
+        failureKind: 'RATE_LIMIT',
+        recoveryState: 'REQUIRED',
+        operatorAction: 'RETRY_AFTER_RATE_LIMIT',
+        nextActionCode: 'RETRY_AFTER_RATE_LIMIT',
+        retryAfterMs: 30_000,
+        retryAfterSource: 'adaptive_default',
+        retryAt: '2026-11-01T20:30:00.000Z',
+        rateLimitScope: 'provider_credential',
+      },
       retryable: true,
       toolTrace: JSON.stringify([{
         kind: 'terminal_outcome',
@@ -2001,6 +2016,8 @@ describe('AiChat authenticated generated mutations', () => {
         outcome: 'FAILED',
         failureKind: 'RECOVERY_FAILURE',
         providerFailureCategory: 'RATE_LIMITED',
+        retryAfterMs: 30_000,
+        retryAfterSource: 'adaptive_default',
         retryable: true,
         recoveryState: 'REQUIRED',
       }]),
@@ -2011,8 +2028,9 @@ describe('AiChat authenticated generated mutations', () => {
     fireEvent.click(await screen.findByRole('button', { name: 'Existing session' }));
 
     expect(await screen.findByText('بلغ المزود حد الاستخدام')).toBeInTheDocument();
-    expect(screen.getByText(/أوقف المزود هذا الطلب بسبب حد الاستخدام/)).toBeInTheDocument();
-    expect(screen.getByText(/لا تتوفر إعادة محاولة تلقائية/)).toBeInTheDocument();
+    expect(screen.getByText(/توقف الإرسال بسبب حد الاستخدام/)).toBeInTheDocument();
+    expect(screen.getByText(/مهلة تبريد تكيفية محلية، وليست موعدًا حدده OpenRouter/)).toBeInTheDocument();
+    expect(screen.queryByText(/اختر مزودًا آخر/)).not.toBeInTheDocument();
     expect(document.body.textContent).not.toMatch(
       /provider\.example|provider-secret|x-provider-secret|private-model|provider-runtime/i,
     );
@@ -2042,7 +2060,7 @@ describe('AiChat authenticated generated mutations', () => {
     });
 
     expect(await screen.findByText('صيغة رد المزود غير صالحة')).toBeInTheDocument();
-    expect(screen.getByText(/أعاد المزود ردًا بصيغة غير صالحة/)).toBeInTheDocument();
+    expect(screen.getByText(/أعاد النموذج ردًا بصيغة غير صالحة/)).toBeInTheDocument();
     expect(document.body.textContent).not.toContain(privateProviderDetail);
   });
 
@@ -2153,7 +2171,7 @@ describe('AiChat authenticated generated mutations', () => {
     fireEvent.click(await screen.findByRole('button', { name: 'Existing session' }));
 
     expect(screen.queryByText(internalDump, { exact: true })).not.toBeInTheDocument();
-    expect(screen.getByText(/تعذر إكمال الطلب لدى المزود/)).toBeInTheDocument();
+    expect(screen.getByText(/تعذر إكمال الطلب عبر OpenRouter/)).toBeInTheDocument();
     expect(screen.getByText('Execution interrupted')).toBeInTheDocument();
   });
 
@@ -2741,7 +2759,7 @@ describe('AiChat authenticated generated mutations', () => {
     fireEvent.click(await screen.findByRole('button', { name: 'Existing session' }));
 
     expect(await screen.findByText('Execution failed')).toBeInTheDocument();
-    expect(screen.getByText(/تعذر إكمال الطلب لدى المزود/)).toBeInTheDocument();
+    expect(screen.getByText(/تعذر إكمال الطلب عبر OpenRouter/)).toBeInTheDocument();
     expect(screen.queryByText(/query_knowledge_graph was unavailable/)).not.toBeInTheDocument();
     expect(screen.queryByText('Persisted execution proof')).not.toBeInTheDocument();
     expect(screen.queryByText(/COMPLETED/)).not.toBeInTheDocument();
@@ -8468,7 +8486,7 @@ it.each([
     const retryButton = await screen.findByRole('button', { name: /Retry project analysis in/ });
 
     expect(retryButton).toBeDisabled();
-    expect(screen.getByText(/Waiting for the provider retry window/)).toBeInTheDocument();
+    expect(screen.getByText(/Waiting for the recorded retry interval/)).toBeInTheDocument();
     fireEvent.click(retryButton);
     expect(fetchSpy).not.toHaveBeenCalledWith(
       expect.stringContaining('/retry-capability'),

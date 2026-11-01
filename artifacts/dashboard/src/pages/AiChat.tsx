@@ -108,7 +108,6 @@ import { CAPABILITY_PROBE_MESSAGE } from '@workspace/ai-orchestrator/capability-
 import type {
   AiStreamErrorEvent,
   AiStreamBehaviorProgressEvent,
-  AiAcceptanceDisposition,
   AiTerminalProjection,
   AiExecutionNodeSnapshot,
   AiScanAnalysis,
@@ -143,10 +142,17 @@ type AcceptanceNextActionCode =
   | 'RETRY_AFTER_PARSE'
   | 'RETRY_AFTER_TIMEOUT'
   | 'RETRY_AFTER_RATE_LIMIT';
-type AcceptanceDispositionView = AiAcceptanceDisposition & {
+type AcceptanceDispositionView = {
+  reasonCodes: string[];
+  outcome: 'FAILED' | 'INTERRUPTED';
+  failureKind: string;
+  recoveryState: string;
+  operatorAction?: string;
   nextActionCode?: AcceptanceNextActionCode;
   retryAfterMs?: number;
+  retryAfterSource?: AiStreamErrorEvent['retryAfterSource'];
   retryAt?: string;
+  rateLimitScope?: ChatMessage['rateLimitScope'];
 };
 import type {
   BrowserValidationBlockReason,
@@ -1947,7 +1953,7 @@ function ProjectQueryRetryButton(props: {
         <p role="status" className="mt-2 text-xs text-amber-100/80">
           {remainingSeconds === null
             ? 'No safe retry time was recorded. Check the execution status before retrying.'
-            : `Waiting for the provider retry window: about ${remainingSeconds}s remaining.`}
+            : `Waiting for the recorded retry interval: about ${remainingSeconds}s remaining.`}
         </p>
       )}
       <Button
@@ -1976,11 +1982,12 @@ function ProjectQueryRetryButton(props: {
   );
 }
 
-function safeChatRecoveryMessage(message: Pick<ChatMessage, 'failureKind' | 'providerFailureCategory' | 'rateLimitScope' | 'retryAfterMs' | 'errorCode' | 'errorMessage' | 'content'>): string {
+function safeChatRecoveryMessage(message: Pick<ChatMessage, 'acceptanceDisposition' | 'failureKind' | 'providerFailureCategory' | 'rateLimitScope' | 'retryAfterMs' | 'retryAfterSource' | 'errorCode' | 'errorMessage' | 'content'>): string {
   const categoryGuidance = providerFailureCategoryGuidance(
     message.providerFailureCategory,
-    message.rateLimitScope,
-    message.retryAfterMs,
+    message.rateLimitScope ?? message.acceptanceDisposition?.rateLimitScope,
+    message.retryAfterMs ?? message.acceptanceDisposition?.retryAfterMs,
+    message.retryAfterSource ?? message.acceptanceDisposition?.retryAfterSource,
   );
   if (categoryGuidance) return categoryGuidance;
   const raw = [
@@ -1993,13 +2000,13 @@ function safeChatRecoveryMessage(message: Pick<ChatMessage, 'failureKind' | 'pro
     .map((value) => value?.match(/\bsupport reference:\s*([a-z0-9][a-z0-9_-]{2,80})\b/i)?.[1])
     .find(Boolean);
 
-  let guidance = 'تعذر إكمال الطلب لدى المزود. أعد المحاولة بعد قليل.';
+  let guidance = 'تعذر إكمال الطلب عبر OpenRouter. أعد المحاولة يدويًا بعد قليل؛ لن نستخدم مزودًا آخر.';
   if (message.failureKind === 'CONFIGURATION' || /authentication|unauthori[sz]|invalid.*key|credential/.test(raw)) {
-    guidance = 'تعذر التحقق من بيانات الوصول. راجع إعدادات المزود أو اختر مزودًا آخر، ثم أعد المحاولة.';
+    guidance = 'تعذر التحقق من مفتاح OpenRouter. راجع إعداداته ثم أعد المحاولة.';
   } else if (message.failureKind === 'RATE_LIMIT' || /rate.?limit|quota|429/.test(raw)) {
-    guidance = 'بلغ المزود حد الاستخدام أو انتهت حصته المتاحة. انتظر قليلًا، ثم أعد المحاولة أو اختر مزودًا آخر.';
+    guidance = 'بلغ OpenRouter حد الاستخدام أو انتهت الحصة المتاحة. انتظر قبل إعادة المحاولة يدويًا؛ لن يحوّل النظام الطلب إلى مزود آخر.';
   } else if (message.failureKind === 'TRANSPORT' || /outage|timeout|temporarily unavailable|disconnected|502|503/.test(raw)) {
-    guidance = 'المزود غير متاح مؤقتًا. أعد المحاولة بعد قليل، أو اختر مزودًا آخر إذا استمر العطل.';
+    guidance = 'OpenRouter غير متاح مؤقتًا. أعد المحاولة بعد عودة الاتصال؛ لن يحوّل النظام الطلب إلى مزود آخر.';
   }
 
   return supportReference
@@ -12042,6 +12049,7 @@ export default function AiChat() {
       err.providerFailureCategory,
       err.rateLimitScope,
       err.retryAfterMs,
+      err.retryAfterSource,
     );
     if (categoryGuidance) return categoryGuidance;
     // Reuse describeAiError by constructing a temporary AiApiError from
@@ -12515,7 +12523,7 @@ export default function AiChat() {
     if (!isProjectScanRequest && activeProviderSendBlocked) {
       toast({
         title: 'الإرسال متوقف بسبب حالة المزود',
-        description: 'راجع تنبيه الجاهزية. انتظر عودة المزود أو اختر مزودًا آخر مهيّأ للإرسال، ثم أعد المحاولة صراحةً.',
+        description: 'راجع حالة الإرسال، ثم أعد المحاولة يدويًا بعد انتهائها. لن يحوّل النظام الطلب إلى مزود آخر.',
         variant: 'destructive',
       });
       return;
@@ -13233,6 +13241,7 @@ export default function AiChat() {
                 providerFailureCategory: err.providerFailureCategory,
                  rateLimitScope: err.rateLimitScope,
                  retryAfterMs: err.retryAfterMs,
+                 retryAfterSource: err.retryAfterSource,
                  retryAt: err.providerFailureCategory === 'RATE_LIMITED'
                    && typeof err.retryAfterMs === 'number'
                    && Number.isFinite(err.retryAfterMs)
