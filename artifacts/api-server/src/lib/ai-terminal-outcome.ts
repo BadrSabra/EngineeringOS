@@ -12,12 +12,20 @@ export type AiTerminalFailureKind =
   | "RECOVERY_FAILURE"
   | "INCOMPLETE";
 
+export type AiRetryAfterSource =
+  | "provider"
+  | "server_default"
+  | "adaptive_default"
+  | "project_rate_limit"
+  | "local_admission";
+
 export type AiTerminalOutcome = {
   outcome: "SUCCEEDED" | "FAILED" | "INTERRUPTED";
   failureKind?: AiTerminalFailureKind;
   providerFailureCategory?: ProviderFailureCategory;
   rateLimitScope?: AiExecutionRateLimitScope;
   retryAfterMs?: number;
+  retryAfterSource?: AiRetryAfterSource;
   contractFailureCategory?: AiExecutionContractFailureCategory;
   retryable: boolean;
   code?: string;
@@ -28,6 +36,27 @@ export type AiTerminalOutcome = {
   /** Server-owned next required path, when the evidence contract provides one. */
   nextRequiredPath?: string;
 };
+
+/**
+ * Resolve a retry delay's provenance only from explicit local admission codes
+ * or a real upstream 429. Unknown sources remain unknown; a duration alone is
+ * not evidence that the provider supplied Retry-After.
+ */
+export function resolveAiRetryAfterSource(input: {
+  retryAfterMs?: number;
+  providerStatus?: number;
+  providerCode?: string | null;
+}): AiRetryAfterSource | undefined {
+  if (!Number.isSafeInteger(input.retryAfterMs) || (input.retryAfterMs ?? 0) <= 0) {
+    return undefined;
+  }
+  const providerCode = input.providerCode?.trim().toUpperCase();
+  if (providerCode?.startsWith("LOCAL_ADAPTIVE_")) return "adaptive_default";
+  if (providerCode === "CREDENTIAL_RETRY_AFTER" || providerCode === "MODEL_COOLDOWN") {
+    return "local_admission";
+  }
+  return input.providerStatus === 429 ? "provider" : undefined;
+}
 
 /**
  * One public identity for a terminal operation across persistence, SSE, and

@@ -2,11 +2,46 @@ import { describe, expect, it } from "vitest";
 import {
   classifyAiTerminalOutcome,
   publicAcceptanceDisposition,
+  resolveAiRetryAfterSource,
   type AiTerminalOutcome,
 } from "./ai-terminal-outcome.js";
 import type { AgentStep } from "@workspace/ai-orchestrator";
 
 const steps = (...value: Record<string, unknown>[]) => value as unknown as AgentStep[];
+
+describe("resolveAiRetryAfterSource", () => {
+  it("keeps locally generated adaptive cooldowns distinct from upstream Retry-After", () => {
+    expect(resolveAiRetryAfterSource({
+      retryAfterMs: 30_000,
+      providerStatus: 429,
+      providerCode: "LOCAL_ADAPTIVE_CREDENTIAL_COOLDOWN",
+    })).toBe("adaptive_default");
+  });
+
+  it.each(["CREDENTIAL_RETRY_AFTER", "MODEL_COOLDOWN"])(
+    "classifies %s as a local admission wait",
+    (providerCode) => {
+      expect(resolveAiRetryAfterSource({
+        retryAfterMs: 5_000,
+        providerStatus: 429,
+        providerCode,
+      })).toBe("local_admission");
+    },
+  );
+
+  it("uses provider provenance only when the upstream response was an explicit 429", () => {
+    expect(resolveAiRetryAfterSource({
+      retryAfterMs: 2_000,
+      providerStatus: 429,
+      providerCode: "HTTP_429",
+    })).toBe("provider");
+  });
+
+  it("does not infer provenance from a delay alone", () => {
+    expect(resolveAiRetryAfterSource({ retryAfterMs: 30_000 })).toBeUndefined();
+    expect(resolveAiRetryAfterSource({ retryAfterMs: 0, providerStatus: 429 })).toBeUndefined();
+  });
+});
 
 describe("classifyAiTerminalOutcome", () => {
   const classify = (

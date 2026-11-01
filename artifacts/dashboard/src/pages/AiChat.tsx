@@ -219,6 +219,7 @@ type ChatMessage = {
   providerFailureCategory?: AiStreamErrorEvent['providerFailureCategory'];
   rateLimitScope?: 'upstream_shared_pool' | 'provider_credential' | 'account_quota' | 'unknown' | 'project';
   retryAfterMs?: number;
+  retryAfterSource?: AiStreamErrorEvent['retryAfterSource'];
   /** Conservative client receipt deadline when the server supplied only Retry-After. */
   retryAt?: string;
   /** Optional persisted release report attached to a historical run. */
@@ -1774,7 +1775,7 @@ function ProviderReadinessNotice({
     return (
       <div className="mb-2 flex items-start gap-2 rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-[11px] text-amber-700 dark:text-amber-300" role="status">
         <AlertCircle className="mt-0.5 h-3 w-3 shrink-0" />
-        <span dir="rtl" lang="ar">المزود <bdi dir="ltr">{activeProvider.provider}</bdi> {stateLabel}.{cooldown} انتظر عودة المزود أو اختر مزودًا آخر مهيّأ للإرسال.</span>
+        <span dir="rtl" lang="ar">المزود <bdi dir="ltr">{activeProvider.provider}</bdi> {stateLabel}.{cooldown} لن نرسل الطلب تلقائيًا أو إلى مزود آخر.</span>
       </div>
     );
   }
@@ -1855,7 +1856,7 @@ function providerFailureCategoryLabel(category: AiStreamErrorEvent['providerFail
     case 'MODEL_REJECTED': return 'رفض المزود الطلب';
     case 'MODEL_UNAVAILABLE': return 'النموذج غير متاح';
     case 'RATE_LIMITED': return 'بلغ المزود حد الاستخدام';
-    case 'FALLBACK_EXHAUSTED': return 'تعذّر الطلب لدى جميع المزودين المهيّئين';
+    case 'FALLBACK_EXHAUSTED': return 'تعذّر الطلب عبر نماذج OpenRouter المجانية المؤهلة';
     case 'TRANSPORT_FAILURE': return 'تعذر الاتصال بالمزود';
     case 'MALFORMED_RESPONSE': return 'صيغة رد المزود غير صالحة';
     case 'UNKNOWN': return 'تعذر إكمال الطلب لدى المزود';
@@ -1867,11 +1868,12 @@ function providerFailureCategoryGuidance(
   category: AiStreamErrorEvent['providerFailureCategory'],
   rateLimitScope?: ChatMessage['rateLimitScope'],
   retryAfterMs?: number,
+  retryAfterSource?: ChatMessage['retryAfterSource'],
 ): string | null {
   switch (category) {
-    case 'TIMEOUT': return 'لم يرد المزود خلال المهلة المحددة. يمكنك إعادة إرسال الطلب صراحةً.';
-    case 'MODEL_REJECTED': return 'رفض المزود هذا الطلب. راجع إعداداته أو اختر مزودًا آخر.';
-    case 'MODEL_UNAVAILABLE': return 'النموذج المطلوب غير متاح. أعد المحاولة لاحقًا أو اختر مزودًا آخر.';
+    case 'TIMEOUT': return 'لم يرد OpenRouter خلال المهلة المحددة. يمكنك إعادة إرسال الطلب يدويًا.';
+    case 'MODEL_REJECTED': return 'رفض النموذج المجاني هذا الطلب. راجع شروطه أو أعد صياغة الطلب؛ لن نرسله إلى مزود آخر.';
+    case 'MODEL_UNAVAILABLE': return 'نموذج OpenRouter المجاني غير متاح. حدّث قائمة النماذج أو اختر نموذجًا مجانيًا مؤهلًا.';
     case 'RATE_LIMITED': {
       const delaySeconds = typeof retryAfterMs === 'number' && Number.isFinite(retryAfterMs) && retryAfterMs > 0
         ? Math.ceil(retryAfterMs / 1000)
@@ -1880,15 +1882,31 @@ function providerFailureCategoryGuidance(
         ? ' الحد يخص الحصة المشتركة لدى المزود.'
         : rateLimitScope === 'provider_credential'
           ? ' الحد يخص بيانات الوصول المستخدمة لدى المزود.'
-          : '';
-      return delaySeconds
-        ? `أوقف المزود هذا الطلب بسبب حد الاستخدام.${scope} انتظر ${delaySeconds} ثانية على الأقل قبل إعادة المحاولة.`
-        : `أوقف المزود هذا الطلب بسبب حد الاستخدام.${scope} لم يحدد موعدًا للمحاولة التالية، لذا لا تتوفر إعادة محاولة تلقائية. انتظر قبل إرسال الطلب مجددًا أو اختر مزودًا آخر مهيّأ للإرسال.`;
+          : rateLimitScope === 'account_quota'
+            ? ' الحد يخص حصة حساب المزود.'
+            : rateLimitScope === 'project'
+              ? ' الحد يخص هذا المشروع.'
+              : '';
+      if (!delaySeconds) {
+        return `توقف الإرسال بسبب حد الاستخدام.${scope} لم يسجل النظام وقتًا آمنًا للمحاولة التالية؛ لا توجد إعادة تلقائية ولا تحويل إلى مزود آخر.`;
+      }
+      const provenance = retryAfterSource === 'provider'
+        ? 'حدد OpenRouter هذه المهلة.'
+        : retryAfterSource === 'adaptive_default'
+          ? 'هذه مهلة تبريد تكيفية محلية، وليست موعدًا حدده OpenRouter.'
+          : retryAfterSource === 'server_default'
+            ? 'هذه مهلة احتياطية محلية، وليست موعدًا حدده OpenRouter.'
+            : retryAfterSource === 'local_admission'
+              ? 'منع حاجز الإرسال المحلي الطلب؛ هذه ليست مهلة من OpenRouter.'
+              : retryAfterSource === 'project_rate_limit'
+                ? 'هذه مهلة محلية للمشروع.'
+                : 'مصدر المهلة غير محفوظ، لذلك لا ننسبها إلى OpenRouter.';
+      return `توقف الإرسال بسبب حد الاستخدام.${scope} ${provenance} انتظر ${delaySeconds} ثانية على الأقل قبل إعادة المحاولة يدويًا.`;
     }
-    case 'FALLBACK_EXHAUSTED': return 'تعذّر إكمال الطلب لدى جميع المزودين المهيّئين. أعد المحاولة لاحقًا أو هيّئ مزودًا آخر.';
-    case 'TRANSPORT_FAILURE': return 'تعذر الاتصال بالمزود. أعد المحاولة بعد قليل، أو اختر مزودًا آخر إذا استمر العطل.';
-    case 'MALFORMED_RESPONSE': return 'أعاد المزود ردًا بصيغة غير صالحة. أعد المحاولة أو اختر مزودًا آخر.';
-    case 'UNKNOWN': return 'تعذر إكمال الطلب لدى المزود. أعد المحاولة بعد قليل أو اختر مزودًا آخر.';
+    case 'FALLBACK_EXHAUSTED': return 'تعذّر الطلب عبر نماذج OpenRouter المجانية المؤهلة. أعد المحاولة لاحقًا؛ لا يوجد تحويل إلى مزود آخر.';
+    case 'TRANSPORT_FAILURE': return 'تعذر الاتصال بـOpenRouter. أعد المحاولة بعد عودة الاتصال؛ لن نستخدم مزودًا آخر.';
+    case 'MALFORMED_RESPONSE': return 'أعاد النموذج ردًا بصيغة غير صالحة. أعد صياغة الطلب أو جرّب نموذج OpenRouter مجانيًا مؤهلًا.';
+    case 'UNKNOWN': return 'تعذر إكمال الطلب عبر OpenRouter. أعد المحاولة يدويًا لاحقًا؛ لن نرسله إلى مزود آخر.';
     default: return null;
   }
 }

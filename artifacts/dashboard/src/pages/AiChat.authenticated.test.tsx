@@ -4557,14 +4557,18 @@ it.each([
   ['authentication_failed', 'غير مصرح له بالوصول'],
   ['provider_outage', 'غير متاح مؤقتًا'],
 ])('explains blocked provider state %s in Arabic without sending or clearing the draft', async (state, explanation) => {
+  mocks.activeProvider = { provider: 'openrouter', configured: true };
   renderAiChat();
   const composer = await screen.findByTestId('input-ai-chat-composer');
   mocks.aiMetrics.metrics = [{
-    provider: 'groq', availabilityState: state, circuitOpen: false,
+    provider: 'openrouter', availabilityState: state, circuitOpen: false,
     cooldownRemainingMs: state === 'rate_limited' ? 2100 : null,
   }];
   fireEvent.change(composer, { target: { value: 'راجع المشروع دون تعديل' } });
   expect(screen.getByText(new RegExp(explanation))).toBeInTheDocument();
+  const readinessNotice = screen.getByText(/لن نرسل الطلب تلقائيًا أو إلى مزود آخر/).closest('[role="status"]') as HTMLElement;
+  expect(within(readinessNotice).getByText('openrouter', { exact: true })).toHaveAttribute('dir', 'ltr');
+  expect(within(readinessNotice).queryByText(/اختر مزودًا آخر/)).not.toBeInTheDocument();
   if (state === 'rate_limited') expect(screen.getByText(/أعد المحاولة بعد 3 ثانية/)).toBeInTheDocument();
   expect(screen.getByRole('button', { name: 'الإرسال متوقف بسبب حالة المزود؛ راجع التنبيه' })).toBeDisabled();
   expect(composer).toBeDisabled();

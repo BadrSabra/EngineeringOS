@@ -278,6 +278,7 @@ import {
 import {
   classifyAiTerminalOutcome,
   publicAcceptanceDisposition,
+  resolveAiRetryAfterSource,
   type AiAcceptanceDisposition,
   type AiExecutionContractFailureCategory,
   type AiTerminalProjection,
@@ -1096,16 +1097,42 @@ function buildPreviousFailureResponse(
       parts.push(metadata.rateLimitScope === "upstream_shared_pool"
         ? "رفض المزوّد الطلب بسبب حدّ الحصة المشتركة لديه."
         : "رفض المزوّد الطلب بسبب حدّ استخدام.");
-      parts.push(metadata.retryAfterMs
-        ? `حدد المزوّد انتظارًا لا يقل عن ${Math.ceil(metadata.retryAfterMs / 1000)} ثانية.`
-        : "لم يرد وقت محدد لإعادة المحاولة؛ هذا الرد لا يبدأ إعادة تلقائية.");
+      if (metadata.retryAfterMs) {
+        const seconds = Math.ceil(metadata.retryAfterMs / 1000);
+        parts.push(metadata.retryAfterSource === "provider"
+          ? `حدد المزود انتظارًا لا يقل عن ${seconds} ثانية.`
+          : metadata.retryAfterSource === "adaptive_default"
+            ? `طبّق النظام تبريدًا تكيفيًا محليًا لمدة ${seconds} ثانية؛ هذا ليس موعدًا حدده المزود.`
+            : metadata.retryAfterSource === "server_default"
+              ? `طبّق النظام مهلة احتياطية لمدة ${seconds} ثانية؛ لم يحدد المزود هذا الموعد.`
+              : metadata.retryAfterSource === "local_admission"
+                ? `منع الحاجز المحلي الإرسال لمدة ${seconds} ثانية؛ لم يحدد المزود هذا الموعد.`
+                : metadata.retryAfterSource === "project_rate_limit"
+                  ? `يسري حد محلي للمشروع لمدة ${seconds} ثانية.`
+                  : `سُجل انتظار لمدة ${seconds} ثانية، لكن مصدره غير محفوظ؛ لا ننسبه إلى المزود.`);
+      } else {
+        parts.push("لم يسجل النظام مهلة آمنة للمحاولة التالية؛ لا تبدأ إعادة تلقائية.");
+      }
     } else {
       parts.push(metadata.rateLimitScope === "upstream_shared_pool"
         ? "The provider rejected the request because its shared upstream pool was rate-limited."
         : "The provider rejected the request because of a rate limit.");
-      parts.push(metadata.retryAfterMs
-        ? `The provider requested a wait of at least ${Math.ceil(metadata.retryAfterMs / 1000)} seconds.`
-        : "No retry-after time was recorded; this reply does not start an automatic retry.");
+      if (metadata.retryAfterMs) {
+        const seconds = Math.ceil(metadata.retryAfterMs / 1000);
+        parts.push(metadata.retryAfterSource === "provider"
+          ? `The provider requested a wait of at least ${seconds} seconds.`
+          : metadata.retryAfterSource === "adaptive_default"
+            ? `The application applied a local adaptive cooldown of ${seconds} seconds; this was not a provider ETA.`
+            : metadata.retryAfterSource === "server_default"
+              ? `The application applied a ${seconds}-second fallback delay; the provider did not specify this time.`
+              : metadata.retryAfterSource === "local_admission"
+                ? `Local admission blocked the send for ${seconds} seconds; the provider did not specify this time.`
+                : metadata.retryAfterSource === "project_rate_limit"
+                  ? `A local project rate limit applies for ${seconds} seconds.`
+                  : `A ${seconds}-second wait was recorded, but its source was not preserved; it is not attributed to the provider.`);
+      } else {
+        parts.push("No safe retry time was recorded; this reply does not start an automatic retry.");
+      }
     }
   } else {
     const code = failure.errorCode ?? "unknown failure";
@@ -1251,6 +1278,7 @@ function terminalMetadataFromTrace(value: string | null | undefined): {
   providerFailureCategory?: ProviderFailureCategory;
   rateLimitScope?: ProviderRateLimitScope;
   retryAfterMs?: number;
+  retryAfterSource?: AiTerminalOutcome["retryAfterSource"];
   contractFailureCategory?: AiExecutionContractFailureCategory;
   retryable?: boolean;
   recoveryState?: "NONE" | "REQUIRED" | "INCOMPLETE";
@@ -1277,6 +1305,13 @@ function terminalMetadataFromTrace(value: string | null | undefined): {
     && terminal.retryAfterMs > 0
     ? terminal.retryAfterMs
     : undefined;
+  const retryAfterSource = terminal?.retryAfterSource === "provider"
+    || terminal?.retryAfterSource === "server_default"
+    || terminal?.retryAfterSource === "adaptive_default"
+    || terminal?.retryAfterSource === "project_rate_limit"
+    || terminal?.retryAfterSource === "local_admission"
+    ? terminal.retryAfterSource
+    : undefined;
   const contractFailureCategory =
     terminal?.contractFailureCategory === "PROVIDER_EMPTY"
     || terminal?.contractFailureCategory === "MALFORMED_RESPONSE"
@@ -1301,6 +1336,7 @@ function terminalMetadataFromTrace(value: string | null | undefined): {
     ...(providerFailureCategory ? { providerFailureCategory } : {}),
     ...(rateLimitScope ? { rateLimitScope } : {}),
     ...(retryAfterMs !== undefined ? { retryAfterMs } : {}),
+    ...(retryAfterSource ? { retryAfterSource } : {}),
     ...(contractFailureCategory ? { contractFailureCategory } : {}),
     ...(typeof terminal?.retryable === "boolean" ? { retryable: terminal.retryable } : {}),
     ...(
@@ -3316,7 +3352,7 @@ async function persistFailedChatTurn(params: {
   taskResult?: unknown;
   behaviorEvidence?: unknown;
   repairPlanMetadata?: unknown;
-  terminalOutcome?: Pick<AiTerminalOutcome, "failureKind" | "providerFailureCategory" | "rateLimitScope" | "retryAfterMs" | "contractFailureCategory" | "retryable" | "recoveryState">;
+  terminalOutcome?: Pick<AiTerminalOutcome, "failureKind" | "providerFailureCategory" | "rateLimitScope" | "retryAfterMs" | "retryAfterSource" | "contractFailureCategory" | "retryable" | "recoveryState">;
   evidenceSummary?: EvidenceFailureSummary;
   evidenceVerdict?: FlightDeckEvidenceVerdict;
   evidenceReason?: string;
@@ -3361,6 +3397,9 @@ async function persistFailedChatTurn(params: {
                 : {}),
               ...(params.terminalOutcome.retryAfterMs !== undefined
                 ? { retryAfterMs: params.terminalOutcome.retryAfterMs }
+                : {}),
+              ...(params.terminalOutcome.retryAfterSource
+                ? { retryAfterSource: params.terminalOutcome.retryAfterSource }
                 : {}),
               ...(params.terminalOutcome.contractFailureCategory
                 ? { contractFailureCategory: params.terminalOutcome.contractFailureCategory }
@@ -12252,6 +12291,14 @@ export async function handleChatStream(req: Request, res: Response) {
             evidenceAccepted: false,
           }
         : classifiedTerminalOutcome;
+      const retryAfterSource = terminalOutcomeBase.retryAfterSource
+        ?? (err instanceof GroqClientError
+          ? resolveAiRetryAfterSource({
+              retryAfterMs: err.retryAfterMs,
+              providerStatus: err.providerStatus,
+              providerCode: err.providerCode,
+            })
+          : undefined);
       const terminalOutcome = {
         ...terminalOutcomeBase,
         ...(err instanceof GroqClientError && err.rateLimitScope
@@ -12262,6 +12309,7 @@ export async function handleChatStream(req: Request, res: Response) {
           && err.retryAfterMs > 0
           ? { retryAfterMs: err.retryAfterMs }
           : {}),
+        ...(retryAfterSource ? { retryAfterSource } : {}),
       };
       if (err instanceof GroqClientError) {
         if (err.code === "MODEL_NOT_FOUND" || err.code === "MODEL_UNAVAILABLE") {
@@ -12416,6 +12464,9 @@ export async function handleChatStream(req: Request, res: Response) {
             : {}),
           ...(terminalOutcome.retryAfterMs !== undefined
             ? { retryAfterMs: terminalOutcome.retryAfterMs }
+            : {}),
+          ...(terminalOutcome.retryAfterSource
+            ? { retryAfterSource: terminalOutcome.retryAfterSource }
             : {}),
         });
         // Whether this request persisted the failure or replayed an existing

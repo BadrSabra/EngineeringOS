@@ -68,6 +68,7 @@ const actualChatWithFallbackRef = vi.hoisted(() => ({
 const providerStrategyState = vi.hoisted(() => ({
   callCount: 0,
   failOnCall: 0,
+  failureKind: "provider_429" as "provider_429" | "adaptive_429" | "empty_response",
   toolCallId: "",
   toolName: "read_file" as "read_file" | "run_validation",
   toolArguments: {} as Record<string, string>,
@@ -203,11 +204,15 @@ vi.mock("../../../../lib/ai-orchestrator/src/provider-registry.js", async () => 
               : 0,
         });
         if (providerStrategyState.failOnCall === providerStrategyState.callCount) {
+          if (providerStrategyState.failureKind === "empty_response") {
+            throw new GroqClientError("EMPTY_RESPONSE", "fixture provider returned no content.");
+          }
+          const adaptive = providerStrategyState.failureKind === "adaptive_429";
           throw new GroqClientError("RATE_LIMITED", "fixture provider rate limit", {
             context: {
-              providerCode: "HTTP_429",
-              retryAfterMs: 60_000,
-              rateLimitScope: "provider_credential",
+              providerCode: adaptive ? "LOCAL_ADAPTIVE_CREDENTIAL_COOLDOWN" : "HTTP_429",
+              retryAfterMs: adaptive ? 30_000 : 60_000,
+              rateLimitScope: adaptive ? "unknown" : "provider_credential",
             },
           });
         }
@@ -3640,21 +3645,29 @@ describe("real durable task execution lifecycle", () => {
       key: 'read_file:{"path":"src/target.ts"}',
     },
   ] as const;
-  const durableToolHandoffCases = durableToolMarkers.flatMap((marker) =>
-    (["started", "completed"] as const).map((markerStatus) => ({
-      ...marker,
-      markerStatus,
-      failAfterCompletedTool: false,
+  type DurableToolHandoffCase = (typeof durableToolMarkers)[number] & {
+    markerStatus: "started" | "completed";
+    failureKind: "none" | "provider_429" | "adaptive_429" | "empty_response";
+  };
+  const durableToolHandoffCases: DurableToolHandoffCase[] = [
+    ...durableToolMarkers.flatMap((marker) =>
+      (["started", "completed"] as const).map((markerStatus) => ({
+        ...marker,
+        markerStatus,
+        failureKind: "none" as const,
+      })),
+    ),
+    ...(["provider_429", "adaptive_429", "empty_response"] as const).map((failureKind) => ({
+      ...durableToolMarkers[0],
+      markerStatus: "completed" as const,
+      failureKind,
     })),
-  ).concat([{
-    ...durableToolMarkers[0],
-    markerStatus: "completed" as const,
-    failAfterCompletedTool: true,
-  }]);
+  ];
 
   it.each(durableToolHandoffCases)(
-    "reloads a durable $markerStatus $tool marker after worker handoff (rate limited: $failAfterCompletedTool)",
-    async ({ markerStatus, tool, args: markerArgs, key, failAfterCompletedTool }) => {
+    "reloads a durable $markerStatus $tool marker after worker handoff (provider failure: $failureKind)",
+    async ({ markerStatus, tool, args: markerArgs, key, failureKind }) => {
+    const failAfterCompletedTool = failureKind !== "none";
     const fixture = await createMissionToolLoopFixture({
       phase: "validate",
       approvalRequired: false,
@@ -3779,6 +3792,7 @@ describe("real durable task execution lifecycle", () => {
         }
         providerStrategyState.callCount = 0;
         providerStrategyState.failOnCall = failAfterCompletedTool ? 2 : 0;
+        providerStrategyState.failureKind = failureKind === "none" ? "provider_429" : failureKind;
         providerStrategyState.toolCallId = `db-handoff-${tool}-${markerStatus}`;
         providerStrategyState.toolName = tool;
         providerStrategyState.toolArguments = markerArgs;
@@ -3840,7 +3854,7 @@ describe("real durable task execution lifecycle", () => {
         workspaceRevision: fixture.now.toISOString(),
       });
 
-      if (failAfterCompletedTool) {
+      if (failureKind === "provider_429" || failureKind === "adaptive_429") {
         expect(recoveredOutcome).toMatchObject({
           ok: false,
           status: "failed",
@@ -3887,12 +3901,36 @@ describe("real durable task execution lifecycle", () => {
           outcome: "FAILED",
           reasonCode: "EXECUTION_PROVIDER_FAILURE",
           resumable: 1,
+        });
+        const retryAfterMs = failureKind === "adaptive_429" ? 30_000 : 60_000;
+        expect(acceptance).toMatchObject({
           disposition: {
-            retryAfterMs: 60_000,
-            retryAfterSource: "provider",
-            rateLimitScope: "provider_credential",
+            retryAfterMs,
+            retryAfterSource: failureKind === "adaptive_429" ? "adaptive_default" : "provider",
+            rateLimitScope: failureKind === "adaptive_429" ? "unknown" : "provider_credential",
           },
         });
+        if (failureKind === "adaptive_429") {
+          const callsBeforeResume = chatWithFallback.mock.calls.length;
+          const strategyCallsBeforeResume = providerStrategyState.callCount;
+          const earlyResume = await executeTaskLifecycle({
+            taskId: fixture.taskId,
+            userId: "mission-effect-test-user",
+            provider: providerForTest,
+            trigger: "reconciliation",
+            expectedStatuses: ["verifying"],
+            resumeExecutionId: checkpointedExecutionId,
+            workspaceRevision: fixture.now.toISOString(),
+          });
+          expect(earlyResume).toMatchObject({
+            ok: false,
+            status: "conflict",
+            errorCode: "execution_retry_after_rate_limit",
+          });
+          expect(earlyResume.retryAfterMs).toBeGreaterThan(0);
+          expect(chatWithFallback).toHaveBeenCalledTimes(callsBeforeResume);
+          expect(providerStrategyState.callCount).toBe(strategyCallsBeforeResume);
+        }
       } else if (markerStatus === "started" && tool === "run_validation") {
         expect(recoveredOutcome).toMatchObject({
           ok: false,
@@ -3941,7 +3979,13 @@ describe("real durable task execution lifecycle", () => {
           effectiveProvider: "openrouter",
           result: { response: expect.any(String) },
         });
-        expect(providerStrategyState.callCount).toBeGreaterThan(0);
+        if (failureKind === "empty_response") {
+          expect(providerStrategyState.callCount).toBe(3);
+          expect(providerStrategyState.callOptionsSummary.map((call) => call.providerId))
+            .toEqual(["openrouter", "openrouter", "openrouter"]);
+        } else {
+          expect(providerStrategyState.callCount).toBeGreaterThan(0);
+        }
         expect(providerStrategyState.requestedToolName).toBe(tool);
         expect(resumedStepKinds).toContain("tool_call");
         expect(resumedStepKinds).toContain("tool_result");

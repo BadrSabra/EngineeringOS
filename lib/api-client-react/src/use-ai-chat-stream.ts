@@ -311,7 +311,7 @@ export type AiStreamErrorEvent = {
   retryAfterMs?: number;
   rateLimitScope?: 'upstream_shared_pool' | 'provider_credential' | 'account_quota' | 'unknown' | 'project';
   retryAt?: string;
-  retryAfterSource?: 'provider' | 'server_default' | 'adaptive_default' | 'project_rate_limit';
+  retryAfterSource?: 'provider' | 'server_default' | 'adaptive_default' | 'project_rate_limit' | 'local_admission';
   quality?: {
     code: 'QUALITY_REVIEW_LOW';
     score: number;
