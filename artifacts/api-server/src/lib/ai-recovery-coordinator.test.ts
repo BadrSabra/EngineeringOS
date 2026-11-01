@@ -182,6 +182,36 @@ describe("automatic task recovery admission", () => {
     });
   });
 
+  it("requires explicit resumption instead of autonomously retrying the same operation after 429", () => {
+    const retryAt = "2026-09-17T12:00:10.000Z";
+    const afterRetryAt = Date.parse(retryAt);
+    const taskPlan = planTaskRecovery(candidate({
+      action: "RETRY_AFTER_RATE_LIMIT",
+      disposition: {
+        recoveryState: "REQUIRED",
+        retryAt,
+      },
+    }), afterRetryAt);
+    const chatPlan = planChatRecovery(chatCandidate({
+      action: "RETRY_AFTER_RATE_LIMIT",
+      reasonCode: "EXECUTION_PROVIDER_FAILURE",
+      resumable: 0,
+      disposition: {
+        recoveryState: "REQUIRED",
+        retryAt,
+      },
+    }), afterRetryAt);
+
+    expect.soft(taskPlan).toEqual({
+      kind: "skip",
+      reason: "rate_limit_requires_manual_action",
+    });
+    expect.soft(chatPlan).toEqual({
+      kind: "skip",
+      reason: "rate_limit_requires_manual_action",
+    });
+  });
+
   it("does not schedule automatic rate-limit recovery without a positive retry window", () => {
     const taskPlan = planTaskRecovery(candidate({
       action: "RETRY_AFTER_RATE_LIMIT",
