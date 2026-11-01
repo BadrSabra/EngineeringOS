@@ -1,5 +1,7 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { spawn } from "node:child_process";
 import { reserveOpenRouterLaneSlot, type ModelLaneCursorScope } from "./model-lane-cursor-store.js";
+import { acquireModelAttemptLease } from "./model-cooldown-store.js";
 
 const enabled = process.env.RUN_OPENROUTER_LANE_CURSOR_DB_TEST === "1";
 const databaseUrl = process.env.OPENROUTER_LANE_CURSOR_TEST_DATABASE_URL;
@@ -85,4 +87,56 @@ databaseSuite("OpenRouter lane cursor PostgreSQL concurrency", () => {
 
     expect([first, second, changedCandidates, changedScope]).toEqual([0, 1, 0, 0]);
   });
+
+  it("serializes the same model attempt across independent processes", async () => {
+    const model = `lease_db_test_${process.pid}_${Date.now()}`;
+    const firstLease = await acquireModelAttemptLease("openrouter", model);
+    expect(firstLease).toBeDefined();
+
+    const cooldownStoreUrl = new URL("./model-cooldown-store.ts", import.meta.url).href;
+    const childScript = `
+      import { acquireModelAttemptLease } from ${JSON.stringify(cooldownStoreUrl)};
+      console.log("ATTEMPTING");
+      const lease = await acquireModelAttemptLease("openrouter", ${JSON.stringify(model)});
+      console.log(lease ? "LEASE_ACQUIRED" : "LEASE_DENIED");
+      await lease?.release();
+    `;
+    const child = spawn(
+      process.execPath,
+      ["--import", "tsx", "--input-type=module", "-e", childScript],
+      { cwd: process.cwd(), env: process.env, stdio: ["ignore", "pipe", "pipe"] },
+    );
+    let output = "";
+    child.stdout.setEncoding("utf8");
+    child.stderr.setEncoding("utf8");
+    child.stdout.on("data", (chunk: string) => { output += chunk; });
+    child.stderr.on("data", (chunk: string) => { output += chunk; });
+    const childExit = new Promise<number | null>((resolve) => {
+      child.once("exit", (code) => resolve(code));
+      child.once("error", () => resolve(null));
+    });
+    const waitForOutput = async (expected: string) => {
+      const deadline = Date.now() + 8_000;
+      while (!output.includes(expected) && Date.now() < deadline) {
+        await new Promise((resolve) => setTimeout(resolve, 20));
+      }
+      expect(output).toContain(expected);
+    };
+
+    let firstReleased = false;
+    try {
+      await waitForOutput("ATTEMPTING");
+      await new Promise((resolve) => setTimeout(resolve, 250));
+      expect(output).not.toContain("LEASE_ACQUIRED");
+
+      await firstLease!.release();
+      firstReleased = true;
+
+      await waitForOutput("LEASE_ACQUIRED");
+      expect(await childExit).toBe(0);
+    } finally {
+      if (!firstReleased) await firstLease!.release();
+      if (child.exitCode === null) child.kill("SIGKILL");
+    }
+  }, 15_000);
 });

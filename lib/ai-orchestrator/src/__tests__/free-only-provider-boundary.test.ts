@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { validateProviderKey } from "../agent-complete.js";
+import { agentComplete, validateProviderKey } from "../agent-complete.js";
 import {
   openrouterCompleteRaw,
   openrouterCompleteStream,
@@ -75,6 +75,24 @@ describe("free-only provider inference boundary", () => {
           valid: false,
           reason: "provider_not_enabled_for_free_route",
         });
+      expect(fetchMock).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each(["groq", "gemini", "deepseek"] as const)(
+    "rejects direct agentComplete inference through unverified %s before network",
+    async (provider) => {
+      const fetchMock = vi.fn();
+      vi.stubGlobal("fetch", fetchMock);
+
+      await expect(agentComplete(messages as any, {
+        provider,
+        apiKey: "synthetic-test-credential",
+      })).rejects.toMatchObject({
+        code: "INVALID_CONFIG",
+        providerCode: "FREE_ROUTE_NOT_VERIFIED",
+      });
+
       expect(fetchMock).not.toHaveBeenCalled();
     },
   );

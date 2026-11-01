@@ -223,6 +223,10 @@ export async function agentComplete(
   });
   const providerDecision = resolveExecutionProvider(executionPlan, opts.provider);
   const providerId = providerDecision.providerId;
+  // Provider selection may carry a caller-supplied preference. Treat it as
+  // routing input only, never authorization: reject an unverified provider
+  // before loading credentials, checking lifecycle state, or invoking a client.
+  assertProductProviderEnabled(providerId);
   const provider = loadProvider(providerId);
   const apiKey = requireApiKey(provider, opts.apiKey);
   const shouldCheckLifecycle =

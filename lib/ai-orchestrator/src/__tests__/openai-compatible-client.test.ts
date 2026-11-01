@@ -1189,6 +1189,23 @@ describe("openrouterCompleteWithFallback — error classification", () => {
     executionLedger.setTerminal("completed");
   });
 
+  it("does not opt a product fallback request into an in-request 429 retry", async () => {
+    const fetchMock = vi.fn(async () =>
+      textResponse('{"error":{"message":"temporarily rate limited"}}', 429, new Headers({ "Retry-After": "1" })));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(openrouterCompleteWithFallback(baseMessages as any, {
+      apiKey: "fixture-openrouter-credential-no-in-request-retry",
+      model: primaryModel,
+      maxTokens: 10,
+      maxFallbackModels: 1,
+      retryTransient: false,
+      waitOnRateLimit: true,
+    } as any)).rejects.toMatchObject({ code: "RATE_LIMITED" });
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
   it("does not spend a Retry-After wait on an upstream shared-pool limit", async () => {
     const fetchMock = vi.fn(async () => textResponse(JSON.stringify({
         error: {
