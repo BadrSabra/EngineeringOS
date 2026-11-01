@@ -514,7 +514,10 @@ describe("openrouterCompleteWithFallback — error classification", () => {
   const primaryModel = FREE_MODELS[0]!.id;
 
   it("accepts a free model for its requested capability instead of defaulting to chat", async () => {
-    const codingModel = "cohere/north-mini-code:free";
+    const codingModel = FREE_MODELS.find(
+      (candidate) => candidate.quality === "powerful" && candidate.capabilities.includes("coding"),
+    )?.id;
+    expect(codingModel).toBeDefined();
     const fetchMock = vi.fn(async (_url: string | URL, init?: RequestInit) => {
       const body = JSON.parse(String(init?.body ?? "{}")) as Record<string, unknown>;
       return jsonResponse({
@@ -1514,6 +1517,84 @@ describe("openrouterCompleteWithFallback — error classification", () => {
         error.code === "MODEL_ATTEMPT_BUSY" &&
         error.providerCode === "MODEL_ATTEMPT_LOCK_BUSY",
     );
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("fails closed across the free candidate chain when lease persistence throws", async () => {
+    let leaseCalls = 0;
+    const fetchMock = vi.fn(async (_url: string | URL, init?: RequestInit) => {
+      const body = JSON.parse(String(init?.body ?? "{}")) as Record<string, unknown>;
+      return jsonResponse({
+        choices: [{ message: { content: "response must not be reached" }, finish_reason: "stop" }],
+        model: body.model,
+        usage: { prompt_tokens: 1, completion_tokens: 1 },
+      });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const modelCooldownPersistence = {
+      readActive: async () => [],
+      write: async () => {},
+      clear: async () => {},
+      acquireAttemptLease: async () => {
+        leaseCalls += 1;
+        if (leaseCalls === 1) throw new Error("fixture lease store failure");
+        return { release: async () => {} };
+      },
+    };
+
+    await expect(
+      openrouterCompleteWithFallback(baseMessages as any, {
+        apiKey: "test-key",
+        model: primaryModel,
+        maxFallbackModels: 2,
+        modelCooldownPersistence,
+      }),
+    ).rejects.toSatisfy(
+      (error: unknown) =>
+        error instanceof GroqClientError &&
+        error.code === "MODEL_ATTEMPT_BUSY" &&
+        error.providerCode === "MODEL_ATTEMPT_LOCK_UNAVAILABLE",
+    );
+    expect(leaseCalls).toBe(1);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("fails closed on lease persistence errors before starting a stream", async () => {
+    let leaseCalls = 0;
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+    const modelCooldownPersistence = {
+      readActive: async () => [],
+      write: async () => {},
+      clear: async () => {},
+      acquireAttemptLease: async () => {
+        leaseCalls += 1;
+        if (leaseCalls === 1) throw new Error("fixture lease store failure");
+        return { release: async () => {} };
+      },
+    };
+    const consume = async (stream: AsyncGenerator<string>) => {
+      for await (const _chunk of stream) {
+        // A lease-store failure must happen before any provider bytes exist.
+      }
+    };
+
+    await expect(
+      consume(
+        openrouterCompleteStream(baseMessages as any, {
+          apiKey: "test-key",
+          model: primaryModel,
+          maxFallbackModels: 2,
+          modelCooldownPersistence,
+        }),
+      ),
+    ).rejects.toSatisfy(
+      (error: unknown) =>
+        error instanceof GroqClientError &&
+        error.code === "MODEL_ATTEMPT_BUSY" &&
+        error.providerCode === "MODEL_ATTEMPT_LOCK_UNAVAILABLE",
+    );
+    expect(leaseCalls).toBe(1);
     expect(fetchMock).not.toHaveBeenCalled();
   });
 

@@ -18,19 +18,12 @@
 - [Task answer receipt verification](task-answer-receipt.md) — logs are clipped; bind claim spans, graph source revision, live workspace revision, and answer text through the accepted receipt.
 - [Task execution UI freshness](task-acceptance-ui-freshness.md) — cached acceptance, receipts, verification results, and capsules need freshness gates as well as server identity checks.
 - [Workflow transition serialization](workflow-transition-lock.md) — serialize phase transitions; workflow deletion locks retryable executions before the workflow row to avoid retry races.
-- [Mission plan materialization](mission-plan-materialization.md) — materialize typed steps into durable Goals, but let the existing runtime gate dependencies and wake downstream work.
-- [Mission recipe claim transaction](mission-recipe-claim-transaction.md) — keep Mission/Goal authorization, paused-resume token recovery, and recipe execution claim in one transaction.
-- [Engineering Agent control-plane scope](engineering-agent-control-plane.md) — unify product continuity over the existing Mission Runtime; preserve scoped approval and delivery gates.
-- [Mission action replay](mission-action-replay.md) — retries on compatibility routes must reach the unified ledger before mutable lifecycle state is re-evaluated.
-- [Automatic Mission replan](mission-auto-replan.md) — preserve revision-bound recovery; strict server-owned diagnoses may block auto-replan but never grant scope.
-- [Mission replan test isolation](mission-replan-test-isolation.md) — inject a fake root-goal runner; real auto-replans persist tasks that startup recovery may retry.
-- [Workflow phase ledger](workflow-phase-ledger.md) — phase-local status is bookkeeping, not Canonical Proof; real workflow work needs substantive bound evidence.
+- [Mission lifecycle continuity](mission-lifecycle-index.md) — grouped pointers for plan, Goal, execution, approval, recovery, and world-state continuity contracts.
 - [Release pipeline hardening](release-pipeline-hardening.md) — nested checks reuse parent locks; stale locks are verified before waiting or reclamation.
 - [Controlled release validation](controlled-release-validation.md) — live recovery needs a disposable DB and isolated receipts; provider-free full-index tests need egress guard and isolated startup effects.
 - [Startup scrub contract preservation](startup-scrub-contract-preservation.md) — a `kind` tag alone cannot distinguish validation-result payloads from typed operation acceptance metadata.
 - [Safe terminal execution boundary](terminal-execution-boundary.md) — terminal actions use server-owned fixed profiles; the model selects a profile but never supplies shell text or arbitrary argv.
 - [AI release quality gate](ai-release-quality-gate.md) — aggregate deterministic checks, keep Preview blocking by default, and treat local schema validation as authoritative for live provider JSON.
-- [Task execution lifecycle](task-execution-lifecycle.md) — preserve live worker leases during startup; keep Mission content revisions separate from metadata timestamps.
 - [Process-level AI worker fixtures](process-level-ai-worker-fixtures.md) — mock provider resolution only in controlled child modes; keep PostgreSQL claims and terminal writes real.
 - [Untrusted content boundary](untrusted-content-boundary.md) — repository, tool, memory, and checkpoint text is evidence/data only; server authorization remains independent.
 - [Delivery test cleanup](delivery-test-cleanup.md) — recovery tests must remove only generated operation roots; the shared delivery directory can contain tracked fixtures.
@@ -92,6 +85,7 @@
 - [GitHub review branches](github-review-branches.md) — compare against live main before publishing a one-commit branch; cached origin may be stale and SSH may be unavailable.
 - [Hierarchical retrieval boundary](hierarchical-retrieval-boundary.md) — graph planning ranks bounded source/test paths; server-owned read tools remain authoritative for source bytes and evidence.
 - [Runtime observation boundary](runtime-observation-boundary.md) — runtime and validator probes attest only a bound direct PID; temp validation roots never replace project provenance or grant acceptance.
+- [Non-root network isolation](non-root-network-isolation.md) — lifecycle E2E needs loopback-only networking and a non-root runner; never bypass either guard when the namespace setup cannot provide both.
 - [Runtime oracle command boundary](runtime-oracle-command-boundary.md) — production runtime validation needs a fixed server-owned command and existing proof bindings; it never grants write approval.
 - [Mission Control acceptance projection](mission-control-acceptance-projection.md) — distinguish checkpoint proof projections from Canonical Proof reloaded from durable acceptance and evidence.
 - [Task objective contracts](task-objective-contracts.md) — every proof-required task gets a hashed objective/validator/evidence contract; unsupported validators fail closed.
@@ -114,14 +108,7 @@
 - [Server-owned confidence](server-owned-confidence.md) — confidence is computed from accepted evidence, claim closure, source diversity, revision, and contradictions; provider scores are non-authoritative.
 - [Sub-query value scheduling](subquery-value-scheduling.md) — broad query work is ordered by proof value and dependency gates; failed evidence prerequisites skip downstream reads.
 - [Shared evidence graph](shared-evidence-graph.md) — one metadata-only graph deduplicates retained reads and joins files, symbols, claims, sub-queries, and verdicts.
-- [Mission management browser proof](missions-management-browser-proof.md) — fixture plan confirmation and verify base-aware return to original Chat plus durable selection after reload.
-- [Mission Projection polling](mission-projection-polling.md) — the 3-second refresh while a Mission is active is intentional; preserve it unless the product contract changes.
-- [Mission approval adapter](mission-approval-adapter.md) — preserve Mission-first locking; compare the locked Proposal identity and pin it to the Apply Mission plan.
-- [Workflow Mission adapter](workflow-mission-adapter.md) — workflow phase acceptance projects through the shared Goal/Mission seam; empty phases remain valid no-op boundaries.
 - [Recovery test isolation](recovery-test-isolation.md) — drain tracked observation work between nested lifecycle handoff phases and before dependency-ordered cleanup.
-- [Mission tool-loop profile boundary](mission-tool-loop-profile.md) — server-owned plan steps select profiles; legacy tasks retain TaskAgent behavior.
-- [Mission replan context](mission-replan-context.md) — automatic replans must persist bounded failure evidence and affected claims in the fresh plan revision.
-- [Mission world-state projection](mission-world-state-projection.md) — bounded state travels checkpoint → receipt → Goal acceptance; provider prose is never authoritative state.
 - [Delegation and skill replay boundaries](delegation-skill-replay-boundaries.md) — lineage is not proof authority; parent aggregation needs an explicit required-child contract.
 - [Capability environment identity](capability-environment-identity.md) — derive compatibility identity from canonical registry IDs and versions; never treat it as permission or infer it for legacy records.
 - [Paired baseline gate](paired-baseline-gate.md) — Gate 3 needs per-case server-owned evidence and an exact shared contract; aggregate baselines cannot authorize candidate promotion.
@@ -156,3 +143,4 @@
 - [Live benchmark failure attribution](live-benchmark-failure-attribution.md) — use the resolved fixture and sanitized proof; do not infer scope or typecheck causes from partial maps.
 - [Node CLI entrypoint paths](node-cli-entrypoint-paths.md) — normalize relative `argv[1]` against the working directory before comparing it with `import.meta.url`.
 - [Replit dev-banner base path](replit-dev-banner-base-path.md) — the dev-banner injects a root-absolute script URL; only enable it for root-mounted artifacts.
+- [Merge reconciliation volatility](merge-reconciliation-volatility.md) — an active merge can change HEAD/index during a turn; recheck repository state before edits or staging.
