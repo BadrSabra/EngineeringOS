@@ -41,6 +41,20 @@ export const AI_USAGE_DAILY_ATTEMPT_LIMIT = Math.max(
   1,
   Number.parseInt(process.env.AI_USAGE_DAILY_ATTEMPT_LIMIT ?? "1000", 10) || 1000,
 );
+export const AI_USAGE_SUMMARY_MAX_ATTEMPTS = 5_000;
+
+export function boundAiUsageAttemptSample<T>(
+  rows: readonly T[],
+  maximum = AI_USAGE_SUMMARY_MAX_ATTEMPTS,
+): { rows: T[]; attemptsTruncated: boolean } {
+  const safeMaximum = Number.isSafeInteger(maximum) && maximum > 0
+    ? maximum
+    : AI_USAGE_SUMMARY_MAX_ATTEMPTS;
+  return {
+    rows: rows.slice(0, safeMaximum),
+    attemptsTruncated: rows.length > safeMaximum,
+  };
+}
 
 export type AiTelemetryContext = {
   projectId?: string | null;
@@ -113,6 +127,84 @@ function incrementCategory(
 function isAiRateLimitScope(value: unknown): value is AiRateLimitScope {
   return typeof value === "string"
     && AI_RATE_LIMIT_SCOPES.includes(value as AiRateLimitScope);
+}
+
+type AiUsageProviderFailureKind =
+  | "rateLimited"
+  | "quotaExhausted"
+  | "emptyResponse"
+  | "timeout"
+  | "modelUnavailable"
+  | "modelRejected"
+  | "fallbackExhausted"
+  | "transportFailure"
+  | "malformedResponse"
+  | "unknown";
+
+type AiUsageProviderFailureCounts = Record<AiUsageProviderFailureKind, number>;
+type AiUsageRateLimitScopeCounts = Record<AiRateLimitScope | "unclassified", number>;
+
+function emptyAiUsageProviderFailureCounts(): AiUsageProviderFailureCounts {
+  return {
+    rateLimited: 0,
+    quotaExhausted: 0,
+    emptyResponse: 0,
+    timeout: 0,
+    modelUnavailable: 0,
+    modelRejected: 0,
+    fallbackExhausted: 0,
+    transportFailure: 0,
+    malformedResponse: 0,
+    unknown: 0,
+  };
+}
+
+function emptyAiUsageRateLimitScopeCounts(): AiUsageRateLimitScopeCounts {
+  return {
+    upstream_shared_pool: 0,
+    provider_credential: 0,
+    account_quota: 0,
+    unknown: 0,
+    unclassified: 0,
+  };
+}
+
+/**
+ * Usage summaries expose only bounded, server-owned categories. Keep QUOTA
+ * and EMPTY_RESPONSE distinct for operations without changing the separate
+ * recovery-policy classifier or leaking provider messages.
+ */
+function aiUsageProviderFailureKind(value: unknown): AiUsageProviderFailureKind {
+  const code = typeof value === "string" ? value.trim().toUpperCase() : "";
+  if (code === "QUOTA" || code === "QUOTA_EXHAUSTED") return "quotaExhausted";
+  if (code === "EMPTY_RESPONSE") return "emptyResponse";
+
+  switch (classifyProviderFailure({ code })) {
+    case "RATE_LIMITED": return "rateLimited";
+    case "TIMEOUT": return "timeout";
+    case "MODEL_UNAVAILABLE": return "modelUnavailable";
+    case "MODEL_REJECTED": return "modelRejected";
+    case "FALLBACK_EXHAUSTED": return "fallbackExhausted";
+    case "TRANSPORT_FAILURE": return "transportFailure";
+    case "MALFORMED_RESPONSE": return "malformedResponse";
+    default: return "unknown";
+  }
+}
+
+function recordAiUsageProviderFailure(
+  row: Pick<AiUsageEvent, "outcome" | "providerFailureKind" | "rateLimitScope">,
+  failures: AiUsageProviderFailureCounts,
+  scopes: AiUsageRateLimitScopeCounts,
+): void {
+  if (row.outcome !== "failure") return;
+  const kind = aiUsageProviderFailureKind(row.providerFailureKind);
+  failures[kind] += 1;
+  if (kind !== "rateLimited") return;
+  if (isAiRateLimitScope(row.rateLimitScope)) {
+    scopes[row.rateLimitScope] += 1;
+  } else {
+    scopes.unclassified += 1;
+  }
 }
 
 function contractFailureCategory(
@@ -595,10 +687,11 @@ export async function getAiUsageSummary(params: {
   ];
   if (params.projectId) conditions.push(eq(aiUsageEventsTable.projectId, params.projectId));
   if (params.provider) conditions.push(eq(aiUsageEventsTable.provider, params.provider));
-  const rows = await db.select().from(aiUsageEventsTable)
+  const queriedRows = await db.select().from(aiUsageEventsTable)
     .where(and(...conditions, isNull(aiUsageEventsTable.modelTaskContract)))
-    .orderBy(desc(aiUsageEventsTable.occurredAt))
-    .limit(5000);
+    .orderBy(desc(aiUsageEventsTable.occurredAt), desc(aiUsageEventsTable.id))
+    .limit(AI_USAGE_SUMMARY_MAX_ATTEMPTS + 1);
+  const { rows, attemptsTruncated } = boundAiUsageAttemptSample(queriedRows);
   const modelTaskRows = await db.select({
     provider: aiUsageEventsTable.provider,
     model: aiUsageEventsTable.model,
@@ -646,11 +739,18 @@ export async function getAiUsageSummary(params: {
     const knownUsage = entries.filter((row) => row.usageStatus === "known" || row.usageStatus === "partial");
     const promptTokens = knownUsage.reduce((sum, row) => sum + (row.promptTokens ?? 0), 0);
     const completionTokens = knownUsage.reduce((sum, row) => sum + (row.completionTokens ?? 0), 0);
+    const providerFailures = emptyAiUsageProviderFailureCounts();
+    const rateLimitScopes = emptyAiUsageRateLimitScopeCounts();
+    for (const row of entries) {
+      recordAiUsageProviderFailure(row, providerFailures, rateLimitScopes);
+    }
     return {
       provider,
       attempts: entries.length,
       successes,
       failures: entries.filter((row) => row.outcome === "failure").length,
+      providerFailures,
+      rateLimitScopes,
       cancelled: entries.filter((row) => row.outcome === "cancelled").length,
       fallbackAttempts: entries.reduce((sum, row) => sum + row.fallbackCount, 0),
       successRate: entries.length ? Number((successes / entries.length).toFixed(4)) : null,
@@ -783,6 +883,8 @@ export async function getAiUsageSummary(params: {
     attempts: number;
     successes: number;
     failures: number;
+    providerFailures: AiUsageProviderFailureCounts;
+    rateLimitScopes: AiUsageRateLimitScopeCounts;
     promptTokens: number;
     completionTokens: number;
     usageKnown: boolean;
@@ -800,6 +902,8 @@ export async function getAiUsageSummary(params: {
       attempts: 0,
       successes: 0,
       failures: 0,
+      providerFailures: emptyAiUsageProviderFailureCounts(),
+      rateLimitScopes: emptyAiUsageRateLimitScopeCounts(),
       promptTokens: 0,
       completionTokens: 0,
       usageKnown: false,
@@ -814,6 +918,7 @@ export async function getAiUsageSummary(params: {
     current.attempts += 1;
     current.successes += row.outcome === "success" ? 1 : 0;
     current.failures += row.outcome === "failure" ? 1 : 0;
+    recordAiUsageProviderFailure(row, current.providerFailures, current.rateLimitScopes);
     current.promptTokens += row.promptTokens ?? 0;
     current.completionTokens += row.completionTokens ?? 0;
     current.usageKnown ||= row.usageStatus !== "unknown";
@@ -838,9 +943,10 @@ export async function getAiUsageSummary(params: {
     timeline.set(day, current);
   }
   return {
-    schemaVersion: 4,
+    schemaVersion: 5,
     windowDays: days,
     retentionDays: AI_USAGE_RETENTION_DAYS,
+    attemptsTruncated,
     totalAttempts: rows.length,
     totalSuccesses: rows.filter((row) => row.outcome === "success").length,
     totalFailures: rows.filter((row) => row.outcome === "failure").length,
@@ -854,6 +960,8 @@ export async function getAiUsageSummary(params: {
         attempts: value.attempts,
         successes: value.successes,
         failures: value.failures,
+        providerFailures: value.providerFailures,
+        rateLimitScopes: value.rateLimitScopes,
         promptTokens: value.usageKnown ? value.promptTokens : null,
         completionTokens: value.usageKnown ? value.completionTokens : null,
         usageKnown: value.usageKnown,

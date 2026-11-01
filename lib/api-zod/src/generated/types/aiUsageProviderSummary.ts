@@ -7,7 +7,9 @@
  */
 import type { AiUsageContractSummary } from './aiUsageContractSummary';
 import type { AiUsageModelSummary } from './aiUsageModelSummary';
+import type { AiUsageProviderFailureCounts } from './aiUsageProviderFailureCounts';
 import type { AiUsageProviderSummaryUsage } from './aiUsageProviderSummaryUsage';
+import type { AiUsageRateLimitScopeCounts } from './aiUsageRateLimitScopeCounts';
 
 export interface AiUsageProviderSummary {
   provider: string;
@@ -21,6 +23,8 @@ export interface AiUsageProviderSummary {
   cancelled: number;
   /** @minimum 0 */
   fallbackAttempts: number;
+  providerFailures: AiUsageProviderFailureCounts;
+  rateLimitScopes: AiUsageRateLimitScopeCounts;
   /** @nullable */
   successRate: number | null;
   contract: AiUsageContractSummary;

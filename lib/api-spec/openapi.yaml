@@ -7035,11 +7035,14 @@ components:
       type: object
       additionalProperties: false
       required: [schemaVersion, windowDays, retentionDays, totalAttempts, totalSuccesses,
-                 totalFailures, totalFallbackAttempts, providers, timeline, modelTaskQuality]
+                 attemptsTruncated, totalFailures, totalFallbackAttempts, providers, timeline, modelTaskQuality]
       properties:
-        schemaVersion: { type: integer, enum: [1, 2, 3, 4] }
+        schemaVersion: { type: integer, enum: [1, 2, 3, 4, 5] }
         windowDays: { type: integer, minimum: 1, maximum: 90 }
         retentionDays: { type: integer, minimum: 1, maximum: 3650 }
+        attemptsTruncated:
+          type: boolean
+          description: True when provider-attempt counts are limited to the latest bounded sample.
         totalAttempts: { type: integer, minimum: 0 }
         totalSuccesses: { type: integer, minimum: 0 }
         totalFailures: { type: integer, minimum: 0 }
@@ -7087,7 +7090,8 @@ components:
       type: object
       additionalProperties: false
       required: [provider, attempts, successes, failures, cancelled, fallbackAttempts,
-                 successRate, contract, models, p50LatencyMs, p95LatencyMs, usage, lastOccurredAt]
+                 providerFailures, rateLimitScopes, successRate, contract, models,
+                 p50LatencyMs, p95LatencyMs, usage, lastOccurredAt]
       properties:
         provider: { type: string }
         attempts: { type: integer, minimum: 0 }
@@ -7095,6 +7099,10 @@ components:
         failures: { type: integer, minimum: 0 }
         cancelled: { type: integer, minimum: 0 }
         fallbackAttempts: { type: integer, minimum: 0 }
+        providerFailures:
+          $ref: "#/components/schemas/AiUsageProviderFailureCounts"
+        rateLimitScopes:
+          $ref: "#/components/schemas/AiUsageRateLimitScopeCounts"
         successRate: { type: ["number", "null"] }
         contract:
           $ref: "#/components/schemas/AiUsageContractSummary"
@@ -7117,6 +7125,34 @@ components:
         lastOccurredAt:
           type: ["string", "null"]
           format: date-time
+
+    AiUsageProviderFailureCounts:
+      type: object
+      additionalProperties: false
+      required: [rateLimited, quotaExhausted, emptyResponse, timeout, modelUnavailable,
+                 modelRejected, fallbackExhausted, transportFailure, malformedResponse, unknown]
+      properties:
+        rateLimited: { type: integer, minimum: 0 }
+        quotaExhausted: { type: integer, minimum: 0 }
+        emptyResponse: { type: integer, minimum: 0 }
+        timeout: { type: integer, minimum: 0 }
+        modelUnavailable: { type: integer, minimum: 0 }
+        modelRejected: { type: integer, minimum: 0 }
+        fallbackExhausted: { type: integer, minimum: 0 }
+        transportFailure: { type: integer, minimum: 0 }
+        malformedResponse: { type: integer, minimum: 0 }
+        unknown: { type: integer, minimum: 0 }
+
+    AiUsageRateLimitScopeCounts:
+      type: object
+      additionalProperties: false
+      required: [upstream_shared_pool, provider_credential, account_quota, unknown, unclassified]
+      properties:
+        upstream_shared_pool: { type: integer, minimum: 0 }
+        provider_credential: { type: integer, minimum: 0 }
+        account_quota: { type: integer, minimum: 0 }
+        unknown: { type: integer, minimum: 0 }
+        unclassified: { type: integer, minimum: 0 }
 
     AiUsageContractSummary:
       type: object
@@ -7158,12 +7194,17 @@ components:
       additionalProperties: false
       required: [day, attempts, successes, failures, promptTokens, completionTokens, usageKnown,
                  contractEvaluated, contractAccepted, acceptanceRate, citationMatches, citationClaims,
-                 citationMatchRate, recoveryAttempts, recoveryAccepted, recoveryAcceptanceRate, failureKinds]
+                  citationMatchRate, recoveryAttempts, recoveryAccepted, recoveryAcceptanceRate, failureKinds,
+                  providerFailures, rateLimitScopes]
       properties:
         day: { type: string, format: date }
         attempts: { type: integer, minimum: 0 }
         successes: { type: integer, minimum: 0 }
         failures: { type: integer, minimum: 0 }
+        providerFailures:
+          $ref: "#/components/schemas/AiUsageProviderFailureCounts"
+        rateLimitScopes:
+          $ref: "#/components/schemas/AiUsageRateLimitScopeCounts"
         promptTokens: { type: ["integer", "null"], minimum: 0 }
         completionTokens: { type: ["integer", "null"], minimum: 0 }
         usageKnown: { type: boolean }

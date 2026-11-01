@@ -11830,6 +11830,7 @@ test.describe("EngineeringOS dashboard browser journey", () => {
       schemaVersion: 2,
       windowDays: 7,
       retentionDays: 90,
+      attemptsTruncated: false,
       totalAttempts: 3,
       totalSuccesses: 2,
       totalFailures: 1,
@@ -11842,6 +11843,25 @@ test.describe("EngineeringOS dashboard browser journey", () => {
           failures: 1,
           cancelled: 0,
           fallbackAttempts: 1,
+          providerFailures: {
+            rateLimited: 1,
+            quotaExhausted: 0,
+            emptyResponse: 0,
+            timeout: 0,
+            modelUnavailable: 0,
+            modelRejected: 0,
+            fallbackExhausted: 0,
+            transportFailure: 0,
+            malformedResponse: 0,
+            unknown: 0,
+          },
+          rateLimitScopes: {
+            upstream_shared_pool: 1,
+            provider_credential: 0,
+            account_quota: 0,
+            unknown: 0,
+            unclassified: 0,
+          },
           successRate: 2 / 3,
           contract: {
             evaluated: 3,
@@ -11911,6 +11931,9 @@ test.describe("EngineeringOS dashboard browser journey", () => {
     await expect(card).toContainText("مطابقة الاستشهادات 75.0%");
     await expect(card).toContainText("الاسترداد 1/1 · 100.0%");
     await expect(card).toContainText("missing_citation (1)");
+    await expect(card.getByTestId("provider-failure-summary")).toContainText("حد الاستخدام 429 1");
+    await expect(card.getByTestId("provider-failure-summary")).toContainText("حوض مشترك 1");
+    await expect(card.getByTestId("provider-failure-summary")).toContainText("ليست قراءة للحصة المتبقية");
     await card.getByLabel("فترة تقرير الجودة").selectOption("7");
     await expect.poll(() =>
       requests.some((request) => {

@@ -1418,18 +1418,38 @@ describe('AiChat authenticated generated mutations', () => {
         schemaVersion: 2,
         windowDays: 7,
         retentionDays: 90,
-        totalAttempts: 3,
+        attemptsTruncated: false,
+        totalAttempts: 7,
         totalSuccesses: 2,
-        totalFailures: 1,
+        totalFailures: 5,
         totalFallbackAttempts: 1,
         providers: [{
           provider: 'groq',
-          attempts: 3,
+          attempts: 7,
           successes: 2,
-          failures: 1,
+          failures: 5,
           cancelled: 0,
           fallbackAttempts: 1,
-          successRate: 2 / 3,
+          providerFailures: {
+            rateLimited: 2,
+            quotaExhausted: 1,
+            emptyResponse: 1,
+            timeout: 1,
+            modelUnavailable: 0,
+            modelRejected: 0,
+            fallbackExhausted: 0,
+            transportFailure: 0,
+            malformedResponse: 0,
+            unknown: 0,
+          },
+          rateLimitScopes: {
+            upstream_shared_pool: 1,
+            provider_credential: 0,
+            account_quota: 0,
+            unknown: 0,
+            unclassified: 1,
+          },
+          successRate: 2 / 7,
           contract: {
             evaluated: 3,
             accepted: 2,
@@ -1443,9 +1463,9 @@ describe('AiChat authenticated generated mutations', () => {
           },
           models: [{
             model: 'llama-test',
-            attempts: 3,
+            attempts: 7,
             successes: 2,
-            failures: 1,
+            failures: 5,
             cancelled: 0,
             contract: {
               evaluated: 3,
@@ -1468,9 +1488,9 @@ describe('AiChat authenticated generated mutations', () => {
         }],
         timeline: [{
           day: '2026-08-12',
-          attempts: 3,
+          attempts: 7,
           successes: 2,
-          failures: 1,
+          failures: 5,
           promptTokens: null,
           completionTokens: null,
           usageKnown: false,
@@ -1484,6 +1504,25 @@ describe('AiChat authenticated generated mutations', () => {
           recoveryAccepted: 1,
           recoveryAcceptanceRate: 1,
           failureKinds: { missing_citation: 1 },
+          providerFailures: {
+            rateLimited: 2,
+            quotaExhausted: 1,
+            emptyResponse: 1,
+            timeout: 1,
+            modelUnavailable: 0,
+            modelRejected: 0,
+            fallbackExhausted: 0,
+            transportFailure: 0,
+            malformedResponse: 0,
+            unknown: 0,
+          },
+          rateLimitScopes: {
+            upstream_shared_pool: 1,
+            provider_credential: 0,
+            account_quota: 0,
+            unknown: 0,
+            unclassified: 1,
+          },
         }],
         modelTaskQuality: [{
           provider: 'openrouter',
@@ -1528,6 +1567,14 @@ describe('AiChat authenticated generated mutations', () => {
     expect(card).toHaveTextContent('مطابقة الاستشهادات 75.0%');
     expect(card).toHaveTextContent('الاسترداد 1/1 · 100.0%');
     expect(card).toHaveTextContent('missing_citation (1)');
+    const providerFailures = within(card).getByTestId('provider-failure-summary');
+    expect(providerFailures).toHaveTextContent('حد الاستخدام 429 2');
+    expect(providerFailures).toHaveTextContent('حصة مستنفدة 1');
+    expect(providerFailures).toHaveTextContent('استجابة فارغة 1');
+    expect(providerFailures).toHaveTextContent('انتهاء المهلة 1');
+    expect(providerFailures).toHaveTextContent('حوض مشترك 1');
+    expect(providerFailures).toHaveTextContent('نطاق غير مسجل 1');
+    expect(providerFailures).toHaveTextContent('ليست قراءة للحصة المتبقية');
     expect(card).toHaveTextContent('تغطية رموز العقد 5/5 · 100.0%');
     expect(card).toHaveTextContent('إجمالي الرموز 120');
     expect(card).toHaveTextContent('الرموز لكل قبول 60');
@@ -1659,9 +1706,32 @@ describe('AiChat authenticated generated mutations', () => {
     expect(mocks.sentParams).toBeUndefined();
   });
 
+  it('labels provider-attempt diagnostics as a bounded sample when capped', () => {
+    mocks.aiMetrics.usage = {
+      attemptsTruncated: true,
+      providers: [],
+      timeline: [],
+    };
+    renderAiChat();
+    openProviderSettings();
+    const card = screen.getByRole('region', { name: 'جودة إجابات المساعد' });
+    expect(within(card).getByTestId('provider-failure-summary'))
+      .toHaveTextContent('آخر 5000 سجل فقط ضمن الفترة');
+  });
+
   it('keeps missing acceptance rates distinct from zero and absent recovery attempts', () => {
     mocks.aiMetrics.usage = {
-      providers: [{ provider: 'groq', models: [{
+      providers: [{ provider: 'groq',
+        providerFailures: {
+          rateLimited: 0, quotaExhausted: 0, emptyResponse: 0, timeout: 0,
+          modelUnavailable: 0, modelRejected: 0, fallbackExhausted: 0,
+          transportFailure: 0, malformedResponse: 0, unknown: 0,
+        },
+        rateLimitScopes: {
+          upstream_shared_pool: 0, provider_credential: 0, account_quota: 0,
+          unknown: 0, unclassified: 0,
+        },
+        models: [{
         model: 'fixture-model', attempts: 0,
         contract: {
           evaluated: 0, accepted: 0, acceptanceRate: null, averageClaims: null, citationMatchRate: null,

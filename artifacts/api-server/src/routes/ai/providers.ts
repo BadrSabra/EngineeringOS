@@ -336,7 +336,7 @@ router.get("/ai/metrics", async (req, res) => {
       operatorAction: !isConfigured
         ? "Save an API key for this provider to enable it."
         : circuit.open
-          ? "Wait for the OpenRouter free-route cooldown to finish; no other provider is enabled."
+          ? "انتظر انتهاء التبريد المحلي؛ لا يثبت ذلك عودة الحصة المجانية المشتركة أو مقدار المتبقي منها."
           : isCatalogStale
             ? "Retry after OpenRouter refreshes its catalog; leave the request incomplete if it remains unavailable."
             : null,

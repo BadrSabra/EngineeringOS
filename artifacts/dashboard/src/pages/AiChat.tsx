@@ -1351,6 +1351,11 @@ function ProviderRuntimeBadge({ metric }: { metric: ProviderRuntimeMetric | unde
           <span className="min-w-0 break-words">{stateLabels[state] ?? 'حالة المزود غير معروفة'}{cooldownSec != null ? ` · انتظار ${cooldownSec} ثانية` : ''}</span>
         </div>
         {metric.operatorAction && <div dir="auto" className="break-words ps-3 text-red-300/80">{metric.operatorAction}</div>}
+      {cooldownSec != null && (
+        <p className="break-words ps-3 text-muted-foreground">
+          عدّاد التبريد محلي؛ لا يقدّر موعد استعادة حصة OpenRouter المشتركة.
+        </p>
+      )}
       </div>
     );
   }
@@ -1388,6 +1393,108 @@ function contractRate(value: number | null | undefined): string {
   return typeof value === 'number' && Number.isFinite(value)
     ? `${(value * 100).toFixed(1)}%`
     : '—';
+}
+
+function ObservedProviderFailures({
+  providers,
+  attemptsTruncated,
+}: {
+  providers: AiUsageSummary['providers'];
+  attemptsTruncated: boolean;
+}) {
+  type FailureCounts = AiUsageSummary['providers'][number]['providerFailures'];
+  type ScopeCounts = AiUsageSummary['providers'][number]['rateLimitScopes'];
+
+  const failureLabels: Array<{ key: keyof FailureCounts; label: string }> = [
+    { key: 'rateLimited', label: 'حد الاستخدام 429' },
+    { key: 'quotaExhausted', label: 'حصة مستنفدة' },
+    { key: 'emptyResponse', label: 'استجابة فارغة' },
+    { key: 'timeout', label: 'انتهاء المهلة' },
+    { key: 'modelUnavailable', label: 'نموذج غير متاح' },
+    { key: 'modelRejected', label: 'طلب مرفوض' },
+    { key: 'fallbackExhausted', label: 'استنفاد البدائل' },
+    { key: 'transportFailure', label: 'فشل اتصال' },
+    { key: 'malformedResponse', label: 'استجابة غير صالحة' },
+    { key: 'unknown', label: 'سبب غير معروف' },
+  ];
+  const scopeLabels: Array<{ key: keyof ScopeCounts; label: string }> = [
+    { key: 'upstream_shared_pool', label: 'حوض مشترك' },
+    { key: 'provider_credential', label: 'بيانات اعتماد المزود' },
+    { key: 'account_quota', label: 'حصة الحساب' },
+    { key: 'unknown', label: 'نطاق مجهول' },
+    { key: 'unclassified', label: 'نطاق غير مسجل' },
+  ];
+  const failures: FailureCounts = {
+    rateLimited: 0,
+    quotaExhausted: 0,
+    emptyResponse: 0,
+    timeout: 0,
+    modelUnavailable: 0,
+    modelRejected: 0,
+    fallbackExhausted: 0,
+    transportFailure: 0,
+    malformedResponse: 0,
+    unknown: 0,
+  };
+  const scopes: ScopeCounts = {
+    upstream_shared_pool: 0,
+    provider_credential: 0,
+    account_quota: 0,
+    unknown: 0,
+    unclassified: 0,
+  };
+  for (const provider of providers) {
+    for (const { key } of failureLabels) {
+      failures[key] += provider.providerFailures?.[key] ?? 0;
+    }
+    for (const { key } of scopeLabels) {
+      scopes[key] += provider.rateLimitScopes?.[key] ?? 0;
+    }
+  }
+  const totalFailures = failureLabels.reduce((sum, { key }) => sum + failures[key], 0);
+  const rateLimited = failures.rateLimited;
+
+  return (
+    <section
+      className="mt-3 rounded border border-border/60 bg-background/20 p-2.5"
+      aria-label="تشخيص إخفاقات مزود الذكاء الاصطناعي"
+      data-testid="provider-failure-summary"
+    >
+      <div className="flex items-baseline justify-between gap-2">
+        <h3 className="font-medium text-foreground">أسباب الإخفاقات المرصودة</h3>
+        <span className="text-[10px] text-muted-foreground">حسب الفترة والمزود المحددين</span>
+      </div>
+      {totalFailures === 0 ? (
+        <p className="mt-2 rounded border border-dashed border-border/70 px-2 py-2 text-center text-[10px] leading-4 text-muted-foreground">
+          لا توجد إخفاقات مزود مسجلة ضمن هذه المرشحات؛ لا يثبت ذلك توفر الحصة المجانية المشتركة.
+        </p>
+      ) : (
+        <div className="mt-2 grid grid-cols-2 gap-1.5 sm:grid-cols-3">
+          {failureLabels.filter(({ key }) => failures[key] > 0).map(({ key, label }) => (
+            <div key={key} className="rounded border border-border/40 bg-secondary/30 px-2 py-1.5 text-[10px] text-muted-foreground">
+              {label} <strong className="font-medium text-foreground">{failures[key]}</strong>
+            </div>
+          ))}
+        </div>
+      )}
+      {rateLimited > 0 && (
+        <div className="mt-2 rounded border border-amber-400/20 bg-amber-500/5 px-2 py-1.5">
+          <p className="text-[10px] font-medium text-foreground">نطاقات 429 المسجلة</p>
+          <div className="mt-1 flex flex-wrap gap-x-3 gap-y-1 text-[10px] text-muted-foreground">
+            {scopeLabels.filter(({ key }) => scopes[key] > 0).map(({ key, label }) => (
+              <span key={key}>{label} <strong className="font-medium text-foreground">{scopes[key]}</strong></span>
+            ))}
+          </div>
+        </div>
+      )}
+      <p className="mt-1.5 text-[10px] leading-4 text-muted-foreground">
+        {attemptsTruncated
+          ? 'هذه أعداد آخر 5000 سجل فقط ضمن الفترة، وليست إجمالي المحاولات.'
+          : 'هذه أعداد من سجلات المحاولات ضمن الفترة، وليست قراءة للحصة المتبقية.'}{' '}
+        الاستجابات الفارغة في عينات عقد المهمة تظهر منفصلة أدناه.
+      </p>
+    </section>
+  );
 }
 
 function ModelQualityTrend({
@@ -1559,6 +1666,10 @@ function ModelContractQualityCard({
         </div>
       ) : (
         <>
+          <ObservedProviderFailures
+            providers={usage?.providers ?? []}
+            attemptsTruncated={usage?.attemptsTruncated ?? false}
+          />
           <ModelQualityTrend timeline={usage?.timeline ?? []} />
           <div
             className="mt-3 rounded border border-border/60 bg-background/20 p-2.5"

@@ -22,6 +22,8 @@ export interface AiUsageSummary {
      * @maximum 3650
      */
   retentionDays: number;
+  /** True when provider-attempt counts are limited to the latest bounded sample. */
+  attemptsTruncated: boolean;
   /** @minimum 0 */
   totalAttempts: number;
   /** @minimum 0 */

@@ -7,6 +7,7 @@ import request from "supertest";
 import app from "../app.js";
 import { db, aiUsageEventsTable, operatorAlertsTable } from "@workspace/db";
 import {
+  boundAiUsageAttemptSample,
   getAiExecutionDiagnostics,
   deriveAiContractTelemetry,
   getAiUsageSummary,
@@ -30,6 +31,17 @@ afterEach(async () => {
 });
 
 describe("durable AI telemetry", () => {
+  it("marks the provider-attempt summary as truncated only when the probe exceeds its sample cap", () => {
+    const exact = boundAiUsageAttemptSample(Array.from({ length: 5_000 }, (_, index) => index));
+    expect(exact.rows).toHaveLength(5_000);
+    expect(exact.attemptsTruncated).toBe(false);
+
+    const over = boundAiUsageAttemptSample(Array.from({ length: 5_001 }, (_, index) => index));
+    expect(over.rows).toHaveLength(5_000);
+    expect(over.rows.at(-1)).toBe(4_999);
+    expect(over.attemptsTruncated).toBe(true);
+  });
+
   it("projects bounded execution diagnostics without provider content", () => {
     const diagnostics = projectAiExecutionDiagnostics([
       {
@@ -328,23 +340,86 @@ describe("durable AI telemetry", () => {
       modelTaskContract: "project_query_no_tools_synthesis",
       modelTaskOutcome: "accepted",
     });
+    for (const failure of [
+      {
+        suffix: "shared-pool-rate-limit",
+        providerFailureKind: "RATE_LIMITED",
+        rateLimitScope: "upstream_shared_pool" as const,
+        retryAfterMs: 45_000,
+      },
+      {
+        suffix: "unclassified-rate-limit",
+        providerFailureKind: "RATE_LIMITED",
+      },
+      {
+        suffix: "quota-exhausted",
+        providerFailureKind: "QUOTA",
+      },
+      {
+        suffix: "empty-provider-response",
+        providerFailureKind: "EMPTY_RESPONSE",
+      },
+      {
+        suffix: "timeout",
+        providerFailureKind: "TIMEOUT",
+      },
+      {
+        suffix: "untrusted-provider-message",
+        providerFailureKind: "raw provider message must not escape",
+      },
+    ]) {
+      await recordAiUsageAttempt(context, {
+        attemptId: `${correlationId}:${failure.suffix}`,
+        provider: "openrouter",
+        model: "fixture/free-model",
+        outcome: "failure",
+        providerFailureKind: failure.providerFailureKind,
+        ...(failure.rateLimitScope ? { rateLimitScope: failure.rateLimitScope } : {}),
+        ...(failure.retryAfterMs ? { retryAfterMs: failure.retryAfterMs } : {}),
+      });
+    }
 
     const summary = await getAiUsageSummary({
       userId: context.userId,
       projectId: context.projectId,
       days: 7,
     });
-    expect(summary.schemaVersion).toBe(4);
-    expect(summary.totalAttempts).toBe(1);
+    expect(summary.schemaVersion).toBe(5);
+    expect(summary.totalAttempts).toBe(7);
     expect(summary.providers).toHaveLength(1);
     expect(summary.providers[0]).toMatchObject({
       provider: "openrouter",
-      attempts: 1,
+      attempts: 7,
       successes: 1,
+      failures: 6,
+      providerFailures: {
+        rateLimited: 2,
+        quotaExhausted: 1,
+        emptyResponse: 1,
+        timeout: 1,
+        modelUnavailable: 0,
+        modelRejected: 0,
+        fallbackExhausted: 0,
+        transportFailure: 0,
+        malformedResponse: 0,
+        unknown: 1,
+      },
+      rateLimitScopes: {
+        upstream_shared_pool: 1,
+        provider_credential: 0,
+        account_quota: 0,
+        unknown: 0,
+        unclassified: 1,
+      },
       usage: { status: "known", promptTokens: 18, completionTokens: 9 },
     });
     expect(summary.providers[0]?.models).toEqual([
-      expect.objectContaining({ model: "fixture/free-model", attempts: 1, successes: 1 }),
+      expect.objectContaining({
+        model: "fixture/free-model",
+        attempts: 7,
+        successes: 1,
+        failures: 6,
+      }),
     ]);
     expect(summary.modelTaskQuality).toEqual([
       {
@@ -380,14 +455,24 @@ describe("durable AI telemetry", () => {
         acceptanceRate: 0.3333,
       },
     ]);
+    expect(summary.timeline).toEqual([
+      expect.objectContaining({
+        attempts: 7,
+        successes: 1,
+        failures: 6,
+        providerFailures: summary.providers[0]?.providerFailures,
+        rateLimitScopes: summary.providers[0]?.rateLimitScopes,
+      }),
+    ]);
+    expect(JSON.stringify(summary)).not.toContain("raw provider message must not escape");
 
     const diagnostics = await getAiExecutionDiagnostics({
       userId: context.userId,
       executionId,
     });
-    expect(diagnostics.attempts).toBe(1);
+    expect(diagnostics.attempts).toBe(7);
     expect(diagnostics.providers).toEqual([
-      expect.objectContaining({ provider: "openrouter", attempts: 1 }),
+      expect.objectContaining({ provider: "openrouter", attempts: 7, failedAttempts: 6 }),
     ]);
   });
 

@@ -5799,6 +5799,36 @@ export const getAiMissionControlResponseUsageProvidersItemCancelledMin = 0;
 
 export const getAiMissionControlResponseUsageProvidersItemFallbackAttemptsMin = 0;
 
+export const getAiMissionControlResponseUsageProvidersItemProviderFailuresRateLimitedMin = 0;
+
+export const getAiMissionControlResponseUsageProvidersItemProviderFailuresQuotaExhaustedMin = 0;
+
+export const getAiMissionControlResponseUsageProvidersItemProviderFailuresEmptyResponseMin = 0;
+
+export const getAiMissionControlResponseUsageProvidersItemProviderFailuresTimeoutMin = 0;
+
+export const getAiMissionControlResponseUsageProvidersItemProviderFailuresModelUnavailableMin = 0;
+
+export const getAiMissionControlResponseUsageProvidersItemProviderFailuresModelRejectedMin = 0;
+
+export const getAiMissionControlResponseUsageProvidersItemProviderFailuresFallbackExhaustedMin = 0;
+
+export const getAiMissionControlResponseUsageProvidersItemProviderFailuresTransportFailureMin = 0;
+
+export const getAiMissionControlResponseUsageProvidersItemProviderFailuresMalformedResponseMin = 0;
+
+export const getAiMissionControlResponseUsageProvidersItemProviderFailuresUnknownMin = 0;
+
+export const getAiMissionControlResponseUsageProvidersItemRateLimitScopesUpstreamSharedPoolMin = 0;
+
+export const getAiMissionControlResponseUsageProvidersItemRateLimitScopesProviderCredentialMin = 0;
+
+export const getAiMissionControlResponseUsageProvidersItemRateLimitScopesAccountQuotaMin = 0;
+
+export const getAiMissionControlResponseUsageProvidersItemRateLimitScopesUnknownMin = 0;
+
+export const getAiMissionControlResponseUsageProvidersItemRateLimitScopesUnclassifiedMin = 0;
+
 export const getAiMissionControlResponseUsageProvidersItemContractEvaluatedMin = 0;
 
 export const getAiMissionControlResponseUsageProvidersItemContractAcceptedMin = 0;
@@ -5836,6 +5866,36 @@ export const getAiMissionControlResponseUsageTimelineItemAttemptsMin = 0;
 export const getAiMissionControlResponseUsageTimelineItemSuccessesMin = 0;
 
 export const getAiMissionControlResponseUsageTimelineItemFailuresMin = 0;
+
+export const getAiMissionControlResponseUsageTimelineItemProviderFailuresRateLimitedMin = 0;
+
+export const getAiMissionControlResponseUsageTimelineItemProviderFailuresQuotaExhaustedMin = 0;
+
+export const getAiMissionControlResponseUsageTimelineItemProviderFailuresEmptyResponseMin = 0;
+
+export const getAiMissionControlResponseUsageTimelineItemProviderFailuresTimeoutMin = 0;
+
+export const getAiMissionControlResponseUsageTimelineItemProviderFailuresModelUnavailableMin = 0;
+
+export const getAiMissionControlResponseUsageTimelineItemProviderFailuresModelRejectedMin = 0;
+
+export const getAiMissionControlResponseUsageTimelineItemProviderFailuresFallbackExhaustedMin = 0;
+
+export const getAiMissionControlResponseUsageTimelineItemProviderFailuresTransportFailureMin = 0;
+
+export const getAiMissionControlResponseUsageTimelineItemProviderFailuresMalformedResponseMin = 0;
+
+export const getAiMissionControlResponseUsageTimelineItemProviderFailuresUnknownMin = 0;
+
+export const getAiMissionControlResponseUsageTimelineItemRateLimitScopesUpstreamSharedPoolMin = 0;
+
+export const getAiMissionControlResponseUsageTimelineItemRateLimitScopesProviderCredentialMin = 0;
+
+export const getAiMissionControlResponseUsageTimelineItemRateLimitScopesAccountQuotaMin = 0;
+
+export const getAiMissionControlResponseUsageTimelineItemRateLimitScopesUnknownMin = 0;
+
+export const getAiMissionControlResponseUsageTimelineItemRateLimitScopesUnclassifiedMin = 0;
 
 export const getAiMissionControlResponseUsageTimelineItemPromptTokensMin = 0;
 
@@ -6119,9 +6179,10 @@ export const GetAiMissionControlResponse = zod.object({
   "completedAt": zod.coerce.date().nullish()
 })),
   "usage": zod.object({
-  "schemaVersion": zod.union([zod.literal(1),zod.literal(2),zod.literal(3),zod.literal(4)]),
+  "schemaVersion": zod.union([zod.literal(1),zod.literal(2),zod.literal(3),zod.literal(4),zod.literal(5)]),
   "windowDays": zod.number().int().min(1).max(getAiMissionControlResponseUsageWindowDaysMax),
   "retentionDays": zod.number().int().min(1).max(getAiMissionControlResponseUsageRetentionDaysMax),
+  "attemptsTruncated": zod.boolean().describe('True when provider-attempt counts are limited to the latest bounded sample.'),
   "totalAttempts": zod.number().int().min(getAiMissionControlResponseUsageTotalAttemptsMin),
   "totalSuccesses": zod.number().int().min(getAiMissionControlResponseUsageTotalSuccessesMin),
   "totalFailures": zod.number().int().min(getAiMissionControlResponseUsageTotalFailuresMin),
@@ -6133,6 +6194,25 @@ export const GetAiMissionControlResponse = zod.object({
   "failures": zod.number().int().min(getAiMissionControlResponseUsageProvidersItemFailuresMin),
   "cancelled": zod.number().int().min(getAiMissionControlResponseUsageProvidersItemCancelledMin),
   "fallbackAttempts": zod.number().int().min(getAiMissionControlResponseUsageProvidersItemFallbackAttemptsMin),
+  "providerFailures": zod.object({
+  "rateLimited": zod.number().int().min(getAiMissionControlResponseUsageProvidersItemProviderFailuresRateLimitedMin),
+  "quotaExhausted": zod.number().int().min(getAiMissionControlResponseUsageProvidersItemProviderFailuresQuotaExhaustedMin),
+  "emptyResponse": zod.number().int().min(getAiMissionControlResponseUsageProvidersItemProviderFailuresEmptyResponseMin),
+  "timeout": zod.number().int().min(getAiMissionControlResponseUsageProvidersItemProviderFailuresTimeoutMin),
+  "modelUnavailable": zod.number().int().min(getAiMissionControlResponseUsageProvidersItemProviderFailuresModelUnavailableMin),
+  "modelRejected": zod.number().int().min(getAiMissionControlResponseUsageProvidersItemProviderFailuresModelRejectedMin),
+  "fallbackExhausted": zod.number().int().min(getAiMissionControlResponseUsageProvidersItemProviderFailuresFallbackExhaustedMin),
+  "transportFailure": zod.number().int().min(getAiMissionControlResponseUsageProvidersItemProviderFailuresTransportFailureMin),
+  "malformedResponse": zod.number().int().min(getAiMissionControlResponseUsageProvidersItemProviderFailuresMalformedResponseMin),
+  "unknown": zod.number().int().min(getAiMissionControlResponseUsageProvidersItemProviderFailuresUnknownMin)
+}),
+  "rateLimitScopes": zod.object({
+  "upstream_shared_pool": zod.number().int().min(getAiMissionControlResponseUsageProvidersItemRateLimitScopesUpstreamSharedPoolMin),
+  "provider_credential": zod.number().int().min(getAiMissionControlResponseUsageProvidersItemRateLimitScopesProviderCredentialMin),
+  "account_quota": zod.number().int().min(getAiMissionControlResponseUsageProvidersItemRateLimitScopesAccountQuotaMin),
+  "unknown": zod.number().int().min(getAiMissionControlResponseUsageProvidersItemRateLimitScopesUnknownMin),
+  "unclassified": zod.number().int().min(getAiMissionControlResponseUsageProvidersItemRateLimitScopesUnclassifiedMin)
+}),
   "successRate": zod.number().nullable(),
   "contract": zod.object({
   "evaluated": zod.number().int().min(getAiMissionControlResponseUsageProvidersItemContractEvaluatedMin),
@@ -6179,6 +6259,25 @@ export const GetAiMissionControlResponse = zod.object({
   "attempts": zod.number().int().min(getAiMissionControlResponseUsageTimelineItemAttemptsMin),
   "successes": zod.number().int().min(getAiMissionControlResponseUsageTimelineItemSuccessesMin),
   "failures": zod.number().int().min(getAiMissionControlResponseUsageTimelineItemFailuresMin),
+  "providerFailures": zod.object({
+  "rateLimited": zod.number().int().min(getAiMissionControlResponseUsageTimelineItemProviderFailuresRateLimitedMin),
+  "quotaExhausted": zod.number().int().min(getAiMissionControlResponseUsageTimelineItemProviderFailuresQuotaExhaustedMin),
+  "emptyResponse": zod.number().int().min(getAiMissionControlResponseUsageTimelineItemProviderFailuresEmptyResponseMin),
+  "timeout": zod.number().int().min(getAiMissionControlResponseUsageTimelineItemProviderFailuresTimeoutMin),
+  "modelUnavailable": zod.number().int().min(getAiMissionControlResponseUsageTimelineItemProviderFailuresModelUnavailableMin),
+  "modelRejected": zod.number().int().min(getAiMissionControlResponseUsageTimelineItemProviderFailuresModelRejectedMin),
+  "fallbackExhausted": zod.number().int().min(getAiMissionControlResponseUsageTimelineItemProviderFailuresFallbackExhaustedMin),
+  "transportFailure": zod.number().int().min(getAiMissionControlResponseUsageTimelineItemProviderFailuresTransportFailureMin),
+  "malformedResponse": zod.number().int().min(getAiMissionControlResponseUsageTimelineItemProviderFailuresMalformedResponseMin),
+  "unknown": zod.number().int().min(getAiMissionControlResponseUsageTimelineItemProviderFailuresUnknownMin)
+}),
+  "rateLimitScopes": zod.object({
+  "upstream_shared_pool": zod.number().int().min(getAiMissionControlResponseUsageTimelineItemRateLimitScopesUpstreamSharedPoolMin),
+  "provider_credential": zod.number().int().min(getAiMissionControlResponseUsageTimelineItemRateLimitScopesProviderCredentialMin),
+  "account_quota": zod.number().int().min(getAiMissionControlResponseUsageTimelineItemRateLimitScopesAccountQuotaMin),
+  "unknown": zod.number().int().min(getAiMissionControlResponseUsageTimelineItemRateLimitScopesUnknownMin),
+  "unclassified": zod.number().int().min(getAiMissionControlResponseUsageTimelineItemRateLimitScopesUnclassifiedMin)
+}),
   "promptTokens": zod.number().int().min(getAiMissionControlResponseUsageTimelineItemPromptTokensMin).nullable(),
   "completionTokens": zod.number().int().min(getAiMissionControlResponseUsageTimelineItemCompletionTokensMin).nullable(),
   "usageKnown": zod.boolean(),
@@ -9901,6 +10000,36 @@ export const getAiMetricsResponseUsageProvidersItemCancelledMin = 0;
 
 export const getAiMetricsResponseUsageProvidersItemFallbackAttemptsMin = 0;
 
+export const getAiMetricsResponseUsageProvidersItemProviderFailuresRateLimitedMin = 0;
+
+export const getAiMetricsResponseUsageProvidersItemProviderFailuresQuotaExhaustedMin = 0;
+
+export const getAiMetricsResponseUsageProvidersItemProviderFailuresEmptyResponseMin = 0;
+
+export const getAiMetricsResponseUsageProvidersItemProviderFailuresTimeoutMin = 0;
+
+export const getAiMetricsResponseUsageProvidersItemProviderFailuresModelUnavailableMin = 0;
+
+export const getAiMetricsResponseUsageProvidersItemProviderFailuresModelRejectedMin = 0;
+
+export const getAiMetricsResponseUsageProvidersItemProviderFailuresFallbackExhaustedMin = 0;
+
+export const getAiMetricsResponseUsageProvidersItemProviderFailuresTransportFailureMin = 0;
+
+export const getAiMetricsResponseUsageProvidersItemProviderFailuresMalformedResponseMin = 0;
+
+export const getAiMetricsResponseUsageProvidersItemProviderFailuresUnknownMin = 0;
+
+export const getAiMetricsResponseUsageProvidersItemRateLimitScopesUpstreamSharedPoolMin = 0;
+
+export const getAiMetricsResponseUsageProvidersItemRateLimitScopesProviderCredentialMin = 0;
+
+export const getAiMetricsResponseUsageProvidersItemRateLimitScopesAccountQuotaMin = 0;
+
+export const getAiMetricsResponseUsageProvidersItemRateLimitScopesUnknownMin = 0;
+
+export const getAiMetricsResponseUsageProvidersItemRateLimitScopesUnclassifiedMin = 0;
+
 export const getAiMetricsResponseUsageProvidersItemContractEvaluatedMin = 0;
 
 export const getAiMetricsResponseUsageProvidersItemContractAcceptedMin = 0;
@@ -9938,6 +10067,36 @@ export const getAiMetricsResponseUsageTimelineItemAttemptsMin = 0;
 export const getAiMetricsResponseUsageTimelineItemSuccessesMin = 0;
 
 export const getAiMetricsResponseUsageTimelineItemFailuresMin = 0;
+
+export const getAiMetricsResponseUsageTimelineItemProviderFailuresRateLimitedMin = 0;
+
+export const getAiMetricsResponseUsageTimelineItemProviderFailuresQuotaExhaustedMin = 0;
+
+export const getAiMetricsResponseUsageTimelineItemProviderFailuresEmptyResponseMin = 0;
+
+export const getAiMetricsResponseUsageTimelineItemProviderFailuresTimeoutMin = 0;
+
+export const getAiMetricsResponseUsageTimelineItemProviderFailuresModelUnavailableMin = 0;
+
+export const getAiMetricsResponseUsageTimelineItemProviderFailuresModelRejectedMin = 0;
+
+export const getAiMetricsResponseUsageTimelineItemProviderFailuresFallbackExhaustedMin = 0;
+
+export const getAiMetricsResponseUsageTimelineItemProviderFailuresTransportFailureMin = 0;
+
+export const getAiMetricsResponseUsageTimelineItemProviderFailuresMalformedResponseMin = 0;
+
+export const getAiMetricsResponseUsageTimelineItemProviderFailuresUnknownMin = 0;
+
+export const getAiMetricsResponseUsageTimelineItemRateLimitScopesUpstreamSharedPoolMin = 0;
+
+export const getAiMetricsResponseUsageTimelineItemRateLimitScopesProviderCredentialMin = 0;
+
+export const getAiMetricsResponseUsageTimelineItemRateLimitScopesAccountQuotaMin = 0;
+
+export const getAiMetricsResponseUsageTimelineItemRateLimitScopesUnknownMin = 0;
+
+export const getAiMetricsResponseUsageTimelineItemRateLimitScopesUnclassifiedMin = 0;
 
 export const getAiMetricsResponseUsageTimelineItemPromptTokensMin = 0;
 
@@ -10047,9 +10206,10 @@ export const GetAiMetricsResponse = zod.object({
   "lastEventAt": zod.coerce.date()
 })),
   "usage": zod.object({
-  "schemaVersion": zod.union([zod.literal(1),zod.literal(2),zod.literal(3),zod.literal(4)]),
+  "schemaVersion": zod.union([zod.literal(1),zod.literal(2),zod.literal(3),zod.literal(4),zod.literal(5)]),
   "windowDays": zod.number().int().min(1).max(getAiMetricsResponseUsageWindowDaysMax),
   "retentionDays": zod.number().int().min(1).max(getAiMetricsResponseUsageRetentionDaysMax),
+  "attemptsTruncated": zod.boolean().describe('True when provider-attempt counts are limited to the latest bounded sample.'),
   "totalAttempts": zod.number().int().min(getAiMetricsResponseUsageTotalAttemptsMin),
   "totalSuccesses": zod.number().int().min(getAiMetricsResponseUsageTotalSuccessesMin),
   "totalFailures": zod.number().int().min(getAiMetricsResponseUsageTotalFailuresMin),
@@ -10061,6 +10221,25 @@ export const GetAiMetricsResponse = zod.object({
   "failures": zod.number().int().min(getAiMetricsResponseUsageProvidersItemFailuresMin),
   "cancelled": zod.number().int().min(getAiMetricsResponseUsageProvidersItemCancelledMin),
   "fallbackAttempts": zod.number().int().min(getAiMetricsResponseUsageProvidersItemFallbackAttemptsMin),
+  "providerFailures": zod.object({
+  "rateLimited": zod.number().int().min(getAiMetricsResponseUsageProvidersItemProviderFailuresRateLimitedMin),
+  "quotaExhausted": zod.number().int().min(getAiMetricsResponseUsageProvidersItemProviderFailuresQuotaExhaustedMin),
+  "emptyResponse": zod.number().int().min(getAiMetricsResponseUsageProvidersItemProviderFailuresEmptyResponseMin),
+  "timeout": zod.number().int().min(getAiMetricsResponseUsageProvidersItemProviderFailuresTimeoutMin),
+  "modelUnavailable": zod.number().int().min(getAiMetricsResponseUsageProvidersItemProviderFailuresModelUnavailableMin),
+  "modelRejected": zod.number().int().min(getAiMetricsResponseUsageProvidersItemProviderFailuresModelRejectedMin),
+  "fallbackExhausted": zod.number().int().min(getAiMetricsResponseUsageProvidersItemProviderFailuresFallbackExhaustedMin),
+  "transportFailure": zod.number().int().min(getAiMetricsResponseUsageProvidersItemProviderFailuresTransportFailureMin),
+  "malformedResponse": zod.number().int().min(getAiMetricsResponseUsageProvidersItemProviderFailuresMalformedResponseMin),
+  "unknown": zod.number().int().min(getAiMetricsResponseUsageProvidersItemProviderFailuresUnknownMin)
+}),
+  "rateLimitScopes": zod.object({
+  "upstream_shared_pool": zod.number().int().min(getAiMetricsResponseUsageProvidersItemRateLimitScopesUpstreamSharedPoolMin),
+  "provider_credential": zod.number().int().min(getAiMetricsResponseUsageProvidersItemRateLimitScopesProviderCredentialMin),
+  "account_quota": zod.number().int().min(getAiMetricsResponseUsageProvidersItemRateLimitScopesAccountQuotaMin),
+  "unknown": zod.number().int().min(getAiMetricsResponseUsageProvidersItemRateLimitScopesUnknownMin),
+  "unclassified": zod.number().int().min(getAiMetricsResponseUsageProvidersItemRateLimitScopesUnclassifiedMin)
+}),
   "successRate": zod.number().nullable(),
   "contract": zod.object({
   "evaluated": zod.number().int().min(getAiMetricsResponseUsageProvidersItemContractEvaluatedMin),
@@ -10107,6 +10286,25 @@ export const GetAiMetricsResponse = zod.object({
   "attempts": zod.number().int().min(getAiMetricsResponseUsageTimelineItemAttemptsMin),
   "successes": zod.number().int().min(getAiMetricsResponseUsageTimelineItemSuccessesMin),
   "failures": zod.number().int().min(getAiMetricsResponseUsageTimelineItemFailuresMin),
+  "providerFailures": zod.object({
+  "rateLimited": zod.number().int().min(getAiMetricsResponseUsageTimelineItemProviderFailuresRateLimitedMin),
+  "quotaExhausted": zod.number().int().min(getAiMetricsResponseUsageTimelineItemProviderFailuresQuotaExhaustedMin),
+  "emptyResponse": zod.number().int().min(getAiMetricsResponseUsageTimelineItemProviderFailuresEmptyResponseMin),
+  "timeout": zod.number().int().min(getAiMetricsResponseUsageTimelineItemProviderFailuresTimeoutMin),
+  "modelUnavailable": zod.number().int().min(getAiMetricsResponseUsageTimelineItemProviderFailuresModelUnavailableMin),
+  "modelRejected": zod.number().int().min(getAiMetricsResponseUsageTimelineItemProviderFailuresModelRejectedMin),
+  "fallbackExhausted": zod.number().int().min(getAiMetricsResponseUsageTimelineItemProviderFailuresFallbackExhaustedMin),
+  "transportFailure": zod.number().int().min(getAiMetricsResponseUsageTimelineItemProviderFailuresTransportFailureMin),
+  "malformedResponse": zod.number().int().min(getAiMetricsResponseUsageTimelineItemProviderFailuresMalformedResponseMin),
+  "unknown": zod.number().int().min(getAiMetricsResponseUsageTimelineItemProviderFailuresUnknownMin)
+}),
+  "rateLimitScopes": zod.object({
+  "upstream_shared_pool": zod.number().int().min(getAiMetricsResponseUsageTimelineItemRateLimitScopesUpstreamSharedPoolMin),
+  "provider_credential": zod.number().int().min(getAiMetricsResponseUsageTimelineItemRateLimitScopesProviderCredentialMin),
+  "account_quota": zod.number().int().min(getAiMetricsResponseUsageTimelineItemRateLimitScopesAccountQuotaMin),
+  "unknown": zod.number().int().min(getAiMetricsResponseUsageTimelineItemRateLimitScopesUnknownMin),
+  "unclassified": zod.number().int().min(getAiMetricsResponseUsageTimelineItemRateLimitScopesUnclassifiedMin)
+}),
   "promptTokens": zod.number().int().min(getAiMetricsResponseUsageTimelineItemPromptTokensMin).nullable(),
   "completionTokens": zod.number().int().min(getAiMetricsResponseUsageTimelineItemCompletionTokensMin).nullable(),
   "usageKnown": zod.boolean(),

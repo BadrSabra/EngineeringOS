@@ -5,6 +5,8 @@
  * EngineeringOS - Autonomous AI Engineering Platform API
  * OpenAPI spec version: 1.0.0
  */
+import type { AiUsageProviderFailureCounts } from './aiUsageProviderFailureCounts';
+import type { AiUsageRateLimitScopeCounts } from './aiUsageRateLimitScopeCounts';
 import type { AiUsageTimelinePointFailureKinds } from './aiUsageTimelinePointFailureKinds';
 
 export interface AiUsageTimelinePoint {
@@ -15,6 +17,8 @@ export interface AiUsageTimelinePoint {
   successes: number;
   /** @minimum 0 */
   failures: number;
+  providerFailures: AiUsageProviderFailureCounts;
+  rateLimitScopes: AiUsageRateLimitScopeCounts;
   /**
      * @minimum 0
      * @nullable

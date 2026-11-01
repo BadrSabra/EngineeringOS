@@ -1916,7 +1916,44 @@ export const AiUsageSummarySchemaVersion = {
   NUMBER_2: 2,
   NUMBER_3: 3,
   NUMBER_4: 4,
+  NUMBER_5: 5,
 } as const;
+
+export interface AiUsageProviderFailureCounts {
+  /** @minimum 0 */
+  rateLimited: number;
+  /** @minimum 0 */
+  quotaExhausted: number;
+  /** @minimum 0 */
+  emptyResponse: number;
+  /** @minimum 0 */
+  timeout: number;
+  /** @minimum 0 */
+  modelUnavailable: number;
+  /** @minimum 0 */
+  modelRejected: number;
+  /** @minimum 0 */
+  fallbackExhausted: number;
+  /** @minimum 0 */
+  transportFailure: number;
+  /** @minimum 0 */
+  malformedResponse: number;
+  /** @minimum 0 */
+  unknown: number;
+}
+
+export interface AiUsageRateLimitScopeCounts {
+  /** @minimum 0 */
+  upstream_shared_pool: number;
+  /** @minimum 0 */
+  provider_credential: number;
+  /** @minimum 0 */
+  account_quota: number;
+  /** @minimum 0 */
+  unknown: number;
+  /** @minimum 0 */
+  unclassified: number;
+}
 
 export type AiUsageContractSummaryFailureKinds = {[key: string]: number};
 
@@ -1992,6 +2029,8 @@ export interface AiUsageProviderSummary {
   cancelled: number;
   /** @minimum 0 */
   fallbackAttempts: number;
+  providerFailures: AiUsageProviderFailureCounts;
+  rateLimitScopes: AiUsageRateLimitScopeCounts;
   /** @nullable */
   successRate: number | null;
   contract: AiUsageContractSummary;
@@ -2015,6 +2054,8 @@ export interface AiUsageTimelinePoint {
   successes: number;
   /** @minimum 0 */
   failures: number;
+  providerFailures: AiUsageProviderFailureCounts;
+  rateLimitScopes: AiUsageRateLimitScopeCounts;
   /**
      * @minimum 0
      * @nullable
@@ -2118,6 +2159,8 @@ export interface AiUsageSummary {
      * @maximum 3650
      */
   retentionDays: number;
+  /** True when provider-attempt counts are limited to the latest bounded sample. */
+  attemptsTruncated: boolean;
   /** @minimum 0 */
   totalAttempts: number;
   /** @minimum 0 */
