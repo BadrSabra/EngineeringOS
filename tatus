@@ -1,0 +1,96 @@
+[33m< ba589c4[m[33m ([m[1;36mHEAD[m[33m -> [m[1;32mmain[m[33m, [m[1;31mgitsafe-backup/main[m[33m)[m Implement AI release quality gate logic and tests
+[33m< 0e63c44[m Update OpenRouter reliability tests and add lifecycle evidence artifact
+[33m< 31ebe38[m Implement and document AI repair validation logic and tests
+[33m< a4f1420[m Record engineering agent lifecycle evidence
+[33m< 3b8210b[m Update dashboard testing infrastructure and documentation
+[33m< 6844090[m Refactor ai-orchestrator tests and prune model catalog code
+[33m< e378587[m Update memory documentation and configure Vite base path
+[33m< 07636ec[m Update OpenRouter reliability test cases
+[33m< ff4078a[m Refactor OpenAI compatible client and add comprehensive test coverage
+[33m< 4044bfe[m Implement model cooldown store and OpenAI client logic
+[33m< 5a00165[m Implement persistent model cooldowns and update throttling logic
+[33m< b37fdb8[m Update memory files with new CLI entrypoint paths
+[33m< 1ce1d73[m Update stop-old-api script and associated tests
+[33m< d733315[m Remove redundant code from AI stream integration tests
+[33m< 8caa34e[m Add test cases for AI stream integration
+[33m< f5c5dcf[m Update AI stream integration tests and chat route logic
+[33m< d331148[m Implement AI chat streaming logic and add comprehensive tests
+[33m< 52a9826[m Add chat SSE route test coverage and update implementation
+[33m< 51d77df[m Update AI route helpers and refine chat SSE tests
+[33m< 9a1cb5c[m Add unit tests for chat-sse API endpoint
+[33m< 1f17912[m Update chat route and add SSE test coverage
+[33m< 76d93b0[m Add unit tests for chat SSE route
+[33m< f6dd70f[m Update OpenRouter smoke test script and corresponding test suite
+[33m< 9768189[m Implement tests and expand functionality for AiChat page
+[33m< 8b99648[m Implement isolated persistence for live provider review campaigns and add supporting tests
+[33m< 6196d5d[m Implement OpenRouter throttling logic and update reliability tests
+[33m< 1f81b33[m Implement live provider review campaign logic and tests
+[33m< 9d7cb6e[m Implement live provider validation and openrouter cooldown tracking improvements
+[33m< 1a03e49[m Implement and test pinned model support for agent completion workflow
+[33m< 5a42572[m Update live provider review campaign scripts and tests
+[33m< d07626c[m Update AI route tests and document provider error contracts
+[33m< 1f94e91[m Implement structured task execution and add corresponding API tests
+[33m< 0f4c869[m Refine chat agent logic and update evidence documentation
+[33m< b5d7d01[m Update orchestration logic and expand test coverage for tool execution and provider strategy
+[33m< b97c158[m Refactor OpenAI compatible client and OpenRouter model resolution logic
+[33m< 6c3bd7a[m Add RFC for OpenRouter shared free lane in Cursor
+[33m< 93c7ded[m Implement network egress policies and update live response tests
+[33m< cd1191b[m Update AiChat authentication tests
+[33m< aafe679[m Add integration tests for AI chat functionality
+[33m< d11c385[m Update controlled release validation documentation
+[33m< 2efaf37[m Update memory indices and add smoke preflight check
+[33m< fae807e[m Update memory documentation and chat agent test configurations
+[33m< 7f475d1[m Implement live provider review receipt functionality and associated tests
+[33m< 4dd1be2[m Update live provider review campaign logic
+[33m< f0b2e69[m Add live provider review receipt script and tests
+[33m< e799e5b[m Add end-to-end test cases for chat capability probe
+[33m< 5ffe0cb[m Implement chat capability probe tests and update chat agent logic
+[33m< a8ad0a0[m Implement chat agent enhancements and expand test coverage
+[33m< 09e6fa8[m Update tool execution engine logic and tests
+[33m< 1201ae3[m Implement and test AI recovery coordinator and tool execution engine updates
+[33m< e5e8dc5[m Update memory file and add github review branches guide
+[33m< a3ad4fc[m Update package test documentation
+[33m< 2bf6556[m Implement AI telemetry tracking and update model contract validation logic
+[33m< 045709f[m Update AI route helpers and add associated test coverage
+[33m< 267c01f[m Implement and test AI recovery coordinator improvements
+[33m< d3447cc[m Implement and test OpenRouter cooldown persistence and health monitoring enhancements
+[33m< 411af4d[m Implement contract-aware model ranking logic and expand test coverage
+[33m< 4264da5[m Implement OpenRouter model contract validation and ranking logic
+[33m< ccf290a[m Update openrouter reliability tests and model catalog configuration
+[33m< 847ccdb[m Refactor model catalog and update reliability tests
+[33m< f4d5f59[m Update live provider validation logic and expand smoke test coverage
+[33m< 079d65f[m Enhance provider health probe tests and update smoke scripts
+[33m< 3bf3d97[m Implement database schema updates and credentials cooldown tracking
+[33m< 0234b4b[m Add AI chat functionality and update related tests
+[33m< 4a2f78f[m Add comprehensive test cases for openai-compatible-client
+[33m< 19369b6[m Implement new provider support in openai-compatible-client
+[33m< d9724cc[m Expand tool execution engine tests and logic
+[33m< 83c6c39[m Refactor OpenRouter model selection and improve reliability tests
+[33m< e3342dc[m Add failure analysis logging to benchmark suite
+[33m< 5ed57ae[m Add benchmark failure analysis and documentation
+[33m< 0b1410a[m Implement benchmark tracing and refine execution coordinator logic
+[33m< f06b638[m Implement benchmark source snapshots and update test suites
+[33m< 9b88e24[m Expand and refactor AI code agent benchmarking tools and tests
+[33m< 13c189e[m Update candidate validation logic and expand benchmark coverage
+[33m< b2dce1c[m Update openrouter throttling documentation and chat agent tests
+[33m< 459e336[m Add unit tests for chat agent
+[33m< 327802c[m Enhance ai repair validation and orchestrator reliability tests
+[33m< 2c086b3[m Implement throttling logic and expand client unit tests
+[33m< ad5696c[m Expand and test benchmark reporting functionality
+[33m< f3459f5[m Add benchmark snapshot tests and refine airlock validation logic
+[33m< cc125ae[m Add benchmark source snapshot utility
+[33m< b1e871d[m Fix benchmark source policy logic
+[33m< d093a76[m Expand code agent benchmarking and update API schemas
+[33m< b3f0461[m Update AI code agent benchmark tests
+[33m< c88eb34[m Add benchmark test for agent provider isolation
+[33m< 97a0795[m Expand live code agent benchmarks and update source policy
+[33m< 1966355[m Expand code agent benchmark suite and update exports
+[33m< 81c6ede[m Add AI repair validation tests and update benchmark policy
+[33m< 904405d[m Implement AI repair validation logic and tests
+[33m< e0d5ed1[m Update AI streaming integration and regenerate API schemas
+[33m< 1ff146f[m Implement ai execution projection verification schema and logic
+[33m< 3ed6d61[m Update MissionControl test coverage and audit documentation
+[33m< 8a2c893[m Add unit tests for agent episode ledger and tool execution engine
+[33m< 0f34e75[m Update chat agent handoff logic and expand tool agent tests
+[33m< 38a1e85[m Implement chat agent execution handoff logic
+[33m< 9b706b9[m Add isolated API-only smoke workflow with explicit bootstrap egress approval
