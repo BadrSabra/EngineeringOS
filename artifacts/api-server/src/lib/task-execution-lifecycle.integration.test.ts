@@ -13,6 +13,7 @@ import * as effectObserver from "./agent-state/effect-observer.js";
 import { materializeServerOwnedObservations } from "./agent-state/observation-materializer.js";
 import { assertMissionRepairToolActionRequested } from "./agent-state/mission-repair-tool-action-ledger.js";
 import type { AgentAction, AgentStep } from "@workspace/ai-orchestrator";
+import { GroqClientError } from "@workspace/ai-orchestrator";
 type ChatWithFallbackFunction = (typeof import("./ai-route-helpers.js"))["chatWithFallback"];
 type MissionValidationRunner = NonNullable<
   Parameters<ChatWithFallbackFunction>[1]["validationRunner"]
@@ -2587,6 +2588,121 @@ describe("real durable task execution lifecycle", () => {
         reasonCode: "EXECUTION_PROVIDER_FAILURE",
         resumable: 1,
       });
+      expect(taskProgressFixture.terminalOutcomes).toEqual(["FAILED"]);
+    } finally {
+      await cleanupProjectExecutionData(projectId);
+      await db.delete(tasksTable).where(eq(tasksTable.id, taskId));
+      await db.delete(projectsTable).where(eq(projectsTable.id, projectId));
+    }
+  }, 20_000);
+
+  it("persists a provider 429 window and blocks task resume before token rotation", async () => {
+    const projectId = randomUUID();
+    const taskId = randomUUID();
+    const userId = "lifecycle-rate-limit-user";
+    const now = new Date();
+    const retryAfterMs = 60_000;
+    await db.insert(projectsTable).values({
+      id: projectId,
+      ownerId: userId,
+      name: `lifecycle-rate-limit-${projectId.slice(0, 8)}`,
+      rootPath: `/tmp/lifecycle-${projectId}`,
+      language: "typescript",
+      status: "active",
+      createdAt: now,
+      updatedAt: now,
+    });
+    await db.insert(tasksTable).values({
+      id: taskId,
+      projectId,
+      title: "Durable rate-limit fixture",
+      prompt: "Pause and retry after a provider rate limit.",
+      status: "verifying",
+      retryCount: 0,
+      maxRetries: 2,
+      createdAt: now,
+      updatedAt: now,
+    });
+    runAgentWithFallback.mockImplementationOnce(async () => {
+      throw new GroqClientError("RATE_LIMITED", "fixture provider rate limit", {
+        context: {
+          providerCode: "HTTP_429",
+          retryAfterMs,
+          rateLimitScope: "provider_credential",
+        },
+      });
+    });
+    taskProgressFixture.failTerminalOutcome = "FAILED";
+
+    try {
+      const failed = await executeTaskLifecycle({
+        taskId,
+        userId,
+        provider: { provider: "groq", apiKey: "fixture-provider" },
+        trigger: "reconciliation",
+        expectedStatuses: ["verifying"],
+        workspaceRevision: now.toISOString(),
+      });
+      expect(failed).toMatchObject({
+        ok: false,
+        status: "failed",
+        errorCode: "provider_rate_limited",
+      });
+      if (!failed.executionId) throw new Error("Rate-limited execution identity was not persisted.");
+
+      const [acceptance] = await db
+        .select({
+          attempt: aiExecutionAcceptancesTable.attempt,
+          disposition: aiExecutionAcceptancesTable.disposition,
+        })
+        .from(aiExecutionAcceptancesTable)
+        .where(eq(aiExecutionAcceptancesTable.executionId, failed.executionId))
+        .limit(1);
+      const disposition = acceptance?.disposition as Record<string, unknown> | undefined;
+      expect(acceptance?.attempt).toBe(0);
+      expect(disposition).toMatchObject({
+        retryAfterMs,
+        retryAfterSource: "provider",
+        rateLimitScope: "provider_credential",
+      });
+      expect(Date.parse(String(disposition?.retryAt))).toBeGreaterThan(Date.now());
+
+      const [executionBeforeResume] = await db
+        .select({
+          attempt: aiExecutionsTable.attempt,
+          status: aiExecutionsTable.status,
+          resumeTokenHash: aiExecutionsTable.resumeTokenHash,
+        })
+        .from(aiExecutionsTable)
+        .where(eq(aiExecutionsTable.id, failed.executionId))
+        .limit(1);
+      const providerCallsBeforeResume = runAgentWithFallback.mock.calls.length;
+      const earlyResume = await executeTaskLifecycle({
+        taskId,
+        userId,
+        provider: { provider: "groq", apiKey: "fixture-provider" },
+        trigger: "reconciliation",
+        expectedStatuses: ["verifying"],
+        resumeExecutionId: failed.executionId,
+      });
+      expect(earlyResume).toMatchObject({
+        ok: false,
+        status: "conflict",
+        errorCode: "execution_retry_after_rate_limit",
+      });
+      expect(earlyResume.retryAfterMs).toBeGreaterThan(0);
+      expect(runAgentWithFallback).toHaveBeenCalledTimes(providerCallsBeforeResume);
+
+      const [executionAfterResume] = await db
+        .select({
+          attempt: aiExecutionsTable.attempt,
+          status: aiExecutionsTable.status,
+          resumeTokenHash: aiExecutionsTable.resumeTokenHash,
+        })
+        .from(aiExecutionsTable)
+        .where(eq(aiExecutionsTable.id, failed.executionId))
+        .limit(1);
+      expect(executionAfterResume).toEqual(executionBeforeResume);
       expect(taskProgressFixture.terminalOutcomes).toEqual(["FAILED"]);
     } finally {
       await cleanupProjectExecutionData(projectId);

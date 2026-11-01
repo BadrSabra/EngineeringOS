@@ -76,7 +76,7 @@ export type ExecutionAcceptanceDisposition = {
   operatorAction: string;
   retryAfterMs?: number;
   retryAt?: string;
-  retryAfterSource?: "provider" | "server_default" | "adaptive_default" | "project_rate_limit";
+  retryAfterSource?: "provider" | "server_default" | "adaptive_default" | "project_rate_limit" | "local_admission";
   rateLimitScope?: "upstream_shared_pool" | "provider_credential" | "account_quota" | "unknown";
   taskObjective?: {
     kind: string;
@@ -1374,6 +1374,7 @@ function projectAcceptanceDisposition(
       || raw.retryAfterSource === "server_default"
       || raw.retryAfterSource === "adaptive_default"
       || raw.retryAfterSource === "project_rate_limit"
+      || raw.retryAfterSource === "local_admission"
       ? { retryAfterSource: raw.retryAfterSource }
       : {}),
     ...(raw.rateLimitScope === "upstream_shared_pool"

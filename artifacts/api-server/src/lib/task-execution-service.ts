@@ -36,6 +36,7 @@ import {
   type PendingChange,
   type ValidationProfile,
   type ReadOnlyToolInvocationCallback,
+  GroqClientError,
 } from "@workspace/ai-orchestrator";
 import {
   createAiExecution,
@@ -172,6 +173,7 @@ export type TaskExecutionOutcome = {
   task?: typeof tasksTable.$inferSelect;
   executionId?: string;
   errorCode?: string;
+  retryAfterMs?: number;
   parseCode?: string;
   error?: unknown;
 };
@@ -770,6 +772,9 @@ export function classifyTaskExecutionFailure(params: {
   failureClass: AiTaskFailureClass;
   reasonCode: string;
   retryable: boolean;
+  retryAfterMs?: number;
+  retryAfterSource?: "provider" | "adaptive_default" | "local_admission";
+  rateLimitScope?: "upstream_shared_pool" | "provider_credential" | "account_quota" | "unknown";
 } {
   if (params.cancelled) {
     return {
@@ -796,6 +801,38 @@ export function classifyTaskExecutionFailure(params: {
     };
   }
   if (params.stage === "provider_call" || params.stage === "provider_fallback") {
+    if (
+      params.error instanceof GroqClientError
+      && (params.error.code === "RATE_LIMITED" || params.error.code === "QUOTA")
+    ) {
+      const retryAfterMs = Number.isSafeInteger(params.error.retryAfterMs)
+        && (params.error.retryAfterMs ?? 0) > 0
+        ? params.error.retryAfterMs
+        : undefined;
+      const providerCode = params.error.providerCode ?? "";
+      const retryAfterSource = !retryAfterMs
+        ? undefined
+        : providerCode.startsWith("LOCAL_ADAPTIVE_")
+          ? "adaptive_default"
+          : providerCode === "CREDENTIAL_RETRY_AFTER" || providerCode === "MODEL_COOLDOWN"
+            ? "local_admission"
+            : "provider";
+      const rateLimitScope = params.error.rateLimitScope === "upstream_shared_pool"
+        || params.error.rateLimitScope === "provider_credential"
+        || params.error.rateLimitScope === "account_quota"
+        || params.error.rateLimitScope === "unknown"
+        ? params.error.rateLimitScope
+        : "unknown";
+      return {
+        code: params.error.code === "QUOTA" ? "provider_quota_limited" : "provider_rate_limited",
+        failureClass: "provider",
+        reasonCode: "EXECUTION_PROVIDER_FAILURE",
+        retryable: true,
+        ...(retryAfterMs ? { retryAfterMs } : {}),
+        ...(retryAfterSource ? { retryAfterSource } : {}),
+        rateLimitScope,
+      };
+    }
     return {
       code: "provider_call_failed",
       failureClass: "provider",
@@ -817,6 +854,41 @@ export function classifyTaskExecutionFailure(params: {
     reasonCode: "EXECUTION_FAILED",
     retryable: true,
   };
+}
+
+export type TaskExecutionRetryGate =
+  | { ready: true }
+  | {
+      ready: false;
+      errorCode: "execution_retry_after_rate_limit";
+      retryAfterMs: number;
+    }
+  | { ready: false; errorCode: "execution_retry_window_unavailable" };
+
+export function evaluateTaskExecutionRetryGate(
+  retryAt: unknown,
+  nowMs = Date.now(),
+): TaskExecutionRetryGate {
+  if (retryAt === undefined) return { ready: true };
+  if (typeof retryAt !== "string") {
+    return { ready: false, errorCode: "execution_retry_window_unavailable" };
+  }
+  const retryAtMs = Date.parse(retryAt);
+  if (
+    !Number.isFinite(retryAtMs)
+    || !Number.isFinite(nowMs)
+    || new Date(retryAtMs).toISOString() !== retryAt
+  ) {
+    return { ready: false, errorCode: "execution_retry_window_unavailable" };
+  }
+  const remainingMs = retryAtMs - nowMs;
+  return remainingMs > 0
+    ? {
+        ready: false,
+        errorCode: "execution_retry_after_rate_limit",
+        retryAfterMs: Math.max(1, Math.ceil(remainingMs)),
+      }
+    : { ready: true };
 }
 
 export class MissionToolOutcomeUncertainError extends Error {
@@ -874,6 +946,9 @@ async function finalizeTaskExecutionAcceptance(params: {
   candidateIdentity?: string | null;
   effectRequired?: boolean;
   effectBundleId?: string | null;
+  retryAfterMs?: number;
+  retryAfterSource?: "provider" | "adaptive_default" | "local_admission";
+  rateLimitScope?: "upstream_shared_pool" | "provider_credential" | "account_quota" | "unknown";
 }): Promise<{ accepted: boolean; duplicate: boolean }> {
   const taskFinalization: TaskExecutionFinalization = {
     taskId: params.task.id,
@@ -956,6 +1031,23 @@ async function finalizeTaskExecutionAcceptance(params: {
     stateProjection: params.receipt.stateProjection,
     effectRequired: params.effectRequired,
     effectBundleId: params.effectBundleId,
+    ...(params.retryAfterMs !== undefined
+      && Number.isSafeInteger(params.retryAfterMs)
+      && params.retryAfterMs > 0
+      ? {
+          retryAfterMs: params.retryAfterMs,
+          retryAt: new Date(Math.min(8_640_000_000_000_000, Date.now() + params.retryAfterMs))
+            .toISOString(),
+        }
+      : {}),
+    ...(params.retryAfterSource || params.rateLimitScope
+      ? {
+          disposition: {
+            ...(params.retryAfterSource ? { retryAfterSource: params.retryAfterSource } : {}),
+            ...(params.rateLimitScope ? { rateLimitScope: params.rateLimitScope } : {}),
+          },
+        }
+      : {}),
     taskFinalization,
   });
   if (finalized.duplicate) {
@@ -4451,7 +4543,7 @@ export async function executeTaskLifecycle(params: {
         claimedExecution: NonNullable<Awaited<ReturnType<typeof claimAiExecution>>>;
         correlationId: string;
       }
-    | { kind: "conflict"; errorCode: string };
+    | { kind: "conflict"; errorCode: string; retryAfterMs?: number };
   try {
     claim = await db.transaction(async (tx) => {
       if (missionGoal) {
@@ -4487,23 +4579,44 @@ export async function executeTaskLifecycle(params: {
         if (!correlationIdAtRead) {
           throw new TaskLifecycleClaimConflict("execution_identity_changed");
         }
+        const [existing] = await tx
+          .select()
+          .from(aiExecutionsTable)
+          .where(and(
+            eq(aiExecutionsTable.id, params.resumeExecutionId),
+            eq(aiExecutionsTable.userId, params.userId),
+            eq(aiExecutionsTable.projectId, before.projectId),
+            eq(aiExecutionsTable.linkedTaskId, before.id),
+            eq(aiExecutionsTable.correlationId, correlationIdAtRead),
+            inArray(aiExecutionsTable.status, ["paused", "failed"]),
+            ...(params.expectedResumeAttempt !== undefined
+              ? [eq(aiExecutionsTable.attempt, params.expectedResumeAttempt)]
+              : []),
+          ))
+          .for("update")
+          .limit(1);
+        if (!existing) throw new TaskLifecycleClaimConflict("execution_identity_changed");
+        const [acceptance] = await tx
+          .select({ disposition: aiExecutionAcceptancesTable.disposition })
+          .from(aiExecutionAcceptancesTable)
+          .where(and(
+            eq(aiExecutionAcceptancesTable.executionId, existing.id),
+            eq(aiExecutionAcceptancesTable.attempt, existing.attempt),
+          ))
+          .for("update")
+          .limit(1);
+        const disposition = acceptance?.disposition && typeof acceptance.disposition === "object"
+          ? acceptance.disposition as Record<string, unknown>
+          : undefined;
+        const retryGate = evaluateTaskExecutionRetryGate(disposition?.retryAt);
+        if (!retryGate.ready) {
+          return {
+            kind: "conflict" as const,
+            errorCode: retryGate.errorCode,
+            ...("retryAfterMs" in retryGate ? { retryAfterMs: retryGate.retryAfterMs } : {}),
+          };
+        }
         if (resumeToken) {
-          const [existing] = await tx
-            .select()
-            .from(aiExecutionsTable)
-            .where(and(
-              eq(aiExecutionsTable.id, params.resumeExecutionId),
-              eq(aiExecutionsTable.userId, params.userId),
-              eq(aiExecutionsTable.projectId, before.projectId),
-              eq(aiExecutionsTable.linkedTaskId, before.id),
-              eq(aiExecutionsTable.correlationId, correlationIdAtRead),
-              inArray(aiExecutionsTable.status, ["paused", "failed"]),
-              ...(params.expectedResumeAttempt !== undefined
-                ? [eq(aiExecutionsTable.attempt, params.expectedResumeAttempt)]
-                : []),
-            ))
-            .limit(1);
-          if (!existing) throw new TaskLifecycleClaimConflict("execution_identity_changed");
           durable = { execution: existing, created: false };
         } else {
           const recovered = await recoverAiExecutionResumeToken({
@@ -4612,7 +4725,12 @@ export async function executeTaskLifecycle(params: {
     throw error;
   }
   if (claim.kind === "conflict") {
-    return { ok: false, status: "conflict", errorCode: claim.errorCode };
+    return {
+      ok: false,
+      status: "conflict",
+      errorCode: claim.errorCode,
+      ...(claim.retryAfterMs !== undefined ? { retryAfterMs: claim.retryAfterMs } : {}),
+    };
   }
   const { durable, claimedExecution, correlationId } = claim;
   const executionId = durable.execution.id;
@@ -5279,6 +5397,13 @@ export async function executeTaskLifecycle(params: {
       terminalStatus: cancelled ? "cancelled" : "failed",
       reasonCode: classification.reasonCode,
       retryable: classification.retryable,
+      ...(classification.retryAfterMs !== undefined
+        ? { retryAfterMs: classification.retryAfterMs }
+        : {}),
+      ...(classification.retryAfterSource
+        ? { retryAfterSource: classification.retryAfterSource }
+        : {}),
+      ...(classification.rateLimitScope ? { rateLimitScope: classification.rateLimitScope } : {}),
       trigger: params.trigger,
       finalStatus: rollbackStatus,
       error: message,
@@ -5293,6 +5418,15 @@ export async function executeTaskLifecycle(params: {
         code: classification.code,
         failureClass: classification.failureClass,
         reasonCode: classification.reasonCode,
+        ...(classification.retryAfterMs !== undefined
+          ? { retryAfterMs: classification.retryAfterMs }
+          : {}),
+        ...(classification.retryAfterSource
+          ? { retryAfterSource: classification.retryAfterSource }
+          : {}),
+        ...(classification.rateLimitScope
+          ? { rateLimitScope: classification.rateLimitScope }
+          : {}),
       },
     });
     if (finalized.accepted) {

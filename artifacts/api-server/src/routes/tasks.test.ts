@@ -245,6 +245,82 @@ describe("Task lifecycle", () => {
     expect(JSON.stringify(res.body)).not.toContain("providerPayload");
   });
 
+  it("returns a bounded 429 before provider resolution while a task retry window is active", async () => {
+    const { projectId, taskId } = await createTask();
+    const executionId = randomUUID();
+    const correlationId = randomUUID();
+    const retryAt = new Date(Date.now() + 60_000).toISOString();
+    await db.update(tasksTable)
+      .set({ status: "verifying", correlationId })
+      .where(eq(tasksTable.id, taskId));
+    await db.insert(aiExecutionsTable).values({
+      id: executionId,
+      projectId,
+      linkedTaskId: taskId,
+      userId: "test-user",
+      idempotencyKey: executionId,
+      correlationId,
+      attempt: 0,
+      resumeTokenHash: "unchanged-resume-token-hash",
+      request: "{}",
+      checkpoint: "{}",
+      status: "failed",
+    });
+    await db.insert(aiExecutionAcceptancesTable).values({
+      id: randomUUID(),
+      executionId,
+      projectId,
+      attempt: 0,
+      finalizationKey: randomUUID(),
+      terminalStatus: "failed",
+      outcome: "FAILED",
+      reasonCode: "EXECUTION_PROVIDER_FAILURE",
+      nextActionCode: "RESUME_ALLOWED",
+      disposition: {
+        reasonCodes: ["EXECUTION_PROVIDER_FAILURE"],
+        outcome: "FAILED",
+        recoveryState: "REQUIRED",
+        nextActionCode: "RESUME_ALLOWED",
+        operatorAction: "Resume after the provider retry window.",
+        retryAt,
+        retryAfterMs: 60_000,
+        retryAfterSource: "provider",
+        rateLimitScope: "provider_credential",
+      },
+      evidenceRequired: 0,
+      evidenceComplete: 0,
+      resumable: 1,
+    });
+
+    try {
+      const response = await request(app).post(`/api/ai/tasks/${taskId}/resume`);
+
+      expect(response.status).toBe(429);
+      expect(response.headers["retry-after"]).toBe("60");
+      expect(response.body).toMatchObject({
+        error: "task_execution_rate_limited",
+        code: "execution_retry_after_rate_limit",
+        retryAfterMs: expect.any(Number),
+      });
+      const [execution] = await db
+        .select({
+          attempt: aiExecutionsTable.attempt,
+          status: aiExecutionsTable.status,
+          resumeTokenHash: aiExecutionsTable.resumeTokenHash,
+        })
+        .from(aiExecutionsTable)
+        .where(eq(aiExecutionsTable.id, executionId));
+      expect(execution).toEqual({
+        attempt: 0,
+        status: "failed",
+        resumeTokenHash: "unchanged-resume-token-hash",
+      });
+    } finally {
+      await db.delete(aiExecutionAcceptancesTable).where(eq(aiExecutionAcceptancesTable.executionId, executionId));
+      await db.delete(aiExecutionsTable).where(eq(aiExecutionsTable.id, executionId));
+    }
+  });
+
   it("returns an AI Task receipt only for the pointer-bound execution and exact attempt", async () => {
     const { projectId, taskId } = await createTask();
     const currentExecutionId = randomUUID();

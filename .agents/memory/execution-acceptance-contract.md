@@ -26,3 +26,9 @@ Claim-time recovery must revalidate the acceptance for the locked execution's cu
 **Why:** Acceptance or Task state can change after capability issuance. Letting issuance-time checks stand in for claim-time authority leaves a race window where stale tokens can resume work under a different decision or bypass Task lifecycle gates.
 
 **How to apply:** Lock execution and current acceptance in the claim transaction, require the Task lifecycle to supply the linked Task ID, and consume the token atomically with the attempt transition. Keep token consumption separate from Canonical Proof.
+
+For Task-linked provider throttling, persist only safe classification, scope, source, and retry time in the current attempt's acceptance. Enforce a valid future `retryAt` under the Task→Execution→Acceptance lock order before recovering or rotating any resume capability; malformed retry metadata fails closed. The Task resume route should surface a bounded 429/`Retry-After` without resolving provider credentials.
+
+**Why:** A generic retryable Task failure discarded provider cooldown metadata, allowing an early resume to rotate a recovery token or repeatedly reach the provider before its accepted retry window.
+
+**How to apply:** Keep the Task lifecycle as the authority for Task-linked retry timing, preserve explicit provider versus local-adaptive versus local-admission provenance, and test that an early resume leaves the token hash and execution attempt unchanged and does not call the provider.

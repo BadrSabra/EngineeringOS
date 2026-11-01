@@ -4,7 +4,7 @@
  * POST /api/ai/tasks/:taskId/execute
  * export scheduleAiTaskExecution
  */
-import { Router } from "express";
+import { Router, type Response } from "express";
 import { randomUUID } from "crypto";
 import { db } from "@workspace/db";
 import {
@@ -23,10 +23,42 @@ import {
   resolveProvider,
   handleOrchestratorError,
 } from "../../lib/ai-route-helpers.js";
-import { executeTaskLifecycle } from "../../lib/task-execution-service.js";
+import {
+  executeTaskLifecycle,
+  evaluateTaskExecutionRetryGate,
+} from "../../lib/task-execution-service.js";
 import type { ExecutionDelegationBudget } from "../../lib/execution-lineage.js";
 
 const router = Router();
+
+function respondWithTaskRetryGate(
+  res: Response,
+  errorCode: string | undefined,
+  retryAfterMs?: number,
+) {
+  if (errorCode === "execution_retry_after_rate_limit") {
+    const safeRetryAfterMs = Number.isSafeInteger(retryAfterMs) && (retryAfterMs ?? 0) > 0
+      ? retryAfterMs!
+      : 1_000;
+    return res
+      .set("Retry-After", String(Math.max(1, Math.ceil(safeRetryAfterMs / 1_000))))
+      .status(429)
+      .json({
+        error: "task_execution_rate_limited",
+        code: errorCode,
+        retryAfterMs: safeRetryAfterMs,
+        hint: "The provider retry window is still active. The task has not resumed.",
+      });
+  }
+  if (errorCode === "execution_retry_window_unavailable") {
+    return res.status(503).json({
+      error: "task_retry_window_unavailable",
+      code: errorCode,
+      hint: "The task retry window could not be verified. No provider request was started.",
+    });
+  }
+  return undefined;
+}
 
 // Resume is intentionally task-scoped. The operator never supplies an
 // execution ID, attempt, revision, or token; all of those values come from
@@ -104,6 +136,18 @@ router.post("/ai/tasks/:taskId/resume", async (req, res) => {
       hint: "The current acceptance does not authorize resuming this task.",
     });
   }
+  const acceptanceDisposition = acceptance.disposition
+    && typeof acceptance.disposition === "object"
+    ? acceptance.disposition as Record<string, unknown>
+    : undefined;
+  const retryGate = evaluateTaskExecutionRetryGate(acceptanceDisposition?.retryAt);
+  if (!retryGate.ready) {
+    return respondWithTaskRetryGate(
+      res,
+      retryGate.errorCode,
+      "retryAfterMs" in retryGate ? retryGate.retryAfterMs : undefined,
+    );
+  }
 
   const providerResolved = await requireProvider(req.userId, res, {
     qualityProfile: "task_execution",
@@ -140,6 +184,12 @@ router.post("/ai/tasks/:taskId/resume", async (req, res) => {
     });
   }
   if (lifecycle.status === "conflict") {
+    const retryResponse = respondWithTaskRetryGate(
+      res,
+      lifecycle.errorCode,
+      lifecycle.retryAfterMs,
+    );
+    if (retryResponse) return retryResponse;
     return res.status(409).json({
       error: "task_state_changed_concurrently",
       hint: "The task changed while resume was starting; refresh the task before trying again.",
@@ -225,6 +275,12 @@ router.post("/ai/tasks/:taskId/execute", async (req, res) => {
     throw error;
   }
   if (lifecycle.status === "conflict") {
+    const retryResponse = respondWithTaskRetryGate(
+      res,
+      lifecycle.errorCode,
+      lifecycle.retryAfterMs,
+    );
+    if (retryResponse) return retryResponse;
     return res.status(409).json({
       error: "task_state_changed_concurrently",
       code: "TASK_STATE_CHANGED_CONCURRENTLY",

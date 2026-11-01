@@ -1223,11 +1223,20 @@ describe("openrouterCompleteWithFallback — error classification", () => {
     };
 
     await expect(openrouterCompleteWithFallback(baseMessages as any, options))
-      .rejects.toMatchObject({ code: "RATE_LIMITED", rateLimitScope: "provider_credential" });
+      .rejects.toSatisfy((error: unknown) =>
+        error instanceof GroqClientError
+        && error.code === "RATE_LIMITED"
+        && error.rateLimitScope === "provider_credential"
+        && error.providerCode === "LOCAL_ADAPTIVE_CREDENTIAL_COOLDOWN"
+        && Number.isSafeInteger(error.retryAfterMs)
+        && (error.retryAfterMs ?? 0) > 0
+        && (error.retryAfterMs ?? Infinity) <= 30_000,
+      );
     await expect(openrouterCompleteWithFallback(baseMessages as any, options)).rejects.toMatchObject({
       code: "RATE_LIMITED",
       providerCode: "CREDENTIAL_RETRY_AFTER",
       rateLimitScope: "provider_credential",
+      retryAfterMs: expect.any(Number),
     });
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
@@ -1329,7 +1338,8 @@ describe("openrouterCompleteWithFallback — error classification", () => {
       (err: unknown) =>
         err instanceof GroqClientError &&
         err.code === "RATE_LIMITED" &&
-        err.rateLimitScope === "upstream_shared_pool",
+        err.rateLimitScope === "upstream_shared_pool" &&
+        err.retryAfterMs === 120_000,
     );
     expect(fetchMock).toHaveBeenCalledTimes(1);
     expect(executionLedger.snapshot().events).toContainEqual(expect.objectContaining({
@@ -1339,6 +1349,36 @@ describe("openrouterCompleteWithFallback — error classification", () => {
       rateLimitScope: "upstream_shared_pool",
       retryAfterMs: 120_000,
     }));
+  });
+
+  it("returns a bounded local adaptive delay for a mapped pool 429 without Retry-After", async () => {
+    const fetchMock = vi.fn(async () => textResponse(JSON.stringify({
+      error: {
+        message: "Provider returned error",
+        metadata: {
+          limit_source: "upstream_provider_shared_pool",
+          provider_name: "Thinking Machines",
+        },
+      },
+    }), 429));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(openrouterCompleteWithFallback(baseMessages as any, {
+      apiKey: "fixture-openrouter-adaptive-pool",
+      model: "thinkingmachines/inkling:free",
+      maxTokens: 10,
+      maxFallbackModels: 0,
+      retryTransient: false,
+    })).rejects.toSatisfy((error: unknown) =>
+      error instanceof GroqClientError
+      && error.code === "RATE_LIMITED"
+      && error.providerCode === "LOCAL_ADAPTIVE_MODEL_COOLDOWN"
+      && error.rateLimitScope === "upstream_shared_pool"
+      && Number.isSafeInteger(error.retryAfterMs)
+      && (error.retryAfterMs ?? 0) > 0
+      && (error.retryAfterMs ?? Infinity) <= 30_000,
+    );
+    expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
   it.each([

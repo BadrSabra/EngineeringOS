@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   buildAiTaskExecutionReceipt,
   classifyTaskExecutionFailure,
+  evaluateTaskExecutionRetryGate,
   missionObservationAnswerAttestationIsValid,
   missionObservationEvidenceBindingsFromSourceSnapshot,
   missionObservationEvidenceBindingsMatchSourceSnapshot,
@@ -10,6 +11,7 @@ import {
   missionPlanRevisionHash,
 } from "./task-execution-service.js";
 import { missionObjectiveContract } from "./mission-execution-profile.js";
+import { GroqClientError } from "@workspace/ai-orchestrator";
 
 function result(overrides: Record<string, unknown> = {}) {
   return {
@@ -367,6 +369,92 @@ describe("AI task execution failure classification", () => {
       failureClass: "context",
       reasonCode: "CONTEXT_BUILD_FAILED",
       retryable: true,
+    });
+  });
+
+  it("preserves safe provider rate-limit recovery metadata", () => {
+    const error = new GroqClientError("RATE_LIMITED", "provider rate limit", {
+      context: {
+        providerCode: "HTTP_429",
+        retryAfterMs: 4_000,
+        rateLimitScope: "upstream_shared_pool",
+      },
+    });
+    expect(classifyTaskExecutionFailure({
+      stage: "provider_call",
+      cancelled: false,
+      error,
+    })).toEqual({
+      code: "provider_rate_limited",
+      failureClass: "provider",
+      reasonCode: "EXECUTION_PROVIDER_FAILURE",
+      retryable: true,
+      retryAfterMs: 4_000,
+      retryAfterSource: "provider",
+      rateLimitScope: "upstream_shared_pool",
+    });
+  });
+
+  it("does not mislabel local adaptive cooldown as a provider Retry-After", () => {
+    const error = new GroqClientError("RATE_LIMITED", "provider rate limit", {
+      context: {
+        providerCode: "LOCAL_ADAPTIVE_CREDENTIAL_COOLDOWN",
+        retryAfterMs: 2_500,
+        rateLimitScope: "provider_credential",
+      },
+    });
+    expect(classifyTaskExecutionFailure({
+      stage: "provider_call",
+      cancelled: false,
+      error,
+    })).toMatchObject({
+      code: "provider_rate_limited",
+      retryAfterMs: 2_500,
+      retryAfterSource: "adaptive_default",
+      rateLimitScope: "provider_credential",
+    });
+  });
+
+  it("fails closed when a local admission error contains a malformed retry delay", () => {
+    const error = new GroqClientError("RATE_LIMITED", "provider rate limit", {
+      context: {
+        providerCode: "CREDENTIAL_RETRY_AFTER",
+        retryAfterMs: -1,
+      },
+    });
+    expect(classifyTaskExecutionFailure({
+      stage: "provider_call",
+      cancelled: false,
+      error,
+    })).toEqual({
+      code: "provider_rate_limited",
+      failureClass: "provider",
+      reasonCode: "EXECUTION_PROVIDER_FAILURE",
+      retryable: true,
+      rateLimitScope: "unknown",
+    });
+  });
+
+  it("blocks a task resume until the persisted rate-limit retry time", () => {
+    const now = Date.parse("2026-11-01T12:00:00.000Z");
+    expect(evaluateTaskExecutionRetryGate(undefined, now)).toEqual({ ready: true });
+    expect(evaluateTaskExecutionRetryGate("2026-11-01T12:00:02.501Z", now)).toEqual({
+      ready: false,
+      errorCode: "execution_retry_after_rate_limit",
+      retryAfterMs: 2_501,
+    });
+    expect(evaluateTaskExecutionRetryGate("2026-11-01T11:59:59.000Z", now)).toEqual({ ready: true });
+    expect(evaluateTaskExecutionRetryGate("not-a-date", now)).toEqual({
+      ready: false,
+      errorCode: "execution_retry_window_unavailable",
+    });
+    expect(evaluateTaskExecutionRetryGate(123, now)).toEqual({
+      ready: false,
+      errorCode: "execution_retry_window_unavailable",
+    });
+    expect(evaluateTaskExecutionRetryGate(null, now)).toEqual({
+      ready: false,
+      errorCode: "execution_retry_window_unavailable",
     });
   });
 
