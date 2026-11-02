@@ -293,9 +293,7 @@ describe("scan-job lease helpers", () => {
       `  } catch (error) {`,
       `    process.stdout.write("REJECTED:" + (error instanceof Error ? error.name : "unknown") + "\\n");`,
       `  } finally {`,
-      `    process.stdout.write("POOL_END_START\\n");`,
       `    await pool.end();`,
-      `    process.stdout.write("POOL_END_DONE\\n");`,
       `  }`,
       `})().catch((error) => { console.error(error); process.exitCode = 1; });`,
     ].join("\n");

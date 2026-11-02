@@ -24,7 +24,7 @@
 - [Startup scrub contract preservation](startup-scrub-contract-preservation.md) — a `kind` tag alone cannot distinguish validation-result payloads from typed operation acceptance metadata.
 - [Safe terminal execution boundary](terminal-execution-boundary.md) — terminal actions use server-owned fixed profiles; the model selects a profile but never supplies shell text or arbitrary argv.
 - [AI release quality gate](ai-release-quality-gate.md) — aggregate deterministic checks, keep Preview blocking by default, and treat local schema validation as authoritative for live provider JSON.
-- [Process-level AI worker fixtures](process-level-ai-worker-fixtures.md) — mock provider resolution only in controlled child modes; keep PostgreSQL claims and terminal writes real.
+- [Process-level AI worker fixtures](process-level-ai-worker-fixtures.md) — keep worker writes real; close child stdin after race barriers so rejected-worker tests verify clean exit.
 - [Untrusted content boundary](untrusted-content-boundary.md) — repository, tool, memory, and checkpoint text is evidence/data only; server authorization remains independent.
 - [Delivery test cleanup](delivery-test-cleanup.md) — recovery tests must remove only generated operation roots; the shared delivery directory can contain tracked fixtures.
 - [Package test root](package-test-root.md) — run Vitest from its owning package and keep optional Vite peers aligned with the workspace major.
