@@ -10,6 +10,7 @@ import request from "supertest";
 import { and, eq, sql } from "drizzle-orm";
 import { createHash, randomUUID } from "crypto";
 import { promises as fs } from "node:fs";
+import path from "node:path";
 import app from "../app.js";
 import {
   db,
@@ -371,7 +372,7 @@ vi.mock("@workspace/ai-orchestrator", async (importOriginal) => {
     gemini: { providerId: "gemini", label: "Gemini", supportsStreaming: true, supportsTools: false, supportsJsonMode: true, consoleUrl: "aistudio.google.com/apikey", statusUrl: "status.cloud.google.com", defaultModels: { fast: "gemini-2.0-flash", powerful: "gemini-2.0-flash" } },
     openrouter: { providerId: "openrouter", label: "OpenRouter", supportsStreaming: true, supportsTools: true, supportsJsonMode: true, consoleUrl: "openrouter.ai/keys", statusUrl: "openrouter.ai", defaultModels: { fast: "google/gemma-4-31b-it:free", powerful: "nvidia/nemotron-3-ultra-550b-a55b:free" } },
   },
-  PROVIDER_PRIORITY: ["openrouter", "gemini", "deepseek", "groq"],
+  PROVIDER_PRIORITY: ["openrouter"],
   getProvider: vi.fn((id: string) => {
     const registry: Record<string, { providerId: string; label: string }> = {
       groq: { providerId: "groq", label: "Groq" },
@@ -582,9 +583,20 @@ vi.mock("@workspace/ai-orchestrator", async (importOriginal) => {
 async function insertProject(): Promise<string> {
   const id = randomUUID();
   const now = new Date();
-  const rootPath = `/tmp/ai-test-${id}`;
+  const workspaceRoot = path.resolve(process.cwd(), "../..");
+  const testRootsBase = path.join(workspaceRoot, ".test-roots");
+  await fs.mkdir(testRootsBase, { recursive: true });
+  const [realWorkspaceRoot, realTestRootsBase] = await Promise.all([
+    fs.realpath(workspaceRoot),
+    fs.realpath(testRootsBase),
+  ]);
+  if (realTestRootsBase !== path.join(realWorkspaceRoot, ".test-roots")) {
+    throw new Error("AI route fixture root escaped the approved workspace test-root directory.");
+  }
+  const rootPath = path.join(realTestRootsBase, `ai-test-${id}`);
   await fs.mkdir(rootPath, { recursive: true });
   await fs.writeFile(`${rootPath}/package.json`, JSON.stringify({ name: `ai-test-${id}` }));
+  fixtureProjectRoots.push(rootPath);
   await db.insert(projectsTable).values({
     id,
     ownerId: "test-user",
@@ -1021,12 +1033,11 @@ afterEach(async () => {
   for (const workspaceRoot of deliveryWorkspaceRoots.splice(0)) {
     await fs.rm(workspaceRoot, { recursive: true, force: true }).catch(() => undefined);
   }
-  for (const projectRoot of fixtureProjectRoots.splice(0)) {
-    await fs.rm(projectRoot, { recursive: true, force: true }).catch(() => undefined);
-  }
   for (const pid of projectIds.splice(0)) {
     await cleanupProjectFixture(pid);
-    await fs.rm(`/tmp/ai-test-${pid}`, { recursive: true, force: true }).catch(() => undefined);
+  }
+  for (const projectRoot of fixtureProjectRoots.splice(0)) {
+    await fs.rm(projectRoot, { recursive: true, force: true }).catch(() => undefined);
   }
   // Also clear any lingering workflow ids
   for (const wid of workflowIds.splice(0)) {
@@ -1036,37 +1047,23 @@ afterEach(async () => {
 });
 
 describe("GET /api/ai/providers/:provider/key", () => {
-  it("reports Groq model availability without exposing the server credential", async () => {
+  it("does not expose or probe a non-OpenRouter server credential", async () => {
     await db.delete(aiProviderCredentialsTable).where(eq(aiProviderCredentialsTable.ownerId, "test-user"));
-    vi.mocked(validateGroqDefaultModels).mockResolvedValueOnce({
-      valid: false,
-      missing: ["fast"],
-      checkedModels: {
-        fast: "openai/retired-fast",
-        powerful: "openai/gpt-oss-120b",
-      },
-      reason: "Groq model catalog is missing the configured fast model.",
-    });
+    vi.mocked(validateGroqDefaultModels).mockClear();
 
     const res = await request(app).get("/api/ai/providers/groq/key");
 
     expect(res.status).toBe(200);
     expect(res.body).toMatchObject({
       configured: false,
-      modelAvailability: {
-        status: "unavailable",
-        source: "server",
-        checkedModels: {
-          fast: "openai/retired-fast",
-          powerful: "openai/gpt-oss-120b",
-        },
-        unavailableRoles: ["fast"],
-      },
+      effectiveConfigured: false,
+      lifecycle: expect.any(Object),
     });
-    expect(JSON.stringify(res.body)).not.toContain("test-dummy-key-for-mocked-tests");
+    expect(res.body).not.toHaveProperty("modelAvailability");
+    expect(validateGroqDefaultModels).not.toHaveBeenCalled();
   });
 
-  it("returns a usable not-configured state when Groq is absent", async () => {
+  it("returns a safe unconfigured lifecycle when Groq is absent", async () => {
     const savedGroqKey = process.env.GROQ_API_KEY;
     delete process.env.GROQ_API_KEY;
     try {
@@ -1074,11 +1071,12 @@ describe("GET /api/ai/providers/:provider/key", () => {
       const res = await request(app).get("/api/ai/providers/groq/key");
 
       expect(res.status).toBe(200);
-      expect(res.body.modelAvailability).toMatchObject({
-        status: "not_configured",
-        source: "none",
-        unavailableRoles: [],
+      expect(res.body).toMatchObject({
+        configured: false,
+        effectiveConfigured: false,
+        lifecycle: expect.any(Object),
       });
+      expect(res.body).not.toHaveProperty("modelAvailability");
     } finally {
       if (savedGroqKey === undefined) delete process.env.GROQ_API_KEY;
       else process.env.GROQ_API_KEY = savedGroqKey;
@@ -10744,7 +10742,7 @@ describe.sequential("task and workflow provider failure contract", () => {
       catalogStatus: undefined,
       expectedStatus: 401,
       expectedAvailability: "authentication_failed",
-      provider: "groq" as const,
+      provider: "openrouter" as const,
     },
     {
       name: "model",
@@ -10753,7 +10751,7 @@ describe.sequential("task and workflow provider failure contract", () => {
       catalogStatus: undefined,
       expectedStatus: 422,
       expectedAvailability: "incompatible_model",
-      provider: "groq" as const,
+      provider: "openrouter" as const,
     },
     {
       name: "catalog",
@@ -10771,7 +10769,7 @@ describe.sequential("task and workflow provider failure contract", () => {
       catalogStatus: undefined,
       expectedStatus: 402,
       expectedAvailability: "quota_exhausted",
-      provider: "groq" as const,
+      provider: "openrouter" as const,
     },
     {
       name: "rate-limit",
@@ -10780,7 +10778,7 @@ describe.sequential("task and workflow provider failure contract", () => {
       catalogStatus: undefined,
       expectedStatus: 429,
       expectedAvailability: "rate_limited",
-      provider: "groq" as const,
+      provider: "openrouter" as const,
     },
     {
       name: "circuit",
@@ -10789,7 +10787,7 @@ describe.sequential("task and workflow provider failure contract", () => {
       catalogStatus: undefined,
       expectedStatus: 422,
       expectedAvailability: "circuit_open",
-      provider: "groq" as const,
+      provider: "openrouter" as const,
     },
     {
       name: "outage",
@@ -10798,7 +10796,7 @@ describe.sequential("task and workflow provider failure contract", () => {
       catalogStatus: undefined,
       expectedStatus: 502,
       expectedAvailability: "provider_outage",
-      provider: "groq" as const,
+      provider: "openrouter" as const,
     },
   ] as const;
 
@@ -11635,8 +11633,8 @@ describe("resolveProvider tool-capability filtering", () => {
   });
 });
 
-describe("resolveProvider Gemini model lifecycle", () => {
-  it("skips Gemini when the configured default is retired", async () => {
+describe("free-only provider selection", () => {
+  it("does not resolve Gemini even when its server key and model are configured", async () => {
     const providerKeys = [
       "OPENROUTER_API_KEY",
       "GEMINI_API_KEY",
@@ -11647,6 +11645,7 @@ describe("resolveProvider Gemini model lifecycle", () => {
 
     for (const name of providerKeys) delete process.env[name];
     process.env.GEMINI_API_KEY = "valid-gemini-key";
+    vi.mocked(validateGeminiDefaultModels).mockClear();
 
     try {
       vi.mocked(validateGeminiDefaultModels).mockResolvedValueOnce({
@@ -11660,13 +11659,7 @@ describe("resolveProvider Gemini model lifecycle", () => {
       });
       const { resolveProvider } = await import("../lib/ai-route-helpers.js");
       await expect(resolveProvider("test-user")).resolves.toBeUndefined();
-      expect(validateGeminiDefaultModels).toHaveBeenCalledWith(
-        "valid-gemini-key",
-        expect.objectContaining({
-          fast: expect.any(String),
-          powerful: expect.any(String),
-        }),
-      );
+      expect(validateGeminiDefaultModels).not.toHaveBeenCalled();
     } finally {
       for (const name of providerKeys) {
         const value = saved[name];

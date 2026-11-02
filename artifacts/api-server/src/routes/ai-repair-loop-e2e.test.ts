@@ -49,7 +49,7 @@ const harness = vi.hoisted(() => {
   });
 
   const strategy = {
-    providerId: "groq",
+    providerId: "openrouter",
     supportsNativeStream: false,
     ownsModelFallback: false,
     call: vi.fn(async (messages: unknown[], options: { tools?: Array<{ function?: { name?: string } }>; toolChoice?: string }) => {
@@ -153,7 +153,7 @@ vi.mock("../lib/ai-route-helpers.js", async (importOriginal) => {
   return {
     ...actual,
     requireProvider: vi.fn(async () => ({
-      provider: "groq",
+      provider: "openrouter",
       apiKey: "repair-loop-fixture-key",
     })),
   };
@@ -210,6 +210,20 @@ async function insertProject(rootPath: string): Promise<string> {
     updatedAt: now,
   });
   return id;
+}
+
+async function createTemporaryProjectRoot(prefix: string): Promise<string> {
+  const workspaceRoot = path.resolve(process.cwd(), "../..");
+  const testRootsBase = path.join(workspaceRoot, ".test-roots");
+  await fs.mkdir(testRootsBase, { recursive: true });
+  const [realWorkspaceRoot, realTestRootsBase] = await Promise.all([
+    fs.realpath(workspaceRoot),
+    fs.realpath(testRootsBase),
+  ]);
+  if (realTestRootsBase !== path.join(realWorkspaceRoot, ".test-roots")) {
+    throw new Error("Repair-loop fixture root escaped the approved workspace test-root directory.");
+  }
+  return fs.mkdtemp(path.join(realTestRootsBase, prefix));
 }
 
 async function insertApprovedPlan(projectId: string, targetPath: string): Promise<{ sessionId: string; messageId: string }> {
@@ -310,7 +324,7 @@ describe("verified repair loop through the real SSE route and chat engine", () =
 
   it("keeps the source untouched while read -> pending write -> overlay validation reaches READY_FOR_REVIEW", async () => {
     const workspaceRoot = path.resolve(process.cwd(), "../..");
-    const rootPath = await fs.mkdtemp("/tmp/repair-loop-root-");
+    const rootPath = await createTemporaryProjectRoot("repair-loop-root-");
     temporaryRoots.push(rootPath);
     const targetPath = "artifacts/dashboard/src/App.tsx";
     const workspaceTargetPath = path.join(workspaceRoot, targetPath);
@@ -435,7 +449,7 @@ describe("verified repair loop through the real SSE route and chat engine", () =
 
   it("routes inspect-then-fix through evidence first and keeps the proposed edit pending", async () => {
     const workspaceRoot = path.resolve(process.cwd(), "../..");
-    const rootPath = await fs.mkdtemp("/tmp/compound-inspect-fix-root-");
+    const rootPath = await createTemporaryProjectRoot("compound-inspect-fix-root-");
     temporaryRoots.push(rootPath);
 
     const targetPath = "artifacts/dashboard/src/App.tsx";
@@ -524,7 +538,7 @@ describe("verified repair loop through the real SSE route and chat engine", () =
 
   it("routes verify-then-run-tests through validation without exposing write tools", async () => {
     const workspaceRoot = path.resolve(process.cwd(), "../..");
-    const rootPath = await fs.mkdtemp("/tmp/compound-verify-tests-root-");
+    const rootPath = await createTemporaryProjectRoot("compound-verify-tests-root-");
     await fs.rm(rootPath, { recursive: true, force: true });
     await fs.symlink(workspaceRoot, rootPath, "dir");
     temporaryRoots.push(rootPath);
@@ -591,7 +605,7 @@ describe("verified repair loop through the real SSE route and chat engine", () =
     const targetPath = "artifacts/dashboard/src/App.tsx";
     const workspaceTargetPath = path.join(workspaceRoot, targetPath);
     const originalContent = await fs.readFile(workspaceTargetPath, "utf8");
-    const rootPath = await fs.mkdtemp("/tmp/repair-loop-root-");
+    const rootPath = await createTemporaryProjectRoot("repair-loop-root-");
     temporaryRoots.push(rootPath);
     const absoluteTargetPath = path.join(rootPath, targetPath);
     await fs.mkdir(path.dirname(absoluteTargetPath), { recursive: true });
@@ -720,7 +734,7 @@ describe("verified repair loop through the real SSE route and chat engine", () =
     const absoluteTargetPath = path.join(workspaceRoot, targetPath);
     const originalContent = await fs.readFile(absoluteTargetPath, "utf8");
     const failingContent = `${originalContent}\nconst permanentlyBroken: string = 123;\n`;
-    const rootPath = await fs.mkdtemp("/tmp/repair-loop-root-");
+    const rootPath = await createTemporaryProjectRoot("repair-loop-root-");
     await fs.rm(rootPath, { recursive: true, force: true });
     await fs.symlink(workspaceRoot, rootPath, "dir");
     temporaryRoots.push(rootPath);
@@ -803,7 +817,7 @@ describe("verified repair loop through the real SSE route and chat engine", () =
     const absoluteTargetPath = path.join(workspaceRoot, targetPath);
     const originalContent = await fs.readFile(absoluteTargetPath, "utf8");
     const pendingContent = `${originalContent}\n// validator-unavailable fixture must never apply\n`;
-    const rootPath = await fs.mkdtemp("/tmp/repair-loop-root-");
+    const rootPath = await createTemporaryProjectRoot("repair-loop-root-");
     await fs.rm(rootPath, { recursive: true, force: true });
     await fs.symlink(workspaceRoot, rootPath, "dir");
     temporaryRoots.push(rootPath);

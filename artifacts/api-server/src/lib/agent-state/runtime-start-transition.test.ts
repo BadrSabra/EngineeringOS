@@ -860,8 +860,8 @@ describe("runtime.start transition retry scheduling", () => {
       title: "Report applied changes",
       status: "blocked",
       nextAction: { kind: "wait", reason: "event", wakeAt: null },
-      successCriteria: { stepId: "report-applied", planRevision: { hash: planRevision } },
-      outcomeContract: { planRevision: { hash: planRevision } },
+      successCriteria: { stepId: "report-applied", planRevision: plan },
+      outcomeContract: { stepId: "report-applied", planRevision: plan },
       createdAt: now,
       updatedAt: now,
     });

@@ -270,11 +270,11 @@ async function createApplyChangesFixture() {
       nextAction: { kind: "task", taskId: reportTaskId, purpose: "execution" },
       successCriteria: {
         stepId: "report-applied",
-        planRevision: { hash: planRevision },
+        planRevision: plan,
       },
       outcomeContract: {
         stepId: "report-applied",
-        planRevision: { hash: planRevision },
+        planRevision: plan,
       },
       createdAt: now,
       updatedAt: now,

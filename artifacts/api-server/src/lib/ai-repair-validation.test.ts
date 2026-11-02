@@ -89,7 +89,7 @@ describe("AI repair validation registry", () => {
         },
       );
 
-      expect(result.status).toBe("passed");
+      expect(result.status, JSON.stringify(result.evidence)).toBe("passed");
       expect(result.evidence.validatorProfile).toBe("runtime-oracle");
       expect(result.evidence.childProcessAttestation?.status).toBe("known");
       const treeAttestation = result.evidence.validatorProcessTreeAttestation;

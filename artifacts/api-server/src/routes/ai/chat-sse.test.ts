@@ -1567,7 +1567,7 @@ describe("POST /api/ai/chat/stream — forensic_status SSE emission (onStep inte
       code: "RATE_LIMITED",
       outcome: "FAILED",
       retryAfterMs,
-      retryAfterSource: "adaptive_default",
+      retryAfterSource: "local_adaptive",
       rateLimitScope: "provider_credential",
     });
     expect(res.text).not.toContain("private local cooldown detail");
@@ -1579,7 +1579,7 @@ describe("POST /api/ai/chat/stream — forensic_status SSE emission (onStep inte
     const trace = JSON.parse(String(assistant?.toolTrace)) as Array<Record<string, unknown>>;
     expect(trace.find((entry) => entry.kind === "terminal_outcome")).toMatchObject({
       retryAfterMs,
-      retryAfterSource: "adaptive_default",
+      retryAfterSource: "local_adaptive",
     });
   });
 
@@ -1822,7 +1822,7 @@ describe("POST /api/ai/chat/stream — forensic_status SSE emission (onStep inte
       code: "RATE_LIMITED",
       rateLimitScope: "provider_credential",
       retryAfterMs,
-      retryAfterSource: "adaptive_default",
+      retryAfterSource: "local_adaptive",
     });
     expect(res.text).not.toContain("private local cooldown detail");
 

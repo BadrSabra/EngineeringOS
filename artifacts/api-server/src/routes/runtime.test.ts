@@ -20,6 +20,7 @@ import app from "../app.js";
 import {
   workspaceRuntime,
   type RuntimeAfterState,
+  type RuntimeStartBeforeState,
   type WorkspaceRuntimeSnapshot,
 } from "../lib/workspace-runtime.js";
 
@@ -80,9 +81,26 @@ function createRuntimeMock(
     detail: "Runtime after-state verified.",
     ...afterOverrides,
   };
+  const beforeState: RuntimeStartBeforeState = {
+    status: "observed",
+    runtimeStatus: "stopped",
+    projectId,
+    revision,
+    sessionId: null,
+    pid: null,
+    port: null,
+    processAlive: false,
+    portReady: false,
+    source: "test_observer",
+    inventoryComplete: true,
+    unknownListenerPorts: [],
+    observedAt: now,
+    detail: "Controlled test fixture independently observed a stopped runtime.",
+  };
 
   const startSpy = vi.spyOn(workspaceRuntime, "start").mockResolvedValue(snapshot);
   vi.spyOn(workspaceRuntime, "get").mockResolvedValue(snapshot);
+  vi.spyOn(workspaceRuntime, "observeStartBeforeState").mockResolvedValue(beforeState);
   vi.spyOn(workspaceRuntime, "observeAfterState").mockResolvedValue(afterState);
   return { startSpy, snapshot, afterState };
 }
