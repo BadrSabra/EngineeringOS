@@ -16,6 +16,7 @@ import type { ModelCapability, OpenRouterPaidModel } from "./model-catalog.js";
 import { isProviderEgressDisabled } from "../provider-egress.js";
 
 const CATALOG_TTL_MS   = 10 * 60 * 1_000; // 10 minutes
+const CATALOG_REFRESH_TIMEOUT_MS = 5_000;
 const OPENROUTER_MODELS_URL = "https://openrouter.ai/api/v1/models";
 
 type OpenRouterModelEntry = {
@@ -120,6 +121,55 @@ function classifyRefreshFailure(error: unknown): string {
   return "network_error";
 }
 
+function callerAbortError(signal: AbortSignal): Error {
+  if (signal.reason instanceof Error) return signal.reason;
+  const error = new Error("OpenRouter catalog refresh wait was aborted");
+  error.name = "AbortError";
+  return error;
+}
+
+/**
+ * Stop one caller waiting without cancelling the shared catalog request used
+ * by other callers. The shared request has its own bounded timeout.
+ */
+function waitForRefreshOrCallerAbort(
+  refresh: Promise<void>,
+  signal?: AbortSignal,
+): Promise<void> {
+  if (!signal) return refresh;
+  if (signal.aborted) return Promise.reject(callerAbortError(signal));
+
+  return new Promise<void>((resolve, reject) => {
+    let settled = false;
+    const cleanup = () => signal.removeEventListener("abort", onAbort);
+    const onAbort = () => {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      reject(callerAbortError(signal));
+    };
+    signal.addEventListener("abort", onAbort, { once: true });
+    if (signal.aborted) {
+      onAbort();
+      return;
+    }
+    void refresh.then(
+      () => {
+        if (settled) return;
+        settled = true;
+        cleanup();
+        resolve();
+      },
+      (error) => {
+        if (settled) return;
+        settled = true;
+        cleanup();
+        reject(error);
+      },
+    );
+  });
+}
+
 /**
  * Whether the dynamic catalog has been loaded at least once.
  * Used by the resolver to decide whether to apply the filter.
@@ -193,43 +243,69 @@ export function getDynamicCatalogStatus(): DynamicCatalogStatus {
  * @param apiKey  OpenRouter API key (Bearer). Optional; some endpoints allow
  *                unauthenticated access to GET /models.
  */
-export async function refreshDynamicCatalog(apiKey?: string): Promise<void> {
+export async function refreshDynamicCatalog(
+  apiKey?: string,
+  signal?: AbortSignal,
+): Promise<void> {
+  if (signal?.aborted) throw callerAbortError(signal);
   if (isProviderEgressDisabled()) return;
   const now = Date.now();
   if (now - _lastFetchMs < CATALOG_TTL_MS && _availableIds !== null) return;
 
   // Deduplicate concurrent calls — only one fetch in flight at a time.
-  if (_inFlight) return _inFlight;
+  if (_inFlight) return waitForRefreshOrCallerAbort(_inFlight, signal);
 
   _inFlight = (async () => {
     _refreshAttempted = true;
     _lastRefreshStatus = "failed";
     _lastRefreshError = null;
+    const controller = new AbortController();
+    let timeoutHandle: ReturnType<typeof setTimeout> | undefined;
     try {
       const headers: Record<string, string> = {
         "Content-Type": "application/json",
       };
       if (apiKey) headers["Authorization"] = `Bearer ${apiKey}`;
 
-      const res = await fetch(OPENROUTER_MODELS_URL, {
-        headers,
+      type CatalogFetchResult =
+        | { kind: "http_error"; status: number }
+        | { kind: "models"; models: OpenRouterModelEntry[] };
+      const fetchAndParse = async (): Promise<CatalogFetchResult> => {
+        const res = await fetch(OPENROUTER_MODELS_URL, {
+          headers,
+          signal: controller.signal,
+        });
+        if (!res.ok) return { kind: "http_error", status: res.status };
+        const data = (await res.json()) as { data?: OpenRouterModelEntry[] };
+        return {
+          kind: "models",
+          models: Array.isArray(data?.data) ? data.data : [],
+        };
+      };
+      const timeout = new Promise<never>((_resolve, reject) => {
+        timeoutHandle = setTimeout(() => {
+          const error = new Error("OpenRouter model catalog refresh timed out");
+          error.name = "TimeoutError";
+          controller.abort(error);
+          reject(error);
+        }, CATALOG_REFRESH_TIMEOUT_MS);
       });
+      const result = await Promise.race([fetchAndParse(), timeout]);
 
-      if (!res.ok) {
-        _lastRefreshError = `http_${res.status}`;
+      if (result.kind === "http_error") {
+        _lastRefreshError = `http_${result.status}`;
         console.warn(
           JSON.stringify({
             scope: "dynamic-catalog",
             code: "FETCH_FAILED",
-            status: res.status,
+            status: result.status,
             hint: "OpenRouter /models returned non-200 — keeping previous catalog",
           }),
         );
         return;
       }
 
-      const data = (await res.json()) as { data?: OpenRouterModelEntry[] };
-      const models = data?.data ?? [];
+      const models = result.models;
 
       if (models.length === 0) {
         _lastRefreshStatus = "empty";
@@ -319,11 +395,12 @@ export async function refreshDynamicCatalog(apiKey?: string): Promise<void> {
         }),
       );
     } finally {
+      if (timeoutHandle) clearTimeout(timeoutHandle);
       _inFlight = null;
     }
   })();
 
-  return _inFlight;
+  return waitForRefreshOrCallerAbort(_inFlight, signal);
 }
 
 /**

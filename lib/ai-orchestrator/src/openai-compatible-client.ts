@@ -32,7 +32,10 @@ import {
   rotateFreeModelFallbackChainAtSlot,
   type ResolveModelOpts,
 } from "./openrouter/model-resolver.js";
-import { getDynamicCatalogStatus } from "./openrouter/dynamic-catalog.js";
+import {
+  getDynamicCatalogStatus,
+  refreshDynamicCatalog,
+} from "./openrouter/dynamic-catalog.js";
 import { FREE_MODELS, type ModelCapability } from "./openrouter/model-catalog.js";
 import { assertOpenRouterFreeModel } from "./openrouter/free-model-policy.js";
 import {
@@ -1632,6 +1635,34 @@ const OPENROUTER_EXTRA_HEADERS = { "X-Title": "EngineeringOS" };
 const MAX_OPENROUTER_FREE_MODEL_ATTEMPTS_PER_REQUEST = 2;
 
 export { assertOpenRouterFreeModel } from "./openrouter/free-model-policy.js";
+
+function assertOpenRouterLiveFreeModel(
+  model: string,
+  options: {
+    capability?: ModelCapability;
+    requireTools?: boolean;
+    requireJson?: boolean;
+    requireJsonSchema?: boolean;
+    requireStreaming?: boolean;
+  } = {},
+): void {
+  assertOpenRouterFreeModel(model);
+  if (isCatalogFreeModelForCapability(model, {
+    ...options,
+    requireLiveCatalog: true,
+  })) return;
+  throw new GroqClientError(
+    "INVALID_CONFIG",
+    "OpenRouter inference requires a fresh live catalog entry with zero prompt and completion pricing.",
+    {
+      context: {
+        providerName: "OpenRouter",
+        providerModel: model,
+        providerCode: "LIVE_FREE_CATALOG_REQUIRED",
+      },
+    },
+  );
+}
 
 /**
  * Non-streaming completion via OpenRouter.

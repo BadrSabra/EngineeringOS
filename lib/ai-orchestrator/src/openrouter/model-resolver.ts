@@ -44,10 +44,14 @@ import type { ModelLaneCursorScope } from "./model-lane-cursor-store.js";
 
 export type { ModelCapability, OpenRouterFreeModel, OpenRouterPaidModel };
 
-export function isCatalogFreeModel(modelId: string): boolean {
+export function isCatalogFreeModel(
+  modelId: string,
+  options: { requireLiveCatalog?: boolean } = {},
+): boolean {
   const model = FREE_MODELS.find((candidate) => candidate.id === modelId.trim());
   if (!model || !model.free) return false;
   const liveIds = getUsableDynamicModelIds();
+  if (options.requireLiveCatalog && liveIds === null) return false;
   // A failed or expired refresh is not an authoritative catalog boundary.
   // Keep the static compatibility path until a successful live snapshot exists.
   return liveIds === null || liveIds.has(model.id);
@@ -60,6 +64,8 @@ export type FreeModelCapabilityOptions = {
   /** Requires live metadata for response_format: json_schema. */
   requireJsonSchema?: boolean;
   requireStreaming?: boolean;
+  /** Requires a fresh live zero-price catalog entry before inference is sent. */
+  requireLiveCatalog?: boolean;
 };
 
 function supportsJsonSchema(modelId: string): boolean {
@@ -80,7 +86,9 @@ export function isCatalogFreeModelForCapability(
   modelId: string,
   options: FreeModelCapabilityOptions = {},
 ): boolean {
-  if (!isCatalogFreeModel(modelId)) return false;
+  if (!isCatalogFreeModel(modelId, {
+    requireLiveCatalog: options.requireLiveCatalog,
+  })) return false;
   const model = FREE_MODELS.find((candidate) => candidate.id === modelId.trim());
   return !!model &&
     satisfiesChatCompletionCapability(model.capabilities, options.capability) &&
