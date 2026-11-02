@@ -1,9 +1,8 @@
 import { execFile } from "node:child_process";
 import { randomUUID } from "node:crypto";
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, realpath, rm, writeFile } from "node:fs/promises";
 import { promisify } from "node:util";
 import path from "node:path";
-import { tmpdir } from "node:os";
 import { and, eq } from "drizzle-orm";
 import {
   aiChangeProposalsTable,
@@ -24,6 +23,26 @@ import { createControlledLocalBareGitHubRequest } from "./local-bare-github-adap
 import type { GitHubRequest } from "./github-connector.js";
 
 const execFileAsync = promisify(execFile);
+
+async function createDeliveryTestRoot(prefix: string): Promise<string> {
+  const workspaceRoot = path.resolve(process.cwd(), "../..");
+  const testRootsBase = path.join(workspaceRoot, ".test-roots");
+  await mkdir(testRootsBase, { recursive: true });
+  const [realWorkspaceRoot, realTestRootsBase] = await Promise.all([
+    realpath(workspaceRoot),
+    realpath(testRootsBase),
+  ]);
+  if (realTestRootsBase !== path.join(realWorkspaceRoot, ".test-roots")) {
+    throw new Error("GitHub delivery fixture escaped the approved workspace test-root directory.");
+  }
+  const rootPath = await mkdtemp(path.join(realTestRootsBase, `${prefix}-`));
+  const realRootPath = await realpath(rootPath);
+  if (!realRootPath.startsWith(`${realTestRootsBase}${path.sep}`)) {
+    await rm(rootPath, { recursive: true, force: true });
+    throw new Error("GitHub delivery fixture resolved outside the approved workspace test-root directory.");
+  }
+  return realRootPath;
+}
 
 async function git(rootPath: string, args: string[]) {
   return execFileAsync("git", ["-C", rootPath, ...args], { maxBuffer: 2_000_000 });
@@ -72,7 +91,7 @@ describe("verified GitHub delivery service", () => {
   });
 
   it("blocks branch drift before mutation and reconciles a remote commit after its GitPushed receipt is lost", async () => {
-    const rootPath = await mkdtemp(path.join(tmpdir(), "engineeringos-delivery-recovery-"));
+    const rootPath = await createDeliveryTestRoot("engineeringos-delivery-recovery");
     const projectId = randomUUID();
     const sessionId = randomUUID();
     const messageId = randomUUID();
@@ -189,9 +208,10 @@ describe("verified GitHub delivery service", () => {
           throw new Error(`unexpected GitHub path: ${requestPath}`);
         },
       });
-      expect(driftedBeforePush).toMatchObject({ status: "blocked" });
+    expect(driftedBeforePush, JSON.stringify(driftedBeforePush))
+      .toMatchObject({ status: "blocked" });
       expect(beforeStateObserved).toBe(false);
-      expect(preflightDriftCalls).toEqual([
+    expect(preflightDriftCalls, JSON.stringify(driftedBeforePush)).toEqual([
         "GET /repos/example/project/git/ref/heads/main",
         "GET /repos/example/project/git/commits/remote-drift-commit",
       ]);
@@ -334,7 +354,7 @@ describe("verified GitHub delivery service", () => {
   });
 
   it("delivers an approved, committed candidate through the controlled local bare remote", async () => {
-    const temporaryRoot = await mkdtemp(path.join(tmpdir(), "engineeringos-approved-delivery-"));
+    const temporaryRoot = await createDeliveryTestRoot("engineeringos-approved-delivery");
     const rootPath = path.join(temporaryRoot, "workspace");
     const bareRemotePath = path.join(temporaryRoot, "remote.git");
     const projectId = randomUUID();

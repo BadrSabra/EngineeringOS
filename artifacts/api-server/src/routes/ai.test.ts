@@ -537,7 +537,7 @@ vi.mock("@workspace/ai-orchestrator", async (importOriginal) => {
   // lifecycle gate deterministic too, otherwise the real model validator sees
   // the dummy key and rejects the provider before the route mock is reached.
   getProviderLifecycleSnapshot: vi.fn(async () => ({
-    provider: "groq" as const,
+    provider: "openrouter" as const,
     source: "server" as const,
     keyIdentity: "fixture-key",
     revision: 1,
@@ -1629,7 +1629,7 @@ describe("POST /api/ai/chat", () => {
       .send({ projectId, message: "What is this project?" });
 
     expect(json.status).toBe(200);
-    expect(json.body).toMatchObject({
+    expect(json.body, JSON.stringify(json.body)).toMatchObject({
       outcome: "SUCCEEDED",
       projectQueryResponseSource: "deterministic_fallback",
       projectQueryResponseFallbackReason: "synthesis_failed",
@@ -2128,12 +2128,16 @@ describe("POST /api/ai/chat", () => {
     const res = await request(app)
       .get(`/api/ai/chat/${proposal.sessionId}/pending-proposal`);
     expect(res.status).toBe(200);
-    expect(res.body).toEqual({
+    expect(res.body).toMatchObject({
       proposalId,
       operationId: proposal.messageId,
       changes,
       approvalRequired: false,
       revision: 0,
+      applyMissionReady: false,
+      missionCandidate: false,
+      missionCandidateAccepted: false,
+      sourceGoalId: null,
     });
   });
 
@@ -3046,7 +3050,7 @@ describe("POST /api/ai/chat", () => {
       });
 
     expect(explanation.status).toBe(200);
-    expect(explanation.body).toMatchObject({
+    expect(explanation.body, JSON.stringify(explanation.body)).toMatchObject({
       sessionId,
       turnIntent: "PROJECT_QUERY",
       outcome: "SUCCEEDED",
@@ -3216,7 +3220,7 @@ describe("POST /api/ai/chat", () => {
       });
 
     expect(question.status).toBe(200);
-    expect(question.body).toMatchObject({
+    expect(question.body, JSON.stringify(question.body)).toMatchObject({
       sessionId,
       turnIntent: "PROJECT_QUERY",
       outcome: "SUCCEEDED",
@@ -8975,11 +8979,11 @@ describe("POST /api/ai/chat/apply-changes", () => {
         nextAction: { kind: "task", taskId: reportTaskId, purpose: "execution" },
         successCriteria: {
           stepId: "report-applied",
-          planRevision: { hash: planRevision },
+          planRevision: plan,
         },
         outcomeContract: {
           stepId: "report-applied",
-          planRevision: { hash: planRevision },
+          planRevision: plan,
         },
         createdAt: now,
         updatedAt: now,

@@ -75,6 +75,26 @@ const projectIds: string[] = [];
 const shadowWorkspaceRoots: string[] = [];
 const shadowSourceRoots: string[] = [];
 
+async function createMissionTestRoot(prefix: string): Promise<string> {
+  const workspaceRoot = path.resolve(process.cwd(), "../..");
+  const testRootsBase = path.join(workspaceRoot, ".test-roots");
+  await fs.mkdir(testRootsBase, { recursive: true });
+  const [realWorkspaceRoot, realTestRootsBase] = await Promise.all([
+    fs.realpath(workspaceRoot),
+    fs.realpath(testRootsBase),
+  ]);
+  if (realTestRootsBase !== path.join(realWorkspaceRoot, ".test-roots")) {
+    throw new Error("Mission fixture root escaped the approved workspace test-root directory.");
+  }
+  const rootPath = await fs.mkdtemp(path.join(realTestRootsBase, `${prefix}-`));
+  const realRootPath = await fs.realpath(rootPath);
+  if (!realRootPath.startsWith(`${realTestRootsBase}${path.sep}`)) {
+    await fs.rm(rootPath, { recursive: true, force: true });
+    throw new Error("Mission fixture root resolved outside the approved workspace test-root directory.");
+  }
+  return realRootPath;
+}
+
 async function seedAcceptedChatMissionCandidate(projectId: string, label: string) {
   const now = new Date();
   const missionId = randomUUID();
@@ -3891,7 +3911,7 @@ describe("AI missions and goals", () => {
     const planRevision = `shadow-plan-${operationId}`;
     const sourceRevision = "b".repeat(40);
     const now = new Date();
-    const sourceRoot = `/tmp/mission-shadow-source-${operationId}`;
+    const sourceRoot = await createMissionTestRoot("mission-shadow-source");
     await fs.mkdir(`${sourceRoot}/src`, { recursive: true });
     await fs.writeFile(`${sourceRoot}/package.json`, JSON.stringify({
       scripts: { typecheck: "tsc --noEmit" },
@@ -4366,12 +4386,12 @@ describe("AI missions and goals", () => {
         if (recoveredRows[0]?.status === "completed" && recoveredRows[1]?.status === "failed") break;
         await new Promise((resolve) => setTimeout(resolve, 50));
       }
-      expect(recoveredRows[0]).toMatchObject({
+      expect(recoveredRows[0], JSON.stringify(recoveredRows)).toMatchObject({
         id: crashWindowIdentities[0]!.replayId,
         executionId: crashWindowIdentities[0]!.executionId,
         status: "completed",
       });
-      expect(recoveredRows[1]).toMatchObject({
+      expect(recoveredRows[1], JSON.stringify(recoveredRows)).toMatchObject({
         id: crashWindowIdentities[1]!.replayId,
         executionId: crashWindowIdentities[1]!.executionId,
         status: "failed",
@@ -5578,7 +5598,7 @@ describe("AI missions and goals", () => {
     const sourceRevision = "c".repeat(40);
     const changeSetHash = "d".repeat(64);
     const now = new Date();
-    const sourceRoot = `/tmp/mission-shadow-recovery-source-${replayId}`;
+    const sourceRoot = await createMissionTestRoot("mission-shadow-recovery-source");
     await fs.mkdir(`${sourceRoot}/src`, { recursive: true });
     await fs.writeFile(`${sourceRoot}/package.json`, JSON.stringify({
       scripts: { typecheck: "tsc --noEmit" },

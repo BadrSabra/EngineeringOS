@@ -172,7 +172,7 @@ describe("POST /api/projects/:projectId/runtime/start", () => {
     const retry = await request(app)
       .post(`/api/projects/${fixture.projectId}/runtime/start`)
       .set("Idempotency-Key", idempotencyKey);
-    expect(retry.status).toBe(200);
+    expect(retry.status, JSON.stringify(retry.body)).toBe(200);
     expect(retry.body.executionId).toBe(first.body.executionId);
     expect(retry.body.operationId).toBe(first.body.operationId);
     expect(runtime.startSpy).toHaveBeenCalledTimes(1);

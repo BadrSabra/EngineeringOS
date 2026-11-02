@@ -263,7 +263,9 @@ describe("P7.5 process recovery", () => {
           workspaceRevision: sourceRevision,
           workspaceRoot: rootPath,
           validationTargetPaths: [],
-          recipeProofMode: "runtime_start_gate_c_v1",
+          ...(prepared.proofEvidenceMode === "runtime_start_gate_c"
+            ? { recipeProofMode: "runtime_start_gate_c_v1" as const }
+            : {}),
         },
         idempotencyKey: params.idempotencyKey,
         projectId,

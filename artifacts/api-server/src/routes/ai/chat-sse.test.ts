@@ -1833,7 +1833,7 @@ describe("POST /api/ai/chat/stream — forensic_status SSE emission (onStep inte
     const trace = JSON.parse(String(assistant?.toolTrace)) as Array<Record<string, unknown>>;
     expect(trace.find((entry) => entry.kind === "terminal_outcome")).toMatchObject({
       retryAfterMs,
-      retryAfterSource: "adaptive_default",
+      retryAfterSource: "local_adaptive",
     });
   });
 

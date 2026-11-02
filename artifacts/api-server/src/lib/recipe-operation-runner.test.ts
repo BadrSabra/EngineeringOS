@@ -2537,7 +2537,7 @@ describe("recipe operation preparation", () => {
         runtimeStartRunner: createRuntimeStartRunner(manager),
       });
       executionIds.push(secondResult.executionId);
-      expect(secondResult.status).toBe("completed");
+      expect(secondResult.status, JSON.stringify(secondResult.receipt)).toBe("completed");
       const secondExecutionTransitions = await db.select()
         .from(aiWorldTransitionsTable)
         .where(eq(aiWorldTransitionsTable.executionId, secondResult.executionId));

@@ -69,8 +69,8 @@ describe("AI repair validation registry", () => {
         rootPath,
         [],
         {
-          command: "pnpm",
-          args: ["exec", "node", "-e", "setTimeout(() => {}, 700)"],
+          command: "node",
+          args: ["-e", "setTimeout(() => {}, 700)"],
           timeoutMs: 5_000,
         },
         undefined,
@@ -93,7 +93,7 @@ describe("AI repair validation registry", () => {
       expect(result.evidence.validatorProfile).toBe("runtime-oracle");
       expect(result.evidence.childProcessAttestation?.status).toBe("known");
       const treeAttestation = result.evidence.validatorProcessTreeAttestation;
-      expect(treeAttestation?.status).toBe("known");
+      expect(treeAttestation?.status, JSON.stringify(treeAttestation)).toBe("known");
       expect(treeAttestation?.treeDigestVersion).toBe("validator-process-tree-v1");
       expect(treeAttestation?.visibleProcessCount).toBeGreaterThan(1);
       expect(treeAttestation?.sampledProcessCount).toBe(treeAttestation?.visibleProcessCount);

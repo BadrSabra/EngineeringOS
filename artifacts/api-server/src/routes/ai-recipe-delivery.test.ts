@@ -1,6 +1,8 @@
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { randomUUID } from "node:crypto";
+import { mkdir, mkdtemp, realpath, rm, writeFile } from "node:fs/promises";
+import path from "node:path";
 import { and, eq } from "drizzle-orm";
 import { describe, expect, afterEach, beforeEach, it, vi } from "vitest";
 import request from "supertest";
@@ -38,9 +40,31 @@ const execFileAsync = promisify(execFile);
 const pushed = vi.mocked(pushLocalCommitToGitHub);
 const branchState = vi.mocked(getGitHubBranchState);
 const projectIds: string[] = [];
+const projectRoots: string[] = [];
 
-async function git(args: string[]) {
-  return execFileAsync("git", args, { maxBuffer: 2_000_000 });
+async function createDeliveryTestRoot(): Promise<string> {
+  const workspaceRoot = path.resolve(process.cwd(), "../..");
+  const testRootsBase = path.join(workspaceRoot, ".test-roots");
+  await mkdir(testRootsBase, { recursive: true });
+  const [realWorkspaceRoot, realTestRootsBase] = await Promise.all([
+    realpath(workspaceRoot),
+    realpath(testRootsBase),
+  ]);
+  if (realTestRootsBase !== path.join(realWorkspaceRoot, ".test-roots")) {
+    throw new Error("Recipe delivery fixture escaped the approved workspace test-root directory.");
+  }
+  const rootPath = await mkdtemp(path.join(realTestRootsBase, "recipe-delivery-"));
+  const realRootPath = await realpath(rootPath);
+  if (!realRootPath.startsWith(`${realTestRootsBase}${path.sep}`)) {
+    await rm(rootPath, { recursive: true, force: true });
+    throw new Error("Recipe delivery fixture resolved outside the approved workspace test-root directory.");
+  }
+  projectRoots.push(realRootPath);
+  return realRootPath;
+}
+
+async function git(rootPath: string, args: string[]) {
+  return execFileAsync("git", ["-C", rootPath, ...args], { maxBuffer: 2_000_000 });
 }
 
 async function createDeliveryFixture() {
@@ -49,9 +73,16 @@ async function createDeliveryFixture() {
   const operationId = randomUUID();
   const sessionId = randomUUID();
   const messageId = randomUUID();
-  const rootPath = process.cwd();
+  const rootPath = await createDeliveryTestRoot();
+  await git(rootPath, ["init", "-q", "--initial-branch=main"]);
+  await writeFile(path.join(rootPath, "README.md"), "Recipe delivery fixture.\n", "utf8");
+  await git(rootPath, ["add", "README.md"]);
+  await git(rootPath, [
+    "-c", "user.name=Fixture", "-c", "user.email=fixture@example.com",
+    "commit", "-qm", "Create isolated delivery fixture",
+  ]);
   const sourceRevision = new Date().toISOString();
-  const commitHash = (await git(["rev-parse", "HEAD"])).stdout.trim();
+  const commitHash = (await git(rootPath, ["rev-parse", "HEAD"])).stdout.trim();
   const treeHash = await hashDeliveryTree(rootPath);
   const now = new Date();
 
@@ -139,6 +170,9 @@ afterEach(async () => {
     await db.delete(aiChatSessionsTable).where(eq(aiChatSessionsTable.projectId, projectId)).catch(() => undefined);
     await db.delete(projectsTable).where(eq(projectsTable.id, projectId)).catch(() => undefined);
   }
+  for (const root of projectRoots.splice(0)) {
+    await rm(root, { recursive: true, force: true });
+  }
 });
 
 describe("recipe API GitHub delivery", () => {
@@ -165,7 +199,7 @@ describe("recipe API GitHub delivery", () => {
         deliveryMessage: "Approved recipe delivery",
       });
 
-    expect(response.status).toBe(200);
+  expect(response.status, JSON.stringify(response.body)).toBe(200);
     expect(response.body.status).toBe("completed");
     expect(response.body.receipt).toMatchObject({
       status: "completed",
