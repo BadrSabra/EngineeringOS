@@ -984,20 +984,28 @@ async function cleanupProjectFixture(projectId: string): Promise<void> {
   await db.delete(projectsTable).where(eq(projectsTable.id, projectId));
 }
 
-// All AI routes require a Groq API key. Set a dummy env key for the entire
-// test file — every AI orchestrator call is mocked so the real key is never
-// used.  Individual tests that want to verify the 428 path remove the key
-// themselves and restore it in a finally block.
+// Route tests use the free OpenRouter route and retain the Groq key for
+// Groq-specific compatibility endpoints. Every orchestrator call is mocked,
+// so these dummy values are never used for a provider request. Tests that
+// verify the missing-provider 428 path clear all keys and restore them.
 let _savedGroqKeyFileLevel: string | undefined;
+let _savedOpenRouterKeyFileLevel: string | undefined;
 beforeAll(async () => {
   _savedGroqKeyFileLevel = process.env.GROQ_API_KEY;
+  _savedOpenRouterKeyFileLevel = process.env.OPENROUTER_API_KEY;
   process.env.GROQ_API_KEY = "test-dummy-key-for-mocked-tests";
+  process.env.OPENROUTER_API_KEY = "test-dummy-openrouter-key-for-mocked-tests";
 });
 afterAll(() => {
   if (_savedGroqKeyFileLevel !== undefined) {
     process.env.GROQ_API_KEY = _savedGroqKeyFileLevel;
   } else {
     delete process.env.GROQ_API_KEY;
+  }
+  if (_savedOpenRouterKeyFileLevel !== undefined) {
+    process.env.OPENROUTER_API_KEY = _savedOpenRouterKeyFileLevel;
+  } else {
+    delete process.env.OPENROUTER_API_KEY;
   }
 });
 

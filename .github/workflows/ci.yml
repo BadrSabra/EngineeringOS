@@ -135,25 +135,39 @@ jobs:
     name: Validate (codegen drift + typecheck + tests)
     runs-on: ubuntu-latest
     env:
-      DATABASE_URL: postgresql://postgres:postgres@localhost:5432/engineeringos_test
-      SCHEMA_CANARY_MAINTENANCE_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/postgres
+      DATABASE_URL: postgresql://runner:runner@127.0.0.1:55487/engineeringos_test
+      SCHEMA_CANARY_MAINTENANCE_DATABASE_URL: postgresql://runner:runner@127.0.0.1:55487/postgres
+      WORKSPACE_PATH: /home/runner/workspace
+    defaults:
+      run:
+        working-directory: /home/runner/workspace
     services:
       postgres:
         image: postgres:16
         env:
-          POSTGRES_USER: postgres
-          POSTGRES_PASSWORD: postgres
+          POSTGRES_USER: runner
+          POSTGRES_PASSWORD: runner
           POSTGRES_DB: engineeringos_test
         ports:
-          - 5432:5432
+          - 55487:5432
         options: >-
-          --health-cmd "pg_isready -U postgres -d engineeringos_test"
+          --health-cmd "pg_isready -U runner -d engineeringos_test"
           --health-interval 10s
           --health-timeout 5s
           --health-retries 5
 
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Stage repository under the admitted workspace root
+        working-directory: ${{ github.workspace }}
+        run: |
+          set -euo pipefail
+          test ! -e /home/runner/workspace
+          mkdir -m 700 /home/runner/workspace
+          cp -a "$GITHUB_WORKSPACE"/. /home/runner/workspace/
 
       - name: Install pnpm
         uses: pnpm/action-setup@v4
@@ -201,8 +215,53 @@ jobs:
       - name: Apply and verify test database schema
         run: pnpm run db:schema:apply
 
+      - name: Install Chromium for browser-backed tests
+        run: pnpm --filter @workspace/dashboard exec playwright install --with-deps chromium
+
       - name: Run tests
-        run: pnpm run test
+        shell: bash
+        run: |
+          set -euo pipefail
+          supervisor_log="${RUNNER_TEMP}/workspace-runtime-supervisor.log"
+          node scripts/workspace-runtime-supervisor.mjs >"$supervisor_log" 2>&1 &
+          supervisor_pid=$!
+          cleanup_supervisor() {
+            if kill -0 "$supervisor_pid" 2>/dev/null; then
+              kill -TERM "$supervisor_pid" 2>/dev/null || true
+              for _ in $(seq 1 25); do
+                if ! kill -0 "$supervisor_pid" 2>/dev/null; then
+                  break
+                fi
+                sleep 0.2
+              done
+              if kill -0 "$supervisor_pid" 2>/dev/null; then
+                kill -KILL "$supervisor_pid" 2>/dev/null || true
+              fi
+            fi
+            wait "$supervisor_pid" 2>/dev/null || true
+          }
+          trap cleanup_supervisor EXIT
+
+          ready=false
+          for _ in $(seq 1 50); do
+            if ! kill -0 "$supervisor_pid" 2>/dev/null; then
+              cat "$supervisor_log"
+              exit 1
+            fi
+            if grep -Fq "Workspace runtime supervisor listening on 127.0.0.1:8099" "$supervisor_log" \
+              && curl --fail --silent http://127.0.0.1:8099/healthz >/dev/null; then
+              ready=true
+              break
+            fi
+            sleep 0.2
+          done
+          if [ "$ready" != true ]; then
+            cat "$supervisor_log"
+            echo "Workspace runtime supervisor did not become ready on its owned loopback listener." >&2
+            exit 1
+          fi
+
+          pnpm run test
 
   release-validation:
     name: Release validation
