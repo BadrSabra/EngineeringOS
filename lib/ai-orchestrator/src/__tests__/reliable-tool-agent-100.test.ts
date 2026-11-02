@@ -261,6 +261,7 @@ describe("canonical executor dispatcher boundary", () => {
           continue;
         }
         const sourceText = await readFile(absolutePath, "utf8");
+        if (!sourceText.includes(internalSpecifier)) continue;
         const sourceFile = ts.createSourceFile(
           absolutePath,
           sourceText,
@@ -1265,17 +1266,28 @@ describe("Reliable Tool Agent T8 adversarial acceptance matrix", () => {
   });
 
   it("keeps sensitive files out of direct reads, directory listings, and search output", async () => {
-    const direct = makeCall("read_file", { path: ".env" });
-    const directResult = await executeSingleTool(direct.options);
-    expect(visibleOutput(directResult)).not.toContain(TEST_ONLY_SECRET);
+    const sensitiveRoot = await mkdtemp(path.join(os.tmpdir(), "reliable-tool-agent-sensitive-"));
+    try {
+      await writeFile(path.join(sensitiveRoot, ".env"), `TOKEN=${TEST_ONLY_SECRET}\n`);
 
-    const listing = makeCall("list_directory", { path: "." });
-    const listingResult = await executeSingleTool(listing.options);
-    expect(visibleOutput(listingResult)).not.toContain(".env");
+      const direct = makeCall("read_file", { path: ".env" }, { rootPath: sensitiveRoot });
+      const directResult = await executeSingleTool(direct.options);
+      expect(visibleOutput(directResult)).not.toContain(TEST_ONLY_SECRET);
 
-    const search = makeCall("search_code", { pattern: TEST_ONLY_SECRET });
-    const searchResult = await executeSingleTool(search.options);
-    expect(visibleOutput(searchResult)).not.toContain(TEST_ONLY_SECRET);
+      const listing = makeCall("list_directory", { path: "." }, { rootPath: sensitiveRoot });
+      const listingResult = await executeSingleTool(listing.options);
+      expect(visibleOutput(listingResult)).not.toContain(".env");
+
+      const search = makeCall(
+        "search_code",
+        { pattern: TEST_ONLY_SECRET },
+        { rootPath: sensitiveRoot },
+      );
+      const searchResult = await executeSingleTool(search.options);
+      expect(visibleOutput(searchResult)).not.toContain(TEST_ONLY_SECRET);
+    } finally {
+      await rm(sensitiveRoot, { recursive: true, force: true });
+    }
   });
 
   it("keeps Git log and status confined to the selected repository, not a nested repository", async () => {

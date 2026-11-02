@@ -15,6 +15,12 @@ The ordinary user-requested Git push path is a separate contract from AI-scoped 
 
 **How to apply:** Route only proposal-bound GitHub pushes through `executeVerifiedGitHubDelivery`; keep manual pushes on the existing credentialed Git path until they receive a separately designed server-owned operation contract.
 
+The shell's GitHub authentication is separate from Replit's connected-service status: a refreshed connection does not guarantee that the GitHub CLI's stored token is valid. If an SSH identity is already available in the workspace, use it only after matching its public fingerprint to the registered key and verifying GitHub's host fingerprint through an official HTTPS source. Never display or copy private-key bytes.
+
+**Why:** A push can fail with an invalid CLI token even after the user refreshed GitHub; the existing workspace SSH identity may be the valid write path, but neither its ownership nor the remote host should be assumed.
+
+**How to apply:** Check the actual Git transport and credential path, prefer existing workspace authentication, and verify the remote's exact fast-forward target before pushing. Do not ask users to paste private keys or tokens.
+
 For the recipe-only World State projection, persist a direct remote-branch observation before a new push. Key the pending transition by execution and operation, then let a resumed attempt rebind its accepted effect and after-state while preserving the original before observation. If the exact delivered commit is already present, reconcile it without fabricating a new before-state; use the observed remote commit as the World State project revision.
 
 **Why:** A remote branch mutation cannot be reconstructed from local workspace revision, and retries may change Episode attempt identity without changing the original pre-mutation fact.

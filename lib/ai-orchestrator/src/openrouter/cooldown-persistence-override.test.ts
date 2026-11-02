@@ -45,6 +45,7 @@ describe("isolated cooldown persistence overrides", () => {
           "fixture/isolated-model",
           "__local_adaptive_model__:fixture%2Fisolated-model",
           "__upstream_pool__:fixture",
+          "__local_adaptive_model__:__upstream_pool__%3Afixture",
         ],
       );
       expect(isolatedStore.write).toHaveBeenCalledWith(
