@@ -935,7 +935,7 @@ afterEach(async () => {
 });
 
 describe("AI provider key persistence", () => {
-  it("updates an existing owner/provider credential through the generic PUT route", async () => {
+  it("rejects storing a non-product provider credential without changing existing state", async () => {
     const ownerId = "test-user";
     const provider = "groq";
     const encryptionKey = process.env.AI_CREDENTIALS_ENCRYPTION_KEY;
@@ -971,11 +971,11 @@ describe("AI provider key persistence", () => {
         .put(`/api/ai/providers/${provider}/key`)
         .send({ apiKey: "updated-provider-key-9876" });
 
-      expect(response.status).toBe(200);
+      expect(response.status).toBe(409);
       expect(response.body).toMatchObject({
-        configured: true,
-        last4: "9876",
+        reasonCode: "provider_not_enabled_for_free_route",
       });
+      expect(response.body.error).toContain("not tested or stored");
 
       const credentials = await db
         .select({
@@ -990,7 +990,7 @@ describe("AI provider key persistence", () => {
       expect(credentials).toHaveLength(1);
       expect(credentials[0]).toMatchObject({
         id: originalCredential[0]?.id ?? fixtureId,
-        last4: "9876",
+        last4: originalCredential[0]?.last4 ?? "fore",
       });
     } finally {
       if (originalCredential[0]) {
@@ -3289,34 +3289,32 @@ describe("Durable AI execution crash/reconnect", () => {
         const streamReaderTask = streamReader
           ? (async () => {
               const decoder = new TextDecoder();
-              while (true) {
-                const chunk = await streamReader.read();
-                if (chunk.done) return;
-                const text = decoder.decode(chunk.value, { stream: true });
-                for (const match of text.matchAll(/(?:^|\n)data:\s*([^\r\n]+)/g)) {
-                  try {
-                    const event = JSON.parse(match[1]!) as {
-                      type?: unknown;
-                      code?: unknown;
-                      executionId?: unknown;
-                      resumeToken?: unknown;
-                    };
-                    if (typeof event.type === "string") initialSseEvents.push(event.type);
-                    if (typeof event.code === "string" && /^[A-Z0-9_]{1,80}$/.test(event.code)) {
-                      initialSseCodes.push(event.code);
-                    }
-                    if (
-                      event.type === "execution_started"
-                      && typeof event.executionId === "string"
-                      && typeof event.resumeToken === "string"
-                    ) {
-                      executionId = event.executionId;
-                      resumeToken = event.resumeToken;
-                    }
-                  } catch {
-                    // Ignore partial SSE payloads; only keep bounded event labels.
+              let bufferedSseText = "";
+              const captureSseEvents = (text: string) => {
+                const parsed = consumeSseJsonFrames(bufferedSseText, text);
+                bufferedSseText = parsed.remainder;
+                for (const event of parsed.events) {
+                  if (typeof event.type === "string") initialSseEvents.push(event.type);
+                  if (typeof event.code === "string" && /^[A-Z0-9_]{1,80}$/.test(event.code)) {
+                    initialSseCodes.push(event.code);
+                  }
+                  if (
+                    event.type === "execution_started"
+                    && typeof event.executionId === "string"
+                    && typeof event.resumeToken === "string"
+                  ) {
+                    executionId = event.executionId;
+                    resumeToken = event.resumeToken;
                   }
                 }
+              };
+              while (true) {
+                const chunk = await streamReader.read();
+                if (chunk.done) {
+                  captureSseEvents(decoder.decode());
+                  return;
+                }
+                captureSseEvents(decoder.decode(chunk.value, { stream: true }));
               }
             })().catch(() => undefined)
           : Promise.resolve();
@@ -5883,19 +5881,54 @@ type SseEvent = Record<string, unknown>;
 
 /** Parse a raw SSE response body into an array of JSON event objects. */
 function parseSseEvents(body: string): SseEvent[] {
-  return body
-    .split("\n\n")
-    .map((chunk) => chunk.trim())
-    .filter((chunk) => chunk.startsWith("data: "))
-    .map((chunk) => {
-      try {
-        return JSON.parse(chunk.slice(6)) as SseEvent;
-      } catch {
-        return null;
-      }
-    })
-    .filter((ev): ev is SseEvent => ev !== null);
+  return consumeSseJsonFrames("", body).events;
 }
+
+function consumeSseJsonFrames(
+  bufferedText: string,
+  nextText: string,
+): { events: SseEvent[]; remainder: string } {
+  const frames = `${bufferedText}${nextText}`.split(/\r?\n\r?\n/);
+  const remainder = frames.pop() ?? "";
+  const events: SseEvent[] = [];
+  for (const frame of frames) {
+    const payload = frame
+      .split(/\r?\n/)
+      .filter((line) => line.startsWith("data:"))
+      .map((line) => line.slice("data:".length).replace(/^ /, ""))
+      .join("\n");
+    if (!payload) continue;
+    try {
+      const parsed: unknown = JSON.parse(payload);
+      if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+        events.push(parsed as SseEvent);
+      }
+    } catch {
+      // Ignore malformed or non-JSON events; callers retain only typed fields.
+    }
+  }
+  return { events, remainder };
+}
+
+describe("streaming SSE chunk parser", () => {
+  it("preserves JSON events split across network chunks", () => {
+    const resumeToken = "r".repeat(32);
+    const first = consumeSseJsonFrames("", 'data: {"type":"execution_');
+    const second = consumeSseJsonFrames(
+      first.remainder,
+      `started","executionId":"exec-test","resumeToken":"${resumeToken}"}\r\n\r\n: heartbeat\r\n\r\n`,
+    );
+
+    expect([...first.events, ...second.events]).toEqual([
+      {
+        type: "execution_started",
+        executionId: "exec-test",
+        resumeToken,
+      },
+    ]);
+    expect(second.remainder).toBe("");
+  });
+});
 
 async function loadExecutionLease(executionId: string): Promise<{
   status: string;
@@ -7083,7 +7116,7 @@ describe("deterministic operational chat replies", () => {
       (arabicDone?.message as Record<string, unknown> | undefined)?.content,
     );
     expect(arabicContent).toContain("حدّ الحصة المشتركة");
-    expect(arabicContent).toContain("هذا الرد لا يبدأ إعادة تلقائية");
+    expect(arabicContent).toContain("لا تبدأ إعادة تلقائية");
 
     const savedMessages = await db
       .select()
@@ -7314,7 +7347,7 @@ describe("INT-005 — POST /api/ai/chat/stream: successful OpenRouter completion
       .set("Content-Type", "application/json")
       .send({
         projectId,
-        message: "Explain how the project pipeline works and analyze its behavior.",
+        message: "What is this project? Analyze how the pipeline works using source evidence.",
       });
 
     expect(res.status).toBe(200);
@@ -11411,7 +11444,7 @@ describe("INT-005 — POST /api/ai/chat/stream: successful OpenRouter completion
     300_000,
   );
 
-  it("keeps actual PROJECT_QUERY synthesis failover equivalent across JSON, SSE, and history", async () => {
+  it("keeps OpenRouter-only PROJECT_QUERY synthesis and deterministic recovery equivalent across JSON, SSE, and history", async () => {
     const projectId = await insertProject();
     projectIds.push(projectId);
     const [project] = await db
@@ -11463,11 +11496,11 @@ describe("INT-005 — POST /api/ai/chat/stream: successful OpenRouter completion
     let pendingReadPaths: string[] = [];
     let responseText = "";
     let failoverScenario:
-      | "provider_b_succeeds"
-      | "all_providers_fail"
-      | "deadline_before_provider_b" = "provider_b_succeeds";
+      | "openrouter_succeeds"
+      | "openrouter_fails"
+      | "deadline_during_primary_failure" = "openrouter_succeeds";
     const calls: Array<{
-      provider: "openrouter" | "deepseek";
+      provider: "openrouter";
       operation: string;
       messages: string;
     }> = [];
@@ -11488,14 +11521,36 @@ describe("INT-005 — POST /api/ai/chat/stream: successful OpenRouter completion
         const operation = options.operation ?? "tool_chat";
         if (operation === "project_query_no_tools_synthesis") {
           calls.push({ provider: "openrouter", operation, messages: JSON.stringify(messages) });
-          if (failoverScenario === "deadline_before_provider_b") {
-            options.executionLedger?.setTerminal("deadline");
+          if (failoverScenario !== "openrouter_succeeds") {
+            if (failoverScenario === "deadline_during_primary_failure") {
+              options.executionLedger?.setTerminal("deadline");
+            }
+            throw new GroqClientError(
+              "SERVER_ERROR",
+              "fixture OpenRouter synthesis diagnostic must stay server-side",
+              { context: { providerStatus: 503 } },
+            );
           }
-          throw new GroqClientError(
-            "SERVER_ERROR",
-            "fixture provider A synthesis diagnostic must stay server-side",
-            { context: { providerStatus: 503 } },
-          );
+          const requiredPaths = activeObjective?.requiredEvidencePaths ?? [];
+          const claims = activeObjective?.requiredClaims ?? [];
+          const claimRefs = claims
+            .map(({ claimId }) => claimId)
+            .filter((claimId): claimId is string => Boolean(claimId));
+          responseText = [
+            "تم تتبع التدفق الكامل من التوجيه إلى حلقة الأدوات ثم إرسال الطلب إلى OpenRouter والتحقق النهائي.",
+            ...claims.map(({ text }) => text).filter((text): text is string => Boolean(text)),
+          ].join("\n\n");
+          return {
+            content: JSON.stringify({
+              response: responseText,
+              sources: requiredPaths,
+              claimRefs,
+              flowRefs: claimRefs.slice(0, 2),
+            }),
+            toolCalls: [],
+            model: "openrouter-free-synthesis-fixture",
+            usage: { promptTokens: 18, completionTokens: 26 },
+          };
         }
         if (options.maxTokens === 512 && options.toolChoice === undefined) {
           const requiredPaths = activeObjective?.requiredEvidencePaths ?? [];
@@ -11587,52 +11642,8 @@ describe("INT-005 — POST /api/ai/chat/stream: successful OpenRouter completion
         };
       }),
     };
-    const fallbackStrategy = {
-      providerId: "deepseek",
-      ownsModelFallback: false,
-      supportsNativeStream: false,
-      stream: vi.fn(async () => []),
-      call: vi.fn(async (
-        messages: unknown,
-        options: { operation?: string },
-      ) => {
-        const operation = options.operation ?? "tool_chat";
-        if (operation !== "project_query_no_tools_synthesis") {
-          throw new Error(`Unexpected fallback operation: ${operation}`);
-        }
-        calls.push({ provider: "deepseek", operation, messages: JSON.stringify(messages) });
-        if (failoverScenario === "all_providers_fail") {
-          throw new GroqClientError(
-            "SERVER_ERROR",
-            "fixture provider B synthesis diagnostic must stay server-side",
-            { context: { providerStatus: 503 } },
-          );
-        }
-        const requiredPaths = activeObjective?.requiredEvidencePaths ?? [];
-        const claims = activeObjective?.requiredClaims ?? [];
-        const claimRefs = claims
-          .map(({ claimId }) => claimId)
-          .filter((claimId): claimId is string => Boolean(claimId));
-        responseText = [
-          "تم تتبع التدفق الكامل من التوجيه إلى حلقة الأدوات ثم إرسال الطلب إلى provider والتحقق النهائي.",
-          ...claims.map(({ text }) => text).filter((text): text is string => Boolean(text)),
-        ].join("\n\n");
-        return {
-          content: JSON.stringify({
-            response: responseText,
-            sources: requiredPaths,
-            claimRefs,
-            flowRefs: claimRefs.slice(0, 2),
-          }),
-          toolCalls: [],
-          model: "deepseek-fixture-model",
-          usage: { promptTokens: 18, completionTokens: 26 },
-        };
-      }),
-    };
     projectQueryFailoverStrategies.current = {
       openrouter: primaryStrategy,
-      deepseek: fallbackStrategy,
     };
     const expectRetainedSynthesisPrompt = (
       messages: string,
@@ -11659,7 +11670,6 @@ describe("INT-005 — POST /api/ai/chat/stream: successful OpenRouter completion
     );
     for (const key of providerEnvKeys) delete process.env[key];
     process.env.OPENROUTER_API_KEY = "route-fixture-openrouter-key";
-    process.env.DEEPSEEK_API_KEY = "route-fixture-deepseek-key";
 
     try {
       const actualHelpers = await vi.importActual<typeof import("../lib/ai-route-helpers.js")>(
@@ -11753,9 +11763,8 @@ describe("INT-005 — POST /api/ai/chat/stream: successful OpenRouter completion
       const jsonSynthesisCalls = calls.slice(jsonCallStart).filter(
         (call) => call.operation === "project_query_no_tools_synthesis",
       );
-      expect(jsonSynthesisCalls.map(({ provider }) => provider)).toEqual(["openrouter", "deepseek"]);
-      expect(jsonSynthesisCalls[0]!.messages).toBe(jsonSynthesisCalls[1]!.messages);
-      expectRetainedSynthesisPrompt(jsonSynthesisCalls[1]!.messages, jsonObjective);
+      expect(jsonSynthesisCalls.map(({ provider }) => provider)).toEqual(["openrouter"]);
+      expectRetainedSynthesisPrompt(jsonSynthesisCalls[0]!.messages, jsonObjective);
 
       const jsonHistory = await request(app)
         .get(`/api/ai/chat/${String(json.body.sessionId)}/messages`)
@@ -11800,10 +11809,9 @@ describe("INT-005 — POST /api/ai/chat/stream: successful OpenRouter completion
       const streamSynthesisCalls = calls.slice(streamCallStart).filter(
         (call) => call.operation === "project_query_no_tools_synthesis",
       );
-      expect(streamSynthesisCalls.map(({ provider }) => provider)).toEqual(["openrouter", "deepseek"]);
-      expect(streamSynthesisCalls[0]!.messages).toBe(streamSynthesisCalls[1]!.messages);
-      expectRetainedSynthesisPrompt(streamSynthesisCalls[1]!.messages, streamObjective);
-      expect(vi.mocked(mockedOrchestrator.recordSuccess).mock.calls.at(-1)?.[0]).toBe("deepseek");
+      expect(streamSynthesisCalls.map(({ provider }) => provider)).toEqual(["openrouter"]);
+      expectRetainedSynthesisPrompt(streamSynthesisCalls[0]!.messages, streamObjective);
+      expect(vi.mocked(mockedOrchestrator.recordSuccess).mock.calls.at(-1)?.[0]).toBe("openrouter");
 
       const executions = await db
         .select({
@@ -11909,9 +11917,9 @@ describe("INT-005 — POST /api/ai/chat/stream: successful OpenRouter completion
         jsonHistory: jsonHistory.body,
         streamHistory: streamHistory.body,
       });
-      expect(publicPayload).not.toContain("fixture provider A synthesis diagnostic");
+      expect(publicPayload).not.toContain("fixture OpenRouter synthesis diagnostic");
 
-      failoverScenario = "all_providers_fail";
+      failoverScenario = "openrouter_fails";
       const exhaustionCallStart = calls.length;
       const exhaustedJson = await request(app)
         .post("/api/ai/chat")
@@ -11932,9 +11940,8 @@ describe("INT-005 — POST /api/ai/chat/stream: successful OpenRouter completion
         (call) => call.operation === "project_query_no_tools_synthesis",
       );
       expect(exhaustedSynthesisCalls.map(({ provider }) => provider))
-        .toEqual(["openrouter", "deepseek"]);
-      expect(exhaustedSynthesisCalls[0]!.messages).toBe(exhaustedSynthesisCalls[1]!.messages);
-      expectRetainedSynthesisPrompt(exhaustedSynthesisCalls[1]!.messages, exhaustedObjective);
+        .toEqual(["openrouter"]);
+      expectRetainedSynthesisPrompt(exhaustedSynthesisCalls[0]!.messages, exhaustedObjective);
       const exhaustedMessage = exhaustedJson.body.message as Record<string, unknown> & { id: string };
       const exhaustedJsonHistory = await request(app)
         .get(`/api/ai/chat/${String(exhaustedJson.body.sessionId)}/messages`)
@@ -11970,9 +11977,8 @@ describe("INT-005 — POST /api/ai/chat/stream: successful OpenRouter completion
         (call) => call.operation === "project_query_no_tools_synthesis",
       );
       expect(exhaustedStreamSynthesisCalls.map(({ provider }) => provider))
-        .toEqual(["openrouter", "deepseek"]);
-      expect(exhaustedStreamSynthesisCalls[0]!.messages)
-        .toBe(exhaustedStreamSynthesisCalls[1]!.messages);
+        .toEqual(["openrouter"]);
+      expectRetainedSynthesisPrompt(exhaustedStreamSynthesisCalls[0]!.messages, exhaustedObjective);
       const exhaustedStreamExecutions = await db
         .select({
           id: aiExecutionsTable.id,
@@ -12056,7 +12062,7 @@ describe("INT-005 — POST /api/ai/chat/stream: successful OpenRouter completion
       expect(fallbackParityProjection(exhaustedStreamHistoryMessage!))
         .toEqual(fallbackParityProjection(exhaustedDone!.message));
 
-      failoverScenario = "deadline_before_provider_b";
+      failoverScenario = "deadline_during_primary_failure";
       const deadlineCallStart = calls.length;
       const deadlineLimited = await request(app)
         .post("/api/ai/chat")
@@ -12079,8 +12085,8 @@ describe("INT-005 — POST /api/ai/chat/stream: successful OpenRouter completion
         streamHistory: exhaustedStreamHistory.body,
         deadlineLimited: deadlineLimited.body,
       });
-      expect(exhaustedPublicPayload).not.toContain("fixture provider A synthesis diagnostic");
-      expect(exhaustedPublicPayload).not.toContain("fixture provider B synthesis diagnostic");
+      expect(exhaustedPublicPayload).not.toContain("fixture OpenRouter synthesis diagnostic");
+      expect(calls.every(({ provider }) => provider === "openrouter")).toBe(true);
     } finally {
       for (const [key, value] of originalProviderEnv) {
         if (value === undefined) delete process.env[key];
@@ -16763,7 +16769,7 @@ describe("INT-005 — POST /api/ai/chat/stream: successful OpenRouter completion
 // ─── INT-006: SSE error path (provider failover / empty chain) ────────────────
 
 describe("INT-006 — POST /api/ai/chat/stream: provider failover surfaced cleanly through SSE", () => {
-  it("persists accepted orientation provenance when the real helper exhausts providers", async () => {
+  it("persists accepted orientation provenance when the OpenRouter helper exhausts its route", async () => {
     const rootPath = await fs.mkdtemp("/tmp/stream-orientation-provider-exhaustion-");
     rootPaths.push(rootPath);
     const orientationPaths = {
@@ -16792,6 +16798,25 @@ describe("INT-006 — POST /api/ai/chat/stream: provider failover surfaced clean
       "../lib/ai-route-helpers.js",
     );
     const mockedOrchestrator = await import("@workspace/ai-orchestrator");
+    const openRouterFailingStrategy = {
+      providerId: "openrouter",
+      ownsModelFallback: true,
+      supportsNativeStream: false,
+      stream: vi.fn(async () => []),
+      call: vi.fn(async () => {
+        throw new GroqClientError("SERVER_ERROR", "fixture OpenRouter failure", {
+          context: { providerStatus: 503 },
+        });
+      }),
+    };
+    projectQueryFailoverStrategies.current = {
+      openrouter: openRouterFailingStrategy,
+    };
+    vi.mocked(requireProvider).mockResolvedValue({
+      provider: "openrouter",
+      apiKey: "route-fixture-openrouter-key",
+      source: "server",
+    });
     const lifecycleSpy = vi.spyOn(mockedOrchestrator, "getProviderLifecycleSnapshot")
       .mockImplementation(async ({ provider }) => ({
         provider,
@@ -16804,13 +16829,13 @@ describe("INT-006 — POST /api/ai/chat/stream: provider failover surfaced clean
         lastKnownGoodAt: null,
         lastKnownGoodExpiresAt: null,
         credentialStatus: "credentials_valid",
-        modelStatus: provider === "groq" ? "model_healthy" : "catalog_temporarily_unavailable",
-        capabilityStatus: provider === "groq" ? "capability_healthy" : "capability_not_checked",
-        overallStatus: provider === "groq" ? "ready" : "unavailable",
-        selectable: provider === "groq",
+        modelStatus: provider === "openrouter" ? "model_healthy" : "catalog_temporarily_unavailable",
+        capabilityStatus: provider === "openrouter" ? "capability_healthy" : "capability_not_checked",
+        overallStatus: provider === "openrouter" ? "ready" : "unavailable",
+        selectable: provider === "openrouter",
         roles: [],
         capabilities: [],
-        reasonCodes: provider === "groq"
+        reasonCodes: provider === "openrouter"
           ? ["model_healthy"]
           : ["catalog_temporarily_unavailable"],
       }));

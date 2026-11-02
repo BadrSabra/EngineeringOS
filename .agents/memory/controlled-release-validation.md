@@ -93,17 +93,24 @@ which concurrent turn was submitted first.
 
 Free OpenRouter catalog models are not a reliable positive receipt source for the
 live capability probe: some reach read tools but emit malformed structured output,
-while the shared fast recovery model can time out and open the circuit; a stable
+while the shared fast recovery model can time out and open the circuit. Even a
+passing one-request capability probe does not prove enough shared quota for an
+integrated project query; a later task can still be rate-limited. A stable
 tool-capable provider/model is required for accepted C1–C7 evidence.
 
-**Why:** A live probe can therefore prove provider reachability, real reads, and
-fail-closed recovery without proving positive evidence acceptance; treating those
+**Why:** A live probe can prove provider reachability and a single capability
+response, yet a subsequent process-backed project query can still receive
+`RATE_LIMITED` from `upstream_shared_pool`. The live test must parse SSE across
+arbitrary chunk boundaries before interpreting whether execution started. A probe
+does not prove positive evidence acceptance or task-level capacity; treating these
 as equivalent would create a false release signal.
 
 **How to apply:** Keep the live probe opt-in and disposable, preserve the
 `ANALYSIS_INCOMPLETE` receipt, and rerun only after an approved provider/model with
-reliable JSON and recovery latency is configured. Never infer positive acceptance
-from complete source reads or partial micro-probe labels; require durable
+reliable JSON and recovery latency is configured. When the provider identifies an
+upstream shared-pool rate limit, stop model rotation and wait for provider recovery
+rather than amplifying requests. Never infer positive acceptance from a probe,
+complete source reads, or partial micro-probe labels; require durable
 `acceptedEvidenceCount` and `acceptedClaimCount` values.
 
 Live free-model project queries can complete scoped reads and still return no
