@@ -9,7 +9,7 @@
 
 import type { ProviderRateLimitScope } from "../errors.js";
 
-/** Wave 1 remains preserved as flight-deck-v1; the expanded suite is v3. */
+/** Wave 1 remains preserved as flight-deck-v1; the expanded suite is v4. */
 export const CODE_AGENT_BENCHMARK_VERSION = "flight-deck-v4";
 export const CODE_AGENT_BENCHMARK_CASE_COUNT = 34;
 
