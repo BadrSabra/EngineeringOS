@@ -2784,6 +2784,7 @@ describe("real durable task execution lifecycle", () => {
         context: {
           providerCode: "HTTP_429",
           retryAfterMs,
+          providerRetryAfterMs: retryAfterMs,
           rateLimitScope: "provider_credential",
         },
       });
