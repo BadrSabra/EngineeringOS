@@ -8062,7 +8062,6 @@ router.post("/ai/chat", async (req, res) => {
           messageId: operationId,
           changes: serializeServerPendingChanges(proposalChanges),
           status: "pending",
-          ...(proposalSourceGitCommitSha ? { sourceGitCommitSha: proposalSourceGitCommitSha } : {}),
            ...(preparedDeliveryWorkspace
              ? {
                  operationId: preparedDeliveryWorkspace.operationId,
@@ -8084,7 +8083,13 @@ router.post("/ai/chat", async (req, res) => {
           severity: "info",
           message: "AI implementation plan created and is awaiting approval",
           correlationId: operationId,
-          payload: { messageId: operationId, proposalId: proposalId ?? null },
+          payload: {
+            messageId: operationId,
+            proposalId: proposalId ?? null,
+            ...(proposalSourceGitCommitSha
+              ? { sourceGitCommitSha: proposalSourceGitCommitSha }
+              : {}),
+          },
         });
       }
       const [sessionStateWrite] = await tx
@@ -13103,7 +13108,6 @@ export async function handleChatStream(req: Request, res: Response) {
           messageId: proposalMessageId,
           changes: serializeServerPendingChanges(proposalChanges),
           status: "pending",
-          ...(proposalSourceGitCommitSha ? { sourceGitCommitSha: proposalSourceGitCommitSha } : {}),
            operationId: preparedDeliveryWorkspace?.operationId ?? operationId,
            ...(preparedDeliveryWorkspace
              ? {
@@ -13134,6 +13138,9 @@ export async function handleChatStream(req: Request, res: Response) {
             operationId,
             proposalId: proposalId ?? null,
             buildPlanMessageId: effectiveBuildPlanMessageId ?? null,
+            ...(proposalSourceGitCommitSha
+              ? { sourceGitCommitSha: proposalSourceGitCommitSha }
+              : {}),
           },
         });
       }
