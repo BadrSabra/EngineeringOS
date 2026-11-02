@@ -64,14 +64,19 @@ describe("AI repair validation registry", () => {
   it("attests the direct runtime-validator child when a full server binding is supplied", async () => {
     const rootPath = await fs.mkdtemp(path.join(os.tmpdir(), "runtime-validator-probe-"));
     try {
-      await fs.writeFile(path.join(rootPath, "package.json"), '{"name":"runtime-validator-probe"}\n');
+      await fs.writeFile(path.join(rootPath, "package.json"), JSON.stringify({
+        name: "runtime-validator-probe",
+        scripts: {
+          "runtime-validator": "node -e \"setTimeout(() => {}, 4000)\"",
+        },
+      }) + "\n");
       const result = await runRepairRuntimeValidation(
         rootPath,
         [],
         {
-          command: "node",
-          args: ["-e", "setTimeout(() => {}, 700)"],
-          timeoutMs: 5_000,
+          command: "pnpm",
+          args: ["run", "runtime-validator"],
+          timeoutMs: 8_000,
         },
         undefined,
         undefined,
@@ -418,41 +423,63 @@ describe("AI repair validation registry", () => {
   });
 
   it("runs validation against pending content in an isolated workspace", async () => {
-    const rootPath = path.resolve(process.cwd(), "../..");
-    const relativePath = "artifacts/dashboard/src/pages/AiChat.tsx";
-    const originalContent = await fs.readFile(path.join(rootPath, relativePath), "utf8");
+    const rootPath = await fs.mkdtemp(path.join(os.tmpdir(), "validation-pending-source-"));
+    const relativePath = "src/AiChat.tsx";
+    const originalContent = "export const valid = true;\n";
+    try {
+      await fs.mkdir(path.join(rootPath, "src"), { recursive: true });
+      await fs.writeFile(path.join(rootPath, "package.json"), JSON.stringify({
+        name: "validation-pending-source",
+        scripts: { typecheck: "node ./typecheck-fixture.mjs" },
+      }) + "\n");
+      await fs.writeFile(path.join(rootPath, relativePath), originalContent);
+      await fs.writeFile(
+        path.join(rootPath, "typecheck-fixture.mjs"),
+        [
+          'import { readFileSync } from "node:fs";',
+          'const source = readFileSync("src/AiChat.tsx", "utf8");',
+          'if (!source.includes("export const invalid: = 1;")) process.exit(0);',
+          'console.error("invalid candidate content was observed");',
+          'await new Promise((resolve) => setTimeout(resolve, 2_000));',
+          "process.exitCode = 1;",
+        ].join("\n") + "\n",
+      );
 
-    const result = await runRepairValidation(
-      rootPath,
-      "workspace-typecheck",
-      [relativePath],
-      undefined,
-      [{ path: relativePath, newContent: `${originalContent}\nexport const invalid: = 1;\n` }],
-      {
-        environmentProfile: serverEnvironmentProfile("CANDIDATE_VALIDATION", {
-          kind: "recipe",
-          operationId: "validation-environment-test",
-          recipeId: "candidate.verify",
-          candidateIdentity: "candidate-validation-test",
-          validationProfiles: ["workspace-typecheck"],
-        }),
-        childProcessIdentity: {
-          projectId: "validation-attestation-project",
-          executionId: "validation-attestation-execution",
-          executionAttempt: 0,
-          episodeId: "validation-attestation-episode",
-          operationId: "validation-environment-test",
-          revision: "validation-attestation-revision",
+      const result = await runRepairValidation(
+        rootPath,
+        "workspace-typecheck",
+        [relativePath],
+        undefined,
+        [{ path: relativePath, newContent: `${originalContent}export const invalid: = 1;\n` }],
+        {
+          environmentProfile: serverEnvironmentProfile("CANDIDATE_VALIDATION", {
+            kind: "recipe",
+            operationId: "validation-environment-test",
+            recipeId: "candidate.verify",
+            candidateIdentity: "candidate-validation-test",
+            validationProfiles: ["workspace-typecheck"],
+          }),
+          childProcessIdentity: {
+            projectId: "validation-attestation-project",
+            executionId: "validation-attestation-execution",
+            executionAttempt: 0,
+            episodeId: "validation-attestation-episode",
+            operationId: "validation-environment-test",
+            revision: "validation-attestation-revision",
+          },
         },
-      },
-    );
+      );
 
-    expect(result.status).toBe("failed");
-    expect(result.evidence.validatorProfile).toBe("workspace-typecheck");
-    expect(result.evidence.childProcessAttestation?.status).toBe("known");
-    expect(result.evidence.environmentRevision).toBeNull();
-    expect(`${result.stdout}\n${result.stderr}\n${result.detail}`).toMatch(/invalid|expected|type/i);
-    expect(await fs.readFile(path.join(rootPath, relativePath), "utf8")).toBe(originalContent);
+      expect(result.status, JSON.stringify(result)).toBe("failed");
+      expect(result.evidence.validatorProfile).toBe("workspace-typecheck");
+      expect(result.evidence.childProcessAttestation?.status).toBe("known");
+      expect(result.evidence.validatorProcessTreeAttestation?.status).toBe("known");
+      expect(result.evidence.environmentRevision).toBeNull();
+      expect(`${result.stdout}\n${result.stderr}\n${result.detail}`).toMatch(/invalid|expected|type/i);
+      expect(await fs.readFile(path.join(rootPath, relativePath), "utf8")).toBe(originalContent);
+    } finally {
+      await fs.rm(rootPath, { recursive: true, force: true });
+    }
   }, 210_000);
 
   it("runs a fixture runtime oracle against pending content without mutating live files", async () => {

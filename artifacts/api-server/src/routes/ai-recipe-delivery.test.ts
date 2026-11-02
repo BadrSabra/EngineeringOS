@@ -288,8 +288,8 @@ describe("recipe API GitHub delivery", () => {
       .set("Idempotency-Key", idempotencyKey)
       .send(body);
 
-    expect(first.status).toBe(200);
-    expect(replay.status).toBe(200);
+    expect(first.status, JSON.stringify(first.body)).toBe(200);
+    expect(replay.status, JSON.stringify(replay.body)).toBe(200);
     expect(replay.body).toMatchObject({
       status: "completed",
       executionId: first.body.executionId,

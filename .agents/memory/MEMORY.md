@@ -132,6 +132,7 @@
 - [World State failure diagnosis](world-state-failure-diagnosis.md) — scoped runtime.start diagnoses use exact linked evidence and stay separate from Gate C acceptance and authority.
 - [Generated query-key tests](generated-query-key-tests.md) — mocks for generated React Query keys should match their exact URL/parameter shape, especially when asserting invalidation.
 - [Vitest cold-import timeouts](vitest-import-cost.md) — distinguish module cold-start from test-body time; keep timeout adjustments focused and measured.
+- [Validator process-tree fixtures](validator-process-tree-fixtures.md) — attestation tests need stable, local child processes; do not treat unknown process trees as proof or weaken the gate.
 - [Turn intent delivery contract](turn-intent-delivery-contract.md) — authoritative delivery handoffs must not inherit a stale analysis output contract.
 - [Bodyless JSON requests](api-bodyless-json-post.md) — generated POSTs with no request body can leave Express's `req.body` undefined; normalize optional JSON before validation.
 - [P7.5 boundaries](p75-boundaries-index.md) — measurement, mission context, and readiness remain advisory until their provenance and review gates are satisfied.
