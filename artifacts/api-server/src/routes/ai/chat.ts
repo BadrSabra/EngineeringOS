@@ -326,6 +326,7 @@ import {
   hashDeliveryTree,
   DELIVERY_TREE_DIGEST_VERSION,
   atomicallyPromoteFile,
+  removeFileIfUnchanged,
   writeDeliveryWorkspaceFile,
 } from "../../lib/delivery-workspace.js";
 import {
@@ -3864,6 +3865,7 @@ type ApplySnapshot = {
   path: string;
   realPath: string;
   before: Buffer | null;
+  newContent: string;
 };
 
 type ApplyRollbackFailure = {
@@ -3924,18 +3926,30 @@ async function resolveApplyParent(
 
 async function restoreApplySnapshots(
   changes: readonly ApplySnapshot[],
+  operationId: string,
 ): Promise<ApplyRollbackFailure[]> {
   const failures: ApplyRollbackFailure[] = [];
   for (const change of changes) {
     try {
+      let current: Buffer | null = null;
+      try {
+        current = await fs.readFile(change.realPath);
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+      }
+      if (change.before === null ? current === null : current?.equals(change.before)) {
+        continue;
+      }
+      const promotedBytes = Buffer.from(change.newContent, "utf8");
+      if (!current?.equals(promotedBytes)) {
+        throw new Error("Rollback conflict: the file changed after this apply attempt; newer bytes were preserved.");
+      }
       if (change.before === null) {
-        try {
-          await fs.unlink(change.realPath);
-        } catch (error) {
-          if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
-        }
+        await removeFileIfUnchanged(change.realPath, promotedBytes);
       } else {
-        await fs.writeFile(change.realPath, change.before);
+        await atomicallyPromoteFile(change.realPath, change.before, operationId, {
+          expectedCurrent: promotedBytes,
+        });
       }
 
       let restored: Buffer | null = null;
@@ -17555,7 +17569,10 @@ async function applyChangesHandler(req: Request, res: Response) {
     // Keep the candidate in lockstep with the bytes that passed preflight
     // (including rebased hunk content). Validation must observe these exact
     // bytes before any live-root file is promoted.
-    const candidateChanges = writableChanges;
+    // A failed preflight invalidates the entire requested batch. Do not stage
+    // a partial candidate or spend time validating siblings that cannot be
+    // promoted; the proposal remains available for a fresh reviewed attempt.
+    const candidateChanges = preflightFailures.length > 0 ? [] : writableChanges;
     for (const change of candidateChanges) {
       await writeDeliveryWorkspaceFile(
         deliveryWorkspace.workspaceRoot,
@@ -17566,19 +17583,21 @@ async function applyChangesHandler(req: Request, res: Response) {
     candidateTreeHash = await hashDeliveryTree(deliveryWorkspace.workspaceRoot);
     const candidateHash = candidateTreeHash;
     effectiveChangeSetHash = hashChangeSet(candidateChanges);
-    await db.update(aiChangeProposalsTable)
-      .set({
-        changeSetHash: effectiveChangeSetHash,
-        baseTreeHash: deliveryWorkspace.baseTreeHash,
-        candidateTreeHash,
-        treeDigestVersion: DELIVERY_TREE_DIGEST_VERSION,
-      })
-      .where(and(
-        eq(aiChangeProposalsTable.id, proposalId),
-        eq(aiChangeProposalsTable.status, "pending"),
-      ));
+    if (preflightFailures.length === 0) {
+      await db.update(aiChangeProposalsTable)
+        .set({
+          changeSetHash: effectiveChangeSetHash,
+          baseTreeHash: deliveryWorkspace.baseTreeHash,
+          candidateTreeHash,
+          treeDigestVersion: DELIVERY_TREE_DIGEST_VERSION,
+        })
+        .where(and(
+          eq(aiChangeProposalsTable.id, proposalId),
+          eq(aiChangeProposalsTable.status, "pending"),
+        ));
+    }
     const profiles = new Map<ValidationProfile, string[]>();
-    for (const change of writableChanges) {
+    for (const change of candidateChanges) {
       if (!change.validationProfile) continue;
       const pathsForProfile = profiles.get(change.validationProfile) ?? [];
       pathsForProfile.push(change.path);
@@ -17676,6 +17695,7 @@ async function applyChangesHandler(req: Request, res: Response) {
     const validationNeedsReview = candidateChangedDuringValidation
       || candidateChangedBeforePromotion
       || liveRootChangedBeforePromotion
+      || preflightFailures.length > 0
       || Boolean(automaticPromotionBlockedReason)
       || [...verificationByProfile.values()].some((validation) =>
       validation.status === "failed" ||
@@ -17698,6 +17718,8 @@ async function applyChangesHandler(req: Request, res: Response) {
       await appendApplyJournal("BLOCKED", {
         reason: automaticPromotionBlockedReason
           ? "automatic_promotion_policy"
+          : preflightFailures.length > 0
+            ? "preflight_failed"
           : candidateChangedDuringValidation
           ? "candidate_changed_after_validation"
           : candidateChangedBeforePromotion
@@ -18001,7 +18023,9 @@ async function applyChangesHandler(req: Request, res: Response) {
           // Directory creation is part of the guarded promotion, not
           // preflight, so an empty parent cannot look like live-root drift.
           await fs.mkdir(path.dirname(change.realPath), { recursive: true });
-          await atomicallyPromoteFile(change.realPath, change.newContent, applyCorrelationId);
+          await atomicallyPromoteFile(change.realPath, change.newContent, applyCorrelationId, {
+            expectedCurrent: change.before,
+          });
           const persisted = await fs.readFile(change.realPath, "utf-8");
           if (persisted !== change.newContent) {
             throw new Error("Post-write persistence verification failed.");
@@ -18016,7 +18040,10 @@ async function applyChangesHandler(req: Request, res: Response) {
         });
       } catch (e) {
         writeFailure = e instanceof Error ? e.message : String(e);
-        rollbackFailures = await restoreApplySnapshots([...attemptedChanges].reverse());
+        rollbackFailures = await restoreApplySnapshots(
+          [...attemptedChanges].reverse(),
+          applyCorrelationId,
+        );
         for (const result of results) {
           if (result.ok) {
             result.ok = false;
@@ -18055,7 +18082,10 @@ async function applyChangesHandler(req: Request, res: Response) {
           result.error = "Promoted bytes do not match the validated candidate.";
         }
       }
-      rollbackFailures = await restoreApplySnapshots([...writtenChanges].reverse());
+      rollbackFailures = await restoreApplySnapshots(
+        [...writtenChanges].reverse(),
+        applyCorrelationId,
+      );
       const rollbackTreeHash = await hashDeliveryTree(resolvedRoot).catch(() => null);
       await appendApplyJournal(rollbackFailures.length > 0 ? "ROLLBACK_FAILED" : "ROLLED_BACK", {
         reason: "promoted_candidate_hash_mismatch",
@@ -18135,7 +18165,10 @@ async function applyChangesHandler(req: Request, res: Response) {
       // Never leave a persisted AI repair in place when its registered
       // validation did not pass. Keeping the proposal pending allows the user
       // to review the failure and retry with a fresh approved change.
-      rollbackFailures = await restoreApplySnapshots([...writtenChanges].reverse());
+      rollbackFailures = await restoreApplySnapshots(
+        [...writtenChanges].reverse(),
+        applyCorrelationId,
+      );
       await appendApplyJournal(
         rollbackFailures.length > 0 ? "ROLLBACK_FAILED" : "ROLLED_BACK",
         {

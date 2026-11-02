@@ -8252,6 +8252,161 @@ describe("POST /api/ai/chat/apply-changes", () => {
     }
   });
 
+  it("rejects the full batch before staging or validating safe siblings when preflight fails", async () => {
+    const { id, rootPath } = await createApplyProject();
+    const dangerousName = `apply-preflight-dangerous-${randomUUID().slice(0, 8)}.ts`;
+    const safeName = "artifacts/api-server/src/lib/ai-repair-validation.ts";
+    const dangerousPath = `${rootPath}/${dangerousName}`;
+    const safePath = `${rootPath}/${safeName}`;
+    const original = [
+      "export function completeRaw() { return 'raw'; }",
+      "const padding = " + JSON.stringify("x".repeat(700)) + ";",
+    ].join("\n");
+    const proposalChanges = [
+      {
+        path: dangerousName,
+        absolutePath: dangerousPath,
+        newContent: "export function complete() {}",
+        originalContent: original,
+        reason: "Test proposal",
+        validationProfile: "api-ai-tests" as const,
+      },
+      {
+        path: safeName,
+        absolutePath: safePath,
+        newContent: "export const safe = true;",
+        originalContent: null,
+        reason: "Test proposal",
+        validationProfile: "api-repair-validation-tests" as const,
+      },
+    ];
+    await fs.writeFile(dangerousPath, original, "utf8");
+    const proposalId = await insertChangeProposal(id, proposalChanges);
+    const validationSpy = vi.spyOn(repairValidation, "runRepairValidation");
+
+    try {
+      const response = await request(app)
+        .post("/api/ai/chat/apply-changes")
+        .send({ projectId: id, proposalId, changes: proposalChanges });
+
+      expect(response.status).toBe(207);
+      expect(response.body.applyStatus).toBe("BLOCKED");
+      expect(response.body.results.every((result: { ok: boolean }) => !result.ok)).toBe(true);
+      expect(validationSpy).not.toHaveBeenCalled();
+      await expect(fs.readFile(dangerousPath, "utf8")).resolves.toBe(original);
+      await expect(fs.access(safePath)).rejects.toMatchObject({ code: "ENOENT" });
+      const [blockedProposal] = await db.select({
+        workspaceRoot: aiChangeProposalsTable.workspaceRoot,
+      }).from(aiChangeProposalsTable)
+        .where(eq(aiChangeProposalsTable.id, proposalId))
+        .limit(1);
+      expect(blockedProposal?.workspaceRoot).toBeTruthy();
+      await expect(fs.access(`${blockedProposal!.workspaceRoot}/${safeName}`))
+        .rejects.toMatchObject({ code: "ENOENT" });
+
+      const executions = await db.select({ id: aiExecutionsTable.id })
+        .from(aiExecutionsTable)
+        .where(eq(aiExecutionsTable.proposalId, proposalId));
+      expect(executions).toHaveLength(0);
+
+      const journal = await db.select({ stage: aiApplyJournalTable.stage })
+        .from(aiApplyJournalTable)
+        .where(eq(aiApplyJournalTable.operationId, response.body.correlationId));
+      expect(journal.map((entry) => entry.stage)).toContain("PREFLIGHT_FAILED");
+      expect(journal.map((entry) => entry.stage)).toContain("BLOCKED");
+      expect(journal.map((entry) => entry.stage)).not.toContain("WRITING_STARTED");
+    } finally {
+      validationSpy.mockRestore();
+      const [proposal] = await db.select({
+        operationId: aiChangeProposalsTable.operationId,
+        workspaceRoot: aiChangeProposalsTable.workspaceRoot,
+      }).from(aiChangeProposalsTable)
+        .where(eq(aiChangeProposalsTable.id, proposalId))
+        .limit(1);
+      if (proposal?.operationId && proposal.workspaceRoot) {
+        await discardDeliveryWorkspace(proposal.workspaceRoot, proposal.operationId);
+      }
+      await fs.rm(rootPath, { recursive: true, force: true });
+    }
+  });
+
+  it("preserves an external edit injected after the tree check and before file promotion", async () => {
+    const { id, rootPath } = await createApplyProject();
+    const fileName = "artifacts/api-server/src/lib/ai-repair-validation.ts";
+    const absolutePath = `${rootPath}/${fileName}`;
+    const original = "export const value = 1;\n";
+    const replacement = "export const value = 2;\n";
+    const concurrentEdit = "export const userEdit = true;\n";
+    await fs.mkdir(`${rootPath}/artifacts/api-server/src/lib`, { recursive: true });
+    await fs.writeFile(absolutePath, original, "utf8");
+    const proposalChanges = [{
+      path: fileName,
+      absolutePath,
+      newContent: replacement,
+      originalContent: original,
+      reason: "Verify apply conflict protection",
+      validationProfile: "api-repair-validation-tests" as const,
+    }];
+    const proposalId = await insertChangeProposal(id, proposalChanges);
+    const validationSpy = vi.spyOn(repairValidation, "runRepairValidation")
+      .mockResolvedValueOnce({
+        status: "passed",
+        profile: "api-repair-validation-tests",
+        exitCode: 0,
+        scenario: "Run the focused runtime-validation contract tests.",
+        command: "pnpm",
+        stdout: "",
+        stderr: "",
+        failedTests: [],
+        changedFiles: [],
+        evidence: {
+          evidenceId: randomUUID(),
+          observedAt: new Date().toISOString(),
+          artifactRef: "apply-concurrent-edit-validation",
+        },
+        detail: "Candidate validation passed.",
+      });
+    const materialize = observationMaterializer.materializeServerOwnedObservations;
+    let externalEditInjected = false;
+    const observationSpy = vi.spyOn(observationMaterializer, "materializeServerOwnedObservations")
+      .mockImplementation(async (input) => {
+        const isApplyBeforeObservation = input.sources.some((source) =>
+          source.kind === "direct_observation" && source.sourceId.endsWith(":before:tree"),
+        );
+        if (isApplyBeforeObservation && !externalEditInjected) {
+          externalEditInjected = true;
+          await fs.writeFile(absolutePath, concurrentEdit, "utf8");
+        }
+        return materialize(input);
+      });
+
+    try {
+      const response = await request(app)
+        .post("/api/ai/chat/apply-changes")
+        .send({ projectId: id, proposalId, changes: proposalChanges });
+
+      expect(externalEditInjected).toBe(true);
+      expect(response.status).not.toBe(200);
+      await expect(fs.readFile(absolutePath, "utf8")).resolves.toBe(concurrentEdit);
+      expect(response.body.rollbackFailures).toEqual(
+        expect.arrayContaining([expect.objectContaining({ path: fileName })]),
+      );
+    } finally {
+      observationSpy.mockRestore();
+      validationSpy.mockRestore();
+      const [proposal] = await db.select({
+        operationId: aiChangeProposalsTable.operationId,
+        workspaceRoot: aiChangeProposalsTable.workspaceRoot,
+      }).from(aiChangeProposalsTable)
+        .where(eq(aiChangeProposalsTable.id, proposalId))
+        .limit(1);
+      if (proposal?.operationId && proposal.workspaceRoot) {
+        await discardDeliveryWorkspace(proposal.workspaceRoot, proposal.operationId);
+      }
+      await fs.rm(rootPath, { recursive: true, force: true });
+    }
+  });
+
   it("rejects applying a pending change when the file changed after proposal", async () => {
     const { id, rootPath } = await createApplyProject();
 

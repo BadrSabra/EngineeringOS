@@ -160,6 +160,42 @@ describe("delivery workspaces", () => {
     }
   });
 
+  it("refuses to replace an existing file whose bytes differ from the validated base", async () => {
+    const fixture = `/tmp/delivery-promotion-conflict-${randomUUID()}`;
+    const target = join(fixture, "service.ts");
+    await mkdir(fixture, { recursive: true });
+    await writeFile(target, "user edit\n", "utf8");
+    try {
+      await expect(atomicallyPromoteFile(
+        target,
+        "candidate\n",
+        randomUUID(),
+        { expectedCurrent: Buffer.from("validated base\n") },
+      )).rejects.toMatchObject({ code: "DELIVERY_TARGET_CHANGED" });
+      await expect(readFile(target, "utf8")).resolves.toBe("user edit\n");
+    } finally {
+      await rm(fixture, { recursive: true, force: true });
+    }
+  });
+
+  it("does not overwrite a file created at a previously absent target", async () => {
+    const fixture = `/tmp/delivery-promotion-create-conflict-${randomUUID()}`;
+    const target = join(fixture, "new.ts");
+    await mkdir(fixture, { recursive: true });
+    await writeFile(target, "created by another writer\n", "utf8");
+    try {
+      await expect(atomicallyPromoteFile(
+        target,
+        "candidate\n",
+        randomUUID(),
+        { expectedCurrent: null },
+      )).rejects.toMatchObject({ code: "DELIVERY_TARGET_CHANGED" });
+      await expect(readFile(target, "utf8")).resolves.toBe("created by another writer\n");
+    } finally {
+      await rm(fixture, { recursive: true, force: true });
+    }
+  });
+
   it("classifies an unexpected live-root edit instead of overwriting it", async () => {
     const fixture = `/tmp/delivery-recovery-${randomUUID()}`;
     await mkdir(fixture, { recursive: true });

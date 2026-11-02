@@ -1,25 +1,97 @@
 import { createHash, randomUUID } from "node:crypto";
-import { cp, mkdir, readFile, rm, writeFile, readdir, lstat, readlink, realpath, rename } from "node:fs/promises";
+import { cp, link, mkdir, readFile, rm, writeFile, readdir, lstat, readlink, realpath, rename, unlink } from "node:fs/promises";
 import path from "node:path";
 
 export type DeliveryLifecycle =
   | "proposed" | "isolated" | "validated" | "applied" | "conflicted"
   | "committed" | "cancelled" | "abandoned" | "blocked";
 
-/** Replace one live-root file without exposing a truncated file to readers. */
+export class DeliveryPromotionConflictError extends Error {
+  readonly code = "DELIVERY_TARGET_CHANGED";
+
+  constructor() {
+    super("The live target changed after validation; promotion or recovery was stopped.");
+    this.name = "DeliveryPromotionConflictError";
+  }
+}
+
+async function readOptionalFile(target: string): Promise<Buffer | null> {
+  try {
+    return await readFile(target);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return null;
+    throw error;
+  }
+}
+
+function asBuffer(value: Buffer | string | null): Buffer | null {
+  if (value === null) return null;
+  return Buffer.isBuffer(value) ? value : Buffer.from(value, "utf8");
+}
+
+/**
+ * Replace one file without exposing truncated bytes. When expectedCurrent is
+ * supplied, re-read the target immediately before promotion. A new file uses
+ * link(2) so a concurrent creator cannot be overwritten. POSIX rename has no
+ * compare-and-swap form for existing files, so callers must also serialize
+ * application-owned writes; an uncooperative external writer can still race
+ * the final read/rename pair.
+ */
 export async function atomicallyPromoteFile(
   target: string,
-  content: string,
+  content: string | Buffer,
   operationId: string,
+  precondition?: { expectedCurrent: Buffer | string | null },
 ): Promise<void> {
   const temp = `${target}.engineeringos-promotion-${operationId}-${process.pid}-${randomUUID()}`;
-  await writeFile(temp, content, { encoding: "utf8", mode: 0o600 });
+  await writeFile(temp, content, { mode: 0o600 });
   try {
+    if (precondition) {
+      const expected = asBuffer(precondition.expectedCurrent);
+      const current = await readOptionalFile(target);
+      if (
+        expected === null
+          ? current !== null
+          : current === null || !current.equals(expected)
+      ) {
+        throw new DeliveryPromotionConflictError();
+      }
+
+      if (expected === null) {
+        try {
+          await link(temp, target);
+        } catch (error) {
+          if ((error as NodeJS.ErrnoException).code === "EEXIST") {
+            throw new DeliveryPromotionConflictError();
+          }
+          throw error;
+        }
+        await rm(temp, { force: true });
+        return;
+      }
+    }
     await rename(temp, target);
   } catch (error) {
     await rm(temp, { force: true }).catch(() => undefined);
     throw error;
   }
+}
+
+/**
+ * Remove a file only when its bytes still match the expected value. This is a
+ * last-moment guard, not an OS-level CAS; callers must treat a mismatch as a
+ * recovery conflict and preserve the current file.
+ */
+export async function removeFileIfUnchanged(
+  target: string,
+  expectedCurrent: Buffer | string,
+): Promise<void> {
+  const expected = asBuffer(expectedCurrent);
+  const current = await readOptionalFile(target);
+  if (!expected || !current?.equals(expected)) {
+    throw new DeliveryPromotionConflictError();
+  }
+  await unlink(target);
 }
 
 export type PromotionRecoveryResult = "PROMOTED" | "ROLLED_BACK" | "RECOVERY_REQUIRED";
@@ -122,7 +194,9 @@ export async function recoverPromotion(params: {
       !realParent
       || (realParent !== rootPath && !realParent.startsWith(`${rootPath}${path.sep}`))
     ) return "RECOVERY_REQUIRED";
-    await atomicallyPromoteFile(target, expected, params.operationId);
+    await atomicallyPromoteFile(target, expected, params.operationId, {
+      expectedCurrent: current,
+    });
     changed = true;
   }
   return changed ? "PROMOTED" : "ROLLED_BACK";
