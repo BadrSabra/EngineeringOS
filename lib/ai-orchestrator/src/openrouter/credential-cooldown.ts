@@ -131,6 +131,17 @@ function logPersistenceUnavailable(operation: "read" | "write", reason?: string)
   }));
 }
 
+function credentialCooldownPersistenceError(
+  providerCode:
+    | "CREDENTIAL_COOLDOWN_PERSISTENCE_UNAVAILABLE"
+    | "CREDENTIAL_COOLDOWN_STORE_UNAVAILABLE",
+  message: string,
+): GroqClientError {
+  return new GroqClientError("INVALID_CONFIG", message, {
+    context: { providerName: "OpenRouter", providerCode },
+  });
+}
+
 function sweepExpired(now: number): void {
   if (now - lastSweepAt < COOLDOWN_SWEEP_INTERVAL_MS) return;
   for (const [fingerprint, cooldown] of credentialCooldowns) {
@@ -189,12 +200,19 @@ export async function recordOpenRouterCredentialCooldown(
   const persistentFingerprint = persistentCredentialFingerprint(resolvedApiKey);
   if (!persistentFingerprint) {
     logPersistenceUnavailable("write", "encryption_key_unavailable");
-    return;
+    throw credentialCooldownPersistenceError(
+      "CREDENTIAL_COOLDOWN_PERSISTENCE_UNAVAILABLE",
+      "OpenRouter credential cooldown cannot be persisted; the inference request is blocked.",
+    );
   }
   try {
     await (persistenceOverride ?? persistence).write(persistentFingerprint, cooldown);
   } catch {
     logPersistenceUnavailable("write");
+    throw credentialCooldownPersistenceError(
+      "CREDENTIAL_COOLDOWN_STORE_UNAVAILABLE",
+      "OpenRouter credential cooldown could not be persisted; the inference request is blocked.",
+    );
   }
 }
 
@@ -268,27 +286,34 @@ export async function assertOpenRouterCredentialAvailable(
   const persistentFingerprint = persistentCredentialFingerprint(resolvedApiKey);
   if (!persistentFingerprint) {
     logPersistenceUnavailable("read", "encryption_key_unavailable");
-  } else {
-    try {
-      const persisted = await (persistenceOverride ?? persistence).readActive(persistentFingerprint);
-      if (
-        persisted &&
-        persisted.remainingMs > 0 &&
-        Number.isSafeInteger(persisted.remainingMs)
-      ) {
-        const persistedCooldown: CredentialCooldown = {
-          coolingUntil: Date.now() + persisted.remainingMs,
-          code: persisted.code,
-          scope: persisted.scope,
-        };
-        if (!cooldown || persistedCooldown.coolingUntil > cooldown.coolingUntil) {
-          cooldown = persistedCooldown;
-          credentialCooldowns.set(fingerprint, cooldown);
-        }
+    throw credentialCooldownPersistenceError(
+      "CREDENTIAL_COOLDOWN_PERSISTENCE_UNAVAILABLE",
+      "OpenRouter shared credential cooldown persistence is not configured; the inference request is blocked.",
+    );
+  }
+  try {
+    const persisted = await (persistenceOverride ?? persistence).readActive(persistentFingerprint);
+    if (
+      persisted &&
+      persisted.remainingMs > 0 &&
+      Number.isSafeInteger(persisted.remainingMs)
+    ) {
+      const persistedCooldown: CredentialCooldown = {
+        coolingUntil: Date.now() + persisted.remainingMs,
+        code: persisted.code,
+        scope: persisted.scope,
+      };
+      if (!cooldown || persistedCooldown.coolingUntil > cooldown.coolingUntil) {
+        cooldown = persistedCooldown;
+        credentialCooldowns.set(fingerprint, cooldown);
       }
-    } catch {
-      logPersistenceUnavailable("read");
     }
+  } catch {
+    logPersistenceUnavailable("read");
+    throw credentialCooldownPersistenceError(
+      "CREDENTIAL_COOLDOWN_STORE_UNAVAILABLE",
+      "OpenRouter shared credential cooldown state could not be read; the inference request is blocked.",
+    );
   }
 
   if (!cooldown) return;

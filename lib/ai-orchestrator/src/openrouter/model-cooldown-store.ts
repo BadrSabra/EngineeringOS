@@ -2,6 +2,7 @@ import {
   getModelCooldownRemainingMs,
   rememberModelCooldownUntil,
 } from "./circuit-breaker.js";
+import { GroqClientError } from "../errors.js";
 
 const UPSTREAM_POOL_COOLDOWN_PREFIX = "__upstream_pool__:";
 const LOCAL_ADAPTIVE_COOLDOWN_PREFIX = "__local_adaptive_model__:";
@@ -436,9 +437,9 @@ export async function acquireModelAttemptLease(
 }
 
 /**
- * Reads the shared cooldown state for candidate models and merges it with the
- * process-local cache. Database failure retains local protection and is
- * reported without converting an upstream 429 into a second failure.
+ * Reads shared cooldown state before provider admission. A database failure is
+ * fail-closed: callers must not send or advance to another model without
+ * knowing whether a shared cooldown is active.
  */
 export async function readModelCooldowns(
   provider: string,
@@ -541,6 +542,16 @@ export async function readModelCooldowns(
     }
   } catch {
     logPersistenceUnavailable("read");
+    throw new GroqClientError(
+      "MODEL_ATTEMPT_BUSY",
+      "OpenRouter admission stopped because shared model cooldown state could not be read.",
+      {
+        context: {
+          providerName: "OpenRouter",
+          providerCode: "MODEL_COOLDOWN_STORE_UNAVAILABLE",
+        },
+      },
+    );
   }
 
   return cooldowns;

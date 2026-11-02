@@ -60,7 +60,12 @@ function resetRoutingState(): void {
   _resetForTest();
 }
 
+const fixtureCredentialCooldownKey = "0123456789abcdef".repeat(4);
+let previousCredentialCooldownKey: string | undefined;
+
 function installIsolatedCooldownPersistence(): void {
+  previousCredentialCooldownKey = process.env.AI_CREDENTIALS_ENCRYPTION_KEY;
+  process.env.AI_CREDENTIALS_ENCRYPTION_KEY = fixtureCredentialCooldownKey;
   _setModelCooldownPersistenceForTest({
     readActive: async () => [],
     write: async () => {},
@@ -141,6 +146,11 @@ describe("structured review provider fallback release check", () => {
     vi.restoreAllMocks();
     _setModelCooldownPersistenceForTest(undefined);
     _setOpenRouterCredentialCooldownPersistenceForTest(undefined);
+    if (previousCredentialCooldownKey === undefined) {
+      delete process.env.AI_CREDENTIALS_ENCRYPTION_KEY;
+    } else {
+      process.env.AI_CREDENTIALS_ENCRYPTION_KEY = previousCredentialCooldownKey;
+    }
     resetRoutingState();
   });
 
@@ -247,6 +257,11 @@ describe("structured review catalog refresh release check", () => {
     vi.restoreAllMocks();
     _setModelCooldownPersistenceForTest(undefined);
     _setOpenRouterCredentialCooldownPersistenceForTest(undefined);
+    if (previousCredentialCooldownKey === undefined) {
+      delete process.env.AI_CREDENTIALS_ENCRYPTION_KEY;
+    } else {
+      process.env.AI_CREDENTIALS_ENCRYPTION_KEY = previousCredentialCooldownKey;
+    }
     resetRoutingState();
   });
 

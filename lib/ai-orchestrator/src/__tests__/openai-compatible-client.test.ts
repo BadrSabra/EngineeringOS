@@ -49,14 +49,23 @@ import {
 import type { ModelLaneCursorPersistence } from "../openrouter/model-lane-cursor-store.js";
 import {
   _resetOpenRouterCredentialCooldownsForTest,
+  _setOpenRouterCredentialCooldownPersistenceForTest,
   assertOpenRouterCredentialAvailable,
   recordOpenRouterCredentialCooldown,
+  type CredentialCooldownPersistence,
 } from "../openrouter/credential-cooldown.js";
 import { createExecutionLedger } from "../execution-ledger.js";
 
 const baseMessages = [{ role: "user", content: "hello" } as const];
 const cataloguedFreeModel = FREE_MODELS[0]!.id;
 const toolCapableFreeModel = FREE_MODELS.find((model) => model.supportsTools)!.id;
+const fixtureCredentialCooldownKey = "0123456789abcdef".repeat(4);
+let previousCredentialCooldownKey: string | undefined;
+let persistedCredentialCooldowns: Map<string, {
+  coolingUntil: number;
+  code: "RATE_LIMITED" | "QUOTA";
+  scope: "provider_credential" | "account_quota" | "unknown";
+}>;
 let persistedCooldownWrites: Array<{ provider: string; model: string; cooldownMs: number }> = [];
 let persistedCooldownClears: Array<{ provider: string; model: string }> = [];
 
@@ -69,6 +78,26 @@ function textResponse(body: string, status: number, headers?: Record<string, str
 }
 
 beforeEach(() => {
+  previousCredentialCooldownKey = process.env.AI_CREDENTIALS_ENCRYPTION_KEY;
+  process.env.AI_CREDENTIALS_ENCRYPTION_KEY = fixtureCredentialCooldownKey;
+  persistedCredentialCooldowns = new Map();
+  const credentialPersistence: CredentialCooldownPersistence = {
+    async readActive(fingerprint) {
+      const cooldown = persistedCredentialCooldowns.get(fingerprint);
+      if (!cooldown) return null;
+      const remainingMs = Math.ceil(cooldown.coolingUntil - Date.now());
+      return remainingMs > 0
+        ? { remainingMs, code: cooldown.code, scope: cooldown.scope }
+        : null;
+    },
+    async write(fingerprint, cooldown) {
+      const previous = persistedCredentialCooldowns.get(fingerprint);
+      if (!previous || cooldown.coolingUntil >= previous.coolingUntil) {
+        persistedCredentialCooldowns.set(fingerprint, cooldown);
+      }
+    },
+  };
+  _setOpenRouterCredentialCooldownPersistenceForTest(credentialPersistence);
   _resetForTest(); // ensure dynamic catalog does not interfere
   _resetCircuitsForTest(); // clear provider and model admission state
   _resetLocalAdaptiveModelCooldownsForTest();
@@ -90,7 +119,13 @@ beforeEach(() => {
 afterEach(() => {
   _resetLocalAdaptiveModelCooldownsForTest();
   _resetOpenRouterCredentialCooldownsForTest();
+  _setOpenRouterCredentialCooldownPersistenceForTest(undefined);
   _setModelCooldownPersistenceForTest(undefined);
+  if (previousCredentialCooldownKey === undefined) {
+    delete process.env.AI_CREDENTIALS_ENCRYPTION_KEY;
+  } else {
+    process.env.AI_CREDENTIALS_ENCRYPTION_KEY = previousCredentialCooldownKey;
+  }
   vi.unstubAllGlobals();
   vi.restoreAllMocks();
 });
@@ -1513,6 +1548,82 @@ describe("openrouterCompleteWithFallback — error classification", () => {
         error.retryAfterMs > 0 &&
         error.retryAfterMs <= 30_000,
     );
+  });
+
+  it("blocks before any provider request when shared credential cooldown identity is unavailable", async () => {
+    delete process.env.AI_CREDENTIALS_ENCRYPTION_KEY;
+    const fetchMock = vi.fn(async () =>
+      jsonResponse({ choices: [{ message: { content: "should not be called" } }] }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(openrouterCompleteRaw(baseMessages as any, {
+      apiKey: "test-key",
+      model: cataloguedFreeModel,
+      maxTokens: 10,
+      retryTransient: false,
+    })).rejects.toMatchObject({
+      code: "INVALID_CONFIG",
+      providerCode: "CREDENTIAL_COOLDOWN_PERSISTENCE_UNAVAILABLE",
+    });
+
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("does not send or rotate models when shared model cooldown state is unavailable", async () => {
+    _setModelCooldownPersistenceForTest({
+      readActive: async () => {
+        throw new Error("fixture model cooldown store unavailable");
+      },
+      write: async () => {},
+      clear: async () => {},
+    });
+    const fetchMock = vi.fn(async () =>
+      jsonResponse({ choices: [{ message: { content: "should not be called" } }] }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(openrouterCompleteWithFallback(baseMessages as any, {
+      apiKey: "test-key",
+      model: cataloguedFreeModel,
+      maxTokens: 10,
+      maxFallbackModels: 3,
+    })).rejects.toMatchObject({
+      code: "MODEL_ATTEMPT_BUSY",
+      providerCode: "MODEL_COOLDOWN_STORE_UNAVAILABLE",
+    });
+
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("does not rotate to another free model when a 429 cooldown cannot be persisted", async () => {
+    _setOpenRouterCredentialCooldownPersistenceForTest({
+      readActive: async () => null,
+      write: async () => {
+        throw new Error("fixture persistence unavailable");
+      },
+    });
+    const fetchMock = vi.fn(async () =>
+      textResponse(
+        '{"error":{"message":"temporarily rate limited"}}',
+        429,
+        new Headers({ "Retry-After": "1" }),
+      ),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(openrouterCompleteWithFallback(baseMessages as any, {
+      apiKey: "test-key",
+      model: cataloguedFreeModel,
+      maxTokens: 10,
+      retryTransient: false,
+      maxFallbackModels: 3,
+    })).rejects.toMatchObject({
+      code: "INVALID_CONFIG",
+      providerCode: "CREDENTIAL_COOLDOWN_STORE_UNAVAILABLE",
+    });
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
   it("preserves Retry-After and avoids retrying the same model", async () => {

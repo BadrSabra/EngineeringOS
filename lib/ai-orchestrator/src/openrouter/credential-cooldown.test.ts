@@ -16,10 +16,35 @@ const fixtureApiKey = "fixture-openrouter-credential-for-cooldown";
 const fixtureEncryptionKey = "0123456789abcdef".repeat(4);
 let previousEncryptionKey: string | undefined;
 
+function createMemoryCredentialPersistence(): CredentialCooldownPersistence {
+  const stored = new Map<string, {
+    coolingUntil: number;
+    code: "RATE_LIMITED" | "QUOTA";
+    scope: "provider_credential" | "account_quota" | "unknown";
+  }>();
+  return {
+    async readActive(fingerprint) {
+      const cooldown = stored.get(fingerprint);
+      if (!cooldown) return null;
+      const remainingMs = Math.ceil(cooldown.coolingUntil - Date.now());
+      return remainingMs > 0
+        ? { remainingMs, code: cooldown.code, scope: cooldown.scope }
+        : null;
+    },
+    async write(fingerprint, cooldown) {
+      const previous = stored.get(fingerprint);
+      if (!previous || cooldown.coolingUntil >= previous.coolingUntil) {
+        stored.set(fingerprint, cooldown);
+      }
+    },
+  };
+}
+
 beforeEach(() => {
   previousEncryptionKey = process.env.AI_CREDENTIALS_ENCRYPTION_KEY;
   process.env.AI_CREDENTIALS_ENCRYPTION_KEY = fixtureEncryptionKey;
   _resetOpenRouterCredentialCooldownsForTest();
+  _setOpenRouterCredentialCooldownPersistenceForTest(createMemoryCredentialPersistence());
 });
 
 afterEach(() => {
@@ -135,6 +160,59 @@ describe("OpenRouter credential cooldown persistence", () => {
       expect.not.stringContaining(fixtureApiKey),
       expect.objectContaining({ scope: "unknown" }),
     );
+  });
+
+  it("blocks admission when the persistent credential fingerprint key is absent", async () => {
+    delete process.env.AI_CREDENTIALS_ENCRYPTION_KEY;
+    const persistence: CredentialCooldownPersistence = {
+      readActive: vi.fn(async () => null),
+      write: vi.fn(async () => undefined),
+    };
+    _setOpenRouterCredentialCooldownPersistenceForTest(persistence);
+
+    await expect(assertOpenRouterCredentialAvailable(fixtureApiKey)).rejects.toMatchObject({
+      code: "INVALID_CONFIG",
+      providerCode: "CREDENTIAL_COOLDOWN_PERSISTENCE_UNAVAILABLE",
+    });
+    expect(persistence.readActive).not.toHaveBeenCalled();
+  });
+
+  it("blocks admission when shared credential cooldown state cannot be read", async () => {
+    const persistence: CredentialCooldownPersistence = {
+      readActive: vi.fn(async () => {
+        throw new Error("fixture database unavailable");
+      }),
+      write: vi.fn(async () => undefined),
+    };
+    _setOpenRouterCredentialCooldownPersistenceForTest(persistence);
+
+    await expect(assertOpenRouterCredentialAvailable(fixtureApiKey)).rejects.toMatchObject({
+      code: "INVALID_CONFIG",
+      providerCode: "CREDENTIAL_COOLDOWN_STORE_UNAVAILABLE",
+    });
+  });
+
+  it("does not silently accept a process-only credential cooldown when persistence fails", async () => {
+    const persistence: CredentialCooldownPersistence = {
+      readActive: vi.fn(async () => null),
+      write: vi.fn(async () => {
+        throw new Error("fixture database unavailable");
+      }),
+    };
+
+    await expect(recordOpenRouterCredentialCooldown(
+      fixtureApiKey,
+      new GroqClientError("RATE_LIMITED", "fixture credential limit", {
+        context: {
+          rateLimitScope: "provider_credential",
+          retryAfterMs: 1_000,
+        },
+      }),
+      persistence,
+    )).rejects.toMatchObject({
+      code: "INVALID_CONFIG",
+      providerCode: "CREDENTIAL_COOLDOWN_STORE_UNAVAILABLE",
+    });
   });
 
   it("does not invent a cooldown when the provider omits Retry-After", async () => {

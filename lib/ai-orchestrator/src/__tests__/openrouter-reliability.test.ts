@@ -114,7 +114,12 @@ function sseDelta(text: string): string {
   return `data: ${JSON.stringify({ choices: [{ delta: { content: text } }] })}\n\n`;
 }
 
+const fixtureCredentialCooldownKey = "0123456789abcdef".repeat(4);
+let previousCredentialCooldownKey: string | undefined;
+
 beforeEach(() => {
+  previousCredentialCooldownKey = process.env.AI_CREDENTIALS_ENCRYPTION_KEY;
+  process.env.AI_CREDENTIALS_ENCRYPTION_KEY = fixtureCredentialCooldownKey;
   _resetCircuitsForTest();
   _resetOpenRouterCredentialCooldownsForTest();
   _setOpenRouterCredentialCooldownPersistenceForTest({
@@ -385,6 +390,11 @@ describe("model-resolver — empty catalog fallback", () => {
 afterEach(() => {
   _resetOpenRouterCredentialCooldownsForTest();
   _setOpenRouterCredentialCooldownPersistenceForTest(undefined);
+  if (previousCredentialCooldownKey === undefined) {
+    delete process.env.AI_CREDENTIALS_ENCRYPTION_KEY;
+  } else {
+    process.env.AI_CREDENTIALS_ENCRYPTION_KEY = previousCredentialCooldownKey;
+  }
 });
 });
 

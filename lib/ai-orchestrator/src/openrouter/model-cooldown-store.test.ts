@@ -110,6 +110,26 @@ describe("shared OpenRouter model cooldown persistence", () => {
     await expect(readModelCooldowns("openrouter", [recoveredModel])).resolves.toEqual(new Map());
   });
 
+  it("fails closed when shared model cooldown state cannot be read", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    _setModelCooldownPersistenceForTest({
+      readActive: async () => {
+        throw new Error("fixture database unavailable");
+      },
+      write: async () => undefined,
+      clear: async () => undefined,
+    });
+
+    try {
+      await expect(readModelCooldowns("openrouter", ["fixture/model"])).rejects.toMatchObject({
+        code: "MODEL_ATTEMPT_BUSY",
+        providerCode: "MODEL_COOLDOWN_STORE_UNAVAILABLE",
+      });
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
   it("shares an upstream pool Retry-After only with matching model namespaces", async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-09-30T12:00:00.000Z"));
