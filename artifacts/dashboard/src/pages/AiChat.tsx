@@ -1938,6 +1938,9 @@ function availabilitySuffix(err: unknown): string {
 function describeAiError(err: unknown): string {
   if (err instanceof AiApiError) {
     const suffix = availabilitySuffix(err);
+    if (err.code === 'LIVE_WORKSPACE_WRITE_UNCOORDINATED') {
+      return 'أُوقف تسليم المرشح مؤقتًا حتى يتوفر مسار كتابة ومراجعة آمن. بقي المرشح دون تغيير، ولم تُعدّل ملفات المشروع أو تُنشأ مهمة Apply.';
+    }
     switch (err.status) {
       case 400: return err.errorMessage + suffix;
       case 401: return (err.errorMessage || err.hint || 'AI API key is invalid — delete it and save a valid key from your provider\'s dashboard.') + suffix;
@@ -4845,6 +4848,7 @@ function PendingChangesCard({
   missionCandidate,
   missionCandidateAccepted,
   applyMissionReady,
+  liveApplyPaused,
   lifecycle,
 }: {
   changes: PendingChange[];
@@ -4865,6 +4869,7 @@ function PendingChangesCard({
   missionCandidate: boolean;
   missionCandidateAccepted: boolean;
   applyMissionReady: boolean;
+  liveApplyPaused: boolean;
   lifecycle?: DeliveryLifecycle;
 }) {
   const [expandedPaths, setExpandedPaths] = useState<Set<string>>(new Set());
@@ -4952,6 +4957,18 @@ function PendingChangesCard({
           changeSetHash={changeSetHash}
           lifecycle={lifecycle}
         />
+        {liveApplyPaused && (
+          <div
+            className="mx-4 mt-3 rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-100"
+            role="alert"
+            data-testid="live-workspace-apply-paused"
+          >
+            <p className="font-medium">التطبيق المباشر متوقف مؤقتًا</p>
+            <p className="mt-1 text-amber-100/80">
+              بقي المرشح للمراجعة ولم تُعدّل مساحة العمل. لا يتوفر بعد مسار فرع مراجعة؛ لا يُعدّ هذا الهدف مطبقًا أو مكتملًا.
+            </p>
+          </div>
+        )}
 
         {/* Changes list */}
         <div className="divide-y divide-border/40">
@@ -5152,6 +5169,7 @@ function PendingChangesCard({
                 || isRebasePending
                 || effectiveChanges.length === 0
                 || !missionCandidateAccepted
+                || (liveApplyPaused && !approvalRequired)
               }
             >
               {isPending || isApplyMissionPending
@@ -5161,22 +5179,25 @@ function PendingChangesCard({
                 ? 'بانتظار قبول التنفيذ الأصلي'
                 : approvalRequired
                   ? 'أوافق على المرشح بعد مراجعته'
-                  : applyMissionReady
-                    ? `تطبيق المرشح المعتمد (${effectiveChanges.length} تغيير)`
-                    : 'إنشاء هدف تطبيق وتسليم'}
+                  : liveApplyPaused
+                    ? 'مسار تطبيق المرشح غير متاح'
+                    : applyMissionReady
+                      ? `تطبيق المرشح المعتمد (${effectiveChanges.length} تغيير)`
+                      : 'إنشاء هدف تطبيق وتسليم'}
             </Button>
           ) : (
             <Button
               size="sm"
               className="h-7 px-3 text-xs bg-amber-500 hover:bg-amber-600 text-black font-medium disabled:opacity-50"
               onClick={() => onApply(effectiveChanges)}
-              disabled={isPending || isRebasePending || effectiveChanges.length === 0}
+              disabled={liveApplyPaused || isPending || isRebasePending || effectiveChanges.length === 0}
             >
               {isPending
                 ? <Loader2 className="w-3 h-3 animate-spin mr-1.5" />
                 : <Check className="w-3 h-3 mr-1.5" />}
-              {approvalRequired ? 'الموافقة وتطبيق' : 'تطبيق'}{' '}
-              {effectiveChanges.length} تغيير
+              {liveApplyPaused
+                ? 'التطبيق المباشر متوقف مؤقتًا'
+                : `${approvalRequired ? 'الموافقة وتطبيق' : 'تطبيق'} ${effectiveChanges.length} تغيير`}
               {hasPartialSelection ? ` (${acceptedHunkCount}/${totalHunkCount} مقطع)` : ''}
             </Button>
           )}
@@ -5216,27 +5237,41 @@ function VerifiedCommitCard({
   onMessageChange,
   onCommit,
   isPending,
+  liveApplyPaused,
 }: {
   paths: string[];
   message: string;
   onMessageChange: (message: string) => void;
   onCommit: () => void;
   isPending: boolean;
+  liveApplyPaused: boolean;
 }) {
   return (
     <div className="max-w-3xl mx-auto mb-4">
       <div className="rounded-xl border border-emerald-500/30 bg-emerald-500/5 overflow-hidden">
         <div className="flex items-center gap-2 px-4 py-2.5 border-b border-emerald-500/20 bg-emerald-500/10">
           <GitMerge className="w-4 h-4 text-emerald-400 shrink-0" />
-          <span lang="ar" className="text-sm font-medium text-emerald-400">التغييرات جاهزة للاعتماد في Git بحسب الفحوص المسجلة</span>
+          <span lang="ar" className="text-sm font-medium text-emerald-400">
+            {liveApplyPaused
+              ? 'الفحوص مسجلة، لكن الاعتماد المحلي متوقف مؤقتًا'
+              : 'التغييرات جاهزة للاعتماد في Git بحسب الفحوص المسجلة'}
+          </span>
         </div>
         <div className="px-4 py-3">
           <p className="text-xs text-muted-foreground leading-relaxed">
-            سُجّل نجاح التطبيق والتحقق السلوكي لـ {paths.length} ملف.
-            اعتماد التغييرات في Git إجراء يدوي منفصل، ولا يعني رفعها إلى المستودع البعيد.
+            {liveApplyPaused
+              ? `سُجلت أدلة سابقة لـ ${paths.length} ملف، لكن لا يمكن إنشاء اعتماد جديد من مساحة العمل المشتركة.`
+              : `سُجّل نجاح التطبيق والتحقق السلوكي لـ ${paths.length} ملف. اعتماد التغييرات في Git إجراء يدوي منفصل، ولا يعني رفعها إلى المستودع البعيد.`}
           </p>
+          {liveApplyPaused && (
+            <p className="mt-2 text-xs text-amber-200">
+              لم يُنشأ commit جديد. مسار فرع المراجعة من مصدر ثابت غير متاح بعد.
+            </p>
+          )}
           <p className="text-[11px] text-amber-300/80 mt-2">
-            تنبيه: إجراء Git الحالي يضم جميع تغييرات مساحة العمل، بما فيها تعديلاتك المحلية غير المرتبطة بهذا المقترح.
+            {liveApplyPaused
+              ? 'لن تُضمّن تعديلات مساحة العمل المحلية ضمن commit جديد لهذا المرشح.'
+              : 'تنبيه: إجراء Git الحالي يضم جميع تغييرات مساحة العمل، بما فيها تعديلاتك المحلية غير المرتبطة بهذا المقترح.'}
           </p>
           <Input
             value={message}
@@ -5245,7 +5280,7 @@ function VerifiedCommitCard({
             aria-label="وصف اعتماد التغييرات في Git"
             dir="auto"
             className="mt-3 h-8 text-xs bg-secondary border-border"
-            disabled={isPending}
+            disabled={isPending || liveApplyPaused}
           />
         </div>
         <div className="flex px-4 py-3 border-t border-emerald-500/20">
@@ -5253,10 +5288,10 @@ function VerifiedCommitCard({
             size="sm"
             className="h-7 px-3 text-xs bg-emerald-600 hover:bg-emerald-700 text-white font-medium"
             onClick={onCommit}
-            disabled={isPending || !message.trim()}
+            disabled={isPending || liveApplyPaused || !message.trim()}
           >
             {isPending ? <Loader2 className="w-3 h-3 animate-spin mr-1.5" /> : <GitMerge className="w-3 h-3 mr-1.5" />}
-            اعتماد التغييرات في Git
+            {liveApplyPaused ? 'الاعتماد المحلي متوقف مؤقتًا' : 'اعتماد التغييرات في Git'}
           </Button>
         </div>
       </div>
@@ -15530,6 +15565,7 @@ export default function AiChat() {
                   missionCandidate={serverProposal?.missionCandidate === true}
                   missionCandidateAccepted={serverProposal?.missionCandidateAccepted === true}
                   applyMissionReady={serverProposal?.applyMissionReady === true}
+                  liveApplyPaused
                   lifecycle={deliveryLifecycle}
                 />
               )}
@@ -15565,6 +15601,7 @@ export default function AiChat() {
                   onMessageChange={setCommitMessage}
                   onCommit={handleCommitVerifiedChanges}
                   isPending={commitMutation.isPending}
+                  liveApplyPaused
                 />
               )}
               {pushReady && commitReadyPaths.length === 0 && pendingChanges.length === 0 && (

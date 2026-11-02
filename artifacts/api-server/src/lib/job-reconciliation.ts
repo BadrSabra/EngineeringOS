@@ -76,6 +76,7 @@ import { sweepExpiredUploads } from "./upload-store.js";
 import { reconcileAiExecutions } from "./ai-execution-state.js";
 import { reconcileInterruptedApplyChanges } from "./apply-change-reconciliation.js";
 import { recoverPromotion } from "./delivery-workspace.js";
+import { isLiveWorkspaceWriteUncoordinated } from "./live-workspace-apply-policy.js";
 import { establishProjectRoot } from "./project-root.js";
 import { dispatchProjectBootstrapJobs } from "./project-bootstrap.js";
 import { dispatchAutonomousTaskRecoveries } from "./ai-recovery-coordinator.js";
@@ -153,6 +154,7 @@ async function reconcileInterruptedDeliveries(
         }, "legacy promotion recovery could not establish the persisted project root");
       }
       let recovery: "PROMOTED" | "ROLLED_BACK" | "RECOVERY_REQUIRED" = "RECOVERY_REQUIRED";
+      let filesystemRecoverySuppressed = false;
       try {
         const proposalChanges = JSON.parse(proposal.changes) as Array<{
           path: string; newContent: string; originalContent?: string | null;
@@ -172,11 +174,15 @@ async function reconcileInterruptedDeliveries(
             }, [])
           : proposalChanges;
         if (establishedRoot?.ok && proposal.operationId && Array.isArray(changes)) {
-          recovery = await recoverPromotion({
-            rootPath: establishedRoot.canonicalPath,
-            changes,
-            operationId: proposal.operationId,
-          });
+          if (isLiveWorkspaceWriteUncoordinated()) {
+            filesystemRecoverySuppressed = true;
+          } else {
+            recovery = await recoverPromotion({
+              rootPath: establishedRoot.canonicalPath,
+              changes,
+              operationId: proposal.operationId,
+            });
+          }
         }
       } catch (error) {
         logger.warn({ error, proposalId: proposal.id }, "delivery promotion recovery could not be evaluated");
@@ -194,7 +200,10 @@ async function reconcileInterruptedDeliveries(
           recoveryDecision: recovery,
           previousStage: latest,
           workspaceRoot: proposal.workspaceRoot,
-          reason: "process_restart",
+          reason: filesystemRecoverySuppressed
+            ? "shared_workspace_writer_uncoordinated"
+            : "process_restart",
+          filesystemWriteSuppressed: filesystemRecoverySuppressed,
         },
       });
       if (recovery === "PROMOTED") {
@@ -206,6 +215,11 @@ async function reconcileInterruptedDeliveries(
         await db.update(aiChangeProposalsTable).set({
           lifecycle: "conflicted",
           conflictReason: "Promotion was interrupted and rolled back; resume validation before retrying.",
+        }).where(and(eq(aiChangeProposalsTable.id, proposal.id), inArray(aiChangeProposalsTable.lifecycle, ["isolated", "validated"])));
+      } else if (filesystemRecoverySuppressed) {
+        await db.update(aiChangeProposalsTable).set({
+          lifecycle: "conflicted",
+          conflictReason: "Filesystem recovery was not attempted because the shared editor and API do not have a common write coordinator; review the current project state before continuing.",
         }).where(and(eq(aiChangeProposalsTable.id, proposal.id), inArray(aiChangeProposalsTable.lifecycle, ["isolated", "validated"])));
       } else {
         await db.update(aiChangeProposalsTable).set({

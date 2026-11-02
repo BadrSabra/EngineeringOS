@@ -40,6 +40,11 @@ import { requireAuth } from "../../middlewares/requireAuth.js";
 import { loadProjectByIdForUser } from "../../middlewares/requireProjectAccess.js";
 import { parsePagination } from "../../lib/pagination.js";
 import {
+  APPLY_MISSION_CREATION_PAUSED_MESSAGE,
+  isLiveWorkspaceWriteUncoordinated,
+  LIVE_WORKSPACE_WRITE_UNCOORDINATED_CODE,
+} from "../../lib/live-workspace-apply-policy.js";
+import {
   receiveMissionEvent,
   runMissionGoal,
   authorizeMissionGoalContinuation,
@@ -2285,6 +2290,16 @@ router.post("/ai/missions/apply-from-proposal", async (req, res) => {
   const body = ApplyMissionFromProposalBody.parse(req.body);
   const project = await loadProjectByIdForUser(body.projectId, req.userId, res);
   if (!project) return;
+  if (isLiveWorkspaceWriteUncoordinated()) {
+    res.status(409).json({
+      error: APPLY_MISSION_CREATION_PAUSED_MESSAGE,
+      code: LIVE_WORKSPACE_WRITE_UNCOORDINATED_CODE,
+      missionCreated: false,
+      goalCreated: false,
+      nextAction: "REVIEW_BRANCH_PATH_NOT_AVAILABLE",
+    });
+    return;
+  }
   const result = await db.transaction(async (tx) => {
     // This non-locking lookup avoids taking Mission locks for a missing
     // proposal. The row is locked and fully revalidated after Mission locks

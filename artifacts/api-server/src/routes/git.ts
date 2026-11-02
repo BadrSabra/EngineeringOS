@@ -42,6 +42,11 @@ import {
 } from "../lib/github-connector.js";
 import { executeVerifiedGitHubDelivery } from "../lib/github-delivery-service.js";
 import { DELIVERY_TREE_DIGEST_VERSION, hashDeliveryTree } from "../lib/delivery-workspace.js";
+import {
+  isLiveWorkspaceWriteUncoordinated,
+  LIVE_WORKSPACE_WRITE_UNCOORDINATED_CODE,
+  LIVE_WORKSPACE_COMMIT_UNCOORDINATED_MESSAGE,
+} from "../lib/live-workspace-apply-policy.js";
 
 const router = Router();
 const execFileAsync = promisify(execFile);
@@ -401,6 +406,13 @@ router.post("/projects/:projectId/git/commit", requireProjectWriteAccess, async 
           code: "AI_COMMIT_RECEIPT_INCOMPLETE",
           proposalId,
           operationId: correlationId,
+        });
+      }
+      if (isLiveWorkspaceWriteUncoordinated()) {
+        return res.status(409).json({
+          error: LIVE_WORKSPACE_COMMIT_UNCOORDINATED_MESSAGE,
+          code: LIVE_WORKSPACE_WRITE_UNCOORDINATED_CODE,
+          nextAction: "REVIEW_BRANCH_PATH_NOT_AVAILABLE",
         });
       }
       if (proposal.status !== "applied") {

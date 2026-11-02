@@ -3964,7 +3964,9 @@ describe('AiChat authenticated generated mutations', () => {
       name: 'Go to next step: Review validation and the change proposal below',
     }));
     expect(candidateChanges).toHaveFocus();
-    expect(await screen.findByRole('button', { name: 'تطبيق 1 تغيير' })).toBeInTheDocument();
+    const pausedApply = await screen.findByRole('button', { name: 'التطبيق المباشر متوقف مؤقتًا' });
+    expect(pausedApply).toBeDisabled();
+    expect(screen.getByTestId('live-workspace-apply-paused')).toBeInTheDocument();
     expect(screen.getByTestId('link-current-work-mission-control')).toHaveAttribute('href', '/mission-control?projectId=project-1');
     expect(screen.queryByTestId('link-current-work-flight-deck')).not.toBeInTheDocument();
     expect(screen.getByTestId('nav-current-work-destinations')).toHaveTextContent('opening it does not create a Mission');
@@ -5285,7 +5287,7 @@ it.each([
     }
   });
 
-  it('applies a server-owned proposal with its project and proposal identity', async () => {
+  it('keeps a server-owned proposal reviewable and blocks shared-workspace Apply', async () => {
     mocks.serverProposal = {
       proposalId: 'proposal-1',
       changes: [{
@@ -5297,54 +5299,17 @@ it.each([
         validationProfile: 'api-ai-tests',
       }],
     };
-    const { invalidateQueries } = renderAiChat();
+    renderAiChat();
 
     fireEvent.click(await screen.findByRole('button', { name: 'Existing session' }));
-    await waitFor(() => expect(screen.getByRole('button', { name: 'تطبيق 1 تغيير' })).toBeInTheDocument());
-    fireEvent.click(screen.getByRole('button', { name: 'تطبيق 1 تغيير' }));
-
-    expect(mocks.mutations.applyChanges.mutate).toHaveBeenCalledWith({
-      data: {
-        projectId: 'project-1',
-        proposalId: 'proposal-1',
-        changes: mocks.serverProposal.changes,
-      },
-    });
-
-    act(() => {
-      mocks.mutationOptions.applyChanges?.onSuccess?.({
-        results: [{
-          path: 'src/app.ts',
-          ok: true,
-          writeStatus: 'written',
-          persistenceVerified: true,
-          behavioralVerification: { status: 'passed', profile: 'api-ai-tests' },
-        }],
-        proposalId: 'proposal-1',
-      });
-    });
-    expect(invalidateQueries).toHaveBeenCalledWith({ queryKey: ['git-status', 'project-1'] });
-    await waitFor(() => expect(screen.getByRole('button', { name: 'اعتماد التغييرات في Git' })).toBeInTheDocument());
-    expect(screen.getByText(/يضم جميع تغييرات مساحة العمل، بما فيها تعديلاتك المحلية غير المرتبطة/)).toBeInTheDocument();
-    expect(screen.getByRole('textbox', { name: 'وصف اعتماد التغييرات في Git' })).toHaveAttribute('dir', 'auto');
+    const pausedApply = await screen.findByRole('button', { name: 'التطبيق المباشر متوقف مؤقتًا' });
+    expect(pausedApply).toBeDisabled();
+    fireEvent.click(pausedApply);
+    expect(mocks.mutations.applyChanges.mutate).not.toHaveBeenCalled();
     expect(mocks.mutations.commit.mutate).not.toHaveBeenCalled();
-    fireEvent.click(screen.getByRole('button', { name: 'اعتماد التغييرات في Git' }));
-    expect(mocks.mutations.commit.mutate).toHaveBeenCalledWith({
-      projectId: 'project-1',
-      data: { message: 'Apply verified AI changes', proposalId: 'proposal-1' },
-    });
-    act(() => {
-      mocks.mutationOptions.commit?.onSuccess?.({ ok: true, output: 'created commit' });
-    });
-    await waitFor(() => expect(screen.queryByRole('button', { name: 'اعتماد التغييرات في Git' })).not.toBeInTheDocument());
-    expect(screen.getByRole('button', { name: 'رفع تغييرات Git إلى المستودع البعيد' })).toBeInTheDocument();
-    expect(mocks.mutations.push.mutate).not.toHaveBeenCalled();
-    fireEvent.click(screen.getByRole('button', { name: 'رفع تغييرات Git إلى المستودع البعيد' }));
-    expect(mocks.mutations.push.mutate).toHaveBeenCalledWith({ projectId: 'project-1' });
-    act(() => {
-      mocks.mutationOptions.push?.onSuccess?.({ ok: true, branch: 'main', output: 'pushed' });
-    });
-    await waitFor(() => expect(screen.queryByRole('button', { name: 'رفع تغييرات Git إلى المستودع البعيد' })).not.toBeInTheDocument());
+    expect(screen.getByTestId('live-workspace-apply-paused')).toHaveTextContent(
+      'لا يتوفر بعد مسار فرع مراجعة',
+    );
   });
 
   it('requires candidate approval and an Apply Mission before the separate apply action', async () => {
@@ -5408,15 +5373,11 @@ it.each([
       mocks.mutationOptions.approveRebased?.onSuccess?.({});
     });
     const createApplyButton = await screen.findByRole('button', {
-      name: 'إنشاء هدف تطبيق وتسليم',
+      name: 'مسار تطبيق المرشح غير متاح',
     });
+    expect(createApplyButton).toBeDisabled();
     fireEvent.click(createApplyButton);
-    await waitFor(() => expect(mocks.createApplyMissionFromProposal).toHaveBeenCalledWith({
-      projectId: 'project-1',
-      proposalId: 'mission-candidate-proposal',
-      title: 'تطبيق المرشح المعتمد وتسليمه',
-      intent: 'تطبيق المرشح المعتمد على مساحة المشروع والتحقق من التسليم إلى المستودع المرتبط.',
-    }));
+    expect(mocks.createApplyMissionFromProposal).not.toHaveBeenCalled();
     expect(mocks.mutations.applyChanges.mutate).not.toHaveBeenCalled();
 
     mocks.serverProposal = {
@@ -5431,46 +5392,14 @@ it.each([
       </QueryClientProvider>,
     );
     const applyApprovedButton = await screen.findByRole('button', {
-      name: 'تطبيق المرشح المعتمد (1 تغيير)',
+      name: 'مسار تطبيق المرشح غير متاح',
     });
+    expect(applyApprovedButton).toBeDisabled();
     fireEvent.click(applyApprovedButton);
-    await waitFor(() => expect(mocks.mutations.applyChanges.mutate).toHaveBeenLastCalledWith({
-      data: expect.objectContaining({
-        projectId: 'project-1',
-        proposalId: 'mission-candidate-proposal',
-        changes: missionProposal.changes,
-      }),
-    }));
-    const lastApplyCall = mocks.mutations.applyChanges.mutate.mock.calls[
-      mocks.mutations.applyChanges.mutate.mock.calls.length - 1
-    ]?.[0];
-    expect(lastApplyCall?.data).not.toHaveProperty('operationId');
-    await act(async () => {
-      mocks.mutationOptions.applyChanges?.onSuccess?.({
-        correlationId: 'apply-correlation',
-        applyStatus: 'APPLIED',
-        validationEvidence: [],
-        results: [{
-          ok: true,
-          path: 'src/app.ts',
-          behavioralVerification: { status: 'passed' },
-        }],
-        lifecycle: {
-          missionHandoff: {
-            transitionStatus: 'pending',
-            failureCode: null,
-            goalWakeStatus: 'waiting',
-          },
-        },
-      } as never);
-    });
-    expect(mocks.toast).toHaveBeenCalledWith(expect.objectContaining({
-      title: 'Wrote 1 file change',
-      description: expect.stringContaining('هدف Mission ما زال قيد التحقق'),
-    }));
+    expect(mocks.mutations.applyChanges.mutate).not.toHaveBeenCalled();
   });
 
-  it('renders linked Apply, Commit, and Push evidence and blocks hash mismatches', async () => {
+  it('does not attach historical Apply, Commit, and Push events to an unbound pending candidate', async () => {
     mocks.serverProposal = {
       proposalId: 'proof-proposal',
       changes: [{
@@ -5528,29 +5457,19 @@ it.each([
     renderAiChat();
 
     fireEvent.click(await screen.findByRole('button', { name: 'Existing session' }));
-    await waitFor(() => expect(screen.getByRole('button', { name: 'تطبيق 1 تغيير' })).toBeInTheDocument());
-    fireEvent.click(screen.getByRole('button', { name: 'تطبيق 1 تغيير' }));
-    act(() => {
-      mocks.mutationOptions.applyChanges?.onSuccess?.({
-        correlationId: 'operation-proof',
-        results: [{
-          path: 'src/app.ts',
-          ok: true,
-          writeStatus: 'written',
-          persistenceVerified: true,
-          behavioralVerification: { status: 'passed', profile: 'api-ai-tests' },
-        }],
-      });
-    });
+    const pausedApply = await screen.findByRole('button', { name: 'التطبيق المباشر متوقف مؤقتًا' });
+    expect(pausedApply).toBeDisabled();
+    expect(mocks.mutations.applyChanges.mutate).not.toHaveBeenCalled();
 
-    expect(await screen.findByText('Delivery proof')).toBeInTheDocument();
-    await waitFor(() => expect(screen.getByText('BLOCKED')).toBeInTheDocument());
-    expect(screen.getByText('commit hash mismatch')).toBeInTheDocument();
-    expect(screen.getByText('proposal:')).toBeInTheDocument();
-    expect(screen.getByText(/proof-proposal/)).toBeInTheDocument();
+    expect(screen.queryByText('Delivery proof')).not.toBeInTheDocument();
+    expect(screen.queryByText('commit hash mismatch')).not.toBeInTheDocument();
+    expect(screen.getByTestId('live-workspace-apply-paused')).toHaveTextContent(
+      'لا يُعدّ هذا الهدف مطبقًا أو مكتملًا',
+    );
+    expect(mocks.mutations.applyChanges.mutate).not.toHaveBeenCalled();
   });
 
-  it('offers a safe rebase after an apply conflict and keeps approval required', async () => {
+  it('offers review-only rebase after an earlier apply conflict without resuming writes', async () => {
     mocks.serverProposal = {
       proposalId: 'proposal-rebase-1',
       changes: [{
@@ -5573,8 +5492,11 @@ it.each([
     renderAiChat();
 
     fireEvent.click(await screen.findByRole('button', { name: 'Existing session' }));
-    await waitFor(() => expect(screen.getByRole('button', { name: 'تطبيق 1 تغيير' })).toBeInTheDocument());
-    fireEvent.click(screen.getByRole('button', { name: 'تطبيق 1 تغيير' }));
+    const pausedApply = await screen.findByRole('button', { name: 'التطبيق المباشر متوقف مؤقتًا' });
+    expect(pausedApply).toBeDisabled();
+    expect(mocks.mutations.applyChanges.mutate).not.toHaveBeenCalled();
+    // This is a previously recorded conflict from before the safety hold; it
+    // remains recoverable through a review-only rebase.
     act(() => {
       mocks.mutationOptions.applyChanges?.onSuccess?.({
         correlationId: 'operation-rebase-1',
@@ -5622,29 +5544,13 @@ it.each([
         revision: 1,
       });
     });
-    await waitFor(() => expect(screen.getByRole('button', { name: 'الموافقة وتطبيق 1 تغيير' })).toBeInTheDocument());
-    fireEvent.click(screen.getByRole('button', { name: 'الموافقة وتطبيق 1 تغيير' }));
-    expect(mocks.mutations.approveRebased.mutate).toHaveBeenCalledWith({
-      proposalId: 'proposal-rebase-1',
-      data: { projectId: 'project-1', revision: 1 },
-    });
-    act(() => {
-      mocks.mutationOptions.approveRebased?.onSuccess?.({
-        proposalId: 'proposal-rebase-1',
-        approvalRequired: false,
-        revision: 1,
-      });
-    });
-    expect(mocks.mutations.applyChanges.mutate).toHaveBeenLastCalledWith({
-      data: expect.objectContaining({
-        projectId: 'project-1',
-        proposalId: 'proposal-rebase-1',
-        changes: [rebasedChange],
-      }),
-    });
-    expect(mocks.toast).toHaveBeenCalledWith(expect.objectContaining({
-      title: 'Patch rebased for review',
-    }));
+    const pausedAfterRebase = await screen.findByRole('button', { name: 'التطبيق المباشر متوقف مؤقتًا' });
+    expect(pausedAfterRebase).toBeDisabled();
+    expect(mocks.serverProposal.approvalRequired).toBe(true);
+    fireEvent.click(pausedAfterRebase);
+    expect(mocks.mutations.approveRebased.mutate).not.toHaveBeenCalled();
+    expect(mocks.mutations.applyChanges.mutate).not.toHaveBeenCalled();
+    expect(mocks.toast).toHaveBeenCalledWith(expect.objectContaining({ title: 'Patch rebased for review' }));
     expect(screen.queryByText(/Patch conflict:/)).not.toBeInTheDocument();
   });
 
@@ -6935,7 +6841,8 @@ it.each([
       });
     });
 
-    expect(await screen.findByRole('button', { name: 'تطبيق 1 تغيير' })).toBeInTheDocument();
+    const pausedApply = await screen.findByRole('button', { name: 'التطبيق المباشر متوقف مؤقتًا' });
+    expect(pausedApply).toBeDisabled();
 
     mocks.serverProposal = {
       proposalId: 'proposal-old',
@@ -6946,12 +6853,12 @@ it.each([
     };
     fireEvent.change(textarea, { target: { value: 'Prepare the live proposal again' } });
 
-    expect(screen.getByRole('button', { name: 'تطبيق 1 تغيير' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'التطبيق المباشر متوقف مؤقتًا' })).toBeDisabled();
     expect(screen.getByText('src/live-proposal.ts')).toBeInTheDocument();
 
     mocks.serverProposal = { proposalId: null, changes: [] };
     fireEvent.change(textarea, { target: { value: 'Prepare the live proposal once more' } });
-    expect(screen.getByRole('button', { name: 'تطبيق 1 تغيير' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'التطبيق المباشر متوقف مؤقتًا' })).toBeDisabled();
     expect(screen.getByText('src/live-proposal.ts')).toBeInTheDocument();
   });
 
@@ -7914,7 +7821,7 @@ it.each([
     expect(code?.closest('.prose')).toHaveClass('min-w-0', 'max-w-full', 'overflow-hidden');
   });
 
-  it('shows per-hunk accept/reject toggles and sends only accepted hunks on apply', async () => {
+  it('keeps per-hunk review available while blocking live apply', async () => {
     renderAiChat();
 
     const textarea = await screen.findByTestId('input-ai-chat-composer');
@@ -7967,32 +7874,13 @@ it.each([
     expect(screen.getAllByRole('button', { name: 'مستبعد — اضغط لاختيار المقطع' })).toHaveLength(1);
 
     // The apply button should reflect the partial hunk count.
-    const applyBtn = screen.getByRole('button', { name: /تطبيق.*1\/2 مقطع/i });
+    const applyBtn = screen.getByRole('button', { name: /التطبيق المباشر متوقف مؤقتًا.*1\/2 مقطع/i });
     expect(applyBtn).toBeInTheDocument();
+    expect(applyBtn).toBeDisabled();
 
-    // Clicking Apply must pass only the first (accepted) hunk to the mutation.
+    // A disabled control must not submit any selected candidate bytes.
     fireEvent.click(applyBtn);
-
-    await waitFor(() => {
-      expect(mocks.mutations.applyChanges.mutate).toHaveBeenCalledWith(
-        expect.objectContaining({
-          data: expect.objectContaining({
-            changes: [expect.objectContaining({
-              path: 'src/service.ts',
-              hunks: expect.arrayContaining([
-                expect.objectContaining({ reason: 'Bump a' }),
-              ]),
-            })],
-          }),
-        }),
-      );
-    });
-    // Only 1 hunk in the forwarded change (the rejected one is dropped).
-    const call = mocks.mutations.applyChanges.mutate.mock.calls[0][0] as {
-      data: { changes: Array<{ hunks?: Array<{ reason: string }> }> };
-    };
-    expect(call.data.changes[0].hunks).toHaveLength(1);
-    expect(call.data.changes[0].hunks?.[0].reason).toBe('Bump a');
+    expect(mocks.mutations.applyChanges.mutate).not.toHaveBeenCalled();
   });
 
   it('does not leak a fixture-local verdict scope from a failed run into the next stream', async () => {

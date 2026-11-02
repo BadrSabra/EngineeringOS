@@ -68,7 +68,7 @@ export const aiChangeProposalsTable = pgTable("ai_change_proposals", {
   operationId: text("operation_id"),
   /** Server-owned isolated workspace; never supplied by the client. */
   workspaceRoot: text("workspace_root"),
-  /** Git/tree revision from which this change set was produced. */
+  /** Workspace/evidence revision from which changes were proposed; not necessarily a Git commit SHA. */
   baseRevision: text("base_revision"),
   /** Canonical delivery-tree digest captured before candidate materialization. */
   baseTreeHash: text("base_tree_hash"),

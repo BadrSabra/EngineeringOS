@@ -68,3 +68,9 @@ New Apply Missions make Report and Delivery sibling Goals that both depend direc
 **Why:** Report acceptance is not a prerequisite for delivery, and an exact successor check must not reject the new sibling topology. Existing persisted Mission plans are not rewritten when the planner evolves; treating Apply as delivery would still skip the separate commit and user-authorized remote push.
 
 **How to apply:** For new plans, validate the exact direct successor set and each child’s step/revision binding. Retain explicit compatibility for both legacy dependency shapes; keep Delivery non-runnable until the committed proposal is explicitly bound.
+
+Keep live-workspace Apply and proposal-scoped Git commits disabled outside isolated tests until the Replit editor and API share a supported write coordinator or conditional filesystem operation. A PostgreSQL advisory lock coordinates only API callers, and read-then-rename is not compare-and-swap.
+
+**Why:** The editor can change bytes without acquiring the API lock; a successful precondition read cannot prevent an external save before rename. Committing from the same mutable workspace can also capture bytes outside the accepted candidate.
+
+**How to apply:** Fail closed in the Apply route, Apply Mission creation, interrupted-promotion recovery, and AI proposal commit path. A future review branch must be built from an immutable Git commit captured before model work; the existing proposal `baseRevision` is a workspace/evidence revision and is not guaranteed to be a Git SHA. Do not report a review branch as live Apply or Mission completion. Re-enable live Apply only after a supported shared fence and a race test prove editor and server writes cannot overwrite each other.

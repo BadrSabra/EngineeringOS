@@ -330,6 +330,11 @@ import {
   writeDeliveryWorkspaceFile,
 } from "../../lib/delivery-workspace.js";
 import {
+  isLiveWorkspaceWriteUncoordinated,
+  LIVE_WORKSPACE_WRITE_UNCOORDINATED_CODE,
+  LIVE_WORKSPACE_WRITE_UNCOORDINATED_MESSAGE,
+} from "../../lib/live-workspace-apply-policy.js";
+import {
   decideDeliveryPromotion,
   decideDeliveryPromotionWithPairedBaseline,
   type DeliveryPairedBaseline,
@@ -16994,6 +16999,19 @@ async function applyChangesHandler(req: Request, res: Response) {
     } catch {
       // The authoritative validation below reports malformed stored proposals.
     }
+  }
+  // Do not start a new file promotion in a shared Replit workspace. The API
+  // advisory lock does not coordinate with editor saves, and the filesystem
+  // has no compare-and-swap replacement for an existing file. Keep the
+  // proposal pending so the isolated candidate remains reviewable.
+  if (preflightProposal?.status === "pending" && isLiveWorkspaceWriteUncoordinated()) {
+    return res.status(409).json({
+      error: LIVE_WORKSPACE_WRITE_UNCOORDINATED_MESSAGE,
+      code: LIVE_WORKSPACE_WRITE_UNCOORDINATED_CODE,
+      applyStarted: false,
+      proposalChanged: false,
+      nextAction: "REVIEW_BRANCH_PATH_NOT_AVAILABLE",
+    });
   }
   const rootCheck = await resolveRootPath(project.rootPath, projectId);
   if (!rootCheck.validRootPath) {
