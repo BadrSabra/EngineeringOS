@@ -15,7 +15,7 @@ describe("resolveAiRetryAfterSource", () => {
       retryAfterMs: 30_000,
       providerStatus: 429,
       providerCode: "LOCAL_ADAPTIVE_CREDENTIAL_COOLDOWN",
-    })).toBe("adaptive_default");
+    })).toBe("local_adaptive");
   });
 
   it.each(["CREDENTIAL_RETRY_AFTER", "MODEL_COOLDOWN"])(

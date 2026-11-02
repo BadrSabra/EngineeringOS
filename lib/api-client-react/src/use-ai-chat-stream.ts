@@ -311,7 +311,7 @@ export type AiStreamErrorEvent = {
   retryAfterMs?: number;
   rateLimitScope?: 'upstream_shared_pool' | 'provider_credential' | 'account_quota' | 'unknown' | 'project';
   retryAt?: string;
-  retryAfterSource?: 'provider' | 'server_default' | 'adaptive_default' | 'project_rate_limit' | 'local_admission';
+  retryAfterSource?: 'provider' | 'local_adaptive' | 'server_default' | 'adaptive_default' | 'project_rate_limit' | 'local_admission';
   quality?: {
     code: 'QUALITY_REVIEW_LOW';
     score: number;
@@ -391,6 +391,7 @@ const PROVIDER_FAILURE_CATEGORIES = new Set<ProviderFailureCategory>([
 
 function sanitizeRetryAfterSource(value: unknown): AiStreamErrorEvent['retryAfterSource'] | undefined {
   return value === 'provider'
+    || value === 'local_adaptive'
     || value === 'server_default'
     || value === 'adaptive_default'
     || value === 'project_rate_limit'

@@ -14,6 +14,7 @@ export type AiTerminalFailureKind =
 
 export type AiRetryAfterSource =
   | "provider"
+  | "local_adaptive"
   | "server_default"
   | "adaptive_default"
   | "project_rate_limit"
@@ -25,6 +26,7 @@ export type AiTerminalOutcome = {
   providerFailureCategory?: ProviderFailureCategory;
   rateLimitScope?: AiExecutionRateLimitScope;
   retryAfterMs?: number;
+  providerRetryAfterMs?: number;
   retryAfterSource?: AiRetryAfterSource;
   contractFailureCategory?: AiExecutionContractFailureCategory;
   retryable: boolean;
@@ -51,7 +53,7 @@ export function resolveAiRetryAfterSource(input: {
     return undefined;
   }
   const providerCode = input.providerCode?.trim().toUpperCase();
-  if (providerCode?.startsWith("LOCAL_ADAPTIVE_")) return "adaptive_default";
+  if (providerCode?.startsWith("LOCAL_ADAPTIVE_")) return "local_adaptive";
   if (providerCode === "CREDENTIAL_RETRY_AFTER" || providerCode === "MODEL_COOLDOWN") {
     return "local_admission";
   }

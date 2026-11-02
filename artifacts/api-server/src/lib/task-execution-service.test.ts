@@ -377,6 +377,7 @@ describe("AI task execution failure classification", () => {
       context: {
         providerCode: "HTTP_429",
         retryAfterMs: 4_000,
+        providerRetryAfterMs: 4_000,
         rateLimitScope: "upstream_shared_pool",
       },
     });
@@ -390,6 +391,7 @@ describe("AI task execution failure classification", () => {
       reasonCode: "EXECUTION_PROVIDER_FAILURE",
       retryable: true,
       retryAfterMs: 4_000,
+      providerRetryAfterMs: 4_000,
       retryAfterSource: "provider",
       rateLimitScope: "upstream_shared_pool",
     });
@@ -400,6 +402,7 @@ describe("AI task execution failure classification", () => {
       context: {
         providerCode: "LOCAL_ADAPTIVE_CREDENTIAL_COOLDOWN",
         retryAfterMs: 2_500,
+        providerRetryAfterMs: 1_000,
         rateLimitScope: "provider_credential",
       },
     });
@@ -410,7 +413,8 @@ describe("AI task execution failure classification", () => {
     })).toMatchObject({
       code: "provider_rate_limited",
       retryAfterMs: 2_500,
-      retryAfterSource: "adaptive_default",
+      providerRetryAfterMs: 1_000,
+      retryAfterSource: "local_adaptive",
       rateLimitScope: "provider_credential",
     });
   });

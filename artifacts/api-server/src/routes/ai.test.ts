@@ -5885,33 +5885,49 @@ describe("POST /api/ai/projects/:projectId/analyze", () => {
     }
   });
 
-  it("uses only positive provider or project retry durations", async () => {
+  it("uses only positive explicitly sourced retry durations", async () => {
     await expect(resolveStructuredRetryAfter({
-      providerRetryAfterMs: undefined,
-      providerRetryAfterSource: undefined,
+      retryAfterMs: undefined,
+      retryAfterSource: undefined,
     })).resolves.toBeUndefined();
 
     await expect(resolveStructuredRetryAfter({
-      providerRetryAfterMs: 0,
-      providerRetryAfterSource: "provider",
+      retryAfterMs: 0,
+      retryAfterSource: "provider",
     })).resolves.toBeUndefined();
 
     await expect(resolveStructuredRetryAfter({
-      providerRetryAfterMs: 30_000,
-      providerRetryAfterSource: "server_default",
+      retryAfterMs: 30_000,
+      retryAfterSource: "server_default",
     })).resolves.toBeUndefined();
 
     await expect(resolveStructuredRetryAfter({
-      providerRetryAfterMs: 7_000,
-      providerRetryAfterSource: "provider",
+      retryAfterMs: 7_000,
+      retryAfterSource: "provider",
     })).resolves.toEqual({
       retryAfterMs: 7_000,
       source: "provider",
     });
 
     await expect(resolveStructuredRetryAfter({
-      providerRetryAfterMs: 4_000,
-      providerRetryAfterSource: "project_rate_limit",
+      retryAfterMs: 4_000,
+      retryAfterSource: "local_adaptive",
+    })).resolves.toEqual({
+      retryAfterMs: 4_000,
+      source: "local_adaptive",
+    });
+
+    await expect(resolveStructuredRetryAfter({
+      retryAfterMs: 4_000,
+      retryAfterSource: "local_admission",
+    })).resolves.toEqual({
+      retryAfterMs: 4_000,
+      source: "local_admission",
+    });
+
+    await expect(resolveStructuredRetryAfter({
+      retryAfterMs: 4_000,
+      retryAfterSource: "project_rate_limit",
     })).resolves.toEqual({
       retryAfterMs: 4_000,
       source: "project_rate_limit",

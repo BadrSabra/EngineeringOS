@@ -221,6 +221,7 @@ function requiresManualProviderLimitAction(
     && rateLimitScope !== "project"
     && rateLimitScope !== "local_admission";
   const hasProviderRetrySource = retryAfterSource === "provider"
+    || retryAfterSource === "local_adaptive"
     || retryAfterSource === "adaptive_default"
     || retryAfterSource === "server_default";
   const hasProviderSpecificLimitFailure = failureKind !== "RATE_LIMIT"

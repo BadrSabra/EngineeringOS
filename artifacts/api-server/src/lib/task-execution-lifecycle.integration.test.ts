@@ -223,6 +223,7 @@ vi.mock("../../../../lib/ai-orchestrator/src/provider-registry.js", async () => 
             context: {
               providerCode: adaptive ? "LOCAL_ADAPTIVE_CREDENTIAL_COOLDOWN" : "HTTP_429",
               retryAfterMs: adaptive ? 30_000 : 60_000,
+              providerRetryAfterMs: adaptive ? 1_000 : 60_000,
               rateLimitScope: adaptive ? "unknown" : "provider_credential",
             },
           });
@@ -2817,6 +2818,7 @@ describe("real durable task execution lifecycle", () => {
       expect(acceptance?.attempt).toBe(0);
       expect(disposition).toMatchObject({
         retryAfterMs,
+        providerRetryAfterMs: retryAfterMs,
         retryAfterSource: "provider",
         rateLimitScope: "provider_credential",
       });
@@ -4097,7 +4099,8 @@ describe("real durable task execution lifecycle", () => {
         expect(acceptance).toMatchObject({
           disposition: {
             retryAfterMs,
-            retryAfterSource: failureKind === "adaptive_429" ? "adaptive_default" : "provider",
+            ...(failureKind === "adaptive_429" ? { providerRetryAfterMs: 1_000 } : {}),
+            retryAfterSource: failureKind === "adaptive_429" ? "local_adaptive" : "provider",
             rateLimitScope: failureKind === "adaptive_429" ? "unknown" : "provider_credential",
           },
         });

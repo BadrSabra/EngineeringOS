@@ -29,6 +29,8 @@ import { logger } from "./logger.js";
 export type StructuredTask = "analyze" | "review";
 export type StructuredRetryAfterSource =
   | "provider"
+  | "local_adaptive"
+  | "local_admission"
   | "server_default"
   | "adaptive_default"
   | "project_rate_limit";
@@ -148,6 +150,8 @@ async function findStructuredExecutionCooldown(params: {
       retryAfterMs: Math.max(1_000, retryAtMs - now),
       retryAt: new Date(retryAtMs).toISOString(),
       retryAfterSource: retryAfterSource === "provider"
+        || retryAfterSource === "local_adaptive"
+        || retryAfterSource === "local_admission"
         || retryAfterSource === "server_default"
         || retryAfterSource === "adaptive_default"
         || retryAfterSource === "project_rate_limit"
@@ -161,25 +165,25 @@ async function findStructuredExecutionCooldown(params: {
 }
 
 /**
- * A provider response without Retry-After is still a useful signal, but its
- * recovery time is unknown. Increase the local admission window only for
- * repeated recent rate-limit failures, while preserving an explicit provider
- * Retry-After value when one exists.
+ * Accept only explicitly sourced retry windows. New local adaptive/admission
+ * windows are durable directives; legacy synthetic defaults remain excluded.
  */
 export async function resolveStructuredRetryAfter(params: {
-  providerRetryAfterMs?: number;
-  providerRetryAfterSource?: StructuredRetryAfterSource;
+  retryAfterMs?: number;
+  retryAfterSource?: StructuredRetryAfterSource;
 }): Promise<{ retryAfterMs: number; source: StructuredRetryAfterSource } | undefined> {
   if (
-    (params.providerRetryAfterSource === "provider"
-      || params.providerRetryAfterSource === "project_rate_limit")
-    && typeof params.providerRetryAfterMs === "number"
-    && Number.isFinite(params.providerRetryAfterMs)
-    && params.providerRetryAfterMs > 0
+    (params.retryAfterSource === "provider"
+      || params.retryAfterSource === "local_adaptive"
+      || params.retryAfterSource === "local_admission"
+      || params.retryAfterSource === "project_rate_limit")
+    && typeof params.retryAfterMs === "number"
+    && Number.isFinite(params.retryAfterMs)
+    && params.retryAfterMs > 0
   ) {
     return {
-      retryAfterMs: Math.ceil(params.providerRetryAfterMs),
-      source: params.providerRetryAfterSource,
+      retryAfterMs: Math.ceil(params.retryAfterMs),
+      source: params.retryAfterSource,
     };
   }
   return undefined;

@@ -773,7 +773,8 @@ export function classifyTaskExecutionFailure(params: {
   reasonCode: string;
   retryable: boolean;
   retryAfterMs?: number;
-  retryAfterSource?: "provider" | "adaptive_default" | "local_admission";
+  providerRetryAfterMs?: number;
+  retryAfterSource?: "provider" | "local_adaptive" | "adaptive_default" | "local_admission";
   rateLimitScope?: "upstream_shared_pool" | "provider_credential" | "account_quota" | "unknown";
 } {
   if (params.cancelled) {
@@ -813,10 +814,15 @@ export function classifyTaskExecutionFailure(params: {
       const retryAfterSource = !retryAfterMs
         ? undefined
         : providerCode.startsWith("LOCAL_ADAPTIVE_")
-          ? "adaptive_default"
+          ? "local_adaptive"
           : providerCode === "CREDENTIAL_RETRY_AFTER" || providerCode === "MODEL_COOLDOWN"
             ? "local_admission"
             : "provider";
+      const rawProviderRetryAfterMs = params.error.providerRetryAfterMs;
+      const providerRetryAfterMs = Number.isSafeInteger(rawProviderRetryAfterMs)
+        && (rawProviderRetryAfterMs ?? 0) > 0
+        ? rawProviderRetryAfterMs
+        : undefined;
       const rateLimitScope = params.error.rateLimitScope === "upstream_shared_pool"
         || params.error.rateLimitScope === "provider_credential"
         || params.error.rateLimitScope === "account_quota"
@@ -829,6 +835,7 @@ export function classifyTaskExecutionFailure(params: {
         reasonCode: "EXECUTION_PROVIDER_FAILURE",
         retryable: true,
         ...(retryAfterMs ? { retryAfterMs } : {}),
+        ...(providerRetryAfterMs ? { providerRetryAfterMs } : {}),
         ...(retryAfterSource ? { retryAfterSource } : {}),
         rateLimitScope,
       };
@@ -947,7 +954,8 @@ async function finalizeTaskExecutionAcceptance(params: {
   effectRequired?: boolean;
   effectBundleId?: string | null;
   retryAfterMs?: number;
-  retryAfterSource?: "provider" | "adaptive_default" | "local_admission";
+  providerRetryAfterMs?: number;
+  retryAfterSource?: "provider" | "local_adaptive" | "adaptive_default" | "local_admission";
   rateLimitScope?: "upstream_shared_pool" | "provider_credential" | "account_quota" | "unknown";
 }): Promise<{ accepted: boolean; duplicate: boolean }> {
   const taskFinalization: TaskExecutionFinalization = {
@@ -1040,10 +1048,14 @@ async function finalizeTaskExecutionAcceptance(params: {
             .toISOString(),
         }
       : {}),
-    ...(params.retryAfterSource || params.rateLimitScope
+    ...(params.retryAfterSource || params.providerRetryAfterMs !== undefined || params.rateLimitScope
       ? {
           disposition: {
             ...(params.retryAfterSource ? { retryAfterSource: params.retryAfterSource } : {}),
+            ...(Number.isSafeInteger(params.providerRetryAfterMs)
+              && (params.providerRetryAfterMs ?? 0) > 0
+              ? { providerRetryAfterMs: params.providerRetryAfterMs }
+              : {}),
             ...(params.rateLimitScope ? { rateLimitScope: params.rateLimitScope } : {}),
           },
         }
@@ -5414,6 +5426,9 @@ export async function executeTaskLifecycle(params: {
       retryable: classification.retryable,
       ...(classification.retryAfterMs !== undefined
         ? { retryAfterMs: classification.retryAfterMs }
+        : {}),
+      ...(classification.providerRetryAfterMs !== undefined
+        ? { providerRetryAfterMs: classification.providerRetryAfterMs }
         : {}),
       ...(classification.retryAfterSource
         ? { retryAfterSource: classification.retryAfterSource }

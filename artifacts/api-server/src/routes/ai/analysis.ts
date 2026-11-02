@@ -48,7 +48,10 @@ import {
   type StructuredRetryAfterSource,
 } from "../../lib/structured-task-execution.js";
 import type { ExecutionAcceptanceDisposition } from "../../lib/ai-execution-acceptance.js";
-import type { AiTerminalProjection } from "../../lib/ai-terminal-outcome.js";
+import {
+  resolveAiRetryAfterSource,
+  type AiTerminalProjection,
+} from "../../lib/ai-terminal-outcome.js";
 import { serializeAiSseEvent } from "@workspace/api-zod";
 
 const router = Router();
@@ -110,6 +113,7 @@ function structuredFailureDetails(err: unknown): {
   retryable: boolean;
   parseCode?: string;
   retryAfterMs?: number;
+  providerRetryAfterMs?: number;
   retryAfterSource?: StructuredRetryAfterSource;
   rateLimitScope?: ExecutionAcceptanceDisposition["rateLimitScope"];
   providerAttempts?: Array<{ provider: string; code: string }>;
@@ -136,12 +140,29 @@ function structuredFailureDetails(err: unknown): {
     failureKind === "PROVIDER_FORMAT" ? "The AI returned an unexpected response format." :
     "The AI provider could not complete this run.";
   const retryAfterCandidate = (err as { retryAfterMs?: unknown }).retryAfterMs;
-  const hasProviderRetryAfter =
+  const hasRetryAfter =
     typeof retryAfterCandidate === "number"
     && Number.isFinite(retryAfterCandidate)
     && retryAfterCandidate > 0;
-  const retryAfterMs = failureKind === "RATE_LIMIT" && hasProviderRetryAfter
+  const retryAfterMs = failureKind === "RATE_LIMIT" && hasRetryAfter
     ? Math.ceil(retryAfterCandidate as number)
+    : undefined;
+  const providerStatusCandidate = (err as { providerStatus?: unknown }).providerStatus;
+  const providerStatus = typeof providerStatusCandidate === "number"
+    ? providerStatusCandidate
+    : undefined;
+  const providerCodeCandidate = (err as { providerCode?: unknown }).providerCode;
+  const providerCode = typeof providerCodeCandidate === "string"
+    ? providerCodeCandidate
+    : undefined;
+  const retryAfterSource = retryAfterMs
+    ? resolveAiRetryAfterSource({ retryAfterMs, providerStatus, providerCode })
+    : undefined;
+  const providerRetryAfterCandidate = (err as { providerRetryAfterMs?: unknown }).providerRetryAfterMs;
+  const providerRetryAfterMs = typeof providerRetryAfterCandidate === "number"
+      && Number.isSafeInteger(providerRetryAfterCandidate)
+      && providerRetryAfterCandidate > 0
+    ? providerRetryAfterCandidate
     : undefined;
   const providerName = (err as { providerName?: unknown }).providerName;
   const providerAttempts =
@@ -166,9 +187,8 @@ function structuredFailureDetails(err: unknown): {
     retryable: failureKind !== "CONFIGURATION",
     ...(parseCode ? { parseCode } : {}),
     retryAfterMs,
-    retryAfterSource: failureKind === "RATE_LIMIT" && hasProviderRetryAfter
-      ? "provider"
-      : undefined,
+    ...(providerRetryAfterMs ? { providerRetryAfterMs } : {}),
+    retryAfterSource,
     ...(failureKind === "RATE_LIMIT" && rateLimitScope
       ? { rateLimitScope }
       : {}),
@@ -558,8 +578,8 @@ async function persistStructuredExecutionFailure(params: {
   const content = effectiveDetails.message;
   const retry = effectiveDetails.failureKind === "RATE_LIMIT"
     ? await resolveStructuredRetryAfter({
-        providerRetryAfterMs: effectiveDetails.retryAfterMs,
-        providerRetryAfterSource: effectiveDetails.retryAfterSource,
+        retryAfterMs: effectiveDetails.retryAfterMs,
+        retryAfterSource: effectiveDetails.retryAfterSource,
       })
     : undefined;
   const retryAfterMs = effectiveDetails.failureKind === "RATE_LIMIT"
@@ -610,6 +630,9 @@ async function persistStructuredExecutionFailure(params: {
     disposition: {
       failureKind: effectiveDetails.failureKind,
       ...(retryAfterSource ? { retryAfterSource } : {}),
+      ...(effectiveDetails.providerRetryAfterMs
+        ? { providerRetryAfterMs: effectiveDetails.providerRetryAfterMs }
+        : {}),
       ...(effectiveDetails.rateLimitScope
         ? { rateLimitScope: effectiveDetails.rateLimitScope }
         : {}),

@@ -1101,7 +1101,9 @@ function buildPreviousFailureResponse(
         const seconds = Math.ceil(metadata.retryAfterMs / 1000);
         parts.push(metadata.retryAfterSource === "provider"
           ? `حدد المزود انتظارًا لا يقل عن ${seconds} ثانية.`
-          : metadata.retryAfterSource === "adaptive_default"
+          : metadata.retryAfterSource === "local_adaptive"
+            ? `طبّق النظام تبريدًا تكيفيًا محليًا لمدة ${seconds} ثانية؛ هذا ليس موعدًا حدده المزود.`
+            : metadata.retryAfterSource === "adaptive_default"
             ? `طبّق النظام تبريدًا تكيفيًا محليًا لمدة ${seconds} ثانية؛ هذا ليس موعدًا حدده المزود.`
             : metadata.retryAfterSource === "server_default"
               ? `طبّق النظام مهلة احتياطية لمدة ${seconds} ثانية؛ لم يحدد المزود هذا الموعد.`
@@ -1121,7 +1123,9 @@ function buildPreviousFailureResponse(
         const seconds = Math.ceil(metadata.retryAfterMs / 1000);
         parts.push(metadata.retryAfterSource === "provider"
           ? `The provider requested a wait of at least ${seconds} seconds.`
-          : metadata.retryAfterSource === "adaptive_default"
+          : metadata.retryAfterSource === "local_adaptive"
+            ? `The application applied a local adaptive cooldown of ${seconds} seconds; this was not a provider ETA.`
+            : metadata.retryAfterSource === "adaptive_default"
             ? `The application applied a local adaptive cooldown of ${seconds} seconds; this was not a provider ETA.`
             : metadata.retryAfterSource === "server_default"
               ? `The application applied a ${seconds}-second fallback delay; the provider did not specify this time.`
@@ -1306,6 +1310,7 @@ function terminalMetadataFromTrace(value: string | null | undefined): {
     ? terminal.retryAfterMs
     : undefined;
   const retryAfterSource = terminal?.retryAfterSource === "provider"
+    || terminal?.retryAfterSource === "local_adaptive"
     || terminal?.retryAfterSource === "server_default"
     || terminal?.retryAfterSource === "adaptive_default"
     || terminal?.retryAfterSource === "project_rate_limit"
@@ -3352,7 +3357,7 @@ async function persistFailedChatTurn(params: {
   taskResult?: unknown;
   behaviorEvidence?: unknown;
   repairPlanMetadata?: unknown;
-  terminalOutcome?: Pick<AiTerminalOutcome, "failureKind" | "providerFailureCategory" | "rateLimitScope" | "retryAfterMs" | "retryAfterSource" | "contractFailureCategory" | "retryable" | "recoveryState">;
+  terminalOutcome?: Pick<AiTerminalOutcome, "failureKind" | "providerFailureCategory" | "rateLimitScope" | "retryAfterMs" | "providerRetryAfterMs" | "retryAfterSource" | "contractFailureCategory" | "retryable" | "recoveryState">;
   evidenceSummary?: EvidenceFailureSummary;
   evidenceVerdict?: FlightDeckEvidenceVerdict;
   evidenceReason?: string;
@@ -3397,6 +3402,9 @@ async function persistFailedChatTurn(params: {
                 : {}),
               ...(params.terminalOutcome.retryAfterMs !== undefined
                 ? { retryAfterMs: params.terminalOutcome.retryAfterMs }
+                : {}),
+              ...(params.terminalOutcome.providerRetryAfterMs !== undefined
+                ? { providerRetryAfterMs: params.terminalOutcome.providerRetryAfterMs }
                 : {}),
               ...(params.terminalOutcome.retryAfterSource
                 ? { retryAfterSource: params.terminalOutcome.retryAfterSource }
@@ -7452,6 +7460,13 @@ router.post("/ai/chat", async (req, res) => {
                 || err.code === "RATE_LIMITED",
             },
           }),
+          ...(err.rateLimitScope ? { rateLimitScope: err.rateLimitScope } : {}),
+          ...(Number.isSafeInteger(err.retryAfterMs) && (err.retryAfterMs ?? 0) > 0
+            ? { retryAfterMs: err.retryAfterMs }
+            : {}),
+          ...(Number.isSafeInteger(err.providerRetryAfterMs) && (err.providerRetryAfterMs ?? 0) > 0
+            ? { providerRetryAfterMs: err.providerRetryAfterMs }
+            : {}),
           ...(retryAfterSource ? { retryAfterSource } : {}),
         };
         await persistFailedChatTurn({
@@ -12317,6 +12332,12 @@ export async function handleChatStream(req: Request, res: Response) {
           && err.retryAfterMs > 0
           ? { retryAfterMs: err.retryAfterMs }
           : {}),
+        ...(err instanceof GroqClientError
+          && typeof err.providerRetryAfterMs === "number"
+          && Number.isSafeInteger(err.providerRetryAfterMs)
+          && err.providerRetryAfterMs > 0
+          ? { providerRetryAfterMs: err.providerRetryAfterMs }
+          : {}),
         ...(retryAfterSource ? { retryAfterSource } : {}),
       };
       if (err instanceof GroqClientError) {
@@ -12406,6 +12427,19 @@ export async function handleChatStream(req: Request, res: Response) {
               && terminalOutcome.retryAfterMs > 0
               ? { retryAfterMs: terminalOutcome.retryAfterMs }
               : {}),
+            disposition: {
+              ...(terminalOutcome.retryAfterSource
+                ? { retryAfterSource: terminalOutcome.retryAfterSource }
+                : {}),
+              ...(terminalOutcome.rateLimitScope
+                ? { rateLimitScope: terminalOutcome.rateLimitScope }
+                : {}),
+              ...(typeof terminalOutcome.providerRetryAfterMs === "number"
+                && Number.isSafeInteger(terminalOutcome.providerRetryAfterMs)
+                && terminalOutcome.providerRetryAfterMs > 0
+                ? { providerRetryAfterMs: terminalOutcome.providerRetryAfterMs }
+                : {}),
+            },
             finalMessageId: persistedProviderFailure?.id,
             finalMessageErrorCode: terminalErrorCode,
           }).catch((terminalError) => {

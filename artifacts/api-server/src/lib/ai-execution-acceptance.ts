@@ -75,8 +75,9 @@ export type ExecutionAcceptanceDisposition = {
   nextActionCode: AcceptanceNextActionCode;
   operatorAction: string;
   retryAfterMs?: number;
+  providerRetryAfterMs?: number;
   retryAt?: string;
-  retryAfterSource?: "provider" | "server_default" | "adaptive_default" | "project_rate_limit" | "local_admission";
+  retryAfterSource?: "provider" | "local_adaptive" | "server_default" | "adaptive_default" | "project_rate_limit" | "local_admission";
   rateLimitScope?: "upstream_shared_pool" | "provider_credential" | "account_quota" | "unknown";
   taskObjective?: {
     kind: string;
@@ -1371,11 +1372,17 @@ function projectAcceptanceDisposition(
       : {}),
     ...(typeof raw.retryAt === "string" ? { retryAt: raw.retryAt.slice(0, 40) } : {}),
     ...(raw.retryAfterSource === "provider"
+      || raw.retryAfterSource === "local_adaptive"
       || raw.retryAfterSource === "server_default"
       || raw.retryAfterSource === "adaptive_default"
       || raw.retryAfterSource === "project_rate_limit"
       || raw.retryAfterSource === "local_admission"
       ? { retryAfterSource: raw.retryAfterSource }
+      : {}),
+    ...(typeof raw.providerRetryAfterMs === "number"
+      && Number.isSafeInteger(raw.providerRetryAfterMs)
+      && raw.providerRetryAfterMs > 0
+      ? { providerRetryAfterMs: raw.providerRetryAfterMs }
       : {}),
     ...(raw.rateLimitScope === "upstream_shared_pool"
       || raw.rateLimitScope === "provider_credential"

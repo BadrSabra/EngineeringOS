@@ -212,37 +212,40 @@ describe("automatic task recovery admission", () => {
     });
   });
 
-  it("fails closed for rate-limit provider failures even when Retry-After is absent", () => {
-    const taskPlan = planTaskRecovery(candidate({
-      action: "RETRY_AFTER_TIMEOUT",
-      disposition: {
-        recoveryState: "REQUIRED",
-        failureKind: "RATE_LIMIT",
-        retryAfterSource: "adaptive_default",
-        rateLimitScope: "unknown",
-      },
-    }));
-    const chatPlan = planChatRecovery(chatCandidate({
-      action: "RETRY_AFTER_TIMEOUT",
-      reasonCode: "EXECUTION_PROVIDER_FAILURE",
-      resumable: 0,
-      disposition: {
-        recoveryState: "REQUIRED",
-        failureKind: "RATE_LIMIT",
-        retryAfterSource: "adaptive_default",
-        rateLimitScope: "unknown",
-      },
-    }));
+  it.each(["adaptive_default", "local_adaptive"] as const)(
+    "fails closed for %s rate-limit failures even when Retry-After is absent",
+    (retryAfterSource) => {
+      const taskPlan = planTaskRecovery(candidate({
+        action: "RETRY_AFTER_TIMEOUT",
+        disposition: {
+          recoveryState: "REQUIRED",
+          failureKind: "RATE_LIMIT",
+          retryAfterSource,
+          rateLimitScope: "unknown",
+        },
+      }));
+      const chatPlan = planChatRecovery(chatCandidate({
+        action: "RETRY_AFTER_TIMEOUT",
+        reasonCode: "EXECUTION_PROVIDER_FAILURE",
+        resumable: 0,
+        disposition: {
+          recoveryState: "REQUIRED",
+          failureKind: "RATE_LIMIT",
+          retryAfterSource,
+          rateLimitScope: "unknown",
+        },
+      }));
 
-    expect.soft(taskPlan).toEqual({
-      kind: "skip",
-      reason: "provider_rate_limit_requires_manual_action",
-    });
-    expect.soft(chatPlan).toEqual({
-      kind: "skip",
-      reason: "provider_rate_limit_requires_manual_action",
-    });
-  });
+      expect.soft(taskPlan).toEqual({
+        kind: "skip",
+        reason: "provider_rate_limit_requires_manual_action",
+      });
+      expect.soft(chatPlan).toEqual({
+        kind: "skip",
+        reason: "provider_rate_limit_requires_manual_action",
+      });
+    },
+  );
 
   it("blocks automatic resume when provider-limit evidence conflicts with the action code", () => {
     const disposition = {
