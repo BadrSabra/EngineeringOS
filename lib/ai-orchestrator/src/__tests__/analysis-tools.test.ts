@@ -99,6 +99,28 @@ describe("analysis tool correlation contract", () => {
     expect(result.output).not.toContain("internal timeout");
   });
 
+  it("exposes a safe retry-later message when a project scan is busy", async () => {
+    const result = await executeAnalysisTool(
+      "refresh_project_scan",
+      {},
+      async () => ({
+        status: "unavailable",
+        output: "internal lock owner and database details",
+        correlation,
+        failureCategory: "scan_busy",
+      }),
+      undefined,
+      correlation,
+    );
+
+    expect(result).toMatchObject({
+      status: "unavailable",
+      failureCategory: "scan_busy",
+    });
+    expect(result.output).toMatch(/already running.*before retrying/i);
+    expect(result.output).not.toContain("internal lock owner");
+  });
+
   it("rejects a late complete result without allowing correlation mutation", async () => {
     const original = { ...correlation };
     const runner: AnalysisToolRunner = async (_name, _args, _signal, supplied) => {

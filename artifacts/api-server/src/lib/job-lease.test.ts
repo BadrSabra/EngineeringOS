@@ -4,6 +4,7 @@
  * themselves — no mocks of DB internals.
  */
 import { afterEach, describe, expect, it } from "vitest";
+import { spawn, type ChildProcess } from "node:child_process";
 import { eq } from "drizzle-orm";
 import { randomUUID } from "crypto";
 import {
@@ -50,8 +51,12 @@ async function insertProject(): Promise<string> {
 describe("scan-job lease helpers", () => {
   const projectCleanup: string[] = [];
   const jobCleanup: string[] = [];
+  const eventCleanup: string[] = [];
 
   afterEach(async () => {
+    for (const id of eventCleanup.splice(0)) {
+      await db.delete(eventsTable).where(eq(eventsTable.id, id));
+    }
     for (const id of jobCleanup.splice(0)) {
       await db.delete(scanJobsTable).where(eq(scanJobsTable.id, id));
     }
@@ -250,6 +255,105 @@ describe("scan-job lease helpers", () => {
     expect(row.status).toBe("queued");
     expect(row.workerId).toBeNull();
     expect(events).toHaveLength(0);
+  });
+
+  it("rejects a stale writer running in another process after lease recovery", async () => {
+    const jobId = await insertJob();
+    const staleWorker = randomUUID();
+    const currentWorker = randomUUID();
+    const eventId = randomUUID();
+    eventCleanup.push(eventId);
+    const [job] = await db.select({
+      projectId: scanJobsTable.projectId,
+    }).from(scanJobsTable).where(eq(scanJobsTable.id, jobId));
+
+    expect(await claimScanJob(jobId, staleWorker, SCAN_LEASE_MS)).toBe(true);
+
+    const jobLeaseModuleUrl = new URL("./job-lease.ts", import.meta.url).href;
+    const childSource = [
+      `(async () => {`,
+      `  const { eventsTable, pool } = await import("@workspace/db");`,
+      `  const { persistScanJobTransaction } = await import(${JSON.stringify(jobLeaseModuleUrl)});`,
+      `  try {`,
+      `    await persistScanJobTransaction(${JSON.stringify(jobId)}, ${JSON.stringify(staleWorker)}, async (tx) => {`,
+      `      await tx.insert(eventsTable).values({`,
+      `        id: ${JSON.stringify(eventId)},`,
+      `        type: "ProjectScanned",`,
+      `        projectId: ${JSON.stringify(job.projectId)},`,
+      `        severity: "success",`,
+      `        message: "stale child must roll back",`,
+      `        correlationId: ${JSON.stringify(jobId)},`,
+      `      });`,
+      `      process.stdout.write("STAGED\\n");`,
+      `      await new Promise((resolve) => process.stdin.once("data", () => { process.stdin.destroy(); resolve(); }));`,
+      `      return { source: "child-stale" };`,
+      `    });`,
+      `    process.stdout.write("UNEXPECTED_COMMIT\\n");`,
+      `    process.exitCode = 2;`,
+      `  } catch (error) {`,
+      `    process.stdout.write("REJECTED:" + (error instanceof Error ? error.name : "unknown") + "\\n");`,
+      `  } finally {`,
+      `    process.stdout.write("POOL_END_START\\n");`,
+      `    await pool.end();`,
+      `    process.stdout.write("POOL_END_DONE\\n");`,
+      `  }`,
+      `})().catch((error) => { console.error(error); process.exitCode = 1; });`,
+    ].join("\n");
+
+    let child: ChildProcess | undefined;
+    let childOutput = "";
+    try {
+      child = spawn(process.execPath, ["--import", "tsx", "-e", childSource], {
+        cwd: process.cwd(),
+        env: {
+          PATH: process.env.PATH,
+          NODE_ENV: "test",
+          DATABASE_URL: process.env.DATABASE_URL,
+        },
+        stdio: ["pipe", "pipe", "pipe"],
+      });
+      child.stdout?.setEncoding("utf8").on("data", (chunk: string) => {
+        childOutput = `${childOutput}${chunk}`.slice(-8_000);
+      });
+      child.stderr?.setEncoding("utf8").on("data", (chunk: string) => {
+        childOutput = `${childOutput}${chunk}`.slice(-8_000);
+      });
+
+      const stageDeadline = Date.now() + 15_000;
+      while (!childOutput.includes("STAGED\n") && Date.now() < stageDeadline) {
+        if (child.exitCode !== null || child.signalCode !== null) break;
+        await new Promise((resolve) => setTimeout(resolve, 25));
+      }
+      expect(childOutput, "stale worker did not stage its transaction").toContain("STAGED\n");
+
+      await db.update(scanJobsTable).set({
+        status: "queued",
+        workerId: null,
+        leaseUntil: null,
+        lastHeartbeatAt: null,
+      }).where(eq(scanJobsTable.id, jobId));
+      expect(await claimScanJob(jobId, currentWorker, SCAN_LEASE_MS)).toBe(true);
+      expect(await completeScanJob(jobId, currentWorker, { source: "recovered-worker" })).toBe(true);
+
+      child.stdin?.write("continue\n");
+      const exitDeadline = Date.now() + 15_000;
+      while (child.exitCode === null && child.signalCode === null && Date.now() < exitDeadline) {
+        await new Promise((resolve) => setTimeout(resolve, 25));
+      }
+      expect(child.exitCode, `stale child did not exit cleanly: ${childOutput}`).toBe(0);
+      expect(childOutput).toContain("REJECTED:ScanJobLeaseLostError");
+
+      const [row] = await db.select().from(scanJobsTable).where(eq(scanJobsTable.id, jobId));
+      const events = await db.select().from(eventsTable).where(eq(eventsTable.projectId, job.projectId));
+      expect(row.status).toBe("completed");
+      expect(row.result).toEqual({ source: "recovered-worker" });
+      expect(events).toHaveLength(0);
+    } finally {
+      if (child && child.exitCode === null && child.signalCode === null) {
+        child.kill("SIGKILL");
+        await new Promise<void>((resolve) => child?.once("exit", () => resolve()));
+      }
+    }
   });
 
   it("completeScanJob sets status=completed and clears all lease fields", async () => {

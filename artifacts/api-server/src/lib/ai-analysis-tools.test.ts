@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { createProjectAnalysisToolRunner, classifyAnalysisFailure } from "./ai-analysis-tools.js";
-import { ScanRootUnavailableError } from "./scan-runner.js";
+import { ProjectScanLockBusyError, ScanRootUnavailableError } from "./scan-runner.js";
 
 const { mockPerformScan, mockDbSelect } = vi.hoisted(() => ({
   mockPerformScan: vi.fn(),
@@ -53,6 +53,32 @@ describe("project analysis root failure classification", () => {
     const error = new ScanRootUnavailableError("/tmp/missing-root", "root_not_found", "root disappeared");
     expect(classifyAnalysisFailure(error)).toBe("root_unavailable");
     expect(classifyAnalysisFailure({ outcome: "root_unavailable" })).toBe("root_unavailable");
+  });
+
+  it("reports a busy scan as retryable without accepting evidence", async () => {
+    mockPerformScan.mockRejectedValueOnce(new ProjectScanLockBusyError("project-a"));
+    const projectRevision = "2026-10-04T12:00:00.000Z";
+    const runner = createProjectAnalysisToolRunner("project-a", process.cwd());
+    const result = await runner(
+      "refresh_project_scan",
+      {},
+      undefined,
+      {
+        operationId: "operation-a",
+        projectId: "project-a",
+        projectRevision,
+        rootAvailable: true,
+        evidenceProvenance: "project-analysis",
+      },
+    );
+
+    expect(classifyAnalysisFailure(new ProjectScanLockBusyError("project-a"))).toBe("scan_busy");
+    expect(result).toMatchObject({
+      status: "unavailable",
+      failureCategory: "scan_busy",
+    });
+    expect(result.output).toMatch(/already running.*before retrying/i);
+    expect(result).not.toHaveProperty("source");
   });
 
   it("does not accept a partial scan as complete analysis evidence", async () => {

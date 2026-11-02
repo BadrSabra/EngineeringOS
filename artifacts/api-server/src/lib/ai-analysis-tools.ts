@@ -24,7 +24,11 @@ import type {
   AnalysisToolResult,
   AnalysisToolRunner,
 } from "@workspace/ai-orchestrator";
-import { performScan, ScanRootUnavailableError } from "./scan-runner.js";
+import {
+  performScan,
+  ProjectScanLockBusyError,
+  ScanRootUnavailableError,
+} from "./scan-runner.js";
 
 const MAX_OUTPUT = MAX_ANALYSIS_TOOL_OUTPUT_BYTES;
 const MAX_GIT_HISTORY_PATHS = 6;
@@ -270,6 +274,7 @@ export function classifyAnalysisFailure(
   if (parentSignal?.aborted) return "cancellation";
   if (isToolOutputLimitExceeded(error)) return "output_limit";
   if (deadlineAt !== undefined && Date.now() >= deadlineAt) return "timeout";
+  if (error instanceof ProjectScanLockBusyError) return "scan_busy";
   if (isRootUnavailableError(error)) return "root_unavailable";
   if (/stale/i.test(error instanceof Error ? error.message : String(error))) {
     return "stale_revision";
@@ -521,6 +526,8 @@ export function createProjectAnalysisToolRunner(
             ? "Analysis exceeded its execution deadline and was not completed."
             : failureCategory === "output_limit"
               ? "Analysis output exceeded the server limit and was not completed."
+              : failureCategory === "scan_busy"
+                ? "A project scan is already running. Wait for it to finish before retrying; no new scan was started."
             : failureCategory === "stale_revision"
               ? "Analysis observed a workspace revision change and was rejected."
               : failureCategory === "root_unavailable"

@@ -6,6 +6,7 @@ export type AnalysisFailureCategory =
   | "cancellation"
   | "output_limit"
   | "stale_revision"
+  | "scan_busy"
   | "unavailable_dependency"
   | "root_unavailable"
   | "execution_failure";
@@ -119,6 +120,9 @@ function safeStatusMessage(
   }
   if (failureCategory === "output_limit") {
     return `Analysis tool "${name}" exceeded the server output limit; the operation did not complete.`;
+  }
+  if (failureCategory === "scan_busy") {
+    return "A project scan is already running. Wait for it to finish before retrying; no new scan was started.";
   }
   return status === "unavailable"
     ? `Analysis tool "${name}" was unavailable; the operation did not complete.`
