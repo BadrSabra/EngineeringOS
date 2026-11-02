@@ -389,6 +389,16 @@ vi.mock('@workspace/api-client-react', () => {
       isError: false,
       error: null,
     })),
+    useGetLocalReviewBranch: vi.fn(() => ({
+      data: undefined,
+      isLoading: false,
+      isFetching: false,
+      isError: false,
+      error: null,
+    })),
+    getGetLocalReviewBranchQueryKey: (projectId: string, proposalId: string) => [
+      `/api/projects/${projectId}/git/review-branch/${proposalId}`,
+    ],
     useGetAiDeliveryPolicy: vi.fn(() => ({
       data: {
         projectId: 'project-1',
@@ -439,6 +449,7 @@ vi.mock('@workspace/api-client-react', () => {
       mocks.mutationOptions.push = options?.mutation;
       return mocks.mutations.push;
     }),
+    useCreateLocalReviewBranch: vi.fn(() => emptyMutation()),
     useGetAiChatFileContent: vi.fn((params: unknown) => {
       mocks.fileContentRequest = params;
       return {
@@ -5308,7 +5319,10 @@ it.each([
     expect(mocks.mutations.applyChanges.mutate).not.toHaveBeenCalled();
     expect(mocks.mutations.commit.mutate).not.toHaveBeenCalled();
     expect(screen.getByTestId('live-workspace-apply-paused')).toHaveTextContent(
-      'لا يتوفر بعد مسار فرع مراجعة',
+      'لم تُعدّل مساحة العمل',
+    );
+    expect(screen.getByTestId('live-workspace-apply-paused')).toHaveTextContent(
+      'لا يعني Apply أو Commit أو قبول الإثبات',
     );
   });
 
@@ -5464,7 +5478,10 @@ it.each([
     expect(screen.queryByText('Delivery proof')).not.toBeInTheDocument();
     expect(screen.queryByText('commit hash mismatch')).not.toBeInTheDocument();
     expect(screen.getByTestId('live-workspace-apply-paused')).toHaveTextContent(
-      'لا يُعدّ هذا الهدف مطبقًا أو مكتملًا',
+      'لم تُعدّل مساحة العمل',
+    );
+    expect(screen.getByTestId('live-workspace-apply-paused')).toHaveTextContent(
+      'لا يعني Apply أو Commit أو قبول الإثبات',
     );
     expect(mocks.mutations.applyChanges.mutate).not.toHaveBeenCalled();
   });
