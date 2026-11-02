@@ -69,7 +69,7 @@ const actualChatWithFallbackRef = vi.hoisted(() => ({
 const providerStrategyState = vi.hoisted(() => ({
   callCount: 0,
   failOnCall: 0,
-  failureKind: "provider_429" as "provider_429" | "adaptive_429" | "empty_response",
+  failureKind: "provider_429" as "provider_429" | "adaptive_429_no_provider_hint" | "empty_response",
   toolCallId: "",
   toolName: "read_file" as "read_file" | "run_validation",
   toolArguments: {} as Record<string, string>,
@@ -218,12 +218,12 @@ vi.mock("../../../../lib/ai-orchestrator/src/provider-registry.js", async () => 
           if (providerStrategyState.failureKind === "empty_response") {
             throw new GroqClientError("EMPTY_RESPONSE", "fixture provider returned no content.");
           }
-          const adaptive = providerStrategyState.failureKind === "adaptive_429";
+          const adaptive = providerStrategyState.failureKind === "adaptive_429_no_provider_hint";
           throw new GroqClientError("RATE_LIMITED", "fixture provider rate limit", {
             context: {
               providerCode: adaptive ? "LOCAL_ADAPTIVE_CREDENTIAL_COOLDOWN" : "HTTP_429",
               retryAfterMs: adaptive ? 30_000 : 60_000,
-              providerRetryAfterMs: adaptive ? 1_000 : 60_000,
+              ...(!adaptive ? { providerRetryAfterMs: 60_000 } : {}),
               rateLimitScope: adaptive ? "unknown" : "provider_credential",
             },
           });
@@ -3841,7 +3841,7 @@ describe("real durable task execution lifecycle", () => {
   ] as const;
   type DurableToolHandoffCase = (typeof durableToolMarkers)[number] & {
     markerStatus: "started" | "completed";
-    failureKind: "none" | "provider_429" | "adaptive_429" | "empty_response";
+    failureKind: "none" | "provider_429" | "adaptive_429_no_provider_hint" | "empty_response";
   };
   const durableToolHandoffCases: DurableToolHandoffCase[] = [
     ...durableToolMarkers.flatMap((marker) =>
@@ -3851,7 +3851,7 @@ describe("real durable task execution lifecycle", () => {
         failureKind: "none" as const,
       })),
     ),
-    ...(["provider_429", "adaptive_429", "empty_response"] as const).map((failureKind) => ({
+    ...(["provider_429", "adaptive_429_no_provider_hint", "empty_response"] as const).map((failureKind) => ({
       ...durableToolMarkers[0],
       markerStatus: "completed" as const,
       failureKind,
@@ -4048,7 +4048,7 @@ describe("real durable task execution lifecycle", () => {
         workspaceRevision: fixture.now.toISOString(),
       });
 
-      if (failureKind === "provider_429" || failureKind === "adaptive_429") {
+      if (failureKind === "provider_429" || failureKind === "adaptive_429_no_provider_hint") {
         expect(recoveredOutcome).toMatchObject({
           ok: false,
           status: "failed",
@@ -4096,16 +4096,18 @@ describe("real durable task execution lifecycle", () => {
           reasonCode: "EXECUTION_PROVIDER_FAILURE",
           resumable: 1,
         });
-        const retryAfterMs = failureKind === "adaptive_429" ? 30_000 : 60_000;
+        const adaptiveWithoutProviderHint = failureKind === "adaptive_429_no_provider_hint";
+        const retryAfterMs = adaptiveWithoutProviderHint ? 30_000 : 60_000;
         expect(acceptance).toMatchObject({
           disposition: {
             retryAfterMs,
-            ...(failureKind === "adaptive_429" ? { providerRetryAfterMs: 1_000 } : {}),
-            retryAfterSource: failureKind === "adaptive_429" ? "local_adaptive" : "provider",
-            rateLimitScope: failureKind === "adaptive_429" ? "unknown" : "provider_credential",
+            ...(!adaptiveWithoutProviderHint ? { providerRetryAfterMs: 60_000 } : {}),
+            retryAfterSource: adaptiveWithoutProviderHint ? "local_adaptive" : "provider",
+            rateLimitScope: adaptiveWithoutProviderHint ? "unknown" : "provider_credential",
           },
         });
-        if (failureKind === "adaptive_429") {
+        if (adaptiveWithoutProviderHint) {
+          expect(acceptance?.disposition).not.toHaveProperty("providerRetryAfterMs");
           const callsBeforeResume = chatWithFallback.mock.calls.length;
           const strategyCallsBeforeResume = providerStrategyState.callCount;
           const earlyResume = await executeTaskLifecycle({
