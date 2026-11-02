@@ -1,9 +1,11 @@
 import { describe, expect, it } from "vitest";
+import { execFileSync } from "node:child_process";
 import { mkdir, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { randomUUID } from "node:crypto";
 import {
   createDeliveryWorkspace,
+  captureCleanGitSourceCommitSha,
   discardDeliveryWorkspace,
   hashChangeSet,
   hashDeliveryTree,
@@ -18,6 +20,30 @@ import {
 } from "./delivery-workspace.js";
 
 describe("delivery workspaces", () => {
+  it("captures only the immutable HEAD of a clean Git source", async () => {
+    const fixture = `/tmp/delivery-git-source-${randomUUID()}`;
+    await mkdir(fixture, { recursive: true });
+    try {
+      execFileSync("git", ["-C", fixture, "init", "--quiet"]);
+      execFileSync("git", ["-C", fixture, "config", "user.name", "Test Fixture"]);
+      execFileSync("git", ["-C", fixture, "config", "user.email", "fixture@example.invalid"]);
+      await writeFile(join(fixture, "source.txt"), "tracked source\n");
+      execFileSync("git", ["-C", fixture, "add", "--", "source.txt"]);
+      execFileSync("git", ["-C", fixture, "commit", "--quiet", "-m", "fixture"]);
+
+      const capturedSha = await captureCleanGitSourceCommitSha(fixture);
+      expect(capturedSha).toMatch(/^(?:[a-f0-9]{40}|[a-f0-9]{64})$/);
+      await writeFile(join(fixture, "source.txt"), "changed source\n");
+      await expect(captureCleanGitSourceCommitSha(fixture)).resolves.toBeNull();
+      await writeFile(join(fixture, "source.txt"), "tracked source\n");
+      await expect(captureCleanGitSourceCommitSha(fixture)).resolves.toBe(capturedSha);
+      await writeFile(join(fixture, "untracked.txt"), "untracked\n");
+      await expect(captureCleanGitSourceCommitSha(fixture)).resolves.toBeNull();
+    } finally {
+      await rm(fixture, { recursive: true, force: true });
+    }
+  });
+
   it("creates an operation-owned copy and overlays only the approved change set", async () => {
     const fixture = `/tmp/delivery-fixture-${randomUUID()}`;
     const operationId = randomUUID();

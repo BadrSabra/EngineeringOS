@@ -318,6 +318,7 @@ import { runScanJob } from "../../lib/scan-runner.js";
 import { heavyJobQueue } from "../../lib/job-queue.js";
 import { scrubHistoricalValidationRecord } from "../../lib/startup-migrations.js";
 import {
+  captureCleanGitSourceCommitSha,
   createDeliveryWorkspace,
   discardDeliveryWorkspace,
   deliveryWorkspaceExists,
@@ -6329,6 +6330,11 @@ router.post("/ai/chat", async (req, res) => {
   }
   const modelHasTools = turnIntent.requiresTools;
   const contextExecutionPlan = resolveChatExecutionPlan(turnIntent, modelHasTools, message);
+  const proposalSourceGitCommitShaAtStart = (
+    turnIntent.operationMode === "DELIVERY" || turnIntent.compoundWrite
+  ) && validRootPath
+    ? await captureCleanGitSourceCommitSha(validRootPath)
+    : null;
   let analysisCorrelation: {
     operationId: string;
     projectId: string;
@@ -7911,6 +7917,10 @@ router.post("/ai/chat", async (req, res) => {
     )
       ? randomUUID()
       : undefined;
+    const proposalSourceGitCommitSha = proposalId && proposalSourceGitCommitShaAtStart && validRootPath
+      && await captureCleanGitSourceCommitSha(validRootPath) === proposalSourceGitCommitShaAtStart
+      ? proposalSourceGitCommitShaAtStart
+      : null;
     const executionPlan = buildActiveTaskExecutionPlan({
       repairPlan: result.repairPlan,
       implementationPlan: result.taskResult?.kind === "IMPLEMENTATION_PLAN_RESULT"
@@ -8052,6 +8062,7 @@ router.post("/ai/chat", async (req, res) => {
           messageId: operationId,
           changes: serializeServerPendingChanges(proposalChanges),
           status: "pending",
+          ...(proposalSourceGitCommitSha ? { sourceGitCommitSha: proposalSourceGitCommitSha } : {}),
            ...(preparedDeliveryWorkspace
              ? {
                  operationId: preparedDeliveryWorkspace.operationId,
@@ -8978,6 +8989,11 @@ export async function handleChatStream(req: Request, res: Response) {
   }).auditScopeDescription;
   const streamModelHasTools = streamTurnIntent.requiresTools;
   const streamExecutionPlan = resolveChatExecutionPlan(streamTurnIntent, streamModelHasTools, message);
+  const streamProposalSourceGitCommitShaAtStart = (
+    streamTurnIntent.operationMode === "DELIVERY" || streamTurnIntent.compoundWrite
+  ) && validRootPath
+    ? await captureCleanGitSourceCommitSha(validRootPath)
+    : null;
   let analysisCorrelation: {
     operationId: string;
     projectId: string;
@@ -12824,6 +12840,12 @@ export async function handleChatStream(req: Request, res: Response) {
     )
       ? randomUUID()
       : undefined;
+    const proposalSourceGitCommitSha = proposalId
+      && streamProposalSourceGitCommitShaAtStart
+      && validRootPath
+      && await captureCleanGitSourceCommitSha(validRootPath) === streamProposalSourceGitCommitShaAtStart
+      ? streamProposalSourceGitCommitShaAtStart
+      : null;
     const executionPlan = buildActiveTaskExecutionPlan({
       repairPlan: result.repairPlan,
       implementationPlan: approvedImplementationPlan
@@ -13081,6 +13103,7 @@ export async function handleChatStream(req: Request, res: Response) {
           messageId: proposalMessageId,
           changes: serializeServerPendingChanges(proposalChanges),
           status: "pending",
+          ...(proposalSourceGitCommitSha ? { sourceGitCommitSha: proposalSourceGitCommitSha } : {}),
            operationId: preparedDeliveryWorkspace?.operationId ?? operationId,
            ...(preparedDeliveryWorkspace
              ? {

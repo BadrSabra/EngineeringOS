@@ -1,6 +1,56 @@
 import { createHash, randomUUID } from "node:crypto";
+import { execFile } from "node:child_process";
 import { cp, link, mkdir, readFile, rm, writeFile, readdir, lstat, readlink, realpath, rename, unlink } from "node:fs/promises";
 import path from "node:path";
+import { promisify } from "node:util";
+
+const execFileAsync = promisify(execFile);
+
+/**
+ * Return HEAD only when the project root is inside a real Git worktree and
+ * the index/worktree/untracked files are clean. This is provenance metadata,
+ * not a filesystem lock: callers must recheck before binding it to a proposal.
+ */
+export async function captureCleanGitSourceCommitSha(rootPath: string): Promise<string | null> {
+  try {
+    const resolvedRoot = await realpath(rootPath);
+    const gitRootOutput = await execFileAsync(
+      "git",
+      ["-C", resolvedRoot, "rev-parse", "--show-toplevel"],
+      { encoding: "utf8", timeout: 5_000, maxBuffer: 64 * 1024 },
+    );
+    const gitRoot = await realpath(gitRootOutput.stdout.trim());
+    const relativeRoot = path.relative(gitRoot, resolvedRoot);
+    if (
+      path.isAbsolute(relativeRoot)
+      || relativeRoot === ".."
+      || relativeRoot.startsWith(`..${path.sep}`)
+    ) {
+      return null;
+    }
+
+    const [headOutput, statusOutput] = await Promise.all([
+      execFileAsync(
+        "git",
+        ["-C", resolvedRoot, "rev-parse", "--verify", "HEAD^{commit}"],
+        { encoding: "utf8", timeout: 5_000, maxBuffer: 64 * 1024 },
+      ),
+      execFileAsync(
+        "git",
+        ["-C", resolvedRoot, "status", "--porcelain=v1", "--untracked-files=all"],
+        { encoding: "utf8", timeout: 5_000, maxBuffer: 1024 * 1024 },
+      ),
+    ]);
+    const head = headOutput.stdout.trim();
+    if (!/^(?:[a-f0-9]{40}|[a-f0-9]{64})$/i.test(head) || statusOutput.stdout.trim() !== "") {
+      return null;
+    }
+    return head.toLowerCase();
+  } catch {
+    // Non-Git roots, missing HEADs, or Git inspection failures are not branchable.
+    return null;
+  }
+}
 
 export type DeliveryLifecycle =
   | "proposed" | "isolated" | "validated" | "applied" | "conflicted"

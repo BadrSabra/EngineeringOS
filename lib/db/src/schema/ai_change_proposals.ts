@@ -70,6 +70,8 @@ export const aiChangeProposalsTable = pgTable("ai_change_proposals", {
   workspaceRoot: text("workspace_root"),
   /** Workspace/evidence revision from which changes were proposed; not necessarily a Git commit SHA. */
   baseRevision: text("base_revision"),
+  /** Clean repository HEAD captured before AI work; null when the source was not a clean Git checkout. */
+  sourceGitCommitSha: text("source_git_commit_sha"),
   /** Canonical delivery-tree digest captured before candidate materialization. */
   baseTreeHash: text("base_tree_hash"),
   /** Canonical digest of the exact approved candidate validated by the server. */
