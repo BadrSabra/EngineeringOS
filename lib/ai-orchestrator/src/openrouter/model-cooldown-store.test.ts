@@ -11,6 +11,7 @@ import {
   clearSharedPoolModelCooldown,
   persistSharedPoolModelCooldown,
   recordLocalAdaptiveModelCooldown,
+  recordRepeatedProviderRetryAfterCooldown,
   readModelCooldowns,
   upstreamPoolCooldownKeyForModel,
 } from "./model-cooldown-store.js";
@@ -222,5 +223,94 @@ describe("shared OpenRouter model cooldown persistence", () => {
     _resetLocalAdaptiveModelCooldownsForTest();
     expect(await readModelCooldowns("openrouter", [throttledModel, healthyModel])).toEqual(new Map());
     expect(await recordLocalAdaptiveModelCooldown("openrouter", throttledModel)).toBe(30_000);
+  });
+
+  it("escalates repeated explicit shared-pool 429s and restores the hold across processes", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-11-02T10:00:00.000Z"));
+    const persisted = new Map<string, { coolingUntil: number; updatedAt: number }>();
+    _setModelCooldownPersistenceForTest({
+      readActive: async (provider, models) => models.flatMap((model) => {
+        const row = persisted.get(`${provider}:${model}`);
+        return row && row.coolingUntil > Date.now()
+          ? [{ model, remainingMs: row.coolingUntil - Date.now() }]
+          : [];
+      }),
+      write: async (provider, model, cooldownMs) => {
+        persisted.set(`${provider}:${model}`, {
+          coolingUntil: Date.now() + cooldownMs,
+          updatedAt: Date.now(),
+        });
+      },
+      readRecentCooldownMs: async (provider, model, maxAgeMs) => {
+        const row = persisted.get(`${provider}:${model}`);
+        if (!row || Date.now() - row.updatedAt > maxAgeMs) return undefined;
+        return row.coolingUntil - row.updatedAt;
+      },
+      clear: async (provider, model) => {
+        persisted.delete(`${provider}:${model}`);
+      },
+    });
+
+    const model = "thinkingmachines/inkling:free";
+    const sibling = "thinkingmachines/inkling-small:free";
+    const unrelated = "liquid/lfm-2.5-2.6b:free";
+    const poolKey = upstreamPoolCooldownKeyForModel(model, "Thinking Machines")!;
+
+    try {
+      // The first explicit provider hint remains authoritative on its own.
+      expect(await recordRepeatedProviderRetryAfterCooldown(
+        "openrouter",
+        poolKey,
+        1_000,
+      )).toBe(0);
+      recordModelFailure("openrouter", poolKey, 1_000);
+      await persistSharedPoolModelCooldown("openrouter", poolKey, 1_000);
+
+      // After the provider's window expires, a second real 429 opens a local
+      // hold. The history survives an API-process restart.
+      await vi.advanceTimersByTimeAsync(1_001);
+      _resetCircuitsForTest();
+      _resetLocalAdaptiveModelCooldownsForTest();
+      recordModelFailure("openrouter", poolKey, 1_000);
+      await persistSharedPoolModelCooldown("openrouter", poolKey, 1_000);
+      expect(await recordRepeatedProviderRetryAfterCooldown(
+        "openrouter",
+        poolKey,
+        1_000,
+      )).toBe(30_000);
+
+      _resetCircuitsForTest();
+      _resetLocalAdaptiveModelCooldownsForTest();
+      let cooldowns = await readModelCooldowns("openrouter", [model, sibling, unrelated]);
+      expect(cooldowns.get(model)).toMatchObject({
+        remainingMs: expect.any(Number),
+        source: "local_adaptive",
+      });
+      expect(cooldowns.get(sibling)).toMatchObject({ source: "local_adaptive" });
+      expect(cooldowns.has(unrelated)).toBe(false);
+
+      // A further rate limit after the local hold doubles it, up to the cap.
+      await vi.advanceTimersByTimeAsync(30_001);
+      _resetCircuitsForTest();
+      _resetLocalAdaptiveModelCooldownsForTest();
+      recordModelFailure("openrouter", poolKey, 1_000);
+      await persistSharedPoolModelCooldown("openrouter", poolKey, 1_000);
+      expect(await recordRepeatedProviderRetryAfterCooldown(
+        "openrouter",
+        poolKey,
+        1_000,
+      )).toBe(60_000);
+
+      await clearSharedPoolModelCooldown("openrouter", poolKey);
+      expect(await recordRepeatedProviderRetryAfterCooldown(
+        "openrouter",
+        poolKey,
+        1_000,
+      )).toBe(0);
+    } finally {
+      await clearSharedPoolModelCooldown("openrouter", poolKey);
+      vi.useRealTimers();
+    }
   });
 });

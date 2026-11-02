@@ -1040,6 +1040,73 @@ describe("openrouterCompleteWithFallback — error classification", () => {
     expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 
+  it.each(["completion", "stream"] as const)(
+    "adds a separately labeled local hold after repeated shared-pool 429s with Retry-After (%s)",
+    async (mode) => {
+      vi.useFakeTimers();
+      vi.setSystemTime(new Date("2026-11-02T10:00:00.000Z"));
+      const model = "thinkingmachines/inkling:free";
+      const excludeModels = FREE_MODELS
+        .filter((candidate) => candidate.id !== model)
+        .map((candidate) => candidate.id);
+      const fetchMock = vi.fn(async () => textResponse(JSON.stringify({
+        error: {
+          message: "Provider returned error",
+          metadata: {
+            limit_source: "upstream_provider_shared_pool",
+            provider_name: "Thinking Machines",
+          },
+        },
+      }), 429, new Headers({ "Retry-After": "1" })));
+      vi.stubGlobal("fetch", fetchMock);
+      const run = async () => {
+        if (mode === "completion") {
+          return openrouterCompleteWithFallback(baseMessages as any, {
+            apiKey: "fixture-repeated-shared-pool",
+            model,
+            maxTokens: 10,
+            maxFallbackModels: 1,
+            retryTransient: false,
+            useSharedLaneCursor: false,
+            excludeModels,
+          });
+        }
+        for await (const _chunk of openrouterCompleteStream(baseMessages as any, {
+          apiKey: "fixture-repeated-shared-pool",
+          model,
+          maxTokens: 10,
+          retryTransient: false,
+          useSharedLaneCursor: false,
+          excludeModels,
+        })) {
+          // The fixture always rejects before yielding a response.
+        }
+        return undefined;
+      };
+
+      try {
+        await expect(run()).rejects.toMatchObject({
+          code: "RATE_LIMITED",
+          rateLimitScope: "upstream_shared_pool",
+          retryAfterMs: 1_000,
+        });
+        expect(fetchMock).toHaveBeenCalledTimes(1);
+
+        await vi.advanceTimersByTimeAsync(1_001);
+        await expect(run()).rejects.toMatchObject({
+          code: "RATE_LIMITED",
+          providerCode: "LOCAL_ADAPTIVE_MODEL_COOLDOWN",
+          rateLimitScope: "upstream_shared_pool",
+          retryAfterMs: 30_000,
+          providerRetryAfterMs: 1_000,
+        });
+        expect(fetchMock).toHaveBeenCalledTimes(2);
+      } finally {
+        vi.useRealTimers();
+      }
+    },
+  );
+
   it("fails closed across the credential when a missing-header pool is unmapped", async () => {
     vi.stubGlobal("fetch", vi.fn(async () => textResponse(JSON.stringify({
       error: {

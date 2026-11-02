@@ -104,8 +104,10 @@ export type ProviderErrorContext = {
   providerName?: string;
   /** Model slug that was attempted when the error occurred. */
   providerModel?: string;
-  /** Bounded provider retry hint, in milliseconds, when supplied by HTTP. */
+  /** Effective wait before another attempt is eligible, in milliseconds. */
   retryAfterMs?: number;
+  /** Original provider Retry-After hint, when supplied by HTTP. */
+  providerRetryAfterMs?: number;
   /** Server-owned classification of the provider's rate-limit scope. */
   rateLimitScope?: ProviderRateLimitScope;
   /** Bounded upstream provider label, when the provider exposes one. */
@@ -157,6 +159,7 @@ export class GroqClientError extends Error {
   readonly providerName?: string;
   readonly providerModel?: string;
   readonly retryAfterMs?: number;
+  readonly providerRetryAfterMs?: number;
   readonly rateLimitScope?: ProviderRateLimitScope;
   readonly upstreamProvider?: string;
   readonly providerAttemptedModels?: string[];
@@ -180,6 +183,7 @@ export class GroqClientError extends Error {
       this.providerName    = options.context.providerName;
       this.providerModel   = options.context.providerModel;
       this.retryAfterMs    = options.context.retryAfterMs;
+      this.providerRetryAfterMs = options.context.providerRetryAfterMs;
       this.rateLimitScope  = options.context.rateLimitScope;
       this.upstreamProvider = options.context.upstreamProvider;
       this.providerAttemptedModels = options.context.providerAttemptedModels;
@@ -199,6 +203,7 @@ export class GroqClientError extends Error {
       providerName:    this.providerName,
       providerModel:   this.providerModel,
       retryAfterMs:    this.retryAfterMs,
+      providerRetryAfterMs: this.providerRetryAfterMs,
       rateLimitScope:  this.rateLimitScope,
       upstreamProvider: this.upstreamProvider,
       providerAttemptedModels: this.providerAttemptedModels,

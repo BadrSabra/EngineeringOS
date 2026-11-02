@@ -46,6 +46,7 @@ import {
   modelPublisherAttemptLaneKeyForModel,
   persistSharedPoolModelCooldown,
   recordLocalAdaptiveModelCooldown,
+  recordRepeatedProviderRetryAfterCooldown,
   readModelCooldowns,
   upstreamPoolCooldownKeyForModel,
   type ModelAttemptLease,
@@ -2199,6 +2200,18 @@ export async function openrouterCompleteWithFallback(
         model,
         opts.modelCooldownPersistence,
       );
+      const successfulPublisher = model.split("/", 1)[0];
+      const recoveredPoolKey = upstreamPoolCooldownKeyForModel(
+        model,
+        successfulPublisher,
+      );
+      if (recoveredPoolKey) {
+        await clearSharedPoolModelCooldown(
+          "openrouter",
+          recoveredPoolKey,
+          opts.modelCooldownPersistence,
+        );
+      }
         return response;
       } catch (err) {
       if (
@@ -2241,9 +2254,20 @@ export async function openrouterCompleteWithFallback(
             await persistSharedPoolModelCooldown(
               "openrouter",
               upstreamPoolKey,
-              providerRetryAfterMs,
+              providerRetryAfterMs!,
               opts.modelCooldownPersistence,
             );
+            const localAdaptiveCooldownMs =
+              await recordRepeatedProviderRetryAfterCooldown(
+                "openrouter",
+                upstreamPoolKey,
+                providerRetryAfterMs!,
+                opts.modelCooldownPersistence,
+              );
+            if (localAdaptiveCooldownMs > effectiveRetryAfterMs!) {
+              effectiveRetryAfterMs = localAdaptiveCooldownMs;
+              effectiveProviderCode = "LOCAL_ADAPTIVE_MODEL_COOLDOWN";
+            }
           } else if (providerRateLimitScope === "upstream_shared_pool") {
             // The provider identified a shared pool but not one we can safely
             // map to candidates. Hold this credential instead of guessing.
@@ -2292,6 +2316,9 @@ export async function openrouterCompleteWithFallback(
             ...(effectiveProviderCode ? { providerCode: effectiveProviderCode } : {}),
             ...(Number.isSafeInteger(effectiveRetryAfterMs) && effectiveRetryAfterMs! > 0
               ? { retryAfterMs: effectiveRetryAfterMs }
+              : {}),
+            ...(Number.isSafeInteger(providerRetryAfterMs) && providerRetryAfterMs! > 0
+              ? { providerRetryAfterMs }
               : {}),
             providerModel: err.providerModel ?? model,
             providerAttemptedModels: [...attemptedModels],
@@ -2515,9 +2542,22 @@ export async function* openrouterCompleteStream(
             model,
             fullOpts.modelCooldownPersistence,
           );
+          const successfulPublisher = model.split("/", 1)[0];
+          const recoveredPoolKey = upstreamPoolCooldownKeyForModel(
+            model,
+            successfulPublisher,
+          );
+          if (recoveredPoolKey) {
+            await clearSharedPoolModelCooldown(
+              "openrouter",
+              recoveredPoolKey,
+              fullOpts.modelCooldownPersistence,
+            );
+          }
           return;
         } catch (err) {
           const providerError = err instanceof GroqClientError ? err : undefined;
+          let rateLimitTerminalError: GroqClientError | undefined;
           await recordOpenRouterCredentialCooldown(
             fullOpts.apiKey,
             providerError,
@@ -2533,6 +2573,8 @@ export async function* openrouterCompleteStream(
               providerError.rateLimitScope === "upstream_shared_pool"
                 ? upstreamPoolCooldownKeyForModel(model, providerError.upstreamProvider)
                 : undefined;
+            let effectiveRetryAfterMs = providerError.retryAfterMs;
+            let effectiveProviderCode = providerError.providerCode;
             if (hasProviderRetryAfter) {
               if (providerError.rateLimitScope === "upstream_shared_pool" && upstreamPoolKey) {
                 recordModelFailure("openrouter", model, providerError.retryAfterMs);
@@ -2546,9 +2588,20 @@ export async function* openrouterCompleteStream(
                 await persistSharedPoolModelCooldown(
                   "openrouter",
                   upstreamPoolKey,
-                  providerError.retryAfterMs,
+                    providerError.retryAfterMs!,
                   fullOpts.modelCooldownPersistence,
                 );
+                const localAdaptiveCooldownMs =
+                  await recordRepeatedProviderRetryAfterCooldown(
+                    "openrouter",
+                    upstreamPoolKey,
+                    providerError.retryAfterMs!,
+                    fullOpts.modelCooldownPersistence,
+                  );
+                if (localAdaptiveCooldownMs > effectiveRetryAfterMs!) {
+                  effectiveRetryAfterMs = localAdaptiveCooldownMs;
+                  effectiveProviderCode = "LOCAL_ADAPTIVE_MODEL_COOLDOWN";
+                }
               } else if (providerError.rateLimitScope === "upstream_shared_pool") {
                 await recordOpenRouterCredentialCooldown(
                   fullOpts.apiKey,
@@ -2567,28 +2620,50 @@ export async function* openrouterCompleteStream(
               providerError.rateLimitScope === "upstream_shared_pool" &&
               upstreamPoolKey
             ) {
-              await recordLocalAdaptiveModelCooldown(
+              effectiveRetryAfterMs = await recordLocalAdaptiveModelCooldown(
                 "openrouter",
                 upstreamPoolKey,
                 fullOpts.modelCooldownPersistence,
               );
+              effectiveProviderCode = "LOCAL_ADAPTIVE_MODEL_COOLDOWN";
             } else {
               const adaptiveCredentialScope =
                 providerError.rateLimitScope === "provider_credential" ||
                 providerError.rateLimitScope === "account_quota"
                   ? providerError.rateLimitScope
                   : "unknown";
-              await recordAdaptiveOpenRouterCredentialCooldown(
+              effectiveRetryAfterMs = await recordAdaptiveOpenRouterCredentialCooldown(
                 fullOpts.apiKey,
                 fullOpts.credentialCooldownPersistence,
                 adaptiveCredentialScope,
+              );
+              effectiveProviderCode = "LOCAL_ADAPTIVE_CREDENTIAL_COOLDOWN";
+            }
+            if (
+              effectiveRetryAfterMs !== providerError.retryAfterMs
+              || effectiveProviderCode !== providerError.providerCode
+            ) {
+              rateLimitTerminalError = new GroqClientError(
+                providerError.code,
+                providerError.message,
+                {
+                  cause: providerError,
+                  context: {
+                    ...providerError.toProviderContext(),
+                    providerCode: effectiveProviderCode,
+                    retryAfterMs: effectiveRetryAfterMs,
+                    ...(hasProviderRetryAfter
+                      ? { providerRetryAfterMs: providerError.retryAfterMs }
+                      : {}),
+                  },
+                },
               );
             }
           }
           // Once bytes have been emitted, retrying would duplicate or splice the
           // answer. The caller must terminalize the partial stream instead.
           if (emitted || !providerError) {
-            const terminalError = providerError ?? new GroqClientError(
+            const terminalError = rateLimitTerminalError ?? providerError ?? new GroqClientError(
               "NETWORK_ERROR",
               err instanceof Error ? err.message : "OpenRouter stream disconnected",
               { cause: err, context: { providerName: "OpenRouter", providerModel: model } },
@@ -2616,10 +2691,11 @@ export async function* openrouterCompleteStream(
             (isModelUnavailableError(providerError) ||
               (opts.retryTransient === false && isTransientError(providerError)));
           if (!canAdvance || index >= chain.length - 1) {
-            throw new GroqClientError(providerError.code, providerError.message, {
-              cause: providerError,
+            const terminalError = rateLimitTerminalError ?? providerError;
+            throw new GroqClientError(terminalError.code, terminalError.message, {
+              cause: terminalError,
               context: {
-                ...providerError.toProviderContext(),
+                ...terminalError.toProviderContext(),
                 providerModel: providerError.providerModel ?? model,
                 providerAttemptedModels: [...attemptedModels],
               },

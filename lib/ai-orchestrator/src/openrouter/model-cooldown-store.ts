@@ -5,6 +5,7 @@ import {
 
 const UPSTREAM_POOL_COOLDOWN_PREFIX = "__upstream_pool__:";
 const LOCAL_ADAPTIVE_COOLDOWN_PREFIX = "__local_adaptive_model__:";
+const PROVIDER_RETRY_HISTORY_PREFIX = "__provider_retry_history__:";
 const LOCAL_ADAPTIVE_BASE_MS = 30_000;
 const LOCAL_ADAPTIVE_MAX_MS = 10 * 60_000;
 const LOCAL_ADAPTIVE_HISTORY_MS = 60 * 60_000;
@@ -29,6 +30,10 @@ const localAdaptiveHistory = new Map<
   { cooldownMs: number; recordedAt: number }
 >();
 const localAdaptiveActiveUntil = new Map<string, number>();
+const providerRetryHistory = new Map<
+  string,
+  { cooldownMs: number; recordedAt: number }
+>();
 
 function normalizeProviderNamespace(value: string): string {
   return value.trim().toLowerCase().replace(/[^a-z0-9]/g, "");
@@ -56,6 +61,10 @@ function upstreamPoolCooldownKey(namespace: string): string {
 
 function localAdaptiveCooldownKey(model: string): string {
   return `${LOCAL_ADAPTIVE_COOLDOWN_PREFIX}${encodeURIComponent(model)}`;
+}
+
+function providerRetryHistoryKey(model: string): string {
+  return `${PROVIDER_RETRY_HISTORY_PREFIX}${encodeURIComponent(model)}`;
 }
 
 function modelFromLocalAdaptiveCooldownKey(key: string): string | undefined {
@@ -471,8 +480,11 @@ export async function readModelCooldowns(
       }
       setCooldown(model, remainingMs, source);
     } else {
-      unresolvedModels.push(model, localAdaptiveCooldownKey(model));
+      unresolvedModels.push(model);
     }
+    // Always read the shared adaptive key. Another API process may have
+    // extended it after this process cached a shorter provider Retry-After.
+    unresolvedModels.push(localAdaptiveCooldownKey(model));
   }
 
   for (const poolKey of new Set(poolKeysByModel.values())) {
@@ -486,6 +498,7 @@ export async function readModelCooldowns(
     } else {
       unresolvedModels.push(poolKey);
     }
+    unresolvedModels.push(localAdaptiveCooldownKey(poolKey));
   }
 
   const modelsToRead = [...new Set(unresolvedModels)];
@@ -502,6 +515,19 @@ export async function readModelCooldowns(
         setCooldown(adaptiveModel, remainingMs, "local_adaptive");
         localAdaptiveActiveUntil.set(stateKey, Date.now() + remainingMs);
         rememberModelCooldownUntil(provider, adaptiveModel, remainingMs);
+      } else if (
+        adaptiveModel
+        && [...poolKeysByModel.values()].includes(adaptiveModel)
+      ) {
+        const stateKey = cooldownStateKey(provider, adaptiveModel);
+        setCooldown(adaptiveModel, remainingMs, "local_adaptive");
+        localAdaptiveActiveUntil.set(stateKey, Date.now() + remainingMs);
+        rememberModelCooldownUntil(provider, adaptiveModel, remainingMs);
+        for (const [model, poolKey] of poolKeysByModel) {
+          if (poolKey === adaptiveModel) {
+            setCooldown(model, remainingMs, "local_adaptive");
+          }
+        }
       } else if (isUpstreamPoolCooldownKey(entry.model)) {
         setCooldown(entry.model, remainingMs, "provider");
         for (const [model, poolKey] of poolKeysByModel) {
@@ -574,6 +600,94 @@ export async function recordLocalAdaptiveModelCooldown(
 }
 
 /**
+ * Preserve an explicit provider Retry-After as the initial wait, then add a
+ * separate bounded local hold only when another shared-pool 429 arrives after
+ * that wait. The provider hint is never rewritten as the local estimate.
+ */
+export async function recordRepeatedProviderRetryAfterCooldown(
+  provider: string,
+  model: string,
+  providerRetryAfterMs: number,
+  persistenceOverride?: ModelCooldownPersistence,
+): Promise<number> {
+  if (!Number.isSafeInteger(providerRetryAfterMs) || providerRetryAfterMs <= 0) return 0;
+
+  const store = persistenceOverride ?? persistence;
+  const stateKey = cooldownStateKey(provider, model);
+  const historyKey = providerRetryHistoryKey(model);
+  const now = Date.now();
+  const inMemoryPrevious = providerRetryHistory.get(stateKey);
+  let previousCooldownMs = inMemoryPrevious
+    && now - inMemoryPrevious.recordedAt <= LOCAL_ADAPTIVE_HISTORY_MS
+    ? inMemoryPrevious.cooldownMs
+    : 0;
+
+  const adaptivePrevious = localAdaptiveHistory.get(stateKey);
+  if (
+    adaptivePrevious
+    && now - adaptivePrevious.recordedAt <= LOCAL_ADAPTIVE_HISTORY_MS
+  ) {
+    previousCooldownMs = Math.max(previousCooldownMs, adaptivePrevious.cooldownMs);
+  }
+
+  try {
+    const persistedPrevious = await store.readRecentCooldownMs?.(
+      provider,
+      historyKey,
+      LOCAL_ADAPTIVE_HISTORY_MS,
+    );
+    if (persistedPrevious && persistedPrevious > previousCooldownMs) {
+      previousCooldownMs = persistedPrevious;
+    }
+  } catch {
+    logPersistenceUnavailable("read");
+  }
+
+  const repeated = previousCooldownMs > 0;
+  const localCooldownMs = repeated
+    ? Math.min(
+        LOCAL_ADAPTIVE_MAX_MS,
+        Math.max(LOCAL_ADAPTIVE_BASE_MS, previousCooldownMs * 2),
+      )
+    : 0;
+  const historyCooldownMs = localCooldownMs > 0
+    ? localCooldownMs
+    : Math.min(LOCAL_ADAPTIVE_MAX_MS, Math.floor(providerRetryAfterMs));
+
+  providerRetryHistory.set(stateKey, {
+    cooldownMs: historyCooldownMs,
+    recordedAt: now,
+  });
+
+  if (localCooldownMs > 0) {
+    localAdaptiveHistory.set(stateKey, { cooldownMs: localCooldownMs, recordedAt: now });
+    localAdaptiveActiveUntil.set(stateKey, now + localCooldownMs);
+    rememberModelCooldownUntil(provider, model, localCooldownMs);
+    try {
+      await store.write(provider, localAdaptiveCooldownKey(model), localCooldownMs);
+    } catch {
+      logPersistenceUnavailable("write");
+    }
+    console.warn(JSON.stringify({
+      scope: "openrouter-model-cooldown",
+      code: "LOCAL_ADAPTIVE_MODEL_COOLDOWN",
+      provider,
+      model,
+      cooldownMs: localCooldownMs,
+      reason: "repeated_provider_retry_after",
+    }));
+  }
+
+  try {
+    await store.write(provider, historyKey, historyCooldownMs);
+  } catch {
+    logPersistenceUnavailable("write");
+  }
+
+  return localCooldownMs;
+}
+
+/**
  * Persists one exact model or reserved upstream-namespace cooldown key.
  * The in-memory circuit-breaker state is recorded by the caller first, so a
  * database outage still protects requests handled by this process.
@@ -608,7 +722,12 @@ export async function clearSharedPoolModelCooldown(
   const stateKey = cooldownStateKey(provider, model);
   localAdaptiveHistory.delete(stateKey);
   localAdaptiveActiveUntil.delete(stateKey);
-  for (const key of [model, localAdaptiveCooldownKey(model)]) {
+  providerRetryHistory.delete(stateKey);
+  for (const key of [
+    model,
+    localAdaptiveCooldownKey(model),
+    providerRetryHistoryKey(model),
+  ]) {
     try {
       await store.clear(provider, key);
     } catch {
@@ -628,4 +747,5 @@ export function _setModelCooldownPersistenceForTest(
 export function _resetLocalAdaptiveModelCooldownsForTest(): void {
   localAdaptiveHistory.clear();
   localAdaptiveActiveUntil.clear();
+  providerRetryHistory.clear();
 }
