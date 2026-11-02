@@ -1509,7 +1509,18 @@ describe("dispatchPersistedPendingJobs", () => {
     { state: "only a before observation", observationSet: "before-only", effectBundleIncluded: false },
     { state: "both observations", observationSet: "before-and-after", effectBundleIncluded: false },
     { state: "an observed EffectBundle", observationSet: "before-and-after", effectBundleIncluded: true },
-  ])("keeps a promoted tree blocked with $state and no acceptance", async ({ state, observationSet, effectBundleIncluded }) => {
+    {
+      state: "a later external edit after partial promotion",
+      observationSet: "before-and-after",
+      effectBundleIncluded: true,
+      externalEditAfterInterruption: true,
+    },
+  ])("keeps an interrupted apply blocked with $state and no acceptance", async ({
+    state,
+    observationSet,
+    effectBundleIncluded,
+    externalEditAfterInterruption = false,
+  }) => {
     const projectId = await insertProject("active");
     projectCleanup.push(projectId);
     const workspacePath = process.env.WORKSPACE_PATH ?? "/home/runner/workspace";
@@ -1820,7 +1831,15 @@ describe("dispatchPersistedPendingJobs", () => {
     // but before effect persistence, and after an observed bundle. None is
     // terminal acceptance.
     await writeFile(join(rootPath, targetPath), newContent, "utf8");
-    expect(await hashDeliveryTree(rootPath)).toBe(candidate.candidateTreeHash);
+    if (externalEditAfterInterruption) {
+      // Model another writer changing the project after the interrupted
+      // promotion but before startup reconciliation examines the durable
+      // journal. The candidate workspace remains unchanged.
+      await writeFile(join(rootPath, "src/external-edit.ts"), "preserve this external edit\n", "utf8");
+      expect(await hashDeliveryTree(rootPath)).not.toBe(candidate.candidateTreeHash);
+    } else {
+      expect(await hashDeliveryTree(rootPath)).toBe(candidate.candidateTreeHash);
+    }
     expect(await db.select({
       id: aiAgentEffectBundlesTable.id,
     }).from(aiAgentEffectBundlesTable).where(eq(aiAgentEffectBundlesTable.id, effectBundleId)))
@@ -1841,8 +1860,14 @@ describe("dispatchPersistedPendingJobs", () => {
     }).from(aiChangeProposalsTable).where(eq(aiChangeProposalsTable.id, proposalId));
     expect(recoveredProposal?.status).toBe("pending");
     expect(recoveredProposal?.lifecycle).toBe("conflicted");
-    expect(recoveredProposal?.conflictReason).toContain("no complete accepted effect proof");
+    expect(recoveredProposal?.conflictReason).toContain(externalEditAfterInterruption
+      ? "manual recovery is required"
+      : "no complete accepted effect proof");
     expect(await readFile(join(rootPath, targetPath), "utf8")).toBe(newContent);
+    if (externalEditAfterInterruption) {
+      expect(await readFile(join(rootPath, "src/external-edit.ts"), "utf8"))
+        .toBe("preserve this external edit\n");
+    }
 
     const journal = await db.select({
       stage: aiApplyJournalTable.stage,
@@ -1856,7 +1881,9 @@ describe("dispatchPersistedPendingJobs", () => {
       "RECOVERY_REQUIRED",
     ]);
     expect(journal[3]?.payload).toMatchObject({
-      recoveryDecision: "CANDIDATE_TREE_PRESENT",
+      recoveryDecision: externalEditAfterInterruption
+        ? "MIXED_OR_UNRELATED_TREE"
+        : "CANDIDATE_TREE_PRESENT",
       noFilesystemWrites: true,
     });
     expect(await db.select({ id: aiExecutionAcceptancesTable.id })
