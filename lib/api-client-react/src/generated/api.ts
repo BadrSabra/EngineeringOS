@@ -148,6 +148,9 @@ import type {
   ListRulesParams,
   ListTasksParams,
   ListWorkflowsParams,
+  LocalReviewBranchInput,
+  LocalReviewBranchReady,
+  LocalReviewBranchStatus,
   MetricRecord,
   MissionChatHandoffInput,
   MissionPlanPreview,
@@ -13684,6 +13687,169 @@ export function useGetGitLog<TData = Awaited<ReturnType<typeof getGitLog>>, TErr
  ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
 
   const queryOptions = getGetGitLogQueryOptions(projectId,options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getCreateLocalReviewBranchUrl = (projectId: string,) => {
+
+
+
+
+  return `/api/projects/${projectId}/git/review-branch`
+}
+
+/**
+ * @summary Prepare an isolated local review worktree from a proposal's recorded Git source
+ */
+export const createLocalReviewBranch = async (projectId: string,
+    localReviewBranchInput: LocalReviewBranchInput, options?: Parameters<typeof customFetch>[1]): Promise<LocalReviewBranchReady> => {
+
+    const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
+    if (!h) return {};
+    if (h instanceof Headers) return Object.fromEntries(h.entries());
+    if (Array.isArray(h)) return Object.fromEntries(h);
+    return h;
+  };
+return customFetch<LocalReviewBranchReady>(getCreateLocalReviewBranchUrl(projectId),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...getHeaders(options?.headers) },
+    body: JSON.stringify(localReviewBranchInput)
+  }
+);}
+
+
+
+
+
+export const getCreateLocalReviewBranchMutationKey = () => ['createLocalReviewBranch'] as const;
+
+export const getCreateLocalReviewBranchMutationOptions = <TError = ErrorType<ApiError | void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof createLocalReviewBranch>>, TError,CreateLocalReviewBranchMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof createLocalReviewBranch>>, TError,CreateLocalReviewBranchMutationVariables, TContext> => {
+
+const mutationKey = getCreateLocalReviewBranchMutationKey();
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof createLocalReviewBranch>>, CreateLocalReviewBranchMutationVariables> = (props) => {
+          const {projectId,data} = props ?? {};
+
+          return  createLocalReviewBranch(projectId,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type CreateLocalReviewBranchMutationResult = NonNullable<Awaited<ReturnType<typeof createLocalReviewBranch>>>
+    export type CreateLocalReviewBranchMutationBody = BodyType<LocalReviewBranchInput>
+    export type CreateLocalReviewBranchMutationError = ErrorType<ApiError | void>
+    export type CreateLocalReviewBranchMutationVariables = {projectId: string;data: BodyType<LocalReviewBranchInput>}
+
+    /**
+ * @summary Prepare an isolated local review worktree from a proposal's recorded Git source
+ */
+export const useCreateLocalReviewBranch = <TError = ErrorType<ApiError | void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof createLocalReviewBranch>>, TError,CreateLocalReviewBranchMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof createLocalReviewBranch>>,
+        TError,
+        CreateLocalReviewBranchMutationVariables,
+        TContext
+      > => {
+      return useMutation(getCreateLocalReviewBranchMutationOptions(options));
+    }
+
+export const getGetLocalReviewBranchUrl = (projectId: string,
+    proposalId: string,) => {
+
+
+
+
+  return `/api/projects/${projectId}/git/review-branch/${proposalId}`
+}
+
+/**
+ * @summary Read and revalidate the local review worktree for a proposal
+ */
+export const getLocalReviewBranch = async (projectId: string,
+    proposalId: string, options?: Parameters<typeof customFetch>[1]): Promise<LocalReviewBranchStatus> => {
+
+  return customFetch<LocalReviewBranchStatus>(getGetLocalReviewBranchUrl(projectId,proposalId),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetLocalReviewBranchQueryKey = (projectId: string,
+    proposalId: string,) => {
+    return [
+    `/api/projects/${projectId}/git/review-branch/${proposalId}`
+    ] as const;
+    }
+
+
+export const getGetLocalReviewBranchQueryOptions = <TData = Awaited<ReturnType<typeof getLocalReviewBranch>>, TError = ErrorType<ApiError | void>>(projectId: string,
+    proposalId: string, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getLocalReviewBranch>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetLocalReviewBranchQueryKey(projectId,proposalId);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getLocalReviewBranch>>> = ({ signal }) => getLocalReviewBranch(projectId,proposalId, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, enabled: projectId !== null && projectId !== undefined && proposalId !== null && proposalId !== undefined, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getLocalReviewBranch>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type GetLocalReviewBranchQueryResult = NonNullable<Awaited<ReturnType<typeof getLocalReviewBranch>>>
+export type GetLocalReviewBranchQueryError = ErrorType<ApiError | void>
+
+
+/**
+ * @summary Read and revalidate the local review worktree for a proposal
+ */
+
+export function useGetLocalReviewBranch<TData = Awaited<ReturnType<typeof getLocalReviewBranch>>, TError = ErrorType<ApiError | void>>(
+ projectId: string,
+    proposalId: string, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getLocalReviewBranch>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getGetLocalReviewBranchQueryOptions(projectId,proposalId,options)
 
   const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
 

@@ -7,7 +7,6 @@ import { describe, expect, it } from "vitest";
 import { captureCleanGitSourceCommitSha } from "./delivery-workspace.js";
 import {
   createLocalReviewBranchWorkspace,
-  LocalReviewBranchError,
 } from "./local-review-branch.js";
 
 function git(rootPath: string, ...args: string[]): string {
@@ -98,7 +97,7 @@ describe("isolated local review branches", () => {
           newContent: "candidate\n",
         }],
         worktreesRoot: storageRoot,
-      })).rejects.toMatchObject<Partial<LocalReviewBranchError>>({
+      })).rejects.toMatchObject({
         code: "LOCAL_REVIEW_SOURCE_MISMATCH",
       });
       await expect(readFile(storageRoot)).rejects.toMatchObject({ code: "ENOENT" });

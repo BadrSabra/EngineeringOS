@@ -69,6 +69,30 @@ type ReviewManifest = {
   candidateTreeHash?: string;
 };
 
+type ReviewBranchWorkspaceInput = {
+  projectId: string;
+  proposalId: string;
+  repositoryRootPath: string;
+  projectRootRelativePath: string;
+  sourceCommitSha: string;
+  changes: readonly LocalReviewChange[];
+  worktreesRoot?: string;
+};
+
+function reviewBranchKey(projectId: string, proposalId: string): string {
+  return createHash("sha256")
+    .update(`${projectId}\0${proposalId}`)
+    .digest("hex")
+    .slice(0, 32);
+}
+
+async function lstatIfExists(filePath: string) {
+  return lstat(filePath).catch((error: NodeJS.ErrnoException) => {
+    if (error.code === "ENOENT") return null;
+    throw error;
+  });
+}
+
 function safeRelativePath(value: unknown, allowRoot = false): string | null {
   if (allowRoot && (value === "." || value === "")) return ".";
   if (
@@ -414,20 +438,150 @@ export function localReviewWorktreesRoot(): string {
 }
 
 /**
+ * Read and revalidate an existing review worktree without creating directories,
+ * branches, manifests, or candidate files. This is used to rehydrate the UI
+ * after navigation/reload and intentionally fails closed when local state has
+ * changed or is incomplete.
+ */
+export async function inspectLocalReviewBranchWorkspace(
+  input: ReviewBranchWorkspaceInput,
+): Promise<LocalReviewBranchResult | null> {
+  assertSha(input.sourceCommitSha);
+  const sourceCommitSha = input.sourceCommitSha.toLowerCase();
+  const projectRootRelativePath = safeRelativePath(input.projectRootRelativePath, true);
+  if (!projectRootRelativePath) {
+    throw new LocalReviewBranchError(
+      "LOCAL_REVIEW_SOURCE_INVALID",
+      "The recorded project root path is invalid.",
+    );
+  }
+  if (!/^[a-f0-9-]{36}$/i.test(input.projectId) || !/^[a-f0-9-]{36}$/i.test(input.proposalId)) {
+    throw new LocalReviewBranchError(
+      "LOCAL_REVIEW_CHANGESET_INVALID",
+      "Project and proposal identities must be server-generated UUIDs.",
+    );
+  }
+  const changes = normalizeChanges(input.changes);
+  const changeSetHash = hashChanges(changes);
+  const repositoryRootPath = await realpath(input.repositoryRootPath).catch(() => null);
+  if (!repositoryRootPath) {
+    throw new LocalReviewBranchError(
+      "LOCAL_REVIEW_SOURCE_INVALID",
+      "The registered source repository is unavailable.",
+    );
+  }
+  const discoveredRoot = await runGit(repositoryRootPath, ["rev-parse", "--show-toplevel"]);
+  const repositoryRoot = await realpath(discoveredRoot.trim());
+  const resolvedProjectRoot = await realpath(input.repositoryRootPath);
+  const currentRelativeRoot = path.relative(repositoryRoot, resolvedProjectRoot);
+  const currentProjectRootRelativePath = currentRelativeRoot === ""
+    ? "."
+    : currentRelativeRoot.split(path.sep).join("/");
+  if (currentProjectRootRelativePath !== projectRootRelativePath) {
+    throw new LocalReviewBranchError(
+      "LOCAL_REVIEW_SOURCE_MISMATCH",
+      "The registered project root no longer matches the path bound to the proposal.",
+    );
+  }
+  if ((await optionalGit(repositoryRoot, ["cat-file", "-t", sourceCommitSha]))?.trim() !== "commit") {
+    throw new LocalReviewBranchError(
+      "LOCAL_REVIEW_SOURCE_INVALID",
+      "The recorded source commit is not available as a commit object in the local repository.",
+    );
+  }
+  for (const change of changes) {
+    await assertSourcePathMatches(repositoryRoot, sourceCommitSha, projectRootRelativePath, change);
+  }
+
+  const worktreesRoot = path.resolve(input.worktreesRoot ?? localReviewWorktreesRoot());
+  const rootStat = await lstatIfExists(worktreesRoot);
+  if (!rootStat) return null;
+  if (!rootStat.isDirectory() || rootStat.isSymbolicLink()) {
+    throw new LocalReviewBranchError(
+      "LOCAL_REVIEW_STORAGE_UNSAFE",
+      "The review storage root is not a regular directory.",
+    );
+  }
+  const canonicalWorktreesRoot = await realpath(worktreesRoot);
+  if (canonicalWorktreesRoot !== worktreesRoot) {
+    throw new LocalReviewBranchError(
+      "LOCAL_REVIEW_STORAGE_UNSAFE",
+      "The review storage root resolves through a symbolic link.",
+    );
+  }
+  const key = reviewBranchKey(input.projectId, input.proposalId);
+  const operationRoot = path.join(canonicalWorktreesRoot, key);
+  assertContained(canonicalWorktreesRoot, operationRoot);
+  const operationStat = await lstatIfExists(operationRoot);
+  if (!operationStat) return null;
+  if (!operationStat.isDirectory() || operationStat.isSymbolicLink()) {
+    throw new LocalReviewBranchError(
+      "LOCAL_REVIEW_STORAGE_UNSAFE",
+      "The local review operation root is not a regular directory.",
+    );
+  }
+  const canonicalOperationRoot = await realpath(operationRoot);
+  assertContained(canonicalWorktreesRoot, canonicalOperationRoot);
+  const manifestPath = path.join(canonicalOperationRoot, "manifest.json");
+  const manifestStat = await lstatIfExists(manifestPath);
+  if (!manifestStat) {
+    throw new LocalReviewBranchError(
+      "LOCAL_REVIEW_BRANCH_INCOMPLETE",
+      "A local review operation exists without its manifest; it was preserved.",
+    );
+  }
+  if (!manifestStat.isFile() || manifestStat.isSymbolicLink()) {
+    throw new LocalReviewBranchError(
+      "LOCAL_REVIEW_STORAGE_UNSAFE",
+      "The local review marker is not a regular file.",
+    );
+  }
+  let manifest: ReviewManifest;
+  try {
+    manifest = JSON.parse(await readFile(manifestPath, "utf8")) as ReviewManifest;
+  } catch {
+    throw new LocalReviewBranchError(
+      "LOCAL_REVIEW_BRANCH_INCOMPLETE",
+      "The local review marker is unreadable; the branch was preserved.",
+    );
+  }
+  const expectedBranchName = `eos/review/${key}`;
+  const expectedWorktreePath = path.join(canonicalOperationRoot, "worktree");
+  if (
+    manifest.projectId !== input.projectId
+    || manifest.proposalId !== input.proposalId
+    || manifest.branchName !== expectedBranchName
+    || manifest.worktreePath !== expectedWorktreePath
+    || manifest.sourceCommitSha !== sourceCommitSha
+    || manifest.projectRootRelativePath !== projectRootRelativePath
+    || manifest.changeSetHash !== changeSetHash
+  ) {
+    throw new LocalReviewBranchError(
+      "LOCAL_REVIEW_BRANCH_EXISTS",
+      "The recorded local review worktree belongs to a different proposal identity; it was preserved.",
+    );
+  }
+  const worktreeStat = await lstatIfExists(expectedWorktreePath);
+  if (!worktreeStat || !worktreeStat.isDirectory() || worktreeStat.isSymbolicLink()) {
+    throw new LocalReviewBranchError(
+      "LOCAL_REVIEW_BRANCH_INCOMPLETE",
+      "The recorded local review worktree is unavailable or unsafe.",
+    );
+  }
+  const canonicalWorktreePath = await realpath(expectedWorktreePath);
+  assertContained(canonicalWorktreesRoot, canonicalWorktreePath);
+  return assertReadyWorktree({ manifest, changes, manifestPath });
+}
+
+/**
  * Create a branch and isolated worktree from the exact clean source commit
  * bound to a proposal. It never applies changes to the registered live root,
  * creates a commit, or contacts a remote. Retries are read-only and refuse to
  * overwrite a branch that a reviewer has changed.
  */
-export async function createLocalReviewBranchWorkspace(input: {
-  projectId: string;
-  proposalId: string;
-  repositoryRootPath: string;
-  projectRootRelativePath: string;
-  sourceCommitSha: string;
-  changes: readonly LocalReviewChange[];
-  worktreesRoot?: string;
-}): Promise<LocalReviewBranchResult> {
+export async function createLocalReviewBranchWorkspace(
+  input: ReviewBranchWorkspaceInput,
+): Promise<LocalReviewBranchResult> {
   assertSha(input.sourceCommitSha);
   const sourceCommitSha = input.sourceCommitSha.toLowerCase();
   const projectRootRelativePath = safeRelativePath(input.projectRootRelativePath, true);
@@ -500,10 +654,7 @@ export async function createLocalReviewBranchWorkspace(input: {
       "The review storage root resolves through a symbolic link.",
     );
   }
-  const key = createHash("sha256")
-    .update(`${input.projectId}\0${input.proposalId}`)
-    .digest("hex")
-    .slice(0, 32);
+  const key = reviewBranchKey(input.projectId, input.proposalId);
   const branchName = `eos/review/${key}`;
   const operationRoot = path.join(canonicalWorktreesRoot, key);
   const worktreePath = path.join(operationRoot, "worktree");

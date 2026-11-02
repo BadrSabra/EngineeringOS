@@ -10608,6 +10608,74 @@ export const GetGitLogResponse = zod.object({
 
 
 /**
+ * @summary Prepare an isolated local review worktree from a proposal's recorded Git source
+ */
+export const CreateLocalReviewBranchParams = zod.object({
+  "projectId": zod.string().uuid()
+})
+
+export const CreateLocalReviewBranchBody = zod.object({
+  "proposalId": zod.string().uuid()
+})
+
+export const createLocalReviewBranchResponseSourceGitCommitShaRegExp = new RegExp('^(?:[a-f0-9]{40}|[a-f0-9]{64})$');
+export const createLocalReviewBranchResponseChangeSetHashRegExp = new RegExp('^[a-f0-9]{64}$');
+export const createLocalReviewBranchResponseCandidateTreeHashRegExp = new RegExp('^[a-f0-9]{64}$');
+
+
+export const CreateLocalReviewBranchResponse = zod.object({
+  "outcome": zod.enum(['REVIEW_BRANCH_READY']),
+  "proposalId": zod.string().uuid(),
+  "branchName": zod.string(),
+  "worktreePath": zod.string(),
+  "projectRootPath": zod.string(),
+  "sourceGitCommitSha": zod.string().regex(createLocalReviewBranchResponseSourceGitCommitShaRegExp),
+  "changeSetHash": zod.string().regex(createLocalReviewBranchResponseChangeSetHashRegExp),
+  "candidateTreeHash": zod.string().regex(createLocalReviewBranchResponseCandidateTreeHashRegExp),
+  "idempotent": zod.boolean(),
+  "localOnly": zod.literal(true),
+  "applied": zod.literal(false),
+  "committed": zod.literal(false),
+  "pushed": zod.literal(false),
+  "proofAccepted": zod.literal(false)
+})
+
+
+/**
+ * @summary Read and revalidate the local review worktree for a proposal
+ */
+export const GetLocalReviewBranchParams = zod.object({
+  "projectId": zod.string().uuid(),
+  "proposalId": zod.string().uuid()
+})
+
+export const getLocalReviewBranchResponseTwoSourceGitCommitShaRegExp = new RegExp('^(?:[a-f0-9]{40}|[a-f0-9]{64})$');
+export const getLocalReviewBranchResponseTwoChangeSetHashRegExp = new RegExp('^[a-f0-9]{64}$');
+export const getLocalReviewBranchResponseTwoCandidateTreeHashRegExp = new RegExp('^[a-f0-9]{64}$');
+
+
+export const GetLocalReviewBranchResponse = zod.union([zod.object({
+  "outcome": zod.enum(['REVIEW_BRANCH_NOT_CREATED']),
+  "proposalId": zod.string().uuid()
+}),zod.object({
+  "outcome": zod.enum(['REVIEW_BRANCH_READY']),
+  "proposalId": zod.string().uuid(),
+  "branchName": zod.string(),
+  "worktreePath": zod.string(),
+  "projectRootPath": zod.string(),
+  "sourceGitCommitSha": zod.string().regex(getLocalReviewBranchResponseTwoSourceGitCommitShaRegExp),
+  "changeSetHash": zod.string().regex(getLocalReviewBranchResponseTwoChangeSetHashRegExp),
+  "candidateTreeHash": zod.string().regex(getLocalReviewBranchResponseTwoCandidateTreeHashRegExp),
+  "idempotent": zod.boolean(),
+  "localOnly": zod.literal(true),
+  "applied": zod.literal(false),
+  "committed": zod.literal(false),
+  "pushed": zod.literal(false),
+  "proofAccepted": zod.literal(false)
+})])
+
+
+/**
  * @summary Stage all changes and create a git commit
  */
 export const GitCommitParams = zod.object({

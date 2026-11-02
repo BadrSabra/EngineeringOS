@@ -36,12 +36,26 @@ import { invalidateContextCache } from "@workspace/ai-orchestrator";
 import { logger } from "../lib/logger.js";
 import { config } from "../config.js";
 import {
+  CreateLocalReviewBranchBody,
+  CreateLocalReviewBranchResponse,
+  GetLocalReviewBranchResponse,
+  GetLocalReviewBranchParams,
+} from "@workspace/api-zod";
+import {
   GitHubConnectorError,
   parseGitHubRemote,
   pushLocalCommitToGitHub,
 } from "../lib/github-connector.js";
 import { executeVerifiedGitHubDelivery } from "../lib/github-delivery-service.js";
 import { DELIVERY_TREE_DIGEST_VERSION, hashDeliveryTree } from "../lib/delivery-workspace.js";
+import {
+  createLocalReviewBranchWorkspace,
+  inspectLocalReviewBranchWorkspace,
+  LocalReviewBranchError,
+  localReviewWorktreesRoot,
+  type LocalReviewChange,
+} from "../lib/local-review-branch.js";
+import { establishProjectRoot } from "../lib/project-root.js";
 import {
   isLiveWorkspaceWriteUncoordinated,
   LIVE_WORKSPACE_WRITE_UNCOORDINATED_CODE,
@@ -298,6 +312,362 @@ router.get("/projects/:projectId/git/log", requireProjectAccess, async (req, res
 });
 
 // ── Git write operations ──────────────────────────────────────────────────────
+
+/**
+ * GET /api/projects/:projectId/git/review-branch/:proposalId
+ * Read-only revalidation used to restore verified review state after reload.
+ */
+router.get(
+  "/projects/:projectId/git/review-branch/:proposalId",
+  requireProjectWriteAccess,
+  async (req, res): Promise<void> => {
+    const params = GetLocalReviewBranchParams.safeParse(req.params);
+    if (!params.success) {
+      res.status(400).json({ error: "projectId and proposalId must be valid UUIDs", code: "LOCAL_REVIEW_ID_INVALID" });
+      return;
+    }
+    const { projectId, proposalId } = params.data;
+    const rootPath = req.project!.rootPath;
+    if (!rootPath) {
+      res.status(409).json({ error: "Project source is unavailable", code: "LOCAL_REVIEW_SOURCE_UNAVAILABLE" });
+      return;
+    }
+    const establishedRoot = await establishProjectRoot(rootPath);
+    if (!establishedRoot.ok) {
+      res.status(establishedRoot.status).json({
+        error: establishedRoot.error,
+        code: "LOCAL_REVIEW_SOURCE_UNAVAILABLE",
+      });
+      return;
+    }
+
+    try {
+      const result = await db.transaction(async (tx) => {
+        await tx.execute(sql`select pg_advisory_xact_lock_shared(hashtext(${projectId}), hashtext(${proposalId}))`);
+        const [proposal] = await tx.select({
+          id: aiChangeProposalsTable.id,
+          messageId: aiChangeProposalsTable.messageId,
+          operationId: aiChangeProposalsTable.operationId,
+          changes: aiChangeProposalsTable.changes,
+        }).from(aiChangeProposalsTable).where(and(
+          eq(aiChangeProposalsTable.id, proposalId),
+          eq(aiChangeProposalsTable.projectId, projectId),
+        )).limit(1);
+        if (!proposal) {
+          throw Object.assign(new Error("Proposal not found"), { status: 404, code: "AI_PROPOSAL_NOT_FOUND" });
+        }
+
+        const operationId = proposal.operationId?.trim() || proposal.messageId;
+        const receipts = await tx.select({ payload: eventsTable.payload })
+          .from(eventsTable).where(and(
+            eq(eventsTable.projectId, projectId),
+            eq(eventsTable.type, "GitReviewBranchCreated"),
+            eq(eventsTable.correlationId, operationId),
+          )).limit(2);
+        if (receipts.length === 0) {
+          return GetLocalReviewBranchResponse.parse({
+            outcome: "REVIEW_BRANCH_NOT_CREATED",
+            proposalId,
+          });
+        }
+        if (receipts.length !== 1) {
+          throw Object.assign(new Error("Duplicate local review receipts require reconciliation"), {
+            status: 409,
+            code: "LOCAL_REVIEW_RECEIPT_AMBIGUOUS",
+          });
+        }
+
+        const sourceEvents = await tx.select({ payload: eventsTable.payload })
+          .from(eventsTable).where(and(
+            eq(eventsTable.projectId, projectId),
+            eq(eventsTable.type, "AiPlanCreated"),
+            sql`(${eventsTable.payload} ->> 'proposalId') = ${proposalId}`,
+          )).limit(2);
+        const source = sourceEvents[0]?.payload;
+        const sourceSha = source?.sourceGitCommitSha;
+        const sourceRelativeRoot = source?.sourceProjectRootRelativePath;
+        if (
+          sourceEvents.length !== 1
+          || source?.proposalId !== proposalId
+          || source?.messageId !== proposal.messageId
+          || typeof sourceSha !== "string"
+          || !/^(?:[a-f0-9]{40}|[a-f0-9]{64})$/i.test(sourceSha)
+          || typeof sourceRelativeRoot !== "string"
+        ) {
+          throw Object.assign(new Error("The proposal lacks a unique immutable Git source binding"), {
+            status: 409,
+            code: "LOCAL_REVIEW_SOURCE_BINDING_MISSING",
+          });
+        }
+        let decoded: unknown;
+        try {
+          decoded = JSON.parse(proposal.changes);
+        } catch {
+          throw Object.assign(new Error("The proposal change set is invalid"), {
+            status: 409,
+            code: "LOCAL_REVIEW_CHANGESET_INVALID",
+          });
+        }
+        if (!Array.isArray(decoded)) {
+          throw Object.assign(new Error("The proposal change set is invalid"), {
+            status: 409,
+            code: "LOCAL_REVIEW_CHANGESET_INVALID",
+          });
+        }
+        const changes: LocalReviewChange[] = decoded.map((change) => ({
+          path: change?.path,
+          originalContent: change?.originalContent,
+          newContent: change?.newContent,
+        }));
+        const worktree = await inspectLocalReviewBranchWorkspace({
+          projectId,
+          proposalId,
+          repositoryRootPath: establishedRoot.canonicalPath,
+          projectRootRelativePath: sourceRelativeRoot,
+          sourceCommitSha: sourceSha,
+          changes,
+          worktreesRoot: localReviewWorktreesRoot(),
+        });
+        const receipt = receipts[0]!.payload;
+        if (
+          !worktree
+          || receipt?.proposalId !== proposalId
+          || receipt?.operationId !== operationId
+          || receipt?.branchName !== worktree.branchName
+          || receipt?.sourceGitCommitSha !== worktree.sourceCommitSha
+          || receipt?.changeSetHash !== worktree.changeSetHash
+          || receipt?.candidateTreeHash !== worktree.candidateTreeHash
+        ) {
+          throw Object.assign(new Error("The persisted local review receipt does not match a current verified worktree"), {
+            status: 409,
+            code: "LOCAL_REVIEW_RECEIPT_MISMATCH",
+          });
+        }
+        return GetLocalReviewBranchResponse.parse({
+          outcome: "REVIEW_BRANCH_READY",
+          proposalId,
+          branchName: worktree.branchName,
+          worktreePath: worktree.worktreePath,
+          projectRootPath: worktree.projectRootPath,
+          sourceGitCommitSha: worktree.sourceCommitSha,
+          changeSetHash: worktree.changeSetHash,
+          candidateTreeHash: worktree.candidateTreeHash,
+          idempotent: true,
+          localOnly: true,
+          applied: false,
+          committed: false,
+          pushed: false,
+          proofAccepted: false,
+        });
+      });
+      res.json(result);
+    } catch (error) {
+      if (error instanceof LocalReviewBranchError) {
+        res.status(409).json({ error: error.message, code: error.code, proposalId });
+        return;
+      }
+      const known = error as { status?: number; code?: string; message?: string };
+      if (known.status && known.code) {
+        res.status(known.status).json({ error: known.message, code: known.code, proposalId });
+        return;
+      }
+      logger.error({ err: error, projectId, proposalId, operation: "local-review-branch-read" }, "local review branch revalidation failed");
+      res.status(500).json({
+        error: "The local review branch could not be revalidated.",
+        code: "LOCAL_REVIEW_BRANCH_READ_FAILED",
+        proposalId,
+      });
+    }
+  },
+);
+
+/**
+ * Create an isolated local review worktree from the exact source identity
+ * bound to a pending proposal. This never applies, commits, or pushes changes.
+ */
+router.post("/projects/:projectId/git/review-branch", requireProjectWriteAccess, async (req, res) => {
+  const projectId = req.project!.id;
+  const parsedBody = CreateLocalReviewBranchBody.safeParse(req.body);
+  if (!parsedBody.success) {
+    return res.status(400).json({ error: "proposalId must be a valid UUID", code: "LOCAL_REVIEW_PROPOSAL_ID_INVALID" });
+  }
+  const { proposalId } = parsedBody.data;
+  const rootPath = req.project!.rootPath;
+  if (!rootPath) {
+    return res.status(409).json({ error: "Project source is unavailable", code: "LOCAL_REVIEW_SOURCE_UNAVAILABLE" });
+  }
+  const establishedRoot = await establishProjectRoot(rootPath);
+  if (!establishedRoot.ok) {
+    return res.status(establishedRoot.status).json({
+      error: establishedRoot.error,
+      code: "LOCAL_REVIEW_SOURCE_UNAVAILABLE",
+    });
+  }
+
+  try {
+    const result = await db.transaction(async (tx) => {
+      await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${projectId}), hashtext(${proposalId}))`);
+      const [proposal] = await tx.select({
+        id: aiChangeProposalsTable.id,
+        messageId: aiChangeProposalsTable.messageId,
+        operationId: aiChangeProposalsTable.operationId,
+        changes: aiChangeProposalsTable.changes,
+        status: aiChangeProposalsTable.status,
+        lifecycle: aiChangeProposalsTable.lifecycle,
+      }).from(aiChangeProposalsTable).where(and(
+        eq(aiChangeProposalsTable.id, proposalId),
+        eq(aiChangeProposalsTable.projectId, projectId),
+      )).limit(1);
+      if (!proposal) {
+        throw Object.assign(new Error("Proposal not found"), { status: 404, code: "AI_PROPOSAL_NOT_FOUND" });
+      }
+      if (
+        proposal.status !== "pending"
+        || !["proposed", "isolated", "validated", "conflicted"].includes(proposal.lifecycle)
+      ) {
+        throw Object.assign(new Error("Only a pending proposal can be prepared for local review"), {
+          status: 409,
+          code: "LOCAL_REVIEW_PROPOSAL_NOT_PENDING",
+        });
+      }
+      const sourceEvents = await tx.select({ payload: eventsTable.payload })
+        .from(eventsTable).where(and(
+          eq(eventsTable.projectId, projectId),
+          eq(eventsTable.type, "AiPlanCreated"),
+          sql`(${eventsTable.payload} ->> 'proposalId') = ${proposalId}`,
+        )).limit(2);
+      const source = sourceEvents[0]?.payload;
+      const sourceSha = source?.sourceGitCommitSha;
+      const sourceRelativeRoot = source?.sourceProjectRootRelativePath;
+      if (
+        sourceEvents.length !== 1
+        || source?.proposalId !== proposalId
+        || source?.messageId !== proposal.messageId
+        || typeof sourceSha !== "string"
+        || !/^(?:[a-f0-9]{40}|[a-f0-9]{64})$/i.test(sourceSha)
+        || typeof sourceRelativeRoot !== "string"
+      ) {
+        throw Object.assign(new Error("The proposal lacks a unique immutable Git source binding"), {
+          status: 409,
+          code: "LOCAL_REVIEW_SOURCE_BINDING_MISSING",
+        });
+      }
+      let decoded: unknown;
+      try {
+        decoded = JSON.parse(proposal.changes);
+      } catch {
+        throw Object.assign(new Error("The proposal change set is invalid"), {
+          status: 409,
+          code: "LOCAL_REVIEW_CHANGESET_INVALID",
+        });
+      }
+      if (!Array.isArray(decoded)) {
+        throw Object.assign(new Error("The proposal change set is invalid"), {
+          status: 409,
+          code: "LOCAL_REVIEW_CHANGESET_INVALID",
+        });
+      }
+      const changes: LocalReviewChange[] = decoded.map((change) => ({
+        path: change?.path,
+        originalContent: change?.originalContent,
+        newContent: change?.newContent,
+      }));
+      const worktree = await createLocalReviewBranchWorkspace({
+        projectId,
+        proposalId,
+        repositoryRootPath: establishedRoot.canonicalPath,
+        projectRootRelativePath: sourceRelativeRoot,
+        sourceCommitSha: sourceSha,
+        changes,
+        worktreesRoot: localReviewWorktreesRoot(),
+      });
+      const operationId = proposal.operationId?.trim() || proposal.messageId;
+      const receipt = await tx.select({ payload: eventsTable.payload }).from(eventsTable).where(and(
+        eq(eventsTable.projectId, projectId),
+        eq(eventsTable.type, "GitReviewBranchCreated"),
+        eq(eventsTable.correlationId, operationId),
+      )).limit(2);
+      if (receipt.length > 1) {
+        throw Object.assign(new Error("Duplicate local review receipts require reconciliation"), {
+          status: 409,
+          code: "LOCAL_REVIEW_RECEIPT_AMBIGUOUS",
+        });
+      }
+      const existingPayload = receipt[0]?.payload;
+      if (receipt.length === 1 && (
+        existingPayload?.proposalId !== proposalId
+        || existingPayload?.branchName !== worktree.branchName
+        || existingPayload?.sourceGitCommitSha !== worktree.sourceCommitSha
+        || existingPayload?.changeSetHash !== worktree.changeSetHash
+        || existingPayload?.candidateTreeHash !== worktree.candidateTreeHash
+      )) {
+        throw Object.assign(new Error("The local review receipt does not match the verified worktree"), {
+          status: 409,
+          code: "LOCAL_REVIEW_RECEIPT_MISMATCH",
+        });
+      }
+      if (receipt.length === 0) {
+        await tx.insert(eventsTable).values({
+          id: randomUUID(),
+          type: "GitReviewBranchCreated",
+          projectId,
+          severity: "info",
+          message: "An isolated local review worktree was prepared",
+          correlationId: operationId,
+          payload: {
+            proposalId,
+            operationId,
+            branchName: worktree.branchName,
+            sourceGitCommitSha: worktree.sourceCommitSha,
+            projectRootRelativePath: sourceRelativeRoot,
+            changeSetHash: worktree.changeSetHash,
+            candidateTreeHash: worktree.candidateTreeHash,
+            localOnly: true,
+            applied: false,
+            committed: false,
+            pushed: false,
+          },
+        });
+      }
+      return worktree;
+    });
+    return res.status(result.reused ? 200 : 201).json(CreateLocalReviewBranchResponse.parse({
+      outcome: "REVIEW_BRANCH_READY",
+      proposalId,
+      branchName: result.branchName,
+      worktreePath: result.worktreePath,
+      projectRootPath: result.projectRootPath,
+      sourceGitCommitSha: result.sourceCommitSha,
+      changeSetHash: result.changeSetHash,
+      candidateTreeHash: result.candidateTreeHash,
+      idempotent: result.reused,
+      localOnly: true,
+      applied: false,
+      committed: false,
+      pushed: false,
+      proofAccepted: false,
+    }));
+  } catch (error) {
+    if (error instanceof LocalReviewBranchError) {
+      return res.status(error.code === "LOCAL_REVIEW_CHANGESET_INVALID" ? 422 : 409).json({
+        error: error.message,
+        code: error.code,
+        proposalId,
+        nextAction: "REVIEW_EXISTING_LOCAL_STATE",
+      });
+    }
+    const known = error as { status?: number; code?: string; message?: string };
+    if (known.status && known.code) {
+      return res.status(known.status).json({ error: known.message, code: known.code, proposalId });
+    }
+    logger.error({ err: error, projectId, proposalId, operation: "local-review-branch" }, "local review branch creation failed");
+    return res.status(500).json({
+      error: "The local review branch could not be verified.",
+      code: "LOCAL_REVIEW_BRANCH_FAILED",
+      proposalId,
+    });
+  }
+});
 
 /** POST /api/projects/:projectId/git/commit — stage selected or all changes and commit */
 router.post("/projects/:projectId/git/commit", requireProjectWriteAccess, async (req, res) => {

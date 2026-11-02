@@ -4635,6 +4635,112 @@ paths:
         "404":
           description: Project not found
 
+  /api/projects/{projectId}/git/review-branch:
+    post:
+      operationId: createLocalReviewBranch
+      summary: Prepare an isolated local review worktree from a proposal's recorded Git source
+      tags: [Git]
+      parameters:
+        - name: projectId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/LocalReviewBranchInput"
+      responses:
+        "200":
+          description: Existing isolated review worktree revalidated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LocalReviewBranchReady"
+        "201":
+          description: Isolated review worktree created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LocalReviewBranchReady"
+        "400":
+          description: Invalid project or proposal identity
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+        "401":
+          description: Not authenticated
+        "403":
+          description: Project write access denied
+        "404":
+          description: Project or proposal not found
+        "409":
+          description: Proposal source, branch, or receipt identity could not be safely verified
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+        "422":
+          description: Proposal change set is invalid
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+        "500":
+          description: Review worktree could not be verified
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+
+  /api/projects/{projectId}/git/review-branch/{proposalId}:
+    get:
+      operationId: getLocalReviewBranch
+      summary: Read and revalidate the local review worktree for a proposal
+      tags: [Git]
+      parameters:
+        - name: projectId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: proposalId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Local review worktree state
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LocalReviewBranchStatus"
+        "400":
+          description: Invalid project or proposal identity
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+        "401":
+          description: Not authenticated
+        "403":
+          description: Project write access denied
+        "404":
+          description: Project or proposal not found
+        "409":
+          description: Existing local review worktree is incomplete or has changed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+
   /api/projects/{projectId}/git/commit:
     post:
       operationId: gitCommit
@@ -7559,6 +7665,92 @@ components:
         remoteCommitHash:
           type: string
           description: Commit SHA created or confirmed on the GitHub remote
+
+    LocalReviewBranchInput:
+      type: object
+      required: [proposalId]
+      additionalProperties: false
+      properties:
+        proposalId:
+          type: string
+          format: uuid
+
+    LocalReviewBranchStatus:
+      oneOf:
+        - $ref: "#/components/schemas/LocalReviewBranchNotCreated"
+        - $ref: "#/components/schemas/LocalReviewBranchReady"
+      discriminator:
+        propertyName: outcome
+
+    LocalReviewBranchNotCreated:
+      type: object
+      required: [outcome, proposalId]
+      additionalProperties: false
+      properties:
+        outcome:
+          type: string
+          enum: [REVIEW_BRANCH_NOT_CREATED]
+        proposalId:
+          type: string
+          format: uuid
+
+    LocalReviewBranchReady:
+      type: object
+      required:
+        - outcome
+        - proposalId
+        - branchName
+        - worktreePath
+        - projectRootPath
+        - sourceGitCommitSha
+        - changeSetHash
+        - candidateTreeHash
+        - idempotent
+        - localOnly
+        - applied
+        - committed
+        - pushed
+        - proofAccepted
+      additionalProperties: false
+      properties:
+        outcome:
+          type: string
+          enum: [REVIEW_BRANCH_READY]
+        proposalId:
+          type: string
+          format: uuid
+        branchName:
+          type: string
+        worktreePath:
+          type: string
+        projectRootPath:
+          type: string
+        sourceGitCommitSha:
+          type: string
+          pattern: "^(?:[a-f0-9]{40}|[a-f0-9]{64})$"
+        changeSetHash:
+          type: string
+          pattern: "^[a-f0-9]{64}$"
+        candidateTreeHash:
+          type: string
+          pattern: "^[a-f0-9]{64}$"
+        idempotent:
+          type: boolean
+        localOnly:
+          type: boolean
+          enum: [true]
+        applied:
+          type: boolean
+          enum: [false]
+        committed:
+          type: boolean
+          enum: [false]
+        pushed:
+          type: boolean
+          enum: [false]
+        proofAccepted:
+          type: boolean
+          enum: [false]
 
     AiChatRequest:
       type: object

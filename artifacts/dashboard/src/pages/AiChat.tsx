@@ -71,10 +71,14 @@ import {
   useUpdateAiDeliveryPolicy,
   useGitCommit,
   useGitPush,
+  useCreateLocalReviewBranch,
+  useGetLocalReviewBranch,
+  getGetLocalReviewBranchQueryKey,
   useListBrowserValidationProfiles,
   getListBrowserValidationProfilesQueryKey,
   useExplainAiFallback,
   type AiChatSessionMissionsResponse,
+  type LocalReviewBranchStatus,
 } from '@workspace/api-client-react';
 import { useRecipeStream } from '@/lib/use-recipe-stream';
 import { RecipeProgressPanel } from '@/components/RecipeProgressPanel';
@@ -4833,15 +4837,21 @@ function PendingChangesCard({
   changes,
   verificationResults,
   validationEvidence,
+  proposalId,
   operationId,
   projectRevision,
   changeSetHash,
   onApply,
+  onCreateReviewBranch,
   onApproveMissionCandidate,
   onCreateApplyMission,
   onRebase,
   onReject,
   isPending,
+  isReviewBranchPending,
+  reviewBranch,
+  reviewBranchError,
+  isReviewBranchLoading,
   isApplyMissionPending,
   isRebasePending,
   approvalRequired,
@@ -4854,15 +4864,21 @@ function PendingChangesCard({
   changes: PendingChange[];
   verificationResults: Record<string, BehavioralVerification>;
   validationEvidence?: PublicValidationResult[] | null;
+  proposalId?: string;
   operationId?: string | null;
   projectRevision?: string | null;
   changeSetHash?: string | null;
   onApply: (changes: PendingChange[]) => void;
+  onCreateReviewBranch: () => void;
   onApproveMissionCandidate: () => void;
   onCreateApplyMission: () => void;
   onRebase: (changes: PendingChange[]) => void;
   onReject: () => void;
   isPending: boolean;
+  isReviewBranchPending: boolean;
+  reviewBranch?: LocalReviewBranchStatus;
+  reviewBranchError?: string | null;
+  isReviewBranchLoading: boolean;
   isApplyMissionPending: boolean;
   isRebasePending: boolean;
   approvalRequired: boolean;
@@ -4965,8 +4981,34 @@ function PendingChangesCard({
           >
             <p className="font-medium">التطبيق المباشر متوقف مؤقتًا</p>
             <p className="mt-1 text-amber-100/80">
-              بقي المرشح للمراجعة ولم تُعدّل مساحة العمل. لا يتوفر بعد مسار فرع مراجعة؛ لا يُعدّ هذا الهدف مطبقًا أو مكتملًا.
+              بقي المرشح للمراجعة ولم تُعدّل مساحة العمل. يمكنك تجهيز فرع محلي معزول من SHA المصدر المسجل؛ هذا لا يعني Apply أو Commit أو قبول الإثبات.
             </p>
+          </div>
+        )}
+        {reviewBranch?.outcome === 'REVIEW_BRANCH_READY' && reviewBranch.proposalId === proposalId && (
+          <div
+            className="mx-4 mt-3 rounded-lg border border-sky-500/30 bg-sky-500/10 px-3 py-2 text-xs text-sky-100"
+            role="status"
+            data-testid="local-review-branch-ready"
+          >
+            <p className="font-medium">فرع مراجعة محلي فقط — لم يُطبّق ولم يُعتمد</p>
+            <p className="mt-1">الفرع: <code dir="ltr">{reviewBranch.branchName}</code></p>
+            <p className="mt-1 break-all">مساحة العمل: <code dir="ltr">{reviewBranch.worktreePath}</code></p>
+            <p className="mt-1 break-all">SHA المصدر: <code dir="ltr">{reviewBranch.sourceGitCommitSha}</code></p>
+          </div>
+        )}
+        {isReviewBranchLoading && (
+          <p className="mx-4 mt-3 text-xs text-muted-foreground" role="status" data-testid="status-local-review-branch-loading">
+            جارٍ التحقق من فرع المراجعة المحلي…
+          </p>
+        )}
+        {reviewBranchError && (
+          <div
+            className="mx-4 mt-3 rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-100"
+            role="alert"
+            data-testid="status-local-review-branch-changed"
+          >
+            تعذّر إعادة التحقق من الفرع المحلي. لم تُستبدل أي تعديلات موجودة. {reviewBranchError}
           </div>
         )}
 
@@ -5199,6 +5241,21 @@ function PendingChangesCard({
                 ? 'التطبيق المباشر متوقف مؤقتًا'
                 : `${approvalRequired ? 'الموافقة وتطبيق' : 'تطبيق'} ${effectiveChanges.length} تغيير`}
               {hasPartialSelection ? ` (${acceptedHunkCount}/${totalHunkCount} مقطع)` : ''}
+            </Button>
+          )}
+          {liveApplyPaused && proposalId && (
+            <Button
+              size="sm"
+              variant="outline"
+              className="h-7 px-3 text-xs border-sky-500/40 text-sky-200 hover:bg-sky-500/10"
+              onClick={onCreateReviewBranch}
+              disabled={isReviewBranchPending || isReviewBranchLoading}
+              data-testid="button-create-local-review-branch"
+            >
+              {isReviewBranchPending
+                ? <Loader2 className="w-3 h-3 animate-spin mr-1.5" />
+                : <GitMerge className="w-3 h-3 mr-1.5" />}
+              {isReviewBranchPending ? 'جارٍ تجهيز الفرع المحلي…' : 'إنشاء فرع مراجعة محلي'}
             </Button>
           )}
           {hasPatchConflict && (
@@ -12370,6 +12427,45 @@ export default function AiChat() {
     },
   });
 
+  const localReviewBranchQuery = useGetLocalReviewBranch(
+    selectedProjectId ?? '',
+    proposalId ?? '',
+    {
+      query: {
+        enabled: Boolean(selectedProjectId && proposalId),
+        queryKey: getGetLocalReviewBranchQueryKey(selectedProjectId ?? '', proposalId ?? ''),
+        staleTime: 0,
+        refetchOnMount: 'always',
+        refetchOnWindowFocus: true,
+        retry: false,
+      },
+    },
+  );
+
+  const localReviewBranchMutation = useCreateLocalReviewBranch({
+    mutation: {
+      onSuccess: (_result, variables) => {
+        void qc.invalidateQueries({
+          queryKey: getGetLocalReviewBranchQueryKey(
+            variables.projectId,
+            variables.data.proposalId,
+          ),
+        });
+      toast({
+        title: 'فرع المراجعة المحلي جاهز',
+        description: 'أُنشئ من SHA المصدر المسجل. لم يُطبّق التغيير ولم يُنشأ commit أو push أو إثبات قبول.',
+      });
+      },
+      onError: (error) => {
+        toast({
+          title: 'تعذّر تجهيز فرع المراجعة',
+          description: describeAiError(error),
+          variant: 'destructive',
+        });
+      },
+    },
+  });
+
   const commitMutation = useGitCommit({
     mutation: {
       onSuccess: (data) => {
@@ -12580,6 +12676,14 @@ export default function AiChat() {
     rejectMutation.mutate({ proposalId });
     setProposalRequiresApproval(false);
     setProposalRevision(undefined);
+  }
+
+  function handleCreateLocalReviewBranch() {
+    if (!selectedProjectId || !proposalId || localReviewBranchMutation.isPending) return;
+    localReviewBranchMutation.mutate({
+      projectId: selectedProjectId,
+      data: { proposalId },
+    });
   }
 
   function handleCommitVerifiedChanges() {
@@ -15550,15 +15654,23 @@ export default function AiChat() {
                   changes={pendingChanges}
                   verificationResults={verificationResults}
                   validationEvidence={validationEvidence}
+                  proposalId={proposalId}
                   operationId={operationId}
                   projectRevision={serverProposal?.baseRevision}
                   changeSetHash={serverProposal?.changeSetHash}
                   onApply={handleApplyChanges}
+                  onCreateReviewBranch={handleCreateLocalReviewBranch}
                   onApproveMissionCandidate={handleApproveMissionCandidate}
                   onCreateApplyMission={handleCreateApplyMission}
                   onRebase={handleRebaseChanges}
                   onReject={handleRejectProposal}
                   isPending={applyMutation.isPending || reapprovalMutation.isPending}
+                  isReviewBranchPending={localReviewBranchMutation.isPending}
+                  reviewBranch={localReviewBranchQuery.data}
+                  reviewBranchError={localReviewBranchQuery.isError
+                    ? describeAiError(localReviewBranchQuery.error)
+                    : null}
+                  isReviewBranchLoading={localReviewBranchQuery.isFetching}
                   isApplyMissionPending={applyMissionPending}
                   isRebasePending={rebaseMutation.isPending}
                   approvalRequired={proposalRequiresApproval}

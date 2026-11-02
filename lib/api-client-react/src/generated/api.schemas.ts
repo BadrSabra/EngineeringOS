@@ -3132,6 +3132,51 @@ export interface GitPushResult {
   remoteCommitHash?: string;
 }
 
+export interface LocalReviewBranchInput {
+  proposalId: string;
+}
+
+export type LocalReviewBranchNotCreatedOutcome = typeof LocalReviewBranchNotCreatedOutcome[keyof typeof LocalReviewBranchNotCreatedOutcome];
+
+
+export const LocalReviewBranchNotCreatedOutcome = {
+  REVIEW_BRANCH_NOT_CREATED: 'REVIEW_BRANCH_NOT_CREATED',
+} as const;
+
+export interface LocalReviewBranchNotCreated {
+  outcome: LocalReviewBranchNotCreatedOutcome;
+  proposalId: string;
+}
+
+export type LocalReviewBranchReadyOutcome = typeof LocalReviewBranchReadyOutcome[keyof typeof LocalReviewBranchReadyOutcome];
+
+
+export const LocalReviewBranchReadyOutcome = {
+  REVIEW_BRANCH_READY: 'REVIEW_BRANCH_READY',
+} as const;
+
+export interface LocalReviewBranchReady {
+  outcome: LocalReviewBranchReadyOutcome;
+  proposalId: string;
+  branchName: string;
+  worktreePath: string;
+  projectRootPath: string;
+  /** @pattern ^(?:[a-f0-9]{40}|[a-f0-9]{64})$ */
+  sourceGitCommitSha: string;
+  /** @pattern ^[a-f0-9]{64}$ */
+  changeSetHash: string;
+  /** @pattern ^[a-f0-9]{64}$ */
+  candidateTreeHash: string;
+  idempotent: boolean;
+  localOnly: true;
+  applied: false;
+  committed: false;
+  pushed: false;
+  proofAccepted: false;
+}
+
+export type LocalReviewBranchStatus = LocalReviewBranchNotCreated | LocalReviewBranchReady;
+
 export interface AiChatRequest {
   projectId: string;
   message: string;
