@@ -27,7 +27,8 @@ vi.mock("./job-queue.js", () => ({
   },
 }));
 
-vi.mock("@workspace/ai-orchestrator", () => ({
+vi.mock("@workspace/ai-orchestrator", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@workspace/ai-orchestrator")>()),
   invalidateContextCache: vi.fn(),
 }));
 

@@ -23,7 +23,23 @@
  */
 import { db } from "@workspace/db";
 import { scanJobsTable, discoverySessionsTable, tasksTable } from "@workspace/db";
-import { and, eq } from "drizzle-orm";
+import { and, eq, gt, sql } from "drizzle-orm";
+
+export type ScanJobTransaction = Parameters<Parameters<typeof db.transaction>[0]>[0];
+
+// Lease timestamps are stored as timestamp-without-time-zone. Use UTC-naive
+// values from PostgreSQL so workers on different hosts do not make ownership
+// decisions using their own clocks.
+const databaseNow = () => sql<Date>`clock_timestamp() AT TIME ZONE 'UTC'`;
+const databaseLeaseUntil = (leaseMs: number) =>
+  sql<Date>`(clock_timestamp() AT TIME ZONE 'UTC') + (${leaseMs} * interval '1 millisecond')`;
+
+export class ScanJobLeaseLostError extends Error {
+  constructor(jobId: string) {
+    super(`scan job ${jobId} is no longer owned by this worker`);
+    this.name = "ScanJobLeaseLostError";
+  }
+}
 
 // ── Lease duration constants ───────────────────────────────────────────────────
 
@@ -74,16 +90,14 @@ export async function claimScanJob(
   workerId: string,
   leaseMs: number,
 ): Promise<boolean> {
-  const now = new Date();
-  const leaseUntil = new Date(now.getTime() + leaseMs);
   const updated = await db
     .update(scanJobsTable)
     .set({
       status: "running",
       workerId,
-      leaseUntil,
-      lastHeartbeatAt: now,
-      startedAt: now,
+      leaseUntil: databaseLeaseUntil(leaseMs),
+      lastHeartbeatAt: databaseNow(),
+      startedAt: databaseNow(),
     })
     .where(and(eq(scanJobsTable.id, jobId), eq(scanJobsTable.status, "queued")))
     .returning({ id: scanJobsTable.id });
@@ -91,28 +105,88 @@ export async function claimScanJob(
 }
 
 /**
- * Extend a scan-job's lease by `leaseMs` from now. Silently no-ops if
- * the workerId no longer matches (e.g. another worker reclaimed the job
- * after a lease expiry).
+ * Extend a scan-job's lease only while its current lease is still live.
+ * Expiry is not renewable: once the deadline passes, only reconciliation
+ * can recover the job and the old worker must stop.
  */
 export async function heartbeatScanJob(
   jobId: string,
   workerId: string,
   leaseMs: number,
-): Promise<void> {
-  const now = new Date();
-  const leaseUntil = new Date(now.getTime() + leaseMs);
-  await db
+): Promise<boolean> {
+  const updated = await db
     .update(scanJobsTable)
-    .set({ leaseUntil, lastHeartbeatAt: now })
-    .where(and(eq(scanJobsTable.id, jobId), eq(scanJobsTable.workerId, workerId)));
+    .set({
+      leaseUntil: databaseLeaseUntil(leaseMs),
+      lastHeartbeatAt: databaseNow(),
+    })
+    .where(and(
+      eq(scanJobsTable.id, jobId),
+      eq(scanJobsTable.status, "running"),
+      eq(scanJobsTable.workerId, workerId),
+      gt(scanJobsTable.leaseUntil, databaseNow()),
+    ))
+    .returning({ id: scanJobsTable.id });
+  return updated.length > 0;
 }
 
 /**
- * Atomically mark a scan_job as completed and release the lease in one write.
- * The workerId guard is part of the terminal fence. A stale worker must not
- * complete a job after reconciliation has cleared its lease and another
- * worker has claimed it.
+ * Mark a scan job complete inside the same transaction as its scan effects.
+ * If the lease has expired or ownership changed, throw so the caller's
+ * transaction rolls back every effect produced by that scan.
+ */
+export async function completeScanJobInTransaction(
+  tx: ScanJobTransaction,
+  jobId: string,
+  workerId: string,
+  result: Record<string, unknown>,
+  finishedAt?: Date,
+): Promise<void> {
+  const [updated] = await tx
+    .update(scanJobsTable)
+    .set({
+      status: "completed",
+      result,
+      finishedAt: finishedAt ?? databaseNow(),
+      workerId: null,
+      leaseUntil: null,
+      lastHeartbeatAt: null,
+    })
+    .where(and(
+      eq(scanJobsTable.id, jobId),
+      eq(scanJobsTable.workerId, workerId),
+      eq(scanJobsTable.status, "running"),
+      gt(scanJobsTable.leaseUntil, databaseNow()),
+    ))
+    .returning({ id: scanJobsTable.id });
+  if (!updated) throw new ScanJobLeaseLostError(jobId);
+}
+
+/**
+ * Run scan persistence and its terminal ownership transition in one database
+ * transaction. A rejected fence rolls back the callback's writes as well.
+ */
+export async function persistScanJobTransaction<T extends object>(
+  jobId: string,
+  workerId: string,
+  persistEffects: (tx: ScanJobTransaction) => Promise<T>,
+): Promise<T> {
+  return db.transaction(async (tx) => {
+    const result = await persistEffects(tx);
+    await completeScanJobInTransaction(
+      tx,
+      jobId,
+      workerId,
+      result as Record<string, unknown>,
+    );
+    return result;
+  });
+}
+
+/**
+ * Compatibility helper for callers that only need the terminal transition.
+ * Scan runners should use completeScanJobInTransaction so completion and
+ * persisted effects cannot diverge.
  */
 export async function completeScanJob(
   jobId: string,
@@ -120,19 +194,15 @@ export async function completeScanJob(
   result: Record<string, unknown>,
   finishedAt?: Date,
 ): Promise<boolean> {
-  const updated = await db
-    .update(scanJobsTable)
-    .set({
-      status: "completed",
-      result,
-      finishedAt: finishedAt ?? new Date(),
-      workerId: null,
-      leaseUntil: null,
-      lastHeartbeatAt: null,
-    })
-    .where(and(eq(scanJobsTable.id, jobId), eq(scanJobsTable.workerId, workerId), eq(scanJobsTable.status, "running")))
-    .returning({ id: scanJobsTable.id });
-  return updated.length > 0;
+  try {
+    await db.transaction((tx) =>
+      completeScanJobInTransaction(tx, jobId, workerId, result, finishedAt),
+    );
+    return true;
+  } catch (error) {
+    if (error instanceof ScanJobLeaseLostError) return false;
+    throw error;
+  }
 }
 
 /**
@@ -149,12 +219,17 @@ export async function failScanJob(
     .set({
       status: "failed",
       error,
-      finishedAt: finishedAt ?? new Date(),
+      finishedAt: finishedAt ?? databaseNow(),
       workerId: null,
       leaseUntil: null,
       lastHeartbeatAt: null,
     })
-    .where(and(eq(scanJobsTable.id, jobId), eq(scanJobsTable.workerId, workerId), eq(scanJobsTable.status, "running")))
+    .where(and(
+      eq(scanJobsTable.id, jobId),
+      eq(scanJobsTable.workerId, workerId),
+      eq(scanJobsTable.status, "running"),
+      gt(scanJobsTable.leaseUntil, databaseNow()),
+    ))
     .returning({ id: scanJobsTable.id });
   return updated.length > 0;
 }

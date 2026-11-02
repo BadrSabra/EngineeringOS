@@ -422,7 +422,7 @@ async function reconcileInterruptedGitHubDeliveryAttempts(): Promise<number> {
 async function reconcileScanJobs(): Promise<number> {
   const now = new Date();
   const abandonedScan = or(
-    lt(scanJobsTable.leaseUntil, now),
+    lt(scanJobsTable.leaseUntil, sql<Date>`clock_timestamp() AT TIME ZONE 'UTC'`),
     isNull(scanJobsTable.leaseUntil),
   );
 

@@ -36,6 +36,7 @@ import {
 } from "../lib/worker-scope.js";
 import { heavyJobQueue } from "../lib/job-queue.js";
 import { removeManagedProjectRoot } from "../lib/project-materialization.js";
+import { LockNamespace, tryAdvisoryLock } from "../lib/advisory-lock.js";
 import { getProjectWorldState } from "../lib/agent-state/world-state.js";
 import { deleteUnreplayedStrategyReplayCases } from "../lib/agent-state/strategy-replay-case-registry.js";
 import {
@@ -410,8 +411,50 @@ router.post("/projects/:projectId/scan", requireProjectWriteAccess, async (req, 
   const now = new Date();
   const jobId = randomUUID();
 
+  let admissionLock: Awaited<ReturnType<typeof tryAdvisoryLock>>;
+  try {
+    admissionLock = await tryAdvisoryLock(LockNamespace.SCAN_JOB, projectId);
+  } catch (err) {
+    logger.error({ err, projectId }, "failed to acquire scan admission lock");
+    return res.status(503).json({ error: "Scan admission is temporarily unavailable" });
+  }
+
+  if (!admissionLock.acquired) {
+    // A queued/running durable scan already represents the work; return its
+    // identity instead of creating a duplicate. A held lock without such a
+    // row is a direct scan, so fail clearly rather than racing it.
+    try {
+      const [activeJob] = await db
+        .select()
+        .from(scanJobsTable)
+        .where(and(
+          eq(scanJobsTable.projectId, projectId),
+          inArray(scanJobsTable.status, ["queued", "running"]),
+        ))
+        .limit(1);
+      if (activeJob) return res.status(202).json(activeJob);
+    } catch (err) {
+      logger.error({ err, projectId }, "failed to inspect active scan after admission lock contention");
+      return res.status(503).json({ error: "Scan admission is temporarily unavailable" });
+    }
+    return res.status(409).json({
+      error: "scan_already_running",
+      message: "A direct scan is already running for this project.",
+    });
+  }
+
   let job: typeof scanJobsTable.$inferSelect;
   try {
+    const [activeJob] = await db
+      .select()
+      .from(scanJobsTable)
+      .where(and(
+        eq(scanJobsTable.projectId, projectId),
+        inArray(scanJobsTable.status, ["queued", "running"]),
+      ))
+      .limit(1);
+    if (activeJob) return res.status(202).json(activeJob);
+
     job = await db.transaction(async (tx) => {
       const [createdJob] = await tx
         .insert(scanJobsTable)
@@ -442,6 +485,10 @@ router.post("/projects/:projectId/scan", requireProjectWriteAccess, async (req, 
   } catch (err) {
     logger.error({ err, projectId, jobId }, "failed to create scan job");
     return res.status(500).json({ error: "Failed to queue scan job" });
+  } finally {
+    await admissionLock.release().catch((releaseErr) => {
+      logger.warn({ releaseErr, projectId, jobId }, "failed to release scan admission lock");
+    });
   }
 
   // Fire-and-forget, but bounded: heavyJobQueue caps how many scan/discovery

@@ -19,6 +19,8 @@ import { access } from "node:fs/promises";
 import { join } from "node:path";
 import * as scanner from "@workspace/scanner";
 import { heavyJobQueue } from "../lib/job-queue.js";
+import { LockNamespace, tryAdvisoryLock } from "../lib/advisory-lock.js";
+import { performScan, ProjectScanLockBusyError } from "../lib/scan-runner.js";
 import { materializeProjectRoot } from "../lib/project-materialization.js";
 
 /**
@@ -211,6 +213,66 @@ async function waitForScanJob(
   throw new Error(`scan job ${jobId} did not finish within ${timeoutMs}ms`);
 }
 
+describe("scan serialization across entry points", () => {
+  it("fails closed when a direct scan cannot acquire the project lock", async () => {
+    const projectId = randomUUID();
+    const existingScan = await tryAdvisoryLock(LockNamespace.SCAN_JOB, projectId);
+    expect(existingScan.acquired).toBe(true);
+    if (!existingScan.acquired) return;
+
+    try {
+      await expect(performScan(projectId)).rejects.toBeInstanceOf(ProjectScanLockBusyError);
+    } finally {
+      await existingScan.release();
+    }
+  });
+
+  it("does not admit a queued scan while a direct scan holds the project lock", async () => {
+    const projectId = await insertProject(`/tmp/direct-scan-${randomUUID()}`);
+    const existingScan = await tryAdvisoryLock(LockNamespace.SCAN_JOB, projectId);
+    expect(existingScan.acquired).toBe(true);
+    if (!existingScan.acquired) {
+      await cleanupProject(projectId);
+      return;
+    }
+
+    try {
+      const response = await request(app).post(`/api/projects/${projectId}/scan`);
+      expect(response.status).toBe(409);
+      expect(response.body.error).toBe("scan_already_running");
+      const jobs = await db.select().from(scanJobsTable)
+        .where(eq(scanJobsTable.projectId, projectId));
+      expect(jobs).toHaveLength(0);
+    } finally {
+      await existingScan.release();
+      await cleanupProject(projectId);
+    }
+  });
+
+  it("reuses queued work and prevents a direct scan from bypassing it", async () => {
+    const projectId = await insertProject(`/tmp/queued-scan-${randomUUID()}`);
+    const jobId = randomUUID();
+    await db.insert(scanJobsTable).values({
+      id: jobId,
+      projectId,
+      status: "queued",
+      createdAt: new Date(),
+    });
+
+    try {
+      await expect(performScan(projectId)).rejects.toBeInstanceOf(ProjectScanLockBusyError);
+      const response = await request(app).post(`/api/projects/${projectId}/scan`);
+      expect(response.status).toBe(202);
+      expect(response.body.id).toBe(jobId);
+      const jobs = await db.select().from(scanJobsTable)
+        .where(eq(scanJobsTable.projectId, projectId));
+      expect(jobs).toHaveLength(1);
+    } finally {
+      await cleanupProject(projectId);
+    }
+  });
+});
+
 describe("POST /api/projects/:projectId/scan — error safety", () => {
   const cleanupQueue: string[] = [];
   const tempDirs: string[] = [];
@@ -309,7 +371,7 @@ describe("POST /api/projects/:projectId/scan — error safety", () => {
     const res = await request(app).post(`/api/projects/${projectId}/scan`);
     expect(res.status).toBe(202);
 
-    const job = await waitForScanJob(res.body.id);
+    const job = await waitForScanJob(res.body.id, 15_000);
     expect(job.status).toBe("completed");
 
     const relationships = await db

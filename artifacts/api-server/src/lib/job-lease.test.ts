@@ -6,17 +6,25 @@
 import { afterEach, describe, expect, it } from "vitest";
 import { eq } from "drizzle-orm";
 import { randomUUID } from "crypto";
-import { db, projectsTable, scanJobsTable, discoverySessionsTable } from "@workspace/db";
+import {
+  db,
+  projectsTable,
+  scanJobsTable,
+  discoverySessionsTable,
+  eventsTable,
+} from "@workspace/db";
 import {
   claimScanJob,
   heartbeatScanJob,
   completeScanJob,
   failScanJob,
+  persistScanJobTransaction,
   claimDiscoverySession,
   heartbeatDiscoverySession,
   releaseDiscoverySessionLease,
   SCAN_LEASE_MS,
   DISCOVERY_LEASE_MS,
+  ScanJobLeaseLostError,
 } from "./job-lease.js";
 
 // ── Helpers ────────────────────────────────────────────────────────────────────
@@ -171,6 +179,77 @@ describe("scan-job lease helpers", () => {
       .where(eq(scanJobsTable.id, jobId));
 
     expect(after.leaseUntil!.getTime()).toBe(before.leaseUntil!.getTime());
+  });
+
+  it("does not renew, complete, or fail a scan after its lease expires", async () => {
+    const jobId = await insertJob();
+    const workerId = randomUUID();
+    await claimScanJob(jobId, workerId, SCAN_LEASE_MS);
+    const expiredAt = new Date(Date.now() - 1_000);
+    await db.update(scanJobsTable)
+      .set({ leaseUntil: expiredAt })
+      .where(eq(scanJobsTable.id, jobId));
+
+    expect(await heartbeatScanJob(jobId, workerId, SCAN_LEASE_MS)).toBe(false);
+    expect(await completeScanJob(jobId, workerId, { source: "expired" })).toBe(false);
+    expect(await failScanJob(jobId, workerId, "expired worker")).toBe(false);
+
+    const [row] = await db.select().from(scanJobsTable).where(eq(scanJobsTable.id, jobId));
+    expect(row.status).toBe("running");
+    expect(row.workerId).toBe(workerId);
+    expect(row.leaseUntil?.getTime()).toBe(expiredAt.getTime());
+    expect(row.result).toBeNull();
+    expect(row.error).toBeNull();
+  });
+
+  it("rolls back scan effects when reconciliation wins before transactional completion", async () => {
+    const jobId = await insertJob();
+    const workerId = randomUUID();
+    const [job] = await db.select({
+      projectId: scanJobsTable.projectId,
+    }).from(scanJobsTable).where(eq(scanJobsTable.id, jobId));
+    expect(await claimScanJob(jobId, workerId, SCAN_LEASE_MS)).toBe(true);
+
+    let finishPersisting!: () => void;
+    let notifyEffectsStaged!: () => void;
+    const effectsStaged = new Promise<void>((resolve) => {
+      notifyEffectsStaged = resolve;
+    });
+    const allowFinalFence = new Promise<void>((resolve) => {
+      finishPersisting = resolve;
+    });
+    const staleAttempt = persistScanJobTransaction(jobId, workerId, async (tx) => {
+      await tx.insert(eventsTable).values({
+        id: randomUUID(),
+        type: "ProjectScanned",
+        projectId: job.projectId,
+        severity: "success",
+        message: "must roll back with stale scan",
+        correlationId: jobId,
+      });
+      notifyEffectsStaged();
+      await allowFinalFence;
+      return { source: "stale" };
+    });
+
+    await effectsStaged;
+    // Model the durable recovery transition winning after scan effects have
+    // been staged but before the same transaction's completion fence.
+    await db.update(scanJobsTable).set({
+      status: "queued",
+      workerId: null,
+      leaseUntil: null,
+      lastHeartbeatAt: null,
+    }).where(eq(scanJobsTable.id, jobId));
+    finishPersisting();
+
+    await expect(staleAttempt).rejects.toBeInstanceOf(ScanJobLeaseLostError);
+
+    const [row] = await db.select().from(scanJobsTable).where(eq(scanJobsTable.id, jobId));
+    const events = await db.select().from(eventsTable).where(eq(eventsTable.projectId, job.projectId));
+    expect(row.status).toBe("queued");
+    expect(row.workerId).toBeNull();
+    expect(events).toHaveLength(0);
   });
 
   it("completeScanJob sets status=completed and clears all lease fields", async () => {

@@ -7,6 +7,7 @@
 import { db } from "@workspace/db";
 import {
   projectsTable,
+  scanJobsTable,
   tasksTable,
   eventsTable,
   metricsTable,
@@ -27,14 +28,17 @@ import {
 import { logger } from "./logger.js";
 import { establishProjectRoot, type EstablishRootFailureReason } from "./project-root.js";
 import { tryAdvisoryLock, LockNamespace } from "./advisory-lock.js";
+import { heavyJobQueue } from "./job-queue.js";
 import { provenanceFromEntity, provenanceFromRelationship, manualProvenance } from "./graph-provenance.js";
 import {
   claimScanJob,
   heartbeatScanJob,
-  completeScanJob,
   failScanJob,
+  persistScanJobTransaction,
   SCAN_LEASE_MS,
   SCAN_HEARTBEAT_INTERVAL_MS,
+  ScanJobLeaseLostError,
+  type ScanJobTransaction,
 } from "./job-lease.js";
 import {
   buildRemediationPlan,
@@ -94,12 +98,40 @@ export interface ScanJobResult {
   };
 }
 
+export class ProjectScanLockBusyError extends Error {
+  constructor(projectId: string) {
+    super(`a scan is already running for project ${projectId}`);
+    this.name = "ProjectScanLockBusyError";
+  }
+}
+
 /**
  * Run a full scan for `projectId` and update the given `jobId`'s row with
  * the outcome. Never throws — failures are recorded on the job row and the
  * project status is always restored, so a bug here can't wedge a project in
  * "scanning" forever or crash the process that enqueued it.
  */
+const scanLockRetryAttempts = new Map<string, number>();
+const SCAN_LOCK_RETRY_BASE_MS = 1_000;
+const SCAN_LOCK_RETRY_MAX_MS = 30_000;
+
+function scheduleQueuedScanRetry(jobId: string, projectId: string): void {
+  const attempt = (scanLockRetryAttempts.get(jobId) ?? 0) + 1;
+  scanLockRetryAttempts.set(jobId, attempt);
+  const delayMs = Math.min(
+    SCAN_LOCK_RETRY_BASE_MS * 2 ** Math.min(attempt - 1, 10),
+    SCAN_LOCK_RETRY_MAX_MS,
+  );
+  const timer = setTimeout(() => {
+    heavyJobQueue.enqueueWithId(jobId, () => runScanJob(jobId, projectId));
+  }, delayMs);
+  timer.unref?.();
+  logger.warn(
+    { jobId, projectId, attempt, delayMs },
+    "scan-runner: queued scan will retry after lock admission failure",
+  );
+}
+
 export async function runScanJob(jobId: string, projectId: string): Promise<void> {
   // SR-002: Acquire a PostgreSQL advisory lock keyed on projectId, not jobId.
   // The project is the real resource being mutated — locking on jobId allowed
@@ -110,20 +142,22 @@ export async function runScanJob(jobId: string, projectId: string): Promise<void
   try {
     lock = await tryAdvisoryLock(LockNamespace.SCAN_JOB, projectId);
   } catch (lockErr) {
-    // Pool connection failure — fail open rather than silently dropping the job.
-    logger.error({ lockErr, jobId, projectId }, "scan-runner: advisory lock acquisition failed; proceeding without lock");
-    lock = null;
+    // The advisory lock protects different scan jobs that target the same
+    // project. If we cannot prove that serialization, leave the durable job
+    // queued and retry instead of allowing concurrent project mutations.
+    logger.error({ lockErr, jobId, projectId }, "scan-runner: advisory lock acquisition failed; keeping job queued");
+    scheduleQueuedScanRetry(jobId, projectId);
+    return;
   }
 
-  if (lock && !lock.acquired) {
+  if (!lock.acquired) {
     logger.warn(
       { jobId, projectId },
       "scan-runner: advisory lock busy — another scan is already running for this project; leaving job queued",
     );
-    // Leave the durable row queued. This can happen when two API instances
-    // dispatch the same persisted row before either one has completed its
-    // atomic claim. The winning worker will claim and finish it; a different
-    // queued scan will be retried after the project lock is released.
+    // Retry after the current owner has had time to release the project lock.
+    // The durable row remains queued if this process exits before the timer.
+    scheduleQueuedScanRetry(jobId, projectId);
     return;
   }
 
@@ -133,57 +167,63 @@ export async function runScanJob(jobId: string, projectId: string): Promise<void
   // reconciliation moved it to a terminal state. Bail out without touching
   // the project row.
   const workerId = randomUUID();
-  const claimed = await claimScanJob(jobId, workerId, SCAN_LEASE_MS);
-  if (!claimed) {
-    logger.warn(
-      { jobId, projectId },
-      "scan-runner: could not claim job — not in queued state; skipping",
-    );
-    if (lock?.acquired) {
-      await lock.release().catch((releaseErr) => {
-        logger.warn({ releaseErr, jobId }, "scan-runner: failed to release advisory lock after claim miss");
-      });
-    }
-    return;
-  }
-
-  // Heartbeat loop: extends lease_until every SCAN_HEARTBEAT_INTERVAL_MS so
-  // job-reconciliation does not reclaim this job while the scan is in
-  // progress. Cleared in the finally block as a safety net.
-  let heartbeatInterval: NodeJS.Timeout | undefined = setInterval(() => {
-    heartbeatScanJob(jobId, workerId, SCAN_LEASE_MS).catch((hbErr) => {
-      logger.warn({ hbErr, jobId }, "scan-runner: heartbeat failed");
-    });
-  }, SCAN_HEARTBEAT_INTERVAL_MS);
-
+  let claimed = false;
+  let scanFinalized = false;
+  let heartbeatInterval: NodeJS.Timeout | undefined;
+  const scanController = new AbortController();
   try {
-    const result = await performScan(projectId, undefined, jobId);
-    clearInterval(heartbeatInterval);
-    heartbeatInterval = undefined;
-    const finishedAt = new Date();
-    const completed = await completeScanJob(
-      jobId,
-      workerId,
-      result as unknown as Record<string, unknown>,
-      finishedAt,
-    );
-    if (!completed) {
-      logger.warn({ jobId, workerId }, "scan completion ignored because the worker no longer owns the job");
+    claimed = await claimScanJob(jobId, workerId, SCAN_LEASE_MS);
+    if (!claimed) {
+      scanLockRetryAttempts.delete(jobId);
+      logger.warn(
+        { jobId, projectId },
+        "scan-runner: could not claim job — not in queued state; skipping",
+      );
+      return;
     }
+    scanLockRetryAttempts.delete(jobId);
+
+    // Loss of the lease cancels expensive work promptly. The authoritative
+    // fence remains the completion update in performScan's write transaction.
+    heartbeatInterval = setInterval(() => {
+      void heartbeatScanJob(jobId, workerId, SCAN_LEASE_MS).then((stillOwned) => {
+        if (scanFinalized || stillOwned) return;
+        logger.warn({ jobId, workerId }, "scan-runner: lease expired or ownership changed");
+        scanController.abort(new ScanJobLeaseLostError(jobId));
+      }).catch((hbErr: unknown) => {
+        if (scanFinalized) return;
+        logger.error({ hbErr, jobId, workerId }, "scan-runner: heartbeat failed; cancelling scan");
+        scanController.abort(hbErr);
+      });
+    }, SCAN_HEARTBEAT_INTERVAL_MS);
+
+    // The scan's effects and completed scan_jobs transition commit together.
+    await performScan(projectId, scanController.signal, jobId, { jobId, workerId });
+    scanFinalized = true;
   } catch (err) {
+    scanFinalized = true;
     const message = err instanceof Error ? err.message : String(err);
+    if (!claimed) {
+      logger.error({ err, projectId, jobId }, "scan-runner: claim failed; keeping job queued");
+      scheduleQueuedScanRetry(jobId, projectId);
+      return;
+    }
+    if (err instanceof ScanJobLeaseLostError) {
+      logger.warn({ jobId, workerId }, "scan effects rolled back after lease ownership was lost");
+      return;
+    }
     logger.error({ err, projectId, jobId }, "scan job failed");
     try {
       if (heartbeatInterval !== undefined) {
         clearInterval(heartbeatInterval);
         heartbeatInterval = undefined;
       }
-      const failedAt = new Date();
-      const failed = await failScanJob(jobId, workerId, message, failedAt);
+      const failed = await failScanJob(jobId, workerId, message);
       if (!failed) {
         logger.warn({ jobId, workerId }, "scan failure ignored because the worker no longer owns the job");
         return;
       }
+      const failedAt = new Date();
       // Guard with `status = "scanning"` so a newer job that has already
       // taken ownership of this project is not clobbered by this failure path.
       await db
@@ -215,6 +255,7 @@ export async function runScanJob(jobId: string, projectId: string): Promise<void
       logger.error({ cleanupErr, projectId, jobId }, "failed to record scan job failure");
     }
   } finally {
+    scanFinalized = true;
     // Safety net: ensure heartbeat is cleared even if an unexpected path
     // skips the explicit clearInterval calls above.
     if (heartbeatInterval !== undefined) clearInterval(heartbeatInterval);
@@ -232,10 +273,55 @@ export async function performScan(
   projectId: string,
   signal?: AbortSignal,
   scanJobId?: string,
+  ownership?: { jobId: string; workerId: string },
+): Promise<ScanJobResult> {
+  // Durable scan jobs acquire this lock in runScanJob before claiming. Direct
+  // callers (for example, an AI analysis tool) must acquire the same
+  // project-scoped lock themselves so they cannot bypass scan serialization.
+  if (ownership) {
+    return performScanCore(projectId, signal, scanJobId, ownership);
+  }
+
+  let lock;
+  try {
+    lock = await tryAdvisoryLock(LockNamespace.SCAN_JOB, projectId);
+  } catch {
+    throw new Error("project scan lock could not be acquired; scan was not started");
+  }
+  if (!lock.acquired) throw new ProjectScanLockBusyError(projectId);
+  try {
+    const [pendingJob] = await db
+      .select({ id: scanJobsTable.id })
+      .from(scanJobsTable)
+      .where(and(
+        eq(scanJobsTable.projectId, projectId),
+        inArray(scanJobsTable.status, ["queued", "running"]),
+      ))
+      .limit(1);
+    if (pendingJob) throw new ProjectScanLockBusyError(projectId);
+    return await performScanCore(projectId, signal, scanJobId);
+  } finally {
+    await lock.release().catch((releaseErr) => {
+      logger.warn({ releaseErr, projectId }, "direct scan: failed to release project lock");
+    });
+  }
+}
+
+async function performScanCore(
+  projectId: string,
+  signal?: AbortSignal,
+  scanJobId?: string,
+  ownership?: { jobId: string; workerId: string },
 ): Promise<ScanJobResult> {
   const checkCancelled = (): void => {
-    if (signal?.aborted) throw new Error("scan refresh cancelled");
+    if (signal?.aborted) {
+      if (signal.reason instanceof Error) throw signal.reason;
+      throw new Error("scan refresh cancelled");
+    }
   };
+  if (ownership && ownership.jobId !== scanJobId) {
+    throw new Error("scan ownership job id does not match scan provenance");
+  }
   checkCancelled();
   // One UUID per scan operation — written to audit_logs, events, and metrics
   // so a single `WHERE correlation_id = ?` retrieves the complete trace for
@@ -329,19 +415,16 @@ export async function performScan(
     isDocumented: e.isDocumented,
   }));
 
-  // ── 5-9. Persist everything derived from this scan atomically ───────────
-  // Tasks, rule hit counts, graph entities/relationships, the metrics row,
-  // the project status/score update, the audit record, and the scan event
-  // are all effects of the *same* scan. If any one of them fails partway
-  // through (e.g. graph insert throws), we must not leave the others
-  // committed — that would create tasks with no corresponding metrics row,
-  // or a "completed" scan event for a scan that actually failed. Wrapping
-  // the whole block in one transaction makes the scan atomic: either all of
-  // it lands, or none of it does, and the outer catch in runScanJob marks
-  // the job failed with a clean, fully-rolled-back DB state.
+  // ── 5-9. Persist scan effects and job completion atomically ─────────────
+  // Tasks, rule hit counts, graph entities/relationships, metrics, project
+  // status/score, the scan event, and (for queued work) the terminal scan-job
+  // transition commit together. The audit record is deliberately written
+  // after commit by recordAudit and is retained/retried through its outbox.
+  // If ownership was lost, the terminal update below fails and throws, which
+  // rolls back every scan effect in this transaction.
 
   checkCancelled();
-  return await db.transaction(async (tx) => {
+  const persistScanEffects = async (tx: ScanJobTransaction) => {
     checkCancelled();
     const existingTasks = await tx
       .select({
@@ -686,7 +769,7 @@ export async function performScan(
     });
 
     checkCancelled();
-    return {
+    const scanResult: ScanJobResult & { _priorQualityScore: number | null } = {
       projectId,
       scannedAt: now.toISOString(),
       rootPath: walkResult.rootPath,
@@ -715,7 +798,14 @@ export async function performScan(
       },
       _priorQualityScore: project[0].qualityScore ?? null,
     };
-  }).then(async (result) => {
+
+    return scanResult;
+  };
+  const scanTransaction = ownership
+    ? persistScanJobTransaction(ownership.jobId, ownership.workerId, persistScanEffects)
+    : db.transaction(persistScanEffects);
+
+  return await scanTransaction.then(async (result) => {
     // Audit is intentionally recorded *after* the transaction commits and
     // outside it (see audit.ts) — it reflects a state change that has
     // already durably happened, and an audit-table outage must not roll
