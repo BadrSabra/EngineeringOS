@@ -11,7 +11,14 @@ const execFileAsync = promisify(execFile);
  * the index/worktree/untracked files are clean. This is provenance metadata,
  * not a filesystem lock: callers must recheck before binding it to a proposal.
  */
-export async function captureCleanGitSourceCommitSha(rootPath: string): Promise<string | null> {
+export type CleanGitSourceIdentity = {
+  commitSha: string;
+  projectRootRelativePath: string;
+};
+
+export async function captureCleanGitSourceCommitSha(
+  rootPath: string,
+): Promise<CleanGitSourceIdentity | null> {
   try {
     const resolvedRoot = await realpath(rootPath);
     const gitRootOutput = await execFileAsync(
@@ -45,7 +52,12 @@ export async function captureCleanGitSourceCommitSha(rootPath: string): Promise<
     if (!/^(?:[a-f0-9]{40}|[a-f0-9]{64})$/i.test(head) || statusOutput.stdout.trim() !== "") {
       return null;
     }
-    return head.toLowerCase();
+    return {
+      commitSha: head.toLowerCase(),
+      projectRootRelativePath: relativeRoot === ""
+        ? "."
+        : relativeRoot.split(path.sep).join("/"),
+    };
   } catch {
     // Non-Git roots, missing HEADs, or Git inspection failures are not branchable.
     return null;

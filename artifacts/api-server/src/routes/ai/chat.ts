@@ -7917,8 +7917,13 @@ router.post("/ai/chat", async (req, res) => {
     )
       ? randomUUID()
       : undefined;
-    const proposalSourceGitCommitSha = proposalId && proposalSourceGitCommitShaAtStart && validRootPath
-      && await captureCleanGitSourceCommitSha(validRootPath) === proposalSourceGitCommitShaAtStart
+    const currentProposalSourceIdentity = proposalId && proposalSourceGitCommitShaAtStart && validRootPath
+      ? await captureCleanGitSourceCommitSha(validRootPath)
+      : null;
+    const proposalSourceGitIdentity = currentProposalSourceIdentity
+      && proposalSourceGitCommitShaAtStart
+      && currentProposalSourceIdentity.commitSha === proposalSourceGitCommitShaAtStart.commitSha
+      && currentProposalSourceIdentity.projectRootRelativePath === proposalSourceGitCommitShaAtStart.projectRootRelativePath
       ? proposalSourceGitCommitShaAtStart
       : null;
     const executionPlan = buildActiveTaskExecutionPlan({
@@ -8086,8 +8091,11 @@ router.post("/ai/chat", async (req, res) => {
           payload: {
             messageId: operationId,
             proposalId: proposalId ?? null,
-            ...(proposalSourceGitCommitSha
-              ? { sourceGitCommitSha: proposalSourceGitCommitSha }
+            ...(proposalSourceGitIdentity
+              ? {
+                  sourceGitCommitSha: proposalSourceGitIdentity.commitSha,
+                  sourceProjectRootRelativePath: proposalSourceGitIdentity.projectRootRelativePath,
+                }
               : {}),
           },
         });
@@ -12845,10 +12853,15 @@ export async function handleChatStream(req: Request, res: Response) {
     )
       ? randomUUID()
       : undefined;
-    const proposalSourceGitCommitSha = proposalId
+    const currentStreamProposalSourceIdentity = proposalId
       && streamProposalSourceGitCommitShaAtStart
       && validRootPath
-      && await captureCleanGitSourceCommitSha(validRootPath) === streamProposalSourceGitCommitShaAtStart
+      ? await captureCleanGitSourceCommitSha(validRootPath)
+      : null;
+    const streamProposalSourceGitIdentity = currentStreamProposalSourceIdentity
+      && streamProposalSourceGitCommitShaAtStart
+      && currentStreamProposalSourceIdentity.commitSha === streamProposalSourceGitCommitShaAtStart.commitSha
+      && currentStreamProposalSourceIdentity.projectRootRelativePath === streamProposalSourceGitCommitShaAtStart.projectRootRelativePath
       ? streamProposalSourceGitCommitShaAtStart
       : null;
     const executionPlan = buildActiveTaskExecutionPlan({
@@ -13138,8 +13151,11 @@ export async function handleChatStream(req: Request, res: Response) {
             operationId,
             proposalId: proposalId ?? null,
             buildPlanMessageId: effectiveBuildPlanMessageId ?? null,
-            ...(proposalSourceGitCommitSha
-              ? { sourceGitCommitSha: proposalSourceGitCommitSha }
+            ...(streamProposalSourceGitIdentity
+              ? {
+                  sourceGitCommitSha: streamProposalSourceGitIdentity.commitSha,
+                  sourceProjectRootRelativePath: streamProposalSourceGitIdentity.projectRootRelativePath,
+                }
               : {}),
           },
         });

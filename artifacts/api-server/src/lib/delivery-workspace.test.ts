@@ -32,11 +32,12 @@ describe("delivery workspaces", () => {
       execFileSync("git", ["-C", fixture, "commit", "--quiet", "-m", "fixture"]);
 
       const capturedSha = await captureCleanGitSourceCommitSha(fixture);
-      expect(capturedSha).toMatch(/^(?:[a-f0-9]{40}|[a-f0-9]{64})$/);
+      expect(capturedSha?.commitSha).toMatch(/^(?:[a-f0-9]{40}|[a-f0-9]{64})$/);
+      expect(capturedSha?.projectRootRelativePath).toBe(".");
       await writeFile(join(fixture, "source.txt"), "changed source\n");
       await expect(captureCleanGitSourceCommitSha(fixture)).resolves.toBeNull();
       await writeFile(join(fixture, "source.txt"), "tracked source\n");
-      await expect(captureCleanGitSourceCommitSha(fixture)).resolves.toBe(capturedSha);
+      await expect(captureCleanGitSourceCommitSha(fixture)).resolves.toEqual(capturedSha);
       await writeFile(join(fixture, "untracked.txt"), "untracked\n");
       await expect(captureCleanGitSourceCommitSha(fixture)).resolves.toBeNull();
     } finally {
