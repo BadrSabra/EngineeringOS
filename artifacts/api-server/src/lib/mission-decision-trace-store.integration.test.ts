@@ -183,6 +183,7 @@ function makeSelectedTrace(input: {
   worldStateRevision: string;
   worldFactId: string;
   worldFactHash: string;
+  newPlanRevision?: string | null;
 }): MissionDecisionTrace {
   const baseContext = input.trace.context;
   const context: MissionDecisionContext = MissionDecisionContextSchema.parse({
@@ -269,7 +270,7 @@ function makeSelectedTrace(input: {
     evaluatorVersion: evaluated.policyVersion,
     modelProvenance: null,
     priorPlanRevision: context.identity.priorPlanRevision,
-    newPlanRevision: null,
+    newPlanRevision: input.newPlanRevision ?? null,
     dispatchRef: null,
     decidedAt: now.toISOString(),
   };
@@ -453,6 +454,7 @@ describe("Mission decision trace persistence", () => {
       worldStateRevision: fixture.worldStateRevision,
       worldFactId: fixture.worldFactId,
       worldFactHash: fixture.worldFactHash,
+      newPlanRevision: "applied-plan-revision",
     });
     await persistMissionDecisionTrace(selectedTrace);
 
@@ -492,6 +494,10 @@ describe("Mission decision trace persistence", () => {
       referenceId: "applied-plan-revision",
       occurredAt: new Date(now.getTime() + 2_000),
     };
+    await expect(appendMissionDecisionLifecycleEvent({
+      ...planAppliedEvent,
+      referenceId: "wrong-proposed-plan-revision",
+    })).rejects.toMatchObject({ code: "decision_event_reference_invalid" });
     await expect(db.transaction(async (tx) => {
       await appendMissionDecisionLifecycleEventInTransaction(tx, planAppliedEvent);
       throw new Error("rollback event");

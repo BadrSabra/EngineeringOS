@@ -173,7 +173,7 @@ function assertInitialTrace(trace: MissionDecisionTrace): void {
     actualStages.length !== expectedStages.length
     || actualStages.some((stage, index) => stage !== expectedStages[index])
     || trace.dispatchRef !== null
-    || trace.newPlanRevision !== null
+    || (trace.result.kind !== "SELECTED" && trace.newPlanRevision !== null)
   ) {
     throw new MissionDecisionTraceStoreError("invalid_initial_trace");
   }
@@ -968,6 +968,10 @@ export async function appendMissionDecisionLifecycleEventInTransaction(
       if (
         !input.referenceId
         || input.referenceId === trace.priorPlanRevision
+        || (
+          trace.newPlanRevision !== null
+          && input.referenceId !== trace.newPlanRevision
+        )
         || !appliedPlanExists
         || (typeof activePlan === "string" && activePlan !== input.referenceId)
       ) {
@@ -1206,6 +1210,13 @@ export async function getMissionDecisionTrace(
       ) {
         throw new MissionDecisionTraceStoreError("decision_approval_binding_invalid");
       }
+    }
+    if (
+      current.stage === "PLAN_APPLIED"
+      && trace.newPlanRevision !== null
+      && current.referenceId !== trace.newPlanRevision
+    ) {
+      throw new MissionDecisionTraceStoreError("decision_event_reference_invalid");
     }
     if (
       current.stage === "EXECUTED"
