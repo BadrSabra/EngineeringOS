@@ -6,7 +6,10 @@ import {
   aiAgentObservationsTable,
   aiExecutionAcceptancesTable,
   aiExecutionsTable,
+  aiGoalDependenciesTable,
   aiGoalsTable,
+  aiMissionDecisionDispatchBatchesTable,
+  aiMissionDecisionDispatchItemsTable,
   aiMissionDecisionEventsTable,
   aiMissionDecisionTracesTable,
   aiMissionsTable,
@@ -58,7 +61,11 @@ export class MissionDecisionTraceStoreError extends Error {
       | "decision_event_order_invalid"
       | "decision_event_reference_invalid"
       | "decision_event_conflict"
-      | "decision_approval_binding_invalid",
+      | "decision_approval_binding_invalid"
+      | "decision_dispatch_batch_invalid"
+      | "decision_dispatch_batch_conflict"
+      | "decision_dispatch_batch_empty"
+      | "decision_dispatch_roots_mismatch",
   ) {
     super(code);
     this.name = "MissionDecisionTraceStoreError";
@@ -84,6 +91,65 @@ function eventHash(input: {
     stage: input.stage,
     referenceId: input.referenceId,
     occurredAt: input.occurredAt.toISOString(),
+  }));
+}
+
+const MISSION_GOAL_RUN_STATUSES = [
+  "scheduled",
+  "waiting",
+  "blocked",
+  "completed",
+  "conflict",
+] as const;
+
+export type MissionDecisionDispatchRunStatus = typeof MISSION_GOAL_RUN_STATUSES[number];
+
+export type MissionDecisionDispatchBatchItemInput = {
+  position: number;
+  goalId: string;
+  executionId: string | null;
+  runStatus: MissionDecisionDispatchRunStatus;
+};
+
+export type PersistMissionDecisionDispatchBatchInput = {
+  decisionId: string;
+  planRevision: string;
+  occurredAt: Date;
+  items: MissionDecisionDispatchBatchItemInput[];
+};
+
+function orderedDispatchItems(
+  items: readonly MissionDecisionDispatchBatchItemInput[],
+): MissionDecisionDispatchBatchItemInput[] {
+  return [...items].sort((left, right) => left.position - right.position);
+}
+
+function dispatchBatchId(
+  decisionId: string,
+  planRevision: string,
+  items: readonly MissionDecisionDispatchBatchItemInput[],
+): string {
+  const rootGoalIds = orderedDispatchItems(items).map(({ goalId }) => goalId);
+  return `mission-dispatch-batch:${deterministicHash(JSON.stringify({
+    decisionId,
+    planRevision,
+    rootGoalIds,
+  }))}`;
+}
+
+function dispatchBatchManifestHash(input: {
+  decisionId: string;
+  projectId: string;
+  missionId: string;
+  planRevision: string;
+  items: readonly MissionDecisionDispatchBatchItemInput[];
+}): string {
+  return deterministicHash(JSON.stringify({
+    decisionId: input.decisionId,
+    projectId: input.projectId,
+    missionId: input.missionId,
+    planRevision: input.planRevision,
+    items: orderedDispatchItems(input.items),
   }));
 }
 
@@ -460,6 +526,315 @@ export async function persistMissionDecisionTrace(
   return db.transaction((tx) => persistMissionDecisionTraceInTransaction(tx, input));
 }
 
+async function planRootGoalIds(
+  tx: MissionDecisionTransaction,
+  input: { missionId: string; projectId: string; planRevision: string },
+): Promise<string[]> {
+  const planRevisionJson = JSON.stringify({ planRevision: { hash: input.planRevision } });
+  const planGoals = await tx.select({
+    id: aiGoalsTable.id,
+  }).from(aiGoalsTable)
+    .where(and(
+      eq(aiGoalsTable.missionId, input.missionId),
+      eq(aiGoalsTable.projectId, input.projectId),
+      sql`${aiGoalsTable.outcomeContract} @> ${planRevisionJson}::jsonb`,
+      sql`${aiGoalsTable.successCriteria} @> ${planRevisionJson}::jsonb`,
+    ))
+    .orderBy(asc(aiGoalsTable.id))
+    .for("update");
+  const dependencies = await tx.select({
+    goalId: aiGoalDependenciesTable.goalId,
+  }).from(aiGoalDependenciesTable)
+    .where(and(
+      eq(aiGoalDependenciesTable.missionId, input.missionId),
+      eq(aiGoalDependenciesTable.projectId, input.projectId),
+      eq(aiGoalDependenciesTable.planRevision, input.planRevision),
+    ))
+    .orderBy(asc(aiGoalDependenciesTable.goalId), asc(aiGoalDependenciesTable.dependsOnGoalId))
+    .for("update");
+  const dependentGoalIds = new Set(dependencies.map(({ goalId }) => goalId));
+  return planGoals.filter(({ id }) => !dependentGoalIds.has(id)).map(({ id }) => id);
+}
+
+async function assertStoredMissionDecisionDispatchBatch(
+  tx: MissionDecisionTransaction,
+  trace: MissionDecisionTrace,
+  input: { dispatchBatchId: string; planRevision: string },
+): Promise<{
+  dispatchBatchId: string;
+  state: "dispatched" | "partial";
+  rootCount: number;
+  manifestHash: string;
+  createdAt: Date;
+}> {
+  const identity = trace.context.identity;
+  const [batch] = await tx.select().from(aiMissionDecisionDispatchBatchesTable)
+    .where(eq(aiMissionDecisionDispatchBatchesTable.dispatchBatchId, input.dispatchBatchId))
+    .for("update");
+  if (
+    !batch
+    || batch.decisionId !== trace.decisionId
+    || batch.projectId !== identity.projectId
+    || batch.missionId !== identity.missionId
+    || batch.planRevision !== input.planRevision
+    || !["dispatched", "partial"].includes(batch.state)
+  ) {
+    throw new MissionDecisionTraceStoreError("decision_dispatch_batch_invalid");
+  }
+  const items = await tx.select().from(aiMissionDecisionDispatchItemsTable)
+    .where(eq(aiMissionDecisionDispatchItemsTable.dispatchBatchId, batch.dispatchBatchId))
+    .orderBy(asc(aiMissionDecisionDispatchItemsTable.position))
+    .for("update");
+  if (items.length !== batch.rootCount || items.some(({ position }, index) => position !== index)) {
+    throw new MissionDecisionTraceStoreError("decision_dispatch_batch_invalid");
+  }
+  const expectedRoots = await planRootGoalIds(tx, {
+    missionId: identity.missionId,
+    projectId: identity.projectId,
+    planRevision: input.planRevision,
+  });
+  const itemGoalIds = items.map(({ goalId }) => goalId);
+  if (
+    expectedRoots.length !== itemGoalIds.length
+    || expectedRoots.some((goalId) => !itemGoalIds.includes(goalId))
+  ) {
+    throw new MissionDecisionTraceStoreError("decision_dispatch_roots_mismatch");
+  }
+  const normalizedItems: MissionDecisionDispatchBatchItemInput[] = items.map((item) => ({
+    position: item.position,
+    goalId: item.goalId,
+    executionId: item.executionId,
+    runStatus: item.runStatus as MissionDecisionDispatchRunStatus,
+  }));
+  const expectedId = dispatchBatchId(trace.decisionId, input.planRevision, normalizedItems);
+  const expectedHash = dispatchBatchManifestHash({
+    decisionId: trace.decisionId,
+    projectId: identity.projectId,
+    missionId: identity.missionId,
+    planRevision: input.planRevision,
+    items: normalizedItems,
+  });
+  const dispatchedCount = items.filter(({ executionId }) => executionId !== null).length;
+  if (
+    expectedId !== batch.dispatchBatchId
+    || expectedHash !== batch.manifestHash
+    || batch.state !== (dispatchedCount === items.length ? "dispatched" : "partial")
+    || dispatchedCount === 0
+  ) {
+    throw new MissionDecisionTraceStoreError("decision_dispatch_batch_invalid");
+  }
+  for (const item of items) {
+    if (!item.executionId) continue;
+    const [execution] = await tx.select().from(aiExecutionsTable)
+      .where(and(
+        eq(aiExecutionsTable.id, item.executionId),
+        eq(aiExecutionsTable.projectId, identity.projectId),
+        eq(aiExecutionsTable.goalId, item.goalId),
+      ))
+      .for("update");
+    if (!execution || execution.id === identity.sourceExecutionId) {
+      throw new MissionDecisionTraceStoreError("decision_dispatch_batch_invalid");
+    }
+  }
+  return {
+    dispatchBatchId: batch.dispatchBatchId,
+    state: batch.state as "dispatched" | "partial",
+    rootCount: batch.rootCount,
+    manifestHash: batch.manifestHash,
+    createdAt: batch.createdAt,
+  };
+}
+
+/**
+ * Persist one immutable dispatch manifest for every root Goal in the applied
+ * revision. A successful root must name the exact persisted Execution; labels
+ * and Goal IDs alone are never treated as dispatch proof.
+ */
+export async function persistMissionDecisionDispatchBatchInTransaction(
+  tx: MissionDecisionTransaction,
+  input: PersistMissionDecisionDispatchBatchInput,
+): Promise<{
+  kind: "inserted" | "already_recorded";
+  dispatchBatchId: string;
+  state: "dispatched" | "partial";
+  rootCount: number;
+  manifestHash: string;
+  createdAt: Date;
+}> {
+  const [candidateDecision] = await tx.select().from(aiMissionDecisionTracesTable)
+    .where(eq(aiMissionDecisionTracesTable.decisionId, input.decisionId));
+  if (!candidateDecision) throw new MissionDecisionTraceStoreError("decision_trace_missing");
+  const candidateTrace = MissionDecisionTraceSchema.parse(candidateDecision.trace);
+  if (candidateTrace.result.kind !== "SELECTED") {
+    throw new MissionDecisionTraceStoreError("decision_event_order_invalid");
+  }
+  const identity = candidateTrace.context.identity;
+  const [mission] = await tx.select().from(aiMissionsTable)
+    .where(and(
+      eq(aiMissionsTable.id, identity.missionId),
+      eq(aiMissionsTable.projectId, identity.projectId),
+    ))
+    .for("update");
+  if (!mission) throw new MissionDecisionTraceStoreError("decision_mission_mismatch");
+  const [sourceGoal] = await tx.select().from(aiGoalsTable)
+    .where(and(
+      eq(aiGoalsTable.id, identity.goalId),
+      eq(aiGoalsTable.missionId, identity.missionId),
+      eq(aiGoalsTable.projectId, identity.projectId),
+    ))
+    .for("update");
+  if (!sourceGoal) throw new MissionDecisionTraceStoreError("decision_goal_mismatch");
+  const [decision] = await tx.select().from(aiMissionDecisionTracesTable)
+    .where(eq(aiMissionDecisionTracesTable.decisionId, input.decisionId))
+    .for("update");
+  if (!decision) throw new MissionDecisionTraceStoreError("decision_trace_missing");
+  const trace = MissionDecisionTraceSchema.parse(decision.trace);
+  if (
+    trace.result.kind !== "SELECTED"
+    || trace.context.identity.missionId !== identity.missionId
+    || trace.context.identity.goalId !== identity.goalId
+    || trace.context.identity.projectId !== identity.projectId
+  ) {
+    throw new MissionDecisionTraceStoreError("decision_identity_conflict");
+  }
+  const events = await tx.select().from(aiMissionDecisionEventsTable)
+    .where(eq(aiMissionDecisionEventsTable.decisionId, input.decisionId))
+    .orderBy(asc(aiMissionDecisionEventsTable.sequence));
+  const appliedPlanRevision = events.find(({ stage }) => stage === "PLAN_APPLIED")?.referenceId;
+  if (
+    !appliedPlanRevision
+    || appliedPlanRevision !== input.planRevision
+    || record(mission.autonomyPolicy).activePlanRevision !== input.planRevision
+  ) {
+    throw new MissionDecisionTraceStoreError("decision_event_reference_invalid");
+  }
+
+  const items = orderedDispatchItems(input.items);
+  if (
+    items.length === 0
+    || items.length > 64
+    || items.some((item, index) =>
+      item.position !== index
+      || !item.goalId.trim()
+      || !MISSION_GOAL_RUN_STATUSES.includes(item.runStatus)
+      || ((item.runStatus === "scheduled" || item.runStatus === "completed") && !item.executionId)
+    )
+    || new Set(items.map(({ goalId }) => goalId)).size !== items.length
+    || new Set(items.flatMap(({ executionId }) => executionId ? [executionId] : [])).size
+      !== items.filter(({ executionId }) => executionId !== null).length
+  ) {
+    throw new MissionDecisionTraceStoreError("decision_dispatch_batch_invalid");
+  }
+  const expectedRoots = await planRootGoalIds(tx, {
+    missionId: identity.missionId,
+    projectId: identity.projectId,
+    planRevision: input.planRevision,
+  });
+  if (
+    expectedRoots.length !== items.length
+    || expectedRoots.some((goalId) => !items.some((item) => item.goalId === goalId))
+  ) {
+    throw new MissionDecisionTraceStoreError("decision_dispatch_roots_mismatch");
+  }
+  const dispatchedCount = items.filter(({ executionId }) => executionId !== null).length;
+  if (dispatchedCount === 0) {
+    throw new MissionDecisionTraceStoreError("decision_dispatch_batch_empty");
+  }
+  for (const item of items) {
+    if (!item.executionId) continue;
+    const [execution] = await tx.select().from(aiExecutionsTable)
+      .where(and(
+        eq(aiExecutionsTable.id, item.executionId),
+        eq(aiExecutionsTable.projectId, identity.projectId),
+        eq(aiExecutionsTable.goalId, item.goalId),
+      ))
+      .for("update");
+    if (!execution || execution.id === identity.sourceExecutionId) {
+      throw new MissionDecisionTraceStoreError("decision_dispatch_batch_invalid");
+    }
+  }
+
+  const state = dispatchedCount === items.length ? "dispatched" as const : "partial" as const;
+  const createdAt = input.occurredAt;
+  const batchId = dispatchBatchId(trace.decisionId, input.planRevision, items);
+  const manifestHash = dispatchBatchManifestHash({
+    decisionId: trace.decisionId,
+    projectId: identity.projectId,
+    missionId: identity.missionId,
+    planRevision: input.planRevision,
+    items,
+  });
+  const [inserted] = await tx.insert(aiMissionDecisionDispatchBatchesTable).values({
+    dispatchBatchId: batchId,
+    decisionId: trace.decisionId,
+    projectId: identity.projectId,
+    missionId: identity.missionId,
+    planRevision: input.planRevision,
+    manifestHash,
+    state,
+    rootCount: items.length,
+    createdAt,
+  }).onConflictDoNothing()
+    .returning({ dispatchBatchId: aiMissionDecisionDispatchBatchesTable.dispatchBatchId });
+  if (inserted) {
+    await tx.insert(aiMissionDecisionDispatchItemsTable).values(items.map((item) => ({
+      dispatchBatchId: batchId,
+      position: item.position,
+      goalId: item.goalId,
+      executionId: item.executionId,
+      runStatus: item.runStatus,
+    })));
+  } else {
+    const [existing] = await tx.select().from(aiMissionDecisionDispatchBatchesTable)
+      .where(and(
+        eq(aiMissionDecisionDispatchBatchesTable.decisionId, trace.decisionId),
+        eq(aiMissionDecisionDispatchBatchesTable.planRevision, input.planRevision),
+      ))
+      .for("update");
+    if (
+      !existing
+      || existing.dispatchBatchId !== batchId
+      || existing.manifestHash !== manifestHash
+    ) {
+      throw new MissionDecisionTraceStoreError("decision_dispatch_batch_conflict");
+    }
+  }
+  const persisted = await assertStoredMissionDecisionDispatchBatch(tx, trace, {
+    dispatchBatchId: batchId,
+    planRevision: input.planRevision,
+  });
+  return {
+    kind: inserted ? "inserted" : "already_recorded",
+    ...persisted,
+  };
+}
+
+export async function persistMissionDecisionDispatchBatch(
+  input: PersistMissionDecisionDispatchBatchInput,
+): Promise<{
+  kind: "inserted" | "already_recorded";
+  dispatchBatchId: string;
+  state: "dispatched" | "partial";
+  rootCount: number;
+  manifestHash: string;
+  createdAt: Date;
+}> {
+  return db.transaction((tx) => persistMissionDecisionDispatchBatchInTransaction(tx, input));
+}
+
+export async function getMissionDecisionDispatchBatch(dispatchBatchId: string): Promise<{
+  batch: typeof aiMissionDecisionDispatchBatchesTable.$inferSelect;
+  items: Array<typeof aiMissionDecisionDispatchItemsTable.$inferSelect>;
+} | null> {
+  const [batch] = await db.select().from(aiMissionDecisionDispatchBatchesTable)
+    .where(eq(aiMissionDecisionDispatchBatchesTable.dispatchBatchId, dispatchBatchId));
+  if (!batch) return null;
+  const items = await db.select().from(aiMissionDecisionDispatchItemsTable)
+    .where(eq(aiMissionDecisionDispatchItemsTable.dispatchBatchId, dispatchBatchId))
+    .orderBy(asc(aiMissionDecisionDispatchItemsTable.position));
+  return { batch, items };
+}
+
 /**
  * Append a lifecycle pointer under Mission -> Goal -> Decision locks. Event
  * references are provenance only and never satisfy a proof, authorization, or
@@ -602,6 +977,12 @@ export async function appendMissionDecisionLifecycleEventInTransaction(
     if (input.stage === "DISPATCHED") {
       const identity = trace.context.identity;
       const appliedPlanRevision = events.find(({ stage }) => stage === "PLAN_APPLIED")?.referenceId;
+      if (input.referenceId!.startsWith("mission-dispatch-batch:")) {
+        await assertStoredMissionDecisionDispatchBatch(tx, trace, {
+          dispatchBatchId: input.referenceId!,
+          planRevision: appliedPlanRevision ?? "",
+        });
+      } else {
       const [candidateExecution] = await tx.select({
         goalId: aiExecutionsTable.goalId,
       }).from(aiExecutionsTable)
@@ -638,9 +1019,17 @@ export async function appendMissionDecisionLifecycleEventInTransaction(
       ) {
         throw new MissionDecisionTraceStoreError("decision_event_reference_invalid");
       }
+      }
     }
-    if (input.stage === "EXECUTED" && input.referenceId !== last.referenceId) {
-      throw new MissionDecisionTraceStoreError("decision_event_reference_invalid");
+    if (input.stage === "EXECUTED") {
+      if (last.stage === "DISPATCHED" && last.referenceId?.startsWith("mission-dispatch-batch:")) {
+        // A root dispatch batch is not a full-plan completion manifest. Do not
+        // let its aggregate pointer stand in for every later Goal outcome.
+        throw new MissionDecisionTraceStoreError("decision_event_order_invalid");
+      }
+      if (input.referenceId !== last.referenceId) {
+        throw new MissionDecisionTraceStoreError("decision_event_reference_invalid");
+      }
     }
     if (input.stage === "ACCEPTED") {
       const executedExecutionId = last?.stage === "EXECUTED" ? last.referenceId : null;
