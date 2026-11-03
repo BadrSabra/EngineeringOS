@@ -22,6 +22,7 @@ import {
   loadMissionWorldStatePlanningRead,
 } from "./mission-world-state-planning-read.js";
 import { executionProfileForMissionStep } from "./mission-execution-profile.js";
+import { getMissionDecisionTrace } from "./mission-decision-trace-store.js";
 
 const projectIds: string[] = [];
 const MISSION_INTENT = "Inspect the source, then fix the blocking issue.";
@@ -51,6 +52,7 @@ type ReplanEvidenceFixture = {
   environmentRevision: string;
   now: Date;
   outcomeContract: {
+    planRevision: { hash: string };
     acceptance: {
       failureDiagnosis: typeof FAILURE_DIAGNOSIS;
       executionId: string;
@@ -86,6 +88,7 @@ async function createReplanEvidenceFixture(): Promise<ReplanEvidenceFixture> {
     .update(JSON.stringify(observedValue))
     .digest("hex");
   const outcomeContract: ReplanEvidenceFixture["outcomeContract"] = {
+    planRevision: { hash: "failed-plan-revision" },
     acceptance: {
       failureDiagnosis: FAILURE_DIAGNOSIS,
       executionId,
@@ -783,6 +786,23 @@ describe("DB-backed automatic Mission replan evidence boundary", () => {
         planRevision?: Record<string, unknown>;
       }).planRevision)
       .find((snapshot) => snapshot?.hash === result.revision);
+    expect(typeof planSnapshot?.decisionTraceId).toBe("string");
+    if (typeof planSnapshot?.decisionTraceId !== "string") return;
+    const storedTrace = await getMissionDecisionTrace(planSnapshot.decisionTraceId);
+    expect(storedTrace?.trace.newPlanRevision).toBe(result.revision);
+    const selectedProjection = (planSnapshot.strategyDecision as {
+      selectedStrategyId: string;
+      candidatePlanProjections: Array<{
+        strategyId: string;
+        actions: Array<{ approvalRequired: boolean }>;
+      }>;
+    }).candidatePlanProjections.find(
+      ({ strategyId }) => strategyId === (planSnapshot.strategyDecision as { selectedStrategyId: string }).selectedStrategyId,
+    );
+    expect(selectedProjection).toBeDefined();
+    expect(storedTrace?.events.some(({ stage }) => stage === "PLAN_APPLIED")).toBe(
+      !selectedProjection?.actions.some(({ approvalRequired }) => approvalRequired),
+    );
     expect(planSnapshot).toMatchObject({
       strategyDecision: {
         schemaVersion: 1,

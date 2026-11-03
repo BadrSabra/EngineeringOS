@@ -257,12 +257,15 @@ export async function buildMissionStrategyDecisionTraceInTransaction(
     !execution
     || !acceptance
     || !episode
-    || execution.status !== "failed"
-    || acceptance.outcome !== "FAILED"
-    || acceptance.terminalStatus !== "failed"
-    || acceptance.reasonCode !== source.failureReasonCode
+    || !["failed", "interrupted", "completed"].includes(execution.status)
+    || !["FAILED", "INTERRUPTED"].includes(acceptance.outcome)
+    || !["failed", "interrupted"].includes(acceptance.terminalStatus)
+    || (
+      decision.scenario === "validator_recovery"
+      && acceptance.reasonCode !== source.failureReasonCode
+    )
   ) {
-    throw new Error("strategy trace source does not match durable failed execution evidence");
+    throw new Error("strategy trace source does not match durable terminal execution evidence");
   }
   const projectRevision = execution.baseRevision ?? null;
   const evidenceRefs = [
@@ -353,7 +356,7 @@ export async function buildMissionStrategyDecisionTraceInTransaction(
       sourceAcceptanceId: acceptanceId,
       priorPlanRevision: source.priorPlanRevision,
       projectRevision,
-      worldStateRevision: source.worldStatePlanningReadRevision ?? null,
+      worldStateRevision: null,
       environmentRevision: null,
     },
     objectiveCode: "recover_current_goal",
@@ -419,7 +422,11 @@ export async function buildMissionStrategyDecisionTraceInTransaction(
       { stage: "EVALUATED" as const, at: new Date(decidedAt.getTime() + 1).toISOString(), referenceId: null },
       { stage: "SELECTED" as const, at: new Date(decidedAt.getTime() + 2).toISOString(), referenceId: selectedAlternative.strategyId },
     ],
-    uncertaintyCodes: ["legacy_heuristic_selector", "formal_dimension_scores_unknown"],
+    uncertaintyCodes: [
+      "legacy_heuristic_selector",
+      "formal_dimension_scores_unknown",
+      ...(source.worldStatePlanningReadRevision ? ["world_state_revision_not_exactly_bound"] : []),
+    ],
     decisionConfidence: unknownConfidence,
     policyVersion: decision.policyVersion,
     evaluatorVersion: "legacy-selector-unscored",
