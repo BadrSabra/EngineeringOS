@@ -3,6 +3,7 @@ import type { ExecutionPlan } from "./model-selection/execution-plan.js";
 import type { CacheMode } from "./model-selection/execution-plan.js";
 import type { SliceId } from "./context-runtime/context-object.js";
 import type { ContextObject } from "./context-runtime/context-object.js";
+import { safeErrorTag } from "./errors.js";
 
 const CONTEXT_CACHE_TTL_MS = 30_000;
 export type ContextCacheRuntime = {
@@ -182,7 +183,7 @@ export function startContextInvalidationChannel(pool: NotifyPool): { stop: () =>
       });
 
       client.on("error", (err) => {
-        console.warn(JSON.stringify({ scope: "ctx-cache-channel", code: "LISTEN_ERROR", error: String(err) }));
+        console.warn(JSON.stringify({ scope: "ctx-cache-channel", code: "LISTEN_ERROR", errorType: safeErrorTag(err) }));
         disconnect();
       });
 
@@ -199,7 +200,7 @@ export function startContextInvalidationChannel(pool: NotifyPool): { stop: () =>
         try { acquired.removeAllListeners(); } catch { /* ignore */ }
         try { acquired.release(); } catch { /* ignore */ }
       }
-      console.warn(JSON.stringify({ scope: "ctx-cache-channel", code: "CONNECT_FAILED", error: String(err) }));
+      console.warn(JSON.stringify({ scope: "ctx-cache-channel", code: "CONNECT_FAILED", errorType: safeErrorTag(err) }));
       scheduleReconnect();
     }
   }

@@ -51,7 +51,7 @@
 - [Adaptive chat acceptance](adaptive-chat-acceptance.md) — fallback planning must be verified through chat(), scoped reads, bounded missing-evidence recovery, and final claim gating.
 - [Execution proof projection](execution-proof-projection.md) — accepted proof and trajectory metrics stay bounded inside the existing acceptance projection; raw traces remain non-durable.
 - [Contract telemetry separation](contract-telemetry-separation.md) — provider success is not contract acceptance; retain model-level claim, citation, recovery, failure-kind, and malformed-structured-output metrics separately.
-- [Runtime restart validation](runtime-restart-validation.md) — API sessions use compiled output; restart the managed workflow before drawing conclusions about source fixes.
+- [Runtime restart validation](runtime-restart-validation.md) — API restarts load compiled code but also start catalog refresh and an uncounted session-memory expiry sweep.
 - [Dashboard authenticated smoke](dashboard-auth-smoke.md) — real Clerk API probes must use the dashboard-origin proxy so the handoff cookie reaches the protected API.
 - [Durable evidence boundary](durable-evidence-boundary.md) — version reusable reads; legacy rows without span metadata cannot imply whole-file completeness.
 - [Execution acceptance contract](execution-acceptance-contract.md) — recovery must derive proof requirements from the persisted request, never optional in-memory evidence parameters.

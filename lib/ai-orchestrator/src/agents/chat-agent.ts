@@ -76,6 +76,7 @@ import type { ModelCapability } from "../openrouter/model-catalog.js";
 import {
   GroqClientError,
   isRateLimitFailure,
+  safeErrorTag,
   type AgentErrorCode,
   type QualityFailure,
 } from "../errors.js";
@@ -3229,7 +3230,7 @@ export async function runCapabilityMicroProbes(opts: {
           scope: "chat-agent",
           code: "CAPABILITY_MICRO_PROBE_RETRY",
           group: group.name,
-          reason: error instanceof Error ? error.message : String(error),
+          errorType: safeErrorTag(error),
         }));
         didRetry = true;
         result = await invoke(true);
@@ -3265,7 +3266,7 @@ export async function runCapabilityMicroProbes(opts: {
             scope: "chat-agent",
             code: "CAPABILITY_MICRO_PROBE_RETRY_FAILED",
             group: group.name,
-            reason: error instanceof Error ? error.message : String(error),
+            errorType: safeErrorTag(error),
           }));
         }
       }
@@ -3297,7 +3298,7 @@ export async function runCapabilityMicroProbes(opts: {
             scope: "chat-agent",
             code: "CAPABILITY_MICRO_PROBE_RETRY_FAILED",
             group: group.name,
-            reason: error instanceof Error ? error.message : String(error),
+            errorType: safeErrorTag(error),
           }));
         }
       }
@@ -3464,7 +3465,7 @@ export async function runCapabilityMicroProbes(opts: {
         scope: "chat-agent",
         code: "CAPABILITY_MICRO_PROBE_FAILED",
         group: group.name,
-        reason: error instanceof Error ? error.message : String(error),
+        errorType: safeErrorTag(error),
       }));
       opts.onProgress?.({
         group: group.name,
@@ -4621,7 +4622,7 @@ async function readForensicPrimaryTarget(
   } catch (err) {
     return {
       ok: false,
-      reason: `primary evidence target read failed: ${err instanceof Error ? err.message : "unknown"}`,
+      reason: `primary evidence target read failed: ${safeErrorTag(err)}`,
     };
   }
 }
@@ -7072,7 +7073,7 @@ export async function chat(opts: {
       emitExecutionNodes();
     } catch (err) {
       recordExecutionDiagnostic("EXECUTION_NODE_TRANSITION_BLOCKED", [
-        err instanceof Error ? err.message : String(err),
+        safeErrorTag(err),
       ]);
     }
   };
@@ -9245,7 +9246,7 @@ export async function chat(opts: {
         JSON.stringify({
           scope: "chat-agent",
           code: "HIERARCHICAL_EXECUTOR_FALLBACK",
-          reason: hierarchicalErr instanceof Error ? hierarchicalErr.message : String(hierarchicalErr),
+        errorType: safeErrorTag(hierarchicalErr),
         }),
       );
     }
@@ -11740,7 +11741,7 @@ export async function chat(opts: {
           scope: "chat-agent",
           code: "FORENSIC_STREAM_BUFFER_FAILED",
           provider: providerId,
-          reason: String(streamErr),
+          errorType: safeErrorTag(streamErr),
         }),
       );
     }
@@ -11998,13 +11999,11 @@ export async function chat(opts: {
           if (projectOrientationMode) {
             recoveryFailureKind = classifyRecoveryFailure({
               kind: "provider",
-              code: error instanceof Error ? error.message : String(error),
+              code: error instanceof GroqClientError ? error.code : "unknown",
             });
           }
           recordExecutionDiagnostic("EXECUTION_JSON_CORRECTION_RETRY_FAILED", [
-            `direct-stream correction provider failure: ${
-              error instanceof Error ? error.message : String(error)
-            }`,
+            `direct-stream correction provider failure type: ${safeErrorTag(error)}`,
           ]);
         }
       }
@@ -12405,7 +12404,12 @@ export async function chat(opts: {
     } catch (streamErr) {
       // Streaming failed — fall through to the non-streaming parse below.
       console.warn(
-        JSON.stringify({ scope: "chat-agent", code: "STREAM_FALLBACK", provider: providerId, reason: String(streamErr) }),
+        JSON.stringify({
+          scope: "chat-agent",
+          code: "STREAM_FALLBACK",
+          provider: providerId,
+          errorType: safeErrorTag(streamErr),
+        }),
       );
       // GAP-A2: If we already sent partial deltas to the caller, signal a
       // reset so the client can discard the incomplete bubble before the
@@ -13033,7 +13037,7 @@ export async function chat(opts: {
       if (projectOrientationMode) {
         recoveryFailureKind = classifyRecoveryFailure({
           kind: "provider",
-          code: err instanceof Error ? err.message : String(err),
+          code: err instanceof GroqClientError ? err.code : "unknown",
         });
       }
       const errorCode =
@@ -13072,7 +13076,7 @@ export async function chat(opts: {
         code: "JSON_CORRECTION_RETRY_FAILED",
         provider,
         errorCode,
-        reason: err instanceof Error ? err.message : String(err),
+        errorType: safeErrorTag(err),
       }));
       // Keep the original fallback output — correction is best-effort only.
       if (projectOrientationMode) {
@@ -15276,7 +15280,7 @@ export async function chat(opts: {
       console.warn(JSON.stringify({
         scope: "chat-agent",
         code: "BEHAVIOR_EVIDENCE_RECOVERY_FAILED",
-        reason: error instanceof Error ? error.message : String(error),
+        errorType: safeErrorTag(error),
       }));
     }
   }
@@ -15536,7 +15540,7 @@ export async function chat(opts: {
       console.warn(JSON.stringify({
         scope: "chat-agent",
         code: "CAPABILITY_PROBE_EVIDENCE_RECOVERY_FAILED",
-        reason: error instanceof Error ? error.message : String(error),
+        errorType: safeErrorTag(error),
       }));
       relayAgentStep({
         kind: "diagnostic",

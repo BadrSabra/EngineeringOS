@@ -15,8 +15,11 @@ import {
   deriveProjectOrientationCoverage,
   deriveSourceSelectionRecord,
   hasCompleteProjectOrientationSources,
+  planQuery,
   reconcileProjectOrientationSources,
 } from "../agents/query-planner.js";
+import type { ProjectContext } from "../context-builder.js";
+import type { ProviderStrategy } from "../provider-strategy.js";
 
 // ── vi.hoisted: shared mock state ─────────────────────────────────────────────
 const { mockSearchNodes, mockGetNeighborhood, mockFindFileEntities } = vi.hoisted(() => {
@@ -940,5 +943,30 @@ describe("query-planner — runtime contract validation", () => {
       "subQueries are allowed only for broad plans",
       "compoundParts contains an unsupported kind",
     ]));
+  });
+});
+
+describe("query-planner — safe provider diagnostics", () => {
+  it("does not log raw provider exception text when falling back", async () => {
+    const privateProviderDetail = "synthetic-query-planner-provider-body";
+    const strategy = makeMockStrategy();
+    strategy.call.mockRejectedValueOnce(new Error(privateProviderDetail));
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    let capturedWarnings: unknown[][] = [];
+
+    try {
+      await planQuery({
+        message: "private query planner request",
+        projectContext: makeContext() as unknown as ProjectContext,
+        model: "mock-model",
+        strategy: strategy as unknown as ProviderStrategy,
+      });
+      capturedWarnings = warnSpy.mock.calls;
+    } finally {
+      warnSpy.mockRestore();
+    }
+
+    expect(JSON.stringify(capturedWarnings)).not.toContain(privateProviderDetail);
+    expect(JSON.stringify(capturedWarnings)).toContain("MODEL_ERROR");
   });
 });

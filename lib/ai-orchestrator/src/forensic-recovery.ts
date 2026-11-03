@@ -15,6 +15,7 @@ import {
   isForensicTestSourcePath,
   isPathWithinForensicScope,
 } from "./forensic-source-policy.js";
+import { safeErrorTag } from "./errors.js";
 
 const FindingIdSchema = z.string().regex(/^F-\d+$/, "findingId must use the F-XX format");
 const IMPLEMENTATION_FILE_RE =
@@ -183,8 +184,7 @@ export function mergeForensicRecoveryEnvelopes(
       console.warn(JSON.stringify({
         scope: "forensic-recovery",
         code: "FORENSIC_ENVELOPE_MERGE_CRASH",
-        errorCode: envelopeErr instanceof Error ? envelopeErr.name : "UNKNOWN",
-        errorMessage: envelopeErr instanceof Error ? envelopeErr.message.slice(0, 200) : String(envelopeErr).slice(0, 200),
+        errorType: safeErrorTag(envelopeErr),
       }));
     }
   }

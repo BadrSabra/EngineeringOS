@@ -1,6 +1,6 @@
 ---
 name: Runtime restart validation
-description: API workflow runs compiled output, so source fixes need one workflow restart before live-session conclusions.
+description: API workflow runs compiled output; restart also triggers startup cleanup and free-catalog refresh.
 ---
 
 The running API process serves its compiled bundle; changing orchestrator source does not change an active session until the API workflow is rebuilt and restarted.
@@ -20,3 +20,9 @@ An API workflow marked failed may still have an old server child or listener ali
 **Why:** An API startup reported `EADDRINUSE` while a local health request still succeeded; restarting the managed API workflow replaced the stale process and started cleanly.
 
 **How to apply:** For API port conflicts, verify the listener owner and health endpoint before changing code or starting another server. Restart the exact artifact workflow once, then confirm the replacement process and health response.
+
+A managed API restart also starts the OpenRouter catalog-refresh scheduler and runs the session-memory expiry sweep. The sweep log reports completion without the number of rows affected.
+
+**Why:** A verification restart showed both effects in startup logs; treating restart as operationally read-only would be inaccurate, and an uncounted cleanup can obscure whether expired rows were deleted.
+
+**How to apply:** Before restarting, consider external catalog egress and scheduled persistence cleanup. If cleanup impact matters, capture a safe before/after count or add explicit affected-row telemetry; never claim zero database effects from a restart when the sweep ran.

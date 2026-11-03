@@ -4,7 +4,7 @@ import {
   transitionExecutionNode,
   type ExecutionNode,
 } from "./task-session-state.js";
-import { GroqClientError, isRateLimitFailure } from "./errors.js";
+import { GroqClientError, isRateLimitFailure, safeErrorTag } from "./errors.js";
 import { MAX_REPAIR_ATTEMPTS } from "./tools/execution-tools.js";
 
 export type ExecutionNodeOutcome = {
@@ -176,7 +176,7 @@ async function authorizeNode(
   } catch (error) {
     return {
       allowed: false,
-      reason: error instanceof Error ? error.message : "server-owned operation authorization failed",
+      reason: `server-owned operation authorization failed: ${safeErrorTag(error)}`,
     };
   }
 }
@@ -436,9 +436,7 @@ export async function executeExecutionNodePlan(
             status: "failed" as const,
             detail: error instanceof GroqClientError
               ? `provider failure code: ${error.code}`
-              : error instanceof Error
-                ? error.message
-                : String(error),
+              : `provider failure type: ${safeErrorTag(error)}`,
           },
         };
       }

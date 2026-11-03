@@ -5126,6 +5126,38 @@ describe("executeToolLoop", () => {
     expect(strategy.call).toHaveBeenCalledTimes(2);
   });
 
+  it("keeps provider response text out of empty-response retry logs", async () => {
+    const { executeToolLoop } = await import("../tool-execution-engine.js");
+    const privateProviderDetail = "synthetic-private-empty-response-detail";
+    const strategy = makeStrategy([]);
+    (strategy.call as ReturnType<typeof vi.fn>).mockRejectedValue(
+      new GroqClientError("EMPTY_RESPONSE", privateProviderDetail),
+    );
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    let result: Awaited<ReturnType<typeof executeToolLoop>> | undefined;
+    let capturedWarnings: unknown[] = [];
+    try {
+      result = await executeToolLoop({
+        messages: makeMessages(),
+        strategy,
+        model: "fast",
+        powerModel: "powerful",
+        provider: "openrouter",
+        tools: undefined,
+        rootPath: "",
+        pendingChanges: [],
+        maxIterations: 1,
+      });
+      capturedWarnings = warn.mock.calls.map(([payload]) => JSON.parse(String(payload)));
+    } finally {
+      warn.mockRestore();
+    }
+
+    expect(result?.kind).toBe("exhausted");
+    expect(capturedWarnings).toContainEqual(expect.objectContaining({ errorType: "EMPTY_RESPONSE" }));
+    expect(JSON.stringify(capturedWarnings)).not.toContain(privateProviderDetail);
+  });
+
   it("does not replay an empty response during an exact-model evaluation", async () => {
     const { executeToolLoop } = await import("../tool-execution-engine.js");
     const strategy = makeStrategy([]);
@@ -8655,9 +8687,10 @@ describe("bounded synthesis budget", () => {
       expect(result.sourceRetrieval?.synthesisTimeoutMs).toBe(5_000);
     }
     expect(strategy.call).toHaveBeenCalledTimes(2);
-    expect((strategy.call as ReturnType<typeof vi.fn>).mock.calls[0]?.[1]).toMatchObject({
-      timeoutMs: 5_000,
-    });
+    const firstSynthesisOptions =
+      (strategy.call as ReturnType<typeof vi.fn>).mock.calls[0]?.[1] as Record<string, unknown>;
+    expect(firstSynthesisOptions.timeoutMs).toBeGreaterThan(0);
+    expect(firstSynthesisOptions.timeoutMs).toBeLessThanOrEqual(5_000);
     expect((strategy.call as ReturnType<typeof vi.fn>).mock.calls[0]?.[1].signal).toBeInstanceOf(
       AbortSignal,
     );

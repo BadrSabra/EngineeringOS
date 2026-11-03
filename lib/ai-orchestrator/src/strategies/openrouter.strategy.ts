@@ -21,7 +21,7 @@ import {
   openrouterCompleteStream,
 } from "../openai-compatible-client.js";
 import { assertOpenRouterFreeModel } from "../openrouter/free-model-policy.js";
-import { GroqClientError } from "../errors.js";
+import { GroqClientError, safeErrorTag } from "../errors.js";
 import { refreshDynamicCatalog } from "../openrouter/dynamic-catalog.js";
 import {
   isCircuitOpen,
@@ -186,7 +186,7 @@ export const openrouterStrategy: ProviderStrategy = {
           attemptedModels:
             err instanceof GroqClientError ? err.providerAttemptedModels ?? [failedModel] : [failedModel],
           errorCode: err instanceof GroqClientError ? err.code : "UNKNOWN",
-          errorMessage: err instanceof Error ? err.message : String(err),
+          errorType: safeErrorTag(err),
         }),
       );
       throw err;
@@ -273,7 +273,7 @@ export const openrouterStrategy: ProviderStrategy = {
           provider: "openrouter",
           model: opts.model,
           errorCode: err instanceof GroqClientError ? err.code : "UNKNOWN",
-          errorMessage: err instanceof Error ? err.message : String(err),
+          errorType: safeErrorTag(err),
         }),
       );
       throw err;

@@ -215,6 +215,30 @@ export class GroqClientError extends Error {
 }
 
 /**
+ * Return only a bounded error category for logs and diagnostics.
+ * Never copy provider messages, causes, stacks, prompts, or response bodies.
+ */
+export function safeErrorTag(error: unknown): string {
+  if (error instanceof GroqClientError) return error.code;
+  const safeNativeErrorNames = new Set([
+    "AbortError",
+    "AggregateError",
+    "Error",
+    "EvalError",
+    "RangeError",
+    "ReferenceError",
+    "SyntaxError",
+    "TimeoutError",
+    "TypeError",
+    "URIError",
+  ]);
+  if (error instanceof Error && safeNativeErrorNames.has(error.name)) {
+    return error.name;
+  }
+  return "unknown";
+}
+
+/**
  * A same-provider retry cannot resolve these explicitly broader rate limits.
  * Callers may still hand off to an already-authorized, different provider.
  */

@@ -125,6 +125,23 @@ describe("executeExecutionNodePlan", () => {
     expect(JSON.stringify(result)).toContain("provider failure code: INVALID_TOOL_CALL");
   });
 
+  it("does not persist raw generic exception text from a child", async () => {
+    const privateDetail = "synthetic-private-child-exception";
+    const failureDetails: string[] = [];
+    const result = await executeExecutionNodePlan({
+      nodes: [makeNode("generic-failure", ["src/generic-failure.ts"])],
+      runNode: async () => {
+        throw new Error(privateDetail);
+      },
+      onChange: ({ event, detail }) => {
+        if (event === "failed" && detail) failureDetails.push(detail);
+      },
+    });
+
+    expect(failureDetails).toContain("provider failure type: Error");
+    expect(JSON.stringify(result)).not.toContain(privateDetail);
+  });
+
   it("retries a failed child without preventing later independent work", async () => {
     const attempts: number[] = [];
     const previousFailures: Array<{ attempt: number; detail: string } | undefined> = [];

@@ -20,6 +20,7 @@ import {
   validateGroqDefaultModels,
   type GroqDefaultModelValidation,
 } from "./groq-client.js";
+import { safeErrorTag } from "./errors.js";
 import {
   validateGeminiDefaultModels,
   type GeminiDefaultModelValidation,
@@ -150,7 +151,7 @@ async function notifyStartupValidator(
       JSON.stringify({
         scope: "startup-validator",
         status: "alert_persistence_failed",
-        error: error instanceof Error ? error.message : "unknown error",
+        errorType: safeErrorTag(error),
       }),
     );
   }

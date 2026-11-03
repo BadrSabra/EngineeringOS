@@ -40,6 +40,7 @@ import type { ProjectContext } from "../context-builder.js";
 import type { ProviderStrategy } from "../provider-strategy.js";
 import type { RawMessage } from "../groq-client.js";
 import type { ExecutionLedger } from "../execution-ledger.js";
+import { safeErrorTag } from "../errors.js";
 import { extractMentionedFiles } from "./speculative-prefetch.js";
 import {
   buildCrossFileSemanticTrace,
@@ -1287,7 +1288,7 @@ export async function planQuery(opts: {
           scope: "query-planner",
           code: "MODEL_ERROR",
           model,
-          reason: err instanceof Error ? err.message : String(err),
+          errorType: safeErrorTag(err),
         }),
       );
       return null;

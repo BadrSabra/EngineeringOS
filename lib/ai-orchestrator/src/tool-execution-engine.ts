@@ -17,7 +17,7 @@
 import { createHash } from "node:crypto";
 import { randomUUID } from "node:crypto";
 import { isAbsolute, relative, resolve, sep } from "node:path";
-import { GroqClientError, isRateLimitFailure } from "./errors.js";
+import { GroqClientError, isRateLimitFailure, safeErrorTag } from "./errors.js";
 import type {
   AuditState,
   ForensicDecisionTrace,
@@ -4812,7 +4812,7 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
           code: "EMPTY_RESPONSE_RETRY",
           provider,
           model: callOptions.model ?? model,
-          reason: err.message,
+          errorType: safeErrorTag(err),
         }),
       );
 
@@ -5793,8 +5793,7 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
             to: powerModel,
             provider,
             iter,
-            errorCode: err.code,
-            reason: err.message,
+            errorType: safeErrorTag(err),
           }),
         );
         try {
@@ -5930,8 +5929,7 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
             provider,
             model,
             iter,
-            errorCode: err instanceof GroqClientError ? err.code : "unknown",
-            reason: err instanceof Error ? err.message : String(err),
+            errorType: safeErrorTag(err),
           }),
         );
 
@@ -6223,7 +6221,7 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
             code: "TRUNCATED_FINAL_RETRY_FAILED",
             provider,
             model: result.model || model,
-            error: err instanceof Error ? err.message : String(err),
+            errorType: safeErrorTag(err),
           }),
         );
       }

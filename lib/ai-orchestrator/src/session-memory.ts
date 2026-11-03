@@ -33,6 +33,7 @@ import { and, asc, desc, eq, gt, isNull, lte, lt, or, sql } from "drizzle-orm";
 import type { ProjectContext } from "./context-builder.js";
 import type { ExecutionPlan } from "./model-selection/execution-plan.js";
 import { ChatTaskResultSchema } from "./schemas/chat.schema.js";
+import { safeErrorTag } from "./errors.js";
 import { formatUntrustedContent } from "./untrusted-content.js";
 
 // ── Constants ─────────────────────────────────────────────────────────────────
@@ -467,7 +468,7 @@ export async function fetchSessionMemories(
       scope: "session-memory",
       code: "MEMORY_RETRIEVAL_ERROR",
       projectId,
-      error: String(err),
+      errorType: safeErrorTag(err),
     }));
     return [];
   }
@@ -589,7 +590,7 @@ export async function drainSessionMemoryOutbox(): Promise<void> {
     console.warn(JSON.stringify({
       scope: "session-memory",
       code: "MEMORY_OUTBOX_READ_ERROR",
-      error: String(err),
+      errorType: safeErrorTag(err),
     }));
     return;
   }
@@ -632,7 +633,7 @@ export async function drainSessionMemoryOutbox(): Promise<void> {
           code: "MEMORY_OUTBOX_RETRY_STATE_ERROR",
           projectId: entry.projectId,
           turnId: entry.turnId,
-          error: String(updateErr),
+          errorType: safeErrorTag(updateErr),
         }));
       }
       console.warn(JSON.stringify({
@@ -642,7 +643,7 @@ export async function drainSessionMemoryOutbox(): Promise<void> {
         sessionId: entry.sessionId,
         turnId: entry.turnId,
         attempts,
-        error: String(err),
+        errorType: safeErrorTag(err),
       }));
     }
   }));
@@ -814,7 +815,7 @@ export async function sweepExpiredMemories(): Promise<void> {
       JSON.stringify({
         scope: "session-memory",
         code: "SWEEP_ERROR",
-        error: String(err),
+        errorType: safeErrorTag(err),
       }),
     );
   }

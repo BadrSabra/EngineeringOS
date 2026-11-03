@@ -10,6 +10,7 @@ import type { AgentStep } from "../tool-execution-engine.js";
 import { chat, type ChatMessage, type ChatResult } from "../agents/chat-agent.js";
 import type { ProjectContext } from "../context-builder.js";
 import type { ProviderId } from "../provider-registry.js";
+import { safeErrorTag } from "../errors.js";
 
 export type BenchmarkCaseId =
   | "source-inspection"
@@ -713,7 +714,7 @@ export async function runLiveForensicBenchmark(opts: {
         recoverySucceeded: false,
         repairPlanBlocked: false,
         trace: traceFromLiveSteps(steps),
-        notes: [`provider call failed: ${error instanceof Error ? error.message : String(error)}`],
+        notes: [`provider call failed: ${safeErrorTag(error)}`],
       });
     }
   }

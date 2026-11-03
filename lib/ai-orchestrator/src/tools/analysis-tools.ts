@@ -1,4 +1,5 @@
 import type { ToolDefinition } from "./file-tools.js";
+import { safeErrorTag } from "../errors.js";
 
 export type AnalysisToolStatus = "complete" | "unavailable" | "failed";
 export type AnalysisFailureCategory =
@@ -333,7 +334,7 @@ export async function executeAnalysisTool(
       scope: "analysis-tools",
       code: signal?.aborted ? "ANALYSIS_CANCELLED" : "ANALYSIS_FAILED",
       tool: name,
-      error: error instanceof Error ? error.message : String(error),
+      errorType: safeErrorTag(error),
     }));
       return {
       status: signal?.aborted ? "unavailable" : "failed",

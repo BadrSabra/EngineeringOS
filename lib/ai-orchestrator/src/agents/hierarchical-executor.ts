@@ -33,6 +33,7 @@ import type {
 import { stripReadFileWrapper } from "../tools/file-tools.js";
 import type { CompoundQueryPart } from "./query-planner.js";
 import type { ExecutionLedger } from "../execution-ledger.js";
+import { safeErrorTag } from "../errors.js";
 import {
   buildEvidenceGraph,
   type EvidenceGraph,
@@ -282,8 +283,8 @@ async function runSubTask(
       JSON.stringify({
         scope: "hierarchical-executor",
         code: "SUBTASK_ERROR",
-        intent: task.intent.slice(0, 100),
-        reason: err instanceof Error ? err.message : String(err),
+        taskIndex,
+        errorType: safeErrorTag(err),
       }),
     );
     return {
@@ -653,7 +654,6 @@ export async function executeHierarchical(
           taskIndex,
           role: task.scheduleRole,
           reason: skipped.reason,
-          intent: task.intent.slice(0, 100),
         }));
       }
       continue;
@@ -692,7 +692,7 @@ export async function executeHierarchical(
         JSON.stringify({
           scope: "hierarchical-executor",
           code: "SUBTASK_COMPLETE",
-          intent: task.intent.slice(0, 100),
+          taskIndex: taskIndexes.get(task) ?? 0,
           sourceCount: sub.toolSources.length,
           status: sub.status,
           textLength: sub.text?.length ?? 0,
@@ -793,7 +793,7 @@ export async function executeHierarchical(
       JSON.stringify({
         scope: "hierarchical-executor",
         code: "SYNTHESIS_ERROR",
-        reason: err instanceof Error ? err.message : String(err),
+        errorType: safeErrorTag(err),
       }),
     );
     // Never expose diagnostics as answer text. A deterministic status report

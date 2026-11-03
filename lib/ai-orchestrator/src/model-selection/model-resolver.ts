@@ -7,7 +7,7 @@ import {
 } from "../openrouter/model-resolver.js";
 import { loadProvider, type ProviderId } from "../provider-registry.js";
 import { getDynamicCatalogStatus } from "../openrouter/dynamic-catalog.js";
-import { GroqClientError } from "../errors.js";
+import { GroqClientError, safeErrorTag } from "../errors.js";
 import type { ExecutionPlan } from "./execution-plan.js";
 
 export type ExecutionModelDecision = {
@@ -141,7 +141,7 @@ export function resolveExecutionModel(
             action: "ignore_unusable_configured_model",
             configuredModel,
             capability,
-            reason: error instanceof Error ? error.message : "model is not currently usable",
+            errorType: safeErrorTag(error),
           }),
         );
       }

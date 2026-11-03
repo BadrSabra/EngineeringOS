@@ -412,6 +412,45 @@ describe("executeHierarchical — resilience", () => {
     expect(userTurn).toContain("good result");
   });
 
+  it("does not log task intent or raw exception text when a sub-loop throws", async () => {
+    const privateTaskIntent = "synthetic-private-user-subtask";
+    const privateProviderDetail = "synthetic-hierarchical-provider-body";
+    const { executeToolLoop } = await import("../tool-execution-engine.js");
+    const mockLoop = vi.mocked(executeToolLoop);
+    mockLoop
+      .mockRejectedValueOnce(new Error(privateProviderDetail))
+      .mockResolvedValueOnce({
+        kind: "response",
+        result: mockResponse("safe result"),
+        toolSources: [],
+      });
+
+    const strategy = makeStrategy("synthesis after safe diagnostic");
+    const { executeHierarchical } = await import("../agents/hierarchical-executor.js");
+    const infoSpy = vi.spyOn(console, "info").mockImplementation(() => {});
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    let capturedLogs: unknown[][] = [];
+
+    try {
+      await executeHierarchical(
+        [
+          { intent: privateTaskIntent, targetPaths: [], maxIter: 7 },
+          { intent: "another subtask", targetPaths: [], maxIter: 7 },
+        ],
+        makeOpts(strategy),
+      );
+      capturedLogs = [...infoSpy.mock.calls, ...warnSpy.mock.calls];
+    } finally {
+      infoSpy.mockRestore();
+      warnSpy.mockRestore();
+    }
+
+    const serializedLogs = JSON.stringify(capturedLogs);
+    expect(serializedLogs).not.toContain(privateTaskIntent);
+    expect(serializedLogs).not.toContain(privateProviderDetail);
+    expect(serializedLogs).toContain("SUBTASK_ERROR");
+  });
+
   it("synthesis call receives no tools so it cannot make additional file reads", async () => {
     const { executeToolLoop } = await import("../tool-execution-engine.js");
     const mockLoop = vi.mocked(executeToolLoop);

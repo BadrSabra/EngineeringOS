@@ -163,6 +163,31 @@ describe("analysis tool correlation contract", () => {
     expect(result.output).not.toContain("raw internal failure");
   });
 
+  it("does not write raw runner exception text to diagnostic logs", async () => {
+    const privateDetail = "synthetic-private-analysis-exception";
+    const log = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    let result: Awaited<ReturnType<typeof executeAnalysisTool>> | undefined;
+    let capturedLogs: unknown[] = [];
+    try {
+      result = await executeAnalysisTool(
+        "query_knowledge_graph",
+        { operation: "search" },
+        async () => {
+          throw new Error(privateDetail);
+        },
+        undefined,
+        correlation,
+      );
+      capturedLogs = log.mock.calls.map(([payload]) => JSON.parse(String(payload)));
+    } finally {
+      log.mockRestore();
+    }
+
+    expect(result?.status).toBe("failed");
+    expect(capturedLogs).toContainEqual(expect.objectContaining({ errorType: "Error" }));
+    expect(JSON.stringify(capturedLogs)).not.toContain(privateDetail);
+  });
+
   it("rejects stale or cross-operation results before they become complete evidence", async () => {
     const runner: AnalysisToolRunner = async () => ({
       status: "complete",
