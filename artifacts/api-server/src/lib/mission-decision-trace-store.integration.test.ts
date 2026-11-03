@@ -28,9 +28,11 @@ import type {
 import { getProjectWorldState } from "./agent-state/world-state.js";
 import {
   appendMissionDecisionLifecycleEvent,
+  appendMissionDecisionLifecycleEventInTransaction,
   getMissionDecisionTrace,
   MissionDecisionTraceStoreError,
   persistMissionDecisionTrace,
+  persistMissionDecisionTraceInTransaction,
 } from "./mission-decision-trace-store.js";
 
 const projectIds: string[] = [];
@@ -402,6 +404,16 @@ describe("Mission decision trace persistence", () => {
     ]);
   });
 
+  it("lets the caller roll trace persistence back with its surrounding transaction", async () => {
+    const fixture = await createFixture();
+    await expect(db.transaction(async (tx) => {
+      await persistMissionDecisionTraceInTransaction(tx, fixture.trace);
+      throw new Error("rollback transaction");
+    })).rejects.toThrow("rollback transaction");
+
+    expect(await getMissionDecisionTrace(fixture.trace.decisionId)).toBeNull();
+  });
+
   it("rejects a trace after the Goal plan revision changes", async () => {
     const fixture = await createFixture();
     await db.update(aiGoalsTable)
@@ -468,11 +480,19 @@ describe("Mission decision trace persistence", () => {
     await db.update(aiMissionsTable).set({
       autonomyPolicy: { activePlanRevision: "applied-plan-revision" },
     }).where(eq(aiMissionsTable.id, fixture.missionId));
-    await expect(appendMissionDecisionLifecycleEvent({
+    const planAppliedEvent = {
       decisionId: selectedTrace.decisionId,
-      stage: "PLAN_APPLIED",
+      stage: "PLAN_APPLIED" as const,
       referenceId: "applied-plan-revision",
       occurredAt: new Date(now.getTime() + 2_000),
+    };
+    await expect(db.transaction(async (tx) => {
+      await appendMissionDecisionLifecycleEventInTransaction(tx, planAppliedEvent);
+      throw new Error("rollback event");
+    })).rejects.toThrow("rollback event");
+    expect((await getMissionDecisionTrace(selectedTrace.decisionId))?.events).toHaveLength(3);
+    await expect(appendMissionDecisionLifecycleEvent({
+      ...planAppliedEvent,
     })).resolves.toMatchObject({ kind: "appended", sequence: 4 });
 
     await expect(appendMissionDecisionLifecycleEvent({

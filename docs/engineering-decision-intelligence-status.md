@@ -9,7 +9,7 @@ This is the consolidated status for the G0–G10 plan. “Implemented” means o
 | G2 — Decision contracts | COMPLETE | Shared schemas bind source execution/acceptance, attempts, revisions, alternatives, approval, and outcome record. |
 | G3 — Strategy generation and differentiation | PARTIAL; AN EARLIER ENGINE IS LIVE | `artifacts/api-server/src/lib/mission-strategy-engine.ts` is called by `autoReplanMission()` and an integration test proves its selected runtime strategy changes the materialized plan. That engine supports only runtime-start and validator recovery. The newer shared strategy contract/generator/comparer is still isolated and is not the engine used by that route. |
 | G4 — Evaluation and selection | PARTIAL; LIMITED DETERMINISTIC SELECTION IS LIVE | The live engine compares two bounded candidates using fixed heuristic utility and deterministic tie-breaking. It is not the newer formal evaluator with 15 explicit dimensions, hard-constraint provenance, and typed `NO_DECISION`; neither selector has dispatch authority by itself. |
-| G5 — Decision trace | PARTIAL; STORE IS NOT LIVE-WIRED | The store now distinguishes the failed source Goal from successor plan Goals: `PLAN_APPLIED` requires a Goal in the same Mission/project to carry the applied revision, and `DISPATCHED`/`ACCEPTED` reload the referenced execution and require its Goal to belong to that Mission and revision. Focused isolated-PostgreSQL tests cover that chain. However, `autoReplanMission()` still persists only the older strategy snapshot; the formal store has no live caller or transaction-scoped API, and successor membership is revision-bound rather than an explicit hashed target-Goal list. No DB-level immutability enforcement. |
+| G5 — Decision trace | PARTIAL; STORE IS NOT LIVE-WIRED | The store now distinguishes the failed source Goal from successor plan Goals: `PLAN_APPLIED` requires a Goal in the same Mission/project to carry the applied revision, and `DISPATCHED`/`ACCEPTED` reload the referenced execution and require its Goal to belong to that Mission and revision. It now exposes caller-owned-transaction APIs for atomic integration, with focused isolated-PostgreSQL tests proving rollback. However, `autoReplanMission()` still persists the older strategy snapshot and does not call the formal store. Successor membership is revision-bound rather than an explicit hashed target-Goal list, and one `DISPATCHED` event per trace does not yet represent every root when a plan has multiple dispatches. No DB-level immutability enforcement. |
 | G6 — Outcome evaluation | PARTIAL | Pure evaluator is tested; server-side data loading, Canonical Proof reload, durable outcome persistence, and Mission integration are open. |
 | G7 — Shadow mode | NOT STARTED | Requires G5/G6 live read-only integration and a paired shadow record without plan or dispatch side effects. |
 | G8 — Limited operation | NOT STARTED | Requires explicit approvals, proof-bound dispatch, bounded scope, and recovery/idempotency testing. |
@@ -19,15 +19,16 @@ This is the consolidated status for the G0–G10 plan. “Implemented” means o
 ## Current verification boundary
 
 - G2–G4 plus G6 focused shared-library suites: **45 passed, 0 failed**.
-- G5 integration tests: **4 passed, 0 failed** on a fresh temporary PostgreSQL 16.10 database after applying the current Drizzle schema.
-- API-server and AI-orchestrator typechecks passed after the current implementation batch.
+- G5 store tests: **5 passed, 0 failed** on a fresh temporary PostgreSQL 16.10 database after applying the current Drizzle schema; the new caller-owned-transaction tests confirm parent rollback.
+- API-server typecheck passed after adding transaction-scoped persistence and append APIs.
+- The broader isolated Mission strategy run passed **26 tests**; its subsequent runtime-start Canonical Proof test timed out at the suite's 20-second limit. This is a failed check, not evidence that the live lifecycle works.
 - No browser, GitHub operation, deployment, or live Mission execution was started.
 - Replit-managed workflow logs show an API startup attempt that refreshed OpenRouter's free-model catalog, then failed to bind port 8080 (`EADDRINUSE`); the Dashboard workflow also failed because port 23183 was occupied. I did not invoke a workflow restart or stop any process. This was a catalog refresh, not a model inference request.
 - Because that startup log also shows pending-audit state being reloaded and does not identify its database target, this run cannot claim that Development/Production were untouched. No migration or Mission-data write was deliberately issued by the implementation tests; the target and any startup-only database effects remain unverified.
 
 ## Next dependency-ordered work
 
-1. G5 live adapter for the existing auto-replan engine: persist the formal trace and `PLAN_APPLIED` event atomically with plan materialization under the existing Mission transaction and approval boundary; decide whether an explicit, hashed successor-Goal ID list is needed beyond Mission+revision binding.
+1. G5 live adapter for the existing auto-replan engine: represent the legacy rule decision without claiming formal G4 evaluation, use caller-owned-transaction APIs to persist trace and plan atomically under the existing approval boundary, and define an exact binding for all dispatched roots rather than one execution reference.
 2. G6 server-only evidence loader for successor executions using the canonical proof reload path; persist the outcome atomically with its lifecycle event.
 3. G7 shadow-only comparisons, with an invariant test that plans, approvals, and dispatch are unchanged.
 4. G8 only after explicit proof/approval and isolated recovery tests.

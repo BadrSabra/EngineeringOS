@@ -405,54 +405,59 @@ async function insertInitialEvents(
  * verifies its Mission/Goal/Execution/Acceptance and current plan/world
  * bindings. This helper is intentionally not an API route or dispatch path.
  */
-export async function persistMissionDecisionTrace(
+export async function persistMissionDecisionTraceInTransaction(
+  tx: MissionDecisionTransaction,
   input: unknown,
 ): Promise<{ kind: "inserted" | "already_recorded"; decisionId: string }> {
   const trace = MissionDecisionTraceSchema.parse(input);
   assertInitialTrace(trace);
 
-  return db.transaction(async (tx) => {
-    await assertCurrentIdentity(tx, trace);
-    const identity = trace.context.identity;
-    const [inserted] = await tx.insert(aiMissionDecisionTracesTable).values({
-      decisionId: trace.decisionId,
-      projectId: identity.projectId,
-      missionId: identity.missionId,
-      goalId: identity.goalId,
-      sourceExecutionId: identity.sourceExecutionId,
-      sourceAcceptanceId: identity.sourceAcceptanceId,
-      sourceAttempt: identity.sourceAttempt,
-      priorPlanRevision: identity.priorPlanRevision,
-      projectRevision: identity.projectRevision,
-      worldStateRevision: identity.worldStateRevision,
-      environmentRevision: identity.environmentRevision,
-      contextHash: trace.contextHash,
-      resultKind: trace.result.kind,
-      selectedStrategyId: trace.result.kind === "SELECTED" ? trace.result.selectedStrategyId : null,
-      trace: trace as unknown as Record<string, unknown>,
-      createdAt: new Date(trace.decidedAt),
-    }).onConflictDoNothing().returning({ decisionId: aiMissionDecisionTracesTable.decisionId });
+  await assertCurrentIdentity(tx, trace);
+  const identity = trace.context.identity;
+  const [inserted] = await tx.insert(aiMissionDecisionTracesTable).values({
+    decisionId: trace.decisionId,
+    projectId: identity.projectId,
+    missionId: identity.missionId,
+    goalId: identity.goalId,
+    sourceExecutionId: identity.sourceExecutionId,
+    sourceAcceptanceId: identity.sourceAcceptanceId,
+    sourceAttempt: identity.sourceAttempt,
+    priorPlanRevision: identity.priorPlanRevision,
+    projectRevision: identity.projectRevision,
+    worldStateRevision: identity.worldStateRevision,
+    environmentRevision: identity.environmentRevision,
+    contextHash: trace.contextHash,
+    resultKind: trace.result.kind,
+    selectedStrategyId: trace.result.kind === "SELECTED" ? trace.result.selectedStrategyId : null,
+    trace: trace as unknown as Record<string, unknown>,
+    createdAt: new Date(trace.decidedAt),
+  }).onConflictDoNothing().returning({ decisionId: aiMissionDecisionTracesTable.decisionId });
 
-    if (!inserted) {
-      const [existing] = await tx.select().from(aiMissionDecisionTracesTable)
-        .where(eq(aiMissionDecisionTracesTable.decisionId, trace.decisionId))
-        .for("update");
-      if (!existing) throw new MissionDecisionTraceStoreError("decision_identity_conflict");
-      const existingTrace = MissionDecisionTraceSchema.safeParse(existing.trace);
-      if (
-        !existingTrace.success
-        || existingTrace.data.decisionId !== trace.decisionId
-        || existing.contextHash !== trace.contextHash
-      ) {
-        throw new MissionDecisionTraceStoreError("decision_identity_conflict");
-      }
-      await insertInitialEvents(tx, trace);
-      return { kind: "already_recorded", decisionId: trace.decisionId };
+  if (!inserted) {
+    const [existing] = await tx.select().from(aiMissionDecisionTracesTable)
+      .where(eq(aiMissionDecisionTracesTable.decisionId, trace.decisionId))
+      .for("update");
+    if (!existing) throw new MissionDecisionTraceStoreError("decision_identity_conflict");
+    const existingTrace = MissionDecisionTraceSchema.safeParse(existing.trace);
+    if (
+      !existingTrace.success
+      || existingTrace.data.decisionId !== trace.decisionId
+      || existing.contextHash !== trace.contextHash
+    ) {
+      throw new MissionDecisionTraceStoreError("decision_identity_conflict");
     }
-
     await insertInitialEvents(tx, trace);
-    return { kind: "inserted", decisionId: trace.decisionId };
-  });
+    return { kind: "already_recorded", decisionId: trace.decisionId };
+  }
+
+  await insertInitialEvents(tx, trace);
+  return { kind: "inserted", decisionId: trace.decisionId };
+}
+
+export async function persistMissionDecisionTrace(
+  input: unknown,
+): Promise<{ kind: "inserted" | "already_recorded"; decisionId: string }> {
+  return db.transaction((tx) => persistMissionDecisionTraceInTransaction(tx, input));
 }
 
 /**
@@ -460,13 +465,17 @@ export async function persistMissionDecisionTrace(
  * references are provenance only and never satisfy a proof, authorization, or
  * dispatch gate.
  */
-export async function appendMissionDecisionLifecycleEvent(input: {
+export type AppendMissionDecisionLifecycleEventInput = {
   decisionId: string;
   stage: DecisionEventStage;
   referenceId: string | null;
   occurredAt: Date;
-}): Promise<{ kind: "appended" | "already_recorded"; sequence: number }> {
-  return db.transaction(async (tx) => {
+};
+
+export async function appendMissionDecisionLifecycleEventInTransaction(
+  tx: MissionDecisionTransaction,
+  input: AppendMissionDecisionLifecycleEventInput,
+): Promise<{ kind: "appended" | "already_recorded"; sequence: number }> {
     const [candidateDecision] = await tx.select().from(aiMissionDecisionTracesTable)
       .where(eq(aiMissionDecisionTracesTable.decisionId, input.decisionId))
     if (!candidateDecision) throw new MissionDecisionTraceStoreError("decision_trace_missing");
@@ -692,7 +701,13 @@ export async function appendMissionDecisionLifecycleEvent(input: {
     }).onConflictDoNothing().returning({ sequence: aiMissionDecisionEventsTable.sequence });
     if (!inserted) throw new MissionDecisionTraceStoreError("decision_event_conflict");
     return { kind: "appended", sequence: inserted.sequence };
-  });
+}
+
+export async function appendMissionDecisionLifecycleEvent(input: AppendMissionDecisionLifecycleEventInput): Promise<{
+  kind: "appended" | "already_recorded";
+  sequence: number;
+}> {
+  return db.transaction((tx) => appendMissionDecisionLifecycleEventInTransaction(tx, input));
 }
 
 export async function getMissionDecisionTrace(
