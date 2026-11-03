@@ -54,11 +54,31 @@ export type MissionStrategyDecision = {
     evidenceRefs: string[];
   };
   candidates: CandidateEvaluation[];
+  candidatePlanProjections: MissionStrategyCandidatePlanProjection[];
   planDelta: {
     addedStepIds: string[];
     changedStepIds: string[];
     orderedStepIds: string[];
   };
+};
+
+export type MissionStrategyCandidatePlanProjection = {
+  strategyId: string;
+  eligible: boolean;
+  reasonCode: string;
+  addedStepIds: string[];
+  changedStepIds: string[];
+  orderedStepIds: string[];
+  expectedObservationCodes: string[];
+  actions: Array<{
+    stepId: string;
+    kind: GeneralTaskPlanStep["kind"];
+    capabilityId: string;
+    dependencies: string[];
+    files: string[];
+    readOnly: boolean;
+    approvalRequired: boolean;
+  }>;
 };
 
 export type RuntimeFailureSourceBinding = {
@@ -98,6 +118,7 @@ export type MissionStrategySelection =
         | "runtime_diagnosis_not_retryable"
         | "runtime_reason_unsupported"
         | "runtime_plan_step_missing"
+        | "runtime_no_meaningful_alternative"
         | "validator_diagnosis_not_retryable"
         | "validator_evidence_missing"
         | "validator_paths_invalid"
@@ -170,12 +191,42 @@ function decisionSource(input: StrategyInput, reasonCode: string): MissionStrate
   };
 }
 
+function projectCandidatePlan(
+  candidate: CandidateEvaluation,
+  steps: GeneralTaskPlanStep[],
+  input: {
+    addedStepIds: string[];
+    changedStepIds: string[];
+    expectedObservationCodes?: string[];
+  },
+): MissionStrategyCandidatePlanProjection {
+  return {
+    strategyId: candidate.strategyId,
+    eligible: candidate.eligible,
+    reasonCode: candidate.reasonCode,
+    addedStepIds: input.addedStepIds,
+    changedStepIds: input.changedStepIds,
+    orderedStepIds: steps.map((step) => step.id),
+    expectedObservationCodes: input.expectedObservationCodes ?? [],
+    actions: steps.map((step) => ({
+      stepId: step.id,
+      kind: step.kind,
+      capabilityId: step.recipe?.recipeId ?? step.kind,
+      dependencies: [...step.dependencies],
+      files: [...step.files],
+      readOnly: step.readOnly,
+      approvalRequired: step.approvalRequired,
+    })),
+  };
+}
+
 function selectedDecision(
   input: StrategyInput,
   params: {
     scenario: MissionStrategyDecision["scenario"];
     selectedStrategyId: string;
     candidates: CandidateEvaluation[];
+    candidatePlanProjections: MissionStrategyCandidatePlanProjection[];
     addedStepIds: string[];
     changedStepIds: string[];
     reasonCode: string;
@@ -191,6 +242,7 @@ function selectedDecision(
     selectedStrategyId: params.selectedStrategyId,
     source,
     candidates: params.candidates,
+    candidatePlanProjections: params.candidatePlanProjections,
     planDelta: {
       addedStepIds: params.addedStepIds,
       changedStepIds: params.changedStepIds,
@@ -322,46 +374,79 @@ function runtimeStrategy(input: StrategyInput): MissionStrategySelection {
     || left.strategyId.localeCompare(right.strategyId),
   );
   const selected = candidates[0]!;
-  const observationOrder = [...diagnosis.distinguishingObservationCodes].sort((left, right) => {
+  const requiredObservationCodes = uniqueBounded([
+    ...diagnosis.distinguishingObservationCodes,
+    ...(diagnosis.transition ? ["world_transition:identity"] : []),
+  ], MAX_STRATEGY_PATHS, 120);
+  const buildRuntimePlan = (strategyId: string) => {
+    const isDirectStatusFirst = strategyId === "runtime.direct-status-first";
     const isStatus = (code: string) => /direct_status|after_state|runtime_status/i.test(code);
-    const leftPriority = selected.strategyId === "runtime.direct-status-first"
-      ? (isStatus(left) ? 0 : 1)
-      : (isStatus(left) ? 1 : 0);
-    const rightPriority = selected.strategyId === "runtime.direct-status-first"
-      ? (isStatus(right) ? 0 : 1)
-      : (isStatus(right) ? 1 : 0);
-    return leftPriority - rightPriority || left.localeCompare(right);
-  });
-  const selectedTitle = selected.strategyId === "runtime.direct-status-first"
-    ? "Refresh direct runtime status before retry"
-    : "Reconcile runtime transition identity before retry";
-  const requiredCodes = observationOrder.join(", ");
-  const preflightStep: GeneralTaskPlanStep = {
-    id: preflightStepId,
-    title: selectedTitle,
-    objective: `Read only the server-required runtime evidence in this order: ${requiredCodes}. Do not start, stop, or otherwise mutate the runtime during this step.`,
-    kind: "inspect",
-    dependencies: [],
-    files: [],
-    readOnly: true,
-    approvalRequired: false,
+    const observationOrder = [...requiredObservationCodes].sort((left, right) => {
+      const leftPriority = isDirectStatusFirst
+        ? (isStatus(left) ? 0 : 1)
+        : (isStatus(left) ? 1 : 0);
+      const rightPriority = isDirectStatusFirst
+        ? (isStatus(right) ? 0 : 1)
+        : (isStatus(right) ? 1 : 0);
+      return leftPriority - rightPriority || left.localeCompare(right);
+    });
+    const selectedTitle = isDirectStatusFirst
+      ? "Refresh direct runtime status before retry"
+      : "Reconcile runtime transition identity before retry";
+    const preflightStep: GeneralTaskPlanStep = {
+      id: preflightStepId,
+      title: selectedTitle,
+      objective: `Read only the server-required runtime evidence in this order: ${observationOrder.join(", ")}. Do not start, stop, or otherwise mutate the runtime during this step.`,
+      kind: "inspect",
+      dependencies: [],
+      files: [],
+      readOnly: true,
+      approvalRequired: false,
+    };
+    const steps = input.preview.plan.steps.map((step) =>
+      step.id === startStep.id
+        ? { ...step, dependencies: [...new Set([...step.dependencies, preflightStepId])] }
+        : step,
+    );
+    const startIndex = steps.findIndex((step) => step.id === startStep.id);
+    steps.splice(startIndex, 0, preflightStep);
+    return { steps, observationOrder };
   };
-  const steps = input.preview.plan.steps.map((step) =>
-    step.id === startStep.id
-      ? { ...step, dependencies: [...new Set([...step.dependencies, preflightStepId])] }
-      : step,
-  );
-  const startIndex = steps.findIndex((step) => step.id === startStep.id);
-  steps.splice(startIndex, 0, preflightStep);
+  const candidatePlanProjections = candidates.map((candidate) => {
+    const candidatePlan = buildRuntimePlan(candidate.strategyId);
+    return projectCandidatePlan(candidate, candidatePlan.steps, {
+      addedStepIds: [preflightStepId],
+      changedStepIds: [startStep.id],
+      expectedObservationCodes: candidatePlan.observationOrder,
+    });
+  });
+  const distinctEligiblePlans = new Set(candidatePlanProjections
+    .filter((projection) => projection.eligible)
+    .map((projection) => stableHash({
+      expectedObservationCodes: projection.expectedObservationCodes,
+      actions: projection.actions.map((action) => ({
+        stepId: action.stepId,
+        kind: action.kind,
+        capabilityId: action.capabilityId,
+        dependencies: action.dependencies,
+        readOnly: action.readOnly,
+        approvalRequired: action.approvalRequired,
+      })),
+    })));
+  if (distinctEligiblePlans.size < 2) {
+    return { status: "blocked", reason: "runtime_no_meaningful_alternative" };
+  }
+  const selectedPlan = buildRuntimePlan(selected.strategyId);
 
   return selectedDecision(input, {
     scenario: "runtime_start_recovery",
     selectedStrategyId: selected.strategyId,
     candidates,
+    candidatePlanProjections,
     addedStepIds: [preflightStepId],
     changedStepIds: [startStep.id],
     reasonCode,
-    steps,
+    steps: selectedPlan.steps,
   });
 }
 
@@ -444,64 +529,75 @@ function validatorStrategy(input: StrategyInput): MissionStrategySelection {
   );
   const selected = eligibleCandidates[0]!;
   const inspection = input.preview.plan.steps.find((step) => step.id === "inspect");
-  let insertedStep: GeneralTaskPlanStep;
-  let changedStepIds = [executeStep.id];
-  let steps: GeneralTaskPlanStep[];
-  if (selected.strategyId === "code.targeted-repair") {
-    insertedStep = {
-      id: targetedStepId,
-      title: "Re-read the exact validator failure scope",
-      objective: `Inspect only the evidence-bound files ${paths.join(", ")} and reproduce the recorded failure ${validationRefs.join(", ")} before making a minimal repair.`,
-      kind: "inspect",
-      dependencies: inspection ? [inspection.id] : [],
-      files: paths,
-      readOnly: true,
-      approvalRequired: false,
-    };
-  } else {
-    insertedStep = {
-      id: evidenceStepId,
-      title: "Reconstruct validator failure across affected claims",
-      objective: `Compare the recorded validator evidence ${validationRefs.join(", ")} against affected claims ${input.affectedClaims.slice(0, 12).join(", ") || "not recorded"} before repair.`,
-      kind: "analyze",
-      dependencies: inspection ? [inspection.id] : [],
-      files: paths,
-      readOnly: true,
-      approvalRequired: false,
-    };
-    changedStepIds = [executeStep.id, validateStep.id];
-  }
-  steps = input.preview.plan.steps.map((step) => {
-    if (step.id === executeStep.id) {
-      return {
-        ...step,
-        title: selected.strategyId === "code.targeted-repair"
-          ? "Repair only the evidence-bound validator scope"
-          : "Repair after reconstructing validator evidence",
-        objective: "Make the smallest repair justified by the accepted failure evidence; retain the existing approval and validation requirements.",
-        files: paths,
-        dependencies: [...new Set([...step.dependencies, insertedStep.id])],
-      };
-    }
-    if (selected.strategyId === "code.reconstruct-then-repair" && step.id === validateStep.id) {
-      return {
-        ...step,
-        title: "Re-run the validator against the reconstructed failure scope",
-        files: paths,
-      };
-    }
-    return step;
+  const buildValidatorPlan = (strategyId: string) => {
+    const targeted = strategyId === "code.targeted-repair";
+    const insertedStep: GeneralTaskPlanStep = targeted
+      ? {
+          id: targetedStepId,
+          title: "Re-read the exact validator failure scope",
+          objective: `Inspect only the evidence-bound files ${paths.join(", ")} and reproduce the recorded failure ${validationRefs.join(", ")} before making a minimal repair.`,
+          kind: "inspect",
+          dependencies: inspection ? [inspection.id] : [],
+          files: paths,
+          readOnly: true,
+          approvalRequired: false,
+        }
+      : {
+          id: evidenceStepId,
+          title: "Reconstruct validator failure across affected claims",
+          objective: `Compare the recorded validator evidence ${validationRefs.join(", ")} against affected claims ${input.affectedClaims.slice(0, 12).join(", ") || "not recorded"} before repair.`,
+          kind: "analyze",
+          dependencies: inspection ? [inspection.id] : [],
+          files: paths,
+          readOnly: true,
+          approvalRequired: false,
+        };
+    const changedStepIds = targeted
+      ? [executeStep.id]
+      : [executeStep.id, validateStep.id];
+    const steps = input.preview.plan.steps.map((step) => {
+      if (step.id === executeStep.id) {
+        return {
+          ...step,
+          title: targeted
+            ? "Repair only the evidence-bound validator scope"
+            : "Repair after reconstructing validator evidence",
+          objective: "Make the smallest repair justified by the accepted failure evidence; retain the existing approval and validation requirements.",
+          files: paths,
+          dependencies: [...new Set([...step.dependencies, insertedStep.id])],
+        };
+      }
+      if (!targeted && step.id === validateStep.id) {
+        return {
+          ...step,
+          title: "Re-run the validator against the reconstructed failure scope",
+          files: paths,
+        };
+      }
+      return step;
+    });
+    const executeIndex = steps.findIndex((step) => step.id === executeStep.id);
+    steps.splice(executeIndex, 0, insertedStep);
+    return { steps, insertedStep, changedStepIds };
+  };
+  const candidatePlanProjections = candidates.map((candidate) => {
+    const candidatePlan = buildValidatorPlan(candidate.strategyId);
+    return projectCandidatePlan(candidate, candidatePlan.steps, {
+      addedStepIds: [candidatePlan.insertedStep.id],
+      changedStepIds: candidatePlan.changedStepIds,
+      expectedObservationCodes: validationRefs,
+    });
   });
-  const executeIndex = steps.findIndex((step) => step.id === executeStep.id);
-  steps.splice(executeIndex, 0, insertedStep);
+  const selectedPlan = buildValidatorPlan(selected.strategyId);
   return selectedDecision(input, {
     scenario: "validator_recovery",
     selectedStrategyId: selected.strategyId,
     candidates,
-    addedStepIds: [insertedStep.id],
-    changedStepIds,
+    candidatePlanProjections,
+    addedStepIds: [selectedPlan.insertedStep.id],
+    changedStepIds: selectedPlan.changedStepIds,
     reasonCode: failure.reasonCode,
-    steps,
+    steps: selectedPlan.steps,
   });
 }
 

@@ -168,6 +168,11 @@ describe("Mission recovery strategy engine", () => {
     expect(result.decision.candidates[0]?.utilityScore)
       .toBeGreaterThan(result.decision.candidates[1]?.utilityScore ?? 0);
     expect(result.decision.selectedStrategyId).toBe("runtime.direct-status-first");
+    expect(result.decision.candidatePlanProjections).toHaveLength(2);
+    expect(result.decision.candidatePlanProjections[0]?.expectedObservationCodes)
+      .not.toEqual(result.decision.candidatePlanProjections[1]?.expectedObservationCodes);
+    expect(result.decision.candidatePlanProjections[0]?.actions.map(({ stepId }) => stepId))
+      .toEqual(result.decision.candidatePlanProjections[1]?.actions.map(({ stepId }) => stepId));
     expect(result.preview.plan.steps.map((step) => step.id)).toEqual([
       "strategy-runtime-preflight",
       "runtime-start",
@@ -214,6 +219,35 @@ describe("Mission recovery strategy engine", () => {
     expect(result.preview.plan.steps[0]?.objective).toContain("world_transition:materialization");
   });
 
+  it("blocks runtime selection when both eligible candidates produce the same evidence plan", () => {
+    const diagnosis = diagnoseRuntimeStartWorldStateFailure({
+      reasonCode: "accepted_transition_missing",
+    });
+    const result = selectAndApplyMissionStrategy({
+      preview: runtimePreview(),
+      ...sourceIdentity,
+      worldStateFailureDiagnosis: {
+        ...diagnosis,
+        distinguishingObservationCodes: ["world_transition:materialization"],
+      },
+      runtimeStartTargetStepId: "deliver",
+      runtimeSourceBinding: {
+        acceptanceId: "acceptance-1",
+        executionId: runtimeTransition.executionId,
+        episodeId: runtimeTransition.episodeId,
+        attempt: runtimeTransition.attempt,
+      },
+      evidenceRefs: ["world-transition:missing"],
+      affectedPaths: [],
+      affectedClaims: [],
+    });
+
+    expect(result).toEqual({
+      status: "blocked",
+      reason: "runtime_no_meaningful_alternative",
+    });
+  });
+
   it("builds a targeted code-repair plan from validator evidence without weakening approval", () => {
     const result = selectAndApplyMissionStrategy({
       preview: validatorPreview(),
@@ -236,6 +270,17 @@ describe("Mission recovery strategy engine", () => {
     expect(result.decision.scenario).toBe("validator_recovery");
     expect(result.decision.selectedStrategyId).toBe("code.targeted-repair");
     expect(result.decision.candidates).toHaveLength(2);
+    const targetedProjection = result.decision.candidatePlanProjections.find(
+      ({ strategyId }) => strategyId === "code.targeted-repair",
+    );
+    const reconstructProjection = result.decision.candidatePlanProjections.find(
+      ({ strategyId }) => strategyId === "code.reconstruct-then-repair",
+    );
+    expect(targetedProjection?.orderedStepIds).not.toEqual(reconstructProjection?.orderedStepIds);
+    expect(targetedProjection?.actions.find(({ stepId }) => stepId === "strategy-validator-scope")?.kind)
+      .toBe("inspect");
+    expect(reconstructProjection?.actions.find(({ stepId }) => stepId === "strategy-validator-reconstruction")?.kind)
+      .toBe("analyze");
     expect(result.preview.plan.steps.map((step) => step.id)).toEqual([
       "inspect",
       "strategy-validator-scope",
