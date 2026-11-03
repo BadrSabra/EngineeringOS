@@ -130,6 +130,20 @@ async function main() {
       env: databaseEnv,
     });
 
+    console.log("Running isolated PostgreSQL OpenRouter catalog lease and persistence tests.");
+    await run("pnpm", [
+      "--filter", "@workspace/api-server",
+      "exec", "vitest", "run",
+      "src/lib/openrouter-catalog-persistence.integration.test.ts",
+    ], {
+      env: databaseEnv,
+    });
+
+    if (process.env.OPENROUTER_CATALOG_POSTGRES_ONLY === "1") {
+      console.log("OpenRouter catalog PostgreSQL verification completed; skipping unrelated suites.");
+      return;
+    }
+
     console.log("Simulating an existing Chat schema before the active Mission column was added.");
     await run("psql", [
       databaseUrl,

@@ -67,6 +67,7 @@
 - [Fresh project-query state](fresh-project-query-state.md) — only bounded continuations and explicit handoffs may inherit a session’s target/evidence scope.
 - [Artifact-only acceptance](artifact-only-acceptance.md) — source-free validation still needs explicit PROVEN; optional-evidence success is NOT_REQUIRED, never canonical proof.
 - [OpenRouter provider boundaries](openrouter-provider-boundaries-index.md) — grouped rules for acceptance, free-only routing, throttling, ranking, and live smoke preflight.
+- [OpenRouter lease integration tests](openrouter-catalog-lease-tests.md) — use independent PostgreSQL sessions and a positive bounded acquire wait; zero wait may skip the first attempt.
 - [Zero-paid AI policy](openrouter-free-lane-policy.md) — require fresh live zero-price evidence at send; static model entries authorize planning only.
 - [Structured cooldown provenance](structured-cooldown-backoff.md) — keep provider Retry-After distinct from local adaptive waits; legacy defaults cannot authorize a retry.
 - [Provider error fixture fidelity](provider-error-test-contracts.md) — test doubles must preserve scope and retry metadata or integration tests can report false drops.
@@ -119,6 +120,7 @@
 - [Skill registry Gate 4](skill-registry-gate4.md) — revalidate proof and paired baselines under Mission→Goal-first locks; preflight identities must be rechecked.
 - [Skill runtime registry enforcement](skill-runtime-registry.md) — active registry status is rechecked per recipe node and the full proof binding persists through resume.
 - [Existing schema type compatibility](schema-compatibility.md) — preserve established PostgreSQL column types during additive Drizzle work unless an explicit cast migration is approved.
+- [Drizzle push scope](drizzle-push-scope.md) — `tablesFilter` narrows database introspection, not the local schema; isolated pushes must preserve shared enums and constrain both sides.
 - [Action effect evidence boundary](action-effect-observation-boundary.md) — mutation effects require direct fresh before/after observations; acceptance and receipts cannot substitute for runtime observation or PROVEN.
 - [Strategy replay acceptance](strategy-replay-acceptance.md) — runtime.start proof comes only from its bound Gate C evidence path; replay receipts still require an independent Canonical Proof reload.
 - [Disposable PostgreSQL tests](disposable-postgres-tests.md) — DB-backed integration tests must use a loopback-only temporary cluster and explicit DATABASE_URL, never inherited development or production settings.
