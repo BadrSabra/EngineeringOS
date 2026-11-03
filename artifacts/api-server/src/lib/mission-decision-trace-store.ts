@@ -1388,3 +1388,87 @@ export async function getMissionDecisionTrace(
   }
   return { trace, events };
 }
+
+export async function getApprovedMissionDecisionDispatchPlan(
+  decisionId: string,
+): Promise<{
+  decisionId: string;
+  projectId: string;
+  missionId: string;
+  userId: string;
+  planRevision: string;
+  rootGoalIds: string[];
+} | null> {
+  const snapshot = await getMissionDecisionTrace(decisionId);
+  if (!snapshot || snapshot.trace.result.kind !== "SELECTED") return null;
+
+  const selectedAlternative = snapshot.trace.alternatives.find(
+    ({ strategyId }) => strategyId === snapshot.trace.result.selectedStrategyId,
+  );
+  const approvedIndex = snapshot.events.findIndex(({ stage }) => stage === "APPROVED");
+  const appliedEvent = snapshot.events.find(({ stage }) => stage === "PLAN_APPLIED");
+  if (
+    selectedAlternative?.approvalRequirement !== "required"
+    || approvedIndex < 0
+    || !appliedEvent?.referenceId
+    || approvedIndex >= snapshot.events.findIndex(({ stage }) => stage === "PLAN_APPLIED")
+    || snapshot.events.some(({ stage }) => stage === "DISPATCHED")
+  ) {
+    return null;
+  }
+
+  const planRevision = appliedEvent.referenceId;
+  const identity = snapshot.trace.context.identity;
+  return db.transaction(async (tx) => {
+    const [mission] = await tx.select({
+      id: aiMissionsTable.id,
+      projectId: aiMissionsTable.projectId,
+      userId: aiMissionsTable.userId,
+      status: aiMissionsTable.status,
+      autonomyPolicy: aiMissionsTable.autonomyPolicy,
+    }).from(aiMissionsTable)
+      .where(and(
+        eq(aiMissionsTable.id, identity.missionId),
+        eq(aiMissionsTable.projectId, identity.projectId),
+      ))
+      .for("update");
+    if (
+      !mission
+      || mission.status !== "active"
+      || record(mission.autonomyPolicy).activePlanRevision !== planRevision
+    ) {
+      return null;
+    }
+
+    const events = await tx.select({
+      stage: aiMissionDecisionEventsTable.stage,
+      referenceId: aiMissionDecisionEventsTable.referenceId,
+    }).from(aiMissionDecisionEventsTable)
+      .where(eq(aiMissionDecisionEventsTable.decisionId, decisionId))
+      .orderBy(asc(aiMissionDecisionEventsTable.sequence));
+    if (
+      events.some(({ stage }) => stage === "DISPATCHED")
+      || events.find(({ stage }) => stage === "APPROVED")?.referenceId
+        !== snapshot.events[approvedIndex]?.referenceId
+      || events.find(({ stage }) => stage === "PLAN_APPLIED")?.referenceId !== planRevision
+    ) {
+      return null;
+    }
+
+    const rootGoalIds = await planRootGoalIds(tx, {
+      missionId: identity.missionId,
+      projectId: identity.projectId,
+      planRevision,
+    });
+    if (rootGoalIds.length === 0) return null;
+
+    return {
+      decisionId,
+      projectId: mission.projectId,
+      missionId: mission.id,
+      userId: mission.userId,
+      planRevision,
+      rootGoalIds,
+    };
+  });
+}

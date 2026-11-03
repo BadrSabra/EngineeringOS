@@ -110,6 +110,7 @@ export {
   MissionStrategyAlternativeSchema,
   MissionStrategyEvaluationSchema,
   MissionStrategyOutcomeEvaluationSchema,
+  MissionStrategyPlanOutcomeEvaluationSchema,
   StrategyDifferenceSchema,
   StrategyEvaluationDimensionSchema,
   hashMissionDecisionContext,
@@ -117,6 +118,7 @@ export {
   hashMissionStrategyAlternative,
 } from "./mission-decision-contract.js";
 export * from "./mission-strategy-outcome-evaluation.js";
+export * from "./mission-strategy-plan-outcome-evaluation.js";
 export type {
   DecisionConfidence,
   DecisionEvidenceRef,
@@ -127,6 +129,7 @@ export type {
   MissionStrategyAlternative,
   MissionStrategyEvaluation,
   MissionStrategyOutcomeEvaluation,
+  MissionStrategyPlanOutcomeEvaluation,
   StrategyDifference,
   StrategyEvaluationDimension,
 } from "./mission-decision-contract.js";

@@ -19,3 +19,15 @@ These are pure evaluator tests. They do not prove a database adapter exists, tha
 `git diff --check` initially reported trailing spaces on five newly edited Markdown status lines used for visual line breaks. This was documentation formatting only; it did not affect code or tests. The spaces were removed before the final diff check.
 
 The expanded whitespace scan, which also covers untracked files, found Markdown hard-break spaces in several newly added gate documents that the ordinary tracked-only `git diff --check` did not inspect. This is documentation formatting only; those lines are being converted to explicit paragraph/bullet formatting before the final scan.
+
+## Plan-wide aggregation contract
+
+The single-Execution evaluator was not widened to accept a successor Goal. Instead, a separate deterministic aggregator now accepts a server-resolved active plan projection and keeps the failed source Goal separate from successor Goals. It requires exact Goal/Task/Execution mappings, current plan and root dispatch references, per-Execution acceptance/effect/Canonical Proof references, and an independently verified final World State snapshot before `ACHIEVED` or `NOT_ACHIEVED`. Its content hash binds stable evidence while excluding evaluation time.
+
+Latest verification:
+
+- `pnpm --filter @workspace/ai-orchestrator exec vitest run src/agent-state/mission-strategy-outcome-evaluation.test.ts`: **15 passed, 0 failed**.
+- `pnpm --filter @workspace/ai-orchestrator run typecheck`: **passed**.
+- Cases include source-vs-successor Goal identity, partial Task state, unverified final World State, missing proof bindings, root-dispatch mismatch, persisted lifecycle-reference mismatch, achieved plan aggregation, and fully contradicted terminal outcome.
+
+These tests remain synthetic. The aggregator does not load PostgreSQL, recalculate stored dispatch manifests, independently reload Canonical Proof, write an outcome record, or append lifecycle events. The live `EXECUTED` guard remains unchanged and must not be bypassed.

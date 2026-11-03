@@ -15,6 +15,10 @@ import {
   evaluateMissionStrategyOutcome,
   type MissionStrategyOutcomeEvidence,
 } from "./mission-strategy-outcome-evaluation.js";
+import {
+  evaluateMissionStrategyPlanOutcome,
+  type MissionStrategyPlanOutcomeEvidence,
+} from "./mission-strategy-plan-outcome-evaluation.js";
 
 const at = "2026-11-03T10:00:00.000Z";
 const unknownConfidence = { status: "unknown" as const, value: null, calibrationRef: null };
@@ -338,6 +342,218 @@ describe("Mission strategy outcome evaluation", () => {
     expect(evaluateMissionStrategyOutcome(evidence)).toMatchObject({
       outcome: "INCONCLUSIVE",
       limitationCodes: ["outcome_evidence_schema_invalid"],
+    });
+  });
+});
+
+function makePlanOutcomeEvidence(): MissionStrategyPlanOutcomeEvidence {
+  const baseTrace = makeTrace();
+  const { decisionId: _oldDecisionId, ...baseBody } = baseTrace;
+  const planRevision = "applied-plan";
+  const dispatchBatchId = "dispatch-batch-1";
+  const lifecycle = [
+    { stage: "PROPOSED" as const, at, referenceId: null },
+    { stage: "EVALUATED" as const, at, referenceId: null },
+    { stage: "SELECTED" as const, at, referenceId: "strategy.verify-change" },
+    { stage: "PLAN_APPLIED" as const, at, referenceId: planRevision },
+    { stage: "DISPATCHED" as const, at, referenceId: dispatchBatchId },
+  ];
+  const traceBody = {
+    ...baseBody,
+    lifecycle,
+    newPlanRevision: planRevision,
+    dispatchRef: dispatchBatchId,
+  };
+  const trace = MissionDecisionTraceSchema.parse({
+    ...traceBody,
+    decisionId: hashMissionDecisionTrace(traceBody),
+  });
+  const expectedProof = {
+    attempt: 1,
+    terminal: true,
+    acceptanceId: "acceptance-successor",
+    effectBundleId: "bundle-successor",
+    canonicalProofId: "proof-successor",
+    canonicalProofHash: proofHash,
+    worldStateRevision: "final-world",
+    outcome: "ACHIEVED" as const,
+    evidenceHash: "d".repeat(64),
+    observedEffectCodes: ["effect.changed"],
+    contradictedEffectCodes: [],
+  };
+  return {
+    trace,
+    persistedLifecycle: lifecycle.map((event, index) => ({
+      stage: event.stage,
+      sequence: index + 1,
+      referenceId: event.referenceId,
+    })),
+    plan: {
+      projectId,
+      missionId,
+      sourceGoalId: goalId,
+      revision: planRevision,
+      activeRevision: planRevision,
+      goalIds: ["successor-root", "successor-dependent"],
+      requiredGoalIds: ["successor-root", "successor-dependent"],
+      taskIds: ["successor-task"],
+      rootGoalIds: ["successor-root"],
+    },
+    dispatchBatch: {
+      decisionId: trace.decisionId,
+      projectId,
+      missionId,
+      planRevision,
+      id: dispatchBatchId,
+      manifestHash: "e".repeat(64),
+      state: "dispatched",
+      items: [{
+        position: 0,
+        goalId: "successor-root",
+        executionId: "execution-root",
+        runStatus: "completed",
+      }],
+    },
+    goalStates: [
+      {
+        goalId: "successor-root",
+        terminal: true,
+        taskIds: [],
+        executionIds: ["execution-root"],
+      },
+      {
+        goalId: "successor-dependent",
+        terminal: true,
+        taskIds: ["successor-task"],
+        executionIds: [],
+      },
+    ],
+    taskStates: [{
+      taskId: "successor-task",
+      goalId: "successor-dependent",
+      terminal: true,
+      executionIds: ["execution-task"],
+    }],
+    executions: [
+      {
+        goalId: "successor-root",
+        taskId: null,
+        executionId: "execution-root",
+        ...expectedProof,
+      },
+      {
+        goalId: "successor-dependent",
+        taskId: "successor-task",
+        executionId: "execution-task",
+        ...expectedProof,
+        acceptanceId: "acceptance-task",
+        effectBundleId: "bundle-task",
+        canonicalProofId: "proof-task",
+        evidenceHash: "f".repeat(64),
+      },
+    ],
+    finalWorldState: {
+      revision: "final-world",
+      continuityVerified: true,
+      evidenceHash: "9".repeat(64),
+      observedEffectCodes: ["effect.changed"],
+      contradictedEffectCodes: [],
+    },
+    evaluatedAt: at,
+  };
+}
+
+describe("Mission strategy plan outcome evaluation", () => {
+  it("aggregates successor Goals under the source decision without conflating their identities", () => {
+    const evidence = makePlanOutcomeEvidence();
+    const result = evaluateMissionStrategyPlanOutcome(evidence);
+    expect(result).toMatchObject({
+      outcome: "ACHIEVED",
+      sourceGoalId: "goal-1",
+      planGoalIds: ["successor-dependent", "successor-root"],
+      rootGoalIds: ["successor-root"],
+      dispatchBatchId: "dispatch-batch-1",
+      finalWorldState: {
+        continuityVerified: true,
+        revision: "final-world",
+      },
+    });
+    expect(result.evidenceSetHash).toMatch(/^[a-f0-9]{64}$/);
+  });
+
+  it("keeps partial task completion inconclusive", () => {
+    const evidence = makePlanOutcomeEvidence();
+    evidence.taskStates[0]!.terminal = false;
+    expect(evaluateMissionStrategyPlanOutcome(evidence)).toMatchObject({
+      outcome: "INCONCLUSIVE",
+      limitationCodes: expect.arrayContaining(["plan_task_nonterminal"]),
+    });
+  });
+
+  it("keeps an unverified final World State inconclusive even when individual executions claim success", () => {
+    const evidence = makePlanOutcomeEvidence();
+    evidence.finalWorldState.continuityVerified = false;
+    evidence.finalWorldState.evidenceHash = null;
+    expect(evaluateMissionStrategyPlanOutcome(evidence)).toMatchObject({
+      outcome: "INCONCLUSIVE",
+      limitationCodes: expect.arrayContaining(["final_world_state_unverified"]),
+    });
+  });
+
+  it("records a fully contradicted terminal plan as not achieved", () => {
+    const evidence = makePlanOutcomeEvidence();
+    for (const execution of evidence.executions) {
+      execution.outcome = "NOT_ACHIEVED";
+      execution.canonicalProofId = null;
+      execution.canonicalProofHash = null;
+      execution.observedEffectCodes = [];
+      execution.contradictedEffectCodes = ["effect.changed"];
+    }
+    evidence.finalWorldState.observedEffectCodes = [];
+    evidence.finalWorldState.contradictedEffectCodes = ["effect.changed"];
+    expect(evaluateMissionStrategyPlanOutcome(evidence)).toMatchObject({
+      outcome: "NOT_ACHIEVED",
+      contradictedEffectCodes: ["effect.changed"],
+    });
+  });
+
+  it("keeps a dispatch-root execution mismatch inconclusive", () => {
+    const evidence = makePlanOutcomeEvidence();
+    evidence.dispatchBatch.items[0]!.executionId = "execution-other";
+    expect(evaluateMissionStrategyPlanOutcome(evidence)).toMatchObject({
+      outcome: "INCONCLUSIVE",
+      limitationCodes: expect.arrayContaining(["dispatch_root_execution_incomplete"]),
+    });
+  });
+
+  it("does not conflate the failed source Goal with successor Goal identities", () => {
+    const evidence = makePlanOutcomeEvidence();
+    evidence.plan.sourceGoalId = "different-source-goal";
+    expect(evaluateMissionStrategyPlanOutcome(evidence)).toMatchObject({
+      outcome: "INCONCLUSIVE",
+      limitationCodes: expect.arrayContaining(["plan_identity_mismatch"]),
+    });
+  });
+
+  it("does not trust an achieved label without its Canonical Proof bindings", () => {
+    const evidence = makePlanOutcomeEvidence();
+    evidence.executions[0]!.canonicalProofId = null;
+    evidence.executions[0]!.canonicalProofHash = null;
+    expect(evaluateMissionStrategyPlanOutcome(evidence)).toMatchObject({
+      outcome: "INCONCLUSIVE",
+      limitationCodes: expect.arrayContaining(["execution_proof_binding_missing"]),
+    });
+  });
+
+  it("requires the persisted lifecycle pointers to match the selected plan and dispatch batch", () => {
+    const evidence = makePlanOutcomeEvidence();
+    evidence.persistedLifecycle[4]!.referenceId = "different-batch";
+    expect(evaluateMissionStrategyPlanOutcome(evidence)).toMatchObject({
+      outcome: "INCONCLUSIVE",
+      limitationCodes: expect.arrayContaining([
+        "lifecycle_not_at_dispatch_boundary",
+        "lifecycle_reference_mismatch",
+      ]),
     });
   });
 });

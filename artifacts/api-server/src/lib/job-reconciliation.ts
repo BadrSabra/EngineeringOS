@@ -88,7 +88,10 @@ import {
   wakeRuntimeTransitionMissionGoals,
   wakeApplyChangesMissionGoals,
 } from "./mission-runtime.js";
-import { reconcileAutomaticMissionReplans } from "./mission-auto-replan.js";
+import {
+  reconcileApprovedMissionDecisionDispatches,
+  reconcileAutomaticMissionReplans,
+} from "./mission-auto-replan.js";
 import { dispatchPendingShadowReplays } from "./shadow-replay.js";
 import { dispatchPendingMissionChatHandoffs } from "./mission-chat-handoffs.js";
 import { retryPendingRuntimeStartTransitions } from "./agent-state/runtime-start-transition.js";
@@ -946,7 +949,7 @@ export async function dispatchPersistedPendingJobs(): Promise<number> {
   let dispatched = 0;
 
   try {
-    const [queuedScans, pendingDiscoveries, recoveryCount, automaticReplanCount, missionRecipeCount, missionEventCount, shadowReplayCount, chatMissionHandoffCount, projectBootstrapCount] = await Promise.all([
+    const [queuedScans, pendingDiscoveries, recoveryCount, automaticReplanCount, approvedDecisionDispatchCount, missionRecipeCount, missionEventCount, shadowReplayCount, chatMissionHandoffCount, projectBootstrapCount] = await Promise.all([
       db
         .select({ id: scanJobsTable.id, projectId: scanJobsTable.projectId })
         .from(scanJobsTable)
@@ -957,6 +960,7 @@ export async function dispatchPersistedPendingJobs(): Promise<number> {
         .where(eq(discoverySessionsTable.status, "pending")),
       dispatchAutonomousTaskRecoveries(),
       reconcileAutomaticMissionReplans(),
+      reconcileApprovedMissionDecisionDispatches(),
       dispatchPendingMissionRecipes(),
       replayPendingMissionEvents(),
       dispatchPendingShadowReplays(),
@@ -965,6 +969,7 @@ export async function dispatchPersistedPendingJobs(): Promise<number> {
     ]);
     dispatched += recoveryCount;
     dispatched += automaticReplanCount;
+    dispatched += approvedDecisionDispatchCount;
     dispatched += missionRecipeCount;
     dispatched += missionEventCount;
     dispatched += shadowReplayCount;

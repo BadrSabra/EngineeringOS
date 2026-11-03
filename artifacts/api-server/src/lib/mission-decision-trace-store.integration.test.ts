@@ -51,6 +51,7 @@ import {
   recordMissionDecisionDispatchBatchInTransaction,
 } from "./mission-decision-trace-store.js";
 import { approveMissionGoal } from "./mission-approval.js";
+import { reconcileApprovedMissionDecisionDispatches } from "./mission-auto-replan.js";
 
 const projectIds: string[] = [];
 const now = new Date("2026-11-03T10:00:00.000Z");
@@ -555,6 +556,73 @@ describe("Mission decision trace persistence", () => {
     expect((await getMissionDecisionTrace(approvalTrace.decisionId))?.events.map(({ stage }) => stage))
       .toEqual(["PROPOSED", "EVALUATED", "SELECTED", "APPROVED", "PLAN_APPLIED"]);
     expect(missionRunner).toHaveBeenCalledTimes(2);
+
+    const recoveryRuns: Array<{
+      goalId: string;
+      userId: string;
+      trigger: string;
+      executionId: string;
+    }> = [];
+    const recovered = await reconcileApprovedMissionDecisionDispatches(16, async (input) => {
+      const executionId = randomUUID();
+      await db.insert(aiExecutionsTable).values({
+        id: executionId,
+        projectId: fixture.projectId,
+        goalId: input.goalId,
+        userId: input.userId,
+        idempotencyKey: `approved-decision-recovery:${executionId}`,
+        resumeTokenHash: `resume:${executionId}`,
+        request: JSON.stringify({ intent: "approved mission dispatch recovery fixture" }),
+        checkpoint: "{}",
+        attempt: 1,
+        status: "queued",
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      });
+      recoveryRuns.push({ ...input, executionId });
+      return {
+        status: "scheduled",
+        goalId: input.goalId,
+        executionId,
+        reason: "scheduled_by_recovery_test",
+      };
+    });
+    expect(recovered).toBe(1);
+    expect(recoveryRuns).toHaveLength(goalIds.length);
+    expect(new Set(recoveryRuns.map(({ goalId }) => goalId))).toEqual(new Set(goalIds));
+    expect(recoveryRuns.every(({ userId, trigger }) =>
+      userId === "decision-trace-test-owner" && trigger === "replan",
+    )).toBe(true);
+
+    const recoveredTrace = await getMissionDecisionTrace(approvalTrace.decisionId);
+    const dispatchEvent = recoveredTrace?.events.find(({ stage }) => stage === "DISPATCHED");
+    expect(dispatchEvent?.referenceId).toBeTruthy();
+    const recoveredBatch = dispatchEvent?.referenceId
+      ? await getMissionDecisionDispatchBatch(dispatchEvent.referenceId)
+      : null;
+    expect(recoveredBatch?.batch).toMatchObject({
+      decisionId: approvalTrace.decisionId,
+      projectId: fixture.projectId,
+      missionId: fixture.missionId,
+      planRevision,
+      state: "dispatched",
+      rootCount: goalIds.length,
+    });
+    expect(new Set(recoveredBatch?.items.map(({ goalId }) => goalId))).toEqual(new Set(goalIds));
+    expect(recoveredBatch?.items.map(({ goalId, executionId }) => ({
+      goalId,
+      executionId,
+    }))).toEqual(expect.arrayContaining(recoveryRuns.map(({ goalId, executionId }) => ({
+      goalId,
+      executionId,
+    }))));
+
+    const replayRuns: string[] = [];
+    expect(await reconcileApprovedMissionDecisionDispatches(16, async ({ goalId }) => {
+      replayRuns.push(goalId);
+      return { status: "scheduled", goalId, executionId: `unexpected:${goalId}` };
+    })).toBe(0);
+    expect(replayRuns).toEqual([]);
   });
 
   it("stores a recovery trace once and preserves its exact source identity", async () => {

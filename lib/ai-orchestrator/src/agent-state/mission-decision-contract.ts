@@ -757,6 +757,255 @@ export const MissionStrategyOutcomeEvaluationSchema = boundedDecisionContract(z.
 });
 export type MissionStrategyOutcomeEvaluation = z.infer<typeof MissionStrategyOutcomeEvaluationSchema>;
 
+const MissionStrategyPlanOutcomeExecutionSchema = z.object({
+  goalId: boundedString(200),
+  taskId: boundedString(200).nullable(),
+  executionId: boundedString(200),
+  attempt: z.number().int().nonnegative(),
+  terminal: z.boolean(),
+  acceptanceId: boundedString(200).nullable(),
+  effectBundleId: boundedString(200).nullable(),
+  canonicalProofId: boundedString(200).nullable(),
+  canonicalProofHash: z.string().regex(/^[a-f0-9]{64}$/).nullable(),
+  worldStateRevision: boundedString(200).nullable(),
+  outcome: z.enum(["ACHIEVED", "NOT_ACHIEVED", "INCONCLUSIVE"]),
+  evidenceHash: z.string().regex(/^[a-f0-9]{64}$/),
+  observedEffectCodes: z.array(boundedString(120)).max(MAX_DECISION_ITEMS),
+  contradictedEffectCodes: z.array(boundedString(120)).max(MAX_DECISION_ITEMS),
+}).strict();
+
+export const MissionStrategyPlanOutcomeEvaluationSchema = boundedDecisionContract(z.object({
+  schemaVersion: z.literal(MISSION_DECISION_SCHEMA_VERSION),
+  decisionId: z.string().regex(/^[a-f0-9]{64}$/),
+  projectId: boundedString(200),
+  missionId: boundedString(200),
+  sourceGoalId: boundedString(200),
+  planRevision: boundedString(200),
+  selectedStrategyId: boundedString(200),
+  dispatchBatchId: boundedString(200),
+  dispatchManifestHash: z.string().regex(/^[a-f0-9]{64}$/),
+  dispatchBatchState: z.enum(["dispatched", "partial"]),
+  outcome: z.enum(["ACHIEVED", "NOT_ACHIEVED", "INCONCLUSIVE"]),
+  planGoalIds: z.array(boundedString(200)).max(64),
+  requiredGoalIds: z.array(boundedString(200)).max(64),
+  planTaskIds: z.array(boundedString(200)).max(256),
+  rootGoalIds: z.array(boundedString(200)).max(64),
+  goalStates: z.array(z.object({
+    goalId: boundedString(200),
+    terminal: z.boolean(),
+    taskIds: z.array(boundedString(200)).max(256),
+    executionIds: z.array(boundedString(200)).max(128),
+  }).strict()).max(64),
+  taskStates: z.array(z.object({
+    taskId: boundedString(200),
+    goalId: boundedString(200),
+    terminal: z.boolean(),
+    executionIds: z.array(boundedString(200)).max(128),
+  }).strict()).max(256),
+  dispatchItems: z.array(z.object({
+    position: z.number().int().nonnegative(),
+    goalId: boundedString(200),
+    executionId: boundedString(200).nullable(),
+    runStatus: z.enum(["scheduled", "waiting", "blocked", "completed", "conflict"]),
+  }).strict()).max(64),
+  executions: z.array(MissionStrategyPlanOutcomeExecutionSchema).max(512),
+  expectedEffectCodes: z.array(boundedString(120)).max(MAX_DECISION_ITEMS),
+  observedEffectCodes: z.array(boundedString(120)).max(MAX_DECISION_ITEMS),
+  contradictedEffectCodes: z.array(boundedString(120)).max(MAX_DECISION_ITEMS),
+  finalWorldState: z.object({
+    revision: boundedString(200).nullable(),
+    continuityVerified: z.boolean(),
+    evidenceHash: z.string().regex(/^[a-f0-9]{64}$/).nullable(),
+    observedEffectCodes: z.array(boundedString(120)).max(MAX_DECISION_ITEMS),
+    contradictedEffectCodes: z.array(boundedString(120)).max(MAX_DECISION_ITEMS),
+  }).strict(),
+  evidenceSetHash: z.string().regex(/^[a-f0-9]{64}$/),
+  evaluatedAt: isoTimestamp,
+  limitationCodes: z.array(boundedString(120)).max(24),
+}).strict(), MAX_DECISION_BYTES).superRefine((evaluation, ctx) => {
+  const unique = (values: readonly string[]) => new Set(values).size === values.length;
+  const sortedUnique = (values: readonly string[]) =>
+    unique(values) && values.every((value, index) => index === 0 || values[index - 1].localeCompare(value) < 0);
+  const goalIds = new Set(evaluation.planGoalIds);
+  const requiredGoalIds = new Set(evaluation.requiredGoalIds);
+  const taskIds = new Set(evaluation.planTaskIds);
+  const goalStateIds = evaluation.goalStates.map(({ goalId }) => goalId);
+  const taskStateIds = evaluation.taskStates.map(({ taskId }) => taskId);
+  const executionIdentities = evaluation.executions.map(({ executionId, attempt }) =>
+    `${executionId}\n${attempt}`);
+  const rootIdsFromDispatch = evaluation.dispatchItems.map(({ goalId }) => goalId);
+  if (
+    !sortedUnique(evaluation.planGoalIds)
+    || !sortedUnique(evaluation.requiredGoalIds)
+    || !sortedUnique(evaluation.planTaskIds)
+    || !sortedUnique(evaluation.rootGoalIds)
+    || !unique(goalStateIds)
+    || !unique(taskStateIds)
+    || !unique(executionIdentities)
+    || !unique(rootIdsFromDispatch)
+    || evaluation.dispatchItems.some(({ position }, index) => position !== index)
+    || evaluation.goalStates.some((goal) => !unique(goal.taskIds) || !unique(goal.executionIds))
+    || evaluation.taskStates.some((task) => !unique(task.executionIds))
+    || (evaluation.outcome !== "INCONCLUSIVE" && (
+      goalStateIds.length !== evaluation.planGoalIds.length
+      || evaluation.planGoalIds.some((goalId) => !goalStateIds.includes(goalId))
+      || evaluation.requiredGoalIds.some((goalId) => !goalIds.has(goalId))
+      || evaluation.rootGoalIds.some((goalId) => !goalIds.has(goalId))
+      || taskStateIds.length !== evaluation.planTaskIds.length
+      || evaluation.planTaskIds.some((taskId) => !taskStateIds.includes(taskId))
+      || rootIdsFromDispatch.length !== evaluation.rootGoalIds.length
+      || evaluation.rootGoalIds.some((goalId) => !rootIdsFromDispatch.includes(goalId))
+      || evaluation.goalStates.some((goal) =>
+        !goalIds.has(goal.goalId)
+        || goal.taskIds.some((taskId) => !taskIds.has(taskId)))
+      || evaluation.taskStates.some((task) =>
+        !taskIds.has(task.taskId)
+        || !goalIds.has(task.goalId))
+      || evaluation.executions.some((execution) =>
+        !goalIds.has(execution.goalId)
+        || (execution.taskId !== null && (
+          !taskIds.has(execution.taskId)
+          || evaluation.taskStates.find(({ taskId }) => taskId === execution.taskId)?.goalId
+            !== execution.goalId
+        )))
+    ))
+  ) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: "plan outcome must bind unique Goal, Task, root, and Execution identities",
+    });
+  }
+  if (evaluation.outcome !== "INCONCLUSIVE") {
+    for (const goal of evaluation.goalStates) {
+      const expectedTaskIds = evaluation.taskStates
+        .filter((task) => task.goalId === goal.goalId)
+        .map(({ taskId }) => taskId)
+        .sort();
+      if ([...goal.taskIds].sort().join("\n") !== expectedTaskIds.join("\n")) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: "Goal Task set must exactly match the plan outcome Task rows",
+        });
+      }
+    }
+    for (const task of evaluation.taskStates) {
+      const expectedExecutionIds = evaluation.executions
+        .filter((execution) => execution.taskId === task.taskId)
+        .map(({ executionId }) => executionId)
+        .sort();
+      if ([...task.executionIds].sort().join("\n") !== expectedExecutionIds.join("\n")) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: "Task Execution set must exactly match the plan outcome Execution rows",
+        });
+      }
+    }
+    for (const goal of evaluation.goalStates) {
+      const expectedExecutionIds = evaluation.executions
+        .filter((execution) => execution.goalId === goal.goalId && execution.taskId === null)
+        .map(({ executionId }) => executionId)
+        .sort();
+      if ([...goal.executionIds].sort().join("\n") !== expectedExecutionIds.join("\n")) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: "Goal Execution set must exactly match the plan outcome Execution rows",
+        });
+      }
+    }
+    for (const item of evaluation.dispatchItems) {
+      if (
+        item.executionId !== null
+        && !evaluation.executions.some((execution) =>
+          execution.goalId === item.goalId && execution.executionId === item.executionId)
+      ) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: "dispatch root Execution must match its plan outcome identity",
+        });
+      }
+    }
+  }
+  if (evaluation.outcome === "ACHIEVED") {
+    const requiredExecutions = evaluation.executions.filter((execution) =>
+      requiredGoalIds.has(execution.goalId));
+    if (
+      evaluation.planGoalIds.length === 0
+      || evaluation.rootGoalIds.length === 0
+      || evaluation.dispatchBatchState !== "dispatched"
+      || evaluation.dispatchItems.some(({ executionId }) => executionId === null)
+      || evaluation.goalStates.some(({ terminal }) => !terminal)
+      || evaluation.taskStates.some(({ terminal }) => !terminal)
+      || evaluation.executions.some(({ terminal }) => !terminal)
+      || !evaluation.finalWorldState.continuityVerified
+      || !evaluation.finalWorldState.revision
+      || !evaluation.finalWorldState.evidenceHash
+      || evaluation.requiredGoalIds.some((goalId) =>
+        !requiredExecutions.some((execution) => execution.goalId === goalId))
+      || requiredExecutions.length === 0
+      || requiredExecutions.some((execution) =>
+        execution.outcome !== "ACHIEVED"
+        || !execution.acceptanceId
+        || !execution.effectBundleId
+        || !execution.canonicalProofId
+        || !execution.canonicalProofHash
+        || !execution.worldStateRevision)
+      || evaluation.expectedEffectCodes.length === 0
+      || evaluation.expectedEffectCodes.some((code) =>
+        !evaluation.finalWorldState.observedEffectCodes.includes(code))
+      || evaluation.expectedEffectCodes.some((code) =>
+        !evaluation.observedEffectCodes.includes(code))
+      || evaluation.expectedEffectCodes.some((code) => evaluation.contradictedEffectCodes.includes(code))
+      || evaluation.expectedEffectCodes.some((code) =>
+        evaluation.finalWorldState.contradictedEffectCodes.includes(code))
+    ) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "ACHIEVED requires terminal plan scope, exact proof-bound executions, and all expected effects",
+      });
+    }
+  }
+  if (
+    evaluation.outcome === "NOT_ACHIEVED"
+    && (
+      evaluation.planGoalIds.length === 0
+      || evaluation.rootGoalIds.length === 0
+      || evaluation.dispatchBatchState !== "dispatched"
+      || evaluation.dispatchItems.some(({ executionId }) => executionId === null)
+      || evaluation.goalStates.some(({ terminal }) => !terminal)
+      || evaluation.taskStates.some(({ terminal }) => !terminal)
+      || evaluation.executions.some(({ terminal }) => !terminal)
+      || !evaluation.finalWorldState.continuityVerified
+      || !evaluation.finalWorldState.revision
+      || !evaluation.finalWorldState.evidenceHash
+      || evaluation.expectedEffectCodes.length === 0
+      || !evaluation.executions.some((execution) =>
+        requiredGoalIds.has(execution.goalId)
+        && execution.outcome === "NOT_ACHIEVED"
+        && Boolean(execution.acceptanceId)
+        && Boolean(execution.effectBundleId))
+      || evaluation.expectedEffectCodes.some((code) => !evaluation.contradictedEffectCodes.includes(code))
+      || evaluation.expectedEffectCodes.some((code) => evaluation.observedEffectCodes.includes(code))
+      || evaluation.expectedEffectCodes.some((code) =>
+        !evaluation.finalWorldState.contradictedEffectCodes.includes(code))
+      || evaluation.expectedEffectCodes.some((code) =>
+        evaluation.finalWorldState.observedEffectCodes.includes(code))
+    )
+  ) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: "NOT_ACHIEVED requires terminal scope and direct contradiction of every expected effect",
+    });
+  }
+  if (evaluation.outcome === "INCONCLUSIVE" && evaluation.limitationCodes.length === 0) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: "INCONCLUSIVE requires an explicit limitation",
+    });
+  }
+});
+export type MissionStrategyPlanOutcomeEvaluation =
+  z.infer<typeof MissionStrategyPlanOutcomeEvaluationSchema>;
+
 export function hashMissionDecisionContext(context: MissionDecisionContext): string {
   return canonicalJsonHash(context as Parameters<typeof canonicalJsonHash>[0]);
 }

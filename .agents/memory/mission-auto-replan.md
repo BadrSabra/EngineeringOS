@@ -20,3 +20,9 @@ For live recovery strategy selection, persist bounded structural projections for
 **Why:** A runtime diagnosis with one observation produced identical plans for “direct-status-first” and “transition-provenance-first”; reporting two candidates overstated the available choice.
 
 **How to apply:** Include the actual observation sequence and action/dependency projection in the server-owned decision snapshot, and add a regression test for the identical-plan case before widening strategy coverage.
+
+For approval-required plans, recovery may dispatch only after reloading the complete durable approval receipt, the selected strategy, the active Mission, and its exact applied revision. Route each dependency root through the shared Goal lifecycle, then persist the root run statuses and exact Execution identities with the dispatch event. A partial batch is dispatch provenance only, never Canonical Proof. A process-local cooldown is load shedding, not a distributed lease or restart fence.
+
+**Why:** A crash can occur after final approval and plan application but before root dispatch. Recovery must close that gap without treating approval as execution proof or claiming exactly-once behavior from an in-memory timer.
+
+**How to apply:** Revalidate approval and revision at recovery time, preserve the existing Mission/Goal and task/recipe execution idempotency boundaries, and record a batch only under the existing store contract. When root executions are incomplete, keep the persisted per-root status explicit and do not advance outcome/acceptance proof.

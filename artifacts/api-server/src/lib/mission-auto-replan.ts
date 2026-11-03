@@ -1,4 +1,4 @@
-import { and, asc, eq } from "drizzle-orm";
+import { and, asc, eq, sql } from "drizzle-orm";
 import { createHash, randomUUID } from "node:crypto";
 import {
   aiAgentEpisodesTable,
@@ -6,6 +6,7 @@ import {
   aiExecutionAcceptancesTable,
   aiExecutionsTable,
   aiGoalsTable,
+  aiMissionDecisionEventsTable,
   aiMissionsTable,
   aiWorldTransitionsTable,
   db,
@@ -52,6 +53,8 @@ import { runMissionGoal, type MissionGoalRunResult } from "./mission-runtime.js"
 import { buildMissionStrategyDecisionTraceInTransaction } from "./mission-strategy-decision-trace.js";
 import {
   appendMissionDecisionLifecycleEventInTransaction,
+  getApprovedMissionDecisionDispatchPlan,
+  MissionDecisionTraceStoreError,
   recordMissionDecisionDispatchBatchInTransaction,
   persistMissionDecisionTraceInTransaction,
 } from "./mission-decision-trace-store.js";
@@ -83,6 +86,24 @@ const TERMINAL_REPLAN_FAILURES = new Set([
   "runtime_failure_evidence_unbound",
   "failure_source_evidence_unbound",
 ]);
+const approvedDecisionDispatchLastAttemptAt = new Map<string, number>();
+
+function shouldAttemptApprovedDecisionDispatch(decisionId: string): boolean {
+  const now = Date.now();
+  for (const [id, lastAttemptAt] of approvedDecisionDispatchLastAttemptAt) {
+    if (now - lastAttemptAt >= 30_000) {
+      approvedDecisionDispatchLastAttemptAt.delete(id);
+    }
+  }
+  const lastAttemptAt = approvedDecisionDispatchLastAttemptAt.get(decisionId);
+  if (lastAttemptAt !== undefined && now - lastAttemptAt < 30_000) return false;
+  approvedDecisionDispatchLastAttemptAt.set(decisionId, now);
+  if (approvedDecisionDispatchLastAttemptAt.size > 1024) {
+    const oldestDecisionId = approvedDecisionDispatchLastAttemptAt.keys().next().value;
+    if (oldestDecisionId) approvedDecisionDispatchLastAttemptAt.delete(oldestDecisionId);
+  }
+  return true;
+}
 
 function jsonRecord(value: unknown): Record<string, unknown> {
   return value && typeof value === "object" && !Array.isArray(value)
@@ -1074,4 +1095,115 @@ export async function reconcileAutomaticMissionReplans(
     if (result.status === "replanned") replanned++;
   }
   return replanned;
+}
+
+export async function reconcileApprovedMissionDecisionDispatches(
+  limit = 16,
+  runGoal: typeof runMissionGoal = runMissionGoal,
+): Promise<number> {
+  const candidates = await db
+    .select({ decisionId: aiMissionDecisionEventsTable.decisionId })
+    .from(aiMissionDecisionEventsTable)
+    .where(and(
+      eq(aiMissionDecisionEventsTable.stage, "PLAN_APPLIED"),
+      sql`not exists (
+        select 1 from ai_mission_decision_events as dispatched
+        where dispatched.decision_id = ${aiMissionDecisionEventsTable.decisionId}
+          and dispatched.stage = 'DISPATCHED'
+      )`,
+    ))
+    .orderBy(asc(aiMissionDecisionEventsTable.occurredAt), asc(aiMissionDecisionEventsTable.decisionId))
+    .limit(Math.max(1, Math.min(Math.floor(limit), 64)));
+
+  let recordedDispatches = 0;
+  for (const { decisionId } of candidates) {
+    if (!shouldAttemptApprovedDecisionDispatch(decisionId)) continue;
+    try {
+      const plan = await getApprovedMissionDecisionDispatchPlan(decisionId);
+      if (!plan) continue;
+
+      const runs: MissionGoalRunResult[] = [];
+      for (const goalId of plan.rootGoalIds) {
+        const run = await runGoal({
+          goalId,
+          userId: plan.userId,
+          trigger: "replan",
+        });
+        if (run.goalId !== goalId) {
+          throw new Error("mission_decision_dispatch_goal_identity_mismatch");
+        }
+        runs.push(run);
+      }
+
+      const items = plan.rootGoalIds.map((goalId, position) => {
+        const run = runs[position];
+        if (!run || run.goalId !== goalId) {
+          throw new Error("mission_decision_dispatch_root_result_missing");
+        }
+        return {
+          position,
+          goalId,
+          executionId: run.executionId ?? null,
+          runStatus: run.status,
+        };
+      });
+      if (!items.some(({ executionId }) => executionId !== null)) continue;
+
+      const recorded = await db.transaction(async (tx) => {
+        const [mission] = await tx.select({
+          id: aiMissionsTable.id,
+          projectId: aiMissionsTable.projectId,
+          userId: aiMissionsTable.userId,
+          status: aiMissionsTable.status,
+          autonomyPolicy: aiMissionsTable.autonomyPolicy,
+        }).from(aiMissionsTable)
+          .where(and(
+            eq(aiMissionsTable.id, plan.missionId),
+            eq(aiMissionsTable.projectId, plan.projectId),
+          ))
+          .for("update");
+        if (
+          !mission
+          || mission.status !== "active"
+          || jsonRecord(mission.autonomyPolicy).activePlanRevision !== plan.planRevision
+        ) {
+          return null;
+        }
+
+        for (const item of items) {
+          if (!item.executionId) continue;
+          const [execution] = await tx.select({ id: aiExecutionsTable.id })
+            .from(aiExecutionsTable)
+            .where(and(
+              eq(aiExecutionsTable.id, item.executionId),
+              eq(aiExecutionsTable.projectId, plan.projectId),
+              eq(aiExecutionsTable.goalId, item.goalId),
+              eq(aiExecutionsTable.userId, plan.userId),
+            ))
+            .for("update");
+          if (!execution) {
+            throw new Error("mission_decision_dispatch_execution_unbound");
+          }
+        }
+        return recordMissionDecisionDispatchBatchInTransaction(tx, {
+          decisionId: plan.decisionId,
+          planRevision: plan.planRevision,
+          occurredAt: new Date(),
+          items,
+        });
+      });
+      if (recorded?.event.kind === "appended") recordedDispatches++;
+    } catch (error) {
+      const errorCode = error instanceof MissionDecisionTraceStoreError
+        ? error.code
+        : error instanceof Error && /^[a-z_]+$/.test(error.message)
+          ? error.message
+          : "recovery_failed";
+      console.warn("Mission decision dispatch recovery failed closed", {
+        decisionId,
+        errorCode,
+      });
+    }
+  }
+  return recordedDispatches;
 }
