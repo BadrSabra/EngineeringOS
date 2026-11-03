@@ -2798,10 +2798,11 @@ describe("classifyStatus — non-string provider code does not crash (runtime ty
 
   it("includes the classified rate-limit scope in provider telemetry", async () => {
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const providerBodyMarker = "synthetic-provider-body-marker-not-for-logs";
     const body = JSON.stringify({
       error: {
         code: "rate_limit_exceeded",
-        message: "rate limited",
+        message: providerBodyMarker,
         metadata: { limit_source: "upstream_provider_shared_pool" },
       },
     });
@@ -2834,6 +2835,28 @@ describe("classifyStatus — non-string provider code does not crash (runtime ty
       providerStatus: 429,
       rateLimitScope: "upstream_shared_pool",
     });
+    expect(warn.mock.calls.flat().map(String).join("\n")).not.toContain(providerBodyMarker);
+  });
+
+  it("does not copy an upstream 5xx response body into the public error message", async () => {
+    const providerBodyMarker = "synthetic-provider-body-marker-not-for-errors";
+    vi.stubGlobal("fetch", vi.fn(async () => textResponse(JSON.stringify({
+      error: { message: providerBodyMarker },
+    }), 500)));
+
+    await expect(
+      oacCompleteRaw(baseMessages as any, {
+        apiKey: "test-key",
+        model: primaryModel,
+        maxTokens: 10,
+        baseUrl: "https://openrouter.ai/api/v1",
+        providerName: "OpenRouter",
+      }),
+    ).rejects.toSatisfy((error: unknown) =>
+      error instanceof GroqClientError
+      && error.code === "SERVER_ERROR"
+      && !error.message.includes(providerBodyMarker)
+    );
   });
 });
 

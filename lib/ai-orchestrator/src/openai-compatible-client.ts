@@ -868,11 +868,11 @@ function classifyStatus(
       providerName,
       model,
       providerStatus: status,
-      providerCode,
       rateLimitScope,
       retryAfterMs: ctx.retryAfterMs ?? null,
-      providerMessage: pMessage ?? null,
-      bodyPreview: body.slice(0, 300),
+      providerErrorCodePresent: Boolean(providerCode),
+      responseBodyPresent: body.length > 0,
+      responseBodyCharacters: body.length,
     }),
   );
 
@@ -883,7 +883,7 @@ function classifyStatus(
   ) {
     return new GroqClientError(
       "MODEL_UNAVAILABLE",
-      `OpenRouter model requires an agent harness (${status}). ${body.slice(0, 200)}`,
+      `OpenRouter model requires an agent harness (${status}).`,
       {
         context: {
           ...ctx,
@@ -926,7 +926,7 @@ function classifyStatus(
   if (status >= 500) {
     return new GroqClientError(
       "SERVER_ERROR",
-      `${providerName} API server error (${status}): ${body.slice(0, 200)}`,
+      `${providerName} API server error (${status})`,
       { context: ctx },
     );
   }
@@ -952,13 +952,13 @@ function classifyStatus(
     if (looksLikeParameterRoutingFailure(body)) {
       return new GroqClientError(
         "MODEL_UNAVAILABLE",
-        `OpenRouter has no endpoint for the requested response parameters (404). ${body.slice(0, 200)}`,
+        "OpenRouter has no endpoint for the requested response parameters (404).",
         { context: ctx },
       );
     }
     return new GroqClientError(
       "MODEL_NOT_FOUND",
-      `OpenRouter model not found (404) — the model has been discontinued or removed. ${body.slice(0, 200)}`,
+      "OpenRouter model not found (404) — the model may have been discontinued or removed.",
       { context: ctx },
     );
   }
@@ -981,7 +981,7 @@ function classifyStatus(
     }
     return new GroqClientError(
       "PLAN_RESTRICTED",
-      `OpenRouter model requires a paid plan or free-tier credit balance (402). ${body.slice(0, 200)}`,
+      "OpenRouter model requires an eligible free-tier balance or plan (402).",
       { context: ctx },
     );
   }
@@ -990,7 +990,7 @@ function classifyStatus(
     if (looksLikeMissingModel) {
       return new GroqClientError(
         "MODEL_NOT_FOUND",
-        `OpenRouter rejected the model slug (400) — the model ID may be invalid. ${body.slice(0, 200)}`,
+        "OpenRouter rejected the model slug (400) — the model ID may be invalid.",
         { context: ctx },
       );
     }
@@ -1005,7 +1005,7 @@ function classifyStatus(
     ) {
       return new GroqClientError(
         "PLAN_RESTRICTED",
-        `OpenRouter rejected the request because the selected model requires a paid plan or free-tier credits (400). ${body.slice(0, 200)}`,
+        "OpenRouter rejected the request because the selected model requires an eligible free-tier plan or balance (400).",
         { context: ctx },
       );
     }
@@ -1013,7 +1013,7 @@ function classifyStatus(
     if (looksLikeRecoverableOpenRouterRequestError(body, providerCode)) {
       return new GroqClientError(
         "MODEL_UNAVAILABLE",
-        `OpenRouter rejected a request feature or parameter (400) — the selected model cannot satisfy this request shape. ${body.slice(0, 200)}`,
+        "OpenRouter rejected a request feature or parameter (400) — the selected model cannot satisfy this request shape.",
         { context: ctx },
       );
     }
@@ -1029,14 +1029,14 @@ function classifyStatus(
   ) {
     return new GroqClientError(
       "MODEL_UNAVAILABLE",
-      `OpenRouter model unavailable (${status}) — the model is temporarily offline or being retired. ${body.slice(0, 200)}`,
+      `OpenRouter model unavailable (${status}) — it may be temporarily offline or being retired.`,
       { context: ctx },
     );
   }
 
   return new GroqClientError(
     "NON_200",
-    `${providerName} API responded with status ${status}: ${body.slice(0, 200)}`,
+    `${providerName} API responded with status ${status}`,
     { context: ctx },
   );
 }
@@ -1171,7 +1171,7 @@ async function oacCompleteRawUntracked(
       MAX_PROVIDER_ERROR_BODY_BYTES,
     ).catch(() => "");
     cleanup();
-    // Log the raw response before classifying so we never lose context.
+    // Keep diagnostics structured; response bodies may contain untrusted text.
     console.warn(
       JSON.stringify({
         scope: "openai-compatible-client",
@@ -1179,7 +1179,8 @@ async function oacCompleteRawUntracked(
         providerName,
         model,
         status: response.status,
-        bodyPreview: text.slice(0, 400),
+        responseBodyPresent: text.length > 0,
+        responseBodyCharacters: text.length,
       }),
     );
     throw classifyStatus(response.status, text, providerName, model, response.headers);
