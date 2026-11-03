@@ -2080,24 +2080,28 @@ describe("recipe operation preparation", () => {
       [
         "import http from 'node:http';",
         "import { existsSync, readFileSync, unlinkSync, writeFileSync } from 'node:fs';",
-        "const revision = readFileSync('node_modules/.cache/revision.txt', 'utf8').trim();",
-        "const replayMutationMarker = 'node_modules/.cache/mutate-next-replay';",
+        "const revision = readFileSync('.runtime-fixture/revision.txt', 'utf8').trim();",
+        "const replayMutationMarker = '.runtime-fixture/mutate-next-replay';",
         "if (existsSync(replayMutationMarker)) { unlinkSync(replayMutationMarker); writeFileSync('.strategy-replay-mutated', 'mutated'); }",
         "const server = http.createServer((_req, res) => { res.setHeader('x-engineeringos-revision', revision); res.end('runtime-ready'); });",
         "server.listen(Number(process.env.PORT), '127.0.0.1');",
         "process.once('SIGTERM', () => server.close(() => process.exit(0)));",
       ].join("\n"),
     );
-    await writeFile(path.join(rootPath, ".gitignore"), "node_modules/\n", "utf8");
+    await writeFile(
+      path.join(rootPath, ".gitignore"),
+      "node_modules/\n.runtime-fixture/\n",
+      "utf8",
+    );
     await execFileAsync("git", ["-C", rootPath, "init", "-q"]);
     await execFileAsync("git", ["-C", rootPath, "config", "user.name", "EngineeringOS Fixture"]);
     await execFileAsync("git", ["-C", rootPath, "config", "user.email", "fixture@example.com"]);
     await execFileAsync("git", ["-C", rootPath, "add", ".gitignore", "package.json", "server.mjs"]);
     await execFileAsync("git", ["-C", rootPath, "commit", "-qm", "runtime replay fixture"]);
     sourceRevision = (await execFileAsync("git", ["-C", rootPath, "rev-parse", "HEAD"])).stdout.trim();
-    await mkdir(path.join(rootPath, "node_modules/.cache"), { recursive: true });
+    await mkdir(path.join(rootPath, ".runtime-fixture"), { recursive: true });
     await writeFile(
-      path.join(rootPath, "node_modules/.cache/revision.txt"),
+      path.join(rootPath, ".runtime-fixture/revision.txt"),
       `${sourceRevision}\n`,
       "utf8",
     );
@@ -2676,7 +2680,7 @@ describe("recipe operation preparation", () => {
 
       await stopSourceRuntime();
       await writeFile(
-        path.join(rootPath, "node_modules/.cache/mutate-next-replay"),
+        path.join(rootPath, ".runtime-fixture/mutate-next-replay"),
         "mutate\n",
         "utf8",
       );
@@ -2789,7 +2793,7 @@ describe("recipe operation preparation", () => {
         .toHaveLength(1);
 
       const retryRequestId = crypto.randomUUID();
-      await rm(path.join(rootPath, "node_modules/.cache/mutate-next-replay"), { force: true });
+      await rm(path.join(rootPath, ".runtime-fixture/mutate-next-replay"), { force: true });
       const retryResult = await runRegisteredStrategyReplayCase({
         projectId,
         caseRegistrationId: registeredReplayCase!.id,
@@ -2979,7 +2983,7 @@ describe("recipe operation preparation", () => {
 
       const mutatedWorkspaceCase = await createNextRegisteredReplayCase();
       await writeFile(
-        path.join(rootPath, "node_modules/.cache/mutate-next-replay"),
+        path.join(rootPath, ".runtime-fixture/mutate-next-replay"),
         "mutate\n",
         "utf8",
       );
