@@ -52,6 +52,7 @@ import { runMissionGoal, type MissionGoalRunResult } from "./mission-runtime.js"
 import { buildMissionStrategyDecisionTraceInTransaction } from "./mission-strategy-decision-trace.js";
 import {
   appendMissionDecisionLifecycleEventInTransaction,
+  recordMissionDecisionDispatchBatchInTransaction,
   persistMissionDecisionTraceInTransaction,
 } from "./mission-decision-trace-store.js";
 
@@ -914,6 +915,8 @@ export async function autoReplanMission(
       revision,
       plan,
       failedGoalId: failedGoal?.id ?? null,
+      decisionTraceId: decisionTrace?.decisionId ?? null,
+      decisionTraceCanDispatch: selectedAlternative?.approvalRequirement === "not_required",
     };
   });
 
@@ -923,12 +926,21 @@ export async function autoReplanMission(
   }
 
   const runs: MissionGoalRunResult[] = [];
-  for (const planGoal of prepared.plan.goals.filter((goal) => goal.dependencies.length === 0)) {
-    runs.push(await runGoal({
+  const rootGoals = prepared.plan.goals.filter((goal) => goal.dependencies.length === 0);
+  for (const planGoal of rootGoals) {
+    const run = await runGoal({
       goalId: planGoal.goalId,
       userId: prepared.userId,
       trigger: "replan",
-    }));
+    });
+    if (run.goalId !== planGoal.goalId) {
+      return {
+        status: "skipped",
+        missionId,
+        reason: "replan_root_goal_identity_mismatch",
+      };
+    }
+    runs.push(run);
   }
   const dispatchSucceeded = runs.some((run) =>
     run.status === "scheduled" || run.status === "waiting" || run.status === "completed",
@@ -942,6 +954,25 @@ export async function autoReplanMission(
     };
   }
 
+  const dispatchItems = rootGoals.map((planGoal, position) => {
+    const run = runs[position];
+    if (!run || run.goalId !== planGoal.goalId) {
+      throw new Error("mission_replan_dispatch_root_result_missing");
+    }
+    return {
+      position,
+      goalId: planGoal.goalId,
+      executionId: run.executionId ?? null,
+      runStatus: run.status,
+    };
+  });
+  const canRecordDispatchBatch = Boolean(prepared.decisionTraceId)
+    && prepared.decisionTraceCanDispatch
+    && dispatchItems.some(({ executionId }) => executionId !== null)
+    && dispatchItems.every(({ runStatus, executionId }) =>
+      !["scheduled", "completed"].includes(runStatus) || executionId !== null,
+    );
+  let dispatchBatchId: string | null = null;
   await db.transaction(async (tx) => {
     const [current] = await tx
       .select({ autonomyPolicy: aiMissionsTable.autonomyPolicy })
@@ -972,6 +1003,30 @@ export async function autoReplanMission(
       ))
       .returning({ id: aiMissionsTable.id });
     if (!updated) return;
+    if (canRecordDispatchBatch && prepared.decisionTraceId) {
+      for (const item of dispatchItems) {
+        if (!item.executionId) continue;
+        const [execution] = await tx.select({ id: aiExecutionsTable.id })
+          .from(aiExecutionsTable)
+          .where(and(
+            eq(aiExecutionsTable.id, item.executionId),
+            eq(aiExecutionsTable.projectId, prepared.projectId),
+            eq(aiExecutionsTable.goalId, item.goalId),
+            eq(aiExecutionsTable.userId, prepared.userId),
+          ))
+          .for("update");
+        if (!execution) {
+          throw new Error("mission_replan_dispatch_execution_unbound");
+        }
+      }
+      const recorded = await recordMissionDecisionDispatchBatchInTransaction(tx, {
+        decisionId: prepared.decisionTraceId,
+        planRevision: prepared.revision,
+        occurredAt: new Date(),
+        items: dispatchItems,
+      });
+      dispatchBatchId = recorded.batch.dispatchBatchId;
+    }
     await tx.insert(eventsTable).values({
       id: randomUUID(),
       type: "AiMissionReplannedAutomatically",
@@ -984,6 +1039,8 @@ export async function autoReplanMission(
         failedGoalId: prepared.failedGoalId,
         planRevision: prepared.revision,
         planHash: prepared.revision,
+        decisionTraceId: prepared.decisionTraceId,
+        dispatchBatchId,
         runs: runs.map((run) => ({ goalId: run.goalId, status: run.status, reason: run.reason })),
       },
     });

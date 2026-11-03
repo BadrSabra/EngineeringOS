@@ -4,6 +4,7 @@ import {
   aiAgentEffectsTable,
   aiAgentEpisodesTable,
   aiAgentObservationsTable,
+  eventsTable,
   aiExecutionAcceptancesTable,
   aiExecutionsTable,
   aiGoalDependenciesTable,
@@ -236,6 +237,26 @@ async function missionPlanApprovalReceipt(
       || Number.isNaN(Date.parse(approval.approvedAt))
       || typeof approval.approvalEventId !== "string"
       || !approval.approvalEventId
+    ) {
+      return null;
+    }
+    const [approvalEvent] = await tx.select().from(eventsTable)
+      .where(eq(eventsTable.id, approval.approvalEventId))
+      .for("update");
+    const eventPayload = record(approvalEvent?.payload);
+    if (
+      !approvalEvent
+      || approvalEvent.type !== "AiGoalApprovalGranted"
+      || approvalEvent.projectId !== trace.context.identity.projectId
+      || approvalEvent.goalId !== goal.id
+      || eventPayload.missionId !== trace.context.identity.missionId
+      || eventPayload.goalId !== goal.id
+      || eventPayload.approvalKind !== "mission_plan_step"
+      || eventPayload.planRevision !== trace.newPlanRevision
+      || eventPayload.stepId !== stepId
+      || eventPayload.decisionTraceId !== trace.decisionId
+      || eventPayload.approvedStrategyId !== selectedStrategy.strategyId
+      || eventPayload.approvedStrategyHash !== approvalIdentity
     ) {
       return null;
     }
@@ -1341,7 +1362,9 @@ export async function getMissionDecisionTrace(
       throw new MissionDecisionTraceStoreError("decision_event_order_invalid");
     }
     if (current.stage === "APPROVED") {
-      const approvalReceipt = await missionPlanApprovalReceipt(tx, trace);
+      const approvalReceipt = await db.transaction((tx) =>
+        missionPlanApprovalReceipt(tx, trace),
+      );
       if (
         selectedStrategy?.approvalRequirement !== "required"
         || approvalReceipt !== current.referenceId

@@ -287,6 +287,7 @@ export async function approveMissionGoal(params: {
       }
 
       const now = new Date();
+      const approvalEventId = randomUUID();
       const updatedGoal = await tx.update(aiGoalsTable)
         .set({
           status: "queued",
@@ -304,6 +305,8 @@ export async function approveMissionGoal(params: {
               state: "APPROVED",
               approvedBy: params.userId,
               approvedAt: now.toISOString(),
+              approvalEventId,
+              ...(decisionApprovalBinding ?? {}),
             },
           },
           updatedAt: now,
@@ -330,7 +333,7 @@ export async function approveMissionGoal(params: {
           ));
       }
       await tx.insert(eventsTable).values({
-        id: randomUUID(),
+        id: approvalEventId,
         type: "AiGoalApprovalGranted",
         projectId: goal.projectId,
         goalId: goal.id,
@@ -343,8 +346,16 @@ export async function approveMissionGoal(params: {
           approvalKind: "mission_plan_step",
           planRevision: planHash,
           stepId,
+          ...(decisionApprovalBinding ?? {}),
         },
       });
+      if (decisionApprovalBinding) {
+        await appendMissionDecisionApprovalLifecycleEventsInTransaction(
+          tx,
+          decisionApprovalBinding.decisionTraceId,
+          now,
+        );
+      }
       if (params.actionReceipt) {
         await persistMissionAgentActionEffectReceipt(tx, params.actionReceipt, {
           outcome: "accepted",

@@ -22,7 +22,10 @@ import {
   loadMissionWorldStatePlanningRead,
 } from "./mission-world-state-planning-read.js";
 import { executionProfileForMissionStep } from "./mission-execution-profile.js";
-import { getMissionDecisionTrace } from "./mission-decision-trace-store.js";
+import {
+  getMissionDecisionDispatchBatch,
+  getMissionDecisionTrace,
+} from "./mission-decision-trace-store.js";
 
 const projectIds: string[] = [];
 const MISSION_INTENT = "Inspect the source, then fix the blocking issue.";
@@ -526,11 +529,33 @@ describe("DB-backed automatic Mission replan evidence boundary", () => {
       nextActionCode: validatorDiagnosis.nextActionCode,
     }).where(eq(aiAgentEpisodesTable.id, fixture.episodeId));
 
-    const result = await autoReplanMission(fixture.missionId, async (input) => ({
-      status: "scheduled",
-      goalId: input.goalId,
-      reason: "scheduled_by_test_fixture",
-    }));
+    const dispatchExecutionIds: string[] = [];
+    const result = await autoReplanMission(fixture.missionId, async (input) => {
+      const executionId = randomUUID();
+      const createdAt = new Date();
+      await db.insert(aiExecutionsTable).values({
+        id: executionId,
+        projectId: fixture.projectId,
+        goalId: input.goalId,
+        operationId: `operation:${executionId}`,
+        userId: input.userId,
+        idempotencyKey: `mission-replan-dispatch:${executionId}`,
+        resumeTokenHash: `resume:${executionId}`,
+        request: JSON.stringify({ intent: "isolated validator replan dispatch fixture" }),
+        checkpoint: "{}",
+        status: "queued",
+        attempt: 1,
+        createdAt,
+        updatedAt: createdAt,
+      });
+      dispatchExecutionIds.push(executionId);
+      return {
+        status: "scheduled",
+        goalId: input.goalId,
+        executionId,
+        reason: "scheduled_by_test_fixture",
+      };
+    });
 
     expect(result.status, JSON.stringify(result)).toBe("replanned");
     if (result.status !== "replanned") return;
@@ -550,6 +575,21 @@ describe("DB-backed automatic Mission replan evidence boundary", () => {
         },
       },
     });
+    const planSnapshot = (materializedGoal?.successCriteria as {
+      planRevision?: Record<string, unknown>;
+    }).planRevision;
+    const decisionTraceId = planSnapshot?.decisionTraceId;
+    if (typeof decisionTraceId !== "string") {
+      throw new Error("validator_replan_test_trace_missing");
+    }
+    const trace = await getMissionDecisionTrace(decisionTraceId);
+    const planApplied = trace?.events.some(({ stage }) => stage === "PLAN_APPLIED") ?? false;
+    const dispatchEvent = trace?.events.find(({ stage }) => stage === "DISPATCHED");
+    expect(Boolean(dispatchEvent)).toBe(planApplied);
+    if (dispatchEvent?.referenceId) {
+      const batch = await getMissionDecisionDispatchBatch(dispatchEvent.referenceId);
+      expect(batch?.items.map(({ executionId }) => executionId)).toEqual(dispatchExecutionIds);
+    }
   });
 
   it("does not dispatch validator recovery when its acceptance projection is not durable", async () => {
@@ -751,7 +791,26 @@ describe("DB-backed automatic Mission replan evidence boundary", () => {
     expect(planningRead).toBeUndefined();
 
     const dispatched: Array<{ goalId: string; userId: string; trigger: string }> = [];
+    const dispatchExecutionIds: string[] = [];
     const result = await autoReplanMission(fixture.missionId, async (input) => {
+      const executionId = randomUUID();
+      const createdAt = new Date();
+      await db.insert(aiExecutionsTable).values({
+        id: executionId,
+        projectId: fixture.projectId,
+        goalId: input.goalId,
+        operationId: `operation:${executionId}`,
+        userId: input.userId,
+        idempotencyKey: `mission-replan-dispatch:${executionId}`,
+        resumeTokenHash: `resume:${executionId}`,
+        request: JSON.stringify({ intent: "isolated mission replan dispatch fixture" }),
+        checkpoint: "{}",
+        status: "queued",
+        attempt: 1,
+        createdAt,
+        updatedAt: createdAt,
+      });
+      dispatchExecutionIds.push(executionId);
       dispatched.push({
         goalId: input.goalId,
         userId: input.userId,
@@ -760,6 +819,7 @@ describe("DB-backed automatic Mission replan evidence boundary", () => {
       return {
         status: "scheduled",
         goalId: input.goalId,
+        executionId,
         reason: "scheduled_by_test_fixture",
       };
     });
@@ -800,9 +860,22 @@ describe("DB-backed automatic Mission replan evidence boundary", () => {
       ({ strategyId }) => strategyId === (planSnapshot.strategyDecision as { selectedStrategyId: string }).selectedStrategyId,
     );
     expect(selectedProjection).toBeDefined();
-    expect(storedTrace?.events.some(({ stage }) => stage === "PLAN_APPLIED")).toBe(
+    const planApplied = storedTrace?.events.some(({ stage }) => stage === "PLAN_APPLIED") ?? false;
+    expect(planApplied).toBe(
       !selectedProjection?.actions.some(({ approvalRequired }) => approvalRequired),
     );
+    const dispatchEvent = storedTrace?.events.find(({ stage }) => stage === "DISPATCHED");
+    expect(Boolean(dispatchEvent)).toBe(planApplied);
+    if (dispatchEvent?.referenceId) {
+      const batch = await getMissionDecisionDispatchBatch(dispatchEvent.referenceId);
+      expect(batch?.batch.planRevision).toBe(result.revision);
+      expect(batch?.items.map(({ goalId, executionId }) => ({ goalId, executionId }))).toEqual(
+        rootGoals.map((goal, index) => ({
+          goalId: goal.goalId,
+          executionId: dispatchExecutionIds[index],
+        })),
+      );
+    }
     expect(planSnapshot).toMatchObject({
       strategyDecision: {
         schemaVersion: 1,
