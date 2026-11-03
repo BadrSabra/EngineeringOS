@@ -156,8 +156,8 @@ No G1 performance values are asserted in this G0 report; see `docs/engineering-d
 - **G0: COMPLETE as an audit deliverable.**
 - **G1:** Complete as a versioned, reproducible Development snapshot; improvement is not proven.
 - **G2:** Complete as shared contract definitions only; they do not yet change Mission planning or dispatch.
-- **G3:** Complete as an isolated proposal generator and semantic comparator; it is not wired to the live selector or dispatch.
-- **G4:** Complete as a deterministic Pareto evaluator; it is not wired to the live Mission selector and has no dispatch authority.
+- **G3:** The newer shared proposal generator and semantic comparator are isolated. Separately, `artifacts/api-server/src/lib/mission-strategy-engine.ts` is called by `autoReplanMission()` and has an integration test proving that a selected runtime recovery strategy changes the durable plan; its live scope is limited to runtime-start and validator recovery.
+- **G4:** The live Mission engine compares bounded candidates with fixed heuristic utility and deterministic tie-breaking. It is not the newer formal 15-dimension evaluator with persisted hard-constraint provenance and typed `NO_DECISION`; neither component directly authorizes dispatch.
 - **G5:** Standalone trace-storage layer is verified; live Mission integration and database-level immutability are not established.
 **Production-code changes during G0: none.**
 

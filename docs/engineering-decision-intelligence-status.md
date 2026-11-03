@@ -7,9 +7,9 @@ This is the consolidated status for the G0–G10 plan. “Implemented” means o
 | G0 — Architecture audit | COMPLETE | `engineering-decision-intelligence-g0-audit.md`; source-path and gap findings are documented. |
 | G1 — Baseline | BASELINE DEFINITION COMPLETE; improvement NOT MEASURABLE | `engineering-decision-intelligence-g1-baseline-v1.md`; no paired outcome data supports an improvement claim. |
 | G2 — Decision contracts | COMPLETE | Shared schemas bind source execution/acceptance, attempts, revisions, alternatives, approval, and outcome record. |
-| G3 — Strategy generation and differentiation | COMPLETE AS AN ISOLATED COMPONENT | Generator and semantic comparer have tests; neither is wired to the live Mission selector. |
-| G4 — Evaluation and selection | COMPLETE AS AN ISOLATED DETERMINISTIC COMPONENT | Conservative hard constraints/Pareto policy preserves `NO_DECISION`; no dispatch authority. |
-| G5 — Decision trace | PARTIAL | Durable trace/event schema and store pass isolated PostgreSQL tests; live selector/plan update/dispatch integration is open. No DB-level immutability enforcement. |
+| G3 — Strategy generation and differentiation | PARTIAL; AN EARLIER ENGINE IS LIVE | `artifacts/api-server/src/lib/mission-strategy-engine.ts` is called by `autoReplanMission()` and an integration test proves its selected runtime strategy changes the materialized plan. That engine supports only runtime-start and validator recovery. The newer shared strategy contract/generator/comparer is still isolated and is not the engine used by that route. |
+| G4 — Evaluation and selection | PARTIAL; LIMITED DETERMINISTIC SELECTION IS LIVE | The live engine compares two bounded candidates using fixed heuristic utility and deterministic tie-breaking. It is not the newer formal evaluator with 15 explicit dimensions, hard-constraint provenance, and typed `NO_DECISION`; neither selector has dispatch authority by itself. |
+| G5 — Decision trace | PARTIAL; STORE IS NOT LIVE-WIRED | Durable trace/event schema and store pass isolated PostgreSQL tests, but `autoReplanMission()` currently persists its older strategy decision only inside the plan snapshot. The formal trace store is not called. Its current identity checks also assume the source failed Goal is the Goal whose plan and later execution are traced, while automatic replan creates successor Goals; this source/target identity gap must be resolved before integration. No DB-level immutability enforcement. |
 | G6 — Outcome evaluation | PARTIAL | Pure evaluator is tested; server-side data loading, Canonical Proof reload, durable outcome persistence, and Mission integration are open. |
 | G7 — Shadow mode | NOT STARTED | Requires G5/G6 live read-only integration and a paired shadow record without plan or dispatch side effects. |
 | G8 — Limited operation | NOT STARTED | Requires explicit approvals, proof-bound dispatch, bounded scope, and recovery/idempotency testing. |
@@ -27,8 +27,8 @@ This is the consolidated status for the G0–G10 plan. “Implemented” means o
 
 ## Next dependency-ordered work
 
-1. G5 live, read-only decision capture and atomic plan/lifecycle integration, preserving current Mission locks and approval boundaries.
-2. G6 server-only evidence loader using the canonical proof reload path; persist the outcome atomically with its lifecycle event.
+1. G5 identity design and adapter for the existing live auto-replan engine: distinguish failed source Goal/execution/acceptance from successor plan Goal IDs, then atomically persist the formal trace with plan materialization under the existing Mission transaction and approval boundary.
+2. G6 server-only evidence loader for successor executions using the canonical proof reload path; persist the outcome atomically with its lifecycle event.
 3. G7 shadow-only comparisons, with an invariant test that plans, approvals, and dispatch are unchanged.
 4. G8 only after explicit proof/approval and isolated recovery tests.
 5. G9 and G10 only when measured accepted outcomes and held-out transfer evidence exist.
