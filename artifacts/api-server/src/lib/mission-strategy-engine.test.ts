@@ -228,6 +228,10 @@ describe("Mission recovery strategy engine", () => {
       ...sourceIdentity,
       worldStateFailureDiagnosis: {
         ...diagnosis,
+        failureDiagnosis: {
+          ...diagnosis.failureDiagnosis,
+          requiredObservations: ["world_transition:materialization"],
+        },
         distinguishingObservationCodes: ["world_transition:materialization"],
       },
       runtimeStartTargetStepId: "deliver",

@@ -14,3 +14,9 @@ Decision traces for automatic replan must preserve the failed Goal, source Execu
 **Why:** Automatic replan materializes new Goal IDs, so reusing the failed source Goal as the plan/execution target rejects valid successors or risks misbinding a later execution to the failure record. Revision membership narrows the linkage but does not by itself prove an accepted outcome. Calling a wrapper that opens its own transaction from inside plan materialization would also break atomic rollback.
 
 **How to apply:** Keep source evidence checks on the failed Goal/attempt; validate applied-plan Goal membership within Mission/project and validate dispatch/acceptance through the referenced successor execution and its plan revision. Use the transaction-scoped helpers when composing with an existing Mission transaction. If a consumer needs one exact successor Goal, persist and verify an explicit target-ID binding rather than inferring it from the revision.
+
+For live recovery strategy selection, persist bounded structural projections for every candidate and compare those projections; candidate names or utility differences alone do not prove a genuine alternative. If fewer than two eligible plans differ in actions, dependencies, or required observation order, fail closed instead of selecting between labels.
+
+**Why:** A runtime diagnosis with one observation produced identical plans for “direct-status-first” and “transition-provenance-first”; reporting two candidates overstated the available choice.
+
+**How to apply:** Include the actual observation sequence and action/dependency projection in the server-owned decision snapshot, and add a regression test for the identical-plan case before widening strategy coverage.
