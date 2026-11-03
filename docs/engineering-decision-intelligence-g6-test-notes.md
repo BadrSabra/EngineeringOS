@@ -35,8 +35,19 @@ These tests remain synthetic. The aggregator does not load PostgreSQL, recalcula
 ## Transactional Trace and snapshot-schema foundation
 
 - The G5 Trace reader now exposes a transaction-scoped form and the public read uses one repeatable-read transaction so event hashes, sequence, and approval binding are checked from one database snapshot. The transaction is not marked read-only because approval validation takes row locks; the getter still performs no writes.
-- An additive Drizzle definition for plan-outcome snapshots was typechecked as part of the API dependency build. It is not applied to Development and no writer consumes it.
+- An additive Drizzle definition for plan-outcome snapshots was typechecked as part of the API dependency build. A server-side insert-only writer now consumes it in the isolated test, but it is not applied to Development.
 - The API-server typecheck completed successfully; the focused plan-outcome suite remains **15 passed, 0 failed**.
 - No database integration test, schema push, lifecycle mutation, Mission execution, or external provider request was run.
 
-This is groundwork only. G6 remains open until a server-only loader binds exact current-plan rows, acceptance-linked executions and attempts, Canonical Proofs, effects, direct observations, and a complete final World State; then it must persist and revalidate the snapshot before any plan-level event can be appended.
+This was groundwork only; the server adapter and database path are described below.
+
+## Server-owned outcome snapshot integration
+
+- The first isolated integration attempt failed **1/8** while 7 existing tests passed. It merged appended lifecycle events into the hashed canonical Trace; the schema correctly rejected the changed `decisionId`. This failure showed a contract mismatch, not a database or Mission failure.
+- The fix leaves the canonical Trace unchanged and checks its initial `PROPOSED`/`EVALUATED`/`SELECTED` prefix against the independently validated durable lifecycle chain. `PLAN_APPLIED` and `DISPATCHED` references are accepted only from that chain and are cross-checked against the current plan and exact batch.
+- The pure evaluator suite then passed **15/15**; API-server typecheck passed.
+- The isolated Mission Trace suite passed **8/8** on a newly initialized loopback-only PostgreSQL cluster with the current Drizzle schema applied only to that cluster. The new case wrote an `INCONCLUSIVE` snapshot for an unfinished dispatched execution, replayed the same evidence idempotently, and verified that no `EXECUTED`/`ACCEPTED` event was appended.
+- The first parallel launch of the isolated runner returned a tool-level `No process for id` error and left one empty temporary directory. Inspection found no server PID or listener; only that exact empty root was removed. The subsequent single-process run completed and stopped PostgreSQL cleanly.
+- No `ACHIEVED` or `NOT_ACHIEVED` server-loader fixture, automatic reconciliation trigger, snapshot-consumer, Development migration, live Mission, or production change has been verified.
+
+The insert-only writer is not a lifecycle authority. G6 remains open until successful and contradicted evidence paths are tested, Development schema drift is reviewed before any migration, a durable completion trigger invokes evaluation without replaying side effects, and a separate transaction reloads the exact persisted snapshot before lifecycle advancement.

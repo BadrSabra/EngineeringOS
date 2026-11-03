@@ -351,7 +351,7 @@ function makePlanOutcomeEvidence(): MissionStrategyPlanOutcomeEvidence {
   const { decisionId: _oldDecisionId, ...baseBody } = baseTrace;
   const planRevision = "applied-plan";
   const dispatchBatchId = "dispatch-batch-1";
-  const lifecycle = [
+  const persistedLifecycle = [
     { stage: "PROPOSED" as const, at, referenceId: null },
     { stage: "EVALUATED" as const, at, referenceId: null },
     { stage: "SELECTED" as const, at, referenceId: "strategy.verify-change" },
@@ -360,9 +360,9 @@ function makePlanOutcomeEvidence(): MissionStrategyPlanOutcomeEvidence {
   ];
   const traceBody = {
     ...baseBody,
-    lifecycle,
+    lifecycle: baseTrace.lifecycle,
     newPlanRevision: planRevision,
-    dispatchRef: dispatchBatchId,
+    dispatchRef: null,
   };
   const trace = MissionDecisionTraceSchema.parse({
     ...traceBody,
@@ -383,7 +383,7 @@ function makePlanOutcomeEvidence(): MissionStrategyPlanOutcomeEvidence {
   };
   return {
     trace,
-    persistedLifecycle: lifecycle.map((event, index) => ({
+    persistedLifecycle: persistedLifecycle.map((event, index) => ({
       stage: event.stage,
       sequence: index + 1,
       referenceId: event.referenceId,
@@ -466,6 +466,9 @@ function makePlanOutcomeEvidence(): MissionStrategyPlanOutcomeEvidence {
 describe("Mission strategy plan outcome evaluation", () => {
   it("aggregates successor Goals under the source decision without conflating their identities", () => {
     const evidence = makePlanOutcomeEvidence();
+    expect(evidence.trace.dispatchRef).toBeNull();
+    expect(evidence.trace.lifecycle).toHaveLength(3);
+    expect(evidence.persistedLifecycle).toHaveLength(5);
     const result = evaluateMissionStrategyPlanOutcome(evidence);
     expect(result).toMatchObject({
       outcome: "ACHIEVED",
@@ -550,10 +553,7 @@ describe("Mission strategy plan outcome evaluation", () => {
     evidence.persistedLifecycle[4]!.referenceId = "different-batch";
     expect(evaluateMissionStrategyPlanOutcome(evidence)).toMatchObject({
       outcome: "INCONCLUSIVE",
-      limitationCodes: expect.arrayContaining([
-        "lifecycle_not_at_dispatch_boundary",
-        "lifecycle_reference_mismatch",
-      ]),
+      limitationCodes: expect.arrayContaining(["lifecycle_reference_mismatch"]),
     });
   });
 });

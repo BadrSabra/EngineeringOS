@@ -26,7 +26,6 @@ import {
   MissionDecisionTraceSchema,
 } from "@workspace/ai-orchestrator";
 import type {
-  MissionDecisionTrace,
   MissionStrategyPlanOutcomeEvaluation,
 } from "@workspace/ai-orchestrator";
 import {
@@ -85,6 +84,14 @@ function record(value: unknown): Record<string, unknown> {
 function sameStrings(left: readonly string[], right: readonly string[]): boolean {
   return left.length === right.length
     && [...left].sort().join("\n") === [...right].sort().join("\n");
+}
+
+function hashJson(value: unknown): string {
+  const serialized = JSON.stringify(value);
+  if (serialized === undefined) throw new Error("mission outcome evidence is not JSON serializable");
+  return canonicalJsonHash(
+    JSON.parse(serialized) as Parameters<typeof canonicalJsonHash>[0],
+  );
 }
 
 function outcomeId(decisionId: string, evidenceSetHash: string): string {
@@ -161,7 +168,6 @@ export async function evaluateAndPersistMissionPlanOutcome(
       activePlan.binding !== "active_revision"
       || activePlan.revision !== appliedEvent.referenceId
       || candidateTrace.newPlanRevision !== appliedEvent.referenceId
-      || candidateTrace.dispatchRef !== dispatchEvent.referenceId
     ) {
       return { kind: "not_ready", reason: "plan_not_current" };
     }
@@ -192,9 +198,15 @@ export async function evaluateAndPersistMissionPlanOutcome(
     if (taskRows.length > 256) {
       return { kind: "not_ready", reason: "plan_outside_evaluator_bounds" };
     }
+    const boundTaskRows = taskRows.filter(
+      (task): task is PlanTaskRow & { goalId: string } => typeof task.goalId === "string",
+    );
+    if (boundTaskRows.length !== taskRows.length) {
+      return { kind: "not_ready", reason: "plan_not_current" };
+    }
 
     const tasksByGoal = new Map<string, PlanTaskRow[]>();
-    for (const task of taskRows) {
+    for (const task of boundTaskRows) {
       const rows = tasksByGoal.get(task.goalId) ?? [];
       rows.push(task);
       tasksByGoal.set(task.goalId, rows);
@@ -350,8 +362,8 @@ export async function evaluateAndPersistMissionPlanOutcome(
       executionObservedCodes.forEach((code) => observedCodes.add(code));
       if (!observationsMatch) allAfterObservationsBound = false;
 
-      const proofHash = canonicalJsonHash(proof);
-      const evidenceHash = canonicalJsonHash({
+      const proofHash = hashJson(proof);
+      const evidenceHash = hashJson({
         goalId: goal.id,
         taskId,
         execution: {
@@ -427,7 +439,7 @@ export async function evaluateAndPersistMissionPlanOutcome(
         })
       : null;
 
-    const taskStates = taskRows.map((task) => ({
+    const taskStates = boundTaskRows.map((task) => ({
       taskId: task.id,
       goalId: task.goalId,
       terminal: TERMINAL_TASK_STATUSES.has(task.status),
@@ -444,18 +456,10 @@ export async function evaluateAndPersistMissionPlanOutcome(
         .map((execution) => execution.executionId),
     }));
 
-    const traceForEvaluation: MissionDecisionTrace = {
-      ...storedTrace.trace,
-      lifecycle: events.map((event) => ({
-        stage: event.stage as MissionDecisionTrace["lifecycle"][number]["stage"],
-        referenceId: event.referenceId,
-        at: event.occurredAt.toISOString(),
-      })),
-    };
     const evaluation = evaluateMissionStrategyPlanOutcome({
-      trace: traceForEvaluation,
+      trace: storedTrace.trace,
       persistedLifecycle: events.map((event) => ({
-        stage: event.stage as MissionDecisionTrace["lifecycle"][number]["stage"],
+        stage: event.stage,
         sequence: event.sequence,
         referenceId: event.referenceId,
       })),

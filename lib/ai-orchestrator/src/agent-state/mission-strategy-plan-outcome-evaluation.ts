@@ -147,7 +147,6 @@ export function evaluateMissionStrategyPlanOutcome(
     evidence.dispatchBatch.decisionId !== trace.decisionId
     || evidence.dispatchBatch.projectId !== evidence.plan.projectId
     || evidence.dispatchBatch.missionId !== evidence.plan.missionId
-    || trace.dispatchRef !== evidence.dispatchBatch.id
   ) {
     limitations.add("dispatch_batch_identity_mismatch");
   }
@@ -163,23 +162,20 @@ export function evaluateMissionStrategyPlanOutcome(
     "DISPATCHED",
   ];
   const traceLifecycle = trace.lifecycle;
+  const tracePrefixMatches = traceLifecycle.length === 3
+    && traceLifecycle.every((event, index) =>
+      event.stage === expectedStages[index]
+      && event.referenceId === evidence.persistedLifecycle[index]?.referenceId);
   const lifecycleMatches = evidence.persistedLifecycle.length === expectedStages.length
-    && traceLifecycle.length === expectedStages.length
+    && tracePrefixMatches
     && expectedStages.every((stage, index) =>
       evidence.persistedLifecycle[index]?.stage === stage
-      && evidence.persistedLifecycle[index]?.sequence === index + 1
-      && traceLifecycle[index]?.stage === stage
-      && traceLifecycle[index]?.referenceId === evidence.persistedLifecycle[index]?.referenceId);
+      && evidence.persistedLifecycle[index]?.sequence === index + 1);
   if (!lifecycleMatches) limitations.add("lifecycle_not_at_dispatch_boundary");
   if (
     traceLifecycle.find(({ stage }) => stage === "SELECTED")?.referenceId
       !== selectedStrategyId
-    || traceLifecycle.find(({ stage }) => stage === "PLAN_APPLIED")?.referenceId
-      !== evidence.plan.revision
-    || traceLifecycle.find(({ stage }) => stage === "DISPATCHED")?.referenceId
-      !== evidence.dispatchBatch.id
-    ||
-    evidence.persistedLifecycle.find(({ stage }) => stage === "PLAN_APPLIED")?.referenceId
+    || evidence.persistedLifecycle.find(({ stage }) => stage === "PLAN_APPLIED")?.referenceId
       !== evidence.plan.revision
     || evidence.persistedLifecycle.find(({ stage }) => stage === "DISPATCHED")?.referenceId
       !== evidence.dispatchBatch.id

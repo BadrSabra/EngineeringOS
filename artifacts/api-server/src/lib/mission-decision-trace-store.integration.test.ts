@@ -8,6 +8,7 @@ import {
   aiGoalsTable,
   aiMissionDecisionDispatchBatchesTable,
   aiMissionDecisionDispatchItemsTable,
+  aiMissionDecisionOutcomeSnapshotsTable,
   aiMissionsTable,
   aiWorldFactsTable,
   db,
@@ -52,6 +53,7 @@ import {
 } from "./mission-decision-trace-store.js";
 import { approveMissionGoal } from "./mission-approval.js";
 import { reconcileApprovedMissionDecisionDispatches } from "./mission-auto-replan.js";
+import { evaluateAndPersistMissionPlanOutcome } from "./mission-strategy-plan-outcome-store.js";
 
 const projectIds: string[] = [];
 const now = new Date("2026-11-03T10:00:00.000Z");
@@ -812,6 +814,103 @@ describe("Mission decision trace persistence", () => {
       { stage: "ACCEPTED", referenceId: successorAcceptanceId },
     ]);
     expect(stored?.trace.dispatchRef).toBeNull();
+  });
+
+  it("records an inconclusive outcome snapshot from dispatch evidence without advancing lifecycle", async () => {
+    const fixture = await createFixture();
+    const planRevision = `auto:${randomUUID()}:${"f".repeat(64)}`;
+    const selectedTrace = makeSelectedTrace({
+      trace: fixture.trace,
+      worldStateRevision: fixture.worldStateRevision,
+      worldFactId: fixture.worldFactId,
+      worldFactHash: fixture.worldFactHash,
+      newPlanRevision: planRevision,
+    });
+    await persistMissionDecisionTrace(selectedTrace);
+
+    const goalId = randomUUID();
+    const executionId = randomUUID();
+    await db.insert(aiGoalsTable).values({
+      id: goalId,
+      missionId: fixture.missionId,
+      projectId: fixture.projectId,
+      title: "Outcome snapshot root",
+      status: "queued",
+      successCriteria: { planRevision: { hash: planRevision } },
+      evidenceContract: { required: true },
+      outcomeContract: { planRevision: { hash: planRevision } },
+      nextAction: { kind: "execute" },
+      createdAt: now,
+      updatedAt: now,
+    });
+    await db.update(aiMissionsTable).set({
+      autonomyPolicy: { activePlanRevision: planRevision },
+    }).where(eq(aiMissionsTable.id, fixture.missionId));
+    await appendMissionDecisionLifecycleEvent({
+      decisionId: selectedTrace.decisionId,
+      stage: "PLAN_APPLIED",
+      referenceId: planRevision,
+      occurredAt: new Date(now.getTime() + 2_000),
+    });
+    await db.insert(aiExecutionsTable).values({
+      id: executionId,
+      projectId: fixture.projectId,
+      goalId,
+      userId: "decision-trace-test-owner",
+      idempotencyKey: `outcome-snapshot-${executionId}`,
+      resumeTokenHash: "f".repeat(64),
+      request: "{}",
+      checkpoint: "{}",
+      attempt: 1,
+      status: "queued",
+      baseRevision: "decision-project-revision",
+      createdAt: now,
+      updatedAt: now,
+    });
+    const dispatch = await recordMissionDecisionDispatchBatch({
+      decisionId: selectedTrace.decisionId,
+      planRevision,
+      occurredAt: new Date(now.getTime() + 3_000),
+      items: [{
+        position: 0,
+        goalId,
+        executionId,
+        runStatus: "scheduled",
+      }],
+    });
+    expect(dispatch.batch.kind).toBe("inserted");
+
+    const first = await evaluateAndPersistMissionPlanOutcome(selectedTrace.decisionId, now);
+    expect(first.kind).toBe("recorded");
+    if (first.kind !== "recorded") throw new Error("expected first outcome snapshot");
+    expect(first.evaluation.outcome).toBe("INCONCLUSIVE");
+    expect(first.evaluation.executions).toMatchObject([{
+      goalId,
+      executionId,
+      terminal: false,
+      outcome: "INCONCLUSIVE",
+      canonicalProofId: null,
+      effectBundleId: null,
+    }]);
+
+    const replay = await evaluateAndPersistMissionPlanOutcome(
+      selectedTrace.decisionId,
+      new Date(now.getTime() + 60_000),
+    );
+    expect(replay.kind).toBe("already_recorded");
+    expect(replay).toMatchObject({
+      snapshotId: first.snapshotId,
+      evaluation: {
+        evidenceSetHash: first.evaluation.evidenceSetHash,
+        outcome: "INCONCLUSIVE",
+      },
+    });
+    expect(await db.select().from(aiMissionDecisionOutcomeSnapshotsTable)
+      .where(eq(aiMissionDecisionOutcomeSnapshotsTable.decisionId, selectedTrace.decisionId)))
+      .toHaveLength(1);
+    expect((await getMissionDecisionTrace(selectedTrace.decisionId))?.events
+      .map(({ stage }) => stage).slice(-2))
+      .toEqual(["PLAN_APPLIED", "DISPATCHED"]);
   });
 
   it("records every applied-plan root in one idempotent dispatch batch", async () => {
