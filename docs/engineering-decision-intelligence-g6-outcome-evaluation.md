@@ -4,9 +4,10 @@
 
 - **G6 isolated single-execution evaluator: IMPLEMENTED AND TESTED.**
 - **G6 deterministic plan-wide aggregation contract: IMPLEMENTED AND TESTED.**
-- **G6 server evidence loader, durable outcome record, and live Mission integration: OPEN.**
+- **G6 server evidence loader and live Mission integration: OPEN.**
+- **G6 additive outcome-snapshot schema: DEFINED, NOT APPLIED OR WIRED.**
 
-Both evaluators are deterministic shared-library functions. The plan-wide aggregator keeps the failed source Goal distinct from successor Goals, binds the dispatch batch and exact Goal/Task/Execution identity sets, requires per-Execution proof references, and requires a separately supplied final World State continuity snapshot. It does **not** query a database, validate caller-supplied rows or hashes, independently reload Canonical Proof, persist an outcome, authorize lifecycle events, or change Mission execution. Its returned evaluation is not proof or authority.
+Both evaluators are deterministic shared-library functions. The plan-wide aggregator keeps the failed source Goal distinct from successor Goals, binds the dispatch batch and exact Goal/Task/Execution identity sets, requires per-Execution proof references, and requires a separately supplied final World State continuity snapshot. It does **not** query a database, validate caller-supplied rows or hashes, independently reload Canonical Proof, persist an outcome, authorize lifecycle events, or change Mission execution. Its returned evaluation is not proof or authority. An additive Drizzle table definition now describes outcome snapshots, and the Trace reader can validate the event chain within one repeatable-read transaction; neither is connected to a server evidence loader or applied to Development.
 
 ## Forensic integration finding
 
@@ -30,7 +31,7 @@ The live path must evaluate the complete applied plan as one bounded aggregate:
 5. Persist an append-only, content-hashed outcome snapshot whose identity includes the full Goal/Execution/attempt/Acceptance/Proof set and evidence revision. A changed evidence set must create a distinct evaluation identity; it must not rewrite an earlier result.
 6. Only a store transaction that revalidates that entire manifest may append plan-level `EXECUTED`, `ACCEPTED`, `VERIFIED`, and `EVALUATED_AFTER_EXECUTION` references. A dispatch-batch pointer or provider response is never an outcome or proof.
 
-The plan-wide shape now exists as a pure aggregation contract. Until a server loader independently reloads and validates every input from PostgreSQL and an atomic store path persists/revalidates the resulting manifest, neither evaluator may be wired to live Mission replan traces.
+The plan-wide shape now exists as a pure aggregation contract. Until a server loader independently reloads and validates every input from PostgreSQL and an atomic store path persists/revalidates the resulting manifest, neither evaluator may be wired to live Mission replan traces. The snapshot schema remains unapplied and has no writer or lifecycle consumer.
 
 ## Outcome policy
 
@@ -57,11 +58,11 @@ See `docs/engineering-decision-intelligence-g6-test-notes.md`. The current focus
 
 ## Required work before closing G6
 
-1. Implement a server-only loader that retrieves the exact trace and validates stored lifecycle event hashes/sequences through the G5 store.
-2. Reload current active-plan Goals, Tasks, Executions/attempts, Acceptances, effects, observations, and final World State from PostgreSQL under the established lock order; validate exact identities and revisions.
+1. Implement a server-only loader that retrieves the exact trace, active plan, acceptance-linked Executions, Tasks, effect bundles, direct observations, Canonical Proofs, and a complete final World State snapshot. Missing or ambiguous identities must remain `INCONCLUSIVE`; never select the latest Execution as a fallback.
+2. Reload current active-plan Goals, Tasks, Executions/attempts, Acceptances, effects, observations, and final World State from PostgreSQL under the established lock order; validate exact identities and revisions, including World State read completeness.
 3. Reload Canonical Proof independently for each required Execution. Do not construct proof status from acceptance or event references alone; do not choose "latest Execution" heuristically when an exact acceptance binding is missing.
-4. Persist immutable, content-hashed plan outcome snapshots. A changed evidence set creates a new row; a retry with identical evidence is idempotent.
+4. Review the additive snapshot-table diff against Development before applying it; then persist immutable, content-hashed plan outcome snapshots. A changed evidence set creates a new row; a retry with identical evidence is idempotent.
 5. Extend the store so only one transaction that revalidates the full manifest may advance lifecycle events; preserve the current guard that a root-only dispatch batch cannot stand in for plan completion.
 6. Add isolated PostgreSQL race, idempotency, stale-input, incomplete-plan, cross-attempt, and mismatch tests; then prove the read-only evaluator cannot schedule or mutate a Mission.
 
-No live Mission outcome has yet been evaluated, and no benchmark improvement can be inferred from these synthetic fixtures.
+No live Mission outcome has yet been evaluated, the snapshot table has not been applied or written, and no benchmark improvement can be inferred from these synthetic fixtures.

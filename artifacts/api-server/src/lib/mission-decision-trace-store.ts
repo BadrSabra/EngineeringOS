@@ -27,7 +27,7 @@ import {
 import type { MissionDecisionTrace } from "@workspace/ai-orchestrator";
 import { getProjectWorldState } from "./agent-state/world-state.js";
 
-type MissionDecisionTransaction = Parameters<Parameters<typeof db.transaction>[0]>[0];
+export type MissionDecisionTransaction = Parameters<Parameters<typeof db.transaction>[0]>[0];
 type DecisionEventStage = MissionDecisionTrace["lifecycle"][number]["stage"];
 
 const INITIAL_STAGES = ["PROPOSED", "EVALUATED", "SELECTED"] as const;
@@ -755,6 +755,21 @@ async function assertStoredMissionDecisionDispatchBatch(
   };
 }
 
+export async function getValidatedMissionDecisionDispatchBatchInTransaction(
+  tx: MissionDecisionTransaction,
+  trace: MissionDecisionTrace,
+  input: { dispatchBatchId: string; planRevision: string },
+): Promise<{
+  batch: Awaited<ReturnType<typeof assertStoredMissionDecisionDispatchBatch>>;
+  items: Array<typeof aiMissionDecisionDispatchItemsTable.$inferSelect>;
+}> {
+  const batch = await assertStoredMissionDecisionDispatchBatch(tx, trace, input);
+  const items = await tx.select().from(aiMissionDecisionDispatchItemsTable)
+    .where(eq(aiMissionDecisionDispatchItemsTable.dispatchBatchId, batch.dispatchBatchId))
+    .orderBy(asc(aiMissionDecisionDispatchItemsTable.position));
+  return { batch, items };
+}
+
 /**
  * Persist one immutable dispatch manifest for every root Goal in the applied
  * revision. A successful root must name the exact persisted Execution; labels
@@ -1298,7 +1313,8 @@ export async function recordMissionDecisionDispatchBatch(
   return db.transaction((tx) => recordMissionDecisionDispatchBatchInTransaction(tx, input));
 }
 
-export async function getMissionDecisionTrace(
+export async function getMissionDecisionTraceInTransaction(
+  tx: MissionDecisionTransaction,
   decisionId: string,
 ): Promise<{ trace: MissionDecisionTrace; events: Array<{
   id: string;
@@ -1308,11 +1324,11 @@ export async function getMissionDecisionTrace(
   eventHash: string;
   occurredAt: Date;
 }> } | null> {
-  const [stored] = await db.select().from(aiMissionDecisionTracesTable)
+  const [stored] = await tx.select().from(aiMissionDecisionTracesTable)
     .where(eq(aiMissionDecisionTracesTable.decisionId, decisionId));
   if (!stored) return null;
   const trace = MissionDecisionTraceSchema.parse(stored.trace);
-  const events = await db.select({
+  const events = await tx.select({
     id: aiMissionDecisionEventsTable.id,
     sequence: aiMissionDecisionEventsTable.sequence,
     stage: aiMissionDecisionEventsTable.stage,
@@ -1362,9 +1378,7 @@ export async function getMissionDecisionTrace(
       throw new MissionDecisionTraceStoreError("decision_event_order_invalid");
     }
     if (current.stage === "APPROVED") {
-      const approvalReceipt = await db.transaction((tx) =>
-        missionPlanApprovalReceipt(tx, trace),
-      );
+      const approvalReceipt = await missionPlanApprovalReceipt(tx, trace);
       if (
         selectedStrategy?.approvalRequirement !== "required"
         || approvalReceipt !== current.referenceId
@@ -1387,6 +1401,25 @@ export async function getMissionDecisionTrace(
     }
   }
   return { trace, events };
+}
+
+export async function getMissionDecisionTrace(
+  decisionId: string,
+): Promise<{
+  trace: MissionDecisionTrace;
+  events: Array<{
+    id: string;
+    sequence: number;
+    stage: string;
+    referenceId: string | null;
+    eventHash: string;
+    occurredAt: Date;
+  }>;
+} | null> {
+  return db.transaction(
+    (tx) => getMissionDecisionTraceInTransaction(tx, decisionId),
+    { isolationLevel: "repeatable read" },
+  );
 }
 
 export async function getApprovedMissionDecisionDispatchPlan(

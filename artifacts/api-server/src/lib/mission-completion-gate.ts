@@ -76,7 +76,7 @@ function selectActiveGoals(
   return goals.filter((goal) => activeGoalIds.has(goal.id));
 }
 
-function projectedAcceptance(goal: typeof aiGoalsTable.$inferSelect): {
+export function projectedAcceptance(goal: typeof aiGoalsTable.$inferSelect): {
   executionId: string;
   sourceRevision?: string | null;
   candidateIdentity?: string | null;

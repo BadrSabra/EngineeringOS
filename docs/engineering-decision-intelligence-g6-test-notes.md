@@ -31,3 +31,12 @@ Latest verification:
 - Cases include source-vs-successor Goal identity, partial Task state, unverified final World State, missing proof bindings, root-dispatch mismatch, persisted lifecycle-reference mismatch, achieved plan aggregation, and fully contradicted terminal outcome.
 
 These tests remain synthetic. The aggregator does not load PostgreSQL, recalculate stored dispatch manifests, independently reload Canonical Proof, write an outcome record, or append lifecycle events. The live `EXECUTED` guard remains unchanged and must not be bypassed.
+
+## Transactional Trace and snapshot-schema foundation
+
+- The G5 Trace reader now exposes a transaction-scoped form and the public read uses one repeatable-read transaction so event hashes, sequence, and approval binding are checked from one database snapshot. The transaction is not marked read-only because approval validation takes row locks; the getter still performs no writes.
+- An additive Drizzle definition for plan-outcome snapshots was typechecked as part of the API dependency build. It is not applied to Development and no writer consumes it.
+- The API-server typecheck completed successfully; the focused plan-outcome suite remains **15 passed, 0 failed**.
+- No database integration test, schema push, lifecycle mutation, Mission execution, or external provider request was run.
+
+This is groundwork only. G6 remains open until a server-only loader binds exact current-plan rows, acceptance-linked executions and attempts, Canonical Proofs, effects, direct observations, and a complete final World State; then it must persist and revalidate the snapshot before any plan-level event can be appended.
