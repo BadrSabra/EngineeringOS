@@ -93,7 +93,7 @@ function nonEmptyString(value: unknown): string | undefined {
     : undefined;
 }
 
-function containsCandidateMarker(value: unknown, depth = 0): boolean {
+export function containsCandidateMarker(value: unknown, depth = 0): boolean {
   if (depth > 6) return true;
   if (typeof value === "string") return /candidate|overlay/i.test(value);
   if (Array.isArray(value)) return value.some((item) => containsCandidateMarker(item, depth + 1));

@@ -1,17 +1,24 @@
 import { and, asc, eq } from "drizzle-orm";
 import { createHash, randomUUID } from "node:crypto";
 import {
+  aiAgentEpisodesTable,
+  aiAgentObservationsTable,
+  aiExecutionAcceptancesTable,
+  aiExecutionsTable,
   aiGoalsTable,
   aiMissionsTable,
+  aiWorldTransitionsTable,
   db,
   eventsTable,
 } from "@workspace/db";
+import { inArray } from "drizzle-orm";
 import {
   normalizeMissionAutonomyPolicy,
   writeCanonicalMissionAutonomyPolicy,
 } from "./mission-autonomy-policy.js";
 import {
   buildMissionPlanPreview,
+  type MissionPlanPreview,
   type MissionWorldStatePlanningRead,
 } from "@workspace/ai-orchestrator";
 import {
@@ -31,7 +38,16 @@ import {
   loadRuntimeStartHypothesisReplanEvidence,
   type RuntimeStartHypothesisReplanEvidence,
 } from "./agent-state/runtime-start-hypothesis-replan-context.js";
-import { loadMissionWorldStatePlanningRead } from "./mission-world-state-planning-read.js";
+import {
+  containsCandidateMarker,
+  loadMissionWorldStatePlanningRead,
+} from "./mission-world-state-planning-read.js";
+import { taskScopeIdentity } from "./agent-state/observation-materializer.js";
+import {
+  selectAndApplyMissionStrategy,
+  type MissionStrategyDecision,
+  type RuntimeFailureSourceBinding,
+} from "./mission-strategy-engine.js";
 import { runMissionGoal, type MissionGoalRunResult } from "./mission-runtime.js";
 
 type AutoReplanResult =
@@ -57,6 +73,8 @@ const TERMINAL_REPLAN_FAILURES = new Set([
   "failure_not_automatically_retryable",
   "empty_plan",
   "no_eligible_replan_root",
+  "runtime_transition_target_unbound",
+  "runtime_failure_evidence_unbound",
 ]);
 
 function jsonRecord(value: unknown): Record<string, unknown> {
@@ -95,6 +113,261 @@ function worldStateFailureDiagnosisFromOutcome(outcome: unknown): WorldStateFail
     jsonRecord(outcome).worldStateFailureDiagnosis,
   );
   return parsed.success ? parsed.data : undefined;
+}
+
+function runtimeStartTargetStepIdFromGoal(
+  goal: { outcomeContract: unknown; successCriteria: unknown },
+  expectedPlanRevision: string,
+): string | undefined {
+  const snapshots = [
+    jsonRecord(jsonRecord(goal.outcomeContract).planRevision),
+    jsonRecord(jsonRecord(goal.successCriteria).planRevision),
+  ];
+  for (const snapshot of snapshots) {
+    if (
+      snapshot.hash !== expectedPlanRevision
+      || !Array.isArray(snapshot.steps)
+      || !Array.isArray(snapshot.transitionRequirements)
+    ) {
+      continue;
+    }
+    const steps = snapshot.steps.filter((step): step is Record<string, unknown> =>
+      typeof step === "object" && step !== null && !Array.isArray(step),
+    );
+    const targetExists = (targetStepId: string) => steps.some((step) =>
+      jsonRecord(step).id === targetStepId,
+    );
+    const requirements = snapshot.transitionRequirements.filter((requirement):
+      requirement is Record<string, unknown> =>
+        typeof requirement === "object"
+        && requirement !== null
+        && !Array.isArray(requirement),
+    );
+    const requirement = requirements
+      .map(jsonRecord)
+      .find((candidate) =>
+        candidate.kind === "runtime.start"
+        && candidate.version === 1
+        && candidate.sourceStepId === "runtime-start"
+        && typeof candidate.targetStepId === "string"
+        && /^[a-z0-9][a-z0-9-]{0,79}$/.test(candidate.targetStepId)
+        && targetExists(candidate.targetStepId),
+      );
+    if (requirement && typeof requirement.targetStepId === "string") {
+      return requirement.targetStepId;
+    }
+  }
+  return undefined;
+}
+
+async function hasBoundRuntimeFailureEvidence(
+  tx: Parameters<Parameters<typeof db.transaction>[0]>[0],
+  input: {
+    missionId: string;
+    projectId: string;
+    goalId: string;
+    priorPlanRevision: string;
+    outcomeContract: unknown;
+    diagnosis: WorldStateFailureDiagnosis;
+  },
+): Promise<RuntimeFailureSourceBinding | undefined> {
+  const transition = input.diagnosis.transition;
+  const acceptanceProjection = jsonRecord(jsonRecord(input.outcomeContract).acceptance);
+  const executionId = typeof acceptanceProjection.executionId === "string"
+    ? acceptanceProjection.executionId
+    : undefined;
+  if (
+    !executionId
+    || (transition && acceptanceProjection.executionId !== transition.executionId)
+    || (
+      acceptanceProjection.attempt != null
+      && transition
+      && acceptanceProjection.attempt !== transition.attempt
+    )
+    || (acceptanceProjection.outcome !== "FAILED"
+      && acceptanceProjection.outcome !== "INTERRUPTED")
+  ) {
+    return undefined;
+  }
+  const acceptanceId = typeof acceptanceProjection.acceptanceId === "string"
+    ? acceptanceProjection.acceptanceId
+    : jsonRecord(acceptanceProjection.receipt).kind === "execution_acceptance"
+      && typeof jsonRecord(acceptanceProjection.receipt).id === "string"
+      ? jsonRecord(acceptanceProjection.receipt).id as string
+      : undefined;
+  if (!acceptanceId) return undefined;
+  const [acceptance] = await tx.select().from(aiExecutionAcceptancesTable).where(and(
+    eq(aiExecutionAcceptancesTable.id, acceptanceId),
+    eq(aiExecutionAcceptancesTable.projectId, input.projectId),
+    eq(aiExecutionAcceptancesTable.executionId, executionId),
+  ));
+  if (
+    !acceptance
+    || acceptance.candidateIdentity != null
+    || acceptance.outcome !== acceptanceProjection.outcome
+    || (acceptance.terminalStatus !== "failed" && acceptance.terminalStatus !== "interrupted")
+    || (
+      acceptanceProjection.attempt != null
+      && acceptance.attempt !== acceptanceProjection.attempt
+    )
+    || (transition && acceptance.attempt !== transition.attempt)
+  ) {
+    return undefined;
+  }
+  const [execution] = await tx.select().from(aiExecutionsTable).where(and(
+    eq(aiExecutionsTable.id, executionId),
+    eq(aiExecutionsTable.projectId, input.projectId),
+    eq(aiExecutionsTable.goalId, input.goalId),
+  ));
+  if (
+    !execution
+    || execution.attempt !== acceptance.attempt
+    || (execution.status !== "failed" && execution.status !== "completed")
+  ) {
+    return undefined;
+  }
+  const episodeRows = await tx.select().from(aiAgentEpisodesTable).where(and(
+    ...(transition ? [eq(aiAgentEpisodesTable.id, transition.episodeId)] : []),
+    eq(aiAgentEpisodesTable.projectId, input.projectId),
+    eq(aiAgentEpisodesTable.executionId, executionId),
+    eq(aiAgentEpisodesTable.attempt, acceptance.attempt),
+    eq(aiAgentEpisodesTable.missionId, input.missionId),
+    eq(aiAgentEpisodesTable.goalId, input.goalId),
+    eq(aiAgentEpisodesTable.planRevision, input.priorPlanRevision),
+  )).limit(2);
+  if (episodeRows.length !== 1) return undefined;
+  const episode = episodeRows[0];
+  if (
+    !episode
+    || (transition && (
+      episode.id !== transition.episodeId
+      || episode.executionId !== transition.executionId
+      || episode.attempt !== transition.attempt
+    ))
+    || !episode.closedAt
+    || episode.verdict !== "failed"
+    || !episode.environmentRevision
+    || !episode.projectRevision
+    || containsCandidateMarker(episode.scope)
+  ) {
+    return undefined;
+  }
+  const diagnosisObservationIds = [
+    ...input.diagnosis.supportingObservationIds,
+    ...input.diagnosis.contradictingObservationIds,
+  ];
+  if (transition) {
+    const [persistedTransition] = await tx.select().from(aiWorldTransitionsTable).where(and(
+      eq(aiWorldTransitionsTable.id, transition.id),
+      eq(aiWorldTransitionsTable.projectId, input.projectId),
+      eq(aiWorldTransitionsTable.executionId, executionId),
+      eq(aiWorldTransitionsTable.attempt, acceptance.attempt),
+      eq(aiWorldTransitionsTable.episodeId, episode.id),
+      eq(aiWorldTransitionsTable.actionId, transition.actionId),
+    ));
+    if (
+      !persistedTransition
+      || persistedTransition.status !== transition.status
+      || persistedTransition.parentWorldRevision !== transition.parentWorldRevision
+      || persistedTransition.resultingWorldRevision !== transition.resultingWorldRevision
+      || persistedTransition.environmentRevision !== transition.environmentRevision
+    ) {
+      return undefined;
+    }
+    const persistedObservationIds = new Set([
+      ...stringList(persistedTransition.beforeObservationIds, 512, 200),
+      ...stringList(persistedTransition.afterObservationIds, 512, 200),
+      ...stringList(persistedTransition.materializedObservationIds, 512, 200),
+    ]);
+    if (diagnosisObservationIds.some((id) => !persistedObservationIds.has(id))) {
+      return undefined;
+    }
+  } else {
+    if (input.diagnosis.reasonCode !== "accepted_transition_missing") return undefined;
+    const existingTransitions = await tx.select({ id: aiWorldTransitionsTable.id })
+      .from(aiWorldTransitionsTable)
+      .where(and(
+        eq(aiWorldTransitionsTable.projectId, input.projectId),
+        eq(aiWorldTransitionsTable.executionId, executionId),
+        eq(aiWorldTransitionsTable.attempt, acceptance.attempt),
+        eq(aiWorldTransitionsTable.episodeId, episode.id),
+      ))
+      .limit(1);
+    if (existingTransitions.length > 0) return undefined;
+  }
+  const taskScope = taskScopeIdentity(episode);
+  const observationIds = [...new Set([
+    ...input.diagnosis.supportingObservationIds,
+    ...input.diagnosis.contradictingObservationIds,
+  ])];
+  if (!taskScope || taskScope.startsWith("unscoped:")) {
+    return undefined;
+  }
+  const missingTransitionCases = new Set([
+    "accepted_transition_missing",
+    "transition_observation_set_missing",
+  ]);
+  if (
+    observationIds.length === 0
+    && !missingTransitionCases.has(input.diagnosis.reasonCode)
+  ) {
+    return undefined;
+  }
+  if (observationIds.length > 0) {
+    const observations = await tx.select().from(aiAgentObservationsTable).where(and(
+      eq(aiAgentObservationsTable.projectId, input.projectId),
+      inArray(aiAgentObservationsTable.id, observationIds),
+    ));
+    if (observations.length !== observationIds.length) return undefined;
+    const allowedPredicates = new Set(
+      input.diagnosis.distinguishingObservationCodes.flatMap((code) => {
+        switch (code) {
+          case "runtime:direct_status":
+          case "runtime:status":
+            return ["runtime.status"];
+          case "runtime:before_state":
+          case "world_transition:before_observations":
+            return ["runtime.before_state"];
+          case "runtime:after_state":
+          case "world_transition:after_observations":
+            return ["runtime.after_state"];
+          case "runtime:session_evidence":
+            return ["runtime.session_evidence", "runtime.child_process_environment"];
+          case "project:current_revision":
+            return ["project.revision", "repository.revision"];
+          case "runtime:environment_revision":
+            return ["runtime.environment_revision"];
+          default:
+            return [];
+        }
+      }),
+    );
+    if (
+      allowedPredicates.size === 0
+      || observations.some((observation) =>
+        observation.executionId !== executionId
+        || observation.episodeId !== episode.id
+        || observation.taskScope !== taskScope
+        || observation.projectRevision !== episode.projectRevision
+        || observation.environmentRevision !== episode.environmentRevision
+        || observation.kind !== "direct_observation"
+        || observation.provenance !== "DIRECT_OBSERVATION"
+        || observation.completeness !== "complete"
+        || observation.freshness !== "fresh"
+        || observation.environmentFreshness !== "fresh"
+        || (allowedPredicates.size > 0 && !allowedPredicates.has(observation.predicate))
+      )
+    ) {
+      return undefined;
+    }
+  }
+  return {
+    acceptanceId,
+    executionId,
+    episodeId: episode.id,
+    attempt: acceptance.attempt,
+    ...(transition ? { transitionId: transition.id } : {}),
+  };
 }
 
 export function buildReplanContext(goal: {
@@ -196,7 +469,7 @@ async function terminalizeAutomaticReplanFailure(
   missionId: string,
   reason: string,
 ): Promise<boolean> {
-  if (!TERMINAL_REPLAN_FAILURES.has(reason)) return false;
+  if (!TERMINAL_REPLAN_FAILURES.has(reason) && !reason.startsWith("strategy_")) return false;
 
   return db.transaction(async (tx) => {
     const [mission] = await tx
@@ -331,6 +604,40 @@ export async function autoReplanMission(
       ? jsonRecord(jsonRecord(failedGoal.outcomeContract).planRevision).hash
         ?? jsonRecord(jsonRecord(failedGoal.successCriteria).planRevision).hash
       : undefined;
+    const runtimeStartTargetStepId = failedGoal
+      && worldStateDiagnosis
+      && typeof priorPlanRevision === "string"
+      ? runtimeStartTargetStepIdFromGoal(failedGoal, priorPlanRevision)
+      : undefined;
+    if (worldStateDiagnosis && !runtimeStartTargetStepId) {
+      return {
+        status: "skipped" as const,
+        missionId,
+        reason: "runtime_transition_target_unbound",
+      };
+    }
+    let runtimeSourceBinding: RuntimeFailureSourceBinding | undefined;
+    if (
+      failedGoal
+      && worldStateDiagnosis
+      && typeof priorPlanRevision === "string"
+    ) {
+      runtimeSourceBinding = await hasBoundRuntimeFailureEvidence(tx, {
+        missionId: mission.id,
+        projectId: mission.projectId,
+        goalId: failedGoal.id,
+        priorPlanRevision,
+        outcomeContract: failedGoal.outcomeContract,
+        diagnosis: worldStateDiagnosis,
+      });
+      if (!runtimeSourceBinding) {
+      return {
+        status: "skipped" as const,
+        missionId,
+        reason: "runtime_failure_evidence_unbound",
+      };
+      }
+    }
     const runtimeStartHypothesisEvidence = failedGoal && typeof priorPlanRevision === "string"
       ? await loadRuntimeStartHypothesisReplanEvidence(tx, {
           projectId: mission.projectId,
@@ -349,41 +656,68 @@ export async function autoReplanMission(
           successCriteria: failedGoal.successCriteria,
         })
       : undefined;
-    const preview = buildMissionPlanPreview({
+    const replanContext = failedGoal
+      ? buildReplanContext(
+          failedGoal,
+          runtimeStartHypothesisEvidence,
+          worldStatePlanningRead,
+        )
+      : undefined;
+    let preview: MissionPlanPreview & { strategyDecision?: MissionStrategyDecision } =
+      buildMissionPlanPreview({
       message: mission.intent,
       objective: mission.intent,
-      ...(failedGoal
-        ? {
-            replanContext: buildReplanContext(
-              failedGoal,
-              runtimeStartHypothesisEvidence,
-              worldStatePlanningRead,
-            ),
-          }
-        : {}),
+      ...(runtimeStartTargetStepId ? { runtimeStartTargetStepId } : {}),
+      ...(replanContext ? { replanContext } : {}),
     });
     if (preview.admission !== "mission") {
       return { status: "skipped" as const, missionId, reason: "objective_no_longer_mission_eligible" };
     }
+    if (
+      failedGoal
+      && (worldStateDiagnosis || failureDiagnosis?.kind === "VALIDATOR_FAILED")
+    ) {
+      const selection = selectAndApplyMissionStrategy({
+        preview,
+        missionId: mission.id,
+        failedGoalId: failedGoal.id,
+        priorPlanRevision: typeof priorPlanRevision === "string" ? priorPlanRevision : "",
+        failureDiagnosis,
+        worldStateFailureDiagnosis: worldStateDiagnosis,
+        runtimeStartTargetStepId,
+        runtimeSourceBinding,
+        worldStatePlanningRead: preview.replanContext?.worldStatePlanningRead,
+        evidenceRefs: replanContext?.evidenceRefs ?? [],
+        affectedPaths: replanContext?.affectedPaths ?? [],
+        affectedClaims: replanContext?.affectedClaims ?? [],
+      });
+      if (selection.status !== "selected") {
+        return {
+          status: "skipped" as const,
+          missionId,
+          reason: `strategy_${selection.reason}`,
+        };
+      }
+      preview = selection.preview;
+    }
 
     const persistedWorldStatePlanningRead = preview.replanContext?.worldStatePlanningRead;
+    const revisionInput = {
+      sourcePlanHash: preview.plan.planHash,
+      ...(runtimeStartHypothesisEvidence
+        ? { runtimeStartHypothesisEvidence }
+        : {}),
+      ...(persistedWorldStatePlanningRead
+        ? { worldStatePlanningReadRevision: persistedWorldStatePlanningRead.planningReadRevision }
+        : {}),
+      ...(preview.strategyDecision
+        ? { strategyDecisionId: preview.strategyDecision.decisionId }
+        : {}),
+    };
     const planHash = persistedWorldStatePlanningRead
-      ? createHash("sha256")
-        .update(JSON.stringify({
-          sourcePlanHash: preview.plan.planHash,
-          ...(runtimeStartHypothesisEvidence
-            ? { runtimeStartHypothesisEvidence }
-            : {}),
-          worldStatePlanningReadRevision: persistedWorldStatePlanningRead.planningReadRevision,
-        }))
-        .digest("hex")
-      : runtimeStartHypothesisEvidence
-      ? createHash("sha256")
-        .update(JSON.stringify({
-          sourcePlanHash: preview.plan.planHash,
-          runtimeStartHypothesisEvidence,
-        }))
-        .digest("hex")
+      || runtimeStartHypothesisEvidence
+      || preview.strategyDecision
+      ? createHash("sha256").update(JSON.stringify(revisionInput)).digest("hex")
       : preview.plan.planHash;
     const revision = `auto:${failedGoal?.id ?? mission.id}:${planHash}`;
     const alreadyReserved = autonomy.automaticReplanCount > 0

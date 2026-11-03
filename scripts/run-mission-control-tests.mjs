@@ -130,6 +130,29 @@ async function main() {
       env: databaseEnv,
     });
 
+    if (process.env.MISSION_STRATEGY_ONLY === "1") {
+      console.log("Running isolated Mission strategy planning and integration tests.");
+      await run("pnpm", [
+        "--filter", "@workspace/api-server",
+        "exec", "vitest", "run",
+        "src/lib/mission-auto-replan.test.ts",
+        "src/lib/mission-auto-replan-evidence.integration.test.ts",
+        "src/lib/mission-strategy-engine.test.ts",
+      ], {
+        env: databaseEnv,
+      });
+      console.log("Running the real local runtime-start no-op and recovery integration case.");
+      await run("pnpm", [
+        "--filter", "@workspace/api-server",
+        "exec", "vitest", "run",
+        "src/lib/recipe-operation-runner.test.ts",
+        "-t", "derives runtime.start Canonical Proof from Gate C before the separate World State transition",
+      ], {
+        env: databaseEnv,
+      });
+      return;
+    }
+
     console.log("Running isolated PostgreSQL OpenRouter catalog lease and persistence tests.");
     await run("pnpm", [
       "--filter", "@workspace/api-server",
@@ -235,6 +258,17 @@ async function main() {
       "exec", "vitest", "run",
       "src/lib/mission-auto-replan.test.ts",
       "src/lib/mission-auto-replan-evidence.integration.test.ts",
+      "src/lib/mission-strategy-engine.test.ts",
+    ], {
+      env: databaseEnv,
+    });
+
+    console.log("Running the real local runtime-start no-op and recovery integration case.");
+    await run("pnpm", [
+      "--filter", "@workspace/api-server",
+      "exec", "vitest", "run",
+      "src/lib/recipe-operation-runner.test.ts",
+      "-t", "derives runtime.start Canonical Proof from Gate C before the separate World State transition",
     ], {
       env: databaseEnv,
     });

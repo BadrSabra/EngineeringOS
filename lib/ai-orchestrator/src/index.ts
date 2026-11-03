@@ -275,6 +275,7 @@ export type { FilePatchHunk, PatchRebaseResult } from "./patch-contract.js";
 export {
   buildGeneralTaskPlan,
   canReuseTaskPlanRevision,
+  rehashGeneralTaskPlan,
 } from "./task-planner.js";
 export type {
   ExistingProjectQueryState,

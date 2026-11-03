@@ -9,6 +9,7 @@ import {
   aiGoalsTable,
   aiMissionsTable,
   aiWorldFactsTable,
+  aiWorldTransitionsTable,
   db,
   projectsTable,
   tasksTable,
@@ -16,6 +17,7 @@ import {
 import { buildMissionPlanPreview } from "@workspace/ai-orchestrator";
 import { autoReplanMission, buildReplanContext } from "./mission-auto-replan.js";
 import { taskScopeIdentity } from "./agent-state/observation-materializer.js";
+import { diagnoseRuntimeStartWorldStateFailure } from "./world-state-failure-diagnosis.js";
 import {
   loadMissionWorldStatePlanningRead,
 } from "./mission-world-state-planning-read.js";
@@ -586,6 +588,230 @@ describe("DB-backed automatic Mission replan evidence boundary", () => {
     expect(combinedPrompt).toContain('"value":"release"');
     expect(combinedPrompt).not.toContain('"value":"main"');
     expect(combinedPrompt).toContain("Verify with fresh server-owned evidence before acting.");
+  });
+
+  it("materializes the selected runtime recovery strategy into a durable Mission plan and dispatches only its root Goals", async () => {
+    const fixture = await createReplanEvidenceFixture();
+    const priorPlanRevision = {
+      hash: "failed-plan-revision",
+      steps: [
+        { id: "runtime-start", title: "Start runtime", kind: "execute" },
+        { id: "deliver", title: "Verify runtime", kind: "validate" },
+      ],
+      transitionRequirements: [{
+        kind: "runtime.start",
+        version: 1,
+        sourceStepId: "runtime-start",
+        targetStepId: "deliver",
+        from: "stopped",
+        to: "running",
+      }],
+    };
+    const worldStateFailureDiagnosis = diagnoseRuntimeStartWorldStateFailure({
+      reasonCode: "accepted_transition_missing",
+    });
+    await db.update(aiMissionsTable)
+      .set({ intent: "Start the workspace runtime and verify its status." })
+      .where(eq(aiMissionsTable.id, fixture.missionId));
+    await db.update(aiGoalsTable).set({
+      successCriteria: {
+        kind: "historical_failure",
+        planRevision: priorPlanRevision,
+      },
+      outcomeContract: {
+        ...fixture.outcomeContract,
+        worldStateFailureDiagnosis,
+      },
+    }).where(eq(aiGoalsTable.id, fixture.goalId));
+    const [failedGoal] = await db.select({
+      id: aiGoalsTable.id,
+      nextAction: aiGoalsTable.nextAction,
+      outcomeContract: aiGoalsTable.outcomeContract,
+      successCriteria: aiGoalsTable.successCriteria,
+    }).from(aiGoalsTable).where(eq(aiGoalsTable.id, fixture.goalId));
+    if (!failedGoal) throw new Error("mission_replan_test_goal_missing");
+    const planningRead = await db.transaction((tx) =>
+      loadMissionWorldStatePlanningRead(tx, {
+        missionId: fixture.missionId,
+        projectId: fixture.projectId,
+        goalId: fixture.goalId,
+        outcomeContract: failedGoal.outcomeContract,
+        nextAction: failedGoal.nextAction,
+        successCriteria: failedGoal.successCriteria,
+      }),
+    );
+    // The advisory read intentionally rejects World State failure diagnoses;
+    // this strategy binds the diagnosis through the exact accepted failure,
+    // execution, Episode, and prior plan, while requiring fresh direct
+    // observations whenever the diagnosis carries any.
+    expect(planningRead).toBeUndefined();
+
+    const dispatched: Array<{ goalId: string; userId: string; trigger: string }> = [];
+    const result = await autoReplanMission(fixture.missionId, async (input) => {
+      dispatched.push({
+        goalId: input.goalId,
+        userId: input.userId,
+        trigger: input.trigger,
+      });
+      return {
+        status: "scheduled",
+        goalId: input.goalId,
+        reason: "scheduled_by_test_fixture",
+      };
+    });
+
+    expect(result.status, JSON.stringify(result)).toBe("replanned");
+    if (result.status !== "replanned") return;
+    expect(result.plan.goals.map((goal) => goal.stepId)).toContain("strategy-runtime-preflight");
+    expect(result.plan.goals.map((goal) => goal.stepId)).toContain("runtime-start");
+    const rootGoals = result.plan.goals.filter((goal) => goal.dependencies.length === 0);
+    expect(dispatched).toEqual(rootGoals.map((goal) => ({
+      goalId: goal.goalId,
+      userId: "test-user",
+      trigger: "replan",
+    })));
+
+    const materializedGoals = await db.select({
+      id: aiGoalsTable.id,
+      successCriteria: aiGoalsTable.successCriteria,
+    }).from(aiGoalsTable)
+      .where(inArray(aiGoalsTable.id, result.plan.goals.map((goal) => goal.goalId)));
+    expect(materializedGoals).toHaveLength(result.plan.goals.length);
+    const planSnapshot = materializedGoals
+      .map((goal) => (goal.successCriteria as {
+        planRevision?: Record<string, unknown>;
+      }).planRevision)
+      .find((snapshot) => snapshot?.hash === result.revision);
+    expect(planSnapshot).toMatchObject({
+      strategyDecision: {
+        schemaVersion: 1,
+        policyVersion: "mission-recovery-strategy-v1",
+        scenario: "runtime_start_recovery",
+        selectedStrategyId: "runtime.transition-provenance-first",
+        source: {
+          missionId: fixture.missionId,
+          failedGoalId: fixture.goalId,
+          priorPlanRevision: "failed-plan-revision",
+          sourceEpisodeId: fixture.episodeId,
+          sourceExecutionId: fixture.executionId,
+          sourceAttempt: 2,
+          sourceAcceptanceId: fixture.acceptanceId,
+        },
+      },
+    });
+    expect(planSnapshot?.steps).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        id: "strategy-runtime-preflight",
+        kind: "inspect",
+        readOnly: true,
+      }),
+      expect.objectContaining({
+        id: "runtime-start",
+        recipe: { recipeId: "runtime.start", recipeVersion: 1 },
+        dependencies: ["strategy-runtime-preflight"],
+      }),
+    ]));
+    expect(result.revision).toContain(fixture.goalId);
+
+    const goalsAfterFirstReplan = await db.select({ id: aiGoalsTable.id })
+      .from(aiGoalsTable)
+      .where(eq(aiGoalsTable.missionId, fixture.missionId));
+    const replayDispatches: string[] = [];
+    const replay = await autoReplanMission(fixture.missionId, async (input) => {
+      replayDispatches.push(input.goalId);
+      return { status: "scheduled", goalId: input.goalId, reason: "unexpected_replay" };
+    });
+    const goalsAfterReplay = await db.select({ id: aiGoalsTable.id })
+      .from(aiGoalsTable)
+      .where(eq(aiGoalsTable.missionId, fixture.missionId));
+    expect(replay.status).not.toBe("replanned");
+    expect(replayDispatches).toEqual([]);
+    expect(goalsAfterReplay).toHaveLength(goalsAfterFirstReplan.length);
+  });
+
+  it("rejects a runtime diagnosis whose linked observations describe unrelated repository state", async () => {
+    const fixture = await createReplanEvidenceFixture();
+    const priorPlanRevision = {
+      hash: "failed-plan-revision",
+      steps: [
+        { id: "runtime-start", title: "Start runtime", kind: "execute" },
+        { id: "deliver", title: "Verify runtime", kind: "validate" },
+      ],
+      transitionRequirements: [{
+        kind: "runtime.start",
+        version: 1,
+        sourceStepId: "runtime-start",
+        targetStepId: "deliver",
+        from: "stopped",
+        to: "running",
+      }],
+    };
+    const worldStateFailureDiagnosis = diagnoseRuntimeStartWorldStateFailure({
+      reasonCode: "runtime_status_missing",
+      transition: {
+        id: `transition:${fixture.episodeId}`,
+        executionId: fixture.executionId,
+        attempt: 2,
+        episodeId: fixture.episodeId,
+        actionId: "runtime-start",
+        status: "materialized",
+        parentWorldRevision: "world-parent",
+        resultingWorldRevision: "world-result",
+        environmentRevision: fixture.environmentRevision,
+      },
+      supportingObservationIds: [fixture.observationId],
+    });
+    await db.update(aiMissionsTable)
+      .set({ intent: "Start the workspace runtime and verify its status." })
+      .where(eq(aiMissionsTable.id, fixture.missionId));
+    await db.update(aiGoalsTable).set({
+      successCriteria: { kind: "historical_failure", planRevision: priorPlanRevision },
+      outcomeContract: { ...fixture.outcomeContract, worldStateFailureDiagnosis },
+    }).where(eq(aiGoalsTable.id, fixture.goalId));
+    const [episode] = await db.select().from(aiAgentEpisodesTable)
+      .where(eq(aiAgentEpisodesTable.id, fixture.episodeId));
+    if (!episode) throw new Error("mission_replan_test_episode_missing");
+    await db.insert(aiWorldTransitionsTable).values({
+      id: `transition:${fixture.episodeId}`,
+      projectId: fixture.projectId,
+      executionId: fixture.executionId,
+      attempt: 2,
+      episodeId: fixture.episodeId,
+      actionId: "runtime-start",
+      effectBundleId: null,
+      parentWorldRevision: "world-parent",
+      resultingWorldRevision: "world-result",
+      taskScope: taskScopeIdentity(episode),
+      environmentRevisionKey: `revision:${fixture.environmentRevision}`,
+      environmentRevision: fixture.environmentRevision,
+      freshness: "fresh",
+      beforeObservationIds: [],
+      afterObservationIds: [fixture.observationId],
+      materializedObservationIds: [],
+      parentFactRefs: [],
+      changedFactRefs: [],
+      evidenceRefs: [],
+      status: "materialized",
+      idempotencyKey: `test-transition:${fixture.episodeId}`,
+      retryCount: 0,
+      failureCode: null,
+      nextRetryAt: null,
+      materializedAt: new Date(),
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    });
+
+    const dispatched: string[] = [];
+    const result = await autoReplanMission(fixture.missionId, async (input) => {
+      dispatched.push(input.goalId);
+      return { status: "scheduled", goalId: input.goalId, reason: "test" };
+    });
+
+    expect(result).toMatchObject({
+      status: "skipped",
+      reason: "runtime_failure_evidence_unbound",
+    });
+    expect(dispatched).toEqual([]);
   });
 
   it.each(rejectedEvidenceCases)(

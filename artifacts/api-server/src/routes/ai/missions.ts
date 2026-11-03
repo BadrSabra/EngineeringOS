@@ -36,6 +36,7 @@ import {
   type MissionPlanPreview,
   type GoalNextAction,
 } from "@workspace/ai-orchestrator";
+import type { MissionStrategyDecision } from "../../lib/mission-strategy-engine.js";
 import { requireAuth } from "../../middlewares/requireAuth.js";
 import { loadProjectByIdForUser } from "../../middlewares/requireProjectAccess.js";
 import { parsePagination } from "../../lib/pagination.js";
@@ -1159,7 +1160,7 @@ export async function createMissionPlanGoal(
   tx: Parameters<Parameters<typeof db.transaction>[0]>[0],
   mission: typeof aiMissionsTable.$inferSelect,
   now: Date,
-  preview: MissionPlanPreview,
+  preview: MissionPlanPreview & { strategyDecision?: MissionStrategyDecision },
   purpose: "activation" | "execution" = "activation",
   planRevisionOverride?: string,
 ): Promise<MissionPlanMaterialization | undefined> {
@@ -1172,6 +1173,7 @@ export async function createMissionPlanGoal(
     admission: preview.admission,
     objective: preview.objective,
     ...(preview.replanContext ? { replanContext: preview.replanContext } : {}),
+    ...(preview.strategyDecision ? { strategyDecision: preview.strategyDecision } : {}),
     ...(preview.plan.transitionRequirements
       ? { transitionRequirements: preview.plan.transitionRequirements }
       : {}),
@@ -1358,11 +1360,17 @@ export async function createMissionPlanGoal(
       `Mission objective: ${preview.objective}`,
       `Server-owned plan revision: ${planSnapshot.hash}`,
       `Current plan step: ${step.id} — ${step.title}`,
+      ...(step.objective ? [`Step objective: ${step.objective}`] : []),
       `Step kind: ${step.kind}`,
       `Step dependencies: ${step.dependencies.join(", ") || "none"}`,
       `Read-only: ${step.readOnly ? "yes" : "no"}`,
       `Approval required: ${step.approvalRequired ? "yes" : "no"}`,
       `Relevant paths: ${step.files.join(", ") || "server-selected project context"}`,
+      ...(preview.strategyDecision ? [
+        `Server-selected recovery strategy: ${preview.strategyDecision.selectedStrategyId}`,
+        `Strategy decision ID: ${preview.strategyDecision.decisionId}`,
+        "Follow the materialized plan steps and their dependencies; this trace is advisory evidence, not authorization to bypass approval or proof requirements.",
+      ] : []),
       ...(preview.replanContext ? [
         "This is a fresh server-owned replan based on the prior failure evidence.",
         `Prior failed Goal: ${preview.replanContext.failedGoalId ?? "unknown"}`,

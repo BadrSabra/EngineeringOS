@@ -116,6 +116,34 @@ function hashPlan(value: unknown): string {
   return createHash("sha256").update(JSON.stringify(value)).digest("hex");
 }
 
+/**
+ * Re-hash a server-owned plan after a bounded strategy has changed its steps.
+ * Keep the hash projection identical to buildGeneralTaskPlan so a plan delta
+ * cannot be persisted under the source plan's hash.
+ */
+export function rehashGeneralTaskPlan(
+  plan: GeneralTaskPlan,
+  steps: GeneralTaskPlanStep[],
+): GeneralTaskPlan {
+  return {
+    ...plan,
+    steps,
+    planHash: hashPlan({
+      objective: plan.objective,
+      turnKind: plan.turnKind,
+      executionTaskType: plan.executionTaskType,
+      profile: plan.profile,
+      source: plan.source,
+      steps,
+      ...(plan.transitionRequirements?.length
+        ? { transitionRequirements: plan.transitionRequirements }
+        : {}),
+      reusedPlanFingerprint: plan.reusedPlanFingerprint,
+      orientationCoverage: plan.orientationCoverage,
+    }),
+  };
+}
+
 function uniquePaths(paths: readonly string[] | undefined): string[] {
   return [...new Set(
     (paths ?? [])
