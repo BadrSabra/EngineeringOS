@@ -59,6 +59,7 @@ export type {
 
 export {
   AgentEffectSchema,
+  classifyExpectedStateChanges,
   classifyEffect,
   EffectAllowedResultSchema,
   EffectContractSchema,
@@ -73,6 +74,7 @@ export type {
   EffectAllowedResult,
   EffectContract,
   EffectClassification,
+  EffectObservationEvidence,
   EffectObservationProfile,
   EffectStatus,
 } from "./effect-contract.js";

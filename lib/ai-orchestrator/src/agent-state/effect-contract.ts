@@ -85,6 +85,18 @@ export type EffectClassification = {
   observedEffectCount: number;
 };
 
+export type EffectObservationEvidence = Pick<
+  AgentObservation,
+  | "observationId"
+  | "subject"
+  | "predicate"
+  | "value"
+  | "evidenceRefs"
+  | "provenance"
+  | "completeness"
+  | "freshness"
+>;
+
 function stateKey(subject: string, predicate: string): string {
   return `${subject}\u0000${predicate}`;
 }
@@ -108,6 +120,23 @@ export function classifyEffect(input: {
   before: readonly AgentObservation[];
   after: readonly AgentObservation[];
 }): EffectClassification {
+  return classifyExpectedStateChanges({
+    expectedStateChanges: input.contract.expectedStateChanges,
+    before: input.before,
+    after: input.after,
+  });
+}
+
+/**
+ * Re-evaluate a persisted effect projection from its retained expected-state
+ * contract and direct observations. This is shared by lifecycle verification
+ * so a stored status is never treated as proof by itself.
+ */
+export function classifyExpectedStateChanges(input: {
+  expectedStateChanges: readonly ExpectedStateChange[];
+  before: readonly EffectObservationEvidence[];
+  after: readonly EffectObservationEvidence[];
+}): EffectClassification {
   const beforeByKey = new Map(input.before.map((observation) => [
     stateKey(observation.subject, observation.predicate),
     observation,
@@ -122,7 +151,7 @@ export function classifyEffect(input: {
   let observedEffectCount = 0;
   let unknownCount = 0;
 
-  for (const expected of input.contract.expectedStateChanges) {
+  for (const expected of input.expectedStateChanges) {
     const label = `${expected.subject}.${expected.predicate}`;
     const before = beforeByKey.get(stateKey(expected.subject, expected.predicate));
     const after = afterByKey.get(stateKey(expected.subject, expected.predicate));

@@ -23,11 +23,13 @@ import {
 } from "@workspace/db";
 import {
   canonicalJsonHash,
+  classifyExpectedStateChanges,
   evaluateMissionStrategyPlanOutcome,
   MissionDecisionTraceSchema,
   MissionStrategyPlanOutcomeEvaluationSchema,
 } from "@workspace/ai-orchestrator";
 import type {
+  EffectObservationEvidence,
   MissionStrategyPlanOutcomeEvaluation,
 } from "@workspace/ai-orchestrator";
 import {
@@ -78,10 +80,131 @@ function expectedCodes(value: unknown): string[] {
       ? record.effectCode
       : typeof record.code === "string"
         ? record.code
-        : null;
+        : typeof record.subject === "string"
+            && typeof record.predicate === "string"
+          ? `${record.subject}.${record.predicate}`
+          : null;
     if (code) codes.push(code);
   }
   return [...new Set(codes)].sort((left, right) => left.localeCompare(right));
+}
+
+type PersistedExpectedStateChange = {
+  subject: string;
+  predicate: string;
+  expectedValue?: EffectObservationEvidence["value"];
+};
+
+function persistedExpectedStateChanges(value: unknown): PersistedExpectedStateChange[] | null {
+  if (!Array.isArray(value) || value.length === 0) return null;
+  const changes: PersistedExpectedStateChange[] = [];
+  const seen = new Set<string>();
+  for (const item of value) {
+    const change = record(item);
+    if (
+      typeof change.subject !== "string"
+      || change.subject.length === 0
+      || typeof change.predicate !== "string"
+      || change.predicate.length === 0
+    ) {
+      return null;
+    }
+    const key = `${change.subject}\u0000${change.predicate}`;
+    if (seen.has(key)) return null;
+    seen.add(key);
+    changes.push({
+      subject: change.subject,
+      predicate: change.predicate,
+      ...(Object.hasOwn(change, "expectedValue")
+        ? { expectedValue: change.expectedValue as EffectObservationEvidence["value"] }
+        : {}),
+    });
+  }
+  return changes;
+}
+
+function projectEffectObservation(
+  row: typeof aiAgentObservationsTable.$inferSelect,
+): EffectObservationEvidence | null {
+  const evidenceRefs = jsonStrings(row.evidenceRefs);
+  if (
+    !evidenceRefs
+    || row.provenance !== "DIRECT_OBSERVATION"
+    || row.completeness !== "complete"
+    || row.freshness !== "fresh"
+  ) {
+    return null;
+  }
+  return {
+    observationId: row.id,
+    subject: row.subject,
+    predicate: row.predicate,
+    value: row.value as EffectObservationEvidence["value"],
+    evidenceRefs,
+    provenance: "DIRECT_OBSERVATION",
+    completeness: "complete",
+    freshness: "fresh",
+  };
+}
+
+function classifyPersistedEffect(
+  effect: typeof aiAgentEffectsTable.$inferSelect,
+  observationsById: ReadonlyMap<string, EffectObservationEvidence>,
+): {
+  valid: boolean;
+  status: "observed" | "contradicted" | null;
+  codes: string[];
+  claims: Array<{ code: string; subject: string; predicate: string; observationId: string }>;
+} {
+  const changes = persistedExpectedStateChanges(effect.expectedEffects);
+  const beforeIds = jsonStrings(effect.beforeObservationIds);
+  const afterIds = jsonStrings(effect.afterObservationIds);
+  if (!changes || !beforeIds?.length || !afterIds?.length) {
+    return { valid: false, status: null, codes: [], claims: [] };
+  }
+  const before = beforeIds.map((id) => observationsById.get(id));
+  const after = afterIds.map((id) => observationsById.get(id));
+  if (before.some((observation) => !observation) || after.some((observation) => !observation)) {
+    return { valid: false, status: null, codes: [], claims: [] };
+  }
+  const classification = classifyExpectedStateChanges({
+    expectedStateChanges: changes,
+    before: before as EffectObservationEvidence[],
+    after: after as EffectObservationEvidence[],
+  });
+  const contradictionRefs = jsonStrings(effect.contradictionRefs);
+  const evidenceRefs = jsonStrings(effect.evidenceRefs);
+  const status = classification.status === "observed" || classification.status === "contradicted"
+    ? classification.status
+    : null;
+  const codes = expectedCodes(effect.expectedEffects);
+  const claims = status === "contradicted"
+    ? changes.flatMap((change) => {
+        const observation = after.find((candidate) =>
+          candidate?.subject === change.subject
+          && candidate.predicate === change.predicate
+          && classification.contradictionRefs.includes(candidate.observationId));
+        return observation
+          ? [{
+              code: `${change.subject}.${change.predicate}`,
+              subject: change.subject,
+              predicate: change.predicate,
+              observationId: observation.observationId,
+            }]
+          : [];
+      })
+    : [];
+  return {
+    valid: status === effect.status
+      && !!contradictionRefs
+      && sameStrings(contradictionRefs, classification.contradictionRefs)
+      && !!evidenceRefs
+      && sameStrings(evidenceRefs, classification.evidenceRefs)
+      && codes.length === changes.length,
+    status,
+    codes,
+    claims,
+  };
 }
 
 function record(value: unknown): Record<string, unknown> {
@@ -254,6 +377,12 @@ export async function evaluateAndPersistMissionPlanOutcomeInTransaction(
 
     const executionEvidence: MissionStrategyPlanOutcomeEvaluation["executions"] = [];
     const observedCodes = new Set<string>();
+    const contradictedWorldStateClaims = new Map<string, Array<{
+      code: string;
+      subject: string;
+      predicate: string;
+      observationId: string;
+    }>>();
     let allAfterObservationsBound = true;
 
     for (const { goal, execution, taskId } of selectedExecutions) {
@@ -310,8 +439,7 @@ export async function evaluateAndPersistMissionPlanOutcomeInTransaction(
             .orderBy(asc(aiAgentEffectsTable.id))
             .for("update")
         : [];
-      const effectsMatch = !!bundle
-        && bundle.verdict === "OBSERVED"
+      const effectRowsBound = !!bundle
         && !!effectIds?.length
         && !!effectHashes
         && effectRows.length === effectIds.length
@@ -320,7 +448,6 @@ export async function evaluateAndPersistMissionPlanOutcomeInTransaction(
           && effect.executionId === execution.id
           && effect.attempt === execution.attempt
           && effect.episodeId === bundle.episodeId
-          && effect.status === "observed"
           && Array.isArray(effect.expectedEffects)
           && jsonStrings(bundle.effectIds)?.includes(effect.id),
         )
@@ -328,7 +455,13 @@ export async function evaluateAndPersistMissionPlanOutcomeInTransaction(
           effectRows.map((effect) => effect.effectContractHash),
           effectHashes ?? [],
         );
-      const observationIds = effectsMatch
+      const effectsMatch = effectRowsBound
+        && bundle?.verdict === "OBSERVED"
+        && effectRows.every((effect) => effect.status === "observed");
+      const effectsContradictedMatch = effectRowsBound
+        && bundle?.verdict === "CONTRADICTED"
+        && effectRows.every((effect) => effect.status === "contradicted");
+      const observationIds = effectRowsBound
         ? [...new Set(effectRows.flatMap((effect) => [
             ...(jsonStrings(effect.beforeObservationIds) ?? []),
             ...(jsonStrings(effect.afterObservationIds) ?? []),
@@ -340,8 +473,15 @@ export async function evaluateAndPersistMissionPlanOutcomeInTransaction(
             .orderBy(asc(aiAgentObservationsTable.id))
             .for("update")
         : [];
+      const projectedObservations = observationRows
+        .map(projectEffectObservation)
+        .filter((observation): observation is EffectObservationEvidence => observation !== null);
+      const projectedObservationsById = new Map(
+        projectedObservations.map((observation) => [observation.observationId, observation] as const),
+      );
       const observationsMatch = observationRows.length === observationIds.length
         && observationRows.length > 0
+        && projectedObservations.length === observationRows.length
         && observationRows.every((observation) =>
           observation.projectId === identity.projectId
           && observation.executionId === execution.id
@@ -363,12 +503,47 @@ export async function evaluateAndPersistMissionPlanOutcomeInTransaction(
               observationRows.some((row) => row.id === id && row.observationRole === "after"));
         });
 
-      const effectCodes = effectsMatch
-        ? effectRows.flatMap((effect) => expectedCodes(effect.expectedEffects))
+      const effectClassifications = effectRowsBound && observationsMatch
+        ? effectRows.map((effect) => classifyPersistedEffect(effect, projectedObservationsById))
         : [];
-      const executionObservedCodes = proof.accepted && effectsMatch && observationsMatch
+      const observedEffectsRevalidated = effectsMatch
+        && effectClassifications.length === effectRows.length
+        && effectClassifications.every((effect) => effect.valid && effect.status === "observed");
+      const contradictedEffectsRevalidated = effectsContradictedMatch
+        && effectClassifications.length === effectRows.length
+        && effectClassifications.every((effect) => effect.valid && effect.status === "contradicted");
+      const effectCodes = effectsMatch && observedEffectsRevalidated
+        ? effectClassifications.flatMap((effect) => effect.codes)
+        : [];
+      const executionObservedCodes = proof.accepted
+        && effectsMatch
+        && observedEffectsRevalidated
+        && observationsMatch
         ? [...new Set(effectCodes)].sort((left, right) => left.localeCompare(right))
         : [];
+      const failureAcceptance = !!acceptance
+        && proof.acceptanceId === acceptance.id
+        && acceptance.outcome.toUpperCase() !== "SUCCEEDED"
+        && ["failed", "cancelled"].includes(acceptance.terminalStatus)
+        && acceptance.terminalStatus === execution.status
+        && acceptance.resumable !== 1
+        && acceptance.reasonCode.trim().length > 0;
+      const executionContradictedCodes = failureAcceptance
+        && effectsContradictedMatch
+        && contradictedEffectsRevalidated
+        && observationsMatch
+        ? [...new Set(effectClassifications.flatMap((effect) => effect.codes))]
+            .sort((left, right) => left.localeCompare(right))
+        : [];
+      if (executionContradictedCodes.length > 0) {
+        for (const effect of effectClassifications) {
+          for (const claim of effect.claims) {
+            const rows = contradictedWorldStateClaims.get(claim.code) ?? [];
+            rows.push(claim);
+            contradictedWorldStateClaims.set(claim.code, rows);
+          }
+        }
+      }
       executionObservedCodes.forEach((code) => observedCodes.add(code));
       if (!observationsMatch) allAfterObservationsBound = false;
 
@@ -404,8 +579,16 @@ export async function evaluateAndPersistMissionPlanOutcomeInTransaction(
         && !!proof.acceptanceId
         && !!bundle
         && effectsMatch
+        && observedEffectsRevalidated
         && observationsMatch
         && effectCodes.length > 0;
+      const notAchieved = failureAcceptance
+        && !!proof.acceptanceId
+        && !!bundle
+        && effectsContradictedMatch
+        && contradictedEffectsRevalidated
+        && observationsMatch
+        && executionContradictedCodes.length > 0;
       executionEvidence.push({
         goalId: goal.id,
         taskId,
@@ -417,10 +600,10 @@ export async function evaluateAndPersistMissionPlanOutcomeInTransaction(
         canonicalProofId: achieved ? proofHash : null,
         canonicalProofHash: achieved ? proofHash : null,
         worldStateRevision: bundle?.worldRevision ?? null,
-        outcome: achieved ? "ACHIEVED" : "INCONCLUSIVE",
+        outcome: achieved ? "ACHIEVED" : notAchieved ? "NOT_ACHIEVED" : "INCONCLUSIVE",
         evidenceHash,
         observedEffectCodes: executionObservedCodes,
-        contradictedEffectCodes: [],
+        contradictedEffectCodes: executionContradictedCodes,
       });
     }
 
@@ -448,6 +631,18 @@ export async function evaluateAndPersistMissionPlanOutcomeInTransaction(
           contradictions: worldState.contradictions,
         })
       : null;
+    const contradictedWorldStateCodes = [...contradictedWorldStateClaims.entries()]
+      .filter(([, claims]) => claims.length > 0 && claims.every((claim) =>
+        worldState.contradictions.some((fact) =>
+          fact.status === "contradicted"
+          && fact.environmentFreshness === "fresh"
+          && fact.subject === claim.subject
+          && fact.predicate === claim.predicate
+          && fact.sourceObservationIds.includes(claim.observationId),
+        ),
+      ))
+      .map(([code]) => code)
+      .sort((left, right) => left.localeCompare(right));
 
     const taskStates = boundTaskRows.map((task) => ({
       taskId: task.id,
@@ -507,7 +702,7 @@ export async function evaluateAndPersistMissionPlanOutcomeInTransaction(
         continuityVerified: worldStateComplete,
         evidenceHash: worldStateEvidenceHash,
         observedEffectCodes: [...observedCodes].sort((left, right) => left.localeCompare(right)),
-        contradictedEffectCodes: [],
+        contradictedEffectCodes: contradictedWorldStateCodes,
       },
       evaluatedAt: evaluatedAt.toISOString(),
     });
