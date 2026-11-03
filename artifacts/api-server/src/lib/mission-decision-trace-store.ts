@@ -164,6 +164,95 @@ function planRevisionHash(value: unknown): string | null {
   return typeof hash === "string" ? hash : null;
 }
 
+async function missionPlanApprovalReceipt(
+  tx: MissionDecisionTransaction,
+  trace: MissionDecisionTrace,
+): Promise<string | null> {
+  if (trace.result.kind !== "SELECTED" || !trace.newPlanRevision) return null;
+  const selectedStrategy = trace.alternatives.find(
+    ({ strategyId }) => strategyId === trace.result.selectedStrategyId,
+  );
+  if (
+    !selectedStrategy
+    || selectedStrategy.approvalRequirement !== "required"
+    || trace.context.approval.status !== "required"
+  ) {
+    return null;
+  }
+  const planSelector = JSON.stringify({
+    planRevision: {
+      hash: trace.newPlanRevision,
+      decisionTraceId: trace.decisionId,
+    },
+  });
+  const goals = await tx.select().from(aiGoalsTable)
+    .where(and(
+      eq(aiGoalsTable.missionId, trace.context.identity.missionId),
+      eq(aiGoalsTable.projectId, trace.context.identity.projectId),
+      sql`${aiGoalsTable.outcomeContract} @> ${planSelector}::jsonb`,
+      sql`${aiGoalsTable.successCriteria} @> ${planSelector}::jsonb`,
+    ))
+    .for("update");
+  const snapshots = goals.map((goal) => record(record(goal.outcomeContract).planRevision));
+  const planSnapshot = snapshots.find((snapshot) =>
+    snapshot.hash === trace.newPlanRevision
+    && snapshot.decisionTraceId === trace.decisionId
+    && Array.isArray(snapshot.steps),
+  );
+  const steps = Array.isArray(planSnapshot?.steps) ? planSnapshot.steps.map(record) : [];
+  const requiredStepIds = steps
+    .filter((step) => step.approvalRequired === true && step.readOnly === false && step.kind === "execute")
+    .map((step) => typeof step.id === "string" ? step.id : "")
+    .filter(Boolean)
+    .sort((left, right) => left.localeCompare(right));
+  if (requiredStepIds.length === 0) return null;
+
+  const approvalIdentity = hashMissionStrategyAlternative(selectedStrategy);
+  const approvalRows: Array<{
+    goalId: string;
+    stepId: string;
+    approvedBy: string;
+    approvedAt: string;
+    approvalEventId: string;
+  }> = [];
+  for (const stepId of requiredStepIds) {
+    const goal = goals.find((candidate) =>
+      record(candidate.successCriteria).stepId === stepId
+      && record(candidate.outcomeContract).stepId === stepId,
+    );
+    if (!goal) return null;
+    const approval = record(record(goal.outcomeContract).planApproval);
+    if (
+      approval.kind !== "mission_plan_step"
+      || approval.state !== "APPROVED"
+      || approval.planRevision !== trace.newPlanRevision
+      || approval.stepId !== stepId
+      || approval.decisionTraceId !== trace.decisionId
+      || approval.approvedStrategyId !== selectedStrategy.strategyId
+      || approval.approvedStrategyHash !== approvalIdentity
+      || typeof approval.approvedBy !== "string"
+      || !approval.approvedBy
+      || typeof approval.approvedAt !== "string"
+      || Number.isNaN(Date.parse(approval.approvedAt))
+      || typeof approval.approvalEventId !== "string"
+      || !approval.approvalEventId
+    ) {
+      return null;
+    }
+    approvalRows.push({
+      goalId: goal.id,
+      stepId,
+      approvedBy: approval.approvedBy,
+      approvedAt: approval.approvedAt,
+      approvalEventId: approval.approvalEventId,
+    });
+  }
+  const approvalSetHash = createHash("sha256")
+    .update(JSON.stringify(approvalRows.sort((left, right) => left.stepId.localeCompare(right.stepId))))
+    .digest("hex");
+  return `mission-plan-approvals:${approvalSetHash}`;
+}
+
 function assertInitialTrace(trace: MissionDecisionTrace): void {
   const expectedStages = trace.result.kind === "SELECTED"
     ? INITIAL_STAGES
@@ -935,14 +1024,10 @@ export async function appendMissionDecisionLifecycleEventInTransaction(
       strategyId === trace.result.selectedStrategyId,
     );
     if (input.stage === "APPROVED") {
-      const approval = trace.context.approval;
+      const approvalReceipt = await missionPlanApprovalReceipt(tx, trace);
       const approvalMatches =
         selectedStrategy?.approvalRequirement === "required"
-        && approval.status === "granted"
-        && approval.approvalRef === input.referenceId
-        && approval.approvedStrategyId === selectedStrategy.strategyId
-        && approval.approvedStrategyHash === hashMissionStrategyAlternative(selectedStrategy)
-        && approval.approvedPlanRevision === trace.context.identity.priorPlanRevision;
+        && approvalReceipt === input.referenceId;
       if (!approvalMatches) {
         throw new MissionDecisionTraceStoreError("decision_approval_binding_invalid");
       }
@@ -1096,6 +1181,63 @@ export async function appendMissionDecisionLifecycleEventInTransaction(
     return { kind: "appended", sequence: inserted.sequence };
 }
 
+export async function appendMissionDecisionApprovalLifecycleEventsInTransaction(
+  tx: MissionDecisionTransaction,
+  decisionId: string,
+  occurredAt: Date,
+): Promise<"pending" | "not_required" | "appended" | "already_recorded"> {
+  const [decision] = await tx.select().from(aiMissionDecisionTracesTable)
+    .where(eq(aiMissionDecisionTracesTable.decisionId, decisionId))
+    .for("update");
+  if (!decision) throw new MissionDecisionTraceStoreError("decision_trace_missing");
+  const trace = MissionDecisionTraceSchema.parse(decision.trace);
+  const selectedStrategy = trace.result.kind === "SELECTED"
+    ? trace.alternatives.find(({ strategyId }) => strategyId === trace.result.selectedStrategyId)
+    : undefined;
+  if (selectedStrategy?.approvalRequirement !== "required") return "not_required";
+  const approvalReference = await missionPlanApprovalReceipt(tx, trace);
+  if (!approvalReference) return "pending";
+  if (!trace.newPlanRevision) {
+    throw new MissionDecisionTraceStoreError("decision_event_reference_invalid");
+  }
+
+  const events = await tx.select().from(aiMissionDecisionEventsTable)
+    .where(eq(aiMissionDecisionEventsTable.decisionId, decisionId))
+    .orderBy(asc(aiMissionDecisionEventsTable.sequence));
+  const approvalEvent = events.find(({ stage }) => stage === "APPROVED");
+  const appliedEvent = events.find(({ stage }) => stage === "PLAN_APPLIED");
+  if (approvalEvent || appliedEvent) {
+    if (
+      approvalEvent?.referenceId === approvalReference
+      && appliedEvent?.referenceId === trace.newPlanRevision
+    ) {
+      return "already_recorded";
+    }
+    throw new MissionDecisionTraceStoreError("decision_event_conflict");
+  }
+  const last = events.at(-1);
+  if (!last || last.stage !== "SELECTED") {
+    throw new MissionDecisionTraceStoreError("decision_event_order_invalid");
+  }
+  const approvedAt = new Date(Math.max(
+    occurredAt.getTime(),
+    last.occurredAt.getTime() + 1,
+  ));
+  await appendMissionDecisionLifecycleEventInTransaction(tx, {
+    decisionId,
+    stage: "APPROVED",
+    referenceId: approvalReference,
+    occurredAt: approvedAt,
+  });
+  await appendMissionDecisionLifecycleEventInTransaction(tx, {
+    decisionId,
+    stage: "PLAN_APPLIED",
+    referenceId: trace.newPlanRevision,
+    occurredAt: new Date(approvedAt.getTime() + 1),
+  });
+  return "appended";
+}
+
 export async function appendMissionDecisionLifecycleEvent(input: AppendMissionDecisionLifecycleEventInput): Promise<{
   kind: "appended" | "already_recorded";
   sequence: number;
@@ -1199,14 +1341,10 @@ export async function getMissionDecisionTrace(
       throw new MissionDecisionTraceStoreError("decision_event_order_invalid");
     }
     if (current.stage === "APPROVED") {
-      const approval = trace.context.approval;
+      const approvalReceipt = await missionPlanApprovalReceipt(tx, trace);
       if (
         selectedStrategy?.approvalRequirement !== "required"
-        || approval.status !== "granted"
-        || approval.approvalRef !== current.referenceId
-        || approval.approvedStrategyId !== selectedStrategy.strategyId
-        || approval.approvedStrategyHash !== hashMissionStrategyAlternative(selectedStrategy)
-        || approval.approvedPlanRevision !== trace.context.identity.priorPlanRevision
+        || approvalReceipt !== current.referenceId
       ) {
         throw new MissionDecisionTraceStoreError("decision_approval_binding_invalid");
       }

@@ -4,13 +4,19 @@ import {
   aiChangeProposalsTable,
   aiExecutionsTable,
   aiGoalsTable,
+  aiMissionDecisionTracesTable,
   aiMissionsTable,
   db,
   eventsTable,
   tasksTable,
 } from "@workspace/db";
+import {
+  MissionDecisionTraceSchema,
+  hashMissionStrategyAlternative,
+} from "@workspace/ai-orchestrator";
 import { runMissionGoal, type MissionGoalRunResult } from "./mission-runtime.js";
 import { resolveMissionLineage } from "./mission-lineage.js";
+import { appendMissionDecisionApprovalLifecycleEventsInTransaction } from "./mission-decision-trace-store.js";
 import {
   persistMissionAgentActionEffectReceipt,
   type MissionAgentActionReceiptIdentity,
@@ -150,6 +156,11 @@ export async function approveMissionGoal(params: {
       const planHash = typeof outcomePlanRevision.hash === "string"
         ? outcomePlanRevision.hash
         : undefined;
+      const validPlanHash = typeof planHash === "string"
+        && (
+          /^[a-f0-9]{64}$/.test(planHash)
+          || /^auto:[^:]{1,200}:[a-f0-9]{64}$/.test(planHash)
+        );
       const stepId = typeof successCriteria.stepId === "string"
         ? successCriteria.stepId
         : undefined;
@@ -164,8 +175,7 @@ export async function approveMissionGoal(params: {
       const planBound =
         (successCriteria.kind === "mission_plan_step"
           || successCriteria.kind === "mission_replan_step")
-        && typeof planHash === "string"
-        && /^[a-f0-9]{64}$/.test(planHash)
+        && validPlanHash
         && planHash === successPlanRevision.hash
         && planHash === autonomyPolicy.activePlanRevision
         && stepId === outcomeContract.stepId
@@ -185,6 +195,52 @@ export async function approveMissionGoal(params: {
           missionId: params.missionId,
           goalId: params.goalId,
           reason: "plan_approval_binding_mismatch",
+        };
+      }
+      const decisionTraceId = typeof outcomePlanRevision.decisionTraceId === "string"
+        ? outcomePlanRevision.decisionTraceId
+        : undefined;
+      let decisionApprovalBinding: {
+        decisionTraceId: string;
+        approvedStrategyId: string;
+        approvedStrategyHash: string;
+      } | null = null;
+      if (decisionTraceId) {
+        const [decisionRow] = await tx.select({
+          trace: aiMissionDecisionTracesTable.trace,
+        }).from(aiMissionDecisionTracesTable)
+          .where(eq(aiMissionDecisionTracesTable.decisionId, decisionTraceId))
+          .for("update");
+        const parsedTrace = decisionRow
+          ? MissionDecisionTraceSchema.safeParse(decisionRow.trace)
+          : null;
+        const trace = parsedTrace?.success ? parsedTrace.data : null;
+        const selectedStrategy = trace?.result.kind === "SELECTED"
+          ? trace.alternatives.find(
+              ({ strategyId }) => strategyId === trace.result.selectedStrategyId,
+            )
+          : undefined;
+        const planStrategyDecision = jsonRecord(outcomePlanRevision.strategyDecision);
+        if (
+          !trace
+          || trace.newPlanRevision !== planHash
+          || trace.context.identity.missionId !== mission.id
+          || trace.context.identity.projectId !== mission.projectId
+          || trace.context.approval.status !== "required"
+          || selectedStrategy?.approvalRequirement !== "required"
+          || planStrategyDecision.selectedStrategyId !== selectedStrategy.strategyId
+        ) {
+          return {
+            status: "conflict" as const,
+            missionId: params.missionId,
+            goalId: params.goalId,
+            reason: "plan_approval_decision_trace_mismatch",
+          };
+        }
+        decisionApprovalBinding = {
+          decisionTraceId,
+          approvedStrategyId: selectedStrategy.strategyId,
+          approvedStrategyHash: hashMissionStrategyAlternative(selectedStrategy),
         };
       }
       if (["needs_replan", "failed"].includes(mission.status)) {
