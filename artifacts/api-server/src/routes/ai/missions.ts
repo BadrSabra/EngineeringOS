@@ -1163,6 +1163,7 @@ export async function createMissionPlanGoal(
   preview: MissionPlanPreview & { strategyDecision?: MissionStrategyDecision },
   purpose: "activation" | "execution" = "activation",
   planRevisionOverride?: string,
+  decisionTraceId?: string,
 ): Promise<MissionPlanMaterialization | undefined> {
   const planKind = purpose === "activation" ? "mission_plan_step" : "mission_replan_step";
   const legacyActivationKind = ACTIVATION_PLAN_KIND;
@@ -1174,6 +1175,7 @@ export async function createMissionPlanGoal(
     objective: preview.objective,
     ...(preview.replanContext ? { replanContext: preview.replanContext } : {}),
     ...(preview.strategyDecision ? { strategyDecision: preview.strategyDecision } : {}),
+    ...(decisionTraceId ? { decisionTraceId } : {}),
     ...(preview.plan.transitionRequirements
       ? { transitionRequirements: preview.plan.transitionRequirements }
       : {}),

@@ -49,6 +49,11 @@ import {
   type MissionFailureSourceBinding,
 } from "./mission-strategy-engine.js";
 import { runMissionGoal, type MissionGoalRunResult } from "./mission-runtime.js";
+import { buildMissionStrategyDecisionTraceInTransaction } from "./mission-strategy-decision-trace.js";
+import {
+  appendMissionDecisionLifecycleEventInTransaction,
+  persistMissionDecisionTraceInTransaction,
+} from "./mission-decision-trace-store.js";
 
 type AutoReplanResult =
   | {
@@ -844,6 +849,17 @@ export async function autoReplanMission(
     if (!alreadyReserved && autonomy.automaticReplanCount >= autonomy.maxAutoReplans) {
       return { status: "skipped" as const, missionId, reason: "automatic_replan_budget_exhausted" };
     }
+    const decisionTrace = preview.strategyDecision
+      ? await buildMissionStrategyDecisionTraceInTransaction(tx, {
+        decision: preview.strategyDecision,
+        projectId: mission.projectId,
+        proposedPlanRevision: revision,
+        decidedAt: new Date(),
+      })
+      : null;
+    if (decisionTrace) {
+      await persistMissionDecisionTraceInTransaction(tx, decisionTrace);
+    }
     const plan = await createMissionPlanGoal(
       tx,
       mission,
@@ -851,12 +867,13 @@ export async function autoReplanMission(
       preview,
       "execution",
       revision,
+      decisionTrace?.decisionId,
     );
     if (!plan) {
       return { status: "skipped" as const, missionId, reason: "empty_plan" };
     }
     const nextReplanCount = autonomy.automaticReplanCount + (alreadyReserved ? 0 : 1);
-    await tx.update(aiMissionsTable)
+    const [updatedMission] = await tx.update(aiMissionsTable)
       .set({
         autonomyPolicy: {
           ...writeCanonicalMissionAutonomyPolicy(
@@ -871,7 +888,24 @@ export async function autoReplanMission(
       .where(and(
         eq(aiMissionsTable.id, mission.id),
         eq(aiMissionsTable.status, "needs_replan"),
-      ));
+      ))
+      .returning({ id: aiMissionsTable.id });
+    if (!updatedMission) {
+      throw new Error("mission state changed while applying the automatic replan");
+    }
+    const selectedAlternative = decisionTrace?.result.kind === "SELECTED"
+      ? decisionTrace.alternatives.find(
+        ({ strategyId }) => strategyId === decisionTrace.result.selectedStrategyId,
+      )
+      : undefined;
+    if (decisionTrace && selectedAlternative?.approvalRequirement === "not_required") {
+      await appendMissionDecisionLifecycleEventInTransaction(tx, {
+        decisionId: decisionTrace.decisionId,
+        stage: "PLAN_APPLIED",
+        referenceId: revision,
+        occurredAt: new Date(),
+      });
+    }
     return {
       status: "prepared" as const,
       missionId,
