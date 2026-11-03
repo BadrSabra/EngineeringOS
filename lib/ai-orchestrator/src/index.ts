@@ -1234,6 +1234,7 @@ export type { WorkflowState, OrchestrationDecision, WorkflowDecisionResult } fro
 // PR-002: dynamic catalog
 export {
   refreshDynamicCatalog,
+  configureOpenRouterCatalogPersistence,
   getDynamicModelIds,
   getUsableDynamicModelIds,
   getUsableDynamicModelFormatSupport,
@@ -1241,7 +1242,13 @@ export {
   isDynamicCatalogLoaded,
   auditStaticCatalog,
 } from "./openrouter/dynamic-catalog.js";
-export type { DynamicModelFormatSupport } from "./openrouter/dynamic-catalog.js";
+export type {
+  DynamicModelFormatSupport,
+  OpenRouterCatalogPersistence,
+  OpenRouterCatalogSnapshot,
+  OpenRouterCatalogStoredState,
+  OpenRouterCatalogRefreshLease,
+} from "./openrouter/dynamic-catalog.js";
 
 // PR-006: startup validator
 export { validateAiProvidersAtStartup } from "./startup-validator.js";

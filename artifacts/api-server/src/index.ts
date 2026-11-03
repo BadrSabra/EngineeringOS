@@ -25,12 +25,14 @@ import {
   pool,
 } from "@workspace/db";
 import {
+  configureOpenRouterCatalogPersistence,
   setInvalidationNotifier,
   startContextInvalidationChannel,
   validateAiProvidersAtStartup,
   startMemorySweep,
 } from "@workspace/ai-orchestrator";
 import { startCatalogRefreshScheduler } from "./lib/catalog-refresh-scheduler";
+import { openRouterCatalogPersistence } from "./lib/openrouter-catalog-persistence";
 import { drainPendingAudits, loadPendingAudits } from "./lib/audit";
 import { pruneTaskExecutionHistory } from "./lib/task-execution-retention";
 import { pruneExpiredAiUsage } from "./lib/ai-telemetry";
@@ -157,6 +159,8 @@ try {
   );
   process.exit(1);
 }
+
+configureOpenRouterCatalogPersistence(openRouterCatalogPersistence);
 
 if (!workerScopeProjectId) {
   // Ensure the AI credential encryption key is available before any background

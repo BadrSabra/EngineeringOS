@@ -37,7 +37,10 @@ import {
   resolveFallbackChain,
   resolveFallbackChainUnrotated,
 } from "../openrouter/model-resolver.js";
-import { _resetForTest } from "../openrouter/dynamic-catalog.js";
+import {
+  _resetForTest,
+  _setSnapshotForTest,
+} from "../openrouter/dynamic-catalog.js";
 import {
   _resetCircuitsForTest,
   isModelCoolingDown,
@@ -98,7 +101,10 @@ beforeEach(() => {
     },
   };
   _setOpenRouterCredentialCooldownPersistenceForTest(credentialPersistence);
-  _resetForTest(); // ensure dynamic catalog does not interfere
+  _resetForTest();
+  // Provider-send tests require explicit current zero-price evidence; this
+  // fixture represents that evidence without adding a /models call to each test.
+  _setSnapshotForTest(FREE_MODELS.map((model) => model.id));
   _resetCircuitsForTest(); // clear provider and model admission state
   _resetLocalAdaptiveModelCooldownsForTest();
   _resetModelContractAcceptanceForTest();

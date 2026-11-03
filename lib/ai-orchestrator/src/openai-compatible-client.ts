@@ -768,9 +768,10 @@ function classifyRateLimitScope(
 }
 
 /**
- * OpenRouter sometimes returns HTTP 400 for request-shape issues that are
- * recoverable by trying another model in the fallback chain — for example,
- * unsupported `response_format` / structured-output requests.
+ * OpenRouter sometimes returns HTTP 400 for model-specific request-shape
+ * incompatibilities that are recoverable with another model — for example,
+ * unsupported `response_format` / structured-output requests. A generic
+ * "invalid request" is not enough evidence to spend another model attempt.
  */
 function looksLikeRecoverableOpenRouterRequestError(body: string, providerCode?: string): boolean {
   const normalizedBody = body.toLowerCase();
@@ -782,7 +783,6 @@ function looksLikeRecoverableOpenRouterRequestError(body: string, providerCode?:
     normalizedBody.includes("unsupported parameter") ||
     normalizedBody.includes("request parameter") ||
     looksLikeParameterRoutingFailure(body) ||
-    normalizedBody.includes("invalid request") ||
     normalizedBody.includes("not supported") ||
     looksLikeAgentHarnessRestriction(body, providerCode) ||
     (providerCode?.includes("invalid_request") ?? false) ||
@@ -1685,6 +1685,13 @@ export async function openrouterCompleteRaw(
     extraHeaders: OPENROUTER_EXTRA_HEADERS,
   };
   assertOpenRouterFreeModel(fullOpts.model);
+  await refreshDynamicCatalog(fullOpts.apiKey, fullOpts.signal);
+  assertOpenRouterLiveFreeModel(fullOpts.model, {
+    capability: fullOpts.capability ?? "chat",
+    requireTools: Boolean(fullOpts.tools?.length),
+    requireJson: Boolean(fullOpts.responseFormat),
+    requireJsonSchema: fullOpts.responseFormat?.type === "json_schema",
+  });
   try {
     return await oacCompleteRaw(trimmed, fullOpts);
   } catch (err) {
@@ -1919,19 +1926,13 @@ async function reserveOpenRouterInferencePermit(
   const requireTools = opts.requireTools ?? Boolean(opts.tools?.length);
   const requireJsonSchema = opts.requireJsonSchema ??
     opts.responseFormat?.type === "json_schema";
-  if (!isCatalogFreeModelForCapability(model, {
+  assertOpenRouterLiveFreeModel(model, {
     capability,
     requireTools,
     requireJson: Boolean(opts.responseFormat),
     requireJsonSchema,
     requireStreaming,
-  })) {
-    throw new GroqClientError(
-      "INVALID_CONFIG",
-      "OpenRouter admission rejected a model that does not satisfy the free task contract.",
-      { context: { providerName: "OpenRouter", providerModel: model } },
-    );
-  }
+  });
 
   const beforeLeaseCooldowns = await readModelCooldowns(
     "openrouter",
@@ -2057,6 +2058,7 @@ export async function openrouterCompleteWithFallback(
 ): Promise<RawGroqResponse> {
   const initialModel = opts.model;
   if (initialModel) assertOpenRouterFreeModel(initialModel);
+  await refreshDynamicCatalog(opts.apiKey, opts.signal);
   await assertOpenRouterCredentialAvailable(opts.apiKey, opts.credentialCooldownPersistence);
   const capability = opts.capability ?? "chat";
   const requireTools = opts.requireTools ?? !!(opts.tools?.length);
@@ -2436,6 +2438,7 @@ export async function* openrouterCompleteStream(
   opts: Omit<OpenAICompatibleStreamOptions, "baseUrl" | "providerName" | "extraHeaders">,
 ): AsyncGenerator<string> {
   if (opts.model) assertOpenRouterFreeModel(opts.model);
+  await refreshDynamicCatalog(opts.apiKey, opts.signal);
   await assertOpenRouterCredentialAvailable(opts.apiKey);
   const trimmed = trimMessagesForOpenRouter(messages);
   const fullOpts: OpenAICompatibleStreamOptions = {
@@ -2447,14 +2450,11 @@ export async function* openrouterCompleteStream(
   };
   const capability = opts.capability;
   const initialModel = opts.model;
-  if (initialModel && !isCatalogFreeModelForCapability(initialModel, {
-    capability: capability ?? "chat",
-  })) {
-    throw new GroqClientError(
-      "INVALID_CONFIG",
-      `OpenRouter stream requires a currently-free model matching capability="${capability}"`,
-      { context: { providerName: "OpenRouter", providerModel: initialModel } },
-    );
+  if (initialModel) {
+    assertOpenRouterLiveFreeModel(initialModel, {
+      capability: capability ?? "chat",
+      requireStreaming: true,
+    });
   }
   const resolveOptions: ResolveModelOpts = {
     capability: capability ?? "chat",

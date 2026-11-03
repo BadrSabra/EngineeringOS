@@ -68,7 +68,7 @@ export const openrouterStrategy: ProviderStrategy = {
   supportsNativeStream: false,
   ownsModelFallback: true,
 
-  // PR-01 + PR-07: refresh catalog (fire-and-forget), check circuit, record outcome.
+  // PR-01 + PR-07: refresh catalog, check circuit, record outcome.
   async call(messages: RawMessage[], opts: StrategyCallOptions): ReturnType<ProviderStrategy["call"]> {
     if (!opts.apiKey) {
       throw new GroqClientError(
@@ -109,12 +109,10 @@ export const openrouterStrategy: ProviderStrategy = {
       }),
     );
 
-    // PR-01: refresh the live model catalog so stale IDs are filtered before
-    // the fallback chain is built.  Fire-and-forget — the resolver uses the
-    // previous snapshot if the refresh hasn't completed yet.
-    await refreshDynamicCatalog(opts.apiKey);
-
     try {
+      // Bound catalog I/O before model resolution. A caller may stop waiting
+      // without cancelling the shared refresh used by other requests.
+      await refreshDynamicCatalog(opts.apiKey, opts.signal);
       // Model selection can happen just before the request-scoped refresh. If
       // that refresh replaces the snapshot and removes the pinned model,
       // resolve a fresh compatible chain rather than rejecting the whole turn.
@@ -123,8 +121,9 @@ export const openrouterStrategy: ProviderStrategy = {
           ? isCatalogFreeModelForCapability(opts.model, {
               capability: opts.capability,
               requireTools: Boolean(opts.tools?.length),
+              requireLiveCatalog: true,
             })
-          : isCatalogFreeModel(opts.model))
+          : isCatalogFreeModel(opts.model, { requireLiveCatalog: true }))
         : true;
       const requestOpts = pinnedModelIsCurrent ? opts : { ...opts, model: undefined };
       if (!pinnedModelIsCurrent) {
@@ -158,6 +157,7 @@ export const openrouterStrategy: ProviderStrategy = {
     } catch (err) {
       // PR-07: record failure so the circuit opens after the threshold.
       if (
+        !opts.signal?.aborted &&
         opts.circuitFailurePolicy !== "suppress" &&
         shouldRecordCircuitFailure(err)
       ) {
@@ -230,16 +230,15 @@ export const openrouterStrategy: ProviderStrategy = {
       }),
     );
 
-    // PR-01: fire-and-forget catalog refresh.
-    await refreshDynamicCatalog(opts.apiKey);
-
     try {
+      await refreshDynamicCatalog(opts.apiKey, opts.signal);
       const pinnedModelIsCurrent = opts.model
         ? (opts.capability
           ? isCatalogFreeModelForCapability(opts.model, {
               capability: opts.capability,
+              requireLiveCatalog: true,
             })
-          : isCatalogFreeModel(opts.model))
+          : isCatalogFreeModel(opts.model, { requireLiveCatalog: true }))
         : true;
       const requestOpts = pinnedModelIsCurrent ? opts : { ...opts, model: undefined };
       if (!pinnedModelIsCurrent) {

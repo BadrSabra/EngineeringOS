@@ -6,17 +6,29 @@
  *
  * Design:
  *   • Module-level singleton — one fetch per process, shared by all callers.
- *   • TTL of 10 minutes — cheap refresh, tolerates brief outages.
- *   • Never throws to the caller — on fetch failure the previous catalog is
- *     kept (or the static FREE_MODELS list is used as the fallback).
- *   • The loaded set is consumed by resolveFallbackChain() in model-resolver.ts
- *     to filter out stale or discontinued models before returning candidates.
+ *   • TTL of 10 minutes and a bounded refresh timeout.
+ *   • Provider failures retain the last snapshot for diagnostics, but inference
+ *     admission separately requires a fresh live zero-price entry.
+ *   • The loaded set is consumed by the resolver for candidate filtering and
+ *     by the inference send boundary for current zero-price admission.
  */
 import type { ModelCapability, OpenRouterPaidModel } from "./model-catalog.js";
 import { isProviderEgressDisabled } from "../provider-egress.js";
+import type {
+  OpenRouterCatalogPersistence,
+  OpenRouterCatalogSnapshot,
+  OpenRouterCatalogSnapshotModel,
+} from "./catalog-snapshot-store.js";
+export type {
+  OpenRouterCatalogPersistence,
+  OpenRouterCatalogSnapshot,
+  OpenRouterCatalogStoredState,
+  OpenRouterCatalogRefreshLease,
+} from "./catalog-snapshot-store.js";
 
 const CATALOG_TTL_MS   = 10 * 60 * 1_000; // 10 minutes
 const CATALOG_REFRESH_TIMEOUT_MS = 5_000;
+const CATALOG_REFRESH_FAILURE_BACKOFF_MS = 15_000;
 const OPENROUTER_MODELS_URL = "https://openrouter.ai/api/v1/models";
 
 type OpenRouterModelEntry = {
@@ -37,11 +49,14 @@ let _availableIds: Set<string> | null = null;
 let _availablePaidModels: OpenRouterPaidModel[] | null = null;
 let _modelFormatSupport: Map<string, DynamicModelFormatSupport> | null = null;
 let _lastFetchMs = 0;
+let _snapshotExpiresAtMs = 0;
+let _nextRefreshAt = 0;
 let _inFlight: Promise<void> | null = null;
 let _refreshAttempted = false;
 let _lastRefreshStatus: "never" | "success" | "failed" | "empty" = "never";
 let _paidPolicyFingerprint: string | null = null;
 let _lastRefreshError: string | null = null;
+let _catalogPersistence: OpenRouterCatalogPersistence | null = null;
 
 const SAFE_MODEL_ID = /^[a-z0-9][a-z0-9._:/-]{0,199}$/i;
 const ALL_CAPABILITIES: readonly ModelCapability[] = [
@@ -52,6 +67,81 @@ const ALL_CAPABILITIES: readonly ModelCapability[] = [
   "json",
   "long_context",
 ];
+const CATALOG_REFRESH_LEASE_WAIT_MS = 1_500;
+const CATALOG_REFRESH_LEASE_DURATION_MS = 20_000;
+
+/** Install the shared catalog store before the API begins accepting traffic. */
+export function configureOpenRouterCatalogPersistence(
+  persistence: OpenRouterCatalogPersistence,
+): void {
+  _catalogPersistence = persistence;
+}
+
+function isSnapshotModel(value: unknown): value is OpenRouterCatalogSnapshotModel {
+  if (!value || typeof value !== "object") return false;
+  const model = value as Partial<OpenRouterCatalogSnapshotModel>;
+  return SAFE_MODEL_ID.test(model.id ?? "")
+    && (model.supportsJsonObject === null || typeof model.supportsJsonObject === "boolean")
+    && (model.supportsJsonSchema === null || typeof model.supportsJsonSchema === "boolean");
+}
+
+function isPaidModel(value: unknown): value is OpenRouterPaidModel {
+  if (!value || typeof value !== "object") return false;
+  const model = value as Partial<OpenRouterPaidModel>;
+  return SAFE_MODEL_ID.test(model.id ?? "")
+    && typeof model.label === "string"
+    && model.label.length <= 300
+    && Array.isArray(model.capabilities)
+    && model.capabilities.every((capability) => ALL_CAPABILITIES.includes(capability))
+    && Number.isSafeInteger(model.context)
+    && (model.context ?? -1) >= 0
+    && typeof model.supportsTools === "boolean"
+    && typeof model.supportsJson === "boolean"
+    && typeof model.supportsStreaming === "boolean"
+    && model.free === false
+    && (model.quality === "fast" || model.quality === "powerful");
+}
+
+function isCatalogSnapshot(value: unknown): value is OpenRouterCatalogSnapshot {
+  if (!value || typeof value !== "object") return false;
+  const snapshot = value as Partial<OpenRouterCatalogSnapshot>;
+  return snapshot.version === 1
+    && Array.isArray(snapshot.freeModels)
+    && snapshot.freeModels.length > 0
+    && snapshot.freeModels.length <= 10_000
+    && snapshot.freeModels.every(isSnapshotModel)
+    && new Set(snapshot.freeModels.map((model) => model.id)).size === snapshot.freeModels.length
+    && Array.isArray(snapshot.paidModels)
+    && snapshot.paidModels.length <= 1
+    && snapshot.paidModels.every(isPaidModel)
+    && typeof snapshot.paidPolicyFingerprint === "string"
+    && snapshot.paidPolicyFingerprint.length <= 1_000;
+}
+
+function applySnapshot(
+  snapshot: OpenRouterCatalogSnapshot,
+  fetchedAtMs: number,
+  expiresAtMs: number,
+): void {
+  _availableIds = new Set(snapshot.freeModels.map((model) => model.id));
+  _modelFormatSupport = new Map(snapshot.freeModels.map((model) => [
+    model.id,
+    {
+      supportsJsonObject: model.supportsJsonObject,
+      supportsJsonSchema: model.supportsJsonSchema,
+    },
+  ]));
+  _availablePaidModels = snapshot.paidPolicyFingerprint === paidPolicyFingerprint()
+    ? [...snapshot.paidModels]
+    : [];
+  _paidPolicyFingerprint = paidPolicyFingerprint();
+  _lastFetchMs = fetchedAtMs;
+  _snapshotExpiresAtMs = expiresAtMs;
+  _refreshAttempted = true;
+  _lastRefreshStatus = "success";
+  _lastRefreshError = null;
+  _nextRefreshAt = 0;
+}
 
 function configuredPaidModelId(): string | undefined {
   if (process.env.OPENROUTER_ALLOW_PAID_FALLBACK !== "1") return undefined;
@@ -113,8 +203,14 @@ function buildPaidCandidate(entry: OpenRouterModelEntry): OpenRouterPaidModel | 
 
 function classifyRefreshFailure(error: unknown): string {
   if (error instanceof DOMException && error.name === "AbortError") return "timeout";
-  if (error instanceof Error && /abort|timeout/i.test(error.message)) return "timeout";
+  if (
+    error instanceof Error &&
+    (error.name === "TimeoutError" || /abort|time[\s_-]?out/i.test(error.message))
+  ) return "timeout";
   if (error instanceof Error) {
+    if (/shared catalog store|catalog refresh lease/i.test(error.message)) {
+      return "shared_store_unavailable";
+    }
     const status = error.message.match(/\b(?:status|HTTP)\s*[:=]?\s*(\d{3})\b/i)?.[1];
     if (status) return `http_${status}`;
   }
@@ -238,10 +334,12 @@ export function getDynamicCatalogStatus(): DynamicCatalogStatus {
 /**
  * Fetch the live model list from OpenRouter and update the singleton.
  * Safe to call concurrently — only one HTTP request runs at a time.
- * Never throws; logs a warning on failure.
+ * Provider failures are logged and absorbed; caller cancellation rejects only
+ * that caller's wait and does not cancel the shared refresh.
  *
  * @param apiKey  OpenRouter API key (Bearer). Optional; some endpoints allow
  *                unauthenticated access to GET /models.
+ * @param signal  Optional caller signal. It does not own the shared fetch.
  */
 export async function refreshDynamicCatalog(
   apiKey?: string,
@@ -254,6 +352,7 @@ export async function refreshDynamicCatalog(
 
   // Deduplicate concurrent calls — only one fetch in flight at a time.
   if (_inFlight) return waitForRefreshOrCallerAbort(_inFlight, signal);
+  if (now < _nextRefreshAt) return;
 
   _inFlight = (async () => {
     _refreshAttempted = true;
@@ -396,6 +495,9 @@ export async function refreshDynamicCatalog(
       );
     } finally {
       if (timeoutHandle) clearTimeout(timeoutHandle);
+      _nextRefreshAt = _lastRefreshStatus === "success"
+        ? 0
+        : Date.now() + CATALOG_REFRESH_FAILURE_BACKOFF_MS;
       _inFlight = null;
     }
   })();
@@ -433,8 +535,28 @@ export function _resetForTest(): void {
   _modelFormatSupport = null;
   _paidPolicyFingerprint = null;
   _lastFetchMs  = 0;
+  _nextRefreshAt = 0;
   _inFlight     = null;
   _refreshAttempted = false;
   _lastRefreshStatus = "never";
+  _lastRefreshError = null;
+}
+
+/** Seed an explicit live-price snapshot for deterministic unit tests only. */
+export function _setSnapshotForTest(modelIds: readonly string[]): void {
+  _availableIds = new Set(modelIds);
+  _availablePaidModels = [];
+  _modelFormatSupport = new Map(
+    modelIds.map((id) => [
+      id,
+      { supportsJsonObject: null, supportsJsonSchema: null },
+    ]),
+  );
+  _paidPolicyFingerprint = paidPolicyFingerprint();
+  _lastFetchMs = Date.now();
+  _nextRefreshAt = 0;
+  _inFlight = null;
+  _refreshAttempted = true;
+  _lastRefreshStatus = "success";
   _lastRefreshError = null;
 }

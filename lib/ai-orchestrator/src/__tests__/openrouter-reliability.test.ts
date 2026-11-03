@@ -44,11 +44,13 @@ import {
 import { resolveExecutionDecision } from "../model-selection/decision-engine.js";
 import { resolveExecutionModel } from "../model-selection/model-resolver.js";
 import {
+  getDynamicCatalogStatus,
   getDynamicModelIds,
   getUsableDynamicModelFormatSupport,
   isDynamicCatalogLoaded,
   refreshDynamicCatalog,
   getUsablePaidModelCandidates,
+  _setSnapshotForTest as _seedDynamicCatalogForTest,
   _resetForTest as _resetDynamicCatalog,
 } from "../openrouter/dynamic-catalog.js";
 import { FREE_MODELS } from "../openrouter/model-catalog.js";
@@ -65,6 +67,124 @@ import {
 const STATIC_FREE_CHAT_TEST_MODEL = FREE_MODELS.find((model) =>
   model.capabilities.includes("chat") && model.supportsJson,
 )!.id;
+
+describe("bounded live free catalog admission", () => {
+  let previousFetch: typeof fetch;
+
+  beforeEach(() => {
+    previousFetch = global.fetch;
+    _resetDynamicCatalog();
+  });
+
+  afterEach(() => {
+    global.fetch = previousFetch;
+    vi.useRealTimers();
+    _resetDynamicCatalog();
+  });
+
+  it("bounds a hung catalog fetch, aborts it, and backs off before another refresh", async () => {
+    vi.useFakeTimers({ now: Date.now() });
+    let requestSignal: AbortSignal | undefined;
+    global.fetch = vi.fn((_url: string | URL, init?: RequestInit) => {
+      requestSignal = init?.signal as AbortSignal | undefined;
+      return new Promise<Response>(() => {});
+    }) as typeof fetch;
+
+    const refresh = refreshDynamicCatalog("test-key");
+    await vi.advanceTimersByTimeAsync(5_000);
+    await expect(refresh).resolves.toBeUndefined();
+
+    expect(requestSignal?.aborted).toBe(true);
+    expect(getDynamicCatalogStatus()).toMatchObject({
+      usable: false,
+      lastRefreshStatus: "failed",
+      lastRefreshError: "timeout",
+    });
+    await refreshDynamicCatalog("test-key");
+    expect(global.fetch).toHaveBeenCalledTimes(1);
+  });
+
+  it("lets one caller abort its wait without cancelling the shared refresh", async () => {
+    let resolveFetch: ((response: Response) => void) | undefined;
+    let requestSignal: AbortSignal | undefined;
+    global.fetch = vi.fn((_url: string | URL, init?: RequestInit) => {
+      requestSignal = init?.signal as AbortSignal | undefined;
+      return new Promise<Response>((resolve) => {
+        resolveFetch = resolve;
+      });
+    }) as typeof fetch;
+
+    const cancelledCaller = new AbortController();
+    const remainingCaller = new AbortController();
+    const first = refreshDynamicCatalog("test-key", cancelledCaller.signal);
+    const second = refreshDynamicCatalog("test-key", remainingCaller.signal);
+    const firstAbort = expect(first).rejects.toMatchObject({ name: "AbortError" });
+    cancelledCaller.abort();
+
+    await firstAbort;
+    expect(requestSignal?.aborted).toBe(false);
+    resolveFetch?.(fetchResponse(200, {
+      data: [{
+        id: STATIC_FREE_CHAT_TEST_MODEL,
+        pricing: { prompt: "0", completion: "0" },
+      }],
+    }));
+    await expect(second).resolves.toBeUndefined();
+    expect(global.fetch).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not send inference without a fresh live zero-price catalog entry", async () => {
+    vi.useFakeTimers({ now: Date.now() });
+    global.fetch = vi.fn()
+      .mockResolvedValueOnce(fetchResponse(200, {
+        data: [{
+          id: STATIC_FREE_CHAT_TEST_MODEL,
+          pricing: { prompt: "0", completion: "0" },
+        }],
+      }))
+      .mockResolvedValueOnce(fetchResponse(503, {})) as typeof fetch;
+    await refreshDynamicCatalog("test-key");
+    expect(isCatalogFreeModelForCapability(STATIC_FREE_CHAT_TEST_MODEL, {
+      capability: "chat",
+      requireLiveCatalog: true,
+    })).toBe(true);
+    await vi.advanceTimersByTimeAsync(10 * 60 * 1_000 + 1);
+
+    await expect(openrouterCompleteWithFallback(
+      [{ role: "user", content: "hello" }],
+      {
+        model: STATIC_FREE_CHAT_TEST_MODEL,
+        apiKey: "test-key",
+        capability: "chat",
+      },
+    )).rejects.toMatchObject({ code: "INVALID_CONFIG" });
+
+    const { openrouterCompleteRaw, openrouterCompleteStream } =
+      await import("../openai-compatible-client.js");
+    await expect(openrouterCompleteRaw(
+      [{ role: "user", content: "hello" }],
+      { apiKey: "test-key", model: STATIC_FREE_CHAT_TEST_MODEL },
+    )).rejects.toMatchObject({
+      code: "INVALID_CONFIG",
+      providerCode: "LIVE_FREE_CATALOG_REQUIRED",
+    });
+    const consumeStream = async () => {
+      for await (const _chunk of openrouterCompleteStream(
+        [{ role: "user", content: "hello" }],
+        { apiKey: "test-key", model: STATIC_FREE_CHAT_TEST_MODEL },
+      )) {
+        // No chunk is expected without current live-price evidence.
+      }
+    };
+    await expect(consumeStream()).rejects.toMatchObject({
+      code: "INVALID_CONFIG",
+      providerCode: "LIVE_FREE_CATALOG_REQUIRED",
+    });
+
+    expect(global.fetch).toHaveBeenCalledTimes(2);
+    expect(String(vi.mocked(global.fetch).mock.calls[1]?.[0])).toContain("/models");
+  });
+});
 
 // ── helpers ──────────────────────────────────────────────────────────────────
 
@@ -131,6 +251,7 @@ beforeEach(() => {
     write: async () => {},
     clear: async () => {},
   });
+  _seedDynamicCatalogForTest(FREE_MODELS.map((model) => model.id));
 });
 
 describe("static free-model capability metadata", () => {
@@ -1916,41 +2037,27 @@ describe("integration (INT-001) — static catalog used before runtime catalog l
     vi.restoreAllMocks();
   });
 
-  it("should use static catalog before runtime catalog is loaded", async () => {
+  it("keeps the static list for planning but refuses inference without live pricing", async () => {
     // Dynamic catalog must not be loaded at test start
     expect(isDynamicCatalogLoaded()).toBe(false);
     expect(getDynamicModelIds()).toBeNull();
+    expect(resolveFallbackChain({ capability: "chat" }).length).toBeGreaterThan(0);
 
-    // Capture the model ID sent in the OpenRouter completion request
-    let capturedModel = "";
-    global.fetch = vi.fn().mockImplementation((_url: string, init: RequestInit | undefined) => {
-      const body = JSON.parse((init?.body as string) ?? "{}") as { model?: string };
-      capturedModel = body.model ?? "";
-      return Promise.resolve(fetchResponse(
-        200,
-        okResponse(capturedModel || "inclusionai/ling-3.0-flash:free"),
-      ));
-    }) as typeof fetch;
+    global.fetch = vi.fn().mockResolvedValue(fetchResponse(503, {})) as typeof fetch;
 
     const { openrouterCompleteWithFallback } = await import("../openai-compatible-client.js");
-    const result = await openrouterCompleteWithFallback(
+    await expect(openrouterCompleteWithFallback(
       [{ role: "user", content: "hi" }],
       { apiKey: "sk-test" },
-    );
+    )).rejects.toMatchObject({
+      code: "INVALID_CONFIG",
+      providerCode: "LIVE_FREE_CATALOG_REQUIRED",
+    });
 
-    // Completion succeeded using the static catalog
-    expect(result.content).toBe("Hello!");
-
-    // Dynamic catalog was never loaded — only the static list was used
-    expect(isDynamicCatalogLoaded()).toBe(false);
-
-    // The model selected must be a known static FREE_MODELS entry (not a stale hardcoded ID)
-    const staticIds = new Set(FREE_MODELS.map((m) => m.id));
-    expect(capturedModel).toBeTruthy();
-    expect(staticIds.has(capturedModel)).toBe(true);
-
-    // Exactly one fetch call: the completion request (no dynamic catalog refresh)
-    expect((global.fetch as ReturnType<typeof vi.fn>).mock.calls).toHaveLength(1);
+    // Only the catalog GET was made; the static candidate did not reach inference.
+    expect(global.fetch).toHaveBeenCalledTimes(1);
+    expect(String(vi.mocked(global.fetch).mock.calls[0]?.[0])).toContain("/models");
+    expect(isDynamicCatalogLoaded()).toBe(true);
   });
 });
 
@@ -2081,7 +2188,7 @@ describe("integration (INT-003 / INT-007) — empty chain fails fast without iss
   });
 
   it("INT-007 — single fetch on first-model success", async () => {
-    // Catalog not loaded → static list used (no catalog fetch in this path)
+    _seedDynamicCatalogForTest(FREE_MODELS.map((model) => model.id));
     let callCount = 0;
     global.fetch = vi.fn().mockImplementation(() => {
       callCount += 1;
@@ -2100,6 +2207,7 @@ describe("integration (INT-003 / INT-007) — empty chain fails fast without iss
   });
 
   it("INT-007 — fetch count equals chain length when every model fails before final success", async () => {
+    _seedDynamicCatalogForTest(FREE_MODELS.map((model) => model.id));
     // Use a known model with a 2-entry chain: initial → 404 → second model succeeds
     let callCount = 0;
     global.fetch = vi.fn().mockImplementation(() => {
@@ -2135,6 +2243,7 @@ describe("integration (INT-004) — agentComplete resolves models from quality h
   });
 
   it("should resolve models from quality hints instead of stale model ids", async () => {
+    _seedDynamicCatalogForTest(FREE_MODELS.map((model) => model.id));
     let capturedRequestBody: Record<string, unknown> = {};
 
     global.fetch = vi.fn().mockImplementation((_url: string, init: RequestInit | undefined) => {

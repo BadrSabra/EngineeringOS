@@ -52,8 +52,8 @@ export function isCatalogFreeModel(
   if (!model || !model.free) return false;
   const liveIds = getUsableDynamicModelIds();
   if (options.requireLiveCatalog && liveIds === null) return false;
-  // A failed or expired refresh is not an authoritative catalog boundary.
-  // Keep the static compatibility path until a successful live snapshot exists.
+  // Static candidates may still be used for planning when live metadata is
+  // unavailable. Inference admission must pass requireLiveCatalog=true.
   return liveIds === null || liveIds.has(model.id);
 }
 

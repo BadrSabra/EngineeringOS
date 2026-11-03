@@ -78,6 +78,43 @@ export const APPLICATION_SCHEMA_CONTRACT = {
         defaultExpression: /(?:now\(\)|current_timestamp)/,
       },
     ] satisfies readonly ColumnContract[],
+    openrouter_catalog_snapshots: [
+      { name: "catalog_key", dataType: "text", udtName: "text", nullable: false },
+      { name: "snapshot", dataType: "jsonb", udtName: "jsonb", nullable: true },
+      {
+        name: "refreshed_at",
+        dataType: "timestamp with time zone",
+        udtName: "timestamptz",
+        nullable: true,
+      },
+      {
+        name: "expires_at",
+        dataType: "timestamp with time zone",
+        udtName: "timestamptz",
+        nullable: true,
+      },
+      {
+        name: "failure_backoff_until",
+        dataType: "timestamp with time zone",
+        udtName: "timestamptz",
+        nullable: true,
+      },
+      { name: "last_failure_code", dataType: "text", udtName: "text", nullable: true },
+      { name: "lease_token", dataType: "text", udtName: "text", nullable: true },
+      {
+        name: "lease_expires_at",
+        dataType: "timestamp with time zone",
+        udtName: "timestamptz",
+        nullable: true,
+      },
+      {
+        name: "updated_at",
+        dataType: "timestamp with time zone",
+        udtName: "timestamptz",
+        nullable: false,
+        defaultExpression: /(?:now\(\)|current_timestamp)/,
+      },
+    ] satisfies readonly ColumnContract[],
     openrouter_lane_cursors: [
       { name: "cursor_key", dataType: "text", udtName: "text", nullable: false },
       { name: "candidate_set_hash", dataType: "text", udtName: "text", nullable: false },
@@ -881,6 +918,11 @@ export const APPLICATION_SCHEMA_CONTRACT = {
       name: "idx_openrouter_model_cooldowns_expiry",
       tableName: "openrouter_model_cooldowns",
       columns: ["cooling_until"],
+    },
+    {
+      name: "openrouter_catalog_snapshots_pkey",
+      tableName: "openrouter_catalog_snapshots",
+      columns: ["catalog_key"],
     },
     {
       name: "openrouter_lane_cursors_pk",
@@ -1886,6 +1928,8 @@ export function findApplicationSchemaIssues(
   for (const tableName of REQUIRED_TABLES) {
     const expectedColumns = tableName === "openrouter_model_cooldowns"
       ? ["provider", "model"]
+      : tableName === "openrouter_catalog_snapshots"
+        ? ["catalog_key"]
       : tableName === "openrouter_lane_cursors"
         ? ["cursor_key", "candidate_set_hash"]
       : tableName === "openrouter_credential_cooldowns"

@@ -67,7 +67,7 @@
 - [Fresh project-query state](fresh-project-query-state.md) — only bounded continuations and explicit handoffs may inherit a session’s target/evidence scope.
 - [Artifact-only acceptance](artifact-only-acceptance.md) — source-free validation still needs explicit PROVEN; optional-evidence success is NOT_REQUIRED, never canonical proof.
 - [OpenRouter provider boundaries](openrouter-provider-boundaries-index.md) — grouped rules for acceptance, free-only routing, throttling, ranking, and live smoke preflight.
-- [Zero-paid AI policy](openrouter-free-lane-policy.md) — prevent paid inference; treat additional free or local routes as gated, verified candidates.
+- [Zero-paid AI policy](openrouter-free-lane-policy.md) — require fresh live zero-price evidence at send; static model entries authorize planning only.
 - [Structured cooldown provenance](structured-cooldown-backoff.md) — keep provider Retry-After distinct from local adaptive waits; legacy defaults cannot authorize a retry.
 - [Provider error fixture fidelity](provider-error-test-contracts.md) — test doubles must preserve scope and retry metadata or integration tests can report false drops.
 - [Embedded objective evidence](embedded-objective-evidence.md) — embedded-AI claims need server-owned evidence materialization; provider-only citations can leave complete reads unaccepted.

@@ -199,6 +199,8 @@ function completeSnapshot() {
     primaryKeys: Object.keys(APPLICATION_SCHEMA_CONTRACT.tables).flatMap(
       (table_name) => table_name === "openrouter_model_cooldowns"
         ? ["provider", "model"].map((column_name) => ({ table_name, column_name }))
+        : table_name === "openrouter_catalog_snapshots"
+          ? ["catalog_key"].map((column_name) => ({ table_name, column_name }))
         : table_name === "openrouter_lane_cursors"
           ? ["cursor_key", "candidate_set_hash"].map((column_name) => ({ table_name, column_name }))
         : table_name === "openrouter_credential_cooldowns"

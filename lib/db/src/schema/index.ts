@@ -43,5 +43,6 @@ export * from "./ai_strategy_candidates.js";
 export * from "./ai_strategy_replay_cases.js";
 export * from "./ai_strategy_replay_case_runs.js";
 export * from "./openrouter_model_cooldowns.js";
+export * from "./openrouter_catalog_snapshots.js";
 export * from "./openrouter_lane_cursors.js";
 export * from "./openrouter_credential_cooldowns.js";
