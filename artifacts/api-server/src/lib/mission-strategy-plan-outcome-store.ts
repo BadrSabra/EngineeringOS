@@ -24,6 +24,7 @@ import {
   canonicalJsonHash,
   evaluateMissionStrategyPlanOutcome,
   MissionDecisionTraceSchema,
+  MissionStrategyPlanOutcomeEvaluationSchema,
 } from "@workspace/ai-orchestrator";
 import type {
   MissionStrategyPlanOutcomeEvaluation,
@@ -37,7 +38,9 @@ import { getProjectWorldState } from "./agent-state/world-state.js";
 import {
   getMissionDecisionTraceInTransaction,
   getValidatedMissionDecisionDispatchBatchInTransaction,
+  appendMissionDecisionOutcomeLifecycleEventsInTransaction,
 } from "./mission-decision-trace-store.js";
+import type { MissionDecisionTransaction } from "./mission-decision-trace-store.js";
 
 const MAX_WORLD_FACTS = 256;
 const MAX_WORLD_OBSERVATIONS = 2_048;
@@ -119,11 +122,11 @@ export type MissionPlanOutcomeStoreResult =
  * It records a content-addressed snapshot but deliberately does not advance
  * lifecycle events; a separate store gate must revalidate the snapshot first.
  */
-export async function evaluateAndPersistMissionPlanOutcome(
+export async function evaluateAndPersistMissionPlanOutcomeInTransaction(
+  tx: MissionDecisionTransaction,
   decisionId: string,
   evaluatedAt = new Date(),
 ): Promise<MissionPlanOutcomeStoreResult> {
-  return db.transaction(async (tx) => {
     const [candidate] = await tx.select().from(aiMissionDecisionTracesTable)
       .where(eq(aiMissionDecisionTracesTable.decisionId, decisionId));
     if (!candidate) return { kind: "not_ready", reason: "decision_missing" };
@@ -537,8 +540,93 @@ export async function evaluateAndPersistMissionPlanOutcome(
       ) {
         throw new Error("mission decision outcome snapshot conflict");
       }
+      if (hashJson(existing.evaluation) !== hashJson(evaluation)) {
+        throw new Error("mission decision outcome snapshot payload conflict");
+      }
       return { kind: "already_recorded", snapshotId, evaluation };
     }
     return { kind: "recorded", snapshotId, evaluation };
+}
+
+export async function evaluateAndPersistMissionPlanOutcome(
+  decisionId: string,
+  evaluatedAt = new Date(),
+): Promise<MissionPlanOutcomeStoreResult> {
+  return db.transaction(
+    (tx) => evaluateAndPersistMissionPlanOutcomeInTransaction(tx, decisionId, evaluatedAt),
+    { isolationLevel: "serializable" },
+  );
+}
+
+export type MissionPlanOutcomeFinalizationResult =
+  | {
+      kind: "appended" | "already_recorded";
+      snapshotId: string;
+      evaluation: MissionStrategyPlanOutcomeEvaluation;
+    }
+  | {
+      kind: "not_achieved" | "inconclusive";
+      snapshotId: string;
+      evaluation: MissionStrategyPlanOutcomeEvaluation;
+    }
+  | Extract<MissionPlanOutcomeStoreResult, { kind: "not_ready" }>;
+
+/**
+ * Re-evaluates and persists the plan outcome and, only for ACHIEVED, appends
+ * the complete plan-level lifecycle suffix in the same serializable transaction.
+ * Root dispatch, provider output, and INCONCLUSIVE/NOT_ACHIEVED snapshots never
+ * advance the lifecycle.
+ */
+export async function finalizeMissionPlanOutcome(
+  decisionId: string,
+  evaluatedAt = new Date(),
+): Promise<MissionPlanOutcomeFinalizationResult> {
+  return db.transaction(async (tx) => {
+    const current = await getMissionDecisionTraceInTransaction(tx, decisionId);
+    if (!current) return { kind: "not_ready", reason: "decision_missing" };
+    const dispatchIndex = current.events.findIndex(({ stage }) => stage === "DISPATCHED");
+    if (dispatchIndex < 0) {
+      return evaluateAndPersistMissionPlanOutcomeInTransaction(tx, decisionId, evaluatedAt);
+    }
+    const suffix = current.events.slice(
+      dispatchIndex + 1,
+    );
+    if (suffix.length) {
+      const snapshotId = suffix[0]?.referenceId;
+      if (
+        suffix.length !== 4
+        || !snapshotId
+        || suffix.some((event) => event.referenceId !== snapshotId)
+      ) {
+        throw new Error("mission decision outcome lifecycle suffix conflict");
+      }
+      const [snapshot] = await tx.select().from(aiMissionDecisionOutcomeSnapshotsTable)
+        .where(eq(aiMissionDecisionOutcomeSnapshotsTable.outcomeId, snapshotId));
+      if (!snapshot || snapshot.outcome !== "ACHIEVED") {
+        throw new Error("mission decision outcome snapshot unavailable");
+      }
+      const evaluation = MissionStrategyPlanOutcomeEvaluationSchema.parse(snapshot.evaluation);
+      return { kind: "already_recorded", snapshotId, evaluation };
+    }
+
+    const stored = await evaluateAndPersistMissionPlanOutcomeInTransaction(
+      tx,
+      decisionId,
+      evaluatedAt,
+    );
+    if (stored.kind === "not_ready") return stored;
+    if (stored.evaluation.outcome !== "ACHIEVED") {
+      return {
+        kind: stored.evaluation.outcome === "NOT_ACHIEVED" ? "not_achieved" : "inconclusive",
+        snapshotId: stored.snapshotId,
+        evaluation: stored.evaluation,
+      };
+    }
+    await appendMissionDecisionOutcomeLifecycleEventsInTransaction(tx, {
+      decisionId,
+      outcomeSnapshotId: stored.snapshotId,
+      occurredAt: evaluatedAt,
+    });
+    return { kind: "appended", snapshotId: stored.snapshotId, evaluation: stored.evaluation };
   }, { isolationLevel: "serializable" });
 }

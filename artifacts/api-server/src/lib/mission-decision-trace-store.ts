@@ -13,6 +13,7 @@ import {
   aiMissionDecisionDispatchItemsTable,
   aiMissionDecisionEventsTable,
   aiMissionDecisionTracesTable,
+  aiMissionDecisionOutcomeSnapshotsTable,
   aiMissionsTable,
   aiWorldFactsTable,
   aiWorldTransitionsTable,
@@ -20,15 +21,17 @@ import {
   projectsTable,
 } from "@workspace/db";
 import {
+  canonicalJsonHash,
   hashMissionDecisionTrace,
   hashMissionStrategyAlternative,
+  MissionStrategyPlanOutcomeEvaluationSchema,
   MissionDecisionTraceSchema,
 } from "@workspace/ai-orchestrator";
 import type { MissionDecisionTrace } from "@workspace/ai-orchestrator";
 import { getProjectWorldState } from "./agent-state/world-state.js";
 
 export type MissionDecisionTransaction = Parameters<Parameters<typeof db.transaction>[0]>[0];
-type DecisionEventStage = MissionDecisionTrace["lifecycle"][number]["stage"];
+export type DecisionEventStage = MissionDecisionTrace["lifecycle"][number]["stage"];
 
 const INITIAL_STAGES = ["PROPOSED", "EVALUATED", "SELECTED"] as const;
 const LIFECYCLE_ORDER: readonly DecisionEventStage[] = [
@@ -77,11 +80,11 @@ function deterministicHash(value: string): string {
   return createHash("sha256").update(value).digest("hex");
 }
 
-function eventIdentity(decisionId: string, stage: DecisionEventStage): string {
+export function eventIdentity(decisionId: string, stage: DecisionEventStage): string {
   return `mission-decision-event:${deterministicHash(`${decisionId}:${stage}`)}`;
 }
 
-function eventHash(input: {
+export function eventHash(input: {
   decisionId: string;
   stage: DecisionEventStage;
   referenceId: string | null;
@@ -93,6 +96,108 @@ function eventHash(input: {
     referenceId: input.referenceId,
     occurredAt: input.occurredAt.toISOString(),
   }));
+}
+
+const PLAN_OUTCOME_LIFECYCLE_SUFFIX = [
+  "EXECUTED",
+  "ACCEPTED",
+  "VERIFIED",
+  "EVALUATED_AFTER_EXECUTION",
+] as const satisfies readonly DecisionEventStage[];
+
+async function assertMissionPlanOutcomeSnapshot(
+  tx: MissionDecisionTransaction,
+  input: {
+    trace: MissionDecisionTrace;
+    snapshotId: string;
+    dispatchBatchId: string;
+    planRevision: string;
+  },
+): Promise<typeof aiMissionDecisionOutcomeSnapshotsTable.$inferSelect> {
+  const [snapshot] = await tx.select().from(aiMissionDecisionOutcomeSnapshotsTable)
+    .where(eq(aiMissionDecisionOutcomeSnapshotsTable.outcomeId, input.snapshotId));
+  const [batch] = await tx.select({
+    manifestHash: aiMissionDecisionDispatchBatchesTable.manifestHash,
+  }).from(aiMissionDecisionDispatchBatchesTable)
+    .where(eq(aiMissionDecisionDispatchBatchesTable.dispatchBatchId, input.dispatchBatchId));
+  const evaluationResult = snapshot
+    ? MissionStrategyPlanOutcomeEvaluationSchema.safeParse(snapshot.evaluation)
+    : null;
+  const evaluation = evaluationResult?.success ? evaluationResult.data : null;
+  const identity = input.trace.context.identity;
+  const selectedStrategyId = input.trace.result.kind === "SELECTED"
+    ? input.trace.result.selectedStrategyId
+    : null;
+  const expectedSnapshotId = snapshot
+    ? `mission-outcome-snapshot:${canonicalJsonHash(
+        `${input.trace.decisionId}\n${snapshot.evidenceSetHash}`,
+      )}`
+    : null;
+  if (
+    !snapshot
+    || !batch
+    || !evaluation
+    || snapshot.outcomeId !== expectedSnapshotId
+    || snapshot.decisionId !== input.trace.decisionId
+    || snapshot.projectId !== identity.projectId
+    || snapshot.missionId !== identity.missionId
+    || snapshot.sourceGoalId !== identity.goalId
+    || snapshot.planRevision !== input.planRevision
+    || snapshot.selectedStrategyId !== selectedStrategyId
+    || snapshot.dispatchBatchId !== input.dispatchBatchId
+    || snapshot.dispatchManifestHash !== batch.manifestHash
+    || snapshot.evidenceSetHash !== evaluation.evidenceSetHash
+    || snapshot.outcome !== "ACHIEVED"
+    || snapshot.worldStateRevision === null
+    || input.trace.newPlanRevision !== input.planRevision
+    || evaluation.decisionId !== snapshot.decisionId
+    || evaluation.projectId !== snapshot.projectId
+    || evaluation.missionId !== snapshot.missionId
+    || evaluation.sourceGoalId !== snapshot.sourceGoalId
+    || evaluation.planRevision !== snapshot.planRevision
+    || evaluation.selectedStrategyId !== snapshot.selectedStrategyId
+    || evaluation.dispatchBatchId !== snapshot.dispatchBatchId
+    || evaluation.dispatchManifestHash !== snapshot.dispatchManifestHash
+    || evaluation.outcome !== "ACHIEVED"
+    || evaluation.finalWorldState.revision !== snapshot.worldStateRevision
+    || !evaluation.finalWorldState.continuityVerified
+  ) {
+    throw new MissionDecisionTraceStoreError("decision_event_reference_invalid");
+  }
+  return snapshot;
+}
+
+async function validateMissionPlanOutcomeLifecycleSuffix(
+  tx: MissionDecisionTransaction,
+  trace: MissionDecisionTrace,
+  events: Array<{
+    stage: string;
+    referenceId: string | null;
+  }>,
+): Promise<void> {
+  const dispatchIndex = events.findIndex(({ stage }) => stage === "DISPATCHED");
+  const dispatchEvent = events[dispatchIndex];
+  if (!dispatchEvent?.referenceId?.startsWith("mission-dispatch-batch:")) return;
+  const suffix = events.slice(dispatchIndex + 1);
+  if (suffix.length === 0) return;
+  const snapshotId = suffix[0]?.referenceId;
+  if (
+    suffix.length !== PLAN_OUTCOME_LIFECYCLE_SUFFIX.length
+    || !snapshotId
+    || suffix.some((event, index) =>
+      event.stage !== PLAN_OUTCOME_LIFECYCLE_SUFFIX[index]
+      || event.referenceId !== snapshotId)
+  ) {
+    throw new MissionDecisionTraceStoreError("decision_event_order_invalid");
+  }
+  const planRevision = events.find(({ stage }) => stage === "PLAN_APPLIED")?.referenceId;
+  if (!planRevision) throw new MissionDecisionTraceStoreError("decision_event_reference_invalid");
+  await assertMissionPlanOutcomeSnapshot(tx, {
+    trace,
+    snapshotId,
+    dispatchBatchId: dispatchEvent.referenceId,
+    planRevision,
+  });
 }
 
 const MISSION_GOAL_RUN_STATUSES = [
@@ -1393,14 +1498,92 @@ export async function getMissionDecisionTraceInTransaction(
     ) {
       throw new MissionDecisionTraceStoreError("decision_event_reference_invalid");
     }
+    const planOutcomeExecution =
+      previous.stage === "DISPATCHED"
+      && previous.referenceId?.startsWith("mission-dispatch-batch:") === true;
     if (
       current.stage === "EXECUTED"
+      && !planOutcomeExecution
       && current.referenceId !== previous.referenceId
     ) {
       throw new MissionDecisionTraceStoreError("decision_event_reference_invalid");
     }
   }
+  await validateMissionPlanOutcomeLifecycleSuffix(tx, trace, events);
   return { trace, events };
+}
+
+/**
+ * Appends the full plan-level success suffix after the outcome service has
+ * freshly evaluated and persisted ACHIEVED in this same transaction.
+ * Generic lifecycle appends intentionally cannot use this path.
+ */
+export async function appendMissionDecisionOutcomeLifecycleEventsInTransaction(
+  tx: MissionDecisionTransaction,
+  input: {
+    decisionId: string;
+    outcomeSnapshotId: string;
+    occurredAt: Date;
+  },
+): Promise<{ kind: "appended" | "already_recorded"; sequence: number }> {
+  const stored = await getMissionDecisionTraceInTransaction(tx, input.decisionId);
+  if (!stored) throw new MissionDecisionTraceStoreError("decision_trace_missing");
+  const dispatchIndex = stored.events.findIndex(({ stage }) => stage === "DISPATCHED");
+  const dispatchEvent = stored.events[dispatchIndex];
+  if (!dispatchEvent?.referenceId?.startsWith("mission-dispatch-batch:")) {
+    throw new MissionDecisionTraceStoreError("decision_event_order_invalid");
+  }
+  const suffix = stored.events.slice(dispatchIndex + 1);
+  if (suffix.length) {
+    if (
+      suffix.length === PLAN_OUTCOME_LIFECYCLE_SUFFIX.length
+      && suffix.every((event, index) =>
+        event.stage === PLAN_OUTCOME_LIFECYCLE_SUFFIX[index]
+        && event.referenceId === input.outcomeSnapshotId)
+    ) {
+      return {
+        kind: "already_recorded",
+        sequence: stored.events.at(-1)!.sequence,
+      };
+    }
+    throw new MissionDecisionTraceStoreError("decision_event_conflict");
+  }
+  const planRevision = stored.events.find(({ stage }) => stage === "PLAN_APPLIED")?.referenceId;
+  if (
+    stored.events.at(-1)?.stage !== "DISPATCHED"
+    || !planRevision
+  ) {
+    throw new MissionDecisionTraceStoreError("decision_event_order_invalid");
+  }
+  await assertMissionPlanOutcomeSnapshot(tx, {
+    trace: stored.trace,
+    snapshotId: input.outcomeSnapshotId,
+    dispatchBatchId: dispatchEvent.referenceId,
+    planRevision,
+  });
+
+  const last = stored.events.at(-1)!;
+  const occurredAt = new Date(Math.max(input.occurredAt.getTime(), last.occurredAt.getTime() + 1));
+  let sequence = last.sequence;
+  for (const stage of PLAN_OUTCOME_LIFECYCLE_SUFFIX) {
+    sequence += 1;
+    const [inserted] = await tx.insert(aiMissionDecisionEventsTable).values({
+      id: eventIdentity(input.decisionId, stage),
+      decisionId: input.decisionId,
+      sequence,
+      stage,
+      referenceId: input.outcomeSnapshotId,
+      eventHash: eventHash({
+        decisionId: input.decisionId,
+        stage,
+        referenceId: input.outcomeSnapshotId,
+        occurredAt,
+      }),
+      occurredAt,
+    }).onConflictDoNothing().returning({ sequence: aiMissionDecisionEventsTable.sequence });
+    if (!inserted) throw new MissionDecisionTraceStoreError("decision_event_conflict");
+  }
+  return { kind: "appended", sequence };
 }
 
 export async function getMissionDecisionTrace(

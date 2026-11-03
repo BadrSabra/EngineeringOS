@@ -53,7 +53,10 @@ import {
 } from "./mission-decision-trace-store.js";
 import { approveMissionGoal } from "./mission-approval.js";
 import { reconcileApprovedMissionDecisionDispatches } from "./mission-auto-replan.js";
-import { evaluateAndPersistMissionPlanOutcome } from "./mission-strategy-plan-outcome-store.js";
+import {
+  evaluateAndPersistMissionPlanOutcome,
+  finalizeMissionPlanOutcome,
+} from "./mission-strategy-plan-outcome-store.js";
 
 const projectIds: string[] = [];
 const now = new Date("2026-11-03T10:00:00.000Z");
@@ -908,6 +911,15 @@ describe("Mission decision trace persistence", () => {
     expect(await db.select().from(aiMissionDecisionOutcomeSnapshotsTable)
       .where(eq(aiMissionDecisionOutcomeSnapshotsTable.decisionId, selectedTrace.decisionId)))
       .toHaveLength(1);
+    const finalizeIncomplete = await finalizeMissionPlanOutcome(
+      selectedTrace.decisionId,
+      new Date(now.getTime() + 120_000),
+    );
+    expect(finalizeIncomplete.kind).toBe("inconclusive");
+    if (finalizeIncomplete.kind !== "inconclusive") {
+      throw new Error("incomplete plan must not advance lifecycle");
+    }
+    expect(finalizeIncomplete.snapshotId).toBe(first.snapshotId);
     expect((await getMissionDecisionTrace(selectedTrace.decisionId))?.events
       .map(({ stage }) => stage).slice(-2))
       .toEqual(["PLAN_APPLIED", "DISPATCHED"]);
