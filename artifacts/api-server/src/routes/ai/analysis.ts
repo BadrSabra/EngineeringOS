@@ -28,6 +28,7 @@ import {
   REVIEW_MAX_FILE_CONTENTS_BYTES,
 } from "@workspace/ai-orchestrator";
 import { logger } from "../../lib/logger.js";
+import { safeProviderFailureLogFields } from "../../lib/safe-provider-failure-log.js";
 import { requireProjectAccess } from "../../middlewares/requireProjectAccess.js";
 import { checkProjectRateLimitDb } from "../../lib/db-rate-limiter.js";
 import { resolveRootPath } from "../../lib/rootpath-validator.js";
@@ -1236,7 +1237,10 @@ router.post("/ai/projects/:projectId/analyze/stream", requireProjectAccess, asyn
     close();
     logger.info({ projectId, provider: effectiveProvider }, "AI scan analysis stream completed");
   } catch (err) {
-    logger.error({ err, projectId }, "AI scan analysis stream failed");
+    logger.error(
+      { ...safeProviderFailureLogFields(err), projectId },
+      "AI scan analysis stream failed",
+    );
     await persistStructuredExecutionFailure({
       execution: structuredExecution,
       task: "analyze",
@@ -1501,7 +1505,10 @@ router.post("/ai/projects/:projectId/review/stream", requireProjectAccess, async
     close();
     logger.info({ projectId, provider: effectiveProvider }, "AI code review stream completed");
   } catch (err) {
-    logger.error({ err, projectId }, "AI code review stream failed");
+    logger.error(
+      { ...safeProviderFailureLogFields(err), projectId },
+      "AI code review stream failed",
+    );
     await persistStructuredExecutionFailure({
       execution: structuredExecution,
       task: "review",

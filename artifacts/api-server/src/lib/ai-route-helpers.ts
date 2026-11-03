@@ -946,7 +946,13 @@ export async function runAgentWithFallback<T>(
       });
       if (FALLBACK_TRIGGER_CODES.has(providerError.code)) {
         logger.warn(
-          { provider: providerEntry.provider, code: providerError.code, message: providerError.message },
+          {
+            provider: providerEntry.provider,
+            code: providerError.code,
+            providerStatus: providerError.providerStatus,
+            rateLimitScope: providerError.rateLimitScope,
+            retryAfterMs: providerError.retryAfterMs,
+          },
           "provider failed — trying next in chain",
         );
         lastErr = providerError;
@@ -1139,9 +1145,9 @@ export async function chatWithFallback(
   let lastErr: GroqClientError | undefined;
   let fallbackRefreshUsed = false;
   const capabilityProbePreflightPassed = new Set<ProviderId>();
-  // GAP-C1: collect every provider failure so the final error message shows
-  // the full cascade, not just the last attempt.
-  const providerErrors: Array<{ provider: string; code: string; message: string }> = [];
+  // Keep a structured provider-failure cascade without copying raw response
+  // text into errors that may be logged or returned to callers.
+  const providerErrors: Array<{ provider: string; code: string }> = [];
   // Keep completed source reads when a provider fails after a tool call. This
   // is deliberately request-scoped and contains no runtime/session metadata.
   // The route may seed this map when resuming a request; do not replace it or
@@ -1270,7 +1276,6 @@ export async function chatWithFallback(
           providerErrors.push({
             provider: providerEntry.provider,
             code: health.failureCode ?? failureCode,
-            message: health.failureReason ?? "Capability preflight failed",
           });
           lastErr = preflightError;
           continue;
@@ -1506,13 +1511,18 @@ export async function chatWithFallback(
       });
       if (FALLBACK_TRIGGER_CODES.has(providerError.code)) {
         logger.warn(
-          { provider: providerEntry.provider, code: providerError.code, message: providerError.message },
+          {
+            provider: providerEntry.provider,
+            code: providerError.code,
+            providerStatus: providerError.providerStatus,
+            rateLimitScope: providerError.rateLimitScope,
+            retryAfterMs: providerError.retryAfterMs,
+          },
           "provider failed — trying next in chain",
         );
         providerErrors.push({
           provider: providerEntry.provider,
           code: providerError.code,
-          message: providerError.message,
         });
         lastErr = providerError;
         if (!fallbackRefreshUsed) {
@@ -1554,10 +1564,9 @@ export async function chatWithFallback(
     }
   }
 
-  // GAP-C1: All providers exhausted — surface the full cascade so the caller
-  // (and the user) can see which providers were tried and why each failed,
-  // instead of only seeing the last provider's error code.
-  const cascade = providerErrors.map((e) => `${e.provider}: [${e.code}] ${e.message.slice(0, 120)}`).join(" | ");
+  // Keep the cascade useful without copying untrusted provider response text
+  // into the final error that may be logged or returned to a caller.
+  const cascade = providerErrors.map((e) => `${e.provider}: [${e.code}]`).join(" | ");
   if (baseParams.projectOrientation && baseParams.orientationSourcesOverride) {
     const deterministicOrientationFallback = buildDeterministicProjectOrientationResponse({
       orientationSources: baseParams.orientationSourcesOverride,

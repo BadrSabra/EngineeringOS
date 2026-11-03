@@ -1434,6 +1434,40 @@ describe("POST /api/ai/chat/stream — forensic_status SSE emission (onStep inte
     expect(assistant?.errorCode).toBe("UNKNOWN");
   });
 
+  it("does not log raw provider response text for a streamed provider failure", async () => {
+    const privateProviderDetail = "synthetic-provider-body-marker-not-for-chat-logs";
+    vi.mocked(chatWithFallback as (...a: unknown[]) => unknown)
+      .mockRejectedValueOnce(new GroqClientError("RATE_LIMITED", privateProviderDetail, {
+        context: {
+          providerName: "OpenRouter",
+          providerStatus: 429,
+          providerMessage: privateProviderDetail,
+          rateLimitScope: "unknown",
+        },
+      }));
+    const loggerErrorSpy = vi.spyOn(logger, "error").mockImplementation(() => {});
+    let capturedLoggerErrors: unknown[][] = [];
+    let res;
+    try {
+      res = await request(app)
+        .post("/api/ai/chat/stream")
+        .send({ projectId: "test-project-id", message: "inspect the capability probe sources" });
+    } finally {
+      capturedLoggerErrors = loggerErrorSpy.mock.calls;
+      loggerErrorSpy.mockRestore();
+    }
+
+    expect(res.status).toBe(200);
+    expect(res.text).not.toContain(privateProviderDetail);
+    expect(JSON.stringify(capturedLoggerErrors)).not.toContain(privateProviderDetail);
+    expect(capturedLoggerErrors).toEqual(expect.arrayContaining([
+      [
+        expect.objectContaining({ code: "RATE_LIMITED", providerStatus: 429 }),
+        "chat stream: all providers failed",
+      ],
+    ]));
+  });
+
   it("projects an OpenRouter 429 as a terminal failed turn without inventing Retry-After", async () => {
     const privateProviderDetail = "private-upstream-rate-limit-detail";
     vi.mocked(requireProvider).mockResolvedValueOnce({

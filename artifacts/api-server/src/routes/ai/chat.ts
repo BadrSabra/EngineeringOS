@@ -177,6 +177,7 @@ import {
   ValidationProfileSchema,
 } from "@workspace/ai-orchestrator";
 import { logger } from "../../lib/logger.js";
+import { safeProviderFailureLogFields } from "../../lib/safe-provider-failure-log.js";
 import {
   appendEpisodeEvent,
   closeEpisode,
@@ -13894,15 +13895,16 @@ export async function handleChatStream(req: Request, res: Response) {
     res.end();
     return;
   } catch (err) {
-    logger.error(
-      { err, executionId: aiExecution?.id ?? null },
-      "chat stream: unexpected error after SSE setup",
-    );
     const unexpectedErrorCode = executionLeaseLost
       ? "EXECUTION_LEASE_EXPIRED"
       : err instanceof GroqClientError && /^[A-Z][A-Z0-9_]{2,79}$/.test(err.code)
         ? err.code
         : "STREAM_INTERNAL_ERROR";
+    const safeErrorFields = safeProviderFailureLogFields(err);
+    logger.error(
+      { ...safeErrorFields, code: unexpectedErrorCode, executionId: aiExecution?.id ?? null },
+      "chat stream: unexpected error after SSE setup",
+    );
     const unexpectedExecutionError = executionLeaseLost
       ? "Execution ownership expired before completion."
       : err instanceof GroqClientError
