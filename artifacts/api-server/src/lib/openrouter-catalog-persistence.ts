@@ -25,8 +25,9 @@ function timestampMs(value: Date | string | null): number | null {
 
 /**
  * PostgreSQL-backed catalog snapshot and refresh lease shared by API workers.
- * It stores normalized zero-price eligibility only, never raw provider payloads
- * or credentials.
+ * It stores normalized model metadata and bounded failure codes, never raw
+ * provider payloads or credentials. Only the validated zero-price list proves
+ * free-catalog eligibility; other candidate metadata remains policy-gated.
  */
 export const openRouterCatalogPersistence: OpenRouterCatalogPersistence = {
   async read(): Promise<OpenRouterCatalogStoredState | null> {

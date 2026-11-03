@@ -46,13 +46,19 @@ import { resolveExecutionModel } from "../model-selection/model-resolver.js";
 import {
   getDynamicCatalogStatus,
   getDynamicModelIds,
+  getUsableDynamicModelIds,
   getUsableDynamicModelFormatSupport,
   isDynamicCatalogLoaded,
   refreshDynamicCatalog,
+  configureOpenRouterCatalogPersistence,
   getUsablePaidModelCandidates,
   _setSnapshotForTest as _seedDynamicCatalogForTest,
   _resetForTest as _resetDynamicCatalog,
 } from "../openrouter/dynamic-catalog.js";
+import type {
+  OpenRouterCatalogPersistence,
+  OpenRouterCatalogStoredState,
+} from "../openrouter/catalog-snapshot-store.js";
 import { FREE_MODELS } from "../openrouter/model-catalog.js";
 import {
   classifyOpenRouterFailure,
@@ -184,6 +190,75 @@ describe("bounded live free catalog admission", () => {
     expect(global.fetch).toHaveBeenCalledTimes(2);
     expect(String(vi.mocked(global.fetch).mock.calls[1]?.[0])).toContain("/models");
   });
+
+  it("reuses a fresh shared snapshot across simulated API workers", async () => {
+    const shared = createSharedCatalogFixture();
+    global.fetch = vi.fn().mockResolvedValue(fetchResponse(200, {
+      data: [{
+        id: STATIC_FREE_CHAT_TEST_MODEL,
+        pricing: { prompt: "0", completion: "0" },
+        supported_parameters: ["response_format", "structured_outputs"],
+      }],
+    })) as typeof fetch;
+
+    configureOpenRouterCatalogPersistence(shared.persistence);
+    await refreshDynamicCatalog("test-key");
+    expect(global.fetch).toHaveBeenCalledTimes(1);
+    expect(shared.getState()?.snapshot?.freeModels[0]?.id).toBe(STATIC_FREE_CHAT_TEST_MODEL);
+
+    _resetDynamicCatalog();
+    configureOpenRouterCatalogPersistence(shared.persistence);
+    global.fetch = vi.fn() as typeof fetch;
+    await refreshDynamicCatalog("test-key");
+
+    expect(global.fetch).not.toHaveBeenCalled();
+    expect(getUsableDynamicModelIds()).toContain(STATIC_FREE_CHAT_TEST_MODEL);
+    expect(getUsableDynamicModelFormatSupport(STATIC_FREE_CHAT_TEST_MODEL)).toEqual({
+      supportsJsonObject: true,
+      supportsJsonSchema: true,
+    });
+  });
+
+  it("shares provider failure backoff so other workers do not repeat catalog requests", async () => {
+    const shared = createSharedCatalogFixture();
+    global.fetch = vi.fn().mockResolvedValue(fetchResponse(429, {})) as typeof fetch;
+    configureOpenRouterCatalogPersistence(shared.persistence);
+    await refreshDynamicCatalog("test-key");
+    expect(global.fetch).toHaveBeenCalledTimes(1);
+    expect(shared.getState()?.lastFailureCode).toBe("http_429");
+
+    _resetDynamicCatalog();
+    configureOpenRouterCatalogPersistence(shared.persistence);
+    await refreshDynamicCatalog("test-key");
+
+    expect(global.fetch).toHaveBeenCalledTimes(1);
+    expect(getDynamicCatalogStatus()).toMatchObject({
+      usable: false,
+      lastRefreshStatus: "failed",
+      lastRefreshError: "http_429",
+    });
+  });
+
+  it("fails closed without catalog traffic when another worker owns the refresh lease", async () => {
+    configureOpenRouterCatalogPersistence({
+      async read() {
+        return null;
+      },
+      async acquireRefreshLease() {
+        return undefined;
+      },
+    });
+    global.fetch = vi.fn() as typeof fetch;
+
+    await refreshDynamicCatalog("test-key");
+
+    expect(global.fetch).not.toHaveBeenCalled();
+    expect(getDynamicCatalogStatus()).toMatchObject({
+      usable: false,
+      lastRefreshStatus: "failed",
+      lastRefreshError: "shared_store_unavailable",
+    });
+  });
 });
 
 // ── helpers ──────────────────────────────────────────────────────────────────
@@ -195,6 +270,49 @@ function fetchResponse(status: number, body: unknown): Response {
     status,
     headers: { "content-type": "application/json" },
   });
+}
+
+function createSharedCatalogFixture(): {
+  persistence: OpenRouterCatalogPersistence;
+  getState: () => OpenRouterCatalogStoredState | null;
+} {
+  let state: OpenRouterCatalogStoredState | null = null;
+  let leaseHeld = false;
+  const persistence: OpenRouterCatalogPersistence = {
+    async read() {
+      return state ? structuredClone(state) : null;
+    },
+    async acquireRefreshLease() {
+      if (leaseHeld) return undefined;
+      leaseHeld = true;
+      return {
+        async commitSnapshot(snapshot, ttlMs) {
+          const now = Date.now();
+          state = {
+            snapshot: structuredClone(snapshot),
+            refreshedAtMs: now,
+            expiresAtMs: now + ttlMs,
+            failureBackoffUntilMs: null,
+            lastFailureCode: null,
+          };
+          return structuredClone(state);
+        },
+        async recordFailure(failureCode, backoffMs) {
+          state = {
+            snapshot: state?.snapshot ?? null,
+            refreshedAtMs: state?.refreshedAtMs ?? null,
+            expiresAtMs: state?.expiresAtMs ?? null,
+            failureBackoffUntilMs: Date.now() + backoffMs,
+            lastFailureCode: failureCode,
+          };
+        },
+        async release() {
+          leaseHeld = false;
+        },
+      };
+    },
+  };
+  return { persistence, getState: () => state ? structuredClone(state) : null };
 }
 
 function mockFetch(status: number, body: unknown) {

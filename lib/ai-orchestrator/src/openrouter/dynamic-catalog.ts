@@ -287,7 +287,11 @@ export function getDynamicModelIds(): Set<string> | null {
 
 /** IDs from the last successful refresh only when that snapshot is still valid. */
 export function getUsableDynamicModelIds(): Set<string> | null {
-  if (!_availableIds || Date.now() - _lastFetchMs >= CATALOG_TTL_MS) return null;
+  if (
+    !_availableIds ||
+    Date.now() - _lastFetchMs >= CATALOG_TTL_MS ||
+    Date.now() >= _snapshotExpiresAtMs
+  ) return null;
   return _availableIds;
 }
 
@@ -303,7 +307,8 @@ export function getUsablePaidModelCandidates(): OpenRouterPaidModel[] {
     !_availablePaidModels ||
     !_availableIds ||
     _paidPolicyFingerprint !== paidPolicyFingerprint() ||
-    Date.now() - _lastFetchMs >= CATALOG_TTL_MS
+    Date.now() - _lastFetchMs >= CATALOG_TTL_MS ||
+    Date.now() >= _snapshotExpiresAtMs
   ) {
     return [];
   }
@@ -331,6 +336,122 @@ export function getDynamicCatalogStatus(): DynamicCatalogStatus {
   };
 }
 
+function buildSnapshot(models: OpenRouterModelEntry[]): OpenRouterCatalogSnapshot {
+  const freeModels = models
+    .filter((model) =>
+      SAFE_MODEL_ID.test(model.id) &&
+      model.pricing?.prompt === "0" &&
+      model.pricing?.completion === "0"
+    )
+    .map((model) => {
+      const supportedParameters = Array.isArray(model.supported_parameters)
+        ? model.supported_parameters.filter((value): value is string => typeof value === "string")
+        : null;
+      return {
+        id: model.id,
+        supportsJsonObject: supportedParameters?.includes("response_format") ?? null,
+        supportsJsonSchema: supportedParameters?.includes("structured_outputs") ?? null,
+      };
+    });
+
+  return {
+    version: 1,
+    freeModels,
+    paidModels: models
+      .map(buildPaidCandidate)
+      .filter((model): model is OpenRouterPaidModel => Boolean(model)),
+    paidPolicyFingerprint: paidPolicyFingerprint(),
+  };
+}
+
+function applyPersistedState(
+  state: {
+    snapshot: OpenRouterCatalogSnapshot | null;
+    refreshedAtMs: number | null;
+    expiresAtMs: number | null;
+    failureBackoffUntilMs: number | null;
+    lastFailureCode: string | null;
+  } | null,
+): "fresh" | "backoff" | "missing" {
+  const now = Date.now();
+  if (
+    state?.snapshot &&
+    isCatalogSnapshot(state.snapshot) &&
+    state.refreshedAtMs !== null &&
+    state.expiresAtMs !== null &&
+    state.expiresAtMs > now &&
+    state.refreshedAtMs <= now + 60_000 &&
+    state.expiresAtMs - state.refreshedAtMs <= CATALOG_TTL_MS + 60_000
+  ) {
+    applySnapshot(state.snapshot, state.refreshedAtMs, state.expiresAtMs);
+    return "fresh";
+  }
+  if (state?.failureBackoffUntilMs && state.failureBackoffUntilMs > now) {
+    _refreshAttempted = true;
+    _lastRefreshStatus = "failed";
+    _lastRefreshError = state.lastFailureCode ?? "provider_failure";
+    _nextRefreshAt = state.failureBackoffUntilMs;
+    return "backoff";
+  }
+  return "missing";
+}
+
+type CatalogFetchOutcome =
+  | {
+      kind: "snapshot";
+      snapshot: OpenRouterCatalogSnapshot;
+      totalModelCount: number;
+    }
+  | { kind: "http_error"; status: number }
+  | { kind: "empty_response" }
+  | { kind: "no_free_models"; totalModels: number };
+
+async function fetchCatalogSnapshot(apiKey?: string): Promise<CatalogFetchOutcome> {
+  const controller = new AbortController();
+  let timeoutHandle: ReturnType<typeof setTimeout> | undefined;
+  try {
+    const headers: Record<string, string> = { "Content-Type": "application/json" };
+    if (apiKey) headers["Authorization"] = `Bearer ${apiKey}`;
+    const fetchAndParse = async (): Promise<
+      | { kind: "http_error"; status: number }
+      | { kind: "models"; models: OpenRouterModelEntry[] }
+    > => {
+      const res = await fetch(OPENROUTER_MODELS_URL, {
+        headers,
+        signal: controller.signal,
+      });
+      if (!res.ok) return { kind: "http_error", status: res.status };
+      const data = (await res.json()) as { data?: OpenRouterModelEntry[] };
+      return {
+        kind: "models",
+        models: Array.isArray(data?.data) ? data.data : [],
+      };
+    };
+    const timeout = new Promise<never>((_resolve, reject) => {
+      timeoutHandle = setTimeout(() => {
+        const error = new Error("OpenRouter model catalog refresh timed out");
+        error.name = "TimeoutError";
+        controller.abort(error);
+        reject(error);
+      }, CATALOG_REFRESH_TIMEOUT_MS);
+    });
+    const result = await Promise.race([fetchAndParse(), timeout]);
+    if (result.kind === "http_error") return result;
+    if (result.models.length === 0) return { kind: "empty_response" };
+    const snapshot = buildSnapshot(result.models);
+    if (snapshot.freeModels.length === 0) {
+      return { kind: "no_free_models", totalModels: result.models.length };
+    }
+    return {
+      kind: "snapshot",
+      snapshot,
+      totalModelCount: result.models.length,
+    };
+  } finally {
+    if (timeoutHandle) clearTimeout(timeoutHandle);
+  }
+}
+
 /**
  * Fetch the live model list from OpenRouter and update the singleton.
  * Safe to call concurrently — only one HTTP request runs at a time.
@@ -347,157 +468,161 @@ export async function refreshDynamicCatalog(
 ): Promise<void> {
   if (signal?.aborted) throw callerAbortError(signal);
   if (isProviderEgressDisabled()) return;
-  const now = Date.now();
-  if (now - _lastFetchMs < CATALOG_TTL_MS && _availableIds !== null) return;
+  if (getUsableDynamicModelIds() !== null) return;
 
   // Deduplicate concurrent calls — only one fetch in flight at a time.
   if (_inFlight) return waitForRefreshOrCallerAbort(_inFlight, signal);
-  if (now < _nextRefreshAt) return;
 
   _inFlight = (async () => {
     _refreshAttempted = true;
     _lastRefreshStatus = "failed";
     _lastRefreshError = null;
-    const controller = new AbortController();
-    let timeoutHandle: ReturnType<typeof setTimeout> | undefined;
+    let refreshSucceeded = false;
+    let lease: Awaited<ReturnType<OpenRouterCatalogPersistence["acquireRefreshLease"]>>;
+    const persistence = _catalogPersistence;
+
+    const readSharedState = async () => {
+      if (!persistence) return "missing" as const;
+      try {
+        return applyPersistedState(await persistence.read());
+      } catch {
+        throw new Error("shared catalog store read unavailable");
+      }
+    };
+
+    const recordFailure = async (failureCode: string) => {
+      _lastRefreshStatus = failureCode === "empty_response" || failureCode === "no_free_models"
+        ? "empty"
+        : "failed";
+      _lastRefreshError = failureCode;
+      if (lease) {
+        try {
+          await lease.recordFailure(failureCode, CATALOG_REFRESH_FAILURE_BACKOFF_MS);
+        } catch {
+          console.warn(JSON.stringify({
+            scope: "dynamic-catalog",
+            code: "SHARED_BACKOFF_WRITE_FAILED",
+          }));
+        }
+      }
+    };
+
     try {
-      const headers: Record<string, string> = {
-        "Content-Type": "application/json",
-      };
-      if (apiKey) headers["Authorization"] = `Bearer ${apiKey}`;
+      if (persistence) {
+        const state = await readSharedState();
+        if (state === "fresh" || state === "backoff") {
+          refreshSucceeded = state === "fresh";
+          return;
+        }
+        if (Date.now() < _nextRefreshAt) return;
 
-      type CatalogFetchResult =
-        | { kind: "http_error"; status: number }
-        | { kind: "models"; models: OpenRouterModelEntry[] };
-      const fetchAndParse = async (): Promise<CatalogFetchResult> => {
-        const res = await fetch(OPENROUTER_MODELS_URL, {
-          headers,
-          signal: controller.signal,
-        });
-        if (!res.ok) return { kind: "http_error", status: res.status };
-        const data = (await res.json()) as { data?: OpenRouterModelEntry[] };
-        return {
-          kind: "models",
-          models: Array.isArray(data?.data) ? data.data : [],
-        };
-      };
-      const timeout = new Promise<never>((_resolve, reject) => {
-        timeoutHandle = setTimeout(() => {
-          const error = new Error("OpenRouter model catalog refresh timed out");
-          error.name = "TimeoutError";
-          controller.abort(error);
-          reject(error);
-        }, CATALOG_REFRESH_TIMEOUT_MS);
-      });
-      const result = await Promise.race([fetchAndParse(), timeout]);
+        try {
+          lease = await persistence.acquireRefreshLease(
+            CATALOG_REFRESH_LEASE_WAIT_MS,
+            CATALOG_REFRESH_LEASE_DURATION_MS,
+          );
+        } catch {
+          throw new Error("catalog refresh lease unavailable");
+        }
+        if (!lease) {
+          const afterWait = await readSharedState();
+          if (afterWait === "fresh" || afterWait === "backoff") {
+            refreshSucceeded = afterWait === "fresh";
+            return;
+          }
+          throw new Error("catalog refresh lease busy");
+        }
 
+        const stateAfterLease = await readSharedState();
+        if (stateAfterLease === "fresh" || stateAfterLease === "backoff") {
+          refreshSucceeded = stateAfterLease === "fresh";
+          return;
+        }
+      } else if (Date.now() < _nextRefreshAt) {
+        return;
+      }
+
+      const result = await fetchCatalogSnapshot(apiKey);
       if (result.kind === "http_error") {
-        _lastRefreshError = `http_${result.status}`;
-        console.warn(
-          JSON.stringify({
-            scope: "dynamic-catalog",
-            code: "FETCH_FAILED",
-            status: result.status,
-            hint: "OpenRouter /models returned non-200 — keeping previous catalog",
-          }),
-        );
-        return;
-      }
-
-      const models = result.models;
-
-      if (models.length === 0) {
-        _lastRefreshStatus = "empty";
-        _lastRefreshError = "empty_response";
-        console.warn(
-          JSON.stringify({
-            scope: "dynamic-catalog",
-            code: "EMPTY_RESPONSE",
-            hint: "OpenRouter /models returned 0 models — keeping previous catalog",
-          }),
-        );
-        return;
-      }
-
-      // PR-01 (root-cause fix): only keep models that are CURRENTLY FREE.
-      // A model is free when both prompt and completion pricing are "0".
-      // Without this filter we collected ALL model IDs (including paid ones),
-      // so models that moved from free → paid still passed the live-catalog
-      // check and were tried — causing chains of 404 "paid version available"
-      // errors until every model was exhausted.
-       const freeModels = models.filter(
-        (m) => m.pricing?.prompt === "0" && m.pricing?.completion === "0",
-      );
-
-      const ids = new Set(freeModels.map((m) => m.id));
-      const formatSupport = new Map<string, DynamicModelFormatSupport>(
-        freeModels.map((model) => {
-          const supportedParameters = Array.isArray(model.supported_parameters)
-            ? model.supported_parameters.filter((value): value is string => typeof value === "string")
-            : null;
-          return [
-            model.id,
-            {
-              supportsJsonObject: supportedParameters?.includes("response_format") ?? null,
-              supportsJsonSchema: supportedParameters?.includes("structured_outputs") ?? null,
-            },
-          ];
-        }),
-      );
-       const paidModels = models
-         .map(buildPaidCandidate)
-         .filter((model): model is OpenRouterPaidModel => Boolean(model));
-
-      if (ids.size === 0) {
-        _lastRefreshStatus = "empty";
-        _lastRefreshError = "no_free_models";
-        // OpenRouter occasionally returns no free models (e.g. API auth issue
-        // or a temporary catalog gap) — keep previous catalog in that case.
-        console.warn(
-          JSON.stringify({
-            scope: "dynamic-catalog",
-            code: "NO_FREE_MODELS",
-            totalModels: models.length,
-            hint: "OpenRouter returned no free-priced models — keeping previous catalog",
-          }),
-        );
-        return;
-      }
-
-      _availableIds = ids;
-      _modelFormatSupport = formatSupport;
-       _availablePaidModels = paidModels;
-       _paidPolicyFingerprint = paidPolicyFingerprint();
-      _lastFetchMs  = Date.now();
-      _lastRefreshStatus = "success";
-      _lastRefreshError = null;
-
-      console.info(
-        JSON.stringify({
+        await recordFailure(`http_${result.status}`);
+        console.warn(JSON.stringify({
           scope: "dynamic-catalog",
-          code: "REFRESHED",
-          freeModelCount: ids.size,
-          paidModelCount: paidModels.length,
-          totalModelCount: models.length,
-        }),
-      );
+          code: "FETCH_FAILED",
+          status: result.status,
+          hint: "OpenRouter /models returned non-200 — keeping previous catalog",
+        }));
+        return;
+      }
+      if (result.kind === "empty_response") {
+        await recordFailure("empty_response");
+        console.warn(JSON.stringify({
+          scope: "dynamic-catalog",
+          code: "EMPTY_RESPONSE",
+          hint: "OpenRouter /models returned 0 models — keeping previous catalog",
+        }));
+        return;
+      }
+      if (result.kind === "no_free_models") {
+        await recordFailure("no_free_models");
+        console.warn(JSON.stringify({
+          scope: "dynamic-catalog",
+          code: "NO_FREE_MODELS",
+          totalModels: result.totalModels,
+          hint: "OpenRouter returned no free-priced models — keeping previous catalog",
+        }));
+        return;
+      }
+
+      if (lease) {
+        let storedState;
+        try {
+          storedState = await lease.commitSnapshot(result.snapshot, CATALOG_TTL_MS);
+        } catch {
+          throw new Error("shared catalog store snapshot write unavailable");
+        }
+        if (applyPersistedState(storedState) !== "fresh") {
+          throw new Error("shared catalog store returned an invalid snapshot");
+        }
+        refreshSucceeded = true;
+      } else {
+        const fetchedAtMs = Date.now();
+        applySnapshot(result.snapshot, fetchedAtMs, fetchedAtMs + CATALOG_TTL_MS);
+        refreshSucceeded = true;
+      }
+
+      console.info(JSON.stringify({
+        scope: "dynamic-catalog",
+        code: "REFRESHED",
+        freeModelCount: result.snapshot.freeModels.length,
+        paidModelCount: result.snapshot.paidModels.length,
+        totalModelCount: result.totalModelCount,
+        shared: Boolean(lease),
+      }));
     } catch (err) {
       const failureCode = classifyRefreshFailure(err);
-      _lastRefreshStatus = "failed";
-      _lastRefreshError = failureCode;
-      console.warn(
-        JSON.stringify({
-          scope: "dynamic-catalog",
-          code: "FETCH_ERROR",
-          failureCode,
-          hint: "Keeping previous catalog",
-        }),
-      );
+      await recordFailure(failureCode);
+      console.warn(JSON.stringify({
+        scope: "dynamic-catalog",
+        code: "FETCH_ERROR",
+        failureCode,
+        hint: "Catalog admission remains fail-closed until a fresh shared snapshot is available",
+      }));
     } finally {
-      if (timeoutHandle) clearTimeout(timeoutHandle);
-      _nextRefreshAt = _lastRefreshStatus === "success"
-        ? 0
-        : Date.now() + CATALOG_REFRESH_FAILURE_BACKOFF_MS;
+      if (lease) {
+        try {
+          await lease.release();
+        } catch {
+          console.warn(JSON.stringify({
+            scope: "dynamic-catalog",
+            code: "SHARED_REFRESH_LEASE_RELEASE_FAILED",
+          }));
+        }
+      }
+      if (refreshSucceeded) {
+        _nextRefreshAt = 0;
+      } else if (_nextRefreshAt <= Date.now()) {
+        _nextRefreshAt = Date.now() + CATALOG_REFRESH_FAILURE_BACKOFF_MS;
+      }
       _inFlight = null;
     }
   })();
@@ -535,11 +660,13 @@ export function _resetForTest(): void {
   _modelFormatSupport = null;
   _paidPolicyFingerprint = null;
   _lastFetchMs  = 0;
+  _snapshotExpiresAtMs = 0;
   _nextRefreshAt = 0;
   _inFlight     = null;
   _refreshAttempted = false;
   _lastRefreshStatus = "never";
   _lastRefreshError = null;
+  _catalogPersistence = null;
 }
 
 /** Seed an explicit live-price snapshot for deterministic unit tests only. */
@@ -554,6 +681,7 @@ export function _setSnapshotForTest(modelIds: readonly string[]): void {
   );
   _paidPolicyFingerprint = paidPolicyFingerprint();
   _lastFetchMs = Date.now();
+  _snapshotExpiresAtMs = _lastFetchMs + CATALOG_TTL_MS;
   _nextRefreshAt = 0;
   _inFlight = null;
   _refreshAttempted = true;

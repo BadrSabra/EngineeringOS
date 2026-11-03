@@ -4,8 +4,8 @@ import { z } from "zod/v4";
 
 /**
  * One shared, non-secret OpenRouter catalog snapshot and refresh lease.
- * The snapshot contains only server-normalized model IDs and capability flags;
- * provider credentials and raw catalog payloads are never stored here.
+ * The snapshot stores server-normalized model metadata; provider credentials
+ * and raw catalog payloads are never stored here.
  */
 export const openrouterCatalogSnapshotsTable = pgTable(
   "openrouter_catalog_snapshots",

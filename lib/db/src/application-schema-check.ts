@@ -920,11 +920,6 @@ export const APPLICATION_SCHEMA_CONTRACT = {
       columns: ["cooling_until"],
     },
     {
-      name: "openrouter_catalog_snapshots_pkey",
-      tableName: "openrouter_catalog_snapshots",
-      columns: ["catalog_key"],
-    },
-    {
       name: "openrouter_lane_cursors_pk",
       tableName: "openrouter_lane_cursors",
       columns: ["cursor_key", "candidate_set_hash"],

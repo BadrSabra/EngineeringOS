@@ -6,7 +6,7 @@ export type OpenRouterCatalogSnapshotModel = {
   supportsJsonSchema: boolean | null;
 };
 
-/** Normalized, non-secret data needed by free-model routing. */
+/** Normalized, non-secret catalog metadata; only freeModels prove free eligibility. */
 export type OpenRouterCatalogSnapshot = {
   version: 1;
   freeModels: OpenRouterCatalogSnapshotModel[];
