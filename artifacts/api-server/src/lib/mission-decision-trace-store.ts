@@ -983,42 +983,42 @@ export async function appendMissionDecisionLifecycleEventInTransaction(
           planRevision: appliedPlanRevision ?? "",
         });
       } else {
-      const [candidateExecution] = await tx.select({
-        goalId: aiExecutionsTable.goalId,
-      }).from(aiExecutionsTable)
-        .where(and(
-          eq(aiExecutionsTable.id, input.referenceId!),
-          eq(aiExecutionsTable.projectId, identity.projectId),
-        ));
-      const targetGoalId = candidateExecution?.goalId;
-      const [targetGoal] = targetGoalId
-        ? await tx.select().from(aiGoalsTable)
-            .where(and(
-              eq(aiGoalsTable.id, targetGoalId),
-              eq(aiGoalsTable.missionId, identity.missionId),
-              eq(aiGoalsTable.projectId, identity.projectId),
-            ))
-            .for("update")
-        : [];
-      const [execution] = targetGoalId && targetGoal
-        ? await tx.select().from(aiExecutionsTable)
-            .where(and(
-              eq(aiExecutionsTable.id, input.referenceId!),
-              eq(aiExecutionsTable.projectId, identity.projectId),
-              eq(aiExecutionsTable.goalId, targetGoal.id),
-            ))
-            .for("update")
-        : [];
-      if (
-        !execution
-        || execution.id === identity.sourceExecutionId
-        || !targetGoal
-        || !appliedPlanRevision
-        || planRevisionHash(targetGoal.outcomeContract) !== appliedPlanRevision
-        || planRevisionHash(targetGoal.successCriteria) !== appliedPlanRevision
-      ) {
-        throw new MissionDecisionTraceStoreError("decision_event_reference_invalid");
-      }
+        const [candidateExecution] = await tx.select({
+          goalId: aiExecutionsTable.goalId,
+        }).from(aiExecutionsTable)
+          .where(and(
+            eq(aiExecutionsTable.id, input.referenceId!),
+            eq(aiExecutionsTable.projectId, identity.projectId),
+          ));
+        const targetGoalId = candidateExecution?.goalId;
+        const [targetGoal] = targetGoalId
+          ? await tx.select().from(aiGoalsTable)
+              .where(and(
+                eq(aiGoalsTable.id, targetGoalId),
+                eq(aiGoalsTable.missionId, identity.missionId),
+                eq(aiGoalsTable.projectId, identity.projectId),
+              ))
+              .for("update")
+          : [];
+        const [execution] = targetGoalId && targetGoal
+          ? await tx.select().from(aiExecutionsTable)
+              .where(and(
+                eq(aiExecutionsTable.id, input.referenceId!),
+                eq(aiExecutionsTable.projectId, identity.projectId),
+                eq(aiExecutionsTable.goalId, targetGoal.id),
+              ))
+              .for("update")
+          : [];
+        if (
+          !execution
+          || execution.id === identity.sourceExecutionId
+          || !targetGoal
+          || !appliedPlanRevision
+          || planRevisionHash(targetGoal.outcomeContract) !== appliedPlanRevision
+          || planRevisionHash(targetGoal.successCriteria) !== appliedPlanRevision
+        ) {
+          throw new MissionDecisionTraceStoreError("decision_event_reference_invalid");
+        }
       }
     }
     if (input.stage === "EXECUTED") {
@@ -1097,6 +1097,38 @@ export async function appendMissionDecisionLifecycleEvent(input: AppendMissionDe
   sequence: number;
 }> {
   return db.transaction((tx) => appendMissionDecisionLifecycleEventInTransaction(tx, input));
+}
+
+/**
+ * Atomically persists a multi-root dispatch manifest and its DISPATCHED
+ * lifecycle pointer. The event points to a manifest, never to an arbitrary
+ * first Execution; later EXECUTED/ACCEPTED events remain blocked until a
+ * separate aggregate outcome contract exists.
+ */
+export async function recordMissionDecisionDispatchBatchInTransaction(
+  tx: MissionDecisionTransaction,
+  input: PersistMissionDecisionDispatchBatchInput,
+): Promise<{
+  batch: Awaited<ReturnType<typeof persistMissionDecisionDispatchBatchInTransaction>>;
+  event: { kind: "appended" | "already_recorded"; sequence: number };
+}> {
+  const batch = await persistMissionDecisionDispatchBatchInTransaction(tx, input);
+  const event = await appendMissionDecisionLifecycleEventInTransaction(tx, {
+    decisionId: input.decisionId,
+    stage: "DISPATCHED",
+    referenceId: batch.dispatchBatchId,
+    occurredAt: batch.createdAt,
+  });
+  return { batch, event };
+}
+
+export async function recordMissionDecisionDispatchBatch(
+  input: PersistMissionDecisionDispatchBatchInput,
+): Promise<{
+  batch: Awaited<ReturnType<typeof persistMissionDecisionDispatchBatchInTransaction>>;
+  event: { kind: "appended" | "already_recorded"; sequence: number };
+}> {
+  return db.transaction((tx) => recordMissionDecisionDispatchBatchInTransaction(tx, input));
 }
 
 export async function getMissionDecisionTrace(

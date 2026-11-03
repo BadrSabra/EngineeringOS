@@ -2,9 +2,12 @@ import { afterEach, describe, expect, it } from "vitest";
 import { randomUUID } from "node:crypto";
 import { eq } from "drizzle-orm";
 import {
+  aiGoalDependenciesTable,
   aiExecutionAcceptancesTable,
   aiExecutionsTable,
   aiGoalsTable,
+  aiMissionDecisionDispatchBatchesTable,
+  aiMissionDecisionDispatchItemsTable,
   aiMissionsTable,
   aiWorldFactsTable,
   db,
@@ -30,9 +33,12 @@ import {
   appendMissionDecisionLifecycleEvent,
   appendMissionDecisionLifecycleEventInTransaction,
   getMissionDecisionTrace,
+  getMissionDecisionDispatchBatch,
   MissionDecisionTraceStoreError,
   persistMissionDecisionTrace,
   persistMissionDecisionTraceInTransaction,
+  recordMissionDecisionDispatchBatch,
+  recordMissionDecisionDispatchBatchInTransaction,
 } from "./mission-decision-trace-store.js";
 
 const projectIds: string[] = [];
@@ -570,5 +576,150 @@ describe("Mission decision trace persistence", () => {
       { stage: "ACCEPTED", referenceId: successorAcceptanceId },
     ]);
     expect(stored?.trace.dispatchRef).toBeNull();
+  });
+
+  it("records every applied-plan root in one idempotent dispatch batch", async () => {
+    const fixture = await createFixture();
+    const selectedTrace = makeSelectedTrace({
+      trace: fixture.trace,
+      worldStateRevision: fixture.worldStateRevision,
+      worldFactId: fixture.worldFactId,
+      worldFactHash: fixture.worldFactHash,
+    });
+    await persistMissionDecisionTrace(selectedTrace);
+
+    const planRevision = "multi-root-applied-plan";
+    const rootGoalIds = [randomUUID(), randomUUID()].sort();
+    const dependentGoalId = randomUUID();
+    await db.insert(aiGoalsTable).values([
+      ...rootGoalIds.map((id, index) => ({
+        id,
+        missionId: fixture.missionId,
+        projectId: fixture.projectId,
+        title: `Independent root ${index + 1}`,
+        status: "queued" as const,
+        successCriteria: { planRevision: { hash: planRevision } },
+        evidenceContract: { required: true },
+        outcomeContract: { planRevision: { hash: planRevision } },
+        nextAction: { kind: "execute" },
+        createdAt: now,
+        updatedAt: now,
+      })),
+      {
+        id: dependentGoalId,
+        missionId: fixture.missionId,
+        projectId: fixture.projectId,
+        title: "Dependent Goal, not a root",
+        status: "queued",
+        successCriteria: { planRevision: { hash: planRevision } },
+        evidenceContract: { required: true },
+        outcomeContract: { planRevision: { hash: planRevision } },
+        nextAction: { kind: "execute" },
+        createdAt: now,
+        updatedAt: now,
+      },
+    ]);
+    await db.insert(aiGoalDependenciesTable).values(rootGoalIds.map((dependsOnGoalId) => ({
+      id: randomUUID(),
+      missionId: fixture.missionId,
+      projectId: fixture.projectId,
+      goalId: dependentGoalId,
+      dependsOnGoalId,
+      planRevision,
+      createdAt: now,
+    })));
+    await db.update(aiMissionsTable).set({
+      autonomyPolicy: { activePlanRevision: planRevision },
+    }).where(eq(aiMissionsTable.id, fixture.missionId));
+    await appendMissionDecisionLifecycleEvent({
+      decisionId: selectedTrace.decisionId,
+      stage: "PLAN_APPLIED",
+      referenceId: planRevision,
+      occurredAt: new Date(now.getTime() + 2_000),
+    });
+
+    const executionIds = rootGoalIds.map(() => randomUUID());
+    await db.insert(aiExecutionsTable).values(rootGoalIds.map((goalId, index) => ({
+      id: executionIds[index]!,
+      projectId: fixture.projectId,
+      goalId,
+      userId: "decision-trace-test-owner",
+      idempotencyKey: `dispatch-batch-${executionIds[index]}`,
+      resumeTokenHash: "e".repeat(64),
+      request: "{}",
+      checkpoint: "{}",
+      attempt: 1,
+      status: "queued" as const,
+      baseRevision: "decision-project-revision",
+      createdAt: now,
+      updatedAt: now,
+    })));
+
+    const input = {
+      decisionId: selectedTrace.decisionId,
+      planRevision,
+      occurredAt: new Date(now.getTime() + 3_000),
+      items: rootGoalIds.map((goalId, position) => ({
+        position,
+        goalId,
+        executionId: executionIds[position]!,
+        runStatus: "scheduled" as const,
+      })),
+    };
+    await expect(db.transaction(async (tx) => {
+      await recordMissionDecisionDispatchBatchInTransaction(tx, input);
+      throw new Error("rollback dispatch batch");
+    })).rejects.toThrow("rollback dispatch batch");
+    expect(await db.select().from(aiMissionDecisionDispatchBatchesTable)
+      .where(eq(aiMissionDecisionDispatchBatchesTable.decisionId, selectedTrace.decisionId)))
+      .toHaveLength(0);
+    expect((await getMissionDecisionTrace(selectedTrace.decisionId))?.events)
+      .toHaveLength(4);
+
+    const recorded = await db.transaction((tx) =>
+      recordMissionDecisionDispatchBatchInTransaction(tx, input));
+    expect(recorded.batch).toMatchObject({
+      kind: "inserted",
+      state: "dispatched",
+      rootCount: 2,
+    });
+    expect(recorded.event).toMatchObject({ kind: "appended", sequence: 5 });
+
+    const replay = await recordMissionDecisionDispatchBatch(input);
+    expect(replay.batch).toMatchObject({
+      kind: "already_recorded",
+      dispatchBatchId: recorded.batch.dispatchBatchId,
+      manifestHash: recorded.batch.manifestHash,
+      createdAt: recorded.batch.createdAt,
+    });
+    expect(replay.event).toMatchObject({ kind: "already_recorded", sequence: 5 });
+
+    await expect(recordMissionDecisionDispatchBatch({
+      ...input,
+      items: input.items.slice(0, 1),
+    })).rejects.toMatchObject({ code: "decision_dispatch_roots_mismatch" });
+    await expect(appendMissionDecisionLifecycleEvent({
+      decisionId: selectedTrace.decisionId,
+      stage: "EXECUTED",
+      referenceId: recorded.batch.dispatchBatchId,
+      occurredAt: new Date(now.getTime() + 4_000),
+    })).rejects.toMatchObject({ code: "decision_event_order_invalid" });
+
+    const storedBatch = await getMissionDecisionDispatchBatch(recorded.batch.dispatchBatchId);
+    expect(storedBatch?.batch.manifestHash).toBe(recorded.batch.manifestHash);
+    expect(storedBatch?.items.map(({ goalId, executionId }) => ({ goalId, executionId }))).toEqual(
+      rootGoalIds.map((goalId, index) => ({ goalId, executionId: executionIds[index] })),
+    );
+    const storedTrace = await getMissionDecisionTrace(selectedTrace.decisionId);
+    expect(storedTrace?.events.slice(-2).map(({ stage, referenceId }) => ({ stage, referenceId }))).toEqual([
+      { stage: "PLAN_APPLIED", referenceId: planRevision },
+      { stage: "DISPATCHED", referenceId: recorded.batch.dispatchBatchId },
+    ]);
+    expect(await db.select().from(aiMissionDecisionDispatchBatchesTable)
+      .where(eq(aiMissionDecisionDispatchBatchesTable.decisionId, selectedTrace.decisionId)))
+      .toHaveLength(1);
+    expect(await db.select().from(aiMissionDecisionDispatchItemsTable)
+      .where(eq(aiMissionDecisionDispatchItemsTable.dispatchBatchId, recorded.batch.dispatchBatchId)))
+      .toHaveLength(2);
   });
 });

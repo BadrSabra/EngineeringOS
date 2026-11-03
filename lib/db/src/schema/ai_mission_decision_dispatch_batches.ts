@@ -17,7 +17,7 @@ import { aiMissionDecisionTracesTable } from "./ai_mission_decision_traces.js";
 import { projectsTable } from "./projects.js";
 
 /**
- * Immutable manifest of root Goal dispatches for one applied strategy plan.
+ * Append-only-by-store-contract manifest of root Goal dispatches for one applied strategy plan.
  * DISPATCHED references this batch identity when a plan has multiple roots;
  * it is provenance and does not authorize or prove downstream completion.
  */
@@ -70,9 +70,9 @@ export const aiMissionDecisionDispatchItemsTable = pgTable(
     position: integer("position").notNull(),
     goalId: text("goal_id")
       .notNull()
-      .references(() => aiGoalsTable.id, { onDelete: "cascade" }),
+      .references(() => aiGoalsTable.id, { onDelete: "no action" }),
     executionId: text("execution_id")
-      .references(() => aiExecutionsTable.id, { onDelete: "cascade" }),
+      .references(() => aiExecutionsTable.id, { onDelete: "no action" }),
     runStatus: text("run_status").notNull(),
   },
   (t) => [
