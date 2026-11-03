@@ -53,3 +53,9 @@ OperationEvidence must re-read its Goal and Mission plan scope after loading Can
 **Why:** Its initial Goal/Mission reads can precede a concurrent replan while the later proof transaction locks the execution; that interleaving can otherwise display an old-plan acceptance as current. Acquiring Mission/Goal locks before the execution lock risks conflicting with lifecycle lock order.
 
 **How to apply:** Compare the post-load Goal/Mission relation, completion status, Goal plan revision, and active Mission plan revision to the captured scope; downgrade proof and proof-spine together when they differ. Keep the projection non-authoritative.
+
+Decision-trace event references and hashes are provenance only; they must not be used as proof or dispatch authority. Before outcome evaluation, reload the trace/events with integrity checks and load Canonical Proof from durable execution, acceptance, and evidence rows for the same attempt and plan. Service-level append-only APIs do not make records immutable against direct database writers.
+
+**Why:** A durable decision record can be internally consistent yet point at an unverified or later-mutated execution; a content hash detects changed bytes only when recomputed, and does not establish that the referenced effect actually occurred.
+
+**How to apply:** Keep decision capture and outcome measurement separate from acceptance. Revalidate exact identities at every consumer, use the proof loader for accepted outcomes, and describe DB immutability only if database-level privileges/triggers enforce it.

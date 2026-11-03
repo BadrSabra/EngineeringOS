@@ -91,7 +91,7 @@
 - [Runtime replay fixture boundary](runtime-replay-fixture-boundary.md) — isolated replay fixtures must keep required runtime inputs outside excluded dependency directories.
 - [Non-root network isolation](non-root-network-isolation.md) — lifecycle E2E needs loopback-only networking and a non-root runner; never bypass either guard when the namespace setup cannot provide both.
 - [Runtime oracle command boundary](runtime-oracle-command-boundary.md) — production runtime validation needs a fixed server-owned command and existing proof bindings; it never grants write approval.
-- [Mission Control acceptance projection](mission-control-acceptance-projection.md) — distinguish checkpoint proof projections from Canonical Proof reloaded from durable acceptance and evidence.
+- [Mission Control acceptance projection](mission-control-acceptance-projection.md) — checkpoint and decision-trace references are not proof; reload exact durable acceptance/evidence identities.
 - [Task objective contracts](task-objective-contracts.md) — every proof-required task gets a hashed objective/validator/evidence contract; unsupported validators fail closed.
 - [Task progress cursors](task-progress-cursors.md) — progress sequences and replay cursors are monotonic per task across retries and new executions.
 - [Benchmark provider and scope isolation](benchmark-provider-scope-isolation.md) — exact-model caps must reach every tool-loop provider call; read-only forensic narrowing must not override an approved multi-file Build handoff.

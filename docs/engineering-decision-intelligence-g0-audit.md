@@ -1,8 +1,8 @@
 # EngineeringOS Decision Intelligence — G0 Forensic Audit
 
-**Audit date:** 2026-11-03  
-**Repository revision inspected:** local `main` at `0b67a01`  
-**Workspace state at inspection:** clean; local `main` was 14 commits ahead of the cached `origin/main` reference. No remote fetch was performed, so this does not assert the current GitHub branch head.  
+- **Audit date:** 2026-11-03
+- **Repository revision inspected:** local `main` at `0b67a01`
+- **Workspace state at inspection:** clean; local `main` was 14 commits ahead of the cached `origin/main` reference. No remote fetch was performed, so this does not assert the current GitHub branch head.
 **Scope:** repository implementation and existing test evidence only. No API workflow, database, live AI provider, GitHub API, or production system was used. No product code was changed during G0.
 
 ## 1. Executive result
@@ -14,8 +14,10 @@ That is a useful base for Decision Intelligence, but it is not yet a complete de
 - The new Mission strategy engine is specialized to runtime-start and validator recovery; it is not a general strategy generator.
 - Its scores are fixed policy calculations, not empirically calibrated outcome predictions.
 - Strategy evidence influences the final plan for supported cases, but the underlying general planner still builds its base plan from the Mission intent/objective and turn intent. Replan context is attached as advisory context; specialized strategy code then changes the plan for supported cases.
-- A selected decision is durably embedded in each materialized plan snapshot and bound into the revision hash. There is no dedicated Mission Decision Trace or post-execution Strategy Outcome record.
+- A selected decision is durably embedded in each materialized plan snapshot and bound into the revision hash. There is no dedicated live-Mission Decision Trace or post-execution Mission Strategy Outcome record.
+- A separate Strategy Candidate/Replay subsystem already exists (`ai_strategy_candidates`, `ai_strategy_replay_cases`, `ai_strategy_replay_case_runs`) with proof-bound replay machinery. It is not the same as the Mission recovery strategy engine and must be assessed for reuse before adding another catalog or replay system.
 - Existing chat `decision_trace` and model-selection trace are different contracts; neither is a substitute for a durable Mission strategy decision and outcome record.
+- `ai_usage_events` is an existing resource/reliability telemetry source, but its Mission-level joinability must be checked before using it for Mission baseline metrics.
 - Existing benchmark/release baselines measure other capabilities. They do not establish a paired Mission-strategy quality baseline.
 - G0 is complete as an audit. G1 remains unestablished until a reproducible Mission-specific baseline is measured and its unavailable metrics are explicitly marked.
 
@@ -29,6 +31,7 @@ Therefore the correct overall classification is **PARTIAL**, not “Decision Int
 | Failure diagnosis | `artifacts/api-server/src/lib/world-state-failure-diagnosis.ts:339`; `mission-auto-replan.ts:90-112` | Parses server-owned failure summaries and supported World State runtime diagnoses. Invalid persisted diagnosis fails closed. |
 | Planning evidence | `mission-world-state-planning-read.ts:259`; `agent-state/runtime-start-hypothesis-replan-context.ts:233` | Loads scoped World State facts and prior runtime-start hypothesis/experiment evidence. These are advisory/historical context, not current proof or authority. |
 | Strategy generation and selection | `mission-strategy-engine.ts:212`, `:368`, `:513` | Generates two bounded alternatives for each supported recovery family, evaluates with deterministic fixed rules, selects a plan delta, or returns blocked/not-applicable. |
+| Strategy candidate discovery and proof-bound replay | `lib/ai-orchestrator/src/agent-state/strategy-contract.ts`; `artifacts/api-server/src/lib/agent-state/strategy-candidate-extractor.ts`; `strategy-replay-case-registry.ts`; `strategy-replay-case-runner.ts`; `lib/db/src/schema/ai_strategy_candidates.ts`, `ai_strategy_replay_cases.ts`, `ai_strategy_replay_case_runs.ts` | Separately extracts candidates from Episodes, retains supporting/contradicting Episode refs, registers held-out source cases, and stores proof-bound replay runs. The Mission recovery selector does not consume these candidate rows. |
 | Replan orchestration | `mission-auto-replan.ts:519` | Locks the Mission; validates autonomy and failure state; verifies relevant accepted failure/evidence; builds a preview; applies the specialized strategy; materializes a revision in the transaction; dispatches root Goals afterward. |
 | Plan and Goal materialization | `artifacts/api-server/src/routes/ai/missions.ts:1159` | Persists plan snapshots into Goal success criteria/outcome contracts, creates Goals/Tasks and dependency edges, and reuses existing Goals for a matching plan-revision hash. |
 | Replan reconciliation | `mission-auto-replan.ts:848`; `job-reconciliation.ts:91`, `:959`, `:1117` | Finds durable `needs_replan` Missions and re-enters the coordinator after interruption. |
@@ -37,6 +40,7 @@ Therefore the correct overall classification is **PARTIAL**, not “Decision Int
 | Observation and World State | `agent-state/observation-materializer.ts`; `agent-state/world-state.ts`; `ai-world-transitions.ts` schema | Stores scoped observations and transition/effect evidence; materialization remains separate from accepting a strategy prediction as fact. |
 | Chat forensic trace | `lib/ai-orchestrator/src/audit-telemetry.ts:133`; `tool-execution-engine.ts` and `chat-agent.ts` | Tracks chat/tool-loop verdict and evidence projection. It is not the Mission strategy decision ledger. |
 | Model-selection trace | `lib/ai-orchestrator/src/openrouter/model-resolver.ts:142` | Emits a bounded model-routing trace to logs. It is neither durable Mission state nor strategy evaluation. |
+| AI usage/resource telemetry | `lib/db/src/schema/ai_usage_events.ts`; provider/AI usage writers | Records provider/model, latency, token counts, attempts, and contract/provider outcomes. Whether those rows bind to Mission executions is a data-coverage question, not guaranteed by the schema alone. |
 | Benchmark/release infrastructure | `lib/ai-orchestrator/src/benchmark/*`; `scripts/validate-benchmark-baseline.ts`; `docs/baseline-governance.md` | Evaluates existing Code Agent/AI release contracts and approved baselines; it does not yet compare Mission strategies against a Mission-specific baseline. |
 
 ## 3. Actual execution-path map
@@ -75,7 +79,7 @@ Therefore the correct overall classification is **PARTIAL**, not “Decision Int
 - Replan materialization: row-locked transaction around Mission validation, plan hash, Goals/Tasks/dependencies, and active revision (`mission-auto-replan.ts:519-765`; `missions.ts:1159-1348`).
 - Dispatch and terminal Mission status/event: after the materialization transaction (`mission-auto-replan.ts:767-835`).
 - A repeated materialization of the same plan hash reuses matching Goals/Tasks rather than generating another plan (`missions.ts:1195-1263`). Existing tests check concurrent replanning and replay after the Mission has advanced. The exact crash boundary between durable materialization, external dispatch, and the final Mission status update is not independently proven by those tests.
-- No dedicated `mission_decisions` or `strategy_outcomes` table/schema was found. Avoid adding one until G2 establishes whether the existing plan snapshot plus execution/effect records can satisfy durability, uniqueness, retention, and queryability requirements.
+- No dedicated live-Mission decision/outcome table/schema was found. Separate strategy-candidate and replay tables do exist, but they represent candidate discovery and proof-bound replay, not the strategy selected for a live Mission replan or its eventual observed outcome. Avoid adding another table until G2 determines whether the Mission snapshot, Episode/acceptance/effect records, and replay receipt can satisfy durability, uniqueness, retention, and queryability requirements.
 
 ## 6. Existing capability matrix
 
@@ -87,10 +91,11 @@ Therefore the correct overall classification is **PARTIAL**, not “Decision Int
 | Deterministic scoring and selection | **PARTIAL** | Fixed utility formulas and stable tie-breaking exist; they are not calibrated against observed outcomes. |
 | `NO_DECISION` contract | **NOT PROVEN** | The current union returns `selected`, `blocked`, or `not_applicable`; it does not expose a first-class `NO_DECISION` with reason/eligible-set contract. |
 | Durable strategy decision | **PARTIAL** | Full decision is embedded in the immutable plan snapshot and bound to its revision; there is no independent decision record bound to the dispatched execution attempt. |
-| Outcome evaluation | **NOT PROVEN** | No Mission Strategy Outcome Evaluator found that compares predicted effects/risks with independent observations and acceptance. |
+| Candidate learning and proof-bound replay | **PARTIAL, separate subsystem** | Candidate extraction and replay-case/run storage exist in `ai_strategy_candidates` and related modules. The Mission replan selector does not currently consume or evaluate these candidates. |
+| Outcome evaluation | **NOT PROVEN for Mission replanning** | A separate proof-bound Strategy Replay pipeline exists, but no Mission Strategy Outcome Evaluator was found that compares a live replan’s predicted effects/risks with its independent observations and acceptance. |
 | Shadow comparison | **NOT PROVEN** | No path was found that records a shadow strategy decision alongside the existing planner while guaranteeing no execution effect. |
 | Controlled execution under existing safeguards | **PARTIAL** | Current bounded automatic replan exists and respects approval/proof/lease contracts for its supported paths. It is not a rollout that is gated by shadow-quality evidence. |
-| Mission-specific verified improvement | **NOT PROVEN** | Current benchmark and historical baseline do not establish matched Mission strategy improvement. |
+| Mission-specific verified improvement | **NOT PROVEN** | Current benchmark and historical baseline do not establish matched Mission strategy improvement. Separate replay infrastructure is not proof of Mission replay coverage or improvement. |
 | General learning or transfer | **NOT PROVEN** | Existing historical evidence is advisory and scope-bound; no held-out transfer result exists. |
 
 Existing targeted tests reviewed include:
@@ -131,7 +136,7 @@ G1 must therefore:
 4. Avoid changing data or using Production. Any Development read must be explicitly read-only and the database target must be verified first.
 5. Preserve benchmark case identity and distinguish deterministic regression fixtures from genuine historical performance.
 
-No G1 performance values are asserted in this G0 report.
+No G1 performance values are asserted in this G0 report; see `docs/engineering-decision-intelligence-g1-baseline-v1.md` for the reproducible Development snapshot and its explicit `NOT MEASURABLE YET` metrics.
 
 ## 9. Minimum-change implementation plan
 
@@ -148,8 +153,12 @@ No G1 performance values are asserted in this G0 report.
 
 ## 10. G0 decision
 
-**G0: COMPLETE as an audit deliverable.**  
-**G1: NOT STARTED / NOT PROVEN.**  
+- **G0: COMPLETE as an audit deliverable.**
+- **G1:** Complete as a versioned, reproducible Development snapshot; improvement is not proven.
+- **G2:** Complete as shared contract definitions only; they do not yet change Mission planning or dispatch.
+- **G3:** Complete as an isolated proposal generator and semantic comparator; it is not wired to the live selector or dispatch.
+- **G4:** Complete as a deterministic Pareto evaluator; it is not wired to the live Mission selector and has no dispatch authority.
+- **G5:** Standalone trace-storage layer is verified; live Mission integration and database-level immutability are not established.
 **Production-code changes during G0: none.**
 
-The next gate is G1. No strategy subsystem redesign or rollout should begin before its denominators, data provenance, and reproducible baseline procedure are established.
+G6 now has a tested pure evaluator, while its server evidence loader/persistence and G5 live integration remain open. G3/G4 prove generation, semantic comparison, hard-constraint evaluation, and conservative no-decision behavior in isolated shared-library components. G5 adds isolated durable trace storage, but does not connect it to live dispatch, make direct SQL edits impossible, or measure outcomes.

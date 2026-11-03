@@ -31,6 +31,7 @@ export * from "./workspace_runtime.js";
 export * from "./ai_missions.js";
 export * from "./ai_mission_handoffs.js";
 export * from "./ai_mission_lineages.js";
+export * from "./ai_mission_decision_traces.js";
 export * from "./ai_skill_registry.js";
 export * from "./ai_agent_episodes.js";
 export * from "./ai_agent_observations.js";

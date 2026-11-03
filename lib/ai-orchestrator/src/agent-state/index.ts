@@ -100,6 +100,55 @@ export { diagnoseFailure, tryDiagnoseFailure } from "./failure-diagnosis.js";
 export type { DiagnoseFailureInput } from "./failure-diagnosis.js";
 
 export {
+  DecisionConfidenceSchema,
+  DecisionEvidenceRefSchema,
+  DecisionKnowledgeClassSchema,
+  DecisionResultSchema,
+  MISSION_DECISION_SCHEMA_VERSION,
+  MissionDecisionContextSchema,
+  MissionDecisionTraceSchema,
+  MissionStrategyAlternativeSchema,
+  MissionStrategyEvaluationSchema,
+  MissionStrategyOutcomeEvaluationSchema,
+  StrategyDifferenceSchema,
+  StrategyEvaluationDimensionSchema,
+  hashMissionDecisionContext,
+  hashMissionDecisionTrace,
+  hashMissionStrategyAlternative,
+} from "./mission-decision-contract.js";
+export * from "./mission-strategy-outcome-evaluation.js";
+export type {
+  DecisionConfidence,
+  DecisionEvidenceRef,
+  DecisionKnowledgeClass,
+  DecisionResult,
+  MissionDecisionContext,
+  MissionDecisionTrace,
+  MissionStrategyAlternative,
+  MissionStrategyEvaluation,
+  MissionStrategyOutcomeEvaluation,
+  StrategyDifference,
+  StrategyEvaluationDimension,
+} from "./mission-decision-contract.js";
+
+export {
+  compareMissionStrategyAlternatives,
+  generateMissionStrategyAlternatives,
+} from "./mission-strategy-generation.js";
+export {
+  evaluateMissionStrategies,
+  MISSION_STRATEGY_EVALUATOR_VERSION,
+} from "./mission-strategy-evaluation.js";
+export type {
+  MissionStrategyEvaluationResult,
+  StrategyPairwiseComparison,
+} from "./mission-strategy-evaluation.js";
+export type {
+  MissionStrategyGenerationResult,
+  StrategyGenerationInput,
+} from "./mission-strategy-generation.js";
+
+export {
   StrategyCandidateSchema,
   StrategyEvaluationStatusSchema,
   hashStrategyCandidate,
