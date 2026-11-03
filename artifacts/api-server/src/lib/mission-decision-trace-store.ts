@@ -21,7 +21,6 @@ import {
   projectsTable,
 } from "@workspace/db";
 import {
-  canonicalJsonHash,
   hashMissionDecisionTrace,
   hashMissionStrategyAlternative,
   MissionStrategyPlanOutcomeEvaluationSchema,
@@ -29,6 +28,7 @@ import {
 } from "@workspace/ai-orchestrator";
 import type { MissionDecisionTrace } from "@workspace/ai-orchestrator";
 import { getProjectWorldState } from "./agent-state/world-state.js";
+import { missionOutcomeSnapshotId } from "./mission-outcome-snapshot-identity.js";
 
 export type MissionDecisionTransaction = Parameters<Parameters<typeof db.transaction>[0]>[0];
 export type DecisionEventStage = MissionDecisionTrace["lifecycle"][number]["stage"];
@@ -128,10 +128,8 @@ async function assertMissionPlanOutcomeSnapshot(
   const selectedStrategyId = input.trace.result.kind === "SELECTED"
     ? input.trace.result.selectedStrategyId
     : null;
-  const expectedSnapshotId = snapshot
-    ? `mission-outcome-snapshot:${canonicalJsonHash(
-        `${input.trace.decisionId}\n${snapshot.evidenceSetHash}`,
-      )}`
+  const expectedSnapshotId = evaluation
+    ? missionOutcomeSnapshotId(input.trace.decisionId, evaluation)
     : null;
   if (
     !snapshot
@@ -1511,79 +1509,6 @@ export async function getMissionDecisionTraceInTransaction(
   }
   await validateMissionPlanOutcomeLifecycleSuffix(tx, trace, events);
   return { trace, events };
-}
-
-/**
- * Appends the full plan-level success suffix after the outcome service has
- * freshly evaluated and persisted ACHIEVED in this same transaction.
- * Generic lifecycle appends intentionally cannot use this path.
- */
-export async function appendMissionDecisionOutcomeLifecycleEventsInTransaction(
-  tx: MissionDecisionTransaction,
-  input: {
-    decisionId: string;
-    outcomeSnapshotId: string;
-    occurredAt: Date;
-  },
-): Promise<{ kind: "appended" | "already_recorded"; sequence: number }> {
-  const stored = await getMissionDecisionTraceInTransaction(tx, input.decisionId);
-  if (!stored) throw new MissionDecisionTraceStoreError("decision_trace_missing");
-  const dispatchIndex = stored.events.findIndex(({ stage }) => stage === "DISPATCHED");
-  const dispatchEvent = stored.events[dispatchIndex];
-  if (!dispatchEvent?.referenceId?.startsWith("mission-dispatch-batch:")) {
-    throw new MissionDecisionTraceStoreError("decision_event_order_invalid");
-  }
-  const suffix = stored.events.slice(dispatchIndex + 1);
-  if (suffix.length) {
-    if (
-      suffix.length === PLAN_OUTCOME_LIFECYCLE_SUFFIX.length
-      && suffix.every((event, index) =>
-        event.stage === PLAN_OUTCOME_LIFECYCLE_SUFFIX[index]
-        && event.referenceId === input.outcomeSnapshotId)
-    ) {
-      return {
-        kind: "already_recorded",
-        sequence: stored.events.at(-1)!.sequence,
-      };
-    }
-    throw new MissionDecisionTraceStoreError("decision_event_conflict");
-  }
-  const planRevision = stored.events.find(({ stage }) => stage === "PLAN_APPLIED")?.referenceId;
-  if (
-    stored.events.at(-1)?.stage !== "DISPATCHED"
-    || !planRevision
-  ) {
-    throw new MissionDecisionTraceStoreError("decision_event_order_invalid");
-  }
-  await assertMissionPlanOutcomeSnapshot(tx, {
-    trace: stored.trace,
-    snapshotId: input.outcomeSnapshotId,
-    dispatchBatchId: dispatchEvent.referenceId,
-    planRevision,
-  });
-
-  const last = stored.events.at(-1)!;
-  const occurredAt = new Date(Math.max(input.occurredAt.getTime(), last.occurredAt.getTime() + 1));
-  let sequence = last.sequence;
-  for (const stage of PLAN_OUTCOME_LIFECYCLE_SUFFIX) {
-    sequence += 1;
-    const [inserted] = await tx.insert(aiMissionDecisionEventsTable).values({
-      id: eventIdentity(input.decisionId, stage),
-      decisionId: input.decisionId,
-      sequence,
-      stage,
-      referenceId: input.outcomeSnapshotId,
-      eventHash: eventHash({
-        decisionId: input.decisionId,
-        stage,
-        referenceId: input.outcomeSnapshotId,
-        occurredAt,
-      }),
-      occurredAt,
-    }).onConflictDoNothing().returning({ sequence: aiMissionDecisionEventsTable.sequence });
-    if (!inserted) throw new MissionDecisionTraceStoreError("decision_event_conflict");
-  }
-  return { kind: "appended", sequence };
 }
 
 export async function getMissionDecisionTrace(

@@ -4,10 +4,10 @@
 
 - **G6 isolated single-execution evaluator: IMPLEMENTED AND TESTED.**
 - **G6 deterministic plan-wide aggregation contract: IMPLEMENTED AND TESTED.**
-- **G6 server evidence loader and insert-only snapshot writer: PARTIAL; one incomplete-evidence integration path is verified.**
+- **G6 server evidence loader and outcome finalizer: PARTIAL; only the fail-closed INCONCLUSIVE path is integration-tested.**
 - **G6 additive outcome-snapshot schema: DEFINED; applied only to a disposable test database, not Development.**
 
-Both evaluators are deterministic shared-library functions. The plan-wide aggregator keeps the failed source Goal distinct from successor Goals, binds the dispatch batch and exact Goal/Task/Execution identity sets, requires per-Execution proof references, and requires a separately supplied final World State continuity snapshot. The server-only `evaluateAndPersistMissionPlanOutcome()` now reloads and validates the current plan, lifecycle, batch, exact executions/attempts, acceptances, Canonical Proofs, effect bundles, direct before/after observations, and bounded World State within a serializable transaction. It stores a content-addressed snapshot with `ON CONFLICT DO NOTHING`; retries with the same evidence set do not overwrite the first record. It does **not** schedule work or append lifecycle events. Its current database integration fixture proves only an `INCONCLUSIVE` dispatch-boundary result and idempotent replay, not successful or contradicted terminal outcomes.
+Both evaluators are deterministic shared-library functions. The plan-wide aggregator keeps the failed source Goal distinct from successor Goals, binds the dispatch batch and exact Goal/Task/Execution identity sets, requires per-Execution proof references, and requires a separately supplied final World State continuity snapshot. The server-only `evaluateAndPersistMissionPlanOutcome()` reloads and validates the current plan, lifecycle, batch, exact executions/attempts, acceptances, Canonical Proofs, effect bundles, direct before/after observations, and bounded World State within a serializable transaction. Its snapshot ID binds both the evidence-set hash and the complete stable evaluation payload, excluding only `evaluatedAt`; retries preserve the first persisted evaluation. `finalizeMissionPlanOutcome()` re-evaluates and persists in one serializable transaction, then appends the four plan-level lifecycle events only for `ACHIEVED`. `INCONCLUSIVE` and `NOT_ACHIEVED` never advance that lifecycle. The current database integration fixture proves the fail-closed `INCONCLUSIVE` path and idempotent replay, not successful or contradicted terminal outcomes.
 
 ## Forensic integration finding
 
@@ -31,9 +31,9 @@ The live path must evaluate the complete applied plan as one bounded aggregate:
 3. Prove the dispatch batch's exact root Goal→Execution mapping; dependent Goal execution identities must be independently loaded from the same applied revision.
 4. Produce per-Goal results and one aggregate verdict. `ACHIEVED` requires complete, current, accepted proof/effect evidence for every required plan Goal. `NOT_ACHIEVED` requires complete terminal evidence and direct contradiction of the selected plan's expected effects. Missing, stale, partial, or conflicting members yield `INCONCLUSIVE`.
 5. Persist an append-only, content-hashed outcome snapshot whose identity includes the full Goal/Execution/attempt/Acceptance/Proof set and evidence revision. A changed evidence set must create a distinct evaluation identity; it must not rewrite an earlier result.
-6. Only a store transaction that revalidates that entire manifest may append plan-level `EXECUTED`, `ACCEPTED`, `VERIFIED`, and `EVALUATED_AFTER_EXECUTION` references. A dispatch-batch pointer or provider response is never an outcome or proof.
+6. Only a store transaction that reloads the durable evidence and binds the resulting snapshot may append plan-level `EXECUTED`, `ACCEPTED`, `VERIFIED`, and `EVALUATED_AFTER_EXECUTION` references. A dispatch-batch pointer or provider response is never an outcome or proof.
 
-The plan-level service now reloads and persists a snapshot, but no job/reconciler invokes it after plan completion and no lifecycle consumer revalidates the stored manifest. Therefore it is not yet an operational G6 path, and the snapshot schema has not been applied to Development.
+The plan-level finalizer can append a content-addressed `ACHIEVED` suffix and the trace reader validates that suffix against the persisted snapshot, decision, plan revision, dispatch batch, and manifest. However, the `ACHIEVED` writer/suffix path has no successful durable-row fixture, the `NOT_ACHIEVED` evidence path is still intentionally unsupported, and no job/reconciler invokes finalization after plan completion. G6 is therefore still not an operational end-to-end path; the snapshot schema has not been applied to Development.
 
 ## Outcome policy
 
@@ -56,14 +56,14 @@ Expected effect codes are extracted only from explicit string values or object `
 
 ## Verification
 
-See `docs/engineering-decision-intelligence-g6-test-notes.md`. The focused evaluator suite passes **15/15**, API-server typecheck passes, and the isolated Mission Trace integration file passes **8/8** on a fresh loopback-only temporary PostgreSQL cluster. Only the incomplete/`INCONCLUSIVE` server-writer path is covered; no live Mission was evaluated.
+See `docs/engineering-decision-intelligence-g6-test-notes.md`. The focused evaluator suite passes **15/15**, API-server typecheck passes, and the isolated Mission Trace integration file passes **8/8** on a fresh loopback-only temporary PostgreSQL cluster. The test proves that an incomplete/`INCONCLUSIVE` finalization does not advance lifecycle and that a repeated evaluation reuses the same content-addressed snapshot. No `ACHIEVED` or `NOT_ACHIEVED` server-writer path and no live Mission has been evaluated.
 
 ## Required work before closing G6
 
 1. Add isolated server-writer fixtures for a fully `ACHIEVED` plan, current-world mismatch, stale observations, cross-attempt/cross-execution identities, and actual contradicted evidence. Keep the current fail-closed behavior until each case is bound to durable rows.
 2. Review the additive snapshot-table diff against Development before applying it. Only the disposable test database has received the Drizzle schema so far.
 3. Add a durable reconciliation trigger after all current-plan Goals and Tasks are terminal, with lease ownership and idempotency; it must not rerun already completed side effects.
-4. Add a store transaction that reloads and validates the exact stored snapshot before any plan-level lifecycle append. A dispatch-batch pointer remains provenance, never completion or proof.
+4. Add success-path and tampered-snapshot tests for lifecycle suffix creation and read-time binding. A dispatch-batch pointer remains provenance, never completion or proof.
 5. Add database-level immutability enforcement for outcome snapshots, or explicitly retain and monitor the weaker application-only insert contract.
 6. G7 shadow-only comparisons, followed by G8 recovery/safety tests; G9/G10 remain blocked on measured accepted outcomes and held-out transfer evidence.
 

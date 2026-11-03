@@ -12,6 +12,7 @@ import {
   aiAgentObservationsTable,
   aiExecutionAcceptancesTable,
   aiExecutionsTable,
+  aiMissionDecisionEventsTable,
   aiGoalsTable,
   aiMissionDecisionOutcomeSnapshotsTable,
   aiMissionDecisionTracesTable,
@@ -38,9 +39,14 @@ import { getProjectWorldState } from "./agent-state/world-state.js";
 import {
   getMissionDecisionTraceInTransaction,
   getValidatedMissionDecisionDispatchBatchInTransaction,
-  appendMissionDecisionOutcomeLifecycleEventsInTransaction,
+  eventHash,
+  eventIdentity,
 } from "./mission-decision-trace-store.js";
-import type { MissionDecisionTransaction } from "./mission-decision-trace-store.js";
+import type {
+  DecisionEventStage,
+  MissionDecisionTransaction,
+} from "./mission-decision-trace-store.js";
+import { missionOutcomeSnapshotId } from "./mission-outcome-snapshot-identity.js";
 
 const MAX_WORLD_FACTS = 256;
 const MAX_WORLD_OBSERVATIONS = 2_048;
@@ -97,8 +103,9 @@ function hashJson(value: unknown): string {
   );
 }
 
-function outcomeId(decisionId: string, evidenceSetHash: string): string {
-  return `mission-outcome-snapshot:${canonicalJsonHash(`${decisionId}\n${evidenceSetHash}`)}`;
+function stableEvaluationHash(evaluation: MissionStrategyPlanOutcomeEvaluation): string {
+  const { evaluatedAt: _evaluatedAt, ...stableEvaluation } = evaluation;
+  return hashJson(stableEvaluation);
 }
 
 export type MissionPlanOutcomeStoreResult =
@@ -505,7 +512,7 @@ export async function evaluateAndPersistMissionPlanOutcomeInTransaction(
       evaluatedAt: evaluatedAt.toISOString(),
     });
 
-    const snapshotId = outcomeId(decisionId, evaluation.evidenceSetHash);
+    const snapshotId = missionOutcomeSnapshotId(decisionId, evaluation);
     const [inserted] = await tx.insert(aiMissionDecisionOutcomeSnapshotsTable).values({
       outcomeId: snapshotId,
       decisionId,
@@ -540,10 +547,20 @@ export async function evaluateAndPersistMissionPlanOutcomeInTransaction(
       ) {
         throw new Error("mission decision outcome snapshot conflict");
       }
-      if (hashJson(existing.evaluation) !== hashJson(evaluation)) {
+      const persistedEvaluation = MissionStrategyPlanOutcomeEvaluationSchema.safeParse(
+        existing.evaluation,
+      );
+      if (
+        !persistedEvaluation.success
+        || stableEvaluationHash(persistedEvaluation.data) !== stableEvaluationHash(evaluation)
+      ) {
         throw new Error("mission decision outcome snapshot payload conflict");
       }
-      return { kind: "already_recorded", snapshotId, evaluation };
+      return {
+        kind: "already_recorded",
+        snapshotId,
+        evaluation: persistedEvaluation.data,
+      };
     }
     return { kind: "recorded", snapshotId, evaluation };
 }
@@ -571,6 +588,76 @@ export type MissionPlanOutcomeFinalizationResult =
     }
   | Extract<MissionPlanOutcomeStoreResult, { kind: "not_ready" }>;
 
+const ACHIEVED_OUTCOME_LIFECYCLE_STAGES = [
+  "EXECUTED",
+  "ACCEPTED",
+  "VERIFIED",
+  "EVALUATED_AFTER_EXECUTION",
+] as const satisfies readonly DecisionEventStage[];
+
+async function appendAchievedOutcomeLifecycleInTransaction(
+  tx: MissionDecisionTransaction,
+  input: {
+    decisionId: string;
+    snapshotId: string;
+    evaluation: MissionStrategyPlanOutcomeEvaluation;
+    occurredAt: Date;
+  },
+): Promise<void> {
+  if (
+    input.evaluation.outcome !== "ACHIEVED"
+    || missionOutcomeSnapshotId(input.decisionId, input.evaluation) !== input.snapshotId
+  ) {
+    throw new Error("mission decision outcome is not eligible for lifecycle advancement");
+  }
+  const stored = await getMissionDecisionTraceInTransaction(tx, input.decisionId);
+  if (!stored) throw new Error("mission decision trace missing during outcome finalization");
+  const dispatchIndex = stored.events.findIndex(({ stage }) => stage === "DISPATCHED");
+  const dispatchEvent = stored.events[dispatchIndex];
+  if (
+    !dispatchEvent?.referenceId?.startsWith("mission-dispatch-batch:")
+    || stored.events.at(-1)?.stage !== "DISPATCHED"
+  ) {
+    throw new Error("mission decision outcome is not at the dispatch boundary");
+  }
+  const [snapshot] = await tx.select().from(aiMissionDecisionOutcomeSnapshotsTable)
+    .where(eq(aiMissionDecisionOutcomeSnapshotsTable.outcomeId, input.snapshotId));
+  if (!snapshot || snapshot.outcome !== "ACHIEVED") {
+    throw new Error("mission decision achieved outcome snapshot missing");
+  }
+  const persistedEvaluation = MissionStrategyPlanOutcomeEvaluationSchema.parse(snapshot.evaluation);
+  if (
+    snapshot.decisionId !== input.decisionId
+    || snapshot.evidenceSetHash !== input.evaluation.evidenceSetHash
+    || hashJson(persistedEvaluation) !== hashJson(input.evaluation)
+  ) {
+    throw new Error("mission decision outcome snapshot changed during finalization");
+  }
+  const last = stored.events.at(-1)!;
+  const occurredAt = new Date(Math.max(input.occurredAt.getTime(), last.occurredAt.getTime() + 1));
+  let sequence = last.sequence;
+  for (const stage of ACHIEVED_OUTCOME_LIFECYCLE_STAGES) {
+    sequence += 1;
+    const [inserted] = await tx.insert(aiMissionDecisionEventsTable).values({
+      id: eventIdentity(input.decisionId, stage),
+      decisionId: input.decisionId,
+      sequence,
+      stage,
+      referenceId: input.snapshotId,
+      eventHash: eventHash({
+        decisionId: input.decisionId,
+        stage,
+        referenceId: input.snapshotId,
+        occurredAt,
+      }),
+      occurredAt,
+    }).onConflictDoNothing().returning({
+      sequence: aiMissionDecisionEventsTable.sequence,
+    });
+    if (!inserted) throw new Error("mission decision outcome lifecycle append conflicted");
+  }
+}
+
 /**
  * Re-evaluates and persists the plan outcome and, only for ACHIEVED, appends
  * the complete plan-level lifecycle suffix in the same serializable transaction.
@@ -586,7 +673,7 @@ export async function finalizeMissionPlanOutcome(
     if (!current) return { kind: "not_ready", reason: "decision_missing" };
     const dispatchIndex = current.events.findIndex(({ stage }) => stage === "DISPATCHED");
     if (dispatchIndex < 0) {
-      return evaluateAndPersistMissionPlanOutcomeInTransaction(tx, decisionId, evaluatedAt);
+      return { kind: "not_ready", reason: "trace_not_at_dispatch_boundary" };
     }
     const suffix = current.events.slice(
       dispatchIndex + 1,
@@ -622,9 +709,10 @@ export async function finalizeMissionPlanOutcome(
         evaluation: stored.evaluation,
       };
     }
-    await appendMissionDecisionOutcomeLifecycleEventsInTransaction(tx, {
+    await appendAchievedOutcomeLifecycleInTransaction(tx, {
       decisionId,
-      outcomeSnapshotId: stored.snapshotId,
+      snapshotId: stored.snapshotId,
+      evaluation: stored.evaluation,
       occurredAt: evaluatedAt,
     });
     return { kind: "appended", snapshotId: stored.snapshotId, evaluation: stored.evaluation };

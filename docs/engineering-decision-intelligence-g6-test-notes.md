@@ -50,4 +50,13 @@ This was groundwork only; the server adapter and database path are described bel
 - The first parallel launch of the isolated runner returned a tool-level `No process for id` error and left one empty temporary directory. Inspection found no server PID or listener; only that exact empty root was removed. The subsequent single-process run completed and stopped PostgreSQL cleanly.
 - No `ACHIEVED` or `NOT_ACHIEVED` server-loader fixture, automatic reconciliation trigger, snapshot-consumer, Development migration, live Mission, or production change has been verified.
 
-The insert-only writer is not a lifecycle authority. G6 remains open until successful and contradicted evidence paths are tested, Development schema drift is reviewed before any migration, a durable completion trigger invokes evaluation without replaying side effects, and a separate transaction reloads the exact persisted snapshot before lifecycle advancement.
+## Atomic outcome finalization and snapshot identity
+
+- The first retry test failed **1/8** because it compared the complete persisted evaluation, including `evaluatedAt`; evidence identity intentionally excludes evaluation time. This was an idempotency-comparison defect, not a proof or database failure.
+- The writer now compares the stable evaluation payload and returns the original stored evaluation on replay. Snapshot IDs bind the decision, evidence-set hash, and complete stable evaluation payload, excluding only `evaluatedAt`.
+- `finalizeMissionPlanOutcome()` re-evaluates and persists within one serializable transaction. It appends the four plan-level lifecycle events only for `ACHIEVED`; `INCONCLUSIVE` and `NOT_ACHIEVED` do not advance the lifecycle. The generic batch append path still rejects a batch pointer as execution proof.
+- Trace reads validate the outcome snapshot ID and its decision, plan revision, dispatch batch, manifest, and outcome bindings before accepting a plan-level lifecycle suffix.
+- After the correction, API-server typecheck passed; the focused evaluator suite passed **15/15**; the isolated Mission Trace integration suite passed **8/8**. The integration fixture verifies an `INCONCLUSIVE` finalization, stable retry identity, and no lifecycle advancement.
+- There is still no successful `ACHIEVED`/`NOT_ACHIEVED` database fixture or automatic reconciliation trigger. The snapshot schema remains unapplied to Development; no live Mission or production data was used.
+
+G6 remains open until achieved and contradicted durable-row fixtures pass, the Development schema diff is reviewed before any migration, and a durable completion trigger invokes this finalizer without replaying side effects.

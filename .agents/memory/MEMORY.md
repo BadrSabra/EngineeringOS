@@ -95,6 +95,7 @@
 - [Mission Control acceptance projection](mission-control-acceptance-projection.md) — checkpoint and decision-trace references are not proof; reload exact durable acceptance/evidence identities.
 - [Mission decision dispatch batches](mission-decision-dispatch-batches.md) — multi-root dispatch needs an exact revision-bound manifest; its pointer is provenance, never aggregate execution or acceptance proof.
 - [Mission Trace immutability](mission-trace-immutability.md) — keep the hashed pre-dispatch Trace canonical; bind later lifecycle stages through the durable event chain, not a rewritten Trace.
+- [Outcome snapshot idempotency](mission-outcome-snapshot-idempotency.md) — bind evidence and the stable evaluation payload; exclude only evaluation time so retries remain idempotent.
 - [Task objective contracts](task-objective-contracts.md) — every proof-required task gets a hashed objective/validator/evidence contract; unsupported validators fail closed.
 - [Task progress cursors](task-progress-cursors.md) — progress sequences and replay cursors are monotonic per task across retries and new executions.
 - [Benchmark provider and scope isolation](benchmark-provider-scope-isolation.md) — exact-model caps must reach every tool-loop provider call; read-only forensic narrowing must not override an approved multi-file Build handoff.
