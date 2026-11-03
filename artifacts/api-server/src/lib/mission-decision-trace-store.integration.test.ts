@@ -428,7 +428,7 @@ describe("Mission decision trace persistence", () => {
     })).rejects.toMatchObject({ code: "decision_event_order_invalid" });
   });
 
-  it("requires an observed changed Goal plan before recording dispatch", async () => {
+  it("binds plan application and dispatch to successor Goals created by a replan", async () => {
     const fixture = await createFixture();
     const selectedTrace = makeSelectedTrace({
       trace: fixture.trace,
@@ -451,25 +451,62 @@ describe("Mission decision trace persistence", () => {
       occurredAt: new Date(now.getTime() + 1_000),
     })).rejects.toMatchObject({ code: "decision_event_reference_invalid" });
 
-    await db.update(aiGoalsTable).set({
-      outcomeContract: { planRevision: { hash: "applied-plan-revision" } },
+    const successorGoalId = randomUUID();
+    await db.insert(aiGoalsTable).values({
+      id: successorGoalId,
+      missionId: fixture.missionId,
+      projectId: fixture.projectId,
+      title: "Successor plan Goal",
+      status: "queued",
       successCriteria: { planRevision: { hash: "applied-plan-revision" } },
-    }).where(eq(aiGoalsTable.id, fixture.goalId));
+      evidenceContract: { required: true },
+      outcomeContract: { planRevision: { hash: "applied-plan-revision" } },
+      nextAction: { kind: "execute" },
+      createdAt: now,
+      updatedAt: now,
+    });
     await db.update(aiMissionsTable).set({
       autonomyPolicy: { activePlanRevision: "applied-plan-revision" },
     }).where(eq(aiMissionsTable.id, fixture.missionId));
-
     await expect(appendMissionDecisionLifecycleEvent({
       decisionId: selectedTrace.decisionId,
       stage: "PLAN_APPLIED",
       referenceId: "applied-plan-revision",
       occurredAt: new Date(now.getTime() + 2_000),
     })).resolves.toMatchObject({ kind: "appended", sequence: 4 });
+
+    const successorExecutionId = randomUUID();
+    await db.insert(aiExecutionsTable).values({
+      id: successorExecutionId,
+      projectId: fixture.projectId,
+      goalId: successorGoalId,
+      userId: "decision-trace-test-owner",
+      idempotencyKey: `decision-trace-successor-${successorExecutionId}`,
+      resumeTokenHash: "d".repeat(64),
+      request: "{}",
+      checkpoint: "{}",
+      attempt: 1,
+      status: "queued",
+      baseRevision: "decision-project-revision",
+      createdAt: now,
+      updatedAt: now,
+    });
+    await expect(appendMissionDecisionLifecycleEvent({
+      decisionId: selectedTrace.decisionId,
+      stage: "DISPATCHED",
+      referenceId: successorExecutionId,
+      occurredAt: new Date(now.getTime() + 3_000),
+    })).resolves.toMatchObject({ kind: "appended", sequence: 5 });
+
+    await db.update(aiGoalsTable).set({
+      outcomeContract: { planRevision: { hash: "applied-plan-revision" } },
+      successCriteria: { planRevision: { hash: "applied-plan-revision" } },
+    }).where(eq(aiGoalsTable.id, fixture.goalId));
     const stored = await getMissionDecisionTrace(selectedTrace.decisionId);
-    expect(stored?.events.at(-1)).toEqual(expect.objectContaining({
-      stage: "PLAN_APPLIED",
-      referenceId: "applied-plan-revision",
-    }));
+    expect(stored?.events.slice(-2).map(({ stage, referenceId }) => ({ stage, referenceId }))).toEqual([
+      { stage: "PLAN_APPLIED", referenceId: "applied-plan-revision" },
+      { stage: "DISPATCHED", referenceId: successorExecutionId },
+    ]);
     expect(stored?.trace.dispatchRef).toBeNull();
   });
 });
