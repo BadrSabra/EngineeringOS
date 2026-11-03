@@ -81,13 +81,16 @@ export type MissionStrategyCandidatePlanProjection = {
   }>;
 };
 
-export type RuntimeFailureSourceBinding = {
+export type MissionFailureSourceBinding = {
   acceptanceId: string;
   executionId: string;
   episodeId: string;
   attempt: number;
   transitionId?: string;
 };
+
+/** @deprecated Use MissionFailureSourceBinding for non-runtime failures too. */
+export type RuntimeFailureSourceBinding = MissionFailureSourceBinding;
 
 type StrategyInput = {
   preview: MissionPlanPreview;
@@ -97,6 +100,7 @@ type StrategyInput = {
   failureDiagnosis?: FailureSummary;
   worldStateFailureDiagnosis?: WorldStateFailureDiagnosis;
   runtimeStartTargetStepId?: string;
+  failureSourceBinding?: MissionFailureSourceBinding;
   runtimeSourceBinding?: RuntimeFailureSourceBinding;
   worldStatePlanningRead?: MissionWorldStatePlanningRead;
   evidenceRefs: string[];
@@ -157,7 +161,7 @@ function safeRelativePaths(values: readonly string[]): string[] | undefined {
 function decisionSource(input: StrategyInput, reasonCode: string): MissionStrategyDecision["source"] {
   const read = input.worldStatePlanningRead;
   const diagnosis = input.worldStateFailureDiagnosis;
-  const binding = input.runtimeSourceBinding;
+  const binding = input.failureSourceBinding ?? input.runtimeSourceBinding;
   return {
     missionId: input.missionId,
     failedGoalId: input.failedGoalId,
@@ -272,7 +276,7 @@ function runtimeStrategy(input: StrategyInput): MissionStrategySelection {
   ) {
     return { status: "blocked", reason: "runtime_diagnosis_not_retryable" };
   }
-  const binding = input.runtimeSourceBinding;
+  const binding = input.failureSourceBinding ?? input.runtimeSourceBinding;
   if (!binding) {
     return { status: "blocked", reason: "runtime_transition_binding_missing" };
   }

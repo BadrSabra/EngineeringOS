@@ -46,7 +46,7 @@ import { taskScopeIdentity } from "./agent-state/observation-materializer.js";
 import {
   selectAndApplyMissionStrategy,
   type MissionStrategyDecision,
-  type RuntimeFailureSourceBinding,
+  type MissionFailureSourceBinding,
 } from "./mission-strategy-engine.js";
 import { runMissionGoal, type MissionGoalRunResult } from "./mission-runtime.js";
 
@@ -75,6 +75,7 @@ const TERMINAL_REPLAN_FAILURES = new Set([
   "no_eligible_replan_root",
   "runtime_transition_target_unbound",
   "runtime_failure_evidence_unbound",
+  "failure_source_evidence_unbound",
 ]);
 
 function jsonRecord(value: unknown): Record<string, unknown> {
@@ -160,6 +161,104 @@ function runtimeStartTargetStepIdFromGoal(
   return undefined;
 }
 
+async function hasBoundValidatorFailureSourceEvidence(
+  tx: Parameters<Parameters<typeof db.transaction>[0]>[0],
+  input: {
+    missionId: string;
+    projectId: string;
+    goalId: string;
+    priorPlanRevision: string;
+    outcomeContract: unknown;
+    failureDiagnosis: FailureDiagnosisSummary;
+  },
+): Promise<MissionFailureSourceBinding | undefined> {
+  const acceptanceProjection = jsonRecord(jsonRecord(input.outcomeContract).acceptance);
+  const executionId = typeof acceptanceProjection.executionId === "string"
+    ? acceptanceProjection.executionId
+    : undefined;
+  const acceptanceId = typeof acceptanceProjection.acceptanceId === "string"
+    ? acceptanceProjection.acceptanceId
+    : jsonRecord(acceptanceProjection.receipt).kind === "execution_acceptance"
+      && typeof jsonRecord(acceptanceProjection.receipt).id === "string"
+      ? jsonRecord(acceptanceProjection.receipt).id as string
+      : undefined;
+  const projectedOutcome = acceptanceProjection.outcome;
+  if (
+    !executionId
+    || !acceptanceId
+    || (projectedOutcome !== "FAILED" && projectedOutcome !== "INTERRUPTED")
+  ) {
+    return undefined;
+  }
+
+  const [acceptance] = await tx.select().from(aiExecutionAcceptancesTable)
+    .where(and(
+      eq(aiExecutionAcceptancesTable.id, acceptanceId),
+      eq(aiExecutionAcceptancesTable.executionId, executionId),
+      eq(aiExecutionAcceptancesTable.projectId, input.projectId),
+    ));
+  const [execution] = await tx.select().from(aiExecutionsTable)
+    .where(and(
+      eq(aiExecutionsTable.id, executionId),
+      eq(aiExecutionsTable.projectId, input.projectId),
+      eq(aiExecutionsTable.goalId, input.goalId),
+    ));
+  if (
+    !acceptance
+    || !execution
+    || acceptance.outcome !== projectedOutcome
+    || acceptance.candidateIdentity != null
+    || !["failed", "interrupted"].includes(acceptance.terminalStatus)
+    || acceptance.reasonCode !== input.failureDiagnosis.reasonCode
+    || acceptance.nextActionCode !== input.failureDiagnosis.nextActionCode
+    || (typeof acceptanceProjection.attempt === "number"
+      && acceptanceProjection.attempt !== acceptance.attempt)
+    || execution.attempt !== acceptance.attempt
+    || !["failed", "interrupted"].includes(execution.status)
+    || (acceptance.operationId && acceptance.operationId !== execution.operationId)
+    || (typeof acceptanceProjection.sourceRevision === "string"
+      && acceptance.sourceRevision !== acceptanceProjection.sourceRevision)
+    || (execution.baseRevision
+      && acceptance.sourceRevision
+      && execution.baseRevision !== acceptance.sourceRevision)
+  ) {
+    return undefined;
+  }
+
+  const episodes = await tx.select().from(aiAgentEpisodesTable)
+    .where(and(
+      eq(aiAgentEpisodesTable.projectId, input.projectId),
+      eq(aiAgentEpisodesTable.executionId, executionId),
+      eq(aiAgentEpisodesTable.attempt, acceptance.attempt),
+      eq(aiAgentEpisodesTable.missionId, input.missionId),
+      eq(aiAgentEpisodesTable.goalId, input.goalId),
+      eq(aiAgentEpisodesTable.planRevision, input.priorPlanRevision),
+    ));
+  if (episodes.length !== 1) return undefined;
+  const [episode] = episodes;
+  if (
+    !episode
+    || episode.state !== "failed"
+    || episode.verdict !== "failed"
+    || !episode.closedAt
+    || !episode.projectRevision
+    || !episode.environmentRevision
+    || episode.projectRevision !== acceptance.sourceRevision
+    || episode.reasonCode !== acceptance.reasonCode
+    || episode.nextActionCode !== acceptance.nextActionCode
+    || containsCandidateMarker(episode.projectRevision)
+    || containsCandidateMarker(episode.environmentRevision)
+  ) {
+    return undefined;
+  }
+  return {
+    acceptanceId,
+    executionId,
+    episodeId: episode.id,
+    attempt: acceptance.attempt,
+  };
+}
+
 async function hasBoundRuntimeFailureEvidence(
   tx: Parameters<Parameters<typeof db.transaction>[0]>[0],
   input: {
@@ -170,7 +269,7 @@ async function hasBoundRuntimeFailureEvidence(
     outcomeContract: unknown;
     diagnosis: WorldStateFailureDiagnosis;
   },
-): Promise<RuntimeFailureSourceBinding | undefined> {
+): Promise<MissionFailureSourceBinding | undefined> {
   const transition = input.diagnosis.transition;
   const acceptanceProjection = jsonRecord(jsonRecord(input.outcomeContract).acceptance);
   const executionId = typeof acceptanceProjection.executionId === "string"
@@ -616,7 +715,27 @@ export async function autoReplanMission(
         reason: "runtime_transition_target_unbound",
       };
     }
-    let runtimeSourceBinding: RuntimeFailureSourceBinding | undefined;
+    let runtimeSourceBinding: MissionFailureSourceBinding | undefined;
+    let validatorSourceBinding: MissionFailureSourceBinding | undefined;
+    if (failureDiagnosis?.kind === "VALIDATOR_FAILED") {
+      validatorSourceBinding = failedGoal && typeof priorPlanRevision === "string"
+        ? await hasBoundValidatorFailureSourceEvidence(tx, {
+            missionId: mission.id,
+            projectId: mission.projectId,
+            goalId: failedGoal.id,
+            priorPlanRevision,
+            outcomeContract: failedGoal.outcomeContract,
+            failureDiagnosis,
+          })
+        : undefined;
+      if (!validatorSourceBinding) {
+        return {
+          status: "skipped" as const,
+          missionId,
+          reason: "failure_source_evidence_unbound",
+        };
+      }
+    }
     if (
       failedGoal
       && worldStateDiagnosis
@@ -631,11 +750,11 @@ export async function autoReplanMission(
         diagnosis: worldStateDiagnosis,
       });
       if (!runtimeSourceBinding) {
-      return {
-        status: "skipped" as const,
-        missionId,
-        reason: "runtime_failure_evidence_unbound",
-      };
+        return {
+          status: "skipped" as const,
+          missionId,
+          reason: "runtime_failure_evidence_unbound",
+        };
       }
     }
     const runtimeStartHypothesisEvidence = failedGoal && typeof priorPlanRevision === "string"
@@ -685,7 +804,7 @@ export async function autoReplanMission(
         failureDiagnosis,
         worldStateFailureDiagnosis: worldStateDiagnosis,
         runtimeStartTargetStepId,
-        runtimeSourceBinding,
+        failureSourceBinding: runtimeSourceBinding ?? validatorSourceBinding,
         worldStatePlanningRead: preview.replanContext?.worldStatePlanningRead,
         evidenceRefs: replanContext?.evidenceRefs ?? [],
         affectedPaths: replanContext?.affectedPaths ?? [],

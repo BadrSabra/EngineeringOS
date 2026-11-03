@@ -491,6 +491,107 @@ describe("DB-backed automatic Mission replan evidence boundary", () => {
     });
   });
 
+  it("binds validator strategy provenance to the exact durable failed attempt", async () => {
+    const fixture = await createReplanEvidenceFixture();
+    const validatorDiagnosis = {
+      kind: "VALIDATOR_FAILED",
+      reasonCode: "VALIDATOR_FAILED",
+      nextActionCode: "REPAIR_AND_REVALIDATE",
+      retryable: true,
+      requiresApproval: false,
+    } as const;
+    await db.update(aiMissionsTable)
+      .set({ intent: MISSION_INTENT })
+      .where(eq(aiMissionsTable.id, fixture.missionId));
+    await db.update(aiGoalsTable).set({
+      outcomeContract: {
+        ...fixture.outcomeContract,
+        acceptance: {
+          ...fixture.outcomeContract.acceptance,
+          failureDiagnosis: validatorDiagnosis,
+          affectedPaths: ["src/auth/session.ts"],
+          acceptedRefs: ["validation:run-12"],
+        },
+      },
+    }).where(eq(aiGoalsTable.id, fixture.goalId));
+    await db.update(aiExecutionAcceptancesTable).set({
+      reasonCode: validatorDiagnosis.reasonCode,
+      nextActionCode: validatorDiagnosis.nextActionCode,
+    }).where(eq(aiExecutionAcceptancesTable.id, fixture.acceptanceId));
+    await db.update(aiAgentEpisodesTable).set({
+      reasonCode: validatorDiagnosis.reasonCode,
+      nextActionCode: validatorDiagnosis.nextActionCode,
+    }).where(eq(aiAgentEpisodesTable.id, fixture.episodeId));
+
+    const result = await autoReplanMission(fixture.missionId, async (input) => ({
+      status: "scheduled",
+      goalId: input.goalId,
+      reason: "scheduled_by_test_fixture",
+    }));
+
+    expect(result.status, JSON.stringify(result)).toBe("replanned");
+    if (result.status !== "replanned") return;
+    const [materializedGoal] = await db.select({
+      successCriteria: aiGoalsTable.successCriteria,
+    }).from(aiGoalsTable).where(eq(aiGoalsTable.id, result.plan.goals[0]!.goalId));
+    expect(materializedGoal?.successCriteria).toMatchObject({
+      planRevision: {
+        strategyDecision: {
+          scenario: "validator_recovery",
+          source: {
+            sourceAcceptanceId: fixture.acceptanceId,
+            sourceExecutionId: fixture.executionId,
+            sourceEpisodeId: fixture.episodeId,
+            sourceAttempt: 2,
+          },
+        },
+      },
+    });
+  });
+
+  it("does not dispatch validator recovery when its acceptance projection is not durable", async () => {
+    const fixture = await createReplanEvidenceFixture();
+    const validatorDiagnosis = {
+      kind: "VALIDATOR_FAILED",
+      reasonCode: "VALIDATOR_FAILED",
+      nextActionCode: "REPAIR_AND_REVALIDATE",
+      retryable: true,
+      requiresApproval: false,
+    } as const;
+    await db.update(aiGoalsTable).set({
+      outcomeContract: {
+        ...fixture.outcomeContract,
+        acceptance: {
+          ...fixture.outcomeContract.acceptance,
+          acceptanceId: randomUUID(),
+          failureDiagnosis: validatorDiagnosis,
+          affectedPaths: ["src/auth/session.ts"],
+          acceptedRefs: ["validation:run-12"],
+        },
+      },
+    }).where(eq(aiGoalsTable.id, fixture.goalId));
+    await db.update(aiExecutionAcceptancesTable).set({
+      reasonCode: validatorDiagnosis.reasonCode,
+      nextActionCode: validatorDiagnosis.nextActionCode,
+    }).where(eq(aiExecutionAcceptancesTable.id, fixture.acceptanceId));
+    await db.update(aiAgentEpisodesTable).set({
+      reasonCode: validatorDiagnosis.reasonCode,
+      nextActionCode: validatorDiagnosis.nextActionCode,
+    }).where(eq(aiAgentEpisodesTable.id, fixture.episodeId));
+    let dispatched = false;
+
+    const result = await autoReplanMission(fixture.missionId, async () => {
+      dispatched = true;
+      return { status: "scheduled", goalId: "unexpected", reason: "unexpected" };
+    });
+
+    expect(result).toMatchObject({
+      status: "skipped",
+      reason: "failure_source_evidence_unbound",
+    });
+    expect(dispatched).toBe(false);
+  });
+
   it("binds a changed trusted fact to the replan revision and advisory task prompt", async () => {
     const fixture = await createReplanEvidenceFixture();
     const [failedGoal] = await db.select({
