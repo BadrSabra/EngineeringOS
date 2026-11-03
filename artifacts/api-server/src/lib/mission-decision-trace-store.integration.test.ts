@@ -920,6 +920,30 @@ describe("Mission decision trace persistence", () => {
       throw new Error("incomplete plan must not advance lifecycle");
     }
     expect(finalizeIncomplete.snapshotId).toBe(first.snapshotId);
+    const terminalFailureAt = new Date(now.getTime() + 240_000);
+    await db.update(aiGoalsTable).set({
+      status: "failed",
+      completedAt: terminalFailureAt,
+      updatedAt: terminalFailureAt,
+    }).where(eq(aiGoalsTable.id, goalId));
+    await db.update(aiExecutionsTable).set({
+      status: "failed",
+      completedAt: terminalFailureAt,
+      updatedAt: terminalFailureAt,
+    }).where(eq(aiExecutionsTable.id, executionId));
+    const terminalFailureWithoutContradiction = await finalizeMissionPlanOutcome(
+      selectedTrace.decisionId,
+      terminalFailureAt,
+    );
+    expect(terminalFailureWithoutContradiction.kind).toBe("inconclusive");
+    if (terminalFailureWithoutContradiction.kind !== "inconclusive") {
+      throw new Error("a terminal failure without contradiction evidence must remain inconclusive");
+    }
+    expect(terminalFailureWithoutContradiction.evaluation.outcome).toBe("INCONCLUSIVE");
+    expect(terminalFailureWithoutContradiction.snapshotId).not.toBe(first.snapshotId);
+    expect(await db.select().from(aiMissionDecisionOutcomeSnapshotsTable)
+      .where(eq(aiMissionDecisionOutcomeSnapshotsTable.decisionId, selectedTrace.decisionId)))
+      .toHaveLength(2);
     expect((await getMissionDecisionTrace(selectedTrace.decisionId))?.events
       .map(({ stage }) => stage).slice(-2))
       .toEqual(["PLAN_APPLIED", "DISPATCHED"]);
