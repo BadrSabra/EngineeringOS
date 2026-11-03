@@ -19,6 +19,7 @@
 - [Task execution UI freshness](task-acceptance-ui-freshness.md) — cached acceptance, receipts, verification results, and capsules need freshness gates as well as server identity checks.
 - [Workflow transition serialization](workflow-transition-lock.md) — serialize phase transitions; workflow deletion locks retryable executions before the workflow row to avoid retry races.
 - [Mission lifecycle continuity](mission-lifecycle-index.md) — grouped pointers for plan, Goal, execution, approval, recovery, and world-state continuity contracts.
+- [Mission replan trace identity](mission-auto-replan.md) — retain failed-source identity while binding applied plans and successor executions by Mission and plan revision.
 - [Release pipeline hardening](release-pipeline-hardening.md) — nested checks reuse parent locks; stale locks are verified before waiting or reclamation.
 - [Controlled release validation](controlled-release-validation.md) — live recovery needs a disposable DB and isolated receipts; provider-free full-index tests need egress guard and isolated startup effects.
 - [Startup scrub contract preservation](startup-scrub-contract-preservation.md) — a `kind` tag alone cannot distinguish validation-result payloads from typed operation acceptance metadata.

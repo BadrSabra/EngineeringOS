@@ -475,6 +475,13 @@ describe("Mission decision trace persistence", () => {
       occurredAt: new Date(now.getTime() + 2_000),
     })).resolves.toMatchObject({ kind: "appended", sequence: 4 });
 
+    await expect(appendMissionDecisionLifecycleEvent({
+      decisionId: selectedTrace.decisionId,
+      stage: "DISPATCHED",
+      referenceId: fixture.executionId,
+      occurredAt: new Date(now.getTime() + 3_000),
+    })).rejects.toMatchObject({ code: "decision_event_reference_invalid" });
+
     const successorExecutionId = randomUUID();
     await db.insert(aiExecutionsTable).values({
       id: successorExecutionId,
@@ -495,17 +502,52 @@ describe("Mission decision trace persistence", () => {
       decisionId: selectedTrace.decisionId,
       stage: "DISPATCHED",
       referenceId: successorExecutionId,
-      occurredAt: new Date(now.getTime() + 3_000),
+      occurredAt: new Date(now.getTime() + 4_000),
     })).resolves.toMatchObject({ kind: "appended", sequence: 5 });
 
-    await db.update(aiGoalsTable).set({
-      outcomeContract: { planRevision: { hash: "applied-plan-revision" } },
-      successCriteria: { planRevision: { hash: "applied-plan-revision" } },
-    }).where(eq(aiGoalsTable.id, fixture.goalId));
+    await expect(appendMissionDecisionLifecycleEvent({
+      decisionId: selectedTrace.decisionId,
+      stage: "EXECUTED",
+      referenceId: successorExecutionId,
+      occurredAt: new Date(now.getTime() + 5_000),
+    })).resolves.toMatchObject({ kind: "appended", sequence: 6 });
+
+    const successorAcceptanceId = randomUUID();
+    await db.insert(aiExecutionAcceptancesTable).values({
+      id: successorAcceptanceId,
+      executionId: successorExecutionId,
+      projectId: fixture.projectId,
+      attempt: 1,
+      finalizationKey: `decision-trace-successor-finalize-${successorAcceptanceId}`,
+      terminalStatus: "failed",
+      outcome: "incomplete",
+      reasonCode: "evidence_incomplete",
+      nextActionCode: "gather_evidence",
+      evidenceRequired: 1,
+      evidenceComplete: 0,
+      resumable: 1,
+      sourceRevision: "decision-project-revision",
+      createdAt: now,
+    });
+    await expect(appendMissionDecisionLifecycleEvent({
+      decisionId: selectedTrace.decisionId,
+      stage: "ACCEPTED",
+      referenceId: fixture.acceptanceId,
+      occurredAt: new Date(now.getTime() + 6_000),
+    })).rejects.toMatchObject({ code: "decision_event_reference_invalid" });
+    await expect(appendMissionDecisionLifecycleEvent({
+      decisionId: selectedTrace.decisionId,
+      stage: "ACCEPTED",
+      referenceId: successorAcceptanceId,
+      occurredAt: new Date(now.getTime() + 7_000),
+    })).resolves.toMatchObject({ kind: "appended", sequence: 7 });
+
     const stored = await getMissionDecisionTrace(selectedTrace.decisionId);
-    expect(stored?.events.slice(-2).map(({ stage, referenceId }) => ({ stage, referenceId }))).toEqual([
+    expect(stored?.events.slice(-4).map(({ stage, referenceId }) => ({ stage, referenceId }))).toEqual([
       { stage: "PLAN_APPLIED", referenceId: "applied-plan-revision" },
       { stage: "DISPATCHED", referenceId: successorExecutionId },
+      { stage: "EXECUTED", referenceId: successorExecutionId },
+      { stage: "ACCEPTED", referenceId: successorAcceptanceId },
     ]);
     expect(stored?.trace.dispatchRef).toBeNull();
   });

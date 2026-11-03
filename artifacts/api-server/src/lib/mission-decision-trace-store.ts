@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { and, asc, eq } from "drizzle-orm";
+import { and, asc, eq, sql } from "drizzle-orm";
 import {
   aiAgentEffectsTable,
   aiAgentEpisodesTable,
@@ -565,10 +565,16 @@ export async function appendMissionDecisionLifecycleEvent(input: {
     }
     if (input.stage === "PLAN_APPLIED") {
       const activePlan = mission ? record(mission.autonomyPolicy).activePlanRevision : null;
+      if (!input.referenceId) {
+        throw new MissionDecisionTraceStoreError("decision_event_reference_invalid");
+      }
+      const planRevisionJson = JSON.stringify({ planRevision: { hash: input.referenceId } });
       const missionGoals = await tx.select().from(aiGoalsTable)
         .where(and(
           eq(aiGoalsTable.missionId, identity.missionId),
           eq(aiGoalsTable.projectId, identity.projectId),
+          sql`${aiGoalsTable.outcomeContract} @> ${planRevisionJson}::jsonb`,
+          sql`${aiGoalsTable.successCriteria} @> ${planRevisionJson}::jsonb`,
         ))
         .for("update");
       const appliedPlanExists = missionGoals.some((candidateGoal) =>
@@ -594,16 +600,17 @@ export async function appendMissionDecisionLifecycleEvent(input: {
           eq(aiExecutionsTable.id, input.referenceId!),
           eq(aiExecutionsTable.projectId, identity.projectId),
         ));
-      const [targetGoal] = candidateExecution
+      const targetGoalId = candidateExecution?.goalId;
+      const [targetGoal] = targetGoalId
         ? await tx.select().from(aiGoalsTable)
             .where(and(
-              eq(aiGoalsTable.id, candidateExecution.goalId),
+              eq(aiGoalsTable.id, targetGoalId),
               eq(aiGoalsTable.missionId, identity.missionId),
               eq(aiGoalsTable.projectId, identity.projectId),
             ))
             .for("update")
         : [];
-      const [execution] = candidateExecution && targetGoal
+      const [execution] = targetGoalId && targetGoal
         ? await tx.select().from(aiExecutionsTable)
             .where(and(
               eq(aiExecutionsTable.id, input.referenceId!),
@@ -636,16 +643,17 @@ export async function appendMissionDecisionLifecycleEvent(input: {
               eq(aiExecutionsTable.projectId, trace.context.identity.projectId),
             ))
         : [];
-      const [targetGoal] = candidateExecution
+      const targetGoalId = candidateExecution?.goalId;
+      const [targetGoal] = targetGoalId
         ? await tx.select().from(aiGoalsTable)
             .where(and(
-              eq(aiGoalsTable.id, candidateExecution.goalId),
+              eq(aiGoalsTable.id, targetGoalId),
               eq(aiGoalsTable.missionId, trace.context.identity.missionId),
               eq(aiGoalsTable.projectId, trace.context.identity.projectId),
             ))
             .for("update")
         : [];
-      const [executedExecution] = candidateExecution && targetGoal
+      const [executedExecution] = targetGoalId && targetGoal
         ? await tx.select().from(aiExecutionsTable)
             .where(and(
               eq(aiExecutionsTable.id, executedExecutionId!),

@@ -130,6 +130,18 @@ async function main() {
       env: databaseEnv,
     });
 
+    if (process.env.MISSION_DECISION_TRACE_ONLY === "1") {
+      console.log("Running isolated successor-identity Mission decision-trace tests.");
+      await run("pnpm", [
+        "--filter", "@workspace/api-server",
+        "exec", "vitest", "run",
+        "src/lib/mission-decision-trace-store.integration.test.ts",
+      ], {
+        env: databaseEnv,
+      });
+      return;
+    }
+
     if (process.env.MISSION_STRATEGY_ONLY === "1") {
       console.log("Running isolated Mission strategy planning and integration tests.");
       await run("pnpm", [
@@ -138,6 +150,7 @@ async function main() {
         "src/lib/mission-auto-replan.test.ts",
         "src/lib/mission-auto-replan-evidence.integration.test.ts",
         "src/lib/mission-strategy-engine.test.ts",
+        "src/lib/mission-decision-trace-store.integration.test.ts",
       ], {
         env: databaseEnv,
       });
