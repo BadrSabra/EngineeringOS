@@ -130,6 +130,30 @@ async function main() {
       env: databaseEnv,
     });
 
+    if (process.env.MISSION_AI_ROUTE_ONLY === "1") {
+      console.log("Running isolated provider-mocked AI route tests.");
+      const args = [
+        "--filter", "@workspace/api-server",
+        "exec", "vitest", "run",
+        "src/routes/ai.test.ts",
+      ];
+      if (process.env.MISSION_AI_ROUTE_TEST_FILTER) {
+        args.push("-t", process.env.MISSION_AI_ROUTE_TEST_FILTER);
+      }
+      await run("pnpm", args, {
+        env: databaseEnv,
+      });
+      return;
+    }
+
+    if (process.env.MISSION_DASHBOARD_JOURNEY_ONLY === "1") {
+      console.log("Running the dashboard browser journey with an isolated loopback database.");
+      await run("pnpm", ["run", "validate:dashboard-journey"], {
+        env: databaseEnv,
+      });
+      return;
+    }
+
     if (process.env.MISSION_DECISION_TRACE_ONLY === "1") {
       console.log("Running isolated successor-identity Mission decision-trace tests.");
       await run("pnpm", [

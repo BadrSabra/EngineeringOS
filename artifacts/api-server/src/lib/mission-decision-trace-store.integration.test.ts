@@ -753,6 +753,95 @@ async function createPersistedEffectOutcomeFixture(
   };
 }
 
+async function createDispatchedPendingOutcomeFixture() {
+  const fixture = await createFixture();
+  const goalId = randomUUID();
+  const taskId = randomUUID();
+  const executionId = randomUUID();
+  const planRevision = `auto:${randomUUID()}:${"b".repeat(64)}`;
+  const selectedTrace = makeSelectedTrace({
+    trace: fixture.trace,
+    worldStateRevision: fixture.worldStateRevision,
+    worldFactId: fixture.worldFactId,
+    worldFactHash: fixture.worldFactHash,
+    expectedEffectCodes: ["runtime.status"],
+    newPlanRevision: planRevision,
+  });
+  await persistMissionDecisionTrace(selectedTrace);
+  await db.update(aiMissionsTable).set({
+    autonomyPolicy: { activePlanRevision: planRevision },
+  }).where(eq(aiMissionsTable.id, fixture.missionId));
+  await db.insert(aiGoalsTable).values({
+    id: goalId,
+    missionId: fixture.missionId,
+    projectId: fixture.projectId,
+    title: "Pending successor Goal without outcome proof",
+    status: "queued",
+    successCriteria: { planRevision: { hash: planRevision } },
+    evidenceContract: { required: true },
+    outcomeContract: { planRevision: { hash: planRevision } },
+    nextAction: { kind: "execute" },
+    createdAt: now,
+    updatedAt: now,
+  });
+  await db.insert(tasksTable).values({
+    id: taskId,
+    projectId: fixture.projectId,
+    goalId,
+    title: "Pending task without outcome proof",
+    description: "Must remain pending until adequate evidence is available.",
+    status: "queued",
+    priority: "p1",
+    phase: "execute",
+    prompt: "Wait for execution and evidence.",
+    createdAt: now,
+    updatedAt: now,
+  });
+  await appendMissionDecisionLifecycleEvent({
+    decisionId: selectedTrace.decisionId,
+    stage: "PLAN_APPLIED",
+    referenceId: planRevision,
+    occurredAt: new Date(now.getTime() + 1_000),
+  });
+  await db.insert(aiExecutionsTable).values({
+    id: executionId,
+    projectId: fixture.projectId,
+    goalId,
+    userId: "decision-trace-test-owner",
+    idempotencyKey: `pending-outcome-${executionId}`,
+    resumeTokenHash: "e".repeat(64),
+    request: "{}",
+    checkpoint: "{}",
+    attempt: 1,
+    status: "queued",
+    linkedTaskId: taskId,
+    baseRevision: "decision-project-revision",
+    createdAt: now,
+    updatedAt: now,
+  });
+  const dispatch = await recordMissionDecisionDispatchBatch({
+    decisionId: selectedTrace.decisionId,
+    planRevision,
+    occurredAt: new Date(now.getTime() + 2_000),
+    items: [{
+      position: 0,
+      goalId,
+      executionId,
+      runStatus: "scheduled",
+    }],
+  });
+  if (dispatch.batch.kind !== "inserted") {
+    throw new Error("pending outcome fixture dispatch batch was not inserted");
+  }
+  return {
+    ...fixture,
+    decisionId: selectedTrace.decisionId,
+    goalId,
+    taskId,
+    executionId,
+  };
+}
+
 async function runMissionOutcomeRecoveryProcess(input: {
   projectId: string;
   crashAfterCommit?: boolean;
@@ -1639,6 +1728,64 @@ describe("Mission decision trace persistence", () => {
     });
     expect(afterTrace?.events.map(({ stage }) => stage).slice(-4))
       .toEqual(["EXECUTED", "ACCEPTED", "VERIFIED", "EVALUATED_AFTER_EXECUTION"]);
+  }, 60_000);
+
+  it("keeps dispatched Goal and Task pending after restart when proof is insufficient", async () => {
+    const fixture = await createDispatchedPendingOutcomeFixture();
+    const beforeTrace = await getMissionDecisionTrace(fixture.decisionId);
+    expect(beforeTrace?.events.map(({ stage }) => stage).slice(-2))
+      .toEqual(["PLAN_APPLIED", "DISPATCHED"]);
+    expect(await db.select().from(aiMissionDecisionOutcomeSnapshotsTable)
+      .where(eq(aiMissionDecisionOutcomeSnapshotsTable.decisionId, fixture.decisionId)))
+      .toHaveLength(0);
+
+    const recovered = await runMissionOutcomeRecoveryProcess({
+      projectId: fixture.projectId,
+    });
+    expect(recovered.code, recovered.output).toBe(0);
+    expect(recovered.output).toMatch(/MISSION_OUTCOME_RECONCILED:[1-9]\d*/u);
+
+    const [goal] = await db.select().from(aiGoalsTable)
+      .where(eq(aiGoalsTable.id, fixture.goalId));
+    const [task] = await db.select().from(tasksTable)
+      .where(eq(tasksTable.id, fixture.taskId));
+    const [execution] = await db.select().from(aiExecutionsTable)
+      .where(eq(aiExecutionsTable.id, fixture.executionId));
+    const afterTrace = await getMissionDecisionTrace(fixture.decisionId);
+    const [snapshot] = await db.select().from(aiMissionDecisionOutcomeSnapshotsTable)
+      .where(eq(aiMissionDecisionOutcomeSnapshotsTable.decisionId, fixture.decisionId));
+    const evaluation = MissionStrategyPlanOutcomeEvaluationSchema.parse(snapshot?.evaluation);
+
+    expect(goal).toMatchObject({ status: "queued", completedAt: null });
+    expect(task).toMatchObject({ status: "queued", completedAt: null });
+    expect(execution).toMatchObject({ status: "queued", completedAt: null });
+    expect(evaluation).toMatchObject({
+      outcome: "INCONCLUSIVE",
+      goalStates: [{ goalId: fixture.goalId, terminal: false, taskIds: [fixture.taskId] }],
+      taskStates: [{ taskId: fixture.taskId, goalId: fixture.goalId, terminal: false }],
+      executions: [{
+        goalId: fixture.goalId,
+        taskId: fixture.taskId,
+        executionId: fixture.executionId,
+        terminal: false,
+        acceptanceId: null,
+        effectBundleId: null,
+        canonicalProofId: null,
+        outcome: "INCONCLUSIVE",
+      }],
+      limitationCodes: expect.arrayContaining([
+        "plan_goal_nonterminal",
+        "plan_task_nonterminal",
+        "plan_execution_nonterminal",
+        "required_execution_evidence_inconclusive",
+      ]),
+    });
+    expect(afterTrace?.events.map(({ stage }) => stage).slice(-2))
+      .toEqual(["PLAN_APPLIED", "DISPATCHED"]);
+    expect(afterTrace?.events.some(({ stage }) =>
+      ["EXECUTED", "ACCEPTED", "VERIFIED", "EVALUATED_AFTER_EXECUTION"].includes(stage)))
+      .toBe(false);
+    expect(snapshot?.outcome).toBe("INCONCLUSIVE");
   }, 60_000);
 
   it("recovers dispatched plan evaluation from the durable event journal without replaying Goal work", async () => {

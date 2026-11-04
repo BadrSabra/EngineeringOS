@@ -5243,7 +5243,7 @@ test.describe("EngineeringOS dashboard browser journey", () => {
       page.getByText("Smoke Project", { exact: true }),
     ).toBeVisible();
 
-    await openNavigation(page, "Event Stream", `${DASHBOARD_PATH}events`);
+    await openNavigation(page, "سجل الأحداث", `${DASHBOARD_PATH}events`);
     await expect(
       page.getByRole("heading", { name: "سجل الأحداث" }),
     ).toBeVisible();
@@ -5253,7 +5253,7 @@ test.describe("EngineeringOS dashboard browser journey", () => {
         .first(),
     ).toBeVisible();
 
-    await openNavigation(page, "AI Assistant", `${DASHBOARD_PATH}ai`);
+    await openNavigation(page, "المساعد الذكي", `${DASHBOARD_PATH}ai`);
     await expect(page).not.toHaveURL(/sign-in/);
     await expect(
       page.getByRole("button", { name: "إجراءات إضافية", exact: true }),
@@ -5261,7 +5261,7 @@ test.describe("EngineeringOS dashboard browser journey", () => {
 
     await openNavigation(
       page,
-      "Mission Control",
+      "لوحة التشغيل",
       `${DASHBOARD_PATH}mission-control`,
     );
     await expect(
@@ -5379,6 +5379,15 @@ test.describe("EngineeringOS dashboard browser journey", () => {
     });
     await expect(
       alerts.getByText("تنبيه محفوظ من مسار Groq غير المفعّل"),
+    ).toBeVisible();
+    await expect(
+      alerts.getByText(
+        "هذا سجل تاريخي لفحص نموذج Groq؛ لا يستخدم المنتج Groq في التوجيه الحالي.",
+      ),
+    ).toBeVisible();
+    await expect(alerts.getByText("مسار غير مفعّل")).toBeVisible();
+    await expect(
+      alerts.getByText(/لا تغيّر إعدادات Groq لهذا التنبيه/),
     ).toBeVisible();
     const modelId = alerts.getByText("openai/retired-fast", { exact: true });
     await expect(modelId).toBeVisible();
@@ -10473,7 +10482,9 @@ test.describe("EngineeringOS dashboard browser journey", () => {
     ).toBeVisible();
 
     await page.getByPlaceholder("ابحث في السجلات...").fill("Filtered release");
-    await page.getByRole("button", { name: "إظهار أو إخفاء عوامل تصفية الأحداث" }).click();
+    await page
+      .getByRole("button", { name: "إظهار أو إخفاء عوامل تصفية الأحداث" })
+      .click();
     await page.locator("select").nth(1).selectOption("success");
     await expect(
       page.getByText("Filtered release event 0", { exact: true }),
@@ -10494,7 +10505,9 @@ test.describe("EngineeringOS dashboard browser journey", () => {
     await expect(page.getByPlaceholder("ابحث في السجلات...")).toHaveValue(
       "Filtered release",
     );
-    await page.getByRole("button", { name: "إظهار أو إخفاء عوامل تصفية الأحداث" }).click();
+    await page
+      .getByRole("button", { name: "إظهار أو إخفاء عوامل تصفية الأحداث" })
+      .click();
     await expect(page.locator("select").nth(1)).toHaveValue("success");
     const filteredRequest = new URL(eventRequests.at(-1)!);
     expect(filteredRequest.searchParams.get("limit")).toBe("50");
@@ -11647,6 +11660,7 @@ test.describe("EngineeringOS dashboard browser journey", () => {
           { exact: true },
         ),
       ).toBeVisible();
+      await expect(ledgerEntry).toContainText("الأدلة المسجلة: INCOMPLETE");
 
       const acceptance = page.getByRole("region", {
         name: "قبول التنفيذ الحالي",
@@ -11671,6 +11685,7 @@ test.describe("EngineeringOS dashboard browser journey", () => {
           { exact: true },
         ),
       ).toBeVisible();
+      await expect(ledgerEntry).toContainText("الأدلة المسجلة: INCOMPLETE");
       expect(await acceptance.innerText()).toBe(acceptanceSnapshot);
       await expect(acceptance).toContainText("START_NEW_PROBE");
       await expect(acceptance).toContainText(
@@ -11686,6 +11701,7 @@ test.describe("EngineeringOS dashboard browser journey", () => {
           { exact: true },
         ),
       ).toBeVisible();
+      await expect(ledgerEntry).toContainText("الأدلة المسجلة: INCOMPLETE");
       expect(await acceptance.innerText()).toBe(acceptanceSnapshot);
     };
 
@@ -12224,7 +12240,7 @@ test.describe("EngineeringOS dashboard browser journey", () => {
       .click();
     await assertBlockedCitation();
 
-    await openNavigation(page, "Event Stream", `${DASHBOARD_PATH}events`);
+    await openNavigation(page, "سجل الأحداث", `${DASHBOARD_PATH}events`);
     await navigateBrowserHistory(page, "back");
     await expect(page).toHaveURL(
       new RegExp(`${DASHBOARD_PATH.replaceAll("/", "\\/")}ai$`),
@@ -13018,7 +13034,7 @@ test.describe("EngineeringOS dashboard browser journey", () => {
     await expectNoHorizontalOverflow(page);
   });
 
-  test("keeps supported provider controls reachable at narrow phone widths", async ({
+  test("keeps provider cards and active controls reachable on narrow phones", async ({
     page,
   }) => {
     const fixture = await installArabicAiFixture(page);
@@ -13047,42 +13063,38 @@ test.describe("EngineeringOS dashboard browser journey", () => {
 
       const providerCards = drawer.locator(".provider-key-card");
       await expect(providerCards).toHaveCount(4);
-      const activeProvider = providerCards.filter({
-        hasText: "مفتاح OpenRouter",
-      });
-      await expect(activeProvider).toHaveCount(1);
-      await activeProvider.scrollIntoViewIfNeeded();
-      await expect(activeProvider).toBeVisible();
-
-      const input = activeProvider.locator('input[type="password"]');
-      const save = activeProvider.getByRole("button", {
-        name: "حفظ مفتاح OpenRouter",
-        exact: true,
-      });
-      await expect(input).toBeVisible();
-      await expect(save).toBeVisible();
-      await input.scrollIntoViewIfNeeded();
-      await save.evaluate((element) =>
-        element.scrollIntoView({ block: "center", inline: "nearest" }),
-      );
-      await expectWithinViewport(input, viewport, `OpenRouter key input at ${width}px`);
-      await expectWithinViewport(save, viewport, `OpenRouter Save control at ${width}px`);
-
-      for (const provider of ["Gemini", "DeepSeek", "Groq"]) {
-        const inactiveProvider = providerCards.filter({
+      for (const provider of ["OpenRouter", "Gemini", "DeepSeek", "Groq"]) {
+        const card = providerCards.filter({
           hasText: `مفتاح ${provider}`,
         });
-        await expect(inactiveProvider).toHaveCount(1);
-        await inactiveProvider.scrollIntoViewIfNeeded();
-        await expect(inactiveProvider).toBeVisible();
-        await expect(inactiveProvider).toContainText("غير مفعّل");
-        await expect(inactiveProvider.locator('input[type="password"]')).toHaveCount(0);
-        await expect(
-          inactiveProvider.getByRole("button", {
-            name: `حفظ مفتاح ${provider}`,
-            exact: true,
-          }),
-        ).toHaveCount(0);
+        await expect(card).toHaveCount(1);
+        await card.scrollIntoViewIfNeeded();
+        await expect(card).toBeVisible();
+
+        const input = card.locator('input[type="password"]');
+        const save = card.getByRole("button", { name: `حفظ مفتاح ${provider}`, exact: true });
+        if (provider === "OpenRouter") {
+          await expect(input).toBeVisible();
+          await expect(save).toBeVisible();
+          await input.scrollIntoViewIfNeeded();
+          await save.evaluate((element) =>
+            element.scrollIntoView({ block: "center", inline: "nearest" }),
+          );
+          await expectWithinViewport(
+            input,
+            viewport,
+            `${provider} key input at ${width}px`,
+          );
+          await expectWithinViewport(
+            save,
+            viewport,
+            `${provider} Save control at ${width}px`,
+          );
+        } else {
+          await expect(card).toContainText("غير مفعّل");
+          await expect(input).toHaveCount(0);
+          await expect(save).toHaveCount(0);
+        }
       }
 
       await expectWithinViewport(composer, viewport, `composer with drawer at ${width}px`);

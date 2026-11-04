@@ -610,6 +610,49 @@ async function insertProject(): Promise<string> {
   return id;
 }
 
+function completeProjectOrientationSourceSelectionRecord() {
+  const roles = {
+    purpose: "README.md",
+    components: "package.json",
+    primaryFlow: "src/index.ts",
+    uncertainty: "src/routes.ts",
+  };
+  const plannedFiles = Object.values(roles);
+  return {
+    plannerTier: "targeted" as const,
+    plannedFiles,
+    fileStatuses: plannedFiles.map((file) => ({
+      path: file,
+      origin: "planned" as const,
+      readStatus: "READ_COMPLETE" as const,
+    })),
+    truncatedPlannedCount: 0,
+    skippedPlannedCount: 0,
+    orientationCoverage: {
+      purpose: { plannedFiles: [roles.purpose], complete: true },
+      components: { plannedFiles: [roles.components], complete: true },
+      primaryFlow: { plannedFiles: [roles.primaryFlow], complete: true },
+      uncertainty: { plannedFiles: [roles.uncertainty], complete: true },
+      complete: true,
+      missingRoles: [],
+    },
+  };
+}
+
+function seedCompleteProjectOrientationEvidence(input: Record<string, any>) {
+  const retainedEvidence = input.retainedEvidence as Map<string, string> | undefined;
+  const retainedReadStatuses = input.retainedReadStatuses as Map<string, string> | undefined;
+  for (const file of [
+    "README.md",
+    "package.json",
+    "src/index.ts",
+    "src/routes.ts",
+  ]) {
+    retainedEvidence?.set(file, `Verified project-orientation evidence for ${file}.`);
+    retainedReadStatuses?.set(file, "READ_COMPLETE");
+  }
+}
+
 function lastSseEvent(text: string): Record<string, unknown> {
   const dataLine = text
     .split("\n")
@@ -1616,13 +1659,17 @@ describe("POST /api/ai/chat", () => {
     const { chat: mockChat } = await import("@workspace/ai-orchestrator");
     const response = "The project answer was assembled from retained source evidence.";
 
-    vi.mocked(mockChat).mockImplementationOnce(async () => ({
-      response,
-      sources: ["src/project.ts"],
-      pendingChanges: [],
-      projectQueryResponseSource: "deterministic_fallback",
-      projectQueryResponseFallbackReason: "synthesis_failed",
-    }));
+    vi.mocked(mockChat).mockImplementationOnce(async (input) => {
+      seedCompleteProjectOrientationEvidence(input as Record<string, any>);
+      return {
+        response,
+        sources: ["src/project.ts"],
+        pendingChanges: [],
+        sourceSelectionRecord: completeProjectOrientationSourceSelectionRecord(),
+        projectQueryResponseSource: "deterministic_fallback",
+        projectQueryResponseFallbackReason: "synthesis_failed",
+      };
+    });
 
     const json = await request(app)
       .post("/api/ai/chat")
@@ -3034,10 +3081,12 @@ describe("POST /api/ai/chat", () => {
     vi.mocked(mockClassifyRequest).mockImplementationOnce(actual.classifyRequest);
     vi.mocked(mockChat).mockImplementationOnce(async (input) => {
       explanationInput = input as typeof explanationInput;
+      seedCompleteProjectOrientationEvidence(input as Record<string, any>);
       return {
         response: "هذا شرح للمعمارية فقط.",
         sources: ["src/verified.ts"],
         pendingChanges: [],
+        sourceSelectionRecord: completeProjectOrientationSourceSelectionRecord(),
       };
     });
 
@@ -3203,10 +3252,12 @@ describe("POST /api/ai/chat", () => {
     vi.mocked(mockClassifyRequest).mockImplementationOnce(actual.classifyRequest);
     vi.mocked(mockChat).mockImplementationOnce(async (input) => {
       questionInput = input as typeof questionInput;
+      seedCompleteProjectOrientationEvidence(input as Record<string, any>);
       return {
         response: "The project uses a server-owned implementation workflow.",
         sources: [],
         pendingChanges: [],
+        sourceSelectionRecord: completeProjectOrientationSourceSelectionRecord(),
         taskResult: approvedPlan,
       };
     });
@@ -7615,6 +7666,7 @@ describe("delivery recovery routes", () => {
       }
     }
     },
+    60_000,
   );
 
   it("does not report validated recovery when its workspace is gone", async () => {
