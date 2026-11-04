@@ -2405,6 +2405,92 @@ describe("Mission decision trace persistence", () => {
 });
 
 describe("Mission strategy shadow reconciliation", () => {
+  it("retries a temporarily failed comparison after later batch entries are saved", async () => {
+    const fixture = await createFixture();
+    const planRevision = `shadow-retry-${randomUUID()}`;
+    const failedTrace = makeSelectedTrace({
+      trace: fixture.trace,
+      worldStateRevision: fixture.worldStateRevision,
+      worldFactId: fixture.worldFactId,
+      worldFactHash: fixture.worldFactHash,
+      newPlanRevision: planRevision,
+    });
+    const laterTrace = makeSelectedTrace({
+      trace: {
+        ...fixture.trace,
+        context: {
+          ...fixture.trace.context,
+          capturedAt: new Date(now.getTime() + 500).toISOString(),
+        },
+      },
+      worldStateRevision: fixture.worldStateRevision,
+      worldFactId: fixture.worldFactId,
+      worldFactHash: fixture.worldFactHash,
+      newPlanRevision: planRevision,
+    });
+    await persistMissionDecisionTrace(failedTrace);
+    await persistMissionDecisionTrace(laterTrace);
+    await db.update(aiGoalsTable).set({
+      successCriteria: { planRevision: { hash: planRevision } },
+      outcomeContract: { planRevision: { hash: planRevision } },
+    }).where(eq(aiGoalsTable.id, fixture.goalId));
+    await db.update(aiMissionsTable).set({
+      autonomyPolicy: { activePlanRevision: planRevision },
+    }).where(eq(aiMissionsTable.id, fixture.missionId));
+    await appendMissionDecisionLifecycleEvent({
+      decisionId: failedTrace.decisionId,
+      stage: "PLAN_APPLIED",
+      referenceId: planRevision,
+      occurredAt: new Date(now.getTime() + 1_000),
+    });
+    await appendMissionDecisionLifecycleEvent({
+      decisionId: laterTrace.decisionId,
+      stage: "PLAN_APPLIED",
+      referenceId: planRevision,
+      occurredAt: new Date(now.getTime() + 2_000),
+    });
+
+    const authoritativeStateBefore = {
+      mission: await db.select().from(aiMissionsTable).where(eq(aiMissionsTable.id, fixture.missionId)),
+      goals: await db.select().from(aiGoalsTable).where(eq(aiGoalsTable.missionId, fixture.missionId)),
+      executions: await db.select().from(aiExecutionsTable).where(eq(aiExecutionsTable.goalId, fixture.goalId)),
+      acceptances: await db.select().from(aiExecutionAcceptancesTable)
+        .where(eq(aiExecutionAcceptancesTable.executionId, fixture.executionId)),
+      tasks: await db.select().from(tasksTable).where(eq(tasksTable.goalId, fixture.goalId)),
+    };
+
+    const transactionSpy = vi.spyOn(db, "transaction")
+      .mockRejectedValueOnce(new Error("transient shadow persistence failure"));
+    let firstPassCount: number;
+    try {
+      firstPassCount = await reconcilePendingMissionDecisionShadows(8, fixture.projectId);
+    } finally {
+      transactionSpy.mockRestore();
+    }
+    expect(firstPassCount).toBe(1);
+    expect(await db.select().from(aiMissionDecisionShadowComparisonsTable)
+      .where(eq(aiMissionDecisionShadowComparisonsTable.decisionId, failedTrace.decisionId))).toHaveLength(0);
+    expect(await db.select().from(aiMissionDecisionShadowComparisonsTable)
+      .where(eq(aiMissionDecisionShadowComparisonsTable.decisionId, laterTrace.decisionId))).toHaveLength(1);
+
+    expect(await reconcilePendingMissionDecisionShadows(8, fixture.projectId)).toBe(1);
+    expect(await reconcilePendingMissionDecisionShadows(8, fixture.projectId)).toBe(0);
+    const shadowRows = await db.select().from(aiMissionDecisionShadowComparisonsTable)
+      .where(eq(aiMissionDecisionShadowComparisonsTable.projectId, fixture.projectId));
+    expect(shadowRows).toHaveLength(2);
+    expect(new Set(shadowRows.map(({ decisionId }) => decisionId))).toEqual(
+      new Set([failedTrace.decisionId, laterTrace.decisionId]),
+    );
+    expect({
+      mission: await db.select().from(aiMissionsTable).where(eq(aiMissionsTable.id, fixture.missionId)),
+      goals: await db.select().from(aiGoalsTable).where(eq(aiGoalsTable.missionId, fixture.missionId)),
+      executions: await db.select().from(aiExecutionsTable).where(eq(aiExecutionsTable.goalId, fixture.goalId)),
+      acceptances: await db.select().from(aiExecutionAcceptancesTable)
+        .where(eq(aiExecutionAcceptancesTable.executionId, fixture.executionId)),
+      tasks: await db.select().from(tasksTable).where(eq(tasksTable.goalId, fixture.goalId)),
+    }).toEqual(authoritativeStateBefore);
+  });
+
   it("records an applied-trace comparison idempotently without changing authoritative Mission state", async () => {
     const fixture = await createFixture();
     const planRevision = `shadow-applied-${randomUUID()}`;

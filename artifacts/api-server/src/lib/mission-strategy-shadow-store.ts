@@ -16,10 +16,6 @@ import {
 import { logger } from "./logger.js";
 
 const MAX_SHADOW_RECONCILIATION_BATCH = 32;
-const shadowReconciliationCursors = new Map<
-  string,
-  { occurredAt: Date; decisionId: string } | null
->();
 
 type ShadowCandidate = {
   decisionId: string;
@@ -184,11 +180,6 @@ async function loadPendingShadowCandidates(
   batchSize: number,
   projectId?: string,
 ): Promise<ShadowCandidate[]> {
-  const scopeKey = projectId ?? "*";
-  const cursor = shadowReconciliationCursors.get(scopeKey);
-  const cursorCondition = cursor
-    ? sql`AND (event.occurred_at, event.decision_id) > (${cursor.occurredAt}::timestamp, ${cursor.decisionId})`
-    : sql``;
   const projectCondition = projectId
     ? sql`AND trace.project_id = ${projectId}`
     : sql``;
@@ -209,7 +200,6 @@ async function loadPendingShadowCandidates(
           AND shadow.evaluator_version = ${MISSION_STRATEGY_EVALUATOR_VERSION}
       )
       ${projectCondition}
-      ${cursorCondition}
     ORDER BY event.occurred_at ASC, event.decision_id ASC
     LIMIT ${batchSize}
   `);
@@ -232,17 +222,8 @@ export async function reconcilePendingMissionDecisionShadows(
   if (!Number.isInteger(batchSize) || batchSize < 1 || batchSize > MAX_SHADOW_RECONCILIATION_BATCH) {
     throw new MissionStrategyShadowStoreError("batch_size_invalid");
   }
-  const scopeKey = projectId ?? "*";
   const candidates = await loadPendingShadowCandidates(batchSize, projectId);
-  if (candidates.length === 0) {
-    shadowReconciliationCursors.set(scopeKey, null);
-    return 0;
-  }
-  const lastCandidate = candidates.at(-1)!;
-  shadowReconciliationCursors.set(scopeKey, {
-    occurredAt: lastCandidate.occurredAt,
-    decisionId: lastCandidate.decisionId,
-  });
+  if (candidates.length === 0) return 0;
 
   let recorded = 0;
   for (const candidate of candidates) {
