@@ -105,12 +105,12 @@ function CopyValue({ value }: { value: string | null | undefined }) {
       type="button"
       onClick={() => void copy()}
       disabled={!value}
-      title={value || 'No value recorded'}
+      title={value || 'لا توجد قيمة مسجلة'}
       className="group inline-flex min-w-0 items-center gap-1.5 font-mono text-[11px] text-slate-300 transition-colors hover:text-cyan-200 disabled:cursor-default disabled:text-slate-600"
     >
       <span className="truncate">{compactId(value)}</span>
       {value ? <Copy className={`h-3 w-3 shrink-0 transition-opacity ${copied ? 'text-emerald-300 opacity-100' : 'opacity-0 group-hover:opacity-100'}`} /> : null}
-      {copied ? <span className="font-sans text-[10px] text-emerald-300">Copied</span> : null}
+      {copied ? <span className="font-sans text-[10px] text-emerald-300">نُسخ</span> : null}
     </button>
   );
 }
@@ -163,7 +163,7 @@ function RegistryEntry({
             <h2 className="truncate text-lg font-semibold tracking-tight text-slate-100">{row.skillId}</h2>
             <span className="font-mono text-sm text-cyan-300">v{row.skillVersion}</span>
           </div>
-          <p className="mt-1 text-xs text-slate-500">Registered {formatDate(row.createdAt, true)} · updated {formatDate(row.updatedAt, true)}</p>
+           <p className="mt-1 text-xs text-slate-500">تاريخ التسجيل {formatDate(row.createdAt, true)} · آخر تحديث {formatDate(row.updatedAt, true)}</p>
         </div>
         <div className="flex shrink-0 items-center gap-2">
           {canApprove ? (
@@ -174,7 +174,7 @@ function RegistryEntry({
               disabled={actionBusy}
               className="inline-flex items-center gap-2 rounded-md border border-emerald-400/30 bg-emerald-400/10 px-3 py-2 text-xs font-semibold text-emerald-200 transition-colors hover:bg-emerald-400/20 disabled:cursor-wait disabled:opacity-50"
             >
-              <ShieldCheck className="h-3.5 w-3.5" /> {actionBusy ? 'Working…' : 'Approve'}
+              <ShieldCheck className="h-3.5 w-3.5" /> {actionBusy ? 'جارٍ التنفيذ…' : 'موافقة'}
             </button>
           ) : null}
           {canRevoke ? (
@@ -185,10 +185,10 @@ function RegistryEntry({
               disabled={actionBusy}
               className="inline-flex items-center gap-2 rounded-md border border-rose-400/30 bg-rose-400/10 px-3 py-2 text-xs font-semibold text-rose-200 transition-colors hover:bg-rose-400/20 disabled:cursor-wait disabled:opacity-50"
             >
-              <ShieldX className="h-3.5 w-3.5" /> {actionBusy ? 'Working…' : 'Revoke'}
+              <ShieldX className="h-3.5 w-3.5" /> {actionBusy ? 'جارٍ التنفيذ…' : 'إلغاء التفعيل'}
             </button>
           ) : null}
-          {!canApprove && !canRevoke ? <span className="text-xs text-slate-600">No operator action</span> : null}
+          {!canApprove && !canRevoke ? <span className="text-xs text-slate-600">لا يلزم إجراء</span> : null}
         </div>
       </div>
 
@@ -197,7 +197,7 @@ function RegistryEntry({
           <div className={`rounded-lg border p-4 ${gate.panel}`}>
             <div className="flex items-start justify-between gap-3">
               <div>
-                <p className="font-mono text-[10px] uppercase tracking-[0.16em] text-slate-500">Gate 3 / shadow replay</p>
+                 <p className="font-mono text-[10px] uppercase tracking-[0.16em] text-slate-500">البوابة ٣ / إعادة تشغيل الظل</p>
                 <p className={`mt-1 flex items-center gap-2 text-sm font-semibold ${gate.text}`}>
                   {gate.label}
                    {score.promotionAllowed ? <CheckCircle2 className="h-4 w-4" /> : <AlertCircle className="h-4 w-4" />}
@@ -206,14 +206,14 @@ function RegistryEntry({
                <span className="font-mono text-xs text-slate-500">{score.contractVersion || '—'}</span>
             </div>
             <div className="mt-4 grid grid-cols-2 gap-3 border-t border-slate-700/60 pt-3 text-xs">
-               <div><span className="block text-slate-500">Pair</span><CopyValue value={score.pairId} /></div>
-               <div><span className="block text-slate-500">Suite</span><span className="font-mono text-slate-300">{score.suiteVersion || 'Not recorded'}</span></div>
-               <div><span className="block text-slate-500">Cases</span><span className="font-mono text-slate-300">{score.caseCount}</span></div>
-               <div><span className="block text-slate-500">Terminal mismatches</span><span className={`font-mono ${score.terminalMismatchCount ? 'text-amber-200' : 'text-emerald-300'}`}>{score.terminalMismatchCount}</span></div>
+                <div><span className="block text-slate-500">المقارنة</span><CopyValue value={score.pairId} /></div>
+                <div><span className="block text-slate-500">الإصدار</span><span dir="ltr" className="font-mono text-slate-300">{score.suiteVersion || 'غير مسجل'}</span></div>
+                <div><span className="block text-slate-500">الحالات</span><span className="font-mono text-slate-300">{score.caseCount}</span></div>
+                <div><span className="block text-slate-500">حالات عدم التطابق النهائية</span><span className={`font-mono ${score.terminalMismatchCount ? 'text-amber-200' : 'text-emerald-300'}`}>{score.terminalMismatchCount}</span></div>
             </div>
              {score.blockers.length > 0 ? (
               <div className="mt-3 border-t border-slate-700/60 pt-3">
-                <p className="mb-1 text-[10px] uppercase tracking-[0.12em] text-amber-200/70">Blockers</p>
+                 <p className="mb-1 text-[10px] uppercase tracking-[0.12em] text-amber-200/70">العوائق</p>
                 <ul className="space-y-1 text-xs text-amber-100/80">
                    {score.blockers.map((blocker) => <li key={blocker} className="flex gap-2"><span className="text-amber-300">·</span>{blocker}</li>)}
                 </ul>
@@ -222,12 +222,12 @@ function RegistryEntry({
           </div>
 
           <div className="rounded-lg border border-slate-800 bg-slate-950/25 p-4">
-            <p className="mb-3 font-mono text-[10px] uppercase tracking-[0.16em] text-slate-500">Promotion trail</p>
+            <p className="mb-3 font-mono text-[10px] uppercase tracking-[0.16em] text-slate-500">سجل الترقية</p>
             <div className="grid gap-3 text-xs sm:grid-cols-2">
-              <div><span className="mb-1 block text-slate-500">Approved by</span><CopyValue value={row.approvedBy} /></div>
-              <div><span className="mb-1 block text-slate-500">Approved at</span><span className="text-slate-300">{formatDate(row.approvedAt, true)}</span></div>
-              <div><span className="mb-1 block text-slate-500">Revoked by</span><CopyValue value={row.revokedBy} /></div>
-              <div><span className="mb-1 block text-slate-500">Revoked at</span><span className="text-slate-300">{formatDate(row.revokedAt, true)}</span></div>
+              <div><span className="mb-1 block text-slate-500">وافق عليه</span><CopyValue value={row.approvedBy} /></div>
+              <div><span className="mb-1 block text-slate-500">تاريخ الموافقة</span><span className="text-slate-300">{formatDate(row.approvedAt, true)}</span></div>
+              <div><span className="mb-1 block text-slate-500">ألغى تفعيله</span><CopyValue value={row.revokedBy} /></div>
+              <div><span className="mb-1 block text-slate-500">تاريخ إلغاء التفعيل</span><span className="text-slate-300">{formatDate(row.revokedAt, true)}</span></div>
             </div>
           </div>
         </div>
@@ -235,29 +235,29 @@ function RegistryEntry({
         <div className="space-y-4">
           <div className="rounded-lg border border-slate-800 bg-slate-950/25 p-4">
             <div className="mb-3 flex items-center justify-between gap-3">
-              <p className="font-mono text-[10px] uppercase tracking-[0.16em] text-slate-500">Proof receipt / source</p>
+              <p className="font-mono text-[10px] uppercase tracking-[0.16em] text-slate-500">إيصال الإثبات / المصدر</p>
               <LockKeyhole className="h-3.5 w-3.5 text-cyan-300/70" />
             </div>
             <dl className="grid gap-x-5 gap-y-3 sm:grid-cols-2">
-              <div><dt className="text-[11px] text-slate-500">Proof receipt</dt><dd><CopyValue value={row.proofReceiptId} /></dd></div>
-              <div><dt className="text-[11px] text-slate-500">Candidate</dt><dd><CopyValue value={row.candidateId} /></dd></div>
-              <div><dt className="text-[11px] text-slate-500">Proposal</dt><dd><CopyValue value={row.proposalId} /></dd></div>
-              <div><dt className="text-[11px] text-slate-500">Shadow replay</dt><dd><CopyValue value={row.shadowReplayId} /></dd></div>
-              <div><dt className="text-[11px] text-slate-500">Source revision</dt><dd><CopyValue value={row.sourceRevision} /></dd></div>
-              <div><dt className="text-[11px] text-slate-500">Candidate tree hash</dt><dd><CopyValue value={row.candidateTreeHash} /></dd></div>
+              <div><dt className="text-[11px] text-slate-500">إيصال الإثبات</dt><dd><CopyValue value={row.proofReceiptId} /></dd></div>
+              <div><dt className="text-[11px] text-slate-500">المرشح</dt><dd><CopyValue value={row.candidateId} /></dd></div>
+              <div><dt className="text-[11px] text-slate-500">المقترح</dt><dd><CopyValue value={row.proposalId} /></dd></div>
+              <div><dt className="text-[11px] text-slate-500">إعادة تشغيل الظل</dt><dd><CopyValue value={row.shadowReplayId} /></dd></div>
+              <div><dt className="text-[11px] text-slate-500">مراجعة المصدر</dt><dd><CopyValue value={row.sourceRevision} /></dd></div>
+              <div><dt className="text-[11px] text-slate-500">بصمة شجرة المرشح</dt><dd><CopyValue value={row.candidateTreeHash} /></dd></div>
             </dl>
           </div>
 
           <div className="rounded-lg border border-slate-800 bg-slate-950/25 p-4">
             <div className="mb-2 flex items-center justify-between">
-              <p className="font-mono text-[10px] uppercase tracking-[0.16em] text-slate-500">Metric deltas</p>
-              <span className="text-[10px] text-slate-600">candidate − baseline</span>
+              <p className="font-mono text-[10px] uppercase tracking-[0.16em] text-slate-500">فروق المؤشرات</p>
+              <span className="text-[10px] text-slate-600">المرشح − خط الأساس</span>
             </div>
-            {metricEntries.length > 0 ? metricEntries.map(([name, value]) => <MetricDelta key={name} name={name} value={value} />) : <p className="py-2 text-xs text-slate-600">No metric deltas were returned.</p>}
+            {metricEntries.length > 0 ? metricEntries.map(([name, value]) => <MetricDelta key={name} name={name} value={value} />) : <p className="py-2 text-xs text-slate-600">لم تُعَد أي فروق للمؤشرات.</p>}
             <div className="mt-3 flex items-center gap-2 border-t border-slate-800 pt-3 text-[11px] text-slate-500">
-               <span>Baseline</span><CopyValue value={score.baselineWorkspaceHash} />
+               <span>خط الأساس</span><CopyValue value={score.baselineWorkspaceHash} />
               <ArrowUpRight className="ml-auto h-3 w-3 text-slate-600" />
-               <span>Candidate</span><CopyValue value={score.candidateWorkspaceHash} />
+               <span>المرشح</span><CopyValue value={score.candidateWorkspaceHash} />
             </div>
           </div>
         </div>
@@ -353,21 +353,21 @@ export default function SkillRegistry() {
   const activePromotedCount = registry.filter((row) => row.promotionStatus === 'promoted' && row.revocationStatus === 'active').length;
 
   return (
-    <div className="min-h-[100dvh] space-y-6 pb-10">
+    <div dir="rtl" lang="ar" className="min-h-[100dvh] space-y-6 pb-10">
       <header className="flex flex-col gap-5 border-b border-slate-800/80 pb-6 xl:flex-row xl:items-end xl:justify-between">
         <div className="max-w-3xl">
           <div className="mb-3 flex items-center gap-2 font-mono text-[10px] uppercase tracking-[0.18em] text-cyan-300/80">
             <span className="h-1.5 w-1.5 rounded-full bg-cyan-300 shadow-[0_0_10px_rgba(103,232,249,0.7)]" />
-            Trusted control surface / Gate 3
+            واجهة تحكم موثوقة / البوابة ٣
           </div>
-          <h1 className="text-3xl font-semibold tracking-[-0.03em] text-slate-100 sm:text-4xl">Skill Registry</h1>
+          <h1 className="text-3xl font-semibold tracking-[-0.03em] text-slate-100 sm:text-4xl">سجل المهارات</h1>
           <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-400">
-            Approve proof-carrying skills only when their shadow replay is promotion-eligible. Every receipt, revision, and uncertainty stays visible.
+            لا توافق إلا على المهارات المدعومة بإثبات عندما تكون إعادة تشغيل الظل مؤهلة للترقية. تبقى الإيصالات والمراجعات وأوجه عدم اليقين ظاهرة.
           </p>
         </div>
         <div className="flex w-full flex-col gap-2 sm:flex-row xl:w-auto">
           <label className="relative min-w-0 sm:min-w-[260px]">
-            <span className="sr-only">Select owned project</span>
+            <span className="sr-only">اختر مشروعًا تملكه</span>
             <select
               data-testid="project-select"
               value={effectiveProjectId}
@@ -375,7 +375,7 @@ export default function SkillRegistry() {
               disabled={projectsLoading || !projects?.length}
               className="w-full appearance-none rounded-md border border-slate-700 bg-slate-900 px-3 py-2.5 pr-9 text-sm font-medium text-slate-200 outline-none transition-colors hover:border-slate-600 focus:border-cyan-300/60 disabled:cursor-not-allowed disabled:opacity-60"
             >
-              {projects?.length ? projects.map((project) => <option key={project.id} value={String(project.id)}>{project.name}</option>) : <option>No owned projects</option>}
+              {projects?.length ? projects.map((project) => <option key={project.id} value={String(project.id)}>{project.name}</option>) : <option>لا توجد مشاريع تملكها</option>}
             </select>
             <ChevronDown className="pointer-events-none absolute right-3 top-3 h-4 w-4 text-slate-500" />
           </label>
@@ -386,26 +386,26 @@ export default function SkillRegistry() {
             disabled={isRefreshing || !effectiveProjectId}
             className="inline-flex items-center justify-center gap-2 rounded-md border border-slate-700 bg-slate-900 px-3 py-2.5 text-sm font-medium text-slate-300 transition-colors hover:border-slate-600 hover:text-slate-100 disabled:cursor-wait disabled:opacity-60"
           >
-            <RefreshCw className={`h-4 w-4 ${isRefreshing ? 'animate-spin' : ''}`} /> Refresh registry
+            <RefreshCw className={`h-4 w-4 ${isRefreshing ? 'animate-spin' : ''}`} /> تحديث السجل
           </button>
         </div>
       </header>
 
-      {projectsError ? <RequestError message="Unable to load owned projects." onRetry={() => void refetchProjects()} /> : null}
+      {projectsError ? <RequestError message="تعذّر تحميل المشاريع التي تملكها." retryLabel="حاول مجددًا" onRetry={() => void refetchProjects()} /> : null}
 
       {!projectsLoading && !effectiveProjectId ? (
         <div className="rounded-xl border border-dashed border-slate-700 bg-slate-900/35 px-6 py-16 text-center">
           <Waypoints className="mx-auto mb-4 h-8 w-8 text-slate-600" />
-          <h2 className="text-lg font-semibold text-slate-200">No owned project selected</h2>
-          <p className="mx-auto mt-2 max-w-md text-sm text-slate-500">Choose an owned project to inspect its proof-backed skill registry.</p>
+          <h2 className="text-lg font-semibold text-slate-200">لم يتم اختيار مشروع تملكه</h2>
+          <p className="mx-auto mt-2 max-w-md text-sm text-slate-500">اختر مشروعًا تملكه لمراجعة سجل مهاراته المدعوم بالإثبات.</p>
         </div>
       ) : (
         <>
-          <section className="grid gap-3 sm:grid-cols-3" aria-label="Registry summary">
+          <section className="grid gap-3 sm:grid-cols-3" aria-label="ملخص سجل المهارات">
             {[
-              { label: 'Registry entries', value: registry.length, icon: KeyRound, tone: 'text-cyan-300' },
-              { label: 'Pending review', value: pendingCount, icon: Clock3, tone: 'text-amber-200' },
-              { label: 'Promoted / active', value: activePromotedCount, icon: ShieldCheck, tone: 'text-emerald-300' },
+              { label: 'مدخلات السجل', value: registry.length, icon: KeyRound, tone: 'text-cyan-300' },
+              { label: 'بانتظار المراجعة', value: pendingCount, icon: Clock3, tone: 'text-amber-200' },
+              { label: 'مُرقّاة / نشطة', value: activePromotedCount, icon: ShieldCheck, tone: 'text-emerald-300' },
             ].map(({ label, value, icon: Icon, tone }) => (
               <div key={label} className="rounded-lg border border-slate-800 bg-slate-900/45 px-4 py-3">
                 <div className="flex items-center justify-between text-xs text-slate-500"><span>{label}</span><Icon className={`h-4 w-4 ${tone}`} /></div>
@@ -415,21 +415,21 @@ export default function SkillRegistry() {
           </section>
 
           <div className="flex flex-col gap-2 text-xs text-slate-500 sm:flex-row sm:items-center sm:justify-between">
-            <p className="flex items-center gap-2"><GitCommitHorizontal className="h-3.5 w-3.5 text-slate-600" /> Viewing <span className="font-medium text-slate-300">{selectedProject?.name ?? effectiveProjectId}</span></p>
-            {lastUpdated ? <p>Last checked {new Date(lastUpdated).toLocaleTimeString()}</p> : null}
+            <p className="flex items-center gap-2"><GitCommitHorizontal className="h-3.5 w-3.5 text-slate-600" /> المشروع المحدد: <span className="font-medium text-slate-300" dir="auto">{selectedProject?.name ?? effectiveProjectId}</span></p>
+            {lastUpdated ? <p>آخر فحص {new Date(lastUpdated).toLocaleTimeString('ar')}</p> : null}
           </div>
 
-          {loadError ? <RequestError message={loadError instanceof Error ? loadError.message : 'Unable to load the skill registry.'} onRetry={() => void loadRegistry(effectiveProjectId, true)} /> : null}
+          {loadError ? <RequestError message={loadError instanceof Error ? loadError.message : 'تعذّر تحميل سجل المهارات.'} retryLabel="حاول مجددًا" onRetry={() => void loadRegistry(effectiveProjectId, true)} /> : null}
 
           {isLoading ? (
-            <div className="space-y-4" aria-label="Loading skill registry">
+            <div className="space-y-4" aria-label="جارٍ تحميل سجل المهارات">
               {[1, 2].map((item) => <div key={item} className="h-72 animate-pulse rounded-xl border border-slate-800 bg-slate-900/50" />)}
             </div>
           ) : !loadError && registry.length === 0 ? (
             <div className="rounded-xl border border-dashed border-slate-700 bg-slate-900/35 px-6 py-16 text-center">
               <LockKeyhole className="mx-auto mb-4 h-8 w-8 text-slate-600" />
-              <h2 className="text-lg font-semibold text-slate-200">Registry is clear</h2>
-              <p className="mx-auto mt-2 max-w-lg text-sm leading-6 text-slate-500">No proof-carrying skills have been registered for this project. New candidates will appear here with their Gate 3 evidence before promotion.</p>
+              <h2 className="text-lg font-semibold text-slate-200">السجل خالٍ</h2>
+              <p className="mx-auto mt-2 max-w-lg text-sm leading-6 text-slate-500">لم تُسجّل مهارات مدعومة بإثبات لهذا المشروع. ستظهر المرشحات الجديدة هنا مع أدلة البوابة ٣ قبل ترقيتها.</p>
             </div>
           ) : (
             <div className="space-y-4">

@@ -53,13 +53,13 @@ export default function Events() {
   const hasNextPage = page * PAGE_SIZE < total;
 
   return (
-    <div className="space-y-6 h-full flex flex-col">
+    <div dir="rtl" lang="ar" className="space-y-6 h-full flex flex-col">
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 shrink-0">
         <div>
-          <h1 className="text-2xl font-bold tracking-tight">Event Stream</h1>
+          <h1 className="text-2xl font-bold tracking-tight">سجل الأحداث</h1>
           <p className="text-muted-foreground text-sm mt-1">
-            Real-time log of all system activities.
-            {' '}Page {page}. Filters are applied across your event history.
+            سجل مباشر لأنشطة النظام.
+            {' '}صفحة <bdi dir="ltr">{page}</bdi>. تُطبَّق عوامل التصفية على سجل الأحداث بالكامل.
           </p>
         </div>
         <div
@@ -75,15 +75,15 @@ export default function Events() {
                  setSearchTerm(e.target.value);
                  setPage(1);
                }}
-              placeholder="Search logs..."
+              placeholder="ابحث في السجلات..."
               className="w-full min-w-0 bg-card border border-border rounded-md pl-9 pr-4 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-primary sm:w-64"
             />
           </div>
           <div className="shrink-0">
-            <RefreshButton onRefresh={refetch} isRefreshing={isLoading} label="Refresh events" />
+            <RefreshButton onRefresh={refetch} isRefreshing={isLoading} label="تحديث الأحداث" />
           </div>
           <button
-            aria-label="Toggle event filters"
+            aria-label="إظهار أو إخفاء عوامل تصفية الأحداث"
             onClick={() => setShowFilters((v) => !v)}
             className={`shrink-0 p-2 border rounded-md transition-colors relative ${
               showFilters || activeFilterCount > 0
@@ -104,7 +104,7 @@ export default function Events() {
       {showFilters && (
         <div className="flex flex-wrap items-center gap-3 shrink-0 bg-card border border-border rounded-xl p-4">
           <div className="flex items-center gap-2">
-            <span className="text-xs text-muted-foreground font-medium">Project</span>
+            <span className="text-xs text-muted-foreground font-medium">المشروع</span>
             <select
               value={projectId}
                onChange={(e) => {
@@ -113,7 +113,7 @@ export default function Events() {
                }}
               className="bg-secondary/50 border border-border rounded-md px-2 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-primary"
             >
-              <option value="">All projects</option>
+              <option value="">كل المشاريع</option>
               {projects?.map((p) => (
                 <option key={p.id} value={p.id}>
                   {p.name}
@@ -122,7 +122,7 @@ export default function Events() {
             </select>
           </div>
           <div className="flex items-center gap-2">
-            <span className="text-xs text-muted-foreground font-medium">Severity</span>
+            <span className="text-xs text-muted-foreground font-medium">مستوى الخطورة</span>
             <select
               value={severity}
                onChange={(e) => {
@@ -131,23 +131,24 @@ export default function Events() {
                }}
               className="bg-secondary/50 border border-border rounded-md px-2 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-primary"
             >
-              <option value="">All severities</option>
+              <option value="">كل المستويات</option>
               {SEVERITIES.map((s) => (
                 <option key={s} value={s}>
-                  {s}
+                  {s === 'info' ? 'معلومة' : s === 'warning' ? 'تحذير' : s === 'error' ? 'خطأ' : 'نجاح'}
                 </option>
               ))}
             </select>
           </div>
           <div className="flex items-center gap-2">
-            <span className="text-xs text-muted-foreground font-medium">Operation</span>
+            <span className="text-xs text-muted-foreground font-medium">العملية</span>
             <input
               value={correlationId}
                onChange={(e) => {
                  setCorrelationId(e.target.value);
                  setPage(1);
                }}
-              placeholder="correlationId"
+              placeholder="معرّف الارتباط"
+              dir="ltr"
               className="w-64 bg-secondary/50 border border-border rounded-md px-2 py-1.5 text-xs font-mono focus:outline-none focus:ring-1 focus:ring-primary"
             />
           </div>
@@ -162,7 +163,7 @@ export default function Events() {
               }}
               className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground"
             >
-              <X className="w-3 h-3" /> Clear
+              <X className="w-3 h-3" /> مسح عوامل التصفية
             </button>
           )}
         </div>
@@ -172,39 +173,40 @@ export default function Events() {
         <div
           data-testid="events-log-scroll"
           role="region"
-          aria-label="Event log rows; scroll horizontally to view all columns."
+          aria-label="سجل الأحداث؛ مرّر أفقيًا لعرض بقية الأعمدة."
           tabIndex={0}
+          dir="ltr"
           className="min-w-0 flex-1 overflow-auto"
         >
           <div className="min-w-[900px]">
             <div className="p-2 border-b border-border bg-card/50 flex gap-4 text-xs text-muted-foreground sticky top-0 z-10 shadow-sm backdrop-blur-md">
-              <div className="w-32">Timestamp</div>
-              <div className="w-16">Level</div>
-              <div className="w-32">Type</div>
-              <div className="w-48 truncate">Project</div>
-              <div className="w-56 truncate">Operation</div>
-              <div className="flex-1">Message</div>
+              <div className="w-32">الوقت</div>
+              <div className="w-16">المستوى</div>
+              <div className="w-32">النوع</div>
+              <div className="w-48 truncate">المشروع</div>
+              <div className="w-56 truncate">العملية</div>
+              <div className="flex-1">الرسالة</div>
             </div>
 
             <div className="p-2">
               {isLoading ? (
                 <div className="p-4 text-primary animate-pulse flex items-center gap-2">
-                  <span className="w-2 h-2 bg-primary rounded-full animate-ping"></span> Loading events…
+                  <span className="w-2 h-2 bg-primary rounded-full animate-ping"></span> جارٍ تحميل الأحداث…
                 </div>
               ) : isError ? (
                 <div className="p-8 text-red-300">
-                  <p>Unable to load events{error instanceof Error && error.message ? `: ${error.message}` : '.'}</p>
+                  <p>تعذّر تحميل الأحداث{error instanceof Error && error.message ? `: ${error.message}` : '.'}</p>
                   <button
                     type="button"
                     onClick={() => void refetch()}
                     className="mt-3 rounded-md border border-red-400/50 px-3 py-1.5 text-xs text-red-200 hover:bg-red-950/40"
                   >
-                    Retry
+                    حاول مجددًا
                   </button>
                 </div>
               ) : (events?.length ?? 0) === 0 ? (
                 <div className="p-8 text-muted-foreground opacity-50">
-                  {activeFilterCount > 0 ? 'No events match the current filters.' : 'No events recorded.'}
+                  {activeFilterCount > 0 ? 'لا توجد أحداث تطابق عوامل التصفية الحالية.' : 'لا توجد أحداث مسجلة.'}
                 </div>
               ) : (
                 <div className="space-y-0.5">
@@ -227,12 +229,12 @@ export default function Events() {
                           {new Date(evt.timestamp).toISOString().split('T')[1].replace('Z', '')}
                         </div>
                         <div className="w-16 font-bold uppercase shrink-0">
-                          {evt.severity || 'INFO'}
+                          {evt.severity === 'info' ? 'معلومة' : evt.severity === 'warning' ? 'تحذير' : evt.severity === 'error' ? 'خطأ' : evt.severity === 'success' ? 'نجاح' : evt.severity || 'معلومة'}
                         </div>
                         <div className="w-32 opacity-80 shrink-0 truncate">{evt.type}</div>
                         <div className="w-48 opacity-60 shrink-0 truncate">{evt.projectId || '-'}</div>
                         <div className="w-56 opacity-60 shrink-0 truncate" title={evt.correlationId || undefined}>
-                          {evt.correlationId || 'not linked'}
+                          {evt.correlationId || 'غير مرتبط'}
                         </div>
                         <div className="flex-1 whitespace-pre-wrap break-words">{evt.message}</div>
                       </div>
@@ -246,7 +248,7 @@ export default function Events() {
         {!isLoading && !isError && (events?.length ?? 0) > 0 && (
           <div className="shrink-0 border-t border-border bg-card/50 px-3 py-2 flex items-center justify-between text-xs text-muted-foreground">
             <span>
-               Showing {((page - 1) * PAGE_SIZE) + 1}–{((page - 1) * PAGE_SIZE) + events.length} of {total}
+                عرض {((page - 1) * PAGE_SIZE) + 1}–{((page - 1) * PAGE_SIZE) + events.length} من {total}
             </span>
             <div className="flex items-center gap-2">
               <button
@@ -255,7 +257,7 @@ export default function Events() {
                 onClick={() => setPage((current) => Math.max(1, current - 1))}
                 className="rounded-md border border-border px-3 py-1.5 hover:bg-secondary disabled:cursor-not-allowed disabled:opacity-40"
               >
-                Newer
+                الأحدث
               </button>
               <button
                 type="button"
@@ -263,7 +265,7 @@ export default function Events() {
                 onClick={() => setPage((current) => current + 1)}
                 className="rounded-md border border-border px-3 py-1.5 hover:bg-secondary disabled:cursor-not-allowed disabled:opacity-40"
               >
-                Older
+                الأقدم
               </button>
             </div>
           </div>

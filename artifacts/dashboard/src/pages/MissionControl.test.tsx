@@ -343,24 +343,24 @@ describe('Mission Control', () => {
   it('shows execution state, operational metrics, evidence, and Flight Deck link', async () => {
     renderPage();
 
-    expect(await screen.findByRole('heading', { name: 'Mission Control' })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { name: 'مركز المهام' })).toBeInTheDocument();
     expect(await screen.findByText('Repair the auth scope check')).toBeInTheDocument();
     expect(screen.getAllByText('READY FOR REVIEW').length).toBeGreaterThan(0);
     expect(screen.queryByText('openrouter / openai/gpt-4.1-mini')).not.toBeInTheDocument();
     expect(screen.queryByText('openrouter')).not.toBeInTheDocument();
     expect(screen.queryByText('openai/gpt-4.1-mini')).not.toBeInTheDocument();
-    expect(screen.getByText('Validation failures: 1')).toBeInTheDocument();
-    expect(screen.getByText('Validation')).toBeInTheDocument();
-    expect(screen.getByText('Recorder evidence')).toBeInTheDocument();
-    expect(screen.getByText('Deterministic release gate')).toBeInTheDocument();
-    expect(screen.getByLabelText('Runtime oracle preflight')).toHaveTextContent('single-file-002');
-    expect(screen.getByLabelText('Runtime oracle preflight')).toHaveTextContent('pnpm --dir lib/ai-orchestrator exec vitest run src/benchmark-scenarios/single-file-002.test.ts');
-    expect(screen.getByLabelText('Runtime oracle preflight')).toHaveTextContent('passed');
-    expect(screen.getByText('Empirical quality review')).toBeInTheDocument();
-    expect(screen.getByText('Opt-in measurement only — never a release control.')).toBeInTheDocument();
-    expect(screen.getByText('Corpus public-disposable-v1')).toBeInTheDocument();
+    expect(screen.getByText('إخفاقات التحقق: 1')).toBeInTheDocument();
+    expect(screen.getByText('التحقق')).toBeInTheDocument();
+    expect(screen.getByText('أدلة المسجل')).toBeInTheDocument();
+    expect(screen.getByText('بوابة الإصدار الحتمية')).toBeInTheDocument();
+    expect(screen.getByLabelText('فحص مسبق لمراقب التشغيل')).toHaveTextContent('single-file-002');
+    expect(screen.getByLabelText('فحص مسبق لمراقب التشغيل')).toHaveTextContent('pnpm --dir lib/ai-orchestrator exec vitest run src/benchmark-scenarios/single-file-002.test.ts');
+    expect(screen.getByLabelText('فحص مسبق لمراقب التشغيل')).toHaveTextContent('passed');
+    expect(screen.getByText('مراجعة الجودة التجريبية')).toBeInTheDocument();
+    expect(screen.getByText('قياس اختياري فقط — وليس معيارًا للإصدار.')).toBeInTheDocument();
+    expect(screen.getByText('public-disposable-v1')).toBeInTheDocument();
     expect(screen.getByText('Validation and behavior proof accepted.')).toBeInTheDocument();
-    expect(screen.getByRole('link', { name: /Open Flight Deck/i })).toHaveAttribute(
+    expect(screen.getByRole('link', { name: /افتح لوحة متابعة التنفيذ/i })).toHaveAttribute(
       'href',
       '/flight-deck?executionId=execution-1',
     );
@@ -392,7 +392,7 @@ describe('Mission Control', () => {
     renderPage();
 
     expect(screen.queryByTestId('mission-capsule')).not.toBeInTheDocument();
-    expect(screen.queryByRole('region', { name: 'Evidence Braid' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('region', { name: 'سلسلة الأدلة' })).not.toBeInTheDocument();
     expect(screen.queryByRole('region', { name: 'World Transition timeline' })).not.toBeInTheDocument();
   });
 
@@ -583,14 +583,14 @@ describe('Mission Control', () => {
     });
     renderPage();
 
-    const braid = await screen.findByRole('region', { name: 'Evidence Braid' });
+    const braid = await screen.findByRole('region', { name: 'سلسلة الأدلة' });
     expect(braid).toHaveTextContent('ACTION_REQUESTED');
     expect(braid).toHaveTextContent('DIRECT_OBSERVATION');
     expect(braid).toHaveTextContent('observed');
     expect(braid).toHaveTextContent('OBSERVED');
-    expect(braid).toHaveTextContent('World revision · world-revision-2');
-    expect(braid).toHaveTextContent('Acceptance · current attempt');
-    expect(braid).toHaveTextContent('1 bound World Transition record(s)');
+    expect(braid).toHaveTextContent('مراجعة حالة العالم · world-revision-2');
+    expect(braid).toHaveTextContent('القبول · المحاولة الحالية');
+    expect(braid).toHaveTextContent('1 سجلات انتقال حالة عالم مرتبطة');
     expect(braid).not.toHaveTextContent('private-event-payload');
     expect(braid).not.toHaveTextContent('private-observation-value');
     expect(braid).not.toHaveTextContent('private-episode-scope');
@@ -683,21 +683,21 @@ describe('Mission Control', () => {
     };
     renderPage();
 
-    const acceptance = await screen.findByRole('region', { name: 'Current execution acceptance' });
+    const acceptance = await screen.findByRole('region', { name: 'قبول التنفيذ الحالي' });
     expect(within(acceptance).getByText('Start a new scoped run before relying on this result.')).toBeInTheDocument();
     expect(within(acceptance).getByText('ABANDON_EXECUTION')).toBeInTheDocument();
     expect(within(acceptance).queryByText('REVIEW_INCOMPLETE_EVIDENCE')).not.toBeInTheDocument();
 
     fireEvent.click(screen.getByRole('button', { name: /incomplete evidence/i }));
-    expect(within(screen.getByRole('region', { name: 'Current execution acceptance' })).getByText(
+    expect(within(screen.getByRole('region', { name: 'قبول التنفيذ الحالي' })).getByText(
       'Review the incomplete evidence before relying on this result.',
     )).toBeInTheDocument();
-    expect(within(screen.getByRole('region', { name: 'Current execution acceptance' })).getByText(
+    expect(within(screen.getByRole('region', { name: 'قبول التنفيذ الحالي' })).getByText(
       'REVIEW_INCOMPLETE_EVIDENCE',
     )).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole('button', { name: /run capability probe/i }));
-    const probeAcceptance = screen.getByRole('region', { name: 'Current execution acceptance' });
+    const probeAcceptance = screen.getByRole('region', { name: 'قبول التنفيذ الحالي' });
     expect(within(probeAcceptance).getByText('Start a new scoped probe.')).toBeInTheDocument();
     expect(within(probeAcceptance).getByText('START_NEW_PROBE')).toBeInTheDocument();
   });
@@ -730,7 +730,7 @@ describe('Mission Control', () => {
     renderPage();
 
     expect(screen.getByLabelText('Acceptance: incomplete')).toBeInTheDocument();
-    const acceptance = await screen.findByRole('region', { name: 'Current execution acceptance' });
+    const acceptance = await screen.findByRole('region', { name: 'قبول التنفيذ الحالي' });
     expect(acceptance).toHaveTextContent('Acceptance: incomplete');
     expect(acceptance).toHaveTextContent('Review the incomplete evidence before relying on this result.');
     expect(acceptance).toHaveTextContent('REVIEW_INCOMPLETE_EVIDENCE');
@@ -759,12 +759,12 @@ describe('Mission Control', () => {
     };
     renderPage();
 
-    const runtimeOracle = await screen.findByLabelText('Runtime oracle preflight');
-    expect(screen.getByLabelText('Deterministic release gate')).toHaveTextContent('blocked');
+    const runtimeOracle = await screen.findByLabelText('فحص مسبق لمراقب التشغيل');
+    expect(screen.getByLabelText('بوابة الإصدار الحتمية')).toHaveTextContent('blocked');
     expect(runtimeOracle).toHaveTextContent('failed');
     expect(runtimeOracle).toHaveTextContent('test-failure-001');
     expect(runtimeOracle).toHaveTextContent('RUNTIME_ORACLE_FAILED');
-    expect(runtimeOracle).toHaveTextContent('Failure identifiers');
+    expect(runtimeOracle).toHaveTextContent('معرّفات الإخفاق');
     expect(runtimeOracle).not.toHaveTextContent('provider output');
   });
 
@@ -782,12 +782,12 @@ describe('Mission Control', () => {
     expect(screen.queryByText('openai · gpt-4o-mini')).not.toBeInTheDocument();
     expect(screen.queryByText('openrouter')).not.toBeInTheDocument();
     expect(screen.queryByText('gpt-4o-mini')).not.toBeInTheDocument();
-    expect(screen.getAllByText('Attempts')).toHaveLength(2);
+    expect(screen.getAllByText('المحاولات')).toHaveLength(2);
     expect(within(screen.getByLabelText('Historical provider recovery summaries')).getByText('3')).toBeInTheDocument();
     expect(within(screen.getByLabelText('Historical provider recovery summaries')).getByText('2')).toBeInTheDocument();
     expect(screen.getByText('Correct Completion Rate')).toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole('button', { name: 'Refresh' }));
+    fireEvent.click(screen.getByRole('button', { name: 'تحديث' }));
     expect(refetchMissionControl).toHaveBeenCalledTimes(1);
     expect(refetchExecutionDetail).toHaveBeenCalledTimes(1);
 
@@ -825,10 +825,10 @@ describe('Mission Control', () => {
     };
     renderPage();
 
-    expect(await screen.findByText('Baseline comparison')).toBeInTheDocument();
+    expect(await screen.findByText('مقارنة خط الأساس')).toBeInTheDocument();
     expect(screen.getByText('Correct Completion Rate')).toBeInTheDocument();
     expect(screen.queryByText('Historical report recovery details')).not.toBeInTheDocument();
-    expect(screen.queryByText('Provider recovery')).not.toBeInTheDocument();
+    expect(screen.queryByText('استعادة مزود الذكاء الاصطناعي')).not.toBeInTheDocument();
   });
 
   it('helps operators search, filter, and page through the complete execution history', async () => {
@@ -846,29 +846,29 @@ describe('Mission Control', () => {
     };
     renderPage();
 
-    expect(await screen.findByText('10 of 10 runs')).toBeInTheDocument();
-    expect(screen.getByText('Showing 1–8 of 10')).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Next history page' })).toBeEnabled();
+    expect(await screen.findByText('10 من 10 عملية')).toBeInTheDocument();
+    expect(screen.getByText('عرض 1–8 من 10')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'صفحة السجل التالية' })).toBeEnabled();
     expect(screen.queryByText('Investigate the quota recovery path')).not.toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole('button', { name: 'Next history page' }));
-    expect(screen.getByText('Showing 9–10 of 10')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'صفحة السجل التالية' }));
+    expect(screen.getByText('عرض 9–10 من 10')).toBeInTheDocument();
     expect(screen.getByText('Investigate the quota recovery path')).toBeInTheDocument();
-    expect(screen.getByText('Failure: RATE_LIMIT')).toBeInTheDocument();
-    expect(screen.getByText('Action: Switch provider')).toBeInTheDocument();
-    expect(screen.getByText('Recorded evidence: INCOMPLETE')).toBeInTheDocument();
+    expect(screen.getByText('الإخفاق: RATE_LIMIT')).toBeInTheDocument();
+    expect(screen.getByText('الإجراء: Switch provider')).toBeInTheDocument();
+    expect(screen.getByText('الأدلة المسجلة: INCOMPLETE')).toBeInTheDocument();
 
-    fireEvent.change(screen.getByRole('searchbox', { name: 'Search execution history' }), {
+    fireEvent.change(screen.getByRole('searchbox', { name: 'البحث في سجل التنفيذ' }), {
       target: { value: 'quota' },
     });
-    expect(screen.getByText('1 of 10 runs')).toBeInTheDocument();
-    expect(screen.getByText('Showing 1–1 of 1')).toBeInTheDocument();
+    expect(screen.getByText('1 من 10 عملية')).toBeInTheDocument();
+    expect(screen.getByText('عرض 1–1 من 1')).toBeInTheDocument();
     expect(screen.getByText('Investigate the quota recovery path')).toBeInTheDocument();
 
-    fireEvent.change(screen.getByRole('combobox', { name: 'Filter execution history by state' }), {
+    fireEvent.change(screen.getByRole('combobox', { name: 'تصفية سجل التنفيذ حسب الحالة' }), {
       target: { value: 'READY_FOR_REVIEW' },
     });
-    expect(screen.getByText('No executions match this search or state filter.')).toBeInTheDocument();
+    expect(screen.getByText('لا توجد عمليات تطابق البحث أو مرشح الحالة.')).toBeInTheDocument();
   });
 
   it('labels execution-history evidence as recorded rather than current Canonical Proof', async () => {
@@ -882,9 +882,9 @@ describe('Mission Control', () => {
     };
     renderPage();
 
-    expect(await screen.findByText('1 of 1 runs')).toBeInTheDocument();
-    expect(screen.getByText('Recorded evidence: PROVEN')).toBeInTheDocument();
-    expect(screen.getByText(/current Canonical Proof is not revalidated in this ledger/i)).toBeInTheDocument();
+    expect(await screen.findByText('1 من 1 عملية')).toBeInTheDocument();
+    expect(screen.getByText('الأدلة المسجلة: PROVEN')).toBeInTheDocument();
+    expect(screen.getByText(/لا يُعاد التحقق من الإثبات المعتمد الحالي في هذا السجل/)).toBeInTheDocument();
   });
 
   it('exports every filtered execution with recovery and benchmark context, not just the current page', async () => {
@@ -906,10 +906,10 @@ describe('Mission Control', () => {
     const click = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {});
 
     renderPage();
-    fireEvent.change(screen.getByRole('searchbox', { name: 'Search execution history' }), {
+    fireEvent.change(screen.getByRole('searchbox', { name: 'البحث في سجل التنفيذ' }), {
       target: { value: 'repair run' },
     });
-    fireEvent.click(screen.getByRole('button', { name: 'Export filtered history' }));
+    fireEvent.click(screen.getByRole('button', { name: 'تصدير السجل المصفّى' }));
 
     expect(createObjectURL).toHaveBeenCalledTimes(1);
     const blob = createObjectURL.mock.calls[0][0] as Blob;
@@ -951,13 +951,13 @@ describe('Mission Control', () => {
     const click = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {});
 
     renderPage();
-    fireEvent.change(screen.getByRole('searchbox', { name: 'Search execution history' }), {
+    fireEvent.change(screen.getByRole('searchbox', { name: 'البحث في سجل التنفيذ' }), {
       target: { value: 'included' },
     });
-    fireEvent.change(screen.getByRole('combobox', { name: 'Export format' }), {
+    fireEvent.change(screen.getByRole('combobox', { name: 'صيغة التصدير' }), {
       target: { value: 'json' },
     });
-    fireEvent.click(screen.getByRole('button', { name: 'Export filtered history' }));
+    fireEvent.click(screen.getByRole('button', { name: 'تصدير السجل المصفّى' }));
 
     const blob = createObjectURL.mock.calls[0][0] as Blob;
     const exported = JSON.parse(await blob.text()) as {
@@ -1016,7 +1016,7 @@ describe('Mission Control', () => {
     const click = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {});
 
     renderPage();
-    fireEvent.click(screen.getByRole('button', { name: 'Export filtered history' }));
+    fireEvent.click(screen.getByRole('button', { name: 'تصدير السجل المصفّى' }));
 
     const blob = createObjectURL.mock.calls[0][0] as Blob;
     const csv = await blob.text();
@@ -1028,10 +1028,10 @@ describe('Mission Control', () => {
     expect(click).toHaveBeenCalled();
     expect(revokeObjectURL).toHaveBeenCalledWith('blob:mission-control-failed-oracle');
 
-    fireEvent.change(screen.getByRole('combobox', { name: 'Export format' }), {
+    fireEvent.change(screen.getByRole('combobox', { name: 'صيغة التصدير' }), {
       target: { value: 'json' },
     });
-    fireEvent.click(screen.getByRole('button', { name: 'Export filtered history' }));
+    fireEvent.click(screen.getByRole('button', { name: 'تصدير السجل المصفّى' }));
     const jsonBlob = createObjectURL.mock.calls.at(-1)?.[0] as Blob;
     const exported = JSON.parse(await jsonBlob.text()) as {
       benchmark: { releaseGate?: { runtimeOraclePreflight?: unknown } };
@@ -1055,14 +1055,14 @@ describe('Mission Control', () => {
   it('clearly disables export when the active filters match no executions', async () => {
     renderPage();
 
-    fireEvent.change(screen.getByRole('searchbox', { name: 'Search execution history' }), {
+    fireEvent.change(screen.getByRole('searchbox', { name: 'البحث في سجل التنفيذ' }), {
       target: { value: 'does-not-exist' },
     });
 
-    const exportButton = screen.getByRole('button', { name: 'Export filtered history (no matching executions)' });
+    const exportButton = screen.getByRole('button', { name: 'تصدير السجل المصفّى (لا توجد عمليات مطابقة)' });
     expect(exportButton).toBeDisabled();
-    expect(screen.getByRole('combobox', { name: 'Export format' })).toBeEnabled();
-    expect(screen.getByRole('status')).toHaveTextContent('There are no matching executions to export.');
+    expect(screen.getByRole('combobox', { name: 'صيغة التصدير' })).toBeEnabled();
+    expect(screen.getByRole('status')).toHaveTextContent('لا توجد عمليات مطابقة للتصدير.');
   });
 
   it('imports a nested JSON history and shows a read-only side-by-side comparison', async () => {
@@ -1082,7 +1082,7 @@ describe('Mission Control', () => {
     };
     const file = new File([JSON.stringify(imported)], 'recovery-history.json', { type: 'application/json' });
 
-    fireEvent.change(screen.getByLabelText('Import JSON recovery history'), { target: { files: [file] } });
+    fireEvent.change(screen.getByLabelText('استيراد سجل الاستعادة بصيغة JSON'), { target: { files: [file] } });
 
     expect(await screen.findByRole('heading', { name: 'Imported history comparison' })).toBeInTheDocument();
     expect(screen.getByText('A read-only comparison. The live execution ledger has not been changed.')).toBeInTheDocument();
@@ -1118,7 +1118,7 @@ describe('Mission Control', () => {
       },
     };
     const file = new File([JSON.stringify(imported)], 'comparison.json', { type: 'application/json' });
-    fireEvent.change(screen.getByLabelText('Import JSON recovery history'), { target: { files: [file] } });
+    fireEvent.change(screen.getByLabelText('استيراد سجل الاستعادة بصيغة JSON'), { target: { files: [file] } });
 
     const liveRun = await screen.findByTestId('comparison-run-live-run');
     const currentEvidenceStatus = within(liveRun).getByTestId('comparison-evidence-status-live-run');
@@ -1160,7 +1160,7 @@ describe('Mission Control', () => {
       },
     };
     const file = new File([JSON.stringify(imported)], 'comparison.json', { type: 'application/json' });
-    fireEvent.change(screen.getByLabelText('Import JSON recovery history'), { target: { files: [file] } });
+    fireEvent.change(screen.getByLabelText('استيراد سجل الاستعادة بصيغة JSON'), { target: { files: [file] } });
 
     expect(await screen.findByTestId('comparison-run-live-run')).toHaveTextContent('execution-1');
     expect(screen.getByTestId('comparison-run-imported-run')).toHaveTextContent('archived-1');
@@ -1219,9 +1219,9 @@ describe('Mission Control', () => {
     vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {});
 
     renderPage();
-    fireEvent.change(screen.getByLabelText('Import JSON recovery history'), { target: { files: [file] } });
+    fireEvent.change(screen.getByLabelText('استيراد سجل الاستعادة بصيغة JSON'), { target: { files: [file] } });
     expect(await screen.findByRole('heading', { name: 'Imported history comparison' })).toBeInTheDocument();
-    fireEvent.change(screen.getByRole('combobox', { name: 'Export format' }), { target: { value: 'json' } });
+    fireEvent.change(screen.getByRole('combobox', { name: 'صيغة التصدير' }), { target: { value: 'json' } });
     fireEvent.click(screen.getByRole('button', { name: 'Export selected live and imported run pair' }));
 
     const blob = createObjectURL.mock.calls.at(-1)?.[0] as Blob;
@@ -1299,9 +1299,9 @@ describe('Mission Control', () => {
     const click = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {});
 
     renderPage();
-    fireEvent.change(screen.getByLabelText('Import JSON recovery history'), { target: { files: [file] } });
+    fireEvent.change(screen.getByLabelText('استيراد سجل الاستعادة بصيغة JSON'), { target: { files: [file] } });
     expect(await screen.findByRole('heading', { name: 'Imported history comparison' })).toBeInTheDocument();
-    fireEvent.change(screen.getByRole('combobox', { name: 'Export format' }), { target: { value: 'csv' } });
+    fireEvent.change(screen.getByRole('combobox', { name: 'صيغة التصدير' }), { target: { value: 'csv' } });
     fireEvent.click(screen.getByRole('button', { name: 'Export selected live and imported run pair' }));
 
     const blob = createObjectURL.mock.calls.at(-1)?.[0] as Blob;
@@ -1357,7 +1357,7 @@ describe('Mission Control', () => {
       benchmark: { scorecard: { metrics: {} }, baseline: { baselineId: 'missing-metrics' } },
     })], 'invalid-history.json', { type: 'application/json' });
 
-    fireEvent.change(screen.getByLabelText('Import JSON recovery history'), { target: { files: [file] } });
+    fireEvent.change(screen.getByLabelText('استيراد سجل الاستعادة بصيغة JSON'), { target: { files: [file] } });
 
     expect(await screen.findByRole('alert')).toHaveTextContent('Benchmark baseline.metrics must be a nested object.');
     expect(screen.queryByRole('heading', { name: 'Imported history comparison' })).not.toBeInTheDocument();

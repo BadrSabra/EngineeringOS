@@ -258,15 +258,15 @@ export default function Graph() {
   }
 
   return (
-    <div className="space-y-4 h-full flex flex-col">
+    <div dir="rtl" lang="ar" className="space-y-4 h-full flex flex-col">
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 shrink-0">
         <div>
           <h1 className="text-2xl font-bold tracking-tight flex items-center gap-2">
-            <Network className="w-6 h-6 text-primary" /> Knowledge Graph
+            <Network className="w-6 h-6 text-primary" /> الرسم البياني للمعرفة
           </h1>
           <p className="text-muted-foreground text-sm mt-1">
-            Structural dependency map extracted from source code.
+            خريطة الاعتماد البنيوي المستخرجة من الشيفرة المصدرية.
           </p>
         </div>
         <div className="flex items-center gap-3">
@@ -274,7 +274,7 @@ export default function Graph() {
             onRefresh={async () => { await Promise.all([refetchProjects(), refetchEntities(), refetchRelationships(), refetchSummary()]); }}
             isRefreshing={isRefetching}
             lastUpdated={dataUpdatedAt}
-            label="Refresh graph"
+            label="تحديث الرسم البياني"
           />
           <select
             value={effectiveProjectId}
@@ -291,7 +291,7 @@ export default function Graph() {
               type="text"
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
-              placeholder="Find entity..."
+              placeholder="ابحث عن عنصر..."
               className="bg-card border border-border rounded-md pl-9 pr-4 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-primary w-56"
             />
           </div>
@@ -300,33 +300,33 @@ export default function Graph() {
 
       {projectsLoading ? (
         <div className="rounded-xl border border-border bg-card p-8 text-center text-sm text-muted-foreground animate-pulse">
-          Loading projects…
+          جارٍ تحميل المشاريع…
         </div>
       ) : projectsError ? (
-        <RequestError message="Unable to load projects for the graph." onRetry={() => void refetchProjects()} />
+        <RequestError message="تعذّر تحميل المشاريع لعرض الرسم البياني." onRetry={() => void refetchProjects()} />
       ) : !projects || projects.length === 0 ? (
         <div className="rounded-xl border border-dashed border-border bg-card p-10 text-center">
           <Network className="mx-auto mb-3 h-10 w-10 text-muted-foreground opacity-30" />
-          <p className="text-sm font-medium">No projects are available for graph analysis.</p>
-          <p className="mt-1 text-xs text-muted-foreground">Import a project and run a scan before exploring its dependencies.</p>
+          <p className="text-sm font-medium">لا تتوفر مشاريع لتحليلها في الرسم البياني.</p>
+          <p className="mt-1 text-xs text-muted-foreground">استورد مشروعًا وشغّل فحصًا قبل استكشاف اعتمادياته.</p>
         </div>
       ) : entitiesError || relationshipsError || summaryError ? (
         <RequestError
-          message={entitiesErrorValue instanceof Error ? entitiesErrorValue.message : 'Unable to load graph data.'}
+          message={entitiesErrorValue instanceof Error ? entitiesErrorValue.message : 'تعذّر تحميل بيانات الرسم البياني.'}
           onRetry={() => void Promise.all([refetchEntities(), refetchRelationships(), refetchSummary()])}
         />
       ) : (
        <div className="grid grid-cols-[220px_1fr_260px] gap-4 flex-1 min-h-0">
         {(entitiesStale || relationshipsStale || summaryStale) && (
           <div className="col-span-full rounded-lg border border-amber-500/30 bg-amber-500/5 px-3 py-2 text-xs text-amber-200" role="status">
-            This graph view is stale and may not reflect the latest completed scan. Refresh before using it for current dependency decisions.
+            قد لا يعكس هذا العرض أحدث فحص مكتمل. حدّثه قبل الاعتماد عليه لاتخاذ قرارات بشأن الاعتماديات.
           </div>
         )}
         {/* Left sidebar: legend + summary + entity list */}
         <div className="bg-card border border-border rounded-xl p-4 shadow-sm flex flex-col overflow-hidden">
           {/* Type legend */}
           <h3 className="font-semibold text-xs uppercase tracking-wider text-muted-foreground mb-3 flex items-center gap-1.5">
-            <Layers className="w-3.5 h-3.5" /> Node Types
+            <Layers className="w-3.5 h-3.5" /> أنواع العُقد
           </h3>
           <div className="grid grid-cols-2 gap-1 mb-4 text-xs">
             {Object.entries(TYPE_COLORS).map(([type, color]) => (
@@ -339,33 +339,33 @@ export default function Graph() {
 
           {/* Summary stats */}
                {summaryLoading ? (
-                 <div className="border-t border-border pt-3 mb-4 text-xs text-muted-foreground animate-pulse">Loading graph summary…</div>
+                 <div className="border-t border-border pt-3 mb-4 text-xs text-muted-foreground animate-pulse">جارٍ تحميل ملخص الرسم البياني…</div>
                ) : summary && (
             <div className="border-t border-border pt-3 mb-4 space-y-2">
               <h3 className="font-semibold text-xs uppercase tracking-wider text-muted-foreground mb-2 flex items-center gap-1.5">
-                <GitMerge className="w-3.5 h-3.5" /> Graph Stats
+                <GitMerge className="w-3.5 h-3.5" /> إحصاءات الرسم البياني
               </h3>
               <div className="grid grid-cols-2 gap-2 text-xs">
                 <div className="bg-secondary/50 rounded-lg p-2 text-center">
                   <div className="font-mono font-bold text-lg text-primary">{summary.entityCount}</div>
-                  <div className="text-muted-foreground">Entities</div>
+                  <div className="text-muted-foreground">الكيانات</div>
                 </div>
                 <div className="bg-secondary/50 rounded-lg p-2 text-center">
                   <div className="font-mono font-bold text-lg text-primary">{summary.relationshipCount}</div>
-                  <div className="text-muted-foreground">Relations</div>
+                  <div className="text-muted-foreground">العلاقات</div>
                 </div>
                 <div className="bg-secondary/50 rounded-lg p-2 text-center">
                   <div className="font-mono font-bold text-lg">{summary.clusterCount}</div>
-                  <div className="text-muted-foreground">Clusters</div>
+                  <div className="text-muted-foreground">المجموعات</div>
                 </div>
                 <div className="bg-secondary/50 rounded-lg p-2 text-center">
                   <div className="font-mono font-bold text-lg">{summary.avgDegree.toFixed(1)}</div>
-                  <div className="text-muted-foreground">Avg degree</div>
+                  <div className="text-muted-foreground">متوسط الدرجة</div>
                 </div>
               </div>
               {summary.isolatedCount > 0 && (
                 <div className="text-xs text-muted-foreground bg-secondary/30 rounded px-2 py-1">
-                  {summary.isolatedCount} isolated node{summary.isolatedCount !== 1 ? 's' : ''}
+                  {summary.isolatedCount} عقدة معزولة
                 </div>
               )}
             </div>
@@ -374,13 +374,13 @@ export default function Graph() {
           {/* Entity list */}
           <div className="border-t border-border pt-3 flex flex-col flex-1 min-h-0">
             <h3 className="font-semibold text-xs uppercase tracking-wider text-muted-foreground mb-2">
-              Entities ({filteredEntities.length})
+              الكيانات ({filteredEntities.length})
             </h3>
             <div className="flex-1 overflow-y-auto space-y-0.5 pr-1">
                {entitiesLoading || relationshipsLoading ? (
-                <div className="text-xs text-muted-foreground animate-pulse">Loading graph entities…</div>
+                 <div className="text-xs text-muted-foreground animate-pulse">جارٍ تحميل كيانات الرسم البياني…</div>
               ) : filteredEntities.length === 0 ? (
-                <div className="text-xs text-muted-foreground italic">No entities found.</div>
+                <div className="text-xs text-muted-foreground italic">لم يُعثر على كيانات.</div>
               ) : (
                 filteredEntities.slice(0, 150).map((entity) => (
                   <button
@@ -409,13 +409,13 @@ export default function Graph() {
         <div className="bg-card border border-border rounded-xl shadow-sm relative overflow-hidden">
            {entitiesLoading || relationshipsLoading || summaryLoading ? (
             <div className="absolute inset-0 flex items-center justify-center text-primary animate-pulse gap-2 text-sm">
-              <Network className="w-5 h-5 animate-spin" /> Computing layout…
+              <Network className="w-5 h-5 animate-spin" /> جارٍ حساب التخطيط…
             </div>
           ) : entities.length === 0 ? (
             <div className="absolute inset-0 flex flex-col items-center justify-center text-muted-foreground text-sm gap-3">
               <Network className="w-10 h-10 opacity-20" />
-              <p>No verified graph data for this project.</p>
-              <p className="text-xs opacity-70">Run a scan and refresh after it completes to extract the knowledge graph.</p>
+               <p>لا توجد بيانات رسم بياني موثوقة لهذا المشروع.</p>
+               <p className="text-xs opacity-70">شغّل فحصًا ثم حدّث الصفحة بعد اكتماله لاستخراج رسم المعرفة.</p>
             </div>
           ) : (
             <svg
@@ -511,11 +511,11 @@ export default function Graph() {
           {!selectedEntityId ? (
             <div className="flex-1 flex flex-col items-center justify-center text-center text-sm text-muted-foreground gap-3 px-4">
               <Network className="w-8 h-8 opacity-20" />
-              <p>Select a node to explore its relationships and impact.</p>
+              <p>اختر عقدة لاستكشاف علاقاتها وتأثيرها.</p>
               {summary && summary.topConnected.length > 0 && (
                 <div className="mt-4 w-full text-left">
                   <p className="text-xs font-semibold text-muted-foreground mb-2 uppercase tracking-wider">
-                    Most connected
+                    الأكثر ارتباطًا
                   </p>
                   <div className="space-y-1">
                     {summary.topConnected.slice(0, 5).map((c) => {
@@ -570,13 +570,13 @@ export default function Graph() {
                   onClick={() => setDetailTab('relations')}
                   className={`flex-1 text-xs py-1.5 rounded-md font-medium transition-colors ${detailTab === 'relations' ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:bg-secondary'}`}
                 >
-                  Relations
+                  العلاقات
                 </button>
                 <button
                   onClick={() => setDetailTab('impact')}
                   className={`flex-1 text-xs py-1.5 rounded-md font-medium transition-colors flex items-center justify-center gap-1 ${detailTab === 'impact' ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:bg-secondary'}`}
                 >
-                  <Zap className="w-3 h-3" /> Impact
+                  <Zap className="w-3 h-3" /> التأثير
                 </button>
               </div>
 
@@ -586,10 +586,10 @@ export default function Graph() {
                   <div className="space-y-4 pr-1">
                     <div>
                       <h4 className="text-xs font-semibold text-muted-foreground mb-1.5 uppercase tracking-wider">
-                        Outgoing ({neighborData.outgoing.length})
+                        الصادرة ({neighborData.outgoing.length})
                       </h4>
                       {neighborData.outgoing.length === 0 ? (
-                        <p className="text-xs text-muted-foreground italic">None</p>
+                        <p className="text-xs text-muted-foreground italic">لا يوجد</p>
                       ) : (
                         <div className="space-y-1">
                           {neighborData.outgoing.map((rel) => {
@@ -614,10 +614,10 @@ export default function Graph() {
                     </div>
                     <div>
                       <h4 className="text-xs font-semibold text-muted-foreground mb-1.5 uppercase tracking-wider">
-                        Incoming ({neighborData.incoming.length})
+                        الواردة ({neighborData.incoming.length})
                       </h4>
                       {neighborData.incoming.length === 0 ? (
-                        <p className="text-xs text-muted-foreground italic">None</p>
+                        <p className="text-xs text-muted-foreground italic">لا يوجد</p>
                       ) : (
                         <div className="space-y-1">
                           {neighborData.incoming.map((rel) => {
@@ -647,23 +647,23 @@ export default function Graph() {
                 {detailTab === 'impact' && (
                   <div className="pr-1">
                     {impactLoading ? (
-                      <div className="text-xs text-muted-foreground animate-pulse">Analysing impact…</div>
+                      <div className="text-xs text-muted-foreground animate-pulse">جارٍ تحليل التأثير…</div>
                     ) : !impactData ? (
                       <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                        <AlertCircle className="w-3.5 h-3.5" /> No impact data.
+                        <AlertCircle className="w-3.5 h-3.5" /> لا توجد بيانات عن التأثير.
                       </div>
                     ) : impactData.impacted.length === 0 ? (
                       <div className="text-xs text-muted-foreground italic text-center py-6">
-                        This entity has no downstream dependants within 3 hops.
+                        لا توجد عناصر تعتمد على هذا الكيان ضمن ثلاث وصلات.
                       </div>
                     ) : (
                       <>
                         <div className="bg-amber-500/10 border border-amber-500/20 rounded-lg p-3 mb-3 text-xs">
                           <div className="font-semibold text-amber-400 mb-1">
-                            {impactData.impacted.length} entit{impactData.impacted.length === 1 ? 'y' : 'ies'} affected
+                            {impactData.impacted.length} كيان متأثر
                           </div>
                           <div className="text-muted-foreground">
-                            A change here propagates up to {impactData.maxDepthReached} hop{impactData.maxDepthReached !== 1 ? 's' : ''} downstream.
+                            قد يمتد أثر التغيير إلى {impactData.maxDepthReached} وصلات في المسار التابع.
                           </div>
                         </div>
                         <div className="space-y-1">
@@ -681,10 +681,10 @@ export default function Graph() {
                                   <div className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: nodeColor(hop.entity.type) }} />
                                   <span className="truncate">{hop.entity.name}</span>
                                 </div>
-                                <span className="font-mono text-muted-foreground shrink-0">d{hop.depth}</span>
+                                <span className="font-mono text-muted-foreground shrink-0">العمق {hop.depth}</span>
                               </div>
                               <div className="font-mono text-[10px] text-muted-foreground mt-0.5">
-                                via {hop.viaRelationship.relation}
+                                 عبر {hop.viaRelationship.relation}
                               </div>
                             </button>
                           ))}
@@ -694,8 +694,8 @@ export default function Graph() {
                               className="w-full text-xs text-primary hover:underline text-center py-1"
                             >
                               {impactExpanded
-                                ? 'Show less'
-                                : `Show ${impactData.impacted.length - 5} more…`}
+                                ? 'عرض أقل'
+                                : `عرض ${impactData.impacted.length - 5} أخرى…`}
                             </button>
                           )}
                         </div>
@@ -707,7 +707,7 @@ export default function Graph() {
             </>
           ) : (
             <div className="flex-1 flex items-center justify-center text-xs text-muted-foreground animate-pulse">
-              Loading…
+              جارٍ التحميل…
             </div>
           )}
         </div>

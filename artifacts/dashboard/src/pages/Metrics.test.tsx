@@ -56,13 +56,13 @@ describe('Metrics', () => {
     expect(screen.getByTestId('metrics-controls')).toHaveClass('flex-col', 'w-full', 'min-w-0');
     expect(screen.getByRole('combobox')).toHaveClass('w-full', 'sm:w-56');
     expect(screen.getByTestId('metrics-date-range')).toHaveClass('w-full', 'sm:w-auto');
-    expect(screen.getByRole('button', { name: 'All' })).toHaveClass('flex-1', 'sm:flex-none');
+    expect(screen.getByRole('button', { name: 'الكل' })).toHaveClass('flex-1', 'sm:flex-none');
   });
 
   it('does not request metrics until a project is available', () => {
     render(<Metrics />);
 
-    expect(screen.getByText('Select a project to view metrics.')).toBeInTheDocument();
+    expect(screen.getByText('اختر مشروعًا لعرض مؤشراته.')).toBeInTheDocument();
     expect(useListMetrics).toHaveBeenCalledWith(
       { projectId: '' },
       expect.objectContaining({
@@ -80,7 +80,7 @@ describe('Metrics', () => {
 
     render(<Metrics />);
 
-    expect(screen.getByText('No historical metrics data for this project yet.')).toBeInTheDocument();
+    expect(screen.getByText('لا توجد بيانات مؤشرات سابقة لهذا المشروع بعد.')).toBeInTheDocument();
     expect(useListMetrics).toHaveBeenCalledWith(
       { projectId: 'project-a' },
       expect.objectContaining({
@@ -121,9 +121,9 @@ describe('Metrics', () => {
 
     render(<Metrics />);
 
-    expect(screen.getByText('Unable to load projects for metrics.')).toBeInTheDocument();
-    expect(screen.queryByText('No historical metrics data for this project yet.')).not.toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: 'Try again' }));
+    expect(screen.getByText('تعذّر تحميل المشاريع لعرض المؤشرات.')).toBeInTheDocument();
+    expect(screen.queryByText('لا توجد بيانات مؤشرات سابقة لهذا المشروع بعد.')).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'حاول مجددًا' }));
     expect(refetchProjects).toHaveBeenCalledTimes(1);
   });
 

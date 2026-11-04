@@ -39,7 +39,7 @@ export default function Metrics() {
     () =>
       metrics?.map((m) => ({
         ...m,
-        date: new Date(m.timestamp).toLocaleDateString(),
+        date: new Date(m.timestamp).toLocaleDateString('ar'),
       })) ?? [],
     [metrics],
   );
@@ -51,23 +51,23 @@ export default function Metrics() {
   }, [allData, dateRange]);
 
   return (
-    <div className="space-y-6">
+    <div dir="rtl" lang="ar" className="space-y-6">
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
           <h1 className="text-2xl font-bold tracking-tight flex items-center gap-2">
-            <BarChart3 className="w-6 h-6 text-primary" /> Metrics & Telemetry
+            <BarChart3 className="w-6 h-6 text-primary" /> المؤشرات والقياسات
           </h1>
-          <p className="text-muted-foreground text-sm mt-1">Historical quality trends and analysis.</p>
+          <p className="text-muted-foreground text-sm mt-1">اتجاهات الجودة وتحليلها عبر الزمن.</p>
         </div>
         <div
           data-testid="metrics-controls"
           className="flex w-full min-w-0 flex-col gap-2 sm:w-auto sm:flex-row sm:items-center"
         >
-          <RefreshButton onRefresh={async () => { await refetchProjects(); await refetch(); }} isRefreshing={isRefetching} lastUpdated={dataUpdatedAt} label="Refresh metrics" />
+          <RefreshButton onRefresh={async () => { await refetchProjects(); await refetch(); }} isRefreshing={isRefetching} lastUpdated={dataUpdatedAt} label="تحديث المؤشرات" refreshingLabel="جارٍ التحديث…" updatedLabel="آخر تحديث:" />
           <select
             value={effectiveProjectId}
             onChange={(e) => setSelectedProjectId(e.target.value)}
-            aria-label="Select project"
+            aria-label="اختر المشروع"
             className="w-full min-w-0 bg-card border border-border rounded-md px-3 py-2 text-sm focus:border-primary focus:outline-none font-medium sm:w-56"
           >
             {projects?.map((p) => (
@@ -90,7 +90,7 @@ export default function Metrics() {
                     : 'bg-card text-muted-foreground hover:bg-secondary'
                 }`}
               >
-                {r === 'all' ? 'All' : r === '7d' ? '7d' : '30d'}
+                {r === 'all' ? 'الكل' : r === '7d' ? '٧ أيام' : '٣٠ يومًا'}
               </button>
             ))}
           </div>
@@ -98,26 +98,26 @@ export default function Metrics() {
       </div>
 
       {projectsError ? (
-        <RequestError message="Unable to load projects for metrics." onRetry={() => void refetchProjects()} />
+        <RequestError message="تعذّر تحميل المشاريع لعرض المؤشرات." retryLabel="حاول مجددًا" onRetry={() => void refetchProjects()} />
       ) : !effectiveProjectId ? (
         <div className="h-64 bg-card border border-border rounded-xl flex items-center justify-center text-muted-foreground">
-          Select a project to view metrics.
+          اختر مشروعًا لعرض مؤشراته.
         </div>
       ) : isLoading ? (
         <div className="h-96 bg-card border border-border rounded-xl animate-pulse"></div>
       ) : isError ? (
-        <RequestError message={error instanceof Error ? error.message : 'Unable to load metrics.'} onRetry={() => void refetch()} />
+        <RequestError message={error instanceof Error ? error.message : 'تعذّر تحميل المؤشرات.'} retryLabel="حاول مجددًا" onRetry={() => void refetch()} />
       ) : formatData.length === 0 ? (
         <div className="h-64 bg-card border border-border rounded-xl flex flex-col items-center justify-center text-muted-foreground">
           <AlertTriangle className="w-8 h-8 mb-2 opacity-50" />
-          <p>No historical metrics data for this project yet.</p>
-          <p className="text-xs mt-1 opacity-70">Trigger a scan to generate the first snapshot.</p>
+          <p>لا توجد بيانات مؤشرات سابقة لهذا المشروع بعد.</p>
+          <p className="text-xs mt-1 opacity-70">شغّل فحصًا لإنشاء أول لقطة للبيانات.</p>
         </div>
       ) : (
         <div className="space-y-6">
           <div className="bg-card border border-border rounded-xl p-6 shadow-sm">
-            <h3 className="font-semibold mb-6">Overall Quality Trend</h3>
-            <div className="h-80 w-full">
+            <h3 className="font-semibold mb-6">اتجاه الجودة الإجمالي</h3>
+            <div dir="ltr" className="h-80 w-full">
               <ResponsiveContainer width="100%" height="100%">
                 <LineChart data={formatData}>
                   <CartesianGrid
@@ -154,7 +154,7 @@ export default function Metrics() {
                     stroke="hsl(var(--primary))"
                     strokeWidth={3}
                     dot={false}
-                    name="Total Score"
+                    name="النتيجة الإجمالية"
                     activeDot={{ r: 6 }}
                   />
                   <Line
@@ -163,7 +163,7 @@ export default function Metrics() {
                     stroke={CHART_COLORS.architecture}
                     strokeWidth={2}
                     dot={false}
-                    name="Architecture"
+                    name="البنية"
                   />
                   <Line
                     type="monotone"
@@ -171,7 +171,7 @@ export default function Metrics() {
                     stroke={CHART_COLORS.security}
                     strokeWidth={2}
                     dot={false}
-                    name="Security"
+                    name="الأمان"
                   />
                 </LineChart>
               </ResponsiveContainer>
@@ -180,8 +180,8 @@ export default function Metrics() {
 
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
             <div className="bg-card border border-border rounded-xl p-6 shadow-sm">
-              <h3 className="font-semibold mb-6">Test Coverage vs Lint Issues</h3>
-              <div className="h-64 w-full">
+              <h3 className="font-semibold mb-6">تغطية الاختبارات ومشكلات فحص الكود</h3>
+              <div dir="ltr" className="h-64 w-full">
                 <ResponsiveContainer width="100%" height="100%">
                   <BarChart data={formatData}>
                     <CartesianGrid
@@ -224,14 +224,14 @@ export default function Metrics() {
                       dataKey="structuralTestEstimate"
                       fill="hsl(var(--primary))"
                       radius={[4, 4, 0, 0]}
-                      name="Test Estimate % (structural)"
+                      name="تقدير الاختبارات % (بنيوي)"
                     />
                     <Bar
                       yAxisId="right"
                       dataKey="lintIssues"
                       fill="hsl(var(--destructive))"
                       radius={[4, 4, 0, 0]}
-                      name="Lint Issues"
+                      name="مشكلات فحص الكود"
                     />
                   </BarChart>
                 </ResponsiveContainer>
@@ -239,8 +239,8 @@ export default function Metrics() {
             </div>
 
             <div className="bg-card border border-border rounded-xl p-6 shadow-sm">
-              <h3 className="font-semibold mb-6">Technical Debt (Hours)</h3>
-              <div className="h-64 w-full">
+              <h3 className="font-semibold mb-6">الدين التقني (ساعات)</h3>
+              <div dir="ltr" className="h-64 w-full">
                 <ResponsiveContainer width="100%" height="100%">
                   <LineChart data={formatData}>
                     <CartesianGrid
@@ -274,7 +274,7 @@ export default function Metrics() {
                       stroke={CHART_COLORS.techDebt}
                       strokeWidth={3}
                       dot={{ r: 4 }}
-                      name="Tech Debt Est."
+                      name="تقدير الدين التقني"
                     />
                   </LineChart>
                 </ResponsiveContainer>

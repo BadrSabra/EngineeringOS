@@ -98,48 +98,55 @@ function checkpointNodes(checkpoint: Record<string, unknown> | undefined): Fligh
 }
 
 function formatElapsed(startedAt?: string | null, completedAt?: string | null, now = Date.now()): string {
-  if (!startedAt) return 'Not started';
+  if (!startedAt) return 'لم يبدأ';
   const start = new Date(startedAt).getTime();
   const end = completedAt ? new Date(completedAt).getTime() : now;
-  if (!Number.isFinite(start) || !Number.isFinite(end)) return 'Unavailable';
+  if (!Number.isFinite(start) || !Number.isFinite(end)) return 'غير متاح';
   const seconds = Math.max(0, Math.floor((end - start) / 1000));
   const minutes = Math.floor(seconds / 60);
   return `${minutes}m ${String(seconds % 60).padStart(2, '0')}s`;
 }
 
 function objectiveLabel(objective: Record<string, unknown> | null | undefined): string {
-  if (!objective) return 'No declared objective was retained.';
+  if (!objective) return 'لم يُحفظ هدف معلن.';
   const value = objective.objective ?? objective.description ?? objective.objectiveType;
   return typeof value === 'string' && value.trim()
     ? value
-    : 'Declared engineering objective';
+    : 'هدف هندسي معلن';
 }
 
 function evidenceCompletenessLabel(completeness: OperationEvidenceProjection['completeness']): string {
-  return completeness === 'retained-with-gaps'
-    ? 'Retained with gaps'
-    : completeness.replaceAll('-', ' ');
+  const labels: Record<OperationEvidenceProjection['completeness'], string> = {
+    complete: 'مكتمل',
+    partial: 'جزئي',
+    blocked: 'محظور',
+    failed: 'فشل',
+    cancelled: 'ملغى',
+    uncertain: 'غير محسوم',
+    'retained-with-gaps': 'محفوظ مع نواقص',
+  };
+  return labels[completeness] ?? 'غير معروف';
 }
 
 function evidenceStageLabel(kind: string): string {
   switch (kind) {
-    case 'provider': return 'Provider';
-    case 'validation': return 'Validation';
-    case 'promotion': return 'Promotion / delivery';
-    case 'commit': return 'Commit';
-    case 'push': return 'Delivery';
-    default: return 'Execution';
+    case 'provider': return 'مزود الذكاء الاصطناعي';
+    case 'validation': return 'التحقق';
+    case 'promotion': return 'الترقية / التسليم';
+    case 'commit': return 'تسجيل التغييرات';
+    case 'push': return 'النشر إلى المستودع';
+    default: return 'التنفيذ';
   }
 }
 
 function evidenceOutcomeLabel(status: string): string {
   switch (status) {
-    case 'passed': return 'Verified';
-    case 'failed': return 'Blocked';
-    case 'blocked': return 'Blocked';
-    case 'cancelled': return 'Incomplete';
-    case 'unknown': return 'Uncertain';
-    default: return 'In progress';
+    case 'passed': return 'متحقق';
+    case 'failed': return 'متعذر';
+    case 'blocked': return 'محظور';
+    case 'cancelled': return 'غير مكتمل';
+    case 'unknown': return 'غير محسوم';
+    default: return 'قيد التنفيذ';
   }
 }
 
@@ -173,15 +180,15 @@ function fallbackFlightState(execution: {
 
 function safeEvidenceAction(completeness: OperationEvidenceProjection['completeness']): string {
   if (completeness === 'blocked' || completeness === 'failed') {
-    return 'Review the blocked receipt, then rerun the approved validation before applying or delivering.';
+    return 'راجع الإيصال المحظور، ثم أعد التحقق المعتمد قبل التطبيق أو التسليم.';
   }
   if (completeness === 'cancelled' || completeness === 'partial' || completeness === 'retained-with-gaps') {
-    return 'Do not rely on this result as verified; reconnect or start a new run to rebuild the missing proof.';
+    return 'لا تعتمد هذه النتيجة كأنها متحققة؛ أعد الاتصال أو ابدأ تنفيذًا جديدًا لاستكمال الإثبات الناقص.';
   }
   if (completeness === 'uncertain') {
-    return 'Refresh the project and reconcile the operation against the current revision before retrying.';
+    return 'حدّث المشروع وطابق العملية مع المراجعة الحالية قبل إعادة المحاولة.';
   }
-  return 'No operator action is required; continue only through the matching server-owned stage.';
+  return 'لا يلزم إجراء من المشغّل؛ تابع فقط عبر المرحلة المطابقة التي يديرها الخادم.';
 }
 
 type DisplayReceipt = {
@@ -217,7 +224,7 @@ function DeliveryProofTimeline({
   if (!evidence) {
     return (
       <div className="rounded-md border border-amber-500/30 bg-amber-500/5 p-3 text-xs text-amber-100">
-        Delivery proof is not available yet. Do not treat this execution as a verified delivery.
+        لا يتوفر إثبات التسليم بعد. لا تعتبر هذا التنفيذ تسليمًا موثّقًا.
       </div>
     );
   }
@@ -231,27 +238,27 @@ function DeliveryProofTimeline({
     && evidence.proof.verdict === 'PROVEN'
     && executionVerdict === 'PROVEN';
   return (
-    <section className="rounded-xl border border-border bg-card" aria-label="Delivery proof chain">
+    <section className="rounded-xl border border-border bg-card" aria-label="سلسلة إثبات التسليم">
       <div className="border-b border-border px-4 py-3">
         <div className="flex flex-wrap items-center justify-between gap-2">
           <div>
-            <h2 className="font-semibold">Delivery proof chain</h2>
-            <p className="text-xs text-muted-foreground">Candidate, validation, promotion, and delivered-byte receipts for this operation</p>
+            <h2 className="font-semibold">سلسلة إثبات التسليم</h2>
+            <p className="text-xs text-muted-foreground">إيصالات المرشح والتحقق والترقية والملفات التي جرى تسليمها لهذه العملية</p>
           </div>
           <span className={`rounded-full border px-2 py-0.5 text-[10px] font-semibold ${evidenceOutcomeClasses(isVerified ? 'passed' : evidence.completeness === 'blocked' || evidence.completeness === 'failed' ? 'blocked' : 'unknown')}`}>
-            {isVerified ? 'Verified chain' : evidenceCompletenessLabel(evidence.completeness)}
+            {isVerified ? 'سلسلة متحققة' : evidenceCompletenessLabel(evidence.completeness)}
           </span>
         </div>
         <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-[10px] text-muted-foreground">
-          <span>Operation <code className="text-foreground">{evidence.operationId}</code></span>
-          <span>Revision <code className="text-foreground">{evidence.revision ?? 'not recorded'}</code></span>
-          {evidence.hashes?.changeSet && <span>Candidate <code className="text-foreground">{evidence.hashes.changeSet}</code></span>}
-          {evidence.hashes?.committed && <span>Delivered bytes <code className="text-foreground">{evidence.hashes.committed}</code></span>}
+          <span>العملية <code dir="ltr" className="text-foreground">{evidence.operationId}</code></span>
+          <span>المراجعة <code dir="ltr" className="text-foreground">{evidence.revision ?? 'غير مسجل'}</code></span>
+          {evidence.hashes?.changeSet && <span>المرشح <code dir="ltr" className="text-foreground">{evidence.hashes.changeSet}</code></span>}
+          {evidence.hashes?.committed && <span>الملفات المسلّمة <code dir="ltr" className="text-foreground">{evidence.hashes.committed}</code></span>}
         </div>
       </div>
       <div className="divide-y divide-border/50">
         {receipts.length === 0 ? (
-          <div className="p-4 text-xs text-muted-foreground">No redacted receipts were retained.</div>
+          <div className="p-4 text-xs text-muted-foreground">لم تُحفَظ إيصالات منقّحة.</div>
         ) : receipts.map((receipt, index) => (
           <div key={`${receipt.kind}-${receipt.timestamp}-${index}`} className="flex items-start gap-3 px-4 py-3">
             <div className="mt-0.5 h-2 w-2 shrink-0 rounded-full bg-primary" />
@@ -259,7 +266,7 @@ function DeliveryProofTimeline({
               <div className="flex flex-wrap items-center gap-2">
                 <span className="text-xs font-semibold text-foreground">{evidenceStageLabel(receipt.kind)}</span>
                 <span className={`rounded-full border px-1.5 py-0.5 text-[10px] font-semibold ${evidenceOutcomeClasses(receipt.status)}`}>{evidenceOutcomeLabel(receipt.status)}</span>
-                <span className="text-[10px] text-muted-foreground">attempt {receipt.attempt}</span>
+                <span className="text-[10px] text-muted-foreground">المحاولة {receipt.attempt}</span>
               </div>
               {receipt.detail && <p className="mt-1 text-[11px] leading-relaxed text-muted-foreground">{receipt.detail}</p>}
               <time className="mt-1 block text-[10px] text-muted-foreground">{new Date(receipt.timestamp).toLocaleString()}</time>
@@ -269,7 +276,7 @@ function DeliveryProofTimeline({
       </div>
       {gaps.length > 0 && (
         <div className="border-t border-amber-500/20 bg-amber-500/5 px-4 py-3">
-          <div className="text-xs font-semibold text-amber-200">Proof gaps</div>
+          <div className="text-xs font-semibold text-amber-200">ثغرات الإثبات</div>
           <ul className="mt-1 list-disc space-y-1 pl-4 text-[11px] text-amber-100/80">
             {gaps.map((gap, index) => <li key={`${gap.source}-${gap.kind}-${index}`}>{gap.detail}</li>)}
           </ul>
@@ -277,7 +284,7 @@ function DeliveryProofTimeline({
       )}
       {!isVerified && (
         <div className="border-t border-border/50 px-4 py-3 text-[11px] text-muted-foreground">
-          <span className="font-semibold text-amber-200">Next safe action: </span>{safeEvidenceAction(evidence.completeness)}
+          <span className="font-semibold text-amber-200">الإجراء الآمن التالي: </span>{safeEvidenceAction(evidence.completeness)}
         </div>
       )}
     </section>
@@ -339,14 +346,14 @@ export default function FlightDeck() {
 
   if (!executionId) {
     return (
-      <div className="mx-auto max-w-3xl rounded-xl border border-border bg-card p-8 text-center">
+      <div dir="rtl" lang="ar" className="mx-auto max-w-3xl rounded-xl border border-border bg-card p-8 text-center">
         <Activity className="mx-auto mb-3 h-8 w-8 text-primary" />
-        <h1 className="text-xl font-semibold">Flight Deck</h1>
+        <h1 className="text-xl font-semibold">لوحة متابعة التنفيذ</h1>
         <p className="mt-2 text-sm text-muted-foreground">
-          Open this view from an AI execution using <code>?executionId=…</code>.
+          افتح هذه الصفحة من تنفيذ للذكاء الاصطناعي باستخدام <code dir="ltr">?executionId=…</code>.
         </p>
         <Link href="/ai" className="mt-5 inline-flex items-center gap-2 rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground">
-          Open AI Assistant
+          افتح مساعد الذكاء الاصطناعي
           <ExternalLink className="h-4 w-4" />
         </Link>
       </div>
@@ -354,19 +361,19 @@ export default function FlightDeck() {
   }
 
   if (isLoading) {
-    return <div className="p-8 text-center text-sm text-muted-foreground animate-pulse">Loading durable operation proof…</div>;
+    return <div dir="rtl" lang="ar" className="p-8 text-center text-sm text-muted-foreground animate-pulse">جارٍ تحميل إثبات العملية المحفوظ…</div>;
   }
 
   if (isError || !execution) {
     return (
-      <div className="rounded-xl border border-red-500/30 bg-red-500/5 p-6">
+      <div dir="rtl" lang="ar" className="rounded-xl border border-red-500/30 bg-red-500/5 p-6">
         <div className="flex items-center gap-2 font-semibold text-red-200">
           <AlertTriangle className="h-4 w-4" />
-          Execution proof unavailable
+          إثبات التنفيذ غير متاح
         </div>
-        <p className="mt-2 text-sm text-muted-foreground">The server did not return a durable execution for this id.</p>
+        <p className="mt-2 text-sm text-muted-foreground">لم يُعِد الخادم سجل تنفيذ محفوظًا لهذا المعرّف.</p>
         <Link href="/ai" className="mt-4 inline-flex items-center gap-2 text-sm text-primary hover:underline">
-          <ArrowLeft className="h-4 w-4" /> Back to AI Assistant
+          <ArrowLeft className="h-4 w-4" /> الرجوع إلى مساعد الذكاء الاصطناعي
         </Link>
       </div>
     );
@@ -385,17 +392,17 @@ export default function FlightDeck() {
   const activePhase = isDeliveryExecution
     ? PHASES.findIndex((phase) => phase.states.includes(state as never))
     : -1;
-  const stage = typeof checkpoint.stage === 'string' ? checkpoint.stage : 'server checkpoint';
-  const detail = typeof checkpoint.detail === 'string' ? checkpoint.detail : 'Evidence is retained by the durable execution record.';
+  const stage = typeof checkpoint.stage === 'string' ? checkpoint.stage : 'نقطة حفظ الخادم';
+  const detail = typeof checkpoint.detail === 'string' ? checkpoint.detail : 'تُحفظ الأدلة ضمن سجل التنفيذ الدائم.';
   const scopeFiles = [...new Set(nodes.flatMap((node) => node.allowedFiles))];
   const blockedNodes = nodes.filter((node) => node.status === 'blocked' || node.status === 'failed').length;
   const riskLabel = blockedNodes > 0
-    ? `${blockedNodes} blocked node${blockedNodes === 1 ? '' : 's'}`
+    ? `${blockedNodes} عقد محظورة`
     : evidenceVerdict !== 'PROVEN' && isDeliveryExecution
-      ? `Evidence ${stateLabel(evidenceVerdict).toLowerCase()}`
+      ? `الإثبات ${stateLabel(evidenceVerdict)}`
       : nodes.some((node) => node.attempts >= 3)
-        ? 'Retry budget exhausted'
-        : 'No unresolved risk recorded';
+        ? 'استُنفدت محاولات الإعادة'
+        : 'لا توجد مخاطر عالقة مسجلة';
   const elapsed = formatElapsed(execution.startedAt, execution.completedAt);
   const changedFiles = gitStatus.data?.files ?? [];
   const recoveryRequired = deliveryRecoveryRequired(execution);
@@ -410,14 +417,14 @@ export default function FlightDeck() {
     && !recoveryRequired;
 
   return (
-    <div className="space-y-5">
+    <div dir="rtl" lang="ar" className="space-y-5">
       <div className="flex items-center gap-2 text-sm text-muted-foreground">
         <Link href={conversationHref ?? '/ai'} data-testid="link-flight-deck-ai"
           className="inline-flex items-center gap-1 rounded p-1 hover:bg-secondary hover:text-foreground">
           <ArrowLeft className="h-4 w-4" aria-hidden="true" />
-          {conversationHref ? 'Back to AI conversation' : 'AI Assistant'}
+          {conversationHref ? 'الرجوع إلى محادثة الذكاء الاصطناعي' : 'مساعد الذكاء الاصطناعي'}
         </Link>
-        <span>/</span><Link href="/mission-control" className="hover:text-foreground hover:underline">Mission Control</Link><span>/</span><span className="text-foreground">Flight Deck</span>
+        <span>/</span><Link href="/mission-control" className="hover:text-foreground hover:underline">مركز المهام</Link><span>/</span><span className="text-foreground">لوحة متابعة التنفيذ</span>
       </div>
 
       <section className="rounded-xl border border-border bg-card p-5">
@@ -426,22 +433,22 @@ export default function FlightDeck() {
             <div className="flex items-center gap-3">
               <div className="rounded-lg bg-primary/10 p-2 text-primary"><GitBranch className="h-5 w-5" /></div>
               <div>
-                <p className="text-xs font-mono uppercase tracking-widest text-muted-foreground">Code Flight Deck</p>
-                <h1 className="text-2xl font-bold tracking-tight">{isDeliveryExecution ? 'Mission → Push' : 'Audit / Chat run'}</h1>
+                <p className="text-xs font-mono uppercase tracking-widest text-muted-foreground">لوحة تسليم الشيفرة</p>
+                <h1 className="text-2xl font-bold tracking-tight">{isDeliveryExecution ? 'المهمة ← النشر' : 'مراجعة / محادثة'}</h1>
               </div>
             </div>
             <p className="mt-3 max-w-2xl text-sm text-muted-foreground">{detail}</p>
             <div className="mt-3 flex flex-wrap gap-2 text-xs text-muted-foreground">
-              <code className="rounded border border-border/60 px-2 py-1">execution {execution.id}</code>
-              {projectId && <code className="rounded border border-border/60 px-2 py-1">project {projectId}</code>}
-              {execution.proposalId && <code className="rounded border border-border/60 px-2 py-1">proposal {execution.proposalId}</code>}
-              {operationId && <code className="rounded border border-primary/30 bg-primary/5 px-2 py-1 text-primary">operation {operationId}</code>}
+              <code dir="ltr" className="rounded border border-border/60 px-2 py-1">execution {execution.id}</code>
+              {projectId && <code dir="ltr" className="rounded border border-border/60 px-2 py-1">project {projectId}</code>}
+              {execution.proposalId && <code dir="ltr" className="rounded border border-border/60 px-2 py-1">proposal {execution.proposalId}</code>}
+              {operationId && <code dir="ltr" className="rounded border border-primary/30 bg-primary/5 px-2 py-1 text-primary">operation {operationId}</code>}
             </div>
           </div>
           <div className="flex flex-wrap items-center gap-2 self-start">
             {!isDeliveryExecution && (
               <div className="inline-flex items-center gap-2 rounded-full border border-slate-500/40 bg-slate-500/10 px-3 py-1.5 text-xs font-semibold text-slate-200">
-                Non-delivery run
+                تنفيذ لا يتضمن تسليمًا
               </div>
             )}
             <div className={`inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-xs font-semibold ${stateClasses(state)}`}>
@@ -450,13 +457,13 @@ export default function FlightDeck() {
             </div>
             <div className={`inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-xs font-semibold ${evidenceClasses(evidenceVerdict)}`}>
               <ShieldCheck className="h-3.5 w-3.5" />
-              Proof: {stateLabel(evidenceVerdict)}
+              الإثبات: {stateLabel(evidenceVerdict)}
             </div>
             {execution.recipeReceipt && (
               <div className="inline-flex items-center gap-2 rounded-full border border-violet-500/40 bg-violet-500/10 px-3 py-1.5 text-xs font-semibold text-violet-200">
                 <span>{execution.recipeReceipt.recipeId}</span>
                 <span className="text-violet-200/70">
-                  {execution.recipeReceipt.completedNodeIds.length}/{execution.recipeReceipt.nodes.length} steps
+                  {execution.recipeReceipt.completedNodeIds.length}/{execution.recipeReceipt.nodes.length} خطوات
                 </span>
               </div>
             )}
@@ -478,21 +485,21 @@ export default function FlightDeck() {
           />
         </div>
 
-        <div className="mt-5 grid gap-2 sm:grid-cols-2 lg:grid-cols-5" aria-label="Mission control summary">
+        <div className="mt-5 grid gap-2 sm:grid-cols-2 lg:grid-cols-5" aria-label="ملخص مراقبة المهمة">
           <div className="rounded-md border border-primary/20 bg-primary/5 px-3 py-2 lg:col-span-2">
-            <div className="text-[10px] uppercase tracking-wide text-muted-foreground">Objective</div>
+            <div className="text-[10px] uppercase tracking-wide text-muted-foreground">الهدف</div>
             <div className="mt-1 break-words text-sm font-medium text-foreground">{objectiveLabel(execution.objective)}</div>
           </div>
           <div className="rounded-md border border-border/60 bg-background/20 px-3 py-2">
-            <div className="text-[10px] uppercase tracking-wide text-muted-foreground">Elapsed</div>
+            <div className="text-[10px] uppercase tracking-wide text-muted-foreground">المدة</div>
             <div className="mt-1 text-sm font-medium tabular-nums text-foreground">{elapsed}</div>
           </div>
           <div className="rounded-md border border-border/60 bg-background/20 px-3 py-2">
-            <div className="text-[10px] uppercase tracking-wide text-muted-foreground">Scope</div>
-            <div className="mt-1 text-sm font-medium text-foreground">{scopeFiles.length} files · {nodes.length} nodes</div>
+            <div className="text-[10px] uppercase tracking-wide text-muted-foreground">النطاق</div>
+            <div className="mt-1 text-sm font-medium text-foreground">{scopeFiles.length} ملفات · {nodes.length} عُقد</div>
           </div>
           <div className="rounded-md border border-amber-500/20 bg-amber-500/5 px-3 py-2">
-            <div className="text-[10px] uppercase tracking-wide text-muted-foreground">Risk</div>
+            <div className="text-[10px] uppercase tracking-wide text-muted-foreground">المخاطر</div>
              <div className={`mt-1 text-sm font-medium ${blockedNodes > 0 || evidenceVerdict === 'UNAVAILABLE' ? 'text-red-200' : 'text-amber-200'}`}>{riskLabel}</div>
           </div>
         </div>
@@ -516,12 +523,12 @@ export default function FlightDeck() {
       <div className="grid gap-5 lg:grid-cols-[1.4fr_1fr]">
         <section className="rounded-xl border border-border bg-card">
           <div className="flex items-center justify-between border-b border-border px-4 py-3">
-              <div><h2 className="font-semibold">Plan nodes</h2><p className="text-xs text-muted-foreground">Server-owned scopes, dependencies, and validation</p></div>
-            <span className="text-xs text-muted-foreground">{nodes.length} node{nodes.length === 1 ? '' : 's'}</span>
+              <div><h2 className="font-semibold">عُقد الخطة</h2><p className="text-xs text-muted-foreground">النطاقات والاعتماديات والتحقق التي يديرها الخادم</p></div>
+            <span className="text-xs text-muted-foreground">{nodes.length} عُقد</span>
           </div>
           <div className="divide-y divide-border/60">
             {nodes.length === 0 ? (
-              <div className="p-5 text-sm text-muted-foreground">No node snapshot is available in this checkpoint yet.</div>
+              <div className="p-5 text-sm text-muted-foreground">لا تتوفر لقطة للعُقد في نقطة الحفظ هذه بعد.</div>
             ) : nodes.map((node) => (
               <div key={node.id} className="p-4">
                 <div className="flex items-start justify-between gap-3">
@@ -529,9 +536,9 @@ export default function FlightDeck() {
                   <span className={`rounded-full border px-2 py-0.5 text-[10px] font-semibold ${stateClasses(node.status === 'failed' || node.status === 'blocked' ? 'BLOCKED' : node.status === 'passed' ? 'COMPLETED' : 'BUILDING')}`}>{node.status}</span>
                 </div>
                 <div className="mt-3 flex flex-wrap gap-2 text-[10px] text-muted-foreground">
-                  <span className="rounded border border-border/60 px-2 py-1">validation: {node.validationProfile}</span>
-                  <span className="rounded border border-border/60 px-2 py-1">attempts: {node.attempts}</span>
-                  <span className="rounded border border-border/60 px-2 py-1">scope: {node.allowedFiles.length} file{node.allowedFiles.length === 1 ? '' : 's'}</span>
+                  <span dir="ltr" className="rounded border border-border/60 px-2 py-1">validation: {node.validationProfile}</span>
+                  <span dir="ltr" className="rounded border border-border/60 px-2 py-1">attempts: {node.attempts}</span>
+                  <span className="rounded border border-border/60 px-2 py-1">النطاق: {node.allowedFiles.length} ملف</span>
                 </div>
               </div>
             ))}
@@ -540,45 +547,45 @@ export default function FlightDeck() {
 
         <section className="space-y-5">
            <div className="rounded-xl border border-border bg-card p-4">
-            <h2 className="font-semibold">Proof ledger</h2>
+            <h2 className="font-semibold">سجل الإثبات</h2>
             <div className="mt-3 space-y-2 text-xs">
-              <div className="flex items-center justify-between rounded-md bg-background/30 px-3 py-2"><span className="text-muted-foreground">Execution status</span><span className="font-medium">{execution.status}</span></div>
-              <div className="flex items-center justify-between rounded-md bg-background/30 px-3 py-2"><span className="text-muted-foreground">Checkpoint</span><span className="font-medium">v{execution.checkpointVersion}</span></div>
-              <div className="flex items-center justify-between rounded-md bg-background/30 px-3 py-2"><span className="text-muted-foreground">Current stage</span><span className="font-medium">{stage}</span></div>
-              <div className="flex items-center justify-between rounded-md bg-background/30 px-3 py-2"><span className="text-muted-foreground">Proof required</span><span className="font-medium">{execution.proofRequired ? 'Yes' : 'No'}</span></div>
-               <div className="flex items-center justify-between rounded-md bg-background/30 px-3 py-2"><span className="text-muted-foreground">Evidence verdict</span><span className={`rounded-full border px-2 py-0.5 text-[10px] font-semibold ${evidenceClasses(evidenceVerdict)}`}>{stateLabel(evidenceVerdict)}</span></div>
-              <div className="flex items-center justify-between rounded-md bg-background/30 px-3 py-2"><span className="text-muted-foreground">Resumable</span><span className={execution.resumable ? 'text-amber-200' : 'text-emerald-200'}>{execution.resumable ? 'Available' : 'No'}</span></div>
+              <div className="flex items-center justify-between rounded-md bg-background/30 px-3 py-2"><span className="text-muted-foreground">حالة التنفيذ</span><span dir="ltr" className="font-medium">{execution.status}</span></div>
+              <div className="flex items-center justify-between rounded-md bg-background/30 px-3 py-2"><span className="text-muted-foreground">نقطة الحفظ</span><span dir="ltr" className="font-medium">v{execution.checkpointVersion}</span></div>
+              <div className="flex items-center justify-between rounded-md bg-background/30 px-3 py-2"><span className="text-muted-foreground">المرحلة الحالية</span><span className="font-medium">{stage}</span></div>
+              <div className="flex items-center justify-between rounded-md bg-background/30 px-3 py-2"><span className="text-muted-foreground">الإثبات مطلوب</span><span className="font-medium">{execution.proofRequired ? 'نعم' : 'لا'}</span></div>
+               <div className="flex items-center justify-between rounded-md bg-background/30 px-3 py-2"><span className="text-muted-foreground">نتيجة الأدلة</span><span dir="ltr" className={`rounded-full border px-2 py-0.5 text-[10px] font-semibold ${evidenceClasses(evidenceVerdict)}`}>{stateLabel(evidenceVerdict)}</span></div>
+              <div className="flex items-center justify-between rounded-md bg-background/30 px-3 py-2"><span className="text-muted-foreground">قابل للاستئناف</span><span className={execution.resumable ? 'text-amber-200' : 'text-emerald-200'}>{execution.resumable ? 'متاح' : 'لا'}</span></div>
             </div>
             {execution.evidenceReason && <p className="mt-3 rounded-md border border-border/50 bg-background/20 p-3 text-xs text-muted-foreground">{execution.evidenceReason}</p>}
           </div>
           <div className="rounded-xl border border-border bg-card p-4">
             <div className="flex items-start justify-between gap-3">
               <div>
-                <h2 className="font-semibold">Workspace control rail</h2>
-                <p className="mt-1 text-xs text-muted-foreground">Git actions stay bound to this operation and verified proposal.</p>
+                <h2 className="font-semibold">أدوات مساحة العمل</h2>
+                <p className="mt-1 text-xs text-muted-foreground">تبقى إجراءات Git مرتبطة بهذه العملية والمقترح المتحقق منه.</p>
               </div>
               <button
                 type="button"
                 onClick={() => queryClient.invalidateQueries({ queryKey: ['flight-deck-git-status', projectId] })}
                 className="rounded p-1.5 text-muted-foreground hover:bg-secondary hover:text-foreground"
-                title="Refresh workspace status"
+                title="تحديث حالة مساحة العمل"
               >
                 <RefreshCw className={`h-3.5 w-3.5 ${gitStatus.isFetching ? 'animate-spin' : ''}`} />
               </button>
             </div>
             {!projectId ? (
-              <p className="mt-3 text-xs text-amber-200">This execution has no project scope, so workspace actions are unavailable.</p>
+              <p className="mt-3 text-xs text-amber-200">لا يشمل هذا التنفيذ مشروعًا، لذا لا تتوفر إجراءات مساحة العمل.</p>
             ) : gitStatus.isError ? (
-              <p className="mt-3 text-xs text-red-200">Workspace status unavailable. No Git action is enabled.</p>
+              <p className="mt-3 text-xs text-red-200">حالة مساحة العمل غير متاحة. لم يُفعّل أي إجراء في Git.</p>
             ) : (
               <>
                 {recoveryRequired && (
                   <p className="mt-3 rounded-md border border-amber-500/30 bg-amber-500/5 p-3 text-xs text-amber-100">
-                    Delivery recovery is required. Reconcile the operation against the current project and remote state before retrying Commit or Push.
+                    يتطلب التسليم استعادة الحالة. طابق العملية مع حالة المشروع والمستودع البعيد قبل إعادة محاولة الإيداع أو الدفع.
                   </p>
                 )}
                 <div className="mt-3 rounded-md bg-background/30 px-3 py-2 text-xs">
-                  <span className="text-muted-foreground">Working tree: </span>
+                  <span className="text-muted-foreground">شجرة العمل: </span>
                   <span className={gitStatus.data?.clean ? 'text-emerald-200' : 'text-amber-200'}>
                     {gitStatus.data?.clean ? 'clean' : `${changedFiles.length} changed file${changedFiles.length === 1 ? '' : 's'}`}
                   </span>
@@ -589,11 +596,11 @@ export default function FlightDeck() {
                   </div>
                 )}
                 <label className="mt-3 block text-xs text-muted-foreground">
-                  Commit message
+                  رسالة الإيداع
                   <input
                     value={commitMessage}
                     onChange={(event) => setCommitMessage(event.target.value)}
-                    placeholder="Describe the verified change…"
+                    placeholder="صف التغيير الذي تم التحقق منه…"
                     className="mt-1 w-full rounded-md border border-border bg-background px-3 py-2 text-sm text-foreground outline-none focus:ring-1 focus:ring-primary"
                     disabled={state !== 'APPLIED' || !execution.proposalId || !operationId}
                   />
@@ -609,7 +616,7 @@ export default function FlightDeck() {
                     className="inline-flex items-center justify-center gap-2 rounded-md bg-primary px-3 py-2 text-xs font-semibold text-primary-foreground disabled:cursor-not-allowed disabled:opacity-40"
                   >
                     {commitMutation.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <GitCommit className="h-3.5 w-3.5" />}
-                    Commit verified apply
+                    إيداع التغيير المتحقق منه
                   </button>
                   <button
                     type="button"
@@ -621,7 +628,7 @@ export default function FlightDeck() {
                     className="inline-flex items-center justify-center gap-2 rounded-md border border-border px-3 py-2 text-xs font-semibold text-foreground disabled:cursor-not-allowed disabled:opacity-40"
                   >
                     {pushMutation.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Upload className="h-3.5 w-3.5" />}
-                    Push committed operation
+                    دفع العملية المُودعة
                   </button>
                 </div>
                 {(commitMutation.isError || pushMutation.isError) && (
@@ -630,7 +637,7 @@ export default function FlightDeck() {
                   </p>
                 )}
                 <div className="mt-3 border-t border-border/60 pt-3">
-                  <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Recent commits</p>
+                  <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">الإيداعات الأخيرة</p>
                   <div className="mt-2 space-y-1 text-[11px] text-muted-foreground">
                     {(gitLog.data?.commits ?? []).slice(0, 3).map((commit) => (
                       <div key={commit.hash} className="flex gap-2">
@@ -638,21 +645,21 @@ export default function FlightDeck() {
                         <span className="truncate">{commit.subject}</span>
                       </div>
                     ))}
-                    {!gitLog.isLoading && (gitLog.data?.commits ?? []).length === 0 && <span>No commits available.</span>}
+                    {!gitLog.isLoading && (gitLog.data?.commits ?? []).length === 0 && <span>لا توجد إيداعات.</span>}
                   </div>
                 </div>
               </>
             )}
             {state !== 'APPLIED' && state !== 'COMMITTED' && (
-              <p className="mt-3 text-[11px] text-muted-foreground">Commit unlocks only after server evidence records a successful Apply. Push unlocks only after the matching Commit event.</p>
+              <p className="mt-3 text-[11px] text-muted-foreground">لا يتاح الإيداع إلا بعد أن تسجل أدلة الخادم تطبيقًا ناجحًا. ولا يتاح الدفع إلا بعد تسجيل حدث الإيداع المطابق.</p>
             )}
           </div>
           <div className="rounded-xl border border-border bg-card p-4">
-            <h2 className="font-semibold">Operation timeline</h2>
+            <h2 className="font-semibold">الخط الزمني للعملية</h2>
             <div className="mt-3 space-y-3 text-xs text-muted-foreground">
-              {execution.createdAt && <div className="flex items-center gap-2"><Clock3 className="h-3.5 w-3.5" /> Created {new Date(execution.createdAt).toLocaleString()}</div>}
-              {execution.updatedAt && <div className="flex items-center gap-2"><Activity className="h-3.5 w-3.5" /> Updated {new Date(execution.updatedAt).toLocaleString()}</div>}
-              <div className="rounded-md border border-amber-500/20 bg-amber-500/5 p-3 text-amber-100/80">This workspace is independent from AiChat. Approval and Apply remain explicit; Commit and Push are enabled only from matching server events.</div>
+              {execution.createdAt && <div className="flex items-center gap-2"><Clock3 className="h-3.5 w-3.5" /> أُنشئت {new Date(execution.createdAt).toLocaleString('ar')}</div>}
+              {execution.updatedAt && <div className="flex items-center gap-2"><Activity className="h-3.5 w-3.5" /> آخر تحديث {new Date(execution.updatedAt).toLocaleString('ar')}</div>}
+              <div className="rounded-md border border-amber-500/20 bg-amber-500/5 p-3 text-amber-100/80">مساحة العمل هذه مستقلة عن AiChat. وتظل الموافقة والتطبيق صريحين؛ ولا يتاح الإيداع والدفع إلا بعد أحداث الخادم المطابقة.</div>
             </div>
           </div>
         </section>

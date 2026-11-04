@@ -54,8 +54,8 @@ describe("Events", () => {
 
     expect(screen.getByTestId("events-controls")).toHaveClass("flex-wrap", "w-full", "min-w-0");
     expect(screen.getByTestId("events-search")).toHaveClass("basis-full", "min-w-0");
-    expect(screen.getByPlaceholderText("Search logs...")).toHaveClass("w-full", "sm:w-64");
-    expect(screen.getByRole("region", { name: /scroll horizontally to view all columns/i })).toHaveAttribute("tabindex", "0");
+    expect(screen.getByPlaceholderText("ابحث في السجلات...")).toHaveClass("w-full", "sm:w-64");
+    expect(screen.getByRole("region", { name: /سجل الأحداث؛ مرّر أفقيًا لعرض بقية الأعمدة/i })).toHaveAttribute("tabindex", "0");
   });
 
   it("renders events from the all-project request", () => {
@@ -63,8 +63,8 @@ describe("Events", () => {
 
     expect(screen.getByText("Alpha scan completed")).toBeInTheDocument();
     expect(screen.getByText("Beta task failed")).toBeInTheDocument();
-    expect(screen.getByText("Showing 1–2 of 2")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Older" })).toBeDisabled();
+    expect(screen.getByText("عرض 1–2 من 2")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "الأقدم" })).toBeDisabled();
   });
 
   it("shows an error and retry action instead of the empty state", () => {
@@ -78,11 +78,11 @@ describe("Events", () => {
 
     render(<Events />);
 
-    expect(screen.getByText(/unable to load events: events service unavailable/i)).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Retry" })).toBeInTheDocument();
+    expect(screen.getByText(/تعذّر تحميل الأحداث: events service unavailable/i)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "حاول مجددًا" })).toBeInTheDocument();
     expect(screen.queryByText("No events recorded.")).not.toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole("button", { name: "Retry" }));
+    fireEvent.click(screen.getByRole("button", { name: "حاول مجددًا" }));
     expect(refetch).toHaveBeenCalledTimes(1);
   });
 
@@ -97,7 +97,7 @@ describe("Events", () => {
 
     render(<Events />);
 
-    expect(screen.getByText("No events recorded.")).toBeInTheDocument();
+    expect(screen.getByText("لا توجد أحداث مسجلة.")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Retry" })).not.toBeInTheDocument();
   });
 });

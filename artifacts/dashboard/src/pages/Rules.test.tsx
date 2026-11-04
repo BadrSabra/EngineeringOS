@@ -87,7 +87,7 @@ beforeEach(() => {
 });
 
 function expandRule() {
-  fireEvent.click(screen.getByRole('button', { name: 'Expand rule Avoid unsafe eval' }));
+  fireEvent.click(screen.getByRole('button', { name: 'توسيع القاعدة Avoid unsafe eval' }));
 }
 
 describe('Rules actions', () => {

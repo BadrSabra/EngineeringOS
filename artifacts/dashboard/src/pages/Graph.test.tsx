@@ -108,16 +108,16 @@ describe('Graph', () => {
 
     expect(screen.getByRole('button', { name: 'source.ts' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'buildGraph' })).toBeInTheDocument();
-    expect(screen.getByText('Entities (2)')).toBeInTheDocument();
+    expect(screen.getByText('الكيانات (2)')).toBeInTheDocument();
     expect(container.querySelector('line')).toBeInTheDocument();
 
-    fireEvent.change(screen.getByPlaceholderText('Find entity...'), {
+    fireEvent.change(screen.getByPlaceholderText('ابحث عن عنصر...'), {
       target: { value: 'build' },
     });
 
     expect(screen.getByRole('button', { name: 'buildGraph' })).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'source.ts' })).not.toBeInTheDocument();
-    expect(screen.getByText('Entities (1)')).toBeInTheDocument();
+    expect(screen.getByText('الكيانات (1)')).toBeInTheDocument();
   });
 
   it('consumes relationship items when an entity is selected', () => {
@@ -125,8 +125,8 @@ describe('Graph', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'source.ts' }));
 
-    expect(screen.getByRole('button', { name: 'Relations' })).toBeInTheDocument();
-    expect(screen.getByText('Outgoing (1)')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'العلاقات' })).toBeInTheDocument();
+    expect(screen.getByText('الصادرة (1)')).toBeInTheDocument();
     expect(screen.getByText('calls')).toBeInTheDocument();
     expect(screen.getAllByText('buildGraph').length).toBeGreaterThan(0);
   });

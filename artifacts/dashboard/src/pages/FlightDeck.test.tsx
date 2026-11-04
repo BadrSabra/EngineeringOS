@@ -102,7 +102,7 @@ describe('Flight Deck mission control', () => {
     renderDeck();
     expect(screen.getByTestId('link-flight-deck-ai'))
       .toHaveAttribute('href', '/ai?projectId=project-1&sessionId=session-1');
-    expect(screen.getByText('Back to AI conversation')).toBeInTheDocument();
+    expect(screen.getByText('الرجوع إلى محادثة الذكاء الاصطناعي')).toBeInTheDocument();
   });
 
   it('does not claim a conversation when the server session is absent or the requested project differs', () => {
@@ -115,7 +115,7 @@ describe('Flight Deck mission control', () => {
     window.history.pushState({}, '', '/flight-deck?executionId=execution-1&projectId=other-project');
     const second = renderDeck();
     expect(screen.getByTestId('link-flight-deck-ai')).toHaveAttribute('href', '/ai');
-    expect(screen.queryByText('Back to AI conversation')).not.toBeInTheDocument();
+    expect(screen.queryByText('الرجوع إلى محادثة الذكاء الاصطناعي')).not.toBeInTheDocument();
     second.unmount();
 
     window.history.pushState({}, '', '/flight-deck?executionId=another-execution');
@@ -135,8 +135,8 @@ describe('Flight Deck mission control', () => {
     expect(screen.getAllByText(state.replaceAll('_', ' ').toUpperCase()).length).toBeGreaterThan(0);
     expect(screen.getByText('Repair the authentication scope check')).toBeInTheDocument();
     expect(screen.getAllByText('1m 05s').length).toBeGreaterThan(0);
-    expect(screen.getByText('2 files · 1 nodes')).toBeInTheDocument();
-    expect(screen.getByText('Plan nodes')).toBeInTheDocument();
+    expect(screen.getByText('2 ملفات · 1 عُقد')).toBeInTheDocument();
+    expect(screen.getByText('عُقد الخطة')).toBeInTheDocument();
     expect(screen.getAllByText(state === 'BLOCKED' ? 'BLOCKED' : 'PARTIAL').length).toBeGreaterThan(0);
   });
 
@@ -153,8 +153,8 @@ describe('Flight Deck mission control', () => {
     };
     renderDeck();
 
-    expect(screen.getByText('Audit / Chat run')).toBeInTheDocument();
-    expect(screen.getByText('Non-delivery run')).toBeInTheDocument();
+    expect(screen.getByText('مراجعة / محادثة')).toBeInTheDocument();
+    expect(screen.getByText('تنفيذ لا يتضمن تسليمًا')).toBeInTheDocument();
     expect(screen.queryByText('Mission → Push')).toBeNull();
   });
 
@@ -173,7 +173,7 @@ describe('Flight Deck mission control', () => {
     renderDeck();
 
     expect(screen.getAllByText('COMPLETED').length).toBeGreaterThan(0);
-    expect(screen.getByText('Audit / Chat run')).toBeInTheDocument();
+    expect(screen.getByText('مراجعة / محادثة')).toBeInTheDocument();
   });
 
   it('keeps legacy completed delivery runs reviewable when evidence is partial', () => {
@@ -212,7 +212,7 @@ describe('Flight Deck mission control', () => {
 
     expect(screen.queryByText('COMPLETED')).not.toBeInTheDocument();
     expect(screen.getAllByText('BLOCKED').length).toBeGreaterThan(0);
-    expect(screen.getByText(/Proof: BLOCKED/)).toBeInTheDocument();
+    expect(screen.getByText(/الإثبات: BLOCKED/)).toBeInTheDocument();
   });
 
   it('does not use a checkpoint PROVEN verdict when the current proof projection is missing', () => {
@@ -228,7 +228,7 @@ describe('Flight Deck mission control', () => {
 
     expect(screen.queryByText('COMPLETED')).not.toBeInTheDocument();
     expect(screen.getByText('BLOCKED')).toBeInTheDocument();
-    expect(screen.getByText(/Proof: UNAVAILABLE/)).toBeInTheDocument();
+    expect(screen.getByText(/الإثبات: UNAVAILABLE/)).toBeInTheDocument();
   });
 
   it('retains the completed state when the current proof is accepted', () => {
@@ -248,7 +248,7 @@ describe('Flight Deck mission control', () => {
     renderDeck();
 
     expect(screen.getByText('COMPLETED')).toBeInTheDocument();
-    expect(screen.getByText(/Proof: PROVEN/)).toBeInTheDocument();
+    expect(screen.getByText(/الإثبات: PROVEN/)).toBeInTheDocument();
   });
 
   it('renders the correlated redacted proof chain and delivered-byte hashes', () => {
@@ -293,11 +293,11 @@ describe('Flight Deck mission control', () => {
     };
     renderDeck();
 
-    expect(screen.getByRole('region', { name: 'Delivery proof chain' })).toBeInTheDocument();
+    expect(screen.getByRole('region', { name: 'سلسلة إثبات التسليم' })).toBeInTheDocument();
     expect(screen.getByText('candidate-hash')).toBeInTheDocument();
     expect(screen.getByText('delivered-hash')).toBeInTheDocument();
-    expect(screen.getByText('Validation')).toBeInTheDocument();
-    expect(screen.getAllByText('Verified').length).toBeGreaterThan(0);
+    expect(screen.getByText('التحقق')).toBeInTheDocument();
+    expect(screen.getAllByText('متحقق').length).toBeGreaterThan(0);
     expect(screen.queryByText(/Next safe action/)).toBeNull();
   });
 
@@ -321,10 +321,10 @@ describe('Flight Deck mission control', () => {
     };
     renderDeck();
 
-    expect(screen.getByText('Retained with gaps')).toBeInTheDocument();
+    expect(screen.getByText('محفوظ مع نواقص')).toBeInTheDocument();
     expect(screen.getByText('No correlated operational events were retained.')).toBeInTheDocument();
-    expect(screen.getByText(/Do not rely on this result as verified/)).toBeInTheDocument();
-    expect(screen.queryByText('Verified chain')).toBeNull();
+    expect(screen.getByText(/لا تعتمد هذه النتيجة كأنها متحققة/)).toBeInTheDocument();
+    expect(screen.queryByText('سلسلة متحققة')).toBeNull();
   });
 
   it('blocks delivery actions when a commit or push receipt is uncertain', () => {
@@ -344,8 +344,8 @@ describe('Flight Deck mission control', () => {
     };
     renderDeck();
 
-    expect(screen.getByText(/Delivery recovery is required/)).toBeInTheDocument();
-    const pushButton = screen.getByRole('button', { name: 'Push committed operation' });
+    expect(screen.getByText(/يتطلب التسليم استعادة الحالة/)).toBeInTheDocument();
+    const pushButton = screen.getByRole('button', { name: 'دفع العملية المُودعة' });
     expect(pushButton).toBeDisabled();
   });
 });

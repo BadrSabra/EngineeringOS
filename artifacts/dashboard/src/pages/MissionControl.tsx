@@ -284,15 +284,15 @@ function ProviderRecoverySummary({ value }: { value: unknown }) {
     <div className="rounded-lg border border-amber-500/25 bg-amber-500/5 p-3">
       <div className="flex items-center gap-2">
         <ShieldCheck className="h-4 w-4 text-amber-200" />
-        <span className="text-sm font-semibold">Provider recovery</span>
+        <span className="text-sm font-semibold">استعادة مزود الذكاء الاصطناعي</span>
         <span className="ml-auto rounded-full border border-amber-500/35 px-1.5 py-0.5 text-[10px] uppercase text-amber-200">
           {evidence}
         </span>
       </div>
       <div className="mt-2 grid gap-2 text-xs sm:grid-cols-3">
-        <div><div className="text-muted-foreground">Failure category</div><div className="mt-0.5 font-medium">{category}</div></div>
-        <div><div className="text-muted-foreground">Recovery action</div><div className="mt-0.5 font-medium">{action}</div></div>
-        <div><div className="text-muted-foreground">Attempts</div><div className="mt-0.5 font-medium">{attempts ?? 'Not recorded'}</div></div>
+        <div><div className="text-muted-foreground">فئة الإخفاق</div><div className="mt-0.5 font-medium">{category}</div></div>
+        <div><div className="text-muted-foreground">إجراء الاستعادة</div><div className="mt-0.5 font-medium">{action}</div></div>
+        <div><div className="text-muted-foreground">المحاولات</div><div className="mt-0.5 font-medium">{attempts ?? 'غير مسجل'}</div></div>
       </div>
     </div>
   );
@@ -306,14 +306,14 @@ function ProviderAvailabilityCard({ execution }: { execution: MissionExecution |
   const correlationId = textValue(recovery.correlationId);
   if (!state && !action && !correlationId) return null;
   return (
-    <section className="rounded-xl border border-amber-500/30 bg-amber-500/5 p-4" aria-label="Provider availability">
+    <section className="rounded-xl border border-amber-500/30 bg-amber-500/5 p-4" aria-label="توفر مزود الذكاء الاصطناعي">
       <div className="flex items-start gap-3">
         <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-200" />
         <div className="min-w-0">
-          <h2 className="font-semibold text-amber-100">AI provider needs attention</h2>
-          {state && <p className="mt-1 text-xs uppercase tracking-wide text-amber-200/80">Status: {state.replace(/_/g, ' ')}</p>}
-          {action && <p className="mt-2 text-xs leading-5 text-muted-foreground">Next step: {action}</p>}
-          {correlationId && <p className="mt-2 font-mono text-[10px] text-muted-foreground">Reference: {correlationId}</p>}
+          <h2 className="font-semibold text-amber-100">يتطلب مزود الذكاء الاصطناعي الانتباه</h2>
+          {state && <p className="mt-1 text-xs uppercase tracking-wide text-amber-200/80">الحالة: <bdi dir="ltr">{state.replace(/_/g, ' ')}</bdi></p>}
+          {action && <p className="mt-2 text-xs leading-5 text-muted-foreground">الخطوة التالية: {action}</p>}
+          {correlationId && <p className="mt-2 font-mono text-[10px] text-muted-foreground">المرجع: <bdi dir="ltr">{correlationId}</bdi></p>}
         </div>
       </div>
     </section>
@@ -341,14 +341,14 @@ function ReleaseGateCard({ value }: { value: unknown }) {
     : [];
   const runtimeStatus = textValue(runtimeOracle?.status)?.toLowerCase();
   return (
-    <section className={`rounded-xl border bg-card ${status === 'passed' ? 'border-emerald-500/25' : 'border-amber-500/30'}`} aria-label="Deterministic release gate">
+    <section className={`rounded-xl border bg-card ${status === 'passed' ? 'border-emerald-500/25' : 'border-amber-500/30'}`} aria-label="بوابة الإصدار الحتمية">
       <div className="flex items-center gap-2 border-b border-border/70 px-4 py-3.5">
         {status === 'passed'
           ? <CheckCircle2 className="h-4 w-4 text-emerald-200" />
           : <AlertTriangle className="h-4 w-4 text-amber-200" />}
         <div>
-          <h2 className="font-semibold">Deterministic release gate</h2>
-          <p className="mt-0.5 text-[11px] text-muted-foreground">Contract acceptance remains the shipping authority.</p>
+          <h2 className="font-semibold">بوابة الإصدار الحتمية</h2>
+          <p className="mt-0.5 text-[11px] text-muted-foreground">يبقى قبول العقد هو المرجع المعتمد للإصدار.</p>
         </div>
         <span className={`ml-auto rounded-full border px-2 py-0.5 text-[10px] uppercase ${status === 'passed' ? 'border-emerald-500/30 text-emerald-200' : 'border-amber-500/30 text-amber-200'}`}>
           {status ? status : 'not recorded'}
@@ -357,15 +357,15 @@ function ReleaseGateCard({ value }: { value: unknown }) {
       <div className="p-4">
         {!gate ? (
           <p className="rounded-lg border border-dashed border-border/70 bg-background/20 p-4 text-center text-xs text-muted-foreground">
-            No deterministic release report was returned.
+            لم يُعَد تقرير لبوابة الإصدار الحتمية.
           </p>
         ) : (
           <>
             <div className="grid gap-2 sm:grid-cols-3">
               {[
-                ['Checks', summary?.totalCases],
-                ['Passed', summary?.passedCases],
-                ['Blocking failures', summary?.blockingFailures],
+                ['الفحوص', summary?.totalCases],
+                ['ناجحة', summary?.passedCases],
+                ['إخفاقات مانعة', summary?.blockingFailures],
               ].map(([label, metric]) => (
                 <div key={String(label)} className="rounded-md border border-border/45 bg-background/20 px-3 py-2">
                   <div className="text-[10px] uppercase tracking-wide text-muted-foreground">{String(label)}</div>
@@ -378,11 +378,11 @@ function ReleaseGateCard({ value }: { value: unknown }) {
                 {blockers.slice(0, 3).join(' · ')}
               </div>
             )}
-            <div className="mt-4 rounded-lg border border-border/60 bg-background/20 p-3" aria-label="Runtime oracle preflight">
+            <div className="mt-4 rounded-lg border border-border/60 bg-background/20 p-3" aria-label="فحص مسبق لمراقب التشغيل">
               <div className="flex flex-wrap items-center gap-2">
                 <div>
-                  <h3 className="text-xs font-semibold">Runtime-oracle preflight</h3>
-                  <p className="mt-0.5 text-[11px] text-muted-foreground">Server-registered commands against the focused candidate.</p>
+                  <h3 className="text-xs font-semibold">فحص مسبق لمراقب التشغيل</h3>
+                  <p className="mt-0.5 text-[11px] text-muted-foreground">أوامر مسجلة على الخادم تُشغّل على المرشح المحدد.</p>
                 </div>
                 <span className={`ml-auto rounded-full border px-2 py-0.5 text-[10px] uppercase ${
                   runtimeStatus === 'passed'
@@ -395,22 +395,22 @@ function ReleaseGateCard({ value }: { value: unknown }) {
                 </span>
               </div>
               {!runtimeOracle ? (
-                <p className="mt-3 text-[11px] text-muted-foreground">No runtime-oracle preflight report was returned.</p>
+                <p className="mt-3 text-[11px] text-muted-foreground">لم يُعَد تقرير الفحص المسبق لمراقب التشغيل.</p>
               ) : (
                 <>
                   <div className="mt-3 grid gap-2 sm:grid-cols-2">
                     <div className="rounded-md border border-border/45 px-2.5 py-2">
-                      <div className="text-[10px] uppercase tracking-wide text-muted-foreground">Registered scenarios</div>
+                      <div className="text-[10px] uppercase tracking-wide text-muted-foreground">السيناريوهات المسجلة</div>
                       <div className="mt-1 font-mono text-sm font-semibold">{runtimeChecks.length}</div>
                     </div>
                     <div className="rounded-md border border-border/45 px-2.5 py-2">
-                      <div className="text-[10px] uppercase tracking-wide text-muted-foreground">Failure identifiers</div>
+                      <div className="text-[10px] uppercase tracking-wide text-muted-foreground">معرّفات الإخفاق</div>
                       <div className="mt-1 font-mono text-sm font-semibold">{runtimeFailureIds.length}</div>
                     </div>
                   </div>
                   {runtimeChecks.length > 0 && (
                     <div className="mt-3 space-y-1.5">
-                      <div className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">Registered checks</div>
+                      <div className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">الفحوص المسجلة</div>
                       {runtimeChecks.map((check, index) => {
                         const checkStatus = textValue(check.status)?.toLowerCase();
                         return (
@@ -427,7 +427,7 @@ function ReleaseGateCard({ value }: { value: unknown }) {
                               {textValue(check.command) ?? 'Command not recorded'}
                             </div>
                             {textValue(check.failureCode) && (
-                              <div className="mt-1 text-[10px] text-red-200">Failure code: {textValue(check.failureCode)}</div>
+                              <div className="mt-1 text-[10px] text-red-200">رمز الإخفاق: <bdi dir="ltr">{textValue(check.failureCode)}</bdi></div>
                             )}
                           </div>
                         );
@@ -436,7 +436,7 @@ function ReleaseGateCard({ value }: { value: unknown }) {
                   )}
                   {runtimeFailureIds.length > 0 && (
                     <div className="mt-3 rounded-md border border-red-500/25 bg-red-500/5 px-2.5 py-2 text-[11px] text-red-200">
-                      <div className="text-[10px] font-semibold uppercase tracking-wide">Failure identifiers</div>
+                      <div className="text-[10px] font-semibold uppercase tracking-wide">معرّفات الإخفاق</div>
                       <div className="mt-1 break-words font-mono">{runtimeFailureIds.join(' · ')}</div>
                     </div>
                   )}
@@ -459,12 +459,12 @@ function EmpiricalQualityCard({ value }: { value: unknown }) {
     : [];
   const latency = asRecord(metrics?.latencyMs);
   return (
-    <section className="rounded-xl border border-primary/25 bg-card" aria-label="Empirical quality review">
+    <section className="rounded-xl border border-primary/25 bg-card" aria-label="مراجعة الجودة التجريبية">
       <div className="flex items-center gap-2 border-b border-primary/20 px-4 py-3.5">
         <Activity className="h-4 w-4 text-primary" />
         <div>
-          <h2 className="font-semibold">Empirical quality review</h2>
-          <p className="mt-0.5 text-[11px] text-muted-foreground">Opt-in measurement only — never a release control.</p>
+          <h2 className="font-semibold">مراجعة الجودة التجريبية</h2>
+          <p className="mt-0.5 text-[11px] text-muted-foreground">قياس اختياري فقط — وليس معيارًا للإصدار.</p>
         </div>
         <span className={`ml-auto rounded-full border px-2 py-0.5 text-[10px] uppercase ${status === 'PROVEN' ? 'border-emerald-500/30 text-emerald-200' : 'border-primary/30 text-primary'}`}>
           {status ?? 'not run'}
@@ -473,22 +473,22 @@ function EmpiricalQualityCard({ value }: { value: unknown }) {
       <div className="p-4">
         {!campaign ? (
           <p className="rounded-lg border border-dashed border-border/70 bg-background/20 p-4 text-center text-xs text-muted-foreground">
-            No opt-in empirical campaign has been recorded.
+            لم تُسجل حملة قياس تجريبية اختيارية.
           </p>
         ) : (
           <>
             <div className="flex flex-wrap gap-x-4 gap-y-1 text-[11px] text-muted-foreground">
-              {textValue(campaign.corpusRevision) && <span>Corpus {textValue(campaign.corpusRevision)}</span>}
-              {formatDate(campaign.generatedAt) && <span>Last observed {formatDate(campaign.generatedAt)}</span>}
+              {textValue(campaign.corpusRevision) && <span>إصدار مجموعة البيانات <bdi dir="ltr">{textValue(campaign.corpusRevision)}</bdi></span>}
+              {formatDate(campaign.generatedAt) && <span>آخر رصد {formatDate(campaign.generatedAt)}</span>}
             </div>
             <div className="mt-3 grid gap-2 sm:grid-cols-3">
               {[
-                ['Precision', percentageMetric(metrics, 'precision')],
-                ['Recall', percentageMetric(metrics, 'recall')],
+                ['الدقة', percentageMetric(metrics, 'precision')],
+                ['الاسترجاع', percentageMetric(metrics, 'recall')],
                 ['F1', percentageMetric(metrics, 'f1')],
-                ['Citation coverage', percentageMetric(metrics, 'citationCoverage')],
-                ['False accept', percentageMetric(metrics, 'falseAcceptanceRate')],
-                ['False reject', percentageMetric(metrics, 'falseRejectionRate')],
+                ['تغطية الاستشهادات', percentageMetric(metrics, 'citationCoverage')],
+                ['القبول الخاطئ', percentageMetric(metrics, 'falseAcceptanceRate')],
+                ['الرفض الخاطئ', percentageMetric(metrics, 'falseRejectionRate')],
               ].map(([label, metric]) => (
                 <div key={String(label)} className="rounded-md border border-border/45 bg-background/20 px-3 py-2">
                   <div className="text-[10px] uppercase tracking-wide text-muted-foreground">{String(label)}</div>
@@ -497,8 +497,8 @@ function EmpiricalQualityCard({ value }: { value: unknown }) {
               ))}
             </div>
             <div className="mt-3 flex flex-wrap gap-x-4 gap-y-1 text-[11px] text-muted-foreground">
-              <span>Completed {formatValue(metrics?.completedCases)} / {formatValue(metrics?.totalCases)}</span>
-              <span>Unavailable {formatValue(metrics?.providerUnavailableCount)}</span>
+              <span>المكتمل {formatValue(metrics?.completedCases)} / {formatValue(metrics?.totalCases)}</span>
+              <span>غير المتاح {formatValue(metrics?.providerUnavailableCount)}</span>
               <span>p95 {formatValue(latency?.p95)} ms</span>
             </div>
             {blockers.length > 0 && (
@@ -1420,11 +1420,11 @@ export default function MissionControl() {
 
   if (isError) {
     return (
-      <div className="mx-auto max-w-2xl rounded-xl border border-red-500/30 bg-red-500/5 p-7 text-center">
+      <div dir="rtl" lang="ar" className="mx-auto max-w-2xl rounded-xl border border-red-500/30 bg-red-500/5 p-7 text-center">
         <AlertTriangle className="mx-auto h-8 w-8 text-red-300" />
-        <h1 className="mt-4 text-lg font-semibold">Mission control is offline</h1>
+        <h1 className="mt-4 text-lg font-semibold">مركز المهام غير متاح</h1>
         <p className="mt-2 text-sm text-muted-foreground">
-          The durable run ledger could not be read. No execution state is being inferred locally.
+          تعذّرت قراءة سجل التنفيذ المحفوظ. لن نستنتج حالة أي تنفيذ محليًا.
         </p>
         <p className="mt-3 font-mono text-[11px] text-red-200/80">{error instanceof Error ? error.message : 'Request failed'}</p>
         <button
@@ -1432,7 +1432,7 @@ export default function MissionControl() {
           onClick={() => void refetch()}
           className="mt-5 inline-flex items-center gap-2 rounded-md bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground hover-elevate"
         >
-          <RefreshCw className="h-4 w-4" /> Retry read
+          <RefreshCw className="h-4 w-4" /> أعد المحاولة
         </button>
       </div>
     );
@@ -1440,29 +1440,29 @@ export default function MissionControl() {
 
   if (executions.length === 0 && !importedHistory) {
     return (
-      <div className="space-y-5">
+      <div dir="rtl" lang="ar" className="space-y-5">
         <div className="flex items-center gap-2 text-sm text-muted-foreground">
           <Activity className="h-4 w-4 text-primary" />
-          <span>EngineeringOS</span><span>/</span><span className="text-foreground">Mission Control</span>
+          <span>EngineeringOS</span><span>/</span><span className="text-foreground">مركز المهام</span>
         </div>
         <div className="rounded-xl border border-dashed border-border bg-card/70 px-6 py-16 text-center">
           <Layers3 className="mx-auto h-9 w-9 text-primary/80" />
-          <h1 className="mt-4 text-xl font-semibold tracking-tight">No durable runs in the ledger</h1>
+          <h1 className="mt-4 text-xl font-semibold tracking-tight">لا توجد عمليات محفوظة في السجل</h1>
           <p className="mx-auto mt-2 max-w-md text-sm leading-6 text-muted-foreground">
-            New AI executions will appear here once their server-owned checkpoints and recorder events exist.
+            ستظهر عمليات الذكاء الاصطناعي الجديدة هنا بعد توفر نقاط الحفظ وأحداث المسجل التي يديرها الخادم.
           </p>
            <label className="mt-6 inline-flex cursor-pointer items-center gap-2 rounded-md border border-primary/35 bg-primary/10 px-4 py-2 text-sm font-semibold text-primary hover-elevate">
-             <FileUp className="h-4 w-4" /> Import JSON history
+              <FileUp className="h-4 w-4" /> استيراد سجل JSON
              <input
                type="file"
                accept="application/json,.json"
                onChange={(event) => void handleHistoryImport(event)}
-               aria-label="Import JSON recovery history"
+                aria-label="استيراد سجل الاستعادة بصيغة JSON"
                className="sr-only"
              />
            </label>
           <Link href="/ai" className="mt-6 inline-flex items-center gap-2 rounded-md border border-primary/35 bg-primary/10 px-4 py-2 text-sm font-semibold text-primary hover-elevate">
-            Open AI Assistant <ArrowUpRight className="h-4 w-4" />
+             افتح مساعد الذكاء الاصطناعي <ArrowUpRight className="h-4 w-4" />
           </Link>
         </div>
       </div>
@@ -1470,33 +1470,33 @@ export default function MissionControl() {
   }
 
   return (
-    <div className="space-y-5 pb-8">
+    <div dir="rtl" lang="ar" className="space-y-5 pb-8">
       <header className="flex flex-col gap-4 border-b border-border/60 pb-5 sm:flex-row sm:items-start sm:justify-between">
         <div>
           <div className="flex items-center gap-2 text-sm text-muted-foreground">
             <Activity className="h-4 w-4 text-primary" />
-            <span>EngineeringOS</span><span>/</span><span className="text-foreground">Mission Control</span>
+            <span>EngineeringOS</span><span>/</span><span className="text-foreground">مركز المهام</span>
           </div>
           <div className="mt-4 flex items-start gap-3">
             <div className="mt-1 rounded-lg border border-primary/25 bg-primary/10 p-2.5 text-primary">
               <Gauge className="h-5 w-5" />
             </div>
             <div>
-              <h1 className="text-2xl font-semibold tracking-tight sm:text-3xl">Mission Control</h1>
+              <h1 className="text-2xl font-semibold tracking-tight sm:text-3xl">مركز المهام</h1>
               <p className="mt-1 max-w-2xl text-sm leading-6 text-muted-foreground">
-                A readable ledger for AI delivery runs — state, repair, validation, and recorder proof in one calm view.
+                سجل واضح لعمليات تسليم الذكاء الاصطناعي، يعرض الحالة والإصلاح والتحقق وأدلة المسجل.
               </p>
               {conversationHref && (
                 <Link href={conversationHref} data-testid="link-mission-control-ai"
                   className="mt-2 inline-flex items-center gap-1 text-xs font-medium text-primary hover:underline">
-                  Back to AI conversation <ArrowUpRight className="h-3 w-3" aria-hidden="true" />
+                  العودة إلى محادثة الذكاء الاصطناعي <ArrowUpRight className="h-3 w-3" aria-hidden="true" />
                 </Link>
               )}
             </div>
           </div>
         </div>
         <div className="flex shrink-0 items-center gap-2">
-          {updatedLabel && <span className="hidden text-[11px] text-muted-foreground sm:block">Updated {updatedLabel}</span>}
+          {updatedLabel && <span className="hidden text-[11px] text-muted-foreground sm:block">آخر تحديث {updatedLabel}</span>}
           <button
             type="button"
             onClick={() => {
@@ -1505,10 +1505,10 @@ export default function MissionControl() {
             }}
             disabled={isFetching}
             className="inline-flex items-center gap-2 rounded-md border border-border bg-card px-3 py-2 text-xs font-semibold text-foreground hover-elevate disabled:opacity-60"
-            title="Refresh mission control"
+            title="تحديث مركز المهام"
           >
             <RefreshCw className={`h-3.5 w-3.5 ${isFetching ? 'animate-spin' : ''}`} />
-            Refresh
+            تحديث
           </button>
         </div>
       </header>
@@ -1519,15 +1519,15 @@ export default function MissionControl() {
           data-testid={`mission-control-decision-${requestedMissionId}`}
         >
           <div className="mb-3">
-            <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-primary">Mission decision</p>
+            <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-primary">قرار المهمة</p>
             <h2 className="mt-1 text-base font-semibold">{missionProjection?.mission.title}</h2>
-            <p className="mt-1 text-xs text-muted-foreground">Current server-owned action and intervention state for this Mission.</p>
+            <p className="mt-1 text-xs text-muted-foreground">الإجراء الحالي وحالة التدخل للمهمة كما يديرهما الخادم.</p>
           </div>
           <MissionAgentProjectionSummary projection={matchingMissionDecision} />
         </section>
       ) : requestedMissionId && missionProjectionQuery.isError ? (
         <section className="rounded-xl border border-destructive/25 bg-destructive/5 p-4 text-sm text-muted-foreground" role="status">
-          Mission decision is unavailable. Refresh the Mission page before taking an action.
+          قرار المهمة غير متاح. حدّث صفحة المهمة قبل اتخاذ أي إجراء.
         </section>
       ) : null}
 
@@ -1535,18 +1535,18 @@ export default function MissionControl() {
         <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
           <div>
             <div className="flex items-center gap-2 text-[10px] font-semibold uppercase tracking-[0.18em] text-primary">
-              <Zap className="h-3.5 w-3.5" /> Delivery run posture
+              <Zap className="h-3.5 w-3.5" /> حالة عمليات التسليم
             </div>
             <p className="mt-2 text-sm text-muted-foreground">
-              {completedCount} complete <span className="px-1 text-border">/</span> {remainingCount} remaining
-              <span className="px-1 text-border">·</span> {executions.length} recorded execution{executions.length === 1 ? '' : 's'}
+              {completedCount} مكتملة <span className="px-1 text-border">/</span> {remainingCount} متبقية
+              <span className="px-1 text-border">·</span> {executions.length} عملية مسجلة
             </p>
           </div>
           <div className="grid grid-cols-2 gap-2 sm:grid-cols-4 lg:min-w-[540px]">
-            <SummaryMetric label="Completed" value={String(completedCount)} detail="terminal delivery states" icon={<CheckCircle2 className="h-3.5 w-3.5 text-emerald-300" />} tone="text-emerald-200" />
-            <SummaryMetric label="Remaining" value={String(remainingCount)} detail="active or unresolved" icon={<Clock3 className="h-3.5 w-3.5 text-primary" />} tone="text-primary" />
-            <SummaryMetric label="Validation" value={String(executions.reduce((total, execution) => total + (numberValue(execution.validationFailures) ?? 0), 0))} detail="failures across ledger" icon={<ShieldCheck className="h-3.5 w-3.5 text-amber-300" />} tone="text-amber-200" />
-            <SummaryMetric label="Events" value={String(executions.reduce((total, execution) => total + (numberValue(execution.eventCount) ?? 0), 0))} detail="server-recorded events" icon={<History className="h-3.5 w-3.5 text-primary" />} />
+            <SummaryMetric label="مكتملة" value={String(completedCount)} detail="حالات تسليم نهائية" icon={<CheckCircle2 className="h-3.5 w-3.5 text-emerald-300" />} tone="text-emerald-200" />
+            <SummaryMetric label="متبقية" value={String(remainingCount)} detail="نشطة أو غير محسومة" icon={<Clock3 className="h-3.5 w-3.5 text-primary" />} tone="text-primary" />
+            <SummaryMetric label="التحقق" value={String(executions.reduce((total, execution) => total + (numberValue(execution.validationFailures) ?? 0), 0))} detail="إخفاقات في السجل" icon={<ShieldCheck className="h-3.5 w-3.5 text-amber-300" />} tone="text-amber-200" />
+            <SummaryMetric label="الأحداث" value={String(executions.reduce((total, execution) => total + (numberValue(execution.eventCount) ?? 0), 0))} detail="أحداث سجلها الخادم" icon={<History className="h-3.5 w-3.5 text-primary" />} />
           </div>
         </div>
       </section>
@@ -1558,11 +1558,11 @@ export default function MissionControl() {
            <div className="border-b border-border/70 px-4 py-3.5">
              <div className="flex items-center justify-between">
             <div>
-              <h2 className="font-semibold">Execution ledger</h2>
-               <p className="mt-0.5 text-[11px] text-muted-foreground">Scan the persisted history, then select a run to inspect its recorder output.</p>
-               <p className="mt-1 text-[11px] text-muted-foreground">Evidence and acceptance values are saved records; current Canonical Proof is not revalidated in this ledger.</p>
+              <h2 className="font-semibold">سجل التنفيذ</h2>
+               <p className="mt-0.5 text-[11px] text-muted-foreground">استعرض السجل المحفوظ، ثم اختر عملية لمراجعة مخرجات المسجل.</p>
+               <p className="mt-1 text-[11px] text-muted-foreground">الأدلة وقيم القبول سجلات محفوظة؛ ولا يُعاد التحقق من الإثبات المعتمد الحالي في هذا السجل.</p>
             </div>
-             <span className="rounded-full border border-border/70 bg-background/35 px-2 py-1 font-mono text-[10px] text-muted-foreground">{filteredExecutions.length} of {executions.length} runs</span>
+             <span className="rounded-full border border-border/70 bg-background/35 px-2 py-1 font-mono text-[10px] text-muted-foreground">{filteredExecutions.length} من {executions.length} عملية</span>
              </div>
              <div className="mt-3 flex flex-col gap-2 sm:flex-row">
                <label className="relative min-w-0 flex-1">
@@ -1571,26 +1571,26 @@ export default function MissionControl() {
                    type="search"
                    value={historyQuery}
                    onChange={(event) => { setHistoryQuery(event.target.value); setHistoryPage(1); }}
-                    placeholder="Search ID, objective, failure, action…"
-                   aria-label="Search execution history"
+                    placeholder="ابحث بالمعرّف أو الهدف أو الإخفاق أو الإجراء…"
+                   aria-label="البحث في سجل التنفيذ"
                    className="h-8 w-full rounded-md border border-border bg-background/50 pl-8 pr-3 text-xs text-foreground outline-none placeholder:text-muted-foreground focus:border-primary/60 focus:ring-1 focus:ring-primary/30"
                  />
                </label>
                <select
                  value={historyState}
                  onChange={(event) => { setHistoryState(event.target.value); setHistoryPage(1); }}
-                 aria-label="Filter execution history by state"
+                 aria-label="تصفية سجل التنفيذ حسب الحالة"
                  className="h-8 rounded-md border border-border bg-background/50 px-2 text-xs text-foreground outline-none focus:border-primary/60"
                >
-                 <option value="ALL">All states</option>
+                 <option value="ALL">كل الحالات</option>
                  {historyStates.map((state) => <option key={state} value={state}>{state.replace(/_/g, ' ')}</option>)}
                </select>
                <label className="flex shrink-0 items-center gap-2 rounded-md border border-border bg-background/50 px-2 text-[11px] text-muted-foreground">
-                 <span>Format</span>
+                 <span>الصيغة</span>
                  <select
                    value={historyExportFormat}
                    onChange={(event) => setHistoryExportFormat(event.target.value as HistoryExportFormat)}
-                   aria-label="Export format"
+                   aria-label="صيغة التصدير"
                    className="h-7 bg-transparent text-xs font-semibold text-foreground outline-none"
                  >
                    <option value="csv">CSV</option>
@@ -1601,19 +1601,19 @@ export default function MissionControl() {
                  type="button"
                  onClick={() => downloadFilteredHistory(filteredExecutions, typedData?.benchmark, historyExportFormat)}
                  disabled={filteredExecutions.length === 0}
-                 aria-label={filteredExecutions.length === 0 ? 'Export filtered history (no matching executions)' : 'Export filtered history'}
-                 title={filteredExecutions.length === 0 ? 'No matching executions to export' : `Download all matching executions as ${historyExportFormat.toUpperCase()}`}
+                 aria-label={filteredExecutions.length === 0 ? 'تصدير السجل المصفّى (لا توجد عمليات مطابقة)' : 'تصدير السجل المصفّى'}
+                 title={filteredExecutions.length === 0 ? 'لا توجد عمليات مطابقة للتصدير' : `تنزيل كل العمليات المطابقة بصيغة ${historyExportFormat.toUpperCase()}`}
                  className="inline-flex shrink-0 items-center justify-center gap-1.5 rounded-md border border-primary/35 bg-primary/10 px-3 py-2 text-xs font-semibold text-primary hover-elevate disabled:cursor-not-allowed disabled:opacity-45"
                >
-                 <Download className="h-3.5 w-3.5" /> Export filtered history
+                 <Download className="h-3.5 w-3.5" /> تصدير السجل المصفّى
                </button>
                 <label className="inline-flex shrink-0 cursor-pointer items-center justify-center gap-1.5 rounded-md border border-border bg-background/50 px-3 py-2 text-xs font-semibold text-foreground hover-elevate">
-                  <FileUp className="h-3.5 w-3.5 text-primary" /> Import JSON history
+                  <FileUp className="h-3.5 w-3.5 text-primary" /> استيراد سجل JSON
                   <input
                     type="file"
                     accept="application/json,.json"
                     onChange={(event) => void handleHistoryImport(event)}
-                    aria-label="Import JSON recovery history"
+                    aria-label="استيراد سجل الاستعادة بصيغة JSON"
                     className="sr-only"
                   />
                 </label>
@@ -1622,7 +1622,7 @@ export default function MissionControl() {
               {importStatus && <p className="mt-2 text-[11px] text-emerald-200" role="status">{importStatus}</p>}
              {filteredExecutions.length === 0 && (
                <p className="mt-2 text-[11px] text-muted-foreground" role="status">
-                 There are no matching executions to export. Adjust the search or state filter.
+                 لا توجد عمليات مطابقة للتصدير. عدّل البحث أو مرشح الحالة.
                </p>
              )}
           </div>
@@ -1657,11 +1657,11 @@ export default function MissionControl() {
                         </div>
                         <h3 className="mt-2 line-clamp-2 text-sm font-medium leading-5 text-foreground">{objectiveText(execution.objective)}</h3>
                          <div className="mt-3 flex flex-wrap gap-x-4 gap-y-1.5 text-[10px] text-muted-foreground">
-                          <span className="inline-flex items-center gap-1"><Wrench className="h-3 w-3 text-amber-300/80" />{numberValue(execution.attempts) ?? 0} repair attempts</span>
-                          <span className="inline-flex items-center gap-1"><TerminalSquare className="h-3 w-3 text-muted-foreground" />{eventCount} events</span>
-                           {failureCategory && <span>Failure: {failureCategory}</span>}
-                           {recoveryAction && <span>Action: {recoveryAction}</span>}
-                           {asRecord(execution.recovery)?.uncertain === true && <span className="font-semibold text-amber-200">Uncertain recovery required</span>}
+                          <span className="inline-flex items-center gap-1"><Wrench className="h-3 w-3 text-amber-300/80" />{numberValue(execution.attempts) ?? 0} محاولات إصلاح</span>
+                          <span className="inline-flex items-center gap-1"><TerminalSquare className="h-3 w-3 text-muted-foreground" />{eventCount} أحداث</span>
+                           {failureCategory && <span>الإخفاق: {failureCategory}</span>}
+                           {recoveryAction && <span>الإجراء: {recoveryAction}</span>}
+                           {asRecord(execution.recovery)?.uncertain === true && <span className="font-semibold text-amber-200">يلزم استرداد الحالة غير المحسومة</span>}
                         </div>
                       </div>
                       <ExternalLink className="mt-1 h-4 w-4 shrink-0 text-muted-foreground" />
@@ -1669,7 +1669,7 @@ export default function MissionControl() {
                     <div className="mt-3 flex flex-wrap items-center gap-2 border-t border-border/50 pt-3 text-[10px]">
                       <span className={`inline-flex items-center gap-1 ${evidenceTone(execution.evidence)}`}>
                         <EvidenceIcon evidence={execution.evidence} />
-                          Recorded evidence: {evidenceStatus ?? (execution.evidence ? 'Recorded' : 'Not recorded')}
+                          الأدلة المسجلة: {evidenceStatus ?? (execution.evidence ? 'مسجل' : 'غير مسجل')}
                       </span>
                        {runAcceptanceStatus !== 'NOT_RECORDED' && (
                          <span
@@ -1679,13 +1679,13 @@ export default function MissionControl() {
                            {acceptanceStatusLabel(runAcceptanceStatus)}
                          </span>
                        )}
-                      <span className="text-muted-foreground">Validation failures: {numberValue(execution.validationFailures) ?? 0}</span>
+                      <span className="text-muted-foreground">إخفاقات التحقق: {numberValue(execution.validationFailures) ?? 0}</span>
                       <Link
                         href={`/flight-deck?executionId=${encodeURIComponent(execution.id)}`}
                         onClick={(event) => event.stopPropagation()}
                         className="ml-auto inline-flex items-center gap-1 font-semibold text-primary hover:underline"
                       >
-                        Open Flight Deck <ArrowUpRight className="h-3 w-3" />
+                        افتح لوحة متابعة التنفيذ <ArrowUpRight className="h-3 w-3" />
                       </Link>
                     </div>
                   </div>
@@ -1693,20 +1693,20 @@ export default function MissionControl() {
               );
             })}
              {visibleExecutions.length === 0 && (
-               <div className="p-8 text-center text-xs text-muted-foreground">No executions match this search or state filter.</div>
+               <div className="p-8 text-center text-xs text-muted-foreground">لا توجد عمليات تطابق البحث أو مرشح الحالة.</div>
              )}
           </div>
            <div className="flex flex-col gap-2 border-t border-border/70 px-4 py-3 text-[11px] text-muted-foreground sm:flex-row sm:items-center sm:justify-between">
              <span>
-               {filteredExecutions.length === 0 ? '0 runs' : `Showing ${(historyPage - 1) * historyPageSize + 1}–${Math.min(historyPage * historyPageSize, filteredExecutions.length)} of ${filteredExecutions.length}`}
+               {filteredExecutions.length === 0 ? '٠ عمليات' : `عرض ${(historyPage - 1) * historyPageSize + 1}–${Math.min(historyPage * historyPageSize, filteredExecutions.length)} من ${filteredExecutions.length}`}
              </span>
              <div className="flex items-center gap-2">
-               <button type="button" onClick={() => setHistoryPage((page) => Math.max(1, page - 1))} disabled={historyPage === 1} aria-label="Previous history page" className="inline-flex h-7 items-center gap-1 rounded-md border border-border px-2 hover-elevate disabled:opacity-40">
-                 <ChevronLeft className="h-3.5 w-3.5" /> Previous
+               <button type="button" onClick={() => setHistoryPage((page) => Math.max(1, page - 1))} disabled={historyPage === 1} aria-label="صفحة السجل السابقة" className="inline-flex h-7 items-center gap-1 rounded-md border border-border px-2 hover-elevate disabled:opacity-40">
+                 <ChevronLeft className="h-3.5 w-3.5" /> السابق
                </button>
-               <span className="font-mono text-[10px]">Page {historyPage} / {historyPageCount}</span>
-               <button type="button" onClick={() => setHistoryPage((page) => Math.min(historyPageCount, page + 1))} disabled={historyPage === historyPageCount} aria-label="Next history page" className="inline-flex h-7 items-center gap-1 rounded-md border border-border px-2 hover-elevate disabled:opacity-40">
-                 Next <ChevronRight className="h-3.5 w-3.5" />
+               <span className="font-mono text-[10px]">الصفحة {historyPage} / {historyPageCount}</span>
+               <button type="button" onClick={() => setHistoryPage((page) => Math.min(historyPageCount, page + 1))} disabled={historyPage === historyPageCount} aria-label="صفحة السجل التالية" className="inline-flex h-7 items-center gap-1 rounded-md border border-border px-2 hover-elevate disabled:opacity-40">
+                 التالي <ChevronRight className="h-3.5 w-3.5" />
                </button>
              </div>
            </div>
@@ -1717,25 +1717,25 @@ export default function MissionControl() {
             <div className="border-b border-border/70 px-4 py-3.5">
               <div className="flex items-center gap-2">
                 <ShieldCheck className="h-4 w-4 text-primary" />
-                <h2 className="font-semibold">Recorder evidence</h2>
+                <h2 className="font-semibold">أدلة المسجل</h2>
               </div>
               <p className="mt-1 text-[11px] text-muted-foreground">
-                {selectedExecution ? `Readable proof for ${selectedExecution.id}` : 'Select an execution'}
+                {selectedExecution ? `أدلة واضحة للتنفيذ ${selectedExecution.id}` : 'اختر تنفيذًا'}
               </p>
             </div>
             <div className="p-4">
               {!selectedExecution?.evidence ? (
                 <div className="rounded-lg border border-dashed border-border/70 bg-background/20 p-5 text-center text-xs text-muted-foreground">
-                  No recorder evidence was returned for this execution.
+                  لم تُعَد أدلة من المسجل لهذا التنفيذ.
                 </div>
               ) : (
                 <>
                   <div className="flex items-center gap-2 rounded-lg border border-border/60 bg-background/30 px-3 py-2.5">
                     <EvidenceIcon evidence={selectedExecution.evidence} />
                     <span className={`text-sm font-semibold ${evidenceTone(selectedExecution.evidence)}`}>
-                      {textValue(asRecord(selectedExecution.evidence)?.verdict) ?? 'Evidence recorded'}
+                      {textValue(asRecord(selectedExecution.evidence)?.verdict) ?? 'تم تسجيل الأدلة'}
                     </span>
-                    <span className="ml-auto font-mono text-[10px] text-muted-foreground">checkpoint v{formatValue(selectedExecution.checkpointVersion)}</span>
+                    <span className="ml-auto font-mono text-[10px] text-muted-foreground">نقطة الحفظ <bdi dir="ltr">v{formatValue(selectedExecution.checkpointVersion)}</bdi></span>
                   </div>
                   <div className="mt-3 space-y-1.5">
                     {selectedEvidenceRows.map((row) => (
@@ -1766,10 +1766,10 @@ export default function MissionControl() {
           )}
 
           {acceptanceStatus(selectedExecution) !== 'NOT_RECORDED' && (
-            <section className="rounded-xl border border-primary/25 bg-primary/5 p-4" aria-label="Current execution acceptance">
+            <section className="rounded-xl border border-primary/25 bg-primary/5 p-4" aria-label="قبول التنفيذ الحالي">
               <div className="flex items-center gap-2">
                 <ShieldCheck className="h-4 w-4 text-primary" />
-                <h2 className="font-semibold">Current attempt acceptance</h2>
+                <h2 className="font-semibold">قبول المحاولة الحالية</h2>
                 <span className={`ml-auto rounded-full border px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${acceptanceStatusClasses(acceptanceStatus(selectedExecution))}`}>
                   {acceptanceStatusLabel(acceptanceStatus(selectedExecution))}
                 </span>
@@ -1777,72 +1777,72 @@ export default function MissionControl() {
               {asRecord(selectedExecution?.acceptance) ? (
               <div className="mt-2 grid gap-2 text-xs sm:grid-cols-4">
                 <div>
-                  <div className="text-[10px] uppercase tracking-wide text-muted-foreground">Attempt</div>
+                  <div className="text-[10px] uppercase tracking-wide text-muted-foreground">المحاولة</div>
                   <div className="font-mono">{formatValue(asRecord(selectedExecution?.acceptance)?.attempt)}</div>
                 </div>
                 <div>
-                  <div className="text-[10px] uppercase tracking-wide text-muted-foreground">Outcome</div>
+                  <div className="text-[10px] uppercase tracking-wide text-muted-foreground">النتيجة</div>
                   <div>{formatValue(asRecord(selectedExecution?.acceptance)?.outcome)}</div>
                 </div>
                 <div>
-                  <div className="text-[10px] uppercase tracking-wide text-muted-foreground">Next step</div>
+                  <div className="text-[10px] uppercase tracking-wide text-muted-foreground">الخطوة التالية</div>
                   <div className="text-primary">{acceptanceNextActionLabel(asRecord(selectedExecution?.acceptance)?.nextActionCode)}</div>
                 </div>
                 <div>
-                  <div className="text-[10px] uppercase tracking-wide text-muted-foreground">Diagnostic code</div>
+                  <div className="text-[10px] uppercase tracking-wide text-muted-foreground">رمز التشخيص</div>
                   <div className="font-mono text-primary">{formatValue(asRecord(selectedExecution?.acceptance)?.nextActionCode)}</div>
                 </div>
                 <div>
-                  <div className="text-[10px] uppercase tracking-wide text-muted-foreground">Task kind</div>
+                  <div className="text-[10px] uppercase tracking-wide text-muted-foreground">نوع المهمة</div>
                   <div className="font-mono">{formatValue(taskObjectiveAcceptance(selectedExecution)?.kind)}</div>
                 </div>
                 <div>
-                  <div className="text-[10px] uppercase tracking-wide text-muted-foreground">Validator</div>
+                  <div className="text-[10px] uppercase tracking-wide text-muted-foreground">أداة التحقق</div>
                   <div className="font-mono">{taskObjectiveValidatorLabel(selectedExecution)}</div>
                 </div>
               </div>
               ) : (
                 <p className="mt-2 text-[11px] text-amber-200">
-                  This targeted run requires server-owned acceptance proof, but no complete acceptance snapshot was recorded.
+                  يتطلب هذا التنفيذ المحدد إثبات قبول يديره الخادم، لكن لم تُسجل لقطة قبول مكتملة.
                 </p>
               )}
               {asRecord(selectedExecution?.acceptance)?.evidenceComplete === false && (
                 <p className="mt-2 text-[11px] text-amber-200">
-                  Acceptance is incomplete because the server-owned evidence snapshot is not complete.
+                  القبول غير مكتمل لأن لقطة الأدلة التي يديرها الخادم غير مكتملة.
                 </p>
               )}
             </section>
           )}
 
           {selectedExecutionDetailIsBound && selectedExecutionDetail && (
-            <section className="overflow-hidden rounded-xl border border-border bg-card" aria-label="Evidence Braid">
+            <section className="overflow-hidden rounded-xl border border-border bg-card" aria-label="سلسلة الأدلة">
               <div className="border-b border-border/70 px-4 py-3.5">
                 <div className="flex flex-wrap items-center gap-2">
-                  <h2 className="font-semibold">Evidence Braid</h2>
+                  <h2 className="font-semibold">سلسلة الأدلة</h2>
                   <span className="rounded-full border border-border px-2 py-0.5 text-[10px] font-mono text-muted-foreground">
-                    attempt {selectedExecutionDetail.attempt} · read only
+                    المحاولة {selectedExecutionDetail.attempt} · للقراءة فقط
                   </span>
                 </div>
                 <p className="mt-1 text-[11px] leading-5 text-muted-foreground">
-                  Current-attempt Episode metadata links events, observations, effects, and bundles. Payloads and observation values stay hidden; acceptance and World State remain separate records.
+                  تربط بيانات الحلقة الخاصة بالمحاولة الحالية الأحداث والملاحظات والتأثيرات والحزم. تبقى الحمولات وقيم الملاحظات مخفية، ويظل القبول وحالة العالم سجلين منفصلين.
                 </p>
               </div>
               <div className="space-y-3 p-4">
                 {selectedExecutionDetail.evidenceBraid?.truncated && (
                   <p className="rounded-md border border-amber-500/30 bg-amber-500/5 px-3 py-2 text-[11px] text-amber-100" role="status">
-                    This is a bounded projection; some current-attempt records are omitted.
+                    هذا عرض محدود؛ وقد لا يتضمن بعض سجلات المحاولة الحالية.
                   </p>
                 )}
                 {(selectedExecutionDetail.evidenceBraid?.episodes ?? []).length === 0 ? (
                   <div className="rounded-lg border border-dashed border-border/70 bg-background/20 p-4 text-center text-xs text-muted-foreground">
-                    No current-attempt Episode records are available.
+                    لا تتوفر سجلات حلقات للمحاولة الحالية.
                   </div>
                 ) : (
                   selectedExecutionDetail.evidenceBraid!.episodes.map((episode) => (
                     <article key={episode.id} className="rounded-lg border border-border/70 bg-background/20 p-3">
                       <div className="flex flex-wrap items-start gap-2">
                         <div className="min-w-0 flex-1">
-                          <div className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">Episode</div>
+                          <div className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">الحلقة</div>
                           <div className="mt-1 break-all font-mono text-[11px]">{episode.id}</div>
                         </div>
                         <div className="flex gap-1.5 text-[10px]">
@@ -1851,14 +1851,14 @@ export default function MissionControl() {
                         </div>
                       </div>
                       <div className="mt-2 grid gap-2 text-[10px] sm:grid-cols-2">
-                        <div><span className="text-muted-foreground">Project revision · </span><code className="break-all">{episode.projectRevision ?? 'not recorded'}</code></div>
-                        <div><span className="text-muted-foreground">World revision · </span><code className="break-all">{episode.worldRevision ?? 'not recorded'}</code></div>
+                        <div><span className="text-muted-foreground">مراجعة المشروع · </span><code dir="ltr" className="break-all">{episode.projectRevision ?? 'غير مسجل'}</code></div>
+                        <div><span className="text-muted-foreground">مراجعة حالة العالم · </span><code dir="ltr" className="break-all">{episode.worldRevision ?? 'غير مسجل'}</code></div>
                       </div>
                       <div className="mt-3 grid gap-2 sm:grid-cols-2">
                         <section className="rounded-md border border-border/60 bg-card/50 p-2" aria-label={`Episode events ${episode.id}`}>
-                          <h3 className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">Events · {episode.events.length}</h3>
+                          <h3 className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">الأحداث · {episode.events.length}</h3>
                           {episode.events.length === 0 ? (
-                            <p className="mt-1 text-[10px] text-muted-foreground">No event metadata.</p>
+                            <p className="mt-1 text-[10px] text-muted-foreground">لا توجد بيانات وصفية للأحداث.</p>
                           ) : (
                             <ul className="mt-1 space-y-1">
                               {episode.events.map((event) => (
@@ -1871,9 +1871,9 @@ export default function MissionControl() {
                           )}
                         </section>
                         <section className="rounded-md border border-border/60 bg-card/50 p-2" aria-label={`Episode observations ${episode.id}`}>
-                          <h3 className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">Observations · {episode.observations.length}</h3>
+                          <h3 className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">الملاحظات · {episode.observations.length}</h3>
                           {episode.observations.length === 0 ? (
-                            <p className="mt-1 text-[10px] text-muted-foreground">No observation metadata.</p>
+                            <p className="mt-1 text-[10px] text-muted-foreground">لا توجد بيانات وصفية للملاحظات.</p>
                           ) : (
                             <ul className="mt-1 space-y-1.5">
                               {episode.observations.map((observation) => (
@@ -1887,18 +1887,18 @@ export default function MissionControl() {
                           )}
                         </section>
                         <section className="rounded-md border border-border/60 bg-card/50 p-2" aria-label={`Episode effects ${episode.id}`}>
-                          <h3 className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">Effects · {episode.effects.length}</h3>
+                          <h3 className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">التأثيرات · {episode.effects.length}</h3>
                           {episode.effects.length === 0 ? (
-                            <p className="mt-1 text-[10px] text-muted-foreground">No effect records.</p>
+                            <p className="mt-1 text-[10px] text-muted-foreground">لا توجد سجلات للتأثيرات.</p>
                           ) : (
                             <ul className="mt-1 space-y-1.5">
                               {episode.effects.map((effect) => (
                                 <li key={effect.id} className="text-[10px]">
                                   <span className="font-medium">{effect.status}</span>
-                                  <span className="text-muted-foreground"> · action {effect.actionId} · {effect.capabilityId}</span>
+                                  <span className="text-muted-foreground"> · الإجراء <bdi dir="ltr">{effect.actionId} · {effect.capabilityId}</bdi></span>
                                   <div className="text-muted-foreground">
-                                    Before/after observations {effect.beforeObservationIds.length}/{effect.afterObservationIds.length}
-                                    {' · '}missing {effect.missingEffectCount} · contradictions {effect.contradictionCount}
+                                    ملاحظات قبل/بعد {effect.beforeObservationIds.length}/{effect.afterObservationIds.length}
+                                    {' · '}مفقود {effect.missingEffectCount} · تناقضات {effect.contradictionCount}
                                   </div>
                                 </li>
                               ))}
@@ -1906,17 +1906,17 @@ export default function MissionControl() {
                           )}
                         </section>
                         <section className="rounded-md border border-border/60 bg-card/50 p-2" aria-label={`Episode effect bundles ${episode.id}`}>
-                          <h3 className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">Effect bundles · {episode.effectBundles.length}</h3>
+                          <h3 className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">حزم التأثير · {episode.effectBundles.length}</h3>
                           {episode.effectBundles.length === 0 ? (
-                            <p className="mt-1 text-[10px] text-muted-foreground">No effect bundle records.</p>
+                            <p className="mt-1 text-[10px] text-muted-foreground">لا توجد سجلات لحزم التأثير.</p>
                           ) : (
                             <ul className="mt-1 space-y-1.5">
                               {episode.effectBundles.map((bundle) => (
                                 <li key={bundle.id} className="text-[10px]">
                                   <span className="font-medium">{bundle.verdict}</span>
-                                  <span className="text-muted-foreground"> · {bundle.effectIds.length} linked effects</span>
+                                  <span className="text-muted-foreground"> · {bundle.effectIds.length} تأثيرات مرتبطة</span>
                                   <div className="break-all font-mono text-muted-foreground">{bundle.id}</div>
-                                  <div className="break-all text-muted-foreground">World revision · {bundle.worldRevision ?? 'not recorded'}</div>
+                                  <div className="break-all text-muted-foreground">مراجعة حالة العالم · <bdi dir="ltr">{bundle.worldRevision ?? 'غير مسجل'}</bdi></div>
                                 </li>
                               ))}
                             </ul>
@@ -1928,20 +1928,20 @@ export default function MissionControl() {
                 )}
                 <div className="grid gap-2 sm:grid-cols-2">
                   <div className="rounded-md border border-primary/20 bg-primary/5 px-3 py-2 text-[10px]">
-                    <div className="font-semibold uppercase tracking-wide text-muted-foreground">Acceptance · current attempt</div>
+                    <div className="font-semibold uppercase tracking-wide text-muted-foreground">القبول · المحاولة الحالية</div>
                     <div className="mt-1">
                       {selectedExecutionDetail.acceptance
                         ? `${selectedExecutionDetail.acceptance.outcome} · ${selectedExecutionDetail.acceptance.terminalStatus}`
-                        : 'No acceptance snapshot recorded'}
+                        : 'لم تُسجل لقطة قبول'}
                     </div>
-                    <div className="mt-1 text-muted-foreground">The server-owned acceptance record remains authoritative.</div>
+                    <div className="mt-1 text-muted-foreground">يظل سجل القبول الذي يديره الخادم هو المرجع المعتمد.</div>
                   </div>
                   <div className="rounded-md border border-border/70 bg-background/20 px-3 py-2 text-[10px]">
-                    <div className="font-semibold uppercase tracking-wide text-muted-foreground">World State · separate records</div>
+                    <div className="font-semibold uppercase tracking-wide text-muted-foreground">حالة العالم · سجلات منفصلة</div>
                     <div className="mt-1">
-                      {(selectedExecutionDetail.worldTransitions ?? []).length} bound World Transition record(s)
+                      {(selectedExecutionDetail.worldTransitions ?? []).length} سجلات انتقال حالة عالم مرتبطة
                     </div>
-                    <div className="mt-1 text-muted-foreground">Review transition details in the timeline below.</div>
+                    <div className="mt-1 text-muted-foreground">راجع تفاصيل الانتقال في الخط الزمني أدناه.</div>
                   </div>
                 </div>
               </div>
@@ -2007,7 +2007,7 @@ export default function MissionControl() {
             <div className="flex items-center gap-2 border-b border-border/70 px-4 py-3.5">
               <GitBranch className="h-4 w-4 text-primary" />
               <div>
-                <h2 className="font-semibold">Baseline comparison</h2>
+                <h2 className="font-semibold">مقارنة خط الأساس</h2>
                 <p className="mt-0.5 text-[11px] text-muted-foreground">Benchmark values as returned by the server.</p>
               </div>
             </div>
