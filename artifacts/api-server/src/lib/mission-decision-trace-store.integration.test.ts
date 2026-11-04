@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { and, eq } from "drizzle-orm";
 import {
@@ -34,6 +35,7 @@ import {
   MissionDecisionContextSchema,
   MissionStrategyAlternativeSchema,
   MissionDecisionTraceSchema,
+  MissionStrategyPlanOutcomeEvaluationSchema,
   MissionStrategyShadowComparisonSchema,
 } from "@workspace/ai-orchestrator";
 const { missionRunner } = vi.hoisted(() => ({
@@ -442,6 +444,7 @@ async function createPersistedEffectOutcomeFixture(
   const goalId = randomUUID();
   const executionId = randomUUID();
   const acceptanceId = randomUUID();
+  const taskId = randomUUID();
   const evidenceSnapshotId = randomUUID();
   const planRevision = `auto:${randomUUID()}:${"e".repeat(64)}`;
   const completedAt = new Date(now.getTime() + 30_000);
@@ -503,6 +506,7 @@ async function createPersistedEffectOutcomeFixture(
     evidenceSnapshotId,
     evidenceRequired: true,
     evidenceComplete: true,
+    receipt: { kind: "execution_acceptance", id: acceptanceId },
     disposition: { proof },
   };
 
@@ -540,6 +544,20 @@ async function createPersistedEffectOutcomeFixture(
     updatedAt: completedAt,
     completedAt,
   });
+  await db.insert(tasksTable).values({
+    id: taskId,
+    projectId: fixture.projectId,
+    goalId,
+    title: `Persisted ${outcome} Mission task`,
+    description: "Synthetic terminal task for Mission outcome recovery.",
+    status: achieved ? "completed" : "failed",
+    priority: "p1",
+    phase: "execute",
+    prompt: "Recover the durable Mission outcome without replaying work.",
+    createdAt: now,
+    updatedAt: completedAt,
+    completedAt,
+  });
   await appendMissionDecisionLifecycleEvent({
     decisionId: selectedTrace.decisionId,
     stage: "PLAN_APPLIED",
@@ -557,6 +575,7 @@ async function createPersistedEffectOutcomeFixture(
     checkpoint: "{}",
     attempt: 1,
     status: executionStatus,
+    linkedTaskId: taskId,
     baseRevision: sourceRevision,
     createdAt: now,
     updatedAt: completedAt,
@@ -729,8 +748,72 @@ async function createPersistedEffectOutcomeFixture(
     bundleId,
     effectId,
     afterObservationId,
+    taskId,
     expectedEffectStatus,
   };
+}
+
+async function runMissionOutcomeRecoveryProcess(input: {
+  projectId: string;
+  crashAfterCommit?: boolean;
+}): Promise<{ code: number | null; output: string }> {
+  const rawDatabaseUrl = process.env.DATABASE_URL;
+  if (!rawDatabaseUrl) {
+    throw new Error("Mission outcome recovery requires an explicit disposable DATABASE_URL.");
+  }
+  const databaseUrl = new URL(rawDatabaseUrl);
+  if (!["127.0.0.1", "localhost", "::1"].includes(databaseUrl.hostname)) {
+    throw new Error("Mission outcome recovery is restricted to a loopback PostgreSQL database.");
+  }
+  const applicationName = `mission-outcome-recovery-${randomUUID()}`;
+  databaseUrl.searchParams.set("application_name", applicationName);
+  const reconcilerUrl = new URL("./mission-strategy-plan-outcome-store.ts", import.meta.url).href;
+  const source = [
+    "(async () => {",
+    `  const { reconcilePendingMissionPlanOutcomes } = await import(${JSON.stringify(reconcilerUrl)});`,
+    `  const count = await reconcilePendingMissionPlanOutcomes(16, ${JSON.stringify(input.projectId)});`,
+    '  process.stdout.write(`MISSION_OUTCOME_RECONCILED:${count}\\n`);',
+    input.crashAfterCommit ? "  process.exit(73);" : "  process.exit(0);",
+    "})().catch((error) => {",
+    "  console.error(error);",
+    "  process.exit(1);",
+    "});",
+  ].join("\n");
+  const child = spawn(process.execPath, ["--import", "tsx", "-e", source], {
+    cwd: process.cwd(),
+    env: {
+      DATABASE_URL: databaseUrl.toString(),
+      PGAPPNAME: applicationName,
+      NODE_ENV: "test",
+      PATH: process.env.PATH ?? "",
+      HOME: process.env.HOME ?? "",
+    },
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+  let output = "";
+  child.stdout?.setEncoding("utf8");
+  child.stderr?.setEncoding("utf8");
+  child.stdout?.on("data", (chunk: string) => { output += chunk; });
+  child.stderr?.on("data", (chunk: string) => { output += chunk; });
+  return await new Promise((resolve, reject) => {
+    const timer = setTimeout(() => {
+      child.kill("SIGKILL");
+      reject(new Error(`Mission outcome recovery process timed out: ${output}`));
+    }, 60_000);
+    timer.unref();
+    child.once("error", (error) => {
+      clearTimeout(timer);
+      reject(error);
+    });
+    child.once("exit", (code, signal) => {
+      clearTimeout(timer);
+      if (signal) {
+        reject(new Error(`Mission outcome recovery process exited with ${signal}: ${output}`));
+      } else {
+        resolve({ code, output });
+      }
+    });
+  });
 }
 
 afterEach(async () => {
@@ -1424,6 +1507,139 @@ describe("Mission decision trace persistence", () => {
       .map(({ stage }) => stage).slice(-2))
       .toEqual(["PLAN_APPLIED", "DISPATCHED"]);
   });
+
+  it("restarts Mission outcome reconciliation without duplicating completed execution or effects", async () => {
+    const fixture = await createPersistedEffectOutcomeFixture("ACHIEVED");
+    missionRunner.mockClear();
+
+    const [mission] = await db.select().from(aiMissionsTable)
+      .where(eq(aiMissionsTable.id, fixture.missionId));
+    const [goal] = await db.select().from(aiGoalsTable)
+      .where(eq(aiGoalsTable.id, fixture.goalId));
+    const [task] = await db.select().from(tasksTable)
+      .where(eq(tasksTable.id, fixture.taskId));
+    const [execution] = await db.select().from(aiExecutionsTable)
+      .where(eq(aiExecutionsTable.id, fixture.executionId));
+    const [acceptance] = await db.select().from(aiExecutionAcceptancesTable)
+      .where(eq(aiExecutionAcceptancesTable.id, fixture.acceptanceId));
+    const effectsBefore = await db.select().from(aiAgentEffectsTable)
+      .where(eq(aiAgentEffectsTable.executionId, fixture.executionId));
+    const beforeTrace = await getMissionDecisionTrace(fixture.decisionId);
+    const dispatchEvent = beforeTrace?.events.find(({ stage }) => stage === "DISPATCHED");
+    if (!dispatchEvent?.referenceId) throw new Error("dispatch event fixture is missing");
+    const dispatch = await getMissionDecisionDispatchBatch(dispatchEvent.referenceId);
+
+    expect(mission?.autonomyPolicy.activePlanRevision).toBe(beforeTrace?.trace.newPlanRevision);
+    expect(goal).toMatchObject({
+      missionId: fixture.missionId,
+      status: "completed",
+      successCriteria: { planRevision: { hash: beforeTrace?.trace.newPlanRevision } },
+      outcomeContract: {
+        planRevision: { hash: beforeTrace?.trace.newPlanRevision },
+        acceptance: {
+          executionId: fixture.executionId,
+          receipt: { kind: "execution_acceptance", id: fixture.acceptanceId },
+        },
+      },
+    });
+    expect(task).toMatchObject({
+      goalId: fixture.goalId,
+      status: "completed",
+      completedAt: expect.any(Date),
+    });
+    expect(execution).toMatchObject({
+      goalId: fixture.goalId,
+      linkedTaskId: fixture.taskId,
+      status: "completed",
+    });
+    expect(acceptance).toMatchObject({
+      executionId: fixture.executionId,
+      attempt: execution?.attempt,
+      outcome: "SUCCEEDED",
+      resumable: 0,
+    });
+    expect(effectsBefore.map(({ id }) => id)).toEqual([fixture.effectId]);
+    expect(dispatch?.batch).toMatchObject({
+      decisionId: fixture.decisionId,
+      projectId: fixture.projectId,
+      missionId: fixture.missionId,
+      planRevision: beforeTrace?.trace.newPlanRevision,
+      state: "dispatched",
+    });
+    expect(dispatch?.items).toMatchObject([{
+      goalId: fixture.goalId,
+      executionId: fixture.executionId,
+    }]);
+    expect(beforeTrace?.events.map(({ stage }) => stage).slice(-2))
+      .toEqual(["PLAN_APPLIED", "DISPATCHED"]);
+    expect(await db.select().from(aiMissionDecisionOutcomeSnapshotsTable)
+      .where(eq(aiMissionDecisionOutcomeSnapshotsTable.decisionId, fixture.decisionId)))
+      .toHaveLength(0);
+
+    const [lostReply, concurrentRecovery] = await Promise.all([
+      runMissionOutcomeRecoveryProcess({
+        projectId: fixture.projectId,
+        crashAfterCommit: true,
+      }),
+      runMissionOutcomeRecoveryProcess({ projectId: fixture.projectId }),
+    ]);
+    expect(lostReply.code).toBe(73);
+    expect(concurrentRecovery.code).toBe(0);
+    const reconciledCounts = [lostReply.output, concurrentRecovery.output]
+      .flatMap((output) => [...output.matchAll(/MISSION_OUTCOME_RECONCILED:(\d+)/gu)])
+      .map((match) => Number(match[1]));
+    expect(reconciledCounts.some((count) => count > 0)).toBe(true);
+
+    const retryAfterRestart = await runMissionOutcomeRecoveryProcess({
+      projectId: fixture.projectId,
+    });
+    expect(retryAfterRestart.code, retryAfterRestart.output).toBe(0);
+
+    const afterTrace = await getMissionDecisionTrace(fixture.decisionId);
+    const snapshots = await db.select().from(aiMissionDecisionOutcomeSnapshotsTable)
+      .where(eq(aiMissionDecisionOutcomeSnapshotsTable.decisionId, fixture.decisionId));
+    const executionsAfter = await db.select().from(aiExecutionsTable)
+      .where(eq(aiExecutionsTable.goalId, fixture.goalId));
+    const tasksAfter = await db.select().from(tasksTable)
+      .where(eq(tasksTable.goalId, fixture.goalId));
+    const effectsAfter = await db.select().from(aiAgentEffectsTable)
+      .where(eq(aiAgentEffectsTable.executionId, fixture.executionId));
+    expect(snapshots).toHaveLength(1);
+    expect(executionsAfter.map(({ id }) => id)).toEqual([fixture.executionId]);
+    expect(tasksAfter.map(({ id, status }) => ({ id, status }))).toEqual([{
+      id: fixture.taskId,
+      status: "completed",
+    }]);
+    expect(effectsAfter.map(({ id, status }) => ({ id, status }))).toEqual([{
+      id: fixture.effectId,
+      status: fixture.expectedEffectStatus,
+    }]);
+    expect(missionRunner).not.toHaveBeenCalled();
+
+    const evaluation = MissionStrategyPlanOutcomeEvaluationSchema.parse(snapshots[0]?.evaluation);
+    expect(evaluation).toMatchObject({
+      decisionId: fixture.decisionId,
+      projectId: fixture.projectId,
+      missionId: fixture.missionId,
+      planRevision: beforeTrace?.trace.newPlanRevision,
+      dispatchBatchId: dispatchEvent.referenceId,
+      outcome: "ACHIEVED",
+      planGoalIds: [fixture.goalId],
+      planTaskIds: [fixture.taskId],
+      goalStates: [{ goalId: fixture.goalId, terminal: true, taskIds: [fixture.taskId] }],
+      taskStates: [{ taskId: fixture.taskId, goalId: fixture.goalId, terminal: true }],
+      executions: [{
+        goalId: fixture.goalId,
+        executionId: fixture.executionId,
+        terminal: true,
+        acceptanceId: fixture.acceptanceId,
+        canonicalProofId: expect.any(String),
+        outcome: "ACHIEVED",
+      }],
+    });
+    expect(afterTrace?.events.map(({ stage }) => stage).slice(-4))
+      .toEqual(["EXECUTED", "ACCEPTED", "VERIFIED", "EVALUATED_AFTER_EXECUTION"]);
+  }, 60_000);
 
   it("recovers dispatched plan evaluation from the durable event journal without replaying Goal work", async () => {
     const fixture = await createPersistedEffectOutcomeFixture("ACHIEVED");
