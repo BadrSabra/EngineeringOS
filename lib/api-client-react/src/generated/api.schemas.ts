@@ -2325,6 +2325,30 @@ export interface OperatorAlert {
   severity?: OperatorAlertSeverity;
 }
 
+export type AiMissionShadowComparisonQueueStatus = typeof AiMissionShadowComparisonQueueStatus[keyof typeof AiMissionShadowComparisonQueueStatus];
+
+
+export const AiMissionShadowComparisonQueueStatus = {
+  active: 'active',
+  disabled: 'disabled',
+  scope_unavailable: 'scope_unavailable',
+} as const;
+
+export interface AiMissionShadowComparisonQueue {
+  status: AiMissionShadowComparisonQueueStatus;
+  /**
+     * @minimum 0
+     * @nullable
+     */
+  pendingCount: number | null;
+  /**
+     * @minimum 0
+     * @nullable
+     */
+  oldestPendingAgeMs: number | null;
+  observedAt: string;
+}
+
 export interface AiMissionControl {
   updatedAt: string;
   /** @nullable */
@@ -2333,6 +2357,7 @@ export interface AiMissionControl {
   usage: AiUsageSummary;
   budget?: AiProjectBudgetSummary | null;
   budgetAlerts?: OperatorAlert[];
+  shadowComparisonQueue?: AiMissionShadowComparisonQueue;
 }
 
 export interface UpdateAiProjectBudgetInput {

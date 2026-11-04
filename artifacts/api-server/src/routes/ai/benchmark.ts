@@ -16,6 +16,9 @@ import { projectExecutionAcceptance } from "../../lib/ai-execution-acceptance.js
 import type { ApiCodeAgentRuntimeOraclePreflight } from "../../lib/ai-code-agent-benchmark.js";
 import { getAiUsageSummary } from "../../lib/ai-telemetry.js";
 import { getAiProjectBudgetSummary } from "../../lib/ai-budget.js";
+import { isOperatorUser } from "../../middlewares/requireAuth.js";
+import { resolveMissionDecisionShadowProjectScope } from "../../lib/mission-decision-shadow-scope.js";
+import { getPendingMissionDecisionShadowQueueStats } from "../../lib/mission-strategy-shadow-store.js";
 
 const router = Router();
 
@@ -940,6 +943,29 @@ router.get("/ai/mission-control", async (req, res) => {
     );
     const empiricalCampaign = projectBoundedEmpiricalScorecard(rawEmpiricalScorecard);
     const releaseGate = projectReleaseGate(rawReleaseGate);
+    const shadowComparisonQueue = isOperatorUser(req.userId)
+      ? await (async () => {
+          const enabled = process.env.MISSION_DECISION_SHADOW_MODE === "1";
+          const projectId = resolveMissionDecisionShadowProjectScope({
+            enabled,
+            configuredProjectId: process.env.MISSION_DECISION_SHADOW_PROJECT_ID,
+          });
+          const status = !enabled
+            ? "disabled" as const
+            : projectId
+              ? "active" as const
+              : "scope_unavailable" as const;
+          const stats = projectId
+            ? await getPendingMissionDecisionShadowQueueStats(projectId)
+            : null;
+          return {
+            status,
+            pendingCount: stats?.pendingCount ?? null,
+            oldestPendingAgeMs: stats?.oldestPendingAgeMs ?? null,
+            observedAt: new Date().toISOString(),
+          };
+        })()
+      : undefined;
 
     return res.json({
       updatedAt: new Date().toISOString(),
@@ -949,6 +975,7 @@ router.get("/ai/mission-control", async (req, res) => {
       usage,
       budget,
       budgetAlerts,
+      ...(shadowComparisonQueue ? { shadowComparisonQueue } : {}),
       executions: await Promise.all(executions.map(async (execution) => (
         projectExecution(
           execution,

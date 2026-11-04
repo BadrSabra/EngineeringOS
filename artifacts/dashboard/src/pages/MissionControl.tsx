@@ -273,6 +273,65 @@ function formatDate(value: unknown): string | undefined {
   });
 }
 
+function formatWaitAge(ageMs: number): string {
+  const minutes = Math.floor(Math.max(0, ageMs) / 60_000);
+  if (minutes < 1) return 'أقل من دقيقة';
+  if (minutes < 60) return `${minutes} دقيقة`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours} ساعة`;
+  return `${Math.floor(hours / 24)} يوم`;
+}
+
+type ShadowQueueProjection = NonNullable<AiMissionControl['shadowComparisonQueue']>;
+
+function ShadowComparisonQueueCard({ queue }: { queue: ShadowQueueProjection }) {
+  const statusLabel = queue.status === 'active'
+    ? 'المراقبة مفعّلة'
+    : queue.status === 'disabled'
+      ? 'المراقبة غير مفعّلة'
+      : 'نطاق المشروع غير متاح';
+  return (
+    <section
+      className="rounded-xl border border-border bg-card p-4 shadow-sm sm:p-5"
+      data-testid="shadow-comparison-queue"
+      aria-label="تأخر مقارنات الظل"
+    >
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+        <div>
+          <div className="flex items-center gap-2 text-sm font-semibold">
+            <Clock3 className="h-4 w-4 text-primary" />
+            <h2>انتظار مقارنات الظل</h2>
+          </div>
+          <p className="mt-1 text-xs text-muted-foreground">
+            قراءة تشغيلية مجمّعة فقط؛ لا تغيّر قرارات أو حالات التشغيل.
+          </p>
+        </div>
+        <div className="grid grid-cols-2 gap-3 sm:min-w-64">
+          <div className="rounded-lg border border-border/70 bg-background/40 px-3 py-2">
+            <p className="text-[11px] text-muted-foreground">بانتظار المعالجة</p>
+            <p className="mt-1 font-mono text-lg font-semibold" data-testid="shadow-queue-pending-count">
+              {queue.pendingCount === null ? '—' : queue.pendingCount}
+            </p>
+          </div>
+          <div className="rounded-lg border border-border/70 bg-background/40 px-3 py-2">
+            <p className="text-[11px] text-muted-foreground">عمر الأقدم</p>
+            <p className="mt-1 text-sm font-semibold" data-testid="shadow-queue-oldest-age">
+              {queue.oldestPendingAgeMs === null
+                ? '—'
+                : formatWaitAge(queue.oldestPendingAgeMs)}
+            </p>
+          </div>
+        </div>
+      </div>
+      <p className="mt-3 text-[11px] text-muted-foreground" role="status">
+        {queue.status === 'active' && queue.pendingCount === 0
+          ? 'لا توجد مقارنات مؤهلة بانتظار المعالجة.'
+          : statusLabel}
+      </p>
+    </section>
+  );
+}
+
 function ProviderRecoverySummary({ value }: { value: unknown }) {
   const summary = asRecord(value);
   if (!summary) return null;
@@ -1235,7 +1294,11 @@ export default function MissionControl() {
               || state === 'QUEUED'
               || state === 'CANCELLING';
           }) ?? false;
-          return hasActiveExecution ? 3_000 : false;
+          return hasActiveExecution
+            ? 3_000
+            : snapshot?.shadowComparisonQueue?.status === 'active'
+              ? 60_000
+              : false;
         },
       },
     },
@@ -1445,6 +1508,9 @@ export default function MissionControl() {
           <Activity className="h-4 w-4 text-primary" />
           <span>EngineeringOS</span><span>/</span><span className="text-foreground">مركز المهام</span>
         </div>
+        {typedData?.shadowComparisonQueue && (
+          <ShadowComparisonQueueCard queue={typedData.shadowComparisonQueue} />
+        )}
         <div className="rounded-xl border border-dashed border-border bg-card/70 px-6 py-16 text-center">
           <Layers3 className="mx-auto h-9 w-9 text-primary/80" />
           <h1 className="mt-4 text-xl font-semibold tracking-tight">لا توجد عمليات محفوظة في السجل</h1>
@@ -1550,6 +1616,10 @@ export default function MissionControl() {
           </div>
         </div>
       </section>
+
+      {typedData?.shadowComparisonQueue && (
+        <ShadowComparisonQueueCard queue={typedData.shadowComparisonQueue} />
+      )}
 
       <UsageSummaryCard usage={typedData?.usage} />
 

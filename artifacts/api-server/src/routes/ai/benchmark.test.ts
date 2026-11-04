@@ -16,6 +16,8 @@ import app from "../../app.js";
 const originalOutputDir = process.env.BENCHMARK_OUTPUT_DIR;
 const originalEmpiricalPath = process.env.EMPIRICAL_QUALITY_SCORECARD_PATH;
 const originalReleasePath = process.env.AI_RELEASE_QUALITY_REPORT_PATH;
+const originalShadowMode = process.env.MISSION_DECISION_SHADOW_MODE;
+const originalShadowProjectId = process.env.MISSION_DECISION_SHADOW_PROJECT_ID;
 const outputDir = path.join(os.tmpdir(), `engineeringos-benchmark-route-${process.pid}`);
 const scorecardFile = path.join(outputDir, "code-agent-benchmark-live.json");
 const envelopeFile = path.join(outputDir, "free-tier-quality-envelope.json");
@@ -48,6 +50,10 @@ afterEach(async () => {
   else process.env.EMPIRICAL_QUALITY_SCORECARD_PATH = originalEmpiricalPath;
   if (originalReleasePath === undefined) delete process.env.AI_RELEASE_QUALITY_REPORT_PATH;
   else process.env.AI_RELEASE_QUALITY_REPORT_PATH = originalReleasePath;
+  if (originalShadowMode === undefined) delete process.env.MISSION_DECISION_SHADOW_MODE;
+  else process.env.MISSION_DECISION_SHADOW_MODE = originalShadowMode;
+  if (originalShadowProjectId === undefined) delete process.env.MISSION_DECISION_SHADOW_PROJECT_ID;
+  else process.env.MISSION_DECISION_SHADOW_PROJECT_ID = originalShadowProjectId;
   await fs.rm(outputDir, { recursive: true, force: true });
 });
 
@@ -192,6 +198,24 @@ describe.sequential("GET /api/ai/benchmark/scorecard", () => {
 });
 
 describe.sequential("GET /api/ai/mission-control", () => {
+  it("returns only aggregate shadow queue status for an active operator canary", async () => {
+    const canaryProjectId = randomUUID();
+    process.env.MISSION_DECISION_SHADOW_MODE = "1";
+    process.env.MISSION_DECISION_SHADOW_PROJECT_ID = canaryProjectId;
+
+    const response = await request(app).get("/api/ai/mission-control");
+
+    expect(response.status).toBe(200);
+    expect(response.body.shadowComparisonQueue).toMatchObject({
+      status: "active",
+      pendingCount: 0,
+      oldestPendingAgeMs: null,
+    });
+    expect(response.body.shadowComparisonQueue.observedAt).toEqual(expect.any(String));
+    expect(JSON.stringify(response.body.shadowComparisonQueue)).not.toContain(canaryProjectId);
+    expect(JSON.stringify(response.body.shadowComparisonQueue)).not.toMatch(/mission|goal|decision|comparisonId/i);
+  });
+
   it("projects the acceptance for the execution's current attempt when history is present", async () => {
     const projectId = randomUUID();
     const executionId = randomUUID();

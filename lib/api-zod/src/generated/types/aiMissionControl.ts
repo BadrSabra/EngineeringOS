@@ -7,6 +7,7 @@
  */
 import type { AiMissionControlBenchmark } from './aiMissionControlBenchmark';
 import type { AiMissionControlExecution } from './aiMissionControlExecution';
+import type { AiMissionShadowComparisonQueue } from './aiMissionShadowComparisonQueue';
 import type { AiProjectBudgetSummary } from './aiProjectBudgetSummary';
 import type { AiUsageSummary } from './aiUsageSummary';
 import type { OperatorAlert } from './operatorAlert';
@@ -19,4 +20,5 @@ export interface AiMissionControl {
   usage: AiUsageSummary;
   budget?: AiProjectBudgetSummary | null;
   budgetAlerts?: OperatorAlert[];
+  shadowComparisonQueue?: AiMissionShadowComparisonQueue;
 }

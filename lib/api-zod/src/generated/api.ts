@@ -5961,6 +5961,10 @@ export const getAiMissionControlResponseBudgetOneTokenUsageTotalMin = 0;
 
 export const getAiMissionControlResponseBudgetOneTokenUsageRemainingMin = 0;
 
+export const getAiMissionControlResponseShadowComparisonQueuePendingCountMin = 0;
+
+export const getAiMissionControlResponseShadowComparisonQueueOldestPendingAgeMsMin = 0;
+
 
 
 export const GetAiMissionControlResponse = zod.object({
@@ -6347,7 +6351,13 @@ export const GetAiMissionControlResponse = zod.object({
   "ownerId": zod.string().nullish(),
   "projectId": zod.string().nullish(),
   "severity": zod.union([zod.literal('info'),zod.literal('warning'),zod.literal('critical'),zod.literal(null)]).nullish()
-})).optional()
+})).optional(),
+  "shadowComparisonQueue": zod.object({
+  "status": zod.enum(['active', 'disabled', 'scope_unavailable']),
+  "pendingCount": zod.number().int().min(getAiMissionControlResponseShadowComparisonQueuePendingCountMin).nullable(),
+  "oldestPendingAgeMs": zod.number().int().min(getAiMissionControlResponseShadowComparisonQueueOldestPendingAgeMsMin).nullable(),
+  "observedAt": zod.coerce.date()
+}).optional()
 })
 
 

@@ -80,7 +80,10 @@ import {
   finalizeMissionPlanOutcome,
   reconcilePendingMissionPlanOutcomes,
 } from "./mission-strategy-plan-outcome-store.js";
-import { reconcilePendingMissionDecisionShadows } from "./mission-strategy-shadow-store.js";
+import {
+  getPendingMissionDecisionShadowQueueStats,
+  reconcilePendingMissionDecisionShadows,
+} from "./mission-strategy-shadow-store.js";
 
 const projectIds: string[] = [];
 const syntheticWorkspaceRoots: string[] = [];
@@ -2405,6 +2408,51 @@ describe("Mission decision trace persistence", () => {
 });
 
 describe("Mission strategy shadow reconciliation", () => {
+  it("reports only the scoped eligible backlog and does not mutate Mission state", async () => {
+    const fixture = await createFixture();
+    const planRevision = `shadow-queue-${randomUUID()}`;
+    const selectedTrace = makeSelectedTrace({
+      trace: fixture.trace,
+      worldStateRevision: fixture.worldStateRevision,
+      worldFactId: fixture.worldFactId,
+      worldFactHash: fixture.worldFactHash,
+      newPlanRevision: planRevision,
+    });
+    await persistMissionDecisionTrace(selectedTrace);
+    const occurredAt = new Date(Date.now() - 2 * 60_000);
+    await db.update(aiGoalsTable).set({
+      successCriteria: { planRevision: { hash: planRevision } },
+      outcomeContract: { planRevision: { hash: planRevision } },
+    }).where(eq(aiGoalsTable.id, fixture.goalId));
+    await db.update(aiMissionsTable).set({
+      autonomyPolicy: { activePlanRevision: planRevision },
+    }).where(eq(aiMissionsTable.id, fixture.missionId));
+    await appendMissionDecisionLifecycleEvent({
+      decisionId: selectedTrace.decisionId,
+      stage: "PLAN_APPLIED",
+      referenceId: planRevision,
+      occurredAt,
+    });
+    const missionBefore = await db.select().from(aiMissionsTable)
+      .where(eq(aiMissionsTable.id, fixture.missionId));
+    const eventsBefore = await db.select().from(aiMissionDecisionEventsTable)
+      .where(eq(aiMissionDecisionEventsTable.decisionId, selectedTrace.decisionId));
+
+    const stats = await getPendingMissionDecisionShadowQueueStats(fixture.projectId);
+    const outsideScope = await getPendingMissionDecisionShadowQueueStats(randomUUID());
+    const missionAfter = await db.select().from(aiMissionsTable)
+      .where(eq(aiMissionsTable.id, fixture.missionId));
+    const eventsAfter = await db.select().from(aiMissionDecisionEventsTable)
+      .where(eq(aiMissionDecisionEventsTable.decisionId, selectedTrace.decisionId));
+
+    expect(stats.pendingCount).toBe(1);
+    expect(stats.oldestPendingAgeMs).toBeGreaterThanOrEqual(2 * 60_000);
+    expect(stats.oldestPendingAgeMs).toBeLessThan(2 * 60_000 + 10_000);
+    expect(outsideScope).toEqual({ pendingCount: 0, oldestPendingAgeMs: null });
+    expect(missionAfter).toEqual(missionBefore);
+    expect(eventsAfter).toEqual(eventsBefore);
+  });
+
   it("retries a temporarily failed comparison after later batch entries are saved", async () => {
     const fixture = await createFixture();
     const planRevision = `shadow-retry-${randomUUID()}`;

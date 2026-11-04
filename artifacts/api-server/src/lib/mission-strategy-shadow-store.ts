@@ -95,6 +95,53 @@ export class MissionStrategyShadowStoreError extends Error {
   }
 }
 
+/**
+ * Return only aggregate backlog measurements for one explicitly allowlisted
+ * project. This read-only projection intentionally excludes all Mission,
+ * Goal, decision, and comparison identities.
+ */
+export async function getPendingMissionDecisionShadowQueueStats(
+  projectId: string,
+): Promise<{ pendingCount: number; oldestPendingAgeMs: number | null }> {
+  const result = await db.execute(sql`
+    SELECT
+      COUNT(*)::int AS "pendingCount",
+      MIN(event.occurred_at) AS "oldestOccurredAt"
+    FROM public.ai_mission_decision_events AS event
+    JOIN public.ai_mission_decision_traces AS trace
+      ON trace.decision_id = event.decision_id
+    WHERE event.stage = 'PLAN_APPLIED'
+      AND event.reference_id = trace.trace ->> 'newPlanRevision'
+      AND trace.result_kind = 'SELECTED'
+      AND trace.selected_strategy_id IS NOT NULL
+      AND trace.project_id = ${projectId}
+      AND NOT EXISTS (
+        SELECT 1
+        FROM public.ai_mission_decision_shadow_comparisons AS shadow
+        WHERE shadow.decision_id = event.decision_id
+          AND shadow.shadow_policy_version = ${MISSION_STRATEGY_SHADOW_POLICY_VERSION}
+          AND shadow.evaluator_version = ${MISSION_STRATEGY_EVALUATOR_VERSION}
+      )
+  `);
+  const row = safeRecord(result.rows[0]);
+  const pendingCount = Number(row.pendingCount);
+  if (!Number.isSafeInteger(pendingCount) || pendingCount < 0) {
+    throw new MissionStrategyShadowStoreError("queue_stats_invalid");
+  }
+  if (pendingCount === 0) return { pendingCount, oldestPendingAgeMs: null };
+
+  const oldestOccurredAt = row.oldestOccurredAt instanceof Date
+    ? row.oldestOccurredAt
+    : new Date(String(row.oldestOccurredAt));
+  if (!Number.isFinite(oldestOccurredAt.getTime())) {
+    throw new MissionStrategyShadowStoreError("queue_oldest_timestamp_invalid");
+  }
+  return {
+    pendingCount,
+    oldestPendingAgeMs: Math.max(0, Date.now() - oldestOccurredAt.getTime()),
+  };
+}
+
 export async function persistMissionDecisionShadowComparison(
   decisionId: string,
 ): Promise<"recorded" | "already_recorded" | "not_ready"> {

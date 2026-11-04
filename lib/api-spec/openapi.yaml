@@ -6320,6 +6320,26 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/OperatorAlert"
+        shadowComparisonQueue:
+          $ref: "#/components/schemas/AiMissionShadowComparisonQueue"
+
+    AiMissionShadowComparisonQueue:
+      type: object
+      additionalProperties: false
+      required: [status, pendingCount, oldestPendingAgeMs, observedAt]
+      properties:
+        status:
+          type: string
+          enum: [active, disabled, scope_unavailable]
+        pendingCount:
+          type: ["integer", "null"]
+          minimum: 0
+        oldestPendingAgeMs:
+          type: ["integer", "null"]
+          minimum: 0
+        observedAt:
+          type: string
+          format: date-time
 
     UpdateAiProjectBudgetInput:
       type: object

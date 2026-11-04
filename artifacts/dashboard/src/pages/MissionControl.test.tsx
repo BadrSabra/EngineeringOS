@@ -309,6 +309,24 @@ describe('Mission Control', () => {
     }
   });
 
+  it('shows bounded shadow queue count and oldest wait only when returned by the server', () => {
+    currentMissionControl = {
+      ...missionControlFixture,
+      shadowComparisonQueue: {
+        status: 'active',
+        pendingCount: 3,
+        oldestPendingAgeMs: 6 * 60_000,
+        observedAt: '2026-11-04T12:00:00.000Z',
+      },
+    } as typeof missionControlFixture;
+    renderPage();
+
+    const queue = screen.getByTestId('shadow-comparison-queue');
+    expect(within(queue).getByTestId('shadow-queue-pending-count')).toHaveTextContent('3');
+    expect(within(queue).getByTestId('shadow-queue-oldest-age')).toHaveTextContent('6 دقيقة');
+    expect(within(queue).getByText('قراءة تشغيلية مجمّعة فقط؛ لا تغيّر قرارات أو حالات التشغيل.')).toBeInTheDocument();
+  });
+
   it('does not infer a chat session from an execution without a server session ID', () => {
     currentExecutionDetail = { id: 'execution-1', projectId: 'project-1' };
     renderPage();
