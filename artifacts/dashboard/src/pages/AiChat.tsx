@@ -22,7 +22,7 @@ import { ChatSessionMissionHandoffs } from '@/components/ChatSessionMissionHando
 import { executionCanResume, getExecutionRecoveryView } from '@/lib/execution-recovery-view';
 import { resolveExecutionProofPresentation } from '@/lib/execution-proof-presentation';
 import { createApplyMissionFromProposal, createMissionFromChat, executeMissionAgentAction, fetchMissionProjection, type MissionProjection, shouldPollMissionProjection } from '@/lib/ai-missions';
-import type { AiCodeReview, AiExecutionNodeSnapshot, AiExecutionProjection, AiScanAnalysis, AiStreamBehaviorProgressEvent, AiStreamErrorEvent } from '@workspace/api-client-react';
+import type { AiCodeReview, AiExecutionNodeSnapshot, AiExecutionProjection, AiScanAnalysis, AiStreamBehaviorProgressEvent } from '@workspace/api-client-react';
 import type { PublicValidationResult } from '@workspace/ai-orchestrator';
 import { isRunProjectScanRequest } from '@workspace/ai-orchestrator/scan-command';
 import { readStoredMissionCorrelationReport } from '@/lib/mission-correlation-report';
@@ -30,7 +30,7 @@ import type { ChatMessage, OperationMode, Project } from './ai-chat/types';
 import { isFallbackDiagnosticQuestion } from './ai-chat/project-query';
 import { type ActiveExecution, BehaviorProgressCard, CandidateValidationProof, type DeliveryLifecycle, type RecoverableDelivery, browserValidationBlockExplanation, inferOperationMode } from './ai-chat/delivery-proof';
 import { type AiTaskResult, type RouteMissionRestoration, type Session, type StreamOwner, aiChatSelectionStorageKey, clearAiChatSelection, getStoredAiChatSessionId, isOpaqueSelectionId, parseAiChatRouteTarget, parseAiChatSelection, persistAiChatSelection, persistedCompletedReadFiles, publishAiChatData, sessionForensicStatusLabel } from './ai-chat/session-state';
-import { type ActiveProvider, AiApiError, type ApprovedPendingChange, type BehavioralVerification, ModelContractQualityCard, type PendingChange, ProviderReadinessNotice, describeAiError, hasValidationProfile, providerFailureCategoryGuidance, redactInternalDetails } from './ai-chat/provider-runtime';
+import { type ActiveProvider, type ApprovedPendingChange, type BehavioralVerification, ModelContractQualityCard, type PendingChange, ProviderReadinessNotice, describeAiError, hasValidationProfile, redactInternalDetails } from './ai-chat/provider-runtime';
 import { getFinalForensicVerdict, parseToolTrace } from './ai-chat/trace-parsing';
 import { OperationTracePanel } from './ai-chat/execution-trace';
 import { PendingChangesCard, PushCommitCard, VerifiedCommitCard } from './ai-chat/pending-changes';
@@ -43,7 +43,8 @@ import { useProviderMetrics } from './ai-chat/use-provider-metrics';
 import { useExecutionAudit } from './ai-chat/use-execution-audit';
 import { useSessionsDrawer } from './ai-chat/use-sessions-drawer';
 import { DeepSeekKeyCard, GeminiKeyCard, GroqKeyCard, OpenRouterKeyCard } from './ai-chat/provider-key-cards';
-import { formatCodeReview, formatScanAnalysis, parseStructuredFailureMetadata, structuredTaskLabel, structuredTaskPrompt } from './ai-chat/structured-results';
+import { formatCodeReview, formatScanAnalysis, parseStructuredFailureMetadata, structuredTaskPrompt } from './ai-chat/structured-results';
+import { CHAT_STAGE_LABELS, describeStreamError, safeStructuredFailure, structuredTaskStageLabel } from './ai-chat/stream-errors';
 import { ADDITIONAL_AI_ACTIONS, AI_ACTIONS, COMMON_AI_ACTIONS, LiveAgentActivity, type LiveAgentActivityEvent, type LiveAgentToolStep, PLAN_STAGE_LABELS, liveToolLabel } from './ai-chat/live-activity';
 import { AgentExecutionProofPanel, type AgentExecutionProofStatus, historicalAuditDispositionLabel, historicalAuditStatusLabel } from './ai-chat/execution-proof';
 export { AI_CHAT_SELECTION_STORAGE_PREFIX, parseAiChatRouteTarget, parseAiChatSelection } from './ai-chat/session-state';
@@ -521,36 +522,6 @@ export default function AiChat() {
     setLiveFixtureLocal(false);
     setLiveEvidenceIntegrity(null);
     setLiveVerdictScope(null);
-  }
-
-  function safeStructuredFailure(err: AiStreamErrorEvent, task: 'analyze' | 'review'): { title: string; reason: string } {
-    const name = structuredTaskLabel(task);
-    switch (err.failureKind) {
-      case 'PROVIDER_FORMAT': return { title: `${name} incomplete`, reason: `The ${name} response could not be verified, so no completed result was saved.` };
-      case 'RATE_LIMIT': return { title: `${name} paused`, reason: `This ${name} reached a temporary usage limit. Wait a moment, then try again.` };
-      case 'CONFIGURATION': return { title: `${name} unavailable`, reason: `This ${name} cannot run until the AI setup is updated. Fix the setup, then start a new ${name}.` };
-      case 'TRANSPORT': return { title: `${name} interrupted`, reason: `The connection ended before the ${name} finished, so no completed result was saved.` };
-      case 'TOOL_FAILURE': return { title: `${name} blocked`, reason: `A required project tool did not complete, so no completed ${name} result was saved.` };
-      case 'CANCELLATION': return { title: `${name} cancelled`, reason: `The ${name} was cancelled before it reached a verified result.` };
-      case 'RECOVERY_FAILURE': return { title: `${name} recovery failed`, reason: `The ${name} could not be recovered into a complete verified result.` };
-      case 'INCOMPLETE': return { title: `${name} incomplete`, reason: `The ${name} did not have enough verified evidence to complete.` };
-      default: return { title: `${name} incomplete`, reason: `The ${name} could not finish. Try again in a moment.` };
-    }
-  }
-
-  function structuredTaskStageLabel(stage: string): string {
-    switch (stage) {
-      case 'building-context':
-        return 'Building project context';
-      case 'calling-model':
-        return 'Calling AI model';
-      case 'persisting-result':
-        return 'Saving result';
-      case 'completed':
-        return 'Task completed';
-      default:
-        return stage.replace(/[-_]/g, ' ');
-    }
   }
 
   function startStructuredTask(task: 'analyze' | 'review', prompt: string, retryMessageId?: string) {
@@ -1855,50 +1826,6 @@ export default function AiChat() {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [chatRouteTarget, localMessages, selectedProjectId, sessionId]);
 
-  /** Map server-side stage identifiers to user-facing labels. */
-  const STAGE_LABELS: Record<string, string> = {
-    'building-context': 'Building context…',
-    'calling-model':    'Calling AI model…',
-    'streaming':        'Writing response…',
-  };
-
-  /** Translate an AiStreamErrorEvent to a user-facing error description. */
-  function describeStreamError(err: AiStreamErrorEvent): string {
-    if (err.code === 'PROJECT_RATE_LIMIT' || err.rateLimitScope === 'project') {
-      const delaySeconds = typeof err.retryAfterMs === 'number' && err.retryAfterMs > 0
-        ? Math.ceil(err.retryAfterMs / 1000)
-        : undefined;
-      return delaySeconds
-        ? `This project reached its AI request limit. Wait at least ${delaySeconds} seconds before sending another request.`
-        : 'This project reached its AI request limit. No retry interval was provided; wait before sending another request.';
-    }
-    const categoryGuidance = providerFailureCategoryGuidance(
-      err.providerFailureCategory,
-      err.rateLimitScope,
-      err.retryAfterMs,
-      err.retryAfterSource,
-    );
-    if (categoryGuidance) return categoryGuidance;
-    // Reuse describeAiError by constructing a temporary AiApiError from
-    // the SSE error event's code → HTTP status mapping.
-    const statusForCode: Record<string, number> = {
-      RATE_LIMITED: 429,
-      model_output_invalid: 422,
-      AUTH_ERROR: 401,
-      request_failed: 400,
-    };
-    const tmpErr = new AiApiError(
-      statusForCode[err.code] ?? 502,
-      err.message,
-      undefined,
-      err.code,
-      {
-        correlationId: err.correlationId,
-      },
-    );
-    return describeAiError(tmpErr);
-  }
-
   const applyMutation = useAiApplyChanges({
     mutation: {
       onSuccess: (data) => {
@@ -2542,11 +2469,11 @@ export default function AiChat() {
         },
         onStage: (stage) => {
           if (generation !== streamGenerationRef.current) return;
-          setAgentStage(STAGE_LABELS[stage] ?? stage);
+          setAgentStage(CHAT_STAGE_LABELS[stage] ?? stage);
           appendLiveActivityEvent({
             kind: 'stage',
             label: 'Stage',
-            detail: STAGE_LABELS[stage] ?? stage,
+            detail: CHAT_STAGE_LABELS[stage] ?? stage,
             status: 'info',
           });
         },
