@@ -29,7 +29,7 @@ import { readStoredMissionCorrelationReport } from '@/lib/mission-correlation-re
 import type { ChatMessage, OperationMode, Project } from './ai-chat/types';
 import { isFallbackDiagnosticQuestion } from './ai-chat/project-query';
 import { type ActiveExecution, BehaviorProgressCard, CandidateValidationProof, type DeliveryLifecycle, type RecoverableDelivery, browserValidationBlockExplanation, inferOperationMode } from './ai-chat/delivery-proof';
-import { AI_CHAT_SYNC_STORAGE_KEY, type AiChatSyncEvent, type AiTaskResult, type RouteMissionRestoration, type Session, type StreamOwner, aiChatSelectionStorageKey, clearAiChatSelection, getStoredAiChatSessionId, isOpaqueSelectionId, parseAiChatRouteTarget, parseAiChatSelection, persistAiChatSelection, persistedCompletedReadFiles, publishAiChatData, sessionForensicStatusLabel } from './ai-chat/session-state';
+import { type AiTaskResult, type RouteMissionRestoration, type Session, type StreamOwner, aiChatSelectionStorageKey, clearAiChatSelection, getStoredAiChatSessionId, isOpaqueSelectionId, parseAiChatRouteTarget, parseAiChatSelection, persistAiChatSelection, persistedCompletedReadFiles, publishAiChatData, sessionForensicStatusLabel } from './ai-chat/session-state';
 import { type ActiveProvider, AiApiError, type ApprovedPendingChange, type BehavioralVerification, ModelContractQualityCard, type PendingChange, ProviderReadinessNotice, describeAiError, hasValidationProfile, providerFailureCategoryGuidance, redactInternalDetails } from './ai-chat/provider-runtime';
 import { getFinalForensicVerdict, parseToolTrace } from './ai-chat/trace-parsing';
 import { OperationTracePanel } from './ai-chat/execution-trace';
@@ -37,6 +37,8 @@ import { PendingChangesCard, PushCommitCard, VerifiedCommitCard } from './ai-cha
 import { ProjectQuerySourceHeading } from './ai-chat/evidence-panels';
 import type { PlanDecision } from './ai-chat/task-result-panel';
 import { MessageBubble } from './ai-chat/message-bubble';
+import { useAiChatCrossTabSync } from './ai-chat/use-cross-tab-sync';
+import { usePendingChangesPersistence } from './ai-chat/use-pending-changes-persistence';
 import { useProviderMetrics } from './ai-chat/use-provider-metrics';
 import { useExecutionAudit } from './ai-chat/use-execution-audit';
 import { useSessionsDrawer } from './ai-chat/use-sessions-drawer';
@@ -137,61 +139,7 @@ export default function AiChat() {
   } = useRecipeStream();
   const { send: taskStreamSend, cancel: cancelTaskStream, isPending: isTaskSending } = useAiTaskStream();
 
-  useEffect(() => {
-    if (!selectedProjectId) return;
-
-    const handleSyncEvent = (raw: string | null) => {
-      if (!raw) return;
-      try {
-        const parsed = JSON.parse(raw) as Partial<AiChatSyncEvent>;
-        if (
-          parsed.version !== 1
-          || parsed.projectId !== selectedProjectId
-          || (parsed.kind !== 'selection' && parsed.kind !== 'data')
-          || typeof parsed.sequence !== 'number'
-        ) return;
-        const incomingSessionId = isOpaqueSelectionId(parsed.sessionId)
-          ? parsed.sessionId
-          : undefined;
-
-        if (parsed.kind === 'selection' && incomingSessionId) {
-          setSessionId(incomingSessionId);
-        }
-        if (incomingSessionId) {
-          void qc.invalidateQueries({ queryKey: ['ai-messages', incomingSessionId] });
-          void qc.invalidateQueries({ queryKey: ['ai-pending-proposal', incomingSessionId] });
-          void qc.invalidateQueries({
-            queryKey: getListAiChatSessionMissionsQueryKey(incomingSessionId),
-          });
-        }
-        void qc.invalidateQueries({ queryKey: ['ai-sessions', selectedProjectId] });
-      } catch {
-        // Ignore malformed cross-tab state; the server remains authoritative.
-      }
-    };
-
-    const handleStorage = (event: StorageEvent) => {
-      if (event.key === AI_CHAT_SYNC_STORAGE_KEY) {
-        handleSyncEvent(event.newValue);
-        return;
-      }
-      if (event.key === aiChatSelectionStorageKey(selectedProjectId) && event.newValue) {
-        const selection = parseAiChatSelection(event.newValue, selectedProjectId);
-        if (selection?.kind === 'session') {
-          setSessionId(selection.sessionId);
-          void qc.invalidateQueries({ queryKey: ['ai-messages', selection.sessionId] });
-          void qc.invalidateQueries({ queryKey: ['ai-pending-proposal', selection.sessionId] });
-          void qc.invalidateQueries({
-            queryKey: getListAiChatSessionMissionsQueryKey(selection.sessionId),
-          });
-          void qc.invalidateQueries({ queryKey: ['ai-sessions', selectedProjectId] });
-        }
-      }
-    };
-
-    window.addEventListener('storage', handleStorage);
-    return () => window.removeEventListener('storage', handleStorage);
-  }, [qc, selectedProjectId]);
+  useAiChatCrossTabSync({ qc, selectedProjectId, setSessionId });
 
   const streamGenerationRef = useRef(0);
   const streamOwnerRef = useRef<StreamOwner | null>(null);
@@ -999,67 +947,13 @@ export default function AiChat() {
     },
   });
 
-  // G-06 fix: pending changes are stored with a timestamp so stale entries
-  // (from a crashed/closed tab after the server wrote the files but before
-  // onSuccess could clear them) expire automatically after 24 hours instead
-  // of becoming permanent phantom items.
-  const PENDING_TTL_MS = 24 * 60 * 60 * 1000; // 24 hours
-  type StoredPending = { changes: PendingChange[]; savedAt: number };
-  const pendingKey = sessionId ? `eos_pending_${sessionId}` : undefined;
-  const verificationKey = sessionId ? `eos_verification_${sessionId}` : undefined;
-
-  useEffect(() => {
-    if (!pendingKey || !verificationKey) return;
-    if (pendingChanges.length > 0) {
-      const payload: StoredPending = { changes: pendingChanges, savedAt: Date.now() };
-      localStorage.setItem(pendingKey, JSON.stringify(payload));
-    } else {
-      localStorage.removeItem(pendingKey);
-    }
-    if (Object.keys(verificationResults).length > 0) {
-      localStorage.setItem(verificationKey, JSON.stringify(verificationResults));
-    } else {
-      localStorage.removeItem(verificationKey);
-    }
-  }, [pendingChanges, pendingKey, verificationKey, verificationResults]);
-
-  useEffect(() => {
-    if (!sessionId) {
-      setPendingChanges([]);
-      setVerificationResults({});
-      return;
-    }
-    if (!pendingKey || !verificationKey) return;
-    const storedVerification = localStorage.getItem(verificationKey);
-    if (storedVerification) {
-      try {
-        setVerificationResults(JSON.parse(storedVerification) as Record<string, BehavioralVerification>);
-      } catch {
-        localStorage.removeItem(verificationKey);
-        setVerificationResults({});
-      }
-    } else {
-      setVerificationResults({});
-    }
-    const raw = localStorage.getItem(pendingKey);
-    if (!raw) { setPendingChanges([]); return; }
-    try {
-      const stored = JSON.parse(raw) as StoredPending | PendingChange[];
-      // Handle both the old format (plain array) and the new format ({ changes, savedAt }).
-      const changes = Array.isArray(stored) ? stored : stored.changes;
-      const savedAt  = Array.isArray(stored) ? 0       : stored.savedAt;
-      if (Date.now() - savedAt > PENDING_TTL_MS) {
-        // Entry is older than 24 h — the server almost certainly already wrote
-        // those files.  Remove the ghost entry rather than confusing the user.
-        localStorage.removeItem(pendingKey);
-        setPendingChanges([]);
-        return;
-      }
-      if (changes.length > 0) setPendingChanges(changes);
-    } catch {
-      localStorage.removeItem(pendingKey);
-    }
-  }, [pendingKey, sessionId, verificationKey]);
+  const { pendingKey, verificationKey } = usePendingChangesPersistence({
+    sessionId,
+    pendingChanges,
+    setPendingChanges,
+    verificationResults,
+    setVerificationResults,
+  });
 
   // Use the generated hook (same URL and auth path as Projects.tsx) so this
   // query uses customFetch — which throws ApiError on non-2xx, preserving the
