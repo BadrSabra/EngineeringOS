@@ -59,13 +59,16 @@ export default function Metrics() {
           </h1>
           <p className="text-muted-foreground text-sm mt-1">Historical quality trends and analysis.</p>
         </div>
-        <div className="flex items-center gap-2">
+        <div
+          data-testid="metrics-controls"
+          className="flex w-full min-w-0 flex-col gap-2 sm:w-auto sm:flex-row sm:items-center"
+        >
           <RefreshButton onRefresh={async () => { await refetchProjects(); await refetch(); }} isRefreshing={isRefetching} lastUpdated={dataUpdatedAt} label="Refresh metrics" />
           <select
             value={effectiveProjectId}
             onChange={(e) => setSelectedProjectId(e.target.value)}
             aria-label="Select project"
-            className="bg-card border border-border rounded-md px-3 py-2 text-sm focus:border-primary focus:outline-none w-56 font-medium"
+            className="w-full min-w-0 bg-card border border-border rounded-md px-3 py-2 text-sm focus:border-primary focus:outline-none font-medium sm:w-56"
           >
             {projects?.map((p) => (
               <option key={p.id} value={p.id}>
@@ -73,12 +76,15 @@ export default function Metrics() {
               </option>
             ))}
           </select>
-          <div className="flex items-center border border-border rounded-md overflow-hidden text-xs font-medium">
+          <div
+            data-testid="metrics-date-range"
+            className="flex w-full min-w-0 items-center border border-border rounded-md overflow-hidden text-xs font-medium sm:w-auto"
+          >
             {(['7d', '30d', 'all'] as DateRange[]).map((r) => (
               <button
                 key={r}
                 onClick={() => setDateRange(r)}
-                className={`px-3 py-2 transition-colors ${
+                className={`min-w-0 flex-1 px-3 py-2 transition-colors sm:flex-none ${
                   dateRange === r
                     ? 'bg-primary text-primary-foreground'
                     : 'bg-card text-muted-foreground hover:bg-secondary'

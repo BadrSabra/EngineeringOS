@@ -50,6 +50,15 @@ beforeEach(() => {
 });
 
 describe('Metrics', () => {
+  it('stacks the project and date controls on narrow screens', () => {
+    render(<Metrics />);
+
+    expect(screen.getByTestId('metrics-controls')).toHaveClass('flex-col', 'w-full', 'min-w-0');
+    expect(screen.getByRole('combobox')).toHaveClass('w-full', 'sm:w-56');
+    expect(screen.getByTestId('metrics-date-range')).toHaveClass('w-full', 'sm:w-auto');
+    expect(screen.getByRole('button', { name: 'All' })).toHaveClass('flex-1', 'sm:flex-none');
+  });
+
   it('does not request metrics until a project is available', () => {
     render(<Metrics />);
 

@@ -62,8 +62,11 @@ export default function Events() {
             {' '}Page {page}. Filters are applied across your event history.
           </p>
         </div>
-        <div className="flex items-center gap-3">
-          <div className="relative">
+        <div
+          data-testid="events-controls"
+          className="flex w-full min-w-0 flex-wrap items-center gap-2 sm:w-auto sm:flex-nowrap sm:gap-3"
+        >
+          <div data-testid="events-search" className="relative min-w-0 basis-full sm:basis-auto">
             <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
             <input
               type="text"
@@ -73,14 +76,16 @@ export default function Events() {
                  setPage(1);
                }}
               placeholder="Search logs..."
-              className="bg-card border border-border rounded-md pl-9 pr-4 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-primary w-64"
+              className="w-full min-w-0 bg-card border border-border rounded-md pl-9 pr-4 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-primary sm:w-64"
             />
           </div>
-          <RefreshButton onRefresh={refetch} isRefreshing={isLoading} label="Refresh events" />
+          <div className="shrink-0">
+            <RefreshButton onRefresh={refetch} isRefreshing={isLoading} label="Refresh events" />
+          </div>
           <button
             aria-label="Toggle event filters"
             onClick={() => setShowFilters((v) => !v)}
-            className={`p-2 border rounded-md transition-colors relative ${
+            className={`shrink-0 p-2 border rounded-md transition-colors relative ${
               showFilters || activeFilterCount > 0
                 ? 'border-primary text-primary bg-primary/10'
                 : 'border-border hover:bg-secondary text-muted-foreground'
@@ -163,70 +168,80 @@ export default function Events() {
         </div>
       )}
 
-      <div className="flex-1 bg-[#0a0a0a] border border-border rounded-xl shadow-sm overflow-hidden flex flex-col font-mono text-sm relative">
-        <div className="p-2 border-b border-border bg-card/50 flex gap-4 text-xs text-muted-foreground sticky top-0 z-10 shadow-sm backdrop-blur-md">
-          <div className="w-32">Timestamp</div>
-          <div className="w-16">Level</div>
-          <div className="w-32">Type</div>
-          <div className="w-48 truncate">Project</div>
-          <div className="w-56 truncate">Operation</div>
-          <div className="flex-1">Message</div>
-        </div>
+      <div className="flex-1 min-w-0 bg-[#0a0a0a] border border-border rounded-xl shadow-sm overflow-hidden flex flex-col font-mono text-sm relative">
+        <div
+          data-testid="events-log-scroll"
+          role="region"
+          aria-label="Event log rows; scroll horizontally to view all columns."
+          tabIndex={0}
+          className="min-w-0 flex-1 overflow-auto"
+        >
+          <div className="min-w-[900px]">
+            <div className="p-2 border-b border-border bg-card/50 flex gap-4 text-xs text-muted-foreground sticky top-0 z-10 shadow-sm backdrop-blur-md">
+              <div className="w-32">Timestamp</div>
+              <div className="w-16">Level</div>
+              <div className="w-32">Type</div>
+              <div className="w-48 truncate">Project</div>
+              <div className="w-56 truncate">Operation</div>
+              <div className="flex-1">Message</div>
+            </div>
 
-        <div className="flex-1 overflow-y-auto p-2">
-          {isLoading ? (
-            <div className="p-4 text-primary animate-pulse flex items-center gap-2">
-              <span className="w-2 h-2 bg-primary rounded-full animate-ping"></span> Loading events…
-            </div>
-          ) : isError ? (
-            <div className="p-8 text-red-300">
-              <p>Unable to load events{error instanceof Error && error.message ? `: ${error.message}` : '.'}</p>
-              <button
-                type="button"
-                onClick={() => void refetch()}
-                className="mt-3 rounded-md border border-red-400/50 px-3 py-1.5 text-xs text-red-200 hover:bg-red-950/40"
-              >
-                Retry
-              </button>
-            </div>
-           ) : (events?.length ?? 0) === 0 ? (
-            <div className="p-8 text-muted-foreground opacity-50">
-              {activeFilterCount > 0 ? 'No events match the current filters.' : 'No events recorded.'}
-            </div>
-           ) : (
-            <div className="space-y-0.5">
-              {(events || []).map((evt) => {
-                const color =
-                  evt.severity === 'error'
-                    ? 'text-red-400 bg-red-950/20'
-                    : evt.severity === 'success'
-                    ? 'text-green-400'
-                    : evt.severity === 'warning'
-                    ? 'text-yellow-400 bg-yellow-950/20'
-                    : 'text-blue-400';
-
-                return (
-                  <div
-                    key={evt.id}
-                    className={`flex gap-4 p-1.5 rounded hover:bg-white/5 transition-colors ${color}`}
+            <div className="p-2">
+              {isLoading ? (
+                <div className="p-4 text-primary animate-pulse flex items-center gap-2">
+                  <span className="w-2 h-2 bg-primary rounded-full animate-ping"></span> Loading events…
+                </div>
+              ) : isError ? (
+                <div className="p-8 text-red-300">
+                  <p>Unable to load events{error instanceof Error && error.message ? `: ${error.message}` : '.'}</p>
+                  <button
+                    type="button"
+                    onClick={() => void refetch()}
+                    className="mt-3 rounded-md border border-red-400/50 px-3 py-1.5 text-xs text-red-200 hover:bg-red-950/40"
                   >
-                    <div className="w-32 opacity-70 shrink-0">
-                      {new Date(evt.timestamp).toISOString().split('T')[1].replace('Z', '')}
-                    </div>
-                    <div className="w-16 font-bold uppercase shrink-0">
-                      {evt.severity || 'INFO'}
-                    </div>
-                    <div className="w-32 opacity-80 shrink-0 truncate">{evt.type}</div>
-                    <div className="w-48 opacity-60 shrink-0 truncate">{evt.projectId || '-'}</div>
-                    <div className="w-56 opacity-60 shrink-0 truncate" title={evt.correlationId || undefined}>
-                      {evt.correlationId || 'not linked'}
-                    </div>
-                    <div className="flex-1 whitespace-pre-wrap break-words">{evt.message}</div>
-                  </div>
-                );
-              })}
+                    Retry
+                  </button>
+                </div>
+              ) : (events?.length ?? 0) === 0 ? (
+                <div className="p-8 text-muted-foreground opacity-50">
+                  {activeFilterCount > 0 ? 'No events match the current filters.' : 'No events recorded.'}
+                </div>
+              ) : (
+                <div className="space-y-0.5">
+                  {(events || []).map((evt) => {
+                    const color =
+                      evt.severity === 'error'
+                        ? 'text-red-400 bg-red-950/20'
+                        : evt.severity === 'success'
+                        ? 'text-green-400'
+                        : evt.severity === 'warning'
+                        ? 'text-yellow-400 bg-yellow-950/20'
+                        : 'text-blue-400';
+
+                    return (
+                      <div
+                        key={evt.id}
+                        className={`flex gap-4 p-1.5 rounded hover:bg-white/5 transition-colors ${color}`}
+                      >
+                        <div className="w-32 opacity-70 shrink-0">
+                          {new Date(evt.timestamp).toISOString().split('T')[1].replace('Z', '')}
+                        </div>
+                        <div className="w-16 font-bold uppercase shrink-0">
+                          {evt.severity || 'INFO'}
+                        </div>
+                        <div className="w-32 opacity-80 shrink-0 truncate">{evt.type}</div>
+                        <div className="w-48 opacity-60 shrink-0 truncate">{evt.projectId || '-'}</div>
+                        <div className="w-56 opacity-60 shrink-0 truncate" title={evt.correlationId || undefined}>
+                          {evt.correlationId || 'not linked'}
+                        </div>
+                        <div className="flex-1 whitespace-pre-wrap break-words">{evt.message}</div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
             </div>
-          )}
+          </div>
         </div>
         {!isLoading && !isError && (events?.length ?? 0) > 0 && (
           <div className="shrink-0 border-t border-border bg-card/50 px-3 py-2 flex items-center justify-between text-xs text-muted-foreground">

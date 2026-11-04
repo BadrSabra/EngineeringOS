@@ -49,6 +49,15 @@ beforeEach(() => {
 });
 
 describe("Events", () => {
+  it("wraps search and event actions into a narrow-screen control layout", () => {
+    render(<Events />);
+
+    expect(screen.getByTestId("events-controls")).toHaveClass("flex-wrap", "w-full", "min-w-0");
+    expect(screen.getByTestId("events-search")).toHaveClass("basis-full", "min-w-0");
+    expect(screen.getByPlaceholderText("Search logs...")).toHaveClass("w-full", "sm:w-64");
+    expect(screen.getByRole("region", { name: /scroll horizontally to view all columns/i })).toHaveAttribute("tabindex", "0");
+  });
+
   it("renders events from the all-project request", () => {
     render(<Events />);
 
