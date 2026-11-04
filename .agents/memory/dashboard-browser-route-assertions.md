@@ -26,3 +26,9 @@ When asserting that proof content is unchanged after reload, compare `textConten
 **Why:** Firefox changed CSS-derived line breaks in `innerText` after reload even though the Flight Deck proof content and blocked verdict were unchanged.
 
 **How to apply:** Use DOM text for persistence equality and accessible visible assertions for user-facing state; do not make layout-generated whitespace part of a proof persistence check.
+
+For long multi-route journeys, an early stale locator can hide later stale headings, counters, and control names in the same test. After the first failure, compare the remaining assertions in that route against the current rendered UI before rerunning.
+
+**Why:** Focused Firefox runs exposed downstream localization mismatches only after earlier expectations were corrected; inspecting the rest of the route avoided repeated full-suite runs.
+
+**How to apply:** Fix and rerun the affected route first, then run the broader release journey after its current accessible names and user-facing copy match.

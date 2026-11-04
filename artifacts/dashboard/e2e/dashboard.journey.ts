@@ -2271,6 +2271,8 @@ function installInterruptedCapabilityProbeFixture() {
           status: "running",
           resumable: true,
           resumeToken: initialToken,
+          operationMode: "CHAT",
+          proofRequired: true,
         }),
       ].join(""),
     },
@@ -2286,6 +2288,8 @@ function installInterruptedCapabilityProbeFixture() {
         status: "running",
         resumable: true,
         resumeToken: recoveredToken,
+        operationMode: "CHAT",
+        proofRequired: true,
       }),
       sse({ type: "stage", stage: "resuming-checkpoint" }),
       sse({ type: "delta", delta: base.answer }),
@@ -5053,10 +5057,10 @@ test.describe("EngineeringOS dashboard browser journey", () => {
         `${DASHBOARD_PATH}flight-deck?executionId=${encodeURIComponent(executionId)}`,
       );
       const deliveryProof = page.getByRole("region", {
-        name: "Delivery proof chain",
+        name: "سلسلة إثبات التسليم",
       });
       await expect(deliveryProof).toBeVisible();
-      await expect(deliveryProof).toContainText("Verified chain");
+      await expect(deliveryProof).toContainText("سلسلة متحققة");
       await expect(deliveryProof).toContainText(operationId);
       await expect(deliveryProof).toContainText(
         String(execution.operationEvidence?.revision ?? projectRevision),
@@ -5065,11 +5069,11 @@ test.describe("EngineeringOS dashboard browser journey", () => {
 
       await page.reload({ waitUntil: "domcontentloaded" });
       const reloadedDeliveryProof = page.getByRole("region", {
-        name: "Delivery proof chain",
+        name: "سلسلة إثبات التسليم",
       });
       await expect(reloadedDeliveryProof).toBeVisible();
       expect(await reloadedDeliveryProof.innerText()).toBe(proofBeforeReload);
-      await expect(reloadedDeliveryProof).toContainText("Verified chain");
+      await expect(reloadedDeliveryProof).toContainText("سلسلة متحققة");
     }
     if (
       successStates.has(terminalState) &&
@@ -5241,7 +5245,7 @@ test.describe("EngineeringOS dashboard browser journey", () => {
 
     await openNavigation(page, "Event Stream", `${DASHBOARD_PATH}events`);
     await expect(
-      page.getByRole("heading", { name: "Event Stream" }),
+      page.getByRole("heading", { name: "سجل الأحداث" }),
     ).toBeVisible();
     await expect(
       page
@@ -5261,7 +5265,7 @@ test.describe("EngineeringOS dashboard browser journey", () => {
       `${DASHBOARD_PATH}mission-control`,
     );
     await expect(
-      page.getByRole("heading", { name: "No durable runs in the ledger" }),
+      page.getByRole("heading", { name: "لا توجد عمليات محفوظة في السجل" }),
     ).toBeVisible();
 
     await page.goto(`${DASHBOARD_PATH}flight-deck?executionId=${EXECUTION_ID}`);
@@ -5271,7 +5275,7 @@ test.describe("EngineeringOS dashboard browser journey", () => {
       ),
     );
     await expect(
-      page.getByRole("heading", { name: "Mission → Push" }),
+      page.getByRole("heading", { name: "المهمة ← النشر" }),
     ).toBeVisible();
     await expect(
       page.getByText("Controlled browser fixture completed.", { exact: true }),
@@ -5280,7 +5284,7 @@ test.describe("EngineeringOS dashboard browser journey", () => {
       page.getByText("PROVEN", { exact: true }).first(),
     ).toBeVisible();
     const deliveryProof = page.getByRole("region", {
-      name: "Delivery proof chain",
+      name: "سلسلة إثبات التسليم",
     });
     await expect(deliveryProof).toBeVisible();
     await expect(deliveryProof).toContainText("e2e-operation");
@@ -5373,7 +5377,9 @@ test.describe("EngineeringOS dashboard browser journey", () => {
     const alerts = page.getByRole("region", {
       name: "تنبيهات خدمات المساعد",
     });
-    await expect(alerts.getByText("نموذج Groq السريع غير متاح")).toBeVisible();
+    await expect(
+      alerts.getByText("تنبيه محفوظ من مسار Groq غير المفعّل"),
+    ).toBeVisible();
     const modelId = alerts.getByText("openai/retired-fast", { exact: true });
     await expect(modelId).toBeVisible();
     await expect(modelId).toHaveAttribute("dir", "ltr");
@@ -5472,24 +5478,25 @@ test.describe("EngineeringOS dashboard browser journey", () => {
     );
 
     const deliveryProof = page.getByRole("region", {
-      name: "Delivery proof chain",
+      name: "سلسلة إثبات التسليم",
     });
     await expect(deliveryProof).toBeVisible();
-    await expect(deliveryProof).toContainText("blocked");
-    await expect(deliveryProof).toContainText("Blocked");
+    await expect(
+      deliveryProof.getByText("محظور", { exact: true }),
+    ).toHaveCount(2);
     await expect(deliveryProof).toContainText(
       "The push receipt references a different commit than the committed change.",
     );
-    await expect(deliveryProof).not.toContainText("Verified chain");
+    await expect(deliveryProof).not.toContainText("سلسلة متحققة");
     const beforeReload = await deliveryProof.textContent();
 
     await page.reload({ waitUntil: "domcontentloaded" });
     const reloadedProof = page.getByRole("region", {
-      name: "Delivery proof chain",
+      name: "سلسلة إثبات التسليم",
     });
     await expect(reloadedProof).toBeVisible();
     expect(await reloadedProof.textContent()).toBe(beforeReload);
-    await expect(reloadedProof).not.toContainText("Verified chain");
+    await expect(reloadedProof).not.toContainText("سلسلة متحققة");
   });
 
   test("keeps the runtime.start transition chain visible after Mission Control reload", async ({
@@ -10449,9 +10456,9 @@ test.describe("EngineeringOS dashboard browser journey", () => {
           url.searchParams.get("page") === "2"
         );
       }),
-      page.getByRole("button", { name: "Older" }).click(),
+      page.getByRole("button", { name: "الأقدم" }).click(),
     ]);
-    await expect(page.getByText("Page 2.", { exact: false })).toBeVisible();
+    await expect(page.getByText("صفحة 2.", { exact: false })).toBeVisible();
     await expect(
       page.getByText("Older event 50", { exact: true }),
     ).toBeVisible();
@@ -10459,14 +10466,14 @@ test.describe("EngineeringOS dashboard browser journey", () => {
       page.getByText("Filtered release event 0", { exact: true }),
     ).not.toBeVisible();
     expect(new URL(eventRequests.at(-1)!).searchParams.get("page")).toBe("2");
-    await page.getByRole("button", { name: "Newer" }).click();
-    await expect(page.getByText("Page 1.", { exact: false })).toBeVisible();
+    await page.getByRole("button", { name: "الأحدث" }).click();
+    await expect(page.getByText("صفحة 1.", { exact: false })).toBeVisible();
     await expect(
       page.getByText("Filtered release event 0", { exact: true }),
     ).toBeVisible();
 
-    await page.getByPlaceholder("Search logs...").fill("Filtered release");
-    await page.getByRole("button", { name: "Toggle event filters" }).click();
+    await page.getByPlaceholder("ابحث في السجلات...").fill("Filtered release");
+    await page.getByRole("button", { name: "إظهار أو إخفاء عوامل تصفية الأحداث" }).click();
     await page.locator("select").nth(1).selectOption("success");
     await expect(
       page.getByText("Filtered release event 0", { exact: true }),
@@ -10484,10 +10491,10 @@ test.describe("EngineeringOS dashboard browser journey", () => {
     await expect(
       page.getByText("Older event 1", { exact: true }),
     ).not.toBeVisible();
-    await expect(page.getByPlaceholder("Search logs...")).toHaveValue(
+    await expect(page.getByPlaceholder("ابحث في السجلات...")).toHaveValue(
       "Filtered release",
     );
-    await page.getByRole("button", { name: "Toggle event filters" }).click();
+    await page.getByRole("button", { name: "إظهار أو إخفاء عوامل تصفية الأحداث" }).click();
     await expect(page.locator("select").nth(1)).toHaveValue("success");
     const filteredRequest = new URL(eventRequests.at(-1)!);
     expect(filteredRequest.searchParams.get("limit")).toBe("50");
@@ -11247,7 +11254,7 @@ test.describe("EngineeringOS dashboard browser journey", () => {
       `${DASHBOARD_PATH}mission-control?projectId=e2e-project`,
     );
     const acceptance = page.getByRole("region", {
-      name: "Current execution acceptance",
+      name: "قبول التنفيذ الحالي",
     });
     await expect(acceptance).toBeVisible();
     await expect(acceptance).toContainText("2");
@@ -11266,7 +11273,7 @@ test.describe("EngineeringOS dashboard browser journey", () => {
     await page.reload();
     expect((await missionControlReload).status()).toBe(200);
     const reloadedAcceptance = page.getByRole("region", {
-      name: "Current execution acceptance",
+      name: "قبول التنفيذ الحالي",
     });
     await expect(reloadedAcceptance).toBeVisible();
     expect(await reloadedAcceptance.innerText()).toBe(
@@ -11634,36 +11641,51 @@ test.describe("EngineeringOS dashboard browser journey", () => {
       await expect(ledgerEntry).toBeVisible();
       await expect(ledgerEntry).toContainText(fixture.executionId);
       await expect(ledgerEntry).toContainText("CANCELLED");
-      await expect(page.getByText("Evidence: INCOMPLETE", { exact: true })).toBeVisible();
+      await expect(
+        page.getByText(
+          "القبول غير مكتمل لأن لقطة الأدلة التي يديرها الخادم غير مكتملة.",
+          { exact: true },
+        ),
+      ).toBeVisible();
 
       const acceptance = page.getByRole("region", {
-        name: "Current execution acceptance",
+        name: "قبول التنفيذ الحالي",
       });
       await expect(acceptance).toBeVisible();
       await expect(acceptance).toContainText("INTERRUPTED");
       await expect(acceptance).toContainText("START_NEW_PROBE");
       await expect(acceptance).toContainText(
-        "Acceptance is incomplete because the server-owned evidence snapshot is not complete.",
+        "القبول غير مكتمل لأن لقطة الأدلة التي يديرها الخادم غير مكتملة.",
       );
 
       const acceptanceSnapshot = await acceptance.innerText();
       const stateFilter = page.getByRole("combobox", {
-        name: "Filter execution history by state",
+        name: "تصفية سجل التنفيذ حسب الحالة",
       });
       await stateFilter.selectOption("CANCELLED");
-      await expect(page.getByText("1 of 1 runs", { exact: true })).toBeVisible();
+      await expect(page.getByText("1 من 1 عملية", { exact: true })).toBeVisible();
       await expect(ledgerEntry).toContainText("CANCELLED");
-      await expect(page.getByText("Evidence: INCOMPLETE", { exact: true })).toBeVisible();
+      await expect(
+        page.getByText(
+          "القبول غير مكتمل لأن لقطة الأدلة التي يديرها الخادم غير مكتملة.",
+          { exact: true },
+        ),
+      ).toBeVisible();
       expect(await acceptance.innerText()).toBe(acceptanceSnapshot);
       await expect(acceptance).toContainText("START_NEW_PROBE");
       await expect(acceptance).toContainText(
-        "Acceptance is incomplete because the server-owned evidence snapshot is not complete.",
+        "القبول غير مكتمل لأن لقطة الأدلة التي يديرها الخادم غير مكتملة.",
       );
 
       await stateFilter.selectOption("ALL");
-      await expect(page.getByText("1 of 1 runs", { exact: true })).toBeVisible();
+      await expect(page.getByText("1 من 1 عملية", { exact: true })).toBeVisible();
       await expect(ledgerEntry).toContainText("CANCELLED");
-      await expect(page.getByText("Evidence: INCOMPLETE", { exact: true })).toBeVisible();
+      await expect(
+        page.getByText(
+          "القبول غير مكتمل لأن لقطة الأدلة التي يديرها الخادم غير مكتملة.",
+          { exact: true },
+        ),
+      ).toBeVisible();
       expect(await acceptance.innerText()).toBe(acceptanceSnapshot);
     };
 
@@ -11925,7 +11947,7 @@ test.describe("EngineeringOS dashboard browser journey", () => {
 
     const card = page.getByRole("region", { name: "جودة إجابات المساعد" });
     const emptyState =
-      "لا توجد بيانات جودة تطابق المشروع والمزود والفترة المحددة.";
+      "لا توجد سجلات جودة مرتبطة باستدعاءات المزود؛ عينات عقود المهام تظهر منفصلة أعلاه.";
     await expect(card).toContainText("llama-e2e");
     await expect(card).toContainText("القبول 66.7%");
     await expect(card).toContainText("مطابقة الاستشهادات 75.0%");
@@ -12996,7 +13018,7 @@ test.describe("EngineeringOS dashboard browser journey", () => {
     await expectNoHorizontalOverflow(page);
   });
 
-  test("keeps all provider cards and controls reachable at narrow phone widths", async ({
+  test("keeps supported provider controls reachable at narrow phone widths", async ({
     page,
   }) => {
     const fixture = await installArabicAiFixture(page);
@@ -13025,32 +13047,42 @@ test.describe("EngineeringOS dashboard browser journey", () => {
 
       const providerCards = drawer.locator(".provider-key-card");
       await expect(providerCards).toHaveCount(4);
-      for (const provider of ["OpenRouter", "Gemini", "DeepSeek", "Groq"]) {
-        const card = providerCards.filter({
+      const activeProvider = providerCards.filter({
+        hasText: "مفتاح OpenRouter",
+      });
+      await expect(activeProvider).toHaveCount(1);
+      await activeProvider.scrollIntoViewIfNeeded();
+      await expect(activeProvider).toBeVisible();
+
+      const input = activeProvider.locator('input[type="password"]');
+      const save = activeProvider.getByRole("button", {
+        name: "حفظ مفتاح OpenRouter",
+        exact: true,
+      });
+      await expect(input).toBeVisible();
+      await expect(save).toBeVisible();
+      await input.scrollIntoViewIfNeeded();
+      await save.evaluate((element) =>
+        element.scrollIntoView({ block: "center", inline: "nearest" }),
+      );
+      await expectWithinViewport(input, viewport, `OpenRouter key input at ${width}px`);
+      await expectWithinViewport(save, viewport, `OpenRouter Save control at ${width}px`);
+
+      for (const provider of ["Gemini", "DeepSeek", "Groq"]) {
+        const inactiveProvider = providerCards.filter({
           hasText: `مفتاح ${provider}`,
         });
-        await expect(card).toHaveCount(1);
-        await card.scrollIntoViewIfNeeded();
-        await expect(card).toBeVisible();
-
-        const input = card.locator('input[type="password"]');
-        const save = card.getByRole("button", { name: `حفظ مفتاح ${provider}`, exact: true });
-        await expect(input).toBeVisible();
-        await expect(save).toBeVisible();
-        await input.scrollIntoViewIfNeeded();
-        await save.evaluate((element) =>
-          element.scrollIntoView({ block: "center", inline: "nearest" }),
-        );
-        await expectWithinViewport(
-          input,
-          viewport,
-          `${provider} key input at ${width}px`,
-        );
-        await expectWithinViewport(
-          save,
-          viewport,
-          `${provider} Save control at ${width}px`,
-        );
+        await expect(inactiveProvider).toHaveCount(1);
+        await inactiveProvider.scrollIntoViewIfNeeded();
+        await expect(inactiveProvider).toBeVisible();
+        await expect(inactiveProvider).toContainText("غير مفعّل");
+        await expect(inactiveProvider.locator('input[type="password"]')).toHaveCount(0);
+        await expect(
+          inactiveProvider.getByRole("button", {
+            name: `حفظ مفتاح ${provider}`,
+            exact: true,
+          }),
+        ).toHaveCount(0);
       }
 
       await expectWithinViewport(composer, viewport, `composer with drawer at ${width}px`);

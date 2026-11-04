@@ -13307,22 +13307,13 @@ export default function AiChat() {
           setLiveAuditScopeDescription(null);
           const terminalProjection = data.terminalProjection;
            const executionProjection = data.projection ?? data.message.projection;
-          const terminalFailure = data.message.outcome === 'FAILED'
-            || data.message.outcome === 'INTERRUPTED'
-            || terminalProjection?.outcome === 'FAILED'
-            || terminalProjection?.outcome === 'INTERRUPTED'
-            || terminalProjection?.outcome === 'UNKNOWN';
           const currentExecution = activeExecutionRef.current;
           const retainTerminalExecution = Boolean(
-            terminalFailure
-            && currentExecution
+            currentExecution
             && currentExecution.proofRequired !== false
             && (
               terminalProjection?.resumable === true
-              || (
-                currentExecution.proofRequired === true
-                && currentExecution.operationMode === 'CHAT'
-              )
+              || currentExecution.proofRequired === true
             ),
           );
           if (retainTerminalExecution && currentExecution) {
