@@ -721,6 +721,7 @@ async function createPersistedEffectOutcomeFixture(
     executionId,
     acceptanceId,
     bundleId,
+    effectId,
     afterObservationId,
     expectedEffectStatus,
   };
@@ -1319,9 +1320,36 @@ describe("Mission decision trace persistence", () => {
       );
       if (outcome === "ACHIEVED") {
         expect(finalized.kind).toBe("appended");
+        if (finalized.kind !== "appended") {
+          throw new Error("expected ACHIEVED lifecycle finalization");
+        }
         expect((await getMissionDecisionTrace(fixture.decisionId))?.events
           .map(({ stage }) => stage).slice(-4))
           .toEqual(["EXECUTED", "ACCEPTED", "VERIFIED", "EVALUATED_AFTER_EXECUTION"]);
+        const [snapshot] = await db.select().from(aiMissionDecisionOutcomeSnapshotsTable)
+          .where(eq(aiMissionDecisionOutcomeSnapshotsTable.outcomeId, finalized.snapshotId));
+        if (!snapshot) throw new Error("expected persisted outcome snapshot");
+        await db.update(aiMissionDecisionOutcomeSnapshotsTable)
+          .set({ outcome: "NOT_ACHIEVED" })
+          .where(eq(aiMissionDecisionOutcomeSnapshotsTable.outcomeId, finalized.snapshotId));
+        await expect(getMissionDecisionTrace(fixture.decisionId))
+          .rejects.toMatchObject({ code: "decision_event_reference_invalid" });
+        await db.update(aiMissionDecisionOutcomeSnapshotsTable)
+          .set({ outcome: snapshot.outcome, evaluation: snapshot.evaluation })
+          .where(eq(aiMissionDecisionOutcomeSnapshotsTable.outcomeId, finalized.snapshotId));
+        await db.update(aiMissionDecisionOutcomeSnapshotsTable)
+          .set({ evaluation: { ...snapshot.evaluation, planRevision: "tampered-plan-revision" } })
+          .where(eq(aiMissionDecisionOutcomeSnapshotsTable.outcomeId, finalized.snapshotId));
+        await expect(getMissionDecisionTrace(fixture.decisionId))
+          .rejects.toMatchObject({ code: "decision_event_reference_invalid" });
+        await db.update(aiMissionDecisionOutcomeSnapshotsTable)
+          .set({
+            evaluation: snapshot.evaluation,
+            worldStateRevision: `tampered:${snapshot.worldStateRevision}`,
+          })
+          .where(eq(aiMissionDecisionOutcomeSnapshotsTable.outcomeId, finalized.snapshotId));
+        await expect(getMissionDecisionTrace(fixture.decisionId))
+          .rejects.toMatchObject({ code: "decision_event_reference_invalid" });
       } else {
         expect(finalized.kind).toBe("not_achieved");
         expect((await getMissionDecisionTrace(fixture.decisionId))?.events
@@ -1351,8 +1379,15 @@ describe("Mission decision trace persistence", () => {
       await db.update(aiAgentEffectsTable).set({ attempt: 2 })
         .where(eq(aiAgentEffectsTable.id, fixture.effectId));
     } else {
-      await db.update(aiAgentEffectsTable).set({ executionId: fixture.executionId })
+      await db.update(aiAgentEffectsTable).set({
+        executionId: fixture.trace.context.identity.sourceExecutionId!,
+      })
         .where(eq(aiAgentEffectsTable.id, fixture.effectId));
+    }
+    if (mutation === "world_state") {
+      expect((await getProjectWorldState(fixture.projectId)).contradictions.some((fact) =>
+        fact.subject === "runtime" && fact.predicate === "status",
+      )).toBe(false);
     }
 
     const result = await evaluateAndPersistMissionPlanOutcome(
@@ -1362,13 +1397,17 @@ describe("Mission decision trace persistence", () => {
     expect(result.kind).toBe("recorded");
     if (result.kind !== "recorded") throw new Error("expected fail-closed outcome snapshot");
     expect(result.evaluation.outcome).toBe("INCONCLUSIVE");
+    expect(result.evaluation.finalWorldState.contradictedEffectCodes).toEqual([]);
     expect(result.evaluation.executions).toMatchObject([{
       goalId: fixture.goalId,
       executionId: fixture.executionId,
-      outcome: "INCONCLUSIVE",
       canonicalProofId: null,
-      contradictedEffectCodes: [],
     }]);
+    if (mutation === "world_state") {
+      expect(result.evaluation.executions[0]?.outcome).toBe("NOT_ACHIEVED");
+    } else {
+      expect(result.evaluation.executions[0]?.outcome).toBe("INCONCLUSIVE");
+    }
 
     const finalized = await finalizeMissionPlanOutcome(
       fixture.decisionId,

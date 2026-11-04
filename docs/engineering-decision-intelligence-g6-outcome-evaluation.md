@@ -11,7 +11,7 @@ Both evaluators are deterministic shared-library functions. The plan-wide aggreg
 
 ## Forensic integration finding
 
-The persisted-effect adapter now reclassifies stored effect contracts using fresh, complete, direct before/after observations. A contradiction is projected to plan-level `NOT_ACHIEVED` only when a terminal failed Acceptance matches the Execution and a current World State contradiction cites the same after-observation. The integration suite now verifies this binding using durable rows in a disposable PostgreSQL cluster. This establishes the loader/finalizer contract under the fixture, not operation of a live Mission or automatic reconciliation.
+The persisted-effect adapter now reclassifies stored effect contracts using fresh, complete, direct before/after observations. A contradiction is projected to plan-level `NOT_ACHIEVED` only when a terminal failed Acceptance matches the Execution and a current World State contradiction cites the same after-observation. Isolated durable-row tests now cover this binding and fail-closed current-world, freshness, attempt, and Execution mismatches. When the effect remains contradictory but current World State no longer cites it, the per-Execution record preserves the observed contradiction while the plan verdict stays `INCONCLUSIVE`. This establishes the loader/finalizer contract under the fixture, not operation of a live Mission or automatic reconciliation.
 
 The existing single-execution contract is not compatible with the live replan trace shape:
 
@@ -58,14 +58,13 @@ Expected effect codes are extracted only from explicit string values or object `
 
 ## Verification
 
-See `docs/engineering-decision-intelligence-g6-test-notes.md`. The focused evaluator suite passes **15/15**, API-server typecheck passes, and the isolated Mission Trace integration file now passes **10/10** on a fresh loopback-only temporary PostgreSQL cluster. The server-writer tests cover idempotent `INCONCLUSIVE`, durable-row `ACHIEVED` with the four lifecycle events, and durable-row `NOT_ACHIEVED` with no lifecycle advancement. No live Mission has been evaluated.
+See `docs/engineering-decision-intelligence-g6-test-notes.md`. The focused contract/evaluator suites pass **24/24**, API-server typecheck passes, and the isolated Mission Trace integration file now passes **14/14** on a fresh loopback-only temporary PostgreSQL cluster. The server-writer tests cover idempotent `INCONCLUSIVE`, durable-row `ACHIEVED` with the four lifecycle events, durable-row `NOT_ACHIEVED` with no lifecycle advancement, fail-closed current-world/freshness/identity mismatches, and read-time rejection after the persisted snapshot outcome column is tampered. No live Mission has been evaluated.
 
 ## Required work before closing G6
 
-1. Add isolated negative server-writer fixtures for current-world mismatch, stale observations, and cross-attempt/cross-execution identities. Keep mismatched evidence fail-closed as `INCONCLUSIVE`.
+1. Extend isolated tamper coverage beyond the persisted outcome column to snapshot payload/hash and World State revision/identity rebinding; current-world contradiction removal, stale observations, cross-attempt effects, and cross-Execution effects already remain fail-closed as `INCONCLUSIVE`.
 2. Review the additive snapshot-table diff against Development before applying it. Only the disposable test database has received the Drizzle schema so far.
 3. Add a durable reconciliation trigger after all current-plan Goals and Tasks are terminal, with lease ownership and idempotency; it must not rerun already completed side effects.
-4. Add tampered-snapshot tests for lifecycle suffix creation and read-time binding. A dispatch-batch pointer remains provenance, never completion or proof.
 5. Add database-level immutability enforcement for outcome snapshots, or explicitly retain and monitor the weaker application-only insert contract.
 6. G7 shadow-only comparisons, followed by G8 recovery/safety tests; G9/G10 remain blocked on measured accepted outcomes and held-out transfer evidence.
 

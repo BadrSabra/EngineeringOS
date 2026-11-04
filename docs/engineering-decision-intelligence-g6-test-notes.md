@@ -59,7 +59,7 @@ This was groundwork only; the server adapter and database path are described bel
 - After the correction, API-server typecheck passed; the focused evaluator suite passed **15/15**; the isolated Mission Trace integration suite passed **8/8**. The integration fixture verifies an `INCONCLUSIVE` finalization, stable retry identity, and no lifecycle advancement.
 - There is still no successful `ACHIEVED`/`NOT_ACHIEVED` database fixture or automatic reconciliation trigger. The snapshot schema remains unapplied to Development; no live Mission or production data was used.
 
-G6 remains open until the negative identity/freshness fixtures and tampered-snapshot checks pass, the Development schema is reviewed and verified, and a durable completion trigger invokes this finalizer without replaying side effects.
+G6 remains open until snapshot payload/hash and World State revision-rebinding checks pass, the Development schema is reviewed and verified, and a durable completion trigger invokes this finalizer without replaying side effects.
 
 ## Durable-row ACHIEVED and NOT_ACHIEVED fixtures
 
@@ -69,3 +69,11 @@ G6 remains open until the negative identity/freshness fixtures and tampered-snap
 - The `NOT_ACHIEVED` fixture uses a terminal non-resumable failed Acceptance, reclassifies the persisted effect from its expected state and direct observations, materializes same-revision conflicting World State facts, and verifies that the contradiction cites the exact after-observation. The snapshot is recorded as `NOT_ACHIEVED`, and finalization appends no lifecycle suffix.
 - The prior unfinished-execution test still proves `INCONCLUSIVE` plus idempotent replay, and terminal failure without contradiction remains `INCONCLUSIVE`.
 - API-server typecheck passed. These are isolated durable-row fixtures, not a live Mission or Development migration. Current-world mismatch, stale-observation, cross-attempt, and cross-execution database fixtures, tampered-snapshot coverage, Development schema readiness, and automatic reconciliation remain open.
+
+## First fail-closed mutation run and corrected rerun
+
+- The first run of the World State invalidation, stale-observation, cross-attempt, and cross-Execution cases reported **3 failed, 11 passed**. The stale-observation case passed.
+- The World State case's first assertion did not inspect the final World State projection; it incorrectly expected the per-Execution outcome itself to become `INCONCLUSIVE`. After adding that assertion, the test confirms the fact projection contains no matching contradiction and the plan-level `finalWorldState.contradictedEffectCodes` is empty, while the per-Execution record still accurately reports the direct effect contradiction. The aggregate outcome is `INCONCLUSIVE`, as required.
+- The first cross-attempt and cross-Execution mutations were not valid because the fixture did not return the effect ID; typecheck exposed this. The fixture now returns that ID, and the cross-Execution case explicitly points the effect at the distinct source Execution.
+- The corrected isolated PostgreSQL rerun passed **14/14**. Current-world contradiction removal, stale after-observation, cross-attempt effect identity, and cross-Execution effect identity all remain aggregate `INCONCLUSIVE` and append no lifecycle suffix. The `ACHIEVED` reader also rejects a durable snapshot after its indexed outcome column is changed to `NOT_ACHIEVED`.
+- API-server typecheck passes. These failures were fixture/assertion defects, not a reproduced evaluator gap. The final rerun proves these four fail-closed boundaries only; it does not prove live reconciliation or Development schema readiness.
