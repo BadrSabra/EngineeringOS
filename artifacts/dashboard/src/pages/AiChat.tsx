@@ -14,7 +14,7 @@ import { useToast } from '@/hooks/use-toast';
 import { HOME_GOAL_MAX_LENGTH, STARTER_GOAL_MAX_LENGTH } from '@/lib/home-goal-handoff';
 import { GoalDraftNotice, useGoalDraftHandoff } from '@/lib/use-goal-draft-handoff';
 import { buildAssistantScopeHref, getAssistantComposerContextId, readAssistantComposerDraft, readAssistantScopeContext, rememberAssistantScopeContext, saveAssistantComposerDraft } from '@/lib/assistant-scope-continuity';
-import { type AiChatSessionMissionsResponse, classifyProjectError, emitProjectLoadFailed, exportAiMetrics, getGetAiDeliveryPolicyQueryKey, getGetLocalReviewBranchQueryKey, getListAiChatSessionMissionsQueryKey, getListProjectsQueryKey, isRetryableProjectError, useAiApplyChanges, useAiRebaseChanges, useAiTaskStream, useApproveAiRebasedProposal, useCreateLocalReviewBranch, useExplainAiFallback, useGetActiveProvider, useGetAiDeliveryPolicy, useGetAiExecution, useGetAiMetrics, useGetAiPendingProposal, useGetLocalReviewBranch, useGitCommit, useGitPush, useListAiChatMessages, useListAiChatSessionMissions, useListAiChatSessions, useListAiExecutionHistory, useListEvents, useListProjects, useRejectAiChangeProposal, useSetAiChatSessionActiveMission, useUpdateAiDeliveryPolicy } from '@workspace/api-client-react';
+import { type AiChatSessionMissionsResponse, classifyProjectError, emitProjectLoadFailed, getGetAiDeliveryPolicyQueryKey, getGetLocalReviewBranchQueryKey, getListAiChatSessionMissionsQueryKey, getListProjectsQueryKey, isRetryableProjectError, useAiApplyChanges, useAiRebaseChanges, useAiTaskStream, useApproveAiRebasedProposal, useCreateLocalReviewBranch, useExplainAiFallback, useGetActiveProvider, useGetAiDeliveryPolicy, useGetAiExecution, useGetAiPendingProposal, useGetLocalReviewBranch, useGitCommit, useGitPush, useListAiChatMessages, useListAiChatSessionMissions, useListAiChatSessions, useListAiExecutionHistory, useListEvents, useListProjects, useRejectAiChangeProposal, useSetAiChatSessionActiveMission, useUpdateAiDeliveryPolicy } from '@workspace/api-client-react';
 import { useRecipeStream } from '@/lib/use-recipe-stream';
 import { RecipeProgressPanel } from '@/components/RecipeProgressPanel';
 import { CapabilityGapNotice } from '@/components/CapabilityGapNotice';
@@ -30,17 +30,20 @@ import type { ChatMessage, OperationMode, Project } from './ai-chat/types';
 import { isFallbackDiagnosticQuestion } from './ai-chat/project-query';
 import { type ActiveExecution, BehaviorProgressCard, CandidateValidationProof, type DeliveryLifecycle, type RecoverableDelivery, browserValidationBlockExplanation, inferOperationMode } from './ai-chat/delivery-proof';
 import { AI_CHAT_SYNC_STORAGE_KEY, type AiChatSyncEvent, type AiTaskResult, type RouteMissionRestoration, type Session, type StreamOwner, aiChatSelectionStorageKey, clearAiChatSelection, getStoredAiChatSessionId, isOpaqueSelectionId, parseAiChatRouteTarget, parseAiChatSelection, persistAiChatSelection, persistedCompletedReadFiles, publishAiChatData, sessionForensicStatusLabel } from './ai-chat/session-state';
-import { type ActiveProvider, AiApiError, type ApprovedPendingChange, type BehavioralVerification, type MetricsProviderFilter, type MetricsResponse, ModelContractQualityCard, type PendingChange, ProviderReadinessNotice, describeAiError, hasValidationProfile, isProviderSendBlocked, providerFailureCategoryGuidance, redactInternalDetails } from './ai-chat/provider-runtime';
+import { type ActiveProvider, AiApiError, type ApprovedPendingChange, type BehavioralVerification, ModelContractQualityCard, type PendingChange, ProviderReadinessNotice, describeAiError, hasValidationProfile, providerFailureCategoryGuidance, redactInternalDetails } from './ai-chat/provider-runtime';
 import { getFinalForensicVerdict, parseToolTrace } from './ai-chat/trace-parsing';
 import { OperationTracePanel } from './ai-chat/execution-trace';
 import { PendingChangesCard, PushCommitCard, VerifiedCommitCard } from './ai-chat/pending-changes';
 import { ProjectQuerySourceHeading } from './ai-chat/evidence-panels';
 import type { PlanDecision } from './ai-chat/task-result-panel';
 import { MessageBubble } from './ai-chat/message-bubble';
+import { useProviderMetrics } from './ai-chat/use-provider-metrics';
+import { useExecutionAudit } from './ai-chat/use-execution-audit';
+import { useSessionsDrawer } from './ai-chat/use-sessions-drawer';
 import { DeepSeekKeyCard, GeminiKeyCard, GroqKeyCard, OpenRouterKeyCard } from './ai-chat/provider-key-cards';
 import { formatCodeReview, formatScanAnalysis, parseStructuredFailureMetadata, structuredTaskLabel, structuredTaskPrompt } from './ai-chat/structured-results';
 import { ADDITIONAL_AI_ACTIONS, AI_ACTIONS, COMMON_AI_ACTIONS, LiveAgentActivity, type LiveAgentActivityEvent, type LiveAgentToolStep, PLAN_STAGE_LABELS, liveToolLabel } from './ai-chat/live-activity';
-import { AgentExecutionProofPanel, type AgentExecutionProofStatus, type AuditPreview, auditExportFailureMessage, auditExportFilename, historicalAuditDispositionLabel, historicalAuditStatusLabel } from './ai-chat/execution-proof';
+import { AgentExecutionProofPanel, type AgentExecutionProofStatus, historicalAuditDispositionLabel, historicalAuditStatusLabel } from './ai-chat/execution-proof';
 export { AI_CHAT_SELECTION_STORAGE_PREFIX, parseAiChatRouteTarget, parseAiChatSelection } from './ai-chat/session-state';
 export { BenchmarkMissionControlPanel, auditExportFilename, auditRedactionCategoryLabel, auditExportFailureMessage, historicalAuditStatusLabel, historicalAuditDispositionLabel } from './ai-chat/execution-proof';
 
@@ -76,9 +79,6 @@ export default function AiChat() {
   const [deliveryPolicyExpanded, setDeliveryPolicyExpanded] = useState(false);
   const [historicalAuditsExpanded, setHistoricalAuditsExpanded] = useState(false);
   const [moreActionsExpanded, setMoreActionsExpanded] = useState(false);
-  const [metricsProvider, setMetricsProvider] = useState<MetricsProviderFilter>('all');
-  const [metricsWindowDays, setMetricsWindowDays] = useState<number>(30);
-  const [qualityExportPending, setQualityExportPending] = useState(false);
   const [sessionId, setSessionId] = useState<string | undefined>(undefined);
   // AI-TASK-006: task linkage — read from URL search params so the Tasks page
   // can deep-link to /ai?taskId=<uuid>&projectId=<id> to open a task-aware session.
@@ -101,10 +101,6 @@ export default function AiChat() {
     ? buildAssistantScopeHref(generalScopeContext)
     : '/general-chat';
   const homeGoalNeedsProjectConfirmation = draftHandoff.needsProjectConfirmation;
-  const [auditExportPending, setAuditExportPending] = useState(false);
-  const [auditPreviewPending, setAuditPreviewPending] = useState(false);
-  const [auditPreview, setAuditPreview] = useState<AuditPreview | null>(null);
-  const [auditPreviewError, setAuditPreviewError] = useState<string | null>(null);
   const [localMessages, setLocalMessages] = useState<ChatMessage[]>([]);
   const [historicalReportError, setHistoricalReportError] = useState<string | null>(null);
   const [planDecisionPending, setPlanDecisionPending] = useState<string | null>(null);
@@ -369,78 +365,16 @@ export default function AiChat() {
     },
   );
 
-  useEffect(() => {
-    setAuditPreview(null);
-    setAuditPreviewError(null);
-  }, [activeExecution?.id]);
-
-  async function fetchExecutionAudit(): Promise<{ audit: AuditPreview; filename: string }> {
-    const executionId = activeExecution?.id;
-       if (!executionId) throw new Error('No completed execution is selected.');
-    const response = await fetch(`/api/ai/executions/${encodeURIComponent(executionId)}/audit-export`, {
-      credentials: 'include',
-      headers: { Accept: 'application/json' },
-    });
-    if (!response.ok) {
-      const body = await response.json().catch(() => ({})) as { error?: string };
-      throw new Error(body.error || 'The execution audit could not be loaded.');
-    }
-    return {
-      audit: await response.json() as AuditPreview,
-      filename: auditExportFilename(
-        response.headers.get('Content-Disposition'),
-        `execution-${executionId}-audit.json`,
-      ),
-    };
-  }
-
-  async function previewExecutionAudit() {
-    if (!activeExecution?.id || auditPreviewPending || auditExportPending) return;
-    setAuditPreviewPending(true);
-    setAuditPreviewError(null);
-    try {
-      const { audit } = await fetchExecutionAudit();
-      setAuditPreview(audit);
-    } catch (error) {
-      setAuditPreviewError('temporary_network_failure');
-      toast({
-        title: 'تعذّرت معاينة سجل التدقيق مؤقتًا',
-        description: 'تحقّق من الاتصال ثم أعد محاولة المعاينة للتشغيل ونسخة المشروع نفسيهما.',
-        variant: 'destructive',
-      });
-    } finally {
-      setAuditPreviewPending(false);
-    }
-  }
-
-  async function exportExecutionAudit() {
-    if (!activeExecution?.id || auditExportPending || auditPreviewPending) return;
-    setAuditExportPending(true);
-    try {
-      const { audit, filename } = await fetchExecutionAudit();
-      const blob = new Blob([JSON.stringify(audit, null, 2)], { type: 'application/json' });
-      const url = URL.createObjectURL(blob);
-      const anchor = document.createElement('a');
-      anchor.href = url;
-      anchor.download = filename;
-      document.body.appendChild(anchor);
-      anchor.click();
-      anchor.remove();
-      URL.revokeObjectURL(url);
-      toast({
-        title: 'تم تنزيل سجل التدقيق',
-        description: 'سجل التدقيق المنقّح جاهز للمشاركة.',
-      });
-    } catch (error) {
-      toast({
-        title: 'تعذّر تنزيل سجل التدقيق',
-        description: auditExportFailureMessage(error),
-        variant: 'destructive',
-      });
-    } finally {
-      setAuditExportPending(false);
-    }
-  }
+  const {
+    auditExportPending,
+    auditPreviewPending,
+    auditPreview,
+    auditPreviewError,
+    setAuditPreview,
+    setAuditPreviewError,
+    previewExecutionAudit,
+    exportExecutionAudit,
+  } = useExecutionAudit(activeExecution?.id);
 
   useEffect(() => {
     if (!executionStorageKey || hydratedExecutionScopeRef.current === executionStorageKey) return;
@@ -1065,78 +999,6 @@ export default function AiChat() {
     },
   });
 
-  // PR-06: poll runtime health metrics so provider cards show live state.
-  // Durable model-quality usage is scoped to the project selected in the
-  // sidebar and the operator's provider/window filters. The generated hook
-  // includes these params in its query key, so changing any filter refetches
-  // the corresponding aggregate without exposing raw AI content.
-  const metricsParams = {
-    projectId: selectedProjectId || undefined,
-    provider: metricsProvider === 'all' ? undefined : metricsProvider,
-    days: metricsWindowDays,
-  } as const;
-  const {
-    data: metricsData,
-    isLoading: metricsLoading,
-    isFetching: metricsFetching,
-    isError: metricsError,
-    refetch: refetchMetrics,
-  } = useGetAiMetrics<MetricsResponse>(metricsParams, {
-    query: {
-      queryKey: ['ai-metrics', metricsParams],
-      staleTime: 15_000,
-      refetchInterval: 30_000,
-      enabled: isLoaded,
-    },
-  });
-  const metricsMap = new Map(
-    (metricsData?.metrics ?? []).map((m) => [m.provider, m]),
-  );
-  const activeProviderMetric = activeProvider?.provider
-    ? metricsMap.get(activeProvider.provider)
-    : undefined;
-  const activeProviderSendBlocked = isProviderSendBlocked(activeProviderMetric);
-
-  const exportQualityReport = async () => {
-    setQualityExportPending(true);
-    try {
-      const report = await exportAiMetrics({
-        projectId: selectedProjectId || undefined,
-        provider: metricsProvider === 'all' ? undefined : metricsProvider,
-        days: metricsWindowDays,
-      });
-      const blob = new Blob([`${JSON.stringify(report, null, 2)}\n`], {
-        type: 'application/json;charset=utf-8',
-      });
-      const url = URL.createObjectURL(blob);
-      const anchor = document.createElement('a');
-      const projectPart = (projects.find((project) => project.id === selectedProjectId)?.name ?? 'all-projects')
-        .toLowerCase()
-        .replace(/[^a-z0-9]+/g, '-')
-        .replace(/^-|-$/g, '')
-        .slice(0, 48) || 'all-projects';
-      const providerPart = metricsProvider === 'all' ? 'all-providers' : metricsProvider;
-      anchor.href = url;
-      anchor.download = `model-quality-${projectPart}-${providerPart}-${metricsWindowDays}d.json`;
-      document.body.appendChild(anchor);
-      anchor.click();
-      anchor.remove();
-      window.setTimeout(() => URL.revokeObjectURL(url), 0);
-      toast({
-        title: 'صُدّر تقرير جودة الإجابات',
-        description: 'التقرير التجميعي وفق المرشحات المحددة جاهز للمشاركة.',
-      });
-    } catch (error) {
-      toast({
-        title: 'تعذر تصدير تقرير الجودة',
-        description: describeAiError(error),
-        variant: 'destructive',
-      });
-    } finally {
-      setQualityExportPending(false);
-    }
-  };
-
   // G-06 fix: pending changes are stored with a timestamp so stale entries
   // (from a crashed/closed tab after the server wrote the files but before
   // onSuccess could clear them) expire automatically after 24 hours instead
@@ -1222,6 +1084,23 @@ export default function AiChat() {
     },
   });
   const projects = (rawProjects as Project[] | undefined) ?? [];
+
+  const {
+    metricsProvider,
+    setMetricsProvider,
+    metricsWindowDays,
+    setMetricsWindowDays,
+    qualityExportPending,
+    metricsData,
+    metricsLoading,
+    metricsFetching,
+    metricsError,
+    refetchMetrics,
+    metricsMap,
+    activeProviderMetric,
+    activeProviderSendBlocked,
+    exportQualityReport,
+  } = useProviderMetrics({ selectedProjectId, projects, activeProvider, isLoaded });
 
   // Derive a classified failure record once and reuse it in all three places
   // where error text is shown — status, kind, and message are all in one place.
@@ -4139,86 +4018,14 @@ export default function AiChat() {
     });
   }
 
-  // UI-01: desktop sessions can collapse for a focused chat; mobile uses an
-  // overlay drawer so it never steals the chat column's usable width.
-  const [sidebarOpen, setSidebarOpen] = useState(() =>
-    typeof window === 'undefined' || window.matchMedia('(min-width: 768px)').matches,
-  );
-  const sessionsDrawerRef = useRef<HTMLDivElement>(null);
-  const sessionsToggleRef = useRef<HTMLButtonElement>(null);
-  const sessionsCloseRef = useRef<HTMLButtonElement>(null);
-  const mobileSessionsWasOpenRef = useRef(false);
-  const mobileSessionsOpenerRef = useRef<HTMLElement | null>(null);
-  const isMobileSessionDrawer = typeof window !== 'undefined'
-    && !window.matchMedia('(min-width: 768px)').matches;
-
-  useEffect(() => {
-    if (!sidebarOpen || window.matchMedia('(min-width: 768px)').matches) return;
-    const previousOverflow = document.body.style.overflow;
-    document.body.style.overflow = 'hidden';
-    return () => {
-      document.body.style.overflow = previousOverflow;
-    };
-  }, [sidebarOpen]);
-
-  useEffect(() => {
-    if (sidebarOpen && isMobileSessionDrawer) {
-      if (!mobileSessionsWasOpenRef.current) {
-        mobileSessionsOpenerRef.current = sessionsToggleRef.current
-          ?? (document.activeElement instanceof HTMLElement ? document.activeElement : null);
-        mobileSessionsWasOpenRef.current = true;
-      }
-      sessionsCloseRef.current?.focus();
-
-      const handleDrawerKeyDown = (event: KeyboardEvent) => {
-        if (event.key === 'Escape') {
-          event.preventDefault();
-          setSidebarOpen(false);
-          return;
-        }
-        if (event.key !== 'Tab') return;
-
-        const drawer = sessionsDrawerRef.current;
-        if (!drawer) return;
-        const focusable = Array.from(drawer.querySelectorAll<HTMLElement>(
-          'a[href], button:not(:disabled), input:not(:disabled), select:not(:disabled), textarea:not(:disabled), [tabindex]:not([tabindex="-1"])',
-        )).filter((element) => (
-          element.getAttribute('aria-hidden') !== 'true'
-          && !element.closest('[hidden], [inert]')
-          && window.getComputedStyle(element).visibility !== 'hidden'
-          && window.getComputedStyle(element).display !== 'none'
-        ));
-        const first = focusable[0];
-        const last = focusable[focusable.length - 1];
-        if (!first || !last) {
-          event.preventDefault();
-          drawer.focus();
-          return;
-        }
-        if (!drawer.contains(document.activeElement)) {
-          event.preventDefault();
-          (event.shiftKey ? last : first).focus();
-        } else if (event.shiftKey && document.activeElement === first) {
-          event.preventDefault();
-          last.focus();
-        } else if (!event.shiftKey && document.activeElement === last) {
-          event.preventDefault();
-          first.focus();
-        }
-      };
-
-      document.addEventListener('keydown', handleDrawerKeyDown);
-      return () => document.removeEventListener('keydown', handleDrawerKeyDown);
-    }
-
-    if (!sidebarOpen && mobileSessionsWasOpenRef.current) {
-      mobileSessionsWasOpenRef.current = false;
-      const opener = mobileSessionsOpenerRef.current;
-      mobileSessionsOpenerRef.current = null;
-      if (opener?.isConnected) opener.focus();
-    }
-    return undefined;
-  }, [isMobileSessionDrawer, sidebarOpen]);
+  const {
+    sidebarOpen,
+    setSidebarOpen,
+    sessionsDrawerRef,
+    sessionsToggleRef,
+    sessionsCloseRef,
+    isMobileSessionDrawer,
+  } = useSessionsDrawer();
 
   return (
     <div className="relative flex h-full min-h-0 min-w-0 max-w-full overflow-hidden overscroll-contain">
