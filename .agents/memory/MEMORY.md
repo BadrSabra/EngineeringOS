@@ -155,3 +155,4 @@
 - [Node CLI entrypoint paths](node-cli-entrypoint-paths.md) — normalize relative `argv[1]` against the working directory before comparing it with `import.meta.url`.
 - [Replit dev-banner base path](replit-dev-banner-base-path.md) — the dev-banner injects a root-absolute script URL; only enable it for root-mounted artifacts.
 - [Merge reconciliation volatility](merge-reconciliation-volatility.md) — an active merge can change HEAD/index during a turn; recheck repository state before edits or staging.
+- [Mission strategy shadow isolation](mission-shadow-isolation.md) — recover non-authoritative G7 comparisons from durable applied traces, never from inside the live replan transaction.
