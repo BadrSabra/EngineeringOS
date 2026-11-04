@@ -49,6 +49,7 @@ import { describeStreamError, safeStructuredFailure, structuredTaskStageLabel } 
 import { ADDITIONAL_AI_ACTIONS, AI_ACTIONS, COMMON_AI_ACTIONS, LiveAgentActivity, type LiveAgentToolStep, liveToolLabel } from './ai-chat/live-activity';
 import { createStreamObservationCallbacks, type LiveEvidenceIntegrity, type LiveVerdictScope } from './ai-chat/stream-observations';
 import { createStreamResetCallback } from './ai-chat/stream-recovery';
+import { createStreamIdentityCallbacks } from './ai-chat/stream-lifecycle';
 import {
   isResumableStreamDisconnect,
   projectCompletedAssistantMessage,
@@ -2419,6 +2420,37 @@ export default function AiChat() {
         void qc.invalidateQueries({ queryKey: ['ai-sessions', requestProjectId] });
       },
     });
+    const streamIdentityCallbacks = createStreamIdentityCallbacks({
+      ownerRef: streamOwnerRef,
+      ownsStream,
+      projectId: requestProjectId,
+      linkedTaskId,
+      message: msg.trim(),
+      buildPlanMessageId: options?.buildPlanMessageId,
+      publishExecution: (execution) => {
+        activeExecutionRef.current = execution;
+        setActiveExecution(execution);
+      },
+      persistSessionSelection: (startedSessionId) => {
+        persistAiChatSelection({
+          version: 1,
+          projectId: requestProjectId,
+          kind: 'session',
+          sessionId: startedSessionId,
+        });
+      },
+      setSessionId,
+      upsertSession: (session) => {
+        qc.setQueryData<Session[]>(
+          ['ai-sessions', requestProjectId],
+          (previous = []) => [
+            session,
+            ...previous.filter((item) => item.id !== session.id),
+          ],
+        );
+      },
+      appendActivityEvent: appendLiveActivityEvent,
+    });
 
     void streamSend(
       {
@@ -2432,31 +2464,7 @@ export default function AiChat() {
       },
       {
         ...streamObservationCallbacks,
-        onExecutionStarted: (event) => {
-          if (!ownsStream({ executionId: event.executionId })) return;
-          const owner = streamOwnerRef.current!;
-          owner.executionId = event.executionId;
-          const next = {
-            id: event.executionId,
-            projectId: requestProjectId,
-            ...(owner.sessionId ? { sessionId: owner.sessionId } : {}),
-            ...(linkedTaskId ? { linkedTaskId } : {}),
-            ...(event.resumeToken ? { resumeToken: event.resumeToken } : {}),
-            resumable: event.resumable,
-            proofRequired: event.proofRequired,
-            operationMode: event.operationMode,
-            message: msg.trim(),
-            ...(options?.buildPlanMessageId ? { buildPlanMessageId: options.buildPlanMessageId } : {}),
-          };
-          activeExecutionRef.current = next;
-          setActiveExecution(next);
-          appendLiveActivityEvent({
-            kind: 'stage',
-            label: 'Durable execution reserved',
-            detail: event.executionId.slice(0, 8),
-            status: 'info',
-          });
-        },
+        ...streamIdentityCallbacks,
         onExecutionNodes: (event) => {
           if (!ownsStream({ executionId: event.executionId })) return;
           setExecutionNodes(event.nodes);
@@ -2466,28 +2474,6 @@ export default function AiChat() {
             detail: `${event.nodes.length} node${event.nodes.length === 1 ? '' : 's'}`,
             status: 'info',
           });
-        },
-        onSessionStarted: (event) => {
-          if (!ownsStream({ sessionId: event.sessionId })) return;
-          streamOwnerRef.current!.sessionId = event.sessionId;
-          persistAiChatSelection({
-            version: 1,
-            projectId: requestProjectId,
-            kind: 'session',
-            sessionId: event.sessionId,
-          });
-          setSessionId(event.sessionId);
-          qc.setQueryData<Session[]>(
-            ['ai-sessions', requestProjectId],
-            (previous = []) => [
-              {
-                id: event.sessionId,
-                title: event.title,
-                updatedAt: event.updatedAt,
-              },
-              ...previous.filter((session) => session.id !== event.sessionId),
-            ],
-          );
         },
         onDelta: (delta) => {
           if (generation !== streamGenerationRef.current) return;
