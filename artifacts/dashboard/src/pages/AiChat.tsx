@@ -22,7 +22,7 @@ import { ChatSessionMissionHandoffs } from '@/components/ChatSessionMissionHando
 import { executionCanResume, getExecutionRecoveryView } from '@/lib/execution-recovery-view';
 import { resolveExecutionProofPresentation } from '@/lib/execution-proof-presentation';
 import { createApplyMissionFromProposal, createMissionFromChat, executeMissionAgentAction, fetchMissionProjection, type MissionProjection, shouldPollMissionProjection } from '@/lib/ai-missions';
-import type { AiCodeReview, AiExecutionNodeSnapshot, AiExecutionProjection, AiScanAnalysis, AiStreamBehaviorProgressEvent } from '@workspace/api-client-react';
+import type { AiCodeReview, AiExecutionNodeSnapshot, AiExecutionProjection, AiScanAnalysis } from '@workspace/api-client-react';
 import type { PublicValidationResult } from '@workspace/ai-orchestrator';
 import { isRunProjectScanRequest } from '@workspace/ai-orchestrator/scan-command';
 import { readStoredMissionCorrelationReport } from '@/lib/mission-correlation-report';
@@ -42,10 +42,12 @@ import { usePendingChangesPersistence } from './ai-chat/use-pending-changes-pers
 import { useProviderMetrics } from './ai-chat/use-provider-metrics';
 import { useExecutionAudit } from './ai-chat/use-execution-audit';
 import { useSessionsDrawer } from './ai-chat/use-sessions-drawer';
+import { useLiveActivity } from './ai-chat/use-live-activity';
 import { DeepSeekKeyCard, GeminiKeyCard, GroqKeyCard, OpenRouterKeyCard } from './ai-chat/provider-key-cards';
 import { formatCodeReview, formatScanAnalysis, parseStructuredFailureMetadata, structuredTaskPrompt } from './ai-chat/structured-results';
-import { CHAT_STAGE_LABELS, describeStreamError, safeStructuredFailure, structuredTaskStageLabel } from './ai-chat/stream-errors';
-import { ADDITIONAL_AI_ACTIONS, AI_ACTIONS, COMMON_AI_ACTIONS, LiveAgentActivity, type LiveAgentActivityEvent, type LiveAgentToolStep, PLAN_STAGE_LABELS, liveToolLabel } from './ai-chat/live-activity';
+import { describeStreamError, safeStructuredFailure, structuredTaskStageLabel } from './ai-chat/stream-errors';
+import { ADDITIONAL_AI_ACTIONS, AI_ACTIONS, COMMON_AI_ACTIONS, LiveAgentActivity, type LiveAgentToolStep, liveToolLabel } from './ai-chat/live-activity';
+import { createStreamObservationCallbacks, type LiveEvidenceIntegrity, type LiveVerdictScope } from './ai-chat/stream-observations';
 import { AgentExecutionProofPanel, type AgentExecutionProofStatus, historicalAuditDispositionLabel, historicalAuditStatusLabel } from './ai-chat/execution-proof';
 export { AI_CHAT_SELECTION_STORAGE_PREFIX, parseAiChatRouteTarget, parseAiChatSelection } from './ai-chat/session-state';
 export { BenchmarkMissionControlPanel, auditExportFilename, auditRedactionCategoryLabel, auditExportFailureMessage, historicalAuditStatusLabel, historicalAuditDispositionLabel } from './ai-chat/execution-proof';
@@ -172,9 +174,15 @@ export default function AiChat() {
 
   // Live agent tool-step tracking — updated in real time via SSE callbacks.
   const [agentSteps, setAgentSteps] = useState<LiveAgentToolStep[]>([]);
-  const [agentActivityEvents, setAgentActivityEvents] = useState<LiveAgentActivityEvent[]>([]);
-  const agentActivityEventsRef = useRef<LiveAgentActivityEvent[]>([]);
-  const agentActivityIdRef = useRef(0);
+  const {
+    activityEvents: agentActivityEvents,
+    activityEventsRef: agentActivityEventsRef,
+    behaviorProgress: liveBehaviorProgress,
+    setBehaviorProgress: setLiveBehaviorProgress,
+    clearActivityEvents: clearLiveActivityEvents,
+    appendActivityEvent: appendLiveActivityEvent,
+    completeActiveToolActivity,
+  } = useLiveActivity();
   const [agentIter, setAgentIter] = useState<{ iter: number; max: number } | null>(null);
   const [agentModel, setAgentModel] = useState<string | null>(null);
   const [agentStartedAt, setAgentStartedAt] = useState<number | null>(null);
@@ -212,25 +220,11 @@ export default function AiChat() {
   /** Task #58: live verdict proof scope + scoped finding status from the
    *  decision_trace SSE event — surfaced during the run, cleared on done so the
    *  persisted forensic card takes over. */
-  const [liveVerdictScope, setLiveVerdictScope] = useState<{
-    scope?: 'PRODUCTION' | 'FIXTURE_LOCAL' | 'TEST_LOCAL' | 'SPEC_LOCAL' | 'MIXED' | 'NOT_PROVEN';
-    findingStatus?: 'PRODUCTION_PROVEN' | 'FIXTURE_PROVEN' | 'TEST_PROVEN' | 'MIXED_EVIDENCE' | 'NOT_PROVEN';
-    objectiveVerdict?: 'ANSWER_COMPLETE' | 'ANSWER_PARTIAL' | 'RECOVERY_REQUIRED' | 'OBJECTIVE_BLOCKED';
-  } | null>(null);
+  const [liveVerdictScope, setLiveVerdictScope] = useState<LiveVerdictScope | null>(null);
   const [liveAuditScopeDescription, setLiveAuditScopeDescription] = useState<string | null>(null);
-  const [liveBehaviorProgress, setLiveBehaviorProgress] = useState<AiStreamBehaviorProgressEvent | null>(null);
   /** NI-35: live evidence_integrity (EI-012) reconciliation shown during the
    *  stream; cleared on done so the persisted forensic card takes over. */
-  const [liveEvidenceIntegrity, setLiveEvidenceIntegrity] = useState<{
-    consistent: boolean;
-    violations: string[];
-    objectiveType?: string;
-    requiredEdges: string[];
-    provenEdges: string[];
-    completionGateResult?: string;
-    finalAnswerType?: 'PRODUCTION_REACHABILITY_ANSWER' | 'BEHAVIORAL_ANSWER' | 'NO_ANSWER';
-    objectiveVerdict?: 'ANSWER_COMPLETE' | 'ANSWER_PARTIAL' | 'RECOVERY_REQUIRED' | 'OBJECTIVE_BLOCKED';
-  } | null>(null);
+  const [liveEvidenceIntegrity, setLiveEvidenceIntegrity] = useState<LiveEvidenceIntegrity | null>(null);
 
   // Keep the opaque resume token across tab refreshes. The server stores only
   // its hash, so losing this browser copy would make a paused execution look
@@ -427,13 +421,6 @@ export default function AiChat() {
     executionStorageKey,
   ]);
 
-  function clearLiveActivityEvents() {
-    agentActivityIdRef.current = 0;
-    agentActivityEventsRef.current = [];
-    setAgentActivityEvents([]);
-    setLiveBehaviorProgress(null);
-  }
-
   function resetAutoReconnect() {
     const current = autoReconnectRef.current;
     if (current.timer !== null) {
@@ -494,19 +481,6 @@ export default function AiChat() {
       setPlanBuildPending(null);
       setPlanDecisionPending(null);
     }
-  }
-
-  function appendLiveActivityEvent(
-    event: Omit<LiveAgentActivityEvent, 'id'>,
-  ): number {
-    const id = agentActivityIdRef.current++;
-    const next = [
-      ...agentActivityEventsRef.current,
-      { ...event, id },
-    ].slice(-160);
-    agentActivityEventsRef.current = next;
-    setAgentActivityEvents(() => next);
-    return id;
   }
 
   function resetStructuredTaskState() {
@@ -2399,6 +2373,22 @@ export default function AiChat() {
     setLiveEvidenceIntegrity(null);
     setLiveVerdictScope(null);
 
+    const streamObservationCallbacks = createStreamObservationCallbacks({
+      isCurrent: () => generation === streamGenerationRef.current,
+      setAgentStage,
+      setAgentSteps,
+      setAgentIter,
+      setAgentModel,
+      setAgentDiagnostics,
+      setLiveFixtureLocal,
+      setLiveAuditScopeDescription,
+      setLiveBehaviorProgress,
+      setLiveEvidenceIntegrity,
+      setLiveVerdictScope,
+      appendLiveActivityEvent,
+      completeActiveToolActivity,
+    });
+
     void streamSend(
       {
         projectId: requestProjectId,
@@ -2410,6 +2400,7 @@ export default function AiChat() {
         resumeToken: options?.resumeToken,
       },
       {
+        ...streamObservationCallbacks,
         onExecutionStarted: (event) => {
           if (!ownsStream({ executionId: event.executionId })) return;
           const owner = streamOwnerRef.current!;
@@ -2466,16 +2457,6 @@ export default function AiChat() {
               ...previous.filter((session) => session.id !== event.sessionId),
             ],
           );
-        },
-        onStage: (stage) => {
-          if (generation !== streamGenerationRef.current) return;
-          setAgentStage(CHAT_STAGE_LABELS[stage] ?? stage);
-          appendLiveActivityEvent({
-            kind: 'stage',
-            label: 'Stage',
-            detail: CHAT_STAGE_LABELS[stage] ?? stage,
-            status: 'info',
-          });
         },
         onDelta: (delta) => {
           if (generation !== streamGenerationRef.current) return;
@@ -2536,185 +2517,6 @@ export default function AiChat() {
               });
           }
         },
-        onToolCall: (event) => {
-          if (generation !== streamGenerationRef.current) return;
-          const activityId = appendLiveActivityEvent({
-            kind: 'tool',
-            label: liveToolLabel({ tool: event.tool, args: event.args, done: false, cached: event.cached }),
-            tool: event.tool,
-            status: 'active',
-          });
-          setAgentSteps((prev) => [...prev, {
-            activityId,
-            tool: event.tool,
-            args: event.args,
-            done: false,
-            cached: event.cached,
-          }]);
-        },
-        onToolResult: (event) => {
-          if (generation !== streamGenerationRef.current) return;
-          setAgentSteps((prev) => prev.map((s) =>
-            s.tool === event.tool && !s.done
-              ? { ...s, done: true, source: event.source, cached: event.cached }
-              : s
-          ));
-           const targetIndex = [...agentActivityEventsRef.current].reverse().findIndex(
-              (activity) => activity.kind === 'tool' && activity.status === 'active' &&
-                activity.tool === event.tool,
-           );
-           if (targetIndex >= 0) {
-             const index = agentActivityEventsRef.current.length - 1 - targetIndex;
-             const next = agentActivityEventsRef.current.map((activity, activityIndex) => activityIndex === index
-              ? {
-                  ...activity,
-                  status: 'done' as const,
-                  detail: event.source
-                    ? `${event.cached ? 'cached · ' : ''}${event.source}`
-                    : event.cached ? 'cached' : activity.detail,
-                }
-              : activity);
-             agentActivityEventsRef.current = next;
-             setAgentActivityEvents(next);
-           }
-        },
-        onPlanActivity: (event) => {
-          if (generation !== streamGenerationRef.current) return;
-          const files = event.files?.slice(0, 12);
-          appendLiveActivityEvent({
-            kind: 'plan',
-            label: `${PLAN_STAGE_LABELS[event.stage] ?? 'Plan activity'}${event.stepTitle ? ` · ${event.stepTitle}` : ''}`,
-            detail: event.approvalRequired
-              ? `Approval required before changing: ${files?.join(', ') || 'approved files'}`
-              : event.resultSummary ?? (event.nextStepTitle ? `Next: ${event.nextStepTitle}` : undefined),
-            status: event.status,
-          });
-        },
-        onValidation: (event) => {
-          if (generation !== streamGenerationRef.current) return;
-           const status = event.validation.status;
-           const statusLabel = status === 'passed'
-            ? 'passed'
-             : status === 'blocked'
-              ? 'blocked'
-               : status;
-          setAgentStage(
-            `Validation ${statusLabel} (${event.attempt}/${event.maxAttempts})`,
-          );
-          appendLiveActivityEvent({
-            kind: 'validation',
-             label: status === 'passed'
-              ? 'Validation passed'
-               : status === 'blocked'
-                ? 'Validation blocked'
-                : 'Validation failed',
-            detail: [
-               event.validation.profile,
-               event.repairState.replace(/_/g, ' '),
-              `attempt ${event.attempt}/${event.maxAttempts}`,
-               event.validation.exitCode != null ? `exit ${event.validation.exitCode}` : undefined,
-               event.validation.evidence.screenshotAvailable ? 'screenshot captured' : undefined,
-               event.validation.evidence.consoleErrorCount
-                 ? `${event.validation.evidence.consoleErrorCount} console error${event.validation.evidence.consoleErrorCount === 1 ? '' : 's'}`
-                 : undefined,
-               event.validation.detail,
-            ].filter(Boolean).join(' · '),
-             status: status === 'passed' ? 'done' : 'info',
-          });
-        },
-         onRepairState: (event) => {
-           if (generation !== streamGenerationRef.current) return;
-           const label = event.state === 'VALIDATING'
-             ? 'Repair loop validating'
-             : event.state === 'REPAIRING'
-               ? 'Repair correction allowed'
-               : event.state === 'READY_FOR_REVIEW'
-                 ? 'Ready for review'
-                 : 'Repair blocked';
-           setAgentStage(label);
-           appendLiveActivityEvent({
-             kind: 'repair_state',
-             label,
-             detail: event.detail,
-             status: event.state === 'READY_FOR_REVIEW' ? 'done' : event.state === 'VALIDATING' ? 'active' : 'info',
-           });
-         },
-        onModelCall: (event) => {
-          if (generation !== streamGenerationRef.current) return;
-          setAgentModel('AI model');
-          setAgentStage('Model response received');
-          appendLiveActivityEvent({
-            kind: 'model',
-            label: 'Model response',
-            detail: 'Provider response received',
-            status: 'info',
-          });
-        },
-        onThinking: (event) => {
-          if (generation !== streamGenerationRef.current) return;
-          setAgentIter({ iter: event.iter, max: event.max });
-          appendLiveActivityEvent({
-            kind: 'iteration',
-            label: 'Model iteration',
-            detail: `${event.iter + 1}/${event.max}`,
-            status: 'info',
-          });
-        },
-        onExecutionGuard: (event) => {
-          if (generation !== streamGenerationRef.current) return;
-          setAgentStage(
-            event.code === 'REPEATED_TOOL_CALL'
-              ? `Execution stopped: repeated ${event.tool}`
-              : 'Execution guard stopped the run',
-          );
-          appendLiveActivityEvent({
-            kind: 'guard',
-            label: 'Execution guard',
-            detail: event.code === 'REPEATED_TOOL_CALL'
-              ? `repeated ${event.tool}`
-              : event.code,
-            status: 'info',
-          });
-        },
-        onSynthesisStart: (event) => {
-          if (generation !== streamGenerationRef.current) return;
-          setAgentStage(`Synthesizing from gathered evidence (${event.iter + 1}/${event.max})`);
-          appendLiveActivityEvent({
-            kind: 'synthesis',
-            label: 'Synthesis started',
-            detail: `${event.iter + 1}/${event.max}`,
-            status: 'active',
-          });
-        },
-        onExecutionDiagnostic: (event) => {
-          if (generation !== streamGenerationRef.current) return;
-          const detail = event.details?.[0];
-          const diagnostic = event.code.replace(/^FORENSIC_CONTRACT_/, '').replace(/_/g, ' ').toLowerCase();
-          setAgentDiagnostics((prev) => [...prev, detail ? `${diagnostic}: ${detail}` : diagnostic].slice(-4));
-          setAgentStage(
-            `Execution diagnostic: ${diagnostic}${detail ? ` — ${detail}` : ''}`,
-          );
-          appendLiveActivityEvent({
-             kind: event.code === 'EXECUTION_PHASE_TOOL_REJECTED' ? 'phase_rejection' : 'diagnostic',
-             label: event.code === 'EXECUTION_PHASE_TOOL_REJECTED'
-               ? 'Phase policy blocked action'
-               : 'Execution diagnostic',
-             detail: event.code === 'EXECUTION_PHASE_TOOL_REJECTED' && event.phase && event.tool
-               ? `${event.tool} rejected during ${event.phase} phase`
-               : detail ? `${diagnostic} — ${detail}` : diagnostic,
-            status: 'info',
-          });
-        },
-        onForensicStatus: (event) => {
-          if (generation !== streamGenerationRef.current) return;
-          if (event.isFixtureLocal === true || event.auditScope === 'FIXTURE_LOCAL') {
-            setLiveFixtureLocal(true);
-          }
-          const scopeDescription = (event as typeof event & { scopeDescription?: string }).scopeDescription;
-          if (scopeDescription) {
-            setLiveAuditScopeDescription(scopeDescription);
-          }
-        },
          onIntent: (event) => {
            if (generation !== streamGenerationRef.current) return;
            setOperationMode(event.operationMode);
@@ -2731,101 +2533,6 @@ export default function AiChat() {
                : `Request mode: ${event.intent.replace(/_/g, ' ')}`,
            );
          },
-         onScanStarted: (event) => {
-           if (generation !== streamGenerationRef.current) return;
-           setAgentStage('Project scan queued');
-           appendLiveActivityEvent({
-             kind: 'stage',
-             label: 'Project scan queued',
-             detail: event.jobId.slice(0, 8),
-             status: 'active',
-           });
-         },
-         onScanProgress: (event) => {
-           if (generation !== streamGenerationRef.current) return;
-           const label = event.status === 'running'
-             ? 'Project scan running'
-             : event.status === 'queued'
-               ? 'Project scan queued'
-               : event.status === 'completed'
-                 ? 'Project scan completed'
-                 : 'Project scan failed';
-           setAgentStage(label);
-           appendLiveActivityEvent({
-             kind: 'stage',
-             label,
-             detail: event.error ?? event.jobId.slice(0, 8),
-             status: event.status === 'completed' ? 'done' : event.status === 'failed' ? 'info' : 'active',
-           });
-         },
-         onScanCompleted: (event) => {
-           if (generation !== streamGenerationRef.current) return;
-           const succeeded = event.status === 'completed';
-           setAgentStage(succeeded ? 'Project scan completed' : 'Project scan failed');
-           appendLiveActivityEvent({
-             kind: 'stage',
-             label: succeeded ? 'Project scan completed' : 'Project scan failed',
-             detail: event.error ?? event.jobId.slice(0, 8),
-             status: succeeded ? 'done' : 'info',
-           });
-         },
-         onAuditState: (event) => {
-           if (generation !== streamGenerationRef.current) return;
-           const state = event.sourceCoverage === 'COMPLETE' && event.findingStatus === 'PROVEN'
-             ? 'Evidence verified'
-             : event.sourceCoverage === 'NONE'
-               ? 'Evidence unavailable — audit incomplete'
-               : event.findingStatus === 'NOT_PROVEN' || event.repairReadiness === 'BLOCKED'
-                 ? 'Audit remains incomplete'
-                 : 'Evidence state updated';
-           setAgentStage(state);
-           appendLiveActivityEvent({
-             kind: 'stage',
-             label: 'Audit state',
-             detail: state,
-             status: state === 'Evidence verified' ? 'done' : 'info',
-           });
-         },
-          onBehaviorProgress: (event) => {
-            if (generation !== streamGenerationRef.current) return;
-            setLiveBehaviorProgress(event);
-          },
-         onVerification: (event) => {
-           if (generation !== streamGenerationRef.current) return;
-           const status = event.acceptedEvidenceCount > 0
-             ? 'Evidence verification completed'
-             : 'Verification state recorded — final evidence pending';
-           setAgentStage(status);
-           appendLiveActivityEvent({
-             kind: 'validation',
-             label: 'Response verification',
-             detail: `${status} (${event.acceptedEvidenceCount}/${event.evidenceCount} accepted)`,
-             status: event.acceptedEvidenceCount > 0 ? 'done' : 'info',
-           });
-         },
-        onEvidenceIntegrity: (event) => {
-          if (generation !== streamGenerationRef.current) return;
-          setLiveEvidenceIntegrity({
-            consistent: event.consistent,
-            violations: event.violations,
-            objectiveType: event.objectiveType,
-            requiredEdges: event.requiredEdges ?? [],
-            provenEdges: event.provenEdges ?? [],
-            completionGateResult: event.completionGateResult,
-            finalAnswerType: event.finalAnswerType,
-            objectiveVerdict: event.objectiveVerdict,
-          });
-        },
-        // Task #58: surface the verdict's proof scope live in the audit panel
-        // as soon as the task router decides it — before the report lands.
-        onDecisionTrace: (event) => {
-          if (generation !== streamGenerationRef.current) return;
-          setLiveVerdictScope({
-            scope: event.verdictScope,
-            findingStatus: event.scopedFindingStatus,
-            objectiveVerdict: event.objectiveVerdict,
-          });
-        },
         onDone: (data) => {
           if (!ownsStream({ sessionId: data.sessionId })) return;
            resetAutoReconnect();
