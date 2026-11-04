@@ -105,3 +105,9 @@ Mission-completion boundaries.
 **How to apply:** Lock and validate the bundle and effect rows inside the
 World State materialization transaction; repeat the identity/effect check at D2
 and load the Episode row using the current execution attempt.
+
+Mission-plan `NOT_ACHIEVED` is distinct from Canonical Proof, which proves accepted success. A failure outcome requires the exact non-resumable failed Acceptance to match the terminal Execution, every selected expected effect to reclassify as contradicted from retained fresh direct observations, and the current same-scope World State contradiction to cite each exact after-observation. Terminal failure, a receipt, or a stored `CONTRADICTED` label alone remains `INCONCLUSIVE`; `NOT_ACHIEVED` does not advance the achieved lifecycle suffix.
+
+**Why:** The success-proof contract cannot serve as proof of failure, while absence of success evidence does not establish that the expected effect failed. Requiring the same direct after-observation across effect and World State prevents those two verdicts from being conflated.
+
+**How to apply:** Outcome loaders must reload acceptance, bundle, effect rows, observations, and current World State together; reclassify from the durable effect contract; bind all identities and after-observation IDs; persist the resulting snapshot idempotently; and keep failure outcomes out of the `ACHIEVED` lifecycle path.

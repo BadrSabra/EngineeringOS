@@ -59,4 +59,13 @@ This was groundwork only; the server adapter and database path are described bel
 - After the correction, API-server typecheck passed; the focused evaluator suite passed **15/15**; the isolated Mission Trace integration suite passed **8/8**. The integration fixture verifies an `INCONCLUSIVE` finalization, stable retry identity, and no lifecycle advancement.
 - There is still no successful `ACHIEVED`/`NOT_ACHIEVED` database fixture or automatic reconciliation trigger. The snapshot schema remains unapplied to Development; no live Mission or production data was used.
 
-G6 remains open until achieved and contradicted durable-row fixtures pass, the Development schema diff is reviewed before any migration, and a durable completion trigger invokes this finalizer without replaying side effects.
+G6 remains open until the negative identity/freshness fixtures and tampered-snapshot checks pass, the Development schema is reviewed and verified, and a durable completion trigger invokes this finalizer without replaying side effects.
+
+## Durable-row ACHIEVED and NOT_ACHIEVED fixtures
+
+- The first run with the two new server-writer cases reported **2 failed, 8 passed**. Both failures occurred during fixture setup: `PLAN_APPLIED` was appended before the successor Goal existed, so the lifecycle reference guard rejected the setup before the outcome evaluator ran. This was a test-ordering defect, not a result-classification failure.
+- The fixture now creates the applied-plan Goal before appending `PLAN_APPLIED`, matching the production transition contract.
+- The rerun passed **10/10** on a fresh loopback-only temporary PostgreSQL cluster. It verifies an `ACHIEVED` snapshot from a succeeded Acceptance, complete bound evidence, an observed effect, and fresh direct before/after rows; the finalizer appends exactly `EXECUTED`, `ACCEPTED`, `VERIFIED`, and `EVALUATED_AFTER_EXECUTION`.
+- The `NOT_ACHIEVED` fixture uses a terminal non-resumable failed Acceptance, reclassifies the persisted effect from its expected state and direct observations, materializes same-revision conflicting World State facts, and verifies that the contradiction cites the exact after-observation. The snapshot is recorded as `NOT_ACHIEVED`, and finalization appends no lifecycle suffix.
+- The prior unfinished-execution test still proves `INCONCLUSIVE` plus idempotent replay, and terminal failure without contradiction remains `INCONCLUSIVE`.
+- API-server typecheck passed. These are isolated durable-row fixtures, not a live Mission or Development migration. Current-world mismatch, stale-observation, cross-attempt, and cross-execution database fixtures, tampered-snapshot coverage, Development schema readiness, and automatic reconciliation remain open.

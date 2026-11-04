@@ -4,14 +4,14 @@
 
 - **G6 isolated single-execution evaluator: IMPLEMENTED AND TESTED.**
 - **G6 deterministic plan-wide aggregation contract: IMPLEMENTED AND TESTED.**
-- **G6 server evidence loader and outcome finalizer: PARTIAL; only the fail-closed INCONCLUSIVE path is integration-tested.**
+- **G6 server evidence loader and outcome finalizer: PARTIAL; durable-row fixtures now cover ACHIEVED and NOT_ACHIEVED, but no live reconciliation path is wired or verified.**
 - **G6 additive outcome-snapshot schema: DEFINED; applied only to a disposable test database, not Development.**
 
-Both evaluators are deterministic shared-library functions. The plan-wide aggregator keeps the failed source Goal distinct from successor Goals, binds the dispatch batch and exact Goal/Task/Execution identity sets, requires per-Execution proof references, and requires a separately supplied final World State continuity snapshot. The server-only `evaluateAndPersistMissionPlanOutcome()` reloads and validates the current plan, lifecycle, batch, exact executions/attempts, acceptances, Canonical Proofs, effect bundles, direct before/after observations, and bounded World State within a serializable transaction. Its snapshot ID binds both the evidence-set hash and the complete stable evaluation payload, excluding only `evaluatedAt`; retries preserve the first persisted evaluation. `finalizeMissionPlanOutcome()` re-evaluates and persists in one serializable transaction, then appends the four plan-level lifecycle events only for `ACHIEVED`. `INCONCLUSIVE` and `NOT_ACHIEVED` never advance that lifecycle. The current database integration fixture proves the fail-closed `INCONCLUSIVE` path and idempotent replay, not successful or contradicted terminal outcomes.
+Both evaluators are deterministic shared-library functions. The plan-wide aggregator keeps the failed source Goal distinct from successor Goals, binds the dispatch batch and exact Goal/Task/Execution identity sets, requires per-Execution proof references, and requires a separately supplied final World State continuity snapshot. The server-only `evaluateAndPersistMissionPlanOutcome()` reloads and validates the current plan, lifecycle, batch, exact executions/attempts, acceptances, Canonical Proofs, effect bundles, direct before/after observations, and bounded World State within a serializable transaction. Its snapshot ID binds both the evidence-set hash and the complete stable evaluation payload, excluding only `evaluatedAt`; retries preserve the first persisted evaluation. `finalizeMissionPlanOutcome()` re-evaluates and persists in one serializable transaction, then appends the four plan-level lifecycle events only for `ACHIEVED`. `INCONCLUSIVE` and `NOT_ACHIEVED` never advance that lifecycle. Isolated PostgreSQL fixtures now cover the fail-closed `INCONCLUSIVE` path, idempotent replay, accepted `ACHIEVED`, and `NOT_ACHIEVED` derived from a terminal failed Acceptance plus revalidated contradictory effects and current World State evidence.
 
 ## Forensic integration finding
 
-The persisted-effect adapter now reclassifies stored effect contracts using fresh, complete, direct before/after observations. A contradiction is projected to plan-level `NOT_ACHIEVED` only when a terminal failed Acceptance matches the Execution and a current World State contradiction cites the same after-observation. This path remains unverified end to end: the integration suite still lacks durable-row fixtures for both achieved and contradicted outcomes.
+The persisted-effect adapter now reclassifies stored effect contracts using fresh, complete, direct before/after observations. A contradiction is projected to plan-level `NOT_ACHIEVED` only when a terminal failed Acceptance matches the Execution and a current World State contradiction cites the same after-observation. The integration suite now verifies this binding using durable rows in a disposable PostgreSQL cluster. This establishes the loader/finalizer contract under the fixture, not operation of a live Mission or automatic reconciliation.
 
 The existing single-execution contract is not compatible with the live replan trace shape:
 
@@ -35,7 +35,7 @@ The live path must evaluate the complete applied plan as one bounded aggregate:
 5. Persist an append-only, content-hashed outcome snapshot whose identity includes the full Goal/Execution/attempt/Acceptance/Proof set and evidence revision. A changed evidence set must create a distinct evaluation identity; it must not rewrite an earlier result.
 6. Only a store transaction that reloads the durable evidence and binds the resulting snapshot may append plan-level `EXECUTED`, `ACCEPTED`, `VERIFIED`, and `EVALUATED_AFTER_EXECUTION` references. A dispatch-batch pointer or provider response is never an outcome or proof.
 
-The plan-level finalizer can append a content-addressed `ACHIEVED` suffix and the trace reader validates that suffix against the persisted snapshot, decision, plan revision, dispatch batch, and manifest. However, the `ACHIEVED` writer/suffix path has no successful durable-row fixture, the `NOT_ACHIEVED` evidence path is still intentionally unsupported, and no job/reconciler invokes finalization after plan completion. G6 is therefore still not an operational end-to-end path; the snapshot schema has not been applied to Development.
+The plan-level finalizer can append a content-addressed `ACHIEVED` suffix and the trace reader validates that suffix against the persisted snapshot, decision, plan revision, dispatch batch, and manifest. The successful suffix and `NOT_ACHIEVED` durable-row paths now have isolated fixtures. No job/reconciler invokes finalization after plan completion, however, so G6 is still not an operational end-to-end path; the snapshot schema has not been applied to Development.
 
 ## Outcome policy
 
@@ -46,7 +46,7 @@ The new plan-wide aggregator is stricter at the aggregate boundary:
 - Its input must be constructed from server-reloaded current plan state; its schema validates shape and exact cross-set bindings, not database truth.
 - The source Goal remains the failed Goal in the Decision Trace; successor Goals remain separate IDs under the applied revision.
 - A root dispatch batch maps only roots. It is not accepted as completion for dependent Goals or Tasks.
-- `ACHIEVED` and `NOT_ACHIEVED` require terminal plan scope, exact dispatch mapping, a current verified final World State snapshot, and complete selected expected-effect evidence. The current server loader emits `ACHIEVED` only for fully reloaded accepted proof plus an observed effect bundle and fresh direct observations. The existing `effect-observer` can persist a `CONTRADICTED` bundle, but the G6 loader currently accepts only the `OBSERVED` path and emits no contradicted effect codes or World State binding. It deliberately does not infer `NOT_ACHIEVED` from missing evidence; until that cross-bound adapter is implemented, the outcome remains `INCONCLUSIVE`.
+- `ACHIEVED` and `NOT_ACHIEVED` require terminal plan scope, exact dispatch mapping, a current verified final World State snapshot, and complete selected expected-effect evidence. The server loader emits `ACHIEVED` only for reloaded accepted proof plus an observed effect bundle and fresh direct observations. It emits `NOT_ACHIEVED` only for an explicit non-resumable failed Acceptance matching the Execution, a reclassified `CONTRADICTED` effect bundle, and current World State contradictions citing the exact after-observations. Missing or conflicting evidence remains `INCONCLUSIVE`.
 - The content hash excludes evaluation time but binds the raw input evidence hash, preserving retry idempotency while making changed evidence a distinct snapshot candidate.
 - `INCONCLUSIVE` can retain partial/mismatched rows for diagnosis but can never satisfy terminal success/failure constraints or advance the lifecycle.
 
@@ -58,14 +58,14 @@ Expected effect codes are extracted only from explicit string values or object `
 
 ## Verification
 
-See `docs/engineering-decision-intelligence-g6-test-notes.md`. The focused evaluator suite passes **15/15**, API-server typecheck passes, and the isolated Mission Trace integration file passes **8/8** on a fresh loopback-only temporary PostgreSQL cluster. The test proves that an incomplete/`INCONCLUSIVE` finalization does not advance lifecycle and that a repeated evaluation reuses the same content-addressed snapshot. No `ACHIEVED` or `NOT_ACHIEVED` server-writer path and no live Mission has been evaluated.
+See `docs/engineering-decision-intelligence-g6-test-notes.md`. The focused evaluator suite passes **15/15**, API-server typecheck passes, and the isolated Mission Trace integration file now passes **10/10** on a fresh loopback-only temporary PostgreSQL cluster. The server-writer tests cover idempotent `INCONCLUSIVE`, durable-row `ACHIEVED` with the four lifecycle events, and durable-row `NOT_ACHIEVED` with no lifecycle advancement. No live Mission has been evaluated.
 
 ## Required work before closing G6
 
-1. Add isolated server-writer fixtures for a fully `ACHIEVED` plan, current-world mismatch, stale observations, cross-attempt/cross-execution identities, and actual contradicted evidence. Keep the current fail-closed behavior until each case is bound to durable rows.
+1. Add isolated negative server-writer fixtures for current-world mismatch, stale observations, and cross-attempt/cross-execution identities. Keep mismatched evidence fail-closed as `INCONCLUSIVE`.
 2. Review the additive snapshot-table diff against Development before applying it. Only the disposable test database has received the Drizzle schema so far.
 3. Add a durable reconciliation trigger after all current-plan Goals and Tasks are terminal, with lease ownership and idempotency; it must not rerun already completed side effects.
-4. Add success-path and tampered-snapshot tests for lifecycle suffix creation and read-time binding. A dispatch-batch pointer remains provenance, never completion or proof.
+4. Add tampered-snapshot tests for lifecycle suffix creation and read-time binding. A dispatch-batch pointer remains provenance, never completion or proof.
 5. Add database-level immutability enforcement for outcome snapshots, or explicitly retain and monitor the weaker application-only insert contract.
 6. G7 shadow-only comparisons, followed by G8 recovery/safety tests; G9/G10 remain blocked on measured accepted outcomes and held-out transfer evidence.
 

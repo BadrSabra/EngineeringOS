@@ -1,9 +1,14 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { randomUUID } from "node:crypto";
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import {
+  aiAgentEffectBundlesTable,
+  aiAgentEffectsTable,
+  aiAgentEpisodesTable,
+  aiAgentObservationsTable,
   aiGoalDependenciesTable,
   aiExecutionAcceptancesTable,
+  aiExecutionEvidenceSnapshotsTable,
   aiExecutionsTable,
   aiGoalsTable,
   aiMissionDecisionDispatchBatchesTable,
@@ -16,6 +21,8 @@ import {
   tasksTable,
 } from "@workspace/db";
 import {
+  canonicalJsonHash,
+  classifyExpectedStateChanges,
   evaluateMissionStrategies,
   hashMissionDecisionTrace,
   hashMissionDecisionContext,
@@ -39,7 +46,11 @@ import type {
   StrategyDifference,
   MissionStrategyAlternative,
 } from "@workspace/ai-orchestrator";
-import { getProjectWorldState } from "./agent-state/world-state.js";
+import {
+  getProjectWorldState,
+  materializeWorldStateForProject,
+} from "./agent-state/world-state.js";
+import { buildExecutionProofProjection } from "./execution-proof.js";
 import {
   appendMissionDecisionLifecycleEvent,
   appendMissionDecisionLifecycleEventInTransaction,
@@ -409,6 +420,309 @@ async function createFixture() {
     worldFactHash,
     worldStateRevision: worldState.worldRevision,
     trace: makeTrace({ projectId, missionId, goalId, executionId, acceptanceId }),
+  };
+}
+
+async function createPersistedEffectOutcomeFixture(
+  outcome: "ACHIEVED" | "NOT_ACHIEVED",
+) {
+  const fixture = await createFixture();
+  const sourceRevision = "decision-project-revision";
+  const beforeObservationId = randomUUID();
+  const afterObservationId = randomUUID();
+  const episodeId = randomUUID();
+  const effectId = randomUUID();
+  const bundleId = randomUUID();
+  const goalId = randomUUID();
+  const executionId = randomUUID();
+  const acceptanceId = randomUUID();
+  const evidenceSnapshotId = randomUUID();
+  const planRevision = `auto:${randomUUID()}:${"e".repeat(64)}`;
+  const completedAt = new Date(now.getTime() + 30_000);
+  const achieved = outcome === "ACHIEVED";
+  const executionStatus = achieved ? "completed" : "failed";
+  const acceptanceOutcome = achieved ? "SUCCEEDED" : "FAILED";
+  const terminalStatus = achieved ? "completed" : "failed";
+  const beforeValue = { state: achieved ? "stopped" : "running" };
+  const afterValue = { state: achieved ? "running" : "stopped" };
+  const expectedStateChanges = [{
+    subject: "runtime",
+    predicate: "status",
+    expectedValue: { state: "running" },
+  }];
+  const beforeEvidence = {
+    observationId: beforeObservationId,
+    subject: "runtime",
+    predicate: "status",
+    value: beforeValue,
+    evidenceRefs: [beforeObservationId],
+    provenance: "DIRECT_OBSERVATION" as const,
+    completeness: "complete" as const,
+    freshness: "fresh" as const,
+  };
+  const afterEvidence = {
+    observationId: afterObservationId,
+    subject: "runtime",
+    predicate: "status",
+    value: afterValue,
+    evidenceRefs: [afterObservationId],
+    provenance: "DIRECT_OBSERVATION" as const,
+    completeness: "complete" as const,
+    freshness: "fresh" as const,
+  };
+  const classification = classifyExpectedStateChanges({
+    expectedStateChanges,
+    before: [beforeEvidence],
+    after: [afterEvidence],
+  });
+  const expectedEffectStatus = achieved ? "observed" : "contradicted";
+  if (classification.status !== expectedEffectStatus) {
+    throw new Error(`fixture effect classification mismatch: ${classification.status}`);
+  }
+  const effectContractHash = canonicalJsonHash({
+    expectedStateChanges,
+    observationProfile: "RUNTIME",
+    requiredEvidence: [beforeObservationId, afterObservationId],
+  });
+  const proof = buildExecutionProofProjection({
+    outcome: achieved ? "SUCCEEDED" : "FAILED",
+    evidenceRequired: true,
+    evidenceComplete: true,
+    evidenceSnapshotId,
+    sourceRevision,
+  });
+  const acceptanceProjection = {
+    executionId,
+    sourceRevision,
+    evidenceSnapshotId,
+    evidenceRequired: true,
+    evidenceComplete: true,
+    disposition: { proof },
+  };
+
+  await db.update(aiWorldFactsTable).set({
+    subject: "fixture",
+    predicate: "seed",
+  }).where(eq(aiWorldFactsTable.id, fixture.worldFactId));
+  const initialWorldState = await getProjectWorldState(fixture.projectId);
+  const selectedTrace = makeSelectedTrace({
+    trace: fixture.trace,
+    worldStateRevision: initialWorldState.worldRevision,
+    worldFactId: fixture.worldFactId,
+    worldFactHash: fixture.worldFactHash,
+    expectedEffectCodes: ["runtime.status"],
+    newPlanRevision: planRevision,
+  });
+  await persistMissionDecisionTrace(selectedTrace);
+  await db.update(aiMissionsTable).set({
+    autonomyPolicy: { activePlanRevision: planRevision },
+  }).where(eq(aiMissionsTable.id, fixture.missionId));
+  await db.insert(aiGoalsTable).values({
+    id: goalId,
+    missionId: fixture.missionId,
+    projectId: fixture.projectId,
+    title: `Persisted ${outcome} outcome`,
+    status: achieved ? "completed" : "failed",
+    successCriteria: { planRevision: { hash: planRevision } },
+    evidenceContract: { required: true },
+    outcomeContract: {
+      planRevision: { hash: planRevision },
+      acceptance: acceptanceProjection,
+    },
+    nextAction: { kind: achieved ? "complete" : "diagnose" },
+    createdAt: now,
+    updatedAt: completedAt,
+    completedAt,
+  });
+  await appendMissionDecisionLifecycleEvent({
+    decisionId: selectedTrace.decisionId,
+    stage: "PLAN_APPLIED",
+    referenceId: planRevision,
+    occurredAt: new Date(now.getTime() + 1_000),
+  });
+  await db.insert(aiExecutionsTable).values({
+    id: executionId,
+    projectId: fixture.projectId,
+    goalId,
+    userId: "decision-trace-test-owner",
+    idempotencyKey: `outcome-${outcome}-${executionId}`,
+    resumeTokenHash: "d".repeat(64),
+    request: "{}",
+    checkpoint: "{}",
+    attempt: 1,
+    status: executionStatus,
+    baseRevision: sourceRevision,
+    createdAt: now,
+    updatedAt: completedAt,
+    completedAt,
+  });
+  await db.insert(aiExecutionEvidenceSnapshotsTable).values({
+    id: evidenceSnapshotId,
+    executionId,
+    projectId: fixture.projectId,
+    attempt: 1,
+    sourceRevision,
+    verdict: proof.verdict,
+    complete: 1,
+    readCount: 1,
+    totalBytes: 0,
+    createdAt: completedAt,
+  });
+  await db.insert(aiAgentEpisodesTable).values({
+    id: episodeId,
+    projectId: fixture.projectId,
+    executionId,
+    attempt: 1,
+    missionId: fixture.missionId,
+    goalId,
+    projectRevision: sourceRevision,
+    intentKind: "test_effect_outcome",
+    scope: { kind: "project", projectId: fixture.projectId },
+    workerId: "mission-outcome-test",
+    leaseUntil: new Date(completedAt.getTime() + 60_000),
+    idempotencyKey: `effect-outcome-${executionId}`,
+    createdAt: now,
+    updatedAt: completedAt,
+    closedAt: completedAt,
+  });
+  const observationRevision = achieved
+    ? ["before-project-revision", sourceRevision]
+    : [sourceRevision, sourceRevision];
+  await db.insert(aiAgentObservationsTable).values([
+    {
+      id: beforeObservationId,
+      projectId: fixture.projectId,
+      executionId,
+      episodeId,
+      taskScope: "project",
+      environmentRevisionKey: "unknown",
+      kind: "runtime",
+      provenance: "DIRECT_OBSERVATION",
+      observationRole: "before",
+      sourceType: "mission-outcome-test",
+      sourceId: beforeObservationId,
+      sourceVersion: "1",
+      subject: "runtime",
+      predicate: "status",
+      value: beforeValue,
+      valueHash: canonicalJsonHash(beforeValue),
+      sourceRefs: [],
+      observedAt: now,
+      projectRevision: observationRevision[0]!,
+      environmentRevision: null,
+      completeness: "complete",
+      freshness: "fresh",
+      environmentFreshness: "fresh",
+      evidenceRefs: [beforeObservationId],
+      sequence: 0,
+      createdAt: now,
+    },
+    {
+      id: afterObservationId,
+      projectId: fixture.projectId,
+      executionId,
+      episodeId,
+      taskScope: "project",
+      environmentRevisionKey: "unknown",
+      kind: "runtime",
+      provenance: "DIRECT_OBSERVATION",
+      observationRole: "after",
+      sourceType: "mission-outcome-test",
+      sourceId: afterObservationId,
+      sourceVersion: "1",
+      subject: "runtime",
+      predicate: "status",
+      value: afterValue,
+      valueHash: canonicalJsonHash(afterValue),
+      sourceRefs: [],
+      observedAt: completedAt,
+      projectRevision: observationRevision[1]!,
+      environmentRevision: null,
+      completeness: "complete",
+      freshness: "fresh",
+      environmentFreshness: "fresh",
+      evidenceRefs: [afterObservationId],
+      sequence: 1,
+      createdAt: completedAt,
+    },
+  ]);
+  await materializeWorldStateForProject(fixture.projectId, {
+    observationIds: [beforeObservationId, afterObservationId],
+  });
+  const currentWorldState = await getProjectWorldState(fixture.projectId);
+  await db.insert(aiAgentEffectsTable).values({
+    id: effectId,
+    projectId: fixture.projectId,
+    executionId,
+    episodeId,
+    attempt: 1,
+    actionId: "verify-runtime-status",
+    capabilityId: "runtime.inspect",
+    effectContractHash,
+    beforeObservationIds: [beforeObservationId],
+    afterObservationIds: [afterObservationId],
+    expectedEffects: expectedStateChanges,
+    status: classification.status,
+    missingEffects: classification.missingEffects,
+    contradictionRefs: classification.contradictionRefs,
+    evidenceRefs: classification.evidenceRefs,
+    createdAt: completedAt,
+  });
+  await db.insert(aiAgentEffectBundlesTable).values({
+    id: bundleId,
+    projectId: fixture.projectId,
+    executionId,
+    attempt: 1,
+    episodeId,
+    effectIds: [effectId],
+    effectContractHashes: [effectContractHash],
+    verdict: achieved ? "OBSERVED" : "CONTRADICTED",
+    worldRevision: currentWorldState.worldRevision,
+    createdAt: completedAt,
+  });
+  await db.insert(aiExecutionAcceptancesTable).values({
+    id: acceptanceId,
+    executionId,
+    projectId: fixture.projectId,
+    attempt: 1,
+    finalizationKey: `outcome-finalize-${acceptanceId}`,
+    terminalStatus,
+    outcome: acceptanceOutcome,
+    reasonCode: achieved ? "proof_complete" : "runtime_effect_contradicted",
+    nextActionCode: achieved ? "complete_plan" : "review_failure",
+    evidenceSnapshotId,
+    evidenceRequired: 1,
+    evidenceComplete: 1,
+    resumable: 0,
+    disposition: { proof },
+    sourceRevision,
+    effectBundleId: bundleId,
+    createdAt: completedAt,
+  });
+  const dispatch = await recordMissionDecisionDispatchBatch({
+    decisionId: selectedTrace.decisionId,
+    planRevision,
+    occurredAt: new Date(now.getTime() + 2_000),
+    items: [{
+      position: 0,
+      goalId,
+      executionId,
+      runStatus: "scheduled",
+    }],
+  });
+  if (dispatch.batch.kind !== "inserted") {
+    throw new Error("outcome fixture dispatch batch was not inserted");
+  }
+
+  return {
+    ...fixture,
+    decisionId: selectedTrace.decisionId,
+    goalId,
+    executionId,
+    acceptanceId,
+    bundleId,
+    afterObservationId,
+    expectedEffectStatus,
   };
 }
 
@@ -953,6 +1267,115 @@ describe("Mission decision trace persistence", () => {
       .where(eq(aiMissionDecisionOutcomeSnapshotsTable.decisionId, selectedTrace.decisionId)))
       .toHaveLength(2);
     expect((await getMissionDecisionTrace(selectedTrace.decisionId))?.events
+      .map(({ stage }) => stage).slice(-2))
+      .toEqual(["PLAN_APPLIED", "DISPATCHED"]);
+  });
+
+  it.each(["ACHIEVED", "NOT_ACHIEVED"] as const)(
+    "derives %s from persisted acceptance, effect, and observation rows",
+    async (outcome) => {
+      const fixture = await createPersistedEffectOutcomeFixture(outcome);
+      const currentWorldState = await getProjectWorldState(fixture.projectId);
+      if (outcome === "NOT_ACHIEVED") {
+        expect(currentWorldState.contradictions.some((fact) =>
+          fact.subject === "runtime"
+          && fact.predicate === "status"
+          && fact.sourceObservationIds.includes(fixture.afterObservationId),
+        )).toBe(true);
+      }
+
+      const recorded = await evaluateAndPersistMissionPlanOutcome(
+        fixture.decisionId,
+        new Date(now.getTime() + 60_000),
+      );
+      expect(recorded.kind).toBe("recorded");
+      if (recorded.kind !== "recorded") {
+        throw new Error("expected a persisted outcome snapshot");
+      }
+      expect(recorded.evaluation.outcome).toBe(outcome);
+      expect(recorded.evaluation.executions).toMatchObject([{
+        goalId: fixture.goalId,
+        executionId: fixture.executionId,
+        terminal: true,
+        outcome,
+        acceptanceId: fixture.acceptanceId,
+        effectBundleId: fixture.bundleId,
+        ...(outcome === "ACHIEVED"
+          ? {
+              canonicalProofId: expect.any(String),
+              observedEffectCodes: ["runtime.status"],
+              contradictedEffectCodes: [],
+            }
+          : {
+              canonicalProofId: null,
+              observedEffectCodes: [],
+              contradictedEffectCodes: ["runtime.status"],
+            }),
+      }]);
+
+      const finalized = await finalizeMissionPlanOutcome(
+        fixture.decisionId,
+        new Date(now.getTime() + 120_000),
+      );
+      if (outcome === "ACHIEVED") {
+        expect(finalized.kind).toBe("appended");
+        expect((await getMissionDecisionTrace(fixture.decisionId))?.events
+          .map(({ stage }) => stage).slice(-4))
+          .toEqual(["EXECUTED", "ACCEPTED", "VERIFIED", "EVALUATED_AFTER_EXECUTION"]);
+      } else {
+        expect(finalized.kind).toBe("not_achieved");
+        expect((await getMissionDecisionTrace(fixture.decisionId))?.events
+          .map(({ stage }) => stage).slice(-2))
+          .toEqual(["PLAN_APPLIED", "DISPATCHED"]);
+      }
+    },
+  );
+
+  it.each([
+    ["current World State no longer corroborates the after-observation", "world_state"],
+    ["the after-observation is stale", "stale_observation"],
+    ["the effect belongs to another attempt", "cross_attempt"],
+    ["the effect belongs to another Execution", "cross_execution"],
+  ] as const)("keeps NOT_ACHIEVED inconclusive when %s", async (_label, mutation) => {
+    const fixture = await createPersistedEffectOutcomeFixture("NOT_ACHIEVED");
+    if (mutation === "world_state") {
+      await db.update(aiWorldFactsTable).set({ status: "believed" }).where(and(
+        eq(aiWorldFactsTable.projectId, fixture.projectId),
+        eq(aiWorldFactsTable.subject, "runtime"),
+        eq(aiWorldFactsTable.predicate, "status"),
+      ));
+    } else if (mutation === "stale_observation") {
+      await db.update(aiAgentObservationsTable).set({ freshness: "stale" })
+        .where(eq(aiAgentObservationsTable.id, fixture.afterObservationId));
+    } else if (mutation === "cross_attempt") {
+      await db.update(aiAgentEffectsTable).set({ attempt: 2 })
+        .where(eq(aiAgentEffectsTable.id, fixture.effectId));
+    } else {
+      await db.update(aiAgentEffectsTable).set({ executionId: fixture.executionId })
+        .where(eq(aiAgentEffectsTable.id, fixture.effectId));
+    }
+
+    const result = await evaluateAndPersistMissionPlanOutcome(
+      fixture.decisionId,
+      new Date(now.getTime() + 60_000),
+    );
+    expect(result.kind).toBe("recorded");
+    if (result.kind !== "recorded") throw new Error("expected fail-closed outcome snapshot");
+    expect(result.evaluation.outcome).toBe("INCONCLUSIVE");
+    expect(result.evaluation.executions).toMatchObject([{
+      goalId: fixture.goalId,
+      executionId: fixture.executionId,
+      outcome: "INCONCLUSIVE",
+      canonicalProofId: null,
+      contradictedEffectCodes: [],
+    }]);
+
+    const finalized = await finalizeMissionPlanOutcome(
+      fixture.decisionId,
+      new Date(now.getTime() + 120_000),
+    );
+    expect(finalized.kind).toBe("inconclusive");
+    expect((await getMissionDecisionTrace(fixture.decisionId))?.events
       .map(({ stage }) => stage).slice(-2))
       .toEqual(["PLAN_APPLIED", "DISPATCHED"]);
   });
