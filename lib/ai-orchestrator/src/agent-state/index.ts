@@ -144,6 +144,15 @@ export {
   evaluateMissionStrategies,
   MISSION_STRATEGY_EVALUATOR_VERSION,
 } from "./mission-strategy-evaluation.js";
+export {
+  buildMissionStrategyShadowComparison,
+  MISSION_STRATEGY_SHADOW_POLICY_VERSION,
+  MissionStrategyShadowComparisonSchema,
+} from "./mission-strategy-shadow.js";
+export type {
+  MissionStrategyShadowBuildResult,
+  MissionStrategyShadowComparison,
+} from "./mission-strategy-shadow.js";
 export type {
   MissionStrategyEvaluationResult,
   StrategyPairwiseComparison,

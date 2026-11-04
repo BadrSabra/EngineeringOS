@@ -93,6 +93,7 @@ import {
   reconcileAutomaticMissionReplans,
 } from "./mission-auto-replan.js";
 import { reconcilePendingMissionPlanOutcomes } from "./mission-strategy-plan-outcome-store.js";
+import { reconcilePendingMissionDecisionShadows } from "./mission-strategy-shadow-store.js";
 import { dispatchPendingShadowReplays } from "./shadow-replay.js";
 import { dispatchPendingMissionChatHandoffs } from "./mission-chat-handoffs.js";
 import { retryPendingRuntimeStartTransitions } from "./agent-state/runtime-start-transition.js";
@@ -101,6 +102,8 @@ const ORPHANED_RUNNING_MESSAGE =
   "Job was in progress when the server restarted and could not be resumed.";
 const MISSION_OUTCOME_RECONCILIATION_INTERVAL_MS = 60_000;
 const lastMissionOutcomeReconciliationByScope = new Map<string, number>();
+const MISSION_DECISION_SHADOW_RECONCILIATION_INTERVAL_MS = 60_000;
+const lastMissionDecisionShadowReconciliationByScope = new Map<string, number>();
 
 async function reconcileMissionPlanOutcomesIfDue(projectId?: string): Promise<number> {
   const scopeKey = projectId ?? "*";
@@ -114,6 +117,24 @@ async function reconcileMissionPlanOutcomesIfDue(projectId?: string): Promise<nu
     logger.warn(
       { error, projectId, scope: "job-reconciliation" },
       "Mission plan outcome reconciliation failed; the durable DISPATCHED event remains pending",
+    );
+    return 0;
+  }
+}
+
+async function reconcileMissionDecisionShadowsIfDue(projectId?: string): Promise<number> {
+  if (process.env.MISSION_DECISION_SHADOW_MODE !== "1") return 0;
+  const scopeKey = projectId ?? "*";
+  const now = Date.now();
+  const lastRun = lastMissionDecisionShadowReconciliationByScope.get(scopeKey) ?? 0;
+  if (now - lastRun < MISSION_DECISION_SHADOW_RECONCILIATION_INTERVAL_MS) return 0;
+  lastMissionDecisionShadowReconciliationByScope.set(scopeKey, now);
+  try {
+    return await reconcilePendingMissionDecisionShadows(16, projectId);
+  } catch (error) {
+    logger.warn(
+      { error, projectId, scope: "job-reconciliation" },
+      "Mission decision shadow reconciliation failed; authoritative Mission state is unchanged",
     );
     return 0;
   }
@@ -969,7 +990,7 @@ export async function dispatchPersistedPendingJobs(): Promise<number> {
   let dispatched = 0;
 
   try {
-    const [queuedScans, pendingDiscoveries, recoveryCount, automaticReplanCount, approvedDecisionDispatchCount, missionRecipeCount, missionEventCount, shadowReplayCount, chatMissionHandoffCount, projectBootstrapCount, missionOutcomeCount] = await Promise.all([
+    const [queuedScans, pendingDiscoveries, recoveryCount, automaticReplanCount, approvedDecisionDispatchCount, missionRecipeCount, missionEventCount, shadowReplayCount, chatMissionHandoffCount, projectBootstrapCount, missionOutcomeCount, missionDecisionShadowCount] = await Promise.all([
       db
         .select({ id: scanJobsTable.id, projectId: scanJobsTable.projectId })
         .from(scanJobsTable)
@@ -987,6 +1008,7 @@ export async function dispatchPersistedPendingJobs(): Promise<number> {
       dispatchPendingMissionChatHandoffs(),
       dispatchProjectBootstrapJobs(),
       reconcileMissionPlanOutcomesIfDue(),
+      reconcileMissionDecisionShadowsIfDue(),
     ]);
     dispatched += recoveryCount;
     dispatched += automaticReplanCount;
@@ -997,6 +1019,7 @@ export async function dispatchPersistedPendingJobs(): Promise<number> {
     dispatched += chatMissionHandoffCount;
     dispatched += projectBootstrapCount;
     dispatched += missionOutcomeCount;
+    dispatched += missionDecisionShadowCount;
 
     for (const job of queuedScans) {
       if (
@@ -1144,6 +1167,7 @@ export function startScopedMissionLifecycleDispatcher(
       await dispatchAutonomousTaskRecoveries({ projectId });
       await reconcileAutomaticMissionReplans(16, projectId);
       await reconcileMissionPlanOutcomesIfDue(projectId);
+      await reconcileMissionDecisionShadowsIfDue(projectId);
       await dispatchPendingMissionRecipes(32, projectId);
       await replayPendingMissionEvents(32, projectId);
       await dispatchPendingShadowReplays(32, projectId);

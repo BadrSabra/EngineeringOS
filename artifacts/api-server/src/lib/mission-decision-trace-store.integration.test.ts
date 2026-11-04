@@ -11,9 +11,11 @@ import {
   aiExecutionEvidenceSnapshotsTable,
   aiExecutionsTable,
   aiGoalsTable,
+  aiMissionDecisionEventsTable,
   aiMissionDecisionDispatchBatchesTable,
   aiMissionDecisionDispatchItemsTable,
   aiMissionDecisionOutcomeSnapshotsTable,
+  aiMissionDecisionShadowComparisonsTable,
   aiMissionsTable,
   aiWorldFactsTable,
   db,
@@ -22,6 +24,7 @@ import {
 } from "@workspace/db";
 import {
   canonicalJsonHash,
+  buildMissionStrategyShadowComparison,
   classifyExpectedStateChanges,
   evaluateMissionStrategies,
   hashMissionDecisionTrace,
@@ -31,6 +34,7 @@ import {
   MissionDecisionContextSchema,
   MissionStrategyAlternativeSchema,
   MissionDecisionTraceSchema,
+  MissionStrategyShadowComparisonSchema,
 } from "@workspace/ai-orchestrator";
 const { missionRunner } = vi.hoisted(() => ({
   missionRunner: vi.fn(),
@@ -69,6 +73,7 @@ import {
   finalizeMissionPlanOutcome,
   reconcilePendingMissionPlanOutcomes,
 } from "./mission-strategy-plan-outcome-store.js";
+import { reconcilePendingMissionDecisionShadows } from "./mission-strategy-shadow-store.js";
 
 const projectIds: string[] = [];
 const now = new Date("2026-11-03T10:00:00.000Z");
@@ -1599,5 +1604,192 @@ describe("Mission decision trace persistence", () => {
     expect(await db.select().from(aiMissionDecisionDispatchItemsTable)
       .where(eq(aiMissionDecisionDispatchItemsTable.dispatchBatchId, recorded.batch.dispatchBatchId)))
       .toHaveLength(2);
+  });
+});
+
+describe("Mission strategy shadow reconciliation", () => {
+  it("records an applied-trace comparison idempotently without changing authoritative Mission state", async () => {
+    const fixture = await createFixture();
+    const planRevision = `shadow-applied-${randomUUID()}`;
+    const selectedTrace = makeSelectedTrace({
+      trace: fixture.trace,
+      worldStateRevision: fixture.worldStateRevision,
+      worldFactId: fixture.worldFactId,
+      worldFactHash: fixture.worldFactHash,
+      newPlanRevision: planRevision,
+    });
+    const pureComparison = buildMissionStrategyShadowComparison({
+      trace: selectedTrace,
+      appliedPlanRevision: planRevision,
+    });
+    const retryComparison = buildMissionStrategyShadowComparison({
+      trace: selectedTrace,
+      appliedPlanRevision: planRevision,
+    });
+    expect(pureComparison.status).toBe("computed");
+    expect(retryComparison).toEqual(pureComparison);
+    if (pureComparison.status === "computed") {
+      expect(() => MissionStrategyShadowComparisonSchema.parse({
+        ...pureComparison.comparison,
+        comparisonHash: "f".repeat(64),
+      })).toThrow();
+    }
+    await persistMissionDecisionTrace(selectedTrace);
+    await db.update(aiMissionsTable).set({
+      autonomyPolicy: { activePlanRevision: planRevision },
+    }).where(eq(aiMissionsTable.id, fixture.missionId));
+    await db.insert(aiGoalsTable).values({
+      id: randomUUID(),
+      missionId: fixture.missionId,
+      projectId: fixture.projectId,
+      title: "Applied shadow comparison plan",
+      status: "needs_replan",
+      successCriteria: { planRevision: { hash: planRevision } },
+      evidenceContract: { required: true },
+      outcomeContract: { planRevision: { hash: planRevision } },
+      nextAction: { kind: "replan" },
+      createdAt: now,
+      updatedAt: now,
+    });
+
+    const before = {
+      mission: await db.select().from(aiMissionsTable).where(eq(aiMissionsTable.id, fixture.missionId)),
+      goals: await db.select().from(aiGoalsTable).where(eq(aiGoalsTable.missionId, fixture.missionId)),
+      executions: await db.select().from(aiExecutionsTable).where(eq(aiExecutionsTable.goalId, fixture.goalId)),
+      acceptances: await db.select().from(aiExecutionAcceptancesTable)
+        .where(eq(aiExecutionAcceptancesTable.executionId, fixture.executionId)),
+      tasks: await db.select().from(tasksTable).where(eq(tasksTable.goalId, fixture.goalId)),
+      dispatchBatches: await db.select().from(aiMissionDecisionDispatchBatchesTable)
+        .where(eq(aiMissionDecisionDispatchBatchesTable.decisionId, selectedTrace.decisionId)),
+    };
+
+    expect(await reconcilePendingMissionDecisionShadows(8, fixture.projectId)).toBe(0);
+    await appendMissionDecisionLifecycleEvent({
+      decisionId: selectedTrace.decisionId,
+      stage: "PLAN_APPLIED",
+      referenceId: planRevision,
+      occurredAt: new Date(now.getTime() + 1_000),
+    });
+    const eventsBeforeShadow = await db.select().from(aiMissionDecisionEventsTable)
+      .where(eq(aiMissionDecisionEventsTable.decisionId, selectedTrace.decisionId));
+    const concurrentResults = await Promise.all([
+      reconcilePendingMissionDecisionShadows(8, fixture.projectId),
+      reconcilePendingMissionDecisionShadows(8, fixture.projectId),
+    ]);
+    expect(concurrentResults.reduce((total, current) => total + current, 0)).toBe(1);
+
+    const shadowRows = await db.select().from(aiMissionDecisionShadowComparisonsTable)
+      .where(eq(aiMissionDecisionShadowComparisonsTable.decisionId, selectedTrace.decisionId));
+    expect(shadowRows).toHaveLength(1);
+    expect(shadowRows[0]).toMatchObject({
+      projectId: fixture.projectId,
+      missionId: fixture.missionId,
+      goalId: fixture.goalId,
+      sourceExecutionId: fixture.executionId,
+      sourceAcceptanceId: fixture.acceptanceId,
+      sourceAttempt: 2,
+      appliedPlanRevision: planRevision,
+      contextHash: selectedTrace.contextHash,
+      baselineStrategyId: "safe-read-one",
+      shadowResultKind: "SELECTED",
+      shadowStrategyId: "safe-read-one",
+      comparisonKind: "AGREES",
+    });
+    if (pureComparison.status === "computed") {
+      expect(shadowRows[0]?.comparisonHash).toBe(pureComparison.comparison.comparisonHash);
+    }
+    expect(await reconcilePendingMissionDecisionShadows(8, fixture.projectId)).toBe(0);
+    expect({
+      mission: await db.select().from(aiMissionsTable).where(eq(aiMissionsTable.id, fixture.missionId)),
+      goals: await db.select().from(aiGoalsTable).where(eq(aiGoalsTable.missionId, fixture.missionId)),
+      executions: await db.select().from(aiExecutionsTable).where(eq(aiExecutionsTable.goalId, fixture.goalId)),
+      acceptances: await db.select().from(aiExecutionAcceptancesTable)
+        .where(eq(aiExecutionAcceptancesTable.executionId, fixture.executionId)),
+      tasks: await db.select().from(tasksTable).where(eq(tasksTable.goalId, fixture.goalId)),
+      dispatchBatches: await db.select().from(aiMissionDecisionDispatchBatchesTable)
+        .where(eq(aiMissionDecisionDispatchBatchesTable.decisionId, selectedTrace.decisionId)),
+    }).toEqual(before);
+    expect(await db.select().from(aiMissionDecisionEventsTable)
+      .where(eq(aiMissionDecisionEventsTable.decisionId, selectedTrace.decisionId)))
+      .toEqual(eventsBeforeShadow);
+    expect(missionRunner).not.toHaveBeenCalled();
+  });
+
+  it("refuses to bind a shadow comparison to a different applied plan revision", async () => {
+    const fixture = await createFixture();
+    const selectedTrace = makeSelectedTrace({
+      trace: fixture.trace,
+      worldStateRevision: fixture.worldStateRevision,
+      worldFactId: fixture.worldFactId,
+      worldFactHash: fixture.worldFactHash,
+      newPlanRevision: `shadow-applied-${randomUUID()}`,
+    });
+
+    expect(buildMissionStrategyShadowComparison({
+      trace: selectedTrace,
+      appliedPlanRevision: "stale-or-unrelated-plan",
+    })).toMatchObject({
+      status: "not_eligible",
+      reasonCode: "plan_revision_mismatch",
+    });
+  });
+
+  it("keeps authorization uncertainty and denial as non-selected shadow outcomes", async () => {
+    const fixture = await createFixture();
+    const selectedTrace = makeSelectedTrace({
+      trace: fixture.trace,
+      worldStateRevision: fixture.worldStateRevision,
+      worldFactId: fixture.worldFactId,
+      worldFactHash: fixture.worldFactHash,
+      newPlanRevision: `shadow-applied-${randomUUID()}`,
+    });
+    const rehashAuthorization = (status: "approval_required" | "unknown") => {
+      const context = MissionDecisionContextSchema.parse({
+        ...selectedTrace.context,
+        authorization: {
+          status,
+          policyRef: status === "approval_required" ? "server-policy:test" : null,
+          reasonCodes: [status === "approval_required" ? "approval_required" : "authorization_unknown"],
+        },
+      });
+      const { decisionId: _previousDecisionId, ...traceBody } = selectedTrace;
+      const body = {
+        ...traceBody,
+        context,
+        contextHash: hashMissionDecisionContext(context),
+      };
+      return MissionDecisionTraceSchema.parse({
+        ...body,
+        decisionId: hashMissionDecisionTrace(body),
+      });
+    };
+
+    const blockedTrace = rehashAuthorization("approval_required");
+    const blocked = buildMissionStrategyShadowComparison({
+      trace: blockedTrace,
+      appliedPlanRevision: blockedTrace.newPlanRevision!,
+    });
+    expect(blocked).toMatchObject({
+      status: "computed",
+      comparison: {
+        comparisonKind: "BLOCKED",
+        shadowResult: { kind: "BLOCKED", reasonCode: "approval_required" },
+        shadowStrategyId: null,
+      },
+    });
+
+    const uncertainTrace = rehashAuthorization("unknown");
+    const uncertain = buildMissionStrategyShadowComparison({
+      trace: uncertainTrace,
+      appliedPlanRevision: uncertainTrace.newPlanRevision!,
+    });
+    expect(uncertain).toMatchObject({
+      status: "computed",
+      comparison: {
+        comparisonKind: "NO_DECISION",
+        shadowResult: { kind: "NO_DECISION", reasonCode: "insufficient_evidence" },
+        shadowStrategyId: null,
+      },
+    });
   });
 });
