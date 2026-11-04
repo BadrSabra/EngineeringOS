@@ -48,6 +48,7 @@ import { formatCodeReview, formatScanAnalysis, parseStructuredFailureMetadata, s
 import { describeStreamError, safeStructuredFailure, structuredTaskStageLabel } from './ai-chat/stream-errors';
 import { ADDITIONAL_AI_ACTIONS, AI_ACTIONS, COMMON_AI_ACTIONS, LiveAgentActivity, type LiveAgentToolStep, liveToolLabel } from './ai-chat/live-activity';
 import { createStreamObservationCallbacks, type LiveEvidenceIntegrity, type LiveVerdictScope } from './ai-chat/stream-observations';
+import { createStreamResetCallback } from './ai-chat/stream-recovery';
 import { AgentExecutionProofPanel, type AgentExecutionProofStatus, historicalAuditDispositionLabel, historicalAuditStatusLabel } from './ai-chat/execution-proof';
 export { AI_CHAT_SELECTION_STORAGE_PREFIX, parseAiChatRouteTarget, parseAiChatSelection } from './ai-chat/session-state';
 export { BenchmarkMissionControlPanel, auditExportFilename, auditRedactionCategoryLabel, auditExportFailureMessage, historicalAuditStatusLabel, historicalAuditDispositionLabel } from './ai-chat/execution-proof';
@@ -2388,6 +2389,29 @@ export default function AiChat() {
       appendLiveActivityEvent,
       completeActiveToolActivity,
     });
+    const streamResetCallback = createStreamResetCallback({
+      isCurrent: () => generation === streamGenerationRef.current,
+      getActiveExecution: () => activeExecutionRef.current,
+      refetchStatus: () => refetchActiveExecutionStatus(),
+      clearLiveState: () => {
+        setStreamingContent('');
+        setAgentSteps([]);
+        clearLiveActivityEvents();
+        setAgentStartedAt(null);
+        setAgentElapsedSeconds(0);
+      },
+      setAgentStage,
+      executionCanResume,
+      onTerminalStatus: (status, execution) => {
+        const recoveredSessionId = status.sessionId ?? execution.sessionId;
+        if (recoveredSessionId) {
+          void qc.invalidateQueries({ queryKey: ['ai-messages', recoveredSessionId] });
+          void qc.invalidateQueries({ queryKey: ['ai-pending-proposal', recoveredSessionId] });
+          publishAiChatData(requestProjectId, recoveredSessionId);
+        }
+        void qc.invalidateQueries({ queryKey: ['ai-sessions', requestProjectId] });
+      },
+    });
 
     void streamSend(
       {
@@ -2462,61 +2486,7 @@ export default function AiChat() {
           if (generation !== streamGenerationRef.current) return;
           setStreamingContent((prev) => prev + delta);
         },
-        onStreamReset: () => {
-          if (generation !== streamGenerationRef.current) return;
-          // A server/provider stream_reset is recoverable transport state, not
-          // a terminal execution outcome. Clear only ephemeral live activity;
-          // the durable execution remains the source of truth while the
-          // immediate status refresh determines whether it is still running,
-          // completed, or needs an explicit recovery action.
-          setStreamingContent('');
-          setAgentSteps([]);
-          clearLiveActivityEvents();
-          setAgentStage('Connection interrupted — checking the saved execution…');
-          setAgentStartedAt(null);
-          setAgentElapsedSeconds(0);
-          const execution = activeExecutionRef.current;
-          if (execution) {
-            void refetchActiveExecutionStatus()
-              .then(({ data: status }) => {
-                if (
-                  generation !== streamGenerationRef.current
-                  || !status
-                  || status.id !== execution.id
-                ) return;
-                if (status.status === 'completed' || status.status === 'cancelled') {
-                  const recoveredSessionId = status.sessionId ?? execution.sessionId;
-                  if (recoveredSessionId) {
-                    void qc.invalidateQueries({ queryKey: ['ai-messages', recoveredSessionId] });
-                    void qc.invalidateQueries({ queryKey: ['ai-pending-proposal', recoveredSessionId] });
-                    publishAiChatData(requestProjectId, recoveredSessionId);
-                  }
-                  void qc.invalidateQueries({ queryKey: ['ai-sessions', requestProjectId] });
-                  setAgentStage(
-                    status.status === 'completed'
-                      ? 'Execution completed — restoring the saved result…'
-                      : 'Execution cancelled — restoring the saved result…',
-                  );
-                } else if (
-                  status.status === 'paused'
-                  || status.status === 'failed'
-                ) {
-                  setAgentStage(
-                    executionCanResume(status)
-                      ? 'Execution saved — ready to resume'
-                      : 'Execution ended — start a new run',
-                  );
-                } else {
-                  setAgentStage('Execution is still running on the server…');
-                }
-              })
-              .catch(() => {
-                if (generation === streamGenerationRef.current) {
-                  setAgentStage('Connection interrupted — the server is still being checked…');
-                }
-              });
-          }
-        },
+        onStreamReset: streamResetCallback,
          onIntent: (event) => {
            if (generation !== streamGenerationRef.current) return;
            setOperationMode(event.operationMode);
