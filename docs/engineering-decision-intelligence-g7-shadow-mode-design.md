@@ -2,7 +2,7 @@
 
 ## Status
 
-**Implemented and schema-ready in Development; scheduler disabled.** The additive sidecar table is applied to Development and empty. The scheduler remains off and requires a server-side single-project UUID allowlist in addition to the mode flag. No live shadow cohort has been observed. This is not evidence of strategy improvement.
+**Implemented and schema-ready in Development; scheduler disabled.** The additive sidecar table is applied to Development and empty outside the canary. A one-off synthetic canary was completed on 2026-11-04 and all of its records were removed. The scheduler remains off and requires a server-side single-project UUID allowlist in addition to the mode flag. This is not evidence of strategy improvement.
 
 ## Audit findings
 
@@ -27,7 +27,7 @@ G7 compares a shadow strategy against the decision already made by the existing 
 2. **Run the shadow evaluator without effects.** Re-evaluate only the alternatives and context already frozen in the trace using the deterministic `evaluateMissionStrategies` contract. This intentionally does not regenerate candidates: G7 isolates evaluation comparison; G3 owns generation quality. There are no provider or tool calls.
 3. **Persist in a dedicated sidecar.** `ai_mission_decision_shadow_comparisons` stores a deterministic comparison keyed by decision/context/applied-plan/policy/evaluator identity, the baseline and shadow result, evaluations, pairwise comparisons, and the source identity columns. It does not append to the authoritative event stream.
 4. **Isolate shadow failure and recover it durably.** Shadow work is not in the live replan transaction. The bounded reconciler scans `PLAN_APPLIED` events only after the event reference matches the trace's `newPlanRevision`, then revalidates the immutable trace JSON against the stored identity columns. A unique policy/evaluator key and content hash make concurrent retries idempotent. A shadow failure is logged without failing the Mission replan and does not rerun Mission, Goal, or tools.
-5. **Keep rollout disabled by default and project-scoped.** The durable job reconciler requires `MISSION_DECISION_SHADOW_MODE=1` and a valid server-side `MISSION_DECISION_SHADOW_PROJECT_ID` UUID. Global scheduler ticks process only that one allowlisted project; project-scoped ticks for any other project are rejected. Missing or malformed scope fails closed. Neither variable is set in Development.
+5. **Keep rollout disabled by default and project-scoped.** The durable job reconciler requires `MISSION_DECISION_SHADOW_MODE=1` and a valid server-side `MISSION_DECISION_SHADOW_PROJECT_ID` UUID. Global scheduler ticks process only that one allowlisted project; project-scoped ticks for any other project are rejected. Missing or malformed scope fails closed. The canary set these variables only in its temporary process and did not persist them in Development.
 
 ## Required tests and gate evidence
 
@@ -61,11 +61,20 @@ Run database-backed tests only on a fresh loopback-only disposable PostgreSQL cl
 - `buildMissionStrategyShadowComparison` reparses the immutable trace, requires `SELECTED` plus an exact `newPlanRevision`/`PLAN_APPLIED` binding, then runs the formal evaluator at the trace's fixed `decidedAt`. The comparison ID and payload hash are deterministic.
 - The API reconciler is bounded, project-scopable, cursor-paged, and uses the existing event journal as its source. It never writes Mission, Goal, Task, approval, dispatch, Execution, Acceptance, or proof rows.
 - Verification: API-server typecheck passed; `MISSION_DECISION_TRACE_ONLY=1 pnpm run test:mission-control` passed **19/19** trace-store tests and **1/1** durable-dispatcher test on a fresh loopback-only disposable PostgreSQL cluster. The test runner applied the additive schema only to that temporary database.
-- Development schema: scoped Drizzle apply succeeded and the sidecar remains empty. `MISSION_DECISION_SHADOW_MODE` and `MISSION_DECISION_SHADOW_PROJECT_ID` are absent from Development. The API workflow was restarted, is listening on port `8080`, and completed only the free-model catalog metadata refresh at startup; no shadow reconciliation or model inference ran. No live Mission shadow row exists and no cohort has run. The current outcome is **G7 code and Development schema verified; live shadow observation pending**.
+- Historical pre-canary state: scoped Drizzle apply succeeded and the sidecar was empty. `MISSION_DECISION_SHADOW_MODE` and `MISSION_DECISION_SHADOW_PROJECT_ID` were absent from persistent Development configuration. The API workflow's schema-rollout restart completed without shadow reconciliation or model inference.
 
 ## What G7 will and will not establish
 
-Passing these isolated tests establishes the code path's identity binding, persistence, retry behavior, and non-authority. It does **not** establish live shadow-run quality or that the shadow strategy is better. G7 can report eligible comparisons, agreement/divergence, `NO_DECISION`, and failure counts only after a separately authorized Development canary. G9 needs accepted, proof-bound outcomes and a reproducible baseline before claiming improvement.
+Passing these isolated tests and the synthetic Development canary establishes the code path's identity binding, persistence, retry behavior, and non-authority. It does **not** establish live shadow-run quality for real project work or that the shadow strategy is better. G9 needs accepted, proof-bound outcomes and a reproducible baseline before claiming improvement.
+
+## Development canary preflight — 2026-11-04
+
+- Read-only preflight found 11 existing projects, zero decision traces, zero `PLAN_APPLIED` events, zero revision-matched applied traces, and zero sidecar rows. After explicit approval, the canary created a new synthetic project with its own Mission, Goals, Task, Execution, Acceptance, world fact, trace, and matching applied-plan event. No existing project was used.
+- The canary process set `MISSION_DECISION_SHADOW_MODE=1` and `MISSION_DECISION_SHADOW_PROJECT_ID` to that one synthetic UUID, verified that a different project UUID was rejected, and called the bounded reconciler with batch size 1. The first call recorded one comparison; a second call recorded zero.
+- Verified receipt: project `e9a9d02e-7b99-4749-801a-7ceabcc9d770`; decision `b7c8e4822fa976a316463133c8001fd91104d4caac816c2bae3580c870e97192`; applied plan revision `g7-shadow-applied-7df8305d-8e4e-4c71-be08-b9c9daf2c8aa`; context hash `09aac6c3c1a9dac0fa0517c244bc3974e191bef89f642e9242ec47a29e91f2e0`; `PLAN_APPLIED` event hash `b1461ce8f31c69a1a729b750e22b2684d373a9d4503861f836882cd47ed39a2b`; sidecar comparison hash `2f87414cd5e427f132a0b82b1cd148fa99fe2754476ac68be68ca9062817f7b2`. The outcome was `AGREES` (`safe-read-one` baseline, `SELECTED` shadow).
+- Before/after snapshots of the Mission, both Goals, Task, Execution, Acceptance, decision trace, and lifecycle events were identical across reconciliation. `fetch` was blocked during the reconciliation and no network/provider attempt occurred. The deterministic evaluator was used; no provider or tool was called.
+- Cleanup deleted the synthetic project and cascaded its fixture rows. A Development read-back confirmed the project, Mission, Goals, Task, Execution, Acceptance, world fact, trace, lifecycle events, and sidecar rows for its UUID were all zero; global Development totals returned to 11 projects, zero traces, zero `PLAN_APPLIED` events, and zero sidecar rows. The process-local flags were removed, the parent environment still had neither flag, and no workflow was restarted.
+- The isolated loopback-only `MISSION_DECISION_TRACE_ONLY=1 pnpm run test:mission-control` run also passed: 19 trace-store tests and the focused durable-dispatcher test. The synthetic canary is a controlled path check, not evidence of real-project strategy quality.
 
 ## Implementation decision
 
