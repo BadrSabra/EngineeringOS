@@ -77,3 +77,19 @@ G6 remains open until snapshot payload/hash and World State revision-rebinding c
 - The first cross-attempt and cross-Execution mutations were not valid because the fixture did not return the effect ID; typecheck exposed this. The fixture now returns that ID, and the cross-Execution case explicitly points the effect at the distinct source Execution.
 - The corrected isolated PostgreSQL rerun passed **14/14**. Current-world contradiction removal, stale after-observation, cross-attempt effect identity, and cross-Execution effect identity all remain aggregate `INCONCLUSIVE` and append no lifecycle suffix. The `ACHIEVED` reader rejects a durable snapshot after tampering with the indexed outcome, evaluation plan revision, or World State revision.
 - API-server typecheck passes. These failures were fixture/assertion defects, not a reproduced evaluator gap. The final rerun proves these four fail-closed boundaries only; it does not prove live reconciliation or Development schema readiness.
+
+## First durable reconciliation concurrency run
+
+- The first isolated run with the durable `DISPATCHED`-event reconciler passed **16/16** assertions, including one bounded race between two reconcilers for the same decision.
+- PostgreSQL rejected one concurrent serializable finalization with SQLSTATE `40001`. The other worker persisted the single `ACHIEVED` snapshot and lifecycle suffix; no duplicate snapshot or lifecycle event was written, and no Goal runner or tool was replayed.
+- The reconciler caught the losing transaction and left the durable `DISPATCHED` event eligible for a later sweep, but it did not retry the known serialization conflict in the same pass. This is safe against duplicate effects but can add up to one reconciliation interval of avoidable delay.
+- No Development/Production row was used for this race test; it ran on the runner's isolated loopback PostgreSQL cluster, which was stopped and removed by the harness.
+
+## Bounded conflict retry and dispatcher verification
+
+- The reconciler now retries once, and only for PostgreSQL serialization (`40001`) or deadlock (`40P01`) conflicts. Other errors remain pending for a later durable sweep; the retry never invokes a Goal runner, provider, or tool.
+- The corrected isolated rerun passed **16/16** Mission Trace integration tests with no conflict warning. Its concurrent case still verifies exactly one outcome snapshot and one `ACHIEVED` lifecycle suffix, and its project-scope case leaves another project's decision untouched.
+- The durable-dispatcher integration case passed **1/1** and confirmed queued scans/discoveries still dispatch with outcome reconciliation wired in.
+- API-server typecheck passed. The managed API workflow rebuilt and is listening on port `8080`; startup scheduled the durable dispatcher at its normal 10-second cadence.
+- The additive snapshot table was previously applied through the reviewed scoped Drizzle push to Development `heliumdb` and read-verified with its columns, constraints, keys, and indexes. It remains empty. The integration harness used a separate temporary loopback PostgreSQL cluster and shut it down cleanly.
+- No live Mission was executed, no provider inference was made for these tests, and Production was not inspected or changed.

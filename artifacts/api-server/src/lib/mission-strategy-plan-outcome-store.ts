@@ -5,6 +5,7 @@ import {
   eq,
   inArray,
   ne,
+  sql,
 } from "drizzle-orm";
 import {
   aiAgentEffectBundlesTable,
@@ -49,12 +50,34 @@ import type {
   MissionDecisionTransaction,
 } from "./mission-decision-trace-store.js";
 import { missionOutcomeSnapshotId } from "./mission-outcome-snapshot-identity.js";
+import { logger } from "./logger.js";
 
 const MAX_WORLD_FACTS = 256;
 const MAX_WORLD_OBSERVATIONS = 2_048;
 const TERMINAL_GOAL_STATUSES = new Set(["completed", "failed", "cancelled"]);
 const TERMINAL_TASK_STATUSES = new Set(["completed", "failed", "cancelled"]);
 const TERMINAL_EXECUTION_STATUSES = new Set(["completed", "failed", "cancelled"]);
+const MAX_MISSION_OUTCOME_RECONCILIATION_BATCH = 64;
+const missionOutcomeReconciliationCursors = new Map<
+  string,
+  { occurredAt: Date; decisionId: string } | null
+>();
+let warnedOutcomeSchemaUnavailable = false;
+
+function outcomeTransactionErrorCode(error: unknown): string | null {
+  let current: unknown = error;
+  for (let depth = 0; depth < 4 && current; depth += 1) {
+    const value = record(current);
+    if (typeof value.code === "string") return value.code;
+    current = value.cause;
+  }
+  return null;
+}
+
+function isRetryableOutcomeTransactionConflict(error: unknown): boolean {
+  const code = outcomeTransactionErrorCode(error);
+  return code === "40001" || code === "40P01";
+}
 
 type PlanGoalRow = typeof aiGoalsTable.$inferSelect;
 type PlanTaskRow = typeof tasksTable.$inferSelect;
@@ -912,4 +935,107 @@ export async function finalizeMissionPlanOutcome(
     });
     return { kind: "appended", snapshotId: stored.snapshotId, evaluation: stored.evaluation };
   }, { isolationLevel: "serializable" });
+}
+
+/**
+ * Rebuilds pending plan-outcome work from the durable DISPATCHED event journal.
+ * The journal remains the source of truth; the in-memory cursor only spreads
+ * bounded polling across the ordered rows and may be discarded on restart.
+ * Finalization itself is serializable and idempotent, and never replays tools.
+ */
+export async function reconcilePendingMissionPlanOutcomes(
+  limit = 16,
+  projectId?: string,
+): Promise<number> {
+  const batchSize = Number.isInteger(limit)
+    ? Math.max(1, Math.min(MAX_MISSION_OUTCOME_RECONCILIATION_BATCH, limit))
+    : 16;
+  const cursorKey = projectId ?? "*";
+  const cursor = missionOutcomeReconciliationCursors.get(cursorKey) ?? null;
+  const [schema] = (await db.execute(sql`
+    SELECT to_regclass('public.ai_mission_decision_outcome_snapshots') IS NOT NULL AS available
+  `)).rows as Array<{ available?: unknown }>;
+  if (schema?.available !== true) {
+    if (!warnedOutcomeSchemaUnavailable) {
+      warnedOutcomeSchemaUnavailable = true;
+      logger.warn(
+        { scope: "mission-outcome-reconciliation" },
+        "outcome reconciliation is waiting for the required snapshot schema",
+      );
+    }
+    return 0;
+  }
+  warnedOutcomeSchemaUnavailable = false;
+
+  const cursorCondition = cursor
+    ? sql`AND (event.occurred_at, event.decision_id) > (${cursor.occurredAt}::timestamp, ${cursor.decisionId})`
+    : sql``;
+  const projectCondition = projectId
+    ? sql`AND trace.project_id = ${projectId}`
+    : sql``;
+  const rows = await db.execute(sql`
+    SELECT event.decision_id AS "decisionId", event.occurred_at AS "occurredAt"
+    FROM public.ai_mission_decision_events AS event
+    JOIN public.ai_mission_decision_traces AS trace
+      ON trace.decision_id = event.decision_id
+    WHERE event.stage = 'DISPATCHED'
+      AND trace.result_kind = 'SELECTED'
+      AND NOT EXISTS (
+        SELECT 1
+        FROM public.ai_mission_decision_events AS later
+        WHERE later.decision_id = event.decision_id
+          AND later.sequence > event.sequence
+      )
+      ${projectCondition}
+      ${cursorCondition}
+    ORDER BY event.occurred_at ASC, event.decision_id ASC
+    LIMIT ${batchSize}
+  `);
+  const candidates = rows.rows.flatMap((row) => {
+    const item = record(row);
+    if (typeof item.decisionId !== "string" || !item.decisionId) return [];
+    const occurredAt = item.occurredAt instanceof Date
+      ? item.occurredAt
+      : new Date(String(item.occurredAt));
+    return Number.isFinite(occurredAt.getTime())
+      ? [{ decisionId: item.decisionId, occurredAt }]
+      : [];
+  });
+  if (candidates.length === 0) {
+    missionOutcomeReconciliationCursors.set(cursorKey, null);
+    return 0;
+  }
+
+  const last = candidates.at(-1)!;
+  missionOutcomeReconciliationCursors.set(cursorKey, {
+    occurredAt: last.occurredAt,
+    decisionId: last.decisionId,
+  });
+
+  let reconciled = 0;
+  for (const candidate of candidates) {
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      try {
+        await finalizeMissionPlanOutcome(candidate.decisionId);
+        reconciled += 1;
+        break;
+      } catch (error) {
+        if (attempt === 0 && isRetryableOutcomeTransactionConflict(error)) {
+          await new Promise((resolve) => setTimeout(resolve, 20));
+          continue;
+        }
+        logger.warn(
+          {
+            decisionId: candidate.decisionId,
+            errorCode: outcomeTransactionErrorCode(error) ?? "unknown",
+            retryCount: attempt,
+            scope: "mission-outcome-reconciliation",
+          },
+          "Mission plan outcome reconciliation remains pending in durable dispatch evidence",
+        );
+        break;
+      }
+    }
+  }
+  return reconciled;
 }

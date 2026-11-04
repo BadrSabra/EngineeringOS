@@ -92,12 +92,32 @@ import {
   reconcileApprovedMissionDecisionDispatches,
   reconcileAutomaticMissionReplans,
 } from "./mission-auto-replan.js";
+import { reconcilePendingMissionPlanOutcomes } from "./mission-strategy-plan-outcome-store.js";
 import { dispatchPendingShadowReplays } from "./shadow-replay.js";
 import { dispatchPendingMissionChatHandoffs } from "./mission-chat-handoffs.js";
 import { retryPendingRuntimeStartTransitions } from "./agent-state/runtime-start-transition.js";
 
 const ORPHANED_RUNNING_MESSAGE =
   "Job was in progress when the server restarted and could not be resumed.";
+const MISSION_OUTCOME_RECONCILIATION_INTERVAL_MS = 60_000;
+const lastMissionOutcomeReconciliationByScope = new Map<string, number>();
+
+async function reconcileMissionPlanOutcomesIfDue(projectId?: string): Promise<number> {
+  const scopeKey = projectId ?? "*";
+  const now = Date.now();
+  const lastRun = lastMissionOutcomeReconciliationByScope.get(scopeKey) ?? 0;
+  if (now - lastRun < MISSION_OUTCOME_RECONCILIATION_INTERVAL_MS) return 0;
+  lastMissionOutcomeReconciliationByScope.set(scopeKey, now);
+  try {
+    return await reconcilePendingMissionPlanOutcomes(16, projectId);
+  } catch (error) {
+    logger.warn(
+      { error, projectId, scope: "job-reconciliation" },
+      "Mission plan outcome reconciliation failed; the durable DISPATCHED event remains pending",
+    );
+    return 0;
+  }
+}
 
 /**
  * Legacy delivery journals may complete a recorded promotion only when each
@@ -949,7 +969,7 @@ export async function dispatchPersistedPendingJobs(): Promise<number> {
   let dispatched = 0;
 
   try {
-    const [queuedScans, pendingDiscoveries, recoveryCount, automaticReplanCount, approvedDecisionDispatchCount, missionRecipeCount, missionEventCount, shadowReplayCount, chatMissionHandoffCount, projectBootstrapCount] = await Promise.all([
+    const [queuedScans, pendingDiscoveries, recoveryCount, automaticReplanCount, approvedDecisionDispatchCount, missionRecipeCount, missionEventCount, shadowReplayCount, chatMissionHandoffCount, projectBootstrapCount, missionOutcomeCount] = await Promise.all([
       db
         .select({ id: scanJobsTable.id, projectId: scanJobsTable.projectId })
         .from(scanJobsTable)
@@ -966,6 +986,7 @@ export async function dispatchPersistedPendingJobs(): Promise<number> {
       dispatchPendingShadowReplays(),
       dispatchPendingMissionChatHandoffs(),
       dispatchProjectBootstrapJobs(),
+      reconcileMissionPlanOutcomesIfDue(),
     ]);
     dispatched += recoveryCount;
     dispatched += automaticReplanCount;
@@ -975,6 +996,7 @@ export async function dispatchPersistedPendingJobs(): Promise<number> {
     dispatched += shadowReplayCount;
     dispatched += chatMissionHandoffCount;
     dispatched += projectBootstrapCount;
+    dispatched += missionOutcomeCount;
 
     for (const job of queuedScans) {
       if (
@@ -1015,6 +1037,7 @@ export async function dispatchPersistedPendingJobs(): Promise<number> {
           missionEventCount,
           shadowReplayCount,
           projectBootstrapCount,
+          missionOutcomeCount,
         },
         "durable job dispatcher: persisted pending work dispatched",
       );
@@ -1120,6 +1143,7 @@ export function startScopedMissionLifecycleDispatcher(
     try {
       await dispatchAutonomousTaskRecoveries({ projectId });
       await reconcileAutomaticMissionReplans(16, projectId);
+      await reconcileMissionPlanOutcomesIfDue(projectId);
       await dispatchPendingMissionRecipes(32, projectId);
       await replayPendingMissionEvents(32, projectId);
       await dispatchPendingShadowReplays(32, projectId);

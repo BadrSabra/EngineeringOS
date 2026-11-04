@@ -2,10 +2,10 @@
 
 ## Gate status
 
-- **G5 storage layer: IMPLEMENTED AND VERIFIED on a disposable local PostgreSQL database.**
-**G5 live Mission integration: OPEN.** The current selector, plan mutation, and dispatcher do not yet call this store.
+- **G5 storage layer: IMPLEMENTED AND VERIFIED; additive decision tables are present in Development and covered on disposable PostgreSQL.**
+- **G5 runtime integration: PARTIAL.** Automatic Mission replan now builds and persists the canonical decision trace in its transaction; the durable dispatcher can recover an applied-but-undispatched trace and records the exact root-to-Execution batch after revalidating approval and current plan identity.
 
-G5 is not an overall product-completion claim. The API package currently has a durable trace-storage contract with explicit identity checks and lifecycle events; the runtime does not yet produce and consume those traces.
+G5 is not an overall product-completion claim. The live path is still limited to supported automatic-replan scenarios; a decision trace, approval, or dispatch batch is provenance, not Canonical Proof. The full user-facing Mission journey is not established, and immutability remains an application-level contract.
 
 ## Why a separate trace record is needed
 
@@ -31,8 +31,8 @@ See `docs/engineering-decision-intelligence-g5-test-notes.md` for the failure-fi
 
 ## Explicit non-claims and next work
 
-1. No live Mission selector, plan-update handler, or dispatcher currently emits/consumes these records.
+1. The selector/plan update/dispatcher integration is limited to the supported replan and recovery paths; a live end-to-end Mission journey is not yet verified.
 2. Validation-session, capability, approval, and historical-outcome eligible refs remain unsupported until a server-side resolver exists.
 3. Immutability is enforced by the storage API shape and content-hash verification on reads, not by a DB trigger or restricted role. Direct SQL UPDATE/DELETE remains outside this service's guarantee.
 4. A later Goal replan does not invalidate historical `PLAN_APPLIED` pointers; read-time integrity is the event hash/order, while append-time validation checks the plan was current when applied.
-5. G6 now has a pure deterministic evaluator, but its server-side evidence loader, Canonical Proof revalidation, durable outcome record, and live Mission integration are still open. See `docs/engineering-decision-intelligence-g6-outcome-evaluation.md`.
+5. G6 now has a server-side evidence loader, durable outcome snapshots, and a bounded dispatcher reconciler. It remains partial until a timer-driven controlled Mission is verified and the snapshot immutability policy is decided. See `docs/engineering-decision-intelligence-g6-outcome-evaluation.md`.

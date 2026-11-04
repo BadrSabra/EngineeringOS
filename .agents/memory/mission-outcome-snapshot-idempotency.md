@@ -7,4 +7,8 @@ Outcome snapshot identity must bind the decision, evidence-set hash, and complet
 
 **Why:** A retry with a different clock time is not new evidence. Comparing the whole serialized result made valid idempotent retries conflict, while binding only the evidence hash did not independently bind the stored evaluation projection.
 
-**How to apply:** Preserve the first snapshot on conflict, compare stable payloads, and verify the snapshot ID and decision/plan/dispatch bindings before accepting lifecycle references. Keep `INCONCLUSIVE` and `NOT_ACHIEVED` non-advancing; test both retry identity and the no-advance invariant.
+Outcome reconciliation should scan the durable `DISPATCHED` event journal; an in-memory cursor is only a bounded paging optimization and must be disposable on restart. Since finalization performs no Goal/tool/provider work and commits snapshot plus lifecycle references transactionally, concurrency is protected by the serializable idempotent finalizer rather than a separate worker lease. Retry only known PostgreSQL serialization/deadlock conflicts, with a small bound.
+
+**Why:** A process-local cursor cannot be the work source or survive restart. A database lease would add state without fencing external effects here; the only effects are already atomic durable writes, and an unbounded retry loop could monopolize reconciliation.
+
+**How to apply:** Preserve the first snapshot on conflict, compare stable payloads, and verify the snapshot ID and decision/plan/dispatch bindings before accepting lifecycle references. Keep `INCONCLUSIVE` and `NOT_ACHIEVED` non-advancing; test retry identity, concurrent finalization, project scope, and the no-advance invariant. Never invoke completed Goal work during outcome recovery.

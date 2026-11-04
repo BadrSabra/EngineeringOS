@@ -139,6 +139,16 @@ async function main() {
       ], {
         env: databaseEnv,
       });
+      console.log("Checking that the durable job dispatcher invokes the outcome reconciler without disrupting queued jobs.");
+      await run("pnpm", [
+        "--filter", "@workspace/api-server",
+        "exec", "vitest", "run",
+        "src/lib/job-reconciliation.test.ts",
+        "-t",
+        "dispatches fresh queued scans and pending discoveries from durable rows",
+      ], {
+        env: databaseEnv,
+      });
       return;
     }
 

@@ -67,6 +67,7 @@ import { reconcileApprovedMissionDecisionDispatches } from "./mission-auto-repla
 import {
   evaluateAndPersistMissionPlanOutcome,
   finalizeMissionPlanOutcome,
+  reconcilePendingMissionPlanOutcomes,
 } from "./mission-strategy-plan-outcome-store.js";
 
 const projectIds: string[] = [];
@@ -1417,6 +1418,42 @@ describe("Mission decision trace persistence", () => {
     expect((await getMissionDecisionTrace(fixture.decisionId))?.events
       .map(({ stage }) => stage).slice(-2))
       .toEqual(["PLAN_APPLIED", "DISPATCHED"]);
+  });
+
+  it("recovers dispatched plan evaluation from the durable event journal without replaying Goal work", async () => {
+    const fixture = await createPersistedEffectOutcomeFixture("ACHIEVED");
+    missionRunner.mockClear();
+
+    const [first, concurrent] = await Promise.all([
+      reconcilePendingMissionPlanOutcomes(16, fixture.projectId),
+      reconcilePendingMissionPlanOutcomes(16, fixture.projectId),
+    ]);
+
+    expect(first + concurrent).toBeGreaterThan(0);
+    expect((await getMissionDecisionTrace(fixture.decisionId))?.events
+      .map(({ stage }) => stage).slice(-4))
+      .toEqual(["EXECUTED", "ACCEPTED", "VERIFIED", "EVALUATED_AFTER_EXECUTION"]);
+    expect(await db.select().from(aiMissionDecisionOutcomeSnapshotsTable)
+      .where(eq(aiMissionDecisionOutcomeSnapshotsTable.decisionId, fixture.decisionId)))
+      .toHaveLength(1);
+    expect(missionRunner).not.toHaveBeenCalled();
+  });
+
+  it("keeps the scoped outcome reconciler inside its assigned project", async () => {
+    const scopedFixture = await createPersistedEffectOutcomeFixture("ACHIEVED");
+    const otherFixture = await createPersistedEffectOutcomeFixture("ACHIEVED");
+
+    await expect(reconcilePendingMissionPlanOutcomes(16, scopedFixture.projectId))
+      .resolves.toBeGreaterThan(0);
+    expect((await getMissionDecisionTrace(scopedFixture.decisionId))?.events
+      .map(({ stage }) => stage).slice(-4))
+      .toEqual(["EXECUTED", "ACCEPTED", "VERIFIED", "EVALUATED_AFTER_EXECUTION"]);
+    expect((await getMissionDecisionTrace(otherFixture.decisionId))?.events
+      .map(({ stage }) => stage).slice(-2))
+      .toEqual(["PLAN_APPLIED", "DISPATCHED"]);
+    expect(await db.select().from(aiMissionDecisionOutcomeSnapshotsTable)
+      .where(eq(aiMissionDecisionOutcomeSnapshotsTable.decisionId, otherFixture.decisionId)))
+      .toHaveLength(0);
   });
 
   it("records every applied-plan root in one idempotent dispatch batch", async () => {
