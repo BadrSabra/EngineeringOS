@@ -27,6 +27,7 @@ const PlanOutcomeEvidenceInputSchema = z.object({
     sequence: z.number().int().positive(),
     referenceId: boundedId.nullable(),
   }).strict()).max(10),
+  approvalReference: boundedId.nullable().default(null),
   plan: z.object({
     projectId: boundedId,
     missionId: boundedId,
@@ -185,13 +186,19 @@ export function evaluateMissionStrategyPlanOutcome(
   const approvedEvent = evidence.persistedLifecycle.find(({ stage }) => stage === "APPROVED");
   const selectedEvaluation = trace.evaluations.find(({ strategyId }) =>
     strategyId === selectedStrategyId);
+  const approvalContextMatches = trace.context.approval.status === "required"
+    || (
+      trace.context.approval.status === "granted"
+      && trace.context.approval.approvalRef === evidence.approvalReference
+      && trace.context.approval.approvedStrategyId === selectedStrategyId
+      && trace.context.approval.approvedStrategyHash === selectedEvaluation?.strategyHash
+      && trace.context.approval.approvedPlanRevision === evidence.plan.revision
+    );
   if (needsApproval && (
     !approvedEvent
-    || approvedEvent.referenceId !== trace.context.approval.approvalRef
-    || trace.context.approval.status !== "granted"
-    || trace.context.approval.approvedStrategyId !== selectedStrategyId
-    || trace.context.approval.approvedStrategyHash !== selectedEvaluation?.strategyHash
-    || trace.context.approval.approvedPlanRevision !== evidence.plan.revision
+    || !evidence.approvalReference
+    || approvedEvent.referenceId !== evidence.approvalReference
+    || !approvalContextMatches
   )) {
     limitations.add("approval_binding_mismatch");
   }
@@ -437,6 +444,7 @@ export function evaluateMissionStrategyPlanOutcome(
     selectedStrategyId,
     dispatchBatchId: evidence.dispatchBatch.id,
     dispatchManifestHash: evidence.dispatchBatch.manifestHash,
+    approvalReference: evidence.approvalReference,
     planGoalIds: goalIds,
     requiredGoalIds,
     planTaskIds: taskIds,

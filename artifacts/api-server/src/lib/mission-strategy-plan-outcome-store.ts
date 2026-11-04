@@ -41,6 +41,7 @@ import { loadCanonicalProof } from "./proof-foundation.js";
 import { getProjectWorldState } from "./agent-state/world-state.js";
 import {
   getMissionDecisionTraceInTransaction,
+  getValidatedMissionPlanApprovalReceiptInTransaction,
   getValidatedMissionDecisionDispatchBatchInTransaction,
   eventHash,
   eventIdentity,
@@ -691,6 +692,7 @@ export async function evaluateAndPersistMissionPlanOutcomeInTransaction(
         sequence: event.sequence,
         referenceId: event.referenceId,
       })),
+      approvalReference: await getValidatedMissionPlanApprovalReceiptInTransaction(tx, decisionId),
       plan: {
         projectId: identity.projectId,
         missionId: identity.missionId,

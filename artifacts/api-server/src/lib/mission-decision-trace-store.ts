@@ -377,6 +377,20 @@ async function missionPlanApprovalReceipt(
   return `mission-plan-approvals:${approvalSetHash}`;
 }
 
+export async function getValidatedMissionPlanApprovalReceiptInTransaction(
+  tx: MissionDecisionTransaction,
+  decisionId: string,
+): Promise<string | null> {
+  const [decision] = await tx.select({
+    trace: aiMissionDecisionTracesTable.trace,
+  }).from(aiMissionDecisionTracesTable)
+    .where(eq(aiMissionDecisionTracesTable.decisionId, decisionId))
+    .for("update");
+  if (!decision) return null;
+  const trace = MissionDecisionTraceSchema.parse(decision.trace);
+  return missionPlanApprovalReceipt(tx, trace);
+}
+
 function assertInitialTrace(trace: MissionDecisionTrace): void {
   const expectedStages = trace.result.kind === "SELECTED"
     ? INITIAL_STAGES

@@ -1,7 +1,12 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
+import { createServer } from "node:net";
+import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
+import path from "node:path";
 import { and, eq } from "drizzle-orm";
+import request from "supertest";
+import app from "../app.js";
 import {
   aiAgentEffectBundlesTable,
   aiAgentEffectsTable,
@@ -78,8 +83,18 @@ import {
 import { reconcilePendingMissionDecisionShadows } from "./mission-strategy-shadow-store.js";
 
 const projectIds: string[] = [];
+const syntheticWorkspaceRoots: string[] = [];
 const now = new Date("2026-11-03T10:00:00.000Z");
 const unknownConfidence = { status: "unknown" as const, value: null, calibrationRef: null };
+
+async function createSyntheticWorkspace(projectId: string): Promise<string> {
+  const workspaceBase = path.resolve(process.cwd(), "../../.test-roots");
+  await mkdir(workspaceBase, { recursive: true });
+  const rootPath = await mkdtemp(path.join(workspaceBase, `mission-journey-${projectId.slice(0, 8)}-`));
+  syntheticWorkspaceRoots.push(rootPath);
+  await writeFile(path.join(rootPath, "README.md"), "# Isolated Mission journey\n");
+  return rootPath;
+}
 
 function makeTrace(input: {
   projectId: string;
@@ -323,8 +338,69 @@ function makeSelectedTrace(input: {
   });
 }
 
-async function createFixture() {
-  const projectId = randomUUID();
+function makeApprovalRequiredTrace(
+  trace: MissionDecisionTrace,
+  stepId: string,
+): MissionDecisionTrace {
+  if (trace.result.kind !== "SELECTED") {
+    throw new Error("approval trace fixture requires a selected strategy");
+  }
+  const selected = trace.alternatives.find(
+    ({ strategyId }) => strategyId === trace.result.selectedStrategyId,
+  );
+  if (!selected) throw new Error("approval trace fixture strategy is missing");
+  const selectedStrategy = MissionStrategyAlternativeSchema.parse({
+    ...selected,
+    expectedActions: [{
+      planStepId: stepId,
+      capabilityId: selected.requiredCapabilities[0],
+      effectClass: "reversible_mutation",
+    }],
+    stepDependencies: [{ stepId, dependsOnStepIds: [] }],
+    approvalRequirement: "required",
+  });
+  const context = MissionDecisionContextSchema.parse({
+    ...trace.context,
+    approval: {
+      status: "required",
+      approvalRef: null,
+      approvedStrategyId: null,
+      approvedStrategyHash: null,
+      approvedPlanRevision: null,
+    },
+  });
+  const evaluations = trace.evaluations
+    .filter(({ strategyId }) => strategyId === selectedStrategy.strategyId)
+    .map((evaluation) => ({
+      ...evaluation,
+      strategyHash: hashMissionStrategyAlternative(selectedStrategy),
+    }));
+  const body = {
+    schemaVersion: trace.schemaVersion,
+    context,
+    contextHash: hashMissionDecisionContext(context),
+    alternatives: [selectedStrategy],
+    differences: [],
+    evaluations,
+    result: trace.result,
+    lifecycle: trace.lifecycle,
+    uncertaintyCodes: trace.uncertaintyCodes,
+    decisionConfidence: trace.decisionConfidence,
+    policyVersion: trace.policyVersion,
+    evaluatorVersion: trace.evaluatorVersion,
+    modelProvenance: trace.modelProvenance,
+    priorPlanRevision: trace.priorPlanRevision,
+    newPlanRevision: trace.newPlanRevision,
+    dispatchRef: null,
+    decidedAt: trace.decidedAt,
+  };
+  return MissionDecisionTraceSchema.parse({
+    decisionId: hashMissionDecisionTrace(body),
+    ...body,
+  });
+}
+
+async function createFixture(projectId: string = randomUUID()) {
   const missionId = randomUUID();
   const goalId = randomUUID();
   const executionId = randomUUID();
@@ -335,7 +411,7 @@ async function createFixture() {
 
   await db.insert(projectsTable).values({
     id: projectId,
-    ownerId: "decision-trace-test-owner",
+    ownerId: "test-user",
     name: `decision-trace-${projectId.slice(0, 8)}`,
     rootPath: `/tmp/decision-trace-${projectId}`,
     language: "typescript",
@@ -345,7 +421,7 @@ async function createFixture() {
   await db.insert(aiMissionsTable).values({
     id: missionId,
     projectId,
-    userId: "decision-trace-test-owner",
+    userId: "test-user",
     title: "Test decision trace identity",
     intent: "Keep the trace attached to the exact Goal and revision.",
     status: "needs_replan",
@@ -371,7 +447,7 @@ async function createFixture() {
     id: executionId,
     projectId,
     goalId,
-    userId: "decision-trace-test-owner",
+    userId: "test-user",
     idempotencyKey: `decision-trace-${executionId}`,
     resumeTokenHash: "b".repeat(64),
     request: "{}",
@@ -433,8 +509,10 @@ async function createFixture() {
 
 async function createPersistedEffectOutcomeFixture(
   outcome: "ACHIEVED" | "NOT_ACHIEVED",
+  requireApproval = false,
+  projectId?: string,
 ) {
-  const fixture = await createFixture();
+  const fixture = await createFixture(projectId);
   const sourceRevision = "decision-project-revision";
   const beforeObservationId = randomUUID();
   const afterObservationId = randomUUID();
@@ -515,7 +593,7 @@ async function createPersistedEffectOutcomeFixture(
     predicate: "seed",
   }).where(eq(aiWorldFactsTable.id, fixture.worldFactId));
   const initialWorldState = await getProjectWorldState(fixture.projectId);
-  const selectedTrace = makeSelectedTrace({
+  const selectedTraceBase = makeSelectedTrace({
     trace: fixture.trace,
     worldStateRevision: initialWorldState.worldRevision,
     worldFactId: fixture.worldFactId,
@@ -523,8 +601,31 @@ async function createPersistedEffectOutcomeFixture(
     expectedEffectCodes: ["runtime.status"],
     newPlanRevision: planRevision,
   });
+  const stepId = "runtime-effect";
+  const selectedTrace = requireApproval
+    ? makeApprovalRequiredTrace(selectedTraceBase, stepId)
+    : selectedTraceBase;
+  const planSnapshot = {
+    hash: planRevision,
+    decisionTraceId: selectedTrace.decisionId,
+    strategyDecision: {
+      selectedStrategyId: selectedTrace.result.kind === "SELECTED"
+        ? selectedTrace.result.selectedStrategyId
+        : null,
+    },
+    steps: [{
+      id: stepId,
+      kind: "execute",
+      title: "Verify the synthetic runtime state",
+      dependencies: [],
+      files: ["README.md"],
+      readOnly: !requireApproval,
+      approvalRequired: requireApproval,
+    }],
+  };
   await persistMissionDecisionTrace(selectedTrace);
   await db.update(aiMissionsTable).set({
+    status: requireApproval ? "waiting" : "active",
     autonomyPolicy: { activePlanRevision: planRevision },
   }).where(eq(aiMissionsTable.id, fixture.missionId));
   await db.insert(aiGoalsTable).values({
@@ -532,17 +633,34 @@ async function createPersistedEffectOutcomeFixture(
     missionId: fixture.missionId,
     projectId: fixture.projectId,
     title: `Persisted ${outcome} outcome`,
-    status: achieved ? "completed" : "failed",
-    successCriteria: { planRevision: { hash: planRevision } },
+    status: requireApproval
+      ? "waiting_for_approval"
+      : achieved ? "completed" : "failed",
+    successCriteria: {
+      ...(requireApproval ? { kind: "mission_plan_step", stepId } : {}),
+      planRevision: planSnapshot,
+    },
     evidenceContract: { required: true },
     outcomeContract: {
-      planRevision: { hash: planRevision },
-      acceptance: acceptanceProjection,
+      stepId,
+      planRevision: planSnapshot,
+      ...(requireApproval
+        ? {
+            planApproval: {
+              kind: "mission_plan_step",
+              state: "PENDING",
+              planRevision,
+              stepId,
+            },
+          }
+        : { acceptance: acceptanceProjection }),
     },
-    nextAction: { kind: achieved ? "complete" : "diagnose" },
+    nextAction: requireApproval
+      ? { kind: "wait", reason: "approval", wakeAt: null }
+      : { kind: achieved ? "complete" : "diagnose" },
     createdAt: now,
     updatedAt: completedAt,
-    completedAt,
+    completedAt: requireApproval ? null : completedAt,
   });
   await db.insert(tasksTable).values({
     id: taskId,
@@ -550,25 +668,110 @@ async function createPersistedEffectOutcomeFixture(
     goalId,
     title: `Persisted ${outcome} Mission task`,
     description: "Synthetic terminal task for Mission outcome recovery.",
-    status: achieved ? "completed" : "failed",
+    status: requireApproval ? "pending" : achieved ? "completed" : "failed",
     priority: "p1",
     phase: "execute",
     prompt: "Recover the durable Mission outcome without replaying work.",
     createdAt: now,
     updatedAt: completedAt,
-    completedAt,
+    completedAt: requireApproval ? null : completedAt,
   });
-  await appendMissionDecisionLifecycleEvent({
-    decisionId: selectedTrace.decisionId,
-    stage: "PLAN_APPLIED",
-    referenceId: planRevision,
-    occurredAt: new Date(now.getTime() + 1_000),
-  });
+  if (requireApproval) {
+    await db.update(projectsTable)
+      .set({ rootPath: await createSyntheticWorkspace(fixture.projectId) })
+      .where(eq(projectsTable.id, fixture.projectId));
+    missionRunner.mockImplementation(async ({ goalId: approvedGoalId }: { goalId: string }) => ({
+      status: "scheduled",
+      goalId: approvedGoalId,
+      executionId: `controlled-approval:${approvedGoalId}`,
+    }));
+    const beforeApproval = await getMissionDecisionTrace(selectedTrace.decisionId);
+    expect(beforeApproval?.events.map(({ stage }) => stage))
+      .toEqual(["PROPOSED", "EVALUATED", "SELECTED"]);
+    const projection = await request(app)
+      .get(`/api/ai/missions/${fixture.missionId}/projection`);
+    expect(projection.status).toBe(200);
+    expect(projection.body.engineeringAgent.nextAction).toMatchObject({
+      kind: "APPROVE",
+      target: { kind: "goal", id: goalId },
+    });
+    const approvalBody = {
+      idempotencyKey: randomUUID(),
+      expectedDecision: projection.body.engineeringAgent.nextAction,
+    };
+    const approval = await request(app)
+      .post(`/api/ai/missions/${fixture.missionId}/agent/action`)
+      .send(approvalBody);
+    expect([200, 202]).toContain(approval.status);
+    expect(approval.body).toMatchObject({
+      outcome: expect.stringMatching(/^(accepted|completed)$/),
+      idempotentReplay: false,
+      operation: { goalId, planRevision, status: "scheduled" },
+    });
+    const approvalReplay = await request(app)
+      .post(`/api/ai/missions/${fixture.missionId}/agent/action`)
+      .send(approvalBody);
+    expect(approvalReplay.status).toBe(approval.status);
+    expect(approvalReplay.body.idempotentReplay).toBe(true);
+    expect(missionRunner).toHaveBeenCalledTimes(1);
+    const approvalEventCount = await db.select({ id: aiMissionDecisionEventsTable.id })
+      .from(aiMissionDecisionEventsTable)
+      .where(and(
+        eq(aiMissionDecisionEventsTable.decisionId, selectedTrace.decisionId),
+        eq(aiMissionDecisionEventsTable.stage, "APPROVED"),
+      ));
+    expect(approvalEventCount).toHaveLength(1);
+    expect(approval.body.operation).toMatchObject({
+      goalId,
+      planRevision,
+      status: "scheduled",
+    });
+    const afterApproval = await getMissionDecisionTrace(selectedTrace.decisionId);
+    expect(afterApproval?.events.map(({ stage }) => stage))
+      .toEqual(["PROPOSED", "EVALUATED", "SELECTED", "APPROVED", "PLAN_APPLIED"]);
+    const [approvedGoal] = await db.select({
+      outcomeContract: aiGoalsTable.outcomeContract,
+    }).from(aiGoalsTable).where(eq(aiGoalsTable.id, goalId));
+    const approvedContract = approvedGoal?.outcomeContract as Record<string, unknown> | undefined;
+    expect(approvedContract).toMatchObject({
+      planApproval: {
+        kind: "mission_plan_step",
+        state: "APPROVED",
+        planRevision,
+        stepId,
+        approvedBy: "test-user",
+      },
+    });
+    await db.update(aiGoalsTable).set({
+      status: terminalStatus,
+      outcomeContract: {
+        ...(approvedContract ?? {}),
+        stepId,
+        planRevision: planSnapshot,
+        acceptance: acceptanceProjection,
+      },
+      nextAction: { kind: achieved ? "complete" : "diagnose" },
+      updatedAt: completedAt,
+      completedAt,
+    }).where(eq(aiGoalsTable.id, goalId));
+    await db.update(tasksTable).set({
+      status: terminalStatus,
+      updatedAt: completedAt,
+      completedAt,
+    }).where(eq(tasksTable.id, taskId));
+  } else {
+    await appendMissionDecisionLifecycleEvent({
+      decisionId: selectedTrace.decisionId,
+      stage: "PLAN_APPLIED",
+      referenceId: planRevision,
+      occurredAt: new Date(now.getTime() + 1_000),
+    });
+  }
   await db.insert(aiExecutionsTable).values({
     id: executionId,
     projectId: fixture.projectId,
     goalId,
-    userId: "decision-trace-test-owner",
+    userId: "test-user",
     idempotencyKey: `outcome-${outcome}-${executionId}`,
     resumeTokenHash: "d".repeat(64),
     request: "{}",
@@ -727,7 +930,9 @@ async function createPersistedEffectOutcomeFixture(
   const dispatch = await recordMissionDecisionDispatchBatch({
     decisionId: selectedTrace.decisionId,
     planRevision,
-    occurredAt: new Date(now.getTime() + 2_000),
+    occurredAt: requireApproval
+      ? new Date(Date.now() + 2_000)
+      : new Date(now.getTime() + 2_000),
     items: [{
       position: 0,
       goalId,
@@ -747,6 +952,7 @@ async function createPersistedEffectOutcomeFixture(
     acceptanceId,
     bundleId,
     effectId,
+    evidenceSnapshotId,
     afterObservationId,
     taskId,
     expectedEffectStatus,
@@ -807,7 +1013,7 @@ async function createDispatchedPendingOutcomeFixture() {
     id: executionId,
     projectId: fixture.projectId,
     goalId,
-    userId: "decision-trace-test-owner",
+    userId: "test-user",
     idempotencyKey: `pending-outcome-${executionId}`,
     resumeTokenHash: "e".repeat(64),
     request: "{}",
@@ -905,10 +1111,107 @@ async function runMissionOutcomeRecoveryProcess(input: {
   });
 }
 
+async function reserveMissionApiPort(): Promise<number> {
+  const server = createServer();
+  await new Promise<void>((resolve, reject) => {
+    server.once("error", reject);
+    server.listen(0, "127.0.0.1", resolve);
+  });
+  const address = server.address();
+  if (!address || typeof address === "string") {
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+    throw new Error("Could not reserve a loopback port for the Mission API process.");
+  }
+  await new Promise<void>((resolve, reject) => {
+    server.close((error) => error ? reject(error) : resolve());
+  });
+  return address.port;
+}
+
+async function startScopedMissionApiProcess(projectId: string) {
+  const rawDatabaseUrl = process.env.DATABASE_URL;
+  if (!rawDatabaseUrl) {
+    throw new Error("Mission API restart requires an explicit disposable DATABASE_URL.");
+  }
+  const databaseUrl = new URL(rawDatabaseUrl);
+  if (!["127.0.0.1", "localhost", "::1"].includes(databaseUrl.hostname)) {
+    throw new Error("Mission API restart is restricted to a loopback PostgreSQL database.");
+  }
+  const applicationName = `mission-api-restart-${randomUUID().slice(0, 8)}`;
+  databaseUrl.searchParams.set("application_name", applicationName);
+  const port = await reserveMissionApiPort();
+  const child = spawn(process.execPath, [
+    "--import",
+    "tsx",
+    "-e",
+    'await import("./src/index.ts")',
+  ], {
+    cwd: process.cwd(),
+    env: {
+      DATABASE_URL: databaseUrl.toString(),
+      ENGINEERING_AGENT_WORKER_SCOPE_PROJECT_ID: projectId,
+      ENGINEERING_AGENT_LIFECYCLE_E2E: "1",
+      RUN_CONTROLLED_RELEASE_VALIDATION: "1",
+      DASHBOARD_E2E_TEST_MODE: "fixture",
+      AI_PROVIDER_EGRESS_DISABLED: "1",
+      NODE_ENV: "test",
+      PORT: String(port),
+      PGAPPNAME: applicationName,
+      PATH: process.env.PATH ?? "",
+      HOME: process.env.HOME ?? "",
+    },
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+  let output = "";
+  child.stdout?.setEncoding("utf8");
+  child.stderr?.setEncoding("utf8");
+  child.stdout?.on("data", (chunk: string) => { output += chunk; });
+  child.stderr?.on("data", (chunk: string) => { output += chunk; });
+  const exit = new Promise<{ code: number | null; signal: NodeJS.Signals | null }>((resolve) => {
+    child.once("exit", (code, signal) => resolve({ code, signal }));
+  });
+  const stop = async () => {
+    if (child.exitCode === null && child.signalCode === null) {
+      child.kill("SIGTERM");
+      const forcedStop = new Promise<never>((_resolve, reject) => {
+        const timer = setTimeout(() => {
+          child.kill("SIGKILL");
+          reject(new Error(`Scoped Mission API did not stop cleanly: ${output}`));
+        }, 10_000);
+        timer.unref();
+      });
+      await Promise.race([exit, forcedStop]);
+    } else {
+      await exit;
+    }
+  };
+
+  const deadline = Date.now() + 60_000;
+  while (Date.now() < deadline) {
+    if (child.exitCode !== null || child.signalCode !== null) {
+      throw new Error(
+        `Scoped Mission API exited before readiness: ${JSON.stringify(await exit)}; ${output}`,
+      );
+    }
+    try {
+      const response = await fetch(`http://127.0.0.1:${port}/api/readiness`);
+      if (response.ok) return { child, port, output: () => output, stop };
+    } catch {
+      // Startup is still in progress; the bounded deadline prevents hanging.
+    }
+    await new Promise((resolve) => setTimeout(resolve, 100));
+  }
+  await stop().catch(() => undefined);
+  throw new Error(`Scoped Mission API did not become ready within 60 seconds: ${output}`);
+}
+
 afterEach(async () => {
   missionRunner.mockReset();
   for (const projectId of projectIds.splice(0)) {
     await db.delete(projectsTable).where(eq(projectsTable.id, projectId)).catch(() => undefined);
+  }
+  for (const rootPath of syntheticWorkspaceRoots.splice(0)) {
+    await rm(rootPath, { recursive: true, force: true }).catch(() => undefined);
   }
 });
 
@@ -1046,7 +1349,7 @@ describe("Mission decision trace persistence", () => {
     const firstApproval = await approveMissionGoal({
       missionId: fixture.missionId,
       goalId: goalIds[0]!,
-      userId: "decision-trace-test-owner",
+      userId: "test-user",
     });
     expect(firstApproval.status).toBe("approved");
     expect((await getMissionDecisionTrace(approvalTrace.decisionId))?.events.map(({ stage }) => stage))
@@ -1055,7 +1358,7 @@ describe("Mission decision trace persistence", () => {
     const secondApproval = await approveMissionGoal({
       missionId: fixture.missionId,
       goalId: goalIds[1]!,
-      userId: "decision-trace-test-owner",
+      userId: "test-user",
     });
     expect(secondApproval.status).toBe("approved");
     expect((await getMissionDecisionTrace(approvalTrace.decisionId))?.events.map(({ stage }) => stage))
@@ -1096,7 +1399,7 @@ describe("Mission decision trace persistence", () => {
     expect(recoveryRuns).toHaveLength(goalIds.length);
     expect(new Set(recoveryRuns.map(({ goalId }) => goalId))).toEqual(new Set(goalIds));
     expect(recoveryRuns.every(({ userId, trigger }) =>
-      userId === "decision-trace-test-owner" && trigger === "replan",
+      userId === "test-user" && trigger === "replan",
     )).toBe(true);
 
     const recoveredTrace = await getMissionDecisionTrace(approvalTrace.decisionId);
@@ -1254,7 +1557,7 @@ describe("Mission decision trace persistence", () => {
       id: successorExecutionId,
       projectId: fixture.projectId,
       goalId: successorGoalId,
-      userId: "decision-trace-test-owner",
+      userId: "test-user",
       idempotencyKey: `decision-trace-successor-${successorExecutionId}`,
       resumeTokenHash: "d".repeat(64),
       request: "{}",
@@ -1360,7 +1663,7 @@ describe("Mission decision trace persistence", () => {
       id: executionId,
       projectId: fixture.projectId,
       goalId,
-      userId: "decision-trace-test-owner",
+      userId: "test-user",
       idempotencyKey: `outcome-snapshot-${executionId}`,
       resumeTokenHash: "f".repeat(64),
       request: "{}",
@@ -1730,6 +2033,137 @@ describe("Mission decision trace persistence", () => {
       .toEqual(["EXECUTED", "ACCEPTED", "VERIFIED", "EVALUATED_AFTER_EXECUTION"]);
   }, 60_000);
 
+  it("approves through the Mission API, then accepts bound evidence after an API process restart", async () => {
+    const projectId = randomUUID();
+    const priorApi = await startScopedMissionApiProcess(projectId);
+    await priorApi.stop();
+
+    const fixture = await createPersistedEffectOutcomeFixture("ACHIEVED", true, projectId);
+    missionRunner.mockClear();
+    const beforeTrace = await getMissionDecisionTrace(fixture.decisionId);
+    expect(beforeTrace?.events.map(({ stage }) => stage)).toEqual([
+      "PROPOSED",
+      "EVALUATED",
+      "SELECTED",
+      "APPROVED",
+      "PLAN_APPLIED",
+      "DISPATCHED",
+    ]);
+    expect(beforeTrace?.trace.context.approval).toMatchObject({
+      status: "required",
+      approvalRef: null,
+      approvedStrategyId: null,
+      approvedStrategyHash: null,
+      approvedPlanRevision: null,
+    });
+    expect(beforeTrace?.events.find(({ stage }) => stage === "APPROVED")?.referenceId)
+      .toMatch(/^mission-plan-approvals:[a-f0-9]{64}$/u);
+    const dispatchEvent = beforeTrace?.events.find(({ stage }) => stage === "DISPATCHED");
+    if (!dispatchEvent?.referenceId) throw new Error("approved journey dispatch reference is missing");
+    const dispatch = await getMissionDecisionDispatchBatch(dispatchEvent.referenceId);
+    expect(dispatch?.batch).toMatchObject({
+      projectId,
+      missionId: fixture.missionId,
+      planRevision: beforeTrace?.trace.newPlanRevision,
+      state: "dispatched",
+    });
+    expect(dispatch?.items).toMatchObject([{
+      position: 0,
+      goalId: fixture.goalId,
+      executionId: fixture.executionId,
+      runStatus: "scheduled",
+    }]);
+    expect(await db.select().from(aiMissionDecisionOutcomeSnapshotsTable)
+      .where(eq(aiMissionDecisionOutcomeSnapshotsTable.decisionId, fixture.decisionId)))
+      .toHaveLength(0);
+
+    const restartedApi = await startScopedMissionApiProcess(projectId);
+    try {
+      const deadline = Date.now() + 20_000;
+      let reconciled = false;
+      while (Date.now() < deadline) {
+        const snapshots = await db.select().from(aiMissionDecisionOutcomeSnapshotsTable)
+          .where(eq(aiMissionDecisionOutcomeSnapshotsTable.decisionId, fixture.decisionId));
+        const trace = await getMissionDecisionTrace(fixture.decisionId);
+        if (
+          snapshots.length === 1
+          && trace?.events.some(({ stage }) => stage === "EVALUATED_AFTER_EXECUTION")
+        ) {
+          reconciled = true;
+          break;
+        }
+        if (restartedApi.child.exitCode !== null || restartedApi.child.signalCode !== null) {
+          throw new Error(
+            `Restarted Mission API exited before reconciliation: ${restartedApi.output()}`,
+          );
+        }
+        await new Promise((resolve) => setTimeout(resolve, 100));
+      }
+      expect(reconciled, restartedApi.output()).toBe(true);
+    } finally {
+      await restartedApi.stop();
+    }
+
+    const afterTrace = await getMissionDecisionTrace(fixture.decisionId);
+    const snapshots = await db.select().from(aiMissionDecisionOutcomeSnapshotsTable)
+      .where(eq(aiMissionDecisionOutcomeSnapshotsTable.decisionId, fixture.decisionId));
+    const executions = await db.select().from(aiExecutionsTable)
+      .where(eq(aiExecutionsTable.goalId, fixture.goalId));
+    const tasks = await db.select().from(tasksTable)
+      .where(eq(tasksTable.goalId, fixture.goalId));
+    const [acceptance] = await db.select().from(aiExecutionAcceptancesTable)
+      .where(eq(aiExecutionAcceptancesTable.id, fixture.acceptanceId));
+    const effects = await db.select().from(aiAgentEffectsTable)
+      .where(eq(aiAgentEffectsTable.executionId, fixture.executionId));
+    expect(snapshots).toHaveLength(1);
+    expect(executions.map(({ id }) => id)).toEqual([fixture.executionId]);
+    expect(tasks.map(({ id, status }) => ({ id, status }))).toEqual([{
+      id: fixture.taskId,
+      status: "completed",
+    }]);
+    expect(acceptance).toMatchObject({
+      executionId: fixture.executionId,
+      attempt: 1,
+      outcome: "SUCCEEDED",
+      evidenceSnapshotId: fixture.evidenceSnapshotId,
+      effectBundleId: fixture.bundleId,
+    });
+    expect(effects.map(({ id, status }) => ({ id, status }))).toEqual([{
+      id: fixture.effectId,
+      status: "observed",
+    }]);
+    expect(missionRunner).not.toHaveBeenCalled();
+
+    const evaluation = MissionStrategyPlanOutcomeEvaluationSchema.parse(snapshots[0]?.evaluation);
+    expect(evaluation).toMatchObject({
+      decisionId: fixture.decisionId,
+      projectId,
+      missionId: fixture.missionId,
+      planRevision: beforeTrace?.trace.newPlanRevision,
+      dispatchBatchId: dispatchEvent.referenceId,
+      outcome: "ACHIEVED",
+      planGoalIds: [fixture.goalId],
+      planTaskIds: [fixture.taskId],
+      executions: [{
+        goalId: fixture.goalId,
+        executionId: fixture.executionId,
+        terminal: true,
+        acceptanceId: fixture.acceptanceId,
+        effectBundleId: fixture.bundleId,
+        canonicalProofId: expect.stringMatching(/^[a-f0-9]{64}$/u),
+        canonicalProofHash: expect.stringMatching(/^[a-f0-9]{64}$/u),
+        outcome: "ACHIEVED",
+      }],
+    });
+    expect(evaluation.executions[0]?.canonicalProofHash)
+      .toBe(evaluation.executions[0]?.canonicalProofId);
+    expect(evaluation.executions[0]?.evidenceHash).toMatch(/^[a-f0-9]{64}$/u);
+    expect(evaluation.evidenceSetHash).toMatch(/^[a-f0-9]{64}$/u);
+    expect(afterTrace?.events.map(({ stage }) => stage).slice(-4))
+      .toEqual(["EXECUTED", "ACCEPTED", "VERIFIED", "EVALUATED_AFTER_EXECUTION"]);
+    expect(afterTrace?.trace.context.approval).toEqual(beforeTrace?.trace.context.approval);
+  }, 120_000);
+
   it("keeps dispatched Goal and Task pending after restart when proof is insufficient", async () => {
     const fixture = await createDispatchedPendingOutcomeFixture();
     const beforeTrace = await getMissionDecisionTrace(fixture.decisionId);
@@ -1889,7 +2323,7 @@ describe("Mission decision trace persistence", () => {
       id: executionIds[index]!,
       projectId: fixture.projectId,
       goalId,
-      userId: "decision-trace-test-owner",
+      userId: "test-user",
       idempotencyKey: `dispatch-batch-${executionIds[index]}`,
       resumeTokenHash: "e".repeat(64),
       request: "{}",

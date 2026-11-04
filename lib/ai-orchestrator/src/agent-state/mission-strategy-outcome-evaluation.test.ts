@@ -388,6 +388,7 @@ function makePlanOutcomeEvidence(): MissionStrategyPlanOutcomeEvidence {
       sequence: index + 1,
       referenceId: event.referenceId,
     })),
+    approvalReference: null,
     plan: {
       projectId,
       missionId,
