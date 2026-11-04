@@ -156,3 +156,4 @@
 - [Replit dev-banner base path](replit-dev-banner-base-path.md) — the dev-banner injects a root-absolute script URL; only enable it for root-mounted artifacts.
 - [Merge reconciliation volatility](merge-reconciliation-volatility.md) — an active merge can change HEAD/index during a turn; recheck repository state before edits or staging.
 - [Mission strategy shadow isolation](mission-shadow-isolation.md) — recover non-authoritative G7 comparisons from durable applied traces, never from inside the live replan transaction.
+- [AiChat module split](aichat-module-split.md) — page component stays in AiChat.tsx; cards, parsers, and types live in pages/ai-chat/; keep it mechanical and type-only cyclic.
