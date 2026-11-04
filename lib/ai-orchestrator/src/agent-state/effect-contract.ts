@@ -96,6 +96,7 @@ export type EffectObservationEvidence = Pick<
   | "completeness"
   | "freshness"
 >;
+type ExpectedStateChange = z.infer<typeof ExpectedStateChangeSchema>;
 
 function stateKey(subject: string, predicate: string): string {
   return `${subject}\u0000${predicate}`;

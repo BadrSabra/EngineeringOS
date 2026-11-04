@@ -523,10 +523,10 @@ export async function evaluateAndPersistMissionPlanOutcomeInTransaction(
         : [];
       const failureAcceptance = !!acceptance
         && proof.acceptanceId === acceptance.id
-        && acceptance.outcome.toUpperCase() !== "SUCCEEDED"
+        && ["FAILED", "INCOMPLETE"].includes(acceptance.outcome.toUpperCase())
         && ["failed", "cancelled"].includes(acceptance.terminalStatus)
         && acceptance.terminalStatus === execution.status
-        && acceptance.resumable !== 1
+        && acceptance.resumable === 0
         && acceptance.reasonCode.trim().length > 0;
       const executionContradictedCodes = failureAcceptance
         && effectsContradictedMatch

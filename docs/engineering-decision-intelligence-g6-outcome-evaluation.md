@@ -11,6 +11,8 @@ Both evaluators are deterministic shared-library functions. The plan-wide aggreg
 
 ## Forensic integration finding
 
+The persisted-effect adapter now reclassifies stored effect contracts using fresh, complete, direct before/after observations. A contradiction is projected to plan-level `NOT_ACHIEVED` only when a terminal failed Acceptance matches the Execution and a current World State contradiction cites the same after-observation. This path remains unverified end to end: the integration suite still lacks durable-row fixtures for both achieved and contradicted outcomes.
+
 The existing single-execution contract is not compatible with the live replan trace shape:
 
 - The Decision Trace identity is intentionally bound to the **failed source Goal**. A selected replan materializes successor Goals, and the dispatch batch maps those successor root Goal IDs to persisted Execution IDs.

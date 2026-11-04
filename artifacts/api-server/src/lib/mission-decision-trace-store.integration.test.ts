@@ -166,6 +166,7 @@ function makeStrategy(
   strategyId: string,
   capabilityId: string,
   risk: "low" | "medium",
+  expectedEffectCodes: string[] = [],
 ): MissionStrategyAlternative {
   return MissionStrategyAlternativeSchema.parse({
     schemaVersion: MISSION_DECISION_SCHEMA_VERSION,
@@ -180,7 +181,7 @@ function makeStrategy(
     preconditionCodes: ["source_execution_attempt_bound", "world_state_revision_matches"],
     expectedActions: [{ planStepId: "inspect", capabilityId, effectClass: "read_only" }],
     expectedObservationCodes: ["current_world_state"],
-    expectedEffectCodes: [],
+    expectedEffectCodes,
     validationProcedureCodes: ["canonical_acceptance"],
     stepDependencies: [{ stepId: "inspect", dependsOnStepIds: [] }],
     resourceEstimate: { status: "unknown", value: null, unit: "none", confidence: unknownConfidence, evidenceRefIds: [] },
@@ -200,6 +201,7 @@ function makeSelectedTrace(input: {
   worldStateRevision: string;
   worldFactId: string;
   worldFactHash: string;
+  expectedEffectCodes?: string[];
   newPlanRevision?: string | null;
 }): MissionDecisionTrace {
   const baseContext = input.trace.context;
@@ -251,7 +253,12 @@ function makeSelectedTrace(input: {
     availableCapabilities: ["tool.read.one", "tool.read.two"],
   });
   const alternatives = [
-    makeStrategy("safe-read-one", "tool.read.one", "low"),
+    makeStrategy(
+      "safe-read-one",
+      "tool.read.one",
+      "low",
+      input.expectedEffectCodes ?? [],
+    ),
     makeStrategy("safe-read-two", "tool.read.two", "medium"),
   ];
   const evaluated = evaluateMissionStrategies({
@@ -827,6 +834,7 @@ describe("Mission decision trace persistence", () => {
       worldStateRevision: fixture.worldStateRevision,
       worldFactId: fixture.worldFactId,
       worldFactHash: fixture.worldFactHash,
+      expectedEffectCodes: ["runtime.status"],
       newPlanRevision: planRevision,
     });
     await persistMissionDecisionTrace(selectedTrace);
