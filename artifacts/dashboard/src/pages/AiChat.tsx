@@ -30,7 +30,7 @@ import type { ChatMessage, OperationMode, Project } from './ai-chat/types';
 import { isFallbackDiagnosticQuestion } from './ai-chat/project-query';
 import { type ActiveExecution, BehaviorProgressCard, CandidateValidationProof, type DeliveryLifecycle, type RecoverableDelivery, browserValidationBlockExplanation, inferOperationMode } from './ai-chat/delivery-proof';
 import { type AiTaskResult, type RouteMissionRestoration, type Session, type StreamOwner, aiChatSelectionStorageKey, clearAiChatSelection, getStoredAiChatSessionId, isOpaqueSelectionId, parseAiChatRouteTarget, parseAiChatSelection, persistAiChatSelection, persistedCompletedReadFiles, publishAiChatData, sessionForensicStatusLabel } from './ai-chat/session-state';
-import { type ActiveProvider, type ApprovedPendingChange, type BehavioralVerification, ModelContractQualityCard, type PendingChange, ProviderReadinessNotice, describeAiError, hasValidationProfile, redactInternalDetails } from './ai-chat/provider-runtime';
+import { type ActiveProvider, type ApprovedPendingChange, type BehavioralVerification, ModelContractQualityCard, type PendingChange, ProviderReadinessNotice, describeAiError, hasValidationProfile } from './ai-chat/provider-runtime';
 import { getFinalForensicVerdict, parseToolTrace } from './ai-chat/trace-parsing';
 import { OperationTracePanel } from './ai-chat/execution-trace';
 import { PendingChangesCard, PushCommitCard, VerifiedCommitCard } from './ai-chat/pending-changes';
@@ -49,6 +49,13 @@ import { describeStreamError, safeStructuredFailure, structuredTaskStageLabel } 
 import { ADDITIONAL_AI_ACTIONS, AI_ACTIONS, COMMON_AI_ACTIONS, LiveAgentActivity, type LiveAgentToolStep, liveToolLabel } from './ai-chat/live-activity';
 import { createStreamObservationCallbacks, type LiveEvidenceIntegrity, type LiveVerdictScope } from './ai-chat/stream-observations';
 import { createStreamResetCallback } from './ai-chat/stream-recovery';
+import {
+  isResumableStreamDisconnect,
+  projectCompletedAssistantMessage,
+  projectFailedAssistantMessage,
+  projectRetainedCompletedExecution,
+  projectRetainedFailedExecution,
+} from './ai-chat/stream-terminal';
 import { AgentExecutionProofPanel, type AgentExecutionProofStatus, historicalAuditDispositionLabel, historicalAuditStatusLabel } from './ai-chat/execution-proof';
 export { AI_CHAT_SELECTION_STORAGE_PREFIX, parseAiChatRouteTarget, parseAiChatSelection } from './ai-chat/session-state';
 export { BenchmarkMissionControlPanel, auditExportFilename, auditRedactionCategoryLabel, auditExportFailureMessage, historicalAuditStatusLabel, historicalAuditDispositionLabel } from './ai-chat/execution-proof';
@@ -2533,24 +2540,9 @@ export default function AiChat() {
           setLiveVerdictScope(null);
           setLiveBehaviorProgress(null);
           setLiveAuditScopeDescription(null);
-          const terminalProjection = data.terminalProjection;
-           const executionProjection = data.projection ?? data.message.projection;
           const currentExecution = activeExecutionRef.current;
-          const retainTerminalExecution = Boolean(
-            currentExecution
-            && currentExecution.proofRequired !== false
-            && (
-              terminalProjection?.resumable === true
-              || currentExecution.proofRequired === true
-            ),
-          );
-          if (retainTerminalExecution && currentExecution) {
-             const retainedExecution = {
-               ...currentExecution,
-               sessionId: data.sessionId,
-               ...(terminalProjection ? { terminalProjection } : {}),
-                ...(executionProjection ? { projection: executionProjection } : {}),
-             };
+          const retainedExecution = projectRetainedCompletedExecution(currentExecution, data);
+          if (retainedExecution) {
              activeExecutionRef.current = retainedExecution;
              setActiveExecution(retainedExecution);
            } else {
@@ -2572,22 +2564,19 @@ export default function AiChat() {
               ];
             },
           );
+          const nextOperationMode = inferOperationMode({
+            operationMode: data.operationMode,
+            taskResult: data.taskResult as AiTaskResult | undefined,
+            proposalId: data.proposalId,
+          });
+          const completedMessage = projectCompletedAssistantMessage(
+            data,
+            activityEvents,
+            nextOperationMode,
+          );
           setLocalMessages((prev) => {
             const withoutOpt = prev.filter((m) => !m.id.startsWith('opt-'));
-            const base = data.message as ChatMessage;
-            return [...withoutOpt, {
-              ...base,
-               activityEvents,
-              behaviorEvidence: data.behaviorEvidence ?? base.behaviorEvidence ?? null,
-              taskResult: (data.taskResult as AiTaskResult | undefined) ?? null,
-              operationMode: inferOperationMode({
-                operationMode: data.operationMode,
-                taskResult: data.taskResult as AiTaskResult | undefined,
-                proposalId: data.proposalId,
-              }),
-               terminalProjection: data.terminalProjection ?? base.terminalProjection ?? null,
-                projection: executionProjection ?? base.projection ?? null,
-            }];
+            return [...withoutOpt, completedMessage];
           });
           // The new-session message query can resolve while the stream is still
           // running and cache an empty history. Re-fetch after the server's
@@ -2600,11 +2589,6 @@ export default function AiChat() {
           if (data.proposalId && (data.pendingChanges?.length ?? 0) > 0) {
             liveProposalRef.current = data.proposalId;
           }
-          const nextOperationMode = inferOperationMode({
-            operationMode: data.operationMode,
-            taskResult: data.taskResult as AiTaskResult | undefined,
-            proposalId: data.proposalId,
-          });
           setOperationMode(nextOperationMode);
           setOperationId(
             nextOperationMode === 'DELIVERY'
@@ -2628,25 +2612,8 @@ export default function AiChat() {
            if (resumeStreamExecutionRef.current === erroredExecutionId) {
              resumeStreamExecutionRef.current = null;
            }
-          const preserveTerminalExecution = Boolean(
-            currentExecution
-            && currentExecution.proofRequired !== false
-            && (
-              err.terminalProjection?.resumable === true
-              || currentExecution.resumable === true
-              || (
-                currentExecution.proofRequired === true
-                && currentExecution.operationMode === 'CHAT'
-              )
-            ),
-          );
-          const resumableDisconnect = (
-            err.code === 'network_error' || err.code === 'no_body'
-          ) && Boolean(
-            currentExecution
-            && currentExecution.proofRequired !== false
-            && currentExecution.resumable !== false,
-          );
+          const retainedFailedExecution = projectRetainedFailedExecution(err, currentExecution);
+          const resumableDisconnect = isResumableStreamDisconnect(err, currentExecution);
            if (resumableDisconnect && currentExecution && scheduleAutoReconnect(currentExecution)) {
              setAgentStartedAt(null);
              setAgentElapsedSeconds(0);
@@ -2672,17 +2639,12 @@ export default function AiChat() {
           setLocalMessages((prev) => prev.filter((m) => !m.id.startsWith('opt-')));
           const failedExecutionId = err.executionId ?? currentExecution?.id;
           const failedSessionId = currentExecution?.sessionId ?? sessionId;
-          if (!preserveTerminalExecution) {
+          if (!retainedFailedExecution) {
             activeExecutionRef.current = null;
             setActiveExecution(null);
-          } else if (currentExecution) {
-            const retainedExecution = {
-              ...currentExecution,
-              ...(err.terminalProjection ? { terminalProjection: err.terminalProjection } : {}),
-              ...(err.projection ? { projection: err.projection } : {}),
-            };
-            activeExecutionRef.current = retainedExecution;
-            setActiveExecution(retainedExecution);
+          } else {
+            activeExecutionRef.current = retainedFailedExecution;
+            setActiveExecution(retainedFailedExecution);
           }
           if (failedExecutionId) {
             void qc.invalidateQueries({ queryKey: ['ai-execution', failedExecutionId] });
@@ -2692,39 +2654,11 @@ export default function AiChat() {
           }
           void qc.invalidateQueries({ queryKey: ['ai-sessions', requestProjectId] });
            publishAiChatData(requestProjectId, failedSessionId);
-          if (err.outcome === 'FAILED' || err.outcome === 'INTERRUPTED') {
-            const safeMessage = err.message
-              ? redactInternalDetails(err.message).slice(0, 500)
-              : 'The AI request did not complete.';
+          const failedMessage = projectFailedAssistantMessage(err, failedExecutionId);
+          if (failedMessage) {
             setLocalMessages((prev) => [
               ...prev.filter((m) => !m.id.startsWith('opt-')),
-              {
-                id: `stream-failed-${Date.now()}`,
-                role: 'assistant' as const,
-                content: '',
-                 executionId: err.terminalProjection?.executionId ?? failedExecutionId ?? null,
-                outcome: err.outcome,
-                errorCode: err.code,
-                errorMessage: safeMessage,
-                failureKind: err.failureKind,
-                providerFailureCategory: err.providerFailureCategory,
-                 rateLimitScope: err.rateLimitScope,
-                 retryAfterMs: err.retryAfterMs,
-                 retryAfterSource: err.retryAfterSource,
-                 retryAt: err.providerFailureCategory === 'RATE_LIMITED'
-                   && typeof err.retryAfterMs === 'number'
-                   && Number.isFinite(err.retryAfterMs)
-                   && err.retryAfterMs > 0
-                   ? new Date(Date.now() + err.retryAfterMs).toISOString()
-                   : undefined,
-                retryable: err.retryable,
-                recoveryState: err.recoveryState,
-                acceptanceDisposition: err.acceptanceDisposition,
-                executionLedger: err.executionLedger,
-                 terminalProjection: err.terminalProjection ?? null,
-                 projection: err.projection ?? null,
-                createdAt: new Date().toISOString(),
-              },
+              failedMessage,
             ]);
           }
           toast({ title: 'Failed to send message', description: describeStreamError(err), variant: 'destructive' });
