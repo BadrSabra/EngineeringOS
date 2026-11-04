@@ -1,0 +1,129 @@
+import React from 'react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import axe from 'axe-core';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+import Metrics from './Metrics';
+
+vi.mock('@workspace/api-client-react', () => ({
+  useListMetrics: vi.fn(),
+  useListProjects: vi.fn(),
+  getListMetricsQueryKey: vi.fn((params) => ['/api/metrics', params]),
+}));
+
+import {
+  getListMetricsQueryKey,
+  useListMetrics,
+  useListProjects,
+} from '@workspace/api-client-react';
+
+const refetchMetrics = vi.fn();
+const refetchProjects = vi.fn();
+
+function mockProjects(data: Array<{ id: string; name: string }> = []) {
+  vi.mocked(useListProjects).mockReturnValue({
+    data,
+    isError: false,
+    refetch: refetchProjects,
+  } as ReturnType<typeof useListProjects>);
+}
+
+function mockMetrics(
+  data: Array<Record<string, unknown>> = [],
+  overrides: Record<string, unknown> = {},
+) {
+  vi.mocked(useListMetrics).mockReturnValue({
+    data,
+    isLoading: false,
+    isError: false,
+    error: null,
+    refetch: refetchMetrics,
+    isRefetching: false,
+    dataUpdatedAt: 0,
+    ...overrides,
+  } as ReturnType<typeof useListMetrics>);
+}
+
+beforeEach(() => {
+  vi.clearAllMocks();
+  mockProjects();
+  mockMetrics();
+});
+
+describe('Metrics', () => {
+  it('does not request metrics until a project is available', () => {
+    render(<Metrics />);
+
+    expect(screen.getByText('Select a project to view metrics.')).toBeInTheDocument();
+    expect(useListMetrics).toHaveBeenCalledWith(
+      { projectId: '' },
+      expect.objectContaining({
+        query: expect.objectContaining({ enabled: false }),
+      }),
+    );
+  });
+
+  it('loads the first project and distinguishes a real empty response', () => {
+    mockProjects([
+      { id: 'project-a', name: 'Alpha' },
+      { id: 'project-b', name: 'Beta' },
+    ]);
+    mockMetrics([]);
+
+    render(<Metrics />);
+
+    expect(screen.getByText('No historical metrics data for this project yet.')).toBeInTheDocument();
+    expect(useListMetrics).toHaveBeenCalledWith(
+      { projectId: 'project-a' },
+      expect.objectContaining({
+        query: expect.objectContaining({ enabled: true }),
+      }),
+    );
+    expect(getListMetricsQueryKey).toHaveBeenCalledWith({ projectId: 'project-a' });
+  });
+
+  it('uses a newly selected project for the next metrics query', async () => {
+    mockProjects([
+      { id: 'project-a', name: 'Alpha' },
+      { id: 'project-b', name: 'Beta' },
+    ]);
+    mockMetrics([]);
+
+    render(<Metrics />);
+    fireEvent.change(screen.getByRole('combobox'), {
+      target: { value: 'project-b' },
+    });
+
+    await waitFor(() => {
+      expect(useListMetrics).toHaveBeenLastCalledWith(
+        { projectId: 'project-b' },
+        expect.objectContaining({
+          query: expect.objectContaining({ enabled: true }),
+        }),
+      );
+    });
+  });
+
+  it('offers project retry on load failure rather than showing an empty state', () => {
+    vi.mocked(useListProjects).mockReturnValue({
+      data: undefined,
+      isError: true,
+      refetch: refetchProjects,
+    } as ReturnType<typeof useListProjects>);
+
+    render(<Metrics />);
+
+    expect(screen.getByText('Unable to load projects for metrics.')).toBeInTheDocument();
+    expect(screen.queryByText('No historical metrics data for this project yet.')).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Try again' }));
+    expect(refetchProjects).toHaveBeenCalledTimes(1);
+  });
+
+  it('has no axe violations in the no-project state', async () => {
+    const { container } = render(<Metrics />);
+
+    const results = await axe.run(container, {
+      rules: { 'color-contrast': { enabled: false } },
+    });
+    expect(results.violations.map(({ id }) => id)).toEqual([]);
+  });
+});

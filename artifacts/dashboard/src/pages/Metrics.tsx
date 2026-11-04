@@ -64,6 +64,7 @@ export default function Metrics() {
           <select
             value={effectiveProjectId}
             onChange={(e) => setSelectedProjectId(e.target.value)}
+            aria-label="Select project"
             className="bg-card border border-border rounded-md px-3 py-2 text-sm focus:border-primary focus:outline-none w-56 font-medium"
           >
             {projects?.map((p) => (
