@@ -2036,6 +2036,197 @@ describe("Mission decision trace persistence", () => {
       .toEqual(["EXECUTED", "ACCEPTED", "VERIFIED", "EVALUATED_AFTER_EXECUTION"]);
   }, 60_000);
 
+  it("re-evaluates an inconclusive Mission outcome after complete proof arrives during recovery", async () => {
+    const fixture = await createPersistedEffectOutcomeFixture("ACHIEVED");
+    missionRunner.mockClear();
+
+    await db.delete(aiExecutionAcceptancesTable)
+      .where(eq(aiExecutionAcceptancesTable.id, fixture.acceptanceId));
+    await db.delete(aiExecutionEvidenceSnapshotsTable)
+      .where(eq(aiExecutionEvidenceSnapshotsTable.id, fixture.evidenceSnapshotId));
+
+    const initial = await finalizeMissionPlanOutcome(
+      fixture.decisionId,
+      new Date(now.getTime() + 60_000),
+    );
+    expect(initial.kind).toBe("inconclusive");
+    if (initial.kind !== "inconclusive") {
+      throw new Error("missing acceptance and evidence must remain inconclusive");
+    }
+    expect(initial.evaluation.executions).toMatchObject([{
+      goalId: fixture.goalId,
+      executionId: fixture.executionId,
+      terminal: true,
+      outcome: "INCONCLUSIVE",
+      acceptanceId: null,
+      canonicalProofId: null,
+      effectBundleId: null,
+    }]);
+    const firstSnapshotId = initial.snapshotId;
+    const firstSnapshot = (await db.select().from(aiMissionDecisionOutcomeSnapshotsTable)
+      .where(eq(aiMissionDecisionOutcomeSnapshotsTable.outcomeId, firstSnapshotId)))[0];
+    expect(firstSnapshot?.outcome).toBe("INCONCLUSIVE");
+    expect((await getMissionDecisionTrace(fixture.decisionId))?.events
+      .map(({ stage }) => stage).slice(-2))
+      .toEqual(["PLAN_APPLIED", "DISPATCHED"]);
+
+    const completedAt = new Date(now.getTime() + 120_000);
+    const completeProof = buildExecutionProofProjection({
+      outcome: "SUCCEEDED",
+      evidenceRequired: true,
+      evidenceComplete: true,
+      evidenceSnapshotId: fixture.evidenceSnapshotId,
+      sourceRevision: "decision-project-revision",
+    });
+    await db.insert(aiExecutionEvidenceSnapshotsTable).values({
+      id: fixture.evidenceSnapshotId,
+      executionId: fixture.executionId,
+      projectId: fixture.projectId,
+      attempt: 1,
+      sourceRevision: "decision-project-revision",
+      verdict: completeProof.verdict,
+      complete: 1,
+      readCount: 1,
+      totalBytes: 0,
+      createdAt: completedAt,
+    });
+    await db.insert(aiExecutionAcceptancesTable).values({
+      id: fixture.acceptanceId,
+      executionId: fixture.executionId,
+      projectId: fixture.projectId,
+      attempt: 1,
+      finalizationKey: `outcome-finalize-recovered-${fixture.acceptanceId}`,
+      terminalStatus: "completed",
+      outcome: "SUCCEEDED",
+      reasonCode: "proof_complete",
+      nextActionCode: "complete_plan",
+      evidenceSnapshotId: fixture.evidenceSnapshotId,
+      evidenceRequired: 1,
+      evidenceComplete: 1,
+      resumable: 0,
+      disposition: { proof: completeProof },
+      sourceRevision: "decision-project-revision",
+      effectBundleId: fixture.bundleId,
+      createdAt: completedAt,
+    });
+
+    const [goalBeforeRecovery] = await db.select().from(aiGoalsTable)
+      .where(eq(aiGoalsTable.id, fixture.goalId));
+    const [taskBeforeRecovery] = await db.select().from(tasksTable)
+      .where(eq(tasksTable.id, fixture.taskId));
+    const [executionBeforeRecovery] = await db.select().from(aiExecutionsTable)
+      .where(eq(aiExecutionsTable.id, fixture.executionId));
+    const [recovery, repeatedRecovery] = await Promise.all([
+      runMissionOutcomeRecoveryProcess({ projectId: fixture.projectId }),
+      runMissionOutcomeRecoveryProcess({ projectId: fixture.projectId }),
+    ]);
+    expect(recovery.code, recovery.output).toBe(0);
+    expect(repeatedRecovery.code, repeatedRecovery.output).toBe(0);
+    const reconciledCounts = [recovery.output, repeatedRecovery.output]
+      .flatMap((output) => [...output.matchAll(/MISSION_OUTCOME_RECONCILED:(\d+)/gu)])
+      .map((match) => Number(match[1]));
+    expect(reconciledCounts.some((count) => count > 0)).toBe(true);
+
+    const afterTrace = await getMissionDecisionTrace(fixture.decisionId);
+    const snapshots = await db.select().from(aiMissionDecisionOutcomeSnapshotsTable)
+      .where(eq(aiMissionDecisionOutcomeSnapshotsTable.decisionId, fixture.decisionId));
+    const acceptanceAfterRecovery = (await db.select().from(aiExecutionAcceptancesTable)
+      .where(eq(aiExecutionAcceptancesTable.id, fixture.acceptanceId)))[0];
+    const evidenceAfterRecovery = (await db.select().from(aiExecutionEvidenceSnapshotsTable)
+      .where(eq(aiExecutionEvidenceSnapshotsTable.id, fixture.evidenceSnapshotId)))[0];
+    const outcomeSnapshots = snapshots
+      .map((snapshot) => ({
+        id: snapshot.outcomeId,
+        outcome: snapshot.outcome,
+        evidenceSetHash: snapshot.evidenceSetHash,
+        evaluation: MissionStrategyPlanOutcomeEvaluationSchema.parse(snapshot.evaluation),
+      }))
+      .sort((left, right) => left.outcome === "INCONCLUSIVE" ? -1 : 1);
+    expect(outcomeSnapshots).toHaveLength(2);
+    expect(outcomeSnapshots[0]).toMatchObject({
+      id: firstSnapshotId,
+      outcome: "INCONCLUSIVE",
+      evaluation: {
+        outcome: "INCONCLUSIVE",
+        executions: [{
+          executionId: fixture.executionId,
+          acceptanceId: null,
+          canonicalProofId: null,
+        }],
+      },
+    });
+    expect(outcomeSnapshots[1]).toMatchObject({
+      outcome: "ACHIEVED",
+      evaluation: {
+        outcome: "ACHIEVED",
+        executions: [{
+          goalId: fixture.goalId,
+          executionId: fixture.executionId,
+          acceptanceId: fixture.acceptanceId,
+          canonicalProofId: expect.any(String),
+          effectBundleId: fixture.bundleId,
+          outcome: "ACHIEVED",
+        }],
+      },
+    });
+    expect(outcomeSnapshots[1]?.evidenceSetHash).not.toBe(outcomeSnapshots[0]?.evidenceSetHash);
+    expect(acceptanceAfterRecovery).toMatchObject({
+      executionId: fixture.executionId,
+      evidenceSnapshotId: fixture.evidenceSnapshotId,
+      evidenceRequired: 1,
+      evidenceComplete: 1,
+      outcome: "SUCCEEDED",
+    });
+    expect(evidenceAfterRecovery).toMatchObject({
+      executionId: fixture.executionId,
+      complete: 1,
+      verdict: "PROVEN",
+    });
+
+    const completionEvents = afterTrace?.events.filter(({ stage }) =>
+      ["EXECUTED", "ACCEPTED", "VERIFIED", "EVALUATED_AFTER_EXECUTION"].includes(stage));
+    expect(completionEvents).toHaveLength(4);
+    expect(completionEvents?.map(({ stage, referenceId }) => ({ stage, referenceId })))
+      .toEqual([
+        { stage: "EXECUTED", referenceId: outcomeSnapshots[1]?.id },
+        { stage: "ACCEPTED", referenceId: outcomeSnapshots[1]?.id },
+        { stage: "VERIFIED", referenceId: outcomeSnapshots[1]?.id },
+        { stage: "EVALUATED_AFTER_EXECUTION", referenceId: outcomeSnapshots[1]?.id },
+      ]);
+
+    const [goalAfterRecovery] = await db.select().from(aiGoalsTable)
+      .where(eq(aiGoalsTable.id, fixture.goalId));
+    const [taskAfterRecovery] = await db.select().from(tasksTable)
+      .where(eq(tasksTable.id, fixture.taskId));
+    const [executionAfterRecovery] = await db.select().from(aiExecutionsTable)
+      .where(eq(aiExecutionsTable.id, fixture.executionId));
+    const allTasksAfterRecovery = await db.select({ id: tasksTable.id }).from(tasksTable)
+      .where(eq(tasksTable.goalId, fixture.goalId));
+    const allExecutionsAfterRecovery = await db.select({ id: aiExecutionsTable.id })
+      .from(aiExecutionsTable)
+      .where(eq(aiExecutionsTable.goalId, fixture.goalId));
+    const effectsAfterRecovery = await db.select({ id: aiAgentEffectsTable.id })
+      .from(aiAgentEffectsTable)
+      .where(eq(aiAgentEffectsTable.executionId, fixture.executionId));
+    expect(goalAfterRecovery).toMatchObject({
+      id: goalBeforeRecovery?.id,
+      status: goalBeforeRecovery?.status,
+    });
+    expect(taskAfterRecovery).toMatchObject({
+      id: taskBeforeRecovery?.id,
+      status: taskBeforeRecovery?.status,
+    });
+    expect(executionAfterRecovery).toMatchObject({
+      id: executionBeforeRecovery?.id,
+      status: executionBeforeRecovery?.status,
+      attempt: executionBeforeRecovery?.attempt,
+    });
+    expect(allTasksAfterRecovery.map(({ id }) => id)).toEqual([fixture.taskId]);
+    expect(allExecutionsAfterRecovery.map(({ id }) => id)).toEqual([fixture.executionId]);
+    expect(effectsAfterRecovery.map(({ id }) => id)).toEqual([fixture.effectId]);
+    expect(missionRunner).not.toHaveBeenCalled();
+  }, 60_000);
+
   it("approves through the Mission API, then accepts bound evidence after an API process restart", async () => {
     const projectId = randomUUID();
     const priorApi = await startScopedMissionApiProcess(projectId);
