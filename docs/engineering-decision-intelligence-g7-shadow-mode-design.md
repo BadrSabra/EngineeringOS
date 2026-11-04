@@ -2,7 +2,7 @@
 
 ## Status
 
-**Implemented in code; opt-in and disabled by default.** The implementation and isolated tests exist, but the additive table has not been applied to Development, the scheduler has not been enabled there, and no live shadow cohort has been observed. This is not evidence of strategy improvement.
+**Implemented and schema-ready in Development; scheduler disabled.** The additive sidecar table is applied to Development and empty. The scheduler remains off and requires a server-side single-project UUID allowlist in addition to the mode flag. No live shadow cohort has been observed. This is not evidence of strategy improvement.
 
 ## Audit findings
 
@@ -27,7 +27,7 @@ G7 compares a shadow strategy against the decision already made by the existing 
 2. **Run the shadow evaluator without effects.** Re-evaluate only the alternatives and context already frozen in the trace using the deterministic `evaluateMissionStrategies` contract. This intentionally does not regenerate candidates: G7 isolates evaluation comparison; G3 owns generation quality. There are no provider or tool calls.
 3. **Persist in a dedicated sidecar.** `ai_mission_decision_shadow_comparisons` stores a deterministic comparison keyed by decision/context/applied-plan/policy/evaluator identity, the baseline and shadow result, evaluations, pairwise comparisons, and the source identity columns. It does not append to the authoritative event stream.
 4. **Isolate shadow failure and recover it durably.** Shadow work is not in the live replan transaction. The bounded reconciler scans `PLAN_APPLIED` events only after the event reference matches the trace's `newPlanRevision`, then revalidates the immutable trace JSON against the stored identity columns. A unique policy/evaluator key and content hash make concurrent retries idempotent. A shadow failure is logged without failing the Mission replan and does not rerun Mission, Goal, or tools.
-5. **Keep rollout disabled by default.** The durable job reconciler calls the shadow pass only when the server-side `MISSION_DECISION_SHADOW_MODE=1` flag is set. Client input cannot enable or broaden it. The flag is not enabled in this work.
+5. **Keep rollout disabled by default and project-scoped.** The durable job reconciler requires `MISSION_DECISION_SHADOW_MODE=1` and a valid server-side `MISSION_DECISION_SHADOW_PROJECT_ID` UUID. Global scheduler ticks process only that one allowlisted project; project-scoped ticks for any other project are rejected. Missing or malformed scope fails closed. Neither variable is set in Development.
 
 ## Required tests and gate evidence
 
@@ -51,13 +51,17 @@ Run database-backed tests only on a fresh loopback-only disposable PostgreSQL cl
 - Next action: capture the invariant snapshot after fixture setup (including `PLAN_APPLIED`) and immediately before invoking shadow reconciliation.
 - A later typecheck attempt after adding content-hash assertions failed with two `TS2304` diagnostics: `pureComparison` was referenced outside the test scope where it was created. This was a test-code placement error; no test or runtime execution occurred in that attempt. The contract/store code was not implicated.
 - Development schema preview: `drizzle-kit push --strict --verbose` showed the intended new shadow table, but also unrelated foreign-key drops/re-adds and a primary-key change on `openrouter_credential_cooldowns`, with Drizzle's explicit data-loss warning. The command stopped at its confirmation because the shell was non-interactive; **no statements were applied**. The full-schema push is unsafe. Next action is a scoped strict preview; proceed only if it contains the reviewed additive shadow table/constraints/indexes and no unrelated DDL. Do not force or accept the broad diff.
+- The first scoped-preview invocation was rejected before database access because this installed Drizzle Kit version does not allow `--config` together with command-line schema/filter flags. No comparison or write occurred. The scoped preview must use a dedicated temporary config instead.
+- The dedicated scoped preview then listed only the new shadow table, its six foreign keys, and two indexes; it proposed no unrelated table, enum, key, or data change. The strict confirmation remained at “No, abort” and the preview process timed out before confirmation. A read-only Development check afterward still found the shadow table absent and the existing cooldown primary key unchanged.
+- Before any scheduler activation, code review found that the global job-reconciliation tick passed no project scope; the feature flag alone could therefore scan every eligible project. The flag is unset, and no shadow rows were written. G7 rollout must require a valid server-side single-project UUID allowlist and reject mismatched project-scoped ticks.
+- After that review, the exact scoped Drizzle preview was applied through Drizzle to Development `heliumdb`; it created only the reviewed sidecar table, constraints, and indexes. Read-only inspection confirmed 19 expected columns, 6 foreign keys, 6 check constraints, the primary key and 2 declared indexes, zero rows, and the unchanged `openrouter_credential_cooldowns` primary key. The release-critical `schema:check` passed. Production was not queried or changed.
 
 ## Current implementation and verified boundary
 
 - `buildMissionStrategyShadowComparison` reparses the immutable trace, requires `SELECTED` plus an exact `newPlanRevision`/`PLAN_APPLIED` binding, then runs the formal evaluator at the trace's fixed `decidedAt`. The comparison ID and payload hash are deterministic.
 - The API reconciler is bounded, project-scopable, cursor-paged, and uses the existing event journal as its source. It never writes Mission, Goal, Task, approval, dispatch, Execution, Acceptance, or proof rows.
 - Verification: API-server typecheck passed; `MISSION_DECISION_TRACE_ONLY=1 pnpm run test:mission-control` passed **19/19** trace-store tests and **1/1** durable-dispatcher test on a fresh loopback-only disposable PostgreSQL cluster. The test runner applied the additive schema only to that temporary database.
-- Not done: no Development schema apply, no API workflow restart for this implementation, no shadow flag activation, and no live Mission shadow record. The current outcome is **G7 implementation slice verified; operational shadow cohort still pending**.
+- Development schema: scoped Drizzle apply succeeded and the sidecar remains empty. `MISSION_DECISION_SHADOW_MODE` and `MISSION_DECISION_SHADOW_PROJECT_ID` are absent from Development. The API workflow was restarted, is listening on port `8080`, and completed only the free-model catalog metadata refresh at startup; no shadow reconciliation or model inference ran. No live Mission shadow row exists and no cohort has run. The current outcome is **G7 code and Development schema verified; live shadow observation pending**.
 
 ## What G7 will and will not establish
 

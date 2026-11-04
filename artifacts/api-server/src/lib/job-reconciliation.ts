@@ -94,6 +94,7 @@ import {
 } from "./mission-auto-replan.js";
 import { reconcilePendingMissionPlanOutcomes } from "./mission-strategy-plan-outcome-store.js";
 import { reconcilePendingMissionDecisionShadows } from "./mission-strategy-shadow-store.js";
+import { resolveMissionDecisionShadowProjectScope } from "./mission-decision-shadow-scope.js";
 import { dispatchPendingShadowReplays } from "./shadow-replay.js";
 import { dispatchPendingMissionChatHandoffs } from "./mission-chat-handoffs.js";
 import { retryPendingRuntimeStartTransitions } from "./agent-state/runtime-start-transition.js";
@@ -104,6 +105,7 @@ const MISSION_OUTCOME_RECONCILIATION_INTERVAL_MS = 60_000;
 const lastMissionOutcomeReconciliationByScope = new Map<string, number>();
 const MISSION_DECISION_SHADOW_RECONCILIATION_INTERVAL_MS = 60_000;
 const lastMissionDecisionShadowReconciliationByScope = new Map<string, number>();
+let warnedMissionDecisionShadowScopeMissing = false;
 
 async function reconcileMissionPlanOutcomesIfDue(projectId?: string): Promise<number> {
   const scopeKey = projectId ?? "*";
@@ -123,17 +125,39 @@ async function reconcileMissionPlanOutcomesIfDue(projectId?: string): Promise<nu
 }
 
 async function reconcileMissionDecisionShadowsIfDue(projectId?: string): Promise<number> {
-  if (process.env.MISSION_DECISION_SHADOW_MODE !== "1") return 0;
-  const scopeKey = projectId ?? "*";
+  const enabled = process.env.MISSION_DECISION_SHADOW_MODE === "1";
+  if (!enabled) return 0;
+  const configuredProjectId = process.env.MISSION_DECISION_SHADOW_PROJECT_ID;
+  const canaryProjectId = resolveMissionDecisionShadowProjectScope({
+    enabled,
+    configuredProjectId,
+  });
+  if (!canaryProjectId) {
+    if (!warnedMissionDecisionShadowScopeMissing) {
+      warnedMissionDecisionShadowScopeMissing = true;
+      logger.warn(
+        { scope: "job-reconciliation" },
+        "Mission decision shadow mode is enabled without a valid single-project allowlist; reconciliation is skipped",
+      );
+    }
+    return 0;
+  }
+  const scopedProjectId = resolveMissionDecisionShadowProjectScope({
+    enabled,
+    configuredProjectId: canaryProjectId,
+    requestedProjectId: projectId,
+  });
+  if (!scopedProjectId) return 0;
+  const scopeKey = scopedProjectId;
   const now = Date.now();
   const lastRun = lastMissionDecisionShadowReconciliationByScope.get(scopeKey) ?? 0;
   if (now - lastRun < MISSION_DECISION_SHADOW_RECONCILIATION_INTERVAL_MS) return 0;
   lastMissionDecisionShadowReconciliationByScope.set(scopeKey, now);
   try {
-    return await reconcilePendingMissionDecisionShadows(16, projectId);
+    return await reconcilePendingMissionDecisionShadows(16, scopedProjectId);
   } catch (error) {
     logger.warn(
-      { error, projectId, scope: "job-reconciliation" },
+      { error, projectId: scopedProjectId, scope: "job-reconciliation" },
       "Mission decision shadow reconciliation failed; authoritative Mission state is unchanged",
     );
     return 0;
