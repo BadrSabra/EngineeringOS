@@ -58,7 +58,7 @@ Expected effect codes are extracted only from explicit string values or object `
 
 ## Verification
 
-See `docs/engineering-decision-intelligence-g6-test-notes.md`. The focused contract/evaluator suites pass **24/24**, API-server typecheck passes, and the isolated Mission Trace integration file now passes **14/14** on a fresh loopback-only temporary PostgreSQL cluster. The server-writer tests cover idempotent `INCONCLUSIVE`, durable-row `ACHIEVED` with the four lifecycle events, durable-row `NOT_ACHIEVED` with no lifecycle advancement, fail-closed current-world/freshness/identity mismatches, and read-time rejection after the persisted snapshot outcome column is tampered. No live Mission has been evaluated.
+See `docs/engineering-decision-intelligence-g6-test-notes.md`. The focused contract/evaluator suites pass **24/24**, API-server typecheck passes, and the isolated Mission Trace integration file now passes **14/14** on a fresh loopback-only temporary PostgreSQL cluster. The server-writer tests cover idempotent `INCONCLUSIVE`, durable-row `ACHIEVED` with the four lifecycle events, durable-row `NOT_ACHIEVED` with no lifecycle advancement, fail-closed current-world/freshness/identity mismatches, and read-time rejection after tampering with the indexed outcome, evaluation payload, or World State revision fields. No live Mission has been evaluated.
 
 ## Required work before closing G6
 
