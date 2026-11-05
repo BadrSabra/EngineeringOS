@@ -1,5 +1,6 @@
 import type { ObjectiveContract } from "./schemas/chat.schema.js";
 import { buildObjectiveClaimPlan } from "./objective-claim-plan.js";
+import { normalizeObjectiveEvidencePath } from "./objective-paths.js";
 import { classifyObjectiveScopePath } from "./objective-scope.js";
 import {
   FailureDiagnosisSummarySchema,
@@ -41,39 +42,13 @@ export function isObjectiveEvidenceDiagnosisRetryable(value: unknown): boolean {
     && ["MISSING_REQUIRED_READ", "EVIDENCE_INCOMPLETE"].includes(diagnosis.kind);
 }
 
-function normalizePath(value: string): string {
-  const normalized = value
-    .replace(/\\/g, "/")
-    .replace(/^(\.\/)+/, "")
-    .replace(/^\/+/, "")
-    .trim();
-  if (!normalized || normalized.split("/").some((part) => part === "..")) return "";
-  return normalized;
-}
-
-function normalizeSafeProjectPath(value: string): string {
-  const slashPath = value.replaceAll("\\", "/").trim();
-  if (
-    !slashPath
-    || slashPath.includes("\0")
-    || slashPath.startsWith("/")
-    || /^[a-zA-Z]:/.test(slashPath)
-  ) {
-    return "";
-  }
-  const parts = slashPath.split("/");
-  if (parts.some((part) => part === "..")) return "";
-  const normalized = parts.filter((part) => part && part !== ".").join("/");
-  return normalized;
-}
-
 function claimEvidenceNeedlesForPath(
   claim: ObjectiveContract["requiredClaims"][number],
   path: string,
 ): string[] {
   const needles = claim.evidenceNeedlesByPath
     ? Object.entries(claim.evidenceNeedlesByPath)
-        .find(([candidatePath]) => normalizeSafeProjectPath(candidatePath) === path)?.[1] ?? []
+        .find(([candidatePath]) => normalizeObjectiveEvidencePath(candidatePath) === path)?.[1] ?? []
     : claim.evidenceNeedles ?? [];
   return [...new Set(needles
     .map((needle) => needle.trim())
@@ -102,28 +77,28 @@ export function deriveProjectQueryDiscoveryTarget(input: {
 
   const manifestPaths = new Set(
     [...input.manifestPaths]
-      .map(normalizeSafeProjectPath)
+      .map(normalizeObjectiveEvidencePath)
       .filter(Boolean),
   );
   const retainedFileContents = new Map(
     [...input.retainedFileContents.entries()]
-      .map(([path, content]) => [normalizeSafeProjectPath(path), content] as const)
+      .map(([path, content]) => [normalizeObjectiveEvidencePath(path), content] as const)
       .filter(([path]) => Boolean(path)),
   );
   const readStatuses = new Map(
     [...(input.readStatuses ?? new Map())]
-      .map(([path, status]) => [normalizeSafeProjectPath(path), status] as const)
+      .map(([path, status]) => [normalizeObjectiveEvidencePath(path), status] as const)
       .filter(([path]) => Boolean(path)),
   );
   const candidatePaths = [...new Set(
-    input.candidatePaths.map(normalizeSafeProjectPath).filter(Boolean),
+    input.candidatePaths.map(normalizeObjectiveEvidencePath).filter(Boolean),
   )];
   const requiredPaths = new Set(
     [
       ...(input.objective.requiredEvidencePaths ?? []),
       ...input.objective.requiredClaims.flatMap((claim) => claim.requiredEvidencePaths ?? []),
     ]
-      .map(normalizeSafeProjectPath)
+      .map(normalizeObjectiveEvidencePath)
       .filter(Boolean),
   );
 
@@ -132,7 +107,7 @@ export function deriveProjectQueryDiscoveryTarget(input: {
       ? (claim.requiredEvidencePaths ?? [])
       : [...retainedFileContents.keys()];
     const alreadySupported = claimEvidencePaths.some((rawPath) => {
-      const path = normalizeSafeProjectPath(rawPath);
+      const path = normalizeObjectiveEvidencePath(rawPath);
       const body = retainedFileContents.get(path);
       if (!body) return false;
       return claimEvidenceNeedlesForPath(claim, path)
@@ -176,7 +151,9 @@ function isCompletePath(
 
 function pathFromEndpoint(endpoint: string): string {
   const separator = endpoint.lastIndexOf("#");
-  return separator > 0 ? normalizePath(endpoint.slice(0, separator)) : "";
+  return separator > 0
+    ? normalizeObjectiveEvidencePath(endpoint.slice(0, separator))
+    : "";
 }
 
 /**
@@ -198,11 +175,11 @@ export function deriveObjectiveReplanTargets(input: {
   maxTargets?: number;
 }): ObjectiveReplanTarget[] {
   const retainedPaths = new Set(
-    [...input.retainedPaths].map(normalizePath).filter(Boolean),
+    [...input.retainedPaths].map(normalizeObjectiveEvidencePath).filter(Boolean),
   );
   const readStatuses = new Map(
     [...(input.readStatuses ?? new Map())]
-      .map(([path, status]) => [normalizePath(path), status] as const)
+      .map(([path, status]) => [normalizeObjectiveEvidencePath(path), status] as const)
       .filter(([path]) => Boolean(path)),
   );
   const maxTargets = Math.max(
@@ -223,7 +200,7 @@ export function deriveObjectiveReplanTargets(input: {
     claimId?: string,
     edgeKey?: string,
   ) => {
-    const path = normalizePath(rawPath);
+    const path = normalizeObjectiveEvidencePath(rawPath);
     if (!path || isCompletePath(path, retainedPaths, readStatuses)) return;
     const existing = byPath.get(path);
     if (existing) {

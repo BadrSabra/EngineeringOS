@@ -98,6 +98,8 @@ export const ExecutionNodeSchema = z.object({
   status: z.enum(["queued", "running", "passed", "failed", "blocked"]),
   allowedFiles: z.array(z.string().min(1).max(500)).max(48),
   dependencies: z.array(z.string().min(1).max(160)).max(12),
+  action: z.enum(["inspect", "create", "modify", "delete", "test", "configure"]).optional(),
+  approvalRequired: z.boolean().default(true),
   validationProfile: TaskSessionValidationProfileSchema,
   attempts: z.number().int().min(0).max(3),
   validationAttempts: z.number().int().min(0).max(3).default(0),
@@ -267,6 +269,9 @@ export function buildImplementationExecutionNodes(
       .filter((dependency) => executableIds.has(dependency))
       .map(implementationNodeId)
       .slice(0, 12),
+    action: step.action,
+    approvalRequired: plan.approvalStatus !== "APPROVED"
+      || plan.writeAccess !== "APPROVED_FOR_BUILD",
     validationProfile: "workspace-typecheck",
     attempts: 0,
     validationAttempts: 0,

@@ -604,6 +604,8 @@ describe("active task session state", () => {
     expect(nodes).toEqual([
       expect.objectContaining({
         id: "step:api",
+        action: "modify",
+        approvalRequired: false,
         allowedFiles: ["server/timeline.ts"],
         dependencies: [],
         validationProfile: "workspace-typecheck",
@@ -611,6 +613,8 @@ describe("active task session state", () => {
       }),
       expect.objectContaining({
         id: "step:ui",
+        action: "modify",
+        approvalRequired: false,
         allowedFiles: ["client/timeline.tsx"],
         dependencies: ["step:api"],
       }),

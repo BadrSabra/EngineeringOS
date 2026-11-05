@@ -87,10 +87,12 @@ describe("buildGeneralTaskPlan", () => {
       },
       nodes: [{
         id: "node-1",
-        title: "Inspect source",
+        title: "Validate source",
         status: "queued" as const,
         allowedFiles: ["src/example.ts"],
         dependencies: [],
+        action: "modify" as const,
+        approvalRequired: true,
         validationProfile: "workspace-typecheck" as const,
         attempts: 0,
         validationAttempts: 0,
@@ -118,6 +120,10 @@ describe("buildGeneralTaskPlan", () => {
         allowsBuildHandoff: true,
       }),
       existingExecutionPlan: existing,
+      executionPlanRevision: {
+        persistedRevision: "revision-current",
+        currentRevision: "revision-current",
+      },
       existingQueryPlan: {
         originalIntent: "old",
         targetFiles: ["src/old.ts"],
@@ -135,6 +141,30 @@ describe("buildGeneralTaskPlan", () => {
     expect(plan.skipQueryPlanner).toBe(true);
     expect(plan.reusedPlanFingerprint).toBe("a".repeat(64));
     expect(plan.conflicts).toContain("existing query plan is superseded by the durable execution plan");
+    expect(plan.steps[0]).toMatchObject({
+      kind: "execute",
+      readOnly: false,
+      approvalRequired: true,
+    });
+
+    const stalePlan = buildGeneralTaskPlan({
+      message: "Continue",
+      turnIntent: intent({
+        kind: "DELIVERY",
+        executionTaskType: "task_execution",
+        requiresEvidence: false,
+        allowsBuildHandoff: true,
+      }),
+      existingExecutionPlan: existing,
+      executionPlanRevision: {
+        persistedRevision: "revision-old",
+        currentRevision: "revision-current",
+      },
+    });
+    expect(stalePlan.decision).toBe("CREATE");
+    expect(stalePlan.source).toBe("new");
+    expect(stalePlan.skipQueryPlanner).toBe(false);
+    expect(stalePlan.conflicts).toContain("existing execution plan revision is stale or unverified");
   });
 
   it("reuses persisted project-query scope before creating another provider plan", () => {
@@ -168,6 +198,9 @@ describe("buildGeneralTaskPlan", () => {
       currentRevision: "rev-new",
       explicitOverride: true,
     })).toBe(true);
+    expect(canReuseTaskPlanRevision({
+      currentRevision: "rev-new",
+    })).toBe(false);
   });
 
   it("keeps approval on the execution boundary for a newly created delivery plan", () => {

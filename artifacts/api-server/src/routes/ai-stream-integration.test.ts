@@ -3866,6 +3866,7 @@ describe("Durable AI execution crash/reconnect", () => {
       status: "queued",
       allowedFiles: ["src/guard.ts"],
       dependencies: [],
+      approvalRequired: true,
       validationProfile: "ai-orchestrator-tests",
       attempts: 0,
       validationAttempts: 0,

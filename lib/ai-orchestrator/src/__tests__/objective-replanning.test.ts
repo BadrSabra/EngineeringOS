@@ -202,6 +202,57 @@ describe("deriveObjectiveReplanTargets", () => {
     expect(result).toEqual([]);
   });
 
+  it("rejects absolute, drive-prefixed, NUL, and traversal paths consistently", () => {
+    const unsafePaths = [
+      "/src/absolute.ts",
+      "C:\\src\\drive.ts",
+      "./C:\\src\\dot-prefixed-drive.ts",
+      "src/\0bad.ts",
+      "../outside.ts",
+    ];
+    const result = deriveObjectiveReplanTargets({
+      objective: objective({
+        requiredEvidencePaths: unsafePaths,
+        requiredClaims: [{
+          claimId: "unsafe-paths",
+          text: "These paths must not become evidence targets.",
+          requiredEvidencePaths: unsafePaths,
+        }],
+        requiredEvidenceEdges: [{
+          from: "C:\\src\\edge.ts#handler",
+          to: "src\\target.ts#run",
+          relationship: "calls",
+        }],
+      }),
+      retainedPaths: unsafePaths,
+      readStatuses: new Map(unsafePaths.map((path) => [path, "READ_COMPLETE" as const])),
+    });
+    const claimPlan = buildObjectiveClaimPlan({
+      objective: {
+        requiredEvidencePaths: unsafePaths,
+        requiredClaims: [{
+          claimId: "unsafe-paths",
+          requiredEvidencePaths: unsafePaths,
+        }],
+      },
+      retainedPaths: unsafePaths,
+      claimState: [{
+        claimId: "unsafe-paths",
+        status: "PROVEN",
+        evidenceRefs: ["/src/absolute.ts"],
+      }],
+    });
+
+    expect(result).toEqual([]);
+    expect(claimPlan.objectiveEvidencePaths).toEqual([]);
+    expect(claimPlan.claims[0]).toMatchObject({
+      requiredEvidencePaths: [],
+      evidenceRefs: [],
+      missingEvidencePaths: [],
+      status: "PENDING",
+    });
+  });
+
   it("allows only retryable read/evidence diagnoses to trigger automatic objective replans", () => {
     expect(isObjectiveEvidenceDiagnosisRetryable({
         kind: "MISSING_REQUIRED_READ",

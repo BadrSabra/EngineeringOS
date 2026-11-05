@@ -5,6 +5,7 @@
  * objective remains the source of truth; the plan makes its per-claim coverage
  * explicit for scheduling, recovery, and telemetry.
  */
+import { normalizeObjectiveEvidencePath } from "./objective-paths.js";
 
 export type ObjectiveClaimPlanObjective = {
   requiredEvidencePaths?: readonly string[];
@@ -30,19 +31,8 @@ export type ObjectiveClaimPlan = {
   missingEvidencePaths: string[];
 };
 
-function normalizePath(value: string): string {
-  const normalized = value
-    .replace(/\\/g, "/")
-    .replace(/^(\.\/)+/, "")
-    .replace(/^\/+/, "")
-    .replace(/\/+$/, "")
-    .trim();
-  if (!normalized || normalized.split("/").some((part) => part === "..")) return "";
-  return normalized;
-}
-
 function distinctPaths(values: readonly string[] | undefined): string[] {
-  return [...new Set((values ?? []).map(normalizePath).filter(Boolean))];
+  return [...new Set((values ?? []).map(normalizeObjectiveEvidencePath).filter(Boolean))];
 }
 
 /**
@@ -64,7 +54,7 @@ export function buildObjectiveClaimPlan(input: {
   }[];
 }): ObjectiveClaimPlan {
   const retained = new Set(
-    [...input.retainedPaths].map(normalizePath).filter(Boolean),
+    [...input.retainedPaths].map(normalizeObjectiveEvidencePath).filter(Boolean),
   );
   const restored = new Map(
     (input.claimState ?? []).map((claim) => [claim.claimId, claim]),
@@ -77,7 +67,7 @@ export function buildObjectiveClaimPlan(input: {
     const requiredEvidencePaths = distinctPaths(claim.requiredEvidencePaths);
     const prior = restored.get(claim.claimId);
     const priorEvidenceRefs = (prior?.evidenceRefs ?? [])
-      .map(normalizePath)
+      .map(normalizeObjectiveEvidencePath)
       .filter((path) => path.length > 0 && retained.has(path));
     const priorProofIsRetained =
       prior?.status === "PROVEN" &&

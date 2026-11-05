@@ -6984,14 +6984,12 @@ export async function chat(opts: {
     objective: objective
       ? `${objective.objectiveType}: ${message}`
       : message,
-    existingExecutionPlan:
-      canReuseTaskPlanRevision({
-        persistedRevision: activeTaskState?.scope.revision,
-        currentRevision: analysisCorrelation?.projectRevision,
-        explicitOverride: Boolean(executionPlanOverride),
-      })
-        ? storedExecutionPlan
-        : undefined,
+    existingExecutionPlan: storedExecutionPlan,
+    executionPlanRevision: {
+      persistedRevision: activeTaskState?.scope.revision,
+      currentRevision: analysisCorrelation?.projectRevision,
+      explicitOverride: Boolean(executionPlanOverride),
+    },
     existingProjectQuery:
       canReuseTaskPlanRevision({
         persistedRevision: activeTaskState?.scope.revision,

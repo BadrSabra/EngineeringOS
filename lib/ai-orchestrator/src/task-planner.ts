@@ -90,8 +90,9 @@ export function canReuseTaskPlanRevision(input: {
   explicitOverride?: boolean;
 }): boolean {
   if (input.explicitOverride) return true;
-  if (!input.persistedRevision) return true;
-  return Boolean(input.currentRevision) && input.persistedRevision === input.currentRevision;
+  return Boolean(input.persistedRevision)
+    && Boolean(input.currentRevision)
+    && input.persistedRevision === input.currentRevision;
 }
 
 type GeneralTaskPlanInput = {
@@ -106,6 +107,7 @@ type GeneralTaskPlanInput = {
   >;
   objective?: string;
   existingExecutionPlan?: ActiveTaskExecutionPlan | null;
+  executionPlanRevision?: Parameters<typeof canReuseTaskPlanRevision>[0];
   existingProjectQuery?: ExistingProjectQueryState | null;
   existingQueryPlan?: QueryPlan | null;
   projectOrientation?: boolean;
@@ -295,11 +297,10 @@ function stepsForExistingExecutionPlan(
   }
   return [
     ...nodes.map((node) => {
-      const description = `${node.title} ${node.capabilityId ?? ""}`.toLowerCase();
       const kind: GeneralTaskPlanStepKind =
-        /(?:test|validat|check|verify)/.test(description)
+        node.action === "test"
           ? "validate"
-          : /(?:inspect|read|analy[sz])/.test(description)
+          : node.action === "inspect"
             ? "inspect"
             : "execute";
       return step(
@@ -309,8 +310,8 @@ function stepsForExistingExecutionPlan(
         [...node.dependencies],
         {
           files: uniquePaths(node.allowedFiles),
-          readOnly: kind !== "execute",
-          approvalRequired: false,
+          readOnly: node.action === "inspect" || node.action === "test",
+          approvalRequired: node.approvalRequired,
         },
       );
     }),
@@ -373,8 +374,11 @@ export function buildGeneralTaskPlan(input: GeneralTaskPlanInput): GeneralTaskPl
           uncertainty: "required",
         }
       : undefined;
+  const canReuseExecutionPlan = Boolean(input.existingExecutionPlan)
+    && Boolean(input.executionPlanRevision)
+    && canReuseTaskPlanRevision(input.executionPlanRevision!);
 
-  if (input.existingExecutionPlan) {
+  if (input.existingExecutionPlan && canReuseExecutionPlan) {
     decision = "REUSE";
     source = "execution_plan";
     skipQueryPlanner = true;
@@ -410,6 +414,9 @@ export function buildGeneralTaskPlan(input: GeneralTaskPlanInput): GeneralTaskPl
     ];
   } else {
     steps = stepsForIntent(input);
+  }
+  if (input.existingExecutionPlan && !canReuseExecutionPlan) {
+    conflicts.push("existing execution plan revision is stale or unverified");
   }
 
   const transitionRequirements: RuntimeStartTransitionRequirement[] = [];

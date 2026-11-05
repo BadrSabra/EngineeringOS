@@ -20,6 +20,7 @@ function makeNode(
     status: "queued",
     allowedFiles,
     dependencies,
+    approvalRequired: true,
     validationProfile: "ai-orchestrator-tests",
     attempts: 0,
     validationAttempts: 0,

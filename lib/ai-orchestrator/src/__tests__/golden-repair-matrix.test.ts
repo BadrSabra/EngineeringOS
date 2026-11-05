@@ -26,6 +26,7 @@ function node(
     status: "queued",
     allowedFiles: [`src/${id}.ts`],
     dependencies: [],
+    approvalRequired: true,
     validationProfile: "ai-orchestrator-tests",
     attempts: 0,
     validationAttempts: 0,

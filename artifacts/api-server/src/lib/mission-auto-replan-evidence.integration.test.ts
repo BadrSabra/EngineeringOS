@@ -462,6 +462,53 @@ async function sourceRowsSnapshot(fixture: ReplanEvidenceFixture) {
 }
 
 describe("DB-backed automatic Mission replan evidence boundary", () => {
+  it("resumes the persisted plan after interruption before the first root dispatch", async () => {
+    const fixture = await createReplanEvidenceFixture();
+    let interruptedDispatches = 0;
+
+    await expect(autoReplanMission(fixture.missionId, async () => {
+      interruptedDispatches++;
+      throw new Error("simulated_replan_process_exit");
+    })).rejects.toThrow("simulated_replan_process_exit");
+    expect(interruptedDispatches).toBe(1);
+
+    const [missionAfterInterruption] = await db.select({
+      autonomyPolicy: aiMissionsTable.autonomyPolicy,
+      status: aiMissionsTable.status,
+    }).from(aiMissionsTable).where(eq(aiMissionsTable.id, fixture.missionId));
+    const revision = (missionAfterInterruption?.autonomyPolicy as {
+      lastAutomaticReplanRevision?: unknown;
+    } | undefined)?.lastAutomaticReplanRevision;
+    expect(missionAfterInterruption?.status).toBe("needs_replan");
+    expect(typeof revision).toBe("string");
+
+    const goalsBeforeResume = await db.select({ id: aiGoalsTable.id })
+      .from(aiGoalsTable)
+      .where(eq(aiGoalsTable.missionId, fixture.missionId));
+    const dispatchedGoalIds: string[] = [];
+    const resumed = await autoReplanMission(fixture.missionId, async (input) => {
+      dispatchedGoalIds.push(input.goalId);
+      return {
+        status: "scheduled",
+        goalId: input.goalId,
+        reason: "scheduled_after_recovery",
+      };
+    });
+
+    expect(resumed.status).toBe("replanned");
+    if (resumed.status !== "replanned") return;
+    expect(resumed.revision).toBe(revision);
+    expect(dispatchedGoalIds).toEqual(
+      resumed.plan.goals
+        .filter((goal) => goal.dependencies.length === 0)
+        .map((goal) => goal.goalId),
+    );
+    const goalsAfterResume = await db.select({ id: aiGoalsTable.id })
+      .from(aiGoalsTable)
+      .where(eq(aiGoalsTable.missionId, fixture.missionId));
+    expect(goalsAfterResume).toHaveLength(goalsBeforeResume.length);
+  });
+
   it("selects the outcome-bound current acceptance when historical attempts remain", async () => {
     const fixture = await createReplanEvidenceFixture();
     await db.insert(aiExecutionAcceptancesTable).values({
