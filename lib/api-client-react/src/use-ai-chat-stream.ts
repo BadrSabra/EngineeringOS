@@ -496,6 +496,8 @@ export type AiStreamResetEvent = {
 
 export type AiStreamToolCallEvent = {
   type: 'tool_call';
+  /** Opaque invocation identity, shared with its matching result event. */
+  toolCallId?: string;
   /** Registered tool name, e.g. "read_file", "search_code". */
   tool: string;
   /** Parsed arguments for the tool call. */
@@ -506,6 +508,8 @@ export type AiStreamToolCallEvent = {
 
 export type AiStreamToolResultEvent = {
   type: 'tool_result';
+  /** Opaque invocation identity from the matching tool_call event. */
+  toolCallId?: string;
   tool: string;
   /** Ground-truth source label (e.g. file path) when available. */
   source?: string;

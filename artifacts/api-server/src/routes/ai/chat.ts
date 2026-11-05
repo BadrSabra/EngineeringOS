@@ -10913,6 +10913,7 @@ export async function handleChatStream(req: Request, res: Response) {
       if (step.kind === "tool_call") {
         sse({
           type: "tool_call",
+          ...(step.toolCallId ? { toolCallId: step.toolCallId } : {}),
           tool: step.tool,
           args: redactUserFacingValue(step.args),
           cached: step.cached,
@@ -10921,6 +10922,7 @@ export async function handleChatStream(req: Request, res: Response) {
       } else if (step.kind === "tool_result") {
         sse({
           type: "tool_result",
+          ...(step.toolCallId ? { toolCallId: step.toolCallId } : {}),
           tool: step.tool,
           source: step.source ? redactUserFacingText(step.source) : step.source,
           cached: step.cached,

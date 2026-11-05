@@ -5835,6 +5835,21 @@ describe("executeToolLoop", () => {
       source: "src/auth.ts",
       cached: true,
     }));
+    const calls = steps.filter(
+      (step): step is Extract<AgentStep, { kind: "tool_call" }> =>
+        step.kind === "tool_call" && step.tool === "read_file",
+    );
+    const results = steps.filter(
+      (step): step is Extract<AgentStep, { kind: "tool_result" }> =>
+        step.kind === "tool_result" && step.tool === "read_file",
+    );
+    const callIds = calls.map((step) => step.toolCallId).filter(
+      (id): id is string => typeof id === "string" && id.length > 0,
+    );
+    expect(callIds).toHaveLength(2);
+    expect(new Set(callIds).size).toBe(2);
+    expect(results).toHaveLength(2);
+    expect(results.every((step) => callIds.includes(step.toolCallId ?? ""))).toBe(true);
   });
 
   it("records every cached duplicate tool call in the model scorecard", async () => {

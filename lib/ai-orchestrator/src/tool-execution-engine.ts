@@ -3277,6 +3277,7 @@ export type AgentStep =
   | { kind: "recovery_model_call"; model: string; provider: string; attempt: number }
   | {
       kind: "tool_call";
+      toolCallId?: string;
       tool: string;
       args: Record<string, string>;
       cached: boolean;
@@ -3293,6 +3294,7 @@ export type AgentStep =
     }
   | {
       kind: "tool_result";
+      toolCallId?: string;
       tool: string;
       source?: string;
       cached: boolean;
@@ -5163,6 +5165,7 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
     } catch { /* ignore */ }
   };
   let currentIteration = 0;
+  let currentToolCallId: string | undefined;
   let loopPhase: AgentLoopPhase = "planning";
   const verifiedPathSet = (): Set<string> => new Set(
     [...fileContents.keys(), ...sourceEvidenceByCanonical.keys()]
@@ -5341,6 +5344,7 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
       onStep?.({ kind: "diagnostic", code: diagnosticCode, details: [`${tool}: ${failureKind}`] });
       onStep?.({
         kind: "tool_result",
+        ...(currentToolCallId ? { toolCallId: currentToolCallId } : {}),
         tool,
         cached: false,
         outputLength: safeMessage.length,
@@ -6612,6 +6616,7 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
     const forensicBatchKeys = new Set<string>();
     loopPhase = "evidence";
     for (const tc of safeToolCalls) {
+      currentToolCallId = `tool-${iter}-${tc.id}`;
       if (opts.requireToolLifecycle && !opts.onToolInvocation) {
         const safeMessage =
           "A durable tool lifecycle sink is required; the requested tool was not executed.";
@@ -6902,6 +6907,7 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
         try {
           onStep?.({
             kind: "tool_call",
+            toolCallId: currentToolCallId,
             tool: tc.function.name,
             args,
             cached: true,
@@ -6909,6 +6915,7 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
           });
           onStep?.({
             kind: "tool_result",
+            toolCallId: currentToolCallId,
             tool: tc.function.name,
             cached: true,
             outputLength: 0,
@@ -7745,7 +7752,15 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
             compoundProposalActive = true;
           }
         }
-        try { onStep?.({ kind: "tool_call", tool: tc.function.name, args, cached: true }); } catch { /* ignore */ }
+        try {
+          onStep?.({
+            kind: "tool_call",
+            toolCallId: currentToolCallId,
+            tool: tc.function.name,
+            args,
+            cached: true,
+          });
+        } catch { /* ignore */ }
         // Preserve the same source label as a fresh read. Persisted traces use
         // this label to pair cached tool results with their requested file;
         // omitting it makes the UI misclassify a valid cached read as
@@ -7757,6 +7772,7 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
         try {
           onStep?.({
             kind: "tool_result",
+            toolCallId: currentToolCallId,
             tool: tc.function.name,
             source: cachedSource,
             cached: true,
@@ -7990,6 +8006,7 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
         const rawReasoning = result.content?.trim();
         onStep?.({
           kind: "tool_call",
+          toolCallId: currentToolCallId,
           tool: tc.function.name,
           args: reportArgs,
           cached: false,
@@ -8102,6 +8119,7 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
           try {
             onStep?.({
               kind: "tool_result",
+              toolCallId: currentToolCallId,
               tool: tc.function.name,
               cached: false,
               outputLength: toolMessage.length,
@@ -8360,6 +8378,7 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
       try {
         onStep?.({
           kind: "tool_result",
+          toolCallId: currentToolCallId,
           tool: tc.function.name,
           source: toolResult.source,
           cached: false,

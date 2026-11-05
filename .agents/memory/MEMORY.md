@@ -149,11 +149,10 @@
 - [Nested pnpm project isolation](pnpm-project-isolation.md) — generated roots under the monorepo need explicit workspace isolation, or pnpm may report “No projects found”.
 - [EngineeringOS audience](engineeringos-audience.md) — prioritize a goal-first Arabic experience for users without programming or engineering expertise.
 - [Arabic UI direction tests](arabic-ui-direction-tests.md) — assert translated labels and isolated technical values separately when bidi markup splits rendered text.
-- [Goal draft continuity](goal-draft-continuity.md) — closing creation stops UI continuation, not the durable job; a send attempt is never an acceptance receipt.
 - [Home work summary policy](work-summary-policy.md) — advisory sampling avoids proof/recovery work during polling; preserve coherent reads and independent review coverage.
 - [Live benchmark failure attribution](live-benchmark-failure-attribution.md) — use the resolved fixture and sanitized proof; do not infer scope or typecheck causes from partial maps.
 - [Node CLI entrypoint paths](node-cli-entrypoint-paths.md) — normalize relative `argv[1]` against the working directory before comparing it with `import.meta.url`.
 - [Replit dev-banner base path](replit-dev-banner-base-path.md) — the dev-banner injects a root-absolute script URL; only enable it for root-mounted artifacts.
 - [Merge reconciliation volatility](merge-reconciliation-volatility.md) — an active merge can change HEAD/index during a turn; recheck repository state before edits or staging.
 - [Mission strategy shadow isolation](mission-shadow-isolation.md) — recover non-authoritative G7 comparisons from durable applied traces, never from inside the live replan transaction.
-- [AiChat module split](aichat-module-split.md) — page component stays in AiChat.tsx; cards, parsers, and types live in pages/ai-chat/; keep it mechanical and type-only cyclic.
+- [Dashboard state continuity](dashboard-state-continuity-index.md) — grouped pointers for draft durability, streamed proposal restoration, and chat UI boundaries.

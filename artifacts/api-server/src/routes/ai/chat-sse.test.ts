@@ -2354,13 +2354,25 @@ describe("POST /api/ai/chat/stream — forensic_status SSE emission (onStep inte
 
     const readStep: Extract<AgentStep, { kind: "tool_call" }> = {
       kind: "tool_call",
+      toolCallId: "read-sse-1",
       tool: "read_file",
       args: { path: relativePath },
       cached: false,
     };
+    const readResult: Extract<AgentStep, { kind: "tool_result" }> = {
+      kind: "tool_result",
+      toolCallId: "read-sse-1",
+      tool: "read_file",
+      source: relativePath,
+      readStatus: "READ_COMPLETE",
+      cached: false,
+      outputLength: originalSource.length,
+    };
     vi.mocked(chatWithFallback as (...args: unknown[]) => unknown).mockImplementation(
       async (_userId, _params, _provider, onDelta, _options, _reset, onStep) => {
-        (onStep as ((step: AgentStep) => void) | undefined)?.(readStep);
+        const emitStep = onStep as ((step: AgentStep) => void) | undefined;
+        emitStep?.(readStep);
+        emitStep?.(readResult);
         (onDelta as ((delta: string) => void) | undefined)?.(
           `Read ${relativePath}; no changes were made.`,
         );
@@ -2382,6 +2394,10 @@ describe("POST /api/ai/chat/stream — forensic_status SSE emission (onStep inte
         message: "Perform a forensic audit of the source and determine whether there is a defect.",
       });
     expect(audit.status).toBe(200);
+    const correlatedFrames = parseSseFrames(audit.text).filter((frame) =>
+      JSON.stringify(frame).includes('"toolCallId":"read-sse-1"'),
+    );
+    expect(correlatedFrames).toHaveLength(2);
     const persistedSession = dbFixture.session as Record<string, unknown> | null;
     const sessionId = persistedSession?.id;
     expect(typeof sessionId).toBe("string");

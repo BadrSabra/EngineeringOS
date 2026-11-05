@@ -28,10 +28,16 @@ export function useLiveActivity() {
     return id;
   }
 
-  function completeActiveToolActivity(tool: string, source?: string, cached?: boolean) {
+  function completeActiveToolActivity(
+    toolCallId: string | undefined,
+    tool: string,
+    source?: string,
+    cached?: boolean,
+  ) {
     const targetIndex = [...activityEventsRef.current].reverse().findIndex(
       (activity) => activity.kind === 'tool' && activity.status === 'active'
-        && activity.tool === tool,
+        && activity.tool === tool
+        && (!toolCallId || activity.toolCallId === toolCallId),
     );
     if (targetIndex < 0) return;
     const index = activityEventsRef.current.length - 1 - targetIndex;

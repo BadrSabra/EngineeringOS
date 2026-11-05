@@ -66,7 +66,12 @@ type ObservationActions = {
   setLiveEvidenceIntegrity: Dispatch<SetStateAction<LiveEvidenceIntegrity | null>>;
   setLiveVerdictScope: Dispatch<SetStateAction<LiveVerdictScope | null>>;
   appendLiveActivityEvent: (event: Omit<LiveAgentActivityEvent, 'id'>) => number;
-  completeActiveToolActivity: (tool: string, source?: string, cached?: boolean) => void;
+  completeActiveToolActivity: (
+    toolCallId: string | undefined,
+    tool: string,
+    source?: string,
+    cached?: boolean,
+  ) => void;
 };
 
 /**
@@ -117,11 +122,13 @@ export function createStreamObservationCallbacks({
       const activityId = appendLiveActivityEvent({
         kind: 'tool',
         label: liveToolLabel({ tool: event.tool, args: event.args, done: false, cached: event.cached }),
+        ...(event.toolCallId ? { toolCallId: event.toolCallId } : {}),
         tool: event.tool,
         status: 'active',
       });
       setAgentSteps((previous) => [...previous, {
         activityId,
+        ...(event.toolCallId ? { toolCallId: event.toolCallId } : {}),
         tool: event.tool,
         args: event.args,
         done: false,
@@ -130,12 +137,24 @@ export function createStreamObservationCallbacks({
     },
     onToolResult: (event) => {
       if (!isCurrent()) return;
-      setAgentSteps((previous) => previous.map((step) => (
-        step.tool === event.tool && !step.done
+      setAgentSteps((previous) => {
+        const targetIndex = [...previous].reverse().findIndex(
+          (step) => step.tool === event.tool
+            && !step.done
+            && (!event.toolCallId || step.toolCallId === event.toolCallId),
+        );
+        if (targetIndex < 0) return previous;
+        const index = previous.length - 1 - targetIndex;
+        return previous.map((step, stepIndex) => stepIndex === index
           ? { ...step, done: true, source: event.source, cached: event.cached }
-          : step
-      )));
-      completeActiveToolActivity(event.tool, event.source, event.cached);
+          : step);
+      });
+      completeActiveToolActivity(
+        event.toolCallId,
+        event.tool,
+        event.source,
+        event.cached,
+      );
     },
     onPlanActivity: (event) => {
       if (!isCurrent()) return;

@@ -49,6 +49,7 @@ export type ToolTraceEntry = {
   taskType?: string;
   scopeDescription?: string;
   tool?: string;
+  toolCallId?: string;
   args?: Record<string, string>;
   source?: string;
   cached?: boolean;

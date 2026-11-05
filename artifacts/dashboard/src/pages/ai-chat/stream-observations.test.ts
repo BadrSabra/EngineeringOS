@@ -161,7 +161,7 @@ describe('createStreamObservationCallbacks', () => {
       });
     });
     expect(result.current.agentSteps).toMatchObject([
-      { toolCallId: 'call-a', done: false, source: undefined },
+      { toolCallId: 'call-a', done: false },
       { toolCallId: 'call-b', done: true, source: 'src/b.ts' },
     ]);
     act(() => {
@@ -180,8 +180,8 @@ describe('createStreamObservationCallbacks', () => {
       { toolCallId: 'call-b', done: true, source: 'src/b.ts' },
     ]);
     expect(result.current.activity.activityEvents).toMatchObject([
-      { status: 'done', detail: 'src/a.ts' },
-      { status: 'done', detail: 'cached · src/b.ts' },
+      { toolCallId: 'call-a', status: 'done', detail: 'src/a.ts' },
+      { toolCallId: 'call-b', status: 'done', detail: 'cached · src/b.ts' },
     ]);
     expect(result.current.activity.activityEvents[1]).toMatchObject({
       status: 'done',

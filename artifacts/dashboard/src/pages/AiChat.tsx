@@ -907,13 +907,22 @@ export default function AiChat() {
     },
   });
 
-  const { pendingKey, verificationKey } = usePendingChangesPersistence({
+  const { storageUnavailable, clearPersistedState } = usePendingChangesPersistence({
+    projectId: selectedProjectId,
     sessionId,
+    liveProposalId: liveProposalRef.current ?? undefined,
     pendingChanges,
     setPendingChanges,
     verificationResults,
     setVerificationResults,
   });
+  useEffect(() => {
+    if (!storageUnavailable) return;
+    toast({
+      title: 'التخزين المحلي غير متاح',
+      description: 'ستظل المحادثة تعمل، لكن التغييرات المعلقة قد لا تُستعاد بعد تحديث الصفحة.',
+    });
+  }, [storageUnavailable, toast]);
 
   // Use the generated hook (same URL and auth path as Projects.tsx) so this
   // query uses customFetch — which throws ApiError on non-2xx, preserving the
@@ -1714,12 +1723,11 @@ export default function AiChat() {
     // any stale localStorage-backed changes instead of showing an unapprovable
     // card that would submit without a valid proposalId.
     setPendingChanges(serverProposal.changes);
-    if (serverProposal.changes.length === 0 && pendingKey && verificationKey) {
-      localStorage.removeItem(pendingKey);
-      localStorage.removeItem(verificationKey);
+    if (serverProposal.changes.length === 0) {
+      clearPersistedState();
       setVerificationResults({});
     }
-  }, [serverProposal]);
+  }, [clearPersistedState, serverProposal]);
 
   // A session belongs to exactly one project. If the selected project's
   // session list has been fetched and no longer contains the active session,

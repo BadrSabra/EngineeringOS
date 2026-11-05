@@ -22,29 +22,31 @@ describe('useLiveActivity', () => {
     expect(result.current.activityEventsRef.current).toEqual(result.current.activityEvents);
   });
 
-  it('completes the most recent active event for a tool with its source detail', () => {
+  it('completes only the activity matching the invocation identity', () => {
     const { result } = renderHook(() => useLiveActivity());
 
     act(() => {
       result.current.appendActivityEvent({
         kind: 'tool',
+        toolCallId: 'call-a',
         label: 'First read',
         tool: 'read_file',
         status: 'active',
       });
       result.current.appendActivityEvent({
         kind: 'tool',
+        toolCallId: 'call-b',
         label: 'Second read',
         tool: 'read_file',
         status: 'active',
       });
-      result.current.completeActiveToolActivity('read_file', 'src/main.ts', true);
+      result.current.completeActiveToolActivity('call-b', 'read_file', 'src/b.ts', true);
     });
 
     expect(result.current.activityEvents[0]).toMatchObject({ status: 'active' });
     expect(result.current.activityEvents[1]).toMatchObject({
       status: 'done',
-      detail: 'cached · src/main.ts',
+      detail: 'cached · src/b.ts',
     });
   });
 

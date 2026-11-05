@@ -3713,6 +3713,8 @@ export function recordPrefetchEvidence(
  * The trace intentionally contains only path/length metadata. The source body
  * remains in the private evidence map used by the forensic gate.
  */
+let prefetchToolCallSequence = 0;
+
 function recordPrefetchTrace(
   paths: string[],
   fileContents: Map<string, string>,
@@ -3724,9 +3726,11 @@ function recordPrefetchTrace(
   for (const source of paths) {
     const content = fileContents.get(source);
     if (content === undefined) continue;
+    const toolCallId = `prefetch-${prefetchToolCallSequence++}`;
     try {
       onStep?.({
         kind: "tool_call",
+        toolCallId,
         tool: "read_file",
         args: { path: source },
         cached: false,
@@ -3734,6 +3738,7 @@ function recordPrefetchTrace(
       });
       onStep?.({
         kind: "tool_result",
+        toolCallId,
         tool: "read_file",
         source,
         cached: false,

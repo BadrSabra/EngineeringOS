@@ -22,6 +22,7 @@ export const ADDITIONAL_AI_ACTIONS = AI_ACTIONS.filter((action) => action.id !==
 
 export type LiveAgentToolStep = {
   activityId?: number;
+  toolCallId?: string;
   tool: string;
   args?: Record<string, string>;
   done: boolean;
@@ -33,6 +34,7 @@ export type LiveAgentActivityEvent = {
   id: number;
   kind: 'stage' | 'plan' | 'tool' | 'model' | 'iteration' | 'synthesis' | 'validation' | 'repair_state' | 'diagnostic' | 'phase_rejection' | 'guard';
   label: string;
+  toolCallId?: string;
   tool?: string;
   detail?: string;
   status: 'active' | 'done' | 'info';
@@ -93,6 +95,7 @@ export function activityEventsFromToolTrace(trace: ToolTraceEntry[]): LiveAgentA
       events.push({
         id: nextId++,
         kind: 'tool',
+        ...(entry.toolCallId ? { toolCallId: entry.toolCallId } : {}),
         tool: entry.tool,
         label: liveToolLabel({
           tool: entry.tool,
@@ -107,7 +110,10 @@ export function activityEventsFromToolTrace(trace: ToolTraceEntry[]): LiveAgentA
 
     if (entry.kind === 'tool_result' && entry.tool) {
       const reverseIndex = [...events].reverse().findIndex(
-        (event) => event.kind === 'tool' && event.tool === entry.tool && event.status === 'active',
+        (event) => event.kind === 'tool'
+          && event.tool === entry.tool
+          && event.status === 'active'
+          && (!entry.toolCallId || event.toolCallId === entry.toolCallId),
       );
       if (reverseIndex >= 0) {
         const eventIndex = events.length - 1 - reverseIndex;
