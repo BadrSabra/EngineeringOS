@@ -1,4 +1,5 @@
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
+import axe from 'axe-core';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { Router } from 'wouter';
 import { Shell } from './Shell';
@@ -20,6 +21,23 @@ afterEach(() => {
 });
 
 describe('Shell mobile navigation', () => {
+  it('has no axe violations with navigation closed or open', async () => {
+    const { container } = render(
+      <Router>
+        <Shell><div>Current page</div></Shell>
+      </Router>,
+    );
+
+    const rules = { 'color-contrast': { enabled: false } };
+    const closedResults = await axe.run(container, { rules });
+    expect(closedResults.violations.map(({ id }) => id)).toEqual([]);
+
+    fireEvent.click(screen.getByRole('button', { name: 'فتح القائمة' }));
+    await screen.findByRole('dialog', { name: 'قائمة التنقل الرئيسية' });
+    const openResults = await axe.run(container, { rules });
+    expect(openResults.violations.map(({ id }) => id)).toEqual([]);
+  });
+
   it('traps keyboard focus, closes with Escape, and restores focus to the opener', async () => {
     render(
       <Router>

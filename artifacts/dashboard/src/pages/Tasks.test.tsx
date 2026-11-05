@@ -1,5 +1,6 @@
 import { act, fireEvent, render, screen, within } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import axe from 'axe-core';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { AiExecutionProjection } from '@workspace/api-client-react';
 import Tasks from './Tasks';
@@ -242,6 +243,18 @@ function renderTaskAcceptanceWithRetryAt(retryAt: string) {
 }
 
 describe('project-scoped task list contracts', () => {
+  it('has no axe violations in the task list and task creation dialog', async () => {
+    const { container } = renderPage();
+    const rules = { 'color-contrast': { enabled: false } };
+    const listResults = await axe.run(container, { rules });
+    expect(listResults.violations.map(({ id }) => id)).toEqual([]);
+
+    fireEvent.click(screen.getByRole('button', { name: 'مهمة جديدة' }));
+    await screen.findByRole('dialog', { name: 'إضافة مهمة' });
+    const dialogResults = await axe.run(container, { rules });
+    expect(dialogResults.violations.map(({ id }) => id)).toEqual([]);
+  });
+
   it('sends the selected owned project in the list request', () => {
     renderPage();
     expect(useListTasks).toHaveBeenCalledWith(

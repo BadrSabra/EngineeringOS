@@ -1749,60 +1749,57 @@ export default function Tasks() {
               className="bg-card border border-border rounded-xl overflow-hidden transition-all"
             >
               <div
-                role="button"
-                tabIndex={0}
-                className="p-4 flex items-center gap-4 cursor-pointer hover:bg-secondary/30"
-                onClick={() => setExpandedTask(expandedTask === task.id ? null : task.id)}
-                onKeyDown={(event) => {
-                  if (event.key === 'Enter' || event.key === ' ') {
-                    event.preventDefault();
-                    setExpandedTask(expandedTask === task.id ? null : task.id);
-                  }
-                }}
-                aria-expanded={expandedTask === task.id}
-                aria-controls={`task-details-${task.id}`}
-                aria-label={`${expandedTask === task.id ? 'طي تفاصيل المهمة' : 'عرض تفاصيل المهمة'}: ${task.title}`}
+                className="flex items-center gap-2 hover:bg-secondary/30"
               >
-                <StatusIcon status={task.status} />
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-2 mb-1">
-                    <span className="font-medium text-sm truncate">{task.title}</span>
-                    <PriorityBadge priority={task.priority} />
-                    {taskResultProjectionIsCurrent(task) && task.acceptance && (() => {
-                      const acceptance = acceptanceStatus(task.acceptance);
-                      return (
-                        <span
-                          aria-label={`القبول: ${acceptance.label}`}
-                          className={`rounded-full border border-current/25 px-2 py-0.5 text-[10px] font-semibold ${acceptance.className}`}
-                        >
-                          {acceptance.label}
-                        </span>
-                      );
-                    })()}
+                <button
+                  type="button"
+                  className="min-w-0 flex-1 p-4 flex items-center gap-4 text-start"
+                  onClick={() => setExpandedTask(expandedTask === task.id ? null : task.id)}
+                  aria-expanded={expandedTask === task.id}
+                  aria-controls={`task-details-${task.id}`}
+                  aria-label={`${expandedTask === task.id ? 'طي تفاصيل المهمة' : 'عرض تفاصيل المهمة'}: ${task.title}`}
+                >
+                  <StatusIcon status={task.status} />
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2 mb-1">
+                      <span className="font-medium text-sm truncate">{task.title}</span>
+                      <PriorityBadge priority={task.priority} />
+                      {taskResultProjectionIsCurrent(task) && task.acceptance && (() => {
+                        const acceptance = acceptanceStatus(task.acceptance);
+                        return (
+                          <span
+                            aria-label={`القبول: ${acceptance.label}`}
+                            className={`rounded-full border border-current/25 px-2 py-0.5 text-[10px] font-semibold ${acceptance.className}`}
+                          >
+                            {acceptance.label}
+                          </span>
+                        );
+                      })()}
+                    </div>
+                    <div className="text-xs text-muted-foreground font-mono flex items-center gap-3">
+                      <span
+                        className={`uppercase font-bold ${
+                          task.status === 'completed' ? 'text-emerald-500'
+                          : task.status === 'failed'  ? 'text-destructive'
+                          : task.status === 'running' ? 'text-primary'
+                          : 'text-muted-foreground'
+                        }`}
+                      >
+                        {taskStatusLabel(task.status)}
+                      </span>
+                      <span>•</span>
+                      <span>{new Date(task.createdAt).toLocaleString()}</span>
+                      {task.phase && (
+                        <>
+                          <span>•</span>
+                          <span className="opacity-70">{task.phase}</span>
+                        </>
+                      )}
+                    </div>
                   </div>
-                  <div className="text-xs text-muted-foreground font-mono flex items-center gap-3">
-                    <span
-                      className={`uppercase font-bold ${
-                        task.status === 'completed' ? 'text-emerald-500'
-                        : task.status === 'failed'  ? 'text-destructive'
-                        : task.status === 'running' ? 'text-primary'
-                        : 'text-muted-foreground'
-                      }`}
-                    >
-                      {taskStatusLabel(task.status)}
-                    </span>
-                    <span>•</span>
-                    <span>{new Date(task.createdAt).toLocaleString()}</span>
-                    {task.phase && (
-                      <>
-                        <span>•</span>
-                        <span className="opacity-70">{task.phase}</span>
-                      </>
-                    )}
-                  </div>
-                </div>
+                </button>
 
-                <div className="flex items-center gap-2 shrink-0">
+                <div className="flex items-center gap-2 shrink-0 pe-4">
                   {(task.status === 'pending' || task.status === 'queued') && (
                     <button
                       onClick={(e) => { e.stopPropagation(); handleAction('execute', task.id); }}

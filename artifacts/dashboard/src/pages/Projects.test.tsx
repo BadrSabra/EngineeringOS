@@ -1,4 +1,5 @@
 import { act, render, screen, fireEvent, waitFor } from "@testing-library/react";
+import axe from 'axe-core';
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import Projects from "./Projects";
 import { readGoalDrafts, storeHomeGoalDraft } from '../lib/home-goal-handoff';
@@ -69,6 +70,22 @@ beforeEach(() => {
 });
 
 describe("Projects", () => {
+  it('has no axe violations in the project list and goal creation dialog', async () => {
+    const listView = render(<Projects />);
+    const rules = { 'color-contrast': { enabled: false } };
+    const listResults = await axe.run(listView.container, { rules });
+    expect(listResults.violations.map(({ id }) => id)).toEqual([]);
+    listView.unmount();
+
+    const draft = storeHomeGoalDraft('أنشئ تطبيق العملاء', 'user-1')!;
+    window.history.replaceState({}, '', `/projects?create=1&goalDraftId=${draft.id}`);
+    const goalDialog = render(<Projects />);
+    const dialog = await screen.findByRole('dialog', { name: 'ابدأ مشروعًا من قالب جاهز' });
+    const dialogResults = await axe.run(goalDialog.container, { rules });
+    expect(dialogResults.violations.map(({ id }) => id)).toEqual([]);
+    expect(dialog).toHaveAttribute('aria-modal', 'true');
+  });
+
   it("renders all projects when search is empty", () => {
     render(<Projects />);
     expect(screen.getByText("alpha-service")).toBeInTheDocument();
