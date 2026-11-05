@@ -52,6 +52,7 @@ import { createStreamResetCallback } from './ai-chat/stream-recovery';
 import { createStreamIdentityCallbacks } from './ai-chat/stream-lifecycle';
 import { createStreamIntentCallback } from './ai-chat/stream-intent';
 import { getSendMessagePreflightNotice, resolveSendMessagePreflight } from './ai-chat/send-message-preflight';
+import { createStreamRequestContext, type SendMessageOptions } from './ai-chat/stream-request-context';
 import {
   isResumableStreamDisconnect,
   projectCompletedAssistantMessage,
@@ -2281,12 +2282,7 @@ export default function AiChat() {
    *  handleQuickAction so both paths share the same streaming logic. */
   function sendMessage(
     msg: string,
-    options?: {
-      buildPlanMessageId?: string;
-      executionId?: string;
-      resumeToken?: string;
-      sessionId?: string;
-    },
+    options?: SendMessageOptions,
   ) {
     const preflightReason = resolveSendMessagePreflight({
       message: msg,
@@ -2306,11 +2302,25 @@ export default function AiChat() {
     }
     if (preflightReason) return;
     if (!options?.executionId && !draftHandoff.onSend(msg)) return;
+    const requestContext = createStreamRequestContext({
+      projectId: selectedProjectId,
+      activeSessionId: sessionId,
+      message: msg,
+      options,
+    });
+    const {
+      projectId: requestProjectId,
+      sessionId: requestSessionId,
+      message: requestMessage,
+      executionId: requestExecutionId,
+      resumeToken: requestResumeToken,
+      buildPlanMessageId: requestBuildPlanMessageId,
+      isResume,
+      preserveBuildPending,
+    } = requestContext;
     setProposalUnavailable(null);
     const generation = ++streamGenerationRef.current;
-    const requestProjectId = selectedProjectId;
-    const requestSessionId = options?.sessionId ?? sessionId;
-    if (!options?.executionId && msg.trim() === input.trim() && !draftHandoff.activeDraft && user?.id) {
+    if (!isResume && requestMessage === input.trim() && !draftHandoff.activeDraft && user?.id) {
       const contextId = getAssistantComposerContextId('project', requestProjectId, requestSessionId);
       if (contextId && !saveAssistantComposerDraft(user.id, 'project', contextId, '')) {
         setScopeDraftStorageError('تعذر مسح نسخة المسودة المحفوظة؛ سيبقى النص ظاهرًا إذا ألغيت الإرسال.');
@@ -2321,7 +2331,7 @@ export default function AiChat() {
       generation,
       projectId: requestProjectId,
       ...(requestSessionId ? { sessionId: requestSessionId } : {}),
-      ...(options?.executionId ? { executionId: options.executionId } : {}),
+      ...(requestExecutionId ? { executionId: requestExecutionId } : {}),
     };
     const ownsStream = (binding?: { sessionId?: string; executionId?: string }) => {
       const owner = streamOwnerRef.current;
@@ -2343,16 +2353,15 @@ export default function AiChat() {
     setInput('');
     setScopeDraftRestored(false);
 
-    const isResume = Boolean(options?.executionId);
     if (!isResume) {
       const optimistic: ChatMessage = {
         id: `opt-${Date.now()}`,
         role: 'user',
-        content: msg.trim(),
+        content: requestMessage,
         createdAt: new Date().toISOString(),
       };
       setLocalMessages((prev) => [...prev, optimistic]);
-      clearExecutionScopedState({ preserveBuildPending: Boolean(options?.buildPlanMessageId) });
+      clearExecutionScopedState({ preserveBuildPending });
       streamOwnerRef.current = {
         generation,
         projectId: requestProjectId,
@@ -2420,8 +2429,8 @@ export default function AiChat() {
       ownsStream,
       projectId: requestProjectId,
       linkedTaskId,
-      message: msg.trim(),
-      buildPlanMessageId: options?.buildPlanMessageId,
+      message: requestMessage,
+      buildPlanMessageId: requestBuildPlanMessageId,
       publishExecution: (execution) => {
         activeExecutionRef.current = execution;
         setActiveExecution(execution);
@@ -2456,12 +2465,12 @@ export default function AiChat() {
     void streamSend(
       {
         projectId: requestProjectId,
-        message: msg.trim(),
+        message: requestMessage,
         sessionId: requestSessionId,
         linkedTaskId,
-        buildPlanMessageId: options?.buildPlanMessageId,
-        executionId: options?.executionId,
-        resumeToken: options?.resumeToken,
+        buildPlanMessageId: requestBuildPlanMessageId,
+        executionId: requestExecutionId,
+        resumeToken: requestResumeToken,
       },
       {
         ...streamObservationCallbacks,
@@ -2472,7 +2481,7 @@ export default function AiChat() {
           if (!ownsStream({ sessionId: data.sessionId })) return;
            resetAutoReconnect();
            if (
-             resumeStreamExecutionRef.current === options?.executionId
+              resumeStreamExecutionRef.current === requestExecutionId
            ) {
              resumeStreamExecutionRef.current = null;
            }
@@ -2624,7 +2633,7 @@ export default function AiChat() {
       },
     ).finally(() => {
       if (
-        options?.buildPlanMessageId &&
+        requestBuildPlanMessageId &&
         generation === streamGenerationRef.current
       ) setPlanBuildPending(null);
     });
