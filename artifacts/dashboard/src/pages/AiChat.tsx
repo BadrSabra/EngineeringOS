@@ -53,6 +53,7 @@ import { createStreamIdentityCallbacks } from './ai-chat/stream-lifecycle';
 import { createStreamIntentCallback } from './ai-chat/stream-intent';
 import { getSendMessagePreflightNotice, resolveSendMessagePreflight } from './ai-chat/send-message-preflight';
 import { createStreamRequestContext, type SendMessageOptions } from './ai-chat/stream-request-context';
+import { createOptimisticUserMessage } from './ai-chat/stream-start';
 import {
   isResumableStreamDisconnect,
   projectCompletedAssistantMessage,
@@ -2354,12 +2355,11 @@ export default function AiChat() {
     setScopeDraftRestored(false);
 
     if (!isResume) {
-      const optimistic: ChatMessage = {
-        id: `opt-${Date.now()}`,
-        role: 'user',
-        content: requestMessage,
+      const optimistic = createOptimisticUserMessage({
+        message: requestMessage,
+        idTimestamp: Date.now(),
         createdAt: new Date().toISOString(),
-      };
+      });
       setLocalMessages((prev) => [...prev, optimistic]);
       clearExecutionScopedState({ preserveBuildPending });
       streamOwnerRef.current = {
