@@ -1,6 +1,7 @@
 import type { Dispatch, SetStateAction } from 'react';
 import type {
   AiChatStreamCallbacks,
+  AiExecutionNodeSnapshot,
   AiStreamBehaviorProgressEvent,
 } from '@workspace/api-client-react';
 import type { LiveAgentActivityEvent, LiveAgentToolStep } from './live-activity';
@@ -26,6 +27,8 @@ export type LiveVerdictScope = {
 
 type ObservationCallbacks = Pick<AiChatStreamCallbacks,
   | 'onStage'
+  | 'onExecutionNodes'
+  | 'onDelta'
   | 'onToolCall'
   | 'onToolResult'
   | 'onPlanActivity'
@@ -49,6 +52,9 @@ type ObservationCallbacks = Pick<AiChatStreamCallbacks,
 
 type ObservationActions = {
   isCurrent: () => boolean;
+  ownsExecution: (executionId: string) => boolean;
+  setExecutionNodes: Dispatch<SetStateAction<AiExecutionNodeSnapshot[]>>;
+  setStreamingContent: Dispatch<SetStateAction<string>>;
   setAgentStage: Dispatch<SetStateAction<string | null>>;
   setAgentSteps: Dispatch<SetStateAction<LiveAgentToolStep[]>>;
   setAgentIter: Dispatch<SetStateAction<{ iter: number; max: number } | null>>;
@@ -70,6 +76,9 @@ type ObservationActions = {
  */
 export function createStreamObservationCallbacks({
   isCurrent,
+  ownsExecution,
+  setExecutionNodes,
+  setStreamingContent,
   setAgentStage,
   setAgentSteps,
   setAgentIter,
@@ -84,6 +93,19 @@ export function createStreamObservationCallbacks({
   completeActiveToolActivity,
 }: ObservationActions): ObservationCallbacks {
   return {
+    onExecutionNodes: (event) => {
+      if (!ownsExecution(event.executionId)) return;
+      setExecutionNodes(event.nodes);
+      appendLiveActivityEvent({
+        kind: 'stage',
+        label: 'Execution plan loaded',
+        detail: `${event.nodes.length} node${event.nodes.length === 1 ? '' : 's'}`,
+        status: 'info',
+      });
+    },
+    onDelta: (delta) => {
+      if (isCurrent()) setStreamingContent((previous) => previous + delta);
+    },
     onStage: (stage) => {
       if (!isCurrent()) return;
       const detail = CHAT_STAGE_LABELS[stage] ?? stage;

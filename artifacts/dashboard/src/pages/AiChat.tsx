@@ -2384,6 +2384,9 @@ export default function AiChat() {
 
     const streamObservationCallbacks = createStreamObservationCallbacks({
       isCurrent: () => generation === streamGenerationRef.current,
+      ownsExecution: (executionId) => ownsStream({ executionId }),
+      setExecutionNodes,
+      setStreamingContent,
       setAgentStage,
       setAgentSteps,
       setAgentIter,
@@ -2465,20 +2468,6 @@ export default function AiChat() {
       {
         ...streamObservationCallbacks,
         ...streamIdentityCallbacks,
-        onExecutionNodes: (event) => {
-          if (!ownsStream({ executionId: event.executionId })) return;
-          setExecutionNodes(event.nodes);
-          appendLiveActivityEvent({
-            kind: 'stage',
-            label: 'Execution plan loaded',
-            detail: `${event.nodes.length} node${event.nodes.length === 1 ? '' : 's'}`,
-            status: 'info',
-          });
-        },
-        onDelta: (delta) => {
-          if (generation !== streamGenerationRef.current) return;
-          setStreamingContent((prev) => prev + delta);
-        },
         onStreamReset: streamResetCallback,
          onIntent: (event) => {
            if (generation !== streamGenerationRef.current) return;

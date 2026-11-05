@@ -8,8 +8,14 @@ import {
   type LiveVerdictScope,
 } from './stream-observations';
 import type { LiveAgentToolStep } from './live-activity';
+import type { AiExecutionNodeSnapshot } from '@workspace/api-client-react';
 
-function useObservationHarness(isCurrent: () => boolean) {
+function useObservationHarness(
+  isCurrent: () => boolean,
+  ownsExecution: (executionId: string) => boolean = () => true,
+) {
+  const [executionNodes, setExecutionNodes] = useState<AiExecutionNodeSnapshot[]>([]);
+  const [streamingContent, setStreamingContent] = useState('');
   const [agentStage, setAgentStage] = useState<string | null>(null);
   const [agentSteps, setAgentSteps] = useState<LiveAgentToolStep[]>([]);
   const [agentIter, setAgentIter] = useState<{ iter: number; max: number } | null>(null);
@@ -22,6 +28,9 @@ function useObservationHarness(isCurrent: () => boolean) {
   const activity = useLiveActivity();
   const callbacks = createStreamObservationCallbacks({
     isCurrent,
+    ownsExecution,
+    setExecutionNodes,
+    setStreamingContent,
     setAgentStage,
     setAgentSteps,
     setAgentIter,
@@ -37,6 +46,8 @@ function useObservationHarness(isCurrent: () => boolean) {
   });
 
   return {
+    executionNodes,
+    streamingContent,
     agentStage,
     agentSteps,
     agentIter,
@@ -52,6 +63,57 @@ function useObservationHarness(isCurrent: () => boolean) {
 }
 
 describe('createStreamObservationCallbacks', () => {
+  it('keeps streamed deltas behind the current-generation fence', () => {
+    let current = false;
+    const { result } = renderHook(() => useObservationHarness(() => current));
+
+    act(() => result.current.callbacks.onDelta?.('stale'));
+    expect(result.current.streamingContent).toBe('');
+
+    current = true;
+    act(() => {
+      result.current.callbacks.onDelta?.('live ');
+      result.current.callbacks.onDelta?.('text');
+    });
+    expect(result.current.streamingContent).toBe('live text');
+  });
+
+  it('updates plan snapshots only for the owning execution', () => {
+    let ownerExecutionId = 'execution-current';
+    const { result } = renderHook(() => useObservationHarness(
+      () => true,
+      (executionId) => executionId === ownerExecutionId,
+    ));
+    const event = {
+      type: 'execution_nodes' as const,
+      executionId: 'execution-old',
+      nodes: [{
+        id: 'node-1',
+        title: 'Inspect source',
+        status: 'queued' as const,
+        allowedFiles: ['src/main.ts'],
+        dependencies: [],
+        validationProfile: 'workspace-typecheck',
+        attempts: 0,
+      }],
+    };
+
+    act(() => result.current.callbacks.onExecutionNodes?.(event));
+    expect(result.current.executionNodes).toEqual([]);
+    expect(result.current.activity.activityEvents).toEqual([]);
+
+    ownerExecutionId = 'execution-old';
+    act(() => result.current.callbacks.onExecutionNodes?.(event));
+    expect(result.current.executionNodes).toEqual(event.nodes);
+    expect(result.current.activity.activityEvents).toMatchObject([
+      {
+        kind: 'stage',
+        label: 'Execution plan loaded',
+        detail: '1 node',
+      },
+    ]);
+  });
+
   it('ignores stale stream observations and labels current stages', () => {
     let current = false;
     const { result } = renderHook(() => useObservationHarness(() => current));
