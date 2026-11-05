@@ -50,6 +50,7 @@ import { ADDITIONAL_AI_ACTIONS, AI_ACTIONS, COMMON_AI_ACTIONS, LiveAgentActivity
 import { createStreamObservationCallbacks, type LiveEvidenceIntegrity, type LiveVerdictScope } from './ai-chat/stream-observations';
 import { createStreamResetCallback } from './ai-chat/stream-recovery';
 import { createStreamIdentityCallbacks } from './ai-chat/stream-lifecycle';
+import { createStreamIntentCallback } from './ai-chat/stream-intent';
 import {
   isResumableStreamDisconnect,
   projectCompletedAssistantMessage,
@@ -2454,6 +2455,12 @@ export default function AiChat() {
       },
       appendActivityEvent: appendLiveActivityEvent,
     });
+    const streamIntentCallback = createStreamIntentCallback({
+      isCurrent: () => generation === streamGenerationRef.current,
+      setOperationMode,
+      setActiveExecution,
+      setAgentStage,
+    });
 
     void streamSend(
       {
@@ -2469,22 +2476,7 @@ export default function AiChat() {
         ...streamObservationCallbacks,
         ...streamIdentityCallbacks,
         onStreamReset: streamResetCallback,
-         onIntent: (event) => {
-           if (generation !== streamGenerationRef.current) return;
-           setOperationMode(event.operationMode);
-            setActiveExecution((current) => current
-              ? {
-                  ...current,
-                  operationMode: event.operationMode,
-                  proofRequired: current.proofRequired ?? event.requiresEvidence,
-                }
-              : current);
-           setAgentStage(
-             event.requiresEvidence
-               ? `Evidence mode: ${event.intent.replace(/_/g, ' ')}`
-               : `Request mode: ${event.intent.replace(/_/g, ' ')}`,
-           );
-         },
+        onIntent: streamIntentCallback,
         onDone: (data) => {
           if (!ownsStream({ sessionId: data.sessionId })) return;
            resetAutoReconnect();
