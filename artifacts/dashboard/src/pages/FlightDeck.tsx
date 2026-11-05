@@ -25,16 +25,16 @@ type FlightNode = {
 };
 
 const PHASES = [
-  { label: 'Mission', states: ['BUILDING'] },
-  { label: 'Plan', states: ['BUILDING'] },
-  { label: 'Explore', states: ['BUILDING'] },
-  { label: 'Build', states: ['BUILDING', 'REPAIRING'] },
-  { label: 'Validate', states: ['VALIDATING'] },
-  { label: 'Repair', states: ['REPAIRING'] },
-  { label: 'Review', states: ['READY_FOR_REVIEW'] },
-  { label: 'Apply', states: ['APPLIED'] },
-  { label: 'Commit', states: ['COMMITTED'] },
-  { label: 'Push', states: ['PUSHED'] },
+  { label: 'التنفيذ', states: ['BUILDING'] },
+  { label: 'الخطة', states: ['BUILDING'] },
+  { label: 'الاستكشاف', states: ['BUILDING'] },
+  { label: 'البناء', states: ['BUILDING', 'REPAIRING'] },
+  { label: 'التحقق', states: ['VALIDATING'] },
+  { label: 'الإصلاح', states: ['REPAIRING'] },
+  { label: 'المراجعة', states: ['READY_FOR_REVIEW'] },
+  { label: 'التطبيق', states: ['APPLIED'] },
+  { label: 'إيداع التغييرات', states: ['COMMITTED'] },
+  { label: 'دفع التغييرات', states: ['PUSHED'] },
 ] as const;
 
 function readExecutionId(): string {
@@ -104,7 +104,7 @@ function formatElapsed(startedAt?: string | null, completedAt?: string | null, n
   if (!Number.isFinite(start) || !Number.isFinite(end)) return 'غير متاح';
   const seconds = Math.max(0, Math.floor((end - start) / 1000));
   const minutes = Math.floor(seconds / 60);
-  return `${minutes}m ${String(seconds % 60).padStart(2, '0')}s`;
+  return `${minutes}د ${String(seconds % 60).padStart(2, '0')}ث`;
 }
 
 function objectiveLabel(objective: Record<string, unknown> | null | undefined): string {
@@ -453,7 +453,7 @@ export default function FlightDeck() {
             )}
             <div className={`inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-xs font-semibold ${stateClasses(state)}`}>
               {state === 'BLOCKED' ? <AlertTriangle className="h-3.5 w-3.5" /> : <Activity className="h-3.5 w-3.5" />}
-              {stateLabel(state)}
+              <bdi dir="ltr">{stateLabel(state)}</bdi>
             </div>
             <div className={`inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-xs font-semibold ${evidenceClasses(evidenceVerdict)}`}>
               <ShieldCheck className="h-3.5 w-3.5" />
@@ -536,8 +536,8 @@ export default function FlightDeck() {
                   <span className={`rounded-full border px-2 py-0.5 text-[10px] font-semibold ${stateClasses(node.status === 'failed' || node.status === 'blocked' ? 'BLOCKED' : node.status === 'passed' ? 'COMPLETED' : 'BUILDING')}`}>{node.status}</span>
                 </div>
                 <div className="mt-3 flex flex-wrap gap-2 text-[10px] text-muted-foreground">
-                  <span dir="ltr" className="rounded border border-border/60 px-2 py-1">validation: {node.validationProfile}</span>
-                  <span dir="ltr" className="rounded border border-border/60 px-2 py-1">attempts: {node.attempts}</span>
+              <span dir="ltr" className="rounded border border-border/60 px-2 py-1">التحقق: {node.validationProfile}</span>
+              <span className="rounded border border-border/60 px-2 py-1">المحاولات: <bdi dir="ltr">{node.attempts}</bdi></span>
                   <span className="rounded border border-border/60 px-2 py-1">النطاق: {node.allowedFiles.length} ملف</span>
                 </div>
               </div>
@@ -587,7 +587,7 @@ export default function FlightDeck() {
                 <div className="mt-3 rounded-md bg-background/30 px-3 py-2 text-xs">
                   <span className="text-muted-foreground">شجرة العمل: </span>
                   <span className={gitStatus.data?.clean ? 'text-emerald-200' : 'text-amber-200'}>
-                    {gitStatus.data?.clean ? 'clean' : `${changedFiles.length} changed file${changedFiles.length === 1 ? '' : 's'}`}
+                    {gitStatus.data?.clean ? 'نظيفة' : `${changedFiles.length} ملف متغير`}
                   </span>
                 </div>
                 {changedFiles.length > 0 && (

@@ -134,7 +134,7 @@ describe('Flight Deck mission control', () => {
     expect(screen.getByTestId('mission-capsule-task-id')).toHaveTextContent('task-1');
     expect(screen.getAllByText(state.replaceAll('_', ' ').toUpperCase()).length).toBeGreaterThan(0);
     expect(screen.getByText('Repair the authentication scope check')).toBeInTheDocument();
-    expect(screen.getAllByText('1m 05s').length).toBeGreaterThan(0);
+    expect(screen.getAllByText('1د 05ث').length).toBeGreaterThan(0);
     expect(screen.getByText('2 ملفات · 1 عُقد')).toBeInTheDocument();
     expect(screen.getByText('عُقد الخطة')).toBeInTheDocument();
     expect(screen.getAllByText(state === 'BLOCKED' ? 'BLOCKED' : 'PARTIAL').length).toBeGreaterThan(0);
@@ -155,7 +155,7 @@ describe('Flight Deck mission control', () => {
 
     expect(screen.getByText('مراجعة / محادثة')).toBeInTheDocument();
     expect(screen.getByText('تنفيذ لا يتضمن تسليمًا')).toBeInTheDocument();
-    expect(screen.queryByText('Mission → Push')).toBeNull();
+    expect(screen.queryByText('المهمة ← الدفع')).toBeNull();
   });
 
   it('uses evidence-aware fallback states for legacy executions without flightState', () => {
@@ -296,7 +296,7 @@ describe('Flight Deck mission control', () => {
     expect(screen.getByRole('region', { name: 'سلسلة إثبات التسليم' })).toBeInTheDocument();
     expect(screen.getByText('candidate-hash')).toBeInTheDocument();
     expect(screen.getByText('delivered-hash')).toBeInTheDocument();
-    expect(screen.getByText('التحقق')).toBeInTheDocument();
+    expect(screen.getAllByText('التحقق').length).toBeGreaterThan(0);
     expect(screen.getAllByText('متحقق').length).toBeGreaterThan(0);
     expect(screen.queryByText(/Next safe action/)).toBeNull();
   });

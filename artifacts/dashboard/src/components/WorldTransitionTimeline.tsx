@@ -60,7 +60,7 @@ function StageCard({
       <div className="flex items-center justify-between gap-2">
         <h3 className="text-xs font-semibold text-foreground">{title}</h3>
         <span className="shrink-0 rounded-full border border-current/25 px-1.5 py-0.5 text-[9px] font-semibold tracking-wide">
-          {stateLabel[state]}
+          <bdi dir="ltr">{stateLabel[state]}</bdi>
         </span>
       </div>
       <div className="mt-2 space-y-2 text-[11px] leading-5 text-muted-foreground">
@@ -80,7 +80,7 @@ function ObservationRows({
   if (observations.length === 0) {
     return (
       <div>
-        <span className="font-medium text-foreground/80">{label}:</span> no transition-linked references
+        <span className="font-medium text-foreground/80">{label}:</span> لا توجد مراجع مرتبطة بالانتقال.
       </div>
     );
   }
@@ -91,16 +91,16 @@ function ObservationRows({
       {observations.map((observation) => (
         <div key={observation.id} className="rounded-md border border-border/45 bg-background/30 px-2 py-1.5">
           <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
-            <span>{observation.predicate}</span>
-            <span className="text-foreground">
+            <bdi dir="ltr">{observation.predicate}</bdi>
+        <bdi dir="ltr" className="text-foreground">
               {observation.predicate === "workspace.tree_hash"
-                ? "tree hash value not shown"
-                : observation.runtimeStatus ?? "state not independently verified"}
-            </span>
+                ? "قيمة تجزئة الشجرة غير معروضة"
+                : observation.runtimeStatus ?? "لم يُتحقق من الحالة بصورة مستقلة"}
+        </bdi>
           </div>
-          <div className="break-all font-mono text-[9px] opacity-80">{observation.id}</div>
+          <div dir="ltr" className="break-all font-mono text-[9px] opacity-80">{observation.id}</div>
           <div>
-            {observation.provenance} · {observation.completeness} · {observation.freshness} · environment {observation.environmentFreshness}
+            <bdi dir="ltr">{observation.provenance} · {observation.completeness} · {observation.freshness} · environment {observation.environmentFreshness}</bdi>
           </div>
         </div>
       ))}
@@ -137,20 +137,20 @@ function AcceptanceStage({
           : "missing";
 
   return (
-    <StageCard title="Acceptance" state={state}>
+    <StageCard title="القبول" state={state}>
       {!acceptance ? (
-        <p>No acceptance snapshot is recorded for this attempt.</p>
+        <p>لا توجد لقطة قبول مسجلة لهذه المحاولة.</p>
       ) : (
         <>
           <p>
-            {isSameAttempt ? `Attempt ${acceptance.attempt}` : `Acceptance attempt ${acceptance.attempt} does not match this transition`}
+            {isSameAttempt ? `المحاولة ${acceptance.attempt}` : `محاولة القبول ${acceptance.attempt} لا تطابق هذا الانتقال`}
             {" · "}
-            {acceptance.outcome}
+            <bdi dir="ltr">{acceptance.outcome}</bdi>
           </p>
           <p>
             {isProven
-              ? "Server acceptance and Canonical Proof are both PROVEN."
-              : `Evidence complete: ${acceptance.evidenceComplete ? "yes" : "no"} · Canonical Proof: ${proofVerdict ?? "not proven"}`}
+              ? "قبول الخادم والإثبات المعتمد كلاهما PROVEN."
+              : <>اكتملت الأدلة: {acceptance.evidenceComplete ? "نعم" : "لا"} · الإثبات المعتمد: {proofVerdict ? <bdi dir="ltr">{proofVerdict}</bdi> : "لم يثبت"}</>}
           </p>
         </>
       )}
@@ -172,19 +172,19 @@ function TransitionEntry({
   if (!transition) {
     return (
       <div className="grid gap-2 xl:grid-cols-4">
-        <StageCard title="Observation" state="missing">
-          <p>No transition-linked before/after observations were returned.</p>
+        <StageCard title="الرصد" state="missing">
+          <p>لم تُعَد أرصاد قبل/بعد مرتبطة بالانتقال.</p>
         </StageCard>
-        <StageCard title="Effect" state="missing">
-          <p>No transition-linked effect bundle was returned.</p>
+        <StageCard title="الأثر" state="missing">
+          <p>لم تُعَد حزمة أثر مرتبطة بالانتقال.</p>
         </StageCard>
         <AcceptanceStage
           executionAttempt={executionAttempt}
           acceptance={acceptance}
           proofVerdict={proofVerdict}
         />
-        <StageCard title="World materialization" state="missing">
-          <p>No World Transition record is available for this attempt.</p>
+        <StageCard title="تحديث حالة العالم" state="missing">
+          <p>لا يوجد سجل انتقال حالة عالم لهذه المحاولة.</p>
         </StageCard>
       </div>
     );
@@ -220,24 +220,24 @@ function TransitionEntry({
   return (
     <div className="space-y-2">
       <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[10px] text-muted-foreground">
-        <span className="font-mono">Episode {transition.episodeId}</span>
-        <span className="font-mono">Action {transition.actionId}</span>
-        <span className="font-mono">Attempt {transition.attempt}</span>
-        <span className="font-mono">Transition {transition.id}</span>
+        <span className="font-mono"><bdi dir="ltr">Episode {transition.episodeId}</bdi></span>
+        <span className="font-mono"><bdi dir="ltr">Action {transition.actionId}</bdi></span>
+        <span className="font-mono"><bdi dir="ltr">Attempt {transition.attempt}</bdi></span>
+        <span className="font-mono"><bdi dir="ltr">Transition {transition.id}</bdi></span>
       </div>
       <div className="grid gap-2 xl:grid-cols-4">
-        <StageCard title="Observation" state={observationsState}>
-          <ObservationRows label="Before" observations={transition.beforeObservations} />
-          <ObservationRows label="After" observations={transition.afterObservations} />
+        <StageCard title="الرصد" state={observationsState}>
+          <ObservationRows label="قبل" observations={transition.beforeObservations} />
+          <ObservationRows label="بعد" observations={transition.afterObservations} />
         </StageCard>
-        <StageCard title="Effect" state={effectState}>
+        <StageCard title="الأثر" state={effectState}>
           {transition.effectBundle ? (
             <>
-              <p>Effect verdict: <span className="font-semibold text-foreground">{transition.effectBundle.verdict}</span></p>
-              <p className="break-all font-mono text-[9px]">{transition.effectBundle.id}</p>
+              <p>حكم الأثر: <bdi dir="ltr" className="font-semibold text-foreground">{transition.effectBundle.verdict}</bdi></p>
+              <p dir="ltr" className="break-all font-mono text-[9px]">{transition.effectBundle.id}</p>
             </>
           ) : (
-            <p>No effect bundle is linked to this transition.</p>
+            <p>لا توجد حزمة أثر مرتبطة بهذا الانتقال.</p>
           )}
         </StageCard>
         <AcceptanceStage
@@ -246,11 +246,11 @@ function TransitionEntry({
           acceptance={acceptance}
           proofVerdict={proofVerdict}
         />
-        <StageCard title="World materialization" state={worldState}>
-          <p>Status: <span className="font-semibold text-foreground">{transition.status}</span></p>
-          <p>Parent revision: <span className="break-all font-mono text-foreground/80">{transition.parentWorldRevision ?? "not recorded"}</span></p>
-          <p>Result revision: <span className="break-all font-mono text-foreground/80">{transition.resultingWorldRevision ?? "not recorded"}</span></p>
-          {transition.failureCode && <p>Failure code: <span className="font-mono text-foreground">{transition.failureCode}</span></p>}
+        <StageCard title="تحديث حالة العالم" state={worldState}>
+          <p>الحالة: <bdi dir="ltr" className="font-semibold text-foreground">{transition.status}</bdi></p>
+          <p>مراجعة الحالة السابقة: {transition.parentWorldRevision ? <bdi dir="ltr" className="break-all font-mono text-foreground/80">{transition.parentWorldRevision}</bdi> : "غير مسجلة"}</p>
+          <p>مراجعة الحالة الناتجة: {transition.resultingWorldRevision ? <bdi dir="ltr" className="break-all font-mono text-foreground/80">{transition.resultingWorldRevision}</bdi> : "غير مسجلة"}</p>
+          {transition.failureCode && <p>رمز الإخفاق: <bdi dir="ltr" className="font-mono text-foreground">{transition.failureCode}</bdi></p>}
         </StageCard>
       </div>
     </div>
@@ -283,11 +283,11 @@ export default function WorldTransitionTimeline({
     : applyMission?.d2.state;
 
   return (
-    <section className="rounded-xl border border-border bg-card" aria-label="World Transition timeline">
+    <section className="rounded-xl border border-border bg-card" aria-label="الخط الزمني لانتقال حالة العالم">
       <div className="border-b border-border/70 px-4 py-3.5">
-        <h2 className="font-semibold">World Transition timeline</h2>
+        <h2 className="font-semibold">الخط الزمني لانتقال حالة العالم</h2>
         <p className="mt-1 text-[11px] text-muted-foreground">
-          Observation, effect, acceptance, and World materialization are separate records; one does not imply another.
+          الرصد والأثر والقبول وتحديث حالة العالم سجلات منفصلة؛ ولا يثبت أحدها تحقق الآخر.
         </p>
       </div>
       <div className="space-y-3 p-4">
@@ -309,32 +309,32 @@ export default function WorldTransitionTimeline({
           ))
         )}
         {applyMission && (
-          <div className="rounded-lg border border-border/70 bg-background/20 px-3 py-2 text-xs" aria-label="Apply Mission handoff" data-testid="status-apply-mission-handoff">
+          <div className="rounded-lg border border-border/70 bg-background/20 px-3 py-2 text-xs" aria-label="إحالة تطبيق الخطة" data-testid="status-apply-mission-handoff">
             <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
               <span data-testid="status-apply-d2">
-                Apply D2: <strong>{handoffState}</strong>
+                إثبات التطبيق D2: <bdi dir="ltr"><strong>{handoffState}</strong></bdi>
               </span>
               <span data-testid="status-report-goal">
-                report-applied goal: <strong>{applyMission.successor?.status ?? "not linked"}</strong>
+                هدف التقرير الناتج عن التطبيق: {applyMission.successor?.status ? <bdi dir="ltr"><strong>{applyMission.successor.status}</strong></bdi> : "غير مرتبط"}
               </span>
             </div>
             {handoffProven && (
               <p className="mt-1 break-all font-mono text-[10px] text-muted-foreground">
-                World revision: {applyMission.d2.resultingWorldRevision}
+                مراجعة حالة العالم: <bdi dir="ltr">{applyMission.d2.resultingWorldRevision}</bdi>
               </p>
             )}
             {applyMission.reason && (
-              <p className="mt-1 text-muted-foreground">Binding reason: {applyMission.reason}</p>
+              <p className="mt-1 text-muted-foreground">سبب الربط: <bdi dir="ltr">{applyMission.reason}</bdi></p>
             )}
             {applyMission.successor?.blockedReason && (
-              <p className="mt-1 text-muted-foreground">Goal reason: {applyMission.successor.blockedReason}</p>
+              <p className="mt-1 text-muted-foreground">سبب تعذر الهدف: <bdi dir="ltr">{applyMission.successor.blockedReason}</bdi></p>
             )}
             <p className="mt-1 text-muted-foreground">
               {applyMission.successor?.status === "completed" && handoffProven
-                ? "The report goal is complete. External delivery is not implied."
+                ? "اكتمل هدف التقرير. ولا يعني ذلك تسليمًا خارجيًا."
                 : applyMission.successor
-                  ? "The report goal is not verified complete; dispatch is not completion or external delivery."
-                  : "No report goal can be linked to this active plan; external delivery is not implied."}
+                  ? "لم يُتحقق من اكتمال هدف التقرير؛ فالإرسال لا يعني اكتمالًا أو تسليمًا خارجيًا."
+                  : "لا يمكن ربط هدف تقرير بهذه الخطة النشطة؛ ولا يعني ذلك تسليمًا خارجيًا."}
             </p>
           </div>
         )}

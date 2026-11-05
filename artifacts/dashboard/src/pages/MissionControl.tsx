@@ -102,26 +102,26 @@ function asExecutions(value: unknown): MissionExecution[] {
 
 function validateHistorySnapshot(value: unknown): { snapshot?: HistorySnapshot; error?: string } {
   const root = asRecord(value);
-  if (!root) return { error: 'The file must contain a JSON object.' };
+  if (!root) return { error: 'يجب أن يحتوي الملف على كائن JSON.' };
   if (!Array.isArray(root.executions) || root.executions.length === 0) {
-    return { error: 'The JSON must contain a non-empty executions array.' };
+    return { error: 'يجب أن يحتوي JSON على مصفوفة تنفيذات غير فارغة.' };
   }
   const invalidExecutionIndex = root.executions.findIndex((execution) => {
     const record = asRecord(execution);
     return !record || typeof record.id !== 'string' || !record.id.trim();
   });
   if (invalidExecutionIndex >= 0) {
-    return { error: `Execution ${invalidExecutionIndex + 1} must be an object with a non-empty string id.` };
+    return { error: `يجب أن يكون التنفيذ رقم ${invalidExecutionIndex + 1} كائنًا بمعرّف نصي غير فارغ.` };
   }
   const benchmark = asRecord(root.benchmark);
-  if (!benchmark) return { error: 'The JSON must contain a benchmark object.' };
+  if (!benchmark) return { error: 'يجب أن يحتوي JSON على كائن للقياس.' };
   const scorecard = asRecord(benchmark.scorecard);
   const baseline = asRecord(benchmark.baseline);
   if (!scorecard || !asRecord(scorecard.metrics)) {
-    return { error: 'Benchmark scorecard.metrics must be a nested object.' };
+    return { error: 'يجب أن تكون مقاييس بطاقة الأداء كائنًا متداخلًا داخل بيانات القياس.' };
   }
   if (!baseline || !asRecord(baseline.metrics)) {
-    return { error: 'Benchmark baseline.metrics must be a nested object.' };
+    return { error: 'يجب أن تكون مقاييس خط الأساس كائنًا متداخلًا داخل بيانات القياس.' };
   }
   return { snapshot: { executions: asExecutions(root.executions), benchmark } };
 }
@@ -335,9 +335,9 @@ function ShadowComparisonQueueCard({ queue }: { queue: ShadowQueueProjection }) 
 function ProviderRecoverySummary({ value }: { value: unknown }) {
   const summary = asRecord(value);
   if (!summary) return null;
-  const category = textValue(summary.failureCategory) ?? 'Not categorized';
-  const action = textValue(summary.recoveryAction) ?? 'No recovery action';
-  const evidence = textValue(summary.evidenceStatus) ?? 'Not recorded';
+  const category = textValue(summary.failureCategory) ?? 'غير مصنفة';
+  const action = textValue(summary.recoveryAction) ?? 'لا يوجد إجراء استعادة';
+  const evidence = textValue(summary.evidenceStatus) ?? 'غير مسجل';
   const attempts = numberValue(summary.attemptCount);
   return (
     <div className="rounded-lg border border-amber-500/25 bg-amber-500/5 p-3">
@@ -345,12 +345,12 @@ function ProviderRecoverySummary({ value }: { value: unknown }) {
         <ShieldCheck className="h-4 w-4 text-amber-200" />
         <span className="text-sm font-semibold">استعادة مزود الذكاء الاصطناعي</span>
         <span className="ml-auto rounded-full border border-amber-500/35 px-1.5 py-0.5 text-[10px] uppercase text-amber-200">
-          {evidence}
+          <bdi dir="ltr">{evidence}</bdi>
         </span>
       </div>
       <div className="mt-2 grid gap-2 text-xs sm:grid-cols-3">
-        <div><div className="text-muted-foreground">فئة الإخفاق</div><div className="mt-0.5 font-medium">{category}</div></div>
-        <div><div className="text-muted-foreground">إجراء الاستعادة</div><div className="mt-0.5 font-medium">{action}</div></div>
+        <div><div className="text-muted-foreground">فئة الإخفاق</div><div className="mt-0.5 font-medium"><bdi dir="auto">{category}</bdi></div></div>
+        <div><div className="text-muted-foreground">إجراء الاستعادة</div><div className="mt-0.5 font-medium"><bdi dir="auto">{action}</bdi></div></div>
         <div><div className="text-muted-foreground">المحاولات</div><div className="mt-0.5 font-medium">{attempts ?? 'غير مسجل'}</div></div>
       </div>
     </div>
@@ -381,7 +381,7 @@ function ProviderAvailabilityCard({ execution }: { execution: MissionExecution |
 
 function percentageMetric(metrics: JsonRecord | null, key: string): string {
   const value = numberValue(metrics?.[key]);
-  return value === undefined ? 'Not recorded' : `${(value * 100).toFixed(1)}%`;
+  return value === undefined ? 'غير مسجل' : `${(value * 100).toFixed(1)}%`;
 }
 
 function ReleaseGateCard({ value }: { value: unknown }) {
@@ -410,7 +410,7 @@ function ReleaseGateCard({ value }: { value: unknown }) {
           <p className="mt-0.5 text-[11px] text-muted-foreground">يبقى قبول العقد هو المرجع المعتمد للإصدار.</p>
         </div>
         <span className={`ml-auto rounded-full border px-2 py-0.5 text-[10px] uppercase ${status === 'passed' ? 'border-emerald-500/30 text-emerald-200' : 'border-amber-500/30 text-amber-200'}`}>
-          {status ? status : 'not recorded'}
+          {status ? <bdi dir="ltr">{status}</bdi> : 'غير مسجل'}
         </span>
       </div>
       <div className="p-4">
@@ -450,7 +450,7 @@ function ReleaseGateCard({ value }: { value: unknown }) {
                       ? 'border-red-500/30 text-red-200'
                       : 'border-border/60 text-muted-foreground'
                 }`}>
-                  {runtimeStatus ?? 'not recorded'}
+                  {runtimeStatus ? <bdi dir="ltr">{runtimeStatus}</bdi> : 'غير مسجل'}
                 </span>
               </div>
               {!runtimeOracle ? (
@@ -475,7 +475,7 @@ function ReleaseGateCard({ value }: { value: unknown }) {
                         return (
                           <div key={`${textValue(check.scenarioId) ?? 'scenario'}-${index}`} className="rounded-md border border-border/45 px-2.5 py-2 text-[11px]">
                             <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
-                              <span className="font-mono text-foreground">{textValue(check.scenarioId) ?? 'Unknown scenario'}</span>
+                              <span dir="ltr" className="font-mono text-foreground">{textValue(check.scenarioId) ?? 'سيناريو غير معروف'}</span>
                               <span className={`ml-auto rounded-full border px-1.5 py-0.5 text-[10px] uppercase ${
                                 checkStatus === 'passed' ? 'border-emerald-500/30 text-emerald-200' : 'border-red-500/30 text-red-200'
                               }`}>
@@ -483,7 +483,7 @@ function ReleaseGateCard({ value }: { value: unknown }) {
                               </span>
                             </div>
                             <div className="mt-1 break-all font-mono text-[10px] text-muted-foreground">
-                              {textValue(check.command) ?? 'Command not recorded'}
+                              {textValue(check.command) ?? 'لم يُسجّل الأمر'}
                             </div>
                             {textValue(check.failureCode) && (
                               <div className="mt-1 text-[10px] text-red-200">رمز الإخفاق: <bdi dir="ltr">{textValue(check.failureCode)}</bdi></div>
@@ -562,7 +562,7 @@ function EmpiricalQualityCard({ value }: { value: unknown }) {
             </div>
             {blockers.length > 0 && (
               <div className="mt-3 rounded-md border border-amber-500/25 bg-amber-500/5 px-3 py-2 text-xs text-amber-100">
-                Measurement incomplete: {blockers.slice(0, 3).join(' · ')}
+                القياس غير مكتمل: {blockers.slice(0, 3).join(' · ')}
               </div>
             )}
           </>
@@ -582,7 +582,7 @@ function ComparisonRunColumn({
   if (!execution) {
     return (
       <div className="rounded-lg border border-dashed border-border/70 bg-background/20 p-5 text-center text-xs text-muted-foreground">
-        No run selected.
+        لم يُحدّد تنفيذ.
       </div>
     );
   }
@@ -614,28 +614,28 @@ function ComparisonRunColumn({
   const events = Array.isArray(execution.recentEvents) ? execution.recentEvents : [];
   const eventCount = numberValue(execution.eventCount) ?? events.length;
   const evidenceRowsForRun = evidenceRows(execution.evidence).map((row) => (
-    row.label === 'Verdict'
-      ? { ...row, label: 'Recorded verdict' }
+      row.label === 'Verdict'
+      ? { ...row, label: 'الحكم المسجل' }
       : row.label === 'Proof'
-        ? { ...row, label: 'Recorded proof metadata' }
+        ? { ...row, label: 'بيانات الإثبات المسجلة' }
         : row
   ));
   const details = [
-    ['State', stateText(execution.state)],
-    ['Attempts', formatValue(execution.attempts ?? 0)],
-    ['Validation failures', formatValue(execution.validationFailures ?? 0)],
-    ['Event count', String(eventCount)],
-    ['Failure category', failureCategory ?? 'Not categorized'],
-    ['Recovery action', recoveryAction ?? 'No recovery action'],
-    ['Evidence status', evidenceStatus ?? 'Not recorded'],
+    ['الحالة', stateText(execution.state)],
+    ['المحاولات', formatValue(execution.attempts ?? 0)],
+    ['إخفاقات التحقق', formatValue(execution.validationFailures ?? 0)],
+    ['عدد الأحداث', String(eventCount)],
+    ['فئة الإخفاق', failureCategory ?? 'غير مصنفة'],
+    ['إجراء الاستعادة', recoveryAction ?? 'لا يوجد إجراء استعادة'],
+    ['حالة الأدلة', evidenceStatus ?? 'غير مسجل'],
   ];
 
   return (
     <div className="rounded-lg border border-border/60 bg-background/20 p-3" data-testid={`comparison-run-${label.toLowerCase().replace(/\s+/g, '-')}`}>
       <div className="flex flex-wrap items-start gap-2">
         <div className="min-w-0 flex-1">
-          <div className="text-[10px] font-semibold uppercase tracking-[0.16em] text-primary">{label}</div>
-          <div className="mt-1 break-all font-mono text-xs text-foreground">{execution.id}</div>
+          <div className="text-[10px] font-semibold uppercase tracking-[0.16em] text-primary">{label === 'Live run' ? 'التنفيذ الحالي' : 'التنفيذ المستورد'}</div>
+          <div dir="ltr" className="mt-1 break-all font-mono text-xs text-foreground">{execution.id}</div>
         </div>
         <span className={`rounded-full border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${stateTone(execution.state)}`}>
           {stateText(execution.state)}
@@ -646,42 +646,42 @@ function ComparisonRunColumn({
         {details.map(([detailLabel, value]) => (
           <div key={detailLabel} className="grid grid-cols-[minmax(105px,0.75fr)_minmax(0,1.25fr)] gap-3 rounded-md border border-border/45 px-2.5 py-2 text-[11px]">
             <span className="text-muted-foreground">{detailLabel}</span>
-            <span className="break-words text-right font-medium text-foreground">{value}</span>
+            <span className="break-words text-right font-medium text-foreground"><bdi dir={detailLabel === 'الحالة' || detailLabel === 'حالة الأدلة' ? 'ltr' : 'auto'}>{value}</bdi></span>
           </div>
         ))}
       </div>
 
       <div className="mt-3 rounded-md border border-border/45 px-2.5 py-2.5">
         <div className="flex items-center gap-2 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
-          <ShieldCheck className="h-3.5 w-3.5 text-primary" /> Recorded evidence
+          <ShieldCheck className="h-3.5 w-3.5 text-primary" /> الأدلة المسجلة
           <span
             className={`ml-auto ${evidenceStatusTone}`}
             data-testid={`comparison-evidence-status-${label.toLowerCase().replace(/\s+/g, '-')}`}
           >
-            {evidenceStatus ?? (evidence ? 'Recorded' : 'Not recorded')}
+            <bdi dir="ltr">{evidenceStatus ?? (evidence ? 'RECORDED' : 'NOT RECORDED')}</bdi>
           </span>
         </div>
         <p className="mt-1 text-[10px] leading-4 text-muted-foreground">
-          Recorded evidence metadata is not Canonical Proof and does not establish acceptance.
+          بيانات الأدلة المسجلة ليست إثباتًا معتمدًا ولا تثبت القبول.
         </p>
         {evidenceRowsForRun.length > 0 ? (
           <div className="mt-2 space-y-1.5">
             {evidenceRowsForRun.slice(0, 4).map((row) => (
               <div key={row.label} className="text-[11px]">
                 <span className="text-muted-foreground">{row.label}: </span>
-                <span className="break-words text-foreground/90">{row.value}</span>
+                <span className="break-words text-foreground/90"><bdi dir="auto">{row.value}</bdi></span>
               </div>
             ))}
           </div>
         ) : (
-          <p className="mt-2 text-[11px] text-muted-foreground">No recorder evidence returned.</p>
+          <p className="mt-2 text-[11px] text-muted-foreground">لم تُعَد أدلة من المسجل.</p>
         )}
       </div>
 
       <div className="mt-3 rounded-md border border-border/45 px-2.5 py-2.5">
         <div className="flex items-center gap-2 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
-          <History className="h-3.5 w-3.5 text-primary" /> Event timeline
-          <span className="ml-auto font-mono text-foreground">{eventCount} total</span>
+          <History className="h-3.5 w-3.5 text-primary" /> الخط الزمني للأحداث
+          <span className="ml-auto font-mono text-foreground">{eventCount} إجمالًا</span>
         </div>
         {events.length > 0 ? (
           <div className="mt-2 space-y-1.5">
@@ -698,10 +698,10 @@ function ComparisonRunColumn({
                 </div>
               );
             })}
-            {events.length > 6 && <p className="text-[10px] text-muted-foreground">Showing 6 of {events.length} returned events.</p>}
+            {events.length > 6 && <p className="text-[10px] text-muted-foreground">يُعرض 6 من أصل {events.length} أحداث معادة.</p>}
           </div>
         ) : (
-          <p className="mt-2 text-[11px] text-muted-foreground">No timeline events returned.</p>
+          <p className="mt-2 text-[11px] text-muted-foreground">لم تُعَد أحداث في الخط الزمني.</p>
         )}
       </div>
     </div>
@@ -711,9 +711,9 @@ function ComparisonRunColumn({
 function objectiveText(value: unknown): string {
   if (typeof value === 'string' && value.trim()) return value;
   const object = asRecord(value);
-  if (!object) return 'Objective not recorded';
+  if (!object) return 'لم يُسجّل الهدف';
   return textValue(object.objective, object.description, object.title, object.type)
-    ?? 'Declared engineering objective';
+    ?? 'الهدف الهندسي المعلن';
 }
 
 function stateText(state: unknown): string {
@@ -1128,7 +1128,7 @@ function eventParts(event: unknown): { title: string; detail?: string; time?: st
   const record = asRecord(event);
   if (!record) return { title: formatValue(event) };
   return {
-    title: textValue(record.type, record.event, record.kind, record.name, record.state, record.message) ?? 'Recorded event',
+      title: textValue(record.type, record.event, record.kind, record.name, record.state, record.message) ?? 'حدث مسجل',
     detail: textValue(record.message, record.detail, record.description),
     time: formatDate(record.timestamp ?? record.createdAt ?? record.at),
   };
@@ -1272,7 +1272,7 @@ export default function MissionControl() {
   const [historyExportFormat, setHistoryExportFormat] = useState<HistoryExportFormat>('csv');
   const [historyPage, setHistoryPage] = useState(1);
   const [importedHistory, setImportedHistory] = useState<HistorySnapshot | null>(null);
-  const [importStatus, setImportStatus] = useState<string | null>(null);
+  const [importStatus, setImportStatus] = useState<{ count: number; fileName: string } | null>(null);
   const [importError, setImportError] = useState<string | null>(null);
   const historyPageSize = 8;
   const { data, error, isError, isLoading, isFetching, refetch } = useGetAiMissionControl(
@@ -1426,7 +1426,7 @@ export default function MissionControl() {
         ? selectedExecutionDetail.linkedTaskId
         : undefined);
     if (owningTaskId) {
-      setRecoveryMessage('This execution is owned by a Task. Use the Task page for recovery.');
+      setRecoveryMessage('هذا التنفيذ مرتبط بمهمة. استخدم صفحة المهمة للاستعادة.');
       return;
     }
     setRecoveryPendingId(execution.id);
@@ -1442,13 +1442,13 @@ export default function MissionControl() {
         }),
       });
       const body = await response.json().catch(() => ({})) as { error?: string; outcome?: string };
-      if (!response.ok) throw new Error(body.error || 'Recovery is no longer available for this run.');
+      if (!response.ok) throw new Error(body.error || 'لم تعد الاستعادة متاحة لهذا التنفيذ.');
       setRecoveryMessage(body.outcome === 'abandoned'
-        ? 'Run abandoned safely. Its original evidence remains available.'
-        : 'Resume accepted. Open the AI Assistant to continue from the saved checkpoint.');
+        ? 'تم التخلي عن التنفيذ بأمان، ولا تزال أدلته الأصلية متاحة.'
+        : 'تم قبول الاستئناف. افتح مساعد الذكاء الاصطناعي للمتابعة من نقطة الحفظ.');
       await refetch();
     } catch (error) {
-      setRecoveryMessage(error instanceof Error ? error.message : 'Recovery could not be completed.');
+      setRecoveryMessage(error instanceof Error ? error.message : 'تعذرت استعادة التنفيذ.');
     } finally {
       setRecoveryPendingId(null);
     }
@@ -1469,9 +1469,9 @@ export default function MissionControl() {
       }
       setImportedHistory(result.snapshot ?? null);
       setComparisonImportedId(result.snapshot?.executions[0]?.id ?? null);
-      setImportStatus(`Imported ${result.snapshot?.executions.length ?? 0} executions from ${file.name}.`);
+      setImportStatus({ count: result.snapshot?.executions.length ?? 0, fileName: file.name });
     } catch {
-      setImportError('This file is not valid JSON. Choose a JSON history exported from Mission Control.');
+      setImportError('الملف ليس بصيغة JSON صالحة. اختر سجل JSON مُصدّرًا من مركز المهام.');
     }
   }
 
@@ -1689,7 +1689,7 @@ export default function MissionControl() {
                 </label>
              </div>
               {importError && <p className="mt-2 text-[11px] text-red-200" role="alert">{importError}</p>}
-              {importStatus && <p className="mt-2 text-[11px] text-emerald-200" role="status">{importStatus}</p>}
+              {importStatus && <p className="mt-2 text-[11px] text-emerald-200" role="status">تم استيراد {importStatus.count} تنفيذًا من الملف <bdi dir="ltr">{importStatus.fileName}</bdi>.</p>}
              {filteredExecutions.length === 0 && (
                <p className="mt-2 text-[11px] text-muted-foreground" role="status">
                  لا توجد عمليات مطابقة للتصدير. عدّل البحث أو مرشح الحالة.
@@ -2031,38 +2031,38 @@ export default function MissionControl() {
           )}
 
            {asRecord(selectedExecution?.recovery)?.uncertain === true && selectedExecution && (
-             <section className="rounded-xl border border-amber-500/35 bg-amber-500/5 p-4" aria-label="Uncertain execution recovery">
+             <section className="rounded-xl border border-amber-500/35 bg-amber-500/5 p-4" aria-label="استعادة التنفيذ غير المحسوم">
                <div className="flex items-start gap-3">
                  <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-200" />
                  <div className="min-w-0 flex-1">
-                   <h2 className="font-semibold text-amber-100">Uncertain run needs a decision</h2>
+                   <h2 className="font-semibold text-amber-100">التنفيذ غير محسوم ويتطلب قرارًا</h2>
                    <p className="mt-1 text-xs leading-5 text-muted-foreground">
-                     Operation {textValue(selectedExecution.operationId) ?? selectedExecution.id} · revision {textValue(selectedExecution.revision) ?? 'not recorded'} · phase {textValue(selectedExecution.phase) ?? 'unknown'}.
-                     The original user turn and evidence receipt are preserved.
+                     العملية <bdi dir="ltr">{textValue(selectedExecution.operationId) ?? selectedExecution.id}</bdi> · المراجعة <bdi dir="ltr">{textValue(selectedExecution.revision) ?? 'NOT RECORDED'}</bdi> · المرحلة <bdi dir="ltr">{textValue(selectedExecution.phase) ?? 'UNKNOWN'}</bdi>.
+                     حُفظ طلب المستخدم الأصلي وإيصال الأدلة.
                    </p>
                    {selectedExecutionTaskId ? (
                      <div className="mt-3 flex flex-wrap items-center gap-2">
-                       <span className="text-xs text-muted-foreground">Recovery is controlled by the owning Task.</span>
+                       <span className="text-xs text-muted-foreground">تُدار الاستعادة من المهمة المرتبطة بهذا التنفيذ.</span>
                        <Link
                          href={`/tasks?taskId=${encodeURIComponent(selectedExecutionTaskId)}`}
                          className="rounded-md border border-primary/30 px-3 py-2 text-xs font-semibold text-primary hover-elevate"
-                         aria-label="Open owning Task"
+                         aria-label="افتح المهمة المرتبطة"
                        >
-                         Open Task
+                         افتح المهمة
                        </Link>
                      </div>
                    ) : selectedExecutionDetailIsBound ? (
                      <div className="mt-3 flex flex-wrap gap-2">
                        <button type="button" disabled={recoveryPendingId === selectedExecution.id} onClick={() => void recoverExecution(selectedExecution, 'resume')} className="rounded-md bg-primary px-3 py-2 text-xs font-semibold text-primary-foreground hover-elevate disabled:opacity-50">
-                         {recoveryPendingId === selectedExecution.id ? 'Working…' : 'Resume once'}
+                         {recoveryPendingId === selectedExecution.id ? 'جارٍ التنفيذ…' : 'استأنف مرة واحدة'}
                        </button>
                        <button type="button" disabled={recoveryPendingId === selectedExecution.id} onClick={() => void recoverExecution(selectedExecution, 'abandon')} className="rounded-md border border-amber-500/35 px-3 py-2 text-xs font-semibold text-amber-100 hover-elevate disabled:opacity-50">
-                         Abandon safely
+                         تخلَّ عنه بأمان
                        </button>
                      </div>
                    ) : (
                      <p className="mt-3 text-xs text-muted-foreground" role="status">
-                       Checking the execution owner before offering recovery.
+                       جارٍ التحقق من مالك التنفيذ قبل إتاحة الاستعادة.
                      </p>
                    )}
                    {recoveryMessage && <p className="mt-2 text-[11px] text-amber-100" role="status">{recoveryMessage}</p>}
@@ -2078,14 +2078,14 @@ export default function MissionControl() {
               <GitBranch className="h-4 w-4 text-primary" />
               <div>
                 <h2 className="font-semibold">مقارنة خط الأساس</h2>
-                <p className="mt-0.5 text-[11px] text-muted-foreground">Benchmark values as returned by the server.</p>
+                <p className="mt-0.5 text-[11px] text-muted-foreground">قيم القياس كما أعادها الخادم.</p>
               </div>
             </div>
             <div className="p-4">
               {recoverySummaries.length > 0 && (
-                <div className="mb-4 space-y-2" aria-label="Historical provider recovery summaries">
+                <div className="mb-4 space-y-2" aria-label="ملخصات استعادة المزود السابقة">
                   <div className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
-                    Historical report recovery details
+                    تفاصيل الاستعادة في التقارير السابقة
                   </div>
                   {recoverySummaries.map((summary, index) => (
                     <ProviderRecoverySummary key={index} value={summary} />
@@ -2093,7 +2093,7 @@ export default function MissionControl() {
                 </div>
               )}
               {scorecardMetrics.length === 0 && baselineMetrics.length === 0 ? (
-                <p className="rounded-lg border border-dashed border-border/70 bg-background/20 p-5 text-center text-xs text-muted-foreground">No benchmark metrics were returned.</p>
+                <p className="rounded-lg border border-dashed border-border/70 bg-background/20 p-5 text-center text-xs text-muted-foreground">لم تُعَد مقاييس للقياس.</p>
               ) : (
                 <div className="space-y-1.5">
                   {scorecardMetrics.slice(0, 8).map((metric) => {
@@ -2106,7 +2106,7 @@ export default function MissionControl() {
                         <span className="min-w-0 flex-1 truncate text-xs text-muted-foreground">{metric.label}</span>
                         <span className="font-mono text-xs text-foreground">{metric.value}</span>
                         <span className="w-20 text-right font-mono text-[10px] text-muted-foreground">
-                          {baseline ? `base ${baseline.value}` : 'no baseline'}
+                          {baseline ? <>الأساس <bdi dir="ltr">{baseline.value}</bdi></> : 'لا توجد قيمة أساس'}
                         </span>
                         {delta !== undefined && (
                           <span className={`w-12 text-right font-mono text-[10px] ${delta >= 0 ? 'text-emerald-200' : 'text-red-200'}`}>
@@ -2116,7 +2116,7 @@ export default function MissionControl() {
                       </div>
                     );
                   })}
-                  {scorecardMetrics.length === 0 && <p className="text-xs text-muted-foreground">Scorecard metrics not recorded; baseline data is present.</p>}
+                  {scorecardMetrics.length === 0 && <p className="text-xs text-muted-foreground">لم تُسجل مقاييس بطاقة الأداء؛ تتوفر بيانات خط الأساس.</p>}
                 </div>
               )}
             </div>
@@ -2125,38 +2125,38 @@ export default function MissionControl() {
            <ReleaseGateCard value={releaseGate} />
            <EmpiricalQualityCard value={empiricalCampaign} />
 
-          <section className="rounded-xl border border-emerald-500/25 bg-card" aria-label="Autonomous delivery acceptance report">
+          <section className="rounded-xl border border-emerald-500/25 bg-card" aria-label="تقرير قبول التسليم المستقل">
             <div className="flex items-center gap-2 border-b border-emerald-500/20 px-4 py-3.5">
               <ShieldCheck className="h-4 w-4 text-emerald-200" />
               <div>
-                <h2 className="font-semibold">Verified delivery outcomes</h2>
+                <h2 className="font-semibold">نتائج التسليم المتحقق منها</h2>
                 <p className="mt-0.5 text-[11px] text-muted-foreground">
-                  Isolated acceptance evidence, separate from deterministic release checks.
+                  أدلة قبول مستقلة عن فحوص الإصدار الحتمية.
                 </p>
               </div>
               {acceptanceSummary && (
                 <span className="ml-auto rounded-full border border-emerald-500/30 px-2 py-0.5 text-[10px] uppercase text-emerald-200">
-                  {formatValue(acceptanceSummary.operationCount)} operations
+                  {formatValue(acceptanceSummary.operationCount)} عملية
                 </span>
               )}
             </div>
             <div className="p-4">
               {!acceptanceSummary ? (
                 <p className="rounded-lg border border-dashed border-border/70 bg-background/20 p-5 text-center text-xs text-muted-foreground">
-                  No autonomous delivery acceptance report was returned.
+                  لم يُعَد تقرير قبول التسليم المستقل.
                 </p>
               ) : (
                 <>
                   <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
                     {[
-                      ['Verified completion', acceptanceMetrics?.completionRate],
-                      ['Safely blocked', acceptanceMetrics?.safeBlockRate],
-                      ['Known failure', acceptanceMetrics?.failureRate],
-                      ['Uncertain', acceptanceMetrics?.uncertaintyRate],
-                      ['Recovery', acceptanceMetrics?.recoveryRate],
-                      ['Scope escape', acceptanceMetrics?.scopeEscapeRate],
-                      ['Repeated side effect', acceptanceMetrics?.repeatedSideEffectRate],
-                      ['Verified count', acceptanceMetrics?.verifiedCompletionCount],
+                      ['إكمال متحقق منه', acceptanceMetrics?.completionRate],
+                      ['حظر آمن', acceptanceMetrics?.safeBlockRate],
+                      ['إخفاق معلوم', acceptanceMetrics?.failureRate],
+                      ['غير محسوم', acceptanceMetrics?.uncertaintyRate],
+                      ['استعادة', acceptanceMetrics?.recoveryRate],
+                      ['تجاوز النطاق', acceptanceMetrics?.scopeEscapeRate],
+                      ['أثر جانبي مكرر', acceptanceMetrics?.repeatedSideEffectRate],
+                      ['عدد الإكمالات المتحققة', acceptanceMetrics?.verifiedCompletionCount],
                     ].map(([label, value]) => (
                       <div key={String(label)} className="rounded-md border border-border/45 bg-background/20 px-3 py-2">
                         <div className="text-[10px] uppercase tracking-wide text-muted-foreground">{String(label)}</div>
@@ -2169,16 +2169,16 @@ export default function MissionControl() {
                     ))}
                   </div>
                   {acceptanceOperations.length > 0 && (
-                    <div className="mt-4 space-y-1.5" aria-label="Acceptance operations">
-                      <div className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">Operations</div>
+                    <div className="mt-4 space-y-1.5" aria-label="عمليات القبول">
+                      <div className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">العمليات</div>
                       {acceptanceOperations.slice(0, 12).map((raw, index) => {
                         const operation = asRecord(raw);
                         if (!operation) return null;
                         return (
                           <div key={`${textValue(operation.operationId) ?? 'operation'}-${index}`} className="flex flex-wrap items-center gap-x-2 gap-y-1 rounded-md border border-border/45 bg-background/20 px-3 py-2 text-xs">
-                            <span className="font-mono text-foreground">{textValue(operation.operationId) ?? 'Unknown operation'}</span>
+                            <span dir="ltr" className="font-mono text-foreground">{textValue(operation.operationId) ?? 'UNKNOWN OPERATION'}</span>
                             <span className="text-muted-foreground">·</span>
-                            <span className="text-muted-foreground">{textValue(operation.caseId) ?? 'Unknown case'}</span>
+                            <bdi dir="ltr" className="text-muted-foreground">{textValue(operation.caseId) ?? 'UNKNOWN CASE'}</bdi>
                             <span className="ml-auto rounded-full border border-border/60 px-1.5 py-0.5 text-[10px] uppercase">
                               {textValue(operation.outcome) ?? 'unknown'}
                             </span>
@@ -2195,15 +2195,15 @@ export default function MissionControl() {
       </div>
 
       {importedHistory && (
-        <section className="rounded-xl border border-primary/25 bg-card" aria-label="Imported history comparison">
+        <section className="rounded-xl border border-primary/25 bg-card" aria-label="مقارنة السجل المستورد">
           <div className="flex flex-col gap-2 border-b border-border/70 px-4 py-3.5 sm:flex-row sm:items-center sm:justify-between">
             <div>
               <div className="flex items-center gap-2">
                 <FileUp className="h-4 w-4 text-primary" />
-                <h2 className="font-semibold">Imported history comparison</h2>
+                <h2 className="font-semibold">مقارنة السجل المستورد</h2>
               </div>
               <p className="mt-1 text-[11px] text-muted-foreground">
-                A read-only comparison. The live execution ledger has not been changed.
+                مقارنة للقراءة فقط؛ لم يتغير سجل التنفيذ الحالي.
               </p>
             </div>
               <div className="flex flex-wrap gap-2 self-start">
@@ -2217,18 +2217,18 @@ export default function MissionControl() {
                     historyExportFormat,
                   )}
                   disabled={!comparisonLiveExecution || !selectedImportedExecution}
-                  aria-label="Export selected live and imported run pair"
-                  title={`Download the selected pair as ${historyExportFormat.toUpperCase()}`}
+                  aria-label="صدّر زوج التنفيذ الحالي والمستورد المحدد"
+                  title={`تنزيل الزوج المحدد بصيغة ${historyExportFormat.toUpperCase()}`}
                   className="inline-flex items-center gap-1.5 rounded-md border border-primary/35 bg-primary/10 px-2.5 py-1.5 text-[11px] font-semibold text-primary hover-elevate disabled:cursor-not-allowed disabled:opacity-45"
                 >
-                  <Download className="h-3.5 w-3.5" /> Export selected pair
+                  <Download className="h-3.5 w-3.5" /> تصدير الزوج المحدد
                 </button>
                 <button
                   type="button"
                   onClick={() => { setImportedHistory(null); setImportStatus(null); }}
                   className="rounded-md border border-border px-2.5 py-1.5 text-[11px] font-semibold text-muted-foreground hover-elevate"
                 >
-                  Clear comparison
+                  مسح المقارنة
                 </button>
               </div>
           </div>
@@ -2236,32 +2236,32 @@ export default function MissionControl() {
             <div className="flex items-center gap-2">
               <GitBranch className="h-4 w-4 text-primary" />
               <div>
-                <h3 className="text-sm font-semibold">Run-to-run investigation</h3>
+                <h3 className="text-sm font-semibold">مقارنة تنفيذين</h3>
                 <p className="mt-0.5 text-[11px] text-muted-foreground">
-                  Match one live execution with one archived execution. Imported data stays outside the live ledger.
+                  قارن تنفيذًا حاليًا بتنفيذ مؤرشف. تبقى البيانات المستوردة منفصلة عن سجل التنفيذ الحالي.
                 </p>
               </div>
             </div>
             <div className="mt-3 grid gap-3 md:grid-cols-2">
               <label className="text-[11px] font-semibold text-muted-foreground">
-                Live run
+                التنفيذ الحالي
                 <select
-                  aria-label="Select live run for comparison"
+                  aria-label="اختر التنفيذ الحالي للمقارنة"
                   value={comparisonLiveExecution?.id ?? ''}
                   onChange={(event) => setComparisonLiveId(event.target.value || null)}
                   className="mt-1 h-9 w-full rounded-md border border-border bg-background/50 px-2 text-xs font-normal text-foreground outline-none focus:border-primary/60"
                   disabled={executions.length === 0}
                 >
-                  {executions.length === 0 && <option value="">No live runs available</option>}
+                  {executions.length === 0 && <option value="">لا تتوفر تنفيذات حالية</option>}
                   {executions.map((execution) => (
                     <option key={execution.id} value={execution.id}>{execution.id} — {objectiveText(execution.objective)}</option>
                   ))}
                 </select>
               </label>
               <label className="text-[11px] font-semibold text-muted-foreground">
-                Imported run
+                التنفيذ المستورد
                 <select
-                  aria-label="Select imported run for comparison"
+                  aria-label="اختر التنفيذ المستورد للمقارنة"
                   value={importedHistory.executions.find((execution) => execution.id === comparisonImportedId)?.id ?? importedHistory.executions[0]?.id ?? ''}
                   onChange={(event) => setComparisonImportedId(event.target.value || null)}
                   className="mt-1 h-9 w-full rounded-md border border-border bg-background/50 px-2 text-xs font-normal text-foreground outline-none focus:border-primary/60"
@@ -2273,7 +2273,7 @@ export default function MissionControl() {
               </label>
             </div>
           </div>
-          <div className="grid gap-4 p-4 md:grid-cols-2" aria-label="Selected run comparison">
+          <div className="grid gap-4 p-4 md:grid-cols-2" aria-label="مقارنة التنفيذين المحددين">
             <ComparisonRunColumn label="Live run" execution={comparisonLiveExecution} />
             <ComparisonRunColumn
               label="Imported run"
@@ -2283,7 +2283,7 @@ export default function MissionControl() {
           <div className="grid gap-4 p-4 md:grid-cols-2">
             {[
               {
-                label: 'Live history',
+                label: 'السجل الحالي',
                 executions: executions.length,
                 completed: completedCount,
                 failures: executions.reduce((total, execution) => total + (numberValue(execution.validationFailures) ?? 0), 0),
@@ -2291,7 +2291,7 @@ export default function MissionControl() {
                 baseline: baselineByKey,
               },
               {
-                label: 'Imported history',
+                label: 'السجل المستورد',
                 executions: importedHistory.executions.length,
                 completed: importedCompletedCount,
                 failures: importedValidationFailures,
@@ -2302,9 +2302,9 @@ export default function MissionControl() {
               <div key={column.label} className="rounded-lg border border-border/60 bg-background/20 p-3">
                 <h3 className="text-sm font-semibold">{column.label}</h3>
                 <div className="mt-3 grid grid-cols-3 gap-2">
-                  <SummaryMetric label="Runs" value={String(column.executions)} detail="recorded executions" icon={<History className="h-3.5 w-3.5 text-primary" />} />
-                  <SummaryMetric label="Complete" value={String(column.completed)} detail="terminal states" icon={<CheckCircle2 className="h-3.5 w-3.5 text-emerald-300" />} tone="text-emerald-200" />
-                  <SummaryMetric label="Validation" value={String(column.failures)} detail="failure count" icon={<ShieldCheck className="h-3.5 w-3.5 text-amber-300" />} tone="text-amber-200" />
+                  <SummaryMetric label="التنفيذات" value={String(column.executions)} detail="تنفيذات مسجلة" icon={<History className="h-3.5 w-3.5 text-primary" />} />
+                  <SummaryMetric label="مكتملة" value={String(column.completed)} detail="حالات نهائية" icon={<CheckCircle2 className="h-3.5 w-3.5 text-emerald-300" />} tone="text-emerald-200" />
+                  <SummaryMetric label="التحقق" value={String(column.failures)} detail="عدد الإخفاقات" icon={<ShieldCheck className="h-3.5 w-3.5 text-amber-300" />} tone="text-amber-200" />
                 </div>
                 <div className="mt-3 space-y-1.5">
                   {column.metrics.slice(0, 6).map((metric) => {
@@ -2313,40 +2313,44 @@ export default function MissionControl() {
                       <div key={metric.key} className="flex items-center gap-2 rounded-md border border-border/45 px-2.5 py-1.5 text-[11px]">
                         <span className="min-w-0 flex-1 truncate text-muted-foreground">{metric.label}</span>
                         <span className="font-mono text-foreground">{metric.value}</span>
-                        <span className="font-mono text-[10px] text-muted-foreground">{baseline ? `base ${baseline.value}` : 'no baseline'}</span>
+                        <span className="font-mono text-[10px] text-muted-foreground">
+                          {baseline ? <>الأساس <bdi dir="ltr">{baseline.value}</bdi></> : 'لا توجد قيمة أساس'}
+                        </span>
                       </div>
                     );
                   })}
-                  {column.metrics.length === 0 && <p className="text-xs text-muted-foreground">No scorecard metrics recorded.</p>}
+                  {column.metrics.length === 0 && <p className="text-xs text-muted-foreground">لم تُسجل مقاييس بطاقة الأداء.</p>}
                 </div>
               </div>
             ))}
           </div>
           <div className="border-t border-border/70 px-4 py-3 text-[11px] text-muted-foreground">
-            Imported executions: {importedHistory.executions.map((execution) => execution.id).join(', ')}
+            التنفيذات المستوردة: <bdi dir="ltr">{importedHistory.executions.map((execution) => execution.id).join(', ')}</bdi>
           </div>
         </section>
       )}
 
-      <section className="rounded-xl border border-border bg-card">
+      <section className="rounded-xl border border-border bg-card" aria-label="أحداث المسجل الأخيرة">
         <div className="flex flex-col gap-2 border-b border-border/70 px-4 py-3.5 sm:flex-row sm:items-center sm:justify-between">
           <div className="flex items-center gap-2">
             <History className="h-4 w-4 text-primary" />
             <div>
-              <h2 className="font-semibold">Recent recorder events</h2>
-              <p className="mt-0.5 text-[11px] text-muted-foreground">{selectedExecution?.id ?? 'No execution selected'} · server-owned event stream</p>
+              <h2 className="font-semibold">أحداث المسجل الأخيرة</h2>
+              <p className="mt-0.5 text-[11px] text-muted-foreground">
+                {selectedExecution ? <bdi dir="ltr">{selectedExecution.id}</bdi> : 'لم يُحدّد تنفيذ'} · تدفق أحداث يديره الخادم
+              </p>
             </div>
           </div>
           {selectedExecution && (
             <Link href={`/flight-deck?executionId=${encodeURIComponent(selectedExecution.id)}`} className="inline-flex items-center gap-1 text-xs font-semibold text-primary hover:underline">
-              Inspect full run <ExternalLink className="h-3.5 w-3.5" />
+              افحص التنفيذ كاملًا <ExternalLink className="h-3.5 w-3.5" />
             </Link>
           )}
         </div>
         <div className="p-4">
           {selectedEvents.length === 0 ? (
             <div className="rounded-lg border border-dashed border-border/70 bg-background/20 p-6 text-center text-xs text-muted-foreground">
-              No recent events were returned for this execution.
+              لم تُعَد أحداث حديثة لهذا التنفيذ.
             </div>
           ) : (
             <div className="grid gap-2 md:grid-cols-2">
@@ -2357,10 +2361,10 @@ export default function MissionControl() {
                     <div className="mt-0.5 h-2 w-2 shrink-0 rounded-full bg-primary" />
                     <div className="min-w-0">
                       <div className="flex flex-wrap gap-x-2 gap-y-1">
-                        <span className="text-xs font-medium text-foreground">{parts.title}</span>
+                        <bdi dir="auto" className="text-xs font-medium text-foreground">{parts.title}</bdi>
                         {parts.time && <span className="font-mono text-[10px] text-muted-foreground">{parts.time}</span>}
                       </div>
-                      {parts.detail && parts.detail !== parts.title && <p className="mt-1 break-words text-[11px] leading-4 text-muted-foreground">{parts.detail}</p>}
+                      {parts.detail && parts.detail !== parts.title && <p dir="auto" className="mt-1 break-words text-[11px] leading-4 text-muted-foreground">{parts.detail}</p>}
                     </div>
                   </div>
                 );

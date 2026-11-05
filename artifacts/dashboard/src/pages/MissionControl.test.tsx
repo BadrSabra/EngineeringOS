@@ -348,11 +348,11 @@ describe('Mission Control', () => {
       window.history.pushState({}, '', '/mission-control?projectId=project-1&executionId=execution-1');
       renderPage();
 
-      const recovery = screen.getByRole('region', { name: 'Uncertain execution recovery' });
-      expect(within(recovery).getByRole('link', { name: 'Open owning Task' }))
+      const recovery = screen.getByRole('region', { name: 'استعادة التنفيذ غير المحسوم' });
+      expect(within(recovery).getByRole('link', { name: 'افتح المهمة المرتبطة' }))
         .toHaveAttribute('href', '/tasks?taskId=task-1');
-      expect(within(recovery).queryByRole('button', { name: 'Resume once' })).not.toBeInTheDocument();
-      expect(within(recovery).queryByRole('button', { name: 'Abandon safely' })).not.toBeInTheDocument();
+      expect(within(recovery).queryByRole('button', { name: 'استأنف مرة واحدة' })).not.toBeInTheDocument();
+      expect(within(recovery).queryByRole('button', { name: 'تخلَّ عنه بأمان' })).not.toBeInTheDocument();
     } finally {
       window.history.pushState({}, '', originalPath);
     }
@@ -397,9 +397,9 @@ describe('Mission Control', () => {
     const capsule = screen.getByTestId('mission-capsule');
     expect(within(capsule).getByTestId('text-lifecycle-title')).toHaveTextContent('الإثبات المطلوب غير مكتمل');
     expect(within(capsule).getByTestId('text-mission-state-detail')).toHaveTextContent('لا تعتبر النتيجة مقبولة');
-    const timeline = screen.getByRole('region', { name: 'World Transition timeline' });
-    expect(timeline).toHaveTextContent('Canonical Proof: BLOCKED');
-    expect(timeline).not.toHaveTextContent('Canonical Proof: PROVEN');
+    const timeline = screen.getByRole('region', { name: 'الخط الزمني لانتقال حالة العالم' });
+    expect(timeline).toHaveTextContent('الإثبات المعتمد: BLOCKED');
+    expect(timeline).not.toHaveTextContent('الإثبات المعتمد: PROVEN');
   });
 
   it('hides the execution capsule while the selected detail belongs to another execution', () => {
@@ -411,22 +411,22 @@ describe('Mission Control', () => {
 
     expect(screen.queryByTestId('mission-capsule')).not.toBeInTheDocument();
     expect(screen.queryByRole('region', { name: 'سلسلة الأدلة' })).not.toBeInTheDocument();
-    expect(screen.queryByRole('region', { name: 'World Transition timeline' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('region', { name: 'الخط الزمني لانتقال حالة العالم' })).not.toBeInTheDocument();
   });
 
   it('shows the runtime.start observation, effect, acceptance, and materialization as distinct records', async () => {
     currentExecutionDetail = runtimeStartDetail();
     renderPage();
 
-    const timeline = await screen.findByRole('region', { name: 'World Transition timeline' });
-    expect(within(timeline).getByText('stopped')).toBeInTheDocument();
-    expect(within(timeline).getByText('running')).toBeInTheDocument();
+    const timeline = await screen.findByRole('region', { name: 'الخط الزمني لانتقال حالة العالم' });
+    expect(within(timeline).getByText('stopped')).toHaveAttribute('dir', 'ltr');
+    expect(within(timeline).getByText('running')).toHaveAttribute('dir', 'ltr');
     expect(within(timeline).getByText('observation-before')).toBeInTheDocument();
     expect(within(timeline).getByText('observation-after')).toBeInTheDocument();
     expect(within(timeline).getByText('effect-1')).toBeInTheDocument();
-    expect(within(timeline).getByText('world-after')).toBeInTheDocument();
+    expect(within(timeline).getByText('world-after')).toHaveAttribute('dir', 'ltr');
     expect(within(timeline).getByText('PROVEN')).toBeInTheDocument();
-    expect(timeline).toHaveTextContent('Observation, effect, acceptance, and World materialization are separate records');
+    expect(timeline).toHaveTextContent('الرصد والأثر والقبول وتحديث حالة العالم سجلات منفصلة؛ ولا يثبت أحدها تحقق الآخر.');
   });
 
   it('shows the Apply handoff separately from report completion and reloads the actual successor state', async () => {
@@ -458,12 +458,12 @@ describe('Mission Control', () => {
       applyMission,
     });
     const firstView = renderPage();
-    const timeline = await screen.findByRole('region', { name: 'World Transition timeline' });
-    const handoff = within(timeline).getByLabelText('Apply Mission handoff');
-    expect(within(timeline).getAllByText('tree hash value not shown')).toHaveLength(2);
-    expect(within(handoff).getByTestId('status-apply-d2')).toHaveTextContent('Apply D2: PROVEN');
-    expect(within(handoff).getByTestId('status-report-goal')).toHaveTextContent('report-applied goal: running');
-    expect(handoff).toHaveTextContent('dispatch is not completion or external delivery');
+    const timeline = await screen.findByRole('region', { name: 'الخط الزمني لانتقال حالة العالم' });
+    const handoff = within(timeline).getByLabelText('إحالة تطبيق الخطة');
+    expect(within(timeline).getAllByText('قيمة تجزئة الشجرة غير معروضة')).toHaveLength(2);
+    expect(within(handoff).getByTestId('status-apply-d2')).toHaveTextContent('إثبات التطبيق D2: PROVEN');
+    expect(within(handoff).getByTestId('status-report-goal')).toHaveTextContent('هدف التقرير الناتج عن التطبيق: running');
+    expect(handoff).toHaveTextContent('فالإرسال لا يعني اكتمالًا أو تسليمًا خارجيًا');
 
     firstView.unmount();
     currentExecutionDetail = runtimeStartDetail({
@@ -475,9 +475,9 @@ describe('Mission Control', () => {
       },
     });
     renderPage();
-    const reloadedHandoff = await screen.findByLabelText('Apply Mission handoff');
-    expect(reloadedHandoff).toHaveTextContent('report-applied goal: completed');
-    expect(reloadedHandoff).toHaveTextContent('The report goal is complete. External delivery is not implied.');
+    const reloadedHandoff = await screen.findByLabelText('إحالة تطبيق الخطة');
+    expect(reloadedHandoff).toHaveTextContent('هدف التقرير الناتج عن التطبيق: completed');
+    expect(reloadedHandoff).toHaveTextContent('اكتمل هدف التقرير. ولا يعني ذلك تسليمًا خارجيًا.');
   });
 
   it('does not show Apply D2 proven when its transition is absent from the current attempt', async () => {
@@ -493,10 +493,10 @@ describe('Mission Control', () => {
       },
     });
     renderPage();
-    const handoff = await screen.findByLabelText('Apply Mission handoff');
-    expect(within(handoff).getByTestId('status-apply-d2')).toHaveTextContent('Apply D2: INCOMPLETE');
-    expect(handoff).not.toHaveTextContent('The report goal is complete.');
-    expect(handoff).not.toHaveTextContent('World revision:');
+    const handoff = await screen.findByLabelText('إحالة تطبيق الخطة');
+    expect(within(handoff).getByTestId('status-apply-d2')).toHaveTextContent('إثبات التطبيق D2: INCOMPLETE');
+    expect(handoff).not.toHaveTextContent('اكتمل هدف التقرير.');
+    expect(handoff).not.toHaveTextContent('مراجعة حالة العالم:');
   });
 
   it('shows a stale Apply plan as blocked without claiming a linked report goal', async () => {
@@ -513,11 +513,11 @@ describe('Mission Control', () => {
       },
     });
     renderPage();
-    const handoff = await screen.findByLabelText('Apply Mission handoff');
-    expect(handoff).toHaveTextContent('Apply D2: BLOCKED');
-    expect(handoff).toHaveTextContent('report-applied goal: not linked');
+    const handoff = await screen.findByLabelText('إحالة تطبيق الخطة');
+    expect(handoff).toHaveTextContent('إثبات التطبيق D2: BLOCKED');
+    expect(handoff).toHaveTextContent('هدف التقرير الناتج عن التطبيق: غير مرتبط');
     expect(handoff).toHaveTextContent('apply_plan_binding_invalid');
-    expect(handoff).not.toHaveTextContent('The report goal is complete.');
+    expect(handoff).not.toHaveTextContent('اكتمل هدف التقرير.');
   });
 
   it('keeps reading a queued report goal until it terminates', () => {
@@ -619,9 +619,9 @@ describe('Mission Control', () => {
     currentExecutionDetail = runtimeStartDetail({ worldTransitions: [] });
     renderPage();
 
-    const timeline = await screen.findByRole('region', { name: 'World Transition timeline' });
+    const timeline = await screen.findByRole('region', { name: 'الخط الزمني لانتقال حالة العالم' });
     expect(within(timeline).getByText('PROVEN')).toBeInTheDocument();
-    expect(within(timeline).getByText('No World Transition record is available for this attempt.')).toBeInTheDocument();
+    expect(within(timeline).getByText('لا يوجد سجل انتقال حالة عالم لهذه المحاولة.')).toBeInTheDocument();
     expect(within(timeline).queryByText('MATERIALIZED')).not.toBeInTheDocument();
   });
 
@@ -640,7 +640,7 @@ describe('Mission Control', () => {
     });
     renderPage();
 
-    const timeline = await screen.findByRole('region', { name: 'World Transition timeline' });
+    const timeline = await screen.findByRole('region', { name: 'الخط الزمني لانتقال حالة العالم' });
     expect(within(timeline).getByText('terminal_failed')).toBeInTheDocument();
     expect(within(timeline).getByText('WORLD_REVISION_CONFLICT')).toBeInTheDocument();
     expect(within(timeline).getByText('CONTRADICTED')).toBeInTheDocument();
@@ -801,8 +801,8 @@ describe('Mission Control', () => {
     expect(screen.queryByText('openrouter')).not.toBeInTheDocument();
     expect(screen.queryByText('gpt-4o-mini')).not.toBeInTheDocument();
     expect(screen.getAllByText('المحاولات')).toHaveLength(2);
-    expect(within(screen.getByLabelText('Historical provider recovery summaries')).getByText('3')).toBeInTheDocument();
-    expect(within(screen.getByLabelText('Historical provider recovery summaries')).getByText('2')).toBeInTheDocument();
+    expect(within(screen.getByLabelText('ملخصات استعادة المزود السابقة')).getByText('3')).toBeInTheDocument();
+    expect(within(screen.getByLabelText('ملخصات استعادة المزود السابقة')).getByText('2')).toBeInTheDocument();
     expect(screen.getByText('Correct Completion Rate')).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole('button', { name: 'تحديث' }));
@@ -825,8 +825,8 @@ describe('Mission Control', () => {
     expect(screen.queryByText('openai · gpt-4o-mini')).not.toBeInTheDocument();
     expect(screen.queryByText('openrouter')).not.toBeInTheDocument();
     expect(screen.queryByText('gpt-4o-mini')).not.toBeInTheDocument();
-    expect(within(screen.getByLabelText('Historical provider recovery summaries')).getByText('3')).toBeInTheDocument();
-    expect(within(screen.getByLabelText('Historical provider recovery summaries')).getByText('2')).toBeInTheDocument();
+    expect(within(screen.getByLabelText('ملخصات استعادة المزود السابقة')).getByText('3')).toBeInTheDocument();
+    expect(within(screen.getByLabelText('ملخصات استعادة المزود السابقة')).getByText('2')).toBeInTheDocument();
     expect(screen.getByText('Correct Completion Rate')).toBeInTheDocument();
   });
 
@@ -845,7 +845,7 @@ describe('Mission Control', () => {
 
     expect(await screen.findByText('مقارنة خط الأساس')).toBeInTheDocument();
     expect(screen.getByText('Correct Completion Rate')).toBeInTheDocument();
-    expect(screen.queryByText('Historical report recovery details')).not.toBeInTheDocument();
+    expect(screen.queryByText('تفاصيل الاستعادة في التقارير السابقة')).not.toBeInTheDocument();
     expect(screen.queryByText('استعادة مزود الذكاء الاصطناعي')).not.toBeInTheDocument();
   });
 
@@ -1102,16 +1102,20 @@ describe('Mission Control', () => {
 
     fireEvent.change(screen.getByLabelText('استيراد سجل الاستعادة بصيغة JSON'), { target: { files: [file] } });
 
-    expect(await screen.findByRole('heading', { name: 'Imported history comparison' })).toBeInTheDocument();
-    expect(screen.getByText('A read-only comparison. The live execution ledger has not been changed.')).toBeInTheDocument();
-    expect(screen.getByText('Imported 1 executions from recovery-history.json.')).toBeInTheDocument();
-    expect(screen.getByText(/Imported executions: archived-execution/)).toBeInTheDocument();
-    expect(screen.getAllByText('Live history')).toHaveLength(1);
-    expect(screen.getAllByText('Imported history')).toHaveLength(1);
+    expect(await screen.findByRole('heading', { name: 'مقارنة السجل المستورد' })).toBeInTheDocument();
+    expect(screen.getByText('مقارنة للقراءة فقط؛ لم يتغير سجل التنفيذ الحالي.')).toBeInTheDocument();
+    expect(screen.getByText(/تم استيراد 1 تنفيذًا من الملف/)).toHaveTextContent('recovery-history.json');
+    expect(screen.getByText((_, element) => element?.tagName === 'BDI' && element.textContent === 'archived-execution'))
+      .toHaveAttribute('dir', 'ltr');
+    expect(screen.getAllByText('السجل الحالي')).toHaveLength(1);
+    expect(screen.getAllByText('السجل المستورد')).toHaveLength(1);
     expect(screen.queryByText('archived-suite')).not.toBeInTheDocument();
     expect(screen.getAllByText('Correct Completion Rate')).toHaveLength(3);
     expect(screen.getByText('0.75')).toBeInTheDocument();
-    expect(screen.getByText('base 0.50')).toBeInTheDocument();
+    expect(screen.getByText('0.50')).toBeInTheDocument();
+    const importedBaselineValue = screen.getByText('0.50');
+    expect(importedBaselineValue).toHaveAttribute('dir', 'ltr');
+    expect(importedBaselineValue.parentElement).toHaveTextContent('الأساس');
     expect(screen.getByText('Repair the auth scope check')).toBeInTheDocument();
   });
 
@@ -1142,8 +1146,8 @@ describe('Mission Control', () => {
     const currentEvidenceStatus = within(liveRun).getByTestId('comparison-evidence-status-live-run');
     expect(currentEvidenceStatus).toHaveTextContent('BLOCKED');
     expect(currentEvidenceStatus).not.toHaveTextContent('PROVEN');
-    expect(liveRun).toHaveTextContent('Recorded evidence metadata is not Canonical Proof');
-    expect(liveRun).toHaveTextContent('Recorded verdict');
+    expect(liveRun).toHaveTextContent('بيانات الأدلة المسجلة ليست إثباتًا معتمدًا');
+    expect(liveRun).toHaveTextContent('الحكم المسجل');
     expect(liveRun).toHaveTextContent('PROVEN');
   });
 
@@ -1182,17 +1186,18 @@ describe('Mission Control', () => {
 
     expect(await screen.findByTestId('comparison-run-live-run')).toHaveTextContent('execution-1');
     expect(screen.getByTestId('comparison-run-imported-run')).toHaveTextContent('archived-1');
-    expect(screen.getByTestId('comparison-run-live-run')).toHaveTextContent('3 total');
-    expect(screen.getByTestId('comparison-run-imported-run')).toHaveTextContent('2 total');
+    expect(screen.getByTestId('comparison-run-live-run')).toHaveTextContent('3 إجمالًا');
+    expect(screen.getByTestId('comparison-run-imported-run')).toHaveTextContent('2 إجمالًا');
 
-    fireEvent.change(screen.getByRole('combobox', { name: 'Select live run for comparison' }), { target: { value: 'execution-2' } });
-    fireEvent.change(screen.getByRole('combobox', { name: 'Select imported run for comparison' }), { target: { value: 'archived-2' } });
+    fireEvent.change(screen.getByRole('combobox', { name: 'اختر التنفيذ الحالي للمقارنة' }), { target: { value: 'execution-2' } });
+    fireEvent.change(screen.getByRole('combobox', { name: 'اختر التنفيذ المستورد للمقارنة' }), { target: { value: 'archived-2' } });
 
     expect(screen.getByTestId('comparison-run-live-run')).toHaveTextContent('execution-2');
     expect(screen.getByTestId('comparison-run-live-run')).toHaveTextContent('Escalate to operator');
     expect(screen.getByTestId('comparison-run-imported-run')).toHaveTextContent('archived-2');
-    expect(screen.getByTestId('comparison-run-imported-run')).toHaveTextContent('5 total');
-    expect(screen.getByText(/Imported executions: archived-1, archived-2/)).toBeInTheDocument();
+    expect(screen.getByTestId('comparison-run-imported-run')).toHaveTextContent('5 إجمالًا');
+    expect(screen.getByText((_, element) => element?.tagName === 'BDI' && element.textContent === 'archived-1, archived-2'))
+      .toHaveAttribute('dir', 'ltr');
   });
 
   it('exports the selected live and imported pair with aligned evidence, recovery, and timelines', async () => {
@@ -1238,9 +1243,9 @@ describe('Mission Control', () => {
 
     renderPage();
     fireEvent.change(screen.getByLabelText('استيراد سجل الاستعادة بصيغة JSON'), { target: { files: [file] } });
-    expect(await screen.findByRole('heading', { name: 'Imported history comparison' })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { name: 'مقارنة السجل المستورد' })).toBeInTheDocument();
     fireEvent.change(screen.getByRole('combobox', { name: 'صيغة التصدير' }), { target: { value: 'json' } });
-    fireEvent.click(screen.getByRole('button', { name: 'Export selected live and imported run pair' }));
+    fireEvent.click(screen.getByRole('button', { name: 'صدّر زوج التنفيذ الحالي والمستورد المحدد' }));
 
     const blob = createObjectURL.mock.calls.at(-1)?.[0] as Blob;
     const exported = JSON.parse(await blob.text()) as {
@@ -1318,9 +1323,9 @@ describe('Mission Control', () => {
 
     renderPage();
     fireEvent.change(screen.getByLabelText('استيراد سجل الاستعادة بصيغة JSON'), { target: { files: [file] } });
-    expect(await screen.findByRole('heading', { name: 'Imported history comparison' })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { name: 'مقارنة السجل المستورد' })).toBeInTheDocument();
     fireEvent.change(screen.getByRole('combobox', { name: 'صيغة التصدير' }), { target: { value: 'csv' } });
-    fireEvent.click(screen.getByRole('button', { name: 'Export selected live and imported run pair' }));
+    fireEvent.click(screen.getByRole('button', { name: 'صدّر زوج التنفيذ الحالي والمستورد المحدد' }));
 
     const blob = createObjectURL.mock.calls.at(-1)?.[0] as Blob;
     expect(blob.type).toBe('text/csv;charset=utf-8');
@@ -1377,8 +1382,8 @@ describe('Mission Control', () => {
 
     fireEvent.change(screen.getByLabelText('استيراد سجل الاستعادة بصيغة JSON'), { target: { files: [file] } });
 
-    expect(await screen.findByRole('alert')).toHaveTextContent('Benchmark baseline.metrics must be a nested object.');
-    expect(screen.queryByRole('heading', { name: 'Imported history comparison' })).not.toBeInTheDocument();
+    expect(await screen.findByRole('alert')).toHaveTextContent('يجب أن تكون مقاييس خط الأساس كائنًا متداخلًا داخل بيانات القياس.');
+    expect(screen.queryByRole('heading', { name: 'مقارنة السجل المستورد' })).not.toBeInTheDocument();
     expect(screen.getByText('Repair the auth scope check')).toBeInTheDocument();
   });
 });
