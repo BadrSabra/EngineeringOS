@@ -6,6 +6,7 @@ import {
   isResumableStreamDisconnect,
   projectCompletedAssistantMessage,
   projectFailedAssistantMessage,
+  projectMessagesAfterStreamFailure,
   projectRetainedCompletedExecution,
   projectRetainedFailedExecution,
 } from './stream-terminal';
@@ -177,5 +178,47 @@ describe('stream terminal projections', () => {
       'execution-1',
       1_000,
     )).toBeNull();
+  });
+
+  it('removes optimistic messages first and appends a failure projection without mutating history', () => {
+    const messages: ChatMessage[] = [
+      {
+        id: 'user-1',
+        role: 'user',
+        content: 'Request',
+        createdAt: '2026-11-05T12:00:00.000Z',
+      },
+      {
+        id: 'opt-1',
+        role: 'user',
+        content: 'Pending request',
+        createdAt: '2026-11-05T12:00:01.000Z',
+      },
+      {
+        id: 'assistant-1',
+        role: 'assistant',
+        content: 'Earlier response',
+        createdAt: '2026-11-05T12:00:02.000Z',
+      },
+    ];
+    const failedMessage: ChatMessage = {
+      id: 'stream-failed-1',
+      role: 'assistant',
+      content: '',
+      outcome: 'FAILED',
+      createdAt: '2026-11-05T12:00:03.000Z',
+    };
+
+    expect(projectMessagesAfterStreamFailure(messages)).toEqual([
+      messages[0],
+      messages[2],
+    ]);
+    expect(projectMessagesAfterStreamFailure(messages, failedMessage)).toEqual([
+      messages[0],
+      messages[2],
+      failedMessage,
+    ]);
+    expect(messages[1].id).toBe('opt-1');
+    expect(messages).toHaveLength(3);
   });
 });

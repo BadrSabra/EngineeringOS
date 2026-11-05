@@ -59,6 +59,7 @@ import {
   isResumableStreamDisconnect,
   projectCompletedAssistantMessage,
   projectFailedAssistantMessage,
+  projectMessagesAfterStreamFailure,
   projectRetainedCompletedExecution,
   projectRetainedFailedExecution,
 } from './ai-chat/stream-terminal';
@@ -2608,7 +2609,7 @@ export default function AiChat() {
              clearLiveEvidenceIntegrity: () => setLiveEvidenceIntegrity(null),
              clearLiveVerdictScope: () => setLiveVerdictScope(null),
            });
-          setLocalMessages((prev) => prev.filter((m) => !m.id.startsWith('opt-')));
+           setLocalMessages((prev) => projectMessagesAfterStreamFailure(prev));
           const failedExecutionId = err.executionId ?? currentExecution?.id;
           const failedSessionId = currentExecution?.sessionId ?? sessionId;
           if (!retainedFailedExecution) {
@@ -2628,10 +2629,7 @@ export default function AiChat() {
            publishAiChatData(requestProjectId, failedSessionId);
           const failedMessage = projectFailedAssistantMessage(err, failedExecutionId);
           if (failedMessage) {
-            setLocalMessages((prev) => [
-              ...prev.filter((m) => !m.id.startsWith('opt-')),
-              failedMessage,
-            ]);
+             setLocalMessages((prev) => projectMessagesAfterStreamFailure(prev, failedMessage));
           }
           toast({ title: 'Failed to send message', description: describeStreamError(err), variant: 'destructive' });
         },

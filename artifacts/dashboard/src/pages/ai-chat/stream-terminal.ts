@@ -126,3 +126,13 @@ export function projectFailedAssistantMessage(
     createdAt: new Date(nowMs).toISOString(),
   };
 }
+
+export function projectMessagesAfterStreamFailure(
+  messages: ChatMessage[],
+  failedMessage: ChatMessage | null = null,
+): ChatMessage[] {
+  const withoutOptimisticMessages = messages.filter((message) => !message.id.startsWith('opt-'));
+  return failedMessage
+    ? [...withoutOptimisticMessages, failedMessage]
+    : withoutOptimisticMessages;
+}
