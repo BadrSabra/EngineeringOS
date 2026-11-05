@@ -54,6 +54,7 @@ import { createStreamIntentCallback } from './ai-chat/stream-intent';
 import { getSendMessagePreflightNotice, resolveSendMessagePreflight } from './ai-chat/send-message-preflight';
 import { createStreamRequestContext, type SendMessageOptions } from './ai-chat/stream-request-context';
 import { createOptimisticUserMessage, initializeStreamStartUi } from './ai-chat/stream-start';
+import { clearFailedStreamUi } from './ai-chat/stream-failure-ui';
 import {
   isResumableStreamDisconnect,
   projectCompletedAssistantMessage,
@@ -2592,19 +2593,21 @@ export default function AiChat() {
              return;
            }
            resetAutoReconnect();
-          setAgentStage(null);
-          setProjectQueryRetryMessageId(null);
-          setStreamingContent('');
-          setAgentSteps([]);
-          setAgentIter(null);
-          setAgentModel(null);
-          setAgentStartedAt(null);
-          setAgentElapsedSeconds(0);
-          setAgentModelHistory([]);
-          setAgentDiagnostics([]);
-          setLiveFixtureLocal(false);
-          setLiveEvidenceIntegrity(null);
-          setLiveVerdictScope(null);
+           clearFailedStreamUi({
+             setAgentStage,
+             clearProjectQueryRetryMessage: () => setProjectQueryRetryMessageId(null),
+             clearStreamingContent: () => setStreamingContent(''),
+             clearAgentSteps: () => setAgentSteps([]),
+             clearAgentIter: () => setAgentIter(null),
+             clearAgentModel: () => setAgentModel(null),
+             setAgentStartedAt,
+             clearAgentElapsedSeconds: () => setAgentElapsedSeconds(0),
+             clearAgentModelHistory: () => setAgentModelHistory([]),
+             clearAgentDiagnostics: () => setAgentDiagnostics([]),
+             disableLiveFixture: () => setLiveFixtureLocal(false),
+             clearLiveEvidenceIntegrity: () => setLiveEvidenceIntegrity(null),
+             clearLiveVerdictScope: () => setLiveVerdictScope(null),
+           });
           setLocalMessages((prev) => prev.filter((m) => !m.id.startsWith('opt-')));
           const failedExecutionId = err.executionId ?? currentExecution?.id;
           const failedSessionId = currentExecution?.sessionId ?? sessionId;
