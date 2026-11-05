@@ -34,6 +34,12 @@ const EnvSchema = z.object({
   // Keep the former terminology as an explicit compatibility alias while
   // deployments migrate to the clearer overall-budget name.
   VALIDATION_ATTEMPT_TIMEOUT_MS: z.string().optional(),
+  SCAN_LEASE_MS: z.string().optional(),
+  SCAN_HEARTBEAT_INTERVAL_MS: z.string().optional(),
+  DISCOVERY_LEASE_MS: z.string().optional(),
+  DISCOVERY_HEARTBEAT_INTERVAL_MS: z.string().optional(),
+  AI_TASK_LEASE_MS: z.string().optional(),
+  AI_TASK_HEARTBEAT_INTERVAL_MS: z.string().optional(),
 });
 
 export const VALIDATION_PROCESS_TIMEOUT_DEFAULT_MS = 90_000;
@@ -42,6 +48,75 @@ export const VALIDATION_PROCESS_TIMEOUT_MIN_MS = 5_000;
 export const VALIDATION_PROCESS_TIMEOUT_MAX_MS = 600_000;
 export const VALIDATION_OVERALL_TIMEOUT_MIN_MS = 10_000;
 export const VALIDATION_OVERALL_TIMEOUT_MAX_MS = 900_000;
+export const JOB_LEASE_MIN_MS = 3_000;
+export const JOB_LEASE_MAX_MS = 24 * 60 * 60 * 1_000;
+export const JOB_HEARTBEAT_MIN_MS = 1_000;
+
+const JOB_LEASE_DEFAULTS = {
+  SCAN_LEASE_MS: 5 * 60 * 1_000,
+  SCAN_HEARTBEAT_INTERVAL_MS: 60 * 1_000,
+  DISCOVERY_LEASE_MS: 10 * 60 * 1_000,
+  DISCOVERY_HEARTBEAT_INTERVAL_MS: 60 * 1_000,
+  AI_TASK_LEASE_MS: 5 * 60 * 1_000,
+  AI_TASK_HEARTBEAT_INTERVAL_MS: 60 * 1_000,
+} as const;
+
+type JobLeaseEnvironment = Partial<Record<keyof typeof JOB_LEASE_DEFAULTS, string | undefined>>;
+
+function parseJobLeaseMilliseconds(
+  raw: string | undefined,
+  name: keyof typeof JOB_LEASE_DEFAULTS,
+): number {
+  const value = raw === undefined ? JOB_LEASE_DEFAULTS[name] : Number(raw.trim());
+  const isIntegerText = raw === undefined || /^\d+$/.test(raw.trim());
+  if (
+    !isIntegerText
+    || !Number.isSafeInteger(value)
+    || value < (name.endsWith("_LEASE_MS") ? JOB_LEASE_MIN_MS : JOB_HEARTBEAT_MIN_MS)
+    || value > JOB_LEASE_MAX_MS
+  ) {
+    const minimum = name.endsWith("_LEASE_MS") ? JOB_LEASE_MIN_MS : JOB_HEARTBEAT_MIN_MS;
+    throw new Error(`${name} must be an integer between ${minimum}ms and ${JOB_LEASE_MAX_MS}ms`);
+  }
+  return value;
+}
+
+export function parseJobLeaseConfiguration(environment: JobLeaseEnvironment) {
+  const scanLeaseMs = parseJobLeaseMilliseconds(environment.SCAN_LEASE_MS, "SCAN_LEASE_MS");
+  const scanHeartbeatIntervalMs = parseJobLeaseMilliseconds(
+    environment.SCAN_HEARTBEAT_INTERVAL_MS,
+    "SCAN_HEARTBEAT_INTERVAL_MS",
+  );
+  const discoveryLeaseMs = parseJobLeaseMilliseconds(environment.DISCOVERY_LEASE_MS, "DISCOVERY_LEASE_MS");
+  const discoveryHeartbeatIntervalMs = parseJobLeaseMilliseconds(
+    environment.DISCOVERY_HEARTBEAT_INTERVAL_MS,
+    "DISCOVERY_HEARTBEAT_INTERVAL_MS",
+  );
+  const aiTaskLeaseMs = parseJobLeaseMilliseconds(environment.AI_TASK_LEASE_MS, "AI_TASK_LEASE_MS");
+  const aiTaskHeartbeatIntervalMs = parseJobLeaseMilliseconds(
+    environment.AI_TASK_HEARTBEAT_INTERVAL_MS,
+    "AI_TASK_HEARTBEAT_INTERVAL_MS",
+  );
+
+  for (const [heartbeatName, heartbeatMs, leaseName, leaseMs] of [
+    ["SCAN_HEARTBEAT_INTERVAL_MS", scanHeartbeatIntervalMs, "SCAN_LEASE_MS", scanLeaseMs],
+    ["DISCOVERY_HEARTBEAT_INTERVAL_MS", discoveryHeartbeatIntervalMs, "DISCOVERY_LEASE_MS", discoveryLeaseMs],
+    ["AI_TASK_HEARTBEAT_INTERVAL_MS", aiTaskHeartbeatIntervalMs, "AI_TASK_LEASE_MS", aiTaskLeaseMs],
+  ] as const) {
+    if (heartbeatMs > Math.floor(leaseMs / 3)) {
+      throw new Error(`${heartbeatName} must be no greater than one third of ${leaseName}`);
+    }
+  }
+
+  return {
+    scanLeaseMs,
+    scanHeartbeatIntervalMs,
+    discoveryLeaseMs,
+    discoveryHeartbeatIntervalMs,
+    aiTaskLeaseMs,
+    aiTaskHeartbeatIntervalMs,
+  };
+}
 
 export function parseValidationBudget(
   raw: string | undefined,
@@ -146,6 +221,7 @@ function loadConfig() {
       "VALIDATION_OVERALL_TIMEOUT_MS must be greater than or equal to VALIDATION_PROCESS_TIMEOUT_MS",
     );
   }
+  const jobLeases = parseJobLeaseConfiguration(parsed.data);
 
   return {
     nodeEnv: parsed.data.NODE_ENV,
@@ -158,6 +234,7 @@ function loadConfig() {
     adminUserIds: parsed.data.ADMIN_USER_IDS.split(",").map((id) => id.trim()).filter(Boolean),
     validationProcessTimeoutMs,
     validationOverallTimeoutMs,
+    ...jobLeases,
   } as const;
 }
 

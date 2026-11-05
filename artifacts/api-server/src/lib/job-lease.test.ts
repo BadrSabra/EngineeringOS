@@ -5,7 +5,7 @@
  */
 import { afterEach, describe, expect, it } from "vitest";
 import { spawn, type ChildProcess } from "node:child_process";
-import { eq } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import { randomUUID } from "crypto";
 import {
   db,
@@ -13,6 +13,7 @@ import {
   scanJobsTable,
   discoverySessionsTable,
   eventsTable,
+  tasksTable,
 } from "@workspace/db";
 import {
   claimScanJob,
@@ -23,8 +24,11 @@ import {
   claimDiscoverySession,
   heartbeatDiscoverySession,
   releaseDiscoverySessionLease,
+  claimAiTask,
+  heartbeatAiTask,
   SCAN_LEASE_MS,
   DISCOVERY_LEASE_MS,
+  AI_TASK_LEASE_MS,
   ScanJobLeaseLostError,
 } from "./job-lease.js";
 
@@ -454,7 +458,7 @@ describe("discovery-session lease helpers", () => {
       .from(discoverySessionsTable)
       .where(eq(discoverySessionsTable.id, sessionId));
 
-    await heartbeatDiscoverySession(sessionId, randomUUID(), DISCOVERY_LEASE_MS);
+    expect(await heartbeatDiscoverySession(sessionId, randomUUID(), DISCOVERY_LEASE_MS)).toBe(false);
 
     const [after] = await db
       .select({ leaseUntil: discoverySessionsTable.leaseUntil })
@@ -464,7 +468,23 @@ describe("discovery-session lease helpers", () => {
     expect(after.leaseUntil!.getTime()).toBe(before.leaseUntil!.getTime());
   });
 
-  it("releaseDiscoverySessionLease clears workerId, leaseUntil, lastHeartbeatAt", async () => {
+  it("does not renew a discovery lease after expiration", async () => {
+    const sessionId = await insertSession();
+    const workerId = randomUUID();
+    await claimDiscoverySession(sessionId, workerId, DISCOVERY_LEASE_MS);
+    await db.update(discoverySessionsTable)
+      .set({ leaseUntil: sql<Date>`(clock_timestamp() AT TIME ZONE 'UTC') - interval '1 millisecond'` })
+      .where(eq(discoverySessionsTable.id, sessionId));
+
+    expect(await heartbeatDiscoverySession(sessionId, workerId, DISCOVERY_LEASE_MS)).toBe(false);
+    const [row] = await db.select().from(discoverySessionsTable)
+      .where(eq(discoverySessionsTable.id, sessionId));
+    expect(row.status).toBe("discovering");
+    expect(row.workerId).toBe(workerId);
+    expect(row.leaseUntil!.getTime()).toBeLessThan(Date.now());
+  });
+
+  it("releaseDiscoverySessionLease only clears the owner's terminal lease", async () => {
     const sessionId = await insertSession();
     const workerId = randomUUID();
     await claimDiscoverySession(sessionId, workerId, DISCOVERY_LEASE_MS);
@@ -476,7 +496,11 @@ describe("discovery-session lease helpers", () => {
       .where(eq(discoverySessionsTable.id, sessionId));
     expect(claimed.workerId).not.toBeNull();
 
-    await releaseDiscoverySessionLease(sessionId);
+    expect(await releaseDiscoverySessionLease(sessionId, randomUUID())).toBe(false);
+    await db.update(discoverySessionsTable)
+      .set({ status: "ready" })
+      .where(eq(discoverySessionsTable.id, sessionId));
+    expect(await releaseDiscoverySessionLease(sessionId, workerId)).toBe(true);
 
     const [released] = await db
       .select()
@@ -485,5 +509,59 @@ describe("discovery-session lease helpers", () => {
     expect(released.workerId).toBeNull();
     expect(released.leaseUntil).toBeNull();
     expect(released.lastHeartbeatAt).toBeNull();
+  });
+});
+
+describe("AI-task lease helpers", () => {
+  const projectCleanup: string[] = [];
+  const taskCleanup: string[] = [];
+
+  afterEach(async () => {
+    for (const id of taskCleanup.splice(0)) {
+      await db.delete(tasksTable).where(eq(tasksTable.id, id));
+    }
+    for (const id of projectCleanup.splice(0)) {
+      await db.delete(projectsTable).where(eq(projectsTable.id, id));
+    }
+  });
+
+  async function insertTask(status: "verifying" | "running" = "verifying"): Promise<string> {
+    const projectId = await insertProject();
+    projectCleanup.push(projectId);
+    const taskId = randomUUID();
+    taskCleanup.push(taskId);
+    await db.insert(tasksTable).values({
+      id: taskId,
+      projectId,
+      title: "lease helper task",
+      status,
+    });
+    return taskId;
+  }
+
+  it("claims a verifying task and renews only a live running lease", async () => {
+    const taskId = await insertTask();
+    const workerId = randomUUID();
+    expect(await claimAiTask(taskId, workerId, AI_TASK_LEASE_MS)).toBe(true);
+    expect(await heartbeatAiTask(taskId, workerId, AI_TASK_LEASE_MS)).toBe(true);
+
+    await db.update(tasksTable)
+      .set({ leaseUntil: sql<Date>`(clock_timestamp() AT TIME ZONE 'UTC') - interval '1 millisecond'` })
+      .where(eq(tasksTable.id, taskId));
+    expect(await heartbeatAiTask(taskId, workerId, AI_TASK_LEASE_MS)).toBe(false);
+
+    const [row] = await db.select().from(tasksTable).where(eq(tasksTable.id, taskId));
+    expect(row.status).toBe("running");
+    expect(row.workerId).toBe(workerId);
+    expect(row.leaseUntil!.getTime()).toBeLessThan(Date.now());
+  });
+
+  it("does not renew a task after its state leaves running", async () => {
+    const taskId = await insertTask();
+    const workerId = randomUUID();
+    expect(await claimAiTask(taskId, workerId, AI_TASK_LEASE_MS)).toBe(true);
+    await db.update(tasksTable).set({ status: "verifying" }).where(eq(tasksTable.id, taskId));
+
+    expect(await heartbeatAiTask(taskId, workerId, AI_TASK_LEASE_MS)).toBe(false);
   });
 });

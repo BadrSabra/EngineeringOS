@@ -23,15 +23,16 @@
  */
 import { db } from "@workspace/db";
 import { scanJobsTable, discoverySessionsTable, tasksTable } from "@workspace/db";
-import { and, eq, gt, sql } from "drizzle-orm";
+import { and, eq, gt, inArray, sql } from "drizzle-orm";
+import { config } from "../config.js";
 
 export type ScanJobTransaction = Parameters<Parameters<typeof db.transaction>[0]>[0];
 
 // Lease timestamps are stored as timestamp-without-time-zone. Use UTC-naive
 // values from PostgreSQL so workers on different hosts do not make ownership
 // decisions using their own clocks.
-const databaseNow = () => sql<Date>`clock_timestamp() AT TIME ZONE 'UTC'`;
-const databaseLeaseUntil = (leaseMs: number) =>
+export const databaseNow = () => sql<Date>`clock_timestamp() AT TIME ZONE 'UTC'`;
+export const databaseLeaseUntil = (leaseMs: number) =>
   sql<Date>`(clock_timestamp() AT TIME ZONE 'UTC') + (${leaseMs} * interval '1 millisecond')`;
 
 export class ScanJobLeaseLostError extends Error {
@@ -44,38 +45,26 @@ export class ScanJobLeaseLostError extends Error {
 // ── Lease duration constants ───────────────────────────────────────────────────
 
 /** How long a scan-job worker's lease stays valid between heartbeats (ms). */
-export const SCAN_LEASE_MS = Number(
-  process.env.SCAN_LEASE_MS ?? 5 * 60 * 1000, // 5 minutes
-);
+export const SCAN_LEASE_MS = config.scanLeaseMs;
 
 /** How often a scan-job worker should send a heartbeat to extend its lease (ms). */
-export const SCAN_HEARTBEAT_INTERVAL_MS = Number(
-  process.env.SCAN_HEARTBEAT_INTERVAL_MS ?? 60 * 1000, // 1 minute
-);
+export const SCAN_HEARTBEAT_INTERVAL_MS = config.scanHeartbeatIntervalMs;
 
 /**
  * How long a discovery-session worker's lease stays valid between
  * heartbeats. Longer than scan leases because the pipeline (9 steps)
  * includes slower operations like walkProject and extractGraph.
  */
-export const DISCOVERY_LEASE_MS = Number(
-  process.env.DISCOVERY_LEASE_MS ?? 10 * 60 * 1000, // 10 minutes
-);
+export const DISCOVERY_LEASE_MS = config.discoveryLeaseMs;
 
 /** How often a discovery-session worker should heartbeat (ms). */
-export const DISCOVERY_HEARTBEAT_INTERVAL_MS = Number(
-  process.env.DISCOVERY_HEARTBEAT_INTERVAL_MS ?? 60 * 1000, // 1 minute
-);
+export const DISCOVERY_HEARTBEAT_INTERVAL_MS = config.discoveryHeartbeatIntervalMs;
 
 /** How long an AI-task worker's lease stays valid between heartbeats (ms). */
-export const AI_TASK_LEASE_MS = Number(
-  process.env.AI_TASK_LEASE_MS ?? 5 * 60 * 1000, // 5 minutes
-);
+export const AI_TASK_LEASE_MS = config.aiTaskLeaseMs;
 
 /** How often an AI-task worker should heartbeat (ms). */
-export const AI_TASK_HEARTBEAT_INTERVAL_MS = Number(
-  process.env.AI_TASK_HEARTBEAT_INTERVAL_MS ?? 60 * 1000, // 1 minute
-);
+export const AI_TASK_HEARTBEAT_INTERVAL_MS = config.aiTaskHeartbeatIntervalMs;
 
 // ── Scan-job lease helpers ─────────────────────────────────────────────────────
 
@@ -245,15 +234,13 @@ export async function claimDiscoverySession(
   workerId: string,
   leaseMs: number,
 ): Promise<boolean> {
-  const now = new Date();
-  const leaseUntil = new Date(now.getTime() + leaseMs);
   const updated = await db
     .update(discoverySessionsTable)
     .set({
       status: "discovering",
       workerId,
-      leaseUntil,
-      lastHeartbeatAt: now,
+      leaseUntil: databaseLeaseUntil(leaseMs),
+      lastHeartbeatAt: databaseNow(),
     })
     .where(
       and(
@@ -273,18 +260,20 @@ export async function heartbeatDiscoverySession(
   sessionId: string,
   workerId: string,
   leaseMs: number,
-): Promise<void> {
-  const now = new Date();
-  const leaseUntil = new Date(now.getTime() + leaseMs);
-  await db
+): Promise<boolean> {
+  const updated = await db
     .update(discoverySessionsTable)
-    .set({ leaseUntil, lastHeartbeatAt: now })
+    .set({ leaseUntil: databaseLeaseUntil(leaseMs), lastHeartbeatAt: databaseNow() })
     .where(
       and(
         eq(discoverySessionsTable.id, sessionId),
         eq(discoverySessionsTable.workerId, workerId),
+        eq(discoverySessionsTable.status, "discovering"),
+        gt(discoverySessionsTable.leaseUntil, databaseNow()),
       ),
-    );
+    )
+    .returning({ id: discoverySessionsTable.id });
+  return updated.length > 0;
 }
 
 /**
@@ -293,11 +282,17 @@ export async function heartbeatDiscoverySession(
  * lease fields are cleared even when the session transitions to a
  * terminal state.
  */
-export async function releaseDiscoverySessionLease(sessionId: string): Promise<void> {
-  await db
+export async function releaseDiscoverySessionLease(sessionId: string, workerId: string): Promise<boolean> {
+  const updated = await db
     .update(discoverySessionsTable)
     .set({ workerId: null, leaseUntil: null, lastHeartbeatAt: null })
-    .where(eq(discoverySessionsTable.id, sessionId));
+    .where(and(
+      eq(discoverySessionsTable.id, sessionId),
+      eq(discoverySessionsTable.workerId, workerId),
+      inArray(discoverySessionsTable.status, ["ready", "error", "imported"]),
+    ))
+    .returning({ id: discoverySessionsTable.id });
+  return updated.length > 0;
 }
 
 // ── AI-task lease helpers ──────────────────────────────────────────────────────
@@ -311,11 +306,15 @@ export async function claimAiTask(
   workerId: string,
   leaseMs: number,
 ): Promise<boolean> {
-  const now = new Date();
-  const leaseUntil = new Date(now.getTime() + leaseMs);
   const updated = await db
     .update(tasksTable)
-    .set({ status: "running", workerId, leaseUntil, lastHeartbeatAt: now, updatedAt: now })
+    .set({
+      status: "running",
+      workerId,
+      leaseUntil: databaseLeaseUntil(leaseMs),
+      lastHeartbeatAt: databaseNow(),
+      updatedAt: databaseNow(),
+    })
     .where(and(eq(tasksTable.id, taskId), eq(tasksTable.status, "verifying")))
     .returning({ id: tasksTable.id });
   return updated.length > 0;
@@ -328,13 +327,22 @@ export async function heartbeatAiTask(
   taskId: string,
   workerId: string,
   leaseMs: number,
-): Promise<void> {
-  const now = new Date();
-  const leaseUntil = new Date(now.getTime() + leaseMs);
-  await db
+): Promise<boolean> {
+  const updated = await db
     .update(tasksTable)
-    .set({ leaseUntil, lastHeartbeatAt: now, updatedAt: now })
-    .where(and(eq(tasksTable.id, taskId), eq(tasksTable.workerId, workerId)));
+    .set({
+      leaseUntil: databaseLeaseUntil(leaseMs),
+      lastHeartbeatAt: databaseNow(),
+      updatedAt: databaseNow(),
+    })
+    .where(and(
+      eq(tasksTable.id, taskId),
+      eq(tasksTable.workerId, workerId),
+      eq(tasksTable.status, "running"),
+      gt(tasksTable.leaseUntil, databaseNow()),
+    ))
+    .returning({ id: tasksTable.id });
+  return updated.length > 0;
 }
 
 /**

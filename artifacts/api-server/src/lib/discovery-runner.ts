@@ -30,7 +30,7 @@ import {
   type RuleInput,
   type ScannedFile,
 } from "@workspace/scanner";
-import { eq, and, isNull } from "drizzle-orm";
+import { eq, and, gt, isNull } from "drizzle-orm";
 import { logger } from "./logger.js";
 import { tryAdvisoryLock, LockNamespace } from "./advisory-lock.js";
 import {
@@ -39,6 +39,7 @@ import {
   releaseDiscoverySessionLease,
   DISCOVERY_LEASE_MS,
   DISCOVERY_HEARTBEAT_INTERVAL_MS,
+  databaseNow,
 } from "./job-lease.js";
 import { buildRemediationPlan } from "./remediation-plan.js";
 import { getRepairValidationProfile } from "./ai-repair-validation.js";
@@ -71,11 +72,11 @@ export async function updateSession(
     completedAt: Date;
   }>,
   workerId?: string,
-): Promise<void> {
+): Promise<boolean> {
   // A worker-scoped update is the terminal ownership fence. Without it, a
   // worker whose lease expired could finish after reconciliation marked the
   // session as error and overwrite the newer attempt's durable state.
-  await db
+  const updated = await db
     .update(discoverySessionsTable)
     .set(patch as Record<string, unknown>)
     .where(and(
@@ -83,8 +84,11 @@ export async function updateSession(
       ...(workerId ? [
         eq(discoverySessionsTable.workerId, workerId),
         eq(discoverySessionsTable.status, "discovering"),
+        gt(discoverySessionsTable.leaseUntil, databaseNow()),
       ] : []),
-    ));
+    ))
+    .returning({ id: discoverySessionsTable.id });
+  return updated.length > 0;
 }
 
 // ─── Metadata detection helpers ────────────────────────────────────────────────
@@ -383,10 +387,16 @@ export async function runDiscovery(
   }
 
   // Heartbeat loop: keeps lease_until extended for long-running pipelines.
+  let leaseLost = false;
   let heartbeatInterval: NodeJS.Timeout | undefined = setInterval(() => {
-    heartbeatDiscoverySession(sessionId, workerId, DISCOVERY_LEASE_MS).catch((hbErr) => {
-      logger.warn({ hbErr, sessionId }, "discovery-runner: heartbeat failed");
-    });
+    heartbeatDiscoverySession(sessionId, workerId, DISCOVERY_LEASE_MS)
+      .then((renewed) => {
+        if (!renewed) {
+          leaseLost = true;
+          logger.warn({ sessionId }, "discovery-runner: lease expired or ownership changed");
+        }
+      })
+      .catch((hbErr) => logger.warn({ hbErr, sessionId }, "discovery-runner: heartbeat failed"));
   }, DISCOVERY_HEARTBEAT_INTERVAL_MS);
 
   try {
@@ -394,13 +404,18 @@ export async function runDiscovery(
   const steps: DiscoveryStep[] = STEPS.map((name) => ({ name, status: "pending" as const }));
 
   const setStep = async (idx: number, status: DiscoveryStep["status"], durationMs?: number) => {
+    if (leaseLost) throw new Error("Discovery worker lease lost");
     steps[idx] = { ...steps[idx], status, durationMs };
     const progress = Math.round(((idx + (status === "done" ? 1 : 0.5)) / STEPS.length) * 100);
-    await updateSession(sessionId, {
+    const updated = await updateSession(sessionId, {
       progress,
       currentStep: steps[idx].name,
       steps: [...steps],
       }, workerId);
+    if (!updated) {
+      leaseLost = true;
+      throw new Error("Discovery worker lease lost");
+    }
   };
 
   try {
@@ -590,7 +605,7 @@ export async function runDiscovery(
     // callers, so cleanup only in the route's outer finally leaves a race in
     // which the temporary clone is still reachable after readiness is stored.
     await beforeReady?.();
-    await updateSession(sessionId, {
+    const updated = await updateSession(sessionId, {
       status: "ready",
       progress: 100,
       currentStep: null,
@@ -598,18 +613,19 @@ export async function runDiscovery(
       result: partial,
       completedAt: new Date(),
     }, workerId);
+    if (!updated) throw new Error("Discovery worker lease lost");
     // PR-01: release lease fields now that the session has reached a
     // terminal state. Clears workerId/leaseUntil/lastHeartbeatAt atomically.
-    await releaseDiscoverySessionLease(sessionId);
+    await releaseDiscoverySessionLease(sessionId, workerId);
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     logger.error({ err, sessionId }, "Discovery pipeline error");
-    await updateSession(sessionId, {
+    const updated = await updateSession(sessionId, {
       status: "error",
       error: message,
       completedAt: new Date(),
     }, workerId).catch(() => undefined);
-    await releaseDiscoverySessionLease(sessionId).catch(() => undefined);
+    if (updated) await releaseDiscoverySessionLease(sessionId, workerId).catch(() => undefined);
   }
   } finally {
     // Safety net: clear heartbeat even if an unexpected path skips the

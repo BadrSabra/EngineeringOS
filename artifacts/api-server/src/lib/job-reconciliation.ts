@@ -80,6 +80,7 @@ import { isLiveWorkspaceWriteUncoordinated } from "./live-workspace-apply-policy
 import { establishProjectRoot } from "./project-root.js";
 import { dispatchProjectBootstrapJobs } from "./project-bootstrap.js";
 import { dispatchAutonomousTaskRecoveries } from "./ai-recovery-coordinator.js";
+import { databaseNow } from "./job-lease.js";
 import {
   dispatchPendingMissionRecipes,
   replayPendingMissionEvents,
@@ -502,9 +503,9 @@ async function reconcileInterruptedGitHubDeliveryAttempts(): Promise<number> {
  * Returns total number of jobs handled (failed + re-enqueued).
  */
 async function reconcileScanJobs(): Promise<number> {
-  const now = new Date();
+  const now = databaseNow();
   const abandonedScan = or(
-    lt(scanJobsTable.leaseUntil, sql<Date>`clock_timestamp() AT TIME ZONE 'UTC'`),
+    lt(scanJobsTable.leaseUntil, databaseNow()),
     isNull(scanJobsTable.leaseUntil),
   );
 
@@ -644,9 +645,9 @@ async function reconcileScanJobs(): Promise<number> {
  * Returns total number of sessions handled (failed + re-enqueued).
  */
 async function reconcileDiscoverySessions(): Promise<number> {
-  const now = new Date();
+  const now = databaseNow();
   const abandonedDiscovery = or(
-    lt(discoverySessionsTable.leaseUntil, now),
+    lt(discoverySessionsTable.leaseUntil, databaseNow()),
     isNull(discoverySessionsTable.leaseUntil),
   );
 
@@ -780,8 +781,12 @@ export const DURABLE_JOB_DISPATCH_INTERVAL_MS = Number(
  * does not race with legitimate fast-running jobs.
  */
 export async function failStaleRunningJobs(): Promise<number> {
-  const now = new Date();
-  const cutoff = new Date(Date.now() - STALE_JOB_TIMEOUT_MS);
+  const cutoff = sql<Date>`(clock_timestamp() AT TIME ZONE 'UTC') - (${STALE_JOB_TIMEOUT_MS} * interval '1 millisecond')`;
+  const cutoffForLog = new Date(Date.now() - STALE_JOB_TIMEOUT_MS);
+  const staleCondition = or(
+    lt(scanJobsTable.leaseUntil, databaseNow()),
+    and(isNull(scanJobsTable.leaseUntil), lt(scanJobsTable.startedAt, cutoff)),
+  );
 
   let staleCount = 0;
   try {
@@ -794,10 +799,7 @@ export async function failStaleRunningJobs(): Promise<number> {
           // PR-01: Two stale conditions:
           //   (a) New rows with a lease: worker stopped heartbeating → lease expired.
           //   (b) Legacy rows without a lease: fall back to startedAt time cutoff.
-          or(
-            lt(scanJobsTable.leaseUntil, now),
-            and(isNull(scanJobsTable.leaseUntil), lt(scanJobsTable.startedAt, cutoff)),
-          ),
+          staleCondition,
         ),
       );
 
@@ -815,7 +817,11 @@ export async function failStaleRunningJobs(): Promise<number> {
           lastHeartbeatAt: null,
         })
         .where(
-          and(eq(scanJobsTable.id, job.id), eq(scanJobsTable.status, "running")),
+          and(
+            eq(scanJobsTable.id, job.id),
+            eq(scanJobsTable.status, "running"),
+            staleCondition,
+          ),
         )
         .returning({ id: scanJobsTable.id });
       if (!updated) continue;
@@ -826,7 +832,7 @@ export async function failStaleRunningJobs(): Promise<number> {
           code: "STALE_JOB_TIMEOUT",
           jobId: job.id,
           projectId: job.projectId,
-          cutoff: cutoff.toISOString(),
+          cutoff: cutoffForLog.toISOString(),
           timeoutMs: STALE_JOB_TIMEOUT_MS,
         },
         "scan job timed out — marked as failed",
@@ -846,7 +852,7 @@ export async function failStaleRunningJobs(): Promise<number> {
  * wins and is never clobbered by this sweep.
  */
 export async function failStaleDiscoverySessions(): Promise<number> {
-  const now = new Date();
+  const now = databaseNow();
   let failed = 0;
   try {
     const stale = await db
@@ -854,7 +860,7 @@ export async function failStaleDiscoverySessions(): Promise<number> {
       .from(discoverySessionsTable)
       .where(and(
         eq(discoverySessionsTable.status, "discovering"),
-        lt(discoverySessionsTable.leaseUntil, now),
+        lt(discoverySessionsTable.leaseUntil, databaseNow()),
       ));
     for (const session of stale) {
       const [updated] = await db.update(discoverySessionsTable).set({
@@ -867,7 +873,7 @@ export async function failStaleDiscoverySessions(): Promise<number> {
       }).where(and(
         eq(discoverySessionsTable.id, session.id),
         eq(discoverySessionsTable.status, "discovering"),
-        lt(discoverySessionsTable.leaseUntil, now),
+        lt(discoverySessionsTable.leaseUntil, databaseNow()),
       )).returning({ id: discoverySessionsTable.id });
       if (!updated) continue;
       failed++;
@@ -890,7 +896,7 @@ export async function failStaleDiscoverySessions(): Promise<number> {
  * avoiding duplicate model/tool side effects.
  */
 export async function reconcileStaleAiTasks(): Promise<number> {
-  const now = new Date();
+  const now = databaseNow();
   let recovered = 0;
   try {
     const stale = await db.select({
@@ -900,7 +906,7 @@ export async function reconcileStaleAiTasks(): Promise<number> {
       maxRetries: tasksTable.maxRetries,
     }).from(tasksTable).where(and(
       eq(tasksTable.status, "running"),
-      lt(tasksTable.leaseUntil, now),
+      lt(tasksTable.leaseUntil, databaseNow()),
     ));
     for (const task of stale) {
       const exhausted = task.retryCount >= task.maxRetries;
@@ -915,7 +921,7 @@ export async function reconcileStaleAiTasks(): Promise<number> {
       }).where(and(
         eq(tasksTable.id, task.id),
         eq(tasksTable.status, "running"),
-        lt(tasksTable.leaseUntil, now),
+        lt(tasksTable.leaseUntil, databaseNow()),
       )).returning({ id: tasksTable.id });
       if (!updated) continue;
       await db.insert(taskLogsTable).values({
@@ -1109,7 +1115,7 @@ export async function getDurableJobHealth(): Promise<{
   retryExhaustedScanJobs: number;
   retryExhaustedTasks: number;
 }> {
-  const now = new Date();
+  const now = databaseNow();
   try {
     const [
       [queuedScans],
@@ -1313,9 +1319,9 @@ export function startStaleJobSweep(): NodeJS.Timeout {
  * the user or the auto-trigger to re-execute it cleanly.
  */
 async function reconcileAiTasks(): Promise<number> {
-  const now = new Date();
+  const now = databaseNow();
   const abandonedTask = or(
-    lt(tasksTable.leaseUntil, now),
+    lt(tasksTable.leaseUntil, databaseNow()),
     isNull(tasksTable.leaseUntil),
   );
 

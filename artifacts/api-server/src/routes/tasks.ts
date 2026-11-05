@@ -26,7 +26,12 @@ import { randomUUID } from "crypto";
 import { recordAudit, recordAuditInTransaction } from "../lib/audit.js";
 import { invalidateContextCache } from "@workspace/ai-orchestrator";
 import { runTaskVerification } from "../services/task-service.js";
-import { AI_TASK_HEARTBEAT_INTERVAL_MS, AI_TASK_LEASE_MS } from "../lib/job-lease.js";
+import {
+  AI_TASK_HEARTBEAT_INTERVAL_MS,
+  AI_TASK_LEASE_MS,
+  databaseLeaseUntil,
+  databaseNow,
+} from "../lib/job-lease.js";
 import { logger } from "../lib/logger.js";
 import { requireAuth } from "../middlewares/requireAuth.js";
 import { loadProjectByIdForUser } from "../middlewares/requireProjectAccess.js";
@@ -73,19 +78,18 @@ async function projectCurrentTaskExecutionReceipt<
 class TaskStateConflictError extends Error {}
 
 async function renewManualTaskLease(taskId: string, workerId: string): Promise<boolean> {
-  const now = new Date();
   const [renewed] = await db
     .update(tasksTable)
     .set({
-      leaseUntil: new Date(now.getTime() + AI_TASK_LEASE_MS),
-      lastHeartbeatAt: now,
-      updatedAt: now,
+      leaseUntil: databaseLeaseUntil(AI_TASK_LEASE_MS),
+      lastHeartbeatAt: databaseNow(),
+      updatedAt: databaseNow(),
     })
     .where(and(
       eq(tasksTable.id, taskId),
       eq(tasksTable.status, "running"),
       eq(tasksTable.workerId, workerId),
-      gt(tasksTable.leaseUntil, now),
+      gt(tasksTable.leaseUntil, databaseNow()),
     ))
     .returning({ id: tasksTable.id });
   return Boolean(renewed);
@@ -480,9 +484,9 @@ router.post("/tasks/:taskId/execute", async (req, res) => {
     .set({
       status: "running",
       workerId,
-      leaseUntil: new Date(now.getTime() + AI_TASK_LEASE_MS),
-      lastHeartbeatAt: now,
-      updatedAt: now,
+      leaseUntil: databaseLeaseUntil(AI_TASK_LEASE_MS),
+      lastHeartbeatAt: databaseNow(),
+      updatedAt: databaseNow(),
     })
     .where(and(eq(tasksTable.id, taskId), inArray(tasksTable.status, ["pending", "queued"])))
     .returning();
@@ -536,12 +540,11 @@ router.post("/tasks/:taskId/execute", async (req, res) => {
         return res.status(409).json({ error: "task_lease_lost" });
       }
       const restoredTask = await db.transaction(async (tx) => {
-        const failedAt = new Date();
         const [restored] = await tx
           .update(tasksTable)
           .set({
             status: task[0].status,
-            updatedAt: failedAt,
+            updatedAt: databaseNow(),
             workerId: null,
             leaseUntil: null,
             lastHeartbeatAt: null,
@@ -550,7 +553,7 @@ router.post("/tasks/:taskId/execute", async (req, res) => {
             eq(tasksTable.id, taskId),
             eq(tasksTable.status, "running"),
             eq(tasksTable.workerId, workerId),
-            gt(tasksTable.leaseUntil, failedAt),
+            gt(tasksTable.leaseUntil, databaseNow()),
           ))
           .returning({ id: tasksTable.id });
         if (!restored) return false;
@@ -613,7 +616,7 @@ router.post("/tasks/:taskId/execute", async (req, res) => {
         kind: step.kind ?? ("automatic" as const),
       })),
     };
-    const finalizedAt = new Date();
+    const finalizedAt = databaseNow();
     const completedAt = finalStatus === "completed" ? finalizedAt : null;
     if (!await leaseHeartbeat.stop()) {
       return res.status(409).json({ error: "task_lease_lost" });
@@ -642,7 +645,7 @@ router.post("/tasks/:taskId/execute", async (req, res) => {
             eq(tasksTable.id, taskId),
             eq(tasksTable.status, "running"),
             eq(tasksTable.workerId, workerId),
-            gt(tasksTable.leaseUntil, new Date()),
+            gt(tasksTable.leaseUntil, databaseNow()),
           ))
           .returning();
         if (!row) {

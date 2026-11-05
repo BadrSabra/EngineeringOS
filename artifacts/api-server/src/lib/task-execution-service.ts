@@ -68,6 +68,7 @@ import {
 import type { ProviderId } from "./ai-route-helpers.js";
 import { logger } from "./logger.js";
 import { taskTransitionConflict, type TaskStatus } from "./task-state.js";
+import { databaseLeaseUntil, databaseNow } from "./job-lease.js";
 import {
   buildRuleVerificationChecks,
   markRemediationPlanVerified,
@@ -360,12 +361,16 @@ async function heartbeatTaskExecution(params: {
       }
 
       const [task] = await tx.update(tasksTable)
-        .set({ lastHeartbeatAt: now, leaseUntil, updatedAt: now })
+        .set({
+          lastHeartbeatAt: databaseNow(),
+          leaseUntil: databaseLeaseUntil(AI_EXECUTION_LEASE_MS),
+          updatedAt: databaseNow(),
+        })
         .where(and(
           eq(tasksTable.id, params.taskId),
           eq(tasksTable.workerId, params.workerId),
           eq(tasksTable.status, "running"),
-          gt(tasksTable.leaseUntil, now),
+          gt(tasksTable.leaseUntil, databaseNow()),
         ))
         .returning({ id: tasksTable.id });
       if (!task) {
@@ -4715,11 +4720,11 @@ export async function executeTaskLifecycle(params: {
         .set({
           status: "running",
           workerId,
-          leaseUntil: new Date(Date.now() + AI_EXECUTION_LEASE_MS),
-          lastHeartbeatAt: new Date(),
+          leaseUntil: databaseLeaseUntil(AI_EXECUTION_LEASE_MS),
+          lastHeartbeatAt: databaseNow(),
           correlationId: executionCorrelationId,
           idempotencyKey,
-          updatedAt: new Date(),
+          updatedAt: databaseNow(),
         })
         .where(and(
           eq(tasksTable.id, before.id),
@@ -4822,7 +4827,6 @@ export async function executeTaskLifecycle(params: {
       const [ownedTask] = await tx
         .select({
           id: tasksTable.id,
-          leaseUntil: tasksTable.leaseUntil,
         })
         .from(tasksTable)
         .where(and(
@@ -4830,7 +4834,7 @@ export async function executeTaskLifecycle(params: {
           eq(tasksTable.workerId, workerId),
           eq(tasksTable.status, "running"),
           eq(tasksTable.correlationId, correlationId),
-          gt(tasksTable.leaseUntil, now),
+          gt(tasksTable.leaseUntil, databaseNow()),
         ))
         .for("update")
         .limit(1);
@@ -4840,8 +4844,6 @@ export async function executeTaskLifecycle(params: {
       if (
         !ownedExecution.leaseUntil
         || ownedExecution.leaseUntil <= writeAt
-        || !ownedTask.leaseUntil
-        || ownedTask.leaseUntil <= writeAt
       ) {
         return;
       }

@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   parseApplicationOrigins,
+  parseJobLeaseConfiguration,
   parseValidationBudget,
   VALIDATION_OVERALL_TIMEOUT_DEFAULT_MS,
   VALIDATION_PROCESS_TIMEOUT_DEFAULT_MS,
@@ -45,6 +46,50 @@ describe("APP_ORIGINS", () => {
         true,
       ),
     ).toHaveLength(2);
+  });
+});
+
+describe("durable job lease configuration", () => {
+  it("preserves defaults and enforces a heartbeat no slower than one third of its lease", () => {
+    const defaults = parseJobLeaseConfiguration({});
+    expect(defaults).toEqual({
+      scanLeaseMs: 300_000,
+      scanHeartbeatIntervalMs: 60_000,
+      discoveryLeaseMs: 600_000,
+      discoveryHeartbeatIntervalMs: 60_000,
+      aiTaskLeaseMs: 300_000,
+      aiTaskHeartbeatIntervalMs: 60_000,
+    });
+
+    expect(parseJobLeaseConfiguration({
+      SCAN_LEASE_MS: "9000",
+      SCAN_HEARTBEAT_INTERVAL_MS: "3000",
+    })).toMatchObject({ scanLeaseMs: 9_000, scanHeartbeatIntervalMs: 3_000 });
+  });
+
+  it.each(["", "0", "-1", "2.5", "1e3", "NaN", "300000.1"])(
+    "rejects malformed or non-positive lease duration %s",
+    (raw) => {
+      expect(() => parseJobLeaseConfiguration({ AI_TASK_LEASE_MS: raw }))
+        .toThrow(/AI_TASK_LEASE_MS/);
+    },
+  );
+
+  it.each([
+    { SCAN_LEASE_MS: "2999" },
+    { SCAN_LEASE_MS: String(24 * 60 * 60 * 1_000 + 1) },
+    { SCAN_HEARTBEAT_INTERVAL_MS: "999" },
+    { SCAN_HEARTBEAT_INTERVAL_MS: String(24 * 60 * 60 * 1_000 + 1) },
+  ])("rejects lease durations outside their configured bounds: %o", (environment) => {
+    expect(() => parseJobLeaseConfiguration(environment)).toThrow(/must be an integer between/);
+  });
+
+  it.each([
+    { SCAN_LEASE_MS: "3000", SCAN_HEARTBEAT_INTERVAL_MS: "1001" },
+    { DISCOVERY_LEASE_MS: "6000", DISCOVERY_HEARTBEAT_INTERVAL_MS: "2001" },
+    { AI_TASK_LEASE_MS: "9000", AI_TASK_HEARTBEAT_INTERVAL_MS: "3001" },
+  ])("rejects heartbeat intervals greater than one third of the lease: %o", (environment) => {
+    expect(() => parseJobLeaseConfiguration(environment)).toThrow(/one third/);
   });
 });
 
