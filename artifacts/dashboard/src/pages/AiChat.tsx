@@ -51,6 +51,7 @@ import { createStreamObservationCallbacks, type LiveEvidenceIntegrity, type Live
 import { createStreamResetCallback } from './ai-chat/stream-recovery';
 import { createStreamIdentityCallbacks } from './ai-chat/stream-lifecycle';
 import { createStreamIntentCallback } from './ai-chat/stream-intent';
+import { getSendMessagePreflightNotice, resolveSendMessagePreflight } from './ai-chat/send-message-preflight';
 import {
   isResumableStreamDisconnect,
   projectCompletedAssistantMessage,
@@ -2287,33 +2288,23 @@ export default function AiChat() {
       sessionId?: string;
     },
   ) {
-    if (!msg.trim()) return;
-    if (!selectedProjectId) {
-      toast({ title: 'اختر مشروعًا للمحادثة', description: 'حدد المشروع المقصود قبل إرسال الرسالة.', variant: 'destructive' });
+    const preflightReason = resolveSendMessagePreflight({
+      message: msg,
+      hasProject: Boolean(selectedProjectId),
+      isResume: Boolean(options?.executionId),
+      requiresProjectConfirmation: homeGoalNeedsProjectConfirmation,
+      detectProjectScan: isRunProjectScanRequest,
+      hasActiveProvider: Boolean(activeProvider),
+      providerConfigured: Boolean(activeProvider?.configured && activeProvider.provider),
+      providerSendBlocked: activeProviderSendBlocked,
+      isSending,
+    });
+    const preflightNotice = getSendMessagePreflightNotice(preflightReason);
+    if (preflightNotice) {
+      toast(preflightNotice);
       return;
     }
-    if (!options?.executionId && homeGoalNeedsProjectConfirmation) {
-      toast({ title: 'حدد مشروع هذا الهدف', description: 'أكد المشروع المقصود قبل إرسال المسودة. هذا التأكيد لا يوافق على تعديل المشروع.', variant: 'default' });
-      return;
-    }
-    const isProjectScanRequest = isRunProjectScanRequest(msg);
-    if (!isProjectScanRequest && !activeProvider) {
-      toast({ title: 'جارٍ التحقق من إعداد المساعد', description: 'انتظر قليلًا ثم أعد المحاولة صراحةً.', variant: 'default' });
-      return;
-    }
-    if (!isProjectScanRequest && (!activeProvider?.configured || !activeProvider?.provider)) {
-      toast({ title: 'المساعد غير مهيّأ للإرسال', description: 'راجع إعدادات المزود في بطاقاته. لا تكتب مفتاح الوصول داخل المحادثة.', variant: 'destructive' });
-      return;
-    }
-    if (!isProjectScanRequest && activeProviderSendBlocked) {
-      toast({
-        title: 'الإرسال متوقف بسبب حالة المزود',
-        description: 'راجع حالة الإرسال، ثم أعد المحاولة يدويًا بعد انتهائها. لن يحوّل النظام الطلب إلى مزود آخر.',
-        variant: 'destructive',
-      });
-      return;
-    }
-    if (isSending) return;
+    if (preflightReason) return;
     if (!options?.executionId && !draftHandoff.onSend(msg)) return;
     setProposalUnavailable(null);
     const generation = ++streamGenerationRef.current;
