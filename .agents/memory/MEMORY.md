@@ -156,3 +156,4 @@
 - [Merge reconciliation volatility](merge-reconciliation-volatility.md) — an active merge can change HEAD/index during a turn; recheck repository state before edits or staging.
 - [Mission strategy shadow isolation](mission-shadow-isolation.md) — recover non-authoritative G7 comparisons from durable applied traces, never from inside the live replan transaction.
 - [Dashboard state continuity](dashboard-state-continuity-index.md) — grouped pointers for draft durability, streamed proposal restoration, and chat UI boundaries.
+- [Mission approval receipt fail-closed](mission-approval-receipt-fail-closed.md) — changed approval receipt/revision after dispatch is rejected by the trace loader, not stored as INCONCLUSIVE.

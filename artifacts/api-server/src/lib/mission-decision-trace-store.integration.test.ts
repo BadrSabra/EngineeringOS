@@ -65,6 +65,7 @@ import { buildExecutionProofProjection } from "./execution-proof.js";
 import {
   appendMissionDecisionLifecycleEvent,
   appendMissionDecisionLifecycleEventInTransaction,
+  eventHash,
   getMissionDecisionTrace,
   getMissionDecisionDispatchBatch,
   MissionDecisionTraceStoreError,
@@ -2468,6 +2469,178 @@ describe("Mission decision trace persistence", () => {
       .where(eq(aiMissionDecisionOutcomeSnapshotsTable.decisionId, fixture.decisionId)))
       .toHaveLength(1);
     expect(missionRunner).not.toHaveBeenCalled();
+  });
+
+  describe("approval receipt changes after dispatch", () => {
+    type ApprovalTamperFixture = Awaited<ReturnType<typeof createPersistedEffectOutcomeFixture>>;
+
+    async function readApprovedPlanContract(fixture: ApprovalTamperFixture) {
+      const [goal] = await db.select({ outcomeContract: aiGoalsTable.outcomeContract })
+        .from(aiGoalsTable).where(eq(aiGoalsTable.id, fixture.goalId));
+      const contract = goal?.outcomeContract as Record<string, unknown> | undefined;
+      const planApproval = contract?.planApproval as Record<string, unknown> | undefined;
+      if (!contract || !planApproval) throw new Error("approved plan contract fixture is missing");
+      return { contract, planApproval };
+    }
+
+    async function changeApprovedPlanContract(
+      fixture: ApprovalTamperFixture,
+      change: Record<string, unknown>,
+    ) {
+      const { contract, planApproval } = await readApprovedPlanContract(fixture);
+      await db.update(aiGoalsTable).set({
+        outcomeContract: { ...contract, planApproval: { ...planApproval, ...change } },
+      }).where(eq(aiGoalsTable.id, fixture.goalId));
+    }
+
+    const approvalReceiptChanges: Array<{
+      name: string;
+      code: MissionDecisionTraceStoreError["code"];
+      change: (fixture: ApprovalTamperFixture) => Promise<void>;
+    }> = [
+      {
+        name: "the approval state is revoked",
+        code: "decision_approval_binding_invalid",
+        change: (fixture) => changeApprovedPlanContract(fixture, { state: "REVOKED" }),
+      },
+      {
+        name: "the approved receipt identity changes",
+        code: "decision_approval_binding_invalid",
+        change: (fixture) => changeApprovedPlanContract(fixture, { approvedBy: "different-approver" }),
+      },
+      {
+        name: "the approval event pointer changes",
+        code: "decision_approval_binding_invalid",
+        change: (fixture) => changeApprovedPlanContract(fixture, { approvalEventId: randomUUID() }),
+      },
+      {
+        name: "the approved plan revision changes",
+        code: "decision_approval_binding_invalid",
+        change: (fixture) => changeApprovedPlanContract(fixture, {
+          planRevision: `auto:${randomUUID()}:${"f".repeat(64)}`,
+        }),
+      },
+      {
+        name: "the APPROVED lifecycle event reference changes without its hash",
+        code: "decision_event_conflict",
+        change: (fixture) => changeApprovedEventReference(fixture, false),
+      },
+      {
+        name: "the APPROVED lifecycle event reference changes with a recomputed hash",
+        code: "decision_approval_binding_invalid",
+        change: (fixture) => changeApprovedEventReference(fixture, true),
+      },
+    ];
+
+    async function changeApprovedEventReference(
+      fixture: ApprovalTamperFixture,
+      recomputeHash: boolean,
+    ) {
+      const [event] = await db.select().from(aiMissionDecisionEventsTable)
+        .where(and(
+          eq(aiMissionDecisionEventsTable.decisionId, fixture.decisionId),
+          eq(aiMissionDecisionEventsTable.stage, "APPROVED"),
+        ));
+      if (!event) throw new Error("APPROVED event fixture is missing");
+      const referenceId = `mission-plan-approvals:${"0".repeat(64)}`;
+      const updated = await db.update(aiMissionDecisionEventsTable).set({
+        referenceId,
+        ...(recomputeHash
+          ? {
+              eventHash: eventHash({
+                decisionId: fixture.decisionId,
+                stage: "APPROVED",
+                referenceId,
+                occurredAt: event.occurredAt,
+              }),
+            }
+          : {}),
+      }).where(eq(aiMissionDecisionEventsTable.id, event.id))
+        .returning({ id: aiMissionDecisionEventsTable.id });
+      expect(updated).toHaveLength(1);
+    }
+
+    async function readOutcomeState(fixture: ApprovalTamperFixture) {
+      const events = await db.select({
+        stage: aiMissionDecisionEventsTable.stage,
+      }).from(aiMissionDecisionEventsTable)
+        .where(eq(aiMissionDecisionEventsTable.decisionId, fixture.decisionId))
+        .orderBy(aiMissionDecisionEventsTable.sequence);
+      const snapshots = await db.select().from(aiMissionDecisionOutcomeSnapshotsTable)
+        .where(eq(aiMissionDecisionOutcomeSnapshotsTable.decisionId, fixture.decisionId));
+      const executions = await db.select().from(aiExecutionsTable)
+        .where(eq(aiExecutionsTable.goalId, fixture.goalId));
+      const acceptances = await db.select().from(aiExecutionAcceptancesTable)
+        .where(eq(aiExecutionAcceptancesTable.executionId, fixture.executionId));
+      return { stages: events.map(({ stage }) => stage), snapshots, executions, acceptances };
+    }
+
+    const FINAL_STAGES = ["EXECUTED", "ACCEPTED", "VERIFIED", "EVALUATED_AFTER_EXECUTION"];
+
+    it.each(approvalReceiptChanges)(
+      "refuses a Mission plan outcome when $name after dispatch",
+      async ({ code, change }) => {
+        const fixture = await createPersistedEffectOutcomeFixture("ACHIEVED", true);
+        missionRunner.mockClear();
+        const before = await readOutcomeState(fixture);
+        expect(before.stages).toEqual([
+          "PROPOSED",
+          "EVALUATED",
+          "SELECTED",
+          "APPROVED",
+          "PLAN_APPLIED",
+          "DISPATCHED",
+        ]);
+        expect(before.snapshots).toHaveLength(0);
+
+        await change(fixture);
+
+        // The trace loader fails closed: the changed receipt yields neither a
+        // decisive nor an inconclusive snapshot, and no lifecycle suffix.
+        await expect(finalizeMissionPlanOutcome(fixture.decisionId))
+          .rejects.toMatchObject({ code });
+        await expect(evaluateAndPersistMissionPlanOutcome(fixture.decisionId))
+          .rejects.toMatchObject({ code });
+
+        // Recovery stays pending without counting the rejected decision as reconciled.
+        expect(await reconcilePendingMissionPlanOutcomes(16, fixture.projectId)).toBe(0);
+        expect(await reconcilePendingMissionPlanOutcomes(16, fixture.projectId)).toBe(0);
+
+        const after = await readOutcomeState(fixture);
+        expect(after.snapshots).toHaveLength(0);
+        expect(after.stages).toEqual(before.stages);
+        expect(after.stages.some((stage) => FINAL_STAGES.includes(stage))).toBe(false);
+        expect(after.executions.map(({ id }) => id)).toEqual([fixture.executionId]);
+        expect(after.acceptances.map(({ id }) => id)).toEqual([fixture.acceptanceId]);
+        expect(missionRunner).not.toHaveBeenCalled();
+      },
+      60_000,
+    );
+
+    it("does not evaluate an approved plan after its active revision changes post-dispatch", async () => {
+      const fixture = await createPersistedEffectOutcomeFixture("ACHIEVED", true);
+      missionRunner.mockClear();
+      const before = await readOutcomeState(fixture);
+      const staleRevision = `auto:${randomUUID()}:${"d".repeat(64)}`;
+      expect(before.stages.at(-1)).toBe("DISPATCHED");
+      await db.update(aiMissionsTable).set({
+        autonomyPolicy: { activePlanRevision: staleRevision },
+      }).where(eq(aiMissionsTable.id, fixture.missionId));
+
+      expect(await finalizeMissionPlanOutcome(fixture.decisionId)).toEqual({
+        kind: "not_ready",
+        reason: "plan_not_current",
+      });
+      await reconcilePendingMissionPlanOutcomes(16, fixture.projectId);
+
+      const after = await readOutcomeState(fixture);
+      expect(after.snapshots).toHaveLength(0);
+      expect(after.stages).toEqual(before.stages);
+      expect(after.stages.some((stage) => FINAL_STAGES.includes(stage))).toBe(false);
+      expect(after.executions.map(({ id }) => id)).toEqual([fixture.executionId]);
+      expect(after.acceptances.map(({ id }) => id)).toEqual([fixture.acceptanceId]);
+      expect(missionRunner).not.toHaveBeenCalled();
+    }, 60_000);
   });
 
   it("keeps the scoped outcome reconciler inside its assigned project", async () => {
