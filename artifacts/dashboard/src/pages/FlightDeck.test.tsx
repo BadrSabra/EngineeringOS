@@ -291,8 +291,9 @@ describe('Flight Deck mission control', () => {
         gaps: [],
       },
     };
-    renderDeck();
+    const { container } = renderDeck();
 
+    expect(container.querySelector('[lang="ar"]')).toHaveAttribute('dir', 'rtl');
     expect(screen.getByRole('region', { name: 'سلسلة إثبات التسليم' })).toBeInTheDocument();
     expect(screen.getByText('candidate-hash')).toBeInTheDocument();
     expect(screen.getByText('delivered-hash')).toBeInTheDocument();

@@ -439,10 +439,10 @@ export default function FlightDeck() {
             </div>
             <p className="mt-3 max-w-2xl text-sm text-muted-foreground">{detail}</p>
             <div className="mt-3 flex flex-wrap gap-2 text-xs text-muted-foreground">
-              <code dir="ltr" className="rounded border border-border/60 px-2 py-1">execution {execution.id}</code>
-              {projectId && <code dir="ltr" className="rounded border border-border/60 px-2 py-1">project {projectId}</code>}
-              {execution.proposalId && <code dir="ltr" className="rounded border border-border/60 px-2 py-1">proposal {execution.proposalId}</code>}
-              {operationId && <code dir="ltr" className="rounded border border-primary/30 bg-primary/5 px-2 py-1 text-primary">operation {operationId}</code>}
+              <code dir="ltr" className="max-w-full break-all rounded border border-border/60 px-2 py-1">execution {execution.id}</code>
+              {projectId && <code dir="ltr" className="max-w-full break-all rounded border border-border/60 px-2 py-1">project {projectId}</code>}
+              {execution.proposalId && <code dir="ltr" className="max-w-full break-all rounded border border-border/60 px-2 py-1">proposal {execution.proposalId}</code>}
+              {operationId && <code dir="ltr" className="max-w-full break-all rounded border border-primary/30 bg-primary/5 px-2 py-1 text-primary">operation {operationId}</code>}
             </div>
           </div>
           <div className="flex flex-wrap items-center gap-2 self-start">
@@ -532,7 +532,7 @@ export default function FlightDeck() {
             ) : nodes.map((node) => (
               <div key={node.id} className="p-4">
                 <div className="flex items-start justify-between gap-3">
-                  <div><div className="text-sm font-medium">{node.title}</div><code className="text-[10px] text-muted-foreground">{node.id}</code></div>
+                  <div><div className="text-sm font-medium">{node.title}</div><code dir="ltr" className="break-all text-[10px] text-muted-foreground">{node.id}</code></div>
                   <span className={`rounded-full border px-2 py-0.5 text-[10px] font-semibold ${stateClasses(node.status === 'failed' || node.status === 'blocked' ? 'BLOCKED' : node.status === 'passed' ? 'COMPLETED' : 'BUILDING')}`}>{node.status}</span>
                 </div>
                 <div className="mt-3 flex flex-wrap gap-2 text-[10px] text-muted-foreground">
@@ -641,7 +641,7 @@ export default function FlightDeck() {
                   <div className="mt-2 space-y-1 text-[11px] text-muted-foreground">
                     {(gitLog.data?.commits ?? []).slice(0, 3).map((commit) => (
                       <div key={commit.hash} className="flex gap-2">
-                        <span className="font-mono text-primary">{commit.shortHash}</span>
+                        <bdi dir="ltr" className="font-mono text-primary">{commit.shortHash}</bdi>
                         <span className="truncate">{commit.subject}</span>
                       </div>
                     ))}

@@ -17,6 +17,7 @@ const mockEvents = [
     type: "ScanCompleted",
     severity: "success",
     message: "Alpha scan completed",
+    correlationId: "event-correlation-0123456789abcdef",
     timestamp: new Date("2026-08-22T12:00:00.000Z"),
   },
   {
@@ -65,6 +66,14 @@ describe("Events", () => {
     expect(screen.getByText("Beta task failed")).toBeInTheDocument();
     expect(screen.getByText("عرض 1–2 من 2")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "الأقدم" })).toBeDisabled();
+  });
+
+  it("keeps the Arabic page RTL and event identifiers LTR", () => {
+    const { container } = render(<Events />);
+
+    expect(container.firstElementChild).toHaveAttribute("dir", "rtl");
+    expect(screen.getByText("event-correlation-0123456789abcdef", { exact: true }))
+      .toHaveAttribute("dir", "ltr");
   });
 
   it("shows an error and retry action instead of the empty state", () => {

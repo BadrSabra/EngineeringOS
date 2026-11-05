@@ -482,7 +482,7 @@ function ReleaseGateCard({ value }: { value: unknown }) {
                                 {checkStatus ?? 'unknown'}
                               </span>
                             </div>
-                            <div className="mt-1 break-all font-mono text-[10px] text-muted-foreground">
+                            <div dir="ltr" className="mt-1 break-all font-mono text-[10px] text-muted-foreground">
                               {textValue(check.command) ?? 'لم يُسجّل الأمر'}
                             </div>
                             {textValue(check.failureCode) && (
@@ -496,7 +496,7 @@ function ReleaseGateCard({ value }: { value: unknown }) {
                   {runtimeFailureIds.length > 0 && (
                     <div className="mt-3 rounded-md border border-red-500/25 bg-red-500/5 px-2.5 py-2 text-[11px] text-red-200">
                       <div className="text-[10px] font-semibold uppercase tracking-wide">معرّفات الإخفاق</div>
-                      <div className="mt-1 break-words font-mono">{runtimeFailureIds.join(' · ')}</div>
+                      <div dir="ltr" className="mt-1 break-all font-mono">{runtimeFailureIds.join(' · ')}</div>
                     </div>
                   )}
                 </>

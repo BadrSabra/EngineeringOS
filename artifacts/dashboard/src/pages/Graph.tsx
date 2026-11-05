@@ -258,7 +258,7 @@ export default function Graph() {
   }
 
   return (
-    <div dir="rtl" lang="ar" className="space-y-4 h-full flex flex-col">
+    <div dir="rtl" lang="ar" className="min-w-0 space-y-4 h-full flex flex-col">
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 shrink-0">
         <div>
@@ -269,7 +269,7 @@ export default function Graph() {
             خريطة الاعتماد البنيوي المستخرجة من الشيفرة المصدرية.
           </p>
         </div>
-        <div className="flex items-center gap-3">
+        <div data-testid="graph-controls" className="flex w-full min-w-0 flex-wrap items-center gap-2 sm:w-auto sm:flex-nowrap sm:gap-3">
           <RefreshButton
             onRefresh={async () => { await Promise.all([refetchProjects(), refetchEntities(), refetchRelationships(), refetchSummary()]); }}
             isRefreshing={isRefetching}
@@ -279,20 +279,22 @@ export default function Graph() {
           <select
             value={effectiveProjectId}
             onChange={(e) => { setSelectedProjectId(e.target.value); setSelectedEntityId(''); }}
-            className="bg-card border border-border rounded-md px-3 py-2 text-sm focus:border-primary focus:outline-none w-48 font-medium"
+            aria-label="اختر مشروع الرسم البياني"
+            className="w-full min-w-0 bg-card border border-border rounded-md px-3 py-2 text-sm focus:border-primary focus:outline-none sm:w-48 font-medium"
           >
             {projects?.map((p) => (
               <option key={p.id} value={p.id}>{p.name}</option>
             ))}
           </select>
-          <div className="relative">
+          <div className="relative min-w-0 basis-full sm:basis-auto">
             <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
             <input
               type="text"
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
               placeholder="ابحث عن عنصر..."
-              className="bg-card border border-border rounded-md pl-9 pr-4 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-primary w-56"
+              aria-label="البحث في عناصر الرسم البياني"
+              className="w-full min-w-0 bg-card border border-border rounded-md pl-9 pr-4 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-primary sm:w-56"
             />
           </div>
         </div>
@@ -316,7 +318,7 @@ export default function Graph() {
           onRetry={() => void Promise.all([refetchEntities(), refetchRelationships(), refetchSummary()])}
         />
       ) : (
-       <div className="grid grid-cols-[220px_1fr_260px] gap-4 flex-1 min-h-0">
+       <div className="grid min-w-0 grid-cols-1 gap-4 flex-1 min-h-0 md:grid-cols-[220px_minmax(0,1fr)] xl:grid-cols-[220px_minmax(0,1fr)_260px]">
         {(entitiesStale || relationshipsStale || summaryStale) && (
           <div className="col-span-full rounded-lg border border-amber-500/30 bg-amber-500/5 px-3 py-2 text-xs text-amber-200" role="status">
             قد لا يعكس هذا العرض أحدث فحص مكتمل. حدّثه قبل الاعتماد عليه لاتخاذ قرارات بشأن الاعتماديات.
@@ -397,7 +399,7 @@ export default function Graph() {
                       className="inline-block w-2 h-2 rounded-full mr-1.5 shrink-0"
                       style={{ backgroundColor: nodeColor(entity.type) }}
                     />
-                    {entity.name}
+                    <bdi dir="ltr">{entity.name}</bdi>
                   </button>
                 ))
               )}
@@ -495,7 +497,9 @@ export default function Graph() {
                           className="fill-foreground"
                           style={{ pointerEvents: 'none', userSelect: 'none' }}
                         >
-                          {e.name.length > 18 ? e.name.slice(0, 16) + '…' : e.name}
+                          <tspan direction="ltr" unicodeBidi="plaintext">
+                            {e.name.length > 18 ? e.name.slice(0, 16) + '…' : e.name}
+                          </tspan>
                         </text>
                       )}
                     </g>
@@ -545,13 +549,13 @@ export default function Graph() {
                 <div className="min-w-0">
                   <div className="flex items-center gap-1.5 mb-0.5">
                     <div className="w-2.5 h-2.5 rounded-full shrink-0" style={{ backgroundColor: nodeColor(neighborData.entity.type) }} />
-                    <span className="text-xs uppercase font-mono text-muted-foreground">{neighborData.entity.type}</span>
+                    <bdi dir="ltr" className="text-xs uppercase font-mono text-muted-foreground">{neighborData.entity.type}</bdi>
                   </div>
-                  <h3 className="font-semibold text-sm truncate" title={neighborData.entity.name}>
+                  <h3 dir="ltr" className="font-semibold text-sm truncate" title={neighborData.entity.name}>
                     {neighborData.entity.name}
                   </h3>
                   {neighborData.entity.path && (
-                    <p className="text-xs text-muted-foreground font-mono truncate mt-0.5" title={neighborData.entity.path}>
+                    <p dir="ltr" className="text-xs text-muted-foreground font-mono truncate mt-0.5" title={neighborData.entity.path}>
                       {neighborData.entity.path}
                     </p>
                   )}
@@ -601,7 +605,7 @@ export default function Graph() {
                                 className="w-full text-left text-xs p-2 bg-secondary/50 rounded border border-border/50 hover:bg-secondary transition-colors"
                                 title={target?.name || rel.targetId}
                               >
-                                <div className="font-mono text-muted-foreground text-[10px] mb-0.5">{rel.relation}</div>
+                                <div dir="ltr" className="font-mono text-muted-foreground text-[10px] mb-0.5">{rel.relation}</div>
                                 <div className="truncate flex items-center gap-1">
                                   <div className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: nodeColor(target?.type ?? '') }} />
                                   {target?.name || rel.targetId.slice(0, 12)}
@@ -629,7 +633,7 @@ export default function Graph() {
                                 className="w-full text-left text-xs p-2 bg-secondary/50 rounded border border-border/50 hover:bg-secondary transition-colors"
                                 title={source?.name || rel.sourceId}
                               >
-                                <div className="font-mono text-muted-foreground text-[10px] mb-0.5">{rel.relation}</div>
+                                <div dir="ltr" className="font-mono text-muted-foreground text-[10px] mb-0.5">{rel.relation}</div>
                                 <div className="truncate flex items-center gap-1">
                                   <div className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: nodeColor(source?.type ?? '') }} />
                                   {source?.name || rel.sourceId.slice(0, 12)}

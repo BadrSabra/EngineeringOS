@@ -1476,6 +1476,56 @@ async function installApiFixtures(
         ),
       );
     }
+    if (overrides?.protectedVisual && path === "/api/metrics") {
+      return route.fulfill(jsonResponse([]));
+    }
+    if (overrides?.protectedVisual && path === "/api/graph/entities") {
+      return route.fulfill(jsonResponse({
+        items: [{
+          id: "rtl-graph-entity",
+          projectId: "e2e-project",
+          type: "file",
+          name: "src/rtl/sample.test.ts",
+          path: "src/rtl/sample.test.ts",
+          createdAt: "2026-01-01T00:00:00.000Z",
+        }],
+        meta: { page: 1, pageSize: 100, total: 1, truncated: false },
+      }));
+    }
+    if (overrides?.protectedVisual && path === "/api/graph/relationships") {
+      return route.fulfill(jsonResponse({
+        items: [],
+        meta: { page: 1, pageSize: 100, total: 0, truncated: false },
+      }));
+    }
+    if (
+      overrides?.protectedVisual &&
+      path === "/api/graph/summary/e2e-project"
+    ) {
+      return route.fulfill(jsonResponse({
+        projectId: "e2e-project",
+        entityCount: 1,
+        relationshipCount: 0,
+        entitiesByType: { file: 1 },
+        relationsByType: {},
+        topConnected: [],
+        avgDegree: 0,
+        isolatedCount: 1,
+        clusterCount: 1,
+      }));
+    }
+    if (
+      overrides?.protectedVisual &&
+      /^\/api\/projects\/[^/]+\/git\/status$/u.test(path)
+    ) {
+      return route.fulfill(jsonResponse({ clean: true, files: [] }));
+    }
+    if (
+      overrides?.protectedVisual &&
+      /^\/api\/projects\/[^/]+\/git\/log$/u.test(path)
+    ) {
+      return route.fulfill(jsonResponse({ commits: [] }));
+    }
     if (path === "/api/readiness") {
       return route.fulfill(
         jsonResponse({
@@ -8075,7 +8125,76 @@ test.describe("EngineeringOS dashboard browser journey", () => {
     expect(localAuthFixtureModeEnabled()).toBe(true);
 
     const fixtureRequests = { apiRequests: [], mutativeRequests: [] };
-    await installApiFixtures(page, { protectedVisual: fixtureRequests });
+    const rtlCommand = "pnpm --filter @workspace/dashboard test -- --run src/rtl/sample.test.ts";
+    const rtlEventCommand = "pnpm test -- --run src/rtl/sample.test.ts";
+    const rtlCorrelationId = "rtl-check-correlation-2026-11-05";
+    const rtlMissionControl = {
+      updatedAt: "2026-01-01T00:01:00.000Z",
+      executions: [],
+      benchmark: {
+        releaseGate: {
+          kind: "ai-release-quality-decision",
+          version: 1,
+          status: "passed",
+          summary: {
+            totalCases: 1,
+            passedCases: 1,
+            failedCases: 0,
+            skippedCases: 0,
+            blockingFailures: 0,
+            informationalFailures: 0,
+          },
+          blockers: [],
+          runtimeOraclePreflight: {
+            status: "passed",
+            checks: [{
+              scenarioId: "rtl-layout-check",
+              command: rtlCommand,
+              status: "passed",
+            }],
+            failureIds: [],
+          },
+        },
+      },
+    };
+    const visualExecution = {
+      ...executionFixture,
+      checkpoint: {
+        ...executionFixture.checkpoint,
+        nodeStates: [{
+          id: "rtl-node-0123456789abcdef",
+          title: "تحقق من المسار المختلط",
+          status: "passed",
+          allowedFiles: ["src/rtl/sample.test.ts"],
+          dependencies: [],
+          validationProfile: "workspace-typecheck",
+          attempts: 1,
+        }],
+      },
+    };
+    await installApiFixtures(page, {
+      protectedVisual: fixtureRequests,
+      projects: [{
+        id: "e2e-project",
+        name: "Smoke Project",
+        language: "TypeScript",
+        framework: "React",
+        status: "active",
+        rootPath: "/controlled/smoke",
+        qualityScore: 92,
+      }],
+      events: [{
+        id: "rtl-event-0123456789abcdef",
+        projectId: "e2e-project",
+        type: "ValidationCompleted",
+        severity: "success",
+        correlationId: rtlCorrelationId,
+        message: rtlEventCommand,
+        timestamp: "2026-01-01T00:00:00.000Z",
+      }],
+      missionControl: rtlMissionControl,
+      executionDetails: { [EXECUTION_ID]: visualExecution },
+    });
 
     const pageErrors: string[] = [];
     const consoleErrors: string[] = [];
@@ -8125,6 +8244,26 @@ test.describe("EngineeringOS dashboard browser journey", () => {
         heading: "سجل الأحداث",
         name: "events",
       },
+      {
+        path: `${DASHBOARD_PATH}metrics`,
+        heading: "المؤشرات والقياسات",
+        name: "metrics",
+      },
+      {
+        path: `${DASHBOARD_PATH}graph`,
+        heading: "الرسم البياني للمعرفة",
+        name: "graph",
+      },
+      {
+        path: `${DASHBOARD_PATH}flight-deck?executionId=${EXECUTION_ID}`,
+        heading: "المهمة ← النشر",
+        name: "flight-deck",
+      },
+      {
+        path: `${DASHBOARD_PATH}mission-control`,
+        heading: "مركز المهام",
+        name: "mission-control",
+      },
     ];
     const viewports = [
       { name: "phone", width: 402, height: 874 },
@@ -8167,10 +8306,47 @@ test.describe("EngineeringOS dashboard browser journey", () => {
           await expect(
             page.getByRole("heading", { name: route.heading, exact: true }),
           ).toBeVisible();
+          const pageContent = page.locator("main [dir='rtl']").first();
+          await expect(pageContent).toBeVisible();
+          expect(await pageContent.getAttribute("dir")).toBe("rtl");
+          if (route.name === "events") {
+            expect(await page.getByText(rtlCorrelationId, { exact: true }).getAttribute("dir")).toBe("ltr");
+            const command = page.getByText(rtlEventCommand, { exact: true });
+            await expect(command).toBeVisible();
+            expect(await command.getAttribute("dir")).toBe("auto");
+            expect(await command.evaluate((element) => getComputedStyle(element).direction)).toBe("ltr");
+          }
+          if (route.name === "graph") {
+            const path = page.getByText("src/rtl/sample.test.ts", { exact: true });
+            await expect(path).toBeVisible();
+            expect(await path.getAttribute("dir")).toBe("ltr");
+            const controls = page.getByTestId("graph-controls");
+            const controlsBox = await controls.boundingBox();
+            expect(controlsBox).not.toBeNull();
+            expect(controlsBox!.x).toBeGreaterThanOrEqual(-1);
+            expect(controlsBox!.x + controlsBox!.width).toBeLessThanOrEqual(viewport.width + 1);
+          }
+          if (route.name === "flight-deck") {
+            const execution = page.getByText(`execution ${EXECUTION_ID}`, { exact: true });
+            await expect(execution).toBeVisible();
+            expect(await execution.getAttribute("dir")).toBe("ltr");
+            const nodeId = page.getByText("rtl-node-0123456789abcdef", { exact: true });
+            await expect(nodeId).toBeVisible();
+            expect(await nodeId.getAttribute("dir")).toBe("ltr");
+            const candidateHash = page.locator("[dir='ltr']").filter({ hasText: "e2e-candidate-hash" }).first();
+            await expect(candidateHash).toBeVisible();
+          }
+          if (route.name === "mission-control") {
+            const command = page.getByText(rtlCommand, { exact: true });
+            await expect(command).toBeVisible();
+            expect(await command.getAttribute("dir")).toBe("ltr");
+          }
           const layout = await page.evaluate(() => ({
             viewportWidth: window.innerWidth,
             documentWidth: document.documentElement.scrollWidth,
             bodyWidth: document.body.scrollWidth,
+            mainWidth: document.querySelector("main")?.scrollWidth ?? 0,
+            mainClientWidth: document.querySelector("main")?.clientWidth ?? 0,
             shellDirection:
               document.querySelector<HTMLElement>('[lang="ar"]')?.dir ?? "",
             mainDirection:
@@ -8206,6 +8382,7 @@ test.describe("EngineeringOS dashboard browser journey", () => {
           expect(layout.bodyWidth).toBeLessThanOrEqual(
             layout.viewportWidth + 1,
           );
+          expect(layout.mainWidth).toBeLessThanOrEqual(layout.mainClientWidth + 1);
         }
       }
 

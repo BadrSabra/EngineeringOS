@@ -130,4 +130,12 @@ describe('Graph', () => {
     expect(screen.getByText('calls')).toBeInTheDocument();
     expect(screen.getAllByText('buildGraph').length).toBeGreaterThan(0);
   });
+
+  it('keeps the page RTL and source paths LTR in the graph details', () => {
+    const { container } = render(<Graph />);
+
+    expect(container.firstElementChild).toHaveAttribute('dir', 'rtl');
+    fireEvent.click(screen.getByRole('button', { name: 'source.ts' }));
+    expect(screen.getByText('src/source.ts', { exact: true })).toHaveAttribute('dir', 'ltr');
+  });
 });

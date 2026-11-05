@@ -231,12 +231,12 @@ export default function Events() {
                         <div className="w-16 font-bold uppercase shrink-0">
                           {evt.severity === 'info' ? 'معلومة' : evt.severity === 'warning' ? 'تحذير' : evt.severity === 'error' ? 'خطأ' : evt.severity === 'success' ? 'نجاح' : evt.severity || 'معلومة'}
                         </div>
-                        <div className="w-32 opacity-80 shrink-0 truncate">{evt.type}</div>
-                        <div className="w-48 opacity-60 shrink-0 truncate">{evt.projectId || '-'}</div>
+                        <div className="w-32 opacity-80 shrink-0 truncate"><bdi dir="ltr">{evt.type}</bdi></div>
+                        <div className="w-48 opacity-60 shrink-0 truncate"><bdi dir="ltr">{evt.projectId || '-'}</bdi></div>
                         <div className="w-56 opacity-60 shrink-0 truncate" title={evt.correlationId || undefined}>
-                          {evt.correlationId || 'غير مرتبط'}
+                          {evt.correlationId ? <bdi dir="ltr">{evt.correlationId}</bdi> : 'غير مرتبط'}
                         </div>
-                        <div className="flex-1 whitespace-pre-wrap break-words">{evt.message}</div>
+                        <div className="flex-1 whitespace-pre-wrap break-words"><bdi dir="auto">{evt.message}</bdi></div>
                       </div>
                     );
                   })}

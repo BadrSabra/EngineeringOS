@@ -284,6 +284,17 @@ describe('Mission Control', () => {
     refetchExecutionDetail.mockReset();
   });
 
+  it('keeps the Arabic screen RTL while terminal commands remain LTR', () => {
+    const { container } = renderPage();
+    const command = screen.getByText(
+      'pnpm --dir lib/ai-orchestrator exec vitest run src/benchmark-scenarios/single-file-002.test.ts',
+      { exact: true },
+    );
+
+    expect(container.querySelector('[lang="ar"]')).toHaveAttribute('dir', 'rtl');
+    expect(command).toHaveAttribute('dir', 'ltr');
+  });
+
   it('shows a return link only for the selected server-bound execution and current project', () => {
     const originalPath = window.location.pathname + window.location.search;
     try {
