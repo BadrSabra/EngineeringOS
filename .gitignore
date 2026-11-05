@@ -71,5 +71,9 @@ attached_assets/*
 !attached_assets/
 !attached_assets/EngineeringOS_Truth_Flow_Matrix_1784143389833.json
 .test-roots/
+
+# Accidental root-level leftovers (root only; other directories are unaffected).
+/*.bak
+/mission-correlation-report-*.json
 .engineeringos-projects/
 .engineeringos-delivery/
