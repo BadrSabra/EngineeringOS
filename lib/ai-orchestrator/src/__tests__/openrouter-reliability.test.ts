@@ -67,7 +67,6 @@ import {
 } from "../openai-compatible-client.js";
 import {
   openrouterStrategy,
-  shouldRecordCircuitFailure,
 } from "../strategies/openrouter.strategy.js";
 
 const STATIC_FREE_CHAT_TEST_MODEL = FREE_MODELS.find((model) =>
@@ -459,6 +458,7 @@ describe("circuit-breaker", () => {
     for (let i = 0; i < 20; i++) recordCircuitFailure("openrouter");
     expect(isCircuitOpen("openrouter")).toBe(false);
     expect(getCircuitState("openrouter")).toEqual({
+      supported: false,
       open: false,
       halfOpen: false,
       consecutiveFailures: 0,
@@ -500,45 +500,6 @@ describe("circuit-breaker", () => {
     }
   });
 
-  it("does not count local capability/configuration mismatches as provider failures", () => {
-    expect(
-      shouldRecordCircuitFailure(
-        new GroqClientError(
-          "INVALID_CONFIG",
-          "model does not satisfy the requested capability",
-          { context: { providerCode: "MODEL_CAPABILITY_MISMATCH" } },
-        ),
-      ),
-    ).toBe(false);
-    expect(
-      shouldRecordCircuitFailure(
-        new GroqClientError("SERVER_ERROR", "provider unavailable"),
-      ),
-    ).toBe(true);
-    expect(
-      shouldRecordCircuitFailure(
-        new GroqClientError("EMPTY_RESPONSE", "model returned no final content"),
-      ),
-    ).toBe(false);
-    expect(
-      shouldRecordCircuitFailure(
-        new GroqClientError("RATE_LIMITED", "model-scoped provider limit"),
-      ),
-    ).toBe(false);
-    expect(
-      shouldRecordCircuitFailure(
-        new GroqClientError("QUOTA", "provider quota exhausted"),
-      ),
-    ).toBe(false);
-    expect(
-      shouldRecordCircuitFailure(
-        new GroqClientError(
-          "INVALID_TOOL_CALL",
-          "model returned a tool call outside the request contract",
-        ),
-      ),
-    ).toBe(false);
-  });
 });
 
 // ── Model Resolver ────────────────────────────────────────────────────────────
@@ -843,6 +804,59 @@ describe("dynamic catalog — runtime model refresh", () => {
     expect(result.content).toBe("ok");
     expect(seenModels).toEqual([secondModel]);
     vi.useRealTimers();
+  });
+
+  it("logs stream cancellation separately from provider failure when the caller aborts", async () => {
+    const model = FREE_MODELS.find((candidate) => candidate.capabilities.includes("chat"))!.id;
+    const controller = new AbortController();
+    let startedInference!: () => void;
+    const inferenceStarted = new Promise<void>((resolve) => {
+      startedInference = resolve;
+    });
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    global.fetch = vi.fn(async (url: string | URL, init?: RequestInit) => {
+      if (String(url).endsWith("/models")) {
+        return fetchResponse(200, {
+          data: [{ id: model, pricing: { prompt: "0", completion: "0" } }],
+        });
+      }
+      startedInference();
+      return await new Promise<Response>((_resolve, reject) => {
+        const signal = init?.signal;
+        const abort = () => reject(new DOMException("The request was aborted", "AbortError"));
+        if (signal?.aborted) abort();
+        else signal?.addEventListener("abort", abort, { once: true });
+      });
+    }) as typeof fetch;
+
+    await refreshDynamicCatalog("test-key");
+    const stream = (async () => {
+      for await (const _chunk of openrouterStrategy.stream(
+        [{ role: "user", content: "hello" }],
+        {
+          apiKey: "test-key",
+          model,
+          capability: "chat",
+          signal: controller.signal,
+        },
+      )) {
+        // The fixture aborts before the provider can yield content.
+      }
+    })();
+    await inferenceStarted;
+    controller.abort();
+
+    await expect(stream).rejects.toBeDefined();
+    const actions = warn.mock.calls.flatMap(([entry]) => {
+      try {
+        const parsed = JSON.parse(String(entry)) as { action?: string };
+        return parsed.action ? [parsed.action] : [];
+      } catch {
+        return [];
+      }
+    });
+    expect(actions).toContain("stream_cancelled");
+    expect(actions).not.toContain("stream_failure");
   });
 });
 

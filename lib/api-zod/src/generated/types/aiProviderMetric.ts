@@ -33,9 +33,23 @@ export interface AiProviderMetric {
   /** @nullable */
   operatorAction: string | null;
   correlationId: string;
+  /** Whether a provider-wide circuit breaker is currently implemented. */
+  providerCircuitSupported: boolean;
+  /**
+     * Legacy compatibility field; ignore when providerCircuitSupported is false.
+     * @deprecated
+     */
   circuitOpen: boolean;
+  /**
+     * Legacy compatibility field; ignore when providerCircuitSupported is false.
+     * @deprecated
+     */
   circuitHalfOpen: boolean;
-  /** @nullable */
+  /**
+     * Legacy provider-circuit cooldown; ignore when providerCircuitSupported is false.
+     * @deprecated
+     * @nullable
+     */
   cooldownRemainingMs: number | null;
   lifecycle: ProviderLifecycleSnapshot;
 }

@@ -19,7 +19,6 @@ import {
   PROVIDER_PRIORITY,
   PROVIDER_REGISTRY,
   sortProviderIdsByQuality,
-  getCircuitState,
   createExecutionLedger,
   getProviderLifecycleSnapshot,
   recordProviderLifecycleOutcome,
@@ -141,7 +140,6 @@ export async function getProviderSelectionFailure(
 ): Promise<GroqClientError> {
   let sawCredential = false;
   let sawTransientLifecycle = false;
-  let retryAfterMs: number | undefined;
   let transientProvider: ProviderId | undefined;
 
   for (const provider of PROVIDER_PRIORITY) {
@@ -157,9 +155,7 @@ export async function getProviderSelectionFailure(
       check: false,
       requirements: { requireTools: options?.requireTools },
     });
-    const circuit = getCircuitState(provider);
     const transient =
-      circuit.open ||
       lifecycle.reasonCodes.includes("runtime_transient_failure") ||
       lifecycle.reasonCodes.includes("catalog_temporarily_unavailable") ||
       lifecycle.overallStatus === "degraded";
@@ -167,7 +163,6 @@ export async function getProviderSelectionFailure(
     if (transient) {
       sawTransientLifecycle = true;
       transientProvider ??= provider;
-      retryAfterMs = Math.max(retryAfterMs ?? 0, circuit.cooldownRemainingMs ?? 0) || undefined;
     }
   }
 
@@ -178,7 +173,6 @@ export async function getProviderSelectionFailure(
       {
         context: {
           providerName: transientProvider,
-          retryAfterMs,
         },
       },
     );
@@ -1987,7 +1981,6 @@ type ProviderAvailabilityState =
   | "catalog_stale"
   | "quota_exhausted"
   | "rate_limited"
-  | "circuit_open"
   | "provider_outage";
 
 export function providerAvailabilityProjection(
@@ -2008,8 +2001,8 @@ export function providerAvailabilityProjection(
   }
   if (err.providerCode === "CIRCUIT_OPEN") {
     return {
-      availabilityState: "circuit_open",
-      operatorAction: "Wait for the OpenRouter free-route cooldown to finish; no other provider is enabled.",
+      availabilityState: "provider_outage",
+      operatorAction: `Retry after the ${providerId} route recovers; no provider-wide cooldown is currently supported.`,
     };
   }
   if (

@@ -284,8 +284,8 @@ router.get("/ai/metrics", async (req, res) => {
   );
   const catalog = getDynamicCatalogStatus();
 
-  // Merge circuit state into each metric snapshot; include all known providers
-  // even if no requests have been recorded yet (so the UI always has an entry).
+  // Include the circuit capability with each snapshot, even when no requests
+  // have been recorded. Legacy fields are meaningful only when it is supported.
   const enriched = PROVIDER_PRIORITY.map((provider) => {
     const metric = metricsMap.get(provider) ?? {
       provider,
@@ -320,7 +320,7 @@ router.get("/ai/metrics", async (req, res) => {
       (!catalog.usable || catalog.lastRefreshStatus === "failed" || catalog.lastRefreshStatus === "empty");
     const availabilityState = !isConfigured
       ? "missing_credentials"
-      : circuit.open
+      : circuit.supported && circuit.open
         ? "circuit_open"
         : isCatalogStale
           ? "catalog_stale"
@@ -335,7 +335,7 @@ router.get("/ai/metrics", async (req, res) => {
       availabilityState,
       operatorAction: !isConfigured
         ? "Save an API key for this provider to enable it."
-        : circuit.open
+        : circuit.supported && circuit.open
           ? "انتظر انتهاء التبريد المحلي؛ لا يثبت ذلك عودة الحصة المجانية المشتركة أو مقدار المتبقي منها."
           : isCatalogStale
             ? "Retry after OpenRouter refreshes its catalog; leave the request incomplete if it remains unavailable."

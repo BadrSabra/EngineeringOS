@@ -209,7 +209,10 @@ describe("shared OpenRouter model cooldown persistence", () => {
 
     const throttledModel = "liquid/lfm-2.5-2.6b:free";
     const healthyModel = "cohere/north-mini-code:free";
-    expect(await recordLocalAdaptiveModelCooldown("openrouter", throttledModel)).toBe(30_000);
+    expect(await recordLocalAdaptiveModelCooldown("openrouter", throttledModel)).toMatchObject({
+      cooldownMs: 30_000,
+      persistence: "shared",
+    });
     let cooldowns = await readModelCooldowns("openrouter", [throttledModel, healthyModel]);
     expect(cooldowns.get(throttledModel)).toMatchObject({ source: "local_adaptive" });
     expect(cooldowns.has(healthyModel)).toBe(false);
@@ -217,7 +220,10 @@ describe("shared OpenRouter model cooldown persistence", () => {
     await vi.advanceTimersByTimeAsync(30_001);
     _resetCircuitsForTest();
     _resetLocalAdaptiveModelCooldownsForTest();
-    expect(await recordLocalAdaptiveModelCooldown("openrouter", throttledModel)).toBe(60_000);
+    expect(await recordLocalAdaptiveModelCooldown("openrouter", throttledModel)).toMatchObject({
+      cooldownMs: 60_000,
+      persistence: "shared",
+    });
     cooldowns = await readModelCooldowns("openrouter", [throttledModel, healthyModel]);
     expect(cooldowns.get(throttledModel)).toMatchObject({ source: "local_adaptive" });
     expect(cooldowns.has(healthyModel)).toBe(false);
@@ -229,20 +235,26 @@ describe("shared OpenRouter model cooldown persistence", () => {
       _resetLocalAdaptiveModelCooldownsForTest();
       expect(
         await recordLocalAdaptiveModelCooldown("openrouter", throttledModel),
-      ).toBe(expectedCooldownMs);
+      ).toMatchObject({ cooldownMs: expectedCooldownMs, persistence: "shared" });
       previousCooldownMs = expectedCooldownMs;
     }
 
     await vi.advanceTimersByTimeAsync(60 * 60_000 + 1);
     _resetCircuitsForTest();
     _resetLocalAdaptiveModelCooldownsForTest();
-    expect(await recordLocalAdaptiveModelCooldown("openrouter", throttledModel)).toBe(30_000);
+    expect(await recordLocalAdaptiveModelCooldown("openrouter", throttledModel)).toMatchObject({
+      cooldownMs: 30_000,
+      persistence: "shared",
+    });
 
     await clearSharedPoolModelCooldown("openrouter", throttledModel);
     _resetCircuitsForTest();
     _resetLocalAdaptiveModelCooldownsForTest();
     expect(await readModelCooldowns("openrouter", [throttledModel, healthyModel])).toEqual(new Map());
-    expect(await recordLocalAdaptiveModelCooldown("openrouter", throttledModel)).toBe(30_000);
+    expect(await recordLocalAdaptiveModelCooldown("openrouter", throttledModel)).toMatchObject({
+      cooldownMs: 30_000,
+      persistence: "shared",
+    });
   });
 
   it("escalates repeated explicit shared-pool 429s and restores the hold across processes", async () => {
@@ -283,7 +295,7 @@ describe("shared OpenRouter model cooldown persistence", () => {
         "openrouter",
         poolKey,
         1_000,
-      )).toBe(0);
+      )).toMatchObject({ cooldownMs: 0, persistence: "shared" });
       recordModelFailure("openrouter", poolKey, 1_000);
       await persistSharedPoolModelCooldown("openrouter", poolKey, 1_000);
 
@@ -298,7 +310,7 @@ describe("shared OpenRouter model cooldown persistence", () => {
         "openrouter",
         poolKey,
         1_000,
-      )).toBe(30_000);
+      )).toMatchObject({ cooldownMs: 30_000, persistence: "shared" });
 
       _resetCircuitsForTest();
       _resetLocalAdaptiveModelCooldownsForTest();
@@ -320,17 +332,51 @@ describe("shared OpenRouter model cooldown persistence", () => {
         "openrouter",
         poolKey,
         1_000,
-      )).toBe(60_000);
+      )).toMatchObject({ cooldownMs: 60_000, persistence: "shared" });
 
       await clearSharedPoolModelCooldown("openrouter", poolKey);
       expect(await recordRepeatedProviderRetryAfterCooldown(
         "openrouter",
         poolKey,
         1_000,
-      )).toBe(0);
+      )).toMatchObject({ cooldownMs: 0, persistence: "shared" });
     } finally {
       await clearSharedPoolModelCooldown("openrouter", poolKey);
       vi.useRealTimers();
     }
+  });
+
+  it("reports local-only admission when shared writes fail and bounds visibility to one process", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-11-05T12:00:00.000Z"));
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    const model = "fixture/local-only-model";
+    const failingSharedStore = {
+      readActive: async () => [],
+      readRecentCooldownMs: async () => undefined,
+      write: async () => {
+        throw new Error("fixture database write unavailable");
+      },
+      clear: async () => undefined,
+    };
+
+    recordModelFailure("openrouter", model, 5_000);
+    await expect(
+      persistSharedPoolModelCooldown("openrouter", model, 5_000, failingSharedStore),
+    ).resolves.toBe("local_only");
+    expect(
+      await recordLocalAdaptiveModelCooldown("openrouter", model, failingSharedStore),
+    ).toMatchObject({ cooldownMs: 30_000, persistence: "local_only" });
+
+    expect(isModelCoolingDown("openrouter", model)).toBe(true);
+    _resetCircuitsForTest();
+    _resetLocalAdaptiveModelCooldownsForTest();
+    const secondWorkerState = await readModelCooldowns("openrouter", [model], {
+      readActive: async () => [],
+      readRecentCooldownMs: async () => undefined,
+      write: async () => undefined,
+      clear: async () => undefined,
+    });
+    expect(secondWorkerState.has(model)).toBe(false);
   });
 });

@@ -434,11 +434,11 @@ describe("provider health failure contract", () => {
       expected: "rate_limited",
     },
     {
-      name: "circuit open",
+      name: "retired provider circuit",
       error: new GroqClientError("MODEL_NOT_FOUND", "circuit detail raw upstream", {
         context: { providerCode: "CIRCUIT_OPEN" },
       }),
-      expected: "circuit_open",
+      expected: "provider_outage",
     },
     {
       name: "outage",
@@ -457,7 +457,7 @@ describe("provider health failure contract", () => {
     expect(JSON.stringify(projection)).not.toContain("/srv/catalog.ts");
   });
 
-  it("keeps circuit-open and stale-catalog failures distinct from incompatible models", () => {
+  it("does not report a retired provider circuit as an active cooldown", () => {
     const stale = providerAvailabilityProjection(
       new GroqClientError("INVALID_CONFIG", "stale", {
         context: { providerCode: "NO_COMPATIBLE_FREE_MODEL", catalogStatus: "empty" },
@@ -482,7 +482,7 @@ describe("provider health failure contract", () => {
     );
 
     expect(stale.availabilityState).toBe("catalog_stale");
-    expect(circuit.availabilityState).toBe("circuit_open");
+    expect(circuit.availabilityState).toBe("provider_outage");
     expect(incompatible.availabilityState).toBe("incompatible_model");
     expect(stale.catalogStatus).toBe("empty");
   });

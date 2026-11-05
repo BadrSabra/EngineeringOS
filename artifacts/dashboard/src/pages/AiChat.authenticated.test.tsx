@@ -4578,16 +4578,34 @@ it.each([
   expect(mocks.taskSentParams).toBeUndefined();
 });
 
-it('keeps the recorded circuit cooldown rounded up without starting a retry', async () => {
+it('ignores an unsupported legacy circuit state instead of blocking sends', async () => {
   mocks.aiMetrics.metrics = [{
-    provider: 'groq', availabilityState: 'circuit_open', circuitOpen: true,
+    provider: 'groq', availabilityState: 'circuit_open', providerCircuitSupported: false, circuitOpen: true,
     cooldownRemainingMs: 2100, operatorAction: 'Wait for the provider cooldown',
   }];
   renderAiChat();
   openProviderSettings();
   const card = screen.getByText('مفتاح Groq', { exact: true }).closest('.provider-key-card') as HTMLElement;
-  expect(within(card).getByText(/أُوقفت المحاولات مؤقتًا بعد إخفاقات/)).toHaveTextContent('انتظار 3 ثانية');
-  expect(within(card).getByText('Wait for the provider cooldown')).toHaveAttribute('dir', 'auto');
+  expect(within(card).getByText('لم تُفحص الحالة بعد')).toBeInTheDocument();
+  expect(within(card).queryByText(/أُوقفت المحاولات مؤقتًا بعد إخفاقات/)).not.toBeInTheDocument();
+  expect(within(card).queryByText('Wait for the provider cooldown')).not.toBeInTheDocument();
+  expect(mocks.sentParams).toBeUndefined();
+  expect(mocks.taskSentParams).toBeUndefined();
+});
+
+it('explains that ready provider credentials do not prove completed work', async () => {
+  mocks.groqStatus = {
+    configured: true,
+    last4: '0123',
+    updatedAt: null,
+    lifecycle: { overallStatus: 'ready', reasonCodes: [] },
+  };
+  renderAiChat();
+  openProviderSettings();
+  const card = screen.getByText('مفتاح Groq', { exact: true }).closest('.provider-key-card') as HTMLElement;
+  expect(within(card).getByTestId('text-provider-lifecycle-readiness-scope')).toHaveTextContent(
+    'ولا تثبت وحدها نجاح الاستدلال أو قبول المخرجات أو إنجاز المهمة',
+  );
   expect(mocks.sentParams).toBeUndefined();
   expect(mocks.taskSentParams).toBeUndefined();
 });
@@ -4670,7 +4688,7 @@ it.each([
   const readinessNotice = screen.getByText(/لن نرسل الطلب تلقائيًا أو إلى مزود آخر/).closest('[role="status"]') as HTMLElement;
   expect(within(readinessNotice).getByText('openrouter', { exact: true })).toHaveAttribute('dir', 'ltr');
   expect(within(readinessNotice).queryByText(/اختر مزودًا آخر/)).not.toBeInTheDocument();
-  if (state === 'rate_limited') expect(screen.getByText(/أعد المحاولة بعد 3 ثانية/)).toBeInTheDocument();
+  expect(screen.queryByText(/أعد المحاولة بعد 3 ثانية/)).not.toBeInTheDocument();
   expect(screen.getByRole('button', { name: 'الإرسال متوقف بسبب حالة المزود؛ راجع التنبيه' })).toBeDisabled();
   expect(composer).toBeDisabled();
   expect(composer).toHaveValue('راجع المشروع دون تعديل');

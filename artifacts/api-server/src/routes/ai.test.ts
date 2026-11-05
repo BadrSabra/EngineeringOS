@@ -10837,12 +10837,12 @@ describe.sequential("task and workflow provider failure contract", () => {
       provider: "openrouter" as const,
     },
     {
-      name: "circuit",
+      name: "retired-circuit",
       errorCode: "MODEL_NOT_FOUND",
       providerCode: "CIRCUIT_OPEN",
       catalogStatus: undefined,
       expectedStatus: 422,
-      expectedAvailability: "circuit_open",
+      expectedAvailability: "provider_outage",
       provider: "openrouter" as const,
     },
     {

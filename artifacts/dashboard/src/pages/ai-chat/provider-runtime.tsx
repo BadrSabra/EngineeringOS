@@ -172,6 +172,9 @@ export function ProviderRuntimeBadge({ metric }: { metric: ProviderRuntimeMetric
   const reportedAvailability = metric.availabilityState === 'circuit_open' && !metric.providerCircuitSupported
     ? 'unknown'
     : metric.availabilityState;
+  const reportedOperatorAction = metric.availabilityState === 'circuit_open' && !metric.providerCircuitSupported
+    ? undefined
+    : metric.operatorAction;
   const lifecycleState = metric.lifecycle?.overallStatus === 'unconfigured'
     ? 'missing_credentials'
     : metric.lifecycle?.overallStatus === 'unavailable'
@@ -195,7 +198,7 @@ export function ProviderRuntimeBadge({ metric }: { metric: ProviderRuntimeMetric
         <span className="w-1.5 h-1.5 rounded-full bg-red-400 shrink-0" />
           <span className="min-w-0 break-words">{stateLabels[state] ?? 'حالة المزود غير معروفة'}{cooldownSec != null ? ` · انتظار ${cooldownSec} ثانية` : ''}</span>
         </div>
-        {metric.operatorAction && <div dir="auto" className="break-words ps-3 text-red-300/80">{metric.operatorAction}</div>}
+        {reportedOperatorAction && <div dir="auto" className="break-words ps-3 text-red-300/80">{reportedOperatorAction}</div>}
       {cooldownSec != null && (
         <p className="break-words ps-3 text-muted-foreground">
           عدّاد التبريد محلي؛ لا يقدّر موعد استعادة حصة OpenRouter المشتركة.
@@ -227,7 +230,7 @@ export function ProviderRuntimeBadge({ metric }: { metric: ProviderRuntimeMetric
         {metric.avgLatencyMs != null ? ` · متوسط زمن الاستجابة: ${metric.avgLatencyMs} مللي ثانية` : ''}
       </span>
       </div>
-      {metric.operatorAction && <div dir="auto" className="break-words ps-3 text-amber-200/80">{metric.operatorAction}</div>}
+      {reportedOperatorAction && <div dir="auto" className="break-words ps-3 text-amber-200/80">{reportedOperatorAction}</div>}
       {isActionable && metric.correlationId && <div className="break-words ps-3 text-muted-foreground">مرجع المتابعة: <bdi dir="ltr">{metric.correlationId}</bdi></div>}
       <p className="break-words">هذه مؤشرات استجابة المزود، وليست إثباتًا لاكتمال طلبك.</p>
     </div>
@@ -736,7 +739,7 @@ export function ProviderReadinessNotice({
   }
 
   if (metric && isProviderSendBlocked(metric)) {
-    const cooldown = metric.cooldownRemainingMs != null
+    const cooldown = metric.providerCircuitSupported && metric.cooldownRemainingMs != null
       ? ` أعد المحاولة بعد ${Math.ceil(metric.cooldownRemainingMs / 1000)} ثانية.`
       : '';
     const stateLabel =

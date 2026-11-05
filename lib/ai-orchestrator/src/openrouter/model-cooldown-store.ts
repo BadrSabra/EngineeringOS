@@ -738,12 +738,6 @@ export async function persistSharedPoolModelCooldown(
     return "persisted";
   } catch {
     logPersistenceUnavailable("write");
-    console.warn(JSON.stringify({
-      scope: "openrouter-model-cooldown",
-      code: "MODEL_COOLDOWN_LOCAL_ONLY",
-      provider,
-      model,
-    }));
     return "local_only";
   }
 }

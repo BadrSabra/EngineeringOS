@@ -71,6 +71,7 @@ let persistedCredentialCooldowns: Map<string, {
 }>;
 let persistedCooldownWrites: Array<{ provider: string; model: string; cooldownMs: number }> = [];
 let persistedCooldownClears: Array<{ provider: string; model: string }> = [];
+let persistedModelCooldowns = new Map<string, { coolingUntil: number; updatedAt: number }>();
 
 function jsonResponse(body: unknown, status = 200, headers?: Record<string, string> | Headers): Response {
   return new Response(JSON.stringify(body), { status, headers });
@@ -111,13 +112,29 @@ beforeEach(() => {
   _resetOpenRouterCredentialCooldownsForTest();
   persistedCooldownWrites = [];
   persistedCooldownClears = [];
+  persistedModelCooldowns = new Map();
   _setModelCooldownPersistenceForTest({
-    readActive: async () => [],
+    readActive: async (provider, models) => models.flatMap((model) => {
+      const row = persistedModelCooldowns.get(`${provider}:${model}`);
+      return row && row.coolingUntil > Date.now()
+        ? [{ model, remainingMs: row.coolingUntil - Date.now() }]
+        : [];
+    }),
     write: async (provider, model, cooldownMs) => {
       persistedCooldownWrites.push({ provider, model, cooldownMs });
+      persistedModelCooldowns.set(`${provider}:${model}`, {
+        coolingUntil: Date.now() + cooldownMs,
+        updatedAt: Date.now(),
+      });
     },
     clear: async (provider, model) => {
       persistedCooldownClears.push({ provider, model });
+      persistedModelCooldowns.delete(`${provider}:${model}`);
+    },
+    readRecentCooldownMs: async (provider, model, maxAgeMs) => {
+      const row = persistedModelCooldowns.get(`${provider}:${model}`);
+      if (!row || Date.now() - row.updatedAt > maxAgeMs) return undefined;
+      return row.coolingUntil - row.updatedAt;
     },
   });
 });
@@ -1079,6 +1096,44 @@ describe("openrouterCompleteWithFallback — error classification", () => {
     expect(attemptedModels).toEqual([sharedPoolModel, unrelatedModel]);
     expect(attemptedModels).not.toContain(sharedPoolSibling);
     expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("reports a local-only cooldown when the shared store rejects a provider Retry-After write", async () => {
+    _setModelCooldownPersistenceForTest({
+      readActive: async () => [],
+      write: async () => {
+        throw new Error("fixture database write unavailable");
+      },
+      clear: async () => undefined,
+    });
+    const model = "thinkingmachines/inkling:free";
+    const fetchMock = vi.fn(async () => textResponse(JSON.stringify({
+      error: {
+        message: "Provider returned error",
+        metadata: {
+          limit_source: "upstream_provider_shared_pool",
+          provider_name: "Thinking Machines",
+        },
+      },
+    }), 429, new Headers({ "Retry-After": "1" })));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(openrouterCompleteWithFallback(baseMessages as any, {
+      apiKey: "fixture-model-cooldown-write-failure",
+      model,
+      maxTokens: 10,
+      maxFallbackModels: 0,
+      retryTransient: false,
+    })).rejects.toMatchObject({
+      code: "RATE_LIMITED",
+      providerCode: "MODEL_COOLDOWN_LOCAL_ONLY",
+      rateLimitScope: "upstream_shared_pool",
+      retryAfterMs: 1_000,
+      providerRetryAfterMs: 1_000,
+    });
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(isModelCoolingDown("openrouter", "__upstream_pool__:thinkingmachines")).toBe(true);
   });
 
   it.each(["completion", "stream"] as const)(

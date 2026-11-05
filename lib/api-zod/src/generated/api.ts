@@ -10170,9 +10170,10 @@ export const GetAiMetricsResponse = zod.object({
   "availabilityState": zod.enum(['missing_credentials', 'authentication_failed', 'incompatible_model', 'no_compatible_free_model', 'catalog_stale', 'quota_exhausted', 'rate_limited', 'circuit_open', 'provider_outage', 'degraded', 'healthy', 'unknown']),
   "operatorAction": zod.string().nullable(),
   "correlationId": zod.string(),
-  "circuitOpen": zod.boolean(),
-  "circuitHalfOpen": zod.boolean(),
-  "cooldownRemainingMs": zod.number().int().nullable(),
+  "providerCircuitSupported": zod.boolean().describe('Whether a provider-wide circuit breaker is currently implemented.'),
+  "circuitOpen": zod.boolean().describe('Legacy compatibility field; ignore when providerCircuitSupported is false.'),
+  "circuitHalfOpen": zod.boolean().describe('Legacy compatibility field; ignore when providerCircuitSupported is false.'),
+  "cooldownRemainingMs": zod.number().int().nullable().describe('Legacy provider-circuit cooldown; ignore when providerCircuitSupported is false.'),
   "lifecycle": zod.object({
   "provider": zod.enum(['groq', 'deepseek', 'openrouter', 'gemini']),
   "source": zod.enum(['user', 'server', 'none']),
