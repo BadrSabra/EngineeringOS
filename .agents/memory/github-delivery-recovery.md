@@ -19,7 +19,7 @@ The shell's GitHub authentication is separate from Replit's connected-service st
 
 **Why:** A push can fail with an invalid CLI token even after the user refreshed GitHub; the existing workspace SSH identity may be the valid write path, but neither its ownership nor the remote host should be assumed.
 
-**How to apply:** Check the actual Git transport and credential path, prefer existing workspace authentication, and verify the remote's exact fast-forward target before pushing. Do not ask users to paste private keys or tokens.
+**How to apply:** Check the actual Git transport and credential path, prefer existing workspace authentication, and verify the remote's exact fast-forward target before pushing. After an ambiguous remote-write error, observe the exact branch ref before retrying or reporting the outcome; a failed response alone does not prove that no remote effect occurred. Do not ask users to paste private keys or tokens.
 
 For the recipe-only World State projection, persist a direct remote-branch observation before a new push. Key the pending transition by execution and operation, then let a resumed attempt rebind its accepted effect and after-state while preserving the original before observation. If the exact delivered commit is already present, reconcile it without fabricating a new before-state; use the observed remote commit as the World State project revision.
 
