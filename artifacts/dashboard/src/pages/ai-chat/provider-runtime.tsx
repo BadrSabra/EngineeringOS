@@ -125,22 +125,24 @@ const BLOCKING_PROVIDER_STATES = new Set([
   'no_compatible_free_model',
   'quota_exhausted',
   'rate_limited',
-  'circuit_open',
   'provider_outage',
 ]);
 
 export function isProviderSendBlocked(metric: ProviderRuntimeMetric | undefined): boolean {
-  return Boolean(metric?.circuitOpen || (metric?.availabilityState && BLOCKING_PROVIDER_STATES.has(metric.availabilityState)));
+  return Boolean(
+    (metric?.providerCircuitSupported && metric.circuitOpen) ||
+    (metric?.availabilityState && BLOCKING_PROVIDER_STATES.has(metric.availabilityState))
+  );
 }
 
 /**
  * PR-06: Compact runtime status badge for a provider card.
- * Shows circuit state, consecutive failures, last success, and avg latency.
+ * Shows recorded availability, consecutive failures, last success, and latency.
  */
 export function ProviderRuntimeBadge({ metric }: { metric: ProviderRuntimeMetric | undefined }) {
   if (!metric) return null;
 
-  const cooldownSec = metric.cooldownRemainingMs != null
+  const cooldownSec = metric.providerCircuitSupported && metric.cooldownRemainingMs != null
     ? Math.ceil(metric.cooldownRemainingMs / 1000)
     : null;
 
@@ -167,6 +169,9 @@ export function ProviderRuntimeBadge({ metric }: { metric: ProviderRuntimeMetric
     healthy: 'المزود متاح بحسب الحالة المسجلة',
     unknown: 'لم تُفحص الحالة بعد',
   };
+  const reportedAvailability = metric.availabilityState === 'circuit_open' && !metric.providerCircuitSupported
+    ? 'unknown'
+    : metric.availabilityState;
   const lifecycleState = metric.lifecycle?.overallStatus === 'unconfigured'
     ? 'missing_credentials'
     : metric.lifecycle?.overallStatus === 'unavailable'
@@ -174,16 +179,16 @@ export function ProviderRuntimeBadge({ metric }: { metric: ProviderRuntimeMetric
       : metric.lifecycle?.overallStatus === 'degraded'
         ? 'degraded'
         : metric.lifecycle?.overallStatus === 'ready'
-          ? (metric.availabilityState === 'unknown' ? 'healthy' : metric.availabilityState)
+          ? (reportedAvailability === 'unknown' ? 'healthy' : reportedAvailability)
           : undefined;
-  const state = lifecycleState ?? metric.availabilityState ?? (
-    metric.circuitOpen ? 'circuit_open' :
+  const state = lifecycleState ?? reportedAvailability ?? (
+    metric.providerCircuitSupported && metric.circuitOpen ? 'circuit_open' :
       metric.requests === 0 ? 'unknown' :
         metric.consecutiveFailures > 0 ? 'degraded' : 'healthy'
   );
   const isActionable = !['healthy', 'unknown'].includes(state);
 
-  if (state === 'circuit_open' || metric.circuitOpen) {
+  if (metric.providerCircuitSupported && (state === 'circuit_open' || metric.circuitOpen)) {
     return (
       <div dir="rtl" lang="ar" className="mt-1.5 space-y-0.5 text-[10px] text-red-400">
         <div className="flex items-center gap-1.5">
@@ -637,7 +642,18 @@ export function ModelContractQualityCard({
 }
 
 export function ProviderLifecycleNotice({ lifecycle }: { lifecycle?: ProviderLifecycleSnapshot }) {
-  if (!lifecycle || lifecycle.overallStatus === 'unconfigured' || lifecycle.overallStatus === 'ready') return null;
+  if (!lifecycle || lifecycle.overallStatus === 'unconfigured') return null;
+
+  if (lifecycle.overallStatus === 'ready') {
+    return (
+      <p
+        data-testid="text-provider-lifecycle-readiness-scope"
+        className="mt-1.5 break-words text-xs leading-5 text-muted-foreground"
+      >
+        تعني «جاهز» نجاح فحص بيانات الوصول والنموذج والقدرات؛ ولا تثبت وحدها نجاح الاستدلال أو قبول المخرجات أو إنجاز المهمة.
+      </p>
+    );
+  }
 
   const isCredentialFailure = lifecycle.credentialStatus === 'credentials_invalid';
   return (

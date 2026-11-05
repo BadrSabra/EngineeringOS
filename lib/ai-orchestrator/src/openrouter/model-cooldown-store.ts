@@ -18,6 +18,12 @@ const MODEL_ATTEMPT_LOCK_POLL_MS = 75;
 const MAX_LOCAL_MODEL_ATTEMPT_WAITERS = 64;
 
 export type ModelCooldownSource = "provider" | "local_adaptive";
+export type ModelCooldownPersistenceState = "shared" | "local_only";
+export type ModelCooldownWriteOutcome = "persisted" | "local_only" | "not_required";
+export type AdaptiveModelCooldownResult = {
+  cooldownMs: number;
+  persistence: ModelCooldownPersistenceState;
+};
 export type ModelCooldown = {
   remainingMs: number;
   source: ModelCooldownSource;
@@ -566,10 +572,11 @@ export async function recordLocalAdaptiveModelCooldown(
   provider: string,
   model: string,
   persistenceOverride?: ModelCooldownPersistence,
-): Promise<number> {
+): Promise<AdaptiveModelCooldownResult> {
   const store = persistenceOverride ?? persistence;
   const stateKey = cooldownStateKey(provider, model);
   const now = Date.now();
+  let sharedStateAvailable = Boolean(store.readRecentCooldownMs);
   const inMemoryPrevious = localAdaptiveHistory.get(stateKey);
   let previousCooldownMs =
     inMemoryPrevious && now - inMemoryPrevious.recordedAt <= LOCAL_ADAPTIVE_HISTORY_MS
@@ -585,6 +592,7 @@ export async function recordLocalAdaptiveModelCooldown(
       previousCooldownMs = persistedPrevious;
     }
   } catch {
+    sharedStateAvailable = false;
     logPersistenceUnavailable("read");
   }
 
@@ -598,6 +606,7 @@ export async function recordLocalAdaptiveModelCooldown(
   try {
     await store.write(provider, localAdaptiveCooldownKey(model), cooldownMs);
   } catch {
+    sharedStateAvailable = false;
     logPersistenceUnavailable("write");
   }
   console.warn(JSON.stringify({
@@ -607,7 +616,10 @@ export async function recordLocalAdaptiveModelCooldown(
     model,
     cooldownMs,
   }));
-  return cooldownMs;
+  return {
+    cooldownMs,
+    persistence: sharedStateAvailable ? "shared" : "local_only",
+  };
 }
 
 /**
@@ -620,13 +632,16 @@ export async function recordRepeatedProviderRetryAfterCooldown(
   model: string,
   providerRetryAfterMs: number,
   persistenceOverride?: ModelCooldownPersistence,
-): Promise<number> {
-  if (!Number.isSafeInteger(providerRetryAfterMs) || providerRetryAfterMs <= 0) return 0;
+): Promise<AdaptiveModelCooldownResult> {
+  if (!Number.isSafeInteger(providerRetryAfterMs) || providerRetryAfterMs <= 0) {
+    return { cooldownMs: 0, persistence: "shared" };
+  }
 
   const store = persistenceOverride ?? persistence;
   const stateKey = cooldownStateKey(provider, model);
   const historyKey = providerRetryHistoryKey(model);
   const now = Date.now();
+  let sharedStateAvailable = Boolean(store.readRecentCooldownMs);
   const inMemoryPrevious = providerRetryHistory.get(stateKey);
   let previousCooldownMs = inMemoryPrevious
     && now - inMemoryPrevious.recordedAt <= LOCAL_ADAPTIVE_HISTORY_MS
@@ -651,6 +666,7 @@ export async function recordRepeatedProviderRetryAfterCooldown(
       previousCooldownMs = persistedPrevious;
     }
   } catch {
+    sharedStateAvailable = false;
     logPersistenceUnavailable("read");
   }
 
@@ -677,6 +693,7 @@ export async function recordRepeatedProviderRetryAfterCooldown(
     try {
       await store.write(provider, localAdaptiveCooldownKey(model), localCooldownMs);
     } catch {
+      sharedStateAvailable = false;
       logPersistenceUnavailable("write");
     }
     console.warn(JSON.stringify({
@@ -692,10 +709,14 @@ export async function recordRepeatedProviderRetryAfterCooldown(
   try {
     await store.write(provider, historyKey, historyCooldownMs);
   } catch {
+    sharedStateAvailable = false;
     logPersistenceUnavailable("write");
   }
 
-  return localCooldownMs;
+  return {
+    cooldownMs: localCooldownMs,
+    persistence: sharedStateAvailable ? "shared" : "local_only",
+  };
 }
 
 /**
@@ -708,14 +729,22 @@ export async function persistSharedPoolModelCooldown(
   model: string,
   retryAfterMs?: number,
   persistenceOverride?: ModelCooldownPersistence,
-): Promise<void> {
+): Promise<ModelCooldownWriteOutcome> {
   try {
-    if (!Number.isFinite(retryAfterMs) || retryAfterMs! <= 0) return;
+    if (!Number.isFinite(retryAfterMs) || retryAfterMs! <= 0) return "not_required";
     const providerRetryAfter = Math.floor(retryAfterMs!);
-    if (providerRetryAfter <= 0) return;
+    if (providerRetryAfter <= 0) return "not_required";
     await (persistenceOverride ?? persistence).write(provider, model, providerRetryAfter);
+    return "persisted";
   } catch {
     logPersistenceUnavailable("write");
+    console.warn(JSON.stringify({
+      scope: "openrouter-model-cooldown",
+      code: "MODEL_COOLDOWN_LOCAL_ONLY",
+      provider,
+      model,
+    }));
+    return "local_only";
   }
 }
 

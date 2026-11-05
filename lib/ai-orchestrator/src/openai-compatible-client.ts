@@ -2267,6 +2267,7 @@ export async function openrouterCompleteWithFallback(
         const providerRetryAfterMs = rateLimitError.retryAfterMs;
         let effectiveRetryAfterMs = providerRetryAfterMs;
         let effectiveProviderCode = rateLimitError.providerCode;
+        let modelCooldownPersistence: "shared" | "local_only" = "shared";
         const upstreamPoolKey = providerRateLimitScope === "upstream_shared_pool"
           ? upstreamPoolCooldownKeyForModel(model, rateLimitError.upstreamProvider)
           : undefined;
@@ -2278,26 +2279,29 @@ export async function openrouterCompleteWithFallback(
         if (Number.isSafeInteger(providerRetryAfterMs) && providerRetryAfterMs! > 0) {
           if (providerRateLimitScope === "upstream_shared_pool" && upstreamPoolKey) {
             recordModelFailure("openrouter", model, providerRetryAfterMs);
-            await persistSharedPoolModelCooldown(
+            if (await persistSharedPoolModelCooldown(
               "openrouter",
               model,
               providerRetryAfterMs,
               opts.modelCooldownPersistence,
-            );
+            ) === "local_only") modelCooldownPersistence = "local_only";
             recordModelFailure("openrouter", upstreamPoolKey, providerRetryAfterMs);
-            await persistSharedPoolModelCooldown(
+            if (await persistSharedPoolModelCooldown(
               "openrouter",
               upstreamPoolKey,
               providerRetryAfterMs!,
               opts.modelCooldownPersistence,
-            );
-            const localAdaptiveCooldownMs =
-              await recordRepeatedProviderRetryAfterCooldown(
+            ) === "local_only") modelCooldownPersistence = "local_only";
+            const repeatedCooldown = await recordRepeatedProviderRetryAfterCooldown(
                 "openrouter",
                 upstreamPoolKey,
                 providerRetryAfterMs!,
                 opts.modelCooldownPersistence,
               );
+            const localAdaptiveCooldownMs = repeatedCooldown.cooldownMs;
+            if (repeatedCooldown.persistence === "local_only") {
+              modelCooldownPersistence = "local_only";
+            }
             if (localAdaptiveCooldownMs > effectiveRetryAfterMs!) {
               effectiveRetryAfterMs = localAdaptiveCooldownMs;
               effectiveProviderCode = "LOCAL_ADAPTIVE_MODEL_COOLDOWN";
@@ -2322,11 +2326,15 @@ export async function openrouterCompleteWithFallback(
           providerRateLimitScope === "upstream_shared_pool" &&
           upstreamPoolKey
         ) {
-          effectiveRetryAfterMs = await recordLocalAdaptiveModelCooldown(
+          const adaptiveCooldown = await recordLocalAdaptiveModelCooldown(
             "openrouter",
             upstreamPoolKey,
             opts.modelCooldownPersistence,
           );
+          effectiveRetryAfterMs = adaptiveCooldown.cooldownMs;
+          if (adaptiveCooldown.persistence === "local_only") {
+            modelCooldownPersistence = "local_only";
+          }
           effectiveProviderCode = "LOCAL_ADAPTIVE_MODEL_COOLDOWN";
         } else {
           const adaptiveCredentialScope =
@@ -2340,6 +2348,9 @@ export async function openrouterCompleteWithFallback(
             adaptiveCredentialScope,
           );
           effectiveProviderCode = "LOCAL_ADAPTIVE_CREDENTIAL_COOLDOWN";
+        }
+        if (modelCooldownPersistence === "local_only") {
+          effectiveProviderCode = "MODEL_COOLDOWN_LOCAL_ONLY";
         }
         // Every rate limit is terminal for this OpenRouter request, including
         // unknown/account-wide scopes. Do not advance to another model or tier.
@@ -2607,29 +2618,33 @@ export async function* openrouterCompleteStream(
                 : undefined;
             let effectiveRetryAfterMs = providerError.retryAfterMs;
             let effectiveProviderCode = providerError.providerCode;
+            let modelCooldownPersistence: "shared" | "local_only" = "shared";
             if (hasProviderRetryAfter) {
               if (providerError.rateLimitScope === "upstream_shared_pool" && upstreamPoolKey) {
                 recordModelFailure("openrouter", model, providerError.retryAfterMs);
-                await persistSharedPoolModelCooldown(
+                if (await persistSharedPoolModelCooldown(
                   "openrouter",
                   model,
                   providerError.retryAfterMs,
                   fullOpts.modelCooldownPersistence,
-                );
+                ) === "local_only") modelCooldownPersistence = "local_only";
                 recordModelFailure("openrouter", upstreamPoolKey, providerError.retryAfterMs);
-                await persistSharedPoolModelCooldown(
+                if (await persistSharedPoolModelCooldown(
                   "openrouter",
                   upstreamPoolKey,
                     providerError.retryAfterMs!,
                   fullOpts.modelCooldownPersistence,
-                );
-                const localAdaptiveCooldownMs =
-                  await recordRepeatedProviderRetryAfterCooldown(
+                ) === "local_only") modelCooldownPersistence = "local_only";
+                const repeatedCooldown = await recordRepeatedProviderRetryAfterCooldown(
                     "openrouter",
                     upstreamPoolKey,
                     providerError.retryAfterMs!,
                     fullOpts.modelCooldownPersistence,
                   );
+                const localAdaptiveCooldownMs = repeatedCooldown.cooldownMs;
+                if (repeatedCooldown.persistence === "local_only") {
+                  modelCooldownPersistence = "local_only";
+                }
                 if (localAdaptiveCooldownMs > effectiveRetryAfterMs!) {
                   effectiveRetryAfterMs = localAdaptiveCooldownMs;
                   effectiveProviderCode = "LOCAL_ADAPTIVE_MODEL_COOLDOWN";
@@ -2652,11 +2667,15 @@ export async function* openrouterCompleteStream(
               providerError.rateLimitScope === "upstream_shared_pool" &&
               upstreamPoolKey
             ) {
-              effectiveRetryAfterMs = await recordLocalAdaptiveModelCooldown(
+              const adaptiveCooldown = await recordLocalAdaptiveModelCooldown(
                 "openrouter",
                 upstreamPoolKey,
                 fullOpts.modelCooldownPersistence,
               );
+              effectiveRetryAfterMs = adaptiveCooldown.cooldownMs;
+              if (adaptiveCooldown.persistence === "local_only") {
+                modelCooldownPersistence = "local_only";
+              }
               effectiveProviderCode = "LOCAL_ADAPTIVE_MODEL_COOLDOWN";
             } else {
               const adaptiveCredentialScope =
@@ -2670,6 +2689,9 @@ export async function* openrouterCompleteStream(
                 adaptiveCredentialScope,
               );
               effectiveProviderCode = "LOCAL_ADAPTIVE_CREDENTIAL_COOLDOWN";
+            }
+            if (modelCooldownPersistence === "local_only") {
+              effectiveProviderCode = "MODEL_COOLDOWN_LOCAL_ONLY";
             }
             if (
               effectiveRetryAfterMs !== providerError.retryAfterMs

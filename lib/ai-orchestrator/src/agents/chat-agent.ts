@@ -3192,9 +3192,6 @@ export async function runCapabilityMicroProbes(opts: {
               : {}),
             maxTokens: retry ? 500 : 900,
             retryTransient: false,
-            ...(opts.provider === "openrouter"
-              ? { circuitFailurePolicy: "suppress" as const }
-              : {}),
           },
           attemptTimeoutMs,
           deadlineAt: effectiveDeadlineAt,
@@ -10853,7 +10850,6 @@ export async function chat(opts: {
                     ? { excludeModels: [...recoveryExcludedModels] }
                     : {}),
                   operation: "project_query_no_tools_synthesis",
-                  circuitFailurePolicy: "suppress",
                   apiKey: recoveryProvider.apiKey,
                   signal,
                   executionLedger,

@@ -7107,6 +7107,7 @@ components:
         - availabilityState
         - operatorAction
         - correlationId
+        - providerCircuitSupported
         - circuitOpen
         - circuitHalfOpen
         - cooldownRemainingMs
@@ -7148,12 +7149,21 @@ components:
           type: ["string", "null"]
         correlationId:
           type: string
+        providerCircuitSupported:
+          type: boolean
+          description: Whether a provider-wide circuit breaker is currently implemented.
         circuitOpen:
           type: boolean
+          deprecated: true
+          description: Legacy compatibility field; ignore when providerCircuitSupported is false.
         circuitHalfOpen:
           type: boolean
+          deprecated: true
+          description: Legacy compatibility field; ignore when providerCircuitSupported is false.
         cooldownRemainingMs:
           type: ["integer", "null"]
+          deprecated: true
+          description: Legacy provider-circuit cooldown; ignore when providerCircuitSupported is false.
         lifecycle:
           $ref: "#/components/schemas/ProviderLifecycleSnapshot"
 

@@ -241,7 +241,7 @@ router.get("/ai/active-provider", async (req, res) => {
  * Shape per entry:
  *   requests, failures, fallbackSuccesses, invalidModels, latency percentiles,
  *   successRate, lastSuccessAt, lastFailureAt, consecutiveFailures   (PR-05)
- *   circuitOpen, cooldownRemainingMs                                 (PR-07)
+ *   providerCircuitSupported, legacy circuit compatibility fields
  *
  * Runtime counters reset on restart; `usage` is the persistent analytics
  * projection and contains no prompts, source content, or credentials.
@@ -343,6 +343,7 @@ router.get("/ai/metrics", async (req, res) => {
       // This is a stable runtime health identity, not a fake per-response
       // operation id. Durable operation correlation is exposed in `usage`.
       correlationId: `provider-runtime:${provider}`,
+      providerCircuitSupported: circuit.supported,
       circuitOpen:         circuit.open,
       circuitHalfOpen:     circuit.halfOpen,
       cooldownRemainingMs: circuit.cooldownRemainingMs,

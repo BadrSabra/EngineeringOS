@@ -7,9 +7,9 @@
  * PR-01: refreshes the dynamic model catalog before each call so stale model
  * IDs are filtered out of the fallback chain as soon as they disappear.
  *
- * PR-07: integrates the circuit breaker — checks before attempting a call,
- * records success/failure so the circuit opens after repeated failures and
- * re-enables after the cooldown.
+ * Provider-wide circuit breaking is intentionally disabled. Rate limits and
+ * temporary failures remain scoped to the model or credential at the client
+ * boundary; the compatibility circuit exports do not block requests.
  *
  * `supportsNativeStream: false` — OpenRouter free-tier models often
  * include the final answer in the non-streaming tool-loop response, so the
@@ -24,11 +24,6 @@ import { assertOpenRouterFreeModel } from "../openrouter/free-model-policy.js";
 import { GroqClientError, safeErrorTag } from "../errors.js";
 import { refreshDynamicCatalog } from "../openrouter/dynamic-catalog.js";
 import {
-  isCircuitOpen,
-  recordCircuitFailure,
-  recordCircuitSuccess,
-} from "../openrouter/circuit-breaker.js";
-import {
   isCatalogFreeModel,
   isCatalogFreeModelForCapability,
 } from "../openrouter/model-resolver.js";
@@ -39,36 +34,12 @@ import type {
   StrategyStreamOptions,
 } from "../provider-strategy.js";
 
-/**
- * Circuit state represents provider health, not request-local configuration.
- * A pinned model that cannot satisfy the requested capability is deterministic
- * and must not suppress otherwise healthy OpenRouter candidates for later
- * requests.
- */
-export function shouldRecordCircuitFailure(error: unknown): boolean {
-  if (!(error instanceof GroqClientError)) return true;
-  return !(
-    error.code === "INVALID_CONFIG" ||
-    // Rate limits and exhausted quota describe admission/billing, not provider
-    // endpoint health. In particular, a model-scoped shared-pool 429 must not
-    // open the provider-wide circuit.
-    error.code === "RATE_LIMITED" ||
-    error.code === "QUOTA" ||
-    error.providerCode === "MODEL_CAPABILITY_MISMATCH" ||
-    // These are model/contract failures. A healthy OpenRouter endpoint can
-    // return either when one free-tier candidate cannot honor this request.
-    error.code === "EMPTY_RESPONSE" ||
-     error.code === "INVALID_TOOL_CALL" ||
-     error.code === "INVALID_PROVIDER_RESPONSE"
-  );
-}
-
 export const openrouterStrategy: ProviderStrategy = {
   providerId: "openrouter",
   supportsNativeStream: false,
   ownsModelFallback: true,
 
-  // PR-01 + PR-07: refresh catalog, check circuit, record outcome.
+  // Refresh the catalog before resolving a free model for this request.
   async call(messages: RawMessage[], opts: StrategyCallOptions): ReturnType<ProviderStrategy["call"]> {
     if (!opts.apiKey) {
       throw new GroqClientError(
@@ -78,24 +49,6 @@ export const openrouterStrategy: ProviderStrategy = {
     }
     const configuredModel = process.env.OPENROUTER_MODEL?.trim();
     if (configuredModel) assertOpenRouterFreeModel(configuredModel);
-
-    // PR-07: reject immediately when circuit is open (cooldown not elapsed).
-    if (isCircuitOpen("openrouter")) {
-      console.warn(
-        JSON.stringify({
-          scope: "openrouter-strategy",
-          action: "circuit_blocked",
-          provider: "openrouter",
-          mode: "call",
-          hint: "circuit is open — skipping call",
-        }),
-      );
-      throw new GroqClientError(
-        "MODEL_NOT_FOUND",
-        "OpenRouter is temporarily disabled — too many consecutive failures. It will be retried automatically after the cooldown.",
-        { context: { providerCode: "CIRCUIT_OPEN" } },
-      );
-    }
 
     console.info(
       JSON.stringify({
@@ -141,8 +94,6 @@ export const openrouterStrategy: ProviderStrategy = {
         ...requestOpts,
         apiKey: opts.apiKey,
       });
-      // PR-07: successful call closes any open circuit.
-      recordCircuitSuccess("openrouter");
       console.info(
         JSON.stringify({
           scope: "openrouter-strategy",
@@ -155,23 +106,6 @@ export const openrouterStrategy: ProviderStrategy = {
       );
       return result;
     } catch (err) {
-      // PR-07: record failure so the circuit opens after the threshold.
-      if (
-        !opts.signal?.aborted &&
-        opts.circuitFailurePolicy !== "suppress" &&
-        shouldRecordCircuitFailure(err)
-      ) {
-        recordCircuitFailure("openrouter");
-      } else if (opts.circuitFailurePolicy === "suppress") {
-        console.info(
-          JSON.stringify({
-            scope: "circuit-breaker",
-            code: "CIRCUIT_FAILURE_SUPPRESSED",
-            provider: "openrouter",
-            reason: "request-local recovery failure",
-          }),
-        );
-      }
       const failedModel =
         err instanceof GroqClientError && err.providerModel
           ? err.providerModel
@@ -179,7 +113,7 @@ export const openrouterStrategy: ProviderStrategy = {
       console.warn(
         JSON.stringify({
           scope: "openrouter-strategy",
-          action: "call_failure",
+          action: opts.signal?.aborted ? "call_cancelled" : "call_failure",
           provider: "openrouter",
           requestedModel: opts.model,
           failedModel,
@@ -202,24 +136,6 @@ export const openrouterStrategy: ProviderStrategy = {
     }
     const configuredModel = process.env.OPENROUTER_MODEL?.trim();
     if (configuredModel) assertOpenRouterFreeModel(configuredModel);
-
-    // PR-07: same circuit check for streaming.
-    if (isCircuitOpen("openrouter")) {
-      console.warn(
-        JSON.stringify({
-          scope: "openrouter-strategy",
-          action: "circuit_blocked",
-          provider: "openrouter",
-          mode: "stream",
-          hint: "circuit is open — skipping stream",
-        }),
-      );
-      throw new GroqClientError(
-        "MODEL_NOT_FOUND",
-        "OpenRouter is temporarily disabled — too many consecutive failures.",
-        { context: { providerCode: "CIRCUIT_OPEN" } },
-      );
-    }
 
     console.info(
       JSON.stringify({
@@ -253,7 +169,6 @@ export const openrouterStrategy: ProviderStrategy = {
         );
       }
       yield* openrouterCompleteStream(messages, { ...requestOpts, apiKey: opts.apiKey });
-      recordCircuitSuccess("openrouter");
       console.info(
         JSON.stringify({
           scope: "openrouter-strategy",
@@ -263,13 +178,10 @@ export const openrouterStrategy: ProviderStrategy = {
         }),
       );
     } catch (err) {
-      if (shouldRecordCircuitFailure(err)) {
-        recordCircuitFailure("openrouter");
-      }
       console.warn(
         JSON.stringify({
           scope: "openrouter-strategy",
-          action: "stream_failure",
+          action: opts.signal?.aborted ? "stream_cancelled" : "stream_failure",
           provider: "openrouter",
           model: opts.model,
           errorCode: err instanceof GroqClientError ? err.code : "UNKNOWN",

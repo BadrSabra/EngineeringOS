@@ -108,6 +108,7 @@ export function recordModelSuccess(provider: string, model: string): void {
  * Used by /api/ai/metrics to expose runtime health.
  */
 export function getCircuitState(provider: string): {
+  supported: boolean;
   open: boolean;
   halfOpen: boolean;
   consecutiveFailures: number;
@@ -115,6 +116,7 @@ export function getCircuitState(provider: string): {
 } {
   void provider;
   return {
+    supported: false,
     open: false,
     halfOpen: false,
     consecutiveFailures: 0,

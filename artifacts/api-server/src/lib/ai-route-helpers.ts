@@ -19,7 +19,6 @@ import {
   PROVIDER_PRIORITY,
   PROVIDER_REGISTRY,
   sortProviderIdsByQuality,
-  isCircuitOpen,
   getCircuitState,
   createExecutionLedger,
   getProviderLifecycleSnapshot,
@@ -269,15 +268,6 @@ async function collectAvailableProviders(
         "Skipping provider — lifecycle is not selectable",
       );
       skipped.push({ provider, reason, diagnostics });
-      continue;
-    }
-    // PR-07: skip providers whose circuit breaker is open (cooldown not elapsed).
-    if (isCircuitOpen(provider)) {
-      logger.warn(
-        { provider, reason: "circuit_open" },
-        "Skipping provider — circuit is open due to consecutive failures",
-      );
-      skipped.push({ provider, reason: "circuit_open" });
       continue;
     }
     available.push({ provider, apiKey: credential.apiKey, source: credential.source });
@@ -743,7 +733,7 @@ export async function runAgentWithFallback<T>(
       check: true,
       requirements: { requireTools: options?.requireTools },
     });
-    if (lifecycle.selectable && !isCircuitOpen(initialProvider.provider)) {
+    if (lifecycle.selectable) {
       orderedProviders.unshift({ ...initialProvider, source: initialProvider.source ?? "user" });
     }
   }
@@ -1131,7 +1121,7 @@ export async function chatWithFallback(
       forceRefresh: capabilityProbeTurn,
       requirements: { requireTools: options?.requireTools },
     });
-    if (lifecycle.selectable && !isCircuitOpen(initialProvider.provider)) {
+    if (lifecycle.selectable) {
       orderedProviders.unshift({ ...initialProvider, source: initialProvider.source ?? "user" });
     }
   }
