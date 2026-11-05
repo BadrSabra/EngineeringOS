@@ -200,7 +200,7 @@ describe("buildGeneralTaskPlan", () => {
     })).toBe(true);
     expect(canReuseTaskPlanRevision({
       currentRevision: "rev-new",
-    })).toBe(false);
+    })).toBe(true);
   });
 
   it("keeps approval on the execution boundary for a newly created delivery plan", () => {

@@ -9,6 +9,19 @@ The general planning layer is an adapter and decision point, not a fourth planne
 
 **How to apply:** Keep one request budget and execution ledger. Emit a bounded plan/reuse trace without provider reasoning. Let existing execution nodes, recipe compilation, coordinators, approval gates, validation, and acceptance remain authoritative.
 
+Legacy execution plans without a persisted revision remain reusable for
+compatibility, but a revision that is present must match the current workspace
+revision. The general-plan builder must receive server-owned revision context;
+an explicit override is also server-owned.
+
+**Why:** Older durable plans may predate revision metadata, and rejecting them
+breaks resumable execution. Reusing a plan with a recorded but stale revision
+can instead apply work to the wrong workspace state.
+
+**How to apply:** Distinguish a missing legacy revision from a recorded
+revision mismatch. Require a current matching revision when one was persisted,
+and never let provider input supply the validation context or override.
+
 The Mission adapter may expose a read-only admission preview and bind its
 bounded plan snapshot to the first activation Goal, but it must not create a
 second executor or grant write authority. Keep the plan hash and dependency

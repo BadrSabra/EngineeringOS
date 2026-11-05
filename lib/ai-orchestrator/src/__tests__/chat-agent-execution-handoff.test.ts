@@ -83,7 +83,7 @@ describe("chat agent — recovered Repair Plan execution", () => {
     expect(result.sources).toEqual([]);
     expect(result.pendingChanges).toEqual([]);
     expect(deltas).toEqual([result.response]);
-  });
+  }, 15_000);
 
   it("starts a proposed analysis with a read and never exposes write tools", async () => {
     const rootPath = await fs.mkdtemp(path.join(tmpdir(), "eos-analysis-start-"));

@@ -6936,7 +6936,19 @@ export async function chat(opts: {
   // explicit context, so the model knows exactly which repairs to implement.
   const immediateIntent =
     isImmediateExecutionRequest(message) || isCompoundWriteRequest(message);
-  const storedExecutionPlan = executionPlanOverride ?? activeTaskState?.executionPlan ?? null;
+  const storedExecutionPlanCandidate =
+    executionPlanOverride ?? activeTaskState?.executionPlan ?? null;
+  const storedExecutionPlanRevision = activeTaskState?.scope.revision
+    ?? storedExecutionPlanCandidate?.boundaries.revision;
+  const storedExecutionPlan =
+    storedExecutionPlanCandidate
+    && canReuseTaskPlanRevision({
+      persistedRevision: storedExecutionPlanRevision,
+      currentRevision: analysisCorrelation?.projectRevision,
+      explicitOverride: Boolean(executionPlanOverride),
+    })
+      ? storedExecutionPlanCandidate
+      : null;
   const resumedImplementationPlan =
     turnIntent.implementationPlanResume ? storedExecutionPlan?.implementationPlan : null;
   const resumedImplementationStep = resumedImplementationPlan?.steps[
@@ -6984,9 +6996,9 @@ export async function chat(opts: {
     objective: objective
       ? `${objective.objectiveType}: ${message}`
       : message,
-    existingExecutionPlan: storedExecutionPlan,
+    existingExecutionPlan: storedExecutionPlanCandidate,
     executionPlanRevision: {
-      persistedRevision: activeTaskState?.scope.revision,
+      persistedRevision: storedExecutionPlanRevision,
       currentRevision: analysisCorrelation?.projectRevision,
       explicitOverride: Boolean(executionPlanOverride),
     },

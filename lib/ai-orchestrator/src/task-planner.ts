@@ -90,9 +90,8 @@ export function canReuseTaskPlanRevision(input: {
   explicitOverride?: boolean;
 }): boolean {
   if (input.explicitOverride) return true;
-  return Boolean(input.persistedRevision)
-    && Boolean(input.currentRevision)
-    && input.persistedRevision === input.currentRevision;
+  if (!input.persistedRevision) return true;
+  return Boolean(input.currentRevision) && input.persistedRevision === input.currentRevision;
 }
 
 type GeneralTaskPlanInput = {
