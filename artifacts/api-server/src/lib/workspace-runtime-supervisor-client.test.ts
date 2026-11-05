@@ -3,11 +3,13 @@ import { WorkspaceRuntimeSupervisorClient } from "./workspace-runtime-supervisor
 
 describe("WorkspaceRuntimeSupervisorClient child attestation handoff", () => {
   it("sends the temporary marker only in the start request body", async () => {
-    const requests: Array<{ url: string; body: string }> = [];
+    const requests: Array<{ url: string; body: string; authorization: string | undefined }> = [];
     const fetchImpl: typeof fetch = async (input, init) => {
+      const headers = init?.headers as Record<string, string> | undefined;
       requests.push({
         url: String(input),
         body: String(init?.body ?? ""),
+        authorization: headers?.authorization,
       });
       return new Response(JSON.stringify({
         projectId: "project-runtime",
@@ -20,7 +22,11 @@ describe("WorkspaceRuntimeSupervisorClient child attestation handoff", () => {
         headers: { "content-type": "application/json" },
       });
     };
-    const client = new WorkspaceRuntimeSupervisorClient("http://supervisor.test", fetchImpl);
+    const client = new WorkspaceRuntimeSupervisorClient(
+      "http://supervisor.test",
+      fetchImpl,
+      "test-supervisor-token",
+    );
     const marker = "ea195580-47e7-435b-9c64-8a3ee5ce7240";
 
     const response = await client.start({
@@ -32,15 +38,21 @@ describe("WorkspaceRuntimeSupervisorClient child attestation handoff", () => {
 
     expect(requests).toHaveLength(1);
     expect(requests[0]?.url).toBe("http://supervisor.test/runtime/start");
+    expect(requests[0]?.authorization).toBe("Bearer test-supervisor-token");
     expect(JSON.parse(requests[0]!.body)).toMatchObject({ attestationMarker: marker });
     expect(response).not.toHaveProperty("attestationMarker");
     expect(JSON.stringify(response)).not.toContain(marker);
   });
 
   it("observes a strictly validated start state", async () => {
-    const requests: Array<{ url: string; body: string }> = [];
+    const requests: Array<{ url: string; body: string; authorization: string | undefined }> = [];
     const fetchImpl: typeof fetch = async (input, init) => {
-      requests.push({ url: String(input), body: String(init?.body ?? "") });
+      const headers = init?.headers as Record<string, string> | undefined;
+      requests.push({
+        url: String(input),
+        body: String(init?.body ?? ""),
+        authorization: headers?.authorization,
+      });
       return new Response(JSON.stringify({
         projectId: "project-runtime",
         status: "stopped",
@@ -50,7 +62,11 @@ describe("WorkspaceRuntimeSupervisorClient child attestation handoff", () => {
         detail: "No tracked runtime session is live and all managed ports are accounted for.",
       }), { status: 200, headers: { "content-type": "application/json" } });
     };
-    const client = new WorkspaceRuntimeSupervisorClient("http://supervisor.test", fetchImpl);
+    const client = new WorkspaceRuntimeSupervisorClient(
+      "http://supervisor.test",
+      fetchImpl,
+      "test-supervisor-token",
+    );
 
     await expect(client.observeStartState("project-runtime")).resolves.toMatchObject({
       projectId: "project-runtime",
@@ -60,6 +76,7 @@ describe("WorkspaceRuntimeSupervisorClient child attestation handoff", () => {
     expect(requests).toEqual([{
       url: "http://supervisor.test/runtime/observe-start",
       body: JSON.stringify({ projectId: "project-runtime" }),
+      authorization: "Bearer test-supervisor-token",
     }]);
   });
 
@@ -72,7 +89,11 @@ describe("WorkspaceRuntimeSupervisorClient child attestation handoff", () => {
       unknownListenerPorts: [],
       detail: "",
     }), { status: 200 });
-    const client = new WorkspaceRuntimeSupervisorClient("http://supervisor.test", fetchImpl);
+    const client = new WorkspaceRuntimeSupervisorClient(
+      "http://supervisor.test",
+      fetchImpl,
+      "test-supervisor-token",
+    );
 
     await expect(client.observeStartState("project-runtime")).rejects.toThrow(
       "invalid observation",
@@ -88,7 +109,11 @@ describe("WorkspaceRuntimeSupervisorClient child attestation handoff", () => {
       unknownListenerPorts: [3010],
       detail: "Unowned listener exists.",
     }), { status: 200 });
-    const client = new WorkspaceRuntimeSupervisorClient("http://supervisor.test", fetchImpl);
+    const client = new WorkspaceRuntimeSupervisorClient(
+      "http://supervisor.test",
+      fetchImpl,
+      "test-supervisor-token",
+    );
 
     await expect(client.observeStartState("project-runtime")).rejects.toThrow(
       "invalid observation",

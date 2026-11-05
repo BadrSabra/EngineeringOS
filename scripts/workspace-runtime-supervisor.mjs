@@ -1,5 +1,8 @@
 import http from "node:http";
 import net from "node:net";
+import path from "node:path";
+import { createHmac, timingSafeEqual } from "node:crypto";
+import { readFile, realpath, stat } from "node:fs/promises";
 import { spawn } from "node:child_process";
 
 const BIND_HOST = process.env.WORKSPACE_RUNTIME_SUPERVISOR_HOST ?? "127.0.0.1";
@@ -12,7 +15,23 @@ const STOP_TIMEOUT_MS = 2_000;
 const MAX_LOG_LINES = 120;
 const MAX_LOG_LINE_CHARS = 600;
 const SAFE_ENV_NAMES = /^(?:PATH|HOME|USER|SHELL|LANG|LC_[A-Z_]+|TERM|TMPDIR|PNPM_HOME|npm_config_[A-Za-z0-9_]+)$/;
+const SUPERVISOR_AUTH_CONTEXT = "EngineeringOS/workspace-runtime-supervisor/v1";
 const sessions = new Map();
+
+if (BIND_HOST !== "127.0.0.1") {
+  throw new Error("Workspace runtime supervisor must bind to a loopback address.");
+}
+if (!Number.isInteger(PORT) || PORT < 1 || PORT > 65_535) {
+  throw new Error("Workspace runtime supervisor port is invalid.");
+}
+
+const sessionSecret = process.env.SESSION_SECRET;
+if (!sessionSecret) {
+  throw new Error("Workspace runtime supervisor authentication is not configured.");
+}
+const SUPERVISOR_AUTH_TOKEN = createHmac("sha256", sessionSecret)
+  .update(SUPERVISOR_AUTH_CONTEXT)
+  .digest("hex");
 
 function bounded(value) {
   return String(value)
@@ -26,6 +45,14 @@ function bounded(value) {
 function json(res, status, body) {
   res.writeHead(status, { "content-type": "application/json; charset=utf-8" });
   res.end(JSON.stringify(body));
+}
+
+function isAuthorized(req) {
+  const header = req.headers.authorization;
+  if (typeof header !== "string" || !header.startsWith("Bearer ")) return false;
+  const supplied = Buffer.from(header.slice("Bearer ".length), "utf8");
+  const expected = Buffer.from(SUPERVISOR_AUTH_TOKEN, "utf8");
+  return supplied.length === expected.length && timingSafeEqual(supplied, expected);
 }
 
 async function body(req) {
@@ -79,7 +106,7 @@ async function findPort() {
 }
 
 function isPidAlive(pid) {
-  if (!Number.isInteger(pid)) return false;
+  if (!Number.isInteger(pid) || pid <= 1) return false;
   try {
     process.kill(pid, 0);
     return true;
@@ -89,7 +116,7 @@ function isPidAlive(pid) {
 }
 
 function signalGroup(pid, signal) {
-  if (!Number.isInteger(pid)) return;
+  if (!Number.isInteger(pid) || pid <= 1) return;
   try {
     process.kill(-pid, signal);
   } catch (error) {
@@ -127,6 +154,26 @@ async function waitForReady(child, port) {
   throw new Error(`Runtime process did not open port ${port} within ${STARTUP_TIMEOUT_MS}ms.`);
 }
 
+async function validateProjectRoot(candidate) {
+  if (typeof candidate !== "string" || !path.isAbsolute(candidate)) {
+    throw Object.assign(new Error("A canonical registered project root is required."), { status: 400 });
+  }
+  let resolved;
+  try {
+    resolved = await realpath(candidate);
+    if (resolved !== path.resolve(candidate) || !(await stat(resolved)).isDirectory()) {
+      throw new Error("Project root is not canonical.");
+    }
+    const manifest = JSON.parse(await readFile(path.join(resolved, "package.json"), "utf8"));
+    if (typeof manifest.scripts?.dev !== "string" || !manifest.scripts.dev.trim()) {
+      throw new Error("Project dev script is unavailable.");
+    }
+  } catch {
+    throw Object.assign(new Error("The registered project root is unavailable or invalid."), { status: 400 });
+  }
+  return resolved;
+}
+
 function attachLogs(session) {
   const append = (chunk) => {
     for (const line of String(chunk).split(/\r?\n/)) {
@@ -156,9 +203,10 @@ async function start(input) {
   if (!isSafeProjectId(input.projectId) || !isSafeProjectId(input.sessionId)) {
     throw Object.assign(new Error("Invalid runtime identity."), { status: 400 });
   }
-  if (input.profile !== "dev" || typeof input.projectRoot !== "string" || !input.projectRoot.startsWith("/")) {
+  if (input.profile !== "dev") {
     throw Object.assign(new Error("Only the server-owned dev profile is permitted."), { status: 400 });
   }
+  const projectRoot = await validateProjectRoot(input.projectRoot);
   if (
     input.attestationMarker !== undefined
     && (typeof input.attestationMarker !== "string" || !/^[a-f0-9-]{36}$/.test(input.attestationMarker))
@@ -178,7 +226,7 @@ async function start(input) {
   if (existing) await terminate(existing);
   const port = await findPort();
   const child = spawn("pnpm", ["run", "dev"], {
-    cwd: input.projectRoot,
+    cwd: projectRoot,
     env: runtimeEnv(port, input.attestationMarker),
     detached: true,
     shell: false,
@@ -187,7 +235,7 @@ async function start(input) {
   const session = {
     projectId: input.projectId,
     sessionId: input.sessionId,
-    projectRoot: input.projectRoot,
+    projectRoot,
     status: "starting",
     port,
     pid: child.pid ?? null,
@@ -222,6 +270,16 @@ async function adopt(input) {
   if (!isSafeProjectId(input.projectId) || !isSafeProjectId(input.sessionId)) {
     throw Object.assign(new Error("Invalid runtime identity."), { status: 400 });
   }
+  const projectRoot = await validateProjectRoot(input.projectRoot);
+  if (
+    !Number.isInteger(input.pid)
+    || input.pid <= 1
+    || !Number.isInteger(input.port)
+    || input.port < PORT_MIN
+    || input.port > PORT_MAX
+  ) {
+    throw Object.assign(new Error("Invalid runtime process binding."), { status: 400 });
+  }
   const existing = sessions.get(input.projectId);
   if (existing?.sessionId === input.sessionId && existing.pid === input.pid) {
     return publicSession(existing);
@@ -235,7 +293,7 @@ async function adopt(input) {
   const session = {
     projectId: input.projectId,
     sessionId: input.sessionId,
-    projectRoot: input.projectRoot,
+    projectRoot,
     status: "running",
     port: input.port,
     pid: input.pid,
@@ -247,10 +305,12 @@ async function adopt(input) {
 }
 
 async function stop(input) {
+  if (!isSafeProjectId(input.projectId) || !isSafeProjectId(input.sessionId)) {
+    throw Object.assign(new Error("Invalid runtime identity."), { status: 400 });
+  }
   const session = sessions.get(input.projectId);
   if (!session) {
-    if (isPidAlive(input.pid)) signalGroup(input.pid, "SIGTERM");
-    return { projectId: input.projectId, sessionId: input.sessionId, status: "stopped", port: null, pid: null, logs: [], error: null };
+    throw Object.assign(new Error("No supervisor-owned session is available to stop."), { status: 409 });
   }
   if (session.sessionId !== input.sessionId) {
     throw Object.assign(new Error("Runtime session identity does not match."), { status: 409 });
@@ -317,6 +377,7 @@ async function handle(req, res) {
     const url = new URL(req.url, `http://${LOOPBACK_HOST}:${PORT}`);
     if (req.method === "GET" && url.pathname === "/healthz") return json(res, 200, { status: "ok" });
     if (req.method !== "POST") return json(res, 405, { error: "method_not_allowed" });
+    if (!isAuthorized(req)) return json(res, 401, { error: "unauthorized" });
     const input = await body(req);
     if (url.pathname === "/runtime/start") return json(res, 200, await start(input));
     if (url.pathname === "/runtime/adopt") return json(res, 200, await adopt(input));

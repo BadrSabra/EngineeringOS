@@ -1,6 +1,22 @@
 import { createHash, randomUUID } from "node:crypto";
 import { execFile } from "node:child_process";
-import { cp, link, mkdir, readFile, rm, writeFile, readdir, lstat, readlink, realpath, rename, unlink } from "node:fs/promises";
+import { constants as fsConstants, type BigIntStats } from "node:fs";
+import {
+  cp,
+  link,
+  mkdir,
+  open,
+  readFile,
+  rm,
+  writeFile,
+  readdir,
+  lstat,
+  readlink,
+  realpath,
+  rename,
+  unlink,
+  type FileHandle,
+} from "node:fs/promises";
 import path from "node:path";
 import { promisify } from "node:util";
 
@@ -173,7 +189,8 @@ export const DELIVERY_TREE_EXCLUSIONS = [
 export type DeliveryTreeDigestErrorCode =
   | "DELIVERY_TREE_ROOT_UNAVAILABLE"
   | "DELIVERY_TREE_ENTRY_UNREADABLE"
-  | "DELIVERY_TREE_UNSAFE_PATH";
+  | "DELIVERY_TREE_UNSAFE_PATH"
+  | "DELIVERY_TREE_CHANGED_DURING_SCAN";
 
 export class DeliveryTreeDigestError extends Error {
   readonly code: DeliveryTreeDigestErrorCode;
@@ -182,6 +199,48 @@ export class DeliveryTreeDigestError extends Error {
     super(message);
     this.name = "DeliveryTreeDigestError";
     this.code = code;
+  }
+}
+
+const DIRECTORY_OPEN_FLAGS =
+  fsConstants.O_RDONLY | fsConstants.O_DIRECTORY | fsConstants.O_NOFOLLOW;
+const FILE_READ_FLAGS = fsConstants.O_RDONLY | fsConstants.O_NOFOLLOW;
+
+function descriptorPath(directory: FileHandle, name?: string): string {
+  const base = `/proc/self/fd/${directory.fd}`;
+  return name ? path.join(base, name) : base;
+}
+
+function sameNodeIdentity(left: BigIntStats, right: BigIntStats): boolean {
+  return left.dev === right.dev && left.ino === right.ino && left.mode === right.mode;
+}
+
+function sameStableMetadata(left: BigIntStats, right: BigIntStats): boolean {
+  return sameNodeIdentity(left, right)
+    && left.size === right.size
+    && left.mtimeNs === right.mtimeNs
+    && left.ctimeNs === right.ctimeNs
+    && left.nlink === right.nlink;
+}
+
+async function openAbsoluteDirectoryNoFollow(absolutePath: string): Promise<FileHandle> {
+  const resolved = path.resolve(absolutePath);
+  if (!path.isAbsolute(resolved)) throw new Error("An absolute directory path is required.");
+
+  let current = await open(path.parse(resolved).root, DIRECTORY_OPEN_FLAGS);
+  try {
+    const segments = resolved.slice(path.parse(resolved).root.length)
+      .split(path.sep)
+      .filter(Boolean);
+    for (const segment of segments) {
+      const next = await open(descriptorPath(current, segment), DIRECTORY_OPEN_FLAGS);
+      await current.close();
+      current = next;
+    }
+    return current;
+  } catch (error) {
+    await current.close().catch(() => undefined);
+    throw error;
   }
 }
 
@@ -327,64 +386,147 @@ function normalizeDeliveryRelativePath(relativePath: string): string {
  * their link target without following it. Other filesystem kinds are recorded
  * by kind but never read as files.
  */
-export async function hashDeliveryTree(rootPath: string): Promise<string> {
+export type DeliveryTreeHashOptions = {
+  /** Internal coordination hook used by deterministic filesystem tests. */
+  beforeFileRead?: (relativePath: string) => Promise<void>;
+};
+
+export async function hashDeliveryTree(
+  rootPath: string,
+  options: DeliveryTreeHashOptions = {},
+): Promise<string> {
   const resolvedRoot = path.resolve(rootPath);
   const entries: Array<{ path: string; kind: "directory" | "file" | "symlink" | "other"; bytes?: string }> = [];
   const seenPaths = new Set<string>();
-  async function visit(directory: string): Promise<void> {
+  const changedDuringScan = () => new DeliveryTreeDigestError(
+    "DELIVERY_TREE_CHANGED_DURING_SCAN",
+    "Delivery tree changed while its digest was being computed.",
+  );
+  const mapEntryError = (error: unknown): DeliveryTreeDigestError => {
+    const code = (error as NodeJS.ErrnoException)?.code;
+    if (code === "ENOENT" || code === "ELOOP" || code === "ENOTDIR" || code === "ESTALE") {
+      return changedDuringScan();
+    }
+    return new DeliveryTreeDigestError(
+      "DELIVERY_TREE_ENTRY_UNREADABLE",
+      "Delivery tree entry could not be read.",
+    );
+  };
+
+  async function visit(directoryHandle: FileHandle, relativeDirectory: string): Promise<void> {
+    let beforeDirectory: BigIntStats;
     let children;
     try {
-      children = (await readdir(directory, { withFileTypes: true }))
+      beforeDirectory = await directoryHandle.stat({ bigint: true });
+      children = (await readdir(descriptorPath(directoryHandle), { withFileTypes: true }))
         .sort((a, b) => a.name.localeCompare(b.name));
-    } catch {
-      throw new DeliveryTreeDigestError(
-        directory === resolvedRoot ? "DELIVERY_TREE_ROOT_UNAVAILABLE" : "DELIVERY_TREE_ENTRY_UNREADABLE",
-        "Delivery tree could not be read.",
-      );
+    } catch (error) {
+      throw mapEntryError(error);
     }
     for (const entry of children) {
-      const absolute = path.join(directory, entry.name);
-      if (shouldExcludeDeliveryEntry(absolute, resolvedRoot) || (directory === resolvedRoot && entry.name === MARKER)) continue;
-      const relative = normalizeDeliveryRelativePath(path.relative(resolvedRoot, absolute));
+      const relative = normalizeDeliveryRelativePath(
+        relativeDirectory ? `${relativeDirectory}/${entry.name}` : entry.name,
+      );
+      const absolute = path.join(resolvedRoot, ...relative.split("/"));
+      if (shouldExcludeDeliveryEntry(absolute, resolvedRoot) || (!relativeDirectory && entry.name === MARKER)) continue;
       if (seenPaths.has(relative)) {
         throw new DeliveryTreeDigestError("DELIVERY_TREE_UNSAFE_PATH", "Delivery tree contains duplicate normalized paths.");
       }
       seenPaths.add(relative);
-      let stat;
+      const anchoredPath = descriptorPath(directoryHandle, entry.name);
+      let entryStat: BigIntStats;
       try {
-        stat = await lstat(absolute);
-      } catch {
-        throw new DeliveryTreeDigestError("DELIVERY_TREE_ENTRY_UNREADABLE", "Delivery tree entry could not be inspected.");
+        entryStat = await lstat(anchoredPath, { bigint: true });
+      } catch (error) {
+        throw mapEntryError(error);
       }
-      if (stat.isDirectory()) {
+      if (entryStat.isDirectory()) {
         entries.push({ path: relative, kind: "directory" });
-        await visit(absolute);
-      } else if (stat.isFile()) {
+        let childDirectory: FileHandle | undefined;
         try {
-          entries.push({ path: relative, kind: "file", bytes: (await readFile(absolute)).toString("base64") });
-        } catch {
-          throw new DeliveryTreeDigestError("DELIVERY_TREE_ENTRY_UNREADABLE", "Delivery tree file could not be read.");
+          childDirectory = await open(anchoredPath, DIRECTORY_OPEN_FLAGS);
+          const openedStat = await childDirectory.stat({ bigint: true });
+          if (!sameNodeIdentity(entryStat, openedStat)) throw changedDuringScan();
+          await visit(childDirectory, relative);
+        } catch (error) {
+          if (error instanceof DeliveryTreeDigestError) throw error;
+          throw mapEntryError(error);
+        } finally {
+          if (childDirectory) {
+            await childDirectory.close().catch(() => undefined);
+          }
         }
-      } else if (stat.isSymbolicLink()) {
+      } else if (entryStat.isFile()) {
+        let fileHandle: FileHandle | undefined;
         try {
-          entries.push({ path: relative, kind: "symlink", bytes: Buffer.from(await readlink(absolute), "utf8").toString("base64") });
-        } catch {
-          throw new DeliveryTreeDigestError("DELIVERY_TREE_ENTRY_UNREADABLE", "Delivery tree symlink could not be read.");
+          fileHandle = await open(anchoredPath, FILE_READ_FLAGS);
+          const openedStat = await fileHandle.stat({ bigint: true });
+          if (!sameNodeIdentity(entryStat, openedStat)) throw changedDuringScan();
+          await options.beforeFileRead?.(relative);
+          const bytes = await fileHandle.readFile();
+          const afterReadStat = await fileHandle.stat({ bigint: true });
+          if (!sameStableMetadata(openedStat, afterReadStat)) throw changedDuringScan();
+          entries.push({ path: relative, kind: "file", bytes: bytes.toString("base64") });
+        } catch (error) {
+          if (error instanceof DeliveryTreeDigestError) throw error;
+          throw mapEntryError(error);
+        } finally {
+          if (fileHandle) {
+            await fileHandle.close().catch(() => undefined);
+          }
+        }
+      } else if (entryStat.isSymbolicLink()) {
+        try {
+          const target = await readlink(anchoredPath);
+          const afterReadStat = await lstat(anchoredPath, { bigint: true });
+          if (!sameStableMetadata(entryStat, afterReadStat)) throw changedDuringScan();
+          entries.push({ path: relative, kind: "symlink", bytes: Buffer.from(target, "utf8").toString("base64") });
+        } catch (error) {
+          if (error instanceof DeliveryTreeDigestError) throw error;
+          throw mapEntryError(error);
         }
       } else {
         entries.push({ path: relative, kind: "other" });
       }
     }
+    let afterDirectory: BigIntStats;
+    try {
+      afterDirectory = await directoryHandle.stat({ bigint: true });
+    } catch (error) {
+      throw mapEntryError(error);
+    }
+    if (!sameStableMetadata(beforeDirectory, afterDirectory)) throw changedDuringScan();
   }
+
+  let rootHandle: FileHandle | undefined;
+  let rootStat: BigIntStats;
   try {
-    const stat = await lstat(resolvedRoot);
-    if (!stat.isDirectory()) throw new Error("not a directory");
+    rootHandle = await openAbsoluteDirectoryNoFollow(resolvedRoot);
+    rootStat = await rootHandle.stat({ bigint: true });
+    if (!rootStat.isDirectory()) throw new Error("not a directory");
   } catch {
+    await rootHandle?.close().catch(() => undefined);
     throw new DeliveryTreeDigestError("DELIVERY_TREE_ROOT_UNAVAILABLE", "Delivery tree root is unavailable.");
   }
-  await visit(resolvedRoot);
-  const canonical = JSON.stringify({ version: DELIVERY_TREE_DIGEST_VERSION, entries });
-  return createHash("sha256").update(Buffer.from(canonical, "utf8")).digest("hex");
+  try {
+    await visit(rootHandle, "");
+    let currentRootHandle: FileHandle;
+    try {
+      currentRootHandle = await openAbsoluteDirectoryNoFollow(resolvedRoot);
+    } catch {
+      throw changedDuringScan();
+    }
+    try {
+      const currentRootStat = await currentRootHandle.stat({ bigint: true });
+      if (!sameNodeIdentity(rootStat, currentRootStat)) throw changedDuringScan();
+    } finally {
+      await currentRootHandle.close().catch(() => undefined);
+    }
+    const canonical = JSON.stringify({ version: DELIVERY_TREE_DIGEST_VERSION, entries });
+    return createHash("sha256").update(Buffer.from(canonical, "utf8")).digest("hex");
+  } finally {
+    await rootHandle?.close().catch(() => undefined);
+  }
 }
 
 export const WORKSPACE_TREE_REVISION_PREFIX = "workspace-tree-v1:";
@@ -425,41 +567,104 @@ export async function writeDeliveryWorkspaceFile(
   workspaceRoot: string,
   relativePath: string,
   content: string,
+  options: { afterParentPinned?: () => Promise<void> } = {},
 ): Promise<void> {
   const resolvedRoot = path.resolve(workspaceRoot);
   const normalized = normalizeDeliveryRelativePath(relativePath);
+  const operationId = path.basename(resolvedRoot);
+  if (resolvedRoot !== deliveryWorkspacePath(operationId)) {
+    throw new Error("Delivery change is not inside its operation-owned workspace");
+  }
   const target = path.resolve(resolvedRoot, normalized);
   if (target === resolvedRoot || !target.startsWith(`${resolvedRoot}${path.sep}`)) {
     throw new Error("Delivery change escapes isolated workspace");
   }
 
-  let cursor = target;
-  while (cursor !== resolvedRoot && cursor.startsWith(`${resolvedRoot}${path.sep}`)) {
+  let rootHandle: FileHandle | undefined;
+  let parentHandle: FileHandle | undefined;
+  let temporaryPath: string | undefined;
+  try {
+    rootHandle = await openAbsoluteDirectoryNoFollow(resolvedRoot);
+    parentHandle = rootHandle;
+
+    let markerHandle: FileHandle | undefined;
     try {
-      if ((await lstat(cursor)).isSymbolicLink()) {
-        throw new Error("Delivery change traverses a symbolic link");
+      markerHandle = await open(descriptorPath(rootHandle, MARKER), FILE_READ_FLAGS);
+      if (await markerHandle.readFile("utf8") !== `${operationId}\n`) {
+        throw new Error("Delivery workspace ownership marker does not match");
       }
+    } finally {
+      await markerHandle?.close().catch(() => undefined);
+    }
+
+    const segments = normalized.split("/");
+    const fileName = segments.pop();
+    if (!fileName) throw new Error("Delivery change has no file name");
+    for (const segment of segments) {
+      const childPath = descriptorPath(parentHandle, segment);
+      try {
+        await mkdir(childPath, { mode: 0o700 });
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
+      }
+      let next: FileHandle;
+      try {
+        next = await open(childPath, DIRECTORY_OPEN_FLAGS);
+      } catch (error) {
+        const code = (error as NodeJS.ErrnoException).code;
+        if (code === "ELOOP" || code === "ENOTDIR") {
+          throw new Error("Delivery change traverses a symbolic link or non-directory component");
+        }
+        throw error;
+      }
+      if (parentHandle !== rootHandle) {
+        await parentHandle.close();
+      }
+      parentHandle = next;
+    }
+
+    await options.afterParentPinned?.();
+    const targetPath = descriptorPath(parentHandle, fileName);
+    let targetMode: number;
+    try {
+      const targetStat = await lstat(targetPath, { bigint: true });
+      if (targetStat.isSymbolicLink()) {
+        throw new Error("Delivery change targets a symbolic link");
+      }
+      if (!targetStat.isFile()) {
+        throw new Error("Delivery change target is not a regular file");
+      }
+      targetMode = Number(targetStat.mode & 0o777n);
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+      targetMode = 0o666 & ~process.umask();
     }
-    cursor = path.dirname(cursor);
-  }
-  await mkdir(path.dirname(target), { recursive: true });
-  const [realRoot, realParent] = await Promise.all([
-    realpath(resolvedRoot),
-    realpath(path.dirname(target)),
-  ]);
-  if (realParent !== realRoot && !realParent.startsWith(`${realRoot}${path.sep}`)) {
-    throw new Error("Delivery change resolves outside isolated workspace");
-  }
-  try {
-    if ((await lstat(target)).isSymbolicLink()) {
-      throw new Error("Delivery change targets a symbolic link");
+
+    const temporaryName = `.${fileName}.engineeringos-${randomUUID()}.tmp`;
+    temporaryPath = descriptorPath(parentHandle, temporaryName);
+    const temporaryHandle = await open(
+      temporaryPath,
+      fsConstants.O_WRONLY | fsConstants.O_CREAT | fsConstants.O_EXCL | fsConstants.O_NOFOLLOW,
+      0o600,
+    );
+    try {
+      await temporaryHandle.chmod(targetMode);
+      await temporaryHandle.writeFile(content, "utf8");
+      await temporaryHandle.sync();
+    } finally {
+      await temporaryHandle.close();
     }
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+    await rename(temporaryPath, targetPath);
+    temporaryPath = undefined;
+  } finally {
+    if (temporaryPath && parentHandle) {
+      await unlink(temporaryPath).catch(() => undefined);
+    }
+    if (parentHandle && parentHandle !== rootHandle) {
+      await parentHandle.close().catch(() => undefined);
+    }
+    await rootHandle?.close().catch(() => undefined);
   }
-  await writeFile(target, content, "utf8");
 }
 
 export async function createDeliveryWorkspace(input: {

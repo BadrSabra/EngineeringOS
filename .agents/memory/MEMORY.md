@@ -74,7 +74,7 @@
 - [Provider error fixture fidelity](provider-error-test-contracts.md) — test doubles must preserve scope and retry metadata or integration tests can report false drops.
 - [Embedded objective evidence](embedded-objective-evidence.md) — embedded-AI claims need server-owned evidence materialization; provider-only citations can leave complete reads unaccepted.
 - [Execution provenance binding](execution-provenance-binding.md) — durable AI reads and acceptance must stay bound to the same managed root and workspace revision.
-- [Workspace runtime boundary](workspace-runtime-boundary.md) — project-owned previews may be supervised; Replit-managed artifact workflows must not be replaced or claimed by the app.
+- [Workspace runtime boundary](workspace-runtime-boundary.md) — project previews stay app-owned; Replit workflows stay platform-owned; the local supervisor is authenticated and loopback-only.
 - [Implementation plan evidence continuity](implementation-plan-evidence-continuity.md) — implementation plans reuse accepted evidence only when its files and workspace revision still match.
 - [Orientation proof and recovery index](orientation-proof-recovery-index.md) — grouped pointers for role manifests, proof, fallback, admission, and recovery contracts.
 - [Resume intent preservation](resume-intent-preservation.md) — resumed model prompts may carry context; server-owned turn intent must drive orientation/evidence mode instead of exact raw-text detectors.

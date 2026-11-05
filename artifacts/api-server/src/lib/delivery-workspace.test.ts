@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { execFileSync } from "node:child_process";
-import { mkdir, readFile, rm, symlink, writeFile } from "node:fs/promises";
+import { mkdir, readFile, rename, rm, symlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { randomUUID } from "node:crypto";
 import {
@@ -101,6 +101,22 @@ describe("delivery workspaces", () => {
     }
   });
 
+  it("rejects a tree digest when a file changes during its read", async () => {
+    const fixture = `/tmp/delivery-tree-changing-${randomUUID()}`;
+    const target = join(fixture, "source.txt");
+    await mkdir(fixture, { recursive: true });
+    await writeFile(target, "before\n");
+    try {
+      await expect(hashDeliveryTree(fixture, {
+        beforeFileRead: async (relativePath) => {
+          if (relativePath === "source.txt") await writeFile(target, "changed during digest\n");
+        },
+      })).rejects.toMatchObject({ code: "DELIVERY_TREE_CHANGED_DURING_SCAN" });
+    } finally {
+      await rm(fixture, { recursive: true, force: true });
+    }
+  });
+
   it("rejects unsafe cleanup and impossible lifecycle jumps", async () => {
     const operationId = randomUUID();
     await expect(discardDeliveryWorkspace("/tmp/not-owned", operationId)).resolves.toBe(false);
@@ -138,6 +154,43 @@ describe("delivery workspaces", () => {
         recursive: true,
         force: true,
       });
+    }
+  });
+
+  it("keeps a write inside the pinned candidate directory after its path is replaced", async () => {
+    const fixture = `/tmp/delivery-parent-swap-${randomUUID()}`;
+    const outside = `/tmp/delivery-parent-swap-outside-${randomUUID()}`;
+    const operationId = randomUUID();
+    await mkdir(fixture, { recursive: true });
+    await mkdir(outside, { recursive: true });
+    await writeFile(join(outside, "payload.txt"), "external\n");
+    try {
+      const workspace = await createDeliveryWorkspace({
+        rootPath: fixture,
+        operationId,
+        baseRevision: "base-1",
+        changes: [{ path: "nested/payload.txt", newContent: "candidate base\n" }],
+      });
+      const workspaceRoot = workspace.workspaceRoot;
+      await writeDeliveryWorkspaceFile(
+        workspaceRoot,
+        "nested/payload.txt",
+        "pinned write\n",
+        {
+          afterParentPinned: async () => {
+            await rename(join(workspaceRoot, "nested"), join(workspaceRoot, "nested-held"));
+            await symlink(outside, join(workspaceRoot, "nested"));
+          },
+        },
+      );
+
+      await expect(readFile(join(outside, "payload.txt"), "utf8")).resolves.toBe("external\n");
+      await expect(readFile(join(workspaceRoot, "nested-held", "payload.txt"), "utf8"))
+        .resolves.toBe("pinned write\n");
+    } finally {
+      await rm(fixture, { recursive: true, force: true });
+      await rm(outside, { recursive: true, force: true });
+      await rm(deliveryWorkspacePath(operationId), { recursive: true, force: true });
     }
   });
 

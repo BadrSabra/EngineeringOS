@@ -1,3 +1,16 @@
+import { createHmac } from "node:crypto";
+
+const SUPERVISOR_AUTH_CONTEXT = "EngineeringOS/workspace-runtime-supervisor/v1";
+
+export function deriveWorkspaceRuntimeSupervisorToken(secret: string): string {
+  if (!secret) {
+    throw new Error("Workspace runtime supervisor authentication is not configured.");
+  }
+  return createHmac("sha256", secret)
+    .update(SUPERVISOR_AUTH_CONTEXT)
+    .digest("hex");
+}
+
 type SupervisorResponse = {
   projectId: string;
   sessionId: string;
@@ -32,6 +45,7 @@ export class WorkspaceRuntimeSupervisorClient {
   constructor(
     private readonly baseUrl = "http://127.0.0.1:8099",
     private readonly fetchImpl: typeof fetch = fetch,
+    private readonly testAuthToken?: string,
   ) {}
 
   async start(input: {
@@ -102,11 +116,16 @@ export class WorkspaceRuntimeSupervisorClient {
   }
 
   private async request(path: string, init: RequestInit): Promise<SupervisorResponse> {
+    const token = this.testAuthToken ?? this.deriveAuthToken();
     let response: Response;
     try {
       response = await this.fetchImpl(`${this.baseUrl}${path}`, {
         ...init,
-        headers: { "content-type": "application/json", ...(init.headers ?? {}) },
+        headers: {
+          "content-type": "application/json",
+          authorization: `Bearer ${token}`,
+          ...(init.headers ?? {}),
+        },
       });
     } catch {
       throw new WorkspaceRuntimeSupervisorError(
@@ -122,6 +141,17 @@ export class WorkspaceRuntimeSupervisorClient {
       );
     }
     return payload as SupervisorResponse;
+  }
+
+  private deriveAuthToken(): string {
+    const secret = process.env.SESSION_SECRET;
+    if (!secret) {
+      throw new WorkspaceRuntimeSupervisorError(
+        "Workspace runtime supervisor authentication is not configured.",
+        503,
+      );
+    }
+    return deriveWorkspaceRuntimeSupervisorToken(secret);
   }
 }
 

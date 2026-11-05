@@ -21,6 +21,12 @@ The internal runtime supervisor is a local control service, not a preview artifa
 
 **How to apply:** Keep the supervisor bound to loopback with no `waitForPort`; use heartbeat adoption plus durable PID/port state for recovery.
 
+API-to-supervisor control requests require a domain-separated HMAC derived from the shared `SESSION_SECRET`; the supervisor rejects non-loopback binding and only signals sessions it owns.
+
+**Why:** The API and supervisor run as separate workflows, so a loopback listener alone does not authenticate callers; using the existing shared secret avoids adding a second credential.
+
+**How to apply:** Derive the same scoped token in both processes, never expose it to child project processes or logs, keep project-root authorization in the API, and make the supervisor independently reject noncanonical roots and unowned process identities.
+
 During recovery, the durable worker/lease claim is written before listener ownership and supervisor adoption are verified; a claimed row alone is not proof that adoption completed. To prove takeover after worker death, seed an expired row before startup, wait until full `src/index.ts` recovery completes, observe the actual worker ID and active lease, kill that API, then wait for the recorded lease to expire naturally before starting the replacement.
 
 **Why:** API worker IDs are process-local; rows inserted after startup may only be claimed by a later sweep, and `recover()` persists its claim before it verifies adoption. Updating the database to force expiry skips the timing behavior that recovery is supposed to validate. Managed supervisor behavior is a separate boundary from API orchestration.
