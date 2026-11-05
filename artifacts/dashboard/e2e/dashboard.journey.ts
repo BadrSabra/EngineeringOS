@@ -23,11 +23,18 @@ import { CAPABILITY_PROBE_MESSAGE } from "@workspace/ai-orchestrator/capability-
 const DASHBOARD_PATH = "/dashboard/";
 const blockedBrowserEgressHosts = new Set<string>();
 function localAuthFixtureModeEnabled(): boolean {
+  const controlledFixture =
+    process.env.RUN_CONTROLLED_RELEASE_VALIDATION === "1" &&
+    process.env.DASHBOARD_E2E_TEST_MODE === "fixture";
+  const lifecycleFixture =
+    process.env.ENGINEERING_AGENT_LIFECYCLE_E2E === "1" &&
+    process.env.DASHBOARD_E2E_PROVIDER_FIXTURE === "1";
+  const protectedVisualFixture =
+    process.env.DASHBOARD_E2E_PROTECTED_VISUAL === "1";
   return (
     process.env.DASHBOARD_E2E_LOCAL_AUTH_FIXTURE === "1" &&
-    process.env.RUN_CONTROLLED_RELEASE_VALIDATION === "1" &&
-    process.env.ENGINEERING_AGENT_LIFECYCLE_E2E === "1" &&
-    process.env.DASHBOARD_E2E_TEST_MODE === "fixture"
+    controlledFixture &&
+    (lifecycleFixture || protectedVisualFixture)
   );
 }
 
@@ -572,6 +579,7 @@ function installBrowserErrorMonitor(
   });
 
   return {
+    diagnostics,
     assertClean() {
       expect(
         diagnostics,
@@ -827,6 +835,10 @@ async function installApiFixtures(
     operatorAlertsPassthrough?: boolean;
     authenticatedProtectedApi?: boolean;
     authenticatedProtectedProjects?: Array<Record<string, unknown>>;
+    protectedVisual?: {
+      apiRequests: string[];
+      mutativeRequests: string[];
+    };
     sessionExpiry?: {
       failDashboardRequests: boolean;
       failureCount: number;
@@ -836,6 +848,13 @@ async function installApiFixtures(
   await page.route("**/api/**", async (route) => {
     const url = new URL(route.request().url());
     const path = url.pathname.replace(/^\/dashboard(?=\/|$)/, "");
+    if (overrides?.protectedVisual) {
+      const method = route.request().method().toUpperCase();
+      overrides.protectedVisual.apiRequests.push(`${method} ${path}`);
+      if (method !== "GET" && method !== "HEAD") {
+        overrides.protectedVisual.mutativeRequests.push(`${method} ${path}`);
+      }
+    }
     const arabicAi = overrides?.arabicAi;
     const capabilityProbeAi = overrides?.capabilityProbeAi;
     const alternateAi = overrides?.alternateAi;
@@ -1607,6 +1626,9 @@ async function installApiFixtures(
 
     // AI is deliberately not executed in this smoke journey. This response
     // verifies the user-visible unavailable/empty state without a provider.
+    if (overrides?.protectedVisual && path.startsWith("/api/ai/")) {
+      return route.fulfill(jsonResponse([]));
+    }
     if (path.startsWith("/api/ai/"))
       return route.fulfill(
         jsonResponse({ error: "AI provider not configured" }, 428),
@@ -8037,6 +8059,184 @@ test.describe("EngineeringOS dashboard browser journey", () => {
     ).toBeVisible();
 
     browserErrors.assertClean();
+  });
+
+  test("captures protected dashboard routes at phone and desktop sizes", async ({
+    page,
+  }) => {
+    test.skip(
+      process.env.DASHBOARD_E2E_PROTECTED_VISUAL !== "1",
+      "This journey runs only under the isolated protected-visual runner.",
+    );
+    expect(
+      process.env.DASHBOARD_E2E_PROTECTED_VISUAL,
+      "This visual journey must run only with its isolated fixture runner.",
+    ).toBe("1");
+    expect(localAuthFixtureModeEnabled()).toBe(true);
+
+    const fixtureRequests = { apiRequests: [], mutativeRequests: [] };
+    await installApiFixtures(page, { protectedVisual: fixtureRequests });
+
+    const pageErrors: string[] = [];
+    const consoleErrors: string[] = [];
+    const failedRequests: Array<{ path: string; reason: string }> = [];
+    page.on("pageerror", (error) => {
+      pageErrors.push(redactBrowserDiagnostic(error.message));
+    });
+    page.on("console", (message) => {
+      if (message.type() === "error") {
+        consoleErrors.push(redactBrowserDiagnostic(message.text()));
+      }
+    });
+    page.on("requestfailed", (request) => {
+      let path = "[invalid URL]";
+      try {
+        path = new URL(request.url()).pathname;
+      } catch {
+        // Keep only a path or a fixed marker in the evidence receipt.
+      }
+      failedRequests.push({
+        path,
+        reason: redactBrowserDiagnostic(
+          request.failure()?.errorText ?? "request failed",
+        ),
+      });
+    });
+
+    const visualOutputDir = resolve(
+      process.env.DASHBOARD_E2E_VISUAL_OUTPUT_DIR ??
+        "test-results/dashboard-protected-visual",
+    );
+    await mkdir(visualOutputDir, { recursive: true });
+    const reportPath = resolve(
+      process.env.DASHBOARD_E2E_VISUAL_REPORT_PATH ??
+        resolve(visualOutputDir, "visual-receipt.json"),
+    );
+    const routes = [
+      { path: DASHBOARD_PATH, heading: "مساحة العمل", name: "dashboard" },
+      {
+        path: `${DASHBOARD_PATH}projects`,
+        heading: "المشاريع",
+        name: "projects",
+      },
+      { path: `${DASHBOARD_PATH}tasks`, heading: "المهام", name: "tasks" },
+      {
+        path: `${DASHBOARD_PATH}events`,
+        heading: "سجل الأحداث",
+        name: "events",
+      },
+    ];
+    const viewports = [
+      { name: "phone", width: 402, height: 874 },
+      { name: "desktop", width: 1440, height: 1000 },
+    ];
+    const captures: Array<Record<string, unknown>> = [];
+    const report: Record<string, unknown> = {
+      schemaVersion: 1,
+      outcome: "running",
+      authMode: "local-auth-fixture",
+      apiMode: "static-browser-fixtures",
+      externalNetworkAllowed: false,
+      routes: routes.map(({ path, heading }) => ({ path, heading })),
+      captures,
+    };
+    let failure: unknown;
+
+    try {
+      await page.goto(`${DASHBOARD_PATH}projects`, {
+        waitUntil: "domcontentloaded",
+      });
+      await expect(
+        page.getByRole("link", { name: "تسجيل الدخول", exact: true }),
+      ).toBeVisible();
+      await expect(
+        page.getByRole("heading", { name: "مساحة العمل" }),
+      ).not.toBeVisible();
+
+      await programmaticSignIn(page, TEST_USER, {
+        allowEmptyProjectList: true,
+      });
+
+      for (const viewport of viewports) {
+        await page.setViewportSize({
+          width: viewport.width,
+          height: viewport.height,
+        });
+        for (const route of routes) {
+          await page.goto(route.path, { waitUntil: "domcontentloaded" });
+          await expect(
+            page.getByRole("heading", { name: route.heading, exact: true }),
+          ).toBeVisible();
+          const layout = await page.evaluate(() => ({
+            viewportWidth: window.innerWidth,
+            documentWidth: document.documentElement.scrollWidth,
+            bodyWidth: document.body.scrollWidth,
+            shellDirection:
+              document.querySelector<HTMLElement>('[lang="ar"]')?.dir ?? "",
+            mainDirection:
+              document.querySelector<HTMLElement>("main")?.dir ?? "",
+          }));
+          const screenshotPath = resolve(
+            visualOutputDir,
+            `${viewport.name}-${route.name}.png`,
+          );
+          await page.screenshot({ path: screenshotPath, fullPage: true });
+          captures.push({
+            route: route.path,
+            viewport: {
+              name: viewport.name,
+              width: viewport.width,
+              height: viewport.height,
+            },
+            direction: {
+              shell: layout.shellDirection,
+              main: layout.mainDirection,
+            },
+            horizontalOverflow: {
+              document: Math.max(0, layout.documentWidth - layout.viewportWidth),
+              body: Math.max(0, layout.bodyWidth - layout.viewportWidth),
+            },
+            screenshot: screenshotPath,
+          });
+          expect(layout.shellDirection).toBe("rtl");
+          expect(layout.mainDirection).toBe("ltr");
+          expect(layout.documentWidth).toBeLessThanOrEqual(
+            layout.viewportWidth + 1,
+          );
+          expect(layout.bodyWidth).toBeLessThanOrEqual(
+            layout.viewportWidth + 1,
+          );
+        }
+      }
+
+      expect(
+        fixtureRequests.mutativeRequests,
+        "The protected visual journey must not issue mutating API requests.",
+      ).toEqual([]);
+      expect(blockedBrowserEgressHosts).toEqual([]);
+      expect(failedRequests).toEqual([]);
+      expect(consoleErrors).toEqual([]);
+      expect(pageErrors).toEqual([]);
+      report.outcome = "passed";
+    } catch (error) {
+      failure = error;
+      report.outcome = "failed";
+      throw error;
+    } finally {
+      Object.assign(report, {
+        apiRequests: fixtureRequests.apiRequests,
+        mutativeApiRequests: fixtureRequests.mutativeRequests,
+        blockedExternalHosts: [...blockedBrowserEgressHosts].sort(),
+        pageErrors,
+        consoleErrors,
+        failedRequests,
+        failure:
+          failure instanceof Error
+            ? redactBrowserDiagnostic(failure.message)
+            : undefined,
+      });
+      await writeFile(reportPath, `${JSON.stringify(report, null, 2)}\n`);
+    }
   });
 
   test("proves isolated Clerk users only receive their own protected projects", async ({

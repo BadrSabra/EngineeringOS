@@ -38,18 +38,40 @@ export default defineConfig(({ command }) => {
   const isBuild = command === 'build';
   const localAuthFixtureRequested =
     process.env.DASHBOARD_E2E_LOCAL_AUTH_FIXTURE === '1';
-  const localAuthFixtureEnabled =
+  const protectedVisualFixtureRequested =
+    process.env.DASHBOARD_E2E_PROTECTED_VISUAL === '1';
+  const protectedVisualFixtureEnabled =
     !isBuild &&
     command === 'serve' &&
+    protectedVisualFixtureRequested &&
     localAuthFixtureRequested &&
     process.env.RUN_CONTROLLED_RELEASE_VALIDATION === '1' &&
-    process.env.ENGINEERING_AGENT_LIFECYCLE_E2E === '1' &&
     process.env.DASHBOARD_E2E_TEST_MODE === 'fixture' &&
-    process.env.HOST === '127.0.0.1';
+    process.env.HOST === '127.0.0.1' &&
+    !process.env.API_PROXY_TARGET &&
+    !process.env.CLERK_SECRET_KEY &&
+    !process.env.CLERK_PUBLISHABLE_KEY &&
+    !process.env.VITE_CLERK_PUBLISHABLE_KEY;
+  const localAuthFixtureEnabled =
+    (
+      !isBuild &&
+      command === 'serve' &&
+      localAuthFixtureRequested &&
+      process.env.RUN_CONTROLLED_RELEASE_VALIDATION === '1' &&
+      process.env.ENGINEERING_AGENT_LIFECYCLE_E2E === '1' &&
+      process.env.DASHBOARD_E2E_TEST_MODE === 'fixture' &&
+      process.env.HOST === '127.0.0.1'
+    ) ||
+    protectedVisualFixtureEnabled;
 
   if (localAuthFixtureRequested && !localAuthFixtureEnabled) {
     throw new Error(
-      'The local Clerk fixture is restricted to the loopback controlled lifecycle E2E.',
+      'The local Clerk fixture is restricted to a loopback controlled fixture journey.',
+    );
+  }
+  if (protectedVisualFixtureRequested && !protectedVisualFixtureEnabled) {
+    throw new Error(
+      'Protected visual E2E requires local auth, fixture mode, loopback binding, no API proxy, and no Clerk credentials.',
     );
   }
 
@@ -103,6 +125,30 @@ export default defineConfig(({ command }) => {
         JSON.stringify(clerkPublishableKey),
     },
     plugins: [
+      ...(protectedVisualFixtureEnabled
+        ? [
+            {
+              name: 'protected-visual-disable-remote-fonts',
+              enforce: 'pre' as const,
+              transformIndexHtml(html: string) {
+                return html.replace(
+                  /<link\b(?=[^>]*\bhref=["']https:\/\/fonts\.(?:googleapis|gstatic)\.com)[^>]*>\s*/giu,
+                  '',
+                );
+              },
+              transform(code: string, id: string) {
+                if (!id.split('?')[0].endsWith('/src/index.css')) return null;
+                return {
+                  code: code.replace(
+                    /^@import\s+url\((['"]?)https:\/\/fonts\.googleapis\.com[^;]*;\s*/mu,
+                    '',
+                  ),
+                  map: null,
+                };
+              },
+            },
+          ]
+        : []),
       react(),
       tailwindcss({ optimize: false }),
       runtimeErrorOverlay(),

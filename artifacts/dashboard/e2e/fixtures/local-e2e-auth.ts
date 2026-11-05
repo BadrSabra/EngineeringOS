@@ -1,9 +1,10 @@
 /**
- * Browser-only session state for the controlled lifecycle E2E.
+ * Browser-only session state for controlled local dashboard journeys.
  *
- * The API never trusts this storage value. In the isolated runner, the API
- * process runs with NODE_ENV=test and assigns the fixed server identity
- * "test-user"; project ownership checks still run against the disposable DB.
+ * This value changes only the client fixture UI; it is not an API credential.
+ * The lifecycle runner assigns its own fixed test identity in the API, while
+ * the protected-page visual runner starts no API and intercepts reads with
+ * static browser fixtures.
  */
 export const LOCAL_E2E_AUTH_STORAGE_KEY = "__engineeringos_local_e2e_auth_v1";
 

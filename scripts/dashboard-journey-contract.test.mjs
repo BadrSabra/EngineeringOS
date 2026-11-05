@@ -10,6 +10,14 @@ const journeyPath = resolve(
   "artifacts/dashboard/e2e/dashboard.journey.ts",
 );
 const runnerPath = resolve(root, "scripts/run-dashboard-journey.mjs");
+const protectedVisualRunnerPath = resolve(
+  root,
+  "scripts/run-dashboard-protected-visual.mjs",
+);
+const dashboardViteConfigPath = resolve(
+  root,
+  "artifacts/dashboard/vite.config.ts",
+);
 const lifecycleRunnerPath = resolve(root, "scripts/run-goal-first-e2e.mjs");
 const releaseValidationRunnerPath = resolve(
   root,
@@ -25,6 +33,8 @@ const playwrightConfigPath = resolve(
 const [
   journeySource,
   runnerSource,
+  protectedVisualRunnerSource,
+  dashboardViteConfigSource,
   lifecycleRunnerSource,
   releaseValidationRunnerSource,
   workflowSource,
@@ -33,6 +43,8 @@ const [
 ] = await Promise.all([
   readFile(journeyPath, "utf8"),
   readFile(runnerPath, "utf8"),
+  readFile(protectedVisualRunnerPath, "utf8"),
+  readFile(dashboardViteConfigPath, "utf8"),
   readFile(lifecycleRunnerPath, "utf8"),
   readFile(releaseValidationRunnerPath, "utf8"),
   readFile(workflowPath, "utf8"),
@@ -1161,5 +1173,67 @@ test("isolated lifecycle runners require verified OS network isolation before se
     lifecycleRunnerSource,
     /receipt\?\.status === "passed" && lifecycleStateCensusAccepted/,
     "The offline receipt verifier must not run when the terminal-work census fails.",
+  );
+});
+
+test("protected visual journey proves isolation and disposable data before services", () => {
+  const isolationGate = protectedVisualRunnerSource.indexOf(
+    "isolationEvidence = await verifyLoopbackIsolation()",
+  );
+  const postgresInitialization = protectedVisualRunnerSource.indexOf(
+    'runCommand(\n      "initdb"',
+  );
+  const dashboardStart = protectedVisualRunnerSource.indexOf(
+    'stage = "dashboard-service"',
+  );
+  const databaseConfirmation = protectedVisualRunnerSource.indexOf(
+    "databaseCheck.stdout.trim()",
+  );
+  assert.ok(
+    isolationGate >= 0 &&
+      isolationGate < postgresInitialization &&
+      isolationGate < dashboardStart,
+    "The runner must verify loopback-only isolation before starting PostgreSQL or Vite.",
+  );
+  assert.ok(
+    databaseConfirmation > postgresInitialization &&
+      databaseConfirmation < dashboardStart,
+    "The runner must query its temporary PostgreSQL cluster before starting Vite.",
+  );
+  assert.match(
+    protectedVisualRunnerSource,
+    /await writePreflightReceipt\("blocked", reason,[\s\S]*?networkNamespace/s,
+    "An isolation failure must produce a blocked receipt without starting services.",
+  );
+  assert.match(protectedVisualRunnerSource, /servicesStarted: false/u);
+  assert.match(
+    protectedVisualRunnerSource,
+    /key\.startsWith\("CLERK_"\)[\s\S]*?key === "VITE_CLERK_PUBLISHABLE_KEY"[\s\S]*?key === "API_PROXY_TARGET"/,
+    "Visual runner children must not inherit Clerk credentials or an API proxy.",
+  );
+  assert.doesNotMatch(
+    protectedVisualRunnerSource,
+    /@workspace\/api-server/u,
+    "The static-fixture visual journey must not start the API server.",
+  );
+  assert.match(
+    protectedVisualRunnerSource,
+    /DASHBOARD_E2E_LOCAL_AUTH_FIXTURE: "1"[\s\S]*?DASHBOARD_E2E_PROTECTED_VISUAL: "1"/,
+    "Both Vite and Playwright must receive the explicit local-auth visual mode.",
+  );
+  assert.match(
+    dashboardViteConfigSource,
+    /process\.env\.HOST === '127\.0\.0\.1'[\s\S]*?!process\.env\.API_PROXY_TARGET[\s\S]*?!process\.env\.CLERK_SECRET_KEY/,
+    "Vite must constrain the visual fixture to loopback without API proxying or Clerk credentials.",
+  );
+  assert.match(
+    journeySource,
+    /captures protected dashboard routes at phone and desktop sizes/,
+    "The browser journey must capture its protected routes at both target sizes.",
+  );
+  assert.match(
+    journeySource,
+    /shellDirection[\s\S]*?mainDirection[\s\S]*?horizontalOverflow/,
+    "Each capture must record RTL/LTR direction and horizontal overflow.",
   );
 });

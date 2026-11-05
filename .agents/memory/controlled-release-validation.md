@@ -280,3 +280,18 @@ disappeared without an agent restart.
 **How to apply:** Inspect current process ownership, selected environment,
 loaded build, and listener state alongside workflow status before any
 Development lifecycle run. Never terminate an unowned process to make room.
+
+Protected-page visual snapshots should use a separate local-auth runner with
+static browser API fixtures and no operational API process. Verify a genuinely
+loopback-only network namespace before starting its temporary database or UI
+server; if isolation is unavailable, emit a blocked result and do not claim
+visual evidence.
+
+**Why:** Rendering protected routes does not require the operational API, whose
+startup can run recovery and reconciliation work. Clerk or live API access adds
+risk without improving the visual proof.
+
+**How to apply:** Keep the local auth UI fixture distinct from server identity,
+intercept every API request with deterministic read-only data, remove Clerk and
+provider credentials from child environments, and block before services when
+namespace evidence is incomplete.
