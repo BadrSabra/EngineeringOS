@@ -53,7 +53,7 @@ import { createStreamIdentityCallbacks } from './ai-chat/stream-lifecycle';
 import { createStreamIntentCallback } from './ai-chat/stream-intent';
 import { getSendMessagePreflightNotice, resolveSendMessagePreflight } from './ai-chat/send-message-preflight';
 import { createStreamRequestContext, type SendMessageOptions } from './ai-chat/stream-request-context';
-import { createOptimisticUserMessage } from './ai-chat/stream-start';
+import { createOptimisticUserMessage, initializeStreamStartUi } from './ai-chat/stream-start';
 import {
   isResumableStreamDisconnect,
   projectCompletedAssistantMessage,
@@ -2368,20 +2368,22 @@ export default function AiChat() {
         ...(requestSessionId ? { sessionId: requestSessionId } : {}),
       };
     }
-    setAgentStage('Connecting…');
-    setStreamingContent('');
-    setAgentSteps([]);
-    clearLiveActivityEvents();
-    appendLiveActivityEvent({ kind: 'stage', label: 'Connecting to the AI stream', status: 'info' });
-    setAgentIter(null);
-    setAgentModel(null);
-    setAgentStartedAt(Date.now());
-    setAgentElapsedSeconds(0);
-    setAgentModelHistory([]);
-    setAgentDiagnostics([]);
-    setLiveFixtureLocal(false);
-    setLiveEvidenceIntegrity(null);
-    setLiveVerdictScope(null);
+    initializeStreamStartUi({
+      setAgentStage,
+      setStreamingContent,
+      clearAgentSteps: () => setAgentSteps([]),
+      clearLiveActivityEvents,
+      appendLiveActivityEvent,
+      clearAgentIter: () => setAgentIter(null),
+      clearAgentModel: () => setAgentModel(null),
+      setAgentStartedAt,
+      clearAgentElapsedSeconds: () => setAgentElapsedSeconds(0),
+      clearAgentModelHistory: () => setAgentModelHistory([]),
+      clearAgentDiagnostics: () => setAgentDiagnostics([]),
+      disableLiveFixture: () => setLiveFixtureLocal(false),
+      clearLiveEvidenceIntegrity: () => setLiveEvidenceIntegrity(null),
+      clearLiveVerdictScope: () => setLiveVerdictScope(null),
+    }, Date.now());
 
     const streamObservationCallbacks = createStreamObservationCallbacks({
       isCurrent: () => generation === streamGenerationRef.current,
