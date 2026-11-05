@@ -133,33 +133,59 @@ describe('createStreamObservationCallbacks', () => {
   it('projects tool call and result events into steps and the activity trail', () => {
     const { result } = renderHook(() => useObservationHarness(() => true));
 
+    const readA = {
+      type: 'tool_call',
+      tool: 'read_file',
+      args: { path: 'src/a.ts' },
+      cached: false,
+      toolCallId: 'call-a',
+    } as const;
+    const readB = {
+      type: 'tool_call',
+      tool: 'read_file',
+      args: { path: 'src/b.ts' },
+      cached: false,
+      toolCallId: 'call-b',
+    } as const;
     act(() => {
-      result.current.callbacks.onToolCall?.({
-        type: 'tool_call',
-        tool: 'read_file',
-        args: { path: 'src/main.ts' },
-        cached: false,
-      });
-      result.current.callbacks.onToolCall?.({
-        type: 'tool_call',
-        tool: 'read_file',
-        args: { path: 'src/main.ts' },
-        cached: false,
-      });
+      result.current.callbacks.onToolCall?.(readA);
+      result.current.callbacks.onToolCall?.(readB);
+    });
+    act(() => {
       result.current.callbacks.onToolResult?.({
         type: 'tool_result',
         tool: 'read_file',
-        source: 'src/main.ts',
+        toolCallId: 'call-b',
+        source: 'src/b.ts',
         cached: true,
+      });
+    });
+    expect(result.current.agentSteps).toMatchObject([
+      { toolCallId: 'call-a', done: false, source: undefined },
+      { toolCallId: 'call-b', done: true, source: 'src/b.ts' },
+    ]);
+    act(() => {
+      result.current.callbacks.onToolResult?.({
+        type: 'tool_result',
+        tool: 'read_file',
+        toolCallId: 'call-a',
+        source: 'src/a.ts',
+        cached: false,
       });
     });
 
     expect(result.current.agentSteps).toHaveLength(2);
-    expect(result.current.agentSteps.every((step) => step.done && step.source === 'src/main.ts')).toBe(true);
-    expect(result.current.activity.activityEvents[0].status).toBe('active');
+    expect(result.current.agentSteps).toMatchObject([
+      { toolCallId: 'call-a', done: true, source: 'src/a.ts' },
+      { toolCallId: 'call-b', done: true, source: 'src/b.ts' },
+    ]);
+    expect(result.current.activity.activityEvents).toMatchObject([
+      { status: 'done', detail: 'src/a.ts' },
+      { status: 'done', detail: 'cached · src/b.ts' },
+    ]);
     expect(result.current.activity.activityEvents[1]).toMatchObject({
       status: 'done',
-      detail: 'cached · src/main.ts',
+      detail: 'cached · src/b.ts',
     });
   });
 });
