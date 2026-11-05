@@ -66,7 +66,7 @@ const expectedEntityTables = [
 const expectedApiBuildScript = "node ./build.mjs";
 const expectedApiStartScript = "node --enable-source-maps ./dist/index.mjs";
 const expectedSchemaApplyScript =
-  "drizzle-kit push --config ./drizzle.config.ts && tsx ./src/check-schema.ts";
+  "drizzle-kit push --config ./drizzle.config.ts && tsx ./src/apply-mission-outcome-snapshot-immutability.ts && tsx ./src/check-schema.ts";
 const commandTimeoutMs = 120_000;
 const apiStartupTimeoutMs = 25_000;
 const apiStopTimeoutMs = 6_000;
@@ -642,6 +642,7 @@ async function createDependencies({ resultsDir }) {
         path.join(workspaceRoot, "artifacts/api-server/src/index.ts"),
         apiBuildScript,
         path.join(workspaceRoot, "lib/db/drizzle.config.ts"),
+        path.join(workspaceRoot, "lib/db/src/apply-mission-outcome-snapshot-immutability.ts"),
         path.join(workspaceRoot, "lib/db/package.json"),
       ];
       for (const sourcePath of roots) await access(sourcePath, fsConstants.R_OK);

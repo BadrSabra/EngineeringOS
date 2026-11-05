@@ -14,9 +14,11 @@ import { aiMissionDecisionTracesTable } from "./ai_mission_decision_traces.js";
 import { aiMissionDecisionDispatchBatchesTable } from "./ai_mission_decision_dispatch_batches.js";
 
 /**
- * Immutable-by-store-contract snapshot of one server-evaluated plan outcome.
+ * Database-protected immutable snapshot of one server-evaluated plan outcome.
  * The dispatch batch remains provenance only; this record carries the exact
  * aggregated evidence identity and does not itself authorize lifecycle stages.
+ * schema:apply installs a trigger that rejects direct UPDATE/DELETE statements;
+ * referential cascades remain permitted so existing parent cleanup still works.
  */
 export const aiMissionDecisionOutcomeSnapshotsTable = pgTable(
   "ai_mission_decision_outcome_snapshots",

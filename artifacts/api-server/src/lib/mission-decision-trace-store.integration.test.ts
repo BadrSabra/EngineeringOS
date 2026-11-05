@@ -90,6 +90,21 @@ const syntheticWorkspaceRoots: string[] = [];
 const now = new Date("2026-11-03T10:00:00.000Z");
 const unknownConfidence = { status: "unknown" as const, value: null, calibrationRef: null };
 
+async function expectMissionOutcomeSnapshotMutationRejected(
+  operation: PromiseLike<unknown>,
+): Promise<void> {
+  let caught: unknown;
+  try {
+    await operation;
+  } catch (error) {
+    caught = error;
+  }
+  if (!caught) throw new Error("expected Mission outcome snapshot mutation to be rejected");
+  const cause = (caught as { cause?: { code?: string; message?: string } }).cause;
+  expect(cause?.code).toBe("55000");
+  expect(cause?.message).toContain("mission decision outcome snapshots are immutable");
+}
+
 async function createSyntheticWorkspace(projectId: string): Promise<string> {
   const workspaceBase = path.resolve(process.cwd(), "../../.test-roots");
   await mkdir(workspaceBase, { recursive: true });
@@ -1718,6 +1733,13 @@ describe("Mission decision trace persistence", () => {
     expect(await db.select().from(aiMissionDecisionOutcomeSnapshotsTable)
       .where(eq(aiMissionDecisionOutcomeSnapshotsTable.decisionId, selectedTrace.decisionId)))
       .toHaveLength(1);
+    await expectMissionOutcomeSnapshotMutationRejected(
+      db.delete(aiMissionDecisionOutcomeSnapshotsTable)
+        .where(eq(aiMissionDecisionOutcomeSnapshotsTable.outcomeId, first.snapshotId)),
+    );
+    expect(await db.select().from(aiMissionDecisionOutcomeSnapshotsTable)
+      .where(eq(aiMissionDecisionOutcomeSnapshotsTable.outcomeId, first.snapshotId)))
+      .toHaveLength(1);
     const finalizeIncomplete = await finalizeMissionPlanOutcome(
       selectedTrace.decisionId,
       new Date(now.getTime() + 120_000),
@@ -1754,6 +1776,15 @@ describe("Mission decision trace persistence", () => {
     expect((await getMissionDecisionTrace(selectedTrace.decisionId))?.events
       .map(({ stage }) => stage).slice(-2))
       .toEqual(["PLAN_APPLIED", "DISPATCHED"]);
+    await expect(db.delete(aiMissionDecisionDispatchBatchesTable)
+      .where(eq(
+        aiMissionDecisionDispatchBatchesTable.dispatchBatchId,
+        dispatch.batch.dispatchBatchId,
+      )))
+      .resolves.toBeDefined();
+    expect(await db.select().from(aiMissionDecisionOutcomeSnapshotsTable)
+      .where(eq(aiMissionDecisionOutcomeSnapshotsTable.outcomeId, first.snapshotId)))
+      .toHaveLength(0);
   });
 
   it.each(["ACHIEVED", "NOT_ACHIEVED"] as const)(
@@ -1813,27 +1844,31 @@ describe("Mission decision trace persistence", () => {
         const [snapshot] = await db.select().from(aiMissionDecisionOutcomeSnapshotsTable)
           .where(eq(aiMissionDecisionOutcomeSnapshotsTable.outcomeId, finalized.snapshotId));
         if (!snapshot) throw new Error("expected persisted outcome snapshot");
-        await db.update(aiMissionDecisionOutcomeSnapshotsTable)
-          .set({ outcome: "NOT_ACHIEVED" })
-          .where(eq(aiMissionDecisionOutcomeSnapshotsTable.outcomeId, finalized.snapshotId));
+        await expectMissionOutcomeSnapshotMutationRejected(
+          db.update(aiMissionDecisionOutcomeSnapshotsTable)
+            .set({ outcome: "NOT_ACHIEVED" })
+            .where(eq(aiMissionDecisionOutcomeSnapshotsTable.outcomeId, finalized.snapshotId)),
+        );
+        await expectMissionOutcomeSnapshotMutationRejected(
+          db.update(aiMissionDecisionOutcomeSnapshotsTable)
+            .set({ outcome: snapshot.outcome, evaluation: snapshot.evaluation })
+            .where(eq(aiMissionDecisionOutcomeSnapshotsTable.outcomeId, finalized.snapshotId)),
+        );
+        await expectMissionOutcomeSnapshotMutationRejected(
+          db.update(aiMissionDecisionOutcomeSnapshotsTable)
+            .set({ evaluation: { ...snapshot.evaluation, planRevision: "tampered-plan-revision" } })
+            .where(eq(aiMissionDecisionOutcomeSnapshotsTable.outcomeId, finalized.snapshotId)),
+        );
+        await expectMissionOutcomeSnapshotMutationRejected(
+          db.update(aiMissionDecisionOutcomeSnapshotsTable)
+            .set({
+              evaluation: snapshot.evaluation,
+              worldStateRevision: `tampered:${snapshot.worldStateRevision}`,
+            })
+            .where(eq(aiMissionDecisionOutcomeSnapshotsTable.outcomeId, finalized.snapshotId)),
+        );
         await expect(getMissionDecisionTrace(fixture.decisionId))
-          .rejects.toMatchObject({ code: "decision_event_reference_invalid" });
-        await db.update(aiMissionDecisionOutcomeSnapshotsTable)
-          .set({ outcome: snapshot.outcome, evaluation: snapshot.evaluation })
-          .where(eq(aiMissionDecisionOutcomeSnapshotsTable.outcomeId, finalized.snapshotId));
-        await db.update(aiMissionDecisionOutcomeSnapshotsTable)
-          .set({ evaluation: { ...snapshot.evaluation, planRevision: "tampered-plan-revision" } })
-          .where(eq(aiMissionDecisionOutcomeSnapshotsTable.outcomeId, finalized.snapshotId));
-        await expect(getMissionDecisionTrace(fixture.decisionId))
-          .rejects.toMatchObject({ code: "decision_event_reference_invalid" });
-        await db.update(aiMissionDecisionOutcomeSnapshotsTable)
-          .set({
-            evaluation: snapshot.evaluation,
-            worldStateRevision: `tampered:${snapshot.worldStateRevision}`,
-          })
-          .where(eq(aiMissionDecisionOutcomeSnapshotsTable.outcomeId, finalized.snapshotId));
-        await expect(getMissionDecisionTrace(fixture.decisionId))
-          .rejects.toMatchObject({ code: "decision_event_reference_invalid" });
+          .resolves.toMatchObject({ trace: { decisionId: fixture.decisionId } });
       } else {
         expect(finalized.kind).toBe("not_achieved");
         expect((await getMissionDecisionTrace(fixture.decisionId))?.events

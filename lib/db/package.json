@@ -10,7 +10,7 @@
   "scripts": {
     "push": "drizzle-kit push --config ./drizzle.config.ts",
     "push-force": "drizzle-kit push --force --config ./drizzle.config.ts",
-    "schema:apply": "drizzle-kit push --config ./drizzle.config.ts && tsx ./src/check-schema.ts",
+    "schema:apply": "drizzle-kit push --config ./drizzle.config.ts && tsx ./src/apply-mission-outcome-snapshot-immutability.ts && tsx ./src/check-schema.ts",
     "schema:canary": "tsx ./src/legacy-memory-schema-upgrade.ts",
     "schema:check": "tsx ./src/check-schema.ts",
     "check-audit-schema": "tsx ./src/check-audit-schema.ts",
