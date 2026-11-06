@@ -2,14 +2,15 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { createServer } from "node:net";
-import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
-import { and, eq } from "drizzle-orm";
+import { and, asc, eq, sql } from "drizzle-orm";
 import request from "supertest";
 import app from "../app.js";
 import {
   aiAgentEffectBundlesTable,
   aiAgentEffectsTable,
+  aiAgentEpisodeEventsTable,
   aiAgentEpisodesTable,
   aiAgentObservationsTable,
   aiGoalDependenciesTable,
@@ -74,6 +75,15 @@ import {
   recordMissionDecisionDispatchBatch,
   recordMissionDecisionDispatchBatchInTransaction,
 } from "./mission-decision-trace-store.js";
+import {
+  BOUNDED_EFFECT_CODE,
+  BOUNDED_EFFECT_MARKER_PATH,
+  boundedEffectActionKey,
+  readSyntheticMarker,
+  reverseSyntheticMarker,
+  seedSyntheticMarker,
+  type BoundedEffectCrashPoint,
+} from "../test/mission-bounded-effect-executor.js";
 import { approveMissionGoal } from "./mission-approval.js";
 import { reconcileApprovedMissionDecisionDispatches } from "./mission-auto-replan.js";
 import {
@@ -1222,6 +1232,196 @@ async function startScopedMissionApiProcess(projectId: string) {
   }
   await stop().catch(() => undefined);
   throw new Error(`Scoped Mission API did not become ready within 60 seconds: ${output}`);
+}
+
+
+/**
+ * Approved Mission plan whose root Goal has not been dispatched yet. The
+ * synthetic workspace holds a reversible marker; no execution, observation,
+ * effect, or acceptance exists until a (bounded) worker produces them.
+ */
+async function createApprovedUndispatchedMarkerFixture() {
+  const fixture = await createFixture();
+  const goalId = randomUUID();
+  const taskId = randomUUID();
+  const stepId = "synthetic-marker-effect";
+  const planRevision = `auto:${randomUUID()}:${"f".repeat(64)}`;
+  const rootPath = await createSyntheticWorkspace(fixture.projectId);
+  await seedSyntheticMarker(rootPath);
+  await db.update(projectsTable).set({ rootPath }).where(eq(projectsTable.id, fixture.projectId));
+  await db.update(aiWorldFactsTable).set({
+    subject: "fixture",
+    predicate: "seed",
+  }).where(eq(aiWorldFactsTable.id, fixture.worldFactId));
+  const initialWorldState = await getProjectWorldState(fixture.projectId);
+  const selectedTrace = makeApprovalRequiredTrace(makeSelectedTrace({
+    trace: fixture.trace,
+    worldStateRevision: initialWorldState.worldRevision,
+    worldFactId: fixture.worldFactId,
+    worldFactHash: fixture.worldFactHash,
+    expectedEffectCodes: [BOUNDED_EFFECT_CODE],
+    newPlanRevision: planRevision,
+  }), stepId);
+  const planSnapshot = {
+    hash: planRevision,
+    decisionTraceId: selectedTrace.decisionId,
+    strategyDecision: {
+      selectedStrategyId: selectedTrace.result.kind === "SELECTED"
+        ? selectedTrace.result.selectedStrategyId
+        : null,
+    },
+    steps: [{
+      id: stepId,
+      kind: "execute",
+      title: "Toggle the synthetic marker once",
+      dependencies: [],
+      files: [BOUNDED_EFFECT_MARKER_PATH],
+      readOnly: false,
+      approvalRequired: true,
+    }],
+  };
+  await persistMissionDecisionTrace(selectedTrace);
+  await db.update(aiMissionsTable).set({
+    status: "waiting",
+    autonomyPolicy: { activePlanRevision: planRevision },
+  }).where(eq(aiMissionsTable.id, fixture.missionId));
+  await db.insert(aiGoalsTable).values({
+    id: goalId,
+    missionId: fixture.missionId,
+    projectId: fixture.projectId,
+    title: "Toggle a synthetic marker exactly once",
+    status: "waiting_for_approval",
+    successCriteria: { kind: "mission_plan_step", stepId, planRevision: planSnapshot },
+    evidenceContract: { required: true },
+    outcomeContract: {
+      stepId,
+      planRevision: planSnapshot,
+      planApproval: { kind: "mission_plan_step", state: "PENDING", planRevision, stepId },
+    },
+    nextAction: { kind: "wait", reason: "approval", wakeAt: null },
+    createdAt: now,
+    updatedAt: now,
+  });
+  await db.insert(tasksTable).values({
+    id: taskId,
+    projectId: fixture.projectId,
+    goalId,
+    correlationId: randomUUID(),
+    title: "Toggle the synthetic marker",
+    description: "Bounded, reversible effect inside a synthetic workspace.",
+    status: "pending",
+    priority: "p1",
+    phase: "execute",
+    prompt: "Toggle the marker exactly once, even across a worker restart.",
+    createdAt: now,
+    updatedAt: now,
+  });
+  missionRunner.mockImplementation(async ({ goalId: approvedGoalId }: { goalId: string }) => ({
+    status: "scheduled",
+    goalId: approvedGoalId,
+    executionId: `controlled-approval:${approvedGoalId}`,
+  }));
+  const projection = await request(app).get(`/api/ai/missions/${fixture.missionId}/projection`);
+  expect(projection.status).toBe(200);
+  const approval = await request(app)
+    .post(`/api/ai/missions/${fixture.missionId}/agent/action`)
+    .send({
+      idempotencyKey: randomUUID(),
+      expectedDecision: projection.body.engineeringAgent.nextAction,
+    });
+  expect([200, 202], JSON.stringify(approval.body)).toContain(approval.status);
+  const approvedTrace = await getMissionDecisionTrace(selectedTrace.decisionId);
+  expect(approvedTrace?.events.map(({ stage }) => stage))
+    .toEqual(["PROPOSED", "EVALUATED", "SELECTED", "APPROVED", "PLAN_APPLIED"]);
+  missionRunner.mockReset();
+
+  return {
+    ...fixture,
+    decisionId: selectedTrace.decisionId,
+    goalId,
+    taskId,
+    planRevision,
+    rootPath,
+  };
+}
+
+/**
+ * One API worker process: loopback-only disposable database, runtime egress
+ * guard installed before any application code, no inherited credentials.
+ */
+async function runBoundedEffectWorker(input: {
+  projectId: string;
+  phase: "first" | "restart";
+  workerId: string;
+  crashPoint?: BoundedEffectCrashPoint;
+}): Promise<{
+  code: number | null;
+  signal: NodeJS.Signals | null;
+  output: string;
+  events: Array<Record<string, unknown> & { event: string }>;
+}> {
+  const rawDatabaseUrl = process.env.DATABASE_URL;
+  if (!rawDatabaseUrl) {
+    throw new Error("The bounded effect worker requires an explicit disposable DATABASE_URL.");
+  }
+  const databaseUrl = new URL(rawDatabaseUrl);
+  if (!["127.0.0.1", "localhost", "::1"].includes(databaseUrl.hostname)) {
+    throw new Error("The bounded effect worker is restricted to a loopback PostgreSQL database.");
+  }
+  const applicationName = `bounded-effect-${input.phase}-${randomUUID().slice(0, 8)}`;
+  databaseUrl.searchParams.set("application_name", applicationName);
+  const guardPath = path.resolve(process.cwd(), "../../scripts/runtime-egress-guard.mjs");
+  const workerPath = path.resolve(process.cwd(), "src/test/mission-bounded-effect-worker.ts");
+  const child = spawn(process.execPath, ["--import", guardPath, "--import", "tsx", workerPath], {
+    cwd: process.cwd(),
+    env: {
+      DATABASE_URL: databaseUrl.toString(),
+      PGAPPNAME: applicationName,
+      NODE_ENV: "test",
+      AI_PROVIDER_EGRESS_DISABLED: "1",
+      BOUNDED_EFFECT_PHASE: input.phase,
+      BOUNDED_EFFECT_WORKER_ID: input.workerId,
+      BOUNDED_EFFECT_PROJECT_ID: input.projectId,
+      BOUNDED_EFFECT_CRASH_POINT: input.crashPoint ?? "none",
+      PATH: process.env.PATH ?? "",
+      HOME: process.env.HOME ?? "",
+    },
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+  let output = "";
+  child.stdout?.setEncoding("utf8");
+  child.stderr?.setEncoding("utf8");
+  child.stdout?.on("data", (chunk: string) => { output += chunk; });
+  child.stderr?.on("data", (chunk: string) => { output += chunk; });
+  const result = await new Promise<{ code: number | null; signal: NodeJS.Signals | null }>(
+    (resolve, reject) => {
+      const timer = setTimeout(() => {
+        child.kill("SIGKILL");
+        reject(new Error(`Bounded effect worker timed out: ${output}`));
+      }, 90_000);
+      timer.unref();
+      child.once("error", (error) => {
+        clearTimeout(timer);
+        reject(error);
+      });
+      child.once("exit", (code, signal) => {
+        clearTimeout(timer);
+        resolve({ code, signal });
+      });
+    },
+  );
+  // A hard-killed backend can outlive its client briefly; wait for its session to close.
+  const deadline = Date.now() + 10_000;
+  while (Date.now() < deadline) {
+    const open = await db.execute(
+      sql`select 1 from pg_stat_activity where application_name = ${applicationName}`,
+    );
+    if (open.rows.length === 0) break;
+    await new Promise((resolve) => setTimeout(resolve, 50));
+  }
+  const events = [...output.matchAll(/^BOUNDED_EFFECT:(.+)$/gmu)].map((match) =>
+    JSON.parse(match[1]!) as Record<string, unknown> & { event: string });
+  return { ...result, output, events };
 }
 
 afterEach(async () => {
@@ -2393,6 +2593,261 @@ describe("Mission decision trace persistence", () => {
       .toEqual(["EXECUTED", "ACCEPTED", "VERIFIED", "EVALUATED_AFTER_EXECUTION"]);
     expect(afterTrace?.trace.context.approval).toEqual(beforeTrace?.trace.context.approval);
   }, 120_000);
+
+  async function readBoundedEffectState(fixture: {
+    goalId: string;
+    taskId: string;
+    decisionId: string;
+    rootPath: string;
+  }) {
+    const executions = await db.select().from(aiExecutionsTable)
+      .where(eq(aiExecutionsTable.goalId, fixture.goalId));
+    const executionIds = executions.map(({ id }) => id);
+    // The shared fixture owns unrelated rows in the same project; scope to this Goal's executions.
+    const ownedBy = <T extends { executionId: string }>(rows: T[]) =>
+      rows.filter(({ executionId }) => executionIds.includes(executionId));
+    const projectId = executions[0]?.projectId ?? randomUUID();
+    const observations = ownedBy(await db.select().from(aiAgentObservationsTable)
+      .where(eq(aiAgentObservationsTable.projectId, projectId)));
+    const effects = ownedBy(await db.select().from(aiAgentEffectsTable)
+      .where(eq(aiAgentEffectsTable.projectId, projectId)));
+    const bundles = ownedBy(await db.select().from(aiAgentEffectBundlesTable)
+      .where(eq(aiAgentEffectBundlesTable.projectId, projectId)));
+    const acceptances = ownedBy(await db.select().from(aiExecutionAcceptancesTable)
+      .where(eq(aiExecutionAcceptancesTable.projectId, projectId)));
+    const episodes = await db.select().from(aiAgentEpisodesTable)
+      .where(eq(aiAgentEpisodesTable.goalId, fixture.goalId));
+    const actionRequests = episodes.length
+      ? (await db.select().from(aiAgentEpisodeEventsTable)
+        .where(eq(aiAgentEpisodeEventsTable.episodeId, episodes[0]!.id)))
+        .filter(({ eventType }) => eventType === "ACTION_REQUESTED")
+      : [];
+    const [task] = await db.select().from(tasksTable).where(eq(tasksTable.id, fixture.taskId));
+    const [goal] = await db.select().from(aiGoalsTable).where(eq(aiGoalsTable.id, fixture.goalId));
+    const trace = await getMissionDecisionTrace(fixture.decisionId);
+    const stages = (await db.select({ stage: aiMissionDecisionEventsTable.stage })
+      .from(aiMissionDecisionEventsTable)
+      .where(eq(aiMissionDecisionEventsTable.decisionId, fixture.decisionId))
+      .orderBy(asc(aiMissionDecisionEventsTable.sequence))).map(({ stage }) => stage);
+    const snapshots = await db.select().from(aiMissionDecisionOutcomeSnapshotsTable)
+      .where(eq(aiMissionDecisionOutcomeSnapshotsTable.decisionId, fixture.decisionId));
+    const marker = await readSyntheticMarker(fixture.rootPath);
+    const journal = (await readFile(
+      path.join(fixture.rootPath, "synthetic-effect", "journal.log"),
+      "utf8",
+    ).catch(() => "")).split("\n").filter(Boolean);
+    return {
+      executions,
+      observations,
+      effects,
+      bundles,
+      acceptances,
+      episodes,
+      actionRequests,
+      task,
+      goal,
+      trace,
+      stages,
+      snapshots,
+      marker,
+      journal,
+    };
+  }
+
+  it.each<[string, BoundedEffectCrashPoint]>([
+    ["before the marker changes", "after_before_observation"],
+    ["right after the marker changes", "after_mutation"],
+    ["after the effect is recorded but before acceptance", "after_effect_record"],
+  ])(
+    "applies a bounded marker effect once when the API worker dies %s",
+    async (_label, crashPoint) => {
+      const fixture = await createApprovedUndispatchedMarkerFixture();
+      const before = await readBoundedEffectState(fixture);
+      expect(before.marker).toMatchObject({ state: "off", applications: 0 });
+      expect(before.executions).toHaveLength(0);
+      expect(before.stages.at(-1)).toBe("PLAN_APPLIED");
+
+      const first = await runBoundedEffectWorker({
+        projectId: fixture.projectId,
+        phase: "first",
+        workerId: "bounded-effect-worker-1",
+        crashPoint,
+      });
+      expect(first.signal, first.output).toBe("SIGKILL");
+      expect(first.events.map(({ event }) => event)).toEqual(expect.arrayContaining([
+        "network_blocked",
+        "execution_scheduled",
+        "dispatch_recorded",
+        "claimed",
+        "crash",
+      ]));
+      expect(first.events.find(({ event }) => event === "dispatch_recorded"))
+        .toMatchObject({ count: 1 });
+      expect(first.events.find(({ event }) => event === "crash")).toMatchObject({ point: crashPoint });
+
+      // The durable state at the crash boundary is exactly what had been committed so far.
+      const crashed = await readBoundedEffectState(fixture);
+      const roleCount = (role: string) =>
+        crashed.observations.filter(({ observationRole }) => observationRole === role).length;
+      expect(crashed.executions).toHaveLength(1);
+      expect(crashed.executions[0]).toMatchObject({ status: "running", attempt: 0 });
+      // The dispatch was committed before the execution ran; the outcome was not.
+      expect(crashed.stages.at(-1)).toBe("DISPATCHED");
+      expect(crashed.snapshots).toHaveLength(0);
+      expect(crashed.acceptances).toHaveLength(0);
+      expect(roleCount("before")).toBe(1);
+      expect(roleCount("after")).toBe(crashPoint === "after_effect_record" ? 1 : 0);
+      expect(crashed.effects).toHaveLength(crashPoint === "after_effect_record" ? 1 : 0);
+      expect(crashed.marker.applications).toBe(crashPoint === "after_before_observation" ? 0 : 1);
+      expect(crashed.marker.state).toBe(crashPoint === "after_before_observation" ? "off" : "on");
+      const crashedExecutionId = crashed.executions[0]!.id;
+
+      // Controlled clock advance: the dead worker's lease is now in the past.
+      const expired = new Date(Date.now() - 1_000);
+      await db.update(aiExecutionsTable).set({ leaseUntil: expired })
+        .where(eq(aiExecutionsTable.id, crashedExecutionId));
+      await db.update(tasksTable).set({ leaseUntil: expired })
+        .where(eq(tasksTable.id, fixture.taskId));
+
+      const restarted = await runBoundedEffectWorker({
+        projectId: fixture.projectId,
+        phase: "restart",
+        workerId: "bounded-effect-worker-2",
+      });
+      expect(restarted.code, restarted.output).toBe(0);
+      expect(restarted.events.map(({ event }) => event), restarted.output).toEqual(expect.arrayContaining([
+        "network_blocked",
+        "expired_leases_reconciled",
+        "accepted",
+        "dispatch_recorded",
+        "executions_run",
+        "outcomes_reconciled",
+      ]));
+      // The dispatch was already durable, so recovery must not record it again.
+      expect(restarted.events.find(({ event }) => event === "dispatch_recorded"), restarted.output)
+        .toMatchObject({ count: 0 });
+      expect(restarted.events.find(({ event }) => event === "before_reused"))
+        .toBeDefined();
+
+      const settle = async () => {
+        const state = await readBoundedEffectState(fixture);
+        expect(state.executions.map(({ id, attempt, status }) => ({ id, attempt, status })))
+          .toEqual([{ id: crashedExecutionId, attempt: 0, status: "completed" }]);
+        // The effect happened once: one atomic state+counter write and one journal line.
+        expect(state.marker).toMatchObject({
+          state: "on",
+          appliedBy: boundedEffectActionKey(crashedExecutionId, 0),
+          applications: 1,
+          reversals: 0,
+        });
+        expect(state.journal).toEqual([`apply:${boundedEffectActionKey(crashedExecutionId, 0)}`]);
+        // Its record was not duplicated: one request, one before, one after, one effect, one bundle.
+        expect(state.actionRequests).toHaveLength(1);
+        expect(state.observations.map(({ observationRole }) => observationRole).sort())
+          .toEqual(["after", "before"]);
+        expect(state.effects).toHaveLength(1);
+        expect(state.bundles).toHaveLength(1);
+        expect(state.effects[0]).toMatchObject({
+          status: "observed",
+          executionId: crashedExecutionId,
+          attempt: 0,
+        });
+        expect(state.bundles[0]).toMatchObject({ verdict: "OBSERVED", effectIds: [state.effects[0]!.id] });
+        expect(state.acceptances).toHaveLength(1);
+        expect(state.acceptances[0]).toMatchObject({
+          executionId: crashedExecutionId,
+          attempt: 0,
+          outcome: "SUCCEEDED",
+          terminalStatus: "completed",
+          resumable: 0,
+          evidenceRequired: 1,
+          evidenceComplete: 1,
+          effectBundleId: state.bundles[0]!.id,
+        });
+        expect(state.task).toMatchObject({ status: "completed", workerId: null });
+        expect(state.goal?.status).toBe("completed");
+        for (const stage of [
+          "DISPATCHED",
+          "EXECUTED",
+          "ACCEPTED",
+          "VERIFIED",
+          "EVALUATED_AFTER_EXECUTION",
+        ] as const) {
+          expect(state.stages.filter((value) => value === stage), stage).toHaveLength(1);
+        }
+        expect(state.snapshots).toHaveLength(1);
+        return state;
+      };
+      const recovered = await settle();
+
+      // The before/after pair and the acceptance are reloaded from the database, not from the worker.
+      const beforeObservation = recovered.observations.find(({ observationRole }) => observationRole === "before");
+      const afterObservation = recovered.observations.find(({ observationRole }) => observationRole === "after");
+      expect(beforeObservation).toMatchObject({
+        provenance: "DIRECT_OBSERVATION",
+        value: { state: "off" },
+        completeness: "complete",
+        freshness: "fresh",
+      });
+      expect(afterObservation).toMatchObject({
+        provenance: "DIRECT_OBSERVATION",
+        value: { state: "on" },
+        completeness: "complete",
+        freshness: "fresh",
+      });
+      expect(recovered.effects[0]).toMatchObject({
+        beforeObservationIds: [beforeObservation!.id],
+        afterObservationIds: [afterObservation!.id],
+      });
+      expect(recovered.acceptances[0]?.disposition).toMatchObject({
+        proof: { verdict: "PROVEN" },
+      });
+      const evaluation = MissionStrategyPlanOutcomeEvaluationSchema.parse(
+        recovered.snapshots[0]?.evaluation,
+      );
+      expect(evaluation).toMatchObject({
+        outcome: "ACHIEVED",
+        executions: [{
+          executionId: crashedExecutionId,
+          acceptanceId: recovered.acceptances[0]!.id,
+          effectBundleId: recovered.bundles[0]!.id,
+          canonicalProofId: expect.stringMatching(/^[a-f0-9]{64}$/u),
+          outcome: "ACHIEVED",
+          observedEffectCodes: [BOUNDED_EFFECT_CODE],
+        }],
+      });
+      const [dispatchEvent] = await db.select({ referenceId: aiMissionDecisionEventsTable.referenceId })
+        .from(aiMissionDecisionEventsTable)
+        .where(and(
+          eq(aiMissionDecisionEventsTable.decisionId, fixture.decisionId),
+          eq(aiMissionDecisionEventsTable.stage, "DISPATCHED"),
+        ));
+      const dispatch = await getMissionDecisionDispatchBatch(dispatchEvent!.referenceId!);
+      expect(dispatch?.items).toMatchObject([{ goalId: fixture.goalId, executionId: crashedExecutionId }]);
+
+      // A further restart finds everything complete and changes nothing.
+      const replay = await runBoundedEffectWorker({
+        projectId: fixture.projectId,
+        phase: "restart",
+        workerId: "bounded-effect-worker-3",
+      });
+      expect(replay.code, replay.output).toBe(0);
+      expect(replay.events.some(({ event }) => event === "mutation")).toBe(false);
+      const replayed = await settle();
+      expect(replayed.snapshots.map(({ outcomeId }) => outcomeId))
+        .toEqual(recovered.snapshots.map(({ outcomeId }) => outcomeId));
+      expect(missionRunner).not.toHaveBeenCalled();
+
+      // The marker is reversible, and only for the action that applied it.
+      await reverseSyntheticMarker(fixture.rootPath, boundedEffectActionKey(crashedExecutionId, 0));
+      expect(await readSyntheticMarker(fixture.rootPath)).toMatchObject({
+        state: "off",
+        applications: 1,
+        reversals: 1,
+      });
+    },
+    180_000,
+  );
 
   it("keeps dispatched Goal and Task pending after restart when proof is insufficient", async () => {
     const fixture = await createDispatchedPendingOutcomeFixture();

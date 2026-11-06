@@ -8,11 +8,13 @@ import {
   aiAgentEpisodesTable,
   aiAgentObservationsTable,
   aiExecutionAcceptancesTable,
+  aiExecutionEvidenceSnapshotsTable,
   aiExecutionsTable,
   db,
   projectsTable,
 } from "@workspace/db";
 import { finalizeExecutionAcceptance } from "../ai-execution-acceptance.js";
+import { reconcileAiExecutions } from "../ai-execution-state.js";
 import { startEpisode } from "./agent-episode-ledger.js";
 import { materializeServerOwnedObservations } from "./observation-materializer.js";
 import { verifyAndPersistEffect } from "./effect-observer.js";
@@ -321,5 +323,81 @@ describe("server-owned effect observer", () => {
     expect(result.status).toBe("observed");
     expect(episode?.workerId).toBe(originalEpisodeWorker);
     expect(classified?.actorId).toBe(replacementWorker);
+  });
+  it("records an explicit before/after role instead of the predicate", async () => {
+    const [beforeSource, afterSource] = ["before", "after"] as const;
+    await materializeServerOwnedObservations({
+      projectId,
+      executionId,
+      attempt: 0,
+      projectRevision: "revision-1",
+      episodeId,
+      sources: [beforeSource, afterSource].map((observationRole) => ({
+        kind: "direct_observation" as const,
+        sourceId: `runtime:${observationRole}`,
+        sourceRevision: "revision-1",
+        subject: "workspace",
+        predicate: "validated",
+        observationRole,
+        value: observationRole === "after",
+        evidenceRefs: [`runtime:${observationRole}`],
+      })),
+    });
+    const rows = await db.select({
+      sourceId: aiAgentObservationsTable.sourceId,
+      role: aiAgentObservationsTable.observationRole,
+    }).from(aiAgentObservationsTable).where(eq(aiAgentObservationsTable.episodeId, episodeId));
+    expect(Object.fromEntries(rows.map(({ sourceId, role }) => [sourceId, role]))).toEqual({
+      "runtime:before": "before",
+      "runtime:after": "after",
+    });
+  });
+
+  it("supersedes a same-attempt lease-expiry pause snapshot instead of duplicating it", async () => {
+    await db.update(aiExecutionsTable).set({
+      request: JSON.stringify({
+        projectId,
+        message: "fixture",
+        proofRequired: true,
+        effectRequired: true,
+      }),
+      leaseUntil: new Date(Date.now() - 1_000),
+    }).where(eq(aiExecutionsTable.id, executionId));
+    expect(await reconcileAiExecutions({ expiredOnly: true })).toBeGreaterThanOrEqual(1);
+    const [pause] = await db.select().from(aiExecutionAcceptancesTable)
+      .where(eq(aiExecutionAcceptancesTable.executionId, executionId));
+    expect(pause).toMatchObject({ reasonCode: "EXECUTION_LEASE_EXPIRED", terminalStatus: "paused" });
+    const pauseSnapshotId = pause!.evidenceSnapshotId;
+    expect(pauseSnapshotId).toBeTruthy();
+
+    // A replacement worker re-claims the same attempt and finalizes it.
+    await db.update(aiExecutionsTable).set({
+      status: "running",
+      workerId,
+      leaseUntil: new Date(Date.now() + 300_000),
+    }).where(eq(aiExecutionsTable.id, executionId));
+    const finalized = await finalizeExecutionAcceptance({
+      executionId,
+      expectedAttempt: 0,
+      workerId,
+      finalizationKey: `replacement-finalization-${randomUUID()}`,
+      outcome: "FAILED",
+      terminalStatus: "failed",
+      reasonCode: "REPLACEMENT_FINISHED",
+      recoveryState: "NONE",
+    });
+
+    expect(finalized).toMatchObject({ accepted: true, duplicate: false });
+    const snapshots = await db.select({ id: aiExecutionEvidenceSnapshotsTable.id })
+      .from(aiExecutionEvidenceSnapshotsTable)
+      .where(eq(aiExecutionEvidenceSnapshotsTable.executionId, executionId));
+    const acceptances = await db.select().from(aiExecutionAcceptancesTable)
+      .where(eq(aiExecutionAcceptancesTable.executionId, executionId));
+    expect(snapshots).toHaveLength(1);
+    expect(acceptances).toHaveLength(1);
+    expect(acceptances[0]).toMatchObject({
+      reasonCode: "REPLACEMENT_FINISHED",
+      evidenceSnapshotId: snapshots[0]!.id,
+    });
   });
 });

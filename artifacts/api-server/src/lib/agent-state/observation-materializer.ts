@@ -38,6 +38,11 @@ export type ServerOwnedObservationSource =
       sourceId: string;
       subject: string;
       predicate: string;
+      /**
+       * Role this observation plays in an effect pair. Defaults to the predicate;
+       * effect evaluation only accepts pairs explicitly recorded as before/after.
+       */
+      observationRole?: "before" | "after";
       value: JsonValue;
       sourceRevision?: string | null;
       environmentRevision?: string | null;
@@ -269,6 +274,7 @@ type NormalizedObservation = {
   sourceVersion: string;
   subject: string;
   predicate: string;
+  observationRole?: "before" | "after";
   value: JsonValue;
   sourceRefs: string[];
   observedAt: Date;
@@ -289,6 +295,9 @@ function normalizeSource(
       sourceVersion: sourceVersion(source.sourceRevision, attempt),
       subject: boundedText(source.subject),
       predicate: boundedText(source.predicate),
+      ...(source.observationRole === "before" || source.observationRole === "after"
+        ? { observationRole: source.observationRole }
+        : {}),
       value: parseBoundedJson(source.value, MAX_VALUE_BYTES),
       sourceRefs: boundedRefs(source.evidenceRefs),
       observedAt: observedAt(source.observedAt),
@@ -845,7 +854,7 @@ export async function materializeServerOwnedObservations(
         environmentRevisionKey: environmentRevisionIdentity(source.environmentRevision),
         kind: source.sourceType,
         provenance: source.provenance,
-        observationRole: source.predicate,
+        observationRole: source.observationRole ?? source.predicate,
         sourceType: source.sourceType,
         sourceId: source.sourceId,
         sourceVersion: source.sourceVersion,

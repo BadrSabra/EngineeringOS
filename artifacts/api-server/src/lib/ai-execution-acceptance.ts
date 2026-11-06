@@ -2805,12 +2805,23 @@ export async function finalizeExecutionAcceptance(
     const acceptanceId = randomUUID();
     let evidenceSnapshotId: string | null = null;
     if (effectiveEvidence) {
-      evidenceSnapshotId = randomUUID();
-      await tx.insert(aiExecutionEvidenceSnapshotsTable).values({
-        id: evidenceSnapshotId,
-        executionId: execution.id,
+      // A same-attempt lease-expiry pause already owns this attempt's snapshot
+      // (one per execution/attempt). Superseding that pause supersedes its
+      // evidence in place rather than violating the uniqueness contract.
+      const [supersededSnapshot] = replaceExistingLeasePause
+        ? await tx
+            .select({ id: aiExecutionEvidenceSnapshotsTable.id })
+            .from(aiExecutionEvidenceSnapshotsTable)
+            .where(and(
+              eq(aiExecutionEvidenceSnapshotsTable.executionId, execution.id),
+              eq(aiExecutionEvidenceSnapshotsTable.attempt, execution.attempt),
+            ))
+            .for("update")
+            .limit(1)
+        : [];
+      evidenceSnapshotId = supersededSnapshot?.id ?? randomUUID();
+      const snapshotValues = {
         projectId: execution.projectId,
-        attempt: execution.attempt,
         operationId: effectiveEvidence.operationId ?? execution.operationId,
         sourceRevision: effectiveEvidence.sourceRevision ?? null,
         candidateIdentity: effectiveEvidence.candidateIdentity ?? null,
@@ -2820,7 +2831,21 @@ export async function finalizeExecutionAcceptance(
         totalBytes: evidence.totalBytes,
         artifactRefs: evidence.artifacts,
         createdAt: now,
-      });
+      };
+      if (supersededSnapshot) {
+        await tx.delete(aiExecutionEvidenceReadsTable)
+          .where(eq(aiExecutionEvidenceReadsTable.snapshotId, supersededSnapshot.id));
+        await tx.update(aiExecutionEvidenceSnapshotsTable)
+          .set(snapshotValues)
+          .where(eq(aiExecutionEvidenceSnapshotsTable.id, supersededSnapshot.id));
+      } else {
+        await tx.insert(aiExecutionEvidenceSnapshotsTable).values({
+          id: evidenceSnapshotId,
+          executionId: execution.id,
+          attempt: execution.attempt,
+          ...snapshotValues,
+        });
+      }
       if (evidence.reads.length > 0) {
         await tx.insert(aiExecutionEvidenceReadsTable).values(evidence.reads.map((read) => ({
           id: randomUUID(),
