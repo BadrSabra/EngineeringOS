@@ -78,6 +78,8 @@ test("contract fast path covers representative source changes", async () => {
     [["lib/api-zod/src/generated/index.ts"], true],
     [["artifacts/dashboard/src/pages/Projects.tsx"], true],
     [["artifacts/dashboard/src/components/ChatSessionMissionHandoffs.tsx"], true],
+    [["artifacts/dashboard/src/pages/ai-chat/delivery-proof.tsx"], true],
+    [["artifacts/dashboard/src/pages/ai-chat/use-provider-metrics.ts"], true],
     [["artifacts/dashboard/src/components/ExecutionProjectionPanel.tsx"], true],
     [["artifacts/dashboard/src/lib/ai-missions.ts"], true],
     [["artifacts/dashboard/src/components/mission-state.ts"], true],
@@ -115,6 +117,21 @@ test("contract job evaluates the real changed-path filter output", async () => {
     /needs\.contract-trigger\.outputs\.should_run == 'true'/,
     "Contract-drift must be gated by the changed-path filter output.",
   );
+  assert.match(
+    condition,
+    /!cancelled\(\)/,
+    "Contract-drift must evaluate even when its policy-check dependency fails.",
+  );
+  assert.match(
+    condition,
+    /needs\.contract-trigger\.result == 'success'/,
+    "Pull requests must not run contract-drift from an invalid filter result.",
+  );
+  assert.match(
+    condition.replace(/\s+/g, " "),
+    /\$\{\{ !cancelled\(\) && \(github\.event_name == 'push' \|\| \(needs\.contract-trigger\.result == 'success' && needs\.contract-trigger\.outputs\.should_run == 'true'\)\) \}\}/,
+    "Push must run contract-drift independently of the policy-check result.",
+  );
   assert.doesNotMatch(
     condition,
     /github\.event\.pull_request\.changed_files/,
@@ -139,6 +156,32 @@ test("contract job evaluates the real changed-path filter output", async () => {
     contractDriftJob,
     /dashboard-contract-trigger/,
     "The conditional contract-drift job must not duplicate the policy guard.",
+  );
+});
+
+test("CI test step creates ephemeral supervisor authentication before startup", async () => {
+  const workflow = await readFile(workflowPath, "utf8");
+  const stepStart = workflow.indexOf("      - name: Run tests\n");
+  assert.notEqual(stepStart, -1, "Workflow must define the test step.");
+  const stepEnd = workflow.indexOf("\n      - name: ", stepStart + 1);
+  assert.notEqual(stepEnd, -1, "Test step boundary is malformed.");
+  const step = workflow.slice(stepStart, stepEnd);
+  const secretIndex = step.indexOf("export SESSION_SECRET=");
+  const supervisorIndex = step.indexOf("node scripts/workspace-runtime-supervisor.mjs");
+
+  assert.ok(
+    secretIndex !== -1 && secretIndex < supervisorIndex,
+    "The test step must configure supervisor authentication before startup.",
+  );
+  assert.match(
+    step,
+    /randomBytes\(32\)/,
+    "CI must generate an ephemeral per-run session secret.",
+  );
+  assert.doesNotMatch(
+    step,
+    /secrets\.SESSION_SECRET/,
+    "The test step must not depend on a persistent repository secret.",
   );
 });
 

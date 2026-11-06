@@ -50,6 +50,28 @@ jobs:
               - 'artifacts/dashboard/src/components/RecipeProgressPanel.tsx'
               - 'artifacts/dashboard/src/lib/use-recipe-stream.ts'
               - 'artifacts/dashboard/src/pages/AiChat.tsx'
+              - 'artifacts/dashboard/src/pages/ai-chat/delivery-proof.tsx'
+              - 'artifacts/dashboard/src/pages/ai-chat/evidence-panels.tsx'
+              - 'artifacts/dashboard/src/pages/ai-chat/execution-proof.tsx'
+              - 'artifacts/dashboard/src/pages/ai-chat/execution-trace.tsx'
+              - 'artifacts/dashboard/src/pages/ai-chat/forensic-evidence-card.tsx'
+              - 'artifacts/dashboard/src/pages/ai-chat/message-bubble.tsx'
+              - 'artifacts/dashboard/src/pages/ai-chat/pending-changes.tsx'
+              - 'artifacts/dashboard/src/pages/ai-chat/project-query.tsx'
+              - 'artifacts/dashboard/src/pages/ai-chat/provider-key-cards.tsx'
+              - 'artifacts/dashboard/src/pages/ai-chat/provider-runtime.tsx'
+              - 'artifacts/dashboard/src/pages/ai-chat/stream-errors.ts'
+              - 'artifacts/dashboard/src/pages/ai-chat/stream-intent.ts'
+              - 'artifacts/dashboard/src/pages/ai-chat/stream-lifecycle.ts'
+              - 'artifacts/dashboard/src/pages/ai-chat/stream-observations.ts'
+              - 'artifacts/dashboard/src/pages/ai-chat/stream-terminal.ts'
+              - 'artifacts/dashboard/src/pages/ai-chat/structured-results.tsx'
+              - 'artifacts/dashboard/src/pages/ai-chat/task-result-panel.tsx'
+              - 'artifacts/dashboard/src/pages/ai-chat/trace-parsing.tsx'
+              - 'artifacts/dashboard/src/pages/ai-chat/types.ts'
+              - 'artifacts/dashboard/src/pages/ai-chat/use-cross-tab-sync.ts'
+              - 'artifacts/dashboard/src/pages/ai-chat/use-live-activity.ts'
+              - 'artifacts/dashboard/src/pages/ai-chat/use-provider-metrics.ts'
               - 'artifacts/dashboard/src/pages/Dashboard.tsx'
               - 'artifacts/dashboard/src/pages/DiscoverProjectWizard.tsx'
               - 'artifacts/dashboard/src/pages/Events.tsx'
@@ -88,7 +110,11 @@ jobs:
     runs-on: ubuntu-latest
     # Pull-request file names come from paths-filter; changed_files in the
     # GitHub event is only a numeric count. Pushes always run the fast path.
-    if: github.event_name == 'push' || needs.contract-trigger.outputs.should_run == 'true'
+    if: >-
+      ${{ !cancelled() &&
+          (github.event_name == 'push' ||
+           (needs.contract-trigger.result == 'success' &&
+            needs.contract-trigger.outputs.should_run == 'true')) }}
     steps:
       - uses: actions/checkout@v4
 
@@ -222,6 +248,8 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          # Share only this per-run test key with the local supervisor and test processes.
+          export SESSION_SECRET="$(node --input-type=module -e 'import { randomBytes } from "node:crypto"; process.stdout.write(randomBytes(32).toString("base64url"))')"
           supervisor_log="${RUNNER_TEMP}/workspace-runtime-supervisor.log"
           node scripts/workspace-runtime-supervisor.mjs >"$supervisor_log" 2>&1 &
           supervisor_pid=$!
