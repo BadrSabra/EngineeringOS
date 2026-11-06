@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import type { QueryResultRow } from "pg";
+import type { IndexContract } from "./application-schema-check.js";
 import {
   APPLICATION_SCHEMA_CONTRACT,
   ApplicationSchemaError,
@@ -178,10 +179,14 @@ function completeSnapshot() {
         column_default: defaultFor(tableName, definition.name),
       })),
   );
-  const indexes = APPLICATION_SCHEMA_CONTRACT.indexes.map((definition) => ({
+  const indexes = (APPLICATION_SCHEMA_CONTRACT.indexes as readonly IndexContract[]).map((definition) => ({
     tablename: definition.tableName,
     indexname: definition.name,
-    indexdef: `CREATE ${definition.unique ? "UNIQUE " : ""}INDEX ${definition.name} ON public.${definition.tableName} USING btree (${definition.columns.join(", ")})`,
+    access_method: definition.accessMethod ?? "btree",
+    is_unique: Boolean(definition.unique),
+    is_valid: true,
+    predicate: definition.predicate ?? null,
+    columns: [...definition.columns],
   }));
   return {
     tables: Object.keys(APPLICATION_SCHEMA_CONTRACT.tables).map((table_name) => ({
@@ -197,8 +202,10 @@ function completeSnapshot() {
     ),
     indexes,
     primaryKeys: Object.keys(APPLICATION_SCHEMA_CONTRACT.tables).flatMap(
-      (table_name) => table_name === "openrouter_model_cooldowns"
-        ? ["provider", "model"].map((column_name) => ({ table_name, column_name }))
+      (table_name) => table_name === "startup_maintenance_state"
+        ? ["maintenance_key"].map((column_name) => ({ table_name, column_name }))
+        : table_name === "openrouter_model_cooldowns"
+          ? ["provider", "model"].map((column_name) => ({ table_name, column_name }))
         : table_name === "openrouter_catalog_snapshots"
           ? ["catalog_key"].map((column_name) => ({ table_name, column_name }))
         : table_name === "openrouter_lane_cursors"
@@ -246,7 +253,7 @@ function clientFor(
           rowCount: value.enums.length,
         };
       }
-      if (sql.includes("pg_indexes")) {
+      if (sql.includes("FROM pg_index")) {
         return {
           rows: value.indexes as unknown as T[],
           rowCount: value.indexes.length,
@@ -560,28 +567,32 @@ describe("application schema contract", () => {
     );
   });
 
-  it("rejects non-unique and partial acceptance-attempt indexes", () => {
+  it("rejects incorrect table, method, uniqueness, predicate, and key order", () => {
     const snapshot = completeSnapshot();
     const indexName = "uq_ai_execution_acceptances_execution_attempt";
     const expectedIndex = snapshot.indexes.find((index) => index.indexname === indexName);
     assert.ok(expectedIndex);
-    const invalidIndexDefinitions = [
-      expectedIndex.indexdef.replace("CREATE UNIQUE INDEX", "CREATE INDEX"),
-      `${expectedIndex.indexdef} WHERE attempt >= 0`,
+    const invalidRows = [
+      { ...expectedIndex, tablename: "ai_executions" },
+      { ...expectedIndex, access_method: "hash" },
+      { ...expectedIndex, is_unique: false },
+      { ...expectedIndex, is_valid: false },
+      { ...expectedIndex, predicate: "attempt >= 0" },
+      { ...expectedIndex, columns: [...expectedIndex.columns].reverse() },
     ];
 
-    for (const indexdef of invalidIndexDefinitions) {
+    for (const invalidRow of invalidRows) {
       const issues = findApplicationSchemaIssues({
         ...snapshot,
         indexes: snapshot.indexes.map((index) =>
-          index.indexname === indexName ? { ...index, indexdef } : index,
+          index.indexname === indexName ? invalidRow : index,
         ),
       });
       assert.ok(
         issues.some(
           (item) => item.kind === "incompatible_index" && item.objectName === indexName,
         ),
-        "schema validation must reject an acceptance-attempt index without full UNIQUE coverage",
+        "schema validation must compare the complete index contract",
       );
     }
   });

@@ -95,6 +95,7 @@ export const aiExecutionsTable = pgTable("ai_executions", {
   index("idx_ai_executions_project_status").on(t.projectId, t.status),
   index("idx_ai_executions_session_status").on(t.sessionId, t.status),
   index("idx_ai_executions_status_lease").on(t.status, t.leaseUntil),
+  index("idx_ai_executions_updated_at_id").on(t.updatedAt, t.id),
   index("idx_ai_executions_linked_task").on(t.linkedTaskId),
   index("idx_ai_executions_goal_id").on(t.goalId),
   index("idx_ai_executions_correlation_id").on(t.correlationId),

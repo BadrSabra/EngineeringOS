@@ -37,3 +37,13 @@ describe("GET /healthz", () => {
     expect(res.status).not.toBe(403);
   });
 });
+
+describe("GET /readiness", () => {
+  it("uses the complete application schema contract and reports maintenance", async () => {
+    const res = await request(app).get("/api/readiness");
+    expect(res.status).toBe(200);
+    expect(res.body.status).toBe("ready");
+    expect(res.body.checks.schema.status).toBe("ready");
+    expect(res.body.checks.maintenance.status).toBe("ready");
+  });
+});

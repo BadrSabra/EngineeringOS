@@ -12,8 +12,10 @@ import { getLifecycleWorkerScopeProjectId } from "./lib/worker-scope";
 import {
   reportDeadRootPaths,
   ensureEncryptionKey,
+  initializeStartupMaintenance,
   scrubHistoricalValidationDetails,
   pruneHistoricalAiDiagnostics,
+  startStartupMaintenanceWorker,
 } from "./lib/startup-migrations";
 import { heavyJobQueue } from "./lib/job-queue";
 import {
@@ -73,6 +75,7 @@ let staleJobSweep: NodeJS.Timeout | undefined;
 let durableJobDispatcher: NodeJS.Timeout | undefined;
 let workspaceRuntimeSweep: NodeJS.Timeout | undefined;
 let memorySweep: { stop: () => void } | undefined;
+let startupMaintenanceWorker: { stop: () => void } | undefined;
 let shuttingDown = false;
 
 // ── PR-D3: Cross-process AI context cache invalidation ────────────────────────
@@ -102,6 +105,7 @@ async function shutdown(signal: string): Promise<void> {
   logger.info({ signal }, "Graceful shutdown started");
   stopCacheChannel();
   stopCatalogRefresh();
+  startupMaintenanceWorker?.stop();
   if (staleJobSweep) clearInterval(staleJobSweep);
   if (durableJobDispatcher) clearInterval(durableJobDispatcher);
   if (workspaceRuntimeSweep) clearInterval(workspaceRuntimeSweep);
@@ -221,6 +225,7 @@ if (!workerScopeProjectId) {
 
   // These maintenance operations are deliberately omitted from the
   // project-scoped lifecycle test process.
+  await initializeStartupMaintenance();
   await scrubHistoricalValidationDetails();
   await pruneHistoricalAiDiagnostics();
   await pruneTaskExecutionHistory();
@@ -266,6 +271,7 @@ const onServerListen = (err?: Error) => {
       });
     }, 10_000);
     memorySweep = startMemorySweep();
+    startupMaintenanceWorker = startStartupMaintenanceWorker();
     void drainPendingAudits();
   }
 };

@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { eq } from "drizzle-orm";
+import type { PoolClient } from "pg";
 import { db, pool, projectsTable } from "@workspace/db";
 import { randomUUID } from "crypto";
 import {
@@ -9,7 +10,19 @@ import {
   scrubHistoricalValidationRecord,
   getAiDiagnosticsRetentionHealth,
   pruneHistoricalAiDiagnostics,
+  scrubHistoricalValidationDetails,
+  STARTUP_MAINTENANCE_BATCH_SIZE,
 } from "./startup-migrations";
+
+type FakeQueryResult = { rows: Record<string, unknown>[]; rowCount: number };
+type FakeQuery = (sql: string, values?: unknown[]) => Promise<FakeQueryResult>;
+
+function makeMaintenanceClient(query: FakeQuery): PoolClient {
+  return {
+    query: vi.fn(query),
+    release: vi.fn(),
+  } as unknown as PoolClient;
+}
 
 async function insertProject(rootPath: string): Promise<string> {
   const id = randomUUID();
@@ -206,9 +219,39 @@ describe("scrubHistoricalValidationRecord", () => {
 });
 
 describe("historical AI diagnostic retention", () => {
-  it("reports a successful no-op sweep with bounded counts and timestamps", async () => {
+  it("reports a successful bounded no-op batch", async () => {
     const runAt = new Date("2026-08-22T00:00:00.000Z");
-    await pruneHistoricalAiDiagnostics(runAt);
+    const client = makeMaintenanceClient(async (sql) => {
+      if (sql.includes("pg_try_advisory_xact_lock")) {
+        return { rows: [{ locked: true }], rowCount: 1 };
+      }
+      if (sql.includes("FROM startup_maintenance_state")) {
+        return { rows: [{ cursor_at: null, cursor_id: null, completed_at: null }], rowCount: 1 };
+      }
+      if (sql.includes("SELECT id, tool_trace AS payload")) {
+        return { rows: [], rowCount: 0 };
+      }
+      if (sql.includes("SELECT id, checkpoint AS payload")) {
+        return { rows: [], rowCount: 0 };
+      }
+      return { rows: [], rowCount: 1 };
+    });
+    const connect = vi.spyOn(pool, "connect").mockImplementation(async () => client);
+    const query = vi.spyOn(pool, "query").mockResolvedValue({
+      rows: [
+        "scrub_chat_validation_v1",
+        "scrub_execution_validation_v1",
+        "prune_chat_diagnostics_v1",
+        "prune_execution_diagnostics_v1",
+      ].map((maintenance_key) => ({ maintenance_key })),
+      rowCount: 4,
+    } as never);
+    try {
+      await expect(pruneHistoricalAiDiagnostics(runAt)).resolves.toBe(true);
+    } finally {
+      connect.mockRestore();
+      query.mockRestore();
+    }
 
     expect(getAiDiagnosticsRetentionHealth()).toEqual({
       status: "success",
@@ -222,22 +265,169 @@ describe("historical AI diagnostic retention", () => {
   });
 
   it("reports a failed sweep without exposing the error and leaves it retryable", async () => {
-    const query = vi.spyOn(pool, "query").mockRejectedValueOnce(new Error("database details"));
+    const connect = vi.spyOn(pool, "connect").mockRejectedValueOnce(new Error("database details"));
     const runAt = new Date("2026-08-22T01:00:00.000Z");
+    const previousHealth = getAiDiagnosticsRetentionHealth();
 
-    await expect(pruneHistoricalAiDiagnostics(runAt)).resolves.toBeUndefined();
+    await expect(pruneHistoricalAiDiagnostics(runAt)).resolves.toBe(false);
 
-    expect(getAiDiagnosticsRetentionHealth()).toEqual({
+    expect(getAiDiagnosticsRetentionHealth()).toMatchObject({
       status: "failed",
       attemptedAt: runAt.toISOString(),
-      completedAt: null,
-      chatRowsScanned: 0,
-      chatRowsPruned: 0,
-      executionRowsScanned: 0,
-      executionRowsPruned: 0,
+      completedAt: previousHealth.completedAt,
+      chatRowsScanned: previousHealth.chatRowsScanned,
+      chatRowsPruned: previousHealth.chatRowsPruned,
+      executionRowsScanned: previousHealth.executionRowsScanned,
+      executionRowsPruned: previousHealth.executionRowsPruned,
     });
     expect(JSON.stringify(getAiDiagnosticsRetentionHealth())).not.toContain("database details");
-    query.mockRestore();
+    connect.mockRestore();
+  });
+
+  it("counts only rows whose compare-and-set update affected one row", async () => {
+    const now = new Date("2026-08-22T02:00:00.000Z");
+    const recent = new Date(now.getTime() - 100 * 24 * 60 * 60 * 1000);
+    const chatClient = makeMaintenanceClient(async (sql) => {
+      if (sql.includes("pg_try_advisory_xact_lock")) {
+        return { rows: [{ locked: true }], rowCount: 1 };
+      }
+      if (sql.includes("FROM startup_maintenance_state")) {
+        return { rows: [{ cursor_at: null, cursor_id: null, completed_at: null }], rowCount: 1 };
+      }
+      if (sql.includes("SELECT id, tool_trace AS payload")) {
+        return {
+          rows: [{
+            id: "chat-row",
+            payload: JSON.stringify([{ kind: "private", text: "trace" }]),
+            cursor_at: recent,
+          }],
+          rowCount: 1,
+        };
+      }
+      if (sql.includes("UPDATE ai_chat_messages")) return { rows: [], rowCount: 0 };
+      return { rows: [], rowCount: 1 };
+    });
+    const executionClient = makeMaintenanceClient(async (sql) => {
+      if (sql.includes("pg_try_advisory_xact_lock")) {
+        return { rows: [{ locked: true }], rowCount: 1 };
+      }
+      if (sql.includes("FROM startup_maintenance_state")) {
+        return { rows: [{ cursor_at: null, cursor_id: null, completed_at: null }], rowCount: 1 };
+      }
+      if (sql.includes("SELECT id, checkpoint AS payload")) {
+        return {
+          rows: [{
+            id: "execution-row",
+            payload: JSON.stringify({
+              stage: "failed",
+              sequence: 42,
+              evidenceVerdict: "BLOCKED",
+              detail: "private checkpoint details",
+              recentSteps: [
+                { kind: "tool_result", result: "private source" },
+                { kind: "validation", status: "failed", exitCode: 2, stdout: "private output" },
+              ],
+            }),
+            cursor_at: recent,
+          }],
+          rowCount: 1,
+        };
+      }
+      if (sql.includes("UPDATE ai_executions")) return { rows: [], rowCount: 1 };
+      return { rows: [], rowCount: 1 };
+    });
+    const clients = [chatClient, executionClient];
+    const connect = vi.spyOn(pool, "connect").mockImplementation(async () => {
+      const client = clients.shift();
+      if (!client) throw new Error("unexpected_extra_connection");
+      return client;
+    });
+    const query = vi.spyOn(pool, "query").mockResolvedValue({
+      rows: [
+        "scrub_chat_validation_v1",
+        "scrub_execution_validation_v1",
+        "prune_chat_diagnostics_v1",
+        "prune_execution_diagnostics_v1",
+      ].map((maintenance_key) => ({ maintenance_key })),
+      rowCount: 4,
+    } as never);
+    const previousHealth = getAiDiagnosticsRetentionHealth();
+    try {
+      await expect(pruneHistoricalAiDiagnostics(now)).resolves.toBe(true);
+    } finally {
+      connect.mockRestore();
+      query.mockRestore();
+    }
+    const health = getAiDiagnosticsRetentionHealth();
+    expect(health.chatRowsPruned - previousHealth.chatRowsPruned).toBe(0);
+    expect(health.executionRowsPruned - previousHealth.executionRowsPruned).toBe(1);
+  });
+
+  it("limits scrub batches and resumes from the durable cursor", async () => {
+    const scannedIds: string[][] = [];
+    const updateCursors: unknown[][] = [];
+    let chatReads = 0;
+    const client = makeMaintenanceClient(async (sql, values) => {
+      if (sql.includes("pg_try_advisory_xact_lock")) {
+        return { rows: [{ locked: true }], rowCount: 1 };
+      }
+      if (sql.includes("FROM startup_maintenance_state")) {
+        const key = values?.[0];
+        if (key === "scrub_chat_validation_v1" && chatReads > 0) {
+          return {
+            rows: [{ cursor_at: null, cursor_id: "chat-0200", completed_at: null }],
+            rowCount: 1,
+          };
+        }
+        if (key === "scrub_execution_validation_v1" && chatReads > 0) {
+          return {
+            rows: [{ cursor_at: null, cursor_id: null, completed_at: new Date() }],
+            rowCount: 1,
+          };
+        }
+        return { rows: [{ cursor_at: null, cursor_id: null, completed_at: null }], rowCount: 1 };
+      }
+      if (sql.includes("SELECT id, tool_trace AS payload")) {
+        chatReads++;
+        const ids = chatReads === 1
+          ? Array.from({ length: STARTUP_MAINTENANCE_BATCH_SIZE }, (_, index) =>
+              `chat-${String(index + 1).padStart(4, "0")}`,
+            )
+          : [];
+        scannedIds.push(ids);
+        return {
+          rows: ids.map((id) => ({ id, payload: "{}" })),
+          rowCount: ids.length,
+        };
+      }
+      if (sql.includes("UPDATE startup_maintenance_state")) updateCursors.push(values ?? []);
+      if (sql.includes("SELECT id, checkpoint AS payload")) return { rows: [], rowCount: 0 };
+      return { rows: [], rowCount: 1 };
+    });
+    const connect = vi.spyOn(pool, "connect").mockImplementation(async () => client);
+    const query = vi.spyOn(pool, "query").mockResolvedValue({
+      rows: [
+        "scrub_chat_validation_v1",
+        "scrub_execution_validation_v1",
+        "prune_chat_diagnostics_v1",
+        "prune_execution_diagnostics_v1",
+      ].map((maintenance_key) => ({ maintenance_key })),
+      rowCount: 4,
+    } as never);
+    try {
+      await expect(scrubHistoricalValidationDetails()).resolves.toBe(false);
+      await expect(scrubHistoricalValidationDetails()).resolves.toBe(true);
+    } finally {
+      connect.mockRestore();
+      query.mockRestore();
+    }
+    expect(scannedIds[0]).toHaveLength(STARTUP_MAINTENANCE_BATCH_SIZE);
+    expect(scannedIds[1]).toEqual([]);
+    expect(updateCursors).toContainEqual([
+      "scrub_chat_validation_v1",
+      `chat-${String(STARTUP_MAINTENANCE_BATCH_SIZE).padStart(4, "0")}`,
+      false,
+    ]);
   });
 
   it("retains proof and exit metadata while dropping arbitrary trace data", () => {

@@ -86,6 +86,8 @@ export const aiChatMessagesTable = pgTable("ai_chat_messages", {
   index("idx_ai_chat_messages_session_id").on(t.sessionId),
   // Covers: WHERE session_id = ? ORDER BY created_at ASC (chronological thread)
   index("idx_ai_chat_messages_session_id_created_at").on(t.sessionId, t.createdAt),
+  // Supports bounded global maintenance scans by (created_at, id).
+  index("idx_ai_chat_messages_created_at_id").on(t.createdAt, t.id),
 ]);
 
 export type InsertAiChatSession = typeof aiChatSessionsTable.$inferInsert;

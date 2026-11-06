@@ -1,7 +1,8 @@
 import { randomUUID } from "node:crypto";
-import { and, desc, eq, gte, isNotNull, isNull, lte, sql } from "drizzle-orm";
+import { and, desc, eq, gte, isNotNull, isNull, sql } from "drizzle-orm";
 import {
   db,
+  pool,
   aiUsageEventsTable,
   operatorAlertsTable,
   AI_CONTRACT_OUTCOMES,
@@ -986,10 +987,24 @@ export async function getAiUsageSummary(params: {
 }
 
 /** Startup/retry maintenance: delete only expired telemetry rows. */
-export async function pruneExpiredAiUsage(): Promise<void> {
+export async function pruneExpiredAiUsage(): Promise<boolean> {
   try {
-    await db.delete(aiUsageEventsTable).where(lte(aiUsageEventsTable.expiresAt, new Date()));
+    const result = await pool.query(
+      `WITH expired AS (
+         SELECT id
+         FROM ai_usage_events
+         WHERE expires_at <= $1
+         ORDER BY expires_at, id
+         LIMIT 250
+       )
+       DELETE FROM ai_usage_events AS usage
+       USING expired
+       WHERE usage.id = expired.id`,
+      [new Date()],
+    );
+    return (result.rowCount ?? 0) < 250;
   } catch (error) {
     logger.warn({ scope: "ai-telemetry", err: error }, "AI telemetry retention sweep failed");
+    return false;
   }
 }
