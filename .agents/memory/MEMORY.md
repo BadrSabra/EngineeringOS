@@ -156,3 +156,4 @@
 - [Mission approval receipt fail-closed](mission-approval-receipt-fail-closed.md) — changed approval receipt/revision after dispatch is rejected by the trace loader, not stored as INCONCLUSIVE.
 - [Bounded effect restart recovery](bounded-effect-restart-recovery.md) — file-marker restart proof design; observation roles, worldRevision binding, same-attempt pause snapshot supersession.
 - [Runtime start database serialization](runtime-start-database-serialization.md) — serialize per-project startup claims inside PostgreSQL before upserting rows with duplicate unique identities.
+- [Dispatch crash recovery](dispatch-crash-recovery.md) — completed Missions record dispatch only from one completed Execution per root; runner is never re-invoked.

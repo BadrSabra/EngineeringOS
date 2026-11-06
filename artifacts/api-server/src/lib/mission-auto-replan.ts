@@ -1112,17 +1112,28 @@ export async function reconcileApprovedMissionDecisionDispatches(
       const plan = await getApprovedMissionDecisionDispatchPlan(decisionId);
       if (!plan) continue;
 
-      const runs: MissionGoalRunResult[] = [];
-      for (const goalId of plan.rootGoalIds) {
-        const run = await runGoal({
-          goalId,
-          userId: plan.userId,
-          trigger: "replan",
-        });
-        if (run.goalId !== goalId) {
-          throw new Error("mission_decision_dispatch_goal_identity_mismatch");
+      // A Mission that already completed finished its roots before the crash;
+      // record their Executions instead of running the Goals again.
+      const finishedRootRuns = plan.finishedRootRuns;
+      const runs: Array<Pick<MissionGoalRunResult, "goalId" | "status" | "executionId">> = [];
+      if (finishedRootRuns) {
+        for (const goalId of plan.rootGoalIds) {
+          const finished = finishedRootRuns.find((run) => run.goalId === goalId);
+          if (!finished) throw new Error("mission_decision_dispatch_root_result_missing");
+          runs.push({ goalId, status: "completed", executionId: finished.executionId });
         }
-        runs.push(run);
+      } else {
+        for (const goalId of plan.rootGoalIds) {
+          const run = await runGoal({
+            goalId,
+            userId: plan.userId,
+            trigger: "replan",
+          });
+          if (run.goalId !== goalId) {
+            throw new Error("mission_decision_dispatch_goal_identity_mismatch");
+          }
+          runs.push(run);
+        }
       }
 
       const items = plan.rootGoalIds.map((goalId, position) => {
@@ -1154,7 +1165,8 @@ export async function reconcileApprovedMissionDecisionDispatches(
           .for("update");
         if (
           !mission
-          || mission.status !== "active"
+          || (mission.status !== "active"
+            && !(finishedRootRuns && mission.status === "completed"))
           || jsonRecord(mission.autonomyPolicy).activePlanRevision !== plan.planRevision
         ) {
           return null;

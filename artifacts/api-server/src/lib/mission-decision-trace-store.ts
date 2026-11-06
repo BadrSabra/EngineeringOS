@@ -1553,6 +1553,12 @@ export async function getApprovedMissionDecisionDispatchPlan(
   userId: string;
   planRevision: string;
   rootGoalIds: string[];
+  /**
+   * Present only when the Mission already completed before DISPATCHED was
+   * recorded (crash window). Each root has exactly one finished Execution to
+   * record; the Goals must not be run again.
+   */
+  finishedRootRuns?: Array<{ goalId: string; executionId: string }>;
 } | null> {
   const snapshot = await getMissionDecisionTrace(decisionId);
   if (!snapshot || snapshot.trace.result.kind !== "SELECTED") return null;
@@ -1589,7 +1595,7 @@ export async function getApprovedMissionDecisionDispatchPlan(
       .for("update");
     if (
       !mission
-      || mission.status !== "active"
+      || (mission.status !== "active" && mission.status !== "completed")
       || record(mission.autonomyPolicy).activePlanRevision !== planRevision
     ) {
       return null;
@@ -1616,6 +1622,53 @@ export async function getApprovedMissionDecisionDispatchPlan(
       planRevision,
     });
     if (rootGoalIds.length === 0) return null;
+
+    if (mission.status === "completed") {
+      // Crash window: the run finished and completed the Mission before the
+      // dispatch was recorded. Recover only from durable, unambiguous
+      // finished Executions; never run the Goals again.
+      const finishedRootRuns: Array<{ goalId: string; executionId: string }> = [];
+      for (const goalId of rootGoalIds) {
+        const [goal] = await tx.select({ status: aiGoalsTable.status })
+          .from(aiGoalsTable)
+          .where(and(
+            eq(aiGoalsTable.id, goalId),
+            eq(aiGoalsTable.missionId, mission.id),
+            eq(aiGoalsTable.projectId, mission.projectId),
+          ));
+        const executions = await tx.select({ id: aiExecutionsTable.id })
+          .from(aiExecutionsTable)
+          .where(and(
+            eq(aiExecutionsTable.projectId, mission.projectId),
+            eq(aiExecutionsTable.goalId, goalId),
+            eq(aiExecutionsTable.userId, mission.userId),
+          ))
+          .limit(2);
+        const [execution] = executions;
+        if (
+          goal?.status !== "completed"
+          || executions.length !== 1
+          || !execution
+          || execution.id === identity.sourceExecutionId
+        ) {
+          return null;
+        }
+        const [finished] = await tx.select({ status: aiExecutionsTable.status })
+          .from(aiExecutionsTable)
+          .where(eq(aiExecutionsTable.id, execution.id));
+        if (finished?.status !== "completed") return null;
+        finishedRootRuns.push({ goalId, executionId: execution.id });
+      }
+      return {
+        decisionId,
+        projectId: mission.projectId,
+        missionId: mission.id,
+        userId: mission.userId,
+        planRevision,
+        rootGoalIds,
+        finishedRootRuns,
+      };
+    }
 
     return {
       decisionId,
