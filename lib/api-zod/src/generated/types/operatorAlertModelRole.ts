@@ -13,4 +13,5 @@ export const OperatorAlertModelRole = {
   fast: 'fast',
   powerful: 'powerful',
   catalog: 'catalog',
+  startup: 'startup',
 } as const;

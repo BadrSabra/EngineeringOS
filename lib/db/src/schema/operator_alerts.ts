@@ -13,6 +13,7 @@ export const operatorAlertKindEnum = pgEnum("operator_alert_kind", [
   "ai_budget_warning",
   "ai_budget_exhausted",
   "ai_budget_recovered",
+  "runtime_start_unresolved",
 ]);
 
 /**

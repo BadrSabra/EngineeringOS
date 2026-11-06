@@ -26,6 +26,11 @@ import {
 import {
   WorkspaceRuntimeSupervisorClient,
 } from "./workspace-runtime-supervisor-client.js";
+import { logger } from "./logger.js";
+import {
+  resolveRuntimeStartUnresolvedAlert,
+  syncRuntimeStartUnresolvedAlerts,
+} from "./operator-alerts.js";
 
 const RUNTIME_PORT_MIN = 3000;
 const RUNTIME_PORT_MAX = 3099;
@@ -483,6 +488,7 @@ export class WorkspaceRuntimeManager {
       unresolvedCount += 1;
       oldestAgeMs = oldestAgeMs === null ? ageMs : Math.max(oldestAgeMs, ageMs);
     }
+    await this.syncUnresolvedStartAlerts(starting, now);
     return {
       status: unresolvedCount > 0 ? "alert" : "clear",
       thresholdMs: UNRESOLVED_RUNTIME_START_ALERT_MS,
@@ -1440,6 +1446,7 @@ export class WorkspaceRuntimeManager {
       this.sessions.set(claimed.projectId, session);
       this.startHeartbeat(session);
     }
+    await this.syncUnresolvedStartAlerts(await this.store.listStarting());
   }
 
   async start(input: {
@@ -1762,6 +1769,7 @@ export class WorkspaceRuntimeManager {
       }
       session.status = "running";
       await this.persist(session, { status: "running" });
+      await this.resolveUnresolvedStartAlert(runtimeId, sessionId);
       return this.snapshot(session);
     } catch (error) {
       session.error = bounded(error instanceof Error ? error.message : String(error));
@@ -1915,6 +1923,7 @@ export class WorkspaceRuntimeManager {
       session.port = observed.session.port;
       session.logs = [...logs];
       session.error = null;
+      await this.resolveUnresolvedStartAlert(session.runtimeId, session.sessionId);
       return;
     }
 
@@ -1944,6 +1953,7 @@ export class WorkspaceRuntimeManager {
         session.error = "Runtime start was not present in the supervisor during reconciliation.";
         session.leaseUntil = null;
         session.lastHeartbeatAt = null;
+        await this.resolveUnresolvedStartAlert(session.runtimeId, session.sessionId);
       }
       this.stopHeartbeat(session);
       if (this.sessions.get(session.runtimeId) === session) this.sessions.delete(session.runtimeId);
@@ -2046,6 +2056,43 @@ export class WorkspaceRuntimeManager {
     if (patch.logs) session.logs = [...patch.logs];
   }
 
+  private async syncUnresolvedStartAlerts(
+    starting: WorkspaceRuntime[] = [],
+    now = new Date(),
+  ): Promise<void> {
+    if (this.store !== databaseWorkspaceRuntimeStore) return;
+    try {
+      await syncRuntimeStartUnresolvedAlerts(
+        starting.map((row) => ({
+          projectId: row.projectId,
+          sessionId: row.sessionId,
+          startedAt: row.startedAt,
+        })),
+        UNRESOLVED_RUNTIME_START_ALERT_MS,
+        now,
+      );
+    } catch (error) {
+      // Alert delivery is retried by the next health request or runtime sweep;
+      // it must not take the liveness endpoint down with it.
+      logger.warn(
+        { scope: "workspace_runtime", code: "unresolved_start_alert_sync_failed", error },
+        "Runtime startup alert synchronization failed",
+      );
+    }
+  }
+
+  private async resolveUnresolvedStartAlert(projectId: string, sessionId: string): Promise<void> {
+    if (this.store !== databaseWorkspaceRuntimeStore) return;
+    try {
+      await resolveRuntimeStartUnresolvedAlert({ projectId, sessionId });
+    } catch (error) {
+      logger.warn(
+        { scope: "workspace_runtime", code: "unresolved_start_alert_resolve_failed", error },
+        "Runtime startup alert could not be resolved",
+      );
+    }
+  }
+
   private async failStartingSession(session: RuntimeSession, error: string): Promise<void> {
     this.stopHeartbeat(session);
     const stoppedAt = new Date();
@@ -2085,6 +2132,7 @@ export class WorkspaceRuntimeManager {
         this.sessions.delete(session.runtimeId);
       }
     }
+    await this.resolveUnresolvedStartAlert(session.runtimeId, session.sessionId);
   }
 
   private async stopSession(session: RuntimeSession, finalStatus: "stopped" | "failed" = "stopped"): Promise<void> {
@@ -2142,6 +2190,7 @@ export class WorkspaceRuntimeManager {
       session.pid = null;
       session.leaseUntil = null;
       session.lastHeartbeatAt = null;
+      await this.resolveUnresolvedStartAlert(session.runtimeId, session.sessionId);
     })();
     const stopPromise = session.stopPromise;
     try {

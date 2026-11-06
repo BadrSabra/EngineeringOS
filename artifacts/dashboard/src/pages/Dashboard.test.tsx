@@ -300,6 +300,41 @@ describe("Dashboard goal-first home", () => {
 });
 
 describe("Dashboard operator alerts", () => {
+  it("shows an unresolved Runtime startup alert with its session identity", () => {
+    vi.mocked(useListOperatorAlerts).mockReturnValue({
+      data: {
+        alerts: [{
+          id: "runtime-alert-1",
+          fingerprint: "runtime_start_unresolved:session-hash",
+          kind: "runtime_start_unresolved",
+          status: "open",
+          provider: "runtime",
+          modelRole: "startup",
+          modelId: "runtime-session-123",
+          title: "Runtime startup is unresolved",
+          message: "Runtime startup has remained unresolved beyond the expected start window.",
+          remediation: "Review the runtime session and retry startup only after its state has been reconciled.",
+          occurrenceCount: 1,
+          firstSeenAt: "2026-11-06T12:00:00.000Z",
+          lastSeenAt: "2026-11-06T12:05:00.000Z",
+          resolvedAt: null,
+        }],
+      },
+      isLoading: false,
+      error: null,
+      isFetching: false,
+      refetch: vi.fn(),
+    } as ReturnType<typeof useListOperatorAlerts>);
+
+    render(<Dashboard />);
+    fireEvent.click(screen.getByTestId("summary-advanced-dashboard"));
+
+    const alerts = screen.getByRole("region", { name: "تنبيهات خدمات المساعد" });
+    expect(within(alerts).getByText("تعثر بدء Runtime")).toBeInTheDocument();
+    expect(within(alerts).getByText("runtime-session-123")).toBeInTheDocument();
+    expect(within(alerts).getByText(/بقي بدء Runtime للمشروع دون حسم/)).toBeInTheDocument();
+  });
+
   it("shows a Groq drift alert as historical because the route is disabled", () => {
     vi.mocked(useListOperatorAlerts).mockReturnValue({
       data: {

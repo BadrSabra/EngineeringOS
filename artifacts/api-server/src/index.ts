@@ -266,9 +266,11 @@ const onServerListen = (err?: Error) => {
     staleJobSweep = startStaleJobSweep();
     durableJobDispatcher = startDurableJobDispatcher();
     workspaceRuntimeSweep = setInterval(() => {
-      void workspaceRuntime.recover().catch((err) => {
-        logger.warn({ err }, "workspace runtime recovery sweep failed");
-      });
+      void workspaceRuntime.recover()
+        .then(() => workspaceRuntime.getUnresolvedStartHealth())
+        .catch((err) => {
+          logger.warn({ err }, "workspace runtime recovery sweep failed");
+        });
     }, 10_000);
     memorySweep = startMemorySweep();
     startupMaintenanceWorker = startStartupMaintenanceWorker();

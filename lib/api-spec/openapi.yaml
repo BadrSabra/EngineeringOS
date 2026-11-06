@@ -6856,16 +6856,17 @@ components:
         kind:
           type: string
           enum: [groq_model_catalog_drift, groq_model_catalog_unavailable,
-                 ai_budget_warning, ai_budget_exhausted, ai_budget_recovered]
+                 ai_budget_warning, ai_budget_exhausted, ai_budget_recovered,
+                 runtime_start_unresolved]
         status:
           type: string
           enum: [open, acknowledged, resolved]
         provider:
           type: string
-          enum: [groq]
+          enum: [groq, runtime]
         modelRole:
           type: string
-          enum: [fast, powerful, catalog]
+          enum: [fast, powerful, catalog, startup]
         modelId:
           type: string
         title:

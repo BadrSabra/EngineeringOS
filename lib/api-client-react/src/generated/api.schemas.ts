@@ -2262,6 +2262,7 @@ export const OperatorAlertKind = {
   ai_budget_warning: 'ai_budget_warning',
   ai_budget_exhausted: 'ai_budget_exhausted',
   ai_budget_recovered: 'ai_budget_recovered',
+  runtime_start_unresolved: 'runtime_start_unresolved',
 } as const;
 
 export type OperatorAlertStatus = typeof OperatorAlertStatus[keyof typeof OperatorAlertStatus];
@@ -2278,6 +2279,7 @@ export type OperatorAlertProvider = typeof OperatorAlertProvider[keyof typeof Op
 
 export const OperatorAlertProvider = {
   groq: 'groq',
+  runtime: 'runtime',
 } as const;
 
 export type OperatorAlertModelRole = typeof OperatorAlertModelRole[keyof typeof OperatorAlertModelRole];
@@ -2287,6 +2289,7 @@ export const OperatorAlertModelRole = {
   fast: 'fast',
   powerful: 'powerful',
   catalog: 'catalog',
+  startup: 'startup',
 } as const;
 
 /**

@@ -15,4 +15,5 @@ export const OperatorAlertKind = {
   ai_budget_warning: 'ai_budget_warning',
   ai_budget_exhausted: 'ai_budget_exhausted',
   ai_budget_recovered: 'ai_budget_recovered',
+  runtime_start_unresolved: 'runtime_start_unresolved',
 } as const;

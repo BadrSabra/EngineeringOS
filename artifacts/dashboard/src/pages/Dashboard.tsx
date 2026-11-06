@@ -86,6 +86,13 @@ function getOperatorAlertCopy(alert: OperatorAlert): OperatorAlertCopy {
         remediation: 'لا يلزم اتخاذ إجراء.',
         destination: 'projects',
       };
+    case 'runtime_start_unresolved':
+      return {
+        title: 'تعثر بدء Runtime',
+        message: 'بقي بدء Runtime للمشروع دون حسم بعد انتهاء المهلة المتوقعة.',
+        remediation: 'راجع حالة الجلسة، ثم أعد المحاولة بعد تأكيد المصالحة أو التوقف.',
+        destination: 'projects',
+      };
     default:
       return {
         title: 'تنبيه في خدمات المساعد',
@@ -227,6 +234,8 @@ function OperatorAlertsCard() {
                         </>
                       ) : isCatalogUnavailable ? (
                         <span>النطاق: قائمة نماذج <bdi dir="ltr">Groq</bdi></span>
+                      ) : alert.kind === 'runtime_start_unresolved' ? (
+                        <span>جلسة Runtime: <bdi dir="ltr" className="font-mono">{alert.modelId}</bdi></span>
                       ) : (
                         <span>النطاق: استخدام المساعد للمشروع</span>
                       )}

@@ -11,4 +11,5 @@ export type OperatorAlertProvider = typeof OperatorAlertProvider[keyof typeof Op
 
 export const OperatorAlertProvider = {
   groq: 'groq',
+  runtime: 'runtime',
 } as const;
