@@ -8,6 +8,7 @@ import { createServer, type Server } from "node:http";
 import os from "node:os";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
+import { fileURLToPath } from "node:url";
 import { afterEach, describe, expect, it } from "vitest";
 import { eq, sql } from "drizzle-orm";
 import {
@@ -21,9 +22,16 @@ import {
   createInMemoryWorkspaceRuntimeStore,
   RUNTIME_LEASE_MS,
 } from "./workspace-runtime-store.js";
+import {
+  deriveWorkspaceRuntimeSupervisorToken,
+  WorkspaceRuntimeSupervisorClient,
+} from "./workspace-runtime-supervisor-client.js";
 
 const projectIds: string[] = [];
 const roots: string[] = [];
+const apiServerRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
+const supervisorScriptPath = path.resolve(apiServerRoot, "../../scripts/workspace-runtime-supervisor.mjs");
+const runtimeRecoveryTestSecret = "runtime-start-response-loss-isolated-test-secret";
 
 afterEach(async () => {
   const ownedProjectIds = projectIds.splice(0);
@@ -135,6 +143,57 @@ async function reserveLoopbackPort(): Promise<number> {
     server.close((error) => error ? reject(error) : resolve());
   });
   return port;
+}
+
+async function waitForJsonFile<T>(
+  filePath: string,
+  timeoutMs: number,
+  description: string,
+  output: () => string = () => "",
+): Promise<T> {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    try {
+      return JSON.parse(await fs.readFile(filePath, "utf8")) as T;
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "ENOENT" && !(error instanceof SyntaxError)) {
+        throw error;
+      }
+    }
+    await new Promise((resolve) => setTimeout(resolve, 50));
+  }
+  throw new Error(`Timed out waiting for ${description}; ${output()}`);
+}
+
+async function waitForSupervisor(child: ChildProcess, port: number): Promise<void> {
+  const deadline = Date.now() + 10_000;
+  while (Date.now() < deadline) {
+    if (child.exitCode !== null || child.signalCode !== null) {
+      throw new Error(`Isolated runtime supervisor exited before becoming ready.`);
+    }
+    try {
+      const response = await fetch(`http://127.0.0.1:${port}/healthz`);
+      if (response.ok) return;
+    } catch {
+      // The isolated supervisor has not started listening yet.
+    }
+    await new Promise((resolve) => setTimeout(resolve, 50));
+  }
+  throw new Error("Timed out waiting for the isolated runtime supervisor.");
+}
+
+async function stopProcess(child: ChildProcess, signal: NodeJS.Signals = "SIGTERM"): Promise<void> {
+  if (child.exitCode !== null || child.signalCode !== null) return;
+  const exited = new Promise<void>((resolve) => child.once("exit", () => resolve()));
+  child.kill(signal);
+  const graceful = await Promise.race([
+    exited.then(() => true),
+    new Promise<false>((resolve) => setTimeout(() => resolve(false), 3_000)),
+  ]);
+  if (!graceful && child.exitCode === null && child.signalCode === null) {
+    child.kill("SIGKILL");
+    await exited;
+  }
 }
 
 async function waitForApiWorkerReady(
@@ -602,6 +661,355 @@ describe("database workspace runtime store", () => {
   );
 });
 
+describe("workspace runtime lost-start-response process recovery", () => {
+  it.skipIf(process.env.RUN_RUNTIME_START_RESPONSE_LOSS_RECOVERY !== "1")(
+    "recovers the supervisor-created session after the API worker dies before receiving its start reply",
+    async () => {
+      const databaseUrl = requireDisposableRuntimeDatabaseUrl();
+      const projectId = randomUUID();
+      const revision = `runtime-response-loss-${projectId}`;
+      const startWorkerId = `runtime-response-loss-start:${projectId}`;
+      const recoveryWorkerId = `runtime-response-loss-recovery:${projectId}`;
+      const testRoot = await fs.mkdtemp(path.join(os.tmpdir(), "runtime-start-response-loss-"));
+      const projectRoot = path.join(testRoot, "project");
+      const supervisorResultPath = path.join(testRoot, "supervisor-start-result.json");
+      const recoveryResultPath = path.join(testRoot, "recovered-runtime.json");
+      projectIds.push(projectId);
+      roots.push(testRoot);
+
+      const supervisorPort = await reserveLoopbackPort();
+      const supervisor = spawn(process.execPath, [supervisorScriptPath], {
+        cwd: apiServerRoot,
+        env: {
+          PATH: process.env.PATH ?? "",
+          HOME: process.env.HOME ?? os.tmpdir(),
+          SESSION_SECRET: runtimeRecoveryTestSecret,
+          WORKSPACE_RUNTIME_SUPERVISOR_PORT: String(supervisorPort),
+        },
+        stdio: ["ignore", "ignore", "ignore"],
+      });
+      let proxy: Server | undefined;
+      let startApiWorker: ChildProcessWithoutNullStreams | undefined;
+      let recoveryApiWorker: ChildProcessWithoutNullStreams | undefined;
+      let releaseHeldStartReply: (() => void) | undefined;
+      let startRequestCount = 0;
+      let startReply: { projectId: string; sessionId: string; status: string; pid: number; port: number } | undefined;
+      const supervisorClient = new WorkspaceRuntimeSupervisorClient(
+        `http://127.0.0.1:${supervisorPort}`,
+        fetch,
+        deriveWorkspaceRuntimeSupervisorToken(runtimeRecoveryTestSecret),
+      );
+
+      const spawnApiWorker = (
+        mode: "start" | "recover",
+        workerId: string,
+        applicationName: string,
+        supervisorUrl: string,
+        resultPath: string,
+      ): ChildProcessWithoutNullStreams => {
+        const childDatabaseUrl = new URL(databaseUrl.toString());
+        childDatabaseUrl.searchParams.set("application_name", applicationName);
+        const source = [
+          "(async () => {",
+          '  const fs = await import("node:fs/promises");',
+          '  const { WorkspaceRuntimeManager } = await import("./src/lib/workspace-runtime.ts");',
+          '  const { databaseWorkspaceRuntimeStore } = await import("./src/lib/workspace-runtime-store.ts");',
+          '  const { WorkspaceRuntimeSupervisorClient } = await import("./src/lib/workspace-runtime-supervisor-client.ts");',
+          "  const projectId = process.env.RUNTIME_TEST_PROJECT_ID;",
+          "  const projectRoot = process.env.RUNTIME_TEST_PROJECT_ROOT;",
+          "  const revision = process.env.RUNTIME_TEST_REVISION;",
+          "  const workerId = process.env.RUNTIME_TEST_WORKER_ID;",
+          "  const resultPath = process.env.RUNTIME_TEST_RESULT_PATH;",
+          "  const mode = process.env.RUNTIME_TEST_MODE;",
+          "  const supervisorUrl = process.env.RUNTIME_TEST_SUPERVISOR_URL;",
+          "  if (!projectId || !projectRoot || !revision || !workerId || !resultPath || !supervisorUrl) throw new Error('Runtime recovery worker configuration is incomplete.');",
+          "  const manager = new WorkspaceRuntimeManager({",
+          "    store: databaseWorkspaceRuntimeStore, workerId, heartbeatIntervalMs: 1000,",
+          "    supervisor: new WorkspaceRuntimeSupervisorClient(supervisorUrl),",
+          "  });",
+          "  process.once('SIGTERM', () => {",
+          "    void manager.shutdown().then(() => process.exit(0)).catch((error) => { console.error(error); process.exit(1); });",
+          "  });",
+          "  let result;",
+          "  if (mode === 'start') {",
+          "    result = await manager.start({ projectId, projectRoot, revision });",
+          "  } else {",
+          "    await manager.recover(projectId);",
+          "    result = await manager.get(projectId);",
+          "  }",
+          "  await fs.writeFile(resultPath, JSON.stringify(result), 'utf8');",
+          "  await new Promise(() => {});",
+          "})().catch((error) => { console.error(error); process.exitCode = 1; });",
+        ].join("\n");
+        const child = spawn(process.execPath, ["--import", "tsx", "-e", source], {
+          cwd: apiServerRoot,
+          env: {
+            DATABASE_URL: childDatabaseUrl.toString(),
+            PGAPPNAME: applicationName,
+            NODE_ENV: "test",
+            SESSION_SECRET: runtimeRecoveryTestSecret,
+            PATH: process.env.PATH ?? "",
+            HOME: process.env.HOME ?? os.tmpdir(),
+            AI_PROVIDER_EGRESS_DISABLED: "1",
+            RUNTIME_TEST_MODE: mode,
+            RUNTIME_TEST_PROJECT_ID: projectId,
+            RUNTIME_TEST_PROJECT_ROOT: projectRoot,
+            RUNTIME_TEST_REVISION: revision,
+            RUNTIME_TEST_WORKER_ID: workerId,
+            RUNTIME_TEST_RESULT_PATH: resultPath,
+            RUNTIME_TEST_SUPERVISOR_URL: supervisorUrl,
+          },
+          stdio: ["pipe", "pipe", "pipe"],
+        });
+        child.stdin.end();
+        let workerOutput = "";
+        child.stdout.setEncoding("utf8").on("data", (chunk: string) => {
+          workerOutput = `${workerOutput}${chunk}`.slice(-12_000);
+        });
+        child.stderr.setEncoding("utf8").on("data", (chunk: string) => {
+          workerOutput = `${workerOutput}${chunk}`.slice(-12_000);
+        });
+        child.once("exit", (code, signal) => {
+          if (code !== null && code !== 0) {
+            console.error(`Runtime recovery API worker exited (${code}); ${workerOutput}`);
+          }
+          if (signal && signal !== "SIGTERM" && signal !== "SIGKILL") {
+            console.error(`Runtime recovery API worker exited by ${signal}; ${workerOutput}`);
+          }
+        });
+        return child;
+      };
+
+      try {
+        await waitForSupervisor(supervisor, supervisorPort);
+        await fs.mkdir(projectRoot, { recursive: true });
+        await fs.writeFile(
+          path.join(projectRoot, "package.json"),
+          JSON.stringify({ private: true, scripts: { dev: "node server.mjs" } }),
+          "utf8",
+        );
+        await fs.writeFile(
+          path.join(projectRoot, "server.mjs"),
+          [
+            "import http from 'node:http';",
+            `const server = http.createServer((_request, response) => response.end(${JSON.stringify(revision)}));`,
+            "server.listen(Number(process.env.PORT), '127.0.0.1');",
+            "process.once('SIGTERM', () => server.close(() => process.exit(0)));",
+          ].join("\n"),
+          "utf8",
+        );
+        await db.insert(projectsTable).values({
+          id: projectId,
+          ownerId: "runtime-start-response-loss-test",
+          name: `Runtime response loss ${projectId.slice(0, 8)}`,
+          rootPath: projectRoot,
+          language: "javascript",
+          status: "active",
+        });
+
+        proxy = createServer((request, response) => {
+          if (request.method === "POST" && request.url === "/__release-start-reply") {
+            releaseHeldStartReply?.();
+            response.writeHead(200);
+            response.end("released");
+            return;
+          }
+          if (request.method !== "POST" || request.url !== "/runtime/start") {
+            response.writeHead(404);
+            response.end();
+            return;
+          }
+          startRequestCount += 1;
+          void (async () => {
+            const chunks: Buffer[] = [];
+            for await (const chunk of request) {
+              chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+            }
+            const upstream = await fetch(`http://127.0.0.1:${supervisorPort}/runtime/start`, {
+              method: "POST",
+              headers: {
+                "content-type": "application/json",
+                authorization: request.headers.authorization ?? "",
+              },
+              body: Buffer.concat(chunks),
+              signal: AbortSignal.timeout(45_000),
+            });
+            const result = await upstream.json() as typeof startReply;
+            if (!upstream.ok || !result) {
+              throw new Error(`The real supervisor rejected startup with HTTP ${upstream.status}.`);
+            }
+            startReply = result;
+            await fs.writeFile(supervisorResultPath, JSON.stringify(result), "utf8");
+            await new Promise<void>((resolve) => {
+              releaseHeldStartReply = resolve;
+              response.once("close", resolve);
+            });
+            if (!response.destroyed) response.destroy();
+          })().catch((error) => {
+            if (!response.destroyed) {
+              response.writeHead(502);
+              response.end(error instanceof Error ? error.message : "proxy_failed");
+            }
+          });
+        });
+        const proxyPort = await listenLoopback(proxy);
+        const startApplicationName = `runtime-start-loss-a-${projectId.slice(0, 8)}`;
+        startApiWorker = spawnApiWorker(
+          "start",
+          startWorkerId,
+          startApplicationName,
+          `http://127.0.0.1:${proxyPort}`,
+          path.join(testRoot, "start-worker-result.json"),
+        );
+
+        startReply = await waitForJsonFile<typeof startReply>(
+          supervisorResultPath,
+          60_000,
+          "the real supervisor to finish creating the runtime before its reply is withheld",
+        );
+        expect(startReply).toMatchObject({
+          projectId,
+          status: "running",
+          sessionId: expect.any(String),
+          pid: expect.any(Number),
+          port: expect.any(Number),
+        });
+        const startingRow = await databaseWorkspaceRuntimeStore.get(projectId);
+        expect(startingRow).toMatchObject({
+          sessionId: startReply!.sessionId,
+          status: "starting",
+          workerId: startWorkerId,
+          pid: null,
+          port: null,
+        });
+        expect(await fetchRuntimeFixture(startReply!.port)).toBe(revision);
+        expect(startRequestCount).toBe(1);
+
+        startApiWorker.kill("SIGKILL");
+        const startWorkerExit = await new Promise<{ code: number | null; signal: NodeJS.Signals | null }>(
+          (resolve) => startApiWorker!.once("exit", (code, signal) => resolve({ code, signal })),
+        );
+        expect(startWorkerExit.signal).toBe("SIGKILL");
+        await fetch(`http://127.0.0.1:${proxyPort}/__release-start-reply`, { method: "POST" });
+        await waitForRuntimeWorkerDatabaseDisconnect(startApplicationName);
+        expect(await fetchRuntimeFixture(startReply!.port)).toBe(revision);
+
+        const supervisorAfterCrash = await supervisorClient.observeStartState(projectId);
+        expect(supervisorAfterCrash).toMatchObject({
+          status: "running",
+          session: {
+            projectId,
+            sessionId: startReply!.sessionId,
+            pid: startReply!.pid,
+            port: startReply!.port,
+          },
+        });
+
+        const orphanedRow = await databaseWorkspaceRuntimeStore.get(projectId);
+        expect(orphanedRow).toMatchObject({
+          sessionId: startReply!.sessionId,
+          status: "starting",
+          workerId: startWorkerId,
+          pid: null,
+          port: null,
+        });
+        const orphanedLeaseUntil = orphanedRow?.leaseUntil?.getTime();
+        expect(orphanedLeaseUntil).toBeGreaterThan(Date.now());
+        if (!orphanedLeaseUntil) throw new Error("The interrupted API start left no durable lease.");
+        while (Date.now() <= orphanedLeaseUntil) {
+          await new Promise((resolve) => setTimeout(resolve, 100));
+        }
+        const expiredRow = await databaseWorkspaceRuntimeStore.get(projectId);
+        expect(expiredRow?.workerId).toBe(startWorkerId);
+        expect(expiredRow?.leaseUntil?.getTime()).toBeLessThan(Date.now());
+
+        const recoveryApplicationName = `runtime-start-loss-b-${projectId.slice(0, 8)}`;
+        const recoveryUrl = `http://127.0.0.1:${supervisorPort}`;
+        recoveryApiWorker = spawnApiWorker(
+          "recover",
+          recoveryWorkerId,
+          recoveryApplicationName,
+          recoveryUrl,
+          recoveryResultPath,
+        );
+        const recovered = await waitForJsonFile<{
+          projectId: string;
+          sessionId: string;
+          status: string;
+          pid: number;
+          port: number;
+          workerId: string;
+        }>(
+          recoveryResultPath,
+          45_000,
+          "the replacement API worker to recover the durable start",
+        );
+        expect(recovered).toMatchObject({
+          projectId,
+          sessionId: startReply!.sessionId,
+          status: "running",
+          pid: startReply!.pid,
+          port: startReply!.port,
+        });
+        expect(startRequestCount).toBe(1);
+        expect(process.kill(-startReply!.pid, 0)).toBe(true);
+        expect(await fetchRuntimeFixture(startReply!.port)).toBe(revision);
+        const ownedRow = await databaseWorkspaceRuntimeStore.get(projectId);
+        expect(ownedRow).toMatchObject({
+          sessionId: startReply!.sessionId,
+          status: "running",
+          workerId: recoveryWorkerId,
+          pid: startReply!.pid,
+          port: startReply!.port,
+        });
+        expect(ownedRow?.leaseUntil?.getTime()).toBeGreaterThan(Date.now());
+        expect(await supervisorClient.observeStartState(projectId)).toMatchObject({
+          status: "running",
+          session: {
+            projectId,
+            sessionId: startReply!.sessionId,
+            pid: startReply!.pid,
+            port: startReply!.port,
+          },
+        });
+
+        await stopProcess(recoveryApiWorker);
+        await waitForRuntimeWorkerDatabaseDisconnect(recoveryApplicationName);
+        recoveryApiWorker = undefined;
+      } finally {
+        if (startApiWorker && startApiWorker.exitCode === null && startApiWorker.signalCode === null) {
+          await stopProcess(startApiWorker, "SIGKILL");
+        }
+        if (recoveryApiWorker && recoveryApiWorker.exitCode === null && recoveryApiWorker.signalCode === null) {
+          await stopProcess(recoveryApiWorker, "SIGTERM");
+        }
+        releaseHeldStartReply?.();
+        if (proxy?.listening) {
+          await new Promise<void>((resolve) => proxy!.close(() => resolve()));
+        }
+        if (startReply?.sessionId) {
+          await supervisorClient.stop({
+            projectId,
+            sessionId: startReply.sessionId,
+            pid: startReply.pid,
+          }).catch(() => undefined);
+        } else {
+          const persisted = await databaseWorkspaceRuntimeStore.get(projectId).catch(() => undefined);
+          if (persisted?.sessionId) {
+            await supervisorClient.stop({
+              projectId,
+              sessionId: persisted.sessionId,
+              pid: persisted.pid,
+            }).catch(() => undefined);
+          }
+        }
+        await stopProcess(supervisor);
+      }
+    },
+    180_000,
+  );
+});
+
 describe("workspace runtime full API startup recovery", () => {
   it.skipIf(process.env.RUN_RUNTIME_STARTUP_RECOVERY !== "1")(
     "adopts the exact live session at src/index.ts startup and leaves unknown ownership retryable",
@@ -1039,16 +1447,18 @@ describe("in-memory workspace runtime store session fencing", () => {
       now,
       leaseUntil: new Date(now.getTime() + RUNTIME_LEASE_MS),
     });
-    await store.begin({
+    const replacementAt = new Date(now.getTime() + RUNTIME_LEASE_MS + 2);
+    const replacement = await store.begin({
       projectId: "fenced-runtime-project",
       projectRoot: "/workspace/project",
       sessionId: "session-new",
       revision: "revision-new",
       environmentRevision: null,
       workerId: "worker-a",
-      now: new Date(now.getTime() + 1),
-      leaseUntil: new Date(now.getTime() + RUNTIME_LEASE_MS + 1),
+      now: replacementAt,
+      leaseUntil: new Date(replacementAt.getTime() + RUNTIME_LEASE_MS),
     });
+    expect(replacement?.sessionId).toBe("session-new");
 
     expect(await store.claimRecovery({
       id: "fenced-runtime-project",
