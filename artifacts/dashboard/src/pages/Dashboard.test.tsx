@@ -36,8 +36,10 @@ vi.mock("@/components/OperatorResilience", () => ({
 
 vi.mock("@workspace/api-client-react", () => ({
   getGetHealthQueryKey: vi.fn(() => ["/api/healthz"]),
+  getGetAiMissionControlQueryKey: vi.fn(() => ["/api/ai/mission-control"]),
   getListOperatorAlertsQueryKey: vi.fn(() => ["/api/ai/operator-alerts"]),
   getListProjectsQueryKey: vi.fn(() => ["/api/projects"]),
+  useGetAiMissionControl: vi.fn(),
   useGetDashboard: vi.fn(),
   useGetHealth: vi.fn(),
   useListOperatorAlerts: vi.fn(),
@@ -47,6 +49,7 @@ vi.mock("@workspace/api-client-react", () => ({
 }));
 
 import {
+  useGetAiMissionControl,
   useGetDashboard,
   useGetHealth,
   useListOperatorAlerts,
@@ -76,6 +79,20 @@ beforeEach(() => {
     isRefetching: false,
     dataUpdatedAt: Date.now(),
   } as ReturnType<typeof useGetDashboard>);
+  vi.mocked(useGetAiMissionControl).mockReturnValue({
+    data: undefined,
+    isLoading: false,
+    error: null,
+    isFetching: false,
+    refetch: vi.fn(),
+  } as ReturnType<typeof useGetAiMissionControl>);
+  vi.mocked(useListOperatorAlerts).mockReturnValue({
+    data: { alerts: [] },
+    isLoading: false,
+    error: null,
+    isFetching: false,
+    refetch: vi.fn(),
+  } as ReturnType<typeof useListOperatorAlerts>);
   vi.mocked(useGetHealth).mockReturnValue({
     data: {
       aiDiagnosticsRetention: {
@@ -300,6 +317,62 @@ describe("Dashboard goal-first home", () => {
 });
 
 describe("Dashboard operator alerts", () => {
+  it("shows only delay count, age, and status, then reflects recovery", () => {
+    vi.mocked(useGetAiMissionControl).mockReturnValue({
+      data: {
+        shadowComparisonQueue: {
+          status: "active",
+          pendingCount: 4,
+          oldestPendingAgeMs: 16 * 60_000,
+          delayAlertStatus: "open",
+          observedAt: "2026-11-06T12:00:00.000Z",
+        },
+      },
+      isLoading: false,
+      error: null,
+      isFetching: false,
+      refetch: vi.fn(),
+    } as ReturnType<typeof useGetAiMissionControl>);
+
+    const page = render(<Dashboard />);
+    const alert = screen.getByTestId("home-shadow-queue-delay");
+    expect(alert).toHaveTextContent("الحالة: مفتوح");
+    expect(alert).toHaveTextContent("العدد: ٤");
+    expect(alert).toHaveTextContent("عمر الأقدم: 16 دقيقة");
+    expect(alert).not.toHaveTextContent(/Mission|Goal|قرار|مهمة/i);
+    expect(alert.textContent).not.toContain("2026-11-06");
+
+    const queryOptions = vi.mocked(useGetAiMissionControl).mock.calls[0]?.[1] as {
+      query?: {
+        refetchInterval?: (query: { state: { data: unknown } }) => number | false;
+      };
+    };
+    expect(queryOptions.query?.refetchInterval?.({
+      state: { data: { shadowComparisonQueue: { status: "active" } } },
+    })).toBe(30_000);
+
+    vi.mocked(useGetAiMissionControl).mockReturnValue({
+      data: {
+        shadowComparisonQueue: {
+          status: "active",
+          pendingCount: 0,
+          oldestPendingAgeMs: null,
+          delayAlertStatus: "closed",
+          observedAt: "2026-11-06T12:01:00.000Z",
+        },
+      },
+      isLoading: false,
+      error: null,
+      isFetching: false,
+      refetch: vi.fn(),
+    } as ReturnType<typeof useGetAiMissionControl>);
+    page.rerender(<Dashboard />);
+
+    expect(screen.getByTestId("home-shadow-queue-delay")).toHaveTextContent("الحالة: مغلق");
+    expect(screen.getByTestId("home-shadow-queue-delay")).toHaveTextContent("العدد: ٠");
+    expect(screen.getByTestId("home-shadow-queue-delay")).toHaveTextContent("عمر الأقدم: —");
+  });
+
   it("shows an unresolved Runtime startup alert with its session identity", () => {
     vi.mocked(useListOperatorAlerts).mockReturnValue({
       data: {

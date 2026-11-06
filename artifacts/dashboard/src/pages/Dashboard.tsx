@@ -1,15 +1,17 @@
 import { useState } from 'react';
 import { useUser } from '@clerk/react';
 import {
+  getGetAiMissionControlQueryKey,
   getGetHealthQueryKey,
   getListOperatorAlertsQueryKey,
   getListProjectsQueryKey,
+  useGetAiMissionControl,
   useListOperatorAlerts,
   useListProjects,
   useGetDashboard,
   useGetHealth,
 } from '@workspace/api-client-react';
-import type { OperatorAlert } from '@workspace/api-client-react';
+import type { AiMissionControl, OperatorAlert } from '@workspace/api-client-react';
 import {
   Activity,
   AlertTriangle,
@@ -36,6 +38,53 @@ function formatHealthTimestamp(value: Date | string | null | undefined): string 
   if (!value) return 'غير مسجل';
   const date = new Date(value);
   return Number.isNaN(date.getTime()) ? 'غير مسجل' : date.toLocaleString('ar-EG');
+}
+
+function formatQueueWaitAge(ageMs: number): string {
+  const minutes = Math.floor(Math.max(0, ageMs) / 60_000);
+  if (minutes < 1) return 'أقل من دقيقة';
+  if (minutes < 60) return `${minutes} دقيقة`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours} ساعة`;
+  return `${Math.floor(hours / 24)} يوم`;
+}
+
+type ShadowQueueProjection = NonNullable<AiMissionControl['shadowComparisonQueue']>;
+
+function ShadowQueueDelayNotice({ queue }: { queue: ShadowQueueProjection }) {
+  if (queue.status !== 'active' && queue.delayAlertStatus !== 'open') return null;
+
+  const statusLabel = queue.delayAlertStatus === 'open'
+    ? 'مفتوح'
+    : queue.delayAlertStatus === 'closed'
+      ? 'مغلق'
+      : 'غير نشط';
+  const isOpen = queue.delayAlertStatus === 'open';
+
+  return (
+    <section
+      data-testid="home-shadow-queue-delay"
+      aria-label="حالة تأخر المعالجة"
+      dir="rtl"
+      lang="ar"
+      className={`rounded-xl border px-4 py-3 ${
+        isOpen
+          ? 'border-amber-400/35 bg-amber-300/10 text-amber-100'
+          : 'border-border bg-card text-muted-foreground'
+      }`}
+    >
+      <div className="flex items-center gap-2">
+        {isOpen ? (
+          <AlertTriangle aria-hidden="true" className="h-4 w-4 shrink-0 text-amber-300" />
+        ) : (
+          <Clock aria-hidden="true" className="h-4 w-4 shrink-0" />
+        )}
+        <p className="text-sm font-semibold" role={isOpen ? 'alert' : 'status'}>
+          الحالة: {statusLabel} · العدد: {queue.pendingCount === null ? '—' : queue.pendingCount.toLocaleString('ar-EG')} · عمر الأقدم: {queue.oldestPendingAgeMs === null ? '—' : formatQueueWaitAge(queue.oldestPendingAgeMs)}
+        </p>
+      </div>
+    </section>
+  );
 }
 
 type OperatorAlertCopy = {
@@ -289,6 +338,18 @@ export default function Dashboard() {
       retry: 1,
     },
   });
+  const { data: missionControl } = useGetAiMissionControl(undefined, {
+    query: {
+      queryKey: getGetAiMissionControlQueryKey(),
+      staleTime: 0,
+      refetchOnWindowFocus: true,
+      refetchInterval: (query) => {
+        const queue = (query.state.data as AiMissionControl | undefined)?.shadowComparisonQueue;
+        return queue?.status === 'active' ? 30_000 : false;
+      },
+      retry: 1,
+    },
+  });
   const retention = health?.aiDiagnosticsRetention;
 
   const totalFinished =
@@ -409,6 +470,10 @@ export default function Dashboard() {
           label="تحديث البيانات"
         />
       </div>
+
+      {missionControl?.shadowComparisonQueue && (
+        <ShadowQueueDelayNotice queue={missionControl.shadowComparisonQueue} />
+      )}
 
       <section
         aria-labelledby="home-goal-heading"
