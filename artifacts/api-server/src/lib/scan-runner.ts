@@ -21,7 +21,8 @@ import { walkProject, matchRules, extractGraph, computeMetrics, SCANNER_VERSION,
 import { invalidateContextCache } from "@workspace/ai-orchestrator";
 import { recordAudit } from "./audit.js";
 import {
-  dispatchOnScanComplete,
+  dispatchPendingPluginRuns,
+  persistPluginDispatch,
   type ExtractedEntity,
   type RuleViolationSummary,
 } from "./plugin-runtime.js";
@@ -837,6 +838,38 @@ async function performScanCore(
       _priorQualityScore: project[0].qualityScore ?? null,
     };
 
+    await persistPluginDispatch(
+      tx,
+      {
+        projectId,
+        scanCorrelationId: correlationId,
+        scanCompleteness: scanResult.scanCompleteness,
+        ruleEvaluationComplete:
+          walkResult.revisionManifest.completeness === "COMPLETE",
+        language: project[0].language,
+        framework: project[0].framework ?? null,
+        filesFound: scanResult.filesFound,
+        sourceFiles: scanResult.sourceFiles,
+        issuesDetected: scanResult.issuesDetected,
+        tasksCreated: scanResult.tasksCreated,
+        entitiesExtracted: scanResult.entitiesExtracted,
+        relationshipsExtracted: scanResult.relationshipsExtracted,
+        ruleViolations: ruleResults
+          .filter((result) => result.matched)
+          .map((result): RuleViolationSummary => {
+            const rule = projectRules.find((projectRule) => projectRule.id === result.ruleId);
+            return {
+              ruleId: result.ruleId,
+              code: rule?.code ?? result.ruleId,
+              severity: rule?.severity ?? "medium",
+              matchCount: result.matchCount,
+            };
+          }),
+        entities: capturedEntities,
+      },
+      ownership?.jobId,
+    );
+
     return scanResult;
   };
   const scanTransaction = ownership
@@ -872,32 +905,10 @@ async function performScanCore(
     // the full transaction has durably committed.
     invalidateContextCache(projectId);
 
-    // Dispatch plugin hooks outside the transaction — same best-effort
-    // semantics as recordAudit: a plugin failure must not roll back a
-    // successful scan. Errors are logged but swallowed here.
-    await dispatchOnScanComplete({
-      projectId,
-      language: project[0].language,
-      framework: project[0].framework ?? null,
-      filesFound: scanResult.filesFound,
-      sourceFiles: scanResult.sourceFiles,
-      issuesDetected: scanResult.issuesDetected,
-      tasksCreated: scanResult.tasksCreated,
-      entitiesExtracted: scanResult.entitiesExtracted,
-      relationshipsExtracted: scanResult.relationshipsExtracted,
-      ruleViolations: ruleResults
-        .filter((r) => r.matched)
-        .map((r): RuleViolationSummary => {
-          const rule = projectRules.find((pr) => pr.id === r.ruleId);
-          return {
-            ruleId: r.ruleId,
-            code: rule?.code ?? r.ruleId,
-            severity: rule?.severity ?? "medium",
-            matchCount: r.matchCount,
-          };
-        }),
-      entities: capturedEntities,
-    });
+    // Plugin dispatch intent is already in the scan transaction. Enqueueing is
+    // only a latency optimization; the periodic durable dispatcher recovers
+    // pending rows after crashes or queue saturation.
+    await dispatchPendingPluginRuns({ dispatchId: scanResult.scanCorrelationId });
 
     return scanResult;
   });

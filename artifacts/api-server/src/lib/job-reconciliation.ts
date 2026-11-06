@@ -71,6 +71,7 @@ import { invalidateContextCache } from "@workspace/ai-orchestrator";
 import { logger } from "./logger.js";
 import { heavyJobQueue } from "./job-queue.js";
 import { runScanJob, terminalizeFailedScanJob } from "./scan-runner.js";
+import { dispatchPendingPluginRuns } from "./plugin-runtime.js";
 import { runDiscovery } from "./discovery-runner.js";
 import { sweepExpiredUploads } from "./upload-store.js";
 import { reconcileAiExecutions } from "./ai-execution-state.js";
@@ -1122,6 +1123,7 @@ async function dispatchPersistedPendingJobsOnce(): Promise<number> {
     { name: "shadow-replays", run: () => dispatchPendingShadowReplays() },
     { name: "chat-handoffs", run: () => dispatchPendingMissionChatHandoffs() },
     { name: "project-bootstrap", run: () => dispatchProjectBootstrapJobs() },
+    { name: "plugin-runs", run: () => dispatchPendingPluginRuns() },
     { name: "mission-outcomes", run: () => reconcileMissionPlanOutcomesIfDue() },
     { name: "decision-shadows", run: () => reconcileMissionDecisionShadowsIfDue() },
   ];

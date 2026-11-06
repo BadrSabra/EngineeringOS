@@ -82,6 +82,8 @@ export default function ProjectPluginsPanel({
               ? "مفعّلة لفحوص هذا المشروع"
               : !plugin.scanHookImplemented
                 ? "لا يتوفر فحص لهذه الإضافة"
+              : !plugin.compatibleWithProject
+                ? "لا تتوافق مع لغة المشروع"
               : plugin.projectEnabled
                 ? "مفعّلة للمشروع لكنها غير متاحة على مستوى النظام"
                 : plugin.available

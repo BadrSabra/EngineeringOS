@@ -23,6 +23,7 @@ const projectIds: string[] = [];
 async function insertProject(
   ownerId = "test-user",
   status: "active" | "archived" = "active",
+  language = "typescript",
 ): Promise<string> {
   const id = `plugin-route-project-${randomUUID()}`;
   projectIds.push(id);
@@ -31,7 +32,7 @@ async function insertProject(
     ownerId,
     name: "Plugin route project",
     rootPath: `/tmp/${id}`,
-    language: "typescript",
+    language,
     status,
   });
   return id;
@@ -129,6 +130,28 @@ describe("Plugin registry", () => {
       projectEnabled: false,
       effectiveForProjectScan: false,
     });
+  });
+
+  it("reports an enabled plugin as ineffective when its language is incompatible", async () => {
+    const projectId = await insertProject("test-user", "active", "python");
+    const enabled = await request(app)
+      .put(`/api/projects/${projectId}/plugins/plugin-react`)
+      .send({ enabled: true });
+    expect(enabled.status).toBe(200);
+    expect(enabled.body).toMatchObject({
+      projectEnabled: true,
+      compatibleWithProject: false,
+      effectiveForProjectScan: false,
+    });
+
+    const listed = await request(app).get(`/api/projects/${projectId}/plugins`);
+    expect(listed.status).toBe(200);
+    expect(listed.body.find((plugin: { id: string }) => plugin.id === "plugin-react"))
+      .toMatchObject({
+        projectEnabled: true,
+        compatibleWithProject: false,
+        effectiveForProjectScan: false,
+      });
   });
 
   it("does not let project plugin activation change capability or tool authorization", async () => {

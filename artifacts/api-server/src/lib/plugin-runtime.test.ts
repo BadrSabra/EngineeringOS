@@ -17,6 +17,9 @@ import {
 function baseCtx(overrides: Partial<ScanCompleteContext> = {}): ScanCompleteContext {
   return {
     projectId: "proj-test",
+    scanCorrelationId: "scan-test",
+    scanCompleteness: "COMPLETE",
+    ruleEvaluationComplete: true,
     language: "typescript",
     framework: null,
     filesFound: 10,
@@ -173,6 +176,25 @@ describe("plugin-security", () => {
     const clear = events.find((e) => e.type === "SecurityPluginClear");
     expect(clear).toBeDefined();
     expect(clear!.severity).toBe("success");
+  });
+
+  it("does not emit a clear result when the scan is partial", async () => {
+    const result = await hook.onScanComplete(baseCtx({
+      scanCompleteness: "PARTIAL",
+      issuesDetected: 0,
+      sourceFiles: 10,
+    }));
+    expect(result.events?.some((event) => event.type === "SecurityPluginClear")).toBe(false);
+  });
+
+  it("does not emit a clear result when rule evaluation is incomplete", async () => {
+    const result = await hook.onScanComplete(baseCtx({
+      scanCompleteness: "COMPLETE",
+      ruleEvaluationComplete: false,
+      issuesDetected: 0,
+      sourceFiles: 10,
+    }));
+    expect(result.events?.some((event) => event.type === "SecurityPluginClear")).toBe(false);
   });
 
   it("ignores medium/low violations (no alert)", async () => {

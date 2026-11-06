@@ -8,7 +8,10 @@ import {
 } from "@workspace/db";
 import { and, eq } from "drizzle-orm";
 import { recordAudit } from "../lib/audit.js";
-import { isScanHookImplemented } from "../lib/plugin-runtime.js";
+import {
+  isPluginLanguageCompatible,
+  isScanHookImplemented,
+} from "../lib/plugin-runtime.js";
 import { requireOperator } from "../middlewares/requireAuth.js";
 import {
   requireProjectAccess,
@@ -44,59 +47,59 @@ function serializePlugin(plugin: {
 const DEFAULT_PLUGINS = [
   {
     id: "plugin-react",
-    name: "React/TypeScript Analyzer",
+    name: "React Component Heuristic",
     description:
-      "Analyzes React and TypeScript projects for component anti-patterns, unused hooks, and prop drilling issues.",
+      "Counts extracted component and custom-hook names, and warns when components have no extracted relationships. It does not inspect prop drilling or unused hooks.",
     version: "1.2.0",
     enabled: true,
-    capabilities: ["analyzer", "rules"],
+    capabilities: ["analyzer", "reporter"],
     supportedLanguages: ["typescript", "javascript"],
   },
   {
     id: "plugin-node",
-    name: "Node.js/Express Analyzer",
+    name: "Node.js API Route Heuristic",
     description:
-      "Scans Express APIs for missing auth middleware, raw SQL, and insecure route patterns.",
+      "Counts extracted API routes and flags sensitive route names for manual auth review. It does not inspect middleware or SQL execution.",
     version: "1.1.0",
     enabled: true,
-    capabilities: ["analyzer", "rules", "verifier"],
+    capabilities: ["analyzer", "reporter"],
     supportedLanguages: ["javascript", "typescript"],
   },
   {
     id: "plugin-security",
-    name: "OWASP Security Scanner",
+    name: "Security Rule Findings Summary",
     description:
-      "Applies OWASP Top 10 rules: injection, XSS, insecure deserialization, broken auth.",
+      "Summarizes critical and high findings from shared scanner rules. It does not independently apply or verify the OWASP Top 10.",
     version: "2.0.1",
     enabled: true,
-    capabilities: ["analyzer", "rules", "reporter"],
+    capabilities: ["reporter"],
     supportedLanguages: ["typescript", "javascript", "python", "go"],
   },
   {
     id: "plugin-performance",
-    name: "Performance Profiler",
+    name: "Dependency Coupling Heuristic",
     description:
-      "Detects N+1 queries, missing indexes, large bundle imports, and memory leaks.",
+      "Reports average dependency degree from extracted graph relationships; it does not profile runtime queries, indexes, bundles, or memory.",
     version: "1.0.3",
     enabled: false,
-    capabilities: ["analyzer", "verifier"],
+    capabilities: ["analyzer", "reporter"],
     supportedLanguages: ["typescript", "javascript"],
   },
   {
     id: "plugin-python",
-    name: "Python/FastAPI Analyzer",
+    name: "Python Structure Heuristic",
     description:
-      "Analyzes Python projects for type hint coverage, missing tests, and FastAPI patterns.",
+      "Counts extracted classes and functions and flags classes without a detected __init__; it does not assess type hints, tests, or FastAPI semantics.",
     version: "0.9.2",
     enabled: false,
-    capabilities: ["analyzer", "rules"],
+    capabilities: ["analyzer", "reporter"],
     supportedLanguages: ["python"],
   },
   {
     id: "plugin-docs",
-    name: "Documentation Generator",
+    name: "Documentation Coverage Reporter",
     description:
-      "Generates JSDoc/docstring coverage reports and flags undocumented public APIs.",
+      "Reports JSDoc/docstring coverage from extracted entities, or a labeled legacy density heuristic. It does not generate source documentation.",
     version: "1.0.0",
     enabled: true,
     capabilities: ["reporter"],
@@ -107,12 +110,22 @@ const DEFAULT_PLUGINS = [
 let seeded = false;
 async function ensureSeeded(): Promise<void> {
   if (seeded) return;
-  const existing = await db.select({ id: pluginsTable.id }).from(pluginsTable).limit(1);
-  if (existing.length === 0) {
-    const now = new Date();
-    await db.insert(pluginsTable).values(
-      DEFAULT_PLUGINS.map((p) => ({ ...p, createdAt: now, updatedAt: now })),
-    );
+  const now = new Date();
+  for (const plugin of DEFAULT_PLUGINS) {
+    await db
+      .insert(pluginsTable)
+      .values({ ...plugin, createdAt: now, updatedAt: now })
+      .onConflictDoUpdate({
+        target: pluginsTable.id,
+        set: {
+          name: plugin.name,
+          description: plugin.description,
+          version: plugin.version,
+          capabilities: plugin.capabilities,
+          supportedLanguages: plugin.supportedLanguages,
+          updatedAt: now,
+        },
+      });
   }
   seeded = true;
 }
@@ -210,15 +223,23 @@ router.get(
       .orderBy(pluginsTable.name);
 
     return res.json(
-      rows.map((row) => ({
-        ...serializePlugin(row),
-        projectEnabled: row.projectEnabled ?? false,
-        scanHookImplemented: isScanHookImplemented(row.id),
-        effectiveForProjectScan:
-          row.enabled &&
-          (row.projectEnabled ?? false) &&
-          isScanHookImplemented(row.id),
-      })),
+      rows.map((row) => {
+        const compatibleWithProject = isPluginLanguageCompatible(
+          row.supportedLanguages,
+          req.project?.language ?? "",
+        );
+        return {
+          ...serializePlugin(row),
+          projectEnabled: row.projectEnabled ?? false,
+          scanHookImplemented: isScanHookImplemented(row.id),
+          compatibleWithProject,
+          effectiveForProjectScan:
+            row.enabled &&
+            (row.projectEnabled ?? false) &&
+            isScanHookImplemented(row.id) &&
+            compatibleWithProject,
+        };
+      }),
     );
   },
 );
@@ -308,6 +329,10 @@ router.put(
         set: conflictUpdate,
       })
       .returning({ enabled: projectPluginBindingsTable.enabled });
+    const compatibleWithProject = isPluginLanguageCompatible(
+      plugin[0].supportedLanguages,
+      req.project?.language ?? "",
+    );
 
     await recordAudit({
       entityType: "plugin",
@@ -329,10 +354,12 @@ router.put(
       ...serializePlugin(plugin[0]),
       projectEnabled: binding.enabled,
       scanHookImplemented: isScanHookImplemented(pluginId),
+      compatibleWithProject,
       effectiveForProjectScan:
         plugin[0].enabled &&
         binding.enabled &&
-        isScanHookImplemented(pluginId),
+        isScanHookImplemented(pluginId) &&
+        compatibleWithProject,
     });
   },
 );

@@ -4,6 +4,8 @@ import { ReplitConnectors } from "@replit/connectors-sdk";
 
 const execFileAsync = promisify(execFile);
 const GIT_MAX_BUFFER = 50 * 1024 * 1024;
+const GIT_COMMAND_TIMEOUT_MS = 30_000;
+const GITHUB_REQUEST_TIMEOUT_MS = 20_000;
 
 export type GitHubRemote = {
   owner: string;
@@ -17,9 +19,16 @@ type GitHubTreeEntry = {
   sha: string | null;
 };
 
+export type GitHubRequestInit = {
+  method?: string;
+  headers?: Record<string, string>;
+  body?: string;
+  signal?: AbortSignal;
+};
+
 export type GitHubRequest = (
   path: string,
-  init?: { method?: string; headers?: Record<string, string>; body?: string },
+  init?: GitHubRequestInit,
 ) => Promise<Record<string, unknown>>;
 
 export type GitHubBranchState = {
@@ -72,15 +81,24 @@ function repoPath(remote: GitHubRemote, suffix: string): string {
   return `/repos/${encodePathPart(remote.owner)}/${encodePathPart(remote.repo)}${suffix}`;
 }
 
-async function gitText(rootPath: string, args: string[]): Promise<string> {
+function withSignal(request: GitHubRequest, signal?: AbortSignal): GitHubRequest {
+  return (path, init = {}) => request(path, {
+    ...init,
+    ...(signal ? { signal } : {}),
+  });
+}
+
+async function gitText(rootPath: string, args: string[], signal?: AbortSignal): Promise<string> {
   const result = await execFileAsync("git", ["-C", rootPath, ...args], {
+    timeout: GIT_COMMAND_TIMEOUT_MS,
     maxBuffer: GIT_MAX_BUFFER,
     encoding: "utf8",
+    ...(signal ? { signal } : {}),
   });
   return String(result.stdout).trim();
 }
 
-async function gitCommitIdentities(rootPath: string, commitHash: string): Promise<{
+async function gitCommitIdentities(rootPath: string, commitHash: string, signal?: AbortSignal): Promise<{
   author: { name: string; email: string; date: string };
   committer: { name: string; email: string; date: string };
 }> {
@@ -88,7 +106,12 @@ async function gitCommitIdentities(rootPath: string, commitHash: string): Promis
     "-C", rootPath,
     "show", "-s", "--format=%an%x00%ae%x00%aI%x00%cn%x00%ce%x00%cI",
     commitHash,
-  ], { maxBuffer: GIT_MAX_BUFFER, encoding: "utf8" });
+  ], {
+    timeout: GIT_COMMAND_TIMEOUT_MS,
+    maxBuffer: GIT_MAX_BUFFER,
+    encoding: "utf8",
+    ...(signal ? { signal } : {}),
+  });
   const [authorName, authorEmail, authorDate, committerName, committerEmail, committerDate] =
     String(result.stdout).trimEnd().split("\0");
   if (
@@ -106,29 +129,46 @@ async function gitCommitIdentities(rootPath: string, commitHash: string): Promis
   };
 }
 
-async function gitBlob(rootPath: string, commitHash: string, filePath: string): Promise<Buffer> {
+async function gitBlob(rootPath: string, commitHash: string, filePath: string, signal?: AbortSignal): Promise<Buffer> {
   const result = await execFileAsync(
     "git",
     ["-C", rootPath, "cat-file", "blob", `${commitHash}:${filePath}`],
-    { maxBuffer: GIT_MAX_BUFFER, encoding: "buffer" },
+    {
+      timeout: GIT_COMMAND_TIMEOUT_MS,
+      maxBuffer: GIT_MAX_BUFFER,
+      encoding: "buffer",
+      ...(signal ? { signal } : {}),
+    },
   );
   return Buffer.isBuffer(result.stdout) ? result.stdout : Buffer.from(String(result.stdout));
 }
 
-async function gitMode(rootPath: string, commitHash: string, filePath: string): Promise<string> {
-  const line = await gitText(rootPath, ["ls-tree", commitHash, "--", filePath]);
+async function gitMode(rootPath: string, commitHash: string, filePath: string, signal?: AbortSignal): Promise<string> {
+  const line = await gitText(rootPath, ["ls-tree", commitHash, "--", filePath], signal);
   const mode = line.split(/\s+/, 1)[0];
   return mode === "100755" ? mode : "100644";
 }
 
 async function defaultGitHubRequest(
   path: string,
-  init: { method?: string; headers?: Record<string, string>; body?: string } = {},
+  init: GitHubRequestInit = {},
 ): Promise<Record<string, unknown>> {
+  const controller = new AbortController();
+  let timedOut = false;
+  const abortFromCaller = () => controller.abort(init.signal?.reason);
+  if (init.signal?.aborted) {
+    throw new GitHubConnectorError("GitHub request was cancelled.", "GITHUB_REQUEST_CANCELLED");
+  }
+  init.signal?.addEventListener("abort", abortFromCaller, { once: true });
+  const timeout = setTimeout(() => {
+    timedOut = true;
+    controller.abort();
+  }, GITHUB_REQUEST_TIMEOUT_MS);
   try {
     const connectors = new ReplitConnectors();
-    const response = await connectors.proxy("github", path, {
+    const response = await connectors.createProxyFetch("github")(path, {
       ...init,
+      signal: controller.signal,
       headers: {
         Accept: "application/vnd.github+json",
         ...(init.body ? { "Content-Type": "application/json" } : {}),
@@ -153,10 +193,25 @@ async function defaultGitHubRequest(
       : {};
   } catch (error) {
     if (error instanceof GitHubConnectorError) throw error;
+    if (timedOut) {
+      throw new GitHubConnectorError(
+        "GitHub request exceeded its time limit.",
+        "GITHUB_REQUEST_TIMEOUT",
+      );
+    }
+    if (init.signal?.aborted) {
+      throw new GitHubConnectorError(
+        "GitHub request was cancelled.",
+        "GITHUB_REQUEST_CANCELLED",
+      );
+    }
     throw new GitHubConnectorError(
       error instanceof Error ? error.message : "GitHub connector request failed",
       "GITHUB_CONNECTOR_UNAVAILABLE",
     );
+  } finally {
+    clearTimeout(timeout);
+    init.signal?.removeEventListener("abort", abortFromCaller);
   }
 }
 
@@ -191,8 +246,9 @@ export async function getGitHubBranchState(args: {
   branch: string;
   request?: GitHubRequest;
   commitHash?: string;
+  signal?: AbortSignal;
 }): Promise<GitHubBranchState> {
-  const request = args.request ?? defaultGitHubRequest;
+  const request = withSignal(args.request ?? defaultGitHubRequest, args.signal);
   const commitHash = args.commitHash ?? await (async () => {
     const ref = await request(repoPath(args.remote, `/git/ref/heads/${branchPath(args.branch)}`));
     return typeof (ref.object as { sha?: unknown } | undefined)?.sha === "string"
@@ -239,9 +295,10 @@ export async function pushLocalCommitToGitHub(args: {
   commitHash: string;
   message: string;
   request?: GitHubRequest;
+  signal?: AbortSignal;
 }): Promise<{ remoteCommitHash: string; changedPaths: string[] }> {
-  const request = args.request ?? defaultGitHubRequest;
-  const parents = (await gitText(args.rootPath, ["rev-list", "--parents", "-n", "1", args.commitHash]))
+  const request = withSignal(args.request ?? defaultGitHubRequest, args.signal);
+  const parents = (await gitText(args.rootPath, ["rev-list", "--parents", "-n", "1", args.commitHash], args.signal))
     .split(/\s+/)
     .filter(Boolean);
   if (parents.length !== 2) {
@@ -269,6 +326,7 @@ export async function pushLocalCommitToGitHub(args: {
     branch: args.branch,
     request,
     commitHash: remoteCommitHash,
+    signal: args.signal,
   });
 
   const baseTree = branchState.treeHash;
@@ -276,6 +334,7 @@ export async function pushLocalCommitToGitHub(args: {
   const changes = parseChangedPaths(await gitText(
     args.rootPath,
     ["diff-tree", "--no-commit-id", "--name-status", "-z", "-M", localParent, args.commitHash, "--"],
+    args.signal,
   ));
   if (changes.length === 0) {
     throw new GitHubConnectorError("The verified local commit has no changed files", "GITHUB_PUSH_EMPTY_COMMIT");
@@ -287,7 +346,7 @@ export async function pushLocalCommitToGitHub(args: {
       tree.push({ path: change.path, mode: "100644", type: "blob", sha: null });
       continue;
     }
-    const content = await gitBlob(args.rootPath, args.commitHash, change.path);
+    const content = await gitBlob(args.rootPath, args.commitHash, change.path, args.signal);
     const blob = await request(repoPath(args.remote, "/git/blobs"), {
       method: "POST",
       body: JSON.stringify({ content: content.toString("base64"), encoding: "base64" }),
@@ -297,7 +356,7 @@ export async function pushLocalCommitToGitHub(args: {
     }
     tree.push({
       path: change.path,
-      mode: await gitMode(args.rootPath, args.commitHash, change.path),
+      mode: await gitMode(args.rootPath, args.commitHash, change.path, args.signal),
       type: "blob",
       sha: blob.sha,
     });
@@ -311,7 +370,7 @@ export async function pushLocalCommitToGitHub(args: {
     throw new GitHubConnectorError("GitHub tree creation returned no sha", "GITHUB_API_INVALID_RESPONSE");
   }
 
-  const identities = await gitCommitIdentities(args.rootPath, args.commitHash);
+  const identities = await gitCommitIdentities(args.rootPath, args.commitHash, args.signal);
   const createdCommit = await request(repoPath(args.remote, "/git/commits"), {
     method: "POST",
     body: JSON.stringify({

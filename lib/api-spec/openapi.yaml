@@ -11320,7 +11320,7 @@ components:
     ProjectPluginState:
       type: object
       required:
-        [id, name, version, available, projectEnabled, scanHookImplemented, effectiveForProjectScan, capabilities, supportedLanguages, configuration]
+        [id, name, version, available, projectEnabled, scanHookImplemented, compatibleWithProject, effectiveForProjectScan, capabilities, supportedLanguages, configuration]
       properties:
         id:
           type: string
@@ -11339,9 +11339,12 @@ components:
         scanHookImplemented:
           type: boolean
           description: Whether the server has a scan hook implementation registered for this definition.
+        compatibleWithProject:
+          type: boolean
+          description: Whether the project's detected language is included in the plugin's supported languages.
         effectiveForProjectScan:
           type: boolean
-          description: True only when globally available, activated for this project, and backed by a registered scan hook.
+          description: True only when globally available, activated for this project, language-compatible, and backed by a registered scan hook.
         capabilities:
           type: array
           items:

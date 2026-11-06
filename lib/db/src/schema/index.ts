@@ -8,6 +8,7 @@ export * from "./graph.js";
 export * from "./task_logs.js";
 export * from "./plugins.js";
 export * from "./project_plugin_bindings.js";
+export * from "./plugin_runtime.js";
 export * from "./audit_logs.js";
 export * from "./pending_audit_logs.js";
 export * from "./discovery.js";

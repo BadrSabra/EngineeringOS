@@ -7,6 +7,7 @@ import {
   db,
   eventsTable,
   pluginsTable,
+  pluginRunsTable,
   projectPluginBindingsTable,
   projectsTable,
 } from "@workspace/db";
@@ -19,6 +20,21 @@ import {
 
 const projectIds: string[] = [];
 let originalSecurityAvailability: boolean | undefined;
+
+async function waitForPluginRuns(dispatchId: string): Promise<void> {
+  for (let attempt = 0; attempt < 100; attempt++) {
+    const runs = await db
+      .select({ status: pluginRunsTable.status, errorCode: pluginRunsTable.lastErrorCode })
+      .from(pluginRunsTable)
+      .where(eq(pluginRunsTable.dispatchId, dispatchId));
+    if (runs.length > 0 && runs.every((run) => run.status === "completed")) return;
+    if (runs.some((run) => run.status === "failed")) {
+      throw new Error(`plugin dispatch failed: ${runs.map((run) => run.errorCode).join(",")}`);
+    }
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
+  throw new Error(`plugin dispatch did not complete: ${dispatchId}`);
+}
 
 async function insertProject(): Promise<string> {
   const id = `plugin-runtime-project-${randomUUID()}`;
@@ -97,8 +113,14 @@ describe("project-scoped plugin scan dispatch", () => {
     ]);
     expect(await resolveEffectivePluginIds(projectB)).toEqual([]);
 
-    const context = (projectId: string): ScanCompleteContext => ({
+    const context = (
+      projectId: string,
+      scanCorrelationId = randomUUID(),
+    ): ScanCompleteContext => ({
       projectId,
+      scanCorrelationId,
+      scanCompleteness: "COMPLETE",
+      ruleEvaluationComplete: true,
       language: "typescript",
       filesFound: 10,
       sourceFiles: 8,
@@ -110,11 +132,14 @@ describe("project-scoped plugin scan dispatch", () => {
       entities: [],
     });
 
-    await dispatchOnScanComplete(context(projectA));
-    await dispatchOnScanComplete(context(projectB));
+    const projectAScan = context(projectA);
+    const projectBScan = context(projectB);
+    await dispatchOnScanComplete(projectAScan);
+    await dispatchOnScanComplete(projectBScan);
+    await waitForPluginRuns(projectAScan.scanCorrelationId);
 
     const projectAEvents = await db
-      .select({ type: eventsTable.type })
+      .select({ type: eventsTable.type, correlationId: eventsTable.correlationId })
       .from(eventsTable)
       .where(eq(eventsTable.projectId, projectA));
     const projectBEvents = await db
@@ -125,6 +150,8 @@ describe("project-scoped plugin scan dispatch", () => {
     expect(projectAEvents.map((event) => event.type)).toContain(
       "SecurityPluginClear",
     );
+    expect(projectAEvents.find((event) => event.type === "SecurityPluginClear")?.correlationId)
+      .toBe(projectAScan.scanCorrelationId);
     expect(projectBEvents).toHaveLength(0);
 
     await db
