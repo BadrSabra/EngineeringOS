@@ -16,6 +16,7 @@ import {
   atomicallyPromoteFile,
   recoverPromotion,
   writeDeliveryWorkspaceFile,
+  writeLocalReviewWorktreeFile,
   deliveryWorkspacePath,
 } from "./delivery-workspace.js";
 
@@ -154,6 +155,49 @@ describe("delivery workspaces", () => {
         recursive: true,
         force: true,
       });
+    }
+  });
+
+  it("binds review worktree writes to an unchanged owner manifest", async () => {
+    const worktreesRoot = `/tmp/local-review-owned-${randomUUID()}`;
+    const operationRoot = join(worktreesRoot, "a".repeat(32));
+    const workspaceRoot = join(operationRoot, "worktree", "packages", "app");
+    const outside = `/tmp/local-review-owned-outside-${randomUUID()}`;
+    const manifest = `${JSON.stringify({
+      state: "PREPARING",
+      proposalId: randomUUID(),
+    })}\n`;
+    const write = (relativePath: string, content: string) => writeLocalReviewWorktreeFile({
+      worktreesRoot,
+      operationRoot,
+      workspaceRoot,
+      expectedManifest: manifest,
+      relativePath,
+      content,
+    });
+
+    await mkdir(workspaceRoot, { recursive: true });
+    await mkdir(outside, { recursive: true });
+    await writeFile(join(operationRoot, "manifest.json"), manifest);
+    try {
+      await write("source.ts", "review candidate\n");
+      await expect(readFile(join(workspaceRoot, "source.ts"), "utf8"))
+        .resolves.toBe("review candidate\n");
+
+      await symlink(outside, join(workspaceRoot, "linked"));
+      await expect(write("linked/escape.ts", "must not escape\n"))
+        .rejects.toThrow(/symbolic link|non-directory component/i);
+      await expect(readFile(join(outside, "escape.ts"), "utf8"))
+        .rejects.toMatchObject({ code: "ENOENT" });
+
+      await writeFile(join(operationRoot, "manifest.json"), "tampered\n");
+      await expect(write("source.ts", "must not overwrite\n"))
+        .rejects.toThrow("Local review ownership manifest does not match");
+      await expect(readFile(join(workspaceRoot, "source.ts"), "utf8"))
+        .resolves.toBe("review candidate\n");
+    } finally {
+      await rm(worktreesRoot, { recursive: true, force: true });
+      await rm(outside, { recursive: true, force: true });
     }
   });
 

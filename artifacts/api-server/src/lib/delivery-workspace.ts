@@ -379,6 +379,113 @@ function normalizeDeliveryRelativePath(relativePath: string): string {
   return normalized;
 }
 
+function isStrictlyWithin(parentPath: string, childPath: string): boolean {
+  const relative = path.relative(parentPath, childPath);
+  return relative !== ""
+    && !path.isAbsolute(relative)
+    && relative !== ".."
+    && !relative.startsWith(`..${path.sep}`);
+}
+
+async function writeWorkspaceFileAtPinnedRoot(
+  resolvedRoot: string,
+  normalized: string,
+  content: string,
+  options: { afterParentPinned?: () => Promise<void> },
+  verifyOwnership: (rootHandle: FileHandle) => Promise<void>,
+): Promise<void> {
+  const target = path.resolve(resolvedRoot, normalized);
+  if (target === resolvedRoot || !target.startsWith(`${resolvedRoot}${path.sep}`)) {
+    throw new Error("Delivery change escapes isolated workspace");
+  }
+
+  let rootHandle: FileHandle | undefined;
+  let parentHandle: FileHandle | undefined;
+  let temporaryPath: string | undefined;
+  try {
+    rootHandle = await openAbsoluteDirectoryNoFollow(resolvedRoot);
+    const pinnedRootStat = await rootHandle.stat({ bigint: true });
+    const rootPathStat = await lstat(resolvedRoot, { bigint: true });
+    if (
+      rootPathStat.isSymbolicLink()
+      || !rootPathStat.isDirectory()
+      || !sameNodeIdentity(pinnedRootStat, rootPathStat)
+    ) {
+      throw new Error("Delivery workspace root changed while it was being pinned");
+    }
+    await verifyOwnership(rootHandle);
+    parentHandle = rootHandle;
+
+    const segments = normalized.split("/");
+    const fileName = segments.pop();
+    if (!fileName) throw new Error("Delivery change has no file name");
+    for (const segment of segments) {
+      const childPath = descriptorPath(parentHandle, segment);
+      try {
+        await mkdir(childPath, { mode: 0o700 });
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
+      }
+      let next: FileHandle;
+      try {
+        next = await open(childPath, DIRECTORY_OPEN_FLAGS);
+      } catch (error) {
+        const code = (error as NodeJS.ErrnoException).code;
+        if (code === "ELOOP" || code === "ENOTDIR") {
+          throw new Error("Delivery change traverses a symbolic link or non-directory component");
+        }
+        throw error;
+      }
+      if (parentHandle !== rootHandle) {
+        await parentHandle.close();
+      }
+      parentHandle = next;
+    }
+
+    await options.afterParentPinned?.();
+    const targetPath = descriptorPath(parentHandle, fileName);
+    let targetMode: number;
+    try {
+      const targetStat = await lstat(targetPath, { bigint: true });
+      if (targetStat.isSymbolicLink()) {
+        throw new Error("Delivery change targets a symbolic link");
+      }
+      if (!targetStat.isFile()) {
+        throw new Error("Delivery change target is not a regular file");
+      }
+      targetMode = Number(targetStat.mode & 0o777n);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+      targetMode = 0o666 & ~process.umask();
+    }
+
+    const temporaryName = `.${fileName}.engineeringos-${randomUUID()}.tmp`;
+    temporaryPath = descriptorPath(parentHandle, temporaryName);
+    const temporaryHandle = await open(
+      temporaryPath,
+      fsConstants.O_WRONLY | fsConstants.O_CREAT | fsConstants.O_EXCL | fsConstants.O_NOFOLLOW,
+      0o600,
+    );
+    try {
+      await temporaryHandle.chmod(targetMode);
+      await temporaryHandle.writeFile(content, "utf8");
+      await temporaryHandle.sync();
+    } finally {
+      await temporaryHandle.close();
+    }
+    await rename(temporaryPath, targetPath);
+    temporaryPath = undefined;
+  } finally {
+    if (temporaryPath && parentHandle) {
+      await unlink(temporaryPath).catch(() => undefined);
+    }
+    if (parentHandle && parentHandle !== rootHandle) {
+      await parentHandle.close().catch(() => undefined);
+    }
+    await rootHandle?.close().catch(() => undefined);
+  }
+}
+
 /**
  * Hash a complete source/candidate tree with a deterministic, byte-oriented
  * record format. Directories are retained (including empty directories),
@@ -575,96 +682,108 @@ export async function writeDeliveryWorkspaceFile(
   if (resolvedRoot !== deliveryWorkspacePath(operationId)) {
     throw new Error("Delivery change is not inside its operation-owned workspace");
   }
-  const target = path.resolve(resolvedRoot, normalized);
-  if (target === resolvedRoot || !target.startsWith(`${resolvedRoot}${path.sep}`)) {
-    throw new Error("Delivery change escapes isolated workspace");
-  }
-
-  let rootHandle: FileHandle | undefined;
-  let parentHandle: FileHandle | undefined;
-  let temporaryPath: string | undefined;
-  try {
-    rootHandle = await openAbsoluteDirectoryNoFollow(resolvedRoot);
-    parentHandle = rootHandle;
-
-    let markerHandle: FileHandle | undefined;
-    try {
-      markerHandle = await open(descriptorPath(rootHandle, MARKER), FILE_READ_FLAGS);
-      if (await markerHandle.readFile("utf8") !== `${operationId}\n`) {
-        throw new Error("Delivery workspace ownership marker does not match");
-      }
-    } finally {
-      await markerHandle?.close().catch(() => undefined);
-    }
-
-    const segments = normalized.split("/");
-    const fileName = segments.pop();
-    if (!fileName) throw new Error("Delivery change has no file name");
-    for (const segment of segments) {
-      const childPath = descriptorPath(parentHandle, segment);
+  await writeWorkspaceFileAtPinnedRoot(
+    resolvedRoot,
+    normalized,
+    content,
+    options,
+    async (rootHandle) => {
+      let markerHandle: FileHandle | undefined;
       try {
-        await mkdir(childPath, { mode: 0o700 });
-      } catch (error) {
-        if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
-      }
-      let next: FileHandle;
-      try {
-        next = await open(childPath, DIRECTORY_OPEN_FLAGS);
-      } catch (error) {
-        const code = (error as NodeJS.ErrnoException).code;
-        if (code === "ELOOP" || code === "ENOTDIR") {
-          throw new Error("Delivery change traverses a symbolic link or non-directory component");
+        markerHandle = await open(descriptorPath(rootHandle, MARKER), FILE_READ_FLAGS);
+        if (await markerHandle.readFile("utf8") !== `${operationId}\n`) {
+          throw new Error("Delivery workspace ownership marker does not match");
         }
-        throw error;
+      } finally {
+        await markerHandle?.close().catch(() => undefined);
       }
-      if (parentHandle !== rootHandle) {
-        await parentHandle.close();
-      }
-      parentHandle = next;
-    }
+    },
+  );
+}
 
-    await options.afterParentPinned?.();
-    const targetPath = descriptorPath(parentHandle, fileName);
-    let targetMode: number;
-    try {
-      const targetStat = await lstat(targetPath, { bigint: true });
-      if (targetStat.isSymbolicLink()) {
-        throw new Error("Delivery change targets a symbolic link");
-      }
-      if (!targetStat.isFile()) {
-        throw new Error("Delivery change target is not a regular file");
-      }
-      targetMode = Number(targetStat.mode & 0o777n);
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
-      targetMode = 0o666 & ~process.umask();
-    }
-
-    const temporaryName = `.${fileName}.engineeringos-${randomUUID()}.tmp`;
-    temporaryPath = descriptorPath(parentHandle, temporaryName);
-    const temporaryHandle = await open(
-      temporaryPath,
-      fsConstants.O_WRONLY | fsConstants.O_CREAT | fsConstants.O_EXCL | fsConstants.O_NOFOLLOW,
-      0o600,
-    );
-    try {
-      await temporaryHandle.chmod(targetMode);
-      await temporaryHandle.writeFile(content, "utf8");
-      await temporaryHandle.sync();
-    } finally {
-      await temporaryHandle.close();
-    }
-    await rename(temporaryPath, targetPath);
-    temporaryPath = undefined;
-  } finally {
-    if (temporaryPath && parentHandle) {
-      await unlink(temporaryPath).catch(() => undefined);
-    }
-    if (parentHandle && parentHandle !== rootHandle) {
-      await parentHandle.close().catch(() => undefined);
-    }
-    await rootHandle?.close().catch(() => undefined);
+export async function writeLocalReviewWorktreeFile(input: {
+  worktreesRoot: string;
+  operationRoot: string;
+  workspaceRoot: string;
+  expectedManifest: string;
+  relativePath: string;
+  content: string;
+}): Promise<void> {
+  const worktreesRoot = path.resolve(input.worktreesRoot);
+  const operationRoot = path.resolve(input.operationRoot);
+  const workspaceRoot = path.resolve(input.workspaceRoot);
+  const operationKey = path.basename(operationRoot);
+  const worktreeRoot = path.join(operationRoot, "worktree");
+  const manifestName = "manifest.json";
+  if (
+    !/^[a-f0-9]{32}$/.test(operationKey)
+    || path.dirname(operationRoot) !== worktreesRoot
+    || !isStrictlyWithin(operationRoot, workspaceRoot)
+    || (workspaceRoot !== worktreeRoot && !isStrictlyWithin(worktreeRoot, workspaceRoot))
+    || input.expectedManifest.length > 64 * 1024
+  ) {
+    throw new Error("Local review workspace ownership is invalid");
   }
+  const normalized = normalizeDeliveryRelativePath(input.relativePath);
+
+  await writeWorkspaceFileAtPinnedRoot(
+    workspaceRoot,
+    normalized,
+    input.content,
+    {},
+    async (rootHandle) => {
+      const [canonicalWorktreesRoot, canonicalOperationRoot, canonicalWorkspaceRoot] = await Promise.all([
+        realpath(worktreesRoot),
+        realpath(operationRoot),
+        realpath(workspaceRoot),
+      ]);
+      if (
+        canonicalWorktreesRoot !== worktreesRoot
+        || canonicalOperationRoot !== operationRoot
+        || canonicalWorkspaceRoot !== workspaceRoot
+        || path.dirname(canonicalOperationRoot) !== canonicalWorktreesRoot
+        || !isStrictlyWithin(canonicalOperationRoot, canonicalWorkspaceRoot)
+        || (canonicalWorkspaceRoot !== worktreeRoot
+          && !isStrictlyWithin(worktreeRoot, canonicalWorkspaceRoot))
+      ) {
+        throw new Error("Local review workspace ownership changed");
+      }
+
+      const rootStat = await lstat(workspaceRoot, { bigint: true });
+      if (
+        rootStat.isSymbolicLink()
+        || !rootStat.isDirectory()
+        || !sameNodeIdentity(await rootHandle.stat({ bigint: true }), rootStat)
+      ) {
+        throw new Error("Local review workspace root changed while it was being pinned");
+      }
+
+      let operationHandle: FileHandle | undefined;
+      let manifestHandle: FileHandle | undefined;
+      try {
+        operationHandle = await openAbsoluteDirectoryNoFollow(operationRoot);
+        const operationStat = await lstat(operationRoot, { bigint: true });
+        if (
+          operationStat.isSymbolicLink()
+          || !operationStat.isDirectory()
+          || !sameNodeIdentity(await operationHandle.stat({ bigint: true }), operationStat)
+        ) {
+          throw new Error("Local review operation root changed while it was being pinned");
+        }
+        manifestHandle = await open(descriptorPath(operationHandle, manifestName), FILE_READ_FLAGS);
+        const manifestStat = await manifestHandle.stat({ bigint: true });
+        if (!manifestStat.isFile() || manifestStat.size > BigInt(64 * 1024)) {
+          throw new Error("Local review ownership manifest is invalid");
+        }
+        if (await manifestHandle.readFile("utf8") !== input.expectedManifest) {
+          throw new Error("Local review ownership manifest does not match");
+        }
+      } finally {
+        await manifestHandle?.close().catch(() => undefined);
+        await operationHandle?.close().catch(() => undefined);
+      }
+    },
+  );
 }
 
 export async function createDeliveryWorkspace(input: {

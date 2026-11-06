@@ -10,7 +10,7 @@ import {
 } from "node:fs/promises";
 import path from "node:path";
 import { promisify } from "node:util";
-import { hashDeliveryTree, writeDeliveryWorkspaceFile } from "./delivery-workspace.js";
+import { hashDeliveryTree, writeLocalReviewWorktreeFile } from "./delivery-workspace.js";
 
 const execFileAsync = promisify(execFile);
 const GIT_TIMEOUT_MS = 30_000;
@@ -757,11 +757,14 @@ export async function createLocalReviewBranchWorkspace(
     );
   }
   for (const change of changes) {
-    await writeDeliveryWorkspaceFile(
-      resolvedCandidateProjectRoot,
-      change.path,
-      change.newContent,
-    );
+    await writeLocalReviewWorktreeFile({
+      worktreesRoot: canonicalWorktreesRoot,
+      operationRoot: canonicalOperationRoot,
+      workspaceRoot: resolvedCandidateProjectRoot,
+      expectedManifest: `${JSON.stringify(manifest)}\n`,
+      relativePath: change.path,
+      content: change.newContent,
+    });
   }
   const candidateTreeHash = await hashDeliveryTree(resolvedCandidateProjectRoot);
   const readyManifest: ReviewManifest = {

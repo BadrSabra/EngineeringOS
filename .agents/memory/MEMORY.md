@@ -25,11 +25,9 @@
 - [Startup scrub contract preservation](startup-scrub-contract-preservation.md) — a `kind` tag alone cannot distinguish validation-result payloads from typed operation acceptance metadata.
 - [Safe terminal execution boundary](terminal-execution-boundary.md) — terminal actions use server-owned fixed profiles; the model selects a profile but never supplies shell text or arbitrary argv.
 - [AI release quality gate](ai-release-quality-gate.md) — aggregate deterministic checks, keep Preview blocking by default, and treat local schema validation as authoritative for live provider JSON.
-- [Process-level AI worker fixtures](process-level-ai-worker-fixtures.md) — keep worker writes real; close child stdin after race barriers so rejected-worker tests verify clean exit.
 - [Untrusted content boundary](untrusted-content-boundary.md) — repository, tool, memory, and checkpoint text is evidence/data only; server authorization remains independent.
-- [Delivery test cleanup](delivery-test-cleanup.md) — recovery tests must remove only generated operation roots; the shared delivery directory can contain tracked fixtures.
-- [Package test root](package-test-root.md) — run Vitest from its owning package and keep optional Vite peers aligned with the workspace major.
 - [Dashboard/browser validation](dashboard-browser-validation-index.md) — grouped pointers for authentication, routes, streams, and browser stability.
+- [Test environment contracts](test-environment-index.md) — grouped pointers for database, process, package-root, and validation isolation.
 - [Candidate validation boundary](candidate-validation-boundary.md) — validation evidence must bind to the immutable candidate workspace and promoted bytes, not merely the live root.
 - [Autonomous delivery acceptance](autonomous-delivery-acceptance.md) — measure unified-loop receipts by unique operation identity; only verified, violation-free delivery counts as completion.
 - [Terminal ownership fences](terminal-ownership-fences.md) — durable writes require the current lease; Episode actor IDs remain provenance across same-attempt recovery.
@@ -49,7 +47,6 @@
 - [Adaptive chat acceptance](adaptive-chat-acceptance.md) — fallback planning must be verified through chat(), scoped reads, bounded missing-evidence recovery, and final claim gating.
 - [Execution proof projection](execution-proof-projection.md) — accepted proof and trajectory metrics stay bounded inside the existing acceptance projection; raw traces remain non-durable.
 - [Contract telemetry separation](contract-telemetry-separation.md) — provider success is not contract acceptance; retain model-level claim, citation, recovery, failure-kind, and malformed-structured-output metrics separately.
-- [Runtime restart validation](runtime-restart-validation.md) — API restarts load compiled code but also start catalog refresh and an uncounted session-memory expiry sweep.
 - [Durable evidence boundary](durable-evidence-boundary.md) — version reusable reads; legacy rows without span metadata cannot imply whole-file completeness.
 - [Execution acceptance contract](execution-acceptance-contract.md) — recovery must derive proof requirements from the persisted request, never optional in-memory evidence parameters.
 - [Resume attempt rotation](durable-acceptance-attempt-rotation.md) — rotate on claim and verify acceptance against the current attempt, not a stale row.
@@ -103,7 +100,6 @@
 - [Mission recovery checkpoint parsing](mission-recovery-checkpoint-parsing.md) — parse the full persisted tool-loop envelope; generic checkpoint projections truncate nested recovery manifests.
 - [Mission finalization lock order](mission-finalization-lock-order.md) — linked terminal projections acquire Mission/Goal before execution so proof reloads cannot deadlock.
 - [Mission repair post-commit recovery](mission-repair-postcommit-recovery.md) — validate immutable commit semantics and reuse recorded observation pairs to avoid duplicate effects during recovery.
-- [Validation workflow accumulation](validation-workflow-accumulation.md) — keep standalone validation workflows out of the app's Project startup tasks unless intended.
 - [Live provider validation boundary](live-provider-validation-boundary.md) — provider success is not acceptance; verify actual responses and stop polling failed attempts even when they remain resumable.
 - [Capability parity objectives](capability-parity-objectives.md) — parity gap audits reuse the existing gap objective and require observable evidence; do not create a second compiler or catalog.
 - [Closed-loop integration fixtures](closed-loop-integration-fixtures.md) — isolate post-loop replan orchestration from the scheduler’s normal forced-evidence coverage.
@@ -125,30 +121,23 @@
 - [Drizzle push scope](drizzle-push-scope.md) — isolate reviewed pushes; post-merge force requires a read-only constraint guard and complete schema verification.
 - [Action effect evidence boundary](action-effect-observation-boundary.md) — mutation effects require direct fresh before/after observations; acceptance and receipts cannot substitute for runtime observation or PROVEN.
 - [Strategy replay acceptance](strategy-replay-acceptance.md) — runtime.start proof comes only from its bound Gate C evidence path; replay receipts still require an independent Canonical Proof reload.
-- [Disposable PostgreSQL tests](disposable-postgres-tests.md) — DB-backed integration tests must use a loopback-only temporary cluster and explicit DATABASE_URL, never inherited development or production settings.
 - [Episode event hash integrity](episode-event-hash-integrity.md) — update EFFECT_CLASSIFIED hash projections together and preserve legacy rows to keep accepted episodes eligible.
 - [Episode/Execution lock order](episode-execution-lock-order.md) — lock linked Mission/Goal rows before Execution, then Episode; World Transition also precedes Episode.
 - [Apply-changes acceptance gate](apply-changes-acceptance-gate.md) — keep Git-committable lifecycle proof-bound; live World Delta needs separate post-promotion scope, revision, and Mission-read contracts.
-- [Repair-validator fixture scope](repair-validator-fixtures.md) — integration tests must use a path accepted by the selected validation profile or preflight stops before the runner is invoked.
 - [Scoped World State identity and freshness](world-state-scoped-uniqueness.md) — Keep scoped reads advisory; Transition materialization validates an all-scope project revision.
 - [World State advisory planning](world-state-advisory-planning.md) — replan context is non-authoritative; bind the Goal's exact acceptance ID/current attempt and retain source, scope, and revision checks.
 - [Runtime start transition proof](runtime-start-transition-proof.md) — preserve Gate C acceptance; require independent before/after evidence and exact transition-linked observations for P6.
 - [World State failure diagnosis](world-state-failure-diagnosis.md) — scoped runtime.start diagnoses use exact linked evidence and stay separate from Gate C acceptance and authority.
-- [Generated query-key tests](generated-query-key-tests.md) — mocks for generated React Query keys should match their exact URL/parameter shape, especially when asserting invalidation.
-- [Vitest cold-import timeouts](vitest-import-cost.md) — distinguish module cold-start from test-body time; keep timeout adjustments focused and measured.
 - [Validator process-tree fixtures](validator-process-tree-fixtures.md) — attestation tests need stable, local child processes; do not treat unknown process trees as proof or weaken the gate.
 - [Turn intent delivery contract](turn-intent-delivery-contract.md) — authoritative delivery handoffs must not inherit a stale analysis output contract.
 - [Bodyless JSON requests](api-bodyless-json-post.md) — generated POSTs with no request body can leave Express's `req.body` undefined; normalize optional JSON before validation.
 - [P7.5 boundaries](p75-boundaries-index.md) — measurement, mission context, and readiness remain advisory until their provenance and review gates are satisfied.
 - [Objective locator ranking](objective-locator-ranking.md) — prefer compact executable needle clusters over later quoted mentions; keep range selection separate from acceptance.
 - [AI conversation route precedence](ai-conversation-route-precedence.md) — explicit project/session links beat stale local execution pointers; unavailable targets must not silently open another session.
-- [Benchmark smoke environment](benchmark-smoke-database-env.md) — an unset DATABASE_URL can masquerade as provider failure during orchestrator import; use a non-production local DSN.
-- [Nested pnpm project isolation](pnpm-project-isolation.md) — generated roots under the monorepo need explicit workspace isolation, or pnpm may report “No projects found”.
 - [EngineeringOS audience](engineeringos-audience.md) — prioritize a goal-first Arabic experience for users without programming or engineering expertise.
 - [Arabic UI direction tests](arabic-ui-direction-tests.md) — assert translated labels and isolated technical values separately when bidi markup splits rendered text.
 - [Home work summary policy](work-summary-policy.md) — advisory sampling avoids proof/recovery work during polling; preserve coherent reads and independent review coverage.
 - [Live benchmark failure attribution](live-benchmark-failure-attribution.md) — use the resolved fixture and sanitized proof; do not infer scope or typecheck causes from partial maps.
-- [Node CLI entrypoint paths](node-cli-entrypoint-paths.md) — normalize relative `argv[1]` against the working directory before comparing it with `import.meta.url`.
 - [Replit dev-banner base path](replit-dev-banner-base-path.md) — the dev-banner injects a root-absolute script URL; only enable it for root-mounted artifacts.
 - [Merge reconciliation volatility](merge-reconciliation-volatility.md) — an active merge can change HEAD/index during a turn; recheck repository state before edits or staging.
 - [Mission strategy shadow isolation](mission-shadow-isolation.md) — recover non-authoritative G7 comparisons from durable applied traces, never from inside the live replan transaction.
@@ -157,3 +146,4 @@
 - [Bounded effect restart recovery](bounded-effect-restart-recovery.md) — file-marker restart proof design; observation roles, worldRevision binding, same-attempt pause snapshot supersession.
 - [Runtime start database serialization](runtime-start-database-serialization.md) — serialize per-project startup claims inside PostgreSQL before upserting rows with duplicate unique identities.
 - [Dispatch crash recovery](dispatch-crash-recovery.md) — completed Missions record dispatch only from one completed Execution per root; runner is never re-invoked.
+- [Review worktree ownership](local-review-worktree-ownership.md) — Git review worktrees use proposal manifests and pinned writes, not the transient delivery-workspace marker.
