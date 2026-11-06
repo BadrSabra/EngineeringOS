@@ -715,6 +715,8 @@ export * from './taskLogProgressStatus';
 export * from './taskLogTerminalOutcome';
 export * from './taskPriority';
 export * from './taskStatus';
+export * from './unresolvedRuntimeStartHealth';
+export * from './unresolvedRuntimeStartHealthStatus';
 export * from './updateAiProjectBudgetAlert200';
 export * from './updateAiProjectBudgetAlertBodyAction';
 export * from './updateAiProjectBudgetInput';

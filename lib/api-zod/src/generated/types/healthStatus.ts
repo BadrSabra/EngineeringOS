@@ -11,6 +11,7 @@ import type { JobQueueStats } from './jobQueueStats';
 import type { JobRecoveryHealth } from './jobRecoveryHealth';
 import type { OperationalCounters } from './operationalCounters';
 import type { TaskExecutionRetentionHealth } from './taskExecutionRetentionHealth';
+import type { UnresolvedRuntimeStartHealth } from './unresolvedRuntimeStartHealth';
 
 export interface HealthStatus {
   status: HealthStatusStatus;
@@ -19,4 +20,5 @@ export interface HealthStatus {
   aiDiagnosticsRetention?: AiDiagnosticsRetentionHealth;
   taskExecutionRetention?: TaskExecutionRetentionHealth;
   jobRecovery?: JobRecoveryHealth;
+  unresolvedRuntimeStart?: UnresolvedRuntimeStartHealth;
 }

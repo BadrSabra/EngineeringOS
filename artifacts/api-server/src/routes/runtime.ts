@@ -44,7 +44,11 @@ function runtimeErrorResponse(error: unknown) {
 }
 
 router.get("/projects/:projectId/runtime", requireProjectAccess, async (req, res) => {
-  return res.json(await workspaceRuntime.get(req.project!.id));
+  const snapshot = await workspaceRuntime.get(req.project!.id);
+  return res.json({
+    ...snapshot,
+    unresolvedStartAlert: await workspaceRuntime.getProjectUnresolvedStartAlert(req.project!.id),
+  });
 });
 
 router.post("/projects/:projectId/runtime/start", requireProjectWriteAccess, async (req, res) => {

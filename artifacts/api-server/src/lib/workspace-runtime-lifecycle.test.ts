@@ -3,7 +3,11 @@ import { promises as fs } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { WorkspaceRuntimeManager } from "./workspace-runtime.js";
+import {
+  getUnresolvedRuntimeStartAlert,
+  UNRESOLVED_RUNTIME_START_ALERT_MS,
+  WorkspaceRuntimeManager,
+} from "./workspace-runtime.js";
 import {
   createInMemoryWorkspaceRuntimeStore,
   type WorkspaceRuntimeStore,
@@ -334,6 +338,52 @@ describe("Workspace Runtime lifecycle invariants", () => {
       pid: null,
       port: null,
     });
+    const unresolvedRow = await store.get("runtime-unknown-start");
+    if (!unresolvedRow) throw new Error("Unresolved runtime row was not retained.");
+    await store.updateOwnedSession(
+      "runtime-unknown-start",
+      session.sessionId,
+      "runtime-unknown-start-worker",
+      { startedAt: new Date(Date.now() - UNRESOLVED_RUNTIME_START_ALERT_MS - 100) },
+      "starting",
+    );
+    const alertHealth = await manager.getUnresolvedStartHealth();
+    expect(alertHealth).toMatchObject({
+      status: "alert",
+      thresholdMs: UNRESOLVED_RUNTIME_START_ALERT_MS,
+      unresolvedCount: 1,
+    });
+    expect(alertHealth.oldestAgeMs).toBeGreaterThanOrEqual(UNRESOLVED_RUNTIME_START_ALERT_MS);
+    await expect(store.get("runtime-unknown-start")).resolves.toMatchObject({
+      sessionId: session.sessionId,
+      status: "starting",
+      workerId: "runtime-unknown-start-worker",
+      leaseUntil: expect.any(Date),
+    });
+    const boundaryStartedAt = new Date("2026-01-01T00:00:00.000Z");
+    expect(getUnresolvedRuntimeStartAlert({
+      status: "starting",
+      startedAt: boundaryStartedAt.toISOString(),
+    }, new Date(boundaryStartedAt.getTime() + UNRESOLVED_RUNTIME_START_ALERT_MS - 1))).toBeNull();
+    expect(getUnresolvedRuntimeStartAlert({
+      status: "starting",
+      startedAt: boundaryStartedAt.toISOString(),
+    }, new Date(boundaryStartedAt.getTime() + UNRESOLVED_RUNTIME_START_ALERT_MS))).toMatchObject({
+      status: "alert",
+      ageMs: UNRESOLVED_RUNTIME_START_ALERT_MS,
+      thresholdMs: UNRESOLVED_RUNTIME_START_ALERT_MS,
+    });
+    expect(getUnresolvedRuntimeStartAlert({
+      status: "failed",
+      startedAt: boundaryStartedAt.toISOString(),
+    }, new Date(boundaryStartedAt.getTime() + UNRESOLVED_RUNTIME_START_ALERT_MS))).toBeNull();
+    await expect(manager.getProjectUnresolvedStartAlert(
+      "runtime-unknown-start",
+      new Date(Date.now() + UNRESOLVED_RUNTIME_START_ALERT_MS),
+    )).resolves.toMatchObject({
+      status: "alert",
+      thresholdMs: UNRESOLVED_RUNTIME_START_ALERT_MS,
+    });
 
     observationStatus = "running";
     let reconciled = await store.get("runtime-unknown-start");
@@ -348,6 +398,27 @@ describe("Workspace Runtime lifecycle invariants", () => {
       workerId: "runtime-unknown-start-worker",
       pid: process.pid,
       port: 3_004,
+    });
+    await expect(manager.getUnresolvedStartHealth()).resolves.toMatchObject({
+      status: "clear",
+      thresholdMs: UNRESOLVED_RUNTIME_START_ALERT_MS,
+      unresolvedCount: 0,
+      oldestAgeMs: null,
+    });
+    await expect(manager.getProjectUnresolvedStartAlert("runtime-unknown-start")).resolves.toBeNull();
+    expect(getUnresolvedRuntimeStartAlert({
+      status: "running",
+      startedAt: new Date(0).toISOString(),
+    })).toBeNull();
+
+    await expect(manager.stop("runtime-unknown-start")).resolves.toMatchObject({
+      sessionId: session.sessionId,
+      status: "stopped",
+    });
+    await expect(manager.getUnresolvedStartHealth()).resolves.toMatchObject({
+      status: "clear",
+      unresolvedCount: 0,
+      oldestAgeMs: null,
     });
   });
 

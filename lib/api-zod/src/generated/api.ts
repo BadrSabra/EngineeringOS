@@ -31,6 +31,13 @@ export const listAiChatMessagesResponseExecutionLedgerOneModelsMax = 16;
 /**
  * @summary Health check
  */
+
+export const getHealthResponseUnresolvedRuntimeStartUnresolvedCountMin = 0;
+
+export const getHealthResponseUnresolvedRuntimeStartOldestAgeMsMin = 0;
+
+
+
 export const GetHealthResponse = zod.object({
   "status": zod.enum(['ok']),
   "jobQueue": zod.object({
@@ -98,7 +105,13 @@ export const GetHealthResponse = zod.object({
   "expiredTaskLeases": zod.number().int(),
   "retryExhaustedScanJobs": zod.number().int(),
   "retryExhaustedTasks": zod.number().int()
-}).optional().describe('Content-free health projection of durable background work. A degraded status means an expired or missing worker lease needs recovery, a queued Scan or Discovery exceeds the configured pending-age threshold, or a job exhausted its retry budget and needs operator attention. The top-level health endpoint remains a liveness check.\n')
+}).optional().describe('Content-free health projection of durable background work. A degraded status means an expired or missing worker lease needs recovery, a queued Scan or Discovery exceeds the configured pending-age threshold, or a job exhausted its retry budget and needs operator attention. The top-level health endpoint remains a liveness check.\n'),
+  "unresolvedRuntimeStart": zod.object({
+  "status": zod.enum(['clear', 'alert']),
+  "thresholdMs": zod.number().int().min(1),
+  "unresolvedCount": zod.number().int().min(getHealthResponseUnresolvedRuntimeStartUnresolvedCountMin),
+  "oldestAgeMs": zod.number().int().min(getHealthResponseUnresolvedRuntimeStartOldestAgeMsMin).nullable()
+}).optional().describe('Content-free operational alert for durable runtime sessions whose startup has remained unresolved beyond the configured threshold. This is observational only and does not change runtime state or ownership.\n')
 })
 
 

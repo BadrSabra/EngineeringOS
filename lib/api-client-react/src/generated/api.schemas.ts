@@ -2579,6 +2579,27 @@ export interface JobRecoveryHealth {
   retryExhaustedTasks: number;
 }
 
+export type UnresolvedRuntimeStartHealthStatus = typeof UnresolvedRuntimeStartHealthStatus[keyof typeof UnresolvedRuntimeStartHealthStatus];
+
+
+export const UnresolvedRuntimeStartHealthStatus = {
+  clear: 'clear',
+  alert: 'alert',
+} as const;
+
+/**
+ * Content-free operational alert for durable runtime sessions whose startup has remained unresolved beyond the configured threshold. This is observational only and does not change runtime state or ownership.
+ */
+export interface UnresolvedRuntimeStartHealth {
+  status: UnresolvedRuntimeStartHealthStatus;
+  /** @minimum 1 */
+  thresholdMs: number;
+  /** @minimum 0 */
+  unresolvedCount: number;
+  /** @minimum 0 */
+  oldestAgeMs: number | null;
+}
+
 export interface HealthStatus {
   status: HealthStatusStatus;
   jobQueue?: JobQueueStats;
@@ -2586,6 +2607,7 @@ export interface HealthStatus {
   aiDiagnosticsRetention?: AiDiagnosticsRetentionHealth;
   taskExecutionRetention?: TaskExecutionRetentionHealth;
   jobRecovery?: JobRecoveryHealth;
+  unresolvedRuntimeStart?: UnresolvedRuntimeStartHealth;
 }
 
 export interface GroqKeyStatus {

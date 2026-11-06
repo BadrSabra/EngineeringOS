@@ -14,6 +14,7 @@ import { getTaskExecutionRetentionHealth } from "../lib/task-execution-retention
 import { getDurableJobHealth } from "../lib/job-reconciliation.js";
 import { loadLatestAgentEpisodeShadowCampaignScorecard } from "../lib/agent-state/agent-episode-shadow-campaign.js";
 import { logger } from "../lib/logger.js";
+import { workspaceRuntime } from "../lib/workspace-runtime.js";
 
 const router: IRouter = Router();
 
@@ -82,6 +83,7 @@ router.get("/healthz", async (_req, res) => {
     aiDiagnosticsRetention: getAiDiagnosticsRetentionHealth(),
     taskExecutionRetention: getTaskExecutionRetentionHealth(),
     jobRecovery: await getDurableJobHealth(),
+    unresolvedRuntimeStart: await workspaceRuntime.getUnresolvedStartHealth(),
   });
   res.json(data);
 });

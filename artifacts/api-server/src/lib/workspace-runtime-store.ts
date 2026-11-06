@@ -26,6 +26,7 @@ export type RuntimeStorePatch = Partial<Pick<
 
 export interface WorkspaceRuntimeStore {
   get(projectId: string): Promise<WorkspaceRuntime | undefined>;
+  listStarting(): Promise<WorkspaceRuntime[]>;
   begin(input: {
     projectId: string;
     projectRoot: string;
@@ -63,6 +64,13 @@ export const databaseWorkspaceRuntimeStore: WorkspaceRuntimeStore = {
       .where(eq(workspaceRuntimeTable.projectId, projectId))
       .limit(1);
     return row;
+  },
+
+  async listStarting() {
+    return db
+      .select()
+      .from(workspaceRuntimeTable)
+      .where(eq(workspaceRuntimeTable.status, "starting"));
   },
 
   async begin(input) {
@@ -202,6 +210,9 @@ export function createInMemoryWorkspaceRuntimeStore(): WorkspaceRuntimeStore {
   return {
     async get(projectId) {
       return rows.get(projectId);
+    },
+    async listStarting() {
+      return [...rows.values()].filter((row) => row.status === "starting");
     },
     async begin(input) {
       const existing = rows.get(input.projectId);

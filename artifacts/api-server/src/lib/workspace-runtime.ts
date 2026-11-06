@@ -30,6 +30,7 @@ import {
 const RUNTIME_PORT_MIN = 3000;
 const RUNTIME_PORT_MAX = 3099;
 const STARTUP_TIMEOUT_MS = 30_000;
+export const UNRESOLVED_RUNTIME_START_ALERT_MS = STARTUP_TIMEOUT_MS * 2;
 const STOP_TIMEOUT_MS = 2_000;
 const MAX_LOG_LINES = 120;
 const MAX_LOG_LINE_CHARS = 600;
@@ -100,6 +101,35 @@ export type WorkspaceRuntimeSnapshot = {
   error: string | null;
   logs: string[];
 };
+
+export type UnresolvedRuntimeStartAlert = {
+  status: "alert";
+  ageMs: number;
+  thresholdMs: number;
+};
+
+export type UnresolvedRuntimeStartHealth = {
+  status: "clear" | "alert";
+  thresholdMs: number;
+  unresolvedCount: number;
+  oldestAgeMs: number | null;
+};
+
+export function getUnresolvedRuntimeStartAlert(
+  snapshot: Pick<WorkspaceRuntimeSnapshot, "status" | "startedAt">,
+  now = new Date(),
+): UnresolvedRuntimeStartAlert | null {
+  if (snapshot.status !== "starting" || !snapshot.startedAt) return null;
+  const startedAt = Date.parse(snapshot.startedAt);
+  if (!Number.isFinite(startedAt)) return null;
+  const ageMs = Math.max(0, now.getTime() - startedAt);
+  if (ageMs < UNRESOLVED_RUNTIME_START_ALERT_MS) return null;
+  return {
+    status: "alert",
+    ageMs,
+    thresholdMs: UNRESOLVED_RUNTIME_START_ALERT_MS,
+  };
+}
 
 type RuntimeSession = Omit<WorkspaceRuntimeSnapshot, "projectId" | "sessionId"> & {
   projectId: string;
@@ -438,6 +468,39 @@ export class WorkspaceRuntimeManager {
     if (session) return this.snapshot(session);
     const persisted = await this.store.get(runtimeId);
     return persisted ? rowSnapshot(persisted, projectId) : this.stoppedSnapshot(projectId);
+  }
+
+  async getUnresolvedStartHealth(now = new Date()): Promise<UnresolvedRuntimeStartHealth> {
+    const starting = await this.store.listStarting();
+    let unresolvedCount = 0;
+    let oldestAgeMs: number | null = null;
+    for (const row of starting) {
+      if (!row.startedAt) continue;
+      const startedAt = row.startedAt.getTime();
+      if (!Number.isFinite(startedAt)) continue;
+      const ageMs = Math.max(0, now.getTime() - startedAt);
+      if (ageMs < UNRESOLVED_RUNTIME_START_ALERT_MS) continue;
+      unresolvedCount += 1;
+      oldestAgeMs = oldestAgeMs === null ? ageMs : Math.max(oldestAgeMs, ageMs);
+    }
+    return {
+      status: unresolvedCount > 0 ? "alert" : "clear",
+      thresholdMs: UNRESOLVED_RUNTIME_START_ALERT_MS,
+      unresolvedCount,
+      oldestAgeMs,
+    };
+  }
+
+  async getProjectUnresolvedStartAlert(
+    projectId: string,
+    now = new Date(),
+  ): Promise<UnresolvedRuntimeStartAlert | null> {
+    const row = await this.store.get(this.runtimeIdFor(projectId));
+    if (!row) return null;
+    return getUnresolvedRuntimeStartAlert({
+      status: row.status,
+      startedAt: row.startedAt?.toISOString() ?? null,
+    }, now);
   }
 
   /**

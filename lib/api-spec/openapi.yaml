@@ -6571,6 +6571,30 @@ components:
           $ref: "#/components/schemas/TaskExecutionRetentionHealth"
         jobRecovery:
           $ref: "#/components/schemas/JobRecoveryHealth"
+        unresolvedRuntimeStart:
+          $ref: "#/components/schemas/UnresolvedRuntimeStartHealth"
+
+    UnresolvedRuntimeStartHealth:
+      type: object
+      required: [status, thresholdMs, unresolvedCount, oldestAgeMs]
+      description: >
+        Content-free operational alert for durable runtime sessions whose
+        startup has remained unresolved beyond the configured threshold. This
+        is observational only and does not change runtime state or ownership.
+      properties:
+        status:
+          type: string
+          enum: [clear, alert]
+        thresholdMs:
+          type: integer
+          minimum: 1
+        unresolvedCount:
+          type: integer
+          minimum: 0
+        oldestAgeMs:
+          type: integer
+          minimum: 0
+          nullable: true
 
     JobRecoveryHealth:
       type: object
