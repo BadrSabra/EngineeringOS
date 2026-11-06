@@ -125,6 +125,8 @@ interface DiscoveryReport {
   sourceRevision?: string;
   sourceProvenance?: string;
   sourceCorrelationId?: string;
+  completeness?: 'COMPLETE' | 'PARTIAL';
+  completenessReasons?: string[];
   ruleViolations: Array<{
     ruleId?: string;
     code: string;
@@ -1061,6 +1063,31 @@ export function DiscoverProjectWizard({ onClose }: Props) {
             <div className="text-xs text-muted-foreground">مؤشر جودة المشروع</div>
           </div>
         </div>
+
+        {report.completeness === 'PARTIAL' && (
+          <div
+            role="alert"
+            data-testid="discovery-partial-warning"
+            className="flex items-start gap-3 rounded-xl border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-sm text-amber-200"
+          >
+            <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-400" />
+            <div>
+              <div className="font-medium">نتائج الاستكشاف جزئية</div>
+              <p className="mt-1 text-xs leading-relaxed text-amber-100/80">
+                بعض ملفات المشروع أو مجلداته لم تدخل التحليل الكامل.
+              </p>
+            </div>
+          </div>
+        )}
+        {report.completeness === undefined && (
+          <div
+            role="status"
+            data-testid="discovery-completeness-unknown"
+            className="rounded-xl border border-border/60 bg-secondary/30 px-4 py-3 text-xs text-muted-foreground"
+          >
+            لا تتوفر معلومات اكتمال الفحص لهذه الجلسة القديمة؛ تعامل مع نتائجها على أنها غير مؤكدة.
+          </div>
+        )}
 
         {/* Confidence bar */}
         <div className="bg-card border border-border/50 rounded-xl px-4 py-3 flex items-center gap-4">

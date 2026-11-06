@@ -90,6 +90,7 @@ export interface ScanJobResult {
     sourceRoot: string;
     files: Array<{ path: string; size: number; contentHash: string; oversized: boolean }>;
     completeness: "COMPLETE" | "PARTIAL";
+    incompleteReasons?: string[];
     derivedArtifacts: {
       scanner: "COMPLETE" | "PARTIAL";
       graph: "COMPLETE" | "PARTIAL";
@@ -460,7 +461,7 @@ async function performScanCore(
           type: "scan",
           correlationId,
           revision: walkResult.revision,
-          completeness: walkResult.truncated ? "PARTIAL" : "COMPLETE",
+          completeness: walkResult.revisionManifest.completeness,
         },
       });
       const remediationPrompt = buildRemediationPrompt(remediationPlan);
@@ -782,7 +783,7 @@ async function performScanCore(
       relationshipsExtracted: relRows.length,
       summary: `Scanned ${walkResult.totalFiles} files. Found ${issuesDetected} issues. Created ${newTaskIds.length} tasks. Quality score: ${metrics.overallScore}/100.`,
       projectRevision: walkResult.revision,
-      scanCompleteness: walkResult.truncated || graphIncomplete
+      scanCompleteness: walkResult.revisionManifest.completeness === "PARTIAL" || graphIncomplete
         ? "PARTIAL" as const
         : "COMPLETE" as const,
       sourceProvenance: "filesystem-scan",
@@ -791,9 +792,11 @@ async function performScanCore(
       repositoryManifest: {
         ...walkResult.revisionManifest,
         derivedArtifacts: {
-          scanner: walkResult.truncated ? "PARTIAL" as const : "COMPLETE" as const,
-          graph: walkResult.truncated || graphIncomplete ? "PARTIAL" as const : "COMPLETE" as const,
-          metrics: walkResult.truncated ? "PARTIAL" as const : "COMPLETE" as const,
+          scanner: walkResult.revisionManifest.completeness,
+          graph: walkResult.revisionManifest.completeness === "PARTIAL" || graphIncomplete
+            ? "PARTIAL" as const
+            : "COMPLETE" as const,
+          metrics: walkResult.revisionManifest.completeness,
         },
       },
       _priorQualityScore: project[0].qualityScore ?? null,

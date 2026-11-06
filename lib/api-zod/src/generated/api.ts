@@ -3456,6 +3456,10 @@ export const getDiscoverySummaryResponseRuleViolationsItemRemediationPlanOneVeri
 
 export const getDiscoverySummaryResponseRuleViolationsItemRemediationPlanOneVerificationChecksMax = 20;
 
+export const getDiscoverySummaryResponseCompletenessReasonsItemMax = 120;
+
+export const getDiscoverySummaryResponseCompletenessReasonsMax = 10;
+
 
 
 export const GetDiscoverySummaryResponse = zod.object({
@@ -3558,7 +3562,9 @@ export const GetDiscoverySummaryResponse = zod.object({
 })),
   "sourceRevision": zod.string().optional(),
   "sourceProvenance": zod.string().optional(),
-  "sourceCorrelationId": zod.string().optional()
+  "sourceCorrelationId": zod.string().optional(),
+  "completeness": zod.enum(['COMPLETE', 'PARTIAL']).optional(),
+  "completenessReasons": zod.array(zod.string().max(getDiscoverySummaryResponseCompletenessReasonsItemMax)).max(getDiscoverySummaryResponseCompletenessReasonsMax).optional()
 })
 
 
@@ -6717,10 +6723,12 @@ export const DiscardAiDeliveryRecoveryResponse = zod.void()
  *     "message": "..." }
  *     — Deterministic Repair Plan safety stop after repeated identical tool calls.
  *
- *    { "type": "tool_call", "tool": "...", "args": { "...": "..." }, "cached": false }
+ *    { "type": "tool_call", "toolCallId": "...", "tool": "...",
+ *      "args": { "...": "..." }, "cached": false }
  *      — A tool invocation started by the agent.
  *
- *    { "type": "tool_result", "tool": "...", "source"?: "...", "cached": false }
+ *    { "type": "tool_result", "toolCallId": "...", "tool": "...",
+ *      "source"?: "...", "cached": false }
  *      — A tool invocation completed; source is a bounded file label when available.
  *
  *     { "type": "repair_state",

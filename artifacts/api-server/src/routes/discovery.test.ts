@@ -74,6 +74,8 @@ function fakeResult(overrides: Partial<DiscoveryResultData> = {}): DiscoveryResu
     detectedRisks: [],
     qualityScore: 80,
     confidenceScore: 90,
+    completeness: "COMPLETE",
+    completenessReasons: [],
     graphSummary: { entityCount: 0, relationshipCount: 0, entitiesByType: {}, filesByLanguage: {} },
     ruleViolations: [],
     ...overrides,
@@ -607,6 +609,24 @@ describe("GET /projects/discover/:id — session polling", () => {
   });
 });
 
+describe("GET /projects/discover/:id/summary completeness", () => {
+  afterEach(cleanupSessionAndProject);
+
+  it("returns the server-owned partial state and reasons", async () => {
+    const id = await insertReadySession(fakeResult({
+      completeness: "PARTIAL",
+      completenessReasons: ["file_read_failed"],
+    }));
+
+    const response = await request(app)
+      .get(`/api/projects/discover/${id}/summary`);
+
+    expect(response.status).toBe(200);
+    expect(response.body.completeness).toBe("PARTIAL");
+    expect(response.body.completenessReasons).toEqual(["file_read_failed"]);
+  });
+});
+
 describe("Discovery cleanup ownership and races", () => {
   afterEach(cleanupSessionAndProject);
 
@@ -768,6 +788,63 @@ describe("GET /projects/discover/:id/summary", () => {
 
 describe("POST /projects/import — atomic claim", () => {
   afterEach(cleanupSessionAndProject);
+
+  it("keeps imported remediation plans partial when discovery was partial", async () => {
+    const discoveryId = await insertReadySession(fakeResult({
+      completeness: "PARTIAL",
+      completenessReasons: ["file_read_failed"],
+      ruleViolations: [{
+        code: "PARTIAL_SOURCE",
+        title: "Partial source fixture",
+        severity: "medium",
+        count: 1,
+      }],
+    }));
+
+    const response = await request(app)
+      .post("/api/projects/import")
+      .send({ discoveryId });
+    expect(response.status).toBe(201);
+    projectId = response.body.id;
+
+    const [task] = await db
+      .select()
+      .from(tasksTable)
+      .where(eq(tasksTable.projectId, projectId!))
+      .limit(1);
+    expect(task?.remediationPlan).toMatchObject({
+      source: { completeness: "PARTIAL" },
+    });
+  });
+
+  it("does not assume legacy discovery results were complete", async () => {
+    const legacyResult = fakeResult({
+      ruleViolations: [{
+        code: "LEGACY_SOURCE",
+        title: "Legacy source fixture",
+        severity: "low",
+        count: 1,
+      }],
+    });
+    delete legacyResult.completeness;
+    delete legacyResult.completenessReasons;
+    const discoveryId = await insertReadySession(legacyResult);
+
+    const response = await request(app)
+      .post("/api/projects/import")
+      .send({ discoveryId });
+    expect(response.status).toBe(201);
+    projectId = response.body.id;
+
+    const [task] = await db
+      .select()
+      .from(tasksTable)
+      .where(eq(tasksTable.projectId, projectId!))
+      .limit(1);
+    expect(task?.remediationPlan).toMatchObject({
+      source: { completeness: "PARTIAL" },
+    });
+  });
 
   it("imports a ready session exactly once and rejects a concurrent second import", async () => {
     const discoveryId = await insertReadySession(fakeResult());

@@ -6,6 +6,7 @@
  * OpenAPI spec version: 1.0.0
  */
 import type { DiscoveryGraphSummaryData } from './discoveryGraphSummaryData';
+import type { DiscoveryReportCompleteness } from './discoveryReportCompleteness';
 import type { DiscoveryRuleViolationItem } from './discoveryRuleViolationItem';
 import type { DiscoverySupportMatrix } from './discoverySupportMatrix';
 
@@ -48,4 +49,10 @@ export interface DiscoveryReport {
   sourceRevision?: string;
   sourceProvenance?: string;
   sourceCorrelationId?: string;
+  completeness?: DiscoveryReportCompleteness;
+  /**
+     * @maxItems 10
+     * @items.maxLength 120
+     */
+  completenessReasons?: string[];
 }

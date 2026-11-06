@@ -6955,6 +6955,14 @@ export interface DiscoverySupportMatrix {
   frameworks: DiscoverySupportTarget[];
 }
 
+export type DiscoveryReportCompleteness = typeof DiscoveryReportCompleteness[keyof typeof DiscoveryReportCompleteness];
+
+
+export const DiscoveryReportCompleteness = {
+  COMPLETE: 'COMPLETE',
+  PARTIAL: 'PARTIAL',
+} as const;
+
 export interface DiscoveryReport {
   id: string;
   detectedName: string;
@@ -6994,6 +7002,12 @@ export interface DiscoveryReport {
   sourceRevision?: string;
   sourceProvenance?: string;
   sourceCorrelationId?: string;
+  completeness?: DiscoveryReportCompleteness;
+  /**
+     * @maxItems 10
+     * @items.maxLength 120
+     */
+  completenessReasons?: string[];
 }
 
 export type DashboardOverviewProjectScoresItemTrend = typeof DashboardOverviewProjectScoresItemTrend[keyof typeof DashboardOverviewProjectScoresItemTrend];

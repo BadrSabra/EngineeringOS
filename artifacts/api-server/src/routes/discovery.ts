@@ -15,6 +15,7 @@ import {
   ImportProjectBody,
   GetDiscoverySessionParams,
   GetDiscoverySummaryParams,
+  GetDiscoverySummaryResponse,
 } from "@workspace/api-zod";
 import { eq, and, isNull, isNotNull, lt } from "drizzle-orm";
 import { randomUUID } from "crypto";
@@ -361,7 +362,7 @@ router.get("/projects/discover/:discoveryId/summary", async (req, res) => {
   }
   const result = session.result;
   if (!result) return res.status(500).json({ error: "Discovery result missing" });
-  return res.json({ id: discoveryId, ...result });
+  return res.json(GetDiscoverySummaryResponse.parse({ id: discoveryId, ...result }));
 });
 
 class SessionAlreadyImportedError extends Error {
@@ -539,7 +540,11 @@ router.post("/projects/import", async (req, res) => {
             type: "discovery",
             correlationId: result.sourceCorrelationId ?? body.discoveryId,
             revision: result.sourceRevision ?? sourcePlan?.source.revision ?? null,
-            completeness: sourcePlan?.source.completeness ?? "COMPLETE",
+            completeness:
+              result.completeness === "COMPLETE" &&
+              sourcePlan?.source.completeness !== "PARTIAL"
+                ? "COMPLETE"
+                : "PARTIAL",
           },
         });
 

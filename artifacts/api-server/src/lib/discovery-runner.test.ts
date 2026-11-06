@@ -17,7 +17,11 @@ import { afterEach, describe, it, expect } from "vitest";
 import { eq } from "drizzle-orm";
 import { randomUUID } from "node:crypto";
 import { db, discoverySessionsTable } from "@workspace/db";
-import { detectDb, updateSession } from "./discovery-runner.js";
+import {
+  deriveDiscoveryCompleteness,
+  detectDb,
+  updateSession,
+} from "./discovery-runner.js";
 import type { ScannedFile } from "@workspace/scanner";
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -34,6 +38,42 @@ const makeFile = (
   size: content.length,
   lines: content.split("\n").length,
   oversized: false,
+});
+
+describe("deriveDiscoveryCompleteness", () => {
+  it("keeps a complete walk complete only when the graph is complete", () => {
+    expect(deriveDiscoveryCompleteness({
+      manifestCompleteness: "COMPLETE",
+      truncated: false,
+      graphIncomplete: false,
+    })).toEqual({
+      completeness: "COMPLETE",
+      completenessReasons: [],
+    });
+  });
+
+  it("retains scanner failure reasons and adds graph incompleteness", () => {
+    expect(deriveDiscoveryCompleteness({
+      manifestCompleteness: "PARTIAL",
+      incompleteReasons: ["file_read_failed"],
+      truncated: false,
+      graphIncomplete: true,
+    })).toEqual({
+      completeness: "PARTIAL",
+      completenessReasons: ["file_read_failed", "graph_incomplete"],
+    });
+  });
+
+  it("does not claim complete when legacy partial data has no reason details", () => {
+    expect(deriveDiscoveryCompleteness({
+      manifestCompleteness: "PARTIAL",
+      truncated: false,
+      graphIncomplete: false,
+    })).toEqual({
+      completeness: "PARTIAL",
+      completenessReasons: ["scanner_incomplete"],
+    });
+  });
 });
 
 // ─── detectDb ────────────────────────────────────────────────────────────────

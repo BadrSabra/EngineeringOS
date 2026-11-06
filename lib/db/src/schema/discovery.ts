@@ -132,6 +132,10 @@ export interface DiscoveryResultData {
   sourceRevision?: string;
   sourceProvenance?: string;
   sourceCorrelationId?: string;
+  /** Whether the source tree and derived graph were analyzed completely. */
+  completeness?: "COMPLETE" | "PARTIAL";
+  /** Stable reason codes for a partial discovery result. */
+  completenessReasons?: string[];
 }
 
 export const discoverySessionsTable = pgTable("discovery_sessions", {

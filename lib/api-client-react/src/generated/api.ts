@@ -7903,10 +7903,12 @@ export const getAiChatStreamUrl = () => {
  *     "message": "..." }
  *     — Deterministic Repair Plan safety stop after repeated identical tool calls.
  *
- *    { "type": "tool_call", "tool": "...", "args": { "...": "..." }, "cached": false }
+ *    { "type": "tool_call", "toolCallId": "...", "tool": "...",
+ *      "args": { "...": "..." }, "cached": false }
  *      — A tool invocation started by the agent.
  *
- *    { "type": "tool_result", "tool": "...", "source"?: "...", "cached": false }
+ *    { "type": "tool_result", "toolCallId": "...", "tool": "...",
+ *      "source"?: "...", "cached": false }
  *      — A tool invocation completed; source is a bounded file label when available.
  *
  *     { "type": "repair_state",

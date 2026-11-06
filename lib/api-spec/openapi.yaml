@@ -11664,6 +11664,15 @@ components:
           type: string
         sourceCorrelationId:
           type: string
+        completeness:
+          type: string
+          enum: [COMPLETE, PARTIAL]
+        completenessReasons:
+          type: array
+          maxItems: 10
+          items:
+            type: string
+            maxLength: 120
 
     # ─── Dashboard ─────────────────────────────────────────────────────────────
     DashboardOverview:

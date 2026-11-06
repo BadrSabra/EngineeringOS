@@ -46,6 +46,29 @@ import { getRepairValidationProfile } from "./ai-repair-validation.js";
 
 // ─── Step names ────────────────────────────────────────────────────────────────
 
+export function deriveDiscoveryCompleteness(input: {
+  manifestCompleteness: "COMPLETE" | "PARTIAL";
+  incompleteReasons?: string[];
+  truncated: boolean;
+  truncationReason?: string;
+  graphIncomplete: boolean;
+}): {
+  completeness: "COMPLETE" | "PARTIAL";
+  completenessReasons: string[];
+} {
+  const reasons = new Set(input.incompleteReasons ?? []);
+  if (input.truncated) reasons.add(input.truncationReason ?? "scanner_truncated");
+  if (input.manifestCompleteness === "PARTIAL" && reasons.size === 0) {
+    reasons.add("scanner_incomplete");
+  }
+  if (input.graphIncomplete) reasons.add("graph_incomplete");
+  const completenessReasons = [...reasons].sort();
+  return {
+    completeness: completenessReasons.length > 0 ? "PARTIAL" : "COMPLETE",
+    completenessReasons,
+  };
+}
+
 export const STEPS: DiscoveryStep["name"][] = [
   "Finding repository",
   "Reading configuration files",
@@ -480,6 +503,16 @@ export async function runDiscovery(
     await setStep(5, "running");
     const graphResult = await extractGraph(files);
     await setStep(5, "done", Date.now() - t5);
+    const {
+      completeness: discoveryCompleteness,
+      completenessReasons: discoveryCompletenessReasons,
+    } = deriveDiscoveryCompleteness({
+      manifestCompleteness: walkResult.revisionManifest.completeness,
+      incompleteReasons: walkResult.revisionManifest.incompleteReasons,
+      truncated: walkResult.truncated,
+      truncationReason: walkResult.truncationReason,
+      graphIncomplete: graphResult.incomplete ?? false,
+    });
 
     // Step 6 — Metrics
     const t6 = Date.now();
@@ -535,7 +568,7 @@ export async function runDiscovery(
             type: "discovery",
             correlationId: sessionId,
             revision: walkResult.revision,
-            completeness: walkResult.truncated ? "PARTIAL" : "COMPLETE",
+            completeness: discoveryCompleteness,
           },
         });
         return {
@@ -597,6 +630,8 @@ export async function runDiscovery(
       sourceRevision: walkResult.revision,
       sourceProvenance: "discovery",
       sourceCorrelationId: sessionId,
+      completeness: discoveryCompleteness,
+      completenessReasons: discoveryCompletenessReasons,
     };
     await setStep(8, "done", Date.now() - t8);
 

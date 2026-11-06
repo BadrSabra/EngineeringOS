@@ -39,6 +39,8 @@ const mocks = vi.hoisted(() => ({
     detectedRisks: ['No test framework detected'],
     qualityScore: 74,
     confidenceScore: 91,
+    completeness: 'COMPLETE',
+    completenessReasons: [],
     graphSummary: { entityCount: 5, relationshipCount: 4 },
     supportMatrix: {
       languages: [
@@ -166,5 +168,20 @@ describe('DiscoverProjectWizard Arabic findings', () => {
     expect(screen.getByText('src/app.ts:7 — export const app = createApp(); (2)')).toBeInTheDocument();
     expect(screen.getByText('Run pnpm test')).toBeInTheDocument();
     await waitFor(() => expect(detailsSummary.closest('details')).toHaveAttribute('open'));
+  });
+
+  it('warns when discovery results are partial', async () => {
+    mocks.report.completeness = 'PARTIAL';
+    mocks.report.completenessReasons = ['file_open_failed'];
+    render(<DiscoverProjectWizard onClose={vi.fn()} />);
+
+    fireEvent.change(screen.getByPlaceholderText('https://github.com/owner/repo'), {
+      target: { value: 'https://github.com/example/sample-app' },
+    });
+    fireEvent.click(screen.getByTestId('start-discovery'));
+
+    const warning = await screen.findByTestId('discovery-partial-warning');
+    expect(warning).toHaveTextContent('نتائج الاستكشاف جزئية');
+    expect(warning).toHaveTextContent('بعض ملفات المشروع أو مجلداته لم تدخل التحليل الكامل.');
   });
 });

@@ -389,6 +389,7 @@ export * from './discoveryGraphSummaryDataEntitiesByType';
 export * from './discoveryGraphSummaryDataFilesByLanguage';
 export * from './discoveryOptions';
 export * from './discoveryReport';
+export * from './discoveryReportCompleteness';
 export * from './discoveryRuleViolationItem';
 export * from './discoverySessionStatus';
 export * from './discoverySessionStatusStatus';

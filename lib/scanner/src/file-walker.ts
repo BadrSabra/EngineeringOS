@@ -108,6 +108,8 @@ export interface RevisionManifest {
   sourceRoot: string;
   files: RevisionManifestFile[];
   completeness: "COMPLETE" | "PARTIAL";
+  /** Bounded, stable reason codes explaining why the walk is partial. */
+  incompleteReasons?: string[];
 }
 
 export interface WalkResult {
@@ -146,6 +148,7 @@ interface WalkState {
   contentBytes: number;
   filesReserved: number;
   truncationReason?: string;
+  incompleteReasons: Set<string>;
 }
 
 async function readBoundedContent(
@@ -199,10 +202,12 @@ async function scanFileEntry(
   signal?: AbortSignal,
 ): Promise<void> {
   let fileHandle: FileHandle | undefined;
+  let fileOpened = false;
   try {
     signal?.throwIfAborted();
     fileHandle = await openProjectChildFile(parent, name, rootPath);
     const fileStat = await fileHandle.stat();
+    fileOpened = true;
     signal?.throwIfAborted();
 
     let size = fileStat.size;
@@ -225,7 +230,8 @@ async function scanFileEntry(
       } catch (error) {
         state.contentBytes -= fileStat.size;
         if (signal?.aborted) throw error;
-        content = "";
+        state.incompleteReasons.add("file_read_failed");
+        return;
       }
     } else {
       oversized = true;
@@ -237,6 +243,7 @@ async function scanFileEntry(
     files.push({ path: relPath, absPath, language, size, lines, content, oversized });
   } catch (error) {
     if (signal?.aborted) throw error;
+    state.incompleteReasons.add(fileOpened ? "file_read_failed" : "file_open_failed");
   } finally {
     await fileHandle?.close().catch(() => undefined);
   }
@@ -271,6 +278,7 @@ async function walkDir(
         cause: error,
       });
     }
+    state.incompleteReasons.add("directory_open_failed");
     return;
   }
 
@@ -296,12 +304,17 @@ async function walkDir(
         let child: FileHandle | undefined;
         try {
           child = await openProjectChildDirectory(directory, entry.name, rootPath);
-          const childPath = relativeDirectory ? join(relativeDirectory, entry.name) : entry.name;
-          await walkDir(child, childPath, rootPath, files, state, depth + 1, signal);
         } catch (error) {
           if (signal?.aborted) throw error;
+          state.incompleteReasons.add("directory_open_failed");
+          continue;
+        }
+        if (!child) continue;
+        const childPath = relativeDirectory ? join(relativeDirectory, entry.name) : entry.name;
+        try {
+          await walkDir(child, childPath, rootPath, files, state, depth + 1, signal);
         } finally {
-          await child?.close().catch(() => undefined);
+          await child.close().catch(() => undefined);
         }
         continue;
       }
@@ -347,6 +360,7 @@ async function walkDir(
         cause: error,
       });
     }
+    state.incompleteReasons.add("directory_read_failed");
   } finally {
     await entries.close().catch(() => undefined);
   }
@@ -407,7 +421,12 @@ export async function walkProject(rootPath: string, signal?: AbortSignal): Promi
   }
 
   const files: ScannedFile[] = [];
-  const state: WalkState = { aborted: false, contentBytes: 0, filesReserved: 0 };
+  const state: WalkState = {
+    aborted: false,
+    contentBytes: 0,
+    filesReserved: 0,
+    incompleteReasons: new Set(),
+  };
 
   try {
     await walkDir(rootHandle, "", canonicalRootPath, files, state, 0, signal);
@@ -453,6 +472,8 @@ export async function walkProject(rootPath: string, signal?: AbortSignal): Promi
 
   const revision = revisionHash.digest("hex");
   signal?.throwIfAborted();
+  if (state.truncationReason) state.incompleteReasons.add(state.truncationReason);
+  const incompleteReasons = [...state.incompleteReasons].sort();
   return {
     files,
     rootPath: canonicalRootPath,
@@ -461,15 +482,16 @@ export async function walkProject(rootPath: string, signal?: AbortSignal): Promi
     sourceFiles,
     truncated: state.aborted,
     truncationReason: state.truncationReason,
-    // When aborted by a cap, skipped count is unknown (Promise.all branches
-    // were concurrent); signal with -1.
-    filesSkipped: state.aborted ? -1 : 0,
+    // The skipped count is unknown for caps and inaccessible filesystem
+    // entries, so signal that it cannot be measured precisely with -1.
+    filesSkipped: state.aborted || incompleteReasons.length > 0 ? -1 : 0,
     revision,
     revisionManifest: {
       revision,
       sourceRoot: canonicalRootPath,
       files: manifestFiles,
-      completeness: state.aborted ? "PARTIAL" : "COMPLETE",
+      completeness: state.aborted || incompleteReasons.length > 0 ? "PARTIAL" : "COMPLETE",
+      incompleteReasons,
     },
   };
 }
