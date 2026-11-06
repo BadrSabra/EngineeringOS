@@ -114,10 +114,10 @@ export default function Metrics() {
           <p className="text-xs mt-1 opacity-70">شغّل فحصًا لإنشاء أول لقطة للبيانات.</p>
         </div>
       ) : (
-        <div className="space-y-6">
-          <div className="bg-card border border-border rounded-xl p-6 shadow-sm">
+        <div className="min-w-0 space-y-6">
+          <div className="min-w-0 bg-card border border-border rounded-xl p-6 shadow-sm">
             <h3 className="font-semibold mb-6">اتجاه الجودة الإجمالي</h3>
-            <div dir="ltr" className="h-80 w-full">
+            <div data-testid="metrics-overall-chart" dir="ltr" className="h-80 w-full min-w-0">
               <ResponsiveContainer width="100%" height="100%">
                 <LineChart data={formatData}>
                   <CartesianGrid
@@ -179,9 +179,9 @@ export default function Metrics() {
           </div>
 
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-            <div className="bg-card border border-border rounded-xl p-6 shadow-sm">
+            <div className="min-w-0 bg-card border border-border rounded-xl p-6 shadow-sm">
               <h3 className="font-semibold mb-6">تغطية الاختبارات ومشكلات فحص الكود</h3>
-              <div dir="ltr" className="h-64 w-full">
+              <div data-testid="metrics-tests-chart" dir="ltr" className="h-64 w-full min-w-0">
                 <ResponsiveContainer width="100%" height="100%">
                   <BarChart data={formatData}>
                     <CartesianGrid
@@ -238,9 +238,9 @@ export default function Metrics() {
               </div>
             </div>
 
-            <div className="bg-card border border-border rounded-xl p-6 shadow-sm">
+            <div className="min-w-0 bg-card border border-border rounded-xl p-6 shadow-sm">
               <h3 className="font-semibold mb-6">الدين التقني (ساعات)</h3>
-              <div dir="ltr" className="h-64 w-full">
+              <div data-testid="metrics-debt-chart" dir="ltr" className="h-64 w-full min-w-0">
                 <ResponsiveContainer width="100%" height="100%">
                   <LineChart data={formatData}>
                     <CartesianGrid

@@ -838,6 +838,10 @@ async function installApiFixtures(
     protectedVisual?: {
       apiRequests: string[];
       mutativeRequests: string[];
+      metrics: Array<Record<string, unknown>>;
+      graphEntities: Array<Record<string, unknown>>;
+      graphRelationship: Record<string, unknown>;
+      graphNeighbors: Record<string, unknown>;
     };
     sessionExpiry?: {
       failDashboardRequests: boolean;
@@ -1477,26 +1481,25 @@ async function installApiFixtures(
       );
     }
     if (overrides?.protectedVisual && path === "/api/metrics") {
-      return route.fulfill(jsonResponse([]));
+      return route.fulfill(jsonResponse(overrides.protectedVisual.metrics));
     }
     if (overrides?.protectedVisual && path === "/api/graph/entities") {
       return route.fulfill(jsonResponse({
-        items: [{
-          id: "rtl-graph-entity",
-          projectId: "e2e-project",
-          type: "file",
-          name: "src/rtl/sample.test.ts",
-          path: "src/rtl/sample.test.ts",
-          createdAt: "2026-01-01T00:00:00.000Z",
-        }],
-        meta: { page: 1, pageSize: 100, total: 1, truncated: false },
+        items: overrides.protectedVisual.graphEntities,
+        meta: { page: 1, pageSize: 100, total: overrides.protectedVisual.graphEntities.length, truncated: false },
       }));
     }
     if (overrides?.protectedVisual && path === "/api/graph/relationships") {
       return route.fulfill(jsonResponse({
-        items: [],
-        meta: { page: 1, pageSize: 100, total: 0, truncated: false },
+        items: [overrides.protectedVisual.graphRelationship],
+        meta: { page: 1, pageSize: 100, total: 1, truncated: false },
       }));
+    }
+    if (
+      overrides?.protectedVisual &&
+      path === "/api/graph/entities/rtl-graph-entity/neighbors"
+    ) {
+      return route.fulfill(jsonResponse(overrides.protectedVisual.graphNeighbors));
     }
     if (
       overrides?.protectedVisual &&
@@ -8124,7 +8127,62 @@ test.describe("EngineeringOS dashboard browser journey", () => {
     ).toBe("1");
     expect(localAuthFixtureModeEnabled()).toBe(true);
 
-    const fixtureRequests = { apiRequests: [], mutativeRequests: [] };
+    const graphRelationship = {
+      id: "rtl-graph-relationship",
+      sourceId: "rtl-graph-entity",
+      targetId: "rtl-graph-target",
+      projectId: "e2e-project",
+      relation: "imports:src/rtl/shared/long-technical-module-name.ts",
+      relationType: "imports",
+      createdAt: "2026-11-05T00:00:00.000Z",
+    };
+    const graphEntities = [
+      {
+        id: "rtl-graph-entity",
+        projectId: "e2e-project",
+        type: "file",
+        name: "src/rtl/sample.test.ts",
+        path: "src/rtl/sample.test.ts",
+        createdAt: "2026-11-05T00:00:00.000Z",
+      },
+      {
+        id: "rtl-graph-target",
+        projectId: "e2e-project",
+        type: "file",
+        name: "src/rtl/shared/long-technical-module-name.ts",
+        path: "src/rtl/shared/long-technical-module-name.ts",
+        createdAt: "2026-11-05T00:00:00.000Z",
+      },
+    ];
+    const graphNeighbors = {
+      entity: graphEntities[0],
+      outgoing: [graphRelationship],
+      incoming: [],
+      neighbors: [graphEntities[1]],
+    };
+    const metricFixtures = [14, 7, 1].map((daysAgo, index) => {
+      const timestamp = new Date(Date.now() - daysAgo * 24 * 60 * 60 * 1000);
+      return {
+        id: `rtl-metric-${index + 1}`,
+        projectId: "e2e-project",
+        timestamp: timestamp.toISOString(),
+        overallScore: 72 + index * 8,
+        architectureScore: 68 + index * 7,
+        securityScore: 75 + index * 6,
+        structuralTestEstimate: 48 + index * 10,
+        lintIssues: 24 - index * 7,
+        technicalDebt: 18 - index * 4,
+        buildStatus: "passing",
+      };
+    });
+    const fixtureRequests = {
+      apiRequests: [],
+      mutativeRequests: [],
+      metrics: metricFixtures,
+      graphEntities,
+      graphRelationship,
+      graphNeighbors,
+    };
     const rtlCommand = "pnpm --filter @workspace/dashboard test -- --run src/rtl/sample.test.ts";
     const rtlEventCommand = "pnpm test -- --run src/rtl/sample.test.ts";
     const rtlCorrelationId = "rtl-check-correlation-2026-11-05";
@@ -8318,10 +8376,38 @@ test.describe("EngineeringOS dashboard browser journey", () => {
             expect(await command.getAttribute("dir")).toBe("auto");
             expect(await command.evaluate((element) => getComputedStyle(element).direction)).toBe("ltr");
           }
+          if (route.name === "metrics") {
+            for (const chartId of [
+              "metrics-overall-chart",
+              "metrics-tests-chart",
+              "metrics-debt-chart",
+            ]) {
+              const chart = page.getByTestId(chartId);
+              await expect(chart).toBeVisible();
+              expect(await chart.getAttribute("dir")).toBe("ltr");
+              await expect(chart.locator("svg")).toBeVisible();
+            }
+            await expect(page.getByText("النتيجة الإجمالية", { exact: true })).toBeVisible();
+            await expect(page.getByText("تقدير الاختبارات % (بنيوي)", { exact: true })).toBeVisible();
+            await expect(page.getByText("مشكلات فحص الكود", { exact: true })).toBeVisible();
+            expect(await page.locator('[data-testid="metrics-overall-chart"] .recharts-line-curve').count()).toBeGreaterThan(0);
+          }
           if (route.name === "graph") {
-            const path = page.getByText("src/rtl/sample.test.ts", { exact: true });
-            await expect(path).toBeVisible();
-            expect(await path.getAttribute("dir")).toBe("ltr");
+            await page.getByRole("button", { name: "src/rtl/sample.test.ts" }).click();
+            const details = page.getByTestId("graph-entity-details");
+            const selectedPath = details.getByText("src/rtl/sample.test.ts", { exact: true });
+            await expect(selectedPath).toBeVisible();
+            expect(await selectedPath.getAttribute("dir")).toBe("ltr");
+            expect(await selectedPath.evaluate((element) => getComputedStyle(element).direction)).toBe("ltr");
+            const relationValue = details.getByTestId("graph-relation-value");
+            await expect(relationValue).toHaveText("imports:src/rtl/shared/long-technical-module-name.ts");
+            expect(await relationValue.getAttribute("dir")).toBe("ltr");
+            expect(await relationValue.evaluate((element) => getComputedStyle(element).direction)).toBe("ltr");
+            const relationBounds = await relationValue.evaluate((element) => ({
+              scrollWidth: element.scrollWidth,
+              clientWidth: element.clientWidth,
+            }));
+            expect(relationBounds.scrollWidth).toBeLessThanOrEqual(relationBounds.clientWidth + 1);
             const controls = page.getByTestId("graph-controls");
             const controlsBox = await controls.boundingBox();
             const contentBox = await page.locator("main").boundingBox();
@@ -8401,6 +8487,12 @@ test.describe("EngineeringOS dashboard browser journey", () => {
           await page.screenshot({ path: screenshotPath, fullPage: true });
           captures.push({
             route: route.path,
+            state:
+              route.name === "metrics"
+                ? "populated-chart"
+                : route.name === "graph"
+                  ? "selected-node"
+                  : "default",
             viewport: {
               name: viewport.name,
               width: viewport.width,

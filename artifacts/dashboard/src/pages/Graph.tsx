@@ -325,7 +325,7 @@ export default function Graph() {
           </div>
         )}
         {/* Left sidebar: legend + summary + entity list */}
-        <div className="bg-card border border-border rounded-xl p-4 shadow-sm flex flex-col overflow-hidden">
+        <div className="min-w-0 bg-card border border-border rounded-xl p-4 shadow-sm flex flex-col overflow-hidden">
           {/* Type legend */}
           <h3 className="font-semibold text-xs uppercase tracking-wider text-muted-foreground mb-3 flex items-center gap-1.5">
             <Layers className="w-3.5 h-3.5" /> أنواع العُقد
@@ -511,7 +511,7 @@ export default function Graph() {
         </div>
 
         {/* Right sidebar: entity detail */}
-        <div className="bg-card border border-border rounded-xl p-4 shadow-sm flex flex-col overflow-hidden">
+        <div data-testid="graph-entity-details" className="min-w-0 bg-card border border-border rounded-xl p-4 shadow-sm flex flex-col overflow-hidden">
           {!selectedEntityId ? (
             <div className="flex-1 flex flex-col items-center justify-center text-center text-sm text-muted-foreground gap-3 px-4">
               <Network className="w-8 h-8 opacity-20" />
@@ -605,7 +605,7 @@ export default function Graph() {
                                 className="w-full text-left text-xs p-2 bg-secondary/50 rounded border border-border/50 hover:bg-secondary transition-colors"
                                 title={target?.name || rel.targetId}
                               >
-                                <div dir="ltr" className="font-mono text-muted-foreground text-[10px] mb-0.5">{rel.relation}</div>
+                                <div data-testid="graph-relation-value" dir="ltr" className="min-w-0 break-all font-mono text-muted-foreground text-[10px] mb-0.5">{rel.relation}</div>
                                 <div className="truncate flex items-center gap-1">
                                   <div className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: nodeColor(target?.type ?? '') }} />
                                   {target?.name || rel.targetId.slice(0, 12)}
@@ -633,7 +633,7 @@ export default function Graph() {
                                 className="w-full text-left text-xs p-2 bg-secondary/50 rounded border border-border/50 hover:bg-secondary transition-colors"
                                 title={source?.name || rel.sourceId}
                               >
-                                <div dir="ltr" className="font-mono text-muted-foreground text-[10px] mb-0.5">{rel.relation}</div>
+                                <div data-testid="graph-relation-value" dir="ltr" className="min-w-0 break-all font-mono text-muted-foreground text-[10px] mb-0.5">{rel.relation}</div>
                                 <div className="truncate flex items-center gap-1">
                                   <div className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: nodeColor(source?.type ?? '') }} />
                                   {source?.name || rel.sourceId.slice(0, 12)}
