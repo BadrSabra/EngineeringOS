@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { and, eq } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import { createHash, randomUUID } from "crypto";
 import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
@@ -19,6 +19,7 @@ import {
   discoverySessionsTable,
   eventsTable,
   projectsTable,
+  projectBootstrapJobsTable,
   scanJobsTable,
   taskLogsTable,
   tasksTable,
@@ -1126,10 +1127,12 @@ describe("requeueStalePendingJobs", () => {
 describe("dispatchPersistedPendingJobs", () => {
   const projectCleanup: string[] = [];
   const sessionCleanup: string[] = [];
+  const bootstrapCleanup: string[] = [];
   const deliveryRootCleanup: string[] = [];
 
   afterEach(async () => {
-    vi.mocked(heavyJobQueue.enqueueWithId).mockClear();
+    vi.mocked(heavyJobQueue.enqueueWithId).mockReset().mockReturnValue(true);
+    vi.mocked(heavyJobQueue.enqueueWithIdDetailed).mockReset().mockReturnValue("enqueued");
     while (projectCleanup.length > 0) {
       const id = projectCleanup.pop();
       if (id) {
@@ -1141,6 +1144,12 @@ describe("dispatchPersistedPendingJobs", () => {
       const id = sessionCleanup.pop();
       if (id) {
         await db.delete(discoverySessionsTable).where(eq(discoverySessionsTable.id, id));
+      }
+    }
+    while (bootstrapCleanup.length > 0) {
+      const id = bootstrapCleanup.pop();
+      if (id) {
+        await db.delete(projectBootstrapJobsTable).where(eq(projectBootstrapJobsTable.id, id));
       }
     }
     while (deliveryRootCleanup.length > 0) {
@@ -1162,6 +1171,98 @@ describe("dispatchPersistedPendingJobs", () => {
       dispatched: 5,
       counts: { scan: 2, mission: 0, discovery: 3 },
     });
+  });
+
+  it("dispatches Scan and other categories while Discovery fails, then recovers Discovery next pass", async () => {
+    const projectId = await insertProject("scanning");
+    projectCleanup.push(projectId);
+
+    const scanId = randomUUID();
+    await db.insert(scanJobsTable).values({
+      id: scanId,
+      projectId,
+      status: "queued",
+    });
+
+    const sessionId = randomUUID();
+    sessionCleanup.push(sessionId);
+    await db.insert(discoverySessionsTable).values({
+      id: sessionId,
+      ownerId: "test-user",
+      status: "pending",
+      rootPath: `/tmp/reconcile-discovery-${sessionId}`,
+      sourceType: "LOCAL_FOLDER",
+      steps: [],
+    });
+
+    const bootstrapId = randomUUID();
+    bootstrapCleanup.push(bootstrapId);
+    await db.insert(projectBootstrapJobsTable).values({
+      id: bootstrapId,
+      ownerId: "test-user",
+      idempotencyKey: `task-300-${bootstrapId}`,
+      name: "dispatcher recovery fixture",
+      description: "A queued independent category for dispatcher recovery coverage.",
+      templateVersion: "test",
+    });
+
+    vi.mocked(heavyJobQueue.enqueueWithIdDetailed).mockReturnValue("enqueued");
+    vi.mocked(heavyJobQueue.enqueueWithId).mockReturnValue(true);
+
+    await db.execute(sql`
+      ALTER TABLE discovery_sessions
+      RENAME TO discovery_sessions_task_300_unavailable
+    `);
+    let firstPass: number;
+    try {
+      firstPass = await dispatchPersistedPendingJobs();
+    } finally {
+      await db.execute(sql`
+        ALTER TABLE discovery_sessions_task_300_unavailable
+        RENAME TO discovery_sessions
+      `);
+    }
+
+    expect(firstPass!).toBeGreaterThanOrEqual(2);
+    expect(vi.mocked(heavyJobQueue.enqueueWithIdDetailed)).toHaveBeenCalledWith(
+      scanId,
+      expect.any(Function),
+    );
+    expect(vi.mocked(heavyJobQueue.enqueueWithId)).toHaveBeenCalledWith(
+      `project-bootstrap:${bootstrapId}`,
+      expect.any(Function),
+    );
+    expect(vi.mocked(heavyJobQueue.enqueueWithIdDetailed)).not.toHaveBeenCalledWith(
+      sessionId,
+      expect.any(Function),
+    );
+
+    const [queuedScan] = await db
+      .select({ status: scanJobsTable.status })
+      .from(scanJobsTable)
+      .where(eq(scanJobsTable.id, scanId));
+    const [pendingDiscovery] = await db
+      .select({ status: discoverySessionsTable.status })
+      .from(discoverySessionsTable)
+      .where(eq(discoverySessionsTable.id, sessionId));
+    const [queuedBootstrap] = await db
+      .select({ status: projectBootstrapJobsTable.status })
+      .from(projectBootstrapJobsTable)
+      .where(eq(projectBootstrapJobsTable.id, bootstrapId));
+    expect(queuedScan?.status).toBe("queued");
+    expect(pendingDiscovery?.status).toBe("pending");
+    expect(queuedBootstrap?.status).toBe("queued");
+
+    vi.mocked(heavyJobQueue.enqueueWithIdDetailed).mockImplementation((id) =>
+      id === sessionId ? "enqueued" : "duplicate",
+    );
+    vi.mocked(heavyJobQueue.enqueueWithId).mockReturnValue(false);
+
+    await expect(dispatchPersistedPendingJobs()).resolves.toBe(1);
+    expect(vi.mocked(heavyJobQueue.enqueueWithIdDetailed)).toHaveBeenCalledWith(
+      sessionId,
+      expect.any(Function),
+    );
   });
 
   it("reconciles an interrupted promotion once and does not replay it on a second sweep", async () => {
