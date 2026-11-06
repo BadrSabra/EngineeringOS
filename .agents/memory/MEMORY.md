@@ -36,6 +36,7 @@
 - [Periodic write attempt fences](periodic-write-attempt-fence.md) — checkpoints, orientation manifests, and heartbeats must bind worker identity to the durable attempt, not worker ID alone.
 - [Objective execution binding](objective-execution-binding.md) — prioritize a real engineering-goal loop with verified effects, safe recovery, and a state-bound next decision over tool/test counts.
 - [Durable job boundary](durable-job-boundary.md) — Postgres rows plus leases are the durable queue; local dispatch is a recovery handle, not a source of truth.
+- [Execution history retention](execution-history-retention.md) — delete expired execution receipts only when no durable proof, replay, transition, or child execution references them.
 - [AI verification boundary](ai-verification-boundary.md) — AI-generated remediation steps are narrative outcomes; only server-owned checks can satisfy automatic verification gates.
 - [Provider tool-call manifests](provider-tool-call-manifests.md) — validate provider calls against the full authorized manifest even when iteration exposure is narrowed by cache or phase state.
 - [Request execution ledger](request-execution-ledger.md) — one request budget spans fallback, planning, tools, children, synthesis, and recovery; keep it separate from evidence state.

@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import { eq } from "drizzle-orm";
 import {
   aiExecutionsTable,
+  aiExecutionAcceptancesTable,
   db,
   pool,
   projectsTable,
@@ -47,6 +48,175 @@ describe("task execution history retention", () => {
       receiptRowsRemoved: 1,
     });
     query.mockRestore();
+  });
+
+  it("retains execution receipts that anchor durable acceptance history", async () => {
+    const projectId = randomUUID();
+    const retainedExecutionId = randomUUID();
+    const eligibleExecutionId = randomUUID();
+    const oldTimestamp = new Date("2026-01-01T00:00:00.000Z");
+    const now = new Date("2026-08-23T00:00:00.000Z");
+
+    try {
+      await db.insert(projectsTable).values({
+        id: projectId,
+        ownerId: "retention-proof-test-user",
+        name: `retention-proof-${projectId.slice(0, 8)}`,
+        rootPath: `/tmp/retention-proof-${projectId}`,
+        language: "typescript",
+        status: "active",
+        createdAt: oldTimestamp,
+        updatedAt: oldTimestamp,
+      });
+      await db.insert(aiExecutionsTable).values([
+        {
+          id: retainedExecutionId,
+          projectId,
+          userId: "retention-proof-test-user",
+          idempotencyKey: retainedExecutionId,
+          resumeTokenHash: "retention-proof-test-hash",
+          request: "{}",
+          checkpoint: "{}",
+          status: "completed",
+          createdAt: oldTimestamp,
+          updatedAt: oldTimestamp,
+          completedAt: oldTimestamp,
+        },
+        {
+          id: eligibleExecutionId,
+          projectId,
+          userId: "retention-proof-test-user",
+          idempotencyKey: eligibleExecutionId,
+          resumeTokenHash: "retention-eligible-test-hash",
+          request: "{}",
+          checkpoint: "{}",
+          status: "completed",
+          createdAt: oldTimestamp,
+          updatedAt: oldTimestamp,
+          completedAt: oldTimestamp,
+        },
+      ]);
+      await db.insert(aiExecutionAcceptancesTable).values({
+        id: randomUUID(),
+        executionId: retainedExecutionId,
+        projectId,
+        attempt: 1,
+        finalizationKey: `retention-proof-${randomUUID()}`,
+        terminalStatus: "completed",
+        outcome: "completed",
+        reasonCode: "accepted",
+        nextActionCode: "none",
+      });
+
+      await pruneTaskExecutionHistory(now);
+
+      const remainingExecutions = await db
+        .select({ id: aiExecutionsTable.id })
+        .from(aiExecutionsTable)
+        .where(eq(aiExecutionsTable.projectId, projectId));
+      const remainingAcceptances = await db
+        .select({ executionId: aiExecutionAcceptancesTable.executionId })
+        .from(aiExecutionAcceptancesTable)
+        .where(eq(aiExecutionAcceptancesTable.projectId, projectId));
+
+      expect(remainingExecutions).toEqual([{ id: retainedExecutionId }]);
+      expect(remainingAcceptances).toEqual([{ executionId: retainedExecutionId }]);
+      expect(getTaskExecutionRetentionHealth()).toMatchObject({
+        status: "success",
+        receiptRowsScanned: 1,
+        receiptRowsRemoved: 1,
+      });
+    } finally {
+      await db.delete(projectsTable).where(eq(projectsTable.id, projectId));
+    }
+  });
+
+  it("rechecks the age cutoff when deleting a terminal receipt", async () => {
+    const projectId = randomUUID();
+    const racingExecutionId = randomUUID();
+    const eligibleExecutionId = randomUUID();
+    const oldTimestamp = new Date("2026-01-01T00:00:00.000Z");
+    const now = new Date("2026-08-23T00:00:00.000Z");
+
+    try {
+      await db.insert(projectsTable).values({
+        id: projectId,
+        ownerId: "retention-age-race-test-user",
+        name: `retention-age-race-${projectId.slice(0, 8)}`,
+        rootPath: `/tmp/retention-age-race-${projectId}`,
+        language: "typescript",
+        status: "active",
+        createdAt: oldTimestamp,
+        updatedAt: oldTimestamp,
+      });
+      await db.insert(aiExecutionsTable).values([
+        {
+          id: racingExecutionId,
+          projectId,
+          userId: "retention-age-race-test-user",
+          idempotencyKey: racingExecutionId,
+          resumeTokenHash: "retention-age-race-hash",
+          request: "{}",
+          checkpoint: "{}",
+          status: "completed",
+          createdAt: oldTimestamp,
+          updatedAt: oldTimestamp,
+          completedAt: oldTimestamp,
+        },
+        {
+          id: eligibleExecutionId,
+          projectId,
+          userId: "retention-age-race-test-user",
+          idempotencyKey: eligibleExecutionId,
+          resumeTokenHash: "retention-age-eligible-hash",
+          request: "{}",
+          checkpoint: "{}",
+          status: "completed",
+          createdAt: oldTimestamp,
+          updatedAt: oldTimestamp,
+          completedAt: oldTimestamp,
+        },
+      ]);
+
+      const originalQuery = pool.query.bind(pool) as (
+        text: string,
+        values?: unknown[],
+      ) => Promise<{ rows: Array<{ id: string }>; rowCount: number }>;
+      let refreshedAfterSelection = false;
+      const query = vi.spyOn(pool, "query").mockImplementation(async (text: any, values?: any) => {
+        const result = await originalQuery(text, values);
+        if (!refreshedAfterSelection && text.includes("SELECT e.id")) {
+          refreshedAfterSelection = true;
+          await db
+            .update(aiExecutionsTable)
+            .set({ updatedAt: now })
+            .where(eq(aiExecutionsTable.id, racingExecutionId));
+        }
+        return result as any;
+      });
+
+      try {
+        await pruneTaskExecutionHistory(now);
+      } finally {
+        query.mockRestore();
+      }
+
+      const remainingExecutions = await db
+        .select({ id: aiExecutionsTable.id, status: aiExecutionsTable.status })
+        .from(aiExecutionsTable)
+        .where(eq(aiExecutionsTable.projectId, projectId));
+      expect(refreshedAfterSelection).toBe(true);
+      expect(remainingExecutions).toEqual([
+        { id: racingExecutionId, status: "completed" },
+      ]);
+      expect(getTaskExecutionRetentionHealth()).toMatchObject({
+        status: "success",
+        receiptRowsScanned: 2,
+        receiptRowsRemoved: 1,
+      });
+    } finally {
+      await db.delete(projectsTable).where(eq(projectsTable.id, projectId));
+    }
   });
 
   it("fails closed and keeps the next startup retryable when the database is unavailable", async () => {

@@ -9,6 +9,8 @@ import {
   retainHistoricalValidationMetadata,
   scrubHistoricalValidationRecord,
   getAiDiagnosticsRetentionHealth,
+  getStartupMaintenanceReadiness,
+  ensureEncryptionKey,
   pruneHistoricalAiDiagnostics,
   scrubHistoricalValidationDetails,
   STARTUP_MAINTENANCE_BATCH_SIZE,
@@ -39,6 +41,24 @@ async function insertProject(rootPath: string): Promise<string> {
   });
   return id;
 }
+
+describe("ensureEncryptionKey", () => {
+  it("rejects a configured value with the right length but invalid hex", async () => {
+    const previous = process.env.AI_CREDENTIALS_ENCRYPTION_KEY;
+    const invalidKey = "g".repeat(64);
+    process.env.AI_CREDENTIALS_ENCRYPTION_KEY = invalidKey;
+    try {
+      await ensureEncryptionKey();
+      expect(process.env.AI_CREDENTIALS_ENCRYPTION_KEY).toBe(invalidKey);
+    } finally {
+      if (previous === undefined) {
+        delete process.env.AI_CREDENTIALS_ENCRYPTION_KEY;
+      } else {
+        process.env.AI_CREDENTIALS_ENCRYPTION_KEY = previous;
+      }
+    }
+  });
+});
 
 describe("reportDeadRootPaths — never rebinds a dead root", () => {
   const cleanupQueue: string[] = [];
@@ -119,6 +139,8 @@ describe("scrubHistoricalValidationRecord", () => {
           evidenceId: "validation-result:1",
           observedAt: "2026-08-22T00:00:00.000Z",
           artifactRef: "validation-result:1",
+          rawDiagnostic: "must-not-persist",
+          nestedPrivateData: { secret: "must-not-persist" },
         },
       },
     }) as Record<string, unknown>;
@@ -137,6 +159,32 @@ describe("scrubHistoricalValidationRecord", () => {
           evidenceId: "validation-result:1",
           observedAt: "2026-08-22T00:00:00.000Z",
           artifactRef: "validation-result:1",
+        },
+      },
+    });
+  });
+
+  it("drops malformed evidence fields while preserving safe identifiers", () => {
+    const scrubbed = scrubHistoricalValidationRecord({
+      kind: "validation",
+      validation: {
+        status: "failed",
+        evidence: {
+          evidenceId: "evidence-1",
+          observedAt: "not-a-timestamp",
+          artifactRef: "validation-attempt:evidence-1",
+          rawDiagnostic: "must-not-persist",
+        },
+      },
+    });
+
+    expect(scrubbed).toEqual({
+      kind: "validation",
+      validation: {
+        status: "failed",
+        evidence: {
+          evidenceId: "evidence-1",
+          artifactRef: "validation-attempt:evidence-1",
         },
       },
     });
@@ -239,10 +287,10 @@ describe("historical AI diagnostic retention", () => {
     const connect = vi.spyOn(pool, "connect").mockImplementation(async () => client);
     const query = vi.spyOn(pool, "query").mockResolvedValue({
       rows: [
-        "scrub_chat_validation_v1",
-        "scrub_execution_validation_v1",
-        "prune_chat_diagnostics_v1",
-        "prune_execution_diagnostics_v1",
+        "scrub_chat_validation_v2",
+        "scrub_execution_validation_v2",
+        "prune_chat_diagnostics_v2",
+        "prune_execution_diagnostics_v2",
       ].map((maintenance_key) => ({ maintenance_key })),
       rowCount: 4,
     } as never);
@@ -284,10 +332,69 @@ describe("historical AI diagnostic retention", () => {
     connect.mockRestore();
   });
 
-  it("counts only rows whose compare-and-set update affected one row", async () => {
+  it("keeps malformed diagnostic rows out of completed batches", async () => {
+    const now = new Date("2026-08-22T01:30:00.000Z");
+    const chatCursorUpdates: unknown[][] = [];
+    const chatClient = makeMaintenanceClient(async (sql, values) => {
+      if (sql.includes("pg_try_advisory_xact_lock")) {
+        return { rows: [{ locked: true }], rowCount: 1 };
+      }
+      if (sql.includes("FROM startup_maintenance_state")) {
+        return { rows: [{ cursor_at: null, cursor_id: null, completed_at: null }], rowCount: 1 };
+      }
+      if (sql.includes("SELECT id, tool_trace AS payload")) {
+        return {
+          rows: [{ id: "malformed-diagnostic-row", payload: "{not-json", cursor_at: now }],
+          rowCount: 1,
+        };
+      }
+      if (sql.includes("UPDATE startup_maintenance_state")) {
+        chatCursorUpdates.push(values ?? []);
+      }
+      return { rows: [], rowCount: 1 };
+    });
+    const executionClient = makeMaintenanceClient(async (sql) => {
+      if (sql.includes("pg_try_advisory_xact_lock")) {
+        return { rows: [{ locked: true }], rowCount: 1 };
+      }
+      if (sql.includes("FROM startup_maintenance_state")) {
+        return { rows: [{ cursor_at: null, cursor_id: null, completed_at: null }], rowCount: 1 };
+      }
+      if (sql.includes("SELECT id, checkpoint AS payload")) return { rows: [], rowCount: 0 };
+      return { rows: [], rowCount: 1 };
+    });
+    const clients = [chatClient, executionClient];
+    const connect = vi.spyOn(pool, "connect").mockImplementation(async () => {
+      const client = clients.shift();
+      if (!client) throw new Error("unexpected_extra_connection");
+      return client;
+    });
+    const query = vi.spyOn(pool, "query").mockResolvedValue({ rows: [], rowCount: 0 } as never);
+    const previousHealth = getAiDiagnosticsRetentionHealth();
+    try {
+      await expect(pruneHistoricalAiDiagnostics(now)).resolves.toBe(false);
+    } finally {
+      connect.mockRestore();
+      query.mockRestore();
+    }
+    expect(chatCursorUpdates).toContainEqual([
+      "prune_chat_diagnostics_v2",
+      null,
+      null,
+      false,
+    ]);
+    expect(getAiDiagnosticsRetentionHealth()).toMatchObject({
+      status: "failed",
+      completedAt: previousHealth.completedAt,
+    });
+  });
+
+  it("does not advance diagnostics cursors after compare-and-set conflicts", async () => {
     const now = new Date("2026-08-22T02:00:00.000Z");
     const recent = new Date(now.getTime() - 100 * 24 * 60 * 60 * 1000);
-    const chatClient = makeMaintenanceClient(async (sql) => {
+    const chatCursorUpdates: unknown[][] = [];
+    const executionCursorUpdates: unknown[][] = [];
+    const chatClient = makeMaintenanceClient(async (sql, values) => {
       if (sql.includes("pg_try_advisory_xact_lock")) {
         return { rows: [{ locked: true }], rowCount: 1 };
       }
@@ -305,9 +412,12 @@ describe("historical AI diagnostic retention", () => {
         };
       }
       if (sql.includes("UPDATE ai_chat_messages")) return { rows: [], rowCount: 0 };
+      if (sql.includes("UPDATE startup_maintenance_state")) {
+        chatCursorUpdates.push(values ?? []);
+      }
       return { rows: [], rowCount: 1 };
     });
-    const executionClient = makeMaintenanceClient(async (sql) => {
+    const executionClient = makeMaintenanceClient(async (sql, values) => {
       if (sql.includes("pg_try_advisory_xact_lock")) {
         return { rows: [{ locked: true }], rowCount: 1 };
       }
@@ -333,7 +443,10 @@ describe("historical AI diagnostic retention", () => {
           rowCount: 1,
         };
       }
-      if (sql.includes("UPDATE ai_executions")) return { rows: [], rowCount: 1 };
+      if (sql.includes("UPDATE ai_executions")) return { rows: [], rowCount: 0 };
+      if (sql.includes("UPDATE startup_maintenance_state")) {
+        executionCursorUpdates.push(values ?? []);
+      }
       return { rows: [], rowCount: 1 };
     });
     const clients = [chatClient, executionClient];
@@ -344,23 +457,33 @@ describe("historical AI diagnostic retention", () => {
     });
     const query = vi.spyOn(pool, "query").mockResolvedValue({
       rows: [
-        "scrub_chat_validation_v1",
-        "scrub_execution_validation_v1",
-        "prune_chat_diagnostics_v1",
-        "prune_execution_diagnostics_v1",
+        "scrub_chat_validation_v2",
+        "scrub_execution_validation_v2",
       ].map((maintenance_key) => ({ maintenance_key })),
       rowCount: 4,
     } as never);
     const previousHealth = getAiDiagnosticsRetentionHealth();
     try {
-      await expect(pruneHistoricalAiDiagnostics(now)).resolves.toBe(true);
+      await expect(pruneHistoricalAiDiagnostics(now)).resolves.toBe(false);
     } finally {
       connect.mockRestore();
       query.mockRestore();
     }
+    expect(chatCursorUpdates).toContainEqual([
+      "prune_chat_diagnostics_v2",
+      null,
+      null,
+      false,
+    ]);
+    expect(executionCursorUpdates).toContainEqual([
+      "prune_execution_diagnostics_v2",
+      null,
+      null,
+      false,
+    ]);
     const health = getAiDiagnosticsRetentionHealth();
     expect(health.chatRowsPruned - previousHealth.chatRowsPruned).toBe(0);
-    expect(health.executionRowsPruned - previousHealth.executionRowsPruned).toBe(1);
+    expect(health.executionRowsPruned - previousHealth.executionRowsPruned).toBe(0);
   });
 
   it("limits scrub batches and resumes from the durable cursor", async () => {
@@ -373,13 +496,13 @@ describe("historical AI diagnostic retention", () => {
       }
       if (sql.includes("FROM startup_maintenance_state")) {
         const key = values?.[0];
-        if (key === "scrub_chat_validation_v1" && chatReads > 0) {
+        if (key === "scrub_chat_validation_v2" && chatReads > 0) {
           return {
             rows: [{ cursor_at: null, cursor_id: "chat-0200", completed_at: null }],
             rowCount: 1,
           };
         }
-        if (key === "scrub_execution_validation_v1" && chatReads > 0) {
+        if (key === "scrub_execution_validation_v2" && chatReads > 0) {
           return {
             rows: [{ cursor_at: null, cursor_id: null, completed_at: new Date() }],
             rowCount: 1,
@@ -407,10 +530,10 @@ describe("historical AI diagnostic retention", () => {
     const connect = vi.spyOn(pool, "connect").mockImplementation(async () => client);
     const query = vi.spyOn(pool, "query").mockResolvedValue({
       rows: [
-        "scrub_chat_validation_v1",
-        "scrub_execution_validation_v1",
-        "prune_chat_diagnostics_v1",
-        "prune_execution_diagnostics_v1",
+        "scrub_chat_validation_v2",
+        "scrub_execution_validation_v2",
+        "prune_chat_diagnostics_v2",
+        "prune_execution_diagnostics_v2",
       ].map((maintenance_key) => ({ maintenance_key })),
       rowCount: 4,
     } as never);
@@ -424,8 +547,116 @@ describe("historical AI diagnostic retention", () => {
     expect(scannedIds[0]).toHaveLength(STARTUP_MAINTENANCE_BATCH_SIZE);
     expect(scannedIds[1]).toEqual([]);
     expect(updateCursors).toContainEqual([
-      "scrub_chat_validation_v1",
+      "scrub_chat_validation_v2",
       `chat-${String(STARTUP_MAINTENANCE_BATCH_SIZE).padStart(4, "0")}`,
+      false,
+    ]);
+  });
+
+  it("does not complete or advance past a malformed historical payload", async () => {
+    const chatCursorUpdates: unknown[][] = [];
+    const chatClient = makeMaintenanceClient(async (sql, values) => {
+      if (sql.includes("pg_try_advisory_xact_lock")) {
+        return { rows: [{ locked: true }], rowCount: 1 };
+      }
+      if (sql.includes("FROM startup_maintenance_state")) {
+        return { rows: [{ cursor_at: null, cursor_id: null, completed_at: null }], rowCount: 1 };
+      }
+      if (sql.includes("SELECT id, tool_trace AS payload")) {
+        return { rows: [{ id: "malformed-chat-row", payload: "{not-json" }], rowCount: 1 };
+      }
+      if (sql.includes("UPDATE startup_maintenance_state")) {
+        chatCursorUpdates.push(values ?? []);
+      }
+      return { rows: [], rowCount: 1 };
+    });
+    const executionClient = makeMaintenanceClient(async (sql) => {
+      if (sql.includes("pg_try_advisory_xact_lock")) {
+        return { rows: [{ locked: true }], rowCount: 1 };
+      }
+      if (sql.includes("FROM startup_maintenance_state")) {
+        return { rows: [{ cursor_at: null, cursor_id: null, completed_at: null }], rowCount: 1 };
+      }
+      if (sql.includes("SELECT id, checkpoint AS payload")) return { rows: [], rowCount: 0 };
+      return { rows: [], rowCount: 1 };
+    });
+    const clients = [chatClient, executionClient];
+    const connect = vi.spyOn(pool, "connect").mockImplementation(async () => {
+      const client = clients.shift();
+      if (!client) throw new Error("unexpected_extra_connection");
+      return client;
+    });
+    const query = vi.spyOn(pool, "query").mockResolvedValue({ rows: [], rowCount: 0 } as never);
+    try {
+      await expect(scrubHistoricalValidationDetails()).resolves.toBe(false);
+    } finally {
+      connect.mockRestore();
+      query.mockRestore();
+    }
+    expect(chatCursorUpdates).toContainEqual([
+      "scrub_chat_validation_v2",
+      null,
+      false,
+    ]);
+    expect(getStartupMaintenanceReadiness()).toEqual({
+      status: "blocked",
+      reason: "historical_maintenance_in_progress",
+    });
+  });
+
+  it("retries a scrub row after a compare-and-set conflict", async () => {
+    const chatCursorUpdates: unknown[][] = [];
+    const chatClient = makeMaintenanceClient(async (sql, values) => {
+      if (sql.includes("pg_try_advisory_xact_lock")) {
+        return { rows: [{ locked: true }], rowCount: 1 };
+      }
+      if (sql.includes("FROM startup_maintenance_state")) {
+        return { rows: [{ cursor_at: null, cursor_id: null, completed_at: null }], rowCount: 1 };
+      }
+      if (sql.includes("SELECT id, tool_trace AS payload")) {
+        return {
+          rows: [{
+            id: "racing-chat-row",
+            payload: JSON.stringify({
+              kind: "validation",
+              validation: { status: "failed", stdout: "private output" },
+            }),
+          }],
+          rowCount: 1,
+        };
+      }
+      if (sql.includes("UPDATE ai_chat_messages")) return { rows: [], rowCount: 0 };
+      if (sql.includes("UPDATE startup_maintenance_state")) {
+        chatCursorUpdates.push(values ?? []);
+      }
+      return { rows: [], rowCount: 1 };
+    });
+    const executionClient = makeMaintenanceClient(async (sql) => {
+      if (sql.includes("pg_try_advisory_xact_lock")) {
+        return { rows: [{ locked: true }], rowCount: 1 };
+      }
+      if (sql.includes("FROM startup_maintenance_state")) {
+        return { rows: [{ cursor_at: null, cursor_id: null, completed_at: null }], rowCount: 1 };
+      }
+      if (sql.includes("SELECT id, checkpoint AS payload")) return { rows: [], rowCount: 0 };
+      return { rows: [], rowCount: 1 };
+    });
+    const clients = [chatClient, executionClient];
+    const connect = vi.spyOn(pool, "connect").mockImplementation(async () => {
+      const client = clients.shift();
+      if (!client) throw new Error("unexpected_extra_connection");
+      return client;
+    });
+    const query = vi.spyOn(pool, "query").mockResolvedValue({ rows: [], rowCount: 0 } as never);
+    try {
+      await expect(scrubHistoricalValidationDetails()).resolves.toBe(false);
+    } finally {
+      connect.mockRestore();
+      query.mockRestore();
+    }
+    expect(chatCursorUpdates).toContainEqual([
+      "scrub_chat_validation_v2",
+      null,
       false,
     ]);
   });

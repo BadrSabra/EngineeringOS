@@ -10,9 +10,15 @@ const ALGORITHM = "aes-256-gcm";
 const IV_BYTES = 12; // 96-bit IV recommended for GCM
 const AUTH_TAG_BYTES = 16 as const; // GCM auth tag length — consumed by decipher.setAuthTag
 
+export type EncryptionKeyHex = string & { readonly __brand: "EncryptionKeyHex" };
+
+export function isValidEncryptionKeyHex(raw: unknown): raw is EncryptionKeyHex {
+  return typeof raw === "string" && /^[0-9a-f]{64}$/i.test(raw);
+}
+
 function getEncryptionKey(): Buffer {
   const raw = process.env.AI_CREDENTIALS_ENCRYPTION_KEY;
-  if (!raw || raw.length !== 64) {
+  if (!isValidEncryptionKeyHex(raw)) {
     throw new Error(
       "AI_CREDENTIALS_ENCRYPTION_KEY must be set to a 64-character hex string (32 bytes)",
     );

@@ -4,7 +4,8 @@ import { logger } from "./logger.js";
 /**
  * Operational history policy:
  * - Keep task logs for 30 days after the task reaches a terminal state.
- * - Keep terminal AI execution receipts for 90 days.
+ * - Keep terminal AI execution receipts for at least 90 days; retain receipts
+ *   that anchor proof or operational history for longer.
  * - Never delete an execution that can still be resumed, or logs belonging
  *   to a task with active/resumable execution.
  *
@@ -15,6 +16,22 @@ import { logger } from "./logger.js";
 export const TASK_LOG_RETENTION_DAYS = 30;
 export const AI_EXECUTION_RECEIPT_RETENTION_DAYS = 90;
 export const TASK_HISTORY_RETENTION_BATCH_SIZE = 250;
+
+const RETAIN_EXECUTIONS_WITH_DEPENDENCIES_SQL = `
+         AND NOT EXISTS (SELECT 1 FROM ai_execution_acceptances d WHERE d.execution_id = e.id)
+         AND NOT EXISTS (SELECT 1 FROM ai_execution_evidence_snapshots d WHERE d.execution_id = e.id)
+         AND NOT EXISTS (SELECT 1 FROM ai_agent_episodes d WHERE d.execution_id = e.id)
+         AND NOT EXISTS (SELECT 1 FROM ai_agent_episode_events d WHERE d.execution_id = e.id)
+         AND NOT EXISTS (SELECT 1 FROM ai_agent_observations d WHERE d.execution_id = e.id)
+         AND NOT EXISTS (SELECT 1 FROM ai_agent_effects d WHERE d.execution_id = e.id)
+         AND NOT EXISTS (SELECT 1 FROM ai_agent_effect_bundles d WHERE d.execution_id = e.id)
+         AND NOT EXISTS (SELECT 1 FROM ai_world_transitions d WHERE d.execution_id = e.id)
+         AND NOT EXISTS (SELECT 1 FROM ai_mission_decision_dispatch_items d WHERE d.execution_id = e.id)
+         AND NOT EXISTS (SELECT 1 FROM ai_mission_decision_shadow_comparisons d WHERE d.source_execution_id = e.id)
+         AND NOT EXISTS (SELECT 1 FROM ai_mission_decision_traces d WHERE d.source_execution_id = e.id)
+         AND NOT EXISTS (SELECT 1 FROM ai_mission_lineages d WHERE d.source_execution_id = e.id)
+         AND NOT EXISTS (SELECT 1 FROM ai_shadow_replays d WHERE d.execution_id = e.id)
+         AND NOT EXISTS (SELECT 1 FROM ai_executions child WHERE child.parent_execution_id = e.id)`;
 
 export type TaskExecutionRetentionHealth = {
   status: "success" | "failed";
@@ -98,12 +115,13 @@ export async function pruneTaskExecutionHistory(now = new Date()): Promise<void>
       taskLogRowsRemoved = removed.rowCount ?? 0;
     }
 
-    // Terminal receipts are safe to remove only when no newer active/resumable
-    // execution is attached to the same task. This also protects retry flows.
+    // Keep execution rows that anchor durable proof, world-state, mission,
+    // episode, or dispatch records; deleting them would cascade that history.
     const receipts = await pool.query<{ id: string }>(
       `SELECT e.id
        FROM ai_executions e
        WHERE e.updated_at < $1
+         ${RETAIN_EXECUTIONS_WITH_DEPENDENCIES_SQL}
          AND e.status IN ('cancelled', 'completed', 'failed')
          AND NOT EXISTS (
            SELECT 1 FROM ai_executions newer
@@ -120,6 +138,8 @@ export async function pruneTaskExecutionHistory(now = new Date()): Promise<void>
       const removed = await pool.query(
         `DELETE FROM ai_executions e
          WHERE e.id = ANY($1::text[])
+           AND e.updated_at < $2
+           ${RETAIN_EXECUTIONS_WITH_DEPENDENCIES_SQL}
            AND e.status IN ('cancelled', 'completed', 'failed')
            AND NOT EXISTS (
              SELECT 1 FROM ai_executions newer
@@ -127,7 +147,7 @@ export async function pruneTaskExecutionHistory(now = new Date()): Promise<void>
                AND e.linked_task_id IS NOT NULL
                AND newer.status IN ('queued', 'running', 'paused', 'cancelling')
            )`,
-        [receipts.rows.map((row) => row.id)],
+        [receipts.rows.map((row) => row.id), receiptCutoff],
       );
       receiptRowsRemoved = removed.rowCount ?? 0;
     }

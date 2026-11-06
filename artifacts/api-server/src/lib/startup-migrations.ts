@@ -14,6 +14,7 @@ import type { PoolClient } from "pg";
 import { db, pool } from "@workspace/db";
 import { projectsTable } from "@workspace/db";
 import { like } from "drizzle-orm";
+import { isValidEncryptionKeyHex } from "./credentials-crypto.js";
 import { logger } from "./logger";
 import {
   getTaskExecutionRetentionHealth,
@@ -46,13 +47,21 @@ const ENCRYPTION_KEY_FILE = `${WORKSPACE_ROOT}/.local/encryption.key`;
 export async function ensureEncryptionKey(): Promise<void> {
   const ENV_KEY = "AI_CREDENTIALS_ENCRYPTION_KEY";
 
-  // 1. Already configured — nothing to do.
-  if (process.env[ENV_KEY] && process.env[ENV_KEY]!.length === 64) return;
+  // 1. Already configured — accept only a full 32-byte hex key.
+  const configured = process.env[ENV_KEY];
+  if (configured) {
+    if (isValidEncryptionKeyHex(configured)) return;
+    logger.error(
+      { scope: "startup-migrations", fn: "ensureEncryptionKey", configuredLength: configured.length },
+      "Configured AI credential encryption key is not a 64-character hex string",
+    );
+    return;
+  }
 
   try {
     // 2. Persisted key file exists — load it.
     const stored = (await fs.readFile(ENCRYPTION_KEY_FILE, "utf8")).trim();
-    if (stored.length === 64 && /^[0-9a-f]+$/i.test(stored)) {
+    if (isValidEncryptionKeyHex(stored)) {
       process.env[ENV_KEY] = stored;
       logger.info({ scope: "startup-migrations", fn: "ensureEncryptionKey" },
         "Loaded AI credential encryption key from persistent key file");
@@ -137,6 +146,58 @@ const VALIDATION_PUBLIC_KEYS = new Set([
   "exitCode",
   "evidence",
 ]);
+const VALIDATION_EVIDENCE_STRING_KEYS = [
+  "evidenceId",
+  "observedAt",
+  "artifactRef",
+  "profileName",
+  "permittedOrigin",
+  "revision",
+  "operationId",
+  "projectRevision",
+  "treeDigestVersion",
+  "candidateHash",
+  "changeSetHash",
+  "promotedHash",
+  "baseTreeHash",
+  "candidateTreeHash",
+  "promotedTreeHash",
+  "committedTreeHash",
+] as const;
+const VALIDATION_EVIDENCE_MAX_STRING_LENGTH = 512;
+
+function scrubHistoricalValidationEvidence(value: unknown): HistoricalJsonRecord | undefined {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
+  const source = value as HistoricalJsonRecord;
+  const evidence: HistoricalJsonRecord = {};
+  for (const key of VALIDATION_EVIDENCE_STRING_KEYS) {
+    const field = source[key];
+    if (
+      typeof field === "string"
+      && field.length > 0
+      && field.length <= VALIDATION_EVIDENCE_MAX_STRING_LENGTH
+    ) {
+      evidence[key] = field;
+    }
+  }
+  if (
+    typeof evidence.observedAt === "string"
+    && !Number.isFinite(Date.parse(evidence.observedAt))
+  ) {
+    delete evidence.observedAt;
+  }
+  if (typeof source.screenshotAvailable === "boolean") {
+    evidence.screenshotAvailable = source.screenshotAvailable;
+  }
+  if (
+    typeof source.consoleErrorCount === "number"
+    && Number.isInteger(source.consoleErrorCount)
+    && source.consoleErrorCount >= 0
+  ) {
+    evidence.consoleErrorCount = source.consoleErrorCount;
+  }
+  return Object.keys(evidence).length > 0 ? evidence : undefined;
+}
 
 /**
  * Retention policy for operational AI diagnostics:
@@ -170,14 +231,15 @@ export const STARTUP_MAINTENANCE_BATCH_SIZE = 200;
 const STARTUP_MAINTENANCE_LOCK_SQL =
   "SELECT pg_try_advisory_xact_lock(7311202606::bigint) AS locked";
 const STARTUP_MAINTENANCE_JOBS = [
-  "scrub_chat_validation_v1",
-  "scrub_execution_validation_v1",
-  "prune_chat_diagnostics_v1",
-  "prune_execution_diagnostics_v1",
+  "scrub_chat_validation_v2",
+  "scrub_execution_validation_v2",
+  "prune_chat_diagnostics_v2",
+  "prune_execution_diagnostics_v2",
 ] as const;
 const STARTUP_MAINTENANCE_GATE_JOBS = STARTUP_MAINTENANCE_JOBS;
 const STARTUP_MAINTENANCE_IDLE_DELAY_MS = 30_000;
 const STARTUP_MAINTENANCE_BUSY_DELAY_MS = 250;
+const STARTUP_MAINTENANCE_BLOCKED_DELAY_MS = 30_000;
 
 type MaintenanceJobKey = (typeof STARTUP_MAINTENANCE_JOBS)[number];
 type MaintenanceCursor = {
@@ -190,9 +252,23 @@ type MaintenanceBatchResult = {
   full: boolean;
   scanned: number;
   pruned: number;
+  blocked?: boolean;
 };
 
 let startupMaintenanceReady = true;
+let maintenanceBlockedOnMalformedPayload = false;
+let lastReportedMalformedMaintenanceRow: string | null = null;
+
+function reportMalformedMaintenanceRow(jobKey: MaintenanceJobKey, rowId: string): void {
+  maintenanceBlockedOnMalformedPayload = true;
+  const signature = `${jobKey}:${rowId}`;
+  if (signature === lastReportedMalformedMaintenanceRow) return;
+  lastReportedMalformedMaintenanceRow = signature;
+  logger.error(
+    { scope: "startup-migrations", fn: "historicalMaintenance", jobKey, reason: "historical_json_unparseable" },
+    "Historical maintenance is blocked by an unparseable row; readiness remains blocked",
+  );
+}
 
 export function getStartupMaintenanceReadiness():
   | { status: "ready" }
@@ -286,10 +362,10 @@ async function withMaintenanceCursor(
 }
 
 async function runValidationScrubBatch(
-  jobKey: "scrub_chat_validation_v1" | "scrub_execution_validation_v1",
+  jobKey: "scrub_chat_validation_v2" | "scrub_execution_validation_v2",
 ): Promise<MaintenanceBatchResult> {
-  const table = jobKey === "scrub_chat_validation_v1" ? "ai_chat_messages" : "ai_executions";
-  const column = jobKey === "scrub_chat_validation_v1" ? "tool_trace" : "checkpoint";
+  const table = jobKey === "scrub_chat_validation_v2" ? "ai_chat_messages" : "ai_executions";
+  const column = jobKey === "scrub_chat_validation_v2" ? "tool_trace" : "checkpoint";
   const result = await withMaintenanceCursor(jobKey, async (client, cursor) => {
     if (cursor.completed_at) {
       return { complete: true, full: false, scanned: 0, pruned: 0 };
@@ -303,39 +379,56 @@ async function runValidationScrubBatch(
        LIMIT $2`,
       [cursor.cursor_id, STARTUP_MAINTENANCE_BATCH_SIZE],
     );
+    let lastProcessedId = cursor.cursor_id;
+    let blocked = false;
     for (const row of selected.rows) {
-      const scrubbed = scrubHistoricalJson(row.payload);
+      let scrubbed: string | null;
+      try {
+        scrubbed = scrubHistoricalJson(
+          row.payload,
+          jobKey === "scrub_chat_validation_v2" ? "trace" : "checkpoint",
+        );
+      } catch {
+        reportMalformedMaintenanceRow(jobKey, row.id);
+        blocked = true;
+        break;
+      }
       if (scrubbed !== row.payload) {
-        await client.query(
+        const updated = await client.query(
           `UPDATE ${table}
            SET ${column} = $1
            WHERE id = $2 AND ${column} = $3`,
           [scrubbed, row.id, row.payload],
         );
+        if (updated.rowCount !== 1) {
+          blocked = true;
+          break;
+        }
       }
+      lastProcessedId = row.id;
     }
-    const complete = selected.rows.length < STARTUP_MAINTENANCE_BATCH_SIZE;
-    const lastId = selected.rows.at(-1)?.id ?? cursor.cursor_id;
+    const complete = !blocked && selected.rows.length < STARTUP_MAINTENANCE_BATCH_SIZE;
     await client.query(
       `UPDATE startup_maintenance_state
        SET cursor_id = $2,
            completed_at = CASE WHEN $3 THEN COALESCE(completed_at, now()) ELSE completed_at END,
            updated_at = now()
        WHERE maintenance_key = $1`,
-      [jobKey, lastId, complete],
+      [jobKey, lastProcessedId, complete],
     );
     return {
       complete,
-      full: selected.rows.length === STARTUP_MAINTENANCE_BATCH_SIZE,
+      full: !blocked && selected.rows.length === STARTUP_MAINTENANCE_BATCH_SIZE,
       scanned: selected.rows.length,
       pruned: 0,
+      blocked,
     };
   });
   return result ?? { complete: false, full: false, scanned: 0, pruned: 0 };
 }
 
 async function runChatDiagnosticsBatch(now: Date): Promise<MaintenanceBatchResult> {
-  const jobKey = "prune_chat_diagnostics_v1";
+  const jobKey = "prune_chat_diagnostics_v2";
   const result = await withMaintenanceCursor(jobKey, async (client, cursor) => {
     const cutoff = new Date(now.getTime() - AI_CHAT_TRACE_RETENTION_DAYS * 24 * 60 * 60 * 1000);
     const selected = await client.query<{
@@ -356,12 +449,22 @@ async function runChatDiagnosticsBatch(now: Date): Promise<MaintenanceBatchResul
       [cutoff, cursor.cursor_at, cursor.cursor_id, STARTUP_MAINTENANCE_BATCH_SIZE],
     );
     let pruned = 0;
+    let lastProcessedAt = cursor.cursor_at;
+    let lastProcessedId = cursor.cursor_id;
+    let blocked = false;
     for (const row of selected.rows) {
       let parsed: unknown;
       try {
         parsed = JSON.parse(row.payload);
       } catch {
-        continue;
+        reportMalformedMaintenanceRow(jobKey, row.id);
+        blocked = true;
+        break;
+      }
+      if (!parsed || typeof parsed !== "object") {
+        reportMalformedMaintenanceRow(jobKey, row.id);
+        blocked = true;
+        break;
       }
       const retained = JSON.stringify(retainHistoricalValidationMetadata(parsed));
       if (retained !== row.payload) {
@@ -371,11 +474,16 @@ async function runChatDiagnosticsBatch(now: Date): Promise<MaintenanceBatchResul
            WHERE id = $2 AND tool_trace = $3`,
           [retained, row.id, row.payload],
         );
-        if (updated.rowCount === 1) pruned++;
+        if (updated.rowCount !== 1) {
+          blocked = true;
+          break;
+        }
+        pruned++;
       }
+      lastProcessedAt = row.cursor_at;
+      lastProcessedId = row.id;
     }
-    const complete = selected.rows.length < STARTUP_MAINTENANCE_BATCH_SIZE;
-    const last = selected.rows.at(-1);
+    const complete = !blocked && selected.rows.length < STARTUP_MAINTENANCE_BATCH_SIZE;
     await client.query(
       `UPDATE startup_maintenance_state
        SET cursor_at = COALESCE($2, cursor_at),
@@ -383,20 +491,21 @@ async function runChatDiagnosticsBatch(now: Date): Promise<MaintenanceBatchResul
            completed_at = CASE WHEN $4 THEN COALESCE(completed_at, now()) ELSE completed_at END,
            updated_at = now()
        WHERE maintenance_key = $1`,
-      [jobKey, last?.cursor_at ?? null, last?.id ?? null, complete],
+      [jobKey, lastProcessedAt, lastProcessedId, complete],
     );
     return {
       complete,
-      full: selected.rows.length === STARTUP_MAINTENANCE_BATCH_SIZE,
+      full: !blocked && selected.rows.length === STARTUP_MAINTENANCE_BATCH_SIZE,
       scanned: selected.rows.length,
       pruned,
+      blocked,
     };
   });
   return result ?? { complete: false, full: false, scanned: 0, pruned: 0 };
 }
 
 async function runExecutionDiagnosticsBatch(now: Date): Promise<MaintenanceBatchResult> {
-  const jobKey = "prune_execution_diagnostics_v1";
+  const jobKey = "prune_execution_diagnostics_v2";
   const result = await withMaintenanceCursor(jobKey, async (client, cursor) => {
     const cutoff = new Date(now.getTime() - AI_EXECUTION_CHECKPOINT_RETENTION_DAYS * 24 * 60 * 60 * 1000);
     const selected = await client.query<{
@@ -418,12 +527,22 @@ async function runExecutionDiagnosticsBatch(now: Date): Promise<MaintenanceBatch
       [cutoff, cursor.cursor_at, cursor.cursor_id, STARTUP_MAINTENANCE_BATCH_SIZE],
     );
     let pruned = 0;
+    let lastProcessedAt = cursor.cursor_at;
+    let lastProcessedId = cursor.cursor_id;
+    let blocked = false;
     for (const row of selected.rows) {
       let parsed: unknown;
       try {
         parsed = JSON.parse(row.payload);
       } catch {
-        continue;
+        reportMalformedMaintenanceRow(jobKey, row.id);
+        blocked = true;
+        break;
+      }
+      if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+        reportMalformedMaintenanceRow(jobKey, row.id);
+        blocked = true;
+        break;
       }
       const retained = JSON.stringify(retainHistoricalCheckpoint(parsed));
       if (retained !== row.payload) {
@@ -433,11 +552,16 @@ async function runExecutionDiagnosticsBatch(now: Date): Promise<MaintenanceBatch
            WHERE id = $2 AND checkpoint = $3`,
           [retained, row.id, row.payload],
         );
-        if (updated.rowCount === 1) pruned++;
+        if (updated.rowCount !== 1) {
+          blocked = true;
+          break;
+        }
+        pruned++;
       }
+      lastProcessedAt = row.cursor_at;
+      lastProcessedId = row.id;
     }
-    const complete = selected.rows.length < STARTUP_MAINTENANCE_BATCH_SIZE;
-    const last = selected.rows.at(-1);
+    const complete = !blocked && selected.rows.length < STARTUP_MAINTENANCE_BATCH_SIZE;
     await client.query(
       `UPDATE startup_maintenance_state
        SET cursor_at = COALESCE($2, cursor_at),
@@ -445,13 +569,14 @@ async function runExecutionDiagnosticsBatch(now: Date): Promise<MaintenanceBatch
            completed_at = CASE WHEN $4 THEN COALESCE(completed_at, now()) ELSE completed_at END,
            updated_at = now()
        WHERE maintenance_key = $1`,
-      [jobKey, last?.cursor_at ?? null, last?.id ?? null, complete],
+      [jobKey, lastProcessedAt, lastProcessedId, complete],
     );
     return {
       complete,
-      full: selected.rows.length === STARTUP_MAINTENANCE_BATCH_SIZE,
+      full: !blocked && selected.rows.length === STARTUP_MAINTENANCE_BATCH_SIZE,
       scanned: selected.rows.length,
       pruned,
+      blocked,
     };
   });
   return result ?? { complete: false, full: false, scanned: 0, pruned: 0 };
@@ -462,8 +587,10 @@ function recordDiagnosticsBatch(
   execution: MaintenanceBatchResult,
   now: Date,
 ): void {
-  aiDiagnosticsRetentionHealth.status = "success";
+  const blocked = Boolean(chat.blocked || execution.blocked);
+  aiDiagnosticsRetentionHealth.status = blocked ? "failed" : "success";
   aiDiagnosticsRetentionHealth.attemptedAt = now.toISOString();
+  if (!blocked) aiDiagnosticsRetentionHealth.completedAt = now.toISOString();
   aiDiagnosticsRetentionHealth.chatRowsScanned += chat.scanned;
   aiDiagnosticsRetentionHealth.chatRowsPruned += chat.pruned;
   aiDiagnosticsRetentionHealth.executionRowsScanned += execution.scanned;
@@ -530,7 +657,13 @@ export function scrubHistoricalValidationRecord(value: unknown): unknown {
       const publicValidation: HistoricalJsonRecord = {};
       for (const key of VALIDATION_PUBLIC_KEYS) {
         if (key in (nestedValidation as HistoricalJsonRecord)) {
-          publicValidation[key] = (nestedValidation as HistoricalJsonRecord)[key];
+          const value = (nestedValidation as HistoricalJsonRecord)[key];
+          if (key === "evidence") {
+            const evidence = scrubHistoricalValidationEvidence(value);
+            if (evidence) publicValidation.evidence = evidence;
+          } else {
+            publicValidation[key] = value;
+          }
         }
       }
       result.validation = publicValidation;
@@ -609,10 +742,20 @@ export function retainHistoricalCheckpoint(value: unknown): unknown {
   return retained;
 }
 
-function scrubHistoricalJson(raw: string | null): string | null {
-  if (!raw) return raw;
+function scrubHistoricalJson(
+  raw: string | null,
+  payloadKind: "trace" | "checkpoint",
+): string | null {
+  if (raw === null) return null;
   try {
     const parsed = JSON.parse(raw);
+    if (
+      !parsed
+      || typeof parsed !== "object"
+      || (payloadKind === "checkpoint" && Array.isArray(parsed))
+    ) {
+      throw new Error("historical_json_shape_invalid");
+    }
     const scrubbed = scrubHistoricalValidationRecord(parsed);
     // Avoid rewriting already-safe rows merely because their JSON whitespace
     // differs; this keeps the migration genuinely idempotent.
@@ -620,8 +763,7 @@ function scrubHistoricalJson(raw: string | null): string | null {
       ? raw
       : JSON.stringify(scrubbed);
   } catch {
-    // An opaque legacy value is not safe to reinterpret or partially edit.
-    return raw;
+    throw new Error("historical_json_unparseable");
   }
 }
 
@@ -633,8 +775,8 @@ function scrubHistoricalJson(raw: string | null): string | null {
  */
 export async function scrubHistoricalValidationDetails(): Promise<boolean> {
   try {
-    const chat = await runValidationScrubBatch("scrub_chat_validation_v1");
-    const executions = await runValidationScrubBatch("scrub_execution_validation_v1");
+    const chat = await runValidationScrubBatch("scrub_chat_validation_v2");
+    const executions = await runValidationScrubBatch("scrub_execution_validation_v2");
     await refreshStartupMaintenanceReadiness();
     return chat.complete && executions.complete;
   } catch (err) {
@@ -676,6 +818,7 @@ export function startStartupMaintenanceWorker(): { stop: () => void } {
   let timer: ReturnType<typeof setTimeout> | undefined;
   const run = async () => {
     if (stopped) return;
+    maintenanceBlockedOnMalformedPayload = false;
     let idle = false;
     try {
       const scrubComplete = await scrubHistoricalValidationDetails();
@@ -694,10 +837,17 @@ export function startStartupMaintenanceWorker(): { stop: () => void } {
         "Background startup maintenance pass failed",
       );
     }
+    if (!maintenanceBlockedOnMalformedPayload) {
+      lastReportedMalformedMaintenanceRow = null;
+    }
     if (!stopped) {
       timer = setTimeout(
         run,
-        idle ? STARTUP_MAINTENANCE_IDLE_DELAY_MS : STARTUP_MAINTENANCE_BUSY_DELAY_MS,
+        maintenanceBlockedOnMalformedPayload
+          ? STARTUP_MAINTENANCE_BLOCKED_DELAY_MS
+          : idle
+            ? STARTUP_MAINTENANCE_IDLE_DELAY_MS
+            : STARTUP_MAINTENANCE_BUSY_DELAY_MS,
       );
     }
   };
