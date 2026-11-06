@@ -539,7 +539,7 @@ function EmpiricalQualityCard({ value }: { value: unknown }) {
           <p className="mt-0.5 text-[11px] text-muted-foreground">قياس اختياري فقط — وليس معيارًا للإصدار.</p>
         </div>
         <span className={`ml-auto rounded-full border px-2 py-0.5 text-[10px] uppercase ${status === 'PROVEN' ? 'border-emerald-500/30 text-emerald-200' : 'border-primary/30 text-primary'}`}>
-          {status ?? 'not run'}
+          {status ? <bdi dir="ltr">{status}</bdi> : 'لم يُشغّل بعد'}
         </span>
       </div>
       <div className="p-4">
@@ -563,15 +563,17 @@ function EmpiricalQualityCard({ value }: { value: unknown }) {
                 ['الرفض الخاطئ', percentageMetric(metrics, 'falseRejectionRate')],
               ].map(([label, metric]) => (
                 <div key={String(label)} className="rounded-md border border-border/45 bg-background/20 px-3 py-2">
-                  <div className="text-[10px] uppercase tracking-wide text-muted-foreground">{String(label)}</div>
-                  <div className="mt-1 font-mono text-sm font-semibold text-foreground">{String(metric)}</div>
+                  <div className="text-[10px] uppercase tracking-wide text-muted-foreground">
+                    {label === 'F1' ? <bdi dir="ltr">{String(label)}</bdi> : String(label)}
+                  </div>
+                  <div className="mt-1 font-mono text-sm font-semibold text-foreground"><bdi dir="ltr">{String(metric)}</bdi></div>
                 </div>
               ))}
             </div>
             <div className="mt-3 flex flex-wrap gap-x-4 gap-y-1 text-[11px] text-muted-foreground">
-              <span>المكتمل {formatValue(metrics?.completedCases)} / {formatValue(metrics?.totalCases)}</span>
-              <span>غير المتاح {formatValue(metrics?.providerUnavailableCount)}</span>
-              <span>p95 {formatValue(latency?.p95)} ms</span>
+              <span>المكتمل <bdi dir="ltr">{formatValue(metrics?.completedCases)}</bdi> / <bdi dir="ltr">{formatValue(metrics?.totalCases)}</bdi></span>
+              <span>غير المتاح <bdi dir="ltr">{formatValue(metrics?.providerUnavailableCount)}</bdi></span>
+              <span><bdi dir="ltr">p95</bdi> <bdi dir="ltr">{formatValue(latency?.p95)} ms</bdi></span>
             </div>
             {blockers.length > 0 && (
               <div className="mt-3 rounded-md border border-amber-500/25 bg-amber-500/5 px-3 py-2 text-xs text-amber-100">
@@ -1156,7 +1158,7 @@ function SummaryMetric({
 }: {
   label: string;
   value: string;
-  detail: string;
+  detail: React.ReactNode;
   icon: React.ReactNode;
   tone?: string;
 }) {
@@ -1166,7 +1168,7 @@ function SummaryMetric({
         {icon}
         <span>{label}</span>
       </div>
-      <div className={`mt-2 text-xl font-semibold tabular-nums tracking-tight ${tone}`}>{value}</div>
+      <div className={`mt-2 text-xl font-semibold tabular-nums tracking-tight ${tone}`}><bdi dir="ltr">{value}</bdi></div>
       <div className="mt-1 text-[11px] text-muted-foreground">{detail}</div>
     </div>
   );
@@ -1175,62 +1177,82 @@ function SummaryMetric({
 function UsageSummaryCard({ usage }: { usage: AiUsageSummary | undefined }) {
   if (!usage) {
     return (
-      <section className="rounded-xl border border-border bg-card p-4" aria-label="AI usage summary">
+      <section className="rounded-xl border border-border bg-card p-4" aria-label="ملخص استخدام الذكاء الاصطناعي">
         <div className="flex items-center gap-2">
           <Gauge className="h-4 w-4 text-primary" />
-          <h2 className="font-semibold">AI usage</h2>
+          <h2 className="font-semibold">استخدام الذكاء الاصطناعي</h2>
         </div>
         <p className="mt-3 rounded-lg border border-dashed border-border/70 bg-background/20 p-4 text-center text-xs text-muted-foreground">
-          Usage history is not available yet.
+          سجل الاستخدام غير متاح حاليًا.
         </p>
       </section>
     );
   }
   return (
-    <section className="rounded-xl border border-border bg-card p-4" aria-label="AI usage summary">
+    <section className="rounded-xl border border-border bg-card p-4" aria-label="ملخص استخدام الذكاء الاصطناعي">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <div className="flex items-center gap-2">
             <Gauge className="h-4 w-4 text-primary" />
-            <h2 className="font-semibold">AI usage</h2>
+            <h2 className="font-semibold">استخدام الذكاء الاصطناعي</h2>
           </div>
           <p className="mt-1 text-[11px] text-muted-foreground">
-            Durable provider attempts over the last {usage.windowDays} days. Runtime health remains separate.
+            محاولات مزوّد الذكاء الاصطناعي المحفوظة خلال آخر <bdi dir="ltr">{usage.windowDays}</bdi> يومًا. وتُعرض صحة التشغيل بشكل مستقل.
           </p>
         </div>
         <span className="rounded-full border border-border/70 px-2 py-1 text-[10px] text-muted-foreground">
-          {usage.retentionDays}-day retention
+          الاحتفاظ بالبيانات لمدة <bdi dir="ltr">{usage.retentionDays}</bdi> يومًا
         </span>
       </div>
       <div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-4">
-        <SummaryMetric label="Attempts" value={String(usage.totalAttempts)} detail="provider calls" icon={<Activity className="h-3.5 w-3.5 text-primary" />} />
-        <SummaryMetric label="Success" value={String(usage.totalSuccesses)} detail={`${usage.totalAttempts ? Math.round((usage.totalSuccesses / usage.totalAttempts) * 100) : 0}% of attempts`} icon={<CheckCircle2 className="h-3.5 w-3.5 text-emerald-300" />} tone="text-emerald-200" />
-        <SummaryMetric label="Failed" value={String(usage.totalFailures)} detail="terminal provider failures" icon={<XCircle className="h-3.5 w-3.5 text-red-300" />} tone="text-red-200" />
-        <SummaryMetric label="Fallback" value={String(usage.totalFallbackAttempts)} detail="fallback attempts" icon={<RefreshCw className="h-3.5 w-3.5 text-amber-300" />} tone="text-amber-200" />
+        <SummaryMetric label="المحاولات" value={String(usage.totalAttempts)} detail="استدعاءات المزوّد" icon={<Activity className="h-3.5 w-3.5 text-primary" />} />
+        <SummaryMetric
+          label="النجاح"
+          value={String(usage.totalSuccesses)}
+          detail={<><bdi dir="ltr">{usage.totalAttempts ? Math.round((usage.totalSuccesses / usage.totalAttempts) * 100) : 0}%</bdi> من إجمالي المحاولات</>}
+          icon={<CheckCircle2 className="h-3.5 w-3.5 text-emerald-300" />}
+          tone="text-emerald-200"
+        />
+        <SummaryMetric label="الإخفاقات" value={String(usage.totalFailures)} detail="إخفاقات نهائية لدى المزوّد" icon={<XCircle className="h-3.5 w-3.5 text-red-300" />} tone="text-red-200" />
+        <SummaryMetric label="المحاولات البديلة" value={String(usage.totalFallbackAttempts)} detail="محاولات استخدام البديل" icon={<RefreshCw className="h-3.5 w-3.5 text-amber-300" />} tone="text-amber-200" />
       </div>
       {usage.providers.length === 0 ? (
-        <p className="mt-3 text-xs text-muted-foreground">No provider attempts were recorded in this window.</p>
+        <p className="mt-3 text-xs text-muted-foreground">لم تُسجّل أي محاولات للمزوّد خلال هذه الفترة.</p>
       ) : (
         <div className="mt-4 space-y-2">
           {usage.providers.map((provider) => (
             <div key={provider.provider} className="rounded-lg border border-border/60 bg-background/20 px-3 py-2.5">
               <div className="flex flex-wrap items-center gap-2 text-xs">
-                <span className="font-semibold">{provider.provider}</span>
-                <span className="text-muted-foreground">{provider.attempts} attempts</span>
+                <bdi dir="ltr" className="font-semibold">{provider.provider}</bdi>
+                <span className="text-muted-foreground"><bdi dir="ltr">{provider.attempts}</bdi> محاولة</span>
                 <span className="ml-auto font-mono text-[10px] text-muted-foreground">
-                  p50 {provider.p50LatencyMs === null ? 'unknown' : `${provider.p50LatencyMs} ms`} · p95 {provider.p95LatencyMs === null ? 'unknown' : `${provider.p95LatencyMs} ms`}
+                  زمن الاستجابة: <bdi dir="ltr">p50 {provider.p50LatencyMs === null ? 'unknown' : `${provider.p50LatencyMs} ms`}</bdi>
+                  {' · '}
+                  <bdi dir="ltr">p95 {provider.p95LatencyMs === null ? 'unknown' : `${provider.p95LatencyMs} ms`}</bdi>
                 </span>
               </div>
               <div className="mt-1.5 flex flex-wrap gap-x-4 gap-y-1 text-[11px] text-muted-foreground">
-                <span>Success {provider.successRate === null ? 'unknown' : `${Math.round(provider.successRate * 100)}%`}</span>
-                <span>Usage {provider.usage.status === 'unknown' ? 'unknown' : `${provider.usage.status}: ${provider.usage.promptTokens ?? 0} prompt / ${provider.usage.completionTokens ?? 0} completion tokens`}</span>
+                <span>نسبة النجاح: <bdi dir="ltr">{provider.successRate === null ? 'unknown' : `${Math.round(provider.successRate * 100)}%`}</bdi></span>
+                <span>
+                  بيانات الرموز:{' '}
+                  {provider.usage.status === 'unknown' ? (
+                    <bdi dir="ltr">{provider.usage.status}</bdi>
+                  ) : (
+                    <>
+                      <bdi dir="ltr">{provider.usage.status}</bdi>
+                      {': '}
+                      <bdi dir="ltr">{provider.usage.promptTokens ?? 0}</bdi> رمز إدخال /{' '}
+                      <bdi dir="ltr">{provider.usage.completionTokens ?? 0}</bdi> رمز إخراج
+                    </>
+                  )}
+                </span>
               </div>
             </div>
           ))}
         </div>
       )}
       <div className="mt-3 text-[10px] text-muted-foreground">
-        Token totals are shown only when the provider supplied usage. No cost is inferred.
+        لا يُعرض إجمالي الرموز إلا إذا أرسل المزوّد بيانات الاستخدام. ولا تُستنتج أي تكلفة.
       </div>
     </section>
   );

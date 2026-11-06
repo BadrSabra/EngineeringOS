@@ -157,6 +157,40 @@ function renderPage() {
   });
 }
 
+function usageFixture(overrides: Record<string, unknown> = {}) {
+  return {
+    schemaVersion: 1,
+    windowDays: 7,
+    retentionDays: 30,
+    attemptsTruncated: false,
+    totalAttempts: 4,
+    totalSuccesses: 3,
+    totalFailures: 1,
+    totalFallbackAttempts: 2,
+    providers: [
+      {
+        provider: 'openrouter',
+        attempts: 4,
+        p50LatencyMs: 125,
+        p95LatencyMs: 350,
+        successRate: 0.75,
+        usage: { status: 'known', promptTokens: 120, completionTokens: 80 },
+      },
+      {
+        provider: 'openai',
+        attempts: 2,
+        p50LatencyMs: null,
+        p95LatencyMs: null,
+        successRate: null,
+        usage: { status: 'unknown', promptTokens: null, completionTokens: null },
+      },
+    ],
+    timeline: [],
+    modelTaskQuality: [],
+    ...overrides,
+  };
+}
+
 function runtimeStartDetail(overrides: Record<string, unknown> = {}) {
   const now = '2026-09-27T10:00:00.000Z';
   return {
@@ -295,6 +329,67 @@ describe('Mission Control', () => {
     expect(command).toHaveAttribute('dir', 'ltr');
   });
 
+  it('localizes AI usage metrics while preserving provider values and statuses in LTR', () => {
+    currentMissionControl = {
+      ...missionControlFixture,
+      usage: usageFixture(),
+    } as typeof missionControlFixture;
+    renderPage();
+
+    const card = screen.getByRole('region', { name: 'ملخص استخدام الذكاء الاصطناعي' });
+    expect(within(card).getByRole('heading', { name: 'استخدام الذكاء الاصطناعي' })).toBeInTheDocument();
+    expect(within(card).getByText(/محاولات مزوّد الذكاء الاصطناعي المحفوظة خلال آخر/)).toBeInTheDocument();
+    expect(within(card).getByText(/الاحتفاظ بالبيانات لمدة/)).toBeInTheDocument();
+    for (const label of ['المحاولات', 'النجاح', 'الإخفاقات', 'المحاولات البديلة']) {
+      expect(within(card).getByText(label)).toBeInTheDocument();
+    }
+    expect(within(card).getByText('openrouter')).toHaveAttribute('dir', 'ltr');
+    expect(within(card).getByText('openai')).toHaveAttribute('dir', 'ltr');
+    expect(within(card).getByText('p50 125 ms')).toHaveAttribute('dir', 'ltr');
+    expect(within(card).getByText('p95 350 ms')).toHaveAttribute('dir', 'ltr');
+    const successRates = within(card).getAllByText('75%');
+    expect(successRates).toHaveLength(2);
+    successRates.forEach((value) => expect(value).toHaveAttribute('dir', 'ltr'));
+    expect(within(card).getByText('known')).toHaveAttribute('dir', 'ltr');
+    expect(within(card).getByText('120')).toHaveAttribute('dir', 'ltr');
+    expect(within(card).getByText('80')).toHaveAttribute('dir', 'ltr');
+    const unknownValues = within(card).getAllByText('unknown', { exact: true });
+    expect(unknownValues).toHaveLength(2);
+    unknownValues.forEach((value) => expect(value).toHaveAttribute('dir', 'ltr'));
+    expect(within(card).getByText('p50 unknown')).toHaveAttribute('dir', 'ltr');
+    expect(within(card).getByText('p95 unknown')).toHaveAttribute('dir', 'ltr');
+    expect(within(card).getByText('بيانات الرموز:')).toBeInTheDocument();
+    expect(within(card).getByText(/لا يُعرض إجمالي الرموز إلا إذا أرسل المزوّد بيانات الاستخدام/)).toBeInTheDocument();
+    for (const label of ['AI usage', 'Attempts', 'Success', 'Failed', 'Fallback']) {
+      expect(within(card).queryByText(label, { exact: true })).not.toBeInTheDocument();
+    }
+  });
+
+  it('shows Arabic usage-history messages when data or provider attempts are unavailable', () => {
+    currentMissionControl = {
+      ...missionControlFixture,
+      usage: undefined,
+    } as typeof missionControlFixture;
+    const page = renderPage();
+
+    let card = screen.getByRole('region', { name: 'ملخص استخدام الذكاء الاصطناعي' });
+    expect(within(card).getByText('سجل الاستخدام غير متاح حاليًا.')).toBeInTheDocument();
+
+    currentMissionControl = {
+      ...missionControlFixture,
+      usage: usageFixture({
+        totalAttempts: 0,
+        totalSuccesses: 0,
+        totalFailures: 0,
+        totalFallbackAttempts: 0,
+        providers: [],
+      }),
+    } as typeof missionControlFixture;
+    page.rerender(<MissionControl />);
+    card = screen.getByRole('region', { name: 'ملخص استخدام الذكاء الاصطناعي' });
+    expect(within(card).getByText('لم تُسجّل أي محاولات للمزوّد خلال هذه الفترة.')).toBeInTheDocument();
+  });
+
   it('shows a return link only for the selected server-bound execution and current project', () => {
     const originalPath = window.location.pathname + window.location.search;
     try {
@@ -422,6 +517,10 @@ describe('Mission Control', () => {
     expect(screen.getByLabelText('فحص مسبق لمراقب التشغيل')).toHaveTextContent('pnpm --dir lib/ai-orchestrator exec vitest run src/benchmark-scenarios/single-file-002.test.ts');
     expect(screen.getByLabelText('فحص مسبق لمراقب التشغيل')).toHaveTextContent('passed');
     expect(screen.getByText('مراجعة الجودة التجريبية')).toBeInTheDocument();
+    const empiricalCard = screen.getByRole('region', { name: 'مراجعة الجودة التجريبية' });
+    expect(within(empiricalCard).getByText('PROVEN')).toHaveAttribute('dir', 'ltr');
+    expect(within(empiricalCard).getByText('F1')).toHaveAttribute('dir', 'ltr');
+    expect(within(empiricalCard).getByText('200 ms')).toHaveAttribute('dir', 'ltr');
     expect(screen.getByText('قياس اختياري فقط — وليس معيارًا للإصدار.')).toBeInTheDocument();
     expect(screen.getByText('public-disposable-v1')).toBeInTheDocument();
     expect(screen.getByText('Validation and behavior proof accepted.')).toBeInTheDocument();
@@ -429,6 +528,24 @@ describe('Mission Control', () => {
       'href',
       '/flight-deck?executionId=execution-1',
     );
+  });
+
+  it('uses an Arabic message when empirical measurement has no status yet', () => {
+    currentMissionControl = {
+      ...missionControlFixture,
+      benchmark: {
+        ...missionControlFixture.benchmark,
+        empiricalCampaign: {
+          ...missionControlFixture.benchmark.empiricalCampaign,
+          empiricalQualityStatus: null,
+        },
+      },
+    } as typeof missionControlFixture;
+    renderPage();
+
+    const empiricalCard = screen.getByRole('region', { name: 'مراجعة الجودة التجريبية' });
+    expect(within(empiricalCard).getByText('لم يُشغّل بعد')).toBeInTheDocument();
+    expect(within(empiricalCard).queryByText('not run')).not.toBeInTheDocument();
   });
 
   it('does not show successful completion when the current OperationEvidence proof is unaccepted', () => {
