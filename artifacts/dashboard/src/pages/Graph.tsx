@@ -260,7 +260,7 @@ export default function Graph() {
   return (
     <div dir="rtl" lang="ar" className="min-w-0 space-y-4 h-full flex flex-col">
       {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 shrink-0">
+      <div className="flex flex-col xl:flex-row xl:items-center justify-between gap-3 shrink-0">
         <div>
           <h1 className="text-2xl font-bold tracking-tight flex items-center gap-2">
             <Network className="w-6 h-6 text-primary" /> الرسم البياني للمعرفة
@@ -269,7 +269,7 @@ export default function Graph() {
             خريطة الاعتماد البنيوي المستخرجة من الشيفرة المصدرية.
           </p>
         </div>
-        <div data-testid="graph-controls" className="flex w-full min-w-0 flex-wrap items-center gap-2 sm:w-auto sm:flex-nowrap sm:gap-3">
+        <div data-testid="graph-controls" className="flex w-full min-w-0 flex-wrap items-center gap-2 xl:w-auto xl:flex-nowrap xl:gap-3">
           <RefreshButton
             onRefresh={async () => { await Promise.all([refetchProjects(), refetchEntities(), refetchRelationships(), refetchSummary()]); }}
             isRefreshing={isRefetching}

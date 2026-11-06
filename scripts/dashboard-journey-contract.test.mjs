@@ -1232,12 +1232,12 @@ test("protected visual journey proves isolation and disposable data before servi
   );
   assert.match(
     journeySource,
-    /captures protected dashboard routes at phone and desktop sizes/,
-    "The browser journey must capture its protected routes at both target sizes.",
+    /captures protected dashboard routes at phone, tablet, and desktop sizes/,
+    "The browser journey must capture its protected routes at phone, tablet, and desktop sizes.",
   );
   assert.match(
     journeySource,
-    /shellDirection[\s\S]*?mainDirection[\s\S]*?horizontalOverflow/,
-    "Each capture must record RTL/LTR direction and horizontal overflow.",
+    /shellDirection[\s\S]*?mainDirection[\s\S]*?horizontalOverflow[\s\S]*?controlsOutsideContent/,
+    "Each capture must record RTL/LTR direction, horizontal overflow, and control bounds.",
   );
 });

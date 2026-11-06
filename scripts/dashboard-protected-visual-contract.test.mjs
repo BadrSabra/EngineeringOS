@@ -54,7 +54,7 @@ test("the visual runner isolates credentials, API traffic, and screenshots", () 
   );
   assert.match(
     runnerSource,
-    /browserAudit\.blockedRequestCount !== 0[\s\S]*?visualReport\?\.captures\?\.length !== 8/u,
+    /browserAudit\.blockedRequestCount !== 0[\s\S]*?visualReport\?\.captures\?\.length !== 32/u,
   );
   assert.match(
     viteSource,
@@ -69,7 +69,7 @@ test("the visual runner isolates credentials, API traffic, and screenshots", () 
 test("the protected visual journey is read-only and records its layout evidence", () => {
   assert.match(
     journeySource,
-    /captures protected dashboard routes at phone and desktop sizes/u,
+    /captures protected dashboard routes at phone, tablet, and desktop sizes/u,
   );
   assert.match(
     journeySource,
@@ -84,10 +84,12 @@ test("the protected visual journey is read-only and records its layout evidence"
     /mutativeRequests[\s\S]*?must not issue mutating API requests/u,
   );
   assert.match(journeySource, /width: 402, height: 874/u);
+  assert.match(journeySource, /width: 768, height: \d+/u);
+  assert.match(journeySource, /width: 1024, height: \d+/u);
   assert.match(journeySource, /width: 1440, height: 1000/u);
   assert.match(
     journeySource,
-    /shellDirection[\s\S]*?mainDirection[\s\S]*?horizontalOverflow/u,
+    /shellDirection[\s\S]*?mainDirection[\s\S]*?horizontalOverflow[\s\S]*?controlsOutsideContent/u,
   );
   assert.match(
     journeySource,

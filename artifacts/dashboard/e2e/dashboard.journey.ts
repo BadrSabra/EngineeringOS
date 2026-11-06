@@ -8111,7 +8111,7 @@ test.describe("EngineeringOS dashboard browser journey", () => {
     browserErrors.assertClean();
   });
 
-  test("captures protected dashboard routes at phone and desktop sizes", async ({
+  test("captures protected dashboard routes at phone, tablet, and desktop sizes", async ({
     page,
   }) => {
     test.skip(
@@ -8267,6 +8267,8 @@ test.describe("EngineeringOS dashboard browser journey", () => {
     ];
     const viewports = [
       { name: "phone", width: 402, height: 874 },
+      { name: "tablet-768", width: 768, height: 1024 },
+      { name: "tablet-1024", width: 1024, height: 1024 },
       { name: "desktop", width: 1440, height: 1000 },
     ];
     const captures: Array<Record<string, unknown>> = [];
@@ -8322,9 +8324,11 @@ test.describe("EngineeringOS dashboard browser journey", () => {
             expect(await path.getAttribute("dir")).toBe("ltr");
             const controls = page.getByTestId("graph-controls");
             const controlsBox = await controls.boundingBox();
+            const contentBox = await page.locator("main").boundingBox();
             expect(controlsBox).not.toBeNull();
-            expect(controlsBox!.x).toBeGreaterThanOrEqual(-1);
-            expect(controlsBox!.x + controlsBox!.width).toBeLessThanOrEqual(viewport.width + 1);
+            expect(contentBox).not.toBeNull();
+            expect(controlsBox!.x).toBeGreaterThanOrEqual(contentBox!.x - 1);
+            expect(controlsBox!.x + controlsBox!.width).toBeLessThanOrEqual(contentBox!.x + contentBox!.width + 1);
           }
           if (route.name === "flight-deck") {
             const execution = page.getByText(`execution ${EXECUTION_ID}`, { exact: true });
@@ -8347,6 +8351,44 @@ test.describe("EngineeringOS dashboard browser journey", () => {
             bodyWidth: document.body.scrollWidth,
             mainWidth: document.querySelector("main")?.scrollWidth ?? 0,
             mainClientWidth: document.querySelector("main")?.clientWidth ?? 0,
+            controlsOutsideContent: (() => {
+              const main = document.querySelector("main");
+              if (!main) return [{ reason: "main content area is missing" }];
+              const bounds = main.getBoundingClientRect();
+              return Array.from(
+                main.querySelectorAll<HTMLElement>(
+                  'a[href],button,input,select,textarea,[role="button"],[role="tab"],[role="combobox"]',
+                ),
+              )
+                .filter((element) => {
+                  const style = getComputedStyle(element);
+                  const rect = element.getBoundingClientRect();
+                  return (
+                    style.display !== "none" &&
+                    style.visibility !== "hidden" &&
+                    rect.width > 0 &&
+                    rect.height > 0
+                  );
+                })
+                .map((element) => {
+                  const rect = element.getBoundingClientRect();
+                  return {
+                    label:
+                      element.getAttribute("aria-label") ??
+                      element.innerText.trim().slice(0, 80) ??
+                      element.tagName.toLowerCase(),
+                    left: rect.left,
+                    right: rect.right,
+                    contentLeft: bounds.left,
+                    contentRight: bounds.right,
+                  };
+                })
+                .filter(
+                  (control) =>
+                    control.left < bounds.left - 1 ||
+                    control.right > bounds.right + 1,
+                );
+            })(),
             shellDirection:
               document.querySelector<HTMLElement>('[lang="ar"]')?.dir ?? "",
             mainDirection:
@@ -8372,6 +8414,7 @@ test.describe("EngineeringOS dashboard browser journey", () => {
               document: Math.max(0, layout.documentWidth - layout.viewportWidth),
               body: Math.max(0, layout.bodyWidth - layout.viewportWidth),
             },
+            controlsOutsideContent: layout.controlsOutsideContent,
             screenshot: screenshotPath,
           });
           expect(layout.shellDirection).toBe("rtl");
@@ -8383,6 +8426,10 @@ test.describe("EngineeringOS dashboard browser journey", () => {
             layout.viewportWidth + 1,
           );
           expect(layout.mainWidth).toBeLessThanOrEqual(layout.mainClientWidth + 1);
+          expect(
+            layout.controlsOutsideContent,
+            `Visible controls on ${route.name} must stay inside main content at ${viewport.width}px.`,
+          ).toEqual([]);
         }
       }
 

@@ -53,16 +53,19 @@ asserts the empty state within the model-quality panel.
 ## Isolated protected-page visual journey
 
 Run `pnpm run validate:dashboard-protected-visual` to capture the signed-in
-dashboard, projects, tasks, and events pages at 402×874 and 1440×1000. This
+dashboard, projects, tasks, events, metrics, graph, Flight Deck, and Mission
+Control pages at 402×874, 768×1024, 1024×1024, and 1440×1000. This
 dedicated runner first verifies a loopback-only OS network namespace, then
 creates and probes its own temporary PostgreSQL cluster before starting Vite.
 It binds Vite only to `127.0.0.1`, starts no API service, passes no Clerk or
 provider credentials to its child processes, and serves protected API reads
 from fixed browser fixtures. The browser also blocks non-loopback requests.
+Each capture records document overflow and verifies visible controls stay
+inside the main content area.
 
 The runner stops before PostgreSQL, Vite, or Playwright starts if any
 isolation/browser prerequisite is missing. It writes the network/database
-preflight, browser egress audit, visual report, and eight screenshots under
+preflight, browser egress audit, visual report, and 32 screenshots under
 `test-results/dashboard-protected-visual/`. The visual report records the
 Arabic shell direction, the LTR content direction, console/page errors,
 failed requests, API methods, and horizontal overflow for every capture.

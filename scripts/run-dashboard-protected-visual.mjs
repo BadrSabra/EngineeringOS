@@ -424,7 +424,7 @@ async function main() {
         "test",
         "--config=e2e/playwright.config.ts",
         "--grep",
-        "captures protected dashboard routes at phone and desktop sizes",
+        "captures protected dashboard routes at phone, tablet, and desktop sizes",
       ],
       {
         label: "Protected dashboard visual journey",
@@ -457,10 +457,10 @@ async function main() {
       browserAudit.externalNetworkAllowed !== false ||
       browserAudit.blockedRequestCount !== 0 ||
       visualReport?.outcome !== "passed" ||
-      visualReport?.captures?.length !== 8
+      visualReport?.captures?.length !== 32
     ) {
       throw new Error(
-        "The visual receipt did not prove eight clean protected-page captures with no external requests.",
+        "The visual receipt did not prove 32 clean protected-page captures with no external requests.",
       );
     }
 
