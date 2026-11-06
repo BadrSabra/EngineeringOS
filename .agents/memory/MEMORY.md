@@ -29,11 +29,8 @@
 - [Untrusted content boundary](untrusted-content-boundary.md) — repository, tool, memory, and checkpoint text is evidence/data only; server authorization remains independent.
 - [Delivery test cleanup](delivery-test-cleanup.md) — recovery tests must remove only generated operation roots; the shared delivery directory can contain tracked fixtures.
 - [Package test root](package-test-root.md) — run Vitest from its owning package and keep optional Vite peers aligned with the workspace major.
-- [Browser validation contract](browser-validation-contract.md) — browser checks use server-owned profiles over isolated pending-change workspaces with path-free proof metadata.
+- [Dashboard/browser validation](dashboard-browser-validation-index.md) — grouped pointers for authentication, routes, streams, and browser stability.
 - [Candidate validation boundary](candidate-validation-boundary.md) — validation evidence must bind to the immutable candidate workspace and promoted bytes, not merely the live root.
-- [Dashboard journey stream fixtures](dashboard-journey-stream-fixtures.md) — assert rendered results; capture allowlisted terminal SSE fields and stop before downstream UI waits.
-- [Dashboard browser route assertions](dashboard-browser-route-assertions.md) — use artifact-prefixed routes and current selectors; use DOMContentLoaded reloads when Firefox load events stall after rendering.
-- [Dashboard Chromium SIGBUS](dashboard-chromium-sigbus.md) — distinguish browser-process failure from app navigation; clean only exact test-created projects through the owner-scoped API.
 - [Autonomous delivery acceptance](autonomous-delivery-acceptance.md) — measure unified-loop receipts by unique operation identity; only verified, violation-free delivery counts as completion.
 - [Terminal ownership fences](terminal-ownership-fences.md) — durable writes require the current lease; Episode actor IDs remain provenance across same-attempt recovery.
 - [Periodic write attempt fences](periodic-write-attempt-fence.md) — checkpoints, orientation manifests, and heartbeats must bind worker identity to the durable attempt, not worker ID alone.
@@ -45,15 +42,13 @@
 - [AI budget admission](ai-budget-admission.md) — reserve each provider fallback attempt before work; token-limit reservation remains a separate contract.
 - [Duplicate source-read replay](duplicate-read-replay.md) — cached forensic reads remain usable evidence and must not force a no-tool synthesis turn.
 - [API runtime schema gate](api-runtime-schema-gate.md) — API build success does not imply startup or integration readiness; current Drizzle schema must exist before runtime validation.
-- [OpenAPI Zod compatibility](openapi-zod-compatibility.md) — avoid URI/UUID formats that generate methods missing from the workspace's Zod 3.
-- [OpenAPI additional-property enforcement](openapi-additional-properties.md) — generated Zod objects may accept extras despite `additionalProperties: false`; enforce strictness at the API boundary.
+- [API schema contracts](api-schema-contract-index.md) — grouped pointers for Zod compatibility and strict request validation.
 - [Mission schema readiness](mission-schema-readiness.md) — reconciliation workers query Mission/Goal tables at startup; schema readiness must precede durable worker execution.
 - [Execution-plan scope aliases](execution-plan-scope-aliases.md) — TurnIntent task types need normalization before legacy scope-based profile inference, while callers may retain their original scope labels.
 - [Adaptive chat acceptance](adaptive-chat-acceptance.md) — fallback planning must be verified through chat(), scoped reads, bounded missing-evidence recovery, and final claim gating.
 - [Execution proof projection](execution-proof-projection.md) — accepted proof and trajectory metrics stay bounded inside the existing acceptance projection; raw traces remain non-durable.
 - [Contract telemetry separation](contract-telemetry-separation.md) — provider success is not contract acceptance; retain model-level claim, citation, recovery, failure-kind, and malformed-structured-output metrics separately.
 - [Runtime restart validation](runtime-restart-validation.md) — API restarts load compiled code but also start catalog refresh and an uncounted session-memory expiry sweep.
-- [Dashboard authenticated smoke](dashboard-auth-smoke.md) — real Clerk API probes must use the dashboard-origin proxy so the handoff cookie reaches the protected API.
 - [Durable evidence boundary](durable-evidence-boundary.md) — version reusable reads; legacy rows without span metadata cannot imply whole-file completeness.
 - [Execution acceptance contract](execution-acceptance-contract.md) — recovery must derive proof requirements from the persisted request, never optional in-memory evidence parameters.
 - [Resume attempt rotation](durable-acceptance-attempt-rotation.md) — rotate on claim and verify acceptance against the current attempt, not a stale row.
