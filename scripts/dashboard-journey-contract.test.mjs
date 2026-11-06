@@ -981,9 +981,13 @@ test("model-quality journey covers durable metrics and the scoped empty state", 
   );
 });
 
-test("API readiness separates liveness from schema readiness", () => {
+test("API readiness separates liveness from schema readiness", async () => {
+  const schemaReadinessSource = await readFile(
+    resolve(root, "artifacts/api-server/src/lib/schema-readiness.ts"),
+    "utf8",
+  );
   assert.match(healthSource, /router\.get\("\/readiness"/);
-  assert.match(healthSource, /schema_incomplete/);
+  assert.match(schemaReadinessSource, /schema_incomplete/);
   assert.match(healthSource, /database_unavailable/);
   assert.match(healthSource, /status: "blocked"/);
 });

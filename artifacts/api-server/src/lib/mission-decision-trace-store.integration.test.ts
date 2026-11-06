@@ -3393,6 +3393,83 @@ describe("Mission strategy shadow reconciliation", () => {
     }).toEqual(authoritativeStateBefore);
   });
 
+  it("rediscovers an applied trace without a sidecar after the worker loses its in-memory state", async () => {
+    const fixture = await createFixture();
+    const planRevision = `shadow-restart-${randomUUID()}`;
+    const selectedTrace = makeSelectedTrace({
+      trace: fixture.trace,
+      worldStateRevision: fixture.worldStateRevision,
+      worldFactId: fixture.worldFactId,
+      worldFactHash: fixture.worldFactHash,
+      newPlanRevision: planRevision,
+    });
+    await persistMissionDecisionTrace(selectedTrace);
+    await db.update(aiGoalsTable).set({
+      successCriteria: { planRevision: { hash: planRevision } },
+      outcomeContract: { planRevision: { hash: planRevision } },
+    }).where(eq(aiGoalsTable.id, fixture.goalId));
+    await db.update(aiMissionsTable).set({
+      autonomyPolicy: { activePlanRevision: planRevision },
+    }).where(eq(aiMissionsTable.id, fixture.missionId));
+    await appendMissionDecisionLifecycleEvent({
+      decisionId: selectedTrace.decisionId,
+      stage: "PLAN_APPLIED",
+      referenceId: planRevision,
+      occurredAt: new Date(now.getTime() + 1_000),
+    });
+    const readAuthoritativeState = async () => ({
+      mission: await db.select().from(aiMissionsTable).where(eq(aiMissionsTable.id, fixture.missionId)),
+      goals: await db.select().from(aiGoalsTable).where(eq(aiGoalsTable.missionId, fixture.missionId)),
+      executions: await db.select().from(aiExecutionsTable).where(eq(aiExecutionsTable.goalId, fixture.goalId)),
+      acceptances: await db.select().from(aiExecutionAcceptancesTable)
+        .where(eq(aiExecutionAcceptancesTable.executionId, fixture.executionId)),
+      tasks: await db.select().from(tasksTable).where(eq(tasksTable.goalId, fixture.goalId)),
+      events: await db.select().from(aiMissionDecisionEventsTable)
+        .where(eq(aiMissionDecisionEventsTable.decisionId, selectedTrace.decisionId)),
+    });
+    const sidecarRows = () => db.select().from(aiMissionDecisionShadowComparisonsTable)
+      .where(eq(aiMissionDecisionShadowComparisonsTable.decisionId, selectedTrace.decisionId));
+    const authoritativeStateBefore = await readAuthoritativeState();
+
+    // The first worker dies after discovering the candidate but before any
+    // sidecar write commits. Nothing is left in the database for it.
+    const crashedTransaction = vi.spyOn(db, "transaction")
+      .mockRejectedValue(new Error("worker lost before the sidecar committed"));
+    try {
+      expect(await reconcilePendingMissionDecisionShadows(8, fixture.projectId)).toBe(0);
+    } finally {
+      crashedTransaction.mockRestore();
+    }
+    expect(await sidecarRows()).toHaveLength(0);
+    expect((await getPendingMissionDecisionShadowQueueStats(fixture.projectId)).pendingCount).toBe(1);
+
+    // A restarted API gets a fresh module instance with no retained worker state.
+    vi.resetModules();
+    const restarted = await import("./mission-strategy-shadow-store.js");
+    expect(restarted.reconcilePendingMissionDecisionShadows).not.toBe(reconcilePendingMissionDecisionShadows);
+    expect((await restarted.getPendingMissionDecisionShadowQueueStats(fixture.projectId)).pendingCount).toBe(1);
+
+    expect(await restarted.reconcilePendingMissionDecisionShadows(8, fixture.projectId)).toBe(1);
+    const rebuilt = await sidecarRows();
+    expect(rebuilt).toHaveLength(1);
+    expect(rebuilt[0]).toMatchObject({
+      projectId: fixture.projectId,
+      missionId: fixture.missionId,
+      goalId: fixture.goalId,
+      appliedPlanRevision: planRevision,
+      contextHash: selectedTrace.contextHash,
+    });
+
+    // A second restart finds nothing pending and leaves the single sidecar intact.
+    vi.resetModules();
+    const restartedAgain = await import("./mission-strategy-shadow-store.js");
+    expect((await restartedAgain.getPendingMissionDecisionShadowQueueStats(fixture.projectId)).pendingCount).toBe(0);
+    expect(await restartedAgain.reconcilePendingMissionDecisionShadows(8, fixture.projectId)).toBe(0);
+    expect(await sidecarRows()).toEqual(rebuilt);
+    expect(await readAuthoritativeState()).toEqual(authoritativeStateBefore);
+    expect(missionRunner).not.toHaveBeenCalled();
+  });
+
   it("records an applied-trace comparison idempotently without changing authoritative Mission state", async () => {
     const fixture = await createFixture();
     const planRevision = `shadow-applied-${randomUUID()}`;
