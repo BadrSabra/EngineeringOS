@@ -115,6 +115,7 @@ vi.mock("./ai-route-helpers.js", async () => {
     requireProvider: async (...args: Parameters<typeof actual.requireProvider>) => {
       if (
         process.env.TASK_ROUTE_PROCESS_CHILD === "worker"
+        || process.env.TASK_ROUTE_PROCESS_CHILD === "deferred-worker"
         || process.env.TASK_ROUTE_PROCESS_CHILD === "resume-worker"
       ) {
         return {
@@ -369,6 +370,12 @@ import { startStructuredExecution } from "./structured-task-execution.js";
 import { appendEpisodeEvent } from "./agent-state/agent-episode-ledger.js";
 import { createValidationWorkspace } from "./ai-repair-validation.js";
 import { getPublicTaskExecutionAcceptance } from "./ai-execution-acceptance.js";
+import { heavyJobQueue } from "./job-queue.js";
+import {
+  dispatchDeferredAiTaskExecutions,
+  scheduleAiTaskExecution,
+  waitForScheduledAiTaskExecutions,
+} from "../routes/ai/tasks.js";
 
 async function waitForEpisode(executionId: string) {
   for (let attempt = 0; attempt < 20; attempt += 1) {
@@ -616,11 +623,14 @@ function startMissionRepairTestProcess(
 }
 
 function startTaskRouteTestProcess(input: {
-  mode: "worker" | "resume-worker" | "resume" | "manual-worker";
+  mode: "worker" | "resume-worker" | "resume" | "manual-worker" | "deferred-worker";
   taskId: string;
   readySignalFile?: string;
   releaseSignalFile?: string;
   resultSignalFile?: string;
+  queueSignalFile?: string;
+  jobsReleaseSignalFile?: string;
+  startSignalFile?: string;
   workspacePath?: string;
   leaseMs?: number;
   heartbeatIntervalMs?: number;
@@ -642,6 +652,8 @@ function startTaskRouteTestProcess(input: {
         ? "process-level AI task route resume worker fixture"
         : input.mode === "manual-worker"
             ? "process-level manual task route worker fixture"
+            : input.mode === "deferred-worker"
+              ? "process-level deferred AI task dispatcher fixture"
             : "process-level AI task route resume fixture",
   ], {
     cwd: process.cwd(),
@@ -661,6 +673,9 @@ function startTaskRouteTestProcess(input: {
       TASK_ROUTE_PROCESS_READY_SIGNAL_FILE: input.readySignalFile ?? "",
       TASK_ROUTE_PROCESS_RELEASE_SIGNAL_FILE: input.releaseSignalFile ?? "",
       TASK_ROUTE_PROCESS_RESULT_SIGNAL_FILE: input.resultSignalFile ?? "",
+      TASK_ROUTE_PROCESS_QUEUE_SIGNAL_FILE: input.queueSignalFile ?? "",
+      TASK_ROUTE_PROCESS_JOBS_RELEASE_SIGNAL_FILE: input.jobsReleaseSignalFile ?? "",
+      TASK_ROUTE_PROCESS_START_SIGNAL_FILE: input.startSignalFile ?? "",
       ...(input.leaseMs !== undefined ? { AI_TASK_LEASE_MS: String(input.leaseMs) } : {}),
       ...(input.heartbeatIntervalMs !== undefined
         ? { AI_TASK_HEARTBEAT_INTERVAL_MS: String(input.heartbeatIntervalMs) }
@@ -832,6 +847,41 @@ async function waitForChildDatabaseDisconnect(applicationName: string, timeoutMs
     await new Promise((resolveDelay) => setTimeout(resolveDelay, 100));
   }
   throw new Error(`Child PostgreSQL client did not disconnect: ${applicationName}`);
+}
+
+async function waitForDeferredTaskDispatchersBlocked(
+  applicationNames: string[],
+  timeoutMs = 30_000,
+) {
+  const deadline = Date.now() + timeoutMs;
+  const applicationNameList = sql.join(
+    applicationNames.map((applicationName) => sql`${applicationName}`),
+    sql`, `,
+  );
+  while (Date.now() < deadline) {
+    const result = await db.execute(sql`
+      SELECT waiting.application_name
+      FROM pg_stat_activity AS waiting
+      WHERE waiting.pid <> pg_backend_pid()
+        AND waiting.datname = current_database()
+        AND waiting.application_name IN (${applicationNameList})
+        AND waiting.wait_event_type = 'Lock'
+        AND cardinality(pg_blocking_pids(waiting.pid)) > 0
+        AND waiting.query ILIKE '%tasks%'
+        AND waiting.query ILIKE '%for update%'
+    `);
+    const rows = (result as unknown as {
+      rows?: Array<{ application_name: string | null }>;
+    }).rows ?? [];
+    const blockedApplications = new Set(
+      rows.flatMap((row) => row.application_name ? [row.application_name] : []),
+    );
+    if (applicationNames.every((name) => blockedApplications.has(name))) return;
+    await new Promise((resolveDelay) => setTimeout(resolveDelay, 25));
+  }
+  throw new Error(
+    `Deferred dispatchers did not both reach the Task claim lock: ${applicationNames.join(", ")}`,
+  );
 }
 
 async function removeMissionRepairCandidateWorkspace(path: string | undefined) {
@@ -4316,6 +4366,71 @@ describe("real durable task execution lifecycle", () => {
     },
     120_000,
   );
+  const deferredTaskDispatcherProcessChildTest =
+    process.env.TASK_ROUTE_PROCESS_CHILD === "deferred-worker" ? it : it.skip;
+  deferredTaskDispatcherProcessChildTest(
+    "process-level deferred AI task dispatcher fixture",
+    async () => {
+      const taskId = process.env.TASK_ROUTE_PROCESS_TASK_ID;
+      const queueSignalFile = process.env.TASK_ROUTE_PROCESS_QUEUE_SIGNAL_FILE;
+      const jobsReleaseSignalFile = process.env.TASK_ROUTE_PROCESS_JOBS_RELEASE_SIGNAL_FILE;
+      const startSignalFile = process.env.TASK_ROUTE_PROCESS_START_SIGNAL_FILE;
+      const modelReleaseSignalFile = process.env.TASK_ROUTE_PROCESS_RELEASE_SIGNAL_FILE;
+      if (
+        !taskId
+        || !queueSignalFile
+        || !jobsReleaseSignalFile
+        || !startSignalFile
+        || !modelReleaseSignalFile
+      ) {
+        throw new Error("Deferred task dispatcher child is missing its race fixture signals.");
+      }
+
+      process.env.GROQ_API_KEY = "test-dummy-key-for-mocked-tests";
+      let queuedJob: (() => Promise<void>) | undefined;
+      const enqueueSpy = vi.spyOn(heavyJobQueue, "enqueueWithIdDetailed")
+        .mockImplementation((id, job) => {
+          if (id !== taskId || queuedJob) {
+            throw new Error("Deferred task dispatcher enqueued an unexpected or duplicate job.");
+          }
+          queuedJob = job;
+          return "enqueued";
+        });
+      runAgentWithFallback.mockImplementation(async () => {
+        await writeFile(startSignalFile, JSON.stringify({
+          taskId,
+          processId: process.pid,
+        }), "utf8");
+        await waitForTaskRouteReleaseSignal(modelReleaseSignalFile);
+        return {
+          result: {
+            summary: "The deferred task was claimed by exactly one process.",
+            confidence: "high",
+            steps: ["The process-level claim barrier completed."],
+            needsHumanReview: false,
+          },
+          effectiveProvider: "groq",
+        };
+      });
+
+      try {
+        const dispatched = await dispatchDeferredAiTaskExecutions();
+        if (dispatched !== 1 || !queuedJob) {
+          throw new Error(`Expected one deferred queue handoff, got ${dispatched}.`);
+        }
+        await writeFile(queueSignalFile, JSON.stringify({
+          taskId,
+          processId: process.pid,
+        }), "utf8");
+        await waitForTaskRouteReleaseSignal(jobsReleaseSignalFile);
+        await queuedJob();
+        await waitForScheduledAiTaskExecutions();
+      } finally {
+        enqueueSpy.mockRestore();
+      }
+    },
+    120_000,
+  );
   const taskRouteResumeProcessChildTest =
     process.env.TASK_ROUTE_PROCESS_CHILD === "resume" ? it : it.skip;
   taskRouteResumeProcessChildTest(
@@ -5181,6 +5296,226 @@ describe("real durable task execution lifecycle", () => {
       180_000,
     );
   }
+
+  const deferredTaskDispatchConcurrencyTest =
+    process.env.RUN_DEFERRED_TASK_DISPATCH_CONCURRENCY === "1" ? it : it.skip;
+  deferredTaskDispatchConcurrencyTest(
+    "two API processes dispatch one deferred Task and the winning claim consumes its intent",
+    async () => {
+      requireMissionRepairDisposableDatabaseUrl();
+      const projectId = randomUUID();
+      const taskId = randomUUID();
+      const now = new Date();
+      let signalRoot: string | undefined;
+      let jobsReleaseSignalFile: string | undefined;
+      let modelReleaseSignalFile: string | undefined;
+      let rowLockRelease: ReturnType<typeof createDeferred<void>> | undefined;
+      let rowLockTransaction: Promise<unknown> | undefined;
+      const workerProcesses: ReturnType<typeof startTaskRouteTestProcess>[] = [];
+
+      try {
+        await db.insert(projectsTable).values({
+          id: projectId,
+          ownerId: "test-user",
+          name: `deferred-task-race-${projectId.slice(0, 8)}`,
+          rootPath: process.cwd(),
+          language: "typescript",
+          status: "active",
+          createdAt: now,
+          updatedAt: now,
+        });
+        await db.insert(tasksTable).values({
+          id: taskId,
+          projectId,
+          title: "Race a deferred automatic task",
+          description: "Two independent dispatchers must share one Task claim.",
+          prompt: "Run the deferred dispatcher race fixture.",
+          status: "verifying",
+          priority: "p2",
+          createdAt: now,
+          updatedAt: now,
+        });
+
+        const forceQueueDeferral = vi.spyOn(heavyJobQueue, "enqueueWithIdDetailed")
+          .mockReturnValueOnce("full");
+        try {
+          await scheduleAiTaskExecution(taskId, "test-user");
+        } finally {
+          forceQueueDeferral.mockRestore();
+        }
+
+        const deferredIntentId = `task-auto-execution-deferred:${taskId}`;
+        const [deferredIntent] = await db
+          .select({ type: eventsTable.type, taskId: eventsTable.taskId })
+          .from(eventsTable)
+          .where(eq(eventsTable.id, deferredIntentId))
+          .limit(1);
+        expect(deferredIntent).toEqual({
+          type: "TaskAutoExecutionDeferred",
+          taskId,
+        });
+
+        signalRoot = await mkdtemp(join("/tmp", "ai-task-deferred-dispatch-race-"));
+        const queueSignalFiles = [
+          join(signalRoot, "dispatcher-a-queued.json"),
+          join(signalRoot, "dispatcher-b-queued.json"),
+        ];
+        const startSignalFiles = [
+          join(signalRoot, "dispatcher-a-started.json"),
+          join(signalRoot, "dispatcher-b-started.json"),
+        ];
+        jobsReleaseSignalFile = join(signalRoot, "run-queued-jobs");
+        modelReleaseSignalFile = join(signalRoot, "release-winning-execution");
+
+        const taskRowLockAcquired = createDeferred<void>();
+        rowLockRelease = createDeferred<void>();
+        rowLockTransaction = db.transaction(async (tx) => {
+          await tx.execute(sql`SELECT id FROM tasks WHERE id = ${taskId} FOR UPDATE`);
+          taskRowLockAcquired.resolve();
+          await rowLockRelease!.promise;
+        });
+        void rowLockTransaction.catch((error: unknown) => taskRowLockAcquired.reject(error));
+        await taskRowLockAcquired.promise;
+
+        for (let index = 0; index < 2; index += 1) {
+          workerProcesses.push(startTaskRouteTestProcess({
+            mode: "deferred-worker",
+            taskId,
+            queueSignalFile: queueSignalFiles[index],
+            jobsReleaseSignalFile,
+            startSignalFile: startSignalFiles[index],
+            releaseSignalFile: modelReleaseSignalFile,
+          }));
+        }
+
+        await waitForDeferredTaskDispatchersBlocked(
+          workerProcesses.map((worker) => worker.applicationName),
+        );
+        rowLockRelease.resolve();
+        await rowLockTransaction;
+
+        const queueReports = await Promise.all(workerProcesses.map(async (worker, index) =>
+          JSON.parse(await waitForProcessSignalFile(queueSignalFiles[index]!, worker)) as {
+            taskId: string;
+            processId: number;
+          }
+        ));
+        expect(queueReports.map((report) => report.taskId)).toEqual([taskId, taskId]);
+        expect(new Set(queueReports.map((report) => report.processId)).size).toBe(2);
+        expect(await db.select({ id: eventsTable.id }).from(eventsTable)
+          .where(eq(eventsTable.id, deferredIntentId))).toHaveLength(1);
+
+        await writeFile(jobsReleaseSignalFile, "run");
+        const startDeadline = Date.now() + 30_000;
+        let winningProcessIndex = -1;
+        while (winningProcessIndex < 0 && Date.now() < startDeadline) {
+          for (let index = 0; index < startSignalFiles.length; index += 1) {
+            try {
+              await readFile(startSignalFiles[index]!);
+              winningProcessIndex = index;
+              break;
+            } catch (error) {
+              if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+            }
+          }
+          if (winningProcessIndex >= 0) break;
+          if (workerProcesses.every((worker) =>
+            worker.child.exitCode !== null || worker.child.signalCode !== null
+          )) {
+            throw new Error(
+              `Both deferred dispatchers exited before execution start: ${workerProcesses.map((worker) => worker.output()).join("\n")}`,
+            );
+          }
+          await new Promise((resolveDelay) => setTimeout(resolveDelay, 25));
+        }
+        if (winningProcessIndex < 0) {
+          throw new Error("No deferred dispatcher reached the claimed execution start.");
+        }
+
+        const losingProcessIndex = 1 - winningProcessIndex;
+        const losingProcess = workerProcesses[losingProcessIndex]!;
+        const losingDeadline = Date.now() + 30_000;
+        while (
+          losingProcess.child.exitCode === null
+          && losingProcess.child.signalCode === null
+          && Date.now() < losingDeadline
+        ) {
+          try {
+            const duplicateStart = await readFile(startSignalFiles[losingProcessIndex]!, "utf8");
+            throw new Error(`Both API processes started the task: ${duplicateStart}`);
+          } catch (error) {
+            if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+          }
+          await new Promise((resolveDelay) => setTimeout(resolveDelay, 25));
+        }
+        expect(losingProcess.child.exitCode ?? losingProcess.child.signalCode).toBe(0);
+
+        const [claimedTask] = await db
+          .select({ status: tasksTable.status })
+          .from(tasksTable)
+          .where(eq(tasksTable.id, taskId))
+          .limit(1);
+        expect(claimedTask?.status).toBe("running");
+        const claimedExecutions = await db
+          .select({ id: aiExecutionsTable.id, status: aiExecutionsTable.status })
+          .from(aiExecutionsTable)
+          .where(eq(aiExecutionsTable.linkedTaskId, taskId));
+        expect(claimedExecutions).toHaveLength(1);
+        expect(claimedExecutions[0]?.status).toBe("running");
+        expect(await db.select({ id: eventsTable.id }).from(eventsTable)
+          .where(eq(eventsTable.id, deferredIntentId))).toHaveLength(0);
+
+        expect(await dispatchDeferredAiTaskExecutions()).toBe(0);
+        expect(await db.select({ id: eventsTable.id }).from(eventsTable)
+          .where(eq(eventsTable.id, deferredIntentId))).toHaveLength(0);
+
+        await writeFile(modelReleaseSignalFile, "finish");
+        const exits = await Promise.all(workerProcesses.map((worker) =>
+          waitForChildProcessExit(worker),
+        ));
+        expect(exits).toEqual([
+          { code: 0, signal: null },
+          { code: 0, signal: null },
+        ]);
+        const executionStartMarkers = await Promise.all(startSignalFiles.map(async (signalFile) => {
+          try {
+            return await readFile(signalFile, "utf8");
+          } catch (error) {
+            if ((error as NodeJS.ErrnoException).code === "ENOENT") return undefined;
+            throw error;
+          }
+        }));
+        expect(executionStartMarkers.filter(Boolean)).toHaveLength(1);
+        expect(await db.select({ id: aiExecutionsTable.id }).from(aiExecutionsTable)
+          .where(eq(aiExecutionsTable.linkedTaskId, taskId))).toHaveLength(1);
+      } finally {
+        rowLockRelease?.resolve();
+        if (rowLockTransaction) await rowLockTransaction.catch(() => undefined);
+        if (jobsReleaseSignalFile) await writeFile(jobsReleaseSignalFile, "release").catch(() => undefined);
+        if (modelReleaseSignalFile) await writeFile(modelReleaseSignalFile, "release").catch(() => undefined);
+        for (const worker of workerProcesses) {
+          if (worker.child.exitCode === null && worker.child.signalCode === null) {
+            try {
+              await waitForChildProcessExit(worker, 30_000);
+            } catch {
+              if (worker.child.exitCode === null && worker.child.signalCode === null) {
+                worker.child.kill("SIGKILL");
+                await worker.exit;
+              }
+            }
+          }
+          await waitForChildDatabaseDisconnect(worker.applicationName).catch(() => undefined);
+        }
+        await cleanupProjectExecutionData(projectId);
+        await db.delete(eventsTable).where(eq(eventsTable.projectId, projectId));
+        await db.delete(taskLogsTable).where(eq(taskLogsTable.taskId, taskId));
+        await db.delete(tasksTable).where(eq(tasksTable.id, taskId));
+        await db.delete(projectsTable).where(eq(projectsTable.id, projectId));
+        if (signalRoot) await rm(signalRoot, { recursive: true, force: true });
+      }
+    },
+    180_000,
+  );
 
   const taskRouteProcessRecoveryTest =
     process.env.RUN_TASK_ROUTE_PROCESS_RECOVERY === "1" ? it : it.skip;

@@ -11,7 +11,9 @@ const dataDirectory = path.join(temporaryRoot, "data");
 const socketDirectory = path.join(temporaryRoot, "socket");
 const logPath = path.join(temporaryRoot, "postgres.log");
 const databaseUser = "mission_control_test";
-const databaseName = "postgres";
+const databaseName = process.env.TASK_DEFERRED_DISPATCH_CONCURRENCY_ONLY === "1"
+  ? "mission_control_disposable_test"
+  : "postgres";
 
 let activeChild;
 let initialized = false;
@@ -124,11 +126,42 @@ async function main() {
       "-w", "start",
     ]);
 
+    if (process.env.TASK_DEFERRED_DISPATCH_CONCURRENCY_ONLY === "1") {
+      await run("createdb", [databaseName], {
+        env: {
+          ...isolatedDatabaseEnvironment(""),
+          PGHOST: "127.0.0.1",
+          PGPORT: String(port),
+          PGUSER: databaseUser,
+        },
+      });
+    }
+
     const databaseEnv = isolatedDatabaseEnvironment(databaseUrl);
     console.log("Applying the current database schema to an isolated loopback-only PostgreSQL cluster.");
     await run("pnpm", ["--filter", "@workspace/db", "run", "schema:apply"], {
       env: databaseEnv,
     });
+
+    if (process.env.TASK_DEFERRED_DISPATCH_CONCURRENCY_ONLY === "1") {
+      console.log("Running the two-process deferred Task dispatcher race against isolated PostgreSQL.");
+      await run("pnpm", [
+        "--filter", "@workspace/api-server",
+        "exec", "vitest", "run",
+        "src/lib/task-execution-lifecycle.integration.test.ts",
+        "--pool=threads",
+        "--maxWorkers=1",
+        "--no-file-parallelism",
+        "-t",
+        "two API processes dispatch one deferred Task and the winning claim consumes its intent",
+      ], {
+        env: {
+          ...databaseEnv,
+          RUN_DEFERRED_TASK_DISPATCH_CONCURRENCY: "1",
+        },
+      });
+      return;
+    }
 
     if (process.env.MISSION_AI_ROUTE_ONLY === "1") {
       console.log("Running isolated provider-mocked AI route tests.");
