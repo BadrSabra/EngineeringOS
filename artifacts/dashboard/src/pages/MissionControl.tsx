@@ -1082,10 +1082,10 @@ function downloadComparisonPair(
   }
 
   const headers = [
-    'Side', 'Execution ID', 'Objective', 'State',
-    'Attempts', 'Validation Failures', 'Event Count', 'Failure Category',
-    'Recovery Action', 'Evidence Status', 'Evidence', 'Recovery', 'Timestamps', 'Event Timeline',
-    'Runtime Oracle Status', 'Runtime Oracle Checks', 'Runtime Oracle Failure IDs',
+    'الجهة', 'معرّف التنفيذ', 'الهدف', 'الحالة',
+    'عدد المحاولات', 'إخفاقات التحقق', 'عدد الأحداث', 'فئة الإخفاق',
+    'إجراء الاستعادة', 'حالة الأدلة', 'الأدلة', 'الاستعادة', 'الطوابع الزمنية', 'تسلسل الأحداث',
+    'حالة التحقق التشغيلي', 'فحوصات التحقق التشغيلي', 'معرّفات إخفاق التحقق التشغيلي',
   ];
   const rows = [live, imported].map((row) => [
     row.side, row.id, row.objective, row.state,

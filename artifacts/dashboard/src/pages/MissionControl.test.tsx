@@ -1380,10 +1380,10 @@ describe('Mission Control', () => {
     expect(rows).toHaveLength(3);
     expect(rows.every((row) => row.length === 17)).toBe(true);
     expect(rows[0]).toEqual([
-      'Side', 'Execution ID', 'Objective', 'State',
-      'Attempts', 'Validation Failures', 'Event Count', 'Failure Category',
-      'Recovery Action', 'Evidence Status', 'Evidence', 'Recovery', 'Timestamps', 'Event Timeline',
-      'Runtime Oracle Status', 'Runtime Oracle Checks', 'Runtime Oracle Failure IDs',
+      'الجهة', 'معرّف التنفيذ', 'الهدف', 'الحالة',
+      'عدد المحاولات', 'إخفاقات التحقق', 'عدد الأحداث', 'فئة الإخفاق',
+      'إجراء الاستعادة', 'حالة الأدلة', 'الأدلة', 'الاستعادة', 'الطوابع الزمنية', 'تسلسل الأحداث',
+      'حالة التحقق التشغيلي', 'فحوصات التحقق التشغيلي', 'معرّفات إخفاق التحقق التشغيلي',
     ]);
     expect(rows[1]).toEqual([
       'live', 'live-selected', 'Repair the "auth", scope\ncheck', 'BLOCKED',
