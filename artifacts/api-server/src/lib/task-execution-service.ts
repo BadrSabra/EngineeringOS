@@ -96,6 +96,7 @@ import {
   startEpisode,
   startEpisodeShadow,
 } from "./agent-state/agent-episode-ledger.js";
+import { getProjectWorldState } from "./agent-state/world-state.js";
 import { serverEnvironmentProfile } from "./agent-state/environment-attestation.js";
 import {
   materializeServerOwnedObservations,
@@ -2082,6 +2083,7 @@ async function startMissionRepairEpisode(params: {
   rootPath: string;
 }) {
   const planRevision = missionPlanRevisionHash(params.goal);
+  const worldState = await getProjectWorldState(params.task.projectId);
   return startEpisode({
     projectId: params.task.projectId,
     executionId: params.executionId,
@@ -2089,6 +2091,7 @@ async function startMissionRepairEpisode(params: {
     workerId: params.workerId,
     idempotencyKey: `${params.task.id}:episode:${params.attempt}`,
     projectRevision: params.sourceRevision,
+    worldRevision: worldState.worldRevision,
     environmentRootPath: params.rootPath,
     intentKind: "TASK_EXECUTION",
     scope: {
@@ -4788,19 +4791,39 @@ export async function executeTaskLifecycle(params: {
       : {}),
     ...(before.workflowId ? { workflowId: before.workflowId } : {}),
   } as const;
-  startEpisodeShadow({
-    projectId: before.projectId,
-    executionId,
-    attempt: executionAttempt,
-    workerId,
-    idempotencyKey: `${before.id}:episode:${executionAttempt}`,
-    projectRevision: executionRevision ?? "unknown",
-    intentKind: "TASK_EXECUTION",
-    scope: episodeScope,
-    ...(missionGoal ? { missionId: missionGoal.missionId } : {}),
-    ...(before.goalId ? { goalId: before.goalId } : {}),
-    ...(episodePlanRevision ? { planRevision: episodePlanRevision } : {}),
-  });
+  let episodeWorldRevision: string | undefined;
+  if (missionGoal) {
+    try {
+      episodeWorldRevision = (await getProjectWorldState(before.projectId)).worldRevision;
+    } catch (error) {
+      logger.warn(
+        {
+          scope: "task-execution",
+          code: "mission_episode_world_state_read_failed",
+          projectId: before.projectId,
+          executionId,
+          error,
+        },
+        "Mission Episode shadow start skipped because its World State revision is unavailable",
+      );
+    }
+  }
+  if (!missionGoal || episodeWorldRevision) {
+    startEpisodeShadow({
+      projectId: before.projectId,
+      executionId,
+      attempt: executionAttempt,
+      workerId,
+      idempotencyKey: `${before.id}:episode:${executionAttempt}`,
+      projectRevision: executionRevision ?? "unknown",
+      ...(episodeWorldRevision ? { worldRevision: episodeWorldRevision } : {}),
+      intentKind: "TASK_EXECUTION",
+      scope: episodeScope,
+      ...(missionGoal ? { missionId: missionGoal.missionId } : {}),
+      ...(before.goalId ? { goalId: before.goalId } : {}),
+      ...(episodePlanRevision ? { planRevision: episodePlanRevision } : {}),
+    });
+  }
   const claimedCheckpoint = parseAiExecutionCheckpoint(claimedExecution.checkpoint);
   const missionResumeState = parseMissionToolLoopCheckpoint(claimedExecution.checkpoint);
   const initialCheckpointSequence = Math.max(

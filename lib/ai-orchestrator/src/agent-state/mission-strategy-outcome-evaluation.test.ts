@@ -549,6 +549,22 @@ describe("Mission strategy plan outcome evaluation", () => {
     });
   });
 
+  it("allows an observed repair effect to reach ACHIEVED when its World State revision is bound", () => {
+    const evidence = makePlanOutcomeEvidence();
+    const repairExecution = evidence.executions.find(({ taskId }) => taskId !== null)!;
+    repairExecution.worldStateRevision = null;
+    expect(evaluateMissionStrategyPlanOutcome(evidence)).toMatchObject({
+      outcome: "INCONCLUSIVE",
+      limitationCodes: expect.arrayContaining(["execution_proof_binding_missing"]),
+    });
+
+    repairExecution.worldStateRevision = "mission-repair-world-revision";
+    expect(evaluateMissionStrategyPlanOutcome(evidence)).toMatchObject({
+      outcome: "ACHIEVED",
+      observedEffectCodes: ["effect.changed"],
+    });
+  });
+
   it("requires the persisted lifecycle pointers to match the selected plan and dispatch batch", () => {
     const evidence = makePlanOutcomeEvidence();
     evidence.persistedLifecycle[4]!.referenceId = "different-batch";

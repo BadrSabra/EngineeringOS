@@ -3794,11 +3794,30 @@ describe("real durable task execution lifecycle", () => {
       });
 
       const [bundle] = await db
-        .select({ verdict: aiAgentEffectBundlesTable.verdict })
+        .select({
+          verdict: aiAgentEffectBundlesTable.verdict,
+          episodeId: aiAgentEffectBundlesTable.episodeId,
+          worldRevision: aiAgentEffectBundlesTable.worldRevision,
+        })
         .from(aiAgentEffectBundlesTable)
         .where(eq(aiAgentEffectBundlesTable.executionId, outcome.executionId!))
         .limit(1);
-      expect(bundle?.verdict).toBe("OBSERVED");
+      expect(bundle).toMatchObject({
+        verdict: "OBSERVED",
+        worldRevision: expect.stringMatching(/^[a-f0-9]{64}$/),
+      });
+      const [repairEpisode] = await db
+        .select({
+          id: aiAgentEpisodesTable.id,
+          worldRevision: aiAgentEpisodesTable.worldRevision,
+        })
+        .from(aiAgentEpisodesTable)
+        .where(eq(aiAgentEpisodesTable.executionId, outcome.executionId!))
+        .limit(1);
+      expect(repairEpisode).toMatchObject({
+        id: bundle?.episodeId,
+        worldRevision: bundle?.worldRevision,
+      });
       const effects = await db
         .select({ status: aiAgentEffectsTable.status })
         .from(aiAgentEffectsTable)

@@ -17921,6 +17921,7 @@ async function applyChangesHandler(req: Request, res: Response) {
       if (!claimed) {
         throw new Error("apply_execution_claim_failed");
       }
+      const applyWorldState = await getProjectWorldState(projectId);
       const episode = await startEpisode({
         projectId,
         executionId: claimed.id,
@@ -17928,6 +17929,7 @@ async function applyChangesHandler(req: Request, res: Response) {
         workerId,
         idempotencyKey: `${claimed.id}:apply:${claimed.attempt}`,
         projectRevision: deliveryWorkspace.baseRevision,
+        worldRevision: applyWorldState.worldRevision,
         ...(missionId && missionGoalId && missionPlanRevision
           ? { missionId, goalId: missionGoalId, planRevision: missionPlanRevision }
           : {}),

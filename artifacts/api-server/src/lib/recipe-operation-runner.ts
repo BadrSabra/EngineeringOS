@@ -1929,6 +1929,9 @@ export async function runRecipeOperation(params: RunRecipeOperationParams): Prom
           : {}),
       })
     : null;
+  const effectEpisodeWorldRevision = authoritativeEffectRecipe
+    ? (await getProjectWorldState(params.projectId)).worldRevision
+    : undefined;
   const episode = authoritativeEffectRecipe
     ? await startEpisode({
         projectId: params.projectId,
@@ -1937,6 +1940,9 @@ export async function runRecipeOperation(params: RunRecipeOperationParams): Prom
         workerId,
         idempotencyKey: `${params.operationId}:episode:${claimed.attempt}`,
         projectRevision: params.sourceRevision,
+        ...(effectEpisodeWorldRevision
+          ? { worldRevision: effectEpisodeWorldRevision }
+          : {}),
         environmentRootPath: evidenceEnvironmentRoot,
          intentKind: candidateValidation
            ? "CANDIDATE_VALIDATION"
