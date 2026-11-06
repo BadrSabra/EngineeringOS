@@ -359,6 +359,82 @@ describe("database workspace runtime store", () => {
     expect(takeover?.sessionId).toBe("session-b");
   });
 
+  it("allows a fresh durable start after a proven failed start releases its lease", async () => {
+    const projectId = randomUUID();
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), "workspace-runtime-failed-start-"));
+    projectIds.push(projectId);
+    roots.push(root);
+    await db.insert(projectsTable).values({
+      id: projectId,
+      ownerId: "runtime-failed-start-test-owner",
+      name: `Failed runtime start ${projectId.slice(0, 8)}`,
+      rootPath: root,
+      language: "typescript",
+      status: "active",
+    });
+
+    const startedAt = new Date();
+    const failedStart = await databaseWorkspaceRuntimeStore.begin({
+      projectId,
+      projectRoot: root,
+      sessionId: "session-failed-start",
+      revision: "revision-before-failure",
+      environmentRevision: null,
+      workerId: "worker-failed-start",
+      now: startedAt,
+      leaseUntil: new Date(startedAt.getTime() + RUNTIME_LEASE_MS),
+    });
+    expect(failedStart).toBeDefined();
+    if (!failedStart) throw new Error("The failed-start fixture was not persisted.");
+
+    expect(await databaseWorkspaceRuntimeStore.updateOwnedSession(
+      projectId,
+      failedStart.sessionId,
+      "worker-failed-start",
+      {
+        status: "failed",
+        pid: null,
+        port: null,
+        workerId: null,
+        leaseUntil: null,
+        lastHeartbeatAt: null,
+        stoppedAt: new Date(),
+        error: "Complete supervisor inventory found no runtime process.",
+      },
+      "starting",
+    )).toBe(true);
+
+    await expect(databaseWorkspaceRuntimeStore.get(projectId)).resolves.toMatchObject({
+      sessionId: "session-failed-start",
+      status: "failed",
+      pid: null,
+      port: null,
+      workerId: null,
+      leaseUntil: null,
+      lastHeartbeatAt: null,
+    });
+
+    const retry = await databaseWorkspaceRuntimeStore.begin({
+      projectId,
+      projectRoot: root,
+      sessionId: "session-after-failed-start",
+      revision: "revision-after-retry",
+      environmentRevision: null,
+      workerId: "worker-after-failed-start",
+      now: new Date(),
+      leaseUntil: new Date(Date.now() + RUNTIME_LEASE_MS),
+    });
+
+    expect(retry).toMatchObject({
+      sessionId: "session-after-failed-start",
+      status: "starting",
+      workerId: "worker-after-failed-start",
+      pid: null,
+      port: null,
+    });
+    expect(retry?.leaseUntil?.getTime()).toBeGreaterThan(Date.now());
+  });
+
   it("rediscovers an expired runtime lease and grants only one recovery claim", async () => {
     const projectId = randomUUID();
     projectIds.push(projectId);

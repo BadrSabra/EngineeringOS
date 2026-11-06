@@ -5666,7 +5666,7 @@ test.describe("EngineeringOS dashboard browser journey", () => {
     );
 
     const timeline = page.getByRole("region", {
-      name: "World Transition timeline",
+      name: "الخط الزمني لانتقال حالة العالم",
     });
     await expect(timeline).toBeVisible();
     await expect(timeline).toContainText("e2e-runtime-start-episode");
@@ -5674,9 +5674,9 @@ test.describe("EngineeringOS dashboard browser journey", () => {
     await expect(timeline).toContainText("e2e-runtime-start-observation-after");
     await expect(timeline).toContainText("e2e-runtime-start-effect");
     await expect(timeline).toContainText(
-      "Server acceptance and Canonical Proof are both PROVEN.",
+      "قبول الخادم والإثبات المعتمد كلاهما PROVEN.",
     );
-    await expect(timeline).toContainText("Status: pending");
+    await expect(timeline).toContainText("الحالة: pending");
     await expect(timeline).not.toContainText("e2e-world-after");
 
     executionDetails[executionId] = {
@@ -5691,7 +5691,7 @@ test.describe("EngineeringOS dashboard browser journey", () => {
 
     await page.reload({ waitUntil: "domcontentloaded" });
     const timelineAfterReload = page.getByRole("region", {
-      name: "World Transition timeline",
+      name: "الخط الزمني لانتقال حالة العالم",
     });
     await expect(timelineAfterReload).toBeVisible();
     await expect(timelineAfterReload).toContainText("e2e-runtime-start-episode");
@@ -5699,9 +5699,9 @@ test.describe("EngineeringOS dashboard browser journey", () => {
     await expect(timelineAfterReload).toContainText("e2e-runtime-start-observation-after");
     await expect(timelineAfterReload).toContainText("e2e-runtime-start-effect");
     await expect(timelineAfterReload).toContainText(
-      "Server acceptance and Canonical Proof are both PROVEN.",
+      "قبول الخادم والإثبات المعتمد كلاهما PROVEN.",
     );
-    await expect(timelineAfterReload).toContainText("Status: materialized");
+    await expect(timelineAfterReload).toContainText("الحالة: materialized");
     await expect(timelineAfterReload).toContainText("e2e-world-after");
   });
 

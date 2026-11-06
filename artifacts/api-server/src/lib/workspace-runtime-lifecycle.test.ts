@@ -1,4 +1,4 @@
-import { spawn } from "node:child_process";
+import { spawn, type ChildProcess } from "node:child_process";
 import { promises as fs } from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -109,6 +109,31 @@ async function waitForPidExit(pid: number, timeoutMs = 2_000): Promise<boolean> 
     return false;
   } catch (error) {
     return (error as NodeJS.ErrnoException).code === "ESRCH";
+  }
+}
+
+async function spawnDetachedFixtureProcess(): Promise<ChildProcess> {
+  const child = spawn(process.execPath, ["-e", "setInterval(() => {}, 1000)"], {
+    detached: true,
+    stdio: "ignore",
+  });
+  await new Promise<void>((resolve, reject) => {
+    child.once("spawn", resolve);
+    child.once("error", reject);
+  });
+  if (!child.pid) throw new Error("The isolated runtime process fixture did not start.");
+  return child;
+}
+
+async function stopDetachedFixtureProcess(child: ChildProcess): Promise<void> {
+  if (!child.pid) return;
+  try {
+    process.kill(-child.pid, "SIGTERM");
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "ESRCH") throw error;
+  }
+  if (child.exitCode === null && child.signalCode === null) {
+    await new Promise<void>((resolve) => child.once("exit", () => resolve()));
   }
 }
 
@@ -286,6 +311,118 @@ describe("Workspace Runtime lifecycle invariants", () => {
       pid: process.pid,
       workerId: "runtime-lost-response-worker",
     });
+  });
+
+  it("fails a lost start only after a complete stopped inventory and safely starts a new session", async () => {
+    const root = await createProjectRoot();
+    const projectId = "runtime-lost-response-definitively-stopped";
+    const attempted: SupervisorStartInput[] = [];
+    let lostStartProcess: ChildProcess | undefined;
+    let retryProcess: ChildProcess | undefined;
+    let observedStoppedInventory = false;
+    const supervisor = createSupervisor(
+      async (input) => {
+        attempted.push(input);
+        if (attempted.length === 1) {
+          // Simulate a transient runtime that exited before its start reply arrived.
+          lostStartProcess = await spawnDetachedFixtureProcess();
+          await stopDetachedFixtureProcess(lostStartProcess);
+        }
+        if (attempted.length <= 2) {
+          throw new Error("supervisor connection closed before the start reply arrived");
+        }
+        retryProcess = await spawnDetachedFixtureProcess();
+        return {
+          projectId: input.projectId,
+          sessionId: input.sessionId,
+          status: "running",
+          port: 3_006,
+          pid: retryProcess.pid!,
+        };
+      },
+      async (observedProjectId) => {
+        observedStoppedInventory = true;
+        return {
+          projectId: observedProjectId,
+          status: "stopped",
+          observedAt: new Date().toISOString(),
+          inventoryComplete: true,
+          unknownListenerPorts: [],
+          detail: "Complete supervisor inventory confirms no session or unowned listener.",
+        };
+      },
+    );
+    supervisor.stop = vi.fn(async ({ pid }: { projectId: string; sessionId: string; pid: number | null }) => {
+      if (retryProcess?.pid === pid) await stopDetachedFixtureProcess(retryProcess);
+    });
+    const store = createInMemoryWorkspaceRuntimeStore();
+    const manager = new WorkspaceRuntimeManager({
+      store,
+      workerId: "runtime-lost-response-stopped-worker",
+      supervisor,
+      heartbeatIntervalMs: 60_000,
+    });
+    managers.push(manager);
+
+    try {
+      await expect(manager.start({
+        projectId,
+        projectRoot: root,
+        revision: "revision-1",
+      })).rejects.toMatchObject({
+        code: "RUNTIME_START_FAILED",
+        status: 502,
+      });
+
+      const failedRow = await store.get(projectId);
+      expect(attempted).toHaveLength(2);
+      expect(attempted[1]?.sessionId).toBe(attempted[0]?.sessionId);
+      expect(observedStoppedInventory).toBe(true);
+      expect(supervisor.observeStartState).toHaveBeenCalledWith(projectId);
+      expect(failedRow).toMatchObject({
+        sessionId: attempted[0]?.sessionId,
+        status: "failed",
+        pid: null,
+        port: null,
+        workerId: null,
+        leaseUntil: null,
+        lastHeartbeatAt: null,
+        error: "supervisor connection closed before the start reply arrived",
+      });
+      expect(lostStartProcess?.pid).toBeDefined();
+      await expect(waitForPidExit(lostStartProcess!.pid!)).resolves.toBe(true);
+
+      const restarted = await manager.start({
+        projectId,
+        projectRoot: root,
+        revision: "revision-2",
+      });
+      const runningRow = await store.get(projectId);
+      expect(attempted).toHaveLength(3);
+      expect(attempted[2]?.sessionId).not.toBe(attempted[0]?.sessionId);
+      expect(restarted).toMatchObject({
+        sessionId: attempted[2]?.sessionId,
+        status: "running",
+        pid: retryProcess?.pid,
+        port: 3_006,
+      });
+      expect(runningRow).toMatchObject({
+        sessionId: attempted[2]?.sessionId,
+        status: "running",
+        workerId: "runtime-lost-response-stopped-worker",
+        pid: retryProcess?.pid,
+        port: 3_006,
+      });
+
+      await expect(manager.stop(projectId)).resolves.toMatchObject({
+        sessionId: attempted[2]?.sessionId,
+        status: "stopped",
+      });
+      await expect(waitForPidExit(retryProcess!.pid!)).resolves.toBe(true);
+    } finally {
+      if (lostStartProcess) await stopDetachedFixtureProcess(lostStartProcess);
+      if (retryProcess) await stopDetachedFixtureProcess(retryProcess);
+    }
   });
 
   it("retains and later reconciles a start whose supervisor outcome is unknown", async () => {
