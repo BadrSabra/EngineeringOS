@@ -1428,7 +1428,11 @@ async function runBoundedEffectWorker(input: {
 afterEach(async () => {
   missionRunner.mockReset();
   for (const projectId of projectIds.splice(0)) {
-    await db.delete(projectsTable).where(eq(projectsTable.id, projectId)).catch(() => undefined);
+    // Dispatch items reference executions with NO ACTION. Remove their parent
+    // batches first so the cascading item delete runs before project cleanup.
+    await db.delete(aiMissionDecisionDispatchBatchesTable)
+      .where(eq(aiMissionDecisionDispatchBatchesTable.projectId, projectId));
+    await db.delete(projectsTable).where(eq(projectsTable.id, projectId));
   }
   for (const rootPath of syntheticWorkspaceRoots.splice(0)) {
     await rm(rootPath, { recursive: true, force: true }).catch(() => undefined);
