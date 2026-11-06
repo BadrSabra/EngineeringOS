@@ -7,7 +7,7 @@ import {
   resolve as resolvePath,
   sep as pathSeparator,
 } from "node:path";
-import { and, eq, gt, inArray, isNull } from "drizzle-orm";
+import { and, eq, gt, inArray, isNull, sql } from "drizzle-orm";
 import {
   aiChangeProposalsTable,
   aiAgentEpisodeEventsTable,
@@ -67,6 +67,8 @@ import {
 } from "./ai-route-helpers.js";
 import type { ProviderId } from "./ai-route-helpers.js";
 import { logger } from "./logger.js";
+import { taskAutoExecutionIntentId } from "./task-auto-execution-outbox.js";
+import { dispatchPendingTaskObservationOutbox } from "./task-observation-outbox.js";
 import { taskTransitionConflict, type TaskStatus } from "./task-state.js";
 import { databaseLeaseUntil, databaseNow } from "./job-lease.js";
 import {
@@ -97,6 +99,7 @@ import {
 import { serverEnvironmentProfile } from "./agent-state/environment-attestation.js";
 import {
   materializeServerOwnedObservations,
+  type MaterializeServerOwnedObservationsInput,
   type ServerOwnedObservationSource,
 } from "./agent-state/observation-materializer.js";
 import { verifyAndPersistEffect } from "./agent-state/effect-observer.js";
@@ -958,6 +961,7 @@ async function finalizeTaskExecutionAcceptance(params: {
   candidateIdentity?: string | null;
   effectRequired?: boolean;
   effectBundleId?: string | null;
+  taskObservationInput?: MaterializeServerOwnedObservationsInput;
   retryAfterMs?: number;
   providerRetryAfterMs?: number;
   retryAfterSource?: "provider" | "local_adaptive" | "adaptive_default" | "local_admission";
@@ -1044,6 +1048,7 @@ async function finalizeTaskExecutionAcceptance(params: {
     stateProjection: params.receipt.stateProjection,
     effectRequired: params.effectRequired,
     effectBundleId: params.effectBundleId,
+    taskObservationInput: params.taskObservationInput,
     ...(params.retryAfterMs !== undefined
       && Number.isSafeInteger(params.retryAfterMs)
       && params.retryAfterMs > 0
@@ -4603,9 +4608,9 @@ export async function executeTaskLifecycle(params: {
       // claims this Task. Delete it atomically with the claim so a crash before
       // this transaction commits remains recoverable, while a claimed run is
       // never redispatched by the deferred-intent reconciler.
-      await tx.delete(eventsTable).where(eq(
-        eventsTable.id,
-        `task-auto-execution-deferred:${before.id}`,
+      await tx.delete(eventsTable).where(and(
+        eq(eventsTable.id, taskAutoExecutionIntentId(before.id)),
+        sql`${eventsTable.payload}->>'taskRetryCount' = ${String(retryCountAtRead)}`,
       ));
 
       let durable: Awaited<ReturnType<typeof createAiExecution>>;
@@ -5264,42 +5269,7 @@ export async function executeTaskLifecycle(params: {
       : finalStatus === "completed"
         ? "ACCEPTED"
         : "HUMAN_REVIEW_REQUIRED";
-    const finalized = await finalizeTaskExecutionAcceptance({
-      executionId,
-      workerId,
-      task: before,
-      receipt: taskReceipt,
-      outcome: terminalOutcome,
-      terminalStatus,
-      reasonCode: terminalReasonCode,
-      retryable: missionProofPending,
-      trigger: params.trigger,
-      finalStatus,
-      logLevel: missionProofPending ? "warn" : finalStatus === "completed" ? "info" : "warn",
-      logMessage: missionProofPending
-        ? `Mission objective proof is ${missionExecution?.proof.status.toLowerCase()}.`
-        : `AI task ${finalStatus}: ${safeText(taskReceipt.summary)}`,
-      logMetadata: {
-        receipt: taskReceipt,
-        executionId,
-        trigger: params.trigger,
-        ...(missionExecution ? {
-          objectiveProof: missionExecution.proof.status,
-          validatorReceipts: missionExecution.proof.validatorReceipts,
-        } : {}),
-      },
-      taskObjective: missionExecution?.proof.taskObjective,
-      taskObjectiveStatus: missionExecution?.proof.status,
-      evidence: missionExecution?.proof.evidence,
-      workspaceRoot: missionExecution?.proof.evidence?.workspaceRoot,
-      candidateIdentity: missionExecution?.proof.candidateIdentity,
-      effectRequired: missionExecution?.proof.effectRequired,
-      effectBundleId: missionExecution?.proof.effectBundleId,
-    });
-    if (!finalized.accepted) {
-      throw Object.assign(new Error("task_state_changed_during_finalize"), { name: "AbortError" });
-    }
-    void materializeServerOwnedObservations({
+    const taskObservationInput: MaterializeServerOwnedObservationsInput = {
       projectId: before.projectId,
       executionId,
       attempt: taskReceipt.attempt,
@@ -5345,10 +5315,47 @@ export async function executeTaskLifecycle(params: {
         })),
         ...(missionExecution?.proof.validatorProcessObservations ?? []),
       ],
-    }).catch((error: unknown) => {
+    };
+    const finalized = await finalizeTaskExecutionAcceptance({
+      executionId,
+      workerId,
+      task: before,
+      receipt: taskReceipt,
+      outcome: terminalOutcome,
+      terminalStatus,
+      reasonCode: terminalReasonCode,
+      retryable: missionProofPending,
+      trigger: params.trigger,
+      finalStatus,
+      logLevel: missionProofPending ? "warn" : finalStatus === "completed" ? "info" : "warn",
+      logMessage: missionProofPending
+        ? `Mission objective proof is ${missionExecution?.proof.status.toLowerCase()}.`
+        : `AI task ${finalStatus}: ${safeText(taskReceipt.summary)}`,
+      logMetadata: {
+        receipt: taskReceipt,
+        executionId,
+        trigger: params.trigger,
+        ...(missionExecution ? {
+          objectiveProof: missionExecution.proof.status,
+          validatorReceipts: missionExecution.proof.validatorReceipts,
+        } : {}),
+      },
+      taskObjective: missionExecution?.proof.taskObjective,
+      taskObjectiveStatus: missionExecution?.proof.status,
+      evidence: missionExecution?.proof.evidence,
+      workspaceRoot: missionExecution?.proof.evidence?.workspaceRoot,
+      candidateIdentity: missionExecution?.proof.candidateIdentity,
+      effectRequired: missionExecution?.proof.effectRequired,
+      effectBundleId: missionExecution?.proof.effectBundleId,
+      taskObservationInput,
+    });
+    if (!finalized.accepted) {
+      throw Object.assign(new Error("task_state_changed_during_finalize"), { name: "AbortError" });
+    }
+    void dispatchPendingTaskObservationOutbox().catch((error: unknown) => {
       logger.warn(
-        { scope: "task-execution", code: "observation_materialization_failed", executionId, error },
-        "Server-owned observation materialization failed after acceptance",
+        { scope: "task-execution", code: "observation_outbox_dispatch_failed", executionId, error },
+        "Accepted task observations remain durable for reconciliation",
       );
     });
     await emitAcceptedTaskTerminalProgress({

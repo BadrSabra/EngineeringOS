@@ -2566,8 +2566,30 @@ export const JobRecoveryHealthStatus = {
   degraded: 'degraded',
 } as const;
 
+export type JobRecoveryHealthDispatchStagesItemLastOutcome = typeof JobRecoveryHealthDispatchStagesItemLastOutcome[keyof typeof JobRecoveryHealthDispatchStagesItemLastOutcome];
+
+
+export const JobRecoveryHealthDispatchStagesItemLastOutcome = {
+  passed: 'passed',
+  failed: 'failed',
+  unknown: 'unknown',
+} as const;
+
+export type JobRecoveryHealthDispatchStagesItem = {
+  stageName: string;
+  lastOutcome: JobRecoveryHealthDispatchStagesItemLastOutcome;
+  lastRunAt: string;
+  lastSuccessAt: string | null;
+  lastFailureAt: string | null;
+  /** @minimum 0 */
+  consecutiveFailures: number;
+  lastErrorCode: string | null;
+  /** @minimum 0 */
+  lastDispatchedCount: number;
+};
+
 /**
- * Content-free health projection of durable background work. A degraded status means an expired or missing worker lease needs recovery, a queued Scan or Discovery exceeds the configured pending-age threshold, or a job exhausted its retry budget and needs operator attention. The top-level health endpoint remains a liveness check.
+ * Content-free health projection of durable background work. A degraded status means an expired or missing worker lease needs recovery, a queued Scan, Discovery, AI dispatch, or accepted-task Observation materialization exceeds the configured pending-age threshold, a dispatcher stage last failed, or a job exhausted its retry budget and needs operator attention. The top-level health endpoint remains a liveness check.
  */
 export interface JobRecoveryHealth {
   status: JobRecoveryHealthStatus;
@@ -2580,6 +2602,24 @@ export interface JobRecoveryHealth {
   expiredTaskLeases: number;
   retryExhaustedScanJobs: number;
   retryExhaustedTasks: number;
+  /** @minimum 0 */
+  pendingAiTaskDispatches: number;
+  /** @minimum 0 */
+  deferredAiTaskDispatches: number;
+  /** @minimum 0 */
+  staleAiTaskDispatches: number;
+  oldestAiTaskDispatchAt: string | null;
+  /** @minimum 0 */
+  failedDispatchStages: number;
+  /** @minimum 0 */
+  pendingTaskObservationMaterializations: number;
+  /** @minimum 0 */
+  staleTaskObservationMaterializations: number;
+  /** @minimum 0 */
+  expiredTaskObservationLeases: number;
+  /** @minimum 0 */
+  failedTaskObservationMaterializations: number;
+  dispatchStages: JobRecoveryHealthDispatchStagesItem[];
 }
 
 export type UnresolvedRuntimeStartHealthStatus = typeof UnresolvedRuntimeStartHealthStatus[keyof typeof UnresolvedRuntimeStartHealthStatus];

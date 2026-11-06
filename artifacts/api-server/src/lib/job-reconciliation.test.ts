@@ -16,6 +16,8 @@ import {
   aiExecutionsTable,
   aiExecutionAcceptancesTable,
   db,
+  durableDispatchStageHealthTable,
+  taskExecutionObservationOutboxTable,
   discoverySessionsTable,
   eventsTable,
   projectsTable,
@@ -37,6 +39,7 @@ import {
 } from "./job-reconciliation.js";
 import { reconcileAiExecutions } from "./ai-execution-state.js";
 import { reconcileInterruptedApplyChanges } from "./apply-change-reconciliation.js";
+import { dispatchPendingTaskObservationOutbox } from "./task-observation-outbox.js";
 import {
   createDeliveryWorkspace,
   deliveryWorkspaceExists,
@@ -1000,6 +1003,64 @@ describe("periodic stale scan recovery and durable health", () => {
     expect(health.expiredTaskLeases).toBeGreaterThanOrEqual(1);
     expect(health.retryExhaustedTasks).toBeGreaterThanOrEqual(1);
   });
+
+  it("reports stale AI dispatch intents and the durable last outcome per stage", async () => {
+    const projectId = await insertProject("active");
+    projectCleanup.push(projectId);
+    const taskId = randomUUID();
+    await db.insert(tasksTable).values({
+      id: taskId,
+      projectId,
+      title: "Stale deferred AI dispatch",
+      prompt: "Recover the persisted dispatch",
+      status: "verifying",
+      retryCount: 0,
+    });
+    await db.insert(eventsTable).values({
+      id: `task-auto-execution-deferred:${taskId}`,
+      type: "TaskAutoExecutionDeferred",
+      projectId,
+      taskId,
+      severity: "warning",
+      message: "AI task execution is waiting for a retry.",
+      timestamp: new Date(Date.now() - STALE_PENDING_TIMEOUT_MS - 10_000),
+      payload: {
+        userId: "test-user",
+        taskRetryCount: 0,
+        attemptCount: 1,
+        lastFailureCode: "PROJECT_RATE_LIMITED",
+        nextAttemptAt: new Date(Date.now() - 1_000).toISOString(),
+      },
+    });
+    const stageName = `health-fixture-${randomUUID()}`;
+    try {
+      await db.insert(durableDispatchStageHealthTable).values({
+        stageName,
+        lastOutcome: "failed",
+        lastRunAt: new Date(),
+        lastFailureAt: new Date(),
+        consecutiveFailures: 2,
+        lastErrorCode: "FIXTURE_STAGE_FAILED",
+        lastDispatchedCount: 0,
+      });
+      const health = await getDurableJobHealth();
+      expect(health.status).toBe("degraded");
+      expect(health.deferredAiTaskDispatches).toBeGreaterThanOrEqual(1);
+      expect(health.staleAiTaskDispatches).toBeGreaterThanOrEqual(1);
+      expect(health.oldestAiTaskDispatchAt).not.toBeNull();
+      expect(health.failedDispatchStages).toBeGreaterThanOrEqual(1);
+      expect(health.dispatchStages).toContainEqual(expect.objectContaining({
+        stageName,
+        lastOutcome: "failed",
+        consecutiveFailures: 2,
+        lastErrorCode: "FIXTURE_STAGE_FAILED",
+      }));
+    } finally {
+      await db.delete(durableDispatchStageHealthTable)
+        .where(eq(durableDispatchStageHealthTable.stageName, stageName));
+      await db.delete(eventsTable).where(eq(eventsTable.id, `task-auto-execution-deferred:${taskId}`));
+    }
+  });
 });
 
 describe("requeueStalePendingJobs", () => {
@@ -1173,6 +1234,72 @@ describe("dispatchPersistedPendingJobs", () => {
     });
   });
 
+  it("requeues a malformed accepted-task observation intent with a safe failure code", async () => {
+    const projectId = await insertProject("active");
+    projectCleanup.push(projectId);
+    const executionId = randomUUID();
+    const attempt = 1;
+    const now = new Date();
+    await db.insert(aiExecutionsTable).values({
+      id: executionId,
+      projectId,
+      userId: "test-user",
+      idempotencyKey: `${executionId}:observation-outbox`,
+      correlationId: executionId,
+      attempt,
+      resumeTokenHash: "d".repeat(64),
+      request: "{}",
+      checkpoint: "{}",
+      status: "completed",
+      startedAt: now,
+      createdAt: now,
+      updatedAt: now,
+    });
+    const outboxId = `task-acceptance-observations:${executionId}:${attempt}`;
+    await db.insert(taskExecutionObservationOutboxTable).values({
+      id: outboxId,
+      projectId,
+      executionId,
+      attempt,
+      payload: { projectId, executionId, attempt, sources: [] },
+      status: "pending",
+      attemptCount: 0,
+      nextAttemptAt: new Date(now.getTime() - 1_000),
+      createdAt: now,
+      updatedAt: now,
+    });
+
+    vi.mocked(heavyJobQueue.enqueueWithIdDetailed).mockReset().mockReturnValue("enqueued");
+    await expect(dispatchPendingTaskObservationOutbox()).resolves.toBe(1);
+    const firstCallback = vi.mocked(heavyJobQueue.enqueueWithIdDetailed).mock.calls
+      .find(([id]) => id === `task-observation-outbox:${outboxId}`)?.[1];
+    expect(firstCallback).toBeTypeOf("function");
+    await firstCallback?.();
+
+    const [deferred] = await db.select()
+      .from(taskExecutionObservationOutboxTable)
+      .where(eq(taskExecutionObservationOutboxTable.id, outboxId));
+    expect(deferred).toMatchObject({
+      status: "pending",
+      attemptCount: 1,
+      lastFailureCode: "INVALID_OBSERVATION_OUTBOX_PAYLOAD",
+      workerId: null,
+      leaseUntil: null,
+    });
+    expect(deferred?.nextAttemptAt.getTime()).toBeGreaterThan(now.getTime());
+
+    vi.mocked(heavyJobQueue.enqueueWithIdDetailed).mockReset().mockReturnValue("enqueued");
+    await expect(dispatchPendingTaskObservationOutbox()).resolves.toBe(0);
+    await db.update(taskExecutionObservationOutboxTable)
+      .set({ nextAttemptAt: new Date(Date.now() - 1_000) })
+      .where(eq(taskExecutionObservationOutboxTable.id, outboxId));
+    await expect(dispatchPendingTaskObservationOutbox()).resolves.toBe(1);
+    expect(vi.mocked(heavyJobQueue.enqueueWithIdDetailed)).toHaveBeenCalledWith(
+      `task-observation-outbox:${outboxId}`,
+      expect.any(Function),
+    );
+  });
+
   it("dispatches Scan and other categories while Discovery fails, then recovers Discovery next pass", async () => {
     const projectId = await insertProject("scanning");
     projectCleanup.push(projectId);
@@ -1224,6 +1351,11 @@ describe("dispatchPersistedPendingJobs", () => {
     }
 
     expect(firstPass!).toBeGreaterThanOrEqual(2);
+    const [failedStage] = await db.select()
+      .from(durableDispatchStageHealthTable)
+      .where(eq(durableDispatchStageHealthTable.stageName, "discoveries"));
+    expect(failedStage?.lastOutcome).toBe("failed");
+    expect(failedStage?.consecutiveFailures).toBeGreaterThanOrEqual(1);
     expect(vi.mocked(heavyJobQueue.enqueueWithIdDetailed)).toHaveBeenCalledWith(
       scanId,
       expect.any(Function),
@@ -1259,6 +1391,13 @@ describe("dispatchPersistedPendingJobs", () => {
     vi.mocked(heavyJobQueue.enqueueWithId).mockReturnValue(false);
 
     await expect(dispatchPersistedPendingJobs()).resolves.toBe(1);
+    const [recoveredStage] = await db.select()
+      .from(durableDispatchStageHealthTable)
+      .where(eq(durableDispatchStageHealthTable.stageName, "discoveries"));
+    expect(recoveredStage?.lastOutcome).toBe("passed");
+    expect(recoveredStage?.consecutiveFailures).toBe(0);
+    await db.delete(durableDispatchStageHealthTable)
+      .where(eq(durableDispatchStageHealthTable.stageName, "discoveries"));
     expect(vi.mocked(heavyJobQueue.enqueueWithIdDetailed)).toHaveBeenCalledWith(
       sessionId,
       expect.any(Function),

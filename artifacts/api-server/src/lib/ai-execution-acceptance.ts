@@ -10,6 +10,7 @@ import {
   aiAgentEffectsTable,
   aiExecutionEvidenceReadsTable,
   aiExecutionEvidenceSnapshotsTable,
+  taskExecutionObservationOutboxTable,
   aiExecutionsTable,
   aiGoalsTable,
   aiMissionsTable,
@@ -21,6 +22,7 @@ import {
   workflowsTable,
 } from "@workspace/db";
 import { recordAuditInTransaction, type RecordAuditParams } from "./audit.js";
+import type { MaterializeServerOwnedObservationsInput } from "./agent-state/observation-materializer.js";
 import { parseTaskObjectiveContract, type TaskObjectiveContract } from "./task-objective-contract.js";
 import { projectGoalAcceptance, type GoalAcceptanceProjection } from "./mission-acceptance-projection.js";
 import {
@@ -279,6 +281,8 @@ export type FinalizeExecutionAcceptanceParams = {
    * guarded terminal transaction as the acceptance ledger.
    */
   taskFinalization?: TaskExecutionFinalization;
+  /** Durable retry payload for the post-acceptance, non-authoritative projection. */
+  taskObservationInput?: MaterializeServerOwnedObservationsInput;
   /** Optional workflow phase projection through the existing Goal/Mission seam. */
   goalProjection?: GoalExecutionProjection;
   taskObjective?: TaskObjectiveContract;
@@ -3184,6 +3188,28 @@ export async function finalizeExecutionAcceptance(
       .where(and(eq(aiExecutionsTable.id, execution.id), finalMessageFence));
 
     await persistActionReceipt(acceptance);
+    if (params.taskObservationInput) {
+      const observationInput = params.taskObservationInput;
+      if (
+        observationInput.projectId !== execution.projectId
+        || observationInput.executionId !== execution.id
+        || observationInput.attempt !== execution.attempt
+      ) {
+        throw new Error("task_observation_outbox_identity_mismatch");
+      }
+      await tx.insert(taskExecutionObservationOutboxTable).values({
+        id: `task-acceptance-observations:${execution.id}:${execution.attempt}`,
+        projectId: execution.projectId,
+        executionId: execution.id,
+        attempt: execution.attempt,
+        payload: observationInput as unknown as Record<string, unknown>,
+        status: "pending",
+        attemptCount: 0,
+        nextAttemptAt: now,
+        createdAt: now,
+        updatedAt: now,
+      }).onConflictDoNothing();
+    }
     return { accepted: true, duplicate: false, acceptance };
   });
 }

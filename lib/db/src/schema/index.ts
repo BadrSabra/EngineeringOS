@@ -52,3 +52,5 @@ export * from "./openrouter_catalog_snapshots.js";
 export * from "./openrouter_lane_cursors.js";
 export * from "./openrouter_credential_cooldowns.js";
 export * from "./startup_maintenance_state.js";
+export * from "./durable_dispatch_stage_health.js";
+export * from "./task_execution_observation_outbox.js";

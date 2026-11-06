@@ -1,0 +1,100 @@
+import { db, eventsTable, tasksTable } from "@workspace/db";
+import { eq } from "drizzle-orm";
+
+export const TASK_AUTO_EXECUTION_REQUESTED_EVENT_TYPE =
+  "TaskAutoExecutionDispatchRequested";
+export const TASK_AUTO_EXECUTION_DEFERRED_EVENT_TYPE =
+  "TaskAutoExecutionDeferred";
+
+export type TaskAutoExecutionOutboxTransaction =
+  Parameters<Parameters<typeof db.transaction>[0]>[0];
+
+export type TaskAutoExecutionOutboxOptions = {
+  parentExecutionId?: string | null;
+  delegationBudget?: Record<string, unknown>;
+};
+
+export function taskAutoExecutionIntentId(taskId: string): string {
+  // Keep the historical event key stable. The attempt generation is bound in
+  // the payload and checked under the Task claim lock.
+  return `task-auto-execution-deferred:${taskId}`;
+}
+
+/**
+ * Persist the automatic dispatch request under the same Task row lock and
+ * transaction that moves the Task into verifying. The queue remains only a
+ * local wake-up mechanism; this event is the durable request.
+ */
+export async function insertTaskAutoExecutionIntent(
+  tx: TaskAutoExecutionOutboxTransaction,
+  input: {
+    taskId: string;
+    userId: string;
+    retryCount: number;
+    options?: TaskAutoExecutionOutboxOptions;
+  },
+): Promise<boolean> {
+  const [task] = await tx
+    .select({
+      projectId: tasksTable.projectId,
+      status: tasksTable.status,
+      prompt: tasksTable.prompt,
+      retryCount: tasksTable.retryCount,
+    })
+    .from(tasksTable)
+    .where(eq(tasksTable.id, input.taskId))
+    .for("update")
+    .limit(1);
+
+  if (
+    !task
+    || task.status !== "verifying"
+    || !task.prompt
+    || task.retryCount !== input.retryCount
+  ) {
+    return false;
+  }
+
+  const id = taskAutoExecutionIntentId(input.taskId);
+  const [existing] = await tx
+    .select({ payload: eventsTable.payload })
+    .from(eventsTable)
+    .where(eq(eventsTable.id, id))
+    .for("update")
+    .limit(1);
+  const existingRetryCount = existing?.payload?.taskRetryCount;
+  if (existing && existingRetryCount === input.retryCount) return true;
+
+  const payload = {
+    userId: input.userId,
+    taskRetryCount: input.retryCount,
+    attemptCount: 0,
+    ...(input.options?.parentExecutionId !== undefined
+      ? { parentExecutionId: input.options.parentExecutionId }
+      : {}),
+    ...(input.options?.delegationBudget !== undefined
+      ? { delegationBudget: input.options.delegationBudget }
+      : {}),
+  };
+  if (existing) {
+    await tx.update(eventsTable)
+      .set({
+        type: TASK_AUTO_EXECUTION_REQUESTED_EVENT_TYPE,
+        severity: "info",
+        message: "Automatic AI task execution was requested.",
+        payload,
+      })
+      .where(eq(eventsTable.id, id));
+  } else {
+    await tx.insert(eventsTable).values({
+      id,
+      type: TASK_AUTO_EXECUTION_REQUESTED_EVENT_TYPE,
+      projectId: task.projectId,
+      taskId: input.taskId,
+      severity: "info",
+      message: "Automatic AI task execution was requested.",
+      payload,
+    }).onConflictDoNothing();
+  }
+  return true;
+}

@@ -65,8 +65,10 @@ import {
   aiApplyJournalTable,
   aiChangeProposalsTable,
   eventsTable,
+  durableDispatchStageHealthTable,
+  taskExecutionObservationOutboxTable,
 } from "@workspace/db";
-import { and, eq, inArray, isNull, lt, or, count, sql, asc } from "drizzle-orm";
+import { and, eq, gt, inArray, isNull, lt, or, count, min, sql, asc } from "drizzle-orm";
 import { invalidateContextCache } from "@workspace/ai-orchestrator";
 import { logger } from "./logger.js";
 import { heavyJobQueue } from "./job-queue.js";
@@ -101,6 +103,7 @@ import { dispatchPendingShadowReplays } from "./shadow-replay.js";
 import { dispatchPendingMissionChatHandoffs } from "./mission-chat-handoffs.js";
 import { retryPendingRuntimeStartTransitions } from "./agent-state/runtime-start-transition.js";
 import { dispatchDeferredAiTaskExecutions } from "../routes/ai/tasks.js";
+import { dispatchPendingTaskObservationOutbox } from "./task-observation-outbox.js";
 
 const ORPHANED_RUNNING_MESSAGE =
   "Job was in progress when the server restarted and could not be resumed.";
@@ -1025,9 +1028,67 @@ export type DurableDispatchStage = {
   run: () => Promise<number>;
 };
 
+type DurableDispatchStageOutcome = {
+  name: string;
+  outcome: "passed" | "failed";
+  dispatchedCount: number;
+  errorCode?: string;
+};
+
+function durableDispatchFailureCode(error: unknown): string {
+  const candidate = error && typeof error === "object"
+    ? (error as { code?: unknown; name?: unknown }).code
+      ?? (error as { name?: unknown }).name
+    : undefined;
+  return typeof candidate === "string" && /^[A-Za-z0-9_.-]{1,64}$/.test(candidate)
+    ? candidate
+    : "DISPATCH_STAGE_FAILED";
+}
+
+async function persistDurableDispatchStageOutcome(
+  result: DurableDispatchStageOutcome,
+): Promise<void> {
+  const now = new Date();
+  const stage = durableDispatchStageHealthTable;
+  const values = {
+    stageName: result.name,
+    lastOutcome: result.outcome,
+    lastRunAt: now,
+    lastSuccessAt: result.outcome === "passed" ? now : null,
+    lastFailureAt: result.outcome === "failed" ? now : null,
+    consecutiveFailures: result.outcome === "failed" ? 1 : 0,
+    lastErrorCode: result.outcome === "failed" ? result.errorCode ?? "DISPATCH_STAGE_FAILED" : null,
+    lastDispatchedCount: result.dispatchedCount,
+    updatedAt: now,
+  };
+  try {
+    await db.insert(stage).values(values).onConflictDoUpdate({
+      target: stage.stageName,
+      set: {
+        lastOutcome: result.outcome,
+        lastRunAt: now,
+        ...(result.outcome === "passed" ? { lastSuccessAt: now } : {}),
+        ...(result.outcome === "failed" ? {
+          lastFailureAt: now,
+          lastErrorCode: result.errorCode ?? "DISPATCH_STAGE_FAILED",
+          consecutiveFailures: sql`${stage.consecutiveFailures} + 1`,
+        } : { consecutiveFailures: 0 }),
+        lastDispatchedCount: result.dispatchedCount,
+        updatedAt: now,
+      },
+    });
+  } catch (error) {
+    logger.error(
+      { error, dispatcher: result.name, scope: "job-reconciliation" },
+      "could not persist durable dispatch stage health",
+    );
+  }
+}
+
 export async function runDurableDispatchStages(
   stages: readonly DurableDispatchStage[],
   startAt = 0,
+  onOutcome?: (result: DurableDispatchStageOutcome) => Promise<void>,
 ): Promise<{ dispatched: number; counts: Record<string, number> }> {
   if (stages.length === 0) return { dispatched: 0, counts: {} };
   const normalizedStart = ((startAt % stages.length) + stages.length) % stages.length;
@@ -1039,12 +1100,33 @@ export async function runDurableDispatchStages(
       const count = await stage.run();
       counts[stage.name] = count;
       dispatched += count;
+      await onOutcome?.({
+        name: stage.name,
+        outcome: "passed",
+        dispatchedCount: count,
+      }).catch((error: unknown) => {
+        logger.error(
+          { error, dispatcher: stage.name, scope: "job-reconciliation" },
+          "durable dispatch outcome callback failed",
+        );
+      });
     } catch (err) {
       counts[stage.name] = 0;
       logger.error(
         { err, dispatcher: stage.name, scope: "job-reconciliation" },
         "durable job dispatcher stage failed; continuing with other stages",
       );
+      await onOutcome?.({
+        name: stage.name,
+        outcome: "failed",
+        dispatchedCount: 0,
+        errorCode: durableDispatchFailureCode(err),
+      }).catch((outcomeError: unknown) => {
+        logger.error(
+          { error: outcomeError, dispatcher: stage.name, scope: "job-reconciliation" },
+          "durable dispatch failure outcome could not be recorded",
+        );
+      });
     }
   }
   return { dispatched, counts };
@@ -1117,6 +1199,10 @@ async function dispatchPersistedPendingJobsOnce(): Promise<number> {
       },
     },
     { name: "deferred-ai-task-executions", run: () => dispatchDeferredAiTaskExecutions(pageLimit) },
+    {
+      name: "task-acceptance-observations",
+      run: () => dispatchPendingTaskObservationOutbox(pageLimit),
+    },
     { name: "task-recovery", run: () => dispatchAutonomousTaskRecoveries() },
     { name: "mission-replans", run: () => reconcileAutomaticMissionReplans() },
     { name: "decision-dispatch", run: () => reconcileApprovedMissionDecisionDispatches() },
@@ -1132,7 +1218,11 @@ async function dispatchPersistedPendingJobsOnce(): Promise<number> {
 
   const startAt = durableDispatchRotation % stages.length;
   durableDispatchRotation = (startAt + 1) % stages.length;
-  const { dispatched, counts } = await runDurableDispatchStages(stages, startAt);
+  const { dispatched, counts } = await runDurableDispatchStages(
+    stages,
+    startAt,
+    persistDurableDispatchStageOutcome,
+  );
 
   if (dispatched > 0) {
     logger.info(
@@ -1155,6 +1245,25 @@ export async function getDurableJobHealth(): Promise<{
   expiredTaskLeases: number;
   retryExhaustedScanJobs: number;
   retryExhaustedTasks: number;
+  pendingAiTaskDispatches: number;
+  deferredAiTaskDispatches: number;
+  staleAiTaskDispatches: number;
+  oldestAiTaskDispatchAt: string | null;
+  failedDispatchStages: number;
+  pendingTaskObservationMaterializations: number;
+  staleTaskObservationMaterializations: number;
+  expiredTaskObservationLeases: number;
+  failedTaskObservationMaterializations: number;
+  dispatchStages: Array<{
+    stageName: string;
+    lastOutcome: string;
+    lastRunAt: string;
+    lastSuccessAt: string | null;
+    lastFailureAt: string | null;
+    consecutiveFailures: number;
+    lastErrorCode: string | null;
+    lastDispatchedCount: number;
+  }>;
 }> {
   const now = databaseNow();
   const stalePendingCutoff = sql<Date>`(clock_timestamp() AT TIME ZONE 'UTC') - (${STALE_PENDING_TIMEOUT_MS} * interval '1 millisecond')`;
@@ -1169,6 +1278,16 @@ export async function getDurableJobHealth(): Promise<{
       [expiredTasks],
       [exhaustedScans],
       [exhaustedTasks],
+      [requestedAiTaskDispatches],
+      [deferredAiTaskDispatches],
+      [staleAiTaskDispatches],
+      [oldestAiTaskDispatch],
+      [failedStages],
+      stageRows,
+      [pendingObservationRows],
+      [staleObservationRows],
+      [expiredObservationLeases],
+      [failedObservationRows],
     ] = await Promise.all([
       db.select({ value: count() }).from(scanJobsTable).where(eq(scanJobsTable.status, "queued")),
       db.select({ value: count() }).from(discoverySessionsTable).where(eq(discoverySessionsTable.status, "pending")),
@@ -1194,6 +1313,69 @@ export async function getDurableJobHealth(): Promise<{
       )),
       db.select({ value: count() }).from(scanJobsTable).where(and(eq(scanJobsTable.status, "failed"), eq(scanJobsTable.retryCount, scanJobsTable.maxRetries))),
       db.select({ value: count() }).from(tasksTable).where(and(eq(tasksTable.status, "failed"), eq(tasksTable.retryCount, tasksTable.maxRetries))),
+      db.select({ value: count() }).from(eventsTable)
+        .innerJoin(tasksTable, eq(eventsTable.taskId, tasksTable.id))
+        .where(and(
+          eq(eventsTable.type, "TaskAutoExecutionDispatchRequested"),
+          eq(tasksTable.status, "verifying"),
+        )),
+      db.select({ value: count() }).from(eventsTable)
+        .innerJoin(tasksTable, eq(eventsTable.taskId, tasksTable.id))
+        .where(and(
+          eq(eventsTable.type, "TaskAutoExecutionDeferred"),
+          eq(tasksTable.status, "verifying"),
+        )),
+      db.select({ value: count() }).from(eventsTable)
+        .innerJoin(tasksTable, eq(eventsTable.taskId, tasksTable.id))
+        .where(and(
+          inArray(eventsTable.type, [
+            "TaskAutoExecutionDispatchRequested",
+            "TaskAutoExecutionDeferred",
+          ]),
+          eq(tasksTable.status, "verifying"),
+          lt(eventsTable.timestamp, stalePendingCutoff),
+        )),
+      db.select({ value: min(eventsTable.timestamp) }).from(eventsTable)
+        .innerJoin(tasksTable, eq(eventsTable.taskId, tasksTable.id))
+        .where(and(
+          inArray(eventsTable.type, [
+            "TaskAutoExecutionDispatchRequested",
+            "TaskAutoExecutionDeferred",
+          ]),
+          eq(tasksTable.status, "verifying"),
+        )),
+      db.select({ value: count() }).from(durableDispatchStageHealthTable)
+        .where(eq(durableDispatchStageHealthTable.lastOutcome, "failed")),
+      db.select({
+        stageName: durableDispatchStageHealthTable.stageName,
+        lastOutcome: durableDispatchStageHealthTable.lastOutcome,
+        lastRunAt: durableDispatchStageHealthTable.lastRunAt,
+        lastSuccessAt: durableDispatchStageHealthTable.lastSuccessAt,
+        lastFailureAt: durableDispatchStageHealthTable.lastFailureAt,
+        consecutiveFailures: durableDispatchStageHealthTable.consecutiveFailures,
+        lastErrorCode: durableDispatchStageHealthTable.lastErrorCode,
+        lastDispatchedCount: durableDispatchStageHealthTable.lastDispatchedCount,
+      }).from(durableDispatchStageHealthTable).orderBy(asc(durableDispatchStageHealthTable.stageName)),
+      db.select({ value: count() }).from(taskExecutionObservationOutboxTable)
+        .where(eq(taskExecutionObservationOutboxTable.status, "pending")),
+      db.select({ value: count() }).from(taskExecutionObservationOutboxTable)
+        .where(and(
+          eq(taskExecutionObservationOutboxTable.status, "pending"),
+          lt(taskExecutionObservationOutboxTable.createdAt, stalePendingCutoff),
+        )),
+      db.select({ value: count() }).from(taskExecutionObservationOutboxTable)
+        .where(and(
+          eq(taskExecutionObservationOutboxTable.status, "running"),
+          or(
+            isNull(taskExecutionObservationOutboxTable.leaseUntil),
+            lt(taskExecutionObservationOutboxTable.leaseUntil, now),
+          ),
+        )),
+      db.select({ value: count() }).from(taskExecutionObservationOutboxTable)
+        .where(and(
+          eq(taskExecutionObservationOutboxTable.status, "pending"),
+          gt(taskExecutionObservationOutboxTable.attemptCount, 0),
+        )),
     ]);
     const values = {
       queuedScanJobs: Number(queuedScans.value),
@@ -1205,12 +1387,36 @@ export async function getDurableJobHealth(): Promise<{
       expiredTaskLeases: Number(expiredTasks.value),
       retryExhaustedScanJobs: Number(exhaustedScans.value),
       retryExhaustedTasks: Number(exhaustedTasks.value),
+      pendingAiTaskDispatches: Number(requestedAiTaskDispatches.value),
+      deferredAiTaskDispatches: Number(deferredAiTaskDispatches.value),
+      staleAiTaskDispatches: Number(staleAiTaskDispatches.value),
+      oldestAiTaskDispatchAt: oldestAiTaskDispatch.value?.toISOString() ?? null,
+      failedDispatchStages: Number(failedStages.value),
+      pendingTaskObservationMaterializations: Number(pendingObservationRows.value),
+      staleTaskObservationMaterializations: Number(staleObservationRows.value),
+      expiredTaskObservationLeases: Number(expiredObservationLeases.value),
+      failedTaskObservationMaterializations: Number(failedObservationRows.value),
+      dispatchStages: stageRows.map((row) => ({
+        stageName: row.stageName,
+        lastOutcome: row.lastOutcome,
+        lastRunAt: row.lastRunAt.toISOString(),
+        lastSuccessAt: row.lastSuccessAt?.toISOString() ?? null,
+        lastFailureAt: row.lastFailureAt?.toISOString() ?? null,
+        consecutiveFailures: row.consecutiveFailures,
+        lastErrorCode: row.lastErrorCode,
+        lastDispatchedCount: row.lastDispatchedCount,
+      })),
     };
     const needsAttention =
       values.staleQueuedScanJobs > 0
       || values.stalePendingDiscoverySessions > 0
       || values.expiredScanLeases + values.expiredDiscoveryLeases + values.expiredTaskLeases > 0
-      || values.retryExhaustedScanJobs + values.retryExhaustedTasks > 0;
+      || values.retryExhaustedScanJobs + values.retryExhaustedTasks > 0
+      || values.staleAiTaskDispatches > 0
+      || values.failedDispatchStages > 0
+      || values.staleTaskObservationMaterializations > 0
+      || values.expiredTaskObservationLeases > 0
+      || values.failedTaskObservationMaterializations > 0;
     return { status: needsAttention ? "degraded" : "healthy", ...values };
   } catch (error) {
     logger.error({ error, scope: "job-reconciliation" }, "durable job health query failed");
@@ -1225,6 +1431,16 @@ export async function getDurableJobHealth(): Promise<{
       expiredTaskLeases: 0,
       retryExhaustedScanJobs: 0,
       retryExhaustedTasks: 0,
+      pendingAiTaskDispatches: 0,
+      deferredAiTaskDispatches: 0,
+      staleAiTaskDispatches: 0,
+      oldestAiTaskDispatchAt: null,
+      failedDispatchStages: 0,
+      pendingTaskObservationMaterializations: 0,
+      staleTaskObservationMaterializations: 0,
+      expiredTaskObservationLeases: 0,
+      failedTaskObservationMaterializations: 0,
+      dispatchStages: [],
     };
   }
 }

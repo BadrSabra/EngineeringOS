@@ -28,6 +28,7 @@ import {
   aiDeliveryPoliciesTable,
   aiExecutionsTable,
   aiExecutionAcceptancesTable,
+  taskExecutionObservationOutboxTable,
   aiExecutionEvidenceSnapshotsTable,
   aiShadowReplaysTable,
   aiUsageEventsTable,
@@ -53,6 +54,8 @@ import {
 } from "@workspace/ai-orchestrator";
 import * as repairValidation from "../lib/ai-repair-validation.js";
 import * as observationMaterializer from "../lib/agent-state/observation-materializer.js";
+import * as aiRouteHelpers from "../lib/ai-route-helpers.js";
+import * as aiRateLimiter from "../lib/db-rate-limiter.js";
 import { heavyJobQueue } from "../lib/job-queue.js";
 import { dispatchPersistedPendingJobs } from "../lib/job-reconciliation.js";
 import * as aiTaskRoutes from "./ai/tasks.js";
@@ -10352,6 +10355,14 @@ describe("POST /api/ai/tasks/:taskId/execute", () => {
     });
 
     enqueueSpy.mockRestore();
+    await db.update(eventsTable)
+      .set({
+        payload: {
+          ...deferredIntent!.payload!,
+          nextAttemptAt: new Date(Date.now() - 1_000).toISOString(),
+        },
+      })
+      .where(eq(eventsTable.id, `task-auto-execution-deferred:${taskId}`));
     await dispatchPersistedPendingJobs();
     // A competing/repeated recovery pass cannot enqueue this task a second
     // time locally; the Task claim transaction also removes the durable intent.
@@ -10367,6 +10378,68 @@ describe("POST /api/ai/tasks/:taskId/execute", () => {
       .from(eventsTable)
       .where(eq(eventsTable.id, `task-auto-execution-deferred:${taskId}`));
     expect(remainingIntent).toHaveLength(0);
+  });
+
+  it("retains and schedules an intent when the project rate limit blocks before claim", async () => {
+    const projectId = await insertProject();
+    projectIds.push(projectId);
+    const taskId = await insertTask(projectId, "verifying");
+    await db.update(tasksTable)
+      .set({ prompt: "Retry after the project rate limit window" })
+      .where(eq(tasksTable.id, taskId));
+
+    vi.spyOn(aiRouteHelpers, "resolveProvider").mockResolvedValueOnce({
+      provider: "groq",
+      apiKey: "test-only-key",
+      source: "user",
+    });
+    vi.spyOn(aiRateLimiter, "checkProjectRateLimitDb")
+      .mockResolvedValueOnce({ allowed: false, retryAfterSec: 120 });
+
+    await scheduleAiTaskExecution(taskId, "test-user");
+    await waitForScheduledAiTaskExecutions();
+
+    const [intent] = await db.select().from(eventsTable)
+      .where(eq(eventsTable.id, `task-auto-execution-deferred:${taskId}`));
+    expect(intent?.type).toBe("TaskAutoExecutionDeferred");
+    expect(intent?.payload).toMatchObject({
+      userId: "test-user",
+      taskRetryCount: 0,
+      lastFailureCode: "PROJECT_RATE_LIMITED",
+    });
+    const retryAt = Date.parse(String(intent?.payload?.nextAttemptAt));
+    expect(retryAt).toBeGreaterThan(Date.now() + 100_000);
+    expect(retryAt).toBeLessThan(Date.now() + 130_000);
+    expect(await db.select({ id: aiExecutionsTable.id }).from(aiExecutionsTable)
+      .where(eq(aiExecutionsTable.linkedTaskId, taskId))).toHaveLength(0);
+  });
+
+  it("retains a retryable intent after a provider preflight exception", async () => {
+    const projectId = await insertProject();
+    projectIds.push(projectId);
+    const taskId = await insertTask(projectId, "verifying");
+    await db.update(tasksTable)
+      .set({ prompt: "Retry after provider preflight recovers" })
+      .where(eq(tasksTable.id, taskId));
+
+    vi.spyOn(aiRouteHelpers, "resolveProvider")
+      .mockRejectedValueOnce(new Error("provider request req-private failed at /tmp/private"));
+
+    await scheduleAiTaskExecution(taskId, "test-user");
+    await waitForScheduledAiTaskExecutions();
+
+    const [intent] = await db.select().from(eventsTable)
+      .where(eq(eventsTable.id, `task-auto-execution-deferred:${taskId}`));
+    expect(intent?.type).toBe("TaskAutoExecutionDeferred");
+    expect(intent?.payload).toMatchObject({
+      userId: "test-user",
+      taskRetryCount: 0,
+      lastFailureCode: "AUTO_EXECUTION_PRECLAIM_FAILED",
+    });
+    expect(JSON.stringify(intent)).not.toContain("req-private");
+    expect(JSON.stringify(intent)).not.toContain("/tmp/private");
+    expect(await db.select({ id: aiExecutionsTable.id }).from(aiExecutionsTable)
+      .where(eq(aiExecutionsTable.linkedTaskId, taskId))).toHaveLength(0);
   });
 
   it("keeps automatic parser output private in task records", async () => {
@@ -11009,6 +11082,58 @@ describe.sequential("task and workflow provider failure contract", () => {
 });
 
 describe("autonomous task acceptance finalization races", () => {
+  it("commits the observation retry intent atomically with task acceptance", async () => {
+    const projectId = await insertProject();
+    projectIds.push(projectId);
+    const fixture = await insertRunningTaskExecution(projectId, { proofRequired: false });
+    const taskObservationInput = {
+      projectId,
+      executionId: fixture.executionId,
+      attempt: fixture.attempt,
+      projectRevision: "workspace-tree-v1:observation-outbox",
+      sources: [{
+        kind: "acceptance" as const,
+        sourceId: `acceptance:${fixture.executionId}:${fixture.attempt}`,
+        terminalStatus: "completed",
+        outcome: "SUCCEEDED",
+        reasonCode: "ACCEPTED",
+        evidenceComplete: true,
+      }],
+    };
+
+    const result = await finalizeExecutionAcceptance({
+      executionId: fixture.executionId,
+      expectedAttempt: fixture.attempt,
+      workerId: fixture.workerId,
+      finalizationKey: `execution:${fixture.executionId}:attempt:${fixture.attempt}:accepted-with-observation-outbox`,
+      outcome: "SUCCEEDED",
+      terminalStatus: "completed",
+      reasonCode: "TASK_COMPLETED",
+      recoveryState: "NONE",
+      resumable: false,
+      taskFinalization: {
+        taskId: fixture.taskId,
+        workerId: fixture.workerId,
+        status: "completed",
+        agentResponse: "Task accepted.",
+      },
+      taskObservationInput,
+    });
+
+    expect(result).toMatchObject({ accepted: true, duplicate: false });
+    const [outbox] = await db.select()
+      .from(taskExecutionObservationOutboxTable)
+      .where(eq(taskExecutionObservationOutboxTable.executionId, fixture.executionId));
+    expect(outbox).toMatchObject({
+      id: `task-acceptance-observations:${fixture.executionId}:${fixture.attempt}`,
+      projectId,
+      attempt: fixture.attempt,
+      status: "pending",
+      attemptCount: 0,
+      payload: taskObservationInput,
+    });
+  });
+
   it("records cancellation as one interrupted acceptance without replaying task side effects", async () => {
     const projectId = await insertProject();
     projectIds.push(projectId);

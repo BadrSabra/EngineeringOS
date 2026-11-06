@@ -53,6 +53,24 @@ The transactionally persisted `AiGoalRecipeDispatchRequested` event is also the 
 
 **How to apply:** Treat the event as an outbox pointer, not as authorization or proof. Recompute the idempotency identity from the current persisted action, validate delegation and ownership, and let the AI execution claim/lease remain the cross-process execution boundary.
 
+Automatic Task execution has two distinct durable boundaries: commit the dispatch
+intent with the transition to `verifying`, and consume only the matching retry
+generation when the execution claim succeeds. Transient failures before that claim
+must preserve or defer the intent. Post-acceptance Observation/World State projection
+is non-authoritative: persist its retry payload with the acceptance, then retry the
+projection independently without changing the accepted result.
+
+**Why:** A separate queue wake-up can fail after the Task transition commits, and
+pre-claim provider or rate-limit failures are not recoverable from a `running`-Task
+stale sweep. Fire-and-forget projection after acceptance also loses work on process
+death even though the authoritative acceptance remains valid.
+
+**How to apply:** Keep Task state transition and dispatch intent in one transaction;
+bind the intent to the Task retry generation and delete it only in the atomic
+execution claim. Keep observation payloads private, lease-fence their workers,
+retry materialization failures with bounded backoff, and expose only sanitized
+backlog/health data. Observation failure must never rewrite or revoke acceptance.
+
 Mission external events use the existing events journal as a durable inbox:
 persist the envelope before waking a Goal, deduplicate by eventId, and replay
 unprocessed events when the Goal later reaches its event-wait boundary.

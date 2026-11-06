@@ -31,6 +31,26 @@ export const listAiChatMessagesResponseExecutionLedgerOneModelsMax = 16;
 /**
  * @summary Health check
  */
+export const getHealthResponseJobRecoveryPendingAiTaskDispatchesMin = 0;
+
+export const getHealthResponseJobRecoveryDeferredAiTaskDispatchesMin = 0;
+
+export const getHealthResponseJobRecoveryStaleAiTaskDispatchesMin = 0;
+
+export const getHealthResponseJobRecoveryFailedDispatchStagesMin = 0;
+
+export const getHealthResponseJobRecoveryPendingTaskObservationMaterializationsMin = 0;
+
+export const getHealthResponseJobRecoveryStaleTaskObservationMaterializationsMin = 0;
+
+export const getHealthResponseJobRecoveryExpiredTaskObservationLeasesMin = 0;
+
+export const getHealthResponseJobRecoveryFailedTaskObservationMaterializationsMin = 0;
+
+export const getHealthResponseJobRecoveryDispatchStagesItemConsecutiveFailuresMin = 0;
+
+export const getHealthResponseJobRecoveryDispatchStagesItemLastDispatchedCountMin = 0;
+
 
 export const getHealthResponseUnresolvedRuntimeStartUnresolvedCountMin = 0;
 
@@ -104,8 +124,27 @@ export const GetHealthResponse = zod.object({
   "expiredDiscoveryLeases": zod.number().int(),
   "expiredTaskLeases": zod.number().int(),
   "retryExhaustedScanJobs": zod.number().int(),
-  "retryExhaustedTasks": zod.number().int()
-}).optional().describe('Content-free health projection of durable background work. A degraded status means an expired or missing worker lease needs recovery, a queued Scan or Discovery exceeds the configured pending-age threshold, or a job exhausted its retry budget and needs operator attention. The top-level health endpoint remains a liveness check.\n'),
+  "retryExhaustedTasks": zod.number().int(),
+  "pendingAiTaskDispatches": zod.number().int().min(getHealthResponseJobRecoveryPendingAiTaskDispatchesMin),
+  "deferredAiTaskDispatches": zod.number().int().min(getHealthResponseJobRecoveryDeferredAiTaskDispatchesMin),
+  "staleAiTaskDispatches": zod.number().int().min(getHealthResponseJobRecoveryStaleAiTaskDispatchesMin),
+  "oldestAiTaskDispatchAt": zod.coerce.date().nullable(),
+  "failedDispatchStages": zod.number().int().min(getHealthResponseJobRecoveryFailedDispatchStagesMin),
+  "pendingTaskObservationMaterializations": zod.number().int().min(getHealthResponseJobRecoveryPendingTaskObservationMaterializationsMin),
+  "staleTaskObservationMaterializations": zod.number().int().min(getHealthResponseJobRecoveryStaleTaskObservationMaterializationsMin),
+  "expiredTaskObservationLeases": zod.number().int().min(getHealthResponseJobRecoveryExpiredTaskObservationLeasesMin),
+  "failedTaskObservationMaterializations": zod.number().int().min(getHealthResponseJobRecoveryFailedTaskObservationMaterializationsMin),
+  "dispatchStages": zod.array(zod.object({
+  "stageName": zod.string(),
+  "lastOutcome": zod.enum(['passed', 'failed', 'unknown']),
+  "lastRunAt": zod.coerce.date(),
+  "lastSuccessAt": zod.coerce.date().nullable(),
+  "lastFailureAt": zod.coerce.date().nullable(),
+  "consecutiveFailures": zod.number().int().min(getHealthResponseJobRecoveryDispatchStagesItemConsecutiveFailuresMin),
+  "lastErrorCode": zod.string().nullable(),
+  "lastDispatchedCount": zod.number().int().min(getHealthResponseJobRecoveryDispatchStagesItemLastDispatchedCountMin)
+}))
+}).optional().describe('Content-free health projection of durable background work. A degraded status means an expired or missing worker lease needs recovery, a queued Scan, Discovery, AI dispatch, or accepted-task Observation materialization exceeds the configured pending-age threshold, a dispatcher stage last failed, or a job exhausted its retry budget and needs operator attention. The top-level health endpoint remains a liveness check.\n'),
   "unresolvedRuntimeStart": zod.object({
   "status": zod.enum(['clear', 'alert']),
   "thresholdMs": zod.number().int().min(1),

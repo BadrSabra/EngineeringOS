@@ -985,7 +985,10 @@ describe("PR-C — AI auto-trigger on verifying", () => {
     expect(res.body.status).toBe("verifying");
 
     expect(mockScheduleAiTaskExecution).toHaveBeenCalledOnce();
-    expect(mockScheduleAiTaskExecution).toHaveBeenCalledWith(taskId, "test-user");
+    expect(mockScheduleAiTaskExecution).toHaveBeenCalledWith(taskId, "test-user", undefined, 0);
+    const [intent] = await db.select().from(eventsTable)
+      .where(eq(eventsTable.id, `task-auto-execution-deferred:${taskId}`));
+    expect(intent?.payload).toMatchObject({ userId: "test-user", taskRetryCount: 0 });
   });
 
   it("execute route: does NOT schedule AI when task enters verifying without a prompt", async () => {
@@ -996,6 +999,9 @@ describe("PR-C — AI auto-trigger on verifying", () => {
     expect(res.body.status).toBe("verifying");
 
     expect(mockScheduleAiTaskExecution).not.toHaveBeenCalled();
+    await expect(db.select().from(eventsTable)
+      .where(eq(eventsTable.id, `task-auto-execution-deferred:${taskId}`)))
+      .resolves.toHaveLength(0);
   });
 
   it("PATCH route: schedules AI when status is manually set to verifying with a prompt", async () => {
@@ -1008,7 +1014,10 @@ describe("PR-C — AI auto-trigger on verifying", () => {
     expect(res.body.status).toBe("verifying");
 
     expect(mockScheduleAiTaskExecution).toHaveBeenCalledOnce();
-    expect(mockScheduleAiTaskExecution).toHaveBeenCalledWith(taskId, "test-user");
+    expect(mockScheduleAiTaskExecution).toHaveBeenCalledWith(taskId, "test-user", undefined, 0);
+    const [intent] = await db.select().from(eventsTable)
+      .where(eq(eventsTable.id, `task-auto-execution-deferred:${taskId}`));
+    expect(intent?.payload).toMatchObject({ userId: "test-user", taskRetryCount: 0 });
   });
 
   it("PATCH route: does NOT schedule AI when status is set to verifying but prompt is null", async () => {
@@ -1020,6 +1029,9 @@ describe("PR-C — AI auto-trigger on verifying", () => {
     expect(res.status).toBe(200);
 
     expect(mockScheduleAiTaskExecution).not.toHaveBeenCalled();
+    await expect(db.select().from(eventsTable)
+      .where(eq(eventsTable.id, `task-auto-execution-deferred:${taskId}`)))
+      .resolves.toHaveLength(0);
   });
 
   it("PATCH route: does NOT schedule AI when status changes to something other than verifying", async () => {
@@ -1031,5 +1043,23 @@ describe("PR-C — AI auto-trigger on verifying", () => {
     expect(res.status).toBe(409);
     expect(res.body.error).toBe("invalid_task_transition");
     expect(mockScheduleAiTaskExecution).not.toHaveBeenCalled();
+  });
+
+  it("commits the dispatch intent before the local queue wake-up", async () => {
+    const { taskId } = await createTaskWithPrompt("Recover after a queue wake-up failure");
+    mockScheduleAiTaskExecution.mockRejectedValueOnce(new Error("simulated wake-up failure"));
+
+    const response = await request(app)
+      .patch(`/api/tasks/${taskId}`)
+      .send({ status: "verifying" });
+
+    expect(response.status).toBe(500);
+    const [task] = await db.select({ status: tasksTable.status })
+      .from(tasksTable)
+      .where(eq(tasksTable.id, taskId));
+    const [intent] = await db.select().from(eventsTable)
+      .where(eq(eventsTable.id, `task-auto-execution-deferred:${taskId}`));
+    expect(task?.status).toBe("verifying");
+    expect(intent?.payload).toMatchObject({ userId: "test-user", taskRetryCount: 0 });
   });
 });

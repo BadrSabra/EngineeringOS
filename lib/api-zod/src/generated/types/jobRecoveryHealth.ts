@@ -5,10 +5,11 @@
  * EngineeringOS - Autonomous AI Engineering Platform API
  * OpenAPI spec version: 1.0.0
  */
+import type { JobRecoveryHealthDispatchStagesItem } from './jobRecoveryHealthDispatchStagesItem';
 import type { JobRecoveryHealthStatus } from './jobRecoveryHealthStatus';
 
 /**
- * Content-free health projection of durable background work. A degraded status means an expired or missing worker lease needs recovery, a queued Scan or Discovery exceeds the configured pending-age threshold, or a job exhausted its retry budget and needs operator attention. The top-level health endpoint remains a liveness check.
+ * Content-free health projection of durable background work. A degraded status means an expired or missing worker lease needs recovery, a queued Scan, Discovery, AI dispatch, or accepted-task Observation materialization exceeds the configured pending-age threshold, a dispatcher stage last failed, or a job exhausted its retry budget and needs operator attention. The top-level health endpoint remains a liveness check.
  */
 export interface JobRecoveryHealth {
   status: JobRecoveryHealthStatus;
@@ -21,4 +22,22 @@ export interface JobRecoveryHealth {
   expiredTaskLeases: number;
   retryExhaustedScanJobs: number;
   retryExhaustedTasks: number;
+  /** @minimum 0 */
+  pendingAiTaskDispatches: number;
+  /** @minimum 0 */
+  deferredAiTaskDispatches: number;
+  /** @minimum 0 */
+  staleAiTaskDispatches: number;
+  oldestAiTaskDispatchAt: Date | null;
+  /** @minimum 0 */
+  failedDispatchStages: number;
+  /** @minimum 0 */
+  pendingTaskObservationMaterializations: number;
+  /** @minimum 0 */
+  staleTaskObservationMaterializations: number;
+  /** @minimum 0 */
+  expiredTaskObservationLeases: number;
+  /** @minimum 0 */
+  failedTaskObservationMaterializations: number;
+  dispatchStages: JobRecoveryHealthDispatchStagesItem[];
 }

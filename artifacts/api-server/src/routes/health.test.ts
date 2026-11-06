@@ -30,7 +30,13 @@ describe("GET /healthz", () => {
       pendingDiscoverySessions: expect.any(Number),
       staleQueuedScanJobs: expect.any(Number),
       stalePendingDiscoverySessions: expect.any(Number),
+      pendingAiTaskDispatches: expect.any(Number),
+      deferredAiTaskDispatches: expect.any(Number),
+      staleAiTaskDispatches: expect.any(Number),
+      failedDispatchStages: expect.any(Number),
+      dispatchStages: expect.any(Array),
     });
+    expect(res.body.jobRecovery.oldestAiTaskDispatchAt).toBeNull();
     expect(res.body.aiDiagnosticsRetention).toHaveProperty("status");
     expect(res.body.aiDiagnosticsRetention).toHaveProperty("attemptedAt");
     expect(res.body.aiDiagnosticsRetention).toHaveProperty("completedAt");

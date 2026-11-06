@@ -13,7 +13,7 @@ import {
   aiExecutionsTable,
   aiExecutionAcceptancesTable,
 } from "@workspace/db";
-import { eq, and, inArray } from "drizzle-orm";
+import { eq, and, inArray, or, asc, sql } from "drizzle-orm";
 import { logger } from "../../lib/logger.js";
 import { loadProjectByIdForUser } from "../../middlewares/requireProjectAccess.js";
 import { checkProjectRateLimitDb, LLM_RATE_LIMIT } from "../../lib/db-rate-limiter.js";
@@ -31,6 +31,13 @@ import {
   ExecutionDelegationBudgetSchema,
   type ExecutionDelegationBudget,
 } from "../../lib/execution-lineage.js";
+import {
+  TASK_AUTO_EXECUTION_DEFERRED_EVENT_TYPE,
+  TASK_AUTO_EXECUTION_REQUESTED_EVENT_TYPE,
+  insertTaskAutoExecutionIntent,
+  taskAutoExecutionIntentId,
+  type TaskAutoExecutionOutboxOptions,
+} from "../../lib/task-auto-execution-outbox.js";
 
 const router = Router();
 
@@ -339,9 +346,6 @@ router.post("/ai/tasks/:taskId/execute", async (req, res) => {
 
 // ── scheduleAiTaskExecution ──────────────────────────────────────────────────
 
-const TASK_AUTO_EXECUTION_REQUESTED_EVENT_TYPE = "TaskAutoExecutionDispatchRequested";
-const TASK_AUTO_EXECUTION_DEFERRED_EVENT_TYPE = "TaskAutoExecutionDeferred";
-
 type AiTaskExecutionOptions = {
   parentExecutionId?: string | null;
   delegationBudget?: Partial<ExecutionDelegationBudget>;
@@ -349,17 +353,26 @@ type AiTaskExecutionOptions = {
 
 type DeferredAiTaskExecution = {
   userId: string;
+  taskRetryCount?: number;
+  attemptCount: number;
+  nextAttemptAt?: string;
   options?: AiTaskExecutionOptions;
 };
-
-function deferredTaskExecutionEventId(taskId: string): string {
-  return `task-auto-execution-deferred:${taskId}`;
-}
 
 function parseDeferredAiTaskExecution(payload: unknown): DeferredAiTaskExecution | null {
   if (!payload || typeof payload !== "object" || Array.isArray(payload)) return null;
   const record = payload as Record<string, unknown>;
   if (typeof record.userId !== "string" || record.userId.length === 0) return null;
+  if (
+    record.taskRetryCount !== undefined
+    && (!Number.isSafeInteger(record.taskRetryCount) || Number(record.taskRetryCount) < 0)
+  ) return null;
+  const attemptCount = record.attemptCount ?? 0;
+  if (!Number.isSafeInteger(attemptCount) || Number(attemptCount) < 0) return null;
+  if (
+    record.nextAttemptAt !== undefined
+    && (typeof record.nextAttemptAt !== "string" || !Number.isFinite(Date.parse(record.nextAttemptAt)))
+  ) return null;
   const options: AiTaskExecutionOptions = {};
   if (record.parentExecutionId !== undefined) {
     if (record.parentExecutionId !== null && typeof record.parentExecutionId !== "string") return null;
@@ -372,6 +385,13 @@ function parseDeferredAiTaskExecution(payload: unknown): DeferredAiTaskExecution
   }
   return {
     userId: record.userId,
+    ...(record.taskRetryCount === undefined
+      ? {}
+      : { taskRetryCount: Number(record.taskRetryCount) }),
+    attemptCount: Number(attemptCount),
+    ...(typeof record.nextAttemptAt === "string"
+      ? { nextAttemptAt: record.nextAttemptAt }
+      : {}),
     ...(Object.keys(options).length > 0 ? { options } : {}),
   };
 }
@@ -380,59 +400,115 @@ async function persistDeferredAiTaskExecution(
   taskId: string,
   userId: string,
   options?: AiTaskExecutionOptions,
-): Promise<boolean> {
-  const eventId = deferredTaskExecutionEventId(taskId);
+  expectedRetryCount?: number,
+): Promise<{ retryCount: number; payload: DeferredAiTaskExecution } | null> {
   return db.transaction(async (tx) => {
     const [task] = await tx
       .select({
         projectId: tasksTable.projectId,
         status: tasksTable.status,
         prompt: tasksTable.prompt,
+        retryCount: tasksTable.retryCount,
       })
       .from(tasksTable)
       .where(eq(tasksTable.id, taskId))
       .for("update")
       .limit(1);
-    if (!task || task.status !== "verifying" || !task.prompt) return false;
+    if (
+      !task
+      || task.status !== "verifying"
+      || !task.prompt
+      || (expectedRetryCount !== undefined && task.retryCount !== expectedRetryCount)
+    ) return null;
 
-    await tx.insert(eventsTable).values({
-      id: eventId,
-      type: TASK_AUTO_EXECUTION_REQUESTED_EVENT_TYPE,
-      projectId: task.projectId,
+    await insertTaskAutoExecutionIntent(tx, {
       taskId,
-      severity: "info",
-      message: "Automatic AI task execution was requested.",
-      payload: {
-        userId,
-        ...(options?.parentExecutionId !== undefined
-          ? { parentExecutionId: options.parentExecutionId }
-          : {}),
-        ...(options?.delegationBudget !== undefined
-          ? { delegationBudget: options.delegationBudget }
-          : {}),
-      },
-    }).onConflictDoNothing();
-    return true;
+      userId,
+      retryCount: task.retryCount,
+      options: options as TaskAutoExecutionOutboxOptions | undefined,
+    });
+    const [intent] = await tx
+      .select({ payload: eventsTable.payload })
+      .from(eventsTable)
+      .where(eq(eventsTable.id, taskAutoExecutionIntentId(taskId)))
+      .limit(1);
+    const parsed = parseDeferredAiTaskExecution(intent?.payload);
+    if (!parsed) return null;
+    return { retryCount: task.retryCount, payload: parsed };
   });
 }
 
-async function clearDeferredAiTaskExecution(taskId: string): Promise<void> {
-  await db.delete(eventsTable).where(eq(eventsTable.id, deferredTaskExecutionEventId(taskId)));
+async function clearDeferredAiTaskExecution(taskId: string, retryCount: number): Promise<void> {
+  await db.transaction(async (tx) => {
+    const [intent] = await tx
+      .select({ payload: eventsTable.payload })
+      .from(eventsTable)
+      .where(eq(eventsTable.id, taskAutoExecutionIntentId(taskId)))
+      .for("update")
+      .limit(1);
+    if (intent?.payload?.taskRetryCount === retryCount) {
+      await tx.delete(eventsTable)
+        .where(eq(eventsTable.id, taskAutoExecutionIntentId(taskId)));
+    }
+  });
 }
 
-async function markDeferredAiTaskExecution(taskId: string): Promise<void> {
-  await db.update(eventsTable)
-    .set({
-      type: TASK_AUTO_EXECUTION_DEFERRED_EVENT_TYPE,
-      severity: "warning",
-      message: "AI task execution was deferred because the worker queue is full.",
-    })
-    .where(eq(eventsTable.id, deferredTaskExecutionEventId(taskId)));
+const MIN_AUTO_TASK_RETRY_MS = 60_000;
+const MAX_AUTO_TASK_RETRY_MS = 15 * 60_000;
+
+function retryDelayMs(attemptCount: number): number {
+  return Math.min(
+    MAX_AUTO_TASK_RETRY_MS,
+    MIN_AUTO_TASK_RETRY_MS * 2 ** Math.min(Math.max(attemptCount, 0), 4),
+  );
+}
+
+function safeDispatchFailureCode(error: unknown): string {
+  const candidate = error && typeof error === "object"
+    ? (error as { code?: unknown }).code
+    : undefined;
+  return typeof candidate === "string" && /^[A-Za-z0-9_.-]{1,64}$/.test(candidate)
+    ? candidate
+    : "AUTO_EXECUTION_PRECLAIM_FAILED";
+}
+
+async function markDeferredAiTaskExecution(
+  taskId: string,
+  retryCount: number,
+  reasonCode: string,
+  delayMs: number,
+): Promise<void> {
+  await db.transaction(async (tx) => {
+    const id = taskAutoExecutionIntentId(taskId);
+    const [intent] = await tx
+      .select({ payload: eventsTable.payload })
+      .from(eventsTable)
+      .where(eq(eventsTable.id, id))
+      .for("update")
+      .limit(1);
+    const parsed = parseDeferredAiTaskExecution(intent?.payload);
+    if (!parsed || parsed.taskRetryCount !== retryCount) return;
+    await tx.update(eventsTable)
+      .set({
+        type: TASK_AUTO_EXECUTION_DEFERRED_EVENT_TYPE,
+        severity: "warning",
+        message: "AI task execution is waiting for a retry.",
+        payload: {
+          ...intent!.payload,
+          taskRetryCount: retryCount,
+          attemptCount: parsed.attemptCount + 1,
+          lastFailureCode: reasonCode,
+          nextAttemptAt: new Date(Date.now() + Math.max(1, delayMs)).toISOString(),
+        },
+      })
+      .where(eq(eventsTable.id, id));
+  });
 }
 
 async function runAiTaskExecution(
   taskId: string,
   userId: string,
+  retryCount: number,
   options?: AiTaskExecutionOptions,
 ): Promise<void> {
   try {
@@ -442,10 +518,21 @@ async function runAiTaskExecution(
       .where(eq(tasksTable.id, taskId))
       .limit(1);
 
-    if (!task || task.status !== "verifying" || !task.prompt) {
-      await clearDeferredAiTaskExecution(taskId);
+    if (
+      !task
+      || task.status !== "verifying"
+      || !task.prompt
+      || task.retryCount !== retryCount
+    ) {
+      await clearDeferredAiTaskExecution(taskId, retryCount);
       logger.info(
-        { taskId, status: task?.status ?? "gone", hasPrompt: !!task?.prompt },
+        {
+          taskId,
+          status: task?.status ?? "gone",
+          hasPrompt: !!task?.prompt,
+          expectedRetryCount: retryCount,
+          actualRetryCount: task?.retryCount,
+        },
         "AI auto-trigger: task no longer eligible — skipping",
       );
       return;
@@ -465,7 +552,12 @@ async function runAiTaskExecution(
         message: `AI auto-trigger skipped for "${task.title}": no AI provider configured`,
         payload: { skipped: true, reason: "no_api_key" },
       });
-      await clearDeferredAiTaskExecution(taskId);
+      await markDeferredAiTaskExecution(
+        taskId,
+        retryCount,
+        "PROVIDER_NOT_CONFIGURED",
+        retryDelayMs(0),
+      );
       return;
     }
     const { provider, apiKey } = resolved;
@@ -476,7 +568,12 @@ async function runAiTaskExecution(
         { taskId, retryAfterSec: rl.retryAfterSec },
         "AI auto-trigger: rate limited — task stays in verifying",
       );
-      await clearDeferredAiTaskExecution(taskId);
+      await markDeferredAiTaskExecution(
+        taskId,
+        retryCount,
+        "PROJECT_RATE_LIMITED",
+        Math.max(1, (rl.retryAfterSec ?? 60) * 1_000),
+      );
       return;
     }
 
@@ -486,24 +583,51 @@ async function runAiTaskExecution(
       provider: { provider, apiKey },
       trigger: "automatic",
       expectedStatuses: ["verifying"],
+      expectedRetryCount: retryCount,
       parentExecutionId: options?.parentExecutionId,
       delegationBudget: options?.delegationBudget,
     });
     if (lifecycle.status === "conflict") {
-      await clearDeferredAiTaskExecution(taskId);
+      const [currentTask] = await db
+        .select({ status: tasksTable.status, retryCount: tasksTable.retryCount })
+        .from(tasksTable)
+        .where(eq(tasksTable.id, taskId))
+        .limit(1);
+      if (currentTask?.status === "verifying" && currentTask.retryCount === retryCount) {
+        await markDeferredAiTaskExecution(
+          taskId,
+          retryCount,
+          lifecycle.errorCode ?? "TASK_CLAIM_CONFLICT",
+          lifecycle.retryAfterMs ?? retryDelayMs(0),
+        );
+      } else {
+        await clearDeferredAiTaskExecution(taskId, retryCount);
+      }
       logger.info({ taskId, reason: lifecycle.errorCode }, "AI auto-trigger: lifecycle claim skipped");
       return;
     }
     if (!lifecycle.ok) {
-      await clearDeferredAiTaskExecution(taskId);
+      // A successful claim consumes the intent in the same transaction. If
+      // the intent still exists, the failure was before that durable boundary.
+      await markDeferredAiTaskExecution(
+        taskId,
+        retryCount,
+        lifecycle.errorCode ?? "TASK_EXECUTION_NOT_CLAIMED",
+        retryDelayMs(0),
+      );
       logger.warn(
         { taskId, executionId: lifecycle.executionId, code: lifecycle.errorCode },
         "AI auto-trigger: lifecycle failed",
       );
     }
   } catch (err) {
-    await clearDeferredAiTaskExecution(taskId).catch((clearError) => {
-      logger.error({ err: clearError, taskId }, "AI auto-trigger: could not clear deferred dispatch intent");
+    await markDeferredAiTaskExecution(
+      taskId,
+      retryCount,
+      safeDispatchFailureCode(err),
+      retryDelayMs(0),
+    ).catch((deferError) => {
+      logger.error({ err: deferError, taskId }, "AI auto-trigger: could not preserve deferred dispatch intent");
     });
     logger.error({ err, taskId }, "AI auto-trigger: unhandled error in auto-execution job");
   }
@@ -520,6 +644,7 @@ export async function scheduleAiTaskExecution(
   taskId: string,
   userId: string,
   options?: AiTaskExecutionOptions,
+  expectedRetryCount?: number,
 ): Promise<void> {
   const inFlightScheduling = schedulingAiTaskExecutions.get(taskId);
   if (inFlightScheduling) return inFlightScheduling;
@@ -534,21 +659,28 @@ export async function scheduleAiTaskExecution(
   let scheduling!: Promise<void>;
   scheduling = (async () => {
     try {
-      // Persist the dispatch intent before attempting local enqueue. The event
-      // remains until an atomic Task claim consumes it, covering both queue
-      // backpressure and a process stop before the worker starts.
-      const persisted = await persistDeferredAiTaskExecution(taskId, userId, options);
+      // The route normally committed this intent with the verifying transition.
+      // This idempotent repair also supports direct callers and legacy rows.
+      const persisted = await persistDeferredAiTaskExecution(
+        taskId,
+        userId,
+        options,
+        expectedRetryCount,
+      );
       if (!persisted) {
         resolveCompletion();
         scheduledAiTaskCompletions.delete(taskId);
         return;
       }
+      const retryCount = persisted.retryCount;
+      const effectiveUserId = persisted.payload.userId;
+      const effectiveOptions = persisted.payload.options ?? options;
 
       // ID-based queue deduplication plus the DB Task claim protect repeated
       // calls in this process and dispatches from other API instances.
       const enqueueResult = heavyJobQueue.enqueueWithIdDetailed(taskId, async () => {
         try {
-          await runAiTaskExecution(taskId, userId, options);
+          await runAiTaskExecution(taskId, effectiveUserId, retryCount, effectiveOptions);
         } finally {
           resolveCompletion();
         }
@@ -557,10 +689,13 @@ export async function scheduleAiTaskExecution(
         resolveCompletion();
         scheduledAiTaskCompletions.delete(taskId);
         if (enqueueResult === "full") {
-          await markDeferredAiTaskExecution(taskId).catch((err) => {
-            // The requested event remains a valid durable outbox entry even
-            // if its user-facing deferred label cannot be updated.
-            logger.error({ err, taskId }, "AI auto-trigger: could not label deferred dispatch intent");
+          await markDeferredAiTaskExecution(
+            taskId,
+            retryCount,
+            "LOCAL_QUEUE_FULL",
+            30_000,
+          ).catch((err) => {
+            logger.error({ err, taskId }, "AI auto-trigger: could not defer dispatch intent");
           });
           logger.warn(
             { taskId },
@@ -589,17 +724,19 @@ export async function scheduleAiTaskExecution(
 }
 
 /**
- * Re-dispatch queue-full intents from the durable event outbox. The event is
- * removed in the same transaction that claims the Task, so a crash before
- * claim remains recoverable while an acquired task cannot be auto-run twice.
+ * Re-dispatch durable intents that are due. Pre-claim failures retain the
+ * intent with a bounded retry time; the Task claim consumes it atomically.
  */
 export async function dispatchDeferredAiTaskExecutions(limit = 100): Promise<number> {
+  const nowIso = new Date().toISOString();
   const deferred = await db
     .select({
+      intentId: eventsTable.id,
       taskId: eventsTable.taskId,
       payload: eventsTable.payload,
       status: tasksTable.status,
       prompt: tasksTable.prompt,
+      retryCount: tasksTable.retryCount,
     })
     .from(eventsTable)
     .innerJoin(tasksTable, eq(eventsTable.taskId, tasksTable.id))
@@ -609,25 +746,53 @@ export async function dispatchDeferredAiTaskExecutions(limit = 100): Promise<num
         TASK_AUTO_EXECUTION_DEFERRED_EVENT_TYPE,
       ]),
       eq(tasksTable.status, "verifying"),
+      or(
+        eq(eventsTable.type, TASK_AUTO_EXECUTION_REQUESTED_EVENT_TYPE),
+        sql`(
+          ${eventsTable.payload}->>'nextAttemptAt' IS NULL
+          OR ${eventsTable.payload}->>'nextAttemptAt' !~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}T'
+          OR ${eventsTable.payload}->>'nextAttemptAt' <= ${nowIso}
+        )`,
+      ),
     ))
-    .orderBy(eventsTable.timestamp, eventsTable.id)
+    .orderBy(asc(eventsTable.timestamp), asc(eventsTable.id))
     .limit(limit);
 
   let dispatched = 0;
   for (const intent of deferred) {
     if (!intent.taskId || !intent.prompt) {
-      if (intent.taskId) await clearDeferredAiTaskExecution(intent.taskId);
+      if (intent.taskId) {
+        await db.delete(eventsTable).where(eq(eventsTable.id, intent.intentId));
+      }
       continue;
     }
     const parsed = parseDeferredAiTaskExecution(intent.payload);
     if (!parsed) {
       logger.warn({ taskId: intent.taskId }, "AI auto-trigger: invalid deferred dispatch intent discarded");
-      await clearDeferredAiTaskExecution(intent.taskId);
+      await db.delete(eventsTable).where(eq(eventsTable.id, intent.intentId));
       continue;
     }
 
     const before = scheduledAiTaskCompletions.size;
-    await scheduleAiTaskExecution(intent.taskId, parsed.userId, parsed.options);
+    await scheduleAiTaskExecution(
+      intent.taskId,
+      parsed.userId,
+      parsed.options,
+      intent.retryCount,
+    );
+    if (
+      parsed.taskRetryCount !== undefined
+      && parsed.taskRetryCount !== intent.retryCount
+    ) {
+      logger.info(
+        {
+          taskId: intent.taskId,
+          previousRetryCount: parsed.taskRetryCount,
+          currentRetryCount: intent.retryCount,
+        },
+        "AI auto-trigger: refreshed a stale dispatch generation",
+      );
+    }
     if (scheduledAiTaskCompletions.size > before) dispatched++;
     if (heavyJobQueue.availablePendingCapacity === 0) break;
   }

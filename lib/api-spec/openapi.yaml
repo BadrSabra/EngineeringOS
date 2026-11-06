@@ -6609,12 +6609,23 @@ components:
         - expiredTaskLeases
         - retryExhaustedScanJobs
         - retryExhaustedTasks
+        - pendingAiTaskDispatches
+        - deferredAiTaskDispatches
+        - staleAiTaskDispatches
+        - oldestAiTaskDispatchAt
+        - failedDispatchStages
+        - pendingTaskObservationMaterializations
+        - staleTaskObservationMaterializations
+        - expiredTaskObservationLeases
+        - failedTaskObservationMaterializations
+        - dispatchStages
       description: >
         Content-free health projection of durable background work. A degraded
         status means an expired or missing worker lease needs recovery, a queued
-        Scan or Discovery exceeds the configured pending-age threshold, or a
-        job exhausted its retry budget and needs operator attention. The top-level
-        health endpoint remains a liveness check.
+        Scan, Discovery, AI dispatch, or accepted-task Observation materialization
+        exceeds the configured pending-age threshold, a dispatcher stage last
+        failed, or a job exhausted its retry budget and needs operator attention.
+        The top-level health endpoint remains a liveness check.
       properties:
         status:
           type: string
@@ -6637,6 +6648,73 @@ components:
           type: integer
         retryExhaustedTasks:
           type: integer
+        pendingAiTaskDispatches:
+          type: integer
+          minimum: 0
+        deferredAiTaskDispatches:
+          type: integer
+          minimum: 0
+        staleAiTaskDispatches:
+          type: integer
+          minimum: 0
+        oldestAiTaskDispatchAt:
+          type: string
+          format: date-time
+          nullable: true
+        failedDispatchStages:
+          type: integer
+          minimum: 0
+        pendingTaskObservationMaterializations:
+          type: integer
+          minimum: 0
+        staleTaskObservationMaterializations:
+          type: integer
+          minimum: 0
+        expiredTaskObservationLeases:
+          type: integer
+          minimum: 0
+        failedTaskObservationMaterializations:
+          type: integer
+          minimum: 0
+        dispatchStages:
+          type: array
+          items:
+            type: object
+            required:
+              - stageName
+              - lastOutcome
+              - lastRunAt
+              - lastSuccessAt
+              - lastFailureAt
+              - consecutiveFailures
+              - lastErrorCode
+              - lastDispatchedCount
+            properties:
+              stageName:
+                type: string
+              lastOutcome:
+                type: string
+                enum: [passed, failed, unknown]
+              lastRunAt:
+                type: string
+                format: date-time
+              lastSuccessAt:
+                type: string
+                format: date-time
+                nullable: true
+              lastFailureAt:
+                type: string
+                format: date-time
+                nullable: true
+              consecutiveFailures:
+                type: integer
+                minimum: 0
+              lastErrorCode:
+                type: string
+                nullable: true
+              lastDispatchedCount:
+                type: integer
+                minimum: 0
 
     TaskExecutionRetentionHealth:
       type: object

@@ -36,6 +36,7 @@ import { logger } from "../lib/logger.js";
 import { requireAuth } from "../middlewares/requireAuth.js";
 import { loadProjectByIdForUser } from "../middlewares/requireProjectAccess.js";
 import { scheduleAiTaskExecution } from "./ai.js";
+import { insertTaskAutoExecutionIntent } from "../lib/task-auto-execution-outbox.js";
 import { parsePagination } from "../lib/pagination.js";
 import { taskTransitionConflict, type TaskStatus } from "../lib/task-state.js";
 import { redactUserFacingText } from "../lib/ai-route-helpers.js";
@@ -372,6 +373,13 @@ router.patch("/tasks/:taskId", async (req, res) => {
         projectId: before[0].projectId, actor: req.userId, correlationId,
         changedFields: body, stateBefore: before[0], stateAfter: rows[0],
       });
+      if (body.status === "verifying" && rows[0].prompt) {
+        await insertTaskAutoExecutionIntent(tx, {
+          taskId,
+          userId: req.userId,
+          retryCount: rows[0].retryCount,
+        });
+      }
     }
     return rows;
   });
@@ -383,9 +391,10 @@ router.patch("/tasks/:taskId", async (req, res) => {
   }
 
   // PR-C: auto-trigger AI execution when a manual PATCH sets status → verifying
-  // and the task has a generated prompt. Persist dispatch intent before returning.
+  // and the task has a generated prompt. The intent was committed atomically
+  // with the status transition; this call only wakes the local queue.
   if (body.status === "verifying" && updated[0].prompt) {
-    await scheduleAiTaskExecution(taskId, req.userId);
+    await scheduleAiTaskExecution(taskId, req.userId, undefined, updated[0].retryCount);
   }
 
   invalidateContextCache(project.id);
@@ -691,6 +700,13 @@ router.post("/tasks/:taskId/execute", async (req, res) => {
           changedFields: { verificationResult },
           correlationId,
         });
+        if (finalStatus === "verifying" && task[0].prompt) {
+          await insertTaskAutoExecutionIntent(tx, {
+            taskId,
+            userId: req.userId,
+            retryCount: row.retryCount,
+          });
+        }
 
         return [row];
       });
@@ -703,11 +719,10 @@ router.post("/tasks/:taskId/execute", async (req, res) => {
 
     invalidateContextCache(project.id);
 
-    // PR-C: auto-trigger AI execution when the execute path lands on `verifying`
-    // and the task already has a generated prompt. Wait for durable intent and
-    // local enqueue, not for the AI execution itself.
+    // PR-C: the durable intent was committed with the Task transition. Wake
+    // the local queue without waiting for the AI execution itself.
     if (finalStatus === "verifying" && task[0].prompt) {
-      await scheduleAiTaskExecution(taskId, req.userId);
+      await scheduleAiTaskExecution(taskId, req.userId, undefined, updated.retryCount);
     }
 
     return res.status(202).json(await projectCurrentTaskExecutionReceipt(updated));
