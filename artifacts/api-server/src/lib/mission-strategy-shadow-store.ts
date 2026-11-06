@@ -16,6 +16,7 @@ import {
 import { logger } from "./logger.js";
 
 const MAX_SHADOW_RECONCILIATION_BATCH = 32;
+const DEFAULT_SHADOW_QUEUE_ALERT_AGE_MS = 15 * 60_000;
 
 type ShadowCandidate = {
   decisionId: string;
@@ -93,6 +94,36 @@ export class MissionStrategyShadowStoreError extends Error {
     super(`Mission strategy shadow persistence failed: ${code}`);
     this.name = "MissionStrategyShadowStoreError";
   }
+}
+
+export function getMissionDecisionShadowQueueAlertThresholdMs(
+  rawThreshold = process.env.MISSION_DECISION_SHADOW_QUEUE_ALERT_AGE_MS,
+): number {
+  if (rawThreshold === undefined || rawThreshold.trim() === "") {
+    return DEFAULT_SHADOW_QUEUE_ALERT_AGE_MS;
+  }
+  if (!/^\d+$/.test(rawThreshold.trim())) {
+    throw new MissionStrategyShadowStoreError("queue_alert_threshold_invalid");
+  }
+  const thresholdMs = Number(rawThreshold);
+  if (!Number.isSafeInteger(thresholdMs) || thresholdMs < 1) {
+    throw new MissionStrategyShadowStoreError("queue_alert_threshold_invalid");
+  }
+  return thresholdMs;
+}
+
+export function getMissionDecisionShadowQueueAlertStatus(
+  stats: { pendingCount: number; oldestPendingAgeMs: number | null },
+  thresholdMs = getMissionDecisionShadowQueueAlertThresholdMs(),
+): "open" | "closed" {
+  if (!Number.isSafeInteger(thresholdMs) || thresholdMs < 1) {
+    throw new MissionStrategyShadowStoreError("queue_alert_threshold_invalid");
+  }
+  return stats.pendingCount > 0
+    && stats.oldestPendingAgeMs !== null
+    && stats.oldestPendingAgeMs >= thresholdMs
+    ? "open"
+    : "closed";
 }
 
 /**

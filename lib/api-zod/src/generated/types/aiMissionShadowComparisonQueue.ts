@@ -5,6 +5,7 @@
  * EngineeringOS - Autonomous AI Engineering Platform API
  * OpenAPI spec version: 1.0.0
  */
+import type { AiMissionShadowComparisonQueueDelayAlertStatus } from './aiMissionShadowComparisonQueueDelayAlertStatus';
 import type { AiMissionShadowComparisonQueueStatus } from './aiMissionShadowComparisonQueueStatus';
 
 export interface AiMissionShadowComparisonQueue {
@@ -19,5 +20,6 @@ export interface AiMissionShadowComparisonQueue {
      * @nullable
      */
   oldestPendingAgeMs: number | null;
+  delayAlertStatus: AiMissionShadowComparisonQueueDelayAlertStatus;
   observedAt: Date;
 }

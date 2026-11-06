@@ -323,6 +323,19 @@ function ShadowComparisonQueueCard({ queue }: { queue: ShadowQueueProjection }) 
           </div>
         </div>
       </div>
+      {queue.delayAlertStatus === 'open' ? (
+        <p
+          className="mt-3 rounded-lg border border-amber-400/35 bg-amber-300/10 px-3 py-2 text-xs font-semibold text-amber-100"
+          role="alert"
+          data-testid="shadow-queue-delay-alert"
+        >
+          تنبيه تشغيلي · الحالة: مفتوح · العدد: {queue.pendingCount ?? '—'} · عمر الأقدم: {queue.oldestPendingAgeMs === null ? '—' : formatWaitAge(queue.oldestPendingAgeMs)}
+        </p>
+      ) : (
+        <p className="mt-3 text-[11px] text-muted-foreground" role="status" data-testid="shadow-queue-delay-alert-status">
+          حالة تنبيه التأخير: {queue.delayAlertStatus === 'closed' ? 'مغلق' : 'غير نشط'}
+        </p>
+      )}
       <p className="mt-3 text-[11px] text-muted-foreground" role="status">
         {queue.status === 'active' && queue.pendingCount === 0
           ? 'لا توجد مقارنات مؤهلة بانتظار المعالجة.'

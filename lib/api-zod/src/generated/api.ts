@@ -6362,6 +6362,7 @@ export const GetAiMissionControlResponse = zod.object({
   "status": zod.enum(['active', 'disabled', 'scope_unavailable']),
   "pendingCount": zod.number().int().min(getAiMissionControlResponseShadowComparisonQueuePendingCountMin).nullable(),
   "oldestPendingAgeMs": zod.number().int().min(getAiMissionControlResponseShadowComparisonQueueOldestPendingAgeMsMin).nullable(),
+  "delayAlertStatus": zod.enum(['open', 'closed', 'inactive']),
   "observedAt": zod.coerce.date()
 }).optional()
 })

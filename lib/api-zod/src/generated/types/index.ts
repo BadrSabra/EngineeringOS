@@ -235,6 +235,7 @@ export * from './aiMissionInputStatus';
 export * from './aiMissionLineage';
 export * from './aiMissionReplanInput';
 export * from './aiMissionShadowComparisonQueue';
+export * from './aiMissionShadowComparisonQueueDelayAlertStatus';
 export * from './aiMissionShadowComparisonQueueStatus';
 export * from './aiMissionUpdateInput';
 export * from './aiMissionUpdateInputAutonomyPolicy';

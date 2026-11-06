@@ -2334,6 +2334,15 @@ export const AiMissionShadowComparisonQueueStatus = {
   scope_unavailable: 'scope_unavailable',
 } as const;
 
+export type AiMissionShadowComparisonQueueDelayAlertStatus = typeof AiMissionShadowComparisonQueueDelayAlertStatus[keyof typeof AiMissionShadowComparisonQueueDelayAlertStatus];
+
+
+export const AiMissionShadowComparisonQueueDelayAlertStatus = {
+  open: 'open',
+  closed: 'closed',
+  inactive: 'inactive',
+} as const;
+
 export interface AiMissionShadowComparisonQueue {
   status: AiMissionShadowComparisonQueueStatus;
   /**
@@ -2346,6 +2355,7 @@ export interface AiMissionShadowComparisonQueue {
      * @nullable
      */
   oldestPendingAgeMs: number | null;
+  delayAlertStatus: AiMissionShadowComparisonQueueDelayAlertStatus;
   observedAt: string;
 }
 

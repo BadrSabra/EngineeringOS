@@ -6328,7 +6328,7 @@ components:
     AiMissionShadowComparisonQueue:
       type: object
       additionalProperties: false
-      required: [status, pendingCount, oldestPendingAgeMs, observedAt]
+      required: [status, pendingCount, oldestPendingAgeMs, delayAlertStatus, observedAt]
       properties:
         status:
           type: string
@@ -6339,6 +6339,9 @@ components:
         oldestPendingAgeMs:
           type: ["integer", "null"]
           minimum: 0
+        delayAlertStatus:
+          type: string
+          enum: [open, closed, inactive]
         observedAt:
           type: string
           format: date-time

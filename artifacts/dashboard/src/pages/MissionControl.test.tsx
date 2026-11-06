@@ -327,6 +327,7 @@ describe('Mission Control', () => {
         status: 'active',
         pendingCount: 3,
         oldestPendingAgeMs: 6 * 60_000,
+        delayAlertStatus: 'closed',
         observedAt: '2026-11-04T12:00:00.000Z',
       },
     } as typeof missionControlFixture;
@@ -336,6 +337,41 @@ describe('Mission Control', () => {
     expect(within(queue).getByTestId('shadow-queue-pending-count')).toHaveTextContent('3');
     expect(within(queue).getByTestId('shadow-queue-oldest-age')).toHaveTextContent('6 دقيقة');
     expect(within(queue).getByText('قراءة تشغيلية مجمّعة فقط؛ لا تغيّر قرارات أو حالات التشغيل.')).toBeInTheDocument();
+    expect(within(queue).getByTestId('shadow-queue-delay-alert-status')).toHaveTextContent('مغلق');
+  });
+
+  it('shows only aggregate delay values in the alert and clears it after recovery', () => {
+    currentMissionControl = {
+      ...missionControlFixture,
+      shadowComparisonQueue: {
+        status: 'active',
+        pendingCount: 4,
+        oldestPendingAgeMs: 16 * 60_000,
+        delayAlertStatus: 'open',
+        observedAt: '2026-11-04T12:00:00.000Z',
+      },
+    } as typeof missionControlFixture;
+    const page = renderPage();
+    const queue = screen.getByTestId('shadow-comparison-queue');
+    const alert = within(queue).getByRole('alert');
+    expect(alert).toHaveTextContent(
+      'تنبيه تشغيلي · الحالة: مفتوح · العدد: 4 · عمر الأقدم: 16 دقيقة',
+    );
+    expect(alert).not.toHaveTextContent(/Mission|Goal|قرار|مهمة/i);
+
+    currentMissionControl = {
+      ...missionControlFixture,
+      shadowComparisonQueue: {
+        status: 'active',
+        pendingCount: 0,
+        oldestPendingAgeMs: null,
+        delayAlertStatus: 'closed',
+        observedAt: '2026-11-04T12:01:00.000Z',
+      },
+    } as typeof missionControlFixture;
+    page.rerender(<MissionControl />);
+    expect(screen.queryByTestId('shadow-queue-delay-alert')).not.toBeInTheDocument();
+    expect(screen.getByTestId('shadow-queue-delay-alert-status')).toHaveTextContent('مغلق');
   });
 
   it('does not infer a chat session from an execution without a server session ID', () => {

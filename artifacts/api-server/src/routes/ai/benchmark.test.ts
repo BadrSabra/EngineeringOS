@@ -6,6 +6,7 @@ import os from "node:os";
 import path from "node:path";
 import { eq } from "drizzle-orm";
 import {
+  aiMissionDecisionShadowComparisonsTable,
   aiExecutionAcceptancesTable,
   aiExecutionsTable,
   db,
@@ -18,6 +19,7 @@ const originalEmpiricalPath = process.env.EMPIRICAL_QUALITY_SCORECARD_PATH;
 const originalReleasePath = process.env.AI_RELEASE_QUALITY_REPORT_PATH;
 const originalShadowMode = process.env.MISSION_DECISION_SHADOW_MODE;
 const originalShadowProjectId = process.env.MISSION_DECISION_SHADOW_PROJECT_ID;
+const originalShadowQueueAlertAge = process.env.MISSION_DECISION_SHADOW_QUEUE_ALERT_AGE_MS;
 const outputDir = path.join(os.tmpdir(), `engineeringos-benchmark-route-${process.pid}`);
 const scorecardFile = path.join(outputDir, "code-agent-benchmark-live.json");
 const envelopeFile = path.join(outputDir, "free-tier-quality-envelope.json");
@@ -54,6 +56,8 @@ afterEach(async () => {
   else process.env.MISSION_DECISION_SHADOW_MODE = originalShadowMode;
   if (originalShadowProjectId === undefined) delete process.env.MISSION_DECISION_SHADOW_PROJECT_ID;
   else process.env.MISSION_DECISION_SHADOW_PROJECT_ID = originalShadowProjectId;
+  if (originalShadowQueueAlertAge === undefined) delete process.env.MISSION_DECISION_SHADOW_QUEUE_ALERT_AGE_MS;
+  else process.env.MISSION_DECISION_SHADOW_QUEUE_ALERT_AGE_MS = originalShadowQueueAlertAge;
   await fs.rm(outputDir, { recursive: true, force: true });
 });
 
@@ -202,6 +206,9 @@ describe.sequential("GET /api/ai/mission-control", () => {
     const canaryProjectId = randomUUID();
     process.env.MISSION_DECISION_SHADOW_MODE = "1";
     process.env.MISSION_DECISION_SHADOW_PROJECT_ID = canaryProjectId;
+    const comparisonsBefore = await db.select({
+      comparisonId: aiMissionDecisionShadowComparisonsTable.comparisonId,
+    }).from(aiMissionDecisionShadowComparisonsTable);
 
     const response = await request(app).get("/api/ai/mission-control");
 
@@ -210,10 +217,15 @@ describe.sequential("GET /api/ai/mission-control", () => {
       status: "active",
       pendingCount: 0,
       oldestPendingAgeMs: null,
+      delayAlertStatus: "closed",
     });
     expect(response.body.shadowComparisonQueue.observedAt).toEqual(expect.any(String));
     expect(JSON.stringify(response.body.shadowComparisonQueue)).not.toContain(canaryProjectId);
     expect(JSON.stringify(response.body.shadowComparisonQueue)).not.toMatch(/mission|goal|decision|comparisonId/i);
+    const comparisonsAfter = await db.select({
+      comparisonId: aiMissionDecisionShadowComparisonsTable.comparisonId,
+    }).from(aiMissionDecisionShadowComparisonsTable);
+    expect(comparisonsAfter).toEqual(comparisonsBefore);
   });
 
   it("projects the acceptance for the execution's current attempt when history is present", async () => {

@@ -18,7 +18,11 @@ import { getAiUsageSummary } from "../../lib/ai-telemetry.js";
 import { getAiProjectBudgetSummary } from "../../lib/ai-budget.js";
 import { isOperatorUser } from "../../middlewares/requireAuth.js";
 import { resolveMissionDecisionShadowProjectScope } from "../../lib/mission-decision-shadow-scope.js";
-import { getPendingMissionDecisionShadowQueueStats } from "../../lib/mission-strategy-shadow-store.js";
+import {
+  getMissionDecisionShadowQueueAlertStatus,
+  getMissionDecisionShadowQueueAlertThresholdMs,
+  getPendingMissionDecisionShadowQueueStats,
+} from "../../lib/mission-strategy-shadow-store.js";
 
 const router = Router();
 
@@ -962,6 +966,12 @@ router.get("/ai/mission-control", async (req, res) => {
             status,
             pendingCount: stats?.pendingCount ?? null,
             oldestPendingAgeMs: stats?.oldestPendingAgeMs ?? null,
+            delayAlertStatus: stats
+              ? getMissionDecisionShadowQueueAlertStatus(
+                  stats,
+                  getMissionDecisionShadowQueueAlertThresholdMs(),
+                )
+              : "inactive" as const,
             observedAt: new Date().toISOString(),
           };
         })()
