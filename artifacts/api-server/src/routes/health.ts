@@ -1,10 +1,15 @@
-import { Router, type IRouter } from "express";
+import { Router, type IRouter, type RequestHandler } from "express";
 import { GetHealthResponse } from "@workspace/api-zod";
 import { heavyJobQueue } from "../lib/job-queue.js";
 import { getOperationalCounters } from "../lib/operational-counters.js";
-import { getAiDiagnosticsRetentionHealth } from "../lib/startup-migrations.js";
-import { getStartupMaintenanceReadiness } from "../lib/startup-migrations.js";
-import { getApplicationSchemaReadiness } from "../lib/schema-readiness.js";
+import {
+  getAiDiagnosticsRetentionHealth,
+  getStartupMaintenanceReadiness,
+} from "../lib/startup-migrations.js";
+import {
+  getApplicationSchemaReadiness,
+  type SchemaReadiness,
+} from "../lib/schema-readiness.js";
 import { getTaskExecutionRetentionHealth } from "../lib/task-execution-retention.js";
 import { getDurableJobHealth } from "../lib/job-reconciliation.js";
 import { loadLatestAgentEpisodeShadowCampaignScorecard } from "../lib/agent-state/agent-episode-shadow-campaign.js";
@@ -18,34 +23,39 @@ const router: IRouter = Router();
  * validation must receive a bounded, actionable blocked result instead of
  * treating that listener as ready for authenticated work.
  */
-router.get("/readiness", async (_req, res) => {
-  const [schema, maintenance] = await Promise.all([
-    getApplicationSchemaReadiness(),
-    getStartupMaintenanceReadiness(),
-  ]);
-  const isReady = schema.status === "ready" && maintenance.status === "ready";
-  const schemaUnavailable =
-    schema.status === "blocked" && schema.reason === "schema_unavailable";
-  return res.status(isReady ? 200 : 503).json({
-    status: isReady ? "ready" : "blocked",
-    checks: {
-      api: { status: "ready" },
-      database: {
-        status: schemaUnavailable ? "blocked" : "ready",
-        ...(schemaUnavailable ? { reason: "database_unavailable" } : {}),
+export function createReadinessHandler(
+  schemaProbe: () => Promise<SchemaReadiness> = getApplicationSchemaReadiness,
+  maintenanceProbe: () => ReturnType<typeof getStartupMaintenanceReadiness> =
+    getStartupMaintenanceReadiness,
+): RequestHandler {
+  return async (_req, res) => {
+    const [schema, maintenance] = await Promise.all([schemaProbe(), maintenanceProbe()]);
+    const isReady = schema.status === "ready" && maintenance.status === "ready";
+    const schemaUnavailable =
+      schema.status === "blocked" && schema.reason === "schema_unavailable";
+    return res.status(isReady ? 200 : 503).json({
+      status: isReady ? "ready" : "blocked",
+      checks: {
+        api: { status: "ready" },
+        database: {
+          status: schemaUnavailable ? "blocked" : "ready",
+          ...(schemaUnavailable ? { reason: "database_unavailable" } : {}),
+        },
+        schema: schema.status === "ready"
+          ? { status: "ready", checkedAt: schema.checkedAt }
+          : {
+              status: "blocked",
+              reason: schema.reason,
+              ...(schema.issueCount === undefined ? {} : { issueCount: schema.issueCount }),
+              checkedAt: schema.checkedAt,
+            },
+        maintenance,
       },
-      schema: schema.status === "ready"
-        ? { status: "ready", checkedAt: schema.checkedAt }
-        : {
-            status: "blocked",
-            reason: schema.reason,
-            ...(schema.issueCount === undefined ? {} : { issueCount: schema.issueCount }),
-            checkedAt: schema.checkedAt,
-          },
-      maintenance,
-    },
-  });
-});
+    });
+  };
+}
+
+router.get("/readiness", createReadinessHandler());
 
 router.get("/healthz", async (_req, res) => {
   let durableShadowCampaign = null;
