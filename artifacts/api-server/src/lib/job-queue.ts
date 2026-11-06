@@ -7,12 +7,11 @@
  * concurrent file-walks + rule-matching + graph-extraction work to starve
  * the same event loop that serves ordinary API requests.
  *
- * This queue caps how many jobs actually execute concurrently. Anything
- * beyond the concurrency limit waits in-memory (cheap: each queued item is
- * just a closure) until a running slot frees up. Callers still enqueue
- * fire-and-forget — the queue itself guarantees a rejected/thrown job never
- * escapes as an unhandled rejection, so a bug in one job can't crash the
- * process or wedge the queue for jobs behind it.
+ * This queue caps both concurrent execution and in-memory pending work. When
+ * the pending cap is full, named durable jobs are refused locally and remain
+ * eligible in their database state for a later dispatcher pass. Callers still
+ * enqueue fire-and-forget — a rejected/thrown job never escapes as an
+ * unhandled rejection or wedges the queue behind it.
  *
  * PR-D1 (Durability hardening): Added `enqueueWithId` / `has` for ID-based
  * deduplication. All DB-backed jobs (scan, discovery, AI tasks) should use
@@ -26,6 +25,8 @@ import { logger } from "./logger.js";
 
 type JobFn = () => Promise<void>;
 
+export type EnqueueWithIdResult = "enqueued" | "duplicate" | "full";
+
 interface QueueItem {
   /** DB row ID used for deduplication, or null for anonymous jobs. */
   id: string | null;
@@ -34,8 +35,10 @@ interface QueueItem {
 
 export class JobQueue {
   private readonly concurrency: number;
+  private readonly maxPending: number;
   private running = 0;
   private readonly queue: QueueItem[] = [];
+  private capacityWarningEmitted = false;
 
   /**
    * IDs of jobs currently waiting in the pending array (not yet dispatched
@@ -49,11 +52,15 @@ export class JobQueue {
    */
   private readonly runningIds = new Set<string>();
 
-  constructor(concurrency: number) {
+  constructor(concurrency: number, maxPending = 20) {
     if (!Number.isInteger(concurrency) || concurrency < 1) {
       throw new Error(`JobQueue concurrency must be a positive integer, got ${concurrency}`);
     }
+    if (!Number.isInteger(maxPending) || maxPending < 1) {
+      throw new Error(`JobQueue maxPending must be a positive integer, got ${maxPending}`);
+    }
     this.concurrency = concurrency;
+    this.maxPending = maxPending;
   }
 
   /** Number of jobs currently executing (not waiting). */
@@ -64,6 +71,11 @@ export class JobQueue {
   /** Number of jobs waiting for a free slot. */
   get pendingCount(): number {
     return this.queue.length;
+  }
+
+  /** Remaining bounded waiting capacity; running jobs use separate slots. */
+  get availablePendingCapacity(): number {
+    return Math.max(0, this.maxPending - this.queue.length);
   }
 
   /**
@@ -110,59 +122,78 @@ export class JobQueue {
    * pending or running, this is a no-op and returns `false` — preventing
    * double-execution when the stale-pending sweep or startup reconciliation
    * re-enqueues a job that is already in this queue. Returns `true` when the
-   * job was successfully added.
+   * job was successfully added. Use `enqueueWithIdDetailed` when the caller
+   * needs to distinguish a duplicate from capacity backpressure.
    *
    * Use this for all DB-backed jobs (scan, discovery, AI tasks) where the
    * DB row ID is known. The advisory lock in each runner provides an
    * additional safety net for the multi-instance case.
    */
-  enqueueWithId(id: string, job: JobFn): boolean {
+  enqueueWithIdDetailed(id: string, job: JobFn): EnqueueWithIdResult {
     if (this.has(id)) {
       logger.debug(
         { jobId: id },
         "job queue: skipping duplicate enqueue — job already tracked in this queue",
       );
-      return false;
+      return "duplicate";
     }
-    if (this.queue.length >= 20) {
-      logger.warn(
-        { pendingCount: this.queue.length, activeCount: this.running },
-        "job queue: high pending depth — downstream processing may be falling behind",
-      );
+    if (this.availablePendingCapacity === 0) {
+      this.reportCapacityFull();
+      return "full";
     }
     this.pendingIds.add(id);
     this.queue.push({ id, fn: job });
     this.drain();
-    return true;
+    return "enqueued";
+  }
+
+  /**
+   * Compatibility boolean for existing durable producers. `false` means the
+   * row is already tracked or the local queue is full; durable callers must
+   * leave their database row eligible for the next dispatch pass.
+   */
+  enqueueWithId(id: string, job: JobFn): boolean {
+    return this.enqueueWithIdDetailed(id, job) === "enqueued";
   }
 
   /**
    * Enqueue an anonymous job (no deduplication). Fire-and-forget semantics:
-   * resolves immediately, the job runs when a slot is free.
+   * resolves immediately, the job runs when a slot is free. Returns false
+   * when the bounded waiting queue is full; anonymous jobs have no durable
+   * row to redispatch, so callers must handle that result.
    *
    * Prefer `enqueueWithId` for any job that has a DB row ID. This method
    * is kept for backward compatibility and for genuinely one-off jobs with
    * no stable identifier.
    */
-  enqueue(job: JobFn): void {
-    if (this.queue.length >= 20) {
-      // Warn when the backlog is deep — this is a backpressure signal that
-      // the queue is accepting work faster than it can drain it. Callers
-      // should not shed this work silently; the log gives operators a chance
-      // to react (scale up, add concurrency, or inspect stuck jobs).
-      logger.warn(
-        { pendingCount: this.queue.length, activeCount: this.running },
-        "job queue: high pending depth — downstream processing may be falling behind",
-      );
+  enqueue(job: JobFn): boolean {
+    if (this.availablePendingCapacity === 0) {
+      this.reportCapacityFull();
+      return false;
     }
     this.queue.push({ id: null, fn: job });
     this.drain();
+    return true;
+  }
+
+  private reportCapacityFull(): void {
+    if (this.capacityWarningEmitted) return;
+    this.capacityWarningEmitted = true;
+    logger.warn(
+      {
+        pendingCount: this.queue.length,
+        maxPending: this.maxPending,
+        activeCount: this.running,
+      },
+      "job queue: pending capacity reached; durable work remains eligible for redispatch",
+    );
   }
 
   private drain(): void {
     while (this.running < this.concurrency && this.queue.length > 0) {
       const item = this.queue.shift();
       if (!item) break;
+      this.capacityWarningEmitted = false;
 
       // Transition ID from pending → running tracking sets.
       if (item.id) {

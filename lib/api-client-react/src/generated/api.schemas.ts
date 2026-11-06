@@ -2564,12 +2564,14 @@ export const JobRecoveryHealthStatus = {
 } as const;
 
 /**
- * Content-free health projection of durable background work. A degraded status means at least one worker lease has expired and needs recovery.
+ * Content-free health projection of durable background work. A degraded status means an expired or missing worker lease needs recovery, a queued Scan or Discovery exceeds the configured pending-age threshold, or a job exhausted its retry budget and needs operator attention. The top-level health endpoint remains a liveness check.
  */
 export interface JobRecoveryHealth {
   status: JobRecoveryHealthStatus;
   queuedScanJobs: number;
   pendingDiscoverySessions: number;
+  staleQueuedScanJobs: number;
+  stalePendingDiscoverySessions: number;
   expiredScanLeases: number;
   expiredDiscoveryLeases: number;
   expiredTaskLeases: number;

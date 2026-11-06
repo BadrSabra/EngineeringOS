@@ -82,6 +82,7 @@ describe("JobQueue", () => {
     expect(() => new JobQueue(0)).toThrow();
     expect(() => new JobQueue(-1)).toThrow();
     expect(() => new JobQueue(1.5)).toThrow();
+    expect(() => new JobQueue(1, 0)).toThrow();
   });
 
   it("runs jobs immediately (not queued) while under the concurrency limit", async () => {
@@ -276,5 +277,24 @@ describe("JobQueue", () => {
 
     release();
     await waitUntilIdle(queue);
+  });
+
+  it("bounds pending jobs and distinguishes full capacity from duplicates", async () => {
+    const queue = new JobQueue(1, 2);
+    let release!: () => void;
+    queue.enqueue(() => new Promise<void>((resolve) => { release = resolve; }));
+
+    expect(queue.enqueueWithIdDetailed("pending-1", async () => {})).toBe("enqueued");
+    expect(queue.enqueueWithIdDetailed("pending-1", async () => {})).toBe("duplicate");
+    expect(queue.enqueueWithIdDetailed("pending-2", async () => {})).toBe("enqueued");
+    expect(queue.enqueueWithIdDetailed("pending-3", async () => {})).toBe("full");
+    expect(queue.availablePendingCapacity).toBe(0);
+    expect(queue.pendingCount).toBe(2);
+
+    release();
+    await waitUntilIdle(queue);
+    expect(queue.enqueueWithIdDetailed("pending-3", async () => {})).toBe("enqueued");
+    await waitUntilIdle(queue);
+    expect(queue.pendingCount).toBe(0);
   });
 });

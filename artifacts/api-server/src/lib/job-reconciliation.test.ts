@@ -25,10 +25,13 @@ import {
 } from "@workspace/db";
 import {
   dispatchPersistedPendingJobs,
+  failStaleRunningJobs,
   failStaleDiscoverySessions,
+  getDurableJobHealth,
   reconcileStaleAiTasks,
   reconcileStuckJobs,
   requeueStalePendingJobs,
+  runDurableDispatchStages,
   STALE_PENDING_TIMEOUT_MS,
 } from "./job-reconciliation.js";
 import { reconcileAiExecutions } from "./ai-execution-state.js";
@@ -50,6 +53,8 @@ vi.mock("./job-queue.js", () => ({
   heavyJobQueue: {
     enqueue: vi.fn(),
     enqueueWithId: vi.fn().mockReturnValue(true), // default: returns true (newly added)
+    enqueueWithIdDetailed: vi.fn().mockReturnValue("enqueued"),
+    availablePendingCapacity: 100,
     has: vi.fn().mockReturnValue(false),           // default: job not already in queue
   },
 }));
@@ -91,6 +96,7 @@ describe("reconcileStuckJobs", () => {
   afterEach(async () => {
     vi.mocked(heavyJobQueue.enqueue).mockClear();
     vi.mocked(heavyJobQueue.enqueueWithId).mockClear();
+    vi.mocked(heavyJobQueue.enqueueWithIdDetailed).mockClear();
     vi.mocked(heavyJobQueue.has).mockClear();
     while (projectCleanup.length > 0) {
       const id = projectCleanup.pop();
@@ -207,6 +213,14 @@ describe("reconcileStuckJobs", () => {
       .where(eq(projectsTable.id, projectId))
       .limit(1);
     expect(project[0]?.status).toBe("active");
+    const failures = await db.select({ id: eventsTable.id })
+      .from(eventsTable)
+      .where(and(
+        eq(eventsTable.projectId, projectId),
+        eq(eventsTable.type, "ProjectScanFailed"),
+        eq(eventsTable.correlationId, runningJobId),
+      ));
+    expect(failures).toHaveLength(1);
   });
 
   it("only one concurrent reconciler owns an interrupted scan transition", async () => {
@@ -230,6 +244,14 @@ describe("reconcileStuckJobs", () => {
     // The conditional recovery write prevents two reconciliation passes from
     // both applying terminal side effects to the same durable row.
     expect(job.error).toContain("retry limit");
+    const failures = await db.select({ id: eventsTable.id })
+      .from(eventsTable)
+      .where(and(
+        eq(eventsTable.projectId, projectId),
+        eq(eventsTable.type, "ProjectScanFailed"),
+        eq(eventsTable.correlationId, jobId),
+      ));
+    expect(failures).toHaveLength(1);
   });
 
   it("does not recover a scan still leased by another healthy worker", async () => {
@@ -403,7 +425,6 @@ describe("reconcileStuckJobs", () => {
       currentStep: "Scanning source tree",
       steps: [],
       workerId: randomUUID(),
-      leaseUntil: new Date(Date.now() - 1_000),
       startedAt: new Date(),
     });
 
@@ -416,7 +437,7 @@ describe("reconcileStuckJobs", () => {
       title: "expired task",
       status: "running",
       workerId: randomUUID(),
-      leaseUntil: new Date(Date.now() - 1_000),
+      leaseUntil: null,
       retryCount: 0,
       maxRetries: 1,
     });
@@ -777,11 +798,215 @@ describe("reconcileStuckJobs", () => {
 
 // ── PR-D1: requeueStalePendingJobs ────────────────────────────────────────────
 
+describe("periodic stale scan recovery and durable health", () => {
+  const projectCleanup: string[] = [];
+  const sessionCleanup: string[] = [];
+
+  afterEach(async () => {
+    while (sessionCleanup.length > 0) {
+      const id = sessionCleanup.pop();
+      if (id) await db.delete(discoverySessionsTable).where(eq(discoverySessionsTable.id, id));
+    }
+    while (projectCleanup.length > 0) {
+      const id = projectCleanup.pop();
+      if (!id) continue;
+      await db.delete(eventsTable).where(eq(eventsTable.projectId, id));
+      await db.delete(tasksTable).where(eq(tasksTable.projectId, id));
+      await db.delete(scanJobsTable).where(eq(scanJobsTable.projectId, id));
+      await db.delete(projectsTable).where(eq(projectsTable.id, id));
+    }
+  });
+
+  it("terminalizes an exhausted periodic Scan and records all failure effects", async () => {
+    vi.mocked(invalidateContextCache).mockClear();
+    const projectId = await insertProject("scanning");
+    projectCleanup.push(projectId);
+    const jobId = randomUUID();
+    const expiredAt = new Date(Date.now() - 60_000);
+    await db.insert(scanJobsTable).values({
+      id: jobId,
+      projectId,
+      status: "running",
+      retryCount: 2,
+      maxRetries: 2,
+      workerId: randomUUID(),
+      leaseUntil: expiredAt,
+      lastHeartbeatAt: expiredAt,
+      startedAt: new Date(Date.now() - 120_000),
+    });
+
+    await expect(failStaleRunningJobs()).resolves.toBe(1);
+    const [job] = await db.select().from(scanJobsTable).where(eq(scanJobsTable.id, jobId));
+    const [project] = await db.select().from(projectsTable).where(eq(projectsTable.id, projectId));
+    const [failureEvent] = await db.select().from(eventsTable).where(and(
+      eq(eventsTable.projectId, projectId),
+      eq(eventsTable.type, "ProjectScanFailed"),
+      eq(eventsTable.correlationId, jobId),
+    ));
+    expect(job).toMatchObject({ status: "failed", workerId: null, leaseUntil: null });
+    expect(job.finishedAt).toBeInstanceOf(Date);
+    expect(project.status).toBe("active");
+    expect(failureEvent).toMatchObject({ type: "ProjectScanFailed", correlationId: jobId });
+    expect(vi.mocked(invalidateContextCache)).toHaveBeenCalledWith(projectId);
+  });
+
+  it("requeues an expired Scan inside its retry budget and keeps the project scanning", async () => {
+    const projectId = await insertProject("scanning");
+    projectCleanup.push(projectId);
+    const jobId = randomUUID();
+    await db.insert(scanJobsTable).values({
+      id: jobId,
+      projectId,
+      status: "running",
+      retryCount: 0,
+      maxRetries: 2,
+      workerId: randomUUID(),
+      leaseUntil: new Date(Date.now() - 60_000),
+      startedAt: new Date(Date.now() - 120_000),
+    });
+
+    await expect(failStaleRunningJobs()).resolves.toBe(0);
+    const [job] = await db.select().from(scanJobsTable).where(eq(scanJobsTable.id, jobId));
+    const [project] = await db.select().from(projectsTable).where(eq(projectsTable.id, projectId));
+    expect(job).toMatchObject({
+      status: "queued",
+      retryCount: 1,
+      workerId: null,
+      leaseUntil: null,
+      finishedAt: null,
+    });
+    expect(project.status).toBe("scanning");
+    expect(vi.mocked(heavyJobQueue.enqueueWithId)).toHaveBeenCalledWith(jobId, expect.any(Function));
+  });
+
+  it("treats a NULL Scan lease consistently in startup and periodic recovery", async () => {
+    const projectId = await insertProject("scanning");
+    projectCleanup.push(projectId);
+    const jobId = randomUUID();
+    await db.insert(scanJobsTable).values({
+      id: jobId,
+      projectId,
+      status: "running",
+      retryCount: 0,
+      maxRetries: 2,
+      workerId: randomUUID(),
+      leaseUntil: null,
+      startedAt: new Date(),
+    });
+
+    await expect(failStaleRunningJobs()).resolves.toBe(0);
+    const [job] = await db.select().from(scanJobsTable).where(eq(scanJobsTable.id, jobId));
+    expect(job).toMatchObject({ status: "queued", retryCount: 1, workerId: null });
+  });
+
+  it("does not treat ordinary pending work as unhealthy before the age threshold", async () => {
+    const projectId = await insertProject("active");
+    projectCleanup.push(projectId);
+    const sessionId = randomUUID();
+    sessionCleanup.push(sessionId);
+    await db.insert(scanJobsTable).values({
+      id: randomUUID(),
+      projectId,
+      status: "queued",
+      createdAt: new Date(),
+    });
+    await db.insert(discoverySessionsTable).values({
+      id: sessionId,
+      ownerId: "test-user",
+      status: "pending",
+      rootPath: `/tmp/health-pending-${sessionId}`,
+      sourceType: "LOCAL_FOLDER",
+      steps: [],
+      startedAt: new Date(),
+    });
+
+    const health = await getDurableJobHealth();
+    expect(health.status).toBe("healthy");
+    expect(health.queuedScanJobs).toBeGreaterThanOrEqual(1);
+    expect(health.pendingDiscoverySessions).toBeGreaterThanOrEqual(1);
+    expect(health.staleQueuedScanJobs).toBe(0);
+    expect(health.stalePendingDiscoverySessions).toBe(0);
+  });
+
+  it("degrades for stale backlog, missing leases, and exhausted retries", async () => {
+    const projectId = await insertProject("scanning");
+    projectCleanup.push(projectId);
+    const staleAt = new Date(Date.now() - STALE_PENDING_TIMEOUT_MS - 60_000);
+    const sessionId = randomUUID();
+    sessionCleanup.push(sessionId);
+    await db.insert(scanJobsTable).values([
+      {
+        id: randomUUID(),
+        projectId,
+        status: "queued",
+        createdAt: staleAt,
+      },
+      {
+        id: randomUUID(),
+        projectId,
+        status: "running",
+        workerId: randomUUID(),
+        leaseUntil: null,
+        startedAt: new Date(),
+      },
+    ]);
+    const missingLeaseSessionId = randomUUID();
+    sessionCleanup.push(missingLeaseSessionId);
+    await db.insert(discoverySessionsTable).values([
+      {
+        id: sessionId,
+        ownerId: "test-user",
+        status: "pending",
+        rootPath: `/tmp/health-stale-${sessionId}`,
+        sourceType: "LOCAL_FOLDER",
+        steps: [],
+        startedAt: staleAt,
+      },
+      {
+        id: missingLeaseSessionId,
+        ownerId: "test-user",
+        status: "discovering",
+        rootPath: `/tmp/health-missing-lease-${randomUUID()}`,
+        sourceType: "LOCAL_FOLDER",
+        steps: [],
+        leaseUntil: null,
+      },
+    ]);
+    await db.insert(tasksTable).values([
+      {
+        id: randomUUID(),
+        projectId,
+        title: "Missing lease",
+        status: "running",
+        leaseUntil: null,
+      },
+      {
+        id: randomUUID(),
+        projectId,
+        title: "Exhausted task",
+        status: "failed",
+        retryCount: 3,
+        maxRetries: 3,
+      },
+    ]);
+
+    const health = await getDurableJobHealth();
+    expect(health.status).toBe("degraded");
+    expect(health.staleQueuedScanJobs).toBeGreaterThanOrEqual(1);
+    expect(health.stalePendingDiscoverySessions).toBeGreaterThanOrEqual(1);
+    expect(health.expiredScanLeases).toBeGreaterThanOrEqual(1);
+    expect(health.expiredDiscoveryLeases).toBeGreaterThanOrEqual(1);
+    expect(health.expiredTaskLeases).toBeGreaterThanOrEqual(1);
+    expect(health.retryExhaustedTasks).toBeGreaterThanOrEqual(1);
+  });
+});
+
 describe("requeueStalePendingJobs", () => {
   const projectCleanup: string[] = [];
 
   afterEach(async () => {
     vi.mocked(heavyJobQueue.enqueueWithId).mockClear();
+    vi.mocked(heavyJobQueue.enqueueWithIdDetailed).mockClear();
     vi.mocked(heavyJobQueue.has).mockClear();
     while (projectCleanup.length > 0) {
       const id = projectCleanup.pop();
@@ -922,6 +1147,21 @@ describe("dispatchPersistedPendingJobs", () => {
       const rootPath = deliveryRootCleanup.pop();
       if (rootPath) await rm(rootPath, { recursive: true, force: true });
     }
+  });
+
+  it("continues independent dispatch stages when one stage fails", async () => {
+    const ran: string[] = [];
+    const result = await runDurableDispatchStages([
+      { name: "scan", run: async () => { ran.push("scan"); return 2; } },
+      { name: "mission", run: async () => { ran.push("mission"); throw new Error("isolated stage failure"); } },
+      { name: "discovery", run: async () => { ran.push("discovery"); return 3; } },
+    ]);
+
+    expect(ran).toEqual(["scan", "mission", "discovery"]);
+    expect(result).toEqual({
+      dispatched: 5,
+      counts: { scan: 2, mission: 0, discovery: 3 },
+    });
   });
 
   it("reconciles an interrupted promotion once and does not replay it on a second sweep", async () => {
@@ -1923,11 +2163,11 @@ describe("dispatchPersistedPendingJobs", () => {
     vi.mocked(heavyJobQueue.enqueueWithId).mockReturnValue(true);
 
     await expect(dispatchPersistedPendingJobs()).resolves.toBeGreaterThanOrEqual(2);
-    expect(vi.mocked(heavyJobQueue.enqueueWithId)).toHaveBeenCalledWith(
+    expect(vi.mocked(heavyJobQueue.enqueueWithIdDetailed)).toHaveBeenCalledWith(
       scanId,
       expect.any(Function),
     );
-    expect(vi.mocked(heavyJobQueue.enqueueWithId)).toHaveBeenCalledWith(
+    expect(vi.mocked(heavyJobQueue.enqueueWithIdDetailed)).toHaveBeenCalledWith(
       sessionId,
       expect.any(Function),
     );
@@ -1944,7 +2184,7 @@ describe("dispatchPersistedPendingJobs", () => {
       status: "queued",
     });
 
-    vi.mocked(heavyJobQueue.enqueueWithId).mockReturnValue(false);
+    vi.mocked(heavyJobQueue.enqueueWithIdDetailed).mockReturnValue("duplicate");
 
     await expect(dispatchPersistedPendingJobs()).resolves.toBe(0);
   });

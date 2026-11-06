@@ -66,11 +66,11 @@ import {
   aiChangeProposalsTable,
   eventsTable,
 } from "@workspace/db";
-import { and, eq, inArray, isNull, lt, or, count, sql } from "drizzle-orm";
+import { and, eq, inArray, isNull, lt, or, count, sql, asc } from "drizzle-orm";
 import { invalidateContextCache } from "@workspace/ai-orchestrator";
 import { logger } from "./logger.js";
 import { heavyJobQueue } from "./job-queue.js";
-import { runScanJob } from "./scan-runner.js";
+import { runScanJob, terminalizeFailedScanJob } from "./scan-runner.js";
 import { runDiscovery } from "./discovery-runner.js";
 import { sweepExpiredUploads } from "./upload-store.js";
 import { reconcileAiExecutions } from "./ai-execution-state.js";
@@ -503,11 +503,7 @@ async function reconcileInterruptedGitHubDeliveryAttempts(): Promise<number> {
  * Returns total number of jobs handled (failed + re-enqueued).
  */
 async function reconcileScanJobs(): Promise<number> {
-  const now = databaseNow();
-  const abandonedScan = or(
-    lt(scanJobsTable.leaseUntil, databaseNow()),
-    isNull(scanJobsTable.leaseUntil),
-  );
+  const abandonedScan = staleScanLeaseCondition();
 
   // ── 1. Running → failed ───────────────────────────────────────────────────
   // These jobs were actively executing when the process died. We cannot
@@ -558,39 +554,18 @@ async function reconcileScanJobs(): Promise<number> {
       heavyJobQueue.enqueueWithId(job.id, () => runScanJob(job.id, job.projectId));
       retriedCount++;
     } else {
-      // Exceeded maxRetries — mark permanently failed and reset project status.
-      const [recovered] = await db
-        .update(scanJobsTable)
-        .set({
-          status: "failed",
-          error: `${ORPHANED_RUNNING_MESSAGE} (retry limit of ${job.maxRetries} exceeded)`,
-          finishedAt: now,
-          // PR-01: clear lease so the row doesn't appear as "in-flight"
-          workerId: null,
-          leaseUntil: null,
-          lastHeartbeatAt: null,
-        })
-        .where(and(eq(scanJobsTable.id, job.id), eq(scanJobsTable.status, "running"), abandonedScan))
-        .returning({ id: scanJobsTable.id });
+      // Exceeded maxRetries — atomically fail the job, restore the project,
+      // and append the failure event under the same stale-lease fence.
+      const recovered = await terminalizeFailedScanJob({
+        jobId: job.id,
+        projectId: job.projectId,
+        error: `${ORPHANED_RUNNING_MESSAGE} (retry limit of ${job.maxRetries} exceeded)`,
+        guard: abandonedScan,
+      });
       if (!recovered) {
         logger.debug({ jobId: job.id }, "scan failure recovery lost ownership race");
         continue;
       }
-
-      // Only reset the project if it is still "scanning" — it may have already
-      // been reassigned or completed by a newer job in the meantime.
-      await db
-        .update(projectsTable)
-        .set({ status: "active", updatedAt: now })
-        .where(
-          and(
-            eq(projectsTable.id, job.projectId),
-            eq(projectsTable.status, "scanning"),
-          ),
-        );
-
-      // Bust the context cache so AI requests don't see stale "scanning" state.
-      invalidateContextCache(job.projectId);
       failedCount++;
     }
   }
@@ -731,20 +706,18 @@ async function reconcileDiscoverySessions(): Promise<number> {
 
 // ── Stale running-job sweep (PR-02 / audit W-002) ────────────────────────────
 //
-// Startup reconciliation already fails ALL running jobs on restart (correct for
-// crash recovery). But a scan job can also get hung while the server is up — e.g.
-// walkProject against a huge repo that never finishes, or a zombie worker that
-// neither completes nor throws. The periodic sweep below covers that gap by
-// timing out any scan job that has been "running" longer than STALE_JOB_TIMEOUT_MS
-// without completing.
-//
-// Default: 2 hours (configurable via STALE_JOB_TIMEOUT_MS env var).
-// The sweep itself runs every STALE_JOB_SWEEP_INTERVAL_MS (default: 30 minutes)
-// and is started from index.ts after the server begins accepting traffic.
-
-export const STALE_JOB_TIMEOUT_MS = Number(
-  process.env.STALE_JOB_TIMEOUT_MS ?? 2 * 60 * 60 * 1000, // 2 hours
-);
+/**
+ * A non-null expired lease is immediately stale. Legacy running rows without
+ * a lease are handled the same way by startup and periodic recovery. The
+ * runner atomically assigns status and lease, so a running row without a lease
+ * cannot represent a valid current worker.
+ */
+function staleScanLeaseCondition() {
+  return or(
+    lt(scanJobsTable.leaseUntil, databaseNow()),
+    isNull(scanJobsTable.leaseUntil),
+  )!;
+}
 
 /**
  * PR-D1: Timeout for scan_jobs stuck in "queued" state without transitioning
@@ -774,24 +747,25 @@ export const DURABLE_JOB_DISPATCH_INTERVAL_MS = Number(
 );
 
 /**
- * Mark scan jobs that have been in "running" state for longer than
- * `STALE_JOB_TIMEOUT_MS` as "failed". Returns the number of rows updated.
+ * Reconcile scan jobs whose lease expired or whose legacy lease is missing.
+ * Retry budgets match startup recovery.
  *
  * Safe to call at any time — uses a server-side timestamp comparison so it
  * does not race with legitimate fast-running jobs.
  */
 export async function failStaleRunningJobs(): Promise<number> {
-  const cutoff = sql<Date>`(clock_timestamp() AT TIME ZONE 'UTC') - (${STALE_JOB_TIMEOUT_MS} * interval '1 millisecond')`;
-  const cutoffForLog = new Date(Date.now() - STALE_JOB_TIMEOUT_MS);
-  const staleCondition = or(
-    lt(scanJobsTable.leaseUntil, databaseNow()),
-    and(isNull(scanJobsTable.leaseUntil), lt(scanJobsTable.startedAt, cutoff)),
-  );
+  const staleCondition = staleScanLeaseCondition();
 
   let staleCount = 0;
+  let requeuedCount = 0;
   try {
     const staleJobs = await db
-      .select({ id: scanJobsTable.id, projectId: scanJobsTable.projectId })
+      .select({
+        id: scanJobsTable.id,
+        projectId: scanJobsTable.projectId,
+        retryCount: scanJobsTable.retryCount,
+        maxRetries: scanJobsTable.maxRetries,
+      })
       .from(scanJobsTable)
       .where(
         and(
@@ -806,36 +780,53 @@ export async function failStaleRunningJobs(): Promise<number> {
     if (staleJobs.length === 0) return 0;
 
     for (const job of staleJobs) {
-      const [updated] = await db
-        .update(scanJobsTable)
-        .set({
-          status: "failed",
-          error: `Timed out — job was still "running" after ${Math.round(STALE_JOB_TIMEOUT_MS / 60_000)} minutes`,
-          // PR-01: clear lease fields so the row no longer appears in-flight
-          workerId: null,
-          leaseUntil: null,
-          lastHeartbeatAt: null,
-        })
-        .where(
-          and(
+      if (job.retryCount < job.maxRetries) {
+        const [requeued] = await db
+          .update(scanJobsTable)
+          .set({
+            status: "queued",
+            retryCount: job.retryCount + 1,
+            error: null,
+            startedAt: null,
+            finishedAt: null,
+            workerId: null,
+            leaseUntil: null,
+            lastHeartbeatAt: null,
+          })
+          .where(and(
             eq(scanJobsTable.id, job.id),
             eq(scanJobsTable.status, "running"),
             staleCondition,
-          ),
-        )
-        .returning({ id: scanJobsTable.id });
-      if (!updated) continue;
+          ))
+          .returning({ id: scanJobsTable.id });
+        if (!requeued) continue;
+        heavyJobQueue.enqueueWithId(job.id, () => runScanJob(job.id, job.projectId));
+        requeuedCount++;
+        continue;
+      }
+
+      const failed = await terminalizeFailedScanJob({
+        jobId: job.id,
+        projectId: job.projectId,
+        error: "Scan worker lease expired or was missing; retry budget exhausted.",
+        guard: staleCondition,
+      });
+      if (!failed) continue;
       staleCount++;
       logger.warn(
         {
           scope: "job-reconciliation",
-          code: "STALE_JOB_TIMEOUT",
+          code: "STALE_SCAN_LEASE",
           jobId: job.id,
           projectId: job.projectId,
-          cutoff: cutoffForLog.toISOString(),
-          timeoutMs: STALE_JOB_TIMEOUT_MS,
         },
-        "scan job timed out — marked as failed",
+        "stale scan lease exhausted its retry budget — marked as failed",
+      );
+    }
+    if (requeuedCount > 0) {
+      logger.warn(
+        { requeued: requeuedCount },
+        "stale scan jobs requeued within their retry budget",
       );
     }
   } catch (err) {
@@ -853,6 +844,10 @@ export async function failStaleRunningJobs(): Promise<number> {
  */
 export async function failStaleDiscoverySessions(): Promise<number> {
   const now = databaseNow();
+  const abandonedLease = or(
+    isNull(discoverySessionsTable.leaseUntil),
+    lt(discoverySessionsTable.leaseUntil, databaseNow()),
+  )!;
   let failed = 0;
   try {
     const stale = await db
@@ -860,7 +855,7 @@ export async function failStaleDiscoverySessions(): Promise<number> {
       .from(discoverySessionsTable)
       .where(and(
         eq(discoverySessionsTable.status, "discovering"),
-        lt(discoverySessionsTable.leaseUntil, databaseNow()),
+        abandonedLease,
       ));
     for (const session of stale) {
       const [updated] = await db.update(discoverySessionsTable).set({
@@ -873,7 +868,7 @@ export async function failStaleDiscoverySessions(): Promise<number> {
       }).where(and(
         eq(discoverySessionsTable.id, session.id),
         eq(discoverySessionsTable.status, "discovering"),
-        lt(discoverySessionsTable.leaseUntil, databaseNow()),
+        abandonedLease,
       )).returning({ id: discoverySessionsTable.id });
       if (!updated) continue;
       failed++;
@@ -897,6 +892,10 @@ export async function failStaleDiscoverySessions(): Promise<number> {
  */
 export async function reconcileStaleAiTasks(): Promise<number> {
   const now = databaseNow();
+  const abandonedLease = or(
+    isNull(tasksTable.leaseUntil),
+    lt(tasksTable.leaseUntil, databaseNow()),
+  )!;
   let recovered = 0;
   try {
     const stale = await db.select({
@@ -906,7 +905,7 @@ export async function reconcileStaleAiTasks(): Promise<number> {
       maxRetries: tasksTable.maxRetries,
     }).from(tasksTable).where(and(
       eq(tasksTable.status, "running"),
-      lt(tasksTable.leaseUntil, databaseNow()),
+      abandonedLease,
     ));
     for (const task of stale) {
       const exhausted = task.retryCount >= task.maxRetries;
@@ -921,7 +920,7 @@ export async function reconcileStaleAiTasks(): Promise<number> {
       }).where(and(
         eq(tasksTable.id, task.id),
         eq(tasksTable.status, "running"),
-        lt(tasksTable.leaseUntil, databaseNow()),
+        abandonedLease,
       )).returning({ id: tasksTable.id });
       if (!updated) continue;
       await db.insert(taskLogsTable).values({
@@ -1016,91 +1015,127 @@ export async function requeueStalePendingJobs(): Promise<number> {
  * rows. It closes the small failure window where the request committed the
  * durable row but the process died before its fire-and-forget enqueue ran.
  */
-export async function dispatchPersistedPendingJobs(): Promise<number> {
+let durableDispatchRotation = 0;
+let durableDispatchInFlight: Promise<number> | null = null;
+
+export type DurableDispatchStage = {
+  name: string;
+  run: () => Promise<number>;
+};
+
+export async function runDurableDispatchStages(
+  stages: readonly DurableDispatchStage[],
+  startAt = 0,
+): Promise<{ dispatched: number; counts: Record<string, number> }> {
+  if (stages.length === 0) return { dispatched: 0, counts: {} };
+  const normalizedStart = ((startAt % stages.length) + stages.length) % stages.length;
+  const counts: Record<string, number> = {};
   let dispatched = 0;
-
-  try {
-    const [queuedScans, pendingDiscoveries, recoveryCount, automaticReplanCount, approvedDecisionDispatchCount, missionRecipeCount, missionEventCount, shadowReplayCount, chatMissionHandoffCount, projectBootstrapCount, missionOutcomeCount, missionDecisionShadowCount] = await Promise.all([
-      db
-        .select({ id: scanJobsTable.id, projectId: scanJobsTable.projectId })
-        .from(scanJobsTable)
-        .where(eq(scanJobsTable.status, "queued")),
-      db
-        .select({ id: discoverySessionsTable.id, rootPath: discoverySessionsTable.rootPath })
-        .from(discoverySessionsTable)
-        .where(eq(discoverySessionsTable.status, "pending")),
-      dispatchAutonomousTaskRecoveries(),
-      reconcileAutomaticMissionReplans(),
-      reconcileApprovedMissionDecisionDispatches(),
-      dispatchPendingMissionRecipes(),
-      replayPendingMissionEvents(),
-      dispatchPendingShadowReplays(),
-      dispatchPendingMissionChatHandoffs(),
-      dispatchProjectBootstrapJobs(),
-      reconcileMissionPlanOutcomesIfDue(),
-      reconcileMissionDecisionShadowsIfDue(),
-    ]);
-    dispatched += recoveryCount;
-    dispatched += automaticReplanCount;
-    dispatched += approvedDecisionDispatchCount;
-    dispatched += missionRecipeCount;
-    dispatched += missionEventCount;
-    dispatched += shadowReplayCount;
-    dispatched += chatMissionHandoffCount;
-    dispatched += projectBootstrapCount;
-    dispatched += missionOutcomeCount;
-    dispatched += missionDecisionShadowCount;
-
-    for (const job of queuedScans) {
-      if (
-        heavyJobQueue.enqueueWithId(job.id, () =>
-          runScanJob(job.id, job.projectId),
-        )
-      ) {
-        dispatched++;
-      }
-    }
-
-    for (const session of pendingDiscoveries) {
-      if (
-        heavyJobQueue.enqueueWithId(session.id, async () => {
-          try {
-            await runDiscovery(session.id, session.rootPath);
-          } catch (err) {
-            logger.error(
-              { err, sessionId: session.id },
-              "discovery runner threw past its own error handling in durable dispatch",
-            );
-          }
-        })
-      ) {
-        dispatched++;
-      }
-    }
-
-    if (dispatched > 0) {
-      logger.info(
-        {
-          dispatched,
-          scanCount: queuedScans.length,
-          discoveryCount: pendingDiscoveries.length,
-          recoveryCount,
-          automaticReplanCount,
-          missionRecipeCount,
-          missionEventCount,
-          shadowReplayCount,
-          projectBootstrapCount,
-          missionOutcomeCount,
-        },
-        "durable job dispatcher: persisted pending work dispatched",
+  for (let offset = 0; offset < stages.length; offset++) {
+    const stage = stages[(normalizedStart + offset) % stages.length]!;
+    try {
+      const count = await stage.run();
+      counts[stage.name] = count;
+      dispatched += count;
+    } catch (err) {
+      counts[stage.name] = 0;
+      logger.error(
+        { err, dispatcher: stage.name, scope: "job-reconciliation" },
+        "durable job dispatcher stage failed; continuing with other stages",
       );
     }
-  } catch (err) {
-    // A temporary database problem must not take down the API process. The
-    // next interval will retry the durable rows.
-    logger.error({ err, scope: "job-reconciliation" }, "durable job dispatch failed");
   }
+  return { dispatched, counts };
+}
 
+export function dispatchPersistedPendingJobs(): Promise<number> {
+  if (durableDispatchInFlight) return durableDispatchInFlight;
+  const pass = dispatchPersistedPendingJobsOnce();
+  let shared: Promise<number>;
+  shared = pass.finally(() => {
+    if (durableDispatchInFlight === shared) durableDispatchInFlight = null;
+  });
+  durableDispatchInFlight = shared;
+  return shared;
+}
+
+async function dispatchPersistedPendingJobsOnce(): Promise<number> {
+  const pageLimit = 100;
+  const stages: DurableDispatchStage[] = [
+    {
+      name: "scans",
+      run: async () => {
+        const limit = Math.min(heavyJobQueue.availablePendingCapacity, pageLimit);
+        if (limit === 0) return 0;
+        const rows = await db
+          .select({ id: scanJobsTable.id, projectId: scanJobsTable.projectId })
+          .from(scanJobsTable)
+          .where(eq(scanJobsTable.status, "queued"))
+          .orderBy(asc(scanJobsTable.createdAt), asc(scanJobsTable.id))
+          .limit(limit);
+        let added = 0;
+        for (const job of rows) {
+          const result = heavyJobQueue.enqueueWithIdDetailed(
+            job.id,
+            () => runScanJob(job.id, job.projectId),
+          );
+          if (result === "full") break;
+          if (result === "enqueued") added++;
+        }
+        return added;
+      },
+    },
+    {
+      name: "discoveries",
+      run: async () => {
+        const limit = Math.min(heavyJobQueue.availablePendingCapacity, pageLimit);
+        if (limit === 0) return 0;
+        const rows = await db
+          .select({ id: discoverySessionsTable.id, rootPath: discoverySessionsTable.rootPath })
+          .from(discoverySessionsTable)
+          .where(eq(discoverySessionsTable.status, "pending"))
+          .orderBy(asc(discoverySessionsTable.startedAt), asc(discoverySessionsTable.id))
+          .limit(limit);
+        let added = 0;
+        for (const session of rows) {
+          const result = heavyJobQueue.enqueueWithIdDetailed(session.id, async () => {
+            try {
+              await runDiscovery(session.id, session.rootPath);
+            } catch (err) {
+              logger.error(
+                { err, sessionId: session.id },
+                "discovery runner threw past its own error handling in durable dispatch",
+              );
+            }
+          });
+          if (result === "full") break;
+          if (result === "enqueued") added++;
+        }
+        return added;
+      },
+    },
+    { name: "task-recovery", run: () => dispatchAutonomousTaskRecoveries() },
+    { name: "mission-replans", run: () => reconcileAutomaticMissionReplans() },
+    { name: "decision-dispatch", run: () => reconcileApprovedMissionDecisionDispatches() },
+    { name: "mission-recipes", run: () => dispatchPendingMissionRecipes() },
+    { name: "mission-events", run: () => replayPendingMissionEvents() },
+    { name: "shadow-replays", run: () => dispatchPendingShadowReplays() },
+    { name: "chat-handoffs", run: () => dispatchPendingMissionChatHandoffs() },
+    { name: "project-bootstrap", run: () => dispatchProjectBootstrapJobs() },
+    { name: "mission-outcomes", run: () => reconcileMissionPlanOutcomesIfDue() },
+    { name: "decision-shadows", run: () => reconcileMissionDecisionShadowsIfDue() },
+  ];
+
+  const startAt = durableDispatchRotation % stages.length;
+  durableDispatchRotation = (startAt + 1) % stages.length;
+  const { dispatched, counts } = await runDurableDispatchStages(stages, startAt);
+
+  if (dispatched > 0) {
+    logger.info(
+      { dispatched, ...counts },
+      "durable job dispatcher: persisted pending work dispatched",
+    );
+  }
   return dispatched;
 }
 
@@ -1109,6 +1144,8 @@ export async function getDurableJobHealth(): Promise<{
   status: "healthy" | "degraded";
   queuedScanJobs: number;
   pendingDiscoverySessions: number;
+  staleQueuedScanJobs: number;
+  stalePendingDiscoverySessions: number;
   expiredScanLeases: number;
   expiredDiscoveryLeases: number;
   expiredTaskLeases: number;
@@ -1116,10 +1153,13 @@ export async function getDurableJobHealth(): Promise<{
   retryExhaustedTasks: number;
 }> {
   const now = databaseNow();
+  const stalePendingCutoff = sql<Date>`(clock_timestamp() AT TIME ZONE 'UTC') - (${STALE_PENDING_TIMEOUT_MS} * interval '1 millisecond')`;
   try {
     const [
       [queuedScans],
       [pendingDiscoveries],
+      [staleQueuedScans],
+      [stalePendingDiscoveries],
       [expiredScans],
       [expiredDiscoveries],
       [expiredTasks],
@@ -1128,28 +1168,54 @@ export async function getDurableJobHealth(): Promise<{
     ] = await Promise.all([
       db.select({ value: count() }).from(scanJobsTable).where(eq(scanJobsTable.status, "queued")),
       db.select({ value: count() }).from(discoverySessionsTable).where(eq(discoverySessionsTable.status, "pending")),
-      db.select({ value: count() }).from(scanJobsTable).where(and(eq(scanJobsTable.status, "running"), lt(scanJobsTable.leaseUntil, now))),
-      db.select({ value: count() }).from(discoverySessionsTable).where(and(eq(discoverySessionsTable.status, "discovering"), lt(discoverySessionsTable.leaseUntil, now))),
-      db.select({ value: count() }).from(tasksTable).where(and(eq(tasksTable.status, "running"), lt(tasksTable.leaseUntil, now))),
+      db.select({ value: count() }).from(scanJobsTable).where(and(
+        eq(scanJobsTable.status, "queued"),
+        lt(scanJobsTable.createdAt, stalePendingCutoff),
+      )),
+      db.select({ value: count() }).from(discoverySessionsTable).where(and(
+        eq(discoverySessionsTable.status, "pending"),
+        lt(discoverySessionsTable.startedAt, stalePendingCutoff),
+      )),
+      db.select({ value: count() }).from(scanJobsTable).where(and(
+        eq(scanJobsTable.status, "running"),
+        staleScanLeaseCondition(),
+      )),
+      db.select({ value: count() }).from(discoverySessionsTable).where(and(
+        eq(discoverySessionsTable.status, "discovering"),
+        or(isNull(discoverySessionsTable.leaseUntil), lt(discoverySessionsTable.leaseUntil, now)),
+      )),
+      db.select({ value: count() }).from(tasksTable).where(and(
+        eq(tasksTable.status, "running"),
+        or(isNull(tasksTable.leaseUntil), lt(tasksTable.leaseUntil, now)),
+      )),
       db.select({ value: count() }).from(scanJobsTable).where(and(eq(scanJobsTable.status, "failed"), eq(scanJobsTable.retryCount, scanJobsTable.maxRetries))),
       db.select({ value: count() }).from(tasksTable).where(and(eq(tasksTable.status, "failed"), eq(tasksTable.retryCount, tasksTable.maxRetries))),
     ]);
     const values = {
       queuedScanJobs: Number(queuedScans.value),
       pendingDiscoverySessions: Number(pendingDiscoveries.value),
+      staleQueuedScanJobs: Number(staleQueuedScans.value),
+      stalePendingDiscoverySessions: Number(stalePendingDiscoveries.value),
       expiredScanLeases: Number(expiredScans.value),
       expiredDiscoveryLeases: Number(expiredDiscoveries.value),
       expiredTaskLeases: Number(expiredTasks.value),
       retryExhaustedScanJobs: Number(exhaustedScans.value),
       retryExhaustedTasks: Number(exhaustedTasks.value),
     };
-    return { status: values.expiredScanLeases + values.expiredDiscoveryLeases + values.expiredTaskLeases > 0 ? "degraded" : "healthy", ...values };
+    const needsAttention =
+      values.staleQueuedScanJobs > 0
+      || values.stalePendingDiscoverySessions > 0
+      || values.expiredScanLeases + values.expiredDiscoveryLeases + values.expiredTaskLeases > 0
+      || values.retryExhaustedScanJobs + values.retryExhaustedTasks > 0;
+    return { status: needsAttention ? "degraded" : "healthy", ...values };
   } catch (error) {
     logger.error({ error, scope: "job-reconciliation" }, "durable job health query failed");
     return {
       status: "degraded",
       queuedScanJobs: 0,
       pendingDiscoverySessions: 0,
+      staleQueuedScanJobs: 0,
+      stalePendingDiscoverySessions: 0,
       expiredScanLeases: 0,
       expiredDiscoveryLeases: 0,
       expiredTaskLeases: 0,
@@ -1245,7 +1311,6 @@ export function startStaleJobSweep(): NodeJS.Timeout {
   logger.info(
     {
       intervalMs: STALE_JOB_SWEEP_INTERVAL_MS,
-      timeoutMs: STALE_JOB_TIMEOUT_MS,
       pendingTimeoutMs: STALE_PENDING_TIMEOUT_MS,
     },
     "stale-job sweep scheduled",

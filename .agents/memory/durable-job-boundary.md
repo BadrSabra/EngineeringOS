@@ -20,6 +20,19 @@ terminal row lock before applying a recovery transition. Treat discovery as
 non-checkpointable and retryable AI tasks as explicit re-trigger states rather
 than silently replaying unknown work.
 
+Queue-cap refusal is backpressure, not job completion. Keep durable rows eligible
+for redispatch; if an automatic trigger uses a state that normal dispatch does not
+scan, preserve an explicit retry signal or persist the dispatch intent.
+
+**Why:** Bounding local memory prevents overload, but a refused enqueue must not
+be mistaken for a durable queue entry. Some task triggers enter a verifying state
+that is not itself sufficient proof of a pending dispatch.
+
+**How to apply:** Use the detailed enqueue result when capacity matters. Leave
+queued database rows unchanged on `full`; for other lifecycle states, make the
+refusal visible and ensure a safe retry path rather than assuming the regular
+queued-row dispatcher will recover it.
+
 Mission recipe executions follow the same boundary: a durable `queued` row may be
 rediscovered by rebuilding dispatch from the Goal action and recipe binding;
 `running` or `paused` rows are not replayed automatically because their midpoint

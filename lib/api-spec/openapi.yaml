@@ -6578,6 +6578,8 @@ components:
         - status
         - queuedScanJobs
         - pendingDiscoverySessions
+        - staleQueuedScanJobs
+        - stalePendingDiscoverySessions
         - expiredScanLeases
         - expiredDiscoveryLeases
         - expiredTaskLeases
@@ -6585,7 +6587,10 @@ components:
         - retryExhaustedTasks
       description: >
         Content-free health projection of durable background work. A degraded
-        status means at least one worker lease has expired and needs recovery.
+        status means an expired or missing worker lease needs recovery, a queued
+        Scan or Discovery exceeds the configured pending-age threshold, or a
+        job exhausted its retry budget and needs operator attention. The top-level
+        health endpoint remains a liveness check.
       properties:
         status:
           type: string
@@ -6593,6 +6598,10 @@ components:
         queuedScanJobs:
           type: integer
         pendingDiscoverySessions:
+          type: integer
+        staleQueuedScanJobs:
+          type: integer
+        stalePendingDiscoverySessions:
           type: integer
         expiredScanLeases:
           type: integer

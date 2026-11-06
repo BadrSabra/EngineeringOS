@@ -10,6 +10,13 @@ describe("GET /healthz", () => {
     const res = await request(app).get("/api/healthz");
     expect(res.status).toBe(200);
     expect(res.body.status).toBe("ok");
+    expect(res.body.jobRecovery).toMatchObject({
+      status: expect.stringMatching(/^(healthy|degraded)$/),
+      queuedScanJobs: expect.any(Number),
+      pendingDiscoverySessions: expect.any(Number),
+      staleQueuedScanJobs: expect.any(Number),
+      stalePendingDiscoverySessions: expect.any(Number),
+    });
     expect(res.body.aiDiagnosticsRetention).toHaveProperty("status");
     expect(res.body.aiDiagnosticsRetention).toHaveProperty("attemptedAt");
     expect(res.body.aiDiagnosticsRetention).toHaveProperty("completedAt");

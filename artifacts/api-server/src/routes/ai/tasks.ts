@@ -360,7 +360,7 @@ export function scheduleAiTaskExecution(
   // PR-D1: use enqueueWithId so concurrent calls for the same task (e.g.
   // from auto-trigger and a manual retry at the same moment) don't stack up
   // two closures and execute the AI agent twice for the same task ID.
-  const enqueued = heavyJobQueue.enqueueWithId(taskId, async () => {
+  const enqueueResult = heavyJobQueue.enqueueWithIdDetailed(taskId, async () => {
     try {
       const [task] = await db
         .select()
@@ -427,9 +427,15 @@ export function scheduleAiTaskExecution(
       resolveCompletion();
     }
   });
-  if (!enqueued) {
+  if (enqueueResult !== "enqueued") {
     resolveCompletion();
     scheduledAiTaskCompletions.delete(taskId);
+    if (enqueueResult === "full") {
+      logger.warn(
+        { taskId },
+        "AI task remains in verifying because the local worker queue is full; it can be retriggered",
+      );
+    }
   } else {
     void completion.finally(() => {
       scheduledAiTaskCompletions.delete(taskId);

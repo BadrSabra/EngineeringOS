@@ -91,12 +91,14 @@ export const GetHealthResponse = zod.object({
   "status": zod.enum(['healthy', 'degraded']),
   "queuedScanJobs": zod.number().int(),
   "pendingDiscoverySessions": zod.number().int(),
+  "staleQueuedScanJobs": zod.number().int(),
+  "stalePendingDiscoverySessions": zod.number().int(),
   "expiredScanLeases": zod.number().int(),
   "expiredDiscoveryLeases": zod.number().int(),
   "expiredTaskLeases": zod.number().int(),
   "retryExhaustedScanJobs": zod.number().int(),
   "retryExhaustedTasks": zod.number().int()
-}).optional().describe('Content-free health projection of durable background work. A degraded status means at least one worker lease has expired and needs recovery.\n')
+}).optional().describe('Content-free health projection of durable background work. A degraded status means an expired or missing worker lease needs recovery, a queued Scan or Discovery exceeds the configured pending-age threshold, or a job exhausted its retry budget and needs operator attention. The top-level health endpoint remains a liveness check.\n')
 })
 
 

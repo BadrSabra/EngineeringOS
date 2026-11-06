@@ -15,7 +15,7 @@ import {
   graphEntitiesTable,
   graphRelationshipsTable,
 } from "@workspace/db";
-import { eq, and, or, isNull, inArray } from "drizzle-orm";
+import { eq, and, or, isNull, inArray, gt, type SQL } from "drizzle-orm";
 import { randomUUID } from "crypto";
 import { walkProject, matchRules, extractGraph, computeMetrics, SCANNER_VERSION, type RuleInput } from "@workspace/scanner";
 import { invalidateContextCache } from "@workspace/ai-orchestrator";
@@ -33,8 +33,8 @@ import { provenanceFromEntity, provenanceFromRelationship, manualProvenance } fr
 import {
   claimScanJob,
   heartbeatScanJob,
-  failScanJob,
   persistScanJobTransaction,
+  databaseNow,
   SCAN_LEASE_MS,
   SCAN_HEARTBEAT_INTERVAL_MS,
   ScanJobLeaseLostError,
@@ -104,6 +104,58 @@ export class ProjectScanLockBusyError extends Error {
     super(`a scan is already running for project ${projectId}`);
     this.name = "ProjectScanLockBusyError";
   }
+}
+
+/**
+ * Persist one terminal Scan failure transition and its project/event effects
+ * atomically. `guard` must describe the current worker or stale-recovery fence.
+ */
+export async function terminalizeFailedScanJob(input: {
+  jobId: string;
+  projectId: string;
+  error: string;
+  guard: SQL;
+}): Promise<boolean> {
+  const finalized = await db.transaction(async (tx) => {
+    const [failed] = await tx
+      .update(scanJobsTable)
+      .set({
+        status: "failed",
+        error: input.error,
+        finishedAt: databaseNow(),
+        workerId: null,
+        leaseUntil: null,
+        lastHeartbeatAt: null,
+      })
+      .where(and(
+        eq(scanJobsTable.id, input.jobId),
+        eq(scanJobsTable.projectId, input.projectId),
+        eq(scanJobsTable.status, "running"),
+        input.guard,
+      ))
+      .returning({ id: scanJobsTable.id });
+    if (!failed) return false;
+
+    await tx
+      .update(projectsTable)
+      .set({ status: "active", updatedAt: databaseNow() })
+      .where(and(
+        eq(projectsTable.id, input.projectId),
+        eq(projectsTable.status, "scanning"),
+      ));
+    await tx.insert(eventsTable).values({
+      id: randomUUID(),
+      type: "ProjectScanFailed",
+      projectId: input.projectId,
+      severity: "error",
+      message: `Scan failed: ${input.error.slice(0, 200)}`,
+      correlationId: input.jobId,
+    });
+    return true;
+  });
+
+  if (finalized) invalidateContextCache(input.projectId);
+  return finalized;
 }
 
 /**
@@ -219,36 +271,19 @@ export async function runScanJob(jobId: string, projectId: string): Promise<void
         clearInterval(heartbeatInterval);
         heartbeatInterval = undefined;
       }
-      const failed = await failScanJob(jobId, workerId, message);
+      const failed = await terminalizeFailedScanJob({
+        jobId,
+        projectId,
+        error: message,
+        guard: and(
+          eq(scanJobsTable.workerId, workerId),
+          gt(scanJobsTable.leaseUntil, databaseNow()),
+        )!,
+      });
       if (!failed) {
         logger.warn({ jobId, workerId }, "scan failure ignored because the worker no longer owns the job");
         return;
       }
-      const failedAt = new Date();
-      // Guard with `status = "scanning"` so a newer job that has already
-      // taken ownership of this project is not clobbered by this failure path.
-      await db
-        .update(projectsTable)
-        .set({ status: "active", updatedAt: failedAt })
-        .where(and(eq(projectsTable.id, projectId), eq(projectsTable.status, "scanning")));
-
-      // D-02: emit a ProjectScanFailed event so the AI context's recentEvents
-      // reflects the failure.  Previously only the scan_jobs row was updated;
-      // the event log was silent, leaving the AI unaware that a scan attempt
-      // had been made and failed.
-      await db.insert(eventsTable).values({
-        id: randomUUID(),
-        type: "ProjectScanFailed",
-        projectId,
-        severity: "error",
-        message: `Scan failed: ${message.slice(0, 200)}`,
-        correlationId: jobId,
-      });
-
-      // Bust the context cache so the next AI request sees "failed" scan
-      // state rather than the stale "running"/"queued" snapshot that was
-      // cached while the scan was in progress.
-      invalidateContextCache(projectId);
     } catch (cleanupErr) {
       // Even the failure-path writes are wrapped: if the DB is unreachable
       // there is nothing more we can safely do in-process, but we must
