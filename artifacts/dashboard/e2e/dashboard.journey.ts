@@ -10471,7 +10471,7 @@ test.describe("EngineeringOS dashboard browser journey", () => {
         "project-plugin-plugin-react",
       );
       const activationSwitch = reactPlugin.getByRole("switch", {
-        name: "تفعيل فحوص الإضافة لهذا المشروع: React/TypeScript Analyzer",
+        name: "تفعيل فحوص الإضافة لهذا المشروع: React Component Heuristic",
       });
       await expect(activationSwitch).toBeVisible();
       await expect(activationSwitch).toBeEnabled();

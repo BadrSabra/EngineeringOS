@@ -120,6 +120,23 @@ async function fetchRuntimeFixture(port: number): Promise<string> {
   return response.text();
 }
 
+async function processGroupsForProjectRoot(projectRoot: string): Promise<number[]> {
+  const entries = await fs.readdir("/proc");
+  const processGroups = new Set<number>();
+  await Promise.all(entries.filter((entry) => /^\d+$/.test(entry)).map(async (pid) => {
+    try {
+      if (await fs.realpath(`/proc/${pid}/cwd`) !== projectRoot) return;
+      const stat = await fs.readFile(`/proc/${pid}/stat`, "utf8");
+      const fields = stat.slice(stat.lastIndexOf(")") + 2).trim().split(/\s+/);
+      const processGroup = Number(fields[2]);
+      if (Number.isInteger(processGroup) && processGroup > 1) processGroups.add(processGroup);
+    } catch {
+      // Processes can exit while /proc is being inspected.
+    }
+  }));
+  return [...processGroups].sort((left, right) => left - right);
+}
+
 async function listenLoopback(server: Server): Promise<number> {
   await new Promise<void>((resolve, reject) => {
     const onError = (error: Error) => reject(error);
@@ -397,6 +414,286 @@ describe("database workspace runtime store", () => {
     })).toBeUndefined();
     expect(await databaseWorkspaceRuntimeStore.listRecoverable(new Date(now.getTime() + 1))).toEqual([]);
   });
+
+  it.skipIf(process.env.RUN_RUNTIME_CONCURRENT_START_PROCESS !== "1")(
+    "starts one supervised process group and preserves the winning session lease across API workers",
+    async () => {
+      const databaseUrl = requireDisposableRuntimeDatabaseUrl();
+      const projectId = randomUUID();
+      const revision = `runtime-concurrent-${projectId}`;
+      const root = await fs.mkdtemp(path.join(os.tmpdir(), "runtime-concurrent-api-workers-"));
+      const projectRoot = path.join(root, "project");
+      const supervisorPort = await reserveLoopbackPort();
+      const supervisor = spawn(process.execPath, [supervisorScriptPath], {
+        cwd: apiServerRoot,
+        env: {
+          PATH: process.env.PATH ?? "",
+          HOME: process.env.HOME ?? os.tmpdir(),
+          SESSION_SECRET: runtimeRecoveryTestSecret,
+          WORKSPACE_RUNTIME_SUPERVISOR_PORT: String(supervisorPort),
+        },
+        stdio: ["ignore", "ignore", "ignore"],
+      });
+      const barrierResponses: import("node:http").ServerResponse[] = [];
+      const beginBarrier = createServer((_request, response) => {
+        barrierResponses.push(response);
+        if (barrierResponses.length === 2) {
+          for (const waitingResponse of barrierResponses.splice(0)) {
+            waitingResponse.writeHead(204);
+            waitingResponse.end();
+          }
+        }
+      });
+      const workerProcesses: Array<{
+        child: ChildProcessWithoutNullStreams;
+        applicationName: string;
+        workerId: string;
+        readyFile: string;
+        resultFile: string;
+        output: () => string;
+      }> = [];
+      let runtimePid: number | undefined;
+      let runtimeSessionId: string | undefined;
+      projectIds.push(projectId);
+      roots.push(root);
+
+      try {
+        await fs.mkdir(projectRoot, { recursive: true });
+        await fs.writeFile(
+          path.join(projectRoot, "package.json"),
+          JSON.stringify({ private: true, scripts: { dev: "node server.mjs" } }),
+          "utf8",
+        );
+        await fs.writeFile(
+          path.join(projectRoot, "server.mjs"),
+          [
+            "import http from 'node:http';",
+            `const server = http.createServer((_request, response) => response.end(${JSON.stringify(revision)}));`,
+            "server.listen(Number(process.env.PORT), '127.0.0.1');",
+            "process.once('SIGTERM', () => server.close(() => process.exit(0)));",
+          ].join("\n"),
+          "utf8",
+        );
+        await db.insert(projectsTable).values({
+          id: projectId,
+          ownerId: "runtime-concurrent-api-worker-test",
+          name: `Concurrent runtime ${projectId.slice(0, 8)}`,
+          rootPath: projectRoot,
+          language: "javascript",
+          status: "active",
+        });
+
+        const barrierPort = await listenLoopback(beginBarrier);
+        await waitForSupervisor(supervisor, supervisorPort);
+        const supervisorClient = new WorkspaceRuntimeSupervisorClient(
+          `http://127.0.0.1:${supervisorPort}`,
+          fetch,
+          deriveWorkspaceRuntimeSupervisorToken(runtimeRecoveryTestSecret),
+        );
+
+        for (const suffix of ["a", "b"]) {
+          const applicationName = `runtime-race-${suffix}-${projectId.slice(0, 8)}`;
+          const workerId = `runtime-api-worker-${suffix}:${projectId}`;
+          const readyFile = path.join(root, `${suffix}-ready.json`);
+          const resultFile = path.join(root, `${suffix}-result.json`);
+          const childDatabaseUrl = new URL(databaseUrl.toString());
+          childDatabaseUrl.searchParams.set("application_name", applicationName);
+          const source = [
+            "(async () => {",
+            '  const fs = await import("node:fs/promises");',
+            '  const { WorkspaceRuntimeManager } = await import("./src/lib/workspace-runtime.ts");',
+            '  const { databaseWorkspaceRuntimeStore } = await import("./src/lib/workspace-runtime-store.ts");',
+            '  const { WorkspaceRuntimeSupervisorClient } = await import("./src/lib/workspace-runtime-supervisor-client.ts");',
+            "  const projectId = process.env.RUNTIME_TEST_PROJECT_ID;",
+            "  const projectRoot = process.env.RUNTIME_TEST_PROJECT_ROOT;",
+            "  const revision = process.env.RUNTIME_TEST_REVISION;",
+            "  const workerId = process.env.RUNTIME_TEST_WORKER_ID;",
+            "  const readyFile = process.env.RUNTIME_TEST_READY_FILE;",
+            "  const goFile = process.env.RUNTIME_TEST_GO_FILE;",
+            "  const resultFile = process.env.RUNTIME_TEST_RESULT_FILE;",
+            "  const barrierUrl = process.env.RUNTIME_TEST_BARRIER_URL;",
+            "  const supervisorUrl = process.env.RUNTIME_TEST_SUPERVISOR_URL;",
+            "  if (!projectId || !projectRoot || !revision || !workerId || !readyFile || !goFile || !resultFile || !barrierUrl || !supervisorUrl) throw new Error('Concurrent runtime worker configuration is incomplete.');",
+            "  const store = {",
+            "    ...databaseWorkspaceRuntimeStore,",
+            "    async begin(input) {",
+            "      const response = await fetch(barrierUrl, { method: 'POST' });",
+            "      if (!response.ok) throw new Error(`Start barrier returned HTTP ${response.status}.`);",
+            "      const claimed = await databaseWorkspaceRuntimeStore.begin(input);",
+            "      await fs.writeFile(`${resultFile}.claim`, JSON.stringify({",
+            "        workerId, claimed: Boolean(claimed), sessionId: claimed?.sessionId ?? null,",
+            "      }), 'utf8');",
+            "      return claimed;",
+            "    },",
+            "  };",
+            "  const manager = new WorkspaceRuntimeManager({",
+            "    store, workerId, heartbeatIntervalMs: 1000,",
+            "    supervisor: new WorkspaceRuntimeSupervisorClient(supervisorUrl),",
+            "  });",
+            "  process.once('SIGTERM', () => {",
+            "    void manager.shutdown().then(() => process.exit(0)).catch((error) => { console.error(error); process.exit(1); });",
+            "  });",
+            "  await fs.writeFile(readyFile, JSON.stringify({ workerId }));",
+            "  while (true) {",
+            "    try { await fs.access(goFile); break; }",
+            "    catch (error) { if (error.code !== 'ENOENT') throw error; await new Promise((resolve) => setTimeout(resolve, 10)); }",
+            "  }",
+            "  const started = await manager.start({ projectId, projectRoot, revision });",
+            "  const row = await databaseWorkspaceRuntimeStore.get(projectId);",
+            "  await fs.writeFile(resultFile, JSON.stringify({",
+            "    workerId, started, rowWorkerId: row?.workerId ?? null, rowSessionId: row?.sessionId ?? null,",
+            "  }), 'utf8');",
+            "  await new Promise(() => {});",
+            "})().catch((error) => { console.error(error); process.exitCode = 1; });",
+          ].join("\n");
+          const child = spawn(process.execPath, ["--import", "tsx", "-e", source], {
+            cwd: apiServerRoot,
+            env: {
+              DATABASE_URL: childDatabaseUrl.toString(),
+              PGAPPNAME: applicationName,
+              NODE_ENV: "test",
+              SESSION_SECRET: runtimeRecoveryTestSecret,
+              PATH: process.env.PATH ?? "",
+              HOME: process.env.HOME ?? os.tmpdir(),
+              AI_PROVIDER_EGRESS_DISABLED: "1",
+              RUNTIME_TEST_PROJECT_ID: projectId,
+              RUNTIME_TEST_PROJECT_ROOT: projectRoot,
+              RUNTIME_TEST_REVISION: revision,
+              RUNTIME_TEST_WORKER_ID: workerId,
+              RUNTIME_TEST_READY_FILE: readyFile,
+              RUNTIME_TEST_GO_FILE: path.join(root, "go"),
+              RUNTIME_TEST_RESULT_FILE: resultFile,
+              RUNTIME_TEST_BARRIER_URL: `http://127.0.0.1:${barrierPort}/begin`,
+              RUNTIME_TEST_SUPERVISOR_URL: `http://127.0.0.1:${supervisorPort}`,
+            },
+            stdio: ["pipe", "pipe", "pipe"],
+          });
+          child.stdin.end();
+          let output = "";
+          child.stdout.setEncoding("utf8").on("data", (chunk: string) => {
+            output = `${output}${chunk}`.slice(-12_000);
+          });
+          child.stderr.setEncoding("utf8").on("data", (chunk: string) => {
+            output = `${output}${chunk}`.slice(-12_000);
+          });
+          workerProcesses.push({
+            child,
+            applicationName,
+            workerId,
+            readyFile,
+            resultFile,
+            output: () => output,
+          });
+        }
+
+        await Promise.all(workerProcesses.map(({ readyFile, child, output }) =>
+          waitForJsonFile<{ workerId: string }>(
+            readyFile,
+            30_000,
+            "both API workers to be ready at the simultaneous-start barrier",
+            () => `worker=${child.pid}; ${output()}`,
+          ),
+        ));
+        await fs.writeFile(path.join(root, "go"), "start");
+
+        const results = await Promise.all(workerProcesses.map(({ resultFile, child, output }) =>
+          waitForJsonFile<{
+            workerId: string;
+            started: { projectId: string; sessionId: string | null; status: string; pid: number | null; port: number | null };
+            rowWorkerId: string | null;
+            rowSessionId: string | null;
+          }>(
+            resultFile,
+            60_000,
+            "both API workers to return from the concurrent start",
+            () => `worker=${child.pid}; ${output()}`,
+          ),
+        ));
+        const claims = await Promise.all(workerProcesses.map(({ resultFile, child, output }) =>
+          waitForJsonFile<{ workerId: string; claimed: boolean; sessionId: string | null }>(
+            `${resultFile}.claim`,
+            30_000,
+            "both API workers to finish their durable ownership claim",
+            () => `worker=${child.pid}; ${output()}`,
+          ),
+        ));
+        expect(results.map(({ workerId }) => workerId).sort()).toEqual(
+          workerProcesses.map(({ workerId }) => workerId).sort(),
+        );
+        expect(claims.filter(({ claimed }) => claimed)).toHaveLength(1);
+        expect(new Set(results.map(({ started }) => started.sessionId)).size).toBe(1);
+        expect(results.every(({ rowSessionId }) => rowSessionId === results[0]?.started.sessionId)).toBe(true);
+
+        let persisted = await databaseWorkspaceRuntimeStore.get(projectId);
+        const runningDeadline = Date.now() + 30_000;
+        while (persisted?.status !== "running" && Date.now() < runningDeadline) {
+          await new Promise((resolve) => setTimeout(resolve, 50));
+          persisted = await databaseWorkspaceRuntimeStore.get(projectId);
+        }
+        expect(persisted).toMatchObject({
+          status: "running",
+          sessionId: results[0]?.started.sessionId,
+          workerId: expect.stringMatching(/^runtime-api-worker-[ab]:/),
+          revision,
+          pid: expect.any(Number),
+          port: expect.any(Number),
+        });
+        expect(persisted?.leaseUntil?.getTime()).toBeGreaterThan(Date.now());
+        runtimeSessionId = persisted?.sessionId;
+        runtimePid = persisted?.pid ?? undefined;
+
+        const owner = workerProcesses.find(({ workerId }) => workerId === persisted?.workerId);
+        expect(owner).toBeDefined();
+        expect(claims.find(({ claimed }) => claimed)).toMatchObject({
+          workerId: persisted?.workerId,
+          sessionId: persisted?.sessionId,
+        });
+        expect(results.find(({ workerId }) => workerId === persisted?.workerId)).toMatchObject({
+          workerId: persisted?.workerId,
+          rowSessionId: persisted?.sessionId,
+        });
+        const observation = await supervisorClient.observeStartState(projectId);
+        expect(observation).toMatchObject({
+          projectId,
+          status: "running",
+          inventoryComplete: true,
+          session: {
+            projectId,
+            sessionId: persisted?.sessionId,
+            pid: persisted?.pid,
+            port: persisted?.port,
+          },
+        });
+        expect(process.kill(-persisted!.pid!, 0)).toBe(true);
+        expect(await processGroupsForProjectRoot(projectRoot)).toEqual([persisted!.pid]);
+        expect(await fetchRuntimeFixture(persisted!.port!)).toBe(revision);
+      } finally {
+        if (runtimeSessionId) {
+          await new WorkspaceRuntimeSupervisorClient(
+            `http://127.0.0.1:${supervisorPort}`,
+            fetch,
+            deriveWorkspaceRuntimeSupervisorToken(runtimeRecoveryTestSecret),
+          ).stop({
+            projectId,
+            sessionId: runtimeSessionId,
+            pid: runtimePid ?? null,
+          }).catch(() => undefined);
+        }
+        await Promise.all(workerProcesses.map(async ({ child, applicationName }) => {
+          if (child.exitCode === null && child.signalCode === null) await stopProcess(child);
+          await waitForRuntimeWorkerDatabaseDisconnect(applicationName).catch(() => undefined);
+        }));
+        for (const response of barrierResponses.splice(0)) {
+          if (!response.destroyed) response.destroy();
+        }
+        if (beginBarrier.listening) {
+          await new Promise<void>((resolve) => beginBarrier.close(() => resolve()));
+        }
+        await stopProcess(supervisor);
+      }
+    },
+    120_000,
+  );
 
   it.skipIf(process.env.RUN_RUNTIME_ADOPTION_PROCESS_RECOVERY !== "1")(
     "rehydrates a live runtime after the owning API worker is SIGKILLed",

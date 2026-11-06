@@ -1,4 +1,4 @@
-import { and, eq, inArray, isNull, lt, or } from "drizzle-orm";
+import { and, eq, inArray, isNull, lt, or, sql } from "drizzle-orm";
 import {
   db,
   workspaceRuntimeTable,
@@ -79,34 +79,26 @@ export const databaseWorkspaceRuntimeStore: WorkspaceRuntimeStore = {
       lt(workspaceRuntimeTable.leaseUntil, input.now),
       inArray(workspaceRuntimeTable.status, ["stopped", "failed"]),
     );
-    const [row] = await db
-      .insert(workspaceRuntimeTable)
-      .values({
-        id: input.projectId,
-        projectId: input.projectId,
-        sessionId: input.sessionId,
-        status: "starting",
-        profile: "dev",
-        command: "pnpm run dev",
-        projectRoot: input.projectRoot,
-        revision: input.revision,
-        environmentRevision: input.environmentRevision,
-        port: null,
-        pid: null,
-        workerId: input.workerId,
-        leaseUntil: input.leaseUntil,
-        lastHeartbeatAt: input.now,
-        startedAt: input.now,
-        stoppedAt: null,
-        error: null,
-        logs: [],
-        updatedAt: input.now,
-      })
-      .onConflictDoUpdate({
-        target: workspaceRuntimeTable.projectId,
-        set: {
+    return db.transaction(async (tx) => {
+      // The row uses both id=projectId (primary key) and a separate unique
+      // project_id index. PostgreSQL can surface the primary-key violation
+      // first when two inserts for the same project race. Serialize the claim
+      // by project before the upsert so exactly one API worker owns the lease.
+      await tx.execute(sql`
+        SELECT pg_advisory_xact_lock(
+          hashtext(${input.projectId}),
+          hashtext('workspace-runtime-start')
+        )
+      `);
+      const [row] = await tx
+        .insert(workspaceRuntimeTable)
+        .values({
+          id: input.projectId,
+          projectId: input.projectId,
           sessionId: input.sessionId,
           status: "starting",
+          profile: "dev",
+          command: "pnpm run dev",
           projectRoot: input.projectRoot,
           revision: input.revision,
           environmentRevision: input.environmentRevision,
@@ -120,11 +112,31 @@ export const databaseWorkspaceRuntimeStore: WorkspaceRuntimeStore = {
           error: null,
           logs: [],
           updatedAt: input.now,
-        },
-        where: takeover,
-      })
-      .returning();
-    return row;
+        })
+        .onConflictDoUpdate({
+          target: workspaceRuntimeTable.projectId,
+          set: {
+            sessionId: input.sessionId,
+            status: "starting",
+            projectRoot: input.projectRoot,
+            revision: input.revision,
+            environmentRevision: input.environmentRevision,
+            port: null,
+            pid: null,
+            workerId: input.workerId,
+            leaseUntil: input.leaseUntil,
+            lastHeartbeatAt: input.now,
+            startedAt: input.now,
+            stoppedAt: null,
+            error: null,
+            logs: [],
+            updatedAt: input.now,
+          },
+          where: takeover,
+        })
+        .returning();
+      return row;
+    });
   },
 
   async claimRecovery(input) {
