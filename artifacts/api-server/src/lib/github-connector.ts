@@ -24,6 +24,8 @@ export type GitHubRequestInit = {
   headers?: Record<string, string>;
   body?: string;
   signal?: AbortSignal;
+  /** Used only server-side and stripped before the SDK fetch is invoked. */
+  accessToken?: string;
 };
 
 export type GitHubRequest = (
@@ -86,6 +88,23 @@ function withSignal(request: GitHubRequest, signal?: AbortSignal): GitHubRequest
     ...init,
     ...(signal ? { signal } : {}),
   });
+}
+
+function withAccessToken(request: GitHubRequest, accessToken?: string): GitHubRequest {
+  return (path, init = {}) => request(path, {
+    ...init,
+    ...(accessToken ? { accessToken } : {}),
+  });
+}
+
+export function createGitHubRequest(
+  accessToken: string,
+  request: GitHubRequest = defaultGitHubRequest,
+): GitHubRequest {
+  if (!accessToken.trim()) {
+    throw new GitHubConnectorError("A GitHub personal access token is required.", "GITHUB_TOKEN_REQUIRED");
+  }
+  return withAccessToken(request, accessToken);
 }
 
 async function gitText(rootPath: string, args: string[], signal?: AbortSignal): Promise<string> {
@@ -153,29 +172,39 @@ async function defaultGitHubRequest(
   path: string,
   init: GitHubRequestInit = {},
 ): Promise<Record<string, unknown>> {
-  const controller = new AbortController();
-  let timedOut = false;
-  const abortFromCaller = () => controller.abort(init.signal?.reason);
   if (init.signal?.aborted) {
     throw new GitHubConnectorError("GitHub request was cancelled.", "GITHUB_REQUEST_CANCELLED");
   }
-  init.signal?.addEventListener("abort", abortFromCaller, { once: true });
+  const accessToken = init.accessToken;
+  if (!accessToken?.trim()) {
+    throw new GitHubConnectorError("A GitHub personal access token is required.", "GITHUB_TOKEN_REQUIRED");
+  }
+  const { accessToken: _accessToken, ...requestInit } = init;
+  const controller = new AbortController();
+  let timedOut = false;
+  let rejectAborted!: (reason: Error) => void;
+  const aborted = new Promise<never>((_resolve, reject) => { rejectAborted = reject; });
+  const rejectOnAbort = () => rejectAborted(new Error("GitHub request aborted"));
+  controller.signal.addEventListener("abort", rejectOnAbort, { once: true });
+  const abortFromCaller = () => controller.abort(requestInit.signal?.reason);
+  requestInit.signal?.addEventListener("abort", abortFromCaller, { once: true });
   const timeout = setTimeout(() => {
     timedOut = true;
     controller.abort();
   }, GITHUB_REQUEST_TIMEOUT_MS);
   try {
     const connectors = new ReplitConnectors();
-    const response = await connectors.createProxyFetch("github")(path, {
-      ...init,
+    const response = await Promise.race([connectors.createProxyFetch("github")(path, {
+      ...requestInit,
       signal: controller.signal,
       headers: {
         Accept: "application/vnd.github+json",
-        ...(init.body ? { "Content-Type": "application/json" } : {}),
-        ...(init.headers ?? {}),
+        ...(requestInit.headers ?? {}),
+        ...(requestInit.body ? { "Content-Type": "application/json" } : {}),
+        Authorization: `Bearer ${accessToken}`,
       },
-    });
-    const text = await response.text();
+    }), aborted]);
+    const text = await Promise.race([response.text(), aborted]);
     let body: unknown = {};
     try {
       body = text ? JSON.parse(text) : {};
@@ -186,32 +215,48 @@ async function defaultGitHubRequest(
       const message = typeof body === "object" && body && "message" in body
         ? String((body as { message: unknown }).message)
         : `GitHub API returned HTTP ${response.status}`;
-      throw new GitHubConnectorError(message, "GITHUB_API_ERROR", response.status);
+      throw new GitHubConnectorError(
+        message.split(accessToken).join("[REDACTED]"),
+        "GITHUB_API_ERROR",
+        response.status,
+      );
     }
     return body && typeof body === "object" && !Array.isArray(body)
       ? body as Record<string, unknown>
       : {};
   } catch (error) {
-    if (error instanceof GitHubConnectorError) throw error;
+    if (error instanceof GitHubConnectorError) {
+      if (error.message.includes(accessToken)) {
+        throw new GitHubConnectorError(
+          error.message.split(accessToken).join("[REDACTED]"),
+          error.code,
+          error.status,
+        );
+      }
+      throw error;
+    }
     if (timedOut) {
       throw new GitHubConnectorError(
         "GitHub request exceeded its time limit.",
         "GITHUB_REQUEST_TIMEOUT",
       );
     }
-    if (init.signal?.aborted) {
+    if (requestInit.signal?.aborted) {
       throw new GitHubConnectorError(
         "GitHub request was cancelled.",
         "GITHUB_REQUEST_CANCELLED",
       );
     }
     throw new GitHubConnectorError(
-      error instanceof Error ? error.message : "GitHub connector request failed",
+      error instanceof Error
+        ? error.message.split(accessToken).join("[REDACTED]")
+        : "GitHub connector request failed",
       "GITHUB_CONNECTOR_UNAVAILABLE",
     );
   } finally {
     clearTimeout(timeout);
-    init.signal?.removeEventListener("abort", abortFromCaller);
+    requestInit.signal?.removeEventListener("abort", abortFromCaller);
+    controller.signal.removeEventListener("abort", rejectOnAbort);
   }
 }
 
@@ -247,8 +292,12 @@ export async function getGitHubBranchState(args: {
   request?: GitHubRequest;
   commitHash?: string;
   signal?: AbortSignal;
+  accessToken?: string;
 }): Promise<GitHubBranchState> {
-  const request = withSignal(args.request ?? defaultGitHubRequest, args.signal);
+  const request = withSignal(
+    withAccessToken(args.request ?? defaultGitHubRequest, args.accessToken),
+    args.signal,
+  );
   const commitHash = args.commitHash ?? await (async () => {
     const ref = await request(repoPath(args.remote, `/git/ref/heads/${branchPath(args.branch)}`));
     return typeof (ref.object as { sha?: unknown } | undefined)?.sha === "string"
@@ -296,8 +345,12 @@ export async function pushLocalCommitToGitHub(args: {
   message: string;
   request?: GitHubRequest;
   signal?: AbortSignal;
+  accessToken?: string;
 }): Promise<{ remoteCommitHash: string; changedPaths: string[] }> {
-  const request = withSignal(args.request ?? defaultGitHubRequest, args.signal);
+  const request = withSignal(
+    withAccessToken(args.request ?? defaultGitHubRequest, args.accessToken),
+    args.signal,
+  );
   const parents = (await gitText(args.rootPath, ["rev-list", "--parents", "-n", "1", args.commitHash], args.signal))
     .split(/\s+/)
     .filter(Boolean);

@@ -135,7 +135,7 @@ describe('GitPanel generated mutations', () => {
     expect(mocks.mutations.push.mutate).toHaveBeenCalledWith({ projectId: 'project-1' });
   });
 
-  it('sends token mutations and invalidates the right queries after success', () => {
+  it('saves and deletes GitHub PATs without returning them to the UI', () => {
     mocks.queries.token = { configured: true, last4: '1234' };
     const { invalidateQueries } = renderPanel();
 
@@ -145,14 +145,13 @@ describe('GitPanel generated mutations', () => {
     mocks.mutationOptions.deleteToken?.onSuccess?.();
     expect(invalidateQueries).toHaveBeenCalledWith({ queryKey: ['github-token'] });
 
-    // The configured-token state intentionally shows Remove instead of Save.
-    // Render the save flow with the unconfigured state in a fresh test render.
-    mocks.queries.token = { configured: false, last4: null };
-    renderPanel();
-    fireEvent.click(screen.getAllByTitle('إعداد الربط')[1] ?? screen.getByTitle('إعداد الربط'));
-    fireEvent.change(screen.getByPlaceholderText('ghp_...'), { target: { value: 'ghp_test_token' } });
-    fireEvent.click(screen.getByRole('button', { name: 'حفظ الرمز' }));
-    expect(mocks.mutations.saveToken.mutate).toHaveBeenCalledWith({ data: { token: 'ghp_test_token' } });
+    fireEvent.change(screen.getByLabelText('رمز GitHub الشخصي'), {
+      target: { value: 'ghp_test_token_0123456789abcdefghijk' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'تحديث الرمز' }));
+    expect(mocks.mutations.saveToken.mutate).toHaveBeenCalledWith({
+      data: { token: 'ghp_test_token_0123456789abcdefghijk' },
+    });
     mocks.mutationOptions.saveToken?.onSuccess?.();
     expect(invalidateQueries).toHaveBeenCalledWith({ queryKey: ['github-token'] });
   });
@@ -164,5 +163,13 @@ describe('GitPanel generated mutations', () => {
 
     fireEvent.click(screen.getByTitle('إعداد الربط'));
     expect(screen.getByText('Remote URL rejected')).toBeInTheDocument();
+  });
+
+  it('does not treat a legacy token as support for another HTTPS host', () => {
+    mocks.queries.config = { remoteUrl: 'https://example.com/acme/service.git', branch: 'main' };
+    mocks.queries.token = { configured: true, last4: 'old4' };
+    renderPanel();
+    expect(screen.getByText('غير مُهيّأ')).toBeInTheDocument();
+    expect(screen.queryByText('الإعداد مكتمل')).not.toBeInTheDocument();
   });
 });

@@ -35,6 +35,12 @@ const remediationPlan = {
 
 function completeSnapshot() {
   const defaultFor = (tableName: string, columnName: string) => {
+    if (tableName === "plugin_runs") {
+      if (columnName === "status") return "'pending'::text";
+      if (columnName === "attempt_count") return "0";
+      if (columnName === "max_attempts") return "3";
+      if (columnName === "next_attempt_at") return "now()";
+    }
     if (
       (tableName === "ai_agent_observations"
         || tableName === "ai_world_facts"

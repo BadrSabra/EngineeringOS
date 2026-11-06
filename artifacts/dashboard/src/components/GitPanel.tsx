@@ -2,7 +2,7 @@
  * GitPanel — GitHub integration panel for a project.
  *
  * Sections:
- *   1. Settings  — remote URL, branch, optional legacy token
+ *   1. Settings  — remote URL, branch, existing legacy-token metadata
  *   2. Status    — modified / added / deleted files
  *   3. Commit    — message input + commit button
  *   4. Push      — push to remote button
@@ -183,7 +183,7 @@ export default function GitPanel({ projectId }: Props) {
   const status = statusQ.data;
   const changedFiles = status?.files ?? [];
   const isGitHubRemote = /^https:\/\/github\.com\//i.test(config?.remoteUrl ?? '');
-  const isConfigured = !!config?.remoteUrl && (isGitHubRemote || Boolean(token?.configured));
+  const isConfigured = isGitHubRemote && Boolean(token?.configured);
 
   return (
     <div className="bg-card border border-border rounded-xl shadow-sm overflow-hidden" dir="rtl" aria-label="ربط GitHub">
@@ -226,7 +226,7 @@ export default function GitPanel({ projectId }: Props) {
             }`}
           >
             {isConfigured ? <Check className="w-3 h-3" /> : <AlertTriangle className="w-3 h-3" />}
-            {isConfigured ? 'الإعداد مكتمل' : 'غير مُهيّأ'}
+            {isConfigured ? 'وجهة GitHub محدّدة' : 'غير مُهيّأ'}
           </span>
 
           {config?.remoteUrl && (
@@ -243,10 +243,10 @@ export default function GitPanel({ projectId }: Props) {
             </span>
           )}
 
-          {token?.configured && (
+              {token?.configured && (
             <span className="flex items-center gap-1 text-xs text-muted-foreground">
               <Key className="w-3 h-3" />
-              رمز محفوظ ···<bdi dir="ltr">{token.last4}</bdi>
+                  PAT مخزّن ومشفّر ···<bdi dir="ltr">{token.last4}</bdi>
             </span>
           )}
         </div>
@@ -315,13 +315,12 @@ export default function GitPanel({ projectId }: Props) {
               <p dir="auto" className="text-xs text-destructive">{(saveConfig.error as Error).message}</p>
             )}
 
-            {/* Legacy token fallback for non-GitHub HTTPS remotes */}
             <div className="border-t border-border pt-4 space-y-2">
               <label className="text-xs text-muted-foreground flex items-center gap-1">
-                <Key className="w-3 h-3" /> رمز اتصال HTTPS بديل
+                <Key className="w-3 h-3" /> رمز GitHub الشخصي
               </label>
               <p className="text-[11px] text-muted-foreground">
-                يستخدم المستودع على <bdi dir="ltr">github.com</bdi> ربط GitHub تلقائيًا. لا يُستخدم هذا الرمز إلا مع مستودعات HTTPS الأخرى.
+                يُشفّر الرمز عند الحفظ، ويقرأه الخادم فقط لإرساله كرأس مصادقة عبر GitHub Connector. لا يُعاد عرضه بعد الحفظ ولا يُسجّل في السجلات.
               </p>
               {token?.configured ? (
                 <div className="flex items-center gap-2">
@@ -334,27 +333,31 @@ export default function GitPanel({ projectId }: Props) {
                     حذف الرمز
                   </button>
                 </div>
-              ) : (
-                <div className="flex gap-2">
-                  <input
-                    type="password"
-                    className="flex-1 bg-background border border-border rounded-md px-3 py-1.5 text-sm font-mono focus:outline-none focus:ring-1 focus:ring-primary"
-                    dir="ltr"
-                    placeholder="ghp_..."
-                    value={tokenInput}
-                    onChange={(e) => setTokenInput(e.target.value)}
-                  />
-                  <button
-                    onClick={() => saveToken.mutate({ data: { token: tokenInput.trim() } })}
-                    disabled={saveToken.isPending || !tokenInput.trim()}
-                    className="bg-primary text-primary-foreground hover:bg-primary/90 text-xs px-3 py-1.5 rounded-md font-medium disabled:opacity-60"
-                  >
-                    حفظ الرمز
-                  </button>
-                </div>
-              )}
+              ) : null}
+              <div className="flex gap-2">
+                <input
+                  type="password"
+                  autoComplete="new-password"
+                  aria-label="رمز GitHub الشخصي"
+                  className="flex-1 bg-background border border-border rounded-md px-3 py-1.5 text-sm font-mono focus:outline-none focus:ring-1 focus:ring-primary"
+                  dir="ltr"
+                  placeholder="ghp_… أو github_pat_…"
+                  value={tokenInput}
+                  onChange={(e) => setTokenInput(e.target.value)}
+                />
+                <button
+                  onClick={() => saveToken.mutate({ data: { token: tokenInput.trim() } })}
+                  disabled={saveToken.isPending || !tokenInput.trim()}
+                  className="bg-primary text-primary-foreground hover:bg-primary/90 text-xs px-3 py-1.5 rounded-md font-medium disabled:opacity-60"
+                >
+                  {token?.configured ? "تحديث الرمز" : "حفظ الرمز"}
+                </button>
+              </div>
               {saveToken.isError && (
                 <p dir="auto" className="text-xs text-destructive">{(saveToken.error as Error).message}</p>
+              )}
+              {removeToken.isError && (
+                <p dir="auto" className="text-xs text-destructive">{(removeToken.error as Error).message}</p>
               )}
             </div>
           </div>

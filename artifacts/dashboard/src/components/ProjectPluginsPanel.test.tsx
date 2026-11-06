@@ -48,6 +48,7 @@ describe("ProjectPluginsPanel", () => {
         available: true,
         projectEnabled: false,
         scanHookImplemented: true,
+        compatibleWithProject: true,
         effectiveForProjectScan: false,
         capabilities: ["analyzer"],
         supportedLanguages: ["typescript"],
@@ -60,6 +61,7 @@ describe("ProjectPluginsPanel", () => {
         available: false,
         projectEnabled: false,
         scanHookImplemented: true,
+        compatibleWithProject: true,
         effectiveForProjectScan: false,
         capabilities: ["analyzer"],
         supportedLanguages: ["typescript"],
@@ -83,6 +85,14 @@ describe("ProjectPluginsPanel", () => {
         name: "تفعيل فحوص الإضافة لهذا المشروع: Performance Profiler",
       }),
     ).toBeDisabled();
+  });
+
+  it("does not describe language-incompatible activation as an available scan", () => {
+    listQuery.data[0]!.projectEnabled = true;
+    listQuery.data[0]!.compatibleWithProject = false;
+    renderPanel();
+    expect(screen.getByText("لا تتوافق مع لغة المشروع")).toBeInTheDocument();
+    expect(screen.queryByText("مفعّلة لفحوص هذا المشروع")).not.toBeInTheDocument();
   });
 
   it("updates only this project's activation and refreshes the query", () => {

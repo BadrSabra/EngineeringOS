@@ -4496,7 +4496,7 @@ paths:
           description: Not authenticated
     put:
       operationId: saveGitHubToken
-      summary: Save or update the authenticated user's GitHub Personal Access Token
+      summary: Encrypt and save the authenticated user's GitHub PAT for connector requests
       tags: [Git]
       requestBody:
         required: true
@@ -4506,13 +4506,13 @@ paths:
               $ref: "#/components/schemas/SaveGitHubTokenInput"
       responses:
         "200":
-          description: Token saved
+          description: Token saved; only its last four characters and status are returned
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/GitHubTokenStatus"
         "400":
-          description: Token is missing or empty
+          description: Token is missing, malformed, or too long
         "401":
           description: Not authenticated
     delete:
@@ -7563,7 +7563,9 @@ components:
       properties:
         token:
           type: string
-          minLength: 1
+          minLength: 20
+          maxLength: 512
+          pattern: "^[A-Za-z0-9_]+$"
           description: GitHub Personal Access Token. Must not be logged or returned.
 
     GitConfig:

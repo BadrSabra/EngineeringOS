@@ -13244,7 +13244,7 @@ export const getSaveGitHubTokenUrl = () => {
 }
 
 /**
- * @summary Save or update the authenticated user's GitHub Personal Access Token
+ * @summary Encrypt and save the authenticated user's GitHub PAT for connector requests
  */
 export const saveGitHubToken = async (saveGitHubTokenInput: SaveGitHubTokenInput, options?: Parameters<typeof customFetch>[1]): Promise<GitHubTokenStatus> => {
 
@@ -13302,7 +13302,7 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
     export type SaveGitHubTokenMutationVariables = {data: BodyType<SaveGitHubTokenInput>}
 
     /**
- * @summary Save or update the authenticated user's GitHub Personal Access Token
+ * @summary Encrypt and save the authenticated user's GitHub PAT for connector requests
  */
 export const useSaveGitHubToken = <TError = ErrorType<void>,
     TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof saveGitHubToken>>, TError,SaveGitHubTokenMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}

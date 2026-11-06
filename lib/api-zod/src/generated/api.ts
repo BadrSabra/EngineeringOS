@@ -3311,7 +3311,8 @@ export const ListProjectPluginsResponseItem = zod.object({
   "available": zod.boolean().describe('Whether global policy allows this plugin to be activated.'),
   "projectEnabled": zod.boolean().describe('Whether this project has an explicit activation binding.'),
   "scanHookImplemented": zod.boolean().describe('Whether the server has a scan hook implementation registered for this definition.'),
-  "effectiveForProjectScan": zod.boolean().describe('True only when globally available, activated for this project, and backed by a registered scan hook.'),
+  "compatibleWithProject": zod.boolean().describe('Whether the project\'s detected language is included in the plugin\'s supported languages.'),
+  "effectiveForProjectScan": zod.boolean().describe('True only when globally available, activated for this project, language-compatible, and backed by a registered scan hook.'),
   "capabilities": zod.array(zod.enum(['analyzer', 'rules', 'prompts', 'verifier', 'reporter'])),
   "supportedLanguages": zod.array(zod.string())
 })
@@ -3339,7 +3340,8 @@ export const UpdateProjectPluginBindingResponse = zod.object({
   "available": zod.boolean().describe('Whether global policy allows this plugin to be activated.'),
   "projectEnabled": zod.boolean().describe('Whether this project has an explicit activation binding.'),
   "scanHookImplemented": zod.boolean().describe('Whether the server has a scan hook implementation registered for this definition.'),
-  "effectiveForProjectScan": zod.boolean().describe('True only when globally available, activated for this project, and backed by a registered scan hook.'),
+  "compatibleWithProject": zod.boolean().describe('Whether the project\'s detected language is included in the plugin\'s supported languages.'),
+  "effectiveForProjectScan": zod.boolean().describe('True only when globally available, activated for this project, language-compatible, and backed by a registered scan hook.'),
   "capabilities": zod.array(zod.enum(['analyzer', 'rules', 'prompts', 'verifier', 'reporter'])),
   "supportedLanguages": zod.array(zod.string())
 })
@@ -10538,13 +10540,17 @@ export const GetGitHubTokenStatusResponse = zod.object({
 
 
 /**
- * @summary Save or update the authenticated user's GitHub Personal Access Token
+ * @summary Encrypt and save the authenticated user's GitHub PAT for connector requests
  */
+export const saveGitHubTokenBodyTokenMin = 20;
+export const saveGitHubTokenBodyTokenMax = 512;
 
+
+export const saveGitHubTokenBodyTokenRegExp = new RegExp('^[A-Za-z0-9_]+$');
 
 
 export const SaveGitHubTokenBody = zod.object({
-  "token": zod.string().min(1).describe('GitHub Personal Access Token. Must not be logged or returned.')
+  "token": zod.string().min(saveGitHubTokenBodyTokenMin).max(saveGitHubTokenBodyTokenMax).regex(saveGitHubTokenBodyTokenRegExp).describe('GitHub Personal Access Token. Must not be logged or returned.')
 })
 
 export const SaveGitHubTokenResponse = zod.object({

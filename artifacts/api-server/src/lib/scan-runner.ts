@@ -846,6 +846,7 @@ async function performScanCore(
         scanCompleteness: scanResult.scanCompleteness,
         ruleEvaluationComplete:
           walkResult.revisionManifest.completeness === "COMPLETE",
+        rulesEvaluated: projectRules.length,
         language: project[0].language,
         framework: project[0].framework ?? null,
         filesFound: scanResult.filesFound,

@@ -4,12 +4,12 @@
  * All mutating operations (commit, push) require project write access.
  * Read-only operations (status, log, config GET) require project read access.
  *
- * GitHub token is stored in ai_provider_credentials with provider = 'github',
- * encrypted with the same AES-256-GCM scheme used for Groq keys.
- * The token is never returned to the client — only a last4 + configured flag.
+ * GitHub PATs are encrypted in ai_provider_credentials and attached to
+ * GitHub Connector API requests server-side. They are never returned to the
+ * client — only a last4 + configured flag.
  *
- * git push injects the token into the HTTPS URL at call time and never logs
- * the authenticated URL.
+ * Production GitHub pushes use the workspace connector. Legacy saved PATs
+ * remain readable as metadata and explicitly deletable, but cannot be added.
  */
 import { Router } from "express";
 import { randomUUID } from "crypto";
@@ -30,7 +30,7 @@ import { eq, and, desc, sql } from "drizzle-orm";
 import { runScanJob } from "../lib/scan-runner.js";
 import { heavyJobQueue } from "../lib/job-queue.js";
 import { requireProjectAccess, requireProjectWriteAccess } from "../middlewares/requireProjectAccess.js";
-import { encryptApiKey, decryptApiKey } from "../lib/credentials-crypto.js";
+import { decryptApiKey, encryptApiKey } from "../lib/credentials-crypto.js";
 import { recordAudit } from "../lib/audit.js";
 import { invalidateContextCache } from "@workspace/ai-orchestrator";
 import { logger } from "../lib/logger.js";
@@ -41,6 +41,7 @@ import {
   GetLocalReviewBranchResponse,
   GetLocalReviewBranchParams,
 } from "@workspace/api-zod";
+import { createGitHubRequest } from "../lib/github-connector.js";
 import {
   GitHubConnectorError,
   parseGitHubRemote,
@@ -157,15 +158,22 @@ router.get("/ai/github-token", async (req, res) => {
   return res.json({ configured: true, last4: rows[0].last4, updatedAt: rows[0].updatedAt });
 });
 
-/** PUT /api/ai/github-token — save a GitHub PAT */
+/** PUT /api/ai/github-token — encrypt and save the user's GitHub PAT */
 router.put("/ai/github-token", async (req, res) => {
-  const { token } = req.body as { token?: string };
-  if (!token?.trim()) return res.status(400).json({ error: "token is required" });
+  const { token } = req.body as { token?: unknown };
+  if (
+    typeof token !== "string" ||
+    token.length < 20 ||
+    token.length > 512 ||
+    !/^[A-Za-z0-9_]+$/.test(token.trim())
+  ) {
+    return res.status(400).json({ error: "A valid GitHub personal access token is required." });
+  }
 
-  const encryptedApiKey = encryptApiKey(token.trim());
-  const last4 = token.trim().slice(-4);
+  const trimmedToken = token.trim();
+  const encryptedApiKey = encryptApiKey(trimmedToken);
+  const last4 = trimmedToken.slice(-4);
   const now = new Date();
-
   await db
     .insert(aiProviderCredentialsTable)
     .values({
@@ -181,7 +189,6 @@ router.put("/ai/github-token", async (req, res) => {
       target: [aiProviderCredentialsTable.ownerId, aiProviderCredentialsTable.provider],
       set: { encryptedApiKey, last4, updatedAt: now },
     });
-
   return res.json({ configured: true, last4, updatedAt: now });
 });
 
@@ -1373,12 +1380,20 @@ router.post("/projects/:projectId/git/push", requireProjectWriteAccess, async (r
       }
       pushAttempted = true;
       pushCommitHash = commitHash;
+      const token = await getGithubToken(req.userId);
+      if (!token) {
+        return res.status(428).json({
+          error: "Save a GitHub personal access token before pushing.",
+          code: "GITHUB_TOKEN_REQUIRED",
+        });
+      }
       const pushed = await pushLocalCommitToGitHub({
         rootPath: project.rootPath,
         remote: githubRemote,
         branch,
         commitHash,
         message: `EngineeringOS: ${branch}`,
+        request: createGitHubRequest(token),
       });
       remoteCommitHash = pushed.remoteCommitHash;
       output = `Pushed ${pushed.changedPaths.length} verified path(s) through GitHub integration`;

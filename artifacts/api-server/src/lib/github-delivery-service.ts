@@ -4,22 +4,27 @@ import { promisify } from "node:util";
 import { and, desc, eq, sql } from "drizzle-orm";
 import {
   aiChangeProposalsTable,
+  aiProviderCredentialsTable,
   db,
   eventsTable,
+  projectsTable,
 } from "@workspace/db";
 import type { GitHubDeliveryBeforeState } from "@workspace/ai-orchestrator";
 import {
   getGitHubBranchState,
   GitHubConnectorError,
+  createGitHubRequest,
   parseGitHubRemote,
   pushLocalCommitToGitHub,
 } from "./github-connector.js";
+import { decryptApiKey } from "./credentials-crypto.js";
 import { DELIVERY_TREE_DIGEST_VERSION, hashDeliveryTree } from "./delivery-workspace.js";
 import { tryAdvisoryLock, LockNamespace } from "./advisory-lock.js";
 import { logger } from "./logger.js";
 
 const execFileAsync = promisify(execFile);
 const GIT_MAX_BUFFER = 2 * 1024 * 1024;
+const GIT_COMMAND_TIMEOUT_MS = 30_000;
 
 import type { GitHubRequest } from "./github-connector.js";
 
@@ -80,6 +85,32 @@ export type VerifiedGitHubDeliveryResult = {
   };
 };
 
+export async function loadProjectGitHubRequest(
+  projectId: string,
+  request?: GitHubRequest,
+): Promise<GitHubRequest | null> {
+  const [project] = await db
+    .select({ ownerId: projectsTable.ownerId })
+    .from(projectsTable)
+    .where(eq(projectsTable.id, projectId))
+    .limit(1);
+  if (!project) return null;
+  const [credential] = await db
+    .select({ encryptedApiKey: aiProviderCredentialsTable.encryptedApiKey })
+    .from(aiProviderCredentialsTable)
+    .where(and(
+      eq(aiProviderCredentialsTable.ownerId, project.ownerId),
+      eq(aiProviderCredentialsTable.provider, "github"),
+    ))
+    .limit(1);
+  if (!credential) return null;
+  try {
+    return createGitHubRequest(decryptApiKey(credential.encryptedApiKey), request);
+  } catch {
+    return null;
+  }
+}
+
 type DeliveryProof = {
   baseTreeHash: string | null;
   candidateTreeHash: string | null;
@@ -88,10 +119,12 @@ type DeliveryProof = {
   committedTreeHash: string | null;
 };
 
-async function gitText(rootPath: string, args: string[]): Promise<string> {
+async function gitText(rootPath: string, args: string[], signal?: AbortSignal): Promise<string> {
   const result = await execFileAsync("git", ["-C", rootPath, ...args], {
+    timeout: GIT_COMMAND_TIMEOUT_MS,
     maxBuffer: GIT_MAX_BUFFER,
     encoding: "utf8",
+    ...(signal ? { signal } : {}),
   });
   return String(result.stdout).trim();
 }
@@ -209,15 +242,15 @@ function operationMarker(operationId: string): string {
   return `EngineeringOS-Operation: ${operationId}`;
 }
 
-async function localCommitIdentity(rootPath: string, commitHash: string): Promise<{
+async function localCommitIdentity(rootPath: string, commitHash: string, signal?: AbortSignal): Promise<{
   parentHash: string;
   parentTreeHash: string;
   treeHash: string;
 }> {
-  const parentHash = await gitText(rootPath, ["rev-parse", `${commitHash}^`]);
+  const parentHash = await gitText(rootPath, ["rev-parse", `${commitHash}^`], signal);
   const [parentTreeHash, treeHash] = await Promise.all([
-    gitText(rootPath, ["rev-parse", `${parentHash}^{tree}`]),
-    gitText(rootPath, ["rev-parse", `${commitHash}^{tree}`]),
+    gitText(rootPath, ["rev-parse", `${parentHash}^{tree}`], signal),
+    gitText(rootPath, ["rev-parse", `${commitHash}^{tree}`], signal),
   ]);
   return { parentHash, parentTreeHash, treeHash };
 }
@@ -477,6 +510,12 @@ export async function executeVerifiedGitHubDelivery(
   if (params.signal?.aborted) return blocked("GitHub delivery was cancelled before execution.");
   const remote = parseGitHubRemote(params.remoteUrl);
   if (!remote) return blocked("GitHub delivery requires a credential-free HTTPS GitHub remote.");
+  let request: GitHubRequest | undefined = params.request;
+  const getRequest = async (): Promise<GitHubRequest | null> => {
+    if (request) return request;
+    request = await loadProjectGitHubRequest(params.projectId) ?? undefined;
+    return request ?? null;
+  };
 
   const [proposal] = await db
     .select({
@@ -516,11 +555,19 @@ export async function executeVerifiedGitHubDelivery(
     && typeof existingPush.remoteCommitHash === "string"
   ) {
     try {
-      const localIdentity = await localCommitIdentity(params.rootPath, existingPush.commitHash);
+      const receiptRequest = await getRequest();
+      if (!receiptRequest) {
+        return {
+          status: "unavailable",
+          detail: "Save a valid GitHub personal access token for the project owner before delivery.",
+        };
+      }
+      const localIdentity = await localCommitIdentity(params.rootPath, existingPush.commitHash, params.signal);
       const remoteAfterState = await getGitHubBranchState({
         remote,
         branch: params.branch,
-        ...(params.request ? { request: params.request } : {}),
+        request: receiptRequest,
+        signal: params.signal,
       });
       assertRemoteAfterState(
         remoteAfterState,
@@ -579,6 +626,13 @@ export async function executeVerifiedGitHubDelivery(
   ) {
     return blocked("GitHub delivery requires recorded commit evidence for this proposal.");
   }
+  const authenticatedRequest = await getRequest();
+  if (!authenticatedRequest) {
+    return {
+      status: "unavailable",
+      detail: "Save a valid GitHub personal access token for the project owner before delivery.",
+    };
+  }
 
   let deliveryLock: Awaited<ReturnType<typeof tryAdvisoryLock>> | undefined;
   try {
@@ -587,20 +641,21 @@ export async function executeVerifiedGitHubDelivery(
     if (liveTree !== committedTreeHash) {
       return blocked("The repository changed after the recorded AI commit.");
     }
-    const currentHead = await gitText(params.rootPath, ["rev-parse", "HEAD"]);
+    const currentHead = await gitText(params.rootPath, ["rev-parse", "HEAD"], params.signal);
     if (currentHead !== commitHash) {
       return blocked("The repository HEAD changed after the recorded AI commit.");
     }
 
-    const localIdentity = await localCommitIdentity(params.rootPath, commitHash);
-    const commitMessage = await gitText(params.rootPath, ["show", "-s", "--format=%B", commitHash]);
+    const localIdentity = await localCommitIdentity(params.rootPath, commitHash, params.signal);
+    const commitMessage = await gitText(params.rootPath, ["show", "-s", "--format=%B", commitHash], params.signal);
     if (!commitMessage.split(/\r?\n/u).some((line) => line.trim() === operationMarker(params.operationId))) {
       return blocked("The committed Git object does not contain this delivery operation marker.");
     }
     const remoteBeforeState = await getGitHubBranchState({
       remote,
       branch: params.branch,
-      ...(params.request ? { request: params.request } : {}),
+      request: authenticatedRequest,
+      signal: params.signal,
     });
     if (remoteBeforeState.commitHash === commitHash) {
       assertRemoteAfterState(remoteBeforeState, localIdentity, params.operationId, commitHash);
@@ -711,12 +766,14 @@ export async function executeVerifiedGitHubDelivery(
       branch: params.branch,
       commitHash,
       message: commitMessage,
-      ...(params.request ? { request: params.request } : {}),
+      request: authenticatedRequest,
+      signal: params.signal,
     });
     const remoteAfterState = await getGitHubBranchState({
       remote,
       branch: params.branch,
-      ...(params.request ? { request: params.request } : {}),
+      request: authenticatedRequest,
+      signal: params.signal,
     });
     assertRemoteAfterState(remoteAfterState, localIdentity, params.operationId, commitHash);
     const result = passedResult({
@@ -756,11 +813,12 @@ export async function executeVerifiedGitHubDelivery(
     if (error instanceof GitHubConnectorError && error.code === "GITHUB_PUSH_REMOTE_DRIFT") {
       let remoteStateObserved = false;
       try {
-        const localIdentity = await localCommitIdentity(params.rootPath, commitHash);
+        const localIdentity = await localCommitIdentity(params.rootPath, commitHash, params.signal);
         const branchState = await getGitHubBranchState({
           remote,
           branch: params.branch,
-          ...(params.request ? { request: params.request } : {}),
+          request: authenticatedRequest,
+          signal: params.signal,
         });
         remoteStateObserved = true;
         const alreadyApplied = branchState.commitHash === commitHash

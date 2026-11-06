@@ -1,4 +1,5 @@
 import { sql } from "drizzle-orm";
+import { createInsertSchema } from "drizzle-zod";
 import {
   check,
   index,
@@ -91,3 +92,5 @@ export type PluginDispatchBatch =
   typeof pluginDispatchBatchesTable.$inferSelect;
 export type InsertPluginRun = typeof pluginRunsTable.$inferInsert;
 export type PluginRun = typeof pluginRunsTable.$inferSelect;
+export const insertPluginDispatchBatchSchema = createInsertSchema(pluginDispatchBatchesTable);
+export const insertPluginRunSchema = createInsertSchema(pluginRunsTable);

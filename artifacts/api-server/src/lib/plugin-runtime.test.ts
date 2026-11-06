@@ -20,6 +20,7 @@ function baseCtx(overrides: Partial<ScanCompleteContext> = {}): ScanCompleteCont
     scanCorrelationId: "scan-test",
     scanCompleteness: "COMPLETE",
     ruleEvaluationComplete: true,
+    rulesEvaluated: 1,
     language: "typescript",
     framework: null,
     filesFound: 10,
@@ -194,6 +195,11 @@ describe("plugin-security", () => {
       issuesDetected: 0,
       sourceFiles: 10,
     }));
+    expect(result.events?.some((event) => event.type === "SecurityPluginClear")).toBe(false);
+  });
+
+  it("does not treat a scan without any evaluated rules as clear", async () => {
+    const result = await hook.onScanComplete(baseCtx({ rulesEvaluated: 0 }));
     expect(result.events?.some((event) => event.type === "SecurityPluginClear")).toBe(false);
   });
 

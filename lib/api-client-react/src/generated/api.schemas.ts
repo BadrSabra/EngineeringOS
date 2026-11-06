@@ -3089,7 +3089,9 @@ export interface GitHubTokenStatus {
 export interface SaveGitHubTokenInput {
   /**
      * GitHub Personal Access Token. Must not be logged or returned.
-     * @minLength 1
+     * @minLength 20
+     * @maxLength 512
+     * @pattern ^[A-Za-z0-9_]+$
      */
   token: string;
 }
@@ -6780,7 +6782,9 @@ export interface ProjectPluginState {
   projectEnabled: boolean;
   /** Whether the server has a scan hook implementation registered for this definition. */
   scanHookImplemented: boolean;
-  /** True only when globally available, activated for this project, and backed by a registered scan hook. */
+  /** Whether the project's detected language is included in the plugin's supported languages. */
+  compatibleWithProject: boolean;
+  /** True only when globally available, activated for this project, language-compatible, and backed by a registered scan hook. */
   effectiveForProjectScan: boolean;
   capabilities: ProjectPluginStateCapabilitiesItem[];
   supportedLanguages: string[];

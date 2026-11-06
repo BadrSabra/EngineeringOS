@@ -62,6 +62,7 @@ export interface ScanCompleteContext {
   scanCorrelationId: string;
   scanCompleteness: "COMPLETE" | "PARTIAL";
   ruleEvaluationComplete: boolean;
+  rulesEvaluated: number;
   language: string;
   framework?: string | null;
   filesFound: number;
@@ -224,7 +225,7 @@ export const PLUGIN_HOOKS: Record<string, PluginHook> = {
         );
         events.push({
           type: "SecurityPluginAlert",
-          message: `OWASP scanner: ${criticalViolations.length} critical/high rule(s) triggered with ${totalMatches} match(es) — immediate review required`,
+          message: `Security rule summary: ${criticalViolations.length} critical/high rule(s) triggered with ${totalMatches} match(es) — immediate review required`,
           severity: "error",
           payload: {
             violatedRules: criticalViolations.map((v) => v.code),
@@ -235,15 +236,17 @@ export const PLUGIN_HOOKS: Record<string, PluginHook> = {
         ctx.issuesDetected === 0 &&
         ctx.sourceFiles > 0 &&
         ctx.scanCompleteness === "COMPLETE" &&
-        ctx.ruleEvaluationComplete
+        ctx.ruleEvaluationComplete &&
+        ctx.rulesEvaluated > 0
       ) {
         events.push({
           type: "SecurityPluginClear",
-          message: `Security rules reported no violations across ${ctx.sourceFiles} source file(s) in a complete scan`,
+          message: `Scanner rule summary: ${ctx.rulesEvaluated} rule(s) reported no violations across ${ctx.sourceFiles} source file(s) in a complete scan`,
           severity: "success",
           payload: {
             scanCompleteness: ctx.scanCompleteness,
             ruleEvaluationComplete: ctx.ruleEvaluationComplete,
+            rulesEvaluated: ctx.rulesEvaluated,
           },
         });
       }
@@ -667,6 +670,7 @@ async function runPluginRun(runId: string): Promise<void> {
           eq(pluginRunsTable.id, runId),
           eq(pluginRunsTable.status, "running"),
           eq(pluginRunsTable.workerId, workerId),
+          gt(pluginRunsTable.leaseUntil, databaseNow()),
         ));
     } catch (persistError) {
       logger.error(

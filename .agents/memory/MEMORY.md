@@ -82,6 +82,7 @@
 - [Tool surface adapters](tool-surface-adapters.md) — external capabilities stay provider-hidden until server-owned adapters enforce the full execution contract.
 - [Read-only invocation telemetry](recipe-read-only-classification.md) — use explicit allowlists, full-manifest hashes, and durable Episode bindings; never infer read-only safety from a mutation flag.
 - [GitHub delivery recovery](github-delivery-recovery.md) — require exact remote proof; crash tests check startup after acknowledged mutation and explicit replay.
+- [GitHub PAT connector contract](github-pat-connector.md) — use the project owner's encrypted PAT only in server-side Connector Authorization headers; never return or log it.
 - [GitHub review branches](github-review-branches.md) — compare against live main before publishing a one-commit branch; cached origin may be stale and SSH may be unavailable.
 - [Hierarchical retrieval boundary](hierarchical-retrieval-boundary.md) — graph planning ranks bounded source/test paths; server-owned read tools remain authoritative for source bytes and evidence.
 - [Runtime observation boundary](runtime-observation-boundary.md) — runtime and validator probes attest only a bound direct PID; temp validation roots never replace project provenance or grant acceptance.

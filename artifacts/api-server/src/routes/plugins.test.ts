@@ -9,6 +9,7 @@ import {
   eventsTable,
   projectPluginBindingsTable,
   projectsTable,
+  pluginsTable,
 } from "@workspace/db";
 import {
   buildMissionPlanPreview,
@@ -17,6 +18,7 @@ import {
   getFullAuthorizedToolManifest,
 } from "@workspace/ai-orchestrator";
 import app from "../app.js";
+import { reconcileBuiltinPluginRegistry } from "./plugins.js";
 
 const projectIds: string[] = [];
 
@@ -60,6 +62,21 @@ afterEach(async () => {
 });
 
 describe("Plugin registry", () => {
+  it("reconciles a partial registry while preserving global disablement and legacy config", async () => {
+    await request(app).get("/api/plugins");
+    await expect(db.transaction(async (tx) => {
+      await tx.delete(pluginsTable).where(eq(pluginsTable.id, "plugin-docs"));
+      await tx.update(pluginsTable).set({ enabled: false, config: { preserve: "fixture" } })
+        .where(eq(pluginsTable.id, "plugin-react"));
+      await reconcileBuiltinPluginRegistry(tx);
+      const rows = await tx.select().from(pluginsTable);
+      expect(rows.find((plugin) => plugin.id === "plugin-docs")).toBeDefined();
+      expect(rows.find((plugin) => plugin.id === "plugin-react"))
+        .toMatchObject({ enabled: false, config: { preserve: "fixture" } });
+      throw new Error("rollback seed fixture");
+    })).rejects.toThrow("rollback seed fixture");
+  });
+
   it("lists global availability without leaking registry configuration", async () => {
     const res = await request(app).get("/api/plugins");
     expect(res.status).toBe(200);

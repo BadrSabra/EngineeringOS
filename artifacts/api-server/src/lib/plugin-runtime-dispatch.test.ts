@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { randomUUID } from "node:crypto";
 import request from "supertest";
 import { eq } from "drizzle-orm";
@@ -8,18 +8,49 @@ import {
   eventsTable,
   pluginsTable,
   pluginRunsTable,
+  pluginDispatchBatchesTable,
   projectPluginBindingsTable,
   projectsTable,
 } from "@workspace/db";
 import app from "../app.js";
 import {
   dispatchOnScanComplete,
+  dispatchPendingPluginRuns,
+  persistPluginDispatch,
+  PLUGIN_HOOKS,
   resolveEffectivePluginIds,
   type ScanCompleteContext,
 } from "./plugin-runtime.js";
+import { heavyJobQueue } from "./job-queue.js";
 
 const projectIds: string[] = [];
 let originalSecurityAvailability: boolean | undefined;
+
+function scanContext(projectId: string): ScanCompleteContext {
+  return {
+    projectId, scanCorrelationId: randomUUID(), scanCompleteness: "COMPLETE",
+    ruleEvaluationComplete: true, rulesEvaluated: 1, language: "typescript", framework: null,
+    filesFound: 5, sourceFiles: 5, issuesDetected: 0, tasksCreated: 0,
+    entitiesExtracted: 2, relationshipsExtracted: 1, ruleViolations: [], entities: [],
+  };
+}
+
+async function activatedProject(): Promise<string> {
+  const projectId = await insertProject();
+  await db.insert(projectPluginBindingsTable).values({
+    id: randomUUID(), projectId, pluginId: "plugin-security",
+    enabled: true, approvedBy: "test-user",
+  });
+  return projectId;
+}
+
+async function waitUntil(predicate: () => Promise<boolean>): Promise<void> {
+  for (let attempt = 0; attempt < 200; attempt++) {
+    if (await predicate()) return;
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
+  throw new Error("plugin state did not settle");
+}
 
 async function waitForPluginRuns(dispatchId: string): Promise<void> {
   for (let attempt = 0; attempt < 100; attempt++) {
@@ -68,6 +99,7 @@ beforeEach(async () => {
 });
 
 afterEach(async () => {
+  vi.restoreAllMocks();
   for (const projectId of projectIds.splice(0)) {
     await db
       .delete(eventsTable)
@@ -97,6 +129,106 @@ afterEach(async () => {
 });
 
 describe("project-scoped plugin scan dispatch", () => {
+  it("rolls back plugin intent with the scan transaction", async () => {
+    const ctx = scanContext(await activatedProject());
+    await expect(db.transaction(async (tx) => {
+      await persistPluginDispatch(tx, ctx);
+      throw new Error("scan rollback fixture");
+    })).rejects.toThrow("scan rollback fixture");
+    expect(await db.select().from(pluginDispatchBatchesTable)
+      .where(eq(pluginDispatchBatchesTable.id, ctx.scanCorrelationId))).toEqual([]);
+  });
+
+  it("keeps repeated dispatch idempotent and correlates exactly one event", async () => {
+    const ctx = scanContext(await activatedProject());
+    await dispatchOnScanComplete(ctx);
+    await waitForPluginRuns(ctx.scanCorrelationId);
+    await dispatchOnScanComplete(ctx);
+    const runs = await db.select().from(pluginRunsTable)
+      .where(eq(pluginRunsTable.dispatchId, ctx.scanCorrelationId));
+    const events = await db.select().from(eventsTable)
+      .where(eq(eventsTable.correlationId, ctx.scanCorrelationId));
+    expect(runs).toHaveLength(1);
+    expect(runs[0]).toMatchObject({ status: "completed", attemptCount: 1 });
+    expect(events.map((event) => event.type)).toEqual(["SecurityPluginClear"]);
+  });
+
+  it("retries a failed hook from durable state without duplicating its events", async () => {
+    const ctx = scanContext(await activatedProject());
+    vi.spyOn(PLUGIN_HOOKS["plugin-security"]!, "onScanComplete")
+      .mockRejectedValueOnce(new Error("fixture hook failure"));
+    await dispatchOnScanComplete(ctx);
+    await waitUntil(async () => {
+      const [run] = await db.select().from(pluginRunsTable)
+        .where(eq(pluginRunsTable.dispatchId, ctx.scanCorrelationId));
+      return run?.status === "pending" && run.attemptCount === 1;
+    });
+    const [retry] = await db.select().from(pluginRunsTable)
+      .where(eq(pluginRunsTable.dispatchId, ctx.scanCorrelationId));
+    expect(retry!.lastErrorCode).toBe("PLUGIN_HOOK_FAILED");
+    expect(retry!.nextAttemptAt.getTime()).toBeGreaterThan(Date.now());
+    await waitUntil(async () => !heavyJobQueue.has(retry!.id));
+    await db.update(pluginRunsTable).set({ nextAttemptAt: new Date(0) })
+      .where(eq(pluginRunsTable.id, retry!.id));
+    await dispatchPendingPluginRuns({ dispatchId: ctx.scanCorrelationId });
+    await waitForPluginRuns(ctx.scanCorrelationId);
+    const [completed] = await db.select().from(pluginRunsTable)
+      .where(eq(pluginRunsTable.id, retry!.id));
+    expect(completed).toMatchObject({ status: "completed", attemptCount: 2, lastErrorCode: null });
+    expect(await db.select().from(eventsTable)
+      .where(eq(eventsTable.correlationId, ctx.scanCorrelationId))).toHaveLength(1);
+  });
+
+  it("discards an expired worker's output and recovers it under a new lease", async () => {
+    const ctx = scanContext(await activatedProject());
+    const hook = PLUGIN_HOOKS["plugin-security"]!;
+    const original = hook.onScanComplete.bind(hook);
+    let release!: () => void;
+    const barrier = new Promise<void>((resolve) => { release = resolve; });
+    const spy = vi.spyOn(hook, "onScanComplete").mockImplementationOnce(async (input) => {
+      await barrier;
+      return original(input);
+    });
+    await dispatchOnScanComplete(ctx);
+    await waitUntil(async () => spy.mock.calls.length === 1);
+    const [run] = await db.select().from(pluginRunsTable)
+      .where(eq(pluginRunsTable.dispatchId, ctx.scanCorrelationId));
+    await db.update(pluginRunsTable).set({ leaseUntil: new Date(0) })
+      .where(eq(pluginRunsTable.id, run!.id));
+    release();
+    await waitUntil(async () => !heavyJobQueue.has(run!.id));
+    expect(await db.select().from(eventsTable)
+      .where(eq(eventsTable.correlationId, ctx.scanCorrelationId))).toHaveLength(0);
+    const [stale] = await db.select().from(pluginRunsTable)
+      .where(eq(pluginRunsTable.id, run!.id));
+    expect(stale).toMatchObject({ status: "running", attemptCount: 1, resultEvents: null });
+    await dispatchPendingPluginRuns({ dispatchId: ctx.scanCorrelationId });
+    await waitForPluginRuns(ctx.scanCorrelationId);
+    const [recovered] = await db.select().from(pluginRunsTable)
+      .where(eq(pluginRunsTable.id, run!.id));
+    expect(recovered).toMatchObject({ status: "completed", attemptCount: 2 });
+    expect(await db.select().from(eventsTable)
+      .where(eq(eventsTable.correlationId, ctx.scanCorrelationId))).toHaveLength(1);
+  });
+
+  it("terminalizes an expired final attempt instead of retrying forever", async () => {
+    const ctx = scanContext(await activatedProject());
+    await db.transaction((tx) => persistPluginDispatch(tx, ctx));
+    await db.update(pluginRunsTable).set({
+      status: "running", attemptCount: 3, workerId: "lost-worker", leaseUntil: new Date(0),
+    }).where(eq(pluginRunsTable.dispatchId, ctx.scanCorrelationId));
+    expect(await dispatchPendingPluginRuns({ dispatchId: ctx.scanCorrelationId })).toBe(0);
+    const [failed] = await db.select().from(pluginRunsTable)
+      .where(eq(pluginRunsTable.dispatchId, ctx.scanCorrelationId));
+    expect(failed).toMatchObject({ status: "failed", attemptCount: 3, lastErrorCode: "PLUGIN_RUN_ATTEMPTS_EXHAUSTED" });
+  });
+
+  it("does not persist a run for an incompatible language", async () => {
+    const ctx = { ...scanContext(await activatedProject()), language: "rust" };
+    expect(await db.transaction((tx) => persistPluginDispatch(tx, ctx))).toBeNull();
+    expect(await resolveEffectivePluginIds(ctx.projectId, ctx.language)).toEqual([]);
+  });
+
   it("dispatches only when project activation and global availability both allow it", async () => {
     const projectA = await insertProject();
     const projectB = await insertProject();
@@ -121,6 +253,7 @@ describe("project-scoped plugin scan dispatch", () => {
       scanCorrelationId,
       scanCompleteness: "COMPLETE",
       ruleEvaluationComplete: true,
+      rulesEvaluated: 1,
       language: "typescript",
       filesFound: 10,
       sourceFiles: 8,

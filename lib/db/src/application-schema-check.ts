@@ -262,6 +262,31 @@ export const APPLICATION_SCHEMA_CONTRACT = {
         defaultExpression: /(?:now\(\)|current_timestamp)/,
       },
     ] satisfies readonly ColumnContract[],
+    plugin_dispatch_batches: [
+      { name: "id", dataType: "text", udtName: "text", nullable: false },
+      { name: "project_id", dataType: "text", udtName: "text", nullable: false },
+      { name: "scan_job_id", dataType: "text", udtName: "text", nullable: true },
+      { name: "context", dataType: "jsonb", udtName: "jsonb", nullable: false },
+      { name: "created_at", dataType: "timestamp without time zone", udtName: "timestamp", nullable: false, defaultExpression: /now\(\)/ },
+    ] as readonly ColumnContract[],
+    plugin_runs: [
+      ...["id", "dispatch_id", "plugin_id", "plugin_version"].map((name) => ({
+        name, dataType: "text", udtName: "text", nullable: false,
+      })),
+      { name: "status", dataType: "text", udtName: "text", nullable: false, defaultExpression: /^'pending'::text$/ },
+      { name: "attempt_count", dataType: "integer", udtName: "int4", nullable: false, defaultExpression: /^0$/ },
+      { name: "max_attempts", dataType: "integer", udtName: "int4", nullable: false, defaultExpression: /^3$/ },
+      ...["worker_id", "last_error_code"].map((name) => ({
+        name, dataType: "text", udtName: "text", nullable: true,
+      })),
+      ...["next_attempt_at", "created_at", "updated_at"].map((name) => ({
+        name, dataType: "timestamp without time zone", udtName: "timestamp", nullable: false, defaultExpression: /now\(\)/,
+      })),
+      ...["lease_until", "started_at", "finished_at"].map((name) => ({
+        name, dataType: "timestamp without time zone", udtName: "timestamp", nullable: true,
+      })),
+      { name: "result_events", dataType: "jsonb", udtName: "jsonb", nullable: true },
+    ] as readonly ColumnContract[],
     workspace_runtime: [
       { name: "environment_revision", dataType: "text", udtName: "text", nullable: true },
     ] as readonly ColumnContract[],
@@ -983,6 +1008,10 @@ export const APPLICATION_SCHEMA_CONTRACT = {
       tableName: "project_plugin_bindings",
       columns: ["project_id", "plugin_id"],
     },
+    { name: "idx_plugin_dispatch_batches_project_created", tableName: "plugin_dispatch_batches", columns: ["project_id", "created_at"] },
+    { name: "uq_plugin_runs_dispatch_plugin", tableName: "plugin_runs", columns: ["dispatch_id", "plugin_id"], unique: true },
+    { name: "idx_plugin_runs_pending", tableName: "plugin_runs", columns: ["status", "next_attempt_at"] },
+    { name: "idx_plugin_runs_expired_lease", tableName: "plugin_runs", columns: ["status", "lease_until"] },
     {
       name: "uq_project_bootstrap_jobs_owner_idempotency",
       unique: true,
@@ -1372,6 +1401,10 @@ export const APPLICATION_SCHEMA_CONTRACT = {
       foreignColumnName: "id",
       deleteRule: "CASCADE",
     },
+    { tableName: "plugin_dispatch_batches", columnName: "project_id", foreignTableName: "projects", foreignColumnName: "id", deleteRule: "CASCADE" },
+    { tableName: "plugin_dispatch_batches", columnName: "scan_job_id", foreignTableName: "scan_jobs", foreignColumnName: "id", deleteRule: "SET NULL" },
+    { tableName: "plugin_runs", columnName: "dispatch_id", foreignTableName: "plugin_dispatch_batches", foreignColumnName: "id", deleteRule: "CASCADE" },
+    { tableName: "plugin_runs", columnName: "plugin_id", foreignTableName: "plugins", foreignColumnName: "id", deleteRule: "RESTRICT" },
     {
       tableName: "project_plugin_bindings",
       columnName: "project_id",

@@ -108,11 +108,12 @@ const DEFAULT_PLUGINS = [
 ];
 
 let seeded = false;
-async function ensureSeeded(): Promise<void> {
-  if (seeded) return;
+export async function reconcileBuiltinPluginRegistry(
+  executor: Pick<typeof db, "insert"> = db,
+): Promise<void> {
   const now = new Date();
   for (const plugin of DEFAULT_PLUGINS) {
-    await db
+    await executor
       .insert(pluginsTable)
       .values({ ...plugin, createdAt: now, updatedAt: now })
       .onConflictDoUpdate({
@@ -127,6 +128,11 @@ async function ensureSeeded(): Promise<void> {
         },
       });
   }
+}
+
+async function ensureSeeded(): Promise<void> {
+  if (seeded) return;
+  await reconcileBuiltinPluginRegistry();
   seeded = true;
 }
 

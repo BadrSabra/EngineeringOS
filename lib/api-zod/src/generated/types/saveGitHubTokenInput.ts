@@ -9,7 +9,9 @@
 export interface SaveGitHubTokenInput {
   /**
      * GitHub Personal Access Token. Must not be logged or returned.
-     * @minLength 1
+     * @minLength 20
+     * @maxLength 512
+     * @pattern ^[A-Za-z0-9_]+$
      */
   token: string;
 }

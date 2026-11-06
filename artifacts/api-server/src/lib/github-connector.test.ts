@@ -1,7 +1,7 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { chmod, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import {
@@ -16,6 +16,27 @@ async function git(rootPath: string, args: string[]) {
 }
 
 describe("GitHub connector push", () => {
+  it("cancels a stalled local Git child before any remote mutation", async () => {
+    const rootPath = await mkdtemp(path.join(tmpdir(), "engineeringos-github-cancel-"));
+    const previousPath = process.env.PATH;
+    const request = vi.fn();
+    try {
+      const gitExecutable = path.join(rootPath, "git");
+      await writeFile(gitExecutable, "#!/bin/sh\nexec sleep 60\n");
+      await chmod(gitExecutable, 0o755);
+      process.env.PATH = `${rootPath}${path.delimiter}${previousPath ?? ""}`;
+      await expect(pushLocalCommitToGitHub({
+        rootPath, remote: { owner: "fixture", repo: "repo" }, branch: "main",
+        commitHash: "fixture", message: "fixture", request,
+        signal: AbortSignal.timeout(50),
+      })).rejects.toMatchObject({ name: "AbortError" });
+      expect(request).not.toHaveBeenCalled();
+    } finally {
+      process.env.PATH = previousPath;
+      await rm(rootPath, { recursive: true, force: true });
+    }
+  });
+
   it("parses only HTTPS github.com remotes", () => {
     expect(parseGitHubRemote("https://github.com/acme/flight-deck.git")).toEqual({
       owner: "acme",
