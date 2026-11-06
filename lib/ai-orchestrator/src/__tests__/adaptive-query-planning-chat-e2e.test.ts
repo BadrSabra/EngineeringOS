@@ -1796,8 +1796,8 @@ describe("chat() adaptive fallback planning and bounded evidence", () => {
             return JSON.parse(message) as {
               code?: string;
               taskCount?: number;
+              taskIndex?: number;
               reason?: string;
-              intent?: string;
             };
           } catch {
             return undefined;
@@ -1806,8 +1806,9 @@ describe("chat() adaptive fallback planning and bounded evidence", () => {
         .filter((event): event is NonNullable<typeof event> => Boolean(event));
       const skipped = events.filter((event) => event.code === "SUBTASK_SKIPPED");
       expect(skipped).toHaveLength(1);
+      expect(skipped[0]?.taskIndex).toEqual(expect.any(Number));
       expect(skipped[0]?.reason).toBe("dependency_not_satisfied");
-      expect(skipped[0]?.intent).toContain("counterevidence");
+      expect(skipped[0]).not.toHaveProperty("intent");
       expect(events.some((event) => event.code === "SCHEDULING_WAVE_STARTED" && event.taskCount === 2)).toBe(true);
 
       const graphReads = result.evidenceGraph?.reads.map((read) => read.path) ?? [];
