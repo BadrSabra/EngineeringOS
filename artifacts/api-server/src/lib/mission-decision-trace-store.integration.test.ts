@@ -93,6 +93,7 @@ import {
 } from "./mission-strategy-plan-outcome-store.js";
 import {
   getPendingMissionDecisionShadowQueueStats,
+  persistMissionDecisionShadowComparison,
   reconcilePendingMissionDecisionShadows,
 } from "./mission-strategy-shadow-store.js";
 
@@ -3466,6 +3467,84 @@ describe("Mission strategy shadow reconciliation", () => {
     expect((await restartedAgain.getPendingMissionDecisionShadowQueueStats(fixture.projectId)).pendingCount).toBe(0);
     expect(await restartedAgain.reconcilePendingMissionDecisionShadows(8, fixture.projectId)).toBe(0);
     expect(await sidecarRows()).toEqual(rebuilt);
+    expect(await readAuthoritativeState()).toEqual(authoritativeStateBefore);
+    expect(missionRunner).not.toHaveBeenCalled();
+  });
+
+  it("keeps one sidecar when the worker loses the success acknowledgement after the commit", async () => {
+    const fixture = await createFixture();
+    const planRevision = `shadow-lost-ack-${randomUUID()}`;
+    const selectedTrace = makeSelectedTrace({
+      trace: fixture.trace,
+      worldStateRevision: fixture.worldStateRevision,
+      worldFactId: fixture.worldFactId,
+      worldFactHash: fixture.worldFactHash,
+      newPlanRevision: planRevision,
+    });
+    await persistMissionDecisionTrace(selectedTrace);
+    await db.update(aiGoalsTable).set({
+      successCriteria: { planRevision: { hash: planRevision } },
+      outcomeContract: { planRevision: { hash: planRevision } },
+    }).where(eq(aiGoalsTable.id, fixture.goalId));
+    await db.update(aiMissionsTable).set({
+      autonomyPolicy: { activePlanRevision: planRevision },
+    }).where(eq(aiMissionsTable.id, fixture.missionId));
+    await appendMissionDecisionLifecycleEvent({
+      decisionId: selectedTrace.decisionId,
+      stage: "PLAN_APPLIED",
+      referenceId: planRevision,
+      occurredAt: new Date(now.getTime() + 1_000),
+    });
+    const readAuthoritativeState = async () => ({
+      mission: await db.select().from(aiMissionsTable).where(eq(aiMissionsTable.id, fixture.missionId)),
+      goals: await db.select().from(aiGoalsTable).where(eq(aiGoalsTable.missionId, fixture.missionId)),
+      executions: await db.select().from(aiExecutionsTable).where(eq(aiExecutionsTable.goalId, fixture.goalId)),
+      acceptances: await db.select().from(aiExecutionAcceptancesTable)
+        .where(eq(aiExecutionAcceptancesTable.executionId, fixture.executionId)),
+      tasks: await db.select().from(tasksTable).where(eq(tasksTable.goalId, fixture.goalId)),
+      events: await db.select().from(aiMissionDecisionEventsTable)
+        .where(eq(aiMissionDecisionEventsTable.decisionId, selectedTrace.decisionId)),
+    });
+    const sidecarRows = () => db.select().from(aiMissionDecisionShadowComparisonsTable)
+      .where(eq(aiMissionDecisionShadowComparisonsTable.decisionId, selectedTrace.decisionId));
+    const authoritativeStateBefore = await readAuthoritativeState();
+    expect((await getPendingMissionDecisionShadowQueueStats(fixture.projectId)).pendingCount).toBe(1);
+
+    // The sidecar insert and transaction commit both succeed, but the caller
+    // sees a failure instead of the success acknowledgement.
+    const originalTransaction = db.transaction.bind(db);
+    let committedBeforeLoss = 0;
+    const lostAcknowledgement = vi.spyOn(db, "transaction").mockImplementationOnce((async (
+      ...args: Parameters<typeof originalTransaction>
+    ) => {
+      await originalTransaction(...args);
+      committedBeforeLoss += 1;
+      throw new Error("connection lost after the sidecar commit");
+    }) as unknown as typeof db.transaction);
+    try {
+      expect(await reconcilePendingMissionDecisionShadows(8, fixture.projectId)).toBe(0);
+    } finally {
+      lostAcknowledgement.mockRestore();
+    }
+    expect(committedBeforeLoss).toBe(1);
+    const committed = await sidecarRows();
+    expect(committed).toHaveLength(1);
+    expect(committed[0]).toMatchObject({
+      projectId: fixture.projectId,
+      missionId: fixture.missionId,
+      goalId: fixture.goalId,
+      appliedPlanRevision: planRevision,
+      contextHash: selectedTrace.contextHash,
+    });
+    expect(await readAuthoritativeState()).toEqual(authoritativeStateBefore);
+
+    // The worker retries the same decision directly and through reconciliation.
+    expect(await persistMissionDecisionShadowComparison(selectedTrace.decisionId)).toBe("already_recorded");
+    expect((await getPendingMissionDecisionShadowQueueStats(fixture.projectId)).pendingCount).toBe(0);
+    expect(await reconcilePendingMissionDecisionShadows(8, fixture.projectId)).toBe(0);
+    expect(await reconcilePendingMissionDecisionShadows(8, fixture.projectId)).toBe(0);
+
+    expect(await sidecarRows()).toEqual(committed);
     expect(await readAuthoritativeState()).toEqual(authoritativeStateBefore);
     expect(missionRunner).not.toHaveBeenCalled();
   });
