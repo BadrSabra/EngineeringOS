@@ -3,7 +3,7 @@
  *
  * Covers:
  *  - validateRootPath: EOS_GIT_TEMP_PREFIX rejection, depth rule,
- *    system-prefix block, Replit workspace constraint, and happy paths
+ *    system-prefix block, approved workspace boundary, and happy paths
  *  - verifyProjectRoot: real temp-dir with a project marker (valid clone),
  *    and empty temp-dir (no project root)
  */
@@ -82,25 +82,24 @@ describe("validateRootPath — Rule 2: system prefix block list", () => {
   });
 });
 
-describe("validateRootPath — Rule 3: Replit workspace constraint", () => {
-  const originalEnv = process.env.REPLIT_DEV_DOMAIN;
-
-  beforeEach(() => {
-    process.env.REPLIT_DEV_DOMAIN = "test.replit.dev";
-  });
-
-  afterEach(() => {
-    if (originalEnv === undefined) {
-      delete process.env.REPLIT_DEV_DOMAIN;
-    } else {
-      process.env.REPLIT_DEV_DOMAIN = originalEnv;
-    }
-  });
-
-  it("rejects a path outside /home/runner/workspace in Replit env", async () => {
+describe("validateRootPath — Rule 3: approved workspace boundary", () => {
+  it("rejects a blocked system path outside the approved workspace", async () => {
     const result = await validateRootPath("/var/app/project");
     expect(result).not.toBeNull();
     expect(result).toMatch(/system directory/i);
+  });
+
+  it("rejects a non-system mount outside the workspace regardless of host marker", async () => {
+    const originalEnv = process.env.REPLIT_DEV_DOMAIN;
+    try {
+      delete process.env.REPLIT_DEV_DOMAIN;
+      expect(await validateRootPath("/mnt/shared/project")).toMatch(/outside the approved workspace/i);
+      process.env.REPLIT_DEV_DOMAIN = "test.replit.dev";
+      expect(await validateRootPath("/mnt/shared/project")).toMatch(/outside the approved workspace/i);
+    } finally {
+      if (originalEnv === undefined) delete process.env.REPLIT_DEV_DOMAIN;
+      else process.env.REPLIT_DEV_DOMAIN = originalEnv;
+    }
   });
 
   it("allows /home/runner/workspace/my-project in Replit env", async () => {
@@ -173,7 +172,7 @@ describe("validateRootPath — Rule 4: symlink resolution", () => {
     expect(result).not.toBeNull();
   });
 
-  it("rejects a symlink pointing into the blocked temporary filesystem", async () => {
+  it("rejects a symlink resolving under a blocked system path", async () => {
     // Create a real target dir with 3 path segments.
     const realTarget = join(workDir, "real-project");
     await mkdir(realTarget, { recursive: true });

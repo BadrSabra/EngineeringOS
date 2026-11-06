@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
+import { randomUUID } from "node:crypto";
 import {
   ARCHIVE_LIMITS,
   ArchiveSafetyError,
@@ -36,6 +37,24 @@ async function tarFrom(entries: Array<{ name: string; content?: string }>): Prom
   }
   const tarPath = join(source, "archive.tar.gz");
   await execFileAsync("tar", ["-czf", tarPath, "-C", source, ...entries.map((entry) => entry.name)]);
+  return tarPath;
+}
+
+async function tarWithTransformedMember(memberName: string): Promise<string> {
+  const source = await mkdtemp(join(tmpdir(), "eos-tar-path-test-"));
+  roots.push(source);
+  await writeFile(join(source, "member.ts"), "archive content");
+  const tarPath = join(source, "archive.tar.gz");
+  await execFileAsync("tar", [
+    "-czf",
+    tarPath,
+    "--absolute-names",
+    "--transform",
+    `s|^member.ts$|${memberName}|`,
+    "-C",
+    source,
+    "member.ts",
+  ]);
   return tarPath;
 }
 
@@ -80,6 +99,58 @@ describe("archive extraction safety policy", () => {
     await execFileAsync("tar", ["-czf", tarPath, "-C", source, "escape"]);
     const root = await extractionRoot();
     await expect(extractTarGzSafely(tarPath, root)).rejects.toThrow(/link|special/i);
+  });
+
+  it.each(["relative", "absolute"])(
+    "rejects a %s TAR traversal member before extraction",
+    async (kind) => {
+      const root = await extractionRoot();
+      const fileName = `eos-archive-escape-${randomUUID()}.ts`;
+      const memberName = kind === "relative" ? `../${fileName}` : join(tmpdir(), fileName);
+      const outsidePath = kind === "relative"
+        ? join(root, "..", fileName)
+        : join(tmpdir(), fileName);
+      const tarPath = await tarWithTransformedMember(memberName);
+
+      await expect(extractTarGzSafely(tarPath, root)).rejects.toThrow(/unsafe path/i);
+      await expect(readFile(outsidePath)).rejects.toThrow();
+    },
+  );
+
+  it("enforces TAR entry-count, per-entry, and total expanded-size limits", async () => {
+    const root = await extractionRoot();
+    const twoFiles = await tarFrom([
+      { name: "first.ts", content: "123" },
+      { name: "second.ts", content: "456" },
+    ]);
+    const smallLimits = {
+      maxEntries: 1,
+      maxEntryBytes: 3,
+      maxExpandedBytes: 5,
+    };
+
+    await expect(extractTarGzSafely(twoFiles, root, smallLimits)).rejects.toThrow(/too many entries/i);
+    await expect(readFile(join(root, "first.ts"))).rejects.toThrow();
+
+    const entryRoot = await extractionRoot();
+    const oneLargeFile = await tarFrom([{ name: "large.ts", content: "1234" }]);
+    await expect(
+      extractTarGzSafely(oneLargeFile, entryRoot, {
+        maxEntries: 2,
+        maxEntryBytes: 3,
+        maxExpandedBytes: 10,
+      }),
+    ).rejects.toThrow(/too large/i);
+
+    const totalRoot = await extractionRoot();
+    await expect(
+      extractTarGzSafely(twoFiles, totalRoot, {
+        maxEntries: 2,
+        maxEntryBytes: 3,
+        maxExpandedBytes: 5,
+      }),
+    ).rejects.toThrow(/expanded|permitted/i);
+    await expect(readFile(join(totalRoot, "first.ts"))).rejects.toThrow();
   });
 
   it("rejects an entry larger than the per-entry limit", async () => {

@@ -2,7 +2,7 @@ import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { mkdir, writeFile, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { walkProject } from "../file-walker.js";
+import { MAX_FILES, walkProject } from "../file-walker.js";
 
 const TEST_DIR = join(tmpdir(), `scanner-test-${process.pid}`);
 
@@ -166,6 +166,36 @@ describe("walkProject", () => {
       await rm(largeDir, { recursive: true, force: true });
     }
   });
+
+  it("never admits more source files than the hard scan limit", async () => {
+    const limitRoot = join(TEST_DIR, "hard-file-limit");
+    await mkdir(limitRoot, { recursive: true });
+    const total = MAX_FILES + 1;
+    const batchSize = 128;
+    for (let start = 0; start < total; start += batchSize) {
+      const batch = Array.from(
+        { length: Math.min(batchSize, total - start) },
+        (_, offset) => {
+          const index = start + offset;
+          return writeFile(
+            join(limitRoot, `source-${String(index).padStart(5, "0")}.ts`),
+            "",
+          );
+        },
+      );
+      await Promise.all(batch);
+    }
+
+    try {
+      const result = await walkProject(limitRoot);
+      expect(result.files).toHaveLength(MAX_FILES);
+      expect(result.truncated).toBe(true);
+      expect(result.truncationReason).toBe(`file_limit:${MAX_FILES}`);
+      expect(result.revisionManifest.completeness).toBe("PARTIAL");
+    } finally {
+      await rm(limitRoot, { recursive: true, force: true });
+    }
+  }, 30_000);
 
   it("ignores unsupported extensions", async () => {
     await writeFile(join(TEST_DIR, "image.png"), Buffer.from([0x89, 0x50, 0x4e, 0x47]));

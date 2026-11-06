@@ -3,11 +3,11 @@ name: Project root boundary
 description: Durable policy for how filesystem paths may become project roots
 ---
 
-Rule: a filesystem path may become a persisted project root only after canonical establishment (exists, readable directory, realpath, safety policy). A managed temp-dir path prefix is never provenance by itself — trust it only when the session's source type proves the server created it (Git adapter).
+Rule: a persisted project root must be canonically inside `/home/runner/workspace`, except for a managed Git temp root explicitly allowed by the server-owned Git discovery import. A temp-dir prefix alone is never provenance.
 
-**Why:** the forensic audit showed client-supplied root strings and prefix trust let unrelated or system directories become scan roots; a completion review later caught that LOCAL_FOLDER sessions could forge the managed prefix.
+**Why:** accepting any non-system path left server-readable files outside the project workspace in scope; the forensic audit also showed client-supplied roots and prefix trust could bypass project boundaries.
 
-**How to apply:** any new flow that persists or rebinds a project root must go through the shared establishment service and must gate temp-prefix allowances on real source provenance, not string matching. Apply the blocked-system-root policy independently of host environment markers, and re-check root/cwd identity immediately before spawning commands.
+**How to apply:** every project registration, local-folder discovery, and scan must use the shared establishment/policy boundary. Compare canonical paths by path segments, not string prefix. Keep the managed Git-temp exception restricted to verified Git provenance and apply the same policy regardless of host environment variables.
 
 Root-establishment integration tests must use a fixture under an allowed project/workspace root; a real directory created directly under `/tmp` is still rejected as a project root.
 

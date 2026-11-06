@@ -241,8 +241,8 @@ router.post("/projects/discover", async (req, res) => {
       });
     }
   } else {
-    // Validate non-materialized roots before enqueueing a job — reject
-    // dangerous system paths and symlink escapes before a walk can start.
+    // Validate non-materialized roots before enqueueing a job — enforce the
+    // approved workspace boundary and reject system paths or symlink escapes.
     // LOCAL_FOLDER intentionally keeps its existing marker-optional behavior.
     const pathError = await validateRootPath(scanRootPath);
     if (pathError) {

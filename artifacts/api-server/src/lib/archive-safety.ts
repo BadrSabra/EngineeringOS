@@ -12,6 +12,11 @@ export const ARCHIVE_LIMITS = {
   maxEntryBytes: 64 * 1024 * 1024,
   maxExpandedBytes: 256 * 1024 * 1024,
 } as const;
+type ArchiveLimitSet = {
+  maxEntries: number;
+  maxEntryBytes: number;
+  maxExpandedBytes: number;
+};
 
 export class ArchiveSafetyError extends Error {
   constructor(message: string) {
@@ -38,13 +43,18 @@ export function validateArchiveEntryPath(entryName: string, root: string): strin
   return destination;
 }
 
-function checkLimits(entryCount: number, expandedBytes: number, entryBytes: number): number {
-  if (entryCount > ARCHIVE_LIMITS.maxEntries) throw new ArchiveSafetyError("archive contains too many entries");
-  if (!Number.isSafeInteger(entryBytes) || entryBytes < 0 || entryBytes > ARCHIVE_LIMITS.maxEntryBytes) {
+function checkLimits(
+  entryCount: number,
+  expandedBytes: number,
+  entryBytes: number,
+  limits: ArchiveLimitSet = ARCHIVE_LIMITS,
+): number {
+  if (entryCount > limits.maxEntries) throw new ArchiveSafetyError("archive contains too many entries");
+  if (!Number.isSafeInteger(entryBytes) || entryBytes < 0 || entryBytes > limits.maxEntryBytes) {
     throw new ArchiveSafetyError("archive entry is too large");
   }
   const total = expandedBytes + entryBytes;
-  if (!Number.isSafeInteger(total) || total > ARCHIVE_LIMITS.maxExpandedBytes) {
+  if (!Number.isSafeInteger(total) || total > limits.maxExpandedBytes) {
     throw new ArchiveSafetyError("archive expands beyond the permitted size");
   }
   return total;
@@ -59,7 +69,11 @@ function isZipLink(entry: AdmZip.IZipEntry): boolean {
   return (type !== 0 && type !== 0o100000 && type !== 0o040000) || (entry.attr & 0x400) !== 0;
 }
 
-export async function extractZipSafely(zip: AdmZip, root: string): Promise<void> {
+export async function extractZipSafely(
+  zip: AdmZip,
+  root: string,
+  limits: ArchiveLimitSet = ARCHIVE_LIMITS,
+): Promise<void> {
   const entries = zip.getEntries();
   let expanded = 0;
   let count = 0;
@@ -72,7 +86,7 @@ export async function extractZipSafely(zip: AdmZip, root: string): Promise<void>
     if (isZipLink(entry)) throw new ArchiveSafetyError("archive contains a link entry");
     const directory = entry.isDirectory || entry.entryName.endsWith("/") || entry.entryName.endsWith("\\");
     const size = directory ? 0 : entry.header.size;
-    expanded = checkLimits(count, expanded, size);
+    expanded = checkLimits(count, expanded, size, limits);
   }
 
   count = 0;
@@ -82,7 +96,7 @@ export async function extractZipSafely(zip: AdmZip, root: string): Promise<void>
     const destination = validateArchiveEntryPath(entry.rawEntryName.toString("utf8"), root);
     const directory = entry.isDirectory || entry.entryName.endsWith("/") || entry.entryName.endsWith("\\");
     const size = directory ? 0 : entry.header.size;
-    expanded = checkLimits(count, expanded, size);
+    expanded = checkLimits(count, expanded, size, limits);
     if (directory) {
       await mkdir(destination, { recursive: true });
       continue;
@@ -91,7 +105,7 @@ export async function extractZipSafely(zip: AdmZip, root: string): Promise<void>
     // Check the actual decoded size too; this also protects against dishonest
     // metadata and ensures the accounting matches what reaches the filesystem.
     if (data.length !== size) expanded -= size;
-    expanded = checkLimits(count, expanded, data.length);
+    expanded = checkLimits(count, expanded, data.length, limits);
     await mkdir(resolve(destination, ".."), { recursive: true });
     await writeFile(destination, data, { flag: "wx" });
   }
@@ -108,7 +122,11 @@ function parseTarListing(listing: string): TarEntry[] {
   });
 }
 
-export async function extractTarGzSafely(tarPath: string, root: string): Promise<void> {
+export async function extractTarGzSafely(
+  tarPath: string,
+  root: string,
+  limits: ArchiveLimitSet = ARCHIVE_LIMITS,
+): Promise<void> {
   const { stdout } = await execFileAsync(
     "tar",
     ["-tvzf", tarPath, "--full-time", "--numeric-owner"],
@@ -123,7 +141,7 @@ export async function extractTarGzSafely(tarPath: string, root: string): Promise
     if (entry.type !== "-" && entry.type !== "d") {
       throw new ArchiveSafetyError("archive contains a link or special entry");
     }
-    expanded = checkLimits(count, expanded, entry.type === "d" ? 0 : entry.size);
+    expanded = checkLimits(count, expanded, entry.type === "d" ? 0 : entry.size, limits);
   }
   await execFileAsync(
     "tar",

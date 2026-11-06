@@ -1,6 +1,14 @@
-import { open, readdir, stat } from "node:fs/promises";
+import { stat } from "node:fs/promises";
+import type { FileHandle } from "node:fs/promises";
+import type { Dir } from "node:fs";
 import { createHash } from "node:crypto";
-import { join, extname, relative } from "node:path";
+import { join, extname } from "node:path";
+import {
+  openProjectChildDirectory,
+  openProjectChildFile,
+  openProjectRoot,
+  openProjectDirectoryCursor,
+} from "./safe-path-open.js";
 
 /** Maximum bytes to read per file for content analysis (512 KB). */
 const MAX_CONTENT_BYTES = 512 * 1024;
@@ -17,7 +25,9 @@ const MAX_TOTAL_CONTENT_BYTES = 64 * 1024 * 1024;
  * PR-04: changed from throw to soft-truncate so large repos produce a usable
  * (if incomplete) scan result instead of a failed job.
  */
-const MAX_FILES = 5_000;
+export const MAX_FILES = 5_000;
+/** Bound simultaneous file descriptors and content reads. */
+export const MAX_CONCURRENT_FILE_READS = 16;
 
 /** Maximum directory depth to recurse into. */
 const MAX_DEPTH = 12;
@@ -134,11 +144,12 @@ export interface WalkResult {
 interface WalkState {
   aborted: boolean;
   contentBytes: number;
+  filesReserved: number;
   truncationReason?: string;
 }
 
 async function readBoundedContent(
-  fileHandle: Awaited<ReturnType<typeof open>>,
+  fileHandle: FileHandle,
   expectedSize: number,
   signal?: AbortSignal,
 ): Promise<{ content: string; size: number; oversized: boolean }> {
@@ -177,8 +188,63 @@ async function readBoundedContent(
   };
 }
 
+async function scanFileEntry(
+  parent: FileHandle,
+  name: string,
+  rootPath: string,
+  relativeDirectory: string,
+  language: string,
+  files: ScannedFile[],
+  state: WalkState,
+  signal?: AbortSignal,
+): Promise<void> {
+  let fileHandle: FileHandle | undefined;
+  try {
+    signal?.throwIfAborted();
+    fileHandle = await openProjectChildFile(parent, name, rootPath);
+    const fileStat = await fileHandle.stat();
+    signal?.throwIfAborted();
+
+    let size = fileStat.size;
+    let content = "";
+    let oversized = false;
+
+    if (size <= MAX_CONTENT_BYTES) {
+      if (state.contentBytes + size > MAX_TOTAL_CONTENT_BYTES) {
+        state.aborted = true;
+        state.truncationReason ??= `content_limit:${MAX_TOTAL_CONTENT_BYTES}`;
+        return;
+      }
+      state.contentBytes += size;
+      try {
+        const bounded = await readBoundedContent(fileHandle, size, signal);
+        content = bounded.content;
+        size = bounded.size;
+        oversized = bounded.oversized;
+        if (oversized) state.contentBytes -= fileStat.size;
+      } catch (error) {
+        state.contentBytes -= fileStat.size;
+        if (signal?.aborted) throw error;
+        content = "";
+      }
+    } else {
+      oversized = true;
+    }
+
+    const relPath = relativeDirectory ? join(relativeDirectory, name) : name;
+    const absPath = join(rootPath, relPath);
+    const lines = content ? content.split("\n").length : 0;
+    files.push({ path: relPath, absPath, language, size, lines, content, oversized });
+  } catch (error) {
+    if (signal?.aborted) throw error;
+  } finally {
+    await fileHandle?.close().catch(() => undefined);
+  }
+}
+
 async function walkDir(
-  dir: string,
+  directory: FileHandle,
+  relativeDirectory: string,
   rootPath: string,
   files: ScannedFile[],
   state: WalkState,
@@ -186,34 +252,20 @@ async function walkDir(
   signal?: AbortSignal,
 ): Promise<void> {
   signal?.throwIfAborted();
-  // PR-04: depth cap — record truncation but don't abort the whole walk (other
-  // branches at this level may still be within the depth limit).
   if (depth > MAX_DEPTH) {
-    if (!state.truncationReason) {
-      state.truncationReason = `depth_limit:${MAX_DEPTH}`;
-      state.aborted = true;
-    }
-    return;
-  }
-
-  // PR-04: file-count cap — soft abort: stop collecting, mark truncated.
-  if (state.aborted || files.length >= MAX_FILES) {
+    state.truncationReason ??= `depth_limit:${MAX_DEPTH}`;
     state.aborted = true;
-    if (!state.truncationReason) {
-      state.truncationReason = `file_limit:${MAX_FILES}`;
-    }
     return;
   }
+  if (state.aborted) return;
 
-  let entries;
+  let entries: Dir;
   try {
-    entries = await readdir(dir, { withFileTypes: true });
+    // Directory traversal is deliberately sequential and streamed. This
+    // bounds active directory reads and avoids materializing huge entry lists.
+    entries = await openProjectDirectoryCursor(directory, rootPath);
   } catch (error) {
     if (signal?.aborted) throw error;
-    // A failure at the canonical root is not a partial branch: it means the
-    // project disappeared or became inaccessible after the initial stat.
-    // Preserve that signal so scan-runner can fail closed instead of
-    // publishing an empty successful inventory.
     if (depth === 0) {
       throw new Error(`Project root became inaccessible during walk: ${rootPath}`, {
         cause: error,
@@ -222,75 +274,82 @@ async function walkDir(
     return;
   }
 
-  await Promise.all(
-    entries.map(async (entry) => {
+  const pendingFiles: Array<Promise<void>> = [];
+  const flushPendingFiles = async () => {
+    if (pendingFiles.length === 0) return;
+    await Promise.all(pendingFiles.splice(0, pendingFiles.length));
+  };
+
+  try {
+    while (true) {
       signal?.throwIfAborted();
-      if (state.aborted) return; // respect abort in concurrent branches
+      if (state.aborted) break;
+      const entry = await entries.read();
+      if (!entry) break;
 
       if (entry.isDirectory()) {
-        // Skip dot-directories but allow .github (CI/CD workflows live there).
-        if (IGNORE_DIRS.has(entry.name) || (entry.name.startsWith(".") && entry.name !== ".github")) return;
-        await walkDir(join(dir, entry.name), rootPath, files, state, depth + 1, signal);
-      } else if (entry.isFile()) {
-        if (state.aborted || files.length >= MAX_FILES) {
-          state.aborted = true;
-          if (!state.truncationReason) state.truncationReason = `file_limit:${MAX_FILES}`;
-          return;
+        if (IGNORE_DIRS.has(entry.name) || (entry.name.startsWith(".") && entry.name !== ".github")) {
+          continue;
         }
-
-        const ext = extname(entry.name).toLowerCase();
-        // Go module metadata is required by graph extraction to resolve
-        // internal import paths, but it has no extension in the language map.
-        const language = entry.name === "go.mod" ? "go-module" : LANGUAGE_MAP[ext];
-        if (!language) return;
-
-        const absPath = join(dir, entry.name);
-        const relPath = relative(rootPath, absPath);
-
-        let fileHandle: Awaited<ReturnType<typeof open>> | undefined;
+        await flushPendingFiles();
+        if (state.aborted) break;
+        let child: FileHandle | undefined;
         try {
-          fileHandle = await open(absPath, "r");
-          const fileStat = await fileHandle.stat();
-          signal?.throwIfAborted();
-          if (!fileStat.isFile()) return;
-
-          let size = fileStat.size;
-          let content = "";
-          let oversized = false;
-
-          if (size <= MAX_CONTENT_BYTES) {
-            if (state.contentBytes + size > MAX_TOTAL_CONTENT_BYTES) {
-              state.aborted = true;
-              state.truncationReason ??= `content_limit:${MAX_TOTAL_CONTENT_BYTES}`;
-              return;
-            }
-            state.contentBytes += size;
-            try {
-              const bounded = await readBoundedContent(fileHandle, size, signal);
-              content = bounded.content;
-              size = bounded.size;
-              oversized = bounded.oversized;
-              if (oversized) state.contentBytes -= fileStat.size;
-            } catch (error) {
-              state.contentBytes -= fileStat.size;
-              if (signal?.aborted) throw error;
-              content = "";
-            }
-          } else {
-            oversized = true;
-          }
-
-          const lines = content ? content.split("\n").length : 0;
-
-          files.push({ path: relPath, absPath, language, size, lines, content, oversized });
+          child = await openProjectChildDirectory(directory, entry.name, rootPath);
+          const childPath = relativeDirectory ? join(relativeDirectory, entry.name) : entry.name;
+          await walkDir(child, childPath, rootPath, files, state, depth + 1, signal);
         } catch (error) {
           if (signal?.aborted) throw error;
         } finally {
-          await fileHandle?.close().catch(() => undefined);
+          await child?.close().catch(() => undefined);
         }
+        continue;
       }
-    }),
-  );
+
+      if (!entry.isFile()) continue;
+      const ext = extname(entry.name).toLowerCase();
+      // Go module metadata is required by graph extraction to resolve internal
+      // import paths, but it has no extension in the language map.
+      const language = entry.name === "go.mod" ? "go-module" : LANGUAGE_MAP[ext];
+      if (!language) continue;
+
+      if (state.filesReserved >= MAX_FILES) {
+        state.aborted = true;
+        state.truncationReason ??= `file_limit:${MAX_FILES}`;
+        break;
+      }
+      state.filesReserved += 1;
+      pendingFiles.push(
+        scanFileEntry(
+          directory,
+          entry.name,
+          rootPath,
+          relativeDirectory,
+          language,
+          files,
+          state,
+          signal,
+        ),
+      );
+
+      // Flush bounded batches before continuing. Directory descent first flushes
+      // the batch, so the file-read concurrency cap is global across the walk.
+      if (pendingFiles.length >= MAX_CONCURRENT_FILE_READS) {
+        await flushPendingFiles();
+      }
+    }
+    await flushPendingFiles();
+  } catch (error) {
+    await flushPendingFiles();
+    if (signal?.aborted) throw error;
+    if (depth === 0) {
+      throw new Error(`Project root became inaccessible during walk: ${rootPath}`, {
+        cause: error,
+      });
+    }
+  } finally {
+    await entries.close().catch(() => undefined);
+  }
 }
 
 /**
@@ -306,10 +365,11 @@ async function walkDir(
  */
 export async function walkProject(rootPath: string, signal?: AbortSignal): Promise<WalkResult> {
   signal?.throwIfAborted();
+  let initialRootStat;
   try {
-    const s = await stat(rootPath);
+    initialRootStat = await stat(rootPath);
     signal?.throwIfAborted();
-    if (!s.isDirectory()) {
+    if (!initialRootStat.isDirectory()) {
       throw new Error(`Path exists but is not a directory: ${rootPath}`);
     }
   } catch (statErr) {
@@ -320,10 +380,40 @@ export async function walkProject(rootPath: string, signal?: AbortSignal): Promi
     throw new Error(`Project root does not exist or is inaccessible: ${rootPath}`);
   }
 
-  const files: ScannedFile[] = [];
-  const state: WalkState = { aborted: false, contentBytes: 0 };
+  let openedRoot;
+  try {
+    openedRoot = await openProjectRoot(rootPath);
+  } catch (error) {
+    if (signal?.aborted) throw error;
+    throw new Error(`Project root is unsafe or inaccessible: ${rootPath}`, {
+      cause: error,
+    });
+  }
+  const { handle: rootHandle, canonicalPath: canonicalRootPath } = openedRoot;
+  try {
+    const openedRootStat = await rootHandle.stat();
+    if (
+      openedRootStat.dev !== initialRootStat.dev ||
+      openedRootStat.ino !== initialRootStat.ino
+    ) {
+      throw new Error("Project root changed while opening the scan.");
+    }
+  } catch (error) {
+    await rootHandle.close().catch(() => undefined);
+    if (signal?.aborted) throw error;
+    throw new Error(`Project root is unsafe or inaccessible: ${rootPath}`, {
+      cause: error,
+    });
+  }
 
-  await walkDir(rootPath, rootPath, files, state, 0, signal);
+  const files: ScannedFile[] = [];
+  const state: WalkState = { aborted: false, contentBytes: 0, filesReserved: 0 };
+
+  try {
+    await walkDir(rootHandle, "", canonicalRootPath, files, state, 0, signal);
+  } finally {
+    await rootHandle.close().catch(() => undefined);
+  }
   signal?.throwIfAborted();
 
   // GAP-4 fix: sort by relative path for deterministic output.
@@ -365,7 +455,7 @@ export async function walkProject(rootPath: string, signal?: AbortSignal): Promi
   signal?.throwIfAborted();
   return {
     files,
-    rootPath,
+    rootPath: canonicalRootPath,
     rootExists: true,
     totalFiles: files.length,
     sourceFiles,
@@ -377,7 +467,7 @@ export async function walkProject(rootPath: string, signal?: AbortSignal): Promi
     revision,
     revisionManifest: {
       revision,
-      sourceRoot: rootPath,
+      sourceRoot: canonicalRootPath,
       files: manifestFiles,
       completeness: state.aborted ? "PARTIAL" : "COMPLETE",
     },

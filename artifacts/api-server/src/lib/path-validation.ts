@@ -1,4 +1,5 @@
 import { stat, realpath } from "node:fs/promises";
+import { isAbsolute, relative, resolve, sep } from "node:path";
 
 /**
  * System-level paths that must never be scanned — they contain the entire
@@ -50,9 +51,8 @@ export interface RootPathValidationOptions {
  * Rules:
  *  1. Must have at least 3 path segments (e.g. /home/runner/workspace).
  *  2. Must not be a known system prefix or a descendant of one.
- *  3. The same policy applies on every host. Host environment variables are
- *     not a trust boundary; callers that need a narrower project boundary
- *     must establish and retain that boundary separately.
+ *  3. Project roots must be inside the canonical approved workspace on every
+ *     host. Host environment variables are not a trust boundary.
  *  4. Symlink escape check: resolve all symlinks with realpath() and re-run
  *     Rules 1-3 on the resolved path.
  *     This prevents a symlink at /home/runner/workspace/evil-link → /etc from
@@ -66,7 +66,7 @@ export async function validateRootPath(
 ): Promise<string | null> {
   // Auto-prepend "/" so "home/runner/..." is treated the same as "/home/runner/..."
   const withSlash = rootPath.startsWith("/") ? rootPath : `/${rootPath}`;
-  const normalized = withSlash.replace(/\/+$/, "") || "/";
+  const normalized = resolve(withSlash);
 
   // Rule 4 — resolve symlinks before running string-based boundary checks.
   // This must happen before Rules 1-3 so that a symlink pointing outside the
@@ -105,8 +105,19 @@ export async function validateRootPath(
   // Rule 2 — system roots and all descendants are blocked. Exact-match-only
   // checks let paths such as /etc/app or /usr/local/bin become scan roots on
   // non-Replit hosts.
+  let canonicalWorkspaceRoot = resolve(APPROVED_WORKSPACE_ROOT);
+  try {
+    canonicalWorkspaceRoot = await realpath(canonicalWorkspaceRoot);
+  } catch {
+    // Keep the configured path for lexical checks. establishProjectRoot will
+    // still require the project path itself to exist.
+  }
+  const workspaceRelativePath = relative(canonicalWorkspaceRoot, resolved);
   const isApprovedWorkspace =
-    resolved === APPROVED_WORKSPACE_ROOT || resolved.startsWith(`${APPROVED_WORKSPACE_ROOT}/`);
+    workspaceRelativePath === "" ||
+    (workspaceRelativePath !== ".." &&
+      !workspaceRelativePath.startsWith(`..${sep}`) &&
+      !isAbsolute(workspaceRelativePath));
   const blockedPrefix = isApprovedWorkspace
     ? undefined
     : [...BLOCKED_PATH_PREFIXES].find(
@@ -116,6 +127,13 @@ export async function validateRootPath(
     return (
       `Path "${normalized}" resolves under the system directory "${blockedPrefix}" and cannot be scanned. ` +
       "Provide the full path to a specific project directory."
+    );
+  }
+
+  if (!isApprovedWorkspace) {
+    return (
+      `Path "${normalized}" resolves outside the approved workspace "${canonicalWorkspaceRoot}". ` +
+      "Choose a project directory inside the workspace."
     );
   }
 
