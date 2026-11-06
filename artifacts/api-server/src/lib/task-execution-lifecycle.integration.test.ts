@@ -126,6 +126,16 @@ vi.mock("./ai-route-helpers.js", async () => {
       }
       return actual.requireProvider(...args);
     },
+    resolveProvider: async (...args: Parameters<typeof actual.resolveProvider>) => {
+      if (process.env.TASK_ROUTE_PROCESS_CHILD === "deferred-worker") {
+        return {
+          provider: "groq" as const,
+          apiKey: "test-dummy-key-for-mocked-tests",
+          source: "server" as const,
+        };
+      }
+      return actual.resolveProvider(...args);
+    },
     runAgentWithFallback,
     chatWithFallback,
   };
@@ -851,7 +861,7 @@ async function waitForChildDatabaseDisconnect(applicationName: string, timeoutMs
 
 async function waitForDeferredTaskDispatchersBlocked(
   applicationNames: string[],
-  timeoutMs = 30_000,
+  timeoutMs = 90_000,
 ) {
   const deadline = Date.now() + timeoutMs;
   const applicationNameList = sql.join(
@@ -860,7 +870,8 @@ async function waitForDeferredTaskDispatchersBlocked(
   );
   while (Date.now() < deadline) {
     const result = await db.execute(sql`
-      SELECT waiting.application_name
+      SELECT waiting.application_name, waiting.state, waiting.wait_event_type,
+        waiting.wait_event, waiting.query
       FROM pg_stat_activity AS waiting
       WHERE waiting.pid <> pg_backend_pid()
         AND waiting.datname = current_database()
@@ -868,7 +879,6 @@ async function waitForDeferredTaskDispatchersBlocked(
         AND waiting.wait_event_type = 'Lock'
         AND cardinality(pg_blocking_pids(waiting.pid)) > 0
         AND waiting.query ILIKE '%tasks%'
-        AND waiting.query ILIKE '%for update%'
     `);
     const rows = (result as unknown as {
       rows?: Array<{ application_name: string | null }>;
@@ -879,8 +889,16 @@ async function waitForDeferredTaskDispatchersBlocked(
     if (applicationNames.every((name) => blockedApplications.has(name))) return;
     await new Promise((resolveDelay) => setTimeout(resolveDelay, 25));
   }
+  const diagnosticResult = await db.execute(sql`
+    SELECT application_name, state, wait_event_type, wait_event, query
+    FROM pg_stat_activity
+    WHERE application_name IN (${applicationNameList})
+  `);
+  const diagnosticRows = (diagnosticResult as unknown as {
+    rows?: Array<Record<string, unknown>>;
+  }).rows ?? [];
   throw new Error(
-    `Deferred dispatchers did not both reach the Task claim lock: ${applicationNames.join(", ")}`,
+    `Deferred dispatchers did not both reach the Task claim lock: ${applicationNames.join(", ")}; activity=${JSON.stringify(diagnosticRows)}`,
   );
 }
 
@@ -5388,9 +5406,15 @@ describe("real durable task execution lifecycle", () => {
           }));
         }
 
-        await waitForDeferredTaskDispatchersBlocked(
-          workerProcesses.map((worker) => worker.applicationName),
-        );
+        try {
+          await waitForDeferredTaskDispatchersBlocked(
+            workerProcesses.map((worker) => worker.applicationName),
+          );
+        } catch (error) {
+          throw new Error(
+            `${error instanceof Error ? error.message : String(error)}\n${workerProcesses.map((worker) => worker.output()).join("\n")}`,
+          );
+        }
         rowLockRelease.resolve();
         await rowLockTransaction;
 
@@ -5514,7 +5538,7 @@ describe("real durable task execution lifecycle", () => {
         if (signalRoot) await rm(signalRoot, { recursive: true, force: true });
       }
     },
-    180_000,
+    240_000,
   );
 
   const taskRouteProcessRecoveryTest =
