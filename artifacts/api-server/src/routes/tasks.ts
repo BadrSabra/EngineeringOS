@@ -383,9 +383,9 @@ router.patch("/tasks/:taskId", async (req, res) => {
   }
 
   // PR-C: auto-trigger AI execution when a manual PATCH sets status → verifying
-  // and the task has a generated prompt.  Fire-and-forget — never blocks response.
+  // and the task has a generated prompt. Persist dispatch intent before returning.
   if (body.status === "verifying" && updated[0].prompt) {
-    scheduleAiTaskExecution(taskId, req.userId);
+    await scheduleAiTaskExecution(taskId, req.userId);
   }
 
   invalidateContextCache(project.id);
@@ -704,10 +704,10 @@ router.post("/tasks/:taskId/execute", async (req, res) => {
     invalidateContextCache(project.id);
 
     // PR-C: auto-trigger AI execution when the execute path lands on `verifying`
-    // and the task already has a generated prompt. Fire-and-forget into the shared
-    // heavyJobQueue — never blocks this HTTP response.
+    // and the task already has a generated prompt. Wait for durable intent and
+    // local enqueue, not for the AI execution itself.
     if (finalStatus === "verifying" && task[0].prompt) {
-      scheduleAiTaskExecution(taskId, req.userId);
+      await scheduleAiTaskExecution(taskId, req.userId);
     }
 
     return res.status(202).json(await projectCurrentTaskExecutionReceipt(updated));

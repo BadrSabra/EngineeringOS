@@ -3292,7 +3292,7 @@ export async function runMissionGoal(params: {
       await executeMissionRecipe(decision.recipeDispatch!);
     });
   } else if (decision.taskId && !decision.executionId && decision.status === "scheduled") {
-    scheduleAiTaskExecution(decision.taskId, params.userId, {
+    await scheduleAiTaskExecution(decision.taskId, params.userId, {
       parentExecutionId: decision.delegation?.parentExecutionId,
     });
   }

@@ -27,7 +27,10 @@ import {
   executeTaskLifecycle,
   evaluateTaskExecutionRetryGate,
 } from "../../lib/task-execution-service.js";
-import type { ExecutionDelegationBudget } from "../../lib/execution-lineage.js";
+import {
+  ExecutionDelegationBudgetSchema,
+  type ExecutionDelegationBudget,
+} from "../../lib/execution-lineage.js";
 
 const router = Router();
 
@@ -336,116 +339,307 @@ router.post("/ai/tasks/:taskId/execute", async (req, res) => {
 
 // ── scheduleAiTaskExecution ──────────────────────────────────────────────────
 
-/**
- * Schedules an AI task execution job for a task that just entered `verifying`
- * status with a non-null prompt. Fire-and-forget: enqueued into the shared
- * heavyJobQueue so it never blocks the caller's HTTP response.
- */
-const scheduledAiTaskCompletions = new Map<string, Promise<void>>();
+const TASK_AUTO_EXECUTION_REQUESTED_EVENT_TYPE = "TaskAutoExecutionDispatchRequested";
+const TASK_AUTO_EXECUTION_DEFERRED_EVENT_TYPE = "TaskAutoExecutionDeferred";
 
-export function scheduleAiTaskExecution(
+type AiTaskExecutionOptions = {
+  parentExecutionId?: string | null;
+  delegationBudget?: Partial<ExecutionDelegationBudget>;
+};
+
+type DeferredAiTaskExecution = {
+  userId: string;
+  options?: AiTaskExecutionOptions;
+};
+
+function deferredTaskExecutionEventId(taskId: string): string {
+  return `task-auto-execution-deferred:${taskId}`;
+}
+
+function parseDeferredAiTaskExecution(payload: unknown): DeferredAiTaskExecution | null {
+  if (!payload || typeof payload !== "object" || Array.isArray(payload)) return null;
+  const record = payload as Record<string, unknown>;
+  if (typeof record.userId !== "string" || record.userId.length === 0) return null;
+  const options: AiTaskExecutionOptions = {};
+  if (record.parentExecutionId !== undefined) {
+    if (record.parentExecutionId !== null && typeof record.parentExecutionId !== "string") return null;
+    options.parentExecutionId = record.parentExecutionId;
+  }
+  if (record.delegationBudget !== undefined) {
+    const budget = ExecutionDelegationBudgetSchema.partial().strict().safeParse(record.delegationBudget);
+    if (!budget.success) return null;
+    options.delegationBudget = budget.data;
+  }
+  return {
+    userId: record.userId,
+    ...(Object.keys(options).length > 0 ? { options } : {}),
+  };
+}
+
+async function persistDeferredAiTaskExecution(
   taskId: string,
   userId: string,
-  options?: {
-    parentExecutionId?: string | null;
-    delegationBudget?: Partial<ExecutionDelegationBudget>;
-  },
-): void {
+  options?: AiTaskExecutionOptions,
+): Promise<boolean> {
+  const eventId = deferredTaskExecutionEventId(taskId);
+  return db.transaction(async (tx) => {
+    const [task] = await tx
+      .select({
+        projectId: tasksTable.projectId,
+        status: tasksTable.status,
+        prompt: tasksTable.prompt,
+      })
+      .from(tasksTable)
+      .where(eq(tasksTable.id, taskId))
+      .for("update")
+      .limit(1);
+    if (!task || task.status !== "verifying" || !task.prompt) return false;
+
+    await tx.insert(eventsTable).values({
+      id: eventId,
+      type: TASK_AUTO_EXECUTION_REQUESTED_EVENT_TYPE,
+      projectId: task.projectId,
+      taskId,
+      severity: "info",
+      message: "Automatic AI task execution was requested.",
+      payload: {
+        userId,
+        ...(options?.parentExecutionId !== undefined
+          ? { parentExecutionId: options.parentExecutionId }
+          : {}),
+        ...(options?.delegationBudget !== undefined
+          ? { delegationBudget: options.delegationBudget }
+          : {}),
+      },
+    }).onConflictDoNothing();
+    return true;
+  });
+}
+
+async function clearDeferredAiTaskExecution(taskId: string): Promise<void> {
+  await db.delete(eventsTable).where(eq(eventsTable.id, deferredTaskExecutionEventId(taskId)));
+}
+
+async function markDeferredAiTaskExecution(taskId: string): Promise<void> {
+  await db.update(eventsTable)
+    .set({
+      type: TASK_AUTO_EXECUTION_DEFERRED_EVENT_TYPE,
+      severity: "warning",
+      message: "AI task execution was deferred because the worker queue is full.",
+    })
+    .where(eq(eventsTable.id, deferredTaskExecutionEventId(taskId)));
+}
+
+async function runAiTaskExecution(
+  taskId: string,
+  userId: string,
+  options?: AiTaskExecutionOptions,
+): Promise<void> {
+  try {
+    const [task] = await db
+      .select()
+      .from(tasksTable)
+      .where(eq(tasksTable.id, taskId))
+      .limit(1);
+
+    if (!task || task.status !== "verifying" || !task.prompt) {
+      await clearDeferredAiTaskExecution(taskId);
+      logger.info(
+        { taskId, status: task?.status ?? "gone", hasPrompt: !!task?.prompt },
+        "AI auto-trigger: task no longer eligible — skipping",
+      );
+      return;
+    }
+
+    const resolved = await resolveProvider(userId, {
+      qualityProfile: "task_execution",
+    });
+    if (!resolved) {
+      logger.warn({ taskId }, "AI auto-trigger: no AI provider configured — task stays in verifying");
+      await db.insert(eventsTable).values({
+        id: randomUUID(),
+        type: "TaskAutoTriggered",
+        projectId: task.projectId,
+        taskId,
+        severity: "warning",
+        message: `AI auto-trigger skipped for "${task.title}": no AI provider configured`,
+        payload: { skipped: true, reason: "no_api_key" },
+      });
+      await clearDeferredAiTaskExecution(taskId);
+      return;
+    }
+    const { provider, apiKey } = resolved;
+
+    const rl = await checkProjectRateLimitDb(task.projectId);
+    if (!rl.allowed) {
+      logger.warn(
+        { taskId, retryAfterSec: rl.retryAfterSec },
+        "AI auto-trigger: rate limited — task stays in verifying",
+      );
+      await clearDeferredAiTaskExecution(taskId);
+      return;
+    }
+
+    const lifecycle = await executeTaskLifecycle({
+      taskId,
+      userId,
+      provider: { provider, apiKey },
+      trigger: "automatic",
+      expectedStatuses: ["verifying"],
+      parentExecutionId: options?.parentExecutionId,
+      delegationBudget: options?.delegationBudget,
+    });
+    if (lifecycle.status === "conflict") {
+      await clearDeferredAiTaskExecution(taskId);
+      logger.info({ taskId, reason: lifecycle.errorCode }, "AI auto-trigger: lifecycle claim skipped");
+      return;
+    }
+    if (!lifecycle.ok) {
+      await clearDeferredAiTaskExecution(taskId);
+      logger.warn(
+        { taskId, executionId: lifecycle.executionId, code: lifecycle.errorCode },
+        "AI auto-trigger: lifecycle failed",
+      );
+    }
+  } catch (err) {
+    await clearDeferredAiTaskExecution(taskId).catch((clearError) => {
+      logger.error({ err: clearError, taskId }, "AI auto-trigger: could not clear deferred dispatch intent");
+    });
+    logger.error({ err, taskId }, "AI auto-trigger: unhandled error in auto-execution job");
+  }
+}
+
+/**
+ * Persists dispatch intent before enqueuing an AI task execution job. Resolves
+ * after durable intent and local enqueue, not after the AI execution finishes.
+ */
+const scheduledAiTaskCompletions = new Map<string, Promise<void>>();
+const schedulingAiTaskExecutions = new Map<string, Promise<void>>();
+
+export async function scheduleAiTaskExecution(
+  taskId: string,
+  userId: string,
+  options?: AiTaskExecutionOptions,
+): Promise<void> {
+  const inFlightScheduling = schedulingAiTaskExecutions.get(taskId);
+  if (inFlightScheduling) return inFlightScheduling;
   if (scheduledAiTaskCompletions.has(taskId)) return;
+
   let resolveCompletion!: () => void;
   const completion = new Promise<void>((resolve) => {
     resolveCompletion = resolve;
   });
   scheduledAiTaskCompletions.set(taskId, completion);
-  // PR-D1: use enqueueWithId so concurrent calls for the same task (e.g.
-  // from auto-trigger and a manual retry at the same moment) don't stack up
-  // two closures and execute the AI agent twice for the same task ID.
-  const enqueueResult = heavyJobQueue.enqueueWithIdDetailed(taskId, async () => {
+
+  let scheduling!: Promise<void>;
+  scheduling = (async () => {
     try {
-      const [task] = await db
-        .select()
-        .from(tasksTable)
-        .where(eq(tasksTable.id, taskId))
-        .limit(1);
-
-      if (!task || task.status !== "verifying" || !task.prompt) {
-        logger.info(
-          { taskId, status: task?.status ?? "gone", hasPrompt: !!task?.prompt },
-          "AI auto-trigger: task no longer eligible — skipping",
-        );
+      // Persist the dispatch intent before attempting local enqueue. The event
+      // remains until an atomic Task claim consumes it, covering both queue
+      // backpressure and a process stop before the worker starts.
+      const persisted = await persistDeferredAiTaskExecution(taskId, userId, options);
+      if (!persisted) {
+        resolveCompletion();
+        scheduledAiTaskCompletions.delete(taskId);
         return;
       }
 
-      const resolved = await resolveProvider(userId, {
-        qualityProfile: "task_execution",
+      // ID-based queue deduplication plus the DB Task claim protect repeated
+      // calls in this process and dispatches from other API instances.
+      const enqueueResult = heavyJobQueue.enqueueWithIdDetailed(taskId, async () => {
+        try {
+          await runAiTaskExecution(taskId, userId, options);
+        } finally {
+          resolveCompletion();
+        }
       });
-      if (!resolved) {
-        logger.warn({ taskId }, "AI auto-trigger: no AI provider configured — task stays in verifying");
-        await db.insert(eventsTable).values({
-          id: randomUUID(),
-          type: "TaskAutoTriggered",
-          projectId: task.projectId,
-          taskId,
-          severity: "warning",
-          message: `AI auto-trigger skipped for "${task.title}": no AI provider configured`,
-          payload: { skipped: true, reason: "no_api_key" },
-        });
-        return;
-      }
-      const { provider, apiKey } = resolved;
-
-      const rl = await checkProjectRateLimitDb(task.projectId);
-      if (!rl.allowed) {
-        logger.warn(
-          { taskId, retryAfterSec: rl.retryAfterSec },
-          "AI auto-trigger: rate limited — task stays in verifying",
-        );
+      if (enqueueResult !== "enqueued") {
+        resolveCompletion();
+        scheduledAiTaskCompletions.delete(taskId);
+        if (enqueueResult === "full") {
+          await markDeferredAiTaskExecution(taskId).catch((err) => {
+            // The requested event remains a valid durable outbox entry even
+            // if its user-facing deferred label cannot be updated.
+            logger.error({ err, taskId }, "AI auto-trigger: could not label deferred dispatch intent");
+          });
+          logger.warn(
+            { taskId },
+            "AI task execution was deferred because the local worker queue is full",
+          );
+        }
         return;
       }
 
-      const lifecycle = await executeTaskLifecycle({
-        taskId,
-        userId,
-        provider: { provider, apiKey },
-        trigger: "automatic",
-        expectedStatuses: ["verifying"],
-        parentExecutionId: options?.parentExecutionId,
-        delegationBudget: options?.delegationBudget,
+      void completion.finally(() => {
+        scheduledAiTaskCompletions.delete(taskId);
       });
-      if (lifecycle.status === "conflict") {
-        logger.info({ taskId, reason: lifecycle.errorCode }, "AI auto-trigger: lifecycle claim skipped");
-        return;
-      }
-      if (!lifecycle.ok) {
-        logger.warn({ taskId, executionId: lifecycle.executionId, code: lifecycle.errorCode }, "AI auto-trigger: lifecycle failed");
-        return;
-      }
-      return;
     } catch (err) {
-      logger.error({ err, taskId }, "AI auto-trigger: unhandled error in auto-execution job");
-    } finally {
       resolveCompletion();
-    }
-  });
-  if (enqueueResult !== "enqueued") {
-    resolveCompletion();
-    scheduledAiTaskCompletions.delete(taskId);
-    if (enqueueResult === "full") {
-      logger.warn(
-        { taskId },
-        "AI task remains in verifying because the local worker queue is full; it can be retriggered",
-      );
-    }
-  } else {
-    void completion.finally(() => {
       scheduledAiTaskCompletions.delete(taskId);
-    });
+      logger.error({ err, taskId }, "AI auto-trigger: failed to persist dispatch intent");
+      throw err;
+    } finally {
+      if (schedulingAiTaskExecutions.get(taskId) === scheduling) {
+        schedulingAiTaskExecutions.delete(taskId);
+      }
+    }
+  })();
+  schedulingAiTaskExecutions.set(taskId, scheduling);
+  await scheduling;
+}
+
+/**
+ * Re-dispatch queue-full intents from the durable event outbox. The event is
+ * removed in the same transaction that claims the Task, so a crash before
+ * claim remains recoverable while an acquired task cannot be auto-run twice.
+ */
+export async function dispatchDeferredAiTaskExecutions(limit = 100): Promise<number> {
+  const deferred = await db
+    .select({
+      taskId: eventsTable.taskId,
+      payload: eventsTable.payload,
+      status: tasksTable.status,
+      prompt: tasksTable.prompt,
+    })
+    .from(eventsTable)
+    .innerJoin(tasksTable, eq(eventsTable.taskId, tasksTable.id))
+    .where(and(
+      inArray(eventsTable.type, [
+        TASK_AUTO_EXECUTION_REQUESTED_EVENT_TYPE,
+        TASK_AUTO_EXECUTION_DEFERRED_EVENT_TYPE,
+      ]),
+      eq(tasksTable.status, "verifying"),
+    ))
+    .orderBy(eventsTable.timestamp, eventsTable.id)
+    .limit(limit);
+
+  let dispatched = 0;
+  for (const intent of deferred) {
+    if (!intent.taskId || !intent.prompt) {
+      if (intent.taskId) await clearDeferredAiTaskExecution(intent.taskId);
+      continue;
+    }
+    const parsed = parseDeferredAiTaskExecution(intent.payload);
+    if (!parsed) {
+      logger.warn({ taskId: intent.taskId }, "AI auto-trigger: invalid deferred dispatch intent discarded");
+      await clearDeferredAiTaskExecution(intent.taskId);
+      continue;
+    }
+
+    const before = scheduledAiTaskCompletions.size;
+    await scheduleAiTaskExecution(intent.taskId, parsed.userId, parsed.options);
+    if (scheduledAiTaskCompletions.size > before) dispatched++;
+    if (heavyJobQueue.availablePendingCapacity === 0) break;
   }
+  return dispatched;
 }
 
 /** Test/process-shutdown barrier for already scheduled task jobs. */
 export async function waitForScheduledAiTaskExecutions(): Promise<void> {
-  await Promise.allSettled([...scheduledAiTaskCompletions.values()]);
+  await Promise.allSettled([
+    ...schedulingAiTaskExecutions.values(),
+    ...scheduledAiTaskCompletions.values(),
+  ]);
 }
 
 export default router;

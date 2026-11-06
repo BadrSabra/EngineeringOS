@@ -4599,6 +4599,15 @@ export async function executeTaskLifecycle(params: {
         return { kind: "conflict" as const, errorCode: "task_state_changed" };
       }
 
+      // A queue-capacity deferral is durable only until a worker successfully
+      // claims this Task. Delete it atomically with the claim so a crash before
+      // this transaction commits remains recoverable, while a claimed run is
+      // never redispatched by the deferred-intent reconciler.
+      await tx.delete(eventsTable).where(eq(
+        eventsTable.id,
+        `task-auto-execution-deferred:${before.id}`,
+      ));
+
       let durable: Awaited<ReturnType<typeof createAiExecution>>;
       if (params.resumeExecutionId) {
         if (!correlationIdAtRead) {

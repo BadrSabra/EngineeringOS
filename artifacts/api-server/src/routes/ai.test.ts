@@ -53,6 +53,8 @@ import {
 } from "@workspace/ai-orchestrator";
 import * as repairValidation from "../lib/ai-repair-validation.js";
 import * as observationMaterializer from "../lib/agent-state/observation-materializer.js";
+import { heavyJobQueue } from "../lib/job-queue.js";
+import { dispatchPersistedPendingJobs } from "../lib/job-reconciliation.js";
 import * as aiTaskRoutes from "./ai/tasks.js";
 import { reconcileInterruptedApplyChanges } from "../lib/apply-change-reconciliation.js";
 import {
@@ -62,7 +64,10 @@ import {
   projectMissionCorrelationReportForExport,
   serializeMissionCorrelationReport,
 } from "./ai/chat.js";
-import { scheduleAiTaskExecution } from "./ai/tasks.js";
+import {
+  scheduleAiTaskExecution,
+  waitForScheduledAiTaskExecutions,
+} from "./ai/tasks.js";
 import {
   AI_EXECUTION_HEARTBEAT_INTERVAL_MS,
   createAiExecution,
@@ -9080,7 +9085,7 @@ describe("POST /api/ai/chat/apply-changes", () => {
         detail: "Stubbed for Mission-linked Apply Changes test.",
       });
     const scheduleSpy = vi.spyOn(aiTaskRoutes, "scheduleAiTaskExecution")
-      .mockImplementation(() => undefined);
+      .mockImplementation(async () => undefined);
 
     try {
       const [missionBeforeRecoveryCheck] = await db.select({
@@ -10295,7 +10300,7 @@ describe("POST /api/ai/tasks/:taskId/execute", () => {
       .set({ prompt: "Run the automatic task" })
       .where(eq(tasksTable.id, taskId));
 
-    scheduleAiTaskExecution(taskId, "test-user");
+    await scheduleAiTaskExecution(taskId, "test-user");
 
     let failureEvent: typeof eventsTable.$inferSelect | undefined;
     for (let attempt = 0; attempt < 40; attempt++) {
@@ -10311,6 +10316,57 @@ describe("POST /api/ai/tasks/:taskId/execute", () => {
     expect(persisted).not.toContain(rawMessage);
     expect(persisted).not.toContain("req-raw-auto-456");
     expect(persisted).not.toContain("/var/task/");
+  });
+
+  it("retries a queue-full automatic task after capacity returns without creating a second execution", async () => {
+    const projectId = await insertProject();
+    projectIds.push(projectId);
+    const taskId = await insertTask(projectId, "verifying");
+    await db.update(tasksTable)
+      .set({ prompt: "Run after the worker queue has capacity" })
+      .where(eq(tasksTable.id, taskId));
+
+    const originalEnqueue = heavyJobQueue.enqueueWithIdDetailed.bind(heavyJobQueue);
+    const enqueueSpy = vi.spyOn(heavyJobQueue, "enqueueWithIdDetailed")
+      .mockReturnValueOnce("full")
+      .mockImplementation((id, job) => originalEnqueue(id, job));
+
+    await scheduleAiTaskExecution(taskId, "test-user", {
+      delegationBudget: { maxChildren: 2, maxDepth: 1 },
+    });
+
+    let deferredIntent: typeof eventsTable.$inferSelect | undefined;
+    for (let attempt = 0; attempt < 40; attempt++) {
+      const events = await db.select().from(eventsTable).where(eq(eventsTable.id, `task-auto-execution-deferred:${taskId}`));
+      deferredIntent = events[0];
+      if (deferredIntent) break;
+      await new Promise((resolve) => setTimeout(resolve, 25));
+    }
+    expect(deferredIntent).toMatchObject({
+      type: "TaskAutoExecutionDeferred",
+      taskId,
+      payload: {
+        userId: "test-user",
+        delegationBudget: { maxChildren: 2, maxDepth: 1 },
+      },
+    });
+
+    enqueueSpy.mockRestore();
+    await dispatchPersistedPendingJobs();
+    // A competing/repeated recovery pass cannot enqueue this task a second
+    // time locally; the Task claim transaction also removes the durable intent.
+    await dispatchPersistedPendingJobs();
+    await waitForScheduledAiTaskExecutions();
+
+    const executions = await db.select({ id: aiExecutionsTable.id })
+      .from(aiExecutionsTable)
+      .where(eq(aiExecutionsTable.linkedTaskId, taskId));
+    expect(executions).toHaveLength(1);
+
+    const remainingIntent = await db.select({ id: eventsTable.id })
+      .from(eventsTable)
+      .where(eq(eventsTable.id, `task-auto-execution-deferred:${taskId}`));
+    expect(remainingIntent).toHaveLength(0);
   });
 
   it("keeps automatic parser output private in task records", async () => {
@@ -10335,7 +10391,7 @@ describe("POST /api/ai/tasks/:taskId/execute", () => {
       .set({ prompt: "Run the automatic parser fixture" })
       .where(eq(tasksTable.id, taskId));
 
-    scheduleAiTaskExecution(taskId, "test-user");
+    await scheduleAiTaskExecution(taskId, "test-user");
 
     let failureEvent: typeof eventsTable.$inferSelect | undefined;
     for (let attempt = 0; attempt < 40; attempt++) {

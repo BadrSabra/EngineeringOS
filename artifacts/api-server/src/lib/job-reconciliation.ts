@@ -100,6 +100,7 @@ import { resolveMissionDecisionShadowProjectScope } from "./mission-decision-sha
 import { dispatchPendingShadowReplays } from "./shadow-replay.js";
 import { dispatchPendingMissionChatHandoffs } from "./mission-chat-handoffs.js";
 import { retryPendingRuntimeStartTransitions } from "./agent-state/runtime-start-transition.js";
+import { dispatchDeferredAiTaskExecutions } from "../routes/ai/tasks.js";
 
 const ORPHANED_RUNNING_MESSAGE =
   "Job was in progress when the server restarted and could not be resumed.";
@@ -1115,6 +1116,7 @@ async function dispatchPersistedPendingJobsOnce(): Promise<number> {
         return added;
       },
     },
+    { name: "deferred-ai-task-executions", run: () => dispatchDeferredAiTaskExecutions(pageLimit) },
     { name: "task-recovery", run: () => dispatchAutonomousTaskRecoveries() },
     { name: "mission-replans", run: () => reconcileAutomaticMissionReplans() },
     { name: "decision-dispatch", run: () => reconcileApprovedMissionDecisionDispatches() },
