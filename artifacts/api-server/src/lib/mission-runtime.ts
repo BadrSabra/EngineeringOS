@@ -2,7 +2,18 @@ import { execFile } from "node:child_process";
 import { createHash, randomUUID } from "node:crypto";
 import { realpath } from "node:fs/promises";
 import { promisify } from "node:util";
-import { and, desc, eq, inArray, isNotNull, lte, or } from "drizzle-orm";
+import {
+  and,
+  desc,
+  eq,
+  inArray,
+  isNotNull,
+  lte,
+  notExists,
+  notInArray,
+  or,
+  sql,
+} from "drizzle-orm";
 import {
   aiChangeProposalsTable,
   aiAgentEpisodesTable,
@@ -63,6 +74,7 @@ import { scheduleAiTaskExecution } from "../routes/ai/tasks.js";
 import { createMissionEventEnvelope, type MissionEventEnvelope } from "./mission-events.js";
 import {
   buildMissionDelegationBinding,
+  MissionDelegationBindingSchema,
   validateMissionDelegationBinding,
   type MissionDelegationBinding,
 } from "./mission-delegation.js";
@@ -2202,6 +2214,132 @@ export async function dispatchPendingMissionRecipes(
     });
     if (added) dispatched += 1;
   }
+
+  // AiGoalRecipeDispatchRequested is inserted in the same transaction that
+  // moves the Goal to running. It is the durable outbox for the gap before
+  // runRecipeOperation creates its ai_execution row. Rebuild only from the
+  // current Goal action, then re-authorize before any recipe can run.
+  const outboxLimit = Math.max(0, Math.min(limit, 100) - dispatched);
+  if (outboxLimit === 0) return dispatched;
+
+  const pendingRequests = await db
+    .select({
+      eventId: eventsTable.id,
+      goalId: aiGoalsTable.id,
+      missionId: aiMissionsTable.id,
+      projectId: aiGoalsTable.projectId,
+      userId: aiMissionsTable.userId,
+      nextAction: aiGoalsTable.nextAction,
+      outcomeContract: aiGoalsTable.outcomeContract,
+      payload: eventsTable.payload,
+    })
+    .from(eventsTable)
+    .innerJoin(aiGoalsTable, eq(aiGoalsTable.id, eventsTable.goalId))
+    .innerJoin(aiMissionsTable, and(
+      eq(aiMissionsTable.id, aiGoalsTable.missionId),
+      eq(aiMissionsTable.projectId, aiGoalsTable.projectId),
+    ))
+    .where(and(
+      eq(eventsTable.type, "AiGoalRecipeDispatchRequested"),
+      isNotNull(eventsTable.goalId),
+      eq(aiGoalsTable.status, "running"),
+      inArray(aiMissionsTable.status, ["active", "waiting"]),
+      scopeProjectId ? eq(eventsTable.projectId, scopeProjectId) : undefined,
+      notExists(db
+        .select({ id: aiExecutionsTable.id })
+        .from(aiExecutionsTable)
+        .where(and(
+          eq(aiExecutionsTable.goalId, aiGoalsTable.id),
+          sql`${aiExecutionsTable.operationId} = (${eventsTable.payload}->>'operationId')`,
+          inArray(aiExecutionsTable.status, [
+            ...RECIPE_EXECUTION_STATUSES,
+            "cancelled",
+            "completed",
+          ]),
+        ))),
+    ))
+    .orderBy(eventsTable.timestamp, eventsTable.id)
+    .limit(outboxLimit);
+
+  const queuedOperationIds = new Set<string>();
+  for (const row of pendingRequests) {
+    const payload = jsonRecord(row.payload);
+    const operationId = typeof payload.operationId === "string"
+      ? payload.operationId
+      : undefined;
+    const action = GoalNextActionSchema.safeParse(row.nextAction);
+    if (
+      !operationId
+      || !action.success
+      || action.data.kind !== "recipe"
+      || payload.missionId !== row.missionId
+      || payload.recipeId !== action.data.recipeId
+      || payload.recipeVersion !== action.data.recipeVersion
+      || (payload.candidateIdentity ?? null) !== (action.data.candidateIdentity ?? null)
+      || queuedOperationIds.has(operationId)
+    ) {
+      continue;
+    }
+
+    const identity = await recipeOperationIdentity(
+      db,
+      row.projectId,
+      row.goalId,
+      action.data,
+    );
+    if (!identity || identity.operationId !== operationId) continue;
+
+    const parsedDelegation = MissionDelegationBindingSchema.safeParse(payload.delegation);
+    if (!parsedDelegation.success) continue;
+    const delegation = parsedDelegation.data;
+    const delegationCheck = validateMissionDelegationBinding(delegation, {
+      missionId: row.missionId,
+      goalId: row.goalId,
+      taskId: null,
+      userId: row.userId,
+      planRevision: goalPlanRevision({ outcomeContract: row.outcomeContract })
+        ?? null,
+    });
+    if (!delegationCheck.allowed || payload.trigger !== delegation.trigger) continue;
+    if (delegation.parentExecutionId) {
+      const [parentExecution] = await db
+        .select({
+          projectId: aiExecutionsTable.projectId,
+          userId: aiExecutionsTable.userId,
+        })
+        .from(aiExecutionsTable)
+        .where(eq(aiExecutionsTable.id, delegation.parentExecutionId))
+        .limit(1);
+      if (
+        !parentExecution
+        || parentExecution.projectId !== row.projectId
+        || parentExecution.userId !== row.userId
+      ) {
+        continue;
+      }
+    }
+
+    const dispatch: RecipeDispatch = {
+      goalId: row.goalId,
+      userId: row.userId,
+      projectId: row.projectId,
+      missionId: row.missionId,
+      operationId,
+      idempotencyKey: identity.idempotencyKey,
+      action: action.data,
+      delegation,
+    };
+    queuedOperationIds.add(operationId);
+    const added = heavyJobQueue.enqueueWithIdDetailed(operationId, async () => {
+      await executeMissionRecipe(dispatch);
+    });
+    if (added === "enqueued") {
+      dispatched += 1;
+    } else if (added === "full") {
+      break;
+    }
+  }
+
   return dispatched;
 }
 
@@ -3195,6 +3333,15 @@ export async function wakeReadyMissionGoals(
               .from(aiGoalDependenciesTable),
           ),
         ),
+        and(
+          eq(aiGoalsTable.status, "queued"),
+          sql`${aiGoalsTable.successCriteria}->>'kind' = 'mission_replan_step'`,
+          notInArray(
+            aiGoalsTable.id,
+            db.select({ goalId: aiGoalDependenciesTable.goalId })
+              .from(aiGoalDependenciesTable),
+          ),
+        ),
       ),
       scopeProjectId ? eq(aiGoalsTable.projectId, scopeProjectId) : undefined,
     ))
@@ -3228,7 +3375,17 @@ export async function wakeReadyMissionGoals(
         goal.status === "waiting_for_event"
         && goal.blockedReason === "dependencies_pending";
       const isQueuedDependent = goal.status === "queued" && goal.blockedReason === null;
-      if (!isWaitingOnDependencies && !isQueuedDependent) return undefined;
+      const isQueuedActiveReplanRoot = goal.status === "queued"
+        && goal.blockedReason === null
+        && jsonRecord(goal.successCriteria).kind === "mission_replan_step"
+        && ["active", "waiting"].includes(mission.status)
+        && typeof mission.autonomyPolicy.activePlanRevision === "string"
+        && goalPlanRevision(goal) === mission.autonomyPolicy.activePlanRevision;
+      if (
+        !isWaitingOnDependencies
+        && !isQueuedDependent
+        && !isQueuedActiveReplanRoot
+      ) return undefined;
       const dependencyState = await loadGoalDependencyState(tx, mission, goal);
       const unprovenDependency = dependencyState.unprovenDependencies[0];
       if (unprovenDependency) {
@@ -3241,9 +3398,12 @@ export async function wakeReadyMissionGoals(
         return undefined;
       }
       const allDependenciesCompleted =
-        dependencyState.dependencies.length > 0
-        && dependencyState.dependencies.length === dependencyState.dependencyGoals.length
-        && dependencyState.dependencyGoals.every((dependency) => dependency.status === "completed");
+        (isQueuedActiveReplanRoot && dependencyState.dependencies.length === 0)
+        || (
+          dependencyState.dependencies.length > 0
+          && dependencyState.dependencies.length === dependencyState.dependencyGoals.length
+          && dependencyState.dependencyGoals.every((dependency) => dependency.status === "completed")
+        );
       if (!allDependenciesCompleted) return undefined;
       if (isWaitingOnDependencies) {
         await tx.update(aiGoalsTable)

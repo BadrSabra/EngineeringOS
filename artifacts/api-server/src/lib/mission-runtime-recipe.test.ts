@@ -7,6 +7,7 @@ import { promisify } from "node:util";
 import { and, eq } from "drizzle-orm";
 import request from "supertest";
 import app from "../app.js";
+import { heavyJobQueue } from "./job-queue.js";
 import { seedCanonicalMissionGoalCompletion } from "../__tests__/mission-dependency-proof-fixture.js";
 import {
   aiAgentEpisodesTable,
@@ -313,6 +314,7 @@ async function seedMissionRecipeEpisode(
 }
 
 afterEach(async () => {
+  vi.restoreAllMocks();
   recipeRunner.mockReset();
   githubDeliveryRunner.mockReset();
   scheduleTaskExecution.mockReset();
@@ -1127,8 +1129,12 @@ describe("Mission recipe dispatch", () => {
     expect(recipeRunner).not.toHaveBeenCalled();
   });
 
-  it("binds a typed recipe action to the existing recipe runner and projects completion", async () => {
+  it.each([
+    { scenario: "queue capacity refusal", enqueueResult: "full" as const },
+    { scenario: "process stop before callback", enqueueResult: "enqueued" as const },
+  ])("recovers a persisted request after $scenario", async ({ enqueueResult }) => {
     const rootPath = await createTestRoot("recipe");
+    vi.spyOn(heavyJobQueue, "enqueueWithIdDetailed").mockReturnValue(enqueueResult);
     recipeRunner.mockImplementation(async (params: Record<string, unknown>) => {
       await seedSuccessfulRecipeProof(params, "recipe-execution-1");
       return {
@@ -1212,6 +1218,24 @@ describe("Mission recipe dispatch", () => {
       goalId,
       reason: "recipe_dispatch_queued",
     });
+    expect(recipeRunner).not.toHaveBeenCalled();
+    const [dispatchEvent] = await db
+      .select({ id: eventsTable.id })
+      .from(eventsTable)
+      .where(and(
+        eq(eventsTable.goalId, goalId),
+        eq(eventsTable.type, "AiGoalRecipeDispatchRequested"),
+      ))
+      .limit(1);
+    expect(dispatchEvent).toBeDefined();
+    const executionsBeforeRecovery = await db
+      .select({ id: aiExecutionsTable.id })
+      .from(aiExecutionsTable)
+      .where(eq(aiExecutionsTable.goalId, goalId));
+    expect(executionsBeforeRecovery).toHaveLength(0);
+
+    vi.restoreAllMocks();
+    expect(await dispatchPendingMissionRecipes()).toBe(1);
 
     await vi.waitFor(async () => {
       expect(recipeRunner).toHaveBeenCalledOnce();
@@ -1244,6 +1268,78 @@ describe("Mission recipe dispatch", () => {
       sourceRevision: expect.stringMatching(/^[0-9a-f]{40}$/i),
       rootPath,
     }));
+  });
+
+  it("recovers an undispatched root from the active automatic replan after restart", async () => {
+    const rootPath = await createTestRoot("replan-root-recovery");
+    const projectId = randomUUID();
+    const missionId = randomUUID();
+    const goalId = randomUUID();
+    const taskId = randomUUID();
+    const planRevision = createHash("sha256").update(randomUUID()).digest("hex");
+    const now = new Date();
+    projectIds.push(projectId);
+    await db.insert(projectsTable).values({
+      id: projectId,
+      ownerId: "test-user",
+      name: `mission-root-recovery-${projectId.slice(0, 8)}`,
+      rootPath,
+      language: "typescript",
+      status: "active",
+      createdAt: now,
+      updatedAt: now,
+    });
+    await db.insert(aiMissionsTable).values({
+      id: missionId,
+      projectId,
+      userId: "test-user",
+      title: "Recover an automatic replan root",
+      intent: "Dispatch the current plan root after restart",
+      status: "active",
+      scope: { kind: "project", projectId },
+      autonomyPolicy: { activePlanRevision: planRevision },
+      createdAt: now,
+      updatedAt: now,
+    });
+    await db.insert(aiGoalsTable).values({
+      id: goalId,
+      missionId,
+      projectId,
+      title: "Recovered replan root",
+      status: "queued",
+      successCriteria: {
+        kind: "mission_replan_step",
+        stepId: "root",
+        planRevision: { hash: planRevision },
+      },
+      outcomeContract: { planRevision: { hash: planRevision } },
+      nextAction: { kind: "task", taskId },
+      createdAt: now,
+      updatedAt: now,
+    });
+    await db.insert(tasksTable).values({
+      id: taskId,
+      projectId,
+      goalId,
+      title: "Recovered root task",
+      status: "verifying",
+      prompt: "Verify the current automatic-replan root.",
+      createdAt: now,
+      updatedAt: now,
+    });
+
+    expect(await wakeReadyMissionGoals()).toBe(1);
+    expect(scheduleTaskExecution).toHaveBeenCalledOnce();
+    expect(scheduleTaskExecution).toHaveBeenCalledWith(
+      taskId,
+      "test-user",
+      expect.objectContaining({ parentExecutionId: null }),
+    );
+    const [goal] = await db
+      .select({ status: aiGoalsTable.status })
+      .from(aiGoalsTable)
+      .where(eq(aiGoalsTable.id, goalId));
+    expect(goal?.status).toBe("running");
   });
 
   it("reconstructs queued GitHub delivery after restart without duplicating execution", async () => {

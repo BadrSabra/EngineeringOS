@@ -26,3 +26,9 @@ For approval-required plans, recovery may dispatch only after reloading the comp
 **Why:** A crash can occur after final approval and plan application but before root dispatch. Recovery must close that gap without treating approval as execution proof or claiming exactly-once behavior from an in-memory timer.
 
 **How to apply:** Revalidate approval and revision at recovery time, preserve the existing Mission/Goal and task/recipe execution idempotency boundaries, and record a batch only under the existing store contract. When root executions are incomplete, keep the persisted per-root status explicit and do not advance outcome/acceptance proof.
+
+Automatic replanning must materialize the new revision and activate that revision in the same transaction before dispatching its roots. The normal active-plan revision check then rejects historical Goals; do not broadly bypass the `needs_replan` continuation guard. Because a process can stop after activation but before root enqueue, the durable reconciler must rediscover queued `mission_replan_step` roots for the exact active revision.
+
+**Why:** Leaving the Mission in `needs_replan` makes the normal Goal gate reject the new roots. Activating the exact new revision preserves the stale-plan fence, while queued-root recovery closes the crash window introduced by activating before dispatch.
+
+**How to apply:** Keep plan materialization and the active revision/status transition atomic. Recovery may enqueue only dependency-free roots whose revision still equals the Mission's active revision; all normal dependency, approval, and proof gates remain authoritative.

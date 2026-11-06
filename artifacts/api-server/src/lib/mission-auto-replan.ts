@@ -594,6 +594,7 @@ worldStatePlanningRead?: MissionWorldStatePlanningRead) {
 async function terminalizeAutomaticReplanFailure(
   missionId: string,
   reason: string,
+  expectedPlanRevision?: string,
 ): Promise<boolean> {
   if (!TERMINAL_REPLAN_FAILURES.has(reason) && !reason.startsWith("strategy_")) return false;
 
@@ -603,7 +604,14 @@ async function terminalizeAutomaticReplanFailure(
       .from(aiMissionsTable)
       .where(eq(aiMissionsTable.id, missionId))
       .for("update");
-    if (!mission || mission.status !== "needs_replan") return false;
+    if (!mission) return false;
+    const activePlanRevision = typeof mission.autonomyPolicy.activePlanRevision === "string"
+      ? mission.autonomyPolicy.activePlanRevision
+      : undefined;
+    const canBlockPreparedPlan = mission.status === "active"
+      && expectedPlanRevision !== undefined
+      && activePlanRevision === expectedPlanRevision;
+    if (mission.status !== "needs_replan" && !canBlockPreparedPlan) return false;
 
     const now = new Date();
     await tx
@@ -613,10 +621,7 @@ async function terminalizeAutomaticReplanFailure(
         completedAt: null,
         updatedAt: now,
       })
-      .where(and(
-        eq(aiMissionsTable.id, missionId),
-        eq(aiMissionsTable.status, "needs_replan"),
-      ));
+      .where(eq(aiMissionsTable.id, missionId));
     await tx.insert(eventsTable).values({
       id: randomUUID(),
       type: "AiMissionReplanBlocked",
@@ -627,7 +632,7 @@ async function terminalizeAutomaticReplanFailure(
       payload: {
         missionId,
         reason,
-        previousStatus: "needs_replan",
+        previousStatus: mission.status,
         nextStatus: "blocked",
       },
     });
@@ -897,6 +902,7 @@ export async function autoReplanMission(
     const nextReplanCount = autonomy.automaticReplanCount + (alreadyReserved ? 0 : 1);
     const [updatedMission] = await tx.update(aiMissionsTable)
       .set({
+        status: "active",
         autonomyPolicy: {
           ...writeCanonicalMissionAutonomyPolicy(
             mission.autonomyPolicy,
@@ -967,7 +973,11 @@ export async function autoReplanMission(
     run.status === "scheduled" || run.status === "waiting" || run.status === "completed",
   );
   if (!dispatchSucceeded) {
-    await terminalizeAutomaticReplanFailure(missionId, "no_eligible_replan_root");
+    await terminalizeAutomaticReplanFailure(
+      missionId,
+      "no_eligible_replan_root",
+      prepared.revision,
+    );
     return {
       status: "skipped",
       missionId,
@@ -998,32 +1008,12 @@ export async function autoReplanMission(
     const [current] = await tx
       .select({ autonomyPolicy: aiMissionsTable.autonomyPolicy })
       .from(aiMissionsTable)
-      .where(and(
-        eq(aiMissionsTable.id, missionId),
-        eq(aiMissionsTable.status, "needs_replan"),
-      ))
+      .where(eq(aiMissionsTable.id, missionId))
       .for("update");
-    if (!current) return;
-    const currentAutonomy = normalizeMissionAutonomyPolicy(current.autonomyPolicy);
-    const [updated] = await tx.update(aiMissionsTable)
-      .set({
-        status: "active",
-        autonomyPolicy: {
-          ...writeCanonicalMissionAutonomyPolicy(
-            current.autonomyPolicy,
-            currentAutonomy.automaticReplanCount,
-          ),
-          activePlanRevision: prepared.revision,
-          lastAutomaticReplanRevision: prepared.revision,
-        },
-        updatedAt: new Date(),
-      })
-      .where(and(
-        eq(aiMissionsTable.id, missionId),
-        eq(aiMissionsTable.status, "needs_replan"),
-      ))
-      .returning({ id: aiMissionsTable.id });
-    if (!updated) return;
+    if (
+      !current
+      || current.autonomyPolicy.activePlanRevision !== prepared.revision
+    ) return;
     if (canRecordDispatchBatch && prepared.decisionTraceId) {
       for (const item of dispatchItems) {
         if (!item.executionId) continue;

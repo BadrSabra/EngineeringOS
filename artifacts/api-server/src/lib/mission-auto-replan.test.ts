@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { createHash, randomUUID } from "node:crypto";
 import { and, eq } from "drizzle-orm";
 import {
@@ -13,26 +13,43 @@ import {
   eventsTable,
   projectsTable,
 } from "@workspace/db";
+import { heavyJobQueue } from "./job-queue.js";
 import { autoReplanMission, buildReplanContext } from "./mission-auto-replan.js";
+import { runMissionGoal } from "./mission-runtime.js";
 import { taskScopeIdentity } from "./agent-state/observation-materializer.js";
 import { loadMissionWorldStatePlanningRead } from "./mission-world-state-planning-read.js";
 import { diagnoseRuntimeStartWorldStateFailure } from "./world-state-failure-diagnosis.js";
 
+const { scheduleTaskExecution } = vi.hoisted(() => ({
+  scheduleTaskExecution: vi.fn(),
+}));
+
+vi.mock("../routes/ai/tasks.js", async () => {
+  const actual = await vi.importActual<typeof import("../routes/ai/tasks.js")>(
+    "../routes/ai/tasks.js",
+  );
+  return { ...actual, scheduleAiTaskExecution: scheduleTaskExecution };
+});
+
 const projectIds: string[] = [];
 
 afterEach(async () => {
+  vi.restoreAllMocks();
+  scheduleTaskExecution.mockReset();
   for (const projectId of projectIds.splice(0)) {
     await db.delete(projectsTable).where(eq(projectsTable.id, projectId)).catch(() => undefined);
   }
 });
 
 describe("automatic Mission replanning", () => {
-  it("materializes a fresh revision after a recoverable Goal failure and keeps history", async () => {
+  it("runs new plan roots through the production Goal gate and keeps old revisions stale", async () => {
     const projectId = crypto.randomUUID();
     const missionId = crypto.randomUUID();
     const failedGoalId = crypto.randomUUID();
+    const oldQueuedGoalId = crypto.randomUUID();
     const now = new Date();
     projectIds.push(projectId);
+    vi.spyOn(heavyJobQueue, "enqueueWithId").mockReturnValue(true);
 
     await db.insert(projectsTable).values({
       id: projectId,
@@ -79,15 +96,26 @@ describe("automatic Mission replanning", () => {
       createdAt: now,
       updatedAt: now,
     });
-
-    const runGoal = async ({ goalId }: { goalId: string }) => ({
-      status: "scheduled" as const,
-      goalId,
-      reason: "scheduled_by_test_fixture",
+    await db.insert(aiGoalsTable).values({
+      id: oldQueuedGoalId,
+      missionId,
+      projectId,
+      title: "Queued goal from the old plan",
+      status: "queued",
+      successCriteria: {
+        kind: "mission_plan_step",
+        stepId: "old-root",
+        planRevision: { hash: "old-plan-revision" },
+      },
+      outcomeContract: { planRevision: { hash: "old-plan-revision" } },
+      nextAction: { kind: "task", taskId: crypto.randomUUID() },
+      createdAt: now,
+      updatedAt: now,
     });
+
     const concurrentResults = await Promise.all([
-      autoReplanMission(missionId, runGoal),
-      autoReplanMission(missionId, runGoal),
+      autoReplanMission(missionId),
+      autoReplanMission(missionId),
     ]);
     const result = concurrentResults.find((entry) => entry.status === "replanned");
     expect(result?.status).toBe("replanned");
@@ -95,6 +123,17 @@ describe("automatic Mission replanning", () => {
     expect(result.plan.goals.length).toBeGreaterThan(1);
     expect(result.plan.revision).toContain(`auto:${failedGoalId}:`);
     expect(result.runs.some((run) => run.status === "scheduled" || run.status === "waiting")).toBe(true);
+    expect(result.runs.every((run) => run.reason !== "mission_needs_replan")).toBe(true);
+
+    const staleRun = await runMissionGoal({
+      goalId: oldQueuedGoalId,
+      userId: "test-user",
+      trigger: "resume",
+    });
+    expect(staleRun).toMatchObject({
+      status: "conflict",
+      reason: "stale_plan_revision",
+    });
 
     const goals = await db
       .select({
@@ -123,7 +162,9 @@ describe("automatic Mission replanning", () => {
       automaticReplanCount: 1,
       lastAutomaticReplanRevision: result.plan.revision,
     });
-    const replannedGoal = goals.find((goal) => goal.id !== failedGoalId);
+    const replannedGoal = goals.find((goal) =>
+      result.plan.goals.some((planGoal) => planGoal.goalId === goal.id),
+    );
     expect(replannedGoal?.successCriteria).toMatchObject({
       planRevision: {
         replanContext: {
@@ -400,6 +441,86 @@ describe("automatic Mission replanning", () => {
           },
         },
       },
+    });
+  });
+
+  it("blocks an activated replan when every root is rejected", async () => {
+    const projectId = crypto.randomUUID();
+    const missionId = crypto.randomUUID();
+    const now = new Date();
+    projectIds.push(projectId);
+    await db.insert(projectsTable).values({
+      id: projectId,
+      ownerId: "test-user",
+      name: `mission-no-root-${projectId.slice(0, 8)}`,
+      rootPath: process.cwd(),
+      language: "typescript",
+      status: "active",
+      createdAt: now,
+      updatedAt: now,
+    });
+    await db.insert(aiMissionsTable).values({
+      id: missionId,
+      projectId,
+      userId: "test-user",
+      title: "Reject every replan root",
+      intent: "Inspect the source, then fix the blocking issue.",
+      status: "needs_replan",
+      scope: { kind: "project", projectId },
+      autonomyPolicy: { mode: "autonomous", maxAutoReplans: 3 },
+      createdAt: now,
+      updatedAt: now,
+    });
+    await db.insert(aiGoalsTable).values({
+      id: crypto.randomUUID(),
+      missionId,
+      projectId,
+      title: "Recover after incomplete evidence",
+      status: "needs_replan",
+      successCriteria: { kind: "historical_failure" },
+      evidenceContract: { required: true },
+      outcomeContract: {
+        acceptance: {
+          failureDiagnosis: {
+            kind: "EVIDENCE_INCOMPLETE",
+            reasonCode: "EVIDENCE_INCOMPLETE",
+            nextActionCode: "GATHER_REQUIRED_EVIDENCE",
+            retryable: true,
+            requiresApproval: false,
+          },
+        },
+      },
+      nextAction: { kind: "replan", reason: "retry from current evidence" },
+      createdAt: now,
+      updatedAt: now,
+    });
+
+    const result = await autoReplanMission(missionId, async ({ goalId }) => ({
+      status: "blocked",
+      goalId,
+      reason: "fixture_rejected_root",
+    }));
+    expect(result).toMatchObject({
+      status: "skipped",
+      reason: "no_eligible_replan_root",
+    });
+    const [mission] = await db
+      .select({ status: aiMissionsTable.status })
+      .from(aiMissionsTable)
+      .where(eq(aiMissionsTable.id, missionId));
+    expect(mission?.status).toBe("blocked");
+    const [event] = await db
+      .select({ payload: eventsTable.payload })
+      .from(eventsTable)
+      .where(and(
+        eq(eventsTable.projectId, projectId),
+        eq(eventsTable.type, "AiMissionReplanBlocked"),
+      ))
+      .limit(1);
+    expect(event?.payload).toMatchObject({
+      previousStatus: "active",
+      nextStatus: "blocked",
+      reason: "no_eligible_replan_root",
     });
   });
 

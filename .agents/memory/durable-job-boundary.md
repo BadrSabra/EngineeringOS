@@ -47,6 +47,12 @@ and execution checkpoint, enqueue through the shared bounded queue, and leave
 uncertain in-flight recovery to the existing AI execution acceptance/recovery
 contract.
 
+The transactionally persisted `AiGoalRecipeDispatchRequested` event is also the outbox for the brief gap before a recipe worker creates its `ai_execution` row. If the local queue refuses the closure or the process stops before it starts, reconciliation may rebuild the request from the current Goal and retry the event, but must revalidate the event's Mission/Goal/revision/recipe binding. Existing queued, running, paused, cancelling, cancelled, or completed executions are not replayed from the event.
+
+**Why:** A queue refusal or restart can happen after the Goal is marked running but before the recipe runner creates durable execution state. The event is committed with that Goal transition, so it can preserve dispatch intent without treating a process-local queue as durable.
+
+**How to apply:** Treat the event as an outbox pointer, not as authorization or proof. Recompute the idempotency identity from the current persisted action, validate delegation and ownership, and let the AI execution claim/lease remain the cross-process execution boundary.
+
 Mission external events use the existing events journal as a durable inbox:
 persist the envelope before waking a Goal, deduplicate by eventId, and replay
 unprocessed events when the Goal later reaches its event-wait boundary.
