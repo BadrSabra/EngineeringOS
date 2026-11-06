@@ -239,6 +239,23 @@ describe("database workspace runtime store", () => {
     });
     expect(first?.workerId).toBe("worker-a");
 
+    const sameWorkerStart = await databaseWorkspaceRuntimeStore.begin({
+      projectId,
+      projectRoot: root,
+      sessionId: "session-a-concurrent",
+      revision: "revision-a-concurrent",
+      environmentRevision: null,
+      workerId: "worker-a",
+      now: new Date(now.getTime() + 500),
+      leaseUntil: new Date(now.getTime() + RUNTIME_LEASE_MS + 500),
+    });
+    expect(sameWorkerStart).toBeUndefined();
+    await expect(databaseWorkspaceRuntimeStore.get(projectId)).resolves.toMatchObject({
+      sessionId: "session-a",
+      workerId: "worker-a",
+      status: "starting",
+    });
+
     const blocked = await databaseWorkspaceRuntimeStore.begin({
       projectId,
       projectRoot: root,

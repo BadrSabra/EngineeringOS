@@ -66,14 +66,9 @@ export const databaseWorkspaceRuntimeStore: WorkspaceRuntimeStore = {
   },
 
   async begin(input) {
-    const activeLease = and(
-      isNull(workspaceRuntimeTable.leaseUntil),
-      eq(workspaceRuntimeTable.workerId, input.workerId),
-    );
     const takeover = or(
       isNull(workspaceRuntimeTable.leaseUntil),
       lt(workspaceRuntimeTable.leaseUntil, input.now),
-      eq(workspaceRuntimeTable.workerId, input.workerId),
       inArray(workspaceRuntimeTable.status, ["stopped", "failed"]),
     );
     const [row] = await db
@@ -118,7 +113,7 @@ export const databaseWorkspaceRuntimeStore: WorkspaceRuntimeStore = {
           logs: [],
           updatedAt: input.now,
         },
-        where: or(takeover, activeLease),
+        where: takeover,
       })
       .returning();
     return row;
@@ -212,7 +207,6 @@ export function createInMemoryWorkspaceRuntimeStore(): WorkspaceRuntimeStore {
       const existing = rows.get(input.projectId);
       const blocked = existing
         && ["starting", "running"].includes(existing.status)
-        && existing.workerId !== input.workerId
         && existing.leaseUntil !== null
         && existing.leaseUntil > input.now;
       if (blocked) return undefined;

@@ -284,6 +284,86 @@ describe("workspace runtime supervisor server boundary", () => {
     expect(response.status).toBe(409);
   });
 
+  it("serializes concurrent starts for the same project", async () => {
+    const supervisorPort = await freePort();
+    const supervisor = startSupervisor(supervisorPort);
+    const projectRoot = await mkdtemp(path.join(tmpdir(), "workspace-runtime-concurrent-start-"));
+    const sessionIds = ["concurrent-session-a", "concurrent-session-b"];
+    const startedSessions: Array<{ projectId: string; sessionId: string; pid: number | null }> = [];
+    const token = deriveWorkspaceRuntimeSupervisorToken(testSecret);
+
+    try {
+      await writeFile(
+        path.join(projectRoot, "package.json"),
+        JSON.stringify({ type: "module", scripts: { dev: "node server.mjs" } }),
+      );
+      await writeFile(
+        path.join(projectRoot, "server.mjs"),
+        [
+          'import http from "node:http";',
+          'const server = http.createServer((_req, res) => res.end("runtime-ready"));',
+          'server.listen(Number(process.env.PORT), "127.0.0.1");',
+          'process.once("SIGTERM", () => server.close(() => process.exit(0)));',
+        ].join("\n"),
+      );
+      await waitForHealth(supervisor, supervisorPort);
+
+      const responses = await Promise.all(sessionIds.map((sessionId) => fetch(
+        `http://127.0.0.1:${supervisorPort}/runtime/start`,
+        {
+          method: "POST",
+          headers: {
+            "content-type": "application/json",
+            authorization: `Bearer ${token}`,
+          },
+          body: JSON.stringify({
+            projectId: "concurrent-start-project",
+            sessionId,
+            projectRoot,
+            profile: "dev",
+          }),
+        },
+      )));
+      expect(responses.map((response) => response.status).sort()).toEqual([200, 409]);
+      for (const response of responses) {
+        if (!response.ok) continue;
+        const session = await response.json() as {
+          projectId: string;
+          sessionId: string;
+          pid: number | null;
+        };
+        startedSessions.push(session);
+      }
+      expect(startedSessions).toHaveLength(1);
+    } finally {
+      for (const session of startedSessions) {
+        try {
+          await fetch(`http://127.0.0.1:${supervisorPort}/runtime/stop`, {
+            method: "POST",
+            headers: {
+              "content-type": "application/json",
+              authorization: `Bearer ${token}`,
+            },
+            body: JSON.stringify({
+              projectId: session.projectId,
+              sessionId: session.sessionId,
+            }),
+          });
+        } catch {
+          // The supervisor may already be stopping during test cleanup.
+        }
+        if (session.pid) {
+          try {
+            process.kill(-session.pid, "SIGKILL");
+          } catch {
+            // The runtime process group is already gone.
+          }
+        }
+      }
+      await rm(projectRoot, { recursive: true, force: true });
+    }
+  }, 15_000);
+
   it.skipIf(process.platform !== "linux")(
     "kills a surviving descendant after the process-group leader exits on SIGTERM",
     async () => {

@@ -17,6 +17,7 @@ const MAX_LOG_LINE_CHARS = 600;
 const SAFE_ENV_NAMES = /^(?:PATH|HOME|USER|SHELL|LANG|LC_[A-Z_]+|TERM|TMPDIR|PNPM_HOME|npm_config_[A-Za-z0-9_]+)$/;
 const SUPERVISOR_AUTH_CONTEXT = "EngineeringOS/workspace-runtime-supervisor/v1";
 const sessions = new Map();
+const startLocks = new Map();
 
 if (BIND_HOST !== "127.0.0.1") {
   throw new Error("Workspace runtime supervisor must bind to a loopback address.");
@@ -229,6 +230,22 @@ function publicSession(session) {
 }
 
 async function start(input) {
+  const previous = startLocks.get(input.projectId) ?? Promise.resolve();
+  let release;
+  const current = new Promise((resolve) => {
+    release = resolve;
+  });
+  startLocks.set(input.projectId, current);
+  await previous;
+  try {
+    return await startExclusive(input);
+  } finally {
+    release();
+    if (startLocks.get(input.projectId) === current) startLocks.delete(input.projectId);
+  }
+}
+
+async function startExclusive(input) {
   if (!isSafeProjectId(input.projectId) || !isSafeProjectId(input.sessionId)) {
     throw Object.assign(new Error("Invalid runtime identity."), { status: 400 });
   }

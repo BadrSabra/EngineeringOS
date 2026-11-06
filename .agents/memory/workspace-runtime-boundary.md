@@ -33,6 +33,12 @@ During recovery, the durable worker/lease claim is written before listener owner
 
 **How to apply:** Wait for the exact supervisor request and for API startup health after recovery, then reload the durable row before asserting ownership. Bind the post-kill expiry check to the captured lease and wait it out without mutating the row. State when the initial stale lease is fixture-seeded. Redirect only the isolated child API's supervisor calls to a loopback fixture.
 
+Runtime startup must renew its durable lease before and throughout environment capture and supervisor startup. If the supervisor response is ambiguous, retain the exact starting session identity until a complete observation can confirm that session is running or definitively absent.
+
+**Why:** The supervisor may create a process while its HTTP response is lost, and a lease can expire during startup; marking either case failed can orphan a live process or let recovery replace its owner.
+
+**How to apply:** Serialize starts per project at both manager and supervisor boundaries, retry only with the same session ID, reconcile from supervisor inventory, and preserve unresolved rows for later reconciliation.
+
 ### Process-group termination
 
 A managed runtime is not stopped merely because its group leader exited. Wait for the owned process group to disappear, escalate from SIGTERM to SIGKILL while any member remains, and keep the stop result explicitly failed or unresolved if group disappearance cannot be confirmed.
