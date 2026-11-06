@@ -298,7 +298,7 @@ async function runValidationScrubBatch(
       `SELECT id, ${column} AS payload
        FROM ${table}
        WHERE ${column} IS NOT NULL
-         AND ($1 IS NULL OR id > $1)
+         AND ($1::text IS NULL OR id > $1::text)
        ORDER BY id
        LIMIT $2`,
       [cursor.cursor_id, STARTUP_MAINTENANCE_BATCH_SIZE],
@@ -343,11 +343,14 @@ async function runChatDiagnosticsBatch(now: Date): Promise<MaintenanceBatchResul
       payload: string;
       cursor_at: Date;
     }>(
-      `SELECT id, tool_trace AS payload, created_at AS cursor_at
+      `SELECT id, tool_trace AS payload, created_at AT TIME ZONE 'UTC' AS cursor_at
        FROM ai_chat_messages
        WHERE created_at < $1
          AND tool_trace IS NOT NULL
-         AND ($2 IS NULL OR (created_at, id) > ($2, $3))
+         AND (
+           $2::timestamptz IS NULL
+           OR (created_at, id) > ($2::timestamptz AT TIME ZONE 'UTC', $3::text)
+         )
        ORDER BY created_at, id
        LIMIT $4`,
       [cutoff, cursor.cursor_at, cursor.cursor_id, STARTUP_MAINTENANCE_BATCH_SIZE],
@@ -401,12 +404,15 @@ async function runExecutionDiagnosticsBatch(now: Date): Promise<MaintenanceBatch
       payload: string;
       cursor_at: Date;
     }>(
-      `SELECT id, checkpoint AS payload, updated_at AS cursor_at
+      `SELECT id, checkpoint AS payload, updated_at AT TIME ZONE 'UTC' AS cursor_at
        FROM ai_executions
        WHERE updated_at < $1
          AND status IN ('cancelled', 'completed', 'failed')
          AND checkpoint IS NOT NULL
-         AND ($2 IS NULL OR (updated_at, id) > ($2, $3))
+         AND (
+           $2::timestamptz IS NULL
+           OR (updated_at, id) > ($2::timestamptz AT TIME ZONE 'UTC', $3::text)
+         )
        ORDER BY updated_at, id
        LIMIT $4`,
       [cutoff, cursor.cursor_at, cursor.cursor_id, STARTUP_MAINTENANCE_BATCH_SIZE],

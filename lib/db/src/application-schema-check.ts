@@ -1841,8 +1841,13 @@ type ForeignKeyRow = {
   delete_rule: string;
 };
 
-const REQUIRED_TABLES = Object.keys(APPLICATION_SCHEMA_CONTRACT.tables);
 const REQUIRED_ENUMS = Object.keys(APPLICATION_SCHEMA_CONTRACT.enums);
+const REQUIRED_TABLES = [
+  ...new Set([
+    ...Object.keys(APPLICATION_SCHEMA_CONTRACT.tables),
+    ...APPLICATION_SCHEMA_CONTRACT.indexes.map((index) => index.tableName),
+  ]),
+];
 const DELIVERY_COMMAND = "pnpm --filter @workspace/db run schema:apply";
 const REQUIRED_TABLE_SQL = REQUIRED_TABLES.map((name) => `'${name}'`).join(", ");
 

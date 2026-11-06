@@ -188,8 +188,16 @@ function completeSnapshot() {
     predicate: definition.predicate ?? null,
     columns: [...definition.columns],
   }));
+  const requiredTables = [
+    ...new Set([
+      ...Object.keys(APPLICATION_SCHEMA_CONTRACT.tables),
+      ...(APPLICATION_SCHEMA_CONTRACT.indexes as readonly IndexContract[]).map(
+        (index) => index.tableName,
+      ),
+    ]),
+  ];
   return {
-    tables: Object.keys(APPLICATION_SCHEMA_CONTRACT.tables).map((table_name) => ({
+    tables: requiredTables.map((table_name) => ({
       table_name,
       table_type: "BASE TABLE",
     })),
@@ -201,7 +209,7 @@ function completeSnapshot() {
       }),
     ),
     indexes,
-    primaryKeys: Object.keys(APPLICATION_SCHEMA_CONTRACT.tables).flatMap(
+    primaryKeys: requiredTables.flatMap(
       (table_name) => table_name === "startup_maintenance_state"
         ? ["maintenance_key"].map((column_name) => ({ table_name, column_name }))
         : table_name === "openrouter_model_cooldowns"
