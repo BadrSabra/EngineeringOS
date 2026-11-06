@@ -29,6 +29,20 @@ async function freePort(): Promise<number> {
   return address.port;
 }
 
+async function freeManagedRuntimePort(): Promise<number> {
+  for (let port = 3_000; port <= 3_099; port += 1) {
+    const server = createServer();
+    const available = await new Promise<boolean>((resolve) => {
+      server.once("error", () => resolve(false));
+      server.listen({ host: "127.0.0.1", port }, () => {
+        server.close((error) => resolve(!error));
+      });
+    });
+    if (available) return port;
+  }
+  throw new Error("No managed runtime port is available for the test.");
+}
+
 function startSupervisor(port: number, extraEnv: Record<string, string> = {}): ChildProcess {
   const child = spawn(process.execPath, [scriptPath], {
     env: {
@@ -95,6 +109,15 @@ async function readProcessGroupId(pid: number): Promise<number | null> {
   }
 }
 
+function isProcessGroupAlive(pgid: number): boolean {
+  try {
+    process.kill(-pgid, 0);
+    return true;
+  } catch (error) {
+    return (error as NodeJS.ErrnoException).code !== "ESRCH";
+  }
+}
+
 async function waitForProcessExit(pid: number, timeoutMs: number): Promise<boolean> {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
@@ -102,6 +125,93 @@ async function waitForProcessExit(pid: number, timeoutMs: number): Promise<boole
     await new Promise((resolve) => setTimeout(resolve, 25));
   }
   return !await isProcessRunning(pid);
+}
+
+async function waitForRuntimePort(port: number): Promise<void> {
+  const deadline = Date.now() + 4_000;
+  while (Date.now() < deadline) {
+    try {
+      const response = await fetch(`http://127.0.0.1:${port}`);
+      if (response.ok) {
+        await response.text();
+        return;
+      }
+    } catch {
+      // The isolated runtime has not opened its listener yet.
+    }
+    await new Promise((resolve) => setTimeout(resolve, 25));
+  }
+  throw new Error("Isolated runtime did not open its listener.");
+}
+
+async function startOrphaningRuntimeGroup(projectRoot: string, runtimePort: number, suffix: string) {
+  const descendantPidFile = path.join(projectRoot, `${suffix}.pid`);
+  const descendantReadyFile = path.join(projectRoot, `${suffix}.ready`);
+  await writeFile(
+    path.join(projectRoot, "package.json"),
+    JSON.stringify({ scripts: { dev: "node leader.mjs" } }),
+  );
+  await writeFile(
+    path.join(projectRoot, "descendant.mjs"),
+    [
+      'import { writeFileSync } from "node:fs";',
+      'process.on("SIGTERM", () => {});',
+      'writeFileSync(process.env.TEST_CHILD_READY_FILE, "ready");',
+      'setInterval(() => {}, 1000);',
+    ].join("\n"),
+  );
+  await writeFile(
+    path.join(projectRoot, "leader.mjs"),
+    [
+      'import { spawn } from "node:child_process";',
+      'import { writeFileSync } from "node:fs";',
+      'import { createServer } from "node:http";',
+      'import path from "node:path";',
+      'const descendant = spawn(process.execPath, [path.join(process.cwd(), "descendant.mjs")], { stdio: "ignore" });',
+      'writeFileSync(process.env.TEST_DESCENDANT_PID_FILE, String(descendant.pid));',
+      'const server = createServer((_request, response) => response.end("ready"));',
+      'server.listen(Number(process.env.TEST_RUNTIME_PORT), "127.0.0.1");',
+      'process.once("SIGTERM", () => server.close(() => process.exit(0)));',
+      'setInterval(() => {}, 1000);',
+    ].join("\n"),
+  );
+
+  const leader = spawn(process.execPath, [path.join(projectRoot, "leader.mjs")], {
+    cwd: projectRoot,
+    env: {
+      ...process.env,
+      TEST_RUNTIME_PORT: String(runtimePort),
+      TEST_DESCENDANT_PID_FILE: descendantPidFile,
+      TEST_CHILD_READY_FILE: descendantReadyFile,
+    },
+    detached: true,
+    stdio: "ignore",
+  });
+  children.push(leader);
+  const leaderPid = leader.pid;
+  if (!leaderPid) throw new Error("Isolated runtime leader did not start.");
+  await waitForRuntimePort(runtimePort);
+
+  const descendantPid = Number(await readFile(descendantPidFile, "utf8"));
+  if (
+    descendantPid <= 1
+    || await readProcessGroupId(descendantPid) !== leaderPid
+    || !await isProcessRunning(descendantPid)
+  ) {
+    throw new Error("Isolated descendant is not in the expected process group.");
+  }
+  const descendantReadyDeadline = Date.now() + 2_000;
+  while (Date.now() < descendantReadyDeadline) {
+    try {
+      if ((await readFile(descendantReadyFile, "utf8")) === "ready") {
+        return { leader, leaderPid, descendantPid };
+      }
+    } catch {
+      // The descendant has not installed its signal handler yet.
+    }
+    await new Promise((resolve) => setTimeout(resolve, 25));
+  }
+  throw new Error("Isolated descendant did not install its signal handler.");
 }
 
 afterEach(async () => {
@@ -178,7 +288,7 @@ describe("workspace runtime supervisor server boundary", () => {
     "kills a surviving descendant after the process-group leader exits on SIGTERM",
     async () => {
       const supervisorPort = await freePort();
-      const runtimePort = await freePort();
+      const runtimePort = await freeManagedRuntimePort();
       const supervisor = startSupervisor(supervisorPort);
       const projectRoot = await mkdtemp(path.join(tmpdir(), "workspace-runtime-stop-"));
       let leaderPid: number | undefined;
@@ -186,60 +296,10 @@ describe("workspace runtime supervisor server boundary", () => {
 
       try {
         await waitForHealth(supervisor, supervisorPort);
-        await writeFile(
-          path.join(projectRoot, "package.json"),
-          JSON.stringify({ scripts: { dev: "node dev.mjs" } }),
-        );
-        await writeFile(
-          path.join(projectRoot, "leader.mjs"),
-          [
-            'import { spawn } from "node:child_process";',
-            'import { writeFileSync } from "node:fs";',
-            'import { createServer } from "node:net";',
-            'const descendant = spawn(process.execPath, ["-e", \'process.on("SIGTERM", () => {}); setInterval(() => {}, 1000);\'], { stdio: "ignore" });',
-            'writeFileSync(process.env.TEST_DESCENDANT_PID_FILE, String(descendant.pid));',
-            'const server = createServer((socket) => socket.end("ready"));',
-            'server.listen(Number(process.env.TEST_RUNTIME_PORT), "127.0.0.1");',
-            'process.once("SIGTERM", () => server.close(() => process.exit(0)));',
-            'setInterval(() => {}, 1000);',
-          ].join("\n"),
-        );
-
+        const runtime = await startOrphaningRuntimeGroup(projectRoot, runtimePort, "stop-test");
+        leaderPid = runtime.leaderPid;
+        descendantPid = runtime.descendantPid;
         const token = deriveWorkspaceRuntimeSupervisorToken(testSecret);
-        const descendantPidFile = path.join(projectRoot, "descendant.pid");
-        const leader = spawn(process.execPath, [path.join(projectRoot, "leader.mjs")], {
-          cwd: projectRoot,
-          env: {
-            ...process.env,
-            TEST_RUNTIME_PORT: String(runtimePort),
-            TEST_DESCENDANT_PID_FILE: descendantPidFile,
-          },
-          detached: true,
-          stdio: "ignore",
-        });
-        children.push(leader);
-        leaderPid = leader.pid ?? undefined;
-        expect(leaderPid).toBeGreaterThan(1);
-
-        const readyDeadline = Date.now() + 4_000;
-        let ready = false;
-        while (Date.now() < readyDeadline) {
-          try {
-            const response = await fetch(`http://127.0.0.1:${runtimePort}`);
-            if (response.ok) {
-              ready = true;
-              break;
-            }
-          } catch {
-            // The isolated leader has not opened its listener yet.
-          }
-          await new Promise((resolve) => setTimeout(resolve, 25));
-        }
-        expect(ready).toBe(true);
-        descendantPid = Number(await readFile(descendantPidFile, "utf8"));
-        expect(descendantPid).toBeGreaterThan(1);
-        expect(await readProcessGroupId(descendantPid)).toBe(leaderPid);
-        expect(await isProcessRunning(descendantPid)).toBe(true);
 
         const adoptResponse = await fetch(`http://127.0.0.1:${supervisorPort}/runtime/adopt`, {
           method: "POST",
@@ -258,7 +318,8 @@ describe("workspace runtime supervisor server boundary", () => {
         expect(adoptResponse.status).toBe(200);
         await adoptResponse.json();
 
-        const stopResponse = await fetch(`http://127.0.0.1:${supervisorPort}/runtime/stop`, {
+        let stopResponseCompleted = false;
+        const stopRequest = fetch(`http://127.0.0.1:${supervisorPort}/runtime/stop`, {
           method: "POST",
           headers: {
             "content-type": "application/json",
@@ -268,10 +329,31 @@ describe("workspace runtime supervisor server boundary", () => {
             projectId: "group-stop-test",
             sessionId: "group-stop-session",
           }),
+        }).then((response) => {
+          stopResponseCompleted = true;
+          return response;
         });
+        expect(await waitForProcessExit(leaderPid!, 1_000)).toBe(true);
+        expect(await isProcessRunning(descendantPid)).toBe(true);
+        await new Promise((resolve) => setTimeout(resolve, 100));
+        expect(stopResponseCompleted).toBe(false);
+
+        const observationResponse = await fetch(`http://127.0.0.1:${supervisorPort}/runtime/observe-start`, {
+          method: "POST",
+          headers: {
+            "content-type": "application/json",
+            authorization: `Bearer ${token}`,
+          },
+          body: JSON.stringify({ projectId: "group-stop-test" }),
+        });
+        expect(observationResponse.status).toBe(200);
+        await expect(observationResponse.json()).resolves.toMatchObject({ status: "unknown" });
+
+        const stopResponse = await stopRequest;
         expect(stopResponse.status).toBe(200);
-        await stopResponse.json();
+        await expect(stopResponse.json()).resolves.toMatchObject({ status: "stopped", pid: null });
         expect(await waitForProcessExit(descendantPid, 1_000)).toBe(true);
+        expect(isProcessGroupAlive(leaderPid!)).toBe(false);
       } finally {
         if (leaderPid) {
           try {
@@ -290,5 +372,67 @@ describe("workspace runtime supervisor server boundary", () => {
         await rm(projectRoot, { recursive: true, force: true });
       }
     },
+  );
+
+  it.skipIf(process.platform !== "linux")(
+    "cleans an adopted process group before the supervisor exits",
+    async () => {
+      const supervisorPort = await freePort();
+      const runtimePort = await freeManagedRuntimePort();
+      const supervisor = startSupervisor(supervisorPort);
+      const projectRoot = await mkdtemp(path.join(tmpdir(), "workspace-runtime-shutdown-"));
+      let leaderPid: number | undefined;
+      let descendantPid: number | undefined;
+
+      try {
+        await waitForHealth(supervisor, supervisorPort);
+        const runtime = await startOrphaningRuntimeGroup(projectRoot, runtimePort, "shutdown-test");
+        leaderPid = runtime.leaderPid;
+        descendantPid = runtime.descendantPid;
+        const token = deriveWorkspaceRuntimeSupervisorToken(testSecret);
+
+        const adoptResponse = await fetch(`http://127.0.0.1:${supervisorPort}/runtime/adopt`, {
+          method: "POST",
+          headers: {
+            "content-type": "application/json",
+            authorization: `Bearer ${token}`,
+          },
+          body: JSON.stringify({
+            projectId: "group-shutdown-test",
+            sessionId: "group-shutdown-session",
+            projectRoot,
+            pid: leaderPid,
+            port: runtimePort,
+          }),
+        });
+        expect(adoptResponse.status).toBe(200);
+        await adoptResponse.json();
+
+        const supervisorExited = once(supervisor, "exit");
+        supervisor.kill("SIGTERM");
+        const [exitCode, exitSignal] = await supervisorExited;
+        expect(exitCode).toBe(0);
+        expect(exitSignal).toBeNull();
+        expect(await waitForProcessExit(descendantPid, 1_000)).toBe(true);
+        expect(isProcessGroupAlive(leaderPid)).toBe(false);
+      } finally {
+        if (leaderPid) {
+          try {
+            process.kill(-leaderPid, "SIGKILL");
+          } catch {
+            // The isolated test group is already gone.
+          }
+        }
+        if (descendantPid) {
+          try {
+            process.kill(descendantPid, "SIGKILL");
+          } catch {
+            // The isolated test descendant is already gone.
+          }
+        }
+        await rm(projectRoot, { recursive: true, force: true });
+      }
+    },
+    10_000,
   );
 });

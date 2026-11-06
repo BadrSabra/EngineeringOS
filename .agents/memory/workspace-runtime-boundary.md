@@ -32,3 +32,11 @@ During recovery, the durable worker/lease claim is written before listener owner
 **Why:** API worker IDs are process-local; rows inserted after startup may only be claimed by a later sweep, and `recover()` persists its claim before it verifies adoption. Updating the database to force expiry skips the timing behavior that recovery is supposed to validate. Managed supervisor behavior is a separate boundary from API orchestration.
 
 **How to apply:** Wait for the exact supervisor request and for API startup health after recovery, then reload the durable row before asserting ownership. Bind the post-kill expiry check to the captured lease and wait it out without mutating the row. State when the initial stale lease is fixture-seeded. Redirect only the isolated child API's supervisor calls to a loopback fixture.
+
+### Process-group termination
+
+A managed runtime is not stopped merely because its group leader exited. Wait for the owned process group to disappear, escalate from SIGTERM to SIGKILL while any member remains, and keep the stop result explicitly failed or unresolved if group disappearance cannot be confirmed.
+
+**Why:** The leader can exit on SIGTERM while a descendant in the same group ignores it; reporting `stopped` at that point leaves an orphaned runtime and false lifecycle state.
+
+**How to apply:** Use group-level liveness rather than leader-PID liveness, and test with a leader that exits on SIGTERM while a ready descendant ignores it. Keep status observations unresolved until cleanup is confirmed.

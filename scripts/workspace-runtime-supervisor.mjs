@@ -124,13 +124,42 @@ function signalGroup(pid, signal) {
   }
 }
 
-async function terminate(session) {
-  signalGroup(session.pid, "SIGTERM");
-  const deadline = Date.now() + STOP_TIMEOUT_MS;
-  while (Date.now() < deadline && isPidAlive(session.pid)) {
+function isProcessGroupAlive(pid) {
+  if (!Number.isInteger(pid) || pid <= 1) return false;
+  try {
+    process.kill(-pid, 0);
+    return true;
+  } catch (error) {
+    return error.code !== "ESRCH";
+  }
+}
+
+async function waitForProcessGroupExit(pid, timeoutMs) {
+  const deadline = Date.now() + timeoutMs;
+  while (isProcessGroupAlive(pid)) {
+    if (Date.now() >= deadline) return false;
     await new Promise((resolve) => setTimeout(resolve, 50));
   }
-  if (isPidAlive(session.pid)) signalGroup(session.pid, "SIGKILL");
+  return true;
+}
+
+async function terminate(session) {
+  const pid = session.pid;
+  session.terminationPending = true;
+  try {
+    signalGroup(pid, "SIGTERM");
+    if (!(await waitForProcessGroupExit(pid, STOP_TIMEOUT_MS))) {
+      signalGroup(pid, "SIGKILL");
+      if (!(await waitForProcessGroupExit(pid, STOP_TIMEOUT_MS))) {
+        throw Object.assign(new Error("Runtime process group did not stop after SIGKILL."), { status: 409 });
+      }
+    }
+  } catch (error) {
+    session.status = "failed";
+    session.error = bounded(error instanceof Error ? error.message : "Runtime process group termination could not be confirmed.");
+    if (error?.status) throw error;
+    throw Object.assign(new Error("Runtime process group termination could not be confirmed."), { status: 409 });
+  }
   session.status = "stopped";
   session.pid = null;
   session.stoppedAt = new Date().toISOString();
@@ -242,12 +271,13 @@ async function start(input) {
     logs: [],
     error: null,
     child,
+    terminationPending: false,
     ...(input.attestationMarker ? { attestationMarker: input.attestationMarker } : {}),
   };
   sessions.set(input.projectId, session);
   attachLogs(session);
   child.once("exit", (code, signal) => {
-    if (sessions.get(input.projectId)?.sessionId !== session.sessionId) return;
+    if (sessions.get(input.projectId) !== session || session.terminationPending) return;
     if (session.status === "starting" || session.status === "running") {
       session.status = code === 0 ? "stopped" : "failed";
       session.error = code === 0 ? null : `Runtime exited with ${signal ?? `code ${code ?? "unknown"}`}.`;
@@ -299,6 +329,7 @@ async function adopt(input) {
     pid: input.pid,
     logs: [],
     error: null,
+    terminationPending: false,
   };
   sessions.set(input.projectId, session);
   return publicSession(session);
@@ -395,8 +426,18 @@ server.listen(PORT, BIND_HOST, () => {
 });
 
 function shutdown() {
-  for (const session of sessions.values()) signalGroup(session.pid, "SIGTERM");
-  server.close(() => process.exit(0));
+  const cleanup = Promise.allSettled(
+    [...sessions.values()].map((session) => terminate(session)),
+  );
+  server.close(() => {
+    void cleanup.then((results) => {
+      const failures = results.filter((result) => result.status === "rejected").length;
+      if (failures > 0) {
+        console.error(`Workspace runtime shutdown could not confirm ${failures} process group(s).`);
+      }
+      process.exit(0);
+    });
+  });
 }
 process.once("SIGTERM", shutdown);
 process.once("SIGINT", shutdown);
