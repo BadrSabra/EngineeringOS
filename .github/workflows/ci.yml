@@ -291,6 +291,18 @@ jobs:
 
           pnpm run test
 
+      - name: Prove PostgreSQL-backed runtime process recovery
+        shell: bash
+        run: |
+          set -euo pipefail
+          export SESSION_SECRET="$(node --input-type=module -e 'import { randomBytes } from "node:crypto"; process.stdout.write(randomBytes(32).toString("base64url"))')"
+          pnpm --filter @workspace/api-server exec vitest run src/lib/workspace-runtime-store.test.ts
+        env:
+          RUN_RUNTIME_CONCURRENT_START_PROCESS: "1"
+          RUN_RUNTIME_ADOPTION_PROCESS_RECOVERY: "1"
+          RUN_RUNTIME_START_RESPONSE_LOSS_RECOVERY: "1"
+          RUN_RUNTIME_STARTUP_RECOVERY: "1"
+
   release-validation:
     name: Release validation
     if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && inputs.release_environment == 'release-validation'

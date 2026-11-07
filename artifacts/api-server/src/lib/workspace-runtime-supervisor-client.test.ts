@@ -27,20 +27,67 @@ describe("WorkspaceRuntimeSupervisorClient child attestation handoff", () => {
       fetchImpl,
       "test-supervisor-token",
     );
-    const marker = "ea195580-47e7-435b-9c64-8a3ee5ce7240";
+    const marker = "a".repeat(64);
+    const listenerBindingDigest = "b".repeat(64);
 
     const response = await client.start({
       projectId: "project-runtime",
       sessionId: "session-runtime",
       projectRoot: "/tmp/project-runtime",
       attestationMarker: marker,
+      listenerBindingDigest,
     });
 
     expect(requests).toHaveLength(1);
     expect(requests[0]?.url).toBe("http://supervisor.test/runtime/start");
     expect(requests[0]?.authorization).toBe("Bearer test-supervisor-token");
-    expect(JSON.parse(requests[0]!.body)).toMatchObject({ attestationMarker: marker });
+    expect(JSON.parse(requests[0]!.body)).toMatchObject({
+      attestationMarker: marker,
+      listenerBindingDigest,
+    });
     expect(response).not.toHaveProperty("attestationMarker");
+    expect(JSON.stringify(response)).not.toContain(marker);
+  });
+
+  it("sends the recovery marker and expected listener identity only to the supervisor", async () => {
+    const requests: Array<{ url: string; body: string }> = [];
+    const fetchImpl: typeof fetch = async (input, init) => {
+      requests.push({ url: String(input), body: String(init?.body ?? "") });
+      return new Response(JSON.stringify({
+        projectId: "project-runtime",
+        sessionId: "session-runtime",
+        status: "running",
+        port: 3010,
+        pid: 1234,
+        listenerIdentityDigest: "c".repeat(64),
+      }), { status: 200, headers: { "content-type": "application/json" } });
+    };
+    const client = new WorkspaceRuntimeSupervisorClient(
+      "http://supervisor.test",
+      fetchImpl,
+      "test-supervisor-token",
+    );
+    const marker = "d".repeat(64);
+
+    const response = await client.adopt({
+      projectId: "project-runtime",
+      sessionId: "session-runtime",
+      projectRoot: "/tmp/project-runtime",
+      pid: 1234,
+      port: 3010,
+      listenerBindingDigest: "e".repeat(64),
+      expectedListenerIdentityDigest: "f".repeat(64),
+      attestationMarker: marker,
+    });
+
+    expect(requests).toHaveLength(1);
+    expect(requests[0]?.url).toBe("http://supervisor.test/runtime/adopt");
+    expect(JSON.parse(requests[0]!.body)).toMatchObject({
+      listenerBindingDigest: "e".repeat(64),
+      expectedListenerIdentityDigest: "f".repeat(64),
+      attestationMarker: marker,
+    });
+    expect(response.listenerIdentityDigest).toBe("c".repeat(64));
     expect(JSON.stringify(response)).not.toContain(marker);
   });
 

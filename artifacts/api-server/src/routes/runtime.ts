@@ -17,6 +17,7 @@ import {
   recordRuntimeObservation,
   RuntimeObservationError,
 } from "../lib/runtime-observations.js";
+import { logger } from "../lib/logger.js";
 
 const router = Router();
 
@@ -77,6 +78,7 @@ router.post("/projects/:projectId/runtime/start", requireProjectWriteAccess, asy
     .update(JSON.stringify([project.id, req.userId, idempotencyKey]))
     .digest("hex")}`;
 
+  let failureStage = "resolve_project_root";
   try {
     const root = await resolveRootPath(project.rootPath, project.id);
     if (!root.validRootPath) {
@@ -87,6 +89,7 @@ router.post("/projects/:projectId/runtime/start", requireProjectWriteAccess, asy
       });
     }
 
+    failureStage = "run_recipe_operation";
     const result = await runRecipeOperation({
       projectId: project.id,
       operationId,
@@ -98,6 +101,7 @@ router.post("/projects/:projectId/runtime/start", requireProjectWriteAccess, asy
       idempotencyKey,
       runtimeStartRunner: createRuntimeStartRunner(),
     });
+    failureStage = "load_runtime_snapshot";
     const snapshot = await workspaceRuntime.get(project.id);
     const responseBody = {
       ...snapshot,
@@ -120,6 +124,23 @@ router.post("/projects/:projectId/runtime/start", requireProjectWriteAccess, asy
       const response = runtimeErrorResponse(error);
       return res.status(response.status).json(response.body);
     }
+    const failure = error && typeof error === "object"
+      ? error as { name?: unknown; code?: unknown }
+      : undefined;
+    const errorName = typeof failure?.name === "string"
+      && /^[A-Za-z0-9_.-]{1,80}$/.test(failure.name)
+      ? failure.name
+      : "UnknownError";
+    const errorCode = typeof failure?.code === "string"
+      && /^[A-Za-z0-9_.-]{1,80}$/.test(failure.code)
+      ? failure.code
+      : undefined;
+    logger.error({
+      operationId,
+      stage: failureStage,
+      errorName,
+      ...(errorCode ? { errorCode } : {}),
+    }, "Runtime start execution was blocked.");
     return res.status(409).json({
       error: "Runtime startup could not be completed.",
       code: "RUNTIME_START_EXECUTION_BLOCKED",

@@ -6,6 +6,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterEach, describe, expect, it } from "vitest";
+import { resolveRuntimeListenerProcess } from "./agent-state/runtime-listener-process.js";
 import { deriveWorkspaceRuntimeSupervisorToken } from "./workspace-runtime-supervisor-client.js";
 
 const testSecret = "supervisor-test-secret-that-is-not-used-outside-this-test";
@@ -41,6 +42,22 @@ async function freeManagedRuntimePort(): Promise<number> {
     if (available) return port;
   }
   throw new Error("No managed runtime port is available for the test.");
+}
+
+async function runtimeAdoptionProof(pid: number, port: number) {
+  const listenerBindingDigest = "a".repeat(64);
+  const resolution = await resolveRuntimeListenerProcess({
+    launchPid: pid,
+    port,
+    bindingDigest: listenerBindingDigest,
+  });
+  if (resolution.status !== "known" || !resolution.identityDigest) {
+    throw new Error(`Runtime fixture listener could not be resolved: ${resolution.reasonCode}.`);
+  }
+  return {
+    listenerBindingDigest,
+    expectedListenerIdentityDigest: resolution.identityDigest,
+  };
 }
 
 function startSupervisor(port: number, extraEnv: Record<string, string> = {}): ChildProcess {
@@ -364,6 +381,65 @@ describe("workspace runtime supervisor server boundary", () => {
     }
   }, 15_000);
 
+  it("refuses to adopt a live PID when another process owns the listening port", async () => {
+    const supervisorPort = await freePort();
+    const runtimePort = await freeManagedRuntimePort();
+    const supervisor = startSupervisor(supervisorPort);
+    const projectRoot = await mkdtemp(path.join(tmpdir(), "workspace-runtime-adopt-owner-"));
+    let unrelatedLauncher: ChildProcess | undefined;
+    let runtime: Awaited<ReturnType<typeof startOrphaningRuntimeGroup>> | undefined;
+
+    try {
+      await waitForHealth(supervisor, supervisorPort);
+      runtime = await startOrphaningRuntimeGroup(projectRoot, runtimePort, "owner-mismatch");
+      unrelatedLauncher = spawn(process.execPath, ["-e", "setInterval(() => {}, 1000)"], {
+        cwd: projectRoot,
+        detached: true,
+        stdio: "ignore",
+      });
+      children.push(unrelatedLauncher);
+      if (!unrelatedLauncher.pid) throw new Error("Unrelated runtime launcher did not start.");
+      await new Promise<void>((resolve, reject) => {
+        unrelatedLauncher!.once("spawn", () => resolve());
+        unrelatedLauncher!.once("error", reject);
+      });
+
+      const token = deriveWorkspaceRuntimeSupervisorToken(testSecret);
+      const response = await fetch(`http://127.0.0.1:${supervisorPort}/runtime/adopt`, {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          projectId: "adopt-owner-mismatch",
+          sessionId: "adopt-owner-mismatch-session",
+          projectRoot,
+          pid: unrelatedLauncher.pid,
+          port: runtimePort,
+          listenerBindingDigest: "a".repeat(64),
+          expectedListenerIdentityDigest: "b".repeat(64),
+        }),
+      });
+
+      expect(response.status).toBe(409);
+      await expect(response.json()).resolves.toMatchObject({
+        error: "Runtime listener ownership could not be verified.",
+      });
+    } finally {
+      if (runtime?.leaderPid) {
+        try { process.kill(-runtime.leaderPid, "SIGKILL"); } catch {}
+      }
+      if (runtime?.descendantPid) {
+        try { process.kill(runtime.descendantPid, "SIGKILL"); } catch {}
+      }
+      if (unrelatedLauncher?.pid) {
+        try { process.kill(-unrelatedLauncher.pid, "SIGKILL"); } catch {}
+      }
+      await rm(projectRoot, { recursive: true, force: true });
+    }
+  }, 15_000);
+
   it.skipIf(process.platform !== "linux")(
     "kills a surviving descendant after the process-group leader exits on SIGTERM",
     async () => {
@@ -380,6 +456,7 @@ describe("workspace runtime supervisor server boundary", () => {
         leaderPid = runtime.leaderPid;
         descendantPid = runtime.descendantPid;
         const token = deriveWorkspaceRuntimeSupervisorToken(testSecret);
+        const adoptionProof = await runtimeAdoptionProof(leaderPid, runtimePort);
 
         const adoptResponse = await fetch(`http://127.0.0.1:${supervisorPort}/runtime/adopt`, {
           method: "POST",
@@ -393,6 +470,7 @@ describe("workspace runtime supervisor server boundary", () => {
             projectRoot,
             pid: leaderPid,
             port: runtimePort,
+            ...adoptionProof,
           }),
         });
         expect(adoptResponse.status).toBe(200);
@@ -470,6 +548,7 @@ describe("workspace runtime supervisor server boundary", () => {
         leaderPid = runtime.leaderPid;
         descendantPid = runtime.descendantPid;
         const token = deriveWorkspaceRuntimeSupervisorToken(testSecret);
+        const adoptionProof = await runtimeAdoptionProof(leaderPid, runtimePort);
 
         const adoptResponse = await fetch(`http://127.0.0.1:${supervisorPort}/runtime/adopt`, {
           method: "POST",
@@ -483,6 +562,7 @@ describe("workspace runtime supervisor server boundary", () => {
             projectRoot,
             pid: leaderPid,
             port: runtimePort,
+            ...adoptionProof,
           }),
         });
         expect(adoptResponse.status).toBe(200);

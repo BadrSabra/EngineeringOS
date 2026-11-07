@@ -10,6 +10,16 @@ import {
 } from "drizzle-orm/pg-core";
 import { projectsTable } from "./projects.js";
 
+export type WorkspaceRuntimeAttestationBinding = {
+  projectId: string;
+  sessionId: string;
+  executionId: string;
+  executionAttempt: number;
+  episodeId: string;
+  operationId: string;
+  revision: string;
+};
+
 export const workspaceRuntimeStatusEnum = pgEnum("workspace_runtime_status", [
   "stopped",
   "starting",
@@ -34,6 +44,9 @@ export const workspaceRuntimeTable = pgTable("workspace_runtime", {
   projectRoot: text("project_root").notNull(),
   revision: text("revision"),
   environmentRevision: text("environment_revision"),
+  attestationBinding: jsonb("attestation_binding")
+    .$type<WorkspaceRuntimeAttestationBinding | null>(),
+  attestationKeyVersion: text("attestation_key_version"),
   port: integer("port"),
   pid: integer("pid"),
   workerId: text("worker_id"),

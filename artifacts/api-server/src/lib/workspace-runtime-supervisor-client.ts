@@ -17,6 +17,7 @@ type SupervisorResponse = {
   status: "starting" | "running" | "stopped" | "failed";
   port: number | null;
   pid: number | null;
+  listenerIdentityDigest?: string | null;
   logs?: string[];
   error?: string | null;
 };
@@ -53,6 +54,7 @@ export class WorkspaceRuntimeSupervisorClient {
     sessionId: string;
     projectRoot: string;
     attestationMarker?: string;
+    listenerBindingDigest?: string;
   }): Promise<SupervisorResponse> {
     return this.request("/runtime/start", {
       method: "POST",
@@ -62,6 +64,9 @@ export class WorkspaceRuntimeSupervisorClient {
         projectRoot: input.projectRoot,
         profile: "dev",
         ...(input.attestationMarker ? { attestationMarker: input.attestationMarker } : {}),
+        ...(input.listenerBindingDigest
+          ? { listenerBindingDigest: input.listenerBindingDigest }
+          : {}),
       }),
     });
   }
@@ -72,6 +77,9 @@ export class WorkspaceRuntimeSupervisorClient {
     projectRoot: string;
     pid: number | null;
     port: number | null;
+    listenerBindingDigest: string;
+    expectedListenerIdentityDigest: string;
+    attestationMarker?: string;
   }): Promise<SupervisorResponse> {
     return this.request("/runtime/adopt", {
       method: "POST",
@@ -82,6 +90,9 @@ export class WorkspaceRuntimeSupervisorClient {
         pid: input.pid,
         port: input.port,
         profile: "dev",
+        listenerBindingDigest: input.listenerBindingDigest,
+        expectedListenerIdentityDigest: input.expectedListenerIdentityDigest,
+        ...(input.attestationMarker ? { attestationMarker: input.attestationMarker } : {}),
       }),
     });
   }
@@ -202,5 +213,8 @@ function isSupervisorResponse(value: unknown): value is SupervisorResponse {
     ))
     && (candidate.logs === undefined || (Array.isArray(candidate.logs) && candidate.logs.every((line) => typeof line === "string")))
     && (candidate.error === undefined || candidate.error === null || typeof candidate.error === "string")
+    && (candidate.listenerIdentityDigest === undefined || candidate.listenerIdentityDigest === null
+      || (typeof candidate.listenerIdentityDigest === "string"
+        && /^[a-f0-9]{64}$/.test(candidate.listenerIdentityDigest)))
   );
 }

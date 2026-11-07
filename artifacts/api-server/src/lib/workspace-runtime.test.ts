@@ -7,6 +7,7 @@ import { createInMemoryWorkspaceRuntimeStore } from "./workspace-runtime-store.j
 
 const managers: WorkspaceRuntimeManager[] = [];
 const roots: string[] = [];
+const runtimeAttestationTestSecret = "workspace-runtime-attestation-test-secret";
 
 afterEach(async () => {
   await Promise.all(managers.splice(0).map((manager) => manager.shutdown()));
@@ -31,7 +32,11 @@ describe("WorkspaceRuntimeManager", () => {
       ].join("\n"),
     );
 
-    const manager = new WorkspaceRuntimeManager();
+    const store = createInMemoryWorkspaceRuntimeStore();
+    const manager = new WorkspaceRuntimeManager({
+      store,
+      attestationSecret: runtimeAttestationTestSecret,
+    });
     managers.push(manager);
     const attestationIdentity = {
       projectId: "project-runtime-test",
@@ -54,6 +59,20 @@ describe("WorkspaceRuntimeManager", () => {
     expect(started.port).toBeLessThanOrEqual(3099);
     expect(started.command).toBe("pnpm run dev");
     expect(started.environmentRevision).toMatch(/^env-v1:[a-f0-9]{64}$/);
+    await expect(store.get("project-runtime-test")).resolves.toMatchObject({
+      sessionId: started.sessionId,
+      attestationBinding: {
+        projectId: "project-runtime-test",
+        sessionId: started.sessionId,
+        executionId: "execution-runtime-test",
+        executionAttempt: 1,
+        episodeId: "episode-runtime-test",
+        operationId: "operation-runtime-test",
+        revision: "revision-1",
+      },
+      attestationKeyVersion: "runtime-child-marker-hmac-v1",
+    });
+    expect(await store.get("project-runtime-test")).not.toHaveProperty("attestationMarker");
 
     const afterState = await manager.observeAfterState({
       projectId: "project-runtime-test",
@@ -308,7 +327,7 @@ describe("WorkspaceRuntimeManager", () => {
     await fs.rm(root, { recursive: true, force: true });
   });
 
-  it("adopts a live process after the owning API worker is replaced", async () => {
+  it("adopts and re-attests a live process after the owning API worker is replaced", async () => {
     const root = await fs.mkdtemp(path.join(process.cwd(), "workspace-runtime-"));
     await fs.writeFile(
       path.join(root, "package.json"),
@@ -325,8 +344,16 @@ describe("WorkspaceRuntimeManager", () => {
     );
 
     const store = createInMemoryWorkspaceRuntimeStore();
-    const firstWorker = new WorkspaceRuntimeManager({ store, workerId: "worker-a" });
-    const secondWorker = new WorkspaceRuntimeManager({ store, workerId: "worker-b" });
+    const firstWorker = new WorkspaceRuntimeManager({
+      store,
+      workerId: "worker-a",
+      attestationSecret: runtimeAttestationTestSecret,
+    });
+    const secondWorker = new WorkspaceRuntimeManager({
+      store,
+      workerId: "worker-b",
+      attestationSecret: runtimeAttestationTestSecret,
+    });
     managers.push(firstWorker, secondWorker);
     const attestationIdentity = {
       projectId: "recoverable-project",
@@ -374,7 +401,7 @@ describe("WorkspaceRuntimeManager", () => {
       attestationBinding: { ...attestationIdentity, sessionId: started.sessionId! },
     });
     expect(afterRecovery).toMatchObject({
-      status: "failed",
+      status: "passed",
       sessionId: started.sessionId,
       revision: "revision-1",
       processAlive: true,
@@ -382,12 +409,11 @@ describe("WorkspaceRuntimeManager", () => {
       healthStatus: 200,
       servingRevision: "revision-1",
       childProcessAttestation: {
-        status: "unknown",
-        reasonCode: "marker_unavailable",
+        status: "known",
+        reasonCode: "child_process_observed",
       },
       listener: {
-        status: "unknown",
-        reasonCode: "marker_unavailable",
+        status: "known",
       },
     });
 

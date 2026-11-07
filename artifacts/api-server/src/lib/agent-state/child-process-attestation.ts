@@ -1,4 +1,4 @@
-import { createHash, timingSafeEqual } from "node:crypto";
+import { createHash, createHmac, timingSafeEqual } from "node:crypto";
 import { constants } from "node:fs";
 import { open, realpath, readlink, stat } from "node:fs/promises";
 import path from "node:path";
@@ -101,6 +101,22 @@ export type ChildProcessAttestationIdentity = Omit<
   ChildProcessAttestationBinding,
   "sessionId" | "processRole" | "validatorProfile"
 >;
+
+export const CHILD_PROCESS_ATTESTATION_KEY_VERSION = "runtime-child-marker-hmac-v1";
+const CHILD_PROCESS_ATTESTATION_MARKER_CONTEXT =
+  "EngineeringOS/workspace-runtime-child-attestation/v1";
+
+export function deriveChildProcessAttestationMarker(
+  binding: ChildProcessAttestationIdentity & { sessionId: string },
+  secret: string,
+): string {
+  if (!secret) throw new Error("Runtime child-process attestation is not configured.");
+  return createHmac("sha256", secret)
+    .update(CHILD_PROCESS_ATTESTATION_MARKER_CONTEXT)
+    .update("\0")
+    .update(childProcessBindingDigest(binding))
+    .digest("hex");
+}
 
 export type ChildProcessEnvironmentAttestation = {
   status: "known" | "mismatch" | "unknown";

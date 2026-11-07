@@ -289,6 +289,8 @@ export const APPLICATION_SCHEMA_CONTRACT = {
     ] as readonly ColumnContract[],
     workspace_runtime: [
       { name: "environment_revision", dataType: "text", udtName: "text", nullable: true },
+      { name: "attestation_binding", dataType: "jsonb", udtName: "jsonb", nullable: true },
+      { name: "attestation_key_version", dataType: "text", udtName: "text", nullable: true },
     ] as readonly ColumnContract[],
     // Mission Control's usage summary reads contract failure categories from
     // this table, so a stale telemetry schema must fail before the route does.

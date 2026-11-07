@@ -2,6 +2,7 @@ import { and, eq, inArray, isNull, lt, or, sql } from "drizzle-orm";
 import {
   db,
   workspaceRuntimeTable,
+  type WorkspaceRuntimeAttestationBinding,
   type WorkspaceRuntime,
 } from "@workspace/db";
 
@@ -33,6 +34,8 @@ export interface WorkspaceRuntimeStore {
     sessionId: string;
     revision: string;
     environmentRevision: string | null;
+    attestationBinding?: WorkspaceRuntimeAttestationBinding | null;
+    attestationKeyVersion?: string | null;
     workerId: string;
     now: Date;
     leaseUntil: Date;
@@ -102,6 +105,8 @@ export const databaseWorkspaceRuntimeStore: WorkspaceRuntimeStore = {
           projectRoot: input.projectRoot,
           revision: input.revision,
           environmentRevision: input.environmentRevision,
+          attestationBinding: input.attestationBinding ?? null,
+          attestationKeyVersion: input.attestationKeyVersion ?? null,
           port: null,
           pid: null,
           workerId: input.workerId,
@@ -121,6 +126,8 @@ export const databaseWorkspaceRuntimeStore: WorkspaceRuntimeStore = {
             projectRoot: input.projectRoot,
             revision: input.revision,
             environmentRevision: input.environmentRevision,
+            attestationBinding: input.attestationBinding ?? null,
+            attestationKeyVersion: input.attestationKeyVersion ?? null,
             port: null,
             pid: null,
             workerId: input.workerId,
@@ -243,6 +250,8 @@ export function createInMemoryWorkspaceRuntimeStore(): WorkspaceRuntimeStore {
         projectRoot: input.projectRoot,
         revision: input.revision,
         environmentRevision: input.environmentRevision,
+        attestationBinding: input.attestationBinding ?? null,
+        attestationKeyVersion: input.attestationKeyVersion ?? null,
         port: null,
         pid: null,
         workerId: input.workerId,

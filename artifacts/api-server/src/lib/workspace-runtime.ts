@@ -2,7 +2,10 @@ import { promises as fs } from "node:fs";
 import net from "node:net";
 import { spawn, type ChildProcess } from "node:child_process";
 import { createHash, randomUUID } from "node:crypto";
-import type { WorkspaceRuntime } from "@workspace/db";
+import type {
+  WorkspaceRuntime,
+  WorkspaceRuntimeAttestationBinding,
+} from "@workspace/db";
 import {
   captureEnvironmentAttestation,
   serverEnvironmentProfile,
@@ -10,7 +13,9 @@ import {
 import {
   attestChildProcessEnvironment,
   childProcessBindingDigest,
+  CHILD_PROCESS_ATTESTATION_KEY_VERSION,
   CHILD_ATTESTATION_ENV_NAME,
+  deriveChildProcessAttestationMarker,
   type ChildProcessAttestationBinding,
   type ChildProcessAttestationIdentity,
   type ChildProcessEnvironmentAttestation,
@@ -393,7 +398,37 @@ function sessionFromRow(
   workerId: string,
   logs = row.logs,
   projectId = row.projectId,
+  attestationSecret = process.env.SESSION_SECRET,
 ): RuntimeSession {
+  const persistedBinding = row.attestationBinding;
+  const bindingIsValid = Boolean(
+    persistedBinding
+    && persistedBinding.projectId === projectId
+    && persistedBinding.sessionId === row.sessionId
+    && typeof persistedBinding.executionId === "string"
+    && persistedBinding.executionId.length > 0
+    && Number.isSafeInteger(persistedBinding.executionAttempt)
+    && persistedBinding.executionAttempt >= 0
+    && typeof persistedBinding.episodeId === "string"
+    && persistedBinding.episodeId.length > 0
+    && typeof persistedBinding.operationId === "string"
+    && persistedBinding.operationId.length > 0
+    && persistedBinding.revision === row.revision,
+  );
+  const childProcessBinding = bindingIsValid
+    ? persistedBinding as WorkspaceRuntimeAttestationBinding
+    : undefined;
+  let childProcessMarker: string | undefined;
+  if (
+    childProcessBinding
+    && row.attestationKeyVersion === CHILD_PROCESS_ATTESTATION_KEY_VERSION
+    && attestationSecret
+  ) {
+    childProcessMarker = deriveChildProcessAttestationMarker(
+      childProcessBinding,
+      attestationSecret,
+    );
+  }
   return {
     ...rowSnapshot(row, projectId),
     runtimeId: row.projectId,
@@ -401,6 +436,8 @@ function sessionFromRow(
     projectRoot: row.projectRoot,
     workerId,
     logs: [...logs],
+    ...(childProcessBinding ? { childProcessBinding } : {}),
+    ...(childProcessMarker ? { childProcessMarker } : {}),
   };
 }
 
@@ -410,6 +447,7 @@ export class WorkspaceRuntimeManager {
   private readonly store: WorkspaceRuntimeStore;
   private readonly workerId: string;
   private readonly supervisor?: WorkspaceRuntimeSupervisorClient;
+  private readonly attestationSecret?: string;
   private readonly listenerResolver: typeof resolveRuntimeListenerProcess;
   private readonly heartbeatIntervalMs: number;
   private readonly runtimeNamespace?: { projectId: string; runtimeId: string };
@@ -422,6 +460,7 @@ export class WorkspaceRuntimeManager {
     store?: WorkspaceRuntimeStore;
     workerId?: string;
     supervisor?: WorkspaceRuntimeSupervisorClient;
+    attestationSecret?: string;
     listenerResolver?: typeof resolveRuntimeListenerProcess;
     heartbeatIntervalMs?: number;
     runtimeNamespace?: { projectId: string; runtimeId: string };
@@ -433,6 +472,7 @@ export class WorkspaceRuntimeManager {
     this.store = options?.store ?? createInMemoryWorkspaceRuntimeStore();
     this.workerId = options?.workerId ?? `runtime-worker:${randomUUID()}`;
     this.supervisor = options?.supervisor;
+    this.attestationSecret = options?.attestationSecret ?? process.env.SESSION_SECRET;
     this.listenerResolver = options?.listenerResolver ?? resolveRuntimeListenerProcess;
     this.heartbeatIntervalMs = options?.heartbeatIntervalMs ?? HEARTBEAT_INTERVAL_MS;
     this.runtimeNamespace = options?.runtimeNamespace;
@@ -1235,22 +1275,25 @@ export class WorkspaceRuntimeManager {
     })).digest("hex");
   }
 
-  private async hasKnownListener(session: RuntimeSession): Promise<boolean> {
-    if (!Number.isInteger(session.pid) || !session.port || !session.revision) return false;
+  private async resolveKnownListener(
+    session: RuntimeSession,
+  ): Promise<Awaited<ReturnType<typeof resolveRuntimeListenerProcess>> | null> {
+    if (!Number.isInteger(session.pid) || !session.port || !session.revision) return null;
     try {
       const resolution = await this.listenerResolver({
         launchPid: session.pid,
         port: session.port,
         bindingDigest: this.listenerBindingDigest(session),
       });
-      return resolution.status === "known"
+      const known = resolution.status === "known"
         && resolution.port === session.port
         && Number.isInteger(resolution.pid)
         && (resolution.pid ?? 0) > 0
         && typeof resolution.identityDigest === "string"
         && /^[a-f0-9]{64}$/.test(resolution.identityDigest);
+      return known ? resolution : null;
     } catch {
-      return false;
+      return null;
     }
   }
 
@@ -1380,8 +1423,10 @@ export class WorkspaceRuntimeManager {
         this.workerId,
         claimed.logs,
         this.projectIdForRuntimeId(claimed.projectId),
+        this.attestationSecret,
       );
-      if (!await this.hasKnownListener(candidate)) {
+      const listenerBeforeAdoption = await this.resolveKnownListener(candidate);
+      if (!listenerBeforeAdoption) {
         await this.releaseRecoveryClaim(claimed.projectId, claimed.sessionId);
         continue;
       }
@@ -1394,6 +1439,11 @@ export class WorkspaceRuntimeManager {
             projectRoot: claimed.projectRoot,
             pid: claimed.pid,
             port: claimed.port,
+            listenerBindingDigest: this.listenerBindingDigest(candidate),
+            expectedListenerIdentityDigest: listenerBeforeAdoption.identityDigest!,
+            ...(candidate.childProcessMarker
+              ? { attestationMarker: candidate.childProcessMarker }
+              : {}),
           });
           if (
             adopted.projectId !== claimed.projectId
@@ -1401,6 +1451,7 @@ export class WorkspaceRuntimeManager {
             || adopted.status !== "running"
             || adopted.pid !== claimed.pid
             || adopted.port !== claimed.port
+            || adopted.listenerIdentityDigest !== listenerBeforeAdoption.identityDigest
           ) {
             await this.releaseRecoveryClaim(claimed.projectId, claimed.sessionId);
             continue;
@@ -1412,7 +1463,11 @@ export class WorkspaceRuntimeManager {
         }
       }
 
-      if (!await this.hasKnownListener(candidate)) {
+      const listenerAfterAdoption = await this.resolveKnownListener(candidate);
+      if (
+        !listenerAfterAdoption
+        || listenerAfterAdoption.identityDigest !== listenerBeforeAdoption.identityDigest
+      ) {
         await this.releaseRecoveryClaim(claimed.projectId, claimed.sessionId);
         continue;
       }
@@ -1442,6 +1497,7 @@ export class WorkspaceRuntimeManager {
         this.workerId,
         adoptedLogs ?? claimed.logs,
         this.projectIdForRuntimeId(claimed.projectId),
+        this.attestationSecret,
       );
       this.sessions.set(claimed.projectId, session);
       this.startHeartbeat(session);
@@ -1492,7 +1548,15 @@ export class WorkspaceRuntimeManager {
     const current = localSession ?? persistedCurrent;
     if (current && !input.restart && (current.status === "starting" || current.status === "running")) {
       if (localSession) return this.snapshot(localSession);
-      if (persistedCurrent) return rowSnapshot(persistedCurrent, input.projectId);
+      if (persistedCurrent) {
+        await this.recover(runtimeId);
+        const recovered = this.sessions.get(runtimeId);
+        if (recovered?.sessionId === persistedCurrent.sessionId) {
+          return this.snapshot(recovered);
+        }
+        const latest = await this.store.get(runtimeId);
+        if (latest) return rowSnapshot(latest, input.projectId);
+      }
     }
     if (current && (current.status === "starting" || current.status === "running")) {
       const stopped = await this.stop(input.projectId);
@@ -1514,13 +1578,37 @@ export class WorkspaceRuntimeManager {
     const childProcessBinding = input.attestationIdentity
       ? { ...input.attestationIdentity, sessionId }
       : undefined;
-    const childProcessMarker = childProcessBinding ? randomUUID() : undefined;
+    if (childProcessBinding && !this.attestationSecret) {
+      throw new WorkspaceRuntimeError(
+        "Runtime child-process attestation is not configured.",
+        "RUNTIME_START_FAILED",
+        503,
+      );
+    }
+    const childProcessMarker = childProcessBinding
+      ? deriveChildProcessAttestationMarker(childProcessBinding, this.attestationSecret!)
+      : undefined;
+    const persistedAttestationBinding: WorkspaceRuntimeAttestationBinding | null = childProcessBinding
+      ? {
+        projectId: childProcessBinding.projectId,
+        sessionId: childProcessBinding.sessionId,
+        executionId: childProcessBinding.executionId,
+        executionAttempt: childProcessBinding.executionAttempt,
+        episodeId: childProcessBinding.episodeId,
+        operationId: childProcessBinding.operationId,
+        revision: childProcessBinding.revision,
+      }
+      : null;
     const persisted = await this.store.begin({
       projectId: runtimeId,
       projectRoot,
       sessionId,
       revision: input.revision,
       environmentRevision: null,
+      attestationBinding: persistedAttestationBinding,
+      attestationKeyVersion: childProcessBinding
+        ? CHILD_PROCESS_ATTESTATION_KEY_VERSION
+        : null,
       workerId: this.workerId,
       now,
       leaseUntil: new Date(now.getTime() + RUNTIME_LEASE_MS),
@@ -1626,6 +1714,9 @@ export class WorkspaceRuntimeManager {
         sessionId,
         projectRoot,
         ...(childProcessMarker ? { attestationMarker: childProcessMarker } : {}),
+        ...(childProcessBinding
+          ? { listenerBindingDigest: this.listenerBindingDigest(session) }
+          : {}),
       };
       session.supervisorStartAttempted = true;
       session.supervisorStartInFlight = true;
@@ -1763,6 +1854,20 @@ export class WorkspaceRuntimeManager {
             "RUNTIME_START_FAILED",
             502,
           );
+        }
+        if (childProcessBinding) {
+          const listenerProof = await this.resolveKnownListener(session);
+          if (
+            !listenerProof
+            || !supervised.listenerIdentityDigest
+            || listenerProof.identityDigest !== supervised.listenerIdentityDigest
+          ) {
+            throw new WorkspaceRuntimeError(
+              "Runtime supervisor did not confirm the bound listener process.",
+              "RUNTIME_START_FAILED",
+              502,
+            );
+          }
         }
       } else {
         await waitForTcpPort(child!, port);
@@ -2002,7 +2107,8 @@ export class WorkspaceRuntimeManager {
         this.stopHeartbeat(session);
         return;
       }
-      if (!await this.hasKnownListener(session)) {
+      const listenerBeforeAdoption = await this.resolveKnownListener(session);
+      if (!listenerBeforeAdoption) {
         await this.relinquishSessionForRetry(session);
         return;
       }
@@ -2014,6 +2120,11 @@ export class WorkspaceRuntimeManager {
             projectRoot: session.projectRoot,
             pid: session.pid,
             port: session.port,
+            listenerBindingDigest: this.listenerBindingDigest(session),
+            expectedListenerIdentityDigest: listenerBeforeAdoption.identityDigest!,
+            ...(session.childProcessMarker
+              ? { attestationMarker: session.childProcessMarker }
+              : {}),
           });
           if (
             adopted.projectId !== session.runtimeId
@@ -2021,6 +2132,7 @@ export class WorkspaceRuntimeManager {
             || adopted.status !== "running"
             || adopted.pid !== session.pid
             || adopted.port !== session.port
+            || adopted.listenerIdentityDigest !== listenerBeforeAdoption.identityDigest
           ) {
             await this.relinquishSessionForRetry(session);
             return;
@@ -2029,7 +2141,11 @@ export class WorkspaceRuntimeManager {
           await this.relinquishSessionForRetry(session);
           return;
         }
-        if (!await this.hasKnownListener(session)) {
+        const listenerAfterAdoption = await this.resolveKnownListener(session);
+        if (
+          !listenerAfterAdoption
+          || listenerAfterAdoption.identityDigest !== listenerBeforeAdoption.identityDigest
+        ) {
           await this.relinquishSessionForRetry(session);
           return;
         }

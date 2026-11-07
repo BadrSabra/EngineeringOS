@@ -7,6 +7,8 @@ import {
   attestChildProcessEnvironment,
   attestValidatorProcessTreeEnvironment,
   childProcessBindingDigest,
+  deriveChildProcessAttestationMarker,
+  CHILD_PROCESS_ATTESTATION_KEY_VERSION,
   CHILD_ATTESTATION_ENV_NAME,
   matchesValidatorProcessPath,
   type ChildProcessAttestationBinding,
@@ -96,6 +98,21 @@ const treeBinding: ChildProcessAttestationBinding = {
 };
 
 describe("child process environment attestation", () => {
+  it("derives a stable, session-bound marker without persisting a random bearer value", () => {
+    const secret = "runtime-attestation-unit-test-secret";
+    const marker = deriveChildProcessAttestationMarker(binding, secret);
+
+    expect(CHILD_PROCESS_ATTESTATION_KEY_VERSION).toBe("runtime-child-marker-hmac-v1");
+    expect(marker).toMatch(/^[a-f0-9]{64}$/);
+    expect(deriveChildProcessAttestationMarker(binding, secret)).toBe(marker);
+    expect(deriveChildProcessAttestationMarker(
+      { ...binding, sessionId: "different-session" },
+      secret,
+    )).not.toBe(marker);
+    expect(deriveChildProcessAttestationMarker(binding, `${secret}-rotated`)).not.toBe(marker);
+    expect(marker).not.toBe(childProcessBindingDigest(binding));
+  });
+
   it("attests the live process through procfs without returning its marker or raw environment", async () => {
     const root = await makeRoot();
     const marker = "8bdc6852-75c7-49d0-8c36-0ac146ef38d0";

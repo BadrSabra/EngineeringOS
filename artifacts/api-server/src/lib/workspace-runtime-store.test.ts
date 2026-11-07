@@ -848,6 +848,7 @@ describe("database workspace runtime store", () => {
           DATABASE_URL: childDatabaseUrl.toString(),
           PGAPPNAME: applicationName,
           NODE_ENV: "test",
+          SESSION_SECRET: runtimeRecoveryTestSecret,
           PATH: process.env.PATH ?? "",
           HOME: process.env.HOME ?? os.tmpdir(),
           AI_PROVIDER_EGRESS_DISABLED: "1",
@@ -893,6 +894,16 @@ describe("database workspace runtime store", () => {
           pid: ready.pid,
           port: ready.port,
           revision,
+          attestationBinding: {
+            projectId,
+            sessionId: ready.sessionId,
+            executionId: "runtime-adoption-execution",
+            executionAttempt: 1,
+            episodeId: "runtime-adoption-episode",
+            operationId: "runtime-adoption-operation",
+            revision,
+          },
+          attestationKeyVersion: "runtime-child-marker-hmac-v1",
         });
 
         spawnedWorker.kill("SIGKILL");
@@ -923,6 +934,9 @@ describe("database workspace runtime store", () => {
           projectRoot: string;
           pid: number | null;
           port: number | null;
+          listenerBindingDigest: string;
+          expectedListenerIdentityDigest: string;
+          markerProvided: boolean;
         }> = [];
         const supervisorFixture = {
           async adopt(input: {
@@ -931,14 +945,27 @@ describe("database workspace runtime store", () => {
             projectRoot: string;
             pid: number | null;
             port: number | null;
+            listenerBindingDigest: string;
+            expectedListenerIdentityDigest: string;
+            attestationMarker?: string;
           }) {
-            supervisorAdoptions.push(input);
+            supervisorAdoptions.push({
+              projectId: input.projectId,
+              sessionId: input.sessionId,
+              projectRoot: input.projectRoot,
+              pid: input.pid,
+              port: input.port,
+              listenerBindingDigest: input.listenerBindingDigest,
+              expectedListenerIdentityDigest: input.expectedListenerIdentityDigest,
+              markerProvided: Boolean(input.attestationMarker),
+            });
             return {
               projectId: input.projectId,
               sessionId: input.sessionId,
               status: "running" as const,
               pid: input.pid,
               port: input.port,
+              listenerIdentityDigest: input.expectedListenerIdentityDigest,
               logs: ["re-adopted by isolated supervisor fixture"],
             };
           },
@@ -946,6 +973,7 @@ describe("database workspace runtime store", () => {
         recoveryManager = new WorkspaceRuntimeManager({
           store: databaseWorkspaceRuntimeStore,
           workerId: `runtime-api-worker-after-${projectId}`,
+          attestationSecret: runtimeRecoveryTestSecret,
           heartbeatIntervalMs: 60_000,
           supervisor: supervisorFixture as never,
           listenerResolver: async ({ launchPid, port, bindingDigest }) => {
@@ -999,17 +1027,46 @@ describe("database workspace runtime store", () => {
           sessionId: ready.sessionId,
         });
         expect(recoveredRow?.leaseUntil?.getTime()).toBeGreaterThan(Date.now());
-        expect(supervisorAdoptions).toEqual([{
+        expect(supervisorAdoptions).toHaveLength(1);
+        expect(supervisorAdoptions[0]).toMatchObject({
           projectId,
           sessionId: ready.sessionId,
           projectRoot: root,
           pid: ready.pid,
           port: ready.port,
-        }]);
+          listenerBindingDigest: expect.stringMatching(/^[a-f0-9]{64}$/),
+          expectedListenerIdentityDigest: expect.stringMatching(/^[a-f0-9]{64}$/),
+          markerProvided: true,
+        });
         expect(listenerResolutions).toHaveLength(3);
         expect(listenerResolutions.every(({ bindingDigest }) =>
           typeof bindingDigest === "string" && /^[a-f0-9]{64}$/.test(bindingDigest),
         )).toBe(true);
+        const recoveredProof = await recoveryManager.observeAfterState({
+          projectId,
+          sessionId: ready.sessionId,
+          revision,
+          attestationBinding: recoveredRow!.attestationBinding!,
+        });
+        expect(recoveredProof).toMatchObject({
+          status: "passed",
+          sessionId: ready.sessionId,
+          revision,
+          processAlive: true,
+          portReady: true,
+          childProcessAttestation: {
+            status: "known",
+            reasonCode: "child_process_observed",
+          },
+          listener: {
+            status: "known",
+            processAttestation: {
+              status: "known",
+              reasonCode: "child_process_observed",
+            },
+          },
+        });
+        expect(listenerResolutions).toHaveLength(5);
         expect(await recoveryManager.get(projectId)).toMatchObject({
           status: "running",
           sessionId: ready.sessionId,
@@ -1417,6 +1474,8 @@ describe("workspace runtime full API startup recovery", () => {
         projectRoot: string;
         pid: number | null;
         port: number | null;
+        listenerBindingDigest: string;
+        expectedListenerIdentityDigest: string;
       }> = [];
       const unexpectedSupervisorPaths: string[] = [];
 
@@ -1438,6 +1497,7 @@ describe("workspace runtime full API startup recovery", () => {
               DATABASE_URL: childDatabaseUrl.toString(),
               PGAPPNAME: applicationName,
               NODE_ENV: "test",
+              SESSION_SECRET: runtimeRecoveryTestSecret,
               LOG_LEVEL: "warn",
               APP_ORIGINS: "",
               PORT: String(port),
@@ -1553,6 +1613,8 @@ describe("workspace runtime full API startup recovery", () => {
               projectRoot: string;
               pid: number | null;
               port: number | null;
+              listenerBindingDigest: string;
+              expectedListenerIdentityDigest: string;
             };
             supervisorRequests.push({
               projectId: input.projectId,
@@ -1560,11 +1622,14 @@ describe("workspace runtime full API startup recovery", () => {
               projectRoot: input.projectRoot,
               pid: input.pid,
               port: input.port,
+              listenerBindingDigest: input.listenerBindingDigest,
+              expectedListenerIdentityDigest: input.expectedListenerIdentityDigest,
             });
             response.writeHead(200, { "content-type": "application/json" });
             response.end(JSON.stringify({
               ...input,
               status: "running",
+              listenerIdentityDigest: input.expectedListenerIdentityDigest,
               logs: ["adopted by isolated local supervisor fixture"],
             }));
           })().catch((error) => {
@@ -1703,13 +1768,16 @@ describe("workspace runtime full API startup recovery", () => {
         if (!priorOwnerId) throw new Error("The first API process did not claim the known runtime lease.");
         expect(priorOwnerId).not.toBe(seedWorkerId);
         expect(knownBeforeCrash?.leaseUntil?.getTime()).toBeGreaterThan(Date.now());
-        expect(supervisorRequests).toEqual([{
+        expect(supervisorRequests).toHaveLength(1);
+        expect(supervisorRequests[0]).toMatchObject({
           projectId: knownProjectId,
           sessionId,
           projectRoot: knownRoot,
           pid: knownRuntimePid,
           port: knownRuntimePort,
-        }]);
+          listenerBindingDigest: expect.stringMatching(/^[a-f0-9]{64}$/),
+          expectedListenerIdentityDigest: expect.stringMatching(/^[a-f0-9]{64}$/),
+        });
 
         const unknownBeforeCrash = await databaseWorkspaceRuntimeStore.get(unknownProjectId);
         expect(unknownBeforeCrash).toMatchObject({
@@ -1774,22 +1842,16 @@ describe("workspace runtime full API startup recovery", () => {
           leaseUntil: null,
         });
         expect(process.kill(unknownOwnerPid, 0)).toBe(true);
-        expect(supervisorRequests).toEqual([
-          {
-            projectId: knownProjectId,
-            sessionId,
-            projectRoot: knownRoot,
-            pid: knownRuntimePid,
-            port: knownRuntimePort,
-          },
-          {
-            projectId: knownProjectId,
-            sessionId,
-            projectRoot: knownRoot,
-            pid: knownRuntimePid,
-            port: knownRuntimePort,
-          },
-        ]);
+        expect(supervisorRequests).toHaveLength(2);
+        expect(supervisorRequests.every((request) =>
+          request.projectId === knownProjectId
+          && request.sessionId === sessionId
+          && request.projectRoot === knownRoot
+          && request.pid === knownRuntimePid
+          && request.port === knownRuntimePort
+          && /^[a-f0-9]{64}$/.test(request.listenerBindingDigest)
+          && /^[a-f0-9]{64}$/.test(request.expectedListenerIdentityDigest),
+        )).toBe(true);
         expect(unexpectedSupervisorPaths).toEqual([]);
         await expect(fs.access(blockedEgressFile)).rejects.toMatchObject({ code: "ENOENT" });
       } finally {
@@ -1816,6 +1878,8 @@ describe("in-memory workspace runtime store session fencing", () => {
       sessionId: "session-old",
       revision: "revision-old",
       environmentRevision: null,
+      attestationBinding: null,
+      attestationKeyVersion: null,
       workerId: "worker-a",
       now,
       leaseUntil: new Date(now.getTime() + RUNTIME_LEASE_MS),
@@ -1827,6 +1891,8 @@ describe("in-memory workspace runtime store session fencing", () => {
       sessionId: "session-new",
       revision: "revision-new",
       environmentRevision: null,
+      attestationBinding: null,
+      attestationKeyVersion: null,
       workerId: "worker-a",
       now: replacementAt,
       leaseUntil: new Date(replacementAt.getTime() + RUNTIME_LEASE_MS),

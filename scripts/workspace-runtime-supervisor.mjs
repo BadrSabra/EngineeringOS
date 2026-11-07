@@ -1,8 +1,8 @@
 import http from "node:http";
 import net from "node:net";
 import path from "node:path";
-import { createHmac, timingSafeEqual } from "node:crypto";
-import { readFile, realpath, stat } from "node:fs/promises";
+import { createHash, createHmac, timingSafeEqual } from "node:crypto";
+import { readFile, readdir, readlink, realpath, stat } from "node:fs/promises";
 import { spawn } from "node:child_process";
 
 const BIND_HOST = process.env.WORKSPACE_RUNTIME_SUPERVISOR_HOST ?? "127.0.0.1";
@@ -14,8 +14,13 @@ const STARTUP_TIMEOUT_MS = 30_000;
 const STOP_TIMEOUT_MS = 2_000;
 const MAX_LOG_LINES = 120;
 const MAX_LOG_LINE_CHARS = 600;
+const MAX_PROC_ENTRIES = 8_192;
+const MAX_FD_ENTRIES = 4_096;
+const MAX_PROC_STAT_BYTES = 16 * 1024;
+const MAX_TCP_TABLE_BYTES = 2 * 1024 * 1024;
 const SAFE_ENV_NAMES = /^(?:PATH|HOME|USER|SHELL|LANG|LC_[A-Z_]+|TERM|TMPDIR|PNPM_HOME|npm_config_[A-Za-z0-9_]+)$/;
 const SUPERVISOR_AUTH_CONTEXT = "EngineeringOS/workspace-runtime-supervisor/v1";
+const CHILD_ATTESTATION_ENV_NAME = "ENGINEERINGOS_CHILD_ATTESTATION";
 const sessions = new Map();
 const startLocks = new Map();
 
@@ -114,6 +119,298 @@ function isPidAlive(pid) {
   } catch (error) {
     return error.code !== "ESRCH";
   }
+}
+
+function parseProcessIdentity(pid, statLine) {
+  const commandEnd = statLine.lastIndexOf(")");
+  if (commandEnd < 0) return null;
+  const fields = statLine.slice(commandEnd + 1).trim().split(/\s+/);
+  const parentPid = Number(fields[1]);
+  const startTime = fields[19];
+  if (!Number.isInteger(parentPid) || parentPid < 0 || !/^\d+$/.test(startTime ?? "")) {
+    return null;
+  }
+  return { pid, parentPid, startTime };
+}
+
+async function readProcessIdentity(pid) {
+  try {
+    const stat = await readFile(`/proc/${pid}/stat`);
+    if (stat.byteLength > MAX_PROC_STAT_BYTES) return { identity: null, complete: false };
+    const identity = parseProcessIdentity(pid, stat.toString("utf8"));
+    return { identity, complete: identity !== null };
+  } catch (error) {
+    if (error.code === "ENOENT") return { identity: null, complete: true };
+    return { identity: null, complete: false };
+  }
+}
+
+async function resolveProcessTree(launchPid) {
+  let entries;
+  try {
+    entries = await readdir("/proc", { withFileTypes: true });
+  } catch {
+    return null;
+  }
+  const pids = entries
+    .filter((entry) => entry.isDirectory() && /^\d+$/.test(entry.name))
+    .map((entry) => Number(entry.name));
+  if (pids.length > MAX_PROC_ENTRIES) return null;
+
+  const processes = new Map();
+  let complete = true;
+  for (let offset = 0; offset < pids.length; offset += 64) {
+    const results = await Promise.all(
+      pids.slice(offset, offset + 64).map(readProcessIdentity),
+    );
+    for (const result of results) {
+      if (!result.complete) complete = false;
+      if (result.identity) processes.set(result.identity.pid, result.identity);
+    }
+  }
+  if (!processes.has(launchPid)) return null;
+
+  const childrenByParent = new Map();
+  for (const identity of processes.values()) {
+    const children = childrenByParent.get(identity.parentPid) ?? [];
+    children.push(identity.pid);
+    childrenByParent.set(identity.parentPid, children);
+  }
+  const descendants = new Set([launchPid]);
+  const pending = [launchPid];
+  while (pending.length > 0 && descendants.size <= MAX_PROC_ENTRIES) {
+    const parent = pending.pop();
+    for (const childPid of childrenByParent.get(parent) ?? []) {
+      if (descendants.has(childPid)) continue;
+      descendants.add(childPid);
+      pending.push(childPid);
+    }
+  }
+  return {
+    processes,
+    descendants,
+    complete,
+    truncated: descendants.size > MAX_PROC_ENTRIES,
+  };
+}
+
+function parseListeningSocketInodes(contents, port) {
+  const inodes = new Set();
+  for (const line of contents.split(/\r?\n/).slice(1)) {
+    const columns = line.trim().split(/\s+/);
+    if (columns.length < 10 || columns[3] !== "0A") continue;
+    const localAddress = columns[1];
+    const separator = localAddress?.lastIndexOf(":") ?? -1;
+    if (separator < 0) continue;
+    const localPort = Number.parseInt(localAddress.slice(separator + 1), 16);
+    const inode = columns[9];
+    if (localPort === port && /^\d+$/.test(inode ?? "") && inode !== "0") inodes.add(inode);
+  }
+  return inodes;
+}
+
+async function readListenerInodes(port) {
+  try {
+    const [tcp, tcp6] = await Promise.all([
+      readFile("/proc/net/tcp"),
+      readFile("/proc/net/tcp6").catch((error) => {
+        if (error.code === "ENOENT") return null;
+        throw error;
+      }),
+    ]);
+    if (tcp.byteLength > MAX_TCP_TABLE_BYTES || (tcp6 && tcp6.byteLength > MAX_TCP_TABLE_BYTES)) {
+      return null;
+    }
+    const inodes = parseListeningSocketInodes(tcp.toString("utf8"), port);
+    if (tcp6) {
+      for (const inode of parseListeningSocketInodes(tcp6.toString("utf8"), port)) {
+        inodes.add(inode);
+      }
+    }
+    return inodes;
+  } catch {
+    return null;
+  }
+}
+
+async function resolveSocketOwners(descendants, expectedInodes) {
+  const owners = new Map();
+  let complete = true;
+  for (const pid of descendants) {
+    let descriptors;
+    try {
+      descriptors = await readdir(`/proc/${pid}/fd`);
+    } catch (error) {
+      if (error.code === "ENOENT") continue;
+      complete = false;
+      continue;
+    }
+    if (descriptors.length > MAX_FD_ENTRIES) {
+      complete = false;
+      continue;
+    }
+    for (const descriptor of descriptors) {
+      let target;
+      try {
+        target = await readlink(`/proc/${pid}/fd/${descriptor}`);
+      } catch (error) {
+        if (error.code !== "ENOENT") complete = false;
+        continue;
+      }
+      const match = /^socket:\[(\d+)\]$/.exec(target);
+      if (!match || !expectedInodes.has(match[1])) continue;
+      const inodeOwners = owners.get(match[1]) ?? new Set();
+      inodeOwners.add(pid);
+      owners.set(match[1], inodeOwners);
+    }
+  }
+  return { owners, complete };
+}
+
+async function resolveOwnedRuntimeListener(launchPid, port, bindingDigest) {
+  if (process.platform !== "linux") return null;
+  const initialTree = await resolveProcessTree(launchPid);
+  if (!initialTree?.complete || initialTree.truncated) return null;
+  const launchIdentity = initialTree.processes.get(launchPid);
+  if (!launchIdentity) return null;
+  const listenerInodes = await readListenerInodes(port);
+  if (!listenerInodes?.size) return null;
+  const initialOwners = await resolveSocketOwners(initialTree.descendants, listenerInodes);
+  if (!initialOwners.complete) return null;
+  const ownerPids = new Set();
+  for (const inode of listenerInodes) {
+    const owners = initialOwners.owners.get(inode);
+    if (!owners?.size) return null;
+    for (const pid of owners) ownerPids.add(pid);
+  }
+  if (ownerPids.size !== 1) return null;
+  const listenerPid = [...ownerPids][0];
+  const listenerIdentity = initialTree.processes.get(listenerPid);
+  if (!listenerIdentity || !initialTree.descendants.has(listenerPid)) return null;
+  if ([...initialOwners.owners.values()].some(
+    (owners) => owners.size !== 1 || !owners.has(listenerPid),
+  )) return null;
+
+  const afterTree = await resolveProcessTree(launchPid);
+  if (!afterTree?.complete || afterTree.truncated) return null;
+  const [afterListenerInodes, finalOwners] = await Promise.all([
+    readListenerInodes(port),
+    resolveSocketOwners(afterTree.descendants, listenerInodes),
+  ]);
+  if (!afterListenerInodes || !finalOwners.complete) return null;
+  const afterLaunch = afterTree.processes.get(launchPid);
+  const afterListener = afterTree.processes.get(listenerPid);
+  const sameInodes = listenerInodes.size === afterListenerInodes.size
+    && [...listenerInodes].every((inode) => afterListenerInodes.has(inode));
+  const sameOwners = [...listenerInodes].every((inode) => {
+    const owners = finalOwners.owners.get(inode);
+    return owners?.size === 1 && owners.has(listenerPid);
+  });
+  if (
+    afterLaunch?.startTime !== launchIdentity.startTime
+    || afterListener?.startTime !== listenerIdentity.startTime
+    || !afterTree.descendants.has(listenerPid)
+    || !sameInodes
+    || !sameOwners
+  ) return null;
+
+  return {
+    pid: listenerPid,
+    identityDigest: createHash("sha256").update(JSON.stringify({
+      schema: "runtime-listener-process-v1",
+      bindingDigest,
+      launchPid,
+      launchStartTime: launchIdentity.startTime,
+      listenerPid,
+      listenerStartTime: listenerIdentity.startTime,
+      port,
+      socketInodes: [...listenerInodes].sort(),
+    })).digest("hex"),
+  };
+}
+
+async function processIsWithinRoot(pid, projectRoot) {
+  try {
+    const cwdLink = await readlink(`/proc/${pid}/cwd`);
+    const cwd = await realpath(cwdLink);
+    const relative = path.relative(projectRoot, cwd);
+    return relative === ""
+      || (!path.isAbsolute(relative) && relative !== ".." && !relative.startsWith(`..${path.sep}`));
+  } catch {
+    return false;
+  }
+}
+
+async function processHasAttestationMarker(pid, expectedMarker) {
+  let environment;
+  try {
+    environment = await readFile(`/proc/${pid}/environ`);
+    const name = Buffer.from(`${CHILD_ATTESTATION_ENV_NAME}=`, "utf8");
+    const expected = Buffer.from(expectedMarker, "utf8");
+    let count = 0;
+    let matches = false;
+    let offset = 0;
+    while (offset < environment.length) {
+      const end = environment.indexOf(0, offset);
+      const entryEnd = end < 0 ? environment.length : end;
+      const entry = environment.subarray(offset, entryEnd);
+      if (entry.length >= name.length && entry.subarray(0, name.length).equals(name)) {
+        count += 1;
+        const observed = entry.subarray(name.length);
+        matches = observed.length === expected.length
+          && timingSafeEqual(observed, expected);
+      }
+      offset = entryEnd + 1;
+    }
+    return count === 1 && matches;
+  } catch {
+    return false;
+  } finally {
+    environment?.fill(0);
+  }
+}
+
+async function verifyRuntimeAdoption(input, projectRoot) {
+  if (
+    typeof input.listenerBindingDigest !== "string"
+    || !/^[a-f0-9]{64}$/.test(input.listenerBindingDigest)
+    || (input.expectedListenerIdentityDigest !== undefined
+      && (typeof input.expectedListenerIdentityDigest !== "string"
+        || !/^[a-f0-9]{64}$/.test(input.expectedListenerIdentityDigest)))
+    || (input.attestationMarker !== undefined
+      && (typeof input.attestationMarker !== "string" || !/^[a-f0-9]{64}$/.test(input.attestationMarker)))
+  ) {
+    throw Object.assign(new Error("Runtime adoption proof is invalid."), { status: 400 });
+  }
+  const first = await resolveOwnedRuntimeListener(
+    input.pid,
+    input.port,
+    input.listenerBindingDigest,
+  );
+  if (
+    !first
+    || (input.expectedListenerIdentityDigest
+      && first.identityDigest !== input.expectedListenerIdentityDigest)
+    || !await processIsWithinRoot(input.pid, projectRoot)
+    || !await processIsWithinRoot(first.pid, projectRoot)
+  ) {
+    throw Object.assign(new Error("Runtime listener ownership could not be verified."), { status: 409 });
+  }
+  if (input.attestationMarker && (
+    !await processHasAttestationMarker(input.pid, input.attestationMarker)
+    || !await processHasAttestationMarker(first.pid, input.attestationMarker)
+  )) {
+    throw Object.assign(new Error("Runtime child-process attestation did not match."), { status: 409 });
+  }
+  const second = await resolveOwnedRuntimeListener(
+    input.pid,
+    input.port,
+    input.listenerBindingDigest,
+  );
+  if (!second || second.identityDigest !== first.identityDigest) {
+    throw Object.assign(new Error("Runtime listener changed during adoption."), { status: 409 });
+  }
+  return first;
 }
 
 function signalGroup(pid, signal) {
@@ -224,6 +521,7 @@ function publicSession(session) {
     status: session.status,
     port: session.port,
     pid: session.pid,
+    listenerIdentityDigest: session.listenerIdentityDigest ?? null,
     logs: [...session.logs],
     error: session.error ?? null,
   };
@@ -255,14 +553,28 @@ async function startExclusive(input) {
   const projectRoot = await validateProjectRoot(input.projectRoot);
   if (
     input.attestationMarker !== undefined
-    && (typeof input.attestationMarker !== "string" || !/^[a-f0-9-]{36}$/.test(input.attestationMarker))
+    && (typeof input.attestationMarker !== "string" || !/^[a-f0-9]{64}$/.test(input.attestationMarker))
   ) {
     throw Object.assign(new Error("Invalid child attestation marker."), { status: 400 });
+  }
+  if (
+    input.listenerBindingDigest !== undefined
+    && (typeof input.listenerBindingDigest !== "string"
+      || !/^[a-f0-9]{64}$/.test(input.listenerBindingDigest))
+  ) {
+    throw Object.assign(new Error("Invalid runtime listener binding digest."), { status: 400 });
+  }
+  if (input.attestationMarker && !input.listenerBindingDigest) {
+    throw Object.assign(new Error("Attested runtime startup requires a listener binding."), { status: 400 });
   }
   const existing = sessions.get(input.projectId);
   if (existing && (existing.status === "starting" || existing.status === "running")) {
     if (existing.sessionId === input.sessionId) {
-      if (input.attestationMarker && existing.attestationMarker !== input.attestationMarker) {
+      if (
+        (input.attestationMarker ?? null) !== (existing.attestationMarker ?? null)
+        || (input.listenerBindingDigest
+          && existing.listenerBindingDigest !== input.listenerBindingDigest)
+      ) {
         throw Object.assign(new Error("Runtime child attestation marker does not match the active session."), { status: 409 });
       }
       return publicSession(existing);
@@ -290,6 +602,10 @@ async function startExclusive(input) {
     child,
     terminationPending: false,
     ...(input.attestationMarker ? { attestationMarker: input.attestationMarker } : {}),
+    ...(input.listenerBindingDigest
+      ? { listenerBindingDigest: input.listenerBindingDigest }
+      : {}),
+    listenerIdentityDigest: null,
   };
   sessions.set(input.projectId, session);
   attachLogs(session);
@@ -302,6 +618,15 @@ async function startExclusive(input) {
   });
   try {
     await waitForReady(child, port);
+    if (input.listenerBindingDigest) {
+      const proof = await verifyRuntimeAdoption({
+        pid: session.pid,
+        port,
+        listenerBindingDigest: input.listenerBindingDigest,
+        ...(input.attestationMarker ? { attestationMarker: input.attestationMarker } : {}),
+      }, projectRoot);
+      session.listenerIdentityDigest = proof.identityDigest;
+    }
     session.status = "running";
     return publicSession(session);
   } catch (error) {
@@ -327,8 +652,26 @@ async function adopt(input) {
   ) {
     throw Object.assign(new Error("Invalid runtime process binding."), { status: 400 });
   }
+  if (
+    typeof input.listenerBindingDigest !== "string"
+    || !/^[a-f0-9]{64}$/.test(input.listenerBindingDigest)
+    || typeof input.expectedListenerIdentityDigest !== "string"
+    || !/^[a-f0-9]{64}$/.test(input.expectedListenerIdentityDigest)
+    || (input.attestationMarker !== undefined
+      && (typeof input.attestationMarker !== "string" || !/^[a-f0-9]{64}$/.test(input.attestationMarker)))
+  ) {
+    throw Object.assign(new Error("Runtime adoption proof is invalid."), { status: 400 });
+  }
   const existing = sessions.get(input.projectId);
   if (existing?.sessionId === input.sessionId && existing.pid === input.pid) {
+    if (
+      (input.attestationMarker ?? null) !== (existing.attestationMarker ?? null)
+      || input.listenerBindingDigest !== existing.listenerBindingDigest
+    ) {
+      throw Object.assign(new Error("Runtime adoption proof does not match the tracked session."), { status: 409 });
+    }
+    const proof = await verifyRuntimeAdoption(input, projectRoot);
+    existing.listenerIdentityDigest = proof.identityDigest;
     return publicSession(existing);
   }
   if (existing && (existing.status === "starting" || existing.status === "running")) {
@@ -337,6 +680,7 @@ async function adopt(input) {
   if (!isPidAlive(input.pid) || !(await isPortListening(input.port))) {
     throw Object.assign(new Error("Recorded runtime process is not reachable."), { status: 409 });
   }
+  const proof = await verifyRuntimeAdoption(input, projectRoot);
   const session = {
     projectId: input.projectId,
     sessionId: input.sessionId,
@@ -347,6 +691,9 @@ async function adopt(input) {
     logs: [],
     error: null,
     terminationPending: false,
+    listenerBindingDigest: input.listenerBindingDigest,
+    listenerIdentityDigest: proof.identityDigest,
+    ...(input.attestationMarker ? { attestationMarker: input.attestationMarker } : {}),
   };
   sessions.set(input.projectId, session);
   return publicSession(session);
