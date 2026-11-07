@@ -86,11 +86,14 @@ export const databaseWorkspaceRuntimeStore: WorkspaceRuntimeStore = {
       // The row uses both id=projectId (primary key) and a separate unique
       // project_id index. PostgreSQL can surface the primary-key violation
       // first when two inserts for the same project race. Serialize the claim
-      // by project before the upsert so exactly one API worker owns the lease.
+      // by project before the upsert so exactly one API worker owns the lease,
+      // without making unrelated projects wait on the same advisory lock.
       await tx.execute(sql`
         SELECT pg_advisory_xact_lock(
-          hashtext(${input.projectId}),
-          hashtext('workspace-runtime-start')
+          hashtextextended(
+            ${input.projectId},
+            hashtext('workspace-runtime-start')::bigint
+          )
         )
       `);
       const [row] = await tx

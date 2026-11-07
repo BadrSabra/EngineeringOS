@@ -68,6 +68,7 @@
 - [Embedded objective evidence](embedded-objective-evidence.md) — embedded-AI claims need server-owned evidence materialization; provider-only citations can leave complete reads unaccepted.
 - [Execution provenance binding](execution-provenance-binding.md) — durable AI reads and acceptance must stay bound to the same managed root and workspace revision.
 - [Workspace runtime boundary](workspace-runtime-boundary.md) — previews stay app-owned, workflows platform-owned; stop completes only after the owned process group disappears.
+- [Concurrent preview port allocation](concurrent-preview-port-allocation.md) — reserve a managed port before another concurrent project probes availability; otherwise a second app can falsely appear ready on the first app's listener.
 - [Implementation plan evidence continuity](implementation-plan-evidence-continuity.md) — implementation plans reuse accepted evidence only when its files and workspace revision still match.
 - [Orientation proof and recovery index](orientation-proof-recovery-index.md) — grouped pointers for role manifests, proof, fallback, admission, and recovery contracts.
 - [Resume intent preservation](resume-intent-preservation.md) — resumed model prompts may carry context; server-owned turn intent must drive orientation/evidence mode instead of exact raw-text detectors.

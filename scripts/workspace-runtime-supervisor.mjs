@@ -23,6 +23,8 @@ const SUPERVISOR_AUTH_CONTEXT = "EngineeringOS/workspace-runtime-supervisor/v1";
 const CHILD_ATTESTATION_ENV_NAME = "ENGINEERINGOS_CHILD_ATTESTATION";
 const sessions = new Map();
 const startLocks = new Map();
+const reservedRuntimePorts = new Set();
+let portReservationTail = Promise.resolve();
 
 if (BIND_HOST !== "127.0.0.1") {
   throw new Error("Workspace runtime supervisor must bind to a loopback address.");
@@ -99,16 +101,30 @@ function isPortListening(port) {
   });
 }
 
-async function findPort() {
-  for (let port = PORT_MIN; port <= PORT_MAX; port += 1) {
-    const available = await new Promise((resolve) => {
-      const server = net.createServer();
-      server.once("error", () => resolve(false));
-      server.listen({ host: LOOPBACK_HOST, port }, () => server.close(() => resolve(true)));
-    });
-    if (available) return port;
+async function reserveRuntimePort() {
+  let release;
+  const previous = portReservationTail;
+  portReservationTail = new Promise((resolve) => {
+    release = resolve;
+  });
+  await previous;
+  try {
+    for (let port = PORT_MIN; port <= PORT_MAX; port += 1) {
+      if (reservedRuntimePorts.has(port)) continue;
+      const available = await new Promise((resolve) => {
+        const server = net.createServer();
+        server.once("error", () => resolve(false));
+        server.listen({ host: LOOPBACK_HOST, port }, () => server.close(() => resolve(true)));
+      });
+      if (available) {
+        reservedRuntimePorts.add(port);
+        return port;
+      }
+    }
+    throw new Error("No managed runtime port is available.");
+  } finally {
+    release();
   }
-  throw new Error("No managed runtime port is available.");
 }
 
 function isPidAlive(pid) {
@@ -582,14 +598,20 @@ async function startExclusive(input) {
     throw Object.assign(new Error("A different runtime session already owns this project."), { status: 409 });
   }
   if (existing) await terminate(existing);
-  const port = await findPort();
-  const child = spawn("pnpm", ["run", "dev"], {
-    cwd: projectRoot,
-    env: runtimeEnv(port, input.attestationMarker),
-    detached: true,
-    shell: false,
-    stdio: ["ignore", "pipe", "pipe"],
-  });
+  const port = await reserveRuntimePort();
+  let child;
+  try {
+    child = spawn("pnpm", ["run", "dev"], {
+      cwd: projectRoot,
+      env: runtimeEnv(port, input.attestationMarker),
+      detached: true,
+      shell: false,
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+  } catch (error) {
+    reservedRuntimePorts.delete(port);
+    throw error;
+  }
   const session = {
     projectId: input.projectId,
     sessionId: input.sessionId,
@@ -635,6 +657,8 @@ async function startExclusive(input) {
     await terminate(session);
     session.status = "failed";
     return publicSession(session);
+  } finally {
+    reservedRuntimePorts.delete(port);
   }
 }
 

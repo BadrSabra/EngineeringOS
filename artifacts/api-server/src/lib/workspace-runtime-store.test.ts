@@ -492,13 +492,21 @@ describe("database workspace runtime store", () => {
   });
 
   it.skipIf(process.env.RUN_RUNTIME_CONCURRENT_START_PROCESS !== "1")(
-    "starts one supervised process group and preserves the winning session lease across API workers",
+    "starts different projects independently while same-project workers share one winning lease",
     async () => {
       const databaseUrl = requireDisposableRuntimeDatabaseUrl();
-      const projectId = randomUUID();
-      const revision = `runtime-concurrent-${projectId}`;
+      const projectIdsForTest = [randomUUID(), randomUUID()];
+      const [contendedProjectId, independentProjectId] = projectIdsForTest;
+      const revisions = new Map([
+        [contendedProjectId, `runtime-concurrent-${contendedProjectId}`],
+        [independentProjectId, `runtime-independent-${independentProjectId}`],
+      ]);
       const root = await fs.mkdtemp(path.join(os.tmpdir(), "runtime-concurrent-api-workers-"));
-      const projectRoot = path.join(root, "project");
+      const projectRoots = new Map([
+        [contendedProjectId, path.join(root, "project-a")],
+        [independentProjectId, path.join(root, "project-b")],
+      ]);
+      const runtimeListenGate = path.join(root, "allow-runtime-listeners");
       const supervisorPort = await reserveLoopbackPort();
       const supervisor = spawn(process.execPath, [supervisorScriptPath], {
         cwd: apiServerRoot,
@@ -513,7 +521,7 @@ describe("database workspace runtime store", () => {
       const barrierResponses: import("node:http").ServerResponse[] = [];
       const beginBarrier = createServer((_request, response) => {
         barrierResponses.push(response);
-        if (barrierResponses.length === 2) {
+        if (barrierResponses.length === 3) {
           for (const waitingResponse of barrierResponses.splice(0)) {
             waitingResponse.writeHead(204);
             waitingResponse.end();
@@ -524,50 +532,87 @@ describe("database workspace runtime store", () => {
         child: ChildProcessWithoutNullStreams;
         applicationName: string;
         workerId: string;
+        projectId: string;
         readyFile: string;
         resultFile: string;
         output: () => string;
       }> = [];
-      let runtimePid: number | undefined;
-      let runtimeSessionId: string | undefined;
-      projectIds.push(projectId);
+      const runtimeSessions: Array<{ projectId: string; sessionId: string; pid: number | null }> = [];
+      let releaseContendedProjectLock!: () => void;
+      let signalContendedProjectLockAcquired!: () => void;
+      const contendedProjectLockReleased = new Promise<void>((resolve) => {
+        releaseContendedProjectLock = resolve;
+      });
+      const contendedProjectLockAcquired = new Promise<void>((resolve) => {
+        signalContendedProjectLockAcquired = resolve;
+      });
+      let lockHolder: Promise<unknown> | undefined;
+      projectIds.push(...projectIdsForTest);
       roots.push(root);
 
       try {
-        await fs.mkdir(projectRoot, { recursive: true });
-        await fs.writeFile(
-          path.join(projectRoot, "package.json"),
-          JSON.stringify({ private: true, scripts: { dev: "node server.mjs" } }),
-          "utf8",
-        );
-        await fs.writeFile(
-          path.join(projectRoot, "server.mjs"),
-          [
-            "import http from 'node:http';",
-            `const server = http.createServer((_request, response) => response.end(${JSON.stringify(revision)}));`,
-            "server.listen(Number(process.env.PORT), '127.0.0.1');",
-            "process.once('SIGTERM', () => server.close(() => process.exit(0)));",
-          ].join("\n"),
-          "utf8",
-        );
-        await db.insert(projectsTable).values({
-          id: projectId,
-          ownerId: "runtime-concurrent-api-worker-test",
-          name: `Concurrent runtime ${projectId.slice(0, 8)}`,
-          rootPath: projectRoot,
-          language: "javascript",
-          status: "active",
+        for (const projectId of projectIdsForTest) {
+          const projectRoot = projectRoots.get(projectId)!;
+          const revision = revisions.get(projectId)!;
+          await fs.mkdir(projectRoot, { recursive: true });
+          await fs.writeFile(
+            path.join(projectRoot, "package.json"),
+            JSON.stringify({ private: true, scripts: { dev: "node server.mjs" } }),
+            "utf8",
+          );
+          await fs.writeFile(
+            path.join(projectRoot, "server.mjs"),
+            [
+              "import http from 'node:http';",
+              "import fs from 'node:fs/promises';",
+              `const launchSignalPath = ${JSON.stringify(path.join(root, `runtime-${projectId}.json`))};`,
+              `const listenGatePath = ${JSON.stringify(runtimeListenGate)};`,
+              "await fs.writeFile(launchSignalPath, JSON.stringify({ port: Number(process.env.PORT) }));",
+              "while (true) {",
+              "  try { await fs.access(listenGatePath); break; }",
+              "  catch (error) { if (error.code !== 'ENOENT') throw error; await new Promise((resolve) => setTimeout(resolve, 10)); }",
+              "}",
+              `const server = http.createServer((_request, response) => response.end(${JSON.stringify(revision)}));`,
+              "server.listen(Number(process.env.PORT), '127.0.0.1');",
+              "process.once('SIGTERM', () => server.close(() => process.exit(0)));",
+            ].join("\n"),
+            "utf8",
+          );
+          await db.insert(projectsTable).values({
+            id: projectId,
+            ownerId: "runtime-concurrent-api-worker-test",
+            name: `Concurrent runtime ${projectId.slice(0, 8)}`,
+            rootPath: projectRoot,
+            language: "javascript",
+            status: "active",
+          });
+        }
+
+        lockHolder = db.transaction(async (tx) => {
+          await tx.execute(sql`
+            SELECT pg_advisory_xact_lock(
+              hashtextextended(
+                ${contendedProjectId},
+                hashtext('workspace-runtime-start')::bigint
+              )
+            )
+          `);
+          signalContendedProjectLockAcquired();
+          await contendedProjectLockReleased;
         });
+        await contendedProjectLockAcquired;
 
         const barrierPort = await listenLoopback(beginBarrier);
         await waitForSupervisor(supervisor, supervisorPort);
-        const supervisorClient = new WorkspaceRuntimeSupervisorClient(
-          `http://127.0.0.1:${supervisorPort}`,
-          fetch,
-          deriveWorkspaceRuntimeSupervisorToken(runtimeRecoveryTestSecret),
-        );
 
-        for (const suffix of ["a", "b"]) {
+        const workerSpecs = [
+          { suffix: "a", projectId: contendedProjectId },
+          { suffix: "b", projectId: contendedProjectId },
+          { suffix: "c", projectId: independentProjectId },
+        ];
+        for (const { suffix, projectId } of workerSpecs) {
+          const projectRoot = projectRoots.get(projectId)!;
+          const revision = revisions.get(projectId)!;
           const applicationName = `runtime-race-${suffix}-${projectId.slice(0, 8)}`;
           const workerId = `runtime-api-worker-${suffix}:${projectId}`;
           const readyFile = path.join(root, `${suffix}-ready.json`);
@@ -618,6 +663,7 @@ describe("database workspace runtime store", () => {
             "  const row = await databaseWorkspaceRuntimeStore.get(projectId);",
             "  await fs.writeFile(resultFile, JSON.stringify({",
             "    workerId, started, rowWorkerId: row?.workerId ?? null, rowSessionId: row?.sessionId ?? null,",
+            "    rowProjectRoot: row?.projectRoot ?? null,",
             "  }), 'utf8');",
             "  await new Promise(() => {});",
             "})().catch((error) => { console.error(error); process.exitCode = 1; });",
@@ -656,6 +702,7 @@ describe("database workspace runtime store", () => {
             child,
             applicationName,
             workerId,
+            projectId,
             readyFile,
             resultFile,
             output: () => output,
@@ -666,11 +713,62 @@ describe("database workspace runtime store", () => {
           waitForJsonFile<{ workerId: string }>(
             readyFile,
             30_000,
-            "both API workers to be ready at the simultaneous-start barrier",
+            "all API workers to be ready at the simultaneous-start barrier",
             () => `worker=${child.pid}; ${output()}`,
           ),
         ));
         await fs.writeFile(path.join(root, "go"), "start");
+
+        const independentWorker = workerProcesses.find(({ projectId }) => projectId === independentProjectId)!;
+        const independentClaim = await waitForJsonFile<{
+          workerId: string;
+          claimed: boolean;
+          sessionId: string | null;
+        }>(
+          `${independentWorker.resultFile}.claim`,
+          30_000,
+          "the independent project's claim to complete while the other project's lock is held",
+          independentWorker.output,
+        );
+        expect(independentClaim).toMatchObject({
+          workerId: independentWorker.workerId,
+          claimed: true,
+        });
+
+        const contendingWorkers = workerProcesses.filter(({ projectId }) => projectId === contendedProjectId);
+        const advisoryWaitDeadline = Date.now() + 15_000;
+        let advisoryWaiters: string[] = [];
+        while (Date.now() < advisoryWaitDeadline) {
+          const waitingWorkers = await Promise.all(contendingWorkers.map(async ({ applicationName }) => {
+            const result = await db.execute(sql`
+              SELECT application_name
+              FROM pg_stat_activity
+              WHERE application_name = ${applicationName}
+                AND wait_event_type = 'Lock'
+                AND wait_event = 'advisory'
+            `);
+            return result.rows.length > 0 ? applicationName : undefined;
+          }));
+          advisoryWaiters = waitingWorkers.filter((applicationName): applicationName is string => Boolean(applicationName));
+          if (advisoryWaiters.length === contendingWorkers.length) break;
+          await new Promise((resolve) => setTimeout(resolve, 50));
+        }
+        expect(advisoryWaiters.sort()).toEqual(contendingWorkers.map(({ applicationName }) => applicationName).sort());
+        for (const { resultFile } of contendingWorkers) {
+          await expect(fs.access(`${resultFile}.claim`)).rejects.toMatchObject({ code: "ENOENT" });
+        }
+        releaseContendedProjectLock();
+        await lockHolder;
+
+        const runtimeLaunchSignals = await Promise.all(projectIdsForTest.map((projectId) =>
+          waitForJsonFile<{ port: number }>(
+            path.join(root, `runtime-${projectId}.json`),
+            30_000,
+            `the runtime process for project ${projectId} to reserve its listener`,
+          ),
+        ));
+        expect(new Set(runtimeLaunchSignals.map(({ port }) => port)).size).toBe(projectIdsForTest.length);
+        await fs.writeFile(runtimeListenGate, "listen");
 
         const results = await Promise.all(workerProcesses.map(({ resultFile, child, output }) =>
           waitForJsonFile<{
@@ -678,10 +776,11 @@ describe("database workspace runtime store", () => {
             started: { projectId: string; sessionId: string | null; status: string; pid: number | null; port: number | null };
             rowWorkerId: string | null;
             rowSessionId: string | null;
+            rowProjectRoot: string | null;
           }>(
             resultFile,
             60_000,
-            "both API workers to return from the concurrent start",
+            "all API workers to return from their concurrent starts",
             () => `worker=${child.pid}; ${output()}`,
           ),
         ));
@@ -689,70 +788,87 @@ describe("database workspace runtime store", () => {
           waitForJsonFile<{ workerId: string; claimed: boolean; sessionId: string | null }>(
             `${resultFile}.claim`,
             30_000,
-            "both API workers to finish their durable ownership claim",
+            "all API workers to finish their durable ownership claim",
             () => `worker=${child.pid}; ${output()}`,
           ),
         ));
         expect(results.map(({ workerId }) => workerId).sort()).toEqual(
           workerProcesses.map(({ workerId }) => workerId).sort(),
         );
-        expect(claims.filter(({ claimed }) => claimed)).toHaveLength(1);
-        expect(new Set(results.map(({ started }) => started.sessionId)).size).toBe(1);
-        expect(results.every(({ rowSessionId }) => rowSessionId === results[0]?.started.sessionId)).toBe(true);
+        const winningContendedClaim = claims.filter(({ claimed, workerId }) =>
+          claimed && contendingWorkers.some(({ workerId: contenderId }) => contenderId === workerId),
+        );
+        const independentClaims = claims.filter(({ claimed, workerId }) =>
+          claimed && workerProcesses.some(({ projectId, workerId: specWorkerId }) =>
+            projectId === independentProjectId && specWorkerId === workerId,
+          ),
+        );
+        expect(winningContendedClaim).toHaveLength(1);
+        expect(independentClaims).toHaveLength(1);
 
-        let persisted = await databaseWorkspaceRuntimeStore.get(projectId);
-        const runningDeadline = Date.now() + 30_000;
-        while (persisted?.status !== "running" && Date.now() < runningDeadline) {
-          await new Promise((resolve) => setTimeout(resolve, 50));
-          persisted = await databaseWorkspaceRuntimeStore.get(projectId);
-        }
-        expect(persisted).toMatchObject({
-          status: "running",
-          sessionId: results[0]?.started.sessionId,
-          workerId: expect.stringMatching(/^runtime-api-worker-[ab]:/),
-          revision,
-          pid: expect.any(Number),
-          port: expect.any(Number),
-        });
-        expect(persisted?.leaseUntil?.getTime()).toBeGreaterThan(Date.now());
-        runtimeSessionId = persisted?.sessionId;
-        runtimePid = persisted?.pid ?? undefined;
-
-        const owner = workerProcesses.find(({ workerId }) => workerId === persisted?.workerId);
-        expect(owner).toBeDefined();
-        expect(claims.find(({ claimed }) => claimed)).toMatchObject({
-          workerId: persisted?.workerId,
-          sessionId: persisted?.sessionId,
-        });
-        expect(results.find(({ workerId }) => workerId === persisted?.workerId)).toMatchObject({
-          workerId: persisted?.workerId,
-          rowSessionId: persisted?.sessionId,
-        });
-        const observation = await supervisorClient.observeStartState(projectId);
-        expect(observation).toMatchObject({
-          projectId,
-          status: "running",
-          inventoryComplete: true,
-          session: {
+        const persistedRows = new Map<string, NonNullable<Awaited<ReturnType<typeof databaseWorkspaceRuntimeStore.get>>>>();
+        for (const projectId of projectIdsForTest) {
+          let persisted = await databaseWorkspaceRuntimeStore.get(projectId);
+          const runningDeadline = Date.now() + 30_000;
+          while (persisted?.status !== "running" && Date.now() < runningDeadline) {
+            await new Promise((resolve) => setTimeout(resolve, 50));
+            persisted = await databaseWorkspaceRuntimeStore.get(projectId);
+          }
+          expect(persisted).toMatchObject({
             projectId,
-            sessionId: persisted?.sessionId,
-            pid: persisted?.pid,
-            port: persisted?.port,
-          },
-        });
-        expect(process.kill(-persisted!.pid!, 0)).toBe(true);
-        expect(await processGroupsForProjectRoot(projectRoot)).toEqual([persisted!.pid]);
-        expect(await fetchRuntimeFixture(persisted!.port!)).toBe(revision);
+            projectRoot: projectRoots.get(projectId),
+            status: "running",
+            workerId: expect.any(String),
+            sessionId: expect.any(String),
+            revision: revisions.get(projectId),
+            pid: expect.any(Number),
+            port: expect.any(Number),
+            leaseUntil: expect.any(Date),
+          });
+          expect(persisted?.leaseUntil?.getTime()).toBeGreaterThan(Date.now());
+          if (!persisted) throw new Error(`Runtime row for project ${projectId} was not persisted.`);
+          persistedRows.set(projectId, persisted);
+          runtimeSessions.push({
+            projectId,
+            sessionId: persisted.sessionId,
+            pid: persisted.pid,
+          });
+
+          const projectWorkers = workerProcesses.filter(({ projectId: workerProjectId }) => workerProjectId === projectId);
+          const projectResults = results.filter(({ workerId }) => projectWorkers.some(({ workerId: specWorkerId }) => specWorkerId === workerId));
+          expect(new Set(projectResults.map(({ started }) => started.sessionId)).size).toBe(1);
+          expect(projectResults.every(({ rowWorkerId, rowSessionId, rowProjectRoot }) =>
+            rowWorkerId === persisted!.workerId
+            && rowSessionId === persisted!.sessionId
+            && rowProjectRoot === projectRoots.get(projectId),
+          )).toBe(true);
+          expect(claims.find(({ workerId }) => workerId === persisted!.workerId)).toMatchObject({
+            claimed: true,
+            sessionId: persisted.sessionId,
+          });
+          expect(workerProcesses.find(({ workerId }) => workerId === persisted!.workerId)).toBeDefined();
+
+          expect(process.kill(-persisted.pid!, 0)).toBe(true);
+          expect(await processGroupsForProjectRoot(projectRoots.get(projectId)!)).toEqual([persisted.pid]);
+          expect(await fetchRuntimeFixture(persisted.port!)).toBe(revisions.get(projectId));
+        }
+        expect(persistedRows.get(contendedProjectId)?.workerId).not.toBe(persistedRows.get(independentProjectId)?.workerId);
+        expect(persistedRows.get(contendedProjectId)?.sessionId).not.toBe(persistedRows.get(independentProjectId)?.sessionId);
+        expect(persistedRows.get(contendedProjectId)?.leaseUntil?.getTime()).toBeGreaterThan(Date.now());
+        expect(persistedRows.get(independentProjectId)?.leaseUntil?.getTime()).toBeGreaterThan(Date.now());
       } finally {
-        if (runtimeSessionId) {
+        releaseContendedProjectLock();
+        await fs.writeFile(runtimeListenGate, "cleanup").catch(() => undefined);
+        await lockHolder?.catch(() => undefined);
+        for (const runtimeSession of runtimeSessions) {
           await new WorkspaceRuntimeSupervisorClient(
             `http://127.0.0.1:${supervisorPort}`,
             fetch,
             deriveWorkspaceRuntimeSupervisorToken(runtimeRecoveryTestSecret),
           ).stop({
-            projectId,
-            sessionId: runtimeSessionId,
-            pid: runtimePid ?? null,
+            projectId: runtimeSession.projectId,
+            sessionId: runtimeSession.sessionId,
+            pid: runtimeSession.pid,
           }).catch(() => undefined);
         }
         await Promise.all(workerProcesses.map(async ({ child, applicationName }) => {
