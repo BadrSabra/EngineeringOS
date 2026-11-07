@@ -43,6 +43,7 @@ import {
   appendEpisodeEvent,
   startEpisode,
 } from "./agent-state/agent-episode-ledger.js";
+import * as episodeLedger from "./agent-state/agent-episode-ledger.js";
 import { childProcessBindingDigest } from "./agent-state/child-process-attestation.js";
 import { materializeServerOwnedObservations } from "./agent-state/observation-materializer.js";
 import { buildRuntimeStartHypothesisExperimentRegistration } from "./agent-state/runtime-start-hypothesis-experiment.js";
@@ -1145,6 +1146,78 @@ describe("recipe operation preparation", () => {
       executionId = result.executionId;
       expect(result.status).toBe("blocked");
       expect(startSpy).not.toHaveBeenCalled();
+      const [execution] = await db.select().from(aiExecutionsTable)
+        .where(eq(aiExecutionsTable.id, executionId));
+      expect(execution).toMatchObject({
+        status: "failed",
+        workerId: null,
+        leaseUntil: null,
+      });
+      expect(execution?.recipeReceipt).toMatchObject({
+        executionId,
+        status: "blocked",
+      });
+      expect(await db.select().from(aiExecutionAcceptancesTable).where(and(
+        eq(aiExecutionAcceptancesTable.executionId, executionId),
+        eq(aiExecutionAcceptancesTable.outcome, "FAILED"),
+      ))).toHaveLength(1);
+      expect(await db.select().from(aiWorldTransitionsTable)
+        .where(eq(aiWorldTransitionsTable.executionId, executionId))).toHaveLength(0);
+      expect(await db.select().from(aiExecutionAcceptancesTable).where(and(
+        eq(aiExecutionAcceptancesTable.executionId, executionId),
+        eq(aiExecutionAcceptancesTable.outcome, "SUCCEEDED"),
+      ))).toHaveLength(0);
+      const replay = await runRecipeOperation({
+        ...fixture.params,
+        recipeId: "runtime.start",
+        runtimeStartRunner: createRuntimeStartRunner(manager),
+      });
+      expect(replay.executionId).toBe(executionId);
+      expect(replay.status).toBe("blocked");
+      expect(replay.receipt).toEqual(result.receipt);
+    } finally {
+      startSpy.mockRestore();
+      worldStateSpy.mockRestore();
+      await fixture.cleanup(executionId);
+    }
+  });
+
+  it("terminalizes a claimed runtime recipe when its Episode cannot be created", async () => {
+    const fixture = await createGateCRecipeFixture("browser.verify");
+    const manager = new WorkspaceRuntimeManager({
+      store: createInMemoryWorkspaceRuntimeStore(),
+    });
+    const startSpy = vi.spyOn(manager, "start");
+    const episodeSpy = vi.spyOn(episodeLedger, "startEpisode")
+      .mockRejectedValueOnce(new Error("episode persistence unavailable"));
+    const originalGetProjectWorldState = worldState.getProjectWorldState;
+    const worldStateSpy = vi.spyOn(worldState, "getProjectWorldState")
+      .mockImplementation((...args) => originalGetProjectWorldState(...args));
+    let executionId: string | undefined;
+    try {
+      const result = await runRecipeOperation({
+        ...fixture.params,
+        recipeId: "runtime.start",
+        runtimeStartRunner: createRuntimeStartRunner(manager),
+      });
+      executionId = result.executionId;
+      expect(result.status).toBe("blocked");
+      expect(startSpy).not.toHaveBeenCalled();
+      const [execution] = await db.select().from(aiExecutionsTable)
+        .where(eq(aiExecutionsTable.id, executionId));
+      expect(execution).toMatchObject({
+        status: "failed",
+        workerId: null,
+        leaseUntil: null,
+      });
+      expect(execution?.recipeReceipt).toMatchObject({
+        executionId,
+        status: "blocked",
+      });
+      expect(await db.select().from(aiAgentEpisodesTable).where(eq(
+        aiAgentEpisodesTable.executionId,
+        executionId,
+      ))).toHaveLength(0);
       expect(await db.select().from(aiWorldTransitionsTable)
         .where(eq(aiWorldTransitionsTable.executionId, executionId))).toHaveLength(0);
       expect(await db.select().from(aiExecutionAcceptancesTable).where(and(
@@ -1153,6 +1226,7 @@ describe("recipe operation preparation", () => {
       ))).toHaveLength(0);
     } finally {
       startSpy.mockRestore();
+      episodeSpy.mockRestore();
       worldStateSpy.mockRestore();
       await fixture.cleanup(executionId);
     }

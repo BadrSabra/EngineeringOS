@@ -149,6 +149,7 @@ vi.mock("@workspace/db", () => {
 });
 
 import {
+  classifyAiExecutionCompletionRefusal,
   claimAiExecution,
   createAiExecution,
   createAutonomousOperationContract,
@@ -184,6 +185,55 @@ describe("shouldCreateAutonomousOperation", () => {
       turnIntentKind: "CHAT",
       projectOrientation: false,
     })).toBe(false);
+  });
+});
+
+describe("classifyAiExecutionCompletionRefusal", () => {
+  const liveLease = new Date(Date.now() + 60_000);
+
+  it("does not treat rejected effect evidence as cancellation", () => {
+    expect(classifyAiExecutionCompletionRefusal({
+      status: "running",
+      workerId: "worker-a",
+      expectedWorkerId: "worker-a",
+      leaseUntil: liveLease,
+      reason: "Mutation effect evidence is missing.",
+    })).toEqual({
+      kind: "acceptance_rejected",
+      reasonCode: "EFFECT_EVIDENCE_REJECTED",
+    });
+  });
+
+  it("reports cancellation only when durable cancellation state exists", () => {
+    expect(classifyAiExecutionCompletionRefusal({
+      status: "cancelling",
+      workerId: "worker-a",
+      expectedWorkerId: "worker-a",
+      leaseUntil: liveLease,
+    })).toEqual({
+      kind: "cancelled",
+      reasonCode: "EXECUTION_CANCELLED",
+    });
+    expect(classifyAiExecutionCompletionRefusal({
+      status: "running",
+      workerId: "worker-a",
+      expectedWorkerId: "worker-a",
+      leaseUntil: liveLease,
+      cancelRequestedAt: new Date(),
+    })).toMatchObject({ kind: "cancelled" });
+  });
+
+  it("stops terminal writes when the current worker no longer owns the lease", () => {
+    expect(classifyAiExecutionCompletionRefusal({
+      status: "running",
+      workerId: "worker-b",
+      expectedWorkerId: "worker-a",
+      leaseUntil: liveLease,
+      reason: "The worker no longer owns a live execution lease.",
+    })).toEqual({
+      kind: "ownership_lost",
+      reasonCode: "EXECUTION_LEASE_LOST",
+    });
   });
 });
 

@@ -291,6 +291,13 @@ jobs:
 
           pnpm run test
 
+      - name: Prove task acceptance after HTTP response loss
+        shell: bash
+        run: |
+          set -euo pipefail
+          export SESSION_SECRET="$(node --input-type=module -e 'import { randomBytes } from "node:crypto"; process.stdout.write(randomBytes(32).toString("base64url"))')"
+          pnpm --filter @workspace/api-server run test:task-route-acceptance-response-loss
+
       - name: Prove PostgreSQL-backed runtime process recovery
         shell: bash
         run: |

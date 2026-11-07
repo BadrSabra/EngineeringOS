@@ -42,7 +42,7 @@ import {
   authorizeRecipeNodeExecution,
   checkpointAiExecution,
   claimAiExecution,
-  completeAiExecution,
+  completeAiExecutionWithResult,
   createAiExecution,
   createRecipeOperationBinding,
   failAiExecution,
@@ -1410,6 +1410,8 @@ export async function runRecipeOperation(params: RunRecipeOperationParams): Prom
     hypothesisExperimentId?: string;
   } | undefined;
   let runtimeStartHypothesisRegistration: RuntimeStartHypothesisExperimentRegistration | undefined;
+  let episode: Awaited<ReturnType<typeof startEpisode>> | undefined;
+  let gateCAction: AgentAction | undefined;
   const runtimeStartRunner = params.runtimeStartRunner
     ? async (args: Parameters<RuntimeStartRunner>[0]) => params.runtimeStartRunner!({
         ...args,
@@ -1913,6 +1915,30 @@ export async function runRecipeOperation(params: RunRecipeOperationParams): Prom
     };
     throw new Error("Recipe operation could not acquire its durable lease.");
   }
+  const overallController = new AbortController();
+  let heartbeatTimer: ReturnType<typeof setInterval> | undefined;
+  let totalTimer: ReturnType<typeof setTimeout> | undefined;
+  let mainExecutionStarted = false;
+  let readOnlyInvocationEpisode: Awaited<ReturnType<typeof startEpisode>> | undefined;
+  let readOnlyInvocationEpisodeCloseAttempted = false;
+  let closeReadOnlyInvocationEpisode: (
+    verdict: EpisodeVerdict,
+    reasonCode: string,
+  ) => Promise<void> = async () => {};
+  try {
+  if (!await registerAiExecutionController(claimed.id, overallController)) {
+    throw new Error("Recipe execution ownership ended before preparation began.");
+  }
+  heartbeatTimer = setInterval(() => {
+    void heartbeatAiExecution({
+      executionId: claimed.id,
+      expectedAttempt: claimed.attempt,
+      workerId,
+    }).then((ok) => {
+      if (!ok) overallController.abort();
+    }).catch(() => overallController.abort());
+  }, 30_000);
+  totalTimer = setTimeout(() => overallController.abort(), prepared.binding.missionBudget.maxTotalTimeoutMs);
   const candidateValidation = params.recipeId === "candidate.verify";
   const recipeGateCEffectKind = gateCEffectKind(params.recipeId);
   const authoritativeEffectRecipe = candidateValidation || Boolean(recipeGateCEffectKind);
@@ -1932,7 +1958,7 @@ export async function runRecipeOperation(params: RunRecipeOperationParams): Prom
   const effectEpisodeWorldRevision = authoritativeEffectRecipe
     ? (await getProjectWorldState(params.projectId)).worldRevision
     : undefined;
-  const episode = authoritativeEffectRecipe
+  episode = authoritativeEffectRecipe
     ? await startEpisode({
         projectId: params.projectId,
         executionId: claimed.id,
@@ -2001,38 +2027,10 @@ export async function runRecipeOperation(params: RunRecipeOperationParams): Prom
         }
       : {}),
   };
-  let readOnlyInvocationEpisode: Awaited<ReturnType<typeof startEpisode>> | undefined;
   if (tracksReadOnlyRecipeInvocation) {
-    try {
-      readOnlyInvocationEpisode = await startEpisode(recipeEpisodeInput);
-    } catch (error) {
-      logger.warn(
-        {
-          scope: "recipe-operation",
-          code: "read_only_recipe_episode_start_failed",
-          executionId: claimed.id,
-          attempt: claimed.attempt,
-          error,
-        },
-        "Read-only recipe execution stopped because its Episode could not be created",
-      );
-      const checkpoint = parseAiExecutionCheckpoint(claimed.checkpoint);
-      await failAiExecution({
-        executionId: claimed.id,
-        workerId,
-        error: "Read-only recipe invocation provenance could not be established.",
-        recipeBinding: checkpoint?.recipeBinding ?? {
-          ...prepared.binding,
-          phase: "running",
-          leaseOwner: workerId,
-          leaseUntil: new Date(Date.now() + 300_000).toISOString(),
-        },
-      });
-      throw new Error("Read-only recipe invocation provenance could not be established.");
-    }
+    readOnlyInvocationEpisode = await startEpisode(recipeEpisodeInput);
   }
-  let readOnlyInvocationEpisodeCloseAttempted = false;
-  const closeReadOnlyInvocationEpisode = async (
+  closeReadOnlyInvocationEpisode = async (
     verdict: EpisodeVerdict,
     reasonCode: string,
   ): Promise<void> => {
@@ -2074,7 +2072,6 @@ export async function runRecipeOperation(params: RunRecipeOperationParams): Prom
   let candidateValidationEffectContract: EffectContract | undefined;
   let candidateValidationBeforeObservationIds: string[] | undefined;
   let candidateValidationRequestedAt: number | undefined;
-  let gateCAction: AgentAction | undefined;
   let gateCEffectContract: EffectContract | undefined;
   let gateCBeforeObservationIds: string[] | undefined;
   let gateCEffectBundleId: string | undefined;
@@ -2263,12 +2260,6 @@ export async function runRecipeOperation(params: RunRecipeOperationParams): Prom
   };
   const resumedNodes = reconcileExecutionNodeCheckpoint(prepared.plan.nodes, checkpoint?.nodeStates);
   if (!resumedNodes) {
-    await failAiExecution({
-      executionId: claimed.id,
-      workerId,
-      error: "Recipe checkpoint does not match the server-owned recipe plan.",
-      recipeBinding: runningRecipeBinding,
-    });
     throw new Error("Recipe checkpoint could not be reconciled with the server-owned plan.");
   }
   const outputs = new Map<string, Record<string, unknown>>();
@@ -2276,12 +2267,6 @@ export async function runRecipeOperation(params: RunRecipeOperationParams): Prom
     if (node.status !== "passed") continue;
     const evidenceId = node.evidenceRefs?.find((value): value is string => typeof value === "string" && value.length > 0);
     if (!evidenceId) {
-      await failAiExecution({
-        executionId: claimed.id,
-        workerId,
-        error: "Recipe checkpoint passed node has no retained evidence receipt.",
-        recipeBinding: runningRecipeBinding,
-      });
       throw new Error("Recipe checkpoint passed node is missing retained evidence.");
     }
     outputs.set(node.id, { evidence: { evidenceId } });
@@ -2404,24 +2389,15 @@ export async function runRecipeOperation(params: RunRecipeOperationParams): Prom
         }
       : {}),
   });
-  const overallController = new AbortController();
-  await registerAiExecutionController(claimed.id, overallController);
-  const heartbeatTimer = setInterval(() => {
-    void heartbeatAiExecution({
-      executionId: claimed.id,
-      expectedAttempt: claimed.attempt,
-      workerId,
-    }).then((ok) => {
-      if (!ok) overallController.abort();
-    }).catch(() => overallController.abort());
-  }, 30_000);
-  const abortOverall = () => overallController.abort();
-  const totalTimer = setTimeout(abortOverall, prepared.binding.missionBudget.maxTotalTimeoutMs);
   // checkpoint_version is a PostgreSQL integer. Continue from the durable
   // version claimed above instead of using wall-clock milliseconds, which
   // overflow the column on the first progress checkpoint.
   let checkpointSequence = claimed.checkpointVersion;
   let latestNodes = resumedNodes;
+  if (overallController.signal.aborted) {
+    throw new Error("Recipe execution ownership or time budget ended during preparation.");
+  }
+  mainExecutionStarted = true;
   try {
     const injectedMeasurementContinuationRunner =
       params.runtimeStartMeasurementContinuationRunner;
@@ -3854,7 +3830,7 @@ export async function runRecipeOperation(params: RunRecipeOperationParams): Prom
     }
     const terminalEffectBundleId = candidateEffectBundleId ?? gateCEffectBundleId;
     await closeReadOnlyInvocationEpisode("achieved", "READ_ONLY_INVOCATIONS_RECORDED");
-    const completed = await completeAiExecution({
+    const completion = await completeAiExecutionWithResult({
       executionId: claimed.id,
       workerId,
       finalMessageId: `recipe-receipt:${params.operationId}`,
@@ -3890,60 +3866,114 @@ export async function runRecipeOperation(params: RunRecipeOperationParams): Prom
         ? { effectRequired: true, effectBundleId: terminalEffectBundleId }
         : {}),
     });
-    if (!completed) {
-      const cancelledReceipt = buildRecipeReceipt(
+    if (completion.kind !== "accepted") {
+      if (completion.kind === "ownership_lost") {
+        throw new Error("Recipe completion lost its durable ownership fence.");
+      }
+      const cancelled = completion.kind === "cancelled";
+      const rejectedReceipt = buildRecipeReceipt(
         params,
         claimed.id,
         claimed.attempt,
-        "cancelled",
+        cancelled ? "cancelled" : "blocked",
         result.nodes,
         outputs,
         result.completedNodeIds,
       );
-      const cancelled = await failAiExecution({
+      const nodeStates = result.nodes.map((node) => ({
+        id: node.id,
+        title: node.title,
+        kind: "inspect" as const,
+        dependencies: node.dependencies,
+        status: node.status,
+        attempts: node.attempts,
+        validationAttempts: node.validationAttempts,
+        allowedFiles: node.allowedFiles,
+        validationProfile: node.validationProfile,
+        evidenceRefs: evidence[node.id] ? [receiptIdForEvidence(evidence[node.id])]
+          .filter((id): id is string => typeof id === "string") : [],
+      }));
+      let terminalized = await failAiExecution({
         executionId: claimed.id,
         workerId,
-        cancelled: true,
-        error: "Recipe execution was cancelled before terminal acceptance.",
-        nodeStates: result.nodes.map((node) => ({
-          id: node.id,
-          title: node.title,
-          kind: "inspect" as const,
-          dependencies: node.dependencies,
-          status: node.status,
-          attempts: node.attempts,
-          validationAttempts: node.validationAttempts,
-          allowedFiles: node.allowedFiles,
-          validationProfile: node.validationProfile,
-          evidenceRefs: evidence[node.id] ? [receiptIdForEvidence(evidence[node.id])]
-            .filter((id): id is string => typeof id === "string") : [],
-        })),
+        cancelled,
+        error: cancelled
+          ? "Recipe execution was cancelled before terminal acceptance."
+          : `Recipe execution acceptance was rejected (${completion.reasonCode}).`,
+        recoveryState: cancelled ? "INCOMPLETE" : "REQUIRED",
+        resumable: !cancelled,
+        nodeStates,
         recipeBinding: { ...prepared.binding, phase: "running", leaseOwner: workerId, leaseUntil: new Date(Date.now() + 300_000).toISOString() },
-        recipeReceipt: cancelledReceipt,
+        recipeReceipt: rejectedReceipt,
       });
-      if (cancelled) {
+      let terminalExecution = await getAiExecutionForUser(claimed.id, params.userId);
+      if (!terminalized && !cancelled && (
+        terminalExecution?.status === "cancelling"
+        || Boolean(terminalExecution?.cancelRequestedAt)
+      )) {
+        const cancellationReceipt = buildRecipeReceipt(
+          params,
+          claimed.id,
+          claimed.attempt,
+          "cancelled",
+          result.nodes,
+          outputs,
+          result.completedNodeIds,
+        );
+        terminalized = await failAiExecution({
+          executionId: claimed.id,
+          workerId,
+          cancelled: true,
+          error: "Recipe execution was cancelled before terminal acceptance.",
+          recoveryState: "INCOMPLETE",
+          resumable: false,
+          nodeStates,
+          recipeBinding: { ...prepared.binding, phase: "running", leaseOwner: workerId, leaseUntil: new Date(Date.now() + 300_000).toISOString() },
+          recipeReceipt: cancellationReceipt,
+        });
+        terminalExecution = await getAiExecutionForUser(claimed.id, params.userId);
+        if (terminalized) {
+          return {
+            executionId: claimed.id,
+            status: "blocked",
+            completedNodeIds: result.completedNodeIds,
+            receipt: cancellationReceipt,
+          };
+        }
+      }
+      if (terminalized) {
         return {
           executionId: claimed.id,
           status: "blocked",
           completedNodeIds: result.completedNodeIds,
-          receipt: cancelledReceipt,
+          receipt: rejectedReceipt,
         };
       }
-      const terminalExecution = await getAiExecutionForUser(claimed.id, params.userId);
       if (terminalExecution?.status === "cancelled") {
+        const cancellationReceipt = completion.kind === "cancelled"
+          ? rejectedReceipt
+          : buildRecipeReceipt(
+              params,
+              claimed.id,
+              claimed.attempt,
+              "cancelled",
+              result.nodes,
+              outputs,
+              result.completedNodeIds,
+            );
         await persistCancelledRecipeReceipt({
           executionId: claimed.id,
           userId: params.userId,
-          recipeReceipt: cancelledReceipt,
+          recipeReceipt: cancellationReceipt,
         });
         return {
           executionId: claimed.id,
           status: "blocked",
           completedNodeIds: result.completedNodeIds,
-          receipt: cancelledReceipt,
+          receipt: cancellationReceipt,
         };
       }
-      throw new Error("Recipe completion lost its durable ownership fence.");
+      throw new Error("Recipe acceptance failed and its terminal state could not be recorded.");
     }
     const receipt = completedReceipt;
     if (episode && !params.strategyReplayContext) {
@@ -4260,8 +4290,114 @@ export async function runRecipeOperation(params: RunRecipeOperationParams): Prom
     if (readOnlyInvocationEpisode && !readOnlyInvocationEpisodeCloseAttempted) {
       await closeReadOnlyInvocationEpisode("failed", "RECIPE_EXECUTION_INTERRUPTED");
     }
-    clearTimeout(totalTimer);
-    clearInterval(heartbeatTimer);
+    if (totalTimer) clearTimeout(totalTimer);
+    if (heartbeatTimer) clearInterval(heartbeatTimer);
     unregisterAiExecutionController(claimed.id, overallController);
+  }
+  } catch (error) {
+    if (mainExecutionStarted) throw error;
+    const current = await getAiExecutionForUser(claimed.id, params.userId).catch(() => undefined);
+    const cancellationWon = current?.status === "cancelled"
+      || current?.status === "cancelling"
+      || Boolean(current?.cancelRequestedAt);
+    if (readOnlyInvocationEpisode && !readOnlyInvocationEpisodeCloseAttempted) {
+      await closeReadOnlyInvocationEpisode(
+        cancellationWon ? "cancelled" : "failed",
+        cancellationWon ? "EXECUTION_CANCELLED" : "RECIPE_PREPARATION_FAILED",
+      );
+    }
+    if (episode) {
+      try {
+        await closeEpisode({
+          episodeId: episode.episodeId,
+          projectId: params.projectId,
+          executionId: claimed.id,
+          attempt: claimed.attempt,
+          workerId,
+          eventType: cancellationWon ? "EPISODE_CANCELLED" : "EPISODE_TERMINAL",
+          payload: {
+            verdict: cancellationWon ? "cancelled" : "failed",
+            reasonCode: cancellationWon ? "EXECUTION_CANCELLED" : "RECIPE_PREPARATION_FAILED",
+          },
+          verdict: cancellationWon ? "cancelled" : "failed",
+          reasonCode: cancellationWon ? "EXECUTION_CANCELLED" : "RECIPE_PREPARATION_FAILED",
+          actorType: "worker",
+          actorId: workerId,
+          correlationId: claimed.id,
+        });
+      } catch (closeError) {
+        logger.warn(
+          {
+            scope: "recipe-operation",
+            code: "recipe_preparation_episode_close_failed",
+            executionId: claimed.id,
+            attempt: claimed.attempt,
+            error: closeError,
+          },
+          "Recipe preparation failed and its Episode could not be closed",
+        );
+      }
+    }
+    if (totalTimer) clearTimeout(totalTimer);
+    if (heartbeatTimer) clearInterval(heartbeatTimer);
+    unregisterAiExecutionController(claimed.id, overallController);
+    logger.warn(
+      {
+        scope: "recipe-operation",
+        code: "recipe_post_claim_preparation_failed",
+        executionId: claimed.id,
+        attempt: claimed.attempt,
+        cancellationWon,
+        error,
+      },
+      "Recipe execution stopped because required preparation failed before capability dispatch",
+    );
+    const receipt = buildRecipeReceipt(
+      params,
+      claimed.id,
+      claimed.attempt,
+      cancellationWon ? "cancelled" : "blocked",
+      prepared.plan.nodes,
+      new Map(),
+      [],
+    );
+    if (current?.status === "cancelled") {
+      await persistCancelledRecipeReceipt({
+        executionId: claimed.id,
+        userId: params.userId,
+        recipeReceipt: receipt,
+      });
+      return { executionId: claimed.id, status: "blocked", completedNodeIds: [], receipt };
+    }
+    const terminalized = await failAiExecution({
+      executionId: claimed.id,
+      workerId,
+      cancelled: cancellationWon,
+      error: cancellationWon
+        ? "Recipe execution was cancelled during preparation."
+        : "Recipe execution preparation failed before capability dispatch.",
+      recoveryState: cancellationWon ? "INCOMPLETE" : "REQUIRED",
+      resumable: false,
+      recipeBinding: {
+        ...prepared.binding,
+        phase: "running",
+        leaseOwner: workerId,
+        leaseUntil: new Date(Date.now() + 300_000).toISOString(),
+      },
+      recipeReceipt: receipt,
+    });
+    if (terminalized) {
+      return { executionId: claimed.id, status: "blocked", completedNodeIds: [], receipt };
+    }
+    const terminalExecution = await getAiExecutionForUser(claimed.id, params.userId).catch(() => undefined);
+    if (terminalExecution?.status === "cancelled") {
+      await persistCancelledRecipeReceipt({
+        executionId: claimed.id,
+        userId: params.userId,
+        recipeReceipt: receipt,
+      });
+      return { executionId: claimed.id, status: "blocked", completedNodeIds: [], receipt };
+    }
+    throw new Error("Recipe preparation failed after its durable ownership fence was lost.");
   }
 }

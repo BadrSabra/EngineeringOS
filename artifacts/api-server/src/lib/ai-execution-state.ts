@@ -3341,7 +3341,53 @@ export async function ownsAiExecutionLease(params: {
   );
 }
 
-export async function completeAiExecution(params: {
+export type AiExecutionCompletionOutcome =
+  | { kind: "accepted"; duplicate: boolean }
+  | { kind: "cancelled"; reasonCode: "EXECUTION_CANCELLED" }
+  | { kind: "ownership_lost"; reasonCode: string }
+  | { kind: "acceptance_rejected"; reasonCode: string };
+
+export function classifyAiExecutionCompletionRefusal(params: {
+  status?: string | null;
+  workerId?: string | null;
+  expectedWorkerId: string;
+  leaseUntil?: Date | null;
+  cancelRequestedAt?: Date | null;
+  reason?: string;
+}): AiExecutionCompletionOutcome {
+  if (
+    params.status === "cancelling"
+    || params.status === "cancelled"
+    || Boolean(params.cancelRequestedAt)
+  ) {
+    return { kind: "cancelled", reasonCode: "EXECUTION_CANCELLED" };
+  }
+  if (
+    params.status !== "running"
+    || params.workerId !== params.expectedWorkerId
+    || !params.leaseUntil
+    || params.leaseUntil <= new Date()
+  ) {
+    const reason = params.reason?.toLowerCase() ?? "";
+    return {
+      kind: "ownership_lost",
+      reasonCode: reason.includes("stale")
+        ? "EXECUTION_ATTEMPT_STALE"
+        : "EXECUTION_LEASE_LOST",
+    };
+  }
+  const reason = params.reason?.toLowerCase() ?? "";
+  return {
+    kind: "acceptance_rejected",
+    reasonCode: reason.includes("effect")
+      ? "EFFECT_EVIDENCE_REJECTED"
+      : reason.includes("evidence")
+        ? "EXECUTION_EVIDENCE_REJECTED"
+        : "ACCEPTANCE_FINALIZATION_REJECTED",
+  };
+}
+
+export async function completeAiExecutionWithResult(params: {
   executionId: string;
   workerId: string;
   /**
@@ -3396,7 +3442,7 @@ export async function completeAiExecution(params: {
   /** Server-owned effect evidence required before terminal success. */
   effectRequired?: boolean;
   effectBundleId?: string | null;
-}): Promise<boolean> {
+}): Promise<AiExecutionCompletionOutcome> {
   const [current] = await db
     .select({
       projectId: aiExecutionsTable.projectId,
@@ -3416,6 +3462,22 @@ export async function completeAiExecution(params: {
       eq(aiExecutionsTable.status, "running"),
     ))
     .limit(1);
+  if (!current) {
+    const [latest] = await db
+      .select({
+        status: aiExecutionsTable.status,
+        workerId: aiExecutionsTable.workerId,
+        leaseUntil: aiExecutionsTable.leaseUntil,
+        cancelRequestedAt: aiExecutionsTable.cancelRequestedAt,
+      })
+      .from(aiExecutionsTable)
+      .where(eq(aiExecutionsTable.id, params.executionId))
+      .limit(1);
+    return classifyAiExecutionCompletionRefusal({
+      ...latest,
+      expectedWorkerId: params.workerId,
+    });
+  }
   const request = current ? parseExecutionRequest(current.request) : undefined;
   const checkpoint = current ? parseAiExecutionCheckpoint(current.checkpoint) : undefined;
   const hasPersistedWorkspaceRoot =
@@ -3431,7 +3493,9 @@ export async function completeAiExecution(params: {
       ) + 1
     : 1;
   if (params.recipeBinding) {
-    if (!current?.leaseUntil || current.leaseUntil <= new Date()) return false;
+    if (!current.leaseUntil || current.leaseUntil <= new Date()) {
+      return { kind: "ownership_lost", reasonCode: "EXECUTION_LEASE_EXPIRED" };
+    }
     try {
       assertRecipeOperationBinding(params.recipeBinding, {
         projectId: current.projectId,
@@ -3441,9 +3505,11 @@ export async function completeAiExecution(params: {
         requireLease: true,
       });
     } catch {
-      return false;
+      return { kind: "ownership_lost", reasonCode: "RECIPE_BINDING_MISMATCH" };
     }
-    if (!checkpoint?.recipeBinding || checkpoint.recipeBinding.leaseOwner !== params.workerId) return false;
+    if (!checkpoint?.recipeBinding || checkpoint.recipeBinding.leaseOwner !== params.workerId) {
+      return { kind: "ownership_lost", reasonCode: "RECIPE_BINDING_OWNER_MISMATCH" };
+    }
   }
   const requiresProof = params.proofRequired ?? request?.proofRequired ?? false;
   const pendingProposal = Boolean(params.proposalId);
@@ -3478,10 +3544,12 @@ export async function completeAiExecution(params: {
       || request?.objective !== undefined
       || request?.taskObjective !== undefined
     )
-  ) return false;
+  ) return { kind: "acceptance_rejected", reasonCode: "FACT_INVESTIGATION_PRECONDITION_REJECTED" };
   if (!factInvestigationContract && (
     params.taskResult as { kind?: unknown } | undefined
-  )?.kind === "PROJECT_QUERY_INVESTIGATION_RESULT") return false;
+  )?.kind === "PROJECT_QUERY_INVESTIGATION_RESULT") {
+    return { kind: "acceptance_rejected", reasonCode: "FACT_INVESTIGATION_CONTRACT_MISSING" };
+  }
   if (factInvestigationContract && factInvestigationResult?.success) {
     const result = factInvestigationResult.data;
     const expectedManifestId = hashProjectQueryFactManifest({
@@ -3525,7 +3593,7 @@ export async function completeAiExecution(params: {
       || result.status === "ANSWER_BLOCKED"
       || result.sources.length === 0
       || !sourceIdentitiesMatch
-    ) return false;
+    ) return { kind: "acceptance_rejected", reasonCode: "FACT_INVESTIGATION_EVIDENCE_REJECTED" };
   }
   const factInvestigationExecution = Boolean(factInvestigationContract);
   const inferredEvidenceRefs = factInvestigationExecution ? [] : [
@@ -3555,22 +3623,34 @@ export async function completeAiExecution(params: {
         validatorReceipts: params.validatorReceipts,
         taskResult: params.taskResult,
       });
-      if (!objectiveCheck.allowed) return false;
+      if (!objectiveCheck.allowed) {
+        return { kind: "acceptance_rejected", reasonCode: "TASK_OBJECTIVE_REJECTED" };
+      }
     }
-    if (forensicExecution && params.forensicAccepted !== true) return false;
-    if (!operation && !projectOrientationAcceptance) return false;
-    if (!request?.workspaceRevision) return false;
+    if (forensicExecution && params.forensicAccepted !== true) {
+      return { kind: "acceptance_rejected", reasonCode: "FORENSIC_ACCEPTANCE_REQUIRED" };
+    }
+    if (!operation && !projectOrientationAcceptance) {
+      return { kind: "acceptance_rejected", reasonCode: "OPERATION_CONTRACT_MISSING" };
+    }
+    if (!request?.workspaceRevision) {
+      return { kind: "acceptance_rejected", reasonCode: "WORKSPACE_REVISION_MISSING" };
+    }
     if (
       params.workspaceRoot !== undefined
       && hasPersistedWorkspaceRoot
       && current.workspaceRoot !== params.workspaceRoot
-    ) return false;
+    ) {
+      return { kind: "acceptance_rejected", reasonCode: "WORKSPACE_ROOT_MISMATCH" };
+    }
     const durableOperationId = current.operationId ?? params.executionId;
     // A proof-required project query has a semantic acceptance contract:
     // complete source reads alone do not prove that the requested claims were
     // answered. Never fall back to the generic operation gate when the
     // project-query analysis evidence was not produced.
-    if (projectQueryProofExecution && !params.analysisEvidence) return false;
+    if (projectQueryProofExecution && !params.analysisEvidence) {
+      return { kind: "acceptance_rejected", reasonCode: "ANALYSIS_EVIDENCE_MISSING" };
+    }
     const completion = params.analysisEvidence
       ? validateAnalysisEvidenceCompletion(params.analysisEvidence, {
           operationId: params.operationId ?? durableOperationId,
@@ -3615,7 +3695,9 @@ export async function completeAiExecution(params: {
             requireProven: !pendingProposal,
           });
         })();
-    if (!completion.allowed) return false;
+    if (!completion.allowed) {
+      return { kind: "acceptance_rejected", reasonCode: "COMPLETION_EVIDENCE_REJECTED" };
+    }
     acceptedClaimRefs = params.analysisEvidence
       ? deriveAcceptedClaimRefs({
           objective: request?.objective,
@@ -3625,7 +3707,7 @@ export async function completeAiExecution(params: {
       : [];
   }
   if (projectOrientationAcceptance && params.orientationCoverageComplete !== true) {
-    return false;
+    return { kind: "acceptance_rejected", reasonCode: "ORIENTATION_COVERAGE_INCOMPLETE" };
   }
   const sourceEvidenceRequired = !factInvestigationExecution && (
     (request?.proofRequired === true
@@ -3708,7 +3790,7 @@ export async function completeAiExecution(params: {
   const storedRecipeBinding = storedCheckpoint?.recipeBinding ?? storedCheckpoint?.operation?.binding;
   if (storedRecipeBinding && params.recipeBinding
     && !sameRecipeBindingIdentity(storedRecipeBinding, params.recipeBinding)) {
-    return false;
+    return { kind: "ownership_lost", reasonCode: "RECIPE_BINDING_IDENTITY_MISMATCH" };
   }
   const checkpointRecipeBinding = preserveLegacyRecipeBinding(
     storedRecipeBinding,
@@ -3784,7 +3866,28 @@ export async function completeAiExecution(params: {
     taskObjectiveStatus: params.objectiveValidated ? "PROVEN" : "INCOMPLETE",
     checkpoint: JSON.stringify(checkpointEnvelope),
   });
-  return result.accepted;
+  if (result.accepted) {
+    return { kind: "accepted", duplicate: result.duplicate };
+  }
+  const [latest] = await db
+    .select({
+      status: aiExecutionsTable.status,
+      workerId: aiExecutionsTable.workerId,
+      leaseUntil: aiExecutionsTable.leaseUntil,
+      cancelRequestedAt: aiExecutionsTable.cancelRequestedAt,
+    })
+    .from(aiExecutionsTable)
+    .where(eq(aiExecutionsTable.id, params.executionId))
+    .limit(1);
+  return classifyAiExecutionCompletionRefusal({
+    ...latest,
+    expectedWorkerId: params.workerId,
+    reason: result.reason,
+  });
+}
+
+export async function completeAiExecution(params: Parameters<typeof completeAiExecutionWithResult>[0]): Promise<boolean> {
+  return (await completeAiExecutionWithResult(params)).kind === "accepted";
 }
 
 /**
