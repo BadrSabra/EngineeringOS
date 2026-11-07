@@ -23,6 +23,7 @@ import {
   aiMissionDecisionDispatchItemsTable,
   aiMissionDecisionOutcomeSnapshotsTable,
   aiMissionDecisionShadowComparisonsTable,
+  aiMissionDecisionTracesTable,
   aiMissionsTable,
   aiWorldFactsTable,
   db,
@@ -3383,6 +3384,91 @@ describe("Mission decision trace persistence", () => {
 });
 
 describe("Mission strategy shadow reconciliation", () => {
+  it("opens the Mission Control delay alert for a real aged queue and closes it after comparison", async () => {
+    const fixture = await createFixture();
+    const planRevision = `shadow-mission-control-${randomUUID()}`;
+    const selectedTrace = makeSelectedTrace({
+      trace: fixture.trace,
+      worldStateRevision: fixture.worldStateRevision,
+      worldFactId: fixture.worldFactId,
+      worldFactHash: fixture.worldFactHash,
+      newPlanRevision: planRevision,
+    });
+    const occurredAt = new Date(Date.now() - 2 * 60_000);
+    const originalShadowMode = process.env.MISSION_DECISION_SHADOW_MODE;
+    const originalShadowProjectId = process.env.MISSION_DECISION_SHADOW_PROJECT_ID;
+    const originalAlertAge = process.env.MISSION_DECISION_SHADOW_QUEUE_ALERT_AGE_MS;
+    process.env.MISSION_DECISION_SHADOW_MODE = "1";
+    process.env.MISSION_DECISION_SHADOW_PROJECT_ID = fixture.projectId;
+    process.env.MISSION_DECISION_SHADOW_QUEUE_ALERT_AGE_MS = "60000";
+
+    const readProjectState = async () => ({
+      missions: await db.select().from(aiMissionsTable).where(eq(aiMissionsTable.id, fixture.missionId)),
+      goals: await db.select().from(aiGoalsTable).where(eq(aiGoalsTable.missionId, fixture.missionId)),
+      executions: await db.select().from(aiExecutionsTable).where(eq(aiExecutionsTable.goalId, fixture.goalId)),
+      acceptances: await db.select().from(aiExecutionAcceptancesTable)
+        .where(eq(aiExecutionAcceptancesTable.executionId, fixture.executionId)),
+      traces: await db.select().from(aiMissionDecisionTracesTable)
+        .where(eq(aiMissionDecisionTracesTable.decisionId, selectedTrace.decisionId)),
+      events: await db.select().from(aiMissionDecisionEventsTable)
+        .where(eq(aiMissionDecisionEventsTable.decisionId, selectedTrace.decisionId)),
+      comparisons: await db.select().from(aiMissionDecisionShadowComparisonsTable)
+        .where(eq(aiMissionDecisionShadowComparisonsTable.decisionId, selectedTrace.decisionId)),
+    });
+
+    try {
+      await persistMissionDecisionTrace(selectedTrace);
+      await db.update(aiGoalsTable).set({
+        successCriteria: { planRevision: { hash: planRevision } },
+        outcomeContract: { planRevision: { hash: planRevision } },
+      }).where(eq(aiGoalsTable.id, fixture.goalId));
+      await db.update(aiMissionsTable).set({
+        autonomyPolicy: { activePlanRevision: planRevision },
+      }).where(eq(aiMissionsTable.id, fixture.missionId));
+      await appendMissionDecisionLifecycleEvent({
+        decisionId: selectedTrace.decisionId,
+        stage: "PLAN_APPLIED",
+        referenceId: planRevision,
+        occurredAt,
+      });
+
+      const beforeOpenRead = await readProjectState();
+      const openResponse = await request(app).get("/api/ai/mission-control");
+      const afterOpenRead = await readProjectState();
+
+      expect(openResponse.status).toBe(200);
+      expect(openResponse.body.shadowComparisonQueue).toMatchObject({
+        status: "active",
+        pendingCount: 1,
+        delayAlertStatus: "open",
+      });
+      expect(openResponse.body.shadowComparisonQueue.oldestPendingAgeMs).toBeGreaterThanOrEqual(2 * 60_000);
+      expect(openResponse.body.shadowComparisonQueue.oldestPendingAgeMs).toBeLessThan(2 * 60_000 + 10_000);
+      expect(afterOpenRead).toEqual(beforeOpenRead);
+
+      expect(await persistMissionDecisionShadowComparison(selectedTrace.decisionId)).toBe("recorded");
+      const beforeClosedRead = await readProjectState();
+      const closedResponse = await request(app).get("/api/ai/mission-control");
+      const afterClosedRead = await readProjectState();
+
+      expect(closedResponse.status).toBe(200);
+      expect(closedResponse.body.shadowComparisonQueue).toMatchObject({
+        status: "active",
+        pendingCount: 0,
+        oldestPendingAgeMs: null,
+        delayAlertStatus: "closed",
+      });
+      expect(afterClosedRead).toEqual(beforeClosedRead);
+    } finally {
+      if (originalShadowMode === undefined) delete process.env.MISSION_DECISION_SHADOW_MODE;
+      else process.env.MISSION_DECISION_SHADOW_MODE = originalShadowMode;
+      if (originalShadowProjectId === undefined) delete process.env.MISSION_DECISION_SHADOW_PROJECT_ID;
+      else process.env.MISSION_DECISION_SHADOW_PROJECT_ID = originalShadowProjectId;
+      if (originalAlertAge === undefined) delete process.env.MISSION_DECISION_SHADOW_QUEUE_ALERT_AGE_MS;
+      else process.env.MISSION_DECISION_SHADOW_QUEUE_ALERT_AGE_MS = originalAlertAge;
+    }
+  });
+
   it("reports only the scoped eligible backlog and does not mutate Mission state", async () => {
     const fixture = await createFixture();
     const planRevision = `shadow-queue-${randomUUID()}`;
