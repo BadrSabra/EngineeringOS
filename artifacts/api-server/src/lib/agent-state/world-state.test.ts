@@ -370,12 +370,13 @@ describe("read-only World State projection", () => {
       episodeId,
       projectRevision: "revision-1",
       sources: Array.from({ length: 17 }, (_, index) => ({
-        kind: "runtime_receipt" as const,
+        kind: "direct_observation" as const,
         sourceId: `runtime:many:${index}`,
         sourceRevision: "revision-1",
-        status: "passed",
-        profile: "profile-many",
-        environmentRevision: "env-many",
+        subject: "runtime:many",
+        predicate: "runtime.readiness",
+        observationRole: "after" as const,
+        value: { ready: true },
       })),
     });
 
