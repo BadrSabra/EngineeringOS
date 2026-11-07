@@ -9,6 +9,28 @@ import { materializeServerOwnedObservations } from "./agent-state/observation-ma
 import { heavyJobQueue } from "./job-queue.js";
 import { logger } from "./logger.js";
 
+export const MAX_TASK_OBSERVATION_OUTBOX_ATTEMPTS = 12;
+const DEAD_LETTER_STATUS = "dead_letter";
+const PERMANENT_FAILURE_CODES = new Set([
+  "INVALID_OBSERVATION_OUTBOX_PAYLOAD",
+  "observation_materialization_child_attestation_episode_mismatch",
+  "observation_materialization_child_attestation_mismatch",
+  "observation_materialization_conflict_identity_missing",
+  "observation_materialization_execution_not_found",
+  "observation_materialization_episode_identity_changed",
+  "observation_materialization_invalid_identity",
+  "observation_materialization_invalid_source_count",
+  "observation_materialization_project_mismatch",
+  "observation_materialization_validator_attestation_mismatch",
+  "observation_materialization_validator_process_tree_attestation_mismatch",
+  "observation_source_invalid_timestamp",
+]);
+const KNOWN_FAILURE_CODES = new Set([
+  ...PERMANENT_FAILURE_CODES,
+  "observation_materialization_episode_not_found",
+  "observation_materialization_stale_worker",
+]);
+
 export type TaskAcceptanceObservationInput =
   MaterializeServerOwnedObservationsInput;
 
@@ -32,13 +54,13 @@ function retryDelayMs(attemptCount: number): number {
 }
 
 function safeFailureCode(error: unknown): string {
-  const candidate = error && typeof error === "object"
-    ? (error as { code?: unknown; name?: unknown }).code
-      ?? (error as { name?: unknown }).name
-    : undefined;
-  return typeof candidate === "string" && /^[A-Za-z0-9_.-]{1,64}$/.test(candidate)
-    ? candidate
-    : "OBSERVATION_MATERIALIZATION_FAILED";
+  if (!error || typeof error !== "object") return "OBSERVATION_MATERIALIZATION_FAILED";
+  const value = error as { code?: unknown; message?: unknown };
+  if (typeof value.code === "string" && /^\d{5}$/.test(value.code)) return value.code;
+  if (typeof value.message === "string" && KNOWN_FAILURE_CODES.has(value.message)) {
+    return value.message;
+  }
+  return "OBSERVATION_MATERIALIZATION_FAILED";
 }
 
 async function claimObservationOutboxRow(id: string): Promise<{
@@ -98,7 +120,21 @@ async function runObservationOutboxRow(id: string): Promise<void> {
 
   const payload = parseObservationInput(claimed.payload, claimed);
   if (!payload) {
-    await deferObservationOutboxRow(id, claimed.workerId, "INVALID_OBSERVATION_OUTBOX_PAYLOAD");
+    await recordObservationOutboxFailure(
+      id,
+      claimed.workerId,
+      "INVALID_OBSERVATION_OUTBOX_PAYLOAD",
+      true,
+    );
+    logger.error(
+      {
+        outboxId: id,
+        executionId: claimed.executionId,
+        attempt: claimed.attempt,
+        code: "INVALID_OBSERVATION_OUTBOX_PAYLOAD",
+      },
+      "Accepted task observation intent moved to dead letter",
+    );
     return;
   }
   try {
@@ -109,20 +145,36 @@ async function runObservationOutboxRow(id: string): Promise<void> {
       eq(taskExecutionObservationOutboxTable.workerId, claimed.workerId),
     ));
   } catch (error) {
-    await deferObservationOutboxRow(id, claimed.workerId, safeFailureCode(error));
-    logger.warn(
-      { executionId: claimed.executionId, attempt: claimed.attempt, code: safeFailureCode(error) },
-      "Accepted task observations remain queued for retry",
+    const failureCode = safeFailureCode(error);
+    const terminal = PERMANENT_FAILURE_CODES.has(failureCode);
+    const deadLettered = await recordObservationOutboxFailure(
+      id,
+      claimed.workerId,
+      failureCode,
+      terminal,
     );
+    const fields = {
+      outboxId: id,
+      executionId: claimed.executionId,
+      attempt: claimed.attempt,
+      code: failureCode,
+      deadLettered,
+    };
+    if (deadLettered) {
+      logger.error(fields, "Accepted task observations moved to dead letter");
+    } else {
+      logger.warn(fields, "Accepted task observations remain queued for bounded retry");
+    }
   }
 }
 
-async function deferObservationOutboxRow(
+async function recordObservationOutboxFailure(
   id: string,
   workerId: string,
   failureCode: string,
-): Promise<void> {
-  await db.transaction(async (tx) => {
+  terminal: boolean,
+): Promise<boolean> {
+  return db.transaction(async (tx) => {
     const [row] = await tx.select({
       attemptCount: taskExecutionObservationOutboxTable.attemptCount,
     })
@@ -134,13 +186,17 @@ async function deferObservationOutboxRow(
       ))
       .for("update")
       .limit(1);
-    if (!row) return;
+    if (!row) return false;
     const now = new Date();
+    const nextAttemptCount = row.attemptCount + 1;
+    const deadLettered = terminal || nextAttemptCount >= MAX_TASK_OBSERVATION_OUTBOX_ATTEMPTS;
     await tx.update(taskExecutionObservationOutboxTable)
       .set({
-        status: "pending",
-        attemptCount: row.attemptCount + 1,
-        nextAttemptAt: new Date(now.getTime() + retryDelayMs(row.attemptCount)),
+        status: deadLettered ? DEAD_LETTER_STATUS : "pending",
+        attemptCount: nextAttemptCount,
+        nextAttemptAt: deadLettered
+          ? now
+          : new Date(now.getTime() + retryDelayMs(row.attemptCount)),
         workerId: null,
         leaseUntil: null,
         lastFailureCode: failureCode,
@@ -148,9 +204,35 @@ async function deferObservationOutboxRow(
       })
       .where(and(
         eq(taskExecutionObservationOutboxTable.id, id),
+        eq(taskExecutionObservationOutboxTable.status, "running"),
         eq(taskExecutionObservationOutboxTable.workerId, workerId),
       ));
+    return deadLettered;
   });
+}
+
+/**
+ * Starts a new retry cycle after an operator has corrected the cause.
+ * The row is never redriven while it is leased or still pending.
+ */
+export async function requeueDeadLetteredTaskObservationOutboxRow(id: string): Promise<boolean> {
+  const now = new Date();
+  const [row] = await db.update(taskExecutionObservationOutboxTable)
+    .set({
+      status: "pending",
+      attemptCount: 0,
+      nextAttemptAt: now,
+      workerId: null,
+      leaseUntil: null,
+      lastFailureCode: null,
+      updatedAt: now,
+    })
+    .where(and(
+      eq(taskExecutionObservationOutboxTable.id, id),
+      eq(taskExecutionObservationOutboxTable.status, DEAD_LETTER_STATUS),
+    ))
+    .returning({ id: taskExecutionObservationOutboxTable.id });
+  return Boolean(row);
 }
 
 export async function dispatchPendingTaskObservationOutbox(limit = 100): Promise<number> {

@@ -39,7 +39,11 @@ import {
 } from "./job-reconciliation.js";
 import { reconcileAiExecutions } from "./ai-execution-state.js";
 import { reconcileInterruptedApplyChanges } from "./apply-change-reconciliation.js";
-import { dispatchPendingTaskObservationOutbox } from "./task-observation-outbox.js";
+import {
+  dispatchPendingTaskObservationOutbox,
+  MAX_TASK_OBSERVATION_OUTBOX_ATTEMPTS,
+  requeueDeadLetteredTaskObservationOutboxRow,
+} from "./task-observation-outbox.js";
 import {
   createDeliveryWorkspace,
   deliveryWorkspaceExists,
@@ -1234,7 +1238,7 @@ describe("dispatchPersistedPendingJobs", () => {
     });
   });
 
-  it("requeues a malformed accepted-task observation intent with a safe failure code", async () => {
+  it("dead-letters malformed observation intents and supports explicit operator redrive", async () => {
     const projectId = await insertProject("active");
     projectCleanup.push(projectId);
     const executionId = randomUUID();
@@ -1280,24 +1284,110 @@ describe("dispatchPersistedPendingJobs", () => {
       .from(taskExecutionObservationOutboxTable)
       .where(eq(taskExecutionObservationOutboxTable.id, outboxId));
     expect(deferred).toMatchObject({
-      status: "pending",
+      status: "dead_letter",
       attemptCount: 1,
       lastFailureCode: "INVALID_OBSERVATION_OUTBOX_PAYLOAD",
       workerId: null,
       leaseUntil: null,
     });
-    expect(deferred?.nextAttemptAt.getTime()).toBeGreaterThan(now.getTime());
 
     vi.mocked(heavyJobQueue.enqueueWithIdDetailed).mockReset().mockReturnValue("enqueued");
     await expect(dispatchPendingTaskObservationOutbox()).resolves.toBe(0);
-    await db.update(taskExecutionObservationOutboxTable)
-      .set({ nextAttemptAt: new Date(Date.now() - 1_000) })
+    await expect(requeueDeadLetteredTaskObservationOutboxRow(outboxId)).resolves.toBe(true);
+    const [redriven] = await db.select()
+      .from(taskExecutionObservationOutboxTable)
       .where(eq(taskExecutionObservationOutboxTable.id, outboxId));
+    expect(redriven).toMatchObject({
+      status: "pending",
+      attemptCount: 0,
+      lastFailureCode: null,
+      workerId: null,
+      leaseUntil: null,
+    });
     await expect(dispatchPendingTaskObservationOutbox()).resolves.toBe(1);
     expect(vi.mocked(heavyJobQueue.enqueueWithIdDetailed)).toHaveBeenCalledWith(
       `task-observation-outbox:${outboxId}`,
       expect.any(Function),
     );
+    const replayCallback = vi.mocked(heavyJobQueue.enqueueWithIdDetailed).mock.calls
+      .find(([id]) => id === `task-observation-outbox:${outboxId}`)?.[1];
+    await replayCallback?.();
+    const [deadLetteredAgain] = await db.select()
+      .from(taskExecutionObservationOutboxTable)
+      .where(eq(taskExecutionObservationOutboxTable.id, outboxId));
+    expect(deadLetteredAgain).toMatchObject({
+      status: "dead_letter",
+      attemptCount: 1,
+      lastFailureCode: "INVALID_OBSERVATION_OUTBOX_PAYLOAD",
+    });
+    const health = await getDurableJobHealth();
+    expect(health.deadLetteredTaskObservationMaterializations).toBeGreaterThanOrEqual(1);
+  });
+
+  it("bounds retryable observation materialization failures and retains their domain code", async () => {
+    const projectId = await insertProject("active");
+    projectCleanup.push(projectId);
+    const executionId = randomUUID();
+    const attempt = 1;
+    const now = new Date();
+    await db.insert(aiExecutionsTable).values({
+      id: executionId,
+      projectId,
+      userId: "test-user",
+      idempotencyKey: `${executionId}:observation-outbox-missing-episode`,
+      correlationId: executionId,
+      attempt,
+      resumeTokenHash: "e".repeat(64),
+      request: "{}",
+      checkpoint: "{}",
+      status: "completed",
+      startedAt: now,
+      createdAt: now,
+      updatedAt: now,
+    });
+    const outboxId = `task-acceptance-observations:${executionId}:${attempt}`;
+    await db.insert(taskExecutionObservationOutboxTable).values({
+      id: outboxId,
+      projectId,
+      executionId,
+      attempt,
+      payload: {
+        projectId,
+        executionId,
+        attempt,
+        episodeId: randomUUID(),
+        projectRevision: "revision-1",
+        sources: [{
+          kind: "runtime_receipt",
+          sourceId: "runtime:missing-episode",
+          sourceRevision: "revision-1",
+          status: "passed",
+          profile: "test",
+        }],
+      },
+      status: "pending",
+      attemptCount: MAX_TASK_OBSERVATION_OUTBOX_ATTEMPTS - 1,
+      nextAttemptAt: new Date(now.getTime() - 1_000),
+      createdAt: now,
+      updatedAt: now,
+    });
+
+    vi.mocked(heavyJobQueue.enqueueWithIdDetailed).mockReset().mockReturnValue("enqueued");
+    await expect(dispatchPendingTaskObservationOutbox()).resolves.toBe(1);
+    const callback = vi.mocked(heavyJobQueue.enqueueWithIdDetailed).mock.calls
+      .find(([id]) => id === `task-observation-outbox:${outboxId}`)?.[1];
+    await callback?.();
+
+    const [deadLettered] = await db.select()
+      .from(taskExecutionObservationOutboxTable)
+      .where(eq(taskExecutionObservationOutboxTable.id, outboxId));
+    expect(deadLettered).toMatchObject({
+      status: "dead_letter",
+      attemptCount: MAX_TASK_OBSERVATION_OUTBOX_ATTEMPTS,
+      lastFailureCode: "observation_materialization_episode_not_found",
+      workerId: null,
+      leaseUntil: null,
+    });
   });
 
   it("dispatches Scan and other categories while Discovery fails, then recovers Discovery next pass", async () => {

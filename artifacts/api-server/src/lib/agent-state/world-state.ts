@@ -11,6 +11,7 @@ import type { JsonValue } from "@workspace/ai-orchestrator";
 const MAX_FACTS = 256;
 const MAX_SOURCE_IDS = 16;
 const MAX_SCOPED_OBSERVATION_IDS = 128;
+const MAX_WORLD_STATE_OBSERVATIONS = 2_048;
 type WorldStateTransaction = Parameters<Parameters<typeof db.transaction>[0]>[0];
 
 export type WorldStateFactProjection = {
@@ -25,6 +26,7 @@ export type WorldStateFactProjection = {
   status: "believed" | "confirmed" | "contradicted" | "superseded" | "retracted";
   environmentFreshness: "fresh" | "stale" | "unknown";
   sourceObservationIds: string[];
+  sourceObservationIdsComplete?: boolean;
   projectRevision: string;
   supersedesFactId: string | null;
   createdAt: string;
@@ -38,6 +40,16 @@ export type ProjectWorldStateProjection = {
   currentFacts: WorldStateFactProjection[];
   contradictions: WorldStateFactProjection[];
   generatedAt: string;
+  completeness?: {
+    facts: "complete";
+    observations: "complete";
+    sourceObservationIds: "complete" | "possibly_truncated";
+    limits: {
+      facts: number;
+      observations: number;
+      sourceObservationIdsPerFact: number;
+    };
+  };
 };
 
 export type WorldStateMaterializationResult = {
@@ -70,6 +82,12 @@ function boundedSourceIds(value: unknown): string[] {
     : [];
 }
 
+function sourceObservationIdsComplete(value: unknown): boolean {
+  return Array.isArray(value)
+    && value.length < MAX_SOURCE_IDS
+    && value.every((id) => typeof id === "string");
+}
+
 function worldRevision(
   projectId: string,
   requestedTaskScope: string | undefined,
@@ -96,6 +114,7 @@ function worldRevision(
       fact.projectRevision,
       fact.environmentRevision,
       fact.sourceObservationIds,
+      fact.sourceObservationIdsComplete ?? false,
     ]));
   }
   const latestSequenceByEpisode = new Map<string, number>();
@@ -154,6 +173,7 @@ function projectFact(row: typeof aiWorldFactsTable.$inferSelect): WorldStateFact
     status: row.status,
     environmentFreshness: row.environmentFreshness,
     sourceObservationIds: boundedSourceIds(row.sourceObservationIds),
+    sourceObservationIdsComplete: sourceObservationIdsComplete(row.sourceObservationIds),
     projectRevision: row.projectRevision,
     supersedesFactId: row.supersedesFactId,
     createdAt: asString(row.createdAt),
@@ -222,10 +242,13 @@ export async function materializeWorldStateForProject(
         desc(aiAgentObservationsTable.sequence),
         desc(aiAgentObservationsTable.id),
       )
-      .limit(scopedObservationIds?.length ?? 2_048);
+      .limit(scopedObservationIds?.length ?? MAX_WORLD_STATE_OBSERVATIONS + 1);
     const observations = recentObservations.sort(compareObservations);
     if (scopedObservationIds && observations.length !== scopedObservationIds.length) {
       throw new Error("world_state_observation_scope_incomplete");
+    }
+    if (!scopedObservationIds && observations.length > MAX_WORLD_STATE_OBSERVATIONS) {
+      throw new Error("world_state_projection_incomplete_observations");
     }
 
     const revisionObservations = scopedObservationIds
@@ -238,9 +261,12 @@ export async function materializeWorldStateForProject(
             desc(aiAgentObservationsTable.sequence),
             desc(aiAgentObservationsTable.id),
           )
-          .limit(2_048)
+          .limit(MAX_WORLD_STATE_OBSERVATIONS + 1)
       : observations;
     revisionObservations.sort(compareObservations);
+    if (revisionObservations.length > MAX_WORLD_STATE_OBSERVATIONS) {
+      throw new Error("world_state_projection_incomplete_observations");
+    }
     if (options.expectedWorldRevision) {
       const currentRows = await tx
         .select()
@@ -254,7 +280,10 @@ export async function materializeWorldStateForProject(
           asc(aiWorldFactsTable.predicate),
           asc(aiWorldFactsTable.id),
         )
-        .limit(MAX_FACTS);
+        .limit(MAX_FACTS + 1);
+      if (currentRows.length > MAX_FACTS) {
+        throw new Error("world_state_projection_incomplete_facts");
+      }
       const currentRevision = worldRevision(
         projectId,
         undefined,
@@ -286,7 +315,11 @@ export async function materializeWorldStateForProject(
       .select()
       .from(aiWorldFactsTable)
       .where(eq(aiWorldFactsTable.projectId, projectId))
-      .orderBy(desc(aiWorldFactsTable.version));
+      .orderBy(desc(aiWorldFactsTable.version))
+      .limit(MAX_FACTS + 1);
+    if (existing.length > MAX_FACTS) {
+      throw new Error("world_state_projection_incomplete_facts");
+    }
     const byKey = new Map<string, typeof existing>();
     for (const fact of existing) {
       const key = factScopeKey(fact.taskScope, fact.environmentRevision, fact.subject, fact.predicate);
@@ -323,6 +356,21 @@ export async function materializeWorldStateForProject(
               .set({ environmentFreshness: "fresh", updatedAt: new Date() })
               .where(eq(aiWorldFactsTable.id, matchingFact.id));
             matchingFact.environmentFreshness = "fresh";
+            matchingFact.updatedAt = new Date();
+          }
+          const storedSourceIds = Array.isArray(matchingFact.sourceObservationIds)
+            ? matchingFact.sourceObservationIds.filter((id): id is string => typeof id === "string")
+            : [];
+          const mergedSourceIds = [...new Set([
+            ...storedSourceIds,
+            ...valueObservations.map((observation) => observation.id),
+          ])];
+          const boundedMergedSourceIds = mergedSourceIds.slice(-MAX_SOURCE_IDS);
+          if (JSON.stringify(storedSourceIds) !== JSON.stringify(boundedMergedSourceIds)) {
+            await tx.update(aiWorldFactsTable)
+              .set({ sourceObservationIds: boundedMergedSourceIds, updatedAt: new Date() })
+              .where(eq(aiWorldFactsTable.id, matchingFact.id));
+            matchingFact.sourceObservationIds = boundedMergedSourceIds;
             matchingFact.updatedAt = new Date();
           }
           skipped++;
@@ -370,7 +418,7 @@ export async function materializeWorldStateForProject(
           version: (latest?.version ?? 0) + 1,
           status,
           environmentFreshness: observationEnvironmentFreshness,
-          sourceObservationIds: valueObservations.map((observation) => observation.id).slice(0, MAX_SOURCE_IDS),
+          sourceObservationIds: valueObservations.map((observation) => observation.id).slice(-MAX_SOURCE_IDS),
           projectRevision: sourceRevision,
           environmentRevision: valueObservations[0]!.environmentRevision,
           supersedesFactId: sameRevisionConflict ? null : latest?.id,
@@ -415,7 +463,10 @@ export async function materializeWorldStateForProject(
         asc(aiWorldFactsTable.predicate),
         asc(aiWorldFactsTable.id),
       )
-      .limit(MAX_FACTS);
+      .limit(MAX_FACTS + 1);
+    if (rows.length > MAX_FACTS) {
+      throw new Error("world_state_projection_incomplete_facts");
+    }
     const facts = rows.map(projectFact);
     const result = {
       projectId,
@@ -460,7 +511,10 @@ export async function getProjectWorldState(
       asc(aiWorldFactsTable.predicate),
       asc(aiWorldFactsTable.id),
     )
-    .limit(MAX_FACTS);
+    .limit(MAX_FACTS + 1);
+  if (rows.length > MAX_FACTS) {
+    throw new Error("world_state_projection_incomplete_facts");
+  }
   const facts = rows.map(projectFact);
   const observations = await client
     .select()
@@ -485,8 +539,12 @@ export async function getProjectWorldState(
       desc(aiAgentObservationsTable.sequence),
       desc(aiAgentObservationsTable.id),
     )
-    .limit(2_048);
+    .limit(MAX_WORLD_STATE_OBSERVATIONS + 1);
+  if (observations.length > MAX_WORLD_STATE_OBSERVATIONS) {
+    throw new Error("world_state_projection_incomplete_observations");
+  }
   observations.sort(compareObservations);
+  const sourceRefsComplete = facts.every((fact) => fact.sourceObservationIdsComplete);
   return {
     projectId,
     worldRevision: worldRevision(projectId, filter?.taskScope, filter?.environmentRevision, facts, observations),
@@ -494,5 +552,15 @@ export async function getProjectWorldState(
     currentFacts: facts.filter((fact) => fact.status === "believed" || fact.status === "confirmed"),
     contradictions: facts.filter((fact) => fact.status === "contradicted"),
     generatedAt: new Date().toISOString(),
+    completeness: {
+      facts: "complete",
+      observations: "complete",
+      sourceObservationIds: sourceRefsComplete ? "complete" : "possibly_truncated",
+      limits: {
+        facts: MAX_FACTS,
+        observations: MAX_WORLD_STATE_OBSERVATIONS,
+        sourceObservationIdsPerFact: MAX_SOURCE_IDS,
+      },
+    },
   };
 }

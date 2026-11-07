@@ -47,6 +47,8 @@ export const getHealthResponseJobRecoveryExpiredTaskObservationLeasesMin = 0;
 
 export const getHealthResponseJobRecoveryFailedTaskObservationMaterializationsMin = 0;
 
+export const getHealthResponseJobRecoveryDeadLetteredTaskObservationMaterializationsMin = 0;
+
 export const getHealthResponseJobRecoveryDispatchStagesItemConsecutiveFailuresMin = 0;
 
 export const getHealthResponseJobRecoveryDispatchStagesItemLastDispatchedCountMin = 0;
@@ -134,6 +136,7 @@ export const GetHealthResponse = zod.object({
   "staleTaskObservationMaterializations": zod.number().int().min(getHealthResponseJobRecoveryStaleTaskObservationMaterializationsMin),
   "expiredTaskObservationLeases": zod.number().int().min(getHealthResponseJobRecoveryExpiredTaskObservationLeasesMin),
   "failedTaskObservationMaterializations": zod.number().int().min(getHealthResponseJobRecoveryFailedTaskObservationMaterializationsMin),
+  "deadLetteredTaskObservationMaterializations": zod.number().int().min(getHealthResponseJobRecoveryDeadLetteredTaskObservationMaterializationsMin),
   "dispatchStages": zod.array(zod.object({
   "stageName": zod.string(),
   "lastOutcome": zod.enum(['passed', 'failed', 'unknown']),
@@ -144,7 +147,7 @@ export const GetHealthResponse = zod.object({
   "lastErrorCode": zod.string().nullable(),
   "lastDispatchedCount": zod.number().int().min(getHealthResponseJobRecoveryDispatchStagesItemLastDispatchedCountMin)
 }))
-}).optional().describe('Content-free health projection of durable background work. A degraded status means an expired or missing worker lease needs recovery, a queued Scan, Discovery, AI dispatch, or accepted-task Observation materialization exceeds the configured pending-age threshold, a dispatcher stage last failed, or a job exhausted its retry budget and needs operator attention. The top-level health endpoint remains a liveness check.\n'),
+}).optional().describe('Content-free health projection of durable background work. A degraded status means an expired or missing worker lease needs recovery, a queued Scan, Discovery, AI dispatch, or accepted-task Observation materialization exceeds the configured pending-age threshold, a dispatcher stage last failed, or a job exhausted its retry budget and needs operator attention. Dead-lettered accepted-task Observation materializations also require operator review or an explicit redrive. The top-level health endpoint remains a liveness check.\n'),
   "unresolvedRuntimeStart": zod.union([zod.object({
   "status": zod.enum(['clear', 'alert']),
   "thresholdMs": zod.number().int().min(1),

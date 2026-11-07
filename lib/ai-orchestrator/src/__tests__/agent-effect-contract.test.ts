@@ -45,7 +45,7 @@ function observation(overrides: Partial<AgentObservation>): AgentObservation {
     episodeId: "episode-1",
     kind: "EXTERNAL",
     provenance: "DIRECT_OBSERVATION",
-    observationRole: "effect",
+    observationRole: "before",
     sourceType: "runtime",
     sourceId: "runtime-1",
     sourceVersion: "revision-1",
@@ -120,7 +120,7 @@ describe("agent effect contract", () => {
     expect(classifyEffect({
       contract,
       before: [observation({ value: false })],
-      after: [observation({ observationId: "observation-2", value: true })],
+      after: [observation({ observationId: "observation-2", observationRole: "after", value: true })],
     }).status).toBe("observed");
   });
 
@@ -132,7 +132,7 @@ describe("agent effect contract", () => {
         observation({ value: false }),
         observation({ observationId: "observation-3", subject: "other", predicate: "ready", value: false }),
       ],
-      after: [observation({ observationId: "observation-2", value: true })],
+      after: [observation({ observationId: "observation-2", observationRole: "after", value: true })],
     }).status).toBe("partial");
   });
 
@@ -148,7 +148,7 @@ describe("agent effect contract", () => {
     expect(classifyEffect({
       contract,
       before: [observation({ value: false })],
-      after: [observation({ observationId: "observation-2", value: "wrong" })],
+      after: [observation({ observationId: "observation-2", observationRole: "after", value: "wrong" })],
     }).status).toBe("contradicted");
   });
 
@@ -156,7 +156,29 @@ describe("agent effect contract", () => {
     expect(classifyEffect({
       contract,
       before: [observation({ value: true })],
-      after: [observation({ observationId: "observation-2", value: true })],
+      after: [observation({ observationId: "observation-2", observationRole: "after", value: true })],
     }).status).toBe("unknown");
+  });
+
+  it("rejects before and after evidence with roles from another phase", () => {
+    const result = classifyEffect({
+      contract,
+      before: [observation({ observationRole: "effect", value: false })],
+      after: [observation({ observationId: "observation-2", observationRole: "before", value: true })],
+    });
+
+    expect(result.status).toBe("not_observed");
+    expect(result.missingEffects).toEqual(["workspace.validated"]);
+  });
+
+  it("rejects reusing one observation identity for both transition sides", () => {
+    const result = classifyEffect({
+      contract,
+      before: [observation({ observationRole: "before", value: false })],
+      after: [observation({ observationRole: "after", value: true })],
+    });
+
+    expect(result.status).toBe("not_observed");
+    expect(result.missingEffects).toEqual(["workspace.validated"]);
   });
 });

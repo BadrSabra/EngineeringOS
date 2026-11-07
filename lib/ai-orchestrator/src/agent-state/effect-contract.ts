@@ -95,7 +95,7 @@ export type EffectObservationEvidence = Pick<
   | "provenance"
   | "completeness"
   | "freshness"
->;
+> & Partial<Pick<AgentObservation, "observationRole">>;
 type ExpectedStateChange = z.infer<typeof ExpectedStateChangeSchema>;
 
 function stateKey(subject: string, predicate: string): string {
@@ -160,14 +160,22 @@ export function classifyExpectedStateChanges(input: {
       for (const ref of observation?.evidenceRefs ?? []) evidenceRefs.add(ref);
     }
 
-    const completeDirect = (observation: AgentObservation | undefined): boolean =>
+    const completeDirect = (
+      observation: EffectObservationEvidence | undefined,
+      expectedRole: "before" | "after",
+    ): boolean =>
       Boolean(
         observation
+        && observation.observationRole === expectedRole
         && observation.provenance === "DIRECT_OBSERVATION"
         && observation.completeness === "complete"
         && observation.freshness === "fresh",
       );
-    if (!completeDirect(before) || !completeDirect(after)) {
+    if (
+      before?.observationId === after?.observationId
+      || !completeDirect(before, "before")
+      || !completeDirect(after, "after")
+    ) {
       missingEffects.push(label);
       continue;
     }

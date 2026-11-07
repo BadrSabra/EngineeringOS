@@ -9,7 +9,7 @@ import type { JobRecoveryHealthDispatchStagesItem } from './jobRecoveryHealthDis
 import type { JobRecoveryHealthStatus } from './jobRecoveryHealthStatus';
 
 /**
- * Content-free health projection of durable background work. A degraded status means an expired or missing worker lease needs recovery, a queued Scan, Discovery, AI dispatch, or accepted-task Observation materialization exceeds the configured pending-age threshold, a dispatcher stage last failed, or a job exhausted its retry budget and needs operator attention. The top-level health endpoint remains a liveness check.
+ * Content-free health projection of durable background work. A degraded status means an expired or missing worker lease needs recovery, a queued Scan, Discovery, AI dispatch, or accepted-task Observation materialization exceeds the configured pending-age threshold, a dispatcher stage last failed, or a job exhausted its retry budget and needs operator attention. Dead-lettered accepted-task Observation materializations also require operator review or an explicit redrive. The top-level health endpoint remains a liveness check.
  */
 export interface JobRecoveryHealth {
   status: JobRecoveryHealthStatus;
@@ -39,5 +39,7 @@ export interface JobRecoveryHealth {
   expiredTaskObservationLeases: number;
   /** @minimum 0 */
   failedTaskObservationMaterializations: number;
+  /** @minimum 0 */
+  deadLetteredTaskObservationMaterializations: number;
   dispatchStages: JobRecoveryHealthDispatchStagesItem[];
 }

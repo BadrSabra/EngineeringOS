@@ -42,6 +42,7 @@ describe("GET /healthz", () => {
       deferredAiTaskDispatches: expect.any(Number),
       staleAiTaskDispatches: expect.any(Number),
       failedDispatchStages: expect.any(Number),
+      deadLetteredTaskObservationMaterializations: expect.any(Number),
       dispatchStages: expect.any(Array),
     });
     expect(res.body.jobRecovery.oldestAiTaskDispatchAt).toBeNull();

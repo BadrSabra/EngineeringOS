@@ -1217,7 +1217,7 @@ export const APPLICATION_SCHEMA_CONTRACT = {
       name: "uq_ai_agent_observations_identity",
       unique: true,
       tableName: "ai_agent_observations",
-      columns: ["project_id", "task_scope", "environment_revision_key", "environment_freshness", "source_type", "source_id", "source_version", "predicate", "value_hash"],
+      columns: ["project_id", "episode_id", "task_scope", "environment_revision_key", "environment_freshness", "provenance", "completeness", "freshness", "observation_role", "source_type", "source_id", "source_version", "subject", "predicate", "value_hash"],
     },
     {
       name: "idx_ai_agent_observations_episode_sequence",

@@ -6623,6 +6623,7 @@ components:
         - staleTaskObservationMaterializations
         - expiredTaskObservationLeases
         - failedTaskObservationMaterializations
+        - deadLetteredTaskObservationMaterializations
         - dispatchStages
       description: >
         Content-free health projection of durable background work. A degraded
@@ -6630,6 +6631,8 @@ components:
         Scan, Discovery, AI dispatch, or accepted-task Observation materialization
         exceeds the configured pending-age threshold, a dispatcher stage last
         failed, or a job exhausted its retry budget and needs operator attention.
+        Dead-lettered accepted-task Observation materializations also require
+        operator review or an explicit redrive.
         The top-level health endpoint remains a liveness check.
       properties:
         status:
@@ -6679,6 +6682,9 @@ components:
           type: integer
           minimum: 0
         failedTaskObservationMaterializations:
+          type: integer
+          minimum: 0
+        deadLetteredTaskObservationMaterializations:
           type: integer
           minimum: 0
         dispatchStages:

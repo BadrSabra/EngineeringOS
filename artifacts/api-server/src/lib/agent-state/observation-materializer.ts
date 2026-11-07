@@ -812,23 +812,38 @@ export async function materializeServerOwnedObservations(
 
     for (const source of boundObservations) {
       const valueHash = canonicalJsonHash(source.value);
+      const observationRole = source.observationRole ?? source.predicate;
+      const currentFreshness = freshness(
+        source.sourceVersion.startsWith("attempt:") ? null : source.sourceVersion,
+        input.projectRevision ?? episode.projectRevision,
+      );
+      const observationProjectRevision = source.sourceVersion.startsWith("attempt:")
+        ? input.projectRevision ?? episode.projectRevision
+        : source.sourceVersion;
       if (source.environmentFreshness === "stale") environmentStale++;
+      const identityConditions = [
+        eq(aiAgentObservationsTable.projectId, input.projectId),
+        eq(aiAgentObservationsTable.episodeId, episode.id),
+        eq(aiAgentObservationsTable.taskScope, taskScope),
+        source.environmentRevision
+          ? eq(aiAgentObservationsTable.environmentRevision, source.environmentRevision)
+          : isNull(aiAgentObservationsTable.environmentRevision),
+        eq(aiAgentObservationsTable.environmentFreshness, source.environmentFreshness),
+        eq(aiAgentObservationsTable.provenance, source.provenance),
+        eq(aiAgentObservationsTable.completeness, source.completeness),
+        eq(aiAgentObservationsTable.freshness, currentFreshness),
+        eq(aiAgentObservationsTable.observationRole, observationRole),
+        eq(aiAgentObservationsTable.sourceType, source.sourceType),
+        eq(aiAgentObservationsTable.sourceId, source.sourceId),
+        eq(aiAgentObservationsTable.sourceVersion, source.sourceVersion),
+        eq(aiAgentObservationsTable.subject, source.subject),
+        eq(aiAgentObservationsTable.predicate, source.predicate),
+        eq(aiAgentObservationsTable.valueHash, valueHash),
+      ];
       const [existing] = await tx
         .select()
         .from(aiAgentObservationsTable)
-        .where(and(
-          eq(aiAgentObservationsTable.projectId, input.projectId),
-          eq(aiAgentObservationsTable.taskScope, taskScope),
-          source.environmentRevision
-            ? eq(aiAgentObservationsTable.environmentRevision, source.environmentRevision)
-            : isNull(aiAgentObservationsTable.environmentRevision),
-          eq(aiAgentObservationsTable.environmentFreshness, source.environmentFreshness),
-          eq(aiAgentObservationsTable.sourceType, source.sourceType),
-          eq(aiAgentObservationsTable.sourceId, source.sourceId),
-          eq(aiAgentObservationsTable.sourceVersion, source.sourceVersion),
-          eq(aiAgentObservationsTable.predicate, source.predicate),
-          eq(aiAgentObservationsTable.valueHash, valueHash),
-        ))
+        .where(and(...identityConditions))
         .limit(1);
       if (existing) {
         duplicates++;
@@ -838,42 +853,72 @@ export async function materializeServerOwnedObservations(
       }
 
       const observationId = randomUUID();
-      const currentFreshness = freshness(
-        source.sourceVersion.startsWith("attempt:") ? null : source.sourceVersion,
-        input.projectRevision ?? episode.projectRevision,
-      );
-      const observationProjectRevision = source.sourceVersion.startsWith("attempt:")
-        ? input.projectRevision ?? episode.projectRevision
-        : source.sourceVersion;
-      await tx.insert(aiAgentObservationsTable).values({
-        id: observationId,
-        projectId: input.projectId,
-        executionId: input.executionId,
-        episodeId: episode.id,
-        taskScope,
-        environmentRevisionKey: environmentRevisionIdentity(source.environmentRevision),
-        kind: source.sourceType,
-        provenance: source.provenance,
-        observationRole: source.observationRole ?? source.predicate,
-        sourceType: source.sourceType,
-        sourceId: source.sourceId,
-        sourceVersion: source.sourceVersion,
-        subject: source.subject,
-        predicate: source.predicate,
-        value: source.value,
-        valueHash,
-        sourceRefs: source.sourceRefs,
-        observedAt: source.observedAt,
-        projectRevision: observationProjectRevision,
-        ...(source.environmentRevision ? { environmentRevision: source.environmentRevision } : {}),
-        completeness: source.completeness,
-        freshness: currentFreshness,
-        environmentFreshness: source.environmentFreshness,
-        evidenceRefs: source.sourceRefs,
-        sequence: nextSequence++,
-      });
-      observationIds.push(observationId);
-      observationRefs.add(observationId);
+      const [insertedObservation] = await tx
+        .insert(aiAgentObservationsTable)
+        .values({
+          id: observationId,
+          projectId: input.projectId,
+          executionId: input.executionId,
+          episodeId: episode.id,
+          taskScope,
+          environmentRevisionKey: environmentRevisionIdentity(source.environmentRevision),
+          kind: source.sourceType,
+          provenance: source.provenance,
+          observationRole,
+          sourceType: source.sourceType,
+          sourceId: source.sourceId,
+          sourceVersion: source.sourceVersion,
+          subject: source.subject,
+          predicate: source.predicate,
+          value: source.value,
+          valueHash,
+          sourceRefs: source.sourceRefs,
+          observedAt: source.observedAt,
+          projectRevision: observationProjectRevision,
+          ...(source.environmentRevision ? { environmentRevision: source.environmentRevision } : {}),
+          completeness: source.completeness,
+          freshness: currentFreshness,
+          environmentFreshness: source.environmentFreshness,
+          evidenceRefs: source.sourceRefs,
+          sequence: nextSequence,
+        })
+        .onConflictDoNothing({
+          target: [
+            aiAgentObservationsTable.projectId,
+            aiAgentObservationsTable.episodeId,
+            aiAgentObservationsTable.taskScope,
+            aiAgentObservationsTable.environmentRevisionKey,
+            aiAgentObservationsTable.environmentFreshness,
+            aiAgentObservationsTable.provenance,
+            aiAgentObservationsTable.completeness,
+            aiAgentObservationsTable.freshness,
+            aiAgentObservationsTable.observationRole,
+            aiAgentObservationsTable.sourceType,
+            aiAgentObservationsTable.sourceId,
+            aiAgentObservationsTable.sourceVersion,
+            aiAgentObservationsTable.subject,
+            aiAgentObservationsTable.predicate,
+            aiAgentObservationsTable.valueHash,
+          ],
+        })
+        .returning({ id: aiAgentObservationsTable.id });
+      if (!insertedObservation) {
+        const [concurrentExisting] = await tx
+          .select({ id: aiAgentObservationsTable.id })
+          .from(aiAgentObservationsTable)
+          .where(and(...identityConditions))
+          .limit(1);
+        if (!concurrentExisting) {
+          throw new Error("observation_materialization_conflict_identity_missing");
+        }
+        duplicates++;
+        observationIds.push(concurrentExisting.id);
+        observationRefs.add(concurrentExisting.id);
+        continue;
+      }
+      nextSequence++;
+      observationIds.push(insertedObservation.id);
+      observationRefs.add(insertedObservation.id);
       inserted++;
       if (currentFreshness === "stale") stale++;
     }

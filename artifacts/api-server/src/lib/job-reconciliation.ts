@@ -1254,6 +1254,7 @@ export async function getDurableJobHealth(): Promise<{
   staleTaskObservationMaterializations: number;
   expiredTaskObservationLeases: number;
   failedTaskObservationMaterializations: number;
+  deadLetteredTaskObservationMaterializations: number;
   dispatchStages: Array<{
     stageName: string;
     lastOutcome: string;
@@ -1288,6 +1289,7 @@ export async function getDurableJobHealth(): Promise<{
       [staleObservationRows],
       [expiredObservationLeases],
       [failedObservationRows],
+      [deadLetterObservationRows],
     ] = await Promise.all([
       db.select({ value: count() }).from(scanJobsTable).where(eq(scanJobsTable.status, "queued")),
       db.select({ value: count() }).from(discoverySessionsTable).where(eq(discoverySessionsTable.status, "pending")),
@@ -1376,6 +1378,8 @@ export async function getDurableJobHealth(): Promise<{
           eq(taskExecutionObservationOutboxTable.status, "pending"),
           gt(taskExecutionObservationOutboxTable.attemptCount, 0),
         )),
+      db.select({ value: count() }).from(taskExecutionObservationOutboxTable)
+        .where(eq(taskExecutionObservationOutboxTable.status, "dead_letter")),
     ]);
     const values = {
       queuedScanJobs: Number(queuedScans.value),
@@ -1396,6 +1400,7 @@ export async function getDurableJobHealth(): Promise<{
       staleTaskObservationMaterializations: Number(staleObservationRows.value),
       expiredTaskObservationLeases: Number(expiredObservationLeases.value),
       failedTaskObservationMaterializations: Number(failedObservationRows.value),
+      deadLetteredTaskObservationMaterializations: Number(deadLetterObservationRows.value),
       dispatchStages: stageRows.map((row) => ({
         stageName: row.stageName,
         lastOutcome: row.lastOutcome,
@@ -1416,7 +1421,8 @@ export async function getDurableJobHealth(): Promise<{
       || values.failedDispatchStages > 0
       || values.staleTaskObservationMaterializations > 0
       || values.expiredTaskObservationLeases > 0
-      || values.failedTaskObservationMaterializations > 0;
+      || values.failedTaskObservationMaterializations > 0
+      || values.deadLetteredTaskObservationMaterializations > 0;
     return { status: needsAttention ? "degraded" : "healthy", ...values };
   } catch (error) {
     logger.error({ error, scope: "job-reconciliation" }, "durable job health query failed");
@@ -1440,6 +1446,7 @@ export async function getDurableJobHealth(): Promise<{
       staleTaskObservationMaterializations: 0,
       expiredTaskObservationLeases: 0,
       failedTaskObservationMaterializations: 0,
+      deadLetteredTaskObservationMaterializations: 0,
       dispatchStages: [],
     };
   }

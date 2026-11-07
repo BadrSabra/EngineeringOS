@@ -6,6 +6,7 @@ import { eq } from "drizzle-orm";
 import {
   aiAgentObservationsTable,
   aiExecutionsTable,
+  aiWorldFactsTable,
   db,
   projectsTable,
 } from "@workspace/db";
@@ -255,7 +256,7 @@ describe("read-only World State projection", () => {
     expect(new Set(state.facts.map((fact) => `${fact.taskScope}:${fact.environmentRevision}`)).size).toBe(3);
   });
 
-  it("keeps task scope stable across separate execution attempts", async () => {
+  it("keeps semantic facts stable but binds observations to each execution attempt", async () => {
     const taskScope = { kind: "task", taskId: "stable-task" } as const;
     const firstAttempt = await createScopedEpisode(taskScope, "stable-first");
     const secondAttempt = await createScopedEpisode(taskScope, "stable-second");
@@ -277,9 +278,178 @@ describe("read-only World State projection", () => {
     });
 
     expect(first.inserted).toBe(1);
-    expect(second.inserted).toBe(0);
-    expect(second.duplicates).toBe(1);
-    expect(second.observationIds).toEqual(first.observationIds);
+    expect(second.inserted).toBe(1);
+    expect(second.duplicates).toBe(0);
+    expect(second.observationIds).not.toEqual(first.observationIds);
+
+    const state = await getProjectWorldState(projectId);
+    expect(state.facts).toHaveLength(1);
+    expect(state.facts[0]?.sourceObservationIds).toEqual(expect.arrayContaining([
+      ...first.observationIds,
+      ...second.observationIds,
+    ]));
+    expect(state.facts[0]?.sourceObservationIdsComplete).toBe(true);
+  });
+
+  it("converges concurrent retries for one Episode to one observation identity", async () => {
+    const input = {
+      projectId,
+      executionId,
+      attempt: 0,
+      episodeId,
+      projectRevision: "revision-1",
+      sources: [{
+        kind: "runtime_receipt" as const,
+        sourceId: "runtime:parallel",
+        sourceRevision: "revision-1",
+        status: "passed" as const,
+        profile: "profile-parallel",
+        environmentRevision: "env-parallel",
+      }],
+    };
+
+    const [first, second] = await Promise.all([
+      materializeServerOwnedObservations(input),
+      materializeServerOwnedObservations(input),
+    ]);
+
+    expect(first.observationIds).toEqual(second.observationIds);
+    expect(first.inserted + second.inserted).toBe(1);
+    expect(first.duplicates + second.duplicates).toBe(1);
+  });
+
+  it("keeps identical values in distinct before and after observation roles", async () => {
+    const result = await materializeServerOwnedObservations({
+      projectId,
+      executionId,
+      attempt: 0,
+      episodeId,
+      projectRevision: "revision-1",
+      sources: [
+        {
+          kind: "direct_observation",
+          sourceId: "runtime:phase",
+          sourceRevision: "revision-1",
+          subject: "workspace",
+          predicate: "validated",
+          observationRole: "before",
+          value: true,
+        },
+        {
+          kind: "direct_observation",
+          sourceId: "runtime:phase",
+          sourceRevision: "revision-1",
+          subject: "workspace",
+          predicate: "validated",
+          observationRole: "after",
+          value: true,
+        },
+      ],
+    });
+
+    expect(result.inserted).toBe(2);
+    expect(result.duplicates).toBe(0);
+    expect(new Set(result.observationIds).size).toBe(2);
+    const rows = await db.select({
+      id: aiAgentObservationsTable.id,
+      observationRole: aiAgentObservationsTable.observationRole,
+    })
+      .from(aiAgentObservationsTable)
+      .where(eq(aiAgentObservationsTable.episodeId, episodeId));
+    expect(rows).toEqual(expect.arrayContaining([
+      expect.objectContaining({ observationRole: "before" }),
+      expect.objectContaining({ observationRole: "after" }),
+    ]));
+  });
+
+  it("marks World State source references as possibly truncated at the cap", async () => {
+    const result = await materializeServerOwnedObservations({
+      projectId,
+      executionId,
+      attempt: 0,
+      episodeId,
+      projectRevision: "revision-1",
+      sources: Array.from({ length: 17 }, (_, index) => ({
+        kind: "runtime_receipt" as const,
+        sourceId: `runtime:many:${index}`,
+        sourceRevision: "revision-1",
+        status: "passed",
+        profile: "profile-many",
+        environmentRevision: "env-many",
+      })),
+    });
+
+    const state = await getProjectWorldState(projectId);
+    expect(state.facts).toHaveLength(1);
+    expect(state.facts[0]?.sourceObservationIds).toHaveLength(16);
+    expect(state.facts[0]?.sourceObservationIds).toEqual(result.observationIds.slice(-16));
+    expect(state.facts[0]?.sourceObservationIdsComplete).toBe(false);
+    expect(state.completeness?.sourceObservationIds).toBe("possibly_truncated");
+  });
+
+  it("fails closed instead of hashing a World State projection beyond its row limits", async () => {
+    const now = new Date();
+    const observations = Array.from({ length: 2_049 }, (_, index) => ({
+      id: `bounded-world-observation-${index}-${randomUUID()}`,
+      projectId,
+      executionId,
+      episodeId,
+      taskScope: "project",
+      environmentRevisionKey: "unknown",
+      kind: "runtime",
+      provenance: "DIRECT_OBSERVATION",
+      observationRole: "effect",
+      sourceType: "runtime",
+      sourceId: `runtime:bounded:${index}`,
+      sourceVersion: "revision-1",
+      subject: `subject:${index}`,
+      predicate: "bounded",
+      value: { index },
+      valueHash: `hash-${index}`,
+      sourceRefs: [],
+      observedAt: now,
+      projectRevision: "revision-1",
+      completeness: "complete" as const,
+      freshness: "fresh" as const,
+      environmentFreshness: "unknown" as const,
+      evidenceRefs: [],
+      sequence: index,
+      createdAt: now,
+    }));
+    for (let index = 0; index < observations.length; index += 400) {
+      await db.insert(aiAgentObservationsTable)
+        .values(observations.slice(index, index + 400));
+    }
+
+    await expect(materializeWorldStateForProject(projectId))
+      .rejects.toThrow("world_state_projection_incomplete_observations");
+    await expect(getProjectWorldState(projectId))
+      .rejects.toThrow("world_state_projection_incomplete_observations");
+
+    await db.delete(aiAgentObservationsTable).where(eq(aiAgentObservationsTable.projectId, projectId));
+    const facts = Array.from({ length: 257 }, (_, index) => ({
+      id: `bounded-world-fact-${index}-${randomUUID()}`,
+      projectId,
+      taskScope: "project",
+      environmentRevisionKey: "unknown",
+      subject: `subject:${index}`,
+      predicate: "bounded",
+      value: { index },
+      valueHash: `fact-hash-${index}`,
+      version: 1,
+      status: "believed" as const,
+      sourceObservationIds: [],
+      projectRevision: "revision-1",
+      environmentFreshness: "unknown" as const,
+      createdAt: now,
+      updatedAt: now,
+    }));
+    await db.insert(aiWorldFactsTable).values(facts);
+
+    await expect(materializeWorldStateForProject(projectId))
+      .rejects.toThrow("world_state_projection_incomplete_facts");
+    await expect(getProjectWorldState(projectId))
+      .rejects.toThrow("world_state_projection_incomplete_facts");
   });
 
   it("changes the scoped world revision when a new observation sequence is added", async () => {
