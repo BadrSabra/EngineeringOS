@@ -1845,6 +1845,18 @@ export async function runRecipeOperation(params: RunRecipeOperationParams): Prom
   ) {
     throw new Error("Recipe execution identity does not match its queued Mission execution.");
   }
+  if (created.execution.status === "failed") {
+    const terminalReceipt = created.execution.recipeReceipt
+      ? RecipeReceiptSchema.safeParse(created.execution.recipeReceipt).data
+      : undefined;
+    if (terminalReceipt) return {
+      executionId: created.execution.id,
+      status: terminalReceipt.status === "completed" ? "completed" : "blocked",
+      completedNodeIds: terminalReceipt.completedNodeIds,
+      receipt: terminalReceipt,
+    };
+    throw new Error("Failed recipe execution has no durable receipt for idempotent replay.");
+  }
   const workerId = `recipe:${params.operationId}:${randomUUID()}`;
   const claimWithTransaction = async (transaction?: RecipeClaimTransaction) => {
     const recovery = created.execution.status === "paused"

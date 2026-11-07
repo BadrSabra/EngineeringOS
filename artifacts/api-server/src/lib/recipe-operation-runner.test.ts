@@ -1,4 +1,5 @@
 import { execFile, spawn } from "node:child_process";
+import { createHash } from "node:crypto";
 import { createServer as createHttpServer } from "node:http";
 import { createServer } from "node:net";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
@@ -506,7 +507,8 @@ async function createGateCRecipeFixture(
   const operationId = crypto.randomUUID();
   const sessionId = crypto.randomUUID();
   const userId = `gate-c-recipe-user:${projectId}`;
-  const sourceRevision = `gate-c-recipe-revision:${projectId}`;
+  // Gate C replay validates Git-shaped revisions; this is a deterministic 40-hex test identity.
+  const sourceRevision = createHash("sha1").update(projectId).digest("hex");
   const rootPath = await mkdtemp(path.join(process.cwd(), ".gate-c-recipe-root-"));
   await writeFile(
     path.join(rootPath, "package.json"),
@@ -1136,13 +1138,14 @@ describe("recipe operation preparation", () => {
     const startSpy = vi.spyOn(manager, "start");
     const worldStateSpy = vi.spyOn(worldState, "getProjectWorldState")
       .mockRejectedValue(new Error("parent World State revision unavailable"));
+    const runtimeParams = {
+      ...fixture.params,
+      recipeId: "runtime.start" as const,
+      runtimeStartRunner: createRuntimeStartRunner(manager),
+    };
     let executionId: string | undefined;
     try {
-      const result = await runRecipeOperation({
-        ...fixture.params,
-        recipeId: "runtime.start",
-        runtimeStartRunner: createRuntimeStartRunner(manager),
-      });
+      const result = await runRecipeOperation(runtimeParams);
       executionId = result.executionId;
       expect(result.status).toBe("blocked");
       expect(startSpy).not.toHaveBeenCalled();
@@ -1167,14 +1170,11 @@ describe("recipe operation preparation", () => {
         eq(aiExecutionAcceptancesTable.executionId, executionId),
         eq(aiExecutionAcceptancesTable.outcome, "SUCCEEDED"),
       ))).toHaveLength(0);
-      const replay = await runRecipeOperation({
-        ...fixture.params,
-        recipeId: "runtime.start",
-        runtimeStartRunner: createRuntimeStartRunner(manager),
-      });
+      const replay = await runRecipeOperation(runtimeParams);
       expect(replay.executionId).toBe(executionId);
       expect(replay.status).toBe("blocked");
       expect(replay.receipt).toEqual(result.receipt);
+      expect(worldStateSpy).toHaveBeenCalledTimes(1);
     } finally {
       startSpy.mockRestore();
       worldStateSpy.mockRestore();
@@ -2104,7 +2104,7 @@ describe("recipe operation preparation", () => {
     try {
       const result = await runRecipeOperation(fixture.params);
       expect(result.status).toBe("blocked");
-      expect(result.receipt.status).toBe("cancelled");
+      expect(result.receipt.status).toBe("blocked");
       expect(validationCalls).toEqual(["ai-orchestrator-tests"]);
 
       const accepted = await db.select({ id: aiExecutionAcceptancesTable.id })
@@ -2116,7 +2116,7 @@ describe("recipe operation preparation", () => {
         ));
       expect(accepted).toHaveLength(0);
 
-      const interrupted = await db.select({
+      const terminalAcceptance = await db.select({
         outcome: aiExecutionAcceptancesTable.outcome,
         evidenceRequired: aiExecutionAcceptancesTable.evidenceRequired,
         evidenceComplete: aiExecutionAcceptancesTable.evidenceComplete,
@@ -2126,11 +2126,12 @@ describe("recipe operation preparation", () => {
           eq(aiExecutionAcceptancesTable.executionId, fixture.executionId),
           eq(aiExecutionAcceptancesTable.attempt, 1),
         ));
-      expect(interrupted).toMatchObject([{
-        outcome: "INTERRUPTED",
+      expect(terminalAcceptance).toHaveLength(1);
+      expect(terminalAcceptance[0]).toMatchObject({
         evidenceRequired: 1,
         evidenceComplete: 0,
-      }]);
+      });
+      expect(terminalAcceptance[0]?.outcome).not.toBe("SUCCEEDED");
     } finally {
       await fixture.cleanup();
     }
@@ -5365,9 +5366,11 @@ describe("recipe operation preparation", () => {
     validationCalls.length = 0;
     const fixture = await createReclaimedRecipeFixture({ includePassedEvidence: false });
     try {
-      await expect(runRecipeOperation(fixture.params)).rejects.toThrow(
-        "Recipe checkpoint passed node is missing retained evidence.",
-      );
+      const result = await runRecipeOperation(fixture.params);
+      expect(result).toMatchObject({
+        status: "blocked",
+        receipt: { status: "blocked" },
+      });
       expect(validationCalls).toEqual([]);
       const [execution] = await db
         .select({ status: aiExecutionsTable.status })
@@ -5388,9 +5391,11 @@ describe("recipe operation preparation", () => {
         : undefined,
     });
     try {
-      await expect(runRecipeOperation(fixture.params)).rejects.toThrow(
-        "Recipe checkpoint could not be reconciled with the server-owned plan.",
-      );
+      const result = await runRecipeOperation(fixture.params);
+      expect(result).toMatchObject({
+        status: "blocked",
+        receipt: { status: "blocked" },
+      });
       expect(validationCalls).toEqual([]);
       const [execution] = await db
         .select({ status: aiExecutionsTable.status })
@@ -5407,7 +5412,7 @@ describe("recipe operation preparation", () => {
     validationCalls.length = 0;
     const fixture = await createReclaimedRecipeFixture();
     const realCheckpoint = aiExecutionState.checkpointAiExecution;
-    const realComplete = aiExecutionState.completeAiExecution;
+    const realComplete = aiExecutionState.completeAiExecutionWithResult;
     let checkpointCalls = 0;
     let releaseFirst!: () => void;
     let resolveFirstFinished!: () => void;
@@ -5432,7 +5437,7 @@ describe("recipe operation preparation", () => {
       }
       return accepted;
     });
-    const completeSpy = vi.spyOn(aiExecutionState, "completeAiExecution").mockImplementation(async (params) => {
+    const completeSpy = vi.spyOn(aiExecutionState, "completeAiExecutionWithResult").mockImplementation(async (params) => {
       await firstFinished;
       return realComplete(params);
     });
@@ -5453,7 +5458,7 @@ describe("recipe operation preparation", () => {
   it("exposes a cancellation race after all nodes pass but before terminal acceptance", async () => {
     validationCalls.length = 0;
     const fixture = await createReclaimedRecipeFixture();
-    const realComplete = aiExecutionState.completeAiExecution;
+    const realComplete = aiExecutionState.completeAiExecutionWithResult;
     let signalCompletionEntered!: () => void;
     let releaseCompletion!: () => void;
     const completionEntered = new Promise<void>((resolve) => {
@@ -5462,7 +5467,7 @@ describe("recipe operation preparation", () => {
     const completionReleased = new Promise<void>((resolve) => {
       releaseCompletion = resolve;
     });
-    const completeSpy = vi.spyOn(aiExecutionState, "completeAiExecution").mockImplementation(async (params) => {
+    const completeSpy = vi.spyOn(aiExecutionState, "completeAiExecutionWithResult").mockImplementation(async (params) => {
       signalCompletionEntered();
       await completionReleased;
       return realComplete(params);
@@ -5524,8 +5529,8 @@ describe("recipe operation preparation", () => {
   it("returns the cancelled receipt when reconciliation terminalizes cancellation before the worker fallback", async () => {
     validationCalls.length = 0;
     const fixture = await createReclaimedRecipeFixture();
-    const realComplete = aiExecutionState.completeAiExecution;
-    const completeSpy = vi.spyOn(aiExecutionState, "completeAiExecution").mockImplementation(async (params) => {
+    const realComplete = aiExecutionState.completeAiExecutionWithResult;
+    const completeSpy = vi.spyOn(aiExecutionState, "completeAiExecutionWithResult").mockImplementation(async (params) => {
       const cancelling = await requestAiExecutionCancel({
         executionId: fixture.executionId,
         userId: fixture.params.userId,

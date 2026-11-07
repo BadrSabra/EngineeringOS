@@ -13,6 +13,12 @@ Terminal recipe checkpoints must retain a direct recipe binding so idempotent re
 
 **How to apply:** When adding a server recipe, align its context scope, evidence type, capability output projection, terminal checkpoint binding, and replay test as one contract.
 
+An idempotent replay of a terminal failed recipe must return its persisted receipt without reclaiming the worker. A new attempt requires an explicit recovery path or a new idempotency key.
+
+**Why:** Generic failed-execution claims can rerun the same attempt and rewrite terminal timestamps; treating a replay as a retry can duplicate effects or make the response unstable.
+
+**How to apply:** In recipe entry points, check the durable terminal status and receipt before claiming. Keep retry authorization separate from idempotent replay.
+
 Mission recipe actions must resolve the managed project root and current Git revision at execution time; a candidate identity is usable only when it matches a server-owned validated/committed proposal, its base revision, and its durable delivery workspace.
 
 **Why:** Goal actions are intentionally not trusted with roots, revisions, or workspaces. Binding those values at the worker boundary prevents stale or foreign candidate workspaces from becoming recipe evidence.
