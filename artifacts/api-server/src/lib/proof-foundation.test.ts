@@ -258,6 +258,25 @@ describe("composeCanonicalProof", () => {
     ]));
   });
 
+  it.each(["PARTIAL", "NOT_RECORDED"] as const)(
+    "rejects %s evidence even when persisted completeness flags say complete",
+    (verdict) => {
+      const result = fixture({
+        evidence: {
+          complete: true,
+          verdict,
+        },
+        acceptance: {
+          evidenceComplete: true,
+        },
+      });
+
+      expect(result.accepted).toBe(false);
+      expect(result.verdict).toBe("INCOMPLETE");
+      expect(result.failureReasons).toContain("evidence_not_proven");
+    },
+  );
+
   it("requires delivery proof for delivery goals", () => {
     const result = fixture({
       deliveryRequired: true,

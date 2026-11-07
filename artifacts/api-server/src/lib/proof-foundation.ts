@@ -52,6 +52,7 @@ export type CanonicalProofFailureReason =
   | "evidence_snapshot_mismatch"
   | "evidence_incomplete"
   | "evidence_unavailable"
+  | "evidence_not_proven"
   | "evidence_not_required_for_canonical_proof"
   | "runtime_start_gate_c_proof_mismatch"
   | "acceptance_not_succeeded"
@@ -332,6 +333,8 @@ export function composeCanonicalProof(
       }
       if (evidence.verdict === "UNAVAILABLE") {
         addReason(reasons, "evidence_unavailable");
+      } else if (evidence.verdict !== "PROVEN") {
+        addReason(reasons, "evidence_not_proven");
       }
       const evidenceSourceRevision = nonEmpty(evidence.sourceRevision);
       if (!evidenceSourceRevision) {

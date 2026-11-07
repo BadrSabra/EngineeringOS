@@ -182,7 +182,9 @@ export async function executeGitTool(
   try {
     switch (name) {
       case "git_status": {
-        const out = await safeGit(["status", "--short", "-u"], root, signal);
+        // Git discovers the repository above cwd, so scope the result to the
+        // admitted project directory instead of exposing sibling workspaces.
+        const out = await safeGit(["status", "--short", "-u", "--", "."], root, signal);
         return out || "Working tree clean — nothing to commit.";
       }
 
@@ -194,6 +196,7 @@ export async function executeGitTool(
           "--no-textconv",
           "HEAD",
         ];
+        gitArgs.push("--");
         if (args.path) {
           // Normalize the validated path before handing it to Git. Literal
           // pathspec mode prevents wildcard characters from widening scope.
@@ -201,11 +204,13 @@ export async function executeGitTool(
             const safe = await safePath(root.canonicalPath, args.path);
             if (!safe) throw new GitToolPathRejectedError();
             const relative = path.relative(root.canonicalPath, safe);
-            gitArgs.push("--", relative || ".");
+            gitArgs.push(relative || ".");
           } catch (error) {
             if (error instanceof GitToolPathRejectedError) throw error;
             throw new GitToolPathRejectedError();
           }
+        } else {
+          gitArgs.push(".");
         }
         const out = await safeGit(gitArgs, root, signal);
         return out || "No uncommitted changes.";

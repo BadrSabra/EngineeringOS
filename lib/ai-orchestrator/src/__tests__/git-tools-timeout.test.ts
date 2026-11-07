@@ -38,6 +38,48 @@ describe("Git tool subprocess timeout", () => {
     }
   });
 
+  it("keeps status and unfiltered diffs inside a project nested in a parent repository", async () => {
+    const base = await fs.mkdtemp(path.join(os.tmpdir(), "git-tool-nested-project-"));
+    const parent = path.join(base, "repository");
+    const root = path.join(parent, "project");
+    const sibling = path.join(parent, "sibling");
+    const gitEnv = {
+      ...process.env,
+      GIT_AUTHOR_NAME: "Git Tool Test",
+      GIT_AUTHOR_EMAIL: "git-tool-test@example.invalid",
+      GIT_COMMITTER_NAME: "Git Tool Test",
+      GIT_COMMITTER_EMAIL: "git-tool-test@example.invalid",
+    };
+    try {
+      await fs.mkdir(root, { recursive: true });
+      await fs.mkdir(sibling, { recursive: true });
+      await fs.writeFile(path.join(root, "project.txt"), "project before\n");
+      await fs.writeFile(path.join(sibling, "sibling.txt"), "sibling before\n");
+      execFileSync("git", ["init", "-q"], { cwd: parent });
+      execFileSync("git", ["add", "."], { cwd: parent });
+      execFileSync("git", ["commit", "-q", "-m", "baseline"], {
+        cwd: parent,
+        env: gitEnv,
+      });
+
+      await fs.writeFile(path.join(root, "project.txt"), "project after\n");
+      await fs.writeFile(path.join(sibling, "sibling.txt"), "SIBLING_CONTENT_MUST_STAY_PRIVATE\n");
+      await fs.writeFile(path.join(sibling, "untracked.txt"), "sibling untracked\n");
+      await fs.writeFile(path.join(root, "untracked.txt"), "project untracked\n");
+
+      const status = await executeGitTool("git_status", {}, root);
+      const diff = await executeGitTool("git_diff", {}, root);
+
+      expect(status).toContain("project.txt");
+      expect(status).toContain("untracked.txt");
+      expect(status).not.toContain("sibling.txt");
+      expect(diff).toContain("project after");
+      expect(diff).not.toContain("SIBLING_CONTENT_MUST_STAY_PRIVATE");
+    } finally {
+      await fs.rm(base, { recursive: true, force: true });
+    }
+  });
+
   it("keeps Git bound to the opened project directory if its path is replaced", async () => {
     const base = await fs.mkdtemp(path.join(os.tmpdir(), "git-tool-root-pin-"));
     const root = path.join(base, "project");
