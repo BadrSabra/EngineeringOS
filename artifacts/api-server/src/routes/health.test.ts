@@ -4,6 +4,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import request from "supertest";
 import app from "../app.js";
+import { logger } from "../lib/logger.js";
 import { workspaceRuntime } from "../lib/workspace-runtime.js";
 
 afterEach(() => {
@@ -12,6 +13,13 @@ afterEach(() => {
 
 describe("GET /healthz", () => {
   it("returns 200 with status ok", async () => {
+    vi.spyOn(workspaceRuntime, "getUnresolvedStartHealth").mockResolvedValue({
+      status: "clear",
+      thresholdMs: 60_000,
+      unresolvedCount: 0,
+      oldestAgeMs: null,
+    });
+
     const res = await request(app).get("/api/healthz");
     expect(res.status).toBe(200);
     expect(res.body.status).toBe("ok");
@@ -81,5 +89,25 @@ describe("GET /healthz", () => {
       unresolvedCount: 2,
       oldestAgeMs: 90_000,
     });
+  });
+
+  it("keeps health available and marks the runtime alert unavailable when its store read fails", async () => {
+    const error = new Error("runtime store unavailable");
+    const warn = vi.spyOn(logger, "warn");
+    vi.spyOn(workspaceRuntime, "getUnresolvedStartHealth").mockRejectedValue(error);
+
+    const res = await request(app).get("/api/healthz");
+
+    expect(res.status).toBe(200);
+    expect(res.body.status).toBe("ok");
+    expect(res.body.unresolvedRuntimeStart).toBeNull();
+    expect(warn).toHaveBeenCalledWith(
+      expect.objectContaining({
+        scope: "healthz",
+        code: "unresolved_runtime_start_health_unavailable",
+        error,
+      }),
+      "Unresolved runtime start health could not be loaded",
+    );
   });
 });

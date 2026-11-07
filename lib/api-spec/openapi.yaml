@@ -6572,7 +6572,12 @@ components:
         jobRecovery:
           $ref: "#/components/schemas/JobRecoveryHealth"
         unresolvedRuntimeStart:
-          $ref: "#/components/schemas/UnresolvedRuntimeStartHealth"
+          description: >
+            Null when runtime health could not be read; null is unavailable
+            data, not a clear status.
+          anyOf:
+            - $ref: "#/components/schemas/UnresolvedRuntimeStartHealth"
+            - type: "null"
 
     UnresolvedRuntimeStartHealth:
       type: object

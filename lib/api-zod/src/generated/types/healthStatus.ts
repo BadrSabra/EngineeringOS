@@ -20,5 +20,6 @@ export interface HealthStatus {
   aiDiagnosticsRetention?: AiDiagnosticsRetentionHealth;
   taskExecutionRetention?: TaskExecutionRetentionHealth;
   jobRecovery?: JobRecoveryHealth;
-  unresolvedRuntimeStart?: UnresolvedRuntimeStartHealth;
+  /** Null when runtime health could not be read; null is unavailable data, not a clear status. */
+  unresolvedRuntimeStart?: UnresolvedRuntimeStartHealth | null;
 }

@@ -60,12 +60,23 @@ router.get("/readiness", createReadinessHandler());
 
 router.get("/healthz", async (_req, res) => {
   let durableShadowCampaign = null;
+  let unresolvedRuntimeStart:
+    | Awaited<ReturnType<typeof workspaceRuntime.getUnresolvedStartHealth>>
+    | null = null;
   try {
     durableShadowCampaign = await loadLatestAgentEpisodeShadowCampaignScorecard() ?? null;
   } catch (error) {
     logger.warn(
       { scope: "healthz", code: "shadow_campaign_scorecard_unavailable", error },
       "Shadow campaign scorecard could not be loaded",
+    );
+  }
+  try {
+    unresolvedRuntimeStart = await workspaceRuntime.getUnresolvedStartHealth();
+  } catch (error) {
+    logger.warn(
+      { scope: "healthz", code: "unresolved_runtime_start_health_unavailable", error },
+      "Unresolved runtime start health could not be loaded",
     );
   }
   const data = GetHealthResponse.parse({
@@ -83,7 +94,7 @@ router.get("/healthz", async (_req, res) => {
     aiDiagnosticsRetention: getAiDiagnosticsRetentionHealth(),
     taskExecutionRetention: getTaskExecutionRetentionHealth(),
     jobRecovery: await getDurableJobHealth(),
-    unresolvedRuntimeStart: await workspaceRuntime.getUnresolvedStartHealth(),
+    unresolvedRuntimeStart,
   });
   res.json(data);
 });

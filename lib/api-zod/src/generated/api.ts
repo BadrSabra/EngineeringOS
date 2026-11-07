@@ -52,9 +52,9 @@ export const getHealthResponseJobRecoveryDispatchStagesItemConsecutiveFailuresMi
 export const getHealthResponseJobRecoveryDispatchStagesItemLastDispatchedCountMin = 0;
 
 
-export const getHealthResponseUnresolvedRuntimeStartUnresolvedCountMin = 0;
+export const getHealthResponseUnresolvedRuntimeStartOneUnresolvedCountMin = 0;
 
-export const getHealthResponseUnresolvedRuntimeStartOldestAgeMsMin = 0;
+export const getHealthResponseUnresolvedRuntimeStartOneOldestAgeMsMin = 0;
 
 
 
@@ -145,12 +145,12 @@ export const GetHealthResponse = zod.object({
   "lastDispatchedCount": zod.number().int().min(getHealthResponseJobRecoveryDispatchStagesItemLastDispatchedCountMin)
 }))
 }).optional().describe('Content-free health projection of durable background work. A degraded status means an expired or missing worker lease needs recovery, a queued Scan, Discovery, AI dispatch, or accepted-task Observation materialization exceeds the configured pending-age threshold, a dispatcher stage last failed, or a job exhausted its retry budget and needs operator attention. The top-level health endpoint remains a liveness check.\n'),
-  "unresolvedRuntimeStart": zod.object({
+  "unresolvedRuntimeStart": zod.union([zod.object({
   "status": zod.enum(['clear', 'alert']),
   "thresholdMs": zod.number().int().min(1),
-  "unresolvedCount": zod.number().int().min(getHealthResponseUnresolvedRuntimeStartUnresolvedCountMin),
-  "oldestAgeMs": zod.number().int().min(getHealthResponseUnresolvedRuntimeStartOldestAgeMsMin).nullable()
-}).optional().describe('Content-free operational alert for durable runtime sessions whose startup has remained unresolved beyond the configured threshold. This is observational only and does not change runtime state or ownership.\n')
+  "unresolvedCount": zod.number().int().min(getHealthResponseUnresolvedRuntimeStartOneUnresolvedCountMin),
+  "oldestAgeMs": zod.number().int().min(getHealthResponseUnresolvedRuntimeStartOneOldestAgeMsMin).nullable()
+}).describe('Content-free operational alert for durable runtime sessions whose startup has remained unresolved beyond the configured threshold. This is observational only and does not change runtime state or ownership.\n'),zod.null()]).optional().describe('Null when runtime health could not be read; null is unavailable data, not a clear status.\n')
 })
 
 
