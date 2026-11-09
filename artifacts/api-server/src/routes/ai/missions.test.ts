@@ -61,6 +61,7 @@ import { buildSkillCandidateEnvelope } from "../../lib/skill-candidate.js";
 import {
   buildProjectQueryObjective,
   resolveProjectQueryTarget,
+  toPublicRecipeReceipt,
 } from "@workspace/ai-orchestrator";
 import { prepareRecipeOperation } from "../../lib/recipe-operation-runner.js";
 import {
@@ -4386,7 +4387,22 @@ describe("AI missions and goals", () => {
         if (recoveredRows[0]?.status === "completed" && recoveredRows[1]?.status === "failed") break;
         await new Promise((resolve) => setTimeout(resolve, 50));
       }
-      expect(recoveredRows[0], JSON.stringify(recoveredRows)).toMatchObject({
+      const [firstReplayExecution] = crashWindowIdentities[0]
+        ? await db.select({
+          status: aiExecutionsTable.status,
+          recipeReceipt: aiExecutionsTable.recipeReceipt,
+        })
+          .from(aiExecutionsTable)
+          .where(eq(aiExecutionsTable.id, crashWindowIdentities[0].executionId))
+          .limit(1)
+        : [];
+      expect(recoveredRows[0], JSON.stringify({
+        replay: recoveredRows[0],
+        execution: firstReplayExecution && {
+          status: firstReplayExecution.status,
+          recipeReceipt: toPublicRecipeReceipt(firstReplayExecution.recipeReceipt),
+        },
+      })).toMatchObject({
         id: crashWindowIdentities[0]!.replayId,
         executionId: crashWindowIdentities[0]!.executionId,
         status: "completed",
@@ -5893,14 +5909,22 @@ describe("AI missions and goals", () => {
       })
       .from(aiShadowReplaysTable)
       .where(eq(aiShadowReplaysTable.id, replayId));
-    expect(resumeResults.some(Boolean), JSON.stringify(recoveredReplay)).toBe(true);
     const [recoveredExecution] = await db
       .select({
         status: aiExecutionsTable.status,
         attempt: aiExecutionsTable.attempt,
+        recipeReceipt: aiExecutionsTable.recipeReceipt,
       })
       .from(aiExecutionsTable)
       .where(eq(aiExecutionsTable.id, created.execution.id));
+    expect(resumeResults.some(Boolean), JSON.stringify({
+      replay: recoveredReplay,
+      execution: recoveredExecution && {
+        status: recoveredExecution.status,
+        attempt: recoveredExecution.attempt,
+        recipeReceipt: toPublicRecipeReceipt(recoveredExecution.recipeReceipt),
+      },
+    })).toBe(true);
     const replayAcceptances = await db
       .select({
         id: aiExecutionAcceptancesTable.id,

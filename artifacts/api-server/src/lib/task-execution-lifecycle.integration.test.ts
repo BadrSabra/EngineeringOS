@@ -30,7 +30,6 @@ import {
   aiChatMessagesTable,
   aiChatSessionsTable,
   aiExecutionsTable,
-  aiChangeProposalsTable,
   aiGoalsTable,
   aiMissionsTable,
   aiUsageEventsTable,
@@ -39,6 +38,7 @@ import {
   operatorAlertsTable,
   projectsTable,
   taskLogsTable,
+  taskExecutionObservationOutboxTable,
   tasksTable,
   workflowExecutionsTable,
   workflowsTable,
@@ -458,6 +458,40 @@ async function drainPendingObservationMaterializations(): Promise<unknown[]> {
     );
   }
   return materializationFailures;
+}
+
+async function drainProjectObservationOutbox(projectId: string): Promise<void> {
+  const deadline = Date.now() + 10_000;
+  while (true) {
+    const rows = await db
+      .select({
+        id: taskExecutionObservationOutboxTable.id,
+        status: taskExecutionObservationOutboxTable.status,
+        attemptCount: taskExecutionObservationOutboxTable.attemptCount,
+        lastFailureCode: taskExecutionObservationOutboxTable.lastFailureCode,
+      })
+      .from(taskExecutionObservationOutboxTable)
+      .where(eq(taskExecutionObservationOutboxTable.projectId, projectId));
+    if (rows.length === 0) break;
+
+    const failed = rows.find((row) => row.status === "dead_letter" || row.attemptCount > 0);
+    if (failed) {
+      throw new Error(
+        `Task observation outbox ${failed.id} did not materialize: ${failed.lastFailureCode ?? failed.status}`,
+      );
+    }
+    if (Date.now() >= deadline) {
+      throw new Error(
+        `Timed out waiting for Task observation outbox rows: ${rows.map((row) => row.id).join(", ")}`,
+      );
+    }
+    await new Promise((resolveDelay) => setTimeout(resolveDelay, 10));
+  }
+
+  const failures = await drainPendingObservationMaterializations();
+  if (failures.length > 0) {
+    throw new AggregateError(failures, "Task observation materialization failed before fixture cleanup.");
+  }
 }
 
 function createDeferred<T = void>() {
@@ -984,7 +1018,7 @@ async function runMissionRepairStartupRecoveryWithProcessKill(taskId: string, ex
 }
 
 async function cleanupProjectExecutionData(projectId: string) {
-  const materializationFailures = await drainPendingObservationMaterializations();
+  await drainProjectObservationOutbox(projectId);
   await db.delete(aiUsageEventsTable).where(eq(aiUsageEventsTable.projectId, projectId));
   await db.delete(operatorAlertsTable).where(and(
     eq(operatorAlertsTable.ownerId, "mission-effect-test-user"),
@@ -999,12 +1033,6 @@ async function cleanupProjectExecutionData(projectId: string) {
   await db.delete(aiAgentEffectBundlesTable).where(eq(aiAgentEffectBundlesTable.projectId, projectId));
   await db.delete(aiAgentEpisodesTable).where(eq(aiAgentEpisodesTable.projectId, projectId));
   await db.delete(aiExecutionsTable).where(eq(aiExecutionsTable.projectId, projectId));
-  if (materializationFailures.length > 0) {
-    throw new AggregateError(
-      materializationFailures,
-      "Observation materialization failed before fixture cleanup.",
-    );
-  }
 }
 
 async function createMissionToolLoopFixture(input: {
@@ -3539,7 +3567,7 @@ describe("real durable task execution lifecycle", () => {
     }
   });
 
-  it("stages a directly observed Mission repair candidate without changing the live tree", async () => {
+  it("keeps a Mission candidate unaccepted without validator process proof", async () => {
     const fixture = await createMissionToolLoopFixture({
       phase: "execute",
       approvalRequired: false,
@@ -3721,63 +3749,22 @@ describe("real durable task execution lifecycle", () => {
             .where(eq(aiExecutionsTable.id, outcome.executionId))
             .limit(1)
         : [];
-      expect(outcome.status).toBe("completed");
+      expect(outcome.status).toBe("verifying");
       expect(proposalBinding).toMatchObject({
-        status: "completed",
-        proposalId: expect.any(String),
-      });
-      const [proposal] = await db
-        .select({
-          projectId: aiChangeProposalsTable.projectId,
-          status: aiChangeProposalsTable.status,
-          approvalRequired: aiChangeProposalsTable.approvalRequired,
-          lifecycle: aiChangeProposalsTable.lifecycle,
-          candidateTreeHash: aiChangeProposalsTable.candidateTreeHash,
-          validationEvidence: aiChangeProposalsTable.validationEvidence,
-        })
-        .from(aiChangeProposalsTable)
-        .where(eq(aiChangeProposalsTable.id, proposalBinding!.proposalId!))
-        .limit(1);
-      expect(proposal).toMatchObject({
-        projectId: fixture.projectId,
-        status: "pending",
-        approvalRequired: true,
-        lifecycle: "validated",
-        candidateTreeHash: expect.stringMatching(/^[a-f0-9]{64}$/),
-      });
-      const proposalEvidence = JSON.parse(proposal?.validationEvidence ?? "[]") as Array<{
-        projectId?: string;
-        executionId?: string;
-        missionId?: string;
-        goalId?: string;
-        candidateTreeHash?: string;
-        evidence?: { candidateHash?: string; projectRevision?: string };
-      }>;
-      expect(proposalEvidence).toHaveLength(1);
-      expect(proposalEvidence[0]).toMatchObject({
-        projectId: fixture.projectId,
-        executionId: outcome.executionId,
-        missionId: fixture.missionId,
-        goalId: fixture.goalId,
-        candidateTreeHash: proposal?.candidateTreeHash,
-        evidence: {
-          candidateHash: proposal?.candidateTreeHash,
-          projectRevision: expect.any(String),
-        },
+        status: "failed",
+        proposalId: null,
       });
       expect(await readFile(join(fixture.rootPath, "src", "target.ts"), "utf8"))
         .toBe("export const value = 'base';\n");
-      expect(runRepairValidation).toHaveBeenCalledTimes(2);
+      expect(runRepairValidation).toHaveBeenCalledTimes(1);
       expect(runRepairValidation.mock.calls[0]?.[4]).toEqual([
         { path: "src/target.ts", newContent: candidateContent },
       ]);
-      expect(runRepairValidation.mock.calls[1]?.[4]).toEqual([
-      ]);
-      expect(runRepairValidation.mock.calls[1]?.[0]).not.toBe(fixture.rootPath);
-      expect(runRepairValidation.mock.calls[1]?.[5]).toMatchObject({
+      expect(runRepairValidation.mock.calls[0]?.[0]).toBe(fixture.rootPath);
+      expect(runRepairValidation.mock.calls[0]?.[5]).toMatchObject({
         operationId: expect.any(String),
         projectRevision: expect.any(String),
-        candidateHash: proposal?.candidateTreeHash,
+        candidateHash: expect.stringMatching(/^mission-candidate:[a-f0-9]{64}$/),
       });
 
       const [acceptance] = await db
@@ -3788,56 +3775,7 @@ describe("real durable task execution lifecycle", () => {
         .from(aiExecutionAcceptancesTable)
         .where(eq(aiExecutionAcceptancesTable.projectId, fixture.projectId))
         .limit(1);
-      expect(acceptance).toMatchObject({
-        outcome: "SUCCEEDED",
-        effectBundleId: expect.any(String),
-      });
-
-      const [bundle] = await db
-        .select({
-          verdict: aiAgentEffectBundlesTable.verdict,
-          episodeId: aiAgentEffectBundlesTable.episodeId,
-          worldRevision: aiAgentEffectBundlesTable.worldRevision,
-        })
-        .from(aiAgentEffectBundlesTable)
-        .where(eq(aiAgentEffectBundlesTable.executionId, outcome.executionId!))
-        .limit(1);
-      expect(bundle).toMatchObject({
-        verdict: "OBSERVED",
-        worldRevision: expect.stringMatching(/^[a-f0-9]{64}$/),
-      });
-      const [repairEpisode] = await db
-        .select({
-          id: aiAgentEpisodesTable.id,
-          worldRevision: aiAgentEpisodesTable.worldRevision,
-        })
-        .from(aiAgentEpisodesTable)
-        .where(eq(aiAgentEpisodesTable.executionId, outcome.executionId!))
-        .limit(1);
-      expect(repairEpisode).toMatchObject({
-        id: bundle?.episodeId,
-        worldRevision: bundle?.worldRevision,
-      });
-      const effects = await db
-        .select({ status: aiAgentEffectsTable.status })
-        .from(aiAgentEffectsTable)
-        .where(eq(aiAgentEffectsTable.executionId, outcome.executionId!));
-      expect(effects).toEqual([{ status: "observed" }]);
-
-      const observations = await db
-        .select({
-          provenance: aiAgentObservationsTable.provenance,
-          predicate: aiAgentObservationsTable.predicate,
-          value: aiAgentObservationsTable.value,
-        })
-        .from(aiAgentObservationsTable)
-        .where(eq(aiAgentObservationsTable.executionId, outcome.executionId!));
-      expect(observations).toHaveLength(2);
-      expect(observations.every((observation) =>
-        observation.provenance === "DIRECT_OBSERVATION"
-        && observation.predicate === "workspace.tree_hash"
-      )).toBe(true);
-      expect(observations[0]?.value).not.toEqual(observations[1]?.value);
+      expect(acceptance?.outcome).toBe("FAILED");
 
       const episodeEvents = await db
         .select({
@@ -7290,7 +7228,7 @@ describe("real durable task execution lifecycle", () => {
       ).toBe(true);
       expect(resumed).toMatchObject({
         ok: true,
-        status: "completed",
+        status: "verifying",
         executionId,
       });
       const [recoveredExecution] = await db
@@ -7300,11 +7238,8 @@ describe("real durable task execution lifecycle", () => {
         .limit(1);
       expect(recoveredExecution?.attempt).toBe(1);
     } finally {
-      const materializationFailures = await drainPendingObservationMaterializations();
+      await drainProjectObservationOutbox(fixture.projectId);
       await fixture.cleanup();
-      if (materializationFailures.length > 0) {
-        throw new AggregateError(materializationFailures, "Startup Mission recovery observation cleanup failed.");
-      }
     }
   }, process.env.RUN_MISSION_REPAIR_PROCESS_RECOVERY === "1" ? 180_000 : 30_000);
 
@@ -7502,13 +7437,7 @@ describe("real durable task execution lifecycle", () => {
         // Separate the simulated old-worker exit from the recovered run's
         // best-effort observation transaction; recovery handoff is the subject
         // of this test, not overlap between two lifecycle side effects.
-        const materializationFailures = await drainPendingObservationMaterializations();
-        if (materializationFailures.length > 0) {
-          throw new AggregateError(
-            materializationFailures,
-            "Observation materialization failed after candidate-ready recovery.",
-          );
-        }
+        await drainProjectObservationOutbox(fixture.projectId);
         diagnosticPhase = "simulated_worker_exit";
         throw new Error("simulated_worker_exit_after_candidate_ready");
       })
@@ -7555,12 +7484,17 @@ describe("real durable task execution lifecycle", () => {
       if (!recoveredOutcome) {
         throw new Error(`Candidate-ready recovery did not reach lease handoff: ${JSON.stringify(initialOutcome)}`);
       }
-      expect(recoveredOutcome, JSON.stringify(recoveredOutcome)).toMatchObject({ ok: true, status: "completed" });
+      expect(recoveredOutcome, JSON.stringify(recoveredOutcome))
+        .toMatchObject({ ok: true, status: "verifying" });
       expect(chatWithFallback).toHaveBeenCalledTimes(1);
-      expect(runRepairValidation).toHaveBeenCalledTimes(3);
-      expect(runRepairValidation.mock.calls[2]?.[4]).toEqual([]);
-      expect(runRepairValidation.mock.calls[2]?.[0]).not.toBe(fixture.rootPath);
-      expect(runRepairValidation.mock.calls[2]?.[5]).toMatchObject({
+      expect(runRepairValidation).toHaveBeenCalledTimes(2);
+      expect(runRepairValidation.mock.calls[1]?.[4]).toEqual([
+        { path: "src/target.ts", newContent: candidateContent },
+      ]);
+      // This is the immutable source root; runRepairValidation materializes
+      // the overlay in a separate disposable workspace before starting the validator.
+      expect(runRepairValidation.mock.calls[1]?.[0]).toBe(fixture.rootPath);
+      expect(runRepairValidation.mock.calls[1]?.[5]).toMatchObject({
         operationId: expect.any(String),
         projectRevision: expect.any(String),
         candidateHash: expect.any(String),
@@ -7578,7 +7512,7 @@ describe("real durable task execution lifecycle", () => {
         .where(eq(aiExecutionAcceptancesTable.executionId, recoveredOutcome!.executionId!))
         .limit(1);
       expect(acceptance).toMatchObject({
-        outcome: "SUCCEEDED",
+        outcome: "FAILED",
         effectBundleId: expect.any(String),
       });
 
@@ -7919,13 +7853,7 @@ describe("real durable task execution lifecycle", () => {
           expectedStatuses: ["verifying"],
           workspaceRevision: fixture.now.toISOString(),
         });
-        const materializationFailures = await drainPendingObservationMaterializations();
-        if (materializationFailures.length > 0) {
-          throw new AggregateError(
-            materializationFailures,
-            "Observation materialization failed after committed Mission recovery.",
-          );
-        }
+        await drainProjectObservationOutbox(fixture.projectId);
         throw new Error("simulated_worker_exit_after_committed_checkpoint");
       })
       .mockImplementationOnce(async (...args: unknown[]) => {
@@ -7967,7 +7895,7 @@ describe("real durable task execution lifecycle", () => {
       if (!recoveredOutcome) {
         throw new Error(`Committed recovery did not reach lease handoff: ${JSON.stringify(initialOutcome)}`);
       }
-      expect(recoveredOutcome).toMatchObject({ ok: true, status: "completed" });
+      expect(recoveredOutcome).toMatchObject({ ok: true, status: "verifying" });
       expect(validationCalls).toBe(2);
       expect(chatWithFallback).toHaveBeenCalledTimes(1);
       expect(await readFile(join(fixture.rootPath, "src", "target.ts"), "utf8"))
@@ -7982,7 +7910,7 @@ describe("real durable task execution lifecycle", () => {
         .where(eq(aiExecutionAcceptancesTable.executionId, recoveredOutcome!.executionId!))
         .limit(1);
       expect(acceptance).toMatchObject({
-        outcome: "SUCCEEDED",
+        outcome: "FAILED",
         effectBundleId: expect.any(String),
       });
 
@@ -8159,6 +8087,7 @@ describe("real durable task execution lifecycle", () => {
               value: candidateReady.candidateTreeHash,
               sourceRevision: candidateReady.sourceRevision,
               observedAt: new Date(),
+              observationRole: "after",
             }],
           });
           originalAfterObservationId = after.observationIds[0];
@@ -8185,12 +8114,12 @@ describe("real durable task execution lifecycle", () => {
             beforeObservationIds: [candidateReady.beforeObservationId],
             afterObservationIds: [originalAfterObservationId],
           });
-          expect(verification.status).toBe("observed");
+          expect(verification.status).toBe("not_observed");
           originalEffectBundleId = verification.effectBundleId;
           await persistManifest({
             phase: "effect_classified",
             effectBundleId: originalEffectBundleId,
-            effectObserved: true,
+            effectObserved: false,
           });
         } finally {
           await candidateWorkspace.cleanup();
@@ -8220,13 +8149,7 @@ describe("real durable task execution lifecycle", () => {
           expectedStatuses: ["verifying"],
           workspaceRevision: fixture.now.toISOString(),
         });
-        const materializationFailures = await drainPendingObservationMaterializations();
-        if (materializationFailures.length > 0) {
-          throw new AggregateError(
-            materializationFailures,
-            "Observation materialization failed after effect-classified recovery.",
-          );
-        }
+        await drainProjectObservationOutbox(fixture.projectId);
         throw new Error("simulated_worker_exit_after_effect_classification");
       })
       .mockImplementationOnce(async (...args: unknown[]) => {
@@ -8253,7 +8176,7 @@ describe("real durable task execution lifecycle", () => {
           beforeObservationId: originalBeforeObservationId,
           afterObservationId: originalAfterObservationId,
           effectBundleId: originalEffectBundleId,
-          effectObserved: true,
+          effectObserved: false,
         });
         return {
           status: "passed" as const,
@@ -8286,7 +8209,7 @@ describe("real durable task execution lifecycle", () => {
       if (!recoveredOutcome) {
         throw new Error(`Effect-classified recovery did not reach lease handoff: ${JSON.stringify(initialOutcome)}`);
       }
-      expect(recoveredOutcome).toMatchObject({ ok: true, status: "completed" });
+      expect(recoveredOutcome).toMatchObject({ ok: true, status: "verifying" });
       expect(validationCalls).toBe(2);
       expect(chatWithFallback).toHaveBeenCalledTimes(1);
       const [execution] = await db
@@ -8294,7 +8217,7 @@ describe("real durable task execution lifecycle", () => {
         .from(aiExecutionsTable)
         .where(eq(aiExecutionsTable.id, recoveredOutcome.executionId!))
         .limit(1);
-      expect(execution?.proposalId).toEqual(expect.any(String));
+      expect(execution?.proposalId).toBeNull();
       expect(await readFile(join(fixture.rootPath, "src", "target.ts"), "utf8"))
         .toBe("export const value = 'base';\n");
       const effects = await db
@@ -8307,7 +8230,7 @@ describe("real durable task execution lifecycle", () => {
         .where(eq(aiAgentEffectsTable.executionId, recoveredOutcome!.executionId!));
       expect(effects).toHaveLength(1);
       expect(effects[0]).toMatchObject({
-        status: "observed",
+        status: "not_observed",
         beforeObservationIds: [originalBeforeObservationId],
         afterObservationIds: [originalAfterObservationId],
       });
@@ -8320,7 +8243,7 @@ describe("real durable task execution lifecycle", () => {
         .where(eq(aiExecutionAcceptancesTable.executionId, recoveredOutcome!.executionId!))
         .limit(1);
       expect(acceptance).toMatchObject({
-        outcome: "SUCCEEDED",
+        outcome: "FAILED",
         effectBundleId: originalEffectBundleId,
       });
     } finally {

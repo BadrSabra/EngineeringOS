@@ -143,6 +143,44 @@ async function main() {
       env: databaseEnv,
     });
 
+    if (process.env.TASK_EXECUTION_LIFECYCLE_ONLY === "1") {
+      console.log("Running the task execution lifecycle integration suite against isolated PostgreSQL.");
+      await run("pnpm", [
+        "--filter", "@workspace/api-server",
+        "exec", "vitest", "run",
+        "src/lib/task-execution-lifecycle.integration.test.ts",
+      ], {
+        env: databaseEnv,
+      });
+      return;
+    }
+
+    const selectedTestFiles = (process.env.MISSION_CONTROL_TEST_FILES ?? "")
+      .split(",")
+      .map((file) => file.trim())
+      .filter(Boolean);
+    if (selectedTestFiles.length > 0) {
+      if (selectedTestFiles.some((file) =>
+        !/^src\/[A-Za-z0-9._/-]+\.test\.tsx?$/.test(file)
+        || file.split("/").includes("..")
+      )) {
+        throw new Error("MISSION_CONTROL_TEST_FILES must contain API test paths under src/.");
+      }
+      const args = [
+        "--filter", "@workspace/api-server",
+        "exec", "vitest", "run",
+        ...selectedTestFiles,
+        "--pool=threads",
+        "--maxWorkers=1",
+        "--no-file-parallelism",
+      ];
+      const testFilter = process.env.MISSION_CONTROL_TEST_FILTER?.trim();
+      if (testFilter) args.push("-t", testFilter);
+      console.log(`Running selected API tests against isolated PostgreSQL: ${selectedTestFiles.join(", ")}`);
+      await run("pnpm", args, { env: databaseEnv });
+      return;
+    }
+
     if (process.env.TASK_DEFERRED_DISPATCH_CONCURRENCY_ONLY === "1") {
       console.log("Running the two-process deferred Task dispatcher race against isolated PostgreSQL.");
       await run("pnpm", [

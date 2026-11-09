@@ -187,6 +187,16 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: Pin the trusted base to the local main ref
+        working-directory: ${{ github.workspace }}
+        env:
+          TRUSTED_BASE_SHA: ${{ github.event.pull_request.base.sha || github.sha }}
+        run: |
+          set -euo pipefail
+          git cat-file -e "${TRUSTED_BASE_SHA}^{commit}"
+          git update-ref refs/heads/main "$TRUSTED_BASE_SHA"
+          test "$(git rev-parse --verify 'main^{commit}')" = "$TRUSTED_BASE_SHA"
+
       - name: Stage repository under the admitted workspace root
         working-directory: ${{ github.workspace }}
         run: |
