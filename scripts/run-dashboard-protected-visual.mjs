@@ -30,6 +30,10 @@ const dashboardPort = Number(
 const dashboardUrl = `http://127.0.0.1:${dashboardPort}/dashboard/`;
 const databaseUser = "dashboard_visual_e2e";
 const databaseName = "postgres";
+const defaultVisualGrep =
+  "captures protected dashboard routes at phone, tablet, and desktop sizes";
+const testGrep = process.env.DASHBOARD_E2E_GREP?.trim() || defaultVisualGrep;
+const isFullVisualRun = testGrep === defaultVisualGrep;
 
 let temporaryRoot = "";
 let dataDirectory = "";
@@ -424,7 +428,7 @@ async function main() {
         "test",
         "--config=e2e/playwright.config.ts",
         "--grep",
-        "captures protected dashboard routes at phone, tablet, and desktop sizes",
+        testGrep,
       ],
       {
         label: "Protected dashboard visual journey",
@@ -436,6 +440,7 @@ async function main() {
           DASHBOARD_E2E_PROTECTED_VISUAL: "1",
           DASHBOARD_E2E_BROWSER: browserName,
           DASHBOARD_E2E_BASE_URL: dashboardUrl,
+          DASHBOARD_E2E_GREP: testGrep,
           DASHBOARD_E2E_BROWSER_EGRESS_AUDIT_PATH: browserAuditPath,
           DASHBOARD_E2E_VISUAL_OUTPUT_DIR: outputDir,
           DASHBOARD_E2E_VISUAL_REPORT_PATH: visualReportPath,
@@ -451,17 +456,26 @@ async function main() {
     );
 
     const browserAudit = JSON.parse(await readFile(browserAuditPath, "utf8"));
-    const visualReport = JSON.parse(await readFile(visualReportPath, "utf8"));
     if (
       browserAudit?.guard !== "playwright-loopback-only" ||
       browserAudit.externalNetworkAllowed !== false ||
-      browserAudit.blockedRequestCount !== 0 ||
-      visualReport?.outcome !== "passed" ||
-      visualReport?.captures?.length !== 32
+      browserAudit.blockedRequestCount !== 0
     ) {
       throw new Error(
-        "The visual receipt did not prove 32 clean protected-page captures with no external requests.",
+        "The browser egress receipt did not prove that the isolated journey made no external requests.",
       );
+    }
+    let visualReport = { captures: [] };
+    if (isFullVisualRun) {
+      visualReport = JSON.parse(await readFile(visualReportPath, "utf8"));
+      if (
+        visualReport?.outcome !== "passed" ||
+        visualReport?.captures?.length !== 32
+      ) {
+        throw new Error(
+          "The visual receipt did not prove 32 clean protected-page captures.",
+        );
+      }
     }
 
     await writeFile(
@@ -482,7 +496,7 @@ async function main() {
           clerkCredentialsPassedToChildren: false,
           apiProxyConfigured: false,
           browserAudit: "browser-egress.json",
-          visualReceipt: "visual-receipt.json",
+          visualReceipt: isFullVisualRun ? "visual-receipt.json" : null,
           screenshots: visualReport.captures.map((capture) => capture.screenshot),
         },
         null,
