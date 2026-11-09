@@ -57,8 +57,8 @@ async function startChild(root: string, marker: string, nodeEnv = "development")
 async function startWrapper(root: string, marker: string, descendantNodeEnv = "development"): Promise<ChildProcess> {
   const script = [
     "const {spawn}=require('node:child_process');",
-    `const child=spawn(process.execPath,['-e','setInterval(()=>{},1000)'],{cwd:${JSON.stringify(root)},env:{...process.env,NODE_ENV:${JSON.stringify(descendantNodeEnv)}},stdio:'ignore'});`,
-    "process.on('SIGTERM',()=>{child.kill('SIGTERM');process.exit(0)});",
+    `const descendants=[0,1].map(()=>spawn(process.execPath,['-e','setInterval(()=>{},1000)'],{cwd:${JSON.stringify(root)},env:{...process.env,NODE_ENV:${JSON.stringify(descendantNodeEnv)}},stdio:'ignore'}));`,
+    "process.on('SIGTERM',()=>{for(const child of descendants)child.kill('SIGTERM');process.exit(0)});",
     "setInterval(()=>{},1000);",
   ].join("");
   const wrapper = spawn(process.execPath, ["-e", script], {
