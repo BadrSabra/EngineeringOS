@@ -143,6 +143,18 @@ async function main() {
       env: databaseEnv,
     });
 
+    if (process.env.TASK_EXECUTION_LIFECYCLE_ONLY === "1") {
+      console.log("Running the task execution lifecycle integration suite against isolated PostgreSQL.");
+      await run("pnpm", [
+        "--filter", "@workspace/api-server",
+        "exec", "vitest", "run",
+        "src/lib/task-execution-lifecycle.integration.test.ts",
+      ], {
+        env: databaseEnv,
+      });
+      return;
+    }
+
     if (process.env.TASK_DEFERRED_DISPATCH_CONCURRENCY_ONLY === "1") {
       console.log("Running the two-process deferred Task dispatcher race against isolated PostgreSQL.");
       await run("pnpm", [
