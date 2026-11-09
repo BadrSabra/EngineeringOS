@@ -50,8 +50,8 @@ function validateRolloutScorecard(raw, { approvedBaselineId, currentSourceRevisi
   if (scorecard.kind !== "code-agent-benchmark") {
     throw new Error("live benchmark scorecard has an unsupported kind");
   }
-  if (scorecard.version !== 1 || scorecard.suiteVersion !== "flight-deck-v4") {
-    throw new Error("live benchmark scorecard is not the approved flight-deck-v4 schema");
+  if (scorecard.version !== 1 || scorecard.suiteVersion !== "flight-deck-v2") {
+    throw new Error("live benchmark scorecard is not the approved flight-deck-v2 schema");
   }
   if (scorecard.rolloutAllowed !== true) {
     throw new Error(
@@ -144,9 +144,9 @@ function validateBaseline(raw) {
   if (
     baseline.kind !== "code-agent-benchmark-baseline" ||
     baseline.version !== 1 ||
-    baseline.suiteVersion !== "flight-deck-v4"
+    baseline.suiteVersion !== "flight-deck-v2"
   ) {
-    throw new Error("benchmark baseline is not the approved flight-deck-v4 schema");
+    throw new Error("benchmark baseline is not the approved flight-deck-v2 schema");
   }
   if (typeof baseline.baselineId !== "string" || baseline.baselineId.length === 0) {
     throw new Error("benchmark baseline has no baselineId");
