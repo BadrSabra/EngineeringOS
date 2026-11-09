@@ -1,4 +1,5 @@
 import { spawn, type ChildProcess } from "node:child_process";
+import { createHash } from "node:crypto";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -150,7 +151,7 @@ describe("P7.5 process recovery", () => {
     const missionId = crypto.randomUUID();
     const goalId = crypto.randomUUID();
     const userId = `p75-process-recovery:${projectId}`;
-    const sourceRevision = `p75-process-revision:${projectId}`;
+    const sourceRevision = createHash("sha1").update(projectId).digest("hex");
     const planRevision = `p75-process-plan:${projectId}`;
     const projectName = `p75-process-${projectId.slice(0, 8)}`;
     let executionId: string | undefined;
@@ -272,6 +273,7 @@ describe("P7.5 process recovery", () => {
         goalId,
         sessionId,
         recipeBinding: prepared.binding,
+        workspaceRoot: rootPath,
       });
       executionId = created.execution.id;
       const sourceWorkerId = `p75-source-worker:${executionId}`;
