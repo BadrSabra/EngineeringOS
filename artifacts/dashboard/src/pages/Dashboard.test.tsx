@@ -1,4 +1,5 @@
 import { fireEvent, render, screen, within } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import Dashboard from "./Dashboard";
 import { readGoalDrafts } from "../lib/home-goal-handoff";
@@ -356,6 +357,51 @@ describe("Dashboard goal-first home", () => {
       sendAttemptedAt: null,
     });
     expect(mockSetLocation).toHaveBeenCalledWith(`/ai?projectId=project-1&goalDraftId=${draft.id}`);
+  });
+
+  it("supports RTL keyboard goal handoff while the dashboard summary is unavailable", async () => {
+    vi.mocked(useGetDashboard).mockReturnValue({
+      data: dashboard,
+      isLoading: false,
+      error: new Error("Dashboard API unavailable"),
+      refetch: vi.fn(),
+      isRefetching: false,
+      dataUpdatedAt: Date.now(),
+    } as ReturnType<typeof useGetDashboard>);
+
+    render(<Dashboard />);
+    const user = userEvent.setup();
+    const goalSection = screen.getByTestId("section-home-goal");
+    const goalInput = screen.getByTestId("input-home-goal");
+    expect(goalSection).toHaveAttribute("dir", "rtl");
+    expect(goalInput).toHaveAttribute("dir", "auto");
+
+    await user.type(goalInput, "أريد إصلاح مشكلة تسجيل الدخول");
+    goalInput.focus();
+    await user.tab();
+
+    const startButton = screen.getByTestId("button-start-goal");
+    expect(startButton).toHaveFocus();
+    await user.keyboard("{Enter}");
+    expect(screen.getByTestId("panel-goal-destination")).toBeInTheDocument();
+
+    const projectSelector = screen.getByTestId("select-goal-project");
+    await user.selectOptions(projectSelector, "project-1");
+    projectSelector.focus();
+    await user.tab();
+    const continueButton = screen.getByTestId("button-route-goal-project");
+    expect(continueButton).toHaveFocus();
+    await user.keyboard("{Enter}");
+
+    const [draft] = readGoalDrafts("user-1").drafts;
+    expect(draft).toMatchObject({
+      text: "أريد إصلاح مشكلة تسجيل الدخول",
+      projectId: "project-1",
+      sendAttemptedAt: null,
+    });
+    expect(mockSetLocation).toHaveBeenCalledWith(
+      `/ai?projectId=project-1&goalDraftId=${draft.id}`,
+    );
   });
 });
 
