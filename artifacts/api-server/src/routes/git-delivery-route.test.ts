@@ -28,6 +28,7 @@ import {
   aiChangeProposalsTable,
   aiChatMessagesTable,
   aiChatSessionsTable,
+  aiProviderCredentialsTable,
   auditLogsTable,
   db,
   eventsTable,
@@ -39,6 +40,7 @@ import {
   GitHubConnectorError,
   pushLocalCommitToGitHub,
 } from "../lib/github-connector.js";
+import { encryptApiKey } from "../lib/credentials-crypto.js";
 import { DELIVERY_TREE_DIGEST_VERSION, hashDeliveryTree } from "../lib/delivery-workspace.js";
 
 const execFileAsync = promisify(execFile);
@@ -46,6 +48,8 @@ const pushed = vi.mocked(pushLocalCommitToGitHub);
 const branchState = vi.mocked(getGitHubBranchState);
 const projectIds: string[] = [];
 const rootPaths: string[] = [];
+let previousGitHubCredential: typeof aiProviderCredentialsTable.$inferSelect | undefined;
+const TEST_GITHUB_TOKEN = "ghp_0123456789abcdefghijklmnopqrstuvwx";
 
 async function git(rootPath: string, args: string[]) {
   return execFileAsync("git", ["-C", rootPath, ...args], { maxBuffer: 2_000_000 });
@@ -177,12 +181,37 @@ afterEach(async () => {
   for (const rootPath of rootPaths.splice(0)) {
     await rm(rootPath, { recursive: true, force: true });
   }
+  await db.delete(aiProviderCredentialsTable).where(and(
+    eq(aiProviderCredentialsTable.ownerId, "test-user"),
+    eq(aiProviderCredentialsTable.provider, "github"),
+  ));
+  if (previousGitHubCredential) {
+    await db.insert(aiProviderCredentialsTable).values(previousGitHubCredential);
+    previousGitHubCredential = undefined;
+  }
+  vi.unstubAllEnvs();
 });
 
 describe("GitHub-shaped Git push route", () => {
-  beforeEach(() => {
+  beforeEach(async () => {
     pushed.mockReset();
     branchState.mockReset();
+    vi.stubEnv("AI_CREDENTIALS_ENCRYPTION_KEY", "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef");
+    [previousGitHubCredential] = await db.select().from(aiProviderCredentialsTable).where(and(
+      eq(aiProviderCredentialsTable.ownerId, "test-user"),
+      eq(aiProviderCredentialsTable.provider, "github"),
+    ));
+    const encryptedApiKey = encryptApiKey(TEST_GITHUB_TOKEN);
+    await db.insert(aiProviderCredentialsTable).values({
+      id: randomUUID(),
+      ownerId: "test-user",
+      provider: "github",
+      encryptedApiKey,
+      last4: TEST_GITHUB_TOKEN.slice(-4),
+    }).onConflictDoUpdate({
+      target: [aiProviderCredentialsTable.ownerId, aiProviderCredentialsTable.provider],
+      set: { encryptedApiKey, last4: TEST_GITHUB_TOKEN.slice(-4) },
+    });
   });
 
   it("uses the verified service, records one receipt, and replays idempotently", async () => {

@@ -17,6 +17,7 @@ import {
   recordRuntimeObservation,
   RuntimeObservationError,
 } from "../lib/runtime-observations.js";
+import { hashDeliveryTree } from "../lib/delivery-workspace.js";
 import { logger } from "../lib/logger.js";
 
 const router = Router();
@@ -94,7 +95,7 @@ router.post("/projects/:projectId/runtime/start", requireProjectWriteAccess, asy
       projectId: project.id,
       operationId,
       rootPath: root.validRootPath,
-      sourceRevision: project.updatedAt.toISOString(),
+      sourceRevision: await hashDeliveryTree(root.validRootPath),
       recipeId: "runtime.start",
       recipeVersion: 1,
       userId: req.userId,
@@ -161,7 +162,7 @@ router.post("/projects/:projectId/runtime/restart", requireProjectWriteAccess, a
     const operationId = `runtime-restart:${createHash("sha256").update(JSON.stringify([project!.id, req.userId, key])).digest("hex")}`;
     const result = await runRecipeOperation({
       projectId: project!.id, operationId, rootPath: root.validRootPath,
-      sourceRevision: project!.updatedAt.toISOString(), recipeId: "runtime.restart", recipeVersion: 1,
+      sourceRevision: await hashDeliveryTree(root.validRootPath), recipeId: "runtime.restart", recipeVersion: 1,
       userId: req.userId!, idempotencyKey: key, runtimeRestartRunner: createRuntimeRestartRunner(),
     });
     const responseBody = { ...await workspaceRuntime.get(project!.id), operationId, executionId: result.executionId, operationStatus: result.status, receipt: toPublicRecipeReceipt(result.receipt) };
@@ -186,7 +187,7 @@ router.post("/projects/:projectId/runtime/stop", requireProjectWriteAccess, asyn
     const operationId = `runtime-stop:${createHash("sha256").update(JSON.stringify([project!.id, req.userId, key])).digest("hex")}`;
     const result = await runRecipeOperation({
       projectId: project!.id, operationId, rootPath: root.validRootPath,
-      sourceRevision: project!.updatedAt.toISOString(), recipeId: "runtime.stop", recipeVersion: 1,
+      sourceRevision: await hashDeliveryTree(root.validRootPath), recipeId: "runtime.stop", recipeVersion: 1,
       userId: req.userId!, idempotencyKey: key, runtimeStopRunner: createRuntimeStopRunner(),
     });
     const responseBody = { ...await workspaceRuntime.get(project!.id), operationId, executionId: result.executionId, operationStatus: result.status, receipt: toPublicRecipeReceipt(result.receipt) };

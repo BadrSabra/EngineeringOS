@@ -23,6 +23,7 @@ import {
   type RuntimeStartBeforeState,
   type WorkspaceRuntimeSnapshot,
 } from "../lib/workspace-runtime.js";
+import { hashDeliveryTree } from "../lib/delivery-workspace.js";
 
 const TEST_ROOTS_BASE = "/home/runner/workspace/.test-roots";
 const fixtures: Array<{ projectId: string; rootPath: string }> = [];
@@ -114,6 +115,7 @@ async function createProjectFixture(): Promise<{
   const rootPath = join(TEST_ROOTS_BASE, `runtime-start-${projectId}`);
   mkdirSync(rootPath, { recursive: true });
   writeFileSync(join(rootPath, "package.json"), JSON.stringify({ name: "runtime-route-fixture" }));
+  const sourceRevision = await hashDeliveryTree(rootPath);
   const now = new Date();
   await db.insert(projectsTable).values({
     id: projectId,
@@ -126,7 +128,7 @@ async function createProjectFixture(): Promise<{
     updatedAt: now,
   });
   fixtures.push({ projectId, rootPath });
-  return { projectId, rootPath, sourceRevision: now.toISOString() };
+  return { projectId, rootPath, sourceRevision };
 }
 
 afterEach(async () => {
@@ -168,6 +170,14 @@ describe("POST /api/projects/:projectId/runtime/start", () => {
       receipt: { status: "completed" },
     });
     expect(runtime.startSpy).toHaveBeenCalledTimes(1);
+    const [persistedExecution] = await db.select({
+      status: aiExecutionsTable.status,
+      recipeReceipt: aiExecutionsTable.recipeReceipt,
+    }).from(aiExecutionsTable).where(eq(aiExecutionsTable.id, first.body.executionId));
+    expect(persistedExecution).toMatchObject({
+      status: "completed",
+      recipeReceipt: { status: "completed" },
+    });
 
     const retry = await request(app)
       .post(`/api/projects/${fixture.projectId}/runtime/start`)

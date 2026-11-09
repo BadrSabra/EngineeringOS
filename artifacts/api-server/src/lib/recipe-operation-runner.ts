@@ -1845,6 +1845,18 @@ export async function runRecipeOperation(params: RunRecipeOperationParams): Prom
   ) {
     throw new Error("Recipe execution identity does not match its queued Mission execution.");
   }
+  if (created.execution.status === "completed") {
+    const terminalReceipt = created.execution.recipeReceipt
+      ? RecipeReceiptSchema.safeParse(created.execution.recipeReceipt).data
+      : undefined;
+    if (terminalReceipt?.status === "completed") return {
+      executionId: created.execution.id,
+      status: "completed",
+      completedNodeIds: terminalReceipt.completedNodeIds,
+      receipt: terminalReceipt,
+    };
+    throw new Error("Completed recipe execution has no durable completed receipt for idempotent replay.");
+  }
   if (created.execution.status === "failed") {
     const terminalReceipt = created.execution.recipeReceipt
       ? RecipeReceiptSchema.safeParse(created.execution.recipeReceipt).data
