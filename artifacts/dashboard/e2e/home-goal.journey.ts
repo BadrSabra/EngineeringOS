@@ -177,7 +177,7 @@ test("UXW-01 goal handoff works on mobile when dashboard analytics fail", async 
     projectId: "uxw-project-1",
     sendAttemptedAt: null,
   });
-  expect(apiRequests).not.toContain("POST /api/ai/chat/stream");
+  expect(apiRequests.filter((request) => !request.startsWith("GET "))).toEqual([]);
 
   const bounds = await goalSection.boundingBox();
   expect(bounds).not.toBeNull();
@@ -210,6 +210,5 @@ test("UXW-01 new-project handoff preserves the goal without starting work", asyn
   await expect(page.getByTestId("input-project-description")).toHaveValue(
     "أريد إنشاء تطبيق لمتابعة العملاء",
   );
-  expect(apiRequests).not.toContain("POST /api/projects/bootstrap");
-  expect(apiRequests).not.toContain("POST /api/ai/chat/stream");
+  expect(apiRequests.filter((request) => !request.startsWith("GET "))).toEqual([]);
 });
