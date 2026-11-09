@@ -92,7 +92,7 @@ describe("benchmark rollout verifier", () => {
 
     deepStrictEqual(JSON.parse(result.stdout), {
       ok: true,
-      suiteVersion: "flight-deck-v2",
+      suiteVersion: "flight-deck-v4",
       baselineId: baseline.baselineId,
       sourceRevision,
       observedCases: baseline.metrics.observedCases,
@@ -117,7 +117,7 @@ describe("benchmark rollout verifier", () => {
     live.suiteVersion = "flight-deck-v1";
 
     await rejects(runVerifier(live, baseline), (error) => {
-      match(error.stderr, /approved flight-deck-v2 schema/);
+      match(error.stderr, /approved flight-deck-v4 schema/);
       return true;
     });
   });

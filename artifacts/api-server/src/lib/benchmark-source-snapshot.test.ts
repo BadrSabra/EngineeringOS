@@ -29,6 +29,27 @@ async function git(root: string, ...args: string[]): Promise<string> {
   return stdout.trim();
 }
 
+async function createTrustedControlRoot(sourceRoot: string): Promise<{
+  rootPath: string;
+  cleanup: () => Promise<void>;
+}> {
+  const temporaryRoot = await fs.mkdtemp(path.join("/tmp", "benchmark-source-control-"));
+  const rootPath = path.join(temporaryRoot, "repo");
+  try {
+    const trustedMainRevision = await git(sourceRoot, "rev-parse", "--verify", "main^{commit}");
+    await git(sourceRoot, "clone", "--shared", "--no-checkout", sourceRoot, rootPath);
+    await git(rootPath, "checkout", "--detach", APPROVED_BENCHMARK_SOURCE_REVISION);
+    await git(rootPath, "update-ref", "refs/heads/main", trustedMainRevision);
+    return {
+      rootPath,
+      cleanup: () => fs.rm(temporaryRoot, { recursive: true, force: true }),
+    };
+  } catch (error) {
+    await fs.rm(temporaryRoot, { recursive: true, force: true });
+    throw error;
+  }
+}
+
 describe("approved benchmark source snapshot", () => {
   it("keeps trusted controls and historical evidence out of provider-visible roots", () => {
     for (const excluded of [
@@ -109,40 +130,60 @@ describe("approved benchmark source snapshot", () => {
   });
 
   it("materializes the pinned commit under /tmp without changing HEAD or refs", async () => {
-    const controlRoot = await git(process.cwd(), "rev-parse", "--show-toplevel");
-    const headBefore = await git(controlRoot, "rev-parse", "HEAD");
-    const refsBefore = await git(controlRoot, "show-ref");
-
-    await expect(resolveApprovedBenchmarkSourceRevision(controlRoot))
-      .resolves.toBe(APPROVED_BENCHMARK_SOURCE_REVISION);
-
-    const snapshot = await createApprovedBenchmarkSourceSnapshot(
-      controlRoot,
-      APPROVED_BENCHMARK_SOURCE_REVISION,
-    );
+    const sourceRoot = await git(process.cwd(), "rev-parse", "--show-toplevel");
+    const sourceHeadBefore = await git(sourceRoot, "rev-parse", "HEAD");
+    const sourceRefsBefore = await git(sourceRoot, "show-ref");
+    const fixture = await createTrustedControlRoot(sourceRoot);
     try {
-      const temporaryBase = await fs.realpath("/tmp");
-      const realSnapshotRoot = await fs.realpath(snapshot.rootPath);
-      const relativeRoot = path.relative(temporaryBase, realSnapshotRoot);
-      expect(relativeRoot).not.toBe("");
-      expect(relativeRoot.startsWith("..")).toBe(false);
-      expect(path.isAbsolute(relativeRoot)).toBe(false);
-      expect(snapshot.sourceRevision).toBe(APPROVED_BENCHMARK_SOURCE_REVISION);
+      const headBefore = await git(fixture.rootPath, "rev-parse", "HEAD");
+      const refsBefore = await git(fixture.rootPath, "show-ref");
+      await expect(resolveApprovedBenchmarkSourceRevision(fixture.rootPath))
+        .resolves.toBe(APPROVED_BENCHMARK_SOURCE_REVISION);
 
-      const expected = await git(
-        controlRoot,
-        "show",
-        `${APPROVED_BENCHMARK_SOURCE_REVISION}:lib/ai-orchestrator/package.json`,
+      const snapshot = await createApprovedBenchmarkSourceSnapshot(
+        fixture.rootPath,
+        APPROVED_BENCHMARK_SOURCE_REVISION,
       );
-      const actual = await fs.readFile(
-        path.join(realSnapshotRoot, "lib/ai-orchestrator/package.json"),
-        "utf8",
-      );
-      expect(actual.trim()).toBe(expected);
-      expect(await git(controlRoot, "rev-parse", "HEAD")).toBe(headBefore);
-      expect(await git(controlRoot, "show-ref")).toBe(refsBefore);
+      try {
+        const temporaryBase = await fs.realpath("/tmp");
+        const realSnapshotRoot = await fs.realpath(snapshot.rootPath);
+        const relativeRoot = path.relative(temporaryBase, realSnapshotRoot);
+        expect(relativeRoot).not.toBe("");
+        expect(relativeRoot.startsWith("..")).toBe(false);
+        expect(path.isAbsolute(relativeRoot)).toBe(false);
+        expect(snapshot.sourceRevision).toBe(APPROVED_BENCHMARK_SOURCE_REVISION);
+
+        const expected = await git(
+          fixture.rootPath,
+          "show",
+          `${APPROVED_BENCHMARK_SOURCE_REVISION}:lib/ai-orchestrator/package.json`,
+        );
+        const actual = await fs.readFile(
+          path.join(realSnapshotRoot, "lib/ai-orchestrator/package.json"),
+          "utf8",
+        );
+        expect(actual.trim()).toBe(expected);
+        expect(await git(fixture.rootPath, "rev-parse", "HEAD")).toBe(headBefore);
+        expect(await git(fixture.rootPath, "show-ref")).toBe(refsBefore);
+        expect(await git(sourceRoot, "rev-parse", "HEAD")).toBe(sourceHeadBefore);
+        expect(await git(sourceRoot, "show-ref")).toBe(sourceRefsBefore);
+      } finally {
+        await snapshot.cleanup();
+      }
     } finally {
-      await snapshot.cleanup();
+      await fixture.cleanup();
+    }
+  });
+
+  it("rejects unapproved changes in a trusted source workspace", async () => {
+    const sourceRoot = await git(process.cwd(), "rev-parse", "--show-toplevel");
+    const fixture = await createTrustedControlRoot(sourceRoot);
+    try {
+      await fs.writeFile(path.join(fixture.rootPath, "unapproved-control-change.txt"), "changed\n", "utf8");
+      await expect(resolveApprovedBenchmarkSourceRevision(fixture.rootPath))
+        .rejects.toThrow("SOURCE_REVISION_STALE");
+    } finally {
+      await fixture.cleanup();
     }
   });
 });
