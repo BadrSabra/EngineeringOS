@@ -26,6 +26,7 @@ import {
   aiExecutionAcceptancesTable,
   aiExecutionEvidenceSnapshotsTable,
   aiExecutionsTable,
+  aiProviderCredentialsTable,
   db,
   eventsTable,
   projectsTable,
@@ -34,6 +35,7 @@ import {
   getGitHubBranchState,
   pushLocalCommitToGitHub,
 } from "../lib/github-connector.js";
+import { encryptApiKey } from "../lib/credentials-crypto.js";
 import { DELIVERY_TREE_DIGEST_VERSION, hashDeliveryTree } from "../lib/delivery-workspace.js";
 
 const execFileAsync = promisify(execFile);
@@ -41,6 +43,29 @@ const pushed = vi.mocked(pushLocalCommitToGitHub);
 const branchState = vi.mocked(getGitHubBranchState);
 const projectIds: string[] = [];
 const projectRoots: string[] = [];
+const fixtureCredentialId = randomUUID();
+let priorGitHubCredential: typeof aiProviderCredentialsTable.$inferSelect | undefined;
+let priorCredentialsEncryptionKey: string | undefined;
+
+async function installGitHubCredentialFixture() {
+  priorCredentialsEncryptionKey = process.env.AI_CREDENTIALS_ENCRYPTION_KEY;
+  process.env.AI_CREDENTIALS_ENCRYPTION_KEY = "0123456789abcdef".repeat(4);
+  [priorGitHubCredential] = await db.select().from(aiProviderCredentialsTable).where(and(
+    eq(aiProviderCredentialsTable.ownerId, "test-user"),
+    eq(aiProviderCredentialsTable.provider, "github"),
+  ));
+  await db.delete(aiProviderCredentialsTable).where(and(
+    eq(aiProviderCredentialsTable.ownerId, "test-user"),
+    eq(aiProviderCredentialsTable.provider, "github"),
+  ));
+  await db.insert(aiProviderCredentialsTable).values({
+    id: fixtureCredentialId,
+    ownerId: "test-user",
+    provider: "github",
+    encryptedApiKey: encryptApiKey("fixture-github-token"),
+    last4: "oken",
+  });
+}
 
 async function createDeliveryTestRoot(): Promise<string> {
   const workspaceRoot = path.resolve(process.cwd(), "../..");
@@ -81,9 +106,19 @@ async function createDeliveryFixture() {
     "-c", "user.name=Fixture", "-c", "user.email=fixture@example.com",
     "commit", "-qm", "Create isolated delivery fixture",
   ]);
+  const parentHash = (await git(rootPath, ["rev-parse", "HEAD"])).stdout.trim();
+  const parentTreeHash = (await git(rootPath, ["rev-parse", "HEAD^{tree}"])).stdout.trim();
+  const baseTreeHash = await hashDeliveryTree(rootPath);
+  await writeFile(path.join(rootPath, "delivery.txt"), "Approved recipe delivery.\n", "utf8");
+  await git(rootPath, ["add", "delivery.txt"]);
+  await git(rootPath, [
+    "-c", "user.name=Fixture", "-c", "user.email=fixture@example.com",
+    "commit", "-qm", `EngineeringOS: main\n\nEngineeringOS-Operation: ${operationId}`,
+  ]);
   const sourceRevision = new Date().toISOString();
   const commitHash = (await git(rootPath, ["rev-parse", "HEAD"])).stdout.trim();
   const treeHash = await hashDeliveryTree(rootPath);
+  const gitTreeHash = (await git(rootPath, ["rev-parse", `${commitHash}^{tree}`])).stdout.trim();
   const now = new Date();
 
   await db.insert(projectsTable).values({
@@ -117,14 +152,14 @@ async function createDeliveryFixture() {
     projectId,
     sessionId,
     messageId,
-    changes: JSON.stringify([]),
-    appliedChanges: JSON.stringify([]),
+    changes: JSON.stringify([{ path: "delivery.txt", newContent: "Approved recipe delivery.\n" }]),
+    appliedChanges: JSON.stringify([{ path: "delivery.txt", newContent: "Approved recipe delivery.\n" }]),
     status: "applied",
     lifecycle: "committed",
     operationId,
     baseRevision: sourceRevision,
     changeSetHash: "recipe-delivery-change-set",
-    baseTreeHash: treeHash,
+    baseTreeHash,
     candidateTreeHash: treeHash,
     promotedTreeHash: treeHash,
     treeDigestVersion: DELIVERY_TREE_DIGEST_VERSION,
@@ -145,15 +180,53 @@ async function createDeliveryFixture() {
       operationId,
       commitHash,
       committedTreeHash: treeHash,
-      committedPaths: [],
+      committedPaths: ["delivery.txt"],
     },
   });
 
   projectIds.push(projectId);
-  return { projectId, proposalId, operationId, sourceRevision, commitHash };
+  return {
+    projectId,
+    proposalId,
+    operationId,
+    sourceRevision,
+    commitHash,
+    parentHash,
+    parentTreeHash,
+    gitTreeHash,
+  };
+}
+
+function mockSuccessfulRemoteState(fixture: Awaited<ReturnType<typeof createDeliveryFixture>>) {
+  branchState
+    .mockResolvedValueOnce({
+      commitHash: fixture.parentHash,
+      treeHash: fixture.parentTreeHash,
+      message: "Create isolated delivery fixture",
+      parentHashes: [],
+    })
+    .mockResolvedValue({
+      commitHash: fixture.commitHash,
+      treeHash: fixture.gitTreeHash,
+      message: `EngineeringOS: main\n\nEngineeringOS-Operation: ${fixture.operationId}`,
+      parentHashes: [fixture.parentHash],
+    });
 }
 
 afterEach(async () => {
+  await db.delete(aiProviderCredentialsTable)
+    .where(eq(aiProviderCredentialsTable.id, fixtureCredentialId))
+    .catch(() => undefined);
+  if (priorGitHubCredential) {
+    await db.insert(aiProviderCredentialsTable).values(priorGitHubCredential).catch(() => undefined);
+  }
+  priorGitHubCredential = undefined;
+  if (priorCredentialsEncryptionKey === undefined) {
+    delete process.env.AI_CREDENTIALS_ENCRYPTION_KEY;
+  } else {
+    process.env.AI_CREDENTIALS_ENCRYPTION_KEY = priorCredentialsEncryptionKey;
+  }
+  priorCredentialsEncryptionKey = undefined;
   for (const projectId of projectIds.splice(0)) {
     await db.delete(aiExecutionAcceptancesTable).where(eq(aiExecutionAcceptancesTable.projectId, projectId)).catch(() => undefined);
     await db.delete(aiExecutionEvidenceSnapshotsTable).where(eq(aiExecutionEvidenceSnapshotsTable.projectId, projectId)).catch(() => undefined);
@@ -176,18 +249,20 @@ afterEach(async () => {
 });
 
 describe("recipe API GitHub delivery", () => {
-  beforeEach(() => {
+  beforeEach(async () => {
     pushed.mockReset();
     branchState.mockReset();
+    await installGitHubCredentialFixture();
   });
 
   it("completes delivery through the API with a PROVEN durable acceptance", async () => {
     const fixture = await createDeliveryFixture();
     const idempotencyKey = `recipe-delivery-${fixture.operationId}`;
     pushed.mockResolvedValue({
-      remoteCommitHash: "remote-recipe-commit",
-      changedPaths: [],
+      remoteCommitHash: fixture.commitHash,
+      changedPaths: ["delivery.txt"],
     });
+    mockSuccessfulRemoteState(fixture);
 
     const response = await request(app)
       .post(`/api/ai/projects/${fixture.projectId}/recipe`)
@@ -216,10 +291,11 @@ describe("recipe API GitHub delivery", () => {
       }),
     ]);
     expect(pushed).toHaveBeenCalledTimes(1);
+    expect(branchState).toHaveBeenCalledTimes(2);
     expect(pushed.mock.calls[0]?.[0]).toMatchObject({
       commitHash: fixture.commitHash,
       branch: "main",
-      message: expect.stringContaining("Approved recipe delivery"),
+      message: expect.stringContaining(`EngineeringOS-Operation: ${fixture.operationId}`),
     });
 
     const [execution] = await db
@@ -269,9 +345,10 @@ describe("recipe API GitHub delivery", () => {
     const fixture = await createDeliveryFixture();
     const idempotencyKey = `recipe-replay-${fixture.operationId}`;
     pushed.mockResolvedValue({
-      remoteCommitHash: "remote-recipe-commit",
-      changedPaths: [],
+      remoteCommitHash: fixture.commitHash,
+      changedPaths: ["delivery.txt"],
     });
+    mockSuccessfulRemoteState(fixture);
     const body = {
       recipeId: "delivery.push.github",
       recipeVersion: 1,

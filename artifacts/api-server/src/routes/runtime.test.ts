@@ -17,6 +17,8 @@ import {
   projectsTable,
 } from "@workspace/db";
 import app from "../app.js";
+import { childProcessBindingDigest } from "../lib/agent-state/child-process-attestation.js";
+import { hashDeliveryTree } from "../lib/delivery-workspace.js";
 import {
   workspaceRuntime,
   type RuntimeAfterState,
@@ -98,10 +100,21 @@ function createRuntimeMock(
     detail: "Controlled test fixture independently observed a stopped runtime.",
   };
 
-  const startSpy = vi.spyOn(workspaceRuntime, "start").mockResolvedValue(snapshot);
+  const startSpy = vi.spyOn(workspaceRuntime, "start").mockImplementation(async (input) => ({
+    ...snapshot,
+    environmentRevision: input.expectedEnvironmentRevision ?? null,
+  }));
   vi.spyOn(workspaceRuntime, "get").mockResolvedValue(snapshot);
   vi.spyOn(workspaceRuntime, "observeStartBeforeState").mockResolvedValue(beforeState);
-  vi.spyOn(workspaceRuntime, "observeAfterState").mockResolvedValue(afterState);
+  vi.spyOn(workspaceRuntime, "observeAfterState").mockImplementation(async (input) => ({
+    ...afterState,
+    ...(input.attestationBinding ? {
+      childProcessAttestation: {
+        ...afterState.listener.processAttestation,
+        bindingDigest: childProcessBindingDigest(input.attestationBinding),
+      },
+    } : {}),
+  }));
   return { startSpy, snapshot, afterState };
 }
 
@@ -114,6 +127,7 @@ async function createProjectFixture(): Promise<{
   const rootPath = join(TEST_ROOTS_BASE, `runtime-start-${projectId}`);
   mkdirSync(rootPath, { recursive: true });
   writeFileSync(join(rootPath, "package.json"), JSON.stringify({ name: "runtime-route-fixture" }));
+  const sourceRevision = await hashDeliveryTree(rootPath);
   const now = new Date();
   await db.insert(projectsTable).values({
     id: projectId,
@@ -126,7 +140,7 @@ async function createProjectFixture(): Promise<{
     updatedAt: now,
   });
   fixtures.push({ projectId, rootPath });
-  return { projectId, rootPath, sourceRevision: now.toISOString() };
+  return { projectId, rootPath, sourceRevision };
 }
 
 afterEach(async () => {
@@ -197,12 +211,20 @@ describe("POST /api/projects/:projectId/runtime/start", () => {
       .where(eq(aiAgentObservationsTable.executionId, first.body.executionId));
     const runtimeStateObservation = observations.find((row) => row.predicate === "runtime.after_state");
     expect(runtimeStateObservation?.value).toMatchObject({
-      after: {
-        listener: {
-          status: "known",
-          processAttestation: { status: "known" },
-        },
-      },
+      status: "passed",
+      projectId: fixture.projectId,
+      revision: fixture.sourceRevision,
+      sessionId: `runtime-session-${fixture.projectId}`,
+      runtimeStatus: "running",
+      environmentRevision: expect.stringMatching(/^env-v1:[a-f0-9]{64}$/),
+    });
+    const childProcessObservation = observations.find(
+      (row) => row.predicate === "runtime.child_process_environment",
+    );
+    expect(childProcessObservation?.value).toMatchObject({
+      status: "known",
+      operationId: first.body.operationId,
+      sessionId: `runtime-session-${fixture.projectId}`,
     });
     const events = await db.select({ eventType: aiAgentEpisodeEventsTable.eventType })
       .from(aiAgentEpisodeEventsTable)

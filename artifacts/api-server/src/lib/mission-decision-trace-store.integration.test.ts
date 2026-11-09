@@ -570,6 +570,7 @@ async function createPersistedEffectOutcomeFixture(
   }];
   const beforeEvidence = {
     observationId: beforeObservationId,
+    observationRole: "before" as const,
     subject: "runtime",
     predicate: "status",
     value: beforeValue,
@@ -580,6 +581,7 @@ async function createPersistedEffectOutcomeFixture(
   };
   const afterEvidence = {
     observationId: afterObservationId,
+    observationRole: "after" as const,
     subject: "runtime",
     predicate: "status",
     value: afterValue,

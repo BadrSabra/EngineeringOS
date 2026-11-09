@@ -32,3 +32,15 @@ Automatic replanning must materialize the new revision and activate that revisio
 **Why:** Leaving the Mission in `needs_replan` makes the normal Goal gate reject the new roots. Activating the exact new revision preserves the stale-plan fence, while queued-root recovery closes the crash window introduced by activating before dispatch.
 
 **How to apply:** Keep plan materialization and the active revision/status transition atomic. Recovery may enqueue only dependency-free roots whose revision still equals the Mission's active revision; all normal dependency, approval, and proof gates remain authoritative.
+
+If a live root-dispatch call throws after activation, restore `needs_replan`
+only while the Mission still names that exact active revision. A process crash
+does not run this recovery path and must leave the active revision available
+for queued-root rediscovery.
+
+**Why:** A handled dispatch failure should be retryable, while an unconditional
+status rollback could invalidate roots already queued for the active revision.
+Crash recovery remains a separate responsibility of the durable reconciler.
+
+**How to apply:** Fence the status update by Mission and active revision, and
+keep the existing exact-revision queued-root recovery for process interruption.

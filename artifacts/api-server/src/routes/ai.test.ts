@@ -8743,7 +8743,7 @@ describe("POST /api/ai/chat/apply-changes", () => {
         .send({ projectId: id, proposalId, changes: partialChanges });
 
       // allOk=true → 200; 207 is for partial success only.
-      expect(res.status).toBe(200);
+      expect(res.status, JSON.stringify(res.body)).toBe(200);
       expect(res.body.results[0]).toMatchObject({ ok: true });
       expect(await db.select({ id: aiMissionsTable.id }).from(aiMissionsTable)
         .where(eq(aiMissionsTable.projectId, id))).toEqual([]);

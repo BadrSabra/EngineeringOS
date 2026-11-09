@@ -28,6 +28,7 @@ import {
   aiChangeProposalsTable,
   aiChatMessagesTable,
   aiChatSessionsTable,
+  aiProviderCredentialsTable,
   auditLogsTable,
   db,
   eventsTable,
@@ -39,6 +40,7 @@ import {
   GitHubConnectorError,
   pushLocalCommitToGitHub,
 } from "../lib/github-connector.js";
+import { encryptApiKey } from "../lib/credentials-crypto.js";
 import { DELIVERY_TREE_DIGEST_VERSION, hashDeliveryTree } from "../lib/delivery-workspace.js";
 
 const execFileAsync = promisify(execFile);
@@ -46,6 +48,29 @@ const pushed = vi.mocked(pushLocalCommitToGitHub);
 const branchState = vi.mocked(getGitHubBranchState);
 const projectIds: string[] = [];
 const rootPaths: string[] = [];
+const fixtureCredentialId = randomUUID();
+let priorGitHubCredential: typeof aiProviderCredentialsTable.$inferSelect | undefined;
+let priorCredentialsEncryptionKey: string | undefined;
+
+async function installGitHubCredentialFixture() {
+  priorCredentialsEncryptionKey = process.env.AI_CREDENTIALS_ENCRYPTION_KEY;
+  process.env.AI_CREDENTIALS_ENCRYPTION_KEY = "0123456789abcdef".repeat(4);
+  [priorGitHubCredential] = await db.select().from(aiProviderCredentialsTable).where(and(
+    eq(aiProviderCredentialsTable.ownerId, "test-user"),
+    eq(aiProviderCredentialsTable.provider, "github"),
+  ));
+  await db.delete(aiProviderCredentialsTable).where(and(
+    eq(aiProviderCredentialsTable.ownerId, "test-user"),
+    eq(aiProviderCredentialsTable.provider, "github"),
+  ));
+  await db.insert(aiProviderCredentialsTable).values({
+    id: fixtureCredentialId,
+    ownerId: "test-user",
+    provider: "github",
+    encryptedApiKey: encryptApiKey("fixture-github-token"),
+    last4: "oken",
+  });
+}
 
 async function git(rootPath: string, args: string[]) {
   return execFileAsync("git", ["-C", rootPath, ...args], { maxBuffer: 2_000_000 });
@@ -159,6 +184,19 @@ async function createCommittedDeliveryFixture() {
 }
 
 afterEach(async () => {
+  await db.delete(aiProviderCredentialsTable)
+    .where(eq(aiProviderCredentialsTable.id, fixtureCredentialId))
+    .catch(() => undefined);
+  if (priorGitHubCredential) {
+    await db.insert(aiProviderCredentialsTable).values(priorGitHubCredential).catch(() => undefined);
+  }
+  priorGitHubCredential = undefined;
+  if (priorCredentialsEncryptionKey === undefined) {
+    delete process.env.AI_CREDENTIALS_ENCRYPTION_KEY;
+  } else {
+    process.env.AI_CREDENTIALS_ENCRYPTION_KEY = priorCredentialsEncryptionKey;
+  }
+  priorCredentialsEncryptionKey = undefined;
   for (const projectId of projectIds.splice(0)) {
     await db.delete(scanJobsTable).where(eq(scanJobsTable.projectId, projectId)).catch(() => undefined);
     await db.delete(auditLogsTable).where(eq(auditLogsTable.projectId, projectId)).catch(() => undefined);
@@ -180,9 +218,10 @@ afterEach(async () => {
 });
 
 describe("GitHub-shaped Git push route", () => {
-  beforeEach(() => {
+  beforeEach(async () => {
     pushed.mockReset();
     branchState.mockReset();
+    await installGitHubCredentialFixture();
   });
 
   it("uses the verified service, records one receipt, and replays idempotently", async () => {
