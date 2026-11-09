@@ -1184,8 +1184,8 @@ test("protected visual journey proves isolation and disposable data before servi
   const isolationGate = protectedVisualRunnerSource.indexOf(
     "isolationEvidence = await verifyLoopbackIsolation()",
   );
-  const postgresInitialization = protectedVisualRunnerSource.indexOf(
-    'runCommand(\n      "initdb"',
+  const postgresInitialization = protectedVisualRunnerSource.search(
+    /await runCommand\(\s*"initdb"/u,
   );
   const dashboardStart = protectedVisualRunnerSource.indexOf(
     'stage = "dashboard-service"',
