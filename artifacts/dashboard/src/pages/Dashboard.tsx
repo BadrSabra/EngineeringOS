@@ -425,34 +425,6 @@ export default function Dashboard() {
     handoffGoal('general');
   }
 
-  if (isLoading) {
-    return (
-      <div className="space-y-6 animate-pulse">
-        <div className="h-8 w-64 bg-secondary rounded"></div>
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-          {[...Array(4)].map((_, i) => (
-            <div key={i} className="h-32 bg-card border border-border rounded-xl"></div>
-          ))}
-        </div>
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          <div className="lg:col-span-2 h-96 bg-card border border-border rounded-xl"></div>
-          <div className="h-96 bg-card border border-border rounded-xl"></div>
-        </div>
-      </div>
-    );
-  }
-
-  if (error || !dashboard) {
-    return (
-      <RequestError
-        title="تعذر تحميل مساحة العمل"
-        message="لم نتمكن من جلب حالة العمل الآن."
-        retryLabel="أعد المحاولة"
-        onRetry={() => void refetch()}
-      />
-    );
-  }
-
   return (
     <div className="space-y-6">
       <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between" dir="rtl">
@@ -466,7 +438,7 @@ export default function Dashboard() {
         <RefreshButton
           onRefresh={async () => { await refetch(); await refetchHealth(); }}
           isRefreshing={isRefetching}
-          lastUpdated={dataUpdatedAt}
+          lastUpdated={error ? undefined : dataUpdatedAt}
           label="تحديث البيانات"
         />
       </div>
@@ -648,6 +620,31 @@ export default function Dashboard() {
 
       <DashboardWorkSummary />
 
+      {isLoading ? (
+        <div className="space-y-4" aria-busy="true">
+          <p
+            role="status"
+            data-testid="status-dashboard-summary-loading"
+            dir="rtl"
+            className="text-sm text-muted-foreground"
+          >
+            جاري تحميل ملخص العمل. يمكنك متابعة هدفك من الأعلى.
+          </p>
+          <div aria-hidden="true" className="grid grid-cols-1 gap-4 animate-pulse md:grid-cols-4">
+            {[...Array(4)].map((_, i) => (
+              <div key={i} className="h-24 rounded-xl border border-border bg-card" />
+            ))}
+          </div>
+        </div>
+      ) : error || !dashboard ? (
+        <RequestError
+          title="تعذر تحميل ملخص العمل"
+          message="لم نتمكن من جلب مؤشرات العمل الآن. يمكنك متابعة هدفك أو إعادة المحاولة."
+          retryLabel="أعد المحاولة"
+          onRetry={() => void refetch()}
+        />
+      ) : (
+        <>
       <section
         aria-labelledby="home-work-summary-heading"
         data-testid="section-home-work-summary"
@@ -1144,7 +1141,9 @@ export default function Dashboard() {
         </div>
       )}
         </div>
-      </details>
+        </details>
+        </>
+      )}
     </div>
   );
 }

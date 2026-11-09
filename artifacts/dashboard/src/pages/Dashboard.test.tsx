@@ -290,7 +290,34 @@ describe("Dashboard goal-first home", () => {
     expect(screen.getByText(/تفاصيل القبول والإثبات تبقى ضمن المهمة/)).toBeInTheDocument();
   });
 
-  it("does not show stale counters when the dashboard request fails", () => {
+  it("keeps goal entry available while the dashboard summary is loading", () => {
+    vi.mocked(useGetDashboard).mockReturnValue({
+      data: undefined,
+      isLoading: true,
+      error: null,
+      refetch: vi.fn(),
+      isRefetching: true,
+      dataUpdatedAt: 0,
+    } as ReturnType<typeof useGetDashboard>);
+
+    render(<Dashboard />);
+
+    expect(screen.getByTestId("input-home-goal")).toBeInTheDocument();
+    expect(screen.getByTestId("status-dashboard-summary-loading")).toHaveTextContent(
+      "يمكنك متابعة هدفك من الأعلى",
+    );
+    expect(screen.queryByTestId("section-home-work-summary")).not.toBeInTheDocument();
+
+    fireEvent.change(screen.getByTestId("input-home-goal"), {
+      target: { value: "اشرح لي طريقة تحسين تسجيل الدخول" },
+    });
+    fireEvent.click(screen.getByTestId("button-start-goal"));
+
+    expect(screen.getByTestId("panel-goal-destination")).toBeInTheDocument();
+    expect(mockSetLocation).not.toHaveBeenCalled();
+  });
+
+  it("keeps goal entry available and hides stale counters when the dashboard request fails", () => {
     vi.mocked(useGetDashboard).mockReturnValue({
       data: dashboard,
       isLoading: false,
@@ -310,9 +337,25 @@ describe("Dashboard goal-first home", () => {
 
     render(<Dashboard />);
 
-    expect(screen.getByRole("alert")).toHaveTextContent("تعذر تحميل مساحة العمل");
+    expect(screen.getByRole("alert")).toHaveTextContent("تعذر تحميل ملخص العمل");
+    expect(screen.getByTestId("input-home-goal")).toBeInTheDocument();
     expect(screen.queryByTestId("section-home-work-summary")).not.toBeInTheDocument();
     expect(screen.queryByTestId("section-home-recent-activity")).not.toBeInTheDocument();
+
+    fireEvent.change(screen.getByTestId("input-home-goal"), {
+      target: { value: "أريد إصلاح مشكلة تسجيل الدخول" },
+    });
+    fireEvent.click(screen.getByTestId("button-start-goal"));
+    fireEvent.change(screen.getByTestId("select-goal-project"), { target: { value: "project-1" } });
+    fireEvent.click(screen.getByTestId("button-route-goal-project"));
+
+    const [draft] = readGoalDrafts("user-1").drafts;
+    expect(draft).toMatchObject({
+      text: "أريد إصلاح مشكلة تسجيل الدخول",
+      projectId: "project-1",
+      sendAttemptedAt: null,
+    });
+    expect(mockSetLocation).toHaveBeenCalledWith(`/ai?projectId=project-1&goalDraftId=${draft.id}`);
   });
 });
 
