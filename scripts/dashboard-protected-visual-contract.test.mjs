@@ -16,12 +16,24 @@ const viteSource = await readFile(
   resolve(root, "artifacts/dashboard/vite.config.ts"),
   "utf8",
 );
+const uxwWorkflowSource = await readFile(
+  resolve(root, ".github/workflows/uxw01-browser-isolated.yml"),
+  "utf8",
+);
+const uxwDockerfileSource = await readFile(
+  resolve(root, ".github/uxw01-browser.Dockerfile"),
+  "utf8",
+);
+const uxwContainerScriptSource = await readFile(
+  resolve(root, "scripts/run-uxw01-browser-container.sh"),
+  "utf8",
+);
 
 test("the protected visual runner gates every service on loopback isolation", () => {
   const isolationGate = runnerSource.indexOf(
     "isolationEvidence = await verifyLoopbackIsolation()",
   );
-  const postgresStart = runnerSource.indexOf('runCommand(\n      "initdb"');
+  const postgresStart = runnerSource.indexOf('"initdb",');
   const dashboardStart = runnerSource.indexOf(
     'stage = "dashboard-service"',
   );
@@ -63,6 +75,67 @@ test("the visual runner isolates credentials, API traffic, and screenshots", () 
   assert.match(
     viteSource,
     /protected-visual-disable-remote-fonts/u,
+  );
+});
+
+test("UXW-01 skips PostgreSQL only for its API-fixtured focused journey", () => {
+  assert.match(runnerSource, /testGrep === "UXW-01"/u);
+  assert.match(
+    runnerSource,
+    /requiresTemporaryPostgres &&[\s\S]*?commandExists\(command\)/u,
+  );
+  assert.match(
+    runnerSource,
+    /if \(requiresTemporaryPostgres\) \{[\s\S]*?runCommand\([\s\S]*?"initdb"/u,
+  );
+  assert.match(
+    runnerSource,
+    /disposablePostgres: requiresTemporaryPostgres[\s\S]*?notRequired: true[\s\S]*?UXW-01 browser fixtures intercept all API requests/u,
+  );
+});
+
+test("the UXW-01 GitHub job requires approval and keeps runtime network-isolated", () => {
+  assert.match(uxwWorkflowSource, /workflow_dispatch:/u);
+  assert.match(
+    uxwWorkflowSource,
+    /confirm_uxw01_browser:[\s\S]*?default: false/u,
+  );
+  assert.match(
+    uxwWorkflowSource,
+    /allow_dependency_bootstrap_egress:[\s\S]*?default: false/u,
+  );
+  assert.match(
+    uxwWorkflowSource,
+    /inputs\.confirm_uxw01_browser && inputs\.allow_dependency_bootstrap_egress && github\.ref == 'refs\/heads\/main'/u,
+  );
+  assert.match(uxwWorkflowSource, /--network none/u);
+  assert.match(uxwWorkflowSource, /--cap-drop ALL/u);
+  assert.match(uxwWorkflowSource, /--security-opt no-new-privileges:true/u);
+  assert.match(
+    uxwWorkflowSource,
+    /--user "\$\{smoke_uid\}:\$\{smoke_gid\}"/u,
+  );
+  assert.match(uxwWorkflowSource, /persist-credentials: false/u);
+  assert.doesNotMatch(
+    uxwWorkflowSource,
+    /secrets\.|CLERK_SECRET_KEY|OPENROUTER_API_KEY/u,
+  );
+  assert.match(
+    uxwDockerfileSource,
+    /mcr\.microsoft\.com\/playwright:v1\.62\.1-noble/u,
+  );
+  assert.match(
+    uxwDockerfileSource,
+    /pnpm install --frozen-lockfile --filter @workspace\/dashboard\.\.\./u,
+  );
+  assert.match(uxwContainerScriptSource, /DASHBOARD_E2E_GREP=UXW-01/u);
+  assert.match(
+    uxwContainerScriptSource,
+    /validate:dashboard-protected-visual/u,
+  );
+  assert.doesNotMatch(
+    uxwContainerScriptSource,
+    /CLERK_SECRET_KEY|OPENROUTER_API_KEY|SESSION_SECRET/u,
   );
 });
 

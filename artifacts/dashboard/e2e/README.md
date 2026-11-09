@@ -65,9 +65,9 @@ inside the main content area.
 
 The same isolated runner can select a focused Playwright journey without
 running the multi-page visual capture. It keeps the loopback namespace,
-temporary-database, local-auth, and browser-egress checks; focused tests write
-the browser egress receipt but do not produce the 32-capture visual receipt.
-For the UXW-01 goal-entry journeys:
+local-auth, and browser-egress checks. UXW-01 uses browser fixtures for every
+API request, so that focused run skips the unused temporary database; it does
+not produce the 32-capture visual receipt. For the UXW-01 goal-entry journeys:
 
 ```sh
 DASHBOARD_E2E_GREP="UXW-01" \
@@ -76,10 +76,10 @@ DASHBOARD_E2E_EXECUTABLE_PATH="$(command -v chromium)" \
 pnpm run validate:dashboard-protected-visual
 ```
 
-The runner stops before PostgreSQL, Vite, or Playwright starts if any
-isolation/browser prerequisite is missing. It writes the network/database
-preflight, browser egress audit, visual report, and 32 screenshots under
-`test-results/dashboard-protected-visual/`. The visual report records the
+The runner stops before Vite or Playwright starts if any isolation/browser
+prerequisite is missing. It writes the network/database preflight, browser
+egress audit, screenshots, and visual report under
+`test-results/dashboard-protected-visual/`. The full visual report records the
 Arabic shell direction, the LTR content direction, console/page errors,
 failed requests, API methods, and horizontal overflow for every capture.
 

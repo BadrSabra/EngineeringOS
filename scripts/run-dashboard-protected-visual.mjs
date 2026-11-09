@@ -34,6 +34,8 @@ const defaultVisualGrep =
   "captures protected dashboard routes at phone, tablet, and desktop sizes";
 const testGrep = process.env.DASHBOARD_E2E_GREP?.trim() || defaultVisualGrep;
 const isFullVisualRun = testGrep === defaultVisualGrep;
+const isUxw01FocusedRun = testGrep === "UXW-01";
+const requiresTemporaryPostgres = !isUxw01FocusedRun;
 
 let temporaryRoot = "";
 let dataDirectory = "";
@@ -278,7 +280,7 @@ async function main() {
   }
 
   if (os.userInfo().uid === 0) {
-    const reason = "Refusing to initialize the disposable PostgreSQL cluster as root.";
+    const reason = "Refusing to run protected browser validation as root.";
     await writePreflightReceipt("blocked", reason, {
       networkNamespace: "verified-loopback-only",
     });
@@ -286,7 +288,10 @@ async function main() {
     process.exitCode = 2;
     return;
   }
-  if (!["initdb", "pg_ctl", "psql"].every((command) => commandExists(command))) {
+  if (
+    requiresTemporaryPostgres &&
+    !["initdb", "pg_ctl", "psql"].every((command) => commandExists(command))
+  ) {
     const reason = "PostgreSQL temporary-cluster tools are unavailable.";
     await writePreflightReceipt("blocked", reason, {
       networkNamespace: "verified-loopback-only",
@@ -311,73 +316,75 @@ async function main() {
     return;
   }
 
-  temporaryRoot = await mkdtemp(
-    join(os.tmpdir(), "engineeringos-dashboard-protected-visual-"),
-  );
   try {
-    const canonicalTemporaryRoot = await realpath(temporaryRoot);
-    if (canonicalTemporaryRoot !== resolve(temporaryRoot)) {
-      throw new Error("The temporary PostgreSQL root resolved unexpectedly.");
-    }
-    dataDirectory = join(temporaryRoot, "postgres-data");
-    const socketDirectory = join(temporaryRoot, "postgres-socket");
-    await mkdir(socketDirectory, { recursive: true });
-    postgresPort = await reserveLoopbackPort();
-    const databaseUrl =
-      `postgresql://${databaseUser}@127.0.0.1:${postgresPort}/${databaseName}`;
+    if (requiresTemporaryPostgres) {
+      temporaryRoot = await mkdtemp(
+        join(os.tmpdir(), "engineeringos-dashboard-protected-visual-"),
+      );
+      const canonicalTemporaryRoot = await realpath(temporaryRoot);
+      if (canonicalTemporaryRoot !== resolve(temporaryRoot)) {
+        throw new Error("The temporary PostgreSQL root resolved unexpectedly.");
+      }
+      dataDirectory = join(temporaryRoot, "postgres-data");
+      const socketDirectory = join(temporaryRoot, "postgres-socket");
+      await mkdir(socketDirectory, { recursive: true });
+      postgresPort = await reserveLoopbackPort();
+      const databaseUrl =
+        `postgresql://${databaseUser}@127.0.0.1:${postgresPort}/${databaseName}`;
 
-    stage = "temporary-postgres";
-    await runCommand(
-      "initdb",
-      [
-        "-D",
-        dataDirectory,
-        "-U",
-        databaseUser,
-        "--auth=trust",
-        "--no-locale",
-        "--encoding=UTF8",
-      ],
-      { label: "Temporary PostgreSQL initialization" },
-    );
-    postgresStarted = true;
-    await runCommand(
-      "pg_ctl",
-      [
-        "-D",
-        dataDirectory,
-        "-o",
-        `-h 127.0.0.1 -p ${postgresPort} -k ${socketDirectory} -c listen_addresses=127.0.0.1`,
-        "-l",
-        join(temporaryRoot, "postgres.log"),
-        "-w",
-        "start",
-      ],
-      { label: "Temporary PostgreSQL startup" },
-    );
-    const databaseCheck = spawnSync(
-      "psql",
-      [
-        "--no-psqlrc",
-        "--tuples-only",
-        "--no-align",
-        "--dbname",
-        databaseUrl,
-        "--command",
-        "SELECT current_database() || ':' || current_user",
-      ],
-      {
-        cwd: workspaceRoot,
-        env: safeChildEnvironment(),
-        encoding: "utf8",
-        stdio: ["ignore", "pipe", "ignore"],
-      },
-    );
-    if (
-      databaseCheck.status !== 0 ||
-      databaseCheck.stdout.trim() !== `${databaseName}:${databaseUser}`
-    ) {
-      throw new Error("The runner-owned temporary PostgreSQL check failed.");
+      stage = "temporary-postgres";
+      await runCommand(
+        "initdb",
+        [
+          "-D",
+          dataDirectory,
+          "-U",
+          databaseUser,
+          "--auth=trust",
+          "--no-locale",
+          "--encoding=UTF8",
+        ],
+        { label: "Temporary PostgreSQL initialization" },
+      );
+      postgresStarted = true;
+      await runCommand(
+        "pg_ctl",
+        [
+          "-D",
+          dataDirectory,
+          "-o",
+          `-h 127.0.0.1 -p ${postgresPort} -k ${socketDirectory} -c listen_addresses=127.0.0.1`,
+          "-l",
+          join(temporaryRoot, "postgres.log"),
+          "-w",
+          "start",
+        ],
+        { label: "Temporary PostgreSQL startup" },
+      );
+      const databaseCheck = spawnSync(
+        "psql",
+        [
+          "--no-psqlrc",
+          "--tuples-only",
+          "--no-align",
+          "--dbname",
+          databaseUrl,
+          "--command",
+          "SELECT current_database() || ':' || current_user",
+        ],
+        {
+          cwd: workspaceRoot,
+          env: safeChildEnvironment(),
+          encoding: "utf8",
+          stdio: ["ignore", "pipe", "ignore"],
+        },
+      );
+      if (
+        databaseCheck.status !== 0 ||
+        databaseCheck.stdout.trim() !== `${databaseName}:${databaseUser}`
+      ) {
+        throw new Error("The runner-owned temporary PostgreSQL check failed.");
+      }
     }
 
     stage = "dashboard-service";
@@ -485,12 +492,19 @@ async function main() {
           schemaVersion: 1,
           outcome: "passed",
           networkNamespace: isolationEvidence,
-          disposablePostgres: {
-            verified: true,
-            host: "127.0.0.1",
-            ownedTemporaryDataDirectory: true,
-            credentialsOrConnectionUrlRecorded: false,
-          },
+          disposablePostgres: requiresTemporaryPostgres
+            ? {
+                verified: true,
+                host: "127.0.0.1",
+                ownedTemporaryDataDirectory: true,
+                credentialsOrConnectionUrlRecorded: false,
+              }
+            : {
+                verified: false,
+                notRequired: true,
+                reason:
+                  "UXW-01 browser fixtures intercept all API requests; no API or database service starts.",
+              },
           apiServiceStarted: false,
           dashboardBoundTo: "127.0.0.1",
           clerkCredentialsPassedToChildren: false,
