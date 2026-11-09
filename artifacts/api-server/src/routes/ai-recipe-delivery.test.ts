@@ -106,8 +106,6 @@ async function createDeliveryFixture() {
     "-c", "user.name=Fixture", "-c", "user.email=fixture@example.com",
     "commit", "-qm", "Create isolated delivery fixture",
   ]);
-  const parentHash = (await git(rootPath, ["rev-parse", "HEAD"])).stdout.trim();
-  const parentTreeHash = (await git(rootPath, ["rev-parse", "HEAD^{tree}"])).stdout.trim();
   const baseTreeHash = await hashDeliveryTree(rootPath);
   await writeFile(path.join(rootPath, "delivery.txt"), "Approved recipe delivery.\n", "utf8");
   await git(rootPath, ["add", "delivery.txt"]);
@@ -117,8 +115,10 @@ async function createDeliveryFixture() {
   ]);
   const sourceRevision = new Date().toISOString();
   const commitHash = (await git(rootPath, ["rev-parse", "HEAD"])).stdout.trim();
-  const treeHash = await hashDeliveryTree(rootPath);
+  const parentHash = (await git(rootPath, ["rev-parse", `${commitHash}^`])).stdout.trim();
+  const parentTreeHash = (await git(rootPath, ["rev-parse", `${parentHash}^{tree}`])).stdout.trim();
   const gitTreeHash = (await git(rootPath, ["rev-parse", `${commitHash}^{tree}`])).stdout.trim();
+  const treeHash = await hashDeliveryTree(rootPath);
   const now = new Date();
 
   await db.insert(projectsTable).values({

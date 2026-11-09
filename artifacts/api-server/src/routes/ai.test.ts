@@ -8770,6 +8770,8 @@ describe("POST /api/ai/chat/apply-changes", () => {
         .where(eq(aiAgentObservationsTable.executionId, execution!.id));
       expect(observations).toHaveLength(2);
       expect(observations.every((observation) => observation.provenance === "DIRECT_OBSERVATION")).toBe(true);
+      expect(observations.map((observation) => observation.observationRole).sort())
+        .toEqual(["after", "before"]);
       const [bundle] = await db.select().from(aiAgentEffectBundlesTable)
         .where(eq(aiAgentEffectBundlesTable.executionId, execution!.id));
       expect(bundle).toMatchObject({ verdict: "OBSERVED" });

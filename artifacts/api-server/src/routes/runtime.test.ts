@@ -182,6 +182,14 @@ describe("POST /api/projects/:projectId/runtime/start", () => {
       receipt: { status: "completed" },
     });
     expect(runtime.startSpy).toHaveBeenCalledTimes(1);
+    const [persistedExecution] = await db.select({
+      status: aiExecutionsTable.status,
+      recipeReceipt: aiExecutionsTable.recipeReceipt,
+    }).from(aiExecutionsTable).where(eq(aiExecutionsTable.id, first.body.executionId));
+    expect(persistedExecution).toMatchObject({
+      status: "completed",
+      recipeReceipt: { status: "completed" },
+    });
 
     const retry = await request(app)
       .post(`/api/projects/${fixture.projectId}/runtime/start`)

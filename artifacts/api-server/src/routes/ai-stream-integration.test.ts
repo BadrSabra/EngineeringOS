@@ -5033,7 +5033,7 @@ describe("Implementation Plan Build handoff", () => {
     const apply = await request(app)
       .post("/api/ai/chat/apply-changes")
       .send({ projectId, proposalId, operationId, changes: [proposedChange] });
-    expect(apply.status).toBe(200);
+    expect(apply.status, JSON.stringify(apply.body)).toBe(200);
     const operationEvents = await db
       .select({ type: eventsTable.type, correlationId: eventsTable.correlationId })
       .from(eventsTable)
@@ -5701,7 +5701,7 @@ describe("Plan-to-push agent cycle", () => {
         operationId,
         changes: [proposedChange],
       });
-    expect(apply.status).toBe(200);
+    expect(apply.status, JSON.stringify(apply.body)).toBe(200);
     expect(apply.body.results).toHaveLength(1);
     expect(apply.body.results[0]).toMatchObject({
       ok: true,
