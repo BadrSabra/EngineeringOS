@@ -955,11 +955,35 @@ export async function autoReplanMission(
   const runs: MissionGoalRunResult[] = [];
   const rootGoals = prepared.plan.goals.filter((goal) => goal.dependencies.length === 0);
   for (const planGoal of rootGoals) {
-    const run = await runGoal({
-      goalId: planGoal.goalId,
-      userId: prepared.userId,
-      trigger: "replan",
-    });
+    let run: MissionGoalRunResult;
+    try {
+      run = await runGoal({
+        goalId: planGoal.goalId,
+        userId: prepared.userId,
+        trigger: "replan",
+      });
+    } catch (error) {
+      await db.transaction(async (tx) => {
+        const [current] = await tx.select({
+          status: aiMissionsTable.status,
+          autonomyPolicy: aiMissionsTable.autonomyPolicy,
+        }).from(aiMissionsTable)
+          .where(eq(aiMissionsTable.id, missionId))
+          .for("update");
+        if (
+          current?.status === "active"
+          && jsonRecord(current.autonomyPolicy).activePlanRevision === prepared.revision
+        ) {
+          await tx.update(aiMissionsTable)
+            .set({ status: "needs_replan", updatedAt: new Date() })
+            .where(and(
+              eq(aiMissionsTable.id, missionId),
+              eq(aiMissionsTable.status, "active"),
+            ));
+        }
+      });
+      throw error;
+    }
     if (run.goalId !== planGoal.goalId) {
       return {
         status: "skipped",

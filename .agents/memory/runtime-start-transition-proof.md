@@ -116,3 +116,15 @@ Mission/Goal metadata after transition creation can hide a wrong-scope row.
 change acceptance authority, or treat a materialized transition as execution
 proof. Create Mission-bound test Episodes and their transitions with the
 Mission/Goal identity already present.
+
+Runtime recipe operations must bind `sourceRevision` to the canonical project
+content digest, not a metadata timestamp. A same-key retry must retain that
+identity; changed project content must remain a distinct request.
+
+**Why:** A timestamp can let the initial Gate C request execute but make its
+persisted request invalid under the strict proof parser on retry, preventing
+idempotent replay.
+
+**How to apply:** Derive the revision from the established project tree and
+verify both sides of idempotency: an unchanged tree replays without repeating
+the effect, while a changed tree does not silently reuse the old acceptance.

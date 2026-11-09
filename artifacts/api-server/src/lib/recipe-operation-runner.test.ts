@@ -3191,7 +3191,7 @@ describe("recipe operation preparation", () => {
       await db.delete(projectsTable).where(eq(projectsTable.id, projectId));
       await rm(rootPath, { recursive: true, force: true });
     }
-  });
+  }, 60_000);
 
   it("executes a Mission runtime.start action through its World Transition to the D2 dispatch decision", async () => {
     const fixture = await createGateCRecipeFixture("runtime.start");

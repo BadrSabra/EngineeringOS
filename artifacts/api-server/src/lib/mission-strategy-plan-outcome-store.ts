@@ -161,6 +161,7 @@ function projectEffectObservation(
   }
   return {
     observationId: row.id,
+    observationRole: row.observationRole,
     subject: row.subject,
     predicate: row.predicate,
     value: row.value as EffectObservationEvidence["value"],

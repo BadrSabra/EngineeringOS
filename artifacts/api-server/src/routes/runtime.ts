@@ -3,6 +3,7 @@ import { createHash, randomUUID } from "node:crypto";
 import { toPublicRecipeReceipt } from "@workspace/ai-orchestrator";
 import { requireProjectAccess, requireProjectWriteAccess } from "../middlewares/requireProjectAccess.js";
 import { resolveRootPath } from "../lib/rootpath-validator.js";
+import { hashDeliveryTree } from "../lib/delivery-workspace.js";
 import {
   createRuntimeRestartRunner,
   createRuntimeStartRunner,
@@ -89,12 +90,14 @@ router.post("/projects/:projectId/runtime/start", requireProjectWriteAccess, asy
       });
     }
 
+    failureStage = "hash_project_revision";
+    const sourceRevision = await hashDeliveryTree(root.validRootPath);
     failureStage = "run_recipe_operation";
     const result = await runRecipeOperation({
       projectId: project.id,
       operationId,
       rootPath: root.validRootPath,
-      sourceRevision: project.updatedAt.toISOString(),
+      sourceRevision,
       recipeId: "runtime.start",
       recipeVersion: 1,
       userId: req.userId,
@@ -158,10 +161,11 @@ router.post("/projects/:projectId/runtime/restart", requireProjectWriteAccess, a
   try {
     const root = await resolveRootPath(project!.rootPath, project!.id);
     if (!root.validRootPath) return res.status(409).json({ error: "The project workspace is unavailable.", code: "ROOT_UNAVAILABLE", retryable: true });
+    const sourceRevision = await hashDeliveryTree(root.validRootPath);
     const operationId = `runtime-restart:${createHash("sha256").update(JSON.stringify([project!.id, req.userId, key])).digest("hex")}`;
     const result = await runRecipeOperation({
       projectId: project!.id, operationId, rootPath: root.validRootPath,
-      sourceRevision: project!.updatedAt.toISOString(), recipeId: "runtime.restart", recipeVersion: 1,
+      sourceRevision, recipeId: "runtime.restart", recipeVersion: 1,
       userId: req.userId!, idempotencyKey: key, runtimeRestartRunner: createRuntimeRestartRunner(),
     });
     const responseBody = { ...await workspaceRuntime.get(project!.id), operationId, executionId: result.executionId, operationStatus: result.status, receipt: toPublicRecipeReceipt(result.receipt) };
@@ -183,10 +187,11 @@ router.post("/projects/:projectId/runtime/stop", requireProjectWriteAccess, asyn
   try {
     const root = await resolveRootPath(project!.rootPath, project!.id);
     if (!root.validRootPath) return res.status(409).json({ error: "The project workspace is unavailable.", code: "ROOT_UNAVAILABLE", retryable: true });
+    const sourceRevision = await hashDeliveryTree(root.validRootPath);
     const operationId = `runtime-stop:${createHash("sha256").update(JSON.stringify([project!.id, req.userId, key])).digest("hex")}`;
     const result = await runRecipeOperation({
       projectId: project!.id, operationId, rootPath: root.validRootPath,
-      sourceRevision: project!.updatedAt.toISOString(), recipeId: "runtime.stop", recipeVersion: 1,
+      sourceRevision, recipeId: "runtime.stop", recipeVersion: 1,
       userId: req.userId!, idempotencyKey: key, runtimeStopRunner: createRuntimeStopRunner(),
     });
     const responseBody = { ...await workspaceRuntime.get(project!.id), operationId, executionId: result.executionId, operationStatus: result.status, receipt: toPublicRecipeReceipt(result.receipt) };
