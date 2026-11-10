@@ -67,7 +67,13 @@ import { AgentExecutionProofPanel, type AgentExecutionProofStatus, historicalAud
 export { AI_CHAT_SELECTION_STORAGE_PREFIX, parseAiChatRouteTarget, parseAiChatSelection } from './ai-chat/session-state';
 export { BenchmarkMissionControlPanel, auditExportFilename, auditRedactionCategoryLabel, auditExportFailureMessage, historicalAuditStatusLabel, historicalAuditDispositionLabel } from './ai-chat/execution-proof';
 
-export default function AiChat() {
+export default function AiChat({
+  workspaceProjectId,
+  workspaceMode = false,
+}: {
+  workspaceProjectId?: string;
+  workspaceMode?: boolean;
+} = {}) {
   const { toast } = useToast();
   const qc = useQueryClient();
   const activeMissionSelectionMutation = useSetAiChatSessionActiveMission();
@@ -95,6 +101,11 @@ export default function AiChat() {
   const currentRouteMissionKeyRef = useRef(currentRouteMissionKey);
   currentRouteMissionKeyRef.current = currentRouteMissionKey;
   const [selectedProjectId, setSelectedProjectId] = useState<string>('');
+  useEffect(() => {
+    if (workspaceProjectId && selectedProjectId !== workspaceProjectId) {
+      setSelectedProjectId(workspaceProjectId);
+    }
+  }, [workspaceProjectId, selectedProjectId]);
   const [providerSettingsOpen, setProviderSettingsOpen] = useState(false);
   const [deliveryPolicyExpanded, setDeliveryPolicyExpanded] = useState(false);
   const [historicalAuditsExpanded, setHistoricalAuditsExpanded] = useState(false);
@@ -109,7 +120,7 @@ export default function AiChat() {
   const [input, setInput] = useState('');
   const draftHandoff = useGoalDraftHandoff({
     ownerId: isLoaded ? user?.id ?? null : null,
-    routeProjectId: chatRouteTarget?.projectId,
+    routeProjectId: workspaceProjectId ?? chatRouteTarget?.projectId,
     routeDraftId: new URLSearchParams(window.location.search).get('goalDraftId'),
     selectedProjectId, input, setInput,
   });
@@ -1234,7 +1245,7 @@ export default function AiChat() {
         ...getListAiChatSessionMissionsQueryKey(sessionId ?? ''),
         user?.id ?? null,
       ],
-      enabled: isLoaded && Boolean(selectedProjectId && sessionId),
+      enabled: !workspaceMode && isLoaded && Boolean(selectedProjectId && sessionId),
       staleTime: 0,
       refetchOnMount: 'always',
       refetchOnWindowFocus: true,
@@ -1269,7 +1280,7 @@ export default function AiChat() {
   const missionAgentProjectionQuery = useQuery({
     queryKey: ['mission-agent-projection', selectedProjectId, workspaceMissionId],
     queryFn: () => fetchMissionProjection(workspaceMissionId!),
-    enabled: Boolean(workspaceMissionId && selectedProjectId && sessionId && user?.id),
+    enabled: !workspaceMode && Boolean(workspaceMissionId && selectedProjectId && sessionId && user?.id),
     staleTime: 0,
     refetchInterval: (query) => {
       const projection = query.state.data as MissionProjection | undefined;
@@ -3440,7 +3451,7 @@ export default function AiChat() {
   return (
     <div className="relative flex h-full min-h-0 min-w-0 max-w-full overflow-hidden overscroll-contain">
       {/* UI-01: closeable mobile drawer backdrop */}
-      {sidebarOpen && (
+      {!workspaceMode && sidebarOpen && (
         <button
           type="button"
           onClick={() => setSidebarOpen(false)}
@@ -3460,7 +3471,7 @@ export default function AiChat() {
       {/* Sidebar — sessions */}
       {/* UI-01: desktop sidebar is collapsible; mobile drawer overlays the chat
        * instead of shrinking it to a narrow unreadable column. */}
-      <div
+      {!workspaceMode && <div
         ref={sessionsDrawerRef}
         id="ai-sessions-drawer"
         data-testid="sessions-drawer"
@@ -3846,13 +3857,13 @@ export default function AiChat() {
             </div>
           </div>
         </div>
-      </div>
+      </div>}
 
       {/* Main chat area */}
       <div className="flex min-w-0 max-w-full flex-1 flex-col overflow-hidden">
         {/* Header */}
         <div className="chat-header flex h-12 min-w-0 max-w-full shrink-0 items-center gap-2 overflow-hidden border-b border-border px-3 sm:px-4">
-          <Button
+          {!workspaceMode && <Button
             ref={sessionsToggleRef}
             size="icon"
             variant="ghost"
@@ -3864,7 +3875,7 @@ export default function AiChat() {
             aria-controls="ai-sessions-drawer"
           >
             {sidebarOpen ? <X className="h-4 w-4" /> : <Menu className="h-4 w-4" />}
-          </Button>
+          </Button>}
           <Bot className="h-4 w-4 shrink-0 text-primary" />
           <div className="min-w-0 flex-1">
             <div className="truncate text-xs font-medium sm:text-sm">EngineeringOS AI</div>
@@ -3875,12 +3886,12 @@ export default function AiChat() {
               <span data-testid="text-chat-current-session">{sessionName}</span>
             </div>
           </div>
-          <AssistantScopeSwitch
+          {!workspaceMode && <AssistantScopeSwitch
             currentScope="project"
             generalHref={generalScopeHref}
             onSwitchToGeneral={handleSwitchToGeneral}
             compact
-          />
+          />}
           <Badge variant="outline" className="hidden max-w-[35%] truncate text-[10px] font-mono sm:inline-flex">
             {activeProvider?.provider === 'deepseek'
               ? 'DeepSeek V3'
@@ -3894,7 +3905,7 @@ export default function AiChat() {
 
         {/* Messages */}
         <ScrollArea className="min-h-0 min-w-0 flex-1 px-3 py-3 sm:px-4 sm:py-4">
-          {workspaceMissionId && (
+          {!workspaceMode && workspaceMissionId && (
             <div
               data-testid="mission-agent-action-card"
               className="mx-auto mb-4 w-full max-w-3xl rounded-lg border border-cyan-400/20 bg-cyan-950/20 p-3"
@@ -4068,7 +4079,7 @@ export default function AiChat() {
               ) : null}
             </div>
           )}
-          {visibleRouteMissionRestoration && (
+          {!workspaceMode && visibleRouteMissionRestoration && (
             <div
               role="alert"
               data-testid="notice-chat-route-mission-unavailable"
@@ -4184,17 +4195,19 @@ export default function AiChat() {
                       Flight Deck · execution proof <ArrowUpRight className="h-3 w-3" aria-hidden="true" />
                     </Link>
                   )}
-                  <Link
-                    href={`/mission-control?projectId=${encodeURIComponent(selectedProjectId)}${confirmedExecutionDestinationId
-                      ? `&executionId=${encodeURIComponent(confirmedExecutionDestinationId)}`
-                      : ''}`}
-                    data-testid="link-current-work-mission-control"
-                    className="inline-flex items-center gap-1 rounded-md border border-border px-2 py-1 text-xs text-foreground hover:bg-secondary">
-                    Mission Control · project operations <ArrowUpRight className="h-3 w-3" aria-hidden="true" />
-                  </Link>
-                  <p className="basis-full text-[11px] leading-4 text-muted-foreground">
+                  {!workspaceMode && (
+                    <Link
+                      href={`/mission-control?projectId=${encodeURIComponent(selectedProjectId)}${confirmedExecutionDestinationId
+                        ? `&executionId=${encodeURIComponent(confirmedExecutionDestinationId)}`
+                        : ''}`}
+                      data-testid="link-current-work-mission-control"
+                      className="inline-flex items-center gap-1 rounded-md border border-border px-2 py-1 text-xs text-foreground hover:bg-secondary">
+                      Mission Control · project operations <ArrowUpRight className="h-3 w-3" aria-hidden="true" />
+                    </Link>
+                  )}
+                  {!workspaceMode && <p className="basis-full text-[11px] leading-4 text-muted-foreground">
                     Flight Deck shows this execution's proof when confirmed. Mission Control shows project operations; opening it does not create a Mission.
-                  </p>
+                  </p>}
                 </nav>
               )}
               {pendingChanges.length > 0 && (
@@ -4363,7 +4376,7 @@ export default function AiChat() {
               </div>
             </div>
           )}
-          {selectedProjectId && sessionId && (
+          {!workspaceMode && selectedProjectId && sessionId && (
             <div className="chat-content mx-auto min-w-0 w-full max-w-3xl">
               <ChatSessionMissionHandoffs
                 key={sessionId}
@@ -4564,9 +4577,9 @@ export default function AiChat() {
                   retryPending={structuredRetryMessageId === msg.id}
                   onRetryProjectQuery={retryProjectQuery}
                   projectQueryRetryPending={projectQueryRetryMessageId === msg.id}
-                   onMissionHandoff={handleMissionHandoff}
-                   missionHandoffPending={missionHandoffPending === msg.id}
-                    onMissionHandoffComplete={(mission) =>
+                   onMissionHandoff={workspaceMode ? undefined : handleMissionHandoff}
+                   missionHandoffPending={!workspaceMode && missionHandoffPending === msg.id}
+                    onMissionHandoffComplete={workspaceMode ? undefined : (mission) =>
                       handleMissionHandoffComplete(mission, selectedProjectId, sessionId)
                     }
                   onExplainFallback={explainFallbackForMessage}
@@ -4719,8 +4732,8 @@ export default function AiChat() {
                   changeSetHash={serverProposal?.changeSetHash}
                   onApply={handleApplyChanges}
                   onCreateReviewBranch={handleCreateLocalReviewBranch}
-                  onApproveMissionCandidate={handleApproveMissionCandidate}
-                  onCreateApplyMission={handleCreateApplyMission}
+                  onApproveMissionCandidate={workspaceMode ? () => undefined : handleApproveMissionCandidate}
+                  onCreateApplyMission={workspaceMode ? () => undefined : handleCreateApplyMission}
                   onRebase={handleRebaseChanges}
                   onReject={handleRejectProposal}
                   isPending={applyMutation.isPending || reapprovalMutation.isPending}
@@ -4730,12 +4743,12 @@ export default function AiChat() {
                     ? describeAiError(localReviewBranchQuery.error)
                     : null}
                   isReviewBranchLoading={localReviewBranchQuery.isFetching}
-                  isApplyMissionPending={applyMissionPending}
+                  isApplyMissionPending={!workspaceMode && applyMissionPending}
                   isRebasePending={rebaseMutation.isPending}
                   approvalRequired={proposalRequiresApproval}
-                  missionCandidate={serverProposal?.missionCandidate === true}
-                  missionCandidateAccepted={serverProposal?.missionCandidateAccepted === true}
-                  applyMissionReady={serverProposal?.applyMissionReady === true}
+                  missionCandidate={!workspaceMode && serverProposal?.missionCandidate === true}
+                  missionCandidateAccepted={!workspaceMode && serverProposal?.missionCandidateAccepted === true}
+                  applyMissionReady={!workspaceMode && serverProposal?.applyMissionReady === true}
                   liveApplyPaused
                   lifecycle={deliveryLifecycle}
                 />

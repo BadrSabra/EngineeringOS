@@ -164,6 +164,7 @@ import type {
   ProjectPluginBindingUpdate,
   ProjectPluginState,
   ProjectSummary,
+  ProjectWorkspaceSnapshot,
   ProviderKeyStatus,
   RecipeExecutionResponse,
   RecipeRequest,
@@ -1311,6 +1312,83 @@ export function useGetProjectSummary<TData = Awaited<ReturnType<typeof getProjec
  ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
 
   const queryOptions = getGetProjectSummaryQueryOptions(projectId,options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getGetProjectWorkspaceSnapshotUrl = (projectId: string,) => {
+
+
+
+
+  return `/api/projects/${projectId}/workspace`
+}
+
+/**
+ * @summary Read a project workspace snapshot from existing sources
+ */
+export const getProjectWorkspaceSnapshot = async (projectId: string, options?: Parameters<typeof customFetch>[1]): Promise<ProjectWorkspaceSnapshot> => {
+
+  return customFetch<ProjectWorkspaceSnapshot>(getGetProjectWorkspaceSnapshotUrl(projectId),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetProjectWorkspaceSnapshotQueryKey = (projectId: string,) => {
+    return [
+    `/api/projects/${projectId}/workspace`
+    ] as const;
+    }
+
+
+export const getGetProjectWorkspaceSnapshotQueryOptions = <TData = Awaited<ReturnType<typeof getProjectWorkspaceSnapshot>>, TError = ErrorType<void>>(projectId: string, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getProjectWorkspaceSnapshot>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetProjectWorkspaceSnapshotQueryKey(projectId);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getProjectWorkspaceSnapshot>>> = ({ signal }) => getProjectWorkspaceSnapshot(projectId, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, enabled: projectId !== null && projectId !== undefined, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getProjectWorkspaceSnapshot>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type GetProjectWorkspaceSnapshotQueryResult = NonNullable<Awaited<ReturnType<typeof getProjectWorkspaceSnapshot>>>
+export type GetProjectWorkspaceSnapshotQueryError = ErrorType<void>
+
+
+/**
+ * @summary Read a project workspace snapshot from existing sources
+ */
+
+export function useGetProjectWorkspaceSnapshot<TData = Awaited<ReturnType<typeof getProjectWorkspaceSnapshot>>, TError = ErrorType<void>>(
+ projectId: string, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getProjectWorkspaceSnapshot>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getGetProjectWorkspaceSnapshotQueryOptions(projectId,options)
 
   const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
 

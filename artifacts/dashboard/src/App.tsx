@@ -9,6 +9,7 @@ import { Shell } from '@/components/layout/Shell';
 import Dashboard from '@/pages/Dashboard';
 import Projects from '@/pages/Projects';
 import ProjectDetail from '@/pages/ProjectDetail';
+import ProjectWorkspace from '@/pages/ProjectWorkspace';
 import Tasks from '@/pages/Tasks';
 import Rules from '@/pages/Rules';
 import Workflows from '@/pages/Workflows';
@@ -104,6 +105,9 @@ function Router() {
       <Route path="/sign-up/*?" component={SignUpPage} />
       <Route path="/projects">
         <ProtectedRoute component={Projects} />
+      </Route>
+      <Route path="/projects/:projectId/workspace">
+        <ProtectedRoute component={ProjectWorkspace} />
       </Route>
       <Route path="/projects/:id">
         <ProtectedRoute component={ProjectDetail} />

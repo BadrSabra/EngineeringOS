@@ -623,6 +623,81 @@ export const GetProjectSummaryResponse = zod.object({
 
 
 /**
+ * @summary Read a project workspace snapshot from existing sources
+ */
+export const GetProjectWorkspaceSnapshotParams = zod.object({
+  "projectId": zod.coerce.string()
+})
+
+export const getProjectWorkspaceSnapshotResponseWorkLatestExecutionOneAttemptMin = 0;
+
+export const getProjectWorkspaceSnapshotResponseWorkCandidateOneLifecycleMax = 40;
+
+export const getProjectWorkspaceSnapshotResponseWorkCandidateOneRevisionMin = 0;
+
+export const getProjectWorkspaceSnapshotResponseFreshnessWarningsItemMax = 200;
+
+
+
+export const GetProjectWorkspaceSnapshotResponse = zod.object({
+  "contractVersion": zod.literal(1),
+  "observedAt": zod.coerce.date(),
+  "project": zod.object({
+  "id": zod.string(),
+  "name": zod.string(),
+  "description": zod.string().nullish(),
+  "language": zod.string(),
+  "framework": zod.string().nullish(),
+  "status": zod.enum(['active', 'scanning', 'paused', 'archived']),
+  "updatedAt": zod.coerce.date()
+}),
+  "work": zod.object({
+  "tasksSource": zod.enum(['available', 'unavailable']),
+  "recentTasks": zod.array(zod.object({
+  "id": zod.string(),
+  "title": zod.string(),
+  "status": zod.enum(['pending', 'queued', 'running', 'verifying', 'completed', 'failed', 'cancelled']),
+  "verificationDecision": zod.union([zod.literal('verified'),zod.literal('incomplete'),zod.literal('failed'),zod.literal('cancelled'),zod.literal(null)]).nullable(),
+  "updatedAt": zod.coerce.date()
+})),
+  "executionSource": zod.enum(['available', 'unavailable']),
+  "latestExecution": zod.union([zod.object({
+  "id": zod.string(),
+  "status": zod.enum(['queued', 'running', 'paused', 'cancelling', 'completed', 'failed', 'cancelled']),
+  "attempt": zod.number().int().min(getProjectWorkspaceSnapshotResponseWorkLatestExecutionOneAttemptMin),
+  "proposalId": zod.string().nullable(),
+  "baseRevision": zod.string().nullable(),
+  "updatedAt": zod.coerce.date()
+}),zod.null()]),
+  "candidateSource": zod.enum(['available', 'unavailable']),
+  "candidate": zod.union([zod.object({
+  "proposalId": zod.string(),
+  "status": zod.enum(['pending', 'applied', 'rejected']),
+  "lifecycle": zod.string().max(getProjectWorkspaceSnapshotResponseWorkCandidateOneLifecycleMax),
+  "revision": zod.number().int().min(getProjectWorkspaceSnapshotResponseWorkCandidateOneRevisionMin),
+  "approvalRequired": zod.boolean(),
+  "operationId": zod.string().nullable(),
+  "baseRevision": zod.string().nullable(),
+  "candidateTreeHash": zod.string().nullable(),
+  "changeSetHash": zod.string().nullable(),
+  "createdAt": zod.coerce.date()
+}),zod.null()])
+}),
+  "runtime": zod.object({
+  "source": zod.enum(['available', 'unavailable']),
+  "status": zod.enum(['stopped', 'starting', 'running', 'failed', 'unknown']),
+  "runtimeRevision": zod.string().nullable().describe('Revision recorded for the runtime session; not asserted to be the current project revision.'),
+  "startedAt": zod.coerce.date().nullable(),
+  "stoppedAt": zod.coerce.date().nullable()
+}),
+  "freshness": zod.object({
+  "partial": zod.boolean(),
+  "warnings": zod.array(zod.string().max(getProjectWorkspaceSnapshotResponseFreshnessWarningsItemMax))
+})
+})
+
+
+/**
  * @summary List tasks with optional filters
  */
 export const listTasksQueryPageDefault = 1;

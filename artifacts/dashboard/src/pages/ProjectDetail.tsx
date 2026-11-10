@@ -215,6 +215,14 @@ export default function ProjectDetail() {
           </div>
         </div>
         <div className="flex items-center gap-3">
+          <Link
+            href={`/projects/${encodeURIComponent(projectId)}/workspace`}
+            data-testid="link-project-workspace"
+            className="inline-flex items-center gap-2 rounded-md border border-primary/35 bg-primary/10 px-3 py-2 text-sm font-medium text-primary transition-colors hover:bg-primary/15"
+          >
+            <Activity className="h-4 w-4" aria-hidden="true" />
+            مساحة العمل
+          </Link>
           <RefreshButton onRefresh={async () => { await refetchProject(); await refetchSummary(); }} isRefreshing={projectRefreshing} lastUpdated={dataUpdatedAt} label="تحديث المشروع" />
           <button
             onClick={() => setShowProjectInfo((v) => !v)}

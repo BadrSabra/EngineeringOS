@@ -8,6 +8,10 @@ import {
   eventsTable,
   metricsTable,
   tasksTable,
+  aiChatSessionsTable,
+  aiChatMessagesTable,
+  aiExecutionsTable,
+  aiChangeProposalsTable,
   auditLogsTable,
   scanJobsTable,
   graphRelationshipsTable,
@@ -993,5 +997,163 @@ describe("GET /api/projects/:projectId/summary", () => {
 
     const notFound = await request(app).get(`/api/projects/${randomUUID()}/summary`);
     expect(notFound.status).toBe(404);
+  });
+});
+
+describe("GET /api/projects/:projectId/workspace", () => {
+  const cleanupQueue: string[] = [];
+
+  afterEach(async () => {
+    vi.restoreAllMocks();
+    while (cleanupQueue.length > 0) {
+      const id = cleanupQueue.pop();
+      if (id) await cleanupProject(id);
+    }
+  });
+
+  it("projects current task state without exposing filesystem or runtime internals", async () => {
+    const rootPath = `/tmp/workspace-snapshot-${randomUUID()}`;
+    const projectId = await insertProject(rootPath);
+    cleanupQueue.push(projectId);
+    const sessionId = randomUUID();
+    const messageId = randomUUID();
+    const executionId = randomUUID();
+    const proposalId = randomUUID();
+    const now = new Date();
+    await db.insert(tasksTable).values({
+      id: randomUUID(),
+      projectId,
+      title: "تأكيد استعادة المسودة",
+      status: "completed",
+      verificationResult: {
+        passed: true,
+        decision: "verified",
+        steps: [],
+      },
+    });
+    await db.insert(aiChatSessionsTable).values({
+      id: sessionId,
+      projectId,
+      title: "جلسة تحقق",
+      createdAt: now,
+      updatedAt: now,
+    });
+    await db.insert(aiChatMessagesTable).values({
+      id: messageId,
+      sessionId,
+      role: "assistant",
+      content: "نتيجة محفوظة",
+    });
+    await db.insert(aiChangeProposalsTable).values({
+      id: proposalId,
+      projectId,
+      sessionId,
+      messageId,
+      changes: "[]",
+      status: "pending",
+      revision: 2,
+      approvalRequired: true,
+      operationId: `operation-${randomUUID()}`,
+      baseRevision: "base-revision",
+      candidateTreeHash: "candidate-tree-hash",
+      changeSetHash: "change-set-hash",
+      lifecycle: "validated",
+      createdAt: now,
+    });
+    await db.insert(aiExecutionsTable).values({
+      id: executionId,
+      projectId,
+      sessionId,
+      userId: "test-user",
+      idempotencyKey: randomUUID(),
+      resumeTokenHash: "resume-token-hash",
+      request: "{}",
+      checkpoint: "{}",
+      status: "completed",
+      attempt: 2,
+      proposalId,
+      baseRevision: "base-revision",
+      createdAt: now,
+      updatedAt: now,
+      completedAt: now,
+    });
+
+    const response = await request(app).get(`/api/projects/${projectId}/workspace`);
+
+    expect(response.status).toBe(200);
+    expect(response.headers["cache-control"]).toBe("private, no-store");
+    expect(response.body.contractVersion).toBe(1);
+    expect(response.body.project).toMatchObject({
+      id: projectId,
+      status: "active",
+    });
+    expect(response.body.work.recentTasks).toEqual([
+      expect.objectContaining({
+        title: "تأكيد استعادة المسودة",
+        status: "completed",
+        verificationDecision: "verified",
+      }),
+    ]);
+    expect(response.body.work.latestExecution).toMatchObject({
+      id: executionId,
+      status: "completed",
+      attempt: 2,
+      proposalId,
+      baseRevision: "base-revision",
+    });
+    expect(response.body.work.candidate).toMatchObject({
+      proposalId,
+      status: "pending",
+      lifecycle: "validated",
+      revision: 2,
+      approvalRequired: true,
+      baseRevision: "base-revision",
+      candidateTreeHash: "candidate-tree-hash",
+      changeSetHash: "change-set-hash",
+    });
+    expect(response.body.freshness).toMatchObject({
+      partial: false,
+      warnings: [],
+    });
+    expect(JSON.stringify(response.body)).not.toContain(rootPath);
+    expect(response.body.project).not.toHaveProperty("rootPath");
+    expect(response.body.runtime).not.toHaveProperty("port");
+    expect(response.body.runtime).not.toHaveProperty("pid");
+    expect(response.body.runtime).not.toHaveProperty("logs");
+    expect(response.body.runtime).not.toHaveProperty("sessionId");
+  });
+
+  it("reports a failed source as partial without returning its diagnostic", async () => {
+    const projectId = await insertProject(`/tmp/workspace-partial-${randomUUID()}`);
+    cleanupQueue.push(projectId);
+    const { workspaceRuntime } = await import("../lib/workspace-runtime.js");
+    vi.spyOn(workspaceRuntime, "get").mockRejectedValueOnce(
+      new Error("private runtime path must not appear in the response"),
+    );
+
+    const response = await request(app).get(`/api/projects/${projectId}/workspace`);
+
+    expect(response.status).toBe(200);
+    expect(response.body.runtime).toMatchObject({
+      source: "unavailable",
+      status: "unknown",
+      runtimeRevision: null,
+    });
+    expect(response.body.freshness).toMatchObject({
+      partial: true,
+      warnings: ["runtime source unavailable"],
+    });
+    expect(JSON.stringify(response.body)).not.toContain("private runtime path");
+  });
+
+  it("enforces project ownership and returns 404 for unknown projects", async () => {
+    const otherProject = await insertProject(`/tmp/workspace-other-${randomUUID()}`, "someone-else");
+    cleanupQueue.push(otherProject);
+
+    const forbidden = await request(app).get(`/api/projects/${otherProject}/workspace`);
+    expect(forbidden.status).toBe(403);
+
+    const missing = await request(app).get(`/api/projects/${randomUUID()}/workspace`);
+    expect(missing.status).toBe(404);
   });
 });

@@ -6109,6 +6109,191 @@ export interface ProjectSummary {
   latestMetrics: MetricRecord;
 }
 
+export type ProjectWorkspaceSnapshotContractVersion = typeof ProjectWorkspaceSnapshotContractVersion[keyof typeof ProjectWorkspaceSnapshotContractVersion];
+
+
+export const ProjectWorkspaceSnapshotContractVersion = {
+  NUMBER_1: 1,
+} as const;
+
+export type ProjectWorkspaceSnapshotProjectStatus = typeof ProjectWorkspaceSnapshotProjectStatus[keyof typeof ProjectWorkspaceSnapshotProjectStatus];
+
+
+export const ProjectWorkspaceSnapshotProjectStatus = {
+  active: 'active',
+  scanning: 'scanning',
+  paused: 'paused',
+  archived: 'archived',
+} as const;
+
+export type ProjectWorkspaceSnapshotProject = {
+  id: string;
+  name: string;
+  /** @nullable */
+  description?: string | null;
+  language: string;
+  /** @nullable */
+  framework?: string | null;
+  status: ProjectWorkspaceSnapshotProjectStatus;
+  updatedAt: string;
+};
+
+export type ProjectWorkspaceSnapshotWorkTasksSource = typeof ProjectWorkspaceSnapshotWorkTasksSource[keyof typeof ProjectWorkspaceSnapshotWorkTasksSource];
+
+
+export const ProjectWorkspaceSnapshotWorkTasksSource = {
+  available: 'available',
+  unavailable: 'unavailable',
+} as const;
+
+export type ProjectWorkspaceSnapshotWorkExecutionSource = typeof ProjectWorkspaceSnapshotWorkExecutionSource[keyof typeof ProjectWorkspaceSnapshotWorkExecutionSource];
+
+
+export const ProjectWorkspaceSnapshotWorkExecutionSource = {
+  available: 'available',
+  unavailable: 'unavailable',
+} as const;
+
+export type ProjectWorkspaceSnapshotWorkCandidateSource = typeof ProjectWorkspaceSnapshotWorkCandidateSource[keyof typeof ProjectWorkspaceSnapshotWorkCandidateSource];
+
+
+export const ProjectWorkspaceSnapshotWorkCandidateSource = {
+  available: 'available',
+  unavailable: 'unavailable',
+} as const;
+
+/**
+ * @nullable
+ */
+export type WorkspaceTaskSummaryVerificationDecision = typeof WorkspaceTaskSummaryVerificationDecision[keyof typeof WorkspaceTaskSummaryVerificationDecision] | null;
+
+
+export const WorkspaceTaskSummaryVerificationDecision = {
+  verified: 'verified',
+  incomplete: 'incomplete',
+  failed: 'failed',
+  cancelled: 'cancelled',
+} as const;
+
+export interface WorkspaceTaskSummary {
+  id: string;
+  title: string;
+  status: TaskStatus;
+  /** @nullable */
+  verificationDecision: WorkspaceTaskSummaryVerificationDecision;
+  updatedAt: string;
+}
+
+export type WorkspaceExecutionSummaryStatus = typeof WorkspaceExecutionSummaryStatus[keyof typeof WorkspaceExecutionSummaryStatus];
+
+
+export const WorkspaceExecutionSummaryStatus = {
+  queued: 'queued',
+  running: 'running',
+  paused: 'paused',
+  cancelling: 'cancelling',
+  completed: 'completed',
+  failed: 'failed',
+  cancelled: 'cancelled',
+} as const;
+
+export interface WorkspaceExecutionSummary {
+  id: string;
+  status: WorkspaceExecutionSummaryStatus;
+  /** @minimum 0 */
+  attempt: number;
+  /** @nullable */
+  proposalId: string | null;
+  /** @nullable */
+  baseRevision: string | null;
+  updatedAt: string;
+}
+
+export type WorkspaceCandidateSummaryStatus = typeof WorkspaceCandidateSummaryStatus[keyof typeof WorkspaceCandidateSummaryStatus];
+
+
+export const WorkspaceCandidateSummaryStatus = {
+  pending: 'pending',
+  applied: 'applied',
+  rejected: 'rejected',
+} as const;
+
+export interface WorkspaceCandidateSummary {
+  proposalId: string;
+  status: WorkspaceCandidateSummaryStatus;
+  /** @maxLength 40 */
+  lifecycle: string;
+  /** @minimum 0 */
+  revision: number;
+  approvalRequired: boolean;
+  /** @nullable */
+  operationId: string | null;
+  /** @nullable */
+  baseRevision: string | null;
+  /** @nullable */
+  candidateTreeHash: string | null;
+  /** @nullable */
+  changeSetHash: string | null;
+  createdAt: string;
+}
+
+export type ProjectWorkspaceSnapshotWork = {
+  tasksSource: ProjectWorkspaceSnapshotWorkTasksSource;
+  recentTasks: WorkspaceTaskSummary[];
+  executionSource: ProjectWorkspaceSnapshotWorkExecutionSource;
+  latestExecution: WorkspaceExecutionSummary | null;
+  candidateSource: ProjectWorkspaceSnapshotWorkCandidateSource;
+  candidate: WorkspaceCandidateSummary | null;
+};
+
+export type ProjectWorkspaceSnapshotFreshness = {
+  partial: boolean;
+  /** @items.maxLength 200 */
+  warnings: string[];
+};
+
+export type WorkspaceRuntimeSummarySource = typeof WorkspaceRuntimeSummarySource[keyof typeof WorkspaceRuntimeSummarySource];
+
+
+export const WorkspaceRuntimeSummarySource = {
+  available: 'available',
+  unavailable: 'unavailable',
+} as const;
+
+export type WorkspaceRuntimeSummaryStatus = typeof WorkspaceRuntimeSummaryStatus[keyof typeof WorkspaceRuntimeSummaryStatus];
+
+
+export const WorkspaceRuntimeSummaryStatus = {
+  stopped: 'stopped',
+  starting: 'starting',
+  running: 'running',
+  failed: 'failed',
+  unknown: 'unknown',
+} as const;
+
+export interface WorkspaceRuntimeSummary {
+  source: WorkspaceRuntimeSummarySource;
+  status: WorkspaceRuntimeSummaryStatus;
+  /**
+     * Revision recorded for the runtime session; not asserted to be the current project revision.
+     * @nullable
+     */
+  runtimeRevision: string | null;
+  /** @nullable */
+  startedAt: string | null;
+  /** @nullable */
+  stoppedAt: string | null;
+}
+
+export interface ProjectWorkspaceSnapshot {
+  contractVersion: ProjectWorkspaceSnapshotContractVersion;
+  observedAt: string;
+  project: ProjectWorkspaceSnapshotProject;
+  work: ProjectWorkspaceSnapshotWork;
+  runtime: WorkspaceRuntimeSummary;
+  freshness: ProjectWorkspaceSnapshotFreshness;
+}
+
 export interface RemediationEvidence {
   file: string;
   /** @minimum 1 */

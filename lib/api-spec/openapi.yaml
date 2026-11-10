@@ -313,6 +313,29 @@ paths:
               schema:
                 $ref: "#/components/schemas/ProjectSummary"
 
+  /api/projects/{projectId}/workspace:
+    get:
+      operationId: getProjectWorkspaceSnapshot
+      summary: Read a project workspace snapshot from existing sources
+      tags: [Projects]
+      parameters:
+        - name: projectId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Read-only project workspace snapshot
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProjectWorkspaceSnapshot"
+        "403":
+          description: The user cannot access this project
+        "404":
+          description: Project not found
+
   # ─── Tasks ───────────────────────────────────────────────────────────────────
   /api/tasks:
     get:
@@ -10261,6 +10284,161 @@ components:
             $ref: "#/components/schemas/Event"
         latestMetrics:
           $ref: "#/components/schemas/MetricRecord"
+
+    ProjectWorkspaceSnapshot:
+      type: object
+      required: [contractVersion, observedAt, project, work, runtime, freshness]
+      properties:
+        contractVersion:
+          type: integer
+          enum: [1]
+        observedAt:
+          type: string
+          format: date-time
+        project:
+          type: object
+          required: [id, name, language, status, updatedAt]
+          properties:
+            id:
+              type: string
+            name:
+              type: string
+            description:
+              type: ["string", "null"]
+            language:
+              type: string
+            framework:
+              type: ["string", "null"]
+            status:
+              type: string
+              enum: [active, scanning, paused, archived]
+            updatedAt:
+              type: string
+              format: date-time
+        work:
+          type: object
+          required: [tasksSource, recentTasks, executionSource, latestExecution, candidateSource, candidate]
+          properties:
+            tasksSource:
+              type: string
+              enum: [available, unavailable]
+            recentTasks:
+              type: array
+              items:
+                $ref: "#/components/schemas/WorkspaceTaskSummary"
+            executionSource:
+              type: string
+              enum: [available, unavailable]
+            latestExecution:
+              oneOf:
+                - $ref: "#/components/schemas/WorkspaceExecutionSummary"
+                - type: "null"
+            candidateSource:
+              type: string
+              enum: [available, unavailable]
+            candidate:
+              oneOf:
+                - $ref: "#/components/schemas/WorkspaceCandidateSummary"
+                - type: "null"
+        runtime:
+          $ref: "#/components/schemas/WorkspaceRuntimeSummary"
+        freshness:
+          type: object
+          required: [partial, warnings]
+          properties:
+            partial:
+              type: boolean
+            warnings:
+              type: array
+              items:
+                type: string
+                maxLength: 200
+
+    WorkspaceTaskSummary:
+      type: object
+      required: [id, title, status, verificationDecision, updatedAt]
+      properties:
+        id:
+          type: string
+        title:
+          type: string
+        status:
+          $ref: "#/components/schemas/TaskStatus"
+        verificationDecision:
+          type: ["string", "null"]
+          enum: [verified, incomplete, failed, cancelled, null]
+        updatedAt:
+          type: string
+          format: date-time
+
+    WorkspaceExecutionSummary:
+      type: object
+      required: [id, status, attempt, proposalId, baseRevision, updatedAt]
+      properties:
+        id:
+          type: string
+        status:
+          type: string
+          enum: [queued, running, paused, cancelling, completed, failed, cancelled]
+        attempt:
+          type: integer
+          minimum: 0
+        proposalId:
+          type: ["string", "null"]
+        baseRevision:
+          type: ["string", "null"]
+        updatedAt:
+          type: string
+          format: date-time
+
+    WorkspaceCandidateSummary:
+      type: object
+      required: [proposalId, status, lifecycle, revision, approvalRequired, operationId, baseRevision, candidateTreeHash, changeSetHash, createdAt]
+      properties:
+        proposalId:
+          type: string
+        status:
+          type: string
+          enum: [pending, applied, rejected]
+        lifecycle:
+          type: string
+          maxLength: 40
+        revision:
+          type: integer
+          minimum: 0
+        approvalRequired:
+          type: boolean
+        operationId:
+          type: ["string", "null"]
+        baseRevision:
+          type: ["string", "null"]
+        candidateTreeHash:
+          type: ["string", "null"]
+        changeSetHash:
+          type: ["string", "null"]
+        createdAt:
+          type: string
+          format: date-time
+
+    WorkspaceRuntimeSummary:
+      type: object
+      required: [source, status, runtimeRevision, startedAt, stoppedAt]
+      properties:
+        source:
+          type: string
+          enum: [available, unavailable]
+        status:
+          type: string
+          enum: [stopped, starting, running, failed, unknown]
+        runtimeRevision:
+          type: ["string", "null"]
+          description: Revision recorded for the runtime session; not asserted to be the current project revision.
+        startedAt:
+          type: ["string", "null"]
+          format: date-time
+        stoppedAt:
+          type: ["string", "null"]
+          format: date-time
 
     # ─── Task ──────────────────────────────────────────────────────────────────
     RemediationEvidence:

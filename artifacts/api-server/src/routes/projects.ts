@@ -20,6 +20,8 @@ import {
   DeleteProjectParams,
   GetProjectParams,
   GetProjectSummaryParams,
+  GetProjectWorkspaceSnapshotParams,
+  GetProjectWorkspaceSnapshotResponse,
   ScanProjectParams,
   GetScanJobParams,
 } from "@workspace/api-zod";
@@ -35,6 +37,7 @@ import {
   LIFECYCLE_WORKER_SCOPE_PROJECT_HEADER,
 } from "../lib/worker-scope.js";
 import { heavyJobQueue } from "../lib/job-queue.js";
+import { workspaceRuntime } from "../lib/workspace-runtime.js";
 import { removeManagedProjectRoot } from "../lib/project-materialization.js";
 import { LockNamespace, tryAdvisoryLock } from "../lib/advisory-lock.js";
 import { getProjectWorldState } from "../lib/agent-state/world-state.js";
@@ -596,5 +599,152 @@ router.get("/projects/:projectId/summary", requireProjectAccess, async (req, res
     latestMetrics: latestMetric[0] ?? null,
   });
 });
+
+// Read-only workspace projection. Each section is sourced from its existing
+// owner; this route deliberately does not create a second persisted state.
+router.get(
+  "/projects/:projectId/workspace",
+  requireProjectAccess,
+  async (req, res) => {
+    const { projectId } = GetProjectWorkspaceSnapshotParams.parse(req.params);
+    const project = req.project!;
+
+    const [taskResult, executionResult, candidateResult, runtimeResult] =
+      await Promise.allSettled([
+        db
+          .select({
+            id: tasksTable.id,
+            title: tasksTable.title,
+            status: tasksTable.status,
+            verificationResult: tasksTable.verificationResult,
+            updatedAt: tasksTable.updatedAt,
+          })
+          .from(tasksTable)
+          .where(eq(tasksTable.projectId, projectId))
+          .orderBy(desc(tasksTable.updatedAt), desc(tasksTable.id))
+          .limit(8),
+        db
+          .select({
+            id: aiExecutionsTable.id,
+            status: aiExecutionsTable.status,
+            attempt: aiExecutionsTable.attempt,
+            proposalId: aiExecutionsTable.proposalId,
+            baseRevision: aiExecutionsTable.baseRevision,
+            updatedAt: aiExecutionsTable.updatedAt,
+          })
+          .from(aiExecutionsTable)
+          .where(eq(aiExecutionsTable.projectId, projectId))
+          .orderBy(desc(aiExecutionsTable.updatedAt), desc(aiExecutionsTable.id))
+          .limit(1),
+        db
+          .select({
+            id: aiChangeProposalsTable.id,
+            status: aiChangeProposalsTable.status,
+            lifecycle: aiChangeProposalsTable.lifecycle,
+            revision: aiChangeProposalsTable.revision,
+            approvalRequired: aiChangeProposalsTable.approvalRequired,
+            operationId: aiChangeProposalsTable.operationId,
+            baseRevision: aiChangeProposalsTable.baseRevision,
+            candidateTreeHash: aiChangeProposalsTable.candidateTreeHash,
+            changeSetHash: aiChangeProposalsTable.changeSetHash,
+            createdAt: aiChangeProposalsTable.createdAt,
+          })
+          .from(aiChangeProposalsTable)
+          .where(eq(aiChangeProposalsTable.projectId, projectId))
+          .orderBy(desc(aiChangeProposalsTable.createdAt), desc(aiChangeProposalsTable.id))
+          .limit(1),
+        workspaceRuntime.get(projectId),
+      ]);
+    const observedAt = new Date();
+
+    const warnings: string[] = [];
+    const sourceFailures = [
+      ["tasks", taskResult],
+      ["executions", executionResult],
+      ["candidate", candidateResult],
+      ["runtime", runtimeResult],
+    ] as const;
+    for (const [source, result] of sourceFailures) {
+      if (result.status === "rejected") {
+        warnings.push(`${source} source unavailable`);
+        logger.warn(
+          {
+            projectId,
+            source,
+            errorName: result.reason instanceof Error ? result.reason.name : "UnknownError",
+          },
+          "Project workspace snapshot source unavailable",
+        );
+      }
+    }
+
+    const taskRows = taskResult.status === "fulfilled" ? taskResult.value : [];
+    const executionRow =
+      executionResult.status === "fulfilled" ? executionResult.value[0] ?? null : null;
+    const candidateRow =
+      candidateResult.status === "fulfilled" ? candidateResult.value[0] ?? null : null;
+    const runtime = runtimeResult.status === "fulfilled" ? runtimeResult.value : null;
+    const verificationDecisions = new Set(["verified", "incomplete", "failed", "cancelled"]);
+
+    const snapshot = {
+      contractVersion: 1 as const,
+      observedAt,
+      project: {
+        id: project.id,
+        name: project.name,
+        description: project.description,
+        language: project.language,
+        framework: project.framework,
+        status: project.status,
+        updatedAt: project.updatedAt,
+      },
+      work: {
+        tasksSource: taskResult.status === "fulfilled" ? "available" as const : "unavailable" as const,
+        recentTasks: taskRows.map((task) => ({
+          id: task.id,
+          title: task.title,
+          status: task.status,
+          verificationDecision:
+            task.verificationResult?.decision
+            && verificationDecisions.has(task.verificationResult.decision)
+              ? task.verificationResult.decision
+              : null,
+          updatedAt: task.updatedAt,
+        })),
+        executionSource: executionResult.status === "fulfilled" ? "available" as const : "unavailable" as const,
+        latestExecution: executionRow,
+        candidateSource: candidateResult.status === "fulfilled" ? "available" as const : "unavailable" as const,
+        candidate: candidateRow
+          ? {
+              proposalId: candidateRow.id,
+              status: candidateRow.status,
+              lifecycle: candidateRow.lifecycle,
+              revision: candidateRow.revision,
+              approvalRequired: candidateRow.approvalRequired,
+              operationId: candidateRow.operationId,
+              baseRevision: candidateRow.baseRevision,
+              candidateTreeHash: candidateRow.candidateTreeHash,
+              changeSetHash: candidateRow.changeSetHash,
+              createdAt: candidateRow.createdAt,
+            }
+          : null,
+      },
+      runtime: {
+        source: runtime ? "available" as const : "unavailable" as const,
+        status: runtime?.status ?? "unknown" as const,
+        runtimeRevision: runtime?.revision ?? null,
+        startedAt: runtime?.startedAt ?? null,
+        stoppedAt: runtime?.stoppedAt ?? null,
+      },
+      freshness: {
+        partial: warnings.length > 0,
+        warnings,
+      },
+    };
+
+    res.setHeader("Cache-Control", "private, no-store");
+    return res.json(GetProjectWorkspaceSnapshotResponse.parse(snapshot));
+  },
+);
 
 export default router;
