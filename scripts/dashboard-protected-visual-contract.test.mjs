@@ -60,6 +60,8 @@ test("the visual runner isolates credentials, API traffic, and screenshots", () 
     runnerSource,
     /key\.startsWith\("CLERK_"\)[\s\S]*?key === "VITE_CLERK_PUBLISHABLE_KEY"[\s\S]*?key === "API_PROXY_TARGET"/u,
   );
+  assert.match(runnerSource, /key\.toLowerCase\(\) === "github"/u);
+  assert.match(runnerSource, /browser-journey\.log/u);
   assert.match(
     runnerSource,
     /apiServiceStarted: false[\s\S]*?apiProxyConfigured: false/u,

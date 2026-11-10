@@ -18,6 +18,7 @@ import {
   inspectLoopbackOnlyNetworkSnapshot,
   readLoopbackOnlyNetworkSnapshot,
 } from "./loopback-only-network-namespace.mjs";
+import { runCommandWithArtifactLog } from "./run-command-with-artifact-log.mjs";
 
 const workspaceRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const outputDir = resolve(
@@ -51,6 +52,7 @@ function safeChildEnvironment(extra = {}) {
     if (
       key.startsWith("PG") ||
       key === "DATABASE_URL" ||
+      key.toLowerCase() === "github" ||
       key.startsWith("CLERK_") ||
       key === "VITE_CLERK_PUBLISHABLE_KEY" ||
       key === "OPENROUTER_API_KEY" ||
@@ -78,23 +80,6 @@ function commandExists(command, args = ["--version"]) {
     stdio: "ignore",
   });
   return result.status === 0;
-}
-
-function runCommand(command, args, { env = safeChildEnvironment(), label }) {
-  return new Promise((resolveCommand, rejectCommand) => {
-    const child = spawn(command, args, {
-      cwd: workspaceRoot,
-      env,
-      stdio: "ignore",
-    });
-    child.once("error", () =>
-      rejectCommand(new Error(`${label} could not start.`)),
-    );
-    child.once("exit", (code, signal) => {
-      if (code === 0) resolveCommand();
-      else rejectCommand(new Error(`${label} failed (${signal ?? code ?? "unknown"}).`));
-    });
-  });
 }
 
 function waitForExit(child, timeoutMs = 5_000) {
@@ -425,7 +410,7 @@ async function main() {
     stage = "browser-journey";
     const visualReportPath = join(outputDir, "visual-receipt.json");
     const browserAuditPath = join(outputDir, "browser-egress.json");
-    await runCommand(
+    await runCommandWithArtifactLog(
       "pnpm",
       [
         "--filter",
@@ -459,6 +444,9 @@ async function main() {
             : {}),
           PLAYWRIGHT_OUTPUT_DIR: outputDir,
         }),
+        cwd: workspaceRoot,
+        outputPath: join(outputDir, "browser-journey.log"),
+        label: "Protected dashboard visual journey",
       },
     );
 
@@ -523,10 +511,14 @@ async function main() {
   } finally {
     await stopOwnedProcess(dashboardProcess);
     if (postgresStarted) {
-      await runCommand(
+      await runCommandWithArtifactLog(
         "pg_ctl",
         ["-D", dataDirectory, "-m", "fast", "-w", "stop"],
-        { label: "Temporary PostgreSQL shutdown" },
+        {
+          cwd: workspaceRoot,
+          env: safeChildEnvironment(),
+          label: "Temporary PostgreSQL shutdown",
+        },
       ).catch(() => {});
     }
     if (temporaryRoot) {
