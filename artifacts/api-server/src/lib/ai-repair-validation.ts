@@ -789,7 +789,7 @@ type ValidatorProcessProbe = {
 
 const REGISTERED_VALIDATOR_COMMANDS = new Set(["pnpm", "go"]);
 
-async function resolvePnpmNodeGypDirectory(commandPath: string): Promise<string | null> {
+export async function resolvePnpmNodeGypDirectories(commandPath: string): Promise<string[]> {
   let packageRoot = path.dirname(commandPath);
   for (let depth = 0; depth < 8; depth += 1) {
     try {
@@ -798,28 +798,35 @@ async function resolvePnpmNodeGypDirectory(commandPath: string): Promise<string 
       ) as { name?: unknown };
       if (metadata.name === "pnpm") {
         const helperPath = path.join(packageRoot, "dist", "node-gyp-bin");
-        const [helperStats, canonicalHelperPath] = await Promise.all([
-          fs.lstat(helperPath),
+        const [helperStats, canonicalPackageRoot, canonicalHelperPath] = await Promise.all([
+          fs.stat(helperPath),
+          fs.realpath(packageRoot),
           fs.realpath(helperPath),
         ]);
+        const relativeHelperPath = path.relative(canonicalPackageRoot, canonicalHelperPath);
         if (
           !helperStats.isDirectory()
-          || helperStats.isSymbolicLink()
-          || path.relative(packageRoot, canonicalHelperPath) !== path.join("dist", "node-gyp-bin")
+          || path.isAbsolute(relativeHelperPath)
+          || relativeHelperPath === ".."
+          || relativeHelperPath.startsWith(`..${path.sep}`)
+          || path.basename(canonicalHelperPath) !== "node-gyp-bin"
         ) {
-          return null;
+          return [];
         }
-        return canonicalHelperPath;
+        // pnpm may expose its node-gyp helper through an in-package symlink.
+        // Approve only the logical helper path and its canonical target when
+        // both remain inside the resolved pnpm package.
+        return [...new Set([path.resolve(helperPath), canonicalHelperPath])];
       }
     } catch (error) {
       const code = (error as NodeJS.ErrnoException).code;
-      if (code && code !== "ENOENT" && code !== "ENOTDIR") return null;
+      if (code && code !== "ENOENT" && code !== "ENOTDIR") return [];
     }
     const parent = path.dirname(packageRoot);
     if (parent === packageRoot) break;
     packageRoot = parent;
   }
-  return null;
+  return [];
 }
 
 async function resolveRegisteredValidatorCommand(
@@ -860,8 +867,9 @@ async function resolveRegisteredValidatorCommand(
         path.dirname(nodeExecutablePath),
       ]);
       if (command.toLowerCase() === "pnpm") {
-        const nodeGypDirectory = await resolvePnpmNodeGypDirectory(commandPath);
-        if (nodeGypDirectory) approvedProcessPathDirectories.add(nodeGypDirectory);
+        for (const nodeGypDirectory of await resolvePnpmNodeGypDirectories(commandPath)) {
+          approvedProcessPathDirectories.add(nodeGypDirectory);
+        }
       }
       return {
         commandPath,

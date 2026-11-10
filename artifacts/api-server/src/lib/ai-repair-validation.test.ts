@@ -7,6 +7,7 @@ import {
   createValidationWorkspace,
   getRepairValidationArgs,
   getRepairValidationProfile,
+  resolvePnpmNodeGypDirectories,
   runRepairRuntimeOracle,
   runRepairRuntimeValidation,
   runRepairValidation,
@@ -17,6 +18,34 @@ import { config } from "../config.js";
 import { serverEnvironmentProfile } from "./agent-state/environment-attestation.js";
 
 describe("AI repair validation registry", () => {
+  it("approves pnpm node-gyp helper symlinks only when their targets stay inside pnpm", async () => {
+    const rootPath = await fs.mkdtemp(path.join(os.tmpdir(), "pnpm-helper-path-"));
+    try {
+      const packageRoot = path.join(rootPath, "node_modules", ".pnpm", "pnpm@10.0.0", "node_modules", "pnpm");
+      const commandPath = path.join(packageRoot, "bin", "pnpm.cjs");
+      const helperPath = path.join(packageRoot, "dist", "node-gyp-bin");
+      const helperTarget = path.join(packageRoot, "dist", "helpers", "node-gyp-bin");
+      const externalHelperTarget = path.join(rootPath, "external", "node-gyp-bin");
+      await fs.mkdir(path.dirname(commandPath), { recursive: true });
+      await fs.writeFile(path.join(packageRoot, "package.json"), '{"name":"pnpm"}\n');
+      await fs.mkdir(helperTarget, { recursive: true });
+      await fs.mkdir(externalHelperTarget, { recursive: true });
+      await fs.symlink(helperTarget, helperPath, "dir");
+
+      const resolvedHelpers = await resolvePnpmNodeGypDirectories(commandPath);
+      expect(resolvedHelpers).toEqual(expect.arrayContaining([
+        path.resolve(helperPath),
+        await fs.realpath(helperPath),
+      ]));
+
+      await fs.unlink(helperPath);
+      await fs.symlink(externalHelperTarget, helperPath, "dir");
+      await expect(resolvePnpmNodeGypDirectories(commandPath)).resolves.toEqual([]);
+    } finally {
+      await fs.rm(rootPath, { recursive: true, force: true });
+    }
+  });
+
   it("removes provider and identity credentials from validator child environments", () => {
     const childEnvironment = createValidatorChildEnvironment({
       PATH: "/usr/bin",

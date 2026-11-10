@@ -17,6 +17,7 @@ afterEach(async () => {
 describe("WorkspaceRuntimeManager", () => {
   it("starts a server-owned dev profile and stops its process group", async () => {
     const root = await fs.mkdtemp(path.join(process.cwd(), "workspace-runtime-"));
+    roots.push(root);
     await fs.writeFile(
       path.join(root, "package.json"),
       JSON.stringify({ scripts: { dev: "node server.mjs" } }),
@@ -213,6 +214,7 @@ describe("WorkspaceRuntimeManager", () => {
 
   it("fails closed when the socket owner does not inherit the server marker", async () => {
     const root = await fs.mkdtemp(path.join(process.cwd(), "workspace-runtime-"));
+    roots.push(root);
     await fs.writeFile(
       path.join(root, "package.json"),
       JSON.stringify({ scripts: { dev: "env -u ENGINEERINGOS_CHILD_ATTESTATION node server.mjs" } }),
@@ -268,6 +270,7 @@ describe("WorkspaceRuntimeManager", () => {
 
   it("rejects an after-state observation for a stale runtime session", async () => {
     const root = await fs.mkdtemp(path.join(process.cwd(), "workspace-runtime-"));
+    roots.push(root);
     await fs.writeFile(
       path.join(root, "package.json"),
       JSON.stringify({ scripts: { dev: "node server.mjs" } }),
@@ -314,6 +317,7 @@ describe("WorkspaceRuntimeManager", () => {
 
   it("rejects projects without an explicit dev script", async () => {
     const root = await fs.mkdtemp(path.join(os.tmpdir(), "workspace-runtime-"));
+    roots.push(root);
     await fs.writeFile(path.join(root, "package.json"), JSON.stringify({ scripts: {} }));
     const manager = new WorkspaceRuntimeManager();
     managers.push(manager);
@@ -329,6 +333,7 @@ describe("WorkspaceRuntimeManager", () => {
 
   it("adopts and re-attests a live process after the owning API worker is replaced", async () => {
     const root = await fs.mkdtemp(path.join(process.cwd(), "workspace-runtime-"));
+    roots.push(root);
     await fs.writeFile(
       path.join(root, "package.json"),
       JSON.stringify({ scripts: { dev: "node server.mjs" } }),
