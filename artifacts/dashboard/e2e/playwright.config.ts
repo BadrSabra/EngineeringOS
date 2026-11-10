@@ -20,10 +20,12 @@ export default defineConfig({
   fullyParallel: false,
   workers: 1,
   forbidOnly: Boolean(process.env.CI),
-    // Assertion/configuration failures are deterministic; retrying them hides
-    // the real release signal. Infrastructure retries are handled by the
-    // bounded release wrapper instead.
-    retries: 0,
+  // Assertion/configuration failures are deterministic; retrying them hides
+  // the real release signal. Infrastructure retries are handled by the
+  // bounded release wrapper instead.
+  retries: 0,
+  outputDir:
+    process.env.PLAYWRIGHT_OUTPUT_DIR ?? "test-results/dashboard-journey",
   reporter: process.env.CI ? "line" : "list",
   use: {
     browserName,
@@ -37,8 +39,6 @@ export default defineConfig({
     },
     baseURL:
       process.env.DASHBOARD_E2E_BASE_URL ?? "http://127.0.0.1:5173/dashboard/",
-    outputDir:
-      process.env.PLAYWRIGHT_OUTPUT_DIR ?? "test-results/dashboard-journey",
     trace: "retain-on-failure",
     screenshot: "only-on-failure",
     // The managed release runner retains trace and screenshot artifacts. Do

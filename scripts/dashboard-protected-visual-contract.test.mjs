@@ -28,6 +28,10 @@ const uxwContainerScriptSource = await readFile(
   resolve(root, "scripts/run-uxw01-browser-container.sh"),
   "utf8",
 );
+const playwrightConfigSource = await readFile(
+  resolve(root, "artifacts/dashboard/e2e/playwright.config.ts"),
+  "utf8",
+);
 
 test("the protected visual runner gates every service on loopback isolation", () => {
   const isolationGate = runnerSource.indexOf(
@@ -173,5 +177,16 @@ test("the protected visual journey is read-only and records its layout evidence"
   assert.match(
     journeySource,
     /pageErrors,[\s\S]*?consoleErrors,[\s\S]*?failedRequests/u,
+  );
+});
+
+test("Playwright failure artifacts use the mounted evidence directory", () => {
+  assert.match(
+    playwrightConfigSource,
+    /testDir:[\s\S]*?outputDir:\s*process\.env\.PLAYWRIGHT_OUTPUT_DIR[\s\S]*?reporter:[\s\S]*?use:\s*\{/u,
+  );
+  assert.doesNotMatch(
+    playwrightConfigSource,
+    /use:\s*\{[\s\S]*?outputDir:/u,
   );
 });
