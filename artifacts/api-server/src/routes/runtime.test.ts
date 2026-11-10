@@ -217,7 +217,12 @@ describe("POST /api/projects/:projectId/runtime/start", () => {
     expect(acceptance?.effectBundleId).toBe(bundle?.id);
     const observations = await db.select().from(aiAgentObservationsTable)
       .where(eq(aiAgentObservationsTable.executionId, first.body.executionId));
-    const runtimeStateObservation = observations.find((row) => row.predicate === "runtime.after_state");
+    const runtimeStateObservation = observations.find((row) => (
+      row.predicate === "runtime.after_state"
+      && row.observationRole === "after"
+      && row.sourceId.startsWith(`runtime-start:${first.body.executionId}:`)
+      && row.sourceId.endsWith(":runtime.after_state")
+    ));
     expect(runtimeStateObservation?.value).toMatchObject({
       status: "passed",
       runtimeStatus: "running",
@@ -229,13 +234,22 @@ describe("POST /api/projects/:projectId/runtime/start", () => {
     });
     expect(runtimeStateObservation?.value).not.toHaveProperty("after");
     const childProcessObservation = observations.find(
-      (row) => row.predicate === "runtime.child_process_environment",
+      (row) => (
+        row.predicate === "runtime.child_process_environment"
+        && row.sourceType === "child_process_attestation"
+        && row.value
+        && typeof row.value === "object"
+        && !Array.isArray(row.value)
+        && (row.value as Record<string, unknown>).operationId === first.body.operationId
+      ),
     );
-    expect(childProcessObservation?.value).toMatchObject({
-      status: "known",
-      operationId: first.body.operationId,
-      sessionId: `runtime-session-${fixture.projectId}`,
+    expect(childProcessObservation).toMatchObject({
       environmentRevision: expect.stringMatching(/^env-v1:[a-f0-9]{64}$/),
+      value: {
+        status: "known",
+        operationId: first.body.operationId,
+        sessionId: `runtime-session-${fixture.projectId}`,
+      },
     });
     const events = await db.select({ eventType: aiAgentEpisodeEventsTable.eventType })
       .from(aiAgentEpisodeEventsTable)
@@ -303,7 +317,12 @@ async function assertRuntimeRouteEvidence(executionId: string, capabilityId: str
   expect(acceptance?.effectBundleId).toBe(bundle?.id);
   const observations = await db.select().from(aiAgentObservationsTable)
     .where(eq(aiAgentObservationsTable.executionId, executionId));
-  const runtimeStateObservation = observations.find((row) => row.predicate === "runtime.after_state");
+  const runtimeStateObservation = observations.find((row) => (
+    row.predicate === "runtime.after_state"
+    && row.observationRole === "after"
+    && row.sourceId.startsWith(`gate-c:${executionId}:`)
+    && row.sourceId.endsWith(":after:runtime-state")
+  ));
   if (capabilityId === "runtime.stop") {
     expect(runtimeStateObservation?.value).toMatchObject({
       before: {

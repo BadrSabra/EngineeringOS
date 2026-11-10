@@ -285,11 +285,12 @@ describe("child process environment attestation", () => {
     const baseline = ["/usr/bin", "/bin"].join(path.delimiter);
     const candidateBin = path.join(root, "pkg", "node_modules", ".bin");
     const externalBin = path.join(outsideRoot, "node_modules", ".bin");
+    const externalOther = path.join(outsideRoot, "runtime", "support");
     const child = await startChild(
       root,
       marker,
       "development",
-      [candidateBin, externalBin, baseline].join(path.delimiter),
+      [candidateBin, externalBin, externalOther, baseline].join(path.delimiter),
     );
     let diagnostics: ValidatorProcessPathDiagnostics | undefined;
     const attestation = await attestChildProcessEnvironment({
@@ -307,13 +308,18 @@ describe("child process environment attestation", () => {
     expect(attestation.status).toBe("mismatch");
     expect(diagnostics).toMatchObject({
       matched: false,
-      prefixCount: 2,
+      prefixCount: 3,
       allowedPrefixCount: 1,
-      unapprovedPrefixCount: 1,
+      unapprovedPrefixCount: 2,
       candidateLocalNodeModulesBinPrefixCount: 1,
+      candidateLocalNonBinPrefixCount: 0,
       externalNodeModulesBinPrefixCount: 1,
+      externalNodeModulesPrefixCount: 1,
+      pnpmStorePrefixCount: 0,
+      externalBinDirectoryPrefixCount: 1,
       approvedProcessDirectoryPrefixCount: 0,
-      otherUnapprovedPrefixCount: 0,
+      otherExternalPrefixCount: 1,
+      otherUnapprovedPrefixCount: 1,
     });
     expect(JSON.stringify(diagnostics)).not.toContain(root);
     expect(JSON.stringify(diagnostics)).not.toContain(outsideRoot);

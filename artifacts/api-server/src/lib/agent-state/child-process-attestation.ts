@@ -37,8 +37,13 @@ export type ValidatorProcessPathDiagnostics = {
   allowedPrefixCount: number;
   unapprovedPrefixCount: number;
   candidateLocalNodeModulesBinPrefixCount: number;
+  candidateLocalNonBinPrefixCount: number;
   externalNodeModulesBinPrefixCount: number;
+  externalNodeModulesPrefixCount: number;
+  pnpmStorePrefixCount: number;
+  externalBinDirectoryPrefixCount: number;
   approvedProcessDirectoryPrefixCount: number;
+  otherExternalPrefixCount: number;
   otherUnapprovedPrefixCount: number;
   actualPathUtf8Valid?: boolean;
 };
@@ -80,8 +85,13 @@ function inspectValidatorProcessPath(
       allowedPrefixCount: 0,
       unapprovedPrefixCount: 0,
       candidateLocalNodeModulesBinPrefixCount: 0,
+      candidateLocalNonBinPrefixCount: 0,
       externalNodeModulesBinPrefixCount: 0,
+      externalNodeModulesPrefixCount: 0,
+      pnpmStorePrefixCount: 0,
+      externalBinDirectoryPrefixCount: 0,
       approvedProcessDirectoryPrefixCount: 0,
+      otherExternalPrefixCount: 0,
       otherUnapprovedPrefixCount: 0,
     });
     return true;
@@ -108,8 +118,13 @@ function inspectValidatorProcessPath(
   let allowedPrefixCount = 0;
   let unapprovedPrefixCount = 0;
   let candidateLocalNodeModulesBinPrefixCount = 0;
+  let candidateLocalNonBinPrefixCount = 0;
   let externalNodeModulesBinPrefixCount = 0;
+  let externalNodeModulesPrefixCount = 0;
+  let pnpmStorePrefixCount = 0;
+  let externalBinDirectoryPrefixCount = 0;
   let approvedProcessDirectoryPrefixCount = 0;
+  let otherExternalPrefixCount = 0;
   let otherUnapprovedPrefixCount = 0;
   let prefixesAllowed = prefixesNormalized;
   if (prefixesNormalized) {
@@ -124,12 +139,29 @@ function inspectValidatorProcessPath(
       const isNodeModulesBin = segments.length >= 2
         && segments[segments.length - 2] === "node_modules"
         && segments[segments.length - 1] === ".bin";
+      const absoluteSegments = absoluteComponent.split(path.sep).filter(Boolean);
+      const hasNodeModulesSegment = absoluteSegments.includes("node_modules");
+      const hasPnpmStoreSegment = absoluteSegments.includes(".pnpm");
+      const hasBinDirectorySuffix = path.basename(absoluteComponent) === "bin"
+        || path.basename(absoluteComponent) === ".bin";
       const isApprovedProcessDirectory = approvedDirectories.has(absoluteComponent);
       const isCandidateLocalNodeModulesBin = withinValidationRoot && isNodeModulesBin;
       if (isCandidateLocalNodeModulesBin) candidateLocalNodeModulesBinPrefixCount += 1;
+      else if (withinValidationRoot && !isApprovedProcessDirectory) candidateLocalNonBinPrefixCount += 1;
       else if (isApprovedProcessDirectory) approvedProcessDirectoryPrefixCount += 1;
       else if (isNodeModulesBin) externalNodeModulesBinPrefixCount += 1;
       else otherUnapprovedPrefixCount += 1;
+      if (!withinValidationRoot && hasNodeModulesSegment) externalNodeModulesPrefixCount += 1;
+      if (hasPnpmStoreSegment) pnpmStorePrefixCount += 1;
+      if (!withinValidationRoot && hasBinDirectorySuffix) externalBinDirectoryPrefixCount += 1;
+      if (
+        !withinValidationRoot
+        && !isApprovedProcessDirectory
+        && !hasNodeModulesSegment
+        && !hasBinDirectorySuffix
+      ) {
+        otherExternalPrefixCount += 1;
+      }
 
       const allowed = isCandidateLocalNodeModulesBin || isApprovedProcessDirectory;
       if (allowed) allowedPrefixCount += 1;
@@ -139,6 +171,7 @@ function inspectValidatorProcessPath(
   } else {
     unapprovedPrefixCount = prefixes.length;
     otherUnapprovedPrefixCount = prefixes.length;
+    otherExternalPrefixCount = prefixes.length;
   }
   const matched = prefixCountWithinLimit
     && suffixMatches
@@ -159,8 +192,13 @@ function inspectValidatorProcessPath(
     allowedPrefixCount,
     unapprovedPrefixCount,
     candidateLocalNodeModulesBinPrefixCount,
+    candidateLocalNonBinPrefixCount,
     externalNodeModulesBinPrefixCount,
+    externalNodeModulesPrefixCount,
+    pnpmStorePrefixCount,
+    externalBinDirectoryPrefixCount,
     approvedProcessDirectoryPrefixCount,
+    otherExternalPrefixCount,
     otherUnapprovedPrefixCount,
   });
   return matched;
