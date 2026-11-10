@@ -233,7 +233,38 @@ type ValidationWorkspacePackage = {
   sourceRoot: string;
   workspaceRoot: string;
   nodeModulesPath?: string;
+  requiredWorkspacePackageNames: ReadonlySet<string>;
 };
+
+function workspaceDependencyNames(manifest: Record<string, unknown>): Set<string> {
+  const names = new Set<string>();
+  for (const field of ["dependencies", "devDependencies", "optionalDependencies", "peerDependencies"]) {
+    const dependencies = manifest[field];
+    if (dependencies === undefined) continue;
+    if (
+      typeof dependencies !== "object"
+      || dependencies === null
+      || Array.isArray(dependencies)
+    ) {
+      throw new Error("validation_workspace_package_manifest_invalid");
+    }
+    for (const dependencyName of Object.keys(dependencies)) {
+      if (!dependencyName.startsWith("@workspace/")) continue;
+      const packageName = dependencyName.slice("@workspace/".length);
+      if (
+        !packageName
+        || packageName === "."
+        || packageName === ".."
+        || packageName.includes("/")
+        || packageName.includes("\\")
+      ) {
+        throw new Error("validation_workspace_package_name_invalid");
+      }
+      names.add(packageName);
+    }
+  }
+  return names;
+}
 
 async function findValidationWorkspacePackages(
   sourceRoot: string,
@@ -241,7 +272,27 @@ async function findValidationWorkspacePackages(
 ): Promise<{
   packages: ValidationWorkspacePackage[];
   packagePathsByName: Map<string, string>;
+  rootRequiredWorkspacePackageNames: ReadonlySet<string>;
 }> {
+  let rootManifest: unknown;
+  try {
+    rootManifest = JSON.parse(await fs.readFile(path.join(sourceRoot, "package.json"), "utf8"));
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "ENOENT") {
+      throw new Error("validation_workspace_package_manifest_invalid");
+    }
+    rootManifest = {};
+  }
+  if (
+    typeof rootManifest !== "object"
+    || rootManifest === null
+    || Array.isArray(rootManifest)
+  ) {
+    throw new Error("validation_workspace_package_manifest_invalid");
+  }
+  const rootRequiredWorkspacePackageNames = workspaceDependencyNames(
+    rootManifest as Record<string, unknown>,
+  );
   const candidates: string[] = [path.join(sourceRoot, "scripts")];
   for (const parentName of ["artifacts", "lib"]) {
     const parentPath = path.join(sourceRoot, parentName);
@@ -276,6 +327,7 @@ async function findValidationWorkspacePackages(
     ) {
       continue;
     }
+    const packageManifest = manifest as Record<string, unknown>;
 
     const relative = path.relative(sourceRoot, packageSourceRoot);
     const candidatePackageRoot = path.resolve(workspaceRoot, relative);
@@ -319,21 +371,51 @@ async function findValidationWorkspacePackages(
       sourceRoot: packageSourceRoot,
       workspaceRoot: candidatePackageRoot,
       ...(nodeModulesStat ? { nodeModulesPath: sourceNodeModules } : {}),
+      requiredWorkspacePackageNames: workspaceDependencyNames(packageManifest),
     });
   }
 
-  return { packages, packagePathsByName };
+  const requiredWorkspacePackageNames = new Set(rootRequiredWorkspacePackageNames);
+  for (const workspacePackage of packages) {
+    for (const packageName of workspacePackage.requiredWorkspacePackageNames) {
+      requiredWorkspacePackageNames.add(packageName);
+    }
+  }
+  for (const packageName of requiredWorkspacePackageNames) {
+    if (!packagePathsByName.has(packageName)) {
+      throw new Error("validation_workspace_workspace_dependency_unavailable");
+    }
+  }
+
+  return { packages, packagePathsByName, rootRequiredWorkspacePackageNames };
 }
 
 async function linkValidationWorkspaceNodeModules(
   sourceNodeModules: string,
   workspaceNodeModules: string,
   packagePathsByName: ReadonlyMap<string, string>,
+  requiredWorkspacePackageNames: ReadonlySet<string>,
 ): Promise<void> {
   await fs.mkdir(workspaceNodeModules, { recursive: true });
   for (const entry of await fs.readdir(sourceNodeModules)) {
     const sourceEntry = path.join(sourceNodeModules, entry);
     const workspaceEntry = path.join(workspaceNodeModules, entry);
+    if (entry === ".bin") {
+      const binDirectoryStat = await fs.stat(sourceEntry).catch(() => undefined);
+      if (!binDirectoryStat?.isDirectory()) {
+        throw new Error("validation_workspace_package_bin_unavailable");
+      }
+      await fs.mkdir(workspaceEntry, { recursive: true });
+      for (const binName of await fs.readdir(sourceEntry)) {
+        const sourceBin = path.join(sourceEntry, binName);
+        const sourceBinStat = await fs.lstat(sourceBin).catch(() => undefined);
+        if (!sourceBinStat || (!sourceBinStat.isFile() && !sourceBinStat.isSymbolicLink())) {
+          throw new Error("validation_workspace_package_bin_entry_unavailable");
+        }
+        await fs.symlink(sourceBin, path.join(workspaceEntry, binName));
+      }
+      continue;
+    }
     if (entry !== "@workspace") {
       await fs.symlink(sourceEntry, workspaceEntry);
       continue;
@@ -343,6 +425,7 @@ async function linkValidationWorkspaceNodeModules(
     for (const workspacePackageName of await fs.readdir(sourceEntry)) {
       const workspacePackagePath = packagePathsByName.get(workspacePackageName);
       if (!workspacePackagePath) {
+        if (!requiredWorkspacePackageNames.has(workspacePackageName)) continue;
         throw new Error("validation_workspace_workspace_dependency_unavailable");
       }
       const workspacePackageStat = await fs.stat(workspacePackagePath).catch(() => undefined);
@@ -520,7 +603,11 @@ export async function createValidationWorkspace(
     }
     if (signal?.aborted) throw new Error("validation_workspace_cancelled");
 
-    const { packages, packagePathsByName } = await findValidationWorkspacePackages(
+    const {
+      packages,
+      packagePathsByName,
+      rootRequiredWorkspacePackageNames,
+    } = await findValidationWorkspacePackages(
       sourceRoot,
       workspaceRoot,
     );
@@ -537,6 +624,7 @@ export async function createValidationWorkspace(
         originalModules,
         overlayModules,
         packagePathsByName,
+        rootRequiredWorkspacePackageNames,
       );
     }
     for (const workspacePackage of packages) {
@@ -545,6 +633,7 @@ export async function createValidationWorkspace(
         workspacePackage.nodeModulesPath,
         path.join(workspacePackage.workspaceRoot, "node_modules"),
         packagePathsByName,
+        workspacePackage.requiredWorkspacePackageNames,
       );
     }
 

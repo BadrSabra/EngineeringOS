@@ -349,6 +349,8 @@ describe("AI repair validation registry", () => {
       "utf8",
     );
     await fs.mkdir(path.join(rootNodeModules, "@workspace"), { recursive: true });
+    await fs.mkdir(path.join(rootNodeModules, ".bin"), { recursive: true });
+    await fs.writeFile(path.join(rootNodeModules, ".bin/tsc"), "root compiler\n", "utf8");
     await fs.mkdir(path.join(rootNodeModules, "vite"), { recursive: true });
     await fs.writeFile(
       path.join(rootNodeModules, "vite/package.json"),
@@ -361,6 +363,8 @@ describe("AI repair validation registry", () => {
     );
     await fs.symlink(apiZodRoot, path.join(rootNodeModules, "@workspace/api-zod"));
     await fs.mkdir(path.join(mockupNodeModules, "@workspace"), { recursive: true });
+    await fs.mkdir(path.join(mockupNodeModules, ".bin"), { recursive: true });
+    await fs.writeFile(path.join(mockupNodeModules, ".bin/vite"), "package tool\n", "utf8");
     await fs.symlink(
       apiZodRoot,
       path.join(mockupNodeModules, "@workspace/api-zod"),
@@ -387,9 +391,80 @@ describe("AI repair validation registry", () => {
       expect(await fs.realpath(
         path.join(candidateMockupRoot, "node_modules/vite"),
       )).toBe(path.join(rootNodeModules, "vite"));
+      const candidateRootBin = path.join(workspace.rootPath, "node_modules/.bin");
+      const candidateMockupBin = path.join(candidateMockupRoot, "node_modules/.bin");
+      expect((await fs.lstat(candidateRootBin)).isDirectory()).toBe(true);
+      expect((await fs.lstat(candidateRootBin)).isSymbolicLink()).toBe(false);
+      expect((await fs.lstat(candidateMockupBin)).isDirectory()).toBe(true);
+      expect((await fs.lstat(candidateMockupBin)).isSymbolicLink()).toBe(false);
+      expect(await fs.readFile(path.join(candidateRootBin, "tsc"), "utf8")).toBe("root compiler\n");
+      expect(await fs.readFile(path.join(candidateMockupBin, "vite"), "utf8")).toBe("package tool\n");
     } finally {
       await workspace?.cleanup();
       await fs.rm(sourceRoot, { recursive: true, force: true });
+    }
+  });
+
+  it("omits installed workspace links that the candidate does not declare or contain", async () => {
+    const sourceRoot = await fs.mkdtemp(path.join(os.tmpdir(), "validation-undeclared-workspace-"));
+    const installedPackageRoot = `${sourceRoot}-installed-package`;
+    const installedWorkspaceLink = path.join(sourceRoot, "node_modules/@workspace/unrelated");
+    let workspace: Awaited<ReturnType<typeof createValidationWorkspace>> | undefined;
+    try {
+      await fs.mkdir(path.dirname(installedWorkspaceLink), { recursive: true });
+      await fs.mkdir(installedPackageRoot, { recursive: true });
+      await fs.writeFile(
+        path.join(sourceRoot, "package.json"),
+        JSON.stringify({ name: "minimal-validation-fixture" }),
+        "utf8",
+      );
+      await fs.writeFile(
+        path.join(installedPackageRoot, "package.json"),
+        JSON.stringify({ name: "@workspace/unrelated" }),
+        "utf8",
+      );
+      await fs.symlink(installedPackageRoot, installedWorkspaceLink, "dir");
+
+      workspace = await createValidationWorkspace(sourceRoot, [], async () => {});
+
+      await expect(fs.access(
+        path.join(workspace.rootPath, "node_modules/@workspace/unrelated"),
+      )).rejects.toMatchObject({ code: "ENOENT" });
+    } finally {
+      await workspace?.cleanup();
+      await fs.rm(sourceRoot, { recursive: true, force: true });
+      await fs.rm(installedPackageRoot, { recursive: true, force: true });
+    }
+  });
+
+  it("fails closed when a declared workspace dependency is unavailable in the candidate", async () => {
+    const sourceRoot = await fs.mkdtemp(path.join(os.tmpdir(), "validation-missing-workspace-"));
+    const installedPackageRoot = `${sourceRoot}-installed-package`;
+    const installedWorkspaceLink = path.join(sourceRoot, "node_modules/@workspace/required");
+    try {
+      await fs.mkdir(path.dirname(installedWorkspaceLink), { recursive: true });
+      await fs.mkdir(installedPackageRoot, { recursive: true });
+      await fs.writeFile(
+        path.join(sourceRoot, "package.json"),
+        JSON.stringify({
+          name: "declared-workspace-fixture",
+          dependencies: { "@workspace/required": "workspace:*" },
+        }),
+        "utf8",
+      );
+      await fs.writeFile(
+        path.join(installedPackageRoot, "package.json"),
+        JSON.stringify({ name: "@workspace/required" }),
+        "utf8",
+      );
+      await fs.symlink(installedPackageRoot, installedWorkspaceLink, "dir");
+
+      await expect(
+        createValidationWorkspace(sourceRoot, [], async () => {}),
+      ).rejects.toThrow("validation_workspace_workspace_dependency_unavailable");
+    } finally {
+      await fs.rm(sourceRoot, { recursive: true, force: true });
+      await fs.rm(installedPackageRoot, { recursive: true, force: true });
     }
   });
 

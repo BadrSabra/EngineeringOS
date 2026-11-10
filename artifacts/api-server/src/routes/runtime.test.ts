@@ -219,10 +219,6 @@ describe("POST /api/projects/:projectId/runtime/start", () => {
       .where(eq(aiAgentObservationsTable.executionId, first.body.executionId));
     const runtimeStateObservation = observations.find((row) => row.predicate === "runtime.after_state");
     expect(runtimeStateObservation?.value).toMatchObject({
-      status: "passed",
-      projectId: fixture.projectId,
-      revision: fixture.sourceRevision,
-      sessionId: `runtime-session-${fixture.projectId}`,
       after: {
         status: "passed",
         projectId: fixture.projectId,
