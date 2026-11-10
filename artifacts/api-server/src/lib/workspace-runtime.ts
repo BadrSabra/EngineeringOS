@@ -624,14 +624,6 @@ export class WorkspaceRuntimeManager {
           unknownListenerPorts: inventory.unknownListenerPorts ?? [],
         });
       }
-      if (inventory.status === "running" && inventory.unknownListenerPorts.length > 0) {
-        return unavailable("Supervisor inventory contains unowned listening ports.", {
-          inventoryComplete: true,
-          unknownListenerPorts: inventory.unknownListenerPorts,
-          observedAt: inventory.observedAt,
-        });
-      }
-
       if (inventory.status === "stopped" && inventory.unknownListenerPorts.length === 0) {
         const persisted = await this.store.get(runtimeId);
         const local = this.sessions.get(runtimeId);

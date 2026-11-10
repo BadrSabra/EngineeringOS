@@ -33,6 +33,7 @@ import {
 } from "./browser-preview-verification.js";
 import { config } from "../config.js";
 import { createHostDisposableTempDirectory } from "./disposable-temp.js";
+import { logger } from "./logger.js";
 
 export type RepairVerificationStatus = ValidationStatus;
 export type ValidationFailure = SharedValidationFailure;
@@ -211,8 +212,20 @@ const VALIDATION_COPY_OMIT = new Set([
   ".local",
   ".engineeringos-delivery",
   ".engineeringos-projects",
+  ".test-roots",
   "docs",
   "coverage",
+  "dist",
+  "test-results",
+]);
+const VALIDATION_COPY_OMIT_ANYWHERE = new Set([
+  ".git",
+  ".cache",
+  "coverage",
+  "dist",
+  "node_modules",
+  "test-results",
+  ".test-roots",
 ]);
 
 type ValidationDraft = Omit<ValidationResult, "evidence"> & {
@@ -337,8 +350,12 @@ export async function createValidationWorkspace(
       if (signal?.aborted) throw new Error("validation_workspace_cancelled");
       const relative = path.relative(sourceRoot, source);
       if (!relative) return true;
-      const firstSegment = relative.split(path.sep)[0];
-      if (VALIDATION_COPY_OMIT.has(firstSegment)) return false;
+      const relativeSegments = relative.split(path.sep);
+      const firstSegment = relativeSegments[0]!;
+      if (
+        VALIDATION_COPY_OMIT.has(firstSegment)
+        || relativeSegments.some((segment) => VALIDATION_COPY_OMIT_ANYWHERE.has(segment))
+      ) return false;
 
       const stat = await fs.lstat(source);
       if (signal?.aborted) throw new Error("validation_workspace_cancelled");
@@ -545,6 +562,10 @@ type ValidatorProcessProbe = {
   onSpawn: (input: { pid: number | null; cwd: string }) => void;
   observe: () => Promise<ChildProcessEnvironmentAttestation>;
   observeTree: () => Promise<ValidationProcessTreeAttestation>;
+  environmentDiagnostics: () => {
+    markerMismatchCount: number;
+    mismatchedEnvironmentNames: string[];
+  };
 };
 
 const REGISTERED_VALIDATOR_COMMANDS = new Set(["pnpm", "go"]);
@@ -673,6 +694,17 @@ function createValidatorProcessProbe(input: {
     ...input.baseEnvironment,
     [CHILD_ATTESTATION_ENV_NAME]: marker,
   };
+  const mismatchedEnvironmentNames = new Set<string>();
+  let markerMismatchCount = 0;
+  const recordEnvironmentCheck = (diagnostic: {
+    markerMatched: boolean;
+    mismatchedEnvironmentNames: readonly string[];
+  }): void => {
+    if (!diagnostic.markerMatched) markerMismatchCount += 1;
+    for (const name of diagnostic.mismatchedEnvironmentNames) {
+      mismatchedEnvironmentNames.add(name);
+    }
+  };
   let observation: Promise<ChildProcessEnvironmentAttestation> | undefined;
   let observedAt = new Date().toISOString();
   let processPid: number | null = null;
@@ -724,6 +756,7 @@ function createValidatorProcessProbe(input: {
         expectedEnvironment: childProcessExpectedEnvironment(environment),
         observedAt: sampleObservedAt,
         approvedProcessPathDirectories: input.approvedProcessPathDirectories,
+        onEnvironmentCheck: recordEnvironmentCheck,
       }).then((sample) => {
         treeObservation = sample;
         if (
@@ -754,6 +787,7 @@ function createValidatorProcessProbe(input: {
         binding,
         expectedEnvironment: childProcessExpectedEnvironment(environment),
         observedAt,
+        onEnvironmentCheck: recordEnvironmentCheck,
       });
       scheduleTreeSample();
     },
@@ -792,6 +826,10 @@ function createValidatorProcessProbe(input: {
         ? "process_unavailable"
         : "process_tree_unavailable");
     },
+    environmentDiagnostics: () => ({
+      markerMismatchCount,
+      mismatchedEnvironmentNames: [...mismatchedEnvironmentNames].sort(),
+    }),
   };
 }
 function extractAffectedFiles(output: string): string[] {
@@ -931,6 +969,29 @@ async function runRepairValidationCore(
     });
     const childProcessAttestation = await processProbe?.observe();
     const validatorProcessTreeAttestation = await processProbe?.observeTree();
+    const processEnvironmentDiagnostics = processProbe?.environmentDiagnostics();
+    if (
+      processEnvironmentDiagnostics
+      && (
+        processEnvironmentDiagnostics.markerMismatchCount > 0
+        || processEnvironmentDiagnostics.mismatchedEnvironmentNames.length > 0
+      )
+    ) {
+      logger.warn(
+        {
+          scope: "ai-repair-validation",
+          code: "validator_process_environment_mismatch",
+          profile,
+          childProcessStatus: childProcessAttestation?.status,
+          childProcessReasonCode: childProcessAttestation?.reasonCode,
+          processTreeStatus: validatorProcessTreeAttestation?.status,
+          processTreeReasonCode: validatorProcessTreeAttestation?.reasonCode,
+          markerMismatchCount: processEnvironmentDiagnostics.markerMismatchCount,
+          mismatchedEnvironmentNames: processEnvironmentDiagnostics.mismatchedEnvironmentNames.slice(0, 12),
+        },
+        "Validator process environment did not match its server-owned profile",
+      );
+    }
     const spawnedEnvironmentRevision = execution.status === "spawn_error" || execution.status === "cancelled"
       ? null
       : environmentRevision;

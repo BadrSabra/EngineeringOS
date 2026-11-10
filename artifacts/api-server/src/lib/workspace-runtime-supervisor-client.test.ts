@@ -127,6 +127,42 @@ describe("WorkspaceRuntimeSupervisorClient child attestation handoff", () => {
     }]);
   });
 
+  it("accepts a corroborated running session alongside unrelated unowned listeners", async () => {
+    const fetchImpl: typeof fetch = async () => new Response(JSON.stringify({
+      projectId: "project-runtime",
+      status: "running",
+      observedAt: "2025-01-01T00:00:00.000Z",
+      inventoryComplete: true,
+      unknownListenerPorts: [3011],
+      detail: "The target session is corroborated; another listener is unowned.",
+      session: {
+        projectId: "project-runtime",
+        sessionId: "session-runtime",
+        status: "running",
+        port: 3010,
+        pid: 1234,
+      },
+    }), { status: 200, headers: { "content-type": "application/json" } });
+    const client = new WorkspaceRuntimeSupervisorClient(
+      "http://supervisor.test",
+      fetchImpl,
+      "test-supervisor-token",
+    );
+
+    await expect(client.observeStartState("project-runtime")).resolves.toMatchObject({
+      projectId: "project-runtime",
+      status: "running",
+      unknownListenerPorts: [3011],
+      session: {
+        projectId: "project-runtime",
+        sessionId: "session-runtime",
+        status: "running",
+        port: 3010,
+        pid: 1234,
+      },
+    });
+  });
+
   it("rejects an invalid observation payload", async () => {
     const fetchImpl: typeof fetch = async () => new Response(JSON.stringify({
       projectId: "project-runtime",

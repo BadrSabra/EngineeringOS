@@ -147,18 +147,27 @@ describe("child process environment attestation", () => {
       marker: "d79d5df7-1679-48fa-9ee4-8fd8be8e43d1",
       binding,
     });
+    const environmentDiagnostics: Array<{
+      markerMatched: boolean;
+      mismatchedEnvironmentNames: readonly string[];
+    }> = [];
     const environmentMismatch = await attestChildProcessEnvironment({
       pid: child.pid,
       projectRoot: root,
       marker,
       binding,
       expectedEnvironment: { NODE_ENV: "development" },
+      onEnvironmentCheck: (diagnostic) => environmentDiagnostics.push(diagnostic),
     });
 
     expect(markerMismatch.status).toBe("mismatch");
     expect(markerMismatch.reasonCode).toBe("child_environment_mismatch");
     expect(environmentMismatch.status).toBe("mismatch");
     expect(environmentMismatch.processEnvironmentDigest).toMatch(/^[a-f0-9]{64}$/);
+    expect(environmentDiagnostics).toEqual([{
+      markerMatched: true,
+      mismatchedEnvironmentNames: ["NODE_ENV"],
+    }]);
   });
 
   it("keeps missing process evidence unknown and binds observations to the supplied execution identity", async () => {

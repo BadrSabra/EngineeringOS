@@ -323,6 +323,10 @@ export async function attestChildProcessEnvironment(input: {
   observedAt?: string;
   allowLocalNodeModulesBinPathRoot?: string;
   approvedProcessPathDirectories?: readonly string[];
+  onEnvironmentCheck?: (diagnostic: {
+    markerMatched: boolean;
+    mismatchedEnvironmentNames: readonly string[];
+  }) => void;
 }): Promise<ChildProcessEnvironmentAttestation> {
   const observedAt = input.observedAt ?? new Date().toISOString();
   if (!input.binding) return unknown("binding_missing", observedAt);
@@ -363,6 +367,7 @@ export async function attestChildProcessEnvironment(input: {
     }
 
     let expectedEnvironmentMatched = true;
+    const mismatchedEnvironmentNames: string[] = [];
     for (const [name, expectedValue] of Object.entries(input.expectedEnvironment ?? {})) {
       const value = oneValue(values, name);
       const actualValue = value?.toString("utf8");
@@ -381,6 +386,7 @@ export async function attestChildProcessEnvironment(input: {
       }
       if (!matches) {
         expectedEnvironmentMatched = false;
+        mismatchedEnvironmentNames.push(name);
       }
     }
 
@@ -408,7 +414,9 @@ export async function attestChildProcessEnvironment(input: {
       rootDevice: rootStat.dev,
       rootInode: rootStat.ino,
     }));
-    const matched = markerMatches(observedMarker, input.marker) && expectedEnvironmentMatched;
+    const markerMatched = markerMatches(observedMarker, input.marker);
+    input.onEnvironmentCheck?.({ markerMatched, mismatchedEnvironmentNames });
+    const matched = markerMatched && expectedEnvironmentMatched;
     const status = matched ? "known" : "mismatch";
     const reasonCode = matched ? "child_process_observed" : "child_environment_mismatch";
     const attestationDigest = sha256(JSON.stringify({
@@ -486,6 +494,10 @@ export async function attestValidatorProcessTreeEnvironment(input: {
   expectedEnvironment?: Readonly<Record<string, string>>;
   observedAt?: string;
   approvedProcessPathDirectories?: readonly string[];
+  onEnvironmentCheck?: (diagnostic: {
+    markerMatched: boolean;
+    mismatchedEnvironmentNames: readonly string[];
+  }) => void;
 }): Promise<ValidationProcessTreeAttestation> {
   const observedAt = input.observedAt ?? new Date().toISOString();
   if (!input.binding || input.binding.processRole !== "validator_tree") {
@@ -559,6 +571,7 @@ export async function attestValidatorProcessTreeEnvironment(input: {
       observedAt,
       allowLocalNodeModulesBinPathRoot: input.projectRoot,
       approvedProcessPathDirectories: input.approvedProcessPathDirectories,
+      onEnvironmentCheck: input.onEnvironmentCheck,
     });
     if (result.status === "mismatch") {
       return {

@@ -184,8 +184,7 @@ function isObserveStartState(value: unknown): value is ObserveStartState {
       && candidate.session.projectId === candidate.projectId
       && candidate.session.status === "running"
       && candidate.session.pid !== null
-      && candidate.session.port !== null
-      && candidate.unknownListenerPorts.length === 0;
+      && candidate.session.port !== null;
   }
   if (candidate.status === "stopped") {
     return candidate.session === undefined && candidate.unknownListenerPorts.length === 0;

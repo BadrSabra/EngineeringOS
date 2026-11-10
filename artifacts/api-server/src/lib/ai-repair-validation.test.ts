@@ -280,6 +280,42 @@ describe("AI repair validation registry", () => {
     await expect(fs.access(workspace!.rootPath)).rejects.toThrow();
   });
 
+  it("omits nested ignored build and test outputs while preserving source files", async () => {
+    const sourceRoot = await fs.mkdtemp(path.join(os.tmpdir(), "validation-output-source-"));
+    const generatedDirectories = [
+      ".test-roots/fixture",
+      "artifacts/api-server/node_modules/pkg",
+      "artifacts/api-server/dist",
+      "artifacts/dashboard/test-results",
+    ];
+    for (const relative of generatedDirectories) {
+      const directory = path.join(sourceRoot, relative);
+      await fs.mkdir(directory, { recursive: true });
+      await fs.writeFile(path.join(directory, "generated.txt"), "temporary\n", "utf8");
+    }
+    const sourceFile = path.join(sourceRoot, "artifacts/dashboard/src/page.ts");
+    await fs.mkdir(path.dirname(sourceFile), { recursive: true });
+    await fs.writeFile(sourceFile, "export const page = true;\n", "utf8");
+
+    let workspace: Awaited<ReturnType<typeof createValidationWorkspace>> | undefined;
+    try {
+      workspace = await createValidationWorkspace(sourceRoot, [], async () => {});
+
+      expect(await fs.readFile(
+        path.join(workspace.rootPath, "artifacts/dashboard/src/page.ts"),
+        "utf8",
+      )).toBe("export const page = true;\n");
+      for (const relative of generatedDirectories) {
+        await expect(fs.access(path.join(workspace.rootPath, relative))).rejects.toMatchObject({
+          code: "ENOENT",
+        });
+      }
+    } finally {
+      await workspace?.cleanup();
+      await fs.rm(sourceRoot, { recursive: true, force: true });
+    }
+  });
+
   it("keeps lifecycle validation copies under the exact isolated project root", async () => {
     const sourceRoot = await fs.mkdtemp(path.join(os.tmpdir(), "validation-lifecycle-source-"));
     const remoteRoot = path.join(path.dirname(sourceRoot), `${path.basename(sourceRoot)}-remote`);
@@ -620,9 +656,20 @@ describe("AI repair validation registry", () => {
       });
 
       releasePrepare();
-      await new Promise((resolve) => setTimeout(resolve, 50));
       expect(workspaceRootPath).toBeDefined();
-      await expect(fs.access(workspaceRootPath!)).rejects.toThrow();
+      const cleanupDeadline = Date.now() + 2_000;
+      let workspaceRemoved = false;
+      while (Date.now() < cleanupDeadline) {
+        try {
+          await fs.access(workspaceRootPath!);
+        } catch (error) {
+          if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+          workspaceRemoved = true;
+          break;
+        }
+        await new Promise((resolve) => setTimeout(resolve, 20));
+      }
+      expect(workspaceRemoved).toBe(true);
     } finally {
       releasePrepare();
       if (timeoutDescriptor) {
