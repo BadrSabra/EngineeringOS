@@ -285,12 +285,38 @@ describe("child process environment attestation", () => {
     const baseline = ["/usr/bin", "/bin"].join(path.delimiter);
     const candidateBin = path.join(root, "pkg", "node_modules", ".bin");
     const externalBin = path.join(outsideRoot, "node_modules", ".bin");
+    const externalPnpmHelper = path.join(
+      outsideRoot,
+      "node_modules",
+      ".pnpm",
+      "pnpm@10.0.0",
+      "node_modules",
+      "pnpm",
+      "dist",
+      "node-gyp-bin",
+    );
+    const externalNodeGypBin = path.join(
+      outsideRoot,
+      "node_modules",
+      ".pnpm",
+      "node-gyp@10.0.0",
+      "node_modules",
+      "node-gyp",
+      "bin",
+    );
     const externalOther = path.join(outsideRoot, "runtime", "support");
     const child = await startChild(
       root,
       marker,
       "development",
-      [candidateBin, externalBin, externalOther, baseline].join(path.delimiter),
+      [
+        candidateBin,
+        externalBin,
+        externalPnpmHelper,
+        externalNodeGypBin,
+        externalOther,
+        baseline,
+      ].join(path.delimiter),
     );
     let diagnostics: ValidatorProcessPathDiagnostics | undefined;
     const attestation = await attestChildProcessEnvironment({
@@ -308,18 +334,20 @@ describe("child process environment attestation", () => {
     expect(attestation.status).toBe("mismatch");
     expect(diagnostics).toMatchObject({
       matched: false,
-      prefixCount: 3,
+      prefixCount: 5,
       allowedPrefixCount: 1,
-      unapprovedPrefixCount: 2,
+      unapprovedPrefixCount: 4,
       candidateLocalNodeModulesBinPrefixCount: 1,
       candidateLocalNonBinPrefixCount: 0,
       externalNodeModulesBinPrefixCount: 1,
-      externalNodeModulesPrefixCount: 1,
-      pnpmStorePrefixCount: 0,
-      externalBinDirectoryPrefixCount: 1,
+      externalNodeModulesPrefixCount: 3,
+      pnpmStorePrefixCount: 2,
+      pnpmNodeGypHelperPrefixCount: 1,
+      pnpmNodeGypPackageBinPrefixCount: 1,
+      externalBinDirectoryPrefixCount: 2,
       approvedProcessDirectoryPrefixCount: 0,
       otherExternalPrefixCount: 1,
-      otherUnapprovedPrefixCount: 1,
+      otherUnapprovedPrefixCount: 3,
     });
     expect(JSON.stringify(diagnostics)).not.toContain(root);
     expect(JSON.stringify(diagnostics)).not.toContain(outsideRoot);

@@ -41,6 +41,8 @@ export type ValidatorProcessPathDiagnostics = {
   externalNodeModulesBinPrefixCount: number;
   externalNodeModulesPrefixCount: number;
   pnpmStorePrefixCount: number;
+  pnpmNodeGypHelperPrefixCount: number;
+  pnpmNodeGypPackageBinPrefixCount: number;
   externalBinDirectoryPrefixCount: number;
   approvedProcessDirectoryPrefixCount: number;
   otherExternalPrefixCount: number;
@@ -89,6 +91,8 @@ function inspectValidatorProcessPath(
       externalNodeModulesBinPrefixCount: 0,
       externalNodeModulesPrefixCount: 0,
       pnpmStorePrefixCount: 0,
+      pnpmNodeGypHelperPrefixCount: 0,
+      pnpmNodeGypPackageBinPrefixCount: 0,
       externalBinDirectoryPrefixCount: 0,
       approvedProcessDirectoryPrefixCount: 0,
       otherExternalPrefixCount: 0,
@@ -122,6 +126,8 @@ function inspectValidatorProcessPath(
   let externalNodeModulesBinPrefixCount = 0;
   let externalNodeModulesPrefixCount = 0;
   let pnpmStorePrefixCount = 0;
+  let pnpmNodeGypHelperPrefixCount = 0;
+  let pnpmNodeGypPackageBinPrefixCount = 0;
   let externalBinDirectoryPrefixCount = 0;
   let approvedProcessDirectoryPrefixCount = 0;
   let otherExternalPrefixCount = 0;
@@ -142,8 +148,10 @@ function inspectValidatorProcessPath(
       const absoluteSegments = absoluteComponent.split(path.sep).filter(Boolean);
       const hasNodeModulesSegment = absoluteSegments.includes("node_modules");
       const hasPnpmStoreSegment = absoluteSegments.includes(".pnpm");
-      const hasBinDirectorySuffix = path.basename(absoluteComponent) === "bin"
-        || path.basename(absoluteComponent) === ".bin";
+      const basename = path.basename(absoluteComponent);
+      const hasBinDirectorySuffix = basename === "bin" || basename === ".bin";
+      const hasNodeGypBinHelperSegment = absoluteSegments.includes("node-gyp-bin");
+      const hasNodeGypPackageBinShape = absoluteSegments.includes("node-gyp") && basename === "bin";
       const isApprovedProcessDirectory = approvedDirectories.has(absoluteComponent);
       const isCandidateLocalNodeModulesBin = withinValidationRoot && isNodeModulesBin;
       if (isCandidateLocalNodeModulesBin) candidateLocalNodeModulesBinPrefixCount += 1;
@@ -153,6 +161,8 @@ function inspectValidatorProcessPath(
       else otherUnapprovedPrefixCount += 1;
       if (!withinValidationRoot && hasNodeModulesSegment) externalNodeModulesPrefixCount += 1;
       if (hasPnpmStoreSegment) pnpmStorePrefixCount += 1;
+      if (hasPnpmStoreSegment && hasNodeGypBinHelperSegment) pnpmNodeGypHelperPrefixCount += 1;
+      if (hasPnpmStoreSegment && hasNodeGypPackageBinShape) pnpmNodeGypPackageBinPrefixCount += 1;
       if (!withinValidationRoot && hasBinDirectorySuffix) externalBinDirectoryPrefixCount += 1;
       if (
         !withinValidationRoot
@@ -196,6 +206,8 @@ function inspectValidatorProcessPath(
     externalNodeModulesBinPrefixCount,
     externalNodeModulesPrefixCount,
     pnpmStorePrefixCount,
+    pnpmNodeGypHelperPrefixCount,
+    pnpmNodeGypPackageBinPrefixCount,
     externalBinDirectoryPrefixCount,
     approvedProcessDirectoryPrefixCount,
     otherExternalPrefixCount,
