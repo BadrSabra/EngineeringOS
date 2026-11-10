@@ -141,7 +141,7 @@ describe("AI repair validation registry", () => {
       "vitest",
       "run",
     ]);
-    expect(profile.timeoutMs).toBeLessThanOrEqual(120_000);
+    expect(profile.timeoutMs).toBeLessThanOrEqual(config.validationProcessTimeoutMs);
   });
 
   it("narrows generated benchmark validation to its exact fixture test", () => {
@@ -293,6 +293,15 @@ describe("AI repair validation registry", () => {
       await fs.mkdir(directory, { recursive: true });
       await fs.writeFile(path.join(directory, "generated.txt"), "temporary\n", "utf8");
     }
+    const generatedBuildInfoFiles = [
+      "tsconfig.tsbuildinfo",
+      "lib/db/tsconfig.tsbuildinfo",
+    ];
+    for (const relative of generatedBuildInfoFiles) {
+      const file = path.join(sourceRoot, relative);
+      await fs.mkdir(path.dirname(file), { recursive: true });
+      await fs.writeFile(file, "stale incremental state\n", "utf8");
+    }
     const sourceFile = path.join(sourceRoot, "artifacts/dashboard/src/page.ts");
     await fs.mkdir(path.dirname(sourceFile), { recursive: true });
     await fs.writeFile(sourceFile, "export const page = true;\n", "utf8");
@@ -310,6 +319,74 @@ describe("AI repair validation registry", () => {
           code: "ENOENT",
         });
       }
+      for (const relative of generatedBuildInfoFiles) {
+        await expect(fs.access(path.join(workspace.rootPath, relative))).rejects.toMatchObject({
+          code: "ENOENT",
+        });
+      }
+    } finally {
+      await workspace?.cleanup();
+      await fs.rm(sourceRoot, { recursive: true, force: true });
+    }
+  });
+
+  it("relinks nested workspace dependencies to the isolated candidate", async () => {
+    const sourceRoot = await fs.mkdtemp(path.join(os.tmpdir(), "validation-links-source-"));
+    const mockupRoot = path.join(sourceRoot, "artifacts/mockup-sandbox");
+    const apiZodRoot = path.join(sourceRoot, "lib/api-zod");
+    const rootNodeModules = path.join(sourceRoot, "node_modules");
+    const mockupNodeModules = path.join(mockupRoot, "node_modules");
+    await fs.mkdir(mockupRoot, { recursive: true });
+    await fs.mkdir(apiZodRoot, { recursive: true });
+    await fs.writeFile(
+      path.join(mockupRoot, "package.json"),
+      JSON.stringify({ name: "@workspace/mockup-sandbox" }),
+      "utf8",
+    );
+    await fs.writeFile(
+      path.join(apiZodRoot, "package.json"),
+      JSON.stringify({ name: "@workspace/api-zod" }),
+      "utf8",
+    );
+    await fs.mkdir(path.join(rootNodeModules, "@workspace"), { recursive: true });
+    await fs.mkdir(path.join(rootNodeModules, "vite"), { recursive: true });
+    await fs.writeFile(
+      path.join(rootNodeModules, "vite/package.json"),
+      JSON.stringify({ name: "vite" }),
+      "utf8",
+    );
+    await fs.symlink(
+      mockupRoot,
+      path.join(rootNodeModules, "@workspace/mockup-sandbox"),
+    );
+    await fs.symlink(apiZodRoot, path.join(rootNodeModules, "@workspace/api-zod"));
+    await fs.mkdir(path.join(mockupNodeModules, "@workspace"), { recursive: true });
+    await fs.symlink(
+      apiZodRoot,
+      path.join(mockupNodeModules, "@workspace/api-zod"),
+    );
+    await fs.symlink(
+      path.join(rootNodeModules, "vite"),
+      path.join(mockupNodeModules, "vite"),
+    );
+
+    let workspace: Awaited<ReturnType<typeof createValidationWorkspace>> | undefined;
+    try {
+      workspace = await createValidationWorkspace(sourceRoot, [], async () => {});
+
+      const candidateMockupRoot = path.join(
+        workspace.rootPath,
+        "artifacts/mockup-sandbox",
+      );
+      expect(await fs.realpath(
+        path.join(workspace.rootPath, "node_modules/@workspace/mockup-sandbox"),
+      )).toBe(candidateMockupRoot);
+      expect(await fs.realpath(
+        path.join(candidateMockupRoot, "node_modules/@workspace/api-zod"),
+      )).toBe(path.join(workspace.rootPath, "lib/api-zod"));
+      expect(await fs.realpath(
+        path.join(candidateMockupRoot, "node_modules/vite"),
+      )).toBe(path.join(rootNodeModules, "vite"));
     } finally {
       await workspace?.cleanup();
       await fs.rm(sourceRoot, { recursive: true, force: true });

@@ -23,6 +23,22 @@ const ENVIRONMENT_DIGEST_NAMES = new Set([
 const MAX_VALIDATOR_PATH_PREFIX_COMPONENTS = 64;
 const MAX_VALIDATOR_PATH_CHARACTERS = 32_768;
 
+export type ValidatorProcessPathDiagnostics = {
+  exact: boolean;
+  matched: boolean;
+  actualComponentCount: number;
+  expectedComponentCount: number;
+  prefixCount: number;
+  suffixMatches: boolean;
+  prefixCountWithinLimit: boolean;
+  prefixesAbsolute: boolean;
+  prefixesNormalized: boolean;
+  prefixesAllowed: boolean;
+  allowedPrefixCount: number;
+  unapprovedPrefixCount: number;
+  actualPathUtf8Valid?: boolean;
+};
+
 export function matchesValidatorProcessPath(
   actualPath: string,
   expectedPath: string,
@@ -42,9 +58,26 @@ function inspectValidatorProcessPath(
   expectedPath: string,
   validationRoot: string,
   approvedProcessPathDirectories: readonly string[],
+  onDiagnostic?: (diagnostics: ValidatorProcessPathDiagnostics) => void,
 ): boolean {
   const exact = actualPath === expectedPath;
-  if (exact) return true;
+  if (exact) {
+    onDiagnostic?.({
+      exact: true,
+      matched: true,
+      actualComponentCount: actualPath.split(path.delimiter).length,
+      expectedComponentCount: expectedPath.split(path.delimiter).length,
+      prefixCount: 0,
+      suffixMatches: true,
+      prefixCountWithinLimit: true,
+      prefixesAbsolute: true,
+      prefixesNormalized: true,
+      prefixesAllowed: true,
+      allowedPrefixCount: 0,
+      unapprovedPrefixCount: 0,
+    });
+    return true;
+  }
   const actualComponents = actualPath.split(path.delimiter);
   const expectedComponents = expectedPath.split(path.delimiter);
   const prefixCount = actualComponents.length - expectedComponents.length;
@@ -64,6 +97,8 @@ function inspectValidatorProcessPath(
   });
   const canonicalRoot = path.resolve(validationRoot);
   const approvedDirectories = new Set(approvedProcessPathDirectories.map((directory) => path.resolve(directory)));
+  let allowedPrefixCount = 0;
+  let unapprovedPrefixCount = 0;
   const prefixesAllowed = prefixesNormalized && prefixes.every((component) => {
     const absoluteComponent = path.resolve(component);
     const relative = path.relative(canonicalRoot, absoluteComponent);
@@ -75,14 +110,32 @@ function inspectValidatorProcessPath(
     const isNodeModulesBin = segments.length >= 2
         && segments[segments.length - 2] === "node_modules"
         && segments[segments.length - 1] === ".bin";
-    return (withinValidationRoot && isNodeModulesBin)
+    const allowed = (withinValidationRoot && isNodeModulesBin)
       || approvedDirectories.has(absoluteComponent);
+    if (allowed) allowedPrefixCount += 1;
+    else unapprovedPrefixCount += 1;
+    return allowed;
   });
-  return prefixCountWithinLimit
+  const matched = prefixCountWithinLimit
     && suffixMatches
     && prefixesAbsolute
     && prefixesNormalized
     && prefixesAllowed;
+  onDiagnostic?.({
+    exact: false,
+    matched,
+    actualComponentCount: actualComponents.length,
+    expectedComponentCount: expectedComponents.length,
+    prefixCount,
+    suffixMatches,
+    prefixCountWithinLimit,
+    prefixesAbsolute,
+    prefixesNormalized,
+    prefixesAllowed,
+    allowedPrefixCount,
+    unapprovedPrefixCount,
+  });
+  return matched;
 }
 
 export type ChildProcessAttestationBinding = {
@@ -326,6 +379,7 @@ export async function attestChildProcessEnvironment(input: {
   onEnvironmentCheck?: (diagnostic: {
     markerMatched: boolean;
     mismatchedEnvironmentNames: readonly string[];
+    pathDiagnostics?: ValidatorProcessPathDiagnostics;
   }) => void;
 }): Promise<ChildProcessEnvironmentAttestation> {
   const observedAt = input.observedAt ?? new Date().toISOString();
@@ -368,6 +422,7 @@ export async function attestChildProcessEnvironment(input: {
 
     let expectedEnvironmentMatched = true;
     const mismatchedEnvironmentNames: string[] = [];
+    let pathDiagnostics: ValidatorProcessPathDiagnostics | undefined;
     for (const [name, expectedValue] of Object.entries(input.expectedEnvironment ?? {})) {
       const value = oneValue(values, name);
       const actualValue = value?.toString("utf8");
@@ -379,6 +434,9 @@ export async function attestChildProcessEnvironment(input: {
           expectedValue,
           input.allowLocalNodeModulesBinPathRoot,
           input.approvedProcessPathDirectories ?? [],
+          (diagnostics) => {
+            pathDiagnostics = { ...diagnostics, actualPathUtf8Valid: validUtf8 };
+          },
         );
         matches = validUtf8 && pathMatched;
       } else {
@@ -415,7 +473,11 @@ export async function attestChildProcessEnvironment(input: {
       rootInode: rootStat.ino,
     }));
     const markerMatched = markerMatches(observedMarker, input.marker);
-    input.onEnvironmentCheck?.({ markerMatched, mismatchedEnvironmentNames });
+    input.onEnvironmentCheck?.({
+      markerMatched,
+      mismatchedEnvironmentNames,
+      ...(pathDiagnostics ? { pathDiagnostics } : {}),
+    });
     const matched = markerMatched && expectedEnvironmentMatched;
     const status = matched ? "known" : "mismatch";
     const reasonCode = matched ? "child_process_observed" : "child_environment_mismatch";
@@ -497,6 +559,7 @@ export async function attestValidatorProcessTreeEnvironment(input: {
   onEnvironmentCheck?: (diagnostic: {
     markerMatched: boolean;
     mismatchedEnvironmentNames: readonly string[];
+    pathDiagnostics?: ValidatorProcessPathDiagnostics;
   }) => void;
 }): Promise<ValidationProcessTreeAttestation> {
   const observedAt = input.observedAt ?? new Date().toISOString();

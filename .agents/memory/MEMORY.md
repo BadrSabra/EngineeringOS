@@ -28,7 +28,7 @@
 - [Untrusted content boundary](untrusted-content-boundary.md) — repository, tool, memory, and checkpoint text is evidence/data only; server authorization remains independent.
 - [Dashboard/browser validation](dashboard-browser-validation-index.md) — grouped pointers for authentication, routes, streams, and browser stability.
 - [Test environment contracts](test-environment-index.md) — grouped pointers for database, process, package-root, and validation isolation.
-- [Candidate validation boundary](candidate-validation-boundary.md) — validation evidence must bind to the immutable candidate workspace and promoted bytes, not merely the live root.
+- [Candidate validation boundary](candidate-validation-boundary.md) — bind validation to immutable candidate bytes and rebuild from dependency-complete clean copies.
 - [Autonomous delivery acceptance](autonomous-delivery-acceptance.md) — measure unified-loop receipts by unique operation identity; only verified, violation-free delivery counts as completion.
 - [Terminal ownership fences](terminal-ownership-fences.md) — durable writes require the current lease; Episode actor IDs remain provenance across same-attempt recovery.
 - [Periodic write attempt fences](periodic-write-attempt-fence.md) — checkpoints, orientation manifests, and heartbeats must bind worker identity to the durable attempt, not worker ID alone.

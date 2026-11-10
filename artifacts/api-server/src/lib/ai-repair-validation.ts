@@ -23,6 +23,7 @@ import {
   CHILD_ATTESTATION_ENV_NAME,
   type ChildProcessAttestationBinding,
   type ChildProcessEnvironmentAttestation,
+  type ValidatorProcessPathDiagnostics,
 } from "./agent-state/child-process-attestation.js";
 import {
   verifyBrowserPreview,
@@ -228,6 +229,134 @@ const VALIDATION_COPY_OMIT_ANYWHERE = new Set([
   ".test-roots",
 ]);
 
+type ValidationWorkspacePackage = {
+  sourceRoot: string;
+  workspaceRoot: string;
+  nodeModulesPath?: string;
+};
+
+async function findValidationWorkspacePackages(
+  sourceRoot: string,
+  workspaceRoot: string,
+): Promise<{
+  packages: ValidationWorkspacePackage[];
+  packagePathsByName: Map<string, string>;
+}> {
+  const candidates: string[] = [path.join(sourceRoot, "scripts")];
+  for (const parentName of ["artifacts", "lib"]) {
+    const parentPath = path.join(sourceRoot, parentName);
+    let entries: Array<import("node:fs").Dirent<string>>;
+    try {
+      entries = await fs.readdir(parentPath, { withFileTypes: true });
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") continue;
+      throw error;
+    }
+    for (const entry of entries) {
+      if (entry.isDirectory()) candidates.push(path.join(parentPath, entry.name));
+    }
+  }
+
+  const packages: ValidationWorkspacePackage[] = [];
+  const packagePathsByName = new Map<string, string>();
+  for (const packageSourceRoot of candidates) {
+    const manifestPath = path.join(packageSourceRoot, "package.json");
+    let manifest: unknown;
+    try {
+      manifest = JSON.parse(await fs.readFile(manifestPath, "utf8"));
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") continue;
+      throw new Error("validation_workspace_package_manifest_invalid");
+    }
+    if (
+      typeof manifest !== "object"
+      || manifest === null
+      || Array.isArray(manifest)
+      || typeof (manifest as { name?: unknown }).name !== "string"
+    ) {
+      continue;
+    }
+
+    const relative = path.relative(sourceRoot, packageSourceRoot);
+    const candidatePackageRoot = path.resolve(workspaceRoot, relative);
+    if (
+      !relative
+      || relative.startsWith(`..${path.sep}`)
+      || path.isAbsolute(relative)
+      || !candidatePackageRoot.startsWith(`${workspaceRoot}${path.sep}`)
+    ) {
+      throw new Error("validation_workspace_package_root_escape");
+    }
+    const packageName = (manifest as { name: string }).name;
+    const workspaceMatch = packageName.match(/^@workspace\/([^/]+)$/);
+    if (packageName.startsWith("@workspace/") && !workspaceMatch) {
+      throw new Error("validation_workspace_package_name_invalid");
+    }
+    if (workspaceMatch) {
+      const workspaceName = workspaceMatch[1]!;
+      if (
+        workspaceName === "."
+        || workspaceName === ".."
+        || workspaceName.includes("\\")
+        || packagePathsByName.has(workspaceName)
+      ) {
+        throw new Error("validation_workspace_package_name_invalid");
+      }
+      packagePathsByName.set(workspaceName, candidatePackageRoot);
+    }
+
+    const sourceNodeModules = path.join(packageSourceRoot, "node_modules");
+    let nodeModulesStat: Awaited<ReturnType<typeof fs.stat>> | undefined;
+    try {
+      nodeModulesStat = await fs.stat(sourceNodeModules);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+    }
+    if (nodeModulesStat && !nodeModulesStat.isDirectory()) {
+      throw new Error("validation_workspace_package_node_modules_unavailable");
+    }
+    packages.push({
+      sourceRoot: packageSourceRoot,
+      workspaceRoot: candidatePackageRoot,
+      ...(nodeModulesStat ? { nodeModulesPath: sourceNodeModules } : {}),
+    });
+  }
+
+  return { packages, packagePathsByName };
+}
+
+async function linkValidationWorkspaceNodeModules(
+  sourceNodeModules: string,
+  workspaceNodeModules: string,
+  packagePathsByName: ReadonlyMap<string, string>,
+): Promise<void> {
+  await fs.mkdir(workspaceNodeModules, { recursive: true });
+  for (const entry of await fs.readdir(sourceNodeModules)) {
+    const sourceEntry = path.join(sourceNodeModules, entry);
+    const workspaceEntry = path.join(workspaceNodeModules, entry);
+    if (entry !== "@workspace") {
+      await fs.symlink(sourceEntry, workspaceEntry);
+      continue;
+    }
+
+    await fs.mkdir(workspaceEntry, { recursive: true });
+    for (const workspacePackageName of await fs.readdir(sourceEntry)) {
+      const workspacePackagePath = packagePathsByName.get(workspacePackageName);
+      if (!workspacePackagePath) {
+        throw new Error("validation_workspace_workspace_dependency_unavailable");
+      }
+      const workspacePackageStat = await fs.stat(workspacePackagePath).catch(() => undefined);
+      if (!workspacePackageStat?.isDirectory()) {
+        throw new Error("validation_workspace_workspace_dependency_unavailable");
+      }
+      await fs.symlink(
+        workspacePackagePath,
+        path.join(workspaceEntry, workspacePackageName),
+      );
+    }
+  }
+}
+
 type ValidationDraft = Omit<ValidationResult, "evidence"> & {
   environmentRevision?: string | null;
   childProcessAttestation?: ChildProcessEnvironmentAttestation;
@@ -355,6 +484,7 @@ export async function createValidationWorkspace(
       if (
         VALIDATION_COPY_OMIT.has(firstSegment)
         || relativeSegments.some((segment) => VALIDATION_COPY_OMIT_ANYWHERE.has(segment))
+        || relativeSegments.some((segment) => segment.endsWith(".tsbuildinfo"))
       ) return false;
 
       const stat = await fs.lstat(source);
@@ -390,6 +520,10 @@ export async function createValidationWorkspace(
     }
     if (signal?.aborted) throw new Error("validation_workspace_cancelled");
 
+    const { packages, packagePathsByName } = await findValidationWorkspacePackages(
+      sourceRoot,
+      workspaceRoot,
+    );
     const originalModules = path.join(sourceRoot, "node_modules");
     const overlayModules = path.join(workspaceRoot, "node_modules");
     let hasOriginalModules = true;
@@ -399,24 +533,19 @@ export async function createValidationWorkspace(
       hasOriginalModules = false;
     }
     if (hasOriginalModules) {
-      await fs.mkdir(overlayModules, { recursive: true });
-      for (const entry of await fs.readdir(originalModules, { withFileTypes: true })) {
-        const originalEntry = path.join(originalModules, entry.name);
-        const overlayEntry = path.join(overlayModules, entry.name);
-        if (entry.name !== "@workspace") {
-          await fs.symlink(originalEntry, overlayEntry);
-          continue;
-        }
-        await fs.mkdir(overlayEntry, { recursive: true });
-        for (const workspacePackage of await fs.readdir(originalEntry, { withFileTypes: true })) {
-          const packagePath = workspacePackage.name === "api-server"
-            ? path.join(workspaceRoot, "artifacts/api-server")
-            : workspacePackage.name === "dashboard"
-              ? path.join(workspaceRoot, "artifacts/dashboard")
-              : path.join(workspaceRoot, "lib", workspacePackage.name);
-          await fs.symlink(packagePath, path.join(overlayEntry, workspacePackage.name));
-        }
-      }
+      await linkValidationWorkspaceNodeModules(
+        originalModules,
+        overlayModules,
+        packagePathsByName,
+      );
+    }
+    for (const workspacePackage of packages) {
+      if (!workspacePackage.nodeModulesPath) continue;
+      await linkValidationWorkspaceNodeModules(
+        workspacePackage.nodeModulesPath,
+        path.join(workspacePackage.workspaceRoot, "node_modules"),
+        packagePathsByName,
+      );
     }
 
     if (signal?.aborted) throw new Error("validation_workspace_cancelled");
@@ -565,6 +694,7 @@ type ValidatorProcessProbe = {
   environmentDiagnostics: () => {
     markerMismatchCount: number;
     mismatchedEnvironmentNames: string[];
+    pathDiagnostics: ValidatorProcessPathDiagnostics[];
   };
 };
 
@@ -695,14 +825,19 @@ function createValidatorProcessProbe(input: {
     [CHILD_ATTESTATION_ENV_NAME]: marker,
   };
   const mismatchedEnvironmentNames = new Set<string>();
+  const pathDiagnostics = new Map<string, ValidatorProcessPathDiagnostics>();
   let markerMismatchCount = 0;
   const recordEnvironmentCheck = (diagnostic: {
     markerMatched: boolean;
     mismatchedEnvironmentNames: readonly string[];
+    pathDiagnostics?: ValidatorProcessPathDiagnostics;
   }): void => {
     if (!diagnostic.markerMatched) markerMismatchCount += 1;
     for (const name of diagnostic.mismatchedEnvironmentNames) {
       mismatchedEnvironmentNames.add(name);
+    }
+    if (diagnostic.pathDiagnostics && pathDiagnostics.size < 4) {
+      pathDiagnostics.set(JSON.stringify(diagnostic.pathDiagnostics), diagnostic.pathDiagnostics);
     }
   };
   let observation: Promise<ChildProcessEnvironmentAttestation> | undefined;
@@ -829,6 +964,7 @@ function createValidatorProcessProbe(input: {
     environmentDiagnostics: () => ({
       markerMismatchCount,
       mismatchedEnvironmentNames: [...mismatchedEnvironmentNames].sort(),
+      pathDiagnostics: [...pathDiagnostics.values()],
     }),
   };
 }
@@ -988,6 +1124,7 @@ async function runRepairValidationCore(
           processTreeReasonCode: validatorProcessTreeAttestation?.reasonCode,
           markerMismatchCount: processEnvironmentDiagnostics.markerMismatchCount,
           mismatchedEnvironmentNames: processEnvironmentDiagnostics.mismatchedEnvironmentNames.slice(0, 12),
+          pathDiagnostics: processEnvironmentDiagnostics.pathDiagnostics,
         },
         "Validator process environment did not match its server-owned profile",
       );

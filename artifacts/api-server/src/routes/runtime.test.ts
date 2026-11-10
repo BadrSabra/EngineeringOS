@@ -223,8 +223,19 @@ describe("POST /api/projects/:projectId/runtime/start", () => {
       projectId: fixture.projectId,
       revision: fixture.sourceRevision,
       sessionId: `runtime-session-${fixture.projectId}`,
-      runtimeStatus: "running",
-      environmentRevision: expect.stringMatching(/^env-v1:[a-f0-9]{64}$/),
+      after: {
+        status: "passed",
+        projectId: fixture.projectId,
+        revision: fixture.sourceRevision,
+        sessionId: `runtime-session-${fixture.projectId}`,
+        processAlive: true,
+        portReady: true,
+        servingRevision: fixture.sourceRevision,
+        listener: {
+          status: "known",
+          processAttestation: { status: "known" },
+        },
+      },
     });
     const childProcessObservation = observations.find(
       (row) => row.predicate === "runtime.child_process_environment",
@@ -233,6 +244,7 @@ describe("POST /api/projects/:projectId/runtime/start", () => {
       status: "known",
       operationId: first.body.operationId,
       sessionId: `runtime-session-${fixture.projectId}`,
+      environmentRevision: expect.stringMatching(/^env-v1:[a-f0-9]{64}$/),
     });
     const events = await db.select({ eventType: aiAgentEpisodeEventsTable.eventType })
       .from(aiAgentEpisodeEventsTable)

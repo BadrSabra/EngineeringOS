@@ -8,6 +8,15 @@ export type ProviderEgressEnvironment = Partial<
   >
 >;
 
+function getProcessProviderEgressEnvironment(): ProviderEgressEnvironment {
+  return {
+    AI_PROVIDER_EGRESS_DISABLED: process.env.AI_PROVIDER_EGRESS_DISABLED,
+    RUN_CONTROLLED_RELEASE_VALIDATION: process.env.RUN_CONTROLLED_RELEASE_VALIDATION,
+    DASHBOARD_E2E_TEST_MODE: process.env.DASHBOARD_E2E_TEST_MODE,
+    NODE_ENV: process.env.NODE_ENV,
+  };
+}
+
 export class ProviderEgressDisabledError extends Error {
   readonly code = "AI_PROVIDER_EGRESS_DISABLED" as const;
 
@@ -20,7 +29,7 @@ export class ProviderEgressDisabledError extends Error {
 }
 
 export function isProviderEgressDisabled(
-  env: ProviderEgressEnvironment = process.env,
+  env: ProviderEgressEnvironment = getProcessProviderEgressEnvironment(),
 ): boolean {
   return (
     env.AI_PROVIDER_EGRESS_DISABLED === "1" &&
@@ -31,7 +40,7 @@ export function isProviderEgressDisabled(
 }
 
 export function assertProviderEgressEnabled(
-  env: ProviderEgressEnvironment = process.env,
+  env: ProviderEgressEnvironment = getProcessProviderEgressEnvironment(),
 ): void {
   if (isProviderEgressDisabled(env)) {
     throw new ProviderEgressDisabledError();

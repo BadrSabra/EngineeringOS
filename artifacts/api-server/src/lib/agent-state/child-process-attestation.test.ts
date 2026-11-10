@@ -168,6 +168,26 @@ describe("child process environment attestation", () => {
       markerMatched: true,
       mismatchedEnvironmentNames: ["NODE_ENV"],
     }]);
+
+    const pathDiagnostics: unknown[] = [];
+    const pathMismatch = await attestChildProcessEnvironment({
+      pid: child.pid,
+      projectRoot: root,
+      marker,
+      binding,
+      expectedEnvironment: { PATH: "/intentionally-different/path" },
+      allowLocalNodeModulesBinPathRoot: root,
+      onEnvironmentCheck: (diagnostic) => pathDiagnostics.push(diagnostic.pathDiagnostics),
+    });
+    expect(pathMismatch.status).toBe("mismatch");
+    expect(pathDiagnostics[0]).toMatchObject({
+      matched: false,
+      suffixMatches: false,
+      actualPathUtf8Valid: true,
+    });
+    if (process.env.PATH) {
+      expect(JSON.stringify(pathDiagnostics)).not.toContain(process.env.PATH);
+    }
   });
 
   it("keeps missing process evidence unknown and binds observations to the supplied execution identity", async () => {
