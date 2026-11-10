@@ -16,6 +16,7 @@ import {
   projectsTable,
   workspaceRuntimeTable,
 } from "@workspace/db";
+import { resolveRuntimeListenerProcess } from "./agent-state/runtime-listener-process.js";
 import { WorkspaceRuntimeManager } from "./workspace-runtime.js";
 import {
   databaseWorkspaceRuntimeStore,
@@ -1182,7 +1183,6 @@ describe("database workspace runtime store", () => {
             },
           },
         });
-        expect(listenerResolutions).toHaveLength(5);
         expect(await recoveryManager.get(projectId)).toMatchObject({
           status: "running",
           sessionId: ready.sessionId,
@@ -1490,6 +1490,30 @@ describe("workspace runtime lost-start-response process recovery", () => {
           45_000,
           "the replacement API worker to recover the durable start",
         );
+        if (recovered.status !== "running") {
+          const row = await databaseWorkspaceRuntimeStore.get(projectId);
+          const listener = await resolveRuntimeListenerProcess({
+            launchPid: startReply!.pid,
+            port: startReply!.port,
+            bindingDigest: "0".repeat(64),
+          });
+          const owner = row?.workerId === recoveryWorkerId
+            ? "recovery-worker"
+            : row?.workerId
+              ? "other-worker"
+              : "unclaimed";
+          const lease = row?.leaseUntil && row.leaseUntil.getTime() > Date.now()
+            ? "active"
+            : "expired";
+          throw new Error([
+            "Runtime recovery did not establish running state.",
+            `snapshot=${recovered.status}`,
+            `row=${row?.status ?? "missing"}`,
+            `owner=${owner}`,
+            `lease=${lease}`,
+            `listener=${listener.status}/${listener.reasonCode}`,
+          ].join(" "));
+        }
         expect(recovered).toMatchObject({
           projectId,
           sessionId: startReply!.sessionId,

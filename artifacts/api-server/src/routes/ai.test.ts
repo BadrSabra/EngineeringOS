@@ -7,7 +7,7 @@
  */
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import request from "supertest";
-import { and, eq, sql } from "drizzle-orm";
+import { and, asc, eq, sql } from "drizzle-orm";
 import { createHash, randomUUID } from "crypto";
 import { promises as fs } from "node:fs";
 import path from "node:path";
@@ -8214,7 +8214,8 @@ describe("POST /api/ai/chat/apply-changes", () => {
       const journal = await db
         .select()
         .from(aiApplyJournalTable)
-        .where(eq(aiApplyJournalTable.operationId, proposal?.messageId ?? proposalId));
+        .where(eq(aiApplyJournalTable.operationId, proposal?.messageId ?? proposalId))
+        .orderBy(asc(aiApplyJournalTable.sequence));
       expect(journal.length).toBeGreaterThanOrEqual(2);
       expect(journal.at(-1)?.stage).toBe("BLOCKED");
       expect(journal.at(-1)?.payload).toMatchObject({
@@ -8770,6 +8771,8 @@ describe("POST /api/ai/chat/apply-changes", () => {
         .where(eq(aiAgentObservationsTable.executionId, execution!.id));
       expect(observations).toHaveLength(2);
       expect(observations.every((observation) => observation.provenance === "DIRECT_OBSERVATION")).toBe(true);
+      expect(observations.map((observation) => observation.observationRole).sort())
+        .toEqual(["after", "before"]);
       const [bundle] = await db.select().from(aiAgentEffectBundlesTable)
         .where(eq(aiAgentEffectBundlesTable.executionId, execution!.id));
       expect(bundle).toMatchObject({ verdict: "OBSERVED" });

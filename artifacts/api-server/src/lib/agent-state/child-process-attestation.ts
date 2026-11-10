@@ -23,6 +23,33 @@ const ENVIRONMENT_DIGEST_NAMES = new Set([
 const MAX_VALIDATOR_PATH_PREFIX_COMPONENTS = 64;
 const MAX_VALIDATOR_PATH_CHARACTERS = 32_768;
 
+export type ValidatorProcessPathDiagnostics = {
+  exact: boolean;
+  matched: boolean;
+  actualComponentCount: number;
+  expectedComponentCount: number;
+  prefixCount: number;
+  suffixMatches: boolean;
+  prefixCountWithinLimit: boolean;
+  prefixesAbsolute: boolean;
+  prefixesNormalized: boolean;
+  prefixesAllowed: boolean;
+  allowedPrefixCount: number;
+  unapprovedPrefixCount: number;
+  candidateLocalNodeModulesBinPrefixCount: number;
+  candidateLocalNonBinPrefixCount: number;
+  externalNodeModulesBinPrefixCount: number;
+  externalNodeModulesPrefixCount: number;
+  pnpmStorePrefixCount: number;
+  pnpmNodeGypHelperPrefixCount: number;
+  pnpmNodeGypPackageBinPrefixCount: number;
+  externalBinDirectoryPrefixCount: number;
+  approvedProcessDirectoryPrefixCount: number;
+  otherExternalPrefixCount: number;
+  otherUnapprovedPrefixCount: number;
+  actualPathUtf8Valid?: boolean;
+};
+
 export function matchesValidatorProcessPath(
   actualPath: string,
   expectedPath: string,
@@ -42,9 +69,37 @@ function inspectValidatorProcessPath(
   expectedPath: string,
   validationRoot: string,
   approvedProcessPathDirectories: readonly string[],
+  onDiagnostic?: (diagnostics: ValidatorProcessPathDiagnostics) => void,
 ): boolean {
   const exact = actualPath === expectedPath;
-  if (exact) return true;
+  if (exact) {
+    onDiagnostic?.({
+      exact: true,
+      matched: true,
+      actualComponentCount: actualPath.split(path.delimiter).length,
+      expectedComponentCount: expectedPath.split(path.delimiter).length,
+      prefixCount: 0,
+      suffixMatches: true,
+      prefixCountWithinLimit: true,
+      prefixesAbsolute: true,
+      prefixesNormalized: true,
+      prefixesAllowed: true,
+      allowedPrefixCount: 0,
+      unapprovedPrefixCount: 0,
+      candidateLocalNodeModulesBinPrefixCount: 0,
+      candidateLocalNonBinPrefixCount: 0,
+      externalNodeModulesBinPrefixCount: 0,
+      externalNodeModulesPrefixCount: 0,
+      pnpmStorePrefixCount: 0,
+      pnpmNodeGypHelperPrefixCount: 0,
+      pnpmNodeGypPackageBinPrefixCount: 0,
+      externalBinDirectoryPrefixCount: 0,
+      approvedProcessDirectoryPrefixCount: 0,
+      otherExternalPrefixCount: 0,
+      otherUnapprovedPrefixCount: 0,
+    });
+    return true;
+  }
   const actualComponents = actualPath.split(path.delimiter);
   const expectedComponents = expectedPath.split(path.delimiter);
   const prefixCount = actualComponents.length - expectedComponents.length;
@@ -64,25 +119,101 @@ function inspectValidatorProcessPath(
   });
   const canonicalRoot = path.resolve(validationRoot);
   const approvedDirectories = new Set(approvedProcessPathDirectories.map((directory) => path.resolve(directory)));
-  const prefixesAllowed = prefixesNormalized && prefixes.every((component) => {
-    const absoluteComponent = path.resolve(component);
-    const relative = path.relative(canonicalRoot, absoluteComponent);
-    const withinValidationRoot = Boolean(relative)
-      && !path.isAbsolute(relative)
-      && relative !== ".."
-      && !relative.startsWith(`..${path.sep}`);
-    const segments = relative.split(path.sep);
-    const isNodeModulesBin = segments.length >= 2
+  let allowedPrefixCount = 0;
+  let unapprovedPrefixCount = 0;
+  let candidateLocalNodeModulesBinPrefixCount = 0;
+  let candidateLocalNonBinPrefixCount = 0;
+  let externalNodeModulesBinPrefixCount = 0;
+  let externalNodeModulesPrefixCount = 0;
+  let pnpmStorePrefixCount = 0;
+  let pnpmNodeGypHelperPrefixCount = 0;
+  let pnpmNodeGypPackageBinPrefixCount = 0;
+  let externalBinDirectoryPrefixCount = 0;
+  let approvedProcessDirectoryPrefixCount = 0;
+  let otherExternalPrefixCount = 0;
+  let otherUnapprovedPrefixCount = 0;
+  let prefixesAllowed = prefixesNormalized;
+  if (prefixesNormalized) {
+    for (const component of prefixes) {
+      const absoluteComponent = path.resolve(component);
+      const relative = path.relative(canonicalRoot, absoluteComponent);
+      const withinValidationRoot = Boolean(relative)
+        && !path.isAbsolute(relative)
+        && relative !== ".."
+        && !relative.startsWith(`..${path.sep}`);
+      const segments = relative.split(path.sep);
+      const isNodeModulesBin = segments.length >= 2
         && segments[segments.length - 2] === "node_modules"
         && segments[segments.length - 1] === ".bin";
-    return (withinValidationRoot && isNodeModulesBin)
-      || approvedDirectories.has(absoluteComponent);
-  });
-  return prefixCountWithinLimit
+      const absoluteSegments = absoluteComponent.split(path.sep).filter(Boolean);
+      const hasNodeModulesSegment = absoluteSegments.includes("node_modules");
+      const hasPnpmStoreSegment = absoluteSegments.includes(".pnpm");
+      const basename = path.basename(absoluteComponent);
+      const hasBinDirectorySuffix = basename === "bin" || basename === ".bin";
+      const hasNodeGypBinHelperSegment = absoluteSegments.includes("node-gyp-bin");
+      const hasNodeGypPackageBinShape = absoluteSegments.includes("node-gyp") && basename === "bin";
+      const isApprovedProcessDirectory = approvedDirectories.has(absoluteComponent);
+      const isCandidateLocalNodeModulesBin = withinValidationRoot && isNodeModulesBin;
+      if (isCandidateLocalNodeModulesBin) candidateLocalNodeModulesBinPrefixCount += 1;
+      else if (withinValidationRoot && !isApprovedProcessDirectory) candidateLocalNonBinPrefixCount += 1;
+      else if (isApprovedProcessDirectory) approvedProcessDirectoryPrefixCount += 1;
+      else if (isNodeModulesBin) externalNodeModulesBinPrefixCount += 1;
+      else otherUnapprovedPrefixCount += 1;
+      if (!withinValidationRoot && hasNodeModulesSegment) externalNodeModulesPrefixCount += 1;
+      if (hasPnpmStoreSegment) pnpmStorePrefixCount += 1;
+      if (hasPnpmStoreSegment && hasNodeGypBinHelperSegment) pnpmNodeGypHelperPrefixCount += 1;
+      if (hasPnpmStoreSegment && hasNodeGypPackageBinShape) pnpmNodeGypPackageBinPrefixCount += 1;
+      if (!withinValidationRoot && hasBinDirectorySuffix) externalBinDirectoryPrefixCount += 1;
+      if (
+        !withinValidationRoot
+        && !isApprovedProcessDirectory
+        && !hasNodeModulesSegment
+        && !hasBinDirectorySuffix
+      ) {
+        otherExternalPrefixCount += 1;
+      }
+
+      const allowed = isCandidateLocalNodeModulesBin || isApprovedProcessDirectory;
+      if (allowed) allowedPrefixCount += 1;
+      else unapprovedPrefixCount += 1;
+      prefixesAllowed = allowed && prefixesAllowed;
+    }
+  } else {
+    unapprovedPrefixCount = prefixes.length;
+    otherUnapprovedPrefixCount = prefixes.length;
+    otherExternalPrefixCount = prefixes.length;
+  }
+  const matched = prefixCountWithinLimit
     && suffixMatches
     && prefixesAbsolute
     && prefixesNormalized
     && prefixesAllowed;
+  onDiagnostic?.({
+    exact: false,
+    matched,
+    actualComponentCount: actualComponents.length,
+    expectedComponentCount: expectedComponents.length,
+    prefixCount,
+    suffixMatches,
+    prefixCountWithinLimit,
+    prefixesAbsolute,
+    prefixesNormalized,
+    prefixesAllowed,
+    allowedPrefixCount,
+    unapprovedPrefixCount,
+    candidateLocalNodeModulesBinPrefixCount,
+    candidateLocalNonBinPrefixCount,
+    externalNodeModulesBinPrefixCount,
+    externalNodeModulesPrefixCount,
+    pnpmStorePrefixCount,
+    pnpmNodeGypHelperPrefixCount,
+    pnpmNodeGypPackageBinPrefixCount,
+    externalBinDirectoryPrefixCount,
+    approvedProcessDirectoryPrefixCount,
+    otherExternalPrefixCount,
+    otherUnapprovedPrefixCount,
+  });
+  return matched;
 }
 
 export type ChildProcessAttestationBinding = {
@@ -323,6 +454,11 @@ export async function attestChildProcessEnvironment(input: {
   observedAt?: string;
   allowLocalNodeModulesBinPathRoot?: string;
   approvedProcessPathDirectories?: readonly string[];
+  onEnvironmentCheck?: (diagnostic: {
+    markerMatched: boolean;
+    mismatchedEnvironmentNames: readonly string[];
+    pathDiagnostics?: ValidatorProcessPathDiagnostics;
+  }) => void;
 }): Promise<ChildProcessEnvironmentAttestation> {
   const observedAt = input.observedAt ?? new Date().toISOString();
   if (!input.binding) return unknown("binding_missing", observedAt);
@@ -363,6 +499,8 @@ export async function attestChildProcessEnvironment(input: {
     }
 
     let expectedEnvironmentMatched = true;
+    const mismatchedEnvironmentNames: string[] = [];
+    let pathDiagnostics: ValidatorProcessPathDiagnostics | undefined;
     for (const [name, expectedValue] of Object.entries(input.expectedEnvironment ?? {})) {
       const value = oneValue(values, name);
       const actualValue = value?.toString("utf8");
@@ -374,6 +512,9 @@ export async function attestChildProcessEnvironment(input: {
           expectedValue,
           input.allowLocalNodeModulesBinPathRoot,
           input.approvedProcessPathDirectories ?? [],
+          (diagnostics) => {
+            pathDiagnostics = { ...diagnostics, actualPathUtf8Valid: validUtf8 };
+          },
         );
         matches = validUtf8 && pathMatched;
       } else {
@@ -381,6 +522,7 @@ export async function attestChildProcessEnvironment(input: {
       }
       if (!matches) {
         expectedEnvironmentMatched = false;
+        mismatchedEnvironmentNames.push(name);
       }
     }
 
@@ -408,7 +550,13 @@ export async function attestChildProcessEnvironment(input: {
       rootDevice: rootStat.dev,
       rootInode: rootStat.ino,
     }));
-    const matched = markerMatches(observedMarker, input.marker) && expectedEnvironmentMatched;
+    const markerMatched = markerMatches(observedMarker, input.marker);
+    input.onEnvironmentCheck?.({
+      markerMatched,
+      mismatchedEnvironmentNames,
+      ...(pathDiagnostics ? { pathDiagnostics } : {}),
+    });
+    const matched = markerMatched && expectedEnvironmentMatched;
     const status = matched ? "known" : "mismatch";
     const reasonCode = matched ? "child_process_observed" : "child_environment_mismatch";
     const attestationDigest = sha256(JSON.stringify({
@@ -486,6 +634,11 @@ export async function attestValidatorProcessTreeEnvironment(input: {
   expectedEnvironment?: Readonly<Record<string, string>>;
   observedAt?: string;
   approvedProcessPathDirectories?: readonly string[];
+  onEnvironmentCheck?: (diagnostic: {
+    markerMatched: boolean;
+    mismatchedEnvironmentNames: readonly string[];
+    pathDiagnostics?: ValidatorProcessPathDiagnostics;
+  }) => void;
 }): Promise<ValidationProcessTreeAttestation> {
   const observedAt = input.observedAt ?? new Date().toISOString();
   if (!input.binding || input.binding.processRole !== "validator_tree") {
@@ -559,6 +712,7 @@ export async function attestValidatorProcessTreeEnvironment(input: {
       observedAt,
       allowLocalNodeModulesBinPathRoot: input.projectRoot,
       approvedProcessPathDirectories: input.approvedProcessPathDirectories,
+      onEnvironmentCheck: input.onEnvironmentCheck,
     });
     if (result.status === "mismatch") {
       return {

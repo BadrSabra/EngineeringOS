@@ -32,3 +32,15 @@ Blocked benchmark runs must retain the same server-owned source revision and can
 **Why:** An empty preflight result can still be cited later; if its envelope drops candidate identity, the failure cannot be reliably attributed to the exact code that was gated.
 
 **How to apply:** Populate identity fields from the runner’s immutable inputs in every early-return path, and assert the fields on blocked and completed receipts.
+
+Disposable validation copies must exclude TypeScript incremental build metadata whenever generated outputs are omitted, and must recreate package-local dependency links while pointing workspace-package links back into the candidate copy.
+
+**Why:** Stale `.tsbuildinfo` can make a clean build skip missing declarations; missing package-local dependencies can hide required types or resolve workspace packages from the live tree instead of the candidate.
+
+**How to apply:** Exclude every `*.tsbuildinfo` file from candidate copies, rebuild root and package dependency overlays from installed modules, and verify the copy with a clean full-workspace typecheck under bounded budgets long enough for that check.
+
+Candidate dependency overlays must keep each `.bin` directory inside the candidate and remap only workspace packages that exist in the copy. Omit installed-but-unrepresented `@workspace` links; fail closed when a manifest-declared workspace dependency is missing from the candidate.
+
+**Why:** Package managers can resolve a symlinked `.bin` back to the live project and add that path to validator `PATH`. A global installation can also contain workspace links unrelated to a minimal candidate fixture.
+
+**How to apply:** Materialize root and package-local `.bin` directories, link their command entries to installed dependency tools, and derive required workspace links from the candidate manifests before validation.

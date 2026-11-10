@@ -46,3 +46,11 @@ A managed runtime is not stopped merely because its group leader exited. Wait fo
 **Why:** The leader can exit on SIGTERM while a descendant in the same group ignores it; reporting `stopped` at that point leaves an orphaned runtime and false lifecycle state.
 
 **How to apply:** Use group-level liveness rather than leader-PID liveness, and test with a leader that exits on SIGTERM while a ready descendant ignores it. Keep status observations unresolved until cleanup is confirmed.
+
+### Runtime observation scope
+
+A live session corroborated by its owned process identity and expected listener remains `running` even when unrelated managed-range listeners have unknown owners. Unknown listeners still prevent a `stopped` claim when the target has no corroborated live session.
+
+**Why:** Applying a global incomplete-port inventory to a positively identified session lets another project's listener incorrectly make that session unavailable.
+
+**How to apply:** First bind the target session to its direct owned PID and expected port; use unowned listeners to constrain only absent or uncorroborated target states, never to erase positive target-specific proof.

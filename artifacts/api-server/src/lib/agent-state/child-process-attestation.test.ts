@@ -12,6 +12,7 @@ import {
   CHILD_ATTESTATION_ENV_NAME,
   matchesValidatorProcessPath,
   type ChildProcessAttestationBinding,
+  type ValidatorProcessPathDiagnostics,
 } from "./child-process-attestation.js";
 
 const children: ChildProcess[] = [];
@@ -33,11 +34,16 @@ async function makeRoot(): Promise<string> {
   return root;
 }
 
-async function startChild(root: string, marker: string, nodeEnv = "development"): Promise<ChildProcess> {
+async function startChild(
+  root: string,
+  marker: string,
+  nodeEnv = "development",
+  pathValue = process.env.PATH ?? "",
+): Promise<ChildProcess> {
   const child = spawn(process.execPath, ["-e", "setInterval(() => {}, 1000)"], {
     cwd: root,
     env: {
-      PATH: process.env.PATH ?? "",
+      PATH: pathValue,
       HOME: process.env.HOME ?? root,
       NODE_ENV: nodeEnv,
       PORT: "3221",
@@ -147,18 +153,47 @@ describe("child process environment attestation", () => {
       marker: "d79d5df7-1679-48fa-9ee4-8fd8be8e43d1",
       binding,
     });
+    const environmentDiagnostics: Array<{
+      markerMatched: boolean;
+      mismatchedEnvironmentNames: readonly string[];
+    }> = [];
     const environmentMismatch = await attestChildProcessEnvironment({
       pid: child.pid,
       projectRoot: root,
       marker,
       binding,
       expectedEnvironment: { NODE_ENV: "development" },
+      onEnvironmentCheck: (diagnostic) => environmentDiagnostics.push(diagnostic),
     });
 
     expect(markerMismatch.status).toBe("mismatch");
     expect(markerMismatch.reasonCode).toBe("child_environment_mismatch");
     expect(environmentMismatch.status).toBe("mismatch");
     expect(environmentMismatch.processEnvironmentDigest).toMatch(/^[a-f0-9]{64}$/);
+    expect(environmentDiagnostics).toEqual([{
+      markerMatched: true,
+      mismatchedEnvironmentNames: ["NODE_ENV"],
+    }]);
+
+    const pathDiagnostics: unknown[] = [];
+    const pathMismatch = await attestChildProcessEnvironment({
+      pid: child.pid,
+      projectRoot: root,
+      marker,
+      binding,
+      expectedEnvironment: { PATH: "/intentionally-different/path" },
+      allowLocalNodeModulesBinPathRoot: root,
+      onEnvironmentCheck: (diagnostic) => pathDiagnostics.push(diagnostic.pathDiagnostics),
+    });
+    expect(pathMismatch.status).toBe("mismatch");
+    expect(pathDiagnostics[0]).toMatchObject({
+      matched: false,
+      suffixMatches: false,
+      actualPathUtf8Valid: true,
+    });
+    if (process.env.PATH) {
+      expect(JSON.stringify(pathDiagnostics)).not.toContain(process.env.PATH);
+    }
   });
 
   it("keeps missing process evidence unknown and binds observations to the supplied execution identity", async () => {
@@ -240,6 +275,82 @@ describe("child process environment attestation", () => {
     expect(matchesValidatorProcessPath(`/tmp/arbitrary${path.delimiter}${baseline}`, baseline, root)).toBe(false);
     expect(matchesValidatorProcessPath(`${outsideRootBin}${path.delimiter}${baseline}`, baseline, root)).toBe(false);
     expect(matchesValidatorProcessPath(`${localBin}${path.delimiter}/usr/local/bin`, baseline, root)).toBe(false);
+  });
+
+  it("classifies rejected PATH prefixes without retaining their values", async () => {
+    const root = await makeRoot();
+    const outsideRoot = `${root}-outside`;
+    roots.push(outsideRoot);
+    const marker = "validator-path-categories-27a3";
+    const baseline = ["/usr/bin", "/bin"].join(path.delimiter);
+    const candidateBin = path.join(root, "pkg", "node_modules", ".bin");
+    const externalBin = path.join(outsideRoot, "node_modules", ".bin");
+    const externalPnpmHelper = path.join(
+      outsideRoot,
+      "node_modules",
+      ".pnpm",
+      "pnpm@10.0.0",
+      "node_modules",
+      "pnpm",
+      "dist",
+      "node-gyp-bin",
+    );
+    const externalNodeGypBin = path.join(
+      outsideRoot,
+      "node_modules",
+      ".pnpm",
+      "node-gyp@10.0.0",
+      "node_modules",
+      "node-gyp",
+      "bin",
+    );
+    const externalOther = path.join(outsideRoot, "runtime", "support");
+    const child = await startChild(
+      root,
+      marker,
+      "development",
+      [
+        candidateBin,
+        externalBin,
+        externalPnpmHelper,
+        externalNodeGypBin,
+        externalOther,
+        baseline,
+      ].join(path.delimiter),
+    );
+    let diagnostics: ValidatorProcessPathDiagnostics | undefined;
+    const attestation = await attestChildProcessEnvironment({
+      pid: child.pid,
+      projectRoot: root,
+      marker,
+      binding,
+      expectedEnvironment: { PATH: baseline },
+      allowLocalNodeModulesBinPathRoot: root,
+      onEnvironmentCheck: (result) => {
+        diagnostics = result.pathDiagnostics;
+      },
+    });
+
+    expect(attestation.status).toBe("mismatch");
+    expect(diagnostics).toMatchObject({
+      matched: false,
+      prefixCount: 5,
+      allowedPrefixCount: 1,
+      unapprovedPrefixCount: 4,
+      candidateLocalNodeModulesBinPrefixCount: 1,
+      candidateLocalNonBinPrefixCount: 0,
+      externalNodeModulesBinPrefixCount: 1,
+      externalNodeModulesPrefixCount: 3,
+      pnpmStorePrefixCount: 2,
+      pnpmNodeGypHelperPrefixCount: 1,
+      pnpmNodeGypPackageBinPrefixCount: 1,
+      externalBinDirectoryPrefixCount: 2,
+      approvedProcessDirectoryPrefixCount: 0,
+      otherExternalPrefixCount: 1,
+      otherUnapprovedPrefixCount: 3,
+    });
+    expect(JSON.stringify(diagnostics)).not.toContain(root);
+    expect(JSON.stringify(diagnostics)).not.toContain(outsideRoot);
   });
 
   it("keeps a missing process and a process without descendants unknown", async () => {

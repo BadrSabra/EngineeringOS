@@ -112,7 +112,7 @@ describe("validation budgets", () => {
   it.each(["4999", "600001", "0", "not-a-number"])("rejects unsafe process budget %s", (raw) => {
     expect(() => parseValidationBudget(raw, {
       name: "VALIDATION_PROCESS_TIMEOUT_MS",
-      defaultMs: 90_000,
+      defaultMs: VALIDATION_PROCESS_TIMEOUT_DEFAULT_MS,
       minMs: 5_000,
       maxMs: 600_000,
     })).toThrow(/VALIDATION_PROCESS_TIMEOUT_MS/);
@@ -121,7 +121,7 @@ describe("validation budgets", () => {
   it("accepts a bounded overall budget", () => {
     expect(parseValidationBudget("180000", {
       name: "VALIDATION_OVERALL_TIMEOUT_MS",
-      defaultMs: 110_000,
+      defaultMs: VALIDATION_OVERALL_TIMEOUT_DEFAULT_MS,
       minMs: 10_000,
       maxMs: 900_000,
     })).toBe(180_000);

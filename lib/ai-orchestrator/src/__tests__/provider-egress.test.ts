@@ -1,10 +1,14 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   assertProviderEgressEnabled,
   isProviderEgressDisabled,
   ProviderEgressDisabledError,
   type ProviderEgressEnvironment,
 } from "../provider-egress.js";
+
+afterEach(() => {
+  vi.unstubAllEnvs();
+});
 
 const fixtureEnvironment: ProviderEgressEnvironment = {
   AI_PROVIDER_EGRESS_DISABLED: "1",
@@ -52,5 +56,15 @@ describe("provider egress guard", () => {
         AI_PROVIDER_EGRESS_DISABLED: undefined,
       }),
     ).not.toThrow();
+  });
+
+  it("reads the process environment through the default guard", () => {
+    vi.stubEnv("AI_PROVIDER_EGRESS_DISABLED", "1");
+    vi.stubEnv("RUN_CONTROLLED_RELEASE_VALIDATION", "1");
+    vi.stubEnv("DASHBOARD_E2E_TEST_MODE", "fixture");
+    vi.stubEnv("NODE_ENV", "development");
+
+    expect(isProviderEgressDisabled()).toBe(true);
+    expect(() => assertProviderEgressEnabled()).toThrow(ProviderEgressDisabledError);
   });
 });
