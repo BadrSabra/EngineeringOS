@@ -261,6 +261,10 @@ test("UXW-01 restores the goal inside AI Chat without sending it", async ({
   await expect(page.getByTestId("status-project-planning-handoff")).toBeVisible();
   expect(apiRequests.filter((request) => !request.startsWith("GET "))).toEqual([]);
   expect(apiRequests).not.toContain("POST /api/ai/chat/stream");
+  await page.screenshot({
+    path: test.info().outputPath("uxw01-ai-chat-goal-restored.png"),
+    fullPage: true,
+  });
 
   const drafts = await page.evaluate((key) => {
     const raw = window.sessionStorage.getItem(key);

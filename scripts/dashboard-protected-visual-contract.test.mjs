@@ -124,6 +124,13 @@ test("mobile goal geometry is measured before handoff leaves the home route", ()
   assert.ok(geometryCheck >= 0 && geometryCheck < handoffAction);
 });
 
+test("the AI Chat recovery journey saves a successful visual receipt", () => {
+  assert.match(
+    homeGoalJourneySource,
+    /test\.info\(\)\.outputPath\("uxw01-ai-chat-goal-restored\.png"\)/u,
+  );
+});
+
 test("UXW-01 skips PostgreSQL only for its API-fixtured focused journey", () => {
   assert.match(runnerSource, /testGrep === "UXW-01"/u);
   assert.match(
