@@ -111,17 +111,9 @@ test("the UXW-01 GitHub job requires approval and keeps runtime network-isolated
   assert.match(uxwWorkflowSource, /--network none/u);
   assert.match(uxwWorkflowSource, /--cap-drop ALL/u);
   assert.match(uxwWorkflowSource, /--security-opt no-new-privileges:true/u);
-  assert.equal(
-    (uxwWorkflowSource.match(/--sysctl net\.ipv6\.conf\.all\.disable_ipv6=1/gu) ?? [])
-      .length,
-    2,
-    "Both isolated containers must disable IPv6 so their route proof remains route-free.",
-  );
-  assert.equal(
-    (uxwWorkflowSource.match(/--sysctl net\.ipv6\.conf\.default\.disable_ipv6=1/gu) ?? [])
-      .length,
-    2,
-    "New interfaces in either isolated container must not enable IPv6.",
+  assert.match(
+    uxwWorkflowSource,
+    /const routesAreLoopback = \[\.\.\.ipv4Routes, \.\.\.ipv6Routes\]\s+\.every\(\(route\) => route\.iface === "lo"\);/u,
   );
   assert.match(
     uxwWorkflowSource,

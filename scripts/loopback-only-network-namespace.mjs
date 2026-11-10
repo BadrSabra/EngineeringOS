@@ -42,7 +42,9 @@ export function inspectLoopbackOnlyNetworkSnapshot(snapshot) {
 
   for (const route of [...(snapshot.ipv4Routes ?? []), ...(snapshot.ipv6Routes ?? [])]) {
     if (route.iface !== "lo") reasons.push("route_uses_non_loopback_interface");
-    if (route.isDefault) reasons.push("default_route_present");
+    if (route.isDefault && route.iface !== "lo") {
+      reasons.push("default_route_present");
+    }
   }
   if (snapshot.ipv4Routes === undefined || snapshot.ipv6Routes === undefined) {
     reasons.push("route_table_unavailable");

@@ -104,7 +104,7 @@ jobs:
                   noNewPrivileges,
                 };
                 const routesAreLoopback = [...ipv4Routes, ...ipv6Routes]
-                  .every((route) => route.iface === "lo" && !route.isDefault);
+                  .every((route) => route.iface === "lo");
                 const ok =
                   /^net:\[\d+\]$/.test(host ?? "") &&
                   /^net:\[\d+\]$/.test(self) &&

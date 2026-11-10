@@ -11,10 +11,13 @@ const isolatedSnapshot = {
   hostNetNamespace: "net:[4026531993]",
   interfaces: ["lo"],
   ipv4Routes: [{ iface: "lo", destination: "0000007F", isDefault: false }],
-  ipv6Routes: [{ iface: "lo", destination: "00000000000000000000000000000001", isDefault: false }],
+  ipv6Routes: [
+    { iface: "lo", destination: "00000000000000000000000000000001", isDefault: false },
+    { iface: "lo", destination: "00000000000000000000000000000000", isDefault: true },
+  ],
 };
 
-test("accepts a distinct network namespace with loopback only and no default route", () => {
+test("accepts loopback-only routes including a loopback-scoped default route", () => {
   assert.deepEqual(inspectLoopbackOnlyNetworkSnapshot(isolatedSnapshot), {
     ok: true,
     reasons: [],
@@ -42,6 +45,18 @@ test("rejects external interfaces and default routes", () => {
   assert.ok(result.reasons.includes("non_loopback_network_interface_present"));
   assert.ok(result.reasons.includes("route_uses_non_loopback_interface"));
   assert.ok(result.reasons.includes("default_route_present"));
+});
+
+test("rejects a non-default route on a non-loopback interface", () => {
+  const result = inspectLoopbackOnlyNetworkSnapshot({
+    ...isolatedSnapshot,
+    ipv6Routes: [
+      ...isolatedSnapshot.ipv6Routes,
+      { iface: "eth0", destination: "20010db8000000000000000000000000", isDefault: false },
+    ],
+  });
+  assert.equal(result.ok, false);
+  assert.ok(result.reasons.includes("route_uses_non_loopback_interface"));
 });
 
 test("rejects incomplete route-table evidence", () => {

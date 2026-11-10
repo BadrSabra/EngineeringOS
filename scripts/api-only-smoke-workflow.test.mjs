@@ -62,6 +62,10 @@ test("Docker isolation proof occurs before checkout or any project command", asy
   assert.match(preflightSource, /docker info/u);
   assert.match(preflightSource, /docker pull node:20\.20\.0-bookworm/u);
   assert.match(preflightSource, /--network none/u);
+  assert.match(
+    preflightSource,
+    /const routesAreLoopback = \[\.\.\.ipv4Routes, \.\.\.ipv6Routes\]\s+\.every\(\(route\) => route\.iface === "lo"\);/u,
+  );
   assert.match(preflightSource, /capabilitiesDropped/u);
   assert.match(preflightSource, /noNewPrivileges/u);
   assert.doesNotMatch(preflightSource, /pnpm|npm install|schema:apply|validate:api-only-smoke/iu);
