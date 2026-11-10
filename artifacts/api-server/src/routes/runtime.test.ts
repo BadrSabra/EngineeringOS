@@ -219,20 +219,15 @@ describe("POST /api/projects/:projectId/runtime/start", () => {
       .where(eq(aiAgentObservationsTable.executionId, first.body.executionId));
     const runtimeStateObservation = observations.find((row) => row.predicate === "runtime.after_state");
     expect(runtimeStateObservation?.value).toMatchObject({
-      after: {
-        status: "passed",
-        projectId: fixture.projectId,
-        revision: fixture.sourceRevision,
-        sessionId: `runtime-session-${fixture.projectId}`,
-        processAlive: true,
-        portReady: true,
-        servingRevision: fixture.sourceRevision,
-        listener: {
-          status: "known",
-          processAttestation: { status: "known" },
-        },
-      },
+      status: "passed",
+      runtimeStatus: "running",
+      projectId: fixture.projectId,
+      revision: fixture.sourceRevision,
+      sessionId: `runtime-session-${fixture.projectId}`,
+      processAlive: true,
+      portReady: true,
     });
+    expect(runtimeStateObservation?.value).not.toHaveProperty("after");
     const childProcessObservation = observations.find(
       (row) => row.predicate === "runtime.child_process_environment",
     );

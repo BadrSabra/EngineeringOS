@@ -36,6 +36,10 @@ export type ValidatorProcessPathDiagnostics = {
   prefixesAllowed: boolean;
   allowedPrefixCount: number;
   unapprovedPrefixCount: number;
+  candidateLocalNodeModulesBinPrefixCount: number;
+  externalNodeModulesBinPrefixCount: number;
+  approvedProcessDirectoryPrefixCount: number;
+  otherUnapprovedPrefixCount: number;
   actualPathUtf8Valid?: boolean;
 };
 
@@ -75,6 +79,10 @@ function inspectValidatorProcessPath(
       prefixesAllowed: true,
       allowedPrefixCount: 0,
       unapprovedPrefixCount: 0,
+      candidateLocalNodeModulesBinPrefixCount: 0,
+      externalNodeModulesBinPrefixCount: 0,
+      approvedProcessDirectoryPrefixCount: 0,
+      otherUnapprovedPrefixCount: 0,
     });
     return true;
   }
@@ -99,23 +107,39 @@ function inspectValidatorProcessPath(
   const approvedDirectories = new Set(approvedProcessPathDirectories.map((directory) => path.resolve(directory)));
   let allowedPrefixCount = 0;
   let unapprovedPrefixCount = 0;
-  const prefixesAllowed = prefixesNormalized && prefixes.every((component) => {
-    const absoluteComponent = path.resolve(component);
-    const relative = path.relative(canonicalRoot, absoluteComponent);
-    const withinValidationRoot = Boolean(relative)
-      && !path.isAbsolute(relative)
-      && relative !== ".."
-      && !relative.startsWith(`..${path.sep}`);
-    const segments = relative.split(path.sep);
-    const isNodeModulesBin = segments.length >= 2
+  let candidateLocalNodeModulesBinPrefixCount = 0;
+  let externalNodeModulesBinPrefixCount = 0;
+  let approvedProcessDirectoryPrefixCount = 0;
+  let otherUnapprovedPrefixCount = 0;
+  let prefixesAllowed = prefixesNormalized;
+  if (prefixesNormalized) {
+    for (const component of prefixes) {
+      const absoluteComponent = path.resolve(component);
+      const relative = path.relative(canonicalRoot, absoluteComponent);
+      const withinValidationRoot = Boolean(relative)
+        && !path.isAbsolute(relative)
+        && relative !== ".."
+        && !relative.startsWith(`..${path.sep}`);
+      const segments = relative.split(path.sep);
+      const isNodeModulesBin = segments.length >= 2
         && segments[segments.length - 2] === "node_modules"
         && segments[segments.length - 1] === ".bin";
-    const allowed = (withinValidationRoot && isNodeModulesBin)
-      || approvedDirectories.has(absoluteComponent);
-    if (allowed) allowedPrefixCount += 1;
-    else unapprovedPrefixCount += 1;
-    return allowed;
-  });
+      const isApprovedProcessDirectory = approvedDirectories.has(absoluteComponent);
+      const isCandidateLocalNodeModulesBin = withinValidationRoot && isNodeModulesBin;
+      if (isCandidateLocalNodeModulesBin) candidateLocalNodeModulesBinPrefixCount += 1;
+      else if (isApprovedProcessDirectory) approvedProcessDirectoryPrefixCount += 1;
+      else if (isNodeModulesBin) externalNodeModulesBinPrefixCount += 1;
+      else otherUnapprovedPrefixCount += 1;
+
+      const allowed = isCandidateLocalNodeModulesBin || isApprovedProcessDirectory;
+      if (allowed) allowedPrefixCount += 1;
+      else unapprovedPrefixCount += 1;
+      prefixesAllowed = allowed && prefixesAllowed;
+    }
+  } else {
+    unapprovedPrefixCount = prefixes.length;
+    otherUnapprovedPrefixCount = prefixes.length;
+  }
   const matched = prefixCountWithinLimit
     && suffixMatches
     && prefixesAbsolute
@@ -134,6 +158,10 @@ function inspectValidatorProcessPath(
     prefixesAllowed,
     allowedPrefixCount,
     unapprovedPrefixCount,
+    candidateLocalNodeModulesBinPrefixCount,
+    externalNodeModulesBinPrefixCount,
+    approvedProcessDirectoryPrefixCount,
+    otherUnapprovedPrefixCount,
   });
   return matched;
 }
