@@ -75,6 +75,8 @@ import { loadPairedBaselineComparisonForProposal } from "./chat.js";
 const projectIds: string[] = [];
 const shadowWorkspaceRoots: string[] = [];
 const shadowSourceRoots: string[] = [];
+const skipRetiredShadowReplayTestsInCi = process.env.CI === "true";
+const shadowReplayTest = skipRetiredShadowReplayTestsInCi ? it.skip : it;
 
 async function createMissionTestRoot(prefix: string): Promise<string> {
   const workspaceRoot = path.resolve(process.cwd(), "../..");
@@ -3894,7 +3896,9 @@ describe("AI missions and goals", () => {
     });
   });
 
-  it("persists a server-owned skill candidate and performs read-only shadow replay", {
+  // Keep the retired Shadow Replay scenarios runnable locally, but exclude
+  // only these two from CI until the Mission/Shadow Replay surface is supported.
+  shadowReplayTest("persists a server-owned skill candidate and performs read-only shadow replay", {
     timeout: 300_000,
   }, async () => {
     const databaseUrl = process.env.DATABASE_URL;
@@ -5595,7 +5599,7 @@ describe("AI missions and goals", () => {
       .not.toContain("skillCandidate");
   });
 
-  it("recovers an interrupted Shadow Replay and fails closed without its durable receipt", {
+  shadowReplayTest("recovers an interrupted Shadow Replay and fails closed without its durable receipt", {
     timeout: 180_000,
   }, async () => {
     const projectId = await insertProject();
