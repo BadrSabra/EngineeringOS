@@ -160,6 +160,11 @@ test("UXW-01 goal handoff works on mobile when dashboard analytics fail", async 
   await expect(goalInput).toBeVisible();
   await expect(goalSection).toHaveAttribute("dir", "rtl");
   await expect(goalInput).toHaveAttribute("dir", "auto");
+  const bounds = await goalSection.boundingBox();
+  expect(bounds).not.toBeNull();
+  expect(bounds!.x).toBeGreaterThanOrEqual(0);
+  expect(bounds!.x + bounds!.width).toBeLessThanOrEqual(402);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
   await goalInput.fill("أريد مراجعة مشكلة تسجيل الدخول");
   await goalInput.focus();
   await page.keyboard.press("Tab");
@@ -189,12 +194,6 @@ test("UXW-01 goal handoff works on mobile when dashboard analytics fail", async 
     sendAttemptedAt: null,
   });
   expect(apiRequests.filter((request) => !request.startsWith("GET "))).toEqual([]);
-
-  const bounds = await goalSection.boundingBox();
-  expect(bounds).not.toBeNull();
-  expect(bounds!.x).toBeGreaterThanOrEqual(0);
-  expect(bounds!.x + bounds!.width).toBeLessThanOrEqual(402);
-  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
 });
 
 test("UXW-01 new-project handoff preserves the goal without starting work", async ({

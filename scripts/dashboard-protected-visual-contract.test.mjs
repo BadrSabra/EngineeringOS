@@ -12,6 +12,10 @@ const journeySource = await readFile(
   resolve(root, "artifacts/dashboard/e2e/dashboard.journey.ts"),
   "utf8",
 );
+const homeGoalJourneySource = await readFile(
+  resolve(root, "artifacts/dashboard/e2e/home-goal.journey.ts"),
+  "utf8",
+);
 const viteSource = await readFile(
   resolve(root, "artifacts/dashboard/vite.config.ts"),
   "utf8",
@@ -98,6 +102,26 @@ test("the protected visual fixture removes a complete Google Fonts import", () =
     "",
   );
   assert.equal(stripped, "@import 'tailwindcss';");
+});
+
+test("mobile goal geometry is measured before handoff leaves the home route", () => {
+  const mobileJourneyStart = homeGoalJourneySource.indexOf(
+    'test("UXW-01 goal handoff works on mobile',
+  );
+  const nextJourneyStart = homeGoalJourneySource.indexOf(
+    'test("UXW-01 new-project handoff',
+    mobileJourneyStart,
+  );
+  const mobileJourney = homeGoalJourneySource.slice(
+    mobileJourneyStart,
+    nextJourneyStart,
+  );
+  const geometryCheck = mobileJourney.indexOf("goalSection.boundingBox()");
+  const handoffAction = mobileJourney.indexOf(
+    'getByTestId("button-route-goal-project")',
+  );
+  assert.ok(mobileJourneyStart >= 0 && nextJourneyStart > mobileJourneyStart);
+  assert.ok(geometryCheck >= 0 && geometryCheck < handoffAction);
 });
 
 test("UXW-01 skips PostgreSQL only for its API-fixtured focused journey", () => {
