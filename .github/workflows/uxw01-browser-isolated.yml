@@ -59,6 +59,8 @@ jobs:
             docker run --rm \
               --pull=never \
               --network none \
+              --sysctl net.ipv6.conf.all.disable_ipv6=1 \
+              --sysctl net.ipv6.conf.default.disable_ipv6=1 \
               --read-only \
               --tmpfs /tmp:rw,nosuid,nodev,size=64m \
               --pids-limit 32 \
@@ -215,6 +217,8 @@ jobs:
             --name "$container_name" \
             --label "com.engineeringos.uxw01-browser.run=${run_key}" \
             --network none \
+            --sysctl net.ipv6.conf.all.disable_ipv6=1 \
+            --sysctl net.ipv6.conf.default.disable_ipv6=1 \
             --tmpfs /tmp:rw,nosuid,nodev,size=2g,mode=1777 \
             --pids-limit 512 \
             --memory 6g \
