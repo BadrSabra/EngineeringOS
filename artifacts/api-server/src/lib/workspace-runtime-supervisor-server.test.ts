@@ -301,6 +301,89 @@ describe("workspace runtime supervisor server boundary", () => {
     expect(response.status).toBe(409);
   });
 
+  it("reports unknown when a live session coexists with an unowned listener", async () => {
+    const supervisorPort = await freePort();
+    const supervisor = startSupervisor(supervisorPort);
+    const projectRoot = await mkdtemp(path.join(tmpdir(), "workspace-runtime-unknown-listener-"));
+    const unownedListener = createServer();
+    const projectId = "unknown-listener-project";
+    const sessionId = "unknown-listener-session";
+    const token = deriveWorkspaceRuntimeSupervisorToken(testSecret);
+    let sessionStarted = false;
+
+    try {
+      await writeFile(
+        path.join(projectRoot, "package.json"),
+        JSON.stringify({ type: "module", scripts: { dev: "node server.mjs" } }),
+      );
+      await writeFile(
+        path.join(projectRoot, "server.mjs"),
+        [
+          'import http from "node:http";',
+          'const server = http.createServer((_req, res) => res.end("runtime-ready"));',
+          'server.listen(Number(process.env.PORT), "127.0.0.1");',
+          'process.once("SIGTERM", () => server.close(() => process.exit(0)));',
+        ].join("\n"),
+      );
+      await waitForHealth(supervisor, supervisorPort);
+
+      const startResponse = await fetch(`http://127.0.0.1:${supervisorPort}/runtime/start`, {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ projectId, sessionId, projectRoot, profile: "dev" }),
+      });
+      expect(startResponse.status).toBe(200);
+      sessionStarted = true;
+
+      const unownedPort = await freeManagedRuntimePort();
+      await new Promise<void>((resolve, reject) => {
+        unownedListener.once("error", reject);
+        unownedListener.listen({ host: "127.0.0.1", port: unownedPort }, resolve);
+      });
+
+      const observationResponse = await fetch(
+        `http://127.0.0.1:${supervisorPort}/runtime/observe-start`,
+        {
+          method: "POST",
+          headers: {
+            "content-type": "application/json",
+            authorization: `Bearer ${token}`,
+          },
+          body: JSON.stringify({ projectId }),
+        },
+      );
+      expect(observationResponse.status).toBe(200);
+      const observation = await observationResponse.json();
+      expect(observation).toMatchObject({
+        projectId,
+        status: "unknown",
+        inventoryComplete: true,
+        unknownListenerPorts: [unownedPort],
+      });
+      expect(observation).not.toHaveProperty("session");
+    } finally {
+      if (sessionStarted) {
+        await fetch(`http://127.0.0.1:${supervisorPort}/runtime/stop`, {
+          method: "POST",
+          headers: {
+            "content-type": "application/json",
+            authorization: `Bearer ${token}`,
+          },
+          body: JSON.stringify({ projectId, sessionId }),
+        }).catch(() => undefined);
+      }
+      if (unownedListener.listening) {
+        await new Promise<void>((resolve, reject) => {
+          unownedListener.close((error) => error ? reject(error) : resolve());
+        });
+      }
+      await rm(projectRoot, { recursive: true, force: true });
+    }
+  });
+
   it("serializes concurrent starts for the same project", async () => {
     const supervisorPort = await freePort();
     const supervisor = startSupervisor(supervisorPort);

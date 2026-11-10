@@ -770,24 +770,27 @@ async function observeStart(input) {
       && (session.status === "starting" || session.status === "running")
       && !targetIsLive,
   );
+  const portOwnershipComplete = unknownListenerPorts.length === 0;
   let status = "unknown";
-  if (targetIsLive) status = "running";
-  else if (!targetHasUncorroboratedActiveSession && unknownListenerPorts.length === 0) status = "stopped";
+  if (targetIsLive && portOwnershipComplete) status = "running";
+  else if (!targetHasUncorroboratedActiveSession && portOwnershipComplete) status = "stopped";
 
   return {
     projectId: input.projectId,
     status,
-    ...(targetIsLive ? { session: publicSession(targetSession) } : {}),
+    ...(status === "running" ? { session: publicSession(targetSession) } : {}),
     observedAt,
     inventoryComplete: true,
     unknownListenerPorts,
-    detail: targetIsLive
+    detail: status === "running"
       ? "A tracked runtime session is live."
       : status === "stopped"
         ? "No tracked runtime session is live and all managed ports are accounted for."
         : targetHasUncorroboratedActiveSession
           ? "A target runtime session exists but its process and port state could not be corroborated."
-        : "Runtime port ownership could not be established.",
+          : unknownListenerPorts.length > 0
+            ? "Unowned listeners prevent a complete runtime ownership observation."
+            : "Runtime port ownership could not be established.",
   };
 }
 
