@@ -84,6 +84,22 @@ test("the visual runner isolates credentials, API traffic, and screenshots", () 
   );
 });
 
+test("the protected visual fixture removes a complete Google Fonts import", () => {
+  assert.ok(
+    viteSource.includes(
+      String.raw`https:\/\/fonts\.googleapis\.com[^)]*\)\s*;`,
+    ),
+    "the fixture must consume the whole URL rule, including URL-internal semicolons",
+  );
+  const source =
+    "@import url('https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700;800&display=swap');\n@import 'tailwindcss';";
+  const stripped = source.replace(
+    /^@import\s+url\((['"]?)https:\/\/fonts\.googleapis\.com[^)]*\)\s*;\s*/mu,
+    "",
+  );
+  assert.equal(stripped, "@import 'tailwindcss';");
+});
+
 test("UXW-01 skips PostgreSQL only for its API-fixtured focused journey", () => {
   assert.match(runnerSource, /testGrep === "UXW-01"/u);
   assert.match(

@@ -140,7 +140,7 @@ export default defineConfig(({ command }) => {
                 if (!id.split('?')[0].endsWith('/src/index.css')) return null;
                 return {
                   code: code.replace(
-                    /^@import\s+url\((['"]?)https:\/\/fonts\.googleapis\.com[^;]*;\s*/mu,
+                    /^@import\s+url\((['"]?)https:\/\/fonts\.googleapis\.com[^)]*\)\s*;\s*/mu,
                     '',
                   ),
                   map: null,
