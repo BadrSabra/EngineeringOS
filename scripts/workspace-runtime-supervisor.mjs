@@ -688,13 +688,27 @@ async function adopt(input) {
   }
   const existing = sessions.get(input.projectId);
   if (existing?.sessionId === input.sessionId && existing.pid === input.pid) {
+    const canBindUnboundSession =
+      existing.listenerBindingDigest === undefined
+      && existing.attestationMarker === undefined
+      && input.attestationMarker === undefined;
     if (
       (input.attestationMarker ?? null) !== (existing.attestationMarker ?? null)
-      || input.listenerBindingDigest !== existing.listenerBindingDigest
+      || existing.port !== input.port
+      || (
+        existing.listenerBindingDigest !== undefined
+        && input.listenerBindingDigest !== existing.listenerBindingDigest
+      )
+      || (existing.listenerBindingDigest === undefined && !canBindUnboundSession)
     ) {
       throw Object.assign(new Error("Runtime adoption proof does not match the tracked session."), { status: 409 });
     }
+    // A non-attested start cannot bind its listener before the supervisor
+    // selects the PID and port. Allow that exact tracked session to bind once,
+    // only after the same live-listener and project-root checks as a fresh
+    // adoption; never replace a digest that was already established.
     const proof = await verifyRuntimeAdoption(input, projectRoot);
+    existing.listenerBindingDigest = input.listenerBindingDigest;
     existing.listenerIdentityDigest = proof.identityDigest;
     return publicSession(existing);
   }
