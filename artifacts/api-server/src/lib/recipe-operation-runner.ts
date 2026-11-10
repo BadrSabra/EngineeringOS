@@ -3741,6 +3741,11 @@ export async function runRecipeOperation(params: RunRecipeOperationParams): Prom
         (observation) => observation.kind === "validator_process_tree_attestation"
           && observation.status === "mismatch",
       );
+      let materializedValidatorObservationCount = 0;
+      let staleValidatorObservationCount = 0;
+      let staleValidatorEnvironmentCount = 0;
+      let validatorObservationMaterializationError:
+        { name: string; code?: string } | undefined;
       if (validatorProcessObservations.length > 0) {
         try {
           const materializedValidatorObservations = await materializeServerOwnedObservations({
@@ -3754,6 +3759,9 @@ export async function runRecipeOperation(params: RunRecipeOperationParams): Prom
             sources: validatorProcessObservations,
           });
           candidateValidationProcessObservationIds = materializedValidatorObservations.observationIds;
+          materializedValidatorObservationCount = materializedValidatorObservations.observationIds.length;
+          staleValidatorObservationCount = materializedValidatorObservations.stale;
+          staleValidatorEnvironmentCount = materializedValidatorObservations.environmentStale;
           validatorObservationAccepted = expectedAttestationsMatch
             && !contradictoryTreeAttestation
             && materializedValidatorObservations.observationIds.length
@@ -3768,13 +3776,67 @@ export async function runRecipeOperation(params: RunRecipeOperationParams): Prom
               executionId: claimed.id,
               attempt: claimed.attempt,
               episodeId: episode.episodeId,
-              error,
+              errorName: error instanceof Error ? error.name : typeof error,
+              ...(
+                typeof error === "object"
+                && error !== null
+                && "code" in error
+                && typeof error.code === "string"
+                && /^[a-z0-9_:-]{1,80}$/i.test(error.code)
+                  ? { errorCode: error.code }
+                  : {}
+              ),
             },
             "Candidate validation process observation could not be materialized",
           );
+          validatorObservationMaterializationError = {
+            name: error instanceof Error ? error.name : typeof error,
+            ...(
+              typeof error === "object"
+              && error !== null
+              && "code" in error
+              && typeof error.code === "string"
+              && /^[a-z0-9_:-]{1,80}$/i.test(error.code)
+                ? { code: error.code }
+                : {}
+            ),
+          };
         }
       }
       if (!validatorObservationAccepted) {
+        logger.warn(
+          {
+            scope: "recipe-operation",
+            code: "candidate_validation_process_evidence_rejected",
+            executionId: claimed.id,
+            attempt: claimed.attempt,
+            episodeId: episode.episodeId,
+            validationEvidenceCount: validationEvidence.length,
+            processAttestations: processAttestations.map((observation) => ({
+              status: observation.status,
+              reasonCode: observation.reasonCode,
+              validatorProfile: observation.validatorProfile,
+              observedAt: observation.observedAt,
+            })),
+            processTreeAttestations: validatorProcessObservations
+              .filter((observation) => observation.kind === "validator_process_tree_attestation")
+              .map((observation) => ({
+                status: observation.status,
+                reasonCode: observation.reasonCode,
+                validatorProfile: observation.validatorProfile,
+                observedAt: observation.observedAt,
+              })),
+            expectedAttestationsMatch,
+            contradictoryTreeAttestation,
+            materializedValidatorObservationCount,
+            staleValidatorObservationCount,
+            staleValidatorEnvironmentCount,
+            ...(validatorObservationMaterializationError
+              ? { validatorObservationMaterializationError }
+              : {}),
+          },
+          "Candidate validation process evidence was rejected",
+        );
         const blockedReceipt = buildRecipeReceipt(
           params,
           claimed.id,

@@ -770,15 +770,14 @@ async function observeStart(input) {
       && (session.status === "starting" || session.status === "running")
       && !targetIsLive,
   );
-  const portOwnershipComplete = unknownListenerPorts.length === 0;
   let status = "unknown";
-  if (targetIsLive && portOwnershipComplete) status = "running";
-  else if (!targetHasUncorroboratedActiveSession && portOwnershipComplete) status = "stopped";
+  if (targetIsLive) status = "running";
+  else if (!targetHasUncorroboratedActiveSession && unknownListenerPorts.length === 0) status = "stopped";
 
   return {
     projectId: input.projectId,
     status,
-    ...(status === "running" ? { session: publicSession(targetSession) } : {}),
+    ...(targetIsLive ? { session: publicSession(targetSession) } : {}),
     observedAt,
     inventoryComplete: true,
     unknownListenerPorts,

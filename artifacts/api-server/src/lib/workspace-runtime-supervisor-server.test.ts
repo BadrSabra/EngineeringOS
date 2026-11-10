@@ -301,7 +301,7 @@ describe("workspace runtime supervisor server boundary", () => {
     expect(response.status).toBe(409);
   });
 
-  it("reports unknown when a live session coexists with an unowned listener", async () => {
+  it("keeps a corroborated live session running when another listener is unowned", async () => {
     const supervisorPort = await freePort();
     const supervisor = startSupervisor(supervisorPort);
     const projectRoot = await mkdtemp(path.join(tmpdir(), "workspace-runtime-unknown-listener-"));
@@ -356,14 +356,24 @@ describe("workspace runtime supervisor server boundary", () => {
         },
       );
       expect(observationResponse.status).toBe(200);
-      const observation = await observationResponse.json();
+      const observation = await observationResponse.json() as {
+        projectId: string;
+        status: string;
+        inventoryComplete: boolean;
+        unknownListenerPorts: number[];
+        session: { projectId: string; sessionId: string; status: string };
+      };
       expect(observation).toMatchObject({
         projectId,
-        status: "unknown",
+        status: "running",
         inventoryComplete: true,
-        unknownListenerPorts: [unownedPort],
+        session: {
+          projectId,
+          sessionId,
+          status: "running",
+        },
       });
-      expect(observation).not.toHaveProperty("session");
+      expect(observation.unknownListenerPorts).toContain(unownedPort);
     } finally {
       if (sessionStarted) {
         await fetch(`http://127.0.0.1:${supervisorPort}/runtime/stop`, {
@@ -381,6 +391,56 @@ describe("workspace runtime supervisor server boundary", () => {
         });
       }
       await rm(projectRoot, { recursive: true, force: true });
+    }
+  });
+
+  it("reports unknown without a tracked session when a managed listener is unowned", async () => {
+    const supervisorPort = await freePort();
+    const supervisor = startSupervisor(supervisorPort);
+    const unownedListener = createServer();
+    const projectId = "unknown-listener-project";
+    const token = deriveWorkspaceRuntimeSupervisorToken(testSecret);
+    let unownedPort: number | undefined;
+
+    try {
+      await waitForHealth(supervisor, supervisorPort);
+      unownedPort = await freeManagedRuntimePort();
+      await new Promise<void>((resolve, reject) => {
+        unownedListener.once("error", reject);
+        unownedListener.listen({ host: "127.0.0.1", port: unownedPort }, resolve);
+      });
+
+      const observationResponse = await fetch(
+        `http://127.0.0.1:${supervisorPort}/runtime/observe-start`,
+        {
+          method: "POST",
+          headers: {
+            "content-type": "application/json",
+            authorization: `Bearer ${token}`,
+          },
+          body: JSON.stringify({ projectId }),
+        },
+      );
+      expect(observationResponse.status).toBe(200);
+      const observation = await observationResponse.json() as {
+        projectId: string;
+        status: string;
+        inventoryComplete: boolean;
+        unknownListenerPorts: number[];
+      };
+      expect(observation).toMatchObject({
+        projectId,
+        status: "unknown",
+        inventoryComplete: true,
+      });
+      expect(observation.unknownListenerPorts).toContain(unownedPort);
+      expect(observation).not.toHaveProperty("session");
+    } finally {
+      if (unownedListener.listening) {
+        await new Promise<void>((resolve, reject) => {
+          unownedListener.close((error) => error ? reject(error) : resolve());
+        });
+      }
     }
   });
 
