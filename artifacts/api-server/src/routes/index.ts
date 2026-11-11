@@ -14,6 +14,7 @@ import aiRouter from "./ai.js";
 import gitRouter from "./git.js";
 import uploadRouter from "./upload.js";
 import runtimeRouter from "./runtime.js";
+import workspaceEventsRouter from "./workspace-events.js";
 
 const router: IRouter = Router();
 
@@ -22,6 +23,7 @@ const router: IRouter = Router();
 router.use(discoveryRouter);
 router.use(projectBootstrapRouter);
 router.use(projectsRouter);
+router.use(workspaceEventsRouter);
 router.use(tasksRouter);
 router.use(rulesRouter);
 router.use(workflowsRouter);

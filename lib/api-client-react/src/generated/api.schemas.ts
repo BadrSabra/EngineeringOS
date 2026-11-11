@@ -6294,6 +6294,64 @@ export interface ProjectWorkspaceSnapshot {
   freshness: ProjectWorkspaceSnapshotFreshness;
 }
 
+export type ProjectWorkspaceChangedEventEventVersion = typeof ProjectWorkspaceChangedEventEventVersion[keyof typeof ProjectWorkspaceChangedEventEventVersion];
+
+
+export const ProjectWorkspaceChangedEventEventVersion = {
+  NUMBER_1: 1,
+} as const;
+
+export type ProjectWorkspaceChangedEventEntityKind = typeof ProjectWorkspaceChangedEventEntityKind[keyof typeof ProjectWorkspaceChangedEventEntityKind];
+
+
+export const ProjectWorkspaceChangedEventEntityKind = {
+  project: 'project',
+} as const;
+
+export interface ProjectWorkspaceChangedEvent {
+  eventVersion: ProjectWorkspaceChangedEventEventVersion;
+  projectId: string;
+  entityKind: ProjectWorkspaceChangedEventEntityKind;
+  entityId: string;
+  eventId: string;
+  occurredAt: string;
+  /**
+     * Opaque cursor used by the browser as Last-Event-ID on reconnect.
+     * @maxLength 256
+     */
+  snapshotCursor: string;
+}
+
+export type ProjectWorkspaceResyncEventEventVersion = typeof ProjectWorkspaceResyncEventEventVersion[keyof typeof ProjectWorkspaceResyncEventEventVersion];
+
+
+export const ProjectWorkspaceResyncEventEventVersion = {
+  NUMBER_1: 1,
+} as const;
+
+export type ProjectWorkspaceResyncEventReason = typeof ProjectWorkspaceResyncEventReason[keyof typeof ProjectWorkspaceResyncEventReason];
+
+
+export const ProjectWorkspaceResyncEventReason = {
+  initial: 'initial',
+  cursor_invalid: 'cursor_invalid',
+  cursor_expired: 'cursor_expired',
+  replay_limit: 'replay_limit',
+  source_unavailable: 'source_unavailable',
+} as const;
+
+export interface ProjectWorkspaceResyncEvent {
+  eventVersion: ProjectWorkspaceResyncEventEventVersion;
+  projectId: string;
+  reason: ProjectWorkspaceResyncEventReason;
+  /**
+     * Latest project cursor for reconnect, or null when no event exists.
+     * @maxLength 256
+     * @nullable
+     */
+  snapshotCursor: string | null;
+}
+
 export interface RemediationEvidence {
   file: string;
   /** @minimum 1 */

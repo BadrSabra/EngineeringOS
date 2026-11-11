@@ -177,6 +177,8 @@
 .workspace-refresh:disabled { opacity: .6; cursor: wait; }
 .workspace-eyebrow { display: inline-flex; align-items: center; gap: .45rem; color: hsl(160 42% 72%); font-size: .7rem; letter-spacing: .02em; }
 .workspace-live-dot { width: .4rem; height: .4rem; border-radius: 50%; background: hsl(160 48% 58%); box-shadow: 0 0 0 3px hsl(160 48% 58% / .12); }
+.workspace-stream-reconnecting, .workspace-stream-offline { color: hsl(38 72% 72%); }
+.workspace-stream-reconnecting .workspace-live-dot, .workspace-stream-offline .workspace-live-dot { background: hsl(38 74% 61%); box-shadow: 0 0 0 3px hsl(38 74% 61% / .12); }
 .workspace-partial { border: 1px solid hsl(38 45% 47% / .35); border-radius: 999px; background: hsl(38 39% 25% / .25); padding: .15rem .5rem; color: hsl(39 61% 77%); font-size: .65rem; }
 .workspace-meta { display: inline-flex; align-items: center; gap: .4rem; border: 1px solid hsl(var(--workspace-line)); border-radius: .55rem; background: hsl(220 24% 14% / .7); padding: .4rem .6rem; color: hsl(215 16% 72%); }
 .workspace-meta svg { color: hsl(164 34% 67%); }

@@ -43,6 +43,7 @@
     "artifacts/dashboard/src/pages/Metrics.tsx": "trigger",
     "artifacts/dashboard/src/pages/MissionControl.tsx": "trigger",
     "artifacts/dashboard/src/pages/ProjectDetail.tsx": "trigger",
+    "artifacts/dashboard/src/pages/ProjectWorkspace.tsx": "no-trigger",
     "artifacts/dashboard/src/pages/Projects.tsx": "trigger",
     "artifacts/dashboard/src/pages/Rules.tsx": "trigger",
     "artifacts/dashboard/src/pages/Tasks.tsx": "trigger",

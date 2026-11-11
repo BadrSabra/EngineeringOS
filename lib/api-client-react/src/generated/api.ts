@@ -1401,6 +1401,84 @@ export function useGetProjectWorkspaceSnapshot<TData = Awaited<ReturnType<typeof
 
 
 
+export const getStreamProjectWorkspaceEventsUrl = (projectId: string,) => {
+
+
+
+
+  return `/api/projects/${projectId}/workspace/events`
+}
+
+/**
+ * Authenticated, project-owned SSE stream. Events only invalidate the existing workspace snapshot; clients must re-read that snapshot and must not treat stream payloads as authoritative state. A missing, invalid, expired, or overrun Last-Event-ID cursor emits workspace.resync. The initial connection also emits a resync notice so the client refreshes the snapshot after subscribing. Event data contains identifiers and timestamps only, never event messages or payloads. Project access is rechecked periodically; each connection is bounded so the browser must reauthenticate when it reconnects.
+ * @summary Stream safe workspace invalidations
+ */
+export const streamProjectWorkspaceEvents = async (projectId: string, options?: Parameters<typeof customFetch>[1]): Promise<string> => {
+
+  return customFetch<string>(getStreamProjectWorkspaceEventsUrl(projectId),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getStreamProjectWorkspaceEventsQueryKey = (projectId: string,) => {
+    return [
+    `/api/projects/${projectId}/workspace/events`
+    ] as const;
+    }
+
+
+export const getStreamProjectWorkspaceEventsQueryOptions = <TData = Awaited<ReturnType<typeof streamProjectWorkspaceEvents>>, TError = ErrorType<void>>(projectId: string, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof streamProjectWorkspaceEvents>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getStreamProjectWorkspaceEventsQueryKey(projectId);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof streamProjectWorkspaceEvents>>> = ({ signal }) => streamProjectWorkspaceEvents(projectId, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, enabled: projectId !== null && projectId !== undefined, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof streamProjectWorkspaceEvents>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type StreamProjectWorkspaceEventsQueryResult = NonNullable<Awaited<ReturnType<typeof streamProjectWorkspaceEvents>>>
+export type StreamProjectWorkspaceEventsQueryError = ErrorType<void>
+
+
+/**
+ * @summary Stream safe workspace invalidations
+ */
+
+export function useStreamProjectWorkspaceEvents<TData = Awaited<ReturnType<typeof streamProjectWorkspaceEvents>>, TError = ErrorType<void>>(
+ projectId: string, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof streamProjectWorkspaceEvents>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getStreamProjectWorkspaceEventsQueryOptions(projectId,options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
 export const getListTasksUrl = (params?: ListTasksParams,) => {
   const normalizedParams = new URLSearchParams();
 
