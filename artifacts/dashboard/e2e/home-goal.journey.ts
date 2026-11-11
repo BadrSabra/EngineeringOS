@@ -57,6 +57,27 @@ async function installGoalApiFixtures(
       await fulfillJson(route, 200, workspaceSnapshot);
       return;
     }
+    if (
+      method === "GET"
+      && workspaceProjectId
+      && path === `/api/projects/${workspaceProjectId}/workspace/events`
+    ) {
+      const cursor = "fixture-cursor";
+      await route.fulfill({
+        status: 200,
+        headers: {
+          "cache-control": "private, no-store",
+          "content-type": "text/event-stream; charset=utf-8",
+        },
+        body: `id: ${cursor}\nevent: workspace.resync\ndata: ${JSON.stringify({
+          eventVersion: 1,
+          projectId: workspaceProjectId,
+          reason: "initial",
+          snapshotCursor: cursor,
+        })}\n\n`,
+      });
+      return;
+    }
     if (method === "GET" && path === "/api/dashboard") {
       await fulfillJson(route, 503, { error: "isolated dashboard failure" });
       return;
@@ -339,5 +360,9 @@ test("UXW-01/UXW-02 workspace renders current sources beside the existing chat",
   await expect(page.getByText("مراجعة الجلسة الحالية")).toBeVisible();
   await expect(page.getByText("لا تتوفر معاينة تفاعلية هنا. هذه الحالة لا تمثل معاينة للمرشح.")).toBeVisible();
   expect(apiRequests).toContain("GET /api/projects/uxw-project-1/workspace");
+  expect(apiRequests).toContain("GET /api/projects/uxw-project-1/workspace/events");
+  await expect.poll(() => apiRequests.filter(
+    (request) => request === "GET /api/projects/uxw-project-1/workspace",
+  ).length).toBeGreaterThan(1);
   expect(apiRequests.filter((request) => !request.startsWith("GET "))).toEqual([]);
 });

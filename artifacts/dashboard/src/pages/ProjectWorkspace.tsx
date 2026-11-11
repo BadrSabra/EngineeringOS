@@ -1,3 +1,5 @@
+import { useQueryClient } from '@tanstack/react-query';
+import { useWorkspaceEventStream } from '@/pages/project-workspace/use-workspace-event-stream';
 import type { ReactNode } from 'react';
 import { Link, useRoute } from 'wouter';
 import { Activity, AlertTriangle, ArrowRight, Check, Clock3, Code2, GitBranch, Layers3, RefreshCw, ShieldCheck, Sparkles, Terminal } from 'lucide-react';
@@ -85,13 +87,25 @@ function SourceNote({ available, children }: { available: boolean; children: Rea
 export default function ProjectWorkspace() {
   const [, params] = useRoute('/projects/:projectId/workspace');
   const projectId = params?.projectId ?? '';
+  const queryClient = useQueryClient();
   const snapshotQuery = useGetProjectWorkspaceSnapshot(projectId, {
     query: {
       enabled: !!projectId,
       queryKey: getGetProjectWorkspaceSnapshotQueryKey(projectId),
+      refetchInterval: 30_000,
     },
   });
   const { data: snapshot, isLoading, isError, refetch, isFetching } = snapshotQuery;
+  const hasCurrentSnapshot = snapshot?.project.id === projectId;
+  const streamStatus = useWorkspaceEventStream({
+    projectId,
+    enabled: !!projectId && hasCurrentSnapshot,
+    onSnapshotInvalidated: () => {
+      void queryClient.invalidateQueries({
+        queryKey: getGetProjectWorkspaceSnapshotQueryKey(projectId),
+      });
+    },
+  });
 
   if (isLoading) return <WorkspaceSkeleton />;
   if (isError || !snapshot) {
@@ -132,7 +146,13 @@ export default function ProjectWorkspace() {
         <div className="mt-5 flex flex-col justify-between gap-5 md:flex-row md:items-end">
           <div className="min-w-0">
             <div className="mb-2 flex flex-wrap items-center gap-2">
-              <span className="workspace-eyebrow"><span className="workspace-live-dot" /> مساحة المشروع</span>
+              <span className={`workspace-eyebrow workspace-stream-${streamStatus}`} role="status" aria-live="polite">
+                <span className="workspace-live-dot" />
+                {streamStatus === 'connected' && 'متصل بتحديثات مساحة المشروع'}
+                {streamStatus === 'connecting' && 'جارٍ الاتصال بالتحديثات'}
+                {streamStatus === 'reconnecting' && 'انقطع البث؛ جارٍ إعادة الاتصال'}
+                {streamStatus === 'offline' && 'البث غير متاح؛ يستمر التحديث الدوري'}
+              </span>
               {freshness.partial && <span className="workspace-partial">قراءة جزئية</span>}
             </div>
             <h1 className="truncate text-2xl font-semibold tracking-tight text-slate-50 sm:text-3xl">{project.name}</h1>

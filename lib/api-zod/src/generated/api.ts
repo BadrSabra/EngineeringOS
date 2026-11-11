@@ -698,6 +698,17 @@ export const GetProjectWorkspaceSnapshotResponse = zod.object({
 
 
 /**
+ * Authenticated, project-owned SSE stream. Events only invalidate the existing workspace snapshot; clients must re-read that snapshot and must not treat stream payloads as authoritative state. A missing, invalid, expired, or overrun Last-Event-ID cursor emits workspace.resync. The initial connection also emits a resync notice so the client refreshes the snapshot after subscribing. Event data contains identifiers and timestamps only, never event messages or payloads. Project access is rechecked periodically; each connection is bounded so the browser must reauthenticate when it reconnects.
+ * @summary Stream safe workspace invalidations
+ */
+export const StreamProjectWorkspaceEventsParams = zod.object({
+  "projectId": zod.coerce.string()
+})
+
+export const StreamProjectWorkspaceEventsResponse = zod.unknown()
+
+
+/**
  * @summary List tasks with optional filters
  */
 export const listTasksQueryPageDefault = 1;
