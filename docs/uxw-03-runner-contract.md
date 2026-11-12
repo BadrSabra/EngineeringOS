@@ -8,6 +8,16 @@ server-owned qualification registry and persists accepted signed capability
 reports on the existing Agent node row; the registry is intentionally empty
 until a runtime and policy pass independent qualification.
 
+**Development-environment preflight (2026-11-13):** The current workspace runs
+as non-root UID 1000 and can reach Docker 27.5.1, but Docker reports only
+`runc` as its runtime. No `runsc`, Kata, Firecracker, Cloud Hypervisor,
+Bubblewrap, or nsjail executable is available in this environment; the
+`kernel.unprivileged_userns_clone` setting is not exposed. The visible cgroup
+limits are for the enclosing workspace, not a qualified per-Candidate
+boundary. This was a read-only inventory; no container or Candidate code was
+started. It confirms that this workspace cannot qualify Backend Preview.
+Standard Docker/runc remains rejected for Candidate execution.
+
 **Authority:** Additive contract for UXW-03.1–03.4; it does not enable Backend Preview
 
 ## 1. Purpose

@@ -66,6 +66,8 @@ No production-connected Candidate execution path or stronger-than-standard-conta
 
 **Boundary:** Do not treat a passing Builder test, Dockerfile non-root user, or CI container flags as proof that untrusted Candidate code is safely executable in production. Keep backend Preview blocked until its actual runner boundary and end-to-end restrictions are independently established.
 
+**Environment preflight (2026-11-13):** The current workspace's Docker daemon exposes only standard `runc`; no gVisor, Kata, Firecracker, or Cloud Hypervisor runtime is available. This was a read-only inventory and did not execute Candidate code. It confirms that this workspace cannot close RT-02; the detailed command inventory and scope are recorded in `docs/uxw-03-runner-contract.md`.
+
 #### RT-03 — Workspace Runtime does not enforce loopback binding for the project server
 
 **Severity:** Medium; actual external reachability is unverified and belongs to audit area 5.
