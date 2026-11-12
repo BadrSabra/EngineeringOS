@@ -43,6 +43,15 @@ profile.
    gVisor/runsc or VM/microVM profile, or an equivalently evidenced boundary).
    A runner that cannot meet the profile reports an explicit unsupported/
    blocked result; it cannot weaken isolation or silently switch providers.
+6. **Recommended first qualification candidate, not yet approved for use:**
+   one dedicated Linux host running a pinned gVisor/runsc profile, with an
+   outbound-only Agent control connection and one server-owned UDS per Session
+   for Preview traffic. Do not expose a Docker socket to the Agent or Candidate;
+   if the host requires a privileged launcher, it must accept only fixed,
+   server-owned profiles. Keep Firecracker/microVM as a later option if the
+   threat review requires a separate guest kernel. Neither option is enabled
+   until the exact host, runtime binary, profile, policy, and lifecycle pass
+   independent tests. There is no fallback to `runc`.
 
 ## Evidence from the initial local qualification
 
@@ -150,6 +159,9 @@ Backend Preview remains blocked until all of the following have evidence:
 ## Consequences
 
 - Static Vite/React Preview is not blocked by this ADR.
+- The recommended gVisor host profile is a qualification target only. It does
+  not provision a server, install runsc, approve a capability record, or permit
+  Candidate execution.
 - Backend source artifacts and provider-neutral contracts may be designed, but
   no Backend Candidate may be started until the gates above are closed.
 - The inspected local workspace has only the standard `runc` runtime and does
