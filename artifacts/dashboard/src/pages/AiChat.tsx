@@ -14,7 +14,7 @@ import { useToast } from '@/hooks/use-toast';
 import { HOME_GOAL_MAX_LENGTH, STARTER_GOAL_MAX_LENGTH } from '@/lib/home-goal-handoff';
 import { GoalDraftNotice, useGoalDraftHandoff } from '@/lib/use-goal-draft-handoff';
 import { buildAssistantScopeHref, getAssistantComposerContextId, readAssistantComposerDraft, readAssistantScopeContext, rememberAssistantScopeContext, saveAssistantComposerDraft } from '@/lib/assistant-scope-continuity';
-import { type AiChatSessionMissionsResponse, classifyProjectError, emitProjectLoadFailed, getGetAiDeliveryPolicyQueryKey, getGetLocalReviewBranchQueryKey, getListAiChatSessionMissionsQueryKey, getListProjectsQueryKey, isRetryableProjectError, useAiApplyChanges, useAiRebaseChanges, useAiTaskStream, useApproveAiRebasedProposal, useCreateLocalReviewBranch, useExplainAiFallback, useGetActiveProvider, useGetAiDeliveryPolicy, useGetAiExecution, useGetAiPendingProposal, useGetLocalReviewBranch, useGitCommit, useGitPush, useListAiChatMessages, useListAiChatSessionMissions, useListAiChatSessions, useListAiExecutionHistory, useListEvents, useListProjects, useRejectAiChangeProposal, useSetAiChatSessionActiveMission, useUpdateAiDeliveryPolicy } from '@workspace/api-client-react';
+import { type AiChatSessionMissionsResponse, classifyProjectError, emitProjectLoadFailed, getGetAiDeliveryPolicyQueryKey, getGetLocalReviewBranchQueryKey, getListAiChatSessionMissionsQueryKey, getListProjectsQueryKey, isRetryableProjectError, useAiApplyChanges, useAiRebaseChanges, useAiTaskStream, useApproveAiRebasedProposal, useCreateAiChatSession, useCreateLocalReviewBranch, useExplainAiFallback, useGetActiveProvider, useGetAiDeliveryPolicy, useGetAiExecution, useGetAiPendingProposal, useGetLocalReviewBranch, useGitCommit, useGitPush, useListAiChatMessages, useListAiChatSessionMissions, useListAiChatSessions, useListAiExecutionHistory, useListEvents, useListProjects, useRejectAiChangeProposal, useSetAiChatSessionActiveMission, useUpdateAiDeliveryPolicy } from '@workspace/api-client-react';
 import { useRecipeStream } from '@/lib/use-recipe-stream';
 import { RecipeProgressPanel } from '@/components/RecipeProgressPanel';
 import { CapabilityGapNotice } from '@/components/CapabilityGapNotice';
@@ -76,6 +76,7 @@ export default function AiChat({
 } = {}) {
   const { toast } = useToast();
   const qc = useQueryClient();
+  const createAiChatSessionMutation = useCreateAiChatSession();
   const activeMissionSelectionMutation = useSetAiChatSessionActiveMission();
   const fallbackDiagnosticMutation = useExplainAiFallback();
   const bottomRef = useRef<HTMLDivElement>(null);
@@ -111,6 +112,7 @@ export default function AiChat({
   const [historicalAuditsExpanded, setHistoricalAuditsExpanded] = useState(false);
   const [moreActionsExpanded, setMoreActionsExpanded] = useState(false);
   const [sessionId, setSessionId] = useState<string | undefined>(undefined);
+  const [sessionCreationPending, setSessionCreationPending] = useState(false);
   // AI-TASK-006: task linkage — read from URL search params so the Tasks page
   // can deep-link to /ai?taskId=<uuid>&projectId=<id> to open a task-aware session.
   const [linkedTaskId] = useState<string | undefined>(() => {
@@ -3215,11 +3217,37 @@ export default function AiChat({
     restoredScopeDraftKey.current = '';
   }
 
-  function newSession() {
+  async function newSession() {
+    const targetProjectId = selectedProjectId;
+    if (!targetProjectId || sessionCreationPending) return;
     if (!preserveCurrentProjectComposerDraft() && input.trim()
       && !window.confirm('تعذر حفظ النص غير المرسل لهذه المحادثة. هل تريد فتح محادثة جديدة على أي حال؟')) return;
-    resetConversationView({ forgetCurrentExecution: true });
-    if (!window.matchMedia('(min-width: 768px)').matches) setSidebarOpen(false);
+    const preservedGoalDraft = draftHandoff.activeDraft ? input : undefined;
+    setSessionCreationPending(true);
+    try {
+      const createdSession = await createAiChatSessionMutation.mutateAsync({
+        data: { projectId: targetProjectId },
+      });
+      resetConversationView({ forgetCurrentExecution: true });
+      setSessionId(createdSession.id);
+      persistAiChatSelection({
+        version: 1,
+        projectId: targetProjectId,
+        kind: 'session',
+        sessionId: createdSession.id,
+      });
+      if (preservedGoalDraft !== undefined) setInput(preservedGoalDraft);
+      void qc.invalidateQueries({ queryKey: ['ai-sessions', targetProjectId] });
+      if (!window.matchMedia('(min-width: 768px)').matches) setSidebarOpen(false);
+    } catch (error) {
+      toast({
+        title: 'تعذر إنشاء المحادثة',
+        description: error instanceof Error ? error.message : 'لم تُنشأ جلسة جديدة، ولم تُرسل رسالة.',
+        variant: 'destructive',
+      });
+    } finally {
+      setSessionCreationPending(false);
+    }
   }
 
   // Textarea placeholder follows the same classification.
@@ -3883,9 +3911,23 @@ export default function AiChat({
               data-testid="text-chat-current-context">
               <span data-testid="text-chat-current-project">{projectName ?? 'No project selected'}</span>
               <span aria-hidden="true"> · </span>
-              <span data-testid="text-chat-current-session">{sessionName}</span>
+              <span data-testid="text-chat-current-session" data-session-id={sessionId ?? ''}>{sessionName}</span>
             </div>
           </div>
+          {workspaceMode && (
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              className="h-7 shrink-0 gap-1.5 px-2 text-[11px]"
+              data-testid="button-create-workspace-chat-session"
+              disabled={!selectedProjectId || sessionCreationPending}
+              onClick={() => void newSession()}
+            >
+              <Plus className="h-3.5 w-3.5" />
+              <span>{sessionCreationPending ? 'جارٍ الإنشاء' : 'محادثة جديدة'}</span>
+            </Button>
+          )}
           {!workspaceMode && <AssistantScopeSwitch
             currentScope="project"
             generalHref={generalScopeHref}

@@ -10592,8 +10592,10 @@ test.describe("EngineeringOS dashboard browser journey", () => {
     let project: WorkspaceJourneyProject | undefined;
     const workspaceEventRequests: string[] = [];
     const chatSendRequests: string[] = [];
+    const chatSessionCreateRequests: string[] = [];
     let workspaceSnapshotRequests = 0;
     let firstWorkspaceStreamAborted = false;
+    let emptyChatSessionId: string | undefined;
     page.on("request", (request) => {
       const url = new URL(request.url());
       if (
@@ -10613,6 +10615,12 @@ test.describe("EngineeringOS dashboard browser journey", () => {
         && url.pathname.endsWith("/api/ai/chat/stream")
       ) {
         chatSendRequests.push(url.pathname);
+      }
+      if (
+        request.method() === "POST"
+        && url.pathname.endsWith("/api/ai/chat/sessions")
+      ) {
+        chatSessionCreateRequests.push(url.pathname);
       }
     });
 
@@ -10685,6 +10693,50 @@ test.describe("EngineeringOS dashboard browser journey", () => {
       await expect(
         page.getByText("متصل بتحديثات مساحة المشروع", { exact: true }),
       ).toBeVisible();
+
+      const createSessionResponsePromise = page.waitForResponse((response) =>
+        response.request().method() === "POST"
+        && new URL(response.url()).pathname === "/api/ai/chat/sessions",
+      );
+      await page.getByTestId("button-create-workspace-chat-session").click();
+      const createSessionResponse = await createSessionResponsePromise;
+      expect(createSessionResponse.status()).toBe(201);
+      const createdSession = (await createSessionResponse.json()) as {
+        id: string;
+        projectId: string;
+      };
+      emptyChatSessionId = createdSession.id;
+      expect(createdSession.projectId).toBe(project.id);
+      await expect(page.getByTestId("text-chat-current-session"))
+        .toHaveAttribute("data-session-id", emptyChatSessionId);
+      await expect(page.getByTestId("input-ai-chat-composer")).toHaveValue(goal);
+
+      const emptySessionProof = await page.evaluate(
+        async ({ projectId, sessionId }) => {
+          const [sessionsResponse, messagesResponse] = await Promise.all([
+            fetch(
+              `/api/ai/chat/sessions?projectId=${encodeURIComponent(projectId)}&sessionId=${encodeURIComponent(sessionId)}`,
+              { credentials: "include" },
+            ),
+            fetch(`/api/ai/chat/${encodeURIComponent(sessionId)}/messages`, {
+              credentials: "include",
+            }),
+          ]);
+          return {
+            sessionsStatus: sessionsResponse.status,
+            sessions: await sessionsResponse.json().catch(() => []),
+            messagesStatus: messagesResponse.status,
+            messages: await messagesResponse.json().catch(() => null),
+          };
+        },
+        { projectId: project.id, sessionId: emptyChatSessionId },
+      );
+      expect(emptySessionProof.sessionsStatus).toBe(200);
+      expect(emptySessionProof.sessions).toEqual(expect.arrayContaining([
+        expect.objectContaining({ id: emptyChatSessionId, projectId: project.id }),
+      ]));
+      expect(emptySessionProof.messagesStatus).toBe(200);
+      expect(emptySessionProof.messages).toEqual([]);
 
       // Browser history must retain the explicit project route in both
       // directions, not silently fall back to whichever project loads first.
@@ -10768,6 +10820,8 @@ test.describe("EngineeringOS dashboard browser journey", () => {
       await expect(page.getByText(updatedDescription, { exact: true })).toBeVisible();
       await expect(page.getByTestId("status-project-planning-handoff")).toBeVisible();
       await expect(page.getByTestId("input-ai-chat-composer")).toHaveValue(goal);
+      await expect(page.getByTestId("text-chat-current-session"))
+        .toHaveAttribute("data-session-id", emptyChatSessionId!);
       expect(await goalDraftState()).toMatchObject({
         ownerId: project.ownerId,
         projectId: project.id,
@@ -10790,6 +10844,7 @@ test.describe("EngineeringOS dashboard browser journey", () => {
         id: project.id,
         ownerId: project.ownerId,
       });
+      expect(chatSessionCreateRequests).toHaveLength(1);
       expect(chatSendRequests).toEqual([]);
     } finally {
       if (project) {

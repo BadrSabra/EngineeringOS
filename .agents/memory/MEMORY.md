@@ -87,6 +87,7 @@
 - [Preview build trust boundary](preview-build-trust-boundary.md) — ECS receives only an S3 environment-file ARN; exact fingerprints and client tokens recover ambiguous launches without duplicating tasks.
 - [Preview build-job lifecycle](preview-build-job-lifecycle.md) — persist build attempts separately from sessions; Builder success is not verification or permission to preview.
 - [Preview image builds](preview-image-build-reproducibility.md) — pin the Node digest and workspace pnpm; allow Builder only one task-scoped `/tmp` scratch volume.
+- [Preview محلي أولًا](preview-local-first-architecture.md) — ثبّت عقودًا محايدة ومخزنًا محليًا قبل Builder/Attestor/Runtime؛ AWS وCloudflare adapters اختيارية ولا تغير إثبات Candidate.
 - [Runtime replay fixture boundary](runtime-replay-fixture-boundary.md) — isolated replay fixtures must keep required runtime inputs outside excluded dependency directories.
 - [Non-root network isolation](non-root-network-isolation.md) — lifecycle E2E needs loopback-only networking and a non-root runner; never bypass either guard when the namespace setup cannot provide both.
 - [Runtime oracle command boundary](runtime-oracle-command-boundary.md) — production runtime validation needs a fixed server-owned command and existing proof bindings; it never grants write approval.
