@@ -119,6 +119,15 @@ function assertCreateInput(input: CreatePreviewBuildJobInput, now: Date): void {
   ) {
     throw new PreviewBuildJobStoreError("PREVIEW_BUILD_JOB_INPUT_INVALID");
   }
+  // The Local CAS has no authenticated Agent transport or job-owned artifact
+  // reference yet. Reject local placement before touching PostgreSQL rather
+  // than letting a CHECK constraint fail or silently substituting S3.
+  if (
+    input.inputArtifactProvider === "local" ||
+    input.outputArtifactProvider === "local"
+  ) {
+    throw new PreviewBuildJobStoreError("PREVIEW_BUILD_JOB_INPUT_INVALID");
+  }
 }
 
 function sameRequest(

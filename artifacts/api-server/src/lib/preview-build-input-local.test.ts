@@ -5,6 +5,7 @@ import {
   mkdir,
   link,
   mkdtemp,
+  readFile,
   readdir,
   rm,
   symlink,
@@ -122,8 +123,57 @@ describe("Local Preview build-input CAS", () => {
     expect(await store.read(identity.objectKey)).toEqual(bytes);
   });
 
+  it("recovers when a blob was published but its manifest could not be published", async () => {
+    const { rootDir, store } = await createStore();
+    const bytes = Buffer.from("recover the immutable blob after a manifest conflict");
+    const identity = objectKey(bytes);
+    const referenceDirectory = join(rootDir, "refs", BINDING_DIGEST);
+    const referencePath = join(
+      referenceDirectory,
+      `${identity.archiveDigest}.json`,
+    );
+    const blobPath = join(
+      rootDir,
+      "blobs",
+      identity.archiveDigest.slice(0, 2),
+      `${identity.archiveDigest.slice(2)}.zip`,
+    );
+    await mkdir(referenceDirectory, { mode: 0o700 });
+    await writeFile(referencePath, "conflicting immutable manifest", {
+      mode: 0o600,
+    });
+
+    await expect(
+      store.putStream({
+        ...identity,
+        bytes: (async function* () {
+          yield bytes;
+        })(),
+        contentLength: bytes.length,
+      }),
+    ).rejects.toMatchObject({
+      code: "PREVIEW_LOCAL_STORE_CONFLICT",
+    });
+    await expect(lstat(blobPath)).resolves.toBeDefined();
+    expect(await readdir(join(rootDir, "staging"))).toEqual([]);
+    await expect(store.read(identity.objectKey)).rejects.toThrow(
+      LocalPreviewBuildInputStoreError,
+    );
+
+    await unlink(referencePath);
+    const retry = await store.putStream({
+      ...identity,
+      bytes: (async function* () {
+        yield bytes;
+      })(),
+      contentLength: bytes.length,
+    });
+    expect(await store.read(identity.objectKey)).toEqual(bytes);
+    expect(await store.inspect(identity.objectKey)).toEqual(retry);
+  });
+
   it("stores successful chunked streams without requiring a caller Buffer", async () => {
-    const { store } = await createStore();
+    const { rootDir, store } = await createStore();
     const bytes = Buffer.from("chunked payload stored from async iterable");
     const identity = objectKey(bytes);
     async function* chunks() {
@@ -132,13 +182,97 @@ describe("Local Preview build-input CAS", () => {
       yield bytes.subarray(23);
     }
 
-    await store.putStream({
+    const stored = await store.putStream({
       ...identity,
       bytes: chunks(),
       contentLength: bytes.length,
     });
 
+    expect(stored).toMatchObject({
+      storeId: store.storeId,
+      digest: identity.archiveDigest,
+      sizeBytes: bytes.length,
+      retentionPolicy: "preview-build-input-24h-v1",
+    });
+    expect(stored.objectRefId).toMatch(
+      /^[0-9a-f]{8}-[0-9a-f]{4}-8[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i,
+    );
+    expect(stored.manifestDigest).toMatch(/^[a-f0-9]{64}$/);
     expect(await store.read(identity.objectKey)).toEqual(bytes);
+    expect(await store.inspect(identity.objectKey)).toEqual(stored);
+
+    const repeated = await store.putStream({
+      ...identity,
+      bytes: (async function* () {
+        yield bytes;
+      })(),
+      contentLength: bytes.length,
+    });
+    const reopened = await createLocalPreviewBuildInputObjectStore({
+      rootDir,
+      workspaceRoot: process.cwd(),
+    });
+    expect(repeated).toEqual(stored);
+    expect(await reopened.inspect(identity.objectKey)).toEqual(stored);
+  });
+
+  it("binds output metadata to its build reference and live-session retention", async () => {
+    const { store } = await createStore();
+    const bytes = Buffer.from("output metadata must stay bound to this build");
+    const digest = createHash("sha256").update(bytes).digest("hex");
+    const outputObjectKey =
+      "preview-build-outputs/223e4567-e89b-42d3-a456-426614174001/site.tar.gz";
+
+    const stored = await store.putStream({
+      objectKey: outputObjectKey,
+      bytes: (async function* () {
+        yield bytes;
+      })(),
+      archiveDigest: digest,
+      contentLength: bytes.length,
+    });
+
+    expect(stored).toMatchObject({
+      storeId: store.storeId,
+      digest,
+      sizeBytes: bytes.length,
+      retentionPolicy: "preview-build-output-live-reference-v1",
+    });
+    expect(await store.inspect(outputObjectKey)).toEqual(stored);
+  });
+
+  it("rejects a manifest whose store or object identity was changed", async () => {
+    const { rootDir, store } = await createStore();
+    const bytes = Buffer.from("metadata is immutable and store-scoped");
+    const identity = objectKey(bytes);
+    await store.put({
+      ...identity,
+      archive: bytes,
+      contentLength: bytes.length,
+    });
+    const referencePath = join(
+      rootDir,
+      "refs",
+      BINDING_DIGEST,
+      `${identity.archiveDigest}.json`,
+    );
+    const manifest = JSON.parse(
+      await readFile(referencePath, "utf8"),
+    ) as Record<string, unknown>;
+    manifest.storeId = "c617246f-3ccd-4e2d-91e8-e626827696ab";
+    await writeFile(referencePath, JSON.stringify(manifest), { mode: 0o600 });
+
+    await expect(store.inspect(identity.objectKey)).rejects.toMatchObject({
+      code: "PREVIEW_LOCAL_STORE_INVALID_OBJECT",
+    });
+
+    manifest.storeId = store.storeId;
+    manifest.objectRefId = "323e4567-e89b-42d3-a456-426614174002";
+    await writeFile(referencePath, JSON.stringify(manifest), { mode: 0o600 });
+
+    await expect(store.inspect(identity.objectKey)).rejects.toMatchObject({
+      code: "PREVIEW_LOCAL_STORE_INVALID_OBJECT",
+    });
   });
 
   it("stores bounded build outputs in the same CAS and preserves shared blobs", async () => {
@@ -259,6 +393,9 @@ describe("Local Preview build-input CAS", () => {
       archive: bytes,
       contentLength: bytes.length,
     });
+    const firstMetadata = await store.inspect(first.objectKey);
+    const secondMetadata = await store.inspect(second.objectKey);
+    expect(firstMetadata.objectRefId).not.toBe(secondMetadata.objectRefId);
 
     await store.remove(first.objectKey);
     expect(await store.read(second.objectKey)).toEqual(bytes);

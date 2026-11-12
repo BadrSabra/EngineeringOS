@@ -85,7 +85,7 @@
 - [Hierarchical retrieval boundary](hierarchical-retrieval-boundary.md) — graph planning ranks bounded source/test paths; server-owned read tools remain authoritative for source bytes and evidence.
 - [Runtime observation boundary](runtime-observation-boundary.md) — runtime and validator probes attest only a bound direct PID; temp validation roots never replace project provenance or grant acceptance.
 - [Preview build trust boundary](preview-build-trust-boundary.md) — ECS receives only an S3 environment-file ARN; exact fingerprints and client tokens recover ambiguous launches without duplicating tasks.
-- [Preview build-job lifecycle](preview-build-job-lifecycle.md) — persist build attempts separately from sessions; Builder success is not verification or permission to preview.
+- [Preview build-job lifecycle](preview-build-job-lifecycle.md) — separate CAS object references from job-owned artifact references; only an independent receipt authorizes verification or a Preview session.
 - [Preview image builds](preview-image-build-reproducibility.md) — pin the Node digest and workspace pnpm; allow Builder only one task-scoped `/tmp` scratch volume.
 - [Preview محلي أولًا](preview-local-first-architecture.md) — ثبّت عقودًا محايدة ومخزنًا محليًا قبل Builder/Attestor/Runtime؛ AWS وCloudflare adapters اختيارية ولا تغير إثبات Candidate.
 - [Runtime replay fixture boundary](runtime-replay-fixture-boundary.md) — isolated replay fixtures must keep required runtime inputs outside excluded dependency directories.

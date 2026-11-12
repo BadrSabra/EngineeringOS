@@ -71,6 +71,17 @@ export interface PreviewBuildInputObjectStore {
   }): Promise<void>;
 }
 
+export type PreviewBuildArtifactWriteMetadata = {
+  storeId: string;
+  objectRefId: string;
+  digest: string;
+  sizeBytes: number;
+  manifestDigest: string;
+  retentionPolicy:
+    | "preview-build-input-24h-v1"
+    | "preview-build-output-live-reference-v1";
+};
+
 export interface PreviewBuildInputStreamObjectStore
   extends PreviewBuildInputObjectStore {
   /**
@@ -82,7 +93,7 @@ export interface PreviewBuildInputStreamObjectStore
     bytes: AsyncIterable<Uint8Array>;
     archiveDigest: string;
     contentLength: number;
-  }): Promise<void>;
+  }): Promise<PreviewBuildArtifactWriteMetadata | void>;
 }
 
 export class PreviewBuildInputObjectStoreError extends Error {

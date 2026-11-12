@@ -14,6 +14,7 @@ import { dirname, isAbsolute, relative, resolve, sep } from "node:path";
 import {
   PreviewBuildInputObjectStoreError,
   type PreviewBuildInputObjectStore,
+  type PreviewBuildArtifactWriteMetadata,
 } from "./preview-build-upload.js";
 
 const OBJECT_KEY_PATTERN =
@@ -58,6 +59,7 @@ type ObjectIdentity = {
   archiveDigest?: string;
   referenceName: string;
   maxBytes: number;
+  retentionPolicy: PreviewBuildArtifactWriteMetadata["retentionPolicy"];
 };
 
 function parseObjectKey(value: string): ObjectIdentity {
@@ -71,6 +73,7 @@ function parseObjectKey(value: string): ObjectIdentity {
       archiveDigest: inputMatch[2]!,
       referenceName: `${inputMatch[2]!}.json`,
       maxBytes: DEFAULT_MAX_INPUT_BYTES,
+      retentionPolicy: "preview-build-input-24h-v1",
     };
   }
 
@@ -90,7 +93,21 @@ function parseObjectKey(value: string): ObjectIdentity {
       .digest("hex"),
     referenceName: "output.json",
     maxBytes: MAX_OUTPUT_BYTES,
+    retentionPolicy: "preview-build-output-live-reference-v1",
   };
+}
+
+function objectRefIdForObjectKey(objectKey: string): string {
+  const bytes = createHash("sha256")
+    .update("EngineeringOS Preview Artifact Reference v1\n")
+    .update(objectKey, "utf8")
+    .digest()
+    .subarray(0, 16);
+  // RFC 9562 UUIDv8: deterministic, domain-separated reference ID.
+  bytes[6] = (bytes[6]! & 0x0f) | 0x80;
+  bytes[8] = (bytes[8]! & 0x3f) | 0x80;
+  const hex = bytes.toString("hex");
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
 }
 
 function isWithin(base: string, target: string): boolean {
@@ -391,7 +408,10 @@ export type LocalPreviewBuildInputObjectStore =
       bytes: AsyncIterable<Uint8Array>;
       archiveDigest: string;
       contentLength: number;
-    }): Promise<void>;
+    }): Promise<PreviewBuildArtifactWriteMetadata>;
+    inspect(
+      objectKey: string,
+    ): Promise<PreviewBuildArtifactWriteMetadata>;
     read(objectKey: string): Promise<Buffer>;
     remove(objectKey: string, expectedDigest?: string): Promise<void>;
   };
@@ -519,8 +539,9 @@ export async function createLocalPreviewArtifactObjectStore(input: {
   async function validateManifest(
     manifestBytes: Buffer,
     objectKey: string,
+    expectedStoreId: string,
     expectedArchiveDigest?: string,
-  ): Promise<{ archiveDigest: string; contentLength: number }> {
+  ): Promise<PreviewBuildArtifactWriteMetadata> {
     const identity = parseObjectKey(objectKey);
     let manifest: unknown;
     try {
@@ -538,19 +559,23 @@ export async function createLocalPreviewArtifactObjectStore(input: {
     const record = manifest as Record<string, unknown>;
     const archiveDigest = record.archiveDigest;
     const contentLength = record.contentLength;
-    const canonical =
-      typeof archiveDigest === "string" && typeof contentLength === "number"
-        ? JSON.stringify({
-            version: 1,
-            objectKey,
-            archiveDigest,
-            contentLength,
-          })
-        : "";
+    const objectRefId = objectRefIdForObjectKey(objectKey);
+    const canonical = JSON.stringify({
+      version: 2,
+      objectKey,
+      storeId: expectedStoreId,
+      objectRefId,
+      archiveDigest,
+      contentLength,
+      retentionPolicy: identity.retentionPolicy,
+    });
     if (
-      Object.keys(record).length !== 4 ||
-      record.version !== 1 ||
+      Object.keys(record).length !== 7 ||
+      record.version !== 2 ||
       record.objectKey !== objectKey ||
+      record.storeId !== expectedStoreId ||
+      record.objectRefId !== objectRefId ||
+      record.retentionPolicy !== identity.retentionPolicy ||
       typeof archiveDigest !== "string" ||
       !DIGEST_PATTERN.test(archiveDigest) ||
       (identity.archiveDigest !== undefined &&
@@ -567,7 +592,16 @@ export async function createLocalPreviewArtifactObjectStore(input: {
         "PREVIEW_LOCAL_STORE_INVALID_OBJECT",
       );
     }
-    return { archiveDigest, contentLength };
+    return {
+      storeId: expectedStoreId,
+      objectRefId,
+      digest: archiveDigest,
+      sizeBytes: contentLength,
+      manifestDigest: createHash("sha256")
+        .update(manifestBytes)
+        .digest("hex"),
+      retentionPolicy: identity.retentionPolicy,
+    };
   }
 
   async function referenceExistsForDigest(digest: string): Promise<boolean> {
@@ -649,9 +683,10 @@ export async function createLocalPreviewArtifactObjectStore(input: {
         const artifact = await validateManifest(
           manifestBytes,
           objectKey,
+          storeId,
           match?.[1],
         );
-        if (artifact.archiveDigest === digest) return true;
+        if (artifact.digest === digest) return true;
       }
     }
     return false;
@@ -659,9 +694,14 @@ export async function createLocalPreviewArtifactObjectStore(input: {
 
   const store: Pick<
     LocalPreviewBuildInputObjectStore,
-    "putStream" | "read" | "remove"
+    "putStream" | "inspect" | "read" | "remove"
   > = {
-    async putStream({ objectKey, bytes, archiveDigest, contentLength }) {
+    async putStream({
+      objectKey,
+      bytes,
+      archiveDigest,
+      contentLength,
+    }): Promise<PreviewBuildArtifactWriteMetadata> {
       const identity = parseObjectKey(objectKey);
       if (
         typeof archiveDigest !== "string" ||
@@ -761,10 +801,13 @@ export async function createLocalPreviewArtifactObjectStore(input: {
 
         const manifest = Buffer.from(
           JSON.stringify({
-            version: 1,
+            version: 2,
             objectKey,
+            storeId,
+            objectRefId: objectRefIdForObjectKey(objectKey),
             archiveDigest: digest,
             contentLength,
+            retentionPolicy: identity.retentionPolicy,
           }),
           "utf8",
         );
@@ -793,6 +836,16 @@ export async function createLocalPreviewArtifactObjectStore(input: {
           manifest,
         );
         referenceTemp = undefined;
+        return {
+          storeId,
+          objectRefId: objectRefIdForObjectKey(objectKey),
+          digest,
+          sizeBytes: contentLength,
+          manifestDigest: createHash("sha256")
+            .update(manifest)
+            .digest("hex"),
+          retentionPolicy: identity.retentionPolicy,
+        };
       } catch (error) {
         if (error instanceof LocalPreviewBuildInputStoreError) throw error;
         throw new LocalPreviewBuildInputStoreError(
@@ -814,22 +867,50 @@ export async function createLocalPreviewArtifactObjectStore(input: {
       const artifact = await validateManifest(
         manifestBytes,
         objectKey,
+        storeId,
         identity.archiveDigest,
       );
       const content = await readRegularFile(
-        blobPath(artifact.archiveDigest),
+        blobPath(artifact.digest),
         Math.min(maxBytes, identity.maxBytes),
       );
       if (
-        content.length !== artifact.contentLength ||
+        content.length !== artifact.sizeBytes ||
         createHash("sha256").update(content).digest("hex") !==
-          artifact.archiveDigest
+          artifact.digest
       ) {
         throw new LocalPreviewBuildInputStoreError(
           "PREVIEW_LOCAL_STORE_DIGEST_MISMATCH",
         );
       }
       return content;
+    },
+
+    async inspect(objectKey) {
+      const identity = parseObjectKey(objectKey);
+      const manifestBytes = await readRegularFile(
+        referencePath(identity.bindingDigest, identity.referenceName),
+        MAX_MANIFEST_BYTES,
+      );
+      const artifact = await validateManifest(
+        manifestBytes,
+        objectKey,
+        storeId,
+        identity.archiveDigest,
+      );
+      const content = await readRegularFile(
+        blobPath(artifact.digest),
+        Math.min(maxBytes, identity.maxBytes),
+      );
+      if (
+        content.length !== artifact.sizeBytes ||
+        createHash("sha256").update(content).digest("hex") !== artifact.digest
+      ) {
+        throw new LocalPreviewBuildInputStoreError(
+          "PREVIEW_LOCAL_STORE_DIGEST_MISMATCH",
+        );
+      }
+      return artifact;
     },
 
     async remove(objectKey, expectedDigest) {
@@ -879,9 +960,10 @@ export async function createLocalPreviewArtifactObjectStore(input: {
         const artifact = await validateManifest(
           manifestBytes,
           objectKey,
+          storeId,
           expectedDigest ?? identity.archiveDigest,
         );
-        archiveDigest = artifact.archiveDigest;
+        archiveDigest = artifact.digest;
         try {
           await unlink(reference);
         } catch (error) {
