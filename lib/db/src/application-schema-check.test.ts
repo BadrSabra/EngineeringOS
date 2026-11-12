@@ -325,6 +325,11 @@ function completeSnapshot() {
       }),
     ),
     indexes,
+    checkConstraints: APPLICATION_SCHEMA_CONTRACT.checks.map((check) => ({
+      table_name: check.tableName,
+      constraint_name: check.name,
+      definition: check.definitionPattern.source,
+    })),
     primaryKeys: requiredTables.flatMap((table_name) =>
       table_name === "startup_maintenance_state"
         ? ["maintenance_key"].map((column_name) => ({
@@ -414,6 +419,12 @@ function clientFor(
         return {
           rows: value.indexes as unknown as T[],
           rowCount: value.indexes.length,
+        };
+      }
+      if (sql.includes("FROM pg_constraint") && sql.includes("contype = 'c'")) {
+        return {
+          rows: value.checkConstraints as unknown as T[],
+          rowCount: value.checkConstraints.length,
         };
       }
       if (sql.includes("constraint_type = 'PRIMARY KEY'")) {
@@ -1040,6 +1051,46 @@ describe("application schema contract", () => {
     );
   });
 
+  it("requires local Preview artifact ownership constraints", () => {
+    const snapshot = completeSnapshot();
+    const missingLocalInputGuard = findApplicationSchemaIssues({
+      ...snapshot,
+      checkConstraints: snapshot.checkConstraints.filter(
+        (constraint) =>
+          constraint.constraint_name !==
+          "chk_preview_build_jobs_input_local_metadata",
+      ),
+    });
+    assert.ok(
+      missingLocalInputGuard.some(
+        (issue) =>
+          issue.kind === "missing_check_constraint" &&
+          issue.tableName === "preview_build_jobs" &&
+          issue.objectName ===
+            "chk_preview_build_jobs_input_local_metadata",
+      ),
+    );
+
+    const weakenedOutputGuard = findApplicationSchemaIssues({
+      ...snapshot,
+      checkConstraints: snapshot.checkConstraints.map((constraint) =>
+        constraint.constraint_name ===
+        "chk_preview_build_jobs_output_local_metadata"
+          ? { ...constraint, definition: "CHECK (true)" }
+          : constraint,
+      ),
+    });
+    assert.ok(
+      weakenedOutputGuard.some(
+        (issue) =>
+          issue.kind === "incompatible_check_constraint" &&
+          issue.tableName === "preview_build_jobs" &&
+          issue.objectName ===
+            "chk_preview_build_jobs_output_local_metadata",
+      ),
+    );
+  });
+
   it("reads all metadata through read-only catalog queries", async () => {
     const snapshot = completeSnapshot();
     const client = clientFor(snapshot);
@@ -1047,6 +1098,10 @@ describe("application schema contract", () => {
     assert.equal(result.columns.length, snapshot.columns.length);
     assert.deepEqual(result.enums, snapshot.enums);
     assert.equal(result.indexes.length, snapshot.indexes.length);
+    assert.equal(
+      result.checkConstraints.length,
+      snapshot.checkConstraints.length,
+    );
     assert.equal(result.foreignKeys.length, snapshot.foreignKeys.length);
   });
 

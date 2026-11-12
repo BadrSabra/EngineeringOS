@@ -128,7 +128,9 @@ export const previewBuildJobsTable = pgTable(
       sql`${table.inputArtifactProvider} <> 'local' OR (
         ${table.inputArtifactStoreId} IS NOT NULL
         AND ${table.inputArtifactRefId} IS NOT NULL
+        AND ${table.inputArtifactSizeBytes} IS NOT NULL
         AND ${table.inputArtifactSizeBytes} > 0
+        AND ${table.inputArtifactManifestDigest} IS NOT NULL
         AND ${table.inputArtifactManifestDigest} ~ '^[a-f0-9]{64}$'
         AND ${table.inputArtifactRetentionPolicy} IS NOT NULL
         AND length(${table.inputArtifactRetentionPolicy}) BETWEEN 1 AND 64
@@ -144,8 +146,11 @@ export const previewBuildJobsTable = pgTable(
         AND (
           ${table.status} NOT IN ('builder_succeeded', 'verified')
           OR (
-            ${table.outputDigest} ~ '^[a-f0-9]{64}$'
+            ${table.outputDigest} IS NOT NULL
+            AND ${table.outputDigest} ~ '^[a-f0-9]{64}$'
+            AND ${table.outputArtifactSizeBytes} IS NOT NULL
             AND ${table.outputArtifactSizeBytes} > 0
+            AND ${table.outputArtifactManifestDigest} IS NOT NULL
             AND ${table.outputArtifactManifestDigest} ~ '^[a-f0-9]{64}$'
           )
         )

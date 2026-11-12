@@ -16,6 +16,8 @@ export type ApplicationSchemaIssueKind =
   | "incompatible_enum"
   | "missing_index"
   | "incompatible_index"
+  | "missing_check_constraint"
+  | "incompatible_check_constraint"
   | "missing_foreign_key";
 
 export interface ApplicationSchemaIssue {
@@ -42,6 +44,12 @@ export type IndexContract = {
   accessMethod?: string;
   predicate?: string | null;
   predicatePattern?: RegExp;
+};
+
+type CheckContract = {
+  name: string;
+  tableName: string;
+  definitionPattern: RegExp;
 };
 
 type ForeignKeyContract = {
@@ -3367,6 +3375,20 @@ export const APPLICATION_SCHEMA_CONTRACT = {
       columns: ["dispatch_status", "created_at"],
     },
   ] satisfies readonly IndexContract[],
+  checks: [
+    {
+      name: "chk_preview_build_jobs_input_local_metadata",
+      tableName: "preview_build_jobs",
+      definitionPattern:
+        /input_artifact_provider.*'local'.*input_artifact_store_id.*input_artifact_ref_id.*input_artifact_size_bytes.*is not null.*input_artifact_size_bytes > 0.*input_artifact_manifest_digest.*is not null.*input_artifact_manifest_digest.*input_artifact_retention_policy/i,
+    },
+    {
+      name: "chk_preview_build_jobs_output_local_metadata",
+      tableName: "preview_build_jobs",
+      definitionPattern:
+        /output_artifact_provider.*'local'.*output_artifact_store_id.*output_artifact_ref_id.*output_artifact_retention_policy.*output_digest.*is not null.*output_digest.*output_artifact_size_bytes.*is not null.*output_artifact_size_bytes > 0.*output_artifact_manifest_digest.*is not null.*output_artifact_manifest_digest/i,
+    },
+  ] satisfies readonly CheckContract[],
   foreignKeys: [
     {
       tableName: "preview_sessions",
@@ -4004,6 +4026,11 @@ type IndexRow = {
   predicate: string | null;
   columns: string[];
 };
+type CheckConstraintRow = {
+  table_name: string;
+  constraint_name: string;
+  definition: string;
+};
 type ForeignKeyRow = {
   table_name: string;
   column_name: string;
@@ -4073,6 +4100,7 @@ export interface ApplicationSchemaSnapshot {
   columns: readonly ColumnRow[];
   enums: readonly EnumRow[];
   indexes: readonly IndexRow[];
+  checkConstraints: readonly CheckConstraintRow[];
   primaryKeys: readonly { table_name: string; column_name: string }[];
   foreignKeys: readonly ForeignKeyRow[];
 }
@@ -4247,6 +4275,38 @@ export function findApplicationSchemaIssues(
     }
   }
 
+  const checkConstraints = new Map(
+    snapshot.checkConstraints.map((row) => [row.constraint_name, row]),
+  );
+  for (const expected of APPLICATION_SCHEMA_CONTRACT.checks as readonly CheckContract[]) {
+    const actual = checkConstraints.get(expected.name);
+    if (!actual) {
+      issues.push(
+        issue(
+          "missing_check_constraint",
+          expected.tableName,
+          expected.name,
+          `check constraint matching ${expected.definitionPattern}`,
+        ),
+      );
+      continue;
+    }
+    if (
+      actual.table_name !== expected.tableName ||
+      !expected.definitionPattern.test(normalized(actual.definition))
+    ) {
+      issues.push(
+        issue(
+          "incompatible_check_constraint",
+          expected.tableName,
+          expected.name,
+          `check constraint matching ${expected.definitionPattern}`,
+          `${actual.table_name} ${normalized(actual.definition)}`,
+        ),
+      );
+    }
+  }
+
   const foreignKeys = new Set(
     snapshot.foreignKeys.map(
       (row) =>
@@ -4326,6 +4386,17 @@ export async function readApplicationSchemaSnapshot(
     WHERE table_namespace.nspname = 'public'
       AND table_relation.relname IN (${REQUIRED_TABLE_SQL})
   `);
+  const checkConstraints = await client.query<CheckConstraintRow>(`
+    SELECT table_relation.relname AS table_name,
+           constraint_row.conname AS constraint_name,
+           pg_get_constraintdef(constraint_row.oid) AS definition
+    FROM pg_constraint constraint_row
+    JOIN pg_class table_relation ON table_relation.oid = constraint_row.conrelid
+    JOIN pg_namespace table_namespace ON table_namespace.oid = table_relation.relnamespace
+    WHERE constraint_row.contype = 'c'
+      AND table_namespace.nspname = 'public'
+      AND table_relation.relname IN (${REQUIRED_TABLE_SQL})
+  `);
   const primaryKeys = await client.query<{
     table_name: string;
     column_name: string;
@@ -4366,6 +4437,7 @@ export async function readApplicationSchemaSnapshot(
     columns: columns.rows,
     enums: enums.rows,
     indexes: indexes.rows,
+    checkConstraints: checkConstraints.rows,
     primaryKeys: primaryKeys.rows,
     foreignKeys: foreignKeys.rows,
   };
