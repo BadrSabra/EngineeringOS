@@ -127,6 +127,18 @@ function completeSnapshot() {
     if (tableName === "preview_sessions" && columnName === "status") {
       return "'starting'::preview_session_status";
     }
+    if (
+      tableName === "preview_agent_nodes" &&
+      columnName === "status"
+    ) {
+      return "'pending'::preview_agent_node_status";
+    }
+    if (
+      tableName === "preview_agent_nodes" &&
+      columnName === "key_version"
+    ) {
+      return "0";
+    }
     if (tableName === "preview_sessions" && columnName === "id") {
       return "gen_random_uuid()";
     }
@@ -940,6 +952,46 @@ describe("application schema contract", () => {
         (issue) =>
           issue.kind === "incompatible_enum" &&
           issue.objectName === "preview_build_job_status",
+      ),
+    );
+  });
+
+  it("requires a project-scoped Preview Agent key registry", () => {
+    const snapshot = completeSnapshot();
+    const missingFingerprintFence = findApplicationSchemaIssues({
+      ...snapshot,
+      indexes: snapshot.indexes.filter(
+        (index) =>
+          index.indexname !==
+          "uq_preview_agent_nodes_public_key_fingerprint",
+      ),
+    });
+    assert.ok(
+      missingFingerprintFence.some(
+        (issue) =>
+          issue.kind === "missing_index" &&
+          issue.tableName === "preview_agent_nodes" &&
+          issue.objectName ===
+            "uq_preview_agent_nodes_public_key_fingerprint",
+      ),
+    );
+
+    const missingProjectOwnership = findApplicationSchemaIssues({
+      ...snapshot,
+      foreignKeys: snapshot.foreignKeys.filter(
+        (key) =>
+          !(
+            key.table_name === "preview_agent_nodes" &&
+            key.column_name === "project_id"
+          ),
+      ),
+    });
+    assert.ok(
+      missingProjectOwnership.some(
+        (issue) =>
+          issue.kind === "missing_foreign_key" &&
+          issue.tableName === "preview_agent_nodes" &&
+          issue.objectName === "project_id",
       ),
     );
   });

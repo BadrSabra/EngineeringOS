@@ -865,6 +865,45 @@ export const APPLICATION_SCHEMA_CONTRACT = {
         nullable: true,
       },
     ] as readonly ColumnContract[],
+    preview_agent_nodes: [
+      { name: "node_id", dataType: "uuid", udtName: "uuid", nullable: false },
+      { name: "project_id", dataType: "text", udtName: "text", nullable: false },
+      { name: "user_id", dataType: "text", udtName: "text", nullable: false },
+      { name: "store_id", dataType: "uuid", udtName: "uuid", nullable: false },
+      {
+        name: "status",
+        dataType: "USER-DEFINED",
+        udtName: "preview_agent_node_status",
+        nullable: false,
+        defaultExpression: /'pending'::preview_agent_node_status/,
+      },
+      ...["pairing_code_hash", "public_key_pem", "public_key_fingerprint", "agent_version", "platform"].map((name) => ({
+        name,
+        dataType: "text",
+        udtName: "text",
+        nullable: true,
+      })),
+      ...["pairing_expires_at", "paired_at", "last_seen_at", "revoked_at"].map((name) => ({
+        name,
+        dataType: "timestamp with time zone",
+        udtName: "timestamptz",
+        nullable: true,
+      })),
+      {
+        name: "key_version",
+        dataType: "integer",
+        udtName: "int4",
+        nullable: false,
+        defaultExpression: /0/,
+      },
+      ...["created_at", "updated_at"].map((name) => ({
+        name,
+        dataType: "timestamp with time zone",
+        udtName: "timestamptz",
+        nullable: false,
+        defaultExpression: /(?:now\(\)|current_timestamp)/,
+      })),
+    ] as readonly ColumnContract[],
     // Mission Control's usage summary reads contract failure categories from
     // this table, so a stale telemetry schema must fail before the route does.
     ai_usage_events: [
@@ -2752,6 +2791,40 @@ export const APPLICATION_SCHEMA_CONTRACT = {
       columns: ["expires_at"],
     },
     {
+      name: "preview_agent_nodes_pkey",
+      tableName: "preview_agent_nodes",
+      columns: ["node_id"],
+      unique: true,
+    },
+    {
+      name: "uq_preview_agent_nodes_live_store",
+      tableName: "preview_agent_nodes",
+      columns: ["store_id"],
+      unique: true,
+    },
+    {
+      name: "uq_preview_agent_nodes_pairing_code_hash",
+      tableName: "preview_agent_nodes",
+      columns: ["pairing_code_hash"],
+      unique: true,
+    },
+    {
+      name: "uq_preview_agent_nodes_public_key_fingerprint",
+      tableName: "preview_agent_nodes",
+      columns: ["public_key_fingerprint"],
+      unique: true,
+    },
+    {
+      name: "idx_preview_agent_nodes_project_status",
+      tableName: "preview_agent_nodes",
+      columns: ["project_id", "status"],
+    },
+    {
+      name: "idx_preview_agent_nodes_pairing_expiry",
+      tableName: "preview_agent_nodes",
+      columns: ["status", "pairing_expires_at"],
+    },
+    {
       name: "idx_ai_chat_messages_created_at_id",
       tableName: "ai_chat_messages",
       columns: ["created_at", "id"],
@@ -3291,6 +3364,13 @@ export const APPLICATION_SCHEMA_CONTRACT = {
       deleteRule: "RESTRICT",
     },
     {
+      tableName: "preview_agent_nodes",
+      columnName: "project_id",
+      foreignTableName: "projects",
+      foreignColumnName: "id",
+      deleteRule: "CASCADE",
+    },
+    {
       tableName: "project_bootstrap_jobs",
       columnName: "project_id",
       foreignTableName: "projects",
@@ -3735,6 +3815,7 @@ export const APPLICATION_SCHEMA_CONTRACT = {
       "deleted",
     ],
     preview_artifact_provider: ["local", "s3"],
+    preview_agent_node_status: ["pending", "active", "revoked"],
     task_status: [
       "pending",
       "queued",

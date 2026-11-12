@@ -16,6 +16,7 @@ import {
 } from "./middlewares/clerkProxyMiddleware.js";
 import { requireAuth } from "./middlewares/requireAuth.js";
 import previewBuildAttestationRouter from "./routes/preview-build-attestation.js";
+import previewAgentRouter from "./routes/preview-agents.js";
 
 const app: Express = express();
 
@@ -193,6 +194,7 @@ if (config.nodeEnv !== "test") {
 // The Attestor is a separate server-side workload. This one route is
 // authenticated by a short-lived Ed25519 receipt, not by a browser session.
 app.use("/api", rejectCrossOriginMutations, previewBuildAttestationRouter);
+app.use("/api", rejectCrossOriginMutations, previewAgentRouter);
 app.use("/api", rejectCrossOriginMutations, requireAuth, router);
 
 // Centralized error handler — maps Zod validation errors to 400, everything else to 500.
