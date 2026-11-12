@@ -32,7 +32,10 @@ import {
   acceptPreviewBuildInputStoreReceipt,
   PreviewArtifactStoreAcceptanceError,
 } from "./preview-artifact-store-acceptance.js";
-import { issuePreviewBuildInputStoreCommand } from "./preview-artifact-store-issuer.js";
+import {
+  issuePreviewBuildInputStoreCommand,
+  PreviewArtifactStoreCommandIssueError,
+} from "./preview-artifact-store-issuer.js";
 
 const NOW = new Date("2026-11-12T12:00:00.000Z");
 const SOURCE_DIGEST = "a".repeat(64);
@@ -310,6 +313,51 @@ describe("Preview Agent artifact receipt database binding", () => {
     );
     expect(first.commandToken).not.toBe(retry.commandToken);
     expect(job).toEqual({ stateVersion: 0, readyAt: null });
+  });
+
+  it("does not issue a command for a revoked owner or changed Candidate", async () => {
+    const revoked = await createFixture();
+    await db
+      .update(previewAgentNodesTable)
+      .set({ status: "revoked", revokedAt: NOW, updatedAt: NOW })
+      .where(eq(previewAgentNodesTable.nodeId, revoked.nodeId));
+    const revokedPoll = createPollProof(
+      revoked.jobId,
+      revoked.nodeId,
+      new Date(NOW.getTime() + 1_000),
+    );
+    await expect(
+      issuePreviewBuildInputStoreCommand({
+        jobId: revoked.jobId,
+        ...revokedPoll,
+        buildJobPrivateKeyPem: API_PRIVATE_KEY_PEM,
+        now: new Date(NOW.getTime() + 1_000),
+      }),
+    ).rejects.toBeInstanceOf(PreviewArtifactStoreCommandIssueError);
+
+    await db
+      .update(previewAgentNodesTable)
+      .set({ status: "active", revokedAt: null, updatedAt: NOW })
+      .where(eq(previewAgentNodesTable.nodeId, revoked.nodeId));
+    await db
+      .update(aiChangeProposalsTable)
+      .set({ candidateTreeHash: "9".repeat(64) })
+      .where(eq(aiChangeProposalsTable.id, revoked.proposalId));
+    const stalePoll = createPollProof(
+      revoked.jobId,
+      revoked.nodeId,
+      new Date(NOW.getTime() + 1_000),
+    );
+    await expect(
+      issuePreviewBuildInputStoreCommand({
+        jobId: revoked.jobId,
+        ...stalePoll,
+        buildJobPrivateKeyPem: API_PRIVATE_KEY_PEM,
+        now: new Date(NOW.getTime() + 1_000),
+      }),
+    ).rejects.toMatchObject({
+      code: "PREVIEW_ARTIFACT_STORE_COMMAND_ISSUE_CONFLICT",
+    });
   });
 
   it("records the exact owner artifact once and treats the same signed receipt as a retry", async () => {

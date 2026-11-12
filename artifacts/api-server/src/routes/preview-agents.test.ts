@@ -7,6 +7,7 @@ import {
 import { PreviewAgentCapabilityError } from "../lib/preview-agent-capability.js";
 import type { PreviewBuildJob } from "@workspace/db";
 import { PreviewArtifactStoreAcceptanceError } from "../lib/preview-artifact-store-acceptance.js";
+import { PreviewArtifactStoreCommandIssueError } from "../lib/preview-artifact-store-issuer.js";
 import { createPreviewAgentRouter } from "./preview-agents.js";
 
 const pairing = {
@@ -58,6 +59,12 @@ function createApp(options: { production?: boolean } = {}) {
         inputArtifactReadyAt: new Date("2031-03-04T12:00:02.000Z"),
       } as PreviewBuildJob,
       alreadyAccepted: false,
+    })),
+    issueArtifactStoreCommand: vi.fn(async ({ jobId }: { jobId: string }) => ({
+      commandId: "223e4567-e89b-42d3-a456-426614174001",
+      commandFingerprint: "a".repeat(64),
+      expiresAt: new Date("2031-03-04T12:00:30.000Z"),
+      commandToken: `signed-command-for-${jobId}`,
     })),
     buildJobPrivateKeyPem: "server-only signing key",
     listNodes: vi.fn(async () => [node]),
@@ -275,6 +282,80 @@ describe("Preview Agent pairing routes", () => {
       commandToken,
       receiptToken,
       buildJobPrivateKeyPem: "server-only signing key",
+    });
+  });
+
+  it("issues a short-lived command only through a signed Agent poll", async () => {
+    const { app, dependencies } = createApp();
+    const jobId = "123e4567-e89b-42d3-a456-426614174000";
+    const proof = {
+      version: 1,
+      action: "poll-artifact-store-command",
+      nodeId: node.nodeId,
+      keyVersion: node.keyVersion,
+      jobId,
+      issuedAt: "2031-03-04T12:00:00.000Z",
+      nonce: "323e4567-e89b-42d3-a456-426614174002",
+    };
+    const signature = "s".repeat(86);
+    const response = await request(app)
+      .post(`/internal/preview-build-jobs/${jobId}/artifact-store-command`)
+      .send({ proof, signature });
+
+    expect(response.status).toBe(200);
+    expect(response.headers["cache-control"]).toBe("no-store");
+    expect(response.body).toEqual({
+      commandId: "223e4567-e89b-42d3-a456-426614174001",
+      commandFingerprint: "a".repeat(64),
+      expiresAt: "2031-03-04T12:00:30.000Z",
+      commandToken: `signed-command-for-${jobId}`,
+    });
+    expect(dependencies.issueArtifactStoreCommand).toHaveBeenCalledWith({
+      jobId,
+      proof,
+      signature,
+      buildJobPrivateKeyPem: "server-only signing key",
+    });
+  });
+
+  it("rejects Agent poll cookies/plaintext and returns a safe conflict", async () => {
+    const { app, dependencies } = createApp({ production: true });
+    const jobId = "123e4567-e89b-42d3-a456-426614174000";
+    const path = `/internal/preview-build-jobs/${jobId}/artifact-store-command`;
+    const body = {
+      proof: {
+        version: 1,
+        action: "poll-artifact-store-command",
+        nodeId: node.nodeId,
+        keyVersion: node.keyVersion,
+        jobId,
+        issuedAt: "2031-03-04T12:00:00.000Z",
+        nonce: "323e4567-e89b-42d3-a456-426614174002",
+      },
+      signature: "s".repeat(86),
+    };
+    const cookieResponse = await request(app)
+      .post(path)
+      .set("Cookie", "session=unexpected")
+      .set("x-forwarded-proto", "https")
+      .send(body);
+    const plaintextResponse = await request(app).post(path).send(body);
+
+    vi.mocked(dependencies.issueArtifactStoreCommand).mockRejectedValueOnce(
+      new PreviewArtifactStoreCommandIssueError(
+        "PREVIEW_ARTIFACT_STORE_COMMAND_ISSUE_CONFLICT",
+      ),
+    );
+    const conflictResponse = await request(app)
+      .post(path)
+      .set("x-forwarded-proto", "https")
+      .send(body);
+
+    expect(cookieResponse.status).toBe(403);
+    expect(plaintextResponse.status).toBe(403);
+    expect(conflictResponse.status).toBe(409);
+    expect(conflictResponse.body).toEqual({
+      error: "preview_artifact_command_conflict",
     });
   });
 

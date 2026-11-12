@@ -14,3 +14,9 @@ description: Keep build attempts separate from Preview sessions and require inde
 **Why:** Input object keys can be reused for the same Candidate across separate build attempts. A key-derived reference conflates those owners; treating each job ref as separate allows safe per-job lifecycle while preserving blob deduplication.
 
 **How to apply:** Allocate the reference from the server-owned job identity and role, bind it into signed transfer claims and the immutable manifest, persist the matching identity in the existing Build row, and let GC delete only that reference. Do not enable local admission until the DB row, paired Agent owner, and actual store metadata agree; never authorize cleanup from the manifest alone.
+
+**Local storage command rule:** Agent polls are signed by the registered node key and bound to one queued Job, owner, Candidate revision, and input artifact reference. Keep the command ID and semantic fingerprint stable across lost-response retries, while issuing a short-lived token each time. Poll replay is intentionally idempotent and must not create a new queue or nonce table; persist owner node/key version and only a hash of the accepted receipt token on the existing Build row. The Agent must still verify/perform the exact CAS write, and public local Job creation stays closed until source delivery and transport are available.
+
+**Why:** The Build row is already the durable recovery identity. A second command ledger would duplicate lifecycle state; a bounded read-only poll may be replayed safely when the command and CAS reference are stable, and the signed receipt prevents another Job from claiming the write.
+
+**How to apply:** Revalidate the current Agent key and Candidate under the same lock order used by build admission and artifact receipt acceptance. Do not claim transport, local execution, or artifact readiness from command issuance alone.

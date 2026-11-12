@@ -241,6 +241,18 @@ export async function issuePreviewBuildInputStoreCommand(input: {
         .for("update")
         .limit(1);
 
+      let lockedKeyProofValid = false;
+      try {
+        verifyPreviewArtifactStorePollProof({
+          proof,
+          signature: input.signature,
+          publicKeyPem: node?.publicKeyPem ?? undefined,
+          now,
+        });
+        lockedKeyProofValid = true;
+      } catch {
+        lockedKeyProofValid = false;
+      }
       if (
         !job ||
         job.archiveDigest !== snapshot.archiveDigest ||
@@ -249,6 +261,7 @@ export async function issuePreviewBuildInputStoreCommand(input: {
         job.inputArtifactReadyAt !== null ||
         job.inputArtifactGcState !== "active" ||
         job.tokenExpiresAt.getTime() <= now.getTime() ||
+        !lockedKeyProofValid ||
         !hasRegisteredOwner(node, proof, job) ||
         !previewArtifactStoreCandidateIsCurrent(candidate ?? null, job)
       ) {

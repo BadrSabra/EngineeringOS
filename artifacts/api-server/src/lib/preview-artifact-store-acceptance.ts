@@ -22,6 +22,7 @@ import {
   previewArtifactStoreCommandPublicKeyPem,
   verifyPreviewArtifactStoreCommand,
   verifyPreviewArtifactStoreReceipt,
+  type PreviewArtifactStoreCommandClaims,
 } from "./preview-artifact-store-command.js";
 
 const UUID_PATTERN =
@@ -76,7 +77,7 @@ export function previewArtifactStoreCandidateIsCurrent(
 }
 
 export function previewArtifactStoreCommandMatchesJob(
-  command: ReturnType<typeof verifyPreviewArtifactStoreCommand>,
+  command: PreviewArtifactStoreCommandClaims,
   job: PreviewBuildJob,
 ): boolean {
   return (
