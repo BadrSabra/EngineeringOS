@@ -988,6 +988,8 @@ Backend Preview وUXW-08 أدناه **توسعة معمارية مستهدفة**
 
 #### UXW-03.1 — Provider-Neutral Preview Contracts
 
+**تنفيذ أولي (2026-11-12):** أُنشئت مكتبة مشتركة لعقد أوامر Runner موقّعة ومحددة المخطط لـ`start/stop`. ترفض `shared_kernel` والحقول الإضافية، وتربط الأمر بهوية الجلسة والمرشح والإيصال والملف التعريفي وجيل الـfencing، مع digest للـRuntime Profile. هذه نواة تحقق تشفيري فقط: لا تنفذ Runner أو نقلًا أو سجل replay دائمًا، ولا تُغلق UXW-03.1 أو تسمح بتشغيل Backend Candidate.
+
 - افصل المسؤوليات بعقود صغيرة لا تسرّب تفاصيل AWS/Cloudflare: `PreviewBuildExecutor`, `PreviewArtifactStore`, `PreviewAttestationService`, `PreviewReceiptVerifier`, `PreviewSessionRuntime`, `PreviewRunnerAgent`, `PreviewExposureGateway`, `PreviewNodeRegistry`, و`PreviewPlacementPolicy`. `PreviewRunnerAgent` بروتوكول موثّق لعامل العقدة يطبّق أوامر Runtime موقعة، وليس مصدر حالة أو نظام تنفيذ مكررًا. لا تجمعها في provider واحد ضخم، ولا تُنشئ تنفيذًا موازيًا لوظائف موجودة.
 - افصل `PreviewBuildProfile` عن `PreviewRuntimeProfile` وعن `PreviewTopologyProfile`: الأول يحدد إعداد إنتاج Artifact، والثاني الصورة والـLauncher وسياسات التشغيل، والثالث عدد الخدمات وعلاقاتها وموارد بياناتها. لا تجعل `previewProfile` واحدًا يحدد هذه المسؤوليات معًا.
 - حافظ على العقد الفعلي `builderProfile: "vite-react-static-v1"` أثناء التحويل؛ أضف `buildProfileId` بإصدار/ترحيل صريح. لا تستخدم الاسم المقترح `vite-static-v1` كمرادف صامت. ملفات Runtime الحالية AWS-specific وليست دليلًا على اكتمال هذه العقود المحايدة.

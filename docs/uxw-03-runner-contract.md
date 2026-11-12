@@ -1,6 +1,8 @@
 # UXW-03 Runner Contract V1
 
-**Status:** Design only; no implementation or qualified Runner yet
+**Status:** The shared signed start/stop command core is implemented. Transport,
+durable replay/fencing, observations, Local Agent execution, and a qualified
+Runner remain unimplemented.
 
 **Authority:** Additive contract for UXW-03.1–03.4; it does not enable Backend Preview
 
