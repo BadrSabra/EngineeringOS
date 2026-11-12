@@ -149,6 +149,8 @@ The PRS describes pairing, outbound TLS, scoped jobs, root confinement, revocati
 3. Set and verify private filesystem modes for uploads, Local Agent workspaces, artifacts, and cleanup roots.
 4. Do not enable Local Agent until pairing, root confinement, lease expiry, revocation, update trust, and cross-project denial are implemented and tested.
 
+**Remediation evidence:** Candidate archive creation now reads and packages only the explicitly selected nested `sourceRoot`, preserving its relative path for the existing Builder profile. It still verifies the full Candidate tree hash before and after collection, while excluding sibling paths from the archive and Manifest. `sourceRoot: "."` intentionally selects the whole Candidate; supporting workspace-level dependencies outside a nested root remains a future explicit allowlist decision. Tests reject symlink/missing roots and prove sibling content is absent. This closes the sibling-file transfer portion of FS-01 for nested roots only; the dependency-parser/concurrency and actual Agent qualification findings remain open.
+
 ## 3. Secrets, environment, and database isolation
 
 ### Findings
