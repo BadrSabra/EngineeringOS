@@ -982,6 +982,8 @@ Backend Preview وUXW-08 أدناه **توسعة معمارية مستهدفة**
 - حدّد سياسة Egress المغلقة افتراضيًا؛ أي استثناء لاحق يحتاج قائمة سماح قابلة للتدقيق وحماية فعلية من SSRF وDNS rebinding عند نقطة الاتصال.
 - **إغلاق الحزمة:** نموذج تهديد مُراجع، Runtime Profile ونطاق دعم صريحان، واختبارات مستقلة تثبت العزل والتعافي. إذا لم تتأهل بيئة محلية، تُرفض عليها Backend Preview بدل تخفيض الحد الأمني.
 
+**نتيجة التأهيل الأولية (2026-11-12):** اجتاز Docker المحلي فحصًا آمنًا لقيود الحاوية الأساسية، ونجحت اختبارات العزل القائمة (43/43). وأثبت نموذج ثابت وصول HTTP عبر مقبس Unix خاص مع بقاء شبكة الحاوية مغلقة، لكن لم يُشغّل Candidate ولم يُربط Gateway المنتج، واستخدم النموذج مجلدًا واحدًا قابلًا للكتابة، كما أن `runc` يشارك نواة المضيف. لذلك لم تُغلق البوابة ولا يُعلن دعم Backend؛ تفاصيل الدليل والقيود في [ADR عزل Backend](adr/uxw-03-backend-runtime-isolation.md).
+
 #### UXW-03.1 — Provider-Neutral Preview Contracts
 
 - افصل المسؤوليات بعقود صغيرة لا تسرّب تفاصيل AWS/Cloudflare: `PreviewBuildExecutor`, `PreviewArtifactStore`, `PreviewAttestationService`, `PreviewReceiptVerifier`, `PreviewSessionRuntime`, `PreviewExposureGateway`, `PreviewNodeRegistry`, و`PreviewPlacementPolicy`. لا تجمعها في provider واحد ضخم، ولا تُنشئ تنفيذًا موازيًا لوظائف موجودة.
