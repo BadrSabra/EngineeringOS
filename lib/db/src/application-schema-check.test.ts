@@ -366,7 +366,12 @@ function completeSnapshot() {
                           table_name,
                           column_name,
                         }))
-                      : [{ table_name, column_name: "id" }],
+                      : table_name === "preview_agent_nodes"
+                        ? ["node_id"].map((column_name) => ({
+                            table_name,
+                            column_name,
+                          }))
+                        : [{ table_name, column_name: "id" }],
     ),
     foreignKeys: APPLICATION_SCHEMA_CONTRACT.foreignKeys.map((key) => ({
       table_name: key.tableName,

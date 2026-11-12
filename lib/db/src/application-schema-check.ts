@@ -4133,7 +4133,9 @@ export function findApplicationSchemaIssues(
                     ? ["job_id"]
                     : tableName === "preview_access_tickets"
                       ? ["ticket_digest"]
-                      : ["id"];
+                      : tableName === "preview_agent_nodes"
+                        ? ["node_id"]
+                        : ["id"];
     const actualColumns = snapshot.primaryKeys
       .filter((row) => row.table_name === tableName)
       .map((row) => row.column_name);
