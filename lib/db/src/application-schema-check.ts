@@ -722,14 +722,16 @@ export const APPLICATION_SCHEMA_CONTRACT = {
         udtName: "text",
         nullable: false,
       })),
-      ...["input_artifact_ready_at", "input_artifact_gc_marked_at", "output_artifact_gc_marked_at"].map(
-        (name) => ({
-          name,
-          dataType: "timestamp with time zone",
-          udtName: "timestamptz",
-          nullable: true,
-        }),
-      ),
+      ...[
+        "input_artifact_ready_at",
+        "input_artifact_gc_marked_at",
+        "output_artifact_gc_marked_at",
+      ].map((name) => ({
+        name,
+        dataType: "timestamp with time zone",
+        udtName: "timestamptz",
+        nullable: true,
+      })),
       ...["input_artifact_gc_state", "output_artifact_gc_state"].map(
         (name) => ({
           name,

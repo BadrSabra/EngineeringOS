@@ -21,6 +21,8 @@ const validInput = {
   sourceRoot: "web",
   sourceDigest: "c".repeat(64),
   archiveDigest: "d".repeat(64),
+  inputArtifactProvider: "s3" as const,
+  outputArtifactProvider: "s3" as const,
   builderImageDigest: `sha256:${"e".repeat(64)}`,
   issuedAt: new Date(now.getTime() - 1_000),
   tokenExpiresAt: new Date(now.getTime() + 60_000),

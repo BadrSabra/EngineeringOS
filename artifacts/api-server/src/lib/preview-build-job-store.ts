@@ -136,6 +136,8 @@ function sameRequest(
     row.sourceRoot === input.sourceRoot &&
     row.sourceDigest === input.sourceDigest.toLowerCase() &&
     row.archiveDigest === input.archiveDigest.toLowerCase() &&
+    row.inputArtifactProvider === input.inputArtifactProvider &&
+    row.outputArtifactProvider === input.outputArtifactProvider &&
     row.builderImageDigest === input.builderImageDigest.toLowerCase()
   );
 }

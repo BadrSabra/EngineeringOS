@@ -8,6 +8,7 @@ import {
   readdir,
   rm,
   symlink,
+  unlink,
   writeFile,
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -129,6 +130,34 @@ describe("Local Preview build-input CAS", () => {
 
     await store.remove(second.objectKey);
     await store.remove(second.objectKey);
+    await expect(lstat(blobPath)).rejects.toMatchObject({ code: "ENOENT" });
+  });
+
+  it("removes an orphaned blob after a prior attempt already removed its manifest", async () => {
+    const { rootDir, store } = await createStore();
+    const bytes = Buffer.from("recover an interrupted reference cleanup");
+    const identity = objectKey(bytes);
+    const referencePath = join(
+      rootDir,
+      "refs",
+      BINDING_DIGEST,
+      `${identity.archiveDigest}.json`,
+    );
+    const blobPath = join(
+      rootDir,
+      "blobs",
+      identity.archiveDigest.slice(0, 2),
+      `${identity.archiveDigest.slice(2)}.zip`,
+    );
+    await store.put({
+      ...identity,
+      archive: bytes,
+      contentLength: bytes.length,
+    });
+
+    await unlink(referencePath);
+    await store.remove(identity.objectKey);
+
     await expect(lstat(blobPath)).rejects.toMatchObject({ code: "ENOENT" });
   });
 
