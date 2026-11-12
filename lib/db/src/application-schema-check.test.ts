@@ -136,6 +136,15 @@ function completeSnapshot() {
     if (tableName === "preview_build_jobs" && columnName === "status") {
       return "'queued'::preview_build_job_status";
     }
+    if (
+      tableName === "preview_build_jobs" &&
+      [
+        "input_artifact_gc_state",
+        "output_artifact_gc_state",
+      ].includes(columnName)
+    ) {
+      return "'active'::preview_artifact_gc_state";
+    }
     if (tableName === "preview_build_jobs" && columnName === "state_version") {
       return "0";
     }
