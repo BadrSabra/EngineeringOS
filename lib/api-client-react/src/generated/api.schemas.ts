@@ -5848,6 +5848,10 @@ export interface CreateProjectInput {
   framework?: string;
 }
 
+export interface CreateProjectChatSessionInput {
+  projectId: string;
+}
+
 export type UpdateProjectInputStatus = typeof UpdateProjectInputStatus[keyof typeof UpdateProjectInputStatus];
 
 

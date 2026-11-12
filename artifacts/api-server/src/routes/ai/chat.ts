@@ -14909,6 +14909,37 @@ router.post("/ai/executions/:executionId/cancel", async (req, res) => {
   });
 });
 
+// ── POST /api/ai/chat/sessions ───────────────────────────────────────────────
+
+router.post("/ai/chat/sessions", async (req, res) => {
+  const parsed = z.object({
+    projectId: z.string().uuid(),
+  }).strict().safeParse(req.body);
+  if (!parsed.success) {
+    return res.status(400).json({
+      error: "A valid projectId is required to create a chat session.",
+      code: "INVALID_CHAT_SESSION_REQUEST",
+    });
+  }
+
+  const project = await loadProjectByIdForUser(parsed.data.projectId, req.userId, res);
+  if (!project) return;
+
+  const now = new Date();
+  const [session] = await db
+    .insert(aiChatSessionsTable)
+    .values({
+      id: randomUUID(),
+      projectId: project.id,
+      title: "New Chat",
+      createdAt: now,
+      updatedAt: now,
+    })
+    .returning();
+
+  return res.status(201).json(session);
+});
+
 // ── GET /api/ai/chat/sessions ────────────────────────────────────────────────
 
 router.get("/ai/chat/sessions", async (req, res) => {

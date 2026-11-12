@@ -3251,6 +3251,29 @@ paths:
                 type: array
                 items:
                   $ref: "#/components/schemas/AiChatSession"
+    post:
+      operationId: createAiChatSession
+      summary: Create an empty chat session for a project
+      tags: [AI]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateProjectChatSessionInput"
+      responses:
+        "201":
+          description: Empty chat session created without sending a message
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AiChatSession"
+        "400":
+          description: Invalid project identifier or request body
+        "403":
+          description: The authenticated user cannot access the project
+        "404":
+          description: Project not found
 
   /api/ai/chat/{sessionId}/messages:
     get:
@@ -10091,6 +10114,15 @@ components:
           type: string
         framework:
           type: string
+
+    CreateProjectChatSessionInput:
+      type: object
+      required: [projectId]
+      additionalProperties: false
+      properties:
+        projectId:
+          type: string
+          format: uuid
 
     UpdateProjectInput:
       type: object

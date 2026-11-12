@@ -4196,6 +4196,66 @@ describe("POST /api/ai/executions/:executionId/retry-capability", () => {
 
 // ─── GET /api/ai/chat/sessions ────────────────────────────────────────────────
 
+describe("POST /api/ai/chat/sessions", () => {
+  it("creates a project-owned empty session without creating messages", async () => {
+    const projectId = await insertProject();
+    projectIds.push(projectId);
+
+    const created = await request(app)
+      .post("/api/ai/chat/sessions")
+      .send({ projectId });
+    expect(created.status).toBe(201);
+    expect(created.body).toMatchObject({
+      id: expect.stringMatching(/^[0-9a-f-]{36}$/i),
+      projectId,
+      title: "New Chat",
+    });
+
+    const persisted = await db
+      .select()
+      .from(aiChatSessionsTable)
+      .where(eq(aiChatSessionsTable.id, created.body.id));
+    expect(persisted).toHaveLength(1);
+    expect(persisted[0].projectId).toBe(projectId);
+
+    const listed = await request(app)
+      .get(`/api/ai/chat/sessions?projectId=${projectId}&sessionId=${created.body.id}`);
+    expect(listed.status).toBe(200);
+    expect(listed.body).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: created.body.id, projectId }),
+    ]));
+
+    const messages = await request(app)
+      .get(`/api/ai/chat/${created.body.id}/messages`);
+    expect(messages.status).toBe(200);
+    expect(messages.body).toEqual([]);
+  });
+
+  it("rejects malformed requests and projects owned by another user", async () => {
+    const malformed = await request(app)
+      .post("/api/ai/chat/sessions")
+      .send({ projectId: "not-a-uuid" });
+    expect(malformed.status).toBe(400);
+
+    const projectId = await insertProject();
+    projectIds.push(projectId);
+    await db.update(projectsTable)
+      .set({ ownerId: "another-test-user" })
+      .where(eq(projectsTable.id, projectId));
+
+    const forbidden = await request(app)
+      .post("/api/ai/chat/sessions")
+      .send({ projectId });
+    expect(forbidden.status).toBe(403);
+
+    const sessions = await db
+      .select()
+      .from(aiChatSessionsTable)
+      .where(eq(aiChatSessionsTable.projectId, projectId));
+    expect(sessions).toEqual([]);
+  });
+});
+
 describe("GET /api/ai/chat/sessions", () => {
   it("returns 400 when projectId is missing", async () => {
     const res = await request(app).get("/api/ai/chat/sessions");
