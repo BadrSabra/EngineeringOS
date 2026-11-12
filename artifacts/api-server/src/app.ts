@@ -15,6 +15,7 @@ import {
   getClerkProxyHost,
 } from "./middlewares/clerkProxyMiddleware.js";
 import { requireAuth } from "./middlewares/requireAuth.js";
+import previewBuildAttestationRouter from "./routes/preview-build-attestation.js";
 
 const app: Express = express();
 
@@ -189,6 +190,9 @@ if (config.nodeEnv !== "test") {
 // requireProjectAccess/requireProjectWriteAccess (for path-param :projectId
 // routes) or loadProjectByIdForUser (for routes with projectId in query/body).
 // See middlewares/requireProjectAccess.ts.
+// The Attestor is a separate server-side workload. This one route is
+// authenticated by a short-lived Ed25519 receipt, not by a browser session.
+app.use("/api", rejectCrossOriginMutations, previewBuildAttestationRouter);
 app.use("/api", rejectCrossOriginMutations, requireAuth, router);
 
 // Centralized error handler — maps Zod validation errors to 400, everything else to 500.

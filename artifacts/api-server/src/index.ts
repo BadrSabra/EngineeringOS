@@ -45,6 +45,7 @@ import {
   recordGroqModelCatalogUnavailable,
   resolveGroqModelCatalogAlerts,
 } from "./lib/operator-alerts";
+import { startPreviewBuildReconciliationWorker } from "./lib/preview-build-reconciliation-worker";
 
 /**
  * DB-07: Bootstrap guard — verify the release-critical task contract before
@@ -76,6 +77,7 @@ let durableJobDispatcher: NodeJS.Timeout | undefined;
 let workspaceRuntimeSweep: NodeJS.Timeout | undefined;
 let memorySweep: { stop: () => void } | undefined;
 let startupMaintenanceWorker: { stop: () => void } | undefined;
+let previewBuildReconciliationWorker: { stop: () => void } | undefined;
 let shuttingDown = false;
 
 // ── PR-D3: Cross-process AI context cache invalidation ────────────────────────
@@ -106,6 +108,7 @@ async function shutdown(signal: string): Promise<void> {
   stopCacheChannel();
   stopCatalogRefresh();
   startupMaintenanceWorker?.stop();
+  previewBuildReconciliationWorker?.stop();
   if (staleJobSweep) clearInterval(staleJobSweep);
   if (durableJobDispatcher) clearInterval(durableJobDispatcher);
   if (workspaceRuntimeSweep) clearInterval(workspaceRuntimeSweep);
@@ -214,7 +217,10 @@ if (!workerScopeProjectId) {
   try {
     await workspaceRuntime.recover();
   } catch (err) {
-    logger.warn({ err }, "workspace runtime recovery failed; runtime controls remain available");
+    logger.warn(
+      { err },
+      "workspace runtime recovery failed; runtime controls remain available",
+    );
   }
 
   // Report (read-only) any projects whose root_path points to a dead temp
@@ -266,7 +272,8 @@ const onServerListen = (err?: Error) => {
     staleJobSweep = startStaleJobSweep();
     durableJobDispatcher = startDurableJobDispatcher();
     workspaceRuntimeSweep = setInterval(() => {
-      void workspaceRuntime.recover()
+      void workspaceRuntime
+        .recover()
         .then(() => workspaceRuntime.getUnresolvedStartHealth())
         .catch((err) => {
           logger.warn({ err }, "workspace runtime recovery sweep failed");
@@ -274,6 +281,16 @@ const onServerListen = (err?: Error) => {
     }, 10_000);
     memorySweep = startMemorySweep();
     startupMaintenanceWorker = startStartupMaintenanceWorker();
+    previewBuildReconciliationWorker = startPreviewBuildReconciliationWorker({
+      onPass(counts) {
+        if (counts.advanced > 0 || counts.failed > 0 || counts.expired > 0) {
+          logger.info(counts, "Preview build jobs reconciled");
+        }
+      },
+      onError() {
+        logger.warn("Preview build reconciliation pass unavailable");
+      },
+    });
     void drainPendingAudits();
   }
 };

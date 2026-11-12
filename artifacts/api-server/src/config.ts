@@ -25,6 +25,14 @@ const EnvSchema = z.object({
   // Comma-separated browser origins that are allowed to call the API with
   // Clerk credentials. The API host itself is always allowed as well.
   APP_ORIGINS: z.string().default(""),
+  // Preview build credentials are optional so the API can serve unrelated
+  // features when the isolated Builder environment has not been provisioned.
+  PREVIEW_GATEWAY_URL: z.string().optional(),
+  PREVIEW_BUILD_INPUT_UPLOAD_PRIVATE_KEY_PEM: z.string().optional(),
+  PREVIEW_BUILD_JOB_PRIVATE_KEY_PEM: z.string().optional(),
+  PREVIEW_BUILD_RECEIPT_PUBLIC_KEY_PEM: z.string().optional(),
+  PREVIEW_BUILDER_IMAGE_DIGEST: z.string().optional(),
+  PREVIEW_BUILD_SOURCE_ROOT: z.string().optional(),
   // Comma-separated Clerk user IDs allowed to change server-wide policy.
   ADMIN_USER_IDS: z.string().default(""),
   // Validation budgets are intentionally strings here so the shared parser can
@@ -231,6 +239,14 @@ function loadConfig() {
       expandApplicationOriginVariables(parsed.data.APP_ORIGINS),
       parsed.data.NODE_ENV === "production",
     ),
+    previewGatewayUrl: parsed.data.PREVIEW_GATEWAY_URL,
+    previewBuildInputUploadPrivateKeyPem:
+      parsed.data.PREVIEW_BUILD_INPUT_UPLOAD_PRIVATE_KEY_PEM,
+    previewBuildJobPrivateKeyPem: parsed.data.PREVIEW_BUILD_JOB_PRIVATE_KEY_PEM,
+    previewBuildReceiptPublicKeyPem:
+      parsed.data.PREVIEW_BUILD_RECEIPT_PUBLIC_KEY_PEM,
+    previewBuilderImageDigest: parsed.data.PREVIEW_BUILDER_IMAGE_DIGEST,
+    previewBuildSourceRoot: parsed.data.PREVIEW_BUILD_SOURCE_ROOT,
     adminUserIds: parsed.data.ADMIN_USER_IDS.split(",").map((id) => id.trim()).filter(Boolean),
     validationProcessTimeoutMs,
     validationOverallTimeoutMs,

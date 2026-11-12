@@ -84,6 +84,9 @@
 - [GitHub review branches](github-review-branches.md) — compare against live main before publishing a one-commit branch; cached origin may be stale and SSH may be unavailable.
 - [Hierarchical retrieval boundary](hierarchical-retrieval-boundary.md) — graph planning ranks bounded source/test paths; server-owned read tools remain authoritative for source bytes and evidence.
 - [Runtime observation boundary](runtime-observation-boundary.md) — runtime and validator probes attest only a bound direct PID; temp validation roots never replace project provenance or grant acceptance.
+- [Preview build trust boundary](preview-build-trust-boundary.md) — ECS receives only an S3 environment-file ARN; exact fingerprints and client tokens recover ambiguous launches without duplicating tasks.
+- [Preview build-job lifecycle](preview-build-job-lifecycle.md) — persist build attempts separately from sessions; Builder success is not verification or permission to preview.
+- [Preview image builds](preview-image-build-reproducibility.md) — pin the Node digest and workspace pnpm; allow Builder only one task-scoped `/tmp` scratch volume.
 - [Runtime replay fixture boundary](runtime-replay-fixture-boundary.md) — isolated replay fixtures must keep required runtime inputs outside excluded dependency directories.
 - [Non-root network isolation](non-root-network-isolation.md) — lifecycle E2E needs loopback-only networking and a non-root runner; never bypass either guard when the namespace setup cannot provide both.
 - [Runtime oracle command boundary](runtime-oracle-command-boundary.md) — production runtime validation needs a fixed server-owned command and existing proof bindings; it never grants write approval.

@@ -42,24 +42,25 @@ function completeSnapshot() {
       if (columnName === "next_attempt_at") return "now()";
     }
     if (
-      (tableName === "ai_agent_observations"
-        || tableName === "ai_world_facts"
-        || tableName === "ai_world_transitions")
-      && columnName === "task_scope"
+      (tableName === "ai_agent_observations" ||
+        tableName === "ai_world_facts" ||
+        tableName === "ai_world_transitions") &&
+      columnName === "task_scope"
     ) {
       return "'project'::text";
     }
     if (
-      (tableName === "ai_agent_observations"
-        || tableName === "ai_world_facts"
-        || tableName === "ai_world_transitions")
-      && columnName === "environment_revision_key"
+      (tableName === "ai_agent_observations" ||
+        tableName === "ai_world_facts" ||
+        tableName === "ai_world_transitions") &&
+      columnName === "environment_revision_key"
     ) {
       return "'unknown'::text";
     }
     if (
-      (tableName === "ai_agent_observations" || tableName === "ai_world_facts")
-      && columnName === "environment_freshness"
+      (tableName === "ai_agent_observations" ||
+        tableName === "ai_world_facts") &&
+      columnName === "environment_freshness"
     ) {
       return "'unknown'::ai_agent_observation_freshness";
     }
@@ -90,16 +91,25 @@ function completeSnapshot() {
     if (tableName === "ai_world_transitions" && columnName === "status") {
       return "'pending'::ai_world_transition_status";
     }
-    if (tableName === "ai_strategy_candidates" && columnName === "evaluation_status") {
+    if (
+      tableName === "ai_strategy_candidates" &&
+      columnName === "evaluation_status"
+    ) {
       return "'discovered'::ai_strategy_evaluation_status";
     }
     if (tableName === "projects" && columnName === "strategy_replay_opt_in") {
       return "false";
     }
-    if (tableName === "ai_strategy_replay_case_runs" && columnName === "attempt_number") {
+    if (
+      tableName === "ai_strategy_replay_case_runs" &&
+      columnName === "attempt_number"
+    ) {
       return "1";
     }
-    if (tableName === "ai_strategy_replay_case_runs" && columnName === "status") {
+    if (
+      tableName === "ai_strategy_replay_case_runs" &&
+      columnName === "status"
+    ) {
       return null;
     }
     if (tableName === "project_bootstrap_jobs" && columnName === "status") {
@@ -108,19 +118,43 @@ function completeSnapshot() {
     if (tableName === "ai_general_chat_messages" && columnName === "status") {
       return "'completed'::ai_general_chat_message_status";
     }
-    if (tableName === "ai_mission_handoffs" && columnName === "dispatch_status") {
+    if (
+      tableName === "ai_mission_handoffs" &&
+      columnName === "dispatch_status"
+    ) {
       return "'pending'::ai_mission_handoff_dispatch_status";
+    }
+    if (tableName === "preview_sessions" && columnName === "status") {
+      return "'starting'::preview_session_status";
+    }
+    if (tableName === "preview_sessions" && columnName === "id") {
+      return "gen_random_uuid()";
+    }
+    if (tableName === "preview_sessions" && columnName === "state_version") {
+      return "0";
+    }
+    if (tableName === "preview_build_jobs" && columnName === "status") {
+      return "'queued'::preview_build_job_status";
+    }
+    if (tableName === "preview_build_jobs" && columnName === "state_version") {
+      return "0";
     }
     if (tableName === "project_bootstrap_jobs" && columnName === "attempt") {
       return "0";
     }
-    if (tableName === "project_bootstrap_jobs" && columnName === "max_attempts") {
+    if (
+      tableName === "project_bootstrap_jobs" &&
+      columnName === "max_attempts"
+    ) {
       return "3";
     }
     if (tableName === "ai_general_chat_sessions" && columnName === "title") {
       return "'New conversation'::text";
     }
-    if (tableName === "ai_general_chat_rate_limits" && columnName === "call_count") {
+    if (
+      tableName === "ai_general_chat_rate_limits" &&
+      columnName === "call_count"
+    ) {
       return "1";
     }
     if (columnName === "status") return "'pending'::task_status";
@@ -132,43 +166,83 @@ function completeSnapshot() {
       (tableName === "ai_session_memory_outbox" &&
         (columnName === "tool_sources" || columnName === "semantic_records")) ||
       (tableName === "ai_agent_episodes" &&
-        ["observation_refs", "action_refs", "expected_effect_refs", "observed_effect_refs", "evidence_refs"].includes(columnName)) ||
+        [
+          "observation_refs",
+          "action_refs",
+          "expected_effect_refs",
+          "observed_effect_refs",
+          "evidence_refs",
+        ].includes(columnName)) ||
       (tableName === "ai_agent_observations" &&
         ["source_refs", "evidence_refs"].includes(columnName)) ||
       (tableName === "ai_agent_effects" &&
-        ["before_observation_ids", "after_observation_ids", "missing_effects", "contradiction_refs", "evidence_refs"].includes(columnName)) ||
-      (tableName === "ai_world_facts" && columnName === "source_observation_ids") ||
+        [
+          "before_observation_ids",
+          "after_observation_ids",
+          "missing_effects",
+          "contradiction_refs",
+          "evidence_refs",
+        ].includes(columnName)) ||
+      (tableName === "ai_world_facts" &&
+        columnName === "source_observation_ids") ||
       (tableName === "ai_world_transitions" &&
-        ["before_observation_ids", "after_observation_ids", "materialized_observation_ids", "parent_fact_refs", "changed_fact_refs", "evidence_refs"].includes(columnName)) ||
+        [
+          "before_observation_ids",
+          "after_observation_ids",
+          "materialized_observation_ids",
+          "parent_fact_refs",
+          "changed_fact_refs",
+          "evidence_refs",
+        ].includes(columnName)) ||
       (tableName === "ai_strategy_candidates" &&
-        ["supporting_episode_ids", "contradicting_episode_ids"].includes(columnName))
+        ["supporting_episode_ids", "contradicting_episode_ids"].includes(
+          columnName,
+        ))
     ) {
       return "'[]'::jsonb";
     }
     if (
-      columnName === "retry_count"
-      || columnName === "attempts"
-      || columnName === "read_metadata_version"
-      || (tableName === "openrouter_lane_cursors" && columnName === "next_slot")
-    ) return "0";
+      columnName === "retry_count" ||
+      columnName === "attempts" ||
+      columnName === "read_metadata_version" ||
+      (tableName === "openrouter_lane_cursors" && columnName === "next_slot")
+    )
+      return "0";
     if (columnName === "max_retries") return "3";
     if (columnName === "relevance") return "1.0";
     if (
       tableName === "ai_execution_evidence_snapshots" &&
       ["complete", "read_count", "total_bytes"].includes(columnName)
-    ) return "0";
-    if (tableName === "ai_execution_evidence_reads" && columnName === "read_type") return "'source'::text";
-    if (tableName === "ai_execution_evidence_reads" && columnName === "complete") return "1";
-    if (tableName === "ai_execution_evidence_reads" && columnName === "truncated") return "0";
+    )
+      return "0";
+    if (
+      tableName === "ai_execution_evidence_reads" &&
+      columnName === "read_type"
+    )
+      return "'source'::text";
+    if (
+      tableName === "ai_execution_evidence_reads" &&
+      columnName === "complete"
+    )
+      return "1";
+    if (
+      tableName === "ai_execution_evidence_reads" &&
+      columnName === "truncated"
+    )
+      return "0";
     if (
       tableName === "ai_execution_acceptances" &&
-      ["evidence_required", "evidence_complete", "resumable"].includes(columnName)
-    ) return "0";
+      ["evidence_required", "evidence_complete", "resumable"].includes(
+        columnName,
+      )
+    )
+      return "0";
     if (
       columnName === "created_at" ||
       columnName === "updated_at" ||
       columnName === "timestamp" ||
-      (tableName === "ai_agent_shadow_campaign_events" && columnName === "occurred_at")
+      (tableName === "ai_agent_shadow_campaign_events" &&
+        columnName === "occurred_at")
     ) {
       return "now()";
     }
@@ -185,7 +259,9 @@ function completeSnapshot() {
         column_default: defaultFor(tableName, definition.name),
       })),
   );
-  const indexes = (APPLICATION_SCHEMA_CONTRACT.indexes as readonly IndexContract[]).map((definition) => ({
+  const indexes = (
+    APPLICATION_SCHEMA_CONTRACT.indexes as readonly IndexContract[]
+  ).map((definition) => ({
     tablename: definition.tableName,
     indexname: definition.name,
     access_method: definition.accessMethod ?? "btree",
@@ -215,20 +291,48 @@ function completeSnapshot() {
       }),
     ),
     indexes,
-    primaryKeys: requiredTables.flatMap(
-      (table_name) => table_name === "startup_maintenance_state"
-        ? ["maintenance_key"].map((column_name) => ({ table_name, column_name }))
+    primaryKeys: requiredTables.flatMap((table_name) =>
+      table_name === "startup_maintenance_state"
+        ? ["maintenance_key"].map((column_name) => ({
+            table_name,
+            column_name,
+          }))
         : table_name === "openrouter_model_cooldowns"
-          ? ["provider", "model"].map((column_name) => ({ table_name, column_name }))
-        : table_name === "openrouter_catalog_snapshots"
-          ? ["catalog_key"].map((column_name) => ({ table_name, column_name }))
-        : table_name === "openrouter_lane_cursors"
-          ? ["cursor_key", "candidate_set_hash"].map((column_name) => ({ table_name, column_name }))
-        : table_name === "openrouter_credential_cooldowns"
-          ? ["credential_fingerprint"].map((column_name) => ({ table_name, column_name }))
-        : table_name === "ai_general_chat_rate_limits"
-          ? ["owner_id", "window_bucket"].map((column_name) => ({ table_name, column_name }))
-          : [{ table_name, column_name: "id" }],
+          ? ["provider", "model"].map((column_name) => ({
+              table_name,
+              column_name,
+            }))
+          : table_name === "openrouter_catalog_snapshots"
+            ? ["catalog_key"].map((column_name) => ({
+                table_name,
+                column_name,
+              }))
+            : table_name === "openrouter_lane_cursors"
+              ? ["cursor_key", "candidate_set_hash"].map((column_name) => ({
+                  table_name,
+                  column_name,
+                }))
+              : table_name === "openrouter_credential_cooldowns"
+                ? ["credential_fingerprint"].map((column_name) => ({
+                    table_name,
+                    column_name,
+                  }))
+                : table_name === "ai_general_chat_rate_limits"
+                  ? ["owner_id", "window_bucket"].map((column_name) => ({
+                      table_name,
+                      column_name,
+                    }))
+                  : table_name === "preview_build_jobs"
+                    ? ["job_id"].map((column_name) => ({
+                        table_name,
+                        column_name,
+                      }))
+                    : table_name === "preview_access_tickets"
+                      ? ["ticket_digest"].map((column_name) => ({
+                          table_name,
+                          column_name,
+                        }))
+                      : [{ table_name, column_name: "id" }],
     ),
     foreignKeys: APPLICATION_SCHEMA_CONTRACT.foreignKeys.map((key) => ({
       table_name: key.tableName,
@@ -470,7 +574,9 @@ describe("application schema contract", () => {
       ),
     });
     assert.deepEqual(
-      issues.filter((item) => item.tableName === "public").map((item) => item.kind),
+      issues
+        .filter((item) => item.tableName === "public")
+        .map((item) => item.kind),
       ["missing_table"],
     );
     assert.equal(issues[0]?.objectName, "ai_session_memory_outbox");
@@ -502,7 +608,11 @@ describe("application schema contract", () => {
 
   it("reports missing AI telemetry contract and rate-limit columns", () => {
     const snapshot = completeSnapshot();
-    const missingColumns = ["contract_failure_kind", "rate_limit_scope", "retry_after_ms"];
+    const missingColumns = [
+      "contract_failure_kind",
+      "rate_limit_scope",
+      "retry_after_ms",
+    ];
     const issues = findApplicationSchemaIssues({
       ...snapshot,
       columns: snapshot.columns.filter(
@@ -515,7 +625,11 @@ describe("application schema contract", () => {
     });
     assert.deepEqual(
       issues
-        .filter((item) => item.kind === "missing_column" && item.tableName === "ai_usage_events")
+        .filter(
+          (item) =>
+            item.kind === "missing_column" &&
+            item.tableName === "ai_usage_events",
+        )
         .map((item) => item.objectName),
       missingColumns,
     );
@@ -530,7 +644,11 @@ describe("application schema contract", () => {
           column.table_name === "ai_session_memories" &&
           column.column_name === "relevance"
         ) {
-          return { ...column, data_type: "double precision", udt_name: "float8" };
+          return {
+            ...column,
+            data_type: "double precision",
+            udt_name: "float8",
+          };
         }
         if (
           column.table_name === "ai_session_memory_outbox" &&
@@ -570,7 +688,8 @@ describe("application schema contract", () => {
       issues
         .filter(
           (item) =>
-            item.kind === "missing_index" || item.kind === "missing_foreign_key",
+            item.kind === "missing_index" ||
+            item.kind === "missing_foreign_key",
         )
         .map((item) => `${item.kind}:${item.tableName}.${item.objectName}`),
       [
@@ -584,7 +703,9 @@ describe("application schema contract", () => {
   it("rejects incorrect table, method, uniqueness, predicate, and key order", () => {
     const snapshot = completeSnapshot();
     const indexName = "uq_ai_execution_acceptances_execution_attempt";
-    const expectedIndex = snapshot.indexes.find((index) => index.indexname === indexName);
+    const expectedIndex = snapshot.indexes.find(
+      (index) => index.indexname === indexName,
+    );
     assert.ok(expectedIndex);
     const invalidRows = [
       { ...expectedIndex, tablename: "ai_executions" },
@@ -604,7 +725,8 @@ describe("application schema contract", () => {
       });
       assert.ok(
         issues.some(
-          (item) => item.kind === "incompatible_index" && item.objectName === indexName,
+          (item) =>
+            item.kind === "incompatible_index" && item.objectName === indexName,
         ),
         "schema validation must compare the complete index contract",
       );
@@ -623,6 +745,183 @@ describe("application schema contract", () => {
       issues.some(
         (item) =>
           item.kind === "missing_primary_key" && item.tableName === "task_logs",
+      ),
+    );
+  });
+
+  it("requires the Preview session UUID default and ticket-digest primary key", () => {
+    const snapshot = completeSnapshot();
+    const withoutUuidDefault = findApplicationSchemaIssues({
+      ...snapshot,
+      columns: snapshot.columns.map((column) =>
+        column.table_name === "preview_sessions" && column.column_name === "id"
+          ? { ...column, column_default: null }
+          : column,
+      ),
+    });
+    assert.ok(
+      withoutUuidDefault.some(
+        (item) =>
+          item.kind === "incompatible_column" &&
+          item.tableName === "preview_sessions" &&
+          item.objectName === "id",
+      ),
+    );
+
+    const withoutTicketDigestPrimaryKey = findApplicationSchemaIssues({
+      ...snapshot,
+      primaryKeys: snapshot.primaryKeys.filter(
+        (key) => key.table_name !== "preview_access_tickets",
+      ),
+    });
+    assert.ok(
+      withoutTicketDigestPrimaryKey.some(
+        (item) =>
+          item.kind === "missing_primary_key" &&
+          item.tableName === "preview_access_tickets" &&
+          item.objectName === "ticket_digest",
+      ),
+    );
+
+    const withoutBuildReceiptFence = findApplicationSchemaIssues({
+      ...snapshot,
+      indexes: snapshot.indexes.filter(
+        (index) => index.indexname !== "uq_preview_sessions_build_receipt_id",
+      ),
+    });
+    assert.ok(
+      withoutBuildReceiptFence.some(
+        (item) =>
+          item.kind === "missing_index" &&
+          item.tableName === "preview_sessions" &&
+          item.objectName === "uq_preview_sessions_build_receipt_id",
+      ),
+    );
+
+    const withoutBuildOutputBinding = findApplicationSchemaIssues({
+      ...snapshot,
+      columns: snapshot.columns.filter(
+        (column) =>
+          !(
+            column.table_name === "preview_sessions" &&
+            ["build_output_artifact_key", "build_output_digest"].includes(
+              column.column_name,
+            )
+          ),
+      ),
+    });
+    assert.deepEqual(
+      withoutBuildOutputBinding
+        .filter(
+          (item) =>
+            item.kind === "missing_column" &&
+            item.tableName === "preview_sessions",
+        )
+        .map((item) => item.objectName)
+        .sort(),
+      ["build_output_artifact_key", "build_output_digest"],
+    );
+
+    const withoutBuildJobLink = findApplicationSchemaIssues({
+      ...snapshot,
+      columns: snapshot.columns.filter(
+        (column) =>
+          !(
+            column.table_name === "preview_sessions" &&
+            column.column_name === "build_job_id"
+          ),
+      ),
+      indexes: snapshot.indexes.filter(
+        (index) => index.indexname !== "uq_preview_sessions_build_job_id",
+      ),
+      foreignKeys: snapshot.foreignKeys.filter(
+        (key) =>
+          !(
+            key.table_name === "preview_sessions" &&
+            key.column_name === "build_job_id"
+          ),
+      ),
+    });
+    assert.ok(
+      withoutBuildJobLink.some(
+        (issue) =>
+          issue.kind === "missing_column" &&
+          issue.tableName === "preview_sessions" &&
+          issue.objectName === "build_job_id",
+      ),
+    );
+    assert.ok(
+      withoutBuildJobLink.some(
+        (issue) =>
+          issue.kind === "missing_index" &&
+          issue.tableName === "preview_sessions" &&
+          issue.objectName === "uq_preview_sessions_build_job_id",
+      ),
+    );
+    assert.ok(
+      withoutBuildJobLink.some(
+        (issue) =>
+          issue.kind === "missing_foreign_key" &&
+          issue.tableName === "preview_sessions" &&
+          issue.objectName === "build_job_id",
+      ),
+    );
+  });
+
+  it("requires the separate durable Preview build-job state and idempotency fence", () => {
+    const snapshot = completeSnapshot();
+    const withoutJobRequestFence = findApplicationSchemaIssues({
+      ...snapshot,
+      indexes: snapshot.indexes.filter(
+        (index) => index.indexname !== "uq_preview_build_jobs_request",
+      ),
+    });
+    assert.ok(
+      withoutJobRequestFence.some(
+        (issue) =>
+          issue.kind === "missing_index" &&
+          issue.tableName === "preview_build_jobs" &&
+          issue.objectName === "uq_preview_build_jobs_request",
+      ),
+    );
+
+    const withoutVerifiedReceipt = findApplicationSchemaIssues({
+      ...snapshot,
+      columns: snapshot.columns.filter(
+        (column) =>
+          !(
+            column.table_name === "preview_build_jobs" &&
+            column.column_name === "build_receipt_id"
+          ),
+      ),
+    });
+    assert.ok(
+      withoutVerifiedReceipt.some(
+        (issue) =>
+          issue.kind === "missing_column" &&
+          issue.tableName === "preview_build_jobs" &&
+          issue.objectName === "build_receipt_id",
+      ),
+    );
+
+    const withoutVerifiedState = findApplicationSchemaIssues({
+      ...snapshot,
+      enums: snapshot.enums.map((entry) =>
+        entry.enum_name === "preview_build_job_status"
+          ? {
+              ...entry,
+              enum_labels: entry.enum_labels.filter(
+                (label) => label !== "verified",
+              ),
+            }
+          : entry,
+      ),
+    });
+    assert.ok(
+      withoutVerifiedState.some(
+        (issue) =>
+          issue.kind === "incompatible_enum" &&
+          issue.objectName === "preview_build_job_status",
       ),
     );
   });
@@ -668,9 +967,10 @@ describe("application schema contract", () => {
       confirmationStatus: null,
       freshnessStatus: null,
     };
-    const nullableColumns = APPLICATION_SCHEMA_CONTRACT.tables.ai_session_memories
-      .filter((column) => column.nullable)
-      .map((column) => column.name);
+    const nullableColumns =
+      APPLICATION_SCHEMA_CONTRACT.tables.ai_session_memories
+        .filter((column) => column.nullable)
+        .map((column) => column.name);
     assert.ok(nullableColumns.includes("provenance"));
     assert.ok(nullableColumns.includes("turn_id"));
     assert.equal(legacyMemory.provenance, null);
