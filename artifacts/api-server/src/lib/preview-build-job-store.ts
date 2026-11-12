@@ -1,4 +1,14 @@
-import { and, asc, eq, gt, inArray, sql } from "drizzle-orm";
+import {
+  and,
+  asc,
+  eq,
+  gt,
+  inArray,
+  isNotNull,
+  isNull,
+  or,
+  sql,
+} from "drizzle-orm";
 import { randomUUID } from "node:crypto";
 import {
   aiChangeProposalsTable,
@@ -8,6 +18,7 @@ import {
   type PreviewBuildJob,
 } from "@workspace/db";
 import { z } from "zod/v4";
+import { previewBuildInputObjectKeyForArchive } from "./preview-build-upload.js";
 import {
   isVerifiedPreviewBuildReceipt,
   type VerifiedPreviewBuildReceipt,
@@ -17,6 +28,7 @@ import {
   assertPreviewBuildJobTransitionData,
   type PreviewBuildJobStatus,
 } from "./preview-build-job-state.js";
+import { lockPreviewArtifactDigest } from "./preview-artifact-db-lock.js";
 
 const UUID_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -32,7 +44,8 @@ export class PreviewBuildJobStoreError extends Error {
       | "PREVIEW_BUILD_JOB_INPUT_INVALID"
       | "PREVIEW_BUILD_JOB_IDEMPOTENCY_CONFLICT"
       | "PREVIEW_BUILD_JOB_ALREADY_ACTIVE"
-      | "PREVIEW_BUILD_JOB_TRANSITION_INVALID",
+      | "PREVIEW_BUILD_JOB_TRANSITION_INVALID"
+      | "PREVIEW_BUILD_ARTIFACT_GC_IN_PROGRESS",
   ) {
     super("Preview build job request is invalid or no longer current.");
     this.name = "PreviewBuildJobStoreError";
@@ -328,6 +341,31 @@ export async function createQueuedPreviewBuildJob(
   assertCreateInput(input, now);
 
   return db.transaction(async (tx) => {
+    await lockPreviewArtifactDigest(tx, input.archiveDigest);
+    const [deletingArtifact] = await tx
+      .select({ jobId: previewBuildJobsTable.jobId })
+      .from(previewBuildJobsTable)
+      .where(
+        and(
+          or(
+            and(
+              eq(previewBuildJobsTable.archiveDigest, input.archiveDigest),
+              eq(previewBuildJobsTable.inputArtifactGcState, "deleting"),
+            ),
+            and(
+              eq(previewBuildJobsTable.outputDigest, input.archiveDigest),
+              eq(previewBuildJobsTable.outputArtifactGcState, "deleting"),
+            ),
+          ),
+        ),
+      )
+      .limit(1);
+    if (deletingArtifact) {
+      throw new PreviewBuildJobStoreError(
+        "PREVIEW_BUILD_ARTIFACT_GC_IN_PROGRESS",
+      );
+    }
+
     const [candidate] = await tx
       .select({
         id: aiChangeProposalsTable.id,
@@ -408,7 +446,18 @@ export async function createQueuedPreviewBuildJob(
 
     const jobId = randomUUID();
     const buildId = randomUUID();
-    const inputArtifactKey = `build-inputs/${input.sourceDigest.toLowerCase()}/${input.archiveDigest.toLowerCase()}.zip`;
+    const inputArtifactKey = previewBuildInputObjectKeyForArchive({
+      identity: {
+        projectId: input.projectId,
+        proposalId: input.proposalId,
+        operationId: input.operationId,
+        proposalRevision: input.proposalRevision,
+        candidateRevision: input.candidateRevision.toLowerCase(),
+        changeSetHash: input.changeSetHash.toLowerCase(),
+      },
+      sourceDigest: input.sourceDigest.toLowerCase(),
+      archiveDigest: input.archiveDigest.toLowerCase(),
+    });
     const outputArtifactKey = `preview-build-outputs/${buildId}/site.tar.gz`;
     const [created] = await tx
       .insert(previewBuildJobsTable)
@@ -427,7 +476,12 @@ export async function createQueuedPreviewBuildJob(
         sourceDigest: input.sourceDigest.toLowerCase(),
         archiveDigest: input.archiveDigest.toLowerCase(),
         inputArtifactKey,
+        inputArtifactReadyAt: null,
+        inputArtifactGcState: "active",
+        inputArtifactGcMarkedAt: null,
         outputArtifactKey,
+        outputArtifactGcState: "active",
+        outputArtifactGcMarkedAt: null,
         builderImageDigest: input.builderImageDigest.toLowerCase(),
         issuedAt: input.issuedAt,
         tokenExpiresAt: input.tokenExpiresAt,
@@ -460,6 +514,97 @@ export async function createQueuedPreviewBuildJob(
       );
     }
     return raced;
+  });
+}
+
+export async function markPreviewBuildInputReady(input: {
+  jobId: string;
+  expectedVersion: number;
+  inputArtifactKey: string;
+  archiveDigest: string;
+  now: Date;
+}): Promise<PreviewBuildJob | null> {
+  if (
+    !UUID_PATTERN.test(input.jobId) ||
+    !HASH_PATTERN.test(input.archiveDigest) ||
+    !Number.isSafeInteger(input.expectedVersion) ||
+    input.expectedVersion < 0 ||
+    !Number.isFinite(input.now.getTime())
+  ) {
+    throw new PreviewBuildJobStoreError("PREVIEW_BUILD_JOB_INPUT_INVALID");
+  }
+
+  return db.transaction(async (tx) => {
+    await lockPreviewArtifactDigest(tx, input.archiveDigest);
+    const [current] = await tx
+      .select()
+      .from(previewBuildJobsTable)
+      .where(eq(previewBuildJobsTable.jobId, input.jobId))
+      .for("update");
+    if (!current) return null;
+    if (
+      current.status !== "queued" ||
+      current.stateVersion !== input.expectedVersion ||
+      current.inputArtifactKey !== input.inputArtifactKey ||
+      current.archiveDigest !== input.archiveDigest.toLowerCase() ||
+      current.inputArtifactGcState !== "active" ||
+      current.tokenExpiresAt.getTime() <= input.now.getTime()
+    ) {
+      return null;
+    }
+    if (current.inputArtifactReadyAt) return current;
+
+    const [candidate] = await tx
+      .select({
+        id: aiChangeProposalsTable.id,
+        projectId: aiChangeProposalsTable.projectId,
+        ownerId: projectsTable.ownerId,
+        operationId: aiChangeProposalsTable.operationId,
+        status: aiChangeProposalsTable.status,
+        lifecycle: aiChangeProposalsTable.lifecycle,
+        revision: aiChangeProposalsTable.revision,
+        candidateTreeHash: aiChangeProposalsTable.candidateTreeHash,
+        changeSetHash: aiChangeProposalsTable.changeSetHash,
+        workspaceRoot: aiChangeProposalsTable.workspaceRoot,
+      })
+      .from(aiChangeProposalsTable)
+      .innerJoin(
+        projectsTable,
+        eq(aiChangeProposalsTable.projectId, projectsTable.id),
+      )
+      .where(
+        and(
+          eq(aiChangeProposalsTable.id, current.proposalId),
+          eq(aiChangeProposalsTable.projectId, current.projectId),
+          eq(projectsTable.ownerId, current.userId),
+        ),
+      )
+      .for("update");
+    if (!previewBuildCandidateMatchesJob(candidate ?? null, current)) {
+      return null;
+    }
+
+    const [updated] = await tx
+      .update(previewBuildJobsTable)
+      .set({
+        inputArtifactReadyAt: input.now,
+        inputArtifactGcState: "active",
+        inputArtifactGcMarkedAt: null,
+        updatedAt: input.now,
+        stateVersion: sql<number>`${previewBuildJobsTable.stateVersion} + 1`,
+      })
+      .where(
+        and(
+          eq(previewBuildJobsTable.jobId, input.jobId),
+          eq(previewBuildJobsTable.status, "queued"),
+          eq(previewBuildJobsTable.stateVersion, input.expectedVersion),
+          eq(previewBuildJobsTable.inputArtifactKey, input.inputArtifactKey),
+          isNull(previewBuildJobsTable.inputArtifactReadyAt),
+          eq(previewBuildJobsTable.inputArtifactGcState, "active"),
+        ),
+      )
+      .returning();
+    return updated ?? null;
   });
 }
 
@@ -664,7 +809,11 @@ export async function transitionPreviewBuildJob(
     );
   }
   if (input.nextStatus === "launching") {
-    predicates.push(gt(previewBuildJobsTable.tokenExpiresAt, input.now));
+    predicates.push(
+      gt(previewBuildJobsTable.tokenExpiresAt, input.now),
+      isNotNull(previewBuildJobsTable.inputArtifactReadyAt),
+      eq(previewBuildJobsTable.inputArtifactGcState, "active"),
+    );
   }
 
   const [updated] = await db

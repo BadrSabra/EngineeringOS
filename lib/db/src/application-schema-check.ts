@@ -722,6 +722,23 @@ export const APPLICATION_SCHEMA_CONTRACT = {
         udtName: "text",
         nullable: false,
       })),
+      ...["input_artifact_ready_at", "input_artifact_gc_marked_at", "output_artifact_gc_marked_at"].map(
+        (name) => ({
+          name,
+          dataType: "timestamp with time zone",
+          udtName: "timestamptz",
+          nullable: true,
+        }),
+      ),
+      ...["input_artifact_gc_state", "output_artifact_gc_state"].map(
+        (name) => ({
+          name,
+          dataType: "USER-DEFINED",
+          udtName: "preview_artifact_gc_state",
+          nullable: false,
+          defaultExpression: /'active'::preview_artifact_gc_state/,
+        }),
+      ),
       {
         name: "proposal_revision",
         dataType: "integer",
@@ -3681,6 +3698,12 @@ export const APPLICATION_SCHEMA_CONTRACT = {
       "failed",
       "expired",
       "cancelled",
+    ],
+    preview_artifact_gc_state: [
+      "active",
+      "eligible_for_gc",
+      "deleting",
+      "deleted",
     ],
     task_status: [
       "pending",

@@ -24,6 +24,11 @@ export const previewBuildJobStatusEnum = pgEnum("preview_build_job_status", [
   "cancelled",
 ]);
 
+export const previewArtifactGcStateEnum = pgEnum(
+  "preview_artifact_gc_state",
+  ["active", "eligible_for_gc", "deleting", "deleted"],
+);
+
 /**
  * Durable build-attempt lifecycle, deliberately separate from Preview sessions.
  *
@@ -53,7 +58,24 @@ export const previewBuildJobsTable = pgTable(
     sourceDigest: text("source_digest").notNull(),
     archiveDigest: text("archive_digest").notNull(),
     inputArtifactKey: text("input_artifact_key").notNull(),
+    inputArtifactReadyAt: timestamp("input_artifact_ready_at", {
+      withTimezone: true,
+    }),
+    inputArtifactGcState: previewArtifactGcStateEnum("input_artifact_gc_state")
+      .notNull()
+      .default("active"),
+    inputArtifactGcMarkedAt: timestamp("input_artifact_gc_marked_at", {
+      withTimezone: true,
+    }),
     outputArtifactKey: text("output_artifact_key").notNull(),
+    outputArtifactGcState: previewArtifactGcStateEnum(
+      "output_artifact_gc_state",
+    )
+      .notNull()
+      .default("active"),
+    outputArtifactGcMarkedAt: timestamp("output_artifact_gc_marked_at", {
+      withTimezone: true,
+    }),
     builderImageDigest: text("builder_image_digest").notNull(),
     issuedAt: timestamp("issued_at", { withTimezone: true }).notNull(),
     tokenExpiresAt: timestamp("token_expires_at", {
@@ -101,6 +123,11 @@ export const insertPreviewBuildJobSchema = createInsertSchema(
   previewBuildJobsTable,
 ).omit({
   status: true,
+  inputArtifactReadyAt: true,
+  inputArtifactGcState: true,
+  inputArtifactGcMarkedAt: true,
+  outputArtifactGcState: true,
+  outputArtifactGcMarkedAt: true,
   builderTaskArn: true,
   outputDigest: true,
   buildReceiptId: true,

@@ -16,6 +16,7 @@ import {
   findActivePreviewBuildJob,
   findPreviewBuildJobByRequest,
   findPreviewBuildJobForOwner,
+  markPreviewBuildInputReady,
   PreviewBuildJobStoreError,
   transitionPreviewBuildJob,
   type CreatePreviewBuildJobInput,
@@ -74,6 +75,7 @@ type PreviewBuildStartDependencies = {
   findActive?: typeof findActivePreviewBuildJob;
   findForOwner?: typeof findPreviewBuildJobForOwner;
   createJob?: typeof createQueuedPreviewBuildJob;
+  markInputReady?: typeof markPreviewBuildInputReady;
   transitionJob?: typeof transitionPreviewBuildJob;
   dispatch?: typeof dispatchPreviewBuilderJob;
 };
@@ -214,6 +216,8 @@ export async function startOrResumePreviewBuild(input: {
     input.dependencies?.uploadInput ?? uploadPreviewBuildInput;
   const createJob =
     input.dependencies?.createJob ?? createQueuedPreviewBuildJob;
+  const markInputReady =
+    input.dependencies?.markInputReady ?? markPreviewBuildInputReady;
   const transitionJob =
     input.dependencies?.transitionJob ?? transitionPreviewBuildJob;
   const dispatch = input.dependencies?.dispatch ?? dispatchPreviewBuilderJob;
@@ -224,6 +228,7 @@ export async function startOrResumePreviewBuild(input: {
     clientRequestId: input.clientRequestId,
   });
 
+  let preparedBuildInput: PreviewBuildInputArchive | undefined;
   if (job) {
     if (
       !matchesCurrentCandidate(
@@ -245,40 +250,14 @@ export async function startOrResumePreviewBuild(input: {
       throw new PreviewBuildStartError("PREVIEW_BUILD_ALREADY_ACTIVE");
     }
 
-    let buildInput: PreviewBuildInputArchive;
     try {
-      buildInput = await createArchive({
+      preparedBuildInput = await createArchive({
         workspaceRoot: input.candidate.workspaceRoot!,
         sourceRoot: input.config.sourceRoot,
         identity,
       });
     } catch {
       throw new PreviewBuildStartError("PREVIEW_BUILD_INPUT_REJECTED");
-    }
-
-    const expectedInputArtifactKey = previewBuildInputObjectKeyForArchive({
-      identity,
-      sourceDigest: buildInput.manifest.sourceDigest,
-      archiveDigest: buildInput.archiveDigest,
-    });
-    try {
-      const uploaded = await uploadInput({
-        gatewayUrl: input.config.gatewayUrl,
-        privateKeyPem: input.config.buildInputUploadPrivateKeyPem,
-        identity,
-        buildInput,
-        now: now(),
-      });
-      if (
-        uploaded.sourceDigest !== buildInput.manifest.sourceDigest ||
-        uploaded.archiveDigest !== buildInput.archiveDigest ||
-        uploaded.objectKey !== expectedInputArtifactKey
-      ) {
-        throw new PreviewBuildStartError("PREVIEW_BUILD_INPUT_REJECTED");
-      }
-    } catch (error) {
-      if (error instanceof PreviewBuildStartError) throw error;
-      throw new PreviewBuildStartError("PREVIEW_BUILD_JOB_UNAVAILABLE");
     }
 
     const issuedAt = now();
@@ -292,8 +271,8 @@ export async function startOrResumePreviewBuild(input: {
       candidateRevision: identity.candidateRevision,
       changeSetHash: identity.changeSetHash,
       sourceRoot: input.config.sourceRoot,
-      sourceDigest: buildInput.manifest.sourceDigest,
-      archiveDigest: buildInput.archiveDigest,
+      sourceDigest: preparedBuildInput.manifest.sourceDigest,
+      archiveDigest: preparedBuildInput.archiveDigest,
       builderImageDigest: input.config.builderImageDigest,
       issuedAt,
       tokenExpiresAt: new Date(issuedAt.getTime() + BUILD_JOB_TOKEN_TTL_MS),
@@ -329,7 +308,7 @@ export async function startOrResumePreviewBuild(input: {
     return { job, launchPending: false };
   }
 
-  const currentTime = now();
+  let currentTime = now();
   if (job.status === "queued") {
     if (job.tokenExpiresAt.getTime() <= currentTime.getTime()) {
       const expired = await transitionJob({
@@ -347,6 +326,115 @@ export async function startOrResumePreviewBuild(input: {
       });
       const resolved = current ?? job;
       return { job: resolved, launchPending: jobIsWaitingForBuilder(resolved) };
+    }
+
+    if (!job.inputArtifactReadyAt) {
+      let buildInput = preparedBuildInput;
+      if (!buildInput) {
+        try {
+          buildInput = await createArchive({
+            workspaceRoot: input.candidate.workspaceRoot!,
+            sourceRoot: input.config.sourceRoot,
+            identity,
+          });
+        } catch {
+          throw new PreviewBuildStartError("PREVIEW_BUILD_INPUT_REJECTED");
+        }
+      }
+      if (
+        buildInput.manifest.sourceDigest !== job.sourceDigest ||
+        buildInput.archiveDigest !== job.archiveDigest ||
+        buildInput.totalBytes !== buildInput.archive.byteLength ||
+        buildInput.manifest.sourceRoot !== job.sourceRoot
+      ) {
+        await transitionJob({
+          jobId: job.jobId,
+          expectedStatus: "queued",
+          expectedVersion: job.stateVersion,
+          nextStatus: "failed",
+          failureCode: "PREVIEW_BUILD_INPUT_CHANGED",
+          now: now(),
+        });
+        throw new PreviewBuildStartError("PREVIEW_BUILD_INPUT_REJECTED");
+      }
+      const expectedInputArtifactKey = previewBuildInputObjectKeyForArchive({
+        identity,
+        sourceDigest: buildInput.manifest.sourceDigest,
+        archiveDigest: buildInput.archiveDigest,
+      });
+      let uploaded;
+      try {
+        uploaded = await uploadInput({
+          gatewayUrl: input.config.gatewayUrl,
+          privateKeyPem: input.config.buildInputUploadPrivateKeyPem,
+          identity,
+          buildInput,
+          now: now(),
+        });
+      } catch {
+        throw new PreviewBuildStartError("PREVIEW_BUILD_JOB_UNAVAILABLE");
+      }
+      if (
+        uploaded.sourceDigest !== buildInput.manifest.sourceDigest ||
+        uploaded.archiveDigest !== buildInput.archiveDigest ||
+        uploaded.objectKey !== expectedInputArtifactKey ||
+        uploaded.objectKey !== job.inputArtifactKey
+      ) {
+        await transitionJob({
+          jobId: job.jobId,
+          expectedStatus: "queued",
+          expectedVersion: job.stateVersion,
+          nextStatus: "failed",
+          failureCode: "PREVIEW_BUILD_INPUT_REJECTED",
+          now: now(),
+        });
+        throw new PreviewBuildStartError("PREVIEW_BUILD_INPUT_REJECTED");
+      }
+      const ready = await markInputReady({
+        jobId: job.jobId,
+        expectedVersion: job.stateVersion,
+        inputArtifactKey: job.inputArtifactKey,
+        archiveDigest: job.archiveDigest,
+        now: now(),
+      });
+      if (ready) {
+        job = ready;
+      } else {
+        const current = await findForOwner({
+          jobId: job.jobId,
+          projectId: input.projectId,
+          userId: input.userId,
+        });
+        if (
+          !current ||
+          !current.inputArtifactReadyAt ||
+          current.inputArtifactGcState !== "active"
+        ) {
+          throw new PreviewBuildStartError("PREVIEW_BUILD_JOB_UNAVAILABLE");
+        }
+        job = current;
+      }
+      currentTime = now();
+      if (job.tokenExpiresAt.getTime() <= currentTime.getTime()) {
+        const expired = await transitionJob({
+          jobId: job.jobId,
+          expectedStatus: "queued",
+          expectedVersion: job.stateVersion,
+          nextStatus: "expired",
+          now: currentTime,
+        });
+        if (expired) return { job: expired, launchPending: false };
+        const current = await findForOwner({
+          jobId: job.jobId,
+          projectId: input.projectId,
+          userId: input.userId,
+        });
+        const resolved = current ?? job;
+        return {
+          job: resolved,
+          launchPending: jobIsWaitingForBuilder(resolved),
+        };
+      }
     }
 
     const launching = await transitionJob({
