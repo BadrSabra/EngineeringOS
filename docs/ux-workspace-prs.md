@@ -977,6 +977,7 @@ Backend Preview وUXW-08 أدناه **توسعة معمارية مستهدفة**
 - عرّف `node-express-managed-v1` ونموذج التهديد والملفات المسموح بها، نقطة الدخول، الاعتماديات المدمجة، الشبكة، الهوية، الملفات، الموارد، العمليات، TTL، وسجل الإيقاف.
 - قبل التنفيذ، وثّق ADR يختار آلية العزل والأنظمة المدعومة وحدودها؛ لا يُفترض وجود Runner Linux مؤهل أو صلاحيات إضافية من دون إثبات.
 - **قرار العزل المعتمد:** يجب أن يكون حد Runner أقوى من `runc` القياسي الذي يشارك نواة المضيف؛ أمثلة مرشحة `gVisor/runsc` أو VM/microVM بعد تأهيلها، وليس مجرد non-root/rootless أو namespaces أو seccomp. لا يتوفر حاليًا Runner بهذه الأهلية في البيئة المفحوصة، لذا Backend Preview غير مدعوم فيها.
+- عقد رسائل Runner وقياس قدراته وحدود إعادة الاستخدام موثقة في [UXW-03 Runner Contract V1](uxw-03-runner-contract.md). يظل التصميم غير منفذ؛ لا تُوسّع `PreviewControlCommand` الحالي أو `VerifiedPreviewRuntimeProfile` الـAWS-specific بصمت، ولا يُنشأ مصدر حالة ثانٍ.
 - قيّم كل نظام تشغيل وRunner منفردًا؛ لا يُعلن دعم Linux/macOS/Windows بالتعميم. Rootless أو non-root أو `spawn()` وحدها ليست عزلًا مثبتًا.
 - يجب أن يرفض Runtime التشغيل إذا لم يستطع إثبات حدود الملفات والشبكة/العمليات/الموارد. لا fallback إلى تشغيل Candidate على Host أو داخل عملية API.
 - اختبر منع قراءة Host وDocker Socket والأسرار وPostgreSQL/metadata/private networks، منع المنافذ الإضافية والعمليات الشاردة، وإنهاء شجرة العمليات عند TTL أو الإلغاء.
@@ -987,7 +988,7 @@ Backend Preview وUXW-08 أدناه **توسعة معمارية مستهدفة**
 
 #### UXW-03.1 — Provider-Neutral Preview Contracts
 
-- افصل المسؤوليات بعقود صغيرة لا تسرّب تفاصيل AWS/Cloudflare: `PreviewBuildExecutor`, `PreviewArtifactStore`, `PreviewAttestationService`, `PreviewReceiptVerifier`, `PreviewSessionRuntime`, `PreviewExposureGateway`, `PreviewNodeRegistry`, و`PreviewPlacementPolicy`. لا تجمعها في provider واحد ضخم، ولا تُنشئ تنفيذًا موازيًا لوظائف موجودة.
+- افصل المسؤوليات بعقود صغيرة لا تسرّب تفاصيل AWS/Cloudflare: `PreviewBuildExecutor`, `PreviewArtifactStore`, `PreviewAttestationService`, `PreviewReceiptVerifier`, `PreviewSessionRuntime`, `PreviewRunnerAgent`, `PreviewExposureGateway`, `PreviewNodeRegistry`, و`PreviewPlacementPolicy`. `PreviewRunnerAgent` بروتوكول موثّق لعامل العقدة يطبّق أوامر Runtime موقعة، وليس مصدر حالة أو نظام تنفيذ مكررًا. لا تجمعها في provider واحد ضخم، ولا تُنشئ تنفيذًا موازيًا لوظائف موجودة.
 - افصل `PreviewBuildProfile` عن `PreviewRuntimeProfile` وعن `PreviewTopologyProfile`: الأول يحدد إعداد إنتاج Artifact، والثاني الصورة والـLauncher وسياسات التشغيل، والثالث عدد الخدمات وعلاقاتها وموارد بياناتها. لا تجعل `previewProfile` واحدًا يحدد هذه المسؤوليات معًا.
 - حافظ على العقد الفعلي `builderProfile: "vite-react-static-v1"` أثناء التحويل؛ أضف `buildProfileId` بإصدار/ترحيل صريح. لا تستخدم الاسم المقترح `vite-static-v1` كمرادف صامت. ملفات Runtime الحالية AWS-specific وليست دليلًا على اكتمال هذه العقود المحايدة.
 

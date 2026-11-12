@@ -139,6 +139,8 @@ Backend Preview remains blocked until all of the following have evidence:
 - The inspected local workspace has only the standard `runc` runtime and does
   not currently qualify for Backend Preview. Its successful Docker and UDS
   probes do not override the stronger-isolation requirement.
+- The provider-neutral command, evidence, lifecycle, and reuse contract is
+  specified in [UXW-03 Runner Contract V1](../uxw-03-runner-contract.md).
 - The next implementation step is to turn the UDS feasibility probe into a
   session-owned, race-safe Gateway contract and qualify it with a stronger
   runner, not to add another application-level network guard.
