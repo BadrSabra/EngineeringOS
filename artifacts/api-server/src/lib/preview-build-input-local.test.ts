@@ -15,6 +15,7 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import {
+  createLocalPreviewArtifactObjectStore,
   createLocalPreviewBuildInputObjectStore,
   LocalPreviewBuildInputStoreError,
 } from "./preview-build-input-local.js";
@@ -138,6 +139,103 @@ describe("Local Preview build-input CAS", () => {
     });
 
     expect(await store.read(identity.objectKey)).toEqual(bytes);
+  });
+
+  it("stores bounded build outputs in the same CAS and preserves shared blobs", async () => {
+    const parent = await mkdtemp(join(tmpdir(), "preview-local-artifact-cas-"));
+    tempRoots.push(parent);
+    const rootDir = join(parent, "cas");
+    const store = await createLocalPreviewArtifactObjectStore({
+      rootDir,
+      workspaceRoot: process.cwd(),
+    });
+    const bytes = Buffer.from("verified static site artifact");
+    const digest = createHash("sha256").update(bytes).digest("hex");
+    const input = objectKey(bytes);
+    const outputObjectKey =
+      "preview-build-outputs/223e4567-e89b-42d3-a456-426614174001/site.tar.gz";
+
+    await store.put({
+      ...input,
+      archive: bytes,
+      contentLength: bytes.length,
+    });
+    await store.putStream({
+      objectKey: outputObjectKey,
+      bytes: (async function* () {
+        yield bytes.subarray(0, 8);
+        yield bytes.subarray(8);
+      })(),
+      archiveDigest: digest,
+      contentLength: bytes.length,
+    });
+    await store.putStream({
+      objectKey: outputObjectKey,
+      bytes: (async function* () {
+        yield bytes;
+      })(),
+      archiveDigest: digest,
+      contentLength: bytes.length,
+    });
+
+    expect(await store.read(outputObjectKey)).toEqual(bytes);
+    await store.remove(outputObjectKey, digest);
+    expect(await store.read(input.objectKey)).toEqual(bytes);
+
+    await store.remove(input.objectKey);
+    await store.remove(outputObjectKey, digest);
+    await expect(store.read(outputObjectKey)).rejects.toThrow(
+      LocalPreviewBuildInputStoreError,
+    );
+  });
+
+  it("rejects output keys outside the fixed build-output namespace", async () => {
+    const { store } = await createStore();
+    const bytes = Buffer.from("not an allowed output reference");
+    const digest = createHash("sha256").update(bytes).digest("hex");
+
+    await expect(
+      store.putStream({
+        objectKey:
+          "preview-build-outputs/223e4567-e89b-42d3-a456-426614174001/../site.tar.gz",
+        bytes: (async function* () {
+          yield bytes;
+        })(),
+        archiveDigest: digest,
+        contentLength: bytes.length,
+      }),
+    ).rejects.toMatchObject({
+      code: "PREVIEW_LOCAL_STORE_INVALID_OBJECT",
+    });
+  });
+
+  it("does not publish a local output whose bytes fail the declared digest", async () => {
+    const { rootDir, store } = await createStore();
+    const outputObjectKey =
+      "preview-build-outputs/323e4567-e89b-42d3-a456-426614174002/site.tar.gz";
+    const bytes = Buffer.from("output bytes that do not match the claim");
+    const claimedDigest = createHash("sha256")
+      .update("different output bytes")
+      .digest("hex");
+
+    await expect(
+      store.putStream({
+        objectKey: outputObjectKey,
+        bytes: (async function* () {
+          yield bytes.subarray(0, 9);
+          yield bytes.subarray(9);
+        })(),
+        archiveDigest: claimedDigest,
+        contentLength: bytes.byteLength,
+      }),
+    ).rejects.toMatchObject({
+      code: "PREVIEW_LOCAL_STORE_DIGEST_MISMATCH",
+    });
+
+    expect(await readdir(join(rootDir, "staging"))).toEqual([]);
+    await expect(store.read(outputObjectKey)).rejects.toThrow(
+      LocalPreviewBuildInputStoreError,
+    );
   });
 
   it("removes one reference, preserves shared content, and retries deletion idempotently", async () => {
