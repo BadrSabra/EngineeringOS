@@ -1,5 +1,7 @@
 import { createInsertSchema } from "drizzle-zod";
+import { sql } from "drizzle-orm";
 import {
+  check,
   index,
   integer,
   pgEnum,
@@ -67,6 +69,11 @@ export const previewBuildJobsTable = pgTable(
     )
       .notNull()
       .default("s3"),
+    inputArtifactStoreId: uuid("input_artifact_store_id"),
+    inputArtifactRefId: uuid("input_artifact_ref_id"),
+    inputArtifactSizeBytes: integer("input_artifact_size_bytes"),
+    inputArtifactManifestDigest: text("input_artifact_manifest_digest"),
+    inputArtifactRetentionPolicy: text("input_artifact_retention_policy"),
     inputArtifactReadyAt: timestamp("input_artifact_ready_at", {
       withTimezone: true,
     }),
@@ -82,6 +89,11 @@ export const previewBuildJobsTable = pgTable(
     )
       .notNull()
       .default("s3"),
+    outputArtifactStoreId: uuid("output_artifact_store_id"),
+    outputArtifactRefId: uuid("output_artifact_ref_id"),
+    outputArtifactSizeBytes: integer("output_artifact_size_bytes"),
+    outputArtifactManifestDigest: text("output_artifact_manifest_digest"),
+    outputArtifactRetentionPolicy: text("output_artifact_retention_policy"),
     outputArtifactGcState: previewArtifactGcStateEnum(
       "output_artifact_gc_state",
     )
@@ -111,6 +123,34 @@ export const previewBuildJobsTable = pgTable(
       .defaultNow(),
   },
   (table) => [
+    check(
+      "chk_preview_build_jobs_input_local_metadata",
+      sql`${table.inputArtifactProvider} <> 'local' OR (
+        ${table.inputArtifactStoreId} IS NOT NULL
+        AND ${table.inputArtifactRefId} IS NOT NULL
+        AND ${table.inputArtifactSizeBytes} > 0
+        AND ${table.inputArtifactManifestDigest} ~ '^[a-f0-9]{64}$'
+        AND ${table.inputArtifactRetentionPolicy} IS NOT NULL
+        AND length(${table.inputArtifactRetentionPolicy}) BETWEEN 1 AND 64
+      )`,
+    ),
+    check(
+      "chk_preview_build_jobs_output_local_metadata",
+      sql`${table.outputArtifactProvider} <> 'local' OR (
+        ${table.outputArtifactStoreId} IS NOT NULL
+        AND ${table.outputArtifactRefId} IS NOT NULL
+        AND ${table.outputArtifactRetentionPolicy} IS NOT NULL
+        AND length(${table.outputArtifactRetentionPolicy}) BETWEEN 1 AND 64
+        AND (
+          ${table.status} NOT IN ('builder_succeeded', 'verified')
+          OR (
+            ${table.outputDigest} ~ '^[a-f0-9]{64}$'
+            AND ${table.outputArtifactSizeBytes} > 0
+            AND ${table.outputArtifactManifestDigest} ~ '^[a-f0-9]{64}$'
+          )
+        )
+      )`,
+    ),
     uniqueIndex("uq_preview_build_jobs_build_id").on(table.buildId),
     uniqueIndex("uq_preview_build_jobs_request").on(
       table.projectId,
@@ -120,6 +160,16 @@ export const previewBuildJobsTable = pgTable(
     uniqueIndex("uq_preview_build_jobs_task_arn").on(table.builderTaskArn),
     uniqueIndex("uq_preview_build_jobs_output_key").on(table.outputArtifactKey),
     uniqueIndex("uq_preview_build_jobs_receipt_id").on(table.buildReceiptId),
+    uniqueIndex("uq_preview_build_jobs_input_artifact_ref").on(
+      table.inputArtifactProvider,
+      table.inputArtifactStoreId,
+      table.inputArtifactRefId,
+    ),
+    uniqueIndex("uq_preview_build_jobs_output_artifact_ref").on(
+      table.outputArtifactProvider,
+      table.outputArtifactStoreId,
+      table.outputArtifactRefId,
+    ),
     index("idx_preview_build_jobs_project_status_created").on(
       table.projectId,
       table.status,
@@ -153,10 +203,20 @@ export const insertPreviewBuildJobSchema = createInsertSchema(
   status: true,
   inputArtifactReadyAt: true,
   inputArtifactProvider: true,
+  inputArtifactStoreId: true,
+  inputArtifactRefId: true,
+  inputArtifactSizeBytes: true,
+  inputArtifactManifestDigest: true,
+  inputArtifactRetentionPolicy: true,
   inputArtifactGcState: true,
   inputArtifactGcMarkedAt: true,
   outputArtifactGcState: true,
   outputArtifactProvider: true,
+  outputArtifactStoreId: true,
+  outputArtifactRefId: true,
+  outputArtifactSizeBytes: true,
+  outputArtifactManifestDigest: true,
+  outputArtifactRetentionPolicy: true,
   outputArtifactGcMarkedAt: true,
   builderTaskArn: true,
   outputDigest: true,

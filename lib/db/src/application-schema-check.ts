@@ -724,6 +724,37 @@ export const APPLICATION_SCHEMA_CONTRACT = {
         nullable: false,
       })),
       ...[
+        "input_artifact_manifest_digest",
+        "input_artifact_retention_policy",
+        "output_artifact_manifest_digest",
+        "output_artifact_retention_policy",
+      ].map((name) => ({
+        name,
+        dataType: "text",
+        udtName: "text",
+        nullable: true,
+      })),
+      ...[
+        "input_artifact_size_bytes",
+        "output_artifact_size_bytes",
+      ].map((name) => ({
+        name,
+        dataType: "integer",
+        udtName: "int4",
+        nullable: true,
+      })),
+      ...[
+        "input_artifact_store_id",
+        "input_artifact_ref_id",
+        "output_artifact_store_id",
+        "output_artifact_ref_id",
+      ].map((name) => ({
+        name,
+        dataType: "uuid",
+        udtName: "uuid",
+        nullable: true,
+      })),
+      ...[
         "input_artifact_ready_at",
         "input_artifact_gc_marked_at",
         "output_artifact_gc_marked_at",
@@ -2745,6 +2776,26 @@ export const APPLICATION_SCHEMA_CONTRACT = {
       name: "uq_preview_build_jobs_receipt_id",
       tableName: "preview_build_jobs",
       columns: ["build_receipt_id"],
+      unique: true,
+    },
+    {
+      name: "uq_preview_build_jobs_input_artifact_ref",
+      tableName: "preview_build_jobs",
+      columns: [
+        "input_artifact_provider",
+        "input_artifact_store_id",
+        "input_artifact_ref_id",
+      ],
+      unique: true,
+    },
+    {
+      name: "uq_preview_build_jobs_output_artifact_ref",
+      tableName: "preview_build_jobs",
+      columns: [
+        "output_artifact_provider",
+        "output_artifact_store_id",
+        "output_artifact_ref_id",
+      ],
       unique: true,
     },
     {
