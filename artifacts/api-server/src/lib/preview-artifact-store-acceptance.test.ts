@@ -13,18 +13,26 @@ import { afterEach, describe, expect, it } from "vitest";
 import {
   previewAgentPublicKeyFingerprint,
 } from "./preview-agent-pairing-crypto.js";
-import { previewBuildArtifactRefId } from "./preview-artifact-reference.js";
 import {
-  signPreviewArtifactStoreCommand,
-  signPreviewArtifactStoreReceipt,
+  previewArtifactStoreCommandId,
+  previewBuildArtifactRefId,
+} from "./preview-artifact-reference.js";
+import {
   previewArtifactStoreCommandFingerprint,
+  previewArtifactStoreCommandPublicKeyPem,
+  signPreviewArtifactStoreCommand,
+  signPreviewArtifactStorePollProof,
+  signPreviewArtifactStoreReceipt,
   type PreviewArtifactStoreCommandClaims,
+  type PreviewArtifactStorePollProofClaims,
   type PreviewArtifactStoreReceiptClaims,
+  verifyPreviewArtifactStoreCommand,
 } from "./preview-artifact-store-command.js";
 import {
   acceptPreviewBuildInputStoreReceipt,
   PreviewArtifactStoreAcceptanceError,
 } from "./preview-artifact-store-acceptance.js";
+import { issuePreviewBuildInputStoreCommand } from "./preview-artifact-store-issuer.js";
 
 const NOW = new Date("2026-11-12T12:00:00.000Z");
 const SOURCE_DIGEST = "a".repeat(64);
@@ -123,7 +131,7 @@ async function createFixture() {
   const command: PreviewArtifactStoreCommandClaims = {
     version: 1,
     action: "store-artifact",
-    commandId: randomUUID(),
+    commandId: previewArtifactStoreCommandId(jobId),
     nodeId,
     keyVersion: 1,
     storeId,
@@ -222,6 +230,30 @@ async function createFixture() {
   };
 }
 
+function createPollProof(
+  jobId: string,
+  nodeId: string,
+  now: Date,
+) {
+  const proof: PreviewArtifactStorePollProofClaims = {
+    version: 1,
+    action: "poll-artifact-store-command",
+    nodeId,
+    keyVersion: 1,
+    jobId,
+    issuedAt: now.toISOString(),
+    nonce: randomUUID(),
+  };
+  return {
+    proof,
+    signature: signPreviewArtifactStorePollProof({
+      proof,
+      privateKeyPem: AGENT_PRIVATE_KEY_PEM,
+      now,
+    }),
+  };
+}
+
 afterEach(async () => {
   for (const projectId of projectIds.splice(0)) {
     await db.delete(projectsTable).where(eq(projectsTable.id, projectId));
@@ -229,6 +261,57 @@ afterEach(async () => {
 });
 
 describe("Preview Agent artifact receipt database binding", () => {
+  it("issues a stable storage command across lost-response poll retries", async () => {
+    const fixture = await createFixture();
+    const firstNow = new Date(NOW.getTime() + 1_000);
+    const first = await issuePreviewBuildInputStoreCommand({
+      jobId: fixture.jobId,
+      ...createPollProof(fixture.jobId, fixture.nodeId, firstNow),
+      buildJobPrivateKeyPem: API_PRIVATE_KEY_PEM,
+      now: firstNow,
+    });
+    const retryNow = new Date(NOW.getTime() + 2_000);
+    const retry = await issuePreviewBuildInputStoreCommand({
+      jobId: fixture.jobId,
+      ...createPollProof(fixture.jobId, fixture.nodeId, retryNow),
+      buildJobPrivateKeyPem: API_PRIVATE_KEY_PEM,
+      now: retryNow,
+    });
+    const publicKeyPem =
+      previewArtifactStoreCommandPublicKeyPem(API_PRIVATE_KEY_PEM);
+    const firstCommand = verifyPreviewArtifactStoreCommand({
+      token: first.commandToken,
+      publicKeyPem,
+      now: new Date(NOW.getTime() + 3_000),
+    });
+    const retryCommand = verifyPreviewArtifactStoreCommand({
+      token: retry.commandToken,
+      publicKeyPem,
+      now: new Date(NOW.getTime() + 3_000),
+    });
+    const [job] = await db
+      .select({
+        stateVersion: previewBuildJobsTable.stateVersion,
+        readyAt: previewBuildJobsTable.inputArtifactReadyAt,
+      })
+      .from(previewBuildJobsTable)
+      .where(eq(previewBuildJobsTable.jobId, fixture.jobId));
+
+    expect(first.commandId).toBe(previewArtifactStoreCommandId(fixture.jobId));
+    expect(retry.commandId).toBe(first.commandId);
+    expect(retry.commandFingerprint).toBe(first.commandFingerprint);
+    expect(firstCommand).toMatchObject({
+      jobId: fixture.jobId,
+      nodeId: fixture.nodeId,
+      artifactRefId: previewBuildArtifactRefId(fixture.jobId, "input"),
+    });
+    expect(previewArtifactStoreCommandFingerprint(retryCommand)).toBe(
+      first.commandFingerprint,
+    );
+    expect(first.commandToken).not.toBe(retry.commandToken);
+    expect(job).toEqual({ stateVersion: 0, readyAt: null });
+  });
+
   it("records the exact owner artifact once and treats the same signed receipt as a retry", async () => {
     const fixture = await createFixture();
     const first = await acceptPreviewBuildInputStoreReceipt({

@@ -3,11 +3,14 @@ import { describe, expect, it } from "vitest";
 import {
   PreviewArtifactStoreCommandError,
   previewArtifactStoreCommandFingerprint,
+  signPreviewArtifactStorePollProof,
   signPreviewArtifactStoreCommand,
   signPreviewArtifactStoreReceipt,
+  verifyPreviewArtifactStorePollProof,
   verifyPreviewArtifactStoreCommand,
   verifyPreviewArtifactStoreReceipt,
   type PreviewArtifactStoreCommandClaims,
+  type PreviewArtifactStorePollProofClaims,
   type PreviewArtifactStoreReceiptClaims,
 } from "./preview-artifact-store-command.js";
 
@@ -152,6 +155,56 @@ describe("Preview Artifact Store command and owner receipt", () => {
 
     expect(previewArtifactStoreCommandFingerprint(retry)).toBe(
       previewArtifactStoreCommandFingerprint(original),
+    );
+  });
+
+  it("requires a fresh Agent-signed poll proof bound to its node, key and Job", () => {
+    const proof: PreviewArtifactStorePollProofClaims = {
+      version: 1,
+      action: "poll-artifact-store-command",
+      nodeId: UUID_B,
+      keyVersion: 2,
+      jobId: "55555555-5555-4555-8555-555555555555",
+      issuedAt: NOW.toISOString(),
+      nonce: UUID_D,
+    };
+    const signature = signPreviewArtifactStorePollProof({
+      proof,
+      privateKeyPem: agentPrivateKeyPem,
+      now: NOW,
+    });
+
+    expect(
+      verifyPreviewArtifactStorePollProof({
+        proof,
+        signature,
+        publicKeyPem: agentPublicKeyPem,
+        now: new Date(NOW.getTime() + 1_000),
+      }),
+    ).toEqual(proof);
+    expect(() =>
+      verifyPreviewArtifactStorePollProof({
+        proof: { ...proof, jobId: UUID_A },
+        signature,
+        publicKeyPem: agentPublicKeyPem,
+        now: new Date(NOW.getTime() + 1_000),
+      }),
+    ).toThrow(
+      expect.objectContaining({
+        code: "PREVIEW_ARTIFACT_STORE_POLL_PROOF_SIGNATURE_INVALID",
+      }),
+    );
+    expect(() =>
+      verifyPreviewArtifactStorePollProof({
+        proof,
+        signature,
+        publicKeyPem: agentPublicKeyPem,
+        now: new Date(NOW.getTime() + 31_000),
+      }),
+    ).toThrow(
+      expect.objectContaining({
+        code: "PREVIEW_ARTIFACT_STORE_POLL_PROOF_EXPIRED",
+      }),
     );
   });
 

@@ -44,7 +44,7 @@ export type PreviewArtifactStoreAcceptanceResult = {
   alreadyAccepted: boolean;
 };
 
-function matchesCandidate(
+export function previewArtifactStoreCandidateIsCurrent(
   candidate: {
     id: string;
     projectId: string;
@@ -75,7 +75,7 @@ function matchesCandidate(
   );
 }
 
-function commandMatchesJob(
+export function previewArtifactStoreCommandMatchesJob(
   command: ReturnType<typeof verifyPreviewArtifactStoreCommand>,
   job: PreviewBuildJob,
 ): boolean {
@@ -263,9 +263,9 @@ export async function acceptPreviewBuildInputStoreReceipt(input: {
         job.inputArtifactGcState !== "active" ||
         job.tokenExpiresAt.getTime() <= now.getTime() ||
         !agentPublicKeyPem ||
-        !commandMatchesJob(command, job) ||
+        !previewArtifactStoreCommandMatchesJob(command, job) ||
         !agentOwnsCommand(node, job, command) ||
-        !matchesCandidate(candidate ?? null, job)
+        !previewArtifactStoreCandidateIsCurrent(candidate ?? null, job)
       ) {
         throw new PreviewArtifactStoreAcceptanceError(
           "PREVIEW_ARTIFACT_STORE_ACCEPTANCE_CONFLICT",

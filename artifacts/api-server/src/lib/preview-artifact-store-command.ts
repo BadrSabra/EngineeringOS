@@ -16,10 +16,15 @@ const RECEIPT_DOMAIN = Buffer.from(
   "EngineeringOS Preview Artifact Store Receipt v1\n",
   "utf8",
 );
+const POLL_PROOF_DOMAIN = Buffer.from(
+  "EngineeringOS Preview Artifact Store Poll Proof v1\n",
+  "utf8",
+);
 const MAX_TOKEN_LENGTH = 8_192;
 const MAX_PAYLOAD_BYTES = 6_144;
 const MAX_COMMAND_TTL_MS = 60_000;
 const MAX_RECEIPT_AGE_MS = 5 * 60_000;
+const MAX_POLL_PROOF_AGE_MS = 30_000;
 const CLOCK_SKEW_MS = 5_000;
 const UUID_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -66,6 +71,16 @@ const RECEIPT_FIELDS = [
   "completedAt",
 ] as const;
 
+const POLL_PROOF_FIELDS = [
+  "version",
+  "action",
+  "nodeId",
+  "keyVersion",
+  "jobId",
+  "issuedAt",
+  "nonce",
+] as const;
+
 export type PreviewArtifactStoreCommandClaims = {
   version: 1;
   action: "store-artifact";
@@ -107,6 +122,16 @@ export type PreviewArtifactStoreReceiptClaims = {
   completedAt: string;
 };
 
+export type PreviewArtifactStorePollProofClaims = {
+  version: 1;
+  action: "poll-artifact-store-command";
+  nodeId: string;
+  keyVersion: number;
+  jobId: string;
+  issuedAt: string;
+  nonce: string;
+};
+
 declare const verifiedCommandBrand: unique symbol;
 export type VerifiedPreviewArtifactStoreCommand =
   PreviewArtifactStoreCommandClaims & {
@@ -135,6 +160,18 @@ export class PreviewArtifactStoreCommandError extends Error {
   ) {
     super("Preview artifact storage authorization is invalid or unavailable.");
     this.name = "PreviewArtifactStoreCommandError";
+  }
+}
+
+export class PreviewArtifactStorePollProofError extends Error {
+  constructor(
+    readonly code:
+      | "PREVIEW_ARTIFACT_STORE_POLL_PROOF_INVALID"
+      | "PREVIEW_ARTIFACT_STORE_POLL_PROOF_EXPIRED"
+      | "PREVIEW_ARTIFACT_STORE_POLL_PROOF_SIGNATURE_INVALID",
+  ) {
+    super("Preview artifact command poll proof is invalid or unavailable.");
+    this.name = "PreviewArtifactStorePollProofError";
   }
 }
 
@@ -196,6 +233,62 @@ function canonicalReceipt(
   return JSON.stringify(
     Object.fromEntries(RECEIPT_FIELDS.map((field) => [field, receipt[field]])),
   );
+}
+
+function canonicalPollProof(
+  proof: PreviewArtifactStorePollProofClaims,
+): string {
+  return JSON.stringify(
+    Object.fromEntries(POLL_PROOF_FIELDS.map((field) => [field, proof[field]])),
+  );
+}
+
+function validatePollProof(
+  value: unknown,
+  now: Date,
+): PreviewArtifactStorePollProofClaims {
+  if (
+    !value ||
+    typeof value !== "object" ||
+    Array.isArray(value) ||
+    !Number.isFinite(now.getTime())
+  ) {
+    throw new PreviewArtifactStorePollProofError(
+      "PREVIEW_ARTIFACT_STORE_POLL_PROOF_INVALID",
+    );
+  }
+  const record = value as Record<string, unknown>;
+  if (
+    Object.keys(record).length !== POLL_PROOF_FIELDS.length ||
+    POLL_PROOF_FIELDS.some((field) => !(field in record)) ||
+    record.version !== 1 ||
+    record.action !== "poll-artifact-store-command" ||
+    typeof record.nodeId !== "string" ||
+    !UUID_PATTERN.test(record.nodeId) ||
+    !Number.isSafeInteger(record.keyVersion) ||
+    (record.keyVersion as number) < 1 ||
+    typeof record.jobId !== "string" ||
+    !UUID_PATTERN.test(record.jobId) ||
+    !canonicalTimestamp(record.issuedAt) ||
+    typeof record.nonce !== "string" ||
+    !UUID_PATTERN.test(record.nonce)
+  ) {
+    throw new PreviewArtifactStorePollProofError(
+      "PREVIEW_ARTIFACT_STORE_POLL_PROOF_INVALID",
+    );
+  }
+  const issuedAt = Date.parse(record.issuedAt);
+  if (
+    issuedAt > now.getTime() + CLOCK_SKEW_MS ||
+    now.getTime() - issuedAt > MAX_POLL_PROOF_AGE_MS
+  ) {
+    throw new PreviewArtifactStorePollProofError(
+      "PREVIEW_ARTIFACT_STORE_POLL_PROOF_EXPIRED",
+    );
+  }
+  return Object.fromEntries(
+    POLL_PROOF_FIELDS.map((field) => [field, record[field]]),
+  ) as PreviewArtifactStorePollProofClaims;
 }
 
 function validateCommand(
@@ -354,6 +447,54 @@ export function previewArtifactStoreCommandPublicKeyPem(
   return createPublicKey(parseKey(privateKeyPem, "private"))
     .export({ type: "spki", format: "pem" })
     .toString();
+}
+
+export function signPreviewArtifactStorePollProof(input: {
+  proof: PreviewArtifactStorePollProofClaims;
+  privateKeyPem: string | undefined;
+  now?: Date;
+}): string {
+  const proof = validatePollProof(input.proof, input.now ?? new Date());
+  const payload = Buffer.from(canonicalPollProof(proof), "utf8");
+  return signSignature(
+    null,
+    Buffer.concat([POLL_PROOF_DOMAIN, payload]),
+    parseKey(input.privateKeyPem, "private"),
+  ).toString("base64url");
+}
+
+export function verifyPreviewArtifactStorePollProof(input: {
+  proof: unknown;
+  signature: string;
+  publicKeyPem: string | undefined;
+  now?: Date;
+}): PreviewArtifactStorePollProofClaims {
+  const proof = validatePollProof(input.proof, input.now ?? new Date());
+  if (
+    typeof input.signature !== "string" ||
+    !/^[A-Za-z0-9_-]{86}$/.test(input.signature)
+  ) {
+    throw new PreviewArtifactStorePollProofError(
+      "PREVIEW_ARTIFACT_STORE_POLL_PROOF_INVALID",
+    );
+  }
+  const signature = Buffer.from(input.signature, "base64url");
+  const payload = Buffer.from(canonicalPollProof(proof), "utf8");
+  if (
+    signature.length !== 64 ||
+    signature.toString("base64url") !== input.signature ||
+    !verifySignature(
+      null,
+      Buffer.concat([POLL_PROOF_DOMAIN, payload]),
+      parseKey(input.publicKeyPem, "public"),
+      signature,
+    )
+  ) {
+    throw new PreviewArtifactStorePollProofError(
+      "PREVIEW_ARTIFACT_STORE_POLL_PROOF_SIGNATURE_INVALID",
+    );
+  }
+  return Object.freeze(proof);
 }
 
 export function signPreviewArtifactStoreCommand(input: {

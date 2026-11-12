@@ -19,6 +19,10 @@ import {
   PreviewArtifactStoreAcceptanceError,
 } from "../lib/preview-artifact-store-acceptance.js";
 import {
+  issuePreviewBuildInputStoreCommand,
+  PreviewArtifactStoreCommandIssueError,
+} from "../lib/preview-artifact-store-issuer.js";
+import {
   requireProjectAccess,
   requireProjectWriteAccess,
 } from "../middlewares/requireProjectAccess.js";
@@ -57,6 +61,25 @@ const artifactStoreReceiptSchema = z
   })
   .strict();
 
+const artifactStorePollProofSchema = z
+  .object({
+    proof: z
+      .object({
+        version: z.literal(1),
+        action: z.literal("poll-artifact-store-command"),
+        nodeId: z.string().uuid(),
+        keyVersion: z.number().int().positive().max(1_000_000),
+        jobId: z.string().uuid(),
+        issuedAt: z
+          .string()
+          .regex(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/),
+        nonce: z.string().uuid(),
+      })
+      .strict(),
+    signature: z.string().length(86),
+  })
+  .strict();
+
 type PreviewAgentRouterDependencies = {
   requireAuth: RequestHandler;
   requireProjectAccess: RequestHandler;
@@ -65,6 +88,7 @@ type PreviewAgentRouterDependencies = {
   completePairing: typeof completePreviewAgentPairing;
   submitCapabilityReport: typeof acceptPreviewAgentCapabilityReport;
   acceptArtifactStoreReceipt: typeof acceptPreviewBuildInputStoreReceipt;
+  issueArtifactStoreCommand: typeof issuePreviewBuildInputStoreCommand;
   buildJobPrivateKeyPem: string | undefined;
   listNodes: typeof listPreviewAgentNodes;
   revokeNode: typeof revokePreviewAgentNode;
@@ -81,6 +105,7 @@ const defaultDependencies: PreviewAgentRouterDependencies = {
   completePairing: completePreviewAgentPairing,
   submitCapabilityReport: acceptPreviewAgentCapabilityReport,
   acceptArtifactStoreReceipt: acceptPreviewBuildInputStoreReceipt,
+  issueArtifactStoreCommand: issuePreviewBuildInputStoreCommand,
   buildJobPrivateKeyPem: config.previewBuildJobPrivateKeyPem,
   listNodes: listPreviewAgentNodes,
   revokeNode: revokePreviewAgentNode,
@@ -182,11 +207,67 @@ function artifactStoreReceiptCode(error: unknown): {
   return { status: 503, error: "preview_artifact_receipt_unavailable" };
 }
 
+function artifactStoreCommandIssueCode(error: unknown): {
+  status: number;
+  error: string;
+} {
+  if (error instanceof PreviewArtifactStoreCommandIssueError) {
+    switch (error.code) {
+      case "PREVIEW_ARTIFACT_STORE_COMMAND_ISSUE_INVALID":
+        return { status: 403, error: "preview_artifact_command_rejected" };
+      case "PREVIEW_ARTIFACT_STORE_COMMAND_ISSUE_CONFLICT":
+        return { status: 409, error: "preview_artifact_command_conflict" };
+      case "PREVIEW_ARTIFACT_STORE_COMMAND_ISSUE_UNAVAILABLE":
+        return { status: 503, error: "preview_artifact_command_unavailable" };
+    }
+  }
+  return { status: 503, error: "preview_artifact_command_unavailable" };
+}
+
 export function createPreviewAgentRouter(
   overrides: Partial<PreviewAgentRouterDependencies> = {},
 ) {
   const dependencies = { ...defaultDependencies, ...overrides };
   const router = Router();
+
+  router.post(
+    "/internal/preview-build-jobs/:jobId/artifact-store-command",
+    dependencies.capabilityRateLimiter,
+    async (request, response) => {
+      response.setHeader("cache-control", "no-store");
+      if (
+        request.get("cookie") ||
+        (dependencies.isProduction && !request.secure)
+      ) {
+        response
+          .status(403)
+          .json({ error: "preview_artifact_command_rejected" });
+        return;
+      }
+      const parsed = artifactStorePollProofSchema.safeParse(request.body);
+      const jobId = singleRouteParam(request.params.jobId);
+      if (
+        !parsed.success ||
+        !jobId ||
+        !z.string().uuid().safeParse(jobId).success
+      ) {
+        response.status(400).json({ error: "invalid_preview_artifact_poll" });
+        return;
+      }
+      try {
+        const command = await dependencies.issueArtifactStoreCommand({
+          jobId,
+          proof: parsed.data.proof,
+          signature: parsed.data.signature,
+          buildJobPrivateKeyPem: dependencies.buildJobPrivateKeyPem,
+        });
+        response.status(200).json(command);
+      } catch (error) {
+        const mapped = artifactStoreCommandIssueCode(error);
+        response.status(mapped.status).json({ error: mapped.error });
+      }
+    },
+  );
 
   router.post(
     "/internal/preview-build-jobs/:jobId/artifact-store-receipt",
