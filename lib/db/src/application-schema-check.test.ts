@@ -297,7 +297,11 @@ function completeSnapshot() {
     access_method: definition.accessMethod ?? "btree",
     is_unique: Boolean(definition.unique),
     is_valid: true,
-    predicate: definition.predicate ?? null,
+    predicate:
+      definition.predicate ??
+      (definition.predicatePattern
+        ? "status = ANY (ARRAY['pending'::preview_agent_node_status, 'active'::preview_agent_node_status])"
+        : null),
     columns: [...definition.columns],
   }));
   const requiredTables = [
@@ -973,6 +977,22 @@ describe("application schema contract", () => {
           issue.tableName === "preview_agent_nodes" &&
           issue.objectName ===
             "uq_preview_agent_nodes_public_key_fingerprint",
+      ),
+    );
+    const incorrectLiveStorePredicate = findApplicationSchemaIssues({
+      ...snapshot,
+      indexes: snapshot.indexes.map((index) =>
+        index.indexname === "uq_preview_agent_nodes_live_store"
+          ? { ...index, predicate: "status = 'active'::preview_agent_node_status" }
+          : index,
+      ),
+    });
+    assert.ok(
+      incorrectLiveStorePredicate.some(
+        (issue) =>
+          issue.kind === "incompatible_index" &&
+          issue.tableName === "preview_agent_nodes" &&
+          issue.objectName === "uq_preview_agent_nodes_live_store",
       ),
     );
 

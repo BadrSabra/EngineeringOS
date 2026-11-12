@@ -41,6 +41,7 @@ export type IndexContract = {
   unique?: boolean;
   accessMethod?: string;
   predicate?: string | null;
+  predicatePattern?: RegExp;
 };
 
 type ForeignKeyContract = {
@@ -2801,6 +2802,8 @@ export const APPLICATION_SCHEMA_CONTRACT = {
       tableName: "preview_agent_nodes",
       columns: ["store_id"],
       unique: true,
+      predicatePattern:
+        /"?status"? = any \(array\['pending'::preview_agent_node_status, 'active'::preview_agent_node_status\]\)/,
     },
     {
       name: "uq_preview_agent_nodes_pairing_code_hash",
@@ -4167,12 +4170,15 @@ export function findApplicationSchemaIssues(
     const expectedAccessMethod = expected.accessMethod ?? "btree";
     const expectedPredicate = normalized(expected.predicate ?? "");
     const actualPredicate = normalized(actual.predicate ?? "");
+    const predicateMatches = expected.predicatePattern
+      ? expected.predicatePattern.test(actualPredicate)
+      : actualPredicate === expectedPredicate;
     if (
       actual.tablename !== expected.tableName ||
       actual.access_method !== expectedAccessMethod ||
       !actual.is_valid ||
       actual.is_unique !== Boolean(expected.unique) ||
-      actualPredicate !== expectedPredicate ||
+      !predicateMatches ||
       actual.columns.length !== expected.columns.length ||
       actual.columns.some((column, index) => column !== expected.columns[index])
     ) {
@@ -4181,7 +4187,7 @@ export function findApplicationSchemaIssues(
           "incompatible_index",
           expected.tableName,
           expected.name,
-          `${expected.unique ? "unique " : ""}${expectedAccessMethod} index on (${expected.columns.join(", ")})${expectedPredicate ? ` WHERE ${expectedPredicate}` : ""}`,
+          `${expected.unique ? "unique " : ""}${expectedAccessMethod} index on (${expected.columns.join(", ")})${expectedPredicate ? ` WHERE ${expectedPredicate}` : expected.predicatePattern ? ` WHERE ${expected.predicatePattern}` : ""}`,
           `${actual.tablename} ${actual.is_unique ? "unique " : ""}${actual.access_method} (${actual.columns.join(", ")})${actualPredicate ? ` WHERE ${actual.predicate}` : ""}`,
         ),
       );
