@@ -93,6 +93,7 @@
 - حالة محادثة وتقدم وإجراءات موحدة قابلة للاستعادة بعد إعادة التحميل أو انقطاع الاتصال.
 - معاينة تفاعلية للمشروع أو المرشح عبر بوابة مصادق عليها، إذا اجتازت بوابة العزل والأمان.
 - مراجعة المرشح وربط Diff ونتائج التحقق والقبول والتطبيق والتسليم بهويته.
+- إدارة Release ونشر التطبيق ومتابعة صحته واستعادته بعد قبول وتطبيق التغيير؛ مسار مستقل وموافقة نشر منفصلة ضمن UXW-08.
 - عرض مهام العمل المدعومة والتخطيط لطلب آخر مع منع التوازي الكتابي غير المعزول.
 - Canvas بصري محدود ومربوط بمصدر تغيير قابل للمراجعة.
 - استعادة تشغيل العمل داخل حدوده، مع تمييزها عن استرجاع ملفات المشروع أو البيانات الخارجية.
@@ -106,7 +107,7 @@
 - تشغيل كتابي متوازٍ قبل إثبات ملكية وعزل كل مساحة مرشح وقاعدة فض التعارض.
 - Infinite Canvas، أو محرر بصري عام، أو عدة أنواع مخرجات قبل نجاح الشريحة الرأسية.
 - اعتبار الاستعادة العامة للمشروع أو استعادة قاعدة بيانات أو خدمة خارجية زرًا واحدًا غير مقيّد.
-- نشر المشروع تلقائيًا أو تسليم التغيير إلى GitHub تلقائيًا بعد المعاينة.
+- نشر Production تلقائيًا أو تسليم التغيير إلى GitHub تلقائيًا بعد المعاينة؛ UXW-08 يصف نشرًا منفصلًا يتطلب موافقة صريحة.
 - إعادة تصميم الصفحات التقنية كلها. تبقى التفاصيل المتقدمة متاحة، لكنها ليست الطريق الرئيسي.
 
 ---
@@ -713,17 +714,19 @@ UXW-00
   └── UXW-01
        └── UXW-02
             └── UXW-03.0
-                 └── UXW-03.1
-                      └── UXW-03.2
-                           └── UXW-03.3
-                                └── UXW-03.4
-                                     └── UXW-03.5
-                                          └── UXW-03.6 (optional provider activation)
-                                               └── UXW-03.7
-                                                    └── UXW-04
-                                                         └── UXW-05
-                                                              └── UXW-06
-                                                                   └── UXW-07 (after proving write isolation)
+                  └── UXW-03.0-B
+                       └── UXW-03.1
+                            └── UXW-03.2
+                                 └── UXW-03.3
+                                      └── UXW-03.4
+                                           └── UXW-03.4-B (managed backend)
+                                                └── UXW-03.4-C (full stack + ephemeral DB)
+                                                     └── UXW-03.5 (Local Agent)
+                                                          └── UXW-03.6 (optional provider activation)
+                                                               └── UXW-03.7 (qualify each supported profile)
+                                                                    └── UXW-04
+                                                                         ├── UXW-05 → UXW-06 → UXW-07
+                                                                         └── UXW-08 (release/deployment; requires UXW-03.7 + UXW-04)
 ```
 
 ### UXW-00 — تثبيت عقد المنتج وخط الأساس
@@ -926,6 +929,8 @@ UXW-00
 لا نبني `PreviewProvider` عملاقًا أو framework عامًا للبنية التحتية. العقود صغيرة ومحددة، ولا تُنشأ خدمة أو جدول إضافي قبل أن يثبت UXW-03.0 عدم وجود مصدر قائم مناسب.
 الرؤية طويلة الأمد يمكن أن تشمل Local، وSelf-hosted، وCloud execution، وStatic publishing بموافقة المستخدم؛ هذا لا يعني دعم كل الأنماط في الإصدار الأول.
 
+**فصل Preview عن Release:** Builder وArtifact Store وAttestation وReceipt Verifier وRuntime Profiles وقدرات Job/Lease/Fencing مشتركة عبر عقود محددة. أما Preview Session والتذكرة والـExposure Gateway فمؤقتة ومقيدة بالنسخة؛ Release وEnvironment وDeployment وHealth وTraffic Promotion وRollback دورة منفصلة. لا تتحول Preview Session إلى Production Deployment، ولا يُنسخ Builder أو CAS أو Attestor إلى نظام موازٍ لمجرد إضافة النشر.
+
 #### UXW-03.0 — Forensic Baseline (مغلق: تدقيق قراءة فقط)
 
 اكتمل الجرد في 2026-11-12 من الشيفرة ومخطط PostgreSQL واختبارات المصدر. لم يتغير كود التطبيق أو مخطط القبول، ولم تُنشأ موارد AWS أو تُنشر صور أو تُشغّل خطة Terraform. صُحح هنا ادعاء سابق: **مصدر Runtime وDockerfile ومستودع ECR له موجودة**؛ غير الموجود هو صورة منشورة أو تعريف مهمة/خدمة Runtime مسجلة أو تشغيل فعلي.
@@ -952,11 +957,47 @@ UXW-00
 
 **قرار الإغلاق:** لا توجد وظيفة مجهولة ينبغي بناؤها من جديد في 03.1. أُثبتت مصادر الحالة والتبعيات والاختبارات والفجوات أعلاه؛ تُعاد هذه البوابات بعد كل Adapter. هذا الإغلاق توثيقي فقط ولا يغيّر Candidate Proof أو Acceptance أو التطبيق أو التسليم.
 
+#### تدقيق مرفق Preview Fabric (2026-11-12)
+
+رُوجع المرفق كاملًا، مع فصل الموجود عن المقترح:
+
+- **مؤكد:** Builder الحالي Static لـVite/React، والاسم المثبت في `preview-build-job.ts` وعقود API/الصورة هو `vite-react-static-v1`. `vite-static-v1` في المقترح اسم مستقبلي غير متوافق تلقائيًا؛ لا يُعاد تسمية العقد الحالي من دون إصدار/ترحيل واضح.
+- **مؤكد مع تصحيح نطاق:** `preview-runtime-profile.ts` يثبت إعداد ECR/ECS وصورة/Task Definition مملوكتين للخادم؛ ليس عقد Runtime محايدًا متعدد Profiles. `preview_sessions` في `preview-session-store.ts` تخزن `taskDefinitionArn` و`runnerTaskArn`، لذا اقتران AWS في دورة الجلسة حقيقي.
+- **مؤكد:** `preview-session-store.ts` يحد العمر الأقصى للجلسة بـ30 دقيقة ويفرض تفرد `buildReceiptId`، ويقفل Candidate وBuild Job ويتحقق من المالك والنسخة. `preview-access-ticket.ts` يحدد عمر التذكرة بـ30 ثانية؛ يخزن `preview-access-tickets.ts` digest في PostgreSQL ويستهلكه مرة واحدة.
+- **مؤكد:** `preview-gateway-server.ts` يقدم الصحة والتحكم الداخلي ورفع مدخلات البناء وبدء البناء/المصالحة/Attestation؛ لم يظهر فيه مسار عرض عام للمستخدم يستهلك Preview Ticket ويوجه طلب المتصفح إلى Session.
+- **مؤكد مع تضييق العبارة:** يوجد `deployment` كنوع هدف/إيصال تحقق عام في `task-objective-contract.ts` و`task-objective-receipts.ts` مرتبط بدليل صحة نشر، لكن لا يوجد مسار منتجي متكامل لإدارة Release وEnvironment وDeployment Provider وDomains وTraffic Promotion وRollback. لا يصح وصف المشروع بأنه خالٍ من أي مفهوم deployment.
+- **غير قابل للتثبيت من الملف وحده:** بيانات CI وحالة Commit الواردة في المرفق وقتية؛ لا تُعامل كحالة CI راهنة ولا كمعيار إغلاق دون فحص مباشر للفرع وPR والـchecks وقت التنفيذ.
+
+Backend Preview وUXW-08 أدناه **توسعة معمارية مستهدفة** وليسا قدرات منفذة أو إذنًا بتشغيل Candidate أو إنشاء موارد سحابية. كل Profile يبقى غير مدعوم للمستخدم حتى يجتاز بوابة العزل والرحلة المحددة له.
+
+#### UXW-03.0-B — Backend Runtime Threat Model & Isolation Qualification
+
+**التبعية:** UXW-03.0. بوابة تصميم وتأهيل تسبق عقد Backend أو تنفيذ Candidate؛ لا تؤخرها إلى ما بعد إطلاق Backend.
+
+- عرّف `node-express-managed-v1` ونموذج التهديد والملفات المسموح بها، نقطة الدخول، الاعتماديات المدمجة، الشبكة، الهوية، الملفات، الموارد، العمليات، TTL، وسجل الإيقاف.
+- قبل التنفيذ، وثّق ADR يختار آلية العزل والأنظمة المدعومة وحدودها؛ لا يُفترض وجود Runner Linux مؤهل أو صلاحيات إضافية من دون إثبات.
+- قيّم كل نظام تشغيل وRunner منفردًا؛ لا يُعلن دعم Linux/macOS/Windows بالتعميم. Rootless أو non-root أو `spawn()` وحدها ليست عزلًا مثبتًا.
+- يجب أن يرفض Runtime التشغيل إذا لم يستطع إثبات حدود الملفات والشبكة/العمليات/الموارد. لا fallback إلى تشغيل Candidate على Host أو داخل عملية API.
+- اختبر منع قراءة Host وDocker Socket والأسرار وPostgreSQL/metadata/private networks، منع المنافذ الإضافية والعمليات الشاردة، وإنهاء شجرة العمليات عند TTL أو الإلغاء.
+- حدّد سياسة Egress المغلقة افتراضيًا؛ أي استثناء لاحق يحتاج قائمة سماح قابلة للتدقيق وحماية فعلية من SSRF وDNS rebinding عند نقطة الاتصال.
+- **إغلاق الحزمة:** نموذج تهديد مُراجع، Runtime Profile ونطاق دعم صريحان، واختبارات مستقلة تثبت العزل والتعافي. إذا لم تتأهل بيئة محلية، تُرفض عليها Backend Preview بدل تخفيض الحد الأمني.
+
 #### UXW-03.1 — Provider-Neutral Preview Contracts
 
 - افصل المسؤوليات بعقود صغيرة لا تسرّب تفاصيل AWS/Cloudflare: `PreviewBuildExecutor`, `PreviewArtifactStore`, `PreviewAttestationService`, `PreviewReceiptVerifier`, `PreviewSessionRuntime`, `PreviewExposureGateway`, `PreviewNodeRegistry`, و`PreviewPlacementPolicy`. لا تجمعها في provider واحد ضخم، ولا تُنشئ تنفيذًا موازيًا لوظائف موجودة.
+- افصل `PreviewBuildProfile` عن `PreviewRuntimeProfile` وعن `PreviewTopologyProfile`: الأول يحدد إعداد إنتاج Artifact، والثاني الصورة والـLauncher وسياسات التشغيل، والثالث عدد الخدمات وعلاقاتها وموارد بياناتها. لا تجعل `previewProfile` واحدًا يحدد هذه المسؤوليات معًا.
+- حافظ على العقد الفعلي `builderProfile: "vite-react-static-v1"` أثناء التحويل؛ أضف `buildProfileId` بإصدار/ترحيل صريح. لا تستخدم الاسم المقترح `vite-static-v1` كمرادف صامت. ملفات Runtime الحالية AWS-specific وليست دليلًا على اكتمال هذه العقود المحايدة.
+
+| Build Profile | Runtime Profile | Topology | الدعم المقصود |
+|---|---|---|---|
+| `vite-react-static-v1` | `static-files-v1` | `single-service-v1` | أول رحلة Static؛ هي الوحيدة الموجودة حاليًا كعقد Builder |
+| `node-express-source-v1` | `node-express-managed-v1` | `single-service-v1` | Backend مقيد بعد اجتياز 03.0-B و03.4-B |
+| الأول + الثاني | static + managed backend | `full-stack-ephemeral-db-v1` | تجميع لاحق بعد 03.4-C |
+
+عقد Runtime المستهدف يحمل `profileId/version`, و`imageDigest`, و`launcherDigest`, و`entrypoint/port/filesystem/network/resource policies`, و`statePolicy`, و`requiredAssuranceLevel`. هذه حقول تصميم لا تُنسب إلى `preview-runtime-profile.ts` الحالي.
+
 - اجعل كل عقد يمرر هوية Candidate الحالية نفسها: `projectId`, `operationId`, `candidateRevision`, `baseRevision`, `changeSetHash`، مراجع الأدلة والمحاولة. لا يقبل العقد أوامر shell أو صورة/وجهة يختارها Candidate.
-- `SignedPreviewBuildJob` يربط `projectId`, `proposalId`, `operationId`, `executionId`, `attempt`, revisions, `changeSetHash`, `previewProfile`, `builderPolicyDigest`, `idempotencyKey`, `dispatchGeneration`, و`jobId`; ويحتوي `nodeId/executorRef`, `leaseOwner`, `leaseExpiresAt`, `issuedAt`, `expiresAt` عند الحاجة. يتحقق API من كل حقل مقابل السجل الحالي.
+- `SignedPreviewBuildJob` يربط `projectId`, `proposalId`, `operationId`, `executionId`, `attempt`, revisions, `changeSetHash`, `buildProfileId`, `builderPolicyDigest`, `idempotencyKey`, `dispatchGeneration`, و`jobId`; ويحتوي `nodeId/executorRef`, `leaseOwner`, `leaseExpiresAt`, `issuedAt`, `expiresAt` عند الحاجة. يتحقق API من كل حقل مقابل السجل الحالي.
 - `ArtifactRef` غير قابل للتغيير يصف بصمة المحتوى وحجمه وManifest ومصدره ونسخته وسياسة الاحتفاظ. `BuildExecutionRef` يربط Job والمنفذ والمحاولة والـLease. `AttestationReceipt` يثبت فحص الناتج، لكنه ليس Canonical Proof أو قبولًا.
 - استخدم مخططات Zod/أنواع المشروع المشتركة للعقود المتبادلة بين API وDashboard وAgent، مع توليد العملاء من OpenAPI؛ تبقى تفاصيل المنافذ الداخلية والعامل خارج واجهة HTTP العامة.
 - افصل دورة بناء Job عن دورة Preview Session. استخدم `preview_build_jobs` و`preview_sessions` الحاليين وأعد فحص المخطط في 03.0؛ لا تسمح بإنشاء Session قبل `verified` حسب مستوى الثقة المسموح. لا تعِد تعريف حالة `verified` أو مصدر إثباتها.
@@ -970,6 +1011,7 @@ UXW-00
 
 - أنشئ مخزنًا محليًا خاصًا خارج جذر المشروع، مرتبطًا ببصمة المحتوى؛ كتابة مؤقتة ثم flush/sync وrename ذري، ورفض استبدال بصمة موجودة بمحتوى مختلف.
 - خزّن CAS بواسطة IDs مولدة من الخادم مع Manifest غير قابل للتغيير يربط Artifact بـJob وCandidate والسياسة و`digest/sizeBytes/manifestDigest/retentionPolicy`. الموقع الفعلي لا يظهر في API؛ العميل لا يرسل مسارًا محليًا لـAPI أو Gateway لقراءته.
+- عرّف أنواعًا محددة مثل `static_bundle` و`backend_source_bundle`; لا تخلط Artifact المصدر بصورة Runtime مثبتة. إذا أضيف `database_seed_snapshot` فيجب أن يكون اصطناعيًا/مؤقتًا ومربوطًا بالجلسة، لا نسخة من بيانات Production ولا مخزن أسرار.
 - استقبل الملفات داخل staging محدود الحجم، واحسب البصمة أثناء التدفق، ثم تحقق من العدد/الحجم/النوع والمسارات قبل الكتابة، ونفّذ `fsync` ثم rename ذري. لا تربط المرجع بسجل Job قبل اكتمال الكتابة والتحقق؛ ضياع الرد يعيد نفس Artifact identity.
 - ارفض absolute/traversal، الروابط الرمزية والصلبة غير المسموحة، الملفات الخاصة، التكرار المتعارض، Unicode-normalization collisions، ZIP/TAR bombs، وعدد الملفات والأحجام المتجاوزة. لا تكتب خارج root مخصص ولا تمنح Candidate وصولًا مباشرًا للمخزن.
 - نظّف بجمع مرحلتين: mark كـ`eligible_for_gc` بعد فحص مراجع Jobs/Receipts/Sessions، ثم مهلة وحساب المراجع مجددًا مباشرة قبل sweep. تتضمن حالات الاحتفاظ `temporary/active/retained/eligible_for_gc/deleted`؛ لا تحذف الأثر عند فشل فحص الملكية/المراجع.
@@ -979,24 +1021,47 @@ UXW-00
 #### UXW-03.3 — Local Builder + Independent Attestor
 
 - شغّل Builder الحالي فوق Local Artifact Store باستعمال job موقّع قصير العمر من الخادم وCandidate مثبتة؛ لا lifecycle scripts ولا مفاتيح/أسرار ولا وصول شبكي غير لازم.
-- ابدأ بملف `vite-static-v1` فقط: Node/Corepack/Vite والاعتماديات مثبتة، إعداد البناء يختاره EngineeringOS، ولا تُقرأ Candidate `package.json` scripts أو Vite/PostCSS config أو lockfile، ولا تثبّت اعتمادياتها. يفشل الطلب مغلقًا عند فقد ملف مطلوب أو عدم دعم الملف.
+- ابدأ بملف البناء الحالي `vite-react-static-v1` فقط: Node/Corepack/Vite والاعتماديات مثبتة، إعداد البناء يختاره EngineeringOS، ولا تُقرأ Candidate `package.json` scripts أو Vite/PostCSS config أو lockfile، ولا تثبّت اعتمادياتها. لا يُستبدل اسم الملف القائم بـ`vite-static-v1` دون إصدار/ترحيل. ملف `node-express-source-v1` المقترح لا يُفعّل إلا بعد UXW-03.0-B و03.4-B؛ لا يضيف تثبيتًا حرًا أو سكربتات Candidate.
 - اعزل Builder بهوية غير إدارية، ومدخلات قراءة فقط، ومساحة مؤقتة وناتج منفصل، وحدود CPU/Memory/I/O/القرص/العمليات/الوقت/السجل. امنع أسرار Host وGit/Cloud credentials وDocker socket؛ الشبكة ممنوعة افتراضيًا ولا تُفتح إلا بقائمة مصادر محددة. Rootless container طبقة إضافية وليس ضمانًا للعزل؛ ملف الدعم الأول يحدد Linux/البيئة التي أثبتت حدودها.
 - شغّل Attestor بهوية/عملية منفصلة عن Builder؛ أعد قراءة bytes النهائية، واحسب digest مستقلًا، وتحقق من job والعامل وصورة التشغيل وCandidate قبل توقيع receipt قصير العمر.
+- اجعل Receipt يعلن Subject/Profile وسياسة الفحص بوضوح (`static_bundle` أو `backend_source_bundle` لاحقًا)؛ وسّع الخدمة المشتركة بدل Attestor ثانٍ. Receipt ليس Canonical Proof أو Acceptance أو تصريح تشغيل.
 - لا يستطيع Builder قراءة مفتاح Attestor أو تعديل مدخلاته أو ناتجه بعد التسليم. Attestor لا يقرأ Candidate الأصلية، ويعيد فحص bytes والسياسة والهوية بدل قبول claims من Builder؛ ولا يملك صلاحية بدء Session أو تغيير Acceptance.
 - **حد الثقة المحلي:** فصل العمليتين والهوية المحلية يقلل أخطاء/اختراق Builder، لكنه لا يثبت استقلالًا بعيدًا إذا كان مالك الجهاز أو مسؤول النظام يستطيع تعديل العمليتين أو مفاتيحهما. يجب ألا تُعرض شهادة محلية على أنها `remote_attested` أو `hardware_backed` دون نطاق تحقق مستقل فعلي.
 - أظهر `assuranceLevel` كبيان provenance محدود المعنى: `local_observed` (ملاحظة على عقدة محلية مسجلة)، `locally_isolated` (ملف عزل محدد ومتحقق)، `remote_attested` (مراجع مستقل في نطاق تشغيل منفصل)، `hardware_backed` (فقط عند وجود مفتاح/جذر ثقة عتادي مدعوم). لا يرتقي المستوى لمجرد نجاح العملية، ولا يغير أيًا من Canonical Proof أو Acceptance.
 - لا يستطيع Builder إصدار receipt أو تقرير القبول، ولا يصبح نجاح الخروج دليلًا على قبول Candidate.
 - **إغلاق الحزمة:** فقدان الرد وإعادة المحاولة دون تنفيذ مكرر؛ قتل Builder/Attestor واستعادة Job/Lease؛ رفض Candidate قديمة أو بصمة مختلفة؛ منع إعادة استخدام receipt أو نقله بين Job/عامل/Node؛ رفض digest أو توقيع أو مفتاح منتهي/ملغى؛ نفاد الموارد؛ وتغيير Artifact بعد الفحص.
 
-#### UXW-03.4 — Local Preview Runtime + Gateway
+#### UXW-03.4 — Local Preview Runtime + Exposure Gateway
 
 - قدّم Vite/React ثابتًا فقط من ArtifactRef موثق؛ لا تستخدم `dev server` أو أوامر Candidate. لا تعرض منفذًا داخليًا أو وجهة يختارها المتصفح.
+- ميّز Exposure Gateway الذي يستهلك المتصفح Preview Ticket ويوجه الطلب إلى Session عن `Preview Gateway` الحالي ذي مسارات التحكم الداخلية. أعد استخدامه كـControl Plane Adapter فقط؛ لا تعتبر وجوده دليلًا على بوابة عرض للمستخدم.
 - اربط Session بـ`sessionId/userId/projectId/proposalId/operationId/candidateRevision/changeSetHash/buildReceiptId/outputDigest/runtimeRef/expiresAt/stateVersion`. قبل إصدار تذكرة، يتحقق API من المالك وCandidate الحالية والإيصال ومستوى الضمان المسموح؛ Gateway يستمد Runtime من سجل الجلسة فقط. لا أصل أو IP أو منفذ يختاره المتصفح، ولا token في URL/log/analytics.
 - اجعل لكل Preview Origin معزولًا؛ لا مشاركة cookies أو auth tokens مع التطبيق الرئيسي، وقيّد iframe sandbox وCSP وفتح النوافذ والتنزيلات والصلاحيات. اختبر CSRF وHost/Origin. عند تشغيل EngineeringOS مستضافًا، لا تفترض أن المتصفح يستطيع الوصول إلى `localhost`؛ افصل نمط Local/Desktop عن نمط Hosted+Agent واختبر أذونات Local Network Access.
 - لا تسمح بميزة arbitrary `targetUrl` أو Reverse Proxy. لا يوجد server-side fetch في الملف الأول؛ إن أضيف لاحقًا، فحص العنوان عند الاتصال نفسه ويثبت الوجهة بعد DNS، ويتعامل مع redirect وIPv4/IPv6 وprivate/link-local/metadata وIPv4-mapped/NAT64 وDNS rebinding.
 - ابدأ دورة الجلسة `requested → provisioning → ready → stale → stopping → stopped/expired/failed` مع مطابقة انتقالات `preview_sessions` الفعلية بعد 03.0؛ لا تضف حالة بلا حاجة. لا تسجل `stopped` بمجرد إرسال أمر الإيقاف، واستخدم حالة انتظار/مجهولة عند تعذر الملاحظة. أعد فحص Candidate عند التمديد وعلّم Preview القديمة `stale` عند تغيّرها.
 - اعزل الملفات والشبكة والهوية؛ لا وصول إلى جذر المشروع الحي أو الأسرار أو PostgreSQL أو metadata/internal networks. عند TTL/الإلغاء، ارفض الطلبات الجديدة وأوقف العامل المملوك للجلسة وحده.
 - **إغلاق الحزمة:** صلاحيات الجلسة والعبور بين المستخدمين/المشروعات، ticket replay، TTL والخمول والإلغاء، قتل عامل جلسة دون التأثير على أخرى، رفض Candidate قديمة، عزل الملفات والأسرار، رفض loopback/private/link-local/metadata وIPv4/IPv6/DNS rebinding عند وجود fetch، Host/Origin/CSRF، فشل Stop واستعادة حالة Runtime، ورحلة Playwright لمستخدم مسموح وآخر مرفوض.
+
+#### UXW-03.4-B — Managed Backend Preview: Node.js/Express
+
+**التبعية:** UXW-03.0-B و03.1–03.4. هذه إضافة إلى أول ملف Static، ولا تجعل Backend مدعومًا قبل تأهيل Runtime على بيئة التشغيل المختارة.
+
+- عرّف Runtime Profile ثابتًا `node-express-managed-v1` وصورة مثبتة بالبصمة، مستخدمًا غير Root، وLauncher خادميًا ثابتًا، ومنفذًا داخليًا واحدًا وموارد/وقت/خمول محدودة.
+- اسمح بمنطق Routes وMiddleware داخل عقد ملفات موثق ونقطة دخول ثابتة؛ تُضمّن Node.js وExpress والاعتماديات المعتمدة داخل Runtime. لا `npm install` حر، ولا `package.json` scripts، ولا أمر Shell أو صورة أو port أو متغير تشغيل يختاره Candidate.
+- اعتبر كل ملف Candidate كودًا غير موثوق حتى لو كان Runtime موثوقًا. اقرأ الملفات من Artifact مربوط ببصمة النسخة، واجعل المصدر read-only، وامنع الوصول إلى Host وDocker Socket ومشاريع أخرى وأسرار أو خدمات EngineeringOS.
+- الشبكة Deny-by-default بلا Egress في الإصدار الأول. لا يسمح Candidate باختيار وجهة Gateway أو فتح منفذ إضافي؛ الوصول يمر عبر Exposure Gateway وسياق Session المحدد خادميًا.
+- لا تسمح باستخدام `WorkspaceRuntime` الحالي لتشغيل Candidate: تشغيل `pnpm run dev` من `projectRoot` الحي لا يثبت عزلًا ولا تشغيلًا من Artifact مثبت.
+- **إغلاق الحزمة:** تشغيل Backend حقيقي من Artifact محدد، وإثبات هوية/بصمة Candidate وRuntime، ورفض الوصول للملفات والأسرار والشبكات الداخلية والمنافذ الأخرى؛ إيقاف شجرة العمليات عند TTL/الإلغاء؛ استعادة فقد الرد/قتل العامل بلا تشغيل مكرر؛ رفض Candidate قديمة؛ ورحلة متصفح مصادق عليها. لا تكفي استجابة `/health` أو نجاح وحدة منفردة.
+
+#### UXW-03.4-C — Full-Stack Routing + Ephemeral Database
+
+**التبعية:** UXW-03.4-B. نطاق لاحق مستقل؛ لا يُفترض وجوده عند إغلاق Static أو Managed Backend.
+
+- اربط Frontend وBackend منفصلين داخل Topology موثوقة واحدة، مع أسماء خدمات ومسارات Gateway داخلية يحددها الخادم؛ لا عنوان أو DNS أو port من Candidate أو المتصفح.
+- خصص لكل Preview Session قاعدة بيانات مؤقتة منفصلة، ولا تصلها بـProduction أو بيانات مشروع آخر. ابدأ بـSQLite أو Mock Services حيث تكفي؛ أي PostgreSQL مؤقتة تحتاج Provider/isolated instance وتأهيلًا مستقلًا.
+- Migrations مقيدة بملف Profile ومهمة قصيرة العمر ونسخة Candidate، وتعمل على DB الخاصة بالجلسة فقط. لا تعتبر Snapshot أو Seed Artifact دليل قبول؛ يمنع إدخال أسرار أو بيانات Production.
+- لا تضف Egress أو Redis أو خدمات إضافية ضمن هذه الحزمة من دون تبرير وملف Topology مُراجع.
+- **إغلاق الحزمة:** عزل قواعد البيانات بين جلستين، رفض وصول Preview إلى Production/metadata/private networks، توجيه Frontend إلى Backend المقيد فقط، تنظيف DB والخدمات عند انتهاء TTL، ومنع عامل قديم من إعادة إحياء Topology أو تسجيل نتيجة.
 
 #### UXW-03.5 — Local Agent Integration
 
@@ -1051,9 +1116,11 @@ UXW-00
 
 #### UXW-03.7 — End-to-End Qualification Gate
 
-بوابة إغلاق بعد .0–.6؛ نجاح كل Adapter/اختبار منعزل لا يغلق الرحلة. ينفذها مستخدم حقيقي من Workspace: فتح مشروع، طلب تعديل عبر المسار الحالي، إنشاء Candidate، اختيار سياسة Local، التأكد من أهلية Node، إنشاء Job موقعة، تشغيل Builder، إنتاج Artifact، تحقق Attestor، تحقق API، إنشاء Session للنسخة نفسها، فتح Preview والتفاعل، ثم تعديل Candidate وإظهار القديمة `stale` وإنشاء Session جديدة ومراجعة Diff/Evidence.
+بوابة إغلاق بعد .0–.6؛ نجاح كل Adapter/اختبار منعزل لا يغلق الرحلة. يُؤهل كل Build/Runtime/Topology Profile على حدة، ولا تعني نتيجة Static جاهزية Backend أو Full-Stack. ينفذها مستخدم حقيقي من Workspace: فتح مشروع، طلب تعديل عبر المسار الحالي، إنشاء Candidate، اختيار سياسة Local، التأكد من أهلية Node، إنشاء Job موقعة، تشغيل Builder، إنتاج Artifact، تحقق Attestor، تحقق API، إنشاء Session للنسخة نفسها، فتح Preview والتفاعل، ثم تعديل Candidate وإظهار القديمة `stale` وإنشاء Session جديدة ومراجعة Diff/Evidence.
 
-أعد الرحلة مع قتل Builder قبل الاكتمال، وقتل Attestor قبل التوقيع، وفقد رد API بعد حفظ Receipt، وفصل Agent، وانتهاء Lease، وإعادة Start بعد فقد الرد، وانتهاء TTL أثناء المشاهدة، وتغيير Candidate، وإلغاء Node وله Session نشطة.
+تكون الرحلة الأولى لـ`vite-react-static-v1`. لا يعلن `node-express-managed-v1` مدعومًا حتى اجتياز عزل 03.0-B وإغلاق 03.4-B. ولا يعلن Full-Stack/DB مدعومًا حتى إغلاق 03.4-C واختبار عزل خدمات وبيانات مستقل.
+
+أعد كل رحلة مؤهلة مع قتل Builder/Attestor/Runtime قبل الاكتمال، وفقد الرد بعد الحفظ ثم إعادة المحاولة، وفصل Agent، وانتهاء Lease، وإعادة Start بعد فقد الرد، وانتهاء TTL أثناء المشاهدة، وتغيير Candidate، وإلغاء Node وله Session نشطة. Backend يضيف رفض الشبكات الداخلية/الأسرار/المنافذ الإضافية وقتل شجرة العملية؛ Full-Stack يضيف فصل قواعد البيانات والخدمات.
 
 | البوابة | معيار الإغلاق |
 |---|---|
@@ -1110,7 +1177,8 @@ UXW-00
 
 #### حدود الإصدار الأول
 
-- لا Preview لخلفية/Backend، ولا تشغيل أوامر عامة أو تثبيت اعتماديات يختارها Candidate.
+- يبدأ التأهيل بـVite/React Static، ثم يضيف Managed Node.js/Express فقط بعد إغلاق UXW-03.0-B و03.4-B؛ لا ادعاء بدعم Backend على جهاز/نظام غير مؤهل.
+- لا بيئة تطوير عامة أو shell أو تثبيت اعتماديات يختارها Candidate؛ Full-Stack وقاعدة البيانات المؤقتة مرحلة 03.4-C مستقلة.
 - لا Builder ثانٍ من الصفر، ولا مشاركة لمفتاح Attestor مع Builder، ولا قبول بناء من نتيجة خروج فقط.
 - لا جعل AWS شرطًا، ولا نقل ملفات إلى Cloud لمجرد سهولة التنفيذ، ولا fallback مدفوع صامت.
 - لا تسمية Local Preview على أنها Public Preview؛ النشر الثابت ومشاركة الرابط مسار منفصل بموافقة صريحة.
@@ -1251,6 +1319,128 @@ UXW-00
 
 ---
 
+### UXW-08 — Application Release & Deployment Lifecycle
+
+**الغرض:** بعد UXW-03.7 وUXW-04، تمكين المستخدم من إصدار نسخة مقبولة ونشرها ومتابعة صحتها واستعادتها من Workspace. هذا ليس امتدادًا لـPreview Session، ولا يعني أن النشر أو AWS أصبح منفذًا أو معتمدًا.
+
+المسار المستهدف:
+
+```text
+Candidate → Accept → Apply → Release → Build → Attest → Deploy
+          → Health Qualification → Promote → Operate / Rollback
+```
+
+القبول والتطبيق وتسليم GitHub والنشر قرارات ومراحل منفصلة. يتطلب نشر Production موافقة مستقلة تحدد Release وEnvironment وProvider والأثر؛ لا يسببه قبول Candidate تلقائيًا.
+
+#### حدود إعادة الاستخدام وعدم التكرار
+
+| القدرة | Preview (UXW-03) | Release (UXW-08) | القاعدة |
+|---|---|---|---|
+| Builder | Artifact للمعاينة | Artifact للإصدار | محرك واحد متعدد Build Profiles وسياسات موثوقة |
+| Artifact Store | أثر مؤقت | أثر يحتفظ به للرجوع | Store/CAS واحد؛ namespaces وRetention مختلفة |
+| Attestor/Verifier | Subject للمعاينة | Subject للإصدار | خدمة تحقق واحدة؛ نوع Subject وسياسة ثقة مرتبطان بالسياق |
+| Jobs | Build/Session Jobs | Release/Deployment Jobs | نمط Job/Attempt/Lease/Fencing/idempotency مشترك |
+| Runtime Profile | تشغيل Preview معزول | Runtime موافق للإصدار | تعريف Profile مشترك مع قيود Production مستقلة |
+| Gateway | وصول Preview مؤقت | حركة مرور تطبيق منشور | لا Preview ticket/session في Production، ولا تحويل Exposure Gateway إلى بوابة إنتاج |
+| حالة التشغيل | Session ذات TTL | Deployment دائم مرتبط ببيئة | لا تمديد Preview Session لتصبح Deployment |
+
+كل إعادة استخدام يجب أن تُثبت بتوافق العقد؛ لا يُنسخ Builder أو CAS أو Attestor، ولا تدمج مسؤوليات Exposure Gateway وProduction Traffic Controller.
+
+#### UXW-08.0 — Deployment Forensic Baseline
+
+- جرد Candidate/Apply/Git Delivery، مصادر Release الممكنة، الجداول والمسارات الحالية، صور البناء والتشغيل، التخزين والإثبات، البيئات والأسرار وقواعد البيانات، Terraform، الـProviders واختبارات التعافي.
+- اكتب مصفوفة `Existing Capability → Owner → Source of Truth → Reusable Contract → Provider Coupling → Missing Invariant → Test → Migration Risk`.
+- ميّز عقد `deployment` العام وإيصال صحة المهمة عن نظام Release/Deployment للمستخدم؛ لا تعتبر الاسم أو النوع العام تنفيذًا.
+- **إغلاق الحزمة:** تثبيت فجوات مصدرية، وإثبات عدم وجود Builder/Store/Attestor/Deployment Lifecycle مكرر قبل كتابة تنفيذ جديد. لا تنشئ موارد أو تنفذ Migration.
+
+#### UXW-08.1 — Release, Environment & Deployment Contracts
+
+- عرّف سجلات مستقلة لـ`Release` (نسخة غير قابلة للتغيير)، و`ReleaseArtifactRef`, و`Environment`, و`Deployment`, و`DeploymentAttempt`, و`HealthObservation`, و`TrafficPromotion`, و`RollbackAction`. لا تضع هذه الحالات في `preview_sessions`.
+- اربط Release بمصدر ثابت: إما Candidate مطبقة بهوية `projectId/operationId/proposalId/candidateRevision/changeSetHash` وإيصال قبول/تطبيق، أو Git commit محدد مع Delivery Receipt. لا تبنِ من مجلد حي أو اسم Branch متحرك.
+- اربط الهوية بـ`releaseId`, `source`, `acceptedEvidenceRef`, `buildProfileId`, `runtimeProfileId`, `policyDigest`, وidempotency key؛ كل Deployment يضيف `environmentId`, `providerRef`, `attempt`, `lease/fence`, ونتيجة ملاحظة مستقلة.
+- قبول Candidate لا يمنح إذن النشر. سجّل موافقة منفصلة على البيئة والـProvider والتكلفة/الأثر، وأعد التحقق منها لحظة التنفيذ.
+- **إغلاق الحزمة:** اختبارات اختلاف المصدر/البصمة/البيئة والمحاولة، رفض Branch المتحرك، وفقد الرد وإعادة الطلب دون إنشاء Release أو Deployment مكرر.
+
+#### UXW-08.2 — Shared Build & Artifact Pipeline
+
+- وسّع `PreviewBuildExecutor` و`PreviewArtifactStore` المثبتين بدل إنشاء Release Builder أو مخزن ثانٍ؛ افصل Build Profile وسياسة الاحتفاظ ومراجع Artifact عن Preview.
+- ثبّت Builder Image وBuild Policy بالبصمة، واربط Artifact بمصدر Release و`artifactDigest` وRuntime Profile. لا تعدّل Artifact بعد الفحص.
+- ابنِ Artifact مرة واحدة ثم رقِّ نفس البايتات بين Staging وProduction؛ إذا اختلف إعداد الواجهة حسب البيئة فليكن Config عامًا وقت التشغيل أو مرجع إعداد منفصلًا، لا إعادة بناء خفية.
+- لا تمرر أسرار Production إلى Builder أو Artifact. احتفظ بأثر Release طوال نافذة الرجوع، ولا يحذفه GC بسبب انتهاء Preview TTL.
+- **إغلاق الحزمة:** استعادة Artifact مطابق بعد restart، إثبات digest واحد عبر البيئات، وسباق GC/Deployment لا يحذف Artifact مستخدمًا.
+
+#### UXW-08.3 — Shared Release Attestation
+
+- أعد استخدام خدمة Attestation وReceipt Verifier المشتركتين، مع Subject صريح مثل `release_artifact` وربط Receipt بـRelease ومصدره وArtifact وBuild/Runtime Profile والسياسة والصورة المثبتة.
+- لا يصدر Builder شهادة ولا يبدأ نشرًا. نجاح Attestation يثبت فحص Artifact المحدد فقط؛ لا يثبت سلامة التشغيل بعد النشر ولا يحل محل Acceptance أو Canonical Proof.
+- افصل `Production Health Qualification` عن Receipt، واحتفظ بمصدر الملاحظة ووقتِها وارتباطها بـDeployment.
+- **إغلاق الحزمة:** رفض Receipt قديم/مكرر/مختلف البصمة أو المصدر أو السياسة، وإثبات عدم قدرة Receipt وحده على Promotion.
+
+#### UXW-08.4 — Deployment Provider Contracts
+
+- عرّف واجهة Provider محدودة للتحضير والنشر والملاحظة والترويج والاستعادة والإيقاف. لا تدّعِ Blue/Green أو Canary أو Rollback فوريًا إلا عند إثباته واختباره للمزود المحدد.
+- اجعل `Self-hosted Node`, وCloudflare Static، وAWS خيارات مستقبلية منفصلة؛ لا اعتماد إجباري ولا نقل Candidate أو تكلفة Cloud دون اختيار وموافقة المستخدم.
+- اجعل فشل Provider لا يغير Candidate/Acceptance ولا يفسد حالة Release المحلية. لا تُسرب Task ARN أو Object Key أو provider status إلى عقد المجال العام.
+- **إغلاق الحزمة:** Contract suite واحدة للمزود المختار، مع فشل/إعادة محاولة/ملاحظة غير مؤكدة؛ لا يلزم تفعيل AWS أو Cloudflare لإغلاق العقد. أي Terraform plan/apply أو تكلفة يحتاج موافقة مستقلة.
+
+#### UXW-08.5 — Environments, Secrets & Database Binding
+
+- افصل `development`, `staging`, و`production` في الهوية والصلاحيات والإعدادات والبيانات؛ لا تعتمد على `NODE_ENV` كحد أمني.
+- خزن قيم الأسرار في Secret Manager يختاره المستخدم/Provider؛ اربط `SecretRef` وإصدارها بـDeployment ولا تحفظ القيمة داخل Release/Artifact/Build/Attestation/Logs. Runtime يأخذ أقل صلاحية، وPreview لا يرث أسرار Production.
+- افصل Preview DB المؤقتة عن Staging وProduction. كل Migration مرتبطة بـRelease/Environment/Attempt/Lease وتعمل على DB المقصودة فقط.
+- قبل Migration Production، استخدم Backup/Snapshot حسب قدرات المزود، واختبر Staging، وأوقف الترويج عند الفشل. لا تفترض أن Rollback للكود يعكس Migration؛ صمم Expand/Contract أو استعادة بيانات منفصلة.
+- **إغلاق الحزمة:** اختبارات منع عبور الأسرار وقواعد البيانات بين البيئات، إخفاء السر من الواجهة والسجلات، وتوقف صريح عند Migration فاشلة أو Backup غير متحقق.
+
+#### UXW-08.6 — Static ثم Managed Backend Release
+
+- ابدأ بـStatic Release من Build Profile مدعوم وArtifact ثابت، ونقطة وصول عامة موثقة وإصدارات محفوظة للاستعادة. إعدادات Frontend لا تحمل أسرارًا.
+- أضف Managed Backend فقط بعد تأهيل `node-express-managed-v1` في UXW-03؛ Runtime إنتاج مستقل عن Preview Session، مرتبط بصورة مثبتة وإصدار Release وأسرار وقت التشغيل وقاعدة بيانات Production محددة.
+- امنع التطبيق المنشور من وراثة صلاحيات EngineeringOS API أو Builder أو Attestor أو Gateway. لا تسمح بأوامر/صور/منافذ غير موثوقة.
+- **إغلاق الحزمة:** اختبار نشر Static فعلي؛ ثم Backend وفق ملف منفصل، مع فحص المالك والصلاحيات والشبكة والأسرار وHealth. نجاح `terraform validate` أو بناء محلي وحده لا يغلق نشرًا.
+
+#### UXW-08.7 — Domains, Health, Traffic Promotion & Rollback
+
+- إثبات ملكية النطاق وإدارة DNS/TLS وتجديد الشهادة؛ منع Domain Takeover بعد حذف Deployment أو حساب Provider؛ فصل نطاق Preview عن Production.
+- لا تعتبر `RUNNING` أو HTTP 200 منفردًا صحة. اجمع ملاحظات موثوقة عن بدء العملية، نقطة صحة محددة، الوصول من مسار المستخدم، اعتماديات التشغيل، Crash loops، ونافذة الاستقرار.
+- لا تحول الحركة إلى إصدار جديد قبل Health Qualification. وضح الانقطاع الممكن عند Providers التي لا تدعم Rolling/Blue-Green.
+- افصل Rollback التطبيق والمرور والبيانات والأسرار/الإعدادات؛ لا يظهر نجاحًا نهائيًا إلا بعد ملاحظة أن الإصدار السابق يخدم الطلبات. استعادة قاعدة البيانات إجراء مستقل.
+- **إغلاق الحزمة:** فشل DNS/TLS/Health لا يعلن التطبيق حيًا؛ ترويج غير المؤهل مرفوض؛ Rollback يؤكد هوية الإصدار المستعاد ومصير قاعدة البيانات بصورة منفصلة.
+
+#### UXW-08.8 — End-to-End Release Qualification
+
+يجب إثبات رحلة متصفح حقيقية: إنشاء Candidate → Preview للنسخة نفسها → قبول وتطبيق → اختيار نشر ومراجعة المصدر/البيئة/Provider/الأثر → موافقة صريحة → Build/Attestation → Deployment → Health → Promotion → زيارة النطاق → Release جديد مع بقاء الحالي → Rollback مؤكد.
+
+| الفشل | الثابت المطلوب |
+|---|---|
+| فقد رد Build/Deploy | retry بنفس الهوية ولا آثار مكررة |
+| قتل العامل أو انتهاء Lease | العامل القديم لا يكتب ولا يعلن نجاحًا |
+| Candidate/Artifact قديم أو متغير | رفض النشر/الإيصال |
+| فشل Health أو Migration | لا Promotion |
+| سر منتهٍ أو خطأ إعداد | خطأ ظاهر دون تسريب السر |
+| DNS/TLS غير جاهز | لا ادعاء بأن التطبيق Public/Live |
+| فشل Rollback | الحالة تبقى غير مؤكدة؛ لا نجاح مفترض |
+| تبديل Environment أو Project | لا وصول متقاطع للأسرار/البيانات |
+
+**بوابات الإغلاق:** Release Source، Build، Attestation، Authorization، Provider/Environment، Isolation، Health، Traffic، Recovery، Rollback، ثم رحلة مستخدم كاملة. الاختبارات المجمعة لا تعوض غياب مشاهدة تشغيل فعلية.
+
+**التبعية:** UXW-03.7 وUXW-04. يمكن تصميم العقود بعد تثبيت Build/Artifact/Runtime/Attestation في UXW-03، لكن لا يبدأ نشر تطبيق حقيقي قبلها. لا يتطلب UXW-08 إغلاق UXW-05/06/07 ولا يغيّر صلاحياتها.
+
+#### مؤشرات UXW-08 بعد تثبيت خط الأساس
+
+تُسجل المقاييس بعد وجود تشغيل مؤهل؛ لا تُستخدم لإلغاء موافقة أو لتجاوز بوابة:
+
+| المؤشر | ما يقيسه |
+|---|---|
+| Time to First Published App | الزمن من موافقة النشر إلى وصول المستخدم للتطبيق |
+| Release Build Success Rate | نجاح بناء Release وفق Profile معروف |
+| Attestation Rejection Rate | رفض الإيصالات وأسبابه |
+| Deployment Success Rate | النشر المؤكد من Provider، لا مجرد قبول الطلب |
+| First-attempt Health Qualification | تأهيل صحة التشغيل من المحاولة الأولى |
+| Time to Recovery / Rollback Success | زمن الاستعادة ونسبة الرجوع المؤكد |
+| Configuration / Migration Failure Rate | إخفاقات الإعداد والأسرار وMigrations |
+| Cost per Deployment | التكلفة الفعلية لكل نشر عند Provider مدفوع |
+| Human Intervention Rate | النشرات التي احتاجت قرارًا أو تدخلًا يدويًا |
+
 ## 12. خطة الاختبار والقبول الشامل
 
 ### 12.1 الرحلات الإلزامية
@@ -1352,6 +1542,9 @@ UXW-00
 10. طبقات Preview Fabric حدود منطقية، لا إذن بإنشاء خدمات/جداول/مصادر حقيقة موازية.
 11. Preview/Browser evidence ومستوى assurance لا يغيران Canonical Proof أو Acceptance.
 12. Preview Evidence View إسقاط من السجلات والـShared Evidence Graph القائم، لا Graph مخزنًا أو Ledger جديدًا.
+13. Managed Backend Preview يضاف كـProfile محدد فقط بعد تأهيل عزل Runtime لكل بيئة مدعومة؛ لا تشغيل Candidate على Host كبديل.
+14. Preview وProduction Release يشتركان في Build/Artifact/Attestation بعقود متعددة Profiles، لكن Session وTicket وGateway والترويج الإنتاجي لا تُدمج.
+15. UXW-08 يتطلب موافقة نشر منفصلة، وHealth Qualification وملاحظة Rollback؛ قبول Candidate أو Terraform validation لا يطلق نشرًا.
 
 ### 15.2 أسئلة يجب حسمها في UXW-00 أو بوابة الحزمة المعنية
 
@@ -1359,6 +1552,8 @@ UXW-00
 - كيف يبنى cursor قابل للاستعادة فوق الأحداث الدائمة الحالية من دون ترتيب مصطنع؟
 - ما النطاق ووسيلة التبادل الآمن لتذكرة HTTPS، وما سياسة النطاقات وملفات الارتباط في المتصفح؟
 - كيف تُبنى صورة Vite/React الثابتة من Candidate دون تشغيل سكربتات غير موثوقة أو نقلها قبل الموافقة؟
+- ما آلية عزل `node-express-managed-v1` التي اجتازت تهديدات الشبكة والملفات والعمليات والموارد على كل نظام/Runner مدعوم؟ وما الحد الأدنى من الاعتماديات المدمجة؟
+- أي قاعدة بيانات مؤقتة تلائم Full-Stack، وما حدود Seed/Migration والبيانات التي يمنع نسخها من Production؟
 - ما حدود عزل Local Agent على filesystem والشبكة، وما pairing والتدوير والإلغاء الآمن للهوية؟
 - ما سياسة تنظيف Local Artifact Store عند انتهاء TTL مع الاحتفاظ بالمراجع النشطة؟
 - كيف يُعرّف كل `assuranceLevel` ومصدر الثقة وإلغاء المفتاح، وما الذي يجوز أن يدعيه المنتج دون خلطه بالقبول؟
@@ -1368,6 +1563,9 @@ UXW-00
 - ما الأنظمة وملفات العزل المدعومة فعليًا لـLocal Agent؟ لا توحّد Linux/macOS/Windows قبل إثبات تكافؤ الحدود.
 - ما نموذج اتصال المتصفح إلى Local Gateway عند استضافة Control Plane سحابيًا، وكيف تختبر أذونات المتصفح دون افتراض وصول `localhost`؟
 - ما آلية إيقاف Session وتنظيف ملفات Runtime عند انتهاء المهلة دون حذف Artifact ما زال مستخدمًا؟
+- ما مصدر Release المسموح أولًا: Candidate مطبقة أم Git commit بإيصال Delivery؟ وكيف ترتبط الموافقة المنفصلة بالبيئة والأثر؟
+- ما Providers والـRegions وسقف التكلفة وحدود الاستخدام التي يختارها المستخدم؟ لا يُعتمد AWS/Cloudflare أو يُنشأ مورد قبل ذلك.
+- ما Secret Manager ونموذج ربط الأسرار؟ وما خطة Backup/Migration/Health/DNS/TLS/Traffic Promotion/Rollback لكل Provider؟
 - هل يبقى Intent Brief مسودة مرتبطة بالرسالة، أم يحتاج عقدًا دائمًا جديدًا؟ لا ينشأ كيان جديد قبل قرار موثق.
 - ما قواعد الكشف الآمن عن مصدر عنصر بصري إلى ملف/مكون؟ لا تخمين مسار من DOM وحده.
 - ما خط أساس مؤشرات تجربة المستخدم قبل تعيين أهداف؟
@@ -1384,9 +1582,11 @@ UXW-00
 | طبقة Read Model بدل محرك أو جدول جديد     | القدرات ومصادر الحقيقة موزعة وموجودة                       | تجميع قراءة لا يكرر state authority.                                          |
 | دمج صفحات التفاعل لا محو الصفحات التقنية  | الحفاظ على الاستثمار الحالي وتقليل سياق المستخدم           | Workspace هو المسار الأساسي، والصفحات التفصيلية تبقى مدعومة.                  |
 | Preview آمنة منفصلة عن Validator          | حاجة المستخدم للتفاعل مختلفة عن الحاجة إلى إثبات الاختبار  | لا إعادة استخدام validator كجلسة مستخدم.                                      |
-| أول Preview لواجهة Vite/React ثابتة       | تقليل سطح تنفيذ Candidate وتجنب تشغيل أوامر عامة           | بناء ثابت مرتبط ببصمة Candidate؛ أنواع المشاريع الأخرى `unsupported`.         |
-| بوابة HTTPS بتذكرة موقعة أمام Fargate خاص | الوصول التفاعلي يحتاج مصادقة دون كشف عنوان العامل          | المتصفح لا يختار المنبع؛ المهام لا تملك عنوانًا عامًا أو خروجًا إلى الإنترنت. |
+| أول Profile للمعاينة Vite/React Static   | تقليل سطح التنفيذ أولًا؛ Backend إضافة محددة بعد التأهيل     | يبقى `vite-react-static-v1` كما هو؛ Managed Node/Express لا يعمل قبل بوابته.    |
+| Preview عبر Exposure Gateway وتذكرة قصيرة | الوصول التفاعلي لا يكشف عنوان Runtime ولا يفتح Session عامة | المتصفح لا يختار المنبع؛ Control Gateway ليس بوابة عرض، وCloud Runtime اختياري. |
 | Terraform محلي ومغلق افتراضيًا            | إعداد أساس آمن قبل اعتماد النشر والتكلفة                   | لا `plan` أو `apply` ولا نقل Candidate ضمن هذه الحزمة.                        |
+| Release وDeployment منفصلان عن Preview    | مؤقتية Session تختلف عن استمرارية Production               | مشاركة محرك البناء/المخزن/الإثبات؛ لا مشاركة Ticket أو Session أو Gateway.      |
+| النشر يتطلب تفويضًا وملاحظة مستقلة        | القبول لا يساوي الإذن بالإطلاق، وطلب Provider ليس نتيجة نشر | موافقة Environment صريحة، وHealth ثم Promotion، وRollback مؤكد بالملاحظة.       |
 | اعتماد الشريحة الرأسية قبل التوازي        | اختبار الربط بين goal، runtime، candidate، evidence، apply | لا لوحة توحّد بطاقات غير معزولة.                                              |
 | احترام مصدر الحقيقة لكل حالة              | «اكتمل التنفيذ» لا يعني «نجح أو سُلّم»                     | العرض يبقي status dimensions منفصلة.                                          |
 | منع التحسينات الشكلية غير المرتبطة بحزمة  | الهدف إغلاق فجوة التكامل وليس إعادة تلوين الصفحات          | كل PR يذكر UXW ومعيار الإغلاق ودليل الرحلة.                                   |
@@ -1400,7 +1600,7 @@ UXW-00
 1. رقم الحزمة UXW ومعيار الإغلاق الذي يعالجه.
 2. مصدر الحقيقة الحالي الذي يعتمد عليه.
 3. الملفات أو العقود التي يعاد استخدامها، وما الذي لا يعاد استخدامه.
-4. هويات `projectId`, `sessionId`, `taskId`, `executionId`, `attempt`, `proposalId`, `operationId`, revisions ذات الصلة.
+4. هويات `projectId`, `sessionId`, `taskId`, `executionId`, `attempt`, `proposalId`, `operationId`, `candidateRevision`, `changeSetHash`; وفي UXW-08 يضاف `releaseId`, `environmentId`, `deploymentId` ونسخة الإعداد/السر ذات الصلة.
 5. حالات الفشل/القدم/التعذر التي ستظهر للمستخدم.
 6. اختبار السلوك والثابت الذي يثبته، لا مجرد عدد الاختبارات.
 7. دليل أن الإجراء لم يتجاوز صلاحية أو موافقة أو قيد عزل.
@@ -1413,6 +1613,8 @@ UXW-00
 
 يُعتبر EngineeringOS Studio قد حقق هدف هذه الوثيقة عندما يستطيع مستخدم غير تقني تنفيذ الرحلة الرأسية على مشروع مدعوم، من وصف الهدف إلى مراجعة وتطبيق نتيجة متحقق منها، داخل مساحة عمل واحدة، من دون فقد السياق أو تضليل الحالة أو تجاوز الموافقة.
 
+ويُعتبر مسار إدارة التطبيقات قد اكتمل فقط عند إغلاق UXW-08 منفصلًا: يختار المستخدم Release وEnvironment ويوافق صراحة، ثم يثبت النظام البناء والإيصال والنشر والصحة والترويج والاستعادة. لا يغير هذا المسار تعريف اكتمال Workspace الأساسي ولا يدمج Deployment مع Acceptance أو Preview Session.
+
 والاختبار الحاسم ليس أن كل صفحة تعمل منفردة؛ بل أن:
 
 ```text
@@ -1421,3 +1623,12 @@ UXW-00
 ```
 
 تبقى مربوطة بالهويات والإصدارات الصحيحة عبر القراءة الحية، Reload، إعادة الاتصال، المحاولة والفشل، ولا تعلن الواجهة أكثر مما أثبته النظام.
+
+بعدها فقط يبدأ مسار اختياري منفصل:
+
+```text
+Release + Environment + explicit approval
+→ Deployment + Health → Promotion / verified rollback
+```
+
+لا يُشترط النشر لإغلاق Workspace الأساسي، ولا يُعلن اكتمال النشر دون ملاحظة فعلية من Provider ومسار المستخدم.
