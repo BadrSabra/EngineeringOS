@@ -1,8 +1,9 @@
 # UXW-03 Runner Contract V1
 
-**Status:** Shared signed start/stop commands and signed Runner response/
-observation schemas are implemented. Transport, durable replay/fencing, actual
-observation collection, Local Agent execution, and a qualified Runner remain
+**Status:** Shared signed start/stop commands, signed Runner response/
+observation schemas, and a signed capability-snapshot verifier are implemented.
+Transport, durable replay/fencing, actual observation collection, Local Agent
+execution, qualification-record lookup, and a qualified Runner remain
 unimplemented.
 
 **Authority:** Additive contract for UXW-03.1–03.4; it does not enable Backend Preview
@@ -76,11 +77,12 @@ sandboxRuntimeVersion
 isolationClass                 # shared_kernel | syscall_sandbox | microvm
 runtimeProfileDigest
 sandboxPolicyDigest
+qualificationRecordId
 observedAt
 expiresAt
 evidenceMode                   # local_observed | remote_attested
 evidenceKeyId
-signature
+signature                      # carried by the signed token envelope
 ```
 
 The signed policy evidence must establish, rather than merely claim:
@@ -99,6 +101,17 @@ Evidence is rejected when missing, expired, malformed, signed by an
 unregistered key, or inconsistent with the server's qualification record.
 `local_observed` is not `remote_attested`; a local Agent signature alone cannot
 claim independent or hardware-backed assurance.
+
+The shared contract now signs and verifies this snapshot with a
+domain-separated Ed25519 message, canonical JSON, exact registered-node/key and
+server-supplied qualification bindings, a five-second observation-age limit,
+and a maximum 30-second capability lifetime. It always rejects `shared_kernel`
+for an eligible Runtime. The helper does not own the node/key registry or
+qualification store; its caller must load current, non-revoked keys and the
+server-approved record before verification. A valid signature proves which key
+made the report, not that the claimed sandbox is actually running or that
+`remote_attested`/`hardware_backed` assurance exists. No Agent currently emits
+this report, and no placement or execution path consumes it.
 
 ## 5. Runtime Profile
 

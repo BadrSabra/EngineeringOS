@@ -30,3 +30,14 @@ export type {
   PreviewRunnerStopAckV1,
   VerifiedPreviewRunnerMessageV1,
 } from "./runner-message.js";
+export {
+  PreviewRunnerCapabilityError,
+  isVerifiedPreviewRunnerCapabilityV1,
+  signPreviewRunnerCapabilityV1,
+  verifyPreviewRunnerCapabilityV1,
+} from "./runner-capability.js";
+export type {
+  ExpectedPreviewRunnerCapabilityBindingV1,
+  PreviewRunnerCapabilityV1,
+  VerifiedPreviewRunnerCapabilityV1,
+} from "./runner-capability.js";
