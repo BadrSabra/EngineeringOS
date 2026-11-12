@@ -151,8 +151,8 @@ the live Workspace process tree. A runtime image or isolated-container probe
 alone does not close this gate: the probe must be tied to an immutable
 Candidate, deny host mounts and credentials, enforce resource and process
 limits, and expose only the intended session through a Gateway-controlled
-channel. Standard OCI containers share the host kernel; their assurance must
-not be described as VM-level or hardware-backed isolation.
+channel. The accepted minimum is stronger than standard shared-kernel `runc`;
+rootless mode, namespaces, seccomp, or a container image alone do not qualify.
 
 The initial local Docker qualification on 2026-11-12 verified a non-root
 container, a distinct network namespace, loopback-only process-visible
@@ -164,5 +164,5 @@ were configured. Both probes used the existing Builder image; neither executed
 Candidate code, integrated the product Gateway, or qualified a Backend Runtime
 image. The UDS path remains an unapproved feasibility result until its
 ownership, race, cross-session, and cleanup properties are proven. Standard
-`runc` also shares the host kernel. Therefore this is not authorization to
-enable Backend Preview.
+`runc` also shares the host kernel and does not meet the selected minimum.
+Therefore this is not authorization to enable Backend Preview.
