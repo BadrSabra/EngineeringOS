@@ -105,6 +105,7 @@ const bindingFields = {
   candidateRevision: digestSchema,
   changeSetHash: digestSchema,
   buildReceiptId: uuidSchema,
+  artifactDigest: digestSchema,
   runtimeProfileDigest: digestSchema,
   channelRef: uuidSchema,
   issuedAt: timestampSchema,
@@ -120,7 +121,16 @@ const startCommandSchema = z
     runtimeProfile: runtimeProfileSchema,
     resourceLimits: resourceLimitsSchema,
   })
-  .strict();
+  .strict()
+  .superRefine((command, context) => {
+    if (command.artifactDigest !== command.artifactRef.digest) {
+      context.addIssue({
+        code: "custom",
+        message: "Artifact reference digest does not match the command binding.",
+        path: ["artifactDigest"],
+      });
+    }
+  });
 
 const stopCommandSchema = z
   .object({
@@ -138,8 +148,18 @@ const stopCommandSchema = z
   })
   .strict();
 
+const observeCommandSchema = z
+  .object({
+    ...bindingFields,
+    action: z.literal("observe"),
+    stateVersion: z.number().int().positive().max(Number.MAX_SAFE_INTEGER),
+    executionRef: z.string().regex(/^exec_[A-Za-z0-9_-]{16,96}$/),
+  })
+  .strict();
+
 const commandSchema = z.discriminatedUnion("action", [
   startCommandSchema,
+  observeCommandSchema,
   stopCommandSchema,
 ]);
 
@@ -149,6 +169,9 @@ export type PreviewRunnerResourceLimitsV1 = z.infer<
   typeof resourceLimitsSchema
 >;
 export type PreviewRunnerStartCommandV1 = z.infer<typeof startCommandSchema>;
+export type PreviewRunnerObserveCommandV1 = z.infer<
+  typeof observeCommandSchema
+>;
 export type PreviewRunnerStopCommandV1 = z.infer<typeof stopCommandSchema>;
 export type PreviewRunnerCommandV1 = z.infer<typeof commandSchema>;
 
@@ -159,6 +182,10 @@ export type VerifiedPreviewRunnerCommandV1 = PreviewRunnerCommandV1 & {
 
 export type PreviewRunnerCommandBindingV1 = Pick<
   PreviewRunnerCommandV1,
+  | "action"
+  | "commandId"
+  | "idempotencyKey"
+  | "channelRef"
   | "nodeId"
   | "sessionId"
   | "stateVersion"
@@ -172,6 +199,7 @@ export type PreviewRunnerCommandBindingV1 = Pick<
   | "candidateRevision"
   | "changeSetHash"
   | "buildReceiptId"
+  | "artifactDigest"
   | "runtimeProfileDigest"
 >;
 
@@ -264,6 +292,7 @@ function canonicalCommand(command: PreviewRunnerCommandV1): string {
     candidateRevision: command.candidateRevision,
     changeSetHash: command.changeSetHash,
     buildReceiptId: command.buildReceiptId,
+    artifactDigest: command.artifactDigest,
     runtimeProfileDigest: command.runtimeProfileDigest,
     channelRef: command.channelRef,
     issuedAt: command.issuedAt,
@@ -294,10 +323,17 @@ function canonicalCommand(command: PreviewRunnerCommandV1): string {
     });
   }
 
+  if (command.action === "stop") {
+    return JSON.stringify({
+      ...shared,
+      executionRef: command.executionRef,
+      reason: command.reason,
+    });
+  }
+
   return JSON.stringify({
     ...shared,
     executionRef: command.executionRef,
-    reason: command.reason,
   });
 }
 
@@ -360,6 +396,10 @@ function matchesExpectedBinding(
   expected: PreviewRunnerCommandBindingV1,
 ): boolean {
   return (
+    command.action === expected.action &&
+    command.commandId === expected.commandId &&
+    command.idempotencyKey === expected.idempotencyKey &&
+    command.channelRef === expected.channelRef &&
     command.nodeId === expected.nodeId &&
     command.sessionId === expected.sessionId &&
     command.stateVersion === expected.stateVersion &&
@@ -373,6 +413,7 @@ function matchesExpectedBinding(
     command.candidateRevision === expected.candidateRevision &&
     command.changeSetHash === expected.changeSetHash &&
     command.buildReceiptId === expected.buildReceiptId &&
+    command.artifactDigest === expected.artifactDigest &&
     command.runtimeProfileDigest === expected.runtimeProfileDigest
   );
 }
@@ -408,7 +449,7 @@ export function signPreviewRunnerCommandV1(input: {
 export function verifyPreviewRunnerCommandV1(input: {
   token: string;
   publicKeyPem: string | undefined;
-  expected?: PreviewRunnerCommandBindingV1;
+  expected: PreviewRunnerCommandBindingV1;
   now?: Date;
 }): VerifiedPreviewRunnerCommandV1 {
   if (
@@ -460,10 +501,7 @@ export function verifyPreviewRunnerCommandV1(input: {
       "RUNNER_COMMAND_SIGNATURE_INVALID",
     );
   }
-  if (
-    input.expected &&
-    !matchesExpectedBinding(command, input.expected)
-  ) {
+  if (!matchesExpectedBinding(command, input.expected)) {
     throw new PreviewRunnerCommandError(
       "RUNNER_COMMAND_BINDING_MISMATCH",
     );

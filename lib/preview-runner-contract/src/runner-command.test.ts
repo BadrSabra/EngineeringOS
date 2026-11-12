@@ -7,6 +7,7 @@ import {
   signPreviewRunnerCommandV1,
   verifyPreviewRunnerCommandV1,
   type PreviewRunnerCommandBindingV1,
+  type PreviewRunnerObserveCommandV1,
   type PreviewRunnerStartCommandV1,
   type PreviewRunnerStopCommandV1,
   type PreviewRuntimeProfileV1,
@@ -83,6 +84,7 @@ function startCommand(
     candidateRevision: HASH_A,
     changeSetHash: HASH_B,
     buildReceiptId: UUID_D,
+    artifactDigest: HASH_C,
     runtimeProfileDigest: previewRuntimeProfileDigest(runtimeProfile),
     channelRef: UUID_E,
     issuedAt: now.toISOString(),
@@ -128,6 +130,7 @@ function stopCommand(
     candidateRevision: HASH_A,
     changeSetHash: HASH_B,
     buildReceiptId: UUID_D,
+    artifactDigest: HASH_C,
     runtimeProfileDigest: HASH_E,
     channelRef: UUID_E,
     issuedAt: NOW.toISOString(),
@@ -138,10 +141,48 @@ function stopCommand(
   };
 }
 
+function observeCommand(
+  changes: Partial<PreviewRunnerObserveCommandV1> = {},
+): PreviewRunnerObserveCommandV1 {
+  return {
+    protocolVersion: 1,
+    action: "observe",
+    commandId: UUID_A,
+    idempotencyKey: UUID_B,
+    nodeId: "runner-linux-01",
+    sessionId: UUID_C,
+    stateVersion: 3,
+    executionGeneration: 1,
+    fencingGeneration: 2,
+    projectId: "project-1",
+    proposalId: "proposal-1",
+    operationId: "operation-1",
+    proposalRevision: 2,
+    baseRevision: HASH_F,
+    candidateRevision: HASH_A,
+    changeSetHash: HASH_B,
+    buildReceiptId: UUID_D,
+    artifactDigest: HASH_C,
+    runtimeProfileDigest: HASH_E,
+    channelRef: UUID_E,
+    issuedAt: NOW.toISOString(),
+    expiresAt: new Date(NOW.getTime() + 20_000).toISOString(),
+    executionRef: "exec_abcdefghijklmnop",
+    ...changes,
+  };
+}
+
 function binding(
-  command: PreviewRunnerStartCommandV1 | PreviewRunnerStopCommandV1,
+  command:
+    | PreviewRunnerStartCommandV1
+    | PreviewRunnerObserveCommandV1
+    | PreviewRunnerStopCommandV1,
 ): PreviewRunnerCommandBindingV1 {
   return {
+    action: command.action,
+    commandId: command.commandId,
+    idempotencyKey: command.idempotencyKey,
+    channelRef: command.channelRef,
     nodeId: command.nodeId,
     sessionId: command.sessionId,
     stateVersion: command.stateVersion,
@@ -155,6 +196,7 @@ function binding(
     candidateRevision: command.candidateRevision,
     changeSetHash: command.changeSetHash,
     buildReceiptId: command.buildReceiptId,
+    artifactDigest: command.artifactDigest,
     runtimeProfileDigest: command.runtimeProfileDigest,
   };
 }
@@ -206,6 +248,24 @@ describe("provider-neutral Preview Runner command contract", () => {
       executionRef: "exec_abcdefghijklmnop",
       fencingGeneration: 2,
       reason: "owner_stopped",
+    });
+  });
+
+  it("signs an observation query for one exact execution generation", () => {
+    const command = observeCommand();
+    const verified = verifyPreviewRunnerCommandV1({
+      token: sign(command),
+      publicKeyPem,
+      expected: binding(command),
+      now: NOW,
+    });
+
+    expect(verified).toMatchObject({
+      action: "observe",
+      executionRef: "exec_abcdefghijklmnop",
+      sessionId: UUID_C,
+      stateVersion: 3,
+      fencingGeneration: 2,
     });
   });
 
@@ -278,6 +338,7 @@ describe("provider-neutral Preview Runner command contract", () => {
       verifyPreviewRunnerCommandV1({
         token: `${tamperedPayload}.${signature}`,
         publicKeyPem,
+        expected: binding(command),
         now: NOW,
       }),
     ).toThrowError(PreviewRunnerCommandError);
@@ -286,6 +347,7 @@ describe("provider-neutral Preview Runner command contract", () => {
       verifyPreviewRunnerCommandV1({
         token,
         publicKeyPem: otherPublicKeyPem,
+        expected: binding(command),
         now: NOW,
       }),
     ).toThrowError(
@@ -295,17 +357,25 @@ describe("provider-neutral Preview Runner command contract", () => {
     );
 
     const expected = binding(command);
-    expect(() =>
-      verifyPreviewRunnerCommandV1({
-        token,
-        publicKeyPem,
-        expected: { ...expected, fencingGeneration: 9 },
-        now: NOW,
-      }),
-    ).toThrowError(
-      expect.objectContaining({
-        code: "RUNNER_COMMAND_BINDING_MISMATCH",
-      }),
-    );
+    for (const changedBinding of [
+      { ...expected, fencingGeneration: 9 },
+      { ...expected, action: "stop" as const },
+      { ...expected, commandId: UUID_F },
+      { ...expected, channelRef: UUID_G },
+      { ...expected, artifactDigest: HASH_E },
+    ]) {
+      expect(() =>
+        verifyPreviewRunnerCommandV1({
+          token,
+          publicKeyPem,
+          expected: changedBinding,
+          now: NOW,
+        }),
+      ).toThrowError(
+        expect.objectContaining({
+          code: "RUNNER_COMMAND_BINDING_MISMATCH",
+        }),
+      );
+    }
   });
 });

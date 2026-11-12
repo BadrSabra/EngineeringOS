@@ -1,8 +1,9 @@
 # UXW-03 Runner Contract V1
 
-**Status:** The shared signed start/stop command core is implemented. Transport,
-durable replay/fencing, observations, Local Agent execution, and a qualified
-Runner remain unimplemented.
+**Status:** Shared signed start/stop commands and signed Runner response/
+observation schemas are implemented. Transport, durable replay/fencing, actual
+observation collection, Local Agent execution, and a qualified Runner remain
+unimplemented.
 
 **Authority:** Additive contract for UXW-03.1–03.4; it does not enable Backend Preview
 
@@ -127,7 +128,11 @@ Messages use a new domain-separated signature protocol, for example
 `EngineeringOS Preview Runner Command v1`. The existing ECS control-command
 signature and payload remain unchanged. Every message has a bounded issue/expiry
 window, canonical serialization, replay protection, and a monotonic Session
-`stateVersion`.
+`stateVersion`. These are target requirements, not all current implementation:
+the shared library currently verifies canonical signatures, expiry, schema,
+freshness, and supplied identity; it does not persist a replay ledger. Until a
+durable idempotency/fencing check is connected, a valid token can be verified
+more than once and must not authorize execution.
 
 ### Start
 
@@ -156,10 +161,19 @@ An acknowledgement is not `ready`. Readiness requires a later, fresh
 server-owned exposure path. `outcome_unknown` triggers reconciliation with the
 same idempotency identity; it must not create a second sandbox.
 
+The response schema requires a registered `keyId`, exact command/session/
+Candidate/fencing identity, a short signature lifetime, and applied artifact,
+runtime, launcher, policy, and channel digests matching the server's expected
+profile. This signature authenticates which Runner key made the assertion; it
+does **not** independently prove that the reported isolation or cleanup
+actually occurred. `isolationEvidenceDigest` remains an opaque reference until
+a separate verifier validates its contents.
+
 ### Observe
 
-`observe(executionRef, sessionId, stateVersion, fencingGeneration)` returns a
-bounded observation:
+The API sends a signed `ObservePreviewV1` bound to
+`executionRef`, `sessionId`, `stateVersion`, and `fencingGeneration`. The Runner
+returns a signed, bounded observation:
 
 ```text
 state: provisioning | ready | stopping | stopped | failed | unknown
@@ -178,6 +192,9 @@ cleanupConfirmed
 
 `unknown` is not equivalent to `failed`, `stopped`, or `ready`. Missing or
 ambiguous observations remain retryable and cannot authorize Session access.
+The shared verifier rejects observations older than five seconds; the API must
+still compare the result to the current durable Session generation and prove
+Gateway health before persisting `ready`.
 
 ### Stop
 
