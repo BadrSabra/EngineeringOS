@@ -145,6 +145,15 @@ function completeSnapshot() {
     ) {
       return "'active'::preview_artifact_gc_state";
     }
+    if (
+      tableName === "preview_build_jobs" &&
+      [
+        "input_artifact_provider",
+        "output_artifact_provider",
+      ].includes(columnName)
+    ) {
+      return "'s3'::preview_artifact_provider";
+    }
     if (tableName === "preview_build_jobs" && columnName === "state_version") {
       return "0";
     }

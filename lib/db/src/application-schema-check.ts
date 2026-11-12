@@ -739,6 +739,15 @@ export const APPLICATION_SCHEMA_CONTRACT = {
           defaultExpression: /'active'::preview_artifact_gc_state/,
         }),
       ),
+      ...["input_artifact_provider", "output_artifact_provider"].map(
+        (name) => ({
+          name,
+          dataType: "USER-DEFINED",
+          udtName: "preview_artifact_provider",
+          nullable: false,
+          defaultExpression: /'s3'::preview_artifact_provider/,
+        }),
+      ),
       {
         name: "proposal_revision",
         dataType: "integer",
@@ -2712,6 +2721,24 @@ export const APPLICATION_SCHEMA_CONTRACT = {
       columns: ["token_expires_at"],
     },
     {
+      name: "idx_preview_build_jobs_input_gc_due",
+      tableName: "preview_build_jobs",
+      columns: [
+        "input_artifact_provider",
+        "input_artifact_gc_state",
+        "input_artifact_gc_marked_at",
+      ],
+    },
+    {
+      name: "idx_preview_build_jobs_output_gc_due",
+      tableName: "preview_build_jobs",
+      columns: [
+        "output_artifact_provider",
+        "output_artifact_gc_state",
+        "output_artifact_gc_marked_at",
+      ],
+    },
+    {
       name: "preview_access_tickets_pkey",
       tableName: "preview_access_tickets",
       columns: ["ticket_digest"],
@@ -3705,6 +3732,7 @@ export const APPLICATION_SCHEMA_CONTRACT = {
       "deleting",
       "deleted",
     ],
+    preview_artifact_provider: ["local", "s3"],
     task_status: [
       "pending",
       "queued",

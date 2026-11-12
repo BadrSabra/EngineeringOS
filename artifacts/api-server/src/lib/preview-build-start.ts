@@ -273,6 +273,8 @@ export async function startOrResumePreviewBuild(input: {
       sourceRoot: input.config.sourceRoot,
       sourceDigest: preparedBuildInput.manifest.sourceDigest,
       archiveDigest: preparedBuildInput.archiveDigest,
+      inputArtifactProvider: "s3",
+      outputArtifactProvider: "s3",
       builderImageDigest: input.config.builderImageDigest,
       issuedAt,
       tokenExpiresAt: new Date(issuedAt.getTime() + BUILD_JOB_TOKEN_TTL_MS),

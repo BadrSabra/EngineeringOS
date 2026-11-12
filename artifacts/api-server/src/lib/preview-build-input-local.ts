@@ -5,6 +5,7 @@ import {
   link,
   mkdir,
   open,
+  readdir,
   realpath,
   unlink,
 } from "node:fs/promises";
@@ -255,6 +256,7 @@ export type LocalPreviewBuildInputObjectStore =
       contentLength: number;
     }): Promise<void>;
     read(objectKey: string): Promise<Buffer>;
+    remove(objectKey: string): Promise<void>;
   };
 
 /**
@@ -378,7 +380,119 @@ export async function createLocalPreviewBuildInputObjectStore(input: {
     }
   }
 
-  const store: Pick<LocalPreviewBuildInputObjectStore, "putStream" | "read"> = {
+  async function validateManifest(
+    manifestBytes: Buffer,
+    objectKey: string,
+    archiveDigest: string,
+  ): Promise<number> {
+    let manifest: unknown;
+    try {
+      manifest = JSON.parse(manifestBytes.toString("utf8"));
+    } catch {
+      throw new LocalPreviewBuildInputStoreError(
+        "PREVIEW_LOCAL_STORE_INVALID_OBJECT",
+      );
+    }
+    if (!manifest || typeof manifest !== "object" || Array.isArray(manifest)) {
+      throw new LocalPreviewBuildInputStoreError(
+        "PREVIEW_LOCAL_STORE_INVALID_OBJECT",
+      );
+    }
+    const record = manifest as Record<string, unknown>;
+    const contentLength = record.contentLength;
+    const canonical =
+      typeof contentLength === "number"
+        ? JSON.stringify({
+            version: 1,
+            objectKey,
+            archiveDigest,
+            contentLength,
+          })
+        : "";
+    if (
+      Object.keys(record).length !== 4 ||
+      record.version !== 1 ||
+      record.objectKey !== objectKey ||
+      record.archiveDigest !== archiveDigest ||
+      typeof contentLength !== "number" ||
+      !Number.isSafeInteger(contentLength) ||
+      contentLength < 1 ||
+      contentLength > maxBytes ||
+      manifestBytes.toString("utf8") !== canonical
+    ) {
+      throw new LocalPreviewBuildInputStoreError(
+        "PREVIEW_LOCAL_STORE_INVALID_OBJECT",
+      );
+    }
+    return contentLength;
+  }
+
+  async function referenceExistsForDigest(digest: string): Promise<boolean> {
+    const refsRoot = resolve(configuredRoot, "refs");
+    const bindingDirectories = await readdir(refsRoot, {
+      withFileTypes: true,
+    }).catch(() => {
+      throw new LocalPreviewBuildInputStoreError(
+        "PREVIEW_LOCAL_STORE_UNAVAILABLE",
+      );
+    });
+    for (const bindingEntry of bindingDirectories) {
+      if (
+        !bindingEntry.isDirectory() ||
+        bindingEntry.isSymbolicLink() ||
+        !DIGEST_PATTERN.test(bindingEntry.name)
+      ) {
+        throw new LocalPreviewBuildInputStoreError(
+          "PREVIEW_LOCAL_STORE_INVALID_OBJECT",
+        );
+      }
+      const bindingDir = resolve(refsRoot, bindingEntry.name);
+      const bindingStat = await lstat(bindingDir);
+      if (
+        !bindingStat.isDirectory() ||
+        bindingStat.isSymbolicLink() ||
+        (typeof process.getuid === "function" &&
+          bindingStat.uid !== process.getuid()) ||
+        (bindingStat.mode & 0o077) !== 0
+      ) {
+        throw new LocalPreviewBuildInputStoreError(
+          "PREVIEW_LOCAL_STORE_INVALID_OBJECT",
+        );
+      }
+      const files = await readdir(bindingDir, { withFileTypes: true });
+      for (const entry of files) {
+        const match = /^([a-f0-9]{64})\.json$/.exec(entry.name);
+        if (
+          !entry.isFile() ||
+          entry.isSymbolicLink() ||
+          !match
+        ) {
+          throw new LocalPreviewBuildInputStoreError(
+            "PREVIEW_LOCAL_STORE_INVALID_OBJECT",
+          );
+        }
+        if (match[1] !== digest) continue;
+        const key = `build-inputs/${bindingEntry.name}/${digest}.zip`;
+        const identity = parseObjectKey(key);
+        const manifestBytes = await readRegularFile(
+          resolve(bindingDir, entry.name),
+          MAX_MANIFEST_BYTES,
+        );
+        await validateManifest(
+          manifestBytes,
+          key,
+          identity.archiveDigest,
+        );
+        return true;
+      }
+    }
+    return false;
+  }
+
+  const store: Pick<
+    LocalPreviewBuildInputObjectStore,
+    "putStream" | "read" | "remove"
+  > = {
     async putStream({ objectKey, bytes, archiveDigest, contentLength }) {
       const identity = parseObjectKey(objectKey);
       if (
@@ -520,45 +634,11 @@ export async function createLocalPreviewBuildInputObjectStore(input: {
         referencePath(identity.bindingDigest, identity.archiveDigest),
         MAX_MANIFEST_BYTES,
       );
-      let manifest: unknown;
-      try {
-        manifest = JSON.parse(manifestBytes.toString("utf8"));
-      } catch {
-        throw new LocalPreviewBuildInputStoreError(
-          "PREVIEW_LOCAL_STORE_INVALID_OBJECT",
-        );
-      }
-      if (!manifest || typeof manifest !== "object" || Array.isArray(manifest)) {
-        throw new LocalPreviewBuildInputStoreError(
-          "PREVIEW_LOCAL_STORE_INVALID_OBJECT",
-        );
-      }
-      const manifestRecord = manifest as Record<string, unknown>;
-      const contentLength = manifestRecord.contentLength;
-      const canonicalManifest =
-        typeof contentLength === "number"
-          ? JSON.stringify({
-              version: 1,
-              objectKey,
-              archiveDigest: identity.archiveDigest,
-              contentLength,
-            })
-          : "";
-      if (
-        Object.keys(manifestRecord).length !== 4 ||
-        manifestRecord.version !== 1 ||
-        manifestRecord.objectKey !== objectKey ||
-        manifestRecord.archiveDigest !== identity.archiveDigest ||
-        typeof contentLength !== "number" ||
-        !Number.isSafeInteger(contentLength) ||
-        contentLength < 1 ||
-        contentLength > maxBytes ||
-        manifestBytes.toString("utf8") !== canonicalManifest
-      ) {
-        throw new LocalPreviewBuildInputStoreError(
-          "PREVIEW_LOCAL_STORE_INVALID_OBJECT",
-        );
-      }
+      const contentLength = await validateManifest(
+        manifestBytes,
+        objectKey,
+        identity.archiveDigest,
+      );
       const content = await readRegularFile(
         blobPath(identity.archiveDigest),
         maxBytes,
@@ -573,6 +653,89 @@ export async function createLocalPreviewBuildInputObjectStore(input: {
         );
       }
       return content;
+    },
+
+    async remove(objectKey) {
+      const identity = parseObjectKey(objectKey);
+      const reference = referencePath(
+        identity.bindingDigest,
+        identity.archiveDigest,
+      );
+      let referenceStat;
+      try {
+        referenceStat = await lstat(reference);
+      } catch (error) {
+        if (errorCode(error) !== "ENOENT") {
+          throw new LocalPreviewBuildInputStoreError(
+            "PREVIEW_LOCAL_STORE_UNAVAILABLE",
+          );
+        }
+      }
+      if (referenceStat) {
+        if (!referenceStat.isFile() || referenceStat.isSymbolicLink()) {
+          throw new LocalPreviewBuildInputStoreError(
+            "PREVIEW_LOCAL_STORE_INVALID_OBJECT",
+          );
+        }
+        const manifestBytes = await readRegularFile(
+          reference,
+          MAX_MANIFEST_BYTES,
+        );
+        await validateManifest(
+          manifestBytes,
+          objectKey,
+          identity.archiveDigest,
+        );
+        try {
+          await unlink(reference);
+        } catch (error) {
+          if (errorCode(error) !== "ENOENT") {
+            throw new LocalPreviewBuildInputStoreError(
+              "PREVIEW_LOCAL_STORE_UNAVAILABLE",
+            );
+          }
+        }
+        await syncDirectory(dirname(reference));
+      }
+
+      if (await referenceExistsForDigest(identity.archiveDigest)) return;
+
+      const artifactPath = blobPath(identity.archiveDigest);
+      let artifactStat;
+      try {
+        artifactStat = await lstat(artifactPath);
+      } catch (error) {
+        if (errorCode(error) !== "ENOENT") {
+          throw new LocalPreviewBuildInputStoreError(
+            "PREVIEW_LOCAL_STORE_UNAVAILABLE",
+          );
+        }
+      }
+      if (!artifactStat) return;
+      if (!artifactStat.isFile() || artifactStat.isSymbolicLink()) {
+        throw new LocalPreviewBuildInputStoreError(
+          "PREVIEW_LOCAL_STORE_INVALID_OBJECT",
+        );
+      }
+      const artifactBytes = await readRegularFile(artifactPath, maxBytes);
+      if (
+        createHash("sha256").update(artifactBytes).digest("hex") !==
+        identity.archiveDigest
+      ) {
+        throw new LocalPreviewBuildInputStoreError(
+          "PREVIEW_LOCAL_STORE_DIGEST_MISMATCH",
+        );
+      }
+      try {
+        await unlink(artifactPath);
+      } catch (error) {
+        if (errorCode(error) !== "ENOENT") {
+          throw new LocalPreviewBuildInputStoreError(
+            "PREVIEW_LOCAL_STORE_UNAVAILABLE",
+          );
+        }
+      }
+      await syncDirectory(dirname(artifactPath));
     },
   };
 

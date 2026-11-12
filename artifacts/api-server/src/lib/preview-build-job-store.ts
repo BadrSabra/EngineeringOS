@@ -64,6 +64,8 @@ export type CreatePreviewBuildJobInput = {
   sourceRoot: string;
   sourceDigest: string;
   archiveDigest: string;
+  inputArtifactProvider: "local" | "s3";
+  outputArtifactProvider: "local" | "s3";
   builderImageDigest: string;
   issuedAt: Date;
   tokenExpiresAt: Date;
@@ -96,6 +98,8 @@ function assertCreateInput(input: CreatePreviewBuildJobInput, now: Date): void {
       sourceRoot: z.string().min(1).max(MAX_SOURCE_ROOT_LENGTH),
       sourceDigest: z.string().regex(HASH_PATTERN),
       archiveDigest: z.string().regex(HASH_PATTERN),
+      inputArtifactProvider: z.enum(["local", "s3"]),
+      outputArtifactProvider: z.enum(["local", "s3"]),
       builderImageDigest: z.string().regex(IMAGE_DIGEST_PATTERN),
       issuedAt: z.date(),
       tokenExpiresAt: z.date(),
@@ -476,10 +480,12 @@ export async function createQueuedPreviewBuildJob(
         sourceDigest: input.sourceDigest.toLowerCase(),
         archiveDigest: input.archiveDigest.toLowerCase(),
         inputArtifactKey,
+        inputArtifactProvider: input.inputArtifactProvider,
         inputArtifactReadyAt: null,
         inputArtifactGcState: "active",
         inputArtifactGcMarkedAt: null,
         outputArtifactKey,
+        outputArtifactProvider: input.outputArtifactProvider,
         outputArtifactGcState: "active",
         outputArtifactGcMarkedAt: null,
         builderImageDigest: input.builderImageDigest.toLowerCase(),

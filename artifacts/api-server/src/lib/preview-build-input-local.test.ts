@@ -101,6 +101,37 @@ describe("Local Preview build-input CAS", () => {
     expect(await store.read(identity.objectKey)).toEqual(bytes);
   });
 
+  it("removes one reference, preserves shared content, and retries deletion idempotently", async () => {
+    const { rootDir, store } = await createStore();
+    const bytes = Buffer.from("one blob with two independently bound references");
+    const first = objectKey(bytes, "1".repeat(64));
+    const second = objectKey(bytes, "2".repeat(64));
+    const blobPath = join(
+      rootDir,
+      "blobs",
+      first.archiveDigest.slice(0, 2),
+      `${first.archiveDigest.slice(2)}.zip`,
+    );
+    await store.put({
+      ...first,
+      archive: bytes,
+      contentLength: bytes.length,
+    });
+    await store.put({
+      ...second,
+      archive: bytes,
+      contentLength: bytes.length,
+    });
+
+    await store.remove(first.objectKey);
+    expect(await store.read(second.objectKey)).toEqual(bytes);
+    await expect(lstat(blobPath)).resolves.toBeDefined();
+
+    await store.remove(second.objectKey);
+    await store.remove(second.objectKey);
+    await expect(lstat(blobPath)).rejects.toMatchObject({ code: "ENOENT" });
+  });
+
   it("hashes streamed bytes and removes staging files when the stream fails", async () => {
     const { rootDir, store } = await createStore();
     const bytes = Buffer.from("stream fragment");

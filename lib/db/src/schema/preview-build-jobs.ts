@@ -28,6 +28,10 @@ export const previewArtifactGcStateEnum = pgEnum(
   "preview_artifact_gc_state",
   ["active", "eligible_for_gc", "deleting", "deleted"],
 );
+export const previewArtifactProviderEnum = pgEnum(
+  "preview_artifact_provider",
+  ["local", "s3"],
+);
 
 /**
  * Durable build-attempt lifecycle, deliberately separate from Preview sessions.
@@ -58,6 +62,11 @@ export const previewBuildJobsTable = pgTable(
     sourceDigest: text("source_digest").notNull(),
     archiveDigest: text("archive_digest").notNull(),
     inputArtifactKey: text("input_artifact_key").notNull(),
+    inputArtifactProvider: previewArtifactProviderEnum(
+      "input_artifact_provider",
+    )
+      .notNull()
+      .default("s3"),
     inputArtifactReadyAt: timestamp("input_artifact_ready_at", {
       withTimezone: true,
     }),
@@ -68,6 +77,11 @@ export const previewBuildJobsTable = pgTable(
       withTimezone: true,
     }),
     outputArtifactKey: text("output_artifact_key").notNull(),
+    outputArtifactProvider: previewArtifactProviderEnum(
+      "output_artifact_provider",
+    )
+      .notNull()
+      .default("s3"),
     outputArtifactGcState: previewArtifactGcStateEnum(
       "output_artifact_gc_state",
     )
@@ -116,6 +130,20 @@ export const previewBuildJobsTable = pgTable(
       table.status,
     ),
     index("idx_preview_build_jobs_token_expiry").on(table.tokenExpiresAt),
+    index(
+      "idx_preview_build_jobs_input_gc_due",
+    ).on(
+      table.inputArtifactProvider,
+      table.inputArtifactGcState,
+      table.inputArtifactGcMarkedAt,
+    ),
+    index(
+      "idx_preview_build_jobs_output_gc_due",
+    ).on(
+      table.outputArtifactProvider,
+      table.outputArtifactGcState,
+      table.outputArtifactGcMarkedAt,
+    ),
   ],
 );
 
@@ -124,9 +152,11 @@ export const insertPreviewBuildJobSchema = createInsertSchema(
 ).omit({
   status: true,
   inputArtifactReadyAt: true,
+  inputArtifactProvider: true,
   inputArtifactGcState: true,
   inputArtifactGcMarkedAt: true,
   outputArtifactGcState: true,
+  outputArtifactProvider: true,
   outputArtifactGcMarkedAt: true,
   builderTaskArn: true,
   outputDigest: true,
