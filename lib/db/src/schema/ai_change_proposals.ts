@@ -1,4 +1,12 @@
-import { pgEnum, pgTable, text, timestamp, integer, boolean, index } from "drizzle-orm/pg-core";
+import {
+  pgEnum,
+  pgTable,
+  text,
+  timestamp,
+  integer,
+  boolean,
+  index,
+} from "drizzle-orm/pg-core";
 import { projectsTable } from "./projects.js";
 import { aiChatMessagesTable, aiChatSessionsTable } from "./ai_chats.js";
 

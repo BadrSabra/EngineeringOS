@@ -15,6 +15,7 @@ import gitRouter from "./git.js";
 import uploadRouter from "./upload.js";
 import runtimeRouter from "./runtime.js";
 import workspaceEventsRouter from "./workspace-events.js";
+import previewBuildsRouter from "./preview-builds.js";
 
 const router: IRouter = Router();
 
@@ -22,6 +23,7 @@ const router: IRouter = Router();
 // is matched before /projects/:projectId
 router.use(discoveryRouter);
 router.use(projectBootstrapRouter);
+router.use(previewBuildsRouter);
 router.use(projectsRouter);
 router.use(workspaceEventsRouter);
 router.use(tasksRouter);

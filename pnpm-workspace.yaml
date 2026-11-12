@@ -39,6 +39,8 @@ packages:
   - lib/*
   - lib/integrations/*
   - scripts
+  - infra/aws-preview/builder
+  - infra/aws-preview/attestor
 
 catalog:
   '@replit/vite-plugin-cartographer': ^0.5.21

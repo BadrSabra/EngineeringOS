@@ -1,0 +1,13 @@
+{
+  "name": "@workspace/preview-attestor",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node --test attest.test.mjs"
+  },
+  "dependencies": {
+    "@aws-sdk/client-ecs": "^3.1165.0",
+    "@aws-sdk/client-s3": "^3.1165.0"
+  }
+}

@@ -5,6 +5,12 @@ dist
 tmp
 out-tsc
 *.tsbuildinfo
+/infra/aws-preview/.terraform/
+/infra/aws-preview/*.tfstate
+/infra/aws-preview/*.tfstate.*
+/infra/aws-preview/*.tfplan
+/infra/aws-preview/terraform.tfvars
+/infra/aws-preview/terraform.tfvars.json
 .expo
 .expo-shared
 

@@ -7,6 +7,7 @@
     "dev": "export NODE_ENV=development && pnpm run build && node ./scripts/stop-old-api.mjs && pnpm run start",
     "build": "node ./build.mjs",
     "start": "node --enable-source-maps ./dist/index.mjs",
+    "start:preview-gateway": "node --enable-source-maps ./dist/preview-gateway.mjs",
     "typecheck:dependencies": "tsc --build --force ../../lib/db ../../lib/api-zod ../../lib/api-client-react ../../lib/scanner ../../lib/knowledge-engine ../../lib/ai-orchestrator",
     "typecheck": "pnpm run typecheck:dependencies && tsc -p tsconfig.json --noEmit",
     "test": "vitest run && node --test scripts/stop-old-api.test.mjs scripts/release-lock.test.mjs scripts/run-live-openrouter-free-smoke.test.mjs scripts/live-provider-review-receipt.test.mjs",
@@ -33,6 +34,11 @@
     "validate:ai-release": "tsx src/lib/ai-release-quality-gate.ts"
   },
   "dependencies": {
+    "@aws-sdk/client-dynamodb": "^3.1165.0",
+    "@aws-sdk/client-ecs": "^3.1165.0",
+    "@aws-sdk/client-s3": "^3.1165.0",
+    "@aws-sdk/lib-dynamodb": "^3.1165.0",
+    "@aws-sdk/s3-request-presigner": "^3.1165.0",
     "@clerk/express": "^2.1.39",
     "@clerk/shared": "^4.25.2",
     "@workspace/ai-orchestrator": "workspace:*",
