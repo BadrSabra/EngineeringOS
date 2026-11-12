@@ -1,5 +1,6 @@
 import { createInsertSchema } from "drizzle-zod";
 import {
+  check,
   index,
   integer,
   pgEnum,
@@ -41,6 +42,10 @@ export const previewAgentNodesTable = pgTable(
     publicKeyFingerprint: text("public_key_fingerprint"),
     agentVersion: text("agent_version"),
     platform: text("platform"),
+    capabilityReportToken: text("capability_report_token"),
+    capabilityExpiresAt: timestamp("capability_expires_at", {
+      withTimezone: true,
+    }),
     keyVersion: integer("key_version").notNull().default(0),
     pairedAt: timestamp("paired_at", { withTimezone: true }),
     lastSeenAt: timestamp("last_seen_at", { withTimezone: true }),
@@ -70,6 +75,10 @@ export const previewAgentNodesTable = pgTable(
       table.status,
       table.pairingExpiresAt,
     ),
+    check(
+      "chk_preview_agent_nodes_capability_pair",
+      sql`(${table.capabilityReportToken} IS NULL) = (${table.capabilityExpiresAt} IS NULL)`,
+    ),
   ],
 );
 
@@ -83,6 +92,8 @@ export const insertPreviewAgentNodeSchema = createInsertSchema(
   publicKeyFingerprint: true,
   agentVersion: true,
   platform: true,
+  capabilityReportToken: true,
+  capabilityExpiresAt: true,
   keyVersion: true,
   pairedAt: true,
   lastSeenAt: true,

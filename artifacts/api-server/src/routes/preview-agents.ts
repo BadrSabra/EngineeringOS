@@ -11,6 +11,10 @@ import {
   type PreviewAgentNodeSummary,
 } from "../lib/preview-agent-pairing.js";
 import {
+  acceptPreviewAgentCapabilityReport,
+  PreviewAgentCapabilityError,
+} from "../lib/preview-agent-capability.js";
+import {
   requireProjectAccess,
   requireProjectWriteAccess,
 } from "../middlewares/requireProjectAccess.js";
@@ -35,16 +39,25 @@ const completePairingSchema = z
   })
   .strict();
 
+const capabilityReportSchema = z
+  .object({
+    qualificationRecordId: z.string().uuid(),
+    token: z.string().min(1).max(8_192),
+  })
+  .strict();
+
 type PreviewAgentRouterDependencies = {
   requireAuth: RequestHandler;
   requireProjectAccess: RequestHandler;
   requireProjectWriteAccess: RequestHandler;
   createPairing: typeof createPreviewAgentPairing;
   completePairing: typeof completePreviewAgentPairing;
+  submitCapabilityReport: typeof acceptPreviewAgentCapabilityReport;
   listNodes: typeof listPreviewAgentNodes;
   revokeNode: typeof revokePreviewAgentNode;
   isProduction: boolean;
   completionRateLimiter: RequestHandler;
+  capabilityRateLimiter: RequestHandler;
 };
 
 const defaultDependencies: PreviewAgentRouterDependencies = {
@@ -53,6 +66,7 @@ const defaultDependencies: PreviewAgentRouterDependencies = {
   requireProjectWriteAccess,
   createPairing: createPreviewAgentPairing,
   completePairing: completePreviewAgentPairing,
+  submitCapabilityReport: acceptPreviewAgentCapabilityReport,
   listNodes: listPreviewAgentNodes,
   revokeNode: revokePreviewAgentNode,
   isProduction: config.isProduction,
@@ -63,13 +77,25 @@ const defaultDependencies: PreviewAgentRouterDependencies = {
     legacyHeaders: false,
     message: { error: "preview_agent_pairing_temporarily_limited" },
   }),
+  capabilityRateLimiter: rateLimit({
+    windowMs: 60_000,
+    limit: 20,
+    standardHeaders: "draft-8",
+    legacyHeaders: false,
+    message: { error: "preview_agent_capability_temporarily_limited" },
+  }),
 };
 
-function singleRouteParam(value: string | string[] | undefined): string | undefined {
+function singleRouteParam(
+  value: string | string[] | undefined,
+): string | undefined {
   return typeof value === "string" ? value : undefined;
 }
 
-function sendNodes(response: Parameters<RequestHandler>[1], nodes: PreviewAgentNodeSummary[]) {
+function sendNodes(
+  response: Parameters<RequestHandler>[1],
+  nodes: PreviewAgentNodeSummary[],
+) {
   response.setHeader("cache-control", "no-store");
   response.json(
     nodes.map((node) => ({
@@ -108,6 +134,20 @@ function unavailableCode(error: unknown): string {
     }
   }
   return "preview_agent_pairing_temporarily_unavailable";
+}
+
+function capabilityReportCode(error: unknown): string {
+  if (error instanceof PreviewAgentCapabilityError) {
+    switch (error.code) {
+      case "PREVIEW_AGENT_CAPABILITY_UNQUALIFIED":
+        return "preview_agent_capability_unsupported";
+      case "PREVIEW_AGENT_CAPABILITY_UNAVAILABLE":
+        return "preview_agent_capability_temporarily_unavailable";
+      case "PREVIEW_AGENT_CAPABILITY_INVALID":
+        return "preview_agent_capability_invalid";
+    }
+  }
+  return "preview_agent_capability_temporarily_unavailable";
 }
 
 export function createPreviewAgentRouter(
@@ -187,6 +227,58 @@ export function createPreviewAgentRouter(
         response
           .status(
             code === "preview_agent_pairing_temporarily_unavailable" ? 503 : 400,
+          )
+          .json({ error: code });
+      }
+    },
+  );
+
+  router.post(
+    "/preview-agent-capabilities/:nodeId/report",
+    dependencies.capabilityRateLimiter,
+    async (request, response): Promise<void> => {
+      response.setHeader("cache-control", "no-store");
+      if (
+        request.get("cookie") ||
+        (dependencies.isProduction && !request.secure)
+      ) {
+        response.status(403).json({
+          error: "preview_agent_capability_invalid",
+        });
+        return;
+      }
+      const parsed = capabilityReportSchema.safeParse(request.body);
+      const nodeId = singleRouteParam(request.params.nodeId);
+      if (
+        !parsed.success ||
+        !nodeId ||
+        !z.string().uuid().safeParse(nodeId).success
+      ) {
+        response.status(400).json({
+          error: "preview_agent_capability_invalid",
+        });
+        return;
+      }
+      try {
+        const report = await dependencies.submitCapabilityReport({
+          nodeId,
+          qualificationRecordId: parsed.data.qualificationRecordId,
+          token: parsed.data.token,
+        });
+        response.status(200).json({
+          nodeId: report.nodeId,
+          accepted: true,
+          expiresAt: report.expiresAt,
+        });
+      } catch (error) {
+        const code = capabilityReportCode(error);
+        response
+          .status(
+            code === "preview_agent_capability_unsupported"
+              ? 409
+              : code === "preview_agent_capability_temporarily_unavailable"
+                ? 503
+                : 400,
           )
           .json({ error: code });
       }

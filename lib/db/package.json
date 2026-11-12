@@ -16,7 +16,7 @@
     "schema:check": "tsx ./src/check-schema.ts",
     "check-audit-schema": "tsx ./src/check-audit-schema.ts",
     "check-operator-alert-schema": "tsx ./src/check-operator-alert-schema.ts",
-    "test": "tsx --test ./src/audit-schema-check.test.ts ./src/application-schema-check.test.ts ./src/schema-push-guard.test.ts"
+    "test": "tsx --test ./src/audit-schema-check.test.ts ./src/application-schema-check.test.ts ./src/schema-push-guard.test.ts ./src/schema/preview-agent-nodes.test.ts"
   },
   "dependencies": {
     "drizzle-orm": "catalog:",

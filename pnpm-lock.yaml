@@ -201,6 +201,9 @@ importers:
       '@workspace/knowledge-engine':
         specifier: workspace:*
         version: link:../../lib/knowledge-engine
+      '@workspace/preview-runner-contract':
+        specifier: workspace:*
+        version: link:../../lib/preview-runner-contract
       '@workspace/scanner':
         specifier: workspace:*
         version: link:../../lib/scanner

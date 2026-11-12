@@ -3,8 +3,10 @@
 **Status:** Shared signed start/stop commands, signed Runner response/
 observation schemas, and a signed capability-snapshot verifier are implemented.
 Transport, durable replay/fencing, actual observation collection, Local Agent
-execution, qualification-record lookup, and a qualified Runner remain
-unimplemented.
+execution, and a qualified Runner remain unimplemented. The API has a
+server-owned qualification registry and persists accepted signed capability
+reports on the existing Agent node row; the registry is intentionally empty
+until a runtime and policy pass independent qualification.
 
 **Authority:** Additive contract for UXW-03.1–03.4; it does not enable Backend Preview
 
@@ -102,16 +104,22 @@ unregistered key, or inconsistent with the server's qualification record.
 `local_observed` is not `remote_attested`; a local Agent signature alone cannot
 claim independent or hardware-backed assurance.
 
-The shared contract now signs and verifies this snapshot with a
-domain-separated Ed25519 message, canonical JSON, exact registered-node/key and
-server-supplied qualification bindings, a five-second observation-age limit,
-and a maximum 30-second capability lifetime. It always rejects `shared_kernel`
-for an eligible Runtime. The helper does not own the node/key registry or
-qualification store; its caller must load current, non-revoked keys and the
-server-approved record before verification. A valid signature proves which key
-made the report, not that the claimed sandbox is actually running or that
-`remote_attested`/`hardware_backed` assurance exists. No Agent currently emits
-this report, and no placement or execution path consumes it.
+The shared contract signs and verifies this snapshot with a domain-separated
+Ed25519 message, canonical JSON, exact registered-node/key and server-supplied
+qualification bindings (including the paired Agent version), a five-second
+observation-age limit, and a maximum 30-second capability lifetime. It always
+rejects `shared_kernel` for an eligible Runtime. The API accepts reports only
+from an active node whose stored
+public-key fingerprint matches the report key ID, and saves the signed token
+and expiry on that existing node row. Revocation clears the saved report. The
+server-owned qualification registry currently contains no approved records, so
+the API reports the capability as unsupported instead of accepting an
+unqualified runtime; the current registry schema also refuses
+`remote_attested` until an independent verifier is implemented. A valid
+signature proves which key made the report, not that the claimed sandbox is
+actually running or that `remote_attested`/`hardware_backed` assurance exists.
+No Agent currently emits this report, and no placement or execution path
+consumes it.
 
 ## 5. Runtime Profile
 

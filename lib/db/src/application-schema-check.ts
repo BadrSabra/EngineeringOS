@@ -878,13 +878,13 @@ export const APPLICATION_SCHEMA_CONTRACT = {
         nullable: false,
         defaultExpression: /'pending'::preview_agent_node_status/,
       },
-      ...["pairing_code_hash", "public_key_pem", "public_key_fingerprint", "agent_version", "platform"].map((name) => ({
+      ...["pairing_code_hash", "public_key_pem", "public_key_fingerprint", "agent_version", "platform", "capability_report_token"].map((name) => ({
         name,
         dataType: "text",
         udtName: "text",
         nullable: true,
       })),
-      ...["pairing_expires_at", "paired_at", "last_seen_at", "revoked_at"].map((name) => ({
+      ...["pairing_expires_at", "capability_expires_at", "paired_at", "last_seen_at", "revoked_at"].map((name) => ({
         name,
         dataType: "timestamp with time zone",
         udtName: "timestamptz",

@@ -4,6 +4,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
   type PreviewAgentNodeSummary,
 } from "../lib/preview-agent-pairing.js";
+import { PreviewAgentCapabilityError } from "../lib/preview-agent-capability.js";
 import { createPreviewAgentRouter } from "./preview-agents.js";
 
 const pairing = {
@@ -44,10 +45,15 @@ function createApp(options: { production?: boolean } = {}) {
     requireProjectWriteAccess: projectAccess,
     createPairing: vi.fn(async () => pairing),
     completePairing: vi.fn(async () => node),
+    submitCapabilityReport: vi.fn(async (input: { nodeId: string }) => ({
+      nodeId: input.nodeId,
+      expiresAt: new Date("2031-03-04T12:00:30.000Z"),
+    })),
     listNodes: vi.fn(async () => [node]),
     revokeNode: vi.fn(async () => ({ ...node, status: "revoked" as const, revokedAt: node.createdAt })),
     isProduction: options.production ?? false,
     completionRateLimiter: ((_req, _res, next) => next()) as RequestHandler,
+    capabilityRateLimiter: ((_req, _res, next) => next()) as RequestHandler,
   };
   const app = express();
   app.set("trust proxy", 1);
@@ -152,6 +158,85 @@ describe("Preview Agent pairing routes", () => {
     expect(plaintextResponse.status).toBe(403);
     expect(secureResponse.status).toBe(200);
     expect(dependencies.completePairing).toHaveBeenCalledTimes(1);
+  });
+
+  it("accepts a signed capability report without returning its token", async () => {
+    const { app, dependencies } = createApp();
+    const token = "signed-report-token";
+    const response = await request(app)
+      .post(`/preview-agent-capabilities/${node.nodeId}/report`)
+      .send({
+        qualificationRecordId: "11111111-1111-4111-8111-111111111111",
+        token,
+      });
+
+    expect(response.status).toBe(200);
+    expect(response.body).toEqual({
+      nodeId: node.nodeId,
+      accepted: true,
+      expiresAt: "2031-03-04T12:00:30.000Z",
+    });
+    expect(response.body).not.toHaveProperty("token");
+    expect(response.headers["cache-control"]).toBe("no-store");
+    expect(dependencies.submitCapabilityReport).toHaveBeenCalledWith({
+      nodeId: node.nodeId,
+      qualificationRecordId: "11111111-1111-4111-8111-111111111111",
+      token,
+    });
+  });
+
+  it("rejects malformed capability reports before verification", async () => {
+    const { app, dependencies } = createApp();
+    const response = await request(app)
+      .post(`/preview-agent-capabilities/${node.nodeId}/report`)
+      .send({
+        qualificationRecordId: "not-a-uuid",
+        token: "x",
+        privateKey: "must-not-be-accepted",
+      });
+
+    expect(response.status).toBe(400);
+    expect(dependencies.submitCapabilityReport).not.toHaveBeenCalled();
+  });
+
+  it("rejects cookies and plaintext capability reports in production", async () => {
+    const { app, dependencies } = createApp({ production: true });
+    const body = {
+      qualificationRecordId: "11111111-1111-4111-8111-111111111111",
+      token: "signed-report-token",
+    };
+    const cookieResponse = await request(app)
+      .post(`/preview-agent-capabilities/${node.nodeId}/report`)
+      .set("Cookie", "session=unexpected")
+      .set("x-forwarded-proto", "https")
+      .send(body);
+    const plaintextResponse = await request(app)
+      .post(`/preview-agent-capabilities/${node.nodeId}/report`)
+      .send(body);
+
+    expect(cookieResponse.status).toBe(403);
+    expect(plaintextResponse.status).toBe(403);
+    expect(dependencies.submitCapabilityReport).not.toHaveBeenCalled();
+  });
+
+  it("keeps unsupported isolation explicit instead of accepting a report", async () => {
+    const { app, dependencies } = createApp();
+    vi.mocked(dependencies.submitCapabilityReport).mockRejectedValueOnce(
+      new PreviewAgentCapabilityError(
+        "PREVIEW_AGENT_CAPABILITY_UNQUALIFIED",
+      ),
+    );
+    const response = await request(app)
+      .post(`/preview-agent-capabilities/${node.nodeId}/report`)
+      .send({
+        qualificationRecordId: "11111111-1111-4111-8111-111111111111",
+        token: "signed-report-token",
+      });
+
+    expect(response.status).toBe(409);
+    expect(response.body).toEqual({
+      error: "preview_agent_capability_unsupported",
+    });
   });
 
   it("lists safe node summaries and scopes revocation to the owned project", async () => {

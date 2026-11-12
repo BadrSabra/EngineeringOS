@@ -347,13 +347,34 @@ export async function revokePreviewAgentNode(input: {
         .for("update")
         .limit(1);
       if (!node) return null;
-      if (node.status === "revoked") return summarize(node);
+      if (node.status === "revoked") {
+        if (!node.capabilityReportToken && !node.capabilityExpiresAt) {
+          return summarize(node);
+        }
+        const [cleared] = await tx
+          .update(previewAgentNodesTable)
+          .set({
+            capabilityReportToken: null,
+            capabilityExpiresAt: null,
+            updatedAt: now,
+          })
+          .where(
+            and(
+              eq(previewAgentNodesTable.nodeId, node.nodeId),
+              eq(previewAgentNodesTable.status, "revoked"),
+            ),
+          )
+          .returning();
+        return cleared ? summarize(cleared) : summarize(node);
+      }
       const [revoked] = await tx
         .update(previewAgentNodesTable)
         .set({
           status: "revoked",
           pairingCodeHash: null,
           pairingExpiresAt: null,
+          capabilityReportToken: null,
+          capabilityExpiresAt: null,
           revokedAt: now,
           updatedAt: now,
         })

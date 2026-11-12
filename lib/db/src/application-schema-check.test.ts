@@ -967,6 +967,25 @@ describe("application schema contract", () => {
 
   it("requires a project-scoped Preview Agent key registry", () => {
     const snapshot = completeSnapshot();
+    const missingCapabilityExpiry = findApplicationSchemaIssues({
+      ...snapshot,
+      columns: snapshot.columns.filter(
+        (column) =>
+          !(
+            column.table_name === "preview_agent_nodes" &&
+            column.column_name === "capability_expires_at"
+          ),
+      ),
+    });
+    assert.ok(
+      missingCapabilityExpiry.some(
+        (issue) =>
+          issue.kind === "missing_column" &&
+          issue.tableName === "preview_agent_nodes" &&
+          issue.objectName === "capability_expires_at",
+      ),
+    );
+
     const missingFingerprintFence = findApplicationSchemaIssues({
       ...snapshot,
       indexes: snapshot.indexes.filter(
