@@ -101,6 +101,21 @@ Candidate Runtime or prove resistance to kernel escape.
 
 No failure above involved Candidate execution; no Candidate code was run.
 
+### Dedicated Linux host inventory
+
+`infra/local-preview-runner/host-preflight.mjs` provides a read-only inventory
+for the separately selected Linux host. Run it as the intended unprivileged
+Agent account. It records basic kernel/cgroup support, current-user access to
+`/dev/kvm`, and whether stronger runtime binaries are present on `PATH`; it
+does not execute those binaries, install packages, alter permissions, use the
+network, or run Candidate code. Its output is always diagnostic and never
+qualifies a Runner. Independent policy and isolation tests remain required.
+
+Running the preflight in the current Replit shell reported Linux x64 and cgroup
+v2, but no accessible `/dev/kvm` and no `runsc`, Firecracker, Jailer, or `runc`
+binary on `PATH`. This is evidence only about the Replit shell, not the separate
+Linux host the user selected.
+
 ## Remaining security gates
 
 Backend Preview remains blocked until all of the following have evidence:
@@ -109,7 +124,8 @@ Backend Preview remains blocked until all of the following have evidence:
    isolation boundary is stronger than standard shared-kernel `runc`. Record
    and independently verify the provider/runtime version and policy actually
    used for each execution. Rootless mode, namespaces, seccomp, or a container
-   image alone do not satisfy this requirement.
+   image alone do not satisfy this requirement. The host preflight is an
+   inventory only and cannot close this gate.
 2. **Runtime identity:** build and pin a dedicated `node-express-managed-v1`
    image and fixed launcher. Candidate input is an immutable, digest-bound
    Artifact; no Candidate-selected image, shell, install step, entrypoint, or
