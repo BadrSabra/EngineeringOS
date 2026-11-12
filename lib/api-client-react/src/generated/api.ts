@@ -72,6 +72,7 @@ import type {
   BrowserValidationProfileInput,
   CancelAiExecutionById200,
   CreateApplyMissionFromProposal201,
+  CreateProjectChatSessionInput,
   CreateProjectInput,
   CreateRuleInput,
   CreateTaskInput,
@@ -8844,6 +8845,86 @@ export function useListAiChatSessions<TData = Awaited<ReturnType<typeof listAiCh
 
 
 
+
+export const getCreateAiChatSessionUrl = () => {
+
+
+
+
+  return `/api/ai/chat/sessions`
+}
+
+/**
+ * @summary Create an empty chat session for a project
+ */
+export const createAiChatSession = async (createProjectChatSessionInput: CreateProjectChatSessionInput, options?: Parameters<typeof customFetch>[1]): Promise<AiChatSession> => {
+
+    const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
+    if (!h) return {};
+    if (h instanceof Headers) return Object.fromEntries(h.entries());
+    if (Array.isArray(h)) return Object.fromEntries(h);
+    return h;
+  };
+return customFetch<AiChatSession>(getCreateAiChatSessionUrl(),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...getHeaders(options?.headers) },
+    body: JSON.stringify(createProjectChatSessionInput)
+  }
+);}
+
+
+
+
+
+export const getCreateAiChatSessionMutationKey = () => ['createAiChatSession'] as const;
+
+export const getCreateAiChatSessionMutationOptions = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof createAiChatSession>>, TError,CreateAiChatSessionMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof createAiChatSession>>, TError,CreateAiChatSessionMutationVariables, TContext> => {
+
+const mutationKey = getCreateAiChatSessionMutationKey();
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof createAiChatSession>>, CreateAiChatSessionMutationVariables> = (props) => {
+          const {data} = props ?? {};
+
+          return  createAiChatSession(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type CreateAiChatSessionMutationResult = NonNullable<Awaited<ReturnType<typeof createAiChatSession>>>
+    export type CreateAiChatSessionMutationBody = BodyType<CreateProjectChatSessionInput>
+    export type CreateAiChatSessionMutationError = ErrorType<void>
+    export type CreateAiChatSessionMutationVariables = {data: BodyType<CreateProjectChatSessionInput>}
+
+    /**
+ * @summary Create an empty chat session for a project
+ */
+export const useCreateAiChatSession = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof createAiChatSession>>, TError,CreateAiChatSessionMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof createAiChatSession>>,
+        TError,
+        CreateAiChatSessionMutationVariables,
+        TContext
+      > => {
+      return useMutation(getCreateAiChatSessionMutationOptions(options));
+    }
 
 export const getListAiChatMessagesUrl = (sessionId: string,) => {
 

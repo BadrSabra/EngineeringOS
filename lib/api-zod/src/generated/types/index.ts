@@ -359,6 +359,7 @@ export * from './capabilityGapResponse';
 export * from './createApplyMissionFromProposal201';
 export * from './createApplyMissionFromProposal201ApplyGoal';
 export * from './createApplyMissionFromProposal201Mission';
+export * from './createProjectChatSessionInput';
 export * from './createProjectInput';
 export * from './createRuleInput';
 export * from './createTaskInput';

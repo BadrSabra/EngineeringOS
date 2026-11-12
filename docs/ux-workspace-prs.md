@@ -579,8 +579,9 @@ GET    /api/projects/:projectId/preview-sessions/:sessionId
 DELETE /api/projects/:projectId/preview-sessions/:sessionId
 ```
 
-### 8.3 متطلبات Preview Gateway
+### 8.3 سجل Gateway السابق — تفاصيل AWS مؤرشفة
 
+المسارات التالية تفاصيل لنموذج AWS السابق وليست قرارات تشغيلية حالية. الترتيب المعتمد هو UXW-03.1–03.6 في قسم حزم التنفيذ؛ تُنقل الوظائف القائمة إلى adapters فقط بعد تثبيت العقود المحايدة، ولا ينشأ تنفيذ موازٍ.
 - أضيف مخطط سجل جلسات في PostgreSQL الحالي: يربط `proposalId` ونسخته وهاش Candidate وهاش التغييرات وهاش صورة OCI ونسخة Task Definition بالمالك والحالة وموعد الانتهاء ومرجع ECS Task ARN. يرفض بدء الجلسة إذا لم تعد Proposal مملوكة للمستخدم وبحالة Candidate معزول أو متحقق وبالبصمات نفسها.
 - انتقالات الجلسة تستخدم `stateVersion` لمنع كتابة عامل قديم فوق حالة أحدث؛ لا يقبل الانتقال إلى `ready` إلا قبل الانتهاء ومع بقاء Candidate وملكيته مطابقين. على المُنسّق ألا يكتب `ready` قبل نجاح فحص صحة المهمة من Gateway. حد العمر الأولي للجلسة 30 دقيقة.
 - اختير أن يعمل ECS Gateway داخل AWS، وأن يبقى PostgreSQL تحت ملكية API الحالي. يرسل API أوامر Start/Stop موقعة بـEd25519 قصيرة العمر؛ يحتفظ API بالمفتاح الخاص، ويحمل Gateway المفتاح العام فقط، فلا يحتاج Gateway بيانات اتصال PostgreSQL أو سرًا مشتركًا لأوامر التحكم.
@@ -711,10 +712,18 @@ DELETE /api/projects/:projectId/preview-sessions/:sessionId
 UXW-00
   └── UXW-01
        └── UXW-02
-            ├── UXW-03 ── UXW-04
-            │              └── UXW-06
-            └── UXW-05
-                   └── UXW-07 (بعد إثبات عزل الكتابة)
+            └── UXW-03.0
+                 └── UXW-03.1
+                      └── UXW-03.2
+                           └── UXW-03.3
+                                └── UXW-03.4
+                                     └── UXW-03.5
+                                          └── UXW-03.6 (optional provider activation)
+                                               └── UXW-03.7
+                                                    └── UXW-04
+                                                         └── UXW-05
+                                                              └── UXW-06
+                                                                   └── UXW-07 (after proving write isolation)
 ```
 
 ### UXW-00 — تثبيت عقد المنتج وخط الأساس
@@ -877,7 +886,239 @@ UXW-00
 - ما يزال اختبار Playwright للانتقال والعودة وإعادة التحميل وإثبات رحلة الاستخدام الكاملة مطلوبًا؛ لذلك لا تُغلق UXW-02 حتى نجاح بوابتها الكاملة. لا يوجد حتى الآن Preview تفاعلية أو Gateway، وتظل UXW-03 حاجزًا إلزاميًا قبلها.
 - محاولة تشغيل متصفح UXW-01 المعزول توقفت قبل بدء أي خدمة: مساحة العمل الحالية لا تثبت شبكة loopback-only مع namespace منفصل ومسارات مكتملة. لم يتم تجاوز الحارس؛ يلزم Runner Linux معزول وغير root لإثبات هذه البوابة.
 
-### UXW-03 — Preview Gateway
+**محاولة إغلاق UXW-02 — 2026-11-12:** أُضيفت رحلتا Playwright باستخدام Clerk وAPI الفعليين، واجتازتا فحص TypeScript وعقود الرحلة وظهرتا في قائمة Playwright. بدأ مشغّل الإصدار API وDashboard واجتاز فحص جاهزية قاعدة البيانات والمخطط، لكنه توقف عند تشغيل المتصفح لأن Firefox المثبت يفتقد `libgtk-3.so.0`. لم تبدأ أي حالة Playwright؛ لم يُنشأ مشروع اختبار، ولم يُختبر سلوك المصادقة أو Snapshot أو SSE. هذا عائق في مكتبات Runner وليس فشلًا أو نجاحًا للتطبيق، ولا يغلق UXW-02.
+
+**فشل إعداد بيانات اختبار UXW-02 — 2026-11-12:** بعد استخدام Chromium المتاح بدل Firefox، بدأت الرحلتان وأثبتت جلسة Clerk الحقيقية الوصول إلى `/api/projects`. فشل إنشاء مشروع الاختبار بـ`root_not_found` لأن المساعد اختار مسارًا نسبيًا من مجلد العمل الخطأ. لم يُنشأ مشروع ولا سجل مؤقت، ولم تصل الرحلتان إلى Snapshot أو SSE أو اختبار الملكية. هذا خطأ في إعداد الاختبار، لا دليل على خلل في واجهة Workspace أو مسار API، ولا يغلق UXW-02.
+
+**نتيجة جزئية لرحلة UXW-02 — 2026-11-12:** بعد تصحيح جذر الاختبار، اجتاز اختبار الملكية بجلسة Clerk ثانية: قراءتا Workspace عبر API المباشر والصفحة أعادتا 403، وحُذف سجل المشروع المؤقت بنجاح. الرحلة الأساسية أنشأت المشروع عبر API الحقيقي، قرأت Snapshot، نفذت PATCH، واستقبلت حدث SSE ثم Snapshot محدثًا. محاولة قطع الاتصال باستخدام محاكاة offline في Chromium لم تُنهِ اتصال EventSource القائم، فظل العرض متصلًا وانتهى انتظار الحالة بالفشل؛ كما أن محرر AI Chat كان معطلًا لعدم وجود مزود قابل للإرسال، لذا لم تصل الرحلة إلى استعادة المسودة. لم يُرسل أي طلب محادثة، واكتمل تنظيف المشروع بـ204. هذه نتيجة جزئية للـAPI والملكية فقط وليست إغلاقًا لـUXW-02.
+
+**تقدم رحلة UXW-02 — 2026-11-12:** استُبدلت محاكاة offline بقطع أول طلب SSE عند حد المتصفح ثم السماح بإعادة المحاولة إلى API الحقيقي. نجحت قراءة Snapshot وPATCH وحدث `workspace.changed` وإعادة جلب Snapshot بعد الاتصال، وكذلك إنشاء الهدف من واجهة الصفحة الرئيسية واستعادته من مسودة التبويب بعد التنقل وإعادة التحميل مع عدم إرسال `POST /api/ai/chat/stream`. فشلت الرحلة بعد ذلك في مقارنة استجابة `/api/projects` كاملةً باستخدام مساواة صارمة رغم أن API أعاد المشروع والمالك الصحيحين مع حقول إضافية؛ فشل assertion الاختبار فقط، واكتمل حذف المشروع بـ204. اختبار الملكية المنفصل اجتاز 403 للـAPI والصفحة. يلزم تصحيح المقارنة وإعادة تشغيل الرحلة قبل الحكم النهائي.
+
+**نتيجة الرحلتين الحقيقيتين — 2026-11-12:** بعد تصحيح المقارنة، نجحت حالتا Playwright (`2/2`) باستخدام Chromium وClerk وAPI وقاعدة PostgreSQL الحقيقية. تثبت الرحلة الأساسية فتح Workspace من تفاصيل المشروع، قراءة Snapshot، تحديث المشروع عبر PATCH، وصول حدث SSE وتحديث Snapshot، فشل اتصال SSE الأول ثم إعادة المحاولة والاتصال الفعلي، والتنقل والعودة وإعادة التحميل مع بقاء مشروع المستخدم وهدف التبويب غير المرسل (`sendAttemptedAt: null`). لم يُرسل أي `POST /api/ai/chat/stream`. وتثبت الحالة الثانية رفض المستخدم الآخر للـSnapshot عبر API والصفحة بـ403؛ حُذف المشروع المؤقت بـ204 في كلتا الحالتين. اجتاز typecheck وعقود الرحلة.
+
+هذا يثبت جلسة دخول Clerk الحقيقية عبر إعادة التحميل، لا `sessionId` لمحادثة محفوظة. لا يوجد مسار API ينشئ جلسة مشروع فارغة؛ إنشاء جلسة AI حاليًا مرتبط بإرسال رسالة. لذلك يبقى شرط استعادة `sessionId` الحواري غير مثبت عمدًا حتى لا نرسل هدفًا أو ننشئ سلوكًا جديدًا بلا اعتماد؛ لا تُغلق UXW-02 بالكامل قبل حسم هذا الفرق.
+
+**فشل توليد عقد الجلسة الفارغة قبل الإصلاح — 2026-11-12:** أضيفت مسودة `POST /api/ai/chat/sessions` بعقد جسم طلب inline، وأنتج Orval العميل، لكن `typecheck:libs` كشف اسمًا مكررًا (`CreateAiChatSessionBody`) بين مخطط Zod ونوع TypeScript المصدّر من barrel. لم تُشغّل اختبارات API أو المتصفح بهذا العقد، ولم يُنشأ أي سجل جلسة بسبب فشل التحقق قبل التشغيل. سيُربط جسم الطلب بمخطط OpenAPI مسمى لتجنب التصادم، ثم يُعاد codegen والتحقق قبل المتابعة.
+
+**إغلاق UXW-02 — 2026-11-12:** أُضيف إنشاء صريح لجلسة مشروع فارغة من زر «محادثة جديدة» داخل Workspace عبر `POST /api/ai/chat/sessions`. يتحقق الخادم من ملكية المشروع قبل الكتابة؛ تُحفظ الجلسة في جدول المحادثات القائم دون تغيير مخطط أو استدعاء مزود AI أو إنشاء رسالة. يُحفظ `sessionId` في اختيار المحادثة الموجود، ويُستعاد بعد إعادة التحميل، مع بقاء هدف الصفحة الرئيسية ظاهرًا ومسودته غير مرسلة. بعد تسمية مخطط الطلب في OpenAPI لتجنب تصادم Orval، نجح توليد العميل وZod.
+
+- اختبار API أثبت إنشاء الجلسة وظهورها في القائمة، وعدم وجود رسائل، ورفض الطلب المشوه بـ400 والمشروع غير المملوك بـ403.
+- اجتازت TypeScript الخاصة بالمكتبات وAPI وDashboard، وعقود رحلة Dashboard (`29/29`)، وحالات Clerk handoff (`10/10`).
+- اجتازت رحلتا Playwright الحقيقيتان (`2/2`) باستخدام Clerk وAPI وPostgreSQL الفعلية: قراءة Snapshot، تحديث المشروع ومشاهدة تحديثه عبر SSE، قطع اتصال SSE الأول ثم إعادة الاتصال، إنشاء جلسة فارغة بطلب واحد، استعادة `sessionId` والمشروع والهدف غير المرسل بعد التنقل وإعادة التحميل، ورفض مستخدم ثانٍ بـ403. أثبتت واجهة الاختبار أن الجلسة الجديدة لا تحتوي رسائل، وأنه لم يُرسل `POST /api/ai/chat/stream`; حُذفت مشاريع الاختبار المؤقتة بـ204.
+- اجتازت خدمتا API وDashboard إعادة التشغيل. UXW-02 مغلقة حسب معيار PRS؛ لم يبدأ نشر AWS ضمن UXW-03.
+
+### UXW-03 — Preview محليًا أولًا، ومزودون اختياريون
+
+**هذا هو ترتيب التنفيذ المعتمد حاليًا.** لا تنشر أو تنشئ موارد AWS/Cloudflare أثناء حزم 03.1–03.5. لا تغيّر أي حزمة قواعد إثبات Candidate أو قبولها: تظل هوية المشروع والعملية والمحاولة والنسخ والبصمات والأدلة محكومة بالعقود الحالية. التخزين يحفظ بايتات ولا يصنع إثباتًا؛ Builder ينفذ ولا يقبل؛ Attestor مستقل يفحص الناتج؛ والخادم الحالي وحده يقرر صلاحية الإيصال والقبول.
+
+**ما وُجد في التدقيق:** Builder وAttestor وGateway وTerraform الحالية متمحورة حول AWS/S3/ECS، وليست طبقة محايدة. توجد صورتا Builder وAttestor محليًا؛ صورة Runtime غير مبنية. Terraform يحتوي ECR وتعريفَي Builder وAttestor، لكنه لا يحتوي تعريف ECS للـRuntime. لا توجد موارد AWS منشورة، ولا Store محلي محايد. تُعامل الشيفرة القائمة كـadapter/مرجع قابل لإعادة الاستخدام بعد فصل العقود؛ لا ننشئ Builder أو receipt أو جلسات Candidate موازية.
+
+#### UXW-03 target architecture — Preview Fabric
+
+المستهدف خمس حدود منطقية، وليست خمسة خدمات أو قواعد بيانات جديدة:
+
+1. **Control Plane:** API وPostgreSQL الحاليان يظلان مصدر الحقيقة للملكية وJobs وSessions والقرارات؛ Workspace Snapshot إسقاط قراءة فقط.
+2. **Execution Plane:** منفذ محلي أولًا، ومنافذ Cloud اختيارية؛ جميعها تعمل عبر Job/Attempt/Lease/Fencing الخادمية نفسها.
+3. **Artifact Plane:** Local CAS Store وRemote Store اختياري، مع `ArtifactRef` وبصمة وManifest ثابتة.
+4. **Trust Plane:** فحص Attestor ثم تحقق الإيصال في API؛ لا يتخذ Builder أو Artifact أو Preview قرار قبول.
+5. **Preview Delivery Plane:** Local/Cloud Gateway أو ناشر Static اختياري؛ الجلسة والتذكرة والإلغاء وTTL مرتبطة بهوية Candidate نفسها.
+
+لا نبني `PreviewProvider` عملاقًا أو framework عامًا للبنية التحتية. العقود صغيرة ومحددة، ولا تُنشأ خدمة أو جدول إضافي قبل أن يثبت UXW-03.0 عدم وجود مصدر قائم مناسب.
+الرؤية طويلة الأمد يمكن أن تشمل Local، وSelf-hosted، وCloud execution، وStatic publishing بموافقة المستخدم؛ هذا لا يعني دعم كل الأنماط في الإصدار الأول.
+
+#### UXW-03.0 — Forensic Baseline (مغلق: تدقيق قراءة فقط)
+
+اكتمل الجرد في 2026-11-12 من الشيفرة ومخطط PostgreSQL واختبارات المصدر. لم يتغير كود التطبيق أو مخطط القبول، ولم تُنشأ موارد AWS أو تُنشر صور أو تُشغّل خطة Terraform. صُحح هنا ادعاء سابق: **مصدر Runtime وDockerfile ومستودع ECR له موجودة**؛ غير الموجود هو صورة منشورة أو تعريف مهمة/خدمة Runtime مسجلة أو تشغيل فعلي.
+
+| الموجود حاليًا | المسؤولية والحالة الفعلية | الاختبارات الموجودة ونتيجتها | الارتباط بمزود | المنفذ المقترح | خطر الترحيل |
+| --- | --- | --- | --- | --- | --- |
+| PostgreSQL: `preview_build_jobs` و`preview_sessions` و`preview_access_tickets` | مصدر الحالة الدائم للبناء والجلسة وتذكرة الوصول. تحقق استعلام قراءة فقط من وجود الجداول والأعمدة في قاعدة التطوير. Job يحمل `operationId` وهوية Candidate وحالة البناء؛ Session تحمل هوية Candidate وTTL ومراجع Job/الإيصال؛ Ticket ledger يحفظ digest والربط ووقت الاستهلاك، لا التذكرة الخام. | اختبارات مخازن الحالة والتذكرة ضمن اختبارات API أدناه؛ فحص قاعدة التطوير قرأ تعريف الأعمدة فقط ولم يقرأ صفوف مستخدمين أو يعدّلها. | PostgreSQL؛ لا تنقل مصدر الحقيقة إلى DynamoDB أو مخزن محلي. | أبقِ المخازن الحالية، وأضف منافذ لمخزن Artifact والتنفيذ والتعرض حولها. | تكرار جداول الحالة أو تغيير تعريف `verified`/الإيصال يخلق مصدر حقيقة متنافسًا. |
+| API: مسارات بدء/قراءة Preview Build، ومسار قبول إيصال Attestor | مسار البناء مربوط بصلاحية المشروع وطلب idempotency وهوية Candidate الحالية. إعادة الطلب بعد رد ملتبس تعيد نفس المطالبة الدائمة؛ عامل المصالحة يعالج الإطلاق/التحقق. يقبل API إيصال Attestor الموقع ليرفع Job إلى `verified`؛ هذا إثبات بناء للـartifact وليس Canonical Proof أو قبولًا أو إذن تطبيق. | اختبار فقدان الرد وإعادة الطلب بنفس claims، ورفض Candidate المتغير، واختبارات حالة/إيصال في مجموعة API. | تكوين AWS محقون عبر `preview-aws-clients` ووحدات S3/ECS/DynamoDB. | `PreviewBuildExecutor`, `PreviewArtifactStore`, `PreviewAttestationService`, `PreviewReceiptVerifier`. | يجب حفظ إعادة المحاولة والمصالحة وربط receipt بـJob وCandidate كما هي؛ لا ندّعي exactly-once. |
+| Gateway منفصل كعملية، ضمن حزمة API نفسها | يملك مسارات تحكم داخلية للبناء، والمصالحة، وAttestation، ورفع مدخلات البناء. أوامر الجلسة موقعة ومسيّجة؛ DynamoDB يُستخدم كسجل Fence للأوامر/الإطلاق لا كمصدر حالة Job أو قبول. لم يُعثر على مسار HTTP عام لإصدار/استهلاك Preview ticket أو عرض Session للمستخدم. | اختبارات Gateway/control والفواصل تشمل الأوامر المتأخرة وتعارض الملكية؛ لا تثبت رحلة مستخدم عامة. | ECS وS3 وDynamoDB، مع مفاتيح توقيع وإعدادات الشبكة/الأدوار. | `PreviewSessionRuntime`, `PreviewExposureGateway`, `PreviewNodeRegistry`, `PreviewPlacementPolicy`. | تحويل مسارات التحكم الداخلية إلى عقد عامة أو السماح باختيار المضيف/المهمة من العميل يفتح حدًا أمنيًا جديدًا. |
+| Builder | مصدر محلي يبني Vite/React بملف اعتماديات ثابت وملف Candidate محدد، ويرفض المسارات/الأرشيفات غير الآمنة ويرفع ناتجًا ثابتًا. اختبارات البناء تستعمله محليًا؛ هذا لا يعني وجود منفذ Local Builder دائم أو ECS Builder منشور. | 10 اختبارات Builder و1 اختبار تجهيز سياق الصورة؛ جميعها نجحت. | S3 للنقل في Adapter الحالي؛ صورة Builder وTask Definition اختياريان في Terraform. | `PreviewBuildExecutor` و`PreviewArtifactStore` مع الإبقاء على الملف التعريفي الثابت. | لا تسمح بإضافة تثبيت اعتماديات Candidate أو scripts عامة أثناء النقل إلى منفذ محلي. |
+| Attestor مستقل عن Builder | يفحص المهمة والناتج المحددين ويربط receipt موقّعًا ببصمة الناتج والـJob؛ لا يمنح قبولًا منتجيًا. | 7 اختبارات Attestor و2 لاختبار تجهيز/تثبيت صورة المصدر؛ جميعها نجحت. | ECS/S3/DynamoDB ومرجع Secret Manager في تصميم AWS؛ لا توجد قيمة سر منشورة في القالب. | `PreviewAttestationService` و`PreviewReceiptVerifier` مع إبقاء التحقق المستقل. | لا تدمج التحقق داخل Builder ولا تعتبر نجاح البناء وحده Attestation. |
+| Runtime ثابت: `infra/aws-preview/runtime/server.mjs` وDockerfile، ومستودع ECR `vite_preview` | يقرأ أرشيفًا ثابتًا ويتحقق من البصمة ثم يخدمه من الذاكرة. المصدر والاختبارات موجودة، لكن لا توجد صورة منشورة أو Runtime Task Definition/Service أو Load Balancer/Public Listener أو جلسة عاملة. تعريفات ECS الموجودة في Terraform تخص Builder وAttestor فقط. | 4 اختبارات Runtime و10 اختبارات عقد Terraform/الأمان؛ جميعها نجحت محليًا. | Runtime الحالي يتحقق من رابط/أرشيف S3؛ إعداد ECR موجود، لكن لا نشر ولا اتصال AWS فعلي. | `PreviewSessionRuntime` و`PreviewExposureGateway`؛ يمكن لاحقًا إضافة منفذ Cloud اختياري. | لا تُعرض واجهة على أنها Preview عاملة قبل تشغيل Runtime وربط جلسة/تذكرة وإثبات العزل. |
+| Session وTicket | مخازن PostgreSQL و`preview-session-orchestrator` وخدمة التذاكر ذات الاستخدام الواحد موجودة كوحدات واختبارات؛ لم يُعثر على توصيلها بمسار HTTP أو استهلاك التذكرة في Gateway، لذا دورة Session ليست رحلة مستخدم مكتملة. | اختبارات الوحدات تثبت أجزاء الانتقال/التذكرة، لا تكامل Runtime أو صلاحيات متصفح حقيقي. | إصدار أوامر الجلسة الحالي مرتبط بـGateway/ECS؛ ledger التذاكر في PostgreSQL. | أكمل التوصيل فوق الجداول والخدمات الحالية قبل التفكير في جداول موازية. | يجب فحص Candidate والمالك والـTTL عند الإصدار والاستهلاك والإغلاق؛ وجود جدول وحده لا يثبت هذه الرحلة. |
+| Terraform وإعدادات `PREVIEW_*` | الأساس اختياري (`enable_foundation_resources=false`) ولا Backend بعيدًا له. يوجد ECR لـPreview/Builder/Attestor، وS3 و3 جداول DynamoDB للفواصل، وأدوار Gateway/Runner/Builder/Attestor، وتعريفَا مهمة Builder وAttestor؛ لا توجد خطة أو عملية Apply. إعداد API يتضمن Gateway URL ومفاتيح رفع/Job/Receipt وبصمة Builder وجذر المصدر؛ إعدادات Gateway/العمال تضيف cluster وbucket وfence tables وtask/image/role/network references. | اختبارات العقود الساكنة نجحت، لكنها ليست Terraform plan ولا إثبات موارد AWS حية. | AWS صريح في المكونات الحالية؛ لا يوجد Adapter Cloudflare أو منفذ Provider-Neutral أو Local CAS/Agent/Placement في المصدر المفحوص. | تُفصل الإعدادات عن المجال في 03.1؛ تبقى AWS وCloudflare اختياريتين كما في القرار المعماري. | لا تُمرر أسرار أو مسارات/روابط مزود إلى Candidate؛ لا تنشئ بنية أو تكلفة قبل موافقة مستقلة. |
+
+**التكرار والتعافي وحدود الإثبات:** يوجد idempotency دائم لطلب البناء، وإعادة تشغيل لنفس claim بعد رد ملتبس، وعامل مصالحة، وفواصل DynamoDB لأوامر/إطلاقات محددة. لم يُعثر على Preview Outbox/Inbox مستقل أو Local CAS؛ لذلك تُصمم 03.1 حول مسارات التعافي هذه ولا تفترض تسليمًا exactly-once. يبقى `candidateRevision` و`changeSetHash` وهوية proposal/operation وربط الإيصال ثابتًا؛ `verified` ليس Canonical Proof ولا Acceptance ولا Apply.
+
+**خط أساس الاختبارات (محلي فقط):**
+
+- API Preview: **43 ملفًا، 214 اختبارًا ناجحًا**؛ استُبعد ملف التحقق المعتمد على Chromium من هذه المجموعة.
+- Builder: **10/10**، وتجهيز سياق الصورة **1/1**؛ Attestor: **7/7**، وتجهيز/تثبيت السياق **2/2**؛ Runtime وعقود الأساس: **14/14**.
+- ملف `browser-preview-verification`: **12/13**؛ الاختبار المتبقي لم يبدأ لأن Chromium التنفيذي غير موجود في البيئة. هذا قيد تشغيل اختبار محلي، وليس دليل فشل في assert داخل التطبيق، ولا يغلق UXW-02 أو رحلة Preview.
+- هذه نتائج اختبارات وحدات/محلية وعقود Terraform ساكنة فقط؛ لم تُنشر صور، ولم يُشغّل Terraform plan/apply، ولم يُتصل بـAWS، ولم تُثبت رحلة متصفح مع Runtime حقيقي.
+
+**قرار الإغلاق:** لا توجد وظيفة مجهولة ينبغي بناؤها من جديد في 03.1. أُثبتت مصادر الحالة والتبعيات والاختبارات والفجوات أعلاه؛ تُعاد هذه البوابات بعد كل Adapter. هذا الإغلاق توثيقي فقط ولا يغيّر Candidate Proof أو Acceptance أو التطبيق أو التسليم.
+
+#### UXW-03.1 — Provider-Neutral Preview Contracts
+
+- افصل المسؤوليات بعقود صغيرة لا تسرّب تفاصيل AWS/Cloudflare: `PreviewBuildExecutor`, `PreviewArtifactStore`, `PreviewAttestationService`, `PreviewReceiptVerifier`, `PreviewSessionRuntime`, `PreviewExposureGateway`, `PreviewNodeRegistry`, و`PreviewPlacementPolicy`. لا تجمعها في provider واحد ضخم، ولا تُنشئ تنفيذًا موازيًا لوظائف موجودة.
+- اجعل كل عقد يمرر هوية Candidate الحالية نفسها: `projectId`, `operationId`, `candidateRevision`, `baseRevision`, `changeSetHash`، مراجع الأدلة والمحاولة. لا يقبل العقد أوامر shell أو صورة/وجهة يختارها Candidate.
+- `SignedPreviewBuildJob` يربط `projectId`, `proposalId`, `operationId`, `executionId`, `attempt`, revisions, `changeSetHash`, `previewProfile`, `builderPolicyDigest`, `idempotencyKey`, `dispatchGeneration`, و`jobId`; ويحتوي `nodeId/executorRef`, `leaseOwner`, `leaseExpiresAt`, `issuedAt`, `expiresAt` عند الحاجة. يتحقق API من كل حقل مقابل السجل الحالي.
+- `ArtifactRef` غير قابل للتغيير يصف بصمة المحتوى وحجمه وManifest ومصدره ونسخته وسياسة الاحتفاظ. `BuildExecutionRef` يربط Job والمنفذ والمحاولة والـLease. `AttestationReceipt` يثبت فحص الناتج، لكنه ليس Canonical Proof أو قبولًا.
+- استخدم مخططات Zod/أنواع المشروع المشتركة للعقود المتبادلة بين API وDashboard وAgent، مع توليد العملاء من OpenAPI؛ تبقى تفاصيل المنافذ الداخلية والعامل خارج واجهة HTTP العامة.
+- افصل دورة بناء Job عن دورة Preview Session. استخدم `preview_build_jobs` و`preview_sessions` الحاليين وأعد فحص المخطط في 03.0؛ لا تسمح بإنشاء Session قبل `verified` حسب مستوى الثقة المسموح. لا تعِد تعريف حالة `verified` أو مصدر إثباتها.
+- أعد المحاولة بنفس idempotency key للطلب نفسه؛ تغيير Candidate أو Attempt/dispatch generation ينشئ هوية جديدة. لا يقبل أي كتابة إلا Lease/Fencing generation الحالي. استخدم Outbox/Inbox أو الآلية القائمة المكافئة لمنع فقد الإرسال بين PostgreSQL والمنفذ، ولا تدّعِ exactly-once.
+- أعد استخدام Candidate/Execution/Validation/Acceptance الحالية. انقل AWS إلى adapter لاحقًا ولا تكرر المنطق أو الجداول.
+- **إغلاق الحزمة:** contract tests على fake/local providers وعلى AWS adapter بعد لف الوظائف الحالية به؛ تبقى اختبارات AWS الحالية ناجحة ولا يتطلب الإغلاق AWS حيًا. اختبر round-trip للعقود، فقدان رد submit وإعادته بالهوية نفسها، أمرًا مكررًا، عاملًا قديمًا بعد انتهاء Lease، فشلًا بين تسجيل Job وإرساله، ورفض إيصال لمشروع/مرشح/محاولة مختلفة؛ وأثبت بقاء Candidate/receipt/acceptance identities دون تغيير.
+
+**سياسة اختيار المنفذ:** القرار خادمي وحتمي وقابل للتفسير، لا يقرره نموذج AI. يقيّم `previewProfile`, `requiredAssuranceLevel`, `localNodeId/capabilities`, `networkPolicy`, `costPolicy`, موافقة المستخدم وحداثة Candidate. Local هو الأول عند الأهلية؛ إذا لم يسمح المستخدم/السياسة بـCloud يبقى الطلب منتظرًا أو ينتهي بسبب واضح، ولا يحدث تحويل صامت مدفوع. سجّل سبب الاختيار ونسخة السياسة ضمن Job الحالية لا في مصدر حقيقة موازٍ. أي تغير في Candidate يبطل قرار placement. السياسات الممكنة لاحقًا: `local_only`, `local_preferred`, `cloud_allowed`.
+
+#### UXW-03.2 — Local Artifact Store
+
+- أنشئ مخزنًا محليًا خاصًا خارج جذر المشروع، مرتبطًا ببصمة المحتوى؛ كتابة مؤقتة ثم flush/sync وrename ذري، ورفض استبدال بصمة موجودة بمحتوى مختلف.
+- خزّن CAS بواسطة IDs مولدة من الخادم مع Manifest غير قابل للتغيير يربط Artifact بـJob وCandidate والسياسة و`digest/sizeBytes/manifestDigest/retentionPolicy`. الموقع الفعلي لا يظهر في API؛ العميل لا يرسل مسارًا محليًا لـAPI أو Gateway لقراءته.
+- استقبل الملفات داخل staging محدود الحجم، واحسب البصمة أثناء التدفق، ثم تحقق من العدد/الحجم/النوع والمسارات قبل الكتابة، ونفّذ `fsync` ثم rename ذري. لا تربط المرجع بسجل Job قبل اكتمال الكتابة والتحقق؛ ضياع الرد يعيد نفس Artifact identity.
+- ارفض absolute/traversal، الروابط الرمزية والصلبة غير المسموحة، الملفات الخاصة، التكرار المتعارض، Unicode-normalization collisions، ZIP/TAR bombs، وعدد الملفات والأحجام المتجاوزة. لا تكتب خارج root مخصص ولا تمنح Candidate وصولًا مباشرًا للمخزن.
+- نظّف بجمع مرحلتين: mark كـ`eligible_for_gc` بعد فحص مراجع Jobs/Receipts/Sessions، ثم مهلة وحساب المراجع مجددًا مباشرة قبل sweep. تتضمن حالات الاحتفاظ `temporary/active/retained/eligible_for_gc/deleted`؛ لا تحذف الأثر عند فشل فحص الملكية/المراجع.
+- ضع حصصًا لكل مستخدم/جهاز/مشروع/Job: الحجم الإجمالي، الملف، عدد الملفات، عمليات الرفع، المدة والمساحة. الموارد المحدودة جزء من الأمان، لا تحسين أداء لاحق.
+- **إغلاق الحزمة:** قتل العملية قبل/أثناء/بعد `fsync/rename`، restart/readback، تكرار الكتابة وتعارض البصمة وتلف البايتات، طلبان متزامنان، فشل بعد الكتابة وقبل تسجيل المرجع، أرشيفات عدائية، سباق GC مع Session جديدة، quota exhaustion، وعدم حذف Artifact حي.
+
+#### UXW-03.3 — Local Builder + Independent Attestor
+
+- شغّل Builder الحالي فوق Local Artifact Store باستعمال job موقّع قصير العمر من الخادم وCandidate مثبتة؛ لا lifecycle scripts ولا مفاتيح/أسرار ولا وصول شبكي غير لازم.
+- ابدأ بملف `vite-static-v1` فقط: Node/Corepack/Vite والاعتماديات مثبتة، إعداد البناء يختاره EngineeringOS، ولا تُقرأ Candidate `package.json` scripts أو Vite/PostCSS config أو lockfile، ولا تثبّت اعتمادياتها. يفشل الطلب مغلقًا عند فقد ملف مطلوب أو عدم دعم الملف.
+- اعزل Builder بهوية غير إدارية، ومدخلات قراءة فقط، ومساحة مؤقتة وناتج منفصل، وحدود CPU/Memory/I/O/القرص/العمليات/الوقت/السجل. امنع أسرار Host وGit/Cloud credentials وDocker socket؛ الشبكة ممنوعة افتراضيًا ولا تُفتح إلا بقائمة مصادر محددة. Rootless container طبقة إضافية وليس ضمانًا للعزل؛ ملف الدعم الأول يحدد Linux/البيئة التي أثبتت حدودها.
+- شغّل Attestor بهوية/عملية منفصلة عن Builder؛ أعد قراءة bytes النهائية، واحسب digest مستقلًا، وتحقق من job والعامل وصورة التشغيل وCandidate قبل توقيع receipt قصير العمر.
+- لا يستطيع Builder قراءة مفتاح Attestor أو تعديل مدخلاته أو ناتجه بعد التسليم. Attestor لا يقرأ Candidate الأصلية، ويعيد فحص bytes والسياسة والهوية بدل قبول claims من Builder؛ ولا يملك صلاحية بدء Session أو تغيير Acceptance.
+- **حد الثقة المحلي:** فصل العمليتين والهوية المحلية يقلل أخطاء/اختراق Builder، لكنه لا يثبت استقلالًا بعيدًا إذا كان مالك الجهاز أو مسؤول النظام يستطيع تعديل العمليتين أو مفاتيحهما. يجب ألا تُعرض شهادة محلية على أنها `remote_attested` أو `hardware_backed` دون نطاق تحقق مستقل فعلي.
+- أظهر `assuranceLevel` كبيان provenance محدود المعنى: `local_observed` (ملاحظة على عقدة محلية مسجلة)، `locally_isolated` (ملف عزل محدد ومتحقق)، `remote_attested` (مراجع مستقل في نطاق تشغيل منفصل)، `hardware_backed` (فقط عند وجود مفتاح/جذر ثقة عتادي مدعوم). لا يرتقي المستوى لمجرد نجاح العملية، ولا يغير أيًا من Canonical Proof أو Acceptance.
+- لا يستطيع Builder إصدار receipt أو تقرير القبول، ولا يصبح نجاح الخروج دليلًا على قبول Candidate.
+- **إغلاق الحزمة:** فقدان الرد وإعادة المحاولة دون تنفيذ مكرر؛ قتل Builder/Attestor واستعادة Job/Lease؛ رفض Candidate قديمة أو بصمة مختلفة؛ منع إعادة استخدام receipt أو نقله بين Job/عامل/Node؛ رفض digest أو توقيع أو مفتاح منتهي/ملغى؛ نفاد الموارد؛ وتغيير Artifact بعد الفحص.
+
+#### UXW-03.4 — Local Preview Runtime + Gateway
+
+- قدّم Vite/React ثابتًا فقط من ArtifactRef موثق؛ لا تستخدم `dev server` أو أوامر Candidate. لا تعرض منفذًا داخليًا أو وجهة يختارها المتصفح.
+- اربط Session بـ`sessionId/userId/projectId/proposalId/operationId/candidateRevision/changeSetHash/buildReceiptId/outputDigest/runtimeRef/expiresAt/stateVersion`. قبل إصدار تذكرة، يتحقق API من المالك وCandidate الحالية والإيصال ومستوى الضمان المسموح؛ Gateway يستمد Runtime من سجل الجلسة فقط. لا أصل أو IP أو منفذ يختاره المتصفح، ولا token في URL/log/analytics.
+- اجعل لكل Preview Origin معزولًا؛ لا مشاركة cookies أو auth tokens مع التطبيق الرئيسي، وقيّد iframe sandbox وCSP وفتح النوافذ والتنزيلات والصلاحيات. اختبر CSRF وHost/Origin. عند تشغيل EngineeringOS مستضافًا، لا تفترض أن المتصفح يستطيع الوصول إلى `localhost`؛ افصل نمط Local/Desktop عن نمط Hosted+Agent واختبر أذونات Local Network Access.
+- لا تسمح بميزة arbitrary `targetUrl` أو Reverse Proxy. لا يوجد server-side fetch في الملف الأول؛ إن أضيف لاحقًا، فحص العنوان عند الاتصال نفسه ويثبت الوجهة بعد DNS، ويتعامل مع redirect وIPv4/IPv6 وprivate/link-local/metadata وIPv4-mapped/NAT64 وDNS rebinding.
+- ابدأ دورة الجلسة `requested → provisioning → ready → stale → stopping → stopped/expired/failed` مع مطابقة انتقالات `preview_sessions` الفعلية بعد 03.0؛ لا تضف حالة بلا حاجة. لا تسجل `stopped` بمجرد إرسال أمر الإيقاف، واستخدم حالة انتظار/مجهولة عند تعذر الملاحظة. أعد فحص Candidate عند التمديد وعلّم Preview القديمة `stale` عند تغيّرها.
+- اعزل الملفات والشبكة والهوية؛ لا وصول إلى جذر المشروع الحي أو الأسرار أو PostgreSQL أو metadata/internal networks. عند TTL/الإلغاء، ارفض الطلبات الجديدة وأوقف العامل المملوك للجلسة وحده.
+- **إغلاق الحزمة:** صلاحيات الجلسة والعبور بين المستخدمين/المشروعات، ticket replay، TTL والخمول والإلغاء، قتل عامل جلسة دون التأثير على أخرى، رفض Candidate قديمة، عزل الملفات والأسرار، رفض loopback/private/link-local/metadata وIPv4/IPv6/DNS rebinding عند وجود fetch، Host/Origin/CSRF، فشل Stop واستعادة حالة Runtime، ورحلة Playwright لمستخدم مسموح وآخر مرفوض.
+
+#### UXW-03.5 — Local Agent Integration
+
+- صمّم طريقة وصل Agent على جهاز المستخدم بـWorkspace عندما يكون EngineeringOS مستضافًا سحابيًا. تسبق التنفيذ وثيقة ADR تحدد pairing والقناة وإبطال الجهاز وتجديد الهوية.
+- التسجيل بموافقة المستخدم ورمز pairing قصير العمر؛ ينشئ Agent مفتاحه الخاص داخل OS keystore قدر الإمكان، ويسجل API `nodeId`, نسخة البرنامج، النظام، capabilities، حالة المفتاح والإلغاء. اختيار المشروع والجذر المحلي صريح لكل جهاز، ولا يمنح التسجيل وصولًا تلقائيًا لمجلدات أخرى.
+- لا تفتح منفذ inbound عامًا. يبدأ Agent اتصالًا صادرًا موثقًا بـTLS إلى Control Plane؛ كل Job موقعة ومحدودة العمر ومقيدة بـnode/job/attempt/dispatchGeneration/Lease. يستخدم Heartbeat وSequence/Cursor للانقطاع والاستئناف، بلا مفاتيح خاصة أو بيانات دخول داخل Job.
+- لا shell عام ولا مسار filesystem حر. يقبل Agent أنواع مهمات مسماة وسياسات server-owned فقط، يحل الروابط الرمزية ثم يعيد التحقق من أن المسار داخل الجذر المصرح به، ولا يصل إلى Docker socket أو أسرار Host أو مشاريع أخرى.
+- عند الانقطاع لا يعد Agent النجاح؛ يوقف العمل عند انتهاء Lease وفق watchdog، ويطابق الحالة الخادمية عند reconnect، ويرفض النتيجة القديمة أو الملغاة بدل رفعها. لا يبدأ Attempt جديدة تلقائيًا. يعرض Workspace حالات node: متصل/مشغول/غير متاح/يحتاج تحديثًا/ملغى.
+- الخصوصية الافتراضية: Candidate وبياناتها ومخرجاتها محلية؛ يرسل Agent بصمات وإيصالات وملخص سجل منقح فقط. لا ينقل ملفات للمضيف/السحابة إلا بموافقة وسياسة نقل واضحة، ولا يرسل الأسرار مطلقًا.
+- **إغلاق الحزمة:** pairing منتهي/ملغى/معاد؛ جهاز/مستخدم آخر؛ تدوير/إلغاء المفتاح؛ root خارج النطاق وروابط رمزية؛ shell أو Docker Socket؛ ملفات سرية؛ فصل أثناء البناء وإعادة اتصال وLease منتهية؛ Worker قديم؛ ومحاولة تسريب Candidate دون موافقة.
+
+#### UXW-03.6 — Optional Cloud Providers
+
+- أضف AWS وCloudflare كـadapters اختيارية للعقود ذاتها؛ لا يحتاج المسار المحلي إلى حساب أو موارد cloud، ولا يغيّر provider قواعد إثبات Candidate.
+- **AWS Adapter:** أبقِ `ECS Build Executor / S3 Artifact Store / Attestor / DynamoDB Fencing / ECS Runtime / Gateway` وراء ports فقط؛ تظل `Task ARN`, `Object Key`, وFence خارج حالات Workspace. أبقِ `enable_foundation_resources=false` حتى تُراجع الموارد والتكلفة وتُعتمد خطة النشر صراحةً. لا نعيد كتابة AWS بالتزامن مع تغيير معنى الإيصال؛ أولًا نثبت contract compatibility.
+- **Cloudflare Adapter:** دوره الاختياري نشر Static Preview ومشاركة رابط مؤقت/عام بموافقة صريحة؛ لا يبني ولا يتحقق ولا يشغّل كود Candidate ولا يستبدل Local Runtime. يميّز المنتج بين `Preview Ready Locally` و`Published Static Preview` حتى لا توحي المشاركة بنوع عزل غير موجود.
+- سياسات اختيار التنفيذ محددة خادميًا وقابلة للمراجعة: `local_only` يمنع Cloud، `local_preferred` يفضّل Local ولا ينتقل إلى Cloud إلا إذا كانت السياسة والموافقة والسقف تسمح، و`cloud_allowed` يجيز Cloud ضمن التكلفة والحصة المعتمدتين. لا تحويل صامت، ولا اعتماد على AI في قرار الأمان/التكلفة.
+- نفّذ contract suite نفسها لكل adapter، مع digest ثابت للصورة والأثر، وقيود owner/session/TTL والإلغاء والإيصال ذاتها. لا تسمح لأي مزود بتجاوز API أو التوقيع أو Attestor، ولا تعتمد Workspace على provider-specific status.
+- راجع قائمة الموارد وخطة التكلفة والمنطقة وحدود الاستخدام قبل أي إنشاء؛ لا `apply` دون موافقة مستقلة. فشل مزود أو حذف حسابه لا يغيّر Candidate/Acceptance ولا يفسد السجلات المحلية؛ `terraform validate` أو local image build ليس دليل تشغيل cloud.
+- **إغلاق الحزمة:** إثبات أن المسار المحلي يعمل دون إعداد cloud وأن واجهات providers لا تتسرب إلى Candidate proof. تُشغّل contract suite نفسها لأي adapter عند اختياره؛ لا يلزم تفعيل AWS أو Cloudflare لإغلاق الحزمة. نشر adapter بعينه يحتاج قرارًا وخطة موارد/تكلفة وموافقة مستقلة.
+
+#### متطلبات أمنية وتشغيلية عابرة لكل الحزم
+
+لا تؤجل هذه invariants إلى مرحلة الإغلاق: ربط كل Job/Artifact/Receipt/Session بالمستخدم والمشروع وCandidate/Operation/Attempt؛ Lease/Fencing تمنع العامل القديم؛ idempotency تمنع آثارًا مكررة بعد فقد الرد؛ الخصوصية تمنع تسريب الأسرار والسجلات الخام؛ الهوية ترفض stale Candidate؛ حدود موارد تمنع الاستنزاف؛ ومستوى الثقة لا يُستنتج من نجاح البرنامج.
+
+| مجموعة تحقق | السيناريو | الثابت المطلوب |
+|---|---|---|
+| عقد المزود | تشغيل Local وAWS وfake adapter على العقود نفسها | لا تسرب لتفاصيل المزود إلى المجال/Workspace |
+| Candidate identity | تغيير Proposal أو Revision أو Hash أو Attempt | رفض عدم التطابق |
+| التكرار | فقد رد Upload/Start/Receipt ثم إعادة المحاولة | نفس الهوية ولا آثار مكررة |
+| التعافي | قتل Builder/Gateway/Agent أثناء التنفيذ | استعادة موثوقة أو فشل صريح؛ لا نجاح مفترض |
+| Lease/Fencing | عودة عامل بعد انتهاء Lease | لا يكتب الحالة أو Artifact/Receipt متأخرًا |
+| سلامة Artifact | تغيير/تلف البايتات بعد البناء | رفض digest mismatch |
+| استقلال Attestor | Builder يعدل مدخل التحقق أو يحاول استخدام المفتاح | لا receipt موثوق بلا فحص مستقل |
+| أمان الإيصال | Receipt مكرر/قديم أو مفتاح/Node مُلغى | رفضه مع ربطه بالـJob الحالية |
+| الملكية | مستخدم آخر يطلب Artifact أو Session | رفض الوصول وعدم كشف بيانات |
+| Gateway | تبديل Session/Ticket/Host/Origin أو CSRF | رفض التفويض غير المطابق |
+| الشبكة | loopback/private/link-local/metadata | منع الاتصال الداخلي؛ واختبار DNS/redirect عند وجود fetch فقط |
+| الموارد | تجاوز CPU/ذاكرة/قرص/عدد عمليات/زمن | إيقاف آمن ضمن الحدود |
+| دورة الحياة | TTL/خمول/إلغاء/تغيير Candidate | إبطال Session وإيقاف Runtime المملوك لها |
+| GC | الحذف بالتزامن مع Session أو مرجع جديد | لا حذف لأثر له مرجع نشط |
+| Local Agent | pairing/revocation/offline/reconnect | لا صلاحية أو نتيجة قديمة بعد الإلغاء |
+| Browser E2E | فتح Preview حقيقية من Workspace | الصفحة تطابق Candidate/Artifact المحددين |
+
+#### Preview Security Abuse Suite
+
+تشمل اختبارات الملفات العدائية (traversal، symlink، أسماء متعارضة، أحجام/أعداد مفرطة)، وسلوك البناء غير الموثوق (محاولة شبكة/أسرار/عمليات غير محدودة)، ومحاولات تزييف Artifact/Receipt، والتباس Host/Origin/Session، وحدود الشبكة، والعامل القديم بعد Attempt أحدث، ومحاولات تحويل Agent إلى shell أو تجاوز الجذر. تُنفذ الاختبارات داخل بيئة اختبار معزولة وبحدود وقت/موارد، ولا تخفف بوابات الأمان عند تعذر Runner مناسب.
+
+#### Preview Evidence Graph — إسقاط لا مصدر حقيقة جديد
+
+اعرض سلسلة Candidate → Build Job → Artifact → Attestation → Preview Session → Browser Observation بهويات opaque وبصمات ومراجع خادمية فقط. أعد استخدام مصادر `preview_build_jobs`, `preview_sessions`, إيصالاتها، وطبقة Shared Evidence Graph/الإسقاط الحالي؛ لا تنشئ Preview Evidence Graph أو Acceptance Ledger موازيًا. لا تحفظ source bodies أو provider payloads أو raw logs أو مسارات داخلية في الرسم. وجود الرسم/السجل لا يثبت قبولًا؛ يظل القرار من Acceptance الحالي، وBrowser Verification يبقى منفصلًا عن Canonical Proof.
+
+#### UXW-03.7 — End-to-End Qualification Gate
+
+بوابة إغلاق بعد .0–.6؛ نجاح كل Adapter/اختبار منعزل لا يغلق الرحلة. ينفذها مستخدم حقيقي من Workspace: فتح مشروع، طلب تعديل عبر المسار الحالي، إنشاء Candidate، اختيار سياسة Local، التأكد من أهلية Node، إنشاء Job موقعة، تشغيل Builder، إنتاج Artifact، تحقق Attestor، تحقق API، إنشاء Session للنسخة نفسها، فتح Preview والتفاعل، ثم تعديل Candidate وإظهار القديمة `stale` وإنشاء Session جديدة ومراجعة Diff/Evidence.
+
+أعد الرحلة مع قتل Builder قبل الاكتمال، وقتل Attestor قبل التوقيع، وفقد رد API بعد حفظ Receipt، وفصل Agent، وانتهاء Lease، وإعادة Start بعد فقد الرد، وانتهاء TTL أثناء المشاهدة، وتغيير Candidate، وإلغاء Node وله Session نشطة.
+
+| البوابة | معيار الإغلاق |
+|---|---|
+| G1 Identity | Candidate identity ثابت عبر المراحل |
+| G2 Execution | لا Job دون توقيع وLease/Fencing صالحين |
+| G3 Artifact | bytes قابلة لإعادة القراءة وdigest مطابق |
+| G4 Trust | Receipt مستقل وفق assurance المسموح ومتحقق في API |
+| G5 Runtime | Session تخدم Artifact المتحقق منه فقط |
+| G6 Isolation | Candidate لا تصل إلى Host أو مشروع آخر |
+| G7 Lifecycle | TTL/الإلغاء/stale/التنظيف مثبتة فعليًا |
+| G8 User Journey | المستخدم يرى النتيجة ويراجعها من Workspace |
+| G9 Portability | الرحلة المحلية تعمل دون AWS؛ تغيير adapter لا يغير العقد |
+| G10 Recovery | الفشل وإعادة المحاولة لا يخلقان تكرارًا أو نجاحًا زائفًا |
+
+**معيار إغلاق UXW-03:** سجل رحلة منقح يربط Job/Artifact/Receipt/Session والاختبارات بنفس الهويات، مع إثبات أن ما عرضه المتصفح هو Artifact المتوقع. لا يُسجل نجاح عند غياب ملاحظة موثوقة، ولا يُرفع مستوى assurance بسبب نجاح HTTP أو عملية محلية فقط.
+
+**توازي آمن محدود:** يمكن إعداد جرد التبعيات ومصفوفة الاختبار في 03.0 بالتوازي مع تصميم contracts دون دمج تغيير تنفيذي قبل اجتياز 03.0؛ ويمكن تحضير ملفات Artifact العدائية مع تصميم 03.2 واختبارات الموارد مع 03.3. يمكن تصميم ADR/تجربة pairing للـAgent أثناء 03.4، لكن لا يربط بالإنتاج قبل جاهزية العقود والجلسات. لا توجد تغييرات كتابة متوازية على Candidate أو Runtime أو Session دون ملكية وLease وعزل مثبت.
+
+#### مؤشرات قياس بعد تثبيت خط الأساس
+
+هذه مقاييس تشغيل ومنتج وليست معايير إثبات أو أهداف مضمونة:
+
+| المقياس | ما يقيسه |
+|---|---|
+| Local Preview Completion Rate | نسبة الطلبات المحلية التي تصل إلى Session جاهزة |
+| Local First Placement Rate | نسبة المهام المؤهلة التي نُفذت محليًا |
+| Cloud Dependency Rate | نسبة الرحلات التي احتاجت مزودًا سحابيًا |
+| Preview Recovery Rate | استعادة الحالة بعد انقطاع أو قتل عامل |
+| Stale Preview Rejection Rate | منع عرض Candidate قديمة على أنها الحالية |
+| Artifact Integrity Failure Rate | تلف أو اختلاف بصمة Artifact |
+| Receipt Rejection Rate | رفض إيصال منتهي/مكرر/غير مطابق |
+| Human Intervention Rate | توقف يتطلب قرار أو تدخلًا بشريًا |
+| Time to First Preview | الزمن حتى أول معاينة جاهزة |
+| Local Agent Availability | توافر الأجهزة المحلية المؤهلة |
+| Resource Cost per Preview | CPU/Memory/Disk المستهلكة محليًا |
+| Cloud Cost per Preview | تكلفة Cloud الفعلية عند تفعيله |
+
+الأولوية لمقياسي `Correct Preview Identity Rate` و`Verified Preview Rate`: تطابق Candidate/Artifact المتوقعين، وسلسلة تحقق صحيحة لا مجرد HTTP 200. تُحسب جميعها من سجلات خادمية منقحة؛ لا تُنشأ منصة telemetry أو أهداف رقمية قبل خط أساس وقرار موثق.
+
+#### أولويات ومخاطر تخطيطية
+
+| الحزمة | الأولوية | المخاطرة | ملاحظة |
+|---|---|---|---|
+| 03.0 | عالية | متوسطة | جرد ما هو موجود قبل التغيير |
+| 03.1 | حرجة | عالية | حدود المجال والعقود |
+| 03.2 | حرجة | عالية | CAS، كتابة ذرية، واستعادة |
+| 03.3 | حرجة جدًا | عالية جدًا | كود غير موثوق وحدود الثقة |
+| 03.4 | حرجة جدًا | عالية جدًا | تعريض Artifact والجلسات |
+| 03.5 | عالية جدًا | عالية جدًا | جهاز المستخدم واتصال Agent |
+| 03.6 | متوسطة | متوسطة | اختيار Cloud وتكلفته |
+| 03.7 | حرجة جدًا | عالية | تكامل الرحلة الحقيقية |
+
+هذه أوزان تخطيطية وليست قياسات أمن أو نتائج تحقق.
+
+#### حدود الإصدار الأول
+
+- لا Preview لخلفية/Backend، ولا تشغيل أوامر عامة أو تثبيت اعتماديات يختارها Candidate.
+- لا Builder ثانٍ من الصفر، ولا مشاركة لمفتاح Attestor مع Builder، ولا قبول بناء من نتيجة خروج فقط.
+- لا جعل AWS شرطًا، ولا نقل ملفات إلى Cloud لمجرد سهولة التنفيذ، ولا fallback مدفوع صامت.
+- لا تسمية Local Preview على أنها Public Preview؛ النشر الثابت ومشاركة الرابط مسار منفصل بموافقة صريحة.
+- لا خفض Canonical Proof/Acceptance، ولا إنشاء Preview Evidence Graph أو جدول مصدر حقيقة موازٍ.
+
+#### سجل خطة AWS السابقة (مؤرشف وغير حاكم)
+
+**تنبيه:** البنود أدناه تصف التصميم السابق المتمحور حول AWS. استُبدل ترتيبها بحزم UXW-03.0 إلى UXW-03.7 أعلاه؛ لا تبدأ من AWS ولا تعتبره شرطًا للمسار المحلي.
 
 **التبعيات:** UXW-02.
 
@@ -920,7 +1161,7 @@ UXW-00
 
 ### UXW-04 — Candidate Review وOutcome Ledger
 
-**التبعيات:** UXW-02 ونجاح UXW-03 للمعاينة المرئية؛ يمكن تطوير عرض Diff على Snapshot إذا لم تكن Preview متاحة بعد.
+**التبعيات:** UXW-02 واجتياز UXW-03.7. لا يتطلب إغلاق UXW-03.6 تفعيل Adapter أو نشر AWS/Cloudflare؛ يتطلب فقط إثبات أن اختيار التنفيذ والسياسات لا يخلطان Local Preview بالنشر Static.
 
 **النطاق:**
 
@@ -966,7 +1207,7 @@ UXW-00
 
 ### UXW-06 — Proof-Aware Visual Canvas
 
-**التبعيات:** UXW-03 وUXW-04.
+**التبعيات:** UXW-03.4 وUXW-04؛ لا يتطلب provider cloud.
 
 **النطاق:**
 
@@ -1107,6 +1348,10 @@ UXW-00
 6. لا توازٍ كتابي قبل إثبات عزل التنفيذ.
 7. لا استعادة عامة للبيانات الخارجية ضمن زر Rollback موحد.
 8. لا يُبنى أي جزء على كيان أو مسار غير مدعوم.
+9. Local-first هو الاختيار المفضل المؤهل؛ لا تحويل سحابي أو مدفوع صامت.
+10. طبقات Preview Fabric حدود منطقية، لا إذن بإنشاء خدمات/جداول/مصادر حقيقة موازية.
+11. Preview/Browser evidence ومستوى assurance لا يغيران Canonical Proof أو Acceptance.
+12. Preview Evidence View إسقاط من السجلات والـShared Evidence Graph القائم، لا Graph مخزنًا أو Ledger جديدًا.
 
 ### 15.2 أسئلة يجب حسمها في UXW-00 أو بوابة الحزمة المعنية
 
@@ -1114,10 +1359,15 @@ UXW-00
 - كيف يبنى cursor قابل للاستعادة فوق الأحداث الدائمة الحالية من دون ترتيب مصطنع؟
 - ما النطاق ووسيلة التبادل الآمن لتذكرة HTTPS، وما سياسة النطاقات وملفات الارتباط في المتصفح؟
 - كيف تُبنى صورة Vite/React الثابتة من Candidate دون تشغيل سكربتات غير موثوقة أو نقلها قبل الموافقة؟
-- ما منطقة AWS وسقف الإنفاق وحدود التزامن والموارد لكل جلسة؟
-- حُسم موقع المنسق: Gateway داخل AWS، وAPI يرسل أوامر تحكم Ed25519 قصيرة العمر؛ يبقى تحديد إصدار/تدوير المفتاح الخاص في Replit والمفتاح العام في Gateway.
-- حُسم عقد النقل: POST HTTPS إلى مسار ثابت؛ DynamoDB conditional fence يرفض نسخة Start أقدم بعد Stop أحدث. يبقى بناء Gateway HTTP runtime وجدول الـfence الفعلي في AWS.
-- ما آلية التنظيف المرتبطة بانتهاء الجلسة دون حذف صورة ما زالت مستخدمة؟
+- ما حدود عزل Local Agent على filesystem والشبكة، وما pairing والتدوير والإلغاء الآمن للهوية؟
+- ما سياسة تنظيف Local Artifact Store عند انتهاء TTL مع الاحتفاظ بالمراجع النشطة؟
+- كيف يُعرّف كل `assuranceLevel` ومصدر الثقة وإلغاء المفتاح، وما الذي يجوز أن يدعيه المنتج دون خلطه بالقبول؟
+- ما قيم Placement Policy الافتراضية وحدود أهلية Node وNetwork، وكيف يطلب المستخدم نقل Artifact أو الموافقة على Cloud؟
+- إذا اختير AWS/Cloudflare لاحقًا: ما المنطقة وسقف الإنفاق وحدود التزامن والموارد لكل Session، وما موافقة المشاركة العامة؟
+- كيف يُعرض Preview Evidence View من السجلات الحالية والـShared Evidence Graph دون إنشاء مصدر حقيقة أو تخزين raw logs؟
+- ما الأنظمة وملفات العزل المدعومة فعليًا لـLocal Agent؟ لا توحّد Linux/macOS/Windows قبل إثبات تكافؤ الحدود.
+- ما نموذج اتصال المتصفح إلى Local Gateway عند استضافة Control Plane سحابيًا، وكيف تختبر أذونات المتصفح دون افتراض وصول `localhost`؟
+- ما آلية إيقاف Session وتنظيف ملفات Runtime عند انتهاء المهلة دون حذف Artifact ما زال مستخدمًا؟
 - هل يبقى Intent Brief مسودة مرتبطة بالرسالة، أم يحتاج عقدًا دائمًا جديدًا؟ لا ينشأ كيان جديد قبل قرار موثق.
 - ما قواعد الكشف الآمن عن مصدر عنصر بصري إلى ملف/مكون؟ لا تخمين مسار من DOM وحده.
 - ما خط أساس مؤشرات تجربة المستخدم قبل تعيين أهداف؟

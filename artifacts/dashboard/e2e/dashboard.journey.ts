@@ -4494,6 +4494,104 @@ async function openNavigation(page: Page, label: string, path: string) {
   await expect(page).toHaveURL(new RegExp(`${path.replaceAll("/", "\\/")}$`));
 }
 
+type WorkspaceJourneyProject = {
+  id: string;
+  ownerId: string;
+  name: string;
+};
+
+async function createWorkspaceJourneyProject(
+  page: Page,
+  name: string,
+): Promise<WorkspaceJourneyProject> {
+  const result = await page.evaluate(async ({ projectName, rootPath }) => {
+    const response = await fetch("/api/projects", {
+      method: "POST",
+      credentials: "include",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        name: projectName,
+        description: "UXW-02 disposable live API journey",
+        rootPath,
+        language: "TypeScript",
+        framework: "React/Vite",
+      }),
+    });
+    const body = (await response.json().catch(() => ({}))) as {
+      id?: string;
+      ownerId?: string;
+      name?: string;
+      reason?: string;
+    };
+    return { status: response.status, body };
+  }, {
+    projectName: name,
+    // This is an existing, read-only source tree with project markers. The
+    // journey only creates/deletes a database project record and never scans
+    // or writes to this directory.
+    rootPath: resolve(process.cwd()),
+  });
+
+  if (
+    result.status !== 201
+    || typeof result.body.id !== "string"
+    || typeof result.body.ownerId !== "string"
+    || typeof result.body.name !== "string"
+  ) {
+    throw new Error(
+      `UXW-02 could not create its disposable project through the authenticated API (HTTP ${result.status}, ${result.body.reason ?? "no safe reason returned"}).`,
+    );
+  }
+  return {
+    id: result.body.id,
+    ownerId: result.body.ownerId,
+    name: result.body.name,
+  };
+}
+
+async function deleteWorkspaceJourneyProject(
+  page: Page,
+  projectId: string,
+): Promise<number> {
+  return page.evaluate(async (id) => {
+    const response = await fetch(`/api/projects/${encodeURIComponent(id)}`, {
+      method: "DELETE",
+      credentials: "include",
+    });
+    return response.status;
+  }, projectId);
+}
+
+async function observeNextWorkspaceChangedEvent(
+  page: Page,
+  projectId: string,
+): Promise<void> {
+  await page.evaluate((id) => {
+    const observedWindow = window as Window & {
+      __uxw02NextWorkspaceEvent?: Promise<Record<string, unknown>>;
+    };
+    observedWindow.__uxw02NextWorkspaceEvent = new Promise((resolveEvent, rejectEvent) => {
+      const source = new EventSource(
+        `/api/projects/${encodeURIComponent(id)}/workspace/events`,
+        { withCredentials: true },
+      );
+      const timeout = window.setTimeout(() => {
+        source.close();
+        rejectEvent(new Error("Timed out waiting for the real Workspace SSE update."));
+      }, 20_000);
+      source.addEventListener("workspace.changed", (event) => {
+        window.clearTimeout(timeout);
+        source.close();
+        try {
+          resolveEvent(JSON.parse((event as MessageEvent<string>).data) as Record<string, unknown>);
+        } catch {
+          rejectEvent(new Error("Workspace SSE update was not valid JSON."));
+        }
+      });
+    });
+  }, projectId);
+}
+
 async function openAdditionalChatActions(page: Page) {
   const toggle = page.getByRole("button", { name: "إجراءات إضافية", exact: true });
   if (await toggle.getAttribute("aria-expanded") !== "true") {
@@ -10480,6 +10578,338 @@ test.describe("EngineeringOS dashboard browser journey", () => {
     await expect(
       activity.locator("summary").filter({ hasText: liveLog.message }),
     ).toHaveCount(1);
+  });
+
+  test("UXW-02 REAL CLERK Workspace restores live project state, SSE, and an unsent goal", async ({
+    page,
+  }) => {
+    test.setTimeout(180_000);
+    test.skip(
+      process.env.RUN_CONTROLLED_RELEASE_VALIDATION !== "1",
+      "UXW-02 live Workspace requires the controlled runner and a real Clerk session.",
+    );
+
+    let project: WorkspaceJourneyProject | undefined;
+    const workspaceEventRequests: string[] = [];
+    const chatSendRequests: string[] = [];
+    const chatSessionCreateRequests: string[] = [];
+    let workspaceSnapshotRequests = 0;
+    let firstWorkspaceStreamAborted = false;
+    let emptyChatSessionId: string | undefined;
+    page.on("request", (request) => {
+      const url = new URL(request.url());
+      if (
+        request.method() === "GET"
+        && url.pathname.endsWith(`/api/projects/${project?.id}/workspace/events`)
+      ) {
+        workspaceEventRequests.push(url.pathname);
+      }
+      if (
+        request.method() === "GET"
+        && url.pathname.endsWith(`/api/projects/${project?.id}/workspace`)
+      ) {
+        workspaceSnapshotRequests += 1;
+      }
+      if (
+        request.method() === "POST"
+        && url.pathname.endsWith("/api/ai/chat/stream")
+      ) {
+        chatSendRequests.push(url.pathname);
+      }
+      if (
+        request.method() === "POST"
+        && url.pathname.endsWith("/api/ai/chat/sessions")
+      ) {
+        chatSessionCreateRequests.push(url.pathname);
+      }
+    });
+
+    try {
+      await programmaticSignIn(page, TEST_USER, { allowEmptyProjectList: true });
+      project = await createWorkspaceJourneyProject(
+        page,
+        `UXW-02 live workspace ${randomUUID().slice(0, 8)}`,
+      );
+
+      const goal = `هدف UXW-02 محفوظ وغير مرسل ${randomUUID().slice(0, 8)}`;
+      await page.goto(DASHBOARD_PATH);
+      await page.getByTestId("input-home-goal").fill(goal);
+      await page.getByTestId("button-start-goal").click();
+      await expect(page.getByTestId("panel-goal-destination")).toBeVisible();
+      await page.getByTestId("select-goal-project").selectOption(project.id);
+      await page.getByTestId("button-route-goal-project").click();
+      await page.waitForURL((url) =>
+        url.pathname.endsWith("/ai")
+        && url.searchParams.get("projectId") === project!.id
+        && Boolean(url.searchParams.get("goalDraftId")),
+      );
+      await expect(page.getByTestId("status-project-planning-handoff")).toBeVisible();
+      await expect(page.getByTestId("input-ai-chat-composer")).toHaveValue(goal);
+
+      const workspaceEventsPattern =
+        `**/api/projects/${project.id}/workspace/events`;
+      await page.route(workspaceEventsPattern, async (route) => {
+        if (!firstWorkspaceStreamAborted) {
+          firstWorkspaceStreamAborted = true;
+          await route.abort("internetdisconnected");
+          return;
+        }
+        await route.continue();
+      });
+      await page.goto(`${DASHBOARD_PATH}projects/${project.id}`);
+      const openWorkspace = page.getByTestId("link-project-workspace");
+      await expect(openWorkspace).toBeVisible();
+      const initialSnapshotPromise = page.waitForResponse((response) =>
+        response.request().method() === "GET"
+        && new URL(response.url()).pathname === `/api/projects/${project!.id}/workspace`,
+      );
+      await openWorkspace.click();
+      const initialSnapshot = await initialSnapshotPromise;
+      expect(initialSnapshot.status()).toBe(200);
+      expect(await initialSnapshot.json()).toMatchObject({
+        contractVersion: 1,
+        project: {
+          id: project.id,
+          name: expect.stringContaining("UXW-02 live workspace"),
+        },
+      });
+      await expect(page.getByTestId("project-workspace")).toBeVisible();
+      await expect(
+        page.getByText(/انقطع البث؛ جارٍ إعادة الاتصال|البث غير متاح؛ يستمر التحديث الدوري/),
+      ).toBeVisible();
+      const snapshotsBeforeReconnect = workspaceSnapshotRequests;
+      await expect.poll(
+        () => workspaceEventRequests.length,
+        { timeout: 20_000, message: "The aborted authenticated SSE request should be retried." },
+      ).toBeGreaterThanOrEqual(2);
+      await expect(
+        page.getByText("متصل بتحديثات مساحة المشروع", { exact: true }),
+      ).toBeVisible({ timeout: 20_000 });
+      await expect.poll(
+        () => workspaceSnapshotRequests,
+        { timeout: 15_000, message: "SSE reconnection should rehydrate the live Snapshot." },
+      ).toBeGreaterThan(snapshotsBeforeReconnect);
+      await page.unroute(workspaceEventsPattern);
+      await expect(
+        page.getByText("متصل بتحديثات مساحة المشروع", { exact: true }),
+      ).toBeVisible();
+
+      const createSessionResponsePromise = page.waitForResponse((response) =>
+        response.request().method() === "POST"
+        && new URL(response.url()).pathname === "/api/ai/chat/sessions",
+      );
+      await page.getByTestId("button-create-workspace-chat-session").click();
+      const createSessionResponse = await createSessionResponsePromise;
+      expect(createSessionResponse.status()).toBe(201);
+      const createdSession = (await createSessionResponse.json()) as {
+        id: string;
+        projectId: string;
+      };
+      emptyChatSessionId = createdSession.id;
+      expect(createdSession.projectId).toBe(project.id);
+      await expect(page.getByTestId("text-chat-current-session"))
+        .toHaveAttribute("data-session-id", emptyChatSessionId);
+      await expect(page.getByTestId("input-ai-chat-composer")).toHaveValue(goal);
+
+      const emptySessionProof = await page.evaluate(
+        async ({ projectId, sessionId }) => {
+          const [sessionsResponse, messagesResponse] = await Promise.all([
+            fetch(
+              `/api/ai/chat/sessions?projectId=${encodeURIComponent(projectId)}&sessionId=${encodeURIComponent(sessionId)}`,
+              { credentials: "include" },
+            ),
+            fetch(`/api/ai/chat/${encodeURIComponent(sessionId)}/messages`, {
+              credentials: "include",
+            }),
+          ]);
+          return {
+            sessionsStatus: sessionsResponse.status,
+            sessions: await sessionsResponse.json().catch(() => []),
+            messagesStatus: messagesResponse.status,
+            messages: await messagesResponse.json().catch(() => null),
+          };
+        },
+        { projectId: project.id, sessionId: emptyChatSessionId },
+      );
+      expect(emptySessionProof.sessionsStatus).toBe(200);
+      expect(emptySessionProof.sessions).toEqual(expect.arrayContaining([
+        expect.objectContaining({ id: emptyChatSessionId, projectId: project.id }),
+      ]));
+      expect(emptySessionProof.messagesStatus).toBe(200);
+      expect(emptySessionProof.messages).toEqual([]);
+
+      // Browser history must retain the explicit project route in both
+      // directions, not silently fall back to whichever project loads first.
+      await page.goBack();
+      await expect(page).toHaveURL(
+        new RegExp(`/dashboard/projects/${project.id}$`),
+      );
+      await page.goForward();
+      await expect(page).toHaveURL(
+        new RegExp(`/dashboard/projects/${project.id}/workspace$`),
+      );
+      await expect(page.getByTestId("project-workspace")).toBeVisible();
+      await expect(
+        page.getByText("متصل بتحديثات مساحة المشروع", { exact: true }),
+      ).toBeVisible();
+
+      const updatedDescription = `تحديث Workspace حي ${randomUUID().slice(0, 8)}`;
+      await observeNextWorkspaceChangedEvent(page, project.id);
+      const refreshedSnapshotPromise = page.waitForResponse((response) =>
+        response.request().method() === "GET"
+        && new URL(response.url()).pathname === `/api/projects/${project!.id}/workspace`
+        && response.status() === 200,
+      );
+      const patchResult = await page.evaluate(async ({ projectId, description }) => {
+        const response = await fetch(`/api/projects/${encodeURIComponent(projectId)}`, {
+          method: "PATCH",
+          credentials: "include",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ description }),
+        });
+        const body = (await response.json().catch(() => ({}))) as { id?: string };
+        return { status: response.status, projectId: body.id };
+      }, { projectId: project.id, description: updatedDescription });
+      expect(patchResult).toEqual({ status: 200, projectId: project.id });
+
+      const observedEvent = await page.evaluate(async () => {
+        const observedWindow = window as Window & {
+          __uxw02NextWorkspaceEvent?: Promise<Record<string, unknown>>;
+        };
+        return observedWindow.__uxw02NextWorkspaceEvent;
+      });
+      expect(observedEvent).toMatchObject({
+        eventVersion: 1,
+        projectId: project.id,
+        entityId: project.id,
+      });
+      const refreshedSnapshot = await refreshedSnapshotPromise;
+      expect((await refreshedSnapshot.json()).project.description).toBe(
+        updatedDescription,
+      );
+      await expect(page.getByText(updatedDescription, { exact: true })).toBeVisible();
+      expect(workspaceEventRequests.length).toBeGreaterThanOrEqual(2);
+
+      const goalDraftState = async () => page.evaluate(({ ownerId, text, projectId }) => {
+        const drafts = JSON.parse(
+          sessionStorage.getItem("engineeringos:goal-drafts:v2") ?? "[]",
+        ) as Array<Record<string, unknown>>;
+        return drafts.find((draft) =>
+          draft.ownerId === ownerId
+          && draft.projectId === projectId
+          && draft.text === text
+        ) ?? null;
+      }, { ownerId: project.ownerId, text: goal, projectId: project.id });
+      expect(await goalDraftState()).toMatchObject({
+        ownerId: project.ownerId,
+        projectId: project.id,
+        text: goal,
+        sendAttemptedAt: null,
+      });
+      await page.goBack();
+      await expect(page).toHaveURL(
+        new RegExp(`/dashboard/projects/${project.id}$`),
+      );
+      await page.goForward();
+      await expect(page.getByTestId("project-workspace")).toBeVisible();
+      await expect(page.getByTestId("input-ai-chat-composer")).toHaveValue(goal);
+
+      await page.reload({ waitUntil: "domcontentloaded" });
+      await expect(page.getByTestId("project-workspace")).toBeVisible();
+      await expect(page.getByRole("heading", { name: project.name })).toBeVisible();
+      await expect(page.getByText(updatedDescription, { exact: true })).toBeVisible();
+      await expect(page.getByTestId("status-project-planning-handoff")).toBeVisible();
+      await expect(page.getByTestId("input-ai-chat-composer")).toHaveValue(goal);
+      await expect(page.getByTestId("text-chat-current-session"))
+        .toHaveAttribute("data-session-id", emptyChatSessionId!);
+      expect(await goalDraftState()).toMatchObject({
+        ownerId: project.ownerId,
+        projectId: project.id,
+        text: goal,
+        sendAttemptedAt: null,
+      });
+      const authenticatedState = await page.evaluate(async (projectId) => {
+        const response = await fetch("/api/projects", { credentials: "include" });
+        const rows = (await response.json().catch(() => [])) as Array<{
+          id?: string;
+          ownerId?: string;
+        }>;
+        return {
+          status: response.status,
+          project: rows.find((row) => row.id === projectId) ?? null,
+        };
+      }, project.id);
+      expect(authenticatedState.status).toBe(200);
+      expect(authenticatedState.project).toMatchObject({
+        id: project.id,
+        ownerId: project.ownerId,
+      });
+      expect(chatSessionCreateRequests).toHaveLength(1);
+      expect(chatSendRequests).toEqual([]);
+    } finally {
+      if (project) {
+        expect(await deleteWorkspaceJourneyProject(page, project.id)).toBe(204);
+      }
+    }
+  });
+
+  test("UXW-02 REAL CLERK another owner cannot read the live Workspace", async ({
+    page,
+    browser,
+  }) => {
+    test.setTimeout(120_000);
+    test.skip(
+      process.env.RUN_CONTROLLED_RELEASE_VALIDATION !== "1",
+      "UXW-02 ownership journey requires two real Clerk sessions and the controlled runner.",
+    );
+
+    let project: WorkspaceJourneyProject | undefined;
+    let secondaryContext: Awaited<ReturnType<typeof browser.newContext>> | undefined;
+    try {
+      await programmaticSignIn(page, TEST_USER, { allowEmptyProjectList: true });
+      project = await createWorkspaceJourneyProject(
+        page,
+        `UXW-02 owner isolation ${randomUUID().slice(0, 8)}`,
+      );
+
+      secondaryContext = await browser.newContext();
+      const secondaryPage = await secondaryContext.newPage();
+      await programmaticSignIn(secondaryPage, ISOLATION_SECOND_USER, {
+        allowEmptyProjectList: true,
+      });
+      const directApiResult = await secondaryPage.evaluate(async (projectId) => {
+        const response = await fetch(
+          `/api/projects/${encodeURIComponent(projectId)}/workspace`,
+          { credentials: "include" },
+        );
+        const body = (await response.json().catch(() => ({}))) as {
+          project?: { id?: string; name?: string };
+        };
+        return { status: response.status, body };
+      }, project.id);
+      expect(directApiResult.status).toBe(403);
+      expect(directApiResult.body).not.toHaveProperty("project");
+
+      const deniedSnapshotPromise = secondaryPage.waitForResponse((response) =>
+        response.request().method() === "GET"
+        && new URL(response.url()).pathname === `/api/projects/${project!.id}/workspace`,
+      );
+      await secondaryPage.goto(
+        `${DASHBOARD_PATH}projects/${project.id}/workspace`,
+        { waitUntil: "domcontentloaded" },
+      );
+      const deniedSnapshot = await deniedSnapshotPromise;
+      expect(deniedSnapshot.status()).toBe(403);
+      await expect(secondaryPage.getByRole("alert")).toContainText(
+        "تعذر فتح مساحة المشروع",
+      );
+      expect(await deniedSnapshot.text()).not.toContain(project.id);
+    } finally {
+      await secondaryContext?.close();
+      if (project) {
+        expect(await deleteWorkspaceJourneyProject(page, project.id)).toBe(204);
+      }
+    }
   });
 
   test("REAL CLERK Archive Upload reaches scan and persists project controls and browser validation profiles", async ({
