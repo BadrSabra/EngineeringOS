@@ -734,6 +734,8 @@ export const APPLICATION_SCHEMA_CONTRACT = {
       ...[
         "input_artifact_manifest_digest",
         "input_artifact_retention_policy",
+        "input_artifact_store_command_fingerprint",
+        "input_artifact_store_receipt_fingerprint",
         "output_artifact_manifest_digest",
         "output_artifact_retention_policy",
       ].map((name) => ({
@@ -744,6 +746,7 @@ export const APPLICATION_SCHEMA_CONTRACT = {
       })),
       ...[
         "input_artifact_size_bytes",
+        "input_artifact_owner_key_version",
         "output_artifact_size_bytes",
       ].map((name) => ({
         name,
@@ -754,6 +757,7 @@ export const APPLICATION_SCHEMA_CONTRACT = {
       ...[
         "input_artifact_store_id",
         "input_artifact_ref_id",
+        "input_artifact_owner_node_id",
         "output_artifact_store_id",
         "output_artifact_ref_id",
       ].map((name) => ({
@@ -3383,6 +3387,12 @@ export const APPLICATION_SCHEMA_CONTRACT = {
         /input_artifact_provider.*'local'.*input_artifact_store_id.*input_artifact_ref_id.*input_artifact_size_bytes.*is not null.*input_artifact_size_bytes > 0.*input_artifact_manifest_digest.*is not null.*input_artifact_manifest_digest.*input_artifact_retention_policy/i,
     },
     {
+      name: "chk_preview_build_jobs_input_local_owner_receipt",
+      tableName: "preview_build_jobs",
+      definitionPattern:
+        /input_artifact_provider.*'local'.*input_artifact_owner_node_id.*is not null.*input_artifact_owner_key_version.*> 0.*input_artifact_store_command_fingerprint.*is not null.*input_artifact_store_command_fingerprint.*input_artifact_ready_at.*input_artifact_store_receipt_fingerprint/i,
+    },
+    {
       name: "chk_preview_build_jobs_output_local_metadata",
       tableName: "preview_build_jobs",
       definitionPattern:
@@ -3409,6 +3419,13 @@ export const APPLICATION_SCHEMA_CONTRACT = {
       columnName: "proposal_id",
       foreignTableName: "ai_change_proposals",
       foreignColumnName: "id",
+      deleteRule: "RESTRICT",
+    },
+    {
+      tableName: "preview_build_jobs",
+      columnName: "input_artifact_owner_node_id",
+      foreignTableName: "preview_agent_nodes",
+      foreignColumnName: "node_id",
       deleteRule: "RESTRICT",
     },
     {

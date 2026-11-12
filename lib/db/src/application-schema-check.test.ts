@@ -1049,6 +1049,25 @@ describe("application schema contract", () => {
           issue.objectName === "project_id",
       ),
     );
+
+    const missingArtifactOwnerBinding = findApplicationSchemaIssues({
+      ...snapshot,
+      foreignKeys: snapshot.foreignKeys.filter(
+        (key) =>
+          !(
+            key.table_name === "preview_build_jobs" &&
+            key.column_name === "input_artifact_owner_node_id"
+          ),
+      ),
+    });
+    assert.ok(
+      missingArtifactOwnerBinding.some(
+        (issue) =>
+          issue.kind === "missing_foreign_key" &&
+          issue.tableName === "preview_build_jobs" &&
+          issue.objectName === "input_artifact_owner_node_id",
+      ),
+    );
   });
 
   it("requires local Preview artifact ownership constraints", () => {
@@ -1068,6 +1087,43 @@ describe("application schema contract", () => {
           issue.tableName === "preview_build_jobs" &&
           issue.objectName ===
             "chk_preview_build_jobs_input_local_metadata",
+      ),
+    );
+
+    const missingOwnerReceiptGuard = findApplicationSchemaIssues({
+      ...snapshot,
+      checkConstraints: snapshot.checkConstraints.filter(
+        (constraint) =>
+          constraint.constraint_name !==
+          "chk_preview_build_jobs_input_local_owner_receipt",
+      ),
+    });
+    assert.ok(
+      missingOwnerReceiptGuard.some(
+        (issue) =>
+          issue.kind === "missing_check_constraint" &&
+          issue.tableName === "preview_build_jobs" &&
+          issue.objectName ===
+            "chk_preview_build_jobs_input_local_owner_receipt",
+      ),
+    );
+
+    const weakenedOwnerReceiptGuard = findApplicationSchemaIssues({
+      ...snapshot,
+      checkConstraints: snapshot.checkConstraints.map((constraint) =>
+        constraint.constraint_name ===
+        "chk_preview_build_jobs_input_local_owner_receipt"
+          ? { ...constraint, definition: "CHECK (true)" }
+          : constraint,
+      ),
+    });
+    assert.ok(
+      weakenedOwnerReceiptGuard.some(
+        (issue) =>
+          issue.kind === "incompatible_check_constraint" &&
+          issue.tableName === "preview_build_jobs" &&
+          issue.objectName ===
+            "chk_preview_build_jobs_input_local_owner_receipt",
       ),
     );
 

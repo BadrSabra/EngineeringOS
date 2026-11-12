@@ -2,6 +2,7 @@ import { createInsertSchema } from "drizzle-zod";
 import { sql } from "drizzle-orm";
 import {
   check,
+  foreignKey,
   index,
   integer,
   pgEnum,
@@ -75,10 +76,7 @@ export const previewBuildJobsTable = pgTable(
     inputArtifactSizeBytes: integer("input_artifact_size_bytes"),
     inputArtifactManifestDigest: text("input_artifact_manifest_digest"),
     inputArtifactRetentionPolicy: text("input_artifact_retention_policy"),
-    inputArtifactOwnerNodeId: uuid("input_artifact_owner_node_id").references(
-      () => previewAgentNodesTable.nodeId,
-      { onDelete: "restrict" },
-    ),
+    inputArtifactOwnerNodeId: uuid("input_artifact_owner_node_id"),
     inputArtifactOwnerKeyVersion: integer(
       "input_artifact_owner_key_version",
     ),
@@ -137,6 +135,11 @@ export const previewBuildJobsTable = pgTable(
       .defaultNow(),
   },
   (table) => [
+    foreignKey({
+      name: "fk_preview_build_jobs_input_agent_owner",
+      columns: [table.inputArtifactOwnerNodeId],
+      foreignColumns: [previewAgentNodesTable.nodeId],
+    }).onDelete("restrict"),
     check(
       "chk_preview_build_jobs_input_local_metadata",
       sql`${table.inputArtifactProvider} <> 'local' OR (
@@ -148,7 +151,12 @@ export const previewBuildJobsTable = pgTable(
         AND ${table.inputArtifactManifestDigest} ~ '^[a-f0-9]{64}$'
         AND ${table.inputArtifactRetentionPolicy} IS NOT NULL
         AND length(${table.inputArtifactRetentionPolicy}) BETWEEN 1 AND 64
-        AND ${table.inputArtifactOwnerNodeId} IS NOT NULL
+      )`,
+    ),
+    check(
+      "chk_preview_build_jobs_input_local_owner_receipt",
+      sql`${table.inputArtifactProvider} <> 'local' OR (
+        ${table.inputArtifactOwnerNodeId} IS NOT NULL
         AND ${table.inputArtifactOwnerKeyVersion} IS NOT NULL
         AND ${table.inputArtifactOwnerKeyVersion} > 0
         AND ${table.inputArtifactStoreCommandFingerprint} IS NOT NULL

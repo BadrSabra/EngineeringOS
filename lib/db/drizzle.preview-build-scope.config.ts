@@ -12,7 +12,7 @@ export default defineConfig({
   ),
   dialect: "postgresql",
   dbCredentials: { url: process.env.DATABASE_URL },
-  tablesFilter: ["preview_build_jobs"],
+  tablesFilter: ["preview_build_jobs", "preview_agent_nodes"],
   strict: true,
   verbose: true,
 });
