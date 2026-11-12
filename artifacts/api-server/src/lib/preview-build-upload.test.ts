@@ -15,8 +15,10 @@ import {
 } from "./preview-build-upload.js";
 import type { PreviewBuildInputArchive } from "./preview-build-input.js";
 import { PREVIEW_BUILD_INPUT_MANIFEST_PATH } from "./preview-build-input.js";
+import { previewBuildArtifactRefId } from "./preview-artifact-reference.js";
 
 const now = new Date("2026-11-11T12:00:00.000Z");
+const jobId = "00000000-0000-8000-8000-000000000001";
 const keyPair = generateKeyPairSync("ed25519");
 const privateKeyPem = keyPair.privateKey.export({
   type: "pkcs8",
@@ -70,6 +72,7 @@ function buildInput(): PreviewBuildInputArchive {
 function signedToken(input = buildInput()): string {
   return signPreviewBuildInputUpload({
     buildInput: input,
+    jobId,
     privateKeyPem,
     now,
   });
@@ -83,6 +86,9 @@ describe("signed Preview build-input upload", () => {
 
     expect(claims).toMatchObject({
       action: "upload-build-input",
+      version: 2,
+      jobId,
+      artifactRefId: previewBuildArtifactRefId(jobId, "input"),
       builderProfile: "vite-react-static-v1",
       projectId: "project-1",
       proposalId: "proposal-1",
@@ -122,6 +128,34 @@ describe("signed Preview build-input upload", () => {
     ).toThrow("Preview build input upload is invalid or unavailable.");
   });
 
+  it("keeps the job artifact reference stable across fresh upload tokens", () => {
+    const source = buildInput();
+    const first = verifyPreviewBuildInputUpload(
+      signedToken(source),
+      publicKeyPem,
+      now,
+    );
+    const retry = verifyPreviewBuildInputUpload(
+      signedToken(source),
+      publicKeyPem,
+      now,
+    );
+    const nextJob = verifyPreviewBuildInputUpload(
+      signPreviewBuildInputUpload({
+        buildInput: source,
+        jobId: "00000000-0000-8000-8000-000000000002",
+        privateKeyPem,
+        now,
+      }),
+      publicKeyPem,
+      now,
+    );
+
+    expect(retry.commandId).not.toBe(first.commandId);
+    expect(retry.artifactRefId).toBe(first.artifactRefId);
+    expect(nextJob.artifactRefId).not.toBe(first.artifactRefId);
+  });
+
   it("refuses to sign a manifest that differs from the embedded archive", () => {
     const source = buildInput();
     const altered = {
@@ -134,6 +168,7 @@ describe("signed Preview build-input upload", () => {
     expect(() =>
       signPreviewBuildInputUpload({
         buildInput: altered,
+        jobId,
         privateKeyPem,
         now,
       }),
@@ -223,7 +258,13 @@ describe("signed Preview build-input upload", () => {
           verifyPreviewBuildInputUpload(token, publicKeyPem, now),
         ),
       );
-      expect(await objectStore.read(receipt.objectKey!)).toEqual(
+      expect(
+        await objectStore.read({
+          objectKey: receipt.objectKey!,
+          jobId,
+          artifactRefId: previewBuildArtifactRefId(jobId, "input"),
+        }),
+      ).toEqual(
         source.archive,
       );
     } finally {
@@ -266,7 +307,13 @@ describe("signed Preview build-input upload", () => {
       );
 
       expect(response.status).toBe(400);
-      await expect(objectStore.read(objectKey)).rejects.toThrow();
+      await expect(
+        objectStore.read({
+          objectKey,
+          jobId,
+          artifactRefId: previewBuildArtifactRefId(jobId, "input"),
+        }),
+      ).rejects.toThrow();
     } finally {
       await rm(parent, { recursive: true, force: true });
     }

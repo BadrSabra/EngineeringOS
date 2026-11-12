@@ -20,9 +20,75 @@ import {
   createLocalPreviewBuildInputObjectStore,
   LocalPreviewBuildInputStoreError,
 } from "./preview-build-input-local.js";
+import { previewBuildArtifactRefId } from "./preview-artifact-reference.js";
 
 const tempRoots: string[] = [];
 const BINDING_DIGEST = "b".repeat(64);
+const DEFAULT_JOB_ID = "00000000-0000-8000-8000-000000000001";
+
+function artifactOwner(objectKey: string, jobId = DEFAULT_JOB_ID) {
+  return {
+    jobId,
+    artifactRefId: previewBuildArtifactRefId(
+      jobId,
+      objectKey.startsWith("build-inputs/") ? "input" : "output",
+    ),
+  };
+}
+
+function put(
+  store: Awaited<ReturnType<typeof createLocalPreviewBuildInputObjectStore>>,
+  input: Omit<
+    Parameters<typeof store.put>[0],
+    "jobId" | "artifactRefId"
+  >,
+  jobId = DEFAULT_JOB_ID,
+) {
+  return store.put({ ...input, ...artifactOwner(input.objectKey, jobId) });
+}
+
+function putStream(
+  store: Awaited<ReturnType<typeof createLocalPreviewBuildInputObjectStore>>,
+  input: Omit<
+    Parameters<typeof store.putStream>[0],
+    "jobId" | "artifactRefId"
+  >,
+  jobId = DEFAULT_JOB_ID,
+) {
+  return store.putStream({
+    ...input,
+    ...artifactOwner(input.objectKey, jobId),
+  });
+}
+
+function read(
+  store: Awaited<ReturnType<typeof createLocalPreviewBuildInputObjectStore>>,
+  objectKey: string,
+  jobId = DEFAULT_JOB_ID,
+) {
+  return store.read({ objectKey, ...artifactOwner(objectKey, jobId) });
+}
+
+function inspect(
+  store: Awaited<ReturnType<typeof createLocalPreviewBuildInputObjectStore>>,
+  objectKey: string,
+  jobId = DEFAULT_JOB_ID,
+) {
+  return store.inspect({ objectKey, ...artifactOwner(objectKey, jobId) });
+}
+
+function remove(
+  store: Awaited<ReturnType<typeof createLocalPreviewBuildInputObjectStore>>,
+  objectKey: string,
+  expectedDigest?: string,
+  jobId = DEFAULT_JOB_ID,
+) {
+  return store.remove({
+    objectKey,
+    expectedDigest,
+    ...artifactOwner(objectKey, jobId),
+  });
+}
 
 async function createStore() {
   const parent = await mkdtemp(join(tmpdir(), "preview-local-store-"));
@@ -95,13 +161,13 @@ describe("Local Preview build-input CAS", () => {
     const bytes = Buffer.from("bounded local archive");
     const identity = objectKey(bytes);
 
-    await store.put({
+    await put(store, {
       ...identity,
       archive: bytes,
       contentLength: bytes.length,
     });
 
-    expect(await store.read(identity.objectKey)).toEqual(bytes);
+    expect(await read(store, identity.objectKey)).toEqual(bytes);
     expect((await lstat(rootDir)).mode & 0o777).toBe(0o700);
     const staged = await readdir(join(rootDir, "staging"));
     expect(staged).toEqual([]);
@@ -111,26 +177,26 @@ describe("Local Preview build-input CAS", () => {
     const { store } = await createStore();
     const bytes = Buffer.from("same content, same immutable artifact");
     const identity = objectKey(bytes);
-    const put = () =>
-      store.put({
+    const writeAgain = () =>
+      put(store, {
         ...identity,
         archive: bytes,
         contentLength: bytes.length,
       });
 
-    await Promise.all([put(), put(), put()]);
+    await Promise.all([writeAgain(), writeAgain(), writeAgain()]);
 
-    expect(await store.read(identity.objectKey)).toEqual(bytes);
+    expect(await read(store, identity.objectKey)).toEqual(bytes);
   });
 
   it("recovers when a blob was published but its manifest could not be published", async () => {
     const { rootDir, store } = await createStore();
     const bytes = Buffer.from("recover the immutable blob after a manifest conflict");
     const identity = objectKey(bytes);
-    const referenceDirectory = join(rootDir, "refs", BINDING_DIGEST);
+    const referenceDirectory = join(rootDir, "refs");
     const referencePath = join(
       referenceDirectory,
-      `${identity.archiveDigest}.json`,
+      `${artifactOwner(identity.objectKey).artifactRefId}.json`,
     );
     const blobPath = join(
       rootDir,
@@ -138,13 +204,12 @@ describe("Local Preview build-input CAS", () => {
       identity.archiveDigest.slice(0, 2),
       `${identity.archiveDigest.slice(2)}.zip`,
     );
-    await mkdir(referenceDirectory, { mode: 0o700 });
     await writeFile(referencePath, "conflicting immutable manifest", {
       mode: 0o600,
     });
 
     await expect(
-      store.putStream({
+      putStream(store, {
         ...identity,
         bytes: (async function* () {
           yield bytes;
@@ -156,20 +221,20 @@ describe("Local Preview build-input CAS", () => {
     });
     await expect(lstat(blobPath)).resolves.toBeDefined();
     expect(await readdir(join(rootDir, "staging"))).toEqual([]);
-    await expect(store.read(identity.objectKey)).rejects.toThrow(
+    await expect(read(store, identity.objectKey)).rejects.toThrow(
       LocalPreviewBuildInputStoreError,
     );
 
     await unlink(referencePath);
-    const retry = await store.putStream({
+    const retry = await putStream(store, {
       ...identity,
       bytes: (async function* () {
         yield bytes;
       })(),
       contentLength: bytes.length,
     });
-    expect(await store.read(identity.objectKey)).toEqual(bytes);
-    expect(await store.inspect(identity.objectKey)).toEqual(retry);
+    expect(await read(store, identity.objectKey)).toEqual(bytes);
+    expect(await inspect(store, identity.objectKey)).toEqual(retry);
   });
 
   it("stores successful chunked streams without requiring a caller Buffer", async () => {
@@ -182,7 +247,7 @@ describe("Local Preview build-input CAS", () => {
       yield bytes.subarray(23);
     }
 
-    const stored = await store.putStream({
+    const stored = await putStream(store, {
       ...identity,
       bytes: chunks(),
       contentLength: bytes.length,
@@ -194,14 +259,14 @@ describe("Local Preview build-input CAS", () => {
       sizeBytes: bytes.length,
       retentionPolicy: "preview-build-input-24h-v1",
     });
-    expect(stored.objectRefId).toMatch(
+    expect(stored.artifactRefId).toMatch(
       /^[0-9a-f]{8}-[0-9a-f]{4}-8[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i,
     );
     expect(stored.manifestDigest).toMatch(/^[a-f0-9]{64}$/);
-    expect(await store.read(identity.objectKey)).toEqual(bytes);
-    expect(await store.inspect(identity.objectKey)).toEqual(stored);
+    expect(await read(store, identity.objectKey)).toEqual(bytes);
+    expect(await inspect(store, identity.objectKey)).toEqual(stored);
 
-    const repeated = await store.putStream({
+    const repeated = await putStream(store, {
       ...identity,
       bytes: (async function* () {
         yield bytes;
@@ -213,7 +278,7 @@ describe("Local Preview build-input CAS", () => {
       workspaceRoot: process.cwd(),
     });
     expect(repeated).toEqual(stored);
-    expect(await reopened.inspect(identity.objectKey)).toEqual(stored);
+    expect(await inspect(reopened, identity.objectKey)).toEqual(stored);
   });
 
   it("binds output metadata to its build reference and live-session retention", async () => {
@@ -223,7 +288,7 @@ describe("Local Preview build-input CAS", () => {
     const outputObjectKey =
       "preview-build-outputs/223e4567-e89b-42d3-a456-426614174001/site.tar.gz";
 
-    const stored = await store.putStream({
+    const stored = await putStream(store, {
       objectKey: outputObjectKey,
       bytes: (async function* () {
         yield bytes;
@@ -238,14 +303,14 @@ describe("Local Preview build-input CAS", () => {
       sizeBytes: bytes.length,
       retentionPolicy: "preview-build-output-live-reference-v1",
     });
-    expect(await store.inspect(outputObjectKey)).toEqual(stored);
+    expect(await inspect(store, outputObjectKey)).toEqual(stored);
   });
 
   it("rejects a manifest whose store or object identity was changed", async () => {
     const { rootDir, store } = await createStore();
     const bytes = Buffer.from("metadata is immutable and store-scoped");
     const identity = objectKey(bytes);
-    await store.put({
+    await put(store, {
       ...identity,
       archive: bytes,
       contentLength: bytes.length,
@@ -253,8 +318,7 @@ describe("Local Preview build-input CAS", () => {
     const referencePath = join(
       rootDir,
       "refs",
-      BINDING_DIGEST,
-      `${identity.archiveDigest}.json`,
+      `${artifactOwner(identity.objectKey).artifactRefId}.json`,
     );
     const manifest = JSON.parse(
       await readFile(referencePath, "utf8"),
@@ -262,15 +326,15 @@ describe("Local Preview build-input CAS", () => {
     manifest.storeId = "c617246f-3ccd-4e2d-91e8-e626827696ab";
     await writeFile(referencePath, JSON.stringify(manifest), { mode: 0o600 });
 
-    await expect(store.inspect(identity.objectKey)).rejects.toMatchObject({
+    await expect(inspect(store, identity.objectKey)).rejects.toMatchObject({
       code: "PREVIEW_LOCAL_STORE_INVALID_OBJECT",
     });
 
     manifest.storeId = store.storeId;
-    manifest.objectRefId = "323e4567-e89b-42d3-a456-426614174002";
+    manifest.artifactRefId = "323e4567-e89b-42d3-a456-426614174002";
     await writeFile(referencePath, JSON.stringify(manifest), { mode: 0o600 });
 
-    await expect(store.inspect(identity.objectKey)).rejects.toMatchObject({
+    await expect(inspect(store, identity.objectKey)).rejects.toMatchObject({
       code: "PREVIEW_LOCAL_STORE_INVALID_OBJECT",
     });
   });
@@ -289,12 +353,12 @@ describe("Local Preview build-input CAS", () => {
     const outputObjectKey =
       "preview-build-outputs/223e4567-e89b-42d3-a456-426614174001/site.tar.gz";
 
-    await store.put({
+    await put(store, {
       ...input,
       archive: bytes,
       contentLength: bytes.length,
     });
-    await store.putStream({
+    await putStream(store, {
       objectKey: outputObjectKey,
       bytes: (async function* () {
         yield bytes.subarray(0, 8);
@@ -303,7 +367,7 @@ describe("Local Preview build-input CAS", () => {
       archiveDigest: digest,
       contentLength: bytes.length,
     });
-    await store.putStream({
+    await putStream(store, {
       objectKey: outputObjectKey,
       bytes: (async function* () {
         yield bytes;
@@ -312,13 +376,13 @@ describe("Local Preview build-input CAS", () => {
       contentLength: bytes.length,
     });
 
-    expect(await store.read(outputObjectKey)).toEqual(bytes);
-    await store.remove(outputObjectKey, digest);
-    expect(await store.read(input.objectKey)).toEqual(bytes);
+    expect(await read(store, outputObjectKey)).toEqual(bytes);
+    await remove(store, outputObjectKey, digest);
+    expect(await read(store, input.objectKey)).toEqual(bytes);
 
-    await store.remove(input.objectKey);
-    await store.remove(outputObjectKey, digest);
-    await expect(store.read(outputObjectKey)).rejects.toThrow(
+    await remove(store, input.objectKey);
+    await remove(store, outputObjectKey, digest);
+    await expect(read(store, outputObjectKey)).rejects.toThrow(
       LocalPreviewBuildInputStoreError,
     );
   });
@@ -329,7 +393,7 @@ describe("Local Preview build-input CAS", () => {
     const digest = createHash("sha256").update(bytes).digest("hex");
 
     await expect(
-      store.putStream({
+      putStream(store, {
         objectKey:
           "preview-build-outputs/223e4567-e89b-42d3-a456-426614174001/../site.tar.gz",
         bytes: (async function* () {
@@ -353,7 +417,7 @@ describe("Local Preview build-input CAS", () => {
       .digest("hex");
 
     await expect(
-      store.putStream({
+      putStream(store, {
         objectKey: outputObjectKey,
         bytes: (async function* () {
           yield bytes.subarray(0, 9);
@@ -367,7 +431,7 @@ describe("Local Preview build-input CAS", () => {
     });
 
     expect(await readdir(join(rootDir, "staging"))).toEqual([]);
-    await expect(store.read(outputObjectKey)).rejects.toThrow(
+    await expect(read(store, outputObjectKey)).rejects.toThrow(
       LocalPreviewBuildInputStoreError,
     );
   });
@@ -377,32 +441,85 @@ describe("Local Preview build-input CAS", () => {
     const bytes = Buffer.from("one blob with two independently bound references");
     const first = objectKey(bytes, "1".repeat(64));
     const second = objectKey(bytes, "2".repeat(64));
+    const firstJobId = "00000000-0000-8000-8000-000000000002";
+    const secondJobId = "00000000-0000-8000-8000-000000000003";
     const blobPath = join(
       rootDir,
       "blobs",
       first.archiveDigest.slice(0, 2),
       `${first.archiveDigest.slice(2)}.zip`,
     );
-    await store.put({
+    await put(store, {
       ...first,
       archive: bytes,
       contentLength: bytes.length,
-    });
-    await store.put({
+    }, firstJobId);
+    await put(store, {
       ...second,
       archive: bytes,
       contentLength: bytes.length,
-    });
-    const firstMetadata = await store.inspect(first.objectKey);
-    const secondMetadata = await store.inspect(second.objectKey);
-    expect(firstMetadata.objectRefId).not.toBe(secondMetadata.objectRefId);
+    }, secondJobId);
+    const firstMetadata = await inspect(store, first.objectKey, firstJobId);
+    const secondMetadata = await inspect(store, second.objectKey, secondJobId);
+    expect(firstMetadata.artifactRefId).not.toBe(secondMetadata.artifactRefId);
 
-    await store.remove(first.objectKey);
-    expect(await store.read(second.objectKey)).toEqual(bytes);
+    await remove(store, first.objectKey, undefined, firstJobId);
+    expect(await read(store, second.objectKey, secondJobId)).toEqual(bytes);
     await expect(lstat(blobPath)).resolves.toBeDefined();
 
-    await store.remove(second.objectKey);
-    await store.remove(second.objectKey);
+    await remove(store, second.objectKey, undefined, secondJobId);
+    await remove(store, second.objectKey, undefined, secondJobId);
+    await expect(lstat(blobPath)).rejects.toMatchObject({ code: "ENOENT" });
+  });
+
+  it("keeps same-key references job-scoped while deduplicating the shared blob", async () => {
+    const { rootDir, store } = await createStore();
+    const bytes = Buffer.from("same Candidate archive, two independent build jobs");
+    const identity = objectKey(bytes);
+    const firstJobId = "00000000-0000-8000-8000-000000000004";
+    const secondJobId = "00000000-0000-8000-8000-000000000005";
+    const blobPath = join(
+      rootDir,
+      "blobs",
+      identity.archiveDigest.slice(0, 2),
+      `${identity.archiveDigest.slice(2)}.zip`,
+    );
+
+    await put(
+      store,
+      { ...identity, archive: bytes, contentLength: bytes.length },
+      firstJobId,
+    );
+    await put(
+      store,
+      { ...identity, archive: bytes, contentLength: bytes.length },
+      secondJobId,
+    );
+
+    const first = await inspect(store, identity.objectKey, firstJobId);
+    const second = await inspect(store, identity.objectKey, secondJobId);
+    expect(first.artifactRefId).not.toBe(second.artifactRefId);
+    expect(first.digest).toBe(second.digest);
+    const unownedJobId = "00000000-0000-8000-8000-000000000006";
+    await expect(
+      read(store, identity.objectKey, unownedJobId),
+    ).rejects.toThrow(LocalPreviewBuildInputStoreError);
+    await expect(
+      store.read({
+        objectKey: identity.objectKey,
+        jobId: unownedJobId,
+        artifactRefId: "../../outside",
+      }),
+    ).rejects.toMatchObject({ code: "PREVIEW_LOCAL_STORE_INVALID_OBJECT" });
+    await remove(store, identity.objectKey, undefined, unownedJobId);
+    expect(await read(store, identity.objectKey, firstJobId)).toEqual(bytes);
+    await remove(store, identity.objectKey, undefined, firstJobId);
+    await expect(read(store, identity.objectKey, firstJobId)).rejects.toThrow(
+      LocalPreviewBuildInputStoreError,
+    );
+    expect(await read(store, identity.objectKey, secondJobId)).toEqual(bytes);
+    await expect(lstat(blobPath)).resolves.toBeDefined();
+    await remove(store, identity.objectKey, undefined, secondJobId);
     await expect(lstat(blobPath)).rejects.toMatchObject({ code: "ENOENT" });
   });
 
@@ -413,8 +530,7 @@ describe("Local Preview build-input CAS", () => {
     const referencePath = join(
       rootDir,
       "refs",
-      BINDING_DIGEST,
-      `${identity.archiveDigest}.json`,
+      `${artifactOwner(identity.objectKey).artifactRefId}.json`,
     );
     const blobPath = join(
       rootDir,
@@ -422,14 +538,14 @@ describe("Local Preview build-input CAS", () => {
       identity.archiveDigest.slice(0, 2),
       `${identity.archiveDigest.slice(2)}.zip`,
     );
-    await store.put({
+    await put(store, {
       ...identity,
       archive: bytes,
       contentLength: bytes.length,
     });
 
     await unlink(referencePath);
-    await store.remove(identity.objectKey);
+    await remove(store, identity.objectKey);
 
     await expect(lstat(blobPath)).rejects.toMatchObject({ code: "ENOENT" });
   });
@@ -445,7 +561,7 @@ describe("Local Preview build-input CAS", () => {
     }
 
     await expect(
-      store.putStream({
+      putStream(store, {
         ...identity,
         bytes: interruptedStream(),
         contentLength: bytes.length,
@@ -454,7 +570,7 @@ describe("Local Preview build-input CAS", () => {
       code: "PREVIEW_LOCAL_STORE_UNAVAILABLE",
     });
     expect(await readdir(join(rootDir, "staging"))).toEqual([]);
-    await expect(store.read(identity.objectKey)).rejects.toThrowError(
+    await expect(read(store, identity.objectKey)).rejects.toThrowError(
       LocalPreviewBuildInputStoreError,
     );
   });
@@ -465,7 +581,7 @@ describe("Local Preview build-input CAS", () => {
     const identity = objectKey(bytes);
 
     await expect(
-      store.put({
+      put(store, {
         ...identity,
         archive: Buffer.from("x".repeat(bytes.length)),
         contentLength: bytes.length,
@@ -474,7 +590,7 @@ describe("Local Preview build-input CAS", () => {
       code: "PREVIEW_LOCAL_STORE_DIGEST_MISMATCH",
     });
     await expect(
-      store.put({
+      put(store, {
         objectKey: "../outside.zip",
         archive: bytes,
         archiveDigest: identity.archiveDigest,
@@ -494,7 +610,7 @@ describe("Local Preview build-input CAS", () => {
     const tooLarge = Buffer.from("more than eight bytes");
     const tooLargeIdentity = objectKey(tooLarge);
     await expect(
-      smallStore.put({
+      put(smallStore, {
         ...tooLargeIdentity,
         archive: tooLarge,
         contentLength: tooLarge.length,
@@ -508,7 +624,7 @@ describe("Local Preview build-input CAS", () => {
     const { rootDir, store } = await createStore();
     const bytes = Buffer.from("trusted");
     const identity = objectKey(bytes);
-    await store.put({
+    await put(store, {
       ...identity,
       archive: bytes,
       contentLength: bytes.length,
@@ -522,7 +638,7 @@ describe("Local Preview build-input CAS", () => {
     );
     await writeFile(blobPath, Buffer.from("altered"));
 
-    await expect(store.read(identity.objectKey)).rejects.toMatchObject({
+    await expect(read(store, identity.objectKey)).rejects.toMatchObject({
       code: "PREVIEW_LOCAL_STORE_DIGEST_MISMATCH",
     });
   });
@@ -531,7 +647,7 @@ describe("Local Preview build-input CAS", () => {
     const { parent, rootDir, store } = await createStore();
     const bytes = Buffer.from("hard-link protected");
     const identity = objectKey(bytes);
-    await store.put({
+    await put(store, {
       ...identity,
       archive: bytes,
       contentLength: bytes.length,
@@ -544,7 +660,7 @@ describe("Local Preview build-input CAS", () => {
     );
     await link(blobPath, join(parent, "unexpected-hard-link"));
 
-    await expect(store.read(identity.objectKey)).rejects.toMatchObject({
+    await expect(read(store, identity.objectKey)).rejects.toMatchObject({
       code: "PREVIEW_LOCAL_STORE_INVALID_OBJECT",
     });
   });

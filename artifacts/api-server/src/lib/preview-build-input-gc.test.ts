@@ -11,6 +11,8 @@ const graceMs = 60 * 60 * 1_000;
 const now = new Date("2026-11-12T12:00:00.000Z");
 const completedAt = new Date(now.getTime() - retentionMs - 1);
 const reference: PreviewBuildInputGcReference = {
+  jobId: "00000000-0000-8000-8000-000000000001",
+  inputArtifactRefId: "00000000-0000-8000-8000-000000000002",
   archiveDigest: "a".repeat(64),
   inputArtifactKey: `build-inputs/${"b".repeat(64)}/${"a".repeat(64)}.zip`,
 };
@@ -124,7 +126,12 @@ describe("local Preview input garbage collection", () => {
       failedReferences: 0,
     });
     expect(remove).toHaveBeenCalledTimes(2);
-    expect(remove).toHaveBeenNthCalledWith(1, reference.inputArtifactKey);
+    expect(remove).toHaveBeenNthCalledWith(1, {
+      objectKey: reference.inputArtifactKey,
+      jobId: reference.jobId,
+      artifactRefId: reference.inputArtifactRefId,
+      expectedDigest: reference.archiveDigest,
+    });
     expect(memory.state()).toBe("deleted");
   });
 

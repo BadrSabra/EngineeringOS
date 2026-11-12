@@ -27,6 +27,8 @@ const TERMINAL_BUILD_STATUSES: PreviewBuildJobStatus[] = [
 ];
 
 export type PreviewBuildInputGcReference = {
+  jobId: string;
+  inputArtifactRefId: string;
   archiveDigest: string;
   inputArtifactKey: string;
 };
@@ -144,8 +146,10 @@ const databaseRepository: PreviewBuildInputGcRepository = {
     );
     const candidates = await db
       .select({
+        jobId: previewBuildJobsTable.jobId,
         archiveDigest: previewBuildJobsTable.archiveDigest,
         inputArtifactKey: previewBuildJobsTable.inputArtifactKey,
+        inputArtifactRefId: previewBuildJobsTable.inputArtifactRefId,
       })
       .from(previewBuildJobsTable)
       .where(
@@ -170,8 +174,14 @@ const databaseRepository: PreviewBuildInputGcRepository = {
       .limit(batchSize);
 
     const claimed = new Map<string, PreviewBuildInputGcReference>();
-    for (const { archiveDigest, inputArtifactKey } of candidates) {
-      const claimKey = `${archiveDigest}:${inputArtifactKey}`;
+    for (const {
+      jobId,
+      archiveDigest,
+      inputArtifactKey,
+      inputArtifactRefId,
+    } of candidates) {
+      if (!inputArtifactRefId) continue;
+      const claimKey = `${jobId}:${inputArtifactRefId}`;
       if (claimed.has(claimKey)) continue;
       const references = await db.transaction(async (tx) => {
         await lockPreviewArtifactDigest(tx, archiveDigest);
@@ -192,7 +202,10 @@ const databaseRepository: PreviewBuildInputGcRepository = {
           return [];
         }
         const targetRows = rows.filter(
-          (row) => row.inputArtifactKey === inputArtifactKey,
+          (row) =>
+            row.jobId === jobId &&
+            row.inputArtifactRefId === inputArtifactRefId &&
+            row.inputArtifactKey === inputArtifactKey,
         );
         if (
           targetRows.length === 0 ||
@@ -226,6 +239,11 @@ const databaseRepository: PreviewBuildInputGcRepository = {
           })
           .where(
             and(
+              eq(previewBuildJobsTable.jobId, jobId),
+              eq(
+                previewBuildJobsTable.inputArtifactRefId,
+                inputArtifactRefId,
+              ),
               eq(previewBuildJobsTable.archiveDigest, archiveDigest),
               eq(previewBuildJobsTable.inputArtifactProvider, "local"),
               eq(previewBuildJobsTable.inputArtifactKey, inputArtifactKey),
@@ -235,13 +253,11 @@ const databaseRepository: PreviewBuildInputGcRepository = {
               ]),
             ),
           );
-        return [
-          { archiveDigest, inputArtifactKey },
-        ];
+        return [{ jobId, inputArtifactRefId, archiveDigest, inputArtifactKey }];
       });
       for (const reference of references) {
         claimed.set(
-          `${reference.archiveDigest}:${reference.inputArtifactKey}`,
+          `${reference.jobId}:${reference.inputArtifactRefId}`,
           reference,
         );
       }
@@ -261,6 +277,11 @@ const databaseRepository: PreviewBuildInputGcRepository = {
         })
         .where(
           and(
+            eq(previewBuildJobsTable.jobId, reference.jobId),
+            eq(
+              previewBuildJobsTable.inputArtifactRefId,
+              reference.inputArtifactRefId,
+            ),
             eq(
               previewBuildJobsTable.inputArtifactKey,
               reference.inputArtifactKey,
@@ -278,6 +299,11 @@ const databaseRepository: PreviewBuildInputGcRepository = {
         .from(previewBuildJobsTable)
         .where(
           and(
+            eq(previewBuildJobsTable.jobId, reference.jobId),
+            eq(
+              previewBuildJobsTable.inputArtifactRefId,
+              reference.inputArtifactRefId,
+            ),
             eq(
               previewBuildJobsTable.inputArtifactKey,
               reference.inputArtifactKey,
@@ -339,7 +365,12 @@ export async function collectLocalPreviewBuildInputsOnce(input: {
 
   for (const reference of due) {
     try {
-      await input.store.remove(reference.inputArtifactKey);
+      await input.store.remove({
+        objectKey: reference.inputArtifactKey,
+        jobId: reference.jobId,
+        artifactRefId: reference.inputArtifactRefId,
+        expectedDigest: reference.archiveDigest,
+      });
       if (await repository.markDeleted({ reference, now })) {
         deletedReferences += 1;
       } else {

@@ -17,9 +17,10 @@ import {
   isValidPreviewBuildSourceRoot,
   PREVIEW_BUILD_INPUT_MANIFEST_PATH,
 } from "./preview-build-input.js";
+import { previewBuildArtifactRefId } from "./preview-artifact-reference.js";
 
 const SIGNING_DOMAIN = Buffer.from(
-  "EngineeringOS Preview Build Input Upload v1\n",
+  "EngineeringOS Preview Build Input Upload v2\n",
   "utf8",
 );
 const TOKEN_TTL_MS = 30_000;
@@ -31,9 +32,11 @@ const UUID_PATTERN =
 const HASH_PATTERN = /^[a-f0-9]{64}$/i;
 
 export type PreviewBuildInputUploadClaims = PreviewBuildInputIdentity & {
-  version: 1;
+  version: 2;
   action: "upload-build-input";
   commandId: string;
+  jobId: string;
+  artifactRefId: string;
   builderProfile: "vite-react-static-v1";
   sourceDigest: string;
   archiveDigest: string;
@@ -64,6 +67,8 @@ export interface PreviewBuildInputUploadHandler {
 
 export interface PreviewBuildInputObjectStore {
   put(input: {
+    jobId: string;
+    artifactRefId: string;
     objectKey: string;
     archive: Buffer;
     archiveDigest: string;
@@ -73,7 +78,8 @@ export interface PreviewBuildInputObjectStore {
 
 export type PreviewBuildArtifactWriteMetadata = {
   storeId: string;
-  objectRefId: string;
+  jobId: string;
+  artifactRefId: string;
   digest: string;
   sizeBytes: number;
   manifestDigest: string;
@@ -89,6 +95,8 @@ export interface PreviewBuildInputStreamObjectStore
    * immutable object. A rejected or interrupted stream must not become visible.
    */
   putStream(input: {
+    jobId: string;
+    artifactRefId: string;
     objectKey: string;
     bytes: AsyncIterable<Uint8Array>;
     archiveDigest: string;
@@ -170,6 +178,8 @@ function canonicalClaims(claims: PreviewBuildInputUploadClaims): string {
     version: claims.version,
     action: claims.action,
     commandId: claims.commandId,
+    jobId: claims.jobId,
+    artifactRefId: claims.artifactRefId,
     builderProfile: claims.builderProfile,
     projectId: claims.projectId,
     proposalId: claims.proposalId,
@@ -205,6 +215,8 @@ function validateClaims(
     "version",
     "action",
     "commandId",
+    "jobId",
+    "artifactRefId",
     "builderProfile",
     "projectId",
     "proposalId",
@@ -221,11 +233,16 @@ function validateClaims(
   if (
     Object.keys(record).length !== allowedKeys.length ||
     allowedKeys.some((key) => !(key in record)) ||
-    record.version !== 1 ||
+    record.version !== 2 ||
     record.action !== "upload-build-input" ||
     record.builderProfile !== "vite-react-static-v1" ||
     typeof record.commandId !== "string" ||
     !UUID_PATTERN.test(record.commandId) ||
+    typeof record.jobId !== "string" ||
+    !UUID_PATTERN.test(record.jobId) ||
+    typeof record.artifactRefId !== "string" ||
+    record.artifactRefId !==
+      previewBuildArtifactRefId(record.jobId, "input") ||
     !validText(record.projectId, 255) ||
     !validText(record.proposalId, 255) ||
     !validText(record.operationId, 255) ||
@@ -263,9 +280,11 @@ function validateClaims(
   }
 
   return {
-    version: 1,
+    version: 2,
     action: "upload-build-input",
     commandId: record.commandId,
+    jobId: record.jobId,
+    artifactRefId: record.artifactRefId,
     builderProfile: "vite-react-static-v1",
     projectId: record.projectId,
     proposalId: record.proposalId,
@@ -453,6 +472,7 @@ function assertArchiveMatchesManifest(
 
 export function signPreviewBuildInputUpload(input: {
   buildInput: PreviewBuildInputArchive;
+  jobId: string;
   privateKeyPem: string | undefined;
   now?: Date;
 }): string {
@@ -478,11 +498,19 @@ export function signPreviewBuildInputUpload(input: {
   }
   assertArchiveMatchesManifest(archive, input.buildInput.manifest);
   const issuedAt = now.toISOString();
+  if (!UUID_PATTERN.test(input.jobId)) {
+    throw new PreviewBuildInputUploadError(
+      "PREVIEW_BUILD_UPLOAD_BODY_INVALID",
+      400,
+    );
+  }
   const claims = validateClaims(
     {
-      version: 1,
+      version: 2,
       action: "upload-build-input",
       commandId: randomUUID(),
+      jobId: input.jobId,
+      artifactRefId: previewBuildArtifactRefId(input.jobId, "input"),
       builderProfile: input.buildInput.manifest.builderProfile,
       projectId: input.buildInput.manifest.projectId,
       proposalId: input.buildInput.manifest.proposalId,
@@ -656,6 +684,8 @@ export function createPreviewBuildInputUploadHandler(input: {
             );
           }
           await input.objectStore.put({
+            jobId: claims.jobId,
+            artifactRefId: claims.artifactRefId,
             objectKey,
             archive: request.archive,
             archiveDigest,
@@ -671,6 +701,8 @@ export function createPreviewBuildInputUploadHandler(input: {
             );
           }
           await streamStore.putStream({
+            jobId: claims.jobId,
+            artifactRefId: claims.artifactRefId,
             objectKey,
             bytes: request.bytes,
             archiveDigest,
@@ -685,6 +717,8 @@ export function createPreviewBuildInputUploadHandler(input: {
         return Response.json(
           {
             action: "build-input-upload",
+            jobId: claims.jobId,
+            artifactRefId: claims.artifactRefId,
             sourceDigest: claims.sourceDigest,
             archiveDigest,
             objectKey,

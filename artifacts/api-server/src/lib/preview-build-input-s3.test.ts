@@ -2,8 +2,11 @@ import { createHash } from "node:crypto";
 import { HeadObjectCommand, PutObjectCommand } from "@aws-sdk/client-s3";
 import { describe, expect, it, vi } from "vitest";
 import { createS3PreviewBuildInputObjectStore } from "./preview-build-input-s3.js";
+import { previewBuildArtifactRefId } from "./preview-artifact-reference.js";
 
 const bucketName = "engineeringos-preview-artifacts";
+const jobId = "00000000-0000-8000-8000-000000000001";
+const artifactRefId = previewBuildArtifactRefId(jobId, "input");
 
 describe("Preview build-input S3 object store", () => {
   it("writes only content-addressed build inputs with a checksum and no overwrite", async () => {
@@ -16,6 +19,8 @@ describe("Preview build-input S3 object store", () => {
     });
 
     await store.put({
+      jobId,
+      artifactRefId,
       objectKey: `build-inputs/${"a".repeat(64)}/${archiveDigest}.zip`,
       archive,
       archiveDigest,
@@ -60,6 +65,8 @@ describe("Preview build-input S3 object store", () => {
 
     await expect(
       store.put({
+        jobId,
+        artifactRefId,
         objectKey: `build-inputs/${"a".repeat(64)}/${archiveDigest}.zip`,
         archive,
         archiveDigest,
@@ -85,6 +92,8 @@ describe("Preview build-input S3 object store", () => {
     });
     await expect(
       store.put({
+        jobId,
+        artifactRefId,
         objectKey: "build-inputs/../../other/object.zip",
         archive: Buffer.from("x"),
         archiveDigest: "0".repeat(64),

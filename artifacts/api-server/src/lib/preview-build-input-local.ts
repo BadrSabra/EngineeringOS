@@ -16,6 +16,7 @@ import {
   type PreviewBuildInputObjectStore,
   type PreviewBuildArtifactWriteMetadata,
 } from "./preview-build-upload.js";
+import { previewBuildArtifactRefId } from "./preview-artifact-reference.js";
 
 const OBJECT_KEY_PATTERN =
   /^build-inputs\/([a-f0-9]{64})\/([a-f0-9]{64})\.zip$/;
@@ -55,9 +56,8 @@ export class LocalPreviewBuildInputStoreError extends PreviewBuildInputObjectSto
 }
 
 type ObjectIdentity = {
-  bindingDigest: string;
   archiveDigest?: string;
-  referenceName: string;
+  artifactRole: "input" | "output";
   maxBytes: number;
   retentionPolicy: PreviewBuildArtifactWriteMetadata["retentionPolicy"];
 };
@@ -69,9 +69,8 @@ function parseObjectKey(value: string): ObjectIdentity {
       : null;
   if (inputMatch) {
     return {
-      bindingDigest: inputMatch[1]!,
       archiveDigest: inputMatch[2]!,
-      referenceName: `${inputMatch[2]!}.json`,
+      artifactRole: "input",
       maxBytes: DEFAULT_MAX_INPUT_BYTES,
       retentionPolicy: "preview-build-input-24h-v1",
     };
@@ -87,27 +86,10 @@ function parseObjectKey(value: string): ObjectIdentity {
     );
   }
   return {
-    bindingDigest: createHash("sha256")
-      .update("EngineeringOS Local Preview Output Reference v1\n")
-      .update(value)
-      .digest("hex"),
-    referenceName: "output.json",
+    artifactRole: "output",
     maxBytes: MAX_OUTPUT_BYTES,
     retentionPolicy: "preview-build-output-live-reference-v1",
   };
-}
-
-function objectRefIdForObjectKey(objectKey: string): string {
-  const bytes = createHash("sha256")
-    .update("EngineeringOS Preview Artifact Reference v1\n")
-    .update(objectKey, "utf8")
-    .digest()
-    .subarray(0, 16);
-  // RFC 9562 UUIDv8: deterministic, domain-separated reference ID.
-  bytes[6] = (bytes[6]! & 0x0f) | 0x80;
-  bytes[8] = (bytes[8]! & 0x3f) | 0x80;
-  const hex = bytes.toString("hex");
-  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
 }
 
 function isWithin(base: string, target: string): boolean {
@@ -404,26 +386,41 @@ export type LocalPreviewBuildInputObjectStore =
      */
     storeId: string;
     putStream(input: {
+      jobId: string;
+      artifactRefId: string;
       objectKey: string;
       bytes: AsyncIterable<Uint8Array>;
       archiveDigest: string;
       contentLength: number;
     }): Promise<PreviewBuildArtifactWriteMetadata>;
-    inspect(
-      objectKey: string,
-    ): Promise<PreviewBuildArtifactWriteMetadata>;
-    read(objectKey: string): Promise<Buffer>;
-    remove(objectKey: string, expectedDigest?: string): Promise<void>;
+    inspect(input: {
+      objectKey: string;
+      jobId: string;
+      artifactRefId: string;
+    }): Promise<PreviewBuildArtifactWriteMetadata>;
+    read(input: {
+      objectKey: string;
+      jobId: string;
+      artifactRefId: string;
+    }): Promise<Buffer>;
+    remove(input: {
+      objectKey: string;
+      jobId: string;
+      artifactRefId: string;
+      expectedDigest?: string;
+    }): Promise<void>;
   };
 
 export type LocalPreviewArtifactObjectStore =
   LocalPreviewBuildInputObjectStore;
 
 /**
- * Local immutable CAS for the existing signed build-input object-key contract.
+ * Local immutable CAS for job-scoped Preview artifact references.
  * The configured root must be private, explicit, and outside the live project
  * root. Mode 0700 does not protect against code running as the same UID; do not
  * use it until Candidate execution is separated from the trusted store process.
+ * The stored jobId/reference are not authorization by themselves: admission,
+ * current Candidate checks, and paired-Agent ownership remain server duties.
  * This is storage, not an execution sandbox.
  */
 export async function createLocalPreviewArtifactObjectStore(input: {
@@ -500,8 +497,14 @@ export async function createLocalPreviewArtifactObjectStore(input: {
       digest.slice(0, 2),
       `${digest.slice(2)}.zip`,
     );
-  const referencePath = (bindingDigest: string, referenceName: string) =>
-    resolve(configuredRoot, "refs", bindingDigest, referenceName);
+  const referencePath = (artifactRefId: string) => {
+    if (!UUID_PATTERN.test(artifactRefId)) {
+      throw new LocalPreviewBuildInputStoreError(
+        "PREVIEW_LOCAL_STORE_INVALID_OBJECT",
+      );
+    }
+    return resolve(configuredRoot, "refs", `${artifactRefId}.json`);
+  };
 
   async function publishImmutable(
     stagedPath: string,
@@ -541,6 +544,7 @@ export async function createLocalPreviewArtifactObjectStore(input: {
     objectKey: string,
     expectedStoreId: string,
     expectedArchiveDigest?: string,
+    expectedReference?: { jobId: string; artifactRefId: string },
   ): Promise<PreviewBuildArtifactWriteMetadata> {
     const identity = parseObjectKey(objectKey);
     let manifest: unknown;
@@ -557,24 +561,34 @@ export async function createLocalPreviewArtifactObjectStore(input: {
       );
     }
     const record = manifest as Record<string, unknown>;
+    const jobId = record.jobId;
+    const artifactRefId = record.artifactRefId;
     const archiveDigest = record.archiveDigest;
     const contentLength = record.contentLength;
-    const objectRefId = objectRefIdForObjectKey(objectKey);
+    const expectedArtifactRefId =
+      typeof jobId === "string" && UUID_PATTERN.test(jobId)
+        ? previewBuildArtifactRefId(jobId, identity.artifactRole)
+        : "";
     const canonical = JSON.stringify({
-      version: 2,
+      version: 3,
       objectKey,
       storeId: expectedStoreId,
-      objectRefId,
+      jobId,
+      artifactRefId,
       archiveDigest,
       contentLength,
       retentionPolicy: identity.retentionPolicy,
     });
     if (
-      Object.keys(record).length !== 7 ||
-      record.version !== 2 ||
+      Object.keys(record).length !== 8 ||
+      record.version !== 3 ||
       record.objectKey !== objectKey ||
       record.storeId !== expectedStoreId ||
-      record.objectRefId !== objectRefId ||
+      record.jobId !== jobId ||
+      record.artifactRefId !== expectedArtifactRefId ||
+      (expectedReference !== undefined &&
+        (jobId !== expectedReference.jobId ||
+          artifactRefId !== expectedReference.artifactRefId)) ||
       record.retentionPolicy !== identity.retentionPolicy ||
       typeof archiveDigest !== "string" ||
       !DIGEST_PATTERN.test(archiveDigest) ||
@@ -594,7 +608,8 @@ export async function createLocalPreviewArtifactObjectStore(input: {
     }
     return {
       storeId: expectedStoreId,
-      objectRefId,
+      jobId: jobId as string,
+      artifactRefId: artifactRefId as string,
       digest: archiveDigest,
       sizeBytes: contentLength,
       manifestDigest: createHash("sha256")
@@ -606,88 +621,59 @@ export async function createLocalPreviewArtifactObjectStore(input: {
 
   async function referenceExistsForDigest(digest: string): Promise<boolean> {
     const refsRoot = resolve(configuredRoot, "refs");
-    const bindingDirectories = await readdir(refsRoot, {
-      withFileTypes: true,
-    }).catch(() => {
+    const refsStat = await lstat(refsRoot);
+    if (
+      !refsStat.isDirectory() ||
+      refsStat.isSymbolicLink() ||
+      (typeof process.getuid === "function" &&
+        refsStat.uid !== process.getuid()) ||
+      (refsStat.mode & 0o077) !== 0
+    ) {
       throw new LocalPreviewBuildInputStoreError(
-        "PREVIEW_LOCAL_STORE_UNAVAILABLE",
+        "PREVIEW_LOCAL_STORE_INVALID_OBJECT",
       );
-    });
-    for (const bindingEntry of bindingDirectories) {
-      if (
-        !bindingEntry.isDirectory() ||
-        bindingEntry.isSymbolicLink() ||
-        !DIGEST_PATTERN.test(bindingEntry.name)
-      ) {
+    }
+    const files = await readdir(refsRoot, { withFileTypes: true });
+    for (const entry of files) {
+      const match =
+        /^([0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12})\.json$/i.exec(
+          entry.name,
+        );
+      if (!entry.isFile() || entry.isSymbolicLink() || !match) {
         throw new LocalPreviewBuildInputStoreError(
           "PREVIEW_LOCAL_STORE_INVALID_OBJECT",
         );
       }
-      const bindingDir = resolve(refsRoot, bindingEntry.name);
-      const bindingStat = await lstat(bindingDir);
-      if (
-        !bindingStat.isDirectory() ||
-        bindingStat.isSymbolicLink() ||
-        (typeof process.getuid === "function" &&
-          bindingStat.uid !== process.getuid()) ||
-        (bindingStat.mode & 0o077) !== 0
-      ) {
+      const manifestBytes = await readRegularFile(
+        resolve(refsRoot, entry.name),
+        MAX_MANIFEST_BYTES,
+      );
+      let manifest: unknown;
+      try {
+        manifest = JSON.parse(manifestBytes.toString("utf8"));
+      } catch {
         throw new LocalPreviewBuildInputStoreError(
           "PREVIEW_LOCAL_STORE_INVALID_OBJECT",
         );
       }
-      const files = await readdir(bindingDir, { withFileTypes: true });
-      for (const entry of files) {
-        const match = /^([a-f0-9]{64})\.json$/.exec(entry.name);
-        const outputReference = entry.name === "output.json";
-        if (
-          !entry.isFile() ||
-          entry.isSymbolicLink() ||
-          (!match && !outputReference)
-        ) {
-          throw new LocalPreviewBuildInputStoreError(
-            "PREVIEW_LOCAL_STORE_INVALID_OBJECT",
-          );
-        }
-        if (match && match[1] !== digest) continue;
-        const manifestBytes = await readRegularFile(
-          resolve(bindingDir, entry.name),
-          MAX_MANIFEST_BYTES,
+      const objectKey =
+        manifest &&
+        typeof manifest === "object" &&
+        !Array.isArray(manifest) &&
+        typeof (manifest as Record<string, unknown>).objectKey === "string"
+          ? ((manifest as Record<string, unknown>).objectKey as string)
+          : "";
+      const artifact = await validateManifest(
+        manifestBytes,
+        objectKey,
+        storeId,
+      );
+      if (artifact.artifactRefId !== match[1]) {
+        throw new LocalPreviewBuildInputStoreError(
+          "PREVIEW_LOCAL_STORE_INVALID_OBJECT",
         );
-        let manifest: unknown;
-        try {
-          manifest = JSON.parse(manifestBytes.toString("utf8"));
-        } catch {
-          throw new LocalPreviewBuildInputStoreError(
-            "PREVIEW_LOCAL_STORE_INVALID_OBJECT",
-          );
-        }
-        const objectKey =
-          manifest &&
-          typeof manifest === "object" &&
-          !Array.isArray(manifest) &&
-          typeof (manifest as Record<string, unknown>).objectKey === "string"
-            ? ((manifest as Record<string, unknown>).objectKey as string)
-            : "";
-        const identity = parseObjectKey(objectKey);
-        if (
-          identity.bindingDigest !== bindingEntry.name ||
-          identity.referenceName !== entry.name ||
-          (identity.archiveDigest !== undefined &&
-            identity.archiveDigest !== (match?.[1] ?? digest))
-        ) {
-          throw new LocalPreviewBuildInputStoreError(
-            "PREVIEW_LOCAL_STORE_INVALID_OBJECT",
-          );
-        }
-        const artifact = await validateManifest(
-          manifestBytes,
-          objectKey,
-          storeId,
-          match?.[1],
-        );
-        if (artifact.digest === digest) return true;
       }
+      if (artifact.digest === digest) return true;
     }
     return false;
   }
@@ -697,6 +683,8 @@ export async function createLocalPreviewArtifactObjectStore(input: {
     "putStream" | "inspect" | "read" | "remove"
   > = {
     async putStream({
+      jobId,
+      artifactRefId,
       objectKey,
       bytes,
       archiveDigest,
@@ -704,6 +692,10 @@ export async function createLocalPreviewArtifactObjectStore(input: {
     }): Promise<PreviewBuildArtifactWriteMetadata> {
       const identity = parseObjectKey(objectKey);
       if (
+        typeof jobId !== "string" ||
+        !UUID_PATTERN.test(jobId) ||
+        artifactRefId !==
+          previewBuildArtifactRefId(jobId, identity.artifactRole) ||
         typeof archiveDigest !== "string" ||
         !DIGEST_PATTERN.test(archiveDigest) ||
         !Number.isSafeInteger(contentLength) ||
@@ -801,10 +793,11 @@ export async function createLocalPreviewArtifactObjectStore(input: {
 
         const manifest = Buffer.from(
           JSON.stringify({
-            version: 2,
+            version: 3,
             objectKey,
             storeId,
-            objectRefId: objectRefIdForObjectKey(objectKey),
+            jobId,
+            artifactRefId,
             archiveDigest: digest,
             contentLength,
             retentionPolicy: identity.retentionPolicy,
@@ -832,13 +825,14 @@ export async function createLocalPreviewArtifactObjectStore(input: {
         }
         await publishImmutable(
           referenceTemp,
-          referencePath(identity.bindingDigest, identity.referenceName),
+          referencePath(artifactRefId),
           manifest,
         );
         referenceTemp = undefined;
         return {
           storeId,
-          objectRefId: objectRefIdForObjectKey(objectKey),
+          jobId,
+          artifactRefId,
           digest,
           sizeBytes: contentLength,
           manifestDigest: createHash("sha256")
@@ -858,10 +852,18 @@ export async function createLocalPreviewArtifactObjectStore(input: {
       }
     },
 
-    async read(objectKey) {
+    async read({ objectKey, jobId, artifactRefId }) {
       const identity = parseObjectKey(objectKey);
+      if (
+        !UUID_PATTERN.test(jobId) ||
+        artifactRefId !== previewBuildArtifactRefId(jobId, identity.artifactRole)
+      ) {
+        throw new LocalPreviewBuildInputStoreError(
+          "PREVIEW_LOCAL_STORE_INVALID_OBJECT",
+        );
+      }
       const manifestBytes = await readRegularFile(
-        referencePath(identity.bindingDigest, identity.referenceName),
+        referencePath(artifactRefId),
         MAX_MANIFEST_BYTES,
       );
       const artifact = await validateManifest(
@@ -869,6 +871,7 @@ export async function createLocalPreviewArtifactObjectStore(input: {
         objectKey,
         storeId,
         identity.archiveDigest,
+        { jobId, artifactRefId },
       );
       const content = await readRegularFile(
         blobPath(artifact.digest),
@@ -886,10 +889,18 @@ export async function createLocalPreviewArtifactObjectStore(input: {
       return content;
     },
 
-    async inspect(objectKey) {
+    async inspect({ objectKey, jobId, artifactRefId }) {
       const identity = parseObjectKey(objectKey);
+      if (
+        !UUID_PATTERN.test(jobId) ||
+        artifactRefId !== previewBuildArtifactRefId(jobId, identity.artifactRole)
+      ) {
+        throw new LocalPreviewBuildInputStoreError(
+          "PREVIEW_LOCAL_STORE_INVALID_OBJECT",
+        );
+      }
       const manifestBytes = await readRegularFile(
-        referencePath(identity.bindingDigest, identity.referenceName),
+        referencePath(artifactRefId),
         MAX_MANIFEST_BYTES,
       );
       const artifact = await validateManifest(
@@ -897,6 +908,7 @@ export async function createLocalPreviewArtifactObjectStore(input: {
         objectKey,
         storeId,
         identity.archiveDigest,
+        { jobId, artifactRefId },
       );
       const content = await readRegularFile(
         blobPath(artifact.digest),
@@ -913,9 +925,11 @@ export async function createLocalPreviewArtifactObjectStore(input: {
       return artifact;
     },
 
-    async remove(objectKey, expectedDigest) {
+    async remove({ objectKey, jobId, artifactRefId, expectedDigest }) {
       const identity = parseObjectKey(objectKey);
       if (
+        !UUID_PATTERN.test(jobId) ||
+        artifactRefId !== previewBuildArtifactRefId(jobId, identity.artifactRole) ||
         expectedDigest !== undefined &&
         !DIGEST_PATTERN.test(expectedDigest)
       ) {
@@ -933,10 +947,7 @@ export async function createLocalPreviewArtifactObjectStore(input: {
         );
       }
       let archiveDigest = identity.archiveDigest ?? expectedDigest;
-      const reference = referencePath(
-        identity.bindingDigest,
-        identity.referenceName,
-      );
+      const reference = referencePath(artifactRefId);
       let referenceStat;
       try {
         referenceStat = await lstat(reference);
@@ -962,6 +973,7 @@ export async function createLocalPreviewArtifactObjectStore(input: {
           objectKey,
           storeId,
           expectedDigest ?? identity.archiveDigest,
+          { jobId, artifactRefId },
         );
         archiveDigest = artifact.digest;
         try {
@@ -1025,13 +1037,22 @@ export async function createLocalPreviewArtifactObjectStore(input: {
   return {
     ...store,
     storeId,
-    async put({ objectKey, archive, archiveDigest, contentLength }) {
+    async put({
+      objectKey,
+      jobId,
+      artifactRefId,
+      archive,
+      archiveDigest,
+      contentLength,
+    }) {
       if (!Buffer.isBuffer(archive)) {
         throw new LocalPreviewBuildInputStoreError(
           "PREVIEW_LOCAL_STORE_INVALID_OBJECT",
         );
       }
       await store.putStream({
+        jobId,
+        artifactRefId,
         objectKey,
         bytes: (async function* () {
           yield archive;

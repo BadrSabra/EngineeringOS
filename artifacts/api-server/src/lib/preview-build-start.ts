@@ -7,6 +7,7 @@ import {
 import type { PreviewBuildInputArchive } from "./preview-build-input.js";
 import { uploadPreviewBuildInput } from "./preview-build-input-client.js";
 import { previewBuildInputObjectKeyForArchive } from "./preview-build-upload.js";
+import { previewBuildArtifactRefId } from "./preview-artifact-reference.js";
 import {
   assertPreviewBuildJobPrivateKeyPem,
   type PreviewBuildJobClaims,
@@ -369,6 +370,7 @@ export async function startOrResumePreviewBuild(input: {
         uploaded = await uploadInput({
           gatewayUrl: input.config.gatewayUrl,
           privateKeyPem: input.config.buildInputUploadPrivateKeyPem,
+          jobId: job.jobId,
           identity,
           buildInput,
           now: now(),
@@ -377,6 +379,9 @@ export async function startOrResumePreviewBuild(input: {
         throw new PreviewBuildStartError("PREVIEW_BUILD_JOB_UNAVAILABLE");
       }
       if (
+        uploaded.jobId !== job.jobId ||
+        uploaded.artifactRefId !==
+          previewBuildArtifactRefId(job.jobId, "input") ||
         uploaded.sourceDigest !== buildInput.manifest.sourceDigest ||
         uploaded.archiveDigest !== buildInput.archiveDigest ||
         uploaded.objectKey !== expectedInputArtifactKey ||

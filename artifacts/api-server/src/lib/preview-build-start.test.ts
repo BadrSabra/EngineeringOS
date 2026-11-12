@@ -2,6 +2,7 @@ import { generateKeyPairSync } from "node:crypto";
 import { describe, expect, it, vi } from "vitest";
 import type { PreviewBuildJob } from "@workspace/db";
 import { previewBuildInputObjectKeyForArchive } from "./preview-build-upload.js";
+import { previewBuildArtifactRefId } from "./preview-artifact-reference.js";
 import {
   startOrResumePreviewBuild,
   type PreviewBuildCandidate,
@@ -135,6 +136,8 @@ function baseDependencies() {
     findForOwner: vi.fn(async () => current),
     createArchive: vi.fn(async () => archive),
     uploadInput: vi.fn(async () => ({
+      jobId,
+      artifactRefId: previewBuildArtifactRefId(jobId, "input"),
       sourceDigest,
       archiveDigest,
       objectKey: previewBuildInputObjectKeyForArchive({
@@ -196,6 +199,9 @@ describe("Preview build start orchestration", () => {
       identity,
     });
     expect(dependencies.uploadInput).toHaveBeenCalledTimes(1);
+    expect(dependencies.uploadInput).toHaveBeenCalledWith(
+      expect.objectContaining({ jobId }),
+    );
     expect(dependencies.createJob).toHaveBeenCalledWith(
       expect.objectContaining({
         clientRequestId,
