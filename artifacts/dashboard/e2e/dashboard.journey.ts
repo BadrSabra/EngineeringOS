@@ -10593,6 +10593,7 @@ test.describe("EngineeringOS dashboard browser journey", () => {
     const workspaceEventRequests: string[] = [];
     const chatSendRequests: string[] = [];
     let workspaceSnapshotRequests = 0;
+    let firstWorkspaceStreamAborted = false;
     page.on("request", (request) => {
       const url = new URL(request.url());
       if (
@@ -10622,6 +10623,31 @@ test.describe("EngineeringOS dashboard browser journey", () => {
         `UXW-02 live workspace ${randomUUID().slice(0, 8)}`,
       );
 
+      const goal = `هدف UXW-02 محفوظ وغير مرسل ${randomUUID().slice(0, 8)}`;
+      await page.goto(DASHBOARD_PATH);
+      await page.getByTestId("input-home-goal").fill(goal);
+      await page.getByTestId("button-start-goal").click();
+      await expect(page.getByTestId("panel-goal-destination")).toBeVisible();
+      await page.getByTestId("select-goal-project").selectOption(project.id);
+      await page.getByTestId("button-route-goal-project").click();
+      await page.waitForURL((url) =>
+        url.pathname.endsWith("/ai")
+        && url.searchParams.get("projectId") === project!.id
+        && Boolean(url.searchParams.get("goalDraftId")),
+      );
+      await expect(page.getByTestId("status-project-planning-handoff")).toBeVisible();
+      await expect(page.getByTestId("input-ai-chat-composer")).toHaveValue(goal);
+
+      const workspaceEventsPattern =
+        `**/api/projects/${project.id}/workspace/events`;
+      await page.route(workspaceEventsPattern, async (route) => {
+        if (!firstWorkspaceStreamAborted) {
+          firstWorkspaceStreamAborted = true;
+          await route.abort("internetdisconnected");
+          return;
+        }
+        await route.continue();
+      });
       await page.goto(`${DASHBOARD_PATH}projects/${project.id}`);
       const openWorkspace = page.getByTestId("link-project-workspace");
       await expect(openWorkspace).toBeVisible();
@@ -10640,6 +10666,22 @@ test.describe("EngineeringOS dashboard browser journey", () => {
         },
       });
       await expect(page.getByTestId("project-workspace")).toBeVisible();
+      await expect(
+        page.getByText(/انقطع البث؛ جارٍ إعادة الاتصال|البث غير متاح؛ يستمر التحديث الدوري/),
+      ).toBeVisible();
+      const snapshotsBeforeReconnect = workspaceSnapshotRequests;
+      await expect.poll(
+        () => workspaceEventRequests.length,
+        { timeout: 20_000, message: "The aborted authenticated SSE request should be retried." },
+      ).toBeGreaterThanOrEqual(2);
+      await expect(
+        page.getByText("متصل بتحديثات مساحة المشروع", { exact: true }),
+      ).toBeVisible({ timeout: 20_000 });
+      await expect.poll(
+        () => workspaceSnapshotRequests,
+        { timeout: 15_000, message: "SSE reconnection should rehydrate the live Snapshot." },
+      ).toBeGreaterThan(snapshotsBeforeReconnect);
+      await page.unroute(workspaceEventsPattern);
       await expect(
         page.getByText("متصل بتحديثات مساحة المشروع", { exact: true }),
       ).toBeVisible();
@@ -10696,27 +10738,22 @@ test.describe("EngineeringOS dashboard browser journey", () => {
       await expect(page.getByText(updatedDescription, { exact: true })).toBeVisible();
       expect(workspaceEventRequests.length).toBeGreaterThanOrEqual(2);
 
-      const snapshotsBeforeDisconnect = workspaceSnapshotRequests;
-      const eventStreamsBeforeDisconnect = workspaceEventRequests.length;
-      await page.context().setOffline(true);
-      await expect(
-        page.getByText(/انقطع البث؛ جارٍ إعادة الاتصال|البث غير متاح؛ يستمر التحديث الدوري/),
-      ).toBeVisible();
-      await page.context().setOffline(false);
-      await expect.poll(
-        () => workspaceEventRequests.length,
-        { timeout: 20_000, message: "The authenticated Workspace SSE stream should reconnect." },
-      ).toBeGreaterThan(eventStreamsBeforeDisconnect);
-      await expect(
-        page.getByText("متصل بتحديثات مساحة المشروع", { exact: true }),
-      ).toBeVisible({ timeout: 20_000 });
-      await expect.poll(
-        () => workspaceSnapshotRequests,
-        { timeout: 15_000, message: "Reconnect should rehydrate the live Snapshot." },
-      ).toBeGreaterThan(snapshotsBeforeDisconnect);
-
-      const goal = `هدف UXW-02 غير المرسل ${randomUUID().slice(0, 8)}`;
-      await page.getByTestId("input-ai-chat-composer").fill(goal);
+      const goalDraftState = async () => page.evaluate(({ ownerId, text, projectId }) => {
+        const drafts = JSON.parse(
+          sessionStorage.getItem("engineeringos:goal-drafts:v2") ?? "[]",
+        ) as Array<Record<string, unknown>>;
+        return drafts.find((draft) =>
+          draft.ownerId === ownerId
+          && draft.projectId === projectId
+          && draft.text === text
+        ) ?? null;
+      }, { ownerId: project.ownerId, text: goal, projectId: project.id });
+      expect(await goalDraftState()).toMatchObject({
+        ownerId: project.ownerId,
+        projectId: project.id,
+        text: goal,
+        sendAttemptedAt: null,
+      });
       await page.goBack();
       await expect(page).toHaveURL(
         new RegExp(`/dashboard/projects/${project.id}$`),
@@ -10729,7 +10766,14 @@ test.describe("EngineeringOS dashboard browser journey", () => {
       await expect(page.getByTestId("project-workspace")).toBeVisible();
       await expect(page.getByRole("heading", { name: project.name })).toBeVisible();
       await expect(page.getByText(updatedDescription, { exact: true })).toBeVisible();
+      await expect(page.getByTestId("status-project-planning-handoff")).toBeVisible();
       await expect(page.getByTestId("input-ai-chat-composer")).toHaveValue(goal);
+      expect(await goalDraftState()).toMatchObject({
+        ownerId: project.ownerId,
+        projectId: project.id,
+        text: goal,
+        sendAttemptedAt: null,
+      });
       const authenticatedState = await page.evaluate(async (projectId) => {
         const response = await fetch("/api/projects", { credentials: "include" });
         const rows = (await response.json().catch(() => [])) as Array<{
@@ -10741,13 +10785,13 @@ test.describe("EngineeringOS dashboard browser journey", () => {
           project: rows.find((row) => row.id === projectId) ?? null,
         };
       }, project.id);
-      expect(authenticatedState).toEqual({
-        status: 200,
-        project: { id: project.id, ownerId: project.ownerId },
+      expect(authenticatedState.status).toBe(200);
+      expect(authenticatedState.project).toMatchObject({
+        id: project.id,
+        ownerId: project.ownerId,
       });
       expect(chatSendRequests).toEqual([]);
     } finally {
-      await page.context().setOffline(false).catch(() => undefined);
       if (project) {
         expect(await deleteWorkspaceJourneyProject(page, project.id)).toBe(204);
       }
