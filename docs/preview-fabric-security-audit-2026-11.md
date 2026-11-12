@@ -1,6 +1,7 @@
 # Preview Fabric Security Audit
 
 **Started:** 2026-11-12
+**Follow-up:** 2026-11-13
 
 **Method:** Read-only code/configuration review plus independent repository scans.
 
@@ -35,7 +36,7 @@ The AWS Preview code has substantially stronger source-level boundaries: digest-
 
 ## Repository-wide scanner baseline
 
-The independent scans reported **0 SAST findings**, **40 high / 45 moderate / 11 low dependency findings, with 0 critical**, and **3 low HoundDog findings**. These are repository-wide counts, not proof that each finding is reachable or exploitable. The dependency and logging findings must be mapped to their runtime paths in the relevant audit sections; no dependency changes were made.
+The initial independent scans reported **0 SAST findings**, **40 high / 45 moderate / 11 low dependency findings, with 0 critical**, and **3 low HoundDog findings**. These are the pre-remediation repository-wide counts, not proof that each finding is reachable or exploitable, and they are not a current clean-scan claim. Follow-up remediation below addresses only the named archive dependency and upload path; it does not resolve or re-audit the remaining repository findings.
 
 ## 1. Runtime isolation and host boundary
 
@@ -149,7 +150,11 @@ The PRS describes pairing, outbound TLS, scoped jobs, root confinement, revocati
 3. Set and verify private filesystem modes for uploads, Local Agent workspaces, artifacts, and cleanup roots.
 4. Do not enable Local Agent until pairing, root confinement, lease expiry, revocation, update trust, and cross-project denial are implemented and tested.
 
-**Remediation evidence:** Candidate archive creation now reads and packages only the explicitly selected nested `sourceRoot`, preserving its relative path for the existing Builder profile. It still verifies the full Candidate tree hash before and after collection, while excluding sibling paths from the archive and Manifest. `sourceRoot: "."` intentionally selects the whole Candidate; supporting workspace-level dependencies outside a nested root remains a future explicit allowlist decision. Tests reject symlink/missing roots and prove sibling content is absent. This closes the sibling-file transfer portion of FS-01 for nested roots only; the dependency-parser/concurrency and actual Agent qualification findings remain open.
+**Remediation evidence — FS-01 (2026-11-13):** Candidate archive creation now reads and packages only the explicitly selected nested `sourceRoot`, preserving its relative path for the existing Builder profile. It still verifies the full Candidate tree hash before and after collection, while excluding sibling paths from the archive and Manifest. `sourceRoot: "."` intentionally selects the whole Candidate; supporting workspace-level dependencies outside a nested root remains a future explicit allowlist decision. Tests reject symlink/missing roots and prove sibling content is absent. This closes the sibling-file transfer portion of FS-01 for nested roots only.
+
+**Remediation evidence — FS-02/FS-03 (2026-11-13):** updated the locked API dependency from `adm-zip` 0.6.0 to 0.6.1, the current registry release; the current `pnpm audit` graph reports no remaining `adm-zip` advisories. The existing API surface and extraction policy remain unchanged. Upload admission now permits one archive request per API process, acquired before Multer writes request bytes; additional requests receive `429 UPLOAD_ARCHIVE_BUSY` with `Retry-After: 1`. Upload staging directories are explicitly `0700`, uploaded files are changed to `0600` before parsing, extraction directories are `0700`, and the route verifies ownership/type and keeps the tar intermediate inside the private extraction directory. A successful extraction remains available to the owner-scoped upload store; rejected paths clean up staging.
+
+Verification: 46 focused archive/build-input/upload tests passed, API TypeScript check passed, `git diff --check` passed, and the current dependency audit reports no remaining `adm-zip` advisories. These changes bound simultaneous decompression only within one API process. They do not create an OS-isolated decompressor, a distributed admission limit across replicas, or a stronger-than-runc Candidate execution boundary. Therefore FS-02 is **partially remediated**, FS-03 is **partially remediated for this upload route only**, and Local Agent/Candidate execution remain blocked. The earlier initial run did fail: the unsupported-file test found a staging-directory leak and TypeScript found an error callback signature mismatch; the only affected files were in the test's temporary directory, and no upload was registered or DB accessed. Both were fixed and the independent rerun passed.
 
 ## 3. Secrets, environment, and database isolation
 

@@ -47,7 +47,7 @@
     "@workspace/knowledge-engine": "workspace:*",
     "@workspace/preview-runner-contract": "workspace:*",
     "@workspace/scanner": "workspace:*",
-    "adm-zip": "^0.6.0",
+    "adm-zip": "^0.6.1",
     "cookie-parser": "^1.4.7",
     "cors": "^2.8.6",
     "drizzle-orm": "catalog:",

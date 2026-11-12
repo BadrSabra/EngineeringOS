@@ -86,6 +86,7 @@
 - [Runtime observation boundary](runtime-observation-boundary.md) — runtime and validator probes attest only a bound direct PID; temp validation roots never replace project provenance or grant acceptance.
 - [Preview build trust boundary](preview-build-trust-boundary.md) — ECS receives only an S3 environment-file ARN; exact fingerprints and client tokens recover ambiguous launches without duplicating tasks.
 - [Preview build-job lifecycle](preview-build-job-lifecycle.md) — job-and-role refs own CAS manifests; blobs deduplicate by digest, and only an independent receipt authorizes Preview.
+- [Archive upload admission](archive-upload-admission.md) — process-local throttles protect one API instance only; multi-replica and untrusted decompression need stronger shared isolation.
 - [Preview image builds](preview-image-build-reproducibility.md) — pin the Node digest and workspace pnpm; allow Builder only one task-scoped `/tmp` scratch volume.
 - [Preview محلي أولًا](preview-local-first-architecture.md) — ثبّت عقودًا محايدة ومخزنًا محليًا قبل Builder/Attestor/Runtime؛ AWS وCloudflare adapters اختيارية ولا تغير إثبات Candidate.
 - [Runtime replay fixture boundary](runtime-replay-fixture-boundary.md) — isolated replay fixtures must keep required runtime inputs outside excluded dependency directories.
