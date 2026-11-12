@@ -8,6 +8,7 @@ import {
   readdir,
   realpath,
   unlink,
+  type FileHandle,
 } from "node:fs/promises";
 import { dirname, isAbsolute, relative, resolve, sep } from "node:path";
 import type { PreviewBuildInputObjectStore } from "./preview-build-upload.js";
@@ -17,8 +18,11 @@ const OBJECT_KEY_PATTERN =
 const DIGEST_PATTERN = /^[a-f0-9]{64}$/;
 const DEFAULT_MAX_BYTES = 55 * 1024 * 1024;
 const MAX_MANIFEST_BYTES = 2_048;
+const STORE_IDENTITY_FILE = ".store-identity";
 const CHUNK_BYTES = 64 * 1024;
 const FILE_FLAGS = constants.O_NOFOLLOW;
+const UUID_PATTERN =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 export class LocalPreviewBuildInputStoreError extends Error {
   constructor(
@@ -247,8 +251,109 @@ async function readRegularFile(
   }
 }
 
+function parseStoreId(bytes: Buffer): string {
+  let value: unknown;
+  try {
+    value = JSON.parse(bytes.toString("utf8"));
+  } catch {
+    throw new LocalPreviewBuildInputStoreError(
+      "PREVIEW_LOCAL_STORE_INVALID_CONFIG",
+    );
+  }
+  if (
+    !value ||
+    typeof value !== "object" ||
+    Array.isArray(value) ||
+    Object.keys(value).length !== 2 ||
+    (value as Record<string, unknown>).version !== 1 ||
+    typeof (value as Record<string, unknown>).storeId !== "string" ||
+    !UUID_PATTERN.test((value as Record<string, string>).storeId) ||
+    bytes.toString("utf8") !==
+      JSON.stringify({
+        version: 1,
+        storeId: (value as Record<string, string>).storeId,
+      })
+  ) {
+    throw new LocalPreviewBuildInputStoreError(
+      "PREVIEW_LOCAL_STORE_INVALID_CONFIG",
+    );
+  }
+  return (value as Record<string, string>).storeId;
+}
+
+async function readStoreId(path: string): Promise<string> {
+  return parseStoreId(await readRegularFile(path, 128));
+}
+
+async function loadOrCreateStoreId(rootDir: string): Promise<string> {
+  const identityPath = resolve(rootDir, STORE_IDENTITY_FILE);
+  const readExisting = async () => {
+    for (let attempt = 0; attempt < 20; attempt += 1) {
+      try {
+        return await readStoreId(identityPath);
+      } catch (error) {
+        if (
+          error instanceof LocalPreviewBuildInputStoreError &&
+          error.code === "PREVIEW_LOCAL_STORE_INVALID_OBJECT"
+        ) {
+          // A concurrent no-replace publication may briefly have two links.
+          await new Promise((resolveDelay) => setTimeout(resolveDelay, 5));
+          continue;
+        }
+        throw error;
+      }
+    }
+    throw new LocalPreviewBuildInputStoreError(
+      "PREVIEW_LOCAL_STORE_INVALID_CONFIG",
+    );
+  };
+
+  try {
+    await lstat(identityPath);
+    return await readExisting();
+  } catch (error) {
+    if (errorCode(error) !== "ENOENT") throw error;
+  }
+
+  const stagePath = resolve(rootDir, `.store-identity-${randomUUID()}`);
+  let stage: FileHandle | undefined;
+  try {
+    stage = await open(
+      stagePath,
+      constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | FILE_FLAGS,
+      0o600,
+    );
+    const storeId = randomUUID();
+    await stage.writeFile(JSON.stringify({ version: 1, storeId }), "utf8");
+    await stage.sync();
+    await stage.close();
+    stage = undefined;
+    try {
+      await link(stagePath, identityPath);
+    } catch (error) {
+      if (errorCode(error) !== "EEXIST") throw error;
+    } finally {
+      await unlink(stagePath).catch(() => undefined);
+    }
+    await syncDirectory(rootDir);
+    return await readExisting();
+  } catch (error) {
+    await stage?.close().catch(() => undefined);
+    await unlink(stagePath).catch(() => undefined);
+    if (error instanceof LocalPreviewBuildInputStoreError) throw error;
+    throw new LocalPreviewBuildInputStoreError(
+      "PREVIEW_LOCAL_STORE_UNAVAILABLE",
+    );
+  }
+}
+
 export type LocalPreviewBuildInputObjectStore =
   PreviewBuildInputObjectStore & {
+    /**
+     * Stable for this initialized directory; not an authenticated Agent
+     * identity until a separate pairing flow registers its key.
+     */
+    storeId: string;
     putStream(input: {
       objectKey: string;
       bytes: AsyncIterable<Uint8Array>;
@@ -331,6 +436,7 @@ export async function createLocalPreviewBuildInputObjectStore(input: {
       "PREVIEW_LOCAL_STORE_INVALID_CONFIG",
     );
   }
+  const storeId = await loadOrCreateStoreId(configuredRoot);
 
   const blobPath = (digest: string) =>
     resolve(
@@ -741,6 +847,7 @@ export async function createLocalPreviewBuildInputObjectStore(input: {
 
   return {
     ...store,
+    storeId,
     async put({ objectKey, archive, archiveDigest, contentLength }) {
       if (!Buffer.isBuffer(archive)) {
         throw new LocalPreviewBuildInputStoreError(

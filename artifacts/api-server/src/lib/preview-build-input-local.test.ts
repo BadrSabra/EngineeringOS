@@ -50,6 +50,44 @@ afterEach(async () => {
 });
 
 describe("Local Preview build-input CAS", () => {
+  it("persists a private stable store ID without treating it as a paired Agent key", async () => {
+    const { rootDir, store } = await createStore();
+    const identityPath = join(rootDir, ".store-identity");
+    const identityStat = await lstat(identityPath);
+    const reopened = await createLocalPreviewBuildInputObjectStore({
+      rootDir,
+      workspaceRoot: process.cwd(),
+    });
+
+    expect(store.storeId).toMatch(
+      /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i,
+    );
+    expect(reopened.storeId).toBe(store.storeId);
+    expect(identityStat.isFile()).toBe(true);
+    expect(identityStat.mode & 0o777).toBe(0o600);
+  });
+
+  it("fails closed when the store identity is replaced by a symlink", async () => {
+    const { parent, rootDir } = await createStore();
+    const identityPath = join(rootDir, ".store-identity");
+    const targetPath = join(parent, "other-identity");
+    await writeFile(targetPath, JSON.stringify({
+      version: 1,
+      storeId: "c617246f-3ccd-4e2d-91e8-e626827696ab",
+    }), { mode: 0o600 });
+    await unlink(identityPath);
+    await symlink(targetPath, identityPath);
+
+    await expect(
+      createLocalPreviewBuildInputObjectStore({
+        rootDir,
+        workspaceRoot: process.cwd(),
+      }),
+    ).rejects.toMatchObject({
+      code: "PREVIEW_LOCAL_STORE_INVALID_CONFIG",
+    });
+  });
+
   it("stores bytes by digest and reads them only through the exact immutable reference", async () => {
     const { rootDir, store } = await createStore();
     const bytes = Buffer.from("bounded local archive");
