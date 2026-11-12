@@ -1,6 +1,10 @@
 import { createHash, generateKeyPairSync } from "node:crypto";
+import { mkdtemp, rm } from "node:fs/promises";
 import AdmZip from "adm-zip";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
+import { createLocalPreviewBuildInputObjectStore } from "./preview-build-input-local.js";
 import {
   createPreviewBuildInputUploadHandler,
   previewBuildInputObjectKey,
@@ -176,6 +180,50 @@ describe("signed Preview build-input upload", () => {
       archiveDigest: source.archiveDigest,
       contentLength: source.archive.byteLength,
     });
+  });
+
+  it("serves the existing signed upload contract from the local CAS adapter", async () => {
+    const parent = await mkdtemp(join(tmpdir(), "preview-local-upload-"));
+    try {
+      const objectStore = await createLocalPreviewBuildInputObjectStore({
+        rootDir: join(parent, "cas"),
+        workspaceRoot: process.cwd(),
+      });
+      const source = buildInput();
+      const handler = createPreviewBuildInputUploadHandler({
+        publicKeyPem,
+        objectStore,
+        now: () => now,
+      });
+      const token = signedToken(source);
+      const authorization = handler.authorize(
+        token,
+        source.archive.byteLength,
+      );
+      const response = await handler.handle({
+        token,
+        contentType: "application/zip",
+        archive: source.archive,
+        authorization,
+      });
+      const receipt = (await response.json()) as {
+        objectKey?: string;
+        archiveDigest?: string;
+      };
+
+      expect(response.status).toBe(201);
+      expect(receipt.archiveDigest).toBe(source.archiveDigest);
+      expect(receipt.objectKey).toBe(
+        previewBuildInputObjectKey(
+          verifyPreviewBuildInputUpload(token, publicKeyPem, now),
+        ),
+      );
+      expect(await objectStore.read(receipt.objectKey!)).toEqual(
+        source.archive,
+      );
+    } finally {
+      await rm(parent, { recursive: true, force: true });
+    }
   });
 
   it("keeps an admitted upload valid after token expiry but rejects forged authorization", async () => {
