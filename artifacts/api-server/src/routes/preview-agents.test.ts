@@ -5,6 +5,8 @@ import {
   type PreviewAgentNodeSummary,
 } from "../lib/preview-agent-pairing.js";
 import { PreviewAgentCapabilityError } from "../lib/preview-agent-capability.js";
+import type { PreviewBuildJob } from "@workspace/db";
+import { PreviewArtifactStoreAcceptanceError } from "../lib/preview-artifact-store-acceptance.js";
 import { createPreviewAgentRouter } from "./preview-agents.js";
 
 const pairing = {
@@ -49,6 +51,15 @@ function createApp(options: { production?: boolean } = {}) {
       nodeId: input.nodeId,
       expiresAt: new Date("2031-03-04T12:00:30.000Z"),
     })),
+    acceptArtifactStoreReceipt: vi.fn(async ({ jobId }: { jobId: string }) => ({
+      job: {
+        jobId,
+        stateVersion: 4,
+        inputArtifactReadyAt: new Date("2031-03-04T12:00:02.000Z"),
+      } as PreviewBuildJob,
+      alreadyAccepted: false,
+    })),
+    buildJobPrivateKeyPem: "server-only signing key",
     listNodes: vi.fn(async () => [node]),
     revokeNode: vi.fn(async () => ({ ...node, status: "revoked" as const, revokedAt: node.createdAt })),
     isProduction: options.production ?? false,
@@ -236,6 +247,83 @@ describe("Preview Agent pairing routes", () => {
     expect(response.status).toBe(409);
     expect(response.body).toEqual({
       error: "preview_agent_capability_unsupported",
+    });
+  });
+
+  it("accepts an owner receipt and returns no signed command or receipt", async () => {
+    const { app, dependencies } = createApp();
+    const commandToken = "signed-command-token";
+    const receiptToken = "owner-signed-receipt-token";
+    const response = await request(app)
+      .post(
+        "/internal/preview-build-jobs/123e4567-e89b-42d3-a456-426614174000/artifact-store-receipt",
+      )
+      .send({ commandToken, receiptToken });
+
+    expect(response.status).toBe(200);
+    expect(response.headers["cache-control"]).toBe("no-store");
+    expect(response.body).toEqual({
+      jobId: "123e4567-e89b-42d3-a456-426614174000",
+      stateVersion: 4,
+      inputArtifactReady: true,
+      alreadyAccepted: false,
+    });
+    expect(JSON.stringify(response.body)).not.toContain(commandToken);
+    expect(JSON.stringify(response.body)).not.toContain(receiptToken);
+    expect(dependencies.acceptArtifactStoreReceipt).toHaveBeenCalledWith({
+      jobId: "123e4567-e89b-42d3-a456-426614174000",
+      commandToken,
+      receiptToken,
+      buildJobPrivateKeyPem: "server-only signing key",
+    });
+  });
+
+  it("rejects extra receipt fields before reaching the acceptance service", async () => {
+    const { app, dependencies } = createApp();
+    const response = await request(app)
+      .post(
+        "/internal/preview-build-jobs/123e4567-e89b-42d3-a456-426614174000/artifact-store-receipt",
+      )
+      .send({
+        commandToken: "signed-command-token",
+        receiptToken: "owner-signed-receipt-token",
+        ownerId: "caller-selected",
+      });
+
+    expect(response.status).toBe(400);
+    expect(dependencies.acceptArtifactStoreReceipt).not.toHaveBeenCalled();
+  });
+
+  it("requires HTTPS without cookies and maps owner conflicts safely", async () => {
+    const { app, dependencies } = createApp({ production: true });
+    const path =
+      "/internal/preview-build-jobs/123e4567-e89b-42d3-a456-426614174000/artifact-store-receipt";
+    const body = {
+      commandToken: "signed-command-token",
+      receiptToken: "owner-signed-receipt-token",
+    };
+    const cookieResponse = await request(app)
+      .post(path)
+      .set("Cookie", "session=unexpected")
+      .set("x-forwarded-proto", "https")
+      .send(body);
+    const plaintextResponse = await request(app).post(path).send(body);
+
+    vi.mocked(dependencies.acceptArtifactStoreReceipt).mockRejectedValueOnce(
+      new PreviewArtifactStoreAcceptanceError(
+        "PREVIEW_ARTIFACT_STORE_ACCEPTANCE_CONFLICT",
+      ),
+    );
+    const conflictResponse = await request(app)
+      .post(path)
+      .set("x-forwarded-proto", "https")
+      .send(body);
+
+    expect(cookieResponse.status).toBe(403);
+    expect(plaintextResponse.status).toBe(403);
+    expect(conflictResponse.status).toBe(409);
+    expect(conflictResponse.body).toEqual({
+      error: "preview_artifact_receipt_conflict",
     });
   });
 

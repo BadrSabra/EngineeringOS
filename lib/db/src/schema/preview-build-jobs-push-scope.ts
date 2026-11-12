@@ -54,4 +54,7 @@ export {
   workflowStatusEnum,
   workspaceRuntimeStatusEnum,
 } from "./index.js";
-export { previewBuildJobsTable } from "./preview-build-jobs.js";
+export {
+  previewAgentNodesTable,
+  previewBuildJobsTable,
+} from "./index.js";

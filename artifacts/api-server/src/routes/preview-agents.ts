@@ -15,6 +15,10 @@ import {
   PreviewAgentCapabilityError,
 } from "../lib/preview-agent-capability.js";
 import {
+  acceptPreviewBuildInputStoreReceipt,
+  PreviewArtifactStoreAcceptanceError,
+} from "../lib/preview-artifact-store-acceptance.js";
+import {
   requireProjectAccess,
   requireProjectWriteAccess,
 } from "../middlewares/requireProjectAccess.js";
@@ -46,6 +50,13 @@ const capabilityReportSchema = z
   })
   .strict();
 
+const artifactStoreReceiptSchema = z
+  .object({
+    commandToken: z.string().min(1).max(8_192),
+    receiptToken: z.string().min(1).max(8_192),
+  })
+  .strict();
+
 type PreviewAgentRouterDependencies = {
   requireAuth: RequestHandler;
   requireProjectAccess: RequestHandler;
@@ -53,6 +64,8 @@ type PreviewAgentRouterDependencies = {
   createPairing: typeof createPreviewAgentPairing;
   completePairing: typeof completePreviewAgentPairing;
   submitCapabilityReport: typeof acceptPreviewAgentCapabilityReport;
+  acceptArtifactStoreReceipt: typeof acceptPreviewBuildInputStoreReceipt;
+  buildJobPrivateKeyPem: string | undefined;
   listNodes: typeof listPreviewAgentNodes;
   revokeNode: typeof revokePreviewAgentNode;
   isProduction: boolean;
@@ -67,6 +80,8 @@ const defaultDependencies: PreviewAgentRouterDependencies = {
   createPairing: createPreviewAgentPairing,
   completePairing: completePreviewAgentPairing,
   submitCapabilityReport: acceptPreviewAgentCapabilityReport,
+  acceptArtifactStoreReceipt: acceptPreviewBuildInputStoreReceipt,
+  buildJobPrivateKeyPem: config.previewBuildJobPrivateKeyPem,
   listNodes: listPreviewAgentNodes,
   revokeNode: revokePreviewAgentNode,
   isProduction: config.isProduction,
@@ -150,11 +165,74 @@ function capabilityReportCode(error: unknown): string {
   return "preview_agent_capability_temporarily_unavailable";
 }
 
+function artifactStoreReceiptCode(error: unknown): {
+  status: number;
+  error: string;
+} {
+  if (error instanceof PreviewArtifactStoreAcceptanceError) {
+    switch (error.code) {
+      case "PREVIEW_ARTIFACT_STORE_ACCEPTANCE_INVALID":
+        return { status: 403, error: "preview_artifact_receipt_rejected" };
+      case "PREVIEW_ARTIFACT_STORE_ACCEPTANCE_CONFLICT":
+        return { status: 409, error: "preview_artifact_receipt_conflict" };
+      case "PREVIEW_ARTIFACT_STORE_ACCEPTANCE_UNAVAILABLE":
+        return { status: 503, error: "preview_artifact_receipt_unavailable" };
+    }
+  }
+  return { status: 503, error: "preview_artifact_receipt_unavailable" };
+}
+
 export function createPreviewAgentRouter(
   overrides: Partial<PreviewAgentRouterDependencies> = {},
 ) {
   const dependencies = { ...defaultDependencies, ...overrides };
   const router = Router();
+
+  router.post(
+    "/internal/preview-build-jobs/:jobId/artifact-store-receipt",
+    dependencies.capabilityRateLimiter,
+    async (request, response) => {
+      response.setHeader("cache-control", "no-store");
+      if (
+        request.get("cookie") ||
+        (dependencies.isProduction && !request.secure)
+      ) {
+        response
+          .status(403)
+          .json({ error: "preview_artifact_receipt_rejected" });
+        return;
+      }
+      const parsed = artifactStoreReceiptSchema.safeParse(request.body);
+      const jobId = singleRouteParam(request.params.jobId);
+      if (
+        !parsed.success ||
+        !jobId ||
+        !z.string().uuid().safeParse(jobId).success
+      ) {
+        response
+          .status(400)
+          .json({ error: "invalid_preview_artifact_receipt" });
+        return;
+      }
+      try {
+        const result = await dependencies.acceptArtifactStoreReceipt({
+          jobId,
+          commandToken: parsed.data.commandToken,
+          receiptToken: parsed.data.receiptToken,
+          buildJobPrivateKeyPem: dependencies.buildJobPrivateKeyPem,
+        });
+        response.status(200).json({
+          jobId: result.job.jobId,
+          stateVersion: result.job.stateVersion,
+          inputArtifactReady: Boolean(result.job.inputArtifactReadyAt),
+          alreadyAccepted: result.alreadyAccepted,
+        });
+      } catch (error) {
+        const mapped = artifactStoreReceiptCode(error);
+        response.status(mapped.status).json({ error: mapped.error });
+      }
+    },
+  );
 
   router.post(
     "/projects/:projectId/preview-agents/pairings",

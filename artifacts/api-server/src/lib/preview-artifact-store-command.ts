@@ -113,7 +113,14 @@ export type VerifiedPreviewArtifactStoreCommand =
     readonly [verifiedCommandBrand]: true;
   };
 
+declare const verifiedReceiptBrand: unique symbol;
+export type VerifiedPreviewArtifactStoreReceipt =
+  PreviewArtifactStoreReceiptClaims & {
+    readonly [verifiedReceiptBrand]: true;
+  };
+
 const verifiedCommands = new WeakSet<object>();
+const verifiedReceipts = new WeakSet<object>();
 
 export class PreviewArtifactStoreCommandError extends Error {
   constructor(
@@ -341,6 +348,14 @@ export function previewArtifactStoreCommandFingerprint(
     .digest("hex");
 }
 
+export function previewArtifactStoreCommandPublicKeyPem(
+  privateKeyPem: string | undefined,
+): string {
+  return createPublicKey(parseKey(privateKeyPem, "private"))
+    .export({ type: "spki", format: "pem" })
+    .toString();
+}
+
 export function signPreviewArtifactStoreCommand(input: {
   command: PreviewArtifactStoreCommandClaims;
   privateKeyPem: string | undefined;
@@ -410,7 +425,7 @@ export function verifyPreviewArtifactStoreReceipt(input: {
   publicKeyPem: string | undefined;
   command: VerifiedPreviewArtifactStoreCommand;
   now?: Date;
-}): PreviewArtifactStoreReceiptClaims {
+}): VerifiedPreviewArtifactStoreReceipt {
   if (!verifiedCommands.has(input.command)) {
     throw new PreviewArtifactStoreCommandError(
       "PREVIEW_ARTIFACT_STORE_RECEIPT_INVALID",
@@ -466,7 +481,15 @@ export function verifyPreviewArtifactStoreReceipt(input: {
       "PREVIEW_ARTIFACT_STORE_RECEIPT_INVALID",
     );
   }
-  return Object.freeze(receipt);
+  const verified = Object.freeze(receipt) as VerifiedPreviewArtifactStoreReceipt;
+  verifiedReceipts.add(verified);
+  return verified;
+}
+
+export function isVerifiedPreviewArtifactStoreReceipt(
+  value: unknown,
+): value is VerifiedPreviewArtifactStoreReceipt {
+  return value !== null && typeof value === "object" && verifiedReceipts.has(value);
 }
 
 function decodeSignedPayload(token: string): {

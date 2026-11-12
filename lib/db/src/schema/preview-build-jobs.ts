@@ -13,6 +13,7 @@ import {
 } from "drizzle-orm/pg-core";
 import { z } from "zod/v4";
 import { aiChangeProposalsTable } from "./ai_change_proposals.js";
+import { previewAgentNodesTable } from "./preview-agent-nodes.js";
 import { projectsTable } from "./projects.js";
 
 export const previewBuildJobStatusEnum = pgEnum("preview_build_job_status", [
@@ -74,6 +75,19 @@ export const previewBuildJobsTable = pgTable(
     inputArtifactSizeBytes: integer("input_artifact_size_bytes"),
     inputArtifactManifestDigest: text("input_artifact_manifest_digest"),
     inputArtifactRetentionPolicy: text("input_artifact_retention_policy"),
+    inputArtifactOwnerNodeId: uuid("input_artifact_owner_node_id").references(
+      () => previewAgentNodesTable.nodeId,
+      { onDelete: "restrict" },
+    ),
+    inputArtifactOwnerKeyVersion: integer(
+      "input_artifact_owner_key_version",
+    ),
+    inputArtifactStoreCommandFingerprint: text(
+      "input_artifact_store_command_fingerprint",
+    ),
+    inputArtifactStoreReceiptFingerprint: text(
+      "input_artifact_store_receipt_fingerprint",
+    ),
     inputArtifactReadyAt: timestamp("input_artifact_ready_at", {
       withTimezone: true,
     }),
@@ -134,6 +148,20 @@ export const previewBuildJobsTable = pgTable(
         AND ${table.inputArtifactManifestDigest} ~ '^[a-f0-9]{64}$'
         AND ${table.inputArtifactRetentionPolicy} IS NOT NULL
         AND length(${table.inputArtifactRetentionPolicy}) BETWEEN 1 AND 64
+        AND ${table.inputArtifactOwnerNodeId} IS NOT NULL
+        AND ${table.inputArtifactOwnerKeyVersion} IS NOT NULL
+        AND ${table.inputArtifactOwnerKeyVersion} > 0
+        AND ${table.inputArtifactStoreCommandFingerprint} IS NOT NULL
+        AND ${table.inputArtifactStoreCommandFingerprint} ~ '^[a-f0-9]{64}$'
+        AND (
+          (${table.inputArtifactReadyAt} IS NULL
+            AND ${table.inputArtifactStoreReceiptFingerprint} IS NULL)
+          OR (
+            ${table.inputArtifactReadyAt} IS NOT NULL
+            AND ${table.inputArtifactStoreReceiptFingerprint} IS NOT NULL
+            AND ${table.inputArtifactStoreReceiptFingerprint} ~ '^[a-f0-9]{64}$'
+          )
+        )
       )`,
     ),
     check(
@@ -213,6 +241,10 @@ export const insertPreviewBuildJobSchema = createInsertSchema(
   inputArtifactSizeBytes: true,
   inputArtifactManifestDigest: true,
   inputArtifactRetentionPolicy: true,
+  inputArtifactOwnerNodeId: true,
+  inputArtifactOwnerKeyVersion: true,
+  inputArtifactStoreCommandFingerprint: true,
+  inputArtifactStoreReceiptFingerprint: true,
   inputArtifactGcState: true,
   inputArtifactGcMarkedAt: true,
   outputArtifactGcState: true,
