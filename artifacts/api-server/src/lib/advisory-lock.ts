@@ -52,6 +52,8 @@ export const LockNamespace = {
   WORKFLOW_TRANSITION: 1005,
   /** Guards one verified GitHub delivery operation during its remote mutation. */
   GITHUB_DELIVERY: 1006,
+  /** Guards archive parsing/extraction across API-server instances. */
+  ARCHIVE_UPLOAD: 1007,
 } as const;
 
 /**

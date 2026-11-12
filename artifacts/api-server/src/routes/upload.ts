@@ -13,6 +13,7 @@
  * Uploads are stored in a temp directory and expire after 1 hour.
  */
 import { Router } from "express";
+import type { Request } from "express";
 import multer, { MulterError } from "multer";
 import { promises as fs } from "node:fs";
 import { randomUUID } from "crypto";
@@ -21,6 +22,7 @@ import { join } from "node:path";
 import { requireAuth } from "../middlewares/requireAuth.js";
 import { registerUpload } from "../lib/upload-store.js";
 import { logger } from "../lib/logger.js";
+import { LockNamespace, tryAdvisoryLock } from "../lib/advisory-lock.js";
 import {
   ArchiveProcessingLimiter,
   ArchiveSafetyError,
@@ -56,15 +58,32 @@ function releaseArchiveRequest(
 export function createUploadRouter(
   uploadTempDir = "/tmp",
   processingLimiter: ArchiveProcessingLimiter = archiveProcessingLimiter,
+  acquireDistributedLock: typeof tryAdvisoryLock = tryAdvisoryLock,
 ) {
   const router = Router();
   const archiveReleases = new WeakMap<object, () => void>();
   const stagingDirectories = new WeakMap<object, string>();
+  const distributedLockReleases = new WeakMap<object, () => Promise<void>>();
   const cleanupStagingDirectory = async (request: object) => {
     const stagingDirectory = stagingDirectories.get(request);
     if (!stagingDirectory) return;
     await fs.rm(stagingDirectory, { recursive: true, force: true }).catch(() => {});
     stagingDirectories.delete(request);
+  };
+  const cleanupIncomingUpload = async (request: Request) => {
+    if (request.file?.path) await fs.unlink(request.file.path).catch(() => {});
+    await cleanupStagingDirectory(request);
+    releaseArchiveRequest(archiveReleases, request);
+  };
+  const releaseDistributedLock = async (request: object) => {
+    const release = distributedLockReleases.get(request);
+    if (!release) return;
+    distributedLockReleases.delete(request);
+    try {
+      await release();
+    } catch {
+      logger.warn({ code: "ARCHIVE_LOCK_RELEASE_FAILED" }, "archive admission lock release failed");
+    }
   };
 
   const upload = multer({
@@ -129,6 +148,45 @@ export function createUploadRouter(
           return;
         }
         next();
+      });
+    },
+    (req, res, next) => {
+      if (!req.file) {
+        next();
+        return;
+      }
+      void (async () => {
+        let lock;
+        try {
+          lock = await acquireDistributedLock(LockNamespace.ARCHIVE_UPLOAD, "global");
+        } catch {
+          await cleanupIncomingUpload(req);
+          res.status(503).json({
+            error: "Archive processing admission is unavailable",
+            code: "UPLOAD_ADMISSION_UNAVAILABLE",
+          });
+          return;
+        }
+        if (!lock.acquired) {
+          await cleanupIncomingUpload(req);
+          res.setHeader("retry-after", "1");
+          res.status(429).json({
+            error: "Archive processing is temporarily busy",
+            code: "UPLOAD_ARCHIVE_BUSY",
+          });
+          return;
+        }
+        distributedLockReleases.set(req, lock.release);
+        next();
+      })().catch(async () => {
+        await releaseDistributedLock(req);
+        await cleanupIncomingUpload(req);
+        if (!res.headersSent) {
+          res.status(503).json({
+            error: "Archive processing admission is unavailable",
+            code: "UPLOAD_ADMISSION_UNAVAILABLE",
+          });
+        }
       });
     },
     async (req, res) => {
@@ -214,6 +272,7 @@ export function createUploadRouter(
 
         await fs.unlink(uploadedPath).catch(() => {});
         await cleanupStagingDirectory(req);
+        await releaseDistributedLock(req);
         releaseArchiveRequest(archiveReleases, req);
         res.status(201).json({ uploadId, originalName: originalname });
       } catch (err) {
@@ -223,6 +282,7 @@ export function createUploadRouter(
         if (tarPath) await fs.unlink(tarPath).catch(() => {});
         await fs.unlink(uploadedPath).catch(() => {});
         await cleanupStagingDirectory(req);
+        await releaseDistributedLock(req);
         releaseArchiveRequest(archiveReleases, req);
         const msg = err instanceof ArchiveSafetyError
           ? err.message
@@ -232,6 +292,7 @@ export function createUploadRouter(
       } finally {
         await fs.unlink(uploadedPath).catch(() => {});
         await cleanupStagingDirectory(req);
+        await releaseDistributedLock(req);
         releaseArchiveRequest(archiveReleases, req);
       }
     },

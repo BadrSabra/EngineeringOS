@@ -24,6 +24,10 @@ import { createUploadRouter } from "./upload.js";
 import { registerUpload } from "../lib/upload-store.js";
 
 const tempDirs: string[] = [];
+const acquireArchiveLock = async () => ({
+  acquired: true as const,
+  release: async () => {},
+});
 
 afterEach(async () => {
   await Promise.all(tempDirs.splice(0).map((dir) => rm(dir, { recursive: true, force: true })));
@@ -34,7 +38,7 @@ describe("archive upload temporary files", () => {
     const uploadTempDir = await mkdtemp(join(tmpdir(), "upload-rejected-"));
     tempDirs.push(uploadTempDir);
     const app = express();
-    app.use(createUploadRouter(uploadTempDir));
+    app.use(createUploadRouter(uploadTempDir, undefined, acquireArchiveLock));
 
     const response = await request(app)
       .post("/upload/archive")
@@ -51,7 +55,11 @@ describe("archive upload temporary files", () => {
     const zip = new AdmZip();
     zip.addFile("src/index.ts", Buffer.from("export const safe = true;\n"));
     const app = express();
-    app.use(createUploadRouter(uploadTempDir));
+    const releaseLock = vi.fn(async () => {});
+    app.use(createUploadRouter(uploadTempDir, undefined, async () => ({
+      acquired: true,
+      release: releaseLock,
+    })));
 
     const response = await request(app)
       .post("/upload/archive")
@@ -59,6 +67,7 @@ describe("archive upload temporary files", () => {
 
     expect(response.status).toBe(201);
     expect(response.body.uploadId).toEqual(expect.any(String));
+    expect(releaseLock).toHaveBeenCalledOnce();
     expect(vi.mocked(registerUpload)).toHaveBeenCalledOnce();
     const [, extractionPath, originalName, ownerId] = vi.mocked(registerUpload).mock.calls[0];
     expect(originalName).toBe("workspace.zip");
@@ -74,7 +83,7 @@ describe("archive upload temporary files", () => {
     const uploadTempDir = await mkdtemp(join(tmpdir(), "upload-malformed-"));
     tempDirs.push(uploadTempDir);
     const app = express();
-    app.use(createUploadRouter(uploadTempDir));
+    app.use(createUploadRouter(uploadTempDir, undefined, acquireArchiveLock));
 
     const response = await request(app)
       .post("/upload/archive")
@@ -102,5 +111,37 @@ describe("archive upload temporary files", () => {
     expect(response.headers["retry-after"]).toBe("1");
     expect(await readdir(uploadTempDir)).toEqual([]);
     releaseActive?.();
+  });
+
+  it("rejects uploads when another API instance owns the shared archive lock", async () => {
+    const uploadTempDir = await mkdtemp(join(tmpdir(), "upload-shared-busy-"));
+    tempDirs.push(uploadTempDir);
+    const app = express();
+    app.use(createUploadRouter(uploadTempDir, undefined, async () => ({ acquired: false })));
+
+    const response = await request(app)
+      .post("/upload/archive")
+      .attach("archive", Buffer.from("not decompressed"), "queued.zip");
+
+    expect(response.status).toBe(429);
+    expect(response.body.code).toBe("UPLOAD_ARCHIVE_BUSY");
+    expect(await readdir(uploadTempDir)).toEqual([]);
+  });
+
+  it("fails closed and cleans staging when shared admission is unavailable", async () => {
+    const uploadTempDir = await mkdtemp(join(tmpdir(), "upload-no-db-"));
+    tempDirs.push(uploadTempDir);
+    const app = express();
+    app.use(createUploadRouter(uploadTempDir, undefined, async () => {
+      throw new Error("unexposed database failure");
+    }));
+
+    const response = await request(app)
+      .post("/upload/archive")
+      .attach("archive", Buffer.from("not decompressed"), "queued.zip");
+
+    expect(response.status).toBe(503);
+    expect(response.body.code).toBe("UPLOAD_ADMISSION_UNAVAILABLE");
+    expect(await readdir(uploadTempDir)).toEqual([]);
   });
 });
