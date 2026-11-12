@@ -184,6 +184,43 @@ describe("Preview Gateway HTTP server", () => {
     expect(controlHandler).not.toHaveBeenCalled();
   });
 
+  it("streams ZIP bytes to a stream-capable artifact handler without buffering them", async () => {
+    let receivedBytes = Buffer.alloc(0);
+    const buildInputUploadHandler = {
+      supportsStreaming: true,
+      authorize: vi.fn(() => uploadAuthorization),
+      handle: vi.fn(async (incoming) => {
+        expect(incoming.archive).toBeUndefined();
+        expect(incoming.bytes).toBeDefined();
+        const chunks: Buffer[] = [];
+        for await (const chunk of incoming.bytes ?? []) {
+          chunks.push(Buffer.from(chunk));
+        }
+        receivedBytes = Buffer.concat(chunks);
+        return Response.json({ action: "streamed" }, { status: 201 });
+      }),
+    };
+    const app = createPreviewGatewayApp(
+      async () => Response.json({ ok: true }),
+      buildInputUploadHandler,
+    );
+    const body = Buffer.from("streamed candidate archive");
+
+    const response = await request(app)
+      .put("/internal/v1/preview/build-inputs")
+      .set("Content-Type", "application/zip")
+      .set("X-Preview-Build-Token", "signed-build-token")
+      .send(body)
+      .expect(201);
+
+    expect(response.body).toEqual({ action: "streamed" });
+    expect(receivedBytes).toEqual(body);
+    expect(buildInputUploadHandler.authorize).toHaveBeenCalledWith(
+      "signed-build-token",
+      body.byteLength,
+    );
+  });
+
   it("rejects uncompressed, unsigned, and unsupported uploads before storage", async () => {
     const buildInputUploadHandler = {
       authorize: vi.fn(() => uploadAuthorization),

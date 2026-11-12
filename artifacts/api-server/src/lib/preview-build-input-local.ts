@@ -11,7 +11,10 @@ import {
   type FileHandle,
 } from "node:fs/promises";
 import { dirname, isAbsolute, relative, resolve, sep } from "node:path";
-import type { PreviewBuildInputObjectStore } from "./preview-build-upload.js";
+import {
+  PreviewBuildInputObjectStoreError,
+  type PreviewBuildInputObjectStore,
+} from "./preview-build-upload.js";
 
 const OBJECT_KEY_PATTERN =
   /^build-inputs\/([a-f0-9]{64})\/([a-f0-9]{64})\.zip$/;
@@ -24,7 +27,7 @@ const FILE_FLAGS = constants.O_NOFOLLOW;
 const UUID_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
-export class LocalPreviewBuildInputStoreError extends Error {
+export class LocalPreviewBuildInputStoreError extends PreviewBuildInputObjectStoreError {
   constructor(
     readonly code:
       | "PREVIEW_LOCAL_STORE_INVALID_CONFIG"
@@ -35,7 +38,14 @@ export class LocalPreviewBuildInputStoreError extends Error {
       | "PREVIEW_LOCAL_STORE_CONFLICT"
       | "PREVIEW_LOCAL_STORE_UNAVAILABLE",
   ) {
-    super("Local Preview artifact is invalid or unavailable.");
+    const kind =
+      code === "PREVIEW_LOCAL_STORE_TOO_LARGE"
+        ? "too_large"
+        : code === "PREVIEW_LOCAL_STORE_INVALID_OBJECT" ||
+            code === "PREVIEW_LOCAL_STORE_DIGEST_MISMATCH"
+          ? "invalid"
+          : "unavailable";
+    super(kind);
     this.name = "LocalPreviewBuildInputStoreError";
   }
 }
@@ -647,9 +657,14 @@ export async function createLocalPreviewBuildInputObjectStore(input: {
             );
           }
           totalBytes += chunk.byteLength;
-          if (totalBytes > maxBytes || totalBytes > contentLength) {
+          if (totalBytes > maxBytes) {
             throw new LocalPreviewBuildInputStoreError(
               "PREVIEW_LOCAL_STORE_TOO_LARGE",
+            );
+          }
+          if (totalBytes > contentLength) {
+            throw new LocalPreviewBuildInputStoreError(
+              "PREVIEW_LOCAL_STORE_INVALID_OBJECT",
             );
           }
           hash.update(chunk);

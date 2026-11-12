@@ -195,16 +195,24 @@ export function createPreviewGatewayApp(
         response.locals.buildUploadHandlerStarted = false;
         next();
       },
-      express.raw({
-        type: "application/zip",
-        limit: MAX_PREVIEW_BUILD_ARCHIVE_BYTES,
-        inflate: false,
-      }),
+      (request, response, next) => {
+        if (buildInputUploadHandler.supportsStreaming) {
+          next();
+          return;
+        }
+        express.raw({
+          type: "application/zip",
+          limit: MAX_PREVIEW_BUILD_ARCHIVE_BYTES,
+          inflate: false,
+        })(request, response, next);
+      },
       (request, response, next) => {
         const contentLength = Number(request.header("content-length"));
+        const streaming = buildInputUploadHandler.supportsStreaming === true;
+        const hasBuffer = Buffer.isBuffer(request.body);
         if (
-          !Buffer.isBuffer(request.body) ||
-          request.body.length !== contentLength
+          (!streaming && (!hasBuffer || request.body.length !== contentLength)) ||
+          (streaming && hasBuffer)
         ) {
           const release = response.locals.releaseBuildUpload as
             (() => void) | undefined;
@@ -222,7 +230,12 @@ export function createPreviewGatewayApp(
             ?.split(";", 1)[0]
             ?.trim()
             .toLowerCase(),
-          archive: request.body,
+          contentLength,
+          ...(Buffer.isBuffer(request.body)
+            ? { archive: request.body }
+            : streaming
+              ? { bytes: request }
+              : {}),
           authorization: response.locals
             .previewBuildAuthorization as PreviewBuildInputUploadAuthorization,
         };

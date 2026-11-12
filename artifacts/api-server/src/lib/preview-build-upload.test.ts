@@ -182,7 +182,7 @@ describe("signed Preview build-input upload", () => {
     });
   });
 
-  it("serves the existing signed upload contract from the local CAS adapter", async () => {
+  it("streams the signed upload contract into the local CAS adapter", async () => {
     const parent = await mkdtemp(join(tmpdir(), "preview-local-upload-"));
     try {
       const objectStore = await createLocalPreviewBuildInputObjectStore({
@@ -203,7 +203,12 @@ describe("signed Preview build-input upload", () => {
       const response = await handler.handle({
         token,
         contentType: "application/zip",
-        archive: source.archive,
+        contentLength: source.archive.byteLength,
+        bytes: (async function* () {
+          yield source.archive.subarray(0, 13);
+          yield source.archive.subarray(13, 47);
+          yield source.archive.subarray(47);
+        })(),
         authorization,
       });
       const receipt = (await response.json()) as {
@@ -221,6 +226,47 @@ describe("signed Preview build-input upload", () => {
       expect(await objectStore.read(receipt.objectKey!)).toEqual(
         source.archive,
       );
+    } finally {
+      await rm(parent, { recursive: true, force: true });
+    }
+  });
+
+  it("does not publish a streamed archive whose digest differs from its signed claim", async () => {
+    const parent = await mkdtemp(join(tmpdir(), "preview-local-upload-"));
+    try {
+      const objectStore = await createLocalPreviewBuildInputObjectStore({
+        rootDir: join(parent, "cas"),
+        workspaceRoot: process.cwd(),
+      });
+      const source = buildInput();
+      const handler = createPreviewBuildInputUploadHandler({
+        publicKeyPem,
+        objectStore,
+        now: () => now,
+      });
+      const token = signedToken(source);
+      const authorization = handler.authorize(
+        token,
+        source.archive.byteLength,
+      );
+      const altered = Buffer.from(source.archive);
+      altered[altered.length - 1] = altered[altered.length - 1]! ^ 0xff;
+      const response = await handler.handle({
+        token,
+        contentType: "application/zip",
+        contentLength: altered.byteLength,
+        bytes: (async function* () {
+          yield altered.subarray(0, 32);
+          yield altered.subarray(32);
+        })(),
+        authorization,
+      });
+      const objectKey = previewBuildInputObjectKey(
+        verifyPreviewBuildInputUpload(token, publicKeyPem, now),
+      );
+
+      expect(response.status).toBe(400);
+      await expect(objectStore.read(objectKey)).rejects.toThrow();
     } finally {
       await rm(parent, { recursive: true, force: true });
     }
