@@ -68,7 +68,7 @@ import {
   durableDispatchStageHealthTable,
   taskExecutionObservationOutboxTable,
 } from "@workspace/db";
-import { and, eq, gt, inArray, isNull, lt, ne, or, count, min, sql, asc } from "drizzle-orm";
+import { and, eq, gt, inArray, isNull, lt, ne, or, count, sql, asc } from "drizzle-orm";
 import { invalidateContextCache } from "@workspace/ai-orchestrator";
 import { logger } from "./logger.js";
 import { heavyJobQueue } from "./job-queue.js";
