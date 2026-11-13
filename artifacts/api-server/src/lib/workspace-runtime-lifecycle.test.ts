@@ -16,6 +16,8 @@ import type { WorkspaceRuntimeSupervisorClient } from "./workspace-runtime-super
 
 type SupervisorSession = {
   projectId: string;
+  ownerProjectId: string;
+  projectRoot: string;
   sessionId: string;
   status: "starting" | "running" | "stopped" | "failed";
   port: number | null;
@@ -26,6 +28,8 @@ type SupervisorSession = {
 
 type SupervisorObservation = {
   projectId: string;
+  ownerProjectId: string;
+  projectRoot: string;
   status: "running" | "stopped" | "unknown";
   session?: SupervisorSession;
   observedAt: string;
@@ -36,6 +40,7 @@ type SupervisorObservation = {
 
 type SupervisorStartInput = {
   projectId: string;
+  ownerProjectId: string;
   sessionId: string;
   projectRoot: string;
   attestationMarker?: string;
@@ -72,25 +77,39 @@ function createSupervisor(
   observeStartState?: (projectId: string) => Promise<SupervisorObservation>,
 ): WorkspaceRuntimeSupervisorClient {
   return {
-    start: vi.fn(start),
+    start: vi.fn(async (input: SupervisorStartInput) => ({
+      ...await start(input),
+      ownerProjectId: input.ownerProjectId,
+      projectRoot: input.projectRoot,
+    })),
     stop: vi.fn(async () => undefined),
     adopt: vi.fn(async (input: {
       projectId: string;
+      ownerProjectId: string;
       sessionId: string;
+      projectRoot: string;
       pid: number | null;
       port: number | null;
     }) => ({
       ...input,
       status: "running" as const,
     })),
-    observeStartState: vi.fn(observeStartState ?? (async (projectId: string) => ({
-      projectId,
-      status: "stopped" as const,
-      observedAt: new Date().toISOString(),
-      inventoryComplete: true,
-      unknownListenerPorts: [],
-      detail: "No tracked runtime session is live.",
-    }))),
+    observeStartState: vi.fn(async (input: {
+      projectId: string;
+      ownerProjectId: string;
+      projectRoot: string;
+    }) => ({
+      ...(await observeStartState?.(input.projectId) ?? {
+        projectId: input.projectId,
+        status: "stopped" as const,
+        observedAt: new Date().toISOString(),
+        inventoryComplete: true,
+        unknownListenerPorts: [],
+        detail: "No tracked runtime session is live.",
+      }),
+      ownerProjectId: input.ownerProjectId,
+      projectRoot: input.projectRoot,
+    })),
   } as unknown as WorkspaceRuntimeSupervisorClient;
 }
 
