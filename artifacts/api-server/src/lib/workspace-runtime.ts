@@ -1353,13 +1353,22 @@ export class WorkspaceRuntimeManager {
       if (claimed.status === "starting" && (!claimed.pid || !claimed.port) && this.supervisor) {
         let observed: Awaited<ReturnType<WorkspaceRuntimeSupervisorClient["observeStartState"]>> | undefined;
         try {
-          observed = await this.supervisor.observeStartState(claimed.projectId);
+          observed = await this.supervisor.observeStartState({
+            projectId: claimed.projectId,
+            ownerProjectId: this.projectIdForRuntimeId(claimed.projectId),
+            projectRoot: claimed.projectRoot,
+          });
         } catch {
           observed = undefined;
         }
         if (
           observed?.status === "running"
+          && observed.projectId === claimed.projectId
+          && observed.ownerProjectId === this.projectIdForRuntimeId(claimed.projectId)
+          && observed.projectRoot === claimed.projectRoot
           && observed.session?.projectId === claimed.projectId
+          && observed.session.ownerProjectId === this.projectIdForRuntimeId(claimed.projectId)
+          && observed.session.projectRoot === claimed.projectRoot
           && observed.session.sessionId === claimed.sessionId
           && observed.session.pid !== null
           && observed.session.port !== null
@@ -1956,14 +1965,27 @@ export class WorkspaceRuntimeManager {
     }
   }
 
-  async stop(projectId: string): Promise<WorkspaceRuntimeSnapshot> {
+  async stop(projectId: string, registeredProjectRoot?: string): Promise<WorkspaceRuntimeSnapshot> {
     const runtimeId = this.runtimeIdFor(projectId);
     let session = this.sessions.get(runtimeId);
     if (!session) {
       const persisted = await this.store.get(runtimeId);
       if (!persisted) {
         if (this.supervisor?.isConfigured()) {
-          const observation = await this.supervisor.observeStartState(runtimeId).catch(() => {
+          const ownerProjectId = this.projectIdForRuntimeId(runtimeId);
+          const projectRoot = registeredProjectRoot?.trim();
+          if (!projectRoot || !path.isAbsolute(projectRoot)) {
+            throw new WorkspaceRuntimeError(
+              "A registered absolute project root is required to verify an unrecorded runtime.",
+              "RUNTIME_OBSERVATION_STALE",
+              503,
+            );
+          }
+          const observation = await this.supervisor.observeStartState({
+            projectId: runtimeId,
+            ownerProjectId,
+            projectRoot,
+          }).catch(() => {
             throw new WorkspaceRuntimeError(
               "Supervisor inventory could not confirm that the project runtime is stopped.",
               "RUNTIME_OBSERVATION_STALE",
@@ -1971,7 +1993,10 @@ export class WorkspaceRuntimeManager {
             );
           });
           if (
-            observation.status !== "stopped"
+            observation.projectId !== runtimeId
+            || observation.ownerProjectId !== ownerProjectId
+            || observation.projectRoot !== projectRoot
+            || observation.status !== "stopped"
             || !observation.inventoryComplete
             || observation.unknownListenerPorts.length > 0
           ) {
