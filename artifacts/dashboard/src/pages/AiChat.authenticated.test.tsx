@@ -218,6 +218,21 @@ const mocks = vi.hoisted(() => {
     qualityExport: vi.fn(),
     activeExecutionStatus: undefined as { status: string } | undefined,
     streamCallbacks: undefined as Record<string, unknown> | undefined,
+    createAiChatSessionMutation: {
+      mutate: vi.fn(),
+      mutateAsync: vi.fn(async (variables: { data: { projectId: string } }) => ({
+        id: 'session-new',
+        projectId: variables.data.projectId,
+        title: 'New Chat',
+        createdAt: '2026-11-13T00:00:00.000Z',
+        updatedAt: '2026-11-13T00:00:00.000Z',
+      })),
+      isPending: false,
+      isError: false,
+      error: null,
+      isSuccess: false,
+      data: undefined as unknown,
+    },
     sentParams: undefined as {
       projectId: string;
       message: string;
@@ -353,8 +368,14 @@ vi.mock('@workspace/api-client-react', () => {
       isError: mocks.sessionsError,
       error: null,
     })),
+    useCreateAiChatSession: vi.fn(() => mocks.createAiChatSessionMutation),
     useListAiChatMessages: vi.fn((sessionId: string) => ({
-      data: sessionId && mocks.serverProposal ? mocks.proposalMessages : mocks.emptyMessages,
+      data: sessionId && mocks.serverProposal
+        ? mocks.proposalMessages.filter((message) => {
+          const messageSessionId = (message as { sessionId?: string }).sessionId;
+          return !messageSessionId || messageSessionId === sessionId;
+        })
+        : mocks.emptyMessages,
       isFetched: mocks.messagesFetched,
       isError: mocks.messagesError,
       error: null,
@@ -675,6 +696,23 @@ beforeEach(() => {
     mutation.isSuccess = false;
     mutation.data = undefined;
   }
+  mocks.createAiChatSessionMutation.mutate.mockReset();
+  mocks.createAiChatSessionMutation.mutateAsync.mockReset().mockImplementation(async (variables) => {
+    const createdSession = {
+      id: 'session-new',
+      projectId: variables.data.projectId,
+      title: 'New Chat',
+      createdAt: '2026-11-13T00:00:00.000Z',
+      updatedAt: '2026-11-13T00:00:00.000Z',
+    };
+    mocks.sessions = [...mocks.sessions, createdSession];
+    return createdSession;
+  });
+  mocks.createAiChatSessionMutation.isPending = false;
+  mocks.createAiChatSessionMutation.isError = false;
+  mocks.createAiChatSessionMutation.error = null;
+  mocks.createAiChatSessionMutation.isSuccess = false;
+  mocks.createAiChatSessionMutation.data = undefined;
   mocks.mutationOptions.saveDeepSeek = undefined;
   mocks.mutationOptions.applyChanges = undefined;
   mocks.mutationOptions.rebaseChanges = undefined;
@@ -2868,7 +2906,12 @@ describe('AiChat authenticated generated mutations', () => {
     expect(await screen.findByText(/Execution executio…/)).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole('button', { name: 'محادثة جديدة' }));
-    expect(screen.queryByText(/Execution executio…/)).not.toBeInTheDocument();
+    await waitFor(() => {
+      expect(screen.queryByText(/Execution executio…/)).not.toBeInTheDocument();
+    });
+    expect(mocks.createAiChatSessionMutation.mutateAsync).toHaveBeenCalledWith({
+      data: { projectId: 'project-1' },
+    });
 
     act(() => callbacks.onDone?.({
       type: 'done',
@@ -2901,8 +2944,8 @@ describe('AiChat authenticated generated mutations', () => {
     expect(await screen.findByText('Existing response')).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole('button', { name: 'محادثة جديدة' }));
-    expect(screen.getByTestId('text-chat-current-context')).toHaveTextContent('demo-service · محادثة جديدة');
-    expect(screen.getByTestId('text-chat-empty-title')).toHaveTextContent('ابدأ محادثة جديدة');
+    expect(await screen.findByTestId('text-chat-current-context')).toHaveTextContent('demo-service · New Chat');
+    expect(await screen.findByTestId('text-chat-empty-title')).toHaveTextContent('لا توجد رسائل في هذا العرض');
     expect(screen.queryByText('Existing response')).not.toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Existing session' })).not.toHaveAttribute('aria-current');
 
@@ -4069,8 +4112,8 @@ describe('AiChat authenticated generated mutations', () => {
     fireEvent.click(screen.getByRole('button', { name: 'فتح المحادثات' }));
     expect(screen.getByTestId('sessions-drawer')).toHaveClass('flex');
     fireEvent.click(screen.getByRole('button', { name: 'محادثة جديدة' }));
-    expect(screen.getByTestId('sessions-drawer')).toHaveClass('hidden');
-    expect(screen.getByTestId('text-chat-empty-title')).toHaveTextContent('ابدأ محادثة جديدة');
+    await waitFor(() => expect(screen.getByTestId('sessions-drawer')).toHaveClass('hidden'));
+    expect(await screen.findByTestId('text-chat-empty-title')).toHaveTextContent('لا توجد رسائل في هذا العرض');
   });
 
   it('keeps the live user turn visible while a new session is created', async () => {
@@ -4357,7 +4400,7 @@ describe('AiChat authenticated generated mutations', () => {
     expect(localStorage.getItem(`${AI_CHAT_SELECTION_STORAGE_PREFIX}project-1`)).not.toBeNull();
   });
 
-  it('clears the selection when starting a new session', async () => {
+  it('selects the created empty session when starting a new session', async () => {
     localStorage.setItem(`${AI_CHAT_SELECTION_STORAGE_PREFIX}project-1`, JSON.stringify({
       version: 1,
       projectId: 'project-1',
@@ -4369,7 +4412,19 @@ describe('AiChat authenticated generated mutations', () => {
     await screen.findByRole('button', { name: 'Existing session' });
     fireEvent.click(screen.getByRole('button', { name: 'محادثة جديدة' }));
 
-    expect(localStorage.getItem(`${AI_CHAT_SELECTION_STORAGE_PREFIX}project-1`)).toBeNull();
+    await waitFor(() => {
+      expect(localStorage.getItem(`${AI_CHAT_SELECTION_STORAGE_PREFIX}project-1`)).toBe(
+        JSON.stringify({
+          version: 1,
+          projectId: 'project-1',
+          kind: 'session',
+          sessionId: 'session-new',
+        }),
+      );
+    });
+    expect(mocks.createAiChatSessionMutation.mutateAsync).toHaveBeenCalledWith({
+      data: { projectId: 'project-1' },
+    });
     expect(screen.queryByText('Existing response')).not.toBeInTheDocument();
   });
 
