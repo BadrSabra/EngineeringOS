@@ -56,6 +56,7 @@ import * as repairValidation from "../lib/ai-repair-validation.js";
 import * as observationMaterializer from "../lib/agent-state/observation-materializer.js";
 import * as aiRouteHelpers from "../lib/ai-route-helpers.js";
 import * as aiRateLimiter from "../lib/db-rate-limiter.js";
+import * as taskExecutionService from "../lib/task-execution-service.js";
 import { heavyJobQueue } from "../lib/job-queue.js";
 import { dispatchPersistedPendingJobs } from "../lib/job-reconciliation.js";
 import * as aiTaskRoutes from "./ai/tasks.js";
@@ -10445,56 +10446,106 @@ describe("POST /api/ai/tasks/:taskId/execute", () => {
     expect(remainingIntent).toHaveLength(0);
   });
 
-  it("does not dispatch a deferred intent after the Task correlation generation changes", async () => {
+  it.each(["retryCount", "correlationId"] as const)(
+    "does not dispatch a deferred intent after the Task %s generation changes",
+    async (generationField) => {
+      const projectId = await insertProject();
+      projectIds.push(projectId);
+      const taskId = await insertTask(projectId, "verifying");
+      const originalCorrelationId = generationField === "correlationId"
+        ? "task-generation-before"
+        : null;
+      const currentCorrelationId = "task-generation-after";
+      await db.update(tasksTable)
+        .set({
+          prompt: "Do not replay this intent after the Task generation changes",
+          correlationId: originalCorrelationId,
+        })
+        .where(eq(tasksTable.id, taskId));
+
+      const enqueueSpy = vi.spyOn(heavyJobQueue, "enqueueWithIdDetailed")
+        .mockReturnValueOnce("full");
+      await scheduleAiTaskExecution(taskId, "test-user");
+      enqueueSpy.mockRestore();
+
+      const intentId = `task-auto-execution-deferred:${taskId}`;
+      const [intent] = await db.select().from(eventsTable)
+        .where(eq(eventsTable.id, intentId));
+      expect(intent?.payload).toMatchObject({
+        taskRetryCount: 0,
+        taskCorrelationId: originalCorrelationId,
+      });
+
+      await db.update(eventsTable)
+        .set({
+          payload: {
+            ...intent!.payload!,
+            nextAttemptAt: new Date(Date.now() - 1_000).toISOString(),
+          },
+        })
+        .where(eq(eventsTable.id, intentId));
+      await db.update(tasksTable)
+        .set(generationField === "retryCount"
+          ? { retryCount: 1 }
+          : { correlationId: currentCorrelationId })
+        .where(eq(tasksTable.id, taskId));
+
+      await aiTaskRoutes.dispatchDeferredAiTaskExecutions();
+
+      const [deferred] = await db.select().from(eventsTable)
+        .where(eq(eventsTable.id, intentId));
+      expect(deferred?.type).toBe("TaskAutoExecutionDeferred");
+      expect(deferred?.payload).toMatchObject({
+        taskRetryCount: 0,
+        taskCorrelationId: originalCorrelationId,
+        lastFailureCode: "TASK_GENERATION_MISMATCH",
+      });
+      const nextAttemptAt = Date.parse(String(deferred?.payload?.nextAttemptAt));
+      expect(nextAttemptAt).toBeGreaterThan(Date.now() + 14 * 60_000);
+      expect(await db.select({ id: aiExecutionsTable.id }).from(aiExecutionsTable)
+        .where(eq(aiExecutionsTable.linkedTaskId, taskId))).toHaveLength(0);
+    },
+  );
+
+  it("backs off Mission admission conflicts without deleting the deferred intent", async () => {
     const projectId = await insertProject();
     projectIds.push(projectId);
     const taskId = await insertTask(projectId, "verifying");
-    const originalCorrelationId = "task-generation-before";
-    const currentCorrelationId = "task-generation-after";
+    const correlationId = randomUUID();
     await db.update(tasksTable)
       .set({
-        prompt: "Do not replay this intent after the Task generation changes",
-        correlationId: originalCorrelationId,
+        prompt: "Wait for Mission dependencies before dispatch",
+        correlationId,
       })
       .where(eq(tasksTable.id, taskId));
 
-    const enqueueSpy = vi.spyOn(heavyJobQueue, "enqueueWithIdDetailed")
-      .mockReturnValueOnce("full");
-    await scheduleAiTaskExecution(taskId, "test-user");
-    enqueueSpy.mockRestore();
+    vi.spyOn(aiRouteHelpers, "resolveProvider").mockResolvedValueOnce({
+      provider: "groq",
+      apiKey: "test-only-key",
+      source: "user",
+    });
+    vi.spyOn(aiRateLimiter, "checkProjectRateLimitDb")
+      .mockResolvedValueOnce({ allowed: true });
+    vi.spyOn(taskExecutionService, "executeTaskLifecycle")
+      .mockResolvedValueOnce({
+        ok: false,
+        status: "conflict",
+        errorCode: "mission_dependencies_pending",
+      } as never);
 
-    const intentId = `task-auto-execution-deferred:${taskId}`;
+    await scheduleAiTaskExecution(taskId, "test-user");
+    await waitForScheduledAiTaskExecutions();
+
     const [intent] = await db.select().from(eventsTable)
-      .where(eq(eventsTable.id, intentId));
+      .where(eq(eventsTable.id, `task-auto-execution-deferred:${taskId}`));
+    expect(intent?.type).toBe("TaskAutoExecutionDeferred");
     expect(intent?.payload).toMatchObject({
       taskRetryCount: 0,
-      taskCorrelationId: originalCorrelationId,
+      taskCorrelationId: correlationId,
+      lastFailureCode: "mission_dependencies_pending",
     });
-
-    await db.update(eventsTable)
-      .set({
-        payload: {
-          ...intent!.payload!,
-          nextAttemptAt: new Date(Date.now() - 1_000).toISOString(),
-        },
-      })
-      .where(eq(eventsTable.id, intentId));
-    await db.update(tasksTable)
-      .set({ correlationId: currentCorrelationId })
-      .where(eq(tasksTable.id, taskId));
-
-    await aiTaskRoutes.dispatchDeferredAiTaskExecutions();
-
-    const [deferred] = await db.select().from(eventsTable)
-      .where(eq(eventsTable.id, intentId));
-    expect(deferred?.type).toBe("TaskAutoExecutionDeferred");
-    expect(deferred?.payload).toMatchObject({
-      taskRetryCount: 0,
-      taskCorrelationId: originalCorrelationId,
-      lastFailureCode: "TASK_GENERATION_MISMATCH",
-    });
-    const nextAttemptAt = Date.parse(String(deferred?.payload?.nextAttemptAt));
-    expect(nextAttemptAt).toBeGreaterThan(Date.now() + 14 * 60_000);
+    const retryAt = Date.parse(String(intent?.payload?.nextAttemptAt));
+    expect(retryAt).toBeGreaterThan(Date.now() + 14 * 60_000);
     expect(await db.select({ id: aiExecutionsTable.id }).from(aiExecutionsTable)
       .where(eq(aiExecutionsTable.linkedTaskId, taskId))).toHaveLength(0);
   });
