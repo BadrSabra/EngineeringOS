@@ -149,6 +149,13 @@ jobs:
       - name: Check codegen drift (fast-path)
         run: pnpm run codegen:check
 
+      # Temporary forensic step: print the exact Orval output diff if drift is found.
+      - name: Capture generated schema drift (temporary diagnostic)
+        if: always()
+        run: |
+          git status --short -- lib/api-client-react/src/generated/api.schemas.ts
+          git diff --no-ext-diff -- lib/api-client-react/src/generated/api.schemas.ts
+
       - name: Type-check generated surfaces
         run: pnpm run typecheck:libs
 
