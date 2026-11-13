@@ -3,20 +3,11 @@ import {
   signPreviewBuildJob,
   type PreviewBuildJobClaims,
 } from "./preview-build-job.js";
+import type { PreviewBuildAttestorResponse } from "./preview-build-provider-contracts.js";
 
 const MAX_REQUEST_BYTES = 16_384;
 const MAX_RESPONSE_BYTES = 16_384;
 const ATTEST_PATH = "/internal/v1/preview/builds/attest";
-
-export type PreviewBuildAttestorResult =
-  | { jobId: string; buildId: string; state: "pending" }
-  | { jobId: string; buildId: string; state: "failed" }
-  | {
-      jobId: string;
-      buildId: string;
-      state: "ready";
-      receiptToken: string;
-    };
 
 export class PreviewBuildAttestorClientError extends Error {
   constructor() {
@@ -28,7 +19,7 @@ export class PreviewBuildAttestorClientError extends Error {
 function parseResponse(
   value: unknown,
   expected: { jobId: string; buildId: string },
-): PreviewBuildAttestorResult {
+): PreviewBuildAttestorResponse {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
     throw new PreviewBuildAttestorClientError();
   }
@@ -131,7 +122,7 @@ export async function attestPreviewBuildJob(input: {
   executionRef: string;
   now?: Date;
   fetcher?: typeof fetch;
-}): Promise<PreviewBuildAttestorResult> {
+}): Promise<PreviewBuildAttestorResponse> {
   if (
     input.job.status !== "builder_succeeded" ||
     !input.job.executionRef ||

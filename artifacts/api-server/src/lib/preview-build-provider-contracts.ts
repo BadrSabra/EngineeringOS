@@ -18,6 +18,16 @@ export type PreviewBuildObservation = {
   outputDigest?: string;
 };
 
+export type PreviewBuildAttestorResponse =
+  | { jobId: string; buildId: string; state: "pending" }
+  | { jobId: string; buildId: string; state: "failed" }
+  | {
+      jobId: string;
+      buildId: string;
+      state: "ready";
+      receiptToken: string;
+    };
+
 export type PreviewBuildInputArtifactReceipt = {
   jobId: string;
   artifactRefId: string;
@@ -54,4 +64,29 @@ export interface PreviewBuildExecutor {
     job: PreviewBuildJob;
     now: Date;
   }): Promise<PreviewBuildObservation>;
+}
+
+/**
+ * Requests an independent Attestor result for a specific durable build and
+ * opaque execution reference. The caller still verifies the receipt server-side.
+ */
+export interface PreviewAttestationService {
+  attest(input: {
+    job: PreviewBuildJob;
+    executionRef: string;
+    now: Date;
+  }): Promise<PreviewBuildAttestorResponse>;
+}
+
+export interface PreviewReceiptVerifier {
+  verifyAndAccept(input: {
+    jobId: string;
+    token: string;
+    publicKeyPem: string;
+    expectedLeaseOwner?: string;
+    now: () => Date;
+  }): Promise<{
+    job: PreviewBuildJob;
+    alreadyVerified: boolean;
+  }>;
 }

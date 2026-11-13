@@ -12,12 +12,14 @@ import { createPreviewBuildGatewayExecutor } from "./preview-build-executor-gate
 import {
   type PreviewBuildObservation,
   type PreviewBuildExecutor,
+  type PreviewAttestationService,
+  type PreviewReceiptVerifier,
 } from "./preview-build-provider-contracts.js";
-import { attestPreviewBuildJob } from "./preview-build-attestor-client.js";
 import {
-  acceptPreviewBuildReceipt,
   PreviewBuildAttestationError,
 } from "./preview-build-attestor.js";
+import { createPreviewBuildGatewayAttestationService } from "./preview-build-attestation-gateway.js";
+import { createApiPreviewReceiptVerifier } from "./preview-build-receipt-verifier.js";
 
 const MISSING_TASK_GRACE_MS = 2 * 60_000;
 const RECONCILE_INTERVAL_MS = 20_000;
@@ -39,8 +41,8 @@ type ReconciliationDependencies = {
   claimJobs?: typeof claimPreviewBuildJobsForReconciliation;
   listJobs?: typeof findPreviewBuildJobsToReconcile;
   executor?: PreviewBuildExecutor;
-  attest?: typeof attestPreviewBuildJob;
-  acceptReceipt?: typeof acceptPreviewBuildReceipt;
+  attestationService?: PreviewAttestationService;
+  receiptVerifier?: PreviewReceiptVerifier;
   renewLease?: typeof renewPreviewBuildJobReconciliationLease;
   releaseLease?: typeof releasePreviewBuildJobReconciliationLease;
   transition?: typeof transitionPreviewBuildJob;
@@ -150,17 +152,17 @@ async function applyObservation(input: {
 async function reconcileAttestation(input: {
   job: PreviewBuildJob;
   leaseOwner?: string;
-  config: ReconciliationConfig;
+  receiptPublicKeyPem: string | undefined;
   now: Date;
   currentTime?: () => Date;
-  attest: typeof attestPreviewBuildJob;
-  acceptReceipt: typeof acceptPreviewBuildReceipt;
+  attestationService: PreviewAttestationService;
+  receiptVerifier: PreviewReceiptVerifier;
   transition: typeof transitionPreviewBuildJob;
 }): Promise<"advanced" | "failed" | "unchanged"> {
   if (
     input.job.status !== "builder_succeeded" ||
     !input.job.executionRef ||
-    !input.config.receiptPublicKeyPem
+    !input.receiptPublicKeyPem
   ) {
     return "unchanged";
   }
@@ -180,9 +182,7 @@ async function reconcileAttestation(input: {
     return failed ? "failed" : "unchanged";
   }
 
-  const result = await input.attest({
-    gatewayUrl: input.config.gatewayUrl!,
-    privateKeyPem: input.config.privateKeyPem!,
+  const result = await input.attestationService.attest({
     job: input.job,
     executionRef: input.job.executionRef,
     now: input.now,
@@ -202,12 +202,12 @@ async function reconcileAttestation(input: {
   }
 
   try {
-    await input.acceptReceipt({
+    await input.receiptVerifier.verifyAndAccept({
       jobId: input.job.jobId,
       token: result.receiptToken,
-      publicKeyPem: input.config.receiptPublicKeyPem,
+      publicKeyPem: input.receiptPublicKeyPem,
       expectedLeaseOwner: input.leaseOwner,
-      dependencies: { now: input.currentTime ?? (() => input.now) },
+      now: input.currentTime ?? (() => input.now),
     });
     return "advanced";
   } catch (error) {
@@ -250,15 +250,8 @@ export async function reconcilePreviewBuildJobsOnce(
       : claimPreviewBuildJobsForReconciliation);
   const listJobs =
     input.dependencies?.listJobs ?? findPreviewBuildJobsToReconcile;
-  const executor =
-    input.dependencies?.executor ??
-    createPreviewBuildGatewayExecutor({
-      gatewayUrl: reconciliationConfig.gatewayUrl,
-      privateKeyPem: reconciliationConfig.privateKeyPem,
-    });
-  const attest = input.dependencies?.attest ?? attestPreviewBuildJob;
-  const acceptReceipt =
-    input.dependencies?.acceptReceipt ?? acceptPreviewBuildReceipt;
+  const receiptVerifier =
+    input.dependencies?.receiptVerifier ?? createApiPreviewReceiptVerifier();
   const transition =
     input.dependencies?.transition ?? transitionPreviewBuildJob;
   const renewLease =
@@ -275,9 +268,26 @@ export async function reconcilePreviewBuildJobsOnce(
     awaitingOutput: 0,
     unchanged: 0,
   };
-  if (!reconciliationConfig.gatewayUrl || !reconciliationConfig.privateKeyPem) {
-    return counts;
-  }
+  const gatewayConfigured =
+    Boolean(reconciliationConfig.gatewayUrl) &&
+    Boolean(reconciliationConfig.privateKeyPem);
+  const executor =
+    input.dependencies?.executor ??
+    (gatewayConfigured
+      ? createPreviewBuildGatewayExecutor({
+          gatewayUrl: reconciliationConfig.gatewayUrl,
+          privateKeyPem: reconciliationConfig.privateKeyPem,
+        })
+      : undefined);
+  const attestationService =
+    input.dependencies?.attestationService ??
+    (gatewayConfigured
+      ? createPreviewBuildGatewayAttestationService({
+          gatewayUrl: reconciliationConfig.gatewayUrl!,
+          privateKeyPem: reconciliationConfig.privateKeyPem!,
+        })
+      : undefined);
+  if (!executor || !attestationService) return counts;
 
   const leaseOwner = randomUUID();
   const jobs = claimJobs
@@ -339,12 +349,12 @@ export async function reconcilePreviewBuildJobsOnce(
           if (job.status === "builder_succeeded") {
             return await reconcileAttestation({
               job,
-              config: reconciliationConfig,
+              receiptPublicKeyPem: reconciliationConfig.receiptPublicKeyPem,
               leaseOwner: jobLeaseOwner,
               now: observedAt,
               currentTime: now,
-              attest,
-              acceptReceipt,
+              attestationService,
+              receiptVerifier,
               transition,
             });
           }

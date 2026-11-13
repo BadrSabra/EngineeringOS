@@ -504,7 +504,7 @@ describe("durable Preview build reconciliation", () => {
       buildId,
       state: "pending" as const,
     }));
-    const acceptReceipt = vi.fn();
+    const verifyAndAccept = vi.fn();
     await expect(
       reconcilePreviewBuildJobsOnce({
         config: {
@@ -523,20 +523,74 @@ describe("durable Preview build reconciliation", () => {
               updatedAt: now,
             }),
           ]),
-          attest,
-          acceptReceipt,
+          attestationService: { attest: attest as never },
+          receiptVerifier: { verifyAndAccept: verifyAndAccept as never },
           transition,
         },
       }),
     ).resolves.toMatchObject({ inspected: 1, unchanged: 1 });
     expect(attest).toHaveBeenCalledWith(
       expect.objectContaining({
-        gatewayUrl: "https://gateway.example",
+        job: expect.objectContaining({ jobId }),
         executionRef: taskArn,
       }),
     );
-    expect(acceptReceipt).not.toHaveBeenCalled();
+    expect(verifyAndAccept).not.toHaveBeenCalled();
     expect(transition).not.toHaveBeenCalled();
+  });
+
+  it("passes an opaque execution reference through provider-neutral Attestation", async () => {
+    const executionRef = "local-node:session-7:attempt-2";
+    const job = makeJob({
+      status: "builder_succeeded",
+      executionRef,
+      outputDigest,
+      stateVersion: 4,
+      updatedAt: now,
+    });
+    const attest = vi.fn(async () => ({
+      jobId,
+      buildId,
+      state: "pending" as const,
+    }));
+    const executor = {
+      launch: vi.fn(async () => ({
+        jobId,
+        buildId,
+        executionRef,
+      })),
+      observe: vi.fn(async () => ({
+        jobId,
+        buildId,
+        state: "running" as const,
+      })),
+    };
+
+    await expect(
+      reconcilePreviewBuildJobsOnce({
+        config: {
+          gatewayUrl: undefined,
+          privateKeyPem: undefined,
+          receiptPublicKeyPem: "receipt public key",
+        },
+        dependencies: {
+          now: () => now,
+          listJobs: vi.fn(async () => [job]),
+          executor,
+          attestationService: { attest: attest as never },
+          receiptVerifier: {
+            verifyAndAccept: vi.fn() as never,
+          },
+          transition: transitionMock(),
+        },
+      }),
+    ).resolves.toMatchObject({ inspected: 1, unchanged: 1 });
+
+    expect(attest).toHaveBeenCalledWith({
+      job,
+      executionRef,
+      now,
+    });
   });
 
   it("does not launch Attestor until the API receipt-verification key is configured", async () => {
@@ -557,7 +611,7 @@ describe("durable Preview build reconciliation", () => {
               stateVersion: 4,
             }),
           ]),
-          attest: attest as never,
+          attestationService: { attest: attest as never },
         },
       }),
     ).resolves.toMatchObject({ inspected: 1, unchanged: 1 });
@@ -572,7 +626,7 @@ describe("durable Preview build reconciliation", () => {
       state: "ready" as const,
       receiptToken: "signed.receipt",
     }));
-    const acceptReceipt = vi.fn(async () => ({
+    const verifyAndAccept = vi.fn(async () => ({
       job: makeJob(),
       alreadyVerified: false,
     }));
@@ -594,17 +648,18 @@ describe("durable Preview build reconciliation", () => {
               updatedAt: now,
             }),
           ]),
-          attest,
-          acceptReceipt,
+          attestationService: { attest: attest as never },
+          receiptVerifier: { verifyAndAccept: verifyAndAccept as never },
           transition,
         },
       }),
     ).resolves.toMatchObject({ inspected: 1, advanced: 1 });
-    expect(acceptReceipt).toHaveBeenCalledWith(
+    expect(verifyAndAccept).toHaveBeenCalledWith(
       expect.objectContaining({
         jobId,
         token: "signed.receipt",
         publicKeyPem: "receipt public key",
+        now: expect.any(Function),
       }),
     );
     expect(transition).not.toHaveBeenCalled();
@@ -631,7 +686,7 @@ describe("durable Preview build reconciliation", () => {
               updatedAt: new Date(now.getTime() - 31 * 60_000),
             }),
           ]),
-          attest: attest as never,
+          attestationService: { attest: attest as never },
           transition,
         },
       }),
@@ -678,7 +733,7 @@ describe("durable Preview build reconciliation", () => {
               reconciliationLeaseExpiresAt: new Date(now.getTime() + 60_000),
             }),
           ]),
-          attest,
+          attestationService: { attest: attest as never },
           renewLease: vi.fn(async () => true),
           releaseLease: vi.fn(async () => true),
           transition,
