@@ -1374,7 +1374,12 @@ export async function getDurableJobHealth(): Promise<{
             ),
           ),
         )),
-      db.select({ value: min(eventsTable.timestamp) }).from(eventsTable)
+      db.select({
+        value: sql<string | null>`to_char(
+          min(${eventsTable.timestamp}),
+          'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"'
+        )`,
+      }).from(eventsTable)
         .where(inArray(eventsTable.type, [
           "TaskAutoExecutionDispatchRequested",
           "TaskAutoExecutionDeferred",
@@ -1431,7 +1436,7 @@ export async function getDurableJobHealth(): Promise<{
         count: Number(row.value),
       })),
       staleAiTaskDispatches: Number(staleAiTaskDispatches.value),
-      oldestAiTaskDispatchAt: oldestAiTaskDispatch.value?.toISOString() ?? null,
+      oldestAiTaskDispatchAt: oldestAiTaskDispatch.value ?? null,
       failedDispatchStages: Number(failedStages.value),
       pendingTaskObservationMaterializations: Number(pendingObservationRows.value),
       staleTaskObservationMaterializations: Number(staleObservationRows.value),
