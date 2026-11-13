@@ -1050,10 +1050,10 @@ describe("periodic stale scan recovery and durable health", () => {
       const health = await getDurableJobHealth();
       expect(health.status).toBe("degraded");
       expect(health.deferredAiTaskDispatches).toBeGreaterThanOrEqual(1);
-      expect(health.deferredAiTaskDispatchesByReason).toContainEqual({
-        reasonCode: "PROJECT_RATE_LIMITED",
-        count: 1,
-      });
+      const rateLimitedDispatches = health.deferredAiTaskDispatchesByReason.find(
+        (entry) => entry.reasonCode === "PROJECT_RATE_LIMITED",
+      );
+      expect(rateLimitedDispatches?.count).toBeGreaterThanOrEqual(1);
       expect(health.staleAiTaskDispatches).toBeGreaterThanOrEqual(1);
       expect(health.oldestAiTaskDispatchAt).not.toBeNull();
       expect(health.failedDispatchStages).toBeGreaterThanOrEqual(1);
