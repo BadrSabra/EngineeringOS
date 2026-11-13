@@ -524,6 +524,29 @@ describe("workspace runtime supervisor server boundary", () => {
     await stopChild(supervisor);
   });
 
+  it("rejects a signed command when the request path changes", async () => {
+    const port = await freePort();
+    const supervisor = startSupervisor(port);
+    await waitForHealth(supervisor, port);
+    const token = deriveWorkspaceRuntimeSupervisorToken(testSecret);
+    const body = JSON.stringify({ projectId: "path-tampered-project", ownerProjectId: "owner-a" });
+    const response = await fetch(`http://127.0.0.1:${port}/runtime/start`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        authorization: `Bearer ${token}`,
+        "x-engineeringos-command-signature": signWorkspaceRuntimeSupervisorCommand(
+          testSecret,
+          "/runtime/observe-start",
+          body,
+        ),
+      },
+      body,
+    });
+    expect(response.status).toBe(401);
+    await stopChild(supervisor);
+  });
+
   it("does not forward npm_config credentials into project runtime processes", async () => {
     const supervisorPort = await freePort();
     const projectRoot = await mkdtemp(path.join(tmpdir(), "workspace-runtime-env-policy-"));
