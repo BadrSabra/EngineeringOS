@@ -2,7 +2,10 @@ import { randomUUID } from "node:crypto";
 import type { PreviewBuildJob } from "@workspace/db";
 import { config } from "../config.js";
 import {
+  claimPreviewBuildJobsForReconciliation,
   findPreviewBuildJobsToReconcile,
+  releasePreviewBuildJobReconciliationLease,
+  renewPreviewBuildJobReconciliationLease,
   transitionPreviewBuildJob,
 } from "./preview-build-job-store.js";
 import {
@@ -20,7 +23,9 @@ const RECONCILE_INTERVAL_MS = 20_000;
 const ATTESTOR_TIMEOUT_MS = 30 * 60_000;
 const MAX_JOBS_PER_PASS = 12;
 const RECONCILE_CONCURRENCY = 3;
-let reconciliationCursor: string | undefined = randomUUID();
+const RECONCILIATION_LEASE_MS = 60_000;
+const RECONCILIATION_HEARTBEAT_MS = 15_000;
+let reconciliationCursor: string | undefined;
 
 type ReconciliationConfig = {
   gatewayUrl: string | undefined;
@@ -30,10 +35,13 @@ type ReconciliationConfig = {
 
 type ReconciliationDependencies = {
   now?: () => Date;
+  claimJobs?: typeof claimPreviewBuildJobsForReconciliation;
   listJobs?: typeof findPreviewBuildJobsToReconcile;
   observe?: typeof observePreviewBuildJob;
   attest?: typeof attestPreviewBuildJob;
   acceptReceipt?: typeof acceptPreviewBuildReceipt;
+  renewLease?: typeof renewPreviewBuildJobReconciliationLease;
+  releaseLease?: typeof releasePreviewBuildJobReconciliationLease;
   transition?: typeof transitionPreviewBuildJob;
 };
 
@@ -48,8 +56,10 @@ export type PreviewBuildReconciliationCounts = {
 
 async function applyObservation(input: {
   job: PreviewBuildJob;
+  leaseOwner?: string;
   observation: PreviewBuildObservation;
   now: Date;
+  currentTime?: () => Date;
   transition: typeof transitionPreviewBuildJob;
 }): Promise<"advanced" | "failed" | "awaitingOutput" | "unchanged"> {
   let job = input.job;
@@ -72,9 +82,10 @@ async function applyObservation(input: {
       jobId: job.jobId,
       expectedStatus: "launching",
       expectedVersion: job.stateVersion,
+      expectedLeaseOwner: input.leaseOwner,
       nextStatus: "failed",
       failureCode: "BUILDER_TASK_NOT_FOUND",
-      now: input.now,
+      now: input.currentTime?.() ?? input.now,
     });
     return failed ? "failed" : "unchanged";
   }
@@ -88,9 +99,10 @@ async function applyObservation(input: {
       jobId: job.jobId,
       expectedStatus: "launching",
       expectedVersion: job.stateVersion,
+      expectedLeaseOwner: input.leaseOwner,
       nextStatus: "running",
       executionRef: observation.executionRef,
-      now: input.now,
+      now: input.currentTime?.() ?? input.now,
     });
     if (!running) return "unchanged";
     job = running;
@@ -108,12 +120,13 @@ async function applyObservation(input: {
       jobId: job.jobId,
       expectedStatus: "running",
       expectedVersion: job.stateVersion,
+      expectedLeaseOwner: input.leaseOwner,
       nextStatus: "failed",
       failureCode:
         observation.exitCode === undefined
           ? "BUILDER_EXIT_UNAVAILABLE"
           : "BUILDER_EXIT_NONZERO",
-      now: input.now,
+      now: input.currentTime?.() ?? input.now,
     });
     return failed ? "failed" : "unchanged";
   }
@@ -122,10 +135,11 @@ async function applyObservation(input: {
       jobId: job.jobId,
       expectedStatus: "running",
       expectedVersion: job.stateVersion,
+      expectedLeaseOwner: input.leaseOwner,
       nextStatus: "builder_succeeded",
       executionRef: job.executionRef,
       outputDigest: observation.outputDigest,
-      now: input.now,
+      now: input.currentTime?.() ?? input.now,
     });
     return succeeded ? "advanced" : "unchanged";
   }
@@ -134,8 +148,10 @@ async function applyObservation(input: {
 
 async function reconcileAttestation(input: {
   job: PreviewBuildJob;
+  leaseOwner?: string;
   config: ReconciliationConfig;
   now: Date;
+  currentTime?: () => Date;
   attest: typeof attestPreviewBuildJob;
   acceptReceipt: typeof acceptPreviewBuildReceipt;
   transition: typeof transitionPreviewBuildJob;
@@ -155,9 +171,10 @@ async function reconcileAttestation(input: {
       jobId: input.job.jobId,
       expectedStatus: "builder_succeeded",
       expectedVersion: input.job.stateVersion,
+      expectedLeaseOwner: input.leaseOwner,
       nextStatus: "failed",
       failureCode: "PREVIEW_ATTESTOR_TIMEOUT",
-      now: input.now,
+      now: input.currentTime?.() ?? input.now,
     });
     return failed ? "failed" : "unchanged";
   }
@@ -175,9 +192,10 @@ async function reconcileAttestation(input: {
       jobId: input.job.jobId,
       expectedStatus: "builder_succeeded",
       expectedVersion: input.job.stateVersion,
+      expectedLeaseOwner: input.leaseOwner,
       nextStatus: "failed",
       failureCode: "PREVIEW_ATTESTOR_FAILED",
-      now: input.now,
+      now: input.currentTime?.() ?? input.now,
     });
     return failed ? "failed" : "unchanged";
   }
@@ -187,7 +205,8 @@ async function reconcileAttestation(input: {
       jobId: input.job.jobId,
       token: result.receiptToken,
       publicKeyPem: input.config.receiptPublicKeyPem,
-      dependencies: { now: () => input.now },
+      expectedLeaseOwner: input.leaseOwner,
+      dependencies: { now: input.currentTime ?? (() => input.now) },
     });
     return "advanced";
   } catch (error) {
@@ -200,9 +219,10 @@ async function reconcileAttestation(input: {
         jobId: input.job.jobId,
         expectedStatus: "builder_succeeded",
         expectedVersion: input.job.stateVersion,
+        expectedLeaseOwner: input.leaseOwner,
         nextStatus: "failed",
         failureCode: "PREVIEW_ATTESTOR_RECEIPT_REJECTED",
-        now: input.now,
+        now: input.currentTime?.() ?? input.now,
       });
       return failed ? "failed" : "unchanged";
     }
@@ -222,6 +242,11 @@ export async function reconcilePreviewBuildJobsOnce(
     receiptPublicKeyPem: config.previewBuildReceiptPublicKeyPem,
   };
   const now = input.dependencies?.now ?? (() => new Date());
+  const claimJobs =
+    input.dependencies?.claimJobs ??
+    (input.dependencies?.listJobs
+      ? null
+      : claimPreviewBuildJobsForReconciliation);
   const listJobs =
     input.dependencies?.listJobs ?? findPreviewBuildJobsToReconcile;
   const observe = input.dependencies?.observe ?? observePreviewBuildJob;
@@ -230,6 +255,12 @@ export async function reconcilePreviewBuildJobsOnce(
     input.dependencies?.acceptReceipt ?? acceptPreviewBuildReceipt;
   const transition =
     input.dependencies?.transition ?? transitionPreviewBuildJob;
+  const renewLease =
+    input.dependencies?.renewLease ??
+    renewPreviewBuildJobReconciliationLease;
+  const releaseLease =
+    input.dependencies?.releaseLease ??
+    releasePreviewBuildJobReconciliationLease;
   const counts: PreviewBuildReconciliationCounts = {
     inspected: 0,
     advanced: 0,
@@ -242,15 +273,49 @@ export async function reconcilePreviewBuildJobsOnce(
     return counts;
   }
 
-  const jobs = await listJobs(MAX_JOBS_PER_PASS, reconciliationCursor);
+  const leaseOwner = randomUUID();
+  const jobs = claimJobs
+    ? await claimJobs({
+        limit: MAX_JOBS_PER_PASS,
+        afterJobId: reconciliationCursor,
+        leaseOwner,
+        now: now(),
+        leaseMs: RECONCILIATION_LEASE_MS,
+      })
+    : await listJobs(MAX_JOBS_PER_PASS, reconciliationCursor);
   reconciliationCursor = jobs.at(-1)?.jobId;
   for (let offset = 0; offset < jobs.length; offset += RECONCILE_CONCURRENCY) {
     const batch = jobs.slice(offset, offset + RECONCILE_CONCURRENCY);
     counts.inspected += batch.length;
     const results = await Promise.all(
       batch.map(async (job) => {
-        const observedAt = now();
+        const jobLeaseOwner = job.reconciliationLeaseOwner ?? undefined;
+        let heartbeat: ReturnType<typeof setInterval> | undefined;
+        let renewalInFlight: Promise<void> | undefined;
         try {
+          if (jobLeaseOwner) {
+            heartbeat = setInterval(() => {
+              if (renewalInFlight) return;
+              renewalInFlight = renewLease({
+                jobId: job.jobId,
+                leaseOwner: jobLeaseOwner,
+                now: now(),
+                leaseMs: RECONCILIATION_LEASE_MS,
+              })
+                .then((renewed) => {
+                  if (!renewed) {
+                    throw new Error("Preview reconciliation lease was lost.");
+                  }
+                })
+                .catch(() => undefined)
+                .then(() => {
+                  renewalInFlight = undefined;
+                });
+            }, RECONCILIATION_HEARTBEAT_MS);
+            heartbeat.unref?.();
+          }
+          const observedAt = now();
+          const result = await (async () => {
           if (job.status === "queued") {
             if (job.tokenExpiresAt.getTime() > observedAt.getTime()) {
               return "unchanged" as const;
@@ -259,6 +324,7 @@ export async function reconcilePreviewBuildJobsOnce(
               jobId: job.jobId,
               expectedStatus: "queued",
               expectedVersion: job.stateVersion,
+              expectedLeaseOwner: jobLeaseOwner,
               nextStatus: "expired",
               now: observedAt,
             });
@@ -268,7 +334,9 @@ export async function reconcilePreviewBuildJobsOnce(
             return await reconcileAttestation({
               job,
               config: reconciliationConfig,
+              leaseOwner: jobLeaseOwner,
               now: observedAt,
+              currentTime: now,
               attest,
               acceptReceipt,
               transition,
@@ -282,12 +350,25 @@ export async function reconcilePreviewBuildJobsOnce(
           });
           return await applyObservation({
             job,
+            leaseOwner: jobLeaseOwner,
             observation: observed,
             now: observedAt,
+            currentTime: now,
             transition,
           });
+          })();
+          return result;
         } catch {
           return "unchanged" as const;
+        } finally {
+          if (heartbeat) clearInterval(heartbeat);
+          if (renewalInFlight) await renewalInFlight;
+          if (jobLeaseOwner) {
+            await releaseLease({
+              jobId: job.jobId,
+              leaseOwner: jobLeaseOwner,
+            }).catch(() => undefined);
+          }
         }
       }),
     );

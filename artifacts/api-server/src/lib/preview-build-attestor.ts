@@ -39,6 +39,7 @@ export async function acceptPreviewBuildReceipt(input: {
   jobId: string;
   token: string;
   publicKeyPem: string | undefined;
+  expectedLeaseOwner?: string;
   dependencies?: PreviewBuildAttestorDependencies;
 }): Promise<PreviewBuildAttestationResult> {
   if (
@@ -133,6 +134,7 @@ export async function acceptPreviewBuildReceipt(input: {
       jobId: job.jobId,
       expectedStatus: "builder_succeeded",
       expectedVersion: job.stateVersion,
+      expectedLeaseOwner: input.expectedLeaseOwner,
       nextStatus: "verified",
       executionRef: job.executionRef,
       verifiedReceipt: receipt,

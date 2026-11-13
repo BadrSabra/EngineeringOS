@@ -130,6 +130,11 @@ export const previewBuildJobsTable = pgTable(
     buildReceiptId: uuid("build_receipt_id"),
     failureCode: text("failure_code"),
     stateVersion: integer("state_version").notNull().default(0),
+    reconciliationLeaseOwner: uuid("reconciliation_lease_owner"),
+    reconciliationLeaseExpiresAt: timestamp(
+      "reconciliation_lease_expires_at",
+      { withTimezone: true },
+    ),
     startedAt: timestamp("started_at", { withTimezone: true }),
     completedAt: timestamp("completed_at", { withTimezone: true }),
     createdAt: timestamp("created_at", { withTimezone: true })
@@ -148,6 +153,10 @@ export const previewBuildJobsTable = pgTable(
     check(
       "chk_preview_build_jobs_dispatch_generation_positive",
       sql`${table.dispatchGeneration} > 0`,
+    ),
+    check(
+      "chk_preview_build_jobs_reconciliation_lease_pair",
+      sql`(${table.reconciliationLeaseOwner} IS NULL) = (${table.reconciliationLeaseExpiresAt} IS NULL)`,
     ),
     check(
       "chk_preview_build_jobs_input_local_metadata",
@@ -230,6 +239,11 @@ export const previewBuildJobsTable = pgTable(
       table.status,
     ),
     index("idx_preview_build_jobs_token_expiry").on(table.tokenExpiresAt),
+    index("idx_preview_build_jobs_reconciliation_lease").on(
+      table.status,
+      table.reconciliationLeaseExpiresAt,
+      table.jobId,
+    ),
     index(
       "idx_preview_build_jobs_input_gc_due",
     ).on(
@@ -278,6 +292,8 @@ export const insertPreviewBuildJobSchema = createInsertSchema(
   failureCode: true,
   dispatchGeneration: true,
   stateVersion: true,
+  reconciliationLeaseOwner: true,
+  reconciliationLeaseExpiresAt: true,
   startedAt: true,
   completedAt: true,
   createdAt: true,

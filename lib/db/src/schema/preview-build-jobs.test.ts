@@ -28,3 +28,18 @@ test("dispatch generation is durable, positive, and server-owned", () => {
   assert.equal(columns.dispatchGeneration.default, 1);
   assert.equal("dispatchGeneration" in insertPreviewBuildJobSchema.shape, false);
 });
+
+test("reconciliation leases are nullable and server-owned", () => {
+  const columns = getTableColumns(previewBuildJobsTable);
+
+  assert.equal(columns.reconciliationLeaseOwner.notNull, false);
+  assert.equal(columns.reconciliationLeaseExpiresAt.notNull, false);
+  assert.equal(
+    "reconciliationLeaseOwner" in insertPreviewBuildJobSchema.shape,
+    false,
+  );
+  assert.equal(
+    "reconciliationLeaseExpiresAt" in insertPreviewBuildJobSchema.shape,
+    false,
+  );
+});

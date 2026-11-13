@@ -58,6 +58,8 @@ function makeJob(overrides: Partial<PreviewBuildJob> = {}): PreviewBuildJob {
     buildReceiptId: null,
     failureCode: null,
     dispatchGeneration: 1,
+    reconciliationLeaseOwner: null,
+    reconciliationLeaseExpiresAt: null,
     stateVersion: 2,
     startedAt: null,
     completedAt: null,
@@ -76,6 +78,10 @@ function transitionMock() {
         outputDigest: input.outputDigest ?? null,
         failureCode: input.failureCode ?? null,
         stateVersion: input.expectedVersion + 1,
+        reconciliationLeaseOwner: input.expectedLeaseOwner ?? null,
+        reconciliationLeaseExpiresAt: input.expectedLeaseOwner
+          ? new Date(now.getTime() + 60_000)
+          : null,
         startedAt: input.nextStatus === "running" ? now : null,
         completedAt:
           input.nextStatus === "failed" ||
@@ -111,6 +117,156 @@ function run(input: {
 }
 
 describe("durable Preview build reconciliation", () => {
+  it("does not inspect the same build concurrently from two passes", async () => {
+    let releaseObservation!: () => void;
+    const observationGate = new Promise<void>((resolve) => {
+      releaseObservation = resolve;
+    });
+    const observe = vi.fn(async () => {
+      await observationGate;
+      return { jobId, buildId, state: "pending" as const };
+    });
+    let activeOwner: string | null = null;
+    let activeExpiresAt: Date | null = null;
+    const claimJobs = vi.fn(
+      async (input: Parameters<
+        typeof import("./preview-build-job-store.js").claimPreviewBuildJobsForReconciliation
+      >[0]) => {
+        if (activeOwner && activeExpiresAt && activeExpiresAt > input.now) {
+          return [];
+        }
+        activeOwner = input.leaseOwner;
+        activeExpiresAt = new Date(input.now.getTime() + (input.leaseMs ?? 60_000));
+        return [
+          makeJob({
+            reconciliationLeaseOwner: activeOwner,
+            reconciliationLeaseExpiresAt: activeExpiresAt,
+          }),
+        ];
+      },
+    );
+    const releaseLease = vi.fn(async (input: { leaseOwner: string }) => {
+      if (activeOwner !== input.leaseOwner) return false;
+      activeOwner = null;
+      activeExpiresAt = null;
+      return true;
+    });
+    const dependencies = {
+      now: () => now,
+      claimJobs,
+      releaseLease,
+      renewLease: vi.fn(async () => true),
+      observe,
+      transition: transitionMock(),
+    };
+    const config = {
+      gatewayUrl: "https://gateway.example",
+      privateKeyPem: "private key placeholder",
+    };
+
+    const first = reconcilePreviewBuildJobsOnce({ config, dependencies });
+    await vi.waitFor(() => expect(observe).toHaveBeenCalledTimes(1));
+    const second = reconcilePreviewBuildJobsOnce({ config, dependencies });
+    await vi.waitFor(() => expect(claimJobs).toHaveBeenCalledTimes(2));
+    await Promise.resolve();
+    const concurrentObservations = observe.mock.calls.length;
+    releaseObservation();
+    await Promise.all([first, second]);
+
+    expect(concurrentObservations).toBe(1);
+    expect(releaseLease).toHaveBeenCalledOnce();
+  });
+
+  it("fences a completion write to the reconciliation lease owner", async () => {
+    const leaseOwner = "423e4567-e89b-42d3-a456-426614174004";
+    const transition = vi.fn(async () => null);
+    const job = makeJob({
+      status: "running",
+      executionRef: taskArn,
+      stateVersion: 3,
+      reconciliationLeaseOwner: leaseOwner,
+      reconciliationLeaseExpiresAt: new Date(now.getTime() + 30_000),
+    });
+
+    await expect(
+      reconcilePreviewBuildJobsOnce({
+        config: {
+          gatewayUrl: "https://gateway.example",
+          privateKeyPem: "private key placeholder",
+        },
+        dependencies: {
+          now: () => now,
+          claimJobs: vi.fn(async () => [job]),
+          observe: vi.fn(async () => ({
+            jobId,
+            buildId,
+            state: "stopped" as const,
+            executionRef: taskArn,
+            exitCode: 7,
+          })),
+          renewLease: vi.fn(async () => true),
+          releaseLease: vi.fn(async () => true),
+          transition,
+        },
+      }),
+    ).resolves.toMatchObject({ unchanged: 1, failed: 0 });
+
+    expect(transition).toHaveBeenCalledWith(
+      expect.objectContaining({
+        expectedLeaseOwner: leaseOwner,
+        nextStatus: "failed",
+        failureCode: "BUILDER_EXIT_NONZERO",
+      }),
+    );
+  });
+
+  it("uses a fresh lease clock after the gateway call returns", async () => {
+    const leaseOwner = "423e4567-e89b-42d3-a456-426614174004";
+    let clock = now;
+    const transition = vi.fn(async () => null);
+
+    await expect(
+      reconcilePreviewBuildJobsOnce({
+        config: {
+          gatewayUrl: "https://gateway.example",
+          privateKeyPem: "private key placeholder",
+        },
+        dependencies: {
+          now: () => clock,
+          claimJobs: vi.fn(async () => [
+            makeJob({
+              status: "running",
+              executionRef: taskArn,
+              stateVersion: 3,
+              reconciliationLeaseOwner: leaseOwner,
+              reconciliationLeaseExpiresAt: new Date(now.getTime() + 60_000),
+            }),
+          ]),
+          observe: vi.fn(async () => {
+            clock = new Date(now.getTime() + 70_000);
+            return {
+              jobId,
+              buildId,
+              state: "stopped" as const,
+              executionRef: taskArn,
+              exitCode: 9,
+            };
+          }),
+          renewLease: vi.fn(async () => true),
+          releaseLease: vi.fn(async () => true),
+          transition,
+        },
+      }),
+    ).resolves.toMatchObject({ unchanged: 1, failed: 0 });
+
+    expect(transition).toHaveBeenCalledWith(
+      expect.objectContaining({
+        expectedLeaseOwner: leaseOwner,
+        now: clock,
+      }),
+    );
+  });
+
   it("recovers a lost launch response by recording the exact running task", async () => {
     const { result, transition } = run({
       job: makeJob(),
@@ -198,6 +354,61 @@ describe("durable Preview build reconciliation", () => {
         nextStatus: "builder_succeeded",
         executionRef: taskArn,
         outputDigest,
+      }),
+    );
+  });
+
+  it("keeps the same lease while one observation advances through running to success", async () => {
+    const leaseOwner = "423e4567-e89b-42d3-a456-426614174004";
+    const transition = transitionMock();
+    const observation: PreviewBuildObservation = {
+      jobId,
+      buildId,
+      state: "stopped",
+      executionRef: taskArn,
+      exitCode: 0,
+      outputDigest,
+    };
+
+    await expect(
+      reconcilePreviewBuildJobsOnce({
+        config: {
+          gatewayUrl: "https://gateway.example",
+          privateKeyPem: "private key placeholder",
+        },
+        dependencies: {
+          now: () => now,
+          claimJobs: vi.fn(async () => [
+            makeJob({
+              status: "launching",
+              stateVersion: 2,
+              reconciliationLeaseOwner: leaseOwner,
+              reconciliationLeaseExpiresAt: new Date(now.getTime() + 60_000),
+            }),
+          ]),
+          observe: vi.fn(async () => observation),
+          renewLease: vi.fn(async () => true),
+          releaseLease: vi.fn(async () => true),
+          transition,
+        },
+      }),
+    ).resolves.toMatchObject({ inspected: 1, advanced: 1 });
+
+    expect(transition).toHaveBeenNthCalledWith(
+      1,
+      expect.objectContaining({
+        expectedStatus: "launching",
+        expectedLeaseOwner: leaseOwner,
+        nextStatus: "running",
+      }),
+    );
+    expect(transition).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({
+        expectedStatus: "running",
+        expectedLeaseOwner: leaseOwner,
+        nextStatus: "builder_succeeded",
+        expectedVersion: 3,
       }),
     );
   });
@@ -418,6 +629,56 @@ describe("durable Preview build reconciliation", () => {
         expectedStatus: "builder_succeeded",
         nextStatus: "failed",
         failureCode: "PREVIEW_ATTESTOR_TIMEOUT",
+      }),
+    );
+  });
+
+  it("fences an Attestor failure to the current lease owner", async () => {
+    const leaseOwner = "423e4567-e89b-42d3-a456-426614174004";
+    let clock = now;
+    const transition = vi.fn(async () => null);
+    const attest = vi.fn(async () => {
+      clock = new Date(now.getTime() + 70_000);
+      return {
+        jobId,
+        buildId,
+        state: "failed" as const,
+      };
+    });
+
+    await expect(
+      reconcilePreviewBuildJobsOnce({
+        config: {
+          gatewayUrl: "https://gateway.example",
+          privateKeyPem: "private key placeholder",
+          receiptPublicKeyPem: "receipt public key",
+        },
+        dependencies: {
+          now: () => clock,
+          claimJobs: vi.fn(async () => [
+            makeJob({
+              status: "builder_succeeded",
+              executionRef: taskArn,
+              outputDigest,
+              stateVersion: 4,
+              reconciliationLeaseOwner: leaseOwner,
+              reconciliationLeaseExpiresAt: new Date(now.getTime() + 60_000),
+            }),
+          ]),
+          attest,
+          renewLease: vi.fn(async () => true),
+          releaseLease: vi.fn(async () => true),
+          transition,
+        },
+      }),
+    ).resolves.toMatchObject({ unchanged: 1, failed: 0 });
+
+    expect(transition).toHaveBeenCalledWith(
+      expect.objectContaining({
+        expectedLeaseOwner: leaseOwner,
+        now: clock,
+        nextStatus: "failed",
+        failureCode: "PREVIEW_ATTESTOR_FAILED",
       }),
     );
   });
