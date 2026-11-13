@@ -6711,6 +6711,7 @@ components:
         - retryExhaustedTasks
         - pendingAiTaskDispatches
         - deferredAiTaskDispatches
+        - deferredAiTaskDispatchesByReason
         - staleAiTaskDispatches
         - oldestAiTaskDispatchAt
         - failedDispatchStages
@@ -6757,6 +6758,24 @@ components:
         deferredAiTaskDispatches:
           type: integer
           minimum: 0
+        deferredAiTaskDispatchesByReason:
+          type: array
+          items:
+            type: object
+            required: [reasonCode, count]
+            properties:
+              reasonCode:
+                type: string
+                enum:
+                  - LOCAL_QUEUE_FULL
+                  - PROJECT_RATE_LIMITED
+                  - PROVIDER_NOT_CONFIGURED
+                  - TASK_GENERATION_MISMATCH
+                  - PRECLAIM_FAILURE
+                  - OTHER
+              count:
+                type: integer
+                minimum: 0
         staleAiTaskDispatches:
           type: integer
           minimum: 0
