@@ -57,6 +57,7 @@ import * as observationMaterializer from "../lib/agent-state/observation-materia
 import * as aiRouteHelpers from "../lib/ai-route-helpers.js";
 import * as aiRateLimiter from "../lib/db-rate-limiter.js";
 import * as taskExecutionService from "../lib/task-execution-service.js";
+import { insertTaskAutoExecutionIntent } from "../lib/task-auto-execution-outbox.js";
 import { heavyJobQueue } from "../lib/job-queue.js";
 import { dispatchPersistedPendingJobs } from "../lib/job-reconciliation.js";
 import * as aiTaskRoutes from "./ai/tasks.js";
@@ -10534,6 +10535,53 @@ describe("POST /api/ai/tasks/:taskId/execute", () => {
       taskCorrelationId: null,
       parentExecutionId: originalParentExecutionId,
       lastFailureCode: "LOCAL_QUEUE_FULL",
+    });
+  });
+
+  it("does not let an old local queue job clear a newer Task generation intent", async () => {
+    const projectId = await insertProject();
+    projectIds.push(projectId);
+    const taskId = await insertTask(projectId, "verifying");
+    const oldCorrelationId = "queued-old-task-generation";
+    const newCorrelationId = "queued-new-task-generation";
+    await db.update(tasksTable)
+      .set({
+        prompt: "Do not let the old queue closure clear this new intent",
+        correlationId: oldCorrelationId,
+      })
+      .where(eq(tasksTable.id, taskId));
+
+    const queuedJobs: Array<() => Promise<void>> = [];
+    const enqueueSpy = vi.spyOn(heavyJobQueue, "enqueueWithIdDetailed")
+      .mockImplementationOnce((_id, job) => {
+        queuedJobs.push(job);
+        return "enqueued";
+      });
+    await scheduleAiTaskExecution(taskId, "test-user", undefined, 0, oldCorrelationId);
+    expect(queuedJobs).toHaveLength(1);
+
+    await db.update(tasksTable)
+      .set({ correlationId: newCorrelationId })
+      .where(eq(tasksTable.id, taskId));
+    await db.transaction(async (tx) => {
+      const persisted = await insertTaskAutoExecutionIntent(tx, {
+        taskId,
+        userId: "test-user",
+        retryCount: 0,
+      });
+      expect(persisted).toBe(true);
+    });
+
+    await queuedJobs[0]!();
+    enqueueSpy.mockRestore();
+
+    const [intent] = await db.select().from(eventsTable)
+      .where(eq(eventsTable.id, `task-auto-execution-deferred:${taskId}`));
+    expect(intent?.type).toBe("TaskAutoExecutionDispatchRequested");
+    expect(intent?.payload).toMatchObject({
+      userId: "test-user",
+      taskRetryCount: 0,
+      taskCorrelationId: newCorrelationId,
     });
   });
 
