@@ -5,8 +5,10 @@ import {
   link,
   mkdir,
   open,
+  readFile,
   readdir,
   realpath,
+  stat as statPath,
   unlink,
   type FileHandle,
 } from "node:fs/promises";
@@ -26,6 +28,8 @@ const DEFAULT_MAX_INPUT_BYTES = 55 * 1024 * 1024;
 const MAX_OUTPUT_BYTES = 32 * 1024 * 1024;
 const MAX_MANIFEST_BYTES = 2_048;
 const STORE_IDENTITY_FILE = ".store-identity";
+const STAGING_FILE_PATTERN =
+  /^(upload|reference)-(\d+)-(\d+)-(\d+)-([0-9a-f-]{36})-([0-9a-f-]{36})\.part$/;
 const CHUNK_BYTES = 64 * 1024;
 const FILE_FLAGS = constants.O_NOFOLLOW;
 const UUID_PATTERN =
@@ -101,6 +105,306 @@ function errorCode(error: unknown): string | undefined {
   if (!error || typeof error !== "object") return undefined;
   const code = (error as { code?: unknown }).code;
   return typeof code === "string" ? code : undefined;
+}
+
+type StagingOwnerIdentity = {
+  pid: number;
+  startTimeTicks: string;
+  pidNamespaceInode: string;
+  bootId: string;
+};
+
+type ProcStat = {
+  state: string;
+  startTimeTicks: string;
+};
+
+type StagingManifestValidator = (
+  manifestBytes: Buffer,
+  objectKey: string,
+  expectedStoreId: string,
+) => Promise<PreviewBuildArtifactWriteMetadata>;
+
+function parseProcStat(contents: string): ProcStat | null {
+  const closingParen = contents.lastIndexOf(")");
+  if (closingParen < 0) return null;
+  const fields = contents.slice(closingParen + 1).trim().split(/\s+/);
+  const state = fields[0];
+  const startTimeTicks = fields[19];
+  if (
+    typeof state !== "string" ||
+    state.length !== 1 ||
+    typeof startTimeTicks !== "string" ||
+    !/^\d+$/.test(startTimeTicks)
+  ) {
+    return null;
+  }
+  return { state, startTimeTicks };
+}
+
+async function currentStagingOwnerIdentity(): Promise<StagingOwnerIdentity> {
+  try {
+    const [bootId, ownStat, namespace] = await Promise.all([
+      readFile("/proc/sys/kernel/random/boot_id", "utf8"),
+      readFile("/proc/self/stat", "utf8"),
+      statPath("/proc/self/ns/pid", { bigint: true }),
+    ]);
+    const parsed = parseProcStat(ownStat);
+    const normalizedBootId = bootId.trim().toLowerCase();
+    if (!parsed || !UUID_PATTERN.test(normalizedBootId)) {
+      throw new Error("Process identity is unavailable");
+    }
+    return {
+      pid: process.pid,
+      startTimeTicks: parsed.startTimeTicks,
+      pidNamespaceInode: namespace.ino.toString(),
+      bootId: normalizedBootId,
+    };
+  } catch {
+    throw new LocalPreviewBuildInputStoreError(
+      "PREVIEW_LOCAL_STORE_UNAVAILABLE",
+    );
+  }
+}
+
+function stagingFilename(
+  kind: "upload" | "reference",
+  owner: StagingOwnerIdentity,
+): string {
+  return `${kind}-${owner.pid}-${owner.startTimeTicks}-${owner.pidNamespaceInode}-${owner.bootId}-${randomUUID()}.part`;
+}
+
+async function deadProcessForStagingOwner(
+  owner: Pick<
+    StagingOwnerIdentity,
+    "pid" | "startTimeTicks" | "pidNamespaceInode" | "bootId"
+  >,
+  current: StagingOwnerIdentity,
+): Promise<boolean> {
+  if (
+    owner.bootId !== current.bootId ||
+    owner.pidNamespaceInode !== current.pidNamespaceInode
+  ) {
+    return false;
+  }
+  try {
+    const contents = await readFile(`/proc/${owner.pid}/stat`, "utf8");
+    const parsed = parseProcStat(contents);
+    if (!parsed) return false;
+    return (
+      parsed.startTimeTicks !== owner.startTimeTicks ||
+      parsed.state === "Z" ||
+      parsed.state === "X" ||
+      parsed.state === "x"
+    );
+  } catch (error) {
+    return errorCode(error) === "ENOENT";
+  }
+}
+
+async function removeDeadProcessStagingFiles(input: {
+  stagingRoot: string;
+  current: StagingOwnerIdentity;
+  storeId: string;
+  blobPath: (digest: string) => string;
+  referencePath: (artifactRefId: string) => string;
+  validateManifest: StagingManifestValidator;
+}): Promise<void> {
+  let removedAny = false;
+  const uid = process.getuid?.();
+  for (const name of await readdir(input.stagingRoot)) {
+    const match = STAGING_FILE_PATTERN.exec(name);
+    if (!match) continue;
+    const owner = {
+      pid: Number(match[2]),
+      startTimeTicks: match[3]!,
+      pidNamespaceInode: match[4]!,
+      bootId: match[5]!,
+    };
+    if (
+      !Number.isSafeInteger(owner.pid) ||
+      owner.pid < 1 ||
+      !UUID_PATTERN.test(owner.bootId) ||
+      !UUID_PATTERN.test(match[6]!) ||
+      !(await deadProcessForStagingOwner(owner, input.current))
+    ) {
+      continue;
+    }
+    const path = resolve(input.stagingRoot, name);
+    let file;
+    try {
+      file = await lstat(path);
+    } catch (error) {
+      if (errorCode(error) === "ENOENT") continue;
+      throw new LocalPreviewBuildInputStoreError(
+        "PREVIEW_LOCAL_STORE_UNAVAILABLE",
+      );
+    }
+    if (!isPrivateRegularStoreFile(file, uid)) continue;
+    if (file.nlink === 1) {
+      try {
+        await unlink(path);
+        removedAny = true;
+      } catch (error) {
+        if (errorCode(error) !== "ENOENT") {
+          throw new LocalPreviewBuildInputStoreError(
+            "PREVIEW_LOCAL_STORE_UNAVAILABLE",
+          );
+        }
+      }
+      continue;
+    }
+    if (
+      file.nlink === 2 &&
+      (await removeStagingLinkToPublishedObject({
+        ...input,
+        path,
+        kind: match[1] as "upload" | "reference",
+        originalFile: file,
+        uid,
+      }))
+    ) {
+      removedAny = true;
+    }
+  }
+  if (removedAny) await syncDirectory(input.stagingRoot);
+}
+
+function isPrivateRegularStoreFile(
+  file: Awaited<ReturnType<typeof lstat>>,
+  uid: number | undefined,
+): boolean {
+  return (
+    file.isFile() &&
+    !file.isSymbolicLink() &&
+    (Number(file.mode) & 0o077) === 0 &&
+    (uid === undefined || Number(file.uid) === uid)
+  );
+}
+
+async function removeStagingLinkToPublishedObject(input: {
+  stagingRoot: string;
+  storeId: string;
+  blobPath: (digest: string) => string;
+  referencePath: (artifactRefId: string) => string;
+  validateManifest: StagingManifestValidator;
+  path: string;
+  kind: "upload" | "reference";
+  originalFile: Awaited<ReturnType<typeof lstat>>;
+  uid: number | undefined;
+}): Promise<boolean> {
+  let staged: FileHandle | undefined;
+  try {
+    staged = await open(input.path, constants.O_RDONLY | FILE_FLAGS);
+    const openedFile = await staged.stat();
+    if (
+      !isPrivateRegularStoreFile(openedFile, input.uid) ||
+      openedFile.nlink !== 2 ||
+      openedFile.dev !== input.originalFile.dev ||
+      openedFile.ino !== input.originalFile.ino
+    ) {
+      return false;
+    }
+
+    let destination: string;
+    if (input.kind === "upload") {
+      if (openedFile.size < 1 || openedFile.size > DEFAULT_MAX_INPUT_BYTES) {
+        return false;
+      }
+      const hash = createHash("sha256");
+      const chunk = Buffer.alloc(CHUNK_BYTES);
+      let position = 0;
+      while (position < openedFile.size) {
+        const result = await staged.read(
+          chunk,
+          0,
+          Math.min(chunk.length, openedFile.size - position),
+          position,
+        );
+        if (result.bytesRead < 1) return false;
+        hash.update(chunk.subarray(0, result.bytesRead));
+        position += result.bytesRead;
+      }
+      destination = input.blobPath(hash.digest("hex"));
+    } else {
+      if (openedFile.size < 1 || openedFile.size > MAX_MANIFEST_BYTES) {
+        return false;
+      }
+      const manifestBytes = await staged.readFile();
+      let manifest: unknown;
+      try {
+        manifest = JSON.parse(manifestBytes.toString("utf8"));
+      } catch {
+        return false;
+      }
+      const objectKey =
+        manifest &&
+        typeof manifest === "object" &&
+        !Array.isArray(manifest) &&
+        typeof (manifest as Record<string, unknown>).objectKey === "string"
+          ? ((manifest as Record<string, unknown>).objectKey as string)
+          : "";
+      let artifact: PreviewBuildArtifactWriteMetadata;
+      try {
+        artifact = await input.validateManifest(
+          manifestBytes,
+          objectKey,
+          input.storeId,
+        );
+      } catch {
+        return false;
+      }
+      destination = input.referencePath(artifact.artifactRefId);
+    }
+
+    let destinationStat;
+    try {
+      destinationStat = await lstat(destination);
+    } catch (error) {
+      if (errorCode(error) === "ENOENT") return false;
+      throw error;
+    }
+    if (
+      !isPrivateRegularStoreFile(destinationStat, input.uid) ||
+      destinationStat.nlink !== 2 ||
+      destinationStat.dev !== openedFile.dev ||
+      destinationStat.ino !== openedFile.ino
+    ) {
+      return false;
+    }
+
+    await syncDirectory(dirname(destination));
+    const [stagingStatAgain, destinationStatAgain, openedStatAgain] =
+      await Promise.all([
+        lstat(input.path),
+        lstat(destination),
+        staged.stat(),
+      ]);
+    if (
+      !isPrivateRegularStoreFile(stagingStatAgain, input.uid) ||
+      !isPrivateRegularStoreFile(destinationStatAgain, input.uid) ||
+      stagingStatAgain.nlink !== 2 ||
+      destinationStatAgain.nlink !== 2 ||
+      openedStatAgain.nlink !== 2 ||
+      stagingStatAgain.dev !== destinationStatAgain.dev ||
+      stagingStatAgain.ino !== destinationStatAgain.ino ||
+      stagingStatAgain.dev !== openedStatAgain.dev ||
+      stagingStatAgain.ino !== openedStatAgain.ino
+    ) {
+      return false;
+    }
+
+    await unlink(input.path);
+    await syncDirectory(input.stagingRoot);
+    return true;
+  } catch (error) {
+    if (errorCode(error) === "ENOENT") return false;
+    throw new LocalPreviewBuildInputStoreError(
+      "PREVIEW_LOCAL_STORE_UNAVAILABLE",
+    );
+  } finally {
+    await staged?.close().catch(() => undefined);
+  }
 }
 
 async function ensurePrivateDirectory(path: string): Promise<void> {
@@ -484,6 +788,8 @@ export async function createLocalPreviewArtifactObjectStore(input: {
     );
   }
   const storeId = await loadOrCreateStoreId(configuredRoot);
+  const stagingRoot = resolve(configuredRoot, "staging");
+  const stagingOwner = await currentStagingOwnerIdentity();
 
   const blobPath = (digest: string) =>
     resolve(
@@ -614,6 +920,15 @@ export async function createLocalPreviewArtifactObjectStore(input: {
     };
   }
 
+  await removeDeadProcessStagingFiles({
+    stagingRoot,
+    current: stagingOwner,
+    storeId,
+    blobPath,
+    referencePath,
+    validateManifest,
+  });
+
   async function referenceExistsForDigest(digest: string): Promise<boolean> {
     const refsRoot = resolve(configuredRoot, "refs");
     const refsStat = await lstat(refsRoot);
@@ -718,7 +1033,7 @@ export async function createLocalPreviewArtifactObjectStore(input: {
       const stagedPath = resolve(
         configuredRoot,
         "staging",
-        `upload-${randomUUID()}.part`,
+        stagingFilename("upload", stagingOwner),
       );
       let handle;
       let referenceTemp: string | undefined;
@@ -802,7 +1117,7 @@ export async function createLocalPreviewArtifactObjectStore(input: {
         referenceTemp = resolve(
           configuredRoot,
           "staging",
-          `reference-${randomUUID()}.part`,
+          stagingFilename("reference", stagingOwner),
         );
         const refHandle = await open(
           referenceTemp,
