@@ -241,6 +241,31 @@ async function waitForApiWorkerReady(
   throw new Error(`Timed out waiting for API healthz; ${output()}`);
 }
 
+async function reserveManagedRuntimePort(): Promise<number> {
+  for (let port = 3000; port <= 3099; port += 1) {
+    const server = createServer();
+    const available = await new Promise<boolean>((resolve, reject) => {
+      const onError = (error: NodeJS.ErrnoException) => {
+        server.off("listening", onListening);
+        if (error.code === "EADDRINUSE" || error.code === "EACCES") {
+          resolve(false);
+          return;
+        }
+        reject(error);
+      };
+      const onListening = () => {
+        server.off("error", onError);
+        server.close((error) => error ? reject(error) : resolve(true));
+      };
+      server.once("error", onError);
+      server.once("listening", onListening);
+      server.listen(port, "127.0.0.1");
+    });
+    if (available) return port;
+  }
+  throw new Error("No Supervisor-managed runtime port is available for the startup recovery fixture.");
+}
+
 async function waitForRuntimePortFile(
   signalFile: string,
   launcher: ChildProcess,
@@ -1051,6 +1076,7 @@ describe("database workspace runtime store", () => {
         }> = [];
         const supervisorAdoptions: Array<{
           projectId: string;
+          ownerProjectId: string;
           sessionId: string;
           projectRoot: string;
           pid: number | null;
@@ -1062,6 +1088,7 @@ describe("database workspace runtime store", () => {
         const supervisorFixture = {
           async adopt(input: {
             projectId: string;
+            ownerProjectId: string;
             sessionId: string;
             projectRoot: string;
             pid: number | null;
@@ -1072,6 +1099,7 @@ describe("database workspace runtime store", () => {
           }) {
             supervisorAdoptions.push({
               projectId: input.projectId,
+              ownerProjectId: input.ownerProjectId,
               sessionId: input.sessionId,
               projectRoot: input.projectRoot,
               pid: input.pid,
@@ -1082,6 +1110,7 @@ describe("database workspace runtime store", () => {
             });
             return {
               projectId: input.projectId,
+              ownerProjectId: input.ownerProjectId,
               sessionId: input.sessionId,
               status: "running" as const,
               pid: input.pid,
@@ -1151,6 +1180,7 @@ describe("database workspace runtime store", () => {
         expect(supervisorAdoptions).toHaveLength(1);
         expect(supervisorAdoptions[0]).toMatchObject({
           projectId,
+          ownerProjectId: projectId,
           sessionId: ready.sessionId,
           projectRoot: root,
           pid: ready.pid,
@@ -1381,6 +1411,8 @@ describe("workspace runtime lost-start-response process recovery", () => {
               headers: {
                 "content-type": "application/json",
                 authorization: request.headers.authorization ?? "",
+                "x-engineeringos-command-signature":
+                  request.headers["x-engineeringos-command-signature"] ?? "",
               },
               body: Buffer.concat(chunks),
               signal: AbortSignal.timeout(45_000),
@@ -1619,6 +1651,7 @@ describe("workspace runtime full API startup recovery", () => {
       let apiAfter: typeof apiBefore;
       const supervisorRequests: Array<{
         projectId: string;
+        ownerProjectId: string;
         sessionId: string;
         projectRoot: string;
         pid: number | null;
@@ -1758,6 +1791,7 @@ describe("workspace runtime full API startup recovery", () => {
             }
             const input = JSON.parse(Buffer.concat(chunks).toString("utf8")) as {
               projectId: string;
+              ownerProjectId: string;
               sessionId: string;
               projectRoot: string;
               pid: number | null;
@@ -1767,6 +1801,7 @@ describe("workspace runtime full API startup recovery", () => {
             };
             supervisorRequests.push({
               projectId: input.projectId,
+              ownerProjectId: input.ownerProjectId,
               sessionId: input.sessionId,
               projectRoot: input.projectRoot,
               pid: input.pid,
@@ -1809,13 +1844,14 @@ describe("workspace runtime full API startup recovery", () => {
           },
         ]);
 
+        const expectedRuntimePort = await reserveManagedRuntimePort();
         runtimeLauncher = spawn("pnpm", ["run", "dev"], {
           cwd: knownRoot,
           env: {
             PATH: process.env.PATH ?? "",
             HOME: process.env.HOME ?? os.tmpdir(),
             NODE_ENV: "test",
-            PORT: "0",
+            PORT: String(expectedRuntimePort),
             RUNTIME_READY_FILE: runtimePortFile,
           },
           detached: true,
@@ -1825,6 +1861,7 @@ describe("workspace runtime full API startup recovery", () => {
         if (!knownRuntimePid) throw new Error("The detached runtime launcher did not start.");
         runtimePid = knownRuntimePid;
         const knownRuntimePort = await waitForRuntimePortFile(runtimePortFile, runtimeLauncher);
+        expect(knownRuntimePort).toBe(expectedRuntimePort);
         runtimePort = knownRuntimePort;
         expect(await fetchRuntimeFixture(knownRuntimePort)).toBe("runtime-startup-live");
 
@@ -1920,6 +1957,7 @@ describe("workspace runtime full API startup recovery", () => {
         expect(supervisorRequests).toHaveLength(1);
         expect(supervisorRequests[0]).toMatchObject({
           projectId: knownProjectId,
+          ownerProjectId: knownProjectId,
           sessionId,
           projectRoot: knownRoot,
           pid: knownRuntimePid,
