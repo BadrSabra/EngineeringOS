@@ -1333,11 +1333,19 @@ describe("real durable task execution lifecycle", () => {
       changedIdentity: "delegation budget",
       storedBudget: { maxChildren: 2, maxDepth: 1 },
       requestedBudget: { maxChildren: 3, maxDepth: 1 },
+      storedAttempt: 0,
+      useDifferentParent: false,
+    },
+    {
+      changedIdentity: "execution attempt",
+      storedBudget: { maxChildren: 2, maxDepth: 1 },
+      requestedBudget: { maxChildren: 2, maxDepth: 1 },
+      storedAttempt: 1,
       useDifferentParent: false,
     },
   ] as const)(
     "rejects a reused Task Execution with a different $changedIdentity and preserves its Outbox intent",
-    async ({ storedBudget, requestedBudget, useDifferentParent }) => {
+    async ({ storedBudget, requestedBudget, storedAttempt, useDifferentParent }) => {
       const projectId = randomUUID();
       const taskId = randomUUID();
       const userId = "lifecycle-idempotency-fence-user";
@@ -1399,7 +1407,7 @@ describe("real durable task execution lifecycle", () => {
           projectId,
           linkedTaskId: taskId,
           correlationId,
-          attempt: 0,
+          attempt: storedAttempt,
           idempotencyKey: `${taskId}:attempt:0`,
           parentExecutionId: parentA.execution.id,
           delegationBudget: storedBudget,
@@ -1483,7 +1491,7 @@ describe("real durable task execution lifecycle", () => {
         }).from(aiExecutionsTable).where(eq(aiExecutionsTable.id, stored.execution.id));
         expect(unchangedExecution).toMatchObject({
           status: "queued",
-          attempt: 0,
+          attempt: storedAttempt,
           parentExecutionId: parentA.execution.id,
           delegationBudget: storedBudget,
         });
