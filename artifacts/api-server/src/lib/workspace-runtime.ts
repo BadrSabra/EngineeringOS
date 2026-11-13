@@ -29,6 +29,7 @@ import {
   type WorkspaceRuntimeStore,
 } from "./workspace-runtime-store.js";
 import {
+  createWorkspaceRuntimeSupervisorStateVersion,
   WorkspaceRuntimeSupervisorClient,
 } from "./workspace-runtime-supervisor-client.js";
 import { logger } from "./logger.js";
@@ -1400,6 +1401,12 @@ export class WorkspaceRuntimeManager {
               await this.supervisor.stop({
                 projectId: claimed.projectId,
                 sessionId: claimed.sessionId,
+                stateVersion: createWorkspaceRuntimeSupervisorStateVersion({
+                  projectId: claimed.projectId,
+                  sessionId: claimed.sessionId,
+                  revision: claimed.revision,
+                  startedAt: claimed.startedAt?.toISOString() ?? "",
+                }),
                 pid: claimed.pid,
               });
             } else {
@@ -1443,6 +1450,12 @@ export class WorkspaceRuntimeManager {
           const adopted = await this.supervisor.adopt({
             projectId: claimed.projectId,
             sessionId: claimed.sessionId,
+            stateVersion: createWorkspaceRuntimeSupervisorStateVersion({
+              projectId: claimed.projectId,
+              sessionId: claimed.sessionId,
+              revision: claimed.revision,
+              startedAt: claimed.startedAt?.toISOString() ?? "",
+            }),
             projectRoot: claimed.projectRoot,
             pid: claimed.pid,
             port: claimed.port,
@@ -1719,6 +1732,12 @@ export class WorkspaceRuntimeManager {
       const startInput = {
         projectId: runtimeId,
         sessionId,
+        stateVersion: createWorkspaceRuntimeSupervisorStateVersion({
+          projectId: runtimeId,
+          sessionId,
+          revision: session.revision!,
+          startedAt: session.startedAt!,
+        }),
         projectRoot,
         ...(childProcessMarker ? { attestationMarker: childProcessMarker } : {}),
         ...(childProcessBinding
@@ -2124,6 +2143,12 @@ export class WorkspaceRuntimeManager {
           const adopted = await this.supervisor.adopt({
             projectId: session.runtimeId,
             sessionId: session.sessionId,
+            stateVersion: createWorkspaceRuntimeSupervisorStateVersion({
+              projectId: session.runtimeId,
+              sessionId: session.sessionId,
+              revision: session.revision!,
+              startedAt: session.startedAt!,
+            }),
             projectRoot: session.projectRoot,
             pid: session.pid,
             port: session.port,
@@ -2271,6 +2296,12 @@ export class WorkspaceRuntimeManager {
           await this.supervisor.stop({
             projectId: session.runtimeId,
             sessionId: session.sessionId,
+            stateVersion: createWorkspaceRuntimeSupervisorStateVersion({
+              projectId: session.runtimeId,
+              sessionId: session.sessionId,
+              revision: session.revision!,
+              startedAt: session.startedAt!,
+            }),
             pid: session.pid,
           });
         } else {
