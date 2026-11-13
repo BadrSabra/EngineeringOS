@@ -85,10 +85,12 @@ export async function insertTaskAutoExecutionIntent(
   const existingPayload = existing?.payload ?? {};
   const existingRetryCount = existingPayload.taskRetryCount;
   const existingTaskCorrelationId = existingPayload.taskCorrelationId;
+  const correlationMatches = existingTaskCorrelationId === task.correlationId
+    || (existingTaskCorrelationId === undefined && task.correlationId === null);
   if (
     existing
     && existingRetryCount === input.retryCount
-    && existingTaskCorrelationId === task.correlationId
+    && correlationMatches
   ) {
     const existingParentExecutionId = existingPayload.parentExecutionId ?? null;
     const requestedParentExecutionId = input.options?.parentExecutionId;
