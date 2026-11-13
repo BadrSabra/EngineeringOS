@@ -709,6 +709,7 @@ export function createRuntimeStartRunner(
       try {
         const probe = await manager.observeStartBeforeState({
           projectId,
+          projectRoot: rootPath,
           revision,
           signal,
         });
@@ -757,6 +758,7 @@ export function createRuntimeStartRunner(
         : undefined;
       const before = await manager.observeStartBeforeState({
         projectId,
+        projectRoot: rootPath,
         revision,
         signal,
       });
