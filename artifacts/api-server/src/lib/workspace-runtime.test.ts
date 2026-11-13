@@ -645,4 +645,48 @@ describe("WorkspaceRuntimeManager", () => {
     expect(snapshot.error).toContain("unowned listener");
   });
 
+  it("defers recovery of a runtime row whose persisted revision is missing", async () => {
+    const projectId = `project-missing-revision-${randomUUID()}`;
+    const store = createInMemoryWorkspaceRuntimeStore();
+    const now = new Date();
+    const staleLease = new Date(now.getTime() - 60_000);
+
+    await store.begin({
+      projectId,
+      projectRoot: path.join(os.tmpdir(), projectId),
+      sessionId: "legacy-runtime-session",
+      revision: "legacy-revision",
+      environmentRevision: null,
+      workerId: "runtime-worker:previous",
+      now: new Date(now.getTime() - 90_000),
+      leaseUntil: staleLease,
+    });
+    await store.updateOwned(projectId, "runtime-worker:previous", { revision: null });
+
+    const supervisor = {
+      isConfigured: () => true,
+      observeStartState: vi.fn(),
+      adopt: vi.fn(),
+      stop: vi.fn(),
+    } as unknown as WorkspaceRuntimeSupervisorClient;
+    const manager = new WorkspaceRuntimeManager({
+      store,
+      workerId: "runtime-worker:recovery",
+      supervisor,
+    });
+    managers.push(manager);
+
+    await manager.recover();
+
+    expect(supervisor.observeStartState).not.toHaveBeenCalled();
+    expect(supervisor.adopt).not.toHaveBeenCalled();
+    expect(supervisor.stop).not.toHaveBeenCalled();
+    await expect(store.get(projectId)).resolves.toMatchObject({
+      status: "starting",
+      revision: null,
+      workerId: null,
+      leaseUntil: null,
+    });
+  });
+
 });
