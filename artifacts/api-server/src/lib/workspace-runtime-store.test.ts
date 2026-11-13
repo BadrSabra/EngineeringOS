@@ -1626,7 +1626,6 @@ describe("workspace runtime full API startup recovery", () => {
       const spawnApiWorker = (
         port: number,
         applicationName: string,
-        supervisorFixturePort: number,
       ) => {
         const childDatabaseUrl = new URL(databaseUrl.toString());
         childDatabaseUrl.searchParams.set("application_name", applicationName);
@@ -1898,7 +1897,7 @@ describe("workspace runtime full API startup recovery", () => {
 
         const beforePort = await reserveLoopbackPort();
         const beforeApplicationName = `runtime-api-before-${randomUUID().slice(0, 8)}`;
-        const initialApi = spawnApiWorker(beforePort, beforeApplicationName, localSupervisorPort);
+        const initialApi = spawnApiWorker(beforePort, beforeApplicationName);
         apiBefore = initialApi;
         await waitForApiWorkerReady(beforePort, initialApi.child, initialApi.output);
 
@@ -1957,7 +1956,7 @@ describe("workspace runtime full API startup recovery", () => {
 
         const afterPort = await reserveLoopbackPort();
         const afterApplicationName = `runtime-api-after-${randomUUID().slice(0, 8)}`;
-        const replacementApi = spawnApiWorker(afterPort, afterApplicationName, localSupervisorPort);
+        const replacementApi = spawnApiWorker(afterPort, afterApplicationName);
         apiAfter = replacementApi;
         await waitForApiWorkerReady(afterPort, replacementApi.child, replacementApi.output);
 
