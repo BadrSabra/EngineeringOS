@@ -195,7 +195,6 @@ describe("WorkspaceRuntimeSupervisorClient protected control channel", () => {
       path: "/runtime/observe-start",
       action: "observe-start",
       projectId,
-      ownerProjectId: projectId,
       sessionId: null,
       processIdentity: null,
     });
