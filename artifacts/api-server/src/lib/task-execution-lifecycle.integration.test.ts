@@ -1369,7 +1369,7 @@ describe("real durable task execution lifecycle", () => {
       CREATE OR REPLACE FUNCTION fixture_fail_task_claim_update()
       RETURNS trigger AS $body$
       BEGIN
-        IF NEW.id::text = TG_ARGV[0]
+        IF NEW.title = 'Outbox claim rollback fixture'
           AND OLD.status = 'verifying'
           AND NEW.status = 'running'
         THEN
@@ -1383,7 +1383,7 @@ describe("real durable task execution lifecycle", () => {
     await db.execute(sql`
       CREATE TRIGGER fixture_fail_task_claim_update
       BEFORE UPDATE ON tasks
-      FOR EACH ROW EXECUTE FUNCTION fixture_fail_task_claim_update(${taskId})
+      FOR EACH ROW EXECUTE FUNCTION fixture_fail_task_claim_update()
     `);
 
     try {
