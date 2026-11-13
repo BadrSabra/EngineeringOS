@@ -1,6 +1,6 @@
 import { spawn, spawnSync, type ChildProcess } from "node:child_process";
 import http from "node:http";
-import { createHash, generateKeyPairSync } from "node:crypto";
+import { createHash, generateKeyPairSync, type KeyObject } from "node:crypto";
 import { createServer } from "node:net";
 import { once } from "node:events";
 import { lstat, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
@@ -13,7 +13,7 @@ import { resolveRuntimeListenerProcess } from "./agent-state/runtime-listener-pr
 import { createWorkspaceRuntimeSupervisorCommand } from "../../../../scripts/workspace-runtime-supervisor-protocol.mjs";
 
 const nativeFetch = globalThis.fetch.bind(globalThis);
-const supervisorSockets = new Map<number, { socketPath: string; privateKey: ReturnType<typeof generateKeyPairSync>["privateKey"] }>();
+const supervisorSockets = new Map<number, { socketPath: string; privateKey: KeyObject }>();
 const supervisorControlDirectories: string[] = [];
 const scriptPath = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
@@ -28,10 +28,10 @@ function fixtureStateVersion(projectId: string, sessionId: string | null): strin
 }
 
 function signedFixtureRequest(
-  socket: { socketPath: string; privateKey: ReturnType<typeof generateKeyPairSync>["privateKey"] },
+  socket: { socketPath: string; privateKey: KeyObject },
   pathname: string,
   body: string,
-  replayCommand?: { encodedCommand: string; signature: string },
+  replayCommand?: { body: string; encodedCommand: string; signature: string },
 ): Promise<{ status: number; body: string }> {
   const parsed = JSON.parse(body) as Record<string, unknown>;
   const action = pathname.endsWith("/start") ? "start"
@@ -42,9 +42,16 @@ function signedFixtureRequest(
   if (!action) return Promise.resolve({ status: 404, body: JSON.stringify({ error: "not_found" }) });
   const projectId = String(parsed.projectId ?? "");
   const sessionId = action === "observe-start" ? null : String(parsed.sessionId ?? "");
+  const pid = typeof parsed.pid === "number" ? parsed.pid : null;
   const processIdentity = action === "adopt"
-    ? { pid: parsed.pid, port: parsed.port, listenerIdentityDigest: parsed.expectedListenerIdentityDigest }
-    : action === "stop" ? { pid: parsed.pid ?? null } : null;
+    ? {
+      pid,
+      port: typeof parsed.port === "number" ? parsed.port : null,
+      listenerIdentityDigest: typeof parsed.expectedListenerIdentityDigest === "string"
+        ? parsed.expectedListenerIdentityDigest
+        : "",
+    }
+    : action === "stop" ? { pid } : null;
   const command = replayCommand ?? createWorkspaceRuntimeSupervisorCommand({
     privateKey: socket.privateKey,
     action,
@@ -164,7 +171,6 @@ function startSupervisor(port: number, extraEnv: Record<string, string> = {}): C
   chmodSync(directory, 0o2710);
   const socketPath = path.join(directory, "control.sock");
   const pair = generateKeyPairSync("ed25519");
-  const privateKeyDer = pair.privateKey.export({ format: "der", type: "pkcs8" }) as Buffer;
   const publicKeyDer = pair.publicKey.export({ format: "der", type: "spki" }) as Buffer;
   supervisorSockets.set(port, { socketPath, privateKey: pair.privateKey });
   supervisorControlDirectories.push(directory);
