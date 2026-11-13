@@ -24,6 +24,8 @@ function successBody(path: string): string {
   if (path.endsWith("observe-start")) {
     return JSON.stringify({
       projectId,
+      ownerProjectId: projectId,
+      projectRoot: "/workspace/project-runtime",
       status: "stopped",
       observedAt: new Date().toISOString(),
       inventoryComplete: true,
@@ -33,6 +35,8 @@ function successBody(path: string): string {
   }
   return JSON.stringify({
     projectId,
+    ownerProjectId: projectId,
+    projectRoot: "/workspace/project-runtime",
     sessionId,
     status: "running",
     port: 3010,
@@ -87,6 +91,7 @@ describe("WorkspaceRuntimeSupervisorClient protected control channel", () => {
     const listenerBindingDigest = "b".repeat(64);
     const response = await client.start({
       projectId,
+      ownerProjectId: projectId,
       sessionId,
       stateVersion,
       projectRoot: "/workspace/project-runtime",
@@ -104,7 +109,7 @@ describe("WorkspaceRuntimeSupervisorClient protected control channel", () => {
       processIdentity: null,
     });
     expect(JSON.parse(calls[0]!.body)).toMatchObject({
-      projectId, sessionId, projectRoot: "/workspace/project-runtime",
+      projectId, ownerProjectId: projectId, sessionId, projectRoot: "/workspace/project-runtime",
       profile: "dev", attestationMarker: marker, listenerBindingDigest,
     });
     expect(response).not.toHaveProperty("attestationMarker");
@@ -151,7 +156,14 @@ describe("WorkspaceRuntimeSupervisorClient protected control channel", () => {
     }> = [];
     const client = new WorkspaceRuntimeSupervisorClient(socketPath, privateKey, signedRequestRecorder(calls));
 
-    await client.stop({ projectId, sessionId, stateVersion, pid: 1234 });
+    await client.stop({
+      projectId,
+      ownerProjectId: projectId,
+      sessionId,
+      stateVersion,
+      projectRoot: "/workspace/project-runtime",
+      pid: 1234,
+    });
     expect(calls[0]).toMatchObject({
       path: "/runtime/stop",
       action: "stop",
@@ -169,7 +181,11 @@ describe("WorkspaceRuntimeSupervisorClient protected control channel", () => {
     }> = [];
     const client = new WorkspaceRuntimeSupervisorClient(socketPath, privateKey, signedRequestRecorder(calls));
 
-    await expect(client.observeStartState(projectId)).resolves.toMatchObject({
+    await expect(client.observeStartState({
+      projectId,
+      ownerProjectId: projectId,
+      projectRoot: "/workspace/project-runtime",
+    })).resolves.toMatchObject({
       projectId,
       status: "stopped",
       inventoryComplete: true,
@@ -178,29 +194,66 @@ describe("WorkspaceRuntimeSupervisorClient protected control channel", () => {
       path: "/runtime/observe-start",
       action: "observe-start",
       projectId,
+      ownerProjectId: projectId,
       sessionId: null,
       processIdentity: null,
     });
     expect(calls[0]!.stateVersion).toMatch(/^[a-f0-9]{64}$/);
-    expect(JSON.parse(calls[0]!.body)).toEqual({ projectId, sessionId: null });
+    expect(JSON.parse(calls[0]!.body)).toEqual({
+      projectId,
+      ownerProjectId: projectId,
+      projectRoot: "/workspace/project-runtime",
+      sessionId: null,
+    });
   });
 
   it("rejects when the signing key or socket configuration is missing", async () => {
     const missingSocket = new WorkspaceRuntimeSupervisorClient("", privateKey, async () => ({
       status: 200, body: "{}",
     }));
-    await expect(missingSocket.observeStartState(projectId)).rejects.toMatchObject({ status: 503 });
+    await expect(missingSocket.observeStartState({
+      projectId, ownerProjectId: projectId, projectRoot: "/workspace/project-runtime",
+    })).rejects.toMatchObject({ status: 503 });
 
     const missingKey = new WorkspaceRuntimeSupervisorClient(socketPath, "", async () => ({
       status: 200, body: "{}",
     }));
-    await expect(missingKey.observeStartState(projectId)).rejects.toMatchObject({ status: 503 });
+    await expect(missingKey.observeStartState({
+      projectId, ownerProjectId: projectId, projectRoot: "/workspace/project-runtime",
+    })).rejects.toMatchObject({ status: 503 });
+  });
+
+  it("rejects an observation for a different project root", async () => {
+    const client = new WorkspaceRuntimeSupervisorClient(
+      socketPath,
+      privateKey,
+      async () => ({
+        status: 200,
+        body: JSON.stringify({
+          projectId,
+          ownerProjectId: projectId,
+          projectRoot: "/workspace/another-project",
+          status: "stopped",
+          observedAt: new Date().toISOString(),
+          inventoryComplete: true,
+          unknownListenerPorts: [],
+          detail: "No tracked runtime session is live.",
+        }),
+      }),
+    );
+    await expect(client.observeStartState({
+      projectId,
+      ownerProjectId: projectId,
+      projectRoot: "/workspace/project-runtime",
+    })).rejects.toMatchObject({ status: 409 });
   });
 
   it("rejects malformed supervisor JSON instead of treating it as a valid response", async () => {
     const client = new WorkspaceRuntimeSupervisorClient(socketPath, privateKey, async () => ({
       status: 200, body: "{invalid",
     }));
-    await expect(client.observeStartState(projectId)).rejects.toThrow("invalid JSON");
+    await expect(client.observeStartState({
+      projectId, ownerProjectId: projectId, projectRoot: "/workspace/project-runtime",
+    })).rejects.toThrow("invalid JSON");
   });
 });
