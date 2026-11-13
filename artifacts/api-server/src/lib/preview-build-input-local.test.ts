@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { spawn } from "node:child_process";
 import {
   lstat,
   chmod,
@@ -573,6 +574,134 @@ describe("Local Preview build-input CAS", () => {
     await expect(read(store, identity.objectKey)).rejects.toThrowError(
       LocalPreviewBuildInputStoreError,
     );
+  });
+
+  it("does not publish a partial artifact when its writer is killed and allows retry after reopen", async () => {
+    const { rootDir } = await createStore();
+    const firstChunk = Buffer.alloc(64 * 1024, 0x61);
+    const secondChunk = Buffer.alloc(64 * 1024, 0x62);
+    const completeBytes = Buffer.concat([firstChunk, secondChunk]);
+    const identity = objectKey(completeBytes);
+    const jobId = DEFAULT_JOB_ID;
+    const artifactRefId = previewBuildArtifactRefId(jobId, "input");
+    const childScript = [
+      'import { createLocalPreviewBuildInputObjectStore } from "./src/lib/preview-build-input-local.ts";',
+      'import { previewBuildArtifactRefId } from "./src/lib/preview-artifact-reference.ts";',
+      "const [rootDir, workspaceRoot, jobId, objectKey, archiveDigest, contentLength, firstChunk] = process.argv.slice(1);",
+      "const store = await createLocalPreviewBuildInputObjectStore({ rootDir, workspaceRoot });",
+      "async function* interruptedStream() {",
+      '  yield Buffer.from(firstChunk, "base64");',
+      '  process.stdout.write("STAGED_CHUNK\\n");',
+      "  await new Promise(() => {});",
+      "}",
+      "await store.putStream({",
+      "  jobId,",
+      '  artifactRefId: previewBuildArtifactRefId(jobId, "input"),',
+      "  objectKey,",
+      "  bytes: interruptedStream(),",
+      "  archiveDigest,",
+      "  contentLength: Number(contentLength),",
+      "});",
+    ].join("\n");
+    const child = spawn(
+      process.execPath,
+      [
+        "--import",
+        "tsx",
+        "--input-type=module",
+        "-e",
+        childScript,
+        "--",
+        rootDir,
+        process.cwd(),
+        jobId,
+        identity.objectKey,
+        identity.archiveDigest,
+        String(completeBytes.length),
+        firstChunk.toString("base64"),
+      ],
+      { cwd: process.cwd(), stdio: ["ignore", "pipe", "pipe"] },
+    );
+    let stdout = "";
+    let stderr = "";
+    const exit = new Promise<{
+      code: number | null;
+      signal: NodeJS.Signals | null;
+    }>((resolve) => {
+      child.once("exit", (code, signal) => resolve({ code, signal }));
+    });
+    const staged = new Promise<void>((resolve, reject) => {
+      const timeout = setTimeout(() => {
+        child.kill("SIGKILL");
+        reject(new Error(`Local CAS child did not stage bytes: ${stderr}`));
+      }, 10_000);
+      child.stdout.on("data", (chunk: Buffer) => {
+        stdout += chunk.toString("utf8");
+        if (stdout.includes("STAGED_CHUNK\n")) {
+          clearTimeout(timeout);
+          resolve();
+        }
+      });
+      child.stderr.on("data", (chunk: Buffer) => {
+        stderr += chunk.toString("utf8");
+      });
+      child.once("error", (error) => {
+        clearTimeout(timeout);
+        reject(error);
+      });
+      child.once("exit", (code, signal) => {
+        if (!stdout.includes("STAGED_CHUNK\n")) {
+          clearTimeout(timeout);
+          reject(
+            new Error(
+              `Local CAS child exited before staging bytes (${code}, ${signal}): ${stderr}`,
+            ),
+          );
+        }
+      });
+    });
+
+    try {
+      await staged;
+      child.kill("SIGKILL");
+      await expect(exit).resolves.toEqual({ code: null, signal: "SIGKILL" });
+    } finally {
+      if (child.exitCode === null && child.signalCode === null) {
+        child.kill("SIGKILL");
+      }
+    }
+
+    const reopened = await createLocalPreviewBuildInputObjectStore({
+      rootDir,
+      workspaceRoot: process.cwd(),
+    });
+    await expect(
+      read(reopened, identity.objectKey, jobId),
+    ).rejects.toThrowError(LocalPreviewBuildInputStoreError);
+    expect(await readdir(join(rootDir, "blobs"))).toEqual([]);
+    expect(await readdir(join(rootDir, "refs"))).toEqual([]);
+    expect(await readdir(join(rootDir, "staging"))).toHaveLength(1);
+
+    await putStream(
+      reopened,
+      {
+        ...identity,
+        bytes: (async function* () {
+          yield completeBytes;
+        })(),
+        contentLength: completeBytes.length,
+      },
+      jobId,
+    );
+    expect(await read(reopened, identity.objectKey, jobId)).toEqual(
+      completeBytes,
+    );
+    expect(await inspect(reopened, identity.objectKey, jobId)).toMatchObject({
+      jobId,
+      artifactRefId,
+      digest: identity.archiveDigest,
+      sizeBytes: completeBytes.length,
+    });
   });
 
   it("rejects digest mismatch, oversized input, and non-canonical object keys", async () => {
