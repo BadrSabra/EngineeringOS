@@ -876,6 +876,8 @@ export async function dispatchDeferredAiTaskExecutions(limit = 100): Promise<num
         // without waiting for a retry timestamp.
         isNull(tasksTable.id),
         ne(tasksTable.status, "verifying"),
+        isNull(tasksTable.prompt),
+        eq(tasksTable.prompt, ""),
         and(
           eq(tasksTable.status, "verifying"),
           or(
