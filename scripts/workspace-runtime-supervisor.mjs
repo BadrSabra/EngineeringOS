@@ -106,14 +106,17 @@ function isCommandAuthorized(req, requestPath, rawBody) {
 }
 
 async function body(req) {
-  let content = "";
+  const chunks = [];
+  let size = 0;
   for await (const chunk of req) {
-    content += chunk;
-    if (Buffer.byteLength(content, "utf8") > 32_000) {
+    const bytes = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+    size += bytes.length;
+    if (size > 32_000) {
       throw Object.assign(new Error("Request body is too large."), { status: 413 });
     }
+    chunks.push(bytes);
   }
-  return content;
+  return Buffer.concat(chunks);
 }
 
 function isSafeProjectId(value) {
@@ -942,7 +945,7 @@ async function handle(req, res) {
     }
     let input;
     try {
-      input = rawBody ? JSON.parse(rawBody) : {};
+      input = rawBody.length > 0 ? JSON.parse(rawBody.toString("utf8")) : {};
     } catch {
       return json(res, 400, { error: "invalid_json" });
     }
