@@ -240,6 +240,34 @@ describe("Preview build start orchestration", () => {
     expect(JSON.stringify(result)).not.toContain("upload-key");
   });
 
+  it("accepts an opaque execution reference from a provider-neutral executor", async () => {
+    const dependencies = baseDependencies();
+    const executionRef = "exec_local-node_0123456789abcdef";
+    dependencies.dispatch.mockResolvedValue({
+      jobId,
+      buildId,
+      executionRef,
+    });
+
+    const result = await startOrResumePreviewBuild({
+      candidate,
+      projectId: candidate.projectId,
+      userId: "user-1",
+      clientRequestId,
+      config: config(),
+      dependencies,
+    });
+
+    expect(result.job.status).toBe("running");
+    expect(result.job.executionRef).toBe(executionRef);
+    expect(dependencies.transitionJob).toHaveBeenCalledWith(
+      expect.objectContaining({
+        nextStatus: "running",
+        executionRef,
+      }),
+    );
+  });
+
   it("retries the same durable launching claim after an ambiguous response", async () => {
     const dependencies = baseDependencies();
     const launchingJob = makeJob({
