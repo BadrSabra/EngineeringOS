@@ -40,6 +40,7 @@ export async function insertTaskAutoExecutionIntent(
       status: tasksTable.status,
       prompt: tasksTable.prompt,
       retryCount: tasksTable.retryCount,
+      correlationId: tasksTable.correlationId,
     })
     .from(tasksTable)
     .where(eq(tasksTable.id, input.taskId))
@@ -63,11 +64,17 @@ export async function insertTaskAutoExecutionIntent(
     .for("update")
     .limit(1);
   const existingRetryCount = existing?.payload?.taskRetryCount;
-  if (existing && existingRetryCount === input.retryCount) return true;
+  const existingTaskCorrelationId = existing?.payload?.taskCorrelationId;
+  if (
+    existing
+    && existingRetryCount === input.retryCount
+    && existingTaskCorrelationId === task.correlationId
+  ) return true;
 
   const payload = {
     userId: input.userId,
     taskRetryCount: input.retryCount,
+    taskCorrelationId: task.correlationId,
     attemptCount: 0,
     ...(input.options?.parentExecutionId !== undefined
       ? { parentExecutionId: input.options.parentExecutionId }
