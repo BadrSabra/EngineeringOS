@@ -559,11 +559,16 @@ describe("WorkspaceRuntimeManager", () => {
 
   it("does not report a missing runtime row as stopped when the supervisor still tracks a live process", async () => {
     const projectId = `project-orphan-${randomUUID()}`;
+    const projectRoot = path.join(os.tmpdir(), projectId);
     const observeStartState = vi.fn().mockResolvedValue({
       projectId,
+      ownerProjectId: projectId,
+      projectRoot,
       status: "running",
       session: {
         projectId,
+        ownerProjectId: projectId,
+        projectRoot,
         sessionId: "orphan-session",
         status: "running",
         port: 3000,
@@ -584,9 +589,13 @@ describe("WorkspaceRuntimeManager", () => {
     });
     managers.push(manager);
 
-    const snapshot = await manager.stop(projectId);
+    const snapshot = await manager.stop(projectId, projectRoot);
 
-    expect(observeStartState).toHaveBeenCalledWith(projectId);
+    expect(observeStartState).toHaveBeenCalledWith({
+      projectId,
+      ownerProjectId: projectId,
+      projectRoot,
+    });
     expect(snapshot).toMatchObject({
       status: "running",
       sessionId: "orphan-session",
@@ -598,10 +607,11 @@ describe("WorkspaceRuntimeManager", () => {
 
   it("confirms a missing runtime row is stopped only with a complete empty supervisor inventory", async () => {
     const projectId = `project-stopped-inventory-${randomUUID()}`;
-    const supervisor = {
-      isConfigured: () => true,
-      observeStartState: vi.fn().mockResolvedValue({
+    const projectRoot = path.join(os.tmpdir(), projectId);
+    const observeStartState = vi.fn().mockResolvedValue({
         projectId,
+        ownerProjectId: projectId,
+        projectRoot,
         status: "stopped",
         observedAt: new Date().toISOString(),
         inventoryComplete: true,
@@ -615,18 +625,24 @@ describe("WorkspaceRuntimeManager", () => {
     });
     managers.push(manager);
 
-    const snapshot = await manager.stop(projectId);
+    const snapshot = await manager.stop(projectId, projectRoot);
 
+    expect(observeStartState).toHaveBeenCalledWith({
+      projectId,
+      ownerProjectId: projectId,
+      projectRoot,
+    });
     expect(snapshot.status).toBe("stopped");
     expect(snapshot.pid).toBeNull();
   });
 
   it("fails closed when supervisor inventory is incomplete and no runtime row exists", async () => {
     const projectId = `project-unknown-runtime-${randomUUID()}`;
-    const supervisor = {
-      isConfigured: () => true,
-      observeStartState: vi.fn().mockResolvedValue({
+    const projectRoot = path.join(os.tmpdir(), projectId);
+    const observeStartState = vi.fn().mockResolvedValue({
         projectId,
+        ownerProjectId: projectId,
+        projectRoot,
         status: "unknown",
         observedAt: new Date().toISOString(),
         inventoryComplete: false,
@@ -640,10 +656,35 @@ describe("WorkspaceRuntimeManager", () => {
     });
     managers.push(manager);
 
-    const snapshot = await manager.stop(projectId);
+    const snapshot = await manager.stop(projectId, projectRoot);
 
+    expect(observeStartState).toHaveBeenCalledWith({
+      projectId,
+      ownerProjectId: projectId,
+      projectRoot,
+    });
     expect(snapshot.status).toBe("failed");
     expect(snapshot.error).toContain("unowned listener");
+  });
+
+  it("fails closed when an unrecorded runtime has no registered project root", async () => {
+    const projectId = `project-orphan-missing-root-${randomUUID()}`;
+    const observeStartState = vi.fn();
+    const supervisor = {
+      isConfigured: () => true,
+      observeStartState,
+    } as unknown as WorkspaceRuntimeSupervisorClient;
+    const manager = new WorkspaceRuntimeManager({
+      store: createInMemoryWorkspaceRuntimeStore(),
+      supervisor,
+    });
+    managers.push(manager);
+
+    await expect(manager.stop(projectId)).rejects.toMatchObject({
+      code: "RUNTIME_OBSERVATION_STALE",
+      status: 503,
+    });
+    expect(observeStartState).not.toHaveBeenCalled();
   });
 
   it("defers recovery of a runtime row whose persisted revision is missing", async () => {
