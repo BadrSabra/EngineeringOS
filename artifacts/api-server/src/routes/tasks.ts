@@ -21,7 +21,7 @@ import {
   RecordTaskVerificationBody,
   RecordTaskVerificationParams,
 } from "@workspace/api-zod";
-import { eq, and, desc, gt, asc, inArray, isNull } from "drizzle-orm";
+import { eq, and, desc, gt, asc, inArray, isNull, sql } from "drizzle-orm";
 import { randomUUID } from "crypto";
 import { recordAudit, recordAuditInTransaction } from "../lib/audit.js";
 import { invalidateContextCache } from "@workspace/ai-orchestrator";
@@ -474,6 +474,8 @@ router.delete("/tasks/:taskId", async (req, res) => {
         "TaskAutoExecutionDispatchRequested",
         "TaskAutoExecutionDeferred",
       ]),
+      sql`${eventsTable.payload}->>'taskRetryCount' = ${String(lockedTask.retryCount)}`,
+      sql`${eventsTable.payload}->>'taskCorrelationId' IS NOT DISTINCT FROM ${lockedTask.correlationId}`,
     ));
     await tx.delete(tasksTable).where(eq(tasksTable.id, taskId));
     });
@@ -1157,7 +1159,14 @@ router.post("/tasks/:taskId/rollback", async (req, res) => {
       const [row] = await tx
         .update(tasksTable)
         .set({ status: "cancelled", updatedAt: now })
-        .where(and(eq(tasksTable.id, taskId), eq(tasksTable.status, task[0].status)))
+        .where(and(
+          eq(tasksTable.id, taskId),
+          eq(tasksTable.status, task[0].status),
+          eq(tasksTable.retryCount, task[0].retryCount),
+          task[0].correlationId === null
+            ? isNull(tasksTable.correlationId)
+            : eq(tasksTable.correlationId, task[0].correlationId),
+        ))
         .returning();
       if (!row) {
         throw new TaskStateConflictError(
@@ -1173,6 +1182,8 @@ router.post("/tasks/:taskId/rollback", async (req, res) => {
           "TaskAutoExecutionDispatchRequested",
           "TaskAutoExecutionDeferred",
         ]),
+        sql`${eventsTable.payload}->>'taskRetryCount' = ${String(row.retryCount)}`,
+        sql`${eventsTable.payload}->>'taskCorrelationId' IS NOT DISTINCT FROM ${row.correlationId}`,
       ));
 
       await tx.insert(taskLogsTable).values({
