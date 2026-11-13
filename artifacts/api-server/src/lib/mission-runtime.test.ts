@@ -1852,7 +1852,7 @@ describe("Mission goal runtime", () => {
     });
 
     const localWake = vi.spyOn(aiTaskRoutes, "scheduleAiTaskExecution")
-      .mockResolvedValueOnce();
+      .mockResolvedValueOnce(undefined);
     const result = await runMissionGoal({
       goalId: fixture.goalId,
       userId: "test-user",
