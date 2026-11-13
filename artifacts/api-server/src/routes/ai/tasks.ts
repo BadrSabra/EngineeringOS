@@ -354,7 +354,7 @@ type AiTaskExecutionOptions = {
 type DeferredAiTaskExecution = {
   userId: string;
   taskRetryCount: number;
-  taskCorrelationId: string | null;
+  taskCorrelationId?: string | null;
   attemptCount: number;
   nextAttemptAt?: string;
   options?: AiTaskExecutionOptions;
@@ -366,8 +366,9 @@ function parseDeferredAiTaskExecution(payload: unknown): DeferredAiTaskExecution
   if (typeof record.userId !== "string" || record.userId.length === 0) return null;
   if (!Number.isSafeInteger(record.taskRetryCount) || Number(record.taskRetryCount) < 0) return null;
   if (
-    !Object.prototype.hasOwnProperty.call(record, "taskCorrelationId")
-    || (record.taskCorrelationId !== null && typeof record.taskCorrelationId !== "string")
+    record.taskCorrelationId !== undefined
+    && record.taskCorrelationId !== null
+    && typeof record.taskCorrelationId !== "string"
   ) return null;
   const attemptCount = record.attemptCount ?? 0;
   if (!Number.isSafeInteger(attemptCount) || Number(attemptCount) < 0) return null;
@@ -388,7 +389,9 @@ function parseDeferredAiTaskExecution(payload: unknown): DeferredAiTaskExecution
   return {
     userId: record.userId,
     taskRetryCount: Number(record.taskRetryCount),
-    taskCorrelationId: record.taskCorrelationId as string | null,
+    ...(record.taskCorrelationId === undefined
+      ? {}
+      : { taskCorrelationId: record.taskCorrelationId as string | null }),
     attemptCount: Number(attemptCount),
     ...(typeof record.nextAttemptAt === "string"
       ? { nextAttemptAt: record.nextAttemptAt }
@@ -488,7 +491,7 @@ function safeDispatchFailureCode(error: unknown): string {
 async function markDeferredAiTaskExecution(
   taskId: string,
   retryCount: number,
-  correlationId: string | null,
+  correlationId: string | null | undefined,
   reasonCode: string,
   delayMs: number,
 ): Promise<void> {
@@ -814,9 +817,11 @@ export async function dispatchDeferredAiTaskExecutions(limit = 100): Promise<num
       continue;
     }
 
+    const correlationMatches = parsed.taskCorrelationId === intent.correlationId
+      || (parsed.taskCorrelationId === undefined && intent.correlationId === null);
     if (
       parsed.taskRetryCount !== intent.retryCount
-      || parsed.taskCorrelationId !== intent.correlationId
+      || !correlationMatches
     ) {
       await markDeferredAiTaskExecution(
         intent.taskId,
@@ -844,7 +849,7 @@ export async function dispatchDeferredAiTaskExecutions(limit = 100): Promise<num
       parsed.userId,
       parsed.options,
       intent.retryCount,
-      parsed.taskCorrelationId,
+      intent.correlationId,
     );
     if (scheduledAiTaskCompletions.size > before) dispatched++;
     if (heavyJobQueue.availablePendingCapacity === 0) break;
