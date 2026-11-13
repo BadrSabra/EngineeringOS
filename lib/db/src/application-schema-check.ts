@@ -940,18 +940,25 @@ export const APPLICATION_SCHEMA_CONTRACT = {
         nullable: false,
         defaultExpression: /'pending'::preview_agent_node_status/,
       },
-      ...["pairing_code_hash", "public_key_pem", "public_key_fingerprint", "agent_version", "platform", "capability_report_token"].map((name) => ({
+      ...["pairing_code_hash", "public_key_pem", "public_key_fingerprint", "agent_version", "platform", "capability_report_token", "heartbeat_challenge_hash", "last_heartbeat_request_hash"].map((name) => ({
         name,
         dataType: "text",
         udtName: "text",
         nullable: true,
       })),
-      ...["pairing_expires_at", "capability_expires_at", "paired_at", "last_seen_at", "revoked_at"].map((name) => ({
+      ...["pairing_expires_at", "capability_expires_at", "heartbeat_challenge_expires_at", "paired_at", "last_seen_at", "revoked_at"].map((name) => ({
         name,
         dataType: "timestamp with time zone",
         udtName: "timestamptz",
         nullable: true,
       })),
+      {
+        name: "last_heartbeat_sequence",
+        dataType: "integer",
+        udtName: "int4",
+        nullable: false,
+        defaultExpression: /0/,
+      },
       {
         name: "key_version",
         dataType: "integer",
@@ -3408,6 +3415,18 @@ export const APPLICATION_SCHEMA_CONTRACT = {
     },
   ] satisfies readonly IndexContract[],
   checks: [
+    {
+      name: "chk_preview_agent_nodes_heartbeat_challenge_pair",
+      tableName: "preview_agent_nodes",
+      definitionPattern:
+        /heartbeat_challenge_hash.*is null.*heartbeat_challenge_expires_at.*is null/i,
+    },
+    {
+      name: "chk_preview_agent_nodes_heartbeat_request_pair",
+      tableName: "preview_agent_nodes",
+      definitionPattern:
+        /last_heartbeat_sequence = 0.*last_heartbeat_request_hash is null.*last_heartbeat_sequence > 0.*last_heartbeat_request_hash is not null/i,
+    },
     {
       name: "chk_preview_build_jobs_dispatch_generation_positive",
       tableName: "preview_build_jobs",

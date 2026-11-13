@@ -46,6 +46,18 @@ export const previewAgentNodesTable = pgTable(
     capabilityExpiresAt: timestamp("capability_expires_at", {
       withTimezone: true,
     }),
+    // Server stores only the digest; an unexpired challenge is never replaced.
+    heartbeatChallengeHash: text("heartbeat_challenge_hash"),
+    heartbeatChallengeExpiresAt: timestamp(
+      "heartbeat_challenge_expires_at",
+      { withTimezone: true },
+    ),
+    // High-water sequence is reserved by signed challenge requests; the hash
+    // binds the latest accepted protocol request for safe exact retries.
+    lastHeartbeatSequence: integer("last_heartbeat_sequence")
+      .notNull()
+      .default(0),
+    lastHeartbeatRequestHash: text("last_heartbeat_request_hash"),
     keyVersion: integer("key_version").notNull().default(0),
     pairedAt: timestamp("paired_at", { withTimezone: true }),
     lastSeenAt: timestamp("last_seen_at", { withTimezone: true }),
@@ -79,6 +91,14 @@ export const previewAgentNodesTable = pgTable(
       "chk_preview_agent_nodes_capability_pair",
       sql`(${table.capabilityReportToken} IS NULL) = (${table.capabilityExpiresAt} IS NULL)`,
     ),
+    check(
+      "chk_preview_agent_nodes_heartbeat_challenge_pair",
+      sql`(${table.heartbeatChallengeHash} IS NULL) = (${table.heartbeatChallengeExpiresAt} IS NULL)`,
+    ),
+    check(
+      "chk_preview_agent_nodes_heartbeat_request_pair",
+      sql`(${table.lastHeartbeatSequence} = 0 AND ${table.lastHeartbeatRequestHash} IS NULL) OR (${table.lastHeartbeatSequence} > 0 AND ${table.lastHeartbeatRequestHash} IS NOT NULL)`,
+    ),
   ],
 );
 
@@ -94,6 +114,10 @@ export const insertPreviewAgentNodeSchema = createInsertSchema(
   platform: true,
   capabilityReportToken: true,
   capabilityExpiresAt: true,
+  heartbeatChallengeHash: true,
+  heartbeatChallengeExpiresAt: true,
+  lastHeartbeatSequence: true,
+  lastHeartbeatRequestHash: true,
   keyVersion: true,
   pairedAt: true,
   lastSeenAt: true,

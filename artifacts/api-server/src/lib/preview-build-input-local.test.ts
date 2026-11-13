@@ -1,4 +1,5 @@
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
+import { spawn } from "node:child_process";
 import {
   lstat,
   chmod,
@@ -8,6 +9,7 @@ import {
   readFile,
   readdir,
   rm,
+  stat as statPath,
   symlink,
   unlink,
   writeFile,
@@ -99,6 +101,82 @@ async function createStore() {
     workspaceRoot: process.cwd(),
   });
   return { parent, rootDir, store };
+}
+
+async function deadProcessStagingFilename(
+  kind: "upload" | "reference",
+): Promise<string> {
+  const [bootId, procStat, pidNamespace] = await Promise.all([
+    readFile("/proc/sys/kernel/random/boot_id", "utf8"),
+    readFile("/proc/self/stat", "utf8"),
+    statPath("/proc/self/ns/pid", { bigint: true }),
+  ]);
+  const closeParen = procStat.lastIndexOf(")");
+  const fields = procStat.slice(closeParen + 1).trim().split(/\s+/);
+  const startTimeTicks = fields[19] === "1" ? "2" : "1";
+  return `${kind}-${process.pid}-${startTimeTicks}-${pidNamespace.ino}-${bootId.trim().toLowerCase()}-${randomUUID()}.part`;
+}
+
+async function killChildAfterMarker(
+  script: string,
+  args: string[],
+  marker: string,
+  beforeKill?: () => Promise<void>,
+): Promise<void> {
+  const child = spawn(
+    process.execPath,
+    ["--import", "tsx", "--input-type=module", "-e", script, "--", ...args],
+    { cwd: process.cwd(), stdio: ["ignore", "pipe", "pipe"] },
+  );
+  let stdout = "";
+  let stderr = "";
+  const exit = new Promise<{
+    code: number | null;
+    signal: NodeJS.Signals | null;
+  }>((resolve) => {
+    child.once("exit", (code, signal) => resolve({ code, signal }));
+  });
+  const markerSeen = new Promise<void>((resolve, reject) => {
+    const timeout = setTimeout(() => {
+      child.kill("SIGKILL");
+      reject(new Error(`Child did not emit ${marker}: ${stderr}`));
+    }, 10_000);
+    child.stdout.on("data", (chunk: Buffer) => {
+      stdout += chunk.toString("utf8");
+      if (stdout.includes(marker)) {
+        clearTimeout(timeout);
+        resolve();
+      }
+    });
+    child.stderr.on("data", (chunk: Buffer) => {
+      stderr += chunk.toString("utf8");
+    });
+    child.once("error", (error) => {
+      clearTimeout(timeout);
+      reject(error);
+    });
+    child.once("exit", (code, signal) => {
+      if (!stdout.includes(marker)) {
+        clearTimeout(timeout);
+        reject(
+          new Error(
+            `Child exited before ${marker} (${code}, ${signal}): ${stderr}`,
+          ),
+        );
+      }
+    });
+  });
+
+  try {
+    await markerSeen;
+    await beforeKill?.();
+    child.kill("SIGKILL");
+    await expect(exit).resolves.toEqual({ code: null, signal: "SIGKILL" });
+  } finally {
+    if (child.exitCode === null && child.signalCode === null) {
+      child.kill("SIGKILL");
+    }
+  }
 }
 
 function objectKey(bytes: Buffer, bindingDigest = BINDING_DIGEST) {
@@ -573,6 +651,255 @@ describe("Local Preview build-input CAS", () => {
     await expect(read(store, identity.objectKey)).rejects.toThrowError(
       LocalPreviewBuildInputStoreError,
     );
+  });
+
+  it("does not publish a partial artifact when its writer is killed and allows retry after reopen", async () => {
+    const { rootDir } = await createStore();
+    const firstChunk = Buffer.alloc(64 * 1024, 0x61);
+    const secondChunk = Buffer.alloc(64 * 1024, 0x62);
+    const completeBytes = Buffer.concat([firstChunk, secondChunk]);
+    const identity = objectKey(completeBytes);
+    const jobId = DEFAULT_JOB_ID;
+    const artifactRefId = previewBuildArtifactRefId(jobId, "input");
+    const childScript = [
+      'import { createLocalPreviewBuildInputObjectStore } from "./src/lib/preview-build-input-local.ts";',
+      'import { previewBuildArtifactRefId } from "./src/lib/preview-artifact-reference.ts";',
+      "const [rootDir, workspaceRoot, jobId, objectKey, archiveDigest, contentLength, firstChunk] = process.argv.slice(1);",
+      "const store = await createLocalPreviewBuildInputObjectStore({ rootDir, workspaceRoot });",
+      "async function* interruptedStream() {",
+      '  yield Buffer.from(firstChunk, "base64");',
+      '  process.stdout.write("STAGED_CHUNK\\n");',
+      "  setInterval(() => {}, 1_000);",
+      "  await new Promise(() => {});",
+      "}",
+      "await store.putStream({",
+      "  jobId,",
+      '  artifactRefId: previewBuildArtifactRefId(jobId, "input"),',
+      "  objectKey,",
+      "  bytes: interruptedStream(),",
+      "  archiveDigest,",
+      "  contentLength: Number(contentLength),",
+      "});",
+    ].join("\n");
+    await killChildAfterMarker(
+      childScript,
+      [
+        rootDir,
+        process.cwd(),
+        jobId,
+        identity.objectKey,
+        identity.archiveDigest,
+        String(completeBytes.length),
+        firstChunk.toString("base64"),
+      ],
+      "STAGED_CHUNK\n",
+      async () => {
+        await createLocalPreviewBuildInputObjectStore({
+          rootDir,
+          workspaceRoot: process.cwd(),
+        });
+        expect(await readdir(join(rootDir, "staging"))).toHaveLength(1);
+      },
+    );
+
+    const reopened = await createLocalPreviewBuildInputObjectStore({
+      rootDir,
+      workspaceRoot: process.cwd(),
+    });
+    await expect(
+      read(reopened, identity.objectKey, jobId),
+    ).rejects.toThrowError(LocalPreviewBuildInputStoreError);
+    expect(await readdir(join(rootDir, "blobs"))).toEqual([]);
+    expect(await readdir(join(rootDir, "refs"))).toEqual([]);
+    expect(await readdir(join(rootDir, "staging"))).toEqual([]);
+
+    await putStream(
+      reopened,
+      {
+        ...identity,
+        bytes: (async function* () {
+          yield completeBytes;
+        })(),
+        contentLength: completeBytes.length,
+      },
+      jobId,
+    );
+    expect(await read(reopened, identity.objectKey, jobId)).toEqual(
+      completeBytes,
+    );
+    expect(await inspect(reopened, identity.objectKey, jobId)).toMatchObject({
+      jobId,
+      artifactRefId,
+      digest: identity.archiveDigest,
+      sizeBytes: completeBytes.length,
+    });
+  });
+
+  it("recovers a committed artifact when its writer dies before acknowledging success", async () => {
+    const { rootDir } = await createStore();
+    const completeBytes = Buffer.from("committed locally before response loss");
+    const identity = objectKey(completeBytes);
+    const jobId = DEFAULT_JOB_ID;
+    const artifactRefId = previewBuildArtifactRefId(jobId, "input");
+    const childScript = [
+      'import { createLocalPreviewBuildInputObjectStore } from "./src/lib/preview-build-input-local.ts";',
+      'import { previewBuildArtifactRefId } from "./src/lib/preview-artifact-reference.ts";',
+      "const [rootDir, workspaceRoot, jobId, objectKey, archiveDigest, contentLength, bytes] = process.argv.slice(1);",
+      "const store = await createLocalPreviewBuildInputObjectStore({ rootDir, workspaceRoot });",
+      "async function* completeStream() {",
+      '  yield Buffer.from(bytes, "base64");',
+      "}",
+      "await store.putStream({",
+      "  jobId,",
+      '  artifactRefId: previewBuildArtifactRefId(jobId, "input"),',
+      "  objectKey,",
+      "  bytes: completeStream(),",
+      "  archiveDigest,",
+      "  contentLength: Number(contentLength),",
+      "});",
+      'process.stdout.write("COMMITTED\\n");',
+      "setInterval(() => {}, 1_000);",
+      "await new Promise(() => {});",
+    ].join("\n");
+    await killChildAfterMarker(
+      childScript,
+      [
+        rootDir,
+        process.cwd(),
+        jobId,
+        identity.objectKey,
+        identity.archiveDigest,
+        String(completeBytes.length),
+        completeBytes.toString("base64"),
+      ],
+      "COMMITTED\n",
+    );
+
+    const reopened = await createLocalPreviewBuildInputObjectStore({
+      rootDir,
+      workspaceRoot: process.cwd(),
+    });
+    expect(await read(reopened, identity.objectKey, jobId)).toEqual(
+      completeBytes,
+    );
+    await putStream(
+      reopened,
+      {
+        ...identity,
+        bytes: (async function* () {
+          yield completeBytes;
+        })(),
+        contentLength: completeBytes.length,
+      },
+      jobId,
+    );
+    expect(await read(reopened, identity.objectKey, jobId)).toEqual(
+      completeBytes,
+    );
+    expect(await inspect(reopened, identity.objectKey, jobId)).toMatchObject({
+      jobId,
+      artifactRefId,
+      digest: identity.archiveDigest,
+      sizeBytes: completeBytes.length,
+    });
+    expect(await readdir(join(rootDir, "refs"))).toEqual([
+      `${artifactRefId}.json`,
+    ]);
+  });
+
+  it("leaves legacy and other-boot staging files untouched", async () => {
+    const { rootDir } = await createStore();
+    const stagingRoot = join(rootDir, "staging");
+    const bootId = (await readFile("/proc/sys/kernel/random/boot_id", "utf8"))
+      .trim()
+      .toLowerCase();
+    const otherBootId = `${bootId.startsWith("0") ? "1" : "0"}${bootId.slice(1)}`;
+    const legacyName = `upload-${randomUUID()}.part`;
+    const otherBootName = `upload-${process.pid}-1-1-${otherBootId}-${randomUUID()}.part`;
+    const marker = Buffer.from("preserve-unowned-staging");
+    await writeFile(join(stagingRoot, legacyName), marker, { mode: 0o600 });
+    await writeFile(join(stagingRoot, otherBootName), marker, { mode: 0o600 });
+
+    await createLocalPreviewBuildInputObjectStore({
+      rootDir,
+      workspaceRoot: process.cwd(),
+    });
+
+    expect((await readdir(stagingRoot)).sort()).toEqual(
+      [legacyName, otherBootName].sort(),
+    );
+    expect(await readFile(join(stagingRoot, legacyName))).toEqual(marker);
+    expect(await readFile(join(stagingRoot, otherBootName))).toEqual(marker);
+  });
+
+  it("recovers published blob and manifest hard links left by a dead writer", async () => {
+    const { rootDir } = await createStore();
+    const bytes = Buffer.from("recover a published blob link");
+    const identity = objectKey(bytes);
+    const blobDirectory = join(
+      rootDir,
+      "blobs",
+      identity.archiveDigest.slice(0, 2),
+    );
+    await mkdir(blobDirectory, { mode: 0o700 });
+    const blobPath = join(
+      blobDirectory,
+      `${identity.archiveDigest.slice(2)}.zip`,
+    );
+    await writeFile(blobPath, bytes, { mode: 0o600 });
+    const uploadStage = join(
+      rootDir,
+      "staging",
+      await deadProcessStagingFilename("upload"),
+    );
+    await link(blobPath, uploadStage);
+    expect((await lstat(blobPath)).nlink).toBe(2);
+
+    const reopened = await createLocalPreviewBuildInputObjectStore({
+      rootDir,
+      workspaceRoot: process.cwd(),
+    });
+    await expect(lstat(uploadStage)).rejects.toMatchObject({
+      code: "ENOENT",
+    });
+    expect((await lstat(blobPath)).nlink).toBe(1);
+    await putStream(
+      reopened,
+      {
+        ...identity,
+        bytes: (async function* () {
+          yield bytes;
+        })(),
+        contentLength: bytes.length,
+      },
+    );
+    expect(await read(reopened, identity.objectKey)).toEqual(bytes);
+
+    const referencePath = join(
+      rootDir,
+      "refs",
+      `${artifactOwner(identity.objectKey).artifactRefId}.json`,
+    );
+    const referenceStage = join(
+      rootDir,
+      "staging",
+      await deadProcessStagingFilename("reference"),
+    );
+    await link(referencePath, referenceStage);
+    expect((await lstat(referencePath)).nlink).toBe(2);
+
+    const reopenedAfterReferenceLink =
+      await createLocalPreviewBuildInputObjectStore({
+        rootDir,
+        workspaceRoot: process.cwd(),
+      });
+    await expect(lstat(referenceStage)).rejects.toMatchObject({
+      code: "ENOENT",
+    });
+    expect((await lstat(referencePath)).nlink).toBe(1);
+    expect(
+      await read(reopenedAfterReferenceLink, identity.objectKey),
+    ).toEqual(bytes);
   });
 
   it("rejects digest mismatch, oversized input, and non-canonical object keys", async () => {

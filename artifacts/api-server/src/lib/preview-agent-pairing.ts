@@ -348,7 +348,12 @@ export async function revokePreviewAgentNode(input: {
         .limit(1);
       if (!node) return null;
       if (node.status === "revoked") {
-        if (!node.capabilityReportToken && !node.capabilityExpiresAt) {
+        if (
+          !node.capabilityReportToken &&
+          !node.capabilityExpiresAt &&
+          !node.heartbeatChallengeHash &&
+          !node.heartbeatChallengeExpiresAt
+        ) {
           return summarize(node);
         }
         const [cleared] = await tx
@@ -356,6 +361,8 @@ export async function revokePreviewAgentNode(input: {
           .set({
             capabilityReportToken: null,
             capabilityExpiresAt: null,
+            heartbeatChallengeHash: null,
+            heartbeatChallengeExpiresAt: null,
             updatedAt: now,
           })
           .where(
@@ -375,6 +382,8 @@ export async function revokePreviewAgentNode(input: {
           pairingExpiresAt: null,
           capabilityReportToken: null,
           capabilityExpiresAt: null,
+          heartbeatChallengeHash: null,
+          heartbeatChallengeExpiresAt: null,
           revokedAt: now,
           updatedAt: now,
         })

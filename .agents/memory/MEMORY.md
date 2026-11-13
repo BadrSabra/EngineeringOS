@@ -153,4 +153,4 @@
 - [Runtime start database serialization](runtime-start-database-serialization.md) — serialize per-project startup claims inside PostgreSQL before upserting rows with duplicate unique identities.
 - [Dispatch crash recovery](dispatch-crash-recovery.md) — completed Missions record dispatch only from one completed Execution per root; runner is never re-invoked.
 - [Review worktree ownership](local-review-worktree-ownership.md) — Git review worktrees use proposal manifests and pinned writes, not the transient delivery-workspace marker.
-- [GitHub Git Data transfer](github-git-data-transfer.md) — preserve exact blob bytes through the connector; verify every SHA and final tree before publishing a ref.
+- [GitHub Git Data transfer](github-git-data-transfer.md) — verify blob/tree/commit hashes, account for API message bytes, and use the distinct ref-write endpoint.
