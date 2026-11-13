@@ -10756,6 +10756,77 @@ describe("POST /api/ai/tasks/:taskId/execute", () => {
       .resolves.toHaveLength(0);
   });
 
+  it("does not retire a Task intent for an active Execution owned by another user", async () => {
+    const projectId = await insertProject();
+    projectIds.push(projectId);
+    const taskId = await insertTask(projectId, "verifying");
+    const correlationId = randomUUID();
+    await db.update(tasksTable)
+      .set({
+        prompt: "Keep the Task intent when a foreign Execution shares its pointer",
+        correlationId,
+      })
+      .where(eq(tasksTable.id, taskId));
+
+    const foreignExecution = await createAiExecution({
+      userId: "different-user",
+      projectId,
+      linkedTaskId: taskId,
+      correlationId,
+      idempotencyKey: `${taskId}:foreign-attempt:0`,
+      request: {
+        projectId,
+        linkedTaskId: taskId,
+        message: "Foreign Execution identity fixture",
+        modelMessage: "Foreign Execution identity fixture",
+        validationTargetPaths: [],
+      },
+    });
+    await db.update(aiExecutionsTable)
+      .set({
+        status: "running",
+        workerId: randomUUID(),
+        leaseUntil: new Date(Date.now() + 60_000),
+        lastHeartbeatAt: new Date(),
+        startedAt: new Date(),
+        updatedAt: new Date(),
+      })
+      .where(eq(aiExecutionsTable.id, foreignExecution.execution.id));
+
+    vi.spyOn(aiRouteHelpers, "resolveProvider").mockResolvedValueOnce({
+      provider: "groq",
+      apiKey: "test-only-key",
+      source: "user",
+    });
+    vi.spyOn(aiRateLimiter, "checkProjectRateLimitDb")
+      .mockResolvedValueOnce({ allowed: true });
+    vi.spyOn(taskExecutionService, "executeTaskLifecycle")
+      .mockResolvedValueOnce({
+        ok: false,
+        status: "conflict",
+        errorCode: "execution_already_claimed",
+      } as never);
+
+    await scheduleAiTaskExecution(taskId, "test-user", undefined, 0, correlationId);
+    await waitForScheduledAiTaskExecutions();
+
+    const [intent] = await db.select().from(eventsTable)
+      .where(eq(eventsTable.id, `task-auto-execution-deferred:${taskId}`));
+    expect(intent?.type).toBe("TaskAutoExecutionDeferred");
+    expect(intent?.payload).toMatchObject({
+      userId: "test-user",
+      taskRetryCount: 0,
+      taskCorrelationId: correlationId,
+      lastFailureCode: "execution_already_claimed",
+    });
+    expect(Date.parse(String(intent?.payload?.nextAttemptAt)))
+      .toBeGreaterThan(Date.now() + 14 * 60_000);
+    const taskExecutions = await db.select({ id: aiExecutionsTable.id })
+      .from(aiExecutionsTable)
+      .where(eq(aiExecutionsTable.linkedTaskId, taskId));
+    expect(taskExecutions).toEqual([{ id: foreignExecution.execution.id }]);
+  });
+
   it("backs off Mission admission conflicts without deleting the deferred intent", async () => {
     const projectId = await insertProject();
     projectIds.push(projectId);
