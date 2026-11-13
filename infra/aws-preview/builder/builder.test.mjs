@@ -25,7 +25,7 @@ import { parsePreviewStaticArchive } from "../runtime/server.mjs";
 const buildId = "01234567-89ab-42cd-8abc-0123456789ab";
 const signingKeys = generateKeyPairSync("ed25519");
 const buildJobSigningDomain = Buffer.from(
-  "EngineeringOS Preview Build Job v1\n",
+  "EngineeringOS Preview Build Job v2\n",
   "utf8",
 );
 const buildJobFields = [
@@ -46,6 +46,9 @@ const buildJobFields = [
   "inputArtifactKey",
   "archiveDigest",
   "outputArtifactKey",
+  "attemptId",
+  "idempotencyKey",
+  "dispatchGeneration",
   "issuedAt",
   "expiresAt",
 ];
@@ -241,7 +244,7 @@ function jobEnvironment(input) {
   );
   const now = new Date();
   const claims = {
-    version: 1,
+    version: 2,
     action: "preview-build",
     jobId: "11234567-89ab-42cd-8abc-0123456789ab",
     buildId,
@@ -258,6 +261,9 @@ function jobEnvironment(input) {
     inputArtifactKey: `build-inputs/${identityDigest}/${inputDigest}.zip`,
     archiveDigest: inputDigest,
     outputArtifactKey: `preview-build-outputs/${buildId}/site.tar.gz`,
+    attemptId: "11234567-89ab-42cd-8abc-0123456789ab",
+    idempotencyKey: "21234567-89ab-42cd-8abc-0123456789ab",
+    dispatchGeneration: 1,
     issuedAt: now.toISOString(),
     expiresAt: new Date(now.getTime() + 5 * 60_000).toISOString(),
   };

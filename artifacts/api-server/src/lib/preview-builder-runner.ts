@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import {
   verifyPreviewBuildJob,
-  type PreviewBuildJobClaims,
+  type VerifiedPreviewBuildJobClaims,
 } from "./preview-build-job.js";
 import {
   type PreviewEcsClient,
@@ -175,8 +175,8 @@ function validateJobRequest(
   request: PreviewBuilderJobRequest,
   config: PreviewBuilderRunnerConfig,
   now: Date,
-): PreviewBuildJobClaims {
-  let claims: PreviewBuildJobClaims;
+): VerifiedPreviewBuildJobClaims {
+  let claims: VerifiedPreviewBuildJobClaims;
   try {
     claims = verifyPreviewBuildJob({
       token: request.token,

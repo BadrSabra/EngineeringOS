@@ -832,6 +832,13 @@ export const APPLICATION_SCHEMA_CONTRACT = {
         nullable: false,
         defaultExpression: /0/,
       },
+      {
+        name: "dispatch_generation",
+        dataType: "integer",
+        udtName: "int4",
+        nullable: false,
+        defaultExpression: /1/,
+      },
       ...["started_at", "completed_at"].map((name) => ({
         name,
         dataType: "timestamp with time zone",

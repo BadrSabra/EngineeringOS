@@ -95,6 +95,7 @@ function makeJob(overrides: Partial<PreviewBuildJob> = {}): PreviewBuildJob {
     outputDigest: null,
     buildReceiptId: null,
     failureCode: null,
+    dispatchGeneration: 1,
     stateVersion: 0,
     startedAt: null,
     completedAt: null,
@@ -312,6 +313,11 @@ describe("Preview build start orchestration", () => {
     expect(dependencies.dispatch.mock.calls[0]?.[0].claims).toEqual(
       dependencies.dispatch.mock.calls[1]?.[0].claims,
     );
+    expect(dependencies.dispatch.mock.calls[0]?.[0].claims).toMatchObject({
+      attemptId: jobId,
+      idempotencyKey: clientRequestId,
+      dispatchGeneration: 1,
+    });
   });
 
   it("retries an admitted job whose input upload failed before readiness", async () => {

@@ -1,4 +1,4 @@
-export type PreviewBuildAttestorClaims = {
+type PreviewBuildAttestorClaimsBase = {
   action: "preview-build";
   buildId: string;
   builderProfile: "vite-react-static-v1";
@@ -13,6 +13,19 @@ export type PreviewBuildAttestorClaims = {
   archiveDigest: string;
   outputArtifactKey: string;
 };
+
+export type PreviewBuildAttestorClaims =
+  | (PreviewBuildAttestorClaimsBase & {
+      version: 1;
+      jobId: string;
+    })
+  | (PreviewBuildAttestorClaimsBase & {
+      version: 2;
+      jobId: string;
+      attemptId: string;
+      idempotencyKey: string;
+      dispatchGeneration: number;
+    });
 
 export function canonicalPreviewBuildReceiptPayload(
   receipt: Record<string, unknown>,

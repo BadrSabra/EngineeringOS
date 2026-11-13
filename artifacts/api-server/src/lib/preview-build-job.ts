@@ -7,8 +7,12 @@ import {
 } from "node:crypto";
 import type { PreviewBuildInputIdentity } from "./preview-build-input.js";
 
-const SIGNING_DOMAIN = Buffer.from(
+const SIGNING_DOMAIN_V1 = Buffer.from(
   "EngineeringOS Preview Build Job v1\n",
+  "utf8",
+);
+const SIGNING_DOMAIN_V2 = Buffer.from(
+  "EngineeringOS Preview Build Job v2\n",
   "utf8",
 );
 const MAX_TOKEN_LENGTH = 8_192;
@@ -22,7 +26,7 @@ const INPUT_KEY_PATTERN =
   /^build-inputs\/([a-f0-9]{64})\/([a-f0-9]{64})\.zip$/i;
 const OUTPUT_KEY_PATTERN =
   /^preview-build-outputs\/([0-9a-f-]{36})\/site\.tar\.gz$/i;
-const JOB_FIELDS = [
+const JOB_FIELDS_V1 = [
   "version",
   "action",
   "jobId",
@@ -44,8 +48,16 @@ const JOB_FIELDS = [
   "expiresAt",
 ] as const;
 
-export type PreviewBuildJobClaims = PreviewBuildInputIdentity & {
-  version: 1;
+const JOB_FIELDS_V2 = [
+  ...JOB_FIELDS_V1.slice(0, -2),
+  "attemptId",
+  "idempotencyKey",
+  "dispatchGeneration",
+  "issuedAt",
+  "expiresAt",
+] as const;
+
+type PreviewBuildJobClaimsBase = PreviewBuildInputIdentity & {
   action: "preview-build";
   jobId: string;
   buildId: string;
@@ -59,6 +71,21 @@ export type PreviewBuildJobClaims = PreviewBuildInputIdentity & {
   issuedAt: string;
   expiresAt: string;
 };
+
+export type LegacyPreviewBuildJobClaims = PreviewBuildJobClaimsBase & {
+  version: 1;
+};
+
+export type PreviewBuildJobClaims = PreviewBuildJobClaimsBase & {
+  version: 2;
+  attemptId: string;
+  idempotencyKey: string;
+  dispatchGeneration: number;
+};
+
+export type VerifiedPreviewBuildJobClaims =
+  | LegacyPreviewBuildJobClaims
+  | PreviewBuildJobClaims;
 
 export class PreviewBuildJobError extends Error {
   constructor(
@@ -140,11 +167,23 @@ function validSourceRoot(value: unknown): value is string {
 
 function canonicalClaims(claims: PreviewBuildJobClaims): string {
   return JSON.stringify(
-    Object.fromEntries(JOB_FIELDS.map((field) => [field, claims[field]])),
+    Object.fromEntries(JOB_FIELDS_V2.map((field) => [field, claims[field]])),
   );
 }
 
-function validateClaims(value: unknown, now: Date): PreviewBuildJobClaims {
+function canonicalVerifiedClaims(
+  claims: VerifiedPreviewBuildJobClaims,
+): string {
+  const fields = claims.version === 1 ? JOB_FIELDS_V1 : JOB_FIELDS_V2;
+  return JSON.stringify(
+    Object.fromEntries(fields.map((field) => [field, claims[field]])),
+  );
+}
+
+function validateClaims(
+  value: unknown,
+  now: Date,
+): VerifiedPreviewBuildJobClaims {
   if (
     !value ||
     typeof value !== "object" ||
@@ -154,10 +193,16 @@ function validateClaims(value: unknown, now: Date): PreviewBuildJobClaims {
     throw new PreviewBuildJobError("PREVIEW_BUILD_JOB_INVALID");
   }
   const record = value as Record<string, unknown>;
+  const fields =
+    record.version === 1
+      ? JOB_FIELDS_V1
+      : record.version === 2
+        ? JOB_FIELDS_V2
+        : undefined;
   if (
-    Object.keys(record).length !== JOB_FIELDS.length ||
-    JOB_FIELDS.some((field) => !(field in record)) ||
-    record.version !== 1 ||
+    !fields ||
+    Object.keys(record).length !== fields.length ||
+    fields.some((field) => !(field in record)) ||
     record.action !== "preview-build" ||
     !boundedText(record.jobId) ||
     !UUID_PATTERN.test(String(record.jobId)) ||
@@ -183,7 +228,13 @@ function validateClaims(value: unknown, now: Date): PreviewBuildJobClaims {
     typeof record.inputArtifactKey !== "string" ||
     !INPUT_KEY_PATTERN.test(record.inputArtifactKey) ||
     !canonicalTimestamp(record.issuedAt) ||
-    !canonicalTimestamp(record.expiresAt)
+    !canonicalTimestamp(record.expiresAt) ||
+    (record.version === 2 &&
+      (record.attemptId !== record.jobId ||
+        typeof record.idempotencyKey !== "string" ||
+        !UUID_PATTERN.test(record.idempotencyKey) ||
+        !Number.isSafeInteger(record.dispatchGeneration) ||
+        (record.dispatchGeneration as number) < 1))
   ) {
     throw new PreviewBuildJobError("PREVIEW_BUILD_JOB_INVALID");
   }
@@ -215,8 +266,8 @@ function validateClaims(value: unknown, now: Date): PreviewBuildJobClaims {
   }
 
   return Object.fromEntries(
-    JOB_FIELDS.map((field) => [field, record[field]]),
-  ) as PreviewBuildJobClaims;
+    fields.map((field) => [field, record[field]]),
+  ) as VerifiedPreviewBuildJobClaims;
 }
 
 export function signPreviewBuildJob(input: {
@@ -224,11 +275,15 @@ export function signPreviewBuildJob(input: {
   privateKeyPem: string | undefined;
   now?: Date;
 }): string {
-  const claims = validateClaims(input.claims, input.now ?? new Date());
+  const validated = validateClaims(input.claims, input.now ?? new Date());
+  if (validated.version !== 2) {
+    throw new PreviewBuildJobError("PREVIEW_BUILD_JOB_INVALID");
+  }
+  const claims = validated;
   const payload = Buffer.from(canonicalClaims(claims), "utf8");
   const signature = signSignature(
     null,
-    Buffer.concat([SIGNING_DOMAIN, payload]),
+    Buffer.concat([SIGNING_DOMAIN_V2, payload]),
     parseKey(input.privateKeyPem, "private"),
   );
   return `${payload.toString("base64url")}.${signature.toString("base64url")}`;
@@ -238,7 +293,7 @@ export function verifyPreviewBuildJob(input: {
   token: string;
   publicKeyPem: string | undefined;
   now?: Date;
-}): PreviewBuildJobClaims {
+}): VerifiedPreviewBuildJobClaims {
   if (
     typeof input.token !== "string" ||
     input.token.length > MAX_TOKEN_LENGTH
@@ -271,13 +326,16 @@ export function verifyPreviewBuildJob(input: {
     throw new PreviewBuildJobError("PREVIEW_BUILD_JOB_INVALID");
   }
   const claims = validateClaims(decoded, input.now ?? new Date());
-  if (!payload.equals(Buffer.from(canonicalClaims(claims), "utf8"))) {
+  if (!payload.equals(Buffer.from(canonicalVerifiedClaims(claims), "utf8"))) {
     throw new PreviewBuildJobError("PREVIEW_BUILD_JOB_INVALID");
   }
   if (
     !verifySignature(
       null,
-      Buffer.concat([SIGNING_DOMAIN, payload]),
+      Buffer.concat([
+        claims.version === 1 ? SIGNING_DOMAIN_V1 : SIGNING_DOMAIN_V2,
+        payload,
+      ]),
       parseKey(input.publicKeyPem, "public"),
       signature,
     )

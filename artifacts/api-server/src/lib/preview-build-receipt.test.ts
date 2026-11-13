@@ -16,7 +16,7 @@ const publicKeyPem = keyPair.publicKey.export({
   format: "pem",
 }) as string;
 const SIGNING_DOMAIN = Buffer.from(
-  "EngineeringOS Preview Build Receipt v1\n",
+  "EngineeringOS Preview Build Receipt v2\n",
   "utf8",
 );
 
@@ -37,14 +37,20 @@ const expected = {
   buildId: "223e4567-e89b-42d3-a456-426614174001",
   outputArtifactKey:
     "preview-build-outputs/223e4567-e89b-42d3-a456-426614174001/site.tar.gz",
+  attemptId: "123e4567-e89b-42d3-a456-426614174000",
+  idempotencyKey: "323e4567-e89b-42d3-a456-426614174002",
+  dispatchGeneration: 1,
 };
 
 function receipt(): PreviewBuildReceiptClaims {
   return {
-    version: 1,
+    version: 2,
     action: "preview-build-ready",
     receiptId: "123e4567-e89b-42d3-a456-426614174000",
     buildId: expected.buildId,
+    attemptId: expected.attemptId,
+    idempotencyKey: expected.idempotencyKey,
+    dispatchGeneration: expected.dispatchGeneration,
     builderProfile: "vite-react-static-v1",
     builderImageDigest: expected.builderImageDigest,
     ...identity,

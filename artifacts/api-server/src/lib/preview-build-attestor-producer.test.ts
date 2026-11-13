@@ -38,7 +38,12 @@ describe("independent Preview Attestor receipt compatibility", () => {
     const outputArtifactKey = `preview-build-outputs/${buildId}/site.tar.gz`;
     const { token } = signPreviewBuildReceipt({
       claims: {
+        version: 2,
         action: "preview-build",
+        jobId: "123e4567-e89b-42d3-a456-426614174000",
+        attemptId: "123e4567-e89b-42d3-a456-426614174000",
+        idempotencyKey: "323e4567-e89b-42d3-a456-426614174002",
+        dispatchGeneration: 1,
         buildId,
         builderProfile: "vite-react-static-v1",
         builderImageDigest,
@@ -62,6 +67,9 @@ describe("independent Preview Attestor receipt compatibility", () => {
         builderImageDigest,
         buildId,
         outputArtifactKey,
+        attemptId: "123e4567-e89b-42d3-a456-426614174000",
+        idempotencyKey: "323e4567-e89b-42d3-a456-426614174002",
+        dispatchGeneration: 1,
       },
       now,
     });

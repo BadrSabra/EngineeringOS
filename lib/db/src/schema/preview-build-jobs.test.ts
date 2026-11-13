@@ -20,3 +20,11 @@ test("Local input ownership evidence stays server-owned and nullable for S3 rows
     assert.equal(key in insertShape, false);
   }
 });
+
+test("dispatch generation is durable, positive, and server-owned", () => {
+  const columns = getTableColumns(previewBuildJobsTable);
+
+  assert.equal(columns.dispatchGeneration.notNull, true);
+  assert.equal(columns.dispatchGeneration.default, 1);
+  assert.equal("dispatchGeneration" in insertPreviewBuildJobSchema.shape, false);
+});

@@ -57,6 +57,7 @@ function makeJob(overrides: Partial<PreviewBuildJob> = {}): PreviewBuildJob {
     outputDigest: null,
     buildReceiptId: null,
     failureCode: null,
+    dispatchGeneration: 1,
     stateVersion: 2,
     startedAt: null,
     completedAt: null,

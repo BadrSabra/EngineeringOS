@@ -79,6 +79,7 @@ function makeJob(overrides: Partial<PreviewBuildJob> = {}): PreviewBuildJob {
     outputDigest,
     buildReceiptId: null,
     failureCode: null,
+    dispatchGeneration: 1,
     stateVersion: 3,
     startedAt: now,
     completedAt: null,
@@ -92,10 +93,13 @@ function signReceipt(
   overrides: Partial<PreviewBuildReceiptClaims> = {},
 ): string {
   const claims: PreviewBuildReceiptClaims = {
-    version: 1,
+    version: 2,
     action: "preview-build-ready",
     receiptId,
     buildId,
+    attemptId: jobId,
+    idempotencyKey: "423e4567-e89b-42d3-a456-426614174003",
+    dispatchGeneration: 1,
     builderProfile: "vite-react-static-v1",
     builderImageDigest,
     projectId: "project-1",

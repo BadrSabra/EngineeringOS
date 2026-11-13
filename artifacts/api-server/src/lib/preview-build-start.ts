@@ -156,9 +156,12 @@ function matchesCurrentCandidate(
 
 function claimsForJob(job: PreviewBuildJob): PreviewBuildJobClaims {
   return {
-    version: 1,
+    version: 2,
     action: "preview-build",
     jobId: job.jobId,
+    attemptId: job.jobId,
+    idempotencyKey: job.clientRequestId,
+    dispatchGeneration: job.dispatchGeneration,
     buildId: job.buildId,
     builderProfile: "vite-react-static-v1",
     builderImageDigest: job.builderImageDigest,

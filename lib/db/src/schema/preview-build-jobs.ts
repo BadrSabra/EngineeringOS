@@ -120,6 +120,9 @@ export const previewBuildJobsTable = pgTable(
       withTimezone: true,
     }).notNull(),
     status: previewBuildJobStatusEnum("status").notNull().default("queued"),
+    dispatchGeneration: integer("dispatch_generation")
+      .notNull()
+      .default(1),
     // Legacy physical column retained to avoid a data migration; application code
     // treats this as an opaque execution reference.
     executionRef: text("builder_task_arn"),
@@ -269,6 +272,7 @@ export const insertPreviewBuildJobSchema = createInsertSchema(
   outputDigest: true,
   buildReceiptId: true,
   failureCode: true,
+  dispatchGeneration: true,
   stateVersion: true,
   startedAt: true,
   completedAt: true,
