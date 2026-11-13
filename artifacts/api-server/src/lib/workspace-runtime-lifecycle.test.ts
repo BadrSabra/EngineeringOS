@@ -91,7 +91,7 @@ function createSupervisor(
       status: "running" as const,
     })),
     observeStartState: vi.fn(async (input: { projectId: string; ownerProjectId: string }) => {
-      const observation = await (observeStartState ?? (async (value: { projectId: string; ownerProjectId: string }) => ({
+      const observation: SupervisorObservation = await (observeStartState ?? (async (value: { projectId: string; ownerProjectId: string }) => ({
         projectId: value.projectId,
         ownerProjectId: value.ownerProjectId,
         status: "stopped" as const,
