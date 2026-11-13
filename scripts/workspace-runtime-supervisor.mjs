@@ -3,7 +3,7 @@ import net from "node:net";
 import path from "node:path";
 import { createHash, createPublicKey, randomUUID } from "node:crypto";
 import {
-  chmod, chown, lstat, open, readFile, readdir, readlink, realpath, rename, stat, unlink,
+  chmod, lstat, open, readFile, readdir, readlink, realpath, rename, stat, unlink,
 } from "node:fs/promises";
 import { spawn, spawnSync } from "node:child_process";
 import { verifyWorkspaceRuntimeSupervisorCommand } from "./workspace-runtime-supervisor-protocol.mjs";
@@ -1055,6 +1055,7 @@ async function validateControlSocketDirectory() {
     || directory.uid !== process.getuid()
     || directory.gid !== API_GID
     || (directory.mode & 0o777) !== 0o710
+    || (directory.mode & 0o2000) === 0
   ) throw new Error("Supervisor control directory must be owned by the runner and API group with mode 0710.");
   try {
     await lstat(SOCKET_PATH);
@@ -1093,7 +1094,8 @@ async function listenOnControlSocket() {
     server.listen(SOCKET_PATH, resolve);
   });
   try {
-    await chown(SOCKET_PATH, process.getuid(), API_GID);
+    // A setgid control directory makes the socket inherit API_GID without
+    // granting the supervisor CAP_CHOWN or API-group membership.
     await chmod(SOCKET_PATH, 0o660);
     const socketInfo = await lstat(SOCKET_PATH);
     if (!socketInfo.isSocket() || socketInfo.uid !== process.getuid()
