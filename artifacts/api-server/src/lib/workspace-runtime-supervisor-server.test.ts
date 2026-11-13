@@ -448,6 +448,26 @@ describe("workspace runtime supervisor server boundary", () => {
       });
       expect(wrongRootSameOwner.status).toBe(409);
 
+      const wrongRootAdoption = await supervisorFetch(`http://127.0.0.1:${supervisorPort}/runtime/adopt`, {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          projectId,
+          ownerProjectId: "owner-a",
+          sessionId,
+          projectRoot: secondRoot,
+          pid: started.pid,
+          port: started.port,
+          profile: "dev",
+          listenerBindingDigest: "a".repeat(64),
+          expectedListenerIdentityDigest: "b".repeat(64),
+        }),
+      });
+      expect(wrongRootAdoption.status).toBe(409);
+
       const wrongOwnerObservation = await supervisorFetch(
         `http://127.0.0.1:${supervisorPort}/runtime/observe-start`,
         {
@@ -476,6 +496,22 @@ describe("workspace runtime supervisor server boundary", () => {
         }),
       });
       expect(wrongOwnerStop.status).toBe(409);
+
+      const wrongRootStop = await supervisorFetch(`http://127.0.0.1:${supervisorPort}/runtime/stop`, {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          projectId,
+          ownerProjectId: "owner-a",
+          sessionId,
+          projectRoot: secondRoot,
+          pid: started.pid,
+        }),
+      });
+      expect(wrongRootStop.status).toBe(409);
       await expect(fetch(`http://127.0.0.1:${started.port}`).then((response) => response.text()))
         .resolves.toBe("owner-a");
     } finally {
@@ -521,6 +557,21 @@ describe("workspace runtime supervisor server boundary", () => {
       body: changedBody,
     });
     expect(response.status).toBe(401);
+
+    const changedPathResponse = await fetch(`http://127.0.0.1:${port}/runtime/stop`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        authorization: `Bearer ${token}`,
+        "x-engineeringos-command-signature": signWorkspaceRuntimeSupervisorCommand(
+          testSecret,
+          "/runtime/observe-start",
+          signedBody,
+        ),
+      },
+      body: signedBody,
+    });
+    expect(changedPathResponse.status).toBe(401);
     await stopChild(supervisor);
   });
 
