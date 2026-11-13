@@ -143,6 +143,8 @@ export async function insertTaskAutoExecutionIntent(
     await tx.update(eventsTable)
       .set({
         type: TASK_AUTO_EXECUTION_REQUESTED_EVENT_TYPE,
+        projectId: task.projectId,
+        taskId: input.taskId,
         severity: "info",
         message: "Automatic AI task execution was requested.",
         timestamp: new Date(),
