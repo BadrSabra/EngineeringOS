@@ -5,6 +5,7 @@
  * EngineeringOS - Autonomous AI Engineering Platform API
  * OpenAPI spec version: 1.0.0
  */
+import type { JobRecoveryHealthDeferredAiTaskDispatchesByReasonItem } from './jobRecoveryHealthDeferredAiTaskDispatchesByReasonItem';
 import type { JobRecoveryHealthDispatchStagesItem } from './jobRecoveryHealthDispatchStagesItem';
 import type { JobRecoveryHealthStatus } from './jobRecoveryHealthStatus';
 
@@ -26,6 +27,7 @@ export interface JobRecoveryHealth {
   pendingAiTaskDispatches: number;
   /** @minimum 0 */
   deferredAiTaskDispatches: number;
+  deferredAiTaskDispatchesByReason: JobRecoveryHealthDeferredAiTaskDispatchesByReasonItem[];
   /** @minimum 0 */
   staleAiTaskDispatches: number;
   oldestAiTaskDispatchAt: Date | null;
