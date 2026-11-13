@@ -1727,6 +1727,13 @@ describe("Mission goal runtime", () => {
       trigger: "resume",
     })).rejects.toThrow("simulated local wake loss");
     expect(localWake).toHaveBeenCalledOnce();
+    expect(localWake).toHaveBeenCalledWith(
+      taskId,
+      "test-user",
+      { parentExecutionId: null },
+      3,
+      taskCorrelationId,
+    );
 
     const [intent] = await db.select().from(eventsTable)
       .where(eq(eventsTable.id, `task-auto-execution-deferred:${taskId}`));
