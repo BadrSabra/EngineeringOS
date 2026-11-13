@@ -1719,6 +1719,25 @@ describe("Mission goal runtime", () => {
       updatedAt: fixture.now,
     });
 
+    // Same Task/project/user/generation, but no Mission Goal binding.
+    // It must not be mistaken for the current Goal's active Execution.
+    const unrelatedExecutionId = randomUUID();
+    await db.insert(aiExecutionsTable).values({
+      id: unrelatedExecutionId,
+      projectId: fixture.projectId,
+      linkedTaskId: taskId,
+      userId: "test-user",
+      idempotencyKey: `unrelated-mission-task:${unrelatedExecutionId}`,
+      resumeTokenHash: "test-hash",
+      request: "{}",
+      checkpoint: "{}",
+      correlationId: taskCorrelationId,
+      attempt: retryCount,
+      status: "running",
+      createdAt: fixture.now,
+      updatedAt: fixture.now,
+    });
+
     const localWake = vi.spyOn(aiTaskRoutes, "scheduleAiTaskExecution")
       .mockRejectedValueOnce(new Error("simulated local wake loss"));
     await expect(runMissionGoal({
