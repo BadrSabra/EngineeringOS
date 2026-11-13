@@ -19,7 +19,7 @@ describe("WorkspaceRuntimeSupervisorClient child attestation handoff", () => {
         ownerProjectId: "project-runtime",
         sessionId: "session-runtime",
         status: "running",
-        port: 3210,
+        port: 3010,
         pid: 1234,
       }), {
         status: 200,
