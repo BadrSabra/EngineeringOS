@@ -333,6 +333,23 @@ describe("workspace runtime supervisor server boundary", () => {
         error: "The registered project root is unavailable or outside the configured workspace.",
       });
 
+      const outsideRootObservation = await supervisorFetch(
+        `http://127.0.0.1:${supervisorPort}/runtime/observe-start`,
+        {
+          method: "POST",
+          headers: {
+            "content-type": "application/json",
+            authorization: `Bearer ${token}`,
+          },
+          body: JSON.stringify({
+            projectId: "outside-workspace-project",
+            ownerProjectId: "outside-workspace-project",
+            projectRoot: outsideRoot,
+          }),
+        },
+      );
+      expect(outsideRootObservation.status).toBe(400);
+
       await expect(
         readFile(path.join(outsideRoot, "started.txt"), "utf8"),
       ).rejects.toMatchObject({ code: "ENOENT" });
