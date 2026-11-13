@@ -3223,6 +3223,7 @@ export async function runMissionGoal(params: {
       .where(and(
         eq(aiExecutionsTable.linkedTaskId, task.id),
         eq(aiExecutionsTable.projectId, task.projectId),
+        eq(aiExecutionsTable.goalId, goal.id),
         eq(aiExecutionsTable.userId, mission.userId),
         eq(aiExecutionsTable.attempt, task.retryCount),
         task.correlationId === null
