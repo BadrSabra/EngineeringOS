@@ -2580,12 +2580,6 @@ export const JobRecoveryHealthDeferredAiTaskDispatchesByReasonItemReasonCode = {
   OTHER: 'OTHER',
 } as const;
 
-export type JobRecoveryHealthDeferredAiTaskDispatchesByReasonItem = {
-  reasonCode: JobRecoveryHealthDeferredAiTaskDispatchesByReasonItemReasonCode;
-  /** @minimum 0 */
-  count: number;
-};
-
 export type JobRecoveryHealthDispatchStagesItemLastOutcome = typeof JobRecoveryHealthDispatchStagesItemLastOutcome[keyof typeof JobRecoveryHealthDispatchStagesItemLastOutcome];
 
 
@@ -2594,6 +2588,12 @@ export const JobRecoveryHealthDispatchStagesItemLastOutcome = {
   failed: 'failed',
   unknown: 'unknown',
 } as const;
+
+export type JobRecoveryHealthDeferredAiTaskDispatchesByReasonItem = {
+  reasonCode: JobRecoveryHealthDeferredAiTaskDispatchesByReasonItemReasonCode;
+  /** @minimum 0 */
+  count: number;
+};
 
 export type JobRecoveryHealthDispatchStagesItem = {
   stageName: string;
