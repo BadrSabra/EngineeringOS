@@ -90,15 +90,24 @@ function createSupervisor(
       ...input,
       status: "running" as const,
     })),
-    observeStartState: vi.fn(observeStartState ?? (async (input: { projectId: string; ownerProjectId: string }) => ({
-      projectId: input.projectId,
-      ownerProjectId: input.ownerProjectId,
-      status: "stopped" as const,
-      observedAt: new Date().toISOString(),
-      inventoryComplete: true,
-      unknownListenerPorts: [],
-      detail: "No tracked runtime session is live.",
-    }))),
+    observeStartState: vi.fn(async (input: { projectId: string; ownerProjectId: string }) => {
+      const observation = await (observeStartState ?? (async (value) => ({
+        projectId: value.projectId,
+        ownerProjectId: value.ownerProjectId,
+        status: "stopped" as const,
+        observedAt: new Date().toISOString(),
+        inventoryComplete: true,
+        unknownListenerPorts: [],
+        detail: "No tracked runtime session is live.",
+      })))(input);
+      return {
+        ...observation,
+        ownerProjectId: input.ownerProjectId,
+        ...(observation.session
+          ? { session: { ...observation.session, ownerProjectId: input.ownerProjectId } }
+          : {}),
+      };
+    }),
   } as unknown as WorkspaceRuntimeSupervisorClient;
 }
 
