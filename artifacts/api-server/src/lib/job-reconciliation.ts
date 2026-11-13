@@ -1268,6 +1268,7 @@ export async function getDurableJobHealth(): Promise<{
   }>;
 }> {
   const now = databaseNow();
+  const nowIso = new Date().toISOString();
   const stalePendingCutoff = sql<Date>`(clock_timestamp() AT TIME ZONE 'UTC') - (${STALE_PENDING_TIMEOUT_MS} * interval '1 millisecond')`;
   try {
     const [
@@ -1367,7 +1368,7 @@ export async function getDurableJobHealth(): Promise<{
                 sql`(
                   ${eventsTable.payload}->>'nextAttemptAt' IS NULL
                   OR ${eventsTable.payload}->>'nextAttemptAt' !~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}T'
-                  OR ${eventsTable.payload}->>'nextAttemptAt' <= ${now.toISOString()}
+                  OR ${eventsTable.payload}->>'nextAttemptAt' <= ${nowIso}
                 )`,
               ),
             ),
