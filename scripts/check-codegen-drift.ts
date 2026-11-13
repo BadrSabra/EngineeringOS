@@ -212,6 +212,27 @@ if (changed.length === 0) {
   for (const f of changed) {
     console.error(`    • ${f}`);
   }
+  const changedReactSchema = changed.includes("lib/api-client-react/src/generated/api.schemas.ts");
+  if (changedReactSchema) {
+    const committedSchema = join(
+      WORKSPACE_ROOT,
+      "lib/api-client-react/src/generated/api.schemas.ts",
+    );
+    const regeneratedSchema = join(
+      generatedRoot,
+      "lib/api-client-react/src/generated/api.schemas.ts",
+    );
+    try {
+      const diff = execSync(
+        `diff -u "${committedSchema}" "${regeneratedSchema}" || true`,
+        { cwd: WORKSPACE_ROOT, stdio: "pipe", maxBuffer: 1024 * 1024 },
+      ).toString();
+      console.error("\n    React schema regeneration diff (first 20,000 chars):\n");
+      console.error(diff.slice(0, 20_000));
+    } catch (diffError) {
+      console.error("    Could not render the generated React schema diff:", diffError);
+    }
+  }
   console.error(
     "\n    Fix: pnpm --filter @workspace/api-spec run codegen && git add lib/api-zod lib/api-client-react\n",
   );
