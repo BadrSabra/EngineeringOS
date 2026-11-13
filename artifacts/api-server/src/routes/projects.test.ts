@@ -16,6 +16,7 @@ import {
   scanJobsTable,
   graphRelationshipsTable,
   browserValidationProfilesTable,
+  workspaceRuntimeTable,
 } from "@workspace/db";
 import { randomUUID } from "crypto";
 import { mkdirSync, writeFileSync, rmSync } from "node:fs";
@@ -26,6 +27,7 @@ import { heavyJobQueue } from "../lib/job-queue.js";
 import { LockNamespace, tryAdvisoryLock } from "../lib/advisory-lock.js";
 import { performScan, ProjectScanLockBusyError } from "../lib/scan-runner.js";
 import { materializeProjectRoot } from "../lib/project-materialization.js";
+import { workspaceRuntime } from "../lib/workspace-runtime.js";
 
 /**
  * Create a real scan-root dir that passes establishProjectRoot: scans now
@@ -486,6 +488,7 @@ describe("POST /api/projects — audit trail", () => {
   const cleanupQueue: string[] = [];
 
   afterEach(async () => {
+    vi.restoreAllMocks();
     while (cleanupQueue.length > 0) {
       const id = cleanupQueue.pop();
       if (id) await cleanupProject(id);
@@ -536,6 +539,89 @@ describe("POST /api/projects — audit trail", () => {
     expect(deletionAudit).toBeDefined();
     expect(deletionAudit?.projectId).toBeNull();
     expect((deletionAudit?.stateBefore as { id?: string } | null)?.id).toBe(projectId);
+  });
+
+  it("does not delete a project while a runtime owned by another worker is still active", async () => {
+    const sourceRoot = makeProjectRootDir();
+    const durableRoot = await materializeProjectRoot(sourceRoot, `active-runtime-${randomUUID()}`);
+    removeProjectRootDir(sourceRoot);
+    const projectId = await insertProject(durableRoot);
+    cleanupQueue.push(projectId);
+    const now = new Date();
+    const sessionId = `runtime-session-${randomUUID()}`;
+
+    try {
+      await db.insert(workspaceRuntimeTable).values({
+        id: projectId,
+        projectId,
+        sessionId,
+        status: "running",
+        projectRoot: durableRoot,
+        revision: "revision-1",
+        port: 3000,
+        pid: process.pid,
+        workerId: "runtime-worker:another-api-instance",
+        leaseUntil: new Date(Date.now() + 60_000),
+        lastHeartbeatAt: now,
+        startedAt: now,
+      });
+
+      const res = await request(app).delete(`/api/projects/${projectId}`);
+
+      expect(res.status).toBe(409);
+      expect(res.body.error).toBe("project_runtime_not_stopped");
+      await expect(access(durableRoot)).resolves.toBeUndefined();
+      const [project] = await db.select().from(projectsTable).where(eq(projectsTable.id, projectId));
+      expect(project).toBeDefined();
+      const [runtime] = await db.select().from(workspaceRuntimeTable)
+        .where(eq(workspaceRuntimeTable.projectId, projectId));
+      expect(runtime).toMatchObject({
+        sessionId,
+        status: "running",
+        workerId: "runtime-worker:another-api-instance",
+      });
+    } finally {
+      removeProjectRootDir(durableRoot);
+    }
+  });
+
+  it("does not delete a project when runtime shutdown throws", async () => {
+    const rootDir = makeProjectRootDir();
+    const projectId = await insertProject(rootDir);
+    cleanupQueue.push(projectId);
+    vi.spyOn(workspaceRuntime, "stop").mockRejectedValueOnce(new Error("supervisor stop was not confirmed"));
+
+    const res = await request(app).delete(`/api/projects/${projectId}`);
+
+    expect(res.status).toBe(409);
+    expect(res.body.error).toBe("project_runtime_stop_failed");
+    await expect(access(rootDir)).resolves.toBeUndefined();
+    const [project] = await db.select().from(projectsTable).where(eq(projectsTable.id, projectId));
+    expect(project).toBeDefined();
+    removeProjectRootDir(rootDir);
+  });
+
+  it("does not start a runtime while project deletion holds the runtime lifecycle lock", async () => {
+    const rootDir = makeProjectRootDir();
+    const projectId = await insertProject(rootDir);
+    cleanupQueue.push(projectId);
+    const lock = await tryAdvisoryLock(LockNamespace.WORKSPACE_RUNTIME, projectId);
+    expect(lock.acquired).toBe(true);
+    if (!lock.acquired) throw new Error("Could not acquire the runtime lifecycle test lock.");
+
+    try {
+      await expect(workspaceRuntime.start({
+        projectId,
+        projectRoot: rootDir,
+        revision: "revision-1",
+      })).rejects.toMatchObject({
+        code: "RUNTIME_OWNERSHIP_BUSY",
+        status: 409,
+      });
+    } finally {
+      await lock.release();
+      removeProjectRootDir(rootDir);
+    }
   });
 });
 

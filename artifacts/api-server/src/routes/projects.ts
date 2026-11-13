@@ -338,66 +338,125 @@ router.delete("/projects/:projectId", requireProjectWriteAccess, async (req, res
   const before = req.project!;
   const correlationId = randomUUID();
 
-  const [activeScan, activeExecution, activeWorkflow, activeDelivery] = await Promise.all([
-    db.select({ id: scanJobsTable.id }).from(scanJobsTable).where(and(
-      eq(scanJobsTable.projectId, projectId),
-      inArray(scanJobsTable.status, ["queued", "running"]),
-    )).limit(1),
-    db.select({ id: aiExecutionsTable.id }).from(aiExecutionsTable).where(and(
-      eq(aiExecutionsTable.projectId, projectId),
-      inArray(aiExecutionsTable.status, ["queued", "running", "paused", "cancelling"]),
-    )).limit(1),
-    db.select({ id: workflowExecutionsTable.id }).from(workflowExecutionsTable)
-      .innerJoin(workflowsTable, eq(workflowExecutionsTable.workflowId, workflowsTable.id))
-      .where(and(
-        eq(workflowsTable.projectId, projectId),
-        eq(workflowExecutionsTable.status, "running"),
-      )).limit(1),
-    db.select({ id: aiChangeProposalsTable.id }).from(aiChangeProposalsTable).where(and(
-      eq(aiChangeProposalsTable.projectId, projectId),
-      inArray(aiChangeProposalsTable.lifecycle, ["isolated", "validated"]),
-    )).limit(1),
-  ]);
-  if (activeScan.length || activeExecution.length || activeWorkflow.length || activeDelivery.length) {
+  let runtimeLock: Awaited<ReturnType<typeof tryAdvisoryLock>>;
+  try {
+    runtimeLock = await tryAdvisoryLock(LockNamespace.WORKSPACE_RUNTIME, projectId);
+  } catch (error) {
+    logger.error({ error, projectId }, "Project deletion could not acquire runtime lifecycle coordination");
+    return res.status(503).json({
+      error: "project_runtime_coordination_unavailable",
+      reason: "Runtime ownership could not be checked safely. The project was not deleted.",
+    });
+  }
+  if (!runtimeLock.acquired) {
     return res.status(409).json({
-      error: "project_active_work",
-      reason: "Stop or reconcile active scans, deliveries, workflows, and AI executions before deleting this project.",
+      error: "project_runtime_busy",
+      reason: "A runtime start or another destructive runtime operation is in progress. Retry project deletion after it finishes.",
     });
   }
 
-  await db.transaction(async (tx) => {
-    await recordAuditInTransaction(tx, {
-      entityType: "project", entityId: projectId, action: "deleted", projectId,
-      stateBefore: before, correlationId,
-    });
-    await tx.insert(eventsTable).values({
-      id: randomUUID(), type: "ProjectDeleted", projectId,
-      severity: "info", message: `Project "${before.name}" deleted`, correlationId,
-    });
-    await tx.delete(projectsTable).where(eq(projectsTable.id, projectId));
-  });
-
-  // Imported Git/archive projects own their durable materialized root.
-  // Direct projects point at user-owned directories and are intentionally
-  // left untouched; the marker + managed-directory check makes this explicit.
   try {
-    const removed = await removeManagedProjectRoot(before.rootPath);
-    if (removed) {
-      logger.info(
-        { projectId, rootPath: before.rootPath },
-        "Removed managed durable project root after project deletion",
+    const [activeScan, activeExecution, activeWorkflow, activeDelivery] = await Promise.all([
+      db.select({ id: scanJobsTable.id }).from(scanJobsTable).where(and(
+        eq(scanJobsTable.projectId, projectId),
+        inArray(scanJobsTable.status, ["queued", "running"]),
+      )).limit(1),
+      db.select({ id: aiExecutionsTable.id }).from(aiExecutionsTable).where(and(
+        eq(aiExecutionsTable.projectId, projectId),
+        inArray(aiExecutionsTable.status, ["queued", "running", "paused", "cancelling"]),
+      )).limit(1),
+      db.select({ id: workflowExecutionsTable.id }).from(workflowExecutionsTable)
+        .innerJoin(workflowsTable, eq(workflowExecutionsTable.workflowId, workflowsTable.id))
+        .where(and(
+          eq(workflowsTable.projectId, projectId),
+          eq(workflowExecutionsTable.status, "running"),
+        )).limit(1),
+      db.select({ id: aiChangeProposalsTable.id }).from(aiChangeProposalsTable).where(and(
+        eq(aiChangeProposalsTable.projectId, projectId),
+        inArray(aiChangeProposalsTable.lifecycle, ["isolated", "validated"]),
+      )).limit(1),
+    ]);
+    if (activeScan.length || activeExecution.length || activeWorkflow.length || activeDelivery.length) {
+      return res.status(409).json({
+        error: "project_active_work",
+        reason: "Stop or reconcile active scans, deliveries, workflows, and AI executions before deleting this project.",
+      });
+    }
+
+    let stoppedRuntime: Awaited<ReturnType<typeof workspaceRuntime.stop>>;
+    try {
+      stoppedRuntime = await workspaceRuntime.stop(projectId);
+    } catch (error) {
+      const errorCode = error && typeof error === "object" && "code" in error
+        && typeof error.code === "string"
+        && /^[A-Za-z0-9_.-]{1,80}$/.test(error.code)
+        ? error.code
+        : "RUNTIME_STOP_FAILED";
+      logger.warn(
+        { projectId, errorCode },
+        "Project deletion was blocked because runtime shutdown could not be confirmed",
+      );
+      return res.status(409).json({
+        error: "project_runtime_stop_failed",
+        reason: "The workspace runtime could not be confirmed stopped. The project and its workspace were left intact.",
+      });
+    }
+    if (stoppedRuntime.status !== "stopped" || stoppedRuntime.pid !== null) {
+      logger.warn(
+        {
+          projectId,
+          runtimeStatus: stoppedRuntime.status,
+          runtimePidPresent: stoppedRuntime.pid !== null,
+        },
+        "Project deletion was blocked because a workspace runtime may still be active",
+      );
+      return res.status(409).json({
+        error: "project_runtime_not_stopped",
+        runtimeStatus: stoppedRuntime.status,
+        reason: "The workspace runtime is still active or owned by another worker. Stop or recover it before deleting this project.",
+      });
+    }
+
+    await db.transaction(async (tx) => {
+      await recordAuditInTransaction(tx, {
+        entityType: "project", entityId: projectId, action: "deleted", projectId,
+        stateBefore: before, correlationId,
+      });
+      await tx.insert(eventsTable).values({
+        id: randomUUID(), type: "ProjectDeleted", projectId,
+        severity: "info", message: `Project "${before.name}" deleted`, correlationId,
+      });
+      await tx.delete(projectsTable).where(eq(projectsTable.id, projectId));
+    });
+
+    // Imported Git/archive projects own their durable materialized root.
+    // Direct projects point at user-owned directories and are intentionally
+    // left untouched; the marker + managed-directory check makes this explicit.
+    try {
+      const removed = await removeManagedProjectRoot(before.rootPath);
+      if (removed) {
+        logger.info(
+          { projectId, rootPath: before.rootPath },
+          "Removed managed durable project root after project deletion",
+        );
+      }
+    } catch (err) {
+      logger.warn(
+        { err, projectId, rootPath: before.rootPath },
+        "Project deleted but managed durable root cleanup failed",
       );
     }
-  } catch (err) {
-    logger.warn(
-      { err, projectId, rootPath: before.rootPath },
-      "Project deleted but managed durable root cleanup failed",
-    );
+
+    invalidateContextCache(projectId);
+
+    return res.status(204).send();
+  } finally {
+    try {
+      await runtimeLock.release();
+    } catch (error) {
+      logger.warn({ error, projectId }, "Project deletion runtime lifecycle lock release failed");
+    }
   }
-
-  invalidateContextCache(projectId);
-
-  return res.status(204).send();
 });
 
 /**

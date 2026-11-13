@@ -33,6 +33,7 @@ import {
   WorkspaceRuntimeSupervisorClient,
 } from "./workspace-runtime-supervisor-client.js";
 import { logger } from "./logger.js";
+import { LockNamespace, tryAdvisoryLock } from "./advisory-lock.js";
 import {
   resolveRuntimeStartUnresolvedAlert,
   syncRuntimeStartUnresolvedAlerts,
@@ -1535,7 +1536,41 @@ export class WorkspaceRuntimeManager {
     restart?: boolean;
   }): Promise<WorkspaceRuntimeSnapshot> {
     const runtimeId = this.runtimeIdFor(input.projectId);
-    return this.withProjectStartLock(runtimeId, () => this.startExclusive(input));
+    return this.withProjectStartLock(runtimeId, async () => {
+      let controlLock: Awaited<ReturnType<typeof tryAdvisoryLock>> | undefined;
+      if (this.store === databaseWorkspaceRuntimeStore) {
+        try {
+          controlLock = await tryAdvisoryLock(LockNamespace.WORKSPACE_RUNTIME, runtimeId);
+        } catch {
+          throw new WorkspaceRuntimeError(
+            "Runtime lifecycle coordination is unavailable.",
+            "RUNTIME_START_FAILED",
+            503,
+          );
+        }
+        if (!controlLock.acquired) {
+          throw new WorkspaceRuntimeError(
+            "The workspace runtime is being changed by another operation.",
+            "RUNTIME_OWNERSHIP_BUSY",
+            409,
+          );
+        }
+      }
+      try {
+        return await this.startExclusive(input);
+      } finally {
+        if (controlLock?.acquired) {
+          try {
+            await controlLock.release();
+          } catch (error) {
+            logger.error(
+              { error, projectId: input.projectId },
+              "Workspace runtime lifecycle lock could not be released cleanly",
+            );
+          }
+        }
+      }
+    });
   }
 
   private async startExclusive(input: {

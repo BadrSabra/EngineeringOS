@@ -54,6 +54,8 @@ export const LockNamespace = {
   GITHUB_DELIVERY: 1006,
   /** Guards archive parsing/extraction across API-server instances. */
   ARCHIVE_UPLOAD: 1007,
+  /** Serializes runtime startup against destructive project deletion. */
+  WORKSPACE_RUNTIME: 1008,
 } as const;
 
 /**
