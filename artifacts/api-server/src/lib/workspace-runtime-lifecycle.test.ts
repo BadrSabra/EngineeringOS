@@ -401,7 +401,11 @@ describe("Workspace Runtime lifecycle invariants", () => {
       expect(attempted).toHaveLength(2);
       expect(attempted[1]?.sessionId).toBe(attempted[0]?.sessionId);
       expect(observedStoppedInventory).toBe(true);
-      expect(supervisor.observeStartState).toHaveBeenCalledWith(projectId);
+      expect(supervisor.observeStartState).toHaveBeenCalledWith({
+        projectId,
+        ownerProjectId: projectId,
+        projectRoot: root,
+      });
       expect(failedRow).toMatchObject({
         sessionId: attempted[0]?.sessionId,
         status: "failed",
