@@ -43,6 +43,7 @@ type SupervisorResponse = {
 export type ObserveStartState = {
   projectId: string;
   ownerProjectId: string;
+  projectRoot: string;
   status: "running" | "stopped" | "unknown";
   session?: SupervisorResponse;
   observedAt: string;
@@ -140,6 +141,7 @@ export class WorkspaceRuntimeSupervisorClient {
   async observeStartState(input: {
     projectId: string;
     ownerProjectId: string;
+    projectRoot: string;
   }): Promise<ObserveStartState> {
     const payload = await this.request("/runtime/observe-start", {
       method: "POST",
@@ -150,9 +152,14 @@ export class WorkspaceRuntimeSupervisorClient {
         "Workspace runtime supervisor returned an invalid observation.",
       );
     }
-    if (payload.projectId !== input.projectId || payload.ownerProjectId !== input.ownerProjectId) {
+    if (
+      payload.projectId !== input.projectId
+      || payload.ownerProjectId !== input.ownerProjectId
+      || payload.projectRoot !== input.projectRoot
+    ) {
       throw new WorkspaceRuntimeSupervisorError(
-        "Workspace runtime supervisor returned an observation for a different project.",
+        "Workspace runtime supervisor returned an observation for a different project or root.",
+        409,
       );
     }
     return payload;
@@ -244,6 +251,8 @@ function isObserveStartState(value: unknown): value is ObserveStartState {
   if (
     typeof candidate.projectId !== "string"
     || typeof candidate.ownerProjectId !== "string"
+    || typeof candidate.projectRoot !== "string"
+    || !path.isAbsolute(candidate.projectRoot)
     || !["running", "stopped", "unknown"].includes(candidate.status ?? "")
     || typeof candidate.observedAt !== "string"
     || Number.isNaN(Date.parse(candidate.observedAt))
