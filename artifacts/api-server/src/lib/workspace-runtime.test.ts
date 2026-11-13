@@ -604,20 +604,22 @@ describe("WorkspaceRuntimeManager", () => {
     });
   });
 
-
   it("confirms a missing runtime row is stopped only with a complete empty supervisor inventory", async () => {
     const projectId = `project-stopped-inventory-${randomUUID()}`;
     const projectRoot = path.join(os.tmpdir(), projectId);
     const observeStartState = vi.fn().mockResolvedValue({
-        projectId,
-        ownerProjectId: projectId,
-        projectRoot,
-        status: "stopped",
-        observedAt: new Date().toISOString(),
-        inventoryComplete: true,
-        unknownListenerPorts: [],
-        detail: "No tracked runtime or unknown managed listeners were observed.",
-      }),
+      projectId,
+      ownerProjectId: projectId,
+      projectRoot,
+      status: "stopped",
+      observedAt: new Date().toISOString(),
+      inventoryComplete: true,
+      unknownListenerPorts: [],
+      detail: "No tracked runtime or unknown managed listeners were observed.",
+    });
+    const supervisor = {
+      isConfigured: () => true,
+      observeStartState,
     } as unknown as WorkspaceRuntimeSupervisorClient;
     const manager = new WorkspaceRuntimeManager({
       store: createInMemoryWorkspaceRuntimeStore(),
@@ -640,15 +642,18 @@ describe("WorkspaceRuntimeManager", () => {
     const projectId = `project-unknown-runtime-${randomUUID()}`;
     const projectRoot = path.join(os.tmpdir(), projectId);
     const observeStartState = vi.fn().mockResolvedValue({
-        projectId,
-        ownerProjectId: projectId,
-        projectRoot,
-        status: "unknown",
-        observedAt: new Date().toISOString(),
-        inventoryComplete: false,
-        unknownListenerPorts: [3007],
-        detail: "An unowned listener prevents a complete runtime observation.",
-      }),
+      projectId,
+      ownerProjectId: projectId,
+      projectRoot,
+      status: "unknown",
+      observedAt: new Date().toISOString(),
+      inventoryComplete: false,
+      unknownListenerPorts: [3007],
+      detail: "An unowned listener prevents a complete runtime observation.",
+    });
+    const supervisor = {
+      isConfigured: () => true,
+      observeStartState,
     } as unknown as WorkspaceRuntimeSupervisorClient;
     const manager = new WorkspaceRuntimeManager({
       store: createInMemoryWorkspaceRuntimeStore(),
