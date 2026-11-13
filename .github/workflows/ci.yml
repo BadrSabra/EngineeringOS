@@ -4,7 +4,8 @@ on:
   push:
     branches: [main]
   pull_request:
-    branches: [main]
+    # PR #21 is stacked on the RISO-02 integration branch and must be validated there too.
+    branches: [main, security/riso-02-main-integration]
   workflow_dispatch:
     inputs:
       release_environment:
