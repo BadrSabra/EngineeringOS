@@ -493,6 +493,7 @@ function requiresOperatorTaskDispatchConflict(errorCode: string | undefined): bo
   return Boolean(
     errorCode?.startsWith("mission_")
     || errorCode === "execution_identity_changed"
+    || errorCode === "execution_already_claimed"
     || errorCode === "invalid_task_transition",
   );
 }
@@ -642,6 +643,28 @@ async function runAiTaskExecution(
         && currentTask.retryCount === retryCount
         && currentTask.correlationId === correlationId
       ) {
+        if (lifecycle.errorCode === "execution_already_claimed" && correlationId) {
+          const [activeExecution] = await db
+            .select({ id: aiExecutionsTable.id })
+            .from(aiExecutionsTable)
+            .where(and(
+              eq(aiExecutionsTable.linkedTaskId, taskId),
+              eq(aiExecutionsTable.correlationId, correlationId),
+              inArray(aiExecutionsTable.status, ["queued", "running", "paused", "cancelling"]),
+            ))
+            .limit(1);
+          if (activeExecution) {
+            // A matching already-claimed Execution owns its own lease and
+            // recovery lifecycle. Retire only this generation's duplicate
+            // dispatch intent; never start a second execution for it.
+            await clearDeferredAiTaskExecution(taskId, retryCount, correlationId);
+            logger.info(
+              { taskId, executionId: activeExecution.id },
+              "AI auto-trigger: matching active Execution already owns this Task generation",
+            );
+            return;
+          }
+        }
         const conflictCode = lifecycle.errorCode ?? "TASK_CLAIM_CONFLICT";
         await markDeferredAiTaskExecution(
           taskId,
