@@ -3177,6 +3177,7 @@ describe("real durable task execution lifecycle", () => {
       expect(taskProgressFixture.terminalOutcomes).toEqual(["FAILED", "SUCCEEDED"]);
     } finally {
       await cleanupProjectExecutionData(projectId);
+      await db.delete(eventsTable).where(eq(eventsTable.id, outboxId));
       await db.delete(tasksTable).where(eq(tasksTable.id, taskId));
       await db.delete(projectsTable).where(eq(projectsTable.id, projectId));
     }
