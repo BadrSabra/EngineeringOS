@@ -162,7 +162,11 @@ describe("P7.5 process recovery", () => {
 
     try {
       try {
-        await supervisor.observeStartState("p75-supervisor-readiness-probe");
+        await supervisor.observeStartState({
+          projectId: "p75-supervisor-readiness-probe",
+          ownerProjectId: "p75-supervisor-readiness-probe",
+          projectRoot: rootPath,
+        });
       } catch {
         throw new Error("Managed workspace runtime supervisor is not reachable over its protected Unix socket.");
       }
@@ -370,7 +374,11 @@ describe("P7.5 process recovery", () => {
       runtimeSessionId = runtime.sessionId;
       expect(runtime.port).toBeGreaterThan(0);
       expect(runtime.sessionId).toBeTruthy();
-      const afterWorkerA = await supervisor.observeStartState(projectId);
+      const afterWorkerA = await supervisor.observeStartState({
+        projectId,
+        ownerProjectId: projectId,
+        projectRoot: rootPath,
+      });
       expect(afterWorkerA.status).toBe("running");
       expect(afterWorkerA.session).toMatchObject({
         projectId,
@@ -447,7 +455,11 @@ describe("P7.5 process recovery", () => {
         ));
       expect(finalObservations).toHaveLength(1);
       expect(finalObservations[0]?.id).toBe(retained.id);
-      const afterWorkerB = await supervisor.observeStartState(projectId);
+      const afterWorkerB = await supervisor.observeStartState({
+        projectId,
+        ownerProjectId: projectId,
+        projectRoot: rootPath,
+      });
       expect(afterWorkerB.status).toBe("running");
       expect(afterWorkerB.session).toMatchObject({
         projectId,
