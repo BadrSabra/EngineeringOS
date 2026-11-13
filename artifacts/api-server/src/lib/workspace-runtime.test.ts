@@ -689,6 +689,10 @@ describe("WorkspaceRuntimeManager", () => {
       code: "RUNTIME_OBSERVATION_STALE",
       status: 503,
     });
+    await expect(manager.stop(projectId, "relative/project-root")).rejects.toMatchObject({
+      code: "RUNTIME_OBSERVATION_STALE",
+      status: 503,
+    });
     expect(observeStartState).not.toHaveBeenCalled();
   });
 
