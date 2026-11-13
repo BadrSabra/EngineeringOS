@@ -10508,6 +10508,66 @@ describe("POST /api/ai/tasks/:taskId/execute", () => {
     },
   );
 
+  it("does not discard a replacement Outbox row using an older dispatcher snapshot", async () => {
+    const projectId = await insertProject();
+    projectIds.push(projectId);
+    const taskId = await insertTask(projectId, "verifying");
+    const intentId = `task-auto-execution-deferred:${taskId}`;
+    const stalePayload = {
+      userId: "test-user",
+      taskRetryCount: "invalid",
+      taskCorrelationId: null,
+      attemptCount: 0,
+    };
+    await db.insert(eventsTable).values({
+      id: intentId,
+      type: "TaskAutoExecutionDeferred",
+      projectId,
+      taskId,
+      severity: "warning",
+      message: "Malformed prior dispatch intent",
+      payload: stalePayload,
+    });
+
+    const [staleSnapshot] = await db.select({
+      type: eventsTable.type,
+      taskId: eventsTable.taskId,
+      payload: eventsTable.payload,
+    }).from(eventsTable).where(eq(eventsTable.id, intentId));
+    expect(staleSnapshot).toBeDefined();
+
+    const replacementPayload = {
+      userId: "test-user",
+      taskRetryCount: 0,
+      taskCorrelationId: null,
+      attemptCount: 0,
+    };
+    await db.update(eventsTable)
+      .set({
+        type: "TaskAutoExecutionDispatchRequested",
+        severity: "info",
+        message: "Current Task generation dispatch intent",
+        payload: replacementPayload,
+      })
+      .where(eq(eventsTable.id, intentId));
+
+    const discarded = await aiTaskRoutes.discardDeferredAiTaskIntentIfUnchanged({
+      intentId,
+      type: staleSnapshot!.type,
+      taskId: staleSnapshot!.taskId,
+      payload: staleSnapshot!.payload,
+    });
+    expect(discarded).toBe(false);
+
+    const [currentIntent] = await db.select().from(eventsTable)
+      .where(eq(eventsTable.id, intentId));
+    expect(currentIntent).toMatchObject({
+      type: "TaskAutoExecutionDispatchRequested",
+      taskId,
+      payload: replacementPayload,
+    });
+  });
+
   it("does not reuse a Task generation with a different Mission delegation", async () => {
     const projectId = await insertProject();
     projectIds.push(projectId);
