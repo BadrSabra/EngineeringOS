@@ -42,7 +42,7 @@ The signature binds the runtime key, owner project ID, session ID, operation pat
 
 This is an API-issued, symmetric command authorization proof. It binds an authorized API command to a specific runtime identity and canonical authorized workspace root. The Supervisor does **not** independently query PostgreSQL; it trusts the HMAC authority held by the API Control Plane.
 
-The HMAC key is currently derived from the shared `SESSION_SECRET` with domain separation. Consequently, this change does not eliminate the separate RISO-00/RISO-01 risks of a Candidate running under the same OS identity or obtaining service secrets through host-level process inspection. A host-level UID separation and protected control channel remain mandatory.
+The HMAC currently uses the shared `SESSION_SECRET` with a domain-separated message context; it is not a separately managed key. Consequently, this change does not eliminate the separate RISO-00/RISO-01 risks of a Candidate running under the same OS identity or obtaining service secrets through host-level process inspection. A host-level UID separation and protected control channel remain mandatory.
 
 This change also does not add a durable replay ledger, nonce/fencing generation, PID namespace, filesystem namespace, network namespace, cgroups, gVisor, microVM, or Backend Candidate execution admission. Retries are constrained by the existing session identity and owner/root match; persistent replay/fencing remains a separate qualification item.
 
