@@ -870,7 +870,9 @@ describe("database workspace runtime store", () => {
             deriveWorkspaceRuntimeSupervisorToken(runtimeRecoveryTestSecret),
           ).stop({
             projectId: runtimeSession.projectId,
+            ownerProjectId: runtimeSession.projectId,
             sessionId: runtimeSession.sessionId,
+            projectRoot: runtimeSession.projectRoot,
             pid: runtimeSession.pid,
           }).catch(() => undefined);
         }
