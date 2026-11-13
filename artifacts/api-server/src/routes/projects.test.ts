@@ -625,6 +625,32 @@ describe("POST /api/projects — audit trail", () => {
       removeProjectRootDir(rootDir);
     }
   });
+ 
+  it("does not delete a project while the runtime lifecycle lock is held", async () => {
+    const rootDir = makeProjectRootDir();
+    const projectId = await insertProject(rootDir);
+    cleanupQueue.push(projectId);
+    const lock = await tryAdvisoryLock(LockNamespace.WORKSPACE_RUNTIME, projectId);
+    expect(lock.acquired).toBe(true);
+    if (!lock.acquired) throw new Error("Could not acquire the runtime lifecycle test lock.");
+    const stop = vi.spyOn(workspaceRuntime, "stop");
+
+    try {
+      const res = await request(app).delete(`/api/projects/${projectId}`);
+
+      expect(res.status).toBe(409);
+      expect(res.body.error).toBe("project_runtime_busy");
+      expect(stop).not.toHaveBeenCalled();
+      const [project] = await db.select().from(projectsTable)
+        .where(eq(projectsTable.id, projectId));
+      expect(project).toBeDefined();
+      await expect(access(rootDir)).resolves.toBeUndefined();
+    } finally {
+      await lock.release();
+      removeProjectRootDir(rootDir);
+    }
+  });
+
 });
 
 describe("POST /api/projects/:projectId/scan — DB side-effects", () => {
