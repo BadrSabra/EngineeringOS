@@ -4,7 +4,7 @@ import {
   type ChildProcess,
   type ChildProcessWithoutNullStreams,
 } from "node:child_process";
-import { createServer, type Server } from "node:http";
+import { createServer, request as requestOnSocket, type Server } from "node:http";
 import os from "node:os";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
@@ -1361,8 +1361,7 @@ describe("workspace runtime lost-start-response process recovery", () => {
             }
             const payload = Buffer.concat(chunks);
             const upstream = await new Promise<{ status: number; body: string }>((resolve, reject) => {
-              const upstreamRequest = import("node:http").then(({ request: requestOnSocket }) => {
-                const outgoing = requestOnSocket({
+              const outgoing = requestOnSocket({
                   socketPath: supervisorFixture.socketPath,
                   path: "/runtime/start",
                   method: "POST",
@@ -1381,10 +1380,8 @@ describe("workspace runtime lost-start-response process recovery", () => {
                     body: Buffer.concat(responseChunks).toString("utf8"),
                   }));
                 });
-                outgoing.once("error", reject);
-                outgoing.end(payload);
-              });
-              void upstreamRequest.catch(reject);
+              outgoing.once("error", reject);
+              outgoing.end(payload);
             });
             const result = JSON.parse(upstream.body) as typeof startReply;
             if (upstream.status < 200 || upstream.status >= 300 || !result) {
