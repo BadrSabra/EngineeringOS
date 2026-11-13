@@ -276,12 +276,17 @@ describe("workspace runtime supervisor server boundary", () => {
         "content-type": "application/json",
         authorization: `Bearer ${token}`,
       },
-      body: JSON.stringify({ projectId: "test-project", ownerProjectId: "test-project" }),
+      body: JSON.stringify({
+        projectId: "test-project",
+        ownerProjectId: "test-project",
+        projectRoot: tmpdir(),
+      }),
     });
     expect(authorized.status).toBe(200);
     await expect(authorized.json()).resolves.toMatchObject({
       projectId: "test-project",
       ownerProjectId: "test-project",
+      projectRoot: tmpdir(),
       inventoryComplete: true,
     });
   });
@@ -476,10 +481,23 @@ describe("workspace runtime supervisor server boundary", () => {
             "content-type": "application/json",
             authorization: `Bearer ${token}`,
           },
-          body: JSON.stringify({ projectId, ownerProjectId: "owner-b" }),
+          body: JSON.stringify({ projectId, ownerProjectId: "owner-b", projectRoot: firstRoot }),
         },
       );
       expect(wrongOwnerObservation.status).toBe(409);
+
+      const wrongRootObservation = await supervisorFetch(
+        `http://127.0.0.1:${supervisorPort}/runtime/observe-start`,
+        {
+          method: "POST",
+          headers: {
+            "content-type": "application/json",
+            authorization: `Bearer ${token}`,
+          },
+          body: JSON.stringify({ projectId, ownerProjectId: "owner-a", projectRoot: secondRoot }),
+        },
+      );
+      expect(wrongRootObservation.status).toBe(409);
 
       const wrongOwnerStop = await supervisorFetch(`http://127.0.0.1:${supervisorPort}/runtime/stop`, {
         method: "POST",
@@ -728,12 +746,14 @@ describe("workspace runtime supervisor server boundary", () => {
             "content-type": "application/json",
             authorization: `Bearer ${token}`,
           },
-          body: JSON.stringify({ projectId, ownerProjectId: projectId }),
+          body: JSON.stringify({ projectId, ownerProjectId: projectId, projectRoot }),
         },
       );
       expect(observationResponse.status).toBe(200);
       const observation = await observationResponse.json() as {
         projectId: string;
+        ownerProjectId: string;
+        projectRoot: string;
         status: string;
         inventoryComplete: boolean;
         unknownListenerPorts: number[];
@@ -741,6 +761,8 @@ describe("workspace runtime supervisor server boundary", () => {
       };
       expect(observation).toMatchObject({
         projectId,
+        ownerProjectId: projectId,
+        projectRoot,
         status: "running",
         inventoryComplete: true,
         session: {
@@ -794,18 +816,22 @@ describe("workspace runtime supervisor server boundary", () => {
             "content-type": "application/json",
             authorization: `Bearer ${token}`,
           },
-          body: JSON.stringify({ projectId, ownerProjectId: projectId }),
+          body: JSON.stringify({ projectId, ownerProjectId: projectId, projectRoot: tmpdir() }),
         },
       );
       expect(observationResponse.status).toBe(200);
       const observation = await observationResponse.json() as {
         projectId: string;
+        ownerProjectId: string;
+        projectRoot: string;
         status: string;
         inventoryComplete: boolean;
         unknownListenerPorts: number[];
       };
       expect(observation).toMatchObject({
         projectId,
+        ownerProjectId: projectId,
+        projectRoot: tmpdir(),
         status: "unknown",
         inventoryComplete: true,
       });
@@ -1028,7 +1054,11 @@ describe("workspace runtime supervisor server boundary", () => {
             "content-type": "application/json",
             authorization: `Bearer ${token}`,
           },
-          body: JSON.stringify({ projectId: "group-stop-test", ownerProjectId: "group-stop-test" }),
+          body: JSON.stringify({
+            projectId: "group-stop-test",
+            ownerProjectId: "group-stop-test",
+            projectRoot,
+          }),
         });
         expect(observationResponse.status).toBe(200);
         await expect(observationResponse.json()).resolves.toMatchObject({ status: "unknown" });
