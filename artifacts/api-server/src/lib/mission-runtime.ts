@@ -3189,6 +3189,7 @@ export async function runMissionGoal(params: {
         eq(tasksTable.goalId, goal.id),
         eq(tasksTable.projectId, goal.projectId),
       ))
+      .for("update")
       .limit(1);
     if (!task) {
       return { status: "blocked" as const, goalId: goal.id, reason: "task_not_found" };
@@ -3246,6 +3247,10 @@ export async function runMissionGoal(params: {
         reason: "task_state_changed",
       };
     }
+    taskDispatchGeneration = {
+      retryCount: task.retryCount,
+      correlationId: task.correlationId,
+    };
 
     const now = new Date();
     if (goal.status !== "running" && goal.status !== "verifying") {
@@ -3309,10 +3314,19 @@ export async function runMissionGoal(params: {
     heavyJobQueue.enqueueWithId(decision.recipeDispatch.operationId, async () => {
       await executeMissionRecipe(decision.recipeDispatch!);
     });
-  } else if (decision.taskId && !decision.executionId && decision.status === "scheduled") {
-    await scheduleAiTaskExecution(decision.taskId, params.userId, {
-      parentExecutionId: decision.delegation?.parentExecutionId,
-    });
+  } else if (
+    decision.taskId
+    && !decision.executionId
+    && decision.status === "scheduled"
+    && taskDispatchGeneration
+  ) {
+    await scheduleAiTaskExecution(
+      decision.taskId,
+      params.userId,
+      { parentExecutionId: decision.delegation?.parentExecutionId },
+      taskDispatchGeneration.retryCount,
+      taskDispatchGeneration.correlationId,
+    );
   }
   if (decision.status === "completed" && decision.reason === "apply_changes_d2_proven") {
     await wakeReadyMissionGoals(32, getLifecycleWorkerScopeProjectId());
@@ -3522,7 +3536,8 @@ export async function wakeRuntimeTransitionMissionGoals(
 
   let woken = 0;
   for (const candidate of candidates) {
-    const decision = await db.transaction(async (tx) => {
+    let taskDispatchGeneration: { retryCount: number; correlationId: string | null } | undefined;
+  const decision = await db.transaction(async (tx) => {
       const [mission] = await tx
         .select()
         .from(aiMissionsTable)
