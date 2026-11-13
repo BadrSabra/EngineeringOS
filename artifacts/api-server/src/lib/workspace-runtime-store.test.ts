@@ -1575,7 +1575,9 @@ describe("workspace runtime lost-start-response process recovery", () => {
           if (persisted?.sessionId) {
             await supervisorClient.stop({
               projectId,
+              ownerProjectId: projectId,
               sessionId: persisted.sessionId,
+              projectRoot: persisted.projectRoot,
               pid: persisted.pid,
             }).catch(() => undefined);
           }
