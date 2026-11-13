@@ -282,6 +282,25 @@ function isPrivateRegularStoreFile(
   );
 }
 
+async function readHandleExactly(
+  handle: FileHandle,
+  size: number,
+): Promise<Buffer | null> {
+  const content = Buffer.alloc(size);
+  let position = 0;
+  while (position < size) {
+    const result = await handle.read(
+      content,
+      position,
+      size - position,
+      position,
+    );
+    if (result.bytesRead < 1) return null;
+    position += result.bytesRead;
+  }
+  return content;
+}
+
 async function removeStagingLinkToPublishedObject(input: {
   stagingRoot: string;
   storeId: string;
@@ -330,7 +349,11 @@ async function removeStagingLinkToPublishedObject(input: {
       if (openedFile.size < 1 || openedFile.size > MAX_MANIFEST_BYTES) {
         return false;
       }
-      const manifestBytes = await staged.readFile();
+      const manifestBytes = await readHandleExactly(
+        staged,
+        openedFile.size,
+      );
+      if (!manifestBytes) return false;
       let manifest: unknown;
       try {
         manifest = JSON.parse(manifestBytes.toString("utf8"));
@@ -386,6 +409,9 @@ async function removeStagingLinkToPublishedObject(input: {
       stagingStatAgain.nlink !== 2 ||
       destinationStatAgain.nlink !== 2 ||
       openedStatAgain.nlink !== 2 ||
+      Number(openedStatAgain.size) !== Number(openedFile.size) ||
+      Number(openedStatAgain.mtimeMs) !== Number(openedFile.mtimeMs) ||
+      Number(openedStatAgain.ctimeMs) !== Number(openedFile.ctimeMs) ||
       stagingStatAgain.dev !== destinationStatAgain.dev ||
       stagingStatAgain.ino !== destinationStatAgain.ino ||
       stagingStatAgain.dev !== openedStatAgain.dev ||
