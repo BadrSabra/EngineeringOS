@@ -125,6 +125,7 @@ describe("WorkspaceRuntimeSupervisorClient protected control channel", () => {
 
     const response = await client.adopt({
       projectId,
+      ownerProjectId: projectId,
       sessionId,
       stateVersion,
       projectRoot: "/workspace/project-runtime",
