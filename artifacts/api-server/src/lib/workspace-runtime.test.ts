@@ -692,6 +692,40 @@ describe("WorkspaceRuntimeManager", () => {
     expect(observeStartState).not.toHaveBeenCalled();
   });
 
+  it("rejects an empty supervisor inventory bound to a different owner or project root", async () => {
+    const projectId = `project-orphan-identity-mismatch-${randomUUID()}`;
+    const projectRoot = path.join(os.tmpdir(), projectId);
+    const observeStartState = vi.fn().mockResolvedValue({
+      projectId,
+      ownerProjectId: "another-project",
+      projectRoot: path.join(os.tmpdir(), "another-project"),
+      status: "stopped",
+      observedAt: new Date().toISOString(),
+      inventoryComplete: true,
+      unknownListenerPorts: [],
+      detail: "Supervisor observation identity does not match the registered project.",
+    });
+    const supervisor = {
+      isConfigured: () => true,
+      observeStartState,
+    } as unknown as WorkspaceRuntimeSupervisorClient;
+    const manager = new WorkspaceRuntimeManager({
+      store: createInMemoryWorkspaceRuntimeStore(),
+      supervisor,
+    });
+    managers.push(manager);
+
+    const snapshot = await manager.stop(projectId, projectRoot);
+
+    expect(observeStartState).toHaveBeenCalledWith({
+      projectId,
+      ownerProjectId: projectId,
+      projectRoot,
+    });
+    expect(snapshot.status).toBe("failed");
+    expect(snapshot.error).toContain("does not match");
+  });
+
   it("defers recovery of a runtime row whose persisted revision is missing", async () => {
     const projectId = `project-missing-revision-${randomUUID()}`;
     const store = createInMemoryWorkspaceRuntimeStore();
