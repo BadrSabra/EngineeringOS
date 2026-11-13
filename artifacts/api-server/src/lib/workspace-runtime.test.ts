@@ -54,7 +54,7 @@ describe("WorkspaceRuntimeManager", () => {
     const previousNpmConfigPassword = process.env.npm_config_password;
     process.env.npm_config_token = "runtime-test-token-must-not-be-forwarded";
     process.env.npm_config_password = "runtime-test-password-must-not-be-forwarded";
-    let started;
+    let started: Awaited<ReturnType<typeof manager.start>>;
     try {
       started = await manager.start({
         projectId: "project-runtime-test",
