@@ -1223,18 +1223,11 @@ describe("workspace runtime lost-start-response process recovery", () => {
       projectIds.push(projectId);
       roots.push(testRoot);
 
-      const supervisorPort = await reserveLoopbackPort();
-      const supervisor = spawn(process.execPath, [supervisorScriptPath], {
-        cwd: apiServerRoot,
-        env: {
-          PATH: process.env.PATH ?? "",
-          HOME: process.env.HOME ?? os.tmpdir(),
-          SESSION_SECRET: runtimeRecoveryTestSecret,
-          WORKSPACE_RUNTIME_SUPERVISOR_PORT: String(supervisorPort),
-          WORKSPACE_RUNTIME_ALLOWED_ROOTS_JSON: JSON.stringify([os.tmpdir()]),
-        },
-        stdio: ["ignore", "ignore", "ignore"],
+      const supervisorFixture = await startWorkspaceRuntimeSupervisorTestFixture({
+        allowedRoots: [os.tmpdir()],
       });
+      const supervisor = supervisorFixture.child;
+      const proxySocketPath = path.join(testRoot, "supervisor-proxy.sock");
       let proxy: Server | undefined;
       let startApiWorker: ChildProcessWithoutNullStreams | undefined;
       let recoveryApiWorker: ChildProcessWithoutNullStreams | undefined;
@@ -1242,16 +1235,15 @@ describe("workspace runtime lost-start-response process recovery", () => {
       let startRequestCount = 0;
       let startReply: { projectId: string; sessionId: string; status: string; pid: number; port: number } | undefined;
       const supervisorClient = new WorkspaceRuntimeSupervisorClient(
-        `http://127.0.0.1:${supervisorPort}`,
-        fetch,
-        deriveWorkspaceRuntimeSupervisorToken(runtimeRecoveryTestSecret),
+        supervisorFixture.socketPath,
+        supervisorFixture.signingPrivateKeyBase64,
       );
 
       const spawnApiWorker = (
         mode: "start" | "recover",
         workerId: string,
         applicationName: string,
-        supervisorUrl: string,
+        supervisorSocketPath: string,
         resultPath: string,
       ): ChildProcessWithoutNullStreams => {
         const childDatabaseUrl = new URL(databaseUrl.toString());
@@ -1268,11 +1260,11 @@ describe("workspace runtime lost-start-response process recovery", () => {
           "  const workerId = process.env.RUNTIME_TEST_WORKER_ID;",
           "  const resultPath = process.env.RUNTIME_TEST_RESULT_PATH;",
           "  const mode = process.env.RUNTIME_TEST_MODE;",
-          "  const supervisorUrl = process.env.RUNTIME_TEST_SUPERVISOR_URL;",
-          "  if (!projectId || !projectRoot || !revision || !workerId || !resultPath || !supervisorUrl) throw new Error('Runtime recovery worker configuration is incomplete.');",
+          "  const supervisorSocketPath = process.env.WORKSPACE_RUNTIME_SUPERVISOR_SOCKET_PATH;",
+          "  if (!projectId || !projectRoot || !revision || !workerId || !resultPath || !supervisorSocketPath) throw new Error('Runtime recovery worker configuration is incomplete.');",
           "  const manager = new WorkspaceRuntimeManager({",
           "    store: databaseWorkspaceRuntimeStore, workerId, heartbeatIntervalMs: 1000,",
-          "    supervisor: new WorkspaceRuntimeSupervisorClient(supervisorUrl),",
+          "    supervisor: new WorkspaceRuntimeSupervisorClient(),",
           "  });",
           "  process.once('SIGTERM', () => {",
           "    void manager.shutdown().then(() => process.exit(0)).catch((error) => { console.error(error); process.exit(1); });",
@@ -1295,6 +1287,8 @@ describe("workspace runtime lost-start-response process recovery", () => {
             PGAPPNAME: applicationName,
             NODE_ENV: "test",
             SESSION_SECRET: runtimeRecoveryTestSecret,
+            ...supervisorFixture.clientEnvironment,
+            WORKSPACE_RUNTIME_SUPERVISOR_SOCKET_PATH: supervisorSocketPath,
             PATH: process.env.PATH ?? "",
             HOME: process.env.HOME ?? os.tmpdir(),
             AI_PROVIDER_EGRESS_DISABLED: "1",
@@ -1304,7 +1298,6 @@ describe("workspace runtime lost-start-response process recovery", () => {
             RUNTIME_TEST_REVISION: revision,
             RUNTIME_TEST_WORKER_ID: workerId,
             RUNTIME_TEST_RESULT_PATH: resultPath,
-            RUNTIME_TEST_SUPERVISOR_URL: supervisorUrl,
           },
           stdio: ["pipe", "pipe", "pipe"],
         });
@@ -1328,7 +1321,7 @@ describe("workspace runtime lost-start-response process recovery", () => {
       };
 
       try {
-        await waitForSupervisor(supervisor, supervisorPort);
+        await waitForSupervisor(supervisor, supervisorFixture.socketPath);
         await fs.mkdir(projectRoot, { recursive: true });
         await fs.writeFile(
           path.join(projectRoot, "package.json"),
@@ -1355,12 +1348,6 @@ describe("workspace runtime lost-start-response process recovery", () => {
         });
 
         proxy = createServer((request, response) => {
-          if (request.method === "POST" && request.url === "/__release-start-reply") {
-            releaseHeldStartReply?.();
-            response.writeHead(200);
-            response.end("released");
-            return;
-          }
           if (request.method !== "POST" || request.url !== "/runtime/start") {
             response.writeHead(404);
             response.end();
@@ -1372,17 +1359,35 @@ describe("workspace runtime lost-start-response process recovery", () => {
             for await (const chunk of request) {
               chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
             }
-            const upstream = await fetch(`http://127.0.0.1:${supervisorPort}/runtime/start`, {
-              method: "POST",
-              headers: {
-                "content-type": "application/json",
-                authorization: request.headers.authorization ?? "",
-              },
-              body: Buffer.concat(chunks),
-              signal: AbortSignal.timeout(45_000),
+            const payload = Buffer.concat(chunks);
+            const upstream = await new Promise<{ status: number; body: string }>((resolve, reject) => {
+              const upstreamRequest = import("node:http").then(({ request: requestOnSocket }) => {
+                const outgoing = requestOnSocket({
+                  socketPath: supervisorFixture.socketPath,
+                  path: "/runtime/start",
+                  method: "POST",
+                  headers: {
+                    "content-type": "application/json",
+                    "content-length": String(payload.byteLength),
+                    "x-eos-command": request.headers["x-eos-command"] ?? "",
+                    "x-eos-signature": request.headers["x-eos-signature"] ?? "",
+                  },
+                }, (upstreamResponse) => {
+                  const responseChunks: Buffer[] = [];
+                  upstreamResponse.on("data", (chunk) => responseChunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk)));
+                  upstreamResponse.once("error", reject);
+                  upstreamResponse.once("end", () => resolve({
+                    status: upstreamResponse.statusCode ?? 502,
+                    body: Buffer.concat(responseChunks).toString("utf8"),
+                  }));
+                });
+                outgoing.once("error", reject);
+                outgoing.end(payload);
+              });
+              void upstreamRequest.catch(reject);
             });
-            const result = await upstream.json() as typeof startReply;
-            if (!upstream.ok || !result) {
+            const result = JSON.parse(upstream.body) as typeof startReply;
+            if (upstream.status < 200 || upstream.status >= 300 || !result) {
               throw new Error(`The real supervisor rejected startup with HTTP ${upstream.status}.`);
             }
             startReply = result;
@@ -1399,13 +1404,16 @@ describe("workspace runtime lost-start-response process recovery", () => {
             }
           });
         });
-        const proxyPort = await listenLoopback(proxy);
+        await new Promise<void>((resolve, reject) => {
+          proxy!.once("error", reject);
+          proxy!.listen(proxySocketPath, resolve);
+        });
         const startApplicationName = `runtime-start-loss-a-${projectId.slice(0, 8)}`;
         startApiWorker = spawnApiWorker(
           "start",
           startWorkerId,
           startApplicationName,
-          `http://127.0.0.1:${proxyPort}`,
+          proxySocketPath,
           path.join(testRoot, "start-worker-result.json"),
         );
 
@@ -1437,7 +1445,7 @@ describe("workspace runtime lost-start-response process recovery", () => {
           (resolve) => startApiWorker!.once("exit", (code, signal) => resolve({ code, signal })),
         );
         expect(startWorkerExit.signal).toBe("SIGKILL");
-        await fetch(`http://127.0.0.1:${proxyPort}/__release-start-reply`, { method: "POST" });
+        releaseHeldStartReply?.();
         await waitForRuntimeWorkerDatabaseDisconnect(startApplicationName);
         expect(await fetchRuntimeFixture(startReply!.port)).toBe(revision);
 
@@ -1471,12 +1479,12 @@ describe("workspace runtime lost-start-response process recovery", () => {
         expect(expiredRow?.leaseUntil?.getTime()).toBeLessThan(Date.now());
 
         const recoveryApplicationName = `runtime-start-loss-b-${projectId.slice(0, 8)}`;
-        const recoveryUrl = `http://127.0.0.1:${supervisorPort}`;
+        const recoverySocketPath = supervisorFixture.socketPath;
         recoveryApiWorker = spawnApiWorker(
           "recover",
           recoveryWorkerId,
           recoveryApplicationName,
-          recoveryUrl,
+          recoverySocketPath,
           recoveryResultPath,
         );
         const recovered = await waitForJsonFile<{
@@ -1558,23 +1566,21 @@ describe("workspace runtime lost-start-response process recovery", () => {
         if (proxy?.listening) {
           await new Promise<void>((resolve) => proxy!.close(() => resolve()));
         }
-        if (startReply?.sessionId) {
+        const persisted = await databaseWorkspaceRuntimeStore.get(projectId).catch(() => undefined);
+        if (persisted?.sessionId && persisted.startedAt) {
           await supervisorClient.stop({
             projectId,
-            sessionId: startReply.sessionId,
-            pid: startReply.pid,
-          }).catch(() => undefined);
-        } else {
-          const persisted = await databaseWorkspaceRuntimeStore.get(projectId).catch(() => undefined);
-          if (persisted?.sessionId) {
-            await supervisorClient.stop({
+            sessionId: persisted.sessionId,
+            stateVersion: createWorkspaceRuntimeSupervisorStateVersion({
               projectId,
               sessionId: persisted.sessionId,
-              pid: persisted.pid,
-            }).catch(() => undefined);
-          }
+              revision: persisted.revision,
+              startedAt: persisted.startedAt.toISOString(),
+            }),
+            pid: persisted.pid,
+          }).catch(() => undefined);
         }
-        await stopProcess(supervisor);
+        await supervisorFixture.stop();
       }
     },
     180_000,
