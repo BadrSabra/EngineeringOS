@@ -34,6 +34,7 @@ The signature binds the runtime key, owner project ID, session ID, operation pat
 - An existing runtime key cannot be reused with a different owner or root, even when the prior session is not currently active.
 - `stop` must match the tracked owner, session, and canonical root.
 - `observe-start` must name the same owner as any tracked runtime session and returns the owner identity so the API client can verify it.
+- Every public session receipt (`start`, `adopt`, `stop`, and observed running session) includes `ownerProjectId`; the API client validates runtime key, owner, and session identity before accepting the receipt.
 - A runtime namespace preserves the distinction between the actual owning project and a synthetic runtime ID. This is needed by isolated Strategy Replay workspaces.
 - The local Replit Supervisor allowlist includes the project workspace and `/tmp`, because validation workspaces are created beneath the host temporary directory. The API signature—not path membership alone—authorizes which project/runtime may use a particular allowed root.
 
