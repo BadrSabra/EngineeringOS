@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import type { PreviewBuildJob } from "@workspace/db";
 import { transitionPreviewBuildJob } from "./preview-build-job-store.js";
 import { reconcilePreviewBuildJobsOnce } from "./preview-build-reconciliation-worker.js";
-import type { PreviewBuildObservation } from "./preview-build-observation-client.js";
+import type { PreviewBuildObservation } from "./preview-build-provider-contracts.js";
 
 const now = new Date("2026-11-12T13:00:00.000Z");
 const taskArn =
@@ -109,10 +109,23 @@ function run(input: {
       dependencies: {
         now: () => now,
         listJobs: vi.fn(async () => [input.job]),
-        observe: vi.fn(async () => input.observation),
+        executor: executorWithObserve(vi.fn(async () => input.observation)),
         transition,
       },
     }),
+  };
+}
+
+function executorWithObserve(
+  observe: () => Promise<PreviewBuildObservation>,
+) {
+  return {
+    launch: vi.fn(async ({ claims }: { claims: { jobId: string; buildId: string } }) => ({
+      jobId: claims.jobId,
+      buildId: claims.buildId,
+      executionRef: taskArn,
+    })),
+    observe,
   };
 }
 
@@ -156,7 +169,7 @@ describe("durable Preview build reconciliation", () => {
       claimJobs,
       releaseLease,
       renewLease: vi.fn(async () => true),
-      observe,
+      executor: executorWithObserve(observe),
       transition: transitionMock(),
     };
     const config = {
@@ -197,13 +210,13 @@ describe("durable Preview build reconciliation", () => {
         dependencies: {
           now: () => now,
           claimJobs: vi.fn(async () => [job]),
-          observe: vi.fn(async () => ({
+          executor: executorWithObserve(vi.fn(async () => ({
             jobId,
             buildId,
             state: "stopped" as const,
             executionRef: taskArn,
             exitCode: 7,
-          })),
+          }))),
           renewLease: vi.fn(async () => true),
           releaseLease: vi.fn(async () => true),
           transition,
@@ -242,7 +255,7 @@ describe("durable Preview build reconciliation", () => {
               reconciliationLeaseExpiresAt: new Date(now.getTime() + 60_000),
             }),
           ]),
-          observe: vi.fn(async () => {
+          executor: executorWithObserve(vi.fn(async () => {
             clock = new Date(now.getTime() + 70_000);
             return {
               jobId,
@@ -251,7 +264,7 @@ describe("durable Preview build reconciliation", () => {
               executionRef: taskArn,
               exitCode: 9,
             };
-          }),
+          })),
           renewLease: vi.fn(async () => true),
           releaseLease: vi.fn(async () => true),
           transition,
@@ -386,7 +399,7 @@ describe("durable Preview build reconciliation", () => {
               reconciliationLeaseExpiresAt: new Date(now.getTime() + 60_000),
             }),
           ]),
-          observe: vi.fn(async () => observation),
+          executor: executorWithObserve(vi.fn(async () => observation)),
           renewLease: vi.fn(async () => true),
           releaseLease: vi.fn(async () => true),
           transition,
@@ -470,7 +483,7 @@ describe("durable Preview build reconciliation", () => {
               tokenExpiresAt: new Date(now.getTime() - 1),
             }),
           ]),
-          observe: observe as never,
+          executor: executorWithObserve(observe as never),
           transition,
         },
       }),
@@ -491,7 +504,7 @@ describe("durable Preview build reconciliation", () => {
       buildId,
       state: "pending" as const,
     }));
-    const acceptReceipt = vi.fn();
+    const verifyAndAccept = vi.fn();
     await expect(
       reconcilePreviewBuildJobsOnce({
         config: {
@@ -510,20 +523,74 @@ describe("durable Preview build reconciliation", () => {
               updatedAt: now,
             }),
           ]),
-          attest,
-          acceptReceipt,
+          attestationService: { attest: attest as never },
+          receiptVerifier: { verifyAndAccept: verifyAndAccept as never },
           transition,
         },
       }),
     ).resolves.toMatchObject({ inspected: 1, unchanged: 1 });
     expect(attest).toHaveBeenCalledWith(
       expect.objectContaining({
-        gatewayUrl: "https://gateway.example",
+        job: expect.objectContaining({ jobId }),
         executionRef: taskArn,
       }),
     );
-    expect(acceptReceipt).not.toHaveBeenCalled();
+    expect(verifyAndAccept).not.toHaveBeenCalled();
     expect(transition).not.toHaveBeenCalled();
+  });
+
+  it("passes an opaque execution reference through provider-neutral Attestation", async () => {
+    const executionRef = "local-node:session-7:attempt-2";
+    const job = makeJob({
+      status: "builder_succeeded",
+      executionRef,
+      outputDigest,
+      stateVersion: 4,
+      updatedAt: now,
+    });
+    const attest = vi.fn(async () => ({
+      jobId,
+      buildId,
+      state: "pending" as const,
+    }));
+    const executor = {
+      launch: vi.fn(async () => ({
+        jobId,
+        buildId,
+        executionRef,
+      })),
+      observe: vi.fn(async () => ({
+        jobId,
+        buildId,
+        state: "running" as const,
+      })),
+    };
+
+    await expect(
+      reconcilePreviewBuildJobsOnce({
+        config: {
+          gatewayUrl: undefined,
+          privateKeyPem: undefined,
+          receiptPublicKeyPem: "receipt public key",
+        },
+        dependencies: {
+          now: () => now,
+          listJobs: vi.fn(async () => [job]),
+          executor,
+          attestationService: { attest: attest as never },
+          receiptVerifier: {
+            verifyAndAccept: vi.fn() as never,
+          },
+          transition: transitionMock(),
+        },
+      }),
+    ).resolves.toMatchObject({ inspected: 1, unchanged: 1 });
+
+    expect(attest).toHaveBeenCalledWith({
+      job,
+      executionRef,
+      now,
+    });
   });
 
   it("does not launch Attestor until the API receipt-verification key is configured", async () => {
@@ -544,7 +611,7 @@ describe("durable Preview build reconciliation", () => {
               stateVersion: 4,
             }),
           ]),
-          attest: attest as never,
+          attestationService: { attest: attest as never },
         },
       }),
     ).resolves.toMatchObject({ inspected: 1, unchanged: 1 });
@@ -559,7 +626,7 @@ describe("durable Preview build reconciliation", () => {
       state: "ready" as const,
       receiptToken: "signed.receipt",
     }));
-    const acceptReceipt = vi.fn(async () => ({
+    const verifyAndAccept = vi.fn(async () => ({
       job: makeJob(),
       alreadyVerified: false,
     }));
@@ -581,17 +648,18 @@ describe("durable Preview build reconciliation", () => {
               updatedAt: now,
             }),
           ]),
-          attest,
-          acceptReceipt,
+          attestationService: { attest: attest as never },
+          receiptVerifier: { verifyAndAccept: verifyAndAccept as never },
           transition,
         },
       }),
     ).resolves.toMatchObject({ inspected: 1, advanced: 1 });
-    expect(acceptReceipt).toHaveBeenCalledWith(
+    expect(verifyAndAccept).toHaveBeenCalledWith(
       expect.objectContaining({
         jobId,
         token: "signed.receipt",
         publicKeyPem: "receipt public key",
+        now: expect.any(Function),
       }),
     );
     expect(transition).not.toHaveBeenCalled();
@@ -618,7 +686,7 @@ describe("durable Preview build reconciliation", () => {
               updatedAt: new Date(now.getTime() - 31 * 60_000),
             }),
           ]),
-          attest: attest as never,
+          attestationService: { attest: attest as never },
           transition,
         },
       }),
@@ -665,7 +733,7 @@ describe("durable Preview build reconciliation", () => {
               reconciliationLeaseExpiresAt: new Date(now.getTime() + 60_000),
             }),
           ]),
-          attest,
+          attestationService: { attest: attest as never },
           renewLease: vi.fn(async () => true),
           releaseLease: vi.fn(async () => true),
           transition,

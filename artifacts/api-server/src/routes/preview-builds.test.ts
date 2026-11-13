@@ -90,9 +90,6 @@ function makeRequestContext() {
     next();
   };
   const config = {
-    gatewayUrl: undefined,
-    buildInputUploadPrivateKeyPem: undefined,
-    buildJobPrivateKeyPem: undefined,
     builderImageDigest: undefined,
     sourceRoot: undefined,
   };

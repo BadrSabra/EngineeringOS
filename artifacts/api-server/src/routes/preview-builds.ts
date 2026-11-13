@@ -23,6 +23,14 @@ import {
   type PreviewBuildServiceConfig,
 } from "../lib/preview-build-start.js";
 import {
+  createPreviewBuildGatewayExecutor,
+  createPreviewBuildGatewayInputArtifactStore,
+} from "../lib/preview-build-executor-gateway.js";
+import type {
+  PreviewBuildExecutor,
+  PreviewBuildInputArtifactStore,
+} from "../lib/preview-build-provider-contracts.js";
+import {
   requireProjectAccess,
   requireProjectWriteAccess,
 } from "../middlewares/requireProjectAccess.js";
@@ -94,6 +102,8 @@ type PreviewBuildRouterDependencies = {
   startBuild: typeof startOrResumePreviewBuild;
   findForOwner: typeof findPreviewBuildJobForOwner;
   serviceConfig: PreviewBuildServiceConfig;
+  executor?: PreviewBuildExecutor;
+  inputArtifactStore?: PreviewBuildInputArtifactStore;
 };
 
 const defaultDependencies: PreviewBuildRouterDependencies = {
@@ -124,10 +134,21 @@ const defaultDependencies: PreviewBuildRouterDependencies = {
   },
   startBuild: startOrResumePreviewBuild,
   findForOwner: findPreviewBuildJobForOwner,
+  executor:
+    config.previewGatewayUrl && config.previewBuildJobPrivateKeyPem
+      ? createPreviewBuildGatewayExecutor({
+          gatewayUrl: config.previewGatewayUrl,
+          privateKeyPem: config.previewBuildJobPrivateKeyPem,
+        })
+      : undefined,
+  inputArtifactStore:
+    config.previewGatewayUrl && config.previewBuildInputUploadPrivateKeyPem
+      ? createPreviewBuildGatewayInputArtifactStore({
+          gatewayUrl: config.previewGatewayUrl,
+          privateKeyPem: config.previewBuildInputUploadPrivateKeyPem,
+        })
+      : undefined,
   serviceConfig: {
-    gatewayUrl: config.previewGatewayUrl,
-    buildInputUploadPrivateKeyPem: config.previewBuildInputUploadPrivateKeyPem,
-    buildJobPrivateKeyPem: config.previewBuildJobPrivateKeyPem,
     builderImageDigest: config.previewBuilderImageDigest,
     sourceRoot: config.previewBuildSourceRoot,
   },
@@ -184,6 +205,10 @@ export function createPreviewBuildRouter(
           userId: req.userId,
           clientRequestId: parsedBody.data.clientRequestId,
           config: dependencies.serviceConfig,
+          dependencies: {
+            executor: dependencies.executor,
+            inputArtifactStore: dependencies.inputArtifactStore,
+          },
         });
         res.status(202);
         sendBuildJob(res, result.job, result.launchPending);

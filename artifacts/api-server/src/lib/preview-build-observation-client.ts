@@ -4,6 +4,7 @@ import {
   signPreviewBuildObservation,
   type PreviewBuildObservationClaims,
 } from "./preview-build-observation-command.js";
+import type { PreviewBuildObservation } from "./preview-build-provider-contracts.js";
 
 const OBSERVATION_PATH = "/internal/v1/preview/builds/reconcile";
 const REQUEST_TIMEOUT_MS = 8_000;
@@ -12,15 +13,6 @@ const UUID_PATTERN =
 const TASK_ARN_PATTERN =
   /^arn:(aws|aws-us-gov|aws-cn):ecs:[a-z0-9-]+:\d{12}:task\/[A-Za-z0-9_-]+\/[a-f0-9]{32}$/i;
 const SHA256_PATTERN = /^[a-f0-9]{64}$/i;
-
-export type PreviewBuildObservation = {
-  jobId: string;
-  buildId: string;
-  state: "not_found" | "pending" | "running" | "stopped" | "unknown";
-  executionRef?: string;
-  exitCode?: number;
-  outputDigest?: string;
-};
 
 export class PreviewBuildObservationClientError extends Error {
   constructor(

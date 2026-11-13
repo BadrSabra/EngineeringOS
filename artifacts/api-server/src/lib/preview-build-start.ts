@@ -5,11 +5,9 @@ import {
   type PreviewBuildInputIdentity,
 } from "./preview-build-input.js";
 import type { PreviewBuildInputArchive } from "./preview-build-input.js";
-import { uploadPreviewBuildInput } from "./preview-build-input-client.js";
 import { previewBuildInputObjectKeyForArchive } from "./preview-build-upload.js";
 import { previewBuildArtifactRefId } from "./preview-artifact-reference.js";
 import {
-  assertPreviewBuildJobPrivateKeyPem,
   type PreviewBuildJobClaims,
 } from "./preview-build-job.js";
 import {
@@ -22,7 +20,10 @@ import {
   transitionPreviewBuildJob,
   type CreatePreviewBuildJobInput,
 } from "./preview-build-job-store.js";
-import { dispatchPreviewBuilderJob } from "./preview-builder-gateway-client.js";
+import type {
+  PreviewBuildExecutor,
+  PreviewBuildInputArtifactStore,
+} from "./preview-build-provider-contracts.js";
 
 const BUILD_JOB_TOKEN_TTL_MS = 5 * 60_000;
 const HASH_PATTERN = /^[a-f0-9]{64}$/i;
@@ -41,9 +42,6 @@ export type PreviewBuildCandidate = {
 };
 
 export type PreviewBuildServiceConfig = {
-  gatewayUrl: string | undefined;
-  buildInputUploadPrivateKeyPem: string | undefined;
-  buildJobPrivateKeyPem: string | undefined;
   builderImageDigest: string | undefined;
   sourceRoot: string | undefined;
 };
@@ -71,14 +69,14 @@ export type PreviewBuildStartResult = {
 type PreviewBuildStartDependencies = {
   now?: () => Date;
   createArchive?: typeof createPreviewBuildInputArchive;
-  uploadInput?: typeof uploadPreviewBuildInput;
+  inputArtifactStore?: PreviewBuildInputArtifactStore;
   findByRequest?: typeof findPreviewBuildJobByRequest;
   findActive?: typeof findActivePreviewBuildJob;
   findForOwner?: typeof findPreviewBuildJobForOwner;
   createJob?: typeof createQueuedPreviewBuildJob;
   markInputReady?: typeof markPreviewBuildInputReady;
   transitionJob?: typeof transitionPreviewBuildJob;
-  dispatch?: typeof dispatchPreviewBuilderJob;
+  executor?: Pick<PreviewBuildExecutor, "launch">;
 };
 
 function candidateIdentity(
@@ -112,26 +110,15 @@ function candidateIdentity(
 function assertServiceConfig(
   config: PreviewBuildServiceConfig,
 ): asserts config is {
-  gatewayUrl: string;
-  buildInputUploadPrivateKeyPem: string;
-  buildJobPrivateKeyPem: string;
   builderImageDigest: string;
   sourceRoot: string;
 } {
   if (
-    !config.gatewayUrl ||
-    !config.buildInputUploadPrivateKeyPem ||
-    !config.buildJobPrivateKeyPem ||
     !config.builderImageDigest ||
     !IMAGE_DIGEST_PATTERN.test(config.builderImageDigest) ||
     !config.sourceRoot ||
     !isValidPreviewBuildSourceRoot(config.sourceRoot)
   ) {
-    throw new PreviewBuildStartError("PREVIEW_BUILD_NOT_CONFIGURED");
-  }
-  try {
-    assertPreviewBuildJobPrivateKeyPem(config.buildJobPrivateKeyPem);
-  } catch {
     throw new PreviewBuildStartError("PREVIEW_BUILD_NOT_CONFIGURED");
   }
 }
@@ -216,15 +203,17 @@ export async function startOrResumePreviewBuild(input: {
     input.dependencies?.findForOwner ?? findPreviewBuildJobForOwner;
   const createArchive =
     input.dependencies?.createArchive ?? createPreviewBuildInputArchive;
-  const uploadInput =
-    input.dependencies?.uploadInput ?? uploadPreviewBuildInput;
+  const inputArtifactStore = input.dependencies?.inputArtifactStore;
   const createJob =
     input.dependencies?.createJob ?? createQueuedPreviewBuildJob;
   const markInputReady =
     input.dependencies?.markInputReady ?? markPreviewBuildInputReady;
   const transitionJob =
     input.dependencies?.transitionJob ?? transitionPreviewBuildJob;
-  const dispatch = input.dependencies?.dispatch ?? dispatchPreviewBuilderJob;
+  const executor = input.dependencies?.executor;
+  if (!executor || !inputArtifactStore) {
+    throw new PreviewBuildStartError("PREVIEW_BUILD_NOT_CONFIGURED");
+  }
 
   let job = await findByRequest({
     projectId: input.projectId,
@@ -370,9 +359,7 @@ export async function startOrResumePreviewBuild(input: {
       });
       let uploaded;
       try {
-        uploaded = await uploadInput({
-          gatewayUrl: input.config.gatewayUrl,
-          privateKeyPem: input.config.buildInputUploadPrivateKeyPem,
+        uploaded = await inputArtifactStore.storeInput({
           jobId: job.jobId,
           identity,
           buildInput,
@@ -478,9 +465,7 @@ export async function startOrResumePreviewBuild(input: {
   }
 
   try {
-    const launched = await dispatch({
-      gatewayUrl: input.config.gatewayUrl,
-      privateKeyPem: input.config.buildJobPrivateKeyPem,
+    const launched = await executor.launch({
       claims: claimsForJob(job),
       now: now(),
     });
