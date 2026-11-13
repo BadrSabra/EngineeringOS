@@ -10537,6 +10537,54 @@ describe("POST /api/ai/tasks/:taskId/execute", () => {
     });
   });
 
+  it("refreshes the Outbox timestamp when a newer Task generation replaces an old intent", async () => {
+    const projectId = await insertProject();
+    projectIds.push(projectId);
+    const taskId = await insertTask(projectId, "verifying");
+    const staleTimestamp = new Date("2020-01-01T00:00:00.000Z");
+    await db.update(tasksTable)
+      .set({ prompt: "Dispatch the current retry generation", retryCount: 1 })
+      .where(eq(tasksTable.id, taskId));
+    await db.insert(eventsTable).values({
+      id: `task-auto-execution-deferred:${taskId}`,
+      type: "TaskAutoExecutionDeferred",
+      projectId,
+      taskId,
+      severity: "warning",
+      timestamp: staleTimestamp,
+      message: "Outdated Task generation",
+      payload: {
+        userId: "test-user",
+        taskRetryCount: 0,
+        taskCorrelationId: null,
+        attemptCount: 4,
+        lastFailureCode: "LOCAL_QUEUE_FULL",
+        nextAttemptAt: staleTimestamp.toISOString(),
+      },
+    });
+
+    const enqueueSpy = vi.spyOn(heavyJobQueue, "enqueueWithIdDetailed")
+      .mockReturnValueOnce("full");
+    try {
+      await scheduleAiTaskExecution(taskId, "test-user", undefined, 1, null);
+    } finally {
+      enqueueSpy.mockRestore();
+    }
+
+    const [intent] = await db.select().from(eventsTable)
+      .where(eq(eventsTable.id, `task-auto-execution-deferred:${taskId}`));
+    expect(intent?.type).toBe("TaskAutoExecutionDeferred");
+    expect(intent?.timestamp.getTime()).toBeGreaterThan(staleTimestamp.getTime());
+    expect(intent?.timestamp.getTime()).toBeGreaterThan(Date.now() - 60_000);
+    expect(intent?.payload).toMatchObject({
+      userId: "test-user",
+      taskRetryCount: 1,
+      taskCorrelationId: null,
+      attemptCount: 1,
+      lastFailureCode: "LOCAL_QUEUE_FULL",
+    });
+  });
+
   it("normalizes a legacy null-correlation Outbox intent before deferring it again", async () => {
     const projectId = await insertProject();
     projectIds.push(projectId);
