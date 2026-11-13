@@ -10598,7 +10598,7 @@ describe("POST /api/ai/tasks/:taskId/execute", () => {
       type: eventsTable.type,
       projectId: eventsTable.projectId,
       taskId: eventsTable.taskId,
-      timestamp: eventsTable.timestamp,
+      timestampKey: sql<string>`to_char(${eventsTable.timestamp}, 'YYYY-MM-DD"T"HH24:MI:SS.US')`,
       payload: eventsTable.payload,
     }).from(eventsTable).where(eq(eventsTable.id, intentId));
     expect(staleSnapshot).toBeDefined();
@@ -10616,7 +10616,7 @@ describe("POST /api/ai/tasks/:taskId/execute", () => {
       type: staleSnapshot!.type,
       projectId: staleSnapshot!.projectId,
       taskId: staleSnapshot!.taskId,
-      timestamp: staleSnapshot!.timestamp,
+      timestampKey: staleSnapshot!.timestampKey,
       payload: staleSnapshot!.payload,
       reason: "ineligible",
     });
