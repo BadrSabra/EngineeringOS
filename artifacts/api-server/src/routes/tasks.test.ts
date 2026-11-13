@@ -1107,4 +1107,47 @@ describe("PR-C — AI auto-trigger on verifying", () => {
     expect(task?.status).toBe("verifying");
     expect(intent?.payload).toMatchObject({ userId: "test-user", taskRetryCount: 0 });
   });
+
+  it("retires the dispatch intent atomically when a verifying Task is deleted", async () => {
+    const { projectId, taskId } = await createTaskWithPrompt("Delete an unclaimed Task generation");
+
+    const transition = await request(app)
+      .patch(`/api/tasks/${taskId}`)
+      .send({ status: "verifying" });
+    expect(transition.status).toBe(200);
+    const [intentBeforeDelete] = await db.select().from(eventsTable)
+      .where(eq(eventsTable.id, `task-auto-execution-deferred:${taskId}`));
+    expect(intentBeforeDelete).toBeTruthy();
+
+    const deleted = await request(app).delete(`/api/tasks/${taskId}`);
+    expect(deleted.status).toBe(204);
+
+    const [intentAfterDelete] = await db.select().from(eventsTable)
+      .where(eq(eventsTable.id, `task-auto-execution-deferred:${taskId}`));
+    expect(intentAfterDelete).toBeUndefined();
+    const deletedEvent = (await db.select().from(eventsTable)
+      .where(eq(eventsTable.projectId, projectId)))
+      .find((event) => event.type === "TaskDeleted");
+    expect(deletedEvent?.taskId).toBeNull();
+  });
+
+  it("retires the dispatch intent in the same transaction when a verifying Task is rolled back", async () => {
+    const { taskId } = await createTaskWithPrompt("Cancel an unclaimed Task generation");
+
+    const transition = await request(app)
+      .patch(`/api/tasks/${taskId}`)
+      .send({ status: "verifying" });
+    expect(transition.status).toBe(200);
+    const [intentBeforeRollback] = await db.select().from(eventsTable)
+      .where(eq(eventsTable.id, `task-auto-execution-deferred:${taskId}`));
+    expect(intentBeforeRollback).toBeTruthy();
+
+    const rollback = await request(app).post(`/api/tasks/${taskId}/rollback`);
+    expect(rollback.status).toBe(200);
+    expect(rollback.body.status).toBe("cancelled");
+
+    const [intentAfterRollback] = await db.select().from(eventsTable)
+      .where(eq(eventsTable.id, `task-auto-execution-deferred:${taskId}`));
+    expect(intentAfterRollback).toBeUndefined();
+  });
 });
