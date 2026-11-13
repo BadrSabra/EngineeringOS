@@ -6,14 +6,14 @@ Implementation candidate on the stacked RISO-02 branch. It must not be treated a
 
 ## Trust boundary
 
-The API Control Plane is the authority that resolves a project from the authenticated request and obtains its canonical persisted project root. The Workspace Runtime Manager carries that trusted identity to the local Supervisor.
+The API Control Plane is the authority that resolves the owner project from authenticated server-side context and obtains the canonical workspace root authorized for that operation. For ordinary project Runtime this is the persisted workspace root; for Strategy Replay it may be a temporary validation workspace derived from the registered, revalidated project proof. The Workspace Runtime Manager carries that trusted owner/root binding to the local Supervisor.
 
 The Supervisor receives two distinct identifiers:
 
 - `projectId`: the runtime key used for Supervisor session ownership. This may be a server-created namespace such as a Strategy Replay runtime.
 - `ownerProjectId`: the real project identity that owns that runtime.
 
-For mutating commands (`start`, `adopt`, and `stop`), the request body also carries the canonical `projectRoot`.
+For mutating commands (`start`, `adopt`, and `stop`), the request body also carries the canonical `projectRoot` authorized by the API for that operation.
 
 ## Signed command envelope
 
@@ -39,7 +39,7 @@ The signature binds the runtime key, owner project ID, session ID, operation pat
 
 ## Security properties and limitations
 
-This is an API-issued, symmetric command authorization proof. It binds an authorized API command to a specific runtime identity and canonical project root. The Supervisor does **not** independently query PostgreSQL; it trusts the HMAC authority held by the API Control Plane.
+This is an API-issued, symmetric command authorization proof. It binds an authorized API command to a specific runtime identity and canonical authorized workspace root. The Supervisor does **not** independently query PostgreSQL; it trusts the HMAC authority held by the API Control Plane.
 
 The HMAC key is currently derived from the shared `SESSION_SECRET` with domain separation. Consequently, this change does not eliminate the separate RISO-00/RISO-01 risks of a Candidate running under the same OS identity or obtaining service secrets through host-level process inspection. A host-level UID separation and protected control channel remain mandatory.
 
