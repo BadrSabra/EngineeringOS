@@ -19,7 +19,7 @@ const scriptPath = path.resolve(
 );
 const children: ChildProcess[] = [];
 
-function supervisorFetch(input: RequestInfo | URL, init?: RequestInit): Promise<Response> {
+function supervisorFetch(input: Parameters<typeof fetch>[0], init?: RequestInit): Promise<Response> {
   const url = new URL(String(input));
   if (!url.pathname.startsWith("/runtime/")) return fetch(input, init);
   const headers = new Headers(init?.headers);
