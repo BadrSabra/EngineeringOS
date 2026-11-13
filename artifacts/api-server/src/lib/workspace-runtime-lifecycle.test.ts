@@ -362,10 +362,11 @@ describe("Workspace Runtime lifecycle invariants", () => {
           pid: retryProcess.pid!,
         };
       },
-      async (observedProjectId) => {
+      async (observationInput) => {
         observedStoppedInventory = true;
         return {
-          projectId: observedProjectId,
+          projectId: observationInput.projectId,
+          ownerProjectId: observationInput.ownerProjectId,
           status: "stopped",
           observedAt: new Date().toISOString(),
           inventoryComplete: true,
