@@ -102,6 +102,66 @@ async function createStore() {
   return { parent, rootDir, store };
 }
 
+async function killChildAfterMarker(
+  script: string,
+  args: string[],
+  marker: string,
+): Promise<void> {
+  const child = spawn(
+    process.execPath,
+    ["--import", "tsx", "--input-type=module", "-e", script, "--", ...args],
+    { cwd: process.cwd(), stdio: ["ignore", "pipe", "pipe"] },
+  );
+  let stdout = "";
+  let stderr = "";
+  const exit = new Promise<{
+    code: number | null;
+    signal: NodeJS.Signals | null;
+  }>((resolve) => {
+    child.once("exit", (code, signal) => resolve({ code, signal }));
+  });
+  const markerSeen = new Promise<void>((resolve, reject) => {
+    const timeout = setTimeout(() => {
+      child.kill("SIGKILL");
+      reject(new Error(`Child did not emit ${marker}: ${stderr}`));
+    }, 10_000);
+    child.stdout.on("data", (chunk: Buffer) => {
+      stdout += chunk.toString("utf8");
+      if (stdout.includes(marker)) {
+        clearTimeout(timeout);
+        resolve();
+      }
+    });
+    child.stderr.on("data", (chunk: Buffer) => {
+      stderr += chunk.toString("utf8");
+    });
+    child.once("error", (error) => {
+      clearTimeout(timeout);
+      reject(error);
+    });
+    child.once("exit", (code, signal) => {
+      if (!stdout.includes(marker)) {
+        clearTimeout(timeout);
+        reject(
+          new Error(
+            `Child exited before ${marker} (${code}, ${signal}): ${stderr}`,
+          ),
+        );
+      }
+    });
+  });
+
+  try {
+    await markerSeen;
+    child.kill("SIGKILL");
+    await expect(exit).resolves.toEqual({ code: null, signal: "SIGKILL" });
+  } finally {
+    if (child.exitCode === null && child.signalCode === null) {
+      child.kill("SIGKILL");
+    }
+  }
+}
+
 function objectKey(bytes: Buffer, bindingDigest = BINDING_DIGEST) {
   const digest = createHash("sha256").update(bytes).digest("hex");
   return {
@@ -603,15 +663,9 @@ describe("Local Preview build-input CAS", () => {
       "  contentLength: Number(contentLength),",
       "});",
     ].join("\n");
-    const child = spawn(
-      process.execPath,
+    await killChildAfterMarker(
+      childScript,
       [
-        "--import",
-        "tsx",
-        "--input-type=module",
-        "-e",
-        childScript,
-        "--",
         rootDir,
         process.cwd(),
         jobId,
@@ -620,56 +674,8 @@ describe("Local Preview build-input CAS", () => {
         String(completeBytes.length),
         firstChunk.toString("base64"),
       ],
-      { cwd: process.cwd(), stdio: ["ignore", "pipe", "pipe"] },
+      "STAGED_CHUNK\n",
     );
-    let stdout = "";
-    let stderr = "";
-    const exit = new Promise<{
-      code: number | null;
-      signal: NodeJS.Signals | null;
-    }>((resolve) => {
-      child.once("exit", (code, signal) => resolve({ code, signal }));
-    });
-    const staged = new Promise<void>((resolve, reject) => {
-      const timeout = setTimeout(() => {
-        child.kill("SIGKILL");
-        reject(new Error(`Local CAS child did not stage bytes: ${stderr}`));
-      }, 10_000);
-      child.stdout.on("data", (chunk: Buffer) => {
-        stdout += chunk.toString("utf8");
-        if (stdout.includes("STAGED_CHUNK\n")) {
-          clearTimeout(timeout);
-          resolve();
-        }
-      });
-      child.stderr.on("data", (chunk: Buffer) => {
-        stderr += chunk.toString("utf8");
-      });
-      child.once("error", (error) => {
-        clearTimeout(timeout);
-        reject(error);
-      });
-      child.once("exit", (code, signal) => {
-        if (!stdout.includes("STAGED_CHUNK\n")) {
-          clearTimeout(timeout);
-          reject(
-            new Error(
-              `Local CAS child exited before staging bytes (${code}, ${signal}): ${stderr}`,
-            ),
-          );
-        }
-      });
-    });
-
-    try {
-      await staged;
-      child.kill("SIGKILL");
-      await expect(exit).resolves.toEqual({ code: null, signal: "SIGKILL" });
-    } finally {
-      if (child.exitCode === null && child.signalCode === null) {
-        child.kill("SIGKILL");
-      }
-    }
 
     const reopened = await createLocalPreviewBuildInputObjectStore({
       rootDir,
@@ -702,6 +708,77 @@ describe("Local Preview build-input CAS", () => {
       digest: identity.archiveDigest,
       sizeBytes: completeBytes.length,
     });
+  });
+
+  it("recovers a committed artifact when its writer dies before acknowledging success", async () => {
+    const { rootDir } = await createStore();
+    const completeBytes = Buffer.from("committed locally before response loss");
+    const identity = objectKey(completeBytes);
+    const jobId = DEFAULT_JOB_ID;
+    const artifactRefId = previewBuildArtifactRefId(jobId, "input");
+    const childScript = [
+      'import { createLocalPreviewBuildInputObjectStore } from "./src/lib/preview-build-input-local.ts";',
+      'import { previewBuildArtifactRefId } from "./src/lib/preview-artifact-reference.ts";',
+      "const [rootDir, workspaceRoot, jobId, objectKey, archiveDigest, contentLength, bytes] = process.argv.slice(1);",
+      "const store = await createLocalPreviewBuildInputObjectStore({ rootDir, workspaceRoot });",
+      "async function* completeStream() {",
+      '  yield Buffer.from(bytes, "base64");',
+      "}",
+      "await store.putStream({",
+      "  jobId,",
+      '  artifactRefId: previewBuildArtifactRefId(jobId, "input"),',
+      "  objectKey,",
+      "  bytes: completeStream(),",
+      "  archiveDigest,",
+      "  contentLength: Number(contentLength),",
+      "});",
+      'process.stdout.write("COMMITTED\\n");',
+      "await new Promise(() => {});",
+    ].join("\n");
+    await killChildAfterMarker(
+      childScript,
+      [
+        rootDir,
+        process.cwd(),
+        jobId,
+        identity.objectKey,
+        identity.archiveDigest,
+        String(completeBytes.length),
+        completeBytes.toString("base64"),
+      ],
+      "COMMITTED\n",
+    );
+
+    const reopened = await createLocalPreviewBuildInputObjectStore({
+      rootDir,
+      workspaceRoot: process.cwd(),
+    });
+    expect(await read(reopened, identity.objectKey, jobId)).toEqual(
+      completeBytes,
+    );
+    await putStream(
+      reopened,
+      {
+        ...identity,
+        bytes: (async function* () {
+          yield completeBytes;
+        })(),
+        contentLength: completeBytes.length,
+      },
+      jobId,
+    );
+    expect(await read(reopened, identity.objectKey, jobId)).toEqual(
+      completeBytes,
+    );
+    expect(await inspect(reopened, identity.objectKey, jobId)).toMatchObject({
+      jobId,
+      artifactRefId,
+      digest: identity.archiveDigest,
+      sizeBytes: completeBytes.length,
+    });
+    expect(await readdir(join(rootDir, "refs"))).toEqual([
+      `${artifactRefId}.json`,
+    ]);
   });
 
   it("rejects digest mismatch, oversized input, and non-canonical object keys", async () => {
