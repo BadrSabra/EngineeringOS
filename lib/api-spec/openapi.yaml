@@ -6767,6 +6767,8 @@ components:
               reasonCode:
                 type: string
                 enum:
+                  - MISSION_GATE_BLOCKED
+                  - EXECUTION_IDENTITY_CONFLICT
                   - LOCAL_QUEUE_FULL
                   - PROJECT_RATE_LIMITED
                   - PROVIDER_NOT_CONFIGURED
