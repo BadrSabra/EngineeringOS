@@ -48,8 +48,8 @@ describe("WorkspaceRuntimeSupervisorClient child attestation handoff", () => {
     expect(requests[0]?.authorization).toBe("Bearer test-supervisor-token");
     expect(requests[0]?.signature).toBe(signWorkspaceRuntimeSupervisorCommand(
       testCommandSecret,
-      "/runtime/observe-start",
-      JSON.stringify({ projectId: "project-runtime", ownerProjectId: "project-runtime" }),
+      "/runtime/start",
+      requests[0]!.body,
     ));
     expect(JSON.parse(requests[0]!.body)).toMatchObject({
       attestationMarker: marker,
@@ -104,13 +104,14 @@ describe("WorkspaceRuntimeSupervisorClient child attestation handoff", () => {
   });
 
   it("observes a strictly validated start state", async () => {
-    const requests: Array<{ url: string; body: string; authorization: string | undefined }> = [];
+    const requests: Array<{ url: string; body: string; authorization: string | undefined; signature: string | undefined }> = [];
     const fetchImpl: typeof fetch = async (input, init) => {
       const headers = init?.headers as Record<string, string> | undefined;
       requests.push({
         url: String(input),
         body: String(init?.body ?? ""),
         authorization: headers?.authorization,
+        signature: headers?.["x-engineeringos-command-signature"],
       });
       return new Response(JSON.stringify({
         projectId: "project-runtime",
