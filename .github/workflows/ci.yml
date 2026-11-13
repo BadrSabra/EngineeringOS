@@ -260,6 +260,7 @@ jobs:
           set -euo pipefail
           # Share only this per-run test key with the local supervisor and test processes.
           export SESSION_SECRET="$(node --input-type=module -e 'import { randomBytes } from "node:crypto"; process.stdout.write(randomBytes(32).toString("base64url"))')"
+          export WORKSPACE_RUNTIME_ALLOWED_ROOTS_JSON="[\"$GITHUB_WORKSPACE\",\"/tmp\"]"
           supervisor_log="${RUNNER_TEMP}/workspace-runtime-supervisor.log"
           node scripts/workspace-runtime-supervisor.mjs >"$supervisor_log" 2>&1 &
           supervisor_pid=$!
