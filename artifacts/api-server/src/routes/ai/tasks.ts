@@ -428,12 +428,13 @@ async function persistDeferredAiTaskExecution(
       || (expectedCorrelationId !== undefined && task.correlationId !== expectedCorrelationId)
     ) return null;
 
-    await insertTaskAutoExecutionIntent(tx, {
+    const intentPersisted = await insertTaskAutoExecutionIntent(tx, {
       taskId,
       userId,
       retryCount: task.retryCount,
       options: options as TaskAutoExecutionOutboxOptions | undefined,
     });
+    if (!intentPersisted) return null;
     const [intent] = await tx
       .select({ payload: eventsTable.payload })
       .from(eventsTable)
