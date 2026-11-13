@@ -539,7 +539,7 @@ describe("database workspace runtime store", () => {
         resultFile: string;
         output: () => string;
       }> = [];
-      const runtimeSessions: Array<{ projectId: string; sessionId: string; pid: number | null }> = [];
+      const runtimeSessions: Array<{ projectId: string; projectRoot: string; sessionId: string; pid: number | null }> = [];
       let releaseContendedProjectLock!: () => void;
       let signalContendedProjectLockAcquired!: () => void;
       const contendedProjectLockReleased = new Promise<void>((resolve) => {
