@@ -1028,6 +1028,43 @@ describe("PR-C — AI auto-trigger on verifying", () => {
     });
   });
 
+  it("rejects a Task transition when its generation is bound to another user", async () => {
+    const { projectId, taskId } = await createTaskWithPrompt("Keep the existing dispatch identity");
+    await db.insert(eventsTable).values({
+      id: `task-auto-execution-deferred:${taskId}`,
+      type: "TaskAutoExecutionDispatchRequested",
+      projectId,
+      taskId,
+      severity: "info",
+      message: "Existing dispatch identity",
+      payload: {
+        userId: "original-user",
+        taskRetryCount: 0,
+        taskCorrelationId: null,
+        attemptCount: 0,
+      },
+    });
+
+    const response = await request(app)
+      .patch(`/api/tasks/${taskId}`)
+      .send({ status: "verifying" });
+
+    expect(response.status).toBe(409);
+    expect(response.body.error).toBe("task_dispatch_identity_conflict");
+    const [task] = await db.select({ status: tasksTable.status })
+      .from(tasksTable)
+      .where(eq(tasksTable.id, taskId));
+    const [intent] = await db.select().from(eventsTable)
+      .where(eq(eventsTable.id, `task-auto-execution-deferred:${taskId}`));
+    expect(task?.status).toBe("pending");
+    expect(intent?.payload).toMatchObject({
+      userId: "original-user",
+      taskRetryCount: 0,
+      taskCorrelationId: null,
+    });
+    expect(mockScheduleAiTaskExecution).not.toHaveBeenCalled();
+  });
+
   it("PATCH route: does NOT schedule AI when status is set to verifying but prompt is null", async () => {
     const { taskId } = await createTaskWithPrompt(null);
 
