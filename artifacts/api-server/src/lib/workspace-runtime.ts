@@ -1,5 +1,6 @@
 import { promises as fs } from "node:fs";
 import net from "node:net";
+import path from "node:path";
 import { spawn, type ChildProcess } from "node:child_process";
 import { createHash, randomUUID } from "node:crypto";
 import type {
