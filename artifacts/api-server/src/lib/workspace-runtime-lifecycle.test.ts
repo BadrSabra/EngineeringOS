@@ -280,6 +280,8 @@ describe("Workspace Runtime lifecycle invariants", () => {
     const attempted: SupervisorStartInput[] = [];
     const startedSession: SupervisorSession = {
       projectId: "runtime-lost-start-response",
+      ownerProjectId: "runtime-lost-start-response",
+      projectRoot: root,
       sessionId: "pending",
       status: "running",
       port: 3_002,
@@ -457,6 +459,8 @@ describe("Workspace Runtime lifecycle invariants", () => {
     let observationStatus: SupervisorObservation["status"] = "unknown";
     let session: SupervisorSession = {
       projectId: "runtime-unknown-start",
+      ownerProjectId: "runtime-unknown-start",
+      projectRoot: root,
       sessionId: "pending",
       status: "running",
       port: 3_004,
