@@ -365,15 +365,14 @@ test("rejects duplicate job IDs instead of silently overriding a workflow job", 
         "    steps:",
         "      - run: echo second",
         "",
-      ].join("\\n"),
+      ].join("\n"),
     );
 
     await assert.rejects(
       validateWorkflows(workflowsDirectory, root),
       (error) => {
-        assert.match(
-          error.message,
-          /\\.github\\/workflows\\/duplicate-job-id\\.yml: YAML syntax error/,
+        assert.ok(
+          error.message.includes(".github/workflows/duplicate-job-id.yml: YAML syntax error"),
         );
         return true;
       },
