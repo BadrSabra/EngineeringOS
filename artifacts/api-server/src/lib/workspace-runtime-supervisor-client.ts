@@ -12,7 +12,7 @@ export function signWorkspaceRuntimeSupervisorCommand(
   if (!secret) throw new Error("Workspace runtime supervisor command signing is not configured.");
   return createHmac("sha256", secret)
     .update(SUPERVISOR_COMMAND_CONTEXT)
-    .update("\\n")
+    .update("\n")
     .update(path)
     .update("\\n")
     .update(body)
@@ -156,6 +156,12 @@ export class WorkspaceRuntimeSupervisorClient {
 
   private async request(path: string, init: RequestInit): Promise<SupervisorResponse> {
     const token = this.testAuthToken ?? this.deriveAuthToken();
+    const body = typeof init.body === "string" ? init.body : "";
+    const signature = signWorkspaceRuntimeSupervisorCommand(
+      this.commandSigningSecret(),
+      path,
+      body,
+    );
     let response: Response;
     try {
       response = await this.fetchImpl(`${this.baseUrl}${path}`, {
