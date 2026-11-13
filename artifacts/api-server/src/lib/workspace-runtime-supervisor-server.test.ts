@@ -598,6 +598,9 @@ describe("workspace runtime supervisor server boundary", () => {
       expect(wrongRootStop.status).toBe(409);
       await expect((await fetch(`http://127.0.0.1:${session!.port}`)).text()).resolves.toBe("owner-root-bound");
 
+      const trackedSession = session;
+      if (!trackedSession) throw new Error("Supervisor start did not return a tracked session.");
+
       const stopped = await fetch(`http://127.0.0.1:${supervisorPort}/runtime/stop`, {
         method: "POST",
         headers: {
@@ -609,7 +612,7 @@ describe("workspace runtime supervisor server boundary", () => {
           ownerProjectId,
           sessionId,
           projectRoot,
-          pid: session.pid,
+          pid: trackedSession.pid,
         }),
       });
       expect(stopped.status).toBe(200);
