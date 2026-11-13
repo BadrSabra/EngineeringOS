@@ -404,12 +404,12 @@ describe("workspace runtime supervisor server boundary", () => {
         ].join("\n"),
       );
       await waitForHealth(supervisor, supervisorPort);
-      const token = deriveWorkspaceRuntimeSupervisorToken("unused-test-secret-removal");
+      
       const response = await fetch(`http://127.0.0.1:${supervisorPort}/runtime/start`, {
         method: "POST",
         headers: {
           "content-type": "application/json",
-          authorization: `Bearer ${token}`,
+          "x-test-authorize": "signed-fixture",
         },
         body: JSON.stringify({
           projectId: "outside-workspace-project",
@@ -442,7 +442,7 @@ describe("workspace runtime supervisor server boundary", () => {
     let sessionStarted = false;
     const projectId = "runtime-env-policy-project";
     const sessionId = "runtime-env-policy-session";
-    const token = deriveWorkspaceRuntimeSupervisorToken(testSecret);
+    
 
     try {
       await writeFile(
@@ -466,7 +466,7 @@ describe("workspace runtime supervisor server boundary", () => {
         method: "POST",
         headers: {
           "content-type": "application/json",
-          authorization: `Bearer ${token}`,
+          "x-test-authorize": "signed-fixture",
         },
         body: JSON.stringify({ projectId, sessionId, projectRoot, profile: "dev" }),
       });
@@ -486,7 +486,7 @@ describe("workspace runtime supervisor server boundary", () => {
           method: "POST",
           headers: {
             "content-type": "application/json",
-            authorization: `Bearer ${token}`,
+            "x-test-authorize": "signed-fixture",
           },
           body: JSON.stringify({ projectId, sessionId }),
         }).catch(() => undefined);
@@ -500,7 +500,7 @@ describe("workspace runtime supervisor server boundary", () => {
       env: {
         PATH: process.env.PATH ?? "",
         HOME: process.env.HOME ?? "/tmp",
-        SESSION_SECRET: testSecret,
+        
         WORKSPACE_RUNTIME_SUPERVISOR_PORT: "8098",
         WORKSPACE_RUNTIME_SUPERVISOR_HOST: "0.0.0.0",
       },
@@ -515,13 +515,13 @@ describe("workspace runtime supervisor server boundary", () => {
     const port = await freePort();
     const child = startSupervisor(port);
     await waitForHealth(child, port);
-    const token = deriveWorkspaceRuntimeSupervisorToken(testSecret);
+    
 
     const response = await fetch(`http://127.0.0.1:${port}/runtime/stop`, {
       method: "POST",
       headers: {
         "content-type": "application/json",
-        authorization: `Bearer ${token}`,
+        "x-test-authorize": "signed-fixture",
       },
       body: JSON.stringify({
         projectId: "test-project",
@@ -539,7 +539,7 @@ describe("workspace runtime supervisor server boundary", () => {
     const unownedListener = createServer();
     const projectId = "unknown-listener-project";
     const sessionId = "unknown-listener-session";
-    const token = deriveWorkspaceRuntimeSupervisorToken(testSecret);
+    
     let sessionStarted = false;
 
     try {
@@ -562,7 +562,7 @@ describe("workspace runtime supervisor server boundary", () => {
         method: "POST",
         headers: {
           "content-type": "application/json",
-          authorization: `Bearer ${token}`,
+          "x-test-authorize": "signed-fixture",
         },
         body: JSON.stringify({ projectId, sessionId, projectRoot, profile: "dev" }),
       });
@@ -581,7 +581,7 @@ describe("workspace runtime supervisor server boundary", () => {
           method: "POST",
           headers: {
             "content-type": "application/json",
-            authorization: `Bearer ${token}`,
+            "x-test-authorize": "signed-fixture",
           },
           body: JSON.stringify({ projectId }),
         },
@@ -611,7 +611,7 @@ describe("workspace runtime supervisor server boundary", () => {
           method: "POST",
           headers: {
             "content-type": "application/json",
-            authorization: `Bearer ${token}`,
+            "x-test-authorize": "signed-fixture",
           },
           body: JSON.stringify({ projectId, sessionId }),
         }).catch(() => undefined);
@@ -630,7 +630,7 @@ describe("workspace runtime supervisor server boundary", () => {
     const supervisor = startSupervisor(supervisorPort);
     const unownedListener = createServer();
     const projectId = "unknown-listener-project";
-    const token = deriveWorkspaceRuntimeSupervisorToken(testSecret);
+    
     let unownedPort: number | undefined;
 
     try {
@@ -647,7 +647,7 @@ describe("workspace runtime supervisor server boundary", () => {
           method: "POST",
           headers: {
             "content-type": "application/json",
-            authorization: `Bearer ${token}`,
+            "x-test-authorize": "signed-fixture",
           },
           body: JSON.stringify({ projectId }),
         },
@@ -681,7 +681,7 @@ describe("workspace runtime supervisor server boundary", () => {
     const projectRoot = await mkdtemp(path.join(tmpdir(), "workspace-runtime-concurrent-start-"));
     const sessionIds = ["concurrent-session-a", "concurrent-session-b"];
     const startedSessions: Array<{ projectId: string; sessionId: string; pid: number | null }> = [];
-    const token = deriveWorkspaceRuntimeSupervisorToken(testSecret);
+    
 
     try {
       await writeFile(
@@ -705,7 +705,7 @@ describe("workspace runtime supervisor server boundary", () => {
           method: "POST",
           headers: {
             "content-type": "application/json",
-            authorization: `Bearer ${token}`,
+            "x-test-authorize": "signed-fixture",
           },
           body: JSON.stringify({
             projectId: "concurrent-start-project",
@@ -733,7 +733,7 @@ describe("workspace runtime supervisor server boundary", () => {
             method: "POST",
             headers: {
               "content-type": "application/json",
-              authorization: `Bearer ${token}`,
+              "x-test-authorize": "signed-fixture",
             },
             body: JSON.stringify({
               projectId: session.projectId,
@@ -778,12 +778,12 @@ describe("workspace runtime supervisor server boundary", () => {
         unrelatedLauncher!.once("error", reject);
       });
 
-      const token = deriveWorkspaceRuntimeSupervisorToken(testSecret);
+      
       const response = await fetch(`http://127.0.0.1:${supervisorPort}/runtime/adopt`, {
         method: "POST",
         headers: {
           "content-type": "application/json",
-          authorization: `Bearer ${token}`,
+          "x-test-authorize": "signed-fixture",
         },
         body: JSON.stringify({
           projectId: "adopt-owner-mismatch",
@@ -829,14 +829,14 @@ describe("workspace runtime supervisor server boundary", () => {
         const runtime = await startOrphaningRuntimeGroup(projectRoot, runtimePort, "stop-test");
         leaderPid = runtime.leaderPid;
         descendantPid = runtime.descendantPid;
-        const token = deriveWorkspaceRuntimeSupervisorToken(testSecret);
+        
         const adoptionProof = await runtimeAdoptionProof(leaderPid, runtimePort);
 
         const adoptResponse = await fetch(`http://127.0.0.1:${supervisorPort}/runtime/adopt`, {
           method: "POST",
           headers: {
             "content-type": "application/json",
-            authorization: `Bearer ${token}`,
+            "x-test-authorize": "signed-fixture",
           },
           body: JSON.stringify({
             projectId: "group-stop-test",
@@ -855,7 +855,7 @@ describe("workspace runtime supervisor server boundary", () => {
           method: "POST",
           headers: {
             "content-type": "application/json",
-            authorization: `Bearer ${token}`,
+            "x-test-authorize": "signed-fixture",
           },
           body: JSON.stringify({
             projectId: "group-stop-test",
@@ -874,7 +874,7 @@ describe("workspace runtime supervisor server boundary", () => {
           method: "POST",
           headers: {
             "content-type": "application/json",
-            authorization: `Bearer ${token}`,
+            "x-test-authorize": "signed-fixture",
           },
           body: JSON.stringify({ projectId: "group-stop-test" }),
         });
@@ -921,14 +921,14 @@ describe("workspace runtime supervisor server boundary", () => {
         const runtime = await startOrphaningRuntimeGroup(projectRoot, runtimePort, "shutdown-test");
         leaderPid = runtime.leaderPid;
         descendantPid = runtime.descendantPid;
-        const token = deriveWorkspaceRuntimeSupervisorToken(testSecret);
+        
         const adoptionProof = await runtimeAdoptionProof(leaderPid, runtimePort);
 
         const adoptResponse = await fetch(`http://127.0.0.1:${supervisorPort}/runtime/adopt`, {
           method: "POST",
           headers: {
             "content-type": "application/json",
-            authorization: `Bearer ${token}`,
+            "x-test-authorize": "signed-fixture",
           },
           body: JSON.stringify({
             projectId: "group-shutdown-test",
