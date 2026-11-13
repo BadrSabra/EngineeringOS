@@ -1338,10 +1338,11 @@ export class WorkspaceRuntimeManager {
         leaseUntil: new Date(Date.now() + RUNTIME_LEASE_MS),
       });
       if (!claimed) continue;
+      const claimedRevision = claimed.revision;
       // A legacy or incomplete runtime row without a source revision cannot be
       // safely bound to a Supervisor state version. Keep it recoverable rather
       // than inventing a revision, adopting the process, or marking it failed.
-      if (!claimed.revision) {
+      if (!claimedRevision) {
         logger.warn(
           { projectId: this.projectIdForRuntimeId(claimed.projectId), sessionId: claimed.sessionId },
           "Runtime recovery deferred because the persisted revision is missing",
@@ -1416,7 +1417,7 @@ export class WorkspaceRuntimeManager {
                 stateVersion: createWorkspaceRuntimeSupervisorStateVersion({
                   projectId: claimed.projectId,
                   sessionId: claimed.sessionId,
-                  revision: claimed.revision,
+                  revision: claimedRevision,
                   startedAt: claimed.startedAt?.toISOString() ?? "",
                 }),
                 pid: claimed.pid,
@@ -1465,7 +1466,7 @@ export class WorkspaceRuntimeManager {
             stateVersion: createWorkspaceRuntimeSupervisorStateVersion({
               projectId: claimed.projectId,
               sessionId: claimed.sessionId,
-              revision: claimed.revision,
+              revision: claimedRevision,
               startedAt: claimed.startedAt?.toISOString() ?? "",
             }),
             projectRoot: claimed.projectRoot,
