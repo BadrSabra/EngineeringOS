@@ -4,7 +4,8 @@ on:
   push:
     branches: [main]
   pull_request:
-    # PR #21 is stacked on the RISO-02 integration branch and must be validated there too.
+    # The security/RISO runtime integration PR is the base for the stacked
+    # runtime-safe deletion PR and must receive the same validation.
     branches: [main, security/riso-02-main-integration]
   workflow_dispatch:
     inputs:
