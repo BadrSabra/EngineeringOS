@@ -10413,6 +10413,8 @@ describe("POST /api/ai/tasks/:taskId/execute", () => {
       taskId,
       payload: {
         userId: "test-user",
+        taskRetryCount: 0,
+        taskCorrelationId: null,
         delegationBudget: { maxChildren: 2, maxDepth: 1 },
       },
     });
@@ -10441,6 +10443,60 @@ describe("POST /api/ai/tasks/:taskId/execute", () => {
       .from(eventsTable)
       .where(eq(eventsTable.id, `task-auto-execution-deferred:${taskId}`));
     expect(remainingIntent).toHaveLength(0);
+  });
+
+  it("does not dispatch a deferred intent after the Task correlation generation changes", async () => {
+    const projectId = await insertProject();
+    projectIds.push(projectId);
+    const taskId = await insertTask(projectId, "verifying");
+    const originalCorrelationId = "task-generation-before";
+    const currentCorrelationId = "task-generation-after";
+    await db.update(tasksTable)
+      .set({
+        prompt: "Do not replay this intent after the Task generation changes",
+        correlationId: originalCorrelationId,
+      })
+      .where(eq(tasksTable.id, taskId));
+
+    const enqueueSpy = vi.spyOn(heavyJobQueue, "enqueueWithIdDetailed")
+      .mockReturnValueOnce("full");
+    await scheduleAiTaskExecution(taskId, "test-user");
+    enqueueSpy.mockRestore();
+
+    const intentId = `task-auto-execution-deferred:${taskId}`;
+    const [intent] = await db.select().from(eventsTable)
+      .where(eq(eventsTable.id, intentId));
+    expect(intent?.payload).toMatchObject({
+      taskRetryCount: 0,
+      taskCorrelationId: originalCorrelationId,
+    });
+
+    await db.update(eventsTable)
+      .set({
+        payload: {
+          ...intent!.payload!,
+          nextAttemptAt: new Date(Date.now() - 1_000).toISOString(),
+        },
+      })
+      .where(eq(eventsTable.id, intentId));
+    await db.update(tasksTable)
+      .set({ correlationId: currentCorrelationId })
+      .where(eq(tasksTable.id, taskId));
+
+    await aiTaskRoutes.dispatchDeferredAiTaskExecutions();
+
+    const [deferred] = await db.select().from(eventsTable)
+      .where(eq(eventsTable.id, intentId));
+    expect(deferred?.type).toBe("TaskAutoExecutionDeferred");
+    expect(deferred?.payload).toMatchObject({
+      taskRetryCount: 0,
+      taskCorrelationId: originalCorrelationId,
+      lastFailureCode: "TASK_GENERATION_MISMATCH",
+    });
+    const nextAttemptAt = Date.parse(String(deferred?.payload?.nextAttemptAt));
+    expect(nextAttemptAt).toBeGreaterThan(Date.now() + 14 * 60_000);
+    expect(await db.select({ id: aiExecutionsTable.id }).from(aiExecutionsTable)
+      .where(eq(aiExecutionsTable.linkedTaskId, taskId))).toHaveLength(0);
   });
 
   it("retains and schedules an intent when the project rate limit blocks before claim", async () => {
