@@ -1915,6 +1915,7 @@ describe("workspace runtime full API startup recovery", () => {
         expect(priorOwnerId).not.toBe(seedWorkerId);
         expect(knownBeforeCrash?.leaseUntil?.getTime()).toBeGreaterThan(Date.now());
         expect(supervisorRequests).toHaveLength(0);
+        expect(unexpectedSupervisorPaths).toEqual([]);
         expect(await supervisorClient.observeStartState(knownProjectId)).toMatchObject({
           status: "running",
           session: { projectId: knownProjectId, sessionId, pid: knownRuntimePid, port: knownRuntimePort },
