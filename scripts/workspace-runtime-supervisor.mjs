@@ -485,11 +485,21 @@ async function verifyRuntimeAdoption(input, projectRoot) {
   ) {
     throw Object.assign(new Error("Runtime listener ownership could not be verified."), { status: 409 });
   }
-  if (input.attestationMarker && (
-    !await processHasAttestationMarker(input.pid, input.attestationMarker)
-    || !await processHasAttestationMarker(first.pid, input.attestationMarker)
-  )) {
-    throw Object.assign(new Error("Runtime child-process attestation did not match."), { status: 409 });
+  if (input.attestationMarker) {
+    const [launchMarkerMatches, listenerMarkerMatches] = await Promise.all([
+      processHasAttestationMarker(input.pid, input.attestationMarker),
+      processHasAttestationMarker(first.pid, input.attestationMarker),
+    ]);
+    if (!launchMarkerMatches || !listenerMarkerMatches) {
+      const mismatchedProcesses = [
+        ...(!launchMarkerMatches ? ["launch"] : []),
+        ...(!listenerMarkerMatches ? ["listener"] : []),
+      ];
+      throw Object.assign(
+        new Error(`Runtime child-process attestation did not match for the ${mismatchedProcesses.join(" and ")} process.`),
+        { status: 409 },
+      );
+    }
   }
   const second = await resolveOwnedRuntimeListener(
     input.pid,
