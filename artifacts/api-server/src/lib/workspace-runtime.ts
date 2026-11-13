@@ -1349,6 +1349,7 @@ export class WorkspaceRuntimeManager {
         if (
           observed?.status === "running"
           && observed.session?.projectId === claimed.projectId
+          && observed.session.ownerProjectId === this.projectIdForRuntimeId(claimed.projectId)
           && observed.session.sessionId === claimed.sessionId
           && observed.session.pid !== null
           && observed.session.port !== null
@@ -1753,6 +1754,7 @@ export class WorkspaceRuntimeManager {
             if (
               observed?.status === "running"
               && observed.session?.projectId === runtimeId
+              && observed.session.ownerProjectId === input.projectId
               && observed.session.sessionId === sessionId
             ) {
               supervised = observed.session;
@@ -2031,6 +2033,7 @@ export class WorkspaceRuntimeManager {
     if (
       observed.status === "running"
       && observed.session?.projectId === session.runtimeId
+      && observed.session.ownerProjectId === session.projectId
       && observed.session.sessionId === session.sessionId
       && observed.session.pid !== null
       && observed.session.port !== null
