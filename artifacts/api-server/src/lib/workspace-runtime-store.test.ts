@@ -832,6 +832,7 @@ describe("database workspace runtime store", () => {
           persistedRows.set(projectId, persisted);
           runtimeSessions.push({
             projectId,
+            projectRoot: persisted.projectRoot,
             sessionId: persisted.sessionId,
             pid: persisted.pid,
           });
