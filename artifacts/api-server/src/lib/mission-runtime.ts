@@ -71,6 +71,7 @@ import { EXECUTION_PROOF_CONTRACT_VERSION } from "./execution-proof.js";
 import { getProjectWorldState } from "./agent-state/world-state.js";
 import { taskScopeIdentity } from "./agent-state/observation-materializer.js";
 import { scheduleAiTaskExecution } from "../routes/ai/tasks.js";
+import { insertTaskAutoExecutionIntent } from "./task-auto-execution-outbox.js";
 import { createMissionEventEnvelope, type MissionEventEnvelope } from "./mission-events.js";
 import {
   buildMissionDelegationBinding,
@@ -3231,6 +3232,21 @@ export async function runMissionGoal(params: {
       });
     }
 
+    const intentPersisted = await insertTaskAutoExecutionIntent(tx, {
+      taskId: task.id,
+      userId: params.userId,
+      retryCount: task.retryCount,
+      options: { parentExecutionId: taskDelegation.parentExecutionId },
+    });
+    if (!intentPersisted) {
+      return {
+        status: "conflict" as const,
+        goalId: goal.id,
+        taskId: task.id,
+        reason: "task_state_changed",
+      };
+    }
+
     const now = new Date();
     if (goal.status !== "running" && goal.status !== "verifying") {
       await tx.update(aiGoalsTable)
@@ -3250,6 +3266,8 @@ export async function runMissionGoal(params: {
         trigger: params.trigger,
         action: action.kind,
         delegation: taskDelegation,
+        taskRetryCount: task.retryCount,
+        taskCorrelationId: task.correlationId,
       },
     });
     return recordActionEffect({
