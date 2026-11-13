@@ -44,7 +44,7 @@ A dispatch closure carries the generation it read. It must not start against a c
 | Successful Task/Execution claim | One worker now owns the Task and Execution lease. | Consume the matching Outbox intent in the same PostgreSQL transaction, after **claimAiExecution** succeeds and before the Task is changed to running. If a later step or commit fails, the transaction rolls back and the intent remains. |
 | Post-claim failure, cancellation, or worker crash | Execution has crossed the claim boundary. | Do not recreate the auto-dispatch intent. Let Execution lease reconciliation, Acceptance, **nextActionCode**, and the existing authorized resume/recovery path decide what happens next. |
 
-The only successful-consumption boundary is the transaction in **executeTaskLifecycle** that has both a locked Task generation and a successfully claimed linked Execution. An early return for Mission admission, Task identity, a future Acceptance **retryAt**, or another pre-claim conflict must not consume the Outbox. The exact-generation delete is in the same transaction as the Execution claim and Task running transition.
+The only successful-consumption boundary is the transaction in **executeTaskLifecycle** that has both a locked Task generation and a successfully claimed linked Execution. Before claim, a reused idempotency-key row must also match the Task's Goal and retry attempt, the Task/project/user/correlation identity, and the requested parent Execution and explicitly supplied delegation-budget fields; a reused row with a different identity is an **execution_identity_changed** pre-claim conflict. An early return for Mission admission, Task identity, a future Acceptance **retryAt**, or another pre-claim conflict must not consume the Outbox. The exact-generation delete is in the same transaction as the Execution claim and Task running transition.
 
 ## Pre-claim retry policy
 
@@ -76,8 +76,8 @@ The relevant test coverage is kept at the existing boundaries rather than replac
 
 - Task PATCH and execute route tests verify persisted generation identity and rollback on conflicting dispatch ownership.
 - Mission runtime tests verify the Outbox and **AiGoalDispatchRequested** survive a simulated lost local wake.
-- AI route tests cover stale retry/correlation generations, delegation/owner identity conflicts, legacy null-correlation normalization, queue capacity, provider/rate-limit pre-claim deferral, already-active Execution ownership, and an old queue closure racing a newer Task generation.
-- **task-execution-lifecycle.integration.test.ts** now also seeds a generation-bound Outbox around a future Acceptance retry window: the early resume conflict must retain it; the later successful claim must consume it. The existing two-process deferred-dispatch race remains in place.
+- AI route tests cover stale retry/correlation generations, delegation/owner identity conflicts, legacy null-correlation normalization, queue capacity, provider/rate-limit pre-claim deferral, already-active Execution ownership, an old queue closure racing a newer Task generation, and stale-snapshot cleanup that must not delete a replacement Outbox row.
+- **task-execution-lifecycle.integration.test.ts** also covers future Acceptance retry retention, a reused idempotency-key Execution with a mismatched parent/budget/attempt, and rollback when the final Task claim update fails. The existing two-process deferred-dispatch race remains in place.
 - **job-reconciliation.test.ts** distinguishes overdue/due intents from intentionally future-scheduled retries, verifies reason bucketing, and asserts that orphaned intent rows remain visible in health.
 - Task route tests verify atomic Outbox retirement on rollback and deletion; AI route tests verify background pruning of pre-existing orphaned and terminal-Task rows.
 
