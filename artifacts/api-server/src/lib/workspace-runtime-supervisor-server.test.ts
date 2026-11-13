@@ -412,6 +412,26 @@ describe("workspace runtime supervisor server boundary", () => {
         code: "ENOENT",
       });
 
+      const wrongOwnerAdoption = await supervisorFetch(`http://127.0.0.1:${supervisorPort}/runtime/adopt`, {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          projectId,
+          ownerProjectId: "owner-b",
+          sessionId,
+          projectRoot: firstRoot,
+          pid: started.pid,
+          port: started.port,
+          profile: "dev",
+          listenerBindingDigest: "a".repeat(64),
+          expectedListenerIdentityDigest: "b".repeat(64),
+        }),
+      });
+      expect(wrongOwnerAdoption.status).toBe(409);
+
       const wrongRootSameOwner = await supervisorFetch(`http://127.0.0.1:${supervisorPort}/runtime/start`, {
         method: "POST",
         headers: {
