@@ -463,12 +463,165 @@ describe("workspace runtime supervisor server boundary", () => {
         error: "The registered project root is unavailable or outside the configured workspace.",
       });
 
+      const outsideRootObservation = await fetch(
+        `http://127.0.0.1:${supervisorPort}/runtime/observe-start`,
+        {
+          method: "POST",
+          headers: {
+            "content-type": "application/json",
+            "x-test-authorize": "signed-fixture",
+          },
+          body: JSON.stringify({
+            projectId: "outside-workspace-project",
+            ownerProjectId: "outside-workspace-project",
+            projectRoot: outsideRoot,
+          }),
+        },
+      );
+      expect(outsideRootObservation.status).toBe(400);
+
       await expect(
         readFile(path.join(outsideRoot, "started.txt"), "utf8"),
       ).rejects.toMatchObject({ code: "ENOENT" });
     } finally {
       await rm(allowedRoot, { recursive: true, force: true });
       await rm(outsideRoot, { recursive: true, force: true });
+    }
+  });
+
+  it("binds every supervisor command to the tracked project owner and workspace root", async () => {
+    const supervisorPort = await freePort();
+    const projectRoot = await mkdtemp(path.join(tmpdir(), "workspace-runtime-bound-owner-"));
+    const differentRoot = await mkdtemp(path.join(tmpdir(), "workspace-runtime-bound-root-"));
+    const supervisor = startSupervisor(supervisorPort);
+    const projectId = "bound-runtime-project";
+    const ownerProjectId = "bound-runtime-owner";
+    const sessionId = "bound-runtime-session";
+    let session: { projectId: string; ownerProjectId: string; projectRoot: string; sessionId: string; status: string; port: number; pid: number | null } | undefined;
+
+    try {
+      await writeFile(
+        path.join(projectRoot, "package.json"),
+        JSON.stringify({ type: "module", scripts: { dev: "node server.mjs" } }),
+      );
+      await writeFile(
+        path.join(projectRoot, "server.mjs"),
+        [
+          'import http from "node:http";',
+          'const server = http.createServer((_req, res) => res.end("owner-root-bound"));',
+          'server.listen(Number(process.env.PORT), "127.0.0.1");',
+          'process.once("SIGTERM", () => server.close(() => process.exit(0)));',
+        ].join("\n"),
+      );
+      await waitForHealth(supervisor, supervisorPort);
+
+      const started = await fetch(`http://127.0.0.1:${supervisorPort}/runtime/start`, {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "x-test-authorize": "signed-fixture",
+        },
+        body: JSON.stringify({
+          projectId,
+          ownerProjectId,
+          sessionId,
+          projectRoot,
+          profile: "dev",
+        }),
+      });
+      expect(started.status).toBe(200);
+      session = await started.json() as typeof session;
+      expect(session).toMatchObject({
+        projectId,
+        ownerProjectId,
+        projectRoot,
+        sessionId,
+        status: "running",
+      });
+
+      const wrongOwnerObservation = await fetch(`http://127.0.0.1:${supervisorPort}/runtime/observe-start`, {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "x-test-authorize": "signed-fixture",
+        },
+        body: JSON.stringify({ projectId, ownerProjectId: "different-owner", projectRoot }),
+      });
+      expect(wrongOwnerObservation.status).toBe(409);
+
+      const wrongRootObservation = await fetch(`http://127.0.0.1:${supervisorPort}/runtime/observe-start`, {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "x-test-authorize": "signed-fixture",
+        },
+        body: JSON.stringify({ projectId, ownerProjectId, projectRoot: differentRoot }),
+      });
+      expect(wrongRootObservation.status).toBe(409);
+
+      const wrongOwnerStop = await fetch(`http://127.0.0.1:${supervisorPort}/runtime/stop`, {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "x-test-authorize": "signed-fixture",
+        },
+        body: JSON.stringify({
+          projectId,
+          ownerProjectId: "different-owner",
+          sessionId,
+          projectRoot,
+          pid: session?.pid,
+        }),
+      });
+      expect(wrongOwnerStop.status).toBe(409);
+
+      const wrongRootStop = await fetch(`http://127.0.0.1:${supervisorPort}/runtime/stop`, {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "x-test-authorize": "signed-fixture",
+        },
+        body: JSON.stringify({
+          projectId,
+          ownerProjectId,
+          sessionId,
+          projectRoot: differentRoot,
+          pid: session?.pid,
+        }),
+      });
+      expect(wrongRootStop.status).toBe(409);
+      await expect((await fetch(`http://127.0.0.1:${session!.port}`)).text()).resolves.toBe("owner-root-bound");
+
+      const stopped = await fetch(`http://127.0.0.1:${supervisorPort}/runtime/stop`, {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "x-test-authorize": "signed-fixture",
+        },
+        body: JSON.stringify({
+          projectId,
+          ownerProjectId,
+          sessionId,
+          projectRoot,
+          pid: session.pid,
+        }),
+      });
+      expect(stopped.status).toBe(200);
+      await expect(stopped.json()).resolves.toMatchObject({
+        projectId,
+        ownerProjectId,
+        projectRoot,
+        sessionId,
+        status: "stopped",
+      });
+      session = undefined;
+    } finally {
+      if (session?.pid) {
+        try { process.kill(-session.pid, "SIGKILL"); } catch {}
+      }
+      await stopChild(supervisor);
+      await rm(projectRoot, { recursive: true, force: true });
+      await rm(differentRoot, { recursive: true, force: true });
     }
   });
 
