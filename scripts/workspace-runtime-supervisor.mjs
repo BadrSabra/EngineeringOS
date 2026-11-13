@@ -551,7 +551,7 @@ async function waitForReady(child, port) {
   throw new Error(`Runtime process did not open port ${port} within ${STARTUP_TIMEOUT_MS}ms.`);
 }
 
-async function validateProjectRoot(candidate) {
+async function canonicalAllowedProjectRoot(candidate) {
   const allowedRoots = [];
   try {
     for (const configuredRoot of ALLOWED_PROJECT_ROOTS) {
@@ -574,9 +574,8 @@ async function validateProjectRoot(candidate) {
   if (typeof candidate !== "string" || !path.isAbsolute(candidate)) {
     throw Object.assign(new Error("A canonical registered project root is required."), { status: 400 });
   }
-  let resolved;
   try {
-    resolved = await realpath(candidate);
+    const resolved = await realpath(candidate);
     if (resolved !== path.resolve(candidate) || !(await stat(resolved)).isDirectory()) {
       throw new Error("Project root is not canonical.");
     }
@@ -589,6 +588,15 @@ async function validateProjectRoot(candidate) {
     if (!isWithinAllowedRoot) {
       throw new Error("Project root is outside the configured workspaces.");
     }
+    return resolved;
+  } catch {
+    throw Object.assign(new Error("The registered project root is unavailable or outside the configured workspace."), { status: 400 });
+  }
+}
+
+async function validateProjectRoot(candidate) {
+  const resolved = await canonicalAllowedProjectRoot(candidate);
+  try {
     const manifest = JSON.parse(await readFile(path.join(resolved, "package.json"), "utf8"));
     if (typeof manifest.scripts?.dev !== "string" || !manifest.scripts.dev.trim()) {
       throw new Error("Project dev script is unavailable.");
@@ -875,12 +883,23 @@ async function stop(input) {
 }
 
 async function observeStart(input) {
-  if (!isSafeProjectId(input.projectId) || !isSafeProjectId(input.ownerProjectId)) {
-    throw Object.assign(new Error("Invalid runtime identity or owner binding."), { status: 400 });
+  if (
+    !isSafeProjectId(input.projectId)
+    || !isSafeProjectId(input.ownerProjectId)
+    || typeof input.projectRoot !== "string"
+  ) {
+    throw Object.assign(new Error("Invalid runtime identity or owner/root binding."), { status: 400 });
   }
+  const projectRoot = await canonicalAllowedProjectRoot(input.projectRoot);
   const tracked = sessions.get(input.projectId);
-  if (tracked && tracked.ownerProjectId !== input.ownerProjectId) {
-    throw Object.assign(new Error("Runtime owner binding does not match the tracked project."), { status: 409 });
+  if (
+    tracked
+    && (
+      tracked.ownerProjectId !== input.ownerProjectId
+      || tracked.projectRoot !== projectRoot
+    )
+  ) {
+    throw Object.assign(new Error("Runtime owner or root binding does not match the tracked project."), { status: 409 });
   }
 
   const observedAt = new Date().toISOString();
@@ -916,6 +935,7 @@ async function observeStart(input) {
   return {
     projectId: input.projectId,
     ownerProjectId: input.ownerProjectId,
+    projectRoot,
     status,
     ...(targetIsLive ? { session: publicSession(targetSession) } : {}),
     observedAt,
