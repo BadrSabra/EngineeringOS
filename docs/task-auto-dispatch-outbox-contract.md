@@ -12,6 +12,7 @@ This document records the server-owned Task dispatch contract. The database even
 | Manual Task execute/verification | **artifacts/api-server/src/routes/tasks.ts**, POST **/tasks/:taskId/execute** | Verification result and eligible Task Outbox intent commit in one PostgreSQL transaction. |
 | Mission Goal Task handoff | **artifacts/api-server/src/lib/mission-runtime.ts**, **runMissionGoal** | Mission Task row is locked; Task Outbox intent and **AiGoalDispatchRequested** commit in the same Mission transaction. The post-commit scheduler call wakes the local queue with the exact committed Task generation. |
 | Scheduler repair / deferred redispatch | **artifacts/api-server/src/routes/ai/tasks.ts** | **scheduleAiTaskExecution** idempotently verifies/repairs an intent before local enqueue; **dispatchDeferredAiTaskExecutions** reads due durable intents after restart or queue backpressure. |
+| Task cancellation / deletion | **artifacts/api-server/src/routes/tasks.ts**, rollback and DELETE handlers | The reserved Outbox row is retired in the same transaction as the transition to cancelled or deletion; the ordinary Task lifecycle/audit events remain. |
 
 There is one logical Outbox identity per Task, keyed by **task-auto-execution-deferred:<taskId>**. The event key is stable; the generation and authorization identity are enforced by the payload and the Task row lock.
 
@@ -38,7 +39,8 @@ A dispatch closure carries the generation it read. It must not start against a c
 | Local queue **full** / **duplicate** | Local scheduling outcome, not a durable execution result. | On **full**, retain the intent with a bounded retry time. A duplicate is not a second execution and does not grant ownership. |
 | Pre-claim provider/rate-limit/exception conflict | No Execution claim was committed. | Retain the exact intent with a bounded retry time; honor a trusted provider/project retry window when present. |
 | Matching Execution already active | The same Task generation and execution owner are already active. Matching includes Task/project/Goal, user, retry attempt, correlation ID, parent Execution, and any explicitly supplied delegation-budget fields. | Retire only the duplicate intent for that exact identity; a foreign owner, older attempt, different Goal, or different delegation binding must not consume the current generation's intent. The existing Execution lease, Acceptance, and recovery lifecycle remain authoritative. |
-| Stale or ineligible Task generation | Task is gone, not verifying, lacks a prompt, or has a different retry/correlation identity. | Never dispatch old options into the new generation. Clear/defer only the exact old generation after verifying the current Task. |
+| Stale or ineligible Task generation | Task is gone, not verifying, or lacks a prompt. | The dispatcher selects these rows through a left join and prunes only the unchanged event snapshot. A Task deletion or rollback also removes its reserved intent transactionally. |
+| Generation mismatch | The Task's retry count or correlation ID differs from the persisted payload. | Never dispatch old options into the new generation; defer the exact old snapshot for bounded reconciliation and never let its cleanup delete a replacement intent. |
 | Successful Task/Execution claim | One worker now owns the Task and Execution lease. | Consume the matching Outbox intent in the same PostgreSQL transaction, after **claimAiExecution** succeeds and before the Task is changed to running. If a later step or commit fails, the transaction rolls back and the intent remains. |
 | Post-claim failure, cancellation, or worker crash | Execution has crossed the claim boundary. | Do not recreate the auto-dispatch intent. Let Execution lease reconciliation, Acceptance, **nextActionCode**, and the existing authorized resume/recovery path decide what happens next. |
 
@@ -62,7 +64,7 @@ A successful claim is not retried by this dispatcher. Provider failures after cl
 
 - **pendingAiTaskDispatches**: Requested intents.
 - **deferredAiTaskDispatches**: Deferred intents.
-- **staleAiTaskDispatches**: intents whose age exceeds the pending threshold and whose retry time is due (or missing/malformed). A deliberately future **nextAttemptAt** is not reported as overdue.
+- **staleAiTaskDispatches**: intents whose age exceeds the pending threshold and whose retry time is due (or missing/malformed), plus orphaned intents or intents bound to Tasks that have left **verifying** (these are immediately ineligible and must be pruned). A deliberately future **nextAttemptAt** on an eligible **verifying** Task is not reported as overdue.
 - **oldestAiTaskDispatchAt**: oldest timestamp among outstanding Task intents.
 - **deferredAiTaskDispatchesByReason**: allow-listed aggregate buckets only; never raw provider payloads, prompts, user IDs, or exception messages.
 
@@ -76,7 +78,8 @@ The relevant test coverage is kept at the existing boundaries rather than replac
 - Mission runtime tests verify the Outbox and **AiGoalDispatchRequested** survive a simulated lost local wake.
 - AI route tests cover stale retry/correlation generations, delegation/owner identity conflicts, legacy null-correlation normalization, queue capacity, provider/rate-limit pre-claim deferral, already-active Execution ownership, and an old queue closure racing a newer Task generation.
 - **task-execution-lifecycle.integration.test.ts** now also seeds a generation-bound Outbox around a future Acceptance retry window: the early resume conflict must retain it; the later successful claim must consume it. The existing two-process deferred-dispatch race remains in place.
-- **job-reconciliation.test.ts** distinguishes overdue/due intents from intentionally future-scheduled retries and verifies reason bucketing.
+- **job-reconciliation.test.ts** distinguishes overdue/due intents from intentionally future-scheduled retries, verifies reason bucketing, and asserts that orphaned intent rows remain visible in health.
+- Task route tests verify atomic Outbox retirement on rollback and deletion; AI route tests verify background pruning of pre-existing orphaned and terminal-Task rows.
 
 Required validation on the candidate SHA:
 
