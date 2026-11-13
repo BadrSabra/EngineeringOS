@@ -1247,6 +1247,7 @@ export async function getDurableJobHealth(): Promise<{
   retryExhaustedTasks: number;
   pendingAiTaskDispatches: number;
   deferredAiTaskDispatches: number;
+  deferredAiTaskDispatchesByReason: Array<{ reasonCode: string; count: number }>;
   staleAiTaskDispatches: number;
   oldestAiTaskDispatchAt: string | null;
   failedDispatchStages: number;
@@ -1281,6 +1282,7 @@ export async function getDurableJobHealth(): Promise<{
       [exhaustedTasks],
       [requestedAiTaskDispatches],
       [deferredAiTaskDispatches],
+      deferredAiTaskDispatchReasonRows,
       [staleAiTaskDispatches],
       [oldestAiTaskDispatch],
       [failedStages],
@@ -1327,6 +1329,30 @@ export async function getDurableJobHealth(): Promise<{
           eq(eventsTable.type, "TaskAutoExecutionDeferred"),
           eq(tasksTable.status, "verifying"),
         )),
+      db.select({
+        reasonCode: sql<string>`CASE ${eventsTable.payload}->>'lastFailureCode'
+          WHEN 'LOCAL_QUEUE_FULL' THEN 'LOCAL_QUEUE_FULL'
+          WHEN 'PROJECT_RATE_LIMITED' THEN 'PROJECT_RATE_LIMITED'
+          WHEN 'PROVIDER_NOT_CONFIGURED' THEN 'PROVIDER_NOT_CONFIGURED'
+          WHEN 'TASK_GENERATION_MISMATCH' THEN 'TASK_GENERATION_MISMATCH'
+          WHEN 'AUTO_EXECUTION_PRECLAIM_FAILED' THEN 'PRECLAIM_FAILURE'
+          ELSE 'OTHER'
+        END`,
+        value: count(),
+      }).from(eventsTable)
+        .innerJoin(tasksTable, eq(eventsTable.taskId, tasksTable.id))
+        .where(and(
+          eq(eventsTable.type, "TaskAutoExecutionDeferred"),
+          eq(tasksTable.status, "verifying"),
+        ))
+        .groupBy(sql`CASE ${eventsTable.payload}->>'lastFailureCode'
+          WHEN 'LOCAL_QUEUE_FULL' THEN 'LOCAL_QUEUE_FULL'
+          WHEN 'PROJECT_RATE_LIMITED' THEN 'PROJECT_RATE_LIMITED'
+          WHEN 'PROVIDER_NOT_CONFIGURED' THEN 'PROVIDER_NOT_CONFIGURED'
+          WHEN 'TASK_GENERATION_MISMATCH' THEN 'TASK_GENERATION_MISMATCH'
+          WHEN 'AUTO_EXECUTION_PRECLAIM_FAILED' THEN 'PRECLAIM_FAILURE'
+          ELSE 'OTHER'
+        END`),
       db.select({ value: count() }).from(eventsTable)
         .innerJoin(tasksTable, eq(eventsTable.taskId, tasksTable.id))
         .where(and(
@@ -1393,6 +1419,10 @@ export async function getDurableJobHealth(): Promise<{
       retryExhaustedTasks: Number(exhaustedTasks.value),
       pendingAiTaskDispatches: Number(requestedAiTaskDispatches.value),
       deferredAiTaskDispatches: Number(deferredAiTaskDispatches.value),
+      deferredAiTaskDispatchesByReason: deferredAiTaskDispatchReasonRows.map((row) => ({
+        reasonCode: row.reasonCode,
+        count: Number(row.value),
+      })),
       staleAiTaskDispatches: Number(staleAiTaskDispatches.value),
       oldestAiTaskDispatchAt: oldestAiTaskDispatch.value?.toISOString() ?? null,
       failedDispatchStages: Number(failedStages.value),
@@ -1439,6 +1469,7 @@ export async function getDurableJobHealth(): Promise<{
       retryExhaustedTasks: 0,
       pendingAiTaskDispatches: 0,
       deferredAiTaskDispatches: 0,
+      deferredAiTaskDispatchesByReason: [],
       staleAiTaskDispatches: 0,
       oldestAiTaskDispatchAt: null,
       failedDispatchStages: 0,
