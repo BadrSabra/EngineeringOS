@@ -1009,10 +1009,12 @@ describe("periodic stale scan recovery and durable health", () => {
   });
 
   it("reports stale AI dispatch intents and the durable last outcome per stage", async () => {
+    const baseline = await getDurableJobHealth();
     const projectId = await insertProject("active");
     projectCleanup.push(projectId);
     const taskId = randomUUID();
     const missionBlockedTaskId = randomUUID();
+    const scheduledFutureTaskId = randomUUID();
     await db.insert(tasksTable).values([
       {
         id: taskId,
@@ -1027,6 +1029,14 @@ describe("periodic stale scan recovery and durable health", () => {
         projectId,
         title: "Mission-gated AI dispatch",
         prompt: "Wait for Mission dependencies",
+        status: "verifying",
+        retryCount: 0,
+      },
+      {
+        id: scheduledFutureTaskId,
+        projectId,
+        title: "Provider configuration retry is scheduled",
+        prompt: "Wait for provider configuration",
         status: "verifying",
         retryCount: 0,
       },
@@ -1064,6 +1074,22 @@ describe("periodic stale scan recovery and durable health", () => {
           nextAttemptAt: new Date(Date.now() - 1_000).toISOString(),
         },
       },
+      {
+        id: `task-auto-execution-deferred:${scheduledFutureTaskId}`,
+        type: "TaskAutoExecutionDeferred",
+        projectId,
+        taskId: scheduledFutureTaskId,
+        severity: "warning",
+        message: "AI task execution is waiting for provider configuration.",
+        timestamp: new Date(Date.now() - STALE_PENDING_TIMEOUT_MS - 10_000),
+        payload: {
+          userId: "test-user",
+          taskRetryCount: 0,
+          attemptCount: 1,
+          lastFailureCode: "PROVIDER_NOT_CONFIGURED",
+          nextAttemptAt: new Date(Date.now() + 10 * 60_000).toISOString(),
+        },
+      },
     ]);
     const stageName = `health-fixture-${randomUUID()}`;
     try {
@@ -1078,7 +1104,7 @@ describe("periodic stale scan recovery and durable health", () => {
       });
       const health = await getDurableJobHealth();
       expect(health.status).toBe("degraded");
-      expect(health.deferredAiTaskDispatches).toBeGreaterThanOrEqual(1);
+      expect(health.deferredAiTaskDispatches - baseline.deferredAiTaskDispatches).toBe(3);
       const rateLimitedDispatches = health.deferredAiTaskDispatchesByReason.find(
         (entry) => entry.reasonCode === "PROJECT_RATE_LIMITED",
       );
@@ -1087,7 +1113,11 @@ describe("periodic stale scan recovery and durable health", () => {
         (entry) => entry.reasonCode === "MISSION_GATE_BLOCKED",
       );
       expect(missionBlockedDispatches?.count).toBeGreaterThanOrEqual(1);
-      expect(health.staleAiTaskDispatches).toBeGreaterThanOrEqual(2);
+      const providerNotConfiguredDispatches = health.deferredAiTaskDispatchesByReason.find(
+        (entry) => entry.reasonCode === "PROVIDER_NOT_CONFIGURED",
+      );
+      expect(providerNotConfiguredDispatches?.count).toBeGreaterThanOrEqual(1);
+      expect(health.staleAiTaskDispatches - baseline.staleAiTaskDispatches).toBe(2);
       expect(health.oldestAiTaskDispatchAt).not.toBeNull();
       expect(health.failedDispatchStages).toBeGreaterThanOrEqual(1);
       expect(health.dispatchStages).toContainEqual(expect.objectContaining({
@@ -1101,6 +1131,7 @@ describe("periodic stale scan recovery and durable health", () => {
         .where(eq(durableDispatchStageHealthTable.stageName, stageName));
       await db.delete(eventsTable).where(eq(eventsTable.id, `task-auto-execution-deferred:${taskId}`));
       await db.delete(eventsTable).where(eq(eventsTable.id, `task-auto-execution-deferred:${missionBlockedTaskId}`));
+      await db.delete(eventsTable).where(eq(eventsTable.id, `task-auto-execution-deferred:${scheduledFutureTaskId}`));
     }
   });
 });
