@@ -1,6 +1,23 @@
 import { createHmac } from "node:crypto";
 
 const SUPERVISOR_AUTH_CONTEXT = "EngineeringOS/workspace-runtime-supervisor/v1";
+const SUPERVISOR_COMMAND_CONTEXT = "EngineeringOS/workspace-runtime-supervisor/project-binding/v1";
+const SUPERVISOR_COMMAND_SIGNATURE_HEADER = "x-engineeringos-command-signature";
+
+export function signWorkspaceRuntimeSupervisorCommand(
+  secret: string,
+  path: string,
+  body: string,
+): string {
+  if (!secret) throw new Error("Workspace runtime supervisor command signing is not configured.");
+  return createHmac("sha256", secret)
+    .update(SUPERVISOR_COMMAND_CONTEXT)
+    .update("\n")
+    .update(path)
+    .update("\n")
+    .update(body)
+    .digest("hex");
+}
 
 export function deriveWorkspaceRuntimeSupervisorToken(secret: string): string {
   if (!secret) {
@@ -24,6 +41,7 @@ type SupervisorResponse = {
 
 export type ObserveStartState = {
   projectId: string;
+  ownerProjectId: string;
   status: "running" | "stopped" | "unknown";
   session?: SupervisorResponse;
   observedAt: string;
@@ -47,10 +65,12 @@ export class WorkspaceRuntimeSupervisorClient {
     private readonly baseUrl = "http://127.0.0.1:8099",
     private readonly fetchImpl: typeof fetch = fetch,
     private readonly testAuthToken?: string,
+    private readonly testCommandSecret?: string,
   ) {}
 
   async start(input: {
     projectId: string;
+    ownerProjectId: string;
     sessionId: string;
     projectRoot: string;
     attestationMarker?: string;
@@ -60,6 +80,7 @@ export class WorkspaceRuntimeSupervisorClient {
       method: "POST",
       body: JSON.stringify({
         projectId: input.projectId,
+        ownerProjectId: input.ownerProjectId,
         sessionId: input.sessionId,
         projectRoot: input.projectRoot,
         profile: "dev",
@@ -73,6 +94,7 @@ export class WorkspaceRuntimeSupervisorClient {
 
   async adopt(input: {
     projectId: string;
+    ownerProjectId: string;
     sessionId: string;
     projectRoot: string;
     pid: number | null;
@@ -85,6 +107,7 @@ export class WorkspaceRuntimeSupervisorClient {
       method: "POST",
       body: JSON.stringify({
         projectId: input.projectId,
+        ownerProjectId: input.ownerProjectId,
         sessionId: input.sessionId,
         projectRoot: input.projectRoot,
         pid: input.pid,
@@ -99,7 +122,9 @@ export class WorkspaceRuntimeSupervisorClient {
 
   async stop(input: {
     projectId: string;
+    ownerProjectId: string;
     sessionId: string;
+    projectRoot: string;
     pid: number | null;
   }): Promise<void> {
     await this.request("/runtime/stop", {
@@ -108,17 +133,20 @@ export class WorkspaceRuntimeSupervisorClient {
     });
   }
 
-  async observeStartState(projectId: string): Promise<ObserveStartState> {
+  async observeStartState(input: {
+    projectId: string;
+    ownerProjectId: string;
+  }): Promise<ObserveStartState> {
     const payload = await this.request("/runtime/observe-start", {
       method: "POST",
-      body: JSON.stringify({ projectId }),
+      body: JSON.stringify(input),
     });
     if (!isObserveStartState(payload)) {
       throw new WorkspaceRuntimeSupervisorError(
         "Workspace runtime supervisor returned an invalid observation.",
       );
     }
-    if (payload.projectId !== projectId) {
+    if (payload.projectId !== input.projectId || payload.ownerProjectId !== input.ownerProjectId) {
       throw new WorkspaceRuntimeSupervisorError(
         "Workspace runtime supervisor returned an observation for a different project.",
       );
@@ -128,14 +156,21 @@ export class WorkspaceRuntimeSupervisorClient {
 
   private async request(path: string, init: RequestInit): Promise<SupervisorResponse> {
     const token = this.testAuthToken ?? this.deriveAuthToken();
+    const body = typeof init.body === "string" ? init.body : "";
+    const signature = signWorkspaceRuntimeSupervisorCommand(
+      this.commandSigningSecret(),
+      path,
+      body,
+    );
     let response: Response;
     try {
       response = await this.fetchImpl(`${this.baseUrl}${path}`, {
         ...init,
         headers: {
+          ...(init.headers ?? {}),
           "content-type": "application/json",
           authorization: `Bearer ${token}`,
-          ...(init.headers ?? {}),
+          [SUPERVISOR_COMMAND_SIGNATURE_HEADER]: signature,
         },
       });
     } catch {
@@ -152,6 +187,17 @@ export class WorkspaceRuntimeSupervisorClient {
       );
     }
     return payload as SupervisorResponse;
+  }
+
+  private commandSigningSecret(): string {
+    const secret = this.testCommandSecret ?? process.env.SESSION_SECRET;
+    if (!secret) {
+      throw new WorkspaceRuntimeSupervisorError(
+        "Workspace runtime supervisor command signing is not configured.",
+        503,
+      );
+    }
+    return secret;
   }
 
   private deriveAuthToken(): string {
@@ -171,6 +217,7 @@ function isObserveStartState(value: unknown): value is ObserveStartState {
   const candidate = value as Partial<ObserveStartState>;
   if (
     typeof candidate.projectId !== "string"
+    || typeof candidate.ownerProjectId !== "string"
     || !["running", "stopped", "unknown"].includes(candidate.status ?? "")
     || typeof candidate.observedAt !== "string"
     || Number.isNaN(Date.parse(candidate.observedAt))
