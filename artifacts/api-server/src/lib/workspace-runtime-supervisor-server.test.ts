@@ -67,6 +67,7 @@ function startSupervisor(port: number, extraEnv: Record<string, string> = {}): C
       HOME: process.env.HOME ?? "/tmp",
       SESSION_SECRET: testSecret,
       WORKSPACE_RUNTIME_SUPERVISOR_PORT: String(port),
+      WORKSPACE_RUNTIME_ALLOWED_ROOT: tmpdir(),
       ...extraEnv,
     },
     stdio: "ignore",
@@ -262,6 +263,128 @@ describe("workspace runtime supervisor server boundary", () => {
       projectId: "test-project",
       inventoryComplete: true,
     });
+  });
+
+  it("rejects project roots outside the configured workspace before spawning", async () => {
+    const supervisorPort = await freePort();
+    const allowedRoot = await mkdtemp(path.join(tmpdir(), "workspace-runtime-allowed-root-"));
+    const outsideRoot = await mkdtemp(path.join(tmpdir(), "workspace-runtime-outside-root-"));
+    const supervisor = startSupervisor(supervisorPort, {
+      WORKSPACE_RUNTIME_ALLOWED_ROOT: allowedRoot,
+    });
+    try {
+      await writeFile(
+        path.join(outsideRoot, "package.json"),
+        JSON.stringify({ scripts: { dev: "node server.mjs" } }),
+      );
+      await writeFile(
+        path.join(outsideRoot, "server.mjs"),
+        'import { createServer } from "node:http"; createServer((_req, res) => res.end("unexpected")).listen(Number(process.env.PORT), "127.0.0.1");',
+      );
+      await waitForHealth(supervisor, supervisorPort);
+      const token = deriveWorkspaceRuntimeSupervisorToken(testSecret);
+      const response = await fetch(`http://127.0.0.1:${supervisorPort}/runtime/start`, {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          projectId: "outside-workspace-project",
+          sessionId: "outside-workspace-session",
+          projectRoot: outsideRoot,
+          profile: "dev",
+        }),
+      });
+      expect(response.status).toBe(400);
+      await expect(response.json()).resolves.toMatchObject({
+        error: "The registered project root is unavailable or outside the configured workspace.",
+      });
+
+      const observationResponse = await fetch(
+        `http://127.0.0.1:${supervisorPort}/runtime/observe-start`,
+        {
+          method: "POST",
+          headers: {
+            "content-type": "application/json",
+            authorization: `Bearer ${token}`,
+          },
+          body: JSON.stringify({ projectId: "outside-workspace-project" }),
+        },
+      );
+      expect(observationResponse.status).toBe(200);
+      await expect(observationResponse.json()).resolves.toMatchObject({
+        status: "stopped",
+        inventoryComplete: true,
+        unknownListenerPorts: [],
+      });
+    } finally {
+      await rm(allowedRoot, { recursive: true, force: true });
+      await rm(outsideRoot, { recursive: true, force: true });
+    }
+  });
+
+  it("does not forward npm_config credentials into project runtime processes", async () => {
+    const supervisorPort = await freePort();
+    const projectRoot = await mkdtemp(path.join(tmpdir(), "workspace-runtime-env-policy-"));
+    const supervisor = startSupervisor(supervisorPort, {
+      npm_config_token: "riso-test-token-must-not-be-forwarded",
+      npm_config_password: "riso-test-password-must-not-be-forwarded",
+    });
+    let sessionStarted = false;
+    const projectId = "runtime-env-policy-project";
+    const sessionId = "runtime-env-policy-session";
+    const token = deriveWorkspaceRuntimeSupervisorToken(testSecret);
+
+    try {
+      await writeFile(
+        path.join(projectRoot, "package.json"),
+        JSON.stringify({ type: "module", scripts: { dev: "node server.mjs" } }),
+      );
+      await writeFile(
+        path.join(projectRoot, "server.mjs"),
+        [
+          'import { writeFileSync } from "node:fs";',
+          'import { createServer } from "node:http";',
+          'writeFileSync(new URL("./runtime-env.json", import.meta.url), JSON.stringify({ token: process.env.npm_config_token ?? null, password: process.env.npm_config_password ?? null }));',
+          'const server = createServer((_req, res) => res.end("runtime-ready"));',
+          'server.listen(Number(process.env.PORT), "127.0.0.1");',
+          'process.once("SIGTERM", () => server.close(() => process.exit(0)));',
+        ].join("\n"),
+      );
+      await waitForHealth(supervisor, supervisorPort);
+
+      const response = await fetch(`http://127.0.0.1:${supervisorPort}/runtime/start`, {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ projectId, sessionId, projectRoot, profile: "dev" }),
+      });
+      expect(response.status).toBe(200);
+      sessionStarted = true;
+      await expect(response.json()).resolves.toMatchObject({
+        projectId,
+        sessionId,
+        status: "running",
+      });
+      await expect(
+        readFile(path.join(projectRoot, "runtime-env.json"), "utf8").then((value) => JSON.parse(value)),
+      ).resolves.toEqual({ token: null, password: null });
+    } finally {
+      if (sessionStarted) {
+        await fetch(`http://127.0.0.1:${supervisorPort}/runtime/stop`, {
+          method: "POST",
+          headers: {
+            "content-type": "application/json",
+            authorization: `Bearer ${token}`,
+          },
+          body: JSON.stringify({ projectId, sessionId }),
+        }).catch(() => undefined);
+      }
+      await rm(projectRoot, { recursive: true, force: true });
+    }
   });
 
   it("refuses non-loopback binding even when authentication is configured", () => {
