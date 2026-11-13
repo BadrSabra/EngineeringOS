@@ -4,7 +4,7 @@ import { createHash, generateKeyPairSync } from "node:crypto";
 import { createServer } from "node:net";
 import { once } from "node:events";
 import { lstat, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
-import { chmodSync, chownSync, mkdtempSync } from "node:fs";
+import { chmodSync, mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -160,8 +160,7 @@ async function runtimeAdoptionProof(pid: number, port: number) {
 
 function startSupervisor(port: number, extraEnv: Record<string, string> = {}): ChildProcess {
   const directory = mkdtempSync(path.join(tmpdir(), "workspace-runtime-supervisor-uds-test-"));
-  chownSync(directory, process.getuid?.() ?? 1000, process.getgid?.() ?? 1000);
-  chmodSync(directory, 0o710);
+  chmodSync(directory, 0o2710);
   const socketPath = path.join(directory, "control.sock");
   const pair = generateKeyPairSync("ed25519");
   const privateKeyDer = pair.privateKey.export({ format: "der", type: "pkcs8" }) as Buffer;
