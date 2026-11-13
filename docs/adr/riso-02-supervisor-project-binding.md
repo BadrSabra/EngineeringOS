@@ -52,6 +52,7 @@ This change also does not add a durable replay ledger, nonce/fencing generation,
 - Reject start with a different owner for an existing runtime key.
 - Reject start with a different root for the same owner/runtime key.
 - Reject adopt, stop, and observation when the owner does not match.
+- Reject `observe-start` for a different root even when the owner matches; reject an API response whose root differs from the signed request.
 - Preserve the original process after a wrong-owner stop attempt.
 - Preserve owner binding through API worker recovery, Supervisor adoption, heartbeat adoption, and stop.
 - Run the Supervisor server tests, Workspace Runtime unit/lifecycle tests, PostgreSQL recovery tests, typecheck, and full CI.
