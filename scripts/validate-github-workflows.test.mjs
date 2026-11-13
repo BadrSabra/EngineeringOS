@@ -343,3 +343,42 @@ test("accepts local and external reusable workflow references", async () => {
     await rm(root, { recursive: true, force: true });
   }
 });
+
+test("rejects duplicate job IDs instead of silently overriding a workflow job", async () => {
+  const root = await mkdtemp(join(tmpdir(), "github-workflows-"));
+  const workflowsDirectory = join(root, ".github", "workflows");
+
+  try {
+    await mkdir(workflowsDirectory, { recursive: true });
+    await writeFile(
+      join(workflowsDirectory, "duplicate-job-id.yml"),
+      [
+        "name: Duplicate job IDs",
+        "on: [push]",
+        "jobs:",
+        "  validate:",
+        "    runs-on: ubuntu-latest",
+        "    steps:",
+        "      - run: echo first",
+        "  validate:",
+        "    runs-on: ubuntu-latest",
+        "    steps:",
+        "      - run: echo second",
+        "",
+      ].join("\\n"),
+    );
+
+    await assert.rejects(
+      validateWorkflows(workflowsDirectory, root),
+      (error) => {
+        assert.match(
+          error.message,
+          /\\.github\\/workflows\\/duplicate-job-id\\.yml: YAML syntax error/,
+        );
+        return true;
+      },
+    );
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
