@@ -5,6 +5,7 @@ import {
   PreviewAgentClientError,
 } from "./client.js";
 import {
+  checkLinuxSecretService,
   LinuxSecretServiceStore,
   PreviewAgentSecretStoreError,
 } from "./linux-secret-service.js";
@@ -13,6 +14,7 @@ import { PreviewAgentLockError } from "./linux-agent-lock.js";
 const USAGE = `EngineeringOS Preview Agent (Linux)
 
 Commands:
+  engineeringos-preview-agent doctor
   engineeringos-preview-agent pair --api URL --node UUID --store UUID --expires ISO_DATE
   engineeringos-preview-agent run  --api URL --node UUID
 
@@ -26,8 +28,16 @@ async function main(argv: string[]): Promise<void> {
     process.stdout.write(USAGE);
     return;
   }
-  if (command !== "pair" && command !== "run") {
+  if (command !== "doctor" && command !== "pair" && command !== "run") {
     throw new Error("Unknown command. Use --help.");
+  }
+  if (command === "doctor") {
+    if (args.length > 0) throw new Error("Invalid command options. Use --help.");
+    await checkLinuxSecretService();
+    process.stdout.write(
+      "Linux Secret Service passed a temporary write/read/delete check; no Agent was paired.\n",
+    );
+    return;
   }
   const options = parseOptions(
     args,

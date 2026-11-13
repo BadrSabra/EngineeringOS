@@ -1,3 +1,4 @@
+import { randomBytes, randomUUID } from "node:crypto";
 import { spawn } from "node:child_process";
 import { homedir } from "node:os";
 import {
@@ -104,6 +105,73 @@ export const runSecretTool: SecretToolRunner = (args, input) =>
     });
     child.stdin.end(input);
   });
+
+/**
+ * Verifies Secret Service availability with a random, temporary round-trip.
+ * This does not create an Agent identity or contact the API.
+ */
+export async function checkLinuxSecretService(
+  run: SecretToolRunner = runSecretTool,
+  platform: NodeJS.Platform = process.platform,
+): Promise<void> {
+  if (platform !== "linux") {
+    throw new PreviewAgentSecretStoreError(
+      "PREVIEW_AGENT_SECRET_SERVICE_UNAVAILABLE",
+    );
+  }
+
+  const probeId = randomUUID();
+  const probeValue = randomBytes(32).toString("base64url");
+  const attributes = [
+    SERVICE_ATTRIBUTE,
+    SERVICE_NAME,
+    NODE_ATTRIBUTE,
+    `preflight-${probeId}`,
+  ];
+  let failed = false;
+
+  try {
+    const stored = await run(
+      [
+        "store",
+        "--label=EngineeringOS Preview Agent environment check",
+        ...attributes,
+      ],
+      probeValue,
+    );
+    if (stored.code !== 0) failed = true;
+
+    if (!failed) {
+      const loaded = await run(["lookup", ...attributes], "");
+      if (
+        loaded.code !== 0 ||
+        loaded.stdout.replace(/\r?\n$/, "") !== probeValue
+      ) {
+        failed = true;
+      }
+    }
+  } catch {
+    failed = true;
+  } finally {
+    try {
+      const cleared = await run(["clear", ...attributes], "");
+      if (
+        cleared.code !== 0 &&
+        !(cleared.code === 1 && cleared.stderr.trim().length === 0)
+      ) {
+        failed = true;
+      }
+    } catch {
+      failed = true;
+    }
+  }
+
+  if (failed) {
+    throw new PreviewAgentSecretStoreError(
+      "PREVIEW_AGENT_SECRET_SERVICE_UNAVAILABLE",
+    );
+  }
+}
 
 export class LinuxSecretServiceStore implements PreviewAgentSecretStore {
   constructor(

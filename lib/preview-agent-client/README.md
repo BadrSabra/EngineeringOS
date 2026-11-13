@@ -18,6 +18,7 @@ From the repository checkout:
 
 ```sh
 pnpm --filter @workspace/preview-agent-client run build
+node lib/preview-agent-client/dist/cli.js doctor
 node lib/preview-agent-client/dist/cli.js pair \
   --api https://YOUR-ENGINEERINGOS-API \
   --node NODE_UUID \
@@ -27,6 +28,8 @@ node lib/preview-agent-client/dist/cli.js run \
   --api https://YOUR-ENGINEERINGOS-API \
   --node NODE_UUID
 ```
+
+`doctor` writes a random, non-sensitive probe to the Linux Secret Service, verifies the read-back, and clears it. It makes no API request and creates no Agent identity. A successful preflight does not prove a real pairing or heartbeat.
 
 The pairing code is entered through a non-echoing terminal prompt, not a flag or environment variable. The Ed25519 private key, temporary one-time pairing code, heartbeat sequence, and pending exact heartbeat proof are kept as one Secret Service item. The pairing code is removed from that item after the server confirms pairing. A private, PID-fenced lock under the user's state directory prevents two client processes from using the same node; a stale lock is reclaimed only after the recorded Linux process identity is proven dead or reused.
 

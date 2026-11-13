@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import { previewAgentPublicKeyFingerprint } from "@workspace/preview-agent-contract";
 import type { PreviewAgentIdentity } from "./identity.js";
 import {
+  checkLinuxSecretService,
   LinuxSecretServiceStore,
   type SecretToolResult,
 } from "./linux-secret-service.js";
@@ -29,6 +30,73 @@ function identity(): PreviewAgentIdentity {
 }
 
 describe("Linux Secret Service identity store", () => {
+  it("checks a temporary keyring round-trip and always clears its probe", async () => {
+    const calls: Array<{ args: string[]; input: string }> = [];
+    let stored = "";
+    const run = async (args: string[], input: string): Promise<SecretToolResult> => {
+      calls.push({ args, input });
+      if (args[0] === "store") {
+        stored = input;
+        return { code: 0, stdout: "", stderr: "" };
+      }
+      if (args[0] === "lookup") {
+        return { code: 0, stdout: `${stored}\n`, stderr: "" };
+      }
+      stored = "";
+      return { code: 0, stdout: "", stderr: "" };
+    };
+
+    await expect(checkLinuxSecretService(run, "linux")).resolves.toBeUndefined();
+
+    expect(calls.map(({ args }) => args[0])).toEqual([
+      "store",
+      "lookup",
+      "clear",
+    ]);
+    expect(calls[0]?.args.slice(2, 5)).toEqual([
+      "application",
+      "engineeringos-preview-agent",
+      "node-id",
+    ]);
+    expect(calls[0]?.input).toMatch(/^[A-Za-z0-9_-]{43}$/);
+    expect(calls[0]?.args.join(" ")).not.toContain(calls[0]?.input);
+    expect(stored).toBe("");
+  });
+
+  it("clears the temporary probe and fails closed when round-trip verification fails", async () => {
+    const calls: string[][] = [];
+    const run = async (args: string[]): Promise<SecretToolResult> => {
+      calls.push(args);
+      if (args[0] === "store") return { code: 0, stdout: "", stderr: "" };
+      if (args[0] === "lookup") {
+        return { code: 0, stdout: "different-value\n", stderr: "" };
+      }
+      return { code: 0, stdout: "", stderr: "" };
+    };
+
+    await expect(checkLinuxSecretService(run, "linux")).rejects.toMatchObject({
+      code: "PREVIEW_AGENT_SECRET_SERVICE_UNAVAILABLE",
+    });
+    expect(calls.map((args) => args[0])).toEqual([
+      "store",
+      "lookup",
+      "clear",
+    ]);
+  });
+
+  it("rejects unsupported operating systems without invoking secret-tool", async () => {
+    let called = false;
+    await expect(
+      checkLinuxSecretService(async () => {
+        called = true;
+        return { code: 0, stdout: "", stderr: "" };
+      }, "darwin"),
+    ).rejects.toMatchObject({
+      code: "PREVIEW_AGENT_SECRET_SERVICE_UNAVAILABLE",
+    });
+    expect(called).toBe(false);
+  });
+
   it("stores private identity only on stdin and binds the keyring item to node id", async () => {
     const value = {
       ...identity(),
