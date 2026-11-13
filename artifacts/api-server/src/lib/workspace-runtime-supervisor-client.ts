@@ -30,6 +30,7 @@ export function deriveWorkspaceRuntimeSupervisorToken(secret: string): string {
 
 type SupervisorResponse = {
   projectId: string;
+  ownerProjectId: string;
   sessionId: string;
   status: "starting" | "running" | "stopped" | "failed";
   port: number | null;
@@ -76,7 +77,7 @@ export class WorkspaceRuntimeSupervisorClient {
     attestationMarker?: string;
     listenerBindingDigest?: string;
   }): Promise<SupervisorResponse> {
-    return this.request("/runtime/start", {
+    const response = await this.request("/runtime/start", {
       method: "POST",
       body: JSON.stringify({
         projectId: input.projectId,
@@ -90,6 +91,7 @@ export class WorkspaceRuntimeSupervisorClient {
           : {}),
       }),
     });
+    return this.assertSessionIdentity(response, input);
   }
 
   async adopt(input: {
@@ -103,7 +105,7 @@ export class WorkspaceRuntimeSupervisorClient {
     expectedListenerIdentityDigest: string;
     attestationMarker?: string;
   }): Promise<SupervisorResponse> {
-    return this.request("/runtime/adopt", {
+    const response = await this.request("/runtime/adopt", {
       method: "POST",
       body: JSON.stringify({
         projectId: input.projectId,
@@ -118,6 +120,7 @@ export class WorkspaceRuntimeSupervisorClient {
         ...(input.attestationMarker ? { attestationMarker: input.attestationMarker } : {}),
       }),
     });
+    return this.assertSessionIdentity(response, input);
   }
 
   async stop(input: {
@@ -127,10 +130,11 @@ export class WorkspaceRuntimeSupervisorClient {
     projectRoot: string;
     pid: number | null;
   }): Promise<void> {
-    await this.request("/runtime/stop", {
+    const response = await this.request("/runtime/stop", {
       method: "POST",
       body: JSON.stringify(input),
     });
+    this.assertSessionIdentity(response, input);
   }
 
   async observeStartState(input: {
@@ -189,6 +193,28 @@ export class WorkspaceRuntimeSupervisorClient {
     return payload as SupervisorResponse;
   }
 
+  private assertSessionIdentity(
+    value: SupervisorResponse,
+    expected: { projectId: string; ownerProjectId: string; sessionId: string },
+  ): SupervisorResponse {
+    if (!isSupervisorResponse(value)) {
+      throw new WorkspaceRuntimeSupervisorError(
+        "Workspace runtime supervisor returned an invalid session response.",
+      );
+    }
+    if (
+      value.projectId !== expected.projectId
+      || value.ownerProjectId !== expected.ownerProjectId
+      || value.sessionId !== expected.sessionId
+    ) {
+      throw new WorkspaceRuntimeSupervisorError(
+        "Workspace runtime supervisor returned a session for a different project or owner.",
+        409,
+      );
+    }
+    return value;
+  }
+
   private commandSigningSecret(): string {
     const secret = this.testCommandSecret ?? process.env.SESSION_SECRET;
     if (!secret) {
@@ -229,6 +255,7 @@ function isObserveStartState(value: unknown): value is ObserveStartState {
   if (candidate.status === "running") {
     return isSupervisorResponse(candidate.session)
       && candidate.session.projectId === candidate.projectId
+      && candidate.session.ownerProjectId === candidate.ownerProjectId
       && candidate.session.status === "running"
       && candidate.session.pid !== null
       && candidate.session.port !== null;
