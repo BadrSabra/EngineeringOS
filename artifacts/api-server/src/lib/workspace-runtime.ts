@@ -1460,6 +1460,7 @@ export class WorkspaceRuntimeManager {
           });
           if (
             adopted.projectId !== claimed.projectId
+            || adopted.ownerProjectId !== this.projectIdForRuntimeId(claimed.projectId)
             || adopted.sessionId !== claimed.sessionId
             || adopted.status !== "running"
             || adopted.pid !== claimed.pid
@@ -1800,6 +1801,19 @@ export class WorkspaceRuntimeManager {
         await this.failStartingSession(session, message);
         throw new WorkspaceRuntimeError(message, "RUNTIME_START_FAILED", 502);
       }
+    }
+    if (
+      this.supervisor
+      && supervised
+      && (
+        supervised.projectId !== runtimeId
+        || supervised.ownerProjectId !== input.projectId
+        || supervised.sessionId !== sessionId
+      )
+    ) {
+      const message = "Runtime supervisor returned a session with a different project owner binding.";
+      await this.failStartingSession(session, message);
+      throw new WorkspaceRuntimeError(message, "RUNTIME_START_FAILED", 502);
     }
     const port = supervised?.port ?? directPort;
     const pid = supervised?.pid ?? child?.pid ?? null;
@@ -2146,6 +2160,7 @@ export class WorkspaceRuntimeManager {
           });
           if (
             adopted.projectId !== session.runtimeId
+            || adopted.ownerProjectId !== session.projectId
             || adopted.sessionId !== session.sessionId
             || adopted.status !== "running"
             || adopted.pid !== session.pid
