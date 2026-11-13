@@ -373,7 +373,7 @@ describe("P7.5 process recovery", () => {
       runtimeSessionId = runtime.sessionId;
       expect(runtime.port).toBeGreaterThan(0);
       expect(runtime.sessionId).toBeTruthy();
-      const afterWorkerA = await supervisor.observeStartState(projectId);
+      const afterWorkerA = await supervisor.observeStartState({ projectId, ownerProjectId: projectId });
       expect(afterWorkerA.status).toBe("running");
       expect(afterWorkerA.session).toMatchObject({
         projectId,
@@ -450,7 +450,7 @@ describe("P7.5 process recovery", () => {
         ));
       expect(finalObservations).toHaveLength(1);
       expect(finalObservations[0]?.id).toBe(retained.id);
-      const afterWorkerB = await supervisor.observeStartState(projectId);
+      const afterWorkerB = await supervisor.observeStartState({ projectId, ownerProjectId: projectId });
       expect(afterWorkerB.status).toBe("running");
       expect(afterWorkerB.session).toMatchObject({
         projectId,
