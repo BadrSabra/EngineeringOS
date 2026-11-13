@@ -516,7 +516,7 @@ describe("P7.5 process recovery", () => {
           projectId,
           ownerProjectId: projectId,
           sessionId: runtimeSessionId,
-          projectRoot: params.rootPath,
+          projectRoot: rootPath,
           pid: runtimePid ?? null,
         }).catch(async () => terminateRuntimeGroup(runtimePid));
       } else {
