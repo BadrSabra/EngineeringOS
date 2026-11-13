@@ -16,6 +16,7 @@ import type { WorkspaceRuntimeSupervisorClient } from "./workspace-runtime-super
 
 type SupervisorSession = {
   projectId: string;
+  ownerProjectId: string;
   sessionId: string;
   status: "starting" | "running" | "stopped" | "failed";
   port: number | null;
@@ -74,10 +75,14 @@ function createSupervisor(
   observeStartState?: (input: { projectId: string; ownerProjectId: string }) => Promise<SupervisorObservation>,
 ): WorkspaceRuntimeSupervisorClient {
   return {
-    start: vi.fn(start),
+    start: vi.fn(async (input: SupervisorStartInput) => ({
+      ...(await start(input)),
+      ownerProjectId: input.ownerProjectId,
+    })),
     stop: vi.fn(async () => undefined),
     adopt: vi.fn(async (input: {
       projectId: string;
+      ownerProjectId: string;
       sessionId: string;
       pid: number | null;
       port: number | null;
