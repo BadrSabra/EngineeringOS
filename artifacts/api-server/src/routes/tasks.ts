@@ -394,7 +394,13 @@ router.patch("/tasks/:taskId", async (req, res) => {
   // and the task has a generated prompt. The intent was committed atomically
   // with the status transition; this call only wakes the local queue.
   if (body.status === "verifying" && updated[0].prompt) {
-    await scheduleAiTaskExecution(taskId, req.userId, undefined, updated[0].retryCount);
+    await scheduleAiTaskExecution(
+      taskId,
+      req.userId,
+      undefined,
+      updated[0].retryCount,
+      updated[0].correlationId,
+    );
   }
 
   invalidateContextCache(project.id);
@@ -722,7 +728,13 @@ router.post("/tasks/:taskId/execute", async (req, res) => {
     // PR-C: the durable intent was committed with the Task transition. Wake
     // the local queue without waiting for the AI execution itself.
     if (finalStatus === "verifying" && task[0].prompt) {
-      await scheduleAiTaskExecution(taskId, req.userId, undefined, updated.retryCount);
+      await scheduleAiTaskExecution(
+        taskId,
+        req.userId,
+        undefined,
+        updated.retryCount,
+        updated.correlationId,
+      );
     }
 
     return res.status(202).json(await projectCurrentTaskExecutionReceipt(updated));
