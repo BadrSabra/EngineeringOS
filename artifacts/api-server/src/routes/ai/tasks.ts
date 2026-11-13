@@ -818,6 +818,35 @@ export async function scheduleAiTaskExecution(
 }
 
 /**
+ * Discard an invalid/stale dispatch row only if it still matches the exact
+ * snapshot read by the dispatcher. A newer Task generation can replace the
+ * stable per-Task event ID while a dispatcher is processing an older snapshot;
+ * deleting by ID alone would erase that newer durable intent.
+ */
+export async function discardDeferredAiTaskIntentIfUnchanged(intent: {
+  intentId: string;
+  type: string;
+  taskId: string | null;
+  payload: unknown;
+}): Promise<boolean> {
+  const taskPredicate = intent.taskId === null
+    ? isNull(eventsTable.taskId)
+    : eq(eventsTable.taskId, intent.taskId);
+  const payloadJson = intent.payload === null || intent.payload === undefined
+    ? null
+    : JSON.stringify(intent.payload);
+  const [deleted] = await db.delete(eventsTable)
+    .where(and(
+      eq(eventsTable.id, intent.intentId),
+      eq(eventsTable.type, intent.type),
+      taskPredicate,
+      sql`${eventsTable.payload} IS NOT DISTINCT FROM ${payloadJson}::jsonb`,
+    ))
+    .returning({ id: eventsTable.id });
+  return Boolean(deleted);
+}
+
+/**
  * Re-dispatch durable intents that are due. Pre-claim failures retain the
  * intent with a bounded retry time; the Task claim consumes it atomically.
  */
@@ -826,6 +855,7 @@ export async function dispatchDeferredAiTaskExecutions(limit = 100): Promise<num
   const deferred = await db
     .select({
       intentId: eventsTable.id,
+      type: eventsTable.type,
       taskId: eventsTable.taskId,
       payload: eventsTable.payload,
       status: tasksTable.status,
@@ -856,15 +886,13 @@ export async function dispatchDeferredAiTaskExecutions(limit = 100): Promise<num
   let dispatched = 0;
   for (const intent of deferred) {
     if (!intent.taskId || !intent.prompt) {
-      if (intent.taskId) {
-        await db.delete(eventsTable).where(eq(eventsTable.id, intent.intentId));
-      }
+      await discardDeferredAiTaskIntentIfUnchanged(intent);
       continue;
     }
     const parsed = parseDeferredAiTaskExecution(intent.payload);
     if (!parsed) {
       logger.warn({ taskId: intent.taskId }, "AI auto-trigger: invalid deferred dispatch intent discarded");
-      await db.delete(eventsTable).where(eq(eventsTable.id, intent.intentId));
+      await discardDeferredAiTaskIntentIfUnchanged(intent);
       continue;
     }
 
