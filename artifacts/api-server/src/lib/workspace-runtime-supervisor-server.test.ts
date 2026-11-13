@@ -7,7 +7,10 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterEach, describe, expect, it } from "vitest";
 import { resolveRuntimeListenerProcess } from "./agent-state/runtime-listener-process.js";
-import { deriveWorkspaceRuntimeSupervisorToken } from "./workspace-runtime-supervisor-client.js";
+import {
+  deriveWorkspaceRuntimeSupervisorToken,
+  signWorkspaceRuntimeSupervisorCommand,
+} from "./workspace-runtime-supervisor-client.js";
 
 const testSecret = "supervisor-test-secret-that-is-not-used-outside-this-test";
 const scriptPath = path.resolve(
@@ -15,6 +18,23 @@ const scriptPath = path.resolve(
   "../../../../scripts/workspace-runtime-supervisor.mjs",
 );
 const children: ChildProcess[] = [];
+
+function supervisorFetch(input: RequestInfo | URL, init?: RequestInit): Promise<Response> {
+  const url = new URL(String(input));
+  if (!url.pathname.startsWith("/runtime/")) return fetch(input, init);
+  const headers = new Headers(init?.headers);
+  if (headers.has("authorization")) {
+    headers.set(
+      "x-engineeringos-command-signature",
+      signWorkspaceRuntimeSupervisorCommand(
+        testSecret,
+        url.pathname,
+        typeof init?.body === "string" ? init.body : "",
+      ),
+    );
+  }
+  return fetch(input, { ...init, headers });
+}
 
 async function freePort(): Promise<number> {
   const server = createServer();
@@ -81,7 +101,7 @@ async function waitForHealth(child: ChildProcess, port: number): Promise<void> {
   while (Date.now() < deadline) {
     if (child.exitCode !== null) throw new Error(`Supervisor exited with code ${child.exitCode}.`);
     try {
-      const response = await fetch(`http://127.0.0.1:${port}/healthz`);
+      const response = await supervisorFetch(`http://127.0.0.1:${port}/healthz`);
       if (response.ok) return;
     } catch {
       // The child has not started listening yet.
@@ -149,7 +169,7 @@ async function waitForRuntimePort(port: number): Promise<void> {
   const deadline = Date.now() + 4_000;
   while (Date.now() < deadline) {
     try {
-      const response = await fetch(`http://127.0.0.1:${port}`);
+      const response = await supervisorFetch(`http://127.0.0.1:${port}`);
       if (response.ok) {
         await response.text();
         return;
@@ -242,25 +262,26 @@ describe("workspace runtime supervisor server boundary", () => {
     const child = startSupervisor(port);
     await waitForHealth(child, port);
 
-    const unauthorized = await fetch(`http://127.0.0.1:${port}/runtime/observe-start`, {
+    const unauthorized = await supervisorFetch(`http://127.0.0.1:${port}/runtime/observe-start`, {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ projectId: "test-project" }),
+      body: JSON.stringify({ projectId: "test-project", ownerProjectId: "test-project" }),
     });
     expect(unauthorized.status).toBe(401);
 
     const token = deriveWorkspaceRuntimeSupervisorToken(testSecret);
-    const authorized = await fetch(`http://127.0.0.1:${port}/runtime/observe-start`, {
+    const authorized = await supervisorFetch(`http://127.0.0.1:${port}/runtime/observe-start`, {
       method: "POST",
       headers: {
         "content-type": "application/json",
         authorization: `Bearer ${token}`,
       },
-      body: JSON.stringify({ projectId: "test-project" }),
+      body: JSON.stringify({ projectId: "test-project", ownerProjectId: "test-project" }),
     });
     expect(authorized.status).toBe(200);
     await expect(authorized.json()).resolves.toMatchObject({
       projectId: "test-project",
+      ownerProjectId: "test-project",
       inventoryComplete: true,
     });
   });
@@ -288,7 +309,7 @@ describe("workspace runtime supervisor server boundary", () => {
       );
       await waitForHealth(supervisor, supervisorPort);
       const token = deriveWorkspaceRuntimeSupervisorToken(testSecret);
-      const response = await fetch(`http://127.0.0.1:${supervisorPort}/runtime/start`, {
+      const response = await supervisorFetch(`http://127.0.0.1:${supervisorPort}/runtime/start`, {
         method: "POST",
         headers: {
           "content-type": "application/json",
@@ -296,6 +317,7 @@ describe("workspace runtime supervisor server boundary", () => {
         },
         body: JSON.stringify({
           projectId: "outside-workspace-project",
+          ownerProjectId: "outside-workspace-project",
           sessionId: "outside-workspace-session",
           projectRoot: outsideRoot,
           profile: "dev",
@@ -313,6 +335,193 @@ describe("workspace runtime supervisor server boundary", () => {
       await rm(allowedRoot, { recursive: true, force: true });
       await rm(outsideRoot, { recursive: true, force: true });
     }
+  });
+
+  it("binds a runtime identity to one owner and one canonical project root", async () => {
+    const supervisorPort = await freePort();
+    const firstRoot = await mkdtemp(path.join(tmpdir(), "workspace-runtime-owner-binding-a-"));
+    const secondRoot = await mkdtemp(path.join(tmpdir(), "workspace-runtime-owner-binding-b-"));
+    const supervisor = startSupervisor(supervisorPort, {
+      WORKSPACE_RUNTIME_ALLOWED_ROOTS_JSON: JSON.stringify([tmpdir()]),
+    });
+    let sessionStarted = false;
+    const projectId = "runtime-owner-binding";
+    const sessionId = "runtime-owner-binding-session";
+    const token = deriveWorkspaceRuntimeSupervisorToken(testSecret);
+
+    try {
+      for (const root of [firstRoot, secondRoot]) {
+        await writeFile(
+          path.join(root, "package.json"),
+          JSON.stringify({ type: "module", scripts: { dev: "node server.mjs" } }),
+        );
+      }
+      await writeFile(
+        path.join(firstRoot, "server.mjs"),
+        [
+          'import { createServer } from "node:http";',
+          'createServer((_req, res) => res.end("owner-a")).listen(Number(process.env.PORT), "127.0.0.1");',
+          'process.once("SIGTERM", () => process.exit(0));',
+        ].join("\n"),
+      );
+      await writeFile(
+        path.join(secondRoot, "server.mjs"),
+        [
+          'import { writeFileSync } from "node:fs";',
+          'import { createServer } from "node:http";',
+          'writeFileSync(new URL("./started.txt", import.meta.url), "started");',
+          'createServer((_req, res) => res.end("owner-b")).listen(Number(process.env.PORT), "127.0.0.1");',
+        ].join("\n"),
+      );
+      await waitForHealth(supervisor, supervisorPort);
+
+      const startResponse = await supervisorFetch(`http://127.0.0.1:${supervisorPort}/runtime/start`, {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          projectId,
+          ownerProjectId: "owner-a",
+          sessionId,
+          projectRoot: firstRoot,
+          profile: "dev",
+        }),
+      });
+      expect(startResponse.status).toBe(200);
+      const started = await startResponse.json() as { pid: number; port: number };
+      sessionStarted = true;
+
+      const wrongOwner = await supervisorFetch(`http://127.0.0.1:${supervisorPort}/runtime/start`, {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          projectId,
+          ownerProjectId: "owner-b",
+          sessionId: "owner-b-session",
+          projectRoot: secondRoot,
+          profile: "dev",
+        }),
+      });
+      expect(wrongOwner.status).toBe(409);
+      await expect(readFile(path.join(secondRoot, "started.txt"), "utf8")).rejects.toMatchObject({
+        code: "ENOENT",
+      });
+
+      const wrongOwnerAdoption = await supervisorFetch(`http://127.0.0.1:${supervisorPort}/runtime/adopt`, {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          projectId,
+          ownerProjectId: "owner-b",
+          sessionId,
+          projectRoot: firstRoot,
+          pid: started.pid,
+          port: started.port,
+          profile: "dev",
+          listenerBindingDigest: "a".repeat(64),
+          expectedListenerIdentityDigest: "b".repeat(64),
+        }),
+      });
+      expect(wrongOwnerAdoption.status).toBe(409);
+
+      const wrongRootSameOwner = await supervisorFetch(`http://127.0.0.1:${supervisorPort}/runtime/start`, {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          projectId,
+          ownerProjectId: "owner-a",
+          sessionId: "owner-a-new-session",
+          projectRoot: secondRoot,
+          profile: "dev",
+        }),
+      });
+      expect(wrongRootSameOwner.status).toBe(409);
+
+      const wrongOwnerObservation = await supervisorFetch(
+        `http://127.0.0.1:${supervisorPort}/runtime/observe-start`,
+        {
+          method: "POST",
+          headers: {
+            "content-type": "application/json",
+            authorization: `Bearer ${token}`,
+          },
+          body: JSON.stringify({ projectId, ownerProjectId: "owner-b" }),
+        },
+      );
+      expect(wrongOwnerObservation.status).toBe(409);
+
+      const wrongOwnerStop = await supervisorFetch(`http://127.0.0.1:${supervisorPort}/runtime/stop`, {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          projectId,
+          ownerProjectId: "owner-b",
+          sessionId,
+          projectRoot: firstRoot,
+          pid: started.pid,
+        }),
+      });
+      expect(wrongOwnerStop.status).toBe(409);
+      await expect(fetch(`http://127.0.0.1:${started.port}`).then((response) => response.text()))
+        .resolves.toBe("owner-a");
+    } finally {
+      if (sessionStarted) {
+        await supervisorFetch(`http://127.0.0.1:${supervisorPort}/runtime/stop`, {
+          method: "POST",
+          headers: {
+            "content-type": "application/json",
+            authorization: `Bearer ${token}`,
+          },
+          body: JSON.stringify({
+            projectId,
+            ownerProjectId: "owner-a",
+            sessionId,
+            projectRoot: firstRoot,
+            pid: null,
+          }),
+        }).catch(() => undefined);
+      }
+      await rm(firstRoot, { recursive: true, force: true });
+      await rm(secondRoot, { recursive: true, force: true });
+    }
+  });
+
+  it("rejects a supervisor command when its signed body is changed", async () => {
+    const port = await freePort();
+    const supervisor = startSupervisor(port);
+    await waitForHealth(supervisor, port);
+    const token = deriveWorkspaceRuntimeSupervisorToken(testSecret);
+    const signedBody = JSON.stringify({ projectId: "tampered-project", ownerProjectId: "owner-a" });
+    const changedBody = JSON.stringify({ projectId: "tampered-project", ownerProjectId: "owner-b" });
+    const response = await fetch(`http://127.0.0.1:${port}/runtime/observe-start`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        authorization: `Bearer ${token}`,
+        "x-engineeringos-command-signature": signWorkspaceRuntimeSupervisorCommand(
+          testSecret,
+          "/runtime/observe-start",
+          signedBody,
+        ),
+      },
+      body: changedBody,
+    });
+    expect(response.status).toBe(401);
+    await stopChild(supervisor);
   });
 
   it("does not forward npm_config credentials into project runtime processes", async () => {
@@ -345,13 +554,13 @@ describe("workspace runtime supervisor server boundary", () => {
       );
       await waitForHealth(supervisor, supervisorPort);
 
-      const response = await fetch(`http://127.0.0.1:${supervisorPort}/runtime/start`, {
+      const response = await supervisorFetch(`http://127.0.0.1:${supervisorPort}/runtime/start`, {
         method: "POST",
         headers: {
           "content-type": "application/json",
           authorization: `Bearer ${token}`,
         },
-        body: JSON.stringify({ projectId, sessionId, projectRoot, profile: "dev" }),
+        body: JSON.stringify({ projectId, ownerProjectId: projectId, sessionId, projectRoot, profile: "dev" }),
       });
       expect(response.status).toBe(200);
       sessionStarted = true;
@@ -365,13 +574,13 @@ describe("workspace runtime supervisor server boundary", () => {
       ).resolves.toEqual({ token: null, password: null });
     } finally {
       if (sessionStarted) {
-        await fetch(`http://127.0.0.1:${supervisorPort}/runtime/stop`, {
+        await supervisorFetch(`http://127.0.0.1:${supervisorPort}/runtime/stop`, {
           method: "POST",
           headers: {
             "content-type": "application/json",
             authorization: `Bearer ${token}`,
           },
-          body: JSON.stringify({ projectId, sessionId }),
+          body: JSON.stringify({ projectId, ownerProjectId: projectId, sessionId, projectRoot }),
         }).catch(() => undefined);
       }
       await rm(projectRoot, { recursive: true, force: true });
@@ -400,7 +609,7 @@ describe("workspace runtime supervisor server boundary", () => {
     await waitForHealth(child, port);
     const token = deriveWorkspaceRuntimeSupervisorToken(testSecret);
 
-    const response = await fetch(`http://127.0.0.1:${port}/runtime/stop`, {
+    const response = await supervisorFetch(`http://127.0.0.1:${port}/runtime/stop`, {
       method: "POST",
       headers: {
         "content-type": "application/json",
@@ -408,6 +617,8 @@ describe("workspace runtime supervisor server boundary", () => {
       },
       body: JSON.stringify({
         projectId: "test-project",
+        ownerProjectId: "test-project",
+        projectRoot: "/tmp/test-project",
         sessionId: "test-session",
         pid: 12345,
       }),
@@ -441,13 +652,13 @@ describe("workspace runtime supervisor server boundary", () => {
       );
       await waitForHealth(supervisor, supervisorPort);
 
-      const startResponse = await fetch(`http://127.0.0.1:${supervisorPort}/runtime/start`, {
+      const startResponse = await supervisorFetch(`http://127.0.0.1:${supervisorPort}/runtime/start`, {
         method: "POST",
         headers: {
           "content-type": "application/json",
           authorization: `Bearer ${token}`,
         },
-        body: JSON.stringify({ projectId, sessionId, projectRoot, profile: "dev" }),
+        body: JSON.stringify({ projectId, ownerProjectId: projectId, sessionId, projectRoot, profile: "dev" }),
       });
       expect(startResponse.status).toBe(200);
       sessionStarted = true;
@@ -458,7 +669,7 @@ describe("workspace runtime supervisor server boundary", () => {
         unownedListener.listen({ host: "127.0.0.1", port: unownedPort }, resolve);
       });
 
-      const observationResponse = await fetch(
+      const observationResponse = await supervisorFetch(
         `http://127.0.0.1:${supervisorPort}/runtime/observe-start`,
         {
           method: "POST",
@@ -466,7 +677,7 @@ describe("workspace runtime supervisor server boundary", () => {
             "content-type": "application/json",
             authorization: `Bearer ${token}`,
           },
-          body: JSON.stringify({ projectId }),
+          body: JSON.stringify({ projectId, ownerProjectId: projectId }),
         },
       );
       expect(observationResponse.status).toBe(200);
@@ -490,13 +701,13 @@ describe("workspace runtime supervisor server boundary", () => {
       expect(observation.unknownListenerPorts).toContain(unownedPort);
     } finally {
       if (sessionStarted) {
-        await fetch(`http://127.0.0.1:${supervisorPort}/runtime/stop`, {
+        await supervisorFetch(`http://127.0.0.1:${supervisorPort}/runtime/stop`, {
           method: "POST",
           headers: {
             "content-type": "application/json",
             authorization: `Bearer ${token}`,
           },
-          body: JSON.stringify({ projectId, sessionId }),
+          body: JSON.stringify({ projectId, ownerProjectId: projectId, sessionId, projectRoot }),
         }).catch(() => undefined);
       }
       if (unownedListener.listening) {
@@ -524,7 +735,7 @@ describe("workspace runtime supervisor server boundary", () => {
         unownedListener.listen({ host: "127.0.0.1", port: unownedPort }, resolve);
       });
 
-      const observationResponse = await fetch(
+      const observationResponse = await supervisorFetch(
         `http://127.0.0.1:${supervisorPort}/runtime/observe-start`,
         {
           method: "POST",
@@ -532,7 +743,7 @@ describe("workspace runtime supervisor server boundary", () => {
             "content-type": "application/json",
             authorization: `Bearer ${token}`,
           },
-          body: JSON.stringify({ projectId }),
+          body: JSON.stringify({ projectId, ownerProjectId: projectId }),
         },
       );
       expect(observationResponse.status).toBe(200);
@@ -582,7 +793,7 @@ describe("workspace runtime supervisor server boundary", () => {
       );
       await waitForHealth(supervisor, supervisorPort);
 
-      const responses = await Promise.all(sessionIds.map((sessionId) => fetch(
+      const responses = await Promise.all(sessionIds.map((sessionId) => supervisorFetch(
         `http://127.0.0.1:${supervisorPort}/runtime/start`,
         {
           method: "POST",
@@ -592,6 +803,7 @@ describe("workspace runtime supervisor server boundary", () => {
           },
           body: JSON.stringify({
             projectId: "concurrent-start-project",
+            ownerProjectId: "concurrent-start-project",
             sessionId,
             projectRoot,
             profile: "dev",
@@ -612,7 +824,7 @@ describe("workspace runtime supervisor server boundary", () => {
     } finally {
       for (const session of startedSessions) {
         try {
-          await fetch(`http://127.0.0.1:${supervisorPort}/runtime/stop`, {
+          await supervisorFetch(`http://127.0.0.1:${supervisorPort}/runtime/stop`, {
             method: "POST",
             headers: {
               "content-type": "application/json",
@@ -620,7 +832,9 @@ describe("workspace runtime supervisor server boundary", () => {
             },
             body: JSON.stringify({
               projectId: session.projectId,
+              ownerProjectId: session.projectId,
               sessionId: session.sessionId,
+              projectRoot,
             }),
           });
         } catch {
@@ -662,7 +876,7 @@ describe("workspace runtime supervisor server boundary", () => {
       });
 
       const token = deriveWorkspaceRuntimeSupervisorToken(testSecret);
-      const response = await fetch(`http://127.0.0.1:${supervisorPort}/runtime/adopt`, {
+      const response = await supervisorFetch(`http://127.0.0.1:${supervisorPort}/runtime/adopt`, {
         method: "POST",
         headers: {
           "content-type": "application/json",
@@ -670,6 +884,7 @@ describe("workspace runtime supervisor server boundary", () => {
         },
         body: JSON.stringify({
           projectId: "adopt-owner-mismatch",
+          ownerProjectId: "adopt-owner-mismatch",
           sessionId: "adopt-owner-mismatch-session",
           projectRoot,
           pid: unrelatedLauncher.pid,
@@ -715,7 +930,7 @@ describe("workspace runtime supervisor server boundary", () => {
         const token = deriveWorkspaceRuntimeSupervisorToken(testSecret);
         const adoptionProof = await runtimeAdoptionProof(leaderPid, runtimePort);
 
-        const adoptResponse = await fetch(`http://127.0.0.1:${supervisorPort}/runtime/adopt`, {
+        const adoptResponse = await supervisorFetch(`http://127.0.0.1:${supervisorPort}/runtime/adopt`, {
           method: "POST",
           headers: {
             "content-type": "application/json",
@@ -723,6 +938,7 @@ describe("workspace runtime supervisor server boundary", () => {
           },
           body: JSON.stringify({
             projectId: "group-stop-test",
+            ownerProjectId: "group-stop-test",
             sessionId: "group-stop-session",
             projectRoot,
             pid: leaderPid,
@@ -734,7 +950,7 @@ describe("workspace runtime supervisor server boundary", () => {
         await adoptResponse.json();
 
         let stopResponseCompleted = false;
-        const stopRequest = fetch(`http://127.0.0.1:${supervisorPort}/runtime/stop`, {
+        const stopRequest = supervisorFetch(`http://127.0.0.1:${supervisorPort}/runtime/stop`, {
           method: "POST",
           headers: {
             "content-type": "application/json",
@@ -742,7 +958,9 @@ describe("workspace runtime supervisor server boundary", () => {
           },
           body: JSON.stringify({
             projectId: "group-stop-test",
+            ownerProjectId: "group-stop-test",
             sessionId: "group-stop-session",
+            projectRoot,
           }),
         }).then((response) => {
           stopResponseCompleted = true;
@@ -753,13 +971,13 @@ describe("workspace runtime supervisor server boundary", () => {
         await new Promise((resolve) => setTimeout(resolve, 100));
         expect(stopResponseCompleted).toBe(false);
 
-        const observationResponse = await fetch(`http://127.0.0.1:${supervisorPort}/runtime/observe-start`, {
+        const observationResponse = await supervisorFetch(`http://127.0.0.1:${supervisorPort}/runtime/observe-start`, {
           method: "POST",
           headers: {
             "content-type": "application/json",
             authorization: `Bearer ${token}`,
           },
-          body: JSON.stringify({ projectId: "group-stop-test" }),
+          body: JSON.stringify({ projectId: "group-stop-test", ownerProjectId: "group-stop-test" }),
         });
         expect(observationResponse.status).toBe(200);
         await expect(observationResponse.json()).resolves.toMatchObject({ status: "unknown" });
@@ -807,7 +1025,7 @@ describe("workspace runtime supervisor server boundary", () => {
         const token = deriveWorkspaceRuntimeSupervisorToken(testSecret);
         const adoptionProof = await runtimeAdoptionProof(leaderPid, runtimePort);
 
-        const adoptResponse = await fetch(`http://127.0.0.1:${supervisorPort}/runtime/adopt`, {
+        const adoptResponse = await supervisorFetch(`http://127.0.0.1:${supervisorPort}/runtime/adopt`, {
           method: "POST",
           headers: {
             "content-type": "application/json",
@@ -815,6 +1033,7 @@ describe("workspace runtime supervisor server boundary", () => {
           },
           body: JSON.stringify({
             projectId: "group-shutdown-test",
+            ownerProjectId: "group-shutdown-test",
             sessionId: "group-shutdown-session",
             projectRoot,
             pid: leaderPid,
