@@ -73,8 +73,8 @@ async function createProjectRoot(): Promise<string> {
 }
 
 function createSupervisor(
-  start: (input: SupervisorStartInput) => Promise<SupervisorSession>,
-  observeStartState?: (projectId: string) => Promise<SupervisorObservation>,
+  start: (input: SupervisorStartInput) => Promise<Omit<SupervisorSession, "ownerProjectId" | "projectRoot">>,
+  observeStartState?: (projectId: string) => Promise<Omit<SupervisorObservation, "ownerProjectId" | "projectRoot">>,
 ): WorkspaceRuntimeSupervisorClient {
   return {
     start: vi.fn(async (input: SupervisorStartInput) => ({
