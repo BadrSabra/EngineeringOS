@@ -385,7 +385,7 @@ router.delete("/projects/:projectId", requireProjectWriteAccess, async (req, res
 
     let stoppedRuntime: Awaited<ReturnType<typeof workspaceRuntime.stop>>;
     try {
-      stoppedRuntime = await workspaceRuntime.stop(projectId);
+      stoppedRuntime = await workspaceRuntime.stop(projectId, before.rootPath);
     } catch (error) {
       const errorCode = error && typeof error === "object" && "code" in error
         && typeof error.code === "string"
