@@ -60,6 +60,30 @@ describe("WorkspaceRuntimeSupervisorClient child attestation handoff", () => {
     expect(JSON.stringify(response)).not.toContain(marker);
   });
 
+  it("rejects a start response bound to a different owner project", async () => {
+    const fetchImpl: typeof fetch = async () => new Response(JSON.stringify({
+      projectId: "runtime-namespace",
+      ownerProjectId: "different-owner",
+      sessionId: "session-runtime",
+      status: "running",
+      port: 3010,
+      pid: 1234,
+    }), { status: 200, headers: { "content-type": "application/json" } });
+    const client = new WorkspaceRuntimeSupervisorClient(
+      "http://supervisor.test",
+      fetchImpl,
+      "test-supervisor-token",
+      testCommandSecret,
+    );
+
+    await expect(client.start({
+      projectId: "runtime-namespace",
+      ownerProjectId: "expected-owner",
+      sessionId: "session-runtime",
+      projectRoot: "/tmp/project-runtime",
+    })).rejects.toThrow("different project or owner");
+  });
+
   it("sends the recovery marker and expected listener identity only to the supervisor", async () => {
     const requests: Array<{ url: string; body: string }> = [];
     const fetchImpl: typeof fetch = async (input, init) => {
