@@ -4614,6 +4614,7 @@ export async function executeTaskLifecycle(params: {
       await tx.delete(eventsTable).where(and(
         eq(eventsTable.id, taskAutoExecutionIntentId(before.id)),
         sql`${eventsTable.payload}->>'taskRetryCount' = ${String(retryCountAtRead)}`,
+        sql`${eventsTable.payload}->>'taskCorrelationId' IS NOT DISTINCT FROM ${correlationIdAtRead}`,
       ));
 
       let durable: Awaited<ReturnType<typeof createAiExecution>>;
