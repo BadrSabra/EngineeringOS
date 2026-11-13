@@ -31,6 +31,7 @@ const SAFE_ENV_NAMES = new Set([
 const SAFE_LOCALE_ENV_NAME = /^LC_[A-Z_]+$/;
 const ALLOWED_PROJECT_ROOTS_JSON = process.env.WORKSPACE_RUNTIME_ALLOWED_ROOTS_JSON;
 const SUPERVISOR_AUTH_CONTEXT = "EngineeringOS/workspace-runtime-supervisor/v1";
+const SUPERVISOR_COMMAND_CONTEXT = "EngineeringOS/workspace-runtime-supervisor/project-binding/v1";
 const CHILD_ATTESTATION_ENV_NAME = "ENGINEERINGOS_CHILD_ATTESTATION";
 const sessions = new Map();
 const startLocks = new Map();
@@ -90,11 +91,29 @@ function isAuthorized(req) {
   return supplied.length === expected.length && timingSafeEqual(supplied, expected);
 }
 
+function isCommandAuthorized(req, requestPath, rawBody) {
+  const header = req.headers["x-engineeringos-command-signature"];
+  if (typeof header !== "string" || !/^[a-f0-9]{64}$/.test(header)) return false;
+  const supplied = Buffer.from(header, "hex");
+  const expected = createHmac("sha256", sessionSecret)
+    .update(SUPERVISOR_COMMAND_CONTEXT)
+    .update("\n")
+    .update(requestPath)
+    .update("\n")
+    .update(rawBody)
+    .digest();
+  return supplied.length === expected.length && timingSafeEqual(supplied, expected);
+}
+
 async function body(req) {
   let content = "";
-  for await (const chunk of req) content += chunk;
-  if (content.length > 32_000) throw new Error("Request body is too large.");
-  return content ? JSON.parse(content) : {};
+  for await (const chunk of req) {
+    content += chunk;
+    if (Buffer.byteLength(content, "utf8") > 32_000) {
+      throw Object.assign(new Error("Request body is too large."), { status: 413 });
+    }
+  }
+  return content;
 }
 
 function isSafeProjectId(value) {
@@ -620,8 +639,12 @@ async function start(input) {
 }
 
 async function startExclusive(input) {
-  if (!isSafeProjectId(input.projectId) || !isSafeProjectId(input.sessionId)) {
-    throw Object.assign(new Error("Invalid runtime identity."), { status: 400 });
+  if (
+    !isSafeProjectId(input.projectId)
+    || !isSafeProjectId(input.ownerProjectId)
+    || !isSafeProjectId(input.sessionId)
+  ) {
+    throw Object.assign(new Error("Invalid runtime identity or owner binding."), { status: 400 });
   }
   if (input.profile !== "dev") {
     throw Object.assign(new Error("Only the server-owned dev profile is permitted."), { status: 400 });
@@ -644,6 +667,15 @@ async function startExclusive(input) {
     throw Object.assign(new Error("Attested runtime startup requires a listener binding."), { status: 400 });
   }
   const existing = sessions.get(input.projectId);
+  if (
+    existing
+    && (
+      existing.ownerProjectId !== input.ownerProjectId
+      || existing.projectRoot !== projectRoot
+    )
+  ) {
+    throw Object.assign(new Error("Runtime project identity is already bound to a different owner or root."), { status: 409 });
+  }
   if (existing && (existing.status === "starting" || existing.status === "running")) {
     if (existing.sessionId === input.sessionId) {
       if (
@@ -674,6 +706,7 @@ async function startExclusive(input) {
   }
   const session = {
     projectId: input.projectId,
+    ownerProjectId: input.ownerProjectId,
     sessionId: input.sessionId,
     projectRoot,
     status: "starting",
@@ -723,8 +756,12 @@ async function startExclusive(input) {
 }
 
 async function adopt(input) {
-  if (!isSafeProjectId(input.projectId) || !isSafeProjectId(input.sessionId)) {
-    throw Object.assign(new Error("Invalid runtime identity."), { status: 400 });
+  if (
+    !isSafeProjectId(input.projectId)
+    || !isSafeProjectId(input.ownerProjectId)
+    || !isSafeProjectId(input.sessionId)
+  ) {
+    throw Object.assign(new Error("Invalid runtime identity or owner binding."), { status: 400 });
   }
   const projectRoot = await validateProjectRoot(input.projectRoot);
   if (
@@ -747,6 +784,15 @@ async function adopt(input) {
     throw Object.assign(new Error("Runtime adoption proof is invalid."), { status: 400 });
   }
   const existing = sessions.get(input.projectId);
+  if (
+    existing
+    && (
+      existing.ownerProjectId !== input.ownerProjectId
+      || existing.projectRoot !== projectRoot
+    )
+  ) {
+    throw Object.assign(new Error("Runtime project identity is already bound to a different owner or root."), { status: 409 });
+  }
   if (existing?.sessionId === input.sessionId && existing.pid === input.pid) {
     const canBindUnboundSession =
       existing.listenerBindingDigest === undefined
@@ -781,6 +827,7 @@ async function adopt(input) {
   const proof = await verifyRuntimeAdoption(input, projectRoot);
   const session = {
     projectId: input.projectId,
+    ownerProjectId: input.ownerProjectId,
     sessionId: input.sessionId,
     projectRoot,
     status: "running",
@@ -798,15 +845,25 @@ async function adopt(input) {
 }
 
 async function stop(input) {
-  if (!isSafeProjectId(input.projectId) || !isSafeProjectId(input.sessionId)) {
-    throw Object.assign(new Error("Invalid runtime identity."), { status: 400 });
+  if (
+    !isSafeProjectId(input.projectId)
+    || !isSafeProjectId(input.ownerProjectId)
+    || !isSafeProjectId(input.sessionId)
+    || typeof input.projectRoot !== "string"
+    || !path.isAbsolute(input.projectRoot)
+  ) {
+    throw Object.assign(new Error("Invalid runtime identity or owner binding."), { status: 400 });
   }
   const session = sessions.get(input.projectId);
   if (!session) {
     throw Object.assign(new Error("No supervisor-owned session is available to stop."), { status: 409 });
   }
-  if (session.sessionId !== input.sessionId) {
-    throw Object.assign(new Error("Runtime session identity does not match."), { status: 409 });
+  if (
+    session.sessionId !== input.sessionId
+    || session.ownerProjectId !== input.ownerProjectId
+    || session.projectRoot !== path.resolve(input.projectRoot)
+  ) {
+    throw Object.assign(new Error("Runtime session owner or root binding does not match."), { status: 409 });
   }
   await terminate(session);
   sessions.delete(input.projectId);
@@ -814,8 +871,12 @@ async function stop(input) {
 }
 
 async function observeStart(input) {
-  if (!isSafeProjectId(input.projectId)) {
-    throw Object.assign(new Error("Invalid runtime identity."), { status: 400 });
+  if (!isSafeProjectId(input.projectId) || !isSafeProjectId(input.ownerProjectId)) {
+    throw Object.assign(new Error("Invalid runtime identity or owner binding."), { status: 400 });
+  }
+  const tracked = sessions.get(input.projectId);
+  if (tracked && tracked.ownerProjectId !== input.ownerProjectId) {
+    throw Object.assign(new Error("Runtime owner binding does not match the tracked project."), { status: 409 });
   }
 
   const observedAt = new Date().toISOString();
@@ -850,6 +911,7 @@ async function observeStart(input) {
 
   return {
     projectId: input.projectId,
+    ownerProjectId: input.ownerProjectId,
     status,
     ...(targetIsLive ? { session: publicSession(targetSession) } : {}),
     observedAt,
@@ -873,7 +935,16 @@ async function handle(req, res) {
     if (req.method === "GET" && url.pathname === "/healthz") return json(res, 200, { status: "ok" });
     if (req.method !== "POST") return json(res, 405, { error: "method_not_allowed" });
     if (!isAuthorized(req)) return json(res, 401, { error: "unauthorized" });
-    const input = await body(req);
+    const rawBody = await body(req);
+    if (!isCommandAuthorized(req, url.pathname, rawBody)) {
+      return json(res, 401, { error: "unauthorized_command" });
+    }
+    let input;
+    try {
+      input = rawBody ? JSON.parse(rawBody) : {};
+    } catch {
+      return json(res, 400, { error: "invalid_json" });
+    }
     if (url.pathname === "/runtime/start") return json(res, 200, await start(input));
     if (url.pathname === "/runtime/adopt") return json(res, 200, await adopt(input));
     if (url.pathname === "/runtime/stop") return json(res, 200, await stop(input));
