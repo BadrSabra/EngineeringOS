@@ -516,6 +516,7 @@ describe("database workspace runtime store", () => {
           HOME: process.env.HOME ?? os.tmpdir(),
           SESSION_SECRET: runtimeRecoveryTestSecret,
           WORKSPACE_RUNTIME_SUPERVISOR_PORT: String(supervisorPort),
+          WORKSPACE_RUNTIME_ALLOWED_ROOTS_JSON: JSON.stringify([os.tmpdir()]),
         },
         stdio: ["ignore", "ignore", "ignore"],
       });
@@ -1231,6 +1232,7 @@ describe("workspace runtime lost-start-response process recovery", () => {
           HOME: process.env.HOME ?? os.tmpdir(),
           SESSION_SECRET: runtimeRecoveryTestSecret,
           WORKSPACE_RUNTIME_SUPERVISOR_PORT: String(supervisorPort),
+          WORKSPACE_RUNTIME_ALLOWED_ROOTS_JSON: JSON.stringify([os.tmpdir()]),
         },
         stdio: ["ignore", "ignore", "ignore"],
       });
