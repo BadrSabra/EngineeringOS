@@ -74,6 +74,7 @@ export async function insertTaskAutoExecutionIntent(
   const id = taskAutoExecutionIntentId(input.taskId);
   const [existing] = await tx
     .select({
+      type: eventsTable.type,
       payload: eventsTable.payload,
       projectId: eventsTable.projectId,
       taskId: eventsTable.taskId,
@@ -99,7 +100,11 @@ export async function insertTaskAutoExecutionIntent(
     const requestedDelegationBudget = input.options?.delegationBudget;
     const budgetMatches = requestedDelegationBudget === undefined
       || stableJson(existingPayload.delegationBudget) === stableJson(requestedDelegationBudget);
-    const identityMatches = existing.projectId === task.projectId
+    const identityMatches = (
+      existing.type === TASK_AUTO_EXECUTION_REQUESTED_EVENT_TYPE
+      || existing.type === TASK_AUTO_EXECUTION_DEFERRED_EVENT_TYPE
+    )
+      && existing.projectId === task.projectId
       && existing.taskId === input.taskId
       && existingPayload.userId === input.userId
       && parentExecutionMatches
@@ -140,6 +145,7 @@ export async function insertTaskAutoExecutionIntent(
         type: TASK_AUTO_EXECUTION_REQUESTED_EVENT_TYPE,
         severity: "info",
         message: "Automatic AI task execution was requested.",
+        timestamp: new Date(),
         payload,
       })
       .where(eq(eventsTable.id, id));
