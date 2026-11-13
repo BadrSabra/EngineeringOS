@@ -2930,6 +2930,34 @@ describe("real durable task execution lifecycle", () => {
         .from(aiExecutionsTable)
         .where(eq(aiExecutionsTable.id, failed.executionId))
         .limit(1);
+      const [taskBeforeResume] = await db
+        .select({
+          retryCount: tasksTable.retryCount,
+          correlationId: tasksTable.correlationId,
+        })
+        .from(tasksTable)
+        .where(eq(tasksTable.id, taskId))
+        .limit(1);
+      if (!taskBeforeResume?.correlationId) {
+        throw new Error("Task correlation identity was not persisted before resume.");
+      }
+      const outboxId = `task-auto-execution-deferred:${taskId}`;
+      await db.insert(eventsTable).values({
+        id: outboxId,
+        type: "TaskAutoExecutionDeferred",
+        projectId,
+        taskId,
+        severity: "warning",
+        message: "Task resume is waiting for the provider retry window.",
+        payload: {
+          userId,
+          taskRetryCount: taskBeforeResume.retryCount,
+          taskCorrelationId: taskBeforeResume.correlationId,
+          attemptCount: 1,
+          lastFailureCode: "PROJECT_RATE_LIMITED",
+          nextAttemptAt: String(disposition?.retryAt),
+        },
+      });
       const providerCallsBeforeResume = runAgentWithFallback.mock.calls.length;
       const earlyResume = await executeTaskLifecycle({
         taskId,
@@ -2946,6 +2974,17 @@ describe("real durable task execution lifecycle", () => {
       });
       expect(earlyResume.retryAfterMs).toBeGreaterThan(0);
       expect(runAgentWithFallback).toHaveBeenCalledTimes(providerCallsBeforeResume);
+      const [outboxAfterBlockedResume] = await db.select().from(eventsTable)
+        .where(eq(eventsTable.id, outboxId));
+      expect(outboxAfterBlockedResume).toMatchObject({
+        type: "TaskAutoExecutionDeferred",
+        payload: {
+          userId,
+          taskRetryCount: taskBeforeResume.retryCount,
+          taskCorrelationId: taskBeforeResume.correlationId,
+          lastFailureCode: "PROJECT_RATE_LIMITED",
+        },
+      });
 
       const [executionAfterResume] = await db
         .select({
@@ -3016,6 +3055,8 @@ describe("real durable task execution lifecycle", () => {
         terminalStatus: "completed",
         resumable: 0,
       });
+      await expect(db.select({ id: eventsTable.id }).from(eventsTable)
+        .where(eq(eventsTable.id, outboxId))).resolves.toHaveLength(0);
       expect(taskProgressFixture.terminalOutcomes).toEqual(["FAILED", "SUCCEEDED"]);
     } finally {
       await cleanupProjectExecutionData(projectId);
