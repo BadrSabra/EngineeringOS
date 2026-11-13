@@ -1327,6 +1327,7 @@ describe("real durable task execution lifecycle", () => {
       changedIdentity: "parent Execution",
       storedBudget: { maxChildren: 2, maxDepth: 1 },
       requestedBudget: { maxChildren: 2, maxDepth: 1 },
+      storedAttempt: 0,
       useDifferentParent: true,
     },
     {
