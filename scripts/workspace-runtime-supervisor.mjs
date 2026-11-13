@@ -612,6 +612,7 @@ function attachLogs(session) {
 function publicSession(session) {
   return {
     projectId: session.projectId,
+    ownerProjectId: session.ownerProjectId,
     sessionId: session.sessionId,
     status: session.status,
     port: session.port,
