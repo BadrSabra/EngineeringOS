@@ -4681,11 +4681,28 @@ export async function executeTaskLifecycle(params: {
       }
 
       const executionCorrelationId = durable.execution.correlationId;
+      const expectedExecutionAttempt = params.resumeExecutionId !== undefined
+        ? params.expectedResumeAttempt
+        : before.retryCount;
+      const storedDelegationBudget = durable.execution.delegationBudget
+        && typeof durable.execution.delegationBudget === "object"
+        && !Array.isArray(durable.execution.delegationBudget)
+        ? durable.execution.delegationBudget as Record<string, unknown>
+        : {};
+      const suppliedDelegationBudgetMatches = Object.entries(params.delegationBudget ?? {})
+        .every(([key, value]) => storedDelegationBudget[key] === value);
+      const parentExecutionMatches = params.resumeExecutionId !== undefined
+        || (durable.execution.parentExecutionId ?? null) === (params.parentExecutionId ?? null);
       if (
         (params.resumeExecutionId !== undefined && durable.execution.id !== params.resumeExecutionId)
         || durable.execution.userId !== params.userId
         || durable.execution.projectId !== before.projectId
         || durable.execution.linkedTaskId !== before.id
+        || (durable.execution.goalId ?? null) !== (before.goalId ?? null)
+        || (expectedExecutionAttempt !== undefined
+          && durable.execution.attempt !== expectedExecutionAttempt)
+        || !parentExecutionMatches
+        || !suppliedDelegationBudgetMatches
         || !executionCorrelationId
         || (params.resumeExecutionId && executionCorrelationId !== correlationIdAtRead)
         || (!params.resumeExecutionId
