@@ -10531,7 +10531,9 @@ describe("POST /api/ai/tasks/:taskId/execute", () => {
 
     const [staleSnapshot] = await db.select({
       type: eventsTable.type,
+      projectId: eventsTable.projectId,
       taskId: eventsTable.taskId,
+      timestamp: eventsTable.timestamp,
       payload: eventsTable.payload,
     }).from(eventsTable).where(eq(eventsTable.id, intentId));
     expect(staleSnapshot).toBeDefined();
@@ -10554,8 +10556,11 @@ describe("POST /api/ai/tasks/:taskId/execute", () => {
     const discarded = await aiTaskRoutes.discardDeferredAiTaskIntentIfUnchanged({
       intentId,
       type: staleSnapshot!.type,
+      projectId: staleSnapshot!.projectId,
       taskId: staleSnapshot!.taskId,
+      timestamp: staleSnapshot!.timestamp,
       payload: staleSnapshot!.payload,
+      reason: "invalid_payload",
     });
     expect(discarded).toBe(false);
 
@@ -10565,6 +10570,64 @@ describe("POST /api/ai/tasks/:taskId/execute", () => {
       type: "TaskAutoExecutionDispatchRequested",
       taskId,
       payload: replacementPayload,
+    });
+  });
+
+  it("does not prune an Outbox row when its Task becomes runnable after the stale snapshot", async () => {
+    const projectId = await insertProject();
+    projectIds.push(projectId);
+    const taskId = await insertTask(projectId, "completed");
+    const intentId = `task-auto-execution-deferred:${taskId}`;
+    const payload = {
+      userId: "test-user",
+      taskRetryCount: 0,
+      taskCorrelationId: null,
+      attemptCount: 0,
+    };
+    await db.insert(eventsTable).values({
+      id: intentId,
+      type: "TaskAutoExecutionDispatchRequested",
+      projectId,
+      taskId,
+      severity: "info",
+      message: "Intent observed while Task was terminal",
+      payload,
+    });
+
+    const [staleSnapshot] = await db.select({
+      type: eventsTable.type,
+      projectId: eventsTable.projectId,
+      taskId: eventsTable.taskId,
+      timestamp: eventsTable.timestamp,
+      payload: eventsTable.payload,
+    }).from(eventsTable).where(eq(eventsTable.id, intentId));
+    expect(staleSnapshot).toBeDefined();
+
+    await db.update(tasksTable)
+      .set({
+        status: "verifying",
+        prompt: "Run the newly reactivated task",
+        updatedAt: new Date(),
+      })
+      .where(eq(tasksTable.id, taskId));
+
+    const discarded = await aiTaskRoutes.discardDeferredAiTaskIntentIfUnchanged({
+      intentId,
+      type: staleSnapshot!.type,
+      projectId: staleSnapshot!.projectId,
+      taskId: staleSnapshot!.taskId,
+      timestamp: staleSnapshot!.timestamp,
+      payload: staleSnapshot!.payload,
+      reason: "ineligible",
+    });
+    expect(discarded).toBe(false);
+
+    const [currentIntent] = await db.select().from(eventsTable)
+      .where(eq(eventsTable.id, intentId));
+    expect(currentIntent).toMatchObject({
+      type: "TaskAutoExecutionDispatchRequested",
+      taskId,
+      payload,
     });
   });
 
