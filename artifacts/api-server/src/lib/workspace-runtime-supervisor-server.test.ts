@@ -284,7 +284,7 @@ describe("workspace runtime supervisor server boundary", () => {
           'import { createServer } from "node:http";',
           'writeFileSync(new URL("./started.txt", import.meta.url), "started");',
           'createServer((_req, res) => res.end("unexpected")).listen(Number(process.env.PORT), "127.0.0.1");',
-        ].join("\\n"),
+        ].join("\n"),
       );
       await waitForHealth(supervisor, supervisorPort);
       const token = deriveWorkspaceRuntimeSupervisorToken(testSecret);
