@@ -99,11 +99,27 @@ export async function insertTaskAutoExecutionIntent(
     const requestedDelegationBudget = input.options?.delegationBudget;
     const budgetMatches = requestedDelegationBudget === undefined
       || stableJson(existingPayload.delegationBudget) === stableJson(requestedDelegationBudget);
-    return existing.projectId === task.projectId
+    const identityMatches = existing.projectId === task.projectId
       && existing.taskId === input.taskId
       && existingPayload.userId === input.userId
       && parentExecutionMatches
       && budgetMatches;
+    if (!identityMatches) return false;
+
+    // Upgrade the legacy null-correlation shape in place. Without this,
+    // subsequent deferral updates would compare undefined to null and leave
+    // the pre-claim failure unrecorded.
+    if (existingTaskCorrelationId === undefined) {
+      await tx.update(eventsTable)
+        .set({
+          payload: {
+            ...existingPayload,
+            taskCorrelationId: task.correlationId,
+          },
+        })
+        .where(eq(eventsTable.id, id));
+    }
+    return true;
   }
 
   const payload = {
