@@ -488,12 +488,20 @@ function safeDispatchFailureCode(error: unknown): string {
     : "AUTO_EXECUTION_PRECLAIM_FAILED";
 }
 
+function requiresOperatorTaskDispatchConflict(errorCode: string | undefined): boolean {
+  return Boolean(
+    errorCode?.startsWith("mission_")
+    || errorCode === "execution_identity_changed"
+    || errorCode === "invalid_task_transition",
+  );
+}
+
 async function markDeferredAiTaskExecution(
   taskId: string,
   retryCount: number,
   correlationId: string | null | undefined,
   reasonCode: string,
-  delayMs: number,
+  delayMs?: number,
 ): Promise<void> {
   await db.transaction(async (tx) => {
     const id = taskAutoExecutionIntentId(taskId);
@@ -519,7 +527,10 @@ async function markDeferredAiTaskExecution(
           taskRetryCount: retryCount,
           attemptCount: parsed.attemptCount + 1,
           lastFailureCode: reasonCode,
-          nextAttemptAt: new Date(Date.now() + Math.max(1, delayMs)).toISOString(),
+          nextAttemptAt: new Date(Date.now() + Math.max(
+            1,
+            delayMs ?? retryDelayMs(parsed.attemptCount),
+          )).toISOString(),
         },
       })
       .where(eq(eventsTable.id, id));
@@ -582,7 +593,7 @@ async function runAiTaskExecution(
         retryCount,
         correlationId,
         "PROVIDER_NOT_CONFIGURED",
-        retryDelayMs(0),
+        MAX_AUTO_TASK_RETRY_MS,
       );
       return;
     }
@@ -630,12 +641,15 @@ async function runAiTaskExecution(
         && currentTask.retryCount === retryCount
         && currentTask.correlationId === correlationId
       ) {
+        const conflictCode = lifecycle.errorCode ?? "TASK_CLAIM_CONFLICT";
         await markDeferredAiTaskExecution(
           taskId,
           retryCount,
           correlationId,
-          lifecycle.errorCode ?? "TASK_CLAIM_CONFLICT",
-          lifecycle.retryAfterMs ?? retryDelayMs(0),
+          conflictCode,
+          requiresOperatorTaskDispatchConflict(conflictCode)
+            ? MAX_AUTO_TASK_RETRY_MS
+            : lifecycle.retryAfterMs,
         );
       } else {
         await clearDeferredAiTaskExecution(taskId, retryCount, correlationId);
@@ -651,7 +665,6 @@ async function runAiTaskExecution(
         retryCount,
         correlationId,
         lifecycle.errorCode ?? "TASK_EXECUTION_NOT_CLAIMED",
-        retryDelayMs(0),
       );
       logger.warn(
         { taskId, executionId: lifecycle.executionId, code: lifecycle.errorCode },
@@ -664,7 +677,6 @@ async function runAiTaskExecution(
       retryCount,
       correlationId,
       safeDispatchFailureCode(err),
-      retryDelayMs(0),
     ).catch((deferError) => {
       logger.error({ err: deferError, taskId }, "AI auto-trigger: could not preserve deferred dispatch intent");
     });
