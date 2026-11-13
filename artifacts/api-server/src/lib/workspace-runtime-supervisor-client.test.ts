@@ -187,6 +187,29 @@ describe("WorkspaceRuntimeSupervisorClient child attestation handoff", () => {
     });
   });
 
+  it("rejects a supervisor observation bound to a different owner project", async () => {
+    const fetchImpl: typeof fetch = async () => new Response(JSON.stringify({
+      projectId: "runtime-namespace",
+      ownerProjectId: "different-owner",
+      status: "stopped",
+      observedAt: "2026-11-13T00:00:00.000Z",
+      inventoryComplete: true,
+      unknownListenerPorts: [],
+      detail: "No tracked runtime session is live.",
+    }), { status: 200 });
+    const client = new WorkspaceRuntimeSupervisorClient(
+      "http://supervisor.test",
+      fetchImpl,
+      "test-supervisor-token",
+      testCommandSecret,
+    );
+
+    await expect(client.observeStartState({
+      projectId: "runtime-namespace",
+      ownerProjectId: "expected-owner",
+    })).rejects.toThrow("different project");
+  });
+
   it("rejects an invalid observation payload", async () => {
     const fetchImpl: typeof fetch = async () => new Response(JSON.stringify({
       projectId: "project-runtime",
