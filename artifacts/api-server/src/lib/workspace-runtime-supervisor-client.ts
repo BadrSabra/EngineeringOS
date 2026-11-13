@@ -6,7 +6,7 @@ type SupervisorAction = "start" | "adopt" | "stop" | "observe-start";
 type ProcessIdentity =
   | null
   | { pid: number | null }
-  | { pid: number; port: number; listenerIdentityDigest: string };
+  | { pid: number | null; port: number | null; listenerIdentityDigest: string };
 
 type SupervisorResponse = {
   projectId: string;
@@ -184,8 +184,8 @@ export class WorkspaceRuntimeSupervisorClient {
     attestationMarker?: string;
   }): Promise<SupervisorResponse> {
     const processIdentity = {
-      pid: input.pid ?? 0,
-      port: input.port ?? 0,
+      pid: input.pid,
+      port: input.port,
       listenerIdentityDigest: input.expectedListenerIdentityDigest,
     };
     return this.request("adopt", "/runtime/adopt", input.projectId, input.sessionId,
@@ -285,7 +285,12 @@ export class WorkspaceRuntimeSupervisorClient {
         503,
       );
     }
-    const payload = JSON.parse(response.body || "{}") as Partial<SupervisorResponse> & { error?: string };
+    let payload: Partial<SupervisorResponse> & { error?: string };
+    try {
+      payload = JSON.parse(response.body || "{}") as Partial<SupervisorResponse> & { error?: string };
+    } catch {
+      throw new WorkspaceRuntimeSupervisorError("Workspace runtime supervisor returned invalid JSON.");
+    }
     if (response.status < 200 || response.status >= 300) {
       throw new WorkspaceRuntimeSupervisorError(
         payload.error ?? "Workspace runtime supervisor rejected the signed command.",
