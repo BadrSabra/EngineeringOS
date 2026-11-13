@@ -1322,6 +1322,123 @@ describe("real durable task execution lifecycle", () => {
     }
   });
 
+  it("rolls back Outbox consumption when the final Task claim update fails", async () => {
+    const projectId = randomUUID();
+    const taskId = randomUUID();
+    const userId = "lifecycle-outbox-rollback-user";
+    const outboxId = `task-auto-execution-deferred:${taskId}`;
+    const now = new Date();
+    await db.insert(projectsTable).values({
+      id: projectId,
+      ownerId: userId,
+      name: `lifecycle-outbox-rollback-${projectId.slice(0, 8)}`,
+      rootPath: `/tmp/lifecycle-${projectId}`,
+      language: "typescript",
+      status: "active",
+      createdAt: now,
+      updatedAt: now,
+    });
+    await db.insert(tasksTable).values({
+      id: taskId,
+      projectId,
+      title: "Outbox claim rollback fixture",
+      prompt: "Retain the durable dispatch when Task claim cannot commit",
+      status: "verifying",
+      retryCount: 0,
+      maxRetries: 2,
+      createdAt: now,
+      updatedAt: now,
+    });
+    await db.insert(eventsTable).values({
+      id: outboxId,
+      type: "TaskAutoExecutionDispatchRequested",
+      projectId,
+      taskId,
+      severity: "info",
+      message: "Durable Task dispatch request",
+      timestamp: now,
+      payload: {
+        userId,
+        taskRetryCount: 0,
+        taskCorrelationId: null,
+        attemptCount: 0,
+      },
+    });
+
+    await db.execute(sql`
+      CREATE OR REPLACE FUNCTION fixture_fail_task_claim_update()
+      RETURNS trigger AS $
+      BEGIN
+        IF NEW.id::text = ${taskId}
+          AND OLD.status = 'verifying'
+          AND NEW.status = 'running'
+        THEN
+          RAISE EXCEPTION 'fixture_task_claim_failure';
+        END IF;
+        RETURN NEW;
+      END;
+      $ LANGUAGE plpgsql
+    `);
+    await db.execute(sql`DROP TRIGGER IF EXISTS fixture_fail_task_claim_update ON tasks`);
+    await db.execute(sql`
+      CREATE TRIGGER fixture_fail_task_claim_update
+      BEFORE UPDATE ON tasks
+      FOR EACH ROW EXECUTE FUNCTION fixture_fail_task_claim_update()
+    `);
+
+    try {
+      await expect(executeTaskLifecycle({
+        taskId,
+        userId,
+        provider: { provider: "groq", apiKey: "fixture-provider" },
+        trigger: "reconciliation",
+        expectedStatuses: ["verifying"],
+        expectedRetryCount: 0,
+        expectedCorrelationId: null,
+        workspaceRevision: now.toISOString(),
+      })).rejects.toThrow("fixture_task_claim_failure");
+
+      const [task] = await db.select({
+        status: tasksTable.status,
+        retryCount: tasksTable.retryCount,
+        correlationId: tasksTable.correlationId,
+        workerId: tasksTable.workerId,
+      }).from(tasksTable).where(eq(tasksTable.id, taskId));
+      expect(task).toEqual({
+        status: "verifying",
+        retryCount: 0,
+        correlationId: null,
+        workerId: null,
+      });
+
+      const [intent] = await db.select().from(eventsTable)
+        .where(eq(eventsTable.id, outboxId));
+      expect(intent).toMatchObject({
+        type: "TaskAutoExecutionDispatchRequested",
+        projectId,
+        taskId,
+        payload: {
+          userId,
+          taskRetryCount: 0,
+          taskCorrelationId: null,
+        },
+      });
+
+      const executions = await db.select({ id: aiExecutionsTable.id })
+        .from(aiExecutionsTable)
+        .where(eq(aiExecutionsTable.linkedTaskId, taskId));
+      expect(executions).toEqual([]);
+      expect(runAgentWithFallback).not.toHaveBeenCalled();
+    } finally {
+      await db.execute(sql`DROP TRIGGER IF EXISTS fixture_fail_task_claim_update ON tasks`);
+      await db.execute(sql`DROP FUNCTION IF EXISTS fixture_fail_task_claim_update()`);
+      await cleanupProjectExecutionData(projectId);
+      await db.delete(eventsTable).where(eq(eventsTable.id, outboxId));
+      await db.delete(tasksTable).where(eq(tasksTable.id, taskId));
+      await db.delete(projectsTable).where(eq(projectsTable.id, projectId));
+    }
+  });
+
   it.each([
     { changedState: "Task pointer", changeCorrelation: true, errorCode: "task_state_changed" },
     { changedState: "execution attempt", changeCorrelation: false, errorCode: "execution_identity_changed" },
