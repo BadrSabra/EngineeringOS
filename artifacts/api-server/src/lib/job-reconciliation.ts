@@ -1330,12 +1330,14 @@ export async function getDurableJobHealth(): Promise<{
           eq(tasksTable.status, "verifying"),
         )),
       db.select({
-        reasonCode: sql<string>`CASE ${eventsTable.payload}->>'lastFailureCode'
-          WHEN 'LOCAL_QUEUE_FULL' THEN 'LOCAL_QUEUE_FULL'
-          WHEN 'PROJECT_RATE_LIMITED' THEN 'PROJECT_RATE_LIMITED'
-          WHEN 'PROVIDER_NOT_CONFIGURED' THEN 'PROVIDER_NOT_CONFIGURED'
-          WHEN 'TASK_GENERATION_MISMATCH' THEN 'TASK_GENERATION_MISMATCH'
-          WHEN 'AUTO_EXECUTION_PRECLAIM_FAILED' THEN 'PRECLAIM_FAILURE'
+        reasonCode: sql<string>`CASE
+          WHEN ${eventsTable.payload}->>'lastFailureCode' LIKE 'mission_%' THEN 'MISSION_GATE_BLOCKED'
+          WHEN ${eventsTable.payload}->>'lastFailureCode' IN ('execution_identity_changed', 'invalid_task_transition') THEN 'EXECUTION_IDENTITY_CONFLICT'
+          WHEN ${eventsTable.payload}->>'lastFailureCode' = 'LOCAL_QUEUE_FULL' THEN 'LOCAL_QUEUE_FULL'
+          WHEN ${eventsTable.payload}->>'lastFailureCode' = 'PROJECT_RATE_LIMITED' THEN 'PROJECT_RATE_LIMITED'
+          WHEN ${eventsTable.payload}->>'lastFailureCode' = 'PROVIDER_NOT_CONFIGURED' THEN 'PROVIDER_NOT_CONFIGURED'
+          WHEN ${eventsTable.payload}->>'lastFailureCode' = 'TASK_GENERATION_MISMATCH' THEN 'TASK_GENERATION_MISMATCH'
+          WHEN ${eventsTable.payload}->>'lastFailureCode' = 'AUTO_EXECUTION_PRECLAIM_FAILED' THEN 'PRECLAIM_FAILURE'
           ELSE 'OTHER'
         END`,
         value: count(),
