@@ -1,4 +1,5 @@
 import { createHmac } from "node:crypto";
+import path from "node:path";
 
 const SUPERVISOR_AUTH_CONTEXT = "EngineeringOS/workspace-runtime-supervisor/v1";
 const SUPERVISOR_COMMAND_CONTEXT = "EngineeringOS/workspace-runtime-supervisor/project-binding/v1";
