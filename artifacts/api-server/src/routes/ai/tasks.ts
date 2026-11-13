@@ -826,24 +826,54 @@ export async function scheduleAiTaskExecution(
 export async function discardDeferredAiTaskIntentIfUnchanged(intent: {
   intentId: string;
   type: string;
+  projectId: string;
   taskId: string | null;
+  timestamp: Date;
   payload: unknown;
+  reason: "ineligible" | "invalid_payload";
 }): Promise<boolean> {
-  const taskPredicate = intent.taskId === null
-    ? isNull(eventsTable.taskId)
-    : eq(eventsTable.taskId, intent.taskId);
-  const payloadJson = intent.payload === null || intent.payload === undefined
-    ? null
-    : JSON.stringify(intent.payload);
-  const [deleted] = await db.delete(eventsTable)
-    .where(and(
-      eq(eventsTable.id, intent.intentId),
-      eq(eventsTable.type, intent.type),
-      taskPredicate,
-      sql`${eventsTable.payload} IS NOT DISTINCT FROM ${payloadJson}::jsonb`,
-    ))
-    .returning({ id: eventsTable.id });
-  return Boolean(deleted);
+  return db.transaction(async (tx) => {
+    if (intent.reason === "ineligible" && intent.taskId !== null) {
+      const [currentTask] = await tx
+        .select({
+          projectId: tasksTable.projectId,
+          status: tasksTable.status,
+          prompt: tasksTable.prompt,
+        })
+        .from(tasksTable)
+        .where(eq(tasksTable.id, intent.taskId))
+        .for("update")
+        .limit(1);
+      if (
+        currentTask
+        && currentTask.projectId === intent.projectId
+        && currentTask.status === "verifying"
+        && Boolean(currentTask.prompt)
+      ) {
+        // The Task became runnable again after the dispatcher read its
+        // ineligible snapshot. Keep the Outbox row for the next pass.
+        return false;
+      }
+    }
+
+    const taskPredicate = intent.taskId === null
+      ? isNull(eventsTable.taskId)
+      : eq(eventsTable.taskId, intent.taskId);
+    const payloadJson = intent.payload === null || intent.payload === undefined
+      ? null
+      : JSON.stringify(intent.payload);
+    const [deleted] = await tx.delete(eventsTable)
+      .where(and(
+        eq(eventsTable.id, intent.intentId),
+        eq(eventsTable.type, intent.type),
+        eq(eventsTable.projectId, intent.projectId),
+        taskPredicate,
+        eq(eventsTable.timestamp, intent.timestamp),
+        sql`${eventsTable.payload} IS NOT DISTINCT FROM ${payloadJson}::jsonb`,
+      ))
+      .returning({ id: eventsTable.id });
+    return Boolean(deleted);
+  });
 }
 
 /**
@@ -856,7 +886,9 @@ export async function dispatchDeferredAiTaskExecutions(limit = 100): Promise<num
     .select({
       intentId: eventsTable.id,
       type: eventsTable.type,
+      projectId: eventsTable.projectId,
       taskId: eventsTable.taskId,
+      timestamp: eventsTable.timestamp,
       payload: eventsTable.payload,
       status: tasksTable.status,
       prompt: tasksTable.prompt,
@@ -897,13 +929,13 @@ export async function dispatchDeferredAiTaskExecutions(limit = 100): Promise<num
   let dispatched = 0;
   for (const intent of deferred) {
     if (!intent.taskId || intent.status !== "verifying" || !intent.prompt) {
-      await discardDeferredAiTaskIntentIfUnchanged(intent);
+      await discardDeferredAiTaskIntentIfUnchanged({ ...intent, reason: "ineligible" });
       continue;
     }
     const parsed = parseDeferredAiTaskExecution(intent.payload);
     if (!parsed) {
       logger.warn({ taskId: intent.taskId }, "AI auto-trigger: invalid deferred dispatch intent discarded");
-      await discardDeferredAiTaskIntentIfUnchanged(intent);
+      await discardDeferredAiTaskIntentIfUnchanged({ ...intent, reason: "invalid_payload" });
       continue;
     }
 
