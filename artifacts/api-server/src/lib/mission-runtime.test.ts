@@ -1808,6 +1808,86 @@ describe("Mission goal runtime", () => {
     });
   });
 
+  it("does not let a foreign active Execution block Mission Task dispatch", async () => {
+    const taskId = randomUUID();
+    const taskCorrelationId = randomUUID();
+    const retryCount = 2;
+    const fixture = await createMissionFixture({
+      kind: "task",
+      taskId,
+      purpose: "execution",
+    });
+    await db.insert(tasksTable).values({
+      id: taskId,
+      projectId: fixture.projectId,
+      goalId: fixture.goalId,
+      title: "Mission task with foreign execution",
+      description: "A foreign execution must not own this Mission dispatch.",
+      status: "verifying",
+      priority: "p1",
+      phase: "execute",
+      prompt: "Run the Mission task",
+      retryCount,
+      correlationId: taskCorrelationId,
+      createdAt: fixture.now,
+      updatedAt: fixture.now,
+    });
+
+    const foreignExecutionId = randomUUID();
+    await db.insert(aiExecutionsTable).values({
+      id: foreignExecutionId,
+      projectId: fixture.projectId,
+      goalId: fixture.goalId,
+      linkedTaskId: taskId,
+      userId: "different-user",
+      idempotencyKey: `foreign-mission-task:${foreignExecutionId}`,
+      resumeTokenHash: "test-hash",
+      request: "{}",
+      checkpoint: "{}",
+      correlationId: taskCorrelationId,
+      attempt: retryCount,
+      status: "running",
+      createdAt: fixture.now,
+      updatedAt: fixture.now,
+    });
+
+    const localWake = vi.spyOn(aiTaskRoutes, "scheduleAiTaskExecution")
+      .mockResolvedValueOnce();
+    const result = await runMissionGoal({
+      goalId: fixture.goalId,
+      userId: "test-user",
+      trigger: "resume",
+    });
+
+    expect(result).toMatchObject({
+      status: "scheduled",
+      goalId: fixture.goalId,
+      taskId,
+    });
+    expect(result).not.toHaveProperty("executionId");
+    expect(localWake).toHaveBeenCalledOnce();
+    expect(localWake).toHaveBeenCalledWith(
+      taskId,
+      "test-user",
+      { parentExecutionId: null },
+      retryCount,
+      taskCorrelationId,
+    );
+
+    const [intent] = await db.select().from(eventsTable)
+      .where(eq(eventsTable.id, `task-auto-execution-deferred:${taskId}`));
+    expect(intent).toMatchObject({
+      type: "TaskAutoExecutionDispatchRequested",
+      taskId,
+      payload: {
+        userId: "test-user",
+        taskRetryCount: retryCount,
+        taskCorrelationId,
+        parentExecutionId: null,
+      },
+    });
+  });
+
   it("wakes due event waits exactly once and leaves approval waits untouched", async () => {
     const due = await createMissionFixture({
       kind: "wait",
