@@ -167,10 +167,10 @@ export class WorkspaceRuntimeSupervisorClient {
       response = await this.fetchImpl(`${this.baseUrl}${path}`, {
         ...init,
         headers: {
+          ...(init.headers ?? {}),
           "content-type": "application/json",
           authorization: `Bearer ${token}`,
           [SUPERVISOR_COMMAND_SIGNATURE_HEADER]: signature,
-          ...(init.headers ?? {}),
         },
       });
     } catch {
