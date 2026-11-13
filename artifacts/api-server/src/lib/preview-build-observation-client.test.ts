@@ -60,7 +60,7 @@ function makeJob(overrides: Partial<PreviewBuildJob> = {}): PreviewBuildJob {
     issuedAt: now,
     tokenExpiresAt: new Date(now.getTime() + 60_000),
     status: "running",
-    builderTaskArn: taskArn,
+    executionRef: taskArn,
     outputDigest: null,
     buildReceiptId: null,
     failureCode: null,
@@ -104,7 +104,7 @@ describe("Preview build observation client", () => {
       jobId,
       buildId,
       state: "stopped",
-      taskArn,
+      executionRef: taskArn,
       exitCode: 0,
       outputDigest,
     });
@@ -158,7 +158,7 @@ describe("Preview build observation client", () => {
       observePreviewBuildJob({
         gatewayUrl: "https://gateway.example",
         privateKeyPem,
-        job: makeJob({ builderTaskArn: null }),
+        job: makeJob({ executionRef: null }),
         fetcher: impossibleNotFound as typeof fetch,
         now,
       }),

@@ -71,7 +71,7 @@ describe("Preview Builder Gateway client", () => {
     ).resolves.toEqual({
       jobId: claims.jobId,
       buildId: claims.buildId,
-      taskArn,
+      executionRef: taskArn,
     });
 
     expect(capturedUrl?.pathname).toBe("/internal/v1/preview/builds");

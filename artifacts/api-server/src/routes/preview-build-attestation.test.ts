@@ -52,7 +52,7 @@ function makeJob(overrides: Partial<PreviewBuildJob> = {}): PreviewBuildJob {
     issuedAt: now,
     tokenExpiresAt: new Date(now.getTime() + 60_000),
     status: "verified",
-    builderTaskArn: null,
+    executionRef: null,
     outputDigest: "f".repeat(64),
     buildReceiptId: receiptId,
     failureCode: null,

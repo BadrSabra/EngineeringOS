@@ -75,7 +75,7 @@ function makeJob(overrides: Partial<PreviewBuildJob> = {}): PreviewBuildJob {
     issuedAt: now,
     tokenExpiresAt: new Date(now.getTime() + 60_000),
     status: "builder_succeeded",
-    builderTaskArn,
+    executionRef: builderTaskArn,
     outputDigest,
     buildReceiptId: null,
     failureCode: null,
@@ -158,7 +158,7 @@ describe("Preview build attestation boundary", () => {
         expectedStatus: "builder_succeeded",
         expectedVersion: 3,
         nextStatus: "verified",
-        builderTaskArn,
+        executionRef: builderTaskArn,
         now,
         verifiedReceipt: expect.objectContaining({
           receiptId,

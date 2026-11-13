@@ -53,7 +53,7 @@ function makeJob(overrides: Partial<PreviewBuildJob> = {}): PreviewBuildJob {
     issuedAt: new Date(now.getTime() - 60_000),
     tokenExpiresAt: new Date(now.getTime() + 240_000),
     status: "launching",
-    builderTaskArn: null,
+    executionRef: null,
     outputDigest: null,
     buildReceiptId: null,
     failureCode: null,
@@ -71,7 +71,7 @@ function transitionMock() {
     async (input: Parameters<typeof transitionPreviewBuildJob>[0]) => {
       const job = makeJob({
         status: input.nextStatus,
-        builderTaskArn: input.builderTaskArn ?? null,
+        executionRef: input.executionRef ?? null,
         outputDigest: input.outputDigest ?? null,
         failureCode: input.failureCode ?? null,
         stateVersion: input.expectedVersion + 1,
@@ -113,7 +113,7 @@ describe("durable Preview build reconciliation", () => {
   it("recovers a lost launch response by recording the exact running task", async () => {
     const { result, transition } = run({
       job: makeJob(),
-      observation: { jobId, buildId, state: "running", taskArn },
+      observation: { jobId, buildId, state: "running", executionRef: taskArn },
     });
     await expect(result).resolves.toMatchObject({
       inspected: 1,
@@ -125,7 +125,7 @@ describe("durable Preview build reconciliation", () => {
         expectedStatus: "launching",
         expectedVersion: 2,
         nextStatus: "running",
-        builderTaskArn: taskArn,
+        executionRef: taskArn,
       }),
     );
   });
@@ -134,14 +134,14 @@ describe("durable Preview build reconciliation", () => {
     const { result, transition } = run({
       job: makeJob({
         status: "running",
-        builderTaskArn: taskArn,
+        executionRef: taskArn,
         stateVersion: 3,
       }),
       observation: {
         jobId,
         buildId,
         state: "stopped",
-        taskArn,
+        executionRef: taskArn,
         exitCode: 7,
       },
     });
@@ -159,10 +159,10 @@ describe("durable Preview build reconciliation", () => {
     const { result, transition } = run({
       job: makeJob({
         status: "running",
-        builderTaskArn: taskArn,
+        executionRef: taskArn,
         stateVersion: 3,
       }),
-      observation: { jobId, buildId, state: "stopped", taskArn },
+      observation: { jobId, buildId, state: "stopped", executionRef: taskArn },
     });
     await expect(result).resolves.toMatchObject({ failed: 1 });
     expect(transition).toHaveBeenCalledWith(
@@ -178,14 +178,14 @@ describe("durable Preview build reconciliation", () => {
     const { result, transition } = run({
       job: makeJob({
         status: "running",
-        builderTaskArn: taskArn,
+        executionRef: taskArn,
         stateVersion: 3,
       }),
       observation: {
         jobId,
         buildId,
         state: "stopped",
-        taskArn,
+        executionRef: taskArn,
         exitCode: 0,
         outputDigest,
       },
@@ -195,7 +195,7 @@ describe("durable Preview build reconciliation", () => {
       expect.objectContaining({
         expectedStatus: "running",
         nextStatus: "builder_succeeded",
-        builderTaskArn: taskArn,
+        executionRef: taskArn,
         outputDigest,
       }),
     );
@@ -205,14 +205,14 @@ describe("durable Preview build reconciliation", () => {
     const { result, transition } = run({
       job: makeJob({
         status: "running",
-        builderTaskArn: taskArn,
+        executionRef: taskArn,
         stateVersion: 3,
       }),
       observation: {
         jobId,
         buildId,
         state: "stopped",
-        taskArn,
+        executionRef: taskArn,
         exitCode: 0,
       },
     });
@@ -292,7 +292,7 @@ describe("durable Preview build reconciliation", () => {
           listJobs: vi.fn(async () => [
             makeJob({
               status: "builder_succeeded",
-              builderTaskArn: taskArn,
+              executionRef: taskArn,
               outputDigest,
               stateVersion: 4,
               updatedAt: now,
@@ -307,7 +307,7 @@ describe("durable Preview build reconciliation", () => {
     expect(attest).toHaveBeenCalledWith(
       expect.objectContaining({
         gatewayUrl: "https://gateway.example",
-        builderTaskArn: taskArn,
+        executionRef: taskArn,
       }),
     );
     expect(acceptReceipt).not.toHaveBeenCalled();
@@ -327,7 +327,7 @@ describe("durable Preview build reconciliation", () => {
           listJobs: vi.fn(async () => [
             makeJob({
               status: "builder_succeeded",
-              builderTaskArn: taskArn,
+              executionRef: taskArn,
               outputDigest,
               stateVersion: 4,
             }),
@@ -363,7 +363,7 @@ describe("durable Preview build reconciliation", () => {
           listJobs: vi.fn(async () => [
             makeJob({
               status: "builder_succeeded",
-              builderTaskArn: taskArn,
+              executionRef: taskArn,
               outputDigest,
               stateVersion: 4,
               updatedAt: now,
@@ -400,7 +400,7 @@ describe("durable Preview build reconciliation", () => {
           listJobs: vi.fn(async () => [
             makeJob({
               status: "builder_succeeded",
-              builderTaskArn: taskArn,
+              executionRef: taskArn,
               outputDigest,
               stateVersion: 4,
               updatedAt: new Date(now.getTime() - 31 * 60_000),

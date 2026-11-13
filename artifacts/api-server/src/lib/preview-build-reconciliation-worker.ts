@@ -56,9 +56,9 @@ async function applyObservation(input: {
   let advanced = false;
   const observation = input.observation;
   if (
-    job.builderTaskArn &&
-    observation.taskArn &&
-    job.builderTaskArn !== observation.taskArn
+    job.executionRef &&
+    observation.executionRef &&
+    job.executionRef !== observation.executionRef
   ) {
     return "unchanged";
   }
@@ -81,7 +81,7 @@ async function applyObservation(input: {
 
   if (
     job.status === "launching" &&
-    observation.taskArn &&
+    observation.executionRef &&
     ["pending", "running", "stopped"].includes(observation.state)
   ) {
     const running = await input.transition({
@@ -89,7 +89,7 @@ async function applyObservation(input: {
       expectedStatus: "launching",
       expectedVersion: job.stateVersion,
       nextStatus: "running",
-      builderTaskArn: observation.taskArn,
+      executionRef: observation.executionRef,
       now: input.now,
     });
     if (!running) return "unchanged";
@@ -100,7 +100,7 @@ async function applyObservation(input: {
   if (job.status !== "running" || observation.state !== "stopped") {
     return advanced ? "advanced" : "unchanged";
   }
-  if (!job.builderTaskArn || job.builderTaskArn !== observation.taskArn) {
+  if (!job.executionRef || job.executionRef !== observation.executionRef) {
     return "unchanged";
   }
   if (observation.exitCode === undefined || observation.exitCode !== 0) {
@@ -123,7 +123,7 @@ async function applyObservation(input: {
       expectedStatus: "running",
       expectedVersion: job.stateVersion,
       nextStatus: "builder_succeeded",
-      builderTaskArn: job.builderTaskArn,
+      executionRef: job.executionRef,
       outputDigest: observation.outputDigest,
       now: input.now,
     });
@@ -142,7 +142,7 @@ async function reconcileAttestation(input: {
 }): Promise<"advanced" | "failed" | "unchanged"> {
   if (
     input.job.status !== "builder_succeeded" ||
-    !input.job.builderTaskArn ||
+    !input.job.executionRef ||
     !input.config.receiptPublicKeyPem
   ) {
     return "unchanged";
@@ -166,7 +166,7 @@ async function reconcileAttestation(input: {
     gatewayUrl: input.config.gatewayUrl!,
     privateKeyPem: input.config.privateKeyPem!,
     job: input.job,
-    builderTaskArn: input.job.builderTaskArn,
+    executionRef: input.job.executionRef,
     now: input.now,
   });
   if (result.state === "pending") return "unchanged";

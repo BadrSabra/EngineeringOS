@@ -633,28 +633,28 @@ export type PreviewBuildJobTransitionInput = {
 } & (
   | {
       nextStatus: "launching" | "expired" | "cancelled";
-      builderTaskArn?: never;
+      executionRef?: never;
       outputDigest?: never;
       failureCode?: never;
       verifiedReceipt?: never;
     }
   | {
       nextStatus: "running";
-      builderTaskArn: string;
+      executionRef: string;
       outputDigest?: never;
       failureCode?: never;
       verifiedReceipt?: never;
     }
   | {
       nextStatus: "builder_succeeded";
-      builderTaskArn: string;
+      executionRef: string;
       outputDigest: string;
       failureCode?: never;
       verifiedReceipt?: never;
     }
   | {
       nextStatus: "verified";
-      builderTaskArn: string;
+      executionRef: string;
       verifiedReceipt: VerifiedPreviewBuildReceipt;
       outputDigest?: never;
       failureCode?: never;
@@ -662,7 +662,7 @@ export type PreviewBuildJobTransitionInput = {
   | {
       nextStatus: "failed";
       failureCode: string;
-      builderTaskArn?: never;
+      executionRef?: never;
       outputDigest?: never;
       verifiedReceipt?: never;
     }
@@ -689,7 +689,7 @@ export async function transitionPreviewBuildJob(
       throw new Error("A verified receipt is required.");
     }
     assertPreviewBuildJobTransitionData(input.nextStatus, {
-      builderTaskArn: input.builderTaskArn,
+      executionRef: input.executionRef,
       outputDigest:
         input.nextStatus === "verified"
           ? input.verifiedReceipt.buildOutputDigest
@@ -759,7 +759,7 @@ export async function transitionPreviewBuildJob(
       if (
         !previewBuildJobMatchesVerifiedReceipt(current, receipt) ||
         Date.parse(receipt.expiresAt) <= input.now.getTime() ||
-        current.builderTaskArn !== input.builderTaskArn
+        current.executionRef !== input.executionRef
       ) {
         throw new PreviewBuildJobStoreError(
           "PREVIEW_BUILD_JOB_TRANSITION_INVALID",
@@ -781,7 +781,7 @@ export async function transitionPreviewBuildJob(
             eq(previewBuildJobsTable.jobId, input.jobId),
             eq(previewBuildJobsTable.status, input.expectedStatus),
             eq(previewBuildJobsTable.stateVersion, input.expectedVersion),
-            eq(previewBuildJobsTable.builderTaskArn, input.builderTaskArn),
+            eq(previewBuildJobsTable.executionRef, input.executionRef),
             eq(
               previewBuildJobsTable.outputDigest,
               receipt.buildOutputDigest.toLowerCase(),
@@ -801,7 +801,7 @@ export async function transitionPreviewBuildJob(
     updatedAt: input.now,
   };
   if (input.nextStatus === "running") {
-    patch.builderTaskArn = input.builderTaskArn;
+    patch.executionRef = input.executionRef;
     patch.startedAt = input.now;
   } else if (input.nextStatus === "builder_succeeded") {
     patch.outputDigest = input.outputDigest?.toLowerCase();
@@ -822,7 +822,7 @@ export async function transitionPreviewBuildJob(
   ];
   if (input.nextStatus === "builder_succeeded") {
     predicates.push(
-      eq(previewBuildJobsTable.builderTaskArn, input.builderTaskArn!),
+      eq(previewBuildJobsTable.executionRef, input.executionRef!),
     );
   }
   if (input.nextStatus === "launching") {

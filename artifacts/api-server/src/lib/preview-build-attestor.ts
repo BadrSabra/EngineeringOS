@@ -82,7 +82,7 @@ export async function acceptPreviewBuildReceipt(input: {
   }
   if (
     job.status !== "builder_succeeded" ||
-    !job.builderTaskArn ||
+    !job.executionRef ||
     !job.outputDigest
   ) {
     throw new PreviewBuildAttestationError(
@@ -131,7 +131,7 @@ export async function acceptPreviewBuildReceipt(input: {
       expectedStatus: "builder_succeeded",
       expectedVersion: job.stateVersion,
       nextStatus: "verified",
-      builderTaskArn: job.builderTaskArn,
+      executionRef: job.executionRef,
       verifiedReceipt: receipt,
       now: now(),
     });

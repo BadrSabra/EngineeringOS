@@ -68,7 +68,7 @@ function makeJob(overrides: Partial<PreviewBuildJob> = {}): PreviewBuildJob {
     issuedAt: now,
     tokenExpiresAt: new Date(now.getTime() + 5 * 60_000),
     status: "launching",
-    builderTaskArn: taskArn,
+    executionRef: taskArn,
     outputDigest: null,
     buildReceiptId: null,
     failureCode: null,

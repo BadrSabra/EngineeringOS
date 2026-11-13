@@ -18,11 +18,11 @@ const transitions: Record<
   cancelled: [],
 };
 
-const taskArnSchema = z
+const executionRefSchema = z
   .string()
-  .regex(
-    /^arn:(aws|aws-us-gov|aws-cn):ecs:[a-z0-9-]+:\d{12}:task\/[A-Za-z0-9_-]+\/[a-f0-9]{32}$/i,
-  );
+  .min(1)
+  .max(1_024)
+  .regex(/^[A-Za-z0-9][A-Za-z0-9._:/-]*$/);
 const digestSchema = z.string().regex(/^[a-f0-9]{64}$/i);
 const idSchema = z.string().uuid();
 const failureCodeSchema = z.string().regex(/^[A-Z][A-Z0-9_]{1,95}$/);
@@ -48,7 +48,7 @@ export function assertPreviewBuildJobTransition(
 }
 
 export type PreviewBuildJobTransitionData = {
-  builderTaskArn?: string;
+  executionRef?: string;
   outputDigest?: string;
   buildReceiptId?: string;
   failureCode?: string;
@@ -61,9 +61,9 @@ export function assertPreviewBuildJobTransitionData(
   const allowedFields: Record<PreviewBuildJobStatus, readonly string[]> = {
     queued: [],
     launching: [],
-    running: ["builderTaskArn"],
-    builder_succeeded: ["builderTaskArn", "outputDigest"],
-    verified: ["builderTaskArn", "outputDigest", "buildReceiptId"],
+    running: ["executionRef"],
+    builder_succeeded: ["executionRef", "outputDigest"],
+    verified: ["executionRef", "outputDigest", "buildReceiptId"],
     failed: ["failureCode"],
     expired: [],
     cancelled: [],
@@ -75,16 +75,16 @@ export function assertPreviewBuildJobTransitionData(
   const valid =
     !hasUnexpectedFields &&
     (status !== "running" ||
-      (typeof data.builderTaskArn === "string" &&
-        taskArnSchema.safeParse(data.builderTaskArn).success)) &&
+      (typeof data.executionRef === "string" &&
+        executionRefSchema.safeParse(data.executionRef).success)) &&
     (status !== "builder_succeeded" ||
-      (typeof data.builderTaskArn === "string" &&
-        taskArnSchema.safeParse(data.builderTaskArn).success &&
+      (typeof data.executionRef === "string" &&
+        executionRefSchema.safeParse(data.executionRef).success &&
         typeof data.outputDigest === "string" &&
         digestSchema.safeParse(data.outputDigest).success)) &&
     (status !== "verified" ||
-      (typeof data.builderTaskArn === "string" &&
-        taskArnSchema.safeParse(data.builderTaskArn).success &&
+      (typeof data.executionRef === "string" &&
+        executionRefSchema.safeParse(data.executionRef).success &&
         typeof data.outputDigest === "string" &&
         digestSchema.safeParse(data.outputDigest).success &&
         typeof data.buildReceiptId === "string" &&

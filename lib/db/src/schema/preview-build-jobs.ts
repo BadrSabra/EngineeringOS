@@ -120,7 +120,9 @@ export const previewBuildJobsTable = pgTable(
       withTimezone: true,
     }).notNull(),
     status: previewBuildJobStatusEnum("status").notNull().default("queued"),
-    builderTaskArn: text("builder_task_arn"),
+    // Legacy physical column retained to avoid a data migration; application code
+    // treats this as an opaque execution reference.
+    executionRef: text("builder_task_arn"),
     outputDigest: text("output_digest"),
     buildReceiptId: uuid("build_receipt_id"),
     failureCode: text("failure_code"),
@@ -198,7 +200,7 @@ export const previewBuildJobsTable = pgTable(
       table.userId,
       table.clientRequestId,
     ),
-    uniqueIndex("uq_preview_build_jobs_task_arn").on(table.builderTaskArn),
+    uniqueIndex("uq_preview_build_jobs_task_arn").on(table.executionRef),
     uniqueIndex("uq_preview_build_jobs_output_key").on(table.outputArtifactKey),
     uniqueIndex("uq_preview_build_jobs_receipt_id").on(table.buildReceiptId),
     uniqueIndex("uq_preview_build_jobs_input_artifact_ref").on(
@@ -263,7 +265,7 @@ export const insertPreviewBuildJobSchema = createInsertSchema(
   outputArtifactManifestDigest: true,
   outputArtifactRetentionPolicy: true,
   outputArtifactGcMarkedAt: true,
-  builderTaskArn: true,
+  executionRef: true,
   outputDigest: true,
   buildReceiptId: true,
   failureCode: true,
