@@ -1,20 +1,118 @@
 import { spawn, spawnSync, type ChildProcess } from "node:child_process";
+import http from "node:http";
+import { createHash, generateKeyPairSync } from "node:crypto";
 import { createServer } from "node:net";
 import { once } from "node:events";
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { lstat, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { chmodSync, chownSync, mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterEach, describe, expect, it } from "vitest";
 import { resolveRuntimeListenerProcess } from "./agent-state/runtime-listener-process.js";
-import { deriveWorkspaceRuntimeSupervisorToken } from "./workspace-runtime-supervisor-client.js";
+import { createWorkspaceRuntimeSupervisorCommand } from "../../../../scripts/workspace-runtime-supervisor-protocol.mjs";
 
-const testSecret = "supervisor-test-secret-that-is-not-used-outside-this-test";
+const nativeFetch = globalThis.fetch.bind(globalThis);
+const supervisorSockets = new Map<number, { socketPath: string; privateKey: ReturnType<typeof generateKeyPairSync>["privateKey"] }>();
+const supervisorControlDirectories: string[] = [];
 const scriptPath = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
   "../../../../scripts/workspace-runtime-supervisor.mjs",
 );
 const children: ChildProcess[] = [];
+
+function fixtureStateVersion(projectId: string, sessionId: string | null): string {
+  return createHash("sha256")
+    .update(JSON.stringify({ projectId, sessionId, fixture: "workspace-runtime-supervisor-test-v1" }))
+    .digest("hex");
+}
+
+function signedFixtureRequest(
+  socket: { socketPath: string; privateKey: ReturnType<typeof generateKeyPairSync>["privateKey"] },
+  pathname: string,
+  body: string,
+): Promise<{ status: number; body: string }> {
+  const parsed = JSON.parse(body) as Record<string, unknown>;
+  const action = pathname.endsWith("/start") ? "start"
+    : pathname.endsWith("/adopt") ? "adopt"
+      : pathname.endsWith("/stop") ? "stop"
+        : pathname.endsWith("/observe-start") ? "observe-start"
+          : null;
+  if (!action) return Promise.resolve({ status: 404, body: JSON.stringify({ error: "not_found" }) });
+  const projectId = String(parsed.projectId ?? "");
+  const sessionId = action === "observe-start" ? null : String(parsed.sessionId ?? "");
+  const processIdentity = action === "adopt"
+    ? { pid: parsed.pid, port: parsed.port, listenerIdentityDigest: parsed.expectedListenerIdentityDigest }
+    : action === "stop" ? { pid: parsed.pid ?? null } : null;
+  const command = createWorkspaceRuntimeSupervisorCommand({
+    privateKey: socket.privateKey,
+    action,
+    projectId,
+    sessionId,
+    stateVersion: fixtureStateVersion(projectId, sessionId),
+    processIdentity,
+    body,
+  });
+  return new Promise((resolve, reject) => {
+    const payload = Buffer.from(command.body, "utf8");
+    const request = http.request({
+      socketPath: socket.socketPath,
+      path: pathname,
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "content-length": String(payload.byteLength),
+        "x-eos-command": command.encodedCommand,
+        "x-eos-signature": command.signature,
+      },
+    }, (response) => {
+      const chunks: Buffer[] = [];
+      response.on("data", (chunk) => chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk)));
+      response.once("error", reject);
+      response.once("end", () => resolve({
+        status: response.statusCode ?? 502,
+        body: Buffer.concat(chunks).toString("utf8"),
+      }));
+    });
+    request.once("error", reject);
+    request.end(payload);
+  });
+}
+
+async function fetch(input: string | URL | Request, init?: RequestInit): Promise<Response> {
+  const target = new URL(typeof input === "string" ? input : input instanceof URL ? input.href : input.url);
+  const socket = supervisorSockets.get(Number(target.port));
+  if (!socket) return nativeFetch(input, init);
+  if (init?.method === undefined || init.method.toUpperCase() !== "POST") {
+    return new Response(JSON.stringify({ error: "method_not_allowed" }), { status: 405 });
+  }
+  const body = String(init.body ?? "{}");
+  let result: { status: number; body: string };
+  if (!(new Headers(init.headers)).has("x-test-authorize")) {
+    result = await new Promise((resolve, reject) => {
+      const payload = Buffer.from(body, "utf8");
+      const request = http.request({
+        socketPath: socket.socketPath,
+        path: target.pathname,
+        method: "POST",
+        headers: { "content-type": "application/json", "content-length": String(payload.byteLength) },
+      }, (response) => {
+        const chunks: Buffer[] = [];
+        response.on("data", (chunk) => chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk)));
+        response.once("error", reject);
+        response.once("end", () => resolve({
+          status: response.statusCode ?? 502,
+          body: Buffer.concat(chunks).toString("utf8"),
+        }));
+      });
+      request.once("error", reject);
+      request.end(payload);
+    });
+  } else {
+    result = await signedFixtureRequest(socket, target.pathname, body);
+  }
+  return new Response(result.body, { status: result.status, headers: { "content-type": "application/json" } });
+}
 
 async function freePort(): Promise<number> {
   const server = createServer();
@@ -61,12 +159,26 @@ async function runtimeAdoptionProof(pid: number, port: number) {
 }
 
 function startSupervisor(port: number, extraEnv: Record<string, string> = {}): ChildProcess {
+  const directory = mkdtempSync(path.join(tmpdir(), "workspace-runtime-supervisor-uds-test-"));
+  chownSync(directory, process.getuid?.() ?? 1000, process.getgid?.() ?? 1000);
+  chmodSync(directory, 0o710);
+  const socketPath = path.join(directory, "control.sock");
+  const pair = generateKeyPairSync("ed25519");
+  const privateKeyDer = pair.privateKey.export({ format: "der", type: "pkcs8" }) as Buffer;
+  const publicKeyDer = pair.publicKey.export({ format: "der", type: "spki" }) as Buffer;
+  supervisorSockets.set(port, { socketPath, privateKey: pair.privateKey });
+  supervisorControlDirectories.push(directory);
   const child = spawn(process.execPath, [scriptPath], {
     env: {
       PATH: process.env.PATH ?? "",
       HOME: process.env.HOME ?? "/tmp",
-      SESSION_SECRET: testSecret,
-      WORKSPACE_RUNTIME_SUPERVISOR_PORT: String(port),
+      NODE_ENV: "test",
+      WORKSPACE_RUNTIME_SUPERVISOR_TEST_MODE: "1",
+      WORKSPACE_RUNTIME_SUPERVISOR_SOCKET_PATH: socketPath,
+      WORKSPACE_RUNTIME_SUPERVISOR_API_GID: String(process.getgid?.() ?? 1000),
+      WORKSPACE_RUNTIME_SUPERVISOR_CANDIDATE_UID: String(process.getuid?.() || 65534),
+      WORKSPACE_RUNTIME_SUPERVISOR_CANDIDATE_GID: String(process.getgid?.() || 65534),
+      WORKSPACE_RUNTIME_SUPERVISOR_VERIFY_PUBLIC_KEY_B64: publicKeyDer.toString("base64"),
       WORKSPACE_RUNTIME_ALLOWED_ROOTS_JSON: JSON.stringify([tmpdir()]),
       ...extraEnv,
     },
@@ -77,18 +189,19 @@ function startSupervisor(port: number, extraEnv: Record<string, string> = {}): C
 }
 
 async function waitForHealth(child: ChildProcess, port: number): Promise<void> {
+  const socketPath = supervisorSockets.get(port)?.socketPath;
+  if (!socketPath) throw new Error("Workspace runtime supervisor socket fixture is missing.");
   const deadline = Date.now() + 4_000;
   while (Date.now() < deadline) {
     if (child.exitCode !== null) throw new Error(`Supervisor exited with code ${child.exitCode}.`);
     try {
-      const response = await fetch(`http://127.0.0.1:${port}/healthz`);
-      if (response.ok) return;
+      if ((await lstat(socketPath)).isSocket()) return;
     } catch {
-      // The child has not started listening yet.
+      // The supervisor has not created its Unix socket yet.
     }
     await new Promise((resolve) => setTimeout(resolve, 40));
   }
-  throw new Error("Workspace runtime supervisor did not become ready.");
+  throw new Error("Workspace runtime supervisor Unix socket did not become ready.");
 }
 
 async function stopChild(child: ChildProcess): Promise<void> {
@@ -234,6 +347,10 @@ async function startOrphaningRuntimeGroup(projectRoot: string, runtimePort: numb
 
 afterEach(async () => {
   await Promise.all(children.splice(0).map(stopChild));
+  for (const directory of supervisorControlDirectories.splice(0)) {
+    await rm(directory, { recursive: true, force: true });
+  }
+  supervisorSockets.clear();
 });
 
 describe("workspace runtime supervisor server boundary", () => {
@@ -249,12 +366,12 @@ describe("workspace runtime supervisor server boundary", () => {
     });
     expect(unauthorized.status).toBe(401);
 
-    const token = deriveWorkspaceRuntimeSupervisorToken(testSecret);
+    
     const authorized = await fetch(`http://127.0.0.1:${port}/runtime/observe-start`, {
       method: "POST",
       headers: {
         "content-type": "application/json",
-        authorization: `Bearer ${token}`,
+        "x-test-authorize": "signed-fixture",
       },
       body: JSON.stringify({ projectId: "test-project" }),
     });
@@ -287,7 +404,7 @@ describe("workspace runtime supervisor server boundary", () => {
         ].join("\n"),
       );
       await waitForHealth(supervisor, supervisorPort);
-      const token = deriveWorkspaceRuntimeSupervisorToken(testSecret);
+      const token = deriveWorkspaceRuntimeSupervisorToken("unused-test-secret-removal");
       const response = await fetch(`http://127.0.0.1:${supervisorPort}/runtime/start`, {
         method: "POST",
         headers: {
@@ -378,7 +495,7 @@ describe("workspace runtime supervisor server boundary", () => {
     }
   });
 
-  it("refuses non-loopback binding even when authentication is configured", () => {
+  it("fails closed when a protected Unix socket is not configured", () => {
     const result = spawnSync(process.execPath, [scriptPath], {
       env: {
         PATH: process.env.PATH ?? "",
@@ -391,7 +508,7 @@ describe("workspace runtime supervisor server boundary", () => {
       encoding: "utf8",
     });
     expect(result.status).not.toBe(0);
-    expect(`${result.stdout}${result.stderr}`).toContain("must bind to a loopback address");
+    expect(`${result.stdout}${result.stderr}`).toContain("requires an absolute Unix socket path");
   });
 
   it("does not signal a PID when the session is not supervisor-owned", async () => {
