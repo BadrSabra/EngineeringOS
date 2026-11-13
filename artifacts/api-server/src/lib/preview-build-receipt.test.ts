@@ -37,7 +37,7 @@ const expected = {
   builderImageDigest: `sha256:${"e".repeat(64)}`,
   buildId: "223e4567-e89b-42d3-a456-426614174001",
   outputArtifactKey:
-    "preview-build-outputs/223e4567-e89b-42d3-a456-426614174001/site.tar.gz",
+    "preview-build-outputs/223e4567-e89b-42d3-a456-426614174001/g1/site.tar.gz",
   attemptId: "123e4567-e89b-42d3-a456-426614174000",
   idempotencyKey: "323e4567-e89b-42d3-a456-426614174002",
   dispatchGeneration: 1,
@@ -92,7 +92,8 @@ function legacyReceipt(): LegacyPreviewBuildReceiptClaims {
     sourceDigest: current.sourceDigest,
     archiveDigest: current.archiveDigest,
     buildOutputDigest: current.buildOutputDigest,
-    outputArtifactKey: current.outputArtifactKey,
+    outputArtifactKey:
+      "preview-build-outputs/223e4567-e89b-42d3-a456-426614174001/site.tar.gz",
     issuedAt: current.issuedAt,
     expiresAt: current.expiresAt,
   };
@@ -189,7 +190,14 @@ describe("Preview Build Receipt verification", () => {
   });
 
   it("keeps accepting legacy v1 receipts during the one-generation migration window", () => {
-    const { attemptId: _attemptId, idempotencyKey: _idempotencyKey, dispatchGeneration: _generation, ...legacyExpected } = expected;
+    const {
+      attemptId: _attemptId,
+      idempotencyKey: _idempotencyKey,
+      dispatchGeneration: _generation,
+      ...legacyExpected
+    } = expected;
+    legacyExpected.outputArtifactKey =
+      "preview-build-outputs/223e4567-e89b-42d3-a456-426614174001/site.tar.gz";
     const verified = verifyPreviewBuildReceipt({
       token: signLegacyReceipt(legacyReceipt()),
       publicKeyPem,

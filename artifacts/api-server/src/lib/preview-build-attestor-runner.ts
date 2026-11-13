@@ -4,6 +4,7 @@ import {
   verifyPreviewBuildJob,
   type VerifiedPreviewBuildJobClaims,
 } from "./preview-build-job.js";
+import { isPreviewBuildOutputArtifactKey } from "./preview-build-output-key.js";
 import {
   assertPreviewBuilderRunnerConfig,
   type PreviewBuilderRunnerConfig,
@@ -134,8 +135,10 @@ function validateBuildJob(
   }
   if (
     claims.builderImageDigest !== config.builderConfig.imageDigest ||
-    claims.outputArtifactKey !==
-      `preview-build-outputs/${claims.buildId}/site.tar.gz`
+    !isPreviewBuildOutputArtifactKey(claims.outputArtifactKey, {
+      buildId: claims.buildId,
+      dispatchGeneration: claims.version === 2 ? claims.dispatchGeneration : 1,
+    })
   ) {
     reject("PREVIEW_BUILD_ATTESTOR_JOB_REJECTED");
   }

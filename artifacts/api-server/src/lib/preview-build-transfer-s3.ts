@@ -4,6 +4,7 @@ import {
   HeadObjectCommand,
   PutObjectCommand,
 } from "@aws-sdk/client-s3";
+import { isPreviewBuildOutputArtifactKey } from "./preview-build-output-key.js";
 
 const INPUT_KEY_PATTERN =
   /^build-inputs\/([a-f0-9]{64})\/([a-f0-9]{64})\.zip$/i;
@@ -18,6 +19,8 @@ export type PreviewBuildTransferIdentity = {
   inputObjectKey: string;
   inputArchiveDigest: string;
   buildId: string;
+  outputArtifactKey: string;
+  dispatchGeneration: number;
 };
 
 export type PreviewBuildTransfer = {
@@ -126,8 +129,9 @@ export function createS3PreviewBuildTransferProvider(input: {
     async inspectOutput(identity) {
       if (
         !UUID_PATTERN.test(identity.buildId) ||
-        identity.outputArtifactKey !==
-          `preview-build-outputs/${identity.buildId}/site.tar.gz`
+        !isPreviewBuildOutputArtifactKey(identity.outputArtifactKey, {
+          buildId: identity.buildId,
+        })
       ) {
         throw new PreviewBuildTransferError("PREVIEW_BUILD_TRANSFER_INVALID");
       }
@@ -227,7 +231,15 @@ export function createS3PreviewBuildTransferProvider(input: {
     },
     async createTransfer(identity) {
       validateIdentity(identity);
-      const outputArtifactKey = `preview-build-outputs/${identity.buildId}/site.tar.gz`;
+      if (
+        !isPreviewBuildOutputArtifactKey(identity.outputArtifactKey, {
+          buildId: identity.buildId,
+          dispatchGeneration: identity.dispatchGeneration,
+        })
+      ) {
+        throw new PreviewBuildTransferError("PREVIEW_BUILD_TRANSFER_INVALID");
+      }
+      const outputArtifactKey = identity.outputArtifactKey;
       try {
         const head = (await input.client.send(
           new HeadObjectCommand({

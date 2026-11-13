@@ -17,7 +17,7 @@ const region = "eu-central-1";
 const buildId = "9c99a591-cf7f-4f18-8c4b-08e53ca1e4aa";
 const inputDigest = "a".repeat(64);
 const inputObjectKey = `build-inputs/${"b".repeat(64)}/${inputDigest}.zip`;
-const outputObjectKey = `preview-build-outputs/${buildId}/site.tar.gz`;
+const outputObjectKey = `preview-build-outputs/${buildId}/g1/site.tar.gz`;
 const checksum = Buffer.from(inputDigest, "hex").toString("base64");
 const outputBytes = Buffer.from("independently observed output");
 const outputDigest = createHash("sha256").update(outputBytes).digest("hex");
@@ -132,6 +132,8 @@ describe("Preview build transfer URLs", () => {
         inputObjectKey,
         inputArchiveDigest: inputDigest,
         buildId,
+        outputArtifactKey: outputObjectKey,
+        dispatchGeneration: 1,
       }),
     ).resolves.toEqual({
       inputDownloadUrl: inputUrl,
@@ -203,6 +205,8 @@ describe("Preview build transfer URLs", () => {
         inputObjectKey,
         inputArchiveDigest: inputDigest,
         buildId,
+        outputArtifactKey: outputObjectKey,
+        dispatchGeneration: 1,
       }),
     ).rejects.toBeInstanceOf(PreviewBuildTransferError);
     expect(presign).not.toHaveBeenCalled();
@@ -231,6 +235,8 @@ describe("Preview build transfer URLs", () => {
         inputObjectKey,
         inputArchiveDigest: "e".repeat(64),
         buildId,
+        outputArtifactKey: outputObjectKey,
+        dispatchGeneration: 1,
       }),
     ).rejects.toMatchObject({ code: "PREVIEW_BUILD_TRANSFER_INVALID" });
     expect(presign).not.toHaveBeenCalled();
@@ -240,8 +246,37 @@ describe("Preview build transfer URLs", () => {
         inputObjectKey,
         inputArchiveDigest: inputDigest,
         buildId,
+        outputArtifactKey: outputObjectKey,
+        dispatchGeneration: 1,
       }),
     ).rejects.toMatchObject({ code: "PREVIEW_BUILD_TRANSFER_UNAVAILABLE" });
+  });
+
+  it("rejects an output key from a different dispatch generation before signing", async () => {
+    const presign = vi.fn(async () => outputUrl);
+    const provider = createS3PreviewBuildTransferProvider({
+      client: {
+        send: async () => ({
+          ContentLength: 10,
+          ChecksumSHA256: checksum,
+          ServerSideEncryption: "AES256",
+        }),
+      },
+      bucketName,
+      region,
+      presign,
+    });
+
+    await expect(
+      provider.createTransfer({
+        inputObjectKey,
+        inputArchiveDigest: inputDigest,
+        buildId,
+        outputArtifactKey: `preview-build-outputs/${buildId}/g2/site.tar.gz`,
+        dispatchGeneration: 1,
+      }),
+    ).rejects.toMatchObject({ code: "PREVIEW_BUILD_TRANSFER_INVALID" });
+    expect(presign).not.toHaveBeenCalled();
   });
 
   it("produces AWS SDK signatures that bind the upload to If-None-Match", async () => {
@@ -273,6 +308,8 @@ describe("Preview build transfer URLs", () => {
         inputObjectKey,
         inputArchiveDigest: inputDigest,
         buildId,
+        outputArtifactKey: outputObjectKey,
+        dispatchGeneration: 1,
       });
       const outputUrl = new URL(transfer.outputUploadUrl);
       expect(outputUrl.searchParams.get("X-Amz-SignedHeaders")).toContain(

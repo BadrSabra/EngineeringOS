@@ -30,7 +30,7 @@ const candidateRevision = "c".repeat(64);
 const changeSetHash = "d".repeat(64);
 const builderImageDigest = `sha256:${"e".repeat(64)}`;
 const outputDigest = "f".repeat(64);
-const outputArtifactKey = `preview-build-outputs/${buildId}/site.tar.gz`;
+const outputArtifactKey = `preview-build-outputs/${buildId}/g1/site.tar.gz`;
 const builderTaskArn =
   "arn:aws:ecs:eu-central-1:123456789012:task/preview-builder/abcdef0123456789abcdef0123456789";
 
@@ -152,7 +152,7 @@ function signLegacyReceipt(): string {
     sourceDigest,
     archiveDigest,
     buildOutputDigest: outputDigest,
-    outputArtifactKey,
+    outputArtifactKey: `preview-build-outputs/${buildId}/site.tar.gz`,
     issuedAt: now.toISOString(),
     expiresAt: new Date(now.getTime() + 60_000).toISOString(),
   };

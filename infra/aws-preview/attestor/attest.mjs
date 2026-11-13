@@ -195,8 +195,19 @@ async function hashBoundedBody(body) {
 
 async function attestOutput({ claims, taskArn, config, storage }) {
   const key = claims.outputArtifactKey;
-  const expectedKey = `preview-build-outputs/${claims.buildId}/site.tar.gz`;
-  if (key !== expectedKey) fail("PREVIEW_ATTESTOR_OUTPUT_REJECTED");
+  const legacyKey = `preview-build-outputs/${claims.buildId}/site.tar.gz`;
+  const expectedKey =
+    claims.version === 2
+      ? `preview-build-outputs/${claims.buildId}/g${claims.dispatchGeneration}/site.tar.gz`
+      : legacyKey;
+  if (
+    key !== expectedKey &&
+    !(claims.version === 2 &&
+      claims.dispatchGeneration === 1 &&
+      key === legacyKey)
+  ) {
+    fail("PREVIEW_ATTESTOR_OUTPUT_REJECTED");
+  }
   let head;
   try {
     head = await storage.headOutput({ bucketName: config.bucketName, key });
@@ -280,8 +291,16 @@ export async function attestPreviewBuild(input) {
   if (
     !IMAGE_DIGEST.test(claims.builderImageDigest) ||
     claims.builderImageDigest !== input.config.builderImageDigest ||
-    claims.outputArtifactKey !==
-      `preview-build-outputs/${claims.buildId}/site.tar.gz`
+    (claims.version === 1
+      ? claims.outputArtifactKey !==
+        `preview-build-outputs/${claims.buildId}/site.tar.gz`
+      : claims.outputArtifactKey !==
+          `preview-build-outputs/${claims.buildId}/g${claims.dispatchGeneration}/site.tar.gz` &&
+        !(
+          claims.dispatchGeneration === 1 &&
+          claims.outputArtifactKey ===
+            `preview-build-outputs/${claims.buildId}/site.tar.gz`
+        ))
   ) {
     fail("PREVIEW_ATTESTOR_JOB_REJECTED");
   }

@@ -25,7 +25,7 @@ const clusterArn =
 const taskArn =
   "arn:aws:ecs:eu-central-1:123456789012:task/engineeringos-preview/abcdef0123456789abcdef0123456789";
 const outputArtifactUrl =
-  "https://engineeringos-preview-artifacts.s3.eu-central-1.amazonaws.com/preview-build-outputs/9c99a591-cf7f-4f18-8c4b-08e53ca1e4aa/site.tar.gz?sig=test";
+  "https://engineeringos-preview-artifacts.s3.eu-central-1.amazonaws.com/preview-build-outputs/9c99a591-cf7f-4f18-8c4b-08e53ca1e4aa/g1/site.tar.gz?sig=test";
 const outputUrlProvider = {
   createDownloadUrl: async () => outputArtifactUrl,
 };
@@ -70,7 +70,7 @@ function startCommand(
     candidateRevision: "a".repeat(64),
     changeSetHash: "b".repeat(64),
     outputArtifactKey:
-      "preview-build-outputs/9c99a591-cf7f-4f18-8c4b-08e53ca1e4aa/site.tar.gz",
+      "preview-build-outputs/9c99a591-cf7f-4f18-8c4b-08e53ca1e4aa/g1/site.tar.gz",
     outputArtifactDigest: "d".repeat(64),
     imageDigest,
     taskDefinitionArn,
@@ -217,7 +217,7 @@ describe("Preview ECS command execution", () => {
                 {
                   name: "PREVIEW_BUILD_OUTPUT_KEY",
                   value:
-                    "preview-build-outputs/9c99a591-cf7f-4f18-8c4b-08e53ca1e4aa/site.tar.gz",
+                    "preview-build-outputs/9c99a591-cf7f-4f18-8c4b-08e53ca1e4aa/g1/site.tar.gz",
                 },
                 {
                   name: "PREVIEW_BUILD_OUTPUT_SHA256",

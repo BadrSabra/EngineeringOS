@@ -6,6 +6,7 @@ import {
   verify,
   type KeyObject,
 } from "node:crypto";
+import { isPreviewBuildOutputArtifactKey } from "./preview-build-output-key.js";
 
 const SIGNING_DOMAIN = Buffer.from(
   "EngineeringOS Preview Control v1\n",
@@ -21,8 +22,6 @@ const TASK_DEFINITION_ARN_PATTERN =
   /^arn:(aws|aws-us-gov|aws-cn):ecs:[a-z0-9-]+:\d{12}:task-definition\/[A-Za-z0-9_-]+:\d+$/i;
 const TASK_ARN_PATTERN =
   /^arn:(aws|aws-us-gov|aws-cn):ecs:[a-z0-9-]+:\d{12}:task\/[A-Za-z0-9_-]+\/[a-f0-9]{32}$/i;
-const OUTPUT_ARTIFACT_KEY_PATTERN =
-  /^preview-build-outputs\/[0-9a-f-]{36}\/site\.tar\.gz$/i;
 
 type PreviewControlCommandBase = {
   version: 1;
@@ -172,8 +171,7 @@ function validateCommand(value: unknown, now: Date): PreviewControlCommand {
       !DIGEST_PATTERN.test(record.candidateRevision) ||
       typeof record.changeSetHash !== "string" ||
       !DIGEST_PATTERN.test(record.changeSetHash) ||
-      typeof record.outputArtifactKey !== "string" ||
-      !OUTPUT_ARTIFACT_KEY_PATTERN.test(record.outputArtifactKey) ||
+      !isPreviewBuildOutputArtifactKey(record.outputArtifactKey) ||
       typeof record.outputArtifactDigest !== "string" ||
       !DIGEST_PATTERN.test(record.outputArtifactDigest) ||
       typeof record.imageDigest !== "string" ||

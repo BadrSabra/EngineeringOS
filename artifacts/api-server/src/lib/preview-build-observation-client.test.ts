@@ -47,7 +47,7 @@ function makeJob(overrides: Partial<PreviewBuildJob> = {}): PreviewBuildJob {
     inputArtifactReadyAt: now,
     inputArtifactGcState: "active",
     inputArtifactGcMarkedAt: null,
-    outputArtifactKey: `preview-build-outputs/${buildId}/site.tar.gz`,
+    outputArtifactKey: `preview-build-outputs/${buildId}/g1/site.tar.gz`,
     outputArtifactProvider: "s3",
     outputArtifactStoreId: null,
     outputArtifactRefId: null,

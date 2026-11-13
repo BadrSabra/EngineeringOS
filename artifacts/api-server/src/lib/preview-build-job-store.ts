@@ -19,6 +19,7 @@ import {
 } from "@workspace/db";
 import { z } from "zod/v4";
 import { previewBuildInputObjectKeyForArchive } from "./preview-build-upload.js";
+import { previewBuildOutputArtifactKey } from "./preview-build-output-key.js";
 import {
   isVerifiedPreviewBuildReceipt,
   type VerifiedPreviewBuildReceipt,
@@ -478,7 +479,7 @@ export async function createQueuedPreviewBuildJob(
       sourceDigest: input.sourceDigest.toLowerCase(),
       archiveDigest: input.archiveDigest.toLowerCase(),
     });
-    const outputArtifactKey = `preview-build-outputs/${buildId}/site.tar.gz`;
+    const outputArtifactKey = previewBuildOutputArtifactKey(buildId, 1);
     const [created] = await tx
       .insert(previewBuildJobsTable)
       .values({

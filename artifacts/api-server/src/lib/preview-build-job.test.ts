@@ -36,7 +36,7 @@ function claims(): PreviewBuildJobClaims {
     inputArtifactKey: `build-inputs/${"d".repeat(64)}/${"f".repeat(64)}.zip`,
     archiveDigest: "f".repeat(64),
     outputArtifactKey:
-      "preview-build-outputs/01234567-89ab-42cd-8abc-0123456789ab/site.tar.gz",
+      "preview-build-outputs/01234567-89ab-42cd-8abc-0123456789ab/g1/site.tar.gz",
     attemptId: "11234567-89ab-42cd-8abc-0123456789ab",
     idempotencyKey: "21234567-89ab-42cd-8abc-0123456789ab",
     dispatchGeneration: 1,
@@ -64,7 +64,8 @@ function legacyTokenFor(): string {
     sourceDigest: current.sourceDigest,
     inputArtifactKey: current.inputArtifactKey,
     archiveDigest: current.archiveDigest,
-    outputArtifactKey: current.outputArtifactKey,
+    outputArtifactKey:
+      "preview-build-outputs/01234567-89ab-42cd-8abc-0123456789ab/site.tar.gz",
     issuedAt: current.issuedAt,
     expiresAt: current.expiresAt,
   };
@@ -155,6 +156,33 @@ describe("Preview build job contract", () => {
         now: new Date("2026-11-11T12:06:00.000Z"),
       }),
     ).toThrow("Preview build job is invalid or unavailable.");
+  });
+
+  it("requires V2 output paths to match the signed dispatch generation", () => {
+    const generationTwo = {
+      ...claims(),
+      dispatchGeneration: 2,
+    };
+    expect(() =>
+      signPreviewBuildJob({
+        claims: generationTwo,
+        privateKeyPem,
+        now,
+      }),
+    ).toThrow("Preview build job is invalid or unavailable.");
+
+    const current = {
+      ...generationTwo,
+      outputArtifactKey:
+        "preview-build-outputs/01234567-89ab-42cd-8abc-0123456789ab/g2/site.tar.gz",
+    };
+    expect(
+      verifyPreviewBuildJob({
+        token: tokenFor(current),
+        publicKeyPem,
+        now,
+      }),
+    ).toMatchObject({ dispatchGeneration: 2, outputArtifactKey: current.outputArtifactKey });
   });
 
   it("continues to verify short-lived v1 jobs without issuing new ones", async () => {

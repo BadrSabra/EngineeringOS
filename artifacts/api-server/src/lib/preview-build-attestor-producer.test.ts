@@ -35,7 +35,7 @@ describe("independent Preview Attestor receipt compatibility", () => {
     const archiveDigest = "d".repeat(64);
     const buildId = "223e4567-e89b-42d3-a456-426614174001";
     const builderImageDigest = `sha256:${"e".repeat(64)}`;
-    const outputArtifactKey = `preview-build-outputs/${buildId}/site.tar.gz`;
+    const outputArtifactKey = `preview-build-outputs/${buildId}/g1/site.tar.gz`;
     const { token } = signPreviewBuildReceipt({
       claims: {
         version: 2,

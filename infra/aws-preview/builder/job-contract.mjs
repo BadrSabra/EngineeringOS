@@ -16,7 +16,8 @@ const UUID =
 const HASH = /^[a-f0-9]{64}$/i;
 const IMAGE_DIGEST = /^sha256:[a-f0-9]{64}$/i;
 const INPUT_KEY = /^build-inputs\/([a-f0-9]{64})\/([a-f0-9]{64})\.zip$/i;
-const OUTPUT_KEY = /^preview-build-outputs\/([0-9a-f-]{36})\/site\.tar\.gz$/i;
+const OUTPUT_KEY =
+  /^preview-build-outputs\/([0-9a-f-]{36})(?:\/g([1-9][0-9]*))?\/site\.tar\.gz$/i;
 const FIELDS_V1 = [
   "version",
   "action",
@@ -142,9 +143,19 @@ function validateClaims(value, now) {
   }
   const inputKey = INPUT_KEY.exec(claims.inputArtifactKey);
   const outputKey = OUTPUT_KEY.exec(claims.outputArtifactKey);
+  const legacyOutputKey = `preview-build-outputs/${claims.buildId}/site.tar.gz`;
+  const expectedGenerationOutputKey =
+    claims.version === 2
+      ? `preview-build-outputs/${claims.buildId}/g${claims.dispatchGeneration}/site.tar.gz`
+      : legacyOutputKey;
   if (
     inputKey?.[2]?.toLowerCase() !== claims.archiveDigest.toLowerCase() ||
-    outputKey?.[1]?.toLowerCase() !== claims.buildId.toLowerCase()
+    outputKey?.[1]?.toLowerCase() !== claims.buildId.toLowerCase() ||
+    (claims.version === 1
+      ? claims.outputArtifactKey !== legacyOutputKey
+      : claims.outputArtifactKey !== expectedGenerationOutputKey &&
+        !(claims.dispatchGeneration === 1 &&
+          claims.outputArtifactKey === legacyOutputKey))
   ) {
     fail();
   }

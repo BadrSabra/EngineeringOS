@@ -37,7 +37,7 @@ function startCommand(
     candidateRevision: "a".repeat(64),
     changeSetHash: "b".repeat(64),
     outputArtifactKey:
-      "preview-build-outputs/9c99a591-cf7f-4f18-8c4b-08e53ca1e4aa/site.tar.gz",
+      "preview-build-outputs/9c99a591-cf7f-4f18-8c4b-08e53ca1e4aa/g1/site.tar.gz",
     outputArtifactDigest: "d".repeat(64),
     imageDigest: `sha256:${"c".repeat(64)}`,
     taskDefinitionArn,

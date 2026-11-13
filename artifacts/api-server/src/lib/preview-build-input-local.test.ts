@@ -286,7 +286,7 @@ describe("Local Preview build-input CAS", () => {
     const bytes = Buffer.from("output metadata must stay bound to this build");
     const digest = createHash("sha256").update(bytes).digest("hex");
     const outputObjectKey =
-      "preview-build-outputs/223e4567-e89b-42d3-a456-426614174001/site.tar.gz";
+      "preview-build-outputs/223e4567-e89b-42d3-a456-426614174001/g1/site.tar.gz";
 
     const stored = await putStream(store, {
       objectKey: outputObjectKey,
@@ -351,7 +351,7 @@ describe("Local Preview build-input CAS", () => {
     const digest = createHash("sha256").update(bytes).digest("hex");
     const input = objectKey(bytes);
     const outputObjectKey =
-      "preview-build-outputs/223e4567-e89b-42d3-a456-426614174001/site.tar.gz";
+      "preview-build-outputs/223e4567-e89b-42d3-a456-426614174001/g1/site.tar.gz";
 
     await put(store, {
       ...input,
@@ -395,7 +395,7 @@ describe("Local Preview build-input CAS", () => {
     await expect(
       putStream(store, {
         objectKey:
-          "preview-build-outputs/223e4567-e89b-42d3-a456-426614174001/../site.tar.gz",
+          "preview-build-outputs/223e4567-e89b-42d3-a456-426614174001/g1/../site.tar.gz",
         bytes: (async function* () {
           yield bytes;
         })(),
@@ -410,7 +410,7 @@ describe("Local Preview build-input CAS", () => {
   it("does not publish a local output whose bytes fail the declared digest", async () => {
     const { rootDir, store } = await createStore();
     const outputObjectKey =
-      "preview-build-outputs/323e4567-e89b-42d3-a456-426614174002/site.tar.gz";
+      "preview-build-outputs/323e4567-e89b-42d3-a456-426614174002/g1/site.tar.gz";
     const bytes = Buffer.from("output bytes that do not match the claim");
     const claimedDigest = createHash("sha256")
       .update("different output bytes")

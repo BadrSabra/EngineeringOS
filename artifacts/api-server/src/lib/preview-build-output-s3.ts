@@ -1,7 +1,6 @@
 import { GetObjectCommand, HeadObjectCommand } from "@aws-sdk/client-s3";
+import { isPreviewBuildOutputArtifactKey } from "./preview-build-output-key.js";
 
-const OUTPUT_KEY_PATTERN =
-  /^preview-build-outputs\/[0-9a-f-]{36}\/site\.tar\.gz$/i;
 const SHA256_PATTERN = /^[a-f0-9]{64}$/i;
 const MAX_OUTPUT_BYTES = 32 * 1024 * 1024;
 const SIGNED_URL_TTL_SECONDS = 300;
@@ -38,7 +37,7 @@ function bucketHost(bucketName: string, region: string): string {
 
 function validateIdentity(identity: PreviewBuildOutputIdentity): void {
   if (
-    !OUTPUT_KEY_PATTERN.test(identity.objectKey) ||
+    !isPreviewBuildOutputArtifactKey(identity.objectKey) ||
     !SHA256_PATTERN.test(identity.sha256)
   ) {
     throw new PreviewBuildOutputError("PREVIEW_BUILD_OUTPUT_INVALID");

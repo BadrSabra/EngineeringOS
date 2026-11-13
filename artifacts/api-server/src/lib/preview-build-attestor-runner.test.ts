@@ -120,7 +120,7 @@ function signedJob() {
     sourceDigest,
     inputArtifactKey: `build-inputs/${bindingDigest}/${archiveDigest}.zip`,
     archiveDigest,
-    outputArtifactKey: `preview-build-outputs/${buildId}/site.tar.gz`,
+    outputArtifactKey: `preview-build-outputs/${buildId}/g1/site.tar.gz`,
     issuedAt: now.toISOString(),
     expiresAt: new Date(now.getTime() + 5 * 60_000).toISOString(),
   } as const;

@@ -6,6 +6,7 @@ import {
   type KeyObject,
 } from "node:crypto";
 import type { PreviewBuildInputIdentity } from "./preview-build-input.js";
+import { isPreviewBuildOutputArtifactKey } from "./preview-build-output-key.js";
 
 const SIGNING_DOMAIN_V1 = Buffer.from(
   "EngineeringOS Preview Build Job v1\n",
@@ -24,8 +25,6 @@ const HASH_PATTERN = /^[a-f0-9]{64}$/i;
 const IMAGE_DIGEST_PATTERN = /^sha256:[a-f0-9]{64}$/i;
 const INPUT_KEY_PATTERN =
   /^build-inputs\/([a-f0-9]{64})\/([a-f0-9]{64})\.zip$/i;
-const OUTPUT_KEY_PATTERN =
-  /^preview-build-outputs\/([0-9a-f-]{36})\/site\.tar\.gz$/i;
 const JOB_FIELDS_V1 = [
   "version",
   "action",
@@ -245,12 +244,13 @@ function validateClaims(
   ) {
     throw new PreviewBuildJobError("PREVIEW_BUILD_JOB_INVALID");
   }
-  const outputKeyMatch = OUTPUT_KEY_PATTERN.exec(
-    String(record.outputArtifactKey ?? ""),
-  );
   if (
-    !outputKeyMatch ||
-    outputKeyMatch[1]?.toLowerCase() !== String(record.buildId).toLowerCase()
+    !isPreviewBuildOutputArtifactKey(record.outputArtifactKey, {
+      buildId: record.buildId as string,
+      ...(record.version === 2
+        ? { dispatchGeneration: record.dispatchGeneration as number }
+        : { dispatchGeneration: 1 }),
+    })
   ) {
     throw new PreviewBuildJobError("PREVIEW_BUILD_JOB_INVALID");
   }

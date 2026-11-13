@@ -4,6 +4,7 @@ import {
   type KeyObject,
 } from "node:crypto";
 import type { PreviewBuildInputIdentity } from "./preview-build-input.js";
+import { isPreviewBuildOutputArtifactKey } from "./preview-build-output-key.js";
 
 const SIGNING_DOMAIN_V1 = Buffer.from(
   "EngineeringOS Preview Build Receipt v1\n",
@@ -20,8 +21,6 @@ const UUID_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const HASH_PATTERN = /^[a-f0-9]{64}$/i;
 const IMAGE_DIGEST_PATTERN = /^sha256:[a-f0-9]{64}$/i;
-const OUTPUT_ARTIFACT_KEY_PATTERN =
-  /^preview-build-outputs\/[0-9a-f-]{36}\/site\.tar\.gz$/i;
 const verifiedReceipts = new WeakSet<object>();
 
 declare const verifiedReceiptBrand: unique symbol;
@@ -214,8 +213,7 @@ function validateReceipt(value: unknown, now: Date): AnyPreviewBuildReceiptClaim
     !HASH_PATTERN.test(record.buildOutputDigest) ||
     typeof record.builderImageDigest !== "string" ||
     !IMAGE_DIGEST_PATTERN.test(record.builderImageDigest) ||
-    typeof record.outputArtifactKey !== "string" ||
-    !OUTPUT_ARTIFACT_KEY_PATTERN.test(record.outputArtifactKey) ||
+    !isPreviewBuildOutputArtifactKey(record.outputArtifactKey) ||
     !canonicalTimestamp(record.issuedAt) ||
     !canonicalTimestamp(record.expiresAt) ||
     (record.version === 2 &&
@@ -303,9 +301,12 @@ export function verifyPreviewBuildReceipt(input: {
     !HASH_PATTERN.test(input.expected.sourceDigest) ||
     !HASH_PATTERN.test(input.expected.archiveDigest) ||
     !UUID_PATTERN.test(input.expected.buildId) ||
-    !OUTPUT_ARTIFACT_KEY_PATTERN.test(input.expected.outputArtifactKey) ||
-    input.expected.outputArtifactKey !==
-      `preview-build-outputs/${input.expected.buildId}/site.tar.gz` ||
+    !isPreviewBuildOutputArtifactKey(input.expected.outputArtifactKey, {
+      buildId: input.expected.buildId,
+      ...(input.expected.dispatchGeneration !== undefined
+        ? { dispatchGeneration: input.expected.dispatchGeneration }
+        : {}),
+    }) ||
     !boundedText(input.expected.identity.projectId, 255) ||
     !boundedText(input.expected.identity.proposalId, 255) ||
     !boundedText(input.expected.identity.operationId, 255) ||
@@ -383,10 +384,17 @@ export function verifyPreviewBuildReceipt(input: {
     receipt.buildId !== expected.buildId ||
     receipt.outputArtifactKey !== expected.outputArtifactKey ||
     receipt.builderImageDigest !== expected.builderImageDigest ||
+    (receipt.version === 1 &&
+      expected.dispatchGeneration !== undefined &&
+      expected.dispatchGeneration !== 1) ||
     (receipt.version === 2 &&
       (receipt.attemptId !== expected.attemptId ||
         receipt.idempotencyKey !== expected.idempotencyKey ||
-        receipt.dispatchGeneration !== expected.dispatchGeneration))
+        receipt.dispatchGeneration !== expected.dispatchGeneration ||
+        !isPreviewBuildOutputArtifactKey(receipt.outputArtifactKey, {
+          buildId: receipt.buildId,
+          dispatchGeneration: receipt.dispatchGeneration,
+        })))
   ) {
     throw new PreviewBuildReceiptError(
       "PREVIEW_BUILD_RECEIPT_BINDING_MISMATCH",

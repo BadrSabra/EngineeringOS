@@ -42,7 +42,7 @@ const archiveDigest = "e".repeat(64);
 const clientRequestId = "323e4567-e89b-42d3-a456-426614174002";
 const jobId = "123e4567-e89b-42d3-a456-426614174000";
 const buildId = "223e4567-e89b-42d3-a456-426614174001";
-const outputArtifactKey = `preview-build-outputs/${buildId}/site.tar.gz`;
+const outputArtifactKey = `preview-build-outputs/${buildId}/g1/site.tar.gz`;
 const inputArtifactKey = previewBuildInputObjectKeyForArchive({
   identity,
   sourceDigest,
