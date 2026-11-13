@@ -13,7 +13,7 @@ import {
   aiExecutionsTable,
   aiExecutionAcceptancesTable,
 } from "@workspace/db";
-import { eq, and, inArray, or, asc, sql } from "drizzle-orm";
+import { eq, and, inArray, or, asc, sql, isNull } from "drizzle-orm";
 import { logger } from "../../lib/logger.js";
 import { loadProjectByIdForUser } from "../../middlewares/requireProjectAccess.js";
 import { checkProjectRateLimitDb, LLM_RATE_LIMIT } from "../../lib/db-rate-limiter.js";
@@ -643,15 +643,28 @@ async function runAiTaskExecution(
         && currentTask.retryCount === retryCount
         && currentTask.correlationId === correlationId
       ) {
-        if (lifecycle.errorCode === "execution_already_claimed" && correlationId) {
+        if (lifecycle.errorCode === "execution_already_claimed") {
+          const parentExecutionId = options?.parentExecutionId ?? null;
           const [activeExecution] = await db
             .select({ id: aiExecutionsTable.id })
             .from(aiExecutionsTable)
             .where(and(
               eq(aiExecutionsTable.linkedTaskId, taskId),
               eq(aiExecutionsTable.projectId, task.projectId),
+              task.goalId === null
+                ? isNull(aiExecutionsTable.goalId)
+                : eq(aiExecutionsTable.goalId, task.goalId),
               eq(aiExecutionsTable.userId, userId),
-              eq(aiExecutionsTable.correlationId, correlationId),
+              eq(aiExecutionsTable.attempt, retryCount),
+              correlationId === null
+                ? isNull(aiExecutionsTable.correlationId)
+                : eq(aiExecutionsTable.correlationId, correlationId),
+              parentExecutionId === null
+                ? isNull(aiExecutionsTable.parentExecutionId)
+                : eq(aiExecutionsTable.parentExecutionId, parentExecutionId),
+              options?.delegationBudget
+                ? sql`${aiExecutionsTable.delegationBudget} @> ${JSON.stringify(options.delegationBudget)}::jsonb`
+                : undefined,
               inArray(aiExecutionsTable.status, ["queued", "running", "paused", "cancelling"]),
             ))
             .limit(1);
