@@ -12534,12 +12534,14 @@ describe("free-only provider selection", () => {
 });
 
 describe("deferred Task Outbox orphan pruning", () => {
-  it("retires orphaned and terminal-Task intents without attempting execution", async () => {
+  it("retires orphaned, terminal-Task, and promptless intents without attempting execution", async () => {
     const projectId = await insertProject();
     projectIds.push(projectId);
     const terminalTaskId = await insertTask(projectId, "cancelled");
+    const promptlessTaskId = await insertTask(projectId, "verifying");
     const orphanedIntentId = `task-auto-execution-orphan:${randomUUID()}`;
     const terminalIntentId = `task-auto-execution-deferred:${terminalTaskId}`;
+    const promptlessIntentId = `task-auto-execution-deferred:${promptlessTaskId}`;
 
     await db.insert(eventsTable).values([
       {
@@ -12570,6 +12572,21 @@ describe("deferred Task Outbox orphan pruning", () => {
           attemptCount: 1,
         },
       },
+      {
+        id: promptlessIntentId,
+        type: "TaskAutoExecutionDeferred",
+        projectId,
+        taskId: promptlessTaskId,
+        severity: "warning",
+        message: "Task no longer has a runnable prompt",
+        payload: {
+          userId: "test-user",
+          taskRetryCount: 0,
+          taskCorrelationId: null,
+          attemptCount: 1,
+          nextAttemptAt: new Date(Date.now() + 60 * 60_000).toISOString(),
+        },
+      },
     ]);
 
     await expect(aiTaskRoutes.dispatchDeferredAiTaskExecutions()).resolves.toBe(0);
@@ -12578,6 +12595,8 @@ describe("deferred Task Outbox orphan pruning", () => {
       .where(eq(eventsTable.id, orphanedIntentId))).resolves.toHaveLength(0);
     await expect(db.select({ id: eventsTable.id }).from(eventsTable)
       .where(eq(eventsTable.id, terminalIntentId))).resolves.toHaveLength(0);
+    await expect(db.select({ id: eventsTable.id }).from(eventsTable)
+      .where(eq(eventsTable.id, promptlessIntentId))).resolves.toHaveLength(0);
     await expect(db.select({ id: aiExecutionsTable.id }).from(aiExecutionsTable)
       .where(eq(aiExecutionsTable.linkedTaskId, terminalTaskId))).resolves.toHaveLength(0);
   });
