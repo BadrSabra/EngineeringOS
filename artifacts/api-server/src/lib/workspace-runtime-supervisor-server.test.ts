@@ -67,7 +67,7 @@ function startSupervisor(port: number, extraEnv: Record<string, string> = {}): C
       HOME: process.env.HOME ?? "/tmp",
       SESSION_SECRET: testSecret,
       WORKSPACE_RUNTIME_SUPERVISOR_PORT: String(port),
-      WORKSPACE_RUNTIME_ALLOWED_ROOT: tmpdir(),
+      WORKSPACE_RUNTIME_ALLOWED_ROOTS_JSON: JSON.stringify([tmpdir()]),
       ...extraEnv,
     },
     stdio: "ignore",
@@ -270,7 +270,7 @@ describe("workspace runtime supervisor server boundary", () => {
     const allowedRoot = await mkdtemp(path.join(tmpdir(), "workspace-runtime-allowed-root-"));
     const outsideRoot = await mkdtemp(path.join(tmpdir(), "workspace-runtime-outside-root-"));
     const supervisor = startSupervisor(supervisorPort, {
-      WORKSPACE_RUNTIME_ALLOWED_ROOT: allowedRoot,
+      WORKSPACE_RUNTIME_ALLOWED_ROOTS_JSON: JSON.stringify([allowedRoot]),
     });
     try {
       await writeFile(
