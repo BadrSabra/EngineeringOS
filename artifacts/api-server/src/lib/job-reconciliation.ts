@@ -1357,6 +1357,8 @@ export async function getDurableJobHealth(): Promise<{
             // stale: the dispatcher cannot legitimately execute them.
             isNull(tasksTable.id),
             ne(tasksTable.status, "verifying"),
+            isNull(tasksTable.prompt),
+            eq(tasksTable.prompt, ""),
             and(
               eq(tasksTable.status, "verifying"),
               lt(eventsTable.timestamp, stalePendingCutoff),
