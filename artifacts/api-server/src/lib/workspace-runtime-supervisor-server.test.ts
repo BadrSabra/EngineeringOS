@@ -373,11 +373,17 @@ describe("workspace runtime supervisor server boundary", () => {
         "content-type": "application/json",
         "x-test-authorize": "signed-fixture",
       },
-      body: JSON.stringify({ projectId: "test-project" }),
+      body: JSON.stringify({
+        projectId: "test-project",
+        ownerProjectId: "test-project",
+        projectRoot: tmpdir(),
+      }),
     });
     expect(authorized.status).toBe(200);
     await expect(authorized.json()).resolves.toMatchObject({
       projectId: "test-project",
+      ownerProjectId: "test-project",
+      projectRoot: tmpdir(),
       inventoryComplete: true,
     });
   });
@@ -390,7 +396,12 @@ describe("workspace runtime supervisor server boundary", () => {
       const socket = supervisorSockets.get(port);
       if (!socket) throw new Error("Supervisor signing fixture is unavailable.");
       const projectId = "replayed-supervisor-command";
-      const body = JSON.stringify({ projectId, sessionId: null });
+      const body = JSON.stringify({
+        projectId,
+        ownerProjectId: projectId,
+        projectRoot: tmpdir(),
+        sessionId: null,
+      });
       const command = createWorkspaceRuntimeSupervisorCommand({
         privateKey: socket.privateKey,
         action: "observe-start",
@@ -441,6 +452,7 @@ describe("workspace runtime supervisor server boundary", () => {
         },
         body: JSON.stringify({
           projectId: "outside-workspace-project",
+          ownerProjectId: "outside-workspace-project",
           sessionId: "outside-workspace-session",
           projectRoot: outsideRoot,
           profile: "dev",
@@ -496,12 +508,14 @@ describe("workspace runtime supervisor server boundary", () => {
           "content-type": "application/json",
           "x-test-authorize": "signed-fixture",
         },
-        body: JSON.stringify({ projectId, sessionId, projectRoot, profile: "dev" }),
+        body: JSON.stringify({ projectId, ownerProjectId: projectId, sessionId, projectRoot, profile: "dev" }),
       });
       expect(response.status).toBe(200);
       sessionStarted = true;
       await expect(response.json()).resolves.toMatchObject({
         projectId,
+        ownerProjectId: projectId,
+        projectRoot,
         sessionId,
         status: "running",
       });
@@ -516,7 +530,7 @@ describe("workspace runtime supervisor server boundary", () => {
             "content-type": "application/json",
             "x-test-authorize": "signed-fixture",
           },
-          body: JSON.stringify({ projectId, sessionId }),
+          body: JSON.stringify({ projectId, ownerProjectId: projectId, sessionId, projectRoot }),
         }).catch(() => undefined);
       }
       await rm(projectRoot, { recursive: true, force: true });
@@ -553,7 +567,9 @@ describe("workspace runtime supervisor server boundary", () => {
       },
       body: JSON.stringify({
         projectId: "test-project",
+        ownerProjectId: "test-project",
         sessionId: "test-session",
+        projectRoot: tmpdir(),
         pid: 12345,
       }),
     });
@@ -592,7 +608,7 @@ describe("workspace runtime supervisor server boundary", () => {
           "content-type": "application/json",
           "x-test-authorize": "signed-fixture",
         },
-        body: JSON.stringify({ projectId, sessionId, projectRoot, profile: "dev" }),
+        body: JSON.stringify({ projectId, ownerProjectId: projectId, sessionId, projectRoot, profile: "dev" }),
       });
       expect(startResponse.status).toBe(200);
       sessionStarted = true;
@@ -611,7 +627,7 @@ describe("workspace runtime supervisor server boundary", () => {
             "content-type": "application/json",
             "x-test-authorize": "signed-fixture",
           },
-          body: JSON.stringify({ projectId }),
+          body: JSON.stringify({ projectId, ownerProjectId: projectId, projectRoot }),
         },
       );
       expect(observationResponse.status).toBe(200);
@@ -620,7 +636,13 @@ describe("workspace runtime supervisor server boundary", () => {
         status: string;
         inventoryComplete: boolean;
         unknownListenerPorts: number[];
-        session: { projectId: string; sessionId: string; status: string };
+        session: {
+          projectId: string;
+          ownerProjectId: string;
+          projectRoot: string;
+          sessionId: string;
+          status: string;
+        };
       };
       expect(observation).toMatchObject({
         projectId,
@@ -641,7 +663,7 @@ describe("workspace runtime supervisor server boundary", () => {
             "content-type": "application/json",
             "x-test-authorize": "signed-fixture",
           },
-          body: JSON.stringify({ projectId, sessionId }),
+          body: JSON.stringify({ projectId, ownerProjectId: projectId, sessionId, projectRoot }),
         }).catch(() => undefined);
       }
       if (unownedListener.listening) {
@@ -677,7 +699,7 @@ describe("workspace runtime supervisor server boundary", () => {
             "content-type": "application/json",
             "x-test-authorize": "signed-fixture",
           },
-          body: JSON.stringify({ projectId }),
+          body: JSON.stringify({ projectId, ownerProjectId: projectId, projectRoot: tmpdir() }),
         },
       );
       expect(observationResponse.status).toBe(200);
@@ -737,6 +759,7 @@ describe("workspace runtime supervisor server boundary", () => {
           },
           body: JSON.stringify({
             projectId: "concurrent-start-project",
+            ownerProjectId: "concurrent-start-project",
             sessionId,
             projectRoot,
             profile: "dev",
@@ -765,7 +788,9 @@ describe("workspace runtime supervisor server boundary", () => {
             },
             body: JSON.stringify({
               projectId: session.projectId,
+              ownerProjectId: "concurrent-start-project",
               sessionId: session.sessionId,
+              projectRoot,
             }),
           });
         } catch {
@@ -815,6 +840,7 @@ describe("workspace runtime supervisor server boundary", () => {
         },
         body: JSON.stringify({
           projectId: "adopt-owner-mismatch",
+          ownerProjectId: "adopt-owner-mismatch",
           sessionId: "adopt-owner-mismatch-session",
           projectRoot,
           pid: unrelatedLauncher.pid,
@@ -868,6 +894,7 @@ describe("workspace runtime supervisor server boundary", () => {
           },
           body: JSON.stringify({
             projectId: "group-stop-test",
+            ownerProjectId: "group-stop-test",
             sessionId: "group-stop-session",
             projectRoot,
             pid: leaderPid,
@@ -887,7 +914,9 @@ describe("workspace runtime supervisor server boundary", () => {
           },
           body: JSON.stringify({
             projectId: "group-stop-test",
+            ownerProjectId: "group-stop-test",
             sessionId: "group-stop-session",
+            projectRoot,
           }),
         }).then((response) => {
           stopResponseCompleted = true;
@@ -904,7 +933,11 @@ describe("workspace runtime supervisor server boundary", () => {
             "content-type": "application/json",
             "x-test-authorize": "signed-fixture",
           },
-          body: JSON.stringify({ projectId: "group-stop-test" }),
+          body: JSON.stringify({
+            projectId: "group-stop-test",
+            ownerProjectId: "group-stop-test",
+            projectRoot,
+          }),
         });
         expect(observationResponse.status).toBe(200);
         await expect(observationResponse.json()).resolves.toMatchObject({ status: "unknown" });
@@ -960,6 +993,7 @@ describe("workspace runtime supervisor server boundary", () => {
           },
           body: JSON.stringify({
             projectId: "group-shutdown-test",
+            ownerProjectId: "group-shutdown-test",
             sessionId: "group-shutdown-session",
             projectRoot,
             pid: leaderPid,
