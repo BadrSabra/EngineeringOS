@@ -514,7 +514,9 @@ describe("P7.5 process recovery", () => {
       if (runtimeSessionId) {
         await supervisor.stop({
           projectId,
+          ownerProjectId: projectId,
           sessionId: runtimeSessionId,
+          projectRoot: params.rootPath,
           pid: runtimePid ?? null,
         }).catch(async () => terminateRuntimeGroup(runtimePid));
       } else {
