@@ -258,21 +258,43 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          # Share only this per-run test key with the local supervisor and test processes.
           export SESSION_SECRET="$(node --input-type=module -e 'import { randomBytes } from "node:crypto"; process.stdout.write(randomBytes(32).toString("base64url"))')"
           admitted_workspace_root="$(realpath "$WORKSPACE_PATH")"
           test "$(pwd -P)" = "$admitted_workspace_root"
           export WORKSPACE_RUNTIME_ALLOWED_ROOTS_JSON="[\"$admitted_workspace_root\",\"/tmp\"]"
+          control_directory="${RUNNER_TEMP}/eos-supervisor-control-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          mkdir -p "$control_directory"
+          chgrp "$(id -g)" "$control_directory"
+          chmod 2710 "$control_directory"
+          export WORKSPACE_RUNTIME_SUPERVISOR_SOCKET_PATH="$control_directory/control.sock"
+          export WORKSPACE_RUNTIME_SUPERVISOR_API_GID="$(id -g)"
+          export WORKSPACE_RUNTIME_SUPERVISOR_CANDIDATE_UID="$(id -u)"
+          export WORKSPACE_RUNTIME_SUPERVISOR_CANDIDATE_GID="$(id -g)"
+          export NODE_ENV=test
+          export WORKSPACE_RUNTIME_SUPERVISOR_TEST_MODE=1
+          mapfile -t key_material < <(
+            node --input-type=module -e '
+              import { generateKeyPairSync } from "node:crypto";
+              const pair = generateKeyPairSync("ed25519");
+              console.log(pair.privateKey.export({format:"der",type:"pkcs8"}).toString("base64"));
+              console.log(pair.publicKey.export({format:"der",type:"spki"}).toString("base64"));
+            '
+          )
+          signing_private_key="${key_material[0]}"
+          verify_public_key="${key_material[1]}"
+          test -n "$signing_private_key"
+          test -n "$verify_public_key"
+          export WORKSPACE_RUNTIME_SUPERVISOR_SIGNING_PRIVATE_KEY_B64="$signing_private_key"
+          export WORKSPACE_RUNTIME_SUPERVISOR_VERIFY_PUBLIC_KEY_B64="$verify_public_key"
           supervisor_log="${RUNNER_TEMP}/workspace-runtime-supervisor.log"
-          node scripts/workspace-runtime-supervisor.mjs >"$supervisor_log" 2>&1 &
+          env -u WORKSPACE_RUNTIME_SUPERVISOR_SIGNING_PRIVATE_KEY_B64 \
+            node scripts/workspace-runtime-supervisor.mjs >"$supervisor_log" 2>&1 &
           supervisor_pid=$!
           cleanup_supervisor() {
             if kill -0 "$supervisor_pid" 2>/dev/null; then
               kill -TERM "$supervisor_pid" 2>/dev/null || true
               for _ in $(seq 1 25); do
-                if ! kill -0 "$supervisor_pid" 2>/dev/null; then
-                  break
-                fi
+                if ! kill -0 "$supervisor_pid" 2>/dev/null; then break; fi
                 sleep 0.2
               done
               if kill -0 "$supervisor_pid" 2>/dev/null; then
@@ -282,15 +304,13 @@ jobs:
             wait "$supervisor_pid" 2>/dev/null || true
           }
           trap cleanup_supervisor EXIT
-
           ready=false
           for _ in $(seq 1 50); do
             if ! kill -0 "$supervisor_pid" 2>/dev/null; then
               cat "$supervisor_log"
               exit 1
             fi
-            if grep -Fq "Workspace runtime supervisor listening on 127.0.0.1:8099" "$supervisor_log" \
-              && curl --fail --silent http://127.0.0.1:8099/healthz >/dev/null; then
+            if [ -S "$WORKSPACE_RUNTIME_SUPERVISOR_SOCKET_PATH" ]; then
               ready=true
               break
             fi
@@ -298,10 +318,9 @@ jobs:
           done
           if [ "$ready" != true ]; then
             cat "$supervisor_log"
-            echo "Workspace runtime supervisor did not become ready on its owned loopback listener." >&2
+            echo "Workspace runtime supervisor did not create its protected Unix socket." >&2
             exit 1
           fi
-
           pnpm run test
 
       - name: Prove task acceptance after HTTP response loss
@@ -323,6 +342,123 @@ jobs:
           RUN_RUNTIME_START_RESPONSE_LOSS_RECOVERY: "1"
           RUN_RUNTIME_STARTUP_RECOVERY: "1"
 
+  release-validation:
+    name: Release validation
+    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && inputs.release_environment == 'release-validation'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    environment:
+      name: release-validation
+    concurrency:
+      group: release-validation-${{ github.ref }}
+      cancel-in-progress: false
+    permissions:
+      contents: read
+    env:
+      DATABASE_URL: postgresql://postgres:postgres@localhost:5432/engineeringos_test
+      PLAYWRIGHT_OUTPUT_DIR: test-results/dashboard-journey
+      DASHBOARD_E2E_TEARDOWN_ARTIFACT_PATH: test-results/dashboard-journey/release-teardown.json
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: engineeringos_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d engineeringos_test"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: refs/heads/main
+          persist-credentials: false
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Reject tracked private-key material
+        run: pnpm run security:reject-private-keys
+
+      - name: Install Chromium
+        run: pnpm exec playwright install --with-deps chromium
+
+      - name: Apply and verify release database schema
+        run: pnpm run db:schema:apply
+
+      - name: Run controlled release validation
+        timeout-minutes: 20
+        env:
+          CLERK_PUBLISHABLE_KEY: ${{ secrets.CLERK_PUBLISHABLE_KEY }}
+          CLERK_SECRET_KEY: ${{ secrets.CLERK_SECRET_KEY }}
+          VITE_CLERK_PUBLISHABLE_KEY: ${{ secrets.VITE_CLERK_PUBLISHABLE_KEY }}
+          SESSION_SECRET: ${{ secrets.SESSION_SECRET }}
+          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+        run: >-
+          APP_ORIGINS="http://127.0.0.1:23184"
+          RELEASE_VALIDATION_WAIT_FOR_LOCK=1
+          DASHBOARD_E2E_EXECUTABLE_PATH="$(command -v chromium)"
+          DASHBOARD_E2E_SKIP_API_CONTRACTS=1
+          pnpm run validate:dashboard-journey
+
+      - name: Upload release teardown evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-validation-${{ github.run_id }}-teardown
+          path: test-results/dashboard-journey/release-teardown.json
+          if-no-files-found: warn
+          retention-days: 14
+
+      - name: Upload release validation diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-validation-${{ github.run_id }}-diagnostics
+          path: |
+            test-results/dashboard-journey/**
+            artifacts/dashboard/test-results/**
+            test-results/**/*.log
+          if-no-files-found: ignore
+          retention-days: 14
+
+      - name: Summarize retained release diagnostics
+        if: always()
+        shell: bash
+        env:
+          TEARDOWN_ARTIFACT: test-results/dashboard-journey/release-teardown.json
+          TEARDOWN_ARTIFACT_NAME: release-validation-${{ github.run_id }}-teardown
+        run: |
+          {
+            echo "## Release validation diagnostics"
+            echo
+            echo "Validation run: [#${{ github.run_number }}](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})"
+            echo "Retained teardown evidence: [$TEARDOWN_ARTIFACT_NAME](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}/artifacts)"
+            echo
+            if [[ -f "$TEARDOWN_ARTIFACT" ]]; then
+              echo "### Teardown coverage"
+              jq -r '.services[] | "- \(.owningService): port \(.configuredPort // "n/a"), process group \(.processGroup // "n/a"), surviving descendants \((.finalSurvivingPids | length)), cleanup \(.cleanupOutcome)"' "$TEARDOWN_ARTIFACT"
+            else
+              echo "The teardown evidence file was not produced; see the job log for the failure."
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
   release-validation:
     name: Release validation
     if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && inputs.release_environment == 'release-validation'

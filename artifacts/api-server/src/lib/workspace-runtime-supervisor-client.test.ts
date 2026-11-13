@@ -1,205 +1,206 @@
+import { generateKeyPairSync } from "node:crypto";
 import { describe, expect, it } from "vitest";
-import { WorkspaceRuntimeSupervisorClient } from "./workspace-runtime-supervisor-client.js";
+import { verifyWorkspaceRuntimeSupervisorCommand } from "../../../../scripts/workspace-runtime-supervisor-protocol.mjs";
+import {
+  createWorkspaceRuntimeSupervisorStateVersion,
+  WorkspaceRuntimeSupervisorClient,
+  type WorkspaceRuntimeSupervisorRequestImpl,
+} from "./workspace-runtime-supervisor-client.js";
 
-describe("WorkspaceRuntimeSupervisorClient child attestation handoff", () => {
-  it("sends the temporary marker only in the start request body", async () => {
-    const requests: Array<{ url: string; body: string; authorization: string | undefined }> = [];
-    const fetchImpl: typeof fetch = async (input, init) => {
-      const headers = init?.headers as Record<string, string> | undefined;
-      requests.push({
-        url: String(input),
-        body: String(init?.body ?? ""),
-        authorization: headers?.authorization,
-      });
-      return new Response(JSON.stringify({
-        projectId: "project-runtime",
-        sessionId: "session-runtime",
-        status: "running",
-        port: 3210,
-        pid: 1234,
-      }), {
-        status: 200,
-        headers: { "content-type": "application/json" },
-      });
-    };
+const pair = generateKeyPairSync("ed25519");
+const privateKey = pair.privateKey.export({ format: "der", type: "pkcs8" }).toString("base64");
+const publicKey = pair.publicKey;
+const socketPath = "/tmp/eos-supervisor-test/control.sock";
+const projectId = "project-runtime";
+const sessionId = "session-runtime";
+const stateVersion = createWorkspaceRuntimeSupervisorStateVersion({
+  projectId,
+  sessionId,
+  revision: "revision-runtime",
+  startedAt: "2026-11-13T00:00:00.000Z",
+});
+
+function successBody(path: string): string {
+  if (path.endsWith("observe-start")) {
+    return JSON.stringify({
+      projectId,
+      status: "stopped",
+      observedAt: new Date().toISOString(),
+      inventoryComplete: true,
+      unknownListenerPorts: [],
+      detail: "No tracked runtime session is live and all managed ports are accounted for.",
+    });
+  }
+  return JSON.stringify({
+    projectId,
+    sessionId,
+    status: "running",
+    port: 3010,
+    pid: 1234,
+    listenerIdentityDigest: "c".repeat(64),
+  });
+}
+
+function signedRequestRecorder(calls: Array<{
+  path: string;
+  body: string;
+  action: string;
+  projectId: string;
+  sessionId: string | null;
+  stateVersion: string;
+  processIdentity: unknown;
+}>): WorkspaceRuntimeSupervisorRequestImpl {
+  return async (request) => {
+    expect(request.socketPath).toBe(socketPath);
+    const envelope = verifyWorkspaceRuntimeSupervisorCommand({
+      encodedCommand: request.encodedCommand,
+      signature: request.signature,
+      publicKey,
+      body: request.body,
+    });
+    calls.push({
+      path: request.path,
+      body: request.body,
+      action: envelope.action,
+      projectId: envelope.projectId,
+      sessionId: envelope.sessionId,
+      stateVersion: envelope.stateVersion,
+      processIdentity: envelope.processIdentity,
+    });
+    return { status: 200, body: successBody(request.path) };
+  };
+}
+
+describe("WorkspaceRuntimeSupervisorClient protected control channel", () => {
+  it("uses a Unix socket and an Ed25519 command scoped to start/session/state", async () => {
+    const calls: Array<{
+      path: string; body: string; action: string; projectId: string;
+      sessionId: string | null; stateVersion: string; processIdentity: unknown;
+    }> = [];
     const client = new WorkspaceRuntimeSupervisorClient(
-      "http://supervisor.test",
-      fetchImpl,
-      "test-supervisor-token",
+      socketPath,
+      privateKey,
+      signedRequestRecorder(calls),
     );
+
     const marker = "a".repeat(64);
     const listenerBindingDigest = "b".repeat(64);
-
     const response = await client.start({
-      projectId: "project-runtime",
-      sessionId: "session-runtime",
-      projectRoot: "/tmp/project-runtime",
+      projectId,
+      sessionId,
+      stateVersion,
+      projectRoot: "/workspace/project-runtime",
       attestationMarker: marker,
       listenerBindingDigest,
     });
 
-    expect(requests).toHaveLength(1);
-    expect(requests[0]?.url).toBe("http://supervisor.test/runtime/start");
-    expect(requests[0]?.authorization).toBe("Bearer test-supervisor-token");
-    expect(JSON.parse(requests[0]!.body)).toMatchObject({
-      attestationMarker: marker,
-      listenerBindingDigest,
+    expect(calls).toHaveLength(1);
+    expect(calls[0]).toMatchObject({
+      path: "/runtime/start",
+      action: "start",
+      projectId,
+      sessionId,
+      stateVersion,
+      processIdentity: null,
+    });
+    expect(JSON.parse(calls[0]!.body)).toMatchObject({
+      projectId, sessionId, projectRoot: "/workspace/project-runtime",
+      profile: "dev", attestationMarker: marker, listenerBindingDigest,
     });
     expect(response).not.toHaveProperty("attestationMarker");
     expect(JSON.stringify(response)).not.toContain(marker);
   });
 
-  it("sends the recovery marker and expected listener identity only to the supervisor", async () => {
-    const requests: Array<{ url: string; body: string }> = [];
-    const fetchImpl: typeof fetch = async (input, init) => {
-      requests.push({ url: String(input), body: String(init?.body ?? "") });
-      return new Response(JSON.stringify({
-        projectId: "project-runtime",
-        sessionId: "session-runtime",
-        status: "running",
-        port: 3010,
-        pid: 1234,
-        listenerIdentityDigest: "c".repeat(64),
-      }), { status: 200, headers: { "content-type": "application/json" } });
-    };
-    const client = new WorkspaceRuntimeSupervisorClient(
-      "http://supervisor.test",
-      fetchImpl,
-      "test-supervisor-token",
-    );
-    const marker = "d".repeat(64);
+  it("binds adoption to the exact pid, port, listener digest and session state", async () => {
+    const calls: Array<{
+      path: string; body: string; action: string; projectId: string;
+      sessionId: string | null; stateVersion: string; processIdentity: unknown;
+    }> = [];
+    const client = new WorkspaceRuntimeSupervisorClient(socketPath, privateKey, signedRequestRecorder(calls));
 
     const response = await client.adopt({
-      projectId: "project-runtime",
-      sessionId: "session-runtime",
-      projectRoot: "/tmp/project-runtime",
+      projectId,
+      sessionId,
+      stateVersion,
+      projectRoot: "/workspace/project-runtime",
       pid: 1234,
       port: 3010,
-      listenerBindingDigest: "e".repeat(64),
-      expectedListenerIdentityDigest: "f".repeat(64),
-      attestationMarker: marker,
+      listenerBindingDigest: "d".repeat(64),
+      expectedListenerIdentityDigest: "e".repeat(64),
     });
 
-    expect(requests).toHaveLength(1);
-    expect(requests[0]?.url).toBe("http://supervisor.test/runtime/adopt");
-    expect(JSON.parse(requests[0]!.body)).toMatchObject({
-      listenerBindingDigest: "e".repeat(64),
-      expectedListenerIdentityDigest: "f".repeat(64),
-      attestationMarker: marker,
+    expect(calls[0]).toMatchObject({
+      path: "/runtime/adopt",
+      action: "adopt",
+      projectId,
+      sessionId,
+      stateVersion,
+      processIdentity: {
+        pid: 1234,
+        port: 3010,
+        listenerIdentityDigest: "e".repeat(64),
+      },
     });
     expect(response.listenerIdentityDigest).toBe("c".repeat(64));
-    expect(JSON.stringify(response)).not.toContain(marker);
   });
 
-  it("observes a strictly validated start state", async () => {
-    const requests: Array<{ url: string; body: string; authorization: string | undefined }> = [];
-    const fetchImpl: typeof fetch = async (input, init) => {
-      const headers = init?.headers as Record<string, string> | undefined;
-      requests.push({
-        url: String(input),
-        body: String(init?.body ?? ""),
-        authorization: headers?.authorization,
-      });
-      return new Response(JSON.stringify({
-        projectId: "project-runtime",
-        status: "stopped",
-        observedAt: "2025-01-01T00:00:00.000Z",
-        inventoryComplete: true,
-        unknownListenerPorts: [],
-        detail: "No tracked runtime session is live and all managed ports are accounted for.",
-      }), { status: 200, headers: { "content-type": "application/json" } });
-    };
-    const client = new WorkspaceRuntimeSupervisorClient(
-      "http://supervisor.test",
-      fetchImpl,
-      "test-supervisor-token",
-    );
+  it("binds stop to the tracked process identity", async () => {
+    const calls: Array<{
+      path: string; body: string; action: string; projectId: string;
+      sessionId: string | null; stateVersion: string; processIdentity: unknown;
+    }> = [];
+    const client = new WorkspaceRuntimeSupervisorClient(socketPath, privateKey, signedRequestRecorder(calls));
 
-    await expect(client.observeStartState("project-runtime")).resolves.toMatchObject({
-      projectId: "project-runtime",
-      status: "stopped",
-      inventoryComplete: true,
-    });
-    expect(requests).toEqual([{
-      url: "http://supervisor.test/runtime/observe-start",
-      body: JSON.stringify({ projectId: "project-runtime" }),
-      authorization: "Bearer test-supervisor-token",
-    }]);
-  });
-
-  it("accepts a corroborated running session alongside unrelated unowned listeners", async () => {
-    const fetchImpl: typeof fetch = async () => new Response(JSON.stringify({
-      projectId: "project-runtime",
-      status: "running",
-      observedAt: "2025-01-01T00:00:00.000Z",
-      inventoryComplete: true,
-      unknownListenerPorts: [3011],
-      detail: "The target session is corroborated; another listener is unowned.",
-      session: {
-        projectId: "project-runtime",
-        sessionId: "session-runtime",
-        status: "running",
-        port: 3010,
-        pid: 1234,
-      },
-    }), { status: 200, headers: { "content-type": "application/json" } });
-    const client = new WorkspaceRuntimeSupervisorClient(
-      "http://supervisor.test",
-      fetchImpl,
-      "test-supervisor-token",
-    );
-
-    await expect(client.observeStartState("project-runtime")).resolves.toMatchObject({
-      projectId: "project-runtime",
-      status: "running",
-      unknownListenerPorts: [3011],
-      session: {
-        projectId: "project-runtime",
-        sessionId: "session-runtime",
-        status: "running",
-        port: 3010,
-        pid: 1234,
-      },
+    await client.stop({ projectId, sessionId, stateVersion, pid: 1234 });
+    expect(calls[0]).toMatchObject({
+      path: "/runtime/stop",
+      action: "stop",
+      projectId,
+      sessionId,
+      stateVersion,
+      processIdentity: { pid: 1234 },
     });
   });
 
-  it("rejects an invalid observation payload", async () => {
-    const fetchImpl: typeof fetch = async () => new Response(JSON.stringify({
-      projectId: "project-runtime",
-      status: "stopped",
-      observedAt: "not-a-date",
-      inventoryComplete: false,
-      unknownListenerPorts: [],
-      detail: "",
-    }), { status: 200 });
-    const client = new WorkspaceRuntimeSupervisorClient(
-      "http://supervisor.test",
-      fetchImpl,
-      "test-supervisor-token",
-    );
+  it("issues a short-lived project-scoped inventory command without a session", async () => {
+    const calls: Array<{
+      path: string; body: string; action: string; projectId: string;
+      sessionId: string | null; stateVersion: string; processIdentity: unknown;
+    }> = [];
+    const client = new WorkspaceRuntimeSupervisorClient(socketPath, privateKey, signedRequestRecorder(calls));
 
-    await expect(client.observeStartState("project-runtime")).rejects.toThrow(
-      "invalid observation",
-    );
+    await expect(client.observeStartState(projectId)).resolves.toMatchObject({
+      projectId,
+      status: "stopped",
+      inventoryComplete: true,
+    });
+    expect(calls[0]).toMatchObject({
+      path: "/runtime/observe-start",
+      action: "observe-start",
+      projectId,
+      sessionId: null,
+      processIdentity: null,
+    });
+    expect(calls[0]!.stateVersion).toMatch(/^[a-f0-9]{64}$/);
+    expect(JSON.parse(calls[0]!.body)).toEqual({ projectId, sessionId: null });
   });
 
-  it("rejects a stopped result when a managed listener is unowned", async () => {
-    const fetchImpl: typeof fetch = async () => new Response(JSON.stringify({
-      projectId: "project-runtime",
-      status: "stopped",
-      observedAt: "2025-01-01T00:00:00.000Z",
-      inventoryComplete: true,
-      unknownListenerPorts: [3010],
-      detail: "Unowned listener exists.",
-    }), { status: 200 });
-    const client = new WorkspaceRuntimeSupervisorClient(
-      "http://supervisor.test",
-      fetchImpl,
-      "test-supervisor-token",
-    );
+  it("rejects when the signing key or socket configuration is missing", async () => {
+    const missingSocket = new WorkspaceRuntimeSupervisorClient("", privateKey, async () => ({
+      status: 200, body: "{}",
+    }));
+    await expect(missingSocket.observeStartState(projectId)).rejects.toMatchObject({ status: 503 });
 
-    await expect(client.observeStartState("project-runtime")).rejects.toThrow(
-      "invalid observation",
-    );
+    const missingKey = new WorkspaceRuntimeSupervisorClient(socketPath, "", async () => ({
+      status: 200, body: "{}",
+    }));
+    await expect(missingKey.observeStartState(projectId)).rejects.toMatchObject({ status: 503 });
+  });
+
+  it("rejects malformed supervisor JSON instead of treating it as a valid response", async () => {
+    const client = new WorkspaceRuntimeSupervisorClient(socketPath, privateKey, async () => ({
+      status: 200, body: "{invalid",
+    }));
+    await expect(client.observeStartState(projectId)).rejects.toThrow("invalid JSON");
   });
 });

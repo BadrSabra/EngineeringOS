@@ -1,13 +1,24 @@
 import http from "node:http";
 import net from "node:net";
 import path from "node:path";
-import { createHash, createHmac, timingSafeEqual } from "node:crypto";
-import { readFile, readdir, readlink, realpath, stat } from "node:fs/promises";
-import { spawn } from "node:child_process";
+import { createHash, createPublicKey, randomUUID } from "node:crypto";
+import {
+  chmod, lstat, open, readFile, readdir, readlink, realpath, rename, stat, unlink,
+} from "node:fs/promises";
+import { spawn, spawnSync } from "node:child_process";
+import { verifyWorkspaceRuntimeSupervisorCommand } from "./workspace-runtime-supervisor-protocol.mjs";
 
-const BIND_HOST = process.env.WORKSPACE_RUNTIME_SUPERVISOR_HOST ?? "127.0.0.1";
+const SOCKET_PATH = process.env.WORKSPACE_RUNTIME_SUPERVISOR_SOCKET_PATH;
+const API_GID = Number(process.env.WORKSPACE_RUNTIME_SUPERVISOR_API_GID);
+const CANDIDATE_UID = Number(process.env.WORKSPACE_RUNTIME_SUPERVISOR_CANDIDATE_UID);
+const CANDIDATE_GID = Number(process.env.WORKSPACE_RUNTIME_SUPERVISOR_CANDIDATE_GID);
+const SETPRIV_PATH = process.env.WORKSPACE_RUNTIME_SUPERVISOR_SETPRIV_PATH ?? "setpriv";
+const TEST_MODE = process.env.NODE_ENV === "test"
+  && process.env.WORKSPACE_RUNTIME_SUPERVISOR_TEST_MODE === "1";
 const LOOPBACK_HOST = "127.0.0.1";
-const PORT = Number(process.env.WORKSPACE_RUNTIME_SUPERVISOR_PORT ?? 8099);
+const CONTROL_DIRECTORY = typeof SOCKET_PATH === "string" ? path.dirname(SOCKET_PATH) : "";
+const REPLAY_LEDGER_PATH = process.env.WORKSPACE_RUNTIME_SUPERVISOR_REPLAY_LEDGER_PATH
+  ?? (CONTROL_DIRECTORY ? path.join(CONTROL_DIRECTORY, ".workspace-runtime-supervisor-replay.jsonl") : "");
 const PORT_MIN = 3000;
 const PORT_MAX = 3099;
 const STARTUP_TIMEOUT_MS = 30_000;
@@ -18,55 +29,68 @@ const MAX_PROC_ENTRIES = 8_192;
 const MAX_FD_ENTRIES = 4_096;
 const MAX_PROC_STAT_BYTES = 16 * 1024;
 const MAX_TCP_TABLE_BYTES = 2 * 1024 * 1024;
-const SAFE_ENV_NAMES = new Set([
-  "PATH",
-  "HOME",
-  "USER",
-  "SHELL",
-  "LANG",
-  "TERM",
-  "TMPDIR",
-  "PNPM_HOME",
-]);
+const SAFE_ENV_NAMES = new Set(["PATH", "HOME", "USER", "SHELL", "LANG", "TERM", "TMPDIR", "PNPM_HOME"]);
 const SAFE_LOCALE_ENV_NAME = /^LC_[A-Z_]+$/;
 const ALLOWED_PROJECT_ROOTS_JSON = process.env.WORKSPACE_RUNTIME_ALLOWED_ROOTS_JSON;
-const SUPERVISOR_AUTH_CONTEXT = "EngineeringOS/workspace-runtime-supervisor/v1";
 const CHILD_ATTESTATION_ENV_NAME = "ENGINEERINGOS_CHILD_ATTESTATION";
 const sessions = new Map();
 const startLocks = new Map();
 const reservedRuntimePorts = new Set();
+const consumedCommandIds = new Map();
+const consumedNonces = new Set();
+let replayWriteTail = Promise.resolve();
+let replayRecordsSinceCompaction = 0;
 let portReservationTail = Promise.resolve();
 
-if (BIND_HOST !== "127.0.0.1") {
-  throw new Error("Workspace runtime supervisor must bind to a loopback address.");
+if (!SOCKET_PATH || !path.isAbsolute(SOCKET_PATH) || !path.basename(SOCKET_PATH)) {
+  throw new Error("Workspace runtime supervisor requires an absolute Unix socket path.");
 }
+if (!Number.isInteger(API_GID) || API_GID < 1) {
+  throw new Error("Workspace runtime supervisor API group is not configured.");
+}
+if (
+  !Number.isInteger(CANDIDATE_UID) || CANDIDATE_UID < 1
+  || !Number.isInteger(CANDIDATE_GID) || CANDIDATE_GID < 1
+  || (!TEST_MODE && CANDIDATE_GID === API_GID)
+) {
+  throw new Error("Workspace runtime candidate identity is not isolated from the API control group.");
+}
+if (process.platform !== "linux" || typeof process.getuid !== "function") {
+  throw new Error("Workspace runtime supervisor Unix socket isolation requires Linux.");
+}
+if (!TEST_MODE && CANDIDATE_UID === process.getuid()) {
+  throw new Error("Workspace runtime candidate UID must differ from the supervisor UID.");
+}
+if (!TEST_MODE && process.getgroups().includes(API_GID)) {
+  throw new Error("Supervisor must not inherit the API control group; use a dedicated runner account.");
+}
+if (!REPLAY_LEDGER_PATH || path.dirname(path.resolve(REPLAY_LEDGER_PATH)) !== path.resolve(CONTROL_DIRECTORY)) {
+  throw new Error("Workspace runtime replay ledger must reside in the supervisor control directory.");
+}
+
 let ALLOWED_PROJECT_ROOTS;
-try {
-  ALLOWED_PROJECT_ROOTS = JSON.parse(ALLOWED_PROJECT_ROOTS_JSON ?? "");
-} catch {
-  throw new Error("Workspace runtime allowed project roots are not valid JSON.");
-}
+try { ALLOWED_PROJECT_ROOTS = JSON.parse(ALLOWED_PROJECT_ROOTS_JSON ?? ""); }
+catch { throw new Error("Workspace runtime allowed project roots are not valid JSON."); }
 if (
   !Array.isArray(ALLOWED_PROJECT_ROOTS)
   || ALLOWED_PROJECT_ROOTS.length === 0
   || ALLOWED_PROJECT_ROOTS.length > 16
-  || ALLOWED_PROJECT_ROOTS.some((root) =>
-    typeof root !== "string" || !path.isAbsolute(root)
-  )
-) {
-  throw new Error("Workspace runtime allowed project roots are not configured.");
-}
-if (!Number.isInteger(PORT) || PORT < 1 || PORT > 65_535) {
-  throw new Error("Workspace runtime supervisor port is invalid.");
-}
+  || ALLOWED_PROJECT_ROOTS.some((root) => typeof root !== "string" || !path.isAbsolute(root))
+) throw new Error("Workspace runtime allowed project roots are not configured.");
 
-const sessionSecret = process.env.SESSION_SECRET;
-if (!sessionSecret) {
-  throw new Error("Workspace runtime supervisor authentication is not configured.");
+const publicKeyEncoded = process.env.WORKSPACE_RUNTIME_SUPERVISOR_VERIFY_PUBLIC_KEY_B64;
+if (!publicKeyEncoded || !/^[A-Za-z0-9+/]+={0,2}$/.test(publicKeyEncoded)) {
+  throw new Error("Workspace runtime supervisor verification key is not configured.");
 }
-const SUPERVISOR_AUTH_TOKEN = createHmac("sha256", sessionSecret)
-  .update(SUPERVISOR_AUTH_CONTEXT)
-  .digest("hex");
+let SUPERVISOR_VERIFY_PUBLIC_KEY;
+try {
+  const der = Buffer.from(publicKeyEncoded, "base64");
+  if (der.toString("base64") !== publicKeyEncoded) throw new Error("Non-canonical public key encoding.");
+  SUPERVISOR_VERIFY_PUBLIC_KEY = createPublicKey({ key: der, format: "der", type: "spki" });
+  if (SUPERVISOR_VERIFY_PUBLIC_KEY.asymmetricKeyType !== "ed25519") throw new Error("Ed25519 key required.");
+} catch {
+  throw new Error("Workspace runtime supervisor verification key is invalid.");
+}
 
 function bounded(value) {
   return String(value)
@@ -82,19 +106,24 @@ function json(res, status, body) {
   res.end(JSON.stringify(body));
 }
 
-function isAuthorized(req) {
-  const header = req.headers.authorization;
-  if (typeof header !== "string" || !header.startsWith("Bearer ")) return false;
-  const supplied = Buffer.from(header.slice("Bearer ".length), "utf8");
-  const expected = Buffer.from(SUPERVISOR_AUTH_TOKEN, "utf8");
-  return supplied.length === expected.length && timingSafeEqual(supplied, expected);
-}
 
-async function body(req) {
-  let content = "";
-  for await (const chunk of req) content += chunk;
-  if (content.length > 32_000) throw new Error("Request body is too large.");
-  return content ? JSON.parse(content) : {};
+async function requestBody(req) {
+  const chunks = [];
+  let bytes = 0;
+  for await (const chunk of req) {
+    const value = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+    bytes += value.length;
+    if (bytes > 32_000) throw Object.assign(new Error("Request body is too large."), { status: 413 });
+    chunks.push(value);
+  }
+  const raw = Buffer.concat(chunks).toString("utf8");
+  let parsed;
+  try { parsed = raw ? JSON.parse(raw) : {}; }
+  catch { throw Object.assign(new Error("Request body is not valid JSON."), { status: 400 }); }
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+    throw Object.assign(new Error("Request body must be a JSON object."), { status: 400 });
+  }
+  return { raw, parsed };
 }
 
 function isSafeProjectId(value) {
@@ -104,18 +133,30 @@ function isSafeProjectId(value) {
 function runtimeEnv(port, attestationMarker) {
   const env = {};
   for (const [name, value] of Object.entries(process.env)) {
-    if (
-      value !== undefined
-      && (SAFE_ENV_NAMES.has(name) || SAFE_LOCALE_ENV_NAME.test(name))
-    ) {
-      env[name] = value;
-    }
+    if (value !== undefined && (SAFE_ENV_NAMES.has(name) || SAFE_LOCALE_ENV_NAME.test(name))) env[name] = value;
   }
   env.NODE_ENV = "development";
   env.PORT = String(port);
   env.BASE_PATH = "/";
   if (attestationMarker) env.ENGINEERINGOS_CHILD_ATTESTATION = attestationMarker;
   return env;
+}
+
+function spawnCandidate(projectRoot, port, attestationMarker) {
+  const env = runtimeEnv(port, attestationMarker);
+  if (TEST_MODE) {
+    return spawn("pnpm", ["run", "dev"], {
+      cwd: projectRoot, env, detached: true, shell: false, stdio: ["ignore", "pipe", "pipe"],
+    });
+  }
+  return spawn(SETPRIV_PATH, [
+    "--reuid", String(CANDIDATE_UID),
+    "--regid", String(CANDIDATE_GID),
+    "--clear-groups",
+    "--", "pnpm", "run", "dev",
+  ], {
+    cwd: projectRoot, env, detached: true, shell: false, stdio: ["ignore", "pipe", "pipe"],
+  });
 }
 
 function isPortListening(port) {
@@ -603,23 +644,20 @@ function publicSession(session) {
   };
 }
 
-async function start(input) {
+async function start(input, stateVersion) {
   const previous = startLocks.get(input.projectId) ?? Promise.resolve();
   let release;
-  const current = new Promise((resolve) => {
-    release = resolve;
-  });
+  const current = new Promise((resolve) => { release = resolve; });
   startLocks.set(input.projectId, current);
   await previous;
-  try {
-    return await startExclusive(input);
-  } finally {
+  try { return await startExclusive(input, stateVersion); }
+  finally {
     release();
     if (startLocks.get(input.projectId) === current) startLocks.delete(input.projectId);
   }
 }
 
-async function startExclusive(input) {
+async function startExclusive(input, stateVersion) {
   if (!isSafeProjectId(input.projectId) || !isSafeProjectId(input.sessionId)) {
     throw Object.assign(new Error("Invalid runtime identity."), { status: 400 });
   }
@@ -647,7 +685,8 @@ async function startExclusive(input) {
   if (existing && (existing.status === "starting" || existing.status === "running")) {
     if (existing.sessionId === input.sessionId) {
       if (
-        (input.attestationMarker ?? null) !== (existing.attestationMarker ?? null)
+        existing.stateVersion !== stateVersion
+        || (input.attestationMarker ?? null) !== (existing.attestationMarker ?? null)
         || (input.listenerBindingDigest
           && existing.listenerBindingDigest !== input.listenerBindingDigest)
       ) {
@@ -661,13 +700,7 @@ async function startExclusive(input) {
   const port = await reserveRuntimePort();
   let child;
   try {
-    child = spawn("pnpm", ["run", "dev"], {
-      cwd: projectRoot,
-      env: runtimeEnv(port, input.attestationMarker),
-      detached: true,
-      shell: false,
-      stdio: ["ignore", "pipe", "pipe"],
-    });
+    child = spawnCandidate(projectRoot, port, input.attestationMarker);
   } catch (error) {
     reservedRuntimePorts.delete(port);
     throw error;
@@ -676,6 +709,7 @@ async function startExclusive(input) {
     projectId: input.projectId,
     sessionId: input.sessionId,
     projectRoot,
+    stateVersion,
     status: "starting",
     port,
     pid: child.pid ?? null,
@@ -722,7 +756,7 @@ async function startExclusive(input) {
   }
 }
 
-async function adopt(input) {
+async function adopt(input, stateVersion) {
   if (!isSafeProjectId(input.projectId) || !isSafeProjectId(input.sessionId)) {
     throw Object.assign(new Error("Invalid runtime identity."), { status: 400 });
   }
@@ -748,6 +782,9 @@ async function adopt(input) {
   }
   const existing = sessions.get(input.projectId);
   if (existing?.sessionId === input.sessionId && existing.pid === input.pid) {
+    if (existing.stateVersion !== stateVersion) {
+      throw Object.assign(new Error("Runtime adoption state version does not match the tracked session."), { status: 409 });
+    }
     const canBindUnboundSession =
       existing.listenerBindingDigest === undefined
       && existing.attestationMarker === undefined
@@ -783,6 +820,7 @@ async function adopt(input) {
     projectId: input.projectId,
     sessionId: input.sessionId,
     projectRoot,
+    stateVersion,
     status: "running",
     port: input.port,
     pid: input.pid,
@@ -797,7 +835,7 @@ async function adopt(input) {
   return publicSession(session);
 }
 
-async function stop(input) {
+async function stop(input, stateVersion) {
   if (!isSafeProjectId(input.projectId) || !isSafeProjectId(input.sessionId)) {
     throw Object.assign(new Error("Invalid runtime identity."), { status: 400 });
   }
@@ -807,6 +845,9 @@ async function stop(input) {
   }
   if (session.sessionId !== input.sessionId) {
     throw Object.assign(new Error("Runtime session identity does not match."), { status: 409 });
+  }
+  if (session.stateVersion !== stateVersion || (input.pid ?? null) !== (session.pid ?? null)) {
+    throw Object.assign(new Error("Runtime process identity or state version does not match."), { status: 409 });
   }
   await terminate(session);
   sessions.delete(input.projectId);
@@ -867,39 +908,221 @@ async function observeStart(input) {
   };
 }
 
+function expectedProcessIdentity(action, input) {
+  if (action === "adopt") return {
+    pid: input.pid,
+    port: input.port,
+    listenerIdentityDigest: input.expectedListenerIdentityDigest,
+  };
+  if (action === "stop") return { pid: input.pid ?? null };
+  return null;
+}
+
+function equalProcessIdentity(left, right) {
+  return JSON.stringify(left) === JSON.stringify(right);
+}
+
+async function withReplayLedgerLock(operation) {
+  const previous = replayWriteTail;
+  let release;
+  replayWriteTail = new Promise((resolve) => { release = resolve; });
+  await previous;
+  try { return await operation(); }
+  finally { release(); }
+}
+
+async function loadReplayLedger() {
+  let info;
+  try { info = await lstat(REPLAY_LEDGER_PATH); }
+  catch (error) { if (error.code !== "ENOENT") throw error; }
+  if (info && (
+    !info.isFile() || info.isSymbolicLink() || info.uid !== process.getuid() || (info.mode & 0o077) !== 0
+  )) throw new Error("Supervisor replay ledger ownership or permissions are unsafe.");
+  if (info) {
+    const text = await readFile(REPLAY_LEDGER_PATH, "utf8");
+    for (const line of text.split(/\r?\n/)) {
+      if (!line) continue;
+      let record;
+      try { record = JSON.parse(line); }
+      catch { throw new Error("Supervisor replay ledger is corrupt."); }
+      if (
+        !record || typeof record.commandId !== "string" || typeof record.nonce !== "string"
+        || !Number.isSafeInteger(record.expiresAt)
+      ) throw new Error("Supervisor replay ledger is corrupt.");
+      if (record.expiresAt >= Date.now()) {
+        consumedCommandIds.set(record.commandId, record);
+        consumedNonces.add(record.nonce);
+      }
+    }
+  }
+  const handle = await open(REPLAY_LEDGER_PATH, "a", 0o600);
+  try { await handle.chmod(0o600); await handle.sync(); }
+  finally { await handle.close(); }
+}
+
+async function compactReplayLedger() {
+  const live = [...consumedCommandIds.values()].filter((record) => record.expiresAt >= Date.now());
+  const temporary = `${REPLAY_LEDGER_PATH}.${randomUUID()}.tmp`;
+  const handle = await open(temporary, "wx", 0o600);
+  try {
+    for (const record of live) await handle.writeFile(`${JSON.stringify(record)}\n`, "utf8");
+    await handle.sync();
+  } finally { await handle.close(); }
+  await rename(temporary, REPLAY_LEDGER_PATH);
+  consumedCommandIds.clear();
+  consumedNonces.clear();
+  for (const record of live) {
+    consumedCommandIds.set(record.commandId, record);
+    consumedNonces.add(record.nonce);
+  }
+  replayRecordsSinceCompaction = 0;
+}
+
+async function consumeSupervisorCommand(command) {
+  await withReplayLedgerLock(async () => {
+    if (consumedCommandIds.has(command.commandId) || consumedNonces.has(command.nonce)) {
+      throw Object.assign(new Error("Supervisor command was already consumed."), { status: 409 });
+    }
+    if (consumedCommandIds.size >= 100_000) await compactReplayLedger();
+    const record = { commandId: command.commandId, nonce: command.nonce, expiresAt: command.expiresAt };
+    const handle = await open(REPLAY_LEDGER_PATH, "a", 0o600);
+    try {
+      await handle.writeFile(`${JSON.stringify(record)}\n`, "utf8");
+      await handle.sync();
+    } finally { await handle.close(); }
+    consumedCommandIds.set(record.commandId, record);
+    consumedNonces.add(record.nonce);
+    replayRecordsSinceCompaction += 1;
+    if (replayRecordsSinceCompaction >= 512) await compactReplayLedger();
+  });
+}
+
+async function authenticateControlRequest(req, action, input, rawBody) {
+  const encodedCommand = req.headers["x-eos-command"];
+  const signature = req.headers["x-eos-signature"];
+  if (typeof encodedCommand !== "string" || typeof signature !== "string") {
+    throw Object.assign(new Error("Signed supervisor command is required."), { status: 401 });
+  }
+  const command = verifyWorkspaceRuntimeSupervisorCommand({
+    encodedCommand, signature, publicKey: SUPERVISOR_VERIFY_PUBLIC_KEY, body: rawBody,
+  });
+  const expectedSession = action === "observe-start" ? null : input.sessionId;
+  if (
+    command.action !== action
+    || command.projectId !== input.projectId
+    || command.sessionId !== expectedSession
+    || !equalProcessIdentity(command.processIdentity, expectedProcessIdentity(action, input))
+  ) throw Object.assign(new Error("Supervisor command scope does not match the request."), { status: 403 });
+  if (!isSafeProjectId(input.projectId)) {
+    throw Object.assign(new Error("Invalid project identity."), { status: 400 });
+  }
+  if (action !== "observe-start" && !isSafeProjectId(input.sessionId)) {
+    throw Object.assign(new Error("Invalid session identity."), { status: 400 });
+  }
+  await consumeSupervisorCommand(command);
+  return command;
+}
+
 async function handle(req, res) {
   try {
-    const url = new URL(req.url, `http://${LOOPBACK_HOST}:${PORT}`);
-    if (req.method === "GET" && url.pathname === "/healthz") return json(res, 200, { status: "ok" });
     if (req.method !== "POST") return json(res, 405, { error: "method_not_allowed" });
-    if (!isAuthorized(req)) return json(res, 401, { error: "unauthorized" });
-    const input = await body(req);
-    if (url.pathname === "/runtime/start") return json(res, 200, await start(input));
-    if (url.pathname === "/runtime/adopt") return json(res, 200, await adopt(input));
-    if (url.pathname === "/runtime/stop") return json(res, 200, await stop(input));
-    if (url.pathname === "/runtime/observe-start") return json(res, 200, await observeStart(input));
-    return json(res, 404, { error: "not_found" });
+    const url = new URL(req.url, "http://workspace-runtime-supervisor.invalid");
+    const actions = new Map([
+      ["/runtime/start", "start"], ["/runtime/adopt", "adopt"],
+      ["/runtime/stop", "stop"], ["/runtime/observe-start", "observe-start"],
+    ]);
+    const action = actions.get(url.pathname);
+    if (!action) return json(res, 404, { error: "not_found" });
+    const request = await requestBody(req);
+    const command = await authenticateControlRequest(req, action, request.parsed, request.raw);
+    if (action === "start") return json(res, 200, await start(request.parsed, command.stateVersion));
+    if (action === "adopt") return json(res, 200, await adopt(request.parsed, command.stateVersion));
+    if (action === "stop") return json(res, 200, await stop(request.parsed, command.stateVersion));
+    return json(res, 200, await observeStart(request.parsed));
   } catch (error) {
     return json(res, error.status ?? 500, { error: bounded(error.message ?? "Supervisor operation failed.") });
   }
 }
 
-const server = http.createServer((req, res) => { void handle(req, res); });
-server.listen(PORT, BIND_HOST, () => {
-  console.log(`Workspace runtime supervisor listening on ${BIND_HOST}:${PORT}`);
-});
+async function validateControlSocketDirectory() {
+  const resolvedDirectory = await realpath(CONTROL_DIRECTORY);
+  if (resolvedDirectory !== path.resolve(CONTROL_DIRECTORY)) {
+    throw new Error("Supervisor control directory must be canonical and must not contain symlinks.");
+  }
+  const directory = await stat(resolvedDirectory);
+  if (
+    !directory.isDirectory()
+    || directory.uid !== process.getuid()
+    || directory.gid !== API_GID
+    || (directory.mode & 0o777) !== 0o710
+    || (directory.mode & 0o2000) === 0
+  ) throw new Error("Supervisor control directory must be owned by the runner and API group with mode 0710.");
+  try {
+    await lstat(SOCKET_PATH);
+    throw new Error("Supervisor socket path already exists; stale sockets must be removed by the host operator.");
+  } catch (error) { if (error.code !== "ENOENT") throw error; }
+}
 
+function validateCandidateLauncher() {
+  if (TEST_MODE) return;
+  const probe = spawnSync(SETPRIV_PATH, [
+    "--reuid", String(CANDIDATE_UID),
+    "--regid", String(CANDIDATE_GID),
+    "--clear-groups",
+    "--", process.execPath, "-e",
+    "process.stdout.write(JSON.stringify({uid:process.getuid(),gid:process.getgid(),groups:process.getgroups()}))",
+  ], { encoding: "utf8", timeout: 5_000 });
+  if (probe.error || probe.status !== 0) {
+    throw new Error("Supervisor cannot launch Candidate with isolated UID/GID and cleared supplementary groups.");
+  }
+  let identity;
+  try { identity = JSON.parse(probe.stdout); }
+  catch { throw new Error("Candidate identity preflight returned invalid output."); }
+  if (identity.uid !== CANDIDATE_UID || identity.gid !== CANDIDATE_GID
+      || !Array.isArray(identity.groups) || identity.groups.length !== 0) {
+    throw new Error("Candidate identity preflight did not establish isolated groups.");
+  }
+}
+
+async function listenOnControlSocket() {
+  await validateControlSocketDirectory();
+  validateCandidateLauncher();
+  await loadReplayLedger();
+  const server = http.createServer((req, res) => { void handle(req, res); });
+  await new Promise((resolve, reject) => {
+    server.once("error", reject);
+    server.listen(SOCKET_PATH, resolve);
+  });
+  try {
+    // A setgid control directory makes the socket inherit API_GID without
+    // granting the supervisor CAP_CHOWN or API-group membership.
+    await chmod(SOCKET_PATH, 0o660);
+    const socketInfo = await lstat(SOCKET_PATH);
+    if (!socketInfo.isSocket() || socketInfo.uid !== process.getuid()
+        || socketInfo.gid !== API_GID || (socketInfo.mode & 0o777) !== 0o660) {
+      throw new Error("Supervisor Unix socket ownership or permissions could not be verified.");
+    }
+  } catch (error) {
+    await new Promise((resolve) => server.close(resolve));
+    await unlink(SOCKET_PATH).catch(() => undefined);
+    throw error;
+  }
+  console.log(`Workspace runtime supervisor listening on unix:${SOCKET_PATH}`);
+  return server;
+}
+
+const server = await listenOnControlSocket();
+let shuttingDown = false;
 function shutdown() {
-  const cleanup = Promise.allSettled(
-    [...sessions.values()].map((session) => terminate(session)),
-  );
+  if (shuttingDown) return;
+  shuttingDown = true;
+  const cleanup = Promise.allSettled([...sessions.values()].map((session) => terminate(session)));
   server.close(() => {
-    void cleanup.then((results) => {
+    void cleanup.then(async (results) => {
       const failures = results.filter((result) => result.status === "rejected").length;
-      if (failures > 0) {
-        console.error(`Workspace runtime shutdown could not confirm ${failures} process group(s).`);
-      }
-      process.exit(0);
+      if (failures > 0) console.error(`Workspace runtime shutdown could not confirm ${failures} process group(s).`);
+      await unlink(SOCKET_PATH).catch(() => undefined);
+      process.exit(failures > 0 ? 1 : 0);
     });
   });
 }

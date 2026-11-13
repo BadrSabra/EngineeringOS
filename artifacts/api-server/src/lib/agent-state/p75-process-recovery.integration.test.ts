@@ -161,14 +161,11 @@ describe("P7.5 process recovery", () => {
     const supervisor = new WorkspaceRuntimeSupervisorClient();
 
     try {
-      let supervisorHealth: Response;
       try {
-        supervisorHealth = await fetch("http://127.0.0.1:8099/healthz");
+        await supervisor.observeStartState("p75-supervisor-readiness-probe");
       } catch {
-        throw new Error("Managed workspace runtime supervisor is not reachable at 127.0.0.1:8099.");
+        throw new Error("Managed workspace runtime supervisor is not reachable over its protected Unix socket.");
       }
-      expect(supervisorHealth.status, "managed workspace runtime supervisor must be reachable").toBe(200);
-      expect(await supervisorHealth.json()).toEqual({ status: "ok" });
       await writeFile(
         path.join(rootPath, "package.json"),
         JSON.stringify({ private: true, scripts: { dev: "node runtime-server.cjs" } }),
