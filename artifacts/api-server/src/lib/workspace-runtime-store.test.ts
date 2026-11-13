@@ -1985,6 +1985,7 @@ describe("workspace runtime full API startup recovery", () => {
         });
         expect(process.kill(unknownOwnerPid, 0)).toBe(true);
         expect(supervisorRequests).toHaveLength(0);
+        expect(unexpectedSupervisorPaths).toEqual([]);
         expect(await supervisorClient.observeStartState(knownProjectId)).toMatchObject({
           status: "running",
           session: { projectId: knownProjectId, sessionId, pid: knownRuntimePid, port: knownRuntimePort },
