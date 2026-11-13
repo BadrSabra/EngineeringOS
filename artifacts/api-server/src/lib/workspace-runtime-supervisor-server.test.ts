@@ -279,7 +279,12 @@ describe("workspace runtime supervisor server boundary", () => {
       );
       await writeFile(
         path.join(outsideRoot, "server.mjs"),
-        'import { createServer } from "node:http"; createServer((_req, res) => res.end("unexpected")).listen(Number(process.env.PORT), "127.0.0.1");',
+        [
+          'import { writeFileSync } from "node:fs";',
+          'import { createServer } from "node:http";',
+          'writeFileSync(new URL("./started.txt", import.meta.url), "started");',
+          'createServer((_req, res) => res.end("unexpected")).listen(Number(process.env.PORT), "127.0.0.1");',
+        ].join("\\n"),
       );
       await waitForHealth(supervisor, supervisorPort);
       const token = deriveWorkspaceRuntimeSupervisorToken(testSecret);
@@ -301,23 +306,9 @@ describe("workspace runtime supervisor server boundary", () => {
         error: "The registered project root is unavailable or outside the configured workspace.",
       });
 
-      const observationResponse = await fetch(
-        `http://127.0.0.1:${supervisorPort}/runtime/observe-start`,
-        {
-          method: "POST",
-          headers: {
-            "content-type": "application/json",
-            authorization: `Bearer ${token}`,
-          },
-          body: JSON.stringify({ projectId: "outside-workspace-project" }),
-        },
-      );
-      expect(observationResponse.status).toBe(200);
-      await expect(observationResponse.json()).resolves.toMatchObject({
-        status: "stopped",
-        inventoryComplete: true,
-        unknownListenerPorts: [],
-      });
+      await expect(
+        readFile(path.join(outsideRoot, "started.txt"), "utf8"),
+      ).rejects.toMatchObject({ code: "ENOENT" });
     } finally {
       await rm(allowedRoot, { recursive: true, force: true });
       await rm(outsideRoot, { recursive: true, force: true });
