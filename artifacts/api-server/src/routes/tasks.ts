@@ -36,7 +36,7 @@ import { logger } from "../lib/logger.js";
 import { requireAuth } from "../middlewares/requireAuth.js";
 import { loadProjectByIdForUser } from "../middlewares/requireProjectAccess.js";
 import { scheduleAiTaskExecution } from "./ai.js";
-import { insertTaskAutoExecutionIntent } from "../lib/task-auto-execution-outbox.js";
+import { insertTaskAutoExecutionIntent, taskAutoExecutionIntentId } from "../lib/task-auto-execution-outbox.js";
 import { parsePagination } from "../lib/pagination.js";
 import { taskTransitionConflict, type TaskStatus } from "../lib/task-state.js";
 import { redactUserFacingText } from "../lib/ai-route-helpers.js";
@@ -466,6 +466,15 @@ router.delete("/tasks/:taskId", async (req, res) => {
       projectId: before[0].projectId, actor: req.userId, correlationId,
       stateBefore: before[0],
     });
+    // Keep TaskDeleted for audit, but do not let the Outbox FK's SET NULL
+    // turn an executable intent into an orphan that no dispatcher can see.
+    await tx.delete(eventsTable).where(and(
+      eq(eventsTable.id, taskAutoExecutionIntentId(taskId)),
+      inArray(eventsTable.type, [
+        "TaskAutoExecutionDispatchRequested",
+        "TaskAutoExecutionDeferred",
+      ]),
+    ));
     await tx.delete(tasksTable).where(eq(tasksTable.id, taskId));
     });
   } catch (error) {
@@ -1155,6 +1164,16 @@ router.post("/tasks/:taskId/rollback", async (req, res) => {
           `Task state changed before rollback could be applied`,
         );
       }
+
+      // Cancellation makes the Task ineligible for automatic dispatch. Retire
+      // its durable pre-claim intent in the same transaction as the transition.
+      await tx.delete(eventsTable).where(and(
+        eq(eventsTable.id, taskAutoExecutionIntentId(taskId)),
+        inArray(eventsTable.type, [
+          "TaskAutoExecutionDispatchRequested",
+          "TaskAutoExecutionDeferred",
+        ]),
+      ));
 
       await tx.insert(taskLogsTable).values({
         id: randomUUID(),
