@@ -861,6 +861,7 @@ describe("database workspace runtime store", () => {
               supervisorFixture.signingPrivateKeyBase64,
             ).stop({
               projectId: runtimeSession.projectId,
+              ownerProjectId: runtimeSession.projectId,
               sessionId: runtimeSession.sessionId,
               stateVersion: createWorkspaceRuntimeSupervisorStateVersion({
                 projectId: runtimeSession.projectId,
@@ -868,6 +869,7 @@ describe("database workspace runtime store", () => {
                 revision: persistedSession.revision,
                 startedAt: persistedSession.startedAt.toISOString(),
               }),
+              projectRoot: persistedSession.projectRoot,
               pid: runtimeSession.pid,
             }).catch(() => undefined);
           }
@@ -1047,6 +1049,7 @@ describe("database workspace runtime store", () => {
         }> = [];
         const supervisorAdoptions: Array<{
           projectId: string;
+          ownerProjectId: string;
           sessionId: string;
           projectRoot: string;
           pid: number | null;
@@ -1058,6 +1061,7 @@ describe("database workspace runtime store", () => {
         const supervisorFixture = {
           async adopt(input: {
             projectId: string;
+            ownerProjectId: string;
             sessionId: string;
             projectRoot: string;
             pid: number | null;
@@ -1068,6 +1072,7 @@ describe("database workspace runtime store", () => {
           }) {
             supervisorAdoptions.push({
               projectId: input.projectId,
+              ownerProjectId: input.ownerProjectId,
               sessionId: input.sessionId,
               projectRoot: input.projectRoot,
               pid: input.pid,
@@ -1078,6 +1083,8 @@ describe("database workspace runtime store", () => {
             });
             return {
               projectId: input.projectId,
+              ownerProjectId: input.ownerProjectId,
+              projectRoot: input.projectRoot,
               sessionId: input.sessionId,
               status: "running" as const,
               pid: input.pid,
@@ -1147,6 +1154,7 @@ describe("database workspace runtime store", () => {
         expect(supervisorAdoptions).toHaveLength(1);
         expect(supervisorAdoptions[0]).toMatchObject({
           projectId,
+          ownerProjectId: projectId,
           sessionId: ready.sessionId,
           projectRoot: root,
           pid: ready.pid,
@@ -1446,7 +1454,11 @@ describe("workspace runtime lost-start-response process recovery", () => {
         await waitForRuntimeWorkerDatabaseDisconnect(startApplicationName);
         expect(await fetchRuntimeFixture(startReply!.port)).toBe(revision);
 
-        const supervisorAfterCrash = await supervisorClient.observeStartState(projectId);
+        const supervisorAfterCrash = await supervisorClient.observeStartState({
+          projectId,
+          ownerProjectId: projectId,
+          projectRoot,
+        });
         expect(supervisorAfterCrash).toMatchObject({
           status: "running",
           session: {
@@ -1539,7 +1551,11 @@ describe("workspace runtime lost-start-response process recovery", () => {
           port: startReply!.port,
         });
         expect(ownedRow?.leaseUntil?.getTime()).toBeGreaterThan(Date.now());
-        expect(await supervisorClient.observeStartState(projectId)).toMatchObject({
+        expect(await supervisorClient.observeStartState({
+          projectId,
+          ownerProjectId: projectId,
+          projectRoot,
+        })).toMatchObject({
           status: "running",
           session: {
             projectId,
@@ -1916,7 +1932,11 @@ describe("workspace runtime full API startup recovery", () => {
         expect(knownBeforeCrash?.leaseUntil?.getTime()).toBeGreaterThan(Date.now());
         expect(supervisorRequests).toHaveLength(0);
         expect(unexpectedSupervisorPaths).toEqual([]);
-        expect(await supervisorClient.observeStartState(knownProjectId)).toMatchObject({
+        expect(await supervisorClient.observeStartState({
+          projectId: knownProjectId,
+          ownerProjectId: knownProjectId,
+          projectRoot: knownRoot,
+        })).toMatchObject({
           status: "running",
           session: { projectId: knownProjectId, sessionId, pid: knownRuntimePid, port: knownRuntimePort },
         });
@@ -1986,7 +2006,11 @@ describe("workspace runtime full API startup recovery", () => {
         expect(process.kill(unknownOwnerPid, 0)).toBe(true);
         expect(supervisorRequests).toHaveLength(0);
         expect(unexpectedSupervisorPaths).toEqual([]);
-        expect(await supervisorClient.observeStartState(knownProjectId)).toMatchObject({
+        expect(await supervisorClient.observeStartState({
+          projectId: knownProjectId,
+          ownerProjectId: knownProjectId,
+          projectRoot: knownRoot,
+        })).toMatchObject({
           status: "running",
           session: { projectId: knownProjectId, sessionId, pid: knownRuntimePid, port: knownRuntimePort },
         });
