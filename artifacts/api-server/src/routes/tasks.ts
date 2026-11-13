@@ -349,45 +349,45 @@ router.patch("/tasks/:taskId", async (req, res) => {
   let updated: Array<typeof tasksTable.$inferSelect>;
   try {
     updated = await db.transaction(async (tx) => {
-    const rows = await tx.update(tasksTable)
-      .set({ ...body, updatedAt: new Date() })
-      .where(and(
-        eq(tasksTable.id, taskId),
-        eq(tasksTable.status, before[0].status),
-        isNull(tasksTable.workerId),
-      )).returning();
-    if (rows[0]) {
-      const changes: string[] = [];
-      if (body.status && body.status !== before[0].status) changes.push(`status: ${before[0].status} → ${body.status}`);
-      if (body.priority && body.priority !== before[0].priority) changes.push(`priority: ${before[0].priority} → ${body.priority}`);
-      if (body.title && body.title !== before[0].title) changes.push("title updated");
-      if (changes.length) {
-        const isStatusChange = body.status !== undefined && body.status !== before[0].status;
-        await tx.insert(eventsTable).values({
-          id: randomUUID(), type: isStatusChange ? "TaskStatusChanged" : "TaskUpdated",
-          projectId: before[0].projectId, taskId, severity: "info",
-          message: `Task "${rows[0].title}" updated — ${changes.join(", ")}`, correlationId,
-          ...(isStatusChange ? { payload: { before: { status: before[0].status }, after: { status: body.status } } } : {}),
+      const rows = await tx.update(tasksTable)
+        .set({ ...body, updatedAt: new Date() })
+        .where(and(
+          eq(tasksTable.id, taskId),
+          eq(tasksTable.status, before[0].status),
+          isNull(tasksTable.workerId),
+        )).returning();
+      if (rows[0]) {
+        const changes: string[] = [];
+        if (body.status && body.status !== before[0].status) changes.push(`status: ${before[0].status} → ${body.status}`);
+        if (body.priority && body.priority !== before[0].priority) changes.push(`priority: ${before[0].priority} → ${body.priority}`);
+        if (body.title && body.title !== before[0].title) changes.push("title updated");
+        if (changes.length) {
+          const isStatusChange = body.status !== undefined && body.status !== before[0].status;
+          await tx.insert(eventsTable).values({
+            id: randomUUID(), type: isStatusChange ? "TaskStatusChanged" : "TaskUpdated",
+            projectId: before[0].projectId, taskId, severity: "info",
+            message: `Task "${rows[0].title}" updated — ${changes.join(", ")}`, correlationId,
+            ...(isStatusChange ? { payload: { before: { status: before[0].status }, after: { status: body.status } } } : {}),
+          });
+        }
+        await recordAuditInTransaction(tx, {
+          entityType: "task", entityId: taskId, action: "updated",
+          projectId: before[0].projectId, actor: req.userId, correlationId,
+          changedFields: body, stateBefore: before[0], stateAfter: rows[0],
         });
-      }
-      await recordAuditInTransaction(tx, {
-        entityType: "task", entityId: taskId, action: "updated",
-        projectId: before[0].projectId, actor: req.userId, correlationId,
-        changedFields: body, stateBefore: before[0], stateAfter: rows[0],
-      });
-      if (body.status === "verifying" && rows[0].prompt) {
-        const intentPersisted = await insertTaskAutoExecutionIntent(tx, {
-          taskId,
-          userId: req.userId,
-          retryCount: rows[0].retryCount,
-        });
-        if (!intentPersisted) {
-          throw new TaskStateConflictError(
-            "The Task generation is already bound to a different dispatch identity.",
-          );
+        if (body.status === "verifying" && rows[0].prompt) {
+          const intentPersisted = await insertTaskAutoExecutionIntent(tx, {
+            taskId,
+            userId: req.userId,
+            retryCount: rows[0].retryCount,
+          });
+          if (!intentPersisted) {
+            throw new TaskStateConflictError(
+              "The Task generation is already bound to a different dispatch identity.",
+            );
+          }
         }
       }
-    }
       return rows;
     });
   } catch (error) {
