@@ -1,0 +1,28 @@
+{
+  "name": "@workspace/preview-agent-client",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "types": "./dist/index.d.ts",
+  "bin": {
+    "engineeringos-preview-agent": "./dist/cli.js"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "test": "pnpm --filter @workspace/preview-agent-contract run build && vitest run src",
+    "build": "pnpm --filter @workspace/preview-agent-contract run build && tsc -p tsconfig.json",
+    "typecheck": "pnpm --filter @workspace/preview-agent-contract run build && tsc -p tsconfig.json --noEmit && tsc -p tsconfig.test.json"
+  },
+  "dependencies": {
+    "@workspace/preview-agent-contract": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/node": "catalog:",
+    "vitest": "^4.1.10"
+  }
+}
