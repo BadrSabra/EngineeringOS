@@ -20,6 +20,21 @@ export function taskAutoExecutionIntentId(taskId: string): string {
   return `task-auto-execution-deferred:${taskId}`;
 }
 
+function stableJson(value: unknown): string {
+  if (value === null || typeof value !== "object") {
+    return JSON.stringify(value) ?? "undefined";
+  }
+  if (Array.isArray(value)) {
+    return `[${value.map(stableJson).join(",")}]`;
+  }
+  const record = value as Record<string, unknown>;
+  return `{${Object.keys(record)
+    .filter((key) => record[key] !== undefined)
+    .sort()
+    .map((key) => `${JSON.stringify(key)}:${stableJson(record[key])}`)
+    .join(",")}}`;
+}
+
 /**
  * Persist the automatic dispatch request under the same Task row lock and
  * transaction that moves the Task into verifying. The queue remains only a
@@ -58,18 +73,36 @@ export async function insertTaskAutoExecutionIntent(
 
   const id = taskAutoExecutionIntentId(input.taskId);
   const [existing] = await tx
-    .select({ payload: eventsTable.payload })
+    .select({
+      payload: eventsTable.payload,
+      projectId: eventsTable.projectId,
+      taskId: eventsTable.taskId,
+    })
     .from(eventsTable)
     .where(eq(eventsTable.id, id))
     .for("update")
     .limit(1);
-  const existingRetryCount = existing?.payload?.taskRetryCount;
-  const existingTaskCorrelationId = existing?.payload?.taskCorrelationId;
+  const existingPayload = existing?.payload ?? {};
+  const existingRetryCount = existingPayload.taskRetryCount;
+  const existingTaskCorrelationId = existingPayload.taskCorrelationId;
   if (
     existing
     && existingRetryCount === input.retryCount
     && existingTaskCorrelationId === task.correlationId
-  ) return true;
+  ) {
+    const existingParentExecutionId = existingPayload.parentExecutionId ?? null;
+    const requestedParentExecutionId = input.options?.parentExecutionId;
+    const parentExecutionMatches = requestedParentExecutionId === undefined
+      || existingParentExecutionId === requestedParentExecutionId;
+    const requestedDelegationBudget = input.options?.delegationBudget;
+    const budgetMatches = requestedDelegationBudget === undefined
+      || stableJson(existingPayload.delegationBudget) === stableJson(requestedDelegationBudget);
+    return existing.projectId === task.projectId
+      && existing.taskId === input.taskId
+      && existingPayload.userId === input.userId
+      && parentExecutionMatches
+      && budgetMatches;
+  }
 
   const payload = {
     userId: input.userId,
