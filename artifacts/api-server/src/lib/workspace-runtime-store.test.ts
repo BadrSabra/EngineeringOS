@@ -1583,6 +1583,7 @@ describe("workspace runtime lost-start-response process recovery", () => {
         if (persisted?.sessionId && persisted.startedAt) {
           await supervisorClient.stop({
             projectId,
+            ownerProjectId: projectId,
             sessionId: persisted.sessionId,
             stateVersion: createWorkspaceRuntimeSupervisorStateVersion({
               projectId,
@@ -1590,6 +1591,7 @@ describe("workspace runtime lost-start-response process recovery", () => {
               revision: persisted.revision,
               startedAt: persisted.startedAt.toISOString(),
             }),
+            projectRoot: persisted.projectRoot,
             pid: persisted.pid,
           }).catch(() => undefined);
         }
