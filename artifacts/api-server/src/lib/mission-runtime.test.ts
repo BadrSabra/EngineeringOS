@@ -33,6 +33,7 @@ import {
 } from "./mission-completion-gate.js";
 import { createMissionEventEnvelope } from "./mission-events.js";
 import { buildMissionDelegationBinding } from "./mission-delegation.js";
+import * as aiTaskRoutes from "../routes/ai/tasks.js";
 import { createHash } from "node:crypto";
 import { getProjectWorldState } from "./agent-state/world-state.js";
 import { taskScopeIdentity } from "./agent-state/observation-materializer.js";
@@ -1692,6 +1693,61 @@ describe("Mission goal runtime", () => {
       blockedReason: "source revision changed",
     });
     expect(mission?.status).toBe("needs_replan");
+  });
+
+  it("commits the Mission Task outbox intent before attempting the local queue wake", async () => {
+    const taskId = randomUUID();
+    const taskCorrelationId = randomUUID();
+    const fixture = await createMissionFixture({
+      kind: "task",
+      taskId,
+      purpose: "execution",
+    });
+    await db.insert(tasksTable).values({
+      id: taskId,
+      projectId: fixture.projectId,
+      goalId: fixture.goalId,
+      title: "Mission-dispatched task",
+      description: "The durable intent must survive a lost local wake.",
+      status: "verifying",
+      priority: "p1",
+      phase: "execute",
+      prompt: "Run the Mission task",
+      retryCount: 3,
+      correlationId: taskCorrelationId,
+      createdAt: fixture.now,
+      updatedAt: fixture.now,
+    });
+
+    const localWake = vi.spyOn(aiTaskRoutes, "scheduleAiTaskExecution")
+      .mockRejectedValueOnce(new Error("simulated local wake loss"));
+    await expect(runMissionGoal({
+      goalId: fixture.goalId,
+      userId: "test-user",
+      trigger: "resume",
+    })).rejects.toThrow("simulated local wake loss");
+    expect(localWake).toHaveBeenCalledOnce();
+
+    const [intent] = await db.select().from(eventsTable)
+      .where(eq(eventsTable.id, `task-auto-execution-deferred:${taskId}`));
+    expect(intent).toMatchObject({
+      type: "TaskAutoExecutionDispatchRequested",
+      taskId,
+      payload: {
+        userId: "test-user",
+        taskRetryCount: 3,
+        taskCorrelationId,
+        parentExecutionId: null,
+      },
+    });
+
+    const missionDispatches = await db.select({ id: eventsTable.id })
+      .from(eventsTable)
+      .where(and(
+        eq(eventsTable.type, "AiGoalDispatchRequested"),
+        eq(eventsTable.taskId, taskId),
+      ));
+    expect(missionDispatches).toHaveLength(1);
   });
 
   it("returns the existing active execution instead of scheduling the task again", async () => {
