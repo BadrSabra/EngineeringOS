@@ -362,7 +362,7 @@ describe("workspace runtime supervisor server boundary", () => {
           'import { createServer } from "node:http";',
           'createServer((_req, res) => res.end("owner-a")).listen(Number(process.env.PORT), "127.0.0.1");',
           'process.once("SIGTERM", () => process.exit(0));',
-        ].join("\\n"),
+        ].join("\n"),
       );
       await writeFile(
         path.join(secondRoot, "server.mjs"),
@@ -371,7 +371,7 @@ describe("workspace runtime supervisor server boundary", () => {
           'import { createServer } from "node:http";',
           'writeFileSync(new URL("./started.txt", import.meta.url), "started");',
           'createServer((_req, res) => res.end("owner-b")).listen(Number(process.env.PORT), "127.0.0.1");',
-        ].join("\\n"),
+        ].join("\n"),
       );
       await waitForHealth(supervisor, supervisorPort);
 
