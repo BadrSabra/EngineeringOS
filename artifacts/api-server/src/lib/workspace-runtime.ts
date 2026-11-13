@@ -46,7 +46,17 @@ const MAX_LOG_LINES = 120;
 const MAX_LOG_LINE_CHARS = 600;
 const HEARTBEAT_INTERVAL_MS = 10_000;
 
-const SAFE_ENV_NAMES = /^(?:PATH|HOME|USER|SHELL|LANG|LC_[A-Z_]+|TERM|TMPDIR|PNPM_HOME|npm_config_[A-Za-z0-9_]+)$/;
+const SAFE_ENV_NAMES = new Set([
+  "PATH",
+  "HOME",
+  "USER",
+  "SHELL",
+  "LANG",
+  "TERM",
+  "TMPDIR",
+  "PNPM_HOME",
+]);
+const SAFE_LOCALE_ENV_NAME = /^LC_[A-Z_]+$/;
 
 export type WorkspaceRuntimeStatus = "stopped" | "starting" | "running" | "failed";
 
@@ -189,7 +199,12 @@ function bounded(value: string, limit = MAX_LOG_LINE_CHARS): string {
 function runtimeEnv(port: number, childProcessMarker?: string): NodeJS.ProcessEnv {
   const env: NodeJS.ProcessEnv = {};
   for (const [name, value] of Object.entries(process.env)) {
-    if (value !== undefined && SAFE_ENV_NAMES.test(name)) env[name] = value;
+    if (
+      value !== undefined
+      && (SAFE_ENV_NAMES.has(name) || SAFE_LOCALE_ENV_NAME.test(name))
+    ) {
+      env[name] = value;
+    }
   }
   env.NODE_ENV = "development";
   env.PORT = String(port);
