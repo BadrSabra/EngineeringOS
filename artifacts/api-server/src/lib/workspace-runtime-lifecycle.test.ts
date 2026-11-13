@@ -28,6 +28,7 @@ type SupervisorSession = {
 type SupervisorObservation = {
   projectId: string;
   ownerProjectId: string;
+  projectRoot?: string;
   status: "running" | "stopped" | "unknown";
   session?: SupervisorSession;
   observedAt: string;
@@ -72,7 +73,11 @@ async function createProjectRoot(): Promise<string> {
 
 function createSupervisor(
   start: (input: SupervisorStartInput) => Promise<SupervisorSession>,
-  observeStartState?: (input: { projectId: string; ownerProjectId: string }) => Promise<SupervisorObservation>,
+  observeStartState?: (input: {
+    projectId: string;
+    ownerProjectId: string;
+    projectRoot: string;
+  }) => Promise<SupervisorObservation>,
 ): WorkspaceRuntimeSupervisorClient {
   return {
     start: vi.fn(async (input: SupervisorStartInput) => ({
@@ -90,10 +95,19 @@ function createSupervisor(
       ...input,
       status: "running" as const,
     })),
-    observeStartState: vi.fn(async (input: { projectId: string; ownerProjectId: string }) => {
-      const observation: SupervisorObservation = await (observeStartState ?? (async (value: { projectId: string; ownerProjectId: string }) => ({
+    observeStartState: vi.fn(async (input: {
+      projectId: string;
+      ownerProjectId: string;
+      projectRoot: string;
+    }) => {
+      const observation: SupervisorObservation = await (observeStartState ?? (async (value: {
+        projectId: string;
+        ownerProjectId: string;
+        projectRoot: string;
+      }) => ({
         projectId: value.projectId,
         ownerProjectId: value.ownerProjectId,
+        projectRoot: value.projectRoot,
         status: "stopped" as const,
         observedAt: new Date().toISOString(),
         inventoryComplete: true,
@@ -103,6 +117,7 @@ function createSupervisor(
       return {
         ...observation,
         ownerProjectId: input.ownerProjectId,
+        projectRoot: input.projectRoot,
         ...(observation.session
           ? { session: { ...observation.session, ownerProjectId: input.ownerProjectId } }
           : {}),
@@ -401,7 +416,11 @@ describe("Workspace Runtime lifecycle invariants", () => {
       expect(attempted).toHaveLength(2);
       expect(attempted[1]?.sessionId).toBe(attempted[0]?.sessionId);
       expect(observedStoppedInventory).toBe(true);
-      expect(supervisor.observeStartState).toHaveBeenCalledWith({ projectId, ownerProjectId: projectId });
+      expect(supervisor.observeStartState).toHaveBeenCalledWith({
+        projectId,
+        ownerProjectId: projectId,
+        projectRoot: root,
+      });
       expect(failedRow).toMatchObject({
         sessionId: attempted[0]?.sessionId,
         status: "failed",
