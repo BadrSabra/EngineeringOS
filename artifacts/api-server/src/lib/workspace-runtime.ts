@@ -572,6 +572,7 @@ export class WorkspaceRuntimeManager {
    */
   async observeStartBeforeState(input: {
     projectId: string;
+    projectRoot: string;
     revision: string;
     signal?: AbortSignal;
   }): Promise<RuntimeStartBeforeState> {
@@ -629,7 +630,11 @@ export class WorkspaceRuntimeManager {
     }
 
     try {
-      const inventory = await this.supervisor.observeStartState({ projectId: runtimeId, ownerProjectId: input.projectId });
+      const inventory = await this.supervisor.observeStartState({
+        projectId: runtimeId,
+        ownerProjectId: input.projectId,
+        projectRoot: input.projectRoot,
+      });
       if (
         inventory.projectId !== runtimeId
         || !inventory.inventoryComplete
@@ -1342,6 +1347,7 @@ export class WorkspaceRuntimeManager {
           observed = await this.supervisor.observeStartState({
             projectId: claimed.projectId,
             ownerProjectId: this.projectIdForRuntimeId(claimed.projectId),
+            projectRoot: claimed.projectRoot,
           });
         } catch {
           observed = undefined;
@@ -1747,7 +1753,11 @@ export class WorkspaceRuntimeManager {
           } catch (retryError) {
             let observed: Awaited<ReturnType<WorkspaceRuntimeSupervisorClient["observeStartState"]>> | undefined;
             try {
-              observed = await this.supervisor.observeStartState({ projectId: runtimeId, ownerProjectId: input.projectId });
+              observed = await this.supervisor.observeStartState({
+                projectId: runtimeId,
+                ownerProjectId: input.projectId,
+                projectRoot,
+              });
             } catch {
               observed = undefined;
             }
@@ -2024,6 +2034,7 @@ export class WorkspaceRuntimeManager {
       observed = await this.supervisor.observeStartState({
         projectId: session.runtimeId,
         ownerProjectId: session.projectId,
+        projectRoot: session.projectRoot,
       });
     } catch {
       return;
