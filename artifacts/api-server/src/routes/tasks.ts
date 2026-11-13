@@ -346,7 +346,9 @@ router.patch("/tasks/:taskId", async (req, res) => {
   }
 
   const correlationId = randomUUID();
-  const updated = await db.transaction(async (tx) => {
+  let updated: Array<typeof tasksTable.$inferSelect>;
+  try {
+    updated = await db.transaction(async (tx) => {
     const rows = await tx.update(tasksTable)
       .set({ ...body, updatedAt: new Date() })
       .where(and(
@@ -374,15 +376,29 @@ router.patch("/tasks/:taskId", async (req, res) => {
         changedFields: body, stateBefore: before[0], stateAfter: rows[0],
       });
       if (body.status === "verifying" && rows[0].prompt) {
-        await insertTaskAutoExecutionIntent(tx, {
+        const intentPersisted = await insertTaskAutoExecutionIntent(tx, {
           taskId,
           userId: req.userId,
           retryCount: rows[0].retryCount,
         });
+        if (!intentPersisted) {
+          throw new TaskStateConflictError(
+            "The Task generation is already bound to a different dispatch identity.",
+          );
+        }
       }
     }
-    return rows;
-  });
+      return rows;
+    });
+  } catch (error) {
+    if (error instanceof TaskStateConflictError) {
+      return res.status(409).json({
+        error: "task_dispatch_identity_conflict",
+        reason: error.message,
+      });
+    }
+    throw error;
+  }
   if (!updated[0]) {
     return res.status(409).json({
       error: "task_state_changed_concurrently",
@@ -707,11 +723,16 @@ router.post("/tasks/:taskId/execute", async (req, res) => {
           correlationId,
         });
         if (finalStatus === "verifying" && task[0].prompt) {
-          await insertTaskAutoExecutionIntent(tx, {
+          const intentPersisted = await insertTaskAutoExecutionIntent(tx, {
             taskId,
             userId: req.userId,
             retryCount: row.retryCount,
           });
+          if (!intentPersisted) {
+            throw new TaskStateConflictError(
+              "The Task generation is already bound to a different dispatch identity.",
+            );
+          }
         }
 
         return [row];
