@@ -26,6 +26,8 @@ describe("WorkspaceRuntimeManager", () => {
       path.join(root, "server.mjs"),
       [
         "import http from 'node:http';",
+        "import { writeFileSync } from 'node:fs';",
+        "writeFileSync(new URL('./runtime-env.json', import.meta.url), JSON.stringify({ token: process.env.npm_config_token ?? null, password: process.env.npm_config_password ?? null }));",
         "const server = http.createServer((_req, res) => { res.setHeader('x-engineeringos-revision', 'revision-1'); res.end('runtime-ok marker-1'); });",
         "server.listen(Number(process.env.PORT), '127.0.0.1');",
         "console.log('runtime fixture ready');",
@@ -48,12 +50,27 @@ describe("WorkspaceRuntimeManager", () => {
       revision: "revision-1",
     };
     const startRuntime = vi.spyOn(manager, "start");
-    const started = await manager.start({
-      projectId: "project-runtime-test",
-      projectRoot: root,
-      revision: "revision-1",
-      attestationIdentity,
-    });
+    const previousNpmConfigToken = process.env.npm_config_token;
+    const previousNpmConfigPassword = process.env.npm_config_password;
+    process.env.npm_config_token = "runtime-test-token-must-not-be-forwarded";
+    process.env.npm_config_password = "runtime-test-password-must-not-be-forwarded";
+    let started;
+    try {
+      started = await manager.start({
+        projectId: "project-runtime-test",
+        projectRoot: root,
+        revision: "revision-1",
+        attestationIdentity,
+      });
+    } finally {
+      if (previousNpmConfigToken === undefined) delete process.env.npm_config_token;
+      else process.env.npm_config_token = previousNpmConfigToken;
+      if (previousNpmConfigPassword === undefined) delete process.env.npm_config_password;
+      else process.env.npm_config_password = previousNpmConfigPassword;
+    }
+    await expect(
+      fs.readFile(path.join(root, "runtime-env.json"), "utf8").then((value) => JSON.parse(value)),
+    ).resolves.toEqual({ token: null, password: null });
 
     expect(started.status, started.error ?? "runtime did not start").toBe("running");
     expect(started.port).toBeGreaterThanOrEqual(3000);
