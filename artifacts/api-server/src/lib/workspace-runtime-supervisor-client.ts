@@ -271,6 +271,7 @@ function isSupervisorResponse(value: unknown): value is SupervisorResponse {
   const candidate = value as Partial<SupervisorResponse>;
   return (
     typeof candidate.projectId === "string"
+    && typeof candidate.ownerProjectId === "string"
     && typeof candidate.sessionId === "string"
     && ["starting", "running", "stopped", "failed"].includes(candidate.status ?? "")
     && (candidate.port === null || (
