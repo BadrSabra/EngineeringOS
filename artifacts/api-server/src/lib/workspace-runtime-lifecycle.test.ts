@@ -26,6 +26,7 @@ type SupervisorSession = {
 
 type SupervisorObservation = {
   projectId: string;
+  ownerProjectId: string;
   status: "running" | "stopped" | "unknown";
   session?: SupervisorSession;
   observedAt: string;
@@ -36,6 +37,7 @@ type SupervisorObservation = {
 
 type SupervisorStartInput = {
   projectId: string;
+  ownerProjectId: string;
   sessionId: string;
   projectRoot: string;
   attestationMarker?: string;
@@ -69,7 +71,7 @@ async function createProjectRoot(): Promise<string> {
 
 function createSupervisor(
   start: (input: SupervisorStartInput) => Promise<SupervisorSession>,
-  observeStartState?: (projectId: string) => Promise<SupervisorObservation>,
+  observeStartState?: (input: { projectId: string; ownerProjectId: string }) => Promise<SupervisorObservation>,
 ): WorkspaceRuntimeSupervisorClient {
   return {
     start: vi.fn(start),
@@ -83,8 +85,9 @@ function createSupervisor(
       ...input,
       status: "running" as const,
     })),
-    observeStartState: vi.fn(observeStartState ?? (async (projectId: string) => ({
-      projectId,
+    observeStartState: vi.fn(observeStartState ?? (async (input: { projectId: string; ownerProjectId: string }) => ({
+      projectId: input.projectId,
+      ownerProjectId: input.ownerProjectId,
       status: "stopped" as const,
       observedAt: new Date().toISOString(),
       inventoryComplete: true,
@@ -274,8 +277,9 @@ describe("Workspace Runtime lifecycle invariants", () => {
         startedSession.sessionId = input.sessionId;
         throw new Error("connection closed after supervisor start");
       },
-      async (projectId) => ({
-        projectId,
+      async (input) => ({
+        projectId: input.projectId,
+        ownerProjectId: input.ownerProjectId,
         status: "running",
         session: startedSession,
         observedAt: new Date().toISOString(),
@@ -382,7 +386,7 @@ describe("Workspace Runtime lifecycle invariants", () => {
       expect(attempted).toHaveLength(2);
       expect(attempted[1]?.sessionId).toBe(attempted[0]?.sessionId);
       expect(observedStoppedInventory).toBe(true);
-      expect(supervisor.observeStartState).toHaveBeenCalledWith(projectId);
+      expect(supervisor.observeStartState).toHaveBeenCalledWith({ projectId, ownerProjectId: projectId });
       expect(failedRow).toMatchObject({
         sessionId: attempted[0]?.sessionId,
         status: "failed",
@@ -445,8 +449,9 @@ describe("Workspace Runtime lifecycle invariants", () => {
         session = { ...session, projectId: input.projectId, sessionId: input.sessionId };
         throw new Error("supervisor connection interrupted");
       },
-      async (projectId) => ({
-        projectId,
+      async (input) => ({
+        projectId: input.projectId,
+        ownerProjectId: input.ownerProjectId,
         status: observationStatus,
         ...(observationStatus === "running" ? { session } : {}),
         observedAt: new Date().toISOString(),
