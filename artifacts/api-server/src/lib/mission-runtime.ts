@@ -2365,6 +2365,7 @@ export async function runMissionGoal(params: {
     dispatchGoalIds: string[];
   };
 }): Promise<MissionGoalRunResult> {
+  let taskDispatchGeneration: { retryCount: number; correlationId: string | null } | undefined;
   const decision = await db.transaction(async (tx): Promise<MissionGoalRunResult> => {
     const recordActionEffect = async <T extends MissionGoalRunResult>(run: T): Promise<T> => {
       if (
@@ -3536,8 +3537,7 @@ export async function wakeRuntimeTransitionMissionGoals(
 
   let woken = 0;
   for (const candidate of candidates) {
-    let taskDispatchGeneration: { retryCount: number; correlationId: string | null } | undefined;
-  const decision = await db.transaction(async (tx) => {
+    const decision = await db.transaction(async (tx) => {
       const [mission] = await tx
         .select()
         .from(aiMissionsTable)
