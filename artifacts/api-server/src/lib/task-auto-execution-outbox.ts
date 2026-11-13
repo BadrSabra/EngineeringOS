@@ -15,8 +15,8 @@ export type TaskAutoExecutionOutboxOptions = {
 };
 
 export function taskAutoExecutionIntentId(taskId: string): string {
-  // Keep the historical event key stable. The attempt generation is bound in
-  // the payload and checked under the Task claim lock.
+  // Keep the historical event key stable. The retry count and correlation ID
+  // bind the payload to one Task generation and are checked before dispatch/claim.
   return `task-auto-execution-deferred:${taskId}`;
 }
 
