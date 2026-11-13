@@ -855,7 +855,7 @@ describe("database workspace runtime store", () => {
         await lockHolder?.catch(() => undefined);
         for (const runtimeSession of runtimeSessions) {
           const persistedSession = await databaseWorkspaceRuntimeStore.get(runtimeSession.projectId);
-          if (persistedSession?.startedAt) {
+          if (persistedSession?.startedAt && persistedSession.revision) {
             await new WorkspaceRuntimeSupervisorClient(
               supervisorFixture.socketPath,
               supervisorFixture.signingPrivateKeyBase64,
@@ -1580,7 +1580,7 @@ describe("workspace runtime lost-start-response process recovery", () => {
           await new Promise<void>((resolve) => proxy!.close(() => resolve()));
         }
         const persisted = await databaseWorkspaceRuntimeStore.get(projectId).catch(() => undefined);
-        if (persisted?.sessionId && persisted.startedAt) {
+        if (persisted?.sessionId && persisted.startedAt && persisted.revision) {
           await supervisorClient.stop({
             projectId,
             ownerProjectId: projectId,
@@ -1618,6 +1618,7 @@ describe("workspace runtime full API startup recovery", () => {
       projectIds.push(knownProjectId, unknownProjectId);
       roots.push(testRoot);
 
+      let supervisorServer: Server | undefined;
       let supervisorFixture: Awaited<ReturnType<typeof startWorkspaceRuntimeSupervisorTestFixture>> | undefined;
       let runtimeLauncher: ChildProcess | undefined;
       let unknownOwner: ChildProcess | undefined;
