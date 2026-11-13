@@ -13,7 +13,7 @@ import {
   aiExecutionsTable,
   aiExecutionAcceptancesTable,
 } from "@workspace/db";
-import { eq, and, inArray, or, asc, sql, isNull } from "drizzle-orm";
+import { eq, and, inArray, or, asc, sql, isNull, ne } from "drizzle-orm";
 import { logger } from "../../lib/logger.js";
 import { loadProjectByIdForUser } from "../../middlewares/requireProjectAccess.js";
 import { checkProjectRateLimitDb, LLM_RATE_LIMIT } from "../../lib/db-rate-limiter.js";
@@ -864,20 +864,29 @@ export async function dispatchDeferredAiTaskExecutions(limit = 100): Promise<num
       correlationId: tasksTable.correlationId,
     })
     .from(eventsTable)
-    .innerJoin(tasksTable, eq(eventsTable.taskId, tasksTable.id))
+    .leftJoin(tasksTable, eq(eventsTable.taskId, tasksTable.id))
     .where(and(
       inArray(eventsTable.type, [
         TASK_AUTO_EXECUTION_REQUESTED_EVENT_TYPE,
         TASK_AUTO_EXECUTION_DEFERRED_EVENT_TYPE,
       ]),
-      eq(tasksTable.status, "verifying"),
       or(
-        eq(eventsTable.type, TASK_AUTO_EXECUTION_REQUESTED_EVENT_TYPE),
-        sql`(
-          ${eventsTable.payload}->>'nextAttemptAt' IS NULL
-          OR ${eventsTable.payload}->>'nextAttemptAt' !~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}T'
-          OR ${eventsTable.payload}->>'nextAttemptAt' <= ${nowIso}
-        )`,
+        // Orphaned events (for example, left behind by an older Task delete)
+        // and events for Tasks that are no longer eligible must be retired
+        // without waiting for a retry timestamp.
+        isNull(tasksTable.id),
+        ne(tasksTable.status, "verifying"),
+        and(
+          eq(tasksTable.status, "verifying"),
+          or(
+            eq(eventsTable.type, TASK_AUTO_EXECUTION_REQUESTED_EVENT_TYPE),
+            sql`(
+              ${eventsTable.payload}->>'nextAttemptAt' IS NULL
+              OR ${eventsTable.payload}->>'nextAttemptAt' !~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}T'
+              OR ${eventsTable.payload}->>'nextAttemptAt' <= ${nowIso}
+            )`,
+          ),
+        ),
       ),
     ))
     .orderBy(asc(eventsTable.timestamp), asc(eventsTable.id))
@@ -885,7 +894,7 @@ export async function dispatchDeferredAiTaskExecutions(limit = 100): Promise<num
 
   let dispatched = 0;
   for (const intent of deferred) {
-    if (!intent.taskId || !intent.prompt) {
+    if (!intent.taskId || intent.status !== "verifying" || !intent.prompt) {
       await discardDeferredAiTaskIntentIfUnchanged(intent);
       continue;
     }
