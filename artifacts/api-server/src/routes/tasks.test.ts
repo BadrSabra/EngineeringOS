@@ -985,10 +985,14 @@ describe("PR-C — AI auto-trigger on verifying", () => {
     expect(res.body.status).toBe("verifying");
 
     expect(mockScheduleAiTaskExecution).toHaveBeenCalledOnce();
-    expect(mockScheduleAiTaskExecution).toHaveBeenCalledWith(taskId, "test-user", undefined, 0);
+    expect(mockScheduleAiTaskExecution).toHaveBeenCalledWith(taskId, "test-user", undefined, 0, null);
     const [intent] = await db.select().from(eventsTable)
       .where(eq(eventsTable.id, `task-auto-execution-deferred:${taskId}`));
-    expect(intent?.payload).toMatchObject({ userId: "test-user", taskRetryCount: 0 });
+    expect(intent?.payload).toMatchObject({
+      userId: "test-user",
+      taskRetryCount: 0,
+      taskCorrelationId: null,
+    });
   });
 
   it("execute route: does NOT schedule AI when task enters verifying without a prompt", async () => {
