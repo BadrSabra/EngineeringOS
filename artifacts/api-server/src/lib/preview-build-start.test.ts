@@ -1,4 +1,3 @@
-import { generateKeyPairSync } from "node:crypto";
 import { describe, expect, it, vi } from "vitest";
 import type { PreviewBuildJob } from "@workspace/db";
 import { previewBuildInputObjectKeyForArchive } from "./preview-build-upload.js";
@@ -11,11 +10,6 @@ import type { PreviewBuildInputArchive } from "./preview-build-input.js";
 import type { PreviewBuildJobClaims } from "./preview-build-job.js";
 
 const now = new Date("2026-11-12T12:00:00.000Z");
-const keyPair = generateKeyPairSync("ed25519");
-const buildJobPrivateKeyPem = keyPair.privateKey.export({
-  type: "pkcs8",
-  format: "pem",
-}) as string;
 const taskArn =
   "arn:aws:ecs:eu-central-1:123456789012:task/preview-builder/abcdef0123456789abcdef0123456789";
 const candidate: PreviewBuildCandidate = {
@@ -125,9 +119,6 @@ function makeBuildInput(): PreviewBuildInputArchive {
 
 function config() {
   return {
-    gatewayUrl: "https://gateway.example.com",
-    buildInputUploadPrivateKeyPem: "upload-key-is-validated-by-the-client",
-    buildJobPrivateKeyPem,
     builderImageDigest,
     sourceRoot: "web",
   };
@@ -142,17 +133,19 @@ function baseDependencies() {
     findActive: vi.fn(async () => null as PreviewBuildJob | null),
     findForOwner: vi.fn(async () => current),
     createArchive: vi.fn(async () => archive),
-    uploadInput: vi.fn(async () => ({
-      jobId,
-      artifactRefId: previewBuildArtifactRefId(jobId, "input"),
-      sourceDigest,
-      archiveDigest,
-      objectKey: previewBuildInputObjectKeyForArchive({
-        identity,
+    inputArtifactStore: {
+      storeInput: vi.fn(async () => ({
+        jobId,
+        artifactRefId: previewBuildArtifactRefId(jobId, "input"),
         sourceDigest,
         archiveDigest,
-      }),
-    })),
+        objectKey: previewBuildInputObjectKeyForArchive({
+          identity,
+          sourceDigest,
+          archiveDigest,
+        }),
+      })),
+    },
     createJob: vi.fn(async () => {
       current = { ...current, inputArtifactReadyAt: null };
       return current;
@@ -178,17 +171,41 @@ function baseDependencies() {
         return current;
       },
     ),
-    dispatch: vi.fn(async (input: { claims: PreviewBuildJobClaims }) => ({
-      jobId: input.claims.jobId,
-      buildId: input.claims.buildId,
-      executionRef: taskArn,
-    })),
+    executor: {
+      launch: vi.fn(async (input: { claims: PreviewBuildJobClaims }) => ({
+        jobId: input.claims.jobId,
+        buildId: input.claims.buildId,
+        executionRef: taskArn,
+      })),
+      observe: vi.fn(async ({ job }: { job: PreviewBuildJob }) => ({
+        jobId: job.jobId,
+        buildId: job.buildId,
+        state: "pending" as const,
+      })),
+    },
     getCurrent: () => current,
   };
   return dependencies;
 }
 
 describe("Preview build start orchestration", () => {
+  it("rejects a missing executor before reading or creating a build job", async () => {
+    const findByRequest = vi.fn();
+
+    await expect(
+      startOrResumePreviewBuild({
+        candidate,
+        projectId: candidate.projectId,
+        userId: "user-1",
+        clientRequestId,
+        config: config(),
+        dependencies: { findByRequest },
+      }),
+    ).rejects.toMatchObject({ code: "PREVIEW_BUILD_NOT_CONFIGURED" });
+
+    expect(findByRequest).not.toHaveBeenCalled();
+  });
+
   it("archives, uploads, persists, and dispatches one current Candidate", async () => {
     const dependencies = baseDependencies();
     const result = await startOrResumePreviewBuild({
@@ -205,8 +222,8 @@ describe("Preview build start orchestration", () => {
       sourceRoot: "web",
       identity,
     });
-    expect(dependencies.uploadInput).toHaveBeenCalledTimes(1);
-    expect(dependencies.uploadInput).toHaveBeenCalledWith(
+    expect(dependencies.inputArtifactStore.storeInput).toHaveBeenCalledTimes(1);
+    expect(dependencies.inputArtifactStore.storeInput).toHaveBeenCalledWith(
       expect.objectContaining({ jobId }),
     );
     expect(dependencies.createJob).toHaveBeenCalledWith(
@@ -221,12 +238,12 @@ describe("Preview build start orchestration", () => {
       now,
     );
     expect(dependencies.createJob.mock.invocationCallOrder[0]).toBeLessThan(
-      dependencies.uploadInput.mock.invocationCallOrder[0]!,
+      dependencies.inputArtifactStore.storeInput.mock.invocationCallOrder[0]!,
     );
     expect(dependencies.markInputReady).toHaveBeenCalledOnce();
-    expect(dependencies.dispatch).toHaveBeenCalledWith(
+    expect(dependencies.executor.launch).toHaveBeenCalledWith(
       expect.objectContaining({
-        gatewayUrl: "https://gateway.example.com",
+        now,
         claims: expect.objectContaining({
           jobId,
           buildId,
@@ -235,6 +252,9 @@ describe("Preview build start orchestration", () => {
           outputArtifactKey,
         }),
       }),
+    );
+    expect(dependencies.executor.launch.mock.calls[0]?.[0]).not.toHaveProperty(
+      "gatewayUrl",
     );
     expect(result.job.status).toBe("running");
     expect(result.job.executionRef).toBe(taskArn);
@@ -246,7 +266,7 @@ describe("Preview build start orchestration", () => {
   it("accepts an opaque execution reference from a provider-neutral executor", async () => {
     const dependencies = baseDependencies();
     const executionRef = "exec_local-node_0123456789abcdef";
-    dependencies.dispatch.mockResolvedValue({
+    dependencies.executor.launch.mockResolvedValue({
       jobId,
       buildId,
       executionRef,
@@ -279,7 +299,7 @@ describe("Preview build start orchestration", () => {
       startedAt: now,
     });
     dependencies.findByRequest.mockResolvedValue(launchingJob);
-    dependencies.dispatch
+    dependencies.executor.launch
       .mockRejectedValueOnce(new Error("lost response"))
       .mockResolvedValueOnce({
         jobId,
@@ -309,13 +329,13 @@ describe("Preview build start orchestration", () => {
     expect(second.job.status).toBe("running");
     expect(second.launchPending).toBe(false);
     expect(dependencies.createArchive).not.toHaveBeenCalled();
-    expect(dependencies.uploadInput).not.toHaveBeenCalled();
+    expect(dependencies.inputArtifactStore.storeInput).not.toHaveBeenCalled();
     expect(dependencies.createJob).not.toHaveBeenCalled();
-    expect(dependencies.dispatch).toHaveBeenCalledTimes(2);
-    expect(dependencies.dispatch.mock.calls[0]?.[0].claims).toEqual(
-      dependencies.dispatch.mock.calls[1]?.[0].claims,
+    expect(dependencies.executor.launch).toHaveBeenCalledTimes(2);
+    expect(dependencies.executor.launch.mock.calls[0]?.[0].claims).toEqual(
+      dependencies.executor.launch.mock.calls[1]?.[0].claims,
     );
-    expect(dependencies.dispatch.mock.calls[0]?.[0].claims).toMatchObject({
+    expect(dependencies.executor.launch.mock.calls[0]?.[0].claims).toMatchObject({
       attemptId: jobId,
       idempotencyKey: clientRequestId,
       dispatchGeneration: 1,
@@ -324,7 +344,9 @@ describe("Preview build start orchestration", () => {
 
   it("retries an admitted job whose input upload failed before readiness", async () => {
     const dependencies = baseDependencies();
-    dependencies.uploadInput.mockRejectedValueOnce(new Error("network lost"));
+    dependencies.inputArtifactStore.storeInput.mockRejectedValueOnce(
+      new Error("network lost"),
+    );
     await expect(
       startOrResumePreviewBuild({
         candidate,
@@ -339,7 +361,7 @@ describe("Preview build start orchestration", () => {
     });
     expect(dependencies.getCurrent().status).toBe("queued");
     expect(dependencies.getCurrent().inputArtifactReadyAt).toBeNull();
-    expect(dependencies.dispatch).not.toHaveBeenCalled();
+    expect(dependencies.executor.launch).not.toHaveBeenCalled();
 
     dependencies.findByRequest.mockImplementation(async () =>
       dependencies.getCurrent(),
@@ -354,7 +376,7 @@ describe("Preview build start orchestration", () => {
     });
 
     expect(dependencies.createJob).toHaveBeenCalledOnce();
-    expect(dependencies.uploadInput).toHaveBeenCalledTimes(2);
+    expect(dependencies.inputArtifactStore.storeInput).toHaveBeenCalledTimes(2);
     expect(dependencies.markInputReady).toHaveBeenCalledOnce();
     expect(resumed.job.status).toBe("running");
     expect(resumed.job.inputArtifactReadyAt).toEqual(now);
@@ -381,7 +403,7 @@ describe("Preview build start orchestration", () => {
 
     expect(result.job.status).toBe("launching");
     expect(result.launchPending).toBe(true);
-    expect(dependencies.dispatch).not.toHaveBeenCalled();
+    expect(dependencies.executor.launch).not.toHaveBeenCalled();
   });
 
   it("rejects a retry when the current Candidate no longer matches", async () => {
@@ -402,7 +424,7 @@ describe("Preview build start orchestration", () => {
     ).rejects.toMatchObject({
       code: "PREVIEW_BUILD_IDEMPOTENCY_CONFLICT",
     });
-    expect(dependencies.dispatch).not.toHaveBeenCalled();
+    expect(dependencies.executor.launch).not.toHaveBeenCalled();
     expect(dependencies.createArchive).not.toHaveBeenCalled();
   });
 
@@ -421,7 +443,7 @@ describe("Preview build start orchestration", () => {
       }),
     ).rejects.toMatchObject({ code: "PREVIEW_BUILD_ALREADY_ACTIVE" });
     expect(dependencies.createArchive).not.toHaveBeenCalled();
-    expect(dependencies.uploadInput).not.toHaveBeenCalled();
+    expect(dependencies.inputArtifactStore.storeInput).not.toHaveBeenCalled();
     expect(dependencies.createJob).not.toHaveBeenCalled();
   });
 });

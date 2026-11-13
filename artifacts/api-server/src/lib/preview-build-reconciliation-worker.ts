@@ -8,10 +8,11 @@ import {
   renewPreviewBuildJobReconciliationLease,
   transitionPreviewBuildJob,
 } from "./preview-build-job-store.js";
+import { createPreviewBuildGatewayExecutor } from "./preview-build-executor-gateway.js";
 import {
-  observePreviewBuildJob,
   type PreviewBuildObservation,
-} from "./preview-build-observation-client.js";
+  type PreviewBuildExecutor,
+} from "./preview-build-provider-contracts.js";
 import { attestPreviewBuildJob } from "./preview-build-attestor-client.js";
 import {
   acceptPreviewBuildReceipt,
@@ -37,7 +38,7 @@ type ReconciliationDependencies = {
   now?: () => Date;
   claimJobs?: typeof claimPreviewBuildJobsForReconciliation;
   listJobs?: typeof findPreviewBuildJobsToReconcile;
-  observe?: typeof observePreviewBuildJob;
+  executor?: PreviewBuildExecutor;
   attest?: typeof attestPreviewBuildJob;
   acceptReceipt?: typeof acceptPreviewBuildReceipt;
   renewLease?: typeof renewPreviewBuildJobReconciliationLease;
@@ -249,7 +250,12 @@ export async function reconcilePreviewBuildJobsOnce(
       : claimPreviewBuildJobsForReconciliation);
   const listJobs =
     input.dependencies?.listJobs ?? findPreviewBuildJobsToReconcile;
-  const observe = input.dependencies?.observe ?? observePreviewBuildJob;
+  const executor =
+    input.dependencies?.executor ??
+    createPreviewBuildGatewayExecutor({
+      gatewayUrl: reconciliationConfig.gatewayUrl,
+      privateKeyPem: reconciliationConfig.privateKeyPem,
+    });
   const attest = input.dependencies?.attest ?? attestPreviewBuildJob;
   const acceptReceipt =
     input.dependencies?.acceptReceipt ?? acceptPreviewBuildReceipt;
@@ -342,9 +348,7 @@ export async function reconcilePreviewBuildJobsOnce(
               transition,
             });
           }
-          const observed = await observe({
-            gatewayUrl: reconciliationConfig.gatewayUrl,
-            privateKeyPem: reconciliationConfig.privateKeyPem,
+          const observed = await executor.observe({
             job,
             now: observedAt,
           });
