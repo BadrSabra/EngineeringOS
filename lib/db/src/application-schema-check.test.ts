@@ -139,6 +139,12 @@ function completeSnapshot() {
     ) {
       return "0";
     }
+    if (
+      tableName === "preview_agent_nodes" &&
+      columnName === "last_heartbeat_sequence"
+    ) {
+      return "0";
+    }
     if (tableName === "preview_sessions" && columnName === "id") {
       return "gen_random_uuid()";
     }
@@ -984,6 +990,60 @@ describe("application schema contract", () => {
 
   it("requires a project-scoped Preview Agent key registry", () => {
     const snapshot = completeSnapshot();
+    const missingHeartbeatColumns = findApplicationSchemaIssues({
+      ...snapshot,
+      columns: snapshot.columns.filter(
+        (column) =>
+          !(
+            column.table_name === "preview_agent_nodes" &&
+            [
+              "heartbeat_challenge_hash",
+              "heartbeat_challenge_expires_at",
+              "last_heartbeat_sequence",
+              "last_heartbeat_request_hash",
+            ].includes(column.column_name)
+          ),
+      ),
+    });
+    for (const columnName of [
+      "heartbeat_challenge_hash",
+      "heartbeat_challenge_expires_at",
+      "last_heartbeat_sequence",
+      "last_heartbeat_request_hash",
+    ]) {
+      assert.ok(
+        missingHeartbeatColumns.some(
+          (issue) =>
+            issue.kind === "missing_column" &&
+            issue.tableName === "preview_agent_nodes" &&
+            issue.objectName === columnName,
+        ),
+      );
+    }
+    const missingHeartbeatFences = findApplicationSchemaIssues({
+      ...snapshot,
+      checkConstraints: snapshot.checkConstraints.filter(
+        (constraint) =>
+          !constraint.constraint_name.includes("preview_agent_nodes_heartbeat"),
+      ),
+    });
+    assert.ok(
+      missingHeartbeatFences.some(
+        (issue) =>
+          issue.kind === "missing_check_constraint" &&
+          issue.objectName ===
+            "chk_preview_agent_nodes_heartbeat_challenge_pair",
+      ),
+    );
+    assert.ok(
+      missingHeartbeatFences.some(
+        (issue) =>
+          issue.kind === "missing_check_constraint" &&
+          issue.objectName ===
+            "chk_preview_agent_nodes_heartbeat_request_pair",
+      ),
+    );
+
     const missingCapabilityExpiry = findApplicationSchemaIssues({
       ...snapshot,
       columns: snapshot.columns.filter(

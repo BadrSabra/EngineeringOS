@@ -23,6 +23,11 @@ import {
   PreviewArtifactStoreCommandIssueError,
 } from "../lib/preview-artifact-store-issuer.js";
 import {
+  acceptPreviewAgentHeartbeat,
+  issuePreviewAgentHeartbeatChallenge,
+  PreviewAgentHeartbeatError,
+} from "../lib/preview-agent-heartbeat.js";
+import {
   requireProjectAccess,
   requireProjectWriteAccess,
 } from "../middlewares/requireProjectAccess.js";
@@ -80,6 +85,42 @@ const artifactStorePollProofSchema = z
   })
   .strict();
 
+const previewAgentHeartbeatProofSchema = z
+  .object({
+    version: z.literal(1),
+    action: z.literal("preview-agent-heartbeat"),
+    nodeId: z.string().uuid(),
+    keyVersion: z.number().int().positive().max(1_000_000),
+    sequence: z.number().int().positive().max(2_147_483_647),
+    challenge: z.string().regex(/^[A-Za-z0-9_-]{43}$/),
+  })
+  .strict();
+
+const previewAgentHeartbeatChallengeRequestProofSchema = z
+  .object({
+    version: z.literal(1),
+    action: z.literal("request-preview-agent-heartbeat-challenge"),
+    nodeId: z.string().uuid(),
+    keyVersion: z.number().int().positive().max(1_000_000),
+    sequence: z.number().int().positive().max(2_147_483_647),
+    nonce: z.string().uuid(),
+  })
+  .strict();
+
+const previewAgentHeartbeatChallengeRequestSchema = z
+  .object({
+    proof: previewAgentHeartbeatChallengeRequestProofSchema,
+    signature: z.string().length(86).regex(/^[A-Za-z0-9_-]+$/),
+  })
+  .strict();
+
+const previewAgentHeartbeatSchema = z
+  .object({
+    proof: previewAgentHeartbeatProofSchema,
+    signature: z.string().length(86).regex(/^[A-Za-z0-9_-]+$/),
+  })
+  .strict();
+
 type PreviewAgentRouterDependencies = {
   requireAuth: RequestHandler;
   requireProjectAccess: RequestHandler;
@@ -89,6 +130,8 @@ type PreviewAgentRouterDependencies = {
   submitCapabilityReport: typeof acceptPreviewAgentCapabilityReport;
   acceptArtifactStoreReceipt: typeof acceptPreviewBuildInputStoreReceipt;
   issueArtifactStoreCommand: typeof issuePreviewBuildInputStoreCommand;
+  issueHeartbeatChallenge: typeof issuePreviewAgentHeartbeatChallenge;
+  acceptHeartbeat: typeof acceptPreviewAgentHeartbeat;
   buildJobPrivateKeyPem: string | undefined;
   listNodes: typeof listPreviewAgentNodes;
   revokeNode: typeof revokePreviewAgentNode;
@@ -106,6 +149,8 @@ const defaultDependencies: PreviewAgentRouterDependencies = {
   submitCapabilityReport: acceptPreviewAgentCapabilityReport,
   acceptArtifactStoreReceipt: acceptPreviewBuildInputStoreReceipt,
   issueArtifactStoreCommand: issuePreviewBuildInputStoreCommand,
+  issueHeartbeatChallenge: issuePreviewAgentHeartbeatChallenge,
+  acceptHeartbeat: acceptPreviewAgentHeartbeat,
   buildJobPrivateKeyPem: config.previewBuildJobPrivateKeyPem,
   listNodes: listPreviewAgentNodes,
   revokeNode: revokePreviewAgentNode,
@@ -224,11 +269,110 @@ function artifactStoreCommandIssueCode(error: unknown): {
   return { status: 503, error: "preview_artifact_command_unavailable" };
 }
 
+function heartbeatIssueCode(error: unknown): {
+  status: number;
+  error: string;
+} {
+  if (error instanceof PreviewAgentHeartbeatError) {
+    switch (error.code) {
+      case "PREVIEW_AGENT_HEARTBEAT_INVALID":
+        return { status: 403, error: "preview_agent_heartbeat_rejected" };
+      case "PREVIEW_AGENT_HEARTBEAT_CHALLENGE_PENDING":
+        return { status: 409, error: "preview_agent_heartbeat_challenge_pending" };
+      case "PREVIEW_AGENT_HEARTBEAT_REPLAY":
+        return { status: 409, error: "preview_agent_heartbeat_replayed" };
+      case "PREVIEW_AGENT_HEARTBEAT_UNAVAILABLE":
+        return { status: 503, error: "preview_agent_heartbeat_unavailable" };
+    }
+  }
+  return { status: 503, error: "preview_agent_heartbeat_unavailable" };
+}
+
 export function createPreviewAgentRouter(
   overrides: Partial<PreviewAgentRouterDependencies> = {},
 ) {
   const dependencies = { ...defaultDependencies, ...overrides };
   const router = Router();
+
+  router.post(
+    "/internal/preview-agents/:nodeId/heartbeat-challenge",
+    dependencies.capabilityRateLimiter,
+    async (request, response): Promise<void> => {
+      response.setHeader("cache-control", "no-store");
+      const nodeId = singleRouteParam(request.params.nodeId);
+      if (
+        request.get("cookie") ||
+        (dependencies.isProduction && !request.secure)
+      ) {
+        response.status(403).json({ error: "preview_agent_heartbeat_rejected" });
+        return;
+      }
+      const parsed = previewAgentHeartbeatChallengeRequestSchema.safeParse(
+        request.body,
+      );
+      if (
+        !parsed.success ||
+        !nodeId ||
+        !z.string().uuid().safeParse(nodeId).success ||
+        parsed.data.proof.nodeId !== nodeId
+      ) {
+        response.status(400).json({ error: "invalid_preview_agent_heartbeat" });
+        return;
+      }
+      try {
+        const challenge = await dependencies.issueHeartbeatChallenge(
+          parsed.data,
+        );
+        response.status(200).json({
+          nodeId: challenge.nodeId,
+          keyVersion: challenge.keyVersion,
+          challenge: challenge.challenge,
+          expiresAt: challenge.expiresAt,
+        });
+      } catch (error) {
+        const mapped = heartbeatIssueCode(error);
+        response.status(mapped.status).json({ error: mapped.error });
+      }
+    },
+  );
+
+  router.post(
+    "/internal/preview-agents/:nodeId/heartbeat",
+    dependencies.capabilityRateLimiter,
+    async (request, response): Promise<void> => {
+      response.setHeader("cache-control", "no-store");
+      const nodeId = singleRouteParam(request.params.nodeId);
+      if (
+        request.get("cookie") ||
+        (dependencies.isProduction && !request.secure)
+      ) {
+        response.status(403).json({ error: "preview_agent_heartbeat_rejected" });
+        return;
+      }
+      const parsed = previewAgentHeartbeatSchema.safeParse(request.body);
+      if (
+        !parsed.success ||
+        !nodeId ||
+        !z.string().uuid().safeParse(nodeId).success ||
+        parsed.data.proof.nodeId !== nodeId
+      ) {
+        response.status(400).json({ error: "invalid_preview_agent_heartbeat" });
+        return;
+      }
+      try {
+        const heartbeat = await dependencies.acceptHeartbeat(parsed.data);
+        response.status(200).json({
+          nodeId: heartbeat.nodeId,
+          sequence: heartbeat.sequence,
+          lastSeenAt: heartbeat.lastSeenAt,
+          alreadyAccepted: heartbeat.alreadyAccepted,
+        });
+      } catch (error) {
+        const mapped = heartbeatIssueCode(error);
+        response.status(mapped.status).json({ error: mapped.error });
+      }
+    },
+  );
 
   router.post(
     "/internal/preview-build-jobs/:jobId/artifact-store-command",

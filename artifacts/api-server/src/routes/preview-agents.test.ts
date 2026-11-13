@@ -66,6 +66,32 @@ function createApp(options: { production?: boolean } = {}) {
       expiresAt: new Date("2031-03-04T12:00:30.000Z"),
       commandToken: `signed-command-for-${jobId}`,
     })),
+    issueHeartbeatChallenge: vi.fn(
+      async ({
+        proof,
+      }: {
+        proof: { nodeId: string; keyVersion: number };
+        signature: string;
+      }) => ({
+        nodeId: proof.nodeId,
+        keyVersion: proof.keyVersion,
+        challenge: "C".repeat(43),
+        expiresAt: new Date("2031-03-04T12:01:00.000Z"),
+      }),
+    ),
+    acceptHeartbeat: vi.fn(
+      async ({
+        proof,
+      }: {
+        proof: { nodeId: string; sequence: number };
+        signature: string;
+      }) => ({
+        nodeId: proof.nodeId,
+        sequence: proof.sequence,
+        lastSeenAt: new Date("2031-03-04T12:00:01.000Z"),
+        alreadyAccepted: false,
+      }),
+    ),
     buildJobPrivateKeyPem: "server-only signing key",
     listNodes: vi.fn(async () => [node]),
     revokeNode: vi.fn(async () => ({ ...node, status: "revoked" as const, revokedAt: node.createdAt })),
@@ -255,6 +281,159 @@ describe("Preview Agent pairing routes", () => {
     expect(response.body).toEqual({
       error: "preview_agent_capability_unsupported",
     });
+  });
+
+  it("issues a short-lived heartbeat challenge without exposing node keys", async () => {
+    const { app, dependencies } = createApp();
+    const body = {
+      proof: {
+        version: 1,
+        action: "request-preview-agent-heartbeat-challenge",
+        nodeId: node.nodeId,
+        keyVersion: 1,
+        sequence: 1,
+        nonce: "8a42c6b1-5d54-4d4b-a854-64453c037d43",
+      },
+      signature: "S".repeat(86),
+    };
+    const response = await request(app)
+      .post(`/internal/preview-agents/${node.nodeId}/heartbeat-challenge`)
+      .send(body);
+
+    expect(response.status).toBe(200);
+    expect(response.headers["cache-control"]).toBe("no-store");
+    expect(response.body).toEqual({
+      nodeId: node.nodeId,
+      keyVersion: 1,
+      challenge: "C".repeat(43),
+      expiresAt: "2031-03-04T12:01:00.000Z",
+    });
+    expect(response.body).not.toHaveProperty("publicKeyPem");
+    expect(dependencies.issueHeartbeatChallenge).toHaveBeenCalledWith(body);
+  });
+
+  it("rejects heartbeat challenge requests with cookies or plaintext in production", async () => {
+    const { app, dependencies } = createApp({ production: true });
+    const body = {
+      proof: {
+        version: 1,
+        action: "request-preview-agent-heartbeat-challenge",
+        nodeId: node.nodeId,
+        keyVersion: 1,
+        sequence: 1,
+        nonce: "8a42c6b1-5d54-4d4b-a854-64453c037d43",
+      },
+      signature: "S".repeat(86),
+    };
+    const cookieResponse = await request(app)
+      .post(`/internal/preview-agents/${node.nodeId}/heartbeat-challenge`)
+      .set("Cookie", "session=unexpected")
+      .set("x-forwarded-proto", "https")
+      .send(body);
+    const plaintextResponse = await request(app).post(
+      `/internal/preview-agents/${node.nodeId}/heartbeat-challenge`,
+    );
+
+    expect(cookieResponse.status).toBe(403);
+    expect(plaintextResponse.status).toBe(403);
+    expect(dependencies.issueHeartbeatChallenge).not.toHaveBeenCalled();
+  });
+
+  it("rejects heartbeat challenge identity mismatches before verification", async () => {
+    const { app, dependencies } = createApp();
+    const response = await request(app)
+      .post(`/internal/preview-agents/${node.nodeId}/heartbeat-challenge`)
+      .send({
+        proof: {
+          version: 1,
+          action: "request-preview-agent-heartbeat-challenge",
+          nodeId: "94cc6266-181a-44f9-90f8-bdd21ebcc748",
+          keyVersion: 1,
+          sequence: 1,
+          nonce: "8a42c6b1-5d54-4d4b-a854-64453c037d43",
+        },
+        signature: "S".repeat(86),
+      });
+
+    expect(response.status).toBe(400);
+    expect(dependencies.issueHeartbeatChallenge).not.toHaveBeenCalled();
+  });
+
+  it("accepts a signed-heartbeat contract without returning the signature", async () => {
+    const { app, dependencies } = createApp();
+    const signature = "S".repeat(86);
+    const proof = {
+      version: 1,
+      action: "preview-agent-heartbeat",
+      nodeId: node.nodeId,
+      keyVersion: 1,
+      sequence: 7,
+      challenge: "C".repeat(43),
+    };
+    const response = await request(app)
+      .post(`/internal/preview-agents/${node.nodeId}/heartbeat`)
+      .send({ proof, signature });
+
+    expect(response.status).toBe(200);
+    expect(response.headers["cache-control"]).toBe("no-store");
+    expect(response.body).toEqual({
+      nodeId: node.nodeId,
+      sequence: 7,
+      lastSeenAt: "2031-03-04T12:00:01.000Z",
+      alreadyAccepted: false,
+    });
+    expect(response.body).not.toHaveProperty("signature");
+    expect(dependencies.acceptHeartbeat).toHaveBeenCalledWith({
+      proof,
+      signature,
+    });
+  });
+
+  it("rejects heartbeat route identity mismatches before verification", async () => {
+    const { app, dependencies } = createApp();
+    const response = await request(app)
+      .post(`/internal/preview-agents/${node.nodeId}/heartbeat`)
+      .send({
+        proof: {
+          version: 1,
+          action: "preview-agent-heartbeat",
+          nodeId: "94cc6266-181a-44f9-90f8-bdd21ebcc748",
+          keyVersion: 1,
+          sequence: 1,
+          challenge: "C".repeat(43),
+        },
+        signature: "S".repeat(86),
+      });
+
+    expect(response.status).toBe(400);
+    expect(dependencies.acceptHeartbeat).not.toHaveBeenCalled();
+  });
+
+  it("rejects cookies and plaintext signed heartbeats in production", async () => {
+    const { app, dependencies } = createApp({ production: true });
+    const body = {
+      proof: {
+        version: 1,
+        action: "preview-agent-heartbeat",
+        nodeId: node.nodeId,
+        keyVersion: 1,
+        sequence: 1,
+        challenge: "C".repeat(43),
+      },
+      signature: "S".repeat(86),
+    };
+    const cookieResponse = await request(app)
+      .post(`/internal/preview-agents/${node.nodeId}/heartbeat`)
+      .set("Cookie", "session=unexpected")
+      .set("x-forwarded-proto", "https")
+      .send(body);
+    const plaintextResponse = await request(app)
+      .post(`/internal/preview-agents/${node.nodeId}/heartbeat`)
+      .send(body);
+
+    expect(cookieResponse.status).toBe(403);
+    expect(plaintextResponse.status).toBe(403);
+    expect(dependencies.acceptHeartbeat).not.toHaveBeenCalled();
   });
 
   it("accepts an owner receipt and returns no signed command or receipt", async () => {
