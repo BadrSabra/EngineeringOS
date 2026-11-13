@@ -1442,7 +1442,7 @@ describe("workspace runtime lost-start-response process recovery", () => {
         await waitForRuntimeWorkerDatabaseDisconnect(startApplicationName);
         expect(await fetchRuntimeFixture(startReply!.port)).toBe(revision);
 
-        const supervisorAfterCrash = await supervisorClient.observeStartState(projectId);
+        const supervisorAfterCrash = await supervisorClient.observeStartState({ projectId, ownerProjectId: projectId });
         expect(supervisorAfterCrash).toMatchObject({
           status: "running",
           session: {
@@ -1535,7 +1535,7 @@ describe("workspace runtime lost-start-response process recovery", () => {
           port: startReply!.port,
         });
         expect(ownedRow?.leaseUntil?.getTime()).toBeGreaterThan(Date.now());
-        expect(await supervisorClient.observeStartState(projectId)).toMatchObject({
+        expect(await supervisorClient.observeStartState({ projectId, ownerProjectId: projectId })).toMatchObject({
           status: "running",
           session: {
             projectId,
