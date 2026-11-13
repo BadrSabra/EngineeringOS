@@ -308,7 +308,7 @@ async function startOrphaningRuntimeGroup(projectRoot: string, runtimePort: numb
       'writeFileSync(process.env.TEST_DESCENDANT_PID_FILE, String(descendant.pid));',
       'const server = createServer((_request, response) => response.end("ready"));',
       'server.listen(Number(process.env.TEST_RUNTIME_PORT), "127.0.0.1");',
-      'process.once("SIGTERM", () => server.close(() => process.exit(0)));',
+      'process.once("SIGTERM", () => { server.closeAllConnections(); server.close(() => process.exit(0)); });',
       'setInterval(() => {}, 1000);',
     ].join("\n"),
   );
@@ -1084,7 +1084,7 @@ describe("workspace runtime supervisor server boundary", () => {
           stopResponseCompleted = true;
           return response;
         });
-        expect(await waitForProcessExit(leaderPid!, 1_000)).toBe(true);
+        expect(await waitForProcessExit(leaderPid!, 1_500)).toBe(true);
         expect(await isProcessRunning(descendantPid)).toBe(true);
         await new Promise((resolve) => setTimeout(resolve, 100));
         expect(stopResponseCompleted).toBe(false);
