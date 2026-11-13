@@ -10827,6 +10827,82 @@ describe("POST /api/ai/tasks/:taskId/execute", () => {
     expect(taskExecutions).toEqual([{ id: foreignExecution.execution.id }]);
   });
 
+  it("does not retire a Task intent for an active Execution from an older attempt", async () => {
+    const projectId = await insertProject();
+    projectIds.push(projectId);
+    const taskId = await insertTask(projectId, "verifying");
+    const correlationId = randomUUID();
+    await db.update(tasksTable)
+      .set({
+        prompt: "Keep the current generation intent when an older attempt remains active",
+        retryCount: 1,
+        correlationId,
+      })
+      .where(eq(tasksTable.id, taskId));
+
+    const olderExecution = await createAiExecution({
+      userId: "test-user",
+      projectId,
+      linkedTaskId: taskId,
+      correlationId,
+      attempt: 0,
+      idempotencyKey: `${taskId}:older-attempt:0`,
+      request: {
+        projectId,
+        linkedTaskId: taskId,
+        message: "Older Task attempt",
+        modelMessage: "Older Task attempt",
+        validationTargetPaths: [],
+      },
+    });
+    await db.update(aiExecutionsTable)
+      .set({
+        status: "running",
+        workerId: randomUUID(),
+        leaseUntil: new Date(Date.now() + 60_000),
+        lastHeartbeatAt: new Date(),
+        startedAt: new Date(),
+        updatedAt: new Date(),
+      })
+      .where(eq(aiExecutionsTable.id, olderExecution.execution.id));
+
+    vi.spyOn(aiRouteHelpers, "resolveProvider").mockResolvedValueOnce({
+      provider: "groq",
+      apiKey: "test-only-key",
+      source: "user",
+    });
+    vi.spyOn(aiRateLimiter, "checkProjectRateLimitDb")
+      .mockResolvedValueOnce({ allowed: true });
+    vi.spyOn(taskExecutionService, "executeTaskLifecycle")
+      .mockResolvedValueOnce({
+        ok: false,
+        status: "conflict",
+        errorCode: "execution_already_claimed",
+      } as never);
+
+    await scheduleAiTaskExecution(taskId, "test-user", undefined, 1, correlationId);
+    await waitForScheduledAiTaskExecutions();
+
+    const [intent] = await db.select().from(eventsTable)
+      .where(eq(eventsTable.id, `task-auto-execution-deferred:${taskId}`));
+    expect(intent?.type).toBe("TaskAutoExecutionDeferred");
+    expect(intent?.payload).toMatchObject({
+      userId: "test-user",
+      taskRetryCount: 1,
+      taskCorrelationId: correlationId,
+      lastFailureCode: "execution_already_claimed",
+    });
+    const taskExecutions = await db.select({
+      id: aiExecutionsTable.id,
+      attempt: aiExecutionsTable.attempt,
+    }).from(aiExecutionsTable)
+      .where(eq(aiExecutionsTable.linkedTaskId, taskId));
+    expect(taskExecutions).toEqual([{
+      id: olderExecution.execution.id,
+      attempt: 0,
+    }]);
+  });
+
   it("backs off Mission admission conflicts without deleting the deferred intent", async () => {
     const projectId = await insertProject();
     projectIds.push(projectId);
