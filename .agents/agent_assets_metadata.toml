@@ -70,3 +70,17 @@ mtime_ms = 1791243386159
 storage_uri = "gcs://replit-rams-assets-picard/rams/assets/repl:d9ee80a9-1264-4087-bf84-742316b13035/4f7abbbb-b78b-4c25-988e-fdc7631fcb74/46f21084-5cbd-4510-aa2c-df43578ea928"
 storage_version_token = "1791243420760551"
 content_type = "text/html"
+
+[[outputs]]
+id = "YBYHpzxs0Ly1_FP1U_MBz"
+uri = "file://docs/preview-fabric-security-audit-2026-11.md"
+type = "text"
+title = "تقرير تدقيق أمان Preview Fabric"
+description = "مراجعة المراحل الست مع الأولويات، الأدلة، وحدود التحقق."
+logical_id = "903500dd-289d-4876-a683-d19db33318ad"
+content_hash = "sha256:82b6e63883cc5597f8c0d7d93fcbd0a5de2467ea1a75c61efacd3975dc4a826c"
+size = 34114
+mtime_ms = 1794492143796
+storage_uri = "gcs://replit-rams-assets-picard/rams/assets/repl:3849d946-5a45-4fa5-b18f-9b8261d0ecd1/903500dd-289d-4876-a683-d19db33318ad/9301a56b-d08c-4817-a0f8-b9a8b9e4fea8"
+storage_version_token = "1794492201363844"
+content_type = "text/markdown"

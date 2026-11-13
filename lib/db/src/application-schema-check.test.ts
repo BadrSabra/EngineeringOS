@@ -127,6 +127,18 @@ function completeSnapshot() {
     if (tableName === "preview_sessions" && columnName === "status") {
       return "'starting'::preview_session_status";
     }
+    if (
+      tableName === "preview_agent_nodes" &&
+      columnName === "status"
+    ) {
+      return "'pending'::preview_agent_node_status";
+    }
+    if (
+      tableName === "preview_agent_nodes" &&
+      columnName === "key_version"
+    ) {
+      return "0";
+    }
     if (tableName === "preview_sessions" && columnName === "id") {
       return "gen_random_uuid()";
     }
@@ -135,6 +147,24 @@ function completeSnapshot() {
     }
     if (tableName === "preview_build_jobs" && columnName === "status") {
       return "'queued'::preview_build_job_status";
+    }
+    if (
+      tableName === "preview_build_jobs" &&
+      [
+        "input_artifact_gc_state",
+        "output_artifact_gc_state",
+      ].includes(columnName)
+    ) {
+      return "'active'::preview_artifact_gc_state";
+    }
+    if (
+      tableName === "preview_build_jobs" &&
+      [
+        "input_artifact_provider",
+        "output_artifact_provider",
+      ].includes(columnName)
+    ) {
+      return "'s3'::preview_artifact_provider";
     }
     if (tableName === "preview_build_jobs" && columnName === "state_version") {
       return "0";
@@ -267,7 +297,11 @@ function completeSnapshot() {
     access_method: definition.accessMethod ?? "btree",
     is_unique: Boolean(definition.unique),
     is_valid: true,
-    predicate: definition.predicate ?? null,
+    predicate:
+      definition.predicate ??
+      (definition.predicatePattern
+        ? "status = ANY (ARRAY['pending'::preview_agent_node_status, 'active'::preview_agent_node_status])"
+        : null),
     columns: [...definition.columns],
   }));
   const requiredTables = [
@@ -291,6 +325,11 @@ function completeSnapshot() {
       }),
     ),
     indexes,
+    checkConstraints: APPLICATION_SCHEMA_CONTRACT.checks.map((check) => ({
+      table_name: check.tableName,
+      constraint_name: check.name,
+      definition: check.definitionPattern.source,
+    })),
     primaryKeys: requiredTables.flatMap((table_name) =>
       table_name === "startup_maintenance_state"
         ? ["maintenance_key"].map((column_name) => ({
@@ -332,7 +371,12 @@ function completeSnapshot() {
                           table_name,
                           column_name,
                         }))
-                      : [{ table_name, column_name: "id" }],
+                      : table_name === "preview_agent_nodes"
+                        ? ["node_id"].map((column_name) => ({
+                            table_name,
+                            column_name,
+                          }))
+                        : [{ table_name, column_name: "id" }],
     ),
     foreignKeys: APPLICATION_SCHEMA_CONTRACT.foreignKeys.map((key) => ({
       table_name: key.tableName,
@@ -375,6 +419,12 @@ function clientFor(
         return {
           rows: value.indexes as unknown as T[],
           rowCount: value.indexes.length,
+        };
+      }
+      if (sql.includes("FROM pg_constraint") && sql.includes("contype = 'c'")) {
+        return {
+          rows: value.checkConstraints as unknown as T[],
+          rowCount: value.checkConstraints.length,
         };
       }
       if (sql.includes("constraint_type = 'PRIMARY KEY'")) {
@@ -926,6 +976,177 @@ describe("application schema contract", () => {
     );
   });
 
+  it("requires a project-scoped Preview Agent key registry", () => {
+    const snapshot = completeSnapshot();
+    const missingCapabilityExpiry = findApplicationSchemaIssues({
+      ...snapshot,
+      columns: snapshot.columns.filter(
+        (column) =>
+          !(
+            column.table_name === "preview_agent_nodes" &&
+            column.column_name === "capability_expires_at"
+          ),
+      ),
+    });
+    assert.ok(
+      missingCapabilityExpiry.some(
+        (issue) =>
+          issue.kind === "missing_column" &&
+          issue.tableName === "preview_agent_nodes" &&
+          issue.objectName === "capability_expires_at",
+      ),
+    );
+
+    const missingFingerprintFence = findApplicationSchemaIssues({
+      ...snapshot,
+      indexes: snapshot.indexes.filter(
+        (index) =>
+          index.indexname !==
+          "uq_preview_agent_nodes_public_key_fingerprint",
+      ),
+    });
+    assert.ok(
+      missingFingerprintFence.some(
+        (issue) =>
+          issue.kind === "missing_index" &&
+          issue.tableName === "preview_agent_nodes" &&
+          issue.objectName ===
+            "uq_preview_agent_nodes_public_key_fingerprint",
+      ),
+    );
+    const incorrectLiveStorePredicate = findApplicationSchemaIssues({
+      ...snapshot,
+      indexes: snapshot.indexes.map((index) =>
+        index.indexname === "uq_preview_agent_nodes_live_store"
+          ? { ...index, predicate: "status = 'active'::preview_agent_node_status" }
+          : index,
+      ),
+    });
+    assert.ok(
+      incorrectLiveStorePredicate.some(
+        (issue) =>
+          issue.kind === "incompatible_index" &&
+          issue.tableName === "preview_agent_nodes" &&
+          issue.objectName === "uq_preview_agent_nodes_live_store",
+      ),
+    );
+
+    const missingProjectOwnership = findApplicationSchemaIssues({
+      ...snapshot,
+      foreignKeys: snapshot.foreignKeys.filter(
+        (key) =>
+          !(
+            key.table_name === "preview_agent_nodes" &&
+            key.column_name === "project_id"
+          ),
+      ),
+    });
+    assert.ok(
+      missingProjectOwnership.some(
+        (issue) =>
+          issue.kind === "missing_foreign_key" &&
+          issue.tableName === "preview_agent_nodes" &&
+          issue.objectName === "project_id",
+      ),
+    );
+
+    const missingArtifactOwnerBinding = findApplicationSchemaIssues({
+      ...snapshot,
+      foreignKeys: snapshot.foreignKeys.filter(
+        (key) =>
+          !(
+            key.table_name === "preview_build_jobs" &&
+            key.column_name === "input_artifact_owner_node_id"
+          ),
+      ),
+    });
+    assert.ok(
+      missingArtifactOwnerBinding.some(
+        (issue) =>
+          issue.kind === "missing_foreign_key" &&
+          issue.tableName === "preview_build_jobs" &&
+          issue.objectName === "input_artifact_owner_node_id",
+      ),
+    );
+  });
+
+  it("requires local Preview artifact ownership constraints", () => {
+    const snapshot = completeSnapshot();
+    const missingLocalInputGuard = findApplicationSchemaIssues({
+      ...snapshot,
+      checkConstraints: snapshot.checkConstraints.filter(
+        (constraint) =>
+          constraint.constraint_name !==
+          "chk_preview_build_jobs_input_local_metadata",
+      ),
+    });
+    assert.ok(
+      missingLocalInputGuard.some(
+        (issue) =>
+          issue.kind === "missing_check_constraint" &&
+          issue.tableName === "preview_build_jobs" &&
+          issue.objectName ===
+            "chk_preview_build_jobs_input_local_metadata",
+      ),
+    );
+
+    const missingOwnerReceiptGuard = findApplicationSchemaIssues({
+      ...snapshot,
+      checkConstraints: snapshot.checkConstraints.filter(
+        (constraint) =>
+          constraint.constraint_name !==
+          "chk_preview_build_jobs_input_local_owner_receipt",
+      ),
+    });
+    assert.ok(
+      missingOwnerReceiptGuard.some(
+        (issue) =>
+          issue.kind === "missing_check_constraint" &&
+          issue.tableName === "preview_build_jobs" &&
+          issue.objectName ===
+            "chk_preview_build_jobs_input_local_owner_receipt",
+      ),
+    );
+
+    const weakenedOwnerReceiptGuard = findApplicationSchemaIssues({
+      ...snapshot,
+      checkConstraints: snapshot.checkConstraints.map((constraint) =>
+        constraint.constraint_name ===
+        "chk_preview_build_jobs_input_local_owner_receipt"
+          ? { ...constraint, definition: "CHECK (true)" }
+          : constraint,
+      ),
+    });
+    assert.ok(
+      weakenedOwnerReceiptGuard.some(
+        (issue) =>
+          issue.kind === "incompatible_check_constraint" &&
+          issue.tableName === "preview_build_jobs" &&
+          issue.objectName ===
+            "chk_preview_build_jobs_input_local_owner_receipt",
+      ),
+    );
+
+    const weakenedOutputGuard = findApplicationSchemaIssues({
+      ...snapshot,
+      checkConstraints: snapshot.checkConstraints.map((constraint) =>
+        constraint.constraint_name ===
+        "chk_preview_build_jobs_output_local_metadata"
+          ? { ...constraint, definition: "CHECK (true)" }
+          : constraint,
+      ),
+    });
+    assert.ok(
+      weakenedOutputGuard.some(
+        (issue) =>
+          issue.kind === "incompatible_check_constraint" &&
+          issue.tableName === "preview_build_jobs" &&
+          issue.objectName ===
+            "chk_preview_build_jobs_output_local_metadata",
+      ),
+    );
+  });
+
   it("reads all metadata through read-only catalog queries", async () => {
     const snapshot = completeSnapshot();
     const client = clientFor(snapshot);
@@ -933,6 +1154,10 @@ describe("application schema contract", () => {
     assert.equal(result.columns.length, snapshot.columns.length);
     assert.deepEqual(result.enums, snapshot.enums);
     assert.equal(result.indexes.length, snapshot.indexes.length);
+    assert.equal(
+      result.checkConstraints.length,
+      snapshot.checkConstraints.length,
+    );
     assert.equal(result.foreignKeys.length, snapshot.foreignKeys.length);
   });
 

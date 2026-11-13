@@ -17,9 +17,10 @@ import {
   isValidPreviewBuildSourceRoot,
   PREVIEW_BUILD_INPUT_MANIFEST_PATH,
 } from "./preview-build-input.js";
+import { previewBuildArtifactRefId } from "./preview-artifact-reference.js";
 
 const SIGNING_DOMAIN = Buffer.from(
-  "EngineeringOS Preview Build Input Upload v1\n",
+  "EngineeringOS Preview Build Input Upload v2\n",
   "utf8",
 );
 const TOKEN_TTL_MS = 30_000;
@@ -31,9 +32,11 @@ const UUID_PATTERN =
 const HASH_PATTERN = /^[a-f0-9]{64}$/i;
 
 export type PreviewBuildInputUploadClaims = PreviewBuildInputIdentity & {
-  version: 1;
+  version: 2;
   action: "upload-build-input";
   commandId: string;
+  jobId: string;
+  artifactRefId: string;
   builderProfile: "vite-react-static-v1";
   sourceDigest: string;
   archiveDigest: string;
@@ -45,13 +48,16 @@ export type PreviewBuildInputUploadClaims = PreviewBuildInputIdentity & {
 export type PreviewBuildInputUploadRequest = {
   token: string | undefined;
   contentType: string | undefined;
-  archive: Buffer | undefined;
+  archive?: Buffer;
+  bytes?: AsyncIterable<Uint8Array>;
+  contentLength?: number;
   authorization?: PreviewBuildInputUploadAuthorization;
 };
 
 export type PreviewBuildInputUploadAuthorization = object;
 
 export interface PreviewBuildInputUploadHandler {
+  readonly supportsStreaming?: boolean;
   authorize(
     token: string,
     contentLength: number,
@@ -61,11 +67,50 @@ export interface PreviewBuildInputUploadHandler {
 
 export interface PreviewBuildInputObjectStore {
   put(input: {
+    jobId: string;
+    artifactRefId: string;
     objectKey: string;
     archive: Buffer;
     archiveDigest: string;
     contentLength: number;
   }): Promise<void>;
+}
+
+export type PreviewBuildArtifactWriteMetadata = {
+  storeId: string;
+  jobId: string;
+  artifactRefId: string;
+  digest: string;
+  sizeBytes: number;
+  manifestDigest: string;
+  retentionPolicy:
+    | "preview-build-input-24h-v1"
+    | "preview-build-output-live-reference-v1";
+};
+
+export interface PreviewBuildInputStreamObjectStore
+  extends PreviewBuildInputObjectStore {
+  /**
+   * Consume and verify the complete digest-bound stream before publishing the
+   * immutable object. A rejected or interrupted stream must not become visible.
+   */
+  putStream(input: {
+    jobId: string;
+    artifactRefId: string;
+    objectKey: string;
+    bytes: AsyncIterable<Uint8Array>;
+    archiveDigest: string;
+    contentLength: number;
+  }): Promise<PreviewBuildArtifactWriteMetadata | void>;
+}
+
+export class PreviewBuildInputObjectStoreError extends Error {
+  constructor(
+    readonly kind: "invalid" | "too_large" | "unavailable",
+  ) {
+    super("Preview build input storage failed.");
+    this.name = "PreviewBuildInputObjectStoreError";
+  }
 }
 
 export class PreviewBuildInputUploadError extends Error {
@@ -133,6 +178,8 @@ function canonicalClaims(claims: PreviewBuildInputUploadClaims): string {
     version: claims.version,
     action: claims.action,
     commandId: claims.commandId,
+    jobId: claims.jobId,
+    artifactRefId: claims.artifactRefId,
     builderProfile: claims.builderProfile,
     projectId: claims.projectId,
     proposalId: claims.proposalId,
@@ -168,6 +215,8 @@ function validateClaims(
     "version",
     "action",
     "commandId",
+    "jobId",
+    "artifactRefId",
     "builderProfile",
     "projectId",
     "proposalId",
@@ -184,11 +233,16 @@ function validateClaims(
   if (
     Object.keys(record).length !== allowedKeys.length ||
     allowedKeys.some((key) => !(key in record)) ||
-    record.version !== 1 ||
+    record.version !== 2 ||
     record.action !== "upload-build-input" ||
     record.builderProfile !== "vite-react-static-v1" ||
     typeof record.commandId !== "string" ||
     !UUID_PATTERN.test(record.commandId) ||
+    typeof record.jobId !== "string" ||
+    !UUID_PATTERN.test(record.jobId) ||
+    typeof record.artifactRefId !== "string" ||
+    record.artifactRefId !==
+      previewBuildArtifactRefId(record.jobId, "input") ||
     !validText(record.projectId, 255) ||
     !validText(record.proposalId, 255) ||
     !validText(record.operationId, 255) ||
@@ -226,9 +280,11 @@ function validateClaims(
   }
 
   return {
-    version: 1,
+    version: 2,
     action: "upload-build-input",
     commandId: record.commandId,
+    jobId: record.jobId,
+    artifactRefId: record.artifactRefId,
     builderProfile: "vite-react-static-v1",
     projectId: record.projectId,
     proposalId: record.proposalId,
@@ -416,6 +472,7 @@ function assertArchiveMatchesManifest(
 
 export function signPreviewBuildInputUpload(input: {
   buildInput: PreviewBuildInputArchive;
+  jobId: string;
   privateKeyPem: string | undefined;
   now?: Date;
 }): string {
@@ -441,11 +498,19 @@ export function signPreviewBuildInputUpload(input: {
   }
   assertArchiveMatchesManifest(archive, input.buildInput.manifest);
   const issuedAt = now.toISOString();
+  if (!UUID_PATTERN.test(input.jobId)) {
+    throw new PreviewBuildInputUploadError(
+      "PREVIEW_BUILD_UPLOAD_BODY_INVALID",
+      400,
+    );
+  }
   const claims = validateClaims(
     {
-      version: 1,
+      version: 2,
       action: "upload-build-input",
       commandId: randomUUID(),
+      jobId: input.jobId,
+      artifactRefId: previewBuildArtifactRefId(input.jobId, "input"),
       builderProfile: input.buildInput.manifest.builderProfile,
       projectId: input.buildInput.manifest.projectId,
       proposalId: input.buildInput.manifest.proposalId,
@@ -561,21 +626,15 @@ export function createPreviewBuildInputUploadHandler(input: {
     return authorization;
   };
   return {
+    supportsStreaming:
+      typeof (input.objectStore as Partial<PreviewBuildInputStreamObjectStore>)
+        .putStream === "function",
     authorize,
     async handle(request) {
-      if (
-        request.contentType?.toLowerCase() !== "application/zip" ||
-        !Buffer.isBuffer(request.archive)
-      ) {
+      if (request.contentType?.toLowerCase() !== "application/zip") {
         return Response.json(
           { error: "Invalid Preview build upload." },
           { status: 400, headers: { "cache-control": "no-store" } },
-        );
-      }
-      if (request.archive.length > MAX_PREVIEW_BUILD_ARCHIVE_BYTES) {
-        return Response.json(
-          { error: "Preview build upload is too large." },
-          { status: 413, headers: { "cache-control": "no-store" } },
         );
       }
 
@@ -588,28 +647,78 @@ export function createPreviewBuildInputUploadHandler(input: {
             input.publicKeyPem,
             input.now?.() ?? new Date(),
           );
-        const archiveDigest = createHash("sha256")
-          .update(request.archive)
-          .digest("hex");
+        const contentLength =
+          request.contentLength ??
+          (Buffer.isBuffer(request.archive)
+            ? request.archive.byteLength
+            : undefined);
         if (
-          request.archive.length !== claims.archiveBytes ||
-          archiveDigest !== claims.archiveDigest
+          !Number.isSafeInteger(contentLength) ||
+          contentLength !== claims.archiveBytes ||
+          contentLength < 1
         ) {
           throw new PreviewBuildInputUploadError(
             "PREVIEW_BUILD_UPLOAD_BODY_INVALID",
             400,
           );
         }
+        if (contentLength > MAX_PREVIEW_BUILD_ARCHIVE_BYTES) {
+          throw new PreviewBuildInputUploadError(
+            "PREVIEW_BUILD_UPLOAD_BODY_INVALID",
+            413,
+          );
+        }
         const objectKey = previewBuildInputObjectKey(claims);
-        await input.objectStore.put({
-          objectKey,
-          archive: request.archive,
-          archiveDigest,
-          contentLength: request.archive.length,
-        });
+        let archiveDigest = claims.archiveDigest;
+        if (Buffer.isBuffer(request.archive) && !request.bytes) {
+          archiveDigest = createHash("sha256")
+            .update(request.archive)
+            .digest("hex");
+          if (
+            request.archive.byteLength !== contentLength ||
+            archiveDigest !== claims.archiveDigest
+          ) {
+            throw new PreviewBuildInputUploadError(
+              "PREVIEW_BUILD_UPLOAD_BODY_INVALID",
+              400,
+            );
+          }
+          await input.objectStore.put({
+            jobId: claims.jobId,
+            artifactRefId: claims.artifactRefId,
+            objectKey,
+            archive: request.archive,
+            archiveDigest,
+            contentLength,
+          });
+        } else if (!request.archive && request.bytes) {
+          const streamStore =
+            input.objectStore as Partial<PreviewBuildInputStreamObjectStore>;
+          if (typeof streamStore.putStream !== "function") {
+            throw new PreviewBuildInputUploadError(
+              "PREVIEW_BUILD_UPLOAD_BODY_INVALID",
+              400,
+            );
+          }
+          await streamStore.putStream({
+            jobId: claims.jobId,
+            artifactRefId: claims.artifactRefId,
+            objectKey,
+            bytes: request.bytes,
+            archiveDigest,
+            contentLength,
+          });
+        } else {
+          throw new PreviewBuildInputUploadError(
+            "PREVIEW_BUILD_UPLOAD_BODY_INVALID",
+            400,
+          );
+        }
         return Response.json(
           {
             action: "build-input-upload",
+            jobId: claims.jobId,
+            artifactRefId: claims.artifactRefId,
             sourceDigest: claims.sourceDigest,
             archiveDigest,
             objectKey,
@@ -628,6 +737,30 @@ export function createPreviewBuildInputUploadHandler(input: {
             { error: error.code },
             {
               status: error.status,
+              headers: {
+                "cache-control": "no-store",
+                "x-content-type-options": "nosniff",
+              },
+            },
+          );
+        }
+        if (error instanceof PreviewBuildInputObjectStoreError) {
+          const status =
+            error.kind === "too_large"
+              ? 413
+              : error.kind === "invalid"
+                ? 400
+                : 503;
+          const code =
+            error.kind === "too_large"
+              ? "PREVIEW_BUILD_UPLOAD_TOO_LARGE"
+              : error.kind === "invalid"
+                ? "PREVIEW_BUILD_UPLOAD_BODY_INVALID"
+                : "PREVIEW_BUILD_UPLOAD_UNAVAILABLE";
+          return Response.json(
+            { error: code },
+            {
+              status,
               headers: {
                 "cache-control": "no-store",
                 "x-content-type-options": "nosniff",

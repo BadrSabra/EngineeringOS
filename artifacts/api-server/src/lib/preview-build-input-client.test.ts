@@ -15,8 +15,10 @@ import {
   type PreviewBuildInputArchive,
   type PreviewBuildInputIdentity,
 } from "./preview-build-input.js";
+import { previewBuildArtifactRefId } from "./preview-artifact-reference.js";
 
 const now = new Date("2026-11-11T12:00:00.000Z");
+const jobId = "00000000-0000-8000-8000-000000000001";
 const keyPair = generateKeyPairSync("ed25519");
 const privateKeyPem = keyPair.privateKey.export({
   type: "pkcs8",
@@ -104,6 +106,8 @@ describe("Preview build-input Gateway client", () => {
       expect(claims).toMatchObject(candidateIdentity);
       return Response.json({
         action: "build-input-upload",
+        jobId,
+        artifactRefId: previewBuildArtifactRefId(jobId, "input"),
         sourceDigest: buildInput.manifest.sourceDigest,
         archiveDigest: buildInput.archiveDigest,
         objectKey,
@@ -114,12 +118,15 @@ describe("Preview build-input Gateway client", () => {
       uploadPreviewBuildInput({
         gatewayUrl: "https://preview.example.com/",
         privateKeyPem,
+        jobId,
         identity: candidateIdentity,
         buildInput,
         fetcher,
         now,
       }),
     ).resolves.toEqual({
+      jobId,
+      artifactRefId: previewBuildArtifactRefId(jobId, "input"),
       sourceDigest: buildInput.manifest.sourceDigest,
       archiveDigest: buildInput.archiveDigest,
       objectKey,
@@ -131,6 +138,8 @@ describe("Preview build-input Gateway client", () => {
     const buildInput = buildInputArchiveFixture();
     const put = vi.fn(
       async (_input: {
+        jobId: string;
+        artifactRefId: string;
         objectKey: string;
         archive: Buffer;
         archiveDigest: string;
@@ -158,6 +167,7 @@ describe("Preview build-input Gateway client", () => {
     const receipt = await uploadPreviewBuildInput({
       gatewayUrl: "https://preview.example.com",
       privateKeyPem,
+      jobId,
       identity: candidateIdentity,
       buildInput,
       fetcher,
@@ -184,6 +194,7 @@ describe("Preview build-input Gateway client", () => {
       uploadPreviewBuildInput({
         gatewayUrl: "http://preview.example.com/",
         privateKeyPem,
+        jobId,
         identity: candidateIdentity,
         buildInput,
         fetcher,
@@ -196,6 +207,7 @@ describe("Preview build-input Gateway client", () => {
       uploadPreviewBuildInput({
         gatewayUrl: "https://preview.example.com/",
         privateKeyPem,
+        jobId,
         identity: { ...candidateIdentity, projectId: "other-project" },
         buildInput,
         fetcher,
@@ -214,6 +226,8 @@ describe("Preview build-input Gateway client", () => {
       .mockResolvedValueOnce(
         Response.json({
           action: "build-input-upload",
+          jobId,
+          artifactRefId: previewBuildArtifactRefId(jobId, "input"),
           sourceDigest: buildInput.manifest.sourceDigest,
           archiveDigest: "c".repeat(64),
           objectKey: "build-inputs/wrong",
@@ -225,6 +239,7 @@ describe("Preview build-input Gateway client", () => {
     const request = {
       gatewayUrl: "https://preview.example.com/",
       privateKeyPem,
+      jobId,
       identity: candidateIdentity,
       buildInput,
       fetcher: fetcher as typeof fetch,

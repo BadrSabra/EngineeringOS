@@ -89,29 +89,68 @@ describe("createPreviewBuildInputArchive", () => {
     expect(result.archiveDigest).toMatch(/^[a-f0-9]{64}$/);
   });
 
-  it("binds the server-selected source root into the source digest", async () => {
+  it("limits transferred files to the selected source root", async () => {
     const root = await createRoot();
-    await mkdir(path.join(root, "web"), { recursive: true });
-    await writeFile(path.join(root, "index.html"), "<main>root</main>");
-    await writeFile(path.join(root, "web", "index.html"), "<main>web</main>");
+    await mkdir(path.join(root, "apps", "web"), { recursive: true });
+    await mkdir(path.join(root, "private-sibling"), { recursive: true });
+    await writeFile(
+      path.join(root, "apps", "web", "index.html"),
+      "<main>selected</main>",
+    );
+    await writeFile(
+      path.join(root, "private-sibling", "internal.ts"),
+      'export const note = "not transferred";\n',
+    );
     const candidateRevision = await hashDeliveryTree(root);
 
-    const rootBuild = await createPreviewBuildInputArchive({
+    const selectedBuild = await createPreviewBuildInputArchive({
       workspaceRoot: root,
-      sourceRoot: ".",
+      sourceRoot: "apps/web",
       identity: identity(candidateRevision),
     });
-    const webBuild = await createPreviewBuildInputArchive({
-      workspaceRoot: root,
-      sourceRoot: "web",
-      identity: identity(candidateRevision),
-    });
-
-    expect(rootBuild.manifest.sourceDigest).not.toBe(
-      webBuild.manifest.sourceDigest,
+    const zip = new AdmZip(selectedBuild.archive);
+    const manifest = JSON.parse(
+      zip
+        .getEntry("engineeringos-preview-manifest.json")!
+        .getData()
+        .toString("utf8"),
     );
-    expect(rootBuild.manifest.sourceRoot).toBe(".");
-    expect(webBuild.manifest.sourceRoot).toBe("web");
+
+    expect(zip.getEntry("apps/web/index.html")?.getData().toString("utf8")).toBe(
+      "<main>selected</main>",
+    );
+    expect(zip.getEntry("private-sibling/internal.ts")).toBeNull();
+    expect(manifest.sourceRoot).toBe("apps/web");
+    expect(manifest.files.map((file: { path: string }) => file.path)).toEqual([
+      "apps/web/index.html",
+    ]);
+  });
+
+  it("rejects a selected source root that is a symlink or does not exist", async () => {
+    const root = await createRoot();
+    const outside = await createRoot();
+    await writeFile(path.join(outside, "index.html"), "<main>outside</main>");
+    await symlink(outside, path.join(root, "linked"));
+    const candidateRevision = await hashDeliveryTree(root);
+
+    await expect(
+      createPreviewBuildInputArchive({
+        workspaceRoot: root,
+        sourceRoot: "linked",
+        identity: identity(candidateRevision),
+      }),
+    ).rejects.toMatchObject({
+      code: "PREVIEW_BUILD_INPUT_UNSAFE",
+    });
+    await expect(
+      createPreviewBuildInputArchive({
+        workspaceRoot: root,
+        sourceRoot: "missing",
+        identity: identity(candidateRevision),
+      }),
+    ).rejects.toMatchObject({
+      code: "PREVIEW_BUILD_INPUT_UNAVAILABLE",
+    });
   });
 
   it.each(["../outside", "/absolute", "web\\nested"])(

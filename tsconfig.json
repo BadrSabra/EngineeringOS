@@ -20,6 +20,9 @@
     },
     {
       "path": "./lib/ai-orchestrator"
+    },
+    {
+      "path": "./lib/preview-runner-contract"
     }
   ]
 }

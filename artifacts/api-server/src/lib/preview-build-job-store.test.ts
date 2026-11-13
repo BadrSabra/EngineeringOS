@@ -21,6 +21,8 @@ const validInput = {
   sourceRoot: "web",
   sourceDigest: "c".repeat(64),
   archiveDigest: "d".repeat(64),
+  inputArtifactProvider: "s3" as const,
+  outputArtifactProvider: "s3" as const,
   builderImageDigest: `sha256:${"e".repeat(64)}`,
   issuedAt: new Date(now.getTime() - 1_000),
   tokenExpiresAt: new Date(now.getTime() + 60_000),
@@ -84,6 +86,31 @@ describe("Preview build job durable store boundary", () => {
         now,
       ),
     ).rejects.toBeInstanceOf(PreviewBuildJobStoreError);
+  });
+
+  it("rejects local storage placement until an authenticated owner is bound", async () => {
+    await expect(
+      createQueuedPreviewBuildJob(
+        {
+          ...validInput,
+          inputArtifactProvider: "local",
+        },
+        now,
+      ),
+    ).rejects.toMatchObject({
+      code: "PREVIEW_BUILD_JOB_INPUT_INVALID",
+    });
+    await expect(
+      createQueuedPreviewBuildJob(
+        {
+          ...validInput,
+          outputArtifactProvider: "local",
+        },
+        now,
+      ),
+    ).rejects.toMatchObject({
+      code: "PREVIEW_BUILD_JOB_INPUT_INVALID",
+    });
   });
 
   it("rejects expired or overlong launch claims before database admission", async () => {

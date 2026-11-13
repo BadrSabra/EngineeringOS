@@ -32,6 +32,7 @@ export * from "./workspace_runtime.js";
 export * from "./preview-sessions.js";
 export * from "./preview-build-jobs.js";
 export * from "./preview-access-tickets.js";
+export * from "./preview-agent-nodes.js";
 export * from "./ai_missions.js";
 export * from "./ai_mission_handoffs.js";
 export * from "./ai_mission_lineages.js";

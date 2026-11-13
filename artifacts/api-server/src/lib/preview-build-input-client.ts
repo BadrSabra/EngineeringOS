@@ -5,6 +5,7 @@ import {
   previewBuildInputObjectKeyForArchive,
   signPreviewBuildInputUpload,
 } from "./preview-build-upload.js";
+import { previewBuildArtifactRefId } from "./preview-artifact-reference.js";
 
 const BUILD_INPUT_PATH = "/internal/v1/preview/build-inputs";
 const REQUEST_TIMEOUT_MS = 120_000;
@@ -56,6 +57,8 @@ function buildInputEndpoint(value: string): URL {
 function isUploadReceipt(
   value: unknown,
   expected: {
+    jobId: string;
+    artifactRefId: string;
     sourceDigest: string;
     archiveDigest: string;
     objectKey: string;
@@ -65,6 +68,8 @@ function isUploadReceipt(
   const record = value as Record<string, unknown>;
   return (
     record.action === "build-input-upload" &&
+    record.jobId === expected.jobId &&
+    record.artifactRefId === expected.artifactRefId &&
     record.sourceDigest === expected.sourceDigest &&
     record.archiveDigest === expected.archiveDigest &&
     record.objectKey === expected.objectKey
@@ -88,11 +93,14 @@ function identitiesMatch(
 export async function uploadPreviewBuildInput(input: {
   gatewayUrl: string | undefined;
   privateKeyPem: string | undefined;
+  jobId: string;
   identity: PreviewBuildInputIdentity;
   buildInput: PreviewBuildInputArchive;
   fetcher?: typeof fetch;
   now?: Date;
 }): Promise<{
+  jobId: string;
+  artifactRefId: string;
   sourceDigest: string;
   archiveDigest: string;
   objectKey: string;
@@ -110,6 +118,7 @@ export async function uploadPreviewBuildInput(input: {
   try {
     token = signPreviewBuildInputUpload({
       buildInput: input.buildInput,
+      jobId: input.jobId,
       privateKeyPem: input.privateKeyPem,
       now: input.now,
     });
@@ -120,6 +129,8 @@ export async function uploadPreviewBuildInput(input: {
   }
 
   const expected = {
+    jobId: input.jobId,
+    artifactRefId: previewBuildArtifactRefId(input.jobId, "input"),
     sourceDigest: input.buildInput.manifest.sourceDigest,
     archiveDigest: input.buildInput.archiveDigest,
     objectKey: previewBuildInputObjectKeyForArchive({

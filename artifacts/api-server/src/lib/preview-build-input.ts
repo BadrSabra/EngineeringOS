@@ -226,6 +226,7 @@ function validateIdentity(
 
 async function collectCandidateFiles(
   rootPath: string,
+  sourceRoot: string,
   limits: { maxFiles: number; maxFileBytes: number; maxTotalBytes: number },
 ): Promise<{ files: CollectedFile[]; totalBytes: number }> {
   const root = await realpath(rootPath).catch(() => {
@@ -237,6 +238,7 @@ async function collectCandidateFiles(
   const files: CollectedFile[] = [];
   const seenPaths = new Set<string>();
   let totalBytes = 0;
+  let sourceDirectory: FileHandle = rootHandle;
 
   const visit = async (
     directory: FileHandle,
@@ -361,9 +363,47 @@ async function collectCandidateFiles(
   };
 
   try {
-    await visit(rootHandle, "");
+    if (sourceRoot !== ".") {
+      for (const segment of sourceRoot.split("/")) {
+        const anchoredPath = descriptorPath(sourceDirectory, segment);
+        const entryStat = await lstat(anchoredPath, { bigint: true }).catch(
+          () => {
+            throw new PreviewBuildInputError(
+              "PREVIEW_BUILD_INPUT_UNAVAILABLE",
+            );
+          },
+        );
+        if (entryStat.isSymbolicLink() || !entryStat.isDirectory()) {
+          throw new PreviewBuildInputError("PREVIEW_BUILD_INPUT_UNSAFE");
+        }
+        const child = await open(anchoredPath, DIRECTORY_OPEN_FLAGS).catch(
+          () => {
+            throw new PreviewBuildInputError("PREVIEW_BUILD_INPUT_CHANGED");
+          },
+        );
+        let openedStat: BigIntStats;
+        try {
+          openedStat = await child.stat({ bigint: true });
+        } catch {
+          await child.close().catch(() => undefined);
+          throw new PreviewBuildInputError("PREVIEW_BUILD_INPUT_CHANGED");
+        }
+        if (!sameNodeIdentity(entryStat, openedStat)) {
+          await child.close().catch(() => undefined);
+          throw new PreviewBuildInputError("PREVIEW_BUILD_INPUT_CHANGED");
+        }
+        if (sourceDirectory !== rootHandle) {
+          await sourceDirectory.close().catch(() => undefined);
+        }
+        sourceDirectory = child;
+      }
+    }
+    await visit(sourceDirectory, sourceRoot === "." ? "" : sourceRoot);
     return { files, totalBytes };
   } finally {
+    if (sourceDirectory !== rootHandle) {
+      await sourceDirectory.close().catch(() => undefined);
+    }
     await rootHandle.close().catch(() => undefined);
   }
 }
@@ -409,7 +449,11 @@ export async function createPreviewBuildInputArchive(input: {
     throw new PreviewBuildInputError("PREVIEW_BUILD_INPUT_CHANGED");
   }
 
-  const collected = await collectCandidateFiles(input.workspaceRoot, limits);
+  const collected = await collectCandidateFiles(
+    input.workspaceRoot,
+    input.sourceRoot,
+    limits,
+  );
   const finalTreeHash = await hashDeliveryTree(input.workspaceRoot).catch(
     () => {
       throw new PreviewBuildInputError("PREVIEW_BUILD_INPUT_CHANGED");

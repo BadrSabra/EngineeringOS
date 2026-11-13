@@ -25,6 +25,34 @@ export class ArchiveSafetyError extends Error {
   }
 }
 
+export class ArchiveProcessingLimiter {
+  private active = 0;
+
+  constructor(private readonly maxConcurrent: number) {
+    if (!Number.isSafeInteger(maxConcurrent) || maxConcurrent < 1) {
+      throw new Error("Archive processing concurrency must be positive.");
+    }
+  }
+
+  tryAcquire(): (() => void) | null {
+    if (this.active >= this.maxConcurrent) return null;
+    this.active += 1;
+    let released = false;
+    return () => {
+      if (released) return;
+      released = true;
+      this.active = Math.max(0, this.active - 1);
+    };
+  }
+}
+
+/**
+ * ZIP parsing and extraction are memory-expensive. Keep the current single-API
+ * process to one archive at a time; the route rejects excess requests before
+ * multer writes their bodies to disk.
+ */
+export const archiveProcessingLimiter = new ArchiveProcessingLimiter(1);
+
 export function validateArchiveEntryPath(entryName: string, root: string): string {
   const slashName = entryName.replace(/\\/g, "/");
   if (!slashName || slashName.includes("\0") || /^[A-Za-z]:\//.test(slashName) || slashName.startsWith("/") ||

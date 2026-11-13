@@ -201,12 +201,15 @@ importers:
       '@workspace/knowledge-engine':
         specifier: workspace:*
         version: link:../../lib/knowledge-engine
+      '@workspace/preview-runner-contract':
+        specifier: workspace:*
+        version: link:../../lib/preview-runner-contract
       '@workspace/scanner':
         specifier: workspace:*
         version: link:../../lib/scanner
       adm-zip:
-        specifier: ^0.6.0
-        version: 0.6.0
+        specifier: ^0.6.1
+        version: 0.6.1
       cookie-parser:
         specifier: ^1.4.7
         version: 1.4.7
@@ -996,6 +999,19 @@ importers:
       '@vitest/coverage-v8':
         specifier: ^4.1.10
         version: 4.1.10(vitest@4.1.10)
+      vitest:
+        specifier: ^4.1.10
+        version: 4.1.10(@types/node@25.9.4)(@vitest/coverage-v8@4.1.10)(jiti@2.7.0)(jsdom@29.1.1(@noble/hashes@1.8.0))(lightningcss@1.32.0)(tsx@4.23.0)(yaml@2.9.0)
+
+  lib/preview-runner-contract:
+    dependencies:
+      zod:
+        specifier: 'catalog:'
+        version: 3.25.76
+    devDependencies:
+      '@types/node':
+        specifier: 'catalog:'
+        version: 25.9.4
       vitest:
         specifier: ^4.1.10
         version: 4.1.10(@types/node@25.9.4)(@vitest/coverage-v8@4.1.10)(jiti@2.7.0)(jsdom@29.1.1(@noble/hashes@1.8.0))(lightningcss@1.32.0)(tsx@4.23.0)(yaml@2.9.0)
@@ -2644,8 +2660,8 @@ packages:
     engines: {node: '>=0.4.0'}
     hasBin: true
 
-  adm-zip@0.6.0:
-    resolution: {integrity: sha512-XleryMhbuksdKtofnWZ9Sk+4CUTbms4Mb/EU32SZwToAyZ5RgVos/ki8n+yr0LWHOGKuakbXTuuYNHLQjhddgg==}
+  adm-zip@0.6.1:
+    resolution: {integrity: sha512-Xwrja8nx9e5o2N1my4DsKCeKpdrnACyr1wtbPxBDgGzKzKyE9kRtBFA8mWldI+RVlD7CBZNWY/wQ2+ydwOR6kQ==}
     engines: {node: '>=14.0'}
 
   agentkeepalive@4.6.0:
@@ -6935,7 +6951,7 @@ snapshots:
 
   acorn@8.17.0: {}
 
-  adm-zip@0.6.0: {}
+  adm-zip@0.6.1: {}
 
   agentkeepalive@4.6.0:
     dependencies:

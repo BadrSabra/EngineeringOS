@@ -16,6 +16,8 @@ export type ApplicationSchemaIssueKind =
   | "incompatible_enum"
   | "missing_index"
   | "incompatible_index"
+  | "missing_check_constraint"
+  | "incompatible_check_constraint"
   | "missing_foreign_key";
 
 export interface ApplicationSchemaIssue {
@@ -41,6 +43,13 @@ export type IndexContract = {
   unique?: boolean;
   accessMethod?: string;
   predicate?: string | null;
+  predicatePattern?: RegExp;
+};
+
+type CheckContract = {
+  name: string;
+  tableName: string;
+  definitionPattern: RegExp;
 };
 
 type ForeignKeyContract = {
@@ -722,6 +731,69 @@ export const APPLICATION_SCHEMA_CONTRACT = {
         udtName: "text",
         nullable: false,
       })),
+      ...[
+        "input_artifact_manifest_digest",
+        "input_artifact_retention_policy",
+        "input_artifact_store_command_fingerprint",
+        "input_artifact_store_receipt_fingerprint",
+        "output_artifact_manifest_digest",
+        "output_artifact_retention_policy",
+      ].map((name) => ({
+        name,
+        dataType: "text",
+        udtName: "text",
+        nullable: true,
+      })),
+      ...[
+        "input_artifact_size_bytes",
+        "input_artifact_owner_key_version",
+        "output_artifact_size_bytes",
+      ].map((name) => ({
+        name,
+        dataType: "integer",
+        udtName: "int4",
+        nullable: true,
+      })),
+      ...[
+        "input_artifact_store_id",
+        "input_artifact_ref_id",
+        "input_artifact_owner_node_id",
+        "output_artifact_store_id",
+        "output_artifact_ref_id",
+      ].map((name) => ({
+        name,
+        dataType: "uuid",
+        udtName: "uuid",
+        nullable: true,
+      })),
+      ...[
+        "input_artifact_ready_at",
+        "input_artifact_gc_marked_at",
+        "output_artifact_gc_marked_at",
+      ].map((name) => ({
+        name,
+        dataType: "timestamp with time zone",
+        udtName: "timestamptz",
+        nullable: true,
+      })),
+      ...["input_artifact_gc_state", "output_artifact_gc_state"].map(
+        (name) => ({
+          name,
+          dataType: "USER-DEFINED",
+          udtName: "preview_artifact_gc_state",
+          nullable: false,
+          defaultExpression: /'active'::preview_artifact_gc_state/,
+        }),
+      ),
+      ...["input_artifact_provider", "output_artifact_provider"].map(
+        (name) => ({
+          name,
+          dataType: "USER-DEFINED",
+          udtName: "preview_artifact_provider",
+          nullable: false,
+          defaultExpression: /'s3'::preview_artifact_provider/,
+        }),
+      ),
       {
         name: "proposal_revision",
         dataType: "integer",
@@ -836,6 +908,45 @@ export const APPLICATION_SCHEMA_CONTRACT = {
         udtName: "timestamptz",
         nullable: true,
       },
+    ] as readonly ColumnContract[],
+    preview_agent_nodes: [
+      { name: "node_id", dataType: "uuid", udtName: "uuid", nullable: false },
+      { name: "project_id", dataType: "text", udtName: "text", nullable: false },
+      { name: "user_id", dataType: "text", udtName: "text", nullable: false },
+      { name: "store_id", dataType: "uuid", udtName: "uuid", nullable: false },
+      {
+        name: "status",
+        dataType: "USER-DEFINED",
+        udtName: "preview_agent_node_status",
+        nullable: false,
+        defaultExpression: /'pending'::preview_agent_node_status/,
+      },
+      ...["pairing_code_hash", "public_key_pem", "public_key_fingerprint", "agent_version", "platform", "capability_report_token"].map((name) => ({
+        name,
+        dataType: "text",
+        udtName: "text",
+        nullable: true,
+      })),
+      ...["pairing_expires_at", "capability_expires_at", "paired_at", "last_seen_at", "revoked_at"].map((name) => ({
+        name,
+        dataType: "timestamp with time zone",
+        udtName: "timestamptz",
+        nullable: true,
+      })),
+      {
+        name: "key_version",
+        dataType: "integer",
+        udtName: "int4",
+        nullable: false,
+        defaultExpression: /0/,
+      },
+      ...["created_at", "updated_at"].map((name) => ({
+        name,
+        dataType: "timestamp with time zone",
+        udtName: "timestamptz",
+        nullable: false,
+        defaultExpression: /(?:now\(\)|current_timestamp)/,
+      })),
     ] as readonly ColumnContract[],
     // Mission Control's usage summary reads contract failure categories from
     // this table, so a stale telemetry schema must fail before the route does.
@@ -2680,6 +2791,26 @@ export const APPLICATION_SCHEMA_CONTRACT = {
       unique: true,
     },
     {
+      name: "uq_preview_build_jobs_input_artifact_ref",
+      tableName: "preview_build_jobs",
+      columns: [
+        "input_artifact_provider",
+        "input_artifact_store_id",
+        "input_artifact_ref_id",
+      ],
+      unique: true,
+    },
+    {
+      name: "uq_preview_build_jobs_output_artifact_ref",
+      tableName: "preview_build_jobs",
+      columns: [
+        "output_artifact_provider",
+        "output_artifact_store_id",
+        "output_artifact_ref_id",
+      ],
+      unique: true,
+    },
+    {
       name: "idx_preview_build_jobs_project_status_created",
       tableName: "preview_build_jobs",
       columns: ["project_id", "status", "created_at"],
@@ -2695,6 +2826,24 @@ export const APPLICATION_SCHEMA_CONTRACT = {
       columns: ["token_expires_at"],
     },
     {
+      name: "idx_preview_build_jobs_input_gc_due",
+      tableName: "preview_build_jobs",
+      columns: [
+        "input_artifact_provider",
+        "input_artifact_gc_state",
+        "input_artifact_gc_marked_at",
+      ],
+    },
+    {
+      name: "idx_preview_build_jobs_output_gc_due",
+      tableName: "preview_build_jobs",
+      columns: [
+        "output_artifact_provider",
+        "output_artifact_gc_state",
+        "output_artifact_gc_marked_at",
+      ],
+    },
+    {
       name: "preview_access_tickets_pkey",
       tableName: "preview_access_tickets",
       columns: ["ticket_digest"],
@@ -2704,6 +2853,42 @@ export const APPLICATION_SCHEMA_CONTRACT = {
       name: "idx_preview_access_tickets_expires_at",
       tableName: "preview_access_tickets",
       columns: ["expires_at"],
+    },
+    {
+      name: "preview_agent_nodes_pkey",
+      tableName: "preview_agent_nodes",
+      columns: ["node_id"],
+      unique: true,
+    },
+    {
+      name: "uq_preview_agent_nodes_live_store",
+      tableName: "preview_agent_nodes",
+      columns: ["store_id"],
+      unique: true,
+      predicatePattern:
+        /"?status"? = any \(array\['pending'::preview_agent_node_status, 'active'::preview_agent_node_status\]\)/,
+    },
+    {
+      name: "uq_preview_agent_nodes_pairing_code_hash",
+      tableName: "preview_agent_nodes",
+      columns: ["pairing_code_hash"],
+      unique: true,
+    },
+    {
+      name: "uq_preview_agent_nodes_public_key_fingerprint",
+      tableName: "preview_agent_nodes",
+      columns: ["public_key_fingerprint"],
+      unique: true,
+    },
+    {
+      name: "idx_preview_agent_nodes_project_status",
+      tableName: "preview_agent_nodes",
+      columns: ["project_id", "status"],
+    },
+    {
+      name: "idx_preview_agent_nodes_pairing_expiry",
+      tableName: "preview_agent_nodes",
+      columns: ["status", "pairing_expires_at"],
     },
     {
       name: "idx_ai_chat_messages_created_at_id",
@@ -3194,6 +3379,26 @@ export const APPLICATION_SCHEMA_CONTRACT = {
       columns: ["dispatch_status", "created_at"],
     },
   ] satisfies readonly IndexContract[],
+  checks: [
+    {
+      name: "chk_preview_build_jobs_input_local_metadata",
+      tableName: "preview_build_jobs",
+      definitionPattern:
+        /input_artifact_provider.*'local'.*input_artifact_store_id.*input_artifact_ref_id.*input_artifact_size_bytes.*is not null.*input_artifact_size_bytes > 0.*input_artifact_manifest_digest.*is not null.*input_artifact_manifest_digest.*input_artifact_retention_policy/i,
+    },
+    {
+      name: "chk_preview_build_jobs_input_local_owner_receipt",
+      tableName: "preview_build_jobs",
+      definitionPattern:
+        /input_artifact_provider.*'local'.*input_artifact_owner_node_id.*is not null.*input_artifact_owner_key_version.*> 0.*input_artifact_store_command_fingerprint.*is not null.*input_artifact_store_command_fingerprint.*input_artifact_ready_at.*input_artifact_store_receipt_fingerprint/i,
+    },
+    {
+      name: "chk_preview_build_jobs_output_local_metadata",
+      tableName: "preview_build_jobs",
+      definitionPattern:
+        /output_artifact_provider.*'local'.*output_artifact_store_id.*output_artifact_ref_id.*output_artifact_retention_policy.*output_digest.*is not null.*output_digest.*output_artifact_size_bytes.*is not null.*output_artifact_size_bytes > 0.*output_artifact_manifest_digest.*is not null.*output_artifact_manifest_digest/i,
+    },
+  ] satisfies readonly CheckContract[],
   foreignKeys: [
     {
       tableName: "preview_sessions",
@@ -3214,6 +3419,13 @@ export const APPLICATION_SCHEMA_CONTRACT = {
       columnName: "proposal_id",
       foreignTableName: "ai_change_proposals",
       foreignColumnName: "id",
+      deleteRule: "RESTRICT",
+    },
+    {
+      tableName: "preview_build_jobs",
+      columnName: "input_artifact_owner_node_id",
+      foreignTableName: "preview_agent_nodes",
+      foreignColumnName: "node_id",
       deleteRule: "RESTRICT",
     },
     {
@@ -3243,6 +3455,13 @@ export const APPLICATION_SCHEMA_CONTRACT = {
       foreignTableName: "ai_change_proposals",
       foreignColumnName: "id",
       deleteRule: "RESTRICT",
+    },
+    {
+      tableName: "preview_agent_nodes",
+      columnName: "project_id",
+      foreignTableName: "projects",
+      foreignColumnName: "id",
+      deleteRule: "CASCADE",
     },
     {
       tableName: "project_bootstrap_jobs",
@@ -3682,6 +3901,14 @@ export const APPLICATION_SCHEMA_CONTRACT = {
       "expired",
       "cancelled",
     ],
+    preview_artifact_gc_state: [
+      "active",
+      "eligible_for_gc",
+      "deleting",
+      "deleted",
+    ],
+    preview_artifact_provider: ["local", "s3"],
+    preview_agent_node_status: ["pending", "active", "revoked"],
     task_status: [
       "pending",
       "queued",
@@ -3816,6 +4043,11 @@ type IndexRow = {
   predicate: string | null;
   columns: string[];
 };
+type CheckConstraintRow = {
+  table_name: string;
+  constraint_name: string;
+  definition: string;
+};
 type ForeignKeyRow = {
   table_name: string;
   column_name: string;
@@ -3885,6 +4117,7 @@ export interface ApplicationSchemaSnapshot {
   columns: readonly ColumnRow[];
   enums: readonly EnumRow[];
   indexes: readonly IndexRow[];
+  checkConstraints: readonly CheckConstraintRow[];
   primaryKeys: readonly { table_name: string; column_name: string }[];
   foreignKeys: readonly ForeignKeyRow[];
 }
@@ -3996,7 +4229,9 @@ export function findApplicationSchemaIssues(
                     ? ["job_id"]
                     : tableName === "preview_access_tickets"
                       ? ["ticket_digest"]
-                      : ["id"];
+                      : tableName === "preview_agent_nodes"
+                        ? ["node_id"]
+                        : ["id"];
     const actualColumns = snapshot.primaryKeys
       .filter((row) => row.table_name === tableName)
       .map((row) => row.column_name);
@@ -4033,12 +4268,15 @@ export function findApplicationSchemaIssues(
     const expectedAccessMethod = expected.accessMethod ?? "btree";
     const expectedPredicate = normalized(expected.predicate ?? "");
     const actualPredicate = normalized(actual.predicate ?? "");
+    const predicateMatches = expected.predicatePattern
+      ? expected.predicatePattern.test(actualPredicate)
+      : actualPredicate === expectedPredicate;
     if (
       actual.tablename !== expected.tableName ||
       actual.access_method !== expectedAccessMethod ||
       !actual.is_valid ||
       actual.is_unique !== Boolean(expected.unique) ||
-      actualPredicate !== expectedPredicate ||
+      !predicateMatches ||
       actual.columns.length !== expected.columns.length ||
       actual.columns.some((column, index) => column !== expected.columns[index])
     ) {
@@ -4047,8 +4285,40 @@ export function findApplicationSchemaIssues(
           "incompatible_index",
           expected.tableName,
           expected.name,
-          `${expected.unique ? "unique " : ""}${expectedAccessMethod} index on (${expected.columns.join(", ")})${expectedPredicate ? ` WHERE ${expectedPredicate}` : ""}`,
+          `${expected.unique ? "unique " : ""}${expectedAccessMethod} index on (${expected.columns.join(", ")})${expectedPredicate ? ` WHERE ${expectedPredicate}` : expected.predicatePattern ? ` WHERE ${expected.predicatePattern}` : ""}`,
           `${actual.tablename} ${actual.is_unique ? "unique " : ""}${actual.access_method} (${actual.columns.join(", ")})${actualPredicate ? ` WHERE ${actual.predicate}` : ""}`,
+        ),
+      );
+    }
+  }
+
+  const checkConstraints = new Map(
+    snapshot.checkConstraints.map((row) => [row.constraint_name, row]),
+  );
+  for (const expected of APPLICATION_SCHEMA_CONTRACT.checks as readonly CheckContract[]) {
+    const actual = checkConstraints.get(expected.name);
+    if (!actual) {
+      issues.push(
+        issue(
+          "missing_check_constraint",
+          expected.tableName,
+          expected.name,
+          `check constraint matching ${expected.definitionPattern}`,
+        ),
+      );
+      continue;
+    }
+    if (
+      actual.table_name !== expected.tableName ||
+      !expected.definitionPattern.test(normalized(actual.definition))
+    ) {
+      issues.push(
+        issue(
+          "incompatible_check_constraint",
+          expected.tableName,
+          expected.name,
+          `check constraint matching ${expected.definitionPattern}`,
+          `${actual.table_name} ${normalized(actual.definition)}`,
         ),
       );
     }
@@ -4133,6 +4403,17 @@ export async function readApplicationSchemaSnapshot(
     WHERE table_namespace.nspname = 'public'
       AND table_relation.relname IN (${REQUIRED_TABLE_SQL})
   `);
+  const checkConstraints = await client.query<CheckConstraintRow>(`
+    SELECT table_relation.relname AS table_name,
+           constraint_row.conname AS constraint_name,
+           pg_get_constraintdef(constraint_row.oid) AS definition
+    FROM pg_constraint constraint_row
+    JOIN pg_class table_relation ON table_relation.oid = constraint_row.conrelid
+    JOIN pg_namespace table_namespace ON table_namespace.oid = table_relation.relnamespace
+    WHERE constraint_row.contype = 'c'
+      AND table_namespace.nspname = 'public'
+      AND table_relation.relname IN (${REQUIRED_TABLE_SQL})
+  `);
   const primaryKeys = await client.query<{
     table_name: string;
     column_name: string;
@@ -4173,6 +4454,7 @@ export async function readApplicationSchemaSnapshot(
     columns: columns.rows,
     enums: enums.rows,
     indexes: indexes.rows,
+    checkConstraints: checkConstraints.rows,
     primaryKeys: primaryKeys.rows,
     foreignKeys: foreignKeys.rows,
   };

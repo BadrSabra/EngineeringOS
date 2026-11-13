@@ -30,6 +30,7 @@ import {
   type PreviewSessionStatus,
 } from "./preview-session-state.js";
 import { previewBuildJobMatchesVerifiedReceipt } from "./preview-build-job-store.js";
+import { lockPreviewArtifactDigest } from "./preview-artifact-db-lock.js";
 
 const MAX_SESSION_TTL_MS = 30 * 60 * 1000;
 const sessionIdSchema = z.string().uuid();
@@ -142,6 +143,7 @@ export async function createStartingPreviewSession(
   }
 
   return db.transaction(async (tx) => {
+    await lockPreviewArtifactDigest(tx, receipt.buildOutputDigest);
     const [candidate] = await tx
       .select({
         id: aiChangeProposalsTable.id,
@@ -192,6 +194,7 @@ export async function createStartingPreviewSession(
           eq(previewBuildJobsTable.userId, input.userId),
           eq(previewBuildJobsTable.status, "verified"),
           eq(previewBuildJobsTable.buildReceiptId, receipt.receiptId),
+          eq(previewBuildJobsTable.outputArtifactGcState, "active"),
         ),
       )
       .for("update");

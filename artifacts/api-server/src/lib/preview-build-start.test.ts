@@ -2,6 +2,7 @@ import { generateKeyPairSync } from "node:crypto";
 import { describe, expect, it, vi } from "vitest";
 import type { PreviewBuildJob } from "@workspace/db";
 import { previewBuildInputObjectKeyForArchive } from "./preview-build-upload.js";
+import { previewBuildArtifactRefId } from "./preview-artifact-reference.js";
 import {
   startOrResumePreviewBuild,
   type PreviewBuildCandidate,
@@ -42,7 +43,11 @@ const clientRequestId = "323e4567-e89b-42d3-a456-426614174002";
 const jobId = "123e4567-e89b-42d3-a456-426614174000";
 const buildId = "223e4567-e89b-42d3-a456-426614174001";
 const outputArtifactKey = `preview-build-outputs/${buildId}/site.tar.gz`;
-const inputArtifactKey = `build-inputs/${sourceDigest}/${archiveDigest}.zip`;
+const inputArtifactKey = previewBuildInputObjectKeyForArchive({
+  identity,
+  sourceDigest,
+  archiveDigest,
+});
 const builderImageDigest = `sha256:${"a".repeat(64)}`;
 function makeJob(overrides: Partial<PreviewBuildJob> = {}): PreviewBuildJob {
   return {
@@ -60,7 +65,28 @@ function makeJob(overrides: Partial<PreviewBuildJob> = {}): PreviewBuildJob {
     sourceDigest,
     archiveDigest,
     inputArtifactKey,
+    inputArtifactProvider: "s3",
+    inputArtifactStoreId: null,
+    inputArtifactRefId: null,
+    inputArtifactSizeBytes: null,
+    inputArtifactManifestDigest: null,
+    inputArtifactRetentionPolicy: null,
+    inputArtifactOwnerNodeId: null,
+    inputArtifactOwnerKeyVersion: null,
+    inputArtifactStoreCommandFingerprint: null,
+    inputArtifactStoreReceiptFingerprint: null,
+    inputArtifactReadyAt: now,
+    inputArtifactGcState: "active",
+    inputArtifactGcMarkedAt: null,
     outputArtifactKey,
+    outputArtifactProvider: "s3",
+    outputArtifactStoreId: null,
+    outputArtifactRefId: null,
+    outputArtifactSizeBytes: null,
+    outputArtifactManifestDigest: null,
+    outputArtifactRetentionPolicy: null,
+    outputArtifactGcState: "active",
+    outputArtifactGcMarkedAt: null,
     builderImageDigest,
     issuedAt: now,
     tokenExpiresAt: new Date(now.getTime() + 5 * 60_000),
@@ -114,6 +140,8 @@ function baseDependencies() {
     findForOwner: vi.fn(async () => current),
     createArchive: vi.fn(async () => archive),
     uploadInput: vi.fn(async () => ({
+      jobId,
+      artifactRefId: previewBuildArtifactRefId(jobId, "input"),
       sourceDigest,
       archiveDigest,
       objectKey: previewBuildInputObjectKeyForArchive({
@@ -122,7 +150,20 @@ function baseDependencies() {
         archiveDigest,
       }),
     })),
-    createJob: vi.fn(async () => current),
+    createJob: vi.fn(async () => {
+      current = { ...current, inputArtifactReadyAt: null };
+      return current;
+    }),
+    markInputReady: vi.fn(
+      async (input: { now: Date }) => {
+        current = {
+          ...current,
+          inputArtifactReadyAt: input.now,
+          stateVersion: current.stateVersion + 1,
+        };
+        return current;
+      },
+    ),
     transitionJob: vi.fn(
       async (input: { nextStatus: string; builderTaskArn?: string }) => {
         current = {
@@ -162,6 +203,9 @@ describe("Preview build start orchestration", () => {
       identity,
     });
     expect(dependencies.uploadInput).toHaveBeenCalledTimes(1);
+    expect(dependencies.uploadInput).toHaveBeenCalledWith(
+      expect.objectContaining({ jobId }),
+    );
     expect(dependencies.createJob).toHaveBeenCalledWith(
       expect.objectContaining({
         clientRequestId,
@@ -173,6 +217,10 @@ describe("Preview build start orchestration", () => {
       }),
       now,
     );
+    expect(dependencies.createJob.mock.invocationCallOrder[0]).toBeLessThan(
+      dependencies.uploadInput.mock.invocationCallOrder[0]!,
+    );
+    expect(dependencies.markInputReady).toHaveBeenCalledOnce();
     expect(dependencies.dispatch).toHaveBeenCalledWith(
       expect.objectContaining({
         gatewayUrl: "https://gateway.example.com",
@@ -236,6 +284,44 @@ describe("Preview build start orchestration", () => {
     expect(dependencies.dispatch.mock.calls[0]?.[0].claims).toEqual(
       dependencies.dispatch.mock.calls[1]?.[0].claims,
     );
+  });
+
+  it("retries an admitted job whose input upload failed before readiness", async () => {
+    const dependencies = baseDependencies();
+    dependencies.uploadInput.mockRejectedValueOnce(new Error("network lost"));
+    await expect(
+      startOrResumePreviewBuild({
+        candidate,
+        projectId: candidate.projectId,
+        userId: "user-1",
+        clientRequestId,
+        config: config(),
+        dependencies,
+      }),
+    ).rejects.toMatchObject({
+      code: "PREVIEW_BUILD_JOB_UNAVAILABLE",
+    });
+    expect(dependencies.getCurrent().status).toBe("queued");
+    expect(dependencies.getCurrent().inputArtifactReadyAt).toBeNull();
+    expect(dependencies.dispatch).not.toHaveBeenCalled();
+
+    dependencies.findByRequest.mockImplementation(async () =>
+      dependencies.getCurrent(),
+    );
+    const resumed = await startOrResumePreviewBuild({
+      candidate,
+      projectId: candidate.projectId,
+      userId: "user-1",
+      clientRequestId,
+      config: config(),
+      dependencies,
+    });
+
+    expect(dependencies.createJob).toHaveBeenCalledOnce();
+    expect(dependencies.uploadInput).toHaveBeenCalledTimes(2);
+    expect(dependencies.markInputReady).toHaveBeenCalledOnce();
+    expect(resumed.job.status).toBe("running");
+    expect(resumed.job.inputArtifactReadyAt).toEqual(now);
   });
 
   it("does not relaunch an expired claim or replace its durable token", async () => {

@@ -80,6 +80,42 @@ describe("Preview session ECS orchestration", () => {
     });
   });
 
+  it("reuses the same start command identity after a lost response", async () => {
+    const commandIds: string[] = [];
+    let dispatchCount = 0;
+    const orchestrator = createPreviewSessionOrchestrator({
+      now: () => now,
+      dispatch: async ({ command }) => {
+        commandIds.push(command.commandId);
+        dispatchCount += 1;
+        if (dispatchCount === 1) {
+          throw new Error("gateway accepted launch but response was lost");
+        }
+        return {
+          action: "start",
+          taskArn,
+          taskDefinitionArn: session.taskDefinitionArn,
+        };
+      },
+      attachTask: async () => ({
+        ...session,
+        runnerTaskArn: taskArn,
+        stateVersion: 1,
+      }),
+    });
+
+    await expect(orchestrator.start(session)).rejects.toThrow(
+      "gateway accepted launch but response was lost",
+    );
+    await expect(orchestrator.start(session)).resolves.toMatchObject({
+      runnerTaskArn: taskArn,
+      stateVersion: 1,
+    });
+
+    expect(commandIds).toHaveLength(2);
+    expect(commandIds[1]).toBe(commandIds[0]);
+  });
+
   it("stops the exact task if the fenced database attach loses its race", async () => {
     const commands: PreviewControlCommand[] = [];
     const orchestrator = createPreviewSessionOrchestrator({
@@ -101,6 +137,7 @@ describe("Preview session ECS orchestration", () => {
       code: "PREVIEW_SESSION_START_UNCONFIRMED",
     });
     expect(commands.map(({ action }) => action)).toEqual(["start", "stop"]);
+    expect(commands[1]?.commandId).not.toBe(commands[0]?.commandId);
     expect(commands[1]).toMatchObject({
       action: "stop",
       sessionId: session.id,

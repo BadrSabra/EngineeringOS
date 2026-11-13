@@ -1,4 +1,4 @@
-import { randomUUID } from "node:crypto";
+import { createHash } from "node:crypto";
 import type { PreviewSession } from "@workspace/db";
 import { dispatchPreviewControlCommand } from "./preview-gateway-control-client.js";
 import type { PreviewEcsCommandResult } from "./preview-ecs-runner.js";
@@ -8,6 +8,32 @@ const COMMAND_TTL_MS = 20_000;
 const OUTPUT_ARTIFACT_KEY_PATTERN =
   /^preview-build-outputs\/[0-9a-f-]{36}\/site\.tar\.gz$/i;
 const OUTPUT_ARTIFACT_DIGEST_PATTERN = /^[a-f0-9]{64}$/i;
+const SESSION_ID_PATTERN =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+// Reissues of one Session transition need the same identity; the fence still
+// compares the full semantic command fingerprint before accepting a retry.
+function previewCommandId(input: {
+  sessionId: string;
+  action: "start" | "stop";
+  stateVersion: number;
+}): string {
+  const namespaceBytes = Buffer.from(
+    input.sessionId.replaceAll("-", ""),
+    "hex",
+  );
+  const digest = createHash("sha1")
+    .update(namespaceBytes)
+    .update(
+      `EngineeringOS Preview Control Command v1\n${input.action}\n${input.stateVersion}`,
+    )
+    .digest();
+  const bytes = Buffer.from(digest.subarray(0, 16));
+  bytes[6] = (bytes[6]! & 0x0f) | 0x50;
+  bytes[8] = (bytes[8]! & 0x3f) | 0x80;
+  const hex = bytes.toString("hex");
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
+}
 
 export class PreviewSessionOrchestratorError extends Error {
   constructor(
@@ -51,6 +77,7 @@ export function createPreviewSessionOrchestrator(dependencies?: {
       if (
         session.status !== "starting" ||
         session.stateVersion !== 0 ||
+        !SESSION_ID_PATTERN.test(session.id) ||
         session.runnerTaskArn !== null ||
         !session.buildOutputArtifactKey ||
         !OUTPUT_ARTIFACT_KEY_PATTERN.test(session.buildOutputArtifactKey) ||
@@ -70,7 +97,11 @@ export function createPreviewSessionOrchestrator(dependencies?: {
       const startCommand = {
         version: 1 as const,
         action: "start" as const,
-        commandId: randomUUID(),
+        commandId: previewCommandId({
+          sessionId: session.id,
+          action: "start",
+          stateVersion: session.stateVersion,
+        }),
         sessionId: session.id,
         stateVersion: 0,
         issuedAt: issuedAt.toISOString(),
@@ -112,12 +143,17 @@ export function createPreviewSessionOrchestrator(dependencies?: {
       if (attached) return attached;
 
       const stopIssuedAt = now();
+      const stopStateVersion = Math.max(1, session.stateVersion + 1);
       const stopCommand = {
         version: 1 as const,
         action: "stop" as const,
-        commandId: randomUUID(),
+        commandId: previewCommandId({
+          sessionId: session.id,
+          action: "stop",
+          stateVersion: stopStateVersion,
+        }),
         sessionId: session.id,
-        stateVersion: Math.max(1, session.stateVersion + 1),
+        stateVersion: stopStateVersion,
         issuedAt: stopIssuedAt.toISOString(),
         expiresAt: new Date(
           stopIssuedAt.getTime() + COMMAND_TTL_MS,

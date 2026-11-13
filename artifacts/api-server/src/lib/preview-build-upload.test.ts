@@ -1,6 +1,10 @@
 import { createHash, generateKeyPairSync } from "node:crypto";
+import { mkdtemp, rm } from "node:fs/promises";
 import AdmZip from "adm-zip";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
+import { createLocalPreviewBuildInputObjectStore } from "./preview-build-input-local.js";
 import {
   createPreviewBuildInputUploadHandler,
   previewBuildInputObjectKey,
@@ -11,8 +15,10 @@ import {
 } from "./preview-build-upload.js";
 import type { PreviewBuildInputArchive } from "./preview-build-input.js";
 import { PREVIEW_BUILD_INPUT_MANIFEST_PATH } from "./preview-build-input.js";
+import { previewBuildArtifactRefId } from "./preview-artifact-reference.js";
 
 const now = new Date("2026-11-11T12:00:00.000Z");
+const jobId = "00000000-0000-8000-8000-000000000001";
 const keyPair = generateKeyPairSync("ed25519");
 const privateKeyPem = keyPair.privateKey.export({
   type: "pkcs8",
@@ -66,6 +72,7 @@ function buildInput(): PreviewBuildInputArchive {
 function signedToken(input = buildInput()): string {
   return signPreviewBuildInputUpload({
     buildInput: input,
+    jobId,
     privateKeyPem,
     now,
   });
@@ -79,6 +86,9 @@ describe("signed Preview build-input upload", () => {
 
     expect(claims).toMatchObject({
       action: "upload-build-input",
+      version: 2,
+      jobId,
+      artifactRefId: previewBuildArtifactRefId(jobId, "input"),
       builderProfile: "vite-react-static-v1",
       projectId: "project-1",
       proposalId: "proposal-1",
@@ -118,6 +128,34 @@ describe("signed Preview build-input upload", () => {
     ).toThrow("Preview build input upload is invalid or unavailable.");
   });
 
+  it("keeps the job artifact reference stable across fresh upload tokens", () => {
+    const source = buildInput();
+    const first = verifyPreviewBuildInputUpload(
+      signedToken(source),
+      publicKeyPem,
+      now,
+    );
+    const retry = verifyPreviewBuildInputUpload(
+      signedToken(source),
+      publicKeyPem,
+      now,
+    );
+    const nextJob = verifyPreviewBuildInputUpload(
+      signPreviewBuildInputUpload({
+        buildInput: source,
+        jobId: "00000000-0000-8000-8000-000000000002",
+        privateKeyPem,
+        now,
+      }),
+      publicKeyPem,
+      now,
+    );
+
+    expect(retry.commandId).not.toBe(first.commandId);
+    expect(retry.artifactRefId).toBe(first.artifactRefId);
+    expect(nextJob.artifactRefId).not.toBe(first.artifactRefId);
+  });
+
   it("refuses to sign a manifest that differs from the embedded archive", () => {
     const source = buildInput();
     const altered = {
@@ -130,6 +168,7 @@ describe("signed Preview build-input upload", () => {
     expect(() =>
       signPreviewBuildInputUpload({
         buildInput: altered,
+        jobId,
         privateKeyPem,
         now,
       }),
@@ -176,6 +215,108 @@ describe("signed Preview build-input upload", () => {
       archiveDigest: source.archiveDigest,
       contentLength: source.archive.byteLength,
     });
+  });
+
+  it("streams the signed upload contract into the local CAS adapter", async () => {
+    const parent = await mkdtemp(join(tmpdir(), "preview-local-upload-"));
+    try {
+      const objectStore = await createLocalPreviewBuildInputObjectStore({
+        rootDir: join(parent, "cas"),
+        workspaceRoot: process.cwd(),
+      });
+      const source = buildInput();
+      const handler = createPreviewBuildInputUploadHandler({
+        publicKeyPem,
+        objectStore,
+        now: () => now,
+      });
+      const token = signedToken(source);
+      const authorization = handler.authorize(
+        token,
+        source.archive.byteLength,
+      );
+      const response = await handler.handle({
+        token,
+        contentType: "application/zip",
+        contentLength: source.archive.byteLength,
+        bytes: (async function* () {
+          yield source.archive.subarray(0, 13);
+          yield source.archive.subarray(13, 47);
+          yield source.archive.subarray(47);
+        })(),
+        authorization,
+      });
+      const receipt = (await response.json()) as {
+        objectKey?: string;
+        archiveDigest?: string;
+      };
+
+      expect(response.status).toBe(201);
+      expect(receipt.archiveDigest).toBe(source.archiveDigest);
+      expect(receipt.objectKey).toBe(
+        previewBuildInputObjectKey(
+          verifyPreviewBuildInputUpload(token, publicKeyPem, now),
+        ),
+      );
+      expect(
+        await objectStore.read({
+          objectKey: receipt.objectKey!,
+          jobId,
+          artifactRefId: previewBuildArtifactRefId(jobId, "input"),
+        }),
+      ).toEqual(
+        source.archive,
+      );
+    } finally {
+      await rm(parent, { recursive: true, force: true });
+    }
+  });
+
+  it("does not publish a streamed archive whose digest differs from its signed claim", async () => {
+    const parent = await mkdtemp(join(tmpdir(), "preview-local-upload-"));
+    try {
+      const objectStore = await createLocalPreviewBuildInputObjectStore({
+        rootDir: join(parent, "cas"),
+        workspaceRoot: process.cwd(),
+      });
+      const source = buildInput();
+      const handler = createPreviewBuildInputUploadHandler({
+        publicKeyPem,
+        objectStore,
+        now: () => now,
+      });
+      const token = signedToken(source);
+      const authorization = handler.authorize(
+        token,
+        source.archive.byteLength,
+      );
+      const altered = Buffer.from(source.archive);
+      altered[altered.length - 1] = altered[altered.length - 1]! ^ 0xff;
+      const response = await handler.handle({
+        token,
+        contentType: "application/zip",
+        contentLength: altered.byteLength,
+        bytes: (async function* () {
+          yield altered.subarray(0, 32);
+          yield altered.subarray(32);
+        })(),
+        authorization,
+      });
+      const objectKey = previewBuildInputObjectKey(
+        verifyPreviewBuildInputUpload(token, publicKeyPem, now),
+      );
+
+      expect(response.status).toBe(400);
+      await expect(
+        objectStore.read({
+          objectKey,
+          jobId,
+          artifactRefId: previewBuildArtifactRefId(jobId, "input"),
+        }),
+      ).rejects.toThrow();
+    } finally {
+      await rm(parent, { recursive: true, force: true });
+    }
   });
 
   it("keeps an admitted upload valid after token expiry but rejects forged authorization", async () => {

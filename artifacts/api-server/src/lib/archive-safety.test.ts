@@ -7,6 +7,7 @@ import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { randomUUID } from "node:crypto";
 import {
+  ArchiveProcessingLimiter,
   ARCHIVE_LIMITS,
   ArchiveSafetyError,
   extractTarGzSafely,
@@ -59,6 +60,18 @@ async function tarWithTransformedMember(memberName: string): Promise<string> {
 }
 
 describe("archive extraction safety policy", () => {
+  it("bounds concurrent archive parsing and releases capacity exactly once", () => {
+    const limiter = new ArchiveProcessingLimiter(1);
+    const release = limiter.tryAcquire();
+    expect(release).toEqual(expect.any(Function));
+    expect(limiter.tryAcquire()).toBeNull();
+    release?.();
+    release?.();
+    const nextRelease = limiter.tryAcquire();
+    expect(nextRelease).toEqual(expect.any(Function));
+    nextRelease?.();
+  });
+
   it("extracts a valid ZIP and tar.gz", async () => {
     const zipRoot = await extractionRoot();
     const zip = new AdmZip();
