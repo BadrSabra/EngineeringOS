@@ -258,7 +258,6 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          # The test API signs commands; the Supervisor receives only the Ed25519 public key.
           export SESSION_SECRET="$(node --input-type=module -e 'import { randomBytes } from "node:crypto"; process.stdout.write(randomBytes(32).toString("base64url"))')"
           admitted_workspace_root="$(realpath "$WORKSPACE_PATH")"
           test "$(pwd -P)" = "$admitted_workspace_root"
@@ -273,7 +272,56 @@ jobs:
           export WORKSPACE_RUNTIME_SUPERVISOR_CANDIDATE_GID="$(id -g)"
           export NODE_ENV=test
           export WORKSPACE_RUNTIME_SUPERVISOR_TEST_MODE=1
-          IFS=
+          mapfile -t key_material < <(
+            node --input-type=module -e '
+              import { generateKeyPairSync } from "node:crypto";
+              const pair = generateKeyPairSync("ed25519");
+              process.stdout.write(pair.privateKey.export({format:"der",type:"pkcs8"}).toString("base64") + "\\n");
+              process.stdout.write(pair.publicKey.export({format:"der",type:"spki"}).toString("base64") + "\\n");
+            '
+          )
+          signing_private_key="${key_material[0]}"
+          verify_public_key="${key_material[1]}"
+          test -n "$signing_private_key"
+          test -n "$verify_public_key"
+          export WORKSPACE_RUNTIME_SUPERVISOR_SIGNING_PRIVATE_KEY_B64="$signing_private_key"
+          export WORKSPACE_RUNTIME_SUPERVISOR_VERIFY_PUBLIC_KEY_B64="$verify_public_key"
+          supervisor_log="${RUNNER_TEMP}/workspace-runtime-supervisor.log"
+          env -u WORKSPACE_RUNTIME_SUPERVISOR_SIGNING_PRIVATE_KEY_B64 \
+            node scripts/workspace-runtime-supervisor.mjs >"$supervisor_log" 2>&1 &
+          supervisor_pid=$!
+          cleanup_supervisor() {
+            if kill -0 "$supervisor_pid" 2>/dev/null; then
+              kill -TERM "$supervisor_pid" 2>/dev/null || true
+              for _ in $(seq 1 25); do
+                if ! kill -0 "$supervisor_pid" 2>/dev/null; then break; fi
+                sleep 0.2
+              done
+              if kill -0 "$supervisor_pid" 2>/dev/null; then
+                kill -KILL "$supervisor_pid" 2>/dev/null || true
+              fi
+            fi
+            wait "$supervisor_pid" 2>/dev/null || true
+          }
+          trap cleanup_supervisor EXIT
+          ready=false
+          for _ in $(seq 1 50); do
+            if ! kill -0 "$supervisor_pid" 2>/dev/null; then
+              cat "$supervisor_log"
+              exit 1
+            fi
+            if [ -S "$WORKSPACE_RUNTIME_SUPERVISOR_SOCKET_PATH" ]; then
+              ready=true
+              break
+            fi
+            sleep 0.2
+          done
+          if [ "$ready" != true ]; then
+            cat "$supervisor_log"
+            echo "Workspace runtime supervisor did not create its protected Unix socket." >&2
+            exit 1
+          fi
+          pnpm run test
 
       - name: Prove task acceptance after HTTP response loss
         shell: bash
@@ -411,75 +459,6 @@ jobs:
               echo "The teardown evidence file was not produced; see the job log for the failure."
             fi
           } >> "$GITHUB_STEP_SUMMARY"
-\\t' read -r signing_private_key verify_public_key < <(
-            node --input-type=module -e '
-              import { generateKeyPairSync } from "node:crypto";
-              const pair = generateKeyPairSync("ed25519");
-              const privateKey = pair.privateKey.export({format:"der",type:"pkcs8"}).toString("base64");
-              const publicKey = pair.publicKey.export({format:"der",type:"spki"}).toString("base64");
-              process.stdout.write(privateKey + "\\t" + publicKey);
-            '
-          )
-          export WORKSPACE_RUNTIME_SUPERVISOR_SIGNING_PRIVATE_KEY_B64="$signing_private_key"
-          export WORKSPACE_RUNTIME_SUPERVISOR_VERIFY_PUBLIC_KEY_B64="$verify_public_key"
-          supervisor_log="${RUNNER_TEMP}/workspace-runtime-supervisor.log"
-          env -u WORKSPACE_RUNTIME_SUPERVISOR_SIGNING_PRIVATE_KEY_B64 \
-            node scripts/workspace-runtime-supervisor.mjs >"$supervisor_log" 2>&1 &
-          supervisor_pid=$!
-          cleanup_supervisor() {
-            if kill -0 "$supervisor_pid" 2>/dev/null; then
-              kill -TERM "$supervisor_pid" 2>/dev/null || true
-              for _ in $(seq 1 25); do
-                if ! kill -0 "$supervisor_pid" 2>/dev/null; then break; fi
-                sleep 0.2
-              done
-              if kill -0 "$supervisor_pid" 2>/dev/null; then
-                kill -KILL "$supervisor_pid" 2>/dev/null || true
-              fi
-            fi
-            wait "$supervisor_pid" 2>/dev/null || true
-          }
-          trap cleanup_supervisor EXIT
-
-          ready=false
-          for _ in $(seq 1 50); do
-            if ! kill -0 "$supervisor_pid" 2>/dev/null; then
-              cat "$supervisor_log"
-              exit 1
-            fi
-            if [ -S "$WORKSPACE_RUNTIME_SUPERVISOR_SOCKET_PATH" ]; then
-              ready=true
-              break
-            fi
-            sleep 0.2
-          done
-          if [ "$ready" != true ]; then
-            cat "$supervisor_log"
-            echo "Workspace runtime supervisor did not create its protected Unix socket." >&2
-            exit 1
-          fi
-
-          pnpm run test
-
-      - name: Prove task acceptance after HTTP response loss
-        shell: bash
-        run: |
-          set -euo pipefail
-          export SESSION_SECRET="$(node --input-type=module -e 'import { randomBytes } from "node:crypto"; process.stdout.write(randomBytes(32).toString("base64url"))')"
-          pnpm --filter @workspace/api-server run test:task-route-acceptance-response-loss
-
-      - name: Prove PostgreSQL-backed runtime process recovery
-        shell: bash
-        run: |
-          set -euo pipefail
-          export SESSION_SECRET="$(node --input-type=module -e 'import { randomBytes } from "node:crypto"; process.stdout.write(randomBytes(32).toString("base64url"))')"
-          pnpm --filter @workspace/api-server exec vitest run src/lib/workspace-runtime-store.test.ts
-        env:
-          RUN_RUNTIME_CONCURRENT_START_PROCESS: "1"
-          RUN_RUNTIME_ADOPTION_PROCESS_RECOVERY: "1"
-          RUN_RUNTIME_START_RESPONSE_LOSS_RECOVERY: "1"
-          RUN_RUNTIME_STARTUP_RECOVERY: "1"
-
   release-validation:
     name: Release validation
     if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && inputs.release_environment == 'release-validation'
