@@ -847,6 +847,7 @@ async function adopt(input, stateVersion) {
   const proof = await verifyRuntimeAdoption(input, projectRoot);
   const session = {
     projectId: input.projectId,
+    ownerProjectId: input.ownerProjectId,
     sessionId: input.sessionId,
     projectRoot,
     stateVersion,
