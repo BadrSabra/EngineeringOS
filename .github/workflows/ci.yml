@@ -276,8 +276,8 @@ jobs:
             node --input-type=module -e '
               import { generateKeyPairSync } from "node:crypto";
               const pair = generateKeyPairSync("ed25519");
-              process.stdout.write(pair.privateKey.export({format:"der",type:"pkcs8"}).toString("base64") + "\\n");
-              process.stdout.write(pair.publicKey.export({format:"der",type:"spki"}).toString("base64") + "\\n");
+              console.log(pair.privateKey.export({format:"der",type:"pkcs8"}).toString("base64"));
+              console.log(pair.publicKey.export({format:"der",type:"spki"}).toString("base64"));
             '
           )
           signing_private_key="${key_material[0]}"
