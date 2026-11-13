@@ -10537,6 +10537,44 @@ describe("POST /api/ai/tasks/:taskId/execute", () => {
     });
   });
 
+  it("normalizes a legacy null-correlation Outbox intent before deferring it again", async () => {
+    const projectId = await insertProject();
+    projectIds.push(projectId);
+    const taskId = await insertTask(projectId, "verifying");
+    await db.update(tasksTable)
+      .set({ prompt: "Recover the legacy dispatch without losing its retry reason" })
+      .where(eq(tasksTable.id, taskId));
+    await db.insert(eventsTable).values({
+      id: `task-auto-execution-deferred:${taskId}`,
+      type: "TaskAutoExecutionDeferred",
+      projectId,
+      taskId,
+      severity: "warning",
+      message: "Legacy deferred Task execution",
+      payload: {
+        userId: "test-user",
+        taskRetryCount: 0,
+        attemptCount: 1,
+        lastFailureCode: "LOCAL_QUEUE_FULL",
+        nextAttemptAt: new Date(Date.now() - 1_000).toISOString(),
+      },
+    });
+
+    vi.spyOn(heavyJobQueue, "enqueueWithIdDetailed").mockReturnValueOnce("full");
+    await scheduleAiTaskExecution(taskId, "test-user", undefined, 0, null);
+
+    const [intent] = await db.select().from(eventsTable)
+      .where(eq(eventsTable.id, `task-auto-execution-deferred:${taskId}`));
+    expect(intent?.type).toBe("TaskAutoExecutionDeferred");
+    expect(intent?.payload).toMatchObject({
+      userId: "test-user",
+      taskRetryCount: 0,
+      taskCorrelationId: null,
+      attemptCount: 2,
+      lastFailureCode: "LOCAL_QUEUE_FULL",
+    });
+  });
+
   it("backs off Mission admission conflicts without deleting the deferred intent", async () => {
     const projectId = await insertProject();
     projectIds.push(projectId);
