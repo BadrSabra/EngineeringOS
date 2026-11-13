@@ -153,6 +153,10 @@ export class WorkspaceRuntimeSupervisorClient {
     private readonly now: () => number = Date.now,
   ) {}
 
+  isConfigured(): boolean {
+    return this.socketPath.startsWith("/");
+  }
+
   async start(input: {
     projectId: string;
     sessionId: string;

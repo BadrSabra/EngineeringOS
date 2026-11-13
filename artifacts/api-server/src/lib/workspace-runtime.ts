@@ -1949,7 +1949,32 @@ export class WorkspaceRuntimeManager {
     let session = this.sessions.get(runtimeId);
     if (!session) {
       const persisted = await this.store.get(runtimeId);
-      if (!persisted) return this.stoppedSnapshot(projectId);
+      if (!persisted) {
+        if (this.supervisor?.isConfigured()) {
+          const observation = await this.supervisor.observeStartState(runtimeId).catch(() => {
+            throw new WorkspaceRuntimeError(
+              "Supervisor inventory could not confirm that the project runtime is stopped.",
+              "RUNTIME_OBSERVATION_STALE",
+              503,
+            );
+          });
+          if (
+            observation.status !== "stopped"
+            || !observation.inventoryComplete
+            || observation.unknownListenerPorts.length > 0
+          ) {
+            return {
+              ...this.stoppedSnapshot(projectId),
+              status: observation.status === "running" ? "running" : "failed",
+              sessionId: observation.session?.sessionId ?? null,
+              port: observation.session?.port ?? null,
+              pid: observation.session?.pid ?? null,
+              error: bounded(observation.detail),
+            };
+          }
+        }
+        return this.stoppedSnapshot(projectId);
+      }
       await this.recover(runtimeId);
       session = this.sessions.get(runtimeId);
       if (!session) {

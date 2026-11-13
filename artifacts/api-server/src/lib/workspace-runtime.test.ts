@@ -3,6 +3,7 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { WorkspaceRuntimeManager } from "./workspace-runtime.js";
+import { WorkspaceRuntimeSupervisorClient } from "./workspace-runtime-supervisor-client.js";
 import { createInMemoryWorkspaceRuntimeStore } from "./workspace-runtime-store.js";
 
 const managers: WorkspaceRuntimeManager[] = [];
@@ -554,4 +555,68 @@ describe("WorkspaceRuntimeManager", () => {
     const stopped = await secondWorker.stop("recoverable-runtime-retry");
     expect(stopped.status).toBe("stopped");
   });
+
+  it("does not report a missing runtime row as stopped when the supervisor still tracks a live process", async () => {
+    const projectId = `project-orphan-${randomUUID()}`;
+    const observeStartState = vi.fn().mockResolvedValue({
+      projectId,
+      status: "running",
+      session: {
+        projectId,
+        sessionId: "orphan-session",
+        status: "running",
+        port: 3000,
+        pid: 12345,
+      },
+      observedAt: new Date().toISOString(),
+      inventoryComplete: true,
+      unknownListenerPorts: [],
+      detail: "Supervisor still tracks the project runtime.",
+    });
+    const supervisor = {
+      isConfigured: () => true,
+      observeStartState,
+    } as unknown as WorkspaceRuntimeSupervisorClient;
+    const manager = new WorkspaceRuntimeManager({
+      store: createInMemoryWorkspaceRuntimeStore(),
+      supervisor,
+    });
+    managers.push(manager);
+
+    const snapshot = await manager.stop(projectId);
+
+    expect(observeStartState).toHaveBeenCalledWith(projectId);
+    expect(snapshot).toMatchObject({
+      status: "running",
+      sessionId: "orphan-session",
+      pid: 12345,
+      port: 3000,
+    });
+  });
+
+  it("fails closed when supervisor inventory is incomplete and no runtime row exists", async () => {
+    const projectId = `project-unknown-runtime-${randomUUID()}`;
+    const supervisor = {
+      isConfigured: () => true,
+      observeStartState: vi.fn().mockResolvedValue({
+        projectId,
+        status: "unknown",
+        observedAt: new Date().toISOString(),
+        inventoryComplete: false,
+        unknownListenerPorts: [3007],
+        detail: "An unowned listener prevents a complete runtime observation.",
+      }),
+    } as unknown as WorkspaceRuntimeSupervisorClient;
+    const manager = new WorkspaceRuntimeManager({
+      store: createInMemoryWorkspaceRuntimeStore(),
+      supervisor,
+    });
+    managers.push(manager);
+
+    const snapshot = await manager.stop(projectId);
+
+    expect(snapshot.status).toBe("failed");
+    expect(snapshot.error).toContain("unowned listener");
+  });
+
 });

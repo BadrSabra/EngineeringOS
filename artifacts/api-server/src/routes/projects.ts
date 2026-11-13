@@ -351,7 +351,7 @@ router.delete("/projects/:projectId", requireProjectWriteAccess, async (req, res
   if (!runtimeLock.acquired) {
     return res.status(409).json({
       error: "project_runtime_busy",
-      reason: "A runtime start or another destructive runtime operation is in progress. Retry project deletion after it finishes.",
+      reason: "A runtime start or another project deletion is in progress. Retry after it finishes.",
     });
   }
 
