@@ -31,6 +31,7 @@ function signedFixtureRequest(
   socket: { socketPath: string; privateKey: ReturnType<typeof generateKeyPairSync>["privateKey"] },
   pathname: string,
   body: string,
+  replayCommand?: { encodedCommand: string; signature: string },
 ): Promise<{ status: number; body: string }> {
   const parsed = JSON.parse(body) as Record<string, unknown>;
   const action = pathname.endsWith("/start") ? "start"
@@ -44,7 +45,7 @@ function signedFixtureRequest(
   const processIdentity = action === "adopt"
     ? { pid: parsed.pid, port: parsed.port, listenerIdentityDigest: parsed.expectedListenerIdentityDigest }
     : action === "stop" ? { pid: parsed.pid ?? null } : null;
-  const command = createWorkspaceRuntimeSupervisorCommand({
+  const command = replayCommand ?? createWorkspaceRuntimeSupervisorCommand({
     privateKey: socket.privateKey,
     action,
     projectId,
@@ -379,6 +380,34 @@ describe("workspace runtime supervisor server boundary", () => {
       projectId: "test-project",
       inventoryComplete: true,
     });
+  });
+
+  it("rejects a replayed signed supervisor command", async () => {
+    const port = await freePort();
+    const child = startSupervisor(port);
+    try {
+      await waitForHealth(child, port);
+      const socket = supervisorSockets.get(port);
+      if (!socket) throw new Error("Supervisor signing fixture is unavailable.");
+      const projectId = "replayed-supervisor-command";
+      const body = JSON.stringify({ projectId, sessionId: null });
+      const command = createWorkspaceRuntimeSupervisorCommand({
+        privateKey: socket.privateKey,
+        action: "observe-start",
+        projectId,
+        sessionId: null,
+        stateVersion: fixtureStateVersion(projectId, null),
+        processIdentity: null,
+        body,
+      });
+      const first = await signedFixtureRequest(socket, "/runtime/observe-start", body, command);
+      expect(first.status).toBe(200);
+      const replay = await signedFixtureRequest(socket, "/runtime/observe-start", body, command);
+      expect(replay.status).toBe(409);
+      expect(JSON.parse(replay.body)).toMatchObject({ error: "Supervisor command was already consumed." });
+    } finally {
+      await stopChild(child);
+    }
   });
 
   it("rejects project roots outside the configured workspace before spawning", async () => {
