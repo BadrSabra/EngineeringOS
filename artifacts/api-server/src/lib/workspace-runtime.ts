@@ -1424,7 +1424,15 @@ export class WorkspaceRuntimeManager {
               await terminateProcessGroup(claimed.pid, undefined);
             }
           } catch (error) {
-            if (await isProcessGroupAlive(claimed.pid)) {
+            const processGroupAlive = await isProcessGroupAlive(claimed.pid);
+            if (this.supervisor && processGroupAlive) {
+              // Supervisor owns process termination when isolation is enabled.
+              // A rejected or unverifiable stop must never fall back to a direct
+              // API-process signal, which would bypass owner/root binding.
+              await this.releaseRecoveryClaim(claimed.projectId, claimed.sessionId);
+              continue;
+            }
+            if (!this.supervisor && processGroupAlive) {
               await terminateProcessGroup(claimed.pid, undefined);
             } else if (!this.supervisor) {
               throw error;
