@@ -1331,7 +1331,7 @@ export async function getDurableJobHealth(): Promise<{
         )),
       db.select({
         reasonCode: sql<string>`CASE
-          WHEN ${eventsTable.payload}->>'lastFailureCode' LIKE 'mission_%' THEN 'MISSION_GATE_BLOCKED'
+          WHEN left(${eventsTable.payload}->>'lastFailureCode', 8) = 'mission_' THEN 'MISSION_GATE_BLOCKED'
           WHEN ${eventsTable.payload}->>'lastFailureCode' IN ('execution_identity_changed', 'invalid_task_transition') THEN 'EXECUTION_IDENTITY_CONFLICT'
           WHEN ${eventsTable.payload}->>'lastFailureCode' = 'LOCAL_QUEUE_FULL' THEN 'LOCAL_QUEUE_FULL'
           WHEN ${eventsTable.payload}->>'lastFailureCode' = 'PROJECT_RATE_LIMITED' THEN 'PROJECT_RATE_LIMITED'
@@ -1348,7 +1348,7 @@ export async function getDurableJobHealth(): Promise<{
           eq(tasksTable.status, "verifying"),
         ))
         .groupBy(sql`CASE
-          WHEN ${eventsTable.payload}->>'lastFailureCode' LIKE 'mission_%' THEN 'MISSION_GATE_BLOCKED'
+          WHEN left(${eventsTable.payload}->>'lastFailureCode', 8) = 'mission_' THEN 'MISSION_GATE_BLOCKED'
           WHEN ${eventsTable.payload}->>'lastFailureCode' IN ('execution_identity_changed', 'invalid_task_transition') THEN 'EXECUTION_IDENTITY_CONFLICT'
           WHEN ${eventsTable.payload}->>'lastFailureCode' = 'LOCAL_QUEUE_FULL' THEN 'LOCAL_QUEUE_FULL'
           WHEN ${eventsTable.payload}->>'lastFailureCode' = 'PROJECT_RATE_LIMITED' THEN 'PROJECT_RATE_LIMITED'
