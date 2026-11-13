@@ -82,7 +82,7 @@ Required validation on the candidate SHA:
 
     pnpm run codegen
     pnpm --filter @workspace/api-server run typecheck
-    pnpm --filter @workspace/api-server run test -- src/routes/ai.test.ts src/routes/tasks.test.ts src/lib/mission-runtime.test.ts src/lib/job-reconciliation.test.ts src/lib/task-execution-lifecycle.integration.test.ts
+    pnpm --filter @workspace/api-server exec vitest run src/routes/ai.test.ts src/routes/tasks.test.ts src/lib/mission-runtime.test.ts src/lib/job-reconciliation.test.ts src/lib/task-execution-lifecycle.integration.test.ts
     pnpm run test:deferred-task-dispatch-concurrency
     pnpm run codegen:check
     pnpm run validate:release
