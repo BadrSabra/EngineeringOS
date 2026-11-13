@@ -151,6 +151,7 @@ const mocks = vi.hoisted(() => {
       createdAt: '2026-08-13T00:00:00.000Z',
     }],
     emptyMessages: [] as unknown[],
+    sessionMessageOverrides: {} as Record<string, unknown[]>,
     mutations: {
       saveDeepSeek: mutation(),
       deleteDeepSeek: mutation(),
@@ -371,10 +372,9 @@ vi.mock('@workspace/api-client-react', () => {
     useCreateAiChatSession: vi.fn(() => mocks.createAiChatSessionMutation),
     useListAiChatMessages: vi.fn((sessionId: string) => ({
       data: sessionId && mocks.serverProposal
-        ? mocks.proposalMessages.filter((message) => {
-          const messageSessionId = (message as { sessionId?: string }).sessionId;
-          return !messageSessionId || messageSessionId === sessionId;
-        })
+        ? sessionId === 'session-1'
+          ? mocks.proposalMessages
+          : mocks.sessionMessageOverrides[sessionId] ?? mocks.emptyMessages
         : mocks.emptyMessages,
       isFetched: mocks.messagesFetched,
       isError: mocks.messagesError,
@@ -617,6 +617,7 @@ beforeEach(() => {
   mocks.sessions = [{ id: 'session-1', title: 'Existing session', updatedAt: '2026-08-13T00:00:00.000Z' }];
   mocks.sessionsFetched = true;
   mocks.sessionsError = false;
+  mocks.sessionMessageOverrides = {};
   mocks.messagesFetched = true;
   mocks.messagesError = false;
   mocks.sessionMissions = { sessionId: 'session-1', activeMissionId: null, missions: [] };
@@ -6859,7 +6860,7 @@ it.each([
       approvalRequired: false,
       revision: null,
     };
-    mocks.proposalMessages = [
+    mocks.sessionMessageOverrides['session-new'] = [
       {
         ...mocks.proposalMessages[0],
         id: 'persisted-user-message',
