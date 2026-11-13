@@ -8,6 +8,7 @@ import {
   eq,
   inArray,
   isNotNull,
+  isNull,
   lte,
   notExists,
   notInArray,
@@ -3215,11 +3216,21 @@ export async function runMissionGoal(params: {
       return { status: "blocked" as const, goalId: goal.id, taskId: task.id, reason: "task_not_eligible" };
     }
 
+    const parentExecutionId = taskDelegation.parentExecutionId ?? null;
     const [activeExecution] = await tx
       .select({ id: aiExecutionsTable.id })
       .from(aiExecutionsTable)
       .where(and(
         eq(aiExecutionsTable.linkedTaskId, task.id),
+        eq(aiExecutionsTable.projectId, task.projectId),
+        eq(aiExecutionsTable.userId, mission.userId),
+        eq(aiExecutionsTable.attempt, task.retryCount),
+        task.correlationId === null
+          ? isNull(aiExecutionsTable.correlationId)
+          : eq(aiExecutionsTable.correlationId, task.correlationId),
+        parentExecutionId === null
+          ? isNull(aiExecutionsTable.parentExecutionId)
+          : eq(aiExecutionsTable.parentExecutionId, parentExecutionId),
         inArray(aiExecutionsTable.status, [...ACTIVE_EXECUTION_STATUSES]),
       ))
       .limit(1);
