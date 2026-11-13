@@ -10507,6 +10507,36 @@ describe("POST /api/ai/tasks/:taskId/execute", () => {
     },
   );
 
+  it("does not reuse a Task generation with a different Mission delegation", async () => {
+    const projectId = await insertProject();
+    projectIds.push(projectId);
+    const taskId = await insertTask(projectId, "verifying");
+    const originalParentExecutionId = randomUUID();
+    const conflictingParentExecutionId = randomUUID();
+
+    const enqueueSpy = vi.spyOn(heavyJobQueue, "enqueueWithIdDetailed")
+      .mockReturnValue("full");
+    await scheduleAiTaskExecution(taskId, "test-user", {
+      parentExecutionId: originalParentExecutionId,
+    }, 0, null);
+    await scheduleAiTaskExecution(taskId, "test-user", {
+      parentExecutionId: conflictingParentExecutionId,
+    }, 0, null);
+    enqueueSpy.mockRestore();
+
+    expect(enqueueSpy).toHaveBeenCalledOnce();
+    const [intent] = await db.select().from(eventsTable)
+      .where(eq(eventsTable.id, `task-auto-execution-deferred:${taskId}`));
+    expect(intent?.type).toBe("TaskAutoExecutionDeferred");
+    expect(intent?.payload).toMatchObject({
+      userId: "test-user",
+      taskRetryCount: 0,
+      taskCorrelationId: null,
+      parentExecutionId: originalParentExecutionId,
+      lastFailureCode: "LOCAL_QUEUE_FULL",
+    });
+  });
+
   it("backs off Mission admission conflicts without deleting the deferred intent", async () => {
     const projectId = await insertProject();
     projectIds.push(projectId);
