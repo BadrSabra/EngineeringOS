@@ -1600,7 +1600,7 @@ describe("workspace runtime full API startup recovery", () => {
       projectIds.push(knownProjectId, unknownProjectId);
       roots.push(testRoot);
 
-      let supervisorServer: Server | undefined;
+      let supervisorFixture: Awaited<ReturnType<typeof startWorkspaceRuntimeSupervisorTestFixture>> | undefined;
       let runtimeLauncher: ChildProcess | undefined;
       let unknownOwner: ChildProcess | undefined;
       let runtimePid: number | undefined;
@@ -1642,6 +1642,7 @@ describe("workspace runtime full API startup recovery", () => {
               PGAPPNAME: applicationName,
               NODE_ENV: "test",
               SESSION_SECRET: runtimeRecoveryTestSecret,
+              ...supervisorFixture!.clientEnvironment,
               LOG_LEVEL: "warn",
               APP_ORIGINS: "",
               PORT: String(port),
@@ -1650,7 +1651,6 @@ describe("workspace runtime full API startup recovery", () => {
               AI_PROVIDER_EGRESS_DISABLED: "1",
               AI_CREDENTIALS_ENCRYPTION_KEY:
                 `${randomUUID().replaceAll("-", "")}${randomUUID().replaceAll("-", "")}`,
-              RUNTIME_TEST_SUPERVISOR_FIXTURE_URL: `http://127.0.0.1:${supervisorFixturePort}`,
               RUNTIME_TEST_BLOCKED_EGRESS_FILE: blockedEgressFile,
             },
             stdio: "pipe",
@@ -1784,6 +1784,14 @@ describe("workspace runtime full API startup recovery", () => {
           });
         });
         const localSupervisorPort = await listenLoopback(supervisorServer);
+        supervisorFixture = await startWorkspaceRuntimeSupervisorTestFixture({
+          allowedRoots: [knownRoot, unknownRoot],
+        });
+        await waitForSupervisor(supervisorFixture.child, supervisorFixture.socketPath);
+        const supervisorClient = new WorkspaceRuntimeSupervisorClient(
+          supervisorFixture.socketPath,
+          supervisorFixture.signingPrivateKeyBase64,
+        );
 
         await db.insert(projectsTable).values([
           {
@@ -1912,15 +1920,10 @@ describe("workspace runtime full API startup recovery", () => {
         if (!priorOwnerId) throw new Error("The first API process did not claim the known runtime lease.");
         expect(priorOwnerId).not.toBe(seedWorkerId);
         expect(knownBeforeCrash?.leaseUntil?.getTime()).toBeGreaterThan(Date.now());
-        expect(supervisorRequests).toHaveLength(1);
-        expect(supervisorRequests[0]).toMatchObject({
-          projectId: knownProjectId,
-          sessionId,
-          projectRoot: knownRoot,
-          pid: knownRuntimePid,
-          port: knownRuntimePort,
-          listenerBindingDigest: expect.stringMatching(/^[a-f0-9]{64}$/),
-          expectedListenerIdentityDigest: expect.stringMatching(/^[a-f0-9]{64}$/),
+        expect(supervisorRequests).toHaveLength(0);
+        expect(await supervisorClient.observeStartState(knownProjectId)).toMatchObject({
+          status: "running",
+          session: { projectId: knownProjectId, sessionId, pid: knownRuntimePid, port: knownRuntimePort },
         });
 
         const unknownBeforeCrash = await databaseWorkspaceRuntimeStore.get(unknownProjectId);
@@ -1986,17 +1989,11 @@ describe("workspace runtime full API startup recovery", () => {
           leaseUntil: null,
         });
         expect(process.kill(unknownOwnerPid, 0)).toBe(true);
-        expect(supervisorRequests).toHaveLength(2);
-        expect(supervisorRequests.every((request) =>
-          request.projectId === knownProjectId
-          && request.sessionId === sessionId
-          && request.projectRoot === knownRoot
-          && request.pid === knownRuntimePid
-          && request.port === knownRuntimePort
-          && /^[a-f0-9]{64}$/.test(request.listenerBindingDigest)
-          && /^[a-f0-9]{64}$/.test(request.expectedListenerIdentityDigest),
-        )).toBe(true);
-        expect(unexpectedSupervisorPaths).toEqual([]);
+        expect(supervisorRequests).toHaveLength(0);
+        expect(await supervisorClient.observeStartState(knownProjectId)).toMatchObject({
+          status: "running",
+          session: { projectId: knownProjectId, sessionId, pid: knownRuntimePid, port: knownRuntimePort },
+        });
         await expect(fs.access(blockedEgressFile)).rejects.toMatchObject({ code: "ENOENT" });
       } finally {
         if (apiAfter) await stopApiWorker(apiAfter);
@@ -2006,6 +2003,7 @@ describe("workspace runtime full API startup recovery", () => {
         if (supervisorServer?.listening) {
           await new Promise<void>((resolve) => supervisorServer!.close(() => resolve()));
         }
+        await supervisorFixture?.stop();
       }
     },
     240_000,
