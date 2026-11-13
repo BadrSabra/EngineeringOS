@@ -4,6 +4,7 @@ import {
   canonicalPreviewBuildReceiptPayload,
   isVerifiedPreviewBuildReceipt,
   verifyPreviewBuildReceipt,
+  type LegacyPreviewBuildReceiptClaims,
   type PreviewBuildReceiptClaims,
 } from "./preview-build-receipt.js";
 import type { PreviewBuildInputIdentity } from "./preview-build-input.js";
@@ -73,6 +74,43 @@ function signReceipt(value: PreviewBuildReceiptClaims): string {
   return `${payload.toString("base64url")}.${signature.toString("base64url")}`;
 }
 
+function legacyReceipt(): LegacyPreviewBuildReceiptClaims {
+  const current = receipt();
+  return {
+    version: 1,
+    action: current.action,
+    receiptId: current.receiptId,
+    buildId: current.buildId,
+    builderProfile: current.builderProfile,
+    builderImageDigest: current.builderImageDigest,
+    projectId: current.projectId,
+    proposalId: current.proposalId,
+    operationId: current.operationId,
+    proposalRevision: current.proposalRevision,
+    candidateRevision: current.candidateRevision,
+    changeSetHash: current.changeSetHash,
+    sourceDigest: current.sourceDigest,
+    archiveDigest: current.archiveDigest,
+    buildOutputDigest: current.buildOutputDigest,
+    outputArtifactKey: current.outputArtifactKey,
+    issuedAt: current.issuedAt,
+    expiresAt: current.expiresAt,
+  };
+}
+
+function signLegacyReceipt(value: LegacyPreviewBuildReceiptClaims): string {
+  const payload = Buffer.from(canonicalPreviewBuildReceiptPayload(value));
+  const signature = signBytes(
+    null,
+    Buffer.concat([
+      Buffer.from("EngineeringOS Preview Build Receipt v1\n", "utf8"),
+      payload,
+    ]),
+    privateKey,
+  );
+  return `${payload.toString("base64url")}.${signature.toString("base64url")}`;
+}
+
 describe("Preview Build Receipt verification", () => {
   it("accepts a trusted receipt bound to the exact Candidate and build inputs", () => {
     const claims = receipt();
@@ -133,6 +171,9 @@ describe("Preview Build Receipt verification", () => {
           "preview-build-outputs/323e4567-e89b-42d3-a456-426614174002/site.tar.gz",
       },
       { ...expected, builderImageDigest: `sha256:${"7".repeat(64)}` },
+      { ...expected, attemptId: "423e4567-e89b-42d3-a456-426614174003" },
+      { ...expected, idempotencyKey: "523e4567-e89b-42d3-a456-426614174004" },
+      { ...expected, dispatchGeneration: 2 },
     ];
 
     for (const mismatch of cases) {
@@ -145,6 +186,17 @@ describe("Preview Build Receipt verification", () => {
         }),
       ).toThrow("Preview build receipt is invalid or unavailable.");
     }
+  });
+
+  it("keeps accepting legacy v1 receipts during the one-generation migration window", () => {
+    const { attemptId: _attemptId, idempotencyKey: _idempotencyKey, dispatchGeneration: _generation, ...legacyExpected } = expected;
+    const verified = verifyPreviewBuildReceipt({
+      token: signLegacyReceipt(legacyReceipt()),
+      publicKeyPem,
+      expected: legacyExpected,
+      now,
+    });
+    expect(verified.version).toBe(1);
   });
 
   it("fails closed when the server-side artifact or builder binding is malformed", () => {

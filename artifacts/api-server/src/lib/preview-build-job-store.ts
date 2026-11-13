@@ -507,6 +507,7 @@ export async function createQueuedPreviewBuildJob(
         builderImageDigest: input.builderImageDigest.toLowerCase(),
         issuedAt: input.issuedAt,
         tokenExpiresAt: input.tokenExpiresAt,
+        dispatchGeneration: 1,
       })
       .onConflictDoNothing({
         target: [

@@ -3388,6 +3388,11 @@ export const APPLICATION_SCHEMA_CONTRACT = {
   ] satisfies readonly IndexContract[],
   checks: [
     {
+      name: "chk_preview_build_jobs_dispatch_generation_positive",
+      tableName: "preview_build_jobs",
+      definitionPattern: /dispatch_generation > 0/i,
+    },
+    {
       name: "chk_preview_build_jobs_input_local_metadata",
       tableName: "preview_build_jobs",
       definitionPattern:

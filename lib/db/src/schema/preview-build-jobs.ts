@@ -146,6 +146,10 @@ export const previewBuildJobsTable = pgTable(
       foreignColumns: [previewAgentNodesTable.nodeId],
     }).onDelete("restrict"),
     check(
+      "chk_preview_build_jobs_dispatch_generation_positive",
+      sql`${table.dispatchGeneration} > 0`,
+    ),
+    check(
       "chk_preview_build_jobs_input_local_metadata",
       sql`${table.inputArtifactProvider} <> 'local' OR (
         ${table.inputArtifactStoreId} IS NOT NULL

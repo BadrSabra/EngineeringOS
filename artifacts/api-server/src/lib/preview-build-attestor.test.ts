@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 import type { PreviewBuildJob } from "@workspace/db";
 import {
   canonicalPreviewBuildReceiptPayload,
+  type LegacyPreviewBuildReceiptClaims,
   type PreviewBuildReceiptClaims,
 } from "./preview-build-receipt.js";
 import {
@@ -123,6 +124,55 @@ function signReceipt(
   const signature = signBytes(
     null,
     Buffer.concat([
+      Buffer.from("EngineeringOS Preview Build Receipt v2\n", "utf8"),
+      payload,
+    ]),
+    privateKeyPem,
+  );
+  return `${payload.toString("base64url")}.${signature.toString("base64url")}`;
+}
+
+function signLegacyReceipt(): string {
+  const current = {
+    version: 2 as const,
+    action: "preview-build-ready" as const,
+    receiptId,
+    buildId,
+    attemptId: jobId,
+    idempotencyKey: "423e4567-e89b-42d3-a456-426614174003",
+    dispatchGeneration: 1,
+    builderProfile: "vite-react-static-v1" as const,
+    builderImageDigest,
+    projectId: "project-1",
+    proposalId: "proposal-1",
+    operationId: "operation-1",
+    proposalRevision: 4,
+    candidateRevision,
+    changeSetHash,
+    sourceDigest,
+    archiveDigest,
+    buildOutputDigest: outputDigest,
+    outputArtifactKey,
+    issuedAt: now.toISOString(),
+    expiresAt: new Date(now.getTime() + 60_000).toISOString(),
+  };
+  const {
+    attemptId: _attemptId,
+    idempotencyKey: _idempotencyKey,
+    dispatchGeneration: _dispatchGeneration,
+    ...legacyFields
+  } = current;
+  const claims: LegacyPreviewBuildReceiptClaims = {
+    ...legacyFields,
+    version: 1,
+  };
+  const payload = Buffer.from(
+    canonicalPreviewBuildReceiptPayload(claims),
+    "utf8",
+  );
+  const signature = signBytes(
+    null,
+    Buffer.concat([
       Buffer.from("EngineeringOS Preview Build Receipt v1\n", "utf8"),
       payload,
     ]),
@@ -191,6 +241,27 @@ describe("Preview build attestation boundary", () => {
     expect(transition).not.toHaveBeenCalled();
   });
 
+  it("rejects a legacy receipt after the durable dispatch generation advances", async () => {
+    const transition = vi.fn();
+    await expect(
+      acceptPreviewBuildReceipt({
+        jobId,
+        token: signLegacyReceipt(),
+        publicKeyPem,
+        dependencies: {
+          now: () => now,
+          findJob: vi.fn(async () =>
+            makeJob({ dispatchGeneration: 2 }),
+          ),
+          transition: transition as never,
+        },
+      }),
+    ).rejects.toMatchObject({
+      code: "PREVIEW_BUILD_ATTESTOR_RECEIPT_REJECTED",
+    });
+    expect(transition).not.toHaveBeenCalled();
+  });
+
   it("does not accept an unsigned or incorrectly signed receipt", async () => {
     const otherPair = generateKeyPairSync("ed25519");
     const otherPrivateKey = otherPair.privateKey.export({
@@ -202,7 +273,7 @@ describe("Preview build attestation boundary", () => {
     const wrongSignature = signBytes(
       null,
       Buffer.concat([
-        Buffer.from("EngineeringOS Preview Build Receipt v1\n", "utf8"),
+        Buffer.from("EngineeringOS Preview Build Receipt v2\n", "utf8"),
         Buffer.from(payload!, "base64url"),
       ]),
       otherPrivateKey,

@@ -175,8 +175,9 @@ function canonicalVerifiedClaims(
   claims: VerifiedPreviewBuildJobClaims,
 ): string {
   const fields = claims.version === 1 ? JOB_FIELDS_V1 : JOB_FIELDS_V2;
+  const record = claims as unknown as Record<string, unknown>;
   return JSON.stringify(
-    Object.fromEntries(fields.map((field) => [field, claims[field]])),
+    Object.fromEntries(fields.map((field) => [field, record[field]])),
   );
 }
 
