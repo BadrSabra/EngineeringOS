@@ -518,6 +518,8 @@ describe("POST /api/projects — audit trail", () => {
   it("returns 204, removes the project, and preserves its deletion audit entry", async () => {
     const projectId = await insertProject("/tmp/delete-audit-" + randomUUID());
     cleanupQueue.push(projectId);
+    const stoppedSnapshot = await workspaceRuntime.get(projectId);
+    vi.spyOn(workspaceRuntime, "stop").mockResolvedValueOnce(stoppedSnapshot);
 
     const res = await request(app).delete(`/api/projects/${projectId}`);
 

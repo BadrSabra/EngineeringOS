@@ -3,7 +3,7 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { WorkspaceRuntimeManager } from "./workspace-runtime.js";
-import { WorkspaceRuntimeSupervisorClient } from "./workspace-runtime-supervisor-client.js";
+import type { WorkspaceRuntimeSupervisorClient } from "./workspace-runtime-supervisor-client.js";
 import { createInMemoryWorkspaceRuntimeStore } from "./workspace-runtime-store.js";
 
 const managers: WorkspaceRuntimeManager[] = [];
@@ -592,6 +592,32 @@ describe("WorkspaceRuntimeManager", () => {
       pid: 12345,
       port: 3000,
     });
+  });
+
+
+  it("confirms a missing runtime row is stopped only with a complete empty supervisor inventory", async () => {
+    const projectId = `project-stopped-inventory-${randomUUID()}`;
+    const supervisor = {
+      isConfigured: () => true,
+      observeStartState: vi.fn().mockResolvedValue({
+        projectId,
+        status: "stopped",
+        observedAt: new Date().toISOString(),
+        inventoryComplete: true,
+        unknownListenerPorts: [],
+        detail: "No tracked runtime or unknown managed listeners were observed.",
+      }),
+    } as unknown as WorkspaceRuntimeSupervisorClient;
+    const manager = new WorkspaceRuntimeManager({
+      store: createInMemoryWorkspaceRuntimeStore(),
+      supervisor,
+    });
+    managers.push(manager);
+
+    const snapshot = await manager.stop(projectId);
+
+    expect(snapshot.status).toBe("stopped");
+    expect(snapshot.pid).toBeNull();
   });
 
   it("fails closed when supervisor inventory is incomplete and no runtime row exists", async () => {
