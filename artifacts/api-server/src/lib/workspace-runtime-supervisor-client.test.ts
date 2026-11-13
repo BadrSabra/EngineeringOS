@@ -16,7 +16,7 @@ describe("WorkspaceRuntimeSupervisorClient child attestation handoff", () => {
       });
       return new Response(JSON.stringify({
         projectId: "project-runtime",
-      ownerProjectId: "project-runtime",
+        ownerProjectId: "project-runtime",
         sessionId: "session-runtime",
         status: "running",
         port: 3210,
@@ -37,7 +37,6 @@ describe("WorkspaceRuntimeSupervisorClient child attestation handoff", () => {
 
     const response = await client.start({
       projectId: "project-runtime",
-      ownerProjectId: "project-runtime",
       ownerProjectId: "project-runtime",
       sessionId: "session-runtime",
       projectRoot: "/tmp/project-runtime",
@@ -67,7 +66,7 @@ describe("WorkspaceRuntimeSupervisorClient child attestation handoff", () => {
       requests.push({ url: String(input), body: String(init?.body ?? "") });
       return new Response(JSON.stringify({
         projectId: "project-runtime",
-      ownerProjectId: "project-runtime",
+        ownerProjectId: "project-runtime",
         sessionId: "session-runtime",
         status: "running",
         port: 3010,
@@ -85,7 +84,6 @@ describe("WorkspaceRuntimeSupervisorClient child attestation handoff", () => {
 
     const response = await client.adopt({
       projectId: "project-runtime",
-      ownerProjectId: "project-runtime",
       ownerProjectId: "project-runtime",
       sessionId: "session-runtime",
       projectRoot: "/tmp/project-runtime",
@@ -119,7 +117,6 @@ describe("WorkspaceRuntimeSupervisorClient child attestation handoff", () => {
       });
       return new Response(JSON.stringify({
         projectId: "project-runtime",
-      ownerProjectId: "project-runtime",
         ownerProjectId: "project-runtime",
         status: "stopped",
         observedAt: "2025-01-01T00:00:00.000Z",
@@ -138,7 +135,6 @@ describe("WorkspaceRuntimeSupervisorClient child attestation handoff", () => {
     await expect(client.observeStartState({ projectId: "project-runtime",
       ownerProjectId: "project-runtime", ownerProjectId: "project-runtime" })).resolves.toMatchObject({
       projectId: "project-runtime",
-      ownerProjectId: "project-runtime",
       ownerProjectId: "project-runtime",
       status: "stopped",
       inventoryComplete: true,
@@ -161,7 +157,6 @@ describe("WorkspaceRuntimeSupervisorClient child attestation handoff", () => {
     const fetchImpl: typeof fetch = async () => new Response(JSON.stringify({
       projectId: "project-runtime",
       ownerProjectId: "project-runtime",
-      ownerProjectId: "project-runtime",
       status: "running",
       observedAt: "2025-01-01T00:00:00.000Z",
       inventoryComplete: true,
@@ -169,7 +164,7 @@ describe("WorkspaceRuntimeSupervisorClient child attestation handoff", () => {
       detail: "The target session is corroborated; another listener is unowned.",
       session: {
         projectId: "project-runtime",
-      ownerProjectId: "project-runtime",
+        ownerProjectId: "project-runtime",
         sessionId: "session-runtime",
         status: "running",
         port: 3010,
@@ -187,12 +182,11 @@ describe("WorkspaceRuntimeSupervisorClient child attestation handoff", () => {
       ownerProjectId: "project-runtime", ownerProjectId: "project-runtime" })).resolves.toMatchObject({
       projectId: "project-runtime",
       ownerProjectId: "project-runtime",
-      ownerProjectId: "project-runtime",
       status: "running",
       unknownListenerPorts: [3011],
       session: {
         projectId: "project-runtime",
-      ownerProjectId: "project-runtime",
+        ownerProjectId: "project-runtime",
         sessionId: "session-runtime",
         status: "running",
         port: 3010,
@@ -228,7 +222,6 @@ describe("WorkspaceRuntimeSupervisorClient child attestation handoff", () => {
     const fetchImpl: typeof fetch = async () => new Response(JSON.stringify({
       projectId: "project-runtime",
       ownerProjectId: "project-runtime",
-      ownerProjectId: "project-runtime",
       status: "stopped",
       observedAt: "not-a-date",
       inventoryComplete: false,
@@ -251,7 +244,6 @@ describe("WorkspaceRuntimeSupervisorClient child attestation handoff", () => {
   it("rejects a stopped result when a managed listener is unowned", async () => {
     const fetchImpl: typeof fetch = async () => new Response(JSON.stringify({
       projectId: "project-runtime",
-      ownerProjectId: "project-runtime",
       ownerProjectId: "project-runtime",
       status: "stopped",
       observedAt: "2025-01-01T00:00:00.000Z",
