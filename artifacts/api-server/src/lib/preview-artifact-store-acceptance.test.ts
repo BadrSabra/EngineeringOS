@@ -33,6 +33,10 @@ import {
   PreviewArtifactStoreAcceptanceError,
 } from "./preview-artifact-store-acceptance.js";
 import {
+  claimPreviewBuildJobsForReconciliation,
+  transitionPreviewBuildJob,
+} from "./preview-build-job-store.js";
+import {
   issuePreviewBuildInputStoreCommand,
   PreviewArtifactStoreCommandIssueError,
 } from "./preview-artifact-store-issuer.js";
@@ -57,12 +61,12 @@ const AGENT_PUBLIC_KEY_PEM = AGENT_KEYS.publicKey
 
 const projectIds: string[] = [];
 
-async function createFixture() {
+async function createFixture(input: { jobId?: string } = {}) {
   const projectId = randomUUID();
   const proposalId = `proposal-${randomUUID()}`;
   const sessionId = `session-${randomUUID()}`;
   const messageId = `message-${randomUUID()}`;
-  const jobId = randomUUID();
+  const jobId = input.jobId ?? randomUUID();
   const buildId = randomUUID();
   const clientRequestId = randomUUID();
   const nodeId = randomUUID();
@@ -261,6 +265,84 @@ afterEach(async () => {
   for (const projectId of projectIds.splice(0)) {
     await db.delete(projectsTable).where(eq(projectsTable.id, projectId));
   }
+});
+
+describe("Preview build reconciliation lease database fence", () => {
+  it("allows one live owner and rejects writes from an expired owner", async () => {
+    const fixture = await createFixture({
+      jobId: "00000000-0000-4000-8000-000000000001",
+    });
+    const firstOwner = randomUUID();
+    const secondOwner = randomUUID();
+    const sentinel = "00000000-0000-4000-8000-000000000000";
+    const currentTime = new Date();
+
+    const firstClaims = await claimPreviewBuildJobsForReconciliation({
+      leaseOwner: firstOwner,
+      now: currentTime,
+      leaseMs: 10_000,
+      limit: 1,
+      afterJobId: sentinel,
+    });
+    expect(firstClaims.map((job) => job.jobId)).toContain(fixture.jobId);
+
+    const competingClaims = await claimPreviewBuildJobsForReconciliation({
+      leaseOwner: secondOwner,
+      now: currentTime,
+      leaseMs: 10_000,
+      limit: 1,
+      afterJobId: sentinel,
+    });
+    expect(competingClaims.map((job) => job.jobId)).not.toContain(fixture.jobId);
+
+    await db
+      .update(previewBuildJobsTable)
+      .set({
+        reconciliationLeaseExpiresAt: new Date(Date.now() - 1_000),
+      })
+      .where(eq(previewBuildJobsTable.jobId, fixture.jobId));
+    const reclaimed = await claimPreviewBuildJobsForReconciliation({
+      leaseOwner: secondOwner,
+      now: new Date(),
+      leaseMs: 10_000,
+      limit: 1,
+      afterJobId: sentinel,
+    });
+    expect(reclaimed).toEqual([
+      expect.objectContaining({
+        jobId: fixture.jobId,
+        reconciliationLeaseOwner: secondOwner,
+      }),
+    ]);
+
+    await expect(
+      transitionPreviewBuildJob({
+        jobId: fixture.jobId,
+        expectedStatus: "queued",
+        expectedVersion: 0,
+        expectedLeaseOwner: firstOwner,
+        nextStatus: "failed",
+        failureCode: "STALE_RECONCILIATION_OWNER",
+        now: new Date(),
+      }),
+    ).resolves.toBeNull();
+
+    const accepted = await transitionPreviewBuildJob({
+      jobId: fixture.jobId,
+      expectedStatus: "queued",
+      expectedVersion: 0,
+      expectedLeaseOwner: secondOwner,
+      nextStatus: "failed",
+      failureCode: "CURRENT_RECONCILIATION_OWNER",
+      now: new Date(),
+    });
+    expect(accepted).toMatchObject({
+      jobId: fixture.jobId,
+      status: "failed",
+      reconciliationLeaseOwner: null,
+      reconciliationLeaseExpiresAt: null,
+    });
+  });
 });
 
 describe("Preview Agent artifact receipt database binding", () => {

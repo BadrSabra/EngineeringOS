@@ -68,7 +68,7 @@ function makeJob(overrides: Partial<PreviewBuildJob> = {}): PreviewBuildJob {
     inputArtifactReadyAt: now,
     inputArtifactGcState: "active",
     inputArtifactGcMarkedAt: null,
-    outputArtifactKey: `preview-build-outputs/${buildId}/site.tar.gz`,
+    outputArtifactKey: `preview-build-outputs/${buildId}/g1/site.tar.gz`,
     outputArtifactProvider: "s3",
     outputArtifactStoreId: null,
     outputArtifactRefId: null,
@@ -81,10 +81,13 @@ function makeJob(overrides: Partial<PreviewBuildJob> = {}): PreviewBuildJob {
     issuedAt: now,
     tokenExpiresAt: new Date(now.getTime() - 1),
     status: "builder_succeeded",
-    builderTaskArn,
+    executionRef: builderTaskArn,
     outputDigest: "f".repeat(64),
     buildReceiptId: null,
     failureCode: null,
+    dispatchGeneration: 1,
+    reconciliationLeaseOwner: null,
+    reconciliationLeaseExpiresAt: null,
     stateVersion: 4,
     startedAt: now,
     completedAt: now,
@@ -117,7 +120,7 @@ describe("Preview Attestor Gateway client", () => {
         gatewayUrl: "https://preview-gateway.example/",
         privateKeyPem,
         job,
-        builderTaskArn,
+        executionRef: builderTaskArn,
         now,
         fetcher,
       }),
@@ -158,7 +161,7 @@ describe("Preview Attestor Gateway client", () => {
         gatewayUrl: "https://preview-gateway.example/",
         privateKeyPem,
         job: makeJob(),
-        builderTaskArn,
+        executionRef: builderTaskArn,
         now,
         fetcher: async () =>
           Response.json({
@@ -176,7 +179,7 @@ describe("Preview Attestor Gateway client", () => {
         gatewayUrl: "https://preview-gateway.example/",
         privateKeyPem,
         job: makeJob(),
-        builderTaskArn,
+        executionRef: builderTaskArn,
         now,
         fetcher: async () =>
           new Response(JSON.stringify({ jobId, buildId, state: "pending" }), {
@@ -193,12 +196,28 @@ describe("Preview Attestor Gateway client", () => {
         gatewayUrl: "https://preview-gateway.example/",
         privateKeyPem,
         job: makeJob(),
-        builderTaskArn:
+        executionRef:
           "arn:aws:ecs:eu-central-1:123456789012:task/preview/11111111111111111111111111111111",
         now,
         fetcher,
       }),
     ).rejects.toThrow();
+    expect(fetcher).not.toHaveBeenCalled();
+  });
+
+  it("keeps Local execution references out of the AWS Attestor adapter", async () => {
+    const executionRef = "exec_local-node_0123456789abcdef";
+    const fetcher = vi.fn();
+    await expect(
+      attestPreviewBuildJob({
+        gatewayUrl: "https://preview-gateway.example/",
+        privateKeyPem,
+        job: makeJob({ executionRef }),
+        executionRef,
+        now,
+        fetcher,
+      }),
+    ).rejects.toThrow("Preview Attestor is unavailable.");
     expect(fetcher).not.toHaveBeenCalled();
   });
 
@@ -208,7 +227,7 @@ describe("Preview Attestor Gateway client", () => {
         gatewayUrl: "http://preview-gateway.example/",
         privateKeyPem,
         job: makeJob(),
-        builderTaskArn,
+        executionRef: builderTaskArn,
         now,
         fetcher: vi.fn(),
       }),

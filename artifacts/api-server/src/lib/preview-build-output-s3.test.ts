@@ -9,7 +9,7 @@ import {
 const bucketName = "engineeringos-preview-artifacts";
 const region = "eu-central-1";
 const objectKey =
-  "preview-build-outputs/9c99a591-cf7f-4f18-8c4b-08e53ca1e4aa/site.tar.gz";
+  "preview-build-outputs/9c99a591-cf7f-4f18-8c4b-08e53ca1e4aa/g1/site.tar.gz";
 const bytes = Buffer.from("static output archive");
 const sha256 = createHash("sha256").update(bytes).digest("hex");
 const checksum = Buffer.from(sha256, "hex").toString("base64");

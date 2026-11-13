@@ -193,7 +193,7 @@ function validateOutputLocation(urlValue, objectKey) {
   try {
     const url = new URL(urlValue);
     const expectedKey =
-      /^preview-build-outputs\/[0-9a-f-]{36}\/site\.tar\.gz$/iu;
+      /^preview-build-outputs\/[0-9a-f-]{36}(?:\/g[1-9][0-9]*)?\/site\.tar\.gz$/iu;
     const s3Host =
       /^[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]\.s3\.[a-z0-9-]+\.amazonaws\.com(?:\.cn)?$/iu;
     const signedLifetime = Number(url.searchParams.get("X-Amz-Expires"));

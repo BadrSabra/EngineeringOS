@@ -4,9 +4,14 @@ import {
   type KeyObject,
 } from "node:crypto";
 import type { PreviewBuildInputIdentity } from "./preview-build-input.js";
+import { isPreviewBuildOutputArtifactKey } from "./preview-build-output-key.js";
 
-const SIGNING_DOMAIN = Buffer.from(
+const SIGNING_DOMAIN_V1 = Buffer.from(
   "EngineeringOS Preview Build Receipt v1\n",
+  "utf8",
+);
+const SIGNING_DOMAIN_V2 = Buffer.from(
+  "EngineeringOS Preview Build Receipt v2\n",
   "utf8",
 );
 const MAX_TOKEN_LENGTH = 8_192;
@@ -16,14 +21,11 @@ const UUID_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const HASH_PATTERN = /^[a-f0-9]{64}$/i;
 const IMAGE_DIGEST_PATTERN = /^sha256:[a-f0-9]{64}$/i;
-const OUTPUT_ARTIFACT_KEY_PATTERN =
-  /^preview-build-outputs\/[0-9a-f-]{36}\/site\.tar\.gz$/i;
 const verifiedReceipts = new WeakSet<object>();
 
 declare const verifiedReceiptBrand: unique symbol;
 
-export type PreviewBuildReceiptClaims = PreviewBuildInputIdentity & {
-  version: 1;
+type PreviewBuildReceiptClaimsBase = PreviewBuildInputIdentity & {
   action: "preview-build-ready";
   receiptId: string;
   buildId: string;
@@ -37,9 +39,27 @@ export type PreviewBuildReceiptClaims = PreviewBuildInputIdentity & {
   expiresAt: string;
 };
 
+export type LegacyPreviewBuildReceiptClaims =
+  PreviewBuildReceiptClaimsBase & {
+    version: 1;
+  };
+
+export type PreviewBuildReceiptClaims = PreviewBuildReceiptClaimsBase & {
+  version: 2;
+  attemptId: string;
+  idempotencyKey: string;
+  dispatchGeneration: number;
+};
+
+export type AnyPreviewBuildReceiptClaims =
+  | LegacyPreviewBuildReceiptClaims
+  | PreviewBuildReceiptClaims;
+
 export type VerifiedPreviewBuildReceipt = PreviewBuildReceiptClaims & {
   readonly [verifiedReceiptBrand]: true;
-};
+} | (LegacyPreviewBuildReceiptClaims & {
+  readonly [verifiedReceiptBrand]: true;
+});
 
 export class PreviewBuildReceiptError extends Error {
   constructor(
@@ -89,9 +109,9 @@ function boundedText(value: unknown, maxLength: number): value is string {
 }
 
 export function canonicalPreviewBuildReceiptPayload(
-  receipt: PreviewBuildReceiptClaims,
+  receipt: AnyPreviewBuildReceiptClaims,
 ): string {
-  return JSON.stringify({
+  const base = {
     version: receipt.version,
     action: receipt.action,
     receiptId: receipt.receiptId,
@@ -110,10 +130,20 @@ export function canonicalPreviewBuildReceiptPayload(
     outputArtifactKey: receipt.outputArtifactKey,
     issuedAt: receipt.issuedAt,
     expiresAt: receipt.expiresAt,
-  });
+  };
+  return JSON.stringify(
+    receipt.version === 2
+      ? {
+          ...base,
+          attemptId: receipt.attemptId,
+          idempotencyKey: receipt.idempotencyKey,
+          dispatchGeneration: receipt.dispatchGeneration,
+        }
+      : base,
+  );
 }
 
-function validateReceipt(value: unknown, now: Date): PreviewBuildReceiptClaims {
+function validateReceipt(value: unknown, now: Date): AnyPreviewBuildReceiptClaims {
   if (
     !value ||
     typeof value !== "object" ||
@@ -123,7 +153,7 @@ function validateReceipt(value: unknown, now: Date): PreviewBuildReceiptClaims {
     throw new PreviewBuildReceiptError("PREVIEW_BUILD_RECEIPT_INVALID");
   }
   const record = value as Record<string, unknown>;
-  const allowedKeys = [
+  const allowedKeysV1 = [
     "version",
     "action",
     "receiptId",
@@ -143,10 +173,23 @@ function validateReceipt(value: unknown, now: Date): PreviewBuildReceiptClaims {
     "issuedAt",
     "expiresAt",
   ];
+  const allowedKeysV2 = [
+    ...allowedKeysV1.slice(0, 4),
+    "attemptId",
+    "idempotencyKey",
+    "dispatchGeneration",
+    ...allowedKeysV1.slice(4),
+  ];
+  const allowedKeys =
+    record.version === 1
+      ? allowedKeysV1
+      : record.version === 2
+        ? allowedKeysV2
+        : undefined;
   if (
+    !allowedKeys ||
     Object.keys(record).length !== allowedKeys.length ||
     allowedKeys.some((key) => !(key in record)) ||
-    record.version !== 1 ||
     record.action !== "preview-build-ready" ||
     record.builderProfile !== "vite-react-static-v1" ||
     typeof record.receiptId !== "string" ||
@@ -170,10 +213,16 @@ function validateReceipt(value: unknown, now: Date): PreviewBuildReceiptClaims {
     !HASH_PATTERN.test(record.buildOutputDigest) ||
     typeof record.builderImageDigest !== "string" ||
     !IMAGE_DIGEST_PATTERN.test(record.builderImageDigest) ||
-    typeof record.outputArtifactKey !== "string" ||
-    !OUTPUT_ARTIFACT_KEY_PATTERN.test(record.outputArtifactKey) ||
+    !isPreviewBuildOutputArtifactKey(record.outputArtifactKey) ||
     !canonicalTimestamp(record.issuedAt) ||
-    !canonicalTimestamp(record.expiresAt)
+    !canonicalTimestamp(record.expiresAt) ||
+    (record.version === 2 &&
+      (typeof record.attemptId !== "string" ||
+        !UUID_PATTERN.test(record.attemptId) ||
+        typeof record.idempotencyKey !== "string" ||
+        !UUID_PATTERN.test(record.idempotencyKey) ||
+        !Number.isSafeInteger(record.dispatchGeneration) ||
+        (record.dispatchGeneration as number) < 1))
   ) {
     throw new PreviewBuildReceiptError("PREVIEW_BUILD_RECEIPT_INVALID");
   }
@@ -189,26 +238,34 @@ function validateReceipt(value: unknown, now: Date): PreviewBuildReceiptClaims {
     throw new PreviewBuildReceiptError("PREVIEW_BUILD_RECEIPT_EXPIRED");
   }
 
-  return {
-    version: 1,
+  const common: PreviewBuildReceiptClaimsBase = {
     action: "preview-build-ready",
-    receiptId: record.receiptId,
-    buildId: record.buildId,
+    receiptId: record.receiptId as string,
+    buildId: record.buildId as string,
     builderProfile: "vite-react-static-v1",
-    builderImageDigest: record.builderImageDigest,
-    projectId: record.projectId,
-    proposalId: record.proposalId,
-    operationId: record.operationId,
+    builderImageDigest: record.builderImageDigest as string,
+    projectId: record.projectId as string,
+    proposalId: record.proposalId as string,
+    operationId: record.operationId as string,
     proposalRevision: record.proposalRevision as number,
-    candidateRevision: record.candidateRevision,
-    changeSetHash: record.changeSetHash,
-    sourceDigest: record.sourceDigest,
-    archiveDigest: record.archiveDigest,
-    buildOutputDigest: record.buildOutputDigest,
-    outputArtifactKey: record.outputArtifactKey,
-    issuedAt: record.issuedAt,
-    expiresAt: record.expiresAt,
+    candidateRevision: record.candidateRevision as string,
+    changeSetHash: record.changeSetHash as string,
+    sourceDigest: record.sourceDigest as string,
+    archiveDigest: record.archiveDigest as string,
+    buildOutputDigest: record.buildOutputDigest as string,
+    outputArtifactKey: record.outputArtifactKey as string,
+    issuedAt: record.issuedAt as string,
+    expiresAt: record.expiresAt as string,
   };
+  return record.version === 2
+    ? {
+        ...common,
+        version: 2,
+        attemptId: record.attemptId as string,
+        idempotencyKey: record.idempotencyKey as string,
+        dispatchGeneration: record.dispatchGeneration as number,
+      }
+    : { ...common, version: 1 };
 }
 
 function decodeCanonicalBase64Url(value: string): Buffer | undefined {
@@ -227,6 +284,9 @@ export function verifyPreviewBuildReceipt(input: {
     builderImageDigest: string;
     buildId: string;
     outputArtifactKey: string;
+    attemptId?: string;
+    idempotencyKey?: string;
+    dispatchGeneration?: number;
   };
   now?: Date;
 }): VerifiedPreviewBuildReceipt {
@@ -241,9 +301,12 @@ export function verifyPreviewBuildReceipt(input: {
     !HASH_PATTERN.test(input.expected.sourceDigest) ||
     !HASH_PATTERN.test(input.expected.archiveDigest) ||
     !UUID_PATTERN.test(input.expected.buildId) ||
-    !OUTPUT_ARTIFACT_KEY_PATTERN.test(input.expected.outputArtifactKey) ||
-    input.expected.outputArtifactKey !==
-      `preview-build-outputs/${input.expected.buildId}/site.tar.gz` ||
+    !isPreviewBuildOutputArtifactKey(input.expected.outputArtifactKey, {
+      buildId: input.expected.buildId,
+      ...(input.expected.dispatchGeneration !== undefined
+        ? { dispatchGeneration: input.expected.dispatchGeneration }
+        : {}),
+    }) ||
     !boundedText(input.expected.identity.projectId, 255) ||
     !boundedText(input.expected.identity.proposalId, 255) ||
     !boundedText(input.expected.identity.operationId, 255) ||
@@ -295,7 +358,10 @@ export function verifyPreviewBuildReceipt(input: {
   if (
     !verifySignature(
       null,
-      Buffer.concat([SIGNING_DOMAIN, canonical]),
+      Buffer.concat([
+        receipt.version === 1 ? SIGNING_DOMAIN_V1 : SIGNING_DOMAIN_V2,
+        canonical,
+      ]),
       key,
       signature,
     )
@@ -317,7 +383,18 @@ export function verifyPreviewBuildReceipt(input: {
     receipt.archiveDigest !== expected.archiveDigest ||
     receipt.buildId !== expected.buildId ||
     receipt.outputArtifactKey !== expected.outputArtifactKey ||
-    receipt.builderImageDigest !== expected.builderImageDigest
+    receipt.builderImageDigest !== expected.builderImageDigest ||
+    (receipt.version === 1 &&
+      expected.dispatchGeneration !== undefined &&
+      expected.dispatchGeneration !== 1) ||
+    (receipt.version === 2 &&
+      (receipt.attemptId !== expected.attemptId ||
+        receipt.idempotencyKey !== expected.idempotencyKey ||
+        receipt.dispatchGeneration !== expected.dispatchGeneration ||
+        !isPreviewBuildOutputArtifactKey(receipt.outputArtifactKey, {
+          buildId: receipt.buildId,
+          dispatchGeneration: receipt.dispatchGeneration,
+        })))
   ) {
     throw new PreviewBuildReceiptError(
       "PREVIEW_BUILD_RECEIPT_BINDING_MISMATCH",

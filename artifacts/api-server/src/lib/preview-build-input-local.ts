@@ -17,11 +17,10 @@ import {
   type PreviewBuildArtifactWriteMetadata,
 } from "./preview-build-upload.js";
 import { previewBuildArtifactRefId } from "./preview-artifact-reference.js";
+import { isPreviewBuildOutputArtifactKey } from "./preview-build-output-key.js";
 
 const OBJECT_KEY_PATTERN =
   /^build-inputs\/([a-f0-9]{64})\/([a-f0-9]{64})\.zip$/;
-const OUTPUT_OBJECT_KEY_PATTERN =
-  /^preview-build-outputs\/([0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12})\/site\.tar\.gz$/i;
 const DIGEST_PATTERN = /^[a-f0-9]{64}$/;
 const DEFAULT_MAX_INPUT_BYTES = 55 * 1024 * 1024;
 const MAX_OUTPUT_BYTES = 32 * 1024 * 1024;
@@ -76,11 +75,7 @@ function parseObjectKey(value: string): ObjectIdentity {
     };
   }
 
-  const outputMatch =
-    typeof value === "string" && value.length <= 160
-      ? OUTPUT_OBJECT_KEY_PATTERN.exec(value)
-      : null;
-  if (!outputMatch) {
+  if (!isPreviewBuildOutputArtifactKey(value)) {
     throw new LocalPreviewBuildInputStoreError(
       "PREVIEW_LOCAL_STORE_INVALID_OBJECT",
     );

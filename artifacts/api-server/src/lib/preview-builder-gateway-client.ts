@@ -60,7 +60,7 @@ function builderEndpoint(value: string): URL {
 function parseLaunchResponse(
   payload: unknown,
   expected: Pick<PreviewBuildJobClaims, "jobId" | "buildId">,
-): { jobId: string; buildId: string; taskArn: string } {
+): { jobId: string; buildId: string; executionRef: string } {
   if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
     throw new PreviewBuilderGatewayClientError(
       "PREVIEW_BUILDER_GATEWAY_RESPONSE_INVALID",
@@ -81,7 +81,7 @@ function parseLaunchResponse(
   return {
     jobId: expected.jobId,
     buildId: expected.buildId,
-    taskArn: response.taskArn,
+    executionRef: response.taskArn,
   };
 }
 
@@ -91,7 +91,7 @@ export async function dispatchPreviewBuilderJob(input: {
   claims: PreviewBuildJobClaims;
   fetcher?: typeof fetch;
   now?: Date;
-}): Promise<{ jobId: string; buildId: string; taskArn: string }> {
+}): Promise<{ jobId: string; buildId: string; executionRef: string }> {
   if (!input.privateKeyPem) {
     throw new PreviewBuilderGatewayClientError(
       "PREVIEW_BUILDER_GATEWAY_KEY_MISSING",

@@ -42,7 +42,7 @@ const archiveDigest = "e".repeat(64);
 const clientRequestId = "323e4567-e89b-42d3-a456-426614174002";
 const jobId = "123e4567-e89b-42d3-a456-426614174000";
 const buildId = "223e4567-e89b-42d3-a456-426614174001";
-const outputArtifactKey = `preview-build-outputs/${buildId}/site.tar.gz`;
+const outputArtifactKey = `preview-build-outputs/${buildId}/g1/site.tar.gz`;
 const inputArtifactKey = previewBuildInputObjectKeyForArchive({
   identity,
   sourceDigest,
@@ -91,10 +91,13 @@ function makeJob(overrides: Partial<PreviewBuildJob> = {}): PreviewBuildJob {
     issuedAt: now,
     tokenExpiresAt: new Date(now.getTime() + 5 * 60_000),
     status: "queued",
-    builderTaskArn: null,
+    executionRef: null,
     outputDigest: null,
     buildReceiptId: null,
     failureCode: null,
+    dispatchGeneration: 1,
+    reconciliationLeaseOwner: null,
+    reconciliationLeaseExpiresAt: null,
     stateVersion: 0,
     startedAt: null,
     completedAt: null,
@@ -165,11 +168,11 @@ function baseDependencies() {
       },
     ),
     transitionJob: vi.fn(
-      async (input: { nextStatus: string; builderTaskArn?: string }) => {
+      async (input: { nextStatus: string; executionRef?: string }) => {
         current = {
           ...current,
           status: input.nextStatus as PreviewBuildJob["status"],
-          builderTaskArn: input.builderTaskArn ?? current.builderTaskArn,
+          executionRef: input.executionRef ?? current.executionRef,
           stateVersion: current.stateVersion + 1,
         };
         return current;
@@ -178,7 +181,7 @@ function baseDependencies() {
     dispatch: vi.fn(async (input: { claims: PreviewBuildJobClaims }) => ({
       jobId: input.claims.jobId,
       buildId: input.claims.buildId,
-      taskArn,
+      executionRef: taskArn,
     })),
     getCurrent: () => current,
   };
@@ -234,10 +237,38 @@ describe("Preview build start orchestration", () => {
       }),
     );
     expect(result.job.status).toBe("running");
-    expect(result.job.builderTaskArn).toBe(taskArn);
+    expect(result.job.executionRef).toBe(taskArn);
     expect(result.launchPending).toBe(false);
     expect(JSON.stringify(result)).not.toContain("PrivateKey");
     expect(JSON.stringify(result)).not.toContain("upload-key");
+  });
+
+  it("accepts an opaque execution reference from a provider-neutral executor", async () => {
+    const dependencies = baseDependencies();
+    const executionRef = "exec_local-node_0123456789abcdef";
+    dependencies.dispatch.mockResolvedValue({
+      jobId,
+      buildId,
+      executionRef,
+    });
+
+    const result = await startOrResumePreviewBuild({
+      candidate,
+      projectId: candidate.projectId,
+      userId: "user-1",
+      clientRequestId,
+      config: config(),
+      dependencies,
+    });
+
+    expect(result.job.status).toBe("running");
+    expect(result.job.executionRef).toBe(executionRef);
+    expect(dependencies.transitionJob).toHaveBeenCalledWith(
+      expect.objectContaining({
+        nextStatus: "running",
+        executionRef,
+      }),
+    );
   });
 
   it("retries the same durable launching claim after an ambiguous response", async () => {
@@ -253,7 +284,7 @@ describe("Preview build start orchestration", () => {
       .mockResolvedValueOnce({
         jobId,
         buildId,
-        taskArn,
+        executionRef: taskArn,
       });
 
     const first = await startOrResumePreviewBuild({
@@ -284,6 +315,11 @@ describe("Preview build start orchestration", () => {
     expect(dependencies.dispatch.mock.calls[0]?.[0].claims).toEqual(
       dependencies.dispatch.mock.calls[1]?.[0].claims,
     );
+    expect(dependencies.dispatch.mock.calls[0]?.[0].claims).toMatchObject({
+      attemptId: jobId,
+      idempotencyKey: clientRequestId,
+      dispatchGeneration: 1,
+    });
   });
 
   it("retries an admitted job whose input upload failed before readiness", async () => {

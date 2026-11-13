@@ -832,6 +832,25 @@ export const APPLICATION_SCHEMA_CONTRACT = {
         nullable: false,
         defaultExpression: /0/,
       },
+      {
+        name: "dispatch_generation",
+        dataType: "integer",
+        udtName: "int4",
+        nullable: false,
+        defaultExpression: /1/,
+      },
+      {
+        name: "reconciliation_lease_owner",
+        dataType: "uuid",
+        udtName: "uuid",
+        nullable: true,
+      },
+      {
+        name: "reconciliation_lease_expires_at",
+        dataType: "timestamp with time zone",
+        udtName: "timestamptz",
+        nullable: true,
+      },
       ...["started_at", "completed_at"].map((name) => ({
         name,
         dataType: "timestamp with time zone",
@@ -2826,6 +2845,15 @@ export const APPLICATION_SCHEMA_CONTRACT = {
       columns: ["token_expires_at"],
     },
     {
+      name: "idx_preview_build_jobs_reconciliation_lease",
+      tableName: "preview_build_jobs",
+      columns: [
+        "status",
+        "reconciliation_lease_expires_at",
+        "job_id",
+      ],
+    },
+    {
       name: "idx_preview_build_jobs_input_gc_due",
       tableName: "preview_build_jobs",
       columns: [
@@ -3380,6 +3408,17 @@ export const APPLICATION_SCHEMA_CONTRACT = {
     },
   ] satisfies readonly IndexContract[],
   checks: [
+    {
+      name: "chk_preview_build_jobs_dispatch_generation_positive",
+      tableName: "preview_build_jobs",
+      definitionPattern: /dispatch_generation > 0/i,
+    },
+    {
+      name: "chk_preview_build_jobs_reconciliation_lease_pair",
+      tableName: "preview_build_jobs",
+      definitionPattern:
+        /reconciliation_lease_owner.*is null.*reconciliation_lease_expires_at.*is null/i,
+    },
     {
       name: "chk_preview_build_jobs_input_local_metadata",
       tableName: "preview_build_jobs",

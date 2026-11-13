@@ -156,9 +156,12 @@ function matchesCurrentCandidate(
 
 function claimsForJob(job: PreviewBuildJob): PreviewBuildJobClaims {
   return {
-    version: 1,
+    version: 2,
     action: "preview-build",
     jobId: job.jobId,
+    attemptId: job.jobId,
+    idempotencyKey: job.clientRequestId,
+    dispatchGeneration: job.dispatchGeneration,
     buildId: job.buildId,
     builderProfile: "vite-react-static-v1",
     builderImageDigest: job.builderImageDigest,
@@ -486,7 +489,7 @@ export async function startOrResumePreviewBuild(input: {
       expectedStatus: "launching",
       expectedVersion: job.stateVersion,
       nextStatus: "running",
-      builderTaskArn: launched.taskArn,
+      executionRef: launched.executionRef,
       now: now(),
     });
     if (running) return { job: running, launchPending: false };
@@ -497,7 +500,7 @@ export async function startOrResumePreviewBuild(input: {
     });
     if (
       current?.status === "running" &&
-      current.builderTaskArn === launched.taskArn
+      current.executionRef === launched.executionRef
     ) {
       return { job: current, launchPending: false };
     }

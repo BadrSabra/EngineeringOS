@@ -101,9 +101,12 @@ function signedJob() {
     )
     .digest("hex");
   const claims = {
-    version: 1,
+    version: 2,
     action: "preview-build",
     jobId,
+    attemptId: jobId,
+    idempotencyKey: "c9c99a91-cf7f-4f18-8c4b-08e53ca1e4aa",
+    dispatchGeneration: 1,
     buildId,
     builderProfile: "vite-react-static-v1",
     builderImageDigest,
@@ -117,7 +120,7 @@ function signedJob() {
     sourceDigest,
     inputArtifactKey: `build-inputs/${bindingDigest}/${archiveDigest}.zip`,
     archiveDigest,
-    outputArtifactKey: `preview-build-outputs/${buildId}/site.tar.gz`,
+    outputArtifactKey: `preview-build-outputs/${buildId}/g1/site.tar.gz`,
     issuedAt: now.toISOString(),
     expiresAt: new Date(now.getTime() + 5 * 60_000).toISOString(),
   } as const;

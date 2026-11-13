@@ -1,7 +1,11 @@
 import { createPublicKey, verify as verifySignature } from "node:crypto";
 
-const SIGNING_DOMAIN = Buffer.from(
+const SIGNING_DOMAIN_V1 = Buffer.from(
   "EngineeringOS Preview Build Job v1\n",
+  "utf8",
+);
+const SIGNING_DOMAIN_V2 = Buffer.from(
+  "EngineeringOS Preview Build Job v2\n",
   "utf8",
 );
 const MAX_TOKEN_LENGTH = 8_192;
@@ -12,8 +16,9 @@ const UUID =
 const HASH = /^[a-f0-9]{64}$/i;
 const IMAGE_DIGEST = /^sha256:[a-f0-9]{64}$/i;
 const INPUT_KEY = /^build-inputs\/([a-f0-9]{64})\/([a-f0-9]{64})\.zip$/i;
-const OUTPUT_KEY = /^preview-build-outputs\/([0-9a-f-]{36})\/site\.tar\.gz$/i;
-const FIELDS = [
+const OUTPUT_KEY =
+  /^preview-build-outputs\/([0-9a-f-]{36})(?:\/g([1-9][0-9]*))?\/site\.tar\.gz$/i;
+const FIELDS_V1 = [
   "version",
   "action",
   "jobId",
@@ -31,6 +36,14 @@ const FIELDS = [
   "inputArtifactKey",
   "archiveDigest",
   "outputArtifactKey",
+  "issuedAt",
+  "expiresAt",
+];
+const FIELDS_V2 = [
+  ...FIELDS_V1.slice(0, -2),
+  "attemptId",
+  "idempotencyKey",
+  "dispatchGeneration",
   "issuedAt",
   "expiresAt",
 ];
@@ -89,10 +102,16 @@ function validateClaims(value, now) {
     fail();
   }
   const claims = value;
+  const fields =
+    claims.version === 1
+      ? FIELDS_V1
+      : claims.version === 2
+        ? FIELDS_V2
+        : undefined;
   if (
-    Object.keys(claims).length !== FIELDS.length ||
-    FIELDS.some((field) => !(field in claims)) ||
-    claims.version !== 1 ||
+    !fields ||
+    Object.keys(claims).length !== fields.length ||
+    fields.some((field) => !(field in claims)) ||
     claims.action !== "preview-build" ||
     !boundedText(claims.jobId) ||
     !UUID.test(claims.jobId) ||
@@ -113,15 +132,30 @@ function validateClaims(value, now) {
     !INPUT_KEY.test(claims.inputArtifactKey ?? "") ||
     !OUTPUT_KEY.test(claims.outputArtifactKey ?? "") ||
     !canonicalTimestamp(claims.issuedAt) ||
-    !canonicalTimestamp(claims.expiresAt)
+    !canonicalTimestamp(claims.expiresAt) ||
+    (claims.version === 2 &&
+      (claims.attemptId !== claims.jobId ||
+        !UUID.test(claims.idempotencyKey ?? "") ||
+        !Number.isSafeInteger(claims.dispatchGeneration) ||
+        claims.dispatchGeneration < 1))
   ) {
     fail();
   }
   const inputKey = INPUT_KEY.exec(claims.inputArtifactKey);
   const outputKey = OUTPUT_KEY.exec(claims.outputArtifactKey);
+  const legacyOutputKey = `preview-build-outputs/${claims.buildId}/site.tar.gz`;
+  const expectedGenerationOutputKey =
+    claims.version === 2
+      ? `preview-build-outputs/${claims.buildId}/g${claims.dispatchGeneration}/site.tar.gz`
+      : legacyOutputKey;
   if (
     inputKey?.[2]?.toLowerCase() !== claims.archiveDigest.toLowerCase() ||
-    outputKey?.[1]?.toLowerCase() !== claims.buildId.toLowerCase()
+    outputKey?.[1]?.toLowerCase() !== claims.buildId.toLowerCase() ||
+    (claims.version === 1
+      ? claims.outputArtifactKey !== legacyOutputKey
+      : claims.outputArtifactKey !== expectedGenerationOutputKey &&
+        !(claims.dispatchGeneration === 1 &&
+          claims.outputArtifactKey === legacyOutputKey))
   ) {
     fail();
   }
@@ -135,7 +169,7 @@ function validateClaims(value, now) {
   ) {
     throw new PreviewBuildJobTokenError("PREVIEW_BUILD_JOB_EXPIRED");
   }
-  return Object.fromEntries(FIELDS.map((field) => [field, claims[field]]));
+  return Object.fromEntries(fields.map((field) => [field, claims[field]]));
 }
 
 function decodeBase64Url(value) {
@@ -188,7 +222,10 @@ export function verifyPreviewBuildJobToken(
   if (
     !verifySignature(
       null,
-      Buffer.concat([SIGNING_DOMAIN, canonical]),
+      Buffer.concat([
+        claims.version === 1 ? SIGNING_DOMAIN_V1 : SIGNING_DOMAIN_V2,
+        canonical,
+      ]),
       publicKey,
       signature,
     )

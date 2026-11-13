@@ -39,6 +39,7 @@ export async function acceptPreviewBuildReceipt(input: {
   jobId: string;
   token: string;
   publicKeyPem: string | undefined;
+  expectedLeaseOwner?: string;
   dependencies?: PreviewBuildAttestorDependencies;
 }): Promise<PreviewBuildAttestationResult> {
   if (
@@ -82,7 +83,7 @@ export async function acceptPreviewBuildReceipt(input: {
   }
   if (
     job.status !== "builder_succeeded" ||
-    !job.builderTaskArn ||
+    !job.executionRef ||
     !job.outputDigest
   ) {
     throw new PreviewBuildAttestationError(
@@ -109,6 +110,9 @@ export async function acceptPreviewBuildReceipt(input: {
         builderImageDigest: job.builderImageDigest,
         buildId: job.buildId,
         outputArtifactKey: job.outputArtifactKey,
+        attemptId: job.jobId,
+        idempotencyKey: job.clientRequestId,
+        dispatchGeneration: job.dispatchGeneration,
       },
       now: now(),
     });
@@ -130,8 +134,9 @@ export async function acceptPreviewBuildReceipt(input: {
       jobId: job.jobId,
       expectedStatus: "builder_succeeded",
       expectedVersion: job.stateVersion,
+      expectedLeaseOwner: input.expectedLeaseOwner,
       nextStatus: "verified",
-      builderTaskArn: job.builderTaskArn,
+      executionRef: job.executionRef,
       verifiedReceipt: receipt,
       now: now(),
     });

@@ -17,7 +17,7 @@ export type PreviewBuildObservation = {
   jobId: string;
   buildId: string;
   state: "not_found" | "pending" | "running" | "stopped" | "unknown";
-  taskArn?: string;
+  executionRef?: string;
   exitCode?: number;
   outputDigest?: string;
 };
@@ -77,7 +77,7 @@ function claimsForJob(
     buildId: job.buildId,
     builderImageDigest: job.builderImageDigest,
     outputArtifactKey: job.outputArtifactKey,
-    ...(job.builderTaskArn ? { taskArn: job.builderTaskArn } : {}),
+    ...(job.executionRef ? { taskArn: job.executionRef } : {}),
     issuedAt: now.toISOString(),
     expiresAt: new Date(now.getTime() + 20_000).toISOString(),
   };
@@ -138,9 +138,9 @@ function parseObservation(
     );
   }
   if (
-    job.builderTaskArn &&
+    job.executionRef &&
     value.taskArn !== undefined &&
-    value.taskArn !== job.builderTaskArn
+    value.taskArn !== job.executionRef
   ) {
     throw new PreviewBuildObservationClientError(
       "PREVIEW_BUILD_OBSERVATION_RESPONSE_INVALID",
@@ -173,7 +173,9 @@ function parseObservation(
     jobId: job.jobId,
     buildId: job.buildId,
     state,
-    ...(typeof value.taskArn === "string" ? { taskArn: value.taskArn } : {}),
+    ...(typeof value.taskArn === "string"
+      ? { executionRef: value.taskArn }
+      : {}),
     ...(typeof value.exitCode === "number" ? { exitCode: value.exitCode } : {}),
     ...(typeof value.outputDigest === "string"
       ? { outputDigest: value.outputDigest.toLowerCase() }

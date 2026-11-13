@@ -169,6 +169,12 @@ function completeSnapshot() {
     if (tableName === "preview_build_jobs" && columnName === "state_version") {
       return "0";
     }
+    if (
+      tableName === "preview_build_jobs" &&
+      columnName === "dispatch_generation"
+    ) {
+      return "1";
+    }
     if (tableName === "project_bootstrap_jobs" && columnName === "attempt") {
       return "0";
     }

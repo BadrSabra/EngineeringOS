@@ -3,10 +3,9 @@ import type { PreviewSession } from "@workspace/db";
 import { dispatchPreviewControlCommand } from "./preview-gateway-control-client.js";
 import type { PreviewEcsCommandResult } from "./preview-ecs-runner.js";
 import { attachPreviewSessionTask } from "./preview-session-store.js";
+import { isPreviewBuildOutputArtifactKey } from "./preview-build-output-key.js";
 
 const COMMAND_TTL_MS = 20_000;
-const OUTPUT_ARTIFACT_KEY_PATTERN =
-  /^preview-build-outputs\/[0-9a-f-]{36}\/site\.tar\.gz$/i;
 const OUTPUT_ARTIFACT_DIGEST_PATTERN = /^[a-f0-9]{64}$/i;
 const SESSION_ID_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -80,7 +79,7 @@ export function createPreviewSessionOrchestrator(dependencies?: {
         !SESSION_ID_PATTERN.test(session.id) ||
         session.runnerTaskArn !== null ||
         !session.buildOutputArtifactKey ||
-        !OUTPUT_ARTIFACT_KEY_PATTERN.test(session.buildOutputArtifactKey) ||
+        !isPreviewBuildOutputArtifactKey(session.buildOutputArtifactKey) ||
         !session.buildOutputDigest ||
         !OUTPUT_ARTIFACT_DIGEST_PATTERN.test(session.buildOutputDigest) ||
         session.expiresAt.getTime() <= issuedAt.getTime()

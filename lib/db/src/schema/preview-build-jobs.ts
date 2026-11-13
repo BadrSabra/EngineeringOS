@@ -120,11 +120,21 @@ export const previewBuildJobsTable = pgTable(
       withTimezone: true,
     }).notNull(),
     status: previewBuildJobStatusEnum("status").notNull().default("queued"),
-    builderTaskArn: text("builder_task_arn"),
+    dispatchGeneration: integer("dispatch_generation")
+      .notNull()
+      .default(1),
+    // Legacy physical column retained to avoid a data migration; application code
+    // treats this as an opaque execution reference.
+    executionRef: text("builder_task_arn"),
     outputDigest: text("output_digest"),
     buildReceiptId: uuid("build_receipt_id"),
     failureCode: text("failure_code"),
     stateVersion: integer("state_version").notNull().default(0),
+    reconciliationLeaseOwner: uuid("reconciliation_lease_owner"),
+    reconciliationLeaseExpiresAt: timestamp(
+      "reconciliation_lease_expires_at",
+      { withTimezone: true },
+    ),
     startedAt: timestamp("started_at", { withTimezone: true }),
     completedAt: timestamp("completed_at", { withTimezone: true }),
     createdAt: timestamp("created_at", { withTimezone: true })
@@ -140,6 +150,14 @@ export const previewBuildJobsTable = pgTable(
       columns: [table.inputArtifactOwnerNodeId],
       foreignColumns: [previewAgentNodesTable.nodeId],
     }).onDelete("restrict"),
+    check(
+      "chk_preview_build_jobs_dispatch_generation_positive",
+      sql`${table.dispatchGeneration} > 0`,
+    ),
+    check(
+      "chk_preview_build_jobs_reconciliation_lease_pair",
+      sql`(${table.reconciliationLeaseOwner} IS NULL) = (${table.reconciliationLeaseExpiresAt} IS NULL)`,
+    ),
     check(
       "chk_preview_build_jobs_input_local_metadata",
       sql`${table.inputArtifactProvider} <> 'local' OR (
@@ -198,7 +216,7 @@ export const previewBuildJobsTable = pgTable(
       table.userId,
       table.clientRequestId,
     ),
-    uniqueIndex("uq_preview_build_jobs_task_arn").on(table.builderTaskArn),
+    uniqueIndex("uq_preview_build_jobs_task_arn").on(table.executionRef),
     uniqueIndex("uq_preview_build_jobs_output_key").on(table.outputArtifactKey),
     uniqueIndex("uq_preview_build_jobs_receipt_id").on(table.buildReceiptId),
     uniqueIndex("uq_preview_build_jobs_input_artifact_ref").on(
@@ -221,6 +239,11 @@ export const previewBuildJobsTable = pgTable(
       table.status,
     ),
     index("idx_preview_build_jobs_token_expiry").on(table.tokenExpiresAt),
+    index("idx_preview_build_jobs_reconciliation_lease").on(
+      table.status,
+      table.reconciliationLeaseExpiresAt,
+      table.jobId,
+    ),
     index(
       "idx_preview_build_jobs_input_gc_due",
     ).on(
@@ -263,11 +286,14 @@ export const insertPreviewBuildJobSchema = createInsertSchema(
   outputArtifactManifestDigest: true,
   outputArtifactRetentionPolicy: true,
   outputArtifactGcMarkedAt: true,
-  builderTaskArn: true,
+  executionRef: true,
   outputDigest: true,
   buildReceiptId: true,
   failureCode: true,
+  dispatchGeneration: true,
   stateVersion: true,
+  reconciliationLeaseOwner: true,
+  reconciliationLeaseExpiresAt: true,
   startedAt: true,
   completedAt: true,
   createdAt: true,

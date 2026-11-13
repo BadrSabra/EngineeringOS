@@ -65,6 +65,14 @@ const jobFields = [
   "issuedAt",
   "expiresAt",
 ];
+const jobFieldsV2 = [
+  ...jobFields.slice(0, -2),
+  "attemptId",
+  "idempotencyKey",
+  "dispatchGeneration",
+  "issuedAt",
+  "expiresAt",
+];
 
 function signedJobToken() {
   const claims = {
@@ -97,6 +105,50 @@ function signedJobToken() {
     null,
     Buffer.concat([
       Buffer.from("EngineeringOS Preview Build Job v1\n"),
+      payload,
+    ]),
+    jobKeys.privateKey,
+  );
+  return `${payload.toString("base64url")}.${signature.toString("base64url")}`;
+}
+
+function signedJobTokenV2({
+  dispatchGeneration = 2,
+  outputArtifactKey = `preview-build-outputs/${buildId}/g2/site.tar.gz`,
+} = {}) {
+  const claims = {
+    version: 2,
+    action: "preview-build",
+    jobId,
+    buildId,
+    builderProfile: "vite-react-static-v1",
+    builderImageDigest,
+    projectId: "project-1",
+    proposalId: "proposal-1",
+    operationId: "operation-1",
+    proposalRevision: 3,
+    candidateRevision: "b".repeat(64),
+    changeSetHash: "c".repeat(64),
+    sourceRoot: "web",
+    sourceDigest: "d".repeat(64),
+    inputArtifactKey: `build-inputs/${"e".repeat(64)}/${"f".repeat(64)}.zip`,
+    archiveDigest: "f".repeat(64),
+    outputArtifactKey,
+    attemptId: jobId,
+    idempotencyKey: "21234567-89ab-42cd-8abc-0123456789ab",
+    dispatchGeneration,
+    issuedAt: now.toISOString(),
+    expiresAt: new Date(now.getTime() + 5 * 60_000).toISOString(),
+  };
+  const payload = Buffer.from(
+    JSON.stringify(
+      Object.fromEntries(jobFieldsV2.map((key) => [key, claims[key]])),
+    ),
+  );
+  const signature = signBytes(
+    null,
+    Buffer.concat([
+      Buffer.from("EngineeringOS Preview Build Job v2\n", "utf8"),
       payload,
     ]),
     jobKeys.privateKey,
@@ -252,6 +304,58 @@ test("attests the exact stopped task and stores a signed, digest-bound receipt",
     ),
     true,
   );
+});
+
+test("attests output in the exact dispatch-generation prefix", async () => {
+  const outputArtifactKey = `preview-build-outputs/${buildId}/g2/site.tar.gz`;
+  const deps = dependencies({
+    storage: {
+      headOutput: async ({ key }) => {
+        assert.equal(key, outputArtifactKey);
+        return {
+          contentLength: bytes.length,
+          serverSideEncryption: "AES256",
+        };
+      },
+      getOutput: async ({ key }) => {
+        assert.equal(key, outputArtifactKey);
+        return (async function* () {
+          yield bytes;
+        })();
+      },
+    },
+  });
+  const result = await attestPreviewBuild({
+    jobToken: signedJobTokenV2(),
+    taskArn,
+    config: validConfig(),
+    ...deps,
+  });
+  assert.equal(result.outputDigest, outputDigest);
+  const record = JSON.parse(deps.stored[0].body.toString("utf8"));
+  const [payloadPart] = record.token.split(".");
+  assert.equal(
+    JSON.parse(Buffer.from(payloadPart, "base64url").toString("utf8"))
+      .outputArtifactKey,
+    outputArtifactKey,
+  );
+});
+
+test("rejects a V2 claim whose output path belongs to another generation", async () => {
+  const deps = dependencies();
+  await assert.rejects(
+    attestPreviewBuild({
+      jobToken: signedJobTokenV2({
+        dispatchGeneration: 2,
+        outputArtifactKey: `preview-build-outputs/${buildId}/g1/site.tar.gz`,
+      }),
+      taskArn,
+      config: validConfig(),
+      ...deps,
+    }),
+    { code: "PREVIEW_ATTESTOR_JOB_REJECTED" },
+  );
+  assert.equal(deps.stored.length, 0);
 });
 
 test("rejects persistent or broader Builder scratch storage", async () => {

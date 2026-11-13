@@ -2,8 +2,9 @@ import { createHash } from "node:crypto";
 import {
   assertPreviewBuildJobPublicKeyPem,
   verifyPreviewBuildJob,
-  type PreviewBuildJobClaims,
+  type VerifiedPreviewBuildJobClaims,
 } from "./preview-build-job.js";
+import { isPreviewBuildOutputArtifactKey } from "./preview-build-output-key.js";
 import {
   assertPreviewBuilderRunnerConfig,
   type PreviewBuilderRunnerConfig,
@@ -118,11 +119,11 @@ function validateBuildJob(
   builderTaskArn: string,
   config: PreviewBuildAttestorRunnerConfig,
   now: Date,
-): PreviewBuildJobClaims {
+): VerifiedPreviewBuildJobClaims {
   if (!TASK_ARN_PATTERN.test(builderTaskArn)) {
     reject("PREVIEW_BUILD_ATTESTOR_JOB_REJECTED");
   }
-  let claims: PreviewBuildJobClaims;
+  let claims: VerifiedPreviewBuildJobClaims;
   try {
     claims = verifyPreviewBuildJob({
       token,
@@ -134,8 +135,10 @@ function validateBuildJob(
   }
   if (
     claims.builderImageDigest !== config.builderConfig.imageDigest ||
-    claims.outputArtifactKey !==
-      `preview-build-outputs/${claims.buildId}/site.tar.gz`
+    !isPreviewBuildOutputArtifactKey(claims.outputArtifactKey, {
+      buildId: claims.buildId,
+      dispatchGeneration: claims.version === 2 ? claims.dispatchGeneration : 1,
+    })
   ) {
     reject("PREVIEW_BUILD_ATTESTOR_JOB_REJECTED");
   }
@@ -145,7 +148,7 @@ function validateBuildJob(
 function validateBuilderTask(
   task: PreviewEcsTask | null,
   builderTaskArn: string,
-  claims: PreviewBuildJobClaims,
+  claims: VerifiedPreviewBuildJobClaims,
   config: PreviewBuildAttestorRunnerConfig,
 ): void {
   const containers = task?.containers ?? [];
@@ -245,7 +248,7 @@ function validateAttestorTaskDefinition(
 }
 
 function launchFingerprint(input: {
-  claims: PreviewBuildJobClaims;
+  claims: VerifiedPreviewBuildJobClaims;
   builderTaskArn: string;
   config: PreviewBuildAttestorRunnerConfig;
 }): string {
@@ -282,7 +285,7 @@ function launchFingerprint(input: {
 function validateAttestorTask(
   task: PreviewEcsTask | null,
   taskArn: string,
-  claims: PreviewBuildJobClaims,
+  claims: VerifiedPreviewBuildJobClaims,
   config: PreviewBuildAttestorRunnerConfig,
 ): "pending" | "completed" | "failed" {
   const containers = task?.containers ?? [];
@@ -304,7 +307,7 @@ function validateAttestorTask(
 
 async function findAttestorTask(input: {
   ecs: PreviewEcsClient;
-  claims: PreviewBuildJobClaims;
+  claims: VerifiedPreviewBuildJobClaims;
   config: PreviewBuildAttestorRunnerConfig;
 }): Promise<PreviewEcsTask | null> {
   const startedBy = previewBuildAttestorStartedBy(input.claims.jobId);

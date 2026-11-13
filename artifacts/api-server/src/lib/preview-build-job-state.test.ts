@@ -37,7 +37,7 @@ describe("Preview build job lifecycle", () => {
     }
   });
 
-  it("requires an ECS identity before reporting task progress", () => {
+  it("requires a bounded execution reference before reporting progress", () => {
     expect(() => assertPreviewBuildJobTransitionData("running", {})).toThrow(
       expect.objectContaining({
         code: "PREVIEW_BUILD_JOB_TRANSITION_DATA_INVALID",
@@ -45,32 +45,40 @@ describe("Preview build job lifecycle", () => {
     );
     expect(() =>
       assertPreviewBuildJobTransitionData("running", {
-        builderTaskArn: "arn:aws:ecs:untrusted",
+        executionRef: "ref with spaces",
       }),
     ).toThrow(PreviewBuildJobStateError);
     expect(() =>
       assertPreviewBuildJobTransitionData("launching", {
-        builderTaskArn: taskArn,
+        executionRef: taskArn,
       }),
     ).toThrow(PreviewBuildJobStateError);
+  });
+
+  it("accepts an opaque execution reference without imposing an AWS format", () => {
+    expect(() =>
+      assertPreviewBuildJobTransitionData("running", {
+        executionRef: "exec_local-node_0123456789abcdef",
+      } as never),
+    ).not.toThrow();
   });
 
   it("does not equate Builder success with accepted verification", () => {
     expect(() =>
       assertPreviewBuildJobTransitionData("builder_succeeded", {
-        builderTaskArn: taskArn,
+        executionRef: taskArn,
       }),
     ).toThrow(PreviewBuildJobStateError);
     expect(() =>
       assertPreviewBuildJobTransitionData("verified", {
-        builderTaskArn: taskArn,
+        executionRef: taskArn,
         outputDigest,
       }),
     ).toThrow(PreviewBuildJobStateError);
 
     expect(() =>
       assertPreviewBuildJobTransitionData("verified", {
-        builderTaskArn: taskArn,
+        executionRef: taskArn,
         outputDigest,
         buildReceiptId: receiptId,
       }),

@@ -27,7 +27,7 @@ import postcss from "postcss";
 
 const INPUT_KEY = /^build-inputs\/([a-f0-9]{64})\/([a-f0-9]{64})\.zip$/i;
 const OUTPUT_KEY =
-  /^preview-build-outputs\/([0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12})\/site\.tar\.gz$/i;
+  /^preview-build-outputs\/([0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12})(?:\/g([1-9][0-9]*))?\/site\.tar\.gz$/i;
 const HASH = /^[a-f0-9]{64}$/i;
 const MAX_URL_TTL_SECONDS = 300;
 const BUILD_TIMEOUT_MS = 120_000;
@@ -172,7 +172,14 @@ function validateJobEnvironment(env) {
     inputMatch[1]?.toLowerCase() !== expectedInputBindingDigest ||
     inputMatch[2]?.toLowerCase() !== inputDigest.toLowerCase() ||
     !outputMatch ||
-    outputMatch[1]?.toLowerCase() !== buildId.toLowerCase()
+    outputMatch[1]?.toLowerCase() !== buildId.toLowerCase() ||
+    (job.version === 2 &&
+      outputKey !==
+        `preview-build-outputs/${buildId}/g${job.dispatchGeneration}/site.tar.gz` &&
+      !(job.dispatchGeneration === 1 &&
+        outputKey === `preview-build-outputs/${buildId}/site.tar.gz`)) ||
+    (job.version === 1 &&
+      outputKey !== `preview-build-outputs/${buildId}/site.tar.gz`)
   ) {
     fail("PREVIEW_BUILD_ENV_INVALID");
   }

@@ -28,7 +28,7 @@ function claims(
     jobId,
     buildId,
     builderImageDigest: `sha256:${"a".repeat(64)}`,
-    outputArtifactKey: `preview-build-outputs/${buildId}/site.tar.gz`,
+    outputArtifactKey: `preview-build-outputs/${buildId}/g1/site.tar.gz`,
     issuedAt: now.toISOString(),
     expiresAt: new Date(now.getTime() + 20_000).toISOString(),
     ...overrides,

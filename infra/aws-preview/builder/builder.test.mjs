@@ -25,7 +25,7 @@ import { parsePreviewStaticArchive } from "../runtime/server.mjs";
 const buildId = "01234567-89ab-42cd-8abc-0123456789ab";
 const signingKeys = generateKeyPairSync("ed25519");
 const buildJobSigningDomain = Buffer.from(
-  "EngineeringOS Preview Build Job v1\n",
+  "EngineeringOS Preview Build Job v2\n",
   "utf8",
 );
 const buildJobFields = [
@@ -46,6 +46,9 @@ const buildJobFields = [
   "inputArtifactKey",
   "archiveDigest",
   "outputArtifactKey",
+  "attemptId",
+  "idempotencyKey",
+  "dispatchGeneration",
   "issuedAt",
   "expiresAt",
 ];
@@ -241,7 +244,7 @@ function jobEnvironment(input) {
   );
   const now = new Date();
   const claims = {
-    version: 1,
+    version: 2,
     action: "preview-build",
     jobId: "11234567-89ab-42cd-8abc-0123456789ab",
     buildId,
@@ -257,7 +260,10 @@ function jobEnvironment(input) {
     sourceDigest: input.binding.sourceDigest,
     inputArtifactKey: `build-inputs/${identityDigest}/${inputDigest}.zip`,
     archiveDigest: inputDigest,
-    outputArtifactKey: `preview-build-outputs/${buildId}/site.tar.gz`,
+    outputArtifactKey: `preview-build-outputs/${buildId}/g1/site.tar.gz`,
+    attemptId: "11234567-89ab-42cd-8abc-0123456789ab",
+    idempotencyKey: "21234567-89ab-42cd-8abc-0123456789ab",
+    dispatchGeneration: 1,
     issuedAt: now.toISOString(),
     expiresAt: new Date(now.getTime() + 5 * 60_000).toISOString(),
   };
@@ -284,7 +290,7 @@ function jobEnvironment(input) {
       "host",
     ),
     PREVIEW_BUILD_OUTPUT_URL: signedUrl(
-      `preview-build-outputs/${buildId}/site.tar.gz`,
+      `preview-build-outputs/${buildId}/g1/site.tar.gz`,
       "host;if-none-match",
     ),
   };
@@ -400,7 +406,7 @@ test("ignores candidate package scripts and uploads only a runtime-valid static 
     assert.equal(result.action, "preview-build-output-uploaded");
     assert.equal(
       result.outputArtifactKey,
-      `preview-build-outputs/${buildId}/site.tar.gz`,
+      `preview-build-outputs/${buildId}/g1/site.tar.gz`,
     );
     assert.equal(result.jobId, "11234567-89ab-42cd-8abc-0123456789ab");
     assert.equal(result.builderImageDigest, `sha256:${"e".repeat(64)}`);
@@ -485,7 +491,7 @@ test("never follows redirects or accepts reusable output objects", async () => {
       env: {
         ...jobEnvironment(input),
         PREVIEW_BUILD_OUTPUT_URL: signedUrl(
-          `preview-build-outputs/${buildId}/site.tar.gz`,
+          `preview-build-outputs/${buildId}/g1/site.tar.gz`,
           "host",
         ),
       },

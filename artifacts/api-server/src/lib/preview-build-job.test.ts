@@ -1,4 +1,4 @@
-import { generateKeyPairSync } from "node:crypto";
+import { generateKeyPairSync, sign as signBytes } from "node:crypto";
 import { describe, expect, it } from "vitest";
 import {
   signPreviewBuildJob,
@@ -19,7 +19,7 @@ const publicKeyPem = keys.publicKey.export({
 
 function claims(): PreviewBuildJobClaims {
   return {
-    version: 1,
+    version: 2,
     action: "preview-build",
     jobId: "11234567-89ab-42cd-8abc-0123456789ab",
     buildId: "01234567-89ab-42cd-8abc-0123456789ab",
@@ -36,10 +36,49 @@ function claims(): PreviewBuildJobClaims {
     inputArtifactKey: `build-inputs/${"d".repeat(64)}/${"f".repeat(64)}.zip`,
     archiveDigest: "f".repeat(64),
     outputArtifactKey:
-      "preview-build-outputs/01234567-89ab-42cd-8abc-0123456789ab/site.tar.gz",
+      "preview-build-outputs/01234567-89ab-42cd-8abc-0123456789ab/g1/site.tar.gz",
+    attemptId: "11234567-89ab-42cd-8abc-0123456789ab",
+    idempotencyKey: "21234567-89ab-42cd-8abc-0123456789ab",
+    dispatchGeneration: 1,
     issuedAt: now.toISOString(),
     expiresAt: new Date(now.getTime() + 5 * 60_000).toISOString(),
   };
+}
+
+function legacyTokenFor(): string {
+  const current = claims();
+  const legacy = {
+    version: 1,
+    action: current.action,
+    jobId: current.jobId,
+    buildId: current.buildId,
+    builderProfile: current.builderProfile,
+    builderImageDigest: current.builderImageDigest,
+    projectId: current.projectId,
+    proposalId: current.proposalId,
+    operationId: current.operationId,
+    proposalRevision: current.proposalRevision,
+    candidateRevision: current.candidateRevision,
+    changeSetHash: current.changeSetHash,
+    sourceRoot: current.sourceRoot,
+    sourceDigest: current.sourceDigest,
+    inputArtifactKey: current.inputArtifactKey,
+    archiveDigest: current.archiveDigest,
+    outputArtifactKey:
+      "preview-build-outputs/01234567-89ab-42cd-8abc-0123456789ab/site.tar.gz",
+    issuedAt: current.issuedAt,
+    expiresAt: current.expiresAt,
+  };
+  const payload = Buffer.from(JSON.stringify(legacy), "utf8");
+  const signature = signBytes(
+    null,
+    Buffer.concat([
+      Buffer.from("EngineeringOS Preview Build Job v1\n", "utf8"),
+      payload,
+    ]),
+    privateKeyPem,
+  );
+  return `${payload.toString("base64url")}.${signature.toString("base64url")}`;
 }
 
 function tokenFor(value = claims()) {
@@ -117,5 +156,56 @@ describe("Preview build job contract", () => {
         now: new Date("2026-11-11T12:06:00.000Z"),
       }),
     ).toThrow("Preview build job is invalid or unavailable.");
+  });
+
+  it("requires V2 output paths to match the signed dispatch generation", () => {
+    const generationTwo = {
+      ...claims(),
+      dispatchGeneration: 2,
+    };
+    expect(() =>
+      signPreviewBuildJob({
+        claims: generationTwo,
+        privateKeyPem,
+        now,
+      }),
+    ).toThrow("Preview build job is invalid or unavailable.");
+
+    const current = {
+      ...generationTwo,
+      outputArtifactKey:
+        "preview-build-outputs/01234567-89ab-42cd-8abc-0123456789ab/g2/site.tar.gz",
+    };
+    expect(
+      verifyPreviewBuildJob({
+        token: tokenFor(current),
+        publicKeyPem,
+        now,
+      }),
+    ).toMatchObject({ dispatchGeneration: 2, outputArtifactKey: current.outputArtifactKey });
+  });
+
+  it("continues to verify short-lived v1 jobs without issuing new ones", async () => {
+    const token = legacyTokenFor();
+    expect(
+      verifyPreviewBuildJob({
+        token,
+        publicKeyPem,
+        now,
+      }),
+    ).toMatchObject({
+      version: 1,
+      jobId: "11234567-89ab-42cd-8abc-0123456789ab",
+    });
+
+    const builder = await import(
+      new URL(
+        "../../../../infra/aws-preview/builder/job-contract.mjs",
+        import.meta.url,
+      ).href
+    );
+    expect(
+      builder.verifyPreviewBuildJobToken(token, publicKeyPem, now),
+    ).toMatchObject({ version: 1 });
   });
 });

@@ -6,6 +6,7 @@ import {
   inArray,
   isNotNull,
   isNull,
+  lte,
   or,
   sql,
 } from "drizzle-orm";
@@ -19,6 +20,7 @@ import {
 } from "@workspace/db";
 import { z } from "zod/v4";
 import { previewBuildInputObjectKeyForArchive } from "./preview-build-upload.js";
+import { previewBuildOutputArtifactKey } from "./preview-build-output-key.js";
 import {
   isVerifiedPreviewBuildReceipt,
   type VerifiedPreviewBuildReceipt,
@@ -35,6 +37,9 @@ const UUID_PATTERN =
 const HASH_PATTERN = /^[a-f0-9]{64}$/i;
 const IMAGE_DIGEST_PATTERN = /^sha256:[a-f0-9]{64}$/i;
 const MAX_JOB_TTL_MS = 5 * 60_000;
+const DEFAULT_RECONCILIATION_LEASE_MS = 60_000;
+const MIN_RECONCILIATION_LEASE_MS = 5_000;
+const MAX_RECONCILIATION_LEASE_MS = 5 * 60_000;
 const CLOCK_SKEW_MS = 5_000;
 const MAX_SOURCE_ROOT_LENGTH = 512;
 
@@ -258,6 +263,159 @@ const ACTIVE_BUILD_STATUSES = [
   "builder_succeeded",
   "verified",
 ] as const satisfies readonly PreviewBuildJobStatus[];
+const RECONCILIATION_CLAIMABLE_STATUSES = [
+  "queued",
+  "launching",
+  "running",
+  "builder_succeeded",
+] as const satisfies readonly PreviewBuildJobStatus[];
+
+export async function claimPreviewBuildJobsForReconciliation(input: {
+  leaseOwner: string;
+  now: Date;
+  leaseMs?: number;
+  limit?: number;
+  afterJobId?: string;
+}): Promise<PreviewBuildJob[]> {
+  const limit = input.limit ?? 25;
+  const leaseMs = input.leaseMs ?? DEFAULT_RECONCILIATION_LEASE_MS;
+  if (
+    !UUID_PATTERN.test(input.leaseOwner) ||
+    !Number.isFinite(input.now.getTime()) ||
+    !Number.isSafeInteger(limit) ||
+    limit < 1 ||
+    limit > 100 ||
+    !Number.isSafeInteger(leaseMs) ||
+    leaseMs < MIN_RECONCILIATION_LEASE_MS ||
+    leaseMs > MAX_RECONCILIATION_LEASE_MS ||
+    (input.afterJobId !== undefined && !UUID_PATTERN.test(input.afterJobId))
+  ) {
+    throw new PreviewBuildJobStoreError("PREVIEW_BUILD_JOB_INPUT_INVALID");
+  }
+
+  return db.transaction(async (tx) => {
+    const candidates = await tx
+      .select()
+      .from(previewBuildJobsTable)
+      .where(
+        and(
+          inArray(
+            previewBuildJobsTable.status,
+            RECONCILIATION_CLAIMABLE_STATUSES,
+          ),
+          or(
+            isNull(previewBuildJobsTable.reconciliationLeaseExpiresAt),
+            lte(
+              previewBuildJobsTable.reconciliationLeaseExpiresAt,
+              sql`clock_timestamp()`,
+            ),
+          ),
+          ...(input.afterJobId
+            ? [gt(previewBuildJobsTable.jobId, input.afterJobId)]
+            : []),
+        ),
+      )
+      .orderBy(asc(previewBuildJobsTable.jobId))
+      .limit(limit)
+      .for("update", { skipLocked: true });
+
+    const claimed: PreviewBuildJob[] = [];
+    for (const candidate of candidates) {
+      const [job] = await tx
+        .update(previewBuildJobsTable)
+        .set({
+          reconciliationLeaseOwner: input.leaseOwner,
+          reconciliationLeaseExpiresAt: sql`clock_timestamp() + (${leaseMs} * interval '1 millisecond')`,
+        })
+        .where(
+          and(
+            eq(previewBuildJobsTable.jobId, candidate.jobId),
+            eq(previewBuildJobsTable.stateVersion, candidate.stateVersion),
+            inArray(
+              previewBuildJobsTable.status,
+              RECONCILIATION_CLAIMABLE_STATUSES,
+            ),
+            or(
+              isNull(previewBuildJobsTable.reconciliationLeaseExpiresAt),
+              lte(
+                previewBuildJobsTable.reconciliationLeaseExpiresAt,
+                sql`clock_timestamp()`,
+              ),
+            ),
+          ),
+        )
+        .returning();
+      if (job) claimed.push(job);
+    }
+    return claimed;
+  });
+}
+
+export async function renewPreviewBuildJobReconciliationLease(input: {
+  jobId: string;
+  leaseOwner: string;
+  now: Date;
+  leaseMs?: number;
+}): Promise<boolean> {
+  const leaseMs = input.leaseMs ?? DEFAULT_RECONCILIATION_LEASE_MS;
+  if (
+    !UUID_PATTERN.test(input.jobId) ||
+    !UUID_PATTERN.test(input.leaseOwner) ||
+    !Number.isFinite(input.now.getTime()) ||
+    !Number.isSafeInteger(leaseMs) ||
+    leaseMs < MIN_RECONCILIATION_LEASE_MS ||
+    leaseMs > MAX_RECONCILIATION_LEASE_MS
+  ) {
+    throw new PreviewBuildJobStoreError("PREVIEW_BUILD_JOB_INPUT_INVALID");
+  }
+  const renewed = await db
+    .update(previewBuildJobsTable)
+    .set({
+      reconciliationLeaseExpiresAt: sql`clock_timestamp() + (${leaseMs} * interval '1 millisecond')`,
+    })
+    .where(
+      and(
+        eq(previewBuildJobsTable.jobId, input.jobId),
+        eq(previewBuildJobsTable.reconciliationLeaseOwner, input.leaseOwner),
+        gt(
+          previewBuildJobsTable.reconciliationLeaseExpiresAt,
+          sql`clock_timestamp()`,
+        ),
+        inArray(
+          previewBuildJobsTable.status,
+          RECONCILIATION_CLAIMABLE_STATUSES,
+        ),
+      ),
+    )
+    .returning({ jobId: previewBuildJobsTable.jobId });
+  return renewed.length === 1;
+}
+
+export async function releasePreviewBuildJobReconciliationLease(input: {
+  jobId: string;
+  leaseOwner: string;
+}): Promise<boolean> {
+  if (
+    !UUID_PATTERN.test(input.jobId) ||
+    !UUID_PATTERN.test(input.leaseOwner)
+  ) {
+    throw new PreviewBuildJobStoreError("PREVIEW_BUILD_JOB_INPUT_INVALID");
+  }
+  const released = await db
+    .update(previewBuildJobsTable)
+    .set({
+      reconciliationLeaseOwner: null,
+      reconciliationLeaseExpiresAt: null,
+    })
+    .where(
+      and(
+        eq(previewBuildJobsTable.jobId, input.jobId),
+        eq(previewBuildJobsTable.reconciliationLeaseOwner, input.leaseOwner),
+      ),
+    )
+    .returning({ jobId: previewBuildJobsTable.jobId });
+  return released.length === 1;
+}
 
 export async function findActivePreviewBuildJob(input: {
   projectId: string;
@@ -306,6 +464,11 @@ export function previewBuildJobMatchesVerifiedReceipt(
     job.buildId === receipt.buildId &&
     job.outputArtifactKey === receipt.outputArtifactKey &&
     job.builderImageDigest === receipt.builderImageDigest &&
+    (receipt.version === 2
+      ? receipt.attemptId === job.jobId &&
+        receipt.idempotencyKey === job.clientRequestId &&
+        receipt.dispatchGeneration === job.dispatchGeneration
+      : job.dispatchGeneration === 1) &&
     (job.buildReceiptId === null || job.buildReceiptId === receipt.receiptId) &&
     job.outputDigest === receipt.buildOutputDigest
   );
@@ -473,7 +636,7 @@ export async function createQueuedPreviewBuildJob(
       sourceDigest: input.sourceDigest.toLowerCase(),
       archiveDigest: input.archiveDigest.toLowerCase(),
     });
-    const outputArtifactKey = `preview-build-outputs/${buildId}/site.tar.gz`;
+    const outputArtifactKey = previewBuildOutputArtifactKey(buildId, 1);
     const [created] = await tx
       .insert(previewBuildJobsTable)
       .values({
@@ -502,6 +665,7 @@ export async function createQueuedPreviewBuildJob(
         builderImageDigest: input.builderImageDigest.toLowerCase(),
         issuedAt: input.issuedAt,
         tokenExpiresAt: input.tokenExpiresAt,
+        dispatchGeneration: 1,
       })
       .onConflictDoNothing({
         target: [
@@ -629,32 +793,33 @@ export type PreviewBuildJobTransitionInput = {
   jobId: string;
   expectedStatus: PreviewBuildJobStatus;
   expectedVersion: number;
+  expectedLeaseOwner?: string;
   now: Date;
 } & (
   | {
       nextStatus: "launching" | "expired" | "cancelled";
-      builderTaskArn?: never;
+      executionRef?: never;
       outputDigest?: never;
       failureCode?: never;
       verifiedReceipt?: never;
     }
   | {
       nextStatus: "running";
-      builderTaskArn: string;
+      executionRef: string;
       outputDigest?: never;
       failureCode?: never;
       verifiedReceipt?: never;
     }
   | {
       nextStatus: "builder_succeeded";
-      builderTaskArn: string;
+      executionRef: string;
       outputDigest: string;
       failureCode?: never;
       verifiedReceipt?: never;
     }
   | {
       nextStatus: "verified";
-      builderTaskArn: string;
+      executionRef: string;
       verifiedReceipt: VerifiedPreviewBuildReceipt;
       outputDigest?: never;
       failureCode?: never;
@@ -662,7 +827,7 @@ export type PreviewBuildJobTransitionInput = {
   | {
       nextStatus: "failed";
       failureCode: string;
-      builderTaskArn?: never;
+      executionRef?: never;
       outputDigest?: never;
       verifiedReceipt?: never;
     }
@@ -673,6 +838,8 @@ export async function transitionPreviewBuildJob(
 ): Promise<PreviewBuildJob | null> {
   if (
     !UUID_PATTERN.test(input.jobId) ||
+    (input.expectedLeaseOwner !== undefined &&
+      !UUID_PATTERN.test(input.expectedLeaseOwner)) ||
     !Number.isSafeInteger(input.expectedVersion) ||
     input.expectedVersion < 0 ||
     !Number.isFinite(input.now.getTime())
@@ -689,7 +856,7 @@ export async function transitionPreviewBuildJob(
       throw new Error("A verified receipt is required.");
     }
     assertPreviewBuildJobTransitionData(input.nextStatus, {
-      builderTaskArn: input.builderTaskArn,
+      executionRef: input.executionRef,
       outputDigest:
         input.nextStatus === "verified"
           ? input.verifiedReceipt.buildOutputDigest
@@ -706,6 +873,26 @@ export async function transitionPreviewBuildJob(
 
   if (input.nextStatus === "verified") {
     const receipt = input.verifiedReceipt;
+    const leasePredicates =
+      input.expectedLeaseOwner === undefined
+        ? []
+        : [
+            eq(
+              previewBuildJobsTable.reconciliationLeaseOwner,
+              input.expectedLeaseOwner,
+            ),
+            gt(
+              previewBuildJobsTable.reconciliationLeaseExpiresAt,
+              sql`clock_timestamp()`,
+            ),
+          ];
+    const leasePatch =
+      input.expectedLeaseOwner === undefined
+        ? {}
+        : {
+            reconciliationLeaseOwner: null,
+            reconciliationLeaseExpiresAt: null,
+          };
     return db.transaction(async (tx) => {
       const [snapshot] = await tx
         .select()
@@ -752,6 +939,7 @@ export async function transitionPreviewBuildJob(
             eq(previewBuildJobsTable.jobId, input.jobId),
             eq(previewBuildJobsTable.status, input.expectedStatus),
             eq(previewBuildJobsTable.stateVersion, input.expectedVersion),
+            ...leasePredicates,
           ),
         )
         .for("update");
@@ -759,7 +947,7 @@ export async function transitionPreviewBuildJob(
       if (
         !previewBuildJobMatchesVerifiedReceipt(current, receipt) ||
         Date.parse(receipt.expiresAt) <= input.now.getTime() ||
-        current.builderTaskArn !== input.builderTaskArn
+        current.executionRef !== input.executionRef
       ) {
         throw new PreviewBuildJobStoreError(
           "PREVIEW_BUILD_JOB_TRANSITION_INVALID",
@@ -775,13 +963,15 @@ export async function transitionPreviewBuildJob(
           completedAt: input.now,
           updatedAt: input.now,
           stateVersion: sql<number>`${previewBuildJobsTable.stateVersion} + 1`,
+          ...leasePatch,
         })
         .where(
           and(
             eq(previewBuildJobsTable.jobId, input.jobId),
             eq(previewBuildJobsTable.status, input.expectedStatus),
             eq(previewBuildJobsTable.stateVersion, input.expectedVersion),
-            eq(previewBuildJobsTable.builderTaskArn, input.builderTaskArn),
+            eq(previewBuildJobsTable.executionRef, input.executionRef),
+            ...leasePredicates,
             eq(
               previewBuildJobsTable.outputDigest,
               receipt.buildOutputDigest.toLowerCase(),
@@ -799,9 +989,16 @@ export async function transitionPreviewBuildJob(
   > = {
     status: input.nextStatus,
     updatedAt: input.now,
+    ...(input.expectedLeaseOwner !== undefined &&
+    ["failed", "expired", "cancelled"].includes(input.nextStatus)
+      ? {
+          reconciliationLeaseOwner: null,
+          reconciliationLeaseExpiresAt: null,
+        }
+      : {}),
   };
   if (input.nextStatus === "running") {
-    patch.builderTaskArn = input.builderTaskArn;
+    patch.executionRef = input.executionRef;
     patch.startedAt = input.now;
   } else if (input.nextStatus === "builder_succeeded") {
     patch.outputDigest = input.outputDigest?.toLowerCase();
@@ -822,7 +1019,7 @@ export async function transitionPreviewBuildJob(
   ];
   if (input.nextStatus === "builder_succeeded") {
     predicates.push(
-      eq(previewBuildJobsTable.builderTaskArn, input.builderTaskArn!),
+      eq(previewBuildJobsTable.executionRef, input.executionRef!),
     );
   }
   if (input.nextStatus === "launching") {
@@ -830,6 +1027,18 @@ export async function transitionPreviewBuildJob(
       gt(previewBuildJobsTable.tokenExpiresAt, input.now),
       isNotNull(previewBuildJobsTable.inputArtifactReadyAt),
       eq(previewBuildJobsTable.inputArtifactGcState, "active"),
+    );
+  }
+  if (input.expectedLeaseOwner !== undefined) {
+    predicates.push(
+      eq(
+        previewBuildJobsTable.reconciliationLeaseOwner,
+        input.expectedLeaseOwner,
+      ),
+      gt(
+        previewBuildJobsTable.reconciliationLeaseExpiresAt,
+        sql`clock_timestamp()`,
+      ),
     );
   }
 

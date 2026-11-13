@@ -5,6 +5,7 @@ import {
   verify as verifyBytes,
   type KeyObject,
 } from "node:crypto";
+import { isPreviewBuildOutputArtifactKey } from "./preview-build-output-key.js";
 
 const DOMAIN = Buffer.from(
   "EngineeringOS Preview Build Observation v1\n",
@@ -16,8 +17,6 @@ const CLOCK_SKEW_MS = 5_000;
 const UUID_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const IMAGE_DIGEST_PATTERN = /^sha256:[a-f0-9]{64}$/i;
-const OUTPUT_KEY_PATTERN =
-  /^preview-build-outputs\/([0-9a-f-]{36})\/site\.tar\.gz$/i;
 
 export type PreviewBuildObservationClaims = {
   version: 1;
@@ -111,11 +110,6 @@ function validateClaims(
     "issuedAt",
     "expiresAt",
   ];
-  const keyMatch = OUTPUT_KEY_PATTERN.exec(
-    typeof record.outputArtifactKey === "string"
-      ? record.outputArtifactKey
-      : "",
-  );
   const issuedAt = Date.parse(String(record.issuedAt));
   const expiresAt = Date.parse(String(record.expiresAt));
   if (
@@ -131,8 +125,9 @@ function validateClaims(
     !UUID_PATTERN.test(record.buildId) ||
     typeof record.builderImageDigest !== "string" ||
     !IMAGE_DIGEST_PATTERN.test(record.builderImageDigest) ||
-    !keyMatch ||
-    keyMatch[1]?.toLowerCase() !== record.buildId.toLowerCase() ||
+    !isPreviewBuildOutputArtifactKey(record.outputArtifactKey, {
+      buildId: record.buildId,
+    }) ||
     (record.taskArn !== undefined &&
       (typeof record.taskArn !== "string" ||
         !/^arn:(aws|aws-us-gov|aws-cn):ecs:[a-z0-9-]+:\d{12}:task\/[A-Za-z0-9_-]+\/[a-f0-9]{32}$/i.test(

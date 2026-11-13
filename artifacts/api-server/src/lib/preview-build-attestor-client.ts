@@ -99,9 +99,12 @@ function claimsForJob(job: PreviewBuildJob, now: Date): PreviewBuildJobClaims {
   const issuedAt = now.toISOString();
   const expiresAt = new Date(now.getTime() + 5 * 60_000).toISOString();
   return {
-    version: 1,
+    version: 2,
     action: "preview-build",
     jobId: job.jobId,
+    attemptId: job.jobId,
+    idempotencyKey: job.clientRequestId,
+    dispatchGeneration: job.dispatchGeneration,
     buildId: job.buildId,
     builderProfile: "vite-react-static-v1",
     builderImageDigest: job.builderImageDigest,
@@ -125,16 +128,16 @@ export async function attestPreviewBuildJob(input: {
   gatewayUrl: string;
   privateKeyPem: string;
   job: PreviewBuildJob;
-  builderTaskArn: string;
+  executionRef: string;
   now?: Date;
   fetcher?: typeof fetch;
 }): Promise<PreviewBuildAttestorResult> {
   if (
     input.job.status !== "builder_succeeded" ||
-    !input.job.builderTaskArn ||
-    input.job.builderTaskArn !== input.builderTaskArn ||
+    !input.job.executionRef ||
+    input.job.executionRef !== input.executionRef ||
     !/^arn:(aws|aws-us-gov|aws-cn):ecs:[a-z0-9-]+:\d{12}:task\/[A-Za-z0-9_-]+\/[a-f0-9]{32}$/i.test(
-      input.builderTaskArn,
+      input.executionRef,
     )
   ) {
     throw new PreviewBuildAttestorClientError();
@@ -169,7 +172,7 @@ export async function attestPreviewBuildJob(input: {
   }
   const body = JSON.stringify({
     token,
-    builderTaskArn: input.builderTaskArn,
+    builderTaskArn: input.executionRef,
   });
   if (Buffer.byteLength(body, "utf8") > MAX_REQUEST_BYTES) {
     throw new PreviewBuildAttestorClientError();

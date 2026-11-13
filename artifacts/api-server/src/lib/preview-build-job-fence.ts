@@ -1,4 +1,4 @@
-import type { PreviewBuildJobClaims } from "./preview-build-job.js";
+import type { VerifiedPreviewBuildJobClaims } from "./preview-build-job.js";
 
 export type PreviewBuildJobFence = {
   claimOrResume(input: {
@@ -87,7 +87,7 @@ export function createDynamoPreviewBuildJobFenceStorage(input: {
 }
 
 export function previewBuildJobFenceExpiry(
-  claims: Pick<PreviewBuildJobClaims, "expiresAt">,
+  claims: Pick<VerifiedPreviewBuildJobClaims, "expiresAt">,
 ): number {
   return Math.floor(Date.parse(claims.expiresAt) / 1_000) + 86_400;
 }
