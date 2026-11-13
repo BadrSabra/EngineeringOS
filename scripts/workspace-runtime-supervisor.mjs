@@ -18,7 +18,18 @@ const MAX_PROC_ENTRIES = 8_192;
 const MAX_FD_ENTRIES = 4_096;
 const MAX_PROC_STAT_BYTES = 16 * 1024;
 const MAX_TCP_TABLE_BYTES = 2 * 1024 * 1024;
-const SAFE_ENV_NAMES = /^(?:PATH|HOME|USER|SHELL|LANG|LC_[A-Z_]+|TERM|TMPDIR|PNPM_HOME|npm_config_[A-Za-z0-9_]+)$/;
+const SAFE_ENV_NAMES = new Set([
+  "PATH",
+  "HOME",
+  "USER",
+  "SHELL",
+  "LANG",
+  "TERM",
+  "TMPDIR",
+  "PNPM_HOME",
+]);
+const SAFE_LOCALE_ENV_NAME = /^LC_[A-Z_]+$/;
+const ALLOWED_PROJECTS_ROOT = process.env.WORKSPACE_RUNTIME_ALLOWED_ROOT;
 const SUPERVISOR_AUTH_CONTEXT = "EngineeringOS/workspace-runtime-supervisor/v1";
 const CHILD_ATTESTATION_ENV_NAME = "ENGINEERINGOS_CHILD_ATTESTATION";
 const sessions = new Map();
@@ -28,6 +39,12 @@ let portReservationTail = Promise.resolve();
 
 if (BIND_HOST !== "127.0.0.1") {
   throw new Error("Workspace runtime supervisor must bind to a loopback address.");
+}
+if (
+  typeof ALLOWED_PROJECTS_ROOT !== "string"
+  || !path.isAbsolute(ALLOWED_PROJECTS_ROOT)
+) {
+  throw new Error("Workspace runtime allowed project root is not configured.");
 }
 if (!Number.isInteger(PORT) || PORT < 1 || PORT > 65_535) {
   throw new Error("Workspace runtime supervisor port is invalid.");
@@ -77,7 +94,12 @@ function isSafeProjectId(value) {
 function runtimeEnv(port, attestationMarker) {
   const env = {};
   for (const [name, value] of Object.entries(process.env)) {
-    if (value !== undefined && SAFE_ENV_NAMES.test(name)) env[name] = value;
+    if (
+      value !== undefined
+      && (SAFE_ENV_NAMES.has(name) || SAFE_LOCALE_ENV_NAME.test(name))
+    ) {
+      env[name] = value;
+    }
   }
   env.NODE_ENV = "development";
   env.PORT = String(port);
@@ -498,6 +520,22 @@ async function waitForReady(child, port) {
 }
 
 async function validateProjectRoot(candidate) {
+  let allowedRoot;
+  try {
+    allowedRoot = await realpath(ALLOWED_PROJECTS_ROOT);
+    if (
+      allowedRoot !== path.resolve(ALLOWED_PROJECTS_ROOT)
+      || !(await stat(allowedRoot)).isDirectory()
+    ) {
+      throw new Error("Configured project root is not canonical.");
+    }
+  } catch {
+    throw Object.assign(
+      new Error("The configured workspace runtime root policy is unavailable."),
+      { status: 503 },
+    );
+  }
+
   if (typeof candidate !== "string" || !path.isAbsolute(candidate)) {
     throw Object.assign(new Error("A canonical registered project root is required."), { status: 400 });
   }
@@ -507,12 +545,20 @@ async function validateProjectRoot(candidate) {
     if (resolved !== path.resolve(candidate) || !(await stat(resolved)).isDirectory()) {
       throw new Error("Project root is not canonical.");
     }
+    const relative = path.relative(allowedRoot, resolved);
+    if (
+      relative === ".."
+      || relative.startsWith(`..${path.sep}`)
+      || path.isAbsolute(relative)
+    ) {
+      throw new Error("Project root is outside the configured workspace.");
+    }
     const manifest = JSON.parse(await readFile(path.join(resolved, "package.json"), "utf8"));
     if (typeof manifest.scripts?.dev !== "string" || !manifest.scripts.dev.trim()) {
       throw new Error("Project dev script is unavailable.");
     }
   } catch {
-    throw Object.assign(new Error("The registered project root is unavailable or invalid."), { status: 400 });
+    throw Object.assign(new Error("The registered project root is unavailable or outside the configured workspace."), { status: 400 });
   }
   return resolved;
 }
