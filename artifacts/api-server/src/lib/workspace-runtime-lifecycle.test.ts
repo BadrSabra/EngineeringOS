@@ -16,7 +16,7 @@ import type { WorkspaceRuntimeSupervisorClient } from "./workspace-runtime-super
 
 type SupervisorSession = {
   projectId: string;
-  ownerProjectId: string;
+  ownerProjectId?: string;
   sessionId: string;
   status: "starting" | "running" | "stopped" | "failed";
   port: number | null;
