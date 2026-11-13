@@ -24,14 +24,14 @@ import {
   RUNTIME_LEASE_MS,
 } from "./workspace-runtime-store.js";
 import {
-  deriveWorkspaceRuntimeSupervisorToken,
+  createWorkspaceRuntimeSupervisorStateVersion,
   WorkspaceRuntimeSupervisorClient,
 } from "./workspace-runtime-supervisor-client.js";
+import { startWorkspaceRuntimeSupervisorTestFixture } from "./workspace-runtime-supervisor-test-fixture.js";
 
 const projectIds: string[] = [];
 const roots: string[] = [];
 const apiServerRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
-const supervisorScriptPath = path.resolve(apiServerRoot, "../../scripts/workspace-runtime-supervisor.mjs");
 const runtimeRecoveryTestSecret = "runtime-start-response-loss-isolated-test-secret";
 
 afterEach(async () => {
@@ -183,21 +183,20 @@ async function waitForJsonFile<T>(
   throw new Error(`Timed out waiting for ${description}; ${output()}`);
 }
 
-async function waitForSupervisor(child: ChildProcess, port: number): Promise<void> {
+async function waitForSupervisor(child: ChildProcess, socketPath: string): Promise<void> {
   const deadline = Date.now() + 10_000;
   while (Date.now() < deadline) {
     if (child.exitCode !== null || child.signalCode !== null) {
-      throw new Error(`Isolated runtime supervisor exited before becoming ready.`);
+      throw new Error("Isolated runtime supervisor exited before becoming ready.");
     }
     try {
-      const response = await fetch(`http://127.0.0.1:${port}/healthz`);
-      if (response.ok) return;
+      if ((await fs.lstat(socketPath)).isSocket()) return;
     } catch {
       // The isolated supervisor has not started listening yet.
     }
     await new Promise((resolve) => setTimeout(resolve, 50));
   }
-  throw new Error("Timed out waiting for the isolated runtime supervisor.");
+  throw new Error("Timed out waiting for the isolated runtime supervisor Unix socket.");
 }
 
 async function stopProcess(child: ChildProcess, signal: NodeJS.Signals = "SIGTERM"): Promise<void> {
@@ -508,18 +507,10 @@ describe("database workspace runtime store", () => {
         [independentProjectId, path.join(root, "project-b")],
       ]);
       const runtimeListenGate = path.join(root, "allow-runtime-listeners");
-      const supervisorPort = await reserveLoopbackPort();
-      const supervisor = spawn(process.execPath, [supervisorScriptPath], {
-        cwd: apiServerRoot,
-        env: {
-          PATH: process.env.PATH ?? "",
-          HOME: process.env.HOME ?? os.tmpdir(),
-          SESSION_SECRET: runtimeRecoveryTestSecret,
-          WORKSPACE_RUNTIME_SUPERVISOR_PORT: String(supervisorPort),
-          WORKSPACE_RUNTIME_ALLOWED_ROOTS_JSON: JSON.stringify([os.tmpdir()]),
-        },
-        stdio: ["ignore", "ignore", "ignore"],
+      const supervisorFixture = await startWorkspaceRuntimeSupervisorTestFixture({
+        allowedRoots: [os.tmpdir()],
       });
+      const supervisor = supervisorFixture.child;
       const barrierResponses: import("node:http").ServerResponse[] = [];
       const beginBarrier = createServer((_request, response) => {
         barrierResponses.push(response);
@@ -605,7 +596,7 @@ describe("database workspace runtime store", () => {
         await contendedProjectLockAcquired;
 
         const barrierPort = await listenLoopback(beginBarrier);
-        await waitForSupervisor(supervisor, supervisorPort);
+        await waitForSupervisor(supervisor, supervisorFixture.socketPath);
 
         const workerSpecs = [
           { suffix: "a", projectId: contendedProjectId },
@@ -635,8 +626,8 @@ describe("database workspace runtime store", () => {
             "  const goFile = process.env.RUNTIME_TEST_GO_FILE;",
             "  const resultFile = process.env.RUNTIME_TEST_RESULT_FILE;",
             "  const barrierUrl = process.env.RUNTIME_TEST_BARRIER_URL;",
-            "  const supervisorUrl = process.env.RUNTIME_TEST_SUPERVISOR_URL;",
-            "  if (!projectId || !projectRoot || !revision || !workerId || !readyFile || !goFile || !resultFile || !barrierUrl || !supervisorUrl) throw new Error('Concurrent runtime worker configuration is incomplete.');",
+            "  const supervisorSocketPath = process.env.WORKSPACE_RUNTIME_SUPERVISOR_SOCKET_PATH;",
+            "  if (!projectId || !projectRoot || !revision || !workerId || !readyFile || !goFile || !resultFile || !barrierUrl || !supervisorSocketPath) throw new Error('Concurrent runtime worker configuration is incomplete.');",
             "  const store = {",
             "    ...databaseWorkspaceRuntimeStore,",
             "    async begin(input) {",
@@ -651,7 +642,7 @@ describe("database workspace runtime store", () => {
             "  };",
             "  const manager = new WorkspaceRuntimeManager({",
             "    store, workerId, heartbeatIntervalMs: 1000,",
-            "    supervisor: new WorkspaceRuntimeSupervisorClient(supervisorUrl),",
+            "    supervisor: new WorkspaceRuntimeSupervisorClient(),",
             "  });",
             "  process.once('SIGTERM', () => {",
             "    void manager.shutdown().then(() => process.exit(0)).catch((error) => { console.error(error); process.exit(1); });",
@@ -677,6 +668,7 @@ describe("database workspace runtime store", () => {
               PGAPPNAME: applicationName,
               NODE_ENV: "test",
               SESSION_SECRET: runtimeRecoveryTestSecret,
+              ...supervisorFixture.clientEnvironment,
               PATH: process.env.PATH ?? "",
               HOME: process.env.HOME ?? os.tmpdir(),
               AI_PROVIDER_EGRESS_DISABLED: "1",
@@ -688,7 +680,6 @@ describe("database workspace runtime store", () => {
               RUNTIME_TEST_GO_FILE: path.join(root, "go"),
               RUNTIME_TEST_RESULT_FILE: resultFile,
               RUNTIME_TEST_BARRIER_URL: `http://127.0.0.1:${barrierPort}/begin`,
-              RUNTIME_TEST_SUPERVISOR_URL: `http://127.0.0.1:${supervisorPort}`,
             },
             stdio: ["pipe", "pipe", "pipe"],
           });
@@ -863,15 +854,23 @@ describe("database workspace runtime store", () => {
         await fs.writeFile(runtimeListenGate, "cleanup").catch(() => undefined);
         await lockHolder?.catch(() => undefined);
         for (const runtimeSession of runtimeSessions) {
-          await new WorkspaceRuntimeSupervisorClient(
-            `http://127.0.0.1:${supervisorPort}`,
-            fetch,
-            deriveWorkspaceRuntimeSupervisorToken(runtimeRecoveryTestSecret),
-          ).stop({
-            projectId: runtimeSession.projectId,
-            sessionId: runtimeSession.sessionId,
-            pid: runtimeSession.pid,
-          }).catch(() => undefined);
+          const persistedSession = await databaseWorkspaceRuntimeStore.get(runtimeSession.projectId);
+          if (persistedSession?.startedAt) {
+            await new WorkspaceRuntimeSupervisorClient(
+              supervisorFixture.socketPath,
+              supervisorFixture.signingPrivateKeyBase64,
+            ).stop({
+              projectId: runtimeSession.projectId,
+              sessionId: runtimeSession.sessionId,
+              stateVersion: createWorkspaceRuntimeSupervisorStateVersion({
+                projectId: runtimeSession.projectId,
+                sessionId: runtimeSession.sessionId,
+                revision: persistedSession.revision,
+                startedAt: persistedSession.startedAt.toISOString(),
+              }),
+              pid: runtimeSession.pid,
+            }).catch(() => undefined);
+          }
         }
         await Promise.all(workerProcesses.map(async ({ child, applicationName }) => {
           if (child.exitCode === null && child.signalCode === null) await stopProcess(child);
@@ -883,7 +882,7 @@ describe("database workspace runtime store", () => {
         if (beginBarrier.listening) {
           await new Promise<void>((resolve) => beginBarrier.close(() => resolve()));
         }
-        await stopProcess(supervisor);
+        await supervisorFixture.stop();
       }
     },
     120_000,
