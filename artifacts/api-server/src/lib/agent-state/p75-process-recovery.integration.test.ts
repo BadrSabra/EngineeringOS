@@ -33,7 +33,10 @@ import {
 } from "./environment-attestation.js";
 import { buildRuntimeStartHypothesisExperimentRegistration } from "./runtime-start-hypothesis-experiment.js";
 import { prepareRecipeOperation } from "../recipe-operation-runner.js";
-import { WorkspaceRuntimeSupervisorClient } from "../workspace-runtime-supervisor-client.js";
+import {
+  createWorkspaceRuntimeSupervisorStateVersion,
+  WorkspaceRuntimeSupervisorClient,
+} from "../workspace-runtime-supervisor-client.js";
 
 const apiRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../../");
 const workspaceRoot = path.resolve(apiRoot, "../..");
@@ -521,13 +524,31 @@ describe("P7.5 process recovery", () => {
       expect(closedEpisodes.every((episode) => episode.state === "completed")).toBe(true);
     } finally {
       if (runtimeSessionId) {
+        const [runtimeRow] = await db.select()
+          .from(workspaceRuntimeTable)
+          .where(eq(workspaceRuntimeTable.projectId, projectId))
+          .limit(1);
+        if (
+          !runtimeRow
+          || runtimeRow.sessionId !== runtimeSessionId
+          || !runtimeRow.revision
+          || !runtimeRow.startedAt
+        ) {
+          throw new Error("Cannot stop the P7.5 runtime without its exact persisted Supervisor identity.");
+        }
         await supervisor.stop({
           projectId,
           ownerProjectId: projectId,
           sessionId: runtimeSessionId,
-          projectRoot: rootPath,
+          stateVersion: createWorkspaceRuntimeSupervisorStateVersion({
+            projectId,
+            sessionId: runtimeSessionId,
+            revision: runtimeRow.revision,
+            startedAt: runtimeRow.startedAt.toISOString(),
+          }),
+          projectRoot: runtimeRow.projectRoot,
           pid: runtimePid ?? null,
-        }).catch(async () => terminateRuntimeGroup(runtimePid));
+        });
       } else {
         await terminateRuntimeGroup(runtimePid);
       }
