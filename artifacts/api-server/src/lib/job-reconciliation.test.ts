@@ -1016,6 +1016,7 @@ describe("periodic stale scan recovery and durable health", () => {
     const missionBlockedTaskId = randomUUID();
     const scheduledFutureTaskId = randomUUID();
     const claimedExecutionTaskId = randomUUID();
+    const orphanedIntentId = `task-auto-execution-orphan:${randomUUID()}`;
     await db.insert(tasksTable).values([
       {
         id: taskId,
@@ -1116,6 +1117,21 @@ describe("periodic stale scan recovery and durable health", () => {
           nextAttemptAt: new Date(Date.now() - 1_000).toISOString(),
         },
       },
+      {
+        id: orphanedIntentId,
+        type: "TaskAutoExecutionDeferred",
+        projectId,
+        taskId: null,
+        severity: "warning",
+        message: "A previous Task delete left an orphaned dispatch intent.",
+        timestamp: new Date(),
+        payload: {
+          userId: "test-user",
+          taskRetryCount: 0,
+          attemptCount: 1,
+          lastFailureCode: "AUTO_EXECUTION_PRECLAIM_FAILED",
+        },
+      },
     ]);
     const stageName = `health-fixture-${randomUUID()}`;
     try {
@@ -1130,7 +1146,7 @@ describe("periodic stale scan recovery and durable health", () => {
       });
       const health = await getDurableJobHealth();
       expect(health.status).toBe("degraded");
-      expect(health.deferredAiTaskDispatches - baseline.deferredAiTaskDispatches).toBeGreaterThanOrEqual(4);
+      expect(health.deferredAiTaskDispatches - baseline.deferredAiTaskDispatches).toBeGreaterThanOrEqual(5);
       const rateLimitedDispatches = health.deferredAiTaskDispatchesByReason.find(
         (entry) => entry.reasonCode === "PROJECT_RATE_LIMITED",
       );
@@ -1147,7 +1163,11 @@ describe("periodic stale scan recovery and durable health", () => {
         (entry) => entry.reasonCode === "EXECUTION_IDENTITY_CONFLICT",
       );
       expect(executionIdentityConflicts?.count).toBeGreaterThanOrEqual(1);
-      expect(health.staleAiTaskDispatches - baseline.staleAiTaskDispatches).toBeGreaterThanOrEqual(3);
+      const otherDispatches = health.deferredAiTaskDispatchesByReason.find(
+        (entry) => entry.reasonCode === "OTHER",
+      );
+      expect(otherDispatches?.count).toBeGreaterThanOrEqual(1);
+      expect(health.staleAiTaskDispatches - baseline.staleAiTaskDispatches).toBeGreaterThanOrEqual(4);
       expect(health.staleAiTaskDispatches - baseline.staleAiTaskDispatches)
         .toBeLessThan(health.deferredAiTaskDispatches - baseline.deferredAiTaskDispatches);
       expect(health.oldestAiTaskDispatchAt).not.toBeNull();
@@ -1165,6 +1185,7 @@ describe("periodic stale scan recovery and durable health", () => {
       await db.delete(eventsTable).where(eq(eventsTable.id, `task-auto-execution-deferred:${missionBlockedTaskId}`));
       await db.delete(eventsTable).where(eq(eventsTable.id, `task-auto-execution-deferred:${scheduledFutureTaskId}`));
       await db.delete(eventsTable).where(eq(eventsTable.id, `task-auto-execution-deferred:${claimedExecutionTaskId}`));
+      await db.delete(eventsTable).where(eq(eventsTable.id, orphanedIntentId));
     }
   });
 });
