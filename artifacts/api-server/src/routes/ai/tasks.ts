@@ -649,6 +649,8 @@ async function runAiTaskExecution(
             .from(aiExecutionsTable)
             .where(and(
               eq(aiExecutionsTable.linkedTaskId, taskId),
+              eq(aiExecutionsTable.projectId, task.projectId),
+              eq(aiExecutionsTable.userId, userId),
               eq(aiExecutionsTable.correlationId, correlationId),
               inArray(aiExecutionsTable.status, ["queued", "running", "paused", "cancelling"]),
             ))
