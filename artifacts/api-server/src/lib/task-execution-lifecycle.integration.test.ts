@@ -1414,7 +1414,6 @@ describe("real durable task execution lifecycle", () => {
           request: {
             projectId,
             linkedTaskId: taskId,
-            correlationId,
             attempt: 0,
             message: "Stored Task execution identity fixture",
             modelMessage: "Stored Task execution identity fixture",
@@ -3153,6 +3152,7 @@ describe("real durable task execution lifecycle", () => {
     const userId = "lifecycle-rate-limit-user";
     const now = new Date();
     const retryAfterMs = 60_000;
+    const outboxId = `task-auto-execution-deferred:${taskId}`;
     await db.insert(projectsTable).values({
       id: projectId,
       ownerId: userId,
@@ -3240,7 +3240,6 @@ describe("real durable task execution lifecycle", () => {
       if (!taskBeforeResume?.correlationId) {
         throw new Error("Task correlation identity was not persisted before resume.");
       }
-      const outboxId = `task-auto-execution-deferred:${taskId}`;
       await db.insert(eventsTable).values({
         id: outboxId,
         type: "TaskAutoExecutionDeferred",
