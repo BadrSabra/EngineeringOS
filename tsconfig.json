@@ -23,6 +23,12 @@
     },
     {
       "path": "./lib/preview-runner-contract"
+    },
+    {
+      "path": "./lib/preview-agent-contract"
+    },
+    {
+      "path": "./lib/preview-agent-client"
     }
   ]
 }

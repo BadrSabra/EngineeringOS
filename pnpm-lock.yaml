@@ -201,6 +201,9 @@ importers:
       '@workspace/knowledge-engine':
         specifier: workspace:*
         version: link:../../lib/knowledge-engine
+      '@workspace/preview-agent-contract':
+        specifier: workspace:*
+        version: link:../../lib/preview-agent-contract
       '@workspace/preview-runner-contract':
         specifier: workspace:*
         version: link:../../lib/preview-runner-contract
@@ -999,6 +1002,28 @@ importers:
       '@vitest/coverage-v8':
         specifier: ^4.1.10
         version: 4.1.10(vitest@4.1.10)
+      vitest:
+        specifier: ^4.1.10
+        version: 4.1.10(@types/node@25.9.4)(@vitest/coverage-v8@4.1.10)(jiti@2.7.0)(jsdom@29.1.1(@noble/hashes@1.8.0))(lightningcss@1.32.0)(tsx@4.23.0)(yaml@2.9.0)
+
+  lib/preview-agent-client:
+    dependencies:
+      '@workspace/preview-agent-contract':
+        specifier: workspace:*
+        version: link:../preview-agent-contract
+    devDependencies:
+      '@types/node':
+        specifier: 'catalog:'
+        version: 25.9.4
+      vitest:
+        specifier: ^4.1.10
+        version: 4.1.10(@types/node@25.9.4)(@vitest/coverage-v8@4.1.10)(jiti@2.7.0)(jsdom@29.1.1(@noble/hashes@1.8.0))(lightningcss@1.32.0)(tsx@4.23.0)(yaml@2.9.0)
+
+  lib/preview-agent-contract:
+    devDependencies:
+      '@types/node':
+        specifier: 'catalog:'
+        version: 25.9.4
       vitest:
         specifier: ^4.1.10
         version: 4.1.10(@types/node@25.9.4)(@vitest/coverage-v8@4.1.10)(jiti@2.7.0)(jsdom@29.1.1(@noble/hashes@1.8.0))(lightningcss@1.32.0)(tsx@4.23.0)(yaml@2.9.0)

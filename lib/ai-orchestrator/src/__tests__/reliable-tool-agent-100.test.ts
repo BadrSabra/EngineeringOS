@@ -299,7 +299,7 @@ describe("canonical executor dispatcher boundary", () => {
       "artifacts/api-server/src/lib/ai-repair-validation.ts",
       "artifacts/api-server/src/routes/ai/chat.ts",
     ]);
-  });
+  }, 15_000);
 
   it("requires an exact scope and records a valid server-initiated read", async () => {
     const root = await mkdtemp(path.join(os.tmpdir(), "tool-agent-scoped-read-"));

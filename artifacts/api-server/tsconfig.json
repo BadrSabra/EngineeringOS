@@ -25,6 +25,9 @@
       "path": "../../lib/knowledge-engine"
     },
     {
+      "path": "../../lib/preview-agent-contract"
+    },
+    {
       "path": "../../lib/ai-orchestrator"
     }
   ]

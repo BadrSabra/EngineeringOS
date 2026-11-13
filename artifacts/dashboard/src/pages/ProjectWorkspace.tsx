@@ -1,5 +1,6 @@
 import { useQueryClient } from '@tanstack/react-query';
 import { useWorkspaceEventStream } from '@/pages/project-workspace/use-workspace-event-stream';
+import PreviewAgentPanel from '@/pages/project-workspace/PreviewAgentPanel';
 import type { ReactNode } from 'react';
 import { Link, useRoute } from 'wouter';
 import { Activity, AlertTriangle, ArrowRight, Check, Clock3, Code2, GitBranch, Layers3, RefreshCw, ShieldCheck, Sparkles, Terminal } from 'lucide-react';
@@ -321,6 +322,8 @@ export default function ProjectWorkspace() {
               </div>
             )}
           </section>
+
+          <PreviewAgentPanel projectId={project.id} />
 
           <div className="workspace-observed">
             <ShieldCheck className="h-3.5 w-3.5" />

@@ -1636,6 +1636,11 @@ describe("chat agent — OpenRouter streaming normalisation (AI-03)", () => {
       geminiCompleteRaw: vi.fn(),
       geminiCompleteStream: vi.fn(),
     }));
+    // This assertion is about carrying the actual model into the correction
+    // call. Keep the model live in a deterministic catalog snapshot instead
+    // of letting a provider/network refresh change the test's premise.
+    const { _setSnapshotForTest } = await import("../openrouter/dynamic-catalog.js");
+    _setSnapshotForTest(["liquid/lfm-2.5-2.6b:free"]);
 
     const deltas: string[] = [];
     const chat = await loadChatWithTestLifecycleSinks();
