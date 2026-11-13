@@ -828,7 +828,7 @@ export async function discardDeferredAiTaskIntentIfUnchanged(intent: {
   type: string;
   projectId: string;
   taskId: string | null;
-  timestamp: Date;
+  timestampKey: string;
   payload: unknown;
   reason: "ineligible" | "invalid_payload";
 }): Promise<boolean> {
@@ -868,7 +868,10 @@ export async function discardDeferredAiTaskIntentIfUnchanged(intent: {
         eq(eventsTable.type, intent.type),
         eq(eventsTable.projectId, intent.projectId),
         taskPredicate,
-        eq(eventsTable.timestamp, intent.timestamp),
+        eq(
+          sql<string>`to_char(${eventsTable.timestamp}, 'YYYY-MM-DD"T"HH24:MI:SS.US')`,
+          intent.timestampKey,
+        ),
         sql`${eventsTable.payload} IS NOT DISTINCT FROM ${payloadJson}::jsonb`,
       ))
       .returning({ id: eventsTable.id });
@@ -888,7 +891,7 @@ export async function dispatchDeferredAiTaskExecutions(limit = 100): Promise<num
       type: eventsTable.type,
       projectId: eventsTable.projectId,
       taskId: eventsTable.taskId,
-      timestamp: eventsTable.timestamp,
+      timestampKey: sql<string>`to_char(${eventsTable.timestamp}, 'YYYY-MM-DD"T"HH24:MI:SS.US')`,
       payload: eventsTable.payload,
       status: tasksTable.status,
       prompt: tasksTable.prompt,
