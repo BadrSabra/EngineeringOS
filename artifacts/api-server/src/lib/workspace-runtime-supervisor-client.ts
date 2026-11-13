@@ -14,7 +14,7 @@ export function signWorkspaceRuntimeSupervisorCommand(
     .update(SUPERVISOR_COMMAND_CONTEXT)
     .update("\n")
     .update(path)
-    .update("\\n")
+    .update("\n")
     .update(body)
     .digest("hex");
 }
