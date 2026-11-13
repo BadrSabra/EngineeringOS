@@ -4607,16 +4607,6 @@ export async function executeTaskLifecycle(params: {
         return { kind: "conflict" as const, errorCode: "task_state_changed" };
       }
 
-      // A queue-capacity deferral is durable only until a worker successfully
-      // claims this Task. Delete it atomically with the claim so a crash before
-      // this transaction commits remains recoverable, while a claimed run is
-      // never redispatched by the deferred-intent reconciler.
-      await tx.delete(eventsTable).where(and(
-        eq(eventsTable.id, taskAutoExecutionIntentId(before.id)),
-        sql`${eventsTable.payload}->>'taskRetryCount' = ${String(retryCountAtRead)}`,
-        sql`${eventsTable.payload}->>'taskCorrelationId' IS NOT DISTINCT FROM ${correlationIdAtRead}`,
-      ));
-
       let durable: Awaited<ReturnType<typeof createAiExecution>>;
       if (params.resumeExecutionId) {
         if (!correlationIdAtRead) {
@@ -4733,6 +4723,16 @@ export async function executeTaskLifecycle(params: {
       if (!claimedExecution) {
         throw new TaskLifecycleClaimConflict("execution_already_claimed");
       }
+
+      // Consume only after the execution itself has been successfully claimed.
+      // Every pre-claim conflict above (including a closed retry window) returns
+      // without deleting the durable intent. A later Task CAS failure still
+      // rolls this deletion and the execution claim back together.
+      await tx.delete(eventsTable).where(and(
+        eq(eventsTable.id, taskAutoExecutionIntentId(before.id)),
+        sql`${eventsTable.payload}->>'taskRetryCount' = ${String(retryCountAtRead)}`,
+        sql`${eventsTable.payload}->>'taskCorrelationId' IS NOT DISTINCT FROM ${correlationIdAtRead}`,
+      ));
 
       const [claimedTask] = await tx.update(tasksTable)
         .set({
