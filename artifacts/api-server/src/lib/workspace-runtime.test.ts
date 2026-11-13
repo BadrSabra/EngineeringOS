@@ -1,3 +1,4 @@
+import { spawn } from "node:child_process";
 import { promises as fs } from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -442,6 +443,97 @@ describe("WorkspaceRuntimeManager", () => {
     const stopped = await secondWorker.stop("recoverable-project");
     expect(stopped.status).toBe("stopped");
     await fs.rm(root, { recursive: true, force: true });
+  });
+
+  it("does not kill a process group directly when the Supervisor rejects recovery stop", async () => {
+    const projectId = "supervisor-stop-rejected-project";
+    const sessionId = "supervisor-stop-rejected-session";
+    const staleWorkerId = "stale-runtime-worker";
+    const store = createInMemoryWorkspaceRuntimeStore();
+    const startedAt = new Date(Date.now() - 60_000);
+    const supervisorStop = vi.fn(async () => {
+      throw new Error("Supervisor owner/root binding rejected the stop command.");
+    });
+    const supervisor = { stop: supervisorStop } as never;
+    const manager = new WorkspaceRuntimeManager({
+      store,
+      workerId: "recovery-runtime-worker",
+      supervisor,
+    });
+    managers.push(manager);
+
+    const leader = spawn(
+      process.execPath,
+      ["-e", [
+        'const { spawn } = require("node:child_process");',
+        'spawn(process.execPath, ["-e", "setInterval(() => {}, 1000)"], { stdio: "ignore" });',
+        "setTimeout(() => process.exit(0), 100);",
+      ].join("\n")],
+      { detached: true, stdio: "ignore" },
+    );
+    const processGroupId = leader.pid;
+    expect(processGroupId).toBeGreaterThan(1);
+    await new Promise<void>((resolve, reject) => {
+      leader.once("error", reject);
+      leader.once("exit", () => resolve());
+    });
+
+    const waitForGroup = async (expected: boolean): Promise<boolean> => {
+      const deadline = Date.now() + 2_000;
+      while (Date.now() < deadline) {
+        let alive = false;
+        try {
+          process.kill(-processGroupId!, 0);
+          alive = true;
+        } catch (error) {
+          if ((error as NodeJS.ErrnoException).code !== "ESRCH") throw error;
+        }
+        if (alive === expected) return true;
+        await new Promise((resolve) => setTimeout(resolve, 20));
+      }
+      return false;
+    };
+
+    try {
+      expect(await waitForGroup(true)).toBe(true);
+      await store.begin({
+        projectId,
+        projectRoot: process.cwd(),
+        sessionId,
+        revision: "stale-runtime-revision",
+        environmentRevision: null,
+        workerId: staleWorkerId,
+        now: startedAt,
+        leaseUntil: new Date(Date.now() - 10_000),
+      });
+      await store.updateOwnedSession(projectId, sessionId, staleWorkerId, {
+        status: "running",
+        pid: processGroupId!,
+        port: 3001,
+        workerId: null,
+        leaseUntil: null,
+        lastHeartbeatAt: null,
+      });
+
+      await manager.recover();
+
+      expect(supervisorStop).toHaveBeenCalledWith(expect.objectContaining({
+        projectId,
+        ownerProjectId: projectId,
+        sessionId,
+        projectRoot: process.cwd(),
+        pid: processGroupId,
+      }));
+      expect(await waitForGroup(true)).toBe(true);
+      await expect(store.get(projectId)).resolves.toMatchObject({
+        status: "running",
+        workerId: null,
+        leaseUntil: null,
+        pid: processGroupId,
+      });
+    } finally {
+      try { process.kill(-processGroupId!, "SIGKILL"); } catch {}
+    }
   });
 
   it("retries recovery and heartbeat after unknown listener ownership without killing the runtime", async () => {
