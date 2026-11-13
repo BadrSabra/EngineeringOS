@@ -111,7 +111,7 @@ outputType = "console"
 
 [[workflows.workflow.tasks]]
 task = "shell.exec"
-args = "WORKSPACE_RUNTIME_ALLOWED_ROOTS_JSON='[\"/home/runner/workspace\"]' node scripts/workspace-runtime-supervisor.mjs"
+args = "WORKSPACE_RUNTIME_ALLOWED_ROOTS_JSON='[\"/home/runner/workspace\",\"/tmp\"]' node scripts/workspace-runtime-supervisor.mjs"
 
 [agent]
 stack = "PNPM_WORKSPACE"
