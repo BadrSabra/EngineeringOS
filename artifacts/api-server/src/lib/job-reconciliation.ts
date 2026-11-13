@@ -1366,6 +1366,14 @@ export async function getDurableJobHealth(): Promise<{
           ]),
           eq(tasksTable.status, "verifying"),
           lt(eventsTable.timestamp, stalePendingCutoff),
+          or(
+            eq(eventsTable.type, "TaskAutoExecutionDispatchRequested"),
+            sql`(
+              ${eventsTable.payload}->>'nextAttemptAt' IS NULL
+              OR ${eventsTable.payload}->>'nextAttemptAt' !~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}T'
+              OR ${eventsTable.payload}->>'nextAttemptAt' <= ${now.toISOString()}
+            )`,
+          ),
         )),
       db.select({ value: min(eventsTable.timestamp) }).from(eventsTable)
         .innerJoin(tasksTable, eq(eventsTable.taskId, tasksTable.id))
