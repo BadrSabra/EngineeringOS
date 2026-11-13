@@ -133,7 +133,7 @@ describe("WorkspaceRuntimeSupervisorClient child attestation handoff", () => {
     );
 
     await expect(client.observeStartState({ projectId: "project-runtime",
-      ownerProjectId: "project-runtime", ownerProjectId: "project-runtime" })).resolves.toMatchObject({
+      ownerProjectId: "project-runtime" })).resolves.toMatchObject({
       projectId: "project-runtime",
       ownerProjectId: "project-runtime",
       status: "stopped",
@@ -142,13 +142,13 @@ describe("WorkspaceRuntimeSupervisorClient child attestation handoff", () => {
     expect(requests).toEqual([{
       url: "http://supervisor.test/runtime/observe-start",
       body: JSON.stringify({ projectId: "project-runtime",
-      ownerProjectId: "project-runtime", ownerProjectId: "project-runtime" }),
+      ownerProjectId: "project-runtime" }),
       authorization: "Bearer test-supervisor-token",
       signature: signWorkspaceRuntimeSupervisorCommand(
         testCommandSecret,
         "/runtime/observe-start",
         JSON.stringify({ projectId: "project-runtime",
-      ownerProjectId: "project-runtime", ownerProjectId: "project-runtime" }),
+      ownerProjectId: "project-runtime" }),
       ),
     }]);
   });
@@ -179,7 +179,7 @@ describe("WorkspaceRuntimeSupervisorClient child attestation handoff", () => {
     );
 
     await expect(client.observeStartState({ projectId: "project-runtime",
-      ownerProjectId: "project-runtime", ownerProjectId: "project-runtime" })).resolves.toMatchObject({
+      ownerProjectId: "project-runtime" })).resolves.toMatchObject({
       projectId: "project-runtime",
       ownerProjectId: "project-runtime",
       status: "running",
@@ -236,7 +236,7 @@ describe("WorkspaceRuntimeSupervisorClient child attestation handoff", () => {
     );
 
     await expect(client.observeStartState({ projectId: "project-runtime",
-      ownerProjectId: "project-runtime", ownerProjectId: "project-runtime" })).rejects.toThrow(
+      ownerProjectId: "project-runtime" })).rejects.toThrow(
       "invalid observation",
     );
   });
@@ -259,7 +259,7 @@ describe("WorkspaceRuntimeSupervisorClient child attestation handoff", () => {
     );
 
     await expect(client.observeStartState({ projectId: "project-runtime",
-      ownerProjectId: "project-runtime", ownerProjectId: "project-runtime" })).rejects.toThrow(
+      ownerProjectId: "project-runtime" })).rejects.toThrow(
       "invalid observation",
     );
   });
