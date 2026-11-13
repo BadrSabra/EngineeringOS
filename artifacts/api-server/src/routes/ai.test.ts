@@ -12532,3 +12532,53 @@ describe("free-only provider selection", () => {
     }
   });
 });
+
+describe("deferred Task Outbox orphan pruning", () => {
+  it("retires orphaned and terminal-Task intents without attempting execution", async () => {
+    const projectId = await insertProject();
+    projectIds.push(projectId);
+    const terminalTaskId = await insertTask(projectId, "cancelled");
+    const orphanedIntentId = `task-auto-execution-orphan:${randomUUID()}`;
+    const terminalIntentId = `task-auto-execution-deferred:${terminalTaskId}`;
+
+    await db.insert(eventsTable).values([
+      {
+        id: orphanedIntentId,
+        type: "TaskAutoExecutionDeferred",
+        projectId,
+        taskId: null,
+        severity: "warning",
+        message: "Orphaned Task dispatch intent",
+        payload: {
+          userId: "test-user",
+          taskRetryCount: 0,
+          taskCorrelationId: null,
+          attemptCount: 1,
+        },
+      },
+      {
+        id: terminalIntentId,
+        type: "TaskAutoExecutionDeferred",
+        projectId,
+        taskId: terminalTaskId,
+        severity: "warning",
+        message: "Task has already been cancelled",
+        payload: {
+          userId: "test-user",
+          taskRetryCount: 0,
+          taskCorrelationId: null,
+          attemptCount: 1,
+        },
+      },
+    ]);
+
+    await expect(aiTaskRoutes.dispatchDeferredAiTaskExecutions()).resolves.toBe(0);
+
+    await expect(db.select({ id: eventsTable.id }).from(eventsTable)
+      .where(eq(eventsTable.id, orphanedIntentId))).resolves.toHaveLength(0);
+    await expect(db.select({ id: eventsTable.id }).from(eventsTable)
+      .where(eq(eventsTable.id, terminalIntentId))).resolves.toHaveLength(0);
+    await expect(db.select({ id: aiExecutionsTable.id }).from(aiExecutionsTable)
+      .where(eq(aiExecutionsTable.linkedTaskId, terminalTaskId))).resolves.toHaveLength(0);
+  });
+});
