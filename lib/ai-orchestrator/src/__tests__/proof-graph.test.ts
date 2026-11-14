@@ -100,7 +100,12 @@ function makeValidGraph(): ProofGraph {
         role: "EXECUTOR",
         actionId: "action-1",
         capabilityId: "apply_changes",
-        scopeHash,
+projectId: "project-1",
+      episodeId: "episode-1",
+      attempt: 0,
+      missionId: "mission-1",
+      goalId: "goal-1",
+              scopeHash,
         planRevision,
         operationKind: "MUTATION",
       },
@@ -133,6 +138,21 @@ describe("Proof Graph Kernel v0", () => {
     expect(result.authority).toBe("STRUCTURE_ONLY_NO_EXECUTION_AUTHORITY");
     expect(result.graphHash).toMatch(/^[a-f0-9]{64}$/u);
     expect(result.violations).toEqual([]);
+  });
+
+  it("rejects envelope context that does not match the root Execution", () => {
+    const fields = ["projectId", "episodeId", "attempt", "missionId", "goalId"] as const;
+
+    for (const field of fields) {
+      const graph = makeValidGraph();
+      if (field === "attempt") graph.attempt = 1;
+      else graph[field] = "tampered-context";
+
+      const result = validateProofGraph(graph);
+      expect(result.verdict, field).toBe("FAIL");
+      expect(result.violations.some((item) =>
+        item.code === "ROOT_EXECUTION_CONTEXT_MISMATCH" && item.path.includes(field))).toBe(true);
+    }
   });
 
   it("hashes the same logical graph independent of node, edge, and evidence-ref order", () => {
@@ -380,7 +400,12 @@ describe("Proof Graph Kernel v0", () => {
       role: "AGENT",
       actionId: "action-2",
       capabilityId: "apply_changes",
-      scopeHash,
+projectId: "project-1",
+      episodeId: "episode-1",
+      attempt: 0,
+      missionId: "mission-1",
+      goalId: "goal-1",
+            scopeHash,
       planRevision,
       operationKind: "MUTATION",
     });
@@ -429,7 +454,12 @@ describe("Proof Graph Kernel v0", () => {
       role: "SERVICE" as const,
       actionId: "service-action",
       capabilityId: "service-capability",
-      scopeHash,
+projectId: "project-1",
+      episodeId: "episode-1",
+      attempt: 0,
+      missionId: "mission-1",
+      goalId: "goal-1",
+            scopeHash,
       planRevision,
       operationKind: "MUTATION" as const,
     };
@@ -456,7 +486,12 @@ describe("Proof Graph Kernel v0", () => {
       role: "AGENT",
       actionId: "action-2",
       capabilityId: "apply_changes",
-      scopeHash,
+projectId: "project-1",
+      episodeId: "episode-1",
+      attempt: 0,
+      missionId: "mission-1",
+      goalId: "goal-1",
+            scopeHash,
       planRevision,
       operationKind: "MUTATION",
     });
