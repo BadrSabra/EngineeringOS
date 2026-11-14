@@ -43,6 +43,7 @@ export const ProofGraphControlRuleSchema = z.enum([
   "SCOPE_MATCHED",
   "PRECONDITIONS_SATISFIED",
   "PARENT_REVISION_MATCHED",
+  "WORKSPACE_BASE_REVISION_MATCHED",
   "EFFECT_PROVEN",
   "ACCEPTANCE_SUCCEEDED",
   "WORLD_TRANSITION_MATERIALIZED",
@@ -105,6 +106,8 @@ export const ProofGraphSchema = boundedContractSchema(z.object({
   planRevision: digestSchema,
   parentWorldRevision: digestSchema,
   resultingWorldRevision: digestSchema,
+  parentWorkspaceRevision: digestSchema,
+  resultingWorkspaceRevision: digestSchema,
   nodes: z.array(ProofGraphNodeSchema).min(1).max(PROOF_GRAPH_MAX_NODES),
   edges: z.array(ProofGraphEdgeSchema).min(1).max(PROOF_GRAPH_MAX_EDGES),
 }).strict().superRefine((graph, ctx) => {
@@ -125,6 +128,9 @@ export const ProofGraphSchema = boundedContractSchema(z.object({
   if (graph.resultingWorldRevision === graph.parentWorldRevision) {
     ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["resultingWorldRevision"], message: "a materialized mutation must advance the World Revision" });
   }
+  if (graph.resultingWorkspaceRevision === graph.parentWorkspaceRevision) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["resultingWorkspaceRevision"], message: "an Apply Changes mutation must advance the workspace tree revision" });
+  }
 }), 32 * 1024);
 export type ProofGraph = z.infer<typeof ProofGraphSchema>;
 export type ProofGraphNode = z.infer<typeof ProofGraphNodeSchema>;
@@ -139,6 +145,7 @@ export const PROOF_GRAPH_REQUIRED_PRE_RULES = [
   "SCOPE_MATCHED",
   "PRECONDITIONS_SATISFIED",
   "PARENT_REVISION_MATCHED",
+  "WORKSPACE_BASE_REVISION_MATCHED",
 ] as const satisfies readonly ProofGraphControlRule[];
 
 export const PROOF_GRAPH_REQUIRED_POST_RULES = [
@@ -165,7 +172,6 @@ export type ProofGraphViolationCode =
   | "DIRECT_SERVICE_EXECUTOR_EDGE"
   | "EXECUTION_CYCLE"
   | "EXECUTION_PLAN_REVISION_MISMATCH"
-  | "CONTROL_PARENT_REVISION_MISMATCH"
   | "CONTROL_EVIDENCE_PROVENANCE_MISMATCH"
   | "NO_EXECUTION_NODE"
   | "MULTIPLE_DATA_OWNERS"
@@ -174,7 +180,7 @@ export type ProofGraphViolationCode =
   | "BOUND_DATA_PROVENANCE_MISMATCH"
   | "CONTROL_EVIDENCE_KIND_MISMATCH"
   | "CONTROL_EVIDENCE_REVISION_DOMAIN_MISMATCH"
-  | "WORLD_REVISION_UNCHANGED";
+  | "CONTROL_REVISION_BINDING_MISMATCH";
 
 export type ProofGraphViolation = {
   code: ProofGraphViolationCode;
@@ -421,6 +427,7 @@ export function validateProofGraph(input: unknown): ProofGraphValidationResult {
       SCOPE_MATCHED: { kind: "SCOPE", revisionDomain: "PLAN", provenance: "SERVER_DERIVED" },
       PRECONDITIONS_SATISFIED: { kind: "PRECONDITION", revisionDomain: "WORLD" },
       PARENT_REVISION_MATCHED: { kind: "PARENT_WORLD_SNAPSHOT", revisionDomain: "WORLD", provenance: "SERVER_DERIVED" },
+      WORKSPACE_BASE_REVISION_MATCHED: { kind: "PARENT_WORKSPACE_SNAPSHOT", revisionDomain: "WORKSPACE_TREE", provenance: "SERVER_DERIVED" },
       EFFECT_PROVEN: { kind: "EFFECT_OBSERVATION", revisionDomain: "WORKSPACE_TREE", provenance: "DIRECT_OBSERVATION" },
       ACCEPTANCE_SUCCEEDED: { kind: "EXECUTION_ACCEPTANCE", revisionDomain: "PLAN", provenance: "SERVER_DERIVED" },
       WORLD_TRANSITION_MATERIALIZED: { kind: "WORLD_TRANSITION", revisionDomain: "WORLD", provenance: "SERVER_DERIVED" },
@@ -435,13 +442,18 @@ export function validateProofGraph(input: unknown): ProofGraphValidationResult {
     if (expectedProvenance && evidenceNodes.some((node) => node.provenance !== expectedProvenance)) {
       addViolation("CONTROL_EVIDENCE_PROVENANCE_MISMATCH", [control.id, ...evidenceNodes.map((node) => node.id)]);
     }
-    if (control.ruleId === "PARENT_REVISION_MATCHED"
-      && evidenceNodes.some((node) => node.sourceRevision !== graph.parentWorldRevision)) {
-      addViolation("CONTROL_PARENT_REVISION_MISMATCH", [control.id, ...evidenceNodes.map((node) => node.id)]);
-    }
-    if (control.ruleId === "WORLD_TRANSITION_MATERIALIZED"
-      && evidenceNodes.some((node) => node.sourceRevision !== graph.resultingWorldRevision)) {
-      addViolation("WORLD_REVISION_UNCHANGED", [control.id, ...evidenceNodes.map((node) => node.id)]);
+    const expectedRevision = control.ruleId === "AUTHORIZATION_VALID" || control.ruleId === "SCOPE_MATCHED"
+      || control.ruleId === "ACCEPTANCE_SUCCEEDED"
+      ? graph.planRevision
+      : control.ruleId === "PRECONDITIONS_SATISFIED" || control.ruleId === "PARENT_REVISION_MATCHED"
+        ? graph.parentWorldRevision
+        : control.ruleId === "WORKSPACE_BASE_REVISION_MATCHED"
+          ? graph.parentWorkspaceRevision
+          : control.ruleId === "EFFECT_PROVEN"
+            ? graph.resultingWorkspaceRevision
+            : graph.resultingWorldRevision;
+    if (evidenceNodes.some((node) => node.sourceRevision !== expectedRevision)) {
+      addViolation("CONTROL_REVISION_BINDING_MISMATCH", [control.id, ...evidenceNodes.map((node) => node.id)]);
     }
 
     const gates = gateEdges.filter((edge) => edge.from === control.id);
@@ -501,7 +513,8 @@ export function validateProofGraph(input: unknown): ProofGraphValidationResult {
         ).map((node) => node.id)]);
       }
       if (outputs.some((node) => node.evidenceKind !== "EFFECT_OBSERVATION"
-        || node.revisionDomain !== "WORKSPACE_TREE")) {
+        || node.revisionDomain !== "WORKSPACE_TREE"
+        || node.sourceRevision !== graph.resultingWorkspaceRevision)) {
         addViolation("OUTPUT_NOT_DIRECT_OBSERVATION", [execution.id, ...outputs.map((node) => node.id)]);
       }
     }
