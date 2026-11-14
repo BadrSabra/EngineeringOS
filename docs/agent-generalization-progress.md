@@ -24,10 +24,12 @@ edc57435d763a51bf826a92eba291bcab50a8a4c:
   إلزاميًا. لا يوجد مبرر حالي لإضافة جدول أو Event Type جديد.
 
 **حالة العمل في هذا الفرع:** أُنشئ
-fix/apply-changes-snapshot-bound-recovery. أضيفت وثيقة SBPCT التفصيلية،
-ووُثّق نطاق المعالجة في الخطة الحاكمة والـroadmap. تغييرات المصدر واختبارات
-PostgreSQL ما زالت قيد العمل ولم تُسجل كنتائج ناجحة. لا تُغلق P3.5/P6 بناءً
-على هذا التحديث.
+fix/apply-changes-snapshot-bound-recovery. حُدّثت الخطة الحاكمة والـroadmap
+وأضيفت الوثيقة التفصيلية. Phase A موجودة في المصدر: ACTION_REQUESTED يحمل
+snapshot intent خادميًا، وإنشاء transition الحي يستخدم parent الأصلي؛ وأضيف
+عقد Zod واختبارات وحدة. Phase B لإعادة إنشاء missing row بعد Acceptance لم
+تبدأ. لم تُشغّل الاختبارات بعد، فلا يُسجل نجاح أو إغلاق. لا تُغلق P3.5/P6
+بناءً على هذا التحديث.
 
 **حدود التحقق:** تم تحديث الوثائق عن طريق GitHub source control؛ لا توجد هنا
 نتائج typecheck أو Vitest أو release validation مدعاة. يجب تشغيل الاختبارات
