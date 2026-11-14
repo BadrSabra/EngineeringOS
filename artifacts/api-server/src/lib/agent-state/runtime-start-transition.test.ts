@@ -1255,6 +1255,82 @@ describe("runtime.start transition retry scheduling", () => {
     });
     await db.delete(aiWorldFactsTable).where(eq(aiWorldFactsTable.id, parentDriftFactId));
 
+    await expect(recoverAcceptedApplyChangesTransition({
+      ...recoveryInput,
+      attempt: 1,
+    })).resolves.toMatchObject({
+      kind: "blocked",
+      reason: "apply_recovery_episode_scope_missing",
+    });
+
+    // The ACTION_REQUESTED action identity is part of the immutable attempt
+    // binding; recovery must not select a different action from the same Episode.
+    const originalAction = originalRequestedPayload.action as Record<string, unknown>;
+    const payloadWithWrongAction = {
+      ...originalRequestedPayload,
+      action: { ...originalAction, actionId: "tampered-action-id" },
+    };
+    await db.update(aiAgentEpisodeEventsTable).set({
+      payload: payloadWithWrongAction as typeof requestedEvent.payload,
+      payloadHash: canonicalJsonHash(payloadWithWrongAction),
+    }).where(eq(aiAgentEpisodeEventsTable.id, requestedEvent.id));
+    await expect(recoverAcceptedApplyChangesTransition(recoveryInput)).resolves.toMatchObject({
+      kind: "blocked",
+      reason: "apply_recovery_action_event_missing_or_ambiguous",
+    });
+    await db.update(aiAgentEpisodeEventsTable).set({
+      payload: originalRequestedPayload as typeof requestedEvent.payload,
+      payloadHash: canonicalJsonHash(originalRequestedPayload),
+    }).where(eq(aiAgentEpisodeEventsTable.id, requestedEvent.id));
+
+    // A well-formed but different plan digest must not be silently rebased.
+    const originalIntent = originalRequestedPayload.worldTransitionIntent as Record<string, unknown>;
+    const payloadWithWrongPlan = {
+      ...originalRequestedPayload,
+      worldTransitionIntent: { ...originalIntent, planRevision: "9".repeat(64) },
+    };
+    await db.update(aiAgentEpisodeEventsTable).set({
+      payload: payloadWithWrongPlan as typeof requestedEvent.payload,
+      payloadHash: canonicalJsonHash(payloadWithWrongPlan),
+    }).where(eq(aiAgentEpisodeEventsTable.id, requestedEvent.id));
+    await expect(recoverAcceptedApplyChangesTransition(recoveryInput)).resolves.toMatchObject({
+      kind: "blocked",
+      reason: "apply_recovery_action_or_intent_binding_invalid",
+    });
+    await db.update(aiAgentEpisodeEventsTable).set({
+      payload: originalRequestedPayload as typeof requestedEvent.payload,
+      payloadHash: canonicalJsonHash(originalRequestedPayload),
+    }).where(eq(aiAgentEpisodeEventsTable.id, requestedEvent.id));
+
+    // Direct observations must remain fresh and share the same environment revision.
+    await db.update(aiAgentObservationsTable).set({ freshness: "stale" })
+      .where(eq(aiAgentObservationsTable.id, liveAfterObservationId));
+    await expect(recoverAcceptedApplyChangesTransition(recoveryInput)).resolves.toMatchObject({
+      kind: "blocked",
+      reason: "apply_recovery_world_observation_binding_invalid",
+    });
+    await db.update(aiAgentObservationsTable).set({ freshness: "fresh" })
+      .where(eq(aiAgentObservationsTable.id, liveAfterObservationId));
+
+    await db.update(aiAgentObservationsTable).set({
+      environmentRevision: "env-v1:" + "d".repeat(64),
+    }).where(eq(aiAgentObservationsTable.id, liveAfterObservationId));
+    await expect(recoverAcceptedApplyChangesTransition(recoveryInput)).resolves.toMatchObject({
+      kind: "blocked",
+      reason: "apply_recovery_world_observation_binding_invalid",
+    });
+    await db.update(aiAgentObservationsTable).set({
+      environmentRevision: fixture.environmentRevision,
+    }).where(eq(aiAgentObservationsTable.id, liveAfterObservationId));
+
+    // A candidate hash in persisted evidence is insufficient if the live tree drifted.
+    await writeFile(promotedFile, "export const value = 'tampered';\\n");
+    await expect(recoverAcceptedApplyChangesTransition(recoveryInput)).resolves.toMatchObject({
+      kind: "blocked",
+      reason: "apply_recovery_live_tree_mismatch",
+    });
+    await writeFile(promotedFile, "export const value = 'after';\\n");
+
     const recoveryResults = await Promise.all([
       recoverAcceptedApplyChangesTransition(recoveryInput),
       recoverAcceptedApplyChangesTransition(recoveryInput),
