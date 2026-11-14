@@ -521,8 +521,39 @@ function signalGroup(pid, signal) {
   }
 }
 
-function isProcessGroupAlive(pid) {
+async function isProcessGroupAlive(pid) {
   if (!Number.isInteger(pid) || pid <= 1) return false;
+
+  // Linux keeps exited children as zombies until their parent reaps them.
+  // kill(-pgid, 0) still reports such a group as present even though no
+  // process in it can execute. Treat only non-zombie members as live so stop
+  // completion reflects executable descendants, not PID-1 reaping latency.
+  if (process.platform === "linux") {
+    try {
+      const entries = await readdir("/proc");
+      let foundGroupMember = false;
+      for (const entry of entries) {
+        if (!/^[0-9]+$/.test(entry)) continue;
+        try {
+          const stat = await readFile(`/proc/${entry}/stat`, "utf8");
+          const closeParen = stat.lastIndexOf(")");
+          if (closeParen < 0) continue;
+          const fields = stat.slice(closeParen + 2).trim().split(/\\s+/);
+          const state = fields[0];
+          const processGroupId = Number(fields[2]);
+          if (processGroupId !== pid) continue;
+          foundGroupMember = true;
+          if (state !== "Z" && state !== "X") return true;
+        } catch {
+          // The process may exit between enumerating /proc and reading stat.
+        }
+      }
+      if (foundGroupMember) return false;
+    } catch {
+      // Fall through to kill(2) when procfs is unavailable or restricted.
+    }
+  }
+
   try {
     process.kill(-pid, 0);
     return true;
@@ -533,7 +564,7 @@ function isProcessGroupAlive(pid) {
 
 async function waitForProcessGroupExit(pid, timeoutMs) {
   const deadline = Date.now() + timeoutMs;
-  while (isProcessGroupAlive(pid)) {
+  while (await isProcessGroupAlive(pid)) {
     if (Date.now() >= deadline) return false;
     await new Promise((resolve) => setTimeout(resolve, 50));
   }
