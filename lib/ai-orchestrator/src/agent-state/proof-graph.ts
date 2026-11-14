@@ -150,7 +150,8 @@ export type ProofGraphViolationCode =
   | "EXECUTION_PLAN_REVISION_MISMATCH"
   | "CONTROL_PARENT_REVISION_MISMATCH"
   | "CONTROL_EVIDENCE_PROVENANCE_MISMATCH"
-  | "NO_EXECUTION_NODE";
+  | "NO_EXECUTION_NODE"
+  | "MULTIPLE_DATA_PRODUCERS";
 
 export type ProofGraphViolation = {
   code: ProofGraphViolationCode;
@@ -466,7 +467,12 @@ export function validateProofGraph(input: unknown): ProofGraphValidationResult {
   const producerByData = new Map<string, string>();
   for (const edge of produceEdges) {
     if (nodesById.get(edge.from)?.kind === "EXECUTION" && nodesById.get(edge.to)?.kind === "DATA") {
-      producerByData.set(edge.to, edge.from);
+      const existingProducer = producerByData.get(edge.to);
+      if (existingProducer && existingProducer !== edge.from) {
+        addViolation("MULTIPLE_DATA_PRODUCERS", [edge.to, existingProducer, edge.from], [edge.id]);
+      } else {
+        producerByData.set(edge.to, edge.from);
+      }
     }
   }
   for (const support of supportEdges) {
