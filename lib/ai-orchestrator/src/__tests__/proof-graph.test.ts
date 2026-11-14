@@ -596,13 +596,26 @@ describe("Proof Graph Kernel v0", () => {
     expect(validateProofGraph(graph).violations.some((item) => item.code === "SCHEMA_INVALID")).toBe(true);
   });
 
-  it("rejects duplicate semantic edges even when their edge ids differ", () => {
+  it("reports every duplicate semantic edge deterministically across input permutations", () => {
     const graph = makeValidGraph();
     const original = graph.edges[0];
     if (!original) throw new Error("missing edge fixture");
     graph.edges.push({ ...original, id: "duplicate-semantic-edge" });
 
-    expect(validateProofGraph(graph).violations.some((item) => item.code === "DUPLICATE_EDGE")).toBe(true);
+    const reordered: ProofGraph = {
+      ...graph,
+      edges: [...graph.edges].reverse(),
+    };
+    const duplicateViolations = validateProofGraph(graph).violations
+      .filter((item) => item.code === "DUPLICATE_EDGE");
+    const reorderedDuplicateViolations = validateProofGraph(reordered).violations
+      .filter((item) => item.code === "DUPLICATE_EDGE");
+
+    expect(duplicateViolations).toHaveLength(1);
+    expect(duplicateViolations[0]?.edgeIds).toEqual(
+      [original.id, "duplicate-semantic-edge"].sort(),
+    );
+    expect(reorderedDuplicateViolations).toEqual(duplicateViolations);
   });
 
   it("rejects duplicate pre-execution control rules for one execution", () => {
