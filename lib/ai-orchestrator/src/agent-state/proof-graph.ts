@@ -198,13 +198,13 @@ export function hashProofGraph(graph: ProofGraph): string {
 }
 
 function findExecutionCycle(
-  adjacency: ReadonlyMap<string, readonly { to: string; edgeId: string }[]>,
+  adjacency: ReadonlyMap<string, readonly { to: string; edgeIds: string[] }[]>,
   executionIds: readonly string[],
 ): { path: string[]; edgeIds: string[] } | undefined {
   const visited = new Set<string>();
   const activeIndex = new Map<string, number>();
   const nodeStack: string[] = [];
-  const edgeStack: string[] = [];
+  const edgeStack: string[][] = [];
 
   const visit = (nodeId: string): { path: string[]; edgeIds: string[] } | undefined => {
     activeIndex.set(nodeId, nodeStack.length);
@@ -217,11 +217,11 @@ function findExecutionCycle(
       if (cycleStart !== undefined) {
         return {
           path: [...nodeStack.slice(cycleStart), edge.to],
-          edgeIds: [...edgeStack.slice(cycleStart), edge.edgeId],
+          edgeIds: [...edgeStack.slice(cycleStart).flat(), ...edge.edgeIds],
         };
       }
       if (!visited.has(edge.to)) {
-        edgeStack.push(edge.edgeId);
+        edgeStack.push(edge.edgeIds);
         const cycle = visit(edge.to);
         if (cycle) return cycle;
         edgeStack.pop();
@@ -472,7 +472,7 @@ export function validateProofGraph(input: unknown): ProofGraphValidationResult {
   for (const execution of executionNodes) executionAdjacency.set(execution.id, []);
   for (const edge of dependencyEdges) {
     if (nodesById.get(edge.from)?.kind === "EXECUTION" && nodesById.get(edge.to)?.kind === "EXECUTION") {
-      executionAdjacency.get(edge.from)!.push({ to: edge.to, edgeId: edge.id });
+      executionAdjacency.get(edge.from)!.push({ to: edge.to, edgeIds: [edge.id] });
     }
   }
   const producerByData = new Map<string, string>();
@@ -493,7 +493,7 @@ export function validateProofGraph(input: unknown): ProofGraphValidationResult {
     const producer = producerByData.get(dataNode.id);
     if (!producer) continue;
     for (const gate of gateEdges.filter((edge) => edge.from === controlNode.id)) {
-      executionAdjacency.get(producer)?.push({ to: gate.to, edgeId: support.id });
+      executionAdjacency.get(producer)?.push({ to: gate.to, edgeIds: [support.id, gate.id] });
     }
   }
   const cycle = findExecutionCycle(executionAdjacency, executionNodes.map((node) => node.id));
