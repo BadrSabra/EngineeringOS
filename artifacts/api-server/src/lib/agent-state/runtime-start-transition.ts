@@ -15,7 +15,8 @@ import {
   aiWorldTransitionsTable,
   db,
 } from "@workspace/db";
-import { invalidateContextSlice } from "@workspace/ai-orchestrator";
+import { ApplyWorldTransitionIntentSchema, invalidateContextSlice } from "@workspace/ai-orchestrator";
+import type { ApplyWorldTransitionIntent } from "@workspace/ai-orchestrator";
 import { childProcessBindingDigest } from "./child-process-attestation.js";
 import { getProjectWorldState, materializeWorldStateForProject } from "./world-state.js";
 import { isBoundApplyChangeEffectBundle } from "./apply-change-effect.js";
@@ -77,20 +78,10 @@ export type ApplyChangesTransitionIntent = {
   promotedTreeHash: string;
 };
 
-export type ApplyChangesWorldTransitionIntent = {
-  schemaVersion: 1;
-  projectId: string;
-  proposalId: string;
-  goalId: string;
-  planRevision: string;
-  parentWorldRevision: string;
-  parentFactRefs: string[];
-};
-
 /**
  * Builds the immutable, server-owned parent binding recorded on ACTION_REQUESTED.
- * Fact references are canonicalized once here so retries cannot rebind the same
- * Action to a differently ordered parent snapshot.
+ * Fact references are canonicalized once here; the shared contract enforces
+ * uniqueness, bounds, and revision shape before the event is appended.
  */
 export function buildApplyChangesWorldTransitionIntent(input: {
   projectId: string;
@@ -99,27 +90,16 @@ export function buildApplyChangesWorldTransitionIntent(input: {
   planRevision: string;
   parentWorldRevision: string;
   parentFactRefs: readonly string[];
-}): ApplyChangesWorldTransitionIntent {
-  if (
-    !input.projectId.trim()
-    || !input.proposalId.trim()
-    || !input.goalId.trim()
-    || !/^[a-f0-9]{64}$/.test(input.planRevision)
-    || !/^[a-f0-9]{64}$/.test(input.parentWorldRevision)
-    || input.parentFactRefs.length > 256
-    || input.parentFactRefs.some((ref) => typeof ref !== "string" || !ref.trim())
-  ) {
-    throw new Error("apply_world_transition_intent_invalid");
-  }
-  return {
+}): ApplyWorldTransitionIntent {
+  return ApplyWorldTransitionIntentSchema.parse({
     schemaVersion: 1,
     projectId: input.projectId,
     proposalId: input.proposalId,
     goalId: input.goalId,
     planRevision: input.planRevision,
     parentWorldRevision: input.parentWorldRevision,
-    parentFactRefs: [...new Set(input.parentFactRefs)].sort(),
-  };
+    parentFactRefs: [...input.parentFactRefs].sort(),
+  });
 }
 
 const ACTIVE_EXECUTION_STATUSES = new Set(["queued", "running", "paused", "cancelling"]);
