@@ -273,7 +273,7 @@ describe("Proof Graph Kernel v0", () => {
       item.code === "CONTROL_EVIDENCE_MISMATCH")).toBe(true);
   });
 
-  it("rejects ambiguous output DATA with multiple execution producers", () => {
+  it("rejects DATA with multiple owning executions", () => {
     const graph = makeValidGraph();
     graph.nodes.push({
       id: "execution-2",
@@ -293,7 +293,27 @@ describe("Proof Graph Kernel v0", () => {
     });
 
     expect(validateProofGraph(graph).violations.some((item) =>
-      item.code === "MULTIPLE_DATA_PRODUCERS")).toBe(true);
+      item.code === "MULTIPLE_DATA_OWNERS")).toBe(true);
+  });
+
+  it("requires execution-bound proof records to remain server-derived and fresh", () => {
+    const graph = makeValidGraph();
+    const boundRecord = graph.nodes.find((node) => node.id === "data-post-1");
+    if (!boundRecord || boundRecord.kind !== "DATA") throw new Error("missing bound acceptance fixture");
+    boundRecord.provenance = "DIRECT_OBSERVATION";
+
+    expect(validateProofGraph(graph).violations.some((item) =>
+      item.code === "BOUND_DATA_PROVENANCE_MISMATCH")).toBe(true);
+  });
+
+  it("does not allow a server-derived Acceptance record to masquerade as a produced effect observation", () => {
+    const graph = makeValidGraph();
+    const boundEdge = graph.edges.find((edge) => edge.id === "edge-post-binding-1");
+    if (!boundEdge || boundEdge.type !== "EXECUTION_BINDS_DATA") throw new Error("missing bound Acceptance edge");
+    boundEdge.type = "EXECUTION_PRODUCES_DATA";
+
+    expect(validateProofGraph(graph).violations.some((item) =>
+      item.code === "OUTPUT_NOT_DIRECT_OBSERVATION")).toBe(true);
   });
 
   it("rejects a direct SERVICE → EXECUTOR dependency edge", () => {
