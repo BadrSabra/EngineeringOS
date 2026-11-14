@@ -34,7 +34,7 @@ const sortedUniqueFactRefsSchema = z.array(boundedString(200)).max(256).superRef
   if (new Set(refs).size !== refs.length) {
     ctx.addIssue({ code: z.ZodIssueCode.custom, message: "parentFactRefs must be unique" });
   }
-  if (refs.some((ref, index) => index > 0 && refs[index - 1]!.localeCompare(ref) > 0)) {
+  if (refs.some((ref, index) => index > 0 && refs[index - 1]! > ref)) {
     ctx.addIssue({ code: z.ZodIssueCode.custom, message: "parentFactRefs must be sorted" });
   }
 });
