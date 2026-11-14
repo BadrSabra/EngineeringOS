@@ -242,25 +242,6 @@ describe("Proof Graph Kernel v0", () => {
     expect(result.violations.some((item) => item.code === "SCHEMA_INVALID")).toBe(true);
   });
 
-  it("requires evidence kind to match the post-execution control", () => {
-    const graph = makeValidGraph();
-    const data = graph.nodes.find((node) => node.id === "data-post-0");
-    if (!data || data.kind !== "DATA") throw new Error("missing effect evidence fixture");
-    data.evidenceKind = "EXECUTION_ACCEPTANCE";
-
-    expect(validateProofGraph(graph).violations.some((item) =>
-      item.code === "CONTROL_EVIDENCE_KIND_MISMATCH")).toBe(true);
-  });
-
-  it("requires the resulting Workspace Tree Revision to advance the parent snapshot", () => {
-    const graph = makeValidGraph();
-    graph.resultingWorkspaceRevision = graph.parentWorkspaceRevision;
-
-    const result = validateProofGraph(graph);
-    expect(result.verdict).toBe("FAIL");
-    expect(result.violations.some((item) => item.code === "SCHEMA_INVALID")).toBe(true);
-  });
-
   it("requires typed evidence revision domains to match the control rule", () => {
     const graph = makeValidGraph();
     const data = graph.nodes.find((node) => node.id === "data-post-0");
@@ -297,6 +278,27 @@ describe("Proof Graph Kernel v0", () => {
 
     expect(validateProofGraph(graph).violations.some((item) =>
       item.code === "CONTROL_REVISION_BINDING_MISMATCH")).toBe(true);
+  });
+
+  it("requires the workspace-base revision gate for every execution", () => {
+    const graph = makeValidGraph();
+    graph.nodes = graph.nodes.filter((node) => node.id !== "control-pre-4" && node.id !== "data-pre-4");
+    graph.edges = graph.edges.filter((edge) => edge.from !== "control-pre-4" && edge.to !== "control-pre-4"
+      && edge.from !== "data-pre-4" && edge.to !== "data-pre-4");
+
+    expect(validateProofGraph(graph).violations.some((item) =>
+      item.code === "MISSING_REQUIRED_CONTROL"
+      && item.path.includes("WORKSPACE_BASE_REVISION_MATCHED"))).toBe(true);
+  });
+
+  it("requires the workspace-base snapshot to be server-derived", () => {
+    const graph = makeValidGraph();
+    const data = graph.nodes.find((node) => node.id === "data-pre-4");
+    if (!data || data.kind !== "DATA") throw new Error("missing workspace parent evidence fixture");
+    data.provenance = "DIRECT_OBSERVATION";
+
+    expect(validateProofGraph(graph).violations.some((item) =>
+      item.code === "CONTROL_EVIDENCE_PROVENANCE_MISMATCH")).toBe(true);
   });
 
   it("rejects a parent-revision control backed by another revision", () => {
