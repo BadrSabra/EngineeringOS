@@ -225,6 +225,10 @@ jobs:
       # This test also verifies the public Clerk bundle boundary and that
       # runtime commands still fail fast when their workflow variables are
       # absent.
+      - name: Validate Proof Graph Kernel v0
+        timeout-minutes: 5
+        run: pnpm --filter @workspace/ai-orchestrator run test:proof-graph
+
       - name: Validate workflow-free root build contract
         run: pnpm run validate:root-build-contract
 
@@ -348,123 +352,6 @@ jobs:
           RUN_RUNTIME_START_RESPONSE_LOSS_RECOVERY: "1"
           RUN_RUNTIME_STARTUP_RECOVERY: "1"
 
-  release-validation:
-    name: Release validation
-    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && inputs.release_environment == 'release-validation'
-    runs-on: ubuntu-latest
-    timeout-minutes: 30
-    environment:
-      name: release-validation
-    concurrency:
-      group: release-validation-${{ github.ref }}
-      cancel-in-progress: false
-    permissions:
-      contents: read
-    env:
-      DATABASE_URL: postgresql://postgres:postgres@localhost:5432/engineeringos_test
-      PLAYWRIGHT_OUTPUT_DIR: test-results/dashboard-journey
-      DASHBOARD_E2E_TEARDOWN_ARTIFACT_PATH: test-results/dashboard-journey/release-teardown.json
-    services:
-      postgres:
-        image: postgres:16
-        env:
-          POSTGRES_USER: postgres
-          POSTGRES_PASSWORD: postgres
-          POSTGRES_DB: engineeringos_test
-        ports:
-          - 5432:5432
-        options: >-
-          --health-cmd "pg_isready -U postgres -d engineeringos_test"
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
-
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          ref: refs/heads/main
-          persist-credentials: false
-
-      - name: Install pnpm
-        uses: pnpm/action-setup@v4
-        with:
-          version: 10
-
-      - name: Set up Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: 20
-          cache: pnpm
-
-      - name: Install dependencies
-        run: pnpm install --frozen-lockfile
-
-      - name: Reject tracked private-key material
-        run: pnpm run security:reject-private-keys
-
-      - name: Install Chromium
-        run: pnpm exec playwright install --with-deps chromium
-
-      - name: Apply and verify release database schema
-        run: pnpm run db:schema:apply
-
-      - name: Run controlled release validation
-        timeout-minutes: 20
-        env:
-          CLERK_PUBLISHABLE_KEY: ${{ secrets.CLERK_PUBLISHABLE_KEY }}
-          CLERK_SECRET_KEY: ${{ secrets.CLERK_SECRET_KEY }}
-          VITE_CLERK_PUBLISHABLE_KEY: ${{ secrets.VITE_CLERK_PUBLISHABLE_KEY }}
-          SESSION_SECRET: ${{ secrets.SESSION_SECRET }}
-          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
-          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
-        run: >-
-          APP_ORIGINS="http://127.0.0.1:23184"
-          RELEASE_VALIDATION_WAIT_FOR_LOCK=1
-          DASHBOARD_E2E_EXECUTABLE_PATH="$(command -v chromium)"
-          DASHBOARD_E2E_SKIP_API_CONTRACTS=1
-          pnpm run validate:dashboard-journey
-
-      - name: Upload release teardown evidence
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: release-validation-${{ github.run_id }}-teardown
-          path: test-results/dashboard-journey/release-teardown.json
-          if-no-files-found: warn
-          retention-days: 14
-
-      - name: Upload release validation diagnostics
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: release-validation-${{ github.run_id }}-diagnostics
-          path: |
-            test-results/dashboard-journey/**
-            artifacts/dashboard/test-results/**
-            test-results/**/*.log
-          if-no-files-found: ignore
-          retention-days: 14
-
-      - name: Summarize retained release diagnostics
-        if: always()
-        shell: bash
-        env:
-          TEARDOWN_ARTIFACT: test-results/dashboard-journey/release-teardown.json
-          TEARDOWN_ARTIFACT_NAME: release-validation-${{ github.run_id }}-teardown
-        run: |
-          {
-            echo "## Release validation diagnostics"
-            echo
-            echo "Validation run: [#${{ github.run_number }}](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})"
-            echo "Retained teardown evidence: [$TEARDOWN_ARTIFACT_NAME](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}/artifacts)"
-            echo
-            if [[ -f "$TEARDOWN_ARTIFACT" ]]; then
-              echo "### Teardown coverage"
-              jq -r '.services[] | "- \(.owningService): port \(.configuredPort // "n/a"), process group \(.processGroup // "n/a"), surviving descendants \((.finalSurvivingPids | length)), cleanup \(.cleanupOutcome)"' "$TEARDOWN_ARTIFACT"
-            else
-              echo "The teardown evidence file was not produced; see the job log for the failure."
-            fi
-          } >> "$GITHUB_STEP_SUMMARY"
   release-validation:
     name: Release validation
     if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && inputs.release_environment == 'release-validation'

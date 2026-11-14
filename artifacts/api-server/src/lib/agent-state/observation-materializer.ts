@@ -203,14 +203,17 @@ function boundedText(value: string, max = MAX_TEXT): string {
 }
 
 export function taskScopeIdentity(episode: {
-  id: string;
   projectId: string;
-  missionId: string | null;
-  goalId: string | null;
+  missionId?: string | null;
+  goalId?: string | null;
   scope: unknown;
-}): string {
+} & (
+  | { id: string; episodeId?: never }
+  | { episodeId: string; id?: never }
+)): string {
+  const episodeId = "episodeId" in episode ? episode.episodeId : episode.id;
   if (!episode.scope || typeof episode.scope !== "object" || Array.isArray(episode.scope)) {
-    return `unscoped:${episode.id}`;
+    return `unscoped:${episodeId}`;
   }
   const scope = episode.scope as Record<string, unknown>;
   if (
