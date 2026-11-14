@@ -132,7 +132,10 @@ export type ProofGraphViolationCode =
   | "ORPHAN_NODE"
   | "DIRECT_SERVICE_EXECUTOR_EDGE"
   | "EXECUTION_CYCLE"
-  | "EXECUTION_PLAN_REVISION_MISMATCH";
+  | "EXECUTION_PLAN_REVISION_MISMATCH"
+  | "CONTROL_PARENT_REVISION_MISMATCH"
+  | "CONTROL_EVIDENCE_PROVENANCE_MISMATCH"
+  | "NO_EXECUTION_NODE";
 
 export type ProofGraphViolation = {
   code: ProofGraphViolationCode;
@@ -352,6 +355,23 @@ export function validateProofGraph(input: unknown): ProofGraphValidationResult {
       addViolation("CONTROL_NOT_SATISFIED", [control.id, ...evidenceNodes.map((node) => node.id)]);
     }
 
+    const expectedProvenance = control.ruleId === "EFFECT_PROVEN"
+      ? "DIRECT_OBSERVATION"
+      : control.ruleId === "PARENT_REVISION_MATCHED"
+        || control.ruleId === "AUTHORIZATION_VALID"
+        || control.ruleId === "SCOPE_MATCHED"
+        || control.ruleId === "ACCEPTANCE_SUCCEEDED"
+        || control.ruleId === "WORLD_TRANSITION_MATERIALIZED"
+          ? "SERVER_DERIVED"
+          : undefined;
+    if (expectedProvenance && evidenceNodes.some((node) => node.provenance !== expectedProvenance)) {
+      addViolation("CONTROL_EVIDENCE_PROVENANCE_MISMATCH", [control.id, ...evidenceNodes.map((node) => node.id)]);
+    }
+    if (control.ruleId === "PARENT_REVISION_MATCHED"
+      && evidenceNodes.some((node) => node.sourceRevision !== graph.parentWorldRevision)) {
+      addViolation("CONTROL_PARENT_REVISION_MISMATCH", [control.id, ...evidenceNodes.map((node) => node.id)]);
+    }
+
     const gates = gateEdges.filter((edge) => edge.from === control.id);
     const verifies = verifyEdges.filter((edge) => edge.to === control.id);
     if (control.phase === "PRE_EXECUTION") {
@@ -373,6 +393,7 @@ export function validateProofGraph(input: unknown): ProofGraphValidationResult {
   }
 
   const executionNodes = graph.nodes.filter((node): node is ProofGraphExecutionNode => node.kind === "EXECUTION");
+  if (executionNodes.length === 0) addViolation("NO_EXECUTION_NODE", [graph.graphId]);
   for (const execution of executionNodes) {
     if (execution.planRevision !== graph.planRevision) {
       addViolation("EXECUTION_PLAN_REVISION_MISMATCH", [execution.id]);
@@ -390,10 +411,14 @@ export function validateProofGraph(input: unknown): ProofGraphValidationResult {
     if (outputs.length === 0) {
       addViolation("EXECUTION_HAS_NO_OUTPUT", [execution.id]);
     } else {
-      if (outputs.some((node) => node.provenance !== "DIRECT_OBSERVATION" || node.freshness !== "fresh")) {
+      if (outputs.some((node) => node.freshness !== "fresh")) {
         addViolation("OUTPUT_NOT_DIRECT_OBSERVATION", [execution.id, ...outputs.filter(
-          (node) => node.provenance !== "DIRECT_OBSERVATION" || node.freshness !== "fresh",
+          (node) => node.freshness !== "fresh",
         ).map((node) => node.id)]);
+      }
+      if (!outputs.some((node) => node.provenance === "DIRECT_OBSERVATION"
+        && node.sourceRevision !== graph.parentWorldRevision)) {
+        addViolation("OUTPUT_NOT_DIRECT_OBSERVATION", [execution.id, ...outputs.map((node) => node.id)]);
       }
       if (!outputs.some((node) => node.sourceRevision !== graph.parentWorldRevision)) {
         addViolation("OUTPUT_REVISION_UNCHANGED", [execution.id, ...outputs.map((node) => node.id)]);
