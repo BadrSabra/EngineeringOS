@@ -861,7 +861,8 @@ describe("runtime.start transition retry scheduling", () => {
       missionId,
       projectId: fixture.projectId,
       title: "Report applied changes",
-      status: "blocked",
+      status: "waiting_for_event",
+      blockedReason: "dependencies_pending",
       nextAction: { kind: "wait", reason: "event", wakeAt: null },
       successCriteria: { stepId: "report-applied", planRevision: plan },
       outcomeContract: { stepId: "report-applied", planRevision: plan },
@@ -1188,6 +1189,19 @@ describe("runtime.start transition retry scheduling", () => {
       proposalId,
     };
 
+    // Reproduce the real D2 failure projection: the missing transition has
+    // already moved this exact Goal and Mission to needs_replan.
+    await db.update(aiGoalsTable).set({
+      status: "needs_replan",
+      blockedReason: "apply_transition_missing",
+      nextWakeAt: null,
+      updatedAt: now,
+    }).where(eq(aiGoalsTable.id, goalId));
+    await db.update(aiMissionsTable).set({
+      status: "needs_replan",
+      updatedAt: now,
+    }).where(eq(aiMissionsTable.id, missionId));
+
     // A legacy or damaged Action event without the immutable intent must not
     // reconstruct a new parent from current World State.
     const [requestedEvent] = await db.select().from(aiAgentEpisodeEventsTable).where(and(
@@ -1254,6 +1268,18 @@ describe("runtime.start transition retry scheduling", () => {
     }
     expect(replayed.transitionId).toBe(recovered.transitionId);
     id = recovered.transitionId;
+    const [recoveredGoal] = await db.select().from(aiGoalsTable).where(eq(aiGoalsTable.id, goalId));
+    const [recoveredMission] = await db.select().from(aiMissionsTable).where(eq(aiMissionsTable.id, missionId));
+    const [waitingSuccessor] = await db.select().from(aiGoalsTable).where(eq(aiGoalsTable.id, reportGoalId));
+    expect(recoveredGoal).toMatchObject({
+      status: "waiting_for_event",
+      blockedReason: "apply_changes_pending",
+    });
+    expect(recoveredMission?.status).toBe("waiting");
+    expect(waitingSuccessor).toMatchObject({
+      status: "waiting_for_event",
+      blockedReason: "dependencies_pending",
+    });
     expect(await readFile(promotedFile, "utf8")).toBe("export const value = 'after';\n");
 
     const finalizeInput = {
