@@ -323,6 +323,10 @@ jobs:
           fi
           pnpm run test
 
+      - name: Validate Proof Graph Kernel v0
+        timeout-minutes: 5
+        run: pnpm --filter @workspace/ai-orchestrator run test:proof-graph
+
       - name: Prove task acceptance after HTTP response loss
         shell: bash
         run: |

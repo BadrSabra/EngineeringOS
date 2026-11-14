@@ -2,7 +2,7 @@
 
 > **الحالة:** وثيقة توجيهية تكميلية، وليست موافقة على بدء تغييرات runtime أو
 > schema.  
-> **تاريخ اللقطة:** 2026-09-28
+> **تاريخ اللقطة:** 2026-11-14
 > **المراجع الحاكمة:** `docs/agent-generalization-execution-plan.md`، وبالأخص
 > §31، وسجل الحالة `docs/agent-generalization-progress.md`.  
 > **الغرض:** تحويل المقترحات المرفقة إلى نطاق تنفيذي واحد، مع الفصل بين
@@ -269,3 +269,30 @@ P7.5/P8/P9 واشتراطات P10 في §31.
 4. أي نطاق جديد يحتاج vertical slice محدودًا، owner/revision binding،
    server-owned observations، واختبارات adversarial وreload/recovery قبل
    تعميمه.
+
+## 8. نواة التحقق المنطقي — Proof Graph Kernel v0 (2026-11-14)
+
+بدأت شريحة تجريبية مستقلة تقرّب الرؤية النهائية دون إنشاء Runtime أو مصدر حقيقة جديد:
+
+- عقد typed مغلق لفئات `DATA` و`CONTROL` و`EXECUTION`.
+- علاقات محددة الاتجاه فقط: `DATA_SUPPORTS_CONTROL`,
+  `CONTROL_GATES_EXECUTION`, `EXECUTION_PRODUCES_DATA`,
+  `EXECUTION_BINDS_DATA`, `EXECUTION_VERIFIED_BY_CONTROL`, و`EXECUTION_DEPENDS_ON`.
+  يميز النموذج بين ملاحظات الأثر المباشرة التي ينتجها التنفيذ وسجلات Acceptance/World Transition الخادمية المرتبطة به.
+- بوابات سابقة إلزامية: Authorization وScope وPreconditions وParent World Revision وParent Workspace Base Revision.
+- بوابات لاحقة إلزامية: Effect Proof وAcceptance وWorld Transition Materialized.
+- رفض stale/model-inferred evidence، اختلاف Parent، مراجع Evidence غير المطابقة،
+  تعدد مالكي DATA، خلط سجلات القبول بالملاحظات المباشرة، الحواف ذات الاتجاه غير الصحيح، حلقات Execution،
+  والاعتماد المباشر SERVICE → EXECUTOR.
+- يميّز الإصدار بين revision domains: `WORLD` و`WORKSPACE_TREE` و`PLAN`. لذلك لا يقارن hash شجرة الملفات بـWorld Revision. يربط دليل الأثر بـ`resultingWorkspaceRevision`، ودليل الانتقال بـ`resultingWorldRevision`، ويشترط أن يتجاوز كل منهما Parent الخاص بمجاله.
+- بوابة `WORKSPACE_BASE_REVISION_MATCHED` إلزامية قبل التنفيذ؛ لا يُقبل Projector مستقبلي إذا أسقطها أو أعاد اشتقاق Parent من الحالة اللاحقة.
+- نتيجة validator حتمية `PASS | FAIL` مع violating paths وcanonical graph hash.
+
+التنفيذ في `lib/ai-orchestrator/src/agent-state/proof-graph.ts` والاختبار في
+`lib/ai-orchestrator/src/__tests__/proof-graph.test.ts`. النتيجة موسومة
+`STRUCTURE_ONLY_NO_EXECUTION_AUTHORITY`: لا تتحقق v0 من حقيقة المراجع أو
+تُصدر Canonical Acceptance، ولا تقرأ DB. لا يجوز تمرير Graph من النموذج مباشرة؛
+المرحلة التالية مستقبلًا هي Server-owned Projector بعد إغلاق/التحقق من SBPCT.
+
+هذه الشريحة لا تغيّر ترتيب §31، ولا تفتح P13 أو P7.5، ولا تغلق P3.5/P4/P5/P6.
+الاختبارات وTypeScript لم تُشغّل بعد في بيئة المستودع؛ لا يعلن أي نجاح قبل exact-head CI.
