@@ -309,6 +309,24 @@ describe("Proof Graph Kernel v0", () => {
     expect(cycle?.path).toEqual(["execution-1", "execution-2", "execution-1"]);
   });
 
+  it("detects a cycle inferred through produced DATA and reports both causal edges", () => {
+    const graph = makeValidGraph();
+    const control = graph.nodes.find((node) => node.id === "control-pre-0");
+    if (!control || control.kind !== "CONTROL") throw new Error("missing pre-execution control fixture");
+    control.evidenceRefs.push("evidence-post-1");
+    graph.edges.push({
+      id: "inferred-cycle-support",
+      type: "DATA_SUPPORTS_CONTROL",
+      from: "data-post-1",
+      to: control.id,
+    });
+
+    const result = validateProofGraph(graph);
+    const cycle = result.violations.find((item) => item.code === "EXECUTION_CYCLE");
+    expect(cycle?.path).toEqual(["execution-1", "execution-1"]);
+    expect(cycle?.edgeIds).toEqual(["inferred-cycle-support", "edge-pre-gate-0"]);
+  });
+
   it("fails closed on model-inferred evidence provenance", () => {
     const graph = makeValidGraph();
     const data = graph.nodes.find((node) => node.id === "data-pre-0");
