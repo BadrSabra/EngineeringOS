@@ -6076,7 +6076,7 @@ PR #23 is independently validated.
 
 ### 2026-11-14 — Proof Graph exact-head CI gate and revision-domain test expansion
 
-- Expanded the focused suite to **29 tests**, including exact binding of the Effect observation to `resultingWorkspaceRevision`, exact binding of the materialized World Transition to `resultingWorldRevision`, and the requirement that both resulting revisions advance their respective Parent revisions.
+- At that intermediate commit the focused suite had **29 tests**; it was subsequently expanded to **31 unique tests**. This step added exact binding of the Effect observation to `resultingWorkspaceRevision`, exact binding of the materialized World Transition to `resultingWorldRevision`, and the requirement that both resulting revisions advance their respective Parent revisions.
 - Added a dedicated `Validate Proof Graph Kernel v0` step to `.github/workflows/ci.yml` using `pnpm --filter @workspace/ai-orchestrator run test:proof-graph`. The repository's all-package typecheck remains the type gate.
 - Exact current head before this note: `5d85490700743bbcc1fd92911883008973af1911`.
 - GitHub Actions Push run `#43544160124` for the previous head ended with `failure` and zero jobs; there is no `pull_request` run or Check Run. This is a workflow-execution gap, not a code/test failure result.
@@ -6092,3 +6092,12 @@ PR #23 is independently validated.
 - **source/test:** `lib/ai-orchestrator/src/agent-state/proof-graph.ts`; `lib/ai-orchestrator/src/__tests__/proof-graph.test.ts`.
 - **validation boundary:** tests and package typecheck remain authored but unexecuted. The latest exact head must still receive real PR-triggered GitHub Actions Jobs; prior push-triggered failures with zero Jobs are not test failures and are not evidence of a pass.
 - **authority/non-goals:** `STRUCTURE_ONLY_NO_EXECUTION_AUTHORITY` remains immutable. No DB, runtime, executor, Mission/D2, Canonical Acceptance, P7.5, or P13 work is enabled. SBPCT PR #23 remains an independent prerequisite before a server-owned Apply Projector.
+
+### 2026-11-14 — Proof Graph exact-head status reconciliation
+
+- **PR/branch:** Draft PR #24, `feat/proof-graph-kernel-v0`.
+- **Exact head checked:** `3b6e6e8020a4f4d964560408447b05acf5de90c4` (branch and PR head matched).
+- **Test inventory:** 31 unique `it(...)` cases in `proof-graph.test.ts`; command `pnpm --filter @workspace/ai-orchestrator run test:proof-graph`; package typecheck `pnpm --filter @workspace/ai-orchestrator run typecheck`.
+- **CI configuration:** focused Proof Graph suite is included in `.github/workflows/ci.yml` with a five-minute timeout.
+- **Observed validation status:** GitHub API returned no workflow runs for this exact `head_sha`, zero Check Runs, zero commit statuses, and no PR-triggered workflow runs. The prior push runs inspected on this branch had zero Jobs. This is a missing workflow execution signal, not a passing or failing Vitest/typecheck result.
+- **Disposition:** keep PR #24 Draft. No test or typecheck execution is claimed. The next gate is a real exact-head PR run that executes at least the focused Proof Graph suite and package typecheck; any source/test failures must be fixed before considering a server-owned Projector.
