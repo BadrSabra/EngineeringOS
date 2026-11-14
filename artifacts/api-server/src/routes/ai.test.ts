@@ -10396,6 +10396,10 @@ describe("POST /api/ai/tasks/:taskId/execute", () => {
       .set({ prompt: "Run after the worker queue has capacity" })
       .where(eq(tasksTable.id, taskId));
 
+    const [taskGeneration] = await db.select({
+      retryCount: tasksTable.retryCount,
+      correlationId: tasksTable.correlationId,
+    }).from(tasksTable).where(eq(tasksTable.id, taskId));
     const originalEnqueue = heavyJobQueue.enqueueWithIdDetailed.bind(heavyJobQueue);
     const enqueueSpy = vi.spyOn(heavyJobQueue, "enqueueWithIdDetailed")
       .mockReturnValueOnce("full")
@@ -10417,8 +10421,8 @@ describe("POST /api/ai/tasks/:taskId/execute", () => {
       taskId,
       payload: {
         userId: "test-user",
-        taskRetryCount: 0,
-        taskCorrelationId: null,
+        taskRetryCount: taskGeneration!.retryCount,
+        taskCorrelationId: taskGeneration!.correlationId,
         delegationBudget: { maxChildren: 2, maxDepth: 1 },
       },
     });
@@ -10663,8 +10667,8 @@ describe("POST /api/ai/tasks/:taskId/execute", () => {
     expect(intent?.type).toBe("TaskAutoExecutionDeferred");
     expect(intent?.payload).toMatchObject({
       userId: "test-user",
-      taskRetryCount: 0,
-      taskCorrelationId: null,
+      taskRetryCount: taskGeneration!.retryCount,
+      taskCorrelationId: taskGeneration!.correlationId,
       parentExecutionId: originalParentExecutionId,
       lastFailureCode: "LOCAL_QUEUE_FULL",
     });
