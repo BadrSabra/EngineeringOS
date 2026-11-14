@@ -36,6 +36,11 @@ import { logger } from "../logger.js";
 import { establishProjectRoot } from "../project-root.js";
 import { hashDeliveryTree } from "../delivery-workspace.js";
 
+function asRecord(value: unknown): Record<string, unknown> | undefined {
+  if (value === null || typeof value !== "object" || Array.isArray(value)) return undefined;
+  return value as Record<string, unknown>;
+}
+
 export type RuntimeStartTransitionIntent = {
   projectId: string;
   executionId: string;
@@ -103,7 +108,7 @@ export function buildApplyChangesWorldTransitionIntent(input: {
   parentWorldRevision: string;
   parentFactRefs: readonly string[];
 }): ApplyWorldTransitionIntent {
-  return ApplyWorldTransitionIntentSchema.parse({
+  const parsed = ApplyWorldTransitionIntentSchema.safeParse({
     schemaVersion: 1,
     projectId: input.projectId,
     proposalId: input.proposalId,
@@ -112,6 +117,8 @@ export function buildApplyChangesWorldTransitionIntent(input: {
     parentWorldRevision: input.parentWorldRevision,
     parentFactRefs: [...input.parentFactRefs].sort(),
   });
+  if (!parsed.success) throw new Error("apply_world_transition_intent_invalid");
+  return parsed.data;
 }
 
 const ACTIVE_EXECUTION_STATUSES = new Set(["queued", "running", "paused", "cancelling"]);
@@ -596,18 +603,21 @@ export async function recoverAcceptedApplyChangesTransition(input: {
         bindingRef,
       ]);
 
-      const sameAttemptRows = await tx.select().from(aiWorldTransitionsTable).where(and(
+      // One Execution attempt may contain multiple distinct Agent actions.
+      // Fence only this exact Episode + Action; unrelated transitions in the
+      // same attempt must not make accepted Apply recovery ambiguous.
+      const sameActionRows = await tx.select().from(aiWorldTransitionsTable).where(and(
         eq(aiWorldTransitionsTable.projectId, input.projectId),
         eq(aiWorldTransitionsTable.executionId, input.executionId),
         eq(aiWorldTransitionsTable.attempt, input.attempt),
+        eq(aiWorldTransitionsTable.episodeId, input.episodeId),
+        eq(aiWorldTransitionsTable.actionId, input.actionId),
       )).for("update");
-      if (sameAttemptRows.length > 0) {
-        const existing = sameAttemptRows.find((row) => row.idempotencyKey === idempotencyKey);
+      if (sameActionRows.length > 0) {
+        const existing = sameActionRows.find((row) => row.idempotencyKey === idempotencyKey);
         if (
-          sameAttemptRows.length !== 1
+          sameActionRows.length !== 1
           || !existing
-          || existing.episodeId !== input.episodeId
-          || existing.actionId !== input.actionId
           || existing.effectBundleId !== acceptance.effectBundleId
           || existing.parentWorldRevision !== intent.parentWorldRevision
           || existing.environmentRevision !== environmentRevision

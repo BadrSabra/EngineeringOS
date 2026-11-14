@@ -1415,7 +1415,6 @@ describe("real durable task execution lifecycle", () => {
           request: {
             projectId,
             linkedTaskId: taskId,
-            attempt: 0,
             message: "Stored Task execution identity fixture",
             modelMessage: "Stored Task execution identity fixture",
             validationTargetPaths: [],
