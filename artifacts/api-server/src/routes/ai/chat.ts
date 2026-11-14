@@ -17953,6 +17953,20 @@ async function applyChangesHandler(req: Request, res: Response) {
         throw new Error("apply_execution_claim_failed");
       }
       const applyWorldState = await getProjectWorldState(projectId);
+      // Bind the Mission transition to the exact server-owned World State
+      // captured before the Episode, observations, and filesystem side effects.
+      // The intent is immutable evidence metadata; it does not grant acceptance.
+      const worldTransitionIntent = missionGoalId && missionPlanRevision
+        ? {
+            schemaVersion: 1,
+            projectId,
+            proposalId,
+            goalId: missionGoalId,
+            planRevision: missionPlanRevision,
+            parentWorldRevision: applyWorldState.worldRevision,
+            parentFactRefs: applyWorldState.facts.map((fact) => fact.id).sort(),
+          }
+        : undefined;
       const episode = await startEpisode({
         projectId,
         executionId: claimed.id,
@@ -18010,6 +18024,7 @@ async function applyChangesHandler(req: Request, res: Response) {
           expectedEffects: action.expectedEffects,
           action,
           effectContract,
+          ...(worldTransitionIntent ? { worldTransitionIntent } : {}),
         },
         actorType: "worker",
         actorId: workerId,
@@ -18591,22 +18606,21 @@ async function applyChangesHandler(req: Request, res: Response) {
         if (!environmentRevision) {
           applyD2EvidenceFailure = applyD2EvidenceFailure ?? "apply_environment_revision_mismatch";
         }
-        if (applyD2EvidenceFailure || !applyWorldBeforeObservationIds.length
+        if (applyD2EvidenceFailure || !worldTransitionIntent
+          || !applyWorldBeforeObservationIds.length
           || !applyWorldAfterObservationIds.length
-          || typeof revision !== "string" || !/^[a-f0-9]{64}$/.test(revision)) {
+          || typeof revision !== "string" || !/^[a-f0-9]{64}$/.test(revision)
+          || revision !== worldTransitionIntent.planRevision) {
           applyD2EvidenceFailure = applyD2EvidenceFailure ?? "apply_transition_evidence_incomplete";
         } else {
           try {
-          const world = await getProjectWorldState(projectId, {
-            excludeEpisodeIds: [applyProof.episodeId],
-          });
           applyD2TransitionId = await createPendingApplyChangesTransition({
             projectId, executionId: applyProof.executionId, attempt: applyProof.attempt,
             episodeId: applyProof.episodeId, actionId: applyProof.action.actionId,
             effectBundleId: applyProof.effectBundleId, proposalId, goalId: missionGoalId,
             planRevision: revision, workerId: applyProof.workerId,
-            parentWorldRevision: world.worldRevision,
-            parentFactRefs: world.facts.map((fact) => fact.id),
+            parentWorldRevision: worldTransitionIntent.parentWorldRevision,
+            parentFactRefs: worldTransitionIntent.parentFactRefs,
             beforeObservationIds: applyWorldBeforeObservationIds,
             afterObservationIds: applyWorldAfterObservationIds,
             evidenceRefs: [
