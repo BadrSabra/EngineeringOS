@@ -170,7 +170,8 @@ Apply/acceptance/materialization fixture to:
 - move the Apply Goal and Mission to the exact `needs_replan / apply_transition_missing` state produced by failed D2, while keeping `report-applied` in its normal `waiting_for_event / dependencies_pending` state;
 - invoke two recovery calls concurrently and require exactly one `created` plus one `existing` result with the same transition ID;
 - assert that only the exact Apply Goal returns to `waiting_for_event / apply_changes_pending`, the Mission returns to `waiting`, and the dependent `report-applied` Goal is unchanged;
-- continue through the existing finalizer and assert materialization/D2 proof.
+- continue through the existing finalizer and assert materialization/D2 proof;
+- invoke the production `wakeApplyChangesMissionGoals()` after materialization, require the Apply Goal to complete exactly once, verify the dependent report Goal remains safely waiting (its fixture action is `wait`), and assert the original Acceptance count/identity and promoted file bytes remain unchanged.
 
 The test has been authored on the PR branch but has **not** been executed here.
 It therefore remains a test candidate, not a passing test result.
@@ -184,8 +185,9 @@ It therefore remains a test candidate, not a passing test result.
 - Still required: mismatched action/attempt/plan, missing or stale direct
   observations, changed environment, changed live tree, and unique-key race
   behavior across independent DB sessions/reconcilers.
-- Mission wake after recovered row materializes; verify no filesystem replay and
-  no duplicate Acceptance.
+- The new Mission-wake assertion is authored but unexecuted; verify its observed
+  result on PostgreSQL CI. Remaining negative cases: mismatched action/attempt/plan,
+  missing/stale before-after observations, and environment/live-tree drift.
 - Focused API typecheck, focused Vitest, and exact-head pull-request CI.
 
 No new table, event type, graph, runtime, or authority path is introduced.
