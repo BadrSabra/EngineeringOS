@@ -538,7 +538,7 @@ async function isProcessGroupAlive(pid) {
           const stat = await readFile(`/proc/${entry}/stat`, "utf8");
           const closeParen = stat.lastIndexOf(")");
           if (closeParen < 0) continue;
-          const fields = stat.slice(closeParen + 2).trim().split(/\\s+/);
+          const fields = stat.slice(closeParen + 2).trim().split(/\s+/);
           const state = fields[0];
           const processGroupId = Number(fields[2]);
           if (processGroupId !== pid) continue;
