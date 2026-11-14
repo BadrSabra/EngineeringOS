@@ -24,7 +24,7 @@
 
 ### DATA node
 
-يحمل `evidenceRef` و`contentHash` و`evidenceKind` و`revisionDomain` و`sourceRevision` و`provenance` و`freshness`. تشمل أنواع الدليل `PARENT_WORLD_SNAPSHOT` و`PARENT_WORKSPACE_SNAPSHOT` و`EFFECT_OBSERVATION` و`EXECUTION_ACCEPTANCE` و`WORLD_TRANSITION`.
+يحمل `evidenceRef` و`contentHash` و`evidenceKind` و`revisionDomain` و`sourceRevision` و`provenance` و`freshness`. مجالات v0 محصورة في `WORLD` و`WORKSPACE_TREE` و`PLAN`؛ لا يعرّف الإصدار مجال `ENVIRONMENT` مستقلًا قبل وجود Parent/Resulting revision وبوابة typed له. تشمل أنواع الدليل `PARENT_WORLD_SNAPSHOT` و`PARENT_WORKSPACE_SNAPSHOT` و`EFFECT_OBSERVATION` و`EXECUTION_ACCEPTANCE` و`WORLD_TRANSITION`.
 المصادر المسموحة هي `DIRECT_OBSERVATION` و`SERVER_DERIVED` فقط؛ `MODEL_INFERRED` مرفوض عند حد العقد. لا تُقارن revisions من مجالات مختلفة.
 
 ### CONTROL node
@@ -55,7 +55,7 @@
 3. اتجاه كل Edge يطابق فئة الطرفين المحددة في عقده.
 4. كل Control يستقبل DATA evidence؛ مراجع الأدلة المعلنة تطابق المراجع الموصولة به تمامًا.
 5. كل دليل داعم Fresh؛ وكل Control نتيجته SATISFIED.
-6. Controls السابقة المطلوبة لكل Execution: `AUTHORIZATION_VALID` و`SCOPE_MATCHED` و`PRECONDITIONS_SATISFIED` و`PARENT_REVISION_MATCHED` و`WORKSPACE_BASE_REVISION_MATCHED`.
+6. Controls السابقة المطلوبة لكل Execution: `AUTHORIZATION_VALID` و`SCOPE_MATCHED` و`PRECONDITIONS_SATISFIED` و`PARENT_REVISION_MATCHED` و`WORKSPACE_BASE_REVISION_MATCHED`؛ حذف أي منها يؤدي إلى FAIL.
 7. ترتبط أدلة Authorization وScope بـ`planRevision`؛ وتُربط Preconditions وParent World Snapshot بـ`parentWorldRevision`؛ ويُربط Parent Workspace Snapshot بـ`parentWorkspaceRevision`. دليل Scope يجب أن يكون Server-derived ويرتبط بـ`scopeHash` لعقدة التنفيذ التي يحكمها. دليل Workspace Base يطابق `parentWorkspaceRevision`، ودليل Authorization/Scope/Acceptance يطابق `planRevision`.
 8. Controls اللاحقة المطلوبة: `EFFECT_PROVEN` و`ACCEPTANCE_SUCCEEDED` و`WORLD_TRANSITION_MATERIALIZED`.
 9. `EFFECT_PROVEN` يجب أن يستند إلى Direct Observation في مجال `WORKSPACE_TREE` ومطابق لـ`resultingWorkspaceRevision`؛ أما Acceptance وMaterialized Transition فيجب أن يستندا إلى Server-derived evidence. Acceptance ترتبط بـ`planRevision` وWorld Transition بـ`resultingWorldRevision`.
@@ -85,10 +85,10 @@
 - ثبات hash عند تغيير ترتيب العقد والحواف ومراجع الأدلة.
 - endpoints مفقودة أو اتجاهات حواف خاطئة.
 - Control غير محسوم أو Evidence قديم.
-- غياب بوابة من بوابات Authorization/Scope/Preconditions/Parent.
-- رفض Parent World وParent Workspace revision غير المطابقين وربط Scope Hash، والتحقق من Resulting World/Workspace revisions كلٌّ في مجاله.
+- غياب بوابات Authorization وWorkspace Base وParent/Scope/Preconditions.
+- رفض Parent World وParent Workspace revision غير المطابقين وربط Scope Hash؛ والتحقق من أن Effect Observation تطابق Resulting Workspace revision وأن World Transition يطابق Resulting World revision، كلٌّ في مجاله.
 - رفض غياب عقدة التنفيذ الجذرية وduplicate node identity.
-- اشتراط Direct After Observation ومطابقة Resulting Workspace revision، دون مقارنة hash شجرة الملفات بـWorld revision.
+- اشتراط Direct After Observation ومطابقة Resulting Workspace revision، دون مقارنة hash شجرة الملفات بـWorld revision؛ ورفض Transition evidence إذا لم يطابق Resulting World revision.
 - رفض SERVICE → EXECUTOR المباشر.
 - كشف Execution cycle مع المسار والحواف السببية؛ بما فيها علاقات DATA المنتجة أو المرتبطة.
 - الفصل بين ملاحظات الأثر المنتجة وسجلات القبول/الانتقال المرتبطة؛ ورفض provenance غير المتوافق.
