@@ -110,6 +110,11 @@ function makeValidGraph(): ProofGraph {
       {
         id: "execution-1",
         kind: "EXECUTION",
+        projectId: "project-1",
+        episodeId: "episode-1",
+        attempt: 0,
+        missionId: "mission-1",
+        goalId: "goal-1",
         role: "EXECUTOR",
         actionId: "action-1",
         capabilityId: "apply_changes",
@@ -315,6 +320,75 @@ describe("Proof Graph Kernel v0", () => {
       item.code === "ROOT_EXECUTION_MISSING")).toBe(true);
   });
 
+  it("binds every root Execution context field to the graph envelope", () => {
+    const contextCases = [
+      ["projectId", "project-2"],
+      ["episodeId", "episode-2"],
+      ["attempt", 1],
+      ["missionId", "mission-2"],
+      ["goalId", "goal-2"],
+    ] as const;
+
+    for (const [field, value] of contextCases) {
+      const graph = makeValidGraph();
+      Object.assign(graph, { [field]: value });
+      const result = validateProofGraph(graph);
+      const mismatch = result.violations.filter((item) => item.code === "ROOT_EXECUTION_CONTEXT_MISMATCH");
+      expect(result.verdict, `envelope field ${field}`).toBe("FAIL");
+      expect(mismatch).toHaveLength(1);
+      expect(mismatch[0]?.path).toEqual(["execution-1", field]);
+    }
+  });
+
+  it("binds root Execution fields to the envelope and leaves dependency Execution contexts independent", () => {
+    const contextCases = [
+      ["projectId", "project-2"],
+      ["episodeId", "episode-2"],
+      ["attempt", 1],
+      ["missionId", "mission-2"],
+      ["goalId", "goal-2"],
+    ] as const;
+
+    for (const [field, value] of contextCases) {
+      const graph = makeValidGraph();
+      const rootExecution = graph.nodes.find((node) => node.kind === "EXECUTION" && node.id === graph.executionId);
+      if (!rootExecution || rootExecution.kind !== "EXECUTION") {
+        throw new Error("missing root Execution fixture");
+      }
+      Object.assign(rootExecution, { [field]: value });
+      const result = validateProofGraph(graph);
+      const mismatch = result.violations.filter((item) => item.code === "ROOT_EXECUTION_CONTEXT_MISMATCH");
+      expect(result.verdict, `root Execution field ${field}`).toBe("FAIL");
+      expect(mismatch).toHaveLength(1);
+      expect(mismatch[0]?.path).toEqual(["execution-1", field]);
+    }
+
+    const dependencyGraph = makeValidGraph();
+    dependencyGraph.nodes.push({
+      id: "execution-2",
+      kind: "EXECUTION",
+      projectId: "project-1",
+      episodeId: "episode-dependency-2",
+      attempt: 1,
+      missionId: "mission-dependency-2",
+      goalId: "goal-dependency-2",
+      role: "AGENT",
+      actionId: "action-2",
+      capabilityId: "apply_changes",
+      scopeHash,
+      planRevision,
+      operationKind: "MUTATION",
+    });
+    dependencyGraph.edges.push({
+      id: "root-depends-on-execution-2",
+      type: "EXECUTION_DEPENDS_ON",
+      from: "execution-1",
+      to: "execution-2",
+    });
+    expect(validateProofGraph(dependencyGraph).violations.some((item) =>
+      item.code === "ROOT_EXECUTION_CONTEXT_MISMATCH")).toBe(false);
+  });
+
   it("requires SCOPE_MATCHED evidence to bind the execution scope hash", () => {
     const graph = makeValidGraph();
     const data = graph.nodes.find((node) => node.id === "data-pre-1");
@@ -390,6 +464,11 @@ describe("Proof Graph Kernel v0", () => {
     graph.nodes.push({
       id: "execution-2",
       kind: "EXECUTION",
+      projectId: "project-1",
+      episodeId: "episode-dependency-2",
+      attempt: 1,
+      missionId: "mission-dependency-2",
+      goalId: "goal-dependency-2",
       role: "AGENT",
       actionId: "action-2",
       capabilityId: "apply_changes",
@@ -439,6 +518,11 @@ describe("Proof Graph Kernel v0", () => {
     const service = {
       id: "service-1",
       kind: "EXECUTION" as const,
+      projectId: "project-1",
+      episodeId: "episode-service-1",
+      attempt: 2,
+      missionId: "mission-service-1",
+      goalId: "goal-service-1",
       role: "SERVICE" as const,
       actionId: "service-action",
       capabilityId: "service-capability",
@@ -466,6 +550,11 @@ describe("Proof Graph Kernel v0", () => {
     graph.nodes.push({
       id: "execution-2",
       kind: "EXECUTION",
+      projectId: "project-1",
+      episodeId: "episode-dependency-2",
+      attempt: 1,
+      missionId: "mission-dependency-2",
+      goalId: "goal-dependency-2",
       role: "AGENT",
       actionId: "action-2",
       capabilityId: "apply_changes",
