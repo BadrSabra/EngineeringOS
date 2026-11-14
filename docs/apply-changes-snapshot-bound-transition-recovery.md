@@ -167,8 +167,9 @@ Apply/acceptance/materialization fixture to:
   `ACTION_REQUESTED`;
 - insert the direct live-tree before/after observations expected by recovery;
 - delete the pending transition after successful Execution Acceptance;
-- invoke two recovery calls concurrently and require exactly one
-  `created` plus one `existing` result with the same transition ID;
+- move the Apply Goal and Mission to the exact `needs_replan / apply_transition_missing` state produced by failed D2, while keeping `report-applied` in its normal `waiting_for_event / dependencies_pending` state;
+- invoke two recovery calls concurrently and require exactly one `created` plus one `existing` result with the same transition ID;
+- assert that only the exact Apply Goal returns to `waiting_for_event / apply_changes_pending`, the Mission returns to `waiting`, and the dependent `report-applied` Goal is unchanged;
 - continue through the existing finalizer and assert materialization/D2 proof.
 
 The test has been authored on the PR branch but has **not** been executed here.
