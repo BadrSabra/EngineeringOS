@@ -1,3 +1,11 @@
+# تحديث الحالة الحالية — 2026-11-14
+
+**الفرع الحالي:** `feat/proof-graph-kernel-v0`، منفصل عن PR #23 وعن `main`.
+**آخر baseline على main:** `edc57435d763a51bf826a92eba291bcab50a8a4c`.
+**SBPCT:** PR #23 ما زال Draft؛ source recovery واختبارات PostgreSQL المؤلفة موجودة على فرعه، لكن لا TypeScript/Vitest/PostgreSQL/exact-head CI pass مثبت.
+**Proof Graph Kernel v0:** أضيفت عقود DATA/CONTROL/EXECUTION ومُدقّق بنيوي نقيّ واختبارات وحدات. لا تكامل runtime، لا DB، لا execution authority، ولا Canonical Acceptance. نتيجة PASS تعني structural validity فقط.
+**P13 وP7.5:** لم تُفتح أي منهما؛ لا تغيير في ترتيب §31 أو صلاحيات الجمع والتعلم.
+
 # سجل تقدم خطة تعميم الوكيل الهندسي
 
 > هذا السجل جزء من `docs/agent-generalization-execution-plan.md`.
