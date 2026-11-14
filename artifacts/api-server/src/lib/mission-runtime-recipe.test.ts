@@ -1336,6 +1336,8 @@ describe("Mission recipe dispatch", () => {
       taskId,
       "test-user",
       expect.objectContaining({ parentExecutionId: null }),
+      0,
+      null,
     );
     const [goal] = await db
       .select({ status: aiGoalsTable.status })

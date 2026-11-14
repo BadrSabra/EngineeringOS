@@ -1364,8 +1364,10 @@ describe("runtime.start transition retry scheduling", () => {
       recoverAcceptedApplyChangesTransition(recoveryInput),
       recoverAcceptedApplyChangesTransition(recoveryInput),
     ]);
-    expect(recoveryResults.map((result) => result.kind).sort())
-      .toEqual(["created", "existing"]);
+    expect(
+      recoveryResults.map((result) => result.kind).sort(),
+      JSON.stringify(recoveryResults),
+    ).toEqual(["created", "existing"]);
     const recovered = recoveryResults.find((result) => result.kind === "created");
     const replayed = recoveryResults.find((result) => result.kind === "existing");
     if (recovered?.kind !== "created" || replayed?.kind !== "existing") {

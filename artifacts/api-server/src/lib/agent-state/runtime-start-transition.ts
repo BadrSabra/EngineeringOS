@@ -108,7 +108,7 @@ export function buildApplyChangesWorldTransitionIntent(input: {
   parentWorldRevision: string;
   parentFactRefs: readonly string[];
 }): ApplyWorldTransitionIntent {
-  return ApplyWorldTransitionIntentSchema.parse({
+  const parsed = ApplyWorldTransitionIntentSchema.safeParse({
     schemaVersion: 1,
     projectId: input.projectId,
     proposalId: input.proposalId,
@@ -117,6 +117,8 @@ export function buildApplyChangesWorldTransitionIntent(input: {
     parentWorldRevision: input.parentWorldRevision,
     parentFactRefs: [...input.parentFactRefs].sort(),
   });
+  if (!parsed.success) throw new Error("apply_world_transition_intent_invalid");
+  return parsed.data;
 }
 
 const ACTIVE_EXECUTION_STATUSES = new Set(["queued", "running", "paused", "cancelling"]);

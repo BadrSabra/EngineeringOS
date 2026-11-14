@@ -9401,6 +9401,8 @@ describe("POST /api/ai/chat/apply-changes", () => {
         reportTaskId,
         "test-user",
         { parentExecutionId: null },
+        0,
+        null,
       );
 
       const detail = await request(app).get(`/api/ai/executions/${execution!.id}`);
