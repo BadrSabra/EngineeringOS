@@ -130,3 +130,70 @@
 - No relaxation of Effect, Acceptance, observation provenance/freshness, project-root binding, Mission plan binding, or CAS.
 - No generic replay of filesystem writes.
 - No automatic provider/model changes as part of this correctness slice.
+
+## 9. Phase B forensic refinement — 2026-11-14
+
+A second source pass identifies two integration constraints that must be solved
+before implementing missing-row reconstruction:
+
+1. **The current reconciliation candidate query does not select the normal
+   accepted terminal projection.** `reconcileInterruptedApplyChanges()`
+   currently selects proposals in `isolated`/`validated`, or
+   `status=applied AND lifecycle=blocked`. The successful Apply route can
+   leave the proposal at `status=applied AND lifecycle=applied` even when
+   transition creation failed, because Apply Acceptance is deliberately
+   independent. Such a proposal is therefore outside the current reconciler's
+   candidate set. Extending the query must be narrowly bound to a missing
+   transition plus the exact accepted execution/attempt; it must not turn
+   every applied proposal into a recovery candidate.
+
+2. **The existing finalizer is not a post-acceptance recovery API.**
+   `finalizeApplyChangesTransition()` requires the Goal to be
+   `waiting_for_event` with `blockedReason=apply_changes_pending`. The
+   ordinary Mission path can instead move a missing-transition Goal to
+   `needs_replan` after D2 returns `apply_transition_missing`. The regular
+   `wakeApplyChangesMissionGoals()` path selects only the pending-wait state.
+   Recreating a row alone therefore does not guarantee Mission continuation.
+
+### Required Phase B transaction boundary
+
+The implementation must treat recovery as a single, explicitly authorized
+state repair, not as a call to the live worker-owned creation function:
+
+- discover only an accepted Apply execution whose exact Episode contains one
+  valid `ACTION_REQUESTED.worldTransitionIntent` and whose transition
+  idempotency key is absent;
+- revalidate the exact proposal, execution, attempt, Episode, Action,
+  Acceptance, EffectBundle, direct before/after observations, environment
+  revision, live promoted tree, active Goal plan, and immutable parent intent;
+- compare both the parent revision and canonical fact-reference set against
+  the authoritative World State excluding the originating Episode;
+- insert the missing transition idempotently under the existing unique key,
+  without requiring a live worker lease and without invoking filesystem writes;
+- only after the transition row is durably present, perform a narrowly fenced
+  Goal/Mission recovery transition. Do not revive a Goal if its plan changed,
+  an operator changed its status, the proposal binding changed, or the parent
+  CAS no longer holds;
+- run the existing transition finalizer/retry path and let its CAS remain the
+  only path that materializes World Facts.
+
+The Goal recovery policy still requires a source-level and test-level decision:
+whether a Goal moved to `needs_replan` specifically because of
+`apply_transition_missing` can be restored to `waiting_for_event`, or
+whether a dedicated accepted-transition wake path should evaluate D2 without
+rewriting the prior Goal state. Do not implement either behavior by broadening
+the existing wake query.
+
+### New mandatory regression cases
+
+- Accepted proposal in `applied/applied` with a missing transition is
+  discoverable; unrelated `applied/applied` proposals are not.
+- Missing transition plus Goal `needs_replan` can recover only when the
+  persisted block reason and exact plan/acceptance bindings prove this was the
+  missing-transition case; operator- or plan-changed Goals remain untouched.
+- Recovery is idempotent under concurrent reconcilers and a unique-key race.
+- A parent revision/fact-set change between discovery and insert prevents row
+  creation; a change after insertion prevents materialization through the
+  existing CAS.
+- A recovered row is finalized and Mission continuation is evaluated without
+  repeating file promotion or changing the original Acceptance.
