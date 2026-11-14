@@ -1313,6 +1313,26 @@ describe("runtime.start transition retry scheduling", () => {
       .where(eq(aiAgentObservationsTable.id, liveAfterObservationId));
 
     await db.update(aiAgentObservationsTable).set({
+      sourceId: "apply:" + fixture.executionId + ":0:after:missing-observation-test",
+    }).where(eq(aiAgentObservationsTable.id, liveAfterObservationId));
+    await expect(recoverAcceptedApplyChangesTransition(recoveryInput)).resolves.toMatchObject({
+      kind: "blocked",
+      reason: "apply_recovery_world_observations_missing_or_ambiguous",
+    });
+    await db.update(aiAgentObservationsTable).set({
+      sourceId: "apply:" + fixture.executionId + ":0:after:live-tree",
+    }).where(eq(aiAgentObservationsTable.id, liveAfterObservationId));
+
+    await db.update(aiAgentObservationsTable).set({ provenance: "DERIVED" })
+      .where(eq(aiAgentObservationsTable.id, liveAfterObservationId));
+    await expect(recoverAcceptedApplyChangesTransition(recoveryInput)).resolves.toMatchObject({
+      kind: "blocked",
+      reason: "apply_recovery_world_observation_binding_invalid",
+    });
+    await db.update(aiAgentObservationsTable).set({ provenance: "DIRECT_OBSERVATION" })
+      .where(eq(aiAgentObservationsTable.id, liveAfterObservationId));
+
+    await db.update(aiAgentObservationsTable).set({
       environmentRevision: "env-v1:" + "d".repeat(64),
     }).where(eq(aiAgentObservationsTable.id, liveAfterObservationId));
     await expect(recoverAcceptedApplyChangesTransition(recoveryInput)).resolves.toMatchObject({
