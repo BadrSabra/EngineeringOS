@@ -12,7 +12,7 @@ export const PROOF_GRAPH_MAX_EDGES = 512;
 
 const digestSchema = boundedString(64).regex(/^[a-f0-9]{64}$/u);
 
-const uniqueStrings = (max: number) => z.array(boundedString(200)).max(max).superRefine((values, ctx) => {
+const uniqueStrings = (max: number) => z.array(boundedString(200)).min(1).max(max).superRefine((values, ctx) => {
   if (new Set(values).size !== values.length) {
     ctx.addIssue({ code: z.ZodIssueCode.custom, message: "values must be unique" });
   }
@@ -44,7 +44,7 @@ export const ProofGraphControlNodeSchema = z.object({
   ruleId: ProofGraphControlRuleSchema,
   phase: z.enum(["PRE_EXECUTION", "POST_EXECUTION"]),
   outcome: z.enum(["SATISFIED", "UNSATISFIED", "UNKNOWN"]),
-  evidenceRefs: uniqueStrings(64).min(1),
+  evidenceRefs: uniqueStrings(64),
 }).strict();
 
 export const ProofGraphExecutionNodeSchema = z.object({
@@ -151,6 +151,10 @@ export type ProofGraphValidationResult = {
 const PRE_RULES = new Set<string>(PROOF_GRAPH_REQUIRED_PRE_RULES);
 const POST_RULES = new Set<string>(PROOF_GRAPH_REQUIRED_POST_RULES);
 
+function compareString(left: string, right: string): number {
+  return left < right ? -1 : left > right ? 1 : 0;
+}
+
 function canonicalGraph(graph: ProofGraph): ProofGraph {
   return {
     ...graph,
@@ -158,12 +162,12 @@ function canonicalGraph(graph: ProofGraph): ProofGraph {
       .map((node) => node.kind === "CONTROL"
         ? { ...node, evidenceRefs: [...node.evidenceRefs].sort() }
         : node)
-      .sort((left, right) => left.id.localeCompare(right.id)),
+      .sort((left, right) => compareString(left.id, right.id)),
     edges: [...graph.edges].sort((left, right) =>
-      left.type.localeCompare(right.type)
-      || left.from.localeCompare(right.from)
-      || left.to.localeCompare(right.to)
-      || left.id.localeCompare(right.id)),
+      compareString(left.type, right.type)
+      || compareString(left.from, right.from)
+      || compareString(left.to, right.to)
+      || compareString(left.id, right.id)),
   };
 }
 
@@ -185,7 +189,7 @@ function findExecutionCycle(
     activeIndex.set(nodeId, nodeStack.length);
     nodeStack.push(nodeId);
     const outgoing = [...(adjacency.get(nodeId) ?? [])]
-      .sort((left, right) => left.to.localeCompare(right.to) || left.edgeId.localeCompare(right.edgeId));
+      .sort((left, right) => compareString(left.to, right.to) || compareString(left.edgeId, right.edgeId));
 
     for (const edge of outgoing) {
       const cycleStart = activeIndex.get(edge.to);
@@ -306,9 +310,7 @@ export function validateProofGraph(input: unknown): ProofGraphValidationResult {
   const gatesByExecution = new Map<string, ProofGraphControlNode[]>();
   const outputsByExecution = new Map<string, ProofGraphDataNode[]>();
   const verificationsByExecution = new Map<string, ProofGraphControlNode[]>();
-  const producersByData = new Map<string, string[]>();
-
-  for (const edge of supportEdges) {
+    for (const edge of supportEdges) {
     const data = nodesById.get(edge.from);
     const control = nodesById.get(edge.to);
     if (data?.kind !== "DATA" || control?.kind !== "CONTROL") continue;
@@ -325,7 +327,6 @@ export function validateProofGraph(input: unknown): ProofGraphValidationResult {
     const data = nodesById.get(edge.to);
     if (execution?.kind !== "EXECUTION" || data?.kind !== "DATA") continue;
     outputsByExecution.set(execution.id, [...(outputsByExecution.get(execution.id) ?? []), data]);
-    producersByData.set(data.id, [...(producersByData.get(data.id) ?? []), execution.id]);
   }
   for (const edge of verifyEdges) {
     const execution = nodesById.get(edge.from);
