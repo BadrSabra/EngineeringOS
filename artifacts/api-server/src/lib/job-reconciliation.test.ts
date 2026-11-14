@@ -1163,10 +1163,10 @@ describe("periodic stale scan recovery and durable health", () => {
         (entry) => entry.reasonCode === "EXECUTION_IDENTITY_CONFLICT",
       );
       expect(executionIdentityConflicts?.count).toBeGreaterThanOrEqual(1);
-      const otherDispatches = health.deferredAiTaskDispatchesByReason.find(
-        (entry) => entry.reasonCode === "OTHER",
+      const preclaimFailureDispatches = health.deferredAiTaskDispatchesByReason.find(
+        (entry) => entry.reasonCode === "PRECLAIM_FAILURE",
       );
-      expect(otherDispatches?.count).toBeGreaterThanOrEqual(1);
+      expect(preclaimFailureDispatches?.count).toBeGreaterThanOrEqual(1);
       expect(health.staleAiTaskDispatches - baseline.staleAiTaskDispatches).toBeGreaterThanOrEqual(4);
       expect(health.staleAiTaskDispatches - baseline.staleAiTaskDispatches)
         .toBeLessThan(health.deferredAiTaskDispatches - baseline.deferredAiTaskDispatches);
