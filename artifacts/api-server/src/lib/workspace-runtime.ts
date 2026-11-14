@@ -1342,6 +1342,8 @@ export class WorkspaceRuntimeManager {
         leaseUntil: new Date(Date.now() + RUNTIME_LEASE_MS),
       });
       if (!claimed) continue;
+      // Supervisor command identity must be derived from the persisted session binding.
+      // Never synthesize an empty revision when recovering an incomplete legacy row.
       const runtimeRevision = claimed.revision;
       const runtimeStartedAt = claimed.startedAt;
       if (!runtimeRevision || !runtimeStartedAt) {
