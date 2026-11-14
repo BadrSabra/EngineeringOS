@@ -10406,6 +10406,15 @@ describe("POST /api/ai/tasks/:taskId/execute", () => {
         queuedJobs.push({ id, run });
         return "enqueued";
       });
+    // The recovered queue callback must exercise the real Task lifecycle with
+    // deterministic provider/rate-limit admission, not depend on user settings.
+    vi.spyOn(aiRouteHelpers, "resolveProvider").mockResolvedValueOnce({
+      provider: "groq",
+      apiKey: "test-only-key",
+      source: "user",
+    });
+    vi.spyOn(aiRateLimiter, "checkProjectRateLimitDb")
+      .mockResolvedValueOnce({ allowed: true });
 
     await scheduleAiTaskExecution(taskId, "test-user", {
       delegationBudget: { maxChildren: 2, maxDepth: 1 },
