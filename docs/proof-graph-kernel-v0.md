@@ -16,7 +16,7 @@
 
 - `lib/ai-orchestrator/src/agent-state/proof-graph.ts`: Zod contracts، canonical hash، deterministic validator.
 - `lib/ai-orchestrator/src/agent-state/index.ts`: تصدير عقد المحرك من الحزمة الداخلية للـAgent State.
-- `lib/ai-orchestrator/src/__tests__/proof-graph.test.ts`: اختبارات نقية لا تحتاج PostgreSQL أو مزود AI. عددها الحالي 37 حالة، ويُشغّلها `pnpm --filter @workspace/ai-orchestrator run test:proof-graph`.
+- `lib/ai-orchestrator/src/__tests__/proof-graph.test.ts`: اختبارات نقية لا تحتاج PostgreSQL أو مزود AI. عددها الحالي 39 حالة، ويُشغّلها `pnpm --filter @workspace/ai-orchestrator run test:proof-graph`.
 
 لا يغيّر هذا الفرع `main` أو PR #22 أو PR #23، ولا يعتمد على دمج SBPCT أولًا؛ إنه kernel تجريبي منفصل عن مسار الإنتاج.
 
@@ -94,7 +94,7 @@
 - الفصل بين ملاحظات الأثر المنتجة وسجلات القبول/الانتقال المرتبطة؛ ورفض provenance غير المتوافق.
 - رفض Model-inferred provenance.
 
-أضيفت خطوة CI مستقلة لتشغيل `pnpm --filter @workspace/ai-orchestrator run test:proof-graph` قبل root-build gate حتى لا يخفي فشل المستودع نتيجة اختبار النواة. على رأس PR الحالي (`3ae8a69`)، اكتملت خطوة `Validate Proof Graph Kernel v0` بنجاح في Run #682. نجاح الاختبار المركّز لا يثبت نجاح TypeScript أو بقية CI؛ بوابة root-build والاختبارات العامة تظل مستقلة.
+أضيفت خطوة CI مستقلة لتشغيل `pnpm --filter @workspace/ai-orchestrator run test:proof-graph` قبل root-build gate حتى لا يخفي فشل المستودع نتيجة اختبار النواة. على رأس PR #27 المثبت في CI Run #691 (`812bd84ac24d8b73e55c987f2d749912d8b88b7f`)، نجح اختبار النواة المركّز **39/39**، ونجحت اختبارات `ai-orchestrator` **3060** مع **5 skipped**، كما نجحت بوابات جميع الحزم TypeScript وcodegen drift وroot build contract. فشل CI العام لاحقًا في اختبارات API-server: **15 failed / 2798 passed / 40 skipped**؛ لذلك لا يُسجل PR على أنه CI-green. هذا الفصل ضروري: نجاح النواة مثبت، أما قبول التغيير كاملًا فيظل محجوبًا بإصلاحات API-server/recovery المستقلة.
 
 ## 7. الخطوة التالية بعد V0
 
