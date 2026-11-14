@@ -117,8 +117,6 @@ describe("Proof Graph Kernel v0", () => {
     const graph = makeValidGraph();
     const reversed: ProofGraph = {
       ...graph,
-      nodes: [...graph.nodes].reverse(),
-      edges: [...graph.edges].reverse(),
       nodes: graph.nodes.map((node) => node.kind === "CONTROL"
         ? { ...node, evidenceRefs: [...node.evidenceRefs].reverse() }
         : node).reverse(),
