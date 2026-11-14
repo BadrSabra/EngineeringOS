@@ -19,13 +19,19 @@ import {
 } from "@workspace/db";
 import {
   ApplyWorldTransitionIntentSchema,
+  hashEffectContract,
   invalidateContextSlice,
   parseAgentActionRequestedPayload,
 } from "@workspace/ai-orchestrator";
 import type { ApplyWorldTransitionIntent } from "@workspace/ai-orchestrator";
 import { childProcessBindingDigest } from "./child-process-attestation.js";
 import { getProjectWorldState, materializeWorldStateForProject } from "./world-state.js";
-import { isBoundApplyChangeEffectBundle } from "./apply-change-effect.js";
+import {
+  APPLY_CHANGE_CAPABILITY_ID,
+  APPLY_CHANGE_EFFECT_ID,
+  buildApplyChangeEffectProofExpectation,
+  isBoundApplyChangeEffectBundle,
+} from "./apply-change-effect.js";
 import { logger } from "../logger.js";
 import { establishProjectRoot } from "../project-root.js";
 import { hashDeliveryTree } from "../delivery-workspace.js";
@@ -316,9 +322,30 @@ export async function recoverAcceptedApplyChangesTransition(input: {
         return { kind: "blocked", reason: "apply_recovery_parent_intent_missing_or_invalid" } as const;
       }
       const intent = intentResult.data;
+      const actionEventPayload = asRecord(matchingEvents[0]!.payload) ?? {};
+      const persistedEffectContract = actionEventPayload.effectContract;
+      const expectedEffect = typeof scope.candidateTreeHash === "string"
+        ? buildApplyChangeEffectProofExpectation({
+            executionId: input.executionId,
+            attempt: input.attempt,
+            proposalId: input.proposalId,
+            candidateTreeHash: scope.candidateTreeHash,
+          })
+        : undefined;
+      let persistedEffectContractHash: string | undefined;
+      try {
+        if (persistedEffectContract && typeof persistedEffectContract === "object"
+          && !Array.isArray(persistedEffectContract)) {
+          persistedEffectContractHash = hashEffectContract(persistedEffectContract as Parameters<typeof hashEffectContract>[0]);
+        }
+      } catch {
+        persistedEffectContractHash = undefined;
+      }
       if (
         action.episodeId !== episode.id
-        || action.capabilityId !== "approved.source-promotion"
+        || action.capabilityId !== APPLY_CHANGE_CAPABILITY_ID
+        || action.expectedEffects.length !== 1
+        || action.expectedEffects[0] !== APPLY_CHANGE_EFFECT_ID
         || scope.projectId !== input.projectId
         || scope.proposalId !== input.proposalId
         || scope.attemptId !== execution.operationId
@@ -329,6 +356,9 @@ export async function recoverAcceptedApplyChangesTransition(input: {
         || typeof scope.sourceRevision !== "string"
         || !Array.isArray(scope.approvedPaths)
         || scope.approvedPaths.length === 0
+        || new Set(scope.approvedPaths).size !== scope.approvedPaths.length
+        || !expectedEffect
+        || persistedEffectContractHash !== expectedEffect.effectContractHash
         || intent.projectId !== input.projectId
         || intent.proposalId !== input.proposalId
         || intent.goalId !== goal.id
@@ -358,6 +388,10 @@ export async function recoverAcceptedApplyChangesTransition(input: {
         ? mission.autonomyPolicy as Record<string, unknown>
         : {};
       const activePlanRevision = autonomyPolicy.activePlanRevision;
+      const applyMission = autonomyPolicy.applyMission && typeof autonomyPolicy.applyMission === "object"
+        && !Array.isArray(autonomyPolicy.applyMission)
+        ? autonomyPolicy.applyMission as Record<string, unknown>
+        : {};
       if (
         !proposal
         || proposal.status !== "applied"
@@ -376,6 +410,20 @@ export async function recoverAcceptedApplyChangesTransition(input: {
         || criteriaPlan.hash !== intent.planRevision
         || outcomePlan.hash !== intent.planRevision
         || episode.planRevision !== intent.planRevision
+        || applyMission.proposalId !== proposal.id
+        || applyMission.proposalRevision !== proposal.revision
+        || applyMission.baseTreeHash !== proposal.baseTreeHash
+        || applyMission.operationId !== proposal.operationId
+        || applyMission.candidateIdentity !== (proposal.id + ":" + proposal.candidateTreeHash)
+        || applyMission.baseRevision !== proposal.baseRevision
+        || applyMission.candidateTreeHash !== proposal.candidateTreeHash
+        || applyMission.changeSetHash !== proposal.changeSetHash
+        || !applyRequirementMatches(applyMission.requirement, {
+          proposalId: proposal.id,
+          baseRevision: proposal.baseRevision ?? "",
+          candidateTreeHash: proposal.candidateTreeHash ?? "",
+          changeSetHash: proposal.changeSetHash ?? "",
+        })
         || !applyRequirementMatches(criteria.applyRequirement, {
           proposalId: proposal.id,
           baseRevision: proposal.baseRevision ?? "",
