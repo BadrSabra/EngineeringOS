@@ -308,9 +308,15 @@ describe("Proof Graph Kernel v0", () => {
 
   it("does not allow a server-derived Acceptance record to masquerade as a produced effect observation", () => {
     const graph = makeValidGraph();
-    const boundEdge = graph.edges.find((edge) => edge.id === "edge-post-binding-1");
+    const boundEdgeIndex = graph.edges.findIndex((edge) => edge.id === "edge-post-binding-1");
+    const boundEdge = graph.edges[boundEdgeIndex];
     if (!boundEdge || boundEdge.type !== "EXECUTION_BINDS_DATA") throw new Error("missing bound Acceptance edge");
-    boundEdge.type = "EXECUTION_PRODUCES_DATA";
+    graph.edges[boundEdgeIndex] = {
+      id: boundEdge.id,
+      type: "EXECUTION_PRODUCES_DATA",
+      from: boundEdge.from,
+      to: boundEdge.to,
+    };
 
     expect(validateProofGraph(graph).violations.some((item) =>
       item.code === "OUTPUT_NOT_DIRECT_OBSERVATION")).toBe(true);
