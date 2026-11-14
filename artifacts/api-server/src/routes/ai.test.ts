@@ -59,7 +59,6 @@ import * as aiRateLimiter from "../lib/db-rate-limiter.js";
 import * as taskExecutionService from "../lib/task-execution-service.js";
 import { insertTaskAutoExecutionIntent } from "../lib/task-auto-execution-outbox.js";
 import { heavyJobQueue } from "../lib/job-queue.js";
-import { dispatchPersistedPendingJobs } from "../lib/job-reconciliation.js";
 import * as aiTaskRoutes from "./ai/tasks.js";
 import { reconcileInterruptedApplyChanges } from "../lib/apply-change-reconciliation.js";
 import {
