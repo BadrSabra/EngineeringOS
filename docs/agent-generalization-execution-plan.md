@@ -5022,7 +5022,19 @@ docs/apply-changes-snapshot-bound-transition-recovery.md.
 
 Phase A مطبق على مستوى المصدر في هذا الفرع: يحفظ route الـintent في ACTION_REQUESTED
 ويستخدم parent snapshot نفسها لإنشاء transition، مع عقد Zod واختبارات وحدة مضافة.
-لم يُشغّل typecheck أو Vitest بعد. Phase B — missing-row recovery — لم تنفذ بعد.
+
+Phase B مطبق على مستوى المصدر أيضًا: يضيف
+recoverAcceptedApplyChangesTransition لاستعادة row مفقود بعد Acceptance من
+الـintent والأدلة الأصلية، ويشمل reconciler حالة applied/applied بشرط اكتمال
+الدليل المقبول وتطابق الشجرة الحية. الاستعادة لا تكتب الملفات، وتتحقق من
+Parent revision وfact refs، وتعيد Goal فقط عند السبب الدقيق
+apply_transition_missing. أضيف إلى الاختبار المتكامل سيناريو row المفقود،
+ومحاولتا recovery متزامنتان، ورفض غياب intent، ورفض parent drift.
+
+**التحقق ما زال مفتوحًا:** هذه الاختبارات مؤلفة على الفرع لكنها لم تُشغّل؛
+typecheck وVitest وPostgreSQL CI لم تثبت بعد. لا تعتبر Phase B مغلقة حتى تمر
+الاختبارات على exact head، وتضاف حالات فشل identity/plan/observation/environment/tree
+ويثبت Mission wake بعد materialization.
 
 هذا remediation عمودي محدود ضمن P3.5/P6؛ لا يغلق المرحلتين ولا يغير ترتيب §31،
 ولا يفتح P13 أو يبني graph/runtime موازيًا.
