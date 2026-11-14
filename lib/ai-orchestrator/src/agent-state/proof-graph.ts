@@ -157,7 +157,8 @@ export type ProofGraphViolationCode =
   | "NO_EXECUTION_NODE"
   | "MULTIPLE_DATA_PRODUCERS"
   | "ROOT_EXECUTION_MISSING"
-  | "CONTROL_SCOPE_HASH_MISMATCH";
+  | "CONTROL_SCOPE_HASH_MISMATCH"
+  | "BOUND_DATA_PROVENANCE_MISMATCH";
 
 export type ProofGraphViolation = {
   code: ProofGraphViolationCode;
@@ -362,6 +363,9 @@ export function validateProofGraph(input: unknown): ProofGraphValidationResult {
     const data = nodesById.get(edge.to);
     if (execution?.kind !== "EXECUTION" || data?.kind !== "DATA") continue;
     boundDataByExecution.set(execution.id, [...(boundDataByExecution.get(execution.id) ?? []), data]);
+    if (data.provenance !== "SERVER_DERIVED" || data.freshness !== "fresh") {
+      addViolation("BOUND_DATA_PROVENANCE_MISMATCH", [execution.id, data.id], [edge.id]);
+    }
   }
   for (const edge of verifyEdges) {
     const execution = nodesById.get(edge.from);
@@ -481,7 +485,7 @@ export function validateProofGraph(input: unknown): ProofGraphValidationResult {
 
   // Build an execution-level graph from explicit dependency edges and from
   // produced DATA that supports a later PRE_EXECUTION control.
-  const executionAdjacency = new Map<string, { to: string; edgeId: string }[]>();
+  const executionAdjacency = new Map<string, { to: string; edgeIds: string[] }[]>();
   for (const execution of executionNodes) executionAdjacency.set(execution.id, []);
   for (const edge of dependencyEdges) {
     if (nodesById.get(edge.from)?.kind === "EXECUTION" && nodesById.get(edge.to)?.kind === "EXECUTION") {
@@ -492,7 +496,7 @@ export function validateProofGraph(input: unknown): ProofGraphValidationResult {
   for (const edge of [...produceEdges, ...edgesByType.get("EXECUTION_BINDS_DATA")!]) {
     if (nodesById.get(edge.from)?.kind === "EXECUTION" && nodesById.get(edge.to)?.kind === "DATA") {
       const existingProducer = producerByData.get(edge.to);
-      if (existingProducer && existingProducer !== edge.from) {
+      if (existingProducer) {
         addViolation("MULTIPLE_DATA_PRODUCERS", [edge.to, existingProducer, edge.from], [edge.id]);
       } else {
         producerByData.set(edge.to, edge.from);
