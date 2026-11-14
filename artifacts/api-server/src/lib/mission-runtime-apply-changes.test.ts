@@ -1464,6 +1464,8 @@ describe("Apply Changes Mission D2 dispatch", () => {
       fixture.reportTaskId,
       "test-user",
       { parentExecutionId: null },
+      0,
+      null,
     );
 
     const [acceptance] = await db.select({

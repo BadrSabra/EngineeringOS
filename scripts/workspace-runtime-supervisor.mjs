@@ -430,7 +430,7 @@ async function processIsWithinRoot(pid, projectRoot) {
   }
 }
 
-async function processHasAttestationMarker(pid, expectedMarker) {
+async function attestationMarkerStatus(pid, expectedMarker) {
   let environment;
   try {
     environment = await readFile(`/proc/${pid}/environ`);
@@ -451,9 +451,11 @@ async function processHasAttestationMarker(pid, expectedMarker) {
       }
       offset = entryEnd + 1;
     }
-    return count === 1 && matches;
+    if (count === 0) return "missing";
+    if (count !== 1) return "duplicate";
+    return matches ? "matched" : "mismatch";
   } catch {
-    return false;
+    return "unreadable";
   } finally {
     environment?.fill(0);
   }
@@ -486,17 +488,17 @@ async function verifyRuntimeAdoption(input, projectRoot) {
     throw Object.assign(new Error("Runtime listener ownership could not be verified."), { status: 409 });
   }
   if (input.attestationMarker) {
-    const [launchMarkerMatches, listenerMarkerMatches] = await Promise.all([
-      processHasAttestationMarker(input.pid, input.attestationMarker),
-      processHasAttestationMarker(first.pid, input.attestationMarker),
+    const [launchMarkerStatus, listenerMarkerStatus] = await Promise.all([
+      attestationMarkerStatus(input.pid, input.attestationMarker),
+      attestationMarkerStatus(first.pid, input.attestationMarker),
     ]);
-    if (!launchMarkerMatches || !listenerMarkerMatches) {
-      const mismatchedProcesses = [
-        ...(!launchMarkerMatches ? ["launch"] : []),
-        ...(!listenerMarkerMatches ? ["listener"] : []),
+    if (launchMarkerStatus !== "matched" || listenerMarkerStatus !== "matched") {
+      const failures = [
+        ...(launchMarkerStatus !== "matched" ? [`launch:${launchMarkerStatus}`] : []),
+        ...(listenerMarkerStatus !== "matched" ? [`listener:${listenerMarkerStatus}`] : []),
       ];
       throw Object.assign(
-        new Error(`Runtime child-process attestation did not match for the ${mismatchedProcesses.join(" and ")} process.`),
+        new Error(`Runtime child-process attestation did not match (${failures.join(", ")}).`),
         { status: 409 },
       );
     }
@@ -521,8 +523,39 @@ function signalGroup(pid, signal) {
   }
 }
 
-function isProcessGroupAlive(pid) {
+async function isProcessGroupAlive(pid) {
   if (!Number.isInteger(pid) || pid <= 1) return false;
+
+  // Linux keeps exited children as zombies until their parent reaps them.
+  // kill(-pgid, 0) still reports such a group as present even though no
+  // process in it can execute. Treat only non-zombie members as live so stop
+  // completion reflects executable descendants, not PID-1 reaping latency.
+  if (process.platform === "linux") {
+    try {
+      const entries = await readdir("/proc");
+      let foundGroupMember = false;
+      for (const entry of entries) {
+        if (!/^[0-9]+$/.test(entry)) continue;
+        try {
+          const stat = await readFile(`/proc/${entry}/stat`, "utf8");
+          const closeParen = stat.lastIndexOf(")");
+          if (closeParen < 0) continue;
+          const fields = stat.slice(closeParen + 2).trim().split(/\s+/);
+          const state = fields[0];
+          const processGroupId = Number(fields[2]);
+          if (processGroupId !== pid) continue;
+          foundGroupMember = true;
+          if (state !== "Z" && state !== "X") return true;
+        } catch {
+          // The process may exit between enumerating /proc and reading stat.
+        }
+      }
+      if (foundGroupMember) return false;
+    } catch {
+      // Fall through to kill(2) when procfs is unavailable or restricted.
+    }
+  }
+
   try {
     process.kill(-pid, 0);
     return true;
@@ -533,7 +566,7 @@ function isProcessGroupAlive(pid) {
 
 async function waitForProcessGroupExit(pid, timeoutMs) {
   const deadline = Date.now() + timeoutMs;
-  while (isProcessGroupAlive(pid)) {
+  while (await isProcessGroupAlive(pid)) {
     if (Date.now() >= deadline) return false;
     await new Promise((resolve) => setTimeout(resolve, 50));
   }

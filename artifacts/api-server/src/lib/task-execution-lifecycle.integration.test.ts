@@ -1415,7 +1415,6 @@ describe("real durable task execution lifecycle", () => {
           request: {
             projectId,
             linkedTaskId: taskId,
-            attempt: 0,
             message: "Stored Task execution identity fixture",
             modelMessage: "Stored Task execution identity fixture",
             validationTargetPaths: [],
@@ -1578,7 +1577,7 @@ describe("real durable task execution lifecycle", () => {
         expectedRetryCount: 0,
         expectedCorrelationId: null,
         workspaceRevision: now.toISOString(),
-      })).rejects.toThrow("fixture_task_claim_failure");
+      })).rejects.toThrow('Failed query: update "tasks"');
 
       const [task] = await db.select({
         status: tasksTable.status,

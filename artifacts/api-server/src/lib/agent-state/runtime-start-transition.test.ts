@@ -54,7 +54,12 @@ import {
 } from "./world-state.js";
 import * as worldStateModule from "./world-state.js";
 import { hashDeliveryTree } from "../delivery-workspace.js";
-import { canonicalJsonHash, GoalNextActionSchema } from "@workspace/ai-orchestrator";
+import {
+  AGENT_STATE_LIMITS,
+  canonicalJsonHash,
+  GoalNextActionSchema,
+  parseBoundedJson,
+} from "@workspace/ai-orchestrator";
 import { taskScopeIdentity } from "./observation-materializer.js";
 import {
   APPLY_CHANGE_CAPABILITY_ID,
@@ -62,6 +67,10 @@ import {
   buildApplyChangeEffectProofExpectation,
 } from "./apply-change-effect.js";
 import { APPLY_CHANGES_PROOF_MODE } from "./apply-changes-proof.js";
+
+function hashEpisodeEventPayload(payload: unknown): string {
+  return canonicalJsonHash(parseBoundedJson(payload, AGENT_STATE_LIMITS.episodeEventPayloadBytes));
+}
 
 const createdProjects: string[] = [];
 const createdExecutionIds: string[] = [];
@@ -902,7 +911,7 @@ describe("runtime.start transition retry scheduling", () => {
       intentKind: "APPLY_CHANGES",
       state: "verifying",
       projectRevision: baseRevision,
-      worldRevision: input.parentWorldRevision,
+      worldRevision: fixture.transitionInput.parentWorldRevision,
       verdict: null,
       reasonCode: null,
       closedAt: null,
@@ -1214,7 +1223,7 @@ describe("runtime.start transition retry scheduling", () => {
     delete payloadWithoutIntent.worldTransitionIntent;
     await db.update(aiAgentEpisodeEventsTable).set({
       payload: payloadWithoutIntent as typeof requestedEvent.payload,
-      payloadHash: canonicalJsonHash(payloadWithoutIntent),
+      payloadHash: hashEpisodeEventPayload(payloadWithoutIntent),
     }).where(eq(aiAgentEpisodeEventsTable.id, requestedEvent.id));
     await expect(recoverAcceptedApplyChangesTransition(recoveryInput)).resolves.toMatchObject({
       kind: "blocked",
@@ -1222,7 +1231,7 @@ describe("runtime.start transition retry scheduling", () => {
     });
     await db.update(aiAgentEpisodeEventsTable).set({
       payload: originalRequestedPayload as typeof requestedEvent.payload,
-      payloadHash: canonicalJsonHash(originalRequestedPayload),
+      payloadHash: hashEpisodeEventPayload(originalRequestedPayload),
     }).where(eq(aiAgentEpisodeEventsTable.id, requestedEvent.id));
 
     // A changed authoritative parent is also non-recoverable. The test fact is
@@ -1272,7 +1281,7 @@ describe("runtime.start transition retry scheduling", () => {
     };
     await db.update(aiAgentEpisodeEventsTable).set({
       payload: payloadWithWrongAction as typeof requestedEvent.payload,
-      payloadHash: canonicalJsonHash(payloadWithWrongAction),
+      payloadHash: hashEpisodeEventPayload(payloadWithWrongAction),
     }).where(eq(aiAgentEpisodeEventsTable.id, requestedEvent.id));
     await expect(recoverAcceptedApplyChangesTransition(recoveryInput)).resolves.toMatchObject({
       kind: "blocked",
@@ -1280,7 +1289,7 @@ describe("runtime.start transition retry scheduling", () => {
     });
     await db.update(aiAgentEpisodeEventsTable).set({
       payload: originalRequestedPayload as typeof requestedEvent.payload,
-      payloadHash: canonicalJsonHash(originalRequestedPayload),
+      payloadHash: hashEpisodeEventPayload(originalRequestedPayload),
     }).where(eq(aiAgentEpisodeEventsTable.id, requestedEvent.id));
 
     // A well-formed but different plan digest must not be silently rebased.
@@ -1291,7 +1300,7 @@ describe("runtime.start transition retry scheduling", () => {
     };
     await db.update(aiAgentEpisodeEventsTable).set({
       payload: payloadWithWrongPlan as typeof requestedEvent.payload,
-      payloadHash: canonicalJsonHash(payloadWithWrongPlan),
+      payloadHash: hashEpisodeEventPayload(payloadWithWrongPlan),
     }).where(eq(aiAgentEpisodeEventsTable.id, requestedEvent.id));
     await expect(recoverAcceptedApplyChangesTransition(recoveryInput)).resolves.toMatchObject({
       kind: "blocked",
@@ -1299,7 +1308,7 @@ describe("runtime.start transition retry scheduling", () => {
     });
     await db.update(aiAgentEpisodeEventsTable).set({
       payload: originalRequestedPayload as typeof requestedEvent.payload,
-      payloadHash: canonicalJsonHash(originalRequestedPayload),
+      payloadHash: hashEpisodeEventPayload(originalRequestedPayload),
     }).where(eq(aiAgentEpisodeEventsTable.id, requestedEvent.id));
 
     // Direct observations must remain fresh and share the same environment revision.
@@ -1355,8 +1364,10 @@ describe("runtime.start transition retry scheduling", () => {
       recoverAcceptedApplyChangesTransition(recoveryInput),
       recoverAcceptedApplyChangesTransition(recoveryInput),
     ]);
-    expect(recoveryResults.map((result) => result.kind).sort())
-      .toEqual(["created", "existing"]);
+    expect(
+      recoveryResults.map((result) => result.kind).sort(),
+      JSON.stringify(recoveryResults),
+    ).toEqual(["created", "existing"]);
     const recovered = recoveryResults.find((result) => result.kind === "created");
     const replayed = recoveryResults.find((result) => result.kind === "existing");
     if (recovered?.kind !== "created" || replayed?.kind !== "existing") {
@@ -1504,7 +1515,7 @@ describe("runtime.start transition retry scheduling", () => {
       sourceObservationIds: aiWorldFactsTable.sourceObservationIds,
     }).from(aiWorldFactsTable)
       .where(eq(aiWorldFactsTable.projectId, fixture.projectId));
-    const transitionObservationIds = new Set<string>([beforeObservationId, afterObservationId]);
+    const transitionObservationIds = new Set<string>([liveBeforeObservationId, liveAfterObservationId]);
     const expectedChangedFactRefs = materializedFacts
       .filter((fact) => Array.isArray(fact.sourceObservationIds)
         && fact.sourceObservationIds.some((observationId: unknown) => (
@@ -1522,7 +1533,7 @@ describe("runtime.start transition retry scheduling", () => {
     expect(actualChangedFactRefs).toEqual(expectedChangedFactRefs);
     expect(materializedFacts.some((fact) =>
       Array.isArray(fact.sourceObservationIds)
-      && fact.sourceObservationIds.includes(afterObservationId)
+      && fact.sourceObservationIds.includes(liveAfterObservationId)
       && actualChangedFactRefs.includes(fact.id)
     )).toBe(true);
 
