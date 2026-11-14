@@ -100,12 +100,12 @@ function makeValidGraph(): ProofGraph {
         role: "EXECUTOR",
         actionId: "action-1",
         capabilityId: "apply_changes",
-projectId: "project-1",
-      episodeId: "episode-1",
-      attempt: 0,
-      missionId: "mission-1",
-      goalId: "goal-1",
-              scopeHash,
+        projectId: "project-1",
+        episodeId: "episode-1",
+        attempt: 0,
+        missionId: "mission-1",
+        goalId: "goal-1",
+        scopeHash,
         planRevision,
         operationKind: "MUTATION",
       },
@@ -145,8 +145,13 @@ describe("Proof Graph Kernel v0", () => {
 
     for (const field of fields) {
       const graph = makeValidGraph();
-      if (field === "attempt") graph.attempt = 1;
-      else graph[field] = "tampered-context";
+      switch (field) {
+        case "projectId": graph.projectId = "tampered-context"; break;
+        case "episodeId": graph.episodeId = "tampered-context"; break;
+        case "attempt": graph.attempt = 1; break;
+        case "missionId": graph.missionId = "tampered-context"; break;
+        case "goalId": graph.goalId = "tampered-context"; break;
+      }
 
       const result = validateProofGraph(graph);
       expect(result.verdict, field).toBe("FAIL");
@@ -400,12 +405,12 @@ describe("Proof Graph Kernel v0", () => {
       role: "AGENT",
       actionId: "action-2",
       capabilityId: "apply_changes",
-projectId: "project-1",
+      projectId: "project-1",
       episodeId: "episode-1",
       attempt: 0,
       missionId: "mission-1",
       goalId: "goal-1",
-            scopeHash,
+      scopeHash,
       planRevision,
       operationKind: "MUTATION",
     });
@@ -454,12 +459,12 @@ projectId: "project-1",
       role: "SERVICE" as const,
       actionId: "service-action",
       capabilityId: "service-capability",
-projectId: "project-1",
+      projectId: "project-1",
       episodeId: "episode-1",
       attempt: 0,
       missionId: "mission-1",
       goalId: "goal-1",
-            scopeHash,
+      scopeHash,
       planRevision,
       operationKind: "MUTATION" as const,
     };
@@ -486,12 +491,12 @@ projectId: "project-1",
       role: "AGENT",
       actionId: "action-2",
       capabilityId: "apply_changes",
-projectId: "project-1",
+      projectId: "project-1",
       episodeId: "episode-1",
       attempt: 0,
       missionId: "mission-1",
       goalId: "goal-1",
-            scopeHash,
+      scopeHash,
       planRevision,
       operationKind: "MUTATION",
     });
