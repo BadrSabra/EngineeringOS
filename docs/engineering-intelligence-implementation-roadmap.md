@@ -277,11 +277,12 @@ P7.5/P8/P9 واشتراطات P10 في §31.
 - عقد typed مغلق لفئات `DATA` و`CONTROL` و`EXECUTION`.
 - علاقات محددة الاتجاه فقط: `DATA_SUPPORTS_CONTROL`,
   `CONTROL_GATES_EXECUTION`, `EXECUTION_PRODUCES_DATA`,
-  `EXECUTION_VERIFIED_BY_CONTROL`, و`EXECUTION_DEPENDS_ON`.
+  `EXECUTION_BINDS_DATA`, `EXECUTION_VERIFIED_BY_CONTROL`, و`EXECUTION_DEPENDS_ON`.
+  يميز النموذج بين ملاحظات الأثر المباشرة التي ينتجها التنفيذ وسجلات Acceptance/World Transition الخادمية المرتبطة به.
 - بوابات سابقة إلزامية: Authorization وScope وPreconditions وParent Revision.
 - بوابات لاحقة إلزامية: Effect Proof وAcceptance وWorld Transition Materialized.
 - رفض stale/model-inferred evidence، اختلاف Parent، مراجع Evidence غير المطابقة،
-  تعدد منتجي DATA، الحواف ذات الاتجاه غير الصحيح، حلقات Execution،
+  تعدد مالكي DATA، خلط سجلات القبول بالملاحظات المباشرة، الحواف ذات الاتجاه غير الصحيح، حلقات Execution،
   والاعتماد المباشر SERVICE → EXECUTOR.
 - نتيجة validator حتمية `PASS | FAIL` مع violating paths وcanonical graph hash.
 
