@@ -73,7 +73,11 @@ const ProofGraphEdgeBaseSchema = z.object({
 export const ProofGraphEdgeSchema = z.discriminatedUnion("type", [
   ProofGraphEdgeBaseSchema.extend({ type: z.literal("DATA_SUPPORTS_CONTROL") }),
   ProofGraphEdgeBaseSchema.extend({ type: z.literal("CONTROL_GATES_EXECUTION") }),
+  // A produced DATA node is an effect observation. A bound DATA node is a
+  // server-owned record (for example Acceptance or a materialized transition)
+  // associated with this execution, not an effect observation.
   ProofGraphEdgeBaseSchema.extend({ type: z.literal("EXECUTION_PRODUCES_DATA") }),
+  ProofGraphEdgeBaseSchema.extend({ type: z.literal("EXECUTION_BINDS_DATA") }),
   ProofGraphEdgeBaseSchema.extend({ type: z.literal("EXECUTION_VERIFIED_BY_CONTROL") }),
   // Direction is prerequisite -> dependent. This edge participates in cycle checks.
   ProofGraphEdgeBaseSchema.extend({ type: z.literal("EXECUTION_DEPENDS_ON") }),
@@ -210,7 +214,8 @@ function findExecutionCycle(
     activeIndex.set(nodeId, nodeStack.length);
     nodeStack.push(nodeId);
     const outgoing = [...(adjacency.get(nodeId) ?? [])]
-      .sort((left, right) => compareString(left.to, right.to) || compareString(left.edgeId, right.edgeId));
+      .sort((left, right) => compareString(left.to, right.to)
+        || compareString(left.edgeIds.join("\\u0000"), right.edgeIds.join("\\u0000")));
 
     for (const edge of outgoing) {
       const cycleStart = activeIndex.get(edge.to);
@@ -283,6 +288,7 @@ export function validateProofGraph(input: unknown): ProofGraphValidationResult {
     "DATA_SUPPORTS_CONTROL",
     "CONTROL_GATES_EXECUTION",
     "EXECUTION_PRODUCES_DATA",
+    "EXECUTION_BINDS_DATA",
     "EXECUTION_VERIFIED_BY_CONTROL",
     "EXECUTION_DEPENDS_ON",
   ] as const) edgesByType.set(type, []);
@@ -311,6 +317,7 @@ export function validateProofGraph(input: unknown): ProofGraphValidationResult {
       (edge.type === "DATA_SUPPORTS_CONTROL" && from.kind === "DATA" && to.kind === "CONTROL")
       || (edge.type === "CONTROL_GATES_EXECUTION" && from.kind === "CONTROL" && to.kind === "EXECUTION")
       || (edge.type === "EXECUTION_PRODUCES_DATA" && from.kind === "EXECUTION" && to.kind === "DATA")
+      || (edge.type === "EXECUTION_BINDS_DATA" && from.kind === "EXECUTION" && to.kind === "DATA")
       || (edge.type === "EXECUTION_VERIFIED_BY_CONTROL" && from.kind === "EXECUTION" && to.kind === "CONTROL")
       || (edge.type === "EXECUTION_DEPENDS_ON" && from.kind === "EXECUTION" && to.kind === "EXECUTION");
     if (!valid) addViolation("EDGE_TYPE_MISMATCH", [edge.from, edge.to], [edge.id]);
@@ -330,6 +337,7 @@ export function validateProofGraph(input: unknown): ProofGraphValidationResult {
   const supportByControl = new Map<string, ProofGraphDataNode[]>();
   const gatesByExecution = new Map<string, ProofGraphControlNode[]>();
   const outputsByExecution = new Map<string, ProofGraphDataNode[]>();
+  const boundDataByExecution = new Map<string, ProofGraphDataNode[]>();
   const verificationsByExecution = new Map<string, ProofGraphControlNode[]>();
   for (const edge of supportEdges) {
     const data = nodesById.get(edge.from);
@@ -348,6 +356,12 @@ export function validateProofGraph(input: unknown): ProofGraphValidationResult {
     const data = nodesById.get(edge.to);
     if (execution?.kind !== "EXECUTION" || data?.kind !== "DATA") continue;
     outputsByExecution.set(execution.id, [...(outputsByExecution.get(execution.id) ?? []), data]);
+  }
+  for (const edge of edgesByType.get("EXECUTION_BINDS_DATA")!) {
+    const execution = nodesById.get(edge.from);
+    const data = nodesById.get(edge.to);
+    if (execution?.kind !== "EXECUTION" || data?.kind !== "DATA") continue;
+    boundDataByExecution.set(execution.id, [...(boundDataByExecution.get(execution.id) ?? []), data]);
   }
   for (const edge of verifyEdges) {
     const execution = nodesById.get(edge.from);
@@ -402,8 +416,11 @@ export function validateProofGraph(input: unknown): ProofGraphValidationResult {
 
     if (control.phase === "POST_EXECUTION") {
       for (const edge of verifies) {
-        const executionOutputs = new Set((outputsByExecution.get(edge.from) ?? []).map((node) => node.id));
-        if (evidenceNodes.some((node) => !executionOutputs.has(node.id))) {
+        const executionEvidence = new Set([
+          ...(outputsByExecution.get(edge.from) ?? []),
+          ...(boundDataByExecution.get(edge.from) ?? []),
+        ].map((node) => node.id));
+        if (evidenceNodes.some((node) => !executionEvidence.has(node.id))) {
           addViolation("POST_CONTROL_NOT_BOUND_TO_EXECUTION_OUTPUT", [edge.from, control.id, ...evidenceNodes.map((node) => node.id)], [edge.id]);
         }
       }
@@ -438,14 +455,10 @@ export function validateProofGraph(input: unknown): ProofGraphValidationResult {
     if (outputs.length === 0) {
       addViolation("EXECUTION_HAS_NO_OUTPUT", [execution.id]);
     } else {
-      if (outputs.some((node) => node.freshness !== "fresh")) {
+      if (outputs.some((node) => node.provenance !== "DIRECT_OBSERVATION" || node.freshness !== "fresh")) {
         addViolation("OUTPUT_NOT_DIRECT_OBSERVATION", [execution.id, ...outputs.filter(
-          (node) => node.freshness !== "fresh",
+          (node) => node.provenance !== "DIRECT_OBSERVATION" || node.freshness !== "fresh",
         ).map((node) => node.id)]);
-      }
-      if (!outputs.some((node) => node.provenance === "DIRECT_OBSERVATION"
-        && node.sourceRevision !== graph.parentWorldRevision)) {
-        addViolation("OUTPUT_NOT_DIRECT_OBSERVATION", [execution.id, ...outputs.map((node) => node.id)]);
       }
       if (!outputs.some((node) => node.sourceRevision !== graph.parentWorldRevision)) {
         addViolation("OUTPUT_REVISION_UNCHANGED", [execution.id, ...outputs.map((node) => node.id)]);
@@ -476,7 +489,7 @@ export function validateProofGraph(input: unknown): ProofGraphValidationResult {
     }
   }
   const producerByData = new Map<string, string>();
-  for (const edge of produceEdges) {
+  for (const edge of [...produceEdges, ...edgesByType.get("EXECUTION_BINDS_DATA")!]) {
     if (nodesById.get(edge.from)?.kind === "EXECUTION" && nodesById.get(edge.to)?.kind === "DATA") {
       const existingProducer = producerByData.get(edge.to);
       if (existingProducer && existingProducer !== edge.from) {
