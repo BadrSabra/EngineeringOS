@@ -77,6 +77,51 @@ export type ApplyChangesTransitionIntent = {
   promotedTreeHash: string;
 };
 
+export type ApplyChangesWorldTransitionIntent = {
+  schemaVersion: 1;
+  projectId: string;
+  proposalId: string;
+  goalId: string;
+  planRevision: string;
+  parentWorldRevision: string;
+  parentFactRefs: string[];
+};
+
+/**
+ * Builds the immutable, server-owned parent binding recorded on ACTION_REQUESTED.
+ * Fact references are canonicalized once here so retries cannot rebind the same
+ * Action to a differently ordered parent snapshot.
+ */
+export function buildApplyChangesWorldTransitionIntent(input: {
+  projectId: string;
+  proposalId: string;
+  goalId: string;
+  planRevision: string;
+  parentWorldRevision: string;
+  parentFactRefs: readonly string[];
+}): ApplyChangesWorldTransitionIntent {
+  if (
+    !input.projectId.trim()
+    || !input.proposalId.trim()
+    || !input.goalId.trim()
+    || !/^[a-f0-9]{64}$/.test(input.planRevision)
+    || !/^[a-f0-9]{64}$/.test(input.parentWorldRevision)
+    || input.parentFactRefs.length > 256
+    || input.parentFactRefs.some((ref) => typeof ref !== "string" || !ref.trim())
+  ) {
+    throw new Error("apply_world_transition_intent_invalid");
+  }
+  return {
+    schemaVersion: 1,
+    projectId: input.projectId,
+    proposalId: input.proposalId,
+    goalId: input.goalId,
+    planRevision: input.planRevision,
+    parentWorldRevision: input.parentWorldRevision,
+    parentFactRefs: [...new Set(input.parentFactRefs)].sort(),
+  };
+}
+
 const ACTIVE_EXECUTION_STATUSES = new Set(["queued", "running", "paused", "cancelling"]);
 
 function unique(values: readonly string[]): string[] {
