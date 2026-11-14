@@ -105,6 +105,15 @@ describe("agent effect contract", () => {
       capabilityId: action.capabilityId,
       expectedEffects: action.expectedEffects,
       actionContract: { contractVersion: 1 },
+      worldTransitionIntent: {
+        schemaVersion: 1,
+        projectId: "project-1",
+        proposalId: "proposal-1",
+        goalId: "goal-1",
+        planRevision: "a".repeat(64),
+        parentWorldRevision: "b".repeat(64),
+        parentFactRefs: ["fact-1"],
+      },
     }).success).toBe(true);
     expect(AgentActionRequestedPayloadSchema.safeParse({
       action,
