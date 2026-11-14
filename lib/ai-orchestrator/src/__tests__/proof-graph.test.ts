@@ -160,6 +160,32 @@ describe("Proof Graph Kernel v0", () => {
     }
   });
 
+  it("rejects root Execution context that does not match the envelope", () => {
+    const fields = ["projectId", "episodeId", "attempt", "missionId", "goalId"] as const;
+
+    for (const field of fields) {
+      const graph = makeValidGraph();
+      const rootExecution = graph.nodes.find((node) =>
+        node.kind === "EXECUTION" && node.id === graph.executionId);
+      if (!rootExecution || rootExecution.kind !== "EXECUTION") {
+        throw new Error("Expected root Execution fixture");
+      }
+
+      switch (field) {
+        case "projectId": rootExecution.projectId = "tampered-context"; break;
+        case "episodeId": rootExecution.episodeId = "tampered-context"; break;
+        case "attempt": rootExecution.attempt = 1; break;
+        case "missionId": rootExecution.missionId = "tampered-context"; break;
+        case "goalId": rootExecution.goalId = "tampered-context"; break;
+      }
+
+      const result = validateProofGraph(graph);
+      expect(result.verdict, field).toBe("FAIL");
+      expect(result.violations.some((item) =>
+        item.code === "ROOT_EXECUTION_CONTEXT_MISMATCH" && item.path.includes(field))).toBe(true);
+    }
+  });
+
   it("hashes the same logical graph independent of node, edge, and evidence-ref order", () => {
     const graph = makeValidGraph();
     const reversed: ProofGraph = {
