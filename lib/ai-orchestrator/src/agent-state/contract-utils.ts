@@ -64,7 +64,10 @@ export function parseBoundedJson(value: unknown, maxBytes: number): JsonValue {
   return parsed as JsonValue;
 }
 
-export function boundedContractSchema<T extends z.ZodTypeAny>(schema: T, maxBytes: number) {
+export function boundedContractSchema<T extends z.ZodTypeAny>(
+  schema: T,
+  maxBytes: number,
+): z.ZodEffects<T, z.output<T>, z.input<T>> {
   return schema.superRefine((value, ctx) => {
     if (!isJsonValue(value)) {
       ctx.addIssue({ code: z.ZodIssueCode.custom, message: "contract must be bounded JSON" });
