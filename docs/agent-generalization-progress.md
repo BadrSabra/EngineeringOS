@@ -31,6 +31,16 @@ snapshot intent خادميًا، وإنشاء transition الحي يستخدم p
 تبدأ. لم تُشغّل الاختبارات بعد، فلا يُسجل نجاح أو إغلاق. لا تُغلق P3.5/P6
 بناءً على هذا التحديث.
 
+**تدقيق Phase B الإضافي (2026-11-14):** ثبت قيدان يجب حلهما قبل تنفيذ
+missing-row recovery: reconciler الحالي لا يلتقط proposal في الحالة الطبيعية
+`applied/applied` رغم أن Apply Acceptance قد تنجح مستقلًا عن إنشاء transition؛
+كما أن finalizer الحالي يشترط Goal في `waiting_for_event/apply_changes_pending`,
+بينما D2 missing قد ينقله إلى `needs_replan` فلا يلتقطه wake العادي. أضيفت
+هذه القيود وحدود transaction المطلوبة وحالات الاختبار إلى
+`docs/apply-changes-snapshot-bound-transition-recovery.md` §9.
+لا يجوز توسيع query أو wake بصورة عامة، ولا يكفي إدراج transition وحده لضمان
+استمرار Mission.
+
 **حدود التحقق:** تم تحديث الوثائق عن طريق GitHub source control؛ لا توجد هنا
 نتائج typecheck أو Vitest أو release validation مدعاة. يجب تشغيل الاختبارات
 المطلوبة على checkout الرأس النهائي قبل الدمج. PR #22 الخاص بـTask Outbox
