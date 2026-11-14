@@ -5020,6 +5020,10 @@ Acceptance الناجح وEffectBundle والملاحظات المباشرة و�
 ولا تُعاد كتابة الملفات. تفاصيل العقد والمصفوفة والاختبارات في
 docs/apply-changes-snapshot-bound-transition-recovery.md.
 
+Phase A مطبق على مستوى المصدر في هذا الفرع: يحفظ route الـintent في ACTION_REQUESTED
+ويستخدم parent snapshot نفسها لإنشاء transition، مع عقد Zod واختبارات وحدة مضافة.
+لم يُشغّل typecheck أو Vitest بعد. Phase B — missing-row recovery — لم تنفذ بعد.
+
 هذا remediation عمودي محدود ضمن P3.5/P6؛ لا يغلق المرحلتين ولا يغير ترتيب §31،
 ولا يفتح P13 أو يبني graph/runtime موازيًا.
 
