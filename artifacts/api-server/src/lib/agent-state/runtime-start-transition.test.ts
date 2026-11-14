@@ -36,6 +36,7 @@ import {
   createPendingGitHubDeliveryTransition,
   createPendingRuntimeStartTransition,
   createPendingApplyChangesTransition,
+  buildApplyChangesWorldTransitionIntent,
   finalizeApplyChangesTransition,
   finalizeRuntimeStartTransition,
   retryPendingRuntimeStartTransitions,
@@ -2637,5 +2638,48 @@ describe("runtime.start transition retry scheduling", () => {
       afterObservationIds: [afterObservationId],
       status: "pending",
     });
+  });
+});
+
+describe("Apply Changes snapshot-bound transition intent", () => {
+  it("preserves the captured parent and sorts fact references deterministically", () => {
+    const intent = buildApplyChangesWorldTransitionIntent({
+      projectId: "project-1",
+      proposalId: "proposal-1",
+      goalId: "goal-1",
+      planRevision: "a".repeat(64),
+      parentWorldRevision: "b".repeat(64),
+      parentFactRefs: ["fact-z", "fact-a", "fact-m"],
+    });
+
+    expect(intent).toEqual({
+      schemaVersion: 1,
+      projectId: "project-1",
+      proposalId: "proposal-1",
+      goalId: "goal-1",
+      planRevision: "a".repeat(64),
+      parentWorldRevision: "b".repeat(64),
+      parentFactRefs: ["fact-a", "fact-m", "fact-z"],
+    });
+  });
+
+  it("rejects an invalid or oversized parent snapshot", () => {
+    expect(() => buildApplyChangesWorldTransitionIntent({
+      projectId: "project-1",
+      proposalId: "proposal-1",
+      goalId: "goal-1",
+      planRevision: "not-a-revision",
+      parentWorldRevision: "b".repeat(64),
+      parentFactRefs: [],
+    })).toThrow("apply_world_transition_intent_invalid");
+
+    expect(() => buildApplyChangesWorldTransitionIntent({
+      projectId: "project-1",
+      proposalId: "proposal-1",
+      goalId: "goal-1",
+      planRevision: "a".repeat(64),
+      parentWorldRevision: "b".repeat(64),
+      parentFactRefs: Array.from({ length: 257 }, (_, index) => `fact-${index}`),
+    })).toThrow("apply_world_transition_intent_invalid");
   });
 });
