@@ -285,6 +285,7 @@ P7.5/P8/P9 واشتراطات P10 في §31.
   تعدد مالكي DATA، خلط سجلات القبول بالملاحظات المباشرة، الحواف ذات الاتجاه غير الصحيح، حلقات Execution،
   والاعتماد المباشر SERVICE → EXECUTOR.
 - يميّز الإصدار بين revision domains: `WORLD` و`WORKSPACE_TREE` و`PLAN`. لذلك لا يقارن hash شجرة الملفات بـWorld Revision. يربط دليل الأثر بـ`resultingWorkspaceRevision`، ودليل الانتقال بـ`resultingWorldRevision`، ويشترط أن يتجاوز كل منهما Parent الخاص بمجاله.
+- بوابة `WORKSPACE_BASE_REVISION_MATCHED` إلزامية قبل التنفيذ؛ لا يُقبل Projector مستقبلي إذا أسقطها أو أعاد اشتقاق Parent من الحالة اللاحقة.
 - نتيجة validator حتمية `PASS | FAIL` مع violating paths وcanonical graph hash.
 
 التنفيذ في `lib/ai-orchestrator/src/agent-state/proof-graph.ts` والاختبار في
