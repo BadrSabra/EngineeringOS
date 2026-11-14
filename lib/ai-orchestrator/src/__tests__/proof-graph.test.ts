@@ -27,7 +27,7 @@ function makeValidGraph(): ProofGraph {
     id: `data-pre-${index}`,
     kind: "DATA" as const,
     evidenceRef: `evidence-pre-${index}`,
-    contentHash: String(index + 1).repeat(64),
+    contentHash: rule === "SCOPE_MATCHED" ? scopeHash : String(index + 1).repeat(64),
     sourceRevision: parentRevision,
     provenance: "SERVER_DERIVED" as const,
     freshness: "fresh" as const,
@@ -192,6 +192,24 @@ describe("Proof Graph Kernel v0", () => {
     graph.nodes.filter((node) => node.kind === "DATA" && node.id.startsWith("data-post-"))
       .forEach((node) => { if (node.kind === "DATA") node.sourceRevision = parentRevision; });
     expect(validateProofGraph(graph).violations.some((item) => item.code === "OUTPUT_REVISION_UNCHANGED")).toBe(true);
+  });
+
+  it("requires the graph execution identity to bind an actual EXECUTION node", () => {
+    const graph = makeValidGraph();
+    graph.executionId = "missing-execution";
+
+    expect(validateProofGraph(graph).violations.some((item) =>
+      item.code === "ROOT_EXECUTION_MISSING")).toBe(true);
+  });
+
+  it("requires SCOPE_MATCHED evidence to bind the execution scope hash", () => {
+    const graph = makeValidGraph();
+    const data = graph.nodes.find((node) => node.id === "data-pre-1");
+    if (!data || data.kind !== "DATA") throw new Error("missing scope evidence fixture");
+    data.contentHash = "e".repeat(64);
+
+    expect(validateProofGraph(graph).violations.some((item) =>
+      item.code === "CONTROL_SCOPE_HASH_MISMATCH")).toBe(true);
   });
 
   it("rejects a parent-revision control backed by another revision", () => {
