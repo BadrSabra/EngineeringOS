@@ -66,7 +66,7 @@ POST /ai/chat/apply-changes، ولا تستبدل ترتيب §31:
 reconcileInterruptedApplyChanges عند وجود قبول كامل وشجرة مرشحة مطابقة مع غياب
 transition row. يضم الاختبار المركّز سيناريو missing-row، واستدعاءين متزامنين،
 ورفض غياب intent ورفض تغير Parent، وإرجاع Goal/Mission من needs_replan
-إلى waiting مع الحفاظ على report-applied المنتظر. هذه الاختبارات مؤلفة ولم تُشغّل بعد؛
+إلى waiting مع الحفاظ على report-applied المنتظر، ثم يختبر Mission wake بعد materialization مرة واحدة مع تثبيت acceptance والملفات. هذه الاختبارات مؤلفة ولم تُشغّل بعد؛
 لذلك تظل الشريحة غير مكتملة ولا يجوز دمجها.
 
 الوثيقة التنفيذية التفصيلية:
