@@ -338,12 +338,27 @@ export function validateProofGraph(input: unknown): ProofGraphValidationResult {
     edgeIds: string[] = [],
   ) => violations.push({ code, path, edgeIds });
 
-  const seenEdges = new Set<string>();
+  // Detect semantic duplicates as a group, not by whichever edge happens
+  // to appear second in the caller's array. Reporting every involved edge ID
+  // in canonical order keeps FAIL results invariant under input permutation.
+  const edgesBySemanticKey = new Map<string, ProofGraphEdge[]>();
   for (const edge of graph.edges) {
     const edgeKey = JSON.stringify([edge.type, edge.from, edge.to]);
-    if (seenEdges.has(edgeKey)) addViolation("DUPLICATE_EDGE", [edge.from, edge.to], [edge.id]);
-    seenEdges.add(edgeKey);
+    const matching = edgesBySemanticKey.get(edgeKey) ?? [];
+    matching.push(edge);
+    edgesBySemanticKey.set(edgeKey, matching);
+  }
+  for (const matching of edgesBySemanticKey.values()) {
+    if (matching.length < 2) continue;
+    const first = matching[0]!;
+    addViolation(
+      "DUPLICATE_EDGE",
+      [first.from, first.to],
+      matching.map((edge) => edge.id).sort(compareString),
+    );
+  }
 
+  for (const edge of graph.edges) {
     const from = nodesById.get(edge.from);
     const to = nodesById.get(edge.to);
     if (!from || !to) {
