@@ -65,6 +65,11 @@ export const ProofGraphExecutionNodeSchema = z.object({
   role: z.enum(["AGENT", "SERVICE", "EXECUTOR"]),
   actionId: boundedString(200),
   capabilityId: boundedString(200),
+  projectId: boundedString(200),
+  episodeId: boundedString(200),
+  attempt: z.number().int().nonnegative(),
+  missionId: boundedString(200),
+  goalId: boundedString(200),
   scopeHash: digestSchema,
   planRevision: digestSchema,
   operationKind: z.literal("MUTATION"),
@@ -177,6 +182,7 @@ export type ProofGraphViolationCode =
   | "NO_EXECUTION_NODE"
   | "MULTIPLE_DATA_OWNERS"
   | "ROOT_EXECUTION_MISSING"
+  | "ROOT_EXECUTION_CONTEXT_MISMATCH"
   | "CONTROL_SCOPE_HASH_MISMATCH"
   | "BOUND_DATA_PROVENANCE_MISMATCH"
   | "CONTROL_EVIDENCE_KIND_MISMATCH"
@@ -486,8 +492,20 @@ export function validateProofGraph(input: unknown): ProofGraphValidationResult {
 
   const executionNodes = graph.nodes.filter((node): node is ProofGraphExecutionNode => node.kind === "EXECUTION");
   if (executionNodes.length === 0) addViolation("NO_EXECUTION_NODE", [graph.graphId]);
-  if (!executionNodes.some((execution) => execution.id === graph.executionId)) {
+  const rootExecution = executionNodes.find((execution) => execution.id === graph.executionId);
+  if (!rootExecution) {
     addViolation("ROOT_EXECUTION_MISSING", [graph.graphId, graph.executionId]);
+  } else {
+    const mismatchedContextFields = [
+      ...(rootExecution.projectId !== graph.projectId ? ["projectId"] : []),
+      ...(rootExecution.episodeId !== graph.episodeId ? ["episodeId"] : []),
+      ...(rootExecution.attempt !== graph.attempt ? ["attempt"] : []),
+      ...(rootExecution.missionId !== graph.missionId ? ["missionId"] : []),
+      ...(rootExecution.goalId !== graph.goalId ? ["goalId"] : []),
+    ];
+    if (mismatchedContextFields.length > 0) {
+      addViolation("ROOT_EXECUTION_CONTEXT_MISMATCH", [rootExecution.id, ...mismatchedContextFields]);
+    }
   }
   for (const execution of executionNodes) {
     if (execution.planRevision !== graph.planRevision) {
