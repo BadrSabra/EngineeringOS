@@ -207,6 +207,7 @@ import {
   projectBlockedApplyMissionLink,
 } from "../../lib/agent-state/apply-changes-read-projection.js";
 import {
+  buildApplyChangesWorldTransitionIntent,
   createPendingApplyChangesTransition,
   finalizeApplyChangesTransition,
 } from "../../lib/agent-state/runtime-start-transition.js";
@@ -17957,15 +17958,14 @@ async function applyChangesHandler(req: Request, res: Response) {
       // captured before the Episode, observations, and filesystem side effects.
       // The intent is immutable evidence metadata; it does not grant acceptance.
       const worldTransitionIntent = missionGoalId && missionPlanRevision
-        ? {
-            schemaVersion: 1,
+        ? buildApplyChangesWorldTransitionIntent({
             projectId,
             proposalId,
             goalId: missionGoalId,
             planRevision: missionPlanRevision,
             parentWorldRevision: applyWorldState.worldRevision,
-            parentFactRefs: applyWorldState.facts.map((fact) => fact.id).sort(),
-          }
+            parentFactRefs: applyWorldState.facts.map((fact) => fact.id),
+          })
         : undefined;
       const episode = await startEpisode({
         projectId,
