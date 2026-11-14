@@ -3,7 +3,7 @@
 **الفرع الحالي:** `feat/proof-graph-kernel-v0`، منفصل عن PR #23 وعن `main`.
 **آخر baseline على main:** `edc57435d763a51bf826a92eba291bcab50a8a4c`.
 **SBPCT:** PR #23 ما زال Draft؛ source recovery واختبارات PostgreSQL المؤلفة موجودة على فرعه، لكن لا TypeScript/Vitest/PostgreSQL/exact-head CI pass مثبت.
-**Proof Graph Kernel v0:** أضيفت عقود DATA/CONTROL/EXECUTION ومُدقّق بنيوي نقيّ واختبارات 23 حالة. النموذج يميز `WORLD` و`WORKSPACE_TREE` و`PLAN` revisions؛ يحفظ Parent/Resulting revision لكل من World وWorkspace، ويتطلب `WORKSPACE_BASE_REVISION_MATCHED`، ويربط After Effect بمراجعة شجرة العمل الناتجة، وWorld Transition بمراجعة العالم الناتجة. لا تكامل runtime، لا DB، لا execution authority، ولا Canonical Acceptance. نتيجة PASS تعني structural validity فقط.
+**Proof Graph Kernel v0:** أضيفت عقود DATA/CONTROL/EXECUTION ومُدقّق بنيوي نقيّ واختبارات 29 حالة. النموذج يميز `WORLD` و`WORKSPACE_TREE` و`PLAN` revisions؛ يحفظ Parent/Resulting revision لكل من World وWorkspace، ويتطلب `WORKSPACE_BASE_REVISION_MATCHED`، ويربط After Effect بمراجعة شجرة العمل الناتجة، وWorld Transition بمراجعة العالم الناتجة. لا تكامل runtime، لا DB، لا execution authority، ولا Canonical Acceptance. نتيجة PASS تعني structural validity فقط.
 **P13 وP7.5:** لم تُفتح أي منهما؛ لا تغيير في ترتيب §31 أو صلاحيات الجمع والتعلم.
 
 # سجل تقدم خطة تعميم الوكيل الهندسي
@@ -6053,7 +6053,7 @@ Resolution: the comparison card now uses the shared resolver for proof status, d
 - **branch / PR:** `feat/proof-graph-kernel-v0`, Draft PR #24; isolated from SBPCT PR #23 and Task Outbox PR #22.
 - **source:** `lib/ai-orchestrator/src/agent-state/proof-graph.ts` defines closed DATA / CONTROL / EXECUTION nodes and six directed edge types, distinguishing direct effect observations (`EXECUTION_PRODUCES_DATA`) from server-owned Acceptance/World Transition records (`EXECUTION_BINDS_DATA`). It enforces bounded graph size, unique identities, root Execution binding, plan and parent revision binding, Scope hash binding, fresh evidence, provenance policy, required pre/post controls, unambiguous DATA ownership, and execution DAG constraints including inferred cycles through produced/bound DATA → pre-control → dependent Execution. Violations include deterministic codes, node paths, and causal edge IDs; graph hashing canonicalizes node/edge/evidence ordering.
 - **authority:** validator output is permanently tagged `STRUCTURE_ONLY_NO_EXECUTION_AUTHORITY`. It does not authenticate evidence references or hashes, query the database, issue Authorization, execute capabilities, mutate World State, or create Canonical Acceptance. It must consume a future server-owned projection; model-provided graph input is not trusted.
-- **tests:** `lib/ai-orchestrator/src/__tests__/proof-graph.test.ts` currently contains 22 focused tests. The package script is `pnpm --filter @workspace/ai-orchestrator run test:proof-graph`.
+- **tests:** `lib/ai-orchestrator/src/__tests__/proof-graph.test.ts` currently contains 29 focused tests. The package script is `pnpm --filter @workspace/ai-orchestrator run test:proof-graph`.
 - **documentation:** `docs/proof-graph-kernel-v0.md`, governing execution plan note, roadmap section, and this progress record describe scope and non-goals.
 - **validation:** no repository execution, Vitest result, TypeScript pass, or GitHub Actions job is claimed. Exact latest head `03fafb76529c9027a14fef1aba695c84e5b1363f` has no PR workflow run and no commit status at last inspection. PR #24 remains Draft.
 - **next step:** obtain actual exact-head package typecheck and focused Vitest results. Only after they pass should a separate server-owned Projector be proposed, and only after SBPCT PR #23 is independently validated. Do not open P13, P7.5, runtime integration, or any execution authority from this kernel.
@@ -6069,7 +6069,15 @@ include `WORKSPACE_BASE_REVISION_MATCHED`; direct effect observations must match
 revision. This avoids cross-domain hash comparisons and makes the causal boundary
 explicit.
 
-The 23 focused unit cases are authored. No test or typecheck execution is claimed.
+The 29 focused unit cases are authored. No test or typecheck execution is claimed.
 The validator remains pure and non-authoritative; the next implementation is a
 server-owned Apply projector only after this exact-head suite passes and SBPCT
 PR #23 is independently validated.
+
+### 2026-11-14 — Proof Graph exact-head CI gate and revision-domain test expansion
+
+- Expanded the focused suite to **29 tests**, including exact binding of the Effect observation to `resultingWorkspaceRevision`, exact binding of the materialized World Transition to `resultingWorldRevision`, and the requirement that both resulting revisions advance their respective Parent revisions.
+- Added a dedicated `Validate Proof Graph Kernel v0` step to `.github/workflows/ci.yml` using `pnpm --filter @workspace/ai-orchestrator run test:proof-graph`. The repository's all-package typecheck remains the type gate.
+- Exact current head before this note: `5d85490700743bbcc1fd92911883008973af1911`.
+- GitHub Actions Push run `#43544160124` for the previous head ended with `failure` and zero jobs; there is no `pull_request` run or Check Run. This is a workflow-execution gap, not a code/test failure result.
+- No Vitest or typecheck result is claimed. PR #24 remains Draft; no runtime or execution authority is enabled.
