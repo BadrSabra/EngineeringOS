@@ -4996,6 +4996,51 @@ server-owned من target path مقابل القائمة المعتمدة ويس�
 هذا لا ينشئ per-tool EffectBundle: أثر `mission_repair` وقبوله يظلان aggregate
 ومقيدين بملاحظات before/after وEffectBundle الحاليين.
 
+#### 2026-11-14 — SBPCT: ربط Apply Changes بلقطة العالم الأصلية
+
+أكد الفحص الحالي أن applyChangesHandler يلتقط getProjectWorldState(projectId)
+قبل Episode وAction والكتابة، ويسجل ACTION_REQUESTED قبل الملاحظة السابقة
+والـfilesystem promotion. لكن حدث Action لا يحمل parent revision/fact refs،
+بينما إنشاء ai_world_transitions يأتي بعد التغيير ويقرأ projection جديدة.
+كما أن D2 يعامل missing transition كفشل، وreconciliation الحالي لا يعيد
+إنشاء World Transition مفقودًا بعد Acceptance.
+
+المعالجة المحددة هي Snapshot-Bound Proof-Carrying Transition (SBPCT):
+إضافة intent خادمي immutable إلى payload لحدث ACTION_REQUESTED يحمل
+parentWorldRevision وparentFactRefs إلى جانب proposal/goal/plan identity،
+ثم استخدام نفس parent عند إنشاء transition الحي. لا يتغير AgentAction
+canonical ولا يضاف Event Type أو جدول؛ مخطط payload الحالي يسمح metadata
+إضافية. يظل intent التزامًا لتحديد parent فقط، وليس قبولًا أو effect أو delta.
+
+تلي ذلك شريحة recovery مستقلة تعيد إنشاء row مفقودًا فقط بعد إعادة التحقق من
+Acceptance الناجح وEffectBundle والملاحظات المباشرة والبيئة والشجرة الحية
+وهويات التنفيذ والمحاولة والخطة، وبشرط أن تكون لقطة parent الأصلية لا تزال
+مطابقة للـWorld State الحالي بعد استثناء Episode نفسها. لا يُسمح بإعادة تسمية
+الحالة الحالية parent بأثر رجعي. أي اختلاف أو نقص يبقى fail-closed/needs_replan،
+ولا تُعاد كتابة الملفات. تفاصيل العقد والمصفوفة والاختبارات في
+docs/apply-changes-snapshot-bound-transition-recovery.md.
+
+Phase A مطبق على مستوى المصدر في هذا الفرع: يحفظ route الـintent في ACTION_REQUESTED
+ويستخدم parent snapshot نفسها لإنشاء transition، مع عقد Zod واختبارات وحدة مضافة.
+
+Phase B مطبق على مستوى المصدر أيضًا: يضيف
+recoverAcceptedApplyChangesTransition لاستعادة row مفقود بعد Acceptance من
+الـintent والأدلة الأصلية، ويشمل reconciler حالة applied/applied بشرط اكتمال
+الدليل المقبول وتطابق الشجرة الحية. الاستعادة لا تكتب الملفات، وتتحقق من
+Parent revision وfact refs، وتعيد Goal فقط عند السبب الدقيق
+apply_transition_missing. أضيف إلى الاختبار المتكامل سيناريو row المفقود،
+ومحاولتا recovery متزامنتان، ورفض غياب intent وparent drift، وإرجاع Goal/Mission من
+needs_replan إلى waiting دون تغيير حالة Goal التابعة المنتظرة على dependency، ثم
+تنفيذ Mission wake بعد materialization مرة واحدة مع تثبيت acceptance وملفات المشروع.
+
+**التحقق ما زال مفتوحًا:** هذه الاختبارات مؤلفة على الفرع لكنها لم تُشغّل؛
+typecheck وVitest وPostgreSQL CI لم تثبت بعد. لا تعتبر Phase B مغلقة حتى تمر
+الاختبارات على exact head، وتضاف حالات فشل identity/plan/observation/environment/tree
+ويثبت Mission wake بعد materialization.
+
+هذا remediation عمودي محدود ضمن P3.5/P6؛ لا يغلق المرحلتين ولا يغير ترتيب §31،
+ولا يفتح P13 أو يبني graph/runtime موازيًا.
+
 ### 42.3 P4 — Authoritative Observation and World Integration
 
 **الحالة:** `PARTIAL`

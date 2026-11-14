@@ -4,7 +4,49 @@
 > يجب على الوكيل التالي تحديثه بعد كل خطوة مكتملة، وقبل الانتقال إلى الخطوة
 > التالية. لا تعتبر المرحلة منجزة من دون إدخال يثبت معيار الخروج والتحقق.
 
-## الحالة الحالية
+## الحالة الحالية — 2026-11-14
+
+**قرار الشريحة الحالية:** بدأ العمل على Snapshot-Bound Proof-Carrying Transition
+(SBPCT) لمسار Mission-linked Apply Changes، كمعالجة محدودة ضمن P3.5/P6 لا
+كمرحلة مستقلة ولا كإغلاق شامل لهما. الخطة المرجعية في §31 لم تتغير.
+
+**حقائق source audit المعاد التحقق منها على main عند**
+edc57435d763a51bf826a92eba291bcab50a8a4c:
+
+- applyChangesHandler يلتقط World State قبل Episode/Action/filesystem work،
+  ويسجل ACTION_REQUESTED قبل before observation وfile promotion.
+- الحدث لا يحفظ parent revision/fact refs؛ transition ينشأ لاحقًا من
+  projection بعد التغيير.
+- D2 يرفض missing transition، وMission wake العادي لا يلتقط Goal الذي
+  أصبح needs_replan.
+- retry worker يستعيد pending/retrying rows الموجودة؛ لا يعيد إنشاء row مفقود.
+- Acceptance وEffectBundle وWorld Transition تبقى عقودًا منفصلة، وCAS يبقى
+  إلزاميًا. لا يوجد مبرر حالي لإضافة جدول أو Event Type جديد.
+
+**حالة العمل في هذا الفرع:** أُنشئ
+fix/apply-changes-snapshot-bound-recovery. حُدّثت الخطة الحاكمة والـroadmap
+وأضيفت الوثيقة التفصيلية. Phase A موجودة في المصدر: ACTION_REQUESTED يحمل
+snapshot intent خادميًا، وإنشاء transition الحي يستخدم parent الأصلي؛ وأضيف
+عقد Zod واختبارات وحدة. Phase B لإعادة إنشاء missing row بعد Acceptance لم
+تبدأ. لم تُشغّل الاختبارات بعد، فلا يُسجل نجاح أو إغلاق. لا تُغلق P3.5/P6
+بناءً على هذا التحديث.
+
+**تدقيق Phase B الإضافي (2026-11-14):** ثبت قيدان يجب حلهما قبل تنفيذ
+missing-row recovery: reconciler الحالي لا يلتقط proposal في الحالة الطبيعية
+`applied/applied` رغم أن Apply Acceptance قد تنجح مستقلًا عن إنشاء transition؛
+كما أن finalizer الحالي يشترط Goal في `waiting_for_event/apply_changes_pending`,
+بينما D2 missing قد ينقله إلى `needs_replan` فلا يلتقطه wake العادي. أضيفت
+هذه القيود وحدود transaction المطلوبة وحالات الاختبار إلى
+`docs/apply-changes-snapshot-bound-transition-recovery.md` §9.
+لا يجوز توسيع query أو wake بصورة عامة، ولا يكفي إدراج transition وحده لضمان
+استمرار Mission.
+
+**حدود التحقق:** تم تحديث الوثائق عن طريق GitHub source control؛ لا توجد هنا
+نتائج typecheck أو Vitest أو release validation مدعاة. يجب تشغيل الاختبارات
+المطلوبة على checkout الرأس النهائي قبل الدمج. PR #22 الخاص بـTask Outbox
+خارج هذا النطاق ولم يتغير.
+
+## آخر baseline موثق (2026-10-18؛ لم يُعاد اعتماده في 2026-11-14)
 
 **الحالة الحالية (2026-10-18):** E2 `CLOSED` بقرار المستخدم الصريح في 2026-10-11؛ E3 `OPEN`. إسقاطات Mission/Goal توسِم الحالة المحفوظة بأنها `STORED_STATUS_ONLY` و`NOT_REVALIDATED`، واختبارات سباق dependency وMission aggregation نجحت. اختبارات Shadow Replay للقراءة القديمة، ورفض التسجيل عند stale، والتعافي بعد انقطاع الوصفة، والاستعادة بعد حالة دائمة بلا إيصال نجحت على قواعد مؤقتة. اختبار حد الإسقاط يحجز تحديث الحالة النهائية بعد اكتمال الوصفة وتنظيف مساحة العمل، يقتل API child فعليًا بـ`SIGKILL`، ثم يثبت أن API child جديد يفشل مغلقًا بـ`SHADOW_REPLAY_RECEIPT_MISSING` ويرفض التسجيل. اختبار Workflow الوسيط يثبت بقاء Goal غير مكتمل؛ وواجهة Tasks تميز الحالة المسجلة عن الإثبات الشامل. رحلة Gate 4 HTTP تمنع التسجيل عند اختلاف `pairId` أو `baselineRunId`، وتمنع الموافقة عند اختلاف `candidateRunId` أو `contract.sourceRevision`، مع بقاء السجل `pending` بلا plugin binding؛ الزوج المطابق ينجح. تعرض لوحة Evidence Graph حالة «مثبت» بصفتها مسجلة في الخريطة فقط، بلون محايد، وتوضح أنها لا تعيد فحص قبول التنفيذ الحالي. أظهر التدقيق الحالي أن Flight Deck وAiChat وTasks وMission Control تعتمد الآن على OperationEvidence الحالي لعرض إثبات التنفيذ، وأن تفاصيل Mission Control تُحجب عند عدم تطابق هوية التنفيذ. E3.2 ما زالت `OPEN` لأن Strategy Replay receipts لم تُشغّل ولأن تغطية كل أسطح دورة الحياة لم تكتمل. لم نبدأ E4 أو نعد تشغيل workflow API المُدار، ولم نستخدم قاعدة مشتركة.
 
@@ -6039,3 +6081,28 @@ An additional Mission Control comparison-card probe did not reach its proof asse
 After matching the existing imported-history fixture shape, the comparison card mounted and reproduced another projection mismatch: `evidenceProjection.proof` with `verdict=PROVEN` and `accepted=false` still rendered `PROVEN` in its evidence-completeness status. The assertion failed before repair. The surrounding card also includes a separate recorded-evidence detail, so this finding is limited to the mocked client presentation and requires distinguishing current acceptance from historical evidence text; no API or authority path was invoked.
 
 Resolution: the comparison card now uses the shared resolver for proof status, displays that status as blocked when `PROVEN` is unaccepted, and labels the separate recorder payload as recorded metadata that does not establish Canonical Proof or acceptance. The regression asserts both sides of this distinction: current status is BLOCKED while the historical recorded verdict remains visible under an explicit label. Mission Control passed 30/30 after this change; dashboard TypeScript and `git diff --check` passed. The dashboard workflow restarted successfully. The signed-out preview still showed only the sign-in landing page, so the authenticated interface remains unverified visually. E3 stays OPEN; no API, database, provider, recovery action, replay, E3.2, E4, or P7.5 work was performed.
+
+### 2026-11-14 — SBPCT Phase B recovery implementation and integration-test authoring
+
+- **phase/step:** Apply Changes proof lifecycle — reconstruct a missing World Transition only from its original pre-effect snapshot and accepted evidence.
+- **source status:** `recoverAcceptedApplyChangesTransition()` is a dedicated, fail-closed recovery transaction. It binds Project → Mission → Goal → Execution → Acceptance → Episode, validates the unique canonical `ACTION_REQUESTED.worldTransitionIntent`, proposal/plan identity, observed EffectBundle, direct before/after live-tree observations, environment revision, exact live promoted tree, and unchanged parent World State revision plus canonical fact refs. It inserts a pending transition under the existing Apply idempotency identity without filesystem writes or live-worker lease reuse.
+- **reconciler / Mission status:** `reconcileInterruptedApplyChanges()` includes the normal `applied/applied` proposal projection, but status is not treated as proof; exact accepted evidence and a missing transition are required. The recovery transaction restores only a Goal with `status=needs_replan` and `blockedReason=apply_transition_missing`; it does not broaden the ordinary Mission wake query. Existing transition finalization and wake remain responsible for CAS materialization and Mission continuation.
+- **test change:** Extended the PostgreSQL-backed Apply acceptance/materialization fixture to delete the pending transition after Acceptance, then run two recovery calls concurrently. The intended assertion is exactly one `created` and one `existing` result with the same transition ID before the existing finalizer continues.
+- **validation boundary:** The integration test is authored but has **not** been run in this environment. No API typecheck, Vitest result, PostgreSQL runtime result, or exact-head CI pass is claimed. Remaining required cases include missing/malformed intent, identity/plan mismatch, stale or missing observations, environment/tree drift, changed parent revision/fact refs, and Mission wake after materialization.
+- **safety boundary:** Recovery does not replay file promotion, change the original Acceptance, infer a new parent from current state, or bypass existing finalizer CAS. PR #22 Task Outbox remains separate.
+- **next step:** Execute the focused PostgreSQL integration test and API typecheck on the exact PR head; repair any fixture/source failures before expanding negative-case coverage or requesting review.
+
+### 2026-11-14 — SBPCT regression-negative cases added; CI execution unavailable
+
+- **phase/step:** Apply Changes / SBPCT Phase B — negative recovery controls.
+- **test authoring:** Extended the PostgreSQL-backed Apply Acceptance/materialization test. It now removes the accepted transition row, temporarily removes the persisted `worldTransitionIntent` from the `ACTION_REQUESTED` payload and expects recovery to block with `apply_recovery_parent_intent_missing_or_invalid`; then it restores the exact payload/hash. It inserts a World Fact outside the originating Episode to simulate an intervening Parent change and expects `apply_recovery_parent_snapshot_changed`; after deleting the test fact, two concurrent recovery calls must converge on one `created` and one `existing` result for the same transition ID. The candidate file bytes are read back unchanged before finalization.
+- **source/docs updated:** `docs/agent-generalization-execution-plan.md` §42.2/related SBPCT note, `docs/engineering-intelligence-implementation-roadmap.md` §1.1, and `docs/apply-changes-snapshot-bound-transition-recovery.md` §9 now distinguish source implementation from test execution and list the remaining validation cases. PR #23 description reflects the same boundary.
+- **CI observation:** The latest visible Actions runs for this branch are `push` events with `conclusion=failure` and zero jobs; the corresponding jobs endpoint returns `total_count=0`. No check runs are attached to the commits inspected. This is not a failing test result and does not establish why the runner did not create jobs. The latest PR head after the documentation commits has no reported successful check.
+- **validation boundary:** No focused Vitest, API typecheck, PostgreSQL integration run, or exact-head CI pass is claimed. This source connector can write GitHub files but cannot execute the repository's pnpm/Vitest/PostgreSQL commands in the current environment.
+- **remaining:** Run the exact focused test and API typecheck on a real checkout; add negative tests for action/attempt/plan mismatch, missing/stale before/after observations, environment and live-tree drift, and prove Mission wake after materialization. Keep PR #23 Draft and unmerged until those checks pass.
+
+- **توسيع اختبار Mission recovery (2026-11-14):** عُدّل نفس PostgreSQL fixture ليبدأ هدف Apply وMission في الحالة التي ينتجها فشل D2: `needs_replan` مع `blockedReason=apply_transition_missing`. يبقى هدف `report-applied` في الحالة الطبيعية `waiting_for_event/dependencies_pending`. بعد الاستعادة، يتوقع الاختبار عودة Goal المحدد إلى `waiting_for_event/apply_changes_pending` وMission إلى `waiting` مع بقاء الهدف التابع كما هو؛ ثم يستكمل finalizer وD2. هذا الاختبار مؤلف فقط ولم يُنفّذ.
+
+- **تغطية Mission wake بعد التعافي (2026-11-14):** أضيف إلى اختبار Apply المفقود استدعاء `wakeApplyChangesMissionGoals(projectId)` بعد أن يصبح transition materialized. يتوقع إكمال Apply Goal مرة واحدة فقط، وبقاء `report-applied` في انتظار آمن لأن fixture يستخدم `nextAction=wait`، وبقاء Mission waiting، مع إعادة التحقق من أن Acceptance الأصلية ما زالت سجلًا واحدًا وأن بايتات الملف المرقي لم تتغير. ما زالت هذه التغطية مؤلفة ولم تُنفّذ؛ لا نتيجة نجاح مدعاة.
+
+- **توسيع نهاية الشريحة (2026-11-14):** بعد إعادة بناء transition والتحقق من materialization/D2، يستدعي الاختبار `wakeApplyChangesMissionGoals(16, projectId)` ثم يعيد الاستدعاء للتأكد من عدم تكرار الأثر. يتحقق من اكتمال Apply Goal مرة واحدة، وبقاء report Goal في حالة انتظار آمنة لأن fixture لا يطلب تنفيذ Task، وبقاء Mission في `waiting`، وعدم تكرار سجل Acceptance أو تغير بايتات الملف. هذا يغطّي مسار Mission wake في المصدر والاختبار المؤلف، لكنه غير منفذ حتى الآن.

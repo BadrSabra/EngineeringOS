@@ -1,8 +1,7 @@
 # خطة تنفيذ حلقة الإثبات والتشخيص النشط
 
-> **الحالة:** وثيقة توجيهية تكميلية، وليست موافقة على بدء تغييرات runtime أو
-> schema.  
-> **تاريخ اللقطة:** 2026-09-28
+> **الحالة:** وثيقة توجيهية تكميلية؛ وافق المستخدم في 2026-11-14 على بدء شريحة SBPCT المحددة فقط، دون تفويض refactor عام أو تغيير schema غير مثبت.  
+> **تاريخ اللقطة:** 2026-11-14
 > **المراجع الحاكمة:** `docs/agent-generalization-execution-plan.md`، وبالأخص
 > §31، وسجل الحالة `docs/agent-generalization-progress.md`.  
 > **الغرض:** تحويل المقترحات المرفقة إلى نطاق تنفيذي واحد، مع الفصل بين
@@ -39,7 +38,41 @@ Objective
 
 الترتيب المعتمد للمراحل يظل في §31 من الخطة الحاكمة. هذه الوثيقة لا تنشئ
 dependency graph أو P-phase بديلًا، ولا تتجاوز بوابة جاهزية الوثائق أو شروط
-P7.5.
+P7.5؛ والاستثناء التنفيذي الوحيد في هذه اللقطة هو شريحة SBPCT المحددة التي
+فوّض المستخدم بدءها صراحةً في 2026-11-14.
+
+## 1.1 تنفيذ محدد معتمد — SBPCT لمسار Apply Changes (2026-11-14)
+
+هذه الشريحة تضيق الحزمة 1 إلى إصلاح فجوة causality/recovery في Mission-linked
+POST /ai/chat/apply-changes، ولا تستبدل ترتيب §31:
+
+- حفظ exact parentWorldRevision وparentFactRefs التي التقطها الخادم قبل
+  side effects داخل durable ACTION_REQUESTED event.
+- إنشاء ai_world_transitions من parent snapshot نفسها، لا من projection
+  جديدة بعد promotion.
+- استعادة missing transition row بعد Acceptance فقط إذا اكتملت كل identity,
+  Effect, observation, environment, live-tree, active-plan, وparent-CAS gates.
+- الحفاظ على استقلال Acceptance عن World Transition وعن Mission continuation.
+- إعادة استخدام Episode ledger وWorld Transition الحاليين؛ لا جدول أو graph أو
+  Event Type جديد، ولا إعادة تنفيذ filesystem write أثناء recovery.
+
+توجد فجوتان مختلفتان ويجب ألا تندمجا: (أ) غياب row لأن إنشاؤه لم يتم أصلًا،
+(ب) وجود row وتعطل materialization، وهو ما يغطيه retry worker الحالي. لا تخلط
+استعادة الحالة الثانية باختبار غياب الصف. تبقى إعادة بناء الصف fail-closed
+عند تغير Parent؛ لا يجوز rebase صامت إلى current World State.
+
+**حالة المصدر على فرع العمل:** Phase A مطبقة. Phase B لديها الآن API
+استعادة مستقل داخل runtime-start-transition.ts، ويستدعيه
+reconcileInterruptedApplyChanges عند وجود قبول كامل وشجرة مرشحة مطابقة مع غياب
+transition row. يضم الاختبار المركّز سيناريو missing-row، واستدعاءين متزامنين،
+ورفض غياب intent ورفض تغير Parent، وإرجاع Goal/Mission من needs_replan
+إلى waiting مع الحفاظ على report-applied المنتظر، ثم يختبر Mission wake بعد materialization مرة واحدة مع تثبيت acceptance والملفات. هذه الاختبارات مؤلفة ولم تُشغّل بعد؛
+لذلك تظل الشريحة غير مكتملة ولا يجوز دمجها.
+
+الوثيقة التنفيذية التفصيلية:
+docs/apply-changes-snapshot-bound-transition-recovery.md.
+هذه المهمة قيد التنفيذ على فرع مستقل؛ لا تعتبر مكتملة قبل اختبارات DB-backed
+على الرأس النهائي والتحقق من CAS وrecovery idempotency وMission wake.
 
 ## 2. خط الأساس الذي تُبنى عليه الخطة
 

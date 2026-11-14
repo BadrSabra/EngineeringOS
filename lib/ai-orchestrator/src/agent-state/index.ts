@@ -47,12 +47,14 @@ export type {
 export {
   AgentActionRiskSchema,
   AgentActionSchema,
+  ApplyWorldTransitionIntentSchema,
   AgentActionRequestedPayloadSchema,
   parseAgentAction,
   parseAgentActionRequestedPayload,
 } from "./action-contract.js";
 export type {
   AgentAction,
+  ApplyWorldTransitionIntent,
   AgentActionRequestedPayload,
   AgentActionRisk,
 } from "./action-contract.js";
