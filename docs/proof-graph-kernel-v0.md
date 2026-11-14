@@ -16,7 +16,7 @@
 
 - `lib/ai-orchestrator/src/agent-state/proof-graph.ts`: Zod contracts، canonical hash، deterministic validator.
 - `lib/ai-orchestrator/src/agent-state/index.ts`: تصدير عقد المحرك من الحزمة الداخلية للـAgent State.
-- `lib/ai-orchestrator/src/__tests__/proof-graph.test.ts`: اختبارات نقية لا تحتاج PostgreSQL أو مزود AI. عددها الحالي 23 حالة، ويُشغّلها `pnpm --filter @workspace/ai-orchestrator run test:proof-graph`.
+- `lib/ai-orchestrator/src/__tests__/proof-graph.test.ts`: اختبارات نقية لا تحتاج PostgreSQL أو مزود AI. عددها الحالي 29 حالة، ويُشغّلها `pnpm --filter @workspace/ai-orchestrator run test:proof-graph`.
 
 لا يغيّر هذا الفرع `main` أو PR #22 أو PR #23، ولا يعتمد على دمج SBPCT أولًا؛ إنه kernel تجريبي منفصل عن مسار الإنتاج.
 
@@ -80,7 +80,7 @@
 
 ## 6. الاختبارات الموجودة
 
-يختبر `proof-graph.test.ts` (23 حالة مركزة):
+يختبر `proof-graph.test.ts` (29 حالة مركزة):
 - graph مكتمل يمر ببنية DATA → CONTROL → EXECUTION → DATA.
 - ثبات hash عند تغيير ترتيب العقد والحواف ومراجع الأدلة.
 - endpoints مفقودة أو اتجاهات حواف خاطئة.
@@ -94,7 +94,7 @@
 - الفصل بين ملاحظات الأثر المنتجة وسجلات القبول/الانتقال المرتبطة؛ ورفض provenance غير المتوافق.
 - رفض Model-inferred provenance.
 
-**التنفيذ والاختبارات لم تُشغّل بعد في بيئة المستودع.** لا يوجد TypeScript أو Vitest pass مدعى في هذه الوثيقة.
+أضيفت خطوة CI مستقلة لتشغيل `pnpm --filter @workspace/ai-orchestrator run test:proof-graph` بعد suite الاختبارات العامة. **التنفيذ والاختبارات لم تُشغّل بعد في بيئة المستودع.** لا يوجد TypeScript أو Vitest pass مدعى في هذه الوثيقة.
 
 ## 7. الخطوة التالية بعد V0
 
