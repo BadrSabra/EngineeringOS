@@ -1441,7 +1441,9 @@ export async function runRecipeOperation(params: RunRecipeOperationParams): Prom
           ) {
             decisionCode = "runtime_start_d1_episode_binding_missing";
           } else if (beforeValue && beforeStateRecord) {
-            const beforeEvidenceRef = `runtime-start:${executionId}:${executionAttempt}:${gateCAction.actionId}:before`;
+            const runtimeStartEpisode = episode;
+            const runtimeStartAction = gateCAction;
+            const beforeEvidenceRef = `runtime-start:${executionId}:${executionAttempt}:${runtimeStartAction.actionId}:before`;
             if (!parent || !/^[a-f0-9]{64}$/.test(parent.worldRevision)) {
               decisionCode = "runtime_start_d1_parent_unavailable";
             } else if (
@@ -1453,14 +1455,14 @@ export async function runRecipeOperation(params: RunRecipeOperationParams): Prom
             } else {
               try {
                 const current = await getProjectWorldState(params.projectId, {
-                  excludeEpisodeIds: [episode.episodeId],
+                  excludeEpisodeIds: [runtimeStartEpisode.episodeId],
                 });
-                const taskScope = taskScopeIdentity(episode);
+                const taskScope = taskScopeIdentity(runtimeStartEpisode);
                 const relevantTaskScopes = [...new Set(["project", taskScope])];
                 const relevantWorldStates = await Promise.all(relevantTaskScopes.map(
                   (scope) => getProjectWorldState(params.projectId, {
                     taskScope: scope,
-                    excludeEpisodeIds: [episode.episodeId],
+                    excludeEpisodeIds: [runtimeStartEpisode.episodeId],
                   }),
                 ));
                 const priorStatuses = relevantWorldStates.flatMap((state) => state.currentFacts)
@@ -1494,7 +1496,7 @@ export async function runRecipeOperation(params: RunRecipeOperationParams): Prom
                 projectId: params.projectId,
                 executionId,
                 attempt: executionAttempt,
-                episodeId: episode.episodeId,
+                episodeId: runtimeStartEpisode.episodeId,
                 environmentRootPath: params.rootPath,
                 projectRevision: params.sourceRevision,
                 materializeWorldState: false,
@@ -1520,8 +1522,8 @@ export async function runRecipeOperation(params: RunRecipeOperationParams): Prom
                   code: "runtime_start_d1_observation_failed",
                   executionId,
                   attempt: executionAttempt,
-                  episodeId: episode.episodeId,
-                  actionId: gateCAction.actionId,
+                  episodeId: runtimeStartEpisode.episodeId,
+                  actionId: runtimeStartAction.actionId,
                   error,
                 },
                 "Runtime start D1 pre-state could not be persisted",
@@ -1563,6 +1565,7 @@ export async function runRecipeOperation(params: RunRecipeOperationParams): Prom
             runtimeStartD1Decision = result;
             return result;
           }
+          const runtimeStartActionId = gateCAction.actionId;
           await appendEpisodeEvent({
             episodeId: episode.episodeId,
             projectId: params.projectId,
@@ -1638,7 +1641,7 @@ export async function runRecipeOperation(params: RunRecipeOperationParams): Prom
                   && !Array.isArray(payload)
                   && (payload as Record<string, unknown>).recordKind
                     === "P75_HYPOTHESIS_EXPERIMENT_REGISTERED"
-                  && (payload as Record<string, unknown>).actionId === gateCAction.actionId
+                  && (payload as Record<string, unknown>).actionId === runtimeStartActionId
                   && (payload as Record<string, unknown>).experimentId !== experimentId;
               });
               if (conflictingRegistration) {

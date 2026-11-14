@@ -202,25 +202,30 @@ function boundedText(value: string, max = MAX_TEXT): string {
   return value.trim().slice(0, max);
 }
 
-export function taskScopeIdentity(episode: {
-  id: string;
+type TaskScopeEpisodeIdentity = {
   projectId: string;
-  missionId: string | null;
-  goalId: string | null;
+  missionId?: string | null;
+  goalId?: string | null;
   scope: unknown;
-}): string {
+} & (
+  | { id: string; episodeId?: string }
+  | { episodeId: string; id?: string }
+);
+
+export function taskScopeIdentity(episode: TaskScopeEpisodeIdentity): string {
+  const episodeId = episode.episodeId ?? episode.id;
   if (!episode.scope || typeof episode.scope !== "object" || Array.isArray(episode.scope)) {
-    return `unscoped:${episode.id}`;
+    return `unscoped:${episodeId}`;
   }
   const scope = episode.scope as Record<string, unknown>;
   if (
     scope.kind === "project"
-    && !episode.missionId
-    && !episode.goalId
+    && episode.missionId == null
+    && episode.goalId == null
     && (scope.strategyReplayCase === undefined || scope.strategyReplayCase === null)
   ) return "project";
-  // The public Episode contract omits nullable IDs; database rows expose them as null.
-  // Normalize both forms before hashing so one episode has one task-scope identity.
+  // Normalize database rows (nullable IDs) and public Episode contracts (optional IDs)
+  // into the same identity so both representations produce the same task-scope hash.
   const identity = parseBoundedJson(JSON.stringify({
     projectId: episode.projectId,
     missionId: episode.missionId ?? null,
