@@ -9,6 +9,7 @@ import {
   aiChangeProposalsTable,
   aiExecutionAcceptancesTable,
   aiExecutionsTable,
+  aiWorldTransitionsTable,
   db,
   eventsTable,
   projectsTable,
@@ -22,6 +23,10 @@ import {
 } from "./delivery-workspace.js";
 import { establishProjectRoot } from "./project-root.js";
 import { logger } from "./logger.js";
+import {
+  recoverAcceptedApplyChangesTransition,
+  finalizeApplyChangesTransition,
+} from "./agent-state/runtime-start-transition.js";
 
 type ApplyRecoveryTreeDecision =
   | "BASE_TREE_PRESENT"
@@ -524,7 +529,7 @@ export async function reconcileInterruptedApplyChanges(): Promise<{
       inArray(aiChangeProposalsTable.lifecycle, ["isolated", "validated"]),
       and(
         eq(aiChangeProposalsTable.status, "applied"),
-        eq(aiChangeProposalsTable.lifecycle, "blocked"),
+        inArray(aiChangeProposalsTable.lifecycle, ["blocked", "applied"]),
       ),
     ));
   const protectedProposalIds = new Set<string>();
@@ -657,6 +662,84 @@ export async function reconcileInterruptedApplyChanges(): Promise<{
         && actionRecord
         && acceptedProofBundleId
       ) {
+        const actionPayload = asRecord(actionRecord.event.payload);
+        const hasSnapshotIntent = Boolean(asRecord(actionPayload?.worldTransitionIntent));
+        const [existingTransition] = await db.select({
+          id: aiWorldTransitionsTable.id,
+        }).from(aiWorldTransitionsTable).where(and(
+          eq(aiWorldTransitionsTable.projectId, proposal.projectId),
+          eq(aiWorldTransitionsTable.executionId, selected.id),
+          eq(aiWorldTransitionsTable.attempt, selected.attempt),
+        )).limit(1);
+
+        if (hasSnapshotIntent && !existingTransition) {
+          const actionId = asString(actionRecord.action.actionId);
+          const goalId = asString(asRecord(actionRecord.action.scope)?.goalId)
+            ?? asString(asRecord(actionPayload?.worldTransitionIntent)?.goalId);
+          if (actionId && goalId) {
+            const recovery = await recoverAcceptedApplyChangesTransition({
+              projectId: proposal.projectId,
+              executionId: selected.id,
+              attempt: selected.attempt,
+              episodeId: actionRecord.event.episodeId,
+              actionId,
+              proposalId: proposal.id,
+            });
+            if (recovery.kind === "blocked") {
+              logger.warn({
+                projectId: proposal.projectId,
+                proposalId: proposal.id,
+                executionId: selected.id,
+                attempt: selected.attempt,
+                reason: recovery.reason,
+              }, "accepted Apply Changes has no recoverable snapshot-bound transition; Mission proof remains blocked");
+              continue;
+            }
+
+            if (proposal.lifecycle === "blocked") {
+              const released = await releaseAcceptedApplyProjection({
+                proposal,
+                execution: selected,
+                attemptId,
+                actionRecord,
+                liveTreeHash,
+                effectBundleId: acceptedProofBundleId,
+              });
+              if (!released) {
+                logger.warn({
+                  projectId: proposal.projectId,
+                  proposalId: proposal.id,
+                  executionId: selected.id,
+                  transitionId: recovery.transitionId,
+                }, "recovered Apply transition remains pending because proposal acceptance projection could not be released");
+                continue;
+              }
+            }
+
+            const finalized = await finalizeApplyChangesTransition({
+              projectId: proposal.projectId,
+              executionId: selected.id,
+              attempt: selected.attempt,
+              episodeId: actionRecord.event.episodeId,
+              actionId,
+              effectBundleId: acceptedProofBundleId,
+            });
+            logger.info({
+              projectId: proposal.projectId,
+              proposalId: proposal.id,
+              executionId: selected.id,
+              attempt: selected.attempt,
+              transitionId: recovery.transitionId,
+              transitionStatus: finalized.status,
+              failureCode: finalized.failureCode ?? null,
+              goalId: recovery.goalId,
+              noFilesystemWrites: true,
+            }, "reconciled accepted Apply Changes World Transition from its original snapshot");
+            if (recovery.kind === "created" || finalized.status === "materialized") reconciled++;
+            continue;
+          }
+        }
+
         const released = await releaseAcceptedApplyProjection({
           proposal,
           execution: selected,
