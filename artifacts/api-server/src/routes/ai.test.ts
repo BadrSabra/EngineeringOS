@@ -10635,6 +10635,10 @@ describe("POST /api/ai/tasks/:taskId/execute", () => {
     const projectId = await insertProject();
     projectIds.push(projectId);
     const taskId = await insertTask(projectId, "verifying");
+    const [taskGeneration] = await db.select({
+      retryCount: tasksTable.retryCount,
+      correlationId: tasksTable.correlationId,
+    }).from(tasksTable).where(eq(tasksTable.id, taskId));
     const originalParentExecutionId = randomUUID();
     const conflictingParentExecutionId = randomUUID();
 
@@ -10642,10 +10646,10 @@ describe("POST /api/ai/tasks/:taskId/execute", () => {
       .mockReturnValue("full");
     await scheduleAiTaskExecution(taskId, "test-user", {
       parentExecutionId: originalParentExecutionId,
-    }, 0, null);
+    }, taskGeneration!.retryCount, taskGeneration!.correlationId);
     await scheduleAiTaskExecution(taskId, "test-user", {
       parentExecutionId: conflictingParentExecutionId,
-    }, 0, null);
+    }, taskGeneration!.retryCount, taskGeneration!.correlationId);
     enqueueSpy.mockRestore();
 
     expect(enqueueSpy).toHaveBeenCalledOnce();

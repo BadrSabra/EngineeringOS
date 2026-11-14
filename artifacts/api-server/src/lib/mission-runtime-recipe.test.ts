@@ -582,6 +582,8 @@ describe("Mission recipe dispatch", () => {
       successorTaskId,
       "test-user",
       expect.any(Object),
+      0,
+      null,
     );
     [successor] = await db
       .select({
