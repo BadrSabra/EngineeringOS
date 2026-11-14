@@ -2,7 +2,7 @@
 
 **الحالة:** تنفيذ تجريبي معزول؛ لا يوجد تكامل إنتاجي أو سلطة تنفيذ.
 **التاريخ:** 2026-11-14
-**الفرع:** `feat/proof-graph-kernel-v0`
+**الفرع:** `rebase/proof-graph-kernel-v0-main-2026-11-14`
 **المرجعية:** رؤية النواة المنطقية العمياء ذات فئات DATA / CONTROL / EXECUTION.
 **النطاق:** رسم إثبات محدود لعملية MUTATION واحدة أو أكثر داخل Execution/Attempt/Episode/Goal/Plan ثابتة.
 
