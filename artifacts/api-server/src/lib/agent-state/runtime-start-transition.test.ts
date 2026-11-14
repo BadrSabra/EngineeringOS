@@ -1178,18 +1178,32 @@ describe("runtime.start transition retry scheduling", () => {
     // Simulate the precise crash gap: Apply is accepted, but its pending
     // World Transition row is absent. Recovery must reuse the original intent.
     await db.delete(aiWorldTransitionsTable).where(eq(aiWorldTransitionsTable.id, id));
-    const recovered = await recoverAcceptedApplyChangesTransition({
-      projectId: fixture.projectId,
-      executionId: fixture.executionId,
-      attempt: 0,
-      episodeId: fixture.episodeId,
-      actionId: input.actionId,
-      proposalId,
-    });
-    expect(recovered).toMatchObject({ kind: "created", goalId });
-    if (recovered.kind !== "created") {
-      throw new Error(`Expected recovered Apply transition, got ${JSON.stringify(recovered)}`);
+    const recoveryResults = await Promise.all([
+      recoverAcceptedApplyChangesTransition({
+        projectId: fixture.projectId,
+        executionId: fixture.executionId,
+        attempt: 0,
+        episodeId: fixture.episodeId,
+        actionId: input.actionId,
+        proposalId,
+      }),
+      recoverAcceptedApplyChangesTransition({
+        projectId: fixture.projectId,
+        executionId: fixture.executionId,
+        attempt: 0,
+        episodeId: fixture.episodeId,
+        actionId: input.actionId,
+        proposalId,
+      }),
+    ]);
+    expect(recoveryResults.map((result) => result.kind).sort())
+      .toEqual(["created", "existing"]);
+    const recovered = recoveryResults.find((result) => result.kind === "created");
+    const replayed = recoveryResults.find((result) => result.kind === "existing");
+    if (recovered?.kind !== "created" || replayed?.kind !== "existing") {
+      throw new Error(`Expected one create and one idempotent replay, got ${JSON.stringify(recoveryResults)}`);
     }
+    expect(replayed.transitionId).toBe(recovered.transitionId);
     id = recovered.transitionId;
 
     const finalizeInput = {
