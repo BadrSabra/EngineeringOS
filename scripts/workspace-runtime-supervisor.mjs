@@ -430,7 +430,7 @@ async function processIsWithinRoot(pid, projectRoot) {
   }
 }
 
-async function processHasAttestationMarker(pid, expectedMarker) {
+async function attestationMarkerStatus(pid, expectedMarker) {
   let environment;
   try {
     environment = await readFile(`/proc/${pid}/environ`);
@@ -451,9 +451,11 @@ async function processHasAttestationMarker(pid, expectedMarker) {
       }
       offset = entryEnd + 1;
     }
-    return count === 1 && matches;
+    if (count === 0) return "missing";
+    if (count !== 1) return "duplicate";
+    return matches ? "matched" : "mismatch";
   } catch {
-    return false;
+    return "unreadable";
   } finally {
     environment?.fill(0);
   }
@@ -486,17 +488,17 @@ async function verifyRuntimeAdoption(input, projectRoot) {
     throw Object.assign(new Error("Runtime listener ownership could not be verified."), { status: 409 });
   }
   if (input.attestationMarker) {
-    const [launchMarkerMatches, listenerMarkerMatches] = await Promise.all([
-      processHasAttestationMarker(input.pid, input.attestationMarker),
-      processHasAttestationMarker(first.pid, input.attestationMarker),
+    const [launchMarkerStatus, listenerMarkerStatus] = await Promise.all([
+      attestationMarkerStatus(input.pid, input.attestationMarker),
+      attestationMarkerStatus(first.pid, input.attestationMarker),
     ]);
-    if (!launchMarkerMatches || !listenerMarkerMatches) {
-      const mismatchedProcesses = [
-        ...(!launchMarkerMatches ? ["launch"] : []),
-        ...(!listenerMarkerMatches ? ["listener"] : []),
+    if (launchMarkerStatus !== "matched" || listenerMarkerStatus !== "matched") {
+      const failures = [
+        ...(launchMarkerStatus !== "matched" ? [`launch:${launchMarkerStatus}`] : []),
+        ...(listenerMarkerStatus !== "matched" ? [`listener:${listenerMarkerStatus}`] : []),
       ];
       throw Object.assign(
-        new Error(`Runtime child-process attestation did not match for the ${mismatchedProcesses.join(" and ")} process.`),
+        new Error(`Runtime child-process attestation did not match (${failures.join(", ")}).`),
         { status: 409 },
       );
     }
