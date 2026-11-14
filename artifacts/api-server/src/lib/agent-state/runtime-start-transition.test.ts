@@ -1361,8 +1361,11 @@ describe("runtime.start transition retry scheduling", () => {
       recoverAcceptedApplyChangesTransition(recoveryInput),
       recoverAcceptedApplyChangesTransition(recoveryInput),
     ]);
-    expect(recoveryResults.map((result) => result.kind).sort())
-      .toEqual(["created", "existing"]);
+    const recoveryKinds = recoveryResults.map((result) => result.kind).sort();
+    if (JSON.stringify(recoveryKinds) !== JSON.stringify(["created", "existing"])) {
+      throw new Error(`Expected one create and one idempotent replay, got ${JSON.stringify(recoveryResults)}`);
+    }
+    expect(recoveryKinds).toEqual(["created", "existing"]);
     const recovered = recoveryResults.find((result) => result.kind === "created");
     const replayed = recoveryResults.find((result) => result.kind === "existing");
     if (recovered?.kind !== "created" || replayed?.kind !== "existing") {
