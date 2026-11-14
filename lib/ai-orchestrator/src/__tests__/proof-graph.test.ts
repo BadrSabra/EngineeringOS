@@ -25,38 +25,47 @@ function makeValidGraph(): ProofGraph {
     "WORLD_TRANSITION_MATERIALIZED",
   ] as const;
 
-  const preData = preRules.map((rule, index) => ({
-    id: `data-pre-${index}`,
-    kind: "DATA" as const,
-    evidenceRef: `evidence-pre-${index}`,
-    contentHash: rule === "SCOPE_MATCHED" ? scopeHash : String(index + 1).repeat(64),
-    evidenceKind: rule === "AUTHORIZATION_VALID" ? "AUTHORIZATION"
+  const preData = preRules.map((rule, index) => {
+    const evidenceKind: ProofGraphDataNode["evidenceKind"] = rule === "AUTHORIZATION_VALID" ? "AUTHORIZATION"
       : rule === "SCOPE_MATCHED" ? "SCOPE"
         : rule === "PRECONDITIONS_SATISFIED" ? "PRECONDITION"
-          : rule === "PARENT_REVISION_MATCHED" ? "PARENT_WORLD_SNAPSHOT" : "PARENT_WORKSPACE_SNAPSHOT",
-    revisionDomain: rule === "AUTHORIZATION_VALID" || rule === "SCOPE_MATCHED" ? "PLAN"
-      : rule === "WORKSPACE_BASE_REVISION_MATCHED" ? "WORKSPACE_TREE" : "WORLD",
-    sourceRevision: rule === "AUTHORIZATION_VALID" || rule === "SCOPE_MATCHED" ? planRevision
-      : rule === "WORKSPACE_BASE_REVISION_MATCHED" ? parentWorkspaceRevision : parentRevision,
-    provenance: "SERVER_DERIVED" as const,
-    freshness: "fresh" as const,
-    rule,
-  }));
-  const postData = postRules.map((rule, index) => ({
-    id: `data-post-${index}`,
-    kind: "DATA" as const,
-    evidenceRef: `evidence-post-${index}`,
-    contentHash: String(index + 5).repeat(64),
-    evidenceKind: rule === "EFFECT_PROVEN" ? "EFFECT_OBSERVATION"
-      : rule === "ACCEPTANCE_SUCCEEDED" ? "EXECUTION_ACCEPTANCE" : "WORLD_TRANSITION",
-    revisionDomain: rule === "EFFECT_PROVEN" ? "WORKSPACE_TREE"
-      : rule === "ACCEPTANCE_SUCCEEDED" ? "PLAN" : "WORLD",
-    sourceRevision: rule === "EFFECT_PROVEN" ? nextRevision
-      : rule === "ACCEPTANCE_SUCCEEDED" ? planRevision : "e".repeat(64),
-    provenance: (rule === "EFFECT_PROVEN" ? "DIRECT_OBSERVATION" : "SERVER_DERIVED") as "DIRECT_OBSERVATION" | "SERVER_DERIVED",
-    freshness: "fresh" as const,
-    rule,
-  }));
+          : rule === "PARENT_REVISION_MATCHED" ? "PARENT_WORLD_SNAPSHOT" : "PARENT_WORKSPACE_SNAPSHOT";
+    const revisionDomain: ProofGraphDataNode["revisionDomain"] = rule === "AUTHORIZATION_VALID" || rule === "SCOPE_MATCHED" ? "PLAN"
+      : rule === "WORKSPACE_BASE_REVISION_MATCHED" ? "WORKSPACE_TREE" : "WORLD";
+    return {
+      id: `data-pre-${index}`,
+      kind: "DATA" as const,
+      evidenceRef: `evidence-pre-${index}`,
+      contentHash: rule === "SCOPE_MATCHED" ? scopeHash : String(index + 1).repeat(64),
+      evidenceKind,
+      revisionDomain,
+      sourceRevision: rule === "AUTHORIZATION_VALID" || rule === "SCOPE_MATCHED" ? planRevision
+        : rule === "WORKSPACE_BASE_REVISION_MATCHED" ? parentWorkspaceRevision : parentRevision,
+      provenance: "SERVER_DERIVED" as const,
+      freshness: "fresh" as const,
+      rule,
+    };
+  });
+  const postData = postRules.map((rule, index) => {
+    const evidenceKind: ProofGraphDataNode["evidenceKind"] = rule === "EFFECT_PROVEN" ? "EFFECT_OBSERVATION"
+      : rule === "ACCEPTANCE_SUCCEEDED" ? "EXECUTION_ACCEPTANCE" : "WORLD_TRANSITION";
+    const revisionDomain: ProofGraphDataNode["revisionDomain"] = rule === "EFFECT_PROVEN" ? "WORKSPACE_TREE"
+      : rule === "ACCEPTANCE_SUCCEEDED" ? "PLAN" : "WORLD";
+    const provenance: ProofGraphDataNode["provenance"] = rule === "EFFECT_PROVEN" ? "DIRECT_OBSERVATION" : "SERVER_DERIVED";
+    return {
+      id: `data-post-${index}`,
+      kind: "DATA" as const,
+      evidenceRef: `evidence-post-${index}`,
+      contentHash: String(index + 5).repeat(64),
+      evidenceKind,
+      revisionDomain,
+      sourceRevision: rule === "EFFECT_PROVEN" ? nextRevision
+        : rule === "ACCEPTANCE_SUCCEEDED" ? planRevision : "e".repeat(64),
+      provenance,
+      freshness: "fresh" as const,
+      rule,
+    };
+  });
 
   const controls = [
     ...preRules.map((rule, index) => ({

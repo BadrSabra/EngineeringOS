@@ -406,6 +406,21 @@ export function validateProofGraph(input: unknown): ProofGraphValidationResult {
     verificationsByExecution.set(execution.id, [...(verificationsByExecution.get(execution.id) ?? []), control]);
   }
 
+  const expectedEvidenceByRule = {
+    AUTHORIZATION_VALID: { kind: "AUTHORIZATION", revisionDomain: "PLAN", provenance: "SERVER_DERIVED" },
+    SCOPE_MATCHED: { kind: "SCOPE", revisionDomain: "PLAN", provenance: "SERVER_DERIVED" },
+    PRECONDITIONS_SATISFIED: { kind: "PRECONDITION", revisionDomain: "WORLD" },
+    PARENT_REVISION_MATCHED: { kind: "PARENT_WORLD_SNAPSHOT", revisionDomain: "WORLD", provenance: "SERVER_DERIVED" },
+    WORKSPACE_BASE_REVISION_MATCHED: { kind: "PARENT_WORKSPACE_SNAPSHOT", revisionDomain: "WORKSPACE_TREE", provenance: "SERVER_DERIVED" },
+    EFFECT_PROVEN: { kind: "EFFECT_OBSERVATION", revisionDomain: "WORKSPACE_TREE", provenance: "DIRECT_OBSERVATION" },
+    ACCEPTANCE_SUCCEEDED: { kind: "EXECUTION_ACCEPTANCE", revisionDomain: "PLAN", provenance: "SERVER_DERIVED" },
+    WORLD_TRANSITION_MATERIALIZED: { kind: "WORLD_TRANSITION", revisionDomain: "WORLD", provenance: "SERVER_DERIVED" },
+  } as const satisfies Record<ProofGraphControlRule, {
+    kind: ProofGraphDataNode["evidenceKind"];
+    revisionDomain: ProofGraphDataNode["revisionDomain"];
+    provenance?: ProofGraphDataNode["provenance"];
+  }>;
+
   for (const control of graph.nodes.filter((node): node is ProofGraphControlNode => node.kind === "CONTROL")) {
     const evidenceNodes = supportByControl.get(control.id) ?? [];
     const actualEvidence = new Set(evidenceNodes.map((node) => node.evidenceRef));
@@ -423,20 +438,7 @@ export function validateProofGraph(input: unknown): ProofGraphValidationResult {
       addViolation("CONTROL_NOT_SATISFIED", [control.id, ...evidenceNodes.map((node) => node.id)]);
     }
 
-    const expectedEvidence: {
-      kind: ProofGraphDataNode["evidenceKind"];
-      revisionDomain: ProofGraphDataNode["revisionDomain"];
-      provenance?: ProofGraphDataNode["provenance"];
-    } = {
-      AUTHORIZATION_VALID: { kind: "AUTHORIZATION", revisionDomain: "PLAN", provenance: "SERVER_DERIVED" },
-      SCOPE_MATCHED: { kind: "SCOPE", revisionDomain: "PLAN", provenance: "SERVER_DERIVED" },
-      PRECONDITIONS_SATISFIED: { kind: "PRECONDITION", revisionDomain: "WORLD" },
-      PARENT_REVISION_MATCHED: { kind: "PARENT_WORLD_SNAPSHOT", revisionDomain: "WORLD", provenance: "SERVER_DERIVED" },
-      WORKSPACE_BASE_REVISION_MATCHED: { kind: "PARENT_WORKSPACE_SNAPSHOT", revisionDomain: "WORKSPACE_TREE", provenance: "SERVER_DERIVED" },
-      EFFECT_PROVEN: { kind: "EFFECT_OBSERVATION", revisionDomain: "WORKSPACE_TREE", provenance: "DIRECT_OBSERVATION" },
-      ACCEPTANCE_SUCCEEDED: { kind: "EXECUTION_ACCEPTANCE", revisionDomain: "PLAN", provenance: "SERVER_DERIVED" },
-      WORLD_TRANSITION_MATERIALIZED: { kind: "WORLD_TRANSITION", revisionDomain: "WORLD", provenance: "SERVER_DERIVED" },
-    }[control.ruleId];
+    const expectedEvidence = expectedEvidenceByRule[control.ruleId];
     if (evidenceNodes.some((node) => node.evidenceKind !== expectedEvidence.kind)) {
       addViolation("CONTROL_EVIDENCE_KIND_MISMATCH", [control.id, ...evidenceNodes.map((node) => node.id)]);
     }
