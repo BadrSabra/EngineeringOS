@@ -33,7 +33,7 @@
 
 ### EXECUTION node
 
-يحمل الدور `AGENT | SERVICE | EXECUTOR`، وهوية Action وCapability، و`scopeHash` و`planRevision`، ونوع العملية `MUTATION`.
+يحمل الدور `AGENT | SERVICE | EXECUTOR`، وهوية Action وCapability، و`scopeHash` و`planRevision`، ونوع العملية `MUTATION`. رأس الرسم يربط Parent وResulting Revision لكل من WORLD وWORKSPACE_TREE، ولا يقارن hash من مجال بمجال آخر.
 
 ### Edge types
 
@@ -80,7 +80,7 @@
 
 ## 6. الاختبارات الموجودة
 
-يختبر `proof-graph.test.ts`:
+يختبر `proof-graph.test.ts` (23 حالة مركزة):
 - graph مكتمل يمر ببنية DATA → CONTROL → EXECUTION → DATA.
 - ثبات hash عند تغيير ترتيب العقد والحواف ومراجع الأدلة.
 - endpoints مفقودة أو اتجاهات حواف خاطئة.
