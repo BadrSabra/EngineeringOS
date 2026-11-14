@@ -61,10 +61,17 @@ POST /ai/chat/apply-changes، ولا تستبدل ترتيب §31:
 استعادة الحالة الثانية باختبار غياب الصف. تبقى إعادة بناء الصف fail-closed
 عند تغير Parent؛ لا يجوز rebase صامت إلى current World State.
 
+**حالة المصدر على فرع العمل:** Phase A مطبقة. Phase B لديها الآن API
+استعادة مستقل داخل runtime-start-transition.ts، ويستدعيه
+reconcileInterruptedApplyChanges عند وجود قبول كامل وشجرة مرشحة مطابقة مع غياب
+transition row. يضم الاختبار المركّز سيناريو missing-row، واستدعاءين متزامنين،
+ورفض غياب intent ورفض تغير Parent. هذه الاختبارات مؤلفة ولم تُشغّل بعد؛
+لذلك تظل الشريحة غير مكتملة ولا يجوز دمجها.
+
 الوثيقة التنفيذية التفصيلية:
 docs/apply-changes-snapshot-bound-transition-recovery.md.
 هذه المهمة قيد التنفيذ على فرع مستقل؛ لا تعتبر مكتملة قبل اختبارات DB-backed
-على الرأس النهائي والتحقق من CAS وrecovery idempotency.
+على الرأس النهائي والتحقق من CAS وrecovery idempotency وMission wake.
 
 ## 2. خط الأساس الذي تُبنى عليه الخطة
 
