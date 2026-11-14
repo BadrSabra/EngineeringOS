@@ -7,6 +7,7 @@ import {
 
 const parentRevision = "a".repeat(64);
 const nextRevision = "b".repeat(64);
+const parentWorkspaceRevision = "f".repeat(64);
 const scopeHash = "c".repeat(64);
 const planRevision = "d".repeat(64);
 
@@ -16,6 +17,7 @@ function makeValidGraph(): ProofGraph {
     "SCOPE_MATCHED",
     "PRECONDITIONS_SATISFIED",
     "PARENT_REVISION_MATCHED",
+    "WORKSPACE_BASE_REVISION_MATCHED",
   ] as const;
   const postRules = [
     "EFFECT_PROVEN",
@@ -30,9 +32,12 @@ function makeValidGraph(): ProofGraph {
     contentHash: rule === "SCOPE_MATCHED" ? scopeHash : String(index + 1).repeat(64),
     evidenceKind: rule === "AUTHORIZATION_VALID" ? "AUTHORIZATION"
       : rule === "SCOPE_MATCHED" ? "SCOPE"
-        : rule === "PRECONDITIONS_SATISFIED" ? "PRECONDITION" : "PARENT_WORLD_SNAPSHOT",
-    revisionDomain: rule === "AUTHORIZATION_VALID" || rule === "SCOPE_MATCHED" ? "PLAN" : "WORLD",
-    sourceRevision: rule === "AUTHORIZATION_VALID" || rule === "SCOPE_MATCHED" ? planRevision : parentRevision,
+        : rule === "PRECONDITIONS_SATISFIED" ? "PRECONDITION"
+          : rule === "PARENT_REVISION_MATCHED" ? "PARENT_WORLD_SNAPSHOT" : "PARENT_WORKSPACE_SNAPSHOT",
+    revisionDomain: rule === "AUTHORIZATION_VALID" || rule === "SCOPE_MATCHED" ? "PLAN"
+      : rule === "WORKSPACE_BASE_REVISION_MATCHED" ? "WORKSPACE_TREE" : "WORLD",
+    sourceRevision: rule === "AUTHORIZATION_VALID" || rule === "SCOPE_MATCHED" ? planRevision
+      : rule === "WORKSPACE_BASE_REVISION_MATCHED" ? parentWorkspaceRevision : parentRevision,
     provenance: "SERVER_DERIVED" as const,
     freshness: "fresh" as const,
     rule,
@@ -84,6 +89,8 @@ function makeValidGraph(): ProofGraph {
     planRevision,
     parentWorldRevision: parentRevision,
     resultingWorldRevision: "e".repeat(64),
+    parentWorkspaceRevision,
+    resultingWorkspaceRevision: nextRevision,
     nodes: [
       ...preData.map(({ rule: _rule, ...node }) => node),
       ...controls,
@@ -242,6 +249,16 @@ describe("Proof Graph Kernel v0", () => {
 
     expect(validateProofGraph(graph).violations.some((item) =>
       item.code === "CONTROL_SCOPE_HASH_MISMATCH")).toBe(true);
+  });
+
+  it("requires a server-derived workspace base snapshot in the workspace revision domain", () => {
+    const graph = makeValidGraph();
+    const data = graph.nodes.find((node) => node.id === "data-pre-4");
+    if (!data || data.kind !== "DATA") throw new Error("missing workspace parent evidence fixture");
+    data.sourceRevision = nextRevision;
+
+    expect(validateProofGraph(graph).violations.some((item) =>
+      item.code === "CONTROL_REVISION_BINDING_MISMATCH")).toBe(true);
   });
 
   it("rejects a parent-revision control backed by another revision", () => {
