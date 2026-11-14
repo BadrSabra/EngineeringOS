@@ -47,6 +47,13 @@ A managed runtime is not stopped merely because its group leader exited. Wait fo
 
 **How to apply:** Use group-level liveness rather than leader-PID liveness, and test with a leader that exits on SIGTERM while a ready descendant ignores it. Keep status observations unresolved until cleanup is confirmed.
 
+
+### Destructive project deletion
+
+Project deletion and database-backed runtime startup use the same PostgreSQL session advisory-lock namespace and runtime identity. Deletion holds that lock across active-work checks, confirmed runtime shutdown, the project/audit transaction, and managed-root cleanup. Lock contention or a shutdown result that is not explicitly `stopped` with `pid: null` blocks deletion; a runtime owned by another live worker is not force-stopped. When the durable runtime row is absent and the Supervisor is configured, deletion may proceed only after a complete empty inventory with no unknown managed listeners. The inventory request must carry the registered owner project ID and canonical project root, and both values in the returned observation must match exactly before it can prove a stopped state. The DELETE route supplies that root from the server-owned `projects.root_path` record; it is never accepted from request input. Every recovery and missing-row observation must likewise use the same server-owned owner/root pair; the owner and root are carried in the signed Supervisor request body, not supplied by the caller.
+
+A recovery row with a missing source revision cannot be bound to a valid Supervisor state version. Release the recovery claim and leave the row retryable; do not invent a revision, adopt the process, or issue an unbound Supervisor stop.
+
 ### Runtime observation scope
 
 A live session corroborated by its owned process identity and expected listener remains `running` even when unrelated managed-range listeners have unknown owners. Unknown listeners still prevent a `stopped` claim when the target has no corroborated live session.

@@ -1,9 +1,11 @@
 import { spawn } from "node:child_process";
 import { promises as fs } from "node:fs";
+import { randomUUID } from "node:crypto";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { WorkspaceRuntimeManager } from "./workspace-runtime.js";
+import type { WorkspaceRuntimeSupervisorClient } from "./workspace-runtime-supervisor-client.js";
 import { createInMemoryWorkspaceRuntimeStore } from "./workspace-runtime-store.js";
 
 const managers: WorkspaceRuntimeManager[] = [];
@@ -646,4 +648,222 @@ describe("WorkspaceRuntimeManager", () => {
     const stopped = await secondWorker.stop("recoverable-runtime-retry");
     expect(stopped.status).toBe("stopped");
   });
+
+  it("does not report a missing runtime row as stopped when the supervisor still tracks a live process", async () => {
+    const projectId = `project-orphan-${randomUUID()}`;
+    const projectRoot = path.join(os.tmpdir(), projectId);
+    const observeStartState = vi.fn().mockResolvedValue({
+      projectId,
+      ownerProjectId: projectId,
+      projectRoot,
+      status: "running",
+      session: {
+        projectId,
+        ownerProjectId: projectId,
+        projectRoot,
+        sessionId: "orphan-session",
+        status: "running",
+        port: 3000,
+        pid: 12345,
+      },
+      observedAt: new Date().toISOString(),
+      inventoryComplete: true,
+      unknownListenerPorts: [],
+      detail: "Supervisor still tracks the project runtime.",
+    });
+    const supervisor = {
+      isConfigured: () => true,
+      observeStartState,
+    } as unknown as WorkspaceRuntimeSupervisorClient;
+    const manager = new WorkspaceRuntimeManager({
+      store: createInMemoryWorkspaceRuntimeStore(),
+      supervisor,
+    });
+    managers.push(manager);
+
+    const snapshot = await manager.stop(projectId, projectRoot);
+
+    expect(observeStartState).toHaveBeenCalledWith({
+      projectId,
+      ownerProjectId: projectId,
+      projectRoot,
+    });
+    expect(snapshot).toMatchObject({
+      status: "running",
+      sessionId: "orphan-session",
+      pid: 12345,
+      port: 3000,
+    });
+  });
+
+  it("confirms a missing runtime row is stopped only with a complete empty supervisor inventory", async () => {
+    const projectId = `project-stopped-inventory-${randomUUID()}`;
+    const projectRoot = path.join(os.tmpdir(), projectId);
+    const observeStartState = vi.fn().mockResolvedValue({
+      projectId,
+      ownerProjectId: projectId,
+      projectRoot,
+      status: "stopped",
+      observedAt: new Date().toISOString(),
+      inventoryComplete: true,
+      unknownListenerPorts: [],
+      detail: "No tracked runtime or unknown managed listeners were observed.",
+    });
+    const supervisor = {
+      isConfigured: () => true,
+      observeStartState,
+    } as unknown as WorkspaceRuntimeSupervisorClient;
+    const manager = new WorkspaceRuntimeManager({
+      store: createInMemoryWorkspaceRuntimeStore(),
+      supervisor,
+    });
+    managers.push(manager);
+
+    const snapshot = await manager.stop(projectId, projectRoot);
+
+    expect(observeStartState).toHaveBeenCalledWith({
+      projectId,
+      ownerProjectId: projectId,
+      projectRoot,
+    });
+    expect(snapshot.status).toBe("stopped");
+    expect(snapshot.pid).toBeNull();
+  });
+
+  it("fails closed when supervisor inventory is incomplete and no runtime row exists", async () => {
+    const projectId = `project-unknown-runtime-${randomUUID()}`;
+    const projectRoot = path.join(os.tmpdir(), projectId);
+    const observeStartState = vi.fn().mockResolvedValue({
+      projectId,
+      ownerProjectId: projectId,
+      projectRoot,
+      status: "unknown",
+      observedAt: new Date().toISOString(),
+      inventoryComplete: false,
+      unknownListenerPorts: [3007],
+      detail: "An unowned listener prevents a complete runtime observation.",
+    });
+    const supervisor = {
+      isConfigured: () => true,
+      observeStartState,
+    } as unknown as WorkspaceRuntimeSupervisorClient;
+    const manager = new WorkspaceRuntimeManager({
+      store: createInMemoryWorkspaceRuntimeStore(),
+      supervisor,
+    });
+    managers.push(manager);
+
+    const snapshot = await manager.stop(projectId, projectRoot);
+
+    expect(observeStartState).toHaveBeenCalledWith({
+      projectId,
+      ownerProjectId: projectId,
+      projectRoot,
+    });
+    expect(snapshot.status).toBe("failed");
+    expect(snapshot.error).toContain("unowned listener");
+  });
+
+  it("fails closed when an unrecorded runtime has no registered project root", async () => {
+    const projectId = `project-orphan-missing-root-${randomUUID()}`;
+    const observeStartState = vi.fn();
+    const supervisor = {
+      isConfigured: () => true,
+      observeStartState,
+    } as unknown as WorkspaceRuntimeSupervisorClient;
+    const manager = new WorkspaceRuntimeManager({
+      store: createInMemoryWorkspaceRuntimeStore(),
+      supervisor,
+    });
+    managers.push(manager);
+
+    await expect(manager.stop(projectId)).rejects.toMatchObject({
+      code: "RUNTIME_OBSERVATION_STALE",
+      status: 503,
+    });
+    await expect(manager.stop(projectId, "relative/project-root")).rejects.toMatchObject({
+      code: "RUNTIME_OBSERVATION_STALE",
+      status: 503,
+    });
+    expect(observeStartState).not.toHaveBeenCalled();
+  });
+
+  it("rejects an empty supervisor inventory bound to a different owner or project root", async () => {
+    const projectId = `project-orphan-identity-mismatch-${randomUUID()}`;
+    const projectRoot = path.join(os.tmpdir(), projectId);
+    const observeStartState = vi.fn().mockResolvedValue({
+      projectId,
+      ownerProjectId: "another-project",
+      projectRoot: path.join(os.tmpdir(), "another-project"),
+      status: "stopped",
+      observedAt: new Date().toISOString(),
+      inventoryComplete: true,
+      unknownListenerPorts: [],
+      detail: "Supervisor observation identity does not match the registered project.",
+    });
+    const supervisor = {
+      isConfigured: () => true,
+      observeStartState,
+    } as unknown as WorkspaceRuntimeSupervisorClient;
+    const manager = new WorkspaceRuntimeManager({
+      store: createInMemoryWorkspaceRuntimeStore(),
+      supervisor,
+    });
+    managers.push(manager);
+
+    const snapshot = await manager.stop(projectId, projectRoot);
+
+    expect(observeStartState).toHaveBeenCalledWith({
+      projectId,
+      ownerProjectId: projectId,
+      projectRoot,
+    });
+    expect(snapshot.status).toBe("failed");
+    expect(snapshot.error).toContain("does not match");
+  });
+
+  it("defers recovery of a runtime row whose persisted revision is missing", async () => {
+    const projectId = `project-missing-revision-${randomUUID()}`;
+    const store = createInMemoryWorkspaceRuntimeStore();
+    const now = new Date();
+    const staleLease = new Date(now.getTime() - 60_000);
+
+    await store.begin({
+      projectId,
+      projectRoot: path.join(os.tmpdir(), projectId),
+      sessionId: "legacy-runtime-session",
+      revision: "legacy-revision",
+      environmentRevision: null,
+      workerId: "runtime-worker:previous",
+      now: new Date(now.getTime() - 90_000),
+      leaseUntil: staleLease,
+    });
+    await store.updateOwned(projectId, "runtime-worker:previous", { revision: null });
+
+    const supervisor = {
+      isConfigured: () => true,
+      observeStartState: vi.fn(),
+      adopt: vi.fn(),
+      stop: vi.fn(),
+    } as unknown as WorkspaceRuntimeSupervisorClient;
+    const manager = new WorkspaceRuntimeManager({
+      store,
+      workerId: "runtime-worker:recovery",
+      supervisor,
+    });
+    managers.push(manager);
+
+    await manager.recover();
+
+    expect(supervisor.observeStartState).not.toHaveBeenCalled();
+    expect(supervisor.adopt).not.toHaveBeenCalled();
+    expect(supervisor.stop).not.toHaveBeenCalled();
+    await expect(store.get(projectId)).resolves.toMatchObject({
+      status: "starting",
+      revision: null,
+      workerId: null,
+      leaseUntil: null,
+    });
+  });
+
 });

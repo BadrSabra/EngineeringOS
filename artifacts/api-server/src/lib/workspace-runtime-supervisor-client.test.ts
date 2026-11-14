@@ -76,6 +76,11 @@ function signedRequestRecorder(calls: Array<{
 }
 
 describe("WorkspaceRuntimeSupervisorClient protected control channel", () => {
+  it("reports whether a Unix socket is configured for inventory checks", () => {
+    expect(new WorkspaceRuntimeSupervisorClient(socketPath, privateKey).isConfigured()).toBe(true);
+    expect(new WorkspaceRuntimeSupervisorClient("", privateKey).isConfigured()).toBe(false);
+  });
+
   it("uses a Unix socket and an Ed25519 command scoped to start/session/state", async () => {
     const calls: Array<{
       path: string; body: string; action: string; projectId: string;

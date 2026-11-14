@@ -1,5 +1,6 @@
 import { promises as fs } from "node:fs";
 import net from "node:net";
+import path from "node:path";
 import { spawn, type ChildProcess } from "node:child_process";
 import { createHash, randomUUID } from "node:crypto";
 import type {
@@ -33,6 +34,7 @@ import {
   WorkspaceRuntimeSupervisorClient,
 } from "./workspace-runtime-supervisor-client.js";
 import { logger } from "./logger.js";
+import { LockNamespace, tryAdvisoryLock } from "./advisory-lock.js";
 import {
   resolveRuntimeStartUnresolvedAlert,
   syncRuntimeStartUnresolvedAlerts,
@@ -1342,6 +1344,18 @@ export class WorkspaceRuntimeManager {
         leaseUntil: new Date(Date.now() + RUNTIME_LEASE_MS),
       });
       if (!claimed) continue;
+      const claimedRevision = claimed.revision;
+      // A legacy or incomplete runtime row without a source revision cannot be
+      // safely bound to a Supervisor state version. Keep it recoverable rather
+      // than inventing a revision, adopting the process, or marking it failed.
+      if (!claimedRevision) {
+        logger.warn(
+          { projectId: this.projectIdForRuntimeId(claimed.projectId), sessionId: claimed.sessionId },
+          "Runtime recovery deferred because the persisted revision is missing",
+        );
+        await this.releaseRecoveryClaim(claimed.projectId, claimed.sessionId);
+        continue;
+      }
       if (claimed.status === "starting" && (!claimed.pid || !claimed.port) && this.supervisor) {
         let observed: Awaited<ReturnType<WorkspaceRuntimeSupervisorClient["observeStartState"]>> | undefined;
         try {
@@ -1355,7 +1369,12 @@ export class WorkspaceRuntimeManager {
         }
         if (
           observed?.status === "running"
+          && observed.projectId === claimed.projectId
+          && observed.ownerProjectId === this.projectIdForRuntimeId(claimed.projectId)
+          && observed.projectRoot === claimed.projectRoot
           && observed.session?.projectId === claimed.projectId
+          && observed.session.ownerProjectId === this.projectIdForRuntimeId(claimed.projectId)
+          && observed.session.projectRoot === claimed.projectRoot
           && observed.session.sessionId === claimed.sessionId
           && observed.session.pid !== null
           && observed.session.port !== null
@@ -1414,7 +1433,7 @@ export class WorkspaceRuntimeManager {
                 stateVersion: createWorkspaceRuntimeSupervisorStateVersion({
                   projectId: claimed.projectId,
                   sessionId: claimed.sessionId,
-                  revision: claimed.revision,
+                  revision: claimedRevision,
                   startedAt: claimed.startedAt?.toISOString() ?? "",
                 }),
                 projectRoot: claimed.projectRoot,
@@ -1473,7 +1492,7 @@ export class WorkspaceRuntimeManager {
             stateVersion: createWorkspaceRuntimeSupervisorStateVersion({
               projectId: claimed.projectId,
               sessionId: claimed.sessionId,
-              revision: claimed.revision,
+              revision: claimedRevision,
               startedAt: claimed.startedAt?.toISOString() ?? "",
             }),
             projectRoot: claimed.projectRoot,
@@ -1555,7 +1574,41 @@ export class WorkspaceRuntimeManager {
     restart?: boolean;
   }): Promise<WorkspaceRuntimeSnapshot> {
     const runtimeId = this.runtimeIdFor(input.projectId);
-    return this.withProjectStartLock(runtimeId, () => this.startExclusive(input));
+    return this.withProjectStartLock(runtimeId, async () => {
+      let controlLock: Awaited<ReturnType<typeof tryAdvisoryLock>> | undefined;
+      if (this.store === databaseWorkspaceRuntimeStore) {
+        try {
+          controlLock = await tryAdvisoryLock(LockNamespace.WORKSPACE_RUNTIME, runtimeId);
+        } catch {
+          throw new WorkspaceRuntimeError(
+            "Runtime lifecycle coordination is unavailable.",
+            "RUNTIME_START_FAILED",
+            503,
+          );
+        }
+        if (!controlLock.acquired) {
+          throw new WorkspaceRuntimeError(
+            "The workspace runtime is being changed by another operation.",
+            "RUNTIME_OWNERSHIP_BUSY",
+            409,
+          );
+        }
+      }
+      try {
+        return await this.startExclusive(input);
+      } finally {
+        if (controlLock?.acquired) {
+          try {
+            await controlLock.release();
+          } catch (error) {
+            logger.error(
+              { error, projectId: input.projectId },
+              "Workspace runtime lifecycle lock could not be released cleanly",
+            );
+          }
+        }
+      }
+    });
   }
 
   private async startExclusive(input: {
@@ -1934,12 +1987,53 @@ export class WorkspaceRuntimeManager {
     }
   }
 
-  async stop(projectId: string): Promise<WorkspaceRuntimeSnapshot> {
+  async stop(projectId: string, registeredProjectRoot?: string): Promise<WorkspaceRuntimeSnapshot> {
     const runtimeId = this.runtimeIdFor(projectId);
     let session = this.sessions.get(runtimeId);
     if (!session) {
       const persisted = await this.store.get(runtimeId);
-      if (!persisted) return this.stoppedSnapshot(projectId);
+      if (!persisted) {
+        if (this.supervisor?.isConfigured()) {
+          const ownerProjectId = this.projectIdForRuntimeId(runtimeId);
+          const projectRoot = registeredProjectRoot?.trim();
+          if (!projectRoot || !path.isAbsolute(projectRoot)) {
+            throw new WorkspaceRuntimeError(
+              "A registered absolute project root is required to verify an unrecorded runtime.",
+              "RUNTIME_OBSERVATION_STALE",
+              503,
+            );
+          }
+          const observation = await this.supervisor.observeStartState({
+            projectId: runtimeId,
+            ownerProjectId,
+            projectRoot,
+          }).catch(() => {
+            throw new WorkspaceRuntimeError(
+              "Supervisor inventory could not confirm that the project runtime is stopped.",
+              "RUNTIME_OBSERVATION_STALE",
+              503,
+            );
+          });
+          if (
+            observation.projectId !== runtimeId
+            || observation.ownerProjectId !== ownerProjectId
+            || observation.projectRoot !== projectRoot
+            || observation.status !== "stopped"
+            || !observation.inventoryComplete
+            || observation.unknownListenerPorts.length > 0
+          ) {
+            return {
+              ...this.stoppedSnapshot(projectId),
+              status: observation.status === "running" ? "running" : "failed",
+              sessionId: observation.session?.sessionId ?? null,
+              port: observation.session?.port ?? null,
+              pid: observation.session?.pid ?? null,
+              error: bounded(observation.detail),
+            };
+          }
+        }
+        return this.stoppedSnapshot(projectId);
+      }
       await this.recover(runtimeId);
       session = this.sessions.get(runtimeId);
       if (!session) {
