@@ -151,7 +151,9 @@ export type ProofGraphViolationCode =
   | "CONTROL_PARENT_REVISION_MISMATCH"
   | "CONTROL_EVIDENCE_PROVENANCE_MISMATCH"
   | "NO_EXECUTION_NODE"
-  | "MULTIPLE_DATA_PRODUCERS";
+  | "MULTIPLE_DATA_PRODUCERS"
+  | "ROOT_EXECUTION_MISSING"
+  | "CONTROL_SCOPE_HASH_MISMATCH";
 
 export type ProofGraphViolation = {
   code: ProofGraphViolationCode;
@@ -410,6 +412,9 @@ export function validateProofGraph(input: unknown): ProofGraphValidationResult {
 
   const executionNodes = graph.nodes.filter((node): node is ProofGraphExecutionNode => node.kind === "EXECUTION");
   if (executionNodes.length === 0) addViolation("NO_EXECUTION_NODE", [graph.graphId]);
+  if (!executionNodes.some((execution) => execution.id === graph.executionId)) {
+    addViolation("ROOT_EXECUTION_MISSING", [graph.graphId, graph.executionId]);
+  }
   for (const execution of executionNodes) {
     if (execution.planRevision !== graph.planRevision) {
       addViolation("EXECUTION_PLAN_REVISION_MISMATCH", [execution.id]);
@@ -421,6 +426,12 @@ export function validateProofGraph(input: unknown): ProofGraphValidationResult {
       const count = gateRules.filter((candidate) => candidate === rule).length;
       if (count === 0) addViolation("MISSING_REQUIRED_CONTROL", [execution.id, rule]);
       if (count > 1) addViolation("DUPLICATE_CONTROL_RULE", [execution.id, rule]);
+    }
+    for (const control of gates.filter((candidate) => candidate.ruleId === "SCOPE_MATCHED")) {
+      const evidenceNodes = supportByControl.get(control.id) ?? [];
+      if (evidenceNodes.length !== 1 || evidenceNodes[0]?.contentHash !== execution.scopeHash) {
+        addViolation("CONTROL_SCOPE_HASH_MISMATCH", [execution.id, control.id, ...evidenceNodes.map((node) => node.id)]);
+      }
     }
 
     const outputs = outputsByExecution.get(execution.id) ?? [];
