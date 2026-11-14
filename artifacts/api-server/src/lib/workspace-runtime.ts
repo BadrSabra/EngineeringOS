@@ -573,6 +573,7 @@ export class WorkspaceRuntimeManager {
    */
   async observeStartBeforeState(input: {
     projectId: string;
+    projectRoot: string;
     revision: string;
     signal?: AbortSignal;
   }): Promise<RuntimeStartBeforeState> {
@@ -630,7 +631,11 @@ export class WorkspaceRuntimeManager {
     }
 
     try {
-      const inventory = await this.supervisor.observeStartState(runtimeId);
+      const inventory = await this.supervisor.observeStartState({
+        projectId: runtimeId,
+        ownerProjectId: input.projectId,
+        projectRoot: input.projectRoot,
+      });
       if (
         inventory.projectId !== runtimeId
         || !inventory.inventoryComplete
@@ -1340,7 +1345,11 @@ export class WorkspaceRuntimeManager {
       if (claimed.status === "starting" && (!claimed.pid || !claimed.port) && this.supervisor) {
         let observed: Awaited<ReturnType<WorkspaceRuntimeSupervisorClient["observeStartState"]>> | undefined;
         try {
-          observed = await this.supervisor.observeStartState(claimed.projectId);
+          observed = await this.supervisor.observeStartState({
+            projectId: claimed.projectId,
+            ownerProjectId: this.projectIdForRuntimeId(claimed.projectId),
+            projectRoot: claimed.projectRoot,
+          });
         } catch {
           observed = undefined;
         }
@@ -1400,6 +1409,7 @@ export class WorkspaceRuntimeManager {
             if (this.supervisor) {
               await this.supervisor.stop({
                 projectId: claimed.projectId,
+                ownerProjectId: this.projectIdForRuntimeId(claimed.projectId),
                 sessionId: claimed.sessionId,
                 stateVersion: createWorkspaceRuntimeSupervisorStateVersion({
                   projectId: claimed.projectId,
@@ -1407,13 +1417,22 @@ export class WorkspaceRuntimeManager {
                   revision: claimed.revision,
                   startedAt: claimed.startedAt?.toISOString() ?? "",
                 }),
+                projectRoot: claimed.projectRoot,
                 pid: claimed.pid,
               });
             } else {
               await terminateProcessGroup(claimed.pid, undefined);
             }
           } catch (error) {
-            if (await isProcessGroupAlive(claimed.pid)) {
+            const processGroupAlive = await isProcessGroupAlive(claimed.pid);
+            if (this.supervisor && processGroupAlive) {
+              // Supervisor owns process termination when isolation is enabled.
+              // A rejected or unverifiable stop must never fall back to a direct
+              // API-process signal, which would bypass owner/root binding.
+              await this.releaseRecoveryClaim(claimed.projectId, claimed.sessionId);
+              continue;
+            }
+            if (!this.supervisor && processGroupAlive) {
               await terminateProcessGroup(claimed.pid, undefined);
             } else if (!this.supervisor) {
               throw error;
@@ -1449,6 +1468,7 @@ export class WorkspaceRuntimeManager {
         try {
           const adopted = await this.supervisor.adopt({
             projectId: claimed.projectId,
+            ownerProjectId: this.projectIdForRuntimeId(claimed.projectId),
             sessionId: claimed.sessionId,
             stateVersion: createWorkspaceRuntimeSupervisorStateVersion({
               projectId: claimed.projectId,
@@ -1731,6 +1751,7 @@ export class WorkspaceRuntimeManager {
     if (this.supervisor) {
       const startInput = {
         projectId: runtimeId,
+        ownerProjectId: input.projectId,
         sessionId,
         stateVersion: createWorkspaceRuntimeSupervisorStateVersion({
           projectId: runtimeId,
@@ -1757,7 +1778,11 @@ export class WorkspaceRuntimeManager {
           } catch (retryError) {
             let observed: Awaited<ReturnType<WorkspaceRuntimeSupervisorClient["observeStartState"]>> | undefined;
             try {
-              observed = await this.supervisor.observeStartState(runtimeId);
+              observed = await this.supervisor.observeStartState({
+                projectId: runtimeId,
+                ownerProjectId: input.projectId,
+                projectRoot,
+              });
             } catch {
               observed = undefined;
             }
@@ -2017,7 +2042,11 @@ export class WorkspaceRuntimeManager {
 
     let observed: Awaited<ReturnType<WorkspaceRuntimeSupervisorClient["observeStartState"]>>;
     try {
-      observed = await this.supervisor.observeStartState(session.runtimeId);
+      observed = await this.supervisor.observeStartState({
+        projectId: session.runtimeId,
+        ownerProjectId: session.projectId,
+        projectRoot: session.projectRoot,
+      });
     } catch {
       return;
     }
@@ -2142,6 +2171,7 @@ export class WorkspaceRuntimeManager {
         try {
           const adopted = await this.supervisor.adopt({
             projectId: session.runtimeId,
+            ownerProjectId: session.projectId,
             sessionId: session.sessionId,
             stateVersion: createWorkspaceRuntimeSupervisorStateVersion({
               projectId: session.runtimeId,
@@ -2295,6 +2325,7 @@ export class WorkspaceRuntimeManager {
         if (this.supervisor) {
           await this.supervisor.stop({
             projectId: session.runtimeId,
+            ownerProjectId: session.projectId,
             sessionId: session.sessionId,
             stateVersion: createWorkspaceRuntimeSupervisorStateVersion({
               projectId: session.runtimeId,
@@ -2302,6 +2333,7 @@ export class WorkspaceRuntimeManager {
               revision: session.revision!,
               startedAt: session.startedAt!,
             }),
+            projectRoot: session.projectRoot,
             pid: session.pid,
           });
         } else {

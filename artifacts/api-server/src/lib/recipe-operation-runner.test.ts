@@ -1075,6 +1075,7 @@ describe("recipe operation preparation", () => {
     });
     const state = await manager.observeStartBeforeState({
       projectId: "project-runtime-unknown",
+      projectRoot: process.cwd(),
       revision: "revision-runtime",
     });
     expect(state).toMatchObject({

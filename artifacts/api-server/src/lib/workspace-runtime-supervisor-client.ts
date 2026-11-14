@@ -1,4 +1,5 @@
 import http from "node:http";
+import path from "node:path";
 import { createHash, createPrivateKey, randomUUID } from "node:crypto";
 import { createWorkspaceRuntimeSupervisorCommand } from "../../../../scripts/workspace-runtime-supervisor-protocol.mjs";
 
@@ -10,6 +11,8 @@ type ProcessIdentity =
 
 type SupervisorResponse = {
   projectId: string;
+  ownerProjectId: string;
+  projectRoot: string;
   sessionId: string;
   status: "starting" | "running" | "stopped" | "failed";
   port: number | null;
@@ -21,6 +24,8 @@ type SupervisorResponse = {
 
 export type ObserveStartState = {
   projectId: string;
+  ownerProjectId: string;
+  projectRoot: string;
   status: "running" | "stopped" | "unknown";
   session?: SupervisorResponse;
   observedAt: string;
@@ -155,25 +160,30 @@ export class WorkspaceRuntimeSupervisorClient {
 
   async start(input: {
     projectId: string;
+    ownerProjectId: string;
     sessionId: string;
     stateVersion: string;
     projectRoot: string;
     attestationMarker?: string;
     listenerBindingDigest?: string;
   }): Promise<SupervisorResponse> {
-    return this.request("start", "/runtime/start", input.projectId, input.sessionId,
+    const response = await this.request("start", "/runtime/start", input.projectId, input.sessionId,
       input.stateVersion, null, {
         projectId: input.projectId,
+        ownerProjectId: input.ownerProjectId,
         sessionId: input.sessionId,
         projectRoot: input.projectRoot,
         profile: "dev",
         ...(input.attestationMarker ? { attestationMarker: input.attestationMarker } : {}),
         ...(input.listenerBindingDigest ? { listenerBindingDigest: input.listenerBindingDigest } : {}),
       });
+    assertSessionIdentity(response, input);
+    return response;
   }
 
   async adopt(input: {
     projectId: string;
+    ownerProjectId: string;
     sessionId: string;
     stateVersion: string;
     projectRoot: string;
@@ -188,9 +198,10 @@ export class WorkspaceRuntimeSupervisorClient {
       port: input.port,
       listenerIdentityDigest: input.expectedListenerIdentityDigest,
     };
-    return this.request("adopt", "/runtime/adopt", input.projectId, input.sessionId,
+    const response = await this.request("adopt", "/runtime/adopt", input.projectId, input.sessionId,
       input.stateVersion, processIdentity, {
         projectId: input.projectId,
+        ownerProjectId: input.ownerProjectId,
         sessionId: input.sessionId,
         projectRoot: input.projectRoot,
         pid: input.pid,
@@ -200,39 +211,60 @@ export class WorkspaceRuntimeSupervisorClient {
         expectedListenerIdentityDigest: input.expectedListenerIdentityDigest,
         ...(input.attestationMarker ? { attestationMarker: input.attestationMarker } : {}),
       });
+    assertSessionIdentity(response, input);
+    return response;
   }
 
   async stop(input: {
     projectId: string;
+    ownerProjectId: string;
     sessionId: string;
     stateVersion: string;
+    projectRoot: string;
     pid: number | null;
   }): Promise<void> {
-    await this.request("stop", "/runtime/stop", input.projectId, input.sessionId,
+    const response = await this.request("stop", "/runtime/stop", input.projectId, input.sessionId,
       input.stateVersion, { pid: input.pid }, {
         projectId: input.projectId,
+        ownerProjectId: input.ownerProjectId,
         sessionId: input.sessionId,
+        projectRoot: input.projectRoot,
         pid: input.pid,
       });
+    assertSessionIdentity(response, input);
   }
 
-  async observeStartState(projectId: string): Promise<ObserveStartState> {
+  async observeStartState(input: {
+    projectId: string;
+    ownerProjectId: string;
+    projectRoot: string;
+  }): Promise<ObserveStartState> {
     const stateVersion = sha256(JSON.stringify({
       schema: "workspace-runtime-inventory-v1",
-      projectId,
+      projectId: input.projectId,
       nonce: randomUUID(),
       issuedAt: this.now(),
     }));
     const payload = await this.request("observe-start", "/runtime/observe-start",
-      projectId, null, stateVersion, null, { projectId, sessionId: null });
+      input.projectId, null, stateVersion, null, {
+        projectId: input.projectId,
+        ownerProjectId: input.ownerProjectId,
+        projectRoot: input.projectRoot,
+        sessionId: null,
+      });
     if (!isObserveStartState(payload)) {
       throw new WorkspaceRuntimeSupervisorError(
         "Workspace runtime supervisor returned an invalid observation.",
       );
     }
-    if (payload.projectId !== projectId) {
+    if (
+      payload.projectId !== input.projectId
+      || payload.ownerProjectId !== input.ownerProjectId
+      || payload.projectRoot !== input.projectRoot
+    ) {
       throw new WorkspaceRuntimeSupervisorError(
-        "Workspace runtime supervisor returned an observation for a different project.",
+        "Workspace runtime supervisor returned an observation for a different project or workspace root.",
+        409,
       );
     }
     return payload;
@@ -301,11 +333,32 @@ export class WorkspaceRuntimeSupervisorClient {
   }
 }
 
+function assertSessionIdentity(
+  value: unknown,
+  expected: { projectId: string; ownerProjectId: string; projectRoot: string; sessionId: string },
+): asserts value is SupervisorResponse {
+  if (
+    !isSupervisorResponse(value)
+    || value.projectId !== expected.projectId
+    || value.ownerProjectId !== expected.ownerProjectId
+    || value.projectRoot !== expected.projectRoot
+    || value.sessionId !== expected.sessionId
+  ) {
+    throw new WorkspaceRuntimeSupervisorError(
+      "Workspace runtime supervisor returned a session for a different project, owner, root, or session.",
+      409,
+    );
+  }
+}
+
 function isObserveStartState(value: unknown): value is ObserveStartState {
   if (!value || typeof value !== "object") return false;
   const candidate = value as Partial<ObserveStartState>;
   if (
     typeof candidate.projectId !== "string"
+    || typeof candidate.ownerProjectId !== "string"
+    || typeof candidate.projectRoot !== "string"
+    || !path.isAbsolute(candidate.projectRoot)
     || !["running", "stopped", "unknown"].includes(candidate.status ?? "")
     || typeof candidate.observedAt !== "string"
     || Number.isNaN(Date.parse(candidate.observedAt))
@@ -317,6 +370,8 @@ function isObserveStartState(value: unknown): value is ObserveStartState {
   if (candidate.status === "running") {
     return isSupervisorResponse(candidate.session)
       && candidate.session.projectId === candidate.projectId
+      && candidate.session.ownerProjectId === candidate.ownerProjectId
+      && candidate.session.projectRoot === candidate.projectRoot
       && candidate.session.status === "running"
       && candidate.session.pid !== null
       && candidate.session.port !== null;
@@ -332,6 +387,9 @@ function isSupervisorResponse(value: unknown): value is SupervisorResponse {
   const candidate = value as Partial<SupervisorResponse>;
   return (
     typeof candidate.projectId === "string"
+    && typeof candidate.ownerProjectId === "string"
+    && typeof candidate.projectRoot === "string"
+    && path.isAbsolute(candidate.projectRoot)
     && typeof candidate.sessionId === "string"
     && ["starting", "running", "stopped", "failed"].includes(candidate.status ?? "")
     && (candidate.port === null || (

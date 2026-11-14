@@ -69,8 +69,8 @@ async function observeAndCrash(input: WorkerInput): Promise<never> {
         attestationIdentity: {
           projectId: params.projectId,
           executionId: input.executionId,
-          executionAttempt: input.sourceAttempt,
-          episodeId: input.sourceEpisodeId,
+          executionAttempt: context.attempt,
+          episodeId: context.episodeId,
           operationId: params.operationId,
           revision: params.sourceRevision,
         },

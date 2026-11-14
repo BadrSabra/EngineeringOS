@@ -16,6 +16,8 @@ import type { WorkspaceRuntimeSupervisorClient } from "./workspace-runtime-super
 
 type SupervisorSession = {
   projectId: string;
+  ownerProjectId: string;
+  projectRoot: string;
   sessionId: string;
   status: "starting" | "running" | "stopped" | "failed";
   port: number | null;
@@ -26,6 +28,8 @@ type SupervisorSession = {
 
 type SupervisorObservation = {
   projectId: string;
+  ownerProjectId: string;
+  projectRoot: string;
   status: "running" | "stopped" | "unknown";
   session?: SupervisorSession;
   observedAt: string;
@@ -36,6 +40,7 @@ type SupervisorObservation = {
 
 type SupervisorStartInput = {
   projectId: string;
+  ownerProjectId: string;
   sessionId: string;
   projectRoot: string;
   attestationMarker?: string;
@@ -68,29 +73,43 @@ async function createProjectRoot(): Promise<string> {
 }
 
 function createSupervisor(
-  start: (input: SupervisorStartInput) => Promise<SupervisorSession>,
-  observeStartState?: (projectId: string) => Promise<SupervisorObservation>,
+  start: (input: SupervisorStartInput) => Promise<Omit<SupervisorSession, "ownerProjectId" | "projectRoot">>,
+  observeStartState?: (projectId: string) => Promise<Omit<SupervisorObservation, "ownerProjectId" | "projectRoot">>,
 ): WorkspaceRuntimeSupervisorClient {
   return {
-    start: vi.fn(start),
+    start: vi.fn(async (input: SupervisorStartInput) => ({
+      ...await start(input),
+      ownerProjectId: input.ownerProjectId,
+      projectRoot: input.projectRoot,
+    })),
     stop: vi.fn(async () => undefined),
     adopt: vi.fn(async (input: {
       projectId: string;
+      ownerProjectId: string;
       sessionId: string;
+      projectRoot: string;
       pid: number | null;
       port: number | null;
     }) => ({
       ...input,
       status: "running" as const,
     })),
-    observeStartState: vi.fn(observeStartState ?? (async (projectId: string) => ({
-      projectId,
-      status: "stopped" as const,
-      observedAt: new Date().toISOString(),
-      inventoryComplete: true,
-      unknownListenerPorts: [],
-      detail: "No tracked runtime session is live.",
-    }))),
+    observeStartState: vi.fn(async (input: {
+      projectId: string;
+      ownerProjectId: string;
+      projectRoot: string;
+    }) => ({
+      ...(await observeStartState?.(input.projectId) ?? {
+        projectId: input.projectId,
+        status: "stopped" as const,
+        observedAt: new Date().toISOString(),
+        inventoryComplete: true,
+        unknownListenerPorts: [],
+        detail: "No tracked runtime session is live.",
+      }),
+      ownerProjectId: input.ownerProjectId,
+      projectRoot: input.projectRoot,
+    })),
   } as unknown as WorkspaceRuntimeSupervisorClient;
 }
 
@@ -261,6 +280,8 @@ describe("Workspace Runtime lifecycle invariants", () => {
     const attempted: SupervisorStartInput[] = [];
     const startedSession: SupervisorSession = {
       projectId: "runtime-lost-start-response",
+      ownerProjectId: "runtime-lost-start-response",
+      projectRoot: root,
       sessionId: "pending",
       status: "running",
       port: 3_002,
@@ -382,7 +403,11 @@ describe("Workspace Runtime lifecycle invariants", () => {
       expect(attempted).toHaveLength(2);
       expect(attempted[1]?.sessionId).toBe(attempted[0]?.sessionId);
       expect(observedStoppedInventory).toBe(true);
-      expect(supervisor.observeStartState).toHaveBeenCalledWith(projectId);
+      expect(supervisor.observeStartState).toHaveBeenCalledWith({
+        projectId,
+        ownerProjectId: projectId,
+        projectRoot: root,
+      });
       expect(failedRow).toMatchObject({
         sessionId: attempted[0]?.sessionId,
         status: "failed",
@@ -434,6 +459,8 @@ describe("Workspace Runtime lifecycle invariants", () => {
     let observationStatus: SupervisorObservation["status"] = "unknown";
     let session: SupervisorSession = {
       projectId: "runtime-unknown-start",
+      ownerProjectId: "runtime-unknown-start",
+      projectRoot: root,
       sessionId: "pending",
       status: "running",
       port: 3_004,

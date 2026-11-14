@@ -33,7 +33,10 @@ import {
 } from "./environment-attestation.js";
 import { buildRuntimeStartHypothesisExperimentRegistration } from "./runtime-start-hypothesis-experiment.js";
 import { prepareRecipeOperation } from "../recipe-operation-runner.js";
-import { WorkspaceRuntimeSupervisorClient } from "../workspace-runtime-supervisor-client.js";
+import {
+  createWorkspaceRuntimeSupervisorStateVersion,
+  WorkspaceRuntimeSupervisorClient,
+} from "../workspace-runtime-supervisor-client.js";
 
 const apiRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../../");
 const workspaceRoot = path.resolve(apiRoot, "../..");
@@ -162,7 +165,11 @@ describe("P7.5 process recovery", () => {
 
     try {
       try {
-        await supervisor.observeStartState("p75-supervisor-readiness-probe");
+        await supervisor.observeStartState({
+          projectId: "p75-supervisor-readiness-probe",
+          ownerProjectId: "p75-supervisor-readiness-probe",
+          projectRoot: rootPath,
+        });
       } catch {
         throw new Error("Managed workspace runtime supervisor is not reachable over its protected Unix socket.");
       }
@@ -370,7 +377,11 @@ describe("P7.5 process recovery", () => {
       runtimeSessionId = runtime.sessionId;
       expect(runtime.port).toBeGreaterThan(0);
       expect(runtime.sessionId).toBeTruthy();
-      const afterWorkerA = await supervisor.observeStartState(projectId);
+      const afterWorkerA = await supervisor.observeStartState({
+        projectId,
+        ownerProjectId: projectId,
+        projectRoot: rootPath,
+      });
       expect(afterWorkerA.status).toBe("running");
       expect(afterWorkerA.session).toMatchObject({
         projectId,
@@ -447,7 +458,11 @@ describe("P7.5 process recovery", () => {
         ));
       expect(finalObservations).toHaveLength(1);
       expect(finalObservations[0]?.id).toBe(retained.id);
-      const afterWorkerB = await supervisor.observeStartState(projectId);
+      const afterWorkerB = await supervisor.observeStartState({
+        projectId,
+        ownerProjectId: projectId,
+        projectRoot: rootPath,
+      });
       expect(afterWorkerB.status).toBe("running");
       expect(afterWorkerB.session).toMatchObject({
         projectId,
@@ -509,11 +524,31 @@ describe("P7.5 process recovery", () => {
       expect(closedEpisodes.every((episode) => episode.state === "completed")).toBe(true);
     } finally {
       if (runtimeSessionId) {
+        const [runtimeRow] = await db.select()
+          .from(workspaceRuntimeTable)
+          .where(eq(workspaceRuntimeTable.projectId, projectId))
+          .limit(1);
+        if (
+          !runtimeRow
+          || runtimeRow.sessionId !== runtimeSessionId
+          || !runtimeRow.revision
+          || !runtimeRow.startedAt
+        ) {
+          throw new Error("Cannot stop the P7.5 runtime without its exact persisted Supervisor identity.");
+        }
         await supervisor.stop({
           projectId,
+          ownerProjectId: projectId,
           sessionId: runtimeSessionId,
+          stateVersion: createWorkspaceRuntimeSupervisorStateVersion({
+            projectId,
+            sessionId: runtimeSessionId,
+            revision: runtimeRow.revision,
+            startedAt: runtimeRow.startedAt.toISOString(),
+          }),
+          projectRoot: runtimeRow.projectRoot,
           pid: runtimePid ?? null,
-        }).catch(async () => terminateRuntimeGroup(runtimePid));
+        });
       } else {
         await terminateRuntimeGroup(runtimePid);
       }

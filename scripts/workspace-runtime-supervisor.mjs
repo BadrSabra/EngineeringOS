@@ -485,11 +485,21 @@ async function verifyRuntimeAdoption(input, projectRoot) {
   ) {
     throw Object.assign(new Error("Runtime listener ownership could not be verified."), { status: 409 });
   }
-  if (input.attestationMarker && (
-    !await processHasAttestationMarker(input.pid, input.attestationMarker)
-    || !await processHasAttestationMarker(first.pid, input.attestationMarker)
-  )) {
-    throw Object.assign(new Error("Runtime child-process attestation did not match."), { status: 409 });
+  if (input.attestationMarker) {
+    const [launchMarkerMatches, listenerMarkerMatches] = await Promise.all([
+      processHasAttestationMarker(input.pid, input.attestationMarker),
+      processHasAttestationMarker(first.pid, input.attestationMarker),
+    ]);
+    if (!launchMarkerMatches || !listenerMarkerMatches) {
+      const mismatchedProcesses = [
+        ...(!launchMarkerMatches ? ["launch"] : []),
+        ...(!listenerMarkerMatches ? ["listener"] : []),
+      ];
+      throw Object.assign(
+        new Error(`Runtime child-process attestation did not match for the ${mismatchedProcesses.join(" and ")} process.`),
+        { status: 409 },
+      );
+    }
   }
   const second = await resolveOwnedRuntimeListener(
     input.pid,
@@ -570,7 +580,7 @@ async function waitForReady(child, port) {
   throw new Error(`Runtime process did not open port ${port} within ${STARTUP_TIMEOUT_MS}ms.`);
 }
 
-async function validateProjectRoot(candidate) {
+async function canonicalAllowedProjectRoot(candidate) {
   const allowedRoots = [];
   try {
     for (const configuredRoot of ALLOWED_PROJECT_ROOTS) {
@@ -593,9 +603,8 @@ async function validateProjectRoot(candidate) {
   if (typeof candidate !== "string" || !path.isAbsolute(candidate)) {
     throw Object.assign(new Error("A canonical registered project root is required."), { status: 400 });
   }
-  let resolved;
   try {
-    resolved = await realpath(candidate);
+    const resolved = await realpath(candidate);
     if (resolved !== path.resolve(candidate) || !(await stat(resolved)).isDirectory()) {
       throw new Error("Project root is not canonical.");
     }
@@ -605,9 +614,16 @@ async function validateProjectRoot(candidate) {
         && !relative.startsWith(`..${path.sep}`)
         && !path.isAbsolute(relative);
     });
-    if (!isWithinAllowedRoot) {
-      throw new Error("Project root is outside the configured workspaces.");
-    }
+    if (!isWithinAllowedRoot) throw new Error("Project root is outside the configured workspaces.");
+    return resolved;
+  } catch {
+    throw Object.assign(new Error("The registered project root is unavailable or outside the configured workspace."), { status: 400 });
+  }
+}
+
+async function validateProjectRoot(candidate) {
+  const resolved = await canonicalAllowedProjectRoot(candidate);
+  try {
     const manifest = JSON.parse(await readFile(path.join(resolved, "package.json"), "utf8"));
     if (typeof manifest.scripts?.dev !== "string" || !manifest.scripts.dev.trim()) {
       throw new Error("Project dev script is unavailable.");
@@ -634,6 +650,8 @@ function attachLogs(session) {
 function publicSession(session) {
   return {
     projectId: session.projectId,
+    ownerProjectId: session.ownerProjectId,
+    projectRoot: session.projectRoot,
     sessionId: session.sessionId,
     status: session.status,
     port: session.port,
@@ -658,8 +676,12 @@ async function start(input, stateVersion) {
 }
 
 async function startExclusive(input, stateVersion) {
-  if (!isSafeProjectId(input.projectId) || !isSafeProjectId(input.sessionId)) {
-    throw Object.assign(new Error("Invalid runtime identity."), { status: 400 });
+  if (
+    !isSafeProjectId(input.projectId)
+    || !isSafeProjectId(input.ownerProjectId)
+    || !isSafeProjectId(input.sessionId)
+  ) {
+    throw Object.assign(new Error("Invalid runtime identity or owner binding."), { status: 400 });
   }
   if (input.profile !== "dev") {
     throw Object.assign(new Error("Only the server-owned dev profile is permitted."), { status: 400 });
@@ -682,6 +704,12 @@ async function startExclusive(input, stateVersion) {
     throw Object.assign(new Error("Attested runtime startup requires a listener binding."), { status: 400 });
   }
   const existing = sessions.get(input.projectId);
+  if (existing && (
+    existing.ownerProjectId !== input.ownerProjectId
+    || existing.projectRoot !== projectRoot
+  )) {
+    throw Object.assign(new Error("Runtime owner or workspace root does not match the tracked project."), { status: 409 });
+  }
   if (existing && (existing.status === "starting" || existing.status === "running")) {
     if (existing.sessionId === input.sessionId) {
       if (
@@ -707,6 +735,7 @@ async function startExclusive(input, stateVersion) {
   }
   const session = {
     projectId: input.projectId,
+    ownerProjectId: input.ownerProjectId,
     sessionId: input.sessionId,
     projectRoot,
     stateVersion,
@@ -757,8 +786,12 @@ async function startExclusive(input, stateVersion) {
 }
 
 async function adopt(input, stateVersion) {
-  if (!isSafeProjectId(input.projectId) || !isSafeProjectId(input.sessionId)) {
-    throw Object.assign(new Error("Invalid runtime identity."), { status: 400 });
+  if (
+    !isSafeProjectId(input.projectId)
+    || !isSafeProjectId(input.ownerProjectId)
+    || !isSafeProjectId(input.sessionId)
+  ) {
+    throw Object.assign(new Error("Invalid runtime identity or owner binding."), { status: 400 });
   }
   const projectRoot = await validateProjectRoot(input.projectRoot);
   if (
@@ -781,6 +814,12 @@ async function adopt(input, stateVersion) {
     throw Object.assign(new Error("Runtime adoption proof is invalid."), { status: 400 });
   }
   const existing = sessions.get(input.projectId);
+  if (existing && (
+    existing.ownerProjectId !== input.ownerProjectId
+    || existing.projectRoot !== projectRoot
+  )) {
+    throw Object.assign(new Error("Runtime owner or workspace root does not match the tracked project."), { status: 409 });
+  }
   if (existing?.sessionId === input.sessionId && existing.pid === input.pid) {
     if (existing.stateVersion !== stateVersion) {
       throw Object.assign(new Error("Runtime adoption state version does not match the tracked session."), { status: 409 });
@@ -818,6 +857,7 @@ async function adopt(input, stateVersion) {
   const proof = await verifyRuntimeAdoption(input, projectRoot);
   const session = {
     projectId: input.projectId,
+    ownerProjectId: input.ownerProjectId,
     sessionId: input.sessionId,
     projectRoot,
     stateVersion,
@@ -836,15 +876,26 @@ async function adopt(input, stateVersion) {
 }
 
 async function stop(input, stateVersion) {
-  if (!isSafeProjectId(input.projectId) || !isSafeProjectId(input.sessionId)) {
-    throw Object.assign(new Error("Invalid runtime identity."), { status: 400 });
+  if (
+    !isSafeProjectId(input.projectId)
+    || !isSafeProjectId(input.ownerProjectId)
+    || !isSafeProjectId(input.sessionId)
+  ) {
+    throw Object.assign(new Error("Invalid runtime identity or owner binding."), { status: 400 });
   }
+  const projectRoot = await canonicalAllowedProjectRoot(input.projectRoot);
   const session = sessions.get(input.projectId);
   if (!session) {
     throw Object.assign(new Error("No supervisor-owned session is available to stop."), { status: 409 });
   }
   if (session.sessionId !== input.sessionId) {
     throw Object.assign(new Error("Runtime session identity does not match."), { status: 409 });
+  }
+  if (
+    session.ownerProjectId !== input.ownerProjectId
+    || session.projectRoot !== projectRoot
+  ) {
+    throw Object.assign(new Error("Runtime owner or workspace root does not match the tracked session."), { status: 409 });
   }
   if (session.stateVersion !== stateVersion || (input.pid ?? null) !== (session.pid ?? null)) {
     throw Object.assign(new Error("Runtime process identity or state version does not match."), { status: 409 });
@@ -855,8 +906,16 @@ async function stop(input, stateVersion) {
 }
 
 async function observeStart(input) {
-  if (!isSafeProjectId(input.projectId)) {
-    throw Object.assign(new Error("Invalid runtime identity."), { status: 400 });
+  if (!isSafeProjectId(input.projectId) || !isSafeProjectId(input.ownerProjectId)) {
+    throw Object.assign(new Error("Invalid runtime identity or owner binding."), { status: 400 });
+  }
+  const projectRoot = await canonicalAllowedProjectRoot(input.projectRoot);
+  const tracked = sessions.get(input.projectId);
+  if (tracked && (
+    tracked.ownerProjectId !== input.ownerProjectId
+    || tracked.projectRoot !== projectRoot
+  )) {
+    throw Object.assign(new Error("Runtime owner or workspace root does not match the tracked project."), { status: 409 });
   }
 
   const observedAt = new Date().toISOString();
@@ -891,6 +950,8 @@ async function observeStart(input) {
 
   return {
     projectId: input.projectId,
+    ownerProjectId: input.ownerProjectId,
+    projectRoot,
     status,
     ...(targetIsLive ? { session: publicSession(targetSession) } : {}),
     observedAt,
