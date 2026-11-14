@@ -36,6 +36,11 @@ import { logger } from "../logger.js";
 import { establishProjectRoot } from "../project-root.js";
 import { hashDeliveryTree } from "../delivery-workspace.js";
 
+function asRecord(value: unknown): Record<string, unknown> | undefined {
+  if (value === null || typeof value !== "object" || Array.isArray(value)) return undefined;
+  return value as Record<string, unknown>;
+}
+
 export type RuntimeStartTransitionIntent = {
   projectId: string;
   executionId: string;
