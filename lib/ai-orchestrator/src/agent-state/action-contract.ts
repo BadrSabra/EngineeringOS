@@ -58,7 +58,7 @@ export const AgentActionRequestedPayloadSchema = boundedContractSchema(
     capabilityId: boundedString(200).optional(),
     expectedEffects: z.array(boundedString(256)).max(64).optional(),
     worldTransitionIntent: ApplyWorldTransitionIntentSchema.optional(),
-  }).catchall(boundedJsonSchema(AGENT_STATE_LIMITS.episodeEventPayloadBytes)).superRefine((payload, ctx) => {
+  }).passthrough().superRefine((payload, ctx) => {
     if (payload.actionId !== undefined && payload.actionId !== payload.action.actionId) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,

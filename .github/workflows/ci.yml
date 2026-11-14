@@ -225,6 +225,10 @@ jobs:
       # This test also verifies the public Clerk bundle boundary and that
       # runtime commands still fail fast when their workflow variables are
       # absent.
+      - name: Validate Proof Graph Kernel v0
+        timeout-minutes: 5
+        run: pnpm --filter @workspace/ai-orchestrator run test:proof-graph
+
       - name: Validate workflow-free root build contract
         run: pnpm run validate:root-build-contract
 
@@ -324,10 +328,6 @@ jobs:
             exit 1
           fi
           pnpm run test
-
-      - name: Validate Proof Graph Kernel v0
-        timeout-minutes: 5
-        run: pnpm --filter @workspace/ai-orchestrator run test:proof-graph
 
       - name: Prove two-process deferred Task dispatch concurrency
         timeout-minutes: 10
