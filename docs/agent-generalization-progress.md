@@ -3,7 +3,7 @@
 **الفرع الحالي:** `feat/proof-graph-kernel-v0`، منفصل عن PR #23 وعن `main`.
 **آخر baseline على main:** `edc57435d763a51bf826a92eba291bcab50a8a4c`.
 **SBPCT:** PR #23 ما زال Draft؛ source recovery واختبارات PostgreSQL المؤلفة موجودة على فرعه، لكن لا TypeScript/Vitest/PostgreSQL/exact-head CI pass مثبت.
-**Proof Graph Kernel v0:** أضيفت عقود DATA/CONTROL/EXECUTION ومُدقّق بنيوي نقيّ واختبارات وحدات. لا تكامل runtime، لا DB، لا execution authority، ولا Canonical Acceptance. نتيجة PASS تعني structural validity فقط.
+**Proof Graph Kernel v0:** أضيفت عقود DATA/CONTROL/EXECUTION ومُدقّق بنيوي نقيّ واختبارات 23 حالة. النموذج يميز `WORLD` و`WORKSPACE_TREE` و`PLAN` revisions؛ يحفظ Parent/Resulting revision لكل من World وWorkspace، ويتطلب `WORKSPACE_BASE_REVISION_MATCHED`، ويربط After Effect بمراجعة شجرة العمل الناتجة، وWorld Transition بمراجعة العالم الناتجة. لا تكامل runtime، لا DB، لا execution authority، ولا Canonical Acceptance. نتيجة PASS تعني structural validity فقط.
 **P13 وP7.5:** لم تُفتح أي منهما؛ لا تغيير في ترتيب §31 أو صلاحيات الجمع والتعلم.
 
 # سجل تقدم خطة تعميم الوكيل الهندسي
@@ -6057,3 +6057,19 @@ Resolution: the comparison card now uses the shared resolver for proof status, d
 - **documentation:** `docs/proof-graph-kernel-v0.md`, governing execution plan note, roadmap section, and this progress record describe scope and non-goals.
 - **validation:** no repository execution, Vitest result, TypeScript pass, or GitHub Actions job is claimed. Exact latest head `03fafb76529c9027a14fef1aba695c84e5b1363f` has no PR workflow run and no commit status at last inspection. PR #24 remains Draft.
 - **next step:** obtain actual exact-head package typecheck and focused Vitest results. Only after they pass should a separate server-owned Projector be proposed, and only after SBPCT PR #23 is independently validated. Do not open P13, P7.5, runtime integration, or any execution authority from this kernel.
+
+### 2026-11-14 — Proof Graph revision-domain correction
+
+A source review rejected the earlier idea of comparing a workspace-tree hash directly
+with the parent World revision. The graph envelope now binds four separate revisions:
+parent/resulting WORLD and parent/resulting WORKSPACE_TREE. Required pre-controls
+include `WORKSPACE_BASE_REVISION_MATCHED`; direct effect observations must match
+`resultingWorkspaceRevision`; the materialized World Transition record must match
+`resultingWorldRevision`. Authorization, Scope, and Acceptance bind to the Plan
+revision. This avoids cross-domain hash comparisons and makes the causal boundary
+explicit.
+
+The 23 focused unit cases are authored. No test or typecheck execution is claimed.
+The validator remains pure and non-authoritative; the next implementation is a
+server-owned Apply projector only after this exact-head suite passes and SBPCT
+PR #23 is independently validated.
