@@ -10635,6 +10635,9 @@ describe("POST /api/ai/tasks/:taskId/execute", () => {
     const projectId = await insertProject();
     projectIds.push(projectId);
     const taskId = await insertTask(projectId, "verifying");
+    await db.update(tasksTable)
+      .set({ prompt: "Preserve the existing Mission delegation identity" })
+      .where(eq(tasksTable.id, taskId));
     const [taskGeneration] = await db.select({
       retryCount: tasksTable.retryCount,
       correlationId: tasksTable.correlationId,
