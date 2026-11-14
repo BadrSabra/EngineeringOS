@@ -1513,7 +1513,8 @@ describe("runtime.start transition retry scheduling", () => {
       sourceObservationIds: aiWorldFactsTable.sourceObservationIds,
     }).from(aiWorldFactsTable)
       .where(eq(aiWorldFactsTable.projectId, fixture.projectId));
-    const transitionObservationIds = new Set<string>([beforeObservationId, afterObservationId]);
+    // Recovery rebuilt this transition from the separately captured live-tree rows.
+    const transitionObservationIds = new Set<string>([liveBeforeObservationId, liveAfterObservationId]);
     const expectedChangedFactRefs = materializedFacts
       .filter((fact) => Array.isArray(fact.sourceObservationIds)
         && fact.sourceObservationIds.some((observationId: unknown) => (
@@ -1531,7 +1532,7 @@ describe("runtime.start transition retry scheduling", () => {
     expect(actualChangedFactRefs).toEqual(expectedChangedFactRefs);
     expect(materializedFacts.some((fact) =>
       Array.isArray(fact.sourceObservationIds)
-      && fact.sourceObservationIds.includes(afterObservationId)
+      && fact.sourceObservationIds.includes(liveAfterObservationId)
       && actualChangedFactRefs.includes(fact.id)
     )).toBe(true);
 
