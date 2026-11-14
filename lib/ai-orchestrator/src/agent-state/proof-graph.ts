@@ -33,7 +33,7 @@ export const ProofGraphDataNodeSchema = z.object({
     "EXECUTION_ACCEPTANCE",
     "WORLD_TRANSITION",
   ]),
-  revisionDomain: z.enum(["WORLD", "WORKSPACE_TREE", "ENVIRONMENT", "PLAN"]),
+  revisionDomain: z.enum(["WORLD", "WORKSPACE_TREE", "PLAN"]),
   sourceRevision: digestSchema,
   provenance: z.enum(["DIRECT_OBSERVATION", "SERVER_DERIVED"]),
   freshness: z.enum(["fresh", "stale", "unknown"]),
@@ -334,7 +334,7 @@ export function validateProofGraph(input: unknown): ProofGraphValidationResult {
 
   const seenEdges = new Set<string>();
   for (const edge of graph.edges) {
-    const edgeKey = `${edge.type}\u0000${edge.from}\u0000${edge.to}`;
+    const edgeKey = JSON.stringify([edge.type, edge.from, edge.to]);
     if (seenEdges.has(edgeKey)) addViolation("DUPLICATE_EDGE", [edge.from, edge.to], [edge.id]);
     seenEdges.add(edgeKey);
 
