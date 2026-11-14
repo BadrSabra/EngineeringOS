@@ -10400,10 +10400,13 @@ describe("POST /api/ai/tasks/:taskId/execute", () => {
       retryCount: tasksTable.retryCount,
       correlationId: tasksTable.correlationId,
     }).from(tasksTable).where(eq(tasksTable.id, taskId));
-    const originalEnqueue = heavyJobQueue.enqueueWithIdDetailed.bind(heavyJobQueue);
+    const queuedJobs: Array<{ id: string; run: () => Promise<void> }> = [];
     const enqueueSpy = vi.spyOn(heavyJobQueue, "enqueueWithIdDetailed")
       .mockReturnValueOnce("full")
-      .mockImplementation((id, job) => originalEnqueue(id, job));
+      .mockImplementation((id, run) => {
+        queuedJobs.push({ id, run });
+        return "enqueued";
+      });
 
     await scheduleAiTaskExecution(taskId, "test-user", {
       delegationBudget: { maxChildren: 2, maxDepth: 1 },
@@ -10427,7 +10430,6 @@ describe("POST /api/ai/tasks/:taskId/execute", () => {
       },
     });
 
-    enqueueSpy.mockRestore();
     await db.update(eventsTable)
       .set({
         payload: {
@@ -10436,10 +10438,17 @@ describe("POST /api/ai/tasks/:taskId/execute", () => {
         },
       })
       .where(eq(eventsTable.id, `task-auto-execution-deferred:${taskId}`));
-    await dispatchPersistedPendingJobs();
-    // A competing/repeated recovery pass cannot enqueue this task a second
-    // time locally; the Task claim transaction also removes the durable intent.
-    await dispatchPersistedPendingJobs();
+
+    // Exercise only the durable Task dispatcher. Capture its queue callback so
+    // unrelated jobs in this test file cannot consume capacity or race the
+    // single-execution assertion.
+    await expect(aiTaskRoutes.dispatchDeferredAiTaskExecutions()).resolves.toBe(1);
+    await expect(aiTaskRoutes.dispatchDeferredAiTaskExecutions()).resolves.toBe(0);
+    const taskJobs = queuedJobs.filter((entry) => entry.id === taskId);
+    expect(taskJobs).toHaveLength(1);
+
+    enqueueSpy.mockRestore();
+    await taskJobs[0]!.run();
     await waitForScheduledAiTaskExecutions();
 
     const executions = await db.select({ id: aiExecutionsTable.id })
@@ -10659,9 +10668,10 @@ describe("POST /api/ai/tasks/:taskId/execute", () => {
     await scheduleAiTaskExecution(taskId, "test-user", {
       parentExecutionId: conflictingParentExecutionId,
     }, taskGeneration!.retryCount, taskGeneration!.correlationId);
-    enqueueSpy.mockRestore();
 
-    expect(enqueueSpy).toHaveBeenCalledOnce();
+    const enqueueCallCount = enqueueSpy.mock.calls.length;
+    enqueueSpy.mockRestore();
+    expect(enqueueCallCount).toBe(1);
     const [intent] = await db.select().from(eventsTable)
       .where(eq(eventsTable.id, `task-auto-execution-deferred:${taskId}`));
     expect(intent?.type).toBe("TaskAutoExecutionDeferred");
