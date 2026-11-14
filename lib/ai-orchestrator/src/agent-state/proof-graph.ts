@@ -23,6 +23,16 @@ export const ProofGraphDataNodeSchema = z.object({
   kind: z.literal("DATA"),
   evidenceRef: boundedString(256),
   contentHash: digestSchema,
+  evidenceKind: z.enum([
+    "AUTHORIZATION",
+    "SCOPE",
+    "PRECONDITION",
+    "PARENT_WORLD_SNAPSHOT",
+    "EFFECT_OBSERVATION",
+    "EXECUTION_ACCEPTANCE",
+    "WORLD_TRANSITION",
+  ]),
+  revisionDomain: z.enum(["WORLD", "WORKSPACE_TREE", "ENVIRONMENT", "PLAN"]),
   sourceRevision: digestSchema,
   provenance: z.enum(["DIRECT_OBSERVATION", "SERVER_DERIVED"]),
   freshness: z.enum(["fresh", "stale", "unknown"]),
@@ -94,6 +104,7 @@ export const ProofGraphSchema = boundedContractSchema(z.object({
   goalId: boundedString(200),
   planRevision: digestSchema,
   parentWorldRevision: digestSchema,
+  resultingWorldRevision: digestSchema,
   nodes: z.array(ProofGraphNodeSchema).min(1).max(PROOF_GRAPH_MAX_NODES),
   edges: z.array(ProofGraphEdgeSchema).min(1).max(PROOF_GRAPH_MAX_EDGES),
 }).strict().superRefine((graph, ctx) => {
@@ -111,6 +122,9 @@ export const ProofGraphSchema = boundedContractSchema(z.object({
     }
     edgeIds.add(edge.id);
   });
+  if (graph.resultingWorldRevision === graph.parentWorldRevision) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["resultingWorldRevision"], message: "a materialized mutation must advance the World Revision" });
+  }
 }), 32 * 1024);
 export type ProofGraph = z.infer<typeof ProofGraphSchema>;
 export type ProofGraphNode = z.infer<typeof ProofGraphNodeSchema>;
@@ -146,7 +160,6 @@ export type ProofGraphViolationCode =
   | "DUPLICATE_CONTROL_RULE"
   | "EXECUTION_HAS_NO_OUTPUT"
   | "OUTPUT_NOT_DIRECT_OBSERVATION"
-  | "OUTPUT_REVISION_UNCHANGED"
   | "POST_CONTROL_NOT_BOUND_TO_EXECUTION_OUTPUT"
   | "ORPHAN_NODE"
   | "DIRECT_SERVICE_EXECUTOR_EDGE"
@@ -158,7 +171,10 @@ export type ProofGraphViolationCode =
   | "MULTIPLE_DATA_PRODUCERS"
   | "ROOT_EXECUTION_MISSING"
   | "CONTROL_SCOPE_HASH_MISMATCH"
-  | "BOUND_DATA_PROVENANCE_MISMATCH";
+  | "BOUND_DATA_PROVENANCE_MISMATCH"
+  | "CONTROL_EVIDENCE_KIND_MISMATCH"
+  | "CONTROL_EVIDENCE_REVISION_DOMAIN_MISMATCH"
+  | "WORLD_REVISION_UNCHANGED";
 
 export type ProofGraphViolation = {
   code: ProofGraphViolationCode;
@@ -391,21 +407,32 @@ export function validateProofGraph(input: unknown): ProofGraphValidationResult {
       addViolation("CONTROL_NOT_SATISFIED", [control.id, ...evidenceNodes.map((node) => node.id)]);
     }
 
-    const expectedProvenance = control.ruleId === "EFFECT_PROVEN"
-      ? "DIRECT_OBSERVATION"
-      : control.ruleId === "PARENT_REVISION_MATCHED"
-        || control.ruleId === "AUTHORIZATION_VALID"
-        || control.ruleId === "SCOPE_MATCHED"
-        || control.ruleId === "ACCEPTANCE_SUCCEEDED"
-        || control.ruleId === "WORLD_TRANSITION_MATERIALIZED"
-          ? "SERVER_DERIVED"
-          : undefined;
+    const expectedEvidence = {
+      AUTHORIZATION_VALID: { kind: "AUTHORIZATION", revisionDomain: "PLAN", provenance: "SERVER_DERIVED" },
+      SCOPE_MATCHED: { kind: "SCOPE", revisionDomain: "PLAN", provenance: "SERVER_DERIVED" },
+      PRECONDITIONS_SATISFIED: { kind: "PRECONDITION", revisionDomain: "WORLD" },
+      PARENT_REVISION_MATCHED: { kind: "PARENT_WORLD_SNAPSHOT", revisionDomain: "WORLD", provenance: "SERVER_DERIVED" },
+      EFFECT_PROVEN: { kind: "EFFECT_OBSERVATION", revisionDomain: "WORKSPACE_TREE", provenance: "DIRECT_OBSERVATION" },
+      ACCEPTANCE_SUCCEEDED: { kind: "EXECUTION_ACCEPTANCE", revisionDomain: "PLAN", provenance: "SERVER_DERIVED" },
+      WORLD_TRANSITION_MATERIALIZED: { kind: "WORLD_TRANSITION", revisionDomain: "WORLD", provenance: "SERVER_DERIVED" },
+    }[control.ruleId];
+    if (evidenceNodes.some((node) => node.evidenceKind !== expectedEvidence.kind)) {
+      addViolation("CONTROL_EVIDENCE_KIND_MISMATCH", [control.id, ...evidenceNodes.map((node) => node.id)]);
+    }
+    if (evidenceNodes.some((node) => node.revisionDomain !== expectedEvidence.revisionDomain)) {
+      addViolation("CONTROL_EVIDENCE_REVISION_DOMAIN_MISMATCH", [control.id, ...evidenceNodes.map((node) => node.id)]);
+    }
+    const expectedProvenance = expectedEvidence.provenance;
     if (expectedProvenance && evidenceNodes.some((node) => node.provenance !== expectedProvenance)) {
       addViolation("CONTROL_EVIDENCE_PROVENANCE_MISMATCH", [control.id, ...evidenceNodes.map((node) => node.id)]);
     }
     if (control.ruleId === "PARENT_REVISION_MATCHED"
       && evidenceNodes.some((node) => node.sourceRevision !== graph.parentWorldRevision)) {
       addViolation("CONTROL_PARENT_REVISION_MISMATCH", [control.id, ...evidenceNodes.map((node) => node.id)]);
+    }
+    if (control.ruleId === "WORLD_TRANSITION_MATERIALIZED"
+      && evidenceNodes.some((node) => node.sourceRevision !== graph.resultingWorldRevision)) {
+      addViolation("WORLD_REVISION_UNCHANGED", [control.id, ...evidenceNodes.map((node) => node.id)]);
     }
 
     const gates = gateEdges.filter((edge) => edge.from === control.id);
@@ -420,10 +447,10 @@ export function validateProofGraph(input: unknown): ProofGraphValidationResult {
 
     if (control.phase === "POST_EXECUTION") {
       for (const edge of verifies) {
-        const executionEvidence = new Set([
-          ...(outputsByExecution.get(edge.from) ?? []),
-          ...(boundDataByExecution.get(edge.from) ?? []),
-        ].map((node) => node.id));
+        const boundEvidence = control.ruleId === "EFFECT_PROVEN"
+          ? outputsByExecution.get(edge.from) ?? []
+          : boundDataByExecution.get(edge.from) ?? [];
+        const executionEvidence = new Set(boundEvidence.map((node) => node.id));
         if (evidenceNodes.some((node) => !executionEvidence.has(node.id))) {
           addViolation("POST_CONTROL_NOT_BOUND_TO_EXECUTION_OUTPUT", [edge.from, control.id, ...evidenceNodes.map((node) => node.id)], [edge.id]);
         }
@@ -464,8 +491,9 @@ export function validateProofGraph(input: unknown): ProofGraphValidationResult {
           (node) => node.provenance !== "DIRECT_OBSERVATION" || node.freshness !== "fresh",
         ).map((node) => node.id)]);
       }
-      if (!outputs.some((node) => node.sourceRevision !== graph.parentWorldRevision)) {
-        addViolation("OUTPUT_REVISION_UNCHANGED", [execution.id, ...outputs.map((node) => node.id)]);
+      if (outputs.some((node) => node.evidenceKind !== "EFFECT_OBSERVATION"
+        || node.revisionDomain !== "WORKSPACE_TREE")) {
+        addViolation("OUTPUT_NOT_DIRECT_OBSERVATION", [execution.id, ...outputs.map((node) => node.id)]);
       }
     }
 
@@ -484,7 +512,7 @@ export function validateProofGraph(input: unknown): ProofGraphValidationResult {
   }
 
   // Build an execution-level graph from explicit dependency edges and from
-  // produced DATA that supports a later PRE_EXECUTION control.
+  // output/bound DATA that supports a later PRE_EXECUTION control.
   const executionAdjacency = new Map<string, { to: string; edgeIds: string[] }[]>();
   for (const execution of executionNodes) executionAdjacency.set(execution.id, []);
   for (const edge of dependencyEdges) {
