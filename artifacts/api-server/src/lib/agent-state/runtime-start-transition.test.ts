@@ -1,6 +1,6 @@
 import { and, eq, sql } from "drizzle-orm";
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { createServer } from "node:net";
 import os from "node:os";
 import path from "node:path";
@@ -9,6 +9,7 @@ import {
   aiAgentEffectBundlesTable,
   aiAgentEffectsTable,
   aiAgentEpisodesTable,
+  aiAgentEpisodeEventsTable,
   aiAgentObservationsTable,
   aiChatSessionsTable,
   aiChatMessagesTable,
@@ -1178,23 +1179,70 @@ describe("runtime.start transition retry scheduling", () => {
     // Simulate the precise crash gap: Apply is accepted, but its pending
     // World Transition row is absent. Recovery must reuse the original intent.
     await db.delete(aiWorldTransitionsTable).where(eq(aiWorldTransitionsTable.id, id));
+    const recoveryInput = {
+      projectId: fixture.projectId,
+      executionId: fixture.executionId,
+      attempt: 0,
+      episodeId: fixture.episodeId,
+      actionId: input.actionId,
+      proposalId,
+    };
+
+    // A legacy or damaged Action event without the immutable intent must not
+    // reconstruct a new parent from current World State.
+    const [requestedEvent] = await db.select().from(aiAgentEpisodeEventsTable).where(and(
+      eq(aiAgentEpisodeEventsTable.episodeId, fixture.episodeId),
+      eq(aiAgentEpisodeEventsTable.eventType, "ACTION_REQUESTED"),
+    )).limit(1);
+    if (!requestedEvent) throw new Error("Apply ACTION_REQUESTED event was not persisted.");
+    const originalRequestedPayload = requestedEvent.payload as Record<string, unknown>;
+    const { worldTransitionIntent: _omittedIntent, ...payloadWithoutIntent } = originalRequestedPayload;
+    await db.update(aiAgentEpisodeEventsTable).set({
+      payload: payloadWithoutIntent as typeof requestedEvent.payload,
+      payloadHash: canonicalJsonHash(payloadWithoutIntent),
+    }).where(eq(aiAgentEpisodeEventsTable.id, requestedEvent.id));
+    await expect(recoverAcceptedApplyChangesTransition(recoveryInput)).resolves.toMatchObject({
+      kind: "blocked",
+      reason: "apply_recovery_parent_intent_missing_or_invalid",
+    });
+    await db.update(aiAgentEpisodeEventsTable).set({
+      payload: originalRequestedPayload as typeof requestedEvent.payload,
+      payloadHash: canonicalJsonHash(originalRequestedPayload),
+    }).where(eq(aiAgentEpisodeEventsTable.id, requestedEvent.id));
+
+    // A changed authoritative parent is also non-recoverable. The test fact is
+    // deliberately outside the originating Episode so the exact production
+    // projection sees it as an intervening World State change.
+    const parentDriftFactId = crypto.randomUUID();
+    const parentDriftValue = { source: "apply-recovery-parent-drift-test" };
+    await db.insert(aiWorldFactsTable).values({
+      id: parentDriftFactId,
+      projectId: fixture.projectId,
+      taskScope: "project",
+      environmentRevisionKey: "unknown",
+      subject: `project:${fixture.projectId}`,
+      predicate: "test.apply_recovery_parent_drift",
+      value: parentDriftValue,
+      valueHash: canonicalJsonHash(parentDriftValue),
+      version: 1,
+      status: "confirmed",
+      sourceObservationIds: [],
+      projectRevision: baseRevision,
+      environmentRevision: null,
+      environmentFreshness: "unknown",
+      supersedesFactId: null,
+      createdAt: now,
+      updatedAt: now,
+    });
+    await expect(recoverAcceptedApplyChangesTransition(recoveryInput)).resolves.toMatchObject({
+      kind: "blocked",
+      reason: "apply_recovery_parent_snapshot_changed",
+    });
+    await db.delete(aiWorldFactsTable).where(eq(aiWorldFactsTable.id, parentDriftFactId));
+
     const recoveryResults = await Promise.all([
-      recoverAcceptedApplyChangesTransition({
-        projectId: fixture.projectId,
-        executionId: fixture.executionId,
-        attempt: 0,
-        episodeId: fixture.episodeId,
-        actionId: input.actionId,
-        proposalId,
-      }),
-      recoverAcceptedApplyChangesTransition({
-        projectId: fixture.projectId,
-        executionId: fixture.executionId,
-        attempt: 0,
-        episodeId: fixture.episodeId,
-        actionId: input.actionId,
-        proposalId,
-      }),
+      recoverAcceptedApplyChangesTransition(recoveryInput),
+      recoverAcceptedApplyChangesTransition(recoveryInput),
     ]);
     expect(recoveryResults.map((result) => result.kind).sort())
       .toEqual(["created", "existing"]);
@@ -1205,6 +1253,7 @@ describe("runtime.start transition retry scheduling", () => {
     }
     expect(replayed.transitionId).toBe(recovered.transitionId);
     id = recovered.transitionId;
+    expect(await readFile(promotedFile, "utf8")).toBe("export const value = 'after';\\n");
 
     const finalizeInput = {
       projectId: fixture.projectId,
