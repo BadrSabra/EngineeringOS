@@ -3,6 +3,7 @@ import {
   hashProofGraph,
   validateProofGraph,
   type ProofGraph,
+  type ProofGraphDataNode,
 } from "../agent-state/proof-graph.js";
 
 const parentRevision = "a".repeat(64);
