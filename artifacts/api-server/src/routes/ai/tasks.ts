@@ -13,7 +13,7 @@ import {
   aiExecutionsTable,
   aiExecutionAcceptancesTable,
 } from "@workspace/db";
-import { eq, and, inArray, or, asc, sql } from "drizzle-orm";
+import { eq, and, inArray, or, asc, sql, isNull, ne } from "drizzle-orm";
 import { logger } from "../../lib/logger.js";
 import { loadProjectByIdForUser } from "../../middlewares/requireProjectAccess.js";
 import { checkProjectRateLimitDb, LLM_RATE_LIMIT } from "../../lib/db-rate-limiter.js";
@@ -353,7 +353,8 @@ type AiTaskExecutionOptions = {
 
 type DeferredAiTaskExecution = {
   userId: string;
-  taskRetryCount?: number;
+  taskRetryCount: number;
+  taskCorrelationId?: string | null;
   attemptCount: number;
   nextAttemptAt?: string;
   options?: AiTaskExecutionOptions;
@@ -363,9 +364,11 @@ function parseDeferredAiTaskExecution(payload: unknown): DeferredAiTaskExecution
   if (!payload || typeof payload !== "object" || Array.isArray(payload)) return null;
   const record = payload as Record<string, unknown>;
   if (typeof record.userId !== "string" || record.userId.length === 0) return null;
+  if (!Number.isSafeInteger(record.taskRetryCount) || Number(record.taskRetryCount) < 0) return null;
   if (
-    record.taskRetryCount !== undefined
-    && (!Number.isSafeInteger(record.taskRetryCount) || Number(record.taskRetryCount) < 0)
+    record.taskCorrelationId !== undefined
+    && record.taskCorrelationId !== null
+    && typeof record.taskCorrelationId !== "string"
   ) return null;
   const attemptCount = record.attemptCount ?? 0;
   if (!Number.isSafeInteger(attemptCount) || Number(attemptCount) < 0) return null;
@@ -385,9 +388,10 @@ function parseDeferredAiTaskExecution(payload: unknown): DeferredAiTaskExecution
   }
   return {
     userId: record.userId,
-    ...(record.taskRetryCount === undefined
+    taskRetryCount: Number(record.taskRetryCount),
+    ...(record.taskCorrelationId === undefined
       ? {}
-      : { taskRetryCount: Number(record.taskRetryCount) }),
+      : { taskCorrelationId: record.taskCorrelationId as string | null }),
     attemptCount: Number(attemptCount),
     ...(typeof record.nextAttemptAt === "string"
       ? { nextAttemptAt: record.nextAttemptAt }
@@ -401,7 +405,8 @@ async function persistDeferredAiTaskExecution(
   userId: string,
   options?: AiTaskExecutionOptions,
   expectedRetryCount?: number,
-): Promise<{ retryCount: number; payload: DeferredAiTaskExecution } | null> {
+  expectedCorrelationId?: string | null,
+): Promise<{ retryCount: number; correlationId: string | null; payload: DeferredAiTaskExecution } | null> {
   return db.transaction(async (tx) => {
     const [task] = await tx
       .select({
@@ -409,6 +414,7 @@ async function persistDeferredAiTaskExecution(
         status: tasksTable.status,
         prompt: tasksTable.prompt,
         retryCount: tasksTable.retryCount,
+        correlationId: tasksTable.correlationId,
       })
       .from(tasksTable)
       .where(eq(tasksTable.id, taskId))
@@ -419,14 +425,16 @@ async function persistDeferredAiTaskExecution(
       || task.status !== "verifying"
       || !task.prompt
       || (expectedRetryCount !== undefined && task.retryCount !== expectedRetryCount)
+      || (expectedCorrelationId !== undefined && task.correlationId !== expectedCorrelationId)
     ) return null;
 
-    await insertTaskAutoExecutionIntent(tx, {
+    const intentPersisted = await insertTaskAutoExecutionIntent(tx, {
       taskId,
       userId,
       retryCount: task.retryCount,
       options: options as TaskAutoExecutionOutboxOptions | undefined,
     });
+    if (!intentPersisted) return null;
     const [intent] = await tx
       .select({ payload: eventsTable.payload })
       .from(eventsTable)
@@ -434,11 +442,15 @@ async function persistDeferredAiTaskExecution(
       .limit(1);
     const parsed = parseDeferredAiTaskExecution(intent?.payload);
     if (!parsed) return null;
-    return { retryCount: task.retryCount, payload: parsed };
+    return { retryCount: task.retryCount, correlationId: task.correlationId, payload: parsed };
   });
 }
 
-async function clearDeferredAiTaskExecution(taskId: string, retryCount: number): Promise<void> {
+async function clearDeferredAiTaskExecution(
+  taskId: string,
+  retryCount: number,
+  correlationId: string | null,
+): Promise<void> {
   await db.transaction(async (tx) => {
     const [intent] = await tx
       .select({ payload: eventsTable.payload })
@@ -446,7 +458,12 @@ async function clearDeferredAiTaskExecution(taskId: string, retryCount: number):
       .where(eq(eventsTable.id, taskAutoExecutionIntentId(taskId)))
       .for("update")
       .limit(1);
-    if (intent?.payload?.taskRetryCount === retryCount) {
+    const parsed = parseDeferredAiTaskExecution(intent?.payload);
+    if (
+      parsed
+      && parsed.taskRetryCount === retryCount
+      && parsed.taskCorrelationId === correlationId
+    ) {
       await tx.delete(eventsTable)
         .where(eq(eventsTable.id, taskAutoExecutionIntentId(taskId)));
     }
@@ -472,11 +489,21 @@ function safeDispatchFailureCode(error: unknown): string {
     : "AUTO_EXECUTION_PRECLAIM_FAILED";
 }
 
+function requiresOperatorTaskDispatchConflict(errorCode: string | undefined): boolean {
+  return Boolean(
+    errorCode?.startsWith("mission_")
+    || errorCode === "execution_identity_changed"
+    || errorCode === "execution_already_claimed"
+    || errorCode === "invalid_task_transition",
+  );
+}
+
 async function markDeferredAiTaskExecution(
   taskId: string,
   retryCount: number,
+  correlationId: string | null | undefined,
   reasonCode: string,
-  delayMs: number,
+  delayMs?: number,
 ): Promise<void> {
   await db.transaction(async (tx) => {
     const id = taskAutoExecutionIntentId(taskId);
@@ -487,7 +514,11 @@ async function markDeferredAiTaskExecution(
       .for("update")
       .limit(1);
     const parsed = parseDeferredAiTaskExecution(intent?.payload);
-    if (!parsed || parsed.taskRetryCount !== retryCount) return;
+    if (
+      !parsed
+      || parsed.taskRetryCount !== retryCount
+      || parsed.taskCorrelationId !== correlationId
+    ) return;
     await tx.update(eventsTable)
       .set({
         type: TASK_AUTO_EXECUTION_DEFERRED_EVENT_TYPE,
@@ -498,7 +529,10 @@ async function markDeferredAiTaskExecution(
           taskRetryCount: retryCount,
           attemptCount: parsed.attemptCount + 1,
           lastFailureCode: reasonCode,
-          nextAttemptAt: new Date(Date.now() + Math.max(1, delayMs)).toISOString(),
+          nextAttemptAt: new Date(Date.now() + Math.max(
+            1,
+            delayMs ?? retryDelayMs(parsed.attemptCount),
+          )).toISOString(),
         },
       })
       .where(eq(eventsTable.id, id));
@@ -509,6 +543,7 @@ async function runAiTaskExecution(
   taskId: string,
   userId: string,
   retryCount: number,
+  correlationId: string | null,
   options?: AiTaskExecutionOptions,
 ): Promise<void> {
   try {
@@ -523,8 +558,9 @@ async function runAiTaskExecution(
       || task.status !== "verifying"
       || !task.prompt
       || task.retryCount !== retryCount
+      || task.correlationId !== correlationId
     ) {
-      await clearDeferredAiTaskExecution(taskId, retryCount);
+      await clearDeferredAiTaskExecution(taskId, retryCount, correlationId);
       logger.info(
         {
           taskId,
@@ -532,6 +568,8 @@ async function runAiTaskExecution(
           hasPrompt: !!task?.prompt,
           expectedRetryCount: retryCount,
           actualRetryCount: task?.retryCount,
+          expectedCorrelationId: correlationId,
+          actualCorrelationId: task?.correlationId ?? null,
         },
         "AI auto-trigger: task no longer eligible — skipping",
       );
@@ -555,8 +593,9 @@ async function runAiTaskExecution(
       await markDeferredAiTaskExecution(
         taskId,
         retryCount,
+        correlationId,
         "PROVIDER_NOT_CONFIGURED",
-        retryDelayMs(0),
+        MAX_AUTO_TASK_RETRY_MS,
       );
       return;
     }
@@ -571,6 +610,7 @@ async function runAiTaskExecution(
       await markDeferredAiTaskExecution(
         taskId,
         retryCount,
+        correlationId,
         "PROJECT_RATE_LIMITED",
         Math.max(1, (rl.retryAfterSec ?? 60) * 1_000),
       );
@@ -584,24 +624,74 @@ async function runAiTaskExecution(
       trigger: "automatic",
       expectedStatuses: ["verifying"],
       expectedRetryCount: retryCount,
+      expectedCorrelationId: correlationId,
       parentExecutionId: options?.parentExecutionId,
       delegationBudget: options?.delegationBudget,
     });
     if (lifecycle.status === "conflict") {
       const [currentTask] = await db
-        .select({ status: tasksTable.status, retryCount: tasksTable.retryCount })
+        .select({
+          status: tasksTable.status,
+          retryCount: tasksTable.retryCount,
+          correlationId: tasksTable.correlationId,
+        })
         .from(tasksTable)
         .where(eq(tasksTable.id, taskId))
         .limit(1);
-      if (currentTask?.status === "verifying" && currentTask.retryCount === retryCount) {
+      if (
+        currentTask?.status === "verifying"
+        && currentTask.retryCount === retryCount
+        && currentTask.correlationId === correlationId
+      ) {
+        if (lifecycle.errorCode === "execution_already_claimed") {
+          const parentExecutionId = options?.parentExecutionId ?? null;
+          const [activeExecution] = await db
+            .select({ id: aiExecutionsTable.id })
+            .from(aiExecutionsTable)
+            .where(and(
+              eq(aiExecutionsTable.linkedTaskId, taskId),
+              eq(aiExecutionsTable.projectId, task.projectId),
+              task.goalId === null
+                ? isNull(aiExecutionsTable.goalId)
+                : eq(aiExecutionsTable.goalId, task.goalId),
+              eq(aiExecutionsTable.userId, userId),
+              eq(aiExecutionsTable.attempt, retryCount),
+              correlationId === null
+                ? isNull(aiExecutionsTable.correlationId)
+                : eq(aiExecutionsTable.correlationId, correlationId),
+              parentExecutionId === null
+                ? isNull(aiExecutionsTable.parentExecutionId)
+                : eq(aiExecutionsTable.parentExecutionId, parentExecutionId),
+              options?.delegationBudget
+                ? sql`${aiExecutionsTable.delegationBudget} @> ${JSON.stringify(options.delegationBudget)}::jsonb`
+                : undefined,
+              inArray(aiExecutionsTable.status, ["queued", "running", "paused", "cancelling"]),
+            ))
+            .limit(1);
+          if (activeExecution) {
+            // A matching already-claimed Execution owns its own lease and
+            // recovery lifecycle. Retire only this generation's duplicate
+            // dispatch intent; never start a second execution for it.
+            await clearDeferredAiTaskExecution(taskId, retryCount, correlationId);
+            logger.info(
+              { taskId, executionId: activeExecution.id },
+              "AI auto-trigger: matching active Execution already owns this Task generation",
+            );
+            return;
+          }
+        }
+        const conflictCode = lifecycle.errorCode ?? "TASK_CLAIM_CONFLICT";
         await markDeferredAiTaskExecution(
           taskId,
           retryCount,
-          lifecycle.errorCode ?? "TASK_CLAIM_CONFLICT",
-          lifecycle.retryAfterMs ?? retryDelayMs(0),
+          correlationId,
+          conflictCode,
+          requiresOperatorTaskDispatchConflict(conflictCode)
+            ? MAX_AUTO_TASK_RETRY_MS
+            : lifecycle.retryAfterMs,
         );
       } else {
-        await clearDeferredAiTaskExecution(taskId, retryCount);
+        await clearDeferredAiTaskExecution(taskId, retryCount, correlationId);
       }
       logger.info({ taskId, reason: lifecycle.errorCode }, "AI auto-trigger: lifecycle claim skipped");
       return;
@@ -612,8 +702,8 @@ async function runAiTaskExecution(
       await markDeferredAiTaskExecution(
         taskId,
         retryCount,
+        correlationId,
         lifecycle.errorCode ?? "TASK_EXECUTION_NOT_CLAIMED",
-        retryDelayMs(0),
       );
       logger.warn(
         { taskId, executionId: lifecycle.executionId, code: lifecycle.errorCode },
@@ -624,8 +714,8 @@ async function runAiTaskExecution(
     await markDeferredAiTaskExecution(
       taskId,
       retryCount,
+      correlationId,
       safeDispatchFailureCode(err),
-      retryDelayMs(0),
     ).catch((deferError) => {
       logger.error({ err: deferError, taskId }, "AI auto-trigger: could not preserve deferred dispatch intent");
     });
@@ -645,6 +735,7 @@ export async function scheduleAiTaskExecution(
   userId: string,
   options?: AiTaskExecutionOptions,
   expectedRetryCount?: number,
+  expectedCorrelationId?: string | null,
 ): Promise<void> {
   const inFlightScheduling = schedulingAiTaskExecutions.get(taskId);
   if (inFlightScheduling) return inFlightScheduling;
@@ -666,6 +757,7 @@ export async function scheduleAiTaskExecution(
         userId,
         options,
         expectedRetryCount,
+        expectedCorrelationId,
       );
       if (!persisted) {
         resolveCompletion();
@@ -673,6 +765,7 @@ export async function scheduleAiTaskExecution(
         return;
       }
       const retryCount = persisted.retryCount;
+      const correlationId = persisted.correlationId;
       const effectiveUserId = persisted.payload.userId;
       const effectiveOptions = persisted.payload.options ?? options;
 
@@ -680,7 +773,7 @@ export async function scheduleAiTaskExecution(
       // calls in this process and dispatches from other API instances.
       const enqueueResult = heavyJobQueue.enqueueWithIdDetailed(taskId, async () => {
         try {
-          await runAiTaskExecution(taskId, effectiveUserId, retryCount, effectiveOptions);
+          await runAiTaskExecution(taskId, effectiveUserId, retryCount, correlationId, effectiveOptions);
         } finally {
           resolveCompletion();
         }
@@ -692,6 +785,7 @@ export async function scheduleAiTaskExecution(
           await markDeferredAiTaskExecution(
             taskId,
             retryCount,
+            correlationId,
             "LOCAL_QUEUE_FULL",
             30_000,
           ).catch((err) => {
@@ -724,6 +818,68 @@ export async function scheduleAiTaskExecution(
 }
 
 /**
+ * Discard an invalid/stale dispatch row only if it still matches the exact
+ * snapshot read by the dispatcher. A newer Task generation can replace the
+ * stable per-Task event ID while a dispatcher is processing an older snapshot;
+ * deleting by ID alone would erase that newer durable intent.
+ */
+export async function discardDeferredAiTaskIntentIfUnchanged(intent: {
+  intentId: string;
+  type: string;
+  projectId: string;
+  taskId: string | null;
+  timestampKey: string;
+  payload: unknown;
+  reason: "ineligible" | "invalid_payload";
+}): Promise<boolean> {
+  return db.transaction(async (tx) => {
+    if (intent.reason === "ineligible" && intent.taskId !== null) {
+      const [currentTask] = await tx
+        .select({
+          projectId: tasksTable.projectId,
+          status: tasksTable.status,
+          prompt: tasksTable.prompt,
+        })
+        .from(tasksTable)
+        .where(eq(tasksTable.id, intent.taskId))
+        .for("update")
+        .limit(1);
+      if (
+        currentTask
+        && currentTask.projectId === intent.projectId
+        && currentTask.status === "verifying"
+        && Boolean(currentTask.prompt)
+      ) {
+        // The Task became runnable again after the dispatcher read its
+        // ineligible snapshot. Keep the Outbox row for the next pass.
+        return false;
+      }
+    }
+
+    const taskPredicate = intent.taskId === null
+      ? isNull(eventsTable.taskId)
+      : eq(eventsTable.taskId, intent.taskId);
+    const payloadJson = intent.payload === null || intent.payload === undefined
+      ? null
+      : JSON.stringify(intent.payload);
+    const [deleted] = await tx.delete(eventsTable)
+      .where(and(
+        eq(eventsTable.id, intent.intentId),
+        eq(eventsTable.type, intent.type),
+        eq(eventsTable.projectId, intent.projectId),
+        taskPredicate,
+        eq(
+          sql<string>`to_char(${eventsTable.timestamp}, 'YYYY-MM-DD"T"HH24:MI:SS.US')`,
+          intent.timestampKey,
+        ),
+        sql`${eventsTable.payload} IS NOT DISTINCT FROM ${payloadJson}::jsonb`,
+      ))
+      .returning({ id: eventsTable.id });
+    return Boolean(deleted);
+  });
+}
+
+/**
  * Re-dispatch durable intents that are due. Pre-claim failures retain the
  * intent with a bounded retry time; the Task claim consumes it atomically.
  */
@@ -732,27 +888,42 @@ export async function dispatchDeferredAiTaskExecutions(limit = 100): Promise<num
   const deferred = await db
     .select({
       intentId: eventsTable.id,
+      type: eventsTable.type,
+      projectId: eventsTable.projectId,
       taskId: eventsTable.taskId,
+      timestampKey: sql<string>`to_char(${eventsTable.timestamp}, 'YYYY-MM-DD"T"HH24:MI:SS.US')`,
       payload: eventsTable.payload,
       status: tasksTable.status,
       prompt: tasksTable.prompt,
       retryCount: tasksTable.retryCount,
+      correlationId: tasksTable.correlationId,
     })
     .from(eventsTable)
-    .innerJoin(tasksTable, eq(eventsTable.taskId, tasksTable.id))
+    .leftJoin(tasksTable, eq(eventsTable.taskId, tasksTable.id))
     .where(and(
       inArray(eventsTable.type, [
         TASK_AUTO_EXECUTION_REQUESTED_EVENT_TYPE,
         TASK_AUTO_EXECUTION_DEFERRED_EVENT_TYPE,
       ]),
-      eq(tasksTable.status, "verifying"),
       or(
-        eq(eventsTable.type, TASK_AUTO_EXECUTION_REQUESTED_EVENT_TYPE),
-        sql`(
-          ${eventsTable.payload}->>'nextAttemptAt' IS NULL
-          OR ${eventsTable.payload}->>'nextAttemptAt' !~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}T'
-          OR ${eventsTable.payload}->>'nextAttemptAt' <= ${nowIso}
-        )`,
+        // Orphaned events (for example, left behind by an older Task delete)
+        // and events for Tasks that are no longer eligible must be retired
+        // without waiting for a retry timestamp.
+        isNull(tasksTable.id),
+        ne(tasksTable.status, "verifying"),
+        isNull(tasksTable.prompt),
+        eq(tasksTable.prompt, ""),
+        and(
+          eq(tasksTable.status, "verifying"),
+          or(
+            eq(eventsTable.type, TASK_AUTO_EXECUTION_REQUESTED_EVENT_TYPE),
+            sql`(
+              ${eventsTable.payload}->>'nextAttemptAt' IS NULL
+              OR ${eventsTable.payload}->>'nextAttemptAt' !~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}T'
+              OR ${eventsTable.payload}->>'nextAttemptAt' <= ${nowIso}
+            )`,
+          ),
+        ),
       ),
     ))
     .orderBy(asc(eventsTable.timestamp), asc(eventsTable.id))
@@ -760,16 +931,40 @@ export async function dispatchDeferredAiTaskExecutions(limit = 100): Promise<num
 
   let dispatched = 0;
   for (const intent of deferred) {
-    if (!intent.taskId || !intent.prompt) {
-      if (intent.taskId) {
-        await db.delete(eventsTable).where(eq(eventsTable.id, intent.intentId));
-      }
+    if (!intent.taskId || intent.status !== "verifying" || !intent.prompt) {
+      await discardDeferredAiTaskIntentIfUnchanged({ ...intent, reason: "ineligible" });
       continue;
     }
     const parsed = parseDeferredAiTaskExecution(intent.payload);
     if (!parsed) {
       logger.warn({ taskId: intent.taskId }, "AI auto-trigger: invalid deferred dispatch intent discarded");
-      await db.delete(eventsTable).where(eq(eventsTable.id, intent.intentId));
+      await discardDeferredAiTaskIntentIfUnchanged({ ...intent, reason: "invalid_payload" });
+      continue;
+    }
+
+    const correlationMatches = parsed.taskCorrelationId === intent.correlationId
+      || (parsed.taskCorrelationId === undefined && intent.correlationId === null);
+    if (
+      parsed.taskRetryCount !== intent.retryCount
+      || !correlationMatches
+    ) {
+      await markDeferredAiTaskExecution(
+        intent.taskId,
+        parsed.taskRetryCount,
+        parsed.taskCorrelationId,
+        "TASK_GENERATION_MISMATCH",
+        MAX_AUTO_TASK_RETRY_MS,
+      );
+      logger.error(
+        {
+          taskId: intent.taskId,
+          intentRetryCount: parsed.taskRetryCount,
+          taskRetryCount: intent.retryCount,
+          intentCorrelationId: parsed.taskCorrelationId,
+          taskCorrelationId: intent.correlationId,
+        },
+        "AI auto-trigger: stale Task generation intent was fenced from dispatch",
+      );
       continue;
     }
 
@@ -779,20 +974,8 @@ export async function dispatchDeferredAiTaskExecutions(limit = 100): Promise<num
       parsed.userId,
       parsed.options,
       intent.retryCount,
+      intent.correlationId,
     );
-    if (
-      parsed.taskRetryCount !== undefined
-      && parsed.taskRetryCount !== intent.retryCount
-    ) {
-      logger.info(
-        {
-          taskId: intent.taskId,
-          previousRetryCount: parsed.taskRetryCount,
-          currentRetryCount: intent.retryCount,
-        },
-        "AI auto-trigger: refreshed a stale dispatch generation",
-      );
-    }
     if (scheduledAiTaskCompletions.size > before) dispatched++;
     if (heavyJobQueue.availablePendingCapacity === 0) break;
   }

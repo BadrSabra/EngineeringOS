@@ -528,6 +528,8 @@ export * from './importProjectInput';
 export * from './importProjectInputOverrides';
 export * from './jobQueueStats';
 export * from './jobRecoveryHealth';
+export * from './jobRecoveryHealthDeferredAiTaskDispatchesByReasonItem';
+export * from './jobRecoveryHealthDeferredAiTaskDispatchesByReasonItemReasonCode';
 export * from './jobRecoveryHealthDispatchStagesItem';
 export * from './jobRecoveryHealthDispatchStagesItemLastOutcome';
 export * from './jobRecoveryHealthStatus';

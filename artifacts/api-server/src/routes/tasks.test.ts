@@ -985,10 +985,14 @@ describe("PR-C — AI auto-trigger on verifying", () => {
     expect(res.body.status).toBe("verifying");
 
     expect(mockScheduleAiTaskExecution).toHaveBeenCalledOnce();
-    expect(mockScheduleAiTaskExecution).toHaveBeenCalledWith(taskId, "test-user", undefined, 0);
+    expect(mockScheduleAiTaskExecution).toHaveBeenCalledWith(taskId, "test-user", undefined, 0, null);
     const [intent] = await db.select().from(eventsTable)
       .where(eq(eventsTable.id, `task-auto-execution-deferred:${taskId}`));
-    expect(intent?.payload).toMatchObject({ userId: "test-user", taskRetryCount: 0 });
+    expect(intent?.payload).toMatchObject({
+      userId: "test-user",
+      taskRetryCount: 0,
+      taskCorrelationId: null,
+    });
   });
 
   it("execute route: does NOT schedule AI when task enters verifying without a prompt", async () => {
@@ -1014,10 +1018,51 @@ describe("PR-C — AI auto-trigger on verifying", () => {
     expect(res.body.status).toBe("verifying");
 
     expect(mockScheduleAiTaskExecution).toHaveBeenCalledOnce();
-    expect(mockScheduleAiTaskExecution).toHaveBeenCalledWith(taskId, "test-user", undefined, 0);
+    expect(mockScheduleAiTaskExecution).toHaveBeenCalledWith(taskId, "test-user", undefined, 0, null);
     const [intent] = await db.select().from(eventsTable)
       .where(eq(eventsTable.id, `task-auto-execution-deferred:${taskId}`));
-    expect(intent?.payload).toMatchObject({ userId: "test-user", taskRetryCount: 0 });
+    expect(intent?.payload).toMatchObject({
+      userId: "test-user",
+      taskRetryCount: 0,
+      taskCorrelationId: null,
+    });
+  });
+
+  it("rejects a Task transition when its generation is bound to another user", async () => {
+    const { projectId, taskId } = await createTaskWithPrompt("Keep the existing dispatch identity");
+    await db.insert(eventsTable).values({
+      id: `task-auto-execution-deferred:${taskId}`,
+      type: "TaskAutoExecutionDispatchRequested",
+      projectId,
+      taskId,
+      severity: "info",
+      message: "Existing dispatch identity",
+      payload: {
+        userId: "original-user",
+        taskRetryCount: 0,
+        taskCorrelationId: null,
+        attemptCount: 0,
+      },
+    });
+
+    const response = await request(app)
+      .patch(`/api/tasks/${taskId}`)
+      .send({ status: "verifying" });
+
+    expect(response.status).toBe(409);
+    expect(response.body.error).toBe("task_dispatch_identity_conflict");
+    const [task] = await db.select({ status: tasksTable.status })
+      .from(tasksTable)
+      .where(eq(tasksTable.id, taskId));
+    const [intent] = await db.select().from(eventsTable)
+      .where(eq(eventsTable.id, `task-auto-execution-deferred:${taskId}`));
+    expect(task?.status).toBe("pending");
+    expect(intent?.payload).toMatchObject({
+      userId: "original-user",
+      taskRetryCount: 0,
+      taskCorrelationId: null,
+    });
+    expect(mockScheduleAiTaskExecution).not.toHaveBeenCalled();
   });
 
   it("PATCH route: does NOT schedule AI when status is set to verifying but prompt is null", async () => {
@@ -1061,5 +1106,48 @@ describe("PR-C — AI auto-trigger on verifying", () => {
       .where(eq(eventsTable.id, `task-auto-execution-deferred:${taskId}`));
     expect(task?.status).toBe("verifying");
     expect(intent?.payload).toMatchObject({ userId: "test-user", taskRetryCount: 0 });
+  });
+
+  it("retires the dispatch intent atomically when a verifying Task is deleted", async () => {
+    const { projectId, taskId } = await createTaskWithPrompt("Delete an unclaimed Task generation");
+
+    const transition = await request(app)
+      .patch(`/api/tasks/${taskId}`)
+      .send({ status: "verifying" });
+    expect(transition.status).toBe(200);
+    const [intentBeforeDelete] = await db.select().from(eventsTable)
+      .where(eq(eventsTable.id, `task-auto-execution-deferred:${taskId}`));
+    expect(intentBeforeDelete).toBeTruthy();
+
+    const deleted = await request(app).delete(`/api/tasks/${taskId}`);
+    expect(deleted.status).toBe(204);
+
+    const [intentAfterDelete] = await db.select().from(eventsTable)
+      .where(eq(eventsTable.id, `task-auto-execution-deferred:${taskId}`));
+    expect(intentAfterDelete).toBeUndefined();
+    const deletedEvent = (await db.select().from(eventsTable)
+      .where(eq(eventsTable.projectId, projectId)))
+      .find((event) => event.type === "TaskDeleted");
+    expect(deletedEvent?.taskId).toBeNull();
+  });
+
+  it("retires the dispatch intent in the same transaction when a verifying Task is rolled back", async () => {
+    const { taskId } = await createTaskWithPrompt("Cancel an unclaimed Task generation");
+
+    const transition = await request(app)
+      .patch(`/api/tasks/${taskId}`)
+      .send({ status: "verifying" });
+    expect(transition.status).toBe(200);
+    const [intentBeforeRollback] = await db.select().from(eventsTable)
+      .where(eq(eventsTable.id, `task-auto-execution-deferred:${taskId}`));
+    expect(intentBeforeRollback).toBeTruthy();
+
+    const rollback = await request(app).post(`/api/tasks/${taskId}/rollback`);
+    expect(rollback.status).toBe(200);
+    expect(rollback.body.status).toBe("cancelled");
+
+    const [intentAfterRollback] = await db.select().from(eventsTable)
+      .where(eq(eventsTable.id, `task-auto-execution-deferred:${taskId}`));
+    expect(intentAfterRollback).toBeUndefined();
   });
 });

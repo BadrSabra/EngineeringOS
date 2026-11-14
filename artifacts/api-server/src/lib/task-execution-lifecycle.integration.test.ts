@@ -1323,6 +1323,305 @@ describe("real durable task execution lifecycle", () => {
   });
 
   it.each([
+    {
+      changedIdentity: "parent Execution",
+      storedBudget: { maxChildren: 2, maxDepth: 1 },
+      requestedBudget: { maxChildren: 2, maxDepth: 1 },
+      storedAttempt: 0,
+      useDifferentParent: true,
+    },
+    {
+      changedIdentity: "delegation budget",
+      storedBudget: { maxChildren: 2, maxDepth: 1 },
+      requestedBudget: { maxChildren: 3, maxDepth: 1 },
+      storedAttempt: 0,
+      useDifferentParent: false,
+    },
+    {
+      changedIdentity: "execution attempt",
+      storedBudget: { maxChildren: 2, maxDepth: 1 },
+      requestedBudget: { maxChildren: 2, maxDepth: 1 },
+      storedAttempt: 1,
+      useDifferentParent: false,
+    },
+  ] as const)(
+    "rejects a reused Task Execution with a different $changedIdentity and preserves its Outbox intent",
+    async ({ storedBudget, requestedBudget, storedAttempt, useDifferentParent }) => {
+      const projectId = randomUUID();
+      const taskId = randomUUID();
+      const userId = "lifecycle-idempotency-fence-user";
+      const correlationId = randomUUID();
+      const intentId = `task-auto-execution-deferred:${taskId}`;
+      const now = new Date();
+      await db.insert(projectsTable).values({
+        id: projectId,
+        ownerId: userId,
+        name: `lifecycle-idempotency-fence-${projectId.slice(0, 8)}`,
+        rootPath: `/tmp/lifecycle-${projectId}`,
+        language: "typescript",
+        status: "active",
+        createdAt: now,
+        updatedAt: now,
+      });
+      await db.insert(tasksTable).values({
+        id: taskId,
+        projectId,
+        title: "Reject a mismatched idempotent Execution",
+        prompt: "Preserve the current Task Outbox when the stored Execution identity differs",
+        status: "verifying",
+        correlationId,
+        retryCount: 0,
+        maxRetries: 2,
+        createdAt: now,
+        updatedAt: now,
+      });
+
+      try {
+        const parentA = await aiExecutionState.createAiExecution({
+          userId,
+          projectId,
+          idempotencyKey: `parent-a:${taskId}`,
+          request: {
+            projectId,
+            message: "Stored Mission parent fixture",
+            modelMessage: "Stored Mission parent fixture",
+            validationTargetPaths: [],
+          },
+        });
+        const parentB = useDifferentParent
+          ? await aiExecutionState.createAiExecution({
+              userId,
+              projectId,
+              idempotencyKey: `parent-b:${taskId}`,
+              request: {
+                projectId,
+                message: "Requested Mission parent fixture",
+                modelMessage: "Requested Mission parent fixture",
+                validationTargetPaths: [],
+              },
+            })
+          : parentA;
+        const requestedParentExecutionId = parentB.execution.id;
+
+        const stored = await aiExecutionState.createAiExecution({
+          userId,
+          projectId,
+          linkedTaskId: taskId,
+          correlationId,
+          attempt: storedAttempt,
+          idempotencyKey: `${taskId}:attempt:0`,
+          parentExecutionId: parentA.execution.id,
+          delegationBudget: storedBudget,
+          request: {
+            projectId,
+            linkedTaskId: taskId,
+            attempt: 0,
+            message: "Stored Task execution identity fixture",
+            modelMessage: "Stored Task execution identity fixture",
+            validationTargetPaths: [],
+          },
+        });
+        expect(stored.created).toBe(true);
+
+        await db.insert(eventsTable).values({
+          id: intentId,
+          type: "TaskAutoExecutionDispatchRequested",
+          projectId,
+          taskId,
+          severity: "info",
+          message: "Current Task dispatch intent",
+          timestamp: now,
+          payload: {
+            userId,
+            taskRetryCount: 0,
+            taskCorrelationId: correlationId,
+            attemptCount: 0,
+            parentExecutionId: requestedParentExecutionId,
+            delegationBudget: requestedBudget,
+          },
+        });
+
+        const outcome = await executeTaskLifecycle({
+          taskId,
+          userId,
+          provider: { provider: "groq", apiKey: "fixture-provider" },
+          trigger: "reconciliation",
+          expectedStatuses: ["verifying"],
+          expectedRetryCount: 0,
+          expectedCorrelationId: correlationId,
+          parentExecutionId: requestedParentExecutionId,
+          delegationBudget: requestedBudget,
+        });
+
+        expect(outcome).toMatchObject({
+          ok: false,
+          status: "conflict",
+          errorCode: "execution_identity_changed",
+        });
+        expect(runAgentWithFallback).not.toHaveBeenCalled();
+        const [task] = await db.select({
+          status: tasksTable.status,
+          retryCount: tasksTable.retryCount,
+          correlationId: tasksTable.correlationId,
+          workerId: tasksTable.workerId,
+        }).from(tasksTable).where(eq(tasksTable.id, taskId));
+        expect(task).toEqual({
+          status: "verifying",
+          retryCount: 0,
+          correlationId,
+          workerId: null,
+        });
+
+        const [retainedIntent] = await db.select().from(eventsTable)
+          .where(eq(eventsTable.id, intentId));
+        expect(retainedIntent).toMatchObject({
+          type: "TaskAutoExecutionDispatchRequested",
+          payload: {
+            taskRetryCount: 0,
+            taskCorrelationId: correlationId,
+            parentExecutionId: requestedParentExecutionId,
+            delegationBudget: requestedBudget,
+          },
+        });
+        const [unchangedExecution] = await db.select({
+          status: aiExecutionsTable.status,
+          attempt: aiExecutionsTable.attempt,
+          parentExecutionId: aiExecutionsTable.parentExecutionId,
+          delegationBudget: aiExecutionsTable.delegationBudget,
+        }).from(aiExecutionsTable).where(eq(aiExecutionsTable.id, stored.execution.id));
+        expect(unchangedExecution).toMatchObject({
+          status: "queued",
+          attempt: storedAttempt,
+          parentExecutionId: parentA.execution.id,
+          delegationBudget: storedBudget,
+        });
+      } finally {
+        await cleanupProjectExecutionData(projectId);
+        await db.delete(eventsTable).where(eq(eventsTable.id, intentId));
+        await db.delete(tasksTable).where(eq(tasksTable.id, taskId));
+        await db.delete(projectsTable).where(eq(projectsTable.id, projectId));
+      }
+    },
+  );
+
+  it("rolls back Outbox consumption when the final Task claim update fails", async () => {
+    const projectId = randomUUID();
+    const taskId = randomUUID();
+    const userId = "lifecycle-outbox-rollback-user";
+    const outboxId = `task-auto-execution-deferred:${taskId}`;
+    const now = new Date();
+    await db.insert(projectsTable).values({
+      id: projectId,
+      ownerId: userId,
+      name: `lifecycle-outbox-rollback-${projectId.slice(0, 8)}`,
+      rootPath: `/tmp/lifecycle-${projectId}`,
+      language: "typescript",
+      status: "active",
+      createdAt: now,
+      updatedAt: now,
+    });
+    await db.insert(tasksTable).values({
+      id: taskId,
+      projectId,
+      title: "Outbox claim rollback fixture",
+      prompt: "Retain the durable dispatch when Task claim cannot commit",
+      status: "verifying",
+      retryCount: 0,
+      maxRetries: 2,
+      createdAt: now,
+      updatedAt: now,
+    });
+    await db.insert(eventsTable).values({
+      id: outboxId,
+      type: "TaskAutoExecutionDispatchRequested",
+      projectId,
+      taskId,
+      severity: "info",
+      message: "Durable Task dispatch request",
+      timestamp: now,
+      payload: {
+        userId,
+        taskRetryCount: 0,
+        taskCorrelationId: null,
+        attemptCount: 0,
+      },
+    });
+
+    await db.execute(sql`
+      CREATE OR REPLACE FUNCTION fixture_fail_task_claim_update()
+      RETURNS trigger AS $body$
+      BEGIN
+        IF NEW.title = 'Outbox claim rollback fixture'
+          AND OLD.status = 'verifying'
+          AND NEW.status = 'running'
+        THEN
+          RAISE EXCEPTION 'fixture_task_claim_failure';
+        END IF;
+        RETURN NEW;
+      END;
+      $body$ LANGUAGE plpgsql
+    `);
+    await db.execute(sql`DROP TRIGGER IF EXISTS fixture_fail_task_claim_update ON tasks`);
+    await db.execute(sql`
+      CREATE TRIGGER fixture_fail_task_claim_update
+      BEFORE UPDATE ON tasks
+      FOR EACH ROW EXECUTE FUNCTION fixture_fail_task_claim_update()
+    `);
+
+    try {
+      await expect(executeTaskLifecycle({
+        taskId,
+        userId,
+        provider: { provider: "groq", apiKey: "fixture-provider" },
+        trigger: "reconciliation",
+        expectedStatuses: ["verifying"],
+        expectedRetryCount: 0,
+        expectedCorrelationId: null,
+        workspaceRevision: now.toISOString(),
+      })).rejects.toThrow("fixture_task_claim_failure");
+
+      const [task] = await db.select({
+        status: tasksTable.status,
+        retryCount: tasksTable.retryCount,
+        correlationId: tasksTable.correlationId,
+        workerId: tasksTable.workerId,
+      }).from(tasksTable).where(eq(tasksTable.id, taskId));
+      expect(task).toEqual({
+        status: "verifying",
+        retryCount: 0,
+        correlationId: null,
+        workerId: null,
+      });
+
+      const [intent] = await db.select().from(eventsTable)
+        .where(eq(eventsTable.id, outboxId));
+      expect(intent).toMatchObject({
+        type: "TaskAutoExecutionDispatchRequested",
+        projectId,
+        taskId,
+        payload: {
+          userId,
+          taskRetryCount: 0,
+          taskCorrelationId: null,
+        },
+      });
+
+      const executions = await db.select({ id: aiExecutionsTable.id })
+        .from(aiExecutionsTable)
+        .where(eq(aiExecutionsTable.linkedTaskId, taskId));
+      expect(executions).toEqual([]);
+      expect(runAgentWithFallback).not.toHaveBeenCalled();
+    } finally {
+      await db.execute(sql`DROP TRIGGER IF EXISTS fixture_fail_task_claim_update ON tasks`);
+      await db.execute(sql`DROP FUNCTION IF EXISTS fixture_fail_task_claim_update()`);
+      await cleanupProjectExecutionData(projectId);
+      await db.delete(eventsTable).where(eq(eventsTable.id, outboxId));
+      await db.delete(tasksTable).where(eq(tasksTable.id, taskId));
+      await db.delete(projectsTable).where(eq(projectsTable.id, projectId));
+    }
+  });
+
+  it.each([
     { changedState: "Task pointer", changeCorrelation: true, errorCode: "task_state_changed" },
     { changedState: "execution attempt", changeCorrelation: false, errorCode: "execution_identity_changed" },
   ] as const)(
@@ -2854,6 +3153,7 @@ describe("real durable task execution lifecycle", () => {
     const userId = "lifecycle-rate-limit-user";
     const now = new Date();
     const retryAfterMs = 60_000;
+    const outboxId = `task-auto-execution-deferred:${taskId}`;
     await db.insert(projectsTable).values({
       id: projectId,
       ownerId: userId,
@@ -2930,6 +3230,33 @@ describe("real durable task execution lifecycle", () => {
         .from(aiExecutionsTable)
         .where(eq(aiExecutionsTable.id, failed.executionId))
         .limit(1);
+      const [taskBeforeResume] = await db
+        .select({
+          retryCount: tasksTable.retryCount,
+          correlationId: tasksTable.correlationId,
+        })
+        .from(tasksTable)
+        .where(eq(tasksTable.id, taskId))
+        .limit(1);
+      if (!taskBeforeResume?.correlationId) {
+        throw new Error("Task correlation identity was not persisted before resume.");
+      }
+      await db.insert(eventsTable).values({
+        id: outboxId,
+        type: "TaskAutoExecutionDeferred",
+        projectId,
+        taskId,
+        severity: "warning",
+        message: "Task resume is waiting for the provider retry window.",
+        payload: {
+          userId,
+          taskRetryCount: taskBeforeResume.retryCount,
+          taskCorrelationId: taskBeforeResume.correlationId,
+          attemptCount: 1,
+          lastFailureCode: "PROJECT_RATE_LIMITED",
+          nextAttemptAt: String(disposition?.retryAt),
+        },
+      });
       const providerCallsBeforeResume = runAgentWithFallback.mock.calls.length;
       const earlyResume = await executeTaskLifecycle({
         taskId,
@@ -2946,6 +3273,17 @@ describe("real durable task execution lifecycle", () => {
       });
       expect(earlyResume.retryAfterMs).toBeGreaterThan(0);
       expect(runAgentWithFallback).toHaveBeenCalledTimes(providerCallsBeforeResume);
+      const [outboxAfterBlockedResume] = await db.select().from(eventsTable)
+        .where(eq(eventsTable.id, outboxId));
+      expect(outboxAfterBlockedResume).toMatchObject({
+        type: "TaskAutoExecutionDeferred",
+        payload: {
+          userId,
+          taskRetryCount: taskBeforeResume.retryCount,
+          taskCorrelationId: taskBeforeResume.correlationId,
+          lastFailureCode: "PROJECT_RATE_LIMITED",
+        },
+      });
 
       const [executionAfterResume] = await db
         .select({
@@ -3016,9 +3354,12 @@ describe("real durable task execution lifecycle", () => {
         terminalStatus: "completed",
         resumable: 0,
       });
+      await expect(db.select({ id: eventsTable.id }).from(eventsTable)
+        .where(eq(eventsTable.id, outboxId))).resolves.toHaveLength(0);
       expect(taskProgressFixture.terminalOutcomes).toEqual(["FAILED", "SUCCEEDED"]);
     } finally {
       await cleanupProjectExecutionData(projectId);
+      await db.delete(eventsTable).where(eq(eventsTable.id, outboxId));
       await db.delete(tasksTable).where(eq(tasksTable.id, taskId));
       await db.delete(projectsTable).where(eq(projectsTable.id, projectId));
     }

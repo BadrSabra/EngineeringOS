@@ -15,9 +15,24 @@ export type TaskAutoExecutionOutboxOptions = {
 };
 
 export function taskAutoExecutionIntentId(taskId: string): string {
-  // Keep the historical event key stable. The attempt generation is bound in
-  // the payload and checked under the Task claim lock.
+  // Keep the historical event key stable. The retry count and correlation ID
+  // bind the payload to one Task generation and are checked before dispatch/claim.
   return `task-auto-execution-deferred:${taskId}`;
+}
+
+function stableJson(value: unknown): string {
+  if (value === null || typeof value !== "object") {
+    return JSON.stringify(value) ?? "undefined";
+  }
+  if (Array.isArray(value)) {
+    return `[${value.map(stableJson).join(",")}]`;
+  }
+  const record = value as Record<string, unknown>;
+  return `{${Object.keys(record)
+    .filter((key) => record[key] !== undefined)
+    .sort()
+    .map((key) => `${JSON.stringify(key)}:${stableJson(record[key])}`)
+    .join(",")}}`;
 }
 
 /**
@@ -40,6 +55,7 @@ export async function insertTaskAutoExecutionIntent(
       status: tasksTable.status,
       prompt: tasksTable.prompt,
       retryCount: tasksTable.retryCount,
+      correlationId: tasksTable.correlationId,
     })
     .from(tasksTable)
     .where(eq(tasksTable.id, input.taskId))
@@ -57,17 +73,64 @@ export async function insertTaskAutoExecutionIntent(
 
   const id = taskAutoExecutionIntentId(input.taskId);
   const [existing] = await tx
-    .select({ payload: eventsTable.payload })
+    .select({
+      type: eventsTable.type,
+      payload: eventsTable.payload,
+      projectId: eventsTable.projectId,
+      taskId: eventsTable.taskId,
+    })
     .from(eventsTable)
     .where(eq(eventsTable.id, id))
     .for("update")
     .limit(1);
-  const existingRetryCount = existing?.payload?.taskRetryCount;
-  if (existing && existingRetryCount === input.retryCount) return true;
+  const existingPayload = existing?.payload ?? {};
+  const existingRetryCount = existingPayload.taskRetryCount;
+  const existingTaskCorrelationId = existingPayload.taskCorrelationId;
+  const correlationMatches = existingTaskCorrelationId === task.correlationId
+    || (existingTaskCorrelationId === undefined && task.correlationId === null);
+  if (
+    existing
+    && existingRetryCount === input.retryCount
+    && correlationMatches
+  ) {
+    const existingParentExecutionId = existingPayload.parentExecutionId ?? null;
+    const requestedParentExecutionId = input.options?.parentExecutionId;
+    const parentExecutionMatches = requestedParentExecutionId === undefined
+      || existingParentExecutionId === requestedParentExecutionId;
+    const requestedDelegationBudget = input.options?.delegationBudget;
+    const budgetMatches = requestedDelegationBudget === undefined
+      || stableJson(existingPayload.delegationBudget) === stableJson(requestedDelegationBudget);
+    const identityMatches = (
+      existing.type === TASK_AUTO_EXECUTION_REQUESTED_EVENT_TYPE
+      || existing.type === TASK_AUTO_EXECUTION_DEFERRED_EVENT_TYPE
+    )
+      && existing.projectId === task.projectId
+      && existing.taskId === input.taskId
+      && existingPayload.userId === input.userId
+      && parentExecutionMatches
+      && budgetMatches;
+    if (!identityMatches) return false;
+
+    // Upgrade the legacy null-correlation shape in place. Without this,
+    // subsequent deferral updates would compare undefined to null and leave
+    // the pre-claim failure unrecorded.
+    if (existingTaskCorrelationId === undefined) {
+      await tx.update(eventsTable)
+        .set({
+          payload: {
+            ...existingPayload,
+            taskCorrelationId: task.correlationId,
+          },
+        })
+        .where(eq(eventsTable.id, id));
+    }
+    return true;
+  }
 
   const payload = {
     userId: input.userId,
     taskRetryCount: input.retryCount,
+    taskCorrelationId: task.correlationId,
     attemptCount: 0,
     ...(input.options?.parentExecutionId !== undefined
       ? { parentExecutionId: input.options.parentExecutionId }
@@ -80,8 +143,11 @@ export async function insertTaskAutoExecutionIntent(
     await tx.update(eventsTable)
       .set({
         type: TASK_AUTO_EXECUTION_REQUESTED_EVENT_TYPE,
+        projectId: task.projectId,
+        taskId: input.taskId,
         severity: "info",
         message: "Automatic AI task execution was requested.",
+        timestamp: new Date(),
         payload,
       })
       .where(eq(eventsTable.id, id));

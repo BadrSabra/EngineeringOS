@@ -2566,6 +2566,20 @@ export const JobRecoveryHealthStatus = {
   degraded: 'degraded',
 } as const;
 
+export type JobRecoveryHealthDeferredAiTaskDispatchesByReasonItemReasonCode = typeof JobRecoveryHealthDeferredAiTaskDispatchesByReasonItemReasonCode[keyof typeof JobRecoveryHealthDeferredAiTaskDispatchesByReasonItemReasonCode];
+
+
+export const JobRecoveryHealthDeferredAiTaskDispatchesByReasonItemReasonCode = {
+  MISSION_GATE_BLOCKED: 'MISSION_GATE_BLOCKED',
+  EXECUTION_IDENTITY_CONFLICT: 'EXECUTION_IDENTITY_CONFLICT',
+  LOCAL_QUEUE_FULL: 'LOCAL_QUEUE_FULL',
+  PROJECT_RATE_LIMITED: 'PROJECT_RATE_LIMITED',
+  PROVIDER_NOT_CONFIGURED: 'PROVIDER_NOT_CONFIGURED',
+  TASK_GENERATION_MISMATCH: 'TASK_GENERATION_MISMATCH',
+  PRECLAIM_FAILURE: 'PRECLAIM_FAILURE',
+  OTHER: 'OTHER',
+} as const;
+
 export type JobRecoveryHealthDispatchStagesItemLastOutcome = typeof JobRecoveryHealthDispatchStagesItemLastOutcome[keyof typeof JobRecoveryHealthDispatchStagesItemLastOutcome];
 
 
@@ -2574,6 +2588,12 @@ export const JobRecoveryHealthDispatchStagesItemLastOutcome = {
   failed: 'failed',
   unknown: 'unknown',
 } as const;
+
+export type JobRecoveryHealthDeferredAiTaskDispatchesByReasonItem = {
+  reasonCode: JobRecoveryHealthDeferredAiTaskDispatchesByReasonItemReasonCode;
+  /** @minimum 0 */
+  count: number;
+};
 
 export type JobRecoveryHealthDispatchStagesItem = {
   stageName: string;
@@ -2606,6 +2626,7 @@ export interface JobRecoveryHealth {
   pendingAiTaskDispatches: number;
   /** @minimum 0 */
   deferredAiTaskDispatches: number;
+  deferredAiTaskDispatchesByReason: JobRecoveryHealthDeferredAiTaskDispatchesByReasonItem[];
   /** @minimum 0 */
   staleAiTaskDispatches: number;
   oldestAiTaskDispatchAt: string | null;

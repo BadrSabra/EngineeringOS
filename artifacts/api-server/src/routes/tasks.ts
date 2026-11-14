@@ -21,7 +21,7 @@ import {
   RecordTaskVerificationBody,
   RecordTaskVerificationParams,
 } from "@workspace/api-zod";
-import { eq, and, desc, gt, asc, inArray, isNull } from "drizzle-orm";
+import { eq, and, desc, gt, asc, inArray, isNull, sql } from "drizzle-orm";
 import { randomUUID } from "crypto";
 import { recordAudit, recordAuditInTransaction } from "../lib/audit.js";
 import { invalidateContextCache } from "@workspace/ai-orchestrator";
@@ -36,7 +36,7 @@ import { logger } from "../lib/logger.js";
 import { requireAuth } from "../middlewares/requireAuth.js";
 import { loadProjectByIdForUser } from "../middlewares/requireProjectAccess.js";
 import { scheduleAiTaskExecution } from "./ai.js";
-import { insertTaskAutoExecutionIntent } from "../lib/task-auto-execution-outbox.js";
+import { insertTaskAutoExecutionIntent, taskAutoExecutionIntentId } from "../lib/task-auto-execution-outbox.js";
 import { parsePagination } from "../lib/pagination.js";
 import { taskTransitionConflict, type TaskStatus } from "../lib/task-state.js";
 import { redactUserFacingText } from "../lib/ai-route-helpers.js";
@@ -346,43 +346,59 @@ router.patch("/tasks/:taskId", async (req, res) => {
   }
 
   const correlationId = randomUUID();
-  const updated = await db.transaction(async (tx) => {
-    const rows = await tx.update(tasksTable)
-      .set({ ...body, updatedAt: new Date() })
-      .where(and(
-        eq(tasksTable.id, taskId),
-        eq(tasksTable.status, before[0].status),
-        isNull(tasksTable.workerId),
-      )).returning();
-    if (rows[0]) {
-      const changes: string[] = [];
-      if (body.status && body.status !== before[0].status) changes.push(`status: ${before[0].status} → ${body.status}`);
-      if (body.priority && body.priority !== before[0].priority) changes.push(`priority: ${before[0].priority} → ${body.priority}`);
-      if (body.title && body.title !== before[0].title) changes.push("title updated");
-      if (changes.length) {
-        const isStatusChange = body.status !== undefined && body.status !== before[0].status;
-        await tx.insert(eventsTable).values({
-          id: randomUUID(), type: isStatusChange ? "TaskStatusChanged" : "TaskUpdated",
-          projectId: before[0].projectId, taskId, severity: "info",
-          message: `Task "${rows[0].title}" updated — ${changes.join(", ")}`, correlationId,
-          ...(isStatusChange ? { payload: { before: { status: before[0].status }, after: { status: body.status } } } : {}),
+  let updated: Array<typeof tasksTable.$inferSelect>;
+  try {
+    updated = await db.transaction(async (tx) => {
+      const rows = await tx.update(tasksTable)
+        .set({ ...body, updatedAt: new Date() })
+        .where(and(
+          eq(tasksTable.id, taskId),
+          eq(tasksTable.status, before[0].status),
+          isNull(tasksTable.workerId),
+        )).returning();
+      if (rows[0]) {
+        const changes: string[] = [];
+        if (body.status && body.status !== before[0].status) changes.push(`status: ${before[0].status} → ${body.status}`);
+        if (body.priority && body.priority !== before[0].priority) changes.push(`priority: ${before[0].priority} → ${body.priority}`);
+        if (body.title && body.title !== before[0].title) changes.push("title updated");
+        if (changes.length) {
+          const isStatusChange = body.status !== undefined && body.status !== before[0].status;
+          await tx.insert(eventsTable).values({
+            id: randomUUID(), type: isStatusChange ? "TaskStatusChanged" : "TaskUpdated",
+            projectId: before[0].projectId, taskId, severity: "info",
+            message: `Task "${rows[0].title}" updated — ${changes.join(", ")}`, correlationId,
+            ...(isStatusChange ? { payload: { before: { status: before[0].status }, after: { status: body.status } } } : {}),
+          });
+        }
+        await recordAuditInTransaction(tx, {
+          entityType: "task", entityId: taskId, action: "updated",
+          projectId: before[0].projectId, actor: req.userId, correlationId,
+          changedFields: body, stateBefore: before[0], stateAfter: rows[0],
         });
+        if (body.status === "verifying" && rows[0].prompt) {
+          const intentPersisted = await insertTaskAutoExecutionIntent(tx, {
+            taskId,
+            userId: req.userId,
+            retryCount: rows[0].retryCount,
+          });
+          if (!intentPersisted) {
+            throw new TaskStateConflictError(
+              "The Task generation is already bound to a different dispatch identity.",
+            );
+          }
+        }
       }
-      await recordAuditInTransaction(tx, {
-        entityType: "task", entityId: taskId, action: "updated",
-        projectId: before[0].projectId, actor: req.userId, correlationId,
-        changedFields: body, stateBefore: before[0], stateAfter: rows[0],
+      return rows;
+    });
+  } catch (error) {
+    if (error instanceof TaskStateConflictError) {
+      return res.status(409).json({
+        error: "task_dispatch_identity_conflict",
+        reason: error.message,
       });
-      if (body.status === "verifying" && rows[0].prompt) {
-        await insertTaskAutoExecutionIntent(tx, {
-          taskId,
-          userId: req.userId,
-          retryCount: rows[0].retryCount,
-        });
-      }
     }
-    return rows;
-  });
+    throw error;
+  }
   if (!updated[0]) {
     return res.status(409).json({
       error: "task_state_changed_concurrently",
@@ -394,7 +410,13 @@ router.patch("/tasks/:taskId", async (req, res) => {
   // and the task has a generated prompt. The intent was committed atomically
   // with the status transition; this call only wakes the local queue.
   if (body.status === "verifying" && updated[0].prompt) {
-    await scheduleAiTaskExecution(taskId, req.userId, undefined, updated[0].retryCount);
+    await scheduleAiTaskExecution(
+      taskId,
+      req.userId,
+      undefined,
+      updated[0].retryCount,
+      updated[0].correlationId,
+    );
   }
 
   invalidateContextCache(project.id);
@@ -444,6 +466,17 @@ router.delete("/tasks/:taskId", async (req, res) => {
       projectId: before[0].projectId, actor: req.userId, correlationId,
       stateBefore: before[0],
     });
+    // Keep TaskDeleted for audit, but do not let the Outbox FK's SET NULL
+    // turn an executable intent into an orphan that no dispatcher can see.
+    await tx.delete(eventsTable).where(and(
+      eq(eventsTable.id, taskAutoExecutionIntentId(taskId)),
+      inArray(eventsTable.type, [
+        "TaskAutoExecutionDispatchRequested",
+        "TaskAutoExecutionDeferred",
+      ]),
+      sql`${eventsTable.payload}->>'taskRetryCount' = ${String(lockedTask.retryCount)}`,
+      sql`${eventsTable.payload}->>'taskCorrelationId' IS NOT DISTINCT FROM ${lockedTask.correlationId}`,
+    ));
     await tx.delete(tasksTable).where(eq(tasksTable.id, taskId));
     });
   } catch (error) {
@@ -701,11 +734,16 @@ router.post("/tasks/:taskId/execute", async (req, res) => {
           correlationId,
         });
         if (finalStatus === "verifying" && task[0].prompt) {
-          await insertTaskAutoExecutionIntent(tx, {
+          const intentPersisted = await insertTaskAutoExecutionIntent(tx, {
             taskId,
             userId: req.userId,
             retryCount: row.retryCount,
           });
+          if (!intentPersisted) {
+            throw new TaskStateConflictError(
+              "The Task generation is already bound to a different dispatch identity.",
+            );
+          }
         }
 
         return [row];
@@ -722,7 +760,13 @@ router.post("/tasks/:taskId/execute", async (req, res) => {
     // PR-C: the durable intent was committed with the Task transition. Wake
     // the local queue without waiting for the AI execution itself.
     if (finalStatus === "verifying" && task[0].prompt) {
-      await scheduleAiTaskExecution(taskId, req.userId, undefined, updated.retryCount);
+      await scheduleAiTaskExecution(
+        taskId,
+        req.userId,
+        undefined,
+        updated.retryCount,
+        updated.correlationId,
+      );
     }
 
     return res.status(202).json(await projectCurrentTaskExecutionReceipt(updated));
@@ -1115,13 +1159,32 @@ router.post("/tasks/:taskId/rollback", async (req, res) => {
       const [row] = await tx
         .update(tasksTable)
         .set({ status: "cancelled", updatedAt: now })
-        .where(and(eq(tasksTable.id, taskId), eq(tasksTable.status, task[0].status)))
+        .where(and(
+          eq(tasksTable.id, taskId),
+          eq(tasksTable.status, task[0].status),
+          eq(tasksTable.retryCount, task[0].retryCount),
+          task[0].correlationId === null
+            ? isNull(tasksTable.correlationId)
+            : eq(tasksTable.correlationId, task[0].correlationId),
+        ))
         .returning();
       if (!row) {
         throw new TaskStateConflictError(
           `Task state changed before rollback could be applied`,
         );
       }
+
+      // Cancellation makes the Task ineligible for automatic dispatch. Retire
+      // its durable pre-claim intent in the same transaction as the transition.
+      await tx.delete(eventsTable).where(and(
+        eq(eventsTable.id, taskAutoExecutionIntentId(taskId)),
+        inArray(eventsTable.type, [
+          "TaskAutoExecutionDispatchRequested",
+          "TaskAutoExecutionDeferred",
+        ]),
+        sql`${eventsTable.payload}->>'taskRetryCount' = ${String(row.retryCount)}`,
+        sql`${eventsTable.payload}->>'taskCorrelationId' IS NOT DISTINCT FROM ${row.correlationId}`,
+      ));
 
       await tx.insert(taskLogsTable).values({
         id: randomUUID(),

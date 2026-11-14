@@ -68,7 +68,7 @@ import {
   durableDispatchStageHealthTable,
   taskExecutionObservationOutboxTable,
 } from "@workspace/db";
-import { and, eq, gt, inArray, isNull, lt, or, count, min, sql, asc } from "drizzle-orm";
+import { and, eq, gt, inArray, isNull, lt, ne, or, count, sql, asc } from "drizzle-orm";
 import { invalidateContextCache } from "@workspace/ai-orchestrator";
 import { logger } from "./logger.js";
 import { heavyJobQueue } from "./job-queue.js";
@@ -1247,6 +1247,7 @@ export async function getDurableJobHealth(): Promise<{
   retryExhaustedTasks: number;
   pendingAiTaskDispatches: number;
   deferredAiTaskDispatches: number;
+  deferredAiTaskDispatchesByReason: Array<{ reasonCode: string; count: number }>;
   staleAiTaskDispatches: number;
   oldestAiTaskDispatchAt: string | null;
   failedDispatchStages: number;
@@ -1267,6 +1268,7 @@ export async function getDurableJobHealth(): Promise<{
   }>;
 }> {
   const now = databaseNow();
+  const nowIso = new Date().toISOString();
   const stalePendingCutoff = sql<Date>`(clock_timestamp() AT TIME ZONE 'UTC') - (${STALE_PENDING_TIMEOUT_MS} * interval '1 millisecond')`;
   try {
     const [
@@ -1281,6 +1283,7 @@ export async function getDurableJobHealth(): Promise<{
       [exhaustedTasks],
       [requestedAiTaskDispatches],
       [deferredAiTaskDispatches],
+      deferredAiTaskDispatchReasonRows,
       [staleAiTaskDispatches],
       [oldestAiTaskDispatch],
       [failedStages],
@@ -1316,36 +1319,71 @@ export async function getDurableJobHealth(): Promise<{
       db.select({ value: count() }).from(scanJobsTable).where(and(eq(scanJobsTable.status, "failed"), eq(scanJobsTable.retryCount, scanJobsTable.maxRetries))),
       db.select({ value: count() }).from(tasksTable).where(and(eq(tasksTable.status, "failed"), eq(tasksTable.retryCount, tasksTable.maxRetries))),
       db.select({ value: count() }).from(eventsTable)
-        .innerJoin(tasksTable, eq(eventsTable.taskId, tasksTable.id))
-        .where(and(
-          eq(eventsTable.type, "TaskAutoExecutionDispatchRequested"),
-          eq(tasksTable.status, "verifying"),
-        )),
+        .where(eq(eventsTable.type, "TaskAutoExecutionDispatchRequested")),
       db.select({ value: count() }).from(eventsTable)
-        .innerJoin(tasksTable, eq(eventsTable.taskId, tasksTable.id))
-        .where(and(
-          eq(eventsTable.type, "TaskAutoExecutionDeferred"),
-          eq(tasksTable.status, "verifying"),
-        )),
+        .where(eq(eventsTable.type, "TaskAutoExecutionDeferred")),
+      db.select({
+        reasonCode: sql<string>`CASE
+          WHEN left(${eventsTable.payload}->>'lastFailureCode', 8) = 'mission_' THEN 'MISSION_GATE_BLOCKED'
+          WHEN ${eventsTable.payload}->>'lastFailureCode' IN ('execution_identity_changed', 'execution_already_claimed', 'invalid_task_transition') THEN 'EXECUTION_IDENTITY_CONFLICT'
+          WHEN ${eventsTable.payload}->>'lastFailureCode' = 'LOCAL_QUEUE_FULL' THEN 'LOCAL_QUEUE_FULL'
+          WHEN ${eventsTable.payload}->>'lastFailureCode' = 'PROJECT_RATE_LIMITED' THEN 'PROJECT_RATE_LIMITED'
+          WHEN ${eventsTable.payload}->>'lastFailureCode' = 'PROVIDER_NOT_CONFIGURED' THEN 'PROVIDER_NOT_CONFIGURED'
+          WHEN ${eventsTable.payload}->>'lastFailureCode' = 'TASK_GENERATION_MISMATCH' THEN 'TASK_GENERATION_MISMATCH'
+          WHEN ${eventsTable.payload}->>'lastFailureCode' = 'AUTO_EXECUTION_PRECLAIM_FAILED' THEN 'PRECLAIM_FAILURE'
+          ELSE 'OTHER'
+        END`,
+        value: count(),
+      }).from(eventsTable)
+        .where(eq(eventsTable.type, "TaskAutoExecutionDeferred"))
+        .groupBy(sql`CASE
+          WHEN left(${eventsTable.payload}->>'lastFailureCode', 8) = 'mission_' THEN 'MISSION_GATE_BLOCKED'
+          WHEN ${eventsTable.payload}->>'lastFailureCode' IN ('execution_identity_changed', 'execution_already_claimed', 'invalid_task_transition') THEN 'EXECUTION_IDENTITY_CONFLICT'
+          WHEN ${eventsTable.payload}->>'lastFailureCode' = 'LOCAL_QUEUE_FULL' THEN 'LOCAL_QUEUE_FULL'
+          WHEN ${eventsTable.payload}->>'lastFailureCode' = 'PROJECT_RATE_LIMITED' THEN 'PROJECT_RATE_LIMITED'
+          WHEN ${eventsTable.payload}->>'lastFailureCode' = 'PROVIDER_NOT_CONFIGURED' THEN 'PROVIDER_NOT_CONFIGURED'
+          WHEN ${eventsTable.payload}->>'lastFailureCode' = 'TASK_GENERATION_MISMATCH' THEN 'TASK_GENERATION_MISMATCH'
+          WHEN ${eventsTable.payload}->>'lastFailureCode' = 'AUTO_EXECUTION_PRECLAIM_FAILED' THEN 'PRECLAIM_FAILURE'
+          ELSE 'OTHER'
+        END`),
       db.select({ value: count() }).from(eventsTable)
-        .innerJoin(tasksTable, eq(eventsTable.taskId, tasksTable.id))
+        .leftJoin(tasksTable, eq(eventsTable.taskId, tasksTable.id))
         .where(and(
           inArray(eventsTable.type, [
             "TaskAutoExecutionDispatchRequested",
             "TaskAutoExecutionDeferred",
           ]),
-          eq(tasksTable.status, "verifying"),
-          lt(eventsTable.timestamp, stalePendingCutoff),
+          or(
+            // Orphans and Tasks that have left verifying are immediately
+            // stale: the dispatcher cannot legitimately execute them.
+            isNull(tasksTable.id),
+            ne(tasksTable.status, "verifying"),
+            isNull(tasksTable.prompt),
+            eq(tasksTable.prompt, ""),
+            and(
+              eq(tasksTable.status, "verifying"),
+              lt(eventsTable.timestamp, stalePendingCutoff),
+              or(
+                eq(eventsTable.type, "TaskAutoExecutionDispatchRequested"),
+                sql`(
+                  ${eventsTable.payload}->>'nextAttemptAt' IS NULL
+                  OR ${eventsTable.payload}->>'nextAttemptAt' !~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}T'
+                  OR ${eventsTable.payload}->>'nextAttemptAt' <= ${nowIso}
+                )`,
+              ),
+            ),
+          ),
         )),
-      db.select({ value: min(eventsTable.timestamp) }).from(eventsTable)
-        .innerJoin(tasksTable, eq(eventsTable.taskId, tasksTable.id))
-        .where(and(
-          inArray(eventsTable.type, [
-            "TaskAutoExecutionDispatchRequested",
-            "TaskAutoExecutionDeferred",
-          ]),
-          eq(tasksTable.status, "verifying"),
-        )),
+      db.select({
+        value: sql<string | null>`to_char(
+          min(${eventsTable.timestamp}),
+          'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"'
+        )`,
+      }).from(eventsTable)
+        .where(inArray(eventsTable.type, [
+          "TaskAutoExecutionDispatchRequested",
+          "TaskAutoExecutionDeferred",
+        ])),
       db.select({ value: count() }).from(durableDispatchStageHealthTable)
         .where(eq(durableDispatchStageHealthTable.lastOutcome, "failed")),
       db.select({
@@ -1393,8 +1431,12 @@ export async function getDurableJobHealth(): Promise<{
       retryExhaustedTasks: Number(exhaustedTasks.value),
       pendingAiTaskDispatches: Number(requestedAiTaskDispatches.value),
       deferredAiTaskDispatches: Number(deferredAiTaskDispatches.value),
+      deferredAiTaskDispatchesByReason: deferredAiTaskDispatchReasonRows.map((row) => ({
+        reasonCode: row.reasonCode,
+        count: Number(row.value),
+      })),
       staleAiTaskDispatches: Number(staleAiTaskDispatches.value),
-      oldestAiTaskDispatchAt: oldestAiTaskDispatch.value?.toISOString() ?? null,
+      oldestAiTaskDispatchAt: oldestAiTaskDispatch.value ?? null,
       failedDispatchStages: Number(failedStages.value),
       pendingTaskObservationMaterializations: Number(pendingObservationRows.value),
       staleTaskObservationMaterializations: Number(staleObservationRows.value),
@@ -1439,6 +1481,7 @@ export async function getDurableJobHealth(): Promise<{
       retryExhaustedTasks: 0,
       pendingAiTaskDispatches: 0,
       deferredAiTaskDispatches: 0,
+      deferredAiTaskDispatchesByReason: [],
       staleAiTaskDispatches: 0,
       oldestAiTaskDispatchAt: null,
       failedDispatchStages: 0,

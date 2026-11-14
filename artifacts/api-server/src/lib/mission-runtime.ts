@@ -8,6 +8,7 @@ import {
   eq,
   inArray,
   isNotNull,
+  isNull,
   lte,
   notExists,
   notInArray,
@@ -71,6 +72,7 @@ import { EXECUTION_PROOF_CONTRACT_VERSION } from "./execution-proof.js";
 import { getProjectWorldState } from "./agent-state/world-state.js";
 import { taskScopeIdentity } from "./agent-state/observation-materializer.js";
 import { scheduleAiTaskExecution } from "../routes/ai/tasks.js";
+import { insertTaskAutoExecutionIntent } from "./task-auto-execution-outbox.js";
 import { createMissionEventEnvelope, type MissionEventEnvelope } from "./mission-events.js";
 import {
   buildMissionDelegationBinding,
@@ -2364,6 +2366,7 @@ export async function runMissionGoal(params: {
     dispatchGoalIds: string[];
   };
 }): Promise<MissionGoalRunResult> {
+  let taskDispatchGeneration: { retryCount: number; correlationId: string | null } | undefined;
   const decision = await db.transaction(async (tx): Promise<MissionGoalRunResult> => {
     const recordActionEffect = async <T extends MissionGoalRunResult>(run: T): Promise<T> => {
       if (
@@ -3188,6 +3191,7 @@ export async function runMissionGoal(params: {
         eq(tasksTable.goalId, goal.id),
         eq(tasksTable.projectId, goal.projectId),
       ))
+      .for("update")
       .limit(1);
     if (!task) {
       return { status: "blocked" as const, goalId: goal.id, reason: "task_not_found" };
@@ -3212,11 +3216,22 @@ export async function runMissionGoal(params: {
       return { status: "blocked" as const, goalId: goal.id, taskId: task.id, reason: "task_not_eligible" };
     }
 
+    const parentExecutionId = taskDelegation.parentExecutionId ?? null;
     const [activeExecution] = await tx
       .select({ id: aiExecutionsTable.id })
       .from(aiExecutionsTable)
       .where(and(
         eq(aiExecutionsTable.linkedTaskId, task.id),
+        eq(aiExecutionsTable.projectId, task.projectId),
+        eq(aiExecutionsTable.goalId, goal.id),
+        eq(aiExecutionsTable.userId, mission.userId),
+        eq(aiExecutionsTable.attempt, task.retryCount),
+        task.correlationId === null
+          ? isNull(aiExecutionsTable.correlationId)
+          : eq(aiExecutionsTable.correlationId, task.correlationId),
+        parentExecutionId === null
+          ? isNull(aiExecutionsTable.parentExecutionId)
+          : eq(aiExecutionsTable.parentExecutionId, parentExecutionId),
         inArray(aiExecutionsTable.status, [...ACTIVE_EXECUTION_STATUSES]),
       ))
       .limit(1);
@@ -3230,6 +3245,25 @@ export async function runMissionGoal(params: {
         delegation: taskDelegation,
       });
     }
+
+    const intentPersisted = await insertTaskAutoExecutionIntent(tx, {
+      taskId: task.id,
+      userId: params.userId,
+      retryCount: task.retryCount,
+      options: { parentExecutionId: taskDelegation.parentExecutionId },
+    });
+    if (!intentPersisted) {
+      return {
+        status: "conflict" as const,
+        goalId: goal.id,
+        taskId: task.id,
+        reason: "task_state_changed",
+      };
+    }
+    taskDispatchGeneration = {
+      retryCount: task.retryCount,
+      correlationId: task.correlationId,
+    };
 
     const now = new Date();
     if (goal.status !== "running" && goal.status !== "verifying") {
@@ -3250,6 +3284,8 @@ export async function runMissionGoal(params: {
         trigger: params.trigger,
         action: action.kind,
         delegation: taskDelegation,
+        taskRetryCount: task.retryCount,
+        taskCorrelationId: task.correlationId,
       },
     });
     return recordActionEffect({
@@ -3291,10 +3327,19 @@ export async function runMissionGoal(params: {
     heavyJobQueue.enqueueWithId(decision.recipeDispatch.operationId, async () => {
       await executeMissionRecipe(decision.recipeDispatch!);
     });
-  } else if (decision.taskId && !decision.executionId && decision.status === "scheduled") {
-    await scheduleAiTaskExecution(decision.taskId, params.userId, {
-      parentExecutionId: decision.delegation?.parentExecutionId,
-    });
+  } else if (
+    decision.taskId
+    && !decision.executionId
+    && decision.status === "scheduled"
+    && taskDispatchGeneration
+  ) {
+    await scheduleAiTaskExecution(
+      decision.taskId,
+      params.userId,
+      { parentExecutionId: decision.delegation?.parentExecutionId },
+      taskDispatchGeneration.retryCount,
+      taskDispatchGeneration.correlationId,
+    );
   }
   if (decision.status === "completed" && decision.reason === "apply_changes_d2_proven") {
     await wakeReadyMissionGoals(32, getLifecycleWorkerScopeProjectId());

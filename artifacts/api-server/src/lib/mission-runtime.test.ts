@@ -33,6 +33,7 @@ import {
 } from "./mission-completion-gate.js";
 import { createMissionEventEnvelope } from "./mission-events.js";
 import { buildMissionDelegationBinding } from "./mission-delegation.js";
+import * as aiTaskRoutes from "../routes/ai/tasks.js";
 import { createHash } from "node:crypto";
 import { getProjectWorldState } from "./agent-state/world-state.js";
 import { taskScopeIdentity } from "./agent-state/observation-materializer.js";
@@ -1694,6 +1695,68 @@ describe("Mission goal runtime", () => {
     expect(mission?.status).toBe("needs_replan");
   });
 
+  it("commits the Mission Task outbox intent before attempting the local queue wake", async () => {
+    const taskId = randomUUID();
+    const taskCorrelationId = randomUUID();
+    const fixture = await createMissionFixture({
+      kind: "task",
+      taskId,
+      purpose: "execution",
+    });
+    await db.insert(tasksTable).values({
+      id: taskId,
+      projectId: fixture.projectId,
+      goalId: fixture.goalId,
+      title: "Mission-dispatched task",
+      description: "The durable intent must survive a lost local wake.",
+      status: "verifying",
+      priority: "p1",
+      phase: "execute",
+      prompt: "Run the Mission task",
+      retryCount: 3,
+      correlationId: taskCorrelationId,
+      createdAt: fixture.now,
+      updatedAt: fixture.now,
+    });
+
+    const localWake = vi.spyOn(aiTaskRoutes, "scheduleAiTaskExecution")
+      .mockRejectedValueOnce(new Error("simulated local wake loss"));
+    await expect(runMissionGoal({
+      goalId: fixture.goalId,
+      userId: "test-user",
+      trigger: "resume",
+    })).rejects.toThrow("simulated local wake loss");
+    expect(localWake).toHaveBeenCalledOnce();
+    expect(localWake).toHaveBeenCalledWith(
+      taskId,
+      "test-user",
+      { parentExecutionId: null },
+      3,
+      taskCorrelationId,
+    );
+
+    const [intent] = await db.select().from(eventsTable)
+      .where(eq(eventsTable.id, `task-auto-execution-deferred:${taskId}`));
+    expect(intent).toMatchObject({
+      type: "TaskAutoExecutionDispatchRequested",
+      taskId,
+      payload: {
+        userId: "test-user",
+        taskRetryCount: 3,
+        taskCorrelationId,
+        parentExecutionId: null,
+      },
+    });
+
+    const missionDispatches = await db.select({ id: eventsTable.id })
+      .from(eventsTable)
+      .where(and(
+        eq(eventsTable.type, "AiGoalDispatchRequested"),
+        eq(eventsTable.taskId, taskId),
+      ));
+    expect(missionDispatches).toHaveLength(1);
+  });
+
   it("returns the existing active execution instead of scheduling the task again", async () => {
     const taskId = randomUUID();
     const fixture = await createMissionFixture({
@@ -1742,6 +1805,105 @@ describe("Mission goal runtime", () => {
       taskId,
       executionId,
       reason: "execution_already_active",
+    });
+  });
+
+  it("does not let a foreign active Execution block Mission Task dispatch", async () => {
+    const taskId = randomUUID();
+    const taskCorrelationId = randomUUID();
+    const retryCount = 2;
+    const fixture = await createMissionFixture({
+      kind: "task",
+      taskId,
+      purpose: "execution",
+    });
+    await db.insert(tasksTable).values({
+      id: taskId,
+      projectId: fixture.projectId,
+      goalId: fixture.goalId,
+      title: "Mission task with foreign execution",
+      description: "A foreign execution must not own this Mission dispatch.",
+      status: "verifying",
+      priority: "p1",
+      phase: "execute",
+      prompt: "Run the Mission task",
+      retryCount,
+      correlationId: taskCorrelationId,
+      createdAt: fixture.now,
+      updatedAt: fixture.now,
+    });
+
+    const foreignExecutionId = randomUUID();
+    await db.insert(aiExecutionsTable).values({
+      id: foreignExecutionId,
+      projectId: fixture.projectId,
+      goalId: fixture.goalId,
+      linkedTaskId: taskId,
+      userId: "different-user",
+      idempotencyKey: `foreign-mission-task:${foreignExecutionId}`,
+      resumeTokenHash: "test-hash",
+      request: "{}",
+      checkpoint: "{}",
+      correlationId: taskCorrelationId,
+      attempt: retryCount,
+      status: "running",
+      createdAt: fixture.now,
+      updatedAt: fixture.now,
+    });
+
+    // Same Task/project/user/generation, but no Mission Goal binding.
+    // It must not be mistaken for the current Goal's active Execution.
+    const unrelatedExecutionId = randomUUID();
+    await db.insert(aiExecutionsTable).values({
+      id: unrelatedExecutionId,
+      projectId: fixture.projectId,
+      linkedTaskId: taskId,
+      userId: "test-user",
+      idempotencyKey: `unrelated-mission-task:${unrelatedExecutionId}`,
+      resumeTokenHash: "test-hash",
+      request: "{}",
+      checkpoint: "{}",
+      correlationId: taskCorrelationId,
+      attempt: retryCount,
+      status: "running",
+      createdAt: fixture.now,
+      updatedAt: fixture.now,
+    });
+
+    const localWake = vi.spyOn(aiTaskRoutes, "scheduleAiTaskExecution")
+      .mockResolvedValueOnce(undefined);
+    const result = await runMissionGoal({
+      goalId: fixture.goalId,
+      userId: "test-user",
+      trigger: "resume",
+    });
+
+    expect(result).toMatchObject({
+      status: "scheduled",
+      goalId: fixture.goalId,
+      taskId,
+    });
+    expect(result).not.toHaveProperty("executionId");
+    expect(localWake).toHaveBeenCalledOnce();
+    expect(localWake).toHaveBeenCalledWith(
+      taskId,
+      "test-user",
+      { parentExecutionId: null },
+      retryCount,
+      taskCorrelationId,
+    );
+
+    const [intent] = await db.select().from(eventsTable)
+      .where(eq(eventsTable.id, `task-auto-execution-deferred:${taskId}`));
+    expect(intent).toMatchObject({
+      type: "TaskAutoExecutionDispatchRequested",
+      taskId,
+      payload: {
+        userId: "test-user",
+        taskRetryCount: retryCount,
+        taskCorrelationId,
+        parentExecutionId: null,
+      },
     });
   });
 

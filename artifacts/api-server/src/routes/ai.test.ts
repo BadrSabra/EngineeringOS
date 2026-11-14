@@ -56,6 +56,8 @@ import * as repairValidation from "../lib/ai-repair-validation.js";
 import * as observationMaterializer from "../lib/agent-state/observation-materializer.js";
 import * as aiRouteHelpers from "../lib/ai-route-helpers.js";
 import * as aiRateLimiter from "../lib/db-rate-limiter.js";
+import * as taskExecutionService from "../lib/task-execution-service.js";
+import { insertTaskAutoExecutionIntent } from "../lib/task-auto-execution-outbox.js";
 import { heavyJobQueue } from "../lib/job-queue.js";
 import { dispatchPersistedPendingJobs } from "../lib/job-reconciliation.js";
 import * as aiTaskRoutes from "./ai/tasks.js";
@@ -10413,6 +10415,8 @@ describe("POST /api/ai/tasks/:taskId/execute", () => {
       taskId,
       payload: {
         userId: "test-user",
+        taskRetryCount: 0,
+        taskCorrelationId: null,
         delegationBudget: { maxChildren: 2, maxDepth: 1 },
       },
     });
@@ -10441,6 +10445,628 @@ describe("POST /api/ai/tasks/:taskId/execute", () => {
       .from(eventsTable)
       .where(eq(eventsTable.id, `task-auto-execution-deferred:${taskId}`));
     expect(remainingIntent).toHaveLength(0);
+  });
+
+  it.each(["retryCount", "correlationId"] as const)(
+    "does not dispatch a deferred intent after the Task %s generation changes",
+    async (generationField) => {
+      const projectId = await insertProject();
+      projectIds.push(projectId);
+      const taskId = await insertTask(projectId, "verifying");
+      const originalCorrelationId = generationField === "correlationId"
+        ? "task-generation-before"
+        : null;
+      const currentCorrelationId = "task-generation-after";
+      await db.update(tasksTable)
+        .set({
+          prompt: "Do not replay this intent after the Task generation changes",
+          correlationId: originalCorrelationId,
+        })
+        .where(eq(tasksTable.id, taskId));
+
+      const enqueueSpy = vi.spyOn(heavyJobQueue, "enqueueWithIdDetailed")
+        .mockReturnValueOnce("full");
+      await scheduleAiTaskExecution(taskId, "test-user");
+      enqueueSpy.mockRestore();
+
+      const intentId = `task-auto-execution-deferred:${taskId}`;
+      const [intent] = await db.select().from(eventsTable)
+        .where(eq(eventsTable.id, intentId));
+      expect(intent?.payload).toMatchObject({
+        taskRetryCount: 0,
+        taskCorrelationId: originalCorrelationId,
+      });
+
+      await db.update(eventsTable)
+        .set({
+          payload: {
+            ...intent!.payload!,
+            nextAttemptAt: new Date(Date.now() - 1_000).toISOString(),
+          },
+        })
+        .where(eq(eventsTable.id, intentId));
+      await db.update(tasksTable)
+        .set(generationField === "retryCount"
+          ? { retryCount: 1 }
+          : { correlationId: currentCorrelationId })
+        .where(eq(tasksTable.id, taskId));
+
+      await aiTaskRoutes.dispatchDeferredAiTaskExecutions();
+
+      const [deferred] = await db.select().from(eventsTable)
+        .where(eq(eventsTable.id, intentId));
+      expect(deferred?.type).toBe("TaskAutoExecutionDeferred");
+      expect(deferred?.payload).toMatchObject({
+        taskRetryCount: 0,
+        taskCorrelationId: originalCorrelationId,
+        lastFailureCode: "TASK_GENERATION_MISMATCH",
+      });
+      const nextAttemptAt = Date.parse(String(deferred?.payload?.nextAttemptAt));
+      expect(nextAttemptAt).toBeGreaterThan(Date.now() + 14 * 60_000);
+      expect(await db.select({ id: aiExecutionsTable.id }).from(aiExecutionsTable)
+        .where(eq(aiExecutionsTable.linkedTaskId, taskId))).toHaveLength(0);
+    },
+  );
+
+  it("does not discard a replacement Outbox row using an older dispatcher snapshot", async () => {
+    const projectId = await insertProject();
+    projectIds.push(projectId);
+    const taskId = await insertTask(projectId, "verifying");
+    const intentId = `task-auto-execution-deferred:${taskId}`;
+    const stalePayload = {
+      userId: "test-user",
+      taskRetryCount: "invalid",
+      taskCorrelationId: null,
+      attemptCount: 0,
+    };
+    await db.insert(eventsTable).values({
+      id: intentId,
+      type: "TaskAutoExecutionDeferred",
+      projectId,
+      taskId,
+      severity: "warning",
+      message: "Malformed prior dispatch intent",
+      payload: stalePayload,
+    });
+
+    const [staleSnapshot] = await db.select({
+      type: eventsTable.type,
+      projectId: eventsTable.projectId,
+      taskId: eventsTable.taskId,
+      timestampKey: sql<string>`to_char(${eventsTable.timestamp}, 'YYYY-MM-DD"T"HH24:MI:SS.US')`,
+      payload: eventsTable.payload,
+    }).from(eventsTable).where(eq(eventsTable.id, intentId));
+    expect(staleSnapshot).toBeDefined();
+
+    const replacementPayload = {
+      userId: "test-user",
+      taskRetryCount: 0,
+      taskCorrelationId: null,
+      attemptCount: 0,
+    };
+    await db.update(eventsTable)
+      .set({
+        type: "TaskAutoExecutionDispatchRequested",
+        severity: "info",
+        message: "Current Task generation dispatch intent",
+        payload: replacementPayload,
+      })
+      .where(eq(eventsTable.id, intentId));
+
+    const discarded = await aiTaskRoutes.discardDeferredAiTaskIntentIfUnchanged({
+      intentId,
+      type: staleSnapshot!.type,
+      projectId: staleSnapshot!.projectId,
+      taskId: staleSnapshot!.taskId,
+      timestampKey: staleSnapshot!.timestampKey,
+      payload: staleSnapshot!.payload,
+      reason: "invalid_payload",
+    });
+    expect(discarded).toBe(false);
+
+    const [currentIntent] = await db.select().from(eventsTable)
+      .where(eq(eventsTable.id, intentId));
+    expect(currentIntent).toMatchObject({
+      type: "TaskAutoExecutionDispatchRequested",
+      taskId,
+      payload: replacementPayload,
+    });
+  });
+
+  it("does not prune an Outbox row when its Task becomes runnable after the stale snapshot", async () => {
+    const projectId = await insertProject();
+    projectIds.push(projectId);
+    const taskId = await insertTask(projectId, "completed");
+    const intentId = `task-auto-execution-deferred:${taskId}`;
+    const payload = {
+      userId: "test-user",
+      taskRetryCount: 0,
+      taskCorrelationId: null,
+      attemptCount: 0,
+    };
+    await db.insert(eventsTable).values({
+      id: intentId,
+      type: "TaskAutoExecutionDispatchRequested",
+      projectId,
+      taskId,
+      severity: "info",
+      message: "Intent observed while Task was terminal",
+      payload,
+    });
+
+    const [staleSnapshot] = await db.select({
+      type: eventsTable.type,
+      projectId: eventsTable.projectId,
+      taskId: eventsTable.taskId,
+      timestampKey: sql<string>`to_char(${eventsTable.timestamp}, 'YYYY-MM-DD"T"HH24:MI:SS.US')`,
+      payload: eventsTable.payload,
+    }).from(eventsTable).where(eq(eventsTable.id, intentId));
+    expect(staleSnapshot).toBeDefined();
+
+    await db.update(tasksTable)
+      .set({
+        status: "verifying",
+        prompt: "Run the newly reactivated task",
+        updatedAt: new Date(),
+      })
+      .where(eq(tasksTable.id, taskId));
+
+    const discarded = await aiTaskRoutes.discardDeferredAiTaskIntentIfUnchanged({
+      intentId,
+      type: staleSnapshot!.type,
+      projectId: staleSnapshot!.projectId,
+      taskId: staleSnapshot!.taskId,
+      timestampKey: staleSnapshot!.timestampKey,
+      payload: staleSnapshot!.payload,
+      reason: "ineligible",
+    });
+    expect(discarded).toBe(false);
+
+    const [currentIntent] = await db.select().from(eventsTable)
+      .where(eq(eventsTable.id, intentId));
+    expect(currentIntent).toMatchObject({
+      type: "TaskAutoExecutionDispatchRequested",
+      taskId,
+      payload,
+    });
+  });
+
+  it("does not reuse a Task generation with a different Mission delegation", async () => {
+    const projectId = await insertProject();
+    projectIds.push(projectId);
+    const taskId = await insertTask(projectId, "verifying");
+    const originalParentExecutionId = randomUUID();
+    const conflictingParentExecutionId = randomUUID();
+
+    const enqueueSpy = vi.spyOn(heavyJobQueue, "enqueueWithIdDetailed")
+      .mockReturnValue("full");
+    await scheduleAiTaskExecution(taskId, "test-user", {
+      parentExecutionId: originalParentExecutionId,
+    }, 0, null);
+    await scheduleAiTaskExecution(taskId, "test-user", {
+      parentExecutionId: conflictingParentExecutionId,
+    }, 0, null);
+    enqueueSpy.mockRestore();
+
+    expect(enqueueSpy).toHaveBeenCalledOnce();
+    const [intent] = await db.select().from(eventsTable)
+      .where(eq(eventsTable.id, `task-auto-execution-deferred:${taskId}`));
+    expect(intent?.type).toBe("TaskAutoExecutionDeferred");
+    expect(intent?.payload).toMatchObject({
+      userId: "test-user",
+      taskRetryCount: 0,
+      taskCorrelationId: null,
+      parentExecutionId: originalParentExecutionId,
+      lastFailureCode: "LOCAL_QUEUE_FULL",
+    });
+  });
+
+  it("does not let an old local queue job clear a newer Task generation intent", async () => {
+    const projectId = await insertProject();
+    projectIds.push(projectId);
+    const taskId = await insertTask(projectId, "verifying");
+    const oldCorrelationId = "queued-old-task-generation";
+    const newCorrelationId = "queued-new-task-generation";
+    await db.update(tasksTable)
+      .set({
+        prompt: "Do not let the old queue closure clear this new intent",
+        correlationId: oldCorrelationId,
+      })
+      .where(eq(tasksTable.id, taskId));
+
+    const queuedJobs: Array<() => Promise<void>> = [];
+    const enqueueSpy = vi.spyOn(heavyJobQueue, "enqueueWithIdDetailed")
+      .mockImplementationOnce((_id, job) => {
+        queuedJobs.push(job);
+        return "enqueued";
+      });
+    await scheduleAiTaskExecution(taskId, "test-user", undefined, 0, oldCorrelationId);
+    expect(queuedJobs).toHaveLength(1);
+
+    await db.update(tasksTable)
+      .set({ correlationId: newCorrelationId })
+      .where(eq(tasksTable.id, taskId));
+    await db.transaction(async (tx) => {
+      const persisted = await insertTaskAutoExecutionIntent(tx, {
+        taskId,
+        userId: "test-user",
+        retryCount: 0,
+      });
+      expect(persisted).toBe(true);
+    });
+
+    await queuedJobs[0]!();
+    enqueueSpy.mockRestore();
+
+    const [intent] = await db.select().from(eventsTable)
+      .where(eq(eventsTable.id, `task-auto-execution-deferred:${taskId}`));
+    expect(intent?.type).toBe("TaskAutoExecutionDispatchRequested");
+    expect(intent?.payload).toMatchObject({
+      userId: "test-user",
+      taskRetryCount: 0,
+      taskCorrelationId: newCorrelationId,
+    });
+  });
+
+  it("refreshes the Outbox timestamp when a newer Task generation replaces an old intent", async () => {
+    const projectId = await insertProject();
+    projectIds.push(projectId);
+    const taskId = await insertTask(projectId, "verifying");
+    const staleTimestamp = new Date("2020-01-01T00:00:00.000Z");
+    await db.update(tasksTable)
+      .set({ prompt: "Dispatch the current retry generation", retryCount: 1 })
+      .where(eq(tasksTable.id, taskId));
+    await db.insert(eventsTable).values({
+      id: `task-auto-execution-deferred:${taskId}`,
+      type: "TaskAutoExecutionDeferred",
+      projectId,
+      taskId,
+      severity: "warning",
+      timestamp: staleTimestamp,
+      message: "Outdated Task generation",
+      payload: {
+        userId: "test-user",
+        taskRetryCount: 0,
+        taskCorrelationId: null,
+        attemptCount: 4,
+        lastFailureCode: "LOCAL_QUEUE_FULL",
+        nextAttemptAt: staleTimestamp.toISOString(),
+      },
+    });
+
+    const enqueueSpy = vi.spyOn(heavyJobQueue, "enqueueWithIdDetailed")
+      .mockReturnValueOnce("full");
+    try {
+      await scheduleAiTaskExecution(taskId, "test-user", undefined, 1, null);
+    } finally {
+      enqueueSpy.mockRestore();
+    }
+
+    const [intent] = await db.select().from(eventsTable)
+      .where(eq(eventsTable.id, `task-auto-execution-deferred:${taskId}`));
+    expect(intent?.type).toBe("TaskAutoExecutionDeferred");
+    expect(intent?.timestamp.getTime()).toBeGreaterThan(staleTimestamp.getTime());
+    expect(intent?.timestamp.getTime()).toBeGreaterThan(Date.now() - 60_000);
+    expect(intent?.payload).toMatchObject({
+      userId: "test-user",
+      taskRetryCount: 1,
+      taskCorrelationId: null,
+      attemptCount: 1,
+      lastFailureCode: "LOCAL_QUEUE_FULL",
+    });
+  });
+
+  it("normalizes a legacy null-correlation Outbox intent before deferring it again", async () => {
+    const projectId = await insertProject();
+    projectIds.push(projectId);
+    const taskId = await insertTask(projectId, "verifying");
+    await db.update(tasksTable)
+      .set({ prompt: "Recover the legacy dispatch without losing its retry reason" })
+      .where(eq(tasksTable.id, taskId));
+    await db.insert(eventsTable).values({
+      id: `task-auto-execution-deferred:${taskId}`,
+      type: "TaskAutoExecutionDeferred",
+      projectId,
+      taskId,
+      severity: "warning",
+      message: "Legacy deferred Task execution",
+      payload: {
+        userId: "test-user",
+        taskRetryCount: 0,
+        attemptCount: 1,
+        lastFailureCode: "LOCAL_QUEUE_FULL",
+        nextAttemptAt: new Date(Date.now() - 1_000).toISOString(),
+      },
+    });
+
+    vi.spyOn(heavyJobQueue, "enqueueWithIdDetailed").mockReturnValueOnce("full");
+    await scheduleAiTaskExecution(taskId, "test-user", undefined, 0, null);
+
+    const [intent] = await db.select().from(eventsTable)
+      .where(eq(eventsTable.id, `task-auto-execution-deferred:${taskId}`));
+    expect(intent?.type).toBe("TaskAutoExecutionDeferred");
+    expect(intent?.payload).toMatchObject({
+      userId: "test-user",
+      taskRetryCount: 0,
+      taskCorrelationId: null,
+      attemptCount: 2,
+      lastFailureCode: "LOCAL_QUEUE_FULL",
+    });
+  });
+
+  it("retires a duplicate dispatch intent when the same Task generation already has an active Execution", async () => {
+    const projectId = await insertProject();
+    projectIds.push(projectId);
+    const taskId = await insertTask(projectId, "verifying");
+    const correlationId = randomUUID();
+    await db.update(tasksTable)
+      .set({
+        prompt: "Do not start a second Execution for this Task generation",
+        correlationId,
+      })
+      .where(eq(tasksTable.id, taskId));
+
+    const active = await createAiExecution({
+      userId: "test-user",
+      projectId,
+      linkedTaskId: taskId,
+      correlationId,
+      idempotencyKey: `${taskId}:attempt:0`,
+      request: {
+        projectId,
+        linkedTaskId: taskId,
+        message: "Existing active Task Execution",
+        modelMessage: "Existing active Task Execution",
+        validationTargetPaths: [],
+      },
+    });
+    const activeWorkerId = randomUUID();
+    const activeLeaseUntil = new Date(Date.now() + 60_000);
+    await db.update(aiExecutionsTable)
+      .set({
+        status: "running",
+        workerId: activeWorkerId,
+        leaseUntil: activeLeaseUntil,
+        lastHeartbeatAt: new Date(),
+        startedAt: new Date(),
+        updatedAt: new Date(),
+      })
+      .where(eq(aiExecutionsTable.id, active.execution.id));
+
+    vi.spyOn(aiRouteHelpers, "resolveProvider").mockResolvedValueOnce({
+      provider: "groq",
+      apiKey: "test-only-key",
+      source: "user",
+    });
+    vi.spyOn(aiRateLimiter, "checkProjectRateLimitDb")
+      .mockResolvedValueOnce({ allowed: true });
+    const lifecycle = vi.spyOn(taskExecutionService, "executeTaskLifecycle")
+      .mockResolvedValueOnce({
+        ok: false,
+        status: "conflict",
+        errorCode: "execution_already_claimed",
+      } as never);
+
+    await scheduleAiTaskExecution(taskId, "test-user", undefined, 0, correlationId);
+    await waitForScheduledAiTaskExecutions();
+
+    expect(lifecycle).toHaveBeenCalledOnce();
+    const [task] = await db.select({
+      status: tasksTable.status,
+      retryCount: tasksTable.retryCount,
+      correlationId: tasksTable.correlationId,
+    }).from(tasksTable).where(eq(tasksTable.id, taskId));
+    expect(task).toEqual({
+      status: "verifying",
+      retryCount: 0,
+      correlationId,
+    });
+
+    const executions = await db.select({
+      id: aiExecutionsTable.id,
+      status: aiExecutionsTable.status,
+      correlationId: aiExecutionsTable.correlationId,
+    }).from(aiExecutionsTable)
+      .where(eq(aiExecutionsTable.linkedTaskId, taskId));
+    expect(executions).toEqual([{
+      id: active.execution.id,
+      status: "running",
+      correlationId,
+    }]);
+
+    await expect(db.select({ id: eventsTable.id }).from(eventsTable)
+      .where(eq(eventsTable.id, `task-auto-execution-deferred:${taskId}`)))
+      .resolves.toHaveLength(0);
+  });
+
+  it("does not retire a Task intent for an active Execution owned by another user", async () => {
+    const projectId = await insertProject();
+    projectIds.push(projectId);
+    const taskId = await insertTask(projectId, "verifying");
+    const correlationId = randomUUID();
+    await db.update(tasksTable)
+      .set({
+        prompt: "Keep the Task intent when a foreign Execution shares its pointer",
+        correlationId,
+      })
+      .where(eq(tasksTable.id, taskId));
+
+    const foreignExecution = await createAiExecution({
+      userId: "different-user",
+      projectId,
+      linkedTaskId: taskId,
+      correlationId,
+      idempotencyKey: `${taskId}:foreign-attempt:0`,
+      request: {
+        projectId,
+        linkedTaskId: taskId,
+        message: "Foreign Execution identity fixture",
+        modelMessage: "Foreign Execution identity fixture",
+        validationTargetPaths: [],
+      },
+    });
+    await db.update(aiExecutionsTable)
+      .set({
+        status: "running",
+        workerId: randomUUID(),
+        leaseUntil: new Date(Date.now() + 60_000),
+        lastHeartbeatAt: new Date(),
+        startedAt: new Date(),
+        updatedAt: new Date(),
+      })
+      .where(eq(aiExecutionsTable.id, foreignExecution.execution.id));
+
+    vi.spyOn(aiRouteHelpers, "resolveProvider").mockResolvedValueOnce({
+      provider: "groq",
+      apiKey: "test-only-key",
+      source: "user",
+    });
+    vi.spyOn(aiRateLimiter, "checkProjectRateLimitDb")
+      .mockResolvedValueOnce({ allowed: true });
+    vi.spyOn(taskExecutionService, "executeTaskLifecycle")
+      .mockResolvedValueOnce({
+        ok: false,
+        status: "conflict",
+        errorCode: "execution_already_claimed",
+      } as never);
+
+    await scheduleAiTaskExecution(taskId, "test-user", undefined, 0, correlationId);
+    await waitForScheduledAiTaskExecutions();
+
+    const [intent] = await db.select().from(eventsTable)
+      .where(eq(eventsTable.id, `task-auto-execution-deferred:${taskId}`));
+    expect(intent?.type).toBe("TaskAutoExecutionDeferred");
+    expect(intent?.payload).toMatchObject({
+      userId: "test-user",
+      taskRetryCount: 0,
+      taskCorrelationId: correlationId,
+      lastFailureCode: "execution_already_claimed",
+    });
+    expect(Date.parse(String(intent?.payload?.nextAttemptAt)))
+      .toBeGreaterThan(Date.now() + 14 * 60_000);
+    const taskExecutions = await db.select({ id: aiExecutionsTable.id })
+      .from(aiExecutionsTable)
+      .where(eq(aiExecutionsTable.linkedTaskId, taskId));
+    expect(taskExecutions).toEqual([{ id: foreignExecution.execution.id }]);
+  });
+
+  it("does not retire a Task intent for an active Execution from an older attempt", async () => {
+    const projectId = await insertProject();
+    projectIds.push(projectId);
+    const taskId = await insertTask(projectId, "verifying");
+    const correlationId = randomUUID();
+    await db.update(tasksTable)
+      .set({
+        prompt: "Keep the current generation intent when an older attempt remains active",
+        retryCount: 1,
+        correlationId,
+      })
+      .where(eq(tasksTable.id, taskId));
+
+    const olderExecution = await createAiExecution({
+      userId: "test-user",
+      projectId,
+      linkedTaskId: taskId,
+      correlationId,
+      attempt: 0,
+      idempotencyKey: `${taskId}:older-attempt:0`,
+      request: {
+        projectId,
+        linkedTaskId: taskId,
+        message: "Older Task attempt",
+        modelMessage: "Older Task attempt",
+        validationTargetPaths: [],
+      },
+    });
+    await db.update(aiExecutionsTable)
+      .set({
+        status: "running",
+        workerId: randomUUID(),
+        leaseUntil: new Date(Date.now() + 60_000),
+        lastHeartbeatAt: new Date(),
+        startedAt: new Date(),
+        updatedAt: new Date(),
+      })
+      .where(eq(aiExecutionsTable.id, olderExecution.execution.id));
+
+    vi.spyOn(aiRouteHelpers, "resolveProvider").mockResolvedValueOnce({
+      provider: "groq",
+      apiKey: "test-only-key",
+      source: "user",
+    });
+    vi.spyOn(aiRateLimiter, "checkProjectRateLimitDb")
+      .mockResolvedValueOnce({ allowed: true });
+    vi.spyOn(taskExecutionService, "executeTaskLifecycle")
+      .mockResolvedValueOnce({
+        ok: false,
+        status: "conflict",
+        errorCode: "execution_already_claimed",
+      } as never);
+
+    await scheduleAiTaskExecution(taskId, "test-user", undefined, 1, correlationId);
+    await waitForScheduledAiTaskExecutions();
+
+    const [intent] = await db.select().from(eventsTable)
+      .where(eq(eventsTable.id, `task-auto-execution-deferred:${taskId}`));
+    expect(intent?.type).toBe("TaskAutoExecutionDeferred");
+    expect(intent?.payload).toMatchObject({
+      userId: "test-user",
+      taskRetryCount: 1,
+      taskCorrelationId: correlationId,
+      lastFailureCode: "execution_already_claimed",
+    });
+    const taskExecutions = await db.select({
+      id: aiExecutionsTable.id,
+      attempt: aiExecutionsTable.attempt,
+    }).from(aiExecutionsTable)
+      .where(eq(aiExecutionsTable.linkedTaskId, taskId));
+    expect(taskExecutions).toEqual([{
+      id: olderExecution.execution.id,
+      attempt: 0,
+    }]);
+  });
+
+  it("backs off Mission admission conflicts without deleting the deferred intent", async () => {
+    const projectId = await insertProject();
+    projectIds.push(projectId);
+    const taskId = await insertTask(projectId, "verifying");
+    const correlationId = randomUUID();
+    await db.update(tasksTable)
+      .set({
+        prompt: "Wait for Mission dependencies before dispatch",
+        correlationId,
+      })
+      .where(eq(tasksTable.id, taskId));
+
+    vi.spyOn(aiRouteHelpers, "resolveProvider").mockResolvedValueOnce({
+      provider: "groq",
+      apiKey: "test-only-key",
+      source: "user",
+    });
+    vi.spyOn(aiRateLimiter, "checkProjectRateLimitDb")
+      .mockResolvedValueOnce({ allowed: true });
+    vi.spyOn(taskExecutionService, "executeTaskLifecycle")
+      .mockResolvedValueOnce({
+        ok: false,
+        status: "conflict",
+        errorCode: "mission_dependencies_pending",
+      } as never);
+
+    await scheduleAiTaskExecution(taskId, "test-user");
+    await waitForScheduledAiTaskExecutions();
+
+    const [intent] = await db.select().from(eventsTable)
+      .where(eq(eventsTable.id, `task-auto-execution-deferred:${taskId}`));
+    expect(intent?.type).toBe("TaskAutoExecutionDeferred");
+    expect(intent?.payload).toMatchObject({
+      taskRetryCount: 0,
+      taskCorrelationId: correlationId,
+      lastFailureCode: "mission_dependencies_pending",
+    });
+    const retryAt = Date.parse(String(intent?.payload?.nextAttemptAt));
+    expect(retryAt).toBeGreaterThan(Date.now() + 14 * 60_000);
+    expect(await db.select({ id: aiExecutionsTable.id }).from(aiExecutionsTable)
+      .where(eq(aiExecutionsTable.linkedTaskId, taskId))).toHaveLength(0);
   });
 
   it("retains and schedules an intent when the project rate limit blocks before claim", async () => {
@@ -11967,5 +12593,74 @@ describe("free-only provider selection", () => {
         else process.env[name] = value;
       }
     }
+  });
+});
+
+describe("deferred Task Outbox orphan pruning", () => {
+  it("retires orphaned, terminal-Task, and promptless intents without attempting execution", async () => {
+    const projectId = await insertProject();
+    projectIds.push(projectId);
+    const terminalTaskId = await insertTask(projectId, "cancelled");
+    const promptlessTaskId = await insertTask(projectId, "verifying");
+    const orphanedIntentId = `task-auto-execution-orphan:${randomUUID()}`;
+    const terminalIntentId = `task-auto-execution-deferred:${terminalTaskId}`;
+    const promptlessIntentId = `task-auto-execution-deferred:${promptlessTaskId}`;
+
+    await db.insert(eventsTable).values([
+      {
+        id: orphanedIntentId,
+        type: "TaskAutoExecutionDeferred",
+        projectId,
+        taskId: null,
+        severity: "warning",
+        message: "Orphaned Task dispatch intent",
+        payload: {
+          userId: "test-user",
+          taskRetryCount: 0,
+          taskCorrelationId: null,
+          attemptCount: 1,
+        },
+      },
+      {
+        id: terminalIntentId,
+        type: "TaskAutoExecutionDeferred",
+        projectId,
+        taskId: terminalTaskId,
+        severity: "warning",
+        message: "Task has already been cancelled",
+        payload: {
+          userId: "test-user",
+          taskRetryCount: 0,
+          taskCorrelationId: null,
+          attemptCount: 1,
+        },
+      },
+      {
+        id: promptlessIntentId,
+        type: "TaskAutoExecutionDeferred",
+        projectId,
+        taskId: promptlessTaskId,
+        severity: "warning",
+        message: "Task no longer has a runnable prompt",
+        payload: {
+          userId: "test-user",
+          taskRetryCount: 0,
+          taskCorrelationId: null,
+          attemptCount: 1,
+          nextAttemptAt: new Date(Date.now() + 60 * 60_000).toISOString(),
+        },
+      },
+    ]);
+
+    await expect(aiTaskRoutes.dispatchDeferredAiTaskExecutions()).resolves.toBe(0);
+
+    await expect(db.select({ id: eventsTable.id }).from(eventsTable)
+      .where(eq(eventsTable.id, orphanedIntentId))).resolves.toHaveLength(0);
+    await expect(db.select({ id: eventsTable.id }).from(eventsTable)
+      .where(eq(eventsTable.id, terminalIntentId))).resolves.toHaveLength(0);
+    await expect(db.select({ id: eventsTable.id }).from(eventsTable)
+      .where(eq(eventsTable.id, promptlessIntentId))).resolves.toHaveLength(0);
+    await expect(db.select({ id: aiExecutionsTable.id }).from(aiExecutionsTable)
+      .where(eq(aiExecutionsTable.linkedTaskId, terminalTaskId))).resolves.toHaveLength(0);
   });
 });

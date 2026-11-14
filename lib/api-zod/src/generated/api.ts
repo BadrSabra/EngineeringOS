@@ -35,6 +35,8 @@ export const getHealthResponseJobRecoveryPendingAiTaskDispatchesMin = 0;
 
 export const getHealthResponseJobRecoveryDeferredAiTaskDispatchesMin = 0;
 
+export const getHealthResponseJobRecoveryDeferredAiTaskDispatchesByReasonItemCountMin = 0;
+
 export const getHealthResponseJobRecoveryStaleAiTaskDispatchesMin = 0;
 
 export const getHealthResponseJobRecoveryFailedDispatchStagesMin = 0;
@@ -129,6 +131,10 @@ export const GetHealthResponse = zod.object({
   "retryExhaustedTasks": zod.number().int(),
   "pendingAiTaskDispatches": zod.number().int().min(getHealthResponseJobRecoveryPendingAiTaskDispatchesMin),
   "deferredAiTaskDispatches": zod.number().int().min(getHealthResponseJobRecoveryDeferredAiTaskDispatchesMin),
+  "deferredAiTaskDispatchesByReason": zod.array(zod.object({
+  "reasonCode": zod.enum(['MISSION_GATE_BLOCKED', 'EXECUTION_IDENTITY_CONFLICT', 'LOCAL_QUEUE_FULL', 'PROJECT_RATE_LIMITED', 'PROVIDER_NOT_CONFIGURED', 'TASK_GENERATION_MISMATCH', 'PRECLAIM_FAILURE', 'OTHER']),
+  "count": zod.number().int().min(getHealthResponseJobRecoveryDeferredAiTaskDispatchesByReasonItemCountMin)
+})),
   "staleAiTaskDispatches": zod.number().int().min(getHealthResponseJobRecoveryStaleAiTaskDispatchesMin),
   "oldestAiTaskDispatchAt": zod.coerce.date().nullable(),
   "failedDispatchStages": zod.number().int().min(getHealthResponseJobRecoveryFailedDispatchStagesMin),

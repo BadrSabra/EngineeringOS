@@ -40,6 +40,7 @@ describe("GET /healthz", () => {
       stalePendingDiscoverySessions: expect.any(Number),
       pendingAiTaskDispatches: expect.any(Number),
       deferredAiTaskDispatches: expect.any(Number),
+      deferredAiTaskDispatchesByReason: expect.any(Array),
       staleAiTaskDispatches: expect.any(Number),
       failedDispatchStages: expect.any(Number),
       deadLetteredTaskObservationMaterializations: expect.any(Number),

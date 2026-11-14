@@ -1009,33 +1009,130 @@ describe("periodic stale scan recovery and durable health", () => {
   });
 
   it("reports stale AI dispatch intents and the durable last outcome per stage", async () => {
+    const baseline = await getDurableJobHealth();
     const projectId = await insertProject("active");
     projectCleanup.push(projectId);
     const taskId = randomUUID();
-    await db.insert(tasksTable).values({
-      id: taskId,
-      projectId,
-      title: "Stale deferred AI dispatch",
-      prompt: "Recover the persisted dispatch",
-      status: "verifying",
-      retryCount: 0,
-    });
-    await db.insert(eventsTable).values({
-      id: `task-auto-execution-deferred:${taskId}`,
-      type: "TaskAutoExecutionDeferred",
-      projectId,
-      taskId,
-      severity: "warning",
-      message: "AI task execution is waiting for a retry.",
-      timestamp: new Date(Date.now() - STALE_PENDING_TIMEOUT_MS - 10_000),
-      payload: {
-        userId: "test-user",
-        taskRetryCount: 0,
-        attemptCount: 1,
-        lastFailureCode: "PROJECT_RATE_LIMITED",
-        nextAttemptAt: new Date(Date.now() - 1_000).toISOString(),
+    const missionBlockedTaskId = randomUUID();
+    const scheduledFutureTaskId = randomUUID();
+    const claimedExecutionTaskId = randomUUID();
+    const orphanedIntentId = `task-auto-execution-orphan:${randomUUID()}`;
+    await db.insert(tasksTable).values([
+      {
+        id: taskId,
+        projectId,
+        title: "Stale deferred AI dispatch",
+        prompt: "Recover the persisted dispatch",
+        status: "verifying",
+        retryCount: 0,
       },
-    });
+      {
+        id: missionBlockedTaskId,
+        projectId,
+        title: "Mission-gated AI dispatch",
+        prompt: "Wait for Mission dependencies",
+        status: "verifying",
+        retryCount: 0,
+      },
+      {
+        id: scheduledFutureTaskId,
+        projectId,
+        title: "Provider configuration retry is scheduled",
+        prompt: "Wait for provider configuration",
+        status: "verifying",
+        retryCount: 0,
+      },
+      {
+        id: claimedExecutionTaskId,
+        projectId,
+        title: "Existing Execution owns the Task generation",
+        prompt: "Do not dispatch the already-claimed generation",
+        status: "verifying",
+        retryCount: 0,
+      },
+    ]);
+    await db.insert(eventsTable).values([
+      {
+        id: `task-auto-execution-deferred:${taskId}`,
+        type: "TaskAutoExecutionDeferred",
+        projectId,
+        taskId,
+        severity: "warning",
+        message: "AI task execution is waiting for a retry.",
+        timestamp: new Date(Date.now() - STALE_PENDING_TIMEOUT_MS - 10_000),
+        payload: {
+          userId: "test-user",
+          taskRetryCount: 0,
+          attemptCount: 1,
+          lastFailureCode: "PROJECT_RATE_LIMITED",
+          nextAttemptAt: new Date(Date.now() - 1_000).toISOString(),
+        },
+      },
+      {
+        id: `task-auto-execution-deferred:${missionBlockedTaskId}`,
+        type: "TaskAutoExecutionDeferred",
+        projectId,
+        taskId: missionBlockedTaskId,
+        severity: "warning",
+        message: "AI task execution is waiting for a Mission dependency.",
+        timestamp: new Date(Date.now() - STALE_PENDING_TIMEOUT_MS - 10_000),
+        payload: {
+          userId: "test-user",
+          taskRetryCount: 0,
+          attemptCount: 1,
+          lastFailureCode: "mission_dependencies_pending",
+          nextAttemptAt: new Date(Date.now() - 1_000).toISOString(),
+        },
+      },
+      {
+        id: `task-auto-execution-deferred:${scheduledFutureTaskId}`,
+        type: "TaskAutoExecutionDeferred",
+        projectId,
+        taskId: scheduledFutureTaskId,
+        severity: "warning",
+        message: "AI task execution is waiting for provider configuration.",
+        timestamp: new Date(Date.now() - STALE_PENDING_TIMEOUT_MS - 10_000),
+        payload: {
+          userId: "test-user",
+          taskRetryCount: 0,
+          attemptCount: 1,
+          lastFailureCode: "PROVIDER_NOT_CONFIGURED",
+          nextAttemptAt: new Date(Date.now() + 10 * 60_000).toISOString(),
+        },
+      },
+      {
+        id: `task-auto-execution-deferred:${claimedExecutionTaskId}`,
+        type: "TaskAutoExecutionDeferred",
+        projectId,
+        taskId: claimedExecutionTaskId,
+        severity: "warning",
+        message: "The matching Task generation already has an active Execution.",
+        timestamp: new Date(Date.now() - STALE_PENDING_TIMEOUT_MS - 10_000),
+        payload: {
+          userId: "test-user",
+          taskRetryCount: 0,
+          taskCorrelationId: randomUUID(),
+          attemptCount: 1,
+          lastFailureCode: "execution_already_claimed",
+          nextAttemptAt: new Date(Date.now() - 1_000).toISOString(),
+        },
+      },
+      {
+        id: orphanedIntentId,
+        type: "TaskAutoExecutionDeferred",
+        projectId,
+        taskId: null,
+        severity: "warning",
+        message: "A previous Task delete left an orphaned dispatch intent.",
+        timestamp: new Date(),
+        payload: {
+          userId: "test-user",
+          taskRetryCount: 0,
+          attemptCount: 1,
+          lastFailureCode: "AUTO_EXECUTION_PRECLAIM_FAILED",
+        },
+      },
+    ]);
     const stageName = `health-fixture-${randomUUID()}`;
     try {
       await db.insert(durableDispatchStageHealthTable).values({
@@ -1049,8 +1146,30 @@ describe("periodic stale scan recovery and durable health", () => {
       });
       const health = await getDurableJobHealth();
       expect(health.status).toBe("degraded");
-      expect(health.deferredAiTaskDispatches).toBeGreaterThanOrEqual(1);
-      expect(health.staleAiTaskDispatches).toBeGreaterThanOrEqual(1);
+      expect(health.deferredAiTaskDispatches - baseline.deferredAiTaskDispatches).toBeGreaterThanOrEqual(5);
+      const rateLimitedDispatches = health.deferredAiTaskDispatchesByReason.find(
+        (entry) => entry.reasonCode === "PROJECT_RATE_LIMITED",
+      );
+      expect(rateLimitedDispatches?.count).toBeGreaterThanOrEqual(1);
+      const missionBlockedDispatches = health.deferredAiTaskDispatchesByReason.find(
+        (entry) => entry.reasonCode === "MISSION_GATE_BLOCKED",
+      );
+      expect(missionBlockedDispatches?.count).toBeGreaterThanOrEqual(1);
+      const providerNotConfiguredDispatches = health.deferredAiTaskDispatchesByReason.find(
+        (entry) => entry.reasonCode === "PROVIDER_NOT_CONFIGURED",
+      );
+      expect(providerNotConfiguredDispatches?.count).toBeGreaterThanOrEqual(1);
+      const executionIdentityConflicts = health.deferredAiTaskDispatchesByReason.find(
+        (entry) => entry.reasonCode === "EXECUTION_IDENTITY_CONFLICT",
+      );
+      expect(executionIdentityConflicts?.count).toBeGreaterThanOrEqual(1);
+      const otherDispatches = health.deferredAiTaskDispatchesByReason.find(
+        (entry) => entry.reasonCode === "OTHER",
+      );
+      expect(otherDispatches?.count).toBeGreaterThanOrEqual(1);
+      expect(health.staleAiTaskDispatches - baseline.staleAiTaskDispatches).toBeGreaterThanOrEqual(4);
+      expect(health.staleAiTaskDispatches - baseline.staleAiTaskDispatches)
+        .toBeLessThan(health.deferredAiTaskDispatches - baseline.deferredAiTaskDispatches);
       expect(health.oldestAiTaskDispatchAt).not.toBeNull();
       expect(health.failedDispatchStages).toBeGreaterThanOrEqual(1);
       expect(health.dispatchStages).toContainEqual(expect.objectContaining({
@@ -1063,6 +1182,10 @@ describe("periodic stale scan recovery and durable health", () => {
       await db.delete(durableDispatchStageHealthTable)
         .where(eq(durableDispatchStageHealthTable.stageName, stageName));
       await db.delete(eventsTable).where(eq(eventsTable.id, `task-auto-execution-deferred:${taskId}`));
+      await db.delete(eventsTable).where(eq(eventsTable.id, `task-auto-execution-deferred:${missionBlockedTaskId}`));
+      await db.delete(eventsTable).where(eq(eventsTable.id, `task-auto-execution-deferred:${scheduledFutureTaskId}`));
+      await db.delete(eventsTable).where(eq(eventsTable.id, `task-auto-execution-deferred:${claimedExecutionTaskId}`));
+      await db.delete(eventsTable).where(eq(eventsTable.id, orphanedIntentId));
     }
   });
 });
