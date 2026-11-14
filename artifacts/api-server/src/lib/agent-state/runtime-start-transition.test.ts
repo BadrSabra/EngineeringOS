@@ -1324,12 +1324,12 @@ describe("runtime.start transition retry scheduling", () => {
     }).where(eq(aiAgentObservationsTable.id, liveAfterObservationId));
 
     // A candidate hash in persisted evidence is insufficient if the live tree drifted.
-    await writeFile(promotedFile, "export const value = 'tampered';\\n");
+    await writeFile(promotedFile, "export const value = 'tampered';\n");
     await expect(recoverAcceptedApplyChangesTransition(recoveryInput)).resolves.toMatchObject({
       kind: "blocked",
       reason: "apply_recovery_live_tree_mismatch",
     });
-    await writeFile(promotedFile, "export const value = 'after';\\n");
+    await writeFile(promotedFile, "export const value = 'after';\n");
 
     const recoveryResults = await Promise.all([
       recoverAcceptedApplyChangesTransition(recoveryInput),
@@ -1583,7 +1583,7 @@ describe("runtime.start transition retry scheduling", () => {
       outcome: "SUCCEEDED",
       effectBundleId: fixture.effectBundleId,
     });
-    expect(await readFile(promotedFile, "utf8")).toBe("export const value = 'after';\\n");
+    expect(await readFile(promotedFile, "utf8")).toBe("export const value = 'after';\n");
   });
 
   it("leaves an active transition pending without consuming retries before acceptance", async () => {
