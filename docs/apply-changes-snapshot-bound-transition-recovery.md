@@ -176,12 +176,15 @@ It therefore remains a test candidate, not a passing test result.
 
 ### Remaining Phase B validation
 
-- Negative integration cases: no intent, mismatched action/attempt/plan,
-  missing or stale direct observations, changed environment, changed live tree,
-  and changed parent revision/fact refs.
+- Authored in the focused PostgreSQL test: missing intent is rejected; changed
+  parent revision/fact refs are rejected; two concurrent recovery calls converge
+  on one created row plus one idempotent existing result; the test checks that
+  candidate file bytes remain unchanged. These assertions have not been run.
+- Still required: mismatched action/attempt/plan, missing or stale direct
+  observations, changed environment, changed live tree, and unique-key race
+  behavior across independent DB sessions/reconcilers.
 - Mission wake after recovered row materializes; verify no filesystem replay and
   no duplicate Acceptance.
-- PostgreSQL concurrent recovery and unique-key race behavior.
 - Focused API typecheck, focused Vitest, and exact-head pull-request CI.
 
 No new table, event type, graph, runtime, or authority path is introduced.
