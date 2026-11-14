@@ -65,7 +65,8 @@ POST /ai/chat/apply-changes، ولا تستبدل ترتيب §31:
 استعادة مستقل داخل runtime-start-transition.ts، ويستدعيه
 reconcileInterruptedApplyChanges عند وجود قبول كامل وشجرة مرشحة مطابقة مع غياب
 transition row. يضم الاختبار المركّز سيناريو missing-row، واستدعاءين متزامنين،
-ورفض غياب intent ورفض تغير Parent. هذه الاختبارات مؤلفة ولم تُشغّل بعد؛
+ورفض غياب intent ورفض تغير Parent، وإرجاع Goal/Mission من needs_replan
+إلى waiting مع الحفاظ على report-applied المنتظر. هذه الاختبارات مؤلفة ولم تُشغّل بعد؛
 لذلك تظل الشريحة غير مكتملة ولا يجوز دمجها.
 
 الوثيقة التنفيذية التفصيلية:
