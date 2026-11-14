@@ -242,6 +242,25 @@ describe("Proof Graph Kernel v0", () => {
     expect(result.violations.some((item) => item.code === "SCHEMA_INVALID")).toBe(true);
   });
 
+  it("requires evidence kind to match the post-execution control", () => {
+    const graph = makeValidGraph();
+    const data = graph.nodes.find((node) => node.id === "data-post-0");
+    if (!data || data.kind !== "DATA") throw new Error("missing effect evidence fixture");
+    data.evidenceKind = "EXECUTION_ACCEPTANCE";
+
+    expect(validateProofGraph(graph).violations.some((item) =>
+      item.code === "CONTROL_EVIDENCE_KIND_MISMATCH")).toBe(true);
+  });
+
+  it("requires the resulting Workspace Tree Revision to advance the parent snapshot", () => {
+    const graph = makeValidGraph();
+    graph.resultingWorkspaceRevision = graph.parentWorkspaceRevision;
+
+    const result = validateProofGraph(graph);
+    expect(result.verdict).toBe("FAIL");
+    expect(result.violations.some((item) => item.code === "SCHEMA_INVALID")).toBe(true);
+  });
+
   it("requires typed evidence revision domains to match the control rule", () => {
     const graph = makeValidGraph();
     const data = graph.nodes.find((node) => node.id === "data-post-0");
