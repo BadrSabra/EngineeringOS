@@ -160,7 +160,7 @@ export type ProofGraphViolationCode =
   | "DUPLICATE_CONTROL_RULE"
   | "EXECUTION_HAS_NO_OUTPUT"
   | "OUTPUT_NOT_DIRECT_OBSERVATION"
-  | "POST_CONTROL_NOT_BOUND_TO_EXECUTION_OUTPUT"
+  | "POST_CONTROL_NOT_BOUND_TO_EXECUTION_DATA"
   | "ORPHAN_NODE"
   | "DIRECT_SERVICE_EXECUTOR_EDGE"
   | "EXECUTION_CYCLE"
@@ -168,7 +168,7 @@ export type ProofGraphViolationCode =
   | "CONTROL_PARENT_REVISION_MISMATCH"
   | "CONTROL_EVIDENCE_PROVENANCE_MISMATCH"
   | "NO_EXECUTION_NODE"
-  | "MULTIPLE_DATA_PRODUCERS"
+  | "MULTIPLE_DATA_OWNERS"
   | "ROOT_EXECUTION_MISSING"
   | "CONTROL_SCOPE_HASH_MISMATCH"
   | "BOUND_DATA_PROVENANCE_MISMATCH"
@@ -452,7 +452,7 @@ export function validateProofGraph(input: unknown): ProofGraphValidationResult {
           : boundDataByExecution.get(edge.from) ?? [];
         const executionEvidence = new Set(boundEvidence.map((node) => node.id));
         if (evidenceNodes.some((node) => !executionEvidence.has(node.id))) {
-          addViolation("POST_CONTROL_NOT_BOUND_TO_EXECUTION_OUTPUT", [edge.from, control.id, ...evidenceNodes.map((node) => node.id)], [edge.id]);
+          addViolation("POST_CONTROL_NOT_BOUND_TO_EXECUTION_DATA", [edge.from, control.id, ...evidenceNodes.map((node) => node.id)], [edge.id]);
         }
       }
     }
@@ -520,14 +520,14 @@ export function validateProofGraph(input: unknown): ProofGraphValidationResult {
       executionAdjacency.get(edge.from)!.push({ to: edge.to, edgeIds: [edge.id] });
     }
   }
-  const producerByData = new Map<string, string>();
+  const ownerByData = new Map<string, string>();
   for (const edge of [...produceEdges, ...edgesByType.get("EXECUTION_BINDS_DATA")!]) {
     if (nodesById.get(edge.from)?.kind === "EXECUTION" && nodesById.get(edge.to)?.kind === "DATA") {
-      const existingProducer = producerByData.get(edge.to);
-      if (existingProducer) {
-        addViolation("MULTIPLE_DATA_PRODUCERS", [edge.to, existingProducer, edge.from], [edge.id]);
+      const existingOwner = ownerByData.get(edge.to);
+      if (existingOwner) {
+        addViolation("MULTIPLE_DATA_OWNERS", [edge.to, existingOwner, edge.from], [edge.id]);
       } else {
-        producerByData.set(edge.to, edge.from);
+        ownerByData.set(edge.to, edge.from);
       }
     }
   }
@@ -535,10 +535,10 @@ export function validateProofGraph(input: unknown): ProofGraphValidationResult {
     const dataNode = nodesById.get(support.from);
     const controlNode = nodesById.get(support.to);
     if (dataNode?.kind !== "DATA" || controlNode?.kind !== "CONTROL" || controlNode.phase !== "PRE_EXECUTION") continue;
-    const producer = producerByData.get(dataNode.id);
-    if (!producer) continue;
+    const owner = ownerByData.get(dataNode.id);
+    if (!owner) continue;
     for (const gate of gateEdges.filter((edge) => edge.from === controlNode.id)) {
-      executionAdjacency.get(producer)?.push({ to: gate.to, edgeIds: [support.id, gate.id] });
+      executionAdjacency.get(owner)?.push({ to: gate.to, edgeIds: [support.id, gate.id] });
     }
   }
   const cycle = findExecutionCycle(executionAdjacency, executionNodes.map((node) => node.id));
