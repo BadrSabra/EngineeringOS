@@ -245,6 +245,26 @@ describe("Proof Graph Kernel v0", () => {
     expect(result.violations.some((item) => item.code === "SCHEMA_INVALID")).toBe(true);
   });
 
+  it("binds the direct effect observation to the exact resulting Workspace Tree Revision", () => {
+    const graph = makeValidGraph();
+    const effect = graph.nodes.find((node) => node.id === "data-post-0");
+    if (!effect || effect.kind !== "DATA") throw new Error("missing direct effect fixture");
+    effect.sourceRevision = parentWorkspaceRevision;
+
+    expect(validateProofGraph(graph).violations.some((item) =>
+      item.code === "OUTPUT_NOT_DIRECT_OBSERVATION")).toBe(true);
+  });
+
+  it("binds the materialized World Transition record to the exact resulting World Revision", () => {
+    const graph = makeValidGraph();
+    const transition = graph.nodes.find((node) => node.id === "data-post-2");
+    if (!transition || transition.kind !== "DATA") throw new Error("missing World Transition fixture");
+    transition.sourceRevision = parentRevision;
+
+    expect(validateProofGraph(graph).violations.some((item) =>
+      item.code === "CONTROL_REVISION_BINDING_MISMATCH")).toBe(true);
+  });
+
   it("requires evidence kind to match the post-execution control", () => {
     const graph = makeValidGraph();
     const data = graph.nodes.find((node) => node.id === "data-post-0");
