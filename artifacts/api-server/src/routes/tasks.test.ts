@@ -1001,7 +1001,7 @@ describe("PR-C — AI auto-trigger on verifying", () => {
     expect(intent?.payload).toMatchObject({
       userId: "test-user",
       taskRetryCount: 0,
-      taskCorrelationId: null,
+      taskCorrelationId: taskGeneration!.correlationId,
     });
   });
 
@@ -1044,7 +1044,7 @@ describe("PR-C — AI auto-trigger on verifying", () => {
     expect(intent?.payload).toMatchObject({
       userId: "test-user",
       taskRetryCount: 0,
-      taskCorrelationId: null,
+      taskCorrelationId: taskGeneration!.correlationId,
     });
   });
 
@@ -1086,7 +1086,7 @@ describe("PR-C — AI auto-trigger on verifying", () => {
     expect(intent?.payload).toMatchObject({
       userId: "original-user",
       taskRetryCount: 0,
-      taskCorrelationId: null,
+      taskCorrelationId: taskGeneration!.correlationId,
     });
     expect(mockScheduleAiTaskExecution).not.toHaveBeenCalled();
   });
