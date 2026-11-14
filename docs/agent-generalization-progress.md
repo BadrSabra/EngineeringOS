@@ -6081,3 +6081,14 @@ PR #23 is independently validated.
 - Exact current head before this note: `5d85490700743bbcc1fd92911883008973af1911`.
 - GitHub Actions Push run `#43544160124` for the previous head ended with `failure` and zero jobs; there is no `pull_request` run or Check Run. This is a workflow-execution gap, not a code/test failure result.
 - No Vitest or typecheck result is claimed. PR #24 remains Draft; no runtime or execution authority is enabled.
+
+### 2026-11-14 — Proof Graph v0 revision-domain and gate hardening
+
+- **phase/step:** blind logical core, structural proof kernel v0; isolated Draft PR #24.
+- **contract refinement:** revision domains are now strictly limited to `WORLD`, `WORKSPACE_TREE`, and `PLAN` for this version. The earlier unused `ENVIRONMENT` domain was removed because there is no environment Parent/Resulting revision pair or corresponding typed gate in the v0 envelope.
+- **required preconditions:** `WORKSPACE_BASE_REVISION_MATCHED` is an explicit mandatory pre-execution Control for every Execution, backed by a server-derived `PARENT_WORKSPACE_SNAPSHOT` in `WORKSPACE_TREE` and bound to `parentWorkspaceRevision`.
+- **exact result bindings:** direct Effect Observation must be Direct Observation + Fresh + `EFFECT_OBSERVATION` + `WORKSPACE_TREE` and match `resultingWorkspaceRevision`; materialized World Transition must be Server-derived + Fresh + `WORLD_TRANSITION` + `WORLD` and match `resultingWorldRevision`. Both resulting revisions must advance their own Parent revision; cross-domain hash comparison is prohibited.
+- **additional fail-closed checks:** collision-safe edge relation keys and diagnostic ordering; duplicate recovery-test cases removed; workspace-base required/provenance tests added; exact resulting-workspace and resulting-world evidence-binding tests added. Focused unit test file now contains **31 unique test cases**.
+- **source/test:** `lib/ai-orchestrator/src/agent-state/proof-graph.ts`; `lib/ai-orchestrator/src/__tests__/proof-graph.test.ts`.
+- **validation boundary:** tests and package typecheck remain authored but unexecuted. The latest exact head must still receive real PR-triggered GitHub Actions Jobs; prior push-triggered failures with zero Jobs are not test failures and are not evidence of a pass.
+- **authority/non-goals:** `STRUCTURE_ONLY_NO_EXECUTION_AUTHORITY` remains immutable. No DB, runtime, executor, Mission/D2, Canonical Acceptance, P7.5, or P13 work is enabled. SBPCT PR #23 remains an independent prerequisite before a server-owned Apply Projector.
