@@ -1196,7 +1196,8 @@ describe("runtime.start transition retry scheduling", () => {
     )).limit(1);
     if (!requestedEvent) throw new Error("Apply ACTION_REQUESTED event was not persisted.");
     const originalRequestedPayload = requestedEvent.payload as Record<string, unknown>;
-    const { worldTransitionIntent: _omittedIntent, ...payloadWithoutIntent } = originalRequestedPayload;
+    const payloadWithoutIntent = { ...originalRequestedPayload };
+    delete payloadWithoutIntent.worldTransitionIntent;
     await db.update(aiAgentEpisodeEventsTable).set({
       payload: payloadWithoutIntent as typeof requestedEvent.payload,
       payloadHash: canonicalJsonHash(payloadWithoutIntent),
@@ -1253,7 +1254,7 @@ describe("runtime.start transition retry scheduling", () => {
     }
     expect(replayed.transitionId).toBe(recovered.transitionId);
     id = recovered.transitionId;
-    expect(await readFile(promotedFile, "utf8")).toBe("export const value = 'after';\\n");
+    expect(await readFile(promotedFile, "utf8")).toBe("export const value = 'after';\n");
 
     const finalizeInput = {
       projectId: fixture.projectId,
