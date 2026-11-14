@@ -43,7 +43,7 @@ import {
   finalizeRuntimeStartTransition,
   retryPendingRuntimeStartTransitions,
 } from "./runtime-start-transition.js";
-import { wakeRuntimeTransitionMissionGoals } from "../mission-runtime.js";
+import { wakeApplyChangesMissionGoals, wakeRuntimeTransitionMissionGoals } from "../mission-runtime.js";
 import { startDurableJobDispatcher } from "../job-reconciliation.js";
 import { evaluateApplyChangesD2 } from "./apply-changes-mission-gate.js";
 import { heavyJobQueue } from "../job-queue.js";
@@ -1473,6 +1473,41 @@ describe("runtime.start transition retry scheduling", () => {
     const factsAfterRetry = await db.select({ id: aiWorldFactsTable.id })
       .from(aiWorldFactsTable).where(eq(aiWorldFactsTable.projectId, fixture.projectId));
     expect(factsAfterRetry).toEqual(factsBeforeRetry);
+
+    // Re-enter the production Mission wake path only after the recovered
+    // transition has materialized. The Apply Goal must complete from D2 proof,
+    // while its dependent report Goal advances through its own waiting action.
+    expect(await wakeApplyChangesMissionGoals(16, fixture.projectId)).toBe(1);
+    expect(await wakeApplyChangesMissionGoals(16, fixture.projectId)).toBe(0);
+    const [completedApplyGoal] = await db.select({
+      status: aiGoalsTable.status,
+      blockedReason: aiGoalsTable.blockedReason,
+    }).from(aiGoalsTable).where(eq(aiGoalsTable.id, goalId));
+    const [continuedReportGoal] = await db.select({
+      status: aiGoalsTable.status,
+      blockedReason: aiGoalsTable.blockedReason,
+    }).from(aiGoalsTable).where(eq(aiGoalsTable.id, reportGoalId));
+    const [continuedMission] = await db.select({
+      status: aiMissionsTable.status,
+    }).from(aiMissionsTable).where(eq(aiMissionsTable.id, missionId));
+    expect(completedApplyGoal).toEqual({ status: "completed", blockedReason: null });
+    expect(continuedReportGoal).toEqual({ status: "waiting_for_event", blockedReason: null });
+    expect(continuedMission?.status).toBe("waiting");
+    const finalAcceptances = await db.select({
+      id: aiExecutionAcceptancesTable.id,
+      outcome: aiExecutionAcceptancesTable.outcome,
+      effectBundleId: aiExecutionAcceptancesTable.effectBundleId,
+    }).from(aiExecutionAcceptancesTable).where(and(
+      eq(aiExecutionAcceptancesTable.executionId, fixture.executionId),
+      eq(aiExecutionAcceptancesTable.attempt, 0),
+    ));
+    expect(finalAcceptances).toHaveLength(1);
+    expect(finalAcceptances[0]).toMatchObject({
+      id: initialAcceptance.acceptance?.id,
+      outcome: "SUCCEEDED",
+      effectBundleId: fixture.effectBundleId,
+    });
+    expect(await readFile(promotedFile, "utf8")).toBe("export const value = 'after';\\n");
   });
 
   it("leaves an active transition pending without consuming retries before acceptance", async () => {
