@@ -1342,6 +1342,20 @@ export class WorkspaceRuntimeManager {
         leaseUntil: new Date(Date.now() + RUNTIME_LEASE_MS),
       });
       if (!claimed) continue;
+      const runtimeRevision = claimed.revision;
+      const runtimeStartedAt = claimed.startedAt;
+      if (!runtimeRevision || !runtimeStartedAt) {
+        const failed = await this.store.updateOwnedSession(claimed.projectId, claimed.sessionId, this.workerId, {
+          status: "failed",
+          workerId: null,
+          leaseUntil: null,
+          lastHeartbeatAt: null,
+          stoppedAt: new Date(),
+          error: "Runtime recovery requires a persisted revision and start timestamp.",
+        });
+        if (!failed) await this.releaseRecoveryClaim(claimed.projectId, claimed.sessionId);
+        continue;
+      }
       if (claimed.status === "starting" && (!claimed.pid || !claimed.port) && this.supervisor) {
         let observed: Awaited<ReturnType<WorkspaceRuntimeSupervisorClient["observeStartState"]>> | undefined;
         try {
@@ -1414,8 +1428,8 @@ export class WorkspaceRuntimeManager {
                 stateVersion: createWorkspaceRuntimeSupervisorStateVersion({
                   projectId: claimed.projectId,
                   sessionId: claimed.sessionId,
-                  revision: claimed.revision,
-                  startedAt: claimed.startedAt?.toISOString() ?? "",
+                  revision: runtimeRevision,
+                  startedAt: runtimeStartedAt.toISOString(),
                 }),
                 projectRoot: claimed.projectRoot,
                 pid: claimed.pid,
@@ -1473,8 +1487,8 @@ export class WorkspaceRuntimeManager {
             stateVersion: createWorkspaceRuntimeSupervisorStateVersion({
               projectId: claimed.projectId,
               sessionId: claimed.sessionId,
-              revision: claimed.revision,
-              startedAt: claimed.startedAt?.toISOString() ?? "",
+              revision: runtimeRevision,
+              startedAt: runtimeStartedAt.toISOString(),
             }),
             projectRoot: claimed.projectRoot,
             pid: claimed.pid,

@@ -2325,6 +2325,8 @@ export async function runRecipeOperation(params: RunRecipeOperationParams): Prom
           serverOwnedValidationContext,
         )
     : undefined;
+  const githubDeliveryEpisode = episode;
+  const githubDeliveryAction = gateCAction;
   const registry = createServerCapabilityRegistry({
     validationRunner: customValidationRunner ?? (async (profile, targetPaths, signal) =>
       runRepairValidation(
@@ -2342,7 +2344,7 @@ export async function runRecipeOperation(params: RunRecipeOperationParams): Prom
         },
       )),
     ...(params.githubDeliveryRunner ? { githubDeliveryRunner: params.githubDeliveryRunner } : {}),
-    ...(params.recipeId === "delivery.push.github" && episode && gateCAction
+    ...(params.recipeId === "delivery.push.github" && githubDeliveryEpisode && githubDeliveryAction
       ? {
           githubDeliveryBeforeStateObserver: async (state: GitHubDeliveryBeforeState) => {
             if (
@@ -2359,13 +2361,13 @@ export async function runRecipeOperation(params: RunRecipeOperationParams): Prom
               throw new Error("github_delivery_before_state_binding_invalid");
             }
             const parent = await getProjectWorldState(params.projectId, {
-              excludeEpisodeIds: [episode.episodeId],
+              excludeEpisodeIds: [githubDeliveryEpisode.episodeId],
             });
             const before = await materializeServerOwnedObservations({
               projectId: params.projectId,
               executionId: claimed.id,
               attempt: claimed.attempt,
-              episodeId: episode.episodeId,
+              episodeId: githubDeliveryEpisode.episodeId,
               projectRevision: state.remoteCommitHash,
               workerLease: { workerId },
               materializeWorldState: false,
@@ -2389,8 +2391,8 @@ export async function runRecipeOperation(params: RunRecipeOperationParams): Prom
               projectId: params.projectId,
               executionId: claimed.id,
               attempt: claimed.attempt,
-              episodeId: episode.episodeId,
-              actionId: gateCAction.actionId,
+              episodeId: githubDeliveryEpisode.episodeId,
+              actionId: githubDeliveryAction.actionId,
               workerId,
               operationId: params.operationId,
               proposalId: state.proposalId,
@@ -2398,7 +2400,7 @@ export async function runRecipeOperation(params: RunRecipeOperationParams): Prom
               branch: state.branch,
               parentWorldRevision: parent.worldRevision,
               parentFactRefs: parent.currentFacts.map((fact) => fact.id),
-              taskScope: taskScopeIdentity(episode),
+              taskScope: taskScopeIdentity(githubDeliveryEpisode),
               beforeObservationIds: before.observationIds,
             });
           },
@@ -3597,7 +3599,8 @@ export async function runRecipeOperation(params: RunRecipeOperationParams): Prom
           || typeof (value as { environmentRevision?: unknown }).environmentRevision === "string"
         ),
       ));
-    const validatorProcessObservations = episode
+    const validatorProcessEpisode = episode;
+    const validatorProcessObservations = validatorProcessEpisode
       ? completionEvidence.flatMap((evidence) => {
           const attestation = evidence.childProcessAttestation;
           const treeAttestation = evidence.validatorProcessTreeAttestation;
@@ -3611,7 +3614,7 @@ export async function runRecipeOperation(params: RunRecipeOperationParams): Prom
                   projectId: params.projectId,
                   executionId: claimed.id,
                   attempt: claimed.attempt,
-                  episodeId: episode.episodeId,
+                  episodeId: validatorProcessEpisode.episodeId,
                   operationId: params.operationId,
                   sessionId: evidence.evidenceId,
                   validatorProfile: evidence.validatorProfile,
@@ -3633,7 +3636,7 @@ export async function runRecipeOperation(params: RunRecipeOperationParams): Prom
                   projectId: params.projectId,
                   executionId: claimed.id,
                   attempt: claimed.attempt,
-                  episodeId: episode.episodeId,
+                  episodeId: validatorProcessEpisode.episodeId,
                   operationId: params.operationId,
                   sessionId: evidence.evidenceId,
                   validatorProfile: evidence.validatorProfile,
@@ -3723,6 +3726,7 @@ export async function runRecipeOperation(params: RunRecipeOperationParams): Prom
             evidence,
           ]),
       ).values()];
+      const candidateValidationEpisodeId = episode?.episodeId;
       const processAttestations = validatorProcessObservations.filter(
         (observation) => observation.kind === "validator_process_attestation",
       );
@@ -3735,7 +3739,7 @@ export async function runRecipeOperation(params: RunRecipeOperationParams): Prom
           && observation.projectId === params.projectId
           && observation.executionId === claimed.id
           && observation.attempt === claimed.attempt
-          && observation.episodeId === episode.episodeId
+          && observation.episodeId === candidateValidationEpisodeId
           && observation.operationId === params.operationId
           && observation.revision === params.sourceRevision
           && Number.isFinite(Date.parse(observation.observedAt))
