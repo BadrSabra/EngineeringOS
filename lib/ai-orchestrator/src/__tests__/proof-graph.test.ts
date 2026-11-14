@@ -95,7 +95,12 @@ function makeValidGraph(): ProofGraph {
         { id: `edge-pre-gate-${index}`, type: "CONTROL_GATES_EXECUTION" as const, from: `control-pre-${index}`, to: "execution-1" },
       ]),
       ...postData.flatMap((data, index) => [
-        { id: `edge-post-output-${index}`, type: "EXECUTION_PRODUCES_DATA" as const, from: "execution-1", to: data.id },
+        {
+          id: `edge-post-binding-${index}`,
+          type: (index === 0 ? "EXECUTION_PRODUCES_DATA" : "EXECUTION_BINDS_DATA") as "EXECUTION_PRODUCES_DATA" | "EXECUTION_BINDS_DATA",
+          from: "execution-1",
+          to: data.id,
+        },
         { id: `edge-post-verify-${index}`, type: "EXECUTION_VERIFIED_BY_CONTROL" as const, from: "execution-1", to: `control-post-${index}` },
         { id: `edge-post-evidence-${index}`, type: "DATA_SUPPORTS_CONTROL" as const, from: data.id, to: `control-post-${index}` },
       ]),
@@ -309,7 +314,7 @@ describe("Proof Graph Kernel v0", () => {
     expect(cycle?.path).toEqual(["execution-1", "execution-2", "execution-1"]);
   });
 
-  it("detects a cycle inferred through produced DATA and reports both causal edges", () => {
+  it("detects a cycle inferred through execution-bound DATA and reports both causal edges", () => {
     const graph = makeValidGraph();
     const control = graph.nodes.find((node) => node.id === "control-pre-0");
     if (!control || control.kind !== "CONTROL") throw new Error("missing pre-execution control fixture");
