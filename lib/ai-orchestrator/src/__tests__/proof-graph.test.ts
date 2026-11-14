@@ -718,4 +718,44 @@ describe("Proof Graph Kernel v0", () => {
 
     expect(validateProofGraph(graph).violations).toEqual(validateProofGraph(reordered).violations);
   });
+
+  it("keeps multi-evidence violation paths stable when supporting edges are reordered", () => {
+    const graph = makeValidGraph();
+    const source = graph.nodes.find((node) => node.id === "data-pre-0");
+    const control = graph.nodes.find((node) => node.id === "control-pre-0");
+    if (!source || source.kind !== "DATA" || !control || control.kind !== "CONTROL") {
+      throw new Error("missing multi-evidence fixture");
+    }
+
+    const secondEvidence: ProofGraphDataNode = {
+      ...source,
+      id: "data-pre-0-second",
+      evidenceRef: "evidence-pre-0-second",
+      contentHash: "9".repeat(64),
+    };
+    graph.nodes.push(secondEvidence);
+    control.evidenceRefs.push(secondEvidence.evidenceRef);
+    control.outcome = "UNKNOWN";
+    graph.edges.push({
+      id: "edge-pre-data-0-second",
+      type: "DATA_SUPPORTS_CONTROL",
+      from: secondEvidence.id,
+      to: control.id,
+    });
+
+    const reordered: ProofGraph = {
+      ...graph,
+      nodes: [...graph.nodes].reverse(),
+      edges: [...graph.edges].reverse(),
+    };
+    const violations = validateProofGraph(graph).violations;
+    const reorderedViolations = validateProofGraph(reordered).violations;
+
+    expect(violations).toEqual(reorderedViolations);
+    expect(violations.find((item) => item.code === "CONTROL_NOT_SATISFIED")?.path).toEqual([
+      "control-pre-0",
+      "data-pre-0",
+      "data-pre-0-second",
+    ]);
+  });
 });
