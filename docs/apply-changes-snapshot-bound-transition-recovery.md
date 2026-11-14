@@ -56,11 +56,13 @@
 
 ## 4. حدود التنفيذ
 
-### Phase A — Bind the exact parent (البدء الحالي)
+### Phase A — Bind the exact parent (source patch موجود؛ التحقق معلق)
 
-- إرفاق snapshot intent بحدث ACTION_REQUESTED قبل before observation وfile promotion.
-- جعل إنشاء transition الحي يستخدم parent revision/fact refs الملتقطة نفسها، لا قراءة World State لاحقة.
-- إضافة اختبارات تثبت أن snapshot لا يتغير عند ظهور observations تابعة للـEpisode، وأن idempotency يرفض rebind إلى parent مختلف.
+- أُرفق snapshot intent بحدث ACTION_REQUESTED قبل before observation وfile promotion.
+- يستخدم إنشاء transition الحي parent revision/fact refs الملتقطة نفسها، لا قراءة World State لاحقة.
+- أضيف ApplyWorldTransitionIntentSchema إلى ActionRequested payload contract، مع revision digest validation وحد 256 fact refs واشتراط uniqueness/sorted order.
+- أضيفت اختبارات وحدة للـbuilder وpayload schema. لم تُشغّل بعد؛ ولا توجد نتيجة typecheck أو DB-backed route test مدعاة.
+- يبقى اختبار parent CAS بعد تغير World State، واختبار route-level end-to-end ضمن اختبارات الإغلاق المطلوبة.
 
 ### Phase B — Recover a missing transition row
 
@@ -117,7 +119,7 @@
 - Source audit and branch creation completed.
 - main baseline at start: edc57435d763a51bf826a92eba291bcab50a8a4c.
 - Work branch: fix/apply-changes-snapshot-bound-recovery.
-- Documentation update is in progress; source implementation and runtime validation are not claimed complete by this document.
+- Phase A source patch authored in chat.ts and runtime-start-transition.ts; shared schema and focused unit tests are added. Phase B missing-row recovery has not started. Runtime validation is not claimed complete.
 - No schema migration is currently justified.
 - No tests are claimed as run from the GitHub source connector. Each test result must be recorded only after an actual repository checkout executes it.
 - PR #22 Task Outbox work remains separate and is not modified by this initiative.
