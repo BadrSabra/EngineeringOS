@@ -4,7 +4,37 @@
 > يجب على الوكيل التالي تحديثه بعد كل خطوة مكتملة، وقبل الانتقال إلى الخطوة
 > التالية. لا تعتبر المرحلة منجزة من دون إدخال يثبت معيار الخروج والتحقق.
 
-## الحالة الحالية
+## الحالة الحالية — 2026-11-14
+
+**قرار الشريحة الحالية:** بدأ العمل على Snapshot-Bound Proof-Carrying Transition
+(SBPCT) لمسار Mission-linked Apply Changes، كمعالجة محدودة ضمن P3.5/P6 لا
+كمرحلة مستقلة ولا كإغلاق شامل لهما. الخطة المرجعية في §31 لم تتغير.
+
+**حقائق source audit المعاد التحقق منها على main عند**
+edc57435d763a51bf826a92eba291bcab50a8a4c:
+
+- applyChangesHandler يلتقط World State قبل Episode/Action/filesystem work،
+  ويسجل ACTION_REQUESTED قبل before observation وfile promotion.
+- الحدث لا يحفظ parent revision/fact refs؛ transition ينشأ لاحقًا من
+  projection بعد التغيير.
+- D2 يرفض missing transition، وMission wake العادي لا يلتقط Goal الذي
+  أصبح needs_replan.
+- retry worker يستعيد pending/retrying rows الموجودة؛ لا يعيد إنشاء row مفقود.
+- Acceptance وEffectBundle وWorld Transition تبقى عقودًا منفصلة، وCAS يبقى
+  إلزاميًا. لا يوجد مبرر حالي لإضافة جدول أو Event Type جديد.
+
+**حالة العمل في هذا الفرع:** أُنشئ
+fix/apply-changes-snapshot-bound-recovery. أضيفت وثيقة SBPCT التفصيلية،
+ووُثّق نطاق المعالجة في الخطة الحاكمة والـroadmap. تغييرات المصدر واختبارات
+PostgreSQL ما زالت قيد العمل ولم تُسجل كنتائج ناجحة. لا تُغلق P3.5/P6 بناءً
+على هذا التحديث.
+
+**حدود التحقق:** تم تحديث الوثائق عن طريق GitHub source control؛ لا توجد هنا
+نتائج typecheck أو Vitest أو release validation مدعاة. يجب تشغيل الاختبارات
+المطلوبة على checkout الرأس النهائي قبل الدمج. PR #22 الخاص بـTask Outbox
+خارج هذا النطاق ولم يتغير.
+
+## آخر baseline موثق (2026-10-18؛ لم يُعاد اعتماده في 2026-11-14)
 
 **الحالة الحالية (2026-10-18):** E2 `CLOSED` بقرار المستخدم الصريح في 2026-10-11؛ E3 `OPEN`. إسقاطات Mission/Goal توسِم الحالة المحفوظة بأنها `STORED_STATUS_ONLY` و`NOT_REVALIDATED`، واختبارات سباق dependency وMission aggregation نجحت. اختبارات Shadow Replay للقراءة القديمة، ورفض التسجيل عند stale، والتعافي بعد انقطاع الوصفة، والاستعادة بعد حالة دائمة بلا إيصال نجحت على قواعد مؤقتة. اختبار حد الإسقاط يحجز تحديث الحالة النهائية بعد اكتمال الوصفة وتنظيف مساحة العمل، يقتل API child فعليًا بـ`SIGKILL`، ثم يثبت أن API child جديد يفشل مغلقًا بـ`SHADOW_REPLAY_RECEIPT_MISSING` ويرفض التسجيل. اختبار Workflow الوسيط يثبت بقاء Goal غير مكتمل؛ وواجهة Tasks تميز الحالة المسجلة عن الإثبات الشامل. رحلة Gate 4 HTTP تمنع التسجيل عند اختلاف `pairId` أو `baselineRunId`، وتمنع الموافقة عند اختلاف `candidateRunId` أو `contract.sourceRevision`، مع بقاء السجل `pending` بلا plugin binding؛ الزوج المطابق ينجح. تعرض لوحة Evidence Graph حالة «مثبت» بصفتها مسجلة في الخريطة فقط، بلون محايد، وتوضح أنها لا تعيد فحص قبول التنفيذ الحالي. أظهر التدقيق الحالي أن Flight Deck وAiChat وTasks وMission Control تعتمد الآن على OperationEvidence الحالي لعرض إثبات التنفيذ، وأن تفاصيل Mission Control تُحجب عند عدم تطابق هوية التنفيذ. E3.2 ما زالت `OPEN` لأن Strategy Replay receipts لم تُشغّل ولأن تغطية كل أسطح دورة الحياة لم تكتمل. لم نبدأ E4 أو نعد تشغيل workflow API المُدار، ولم نستخدم قاعدة مشتركة.
 
