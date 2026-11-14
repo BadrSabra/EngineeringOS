@@ -318,7 +318,11 @@ export function validateProofGraph(input: unknown): ProofGraphValidationResult {
     };
   }
 
-  const graph = parsed.data;
+  // Run every structural pass over canonical node/edge/evidence ordering.
+  // Hashing alone is not enough: violation paths are assembled from adjacency
+  // collections, so preserving caller order there would make FAIL projections
+  // differ for the same logical graph.
+  const graph = canonicalGraph(parsed.data);
   const graphHash = hashProofGraph(graph);
   const violations: ProofGraphViolation[] = [];
   const nodesById = new Map(graph.nodes.map((node) => [node.id, node]));
