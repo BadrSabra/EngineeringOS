@@ -28,6 +28,7 @@ export const ProofGraphDataNodeSchema = z.object({
     "SCOPE",
     "PRECONDITION",
     "PARENT_WORLD_SNAPSHOT",
+    "PARENT_WORKSPACE_SNAPSHOT",
     "EFFECT_OBSERVATION",
     "EXECUTION_ACCEPTANCE",
     "WORLD_TRANSITION",
@@ -422,7 +423,11 @@ export function validateProofGraph(input: unknown): ProofGraphValidationResult {
       addViolation("CONTROL_NOT_SATISFIED", [control.id, ...evidenceNodes.map((node) => node.id)]);
     }
 
-    const expectedEvidence = {
+    const expectedEvidence: {
+      kind: ProofGraphDataNode["evidenceKind"];
+      revisionDomain: ProofGraphDataNode["revisionDomain"];
+      provenance?: ProofGraphDataNode["provenance"];
+    } = {
       AUTHORIZATION_VALID: { kind: "AUTHORIZATION", revisionDomain: "PLAN", provenance: "SERVER_DERIVED" },
       SCOPE_MATCHED: { kind: "SCOPE", revisionDomain: "PLAN", provenance: "SERVER_DERIVED" },
       PRECONDITIONS_SATISFIED: { kind: "PRECONDITION", revisionDomain: "WORLD" },
