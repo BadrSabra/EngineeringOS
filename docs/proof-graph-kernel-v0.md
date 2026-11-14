@@ -50,12 +50,12 @@
 ## 4. Invariants v0
 
 1. حدود الإدخال: 256 عقدة، 512 حافة، و32 KiB إجماليًا.
-2. هوية كل Node وEdge فريدة؛ وكل endpoint موجود.
+2. هوية كل Node وEdge فريدة؛ وكل endpoint موجود؛ ومعرّف Execution في رأس الرسم يطابق عقدة EXECUTION فعلية.
 3. اتجاه كل Edge يطابق فئة الطرفين المحددة في عقده.
 4. كل Control يستقبل DATA evidence؛ مراجع الأدلة المعلنة تطابق المراجع الموصولة به تمامًا.
 5. كل دليل داعم Fresh؛ وكل Control نتيجته SATISFIED.
 6. Controls السابقة المطلوبة لكل Execution: `AUTHORIZATION_VALID` و`SCOPE_MATCHED` و`PRECONDITIONS_SATISFIED` و`PARENT_REVISION_MATCHED`.
-7. دليل Parent Revision يجب أن يكون Server-derived ويرتبط بالـ`parentWorldRevision` ذاته.
+7. دليل Parent Revision يجب أن يكون Server-derived ويرتبط بالـ`parentWorldRevision` ذاته؛ ودليل Scope يجب أن يكون Server-derived ويرتبط بـ`scopeHash` لعقدة التنفيذ التي يحكمها.
 8. Controls اللاحقة المطلوبة: `EFFECT_PROVEN` و`ACCEPTANCE_SUCCEEDED` و`WORLD_TRANSITION_MATERIALIZED`.
 9. `EFFECT_PROVEN` يجب أن يستند إلى Direct Observation؛ أما Acceptance وMaterialized Transition فيجب أن يستندا إلى Server-derived evidence.
 10. كل Execution ينتج دليلًا لاحقًا Fresh، وDirect Observation يثبت revision بعدية مختلفة عن Parent.
@@ -84,8 +84,8 @@
 - endpoints مفقودة أو اتجاهات حواف خاطئة.
 - Control غير محسوم أو Evidence قديم.
 - غياب بوابة من بوابات Authorization/Scope/Preconditions/Parent.
-- رفض Parent revision غير المطابق.
-- رفض duplicate node identity.
+- رفض Parent revision غير المطابق وربط Scope Hash.
+- رفض غياب عقدة التنفيذ الجذرية وduplicate node identity.
 - اشتراط Direct After Observation وتقدم revision.
 - رفض SERVICE → EXECUTOR المباشر.
 - كشف Execution cycle مع مسار الحلقة.
