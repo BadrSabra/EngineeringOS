@@ -16,7 +16,7 @@
 
 - `lib/ai-orchestrator/src/agent-state/proof-graph.ts`: Zod contracts، canonical hash، deterministic validator.
 - `lib/ai-orchestrator/src/agent-state/index.ts`: تصدير عقد المحرك من الحزمة الداخلية للـAgent State.
-- `lib/ai-orchestrator/src/__tests__/proof-graph.test.ts`: اختبارات نقية لا تحتاج PostgreSQL أو مزود AI. عددها الحالي 39 حالة، ويُشغّلها `pnpm --filter @workspace/ai-orchestrator run test:proof-graph`.
+- `lib/ai-orchestrator/src/__tests__/proof-graph.test.ts`: اختبارات نقية لا تحتاج PostgreSQL أو مزود AI. عددها الحالي 40 حالة، ويُشغّلها `pnpm --filter @workspace/ai-orchestrator run test:proof-graph`.
 
 لا يغيّر هذا الفرع `main` أو PR #22 أو PR #23، ولا يعتمد على دمج SBPCT أولًا؛ إنه kernel تجريبي منفصل عن مسار الإنتاج.
 
@@ -66,7 +66,7 @@
 14. يمنع الاعتماد المباشر `SERVICE → EXECUTOR` في edge من نوع `EXECUTION_DEPENDS_ON`.
 15. لا يسمح بعقد أو حواف يتيمة.
 
-يخرج validator مخالفات مرتبة حتميًا، وكل مخالفة تحمل `code` و`path` و`edgeIds`. كما يحسب `graphHash` بعد ترتيب العقد والحواف ومراجع الأدلة ترتيبًا canonical.
+يخرج validator مخالفات مرتبة حتميًا، وكل مخالفة تحمل `code` و`path` و`edgeIds`. كما يحسب `graphHash` بعد ترتيب العقد والحواف ومراجع الأدلة ترتيبًا canonical. ويشغّل validator جميع فحوصه فوق هذا الترتيب canonical نفسه، حتى تبقى مسارات المخالفات و`edgeIds` ثابتة عند تبديل ترتيب مصفوفات الإدخال. الحواف الدلالية المكررة تُبلّغ في مخالفة واحدة تتضمن كل معرّفاتها مرتبة.
 
 ## 5. حدود السلطة والثقة
 
@@ -80,7 +80,7 @@
 
 ## 6. الاختبارات الموجودة
 
-يختبر `proof-graph.test.ts` (37 حالة مركزة):
+يختبر `proof-graph.test.ts` (40 حالة):
 - graph مكتمل يمر ببنية DATA → CONTROL → EXECUTION → DATA.
 - ثبات hash عند تغيير ترتيب العقد والحواف ومراجع الأدلة.
 - endpoints مفقودة أو اتجاهات حواف خاطئة.
@@ -93,6 +93,8 @@
 - كشف Execution cycle مع المسار والحواف السببية؛ بما فيها علاقات DATA المنتجة أو المرتبطة.
 - الفصل بين ملاحظات الأثر المنتجة وسجلات القبول/الانتقال المرتبطة؛ ورفض provenance غير المتوافق.
 - رفض Model-inferred provenance.
+- كشف الحواف الدلالية المكررة مع إدراج كل Edge ID بترتيب canonical؛ وإثبات ثبات النتيجة عند عكس ترتيب الحواف.
+- إثبات ثبات مسارات المخالفات متعددة الأدلة عند تبديل ترتيب DATA-support edges.
 
 أضيفت خطوة CI مستقلة لتشغيل `pnpm --filter @workspace/ai-orchestrator run test:proof-graph` قبل root-build gate حتى لا يخفي فشل المستودع نتيجة اختبار النواة. على رأس PR #27 المثبت في CI Run #691 (`812bd84ac24d8b73e55c987f2d749912d8b88b7f`)، نجح اختبار النواة المركّز **39/39**، ونجحت اختبارات `ai-orchestrator` **3060** مع **5 skipped**، كما نجحت بوابات جميع الحزم TypeScript وcodegen drift وroot build contract. فشل CI العام لاحقًا في اختبارات API-server: **15 failed / 2798 passed / 40 skipped**؛ لذلك لا يُسجل PR على أنه CI-green. هذا الفصل ضروري: نجاح النواة مثبت، أما قبول التغيير كاملًا فيظل محجوبًا بإصلاحات API-server/recovery المستقلة.
 
