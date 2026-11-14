@@ -5030,7 +5030,8 @@ recoverAcceptedApplyChangesTransition لاستعادة row مفقود بعد Acc
 Parent revision وfact refs، وتعيد Goal فقط عند السبب الدقيق
 apply_transition_missing. أضيف إلى الاختبار المتكامل سيناريو row المفقود،
 ومحاولتا recovery متزامنتان، ورفض غياب intent وparent drift، وإرجاع Goal/Mission من
-needs_replan إلى waiting دون تغيير حالة Goal التابعة المنتظرة على dependency.
+needs_replan إلى waiting دون تغيير حالة Goal التابعة المنتظرة على dependency، ثم
+تنفيذ Mission wake بعد materialization مرة واحدة مع تثبيت acceptance وملفات المشروع.
 
 **التحقق ما زال مفتوحًا:** هذه الاختبارات مؤلفة على الفرع لكنها لم تُشغّل؛
 typecheck وVitest وPostgreSQL CI لم تثبت بعد. لا تعتبر Phase B مغلقة حتى تمر
