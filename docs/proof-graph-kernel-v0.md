@@ -41,7 +41,8 @@
 |---|---|---|
 | `DATA_SUPPORTS_CONTROL` | DATA → CONTROL | الدليل الذي يسند شرطًا |
 | `CONTROL_GATES_EXECUTION` | CONTROL → EXECUTION | شرط سابق لازم قبل التنفيذ |
-| `EXECUTION_PRODUCES_DATA` | EXECUTION → DATA | ملاحظة/سجل ناتج عن التنفيذ |
+| `EXECUTION_PRODUCES_DATA` | EXECUTION → DATA | أثر/ملاحظة مباشرة أنتجها التنفيذ |
+| `EXECUTION_BINDS_DATA` | EXECUTION → DATA | سجل خادمي مرتبط بالتنفيذ مثل Acceptance أو World Transition؛ ليس ملاحظة أثر |
 | `EXECUTION_VERIFIED_BY_CONTROL` | EXECUTION → CONTROL | تحقق لاحق من أثر التنفيذ |
 | `EXECUTION_DEPENDS_ON` | EXECUTION → EXECUTION | اعتماد صريح؛ اتجاهه prerequisite → dependent |
 
@@ -58,11 +59,12 @@
 7. دليل Parent Revision يجب أن يكون Server-derived ويرتبط بالـ`parentWorldRevision` ذاته؛ ودليل Scope يجب أن يكون Server-derived ويرتبط بـ`scopeHash` لعقدة التنفيذ التي يحكمها.
 8. Controls اللاحقة المطلوبة: `EFFECT_PROVEN` و`ACCEPTANCE_SUCCEEDED` و`WORLD_TRANSITION_MATERIALIZED`.
 9. `EFFECT_PROVEN` يجب أن يستند إلى Direct Observation؛ أما Acceptance وMaterialized Transition فيجب أن يستندا إلى Server-derived evidence.
-10. كل Execution ينتج دليلًا لاحقًا Fresh، وDirect Observation يثبت revision بعدية مختلفة عن Parent.
-11. بيانات ما بعد التنفيذ المرتبطة بالـPost-Control يجب أن تكون من مخرجات Execution نفسه.
-12. Execution dependency graph، سواء عبر dependency edges الصريحة أو عبر DATA المنتج الذي يسند Control سابقًا لتنفيذ لاحق، يجب أن يكون DAG.
-13. يمنع الاعتماد المباشر `SERVICE → EXECUTOR` في edge من نوع `EXECUTION_DEPENDS_ON`.
-14. لا يسمح بعقد أو حواف يتيمة.
+10. كل Execution ينتج عبر `EXECUTION_PRODUCES_DATA` ملاحظة أثر Direct Observation وFresh تثبت revision بعدية مختلفة عن Parent.
+11. سجلات Acceptance وWorld Transition تربط عبر `EXECUTION_BINDS_DATA`، ويجب أن تكون Server-derived وFresh؛ ولا يجوز تمريرها كأنها ملاحظات أثر.
+12. بيانات ما بعد التنفيذ المرتبطة بالـPost-Control يجب أن تكون إما مخرجات مباشرة أو سجلات خادمية مرتبطة بالتنفيذ نفسه.
+13. Execution dependency graph، عبر dependency edges الصريحة أو DATA المملوك للتنفيذ (produced/bound) الذي يسند Control سابقًا لتنفيذ لاحق، يجب أن يكون DAG.
+14. يمنع الاعتماد المباشر `SERVICE → EXECUTOR` في edge من نوع `EXECUTION_DEPENDS_ON`.
+15. لا يسمح بعقد أو حواف يتيمة.
 
 يخرج validator مخالفات مرتبة حتميًا، وكل مخالفة تحمل `code` و`path` و`edgeIds`. كما يحسب `graphHash` بعد ترتيب العقد والحواف ومراجع الأدلة ترتيبًا canonical.
 
@@ -88,7 +90,8 @@
 - رفض غياب عقدة التنفيذ الجذرية وduplicate node identity.
 - اشتراط Direct After Observation وتقدم revision.
 - رفض SERVICE → EXECUTOR المباشر.
-- كشف Execution cycle مع مسار الحلقة.
+- كشف Execution cycle مع المسار والحواف السببية؛ بما فيها علاقات DATA المنتجة أو المرتبطة.
+- الفصل بين ملاحظات الأثر المنتجة وسجلات القبول/الانتقال المرتبطة؛ ورفض provenance غير المتوافق.
 - رفض Model-inferred provenance.
 
 **التنفيذ والاختبارات لم تُشغّل بعد في بيئة المستودع.** لا يوجد TypeScript أو Vitest pass مدعى في هذه الوثيقة.
