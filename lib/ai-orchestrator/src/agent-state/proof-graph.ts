@@ -361,7 +361,7 @@ export function validateProofGraph(input: unknown): ProofGraphValidationResult {
     const sameEvidence = actualEvidence.size === declaredEvidence.size
       && [...actualEvidence].every((ref) => declaredEvidence.has(ref));
 
-    if (evidenceNodes.length === 0 || !sameEvidence) {
+    if (evidenceNodes.length === 0 || actualEvidence.size !== evidenceNodes.length || !sameEvidence) {
       addViolation("CONTROL_EVIDENCE_MISMATCH", [control.id, ...control.evidenceRefs]);
     }
     if (evidenceNodes.some((node) => node.freshness !== "fresh")) {
