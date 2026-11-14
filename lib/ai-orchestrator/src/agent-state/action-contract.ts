@@ -28,12 +28,36 @@ export const AgentActionSchema = boundedContractSchema(z.object({
 }).strict(), AGENT_STATE_LIMITS.effectPayloadBytes);
 export type AgentAction = z.infer<typeof AgentActionSchema>;
 
+const revisionDigestSchema = boundedString(64).regex(/^[a-f0-9]{64}$/u);
+
+const sortedUniqueFactRefsSchema = z.array(boundedString(200)).max(256).superRefine((refs, ctx) => {
+  if (new Set(refs).size !== refs.length) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, message: "parentFactRefs must be unique" });
+  }
+  if (refs.some((ref, index) => index > 0 && refs[index - 1]!.localeCompare(ref) > 0)) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, message: "parentFactRefs must be sorted" });
+  }
+});
+
+export const ApplyWorldTransitionIntentSchema = boundedContractSchema(z.object({
+  schemaVersion: z.literal(1),
+  projectId: boundedString(200),
+  proposalId: boundedString(200),
+  goalId: boundedString(200),
+  planRevision: revisionDigestSchema,
+  parentWorldRevision: revisionDigestSchema,
+  parentFactRefs: sortedUniqueFactRefsSchema,
+}).strict(), AGENT_STATE_LIMITS.episodeEventPayloadBytes);
+
+export type ApplyWorldTransitionIntent = z.infer<typeof ApplyWorldTransitionIntentSchema>;
+
 export const AgentActionRequestedPayloadSchema = boundedContractSchema(
   z.object({
     action: AgentActionSchema,
     actionId: boundedString(200).optional(),
     capabilityId: boundedString(200).optional(),
     expectedEffects: z.array(boundedString(256)).max(64).optional(),
+    worldTransitionIntent: ApplyWorldTransitionIntentSchema.optional(),
   }).passthrough().superRefine((payload, ctx) => {
     if (payload.actionId !== undefined && payload.actionId !== payload.action.actionId) {
       ctx.addIssue({
