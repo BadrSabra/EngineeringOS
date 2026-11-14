@@ -1,3 +1,4 @@
+> **تحديث تنفيذي 2026-11-14:** ما زالت SBPCT في PR #23 بحالة Draft؛ مصدر Phase A/B واختبارات التعافي موجودة على فرع مستقل، لكن لم يُثبت تشغيلها على PostgreSQL أو TypeScript أو exact-head CI. أُنشئ بالتوازي فرع تجريبي مستقل `feat/proof-graph-kernel-v0` لنواة تحقق typed نقية DATA/CONTROL/EXECUTION؛ لا يتصل بالـRuntime أو DB ولا يمنح صلاحية تنفيذ أو Acceptance. هذه تجربة بنيوية ضيقة وليست فتحًا لـP13 أو إغلاقًا لـP3.5/P6؛ يتطلب أي Projector لاحق أولًا تحقق SBPCT.
 # مواصفة البناء الكاملة وعقد القبول — تطور الوكيل الهندسي نحو التعميم والتعلم
 
 > **الحالة الراهنة ومصدرها (2026-10-17):** E1 مغلقة ضمن نطاقها؛ أغلق المستخدم E2 بقرار صريح في 2026-10-11؛ E3 مأذون بها وما زالت مفتوحة؛ وE3.2 replay safety مفتوحة. E4/E4.1 ما زالتا `OPEN / BLOCKED` و`NOT PASS`، وجرد مصدر العينة `UNQUALIFIED`؛ جمع P7.5 `NO-GO` و`collectionAuthorized=false`. اعتمد `docs/agent-generalization-progress.md` حتى 2026-10-17 و`docs/e3-forensic-entry-audit.md` للحالة، لا اللقطات الأقدم أدناه.
