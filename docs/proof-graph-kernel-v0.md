@@ -24,8 +24,8 @@
 
 ### DATA node
 
-يحمل `evidenceRef` و`contentHash` و`sourceRevision` و`provenance` و`freshness`.
-المصادر المسموحة هي `DIRECT_OBSERVATION` و`SERVER_DERIVED` فقط؛ `MODEL_INFERRED` مرفوض عند حد العقد.
+يحمل `evidenceRef` و`contentHash` و`evidenceKind` و`revisionDomain` و`sourceRevision` و`provenance` و`freshness`.
+المصادر المسموحة هي `DIRECT_OBSERVATION` و`SERVER_DERIVED` فقط؛ `MODEL_INFERRED` مرفوض عند حد العقد. لا تُقارن revisions من مجالات مختلفة.
 
 ### CONTROL node
 
@@ -56,11 +56,11 @@
 4. كل Control يستقبل DATA evidence؛ مراجع الأدلة المعلنة تطابق المراجع الموصولة به تمامًا.
 5. كل دليل داعم Fresh؛ وكل Control نتيجته SATISFIED.
 6. Controls السابقة المطلوبة لكل Execution: `AUTHORIZATION_VALID` و`SCOPE_MATCHED` و`PRECONDITIONS_SATISFIED` و`PARENT_REVISION_MATCHED`.
-7. دليل Parent Revision يجب أن يكون Server-derived ويرتبط بالـ`parentWorldRevision` ذاته؛ ودليل Scope يجب أن يكون Server-derived ويرتبط بـ`scopeHash` لعقدة التنفيذ التي يحكمها.
+7. ترتبط أدلة Authorization وScope بـ`planRevision`؛ وتُربط Preconditions وParent World Snapshot بـ`parentWorldRevision`؛ ويُربط Parent Workspace Snapshot بـ`parentWorkspaceRevision`. دليل Scope يجب أن يكون Server-derived ويرتبط بـ`scopeHash` لعقدة التنفيذ التي يحكمها.
 8. Controls اللاحقة المطلوبة: `EFFECT_PROVEN` و`ACCEPTANCE_SUCCEEDED` و`WORLD_TRANSITION_MATERIALIZED`.
 9. `EFFECT_PROVEN` يجب أن يستند إلى Direct Observation؛ أما Acceptance وMaterialized Transition فيجب أن يستندا إلى Server-derived evidence.
-10. كل Execution ينتج عبر `EXECUTION_PRODUCES_DATA` ملاحظة أثر Direct Observation وFresh تثبت revision بعدية مختلفة عن Parent.
-11. سجلات Acceptance وWorld Transition تربط عبر `EXECUTION_BINDS_DATA`، ويجب أن تكون Server-derived وFresh؛ ولا يجوز تمريرها كأنها ملاحظات أثر.
+10. كل Execution ينتج عبر `EXECUTION_PRODUCES_DATA` ملاحظة أثر Direct Observation وFresh في مجال `WORKSPACE_TREE`، ويجب أن تطابق `resultingWorkspaceRevision`؛ كما يجب أن تختلف هذه النسخة عن `parentWorkspaceRevision`.
+11. سجلات Acceptance وWorld Transition تربط عبر `EXECUTION_BINDS_DATA`، ويجب أن تكون Server-derived وFresh؛ Acceptance مرتبطة بـ`planRevision`، والانتقال مرتبط بـ`resultingWorldRevision` الذي يجب أن يختلف عن `parentWorldRevision`؛ ولا يجوز تمرير هذه السجلات كأنها ملاحظات أثر.
 12. بيانات ما بعد التنفيذ المرتبطة بالـPost-Control يجب أن تكون إما مخرجات مباشرة أو سجلات خادمية مرتبطة بالتنفيذ نفسه.
 13. Execution dependency graph، عبر dependency edges الصريحة أو DATA المملوك للتنفيذ (produced/bound) الذي يسند Control سابقًا لتنفيذ لاحق، يجب أن يكون DAG.
 14. يمنع الاعتماد المباشر `SERVICE → EXECUTOR` في edge من نوع `EXECUTION_DEPENDS_ON`.
@@ -86,9 +86,9 @@
 - endpoints مفقودة أو اتجاهات حواف خاطئة.
 - Control غير محسوم أو Evidence قديم.
 - غياب بوابة من بوابات Authorization/Scope/Preconditions/Parent.
-- رفض Parent revision غير المطابق وربط Scope Hash.
+- رفض Parent World وParent Workspace revision غير المطابقين وربط Scope Hash، والتحقق من Resulting World/Workspace revisions كلٌّ في مجاله.
 - رفض غياب عقدة التنفيذ الجذرية وduplicate node identity.
-- اشتراط Direct After Observation وتقدم revision.
+- اشتراط Direct After Observation ومطابقة Resulting Workspace revision، دون مقارنة hash شجرة الملفات بـWorld revision.
 - رفض SERVICE → EXECUTOR المباشر.
 - كشف Execution cycle مع المسار والحواف السببية؛ بما فيها علاقات DATA المنتجة أو المرتبطة.
 - الفصل بين ملاحظات الأثر المنتجة وسجلات القبول/الانتقال المرتبطة؛ ورفض provenance غير المتوافق.
