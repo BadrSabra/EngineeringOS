@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { and, eq, inArray, isNull, lte, or } from "drizzle-orm";
 import {
   aiAgentEpisodesTable,
+  aiAgentEpisodeEventsTable,
   aiAgentObservationsTable,
   aiAgentEffectBundlesTable,
   aiAgentEffectsTable,
@@ -13,9 +14,14 @@ import {
   projectsTable,
   aiWorldFactsTable,
   aiWorldTransitionsTable,
+  eventsTable,
   db,
 } from "@workspace/db";
-import { ApplyWorldTransitionIntentSchema, invalidateContextSlice } from "@workspace/ai-orchestrator";
+import {
+  ApplyWorldTransitionIntentSchema,
+  invalidateContextSlice,
+  parseAgentActionRequestedPayload,
+} from "@workspace/ai-orchestrator";
 import type { ApplyWorldTransitionIntent } from "@workspace/ai-orchestrator";
 import { childProcessBindingDigest } from "./child-process-attestation.js";
 import { getProjectWorldState, materializeWorldStateForProject } from "./world-state.js";
@@ -178,6 +184,479 @@ export async function createPendingApplyChangesTransition(
     });
     return id;
   });
+}
+
+
+export type AcceptedApplyTransitionRecoveryResult =
+  | { kind: "created" | "existing"; transitionId: string; goalId: string; userId: string }
+  | { kind: "blocked"; reason: string };
+
+/**
+ * Rebuilds only the missing durable World Transition for an already accepted
+ * Mission-linked Apply. This is separate from the live-worker creator: it
+ * requires a completed Execution, its exact Acceptance, and the persisted
+ * ACTION_REQUESTED parent intent. It never writes project files.
+ */
+export async function recoverAcceptedApplyChangesTransition(input: {
+  projectId: string;
+  executionId: string;
+  attempt: number;
+  episodeId: string;
+  actionId: string;
+  proposalId: string;
+}): Promise<AcceptedApplyTransitionRecoveryResult> {
+  try {
+    return await db.transaction(async (tx) => {
+      // Materialization locks Project before Execution. Keep the same leading
+      // order so recovery cannot deadlock with the existing CAS finalizer.
+      const [project] = await tx.select({
+        id: projectsTable.id,
+        rootPath: projectsTable.rootPath,
+      }).from(projectsTable)
+        .where(eq(projectsTable.id, input.projectId))
+        .for("update")
+        .limit(1);
+      if (!project) return { kind: "blocked", reason: "apply_recovery_project_missing" } as const;
+
+      const [episodeSnapshot] = await tx.select({
+        id: aiAgentEpisodesTable.id,
+        missionId: aiAgentEpisodesTable.missionId,
+        goalId: aiAgentEpisodesTable.goalId,
+      }).from(aiAgentEpisodesTable).where(and(
+        eq(aiAgentEpisodesTable.id, input.episodeId),
+        eq(aiAgentEpisodesTable.projectId, input.projectId),
+        eq(aiAgentEpisodesTable.executionId, input.executionId),
+        eq(aiAgentEpisodesTable.attempt, input.attempt),
+      )).limit(1);
+      if (!episodeSnapshot?.missionId || !episodeSnapshot.goalId) {
+        return { kind: "blocked", reason: "apply_recovery_episode_scope_missing" } as const;
+      }
+
+      // Match Mission runtime's Mission -> Goal -> Execution lock order.
+      const [mission] = await tx.select().from(aiMissionsTable).where(and(
+        eq(aiMissionsTable.id, episodeSnapshot.missionId),
+        eq(aiMissionsTable.projectId, input.projectId),
+      )).for("update").limit(1);
+      const [goal] = await tx.select().from(aiGoalsTable).where(and(
+        eq(aiGoalsTable.id, episodeSnapshot.goalId),
+        eq(aiGoalsTable.missionId, episodeSnapshot.missionId),
+        eq(aiGoalsTable.projectId, input.projectId),
+      )).for("update").limit(1);
+      if (!mission || !goal) {
+        return { kind: "blocked", reason: "apply_recovery_mission_scope_missing" } as const;
+      }
+
+      const [execution] = await tx.select().from(aiExecutionsTable).where(and(
+        eq(aiExecutionsTable.id, input.executionId),
+        eq(aiExecutionsTable.projectId, input.projectId),
+        eq(aiExecutionsTable.attempt, input.attempt),
+      )).for("update").limit(1);
+      if (!execution || execution.status !== "completed"
+        || execution.goalId !== goal.id || execution.proposalId !== input.proposalId
+        || !execution.operationId) {
+        return { kind: "blocked", reason: "apply_recovery_execution_binding_invalid" } as const;
+      }
+
+      const [acceptance] = await tx.select().from(aiExecutionAcceptancesTable).where(and(
+        eq(aiExecutionAcceptancesTable.executionId, input.executionId),
+        eq(aiExecutionAcceptancesTable.projectId, input.projectId),
+        eq(aiExecutionAcceptancesTable.attempt, input.attempt),
+      )).for("update").limit(1);
+      if (!acceptance || acceptance.outcome !== "SUCCEEDED"
+        || acceptance.terminalStatus !== "completed"
+        || acceptance.operationId !== execution.operationId
+        || !acceptance.effectBundleId
+        || acceptance.candidateIdentity == null) {
+        return { kind: "blocked", reason: "apply_recovery_acceptance_unproven" } as const;
+      }
+
+      const [episode] = await tx.select().from(aiAgentEpisodesTable).where(and(
+        eq(aiAgentEpisodesTable.id, input.episodeId),
+        eq(aiAgentEpisodesTable.projectId, input.projectId),
+        eq(aiAgentEpisodesTable.executionId, input.executionId),
+        eq(aiAgentEpisodesTable.attempt, input.attempt),
+        eq(aiAgentEpisodesTable.missionId, mission.id),
+        eq(aiAgentEpisodesTable.goalId, goal.id),
+      )).for("update").limit(1);
+      if (!episode || episode.intentKind !== "APPLY_CHANGES") {
+        return { kind: "blocked", reason: "apply_recovery_episode_binding_invalid" } as const;
+      }
+
+      const actionEvents = await tx.select().from(aiAgentEpisodeEventsTable).where(and(
+        eq(aiAgentEpisodeEventsTable.projectId, input.projectId),
+        eq(aiAgentEpisodeEventsTable.executionId, input.executionId),
+        eq(aiAgentEpisodeEventsTable.attempt, input.attempt),
+        eq(aiAgentEpisodeEventsTable.episodeId, input.episodeId),
+        eq(aiAgentEpisodeEventsTable.eventType, "ACTION_REQUESTED"),
+      ));
+      const matchingEvents = actionEvents.filter((event) => {
+        try {
+          const payload = parseAgentActionRequestedPayload(event.payload);
+          return payload.action.actionId === input.actionId;
+        } catch {
+          return false;
+        }
+      });
+      if (matchingEvents.length !== 1) {
+        return { kind: "blocked", reason: "apply_recovery_action_event_missing_or_ambiguous" } as const;
+      }
+
+      let requestedPayload: ReturnType<typeof parseAgentActionRequestedPayload>;
+      try {
+        requestedPayload = parseAgentActionRequestedPayload(matchingEvents[0]!.payload);
+      } catch {
+        return { kind: "blocked", reason: "apply_recovery_action_event_invalid" } as const;
+      }
+      const action = requestedPayload.action;
+      const scope = action.scope && typeof action.scope === "object" && !Array.isArray(action.scope)
+        ? action.scope as Record<string, unknown>
+        : {};
+      const intentResult = ApplyWorldTransitionIntentSchema.safeParse(requestedPayload.worldTransitionIntent);
+      if (!intentResult.success) {
+        return { kind: "blocked", reason: "apply_recovery_parent_intent_missing_or_invalid" } as const;
+      }
+      const intent = intentResult.data;
+      if (
+        action.episodeId !== episode.id
+        || action.capabilityId !== "approved.source-promotion"
+        || scope.projectId !== input.projectId
+        || scope.proposalId !== input.proposalId
+        || scope.attemptId !== execution.operationId
+        || typeof scope.operationId !== "string"
+        || typeof scope.baseTreeHash !== "string"
+        || typeof scope.candidateTreeHash !== "string"
+        || typeof scope.changeSetHash !== "string"
+        || typeof scope.sourceRevision !== "string"
+        || !Array.isArray(scope.approvedPaths)
+        || scope.approvedPaths.length === 0
+        || intent.projectId !== input.projectId
+        || intent.proposalId !== input.proposalId
+        || intent.goalId !== goal.id
+        || intent.planRevision !== episode.planRevision
+        || intent.parentWorldRevision !== episode.worldRevision
+      ) {
+        return { kind: "blocked", reason: "apply_recovery_action_or_intent_binding_invalid" } as const;
+      }
+
+      const [proposal] = await tx.select().from(aiChangeProposalsTable).where(and(
+        eq(aiChangeProposalsTable.id, input.proposalId),
+        eq(aiChangeProposalsTable.projectId, input.projectId),
+      )).for("update").limit(1);
+      const criteria = goal.successCriteria && typeof goal.successCriteria === "object" && !Array.isArray(goal.successCriteria)
+        ? goal.successCriteria as Record<string, unknown>
+        : {};
+      const outcome = goal.outcomeContract && typeof goal.outcomeContract === "object" && !Array.isArray(goal.outcomeContract)
+        ? goal.outcomeContract as Record<string, unknown>
+        : {};
+      const criteriaPlan = criteria.planRevision && typeof criteria.planRevision === "object" && !Array.isArray(criteria.planRevision)
+        ? criteria.planRevision as Record<string, unknown>
+        : {};
+      const outcomePlan = outcome.planRevision && typeof outcome.planRevision === "object" && !Array.isArray(outcome.planRevision)
+        ? outcome.planRevision as Record<string, unknown>
+        : {};
+      const autonomyPolicy = mission.autonomyPolicy && typeof mission.autonomyPolicy === "object" && !Array.isArray(mission.autonomyPolicy)
+        ? mission.autonomyPolicy as Record<string, unknown>
+        : {};
+      const activePlanRevision = autonomyPolicy.activePlanRevision;
+      if (
+        !proposal
+        || proposal.status !== "applied"
+        || !["applied", "blocked"].includes(proposal.lifecycle)
+        || proposal.operationId !== scope.operationId
+        || proposal.baseRevision !== scope.sourceRevision
+        || proposal.baseTreeHash !== scope.baseTreeHash
+        || proposal.candidateTreeHash !== scope.candidateTreeHash
+        || proposal.changeSetHash !== scope.changeSetHash
+        || proposal.promotedTreeHash !== scope.candidateTreeHash
+        || execution.operationId !== scope.attemptId
+        || execution.workspaceRoot == null
+        || acceptance.sourceRevision !== proposal.baseRevision
+        || acceptance.candidateIdentity !== (proposal.id + ":" + proposal.candidateTreeHash)
+        || intent.planRevision !== activePlanRevision
+        || criteriaPlan.hash !== intent.planRevision
+        || outcomePlan.hash !== intent.planRevision
+        || episode.planRevision !== intent.planRevision
+        || !applyRequirementMatches(criteria.applyRequirement, {
+          proposalId: proposal.id,
+          baseRevision: proposal.baseRevision ?? "",
+          candidateTreeHash: proposal.candidateTreeHash ?? "",
+          changeSetHash: proposal.changeSetHash ?? "",
+        })
+        || !applyRequirementMatches(outcome.applyRequirement, {
+          proposalId: proposal.id,
+          baseRevision: proposal.baseRevision ?? "",
+          candidateTreeHash: proposal.candidateTreeHash ?? "",
+          changeSetHash: proposal.changeSetHash ?? "",
+        })
+      ) {
+        return { kind: "blocked", reason: "apply_recovery_proposal_or_plan_binding_invalid" } as const;
+      }
+
+      if (goal.status === "needs_replan" && goal.blockedReason === "apply_transition_missing") {
+        if (!["needs_replan", "waiting"].includes(mission.status)) {
+          return { kind: "blocked", reason: "apply_recovery_mission_not_recoverable" } as const;
+        }
+        const missionGoals = await tx.select({
+          id: aiGoalsTable.id,
+          status: aiGoalsTable.status,
+          blockedReason: aiGoalsTable.blockedReason,
+        }).from(aiGoalsTable).where(and(
+          eq(aiGoalsTable.missionId, mission.id),
+          eq(aiGoalsTable.projectId, input.projectId),
+        )).for("update");
+        const otherBlockers = missionGoals.filter((candidate) =>
+          candidate.id !== goal.id
+          && ["needs_replan", "blocked", "failed", "cancelled"].includes(candidate.status)
+        );
+        if (otherBlockers.length > 0) {
+          return { kind: "blocked", reason: "apply_recovery_other_mission_blocker_present" } as const;
+        }
+      } else if (goal.status !== "waiting_for_event" || goal.blockedReason !== "apply_changes_pending") {
+        return { kind: "blocked", reason: "apply_recovery_goal_not_pending" } as const;
+      }
+      if (mission.status === "blocked" || mission.status === "failed" || mission.status === "completed"
+        || (goal.status === "waiting_for_event" && mission.status === "needs_replan")) {
+        return { kind: "blocked", reason: "apply_recovery_mission_operator_or_terminal_state" } as const;
+      }
+
+      const root = await establishProjectRoot(project.rootPath);
+      if (!root.ok || root.canonicalPath !== execution.workspaceRoot) {
+        return { kind: "blocked", reason: "apply_recovery_project_root_binding_invalid" } as const;
+      }
+      const liveTreeHash = await hashDeliveryTree(root.canonicalPath).catch(() => null);
+      if (!liveTreeHash || liveTreeHash !== proposal.candidateTreeHash) {
+        return { kind: "blocked", reason: "apply_recovery_live_tree_mismatch" } as const;
+      }
+
+      const beforeSourceId = "apply:" + input.executionId + ":" + input.attempt + ":before:live-tree";
+      const afterSourceId = "apply:" + input.executionId + ":" + input.attempt + ":after:live-tree";
+      const worldObservations = await tx.select().from(aiAgentObservationsTable).where(and(
+        eq(aiAgentObservationsTable.projectId, input.projectId),
+        eq(aiAgentObservationsTable.executionId, input.executionId),
+        eq(aiAgentObservationsTable.episodeId, input.episodeId),
+        inArray(aiAgentObservationsTable.sourceId, [beforeSourceId, afterSourceId]),
+      ));
+      const beforeRows = worldObservations.filter((row) => row.sourceId === beforeSourceId);
+      const afterRows = worldObservations.filter((row) => row.sourceId === afterSourceId);
+      if (beforeRows.length !== 1 || afterRows.length !== 1) {
+        return { kind: "blocked", reason: "apply_recovery_world_observations_missing_or_ambiguous" } as const;
+      }
+      const before = beforeRows[0]!;
+      const after = afterRows[0]!;
+      const environmentRevision = before.environmentRevision;
+      if (
+        !environmentRevision
+        || !/^env-v1:[a-f0-9]{64}$/.test(environmentRevision)
+        || after.environmentRevision !== environmentRevision
+        || [before, after].some((row) =>
+          row.provenance !== "DIRECT_OBSERVATION"
+          || row.completeness !== "complete"
+          || row.freshness !== "fresh"
+          || row.environmentFreshness !== "fresh"
+          || row.taskScope !== "project"
+          || row.subject !== ("project:" + input.projectId)
+          || row.predicate !== "workspace.tree_hash"
+        )
+        || before.observationRole !== "before"
+        || after.observationRole !== "after"
+        || before.projectRevision !== proposal.baseTreeHash
+        || before.sourceVersion !== proposal.baseTreeHash
+        || before.value !== proposal.baseTreeHash
+        || after.projectRevision !== proposal.candidateTreeHash
+        || after.sourceVersion !== proposal.candidateTreeHash
+        || after.value !== proposal.candidateTreeHash
+      ) {
+        return { kind: "blocked", reason: "apply_recovery_world_observation_binding_invalid" } as const;
+      }
+
+      const [bundle] = await tx.select().from(aiAgentEffectBundlesTable).where(and(
+        eq(aiAgentEffectBundlesTable.id, acceptance.effectBundleId),
+        eq(aiAgentEffectBundlesTable.projectId, input.projectId),
+        eq(aiAgentEffectBundlesTable.executionId, input.executionId),
+        eq(aiAgentEffectBundlesTable.attempt, input.attempt),
+        eq(aiAgentEffectBundlesTable.episodeId, input.episodeId),
+      )).for("update").limit(1);
+      const effectIds = Array.isArray(bundle?.effectIds)
+        ? bundle.effectIds.filter((value): value is string => typeof value === "string")
+        : [];
+      const effects = effectIds.length > 0
+        ? await tx.select().from(aiAgentEffectsTable).where(and(
+            eq(aiAgentEffectsTable.projectId, input.projectId),
+            eq(aiAgentEffectsTable.executionId, input.executionId),
+            eq(aiAgentEffectsTable.attempt, input.attempt),
+            eq(aiAgentEffectsTable.episodeId, input.episodeId),
+            inArray(aiAgentEffectsTable.id, effectIds),
+          )).for("update")
+        : [];
+      if (!bundle || !isBoundApplyChangeEffectBundle({
+        bundle,
+        effects,
+        projectId: input.projectId,
+        executionId: input.executionId,
+        attempt: input.attempt,
+        episodeId: input.episodeId,
+        actionId: input.actionId,
+        proposalId: input.proposalId,
+        candidateTreeHash: proposal.candidateTreeHash!,
+      })) {
+        return { kind: "blocked", reason: "apply_recovery_effect_bundle_unproven" } as const;
+      }
+
+      // This uses the same exclusion rule as the original capture. The Project
+      // row lock serializes the read against World State materialization.
+      const currentParent = await getProjectWorldState(input.projectId, {
+        excludeEpisodeIds: [input.episodeId],
+      }, tx);
+      const currentFactRefs = currentParent.facts.map((fact) => fact.id).sort();
+      if (
+        currentParent.worldRevision !== intent.parentWorldRevision
+        || JSON.stringify(currentFactRefs) !== JSON.stringify(intent.parentFactRefs)
+      ) {
+        return { kind: "blocked", reason: "apply_recovery_parent_snapshot_changed" } as const;
+      }
+
+      const idempotencyKey = applyTransitionIdempotencyKey({
+        projectId: input.projectId,
+        executionId: input.executionId,
+        attempt: input.attempt,
+        episodeId: input.episodeId,
+        actionId: input.actionId,
+        effectBundleId: acceptance.effectBundleId,
+        proposalId: input.proposalId,
+        goalId: goal.id,
+        planRevision: intent.planRevision,
+        workerId: "",
+        parentWorldRevision: intent.parentWorldRevision,
+        parentFactRefs: intent.parentFactRefs,
+        beforeObservationIds: [before.id],
+        afterObservationIds: [after.id],
+        evidenceRefs: [],
+        environmentRevision,
+        promotedTreeHash: proposal.candidateTreeHash!,
+      });
+      const bindingRef = "apply-binding:v1:" + JSON.stringify({
+        proposalId: input.proposalId,
+        goalId: goal.id,
+        planRevision: intent.planRevision,
+        promotedTreeHash: proposal.candidateTreeHash,
+      });
+      const evidenceRefs = unique([
+        "apply:" + input.executionId + ":" + input.attempt + ":before",
+        "apply:" + input.executionId + ":" + input.attempt + ":after",
+        before.id,
+        after.id,
+        bindingRef,
+      ]);
+
+      const sameAttemptRows = await tx.select().from(aiWorldTransitionsTable).where(and(
+        eq(aiWorldTransitionsTable.projectId, input.projectId),
+        eq(aiWorldTransitionsTable.executionId, input.executionId),
+        eq(aiWorldTransitionsTable.attempt, input.attempt),
+      )).for("update");
+      if (sameAttemptRows.length > 0) {
+        const existing = sameAttemptRows.find((row) => row.idempotencyKey === idempotencyKey);
+        if (
+          sameAttemptRows.length !== 1
+          || !existing
+          || existing.episodeId !== input.episodeId
+          || existing.actionId !== input.actionId
+          || existing.effectBundleId !== acceptance.effectBundleId
+          || existing.parentWorldRevision !== intent.parentWorldRevision
+          || existing.environmentRevision !== environmentRevision
+          || JSON.stringify(existing.parentFactRefs) !== JSON.stringify(intent.parentFactRefs)
+          || JSON.stringify(existing.beforeObservationIds) !== JSON.stringify([before.id])
+          || JSON.stringify(existing.afterObservationIds) !== JSON.stringify([after.id])
+          || JSON.stringify(unique(existing.evidenceRefs as string[])) !== JSON.stringify(evidenceRefs)
+        ) {
+          return { kind: "blocked", reason: "apply_recovery_existing_transition_conflict" } as const;
+        }
+        return { kind: "existing", transitionId: existing.id, goalId: goal.id, userId: mission.userId } as const;
+      }
+
+      const transitionId = randomUUID();
+      await tx.insert(aiWorldTransitionsTable).values({
+        id: transitionId,
+        projectId: input.projectId,
+        executionId: input.executionId,
+        attempt: input.attempt,
+        episodeId: input.episodeId,
+        actionId: input.actionId,
+        effectBundleId: acceptance.effectBundleId,
+        parentWorldRevision: intent.parentWorldRevision,
+        taskScope: "project",
+        environmentRevisionKey: "revision:" + environmentRevision,
+        environmentRevision,
+        freshness: "unknown",
+        beforeObservationIds: [before.id],
+        afterObservationIds: [after.id],
+        materializedObservationIds: [],
+        parentFactRefs: intent.parentFactRefs,
+        changedFactRefs: [],
+        evidenceRefs,
+        status: "pending",
+        idempotencyKey,
+        retryCount: 0,
+        failureCode: null,
+        nextRetryAt: null,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      });
+
+      if (goal.status === "needs_replan" && goal.blockedReason === "apply_transition_missing") {
+        await tx.update(aiGoalsTable).set({
+          status: "waiting_for_event",
+          blockedReason: "apply_changes_pending",
+          nextWakeAt: null,
+          updatedAt: new Date(),
+        }).where(and(
+          eq(aiGoalsTable.id, goal.id),
+          eq(aiGoalsTable.status, "needs_replan"),
+          eq(aiGoalsTable.blockedReason, "apply_transition_missing"),
+        ));
+        if (mission.status === "needs_replan") {
+          await tx.update(aiMissionsTable).set({
+            status: "waiting",
+            updatedAt: new Date(),
+          }).where(and(
+            eq(aiMissionsTable.id, mission.id),
+            eq(aiMissionsTable.status, "needs_replan"),
+          ));
+        }
+        await tx.insert(eventsTable).values({
+          id: randomUUID(),
+          type: "AiGoalApplyChangesTransitionRecoveryQueued",
+          projectId: input.projectId,
+          goalId: goal.id,
+          severity: "info",
+          message: "An accepted Apply Changes World Transition was reconstructed from its original snapshot and retained proof.",
+          payload: {
+            missionId: mission.id,
+            executionId: input.executionId,
+            attempt: input.attempt,
+            episodeId: input.episodeId,
+            transitionId,
+            planRevision: intent.planRevision,
+            parentWorldRevision: intent.parentWorldRevision,
+            recoverySource: "accepted_apply_snapshot_intent",
+            noFilesystemWrites: true,
+          },
+        });
+      }
+
+      return { kind: "created", transitionId, goalId: goal.id, userId: mission.userId } as const;
+    });
+  } catch (error) {
+    const code = error instanceof Error ? error.message : "apply_recovery_unexpected";
+    logger.warn({
+      scope: "apply-transition-recovery",
+      projectId: input.projectId,
+      executionId: input.executionId,
+      attempt: input.attempt,
+      episodeId: input.episodeId,
+      reason: code.slice(0, 120),
+    }, "accepted Apply Changes transition recovery failed closed");
+    return { kind: "blocked", reason: "apply_recovery_transaction_failed" };
+  }
 }
 
 export async function createPendingRuntimeStartTransition(
