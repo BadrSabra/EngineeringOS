@@ -454,8 +454,13 @@ async function attestationMarkerStatus(pid, expectedMarker) {
     if (count === 0) return "missing";
     if (count !== 1) return "duplicate";
     return matches ? "matched" : "mismatch";
-  } catch {
-    return "unreadable";
+  } catch (error) {
+    const code = error && typeof error === "object" && "code" in error
+      ? error.code
+      : undefined;
+    return typeof code === "string" && /^[A-Z0-9_]{1,32}$/.test(code)
+      ? `unreadable:${code}`
+      : "unreadable";
   } finally {
     environment?.fill(0);
   }
