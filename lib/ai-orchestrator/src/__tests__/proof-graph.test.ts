@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 import {
   hashProofGraph,
+  ProofGraphSchema,
+  PROOF_GRAPH_MAX_EDGES,
+  PROOF_GRAPH_MAX_NODES,
   validateProofGraph,
   type ProofGraph,
   type ProofGraphDataNode,
@@ -502,5 +505,115 @@ describe("Proof Graph Kernel v0", () => {
 
     expect(validateProofGraph(graph).verdict).toBe("FAIL");
     expect(validateProofGraph(graph).violations.some((item) => item.code === "SCHEMA_INVALID")).toBe(true);
+  });
+
+  it("rejects duplicate semantic edges even when their edge ids differ", () => {
+    const graph = makeValidGraph();
+    const original = graph.edges[0];
+    if (!original) throw new Error("missing edge fixture");
+    graph.edges.push({ ...original, id: "duplicate-semantic-edge" });
+
+    expect(validateProofGraph(graph).violations.some((item) => item.code === "DUPLICATE_EDGE")).toBe(true);
+  });
+
+  it("rejects duplicate pre-execution control rules for one execution", () => {
+    const graph = makeValidGraph();
+    const source = graph.nodes.find((node) => node.id === "data-pre-0");
+    const control = graph.nodes.find((node) => node.id === "control-pre-0");
+    if (!source || source.kind !== "DATA" || !control || control.kind !== "CONTROL") {
+      throw new Error("missing duplicate-control fixture");
+    }
+
+    const duplicateControl = { ...control, id: "control-pre-duplicate" };
+    graph.nodes.push(duplicateControl);
+    graph.edges.push(
+      {
+        id: "edge-pre-duplicate-data",
+        type: "DATA_SUPPORTS_CONTROL",
+        from: source.id,
+        to: duplicateControl.id,
+      },
+      {
+        id: "edge-pre-duplicate-gate",
+        type: "CONTROL_GATES_EXECUTION",
+        from: duplicateControl.id,
+        to: "execution-1",
+      },
+    );
+
+    expect(validateProofGraph(graph).violations.some((item) => item.code === "DUPLICATE_CONTROL_RULE")).toBe(true);
+  });
+
+  it("enforces the maximum node count at the schema boundary", () => {
+    const graph = makeValidGraph();
+    const extraNodes = Array.from(
+      { length: PROOF_GRAPH_MAX_NODES + 1 - graph.nodes.length },
+      (_, index) => ({
+        id: `extra-control-${index}`,
+        kind: "CONTROL" as const,
+        ruleId: "AUTHORIZATION_VALID" as const,
+        phase: "PRE_EXECUTION" as const,
+        outcome: "SATISFIED" as const,
+        evidenceRefs: ["x"],
+      }),
+    );
+    const parsed = ProofGraphSchema.safeParse({ ...graph, nodes: [...graph.nodes, ...extraNodes] });
+
+    if (parsed.success) throw new Error("Proof Graph unexpectedly accepted more than the node limit.");
+    expect(parsed.error.issues.some((issue) => issue.path[0] === "nodes")).toBe(true);
+  });
+
+  it("enforces the maximum edge count at the schema boundary", () => {
+    const graph = makeValidGraph();
+    const template = graph.edges[0];
+    if (!template) throw new Error("missing edge fixture");
+    const extraEdges = Array.from(
+      { length: PROOF_GRAPH_MAX_EDGES + 1 - graph.edges.length },
+      (_, index) => ({ ...template, id: `overflow-edge-${index}` }),
+    );
+    const parsed = ProofGraphSchema.safeParse({ ...graph, edges: [...graph.edges, ...extraEdges] });
+
+    if (parsed.success) throw new Error("Proof Graph unexpectedly accepted more than the edge limit.");
+    expect(parsed.error.issues.some((issue) => issue.path[0] === "edges")).toBe(true);
+  });
+
+  it("enforces the 32 KiB canonical graph size limit", () => {
+    const graph = makeValidGraph();
+    for (const node of graph.nodes) {
+      if (node.kind !== "CONTROL") continue;
+      node.evidenceRefs = Array.from(
+        { length: 64 },
+        (_, index) => `${node.id}-${index}-${"x".repeat(170)}`,
+      );
+    }
+    const parsed = ProofGraphSchema.safeParse(graph);
+
+    if (parsed.success) throw new Error("Proof Graph unexpectedly exceeded the 32 KiB contract limit.");
+    expect(parsed.error.issues.some((issue) => issue.message.includes("contract exceeds 32768 bytes"))).toBe(true);
+  });
+
+  it("returns the same ordered violations when node and edge input order changes", () => {
+    const graph = makeValidGraph();
+    graph.edges.push(
+      {
+        id: "deterministic-dangling",
+        type: "DATA_SUPPORTS_CONTROL",
+        from: "missing-data",
+        to: "control-pre-0",
+      },
+      {
+        id: "deterministic-wrong-direction",
+        type: "DATA_SUPPORTS_CONTROL",
+        from: "control-pre-0",
+        to: "data-pre-0",
+      },
+    );
+    const reordered: ProofGraph = {
+      ...graph,
+      nodes: [...graph.nodes].reverse(),
+      edges: [...graph.edges].reverse(),
+    };
+
+    expect(validateProofGraph(graph).violations).toEqual(validateProofGraph(reordered).violations);
   });
 });
