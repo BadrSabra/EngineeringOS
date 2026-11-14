@@ -213,6 +213,39 @@ describe("Proof Graph Kernel v0", () => {
     expect(result.violations.some((item) => item.code === "SCHEMA_INVALID")).toBe(true);
   });
 
+  it("requires each control's declared evidence refs to match its incoming DATA nodes", () => {
+    const graph = makeValidGraph();
+    const control = graph.nodes.find((node) => node.id === "control-pre-0");
+    if (!control || control.kind !== "CONTROL") throw new Error("missing control fixture");
+    control.evidenceRefs = ["evidence-not-connected"];
+
+    expect(validateProofGraph(graph).violations.some((item) =>
+      item.code === "CONTROL_EVIDENCE_MISMATCH")).toBe(true);
+  });
+
+  it("rejects ambiguous output DATA with multiple execution producers", () => {
+    const graph = makeValidGraph();
+    graph.nodes.push({
+      id: "execution-2",
+      kind: "EXECUTION",
+      role: "AGENT",
+      actionId: "action-2",
+      capabilityId: "apply_changes",
+      scopeHash,
+      planRevision,
+      operationKind: "MUTATION",
+    });
+    graph.edges.push({
+      id: "second-producer",
+      type: "EXECUTION_PRODUCES_DATA",
+      from: "execution-2",
+      to: "data-post-0",
+    });
+
+    expect(validateProofGraph(graph).violations.some((item) =>
+      item.code === "MULTIPLE_DATA_PRODUCERS")).toBe(true);
+  });
+
   it("rejects a direct SERVICE → EXECUTOR dependency edge", () => {
     const graph = makeValidGraph();
     const service = {
