@@ -28,7 +28,11 @@ function makeValidGraph(): ProofGraph {
     kind: "DATA" as const,
     evidenceRef: `evidence-pre-${index}`,
     contentHash: rule === "SCOPE_MATCHED" ? scopeHash : String(index + 1).repeat(64),
-    sourceRevision: parentRevision,
+    evidenceKind: rule === "AUTHORIZATION_VALID" ? "AUTHORIZATION"
+      : rule === "SCOPE_MATCHED" ? "SCOPE"
+        : rule === "PRECONDITIONS_SATISFIED" ? "PRECONDITION" : "PARENT_WORLD_SNAPSHOT",
+    revisionDomain: rule === "AUTHORIZATION_VALID" || rule === "SCOPE_MATCHED" ? "PLAN" : "WORLD",
+    sourceRevision: rule === "AUTHORIZATION_VALID" || rule === "SCOPE_MATCHED" ? planRevision : parentRevision,
     provenance: "SERVER_DERIVED" as const,
     freshness: "fresh" as const,
     rule,
@@ -38,7 +42,12 @@ function makeValidGraph(): ProofGraph {
     kind: "DATA" as const,
     evidenceRef: `evidence-post-${index}`,
     contentHash: String(index + 5).repeat(64),
-    sourceRevision: nextRevision,
+    evidenceKind: rule === "EFFECT_PROVEN" ? "EFFECT_OBSERVATION"
+      : rule === "ACCEPTANCE_SUCCEEDED" ? "EXECUTION_ACCEPTANCE" : "WORLD_TRANSITION",
+    revisionDomain: rule === "EFFECT_PROVEN" ? "WORKSPACE_TREE"
+      : rule === "ACCEPTANCE_SUCCEEDED" ? "PLAN" : "WORLD",
+    sourceRevision: rule === "EFFECT_PROVEN" ? nextRevision
+      : rule === "ACCEPTANCE_SUCCEEDED" ? planRevision : "e".repeat(64),
     provenance: (rule === "EFFECT_PROVEN" ? "DIRECT_OBSERVATION" : "SERVER_DERIVED") as "DIRECT_OBSERVATION" | "SERVER_DERIVED",
     freshness: "fresh" as const,
     rule,
@@ -74,6 +83,7 @@ function makeValidGraph(): ProofGraph {
     goalId: "goal-1",
     planRevision,
     parentWorldRevision: parentRevision,
+    resultingWorldRevision: "e".repeat(64),
     nodes: [
       ...preData.map(({ rule: _rule, ...node }) => node),
       ...controls,
@@ -184,7 +194,7 @@ describe("Proof Graph Kernel v0", () => {
       item.code === "MISSING_REQUIRED_CONTROL" && item.path.includes("AUTHORIZATION_VALID"))).toBe(true);
   });
 
-  it("requires fresh direct after-observations that advance beyond the parent revision", () => {
+  it("requires fresh direct after-observations in the workspace-tree revision domain", () => {
     const graph = makeValidGraph();
     const output = graph.nodes.find((node) => node.id === "data-post-0");
     if (!output || output.kind !== "DATA") throw new Error("missing output fixture");
@@ -193,10 +203,27 @@ describe("Proof Graph Kernel v0", () => {
     expect(validateProofGraph(graph).violations.some((item) => item.code === "OUTPUT_NOT_DIRECT_OBSERVATION")).toBe(true);
 
     output.provenance = "DIRECT_OBSERVATION";
-    output.sourceRevision = parentRevision;
-    graph.nodes.filter((node) => node.kind === "DATA" && node.id.startsWith("data-post-"))
-      .forEach((node) => { if (node.kind === "DATA") node.sourceRevision = parentRevision; });
-    expect(validateProofGraph(graph).violations.some((item) => item.code === "OUTPUT_REVISION_UNCHANGED")).toBe(true);
+    output.evidenceKind = "EXECUTION_ACCEPTANCE";
+    expect(validateProofGraph(graph).violations.some((item) => item.code === "OUTPUT_NOT_DIRECT_OBSERVATION")).toBe(true);
+  });
+
+  it("requires the materialized World Transition to advance the parent World Revision", () => {
+    const graph = makeValidGraph();
+    graph.resultingWorldRevision = graph.parentWorldRevision;
+    const result = validateProofGraph(graph);
+
+    expect(result.verdict).toBe("FAIL");
+    expect(result.violations.some((item) => item.code === "SCHEMA_INVALID")).toBe(true);
+  });
+
+  it("requires typed evidence revision domains to match the control rule", () => {
+    const graph = makeValidGraph();
+    const data = graph.nodes.find((node) => node.id === "data-post-0");
+    if (!data || data.kind !== "DATA") throw new Error("missing effect evidence fixture");
+    data.revisionDomain = "WORLD";
+
+    expect(validateProofGraph(graph).violations.some((item) =>
+      item.code === "CONTROL_EVIDENCE_REVISION_DOMAIN_MISMATCH")).toBe(true);
   });
 
   it("requires the graph execution identity to bind an actual EXECUTION node", () => {
