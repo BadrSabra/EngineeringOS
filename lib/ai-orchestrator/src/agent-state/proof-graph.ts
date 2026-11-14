@@ -90,9 +90,24 @@ export const ProofGraphSchema = boundedContractSchema(z.object({
   goalId: boundedString(200),
   planRevision: digestSchema,
   parentWorldRevision: digestSchema,
-  nodes: z.array(ProofGraphNodeSchema).max(PROOF_GRAPH_MAX_NODES),
-  edges: z.array(ProofGraphEdgeSchema).max(PROOF_GRAPH_MAX_EDGES),
-}).strict(), 32 * 1024);
+  nodes: z.array(ProofGraphNodeSchema).min(1).max(PROOF_GRAPH_MAX_NODES),
+  edges: z.array(ProofGraphEdgeSchema).min(1).max(PROOF_GRAPH_MAX_EDGES),
+}).strict().superRefine((graph, ctx) => {
+  const nodeIds = new Set<string>();
+  graph.nodes.forEach((node, index) => {
+    if (nodeIds.has(node.id)) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["nodes", index, "id"], message: "node id must be unique" });
+    }
+    nodeIds.add(node.id);
+  });
+  const edgeIds = new Set<string>();
+  graph.edges.forEach((edge, index) => {
+    if (edgeIds.has(edge.id)) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["edges", index, "id"], message: "edge id must be unique" });
+    }
+    edgeIds.add(edge.id);
+  });
+}), 32 * 1024);
 export type ProofGraph = z.infer<typeof ProofGraphSchema>;
 export type ProofGraphNode = z.infer<typeof ProofGraphNodeSchema>;
 export type ProofGraphDataNode = z.infer<typeof ProofGraphDataNodeSchema>;
@@ -226,9 +241,9 @@ function findExecutionCycle(
 
 function sortViolations(violations: ProofGraphViolation[]): ProofGraphViolation[] {
   return violations.sort((left, right) =>
-    left.code.localeCompare(right.code)
-    || left.path.join("\u0000").localeCompare(right.path.join("\u0000"))
-    || left.edgeIds.join("\u0000").localeCompare(right.edgeIds.join("\u0000")));
+    compareString(left.code, right.code)
+    || compareString(left.path.join("\u0000"), right.path.join("\u0000"))
+    || compareString(left.edgeIds.join("\u0000"), right.edgeIds.join("\u0000")));
 }
 
 /**
@@ -313,7 +328,7 @@ export function validateProofGraph(input: unknown): ProofGraphValidationResult {
   const gatesByExecution = new Map<string, ProofGraphControlNode[]>();
   const outputsByExecution = new Map<string, ProofGraphDataNode[]>();
   const verificationsByExecution = new Map<string, ProofGraphControlNode[]>();
-    for (const edge of supportEdges) {
+  for (const edge of supportEdges) {
     const data = nodesById.get(edge.from);
     const control = nodesById.get(edge.to);
     if (data?.kind !== "DATA" || control?.kind !== "CONTROL") continue;
