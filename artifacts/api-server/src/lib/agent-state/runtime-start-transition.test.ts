@@ -37,6 +37,7 @@ import {
   createPendingRuntimeStartTransition,
   createPendingApplyChangesTransition,
   buildApplyChangesWorldTransitionIntent,
+  recoverAcceptedApplyChangesTransition,
   finalizeApplyChangesTransition,
   finalizeRuntimeStartTransition,
   retryPendingRuntimeStartTransitions,
@@ -899,6 +900,7 @@ describe("runtime.start transition retry scheduling", () => {
       intentKind: "APPLY_CHANGES",
       state: "verifying",
       projectRevision: baseRevision,
+      worldRevision: input.parentWorldRevision,
       verdict: null,
       reasonCode: null,
       closedAt: null,
@@ -980,7 +982,7 @@ describe("runtime.start transition retry scheduling", () => {
       evidenceRefs: ["apply-proof"], environmentRevision: fixture.environmentRevision,
       promotedTreeHash: candidateTreeHash,
     };
-    const id = await createPendingApplyChangesTransition(input);
+    let id = await createPendingApplyChangesTransition(input);
     expect(await createPendingApplyChangesTransition(input)).toBe(id);
     await expect(createPendingApplyChangesTransition({
       ...input, parentFactRefs: ["different"],
@@ -1056,6 +1058,14 @@ describe("runtime.start transition retry scheduling", () => {
         capabilityId: APPLY_CHANGE_CAPABILITY_ID,
         expectedEffects: applyAction.expectedEffects,
         effectContract: applyEffect.contract,
+        worldTransitionIntent: buildApplyChangesWorldTransitionIntent({
+          projectId: fixture.projectId,
+          proposalId,
+          goalId,
+          planRevision,
+          parentWorldRevision: input.parentWorldRevision,
+          parentFactRefs: input.parentFactRefs,
+        }),
       },
     });
     await appendEpisodeEvent({
@@ -1114,6 +1124,74 @@ describe("runtime.start transition retry scheduling", () => {
     };
     const initialAcceptance = await finalizeExecutionAcceptance(acceptanceInput);
     expect(initialAcceptance).toMatchObject({ accepted: true, duplicate: false });
+
+    // These are the route's independent direct observations used to reconstruct
+    // the transition. The effect proof observations above remain separately bound.
+    const liveTreeObservationBase = {
+      projectId: fixture.projectId,
+      executionId: fixture.executionId,
+      episodeId: fixture.episodeId,
+      kind: "direct_observation" as const,
+      observationRole: "before",
+      sourceType: "direct_observation",
+      subject: `project:${fixture.projectId}`,
+      predicate: "workspace.tree_hash",
+      taskScope: "project",
+      environmentRevisionKey: `revision:${fixture.environmentRevision}`,
+      provenance: "DIRECT_OBSERVATION" as const,
+      sourceRefs: [],
+      observedAt: now,
+      completeness: "complete" as const,
+      freshness: "fresh" as const,
+      environmentFreshness: "fresh" as const,
+      environmentRevision: fixture.environmentRevision,
+      evidenceRefs: ["apply-proof"],
+      createdAt: now,
+    };
+    const liveBeforeObservationId = crypto.randomUUID();
+    const liveAfterObservationId = crypto.randomUUID();
+    await db.insert(aiAgentObservationsTable).values([
+      {
+        ...liveTreeObservationBase,
+        id: liveBeforeObservationId,
+        sourceId: `apply:${fixture.executionId}:0:before:live-tree`,
+        value: baseTreeHash,
+        valueHash: canonicalJsonHash(baseTreeHash),
+        sourceVersion: baseTreeHash,
+        projectRevision: baseTreeHash,
+        observationRole: "before",
+        sequence: 4,
+      },
+      {
+        ...liveTreeObservationBase,
+        id: liveAfterObservationId,
+        sourceId: `apply:${fixture.executionId}:0:after:live-tree`,
+        value: candidateTreeHash,
+        valueHash: canonicalJsonHash(candidateTreeHash),
+        sourceVersion: candidateTreeHash,
+        projectRevision: candidateTreeHash,
+        observationRole: "after",
+        sequence: 5,
+      },
+    ]);
+
+    // Simulate the precise crash gap: Apply is accepted, but its pending
+    // World Transition row is absent. Recovery must reuse the original intent.
+    await db.delete(aiWorldTransitionsTable).where(eq(aiWorldTransitionsTable.id, id));
+    const recovered = await recoverAcceptedApplyChangesTransition({
+      projectId: fixture.projectId,
+      executionId: fixture.executionId,
+      attempt: 0,
+      episodeId: fixture.episodeId,
+      actionId: input.actionId,
+      proposalId,
+    });
+    expect(recovered).toMatchObject({ kind: "created", goalId });
+    if (recovered.kind !== "created") {
+      throw new Error(`Expected recovered Apply transition, got ${JSON.stringify(recovered)}`);
+    }
+    id = recovered.transitionId;
+
     const finalizeInput = {
       projectId: fixture.projectId,
       executionId: fixture.executionId,
