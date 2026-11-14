@@ -455,12 +455,20 @@ async function attestationMarkerStatus(pid, expectedMarker) {
     if (count !== 1) return "duplicate";
     return matches ? "matched" : "mismatch";
   } catch (error) {
-    const code = error && typeof error === "object" && "code" in error
-      ? error.code
+    const shape = error && typeof error === "object"
+      ? error
       : undefined;
-    return typeof code === "string" && /^[A-Z0-9_]{1,32}$/.test(code)
-      ? `unreadable:${code}`
-      : "unreadable";
+    const code = shape && "code" in shape ? shape.code : undefined;
+    const name = shape && "name" in shape ? shape.name : undefined;
+    const syscall = shape && "syscall" in shape ? shape.syscall : undefined;
+    const details = [
+      typeof code === "string" && /^[A-Z0-9_]{1,32}$/.test(code) ? code : undefined,
+      typeof name === "string" && /^[A-Za-z0-9_.-]{1,32}$/.test(name) ? name : undefined,
+      typeof syscall === "string" && /^[A-Za-z0-9_.-]{1,32}$/.test(syscall) ? syscall : undefined,
+    ].filter(Boolean);
+    // Keep the failure closed, but retain bounded OS-level diagnostics. Do not
+    // include the procfs path or raw error message in persisted runtime errors.
+    return `unreadable:${details.length > 0 ? details.join("/") : typeof error}`;
   } finally {
     environment?.fill(0);
   }
