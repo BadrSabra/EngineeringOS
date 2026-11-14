@@ -603,18 +603,21 @@ export async function recoverAcceptedApplyChangesTransition(input: {
         bindingRef,
       ]);
 
-      const sameAttemptRows = await tx.select().from(aiWorldTransitionsTable).where(and(
+      // A single Execution attempt may contain multiple distinct Agent actions.
+      // Fence only transitions for this exact Episode + Action; unrelated
+      // transitions in the same attempt must not make this recovery ambiguous.
+      const sameActionRows = await tx.select().from(aiWorldTransitionsTable).where(and(
         eq(aiWorldTransitionsTable.projectId, input.projectId),
         eq(aiWorldTransitionsTable.executionId, input.executionId),
         eq(aiWorldTransitionsTable.attempt, input.attempt),
+        eq(aiWorldTransitionsTable.episodeId, input.episodeId),
+        eq(aiWorldTransitionsTable.actionId, input.actionId),
       )).for("update");
-      if (sameAttemptRows.length > 0) {
-        const existing = sameAttemptRows.find((row) => row.idempotencyKey === idempotencyKey);
+      if (sameActionRows.length > 0) {
+        const existing = sameActionRows.find((row) => row.idempotencyKey === idempotencyKey);
         if (
-          sameAttemptRows.length !== 1
+          sameActionRows.length !== 1
           || !existing
-          || existing.episodeId !== input.episodeId
-          || existing.actionId !== input.actionId
           || existing.effectBundleId !== acceptance.effectBundleId
           || existing.parentWorldRevision !== intent.parentWorldRevision
           || existing.environmentRevision !== environmentRevision
