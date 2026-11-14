@@ -197,6 +197,15 @@ function compareString(left: string, right: string): number {
   return left < right ? -1 : left > right ? 1 : 0;
 }
 
+function compareStringArrays(left: readonly string[], right: readonly string[]): number {
+  const sharedLength = Math.min(left.length, right.length);
+  for (let index = 0; index < sharedLength; index++) {
+    const result = compareString(left[index]!, right[index]!);
+    if (result !== 0) return result;
+  }
+  return left.length - right.length;
+}
+
 function canonicalGraph(graph: ProofGraph): ProofGraph {
   return {
     ...graph,
@@ -232,7 +241,7 @@ function findExecutionCycle(
     nodeStack.push(nodeId);
     const outgoing = [...(adjacency.get(nodeId) ?? [])]
       .sort((left, right) => compareString(left.to, right.to)
-        || compareString(left.edgeIds.join("\\u0000"), right.edgeIds.join("\\u0000")));
+        || compareStringArrays(left.edgeIds, right.edgeIds));
 
     for (const edge of outgoing) {
       const cycleStart = activeIndex.get(edge.to);
