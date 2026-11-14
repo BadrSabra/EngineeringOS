@@ -39,7 +39,7 @@ function makeValidGraph(): ProofGraph {
     evidenceRef: `evidence-post-${index}`,
     contentHash: String(index + 5).repeat(64),
     sourceRevision: nextRevision,
-    provenance: "DIRECT_OBSERVATION" as const,
+    provenance: (rule === "EFFECT_PROVEN" ? "DIRECT_OBSERVATION" : "SERVER_DERIVED") as "DIRECT_OBSERVATION" | "SERVER_DERIVED",
     freshness: "fresh" as const,
     rule,
   }));
@@ -120,6 +120,7 @@ describe("Proof Graph Kernel v0", () => {
       nodes: graph.nodes.map((node) => node.kind === "CONTROL"
         ? { ...node, evidenceRefs: [...node.evidenceRefs].reverse() }
         : node).reverse(),
+      edges: [...graph.edges].reverse(),
     };
 
     expect(hashProofGraph(graph)).toBe(hashProofGraph(reversed));
@@ -191,6 +192,25 @@ describe("Proof Graph Kernel v0", () => {
     graph.nodes.filter((node) => node.kind === "DATA" && node.id.startsWith("data-post-"))
       .forEach((node) => { if (node.kind === "DATA") node.sourceRevision = parentRevision; });
     expect(validateProofGraph(graph).violations.some((item) => item.code === "OUTPUT_REVISION_UNCHANGED")).toBe(true);
+  });
+
+  it("rejects a parent-revision control backed by another revision", () => {
+    const graph = makeValidGraph();
+    const data = graph.nodes.find((node) => node.id === "data-pre-3");
+    if (!data || data.kind !== "DATA") throw new Error("missing parent evidence fixture");
+    data.sourceRevision = nextRevision;
+
+    expect(validateProofGraph(graph).violations.some((item) =>
+      item.code === "CONTROL_PARENT_REVISION_MISMATCH")).toBe(true);
+  });
+
+  it("rejects duplicate node identities at the schema boundary", () => {
+    const graph = makeValidGraph();
+    graph.nodes.push({ ...graph.nodes[0]! });
+
+    const result = validateProofGraph(graph);
+    expect(result.verdict).toBe("FAIL");
+    expect(result.violations.some((item) => item.code === "SCHEMA_INVALID")).toBe(true);
   });
 
   it("rejects a direct SERVICE → EXECUTOR dependency edge", () => {
