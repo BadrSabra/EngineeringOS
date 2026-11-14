@@ -445,7 +445,9 @@ export function validateProofGraph(input: unknown): ProofGraphValidationResult {
     if (evidenceNodes.some((node) => node.revisionDomain !== expectedEvidence.revisionDomain)) {
       addViolation("CONTROL_EVIDENCE_REVISION_DOMAIN_MISMATCH", [control.id, ...evidenceNodes.map((node) => node.id)]);
     }
-    const expectedProvenance = expectedEvidence.provenance;
+    const expectedProvenance = "provenance" in expectedEvidence
+      ? expectedEvidence.provenance
+      : undefined;
     if (expectedProvenance && evidenceNodes.some((node) => node.provenance !== expectedProvenance)) {
       addViolation("CONTROL_EVIDENCE_PROVENANCE_MISMATCH", [control.id, ...evidenceNodes.map((node) => node.id)]);
     }
