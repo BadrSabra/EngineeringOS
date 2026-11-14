@@ -902,7 +902,7 @@ describe("runtime.start transition retry scheduling", () => {
       intentKind: "APPLY_CHANGES",
       state: "verifying",
       projectRevision: baseRevision,
-      worldRevision: input.parentWorldRevision,
+      worldRevision: fixture.transitionInput.parentWorldRevision,
       verdict: null,
       reasonCode: null,
       closedAt: null,

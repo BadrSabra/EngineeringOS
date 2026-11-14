@@ -44,11 +44,9 @@ export function canonicalJsonHash(value: JsonValue): string {
 }
 
 export function boundedJsonSchema(maxBytes: number) {
-  return z.unknown().superRefine((value, ctx) => {
-    if (!isJsonValue(value)) {
-      ctx.addIssue({ code: z.ZodIssueCode.custom, message: "value must be bounded JSON" });
-      return;
-    }
+  return z.custom<JsonValue>(isJsonValue, {
+    message: "value must be bounded JSON",
+  }).superRefine((value, ctx) => {
     const bytes = Buffer.byteLength(canonicalJson(value), "utf8");
     if (bytes > maxBytes) {
       ctx.addIssue({
