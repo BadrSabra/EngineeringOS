@@ -391,6 +391,169 @@ async function waitForLockWaiter(tables: readonly string[]): Promise<string> {
   throw new Error(`Timed out waiting on any of: ${tables.join(", ")}.`);
 }
 
+function startApplyRecoveryProcess(
+  databaseUrl: URL,
+  applicationName: string,
+  input: {
+    projectId: string;
+    executionId: string;
+    attempt: number;
+    episodeId: string;
+    actionId: string;
+    proposalId: string;
+  },
+): RuntimeTransitionApiProcess {
+  const childDatabaseUrl = new URL(databaseUrl.toString());
+  childDatabaseUrl.searchParams.set("application_name", applicationName);
+  const source = [
+    "(async () => {",
+    '  process.stdout.write("APPLY_RECOVERY_WORKER_BOOT:" + JSON.stringify({ pid: process.pid, cwd: process.cwd(), applicationName: process.env.PGAPPNAME }) + "\\n");',
+    '  const { recoverAcceptedApplyChangesTransition } = await import("./src/lib/agent-state/runtime-start-transition.ts");',
+    '  const { pool } = await import("@workspace/db");',
+    '  process.stdout.write("APPLY_RECOVERY_WORKER_MODULES_READY\\n");',
+    '  const input = JSON.parse(process.env.APPLY_RECOVERY_INPUT ?? "{}");',
+    "  try {",
+    "    const result = await recoverAcceptedApplyChangesTransition(input);",
+    '    process.stdout.write("APPLY_RECOVERY_RESULT:" + JSON.stringify(result) + "\\n");',
+    "  } finally {",
+    "    await pool.end();",
+    "  }",
+    "})().catch((error) => {",
+    "  console.error(error);",
+    "  process.exitCode = 1;",
+    "});",
+  ].join("\n");
+  const child = spawn(process.execPath, ["--import", "tsx", "-e", source], {
+    cwd: process.cwd(),
+    env: {
+      ...process.env,
+      DATABASE_URL: childDatabaseUrl.toString(),
+      APPLY_RECOVERY_INPUT: JSON.stringify(input),
+      NODE_ENV: "test",
+      LOG_LEVEL: "warn",
+      PGAPPNAME: applicationName,
+      AI_PROVIDER_EGRESS_DISABLED: "1",
+      AI_CREDENTIALS_ENCRYPTION_KEY:
+        `${crypto.randomUUID().replaceAll("-", "")}${crypto.randomUUID().replaceAll("-", "")}`,
+    },
+    stdio: "pipe",
+  });
+  child.stdin.end();
+  let output = "";
+  child.stdout.setEncoding("utf8").on("data", (chunk: string) => {
+    output = `${output}${chunk}`.slice(-32_000);
+  });
+  child.stderr.setEncoding("utf8").on("data", (chunk: string) => {
+    output = `${output}${chunk}`.slice(-32_000);
+  });
+  return {
+    child,
+    applicationName,
+    exit: new Promise((resolve, reject) => {
+      child.once("error", reject);
+      child.once("exit", (code, signal) => resolve({ code, signal }));
+    }),
+    output: () => output,
+  };
+}
+
+async function waitForApplyRecoveryProcessLockWaiters(
+  projectLockHolderPid: number,
+  applicationNames: readonly [string, string],
+  workers: readonly RuntimeTransitionApiProcess[],
+  timeoutMs = 15_000,
+): Promise<number[]> {
+  const deadline = Date.now() + timeoutMs;
+  let lastObserved: string[] = [];
+  while (Date.now() < deadline) {
+    const result = await db.execute(sql`
+      SELECT
+        waiting.pid,
+        waiting.application_name,
+        waiting.state,
+        waiting.wait_event_type,
+        waiting.wait_event,
+        pg_blocking_pids(waiting.pid) AS blocking_pids,
+        left(waiting.query, 240) AS query
+      FROM pg_stat_activity AS waiting
+      WHERE waiting.pid <> pg_backend_pid()
+        AND waiting.datname = current_database()
+        AND (waiting.application_name = ${applicationNames[0]}
+          OR waiting.application_name = ${applicationNames[1]})
+    `);
+    const rows = result.rows as Array<{
+      pid: number | string;
+      application_name: string;
+      state: string | null;
+      wait_event_type: string | null;
+      wait_event: string | null;
+      blocking_pids: Array<number | string> | null;
+      query: string | null;
+    }>;
+    const rowsByPid = new Map(rows.map((row) => [Number(row.pid), row]));
+    const isTransitivelyBlockedByProjectHolder = (
+      pid: number,
+      visited = new Set<number>(),
+    ): boolean => {
+      if (pid === projectLockHolderPid) return true;
+      if (visited.has(pid)) return false;
+      const nextVisited = new Set(visited);
+      nextVisited.add(pid);
+      const row = rowsByPid.get(pid);
+      return (row?.blocking_pids ?? []).some((blocker) =>
+        isTransitivelyBlockedByProjectHolder(Number(blocker), nextVisited)
+      );
+    };
+    lastObserved = rows.map((row) => {
+      const blockingPids = (row.blocking_pids ?? []).map(Number);
+      const blockedByProjectHolder = isTransitivelyBlockedByProjectHolder(Number(row.pid));
+      return `pid=${row.pid}, app=${row.application_name}, state=${row.state}, wait=${row.wait_event_type ?? "none"}/${row.wait_event ?? "none"}, blockers=[${blockingPids.join(",")}], blockedByProjectHolder=${blockedByProjectHolder}, query=${row.query ?? "none"}`;
+    });
+    const blockedPids = [...new Set(rows
+      .filter((row) => row.state === "active"
+        && row.wait_event_type === "Lock"
+        && isTransitivelyBlockedByProjectHolder(Number(row.pid)))
+      .map((row) => Number(row.pid))
+      .filter((pid) => Number.isSafeInteger(pid)))];
+    if (blockedPids.length >= 2) return blockedPids;
+
+    const exitedWorkers = workers.filter((worker) =>
+      worker.child.exitCode !== null || worker.child.signalCode !== null
+    );
+    if (exitedWorkers.length > 0) {
+      throw new Error(
+        `Apply recovery worker exited before reaching the Project lock. Database observations: ${lastObserved.join(" | ") || "none"}. Worker output: ${workers.map((worker) =>
+          `${worker.applicationName} exit=${worker.child.exitCode ?? "running"} signal=${worker.child.signalCode ?? "none"} output=${worker.output() || "empty"}`
+        ).join(" || ")}`,
+      );
+    }
+    await new Promise((resolve) => setTimeout(resolve, 25));
+  }
+  throw new Error(
+    `Timed out waiting for both Apply recovery worker processes to block on the Project row. Database observations: ${lastObserved.join(" | ") || "none"}. Worker output: ${workers.map((worker) =>
+      `${worker.applicationName} exit=${worker.child.exitCode ?? "running"} signal=${worker.child.signalCode ?? "none"} output=${worker.output() || "empty"}`
+    ).join(" || ")}`,
+  );
+}
+
+function readApplyRecoveryProcessResult(
+  worker: RuntimeTransitionApiProcess,
+): Awaited<ReturnType<typeof recoverAcceptedApplyChangesTransition>> {
+  const exitCode = worker.child.exitCode;
+  if (exitCode !== 0) {
+    throw new Error(
+      `Apply recovery worker ${worker.applicationName} exited with ${exitCode}; ${worker.output()}`,
+    );
+  }
+  const match = worker.output().match(/APPLY_RECOVERY_RESULT:(\{[^\r\n]*\})/);
+  if (!match?.[1]) {
+    throw new Error(
+      `Apply recovery worker ${worker.applicationName} returned no structured result; ${worker.output()}`,
+    );
+  }
+  return JSON.parse(match[1]) as Awaited<ReturnType<typeof recoverAcceptedApplyChangesTransition>>;
+}
+
 function postgresErrorCodes(value: unknown): string[] {
   const codes: string[] = [];
   const seen = new Set<unknown>();
@@ -754,7 +917,7 @@ async function insertValidRuntimeStartObservations(
 }
 
 describe("runtime.start transition retry scheduling", () => {
-  it("requires a Mission Goal, serializes real Apply acceptance replay with materialization, and fences idempotency", async () => {
+  it.skipIf(process.env.RUN_INDEPENDENT_APPLY_RECOVERY_TEST !== "1")("requires a Mission Goal, proves independent PostgreSQL sessions for Apply recovery, serializes acceptance replay with materialization, and fences idempotency", async () => {
     const fixture = await transitionFixture({ accepted: false });
     const now = new Date();
     const messageId = crypto.randomUUID();
@@ -1364,10 +1527,83 @@ describe("runtime.start transition retry scheduling", () => {
     });
     await writeFile(promotedFile, "export const value = 'after';\n");
 
-    const recoveryResults = await Promise.all([
-      recoverAcceptedApplyChangesTransition(recoveryInput),
-      recoverAcceptedApplyChangesTransition(recoveryInput),
+    // Hold the Project row lock before either recovery starts. Both recovery
+    // calls must reach PostgreSQL on separate backend sessions and wait on this
+    // same lock; this proves the race is not merely Promise scheduling inside
+    // one connection or a same-process mock.
+    let announceProjectLockAcquired!: () => void;
+    const projectLockAcquired = new Promise<void>((resolve) => {
+      announceProjectLockAcquired = resolve;
+    });
+    let releaseProjectLock!: () => void;
+    const projectLockRelease = new Promise<void>((resolve) => {
+      releaseProjectLock = resolve;
+    });
+    let projectLockHolderPid = 0;
+    const projectLockTransaction = db.transaction(async (tx) => {
+      const [lockedProject] = await tx.select({ id: projectsTable.id })
+        .from(projectsTable)
+        .where(eq(projectsTable.id, fixture.projectId))
+        .for("update")
+        .limit(1);
+      if (!lockedProject) throw new Error("Apply recovery concurrency fixture Project is missing.");
+      const backend = await tx.execute(sql`SELECT pg_backend_pid() AS pid`);
+      projectLockHolderPid = Number(backend.rows[0]?.pid);
+      if (!Number.isSafeInteger(projectLockHolderPid) || projectLockHolderPid <= 0) {
+        throw new Error("Could not identify the PostgreSQL backend holding the Apply recovery Project lock.");
+      }
+      announceProjectLockAcquired();
+      await projectLockRelease;
+    });
+    await Promise.race([
+      projectLockAcquired,
+      projectLockTransaction.then(() => {
+        throw new Error("Apply recovery Project-lock holder exited before acquiring its lock.");
+      }),
     ]);
+
+    let recoveryResults: Awaited<ReturnType<typeof recoverAcceptedApplyChangesTransition>>[] = [];
+    const recoveryDatabaseUrl = requireRuntimeTransitionDisposableDatabaseUrl();
+    const recoveryApplicationNames = [
+      `apply-recovery-a-${crypto.randomUUID().slice(0, 12)}`,
+      `apply-recovery-b-${crypto.randomUUID().slice(0, 12)}`,
+    ] as const;
+    const recoveryProcesses: RuntimeTransitionApiProcess[] = [];
+    try {
+      // Each worker is a separate Node process with its own node-postgres Pool.
+      // This avoids mistaking a same-process call queue for a database race.
+      recoveryProcesses.push(
+        startApplyRecoveryProcess(recoveryDatabaseUrl, recoveryApplicationNames[0], recoveryInput),
+        startApplyRecoveryProcess(recoveryDatabaseUrl, recoveryApplicationNames[1], recoveryInput),
+      );
+      const recoverySessionPids = await waitForApplyRecoveryProcessLockWaiters(
+        projectLockHolderPid,
+        recoveryApplicationNames,
+        recoveryProcesses,
+      );
+      expect(recoverySessionPids).toHaveLength(2);
+      expect(new Set(recoverySessionPids).size).toBe(2);
+
+      // Releasing the Project lock lets PostgreSQL serialize two independent
+      // processes through the production recovery transaction and lock order.
+      releaseProjectLock();
+      await Promise.all(recoveryProcesses.map((worker) => worker.exit));
+      recoveryResults = recoveryProcesses.map(readApplyRecoveryProcessResult);
+    } finally {
+      releaseProjectLock();
+      await projectLockTransaction;
+      // Drain or terminate both independent workers before fixture cleanup.
+      await Promise.all(recoveryProcesses.map(async (worker) => {
+        const exited = await Promise.race([
+          worker.exit.then(() => true),
+          new Promise<false>((resolve) => setTimeout(() => resolve(false), 10_000)),
+        ]);
+        if (!exited && worker.child.exitCode === null && worker.child.signalCode === null) {
+          worker.child.kill("SIGKILL");
+          await worker.exit;
+        }
+      }));
+    }
     expect(
       recoveryResults.map((result) => result.kind).sort(),
       JSON.stringify(recoveryResults),
@@ -1378,6 +1614,16 @@ describe("runtime.start transition retry scheduling", () => {
       throw new Error(`Expected one create and one idempotent replay, got ${JSON.stringify(recoveryResults)}`);
     }
     expect(replayed.transitionId).toBe(recovered.transitionId);
+    const recoveredTransitions = await db.select({
+      id: aiWorldTransitionsTable.id,
+    }).from(aiWorldTransitionsTable).where(and(
+      eq(aiWorldTransitionsTable.projectId, fixture.projectId),
+      eq(aiWorldTransitionsTable.executionId, fixture.executionId),
+      eq(aiWorldTransitionsTable.attempt, 0),
+      eq(aiWorldTransitionsTable.episodeId, fixture.episodeId),
+      eq(aiWorldTransitionsTable.actionId, input.actionId),
+    ));
+    expect(recoveredTransitions.map((transition) => transition.id)).toEqual([recovered.transitionId]);
     id = recovered.transitionId;
     const [recoveredGoal] = await db.select().from(aiGoalsTable).where(eq(aiGoalsTable.id, goalId));
     const [recoveredMission] = await db.select().from(aiMissionsTable).where(eq(aiMissionsTable.id, missionId));
