@@ -391,6 +391,34 @@ async function waitForLockWaiter(tables: readonly string[]): Promise<string> {
   throw new Error(`Timed out waiting on any of: ${tables.join(", ")}.`);
 }
 
+async function waitForApplyRecoveryLockWaiters(
+  projectLockHolderPid: number,
+  timeoutMs = 10_000,
+): Promise<number[]> {
+  const deadline = Date.now() + timeoutMs;
+  let lastObservedPids: number[] = [];
+  while (Date.now() < deadline) {
+    const result = await db.execute(sql`
+      SELECT waiting.pid
+      FROM pg_stat_activity AS waiting
+      WHERE waiting.pid <> pg_backend_pid()
+        AND waiting.datname = current_database()
+        AND waiting.state = 'active'
+        AND waiting.wait_event_type = 'Lock'
+        AND pg_blocking_pids(waiting.pid) @> ARRAY[${projectLockHolderPid}]::integer[]
+        AND waiting.query ILIKE '%projects%'
+    `);
+    lastObservedPids = [...new Set(
+      result.rows.map((row) => Number(row.pid)).filter((pid) => Number.isSafeInteger(pid)),
+    )];
+    if (lastObservedPids.length >= 2) return lastObservedPids;
+    await new Promise((resolve) => setTimeout(resolve, 25));
+  }
+  throw new Error(
+    `Timed out waiting for two independent Apply recovery PostgreSQL sessions; observed backend PIDs: ${lastObservedPids.join(", ") || "none"}.`,
+  );
+}
+
 function postgresErrorCodes(value: unknown): string[] {
   const codes: string[] = [];
   const seen = new Set<unknown>();
@@ -754,7 +782,7 @@ async function insertValidRuntimeStartObservations(
 }
 
 describe("runtime.start transition retry scheduling", () => {
-  it("requires a Mission Goal, serializes real Apply acceptance replay with materialization, and fences idempotency", async () => {
+  it("requires a Mission Goal, proves independent PostgreSQL sessions for Apply recovery, serializes acceptance replay with materialization, and fences idempotency", async () => {
     const fixture = await transitionFixture({ accepted: false });
     const now = new Date();
     const messageId = crypto.randomUUID();
@@ -1364,10 +1392,59 @@ describe("runtime.start transition retry scheduling", () => {
     });
     await writeFile(promotedFile, "export const value = 'after';\n");
 
-    const recoveryResults = await Promise.all([
-      recoverAcceptedApplyChangesTransition(recoveryInput),
-      recoverAcceptedApplyChangesTransition(recoveryInput),
+    // Hold the Project row lock before either recovery starts. Both recovery
+    // calls must reach PostgreSQL on separate backend sessions and wait on this
+    // same lock; this proves the race is not merely Promise scheduling inside
+    // one connection or a same-process mock.
+    let announceProjectLockAcquired!: () => void;
+    const projectLockAcquired = new Promise<void>((resolve) => {
+      announceProjectLockAcquired = resolve;
+    });
+    let releaseProjectLock!: () => void;
+    const projectLockRelease = new Promise<void>((resolve) => {
+      releaseProjectLock = resolve;
+    });
+    let projectLockHolderPid = 0;
+    const projectLockTransaction = db.transaction(async (tx) => {
+      const [lockedProject] = await tx.select({ id: projectsTable.id })
+        .from(projectsTable)
+        .where(eq(projectsTable.id, fixture.projectId))
+        .for("update")
+        .limit(1);
+      if (!lockedProject) throw new Error("Apply recovery concurrency fixture Project is missing.");
+      const backend = await tx.execute(sql`SELECT pg_backend_pid() AS pid`);
+      projectLockHolderPid = Number(backend.rows[0]?.pid);
+      if (!Number.isSafeInteger(projectLockHolderPid) || projectLockHolderPid <= 0) {
+        throw new Error("Could not identify the PostgreSQL backend holding the Apply recovery Project lock.");
+      }
+      announceProjectLockAcquired();
+      await projectLockRelease;
+    });
+    await Promise.race([
+      projectLockAcquired,
+      projectLockTransaction.then(() => {
+        throw new Error("Apply recovery Project-lock holder exited before acquiring its lock.");
+      }),
     ]);
+
+    let recoveryResults: Awaited<ReturnType<typeof recoverAcceptedApplyChangesTransition>>[] = [];
+    try {
+      const recoveryCalls = [
+        recoverAcceptedApplyChangesTransition(recoveryInput),
+        recoverAcceptedApplyChangesTransition(recoveryInput),
+      ];
+      const recoverySessionPids = await waitForApplyRecoveryLockWaiters(projectLockHolderPid);
+      expect(recoverySessionPids).toHaveLength(2);
+      expect(new Set(recoverySessionPids).size).toBe(2);
+
+      // Releasing the Project lock lets the database serialize the two real
+      // recovery transactions in their production lock order.
+      releaseProjectLock();
+      recoveryResults = await Promise.all(recoveryCalls);
+    } finally {
+      releaseProjectLock();
+      await projectLockTransaction;
+    }
     expect(
       recoveryResults.map((result) => result.kind).sort(),
       JSON.stringify(recoveryResults),
