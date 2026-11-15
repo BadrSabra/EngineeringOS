@@ -1428,8 +1428,9 @@ describe("runtime.start transition retry scheduling", () => {
     ]);
 
     let recoveryResults: Awaited<ReturnType<typeof recoverAcceptedApplyChangesTransition>>[] = [];
+    let recoveryCalls: Promise<Awaited<ReturnType<typeof recoverAcceptedApplyChangesTransition>>>[] = [];
     try {
-      const recoveryCalls = [
+      recoveryCalls = [
         recoverAcceptedApplyChangesTransition(recoveryInput),
         recoverAcceptedApplyChangesTransition(recoveryInput),
       ];
@@ -1444,6 +1445,9 @@ describe("runtime.start transition retry scheduling", () => {
     } finally {
       releaseProjectLock();
       await projectLockTransaction;
+      // Also drain both calls when the lock-observation assertion fails, so
+      // afterEach cannot race fixture cleanup against in-flight transactions.
+      await Promise.allSettled(recoveryCalls);
     }
     expect(
       recoveryResults.map((result) => result.kind).sort(),
@@ -1455,6 +1459,16 @@ describe("runtime.start transition retry scheduling", () => {
       throw new Error(`Expected one create and one idempotent replay, got ${JSON.stringify(recoveryResults)}`);
     }
     expect(replayed.transitionId).toBe(recovered.transitionId);
+    const recoveredTransitions = await db.select({
+      id: aiWorldTransitionsTable.id,
+    }).from(aiWorldTransitionsTable).where(and(
+      eq(aiWorldTransitionsTable.projectId, fixture.projectId),
+      eq(aiWorldTransitionsTable.executionId, fixture.executionId),
+      eq(aiWorldTransitionsTable.attempt, 0),
+      eq(aiWorldTransitionsTable.episodeId, fixture.episodeId),
+      eq(aiWorldTransitionsTable.actionId, input.actionId),
+    ));
+    expect(recoveredTransitions.map((transition) => transition.id)).toEqual([recovered.transitionId]);
     id = recovered.transitionId;
     const [recoveredGoal] = await db.select().from(aiGoalsTable).where(eq(aiGoalsTable.id, goalId));
     const [recoveredMission] = await db.select().from(aiMissionsTable).where(eq(aiMissionsTable.id, missionId));
