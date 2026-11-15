@@ -208,8 +208,8 @@ type TaskScopeEpisodeIdentity = {
   goalId?: string | null;
   scope: unknown;
 } & (
-  | { id: string; episodeId?: string }
-  | { episodeId: string; id?: string }
+  | { id: string; episodeId?: never }
+  | { episodeId: string; id?: never }
 );
 
 export function taskScopeIdentity(episode: TaskScopeEpisodeIdentity): string {
