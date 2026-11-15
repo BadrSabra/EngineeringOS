@@ -187,3 +187,34 @@ export type {
   StrategyReplayCorpusRun,
   StrategyReplayEvidenceAnalysis,
 } from "./strategy-replay.js";
+
+export {
+  PROOF_GRAPH_VERSION,
+  PROOF_GRAPH_VALIDATOR_VERSION,
+  PROOF_GRAPH_MAX_NODES,
+  PROOF_GRAPH_MAX_EDGES,
+  PROOF_GRAPH_REQUIRED_PRE_RULES,
+  PROOF_GRAPH_REQUIRED_POST_RULES,
+  ProofGraphDataNodeSchema,
+  ProofGraphControlRuleSchema,
+  ProofGraphControlNodeSchema,
+  ProofGraphExecutionNodeSchema,
+  ProofGraphNodeSchema,
+  ProofGraphEdgeSchema,
+  ProofGraphSchema,
+  hashProofGraph,
+  validateProofGraph,
+} from "./proof-graph.js";
+export type {
+  ProofGraph,
+  ProofGraphNode,
+  ProofGraphDataNode,
+  ProofGraphControlNode,
+  ProofGraphExecutionNode,
+  ProofGraphEdge,
+  ProofGraphControlRule,
+  ProofGraphViolation,
+  ProofGraphViolationCode,
+  ProofGraphValidationResult,
+} from "./proof-graph.js";
+
