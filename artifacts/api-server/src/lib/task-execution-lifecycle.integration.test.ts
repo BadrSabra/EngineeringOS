@@ -4772,6 +4772,20 @@ describe("real durable task execution lifecycle", () => {
         await waitForTaskRouteReleaseSignal(jobsReleaseSignalFile);
         await queuedJob();
         await waitForScheduledAiTaskExecutions();
+
+        // This child owns a separate process-local queue. Do not exit after
+        // Task execution while its accepted-observation Outbox work is still
+        // leased in this process; the parent cannot observe or await this
+        // worker's in-memory queue.
+        const [completedTask] = await db
+          .select({ projectId: tasksTable.projectId })
+          .from(tasksTable)
+          .where(eq(tasksTable.id, taskId))
+          .limit(1);
+        if (!completedTask) {
+          throw new Error("Deferred dispatcher fixture lost its Task before observation cleanup.");
+        }
+        await drainProjectObservationOutbox(completedTask.projectId);
       } finally {
         enqueueSpy.mockRestore();
       }
