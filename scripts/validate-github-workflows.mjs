@@ -120,6 +120,38 @@ export async function validateWorkflow(workflowPath, rootDirectory = root) {
       fail(workflowPath, `job \`${jobId}\` steps must be a YAML sequence.`);
     }
   }
+  if (label === ".github/workflows/ci.yml") {
+    const releaseJob = workflow.jobs["release-validation"];
+    if (!releaseJob) {
+      fail(workflowPath, 'job "release-validation" is required.');
+    }
+
+    const dependencies = Array.isArray(releaseJob.needs)
+      ? releaseJob.needs
+      : [releaseJob.needs];
+    if (!dependencies.includes("validate")) {
+      fail(
+        workflowPath,
+        'job "release-validation" must depend on the full "validate" job.',
+      );
+    }
+
+    const condition = typeof releaseJob.if === "string" ? releaseJob.if : "";
+    const requiredConditions = [
+      "github.event_name == 'workflow_dispatch'",
+      "github.ref == 'refs/heads/main'",
+      "inputs.release_environment == 'release-validation'",
+      "needs.validate.result == 'success'",
+    ];
+    for (const requiredCondition of requiredConditions) {
+      if (!condition.includes(requiredCondition)) {
+        fail(
+          workflowPath,
+          'job "release-validation" must require the condition: ' + requiredCondition + '.',
+        );
+      }
+    }
+  }
 }
 
 export async function validateWorkflows(

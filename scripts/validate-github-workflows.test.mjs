@@ -381,3 +381,51 @@ test("rejects duplicate job IDs instead of silently overriding a workflow job", 
     await rm(root, { recursive: true, force: true });
   }
 });
+
+test("requires Release Validation to wait for successful full CI", async () => {
+  const root = await mkdtemp(join(tmpdir(), "release-validation-gate-"));
+  const workflowsDirectory = join(root, ".github", "workflows");
+  const workflowPath = join(workflowsDirectory, "ci.yml");
+
+  const makeWorkflow = ({ needs = "validate", successGate = true } = {}) => {
+    const condition = [
+      "github.event_name == 'workflow_dispatch'",
+      "github.ref == 'refs/heads/main'",
+      "inputs.release_environment == 'release-validation'",
+      ...(successGate ? ["needs.validate.result == 'success'"] : []),
+    ].join(" && ");
+    return [
+      "name: CI",
+      "on: [workflow_dispatch]",
+      "jobs:",
+      "  validate:",
+      "    runs-on: ubuntu-latest",
+      "  release-validation:",
+      ...(needs === null ? [] : ["    needs: " + needs]),
+      '    if: "${{ ' + condition + ' }}"',
+      "    runs-on: ubuntu-latest",
+      "",
+    ].join("\n");
+  };
+
+  try {
+    await mkdir(workflowsDirectory, { recursive: true });
+
+    await writeFile(workflowPath, makeWorkflow({ needs: null }));
+    await assert.rejects(
+      validateWorkflows(workflowsDirectory, root),
+      /job "release-validation" must depend on the full "validate" job/,
+    );
+
+    await writeFile(workflowPath, makeWorkflow({ successGate: false }));
+    await assert.rejects(
+      validateWorkflows(workflowsDirectory, root),
+      /must require the condition: needs\.validate\.result == 'success'/,
+    );
+
+    await writeFile(workflowPath, makeWorkflow());
+    await assert.doesNotReject(validateWorkflows(workflowsDirectory, root));
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
