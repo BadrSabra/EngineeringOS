@@ -68,8 +68,12 @@ import {
 } from "./apply-change-effect.js";
 import { APPLY_CHANGES_PROOF_MODE } from "./apply-changes-proof.js";
 
+function hashBoundedAgentStateJson(value: unknown, maxBytes: number): string {
+  return canonicalJsonHash(parseBoundedJson(value, maxBytes));
+}
+
 function hashEpisodeEventPayload(payload: unknown): string {
-  return canonicalJsonHash(parseBoundedJson(payload, AGENT_STATE_LIMITS.episodeEventPayloadBytes));
+  return hashBoundedAgentStateJson(payload, AGENT_STATE_LIMITS.episodeEventPayloadBytes);
 }
 
 const createdProjects: string[] = [];
@@ -1247,7 +1251,7 @@ describe("runtime.start transition retry scheduling", () => {
       subject: `project:${fixture.projectId}`,
       predicate: "test.apply_recovery_parent_drift",
       value: parentDriftValue,
-      valueHash: canonicalJsonHash(parentDriftValue),
+      valueHash: hashBoundedAgentStateJson(parentDriftValue, AGENT_STATE_LIMITS.observationValueBytes),
       version: 1,
       status: "confirmed",
       sourceObservationIds: [],
