@@ -462,7 +462,9 @@ async function drainPendingObservationMaterializations(): Promise<unknown[]> {
 }
 
 async function drainProjectObservationOutbox(projectId: string): Promise<void> {
-  const deadline = Date.now() + 10_000;
+  const deadline = Date.now() + 30_000;
+  const materializationFailures: unknown[] = [];
+
   while (true) {
     // The API process used by this fixture is not running the normal
     // reconciliation scheduler. Explicitly dispatch durable observation
@@ -475,6 +477,8 @@ async function drainProjectObservationOutbox(projectId: string): Promise<void> {
         status: taskExecutionObservationOutboxTable.status,
         attemptCount: taskExecutionObservationOutboxTable.attemptCount,
         lastFailureCode: taskExecutionObservationOutboxTable.lastFailureCode,
+        workerId: taskExecutionObservationOutboxTable.workerId,
+        leaseUntil: taskExecutionObservationOutboxTable.leaseUntil,
       })
       .from(taskExecutionObservationOutboxTable)
       .where(eq(taskExecutionObservationOutboxTable.projectId, projectId));
@@ -486,20 +490,42 @@ async function drainProjectObservationOutbox(projectId: string): Promise<void> {
         `Task observation outbox ${failed.id} did not materialize: ${failed.lastFailureCode ?? failed.status}`,
       );
     }
+
+    // dispatchPendingTaskObservationOutbox enqueues process-local work and
+    // returns before its materializer completes. Await the promises captured
+    // by this test's materializer wrapper before deciding that the outbox is
+    // stuck; otherwise a slow but healthy DB projection becomes a false
+    // timeout during finally-cleanup.
+    materializationFailures.push(...await drainPendingObservationMaterializations());
+
     if (Date.now() >= deadline) {
+      const jobIds = rows.map((row) => `task-observation-outbox:${row.id}`);
       throw new Error(
-        `Timed out waiting for Task observation outbox rows: ${rows.map((row) => row.id).join(", ")}`,
+        `Timed out waiting for Task observation outbox rows: ${JSON.stringify({
+          rows: rows.map((row) => ({
+            id: row.id,
+            status: row.status,
+            attemptCount: row.attemptCount,
+            lastFailureCode: row.lastFailureCode,
+            workerId: row.workerId,
+            leaseUntil: row.leaseUntil?.toISOString() ?? null,
+          })),
+          queue: heavyJobQueue.getStats(),
+          trackedJobs: jobIds.map((id) => ({ id, tracked: heavyJobQueue.has(id) })),
+        })}`,
       );
     }
     await new Promise((resolveDelay) => setTimeout(resolveDelay, 10));
   }
 
-  const failures = await drainPendingObservationMaterializations();
-  if (failures.length > 0) {
-    throw new AggregateError(failures, "Task observation materialization failed before fixture cleanup.");
+  materializationFailures.push(...await drainPendingObservationMaterializations());
+  if (materializationFailures.length > 0) {
+    throw new AggregateError(
+      materializationFailures,
+      "Task observation materialization failed before fixture cleanup.",
+    );
   }
 }
-
 function createDeferred<T = void>() {
   let resolve!: (value: T | PromiseLike<T>) => void;
   let reject!: (reason?: unknown) => void;
