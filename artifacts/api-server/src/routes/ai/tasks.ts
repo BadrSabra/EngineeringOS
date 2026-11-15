@@ -643,6 +643,13 @@ async function runAiTaskExecution(
         && currentTask.retryCount === retryCount
         && currentTask.correlationId === correlationId
       ) {
+        if (lifecycle.errorCode === "task_dispatch_not_due") {
+          logger.info(
+            { taskId, retryAfterMs: lifecycle.retryAfterMs },
+            "AI auto-trigger claim remained deferred by the durable retry window",
+          );
+          return;
+        }
         if (lifecycle.errorCode === "execution_already_claimed") {
           const parentExecutionId = options?.parentExecutionId ?? null;
           const [activeExecution] = await db
