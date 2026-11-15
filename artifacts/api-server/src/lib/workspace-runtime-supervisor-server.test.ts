@@ -1079,6 +1079,7 @@ describe("workspace runtime supervisor server boundary", () => {
             ownerProjectId: "group-stop-test",
             sessionId: "group-stop-session",
             projectRoot,
+            pid: leaderPid,
           }),
         }).then((response) => {
           stopResponseCompleted = true;

@@ -67,7 +67,7 @@ import {
 } from "./ai-route-helpers.js";
 import type { ProviderId } from "./ai-route-helpers.js";
 import { logger } from "./logger.js";
-import { taskAutoExecutionIntentId } from "./task-auto-execution-outbox.js";
+import { TASK_AUTO_EXECUTION_DEFERRED_EVENT_TYPE, taskAutoExecutionIntentId } from "./task-auto-execution-outbox.js";
 import { dispatchPendingTaskObservationOutbox } from "./task-observation-outbox.js";
 import { taskTransitionConflict, type TaskStatus } from "./task-state.js";
 import { databaseLeaseUntil, databaseNow } from "./job-lease.js";
@@ -4605,6 +4605,56 @@ export async function executeTaskLifecycle(params: {
         .limit(1);
       if (!lockedTask) {
         return { kind: "conflict" as const, errorCode: "task_state_changed" };
+      }
+
+      // The scheduler checks nextAttemptAt before enqueue, but a job may
+      // already be queued when another worker records a later deferral.
+      // Recheck the durable retry window under the Task → Outbox lock order
+      // immediately before creating/claiming an Execution. Manual execution
+      // remains an explicit operator override; only automatic dispatch is gated.
+      if (params.trigger === "automatic") {
+        const [dispatchIntent] = await tx
+          .select({
+            type: eventsTable.type,
+            projectId: eventsTable.projectId,
+            taskId: eventsTable.taskId,
+            payload: eventsTable.payload,
+          })
+          .from(eventsTable)
+          .where(eq(eventsTable.id, taskAutoExecutionIntentId(before.id)))
+          .for("update")
+          .limit(1);
+        const payload = dispatchIntent?.payload
+          && typeof dispatchIntent.payload === "object"
+          && !Array.isArray(dispatchIntent.payload)
+          ? dispatchIntent.payload as Record<string, unknown>
+          : undefined;
+        const intentCorrelationMatches = payload?.taskCorrelationId === correlationIdAtRead
+          || (payload?.taskCorrelationId === undefined && correlationIdAtRead === null);
+        const intentMatchesCurrentGeneration = Boolean(
+          dispatchIntent
+          && dispatchIntent.projectId === before.projectId
+          && dispatchIntent.taskId === before.id
+          && payload !== undefined
+          && payload.userId === params.userId
+          && payload.taskRetryCount === retryCountAtRead
+          && intentCorrelationMatches
+        );
+        const nextAttemptAt = typeof payload?.nextAttemptAt === "string"
+          ? Date.parse(payload.nextAttemptAt)
+          : Number.NaN;
+        if (
+          dispatchIntent?.type === TASK_AUTO_EXECUTION_DEFERRED_EVENT_TYPE
+          && intentMatchesCurrentGeneration
+          && Number.isFinite(nextAttemptAt)
+          && nextAttemptAt > Date.now()
+        ) {
+          return {
+            kind: "conflict" as const,
+            errorCode: "task_dispatch_not_due",
+            retryAfterMs: Math.max(1, nextAttemptAt - Date.now()),
+          };
+        }
       }
 
       let durable: Awaited<ReturnType<typeof createAiExecution>>;

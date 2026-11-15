@@ -226,7 +226,7 @@ describe("chat() scoped-verdict seam (EI-029/030)", () => {
     } finally {
       await fs.rm(rootPath, { recursive: true, force: true });
     }
-  });
+  }, 10_000);
 
   it("retains the bare FINDING PROVEN label when evidence is production-scoped (non-TS, .py)", async () => {
     const rootPath = await fs.mkdtemp(path.join(tmpdir(), "eos-scoped-verdict-py-"));

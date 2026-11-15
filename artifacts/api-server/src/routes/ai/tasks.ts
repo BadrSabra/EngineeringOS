@@ -643,6 +643,13 @@ async function runAiTaskExecution(
         && currentTask.retryCount === retryCount
         && currentTask.correlationId === correlationId
       ) {
+        if (lifecycle.errorCode === "task_dispatch_not_due") {
+          logger.info(
+            { taskId, retryAfterMs: lifecycle.retryAfterMs },
+            "AI auto-trigger claim remained deferred by the durable retry window",
+          );
+          return;
+        }
         if (lifecycle.errorCode === "execution_already_claimed") {
           const parentExecutionId = options?.parentExecutionId ?? null;
           const [activeExecution] = await db
@@ -764,6 +771,22 @@ export async function scheduleAiTaskExecution(
         scheduledAiTaskCompletions.delete(taskId);
         return;
       }
+      // A direct caller may race or repeat a wake-up while the durable
+      // intent is already deferred. Never let that local wake bypass the
+      // persisted retry window; the recovery dispatcher will enqueue it once due.
+      const nextAttemptAt = persisted.payload.nextAttemptAt
+        ? Date.parse(persisted.payload.nextAttemptAt)
+        : Number.NaN;
+      if (Number.isFinite(nextAttemptAt) && nextAttemptAt > Date.now()) {
+        resolveCompletion();
+        scheduledAiTaskCompletions.delete(taskId);
+        logger.info(
+          { taskId, nextAttemptAt: persisted.payload.nextAttemptAt },
+          "AI task execution remains deferred until its retry window is due",
+        );
+        return;
+      }
+
       const retryCount = persisted.retryCount;
       const correlationId = persisted.correlationId;
       const effectiveUserId = persisted.payload.userId;

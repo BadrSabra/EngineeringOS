@@ -445,6 +445,49 @@ describe("WorkspaceRuntimeManager", () => {
     await fs.rm(root, { recursive: true, force: true });
   });
 
+  it("fails closed when a recoverable runtime row has no persisted revision", async () => {
+    const projectId = "runtime-recovery-missing-revision";
+    const sessionId = "runtime-recovery-missing-revision-session";
+    const previousWorkerId = "runtime-recovery-previous-worker";
+    const store = createInMemoryWorkspaceRuntimeStore();
+    const now = new Date(Date.now() - 60_000);
+    await store.begin({
+      projectId,
+      projectRoot: process.cwd(),
+      sessionId,
+      revision: "revision-before-corruption",
+      environmentRevision: null,
+      workerId: previousWorkerId,
+      now,
+      leaseUntil: new Date(now.getTime() - 10_000),
+    });
+    await expect(store.updateOwnedSession(projectId, sessionId, previousWorkerId, {
+      revision: null,
+      workerId: null,
+      leaseUntil: null,
+      lastHeartbeatAt: null,
+    })).resolves.toBe(true);
+
+    const observeStartState = vi.fn();
+    const manager = new WorkspaceRuntimeManager({
+      store,
+      workerId: "runtime-recovery-current-worker",
+      supervisor: { observeStartState } as never,
+    });
+    managers.push(manager);
+
+    await manager.recover();
+
+    expect(observeStartState).not.toHaveBeenCalled();
+    await expect(store.get(projectId)).resolves.toMatchObject({
+      status: "failed",
+      revision: null,
+      workerId: null,
+      leaseUntil: null,
+      error: "Runtime recovery requires a persisted revision and start timestamp.",
+    });
+  });
+
   it("does not kill a process group directly when the Supervisor rejects recovery stop", async () => {
     const projectId = "supervisor-stop-rejected-project";
     const sessionId = "supervisor-stop-rejected-session";

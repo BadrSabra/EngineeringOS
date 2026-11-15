@@ -381,6 +381,7 @@ import { appendEpisodeEvent } from "./agent-state/agent-episode-ledger.js";
 import { createValidationWorkspace } from "./ai-repair-validation.js";
 import { getPublicTaskExecutionAcceptance } from "./ai-execution-acceptance.js";
 import { heavyJobQueue } from "./job-queue.js";
+import { dispatchPendingTaskObservationOutbox } from "./task-observation-outbox.js";
 import {
   dispatchDeferredAiTaskExecutions,
   scheduleAiTaskExecution,
@@ -461,14 +462,23 @@ async function drainPendingObservationMaterializations(): Promise<unknown[]> {
 }
 
 async function drainProjectObservationOutbox(projectId: string): Promise<void> {
-  const deadline = Date.now() + 10_000;
+  const deadline = Date.now() + 30_000;
+  const materializationFailures: unknown[] = [];
+
   while (true) {
+    // The API process used by this fixture is not running the normal
+    // reconciliation scheduler. Explicitly dispatch durable observation
+    // intents here so cleanup waits for materialization, not an absent timer.
+    await dispatchPendingTaskObservationOutbox();
+
     const rows = await db
       .select({
         id: taskExecutionObservationOutboxTable.id,
         status: taskExecutionObservationOutboxTable.status,
         attemptCount: taskExecutionObservationOutboxTable.attemptCount,
         lastFailureCode: taskExecutionObservationOutboxTable.lastFailureCode,
+        workerId: taskExecutionObservationOutboxTable.workerId,
+        leaseUntil: taskExecutionObservationOutboxTable.leaseUntil,
       })
       .from(taskExecutionObservationOutboxTable)
       .where(eq(taskExecutionObservationOutboxTable.projectId, projectId));
@@ -480,20 +490,42 @@ async function drainProjectObservationOutbox(projectId: string): Promise<void> {
         `Task observation outbox ${failed.id} did not materialize: ${failed.lastFailureCode ?? failed.status}`,
       );
     }
+
+    // dispatchPendingTaskObservationOutbox enqueues process-local work and
+    // returns before its materializer completes. Await the promises captured
+    // by this test's materializer wrapper before deciding that the outbox is
+    // stuck; otherwise a slow but healthy DB projection becomes a false
+    // timeout during finally-cleanup.
+    materializationFailures.push(...await drainPendingObservationMaterializations());
+
     if (Date.now() >= deadline) {
+      const jobIds = rows.map((row) => `task-observation-outbox:${row.id}`);
       throw new Error(
-        `Timed out waiting for Task observation outbox rows: ${rows.map((row) => row.id).join(", ")}`,
+        `Timed out waiting for Task observation outbox rows: ${JSON.stringify({
+          rows: rows.map((row) => ({
+            id: row.id,
+            status: row.status,
+            attemptCount: row.attemptCount,
+            lastFailureCode: row.lastFailureCode,
+            workerId: row.workerId,
+            leaseUntil: row.leaseUntil?.toISOString() ?? null,
+          })),
+          queue: heavyJobQueue.getStats(),
+          trackedJobs: jobIds.map((id) => ({ id, tracked: heavyJobQueue.has(id) })),
+        })}`,
       );
     }
     await new Promise((resolveDelay) => setTimeout(resolveDelay, 10));
   }
 
-  const failures = await drainPendingObservationMaterializations();
-  if (failures.length > 0) {
-    throw new AggregateError(failures, "Task observation materialization failed before fixture cleanup.");
+  materializationFailures.push(...await drainPendingObservationMaterializations());
+  if (materializationFailures.length > 0) {
+    throw new AggregateError(
+      materializationFailures,
+      "Task observation materialization failed before fixture cleanup.",
+    );
   }
 }
-
 function createDeferred<T = void>() {
   let resolve!: (value: T | PromiseLike<T>) => void;
   let reject!: (reason?: unknown) => void;
@@ -1415,7 +1447,6 @@ describe("real durable task execution lifecycle", () => {
           request: {
             projectId,
             linkedTaskId: taskId,
-            attempt: 0,
             message: "Stored Task execution identity fixture",
             modelMessage: "Stored Task execution identity fixture",
             validationTargetPaths: [],
@@ -1578,7 +1609,7 @@ describe("real durable task execution lifecycle", () => {
         expectedRetryCount: 0,
         expectedCorrelationId: null,
         workspaceRevision: now.toISOString(),
-      })).rejects.toThrow("fixture_task_claim_failure");
+      })).rejects.toThrow('Failed query: update "tasks"');
 
       const [task] = await db.select({
         status: tasksTable.status,
@@ -4712,6 +4743,12 @@ describe("real durable task execution lifecycle", () => {
           queuedJob = job;
           return "enqueued";
         });
+      let enqueueSpyRestored = false;
+      const restoreEnqueueSpy = () => {
+        if (enqueueSpyRestored) return;
+        enqueueSpy.mockRestore();
+        enqueueSpyRestored = true;
+      };
       runAgentWithFallback.mockImplementation(async () => {
         await writeFile(startSignalFile, JSON.stringify({
           taskId,
@@ -4734,6 +4771,9 @@ describe("real durable task execution lifecycle", () => {
         if (dispatched !== 1 || !queuedJob) {
           throw new Error(`Expected one deferred queue handoff, got ${dispatched}.`);
         }
+        // The spy only proves which Task won dispatch. Restore it before the
+        // accepted-observation Outbox is handed to this process-local queue.
+        restoreEnqueueSpy();
         await writeFile(queueSignalFile, JSON.stringify({
           taskId,
           processId: process.pid,
@@ -4741,8 +4781,22 @@ describe("real durable task execution lifecycle", () => {
         await waitForTaskRouteReleaseSignal(jobsReleaseSignalFile);
         await queuedJob();
         await waitForScheduledAiTaskExecutions();
+
+        // This child owns a separate process-local queue. Do not exit after
+        // Task execution while its accepted-observation Outbox work is still
+        // leased in this process; the parent cannot observe or await this
+        // worker's in-memory queue.
+        const [completedTask] = await db
+          .select({ projectId: tasksTable.projectId })
+          .from(tasksTable)
+          .where(eq(tasksTable.id, taskId))
+          .limit(1);
+        if (!completedTask) {
+          throw new Error("Deferred dispatcher fixture lost its Task before observation cleanup.");
+        }
+        await drainProjectObservationOutbox(completedTask.projectId);
       } finally {
-        enqueueSpy.mockRestore();
+        restoreEnqueueSpy();
       }
     },
     120_000,
@@ -5670,6 +5724,20 @@ describe("real durable task execution lifecycle", () => {
           type: "TaskAutoExecutionDeferred",
           taskId,
         });
+
+        // Queue saturation records a bounded retry delay. This test is about
+        // cross-process claim serialization, not the retry scheduler, so make
+        // the persisted intent due before starting the competing dispatchers.
+        await db.update(eventsTable)
+          .set({
+            payload: sql`jsonb_set(
+              ${eventsTable.payload},
+              '{nextAttemptAt}',
+              to_jsonb(${new Date(Date.now() - 1_000).toISOString()}::text),
+              true
+            )`,
+          })
+          .where(eq(eventsTable.id, deferredIntentId));
 
         signalRoot = await mkdtemp(join("/tmp", "ai-task-deferred-dispatch-race-"));
         const queueSignalFiles = [

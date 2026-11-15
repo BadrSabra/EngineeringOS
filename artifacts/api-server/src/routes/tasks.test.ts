@@ -985,13 +985,23 @@ describe("PR-C — AI auto-trigger on verifying", () => {
     expect(res.body.status).toBe("verifying");
 
     expect(mockScheduleAiTaskExecution).toHaveBeenCalledOnce();
-    expect(mockScheduleAiTaskExecution).toHaveBeenCalledWith(taskId, "test-user", undefined, 0, null);
+    const [taskGeneration] = await db.select({
+      retryCount: tasksTable.retryCount,
+      correlationId: tasksTable.correlationId,
+    }).from(tasksTable).where(eq(tasksTable.id, taskId));
+    expect(mockScheduleAiTaskExecution).toHaveBeenCalledWith(
+      taskId,
+      "test-user",
+      undefined,
+      taskGeneration!.retryCount,
+      taskGeneration!.correlationId,
+    );
     const [intent] = await db.select().from(eventsTable)
       .where(eq(eventsTable.id, `task-auto-execution-deferred:${taskId}`));
     expect(intent?.payload).toMatchObject({
       userId: "test-user",
       taskRetryCount: 0,
-      taskCorrelationId: null,
+      taskCorrelationId: taskGeneration!.correlationId,
     });
   });
 
@@ -1018,31 +1028,47 @@ describe("PR-C — AI auto-trigger on verifying", () => {
     expect(res.body.status).toBe("verifying");
 
     expect(mockScheduleAiTaskExecution).toHaveBeenCalledOnce();
-    expect(mockScheduleAiTaskExecution).toHaveBeenCalledWith(taskId, "test-user", undefined, 0, null);
+    const [taskGeneration] = await db.select({
+      retryCount: tasksTable.retryCount,
+      correlationId: tasksTable.correlationId,
+    }).from(tasksTable).where(eq(tasksTable.id, taskId));
+    expect(mockScheduleAiTaskExecution).toHaveBeenCalledWith(
+      taskId,
+      "test-user",
+      undefined,
+      taskGeneration!.retryCount,
+      taskGeneration!.correlationId,
+    );
     const [intent] = await db.select().from(eventsTable)
       .where(eq(eventsTable.id, `task-auto-execution-deferred:${taskId}`));
     expect(intent?.payload).toMatchObject({
       userId: "test-user",
       taskRetryCount: 0,
-      taskCorrelationId: null,
+      taskCorrelationId: taskGeneration!.correlationId,
     });
   });
 
   it("rejects a Task transition when its generation is bound to another user", async () => {
     const { projectId, taskId } = await createTaskWithPrompt("Keep the existing dispatch identity");
+    const [taskGeneration] = await db.select({
+      retryCount: tasksTable.retryCount,
+      correlationId: tasksTable.correlationId,
+    }).from(tasksTable).where(eq(tasksTable.id, taskId));
+    const originalIntentPayload = {
+      userId: "original-user",
+      taskRetryCount: taskGeneration!.retryCount,
+      taskCorrelationId: taskGeneration!.correlationId,
+      attemptCount: 0,
+      nextAttemptAt: new Date(Date.now() + 60 * 60_000).toISOString(),
+    };
     await db.insert(eventsTable).values({
       id: `task-auto-execution-deferred:${taskId}`,
-      type: "TaskAutoExecutionDispatchRequested",
+      type: "TaskAutoExecutionDeferred",
       projectId,
       taskId,
-      severity: "info",
+      severity: "warning",
       message: "Existing dispatch identity",
-      payload: {
-        userId: "original-user",
-        taskRetryCount: 0,
-        taskCorrelationId: null,
-        attemptCount: 0,
-      },
+      payload: originalIntentPayload,
     });
 
     const response = await request(app)
@@ -1057,11 +1083,13 @@ describe("PR-C — AI auto-trigger on verifying", () => {
     const [intent] = await db.select().from(eventsTable)
       .where(eq(eventsTable.id, `task-auto-execution-deferred:${taskId}`));
     expect(task?.status).toBe("pending");
-    expect(intent?.payload).toMatchObject({
-      userId: "original-user",
-      taskRetryCount: 0,
-      taskCorrelationId: null,
+    expect(intent).toMatchObject({
+      type: "TaskAutoExecutionDeferred",
+      projectId,
+      taskId,
+      severity: "warning",
     });
+    expect(intent?.payload).toEqual(originalIntentPayload);
     expect(mockScheduleAiTaskExecution).not.toHaveBeenCalled();
   });
 

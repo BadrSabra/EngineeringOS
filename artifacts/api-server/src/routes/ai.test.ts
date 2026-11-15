@@ -59,7 +59,6 @@ import * as aiRateLimiter from "../lib/db-rate-limiter.js";
 import * as taskExecutionService from "../lib/task-execution-service.js";
 import { insertTaskAutoExecutionIntent } from "../lib/task-auto-execution-outbox.js";
 import { heavyJobQueue } from "../lib/job-queue.js";
-import { dispatchPersistedPendingJobs } from "../lib/job-reconciliation.js";
 import * as aiTaskRoutes from "./ai/tasks.js";
 import { reconcileInterruptedApplyChanges } from "../lib/apply-change-reconciliation.js";
 import {
@@ -9401,6 +9400,8 @@ describe("POST /api/ai/chat/apply-changes", () => {
         reportTaskId,
         "test-user",
         { parentExecutionId: null },
+        0,
+        null,
       );
 
       const detail = await request(app).get(`/api/ai/executions/${execution!.id}`);
@@ -10394,10 +10395,26 @@ describe("POST /api/ai/tasks/:taskId/execute", () => {
       .set({ prompt: "Run after the worker queue has capacity" })
       .where(eq(tasksTable.id, taskId));
 
-    const originalEnqueue = heavyJobQueue.enqueueWithIdDetailed.bind(heavyJobQueue);
+    const [taskGeneration] = await db.select({
+      retryCount: tasksTable.retryCount,
+      correlationId: tasksTable.correlationId,
+    }).from(tasksTable).where(eq(tasksTable.id, taskId));
+    const queuedJobs: Array<{ id: string; run: () => Promise<void> }> = [];
     const enqueueSpy = vi.spyOn(heavyJobQueue, "enqueueWithIdDetailed")
       .mockReturnValueOnce("full")
-      .mockImplementation((id, job) => originalEnqueue(id, job));
+      .mockImplementation((id, run) => {
+        queuedJobs.push({ id, run });
+        return "enqueued";
+      });
+    // The recovered queue callback must exercise the real Task lifecycle with
+    // deterministic provider/rate-limit admission, not depend on user settings.
+    vi.spyOn(aiRouteHelpers, "resolveProvider").mockResolvedValueOnce({
+      provider: "groq",
+      apiKey: "test-only-key",
+      source: "user",
+    });
+    vi.spyOn(aiRateLimiter, "checkProjectRateLimitDb")
+      .mockResolvedValueOnce({ allowed: true });
 
     await scheduleAiTaskExecution(taskId, "test-user", {
       delegationBudget: { maxChildren: 2, maxDepth: 1 },
@@ -10415,13 +10432,25 @@ describe("POST /api/ai/tasks/:taskId/execute", () => {
       taskId,
       payload: {
         userId: "test-user",
-        taskRetryCount: 0,
-        taskCorrelationId: null,
+        taskRetryCount: taskGeneration!.retryCount,
+        taskCorrelationId: taskGeneration!.correlationId,
         delegationBudget: { maxChildren: 2, maxDepth: 1 },
       },
     });
 
-    enqueueSpy.mockRestore();
+    const deferredNextAttemptAt = String(deferredIntent!.payload?.nextAttemptAt ?? "");
+    expect(Date.parse(deferredNextAttemptAt)).toBeGreaterThan(Date.now());
+
+    // A repeated direct wake must not bypass the durable retry window.
+    await scheduleAiTaskExecution(taskId, "test-user", {
+      delegationBudget: { maxChildren: 2, maxDepth: 1 },
+    }, taskGeneration!.retryCount, taskGeneration!.correlationId);
+    expect(enqueueSpy).toHaveBeenCalledOnce();
+    expect(queuedJobs).toHaveLength(0);
+    const [stillDeferredIntent] = await db.select().from(eventsTable)
+      .where(eq(eventsTable.id, `task-auto-execution-deferred:${taskId}`));
+    expect(stillDeferredIntent?.payload?.nextAttemptAt).toBe(deferredNextAttemptAt);
+
     await db.update(eventsTable)
       .set({
         payload: {
@@ -10430,10 +10459,17 @@ describe("POST /api/ai/tasks/:taskId/execute", () => {
         },
       })
       .where(eq(eventsTable.id, `task-auto-execution-deferred:${taskId}`));
-    await dispatchPersistedPendingJobs();
-    // A competing/repeated recovery pass cannot enqueue this task a second
-    // time locally; the Task claim transaction also removes the durable intent.
-    await dispatchPersistedPendingJobs();
+
+    // Exercise only the durable Task dispatcher. Capture its queue callback so
+    // unrelated jobs in this test file cannot consume capacity or race the
+    // single-execution assertion.
+    await expect(aiTaskRoutes.dispatchDeferredAiTaskExecutions()).resolves.toBe(1);
+    await expect(aiTaskRoutes.dispatchDeferredAiTaskExecutions()).resolves.toBe(0);
+    const taskJobs = queuedJobs.filter((entry) => entry.id === taskId);
+    expect(taskJobs).toHaveLength(1);
+
+    enqueueSpy.mockRestore();
+    await taskJobs[0]!.run();
     await waitForScheduledAiTaskExecutions();
 
     const executions = await db.select({ id: aiExecutionsTable.id })
@@ -10445,6 +10481,85 @@ describe("POST /api/ai/tasks/:taskId/execute", () => {
       .from(eventsTable)
       .where(eq(eventsTable.id, `task-auto-execution-deferred:${taskId}`));
     expect(remainingIntent).toHaveLength(0);
+  });
+
+  it("does not claim an already-queued automatic job after its Outbox receives a future deferral", async () => {
+    const projectId = await insertProject();
+    projectIds.push(projectId);
+    const taskId = await insertTask(projectId, "verifying");
+    await db.update(tasksTable)
+      .set({ prompt: "Do not start while the durable retry window is active" })
+      .where(eq(tasksTable.id, taskId));
+    const [taskGeneration] = await db.select({
+      retryCount: tasksTable.retryCount,
+      correlationId: tasksTable.correlationId,
+    }).from(tasksTable).where(eq(tasksTable.id, taskId));
+
+    const queuedJobs: Array<{ id: string; run: () => Promise<void> }> = [];
+    const enqueueSpy = vi.spyOn(heavyJobQueue, "enqueueWithIdDetailed")
+      .mockImplementation((id, run) => {
+        queuedJobs.push({ id, run });
+        return "enqueued";
+      });
+    const providerSpy = vi.spyOn(aiRouteHelpers, "resolveProvider").mockResolvedValue({
+      provider: "groq",
+      apiKey: "test-only-key",
+      source: "user",
+    });
+    const rateLimitSpy = vi.spyOn(aiRateLimiter, "checkProjectRateLimitDb")
+      .mockResolvedValue({ allowed: true });
+
+    try {
+      await scheduleAiTaskExecution(
+        taskId,
+        "test-user",
+        undefined,
+        taskGeneration!.retryCount,
+        taskGeneration!.correlationId,
+      );
+      expect(queuedJobs).toHaveLength(1);
+
+      const intentId = `task-auto-execution-deferred:${taskId}`;
+      const [requestedIntent] = await db.select().from(eventsTable)
+        .where(eq(eventsTable.id, intentId));
+      expect(requestedIntent?.type).toBe("TaskAutoExecutionDispatchRequested");
+
+      const deferredPayload = {
+        ...requestedIntent!.payload!,
+        nextAttemptAt: new Date(Date.now() + 60_000).toISOString(),
+      };
+      await db.update(eventsTable)
+        .set({
+          type: "TaskAutoExecutionDeferred",
+          severity: "warning",
+          payload: deferredPayload,
+        })
+        .where(eq(eventsTable.id, intentId));
+
+      // Simulate a job that entered the local queue before another worker
+      // persisted a new retry deadline. The claim transaction must recheck it.
+      enqueueSpy.mockRestore();
+      await queuedJobs[0]!.run();
+      await waitForScheduledAiTaskExecutions();
+
+      const [task] = await db.select({ status: tasksTable.status })
+        .from(tasksTable)
+        .where(eq(tasksTable.id, taskId));
+      const [intent] = await db.select().from(eventsTable)
+        .where(eq(eventsTable.id, intentId));
+      const executions = await db.select({ id: aiExecutionsTable.id })
+        .from(aiExecutionsTable)
+        .where(eq(aiExecutionsTable.linkedTaskId, taskId));
+
+      expect(task?.status).toBe("verifying");
+      expect(executions).toHaveLength(0);
+      expect(intent?.type).toBe("TaskAutoExecutionDeferred");
+      expect(intent?.payload).toEqual(deferredPayload);
+    } finally {
+      enqueueSpy.mockRestore();
+      providerSpy.mockRestore();
+      rateLimitSpy.mockRestore();
+    }
   });
 
   it.each(["retryCount", "correlationId"] as const)(
@@ -10635,6 +10750,13 @@ describe("POST /api/ai/tasks/:taskId/execute", () => {
     const projectId = await insertProject();
     projectIds.push(projectId);
     const taskId = await insertTask(projectId, "verifying");
+    await db.update(tasksTable)
+      .set({ prompt: "Preserve the existing Mission delegation identity" })
+      .where(eq(tasksTable.id, taskId));
+    const [taskGeneration] = await db.select({
+      retryCount: tasksTable.retryCount,
+      correlationId: tasksTable.correlationId,
+    }).from(tasksTable).where(eq(tasksTable.id, taskId));
     const originalParentExecutionId = randomUUID();
     const conflictingParentExecutionId = randomUUID();
 
@@ -10642,20 +10764,21 @@ describe("POST /api/ai/tasks/:taskId/execute", () => {
       .mockReturnValue("full");
     await scheduleAiTaskExecution(taskId, "test-user", {
       parentExecutionId: originalParentExecutionId,
-    }, 0, null);
+    }, taskGeneration!.retryCount, taskGeneration!.correlationId);
     await scheduleAiTaskExecution(taskId, "test-user", {
       parentExecutionId: conflictingParentExecutionId,
-    }, 0, null);
-    enqueueSpy.mockRestore();
+    }, taskGeneration!.retryCount, taskGeneration!.correlationId);
 
-    expect(enqueueSpy).toHaveBeenCalledOnce();
+    const enqueueCallCount = enqueueSpy.mock.calls.length;
+    enqueueSpy.mockRestore();
+    expect(enqueueCallCount).toBe(1);
     const [intent] = await db.select().from(eventsTable)
       .where(eq(eventsTable.id, `task-auto-execution-deferred:${taskId}`));
     expect(intent?.type).toBe("TaskAutoExecutionDeferred");
     expect(intent?.payload).toMatchObject({
       userId: "test-user",
-      taskRetryCount: 0,
-      taskCorrelationId: null,
+      taskRetryCount: taskGeneration!.retryCount,
+      taskCorrelationId: taskGeneration!.correlationId,
       parentExecutionId: originalParentExecutionId,
       lastFailureCode: "LOCAL_QUEUE_FULL",
     });

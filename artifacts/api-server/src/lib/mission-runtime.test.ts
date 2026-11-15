@@ -40,6 +40,28 @@ import { taskScopeIdentity } from "./agent-state/observation-materializer.js";
 import { buildExecutionProofProjection } from "./execution-proof.js";
 import { heavyJobQueue } from "./job-queue.js";
 
+describe("taskScopeIdentity Episode contract compatibility", () => {
+  it("normalizes database rows and public Episode contracts to one scope identity", () => {
+    const identity = {
+      projectId: "project-scope-identity",
+      missionId: "mission-scope-identity",
+      goalId: "goal-scope-identity",
+      scope: { kind: "mission_goal" },
+    };
+
+    expect(taskScopeIdentity({ id: "episode-scope-identity", ...identity }))
+      .toBe(taskScopeIdentity({ episodeId: "episode-scope-identity", ...identity }));
+  });
+
+  it("uses the public Episode ID for an unscoped contract", () => {
+    expect(taskScopeIdentity({
+      episodeId: "unscoped-public-episode",
+      projectId: "project-scope-identity",
+      scope: null,
+    })).toBe("unscoped:unscoped-public-episode");
+  });
+});
+
 const projectIds: string[] = [];
 
 async function createMissionFixture(nextAction: Record<string, unknown>) {
