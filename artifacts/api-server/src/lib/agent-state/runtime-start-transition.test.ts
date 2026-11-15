@@ -412,7 +412,7 @@ function startApplyRecoveryProcess(
     '  const input = JSON.parse(process.env.APPLY_RECOVERY_INPUT ?? "{}");',
     "  try {",
     "    const result = await recoverAcceptedApplyChangesTransition(input);",
-    '    process.stdout.write("APPLY_RECOVERY_RESULT:" + JSON.stringify(result) + "\\n");',
+    '    process.stdout.write("APPLY_RECOVERY_RESULT:" + JSON.stringify(result) + "\n");',
     "  } finally {",
     "    await pool.end();",
     "  }",
@@ -420,7 +420,7 @@ function startApplyRecoveryProcess(
     "  console.error(error);",
     "  process.exitCode = 1;",
     "});",
-  ].join("\\n");
+  ].join("\n");
   const child = spawn(process.execPath, ["--import", "tsx", "-e", source], {
     cwd: process.cwd(),
     env: {
