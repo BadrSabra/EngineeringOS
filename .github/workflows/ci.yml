@@ -364,7 +364,12 @@ jobs:
 
   release-validation:
     name: Release validation
-    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && inputs.release_environment == 'release-validation'
+    needs: validate
+    if: >-
+      ${{ github.event_name == 'workflow_dispatch' &&
+          github.ref == 'refs/heads/main' &&
+          inputs.release_environment == 'release-validation' &&
+          needs.validate.result == 'success' }}
     runs-on: ubuntu-latest
     timeout-minutes: 30
     environment:
