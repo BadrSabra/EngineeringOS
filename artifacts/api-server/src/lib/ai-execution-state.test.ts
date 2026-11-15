@@ -114,14 +114,17 @@ vi.mock("@workspace/db", () => {
       }),
     }),
     insert: () => ({
-      values: () => ({
-        onConflictDoNothing: () => ({
-          returning: async () => {
-            insertCount += 1;
-            return insertCount === 1 ? [execution] : [];
-          },
-        }),
-      }),
+      values: (values: Record<string, unknown>) => {
+        Object.assign(execution, values);
+        return {
+          onConflictDoNothing: () => ({
+            returning: async () => {
+              insertCount += 1;
+              return insertCount === 1 ? [execution] : [];
+            },
+          }),
+        };
+      },
     }),
     update: () => ({
       set: (values: Record<string, unknown>) => ({
@@ -251,6 +254,7 @@ describe("createAiExecution", () => {
       idempotencyKey: "retry-key",
       projectId: "project-1",
       sessionId: "session-1",
+      delegationBudget: { maxChildren: 2, maxDepth: 1 },
     };
 
     const results = await Promise.all([
@@ -263,6 +267,13 @@ describe("createAiExecution", () => {
       "execution-1",
     ]);
     expect(results.map(({ created }) => created).sort()).toEqual([false, true]);
+    expect(results[0]?.execution).toMatchObject({
+      parentExecutionId: null,
+      delegationId: "delegation:execution-1",
+      rootExecutionId: "execution-1",
+      delegationDepth: 0,
+      delegationBudget: { maxChildren: 2, maxDepth: 1 },
+    });
   });
 });
 
