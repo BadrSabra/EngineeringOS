@@ -1,7 +1,7 @@
 import http from "node:http";
 import net from "node:net";
 import path from "node:path";
-import { createHash, createPublicKey, randomUUID } from "node:crypto";
+import { createHash, createPublicKey, randomUUID, timingSafeEqual } from "node:crypto";
 import {
   chmod, lstat, open, readFile, readdir, readlink, realpath, rename, stat, unlink,
 } from "node:fs/promises";
