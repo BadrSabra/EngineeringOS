@@ -10438,6 +10438,19 @@ describe("POST /api/ai/tasks/:taskId/execute", () => {
       },
     });
 
+    const deferredNextAttemptAt = String(deferredIntent!.payload?.nextAttemptAt ?? "");
+    expect(Date.parse(deferredNextAttemptAt)).toBeGreaterThan(Date.now());
+
+    // A repeated direct wake must not bypass the durable retry window.
+    await scheduleAiTaskExecution(taskId, "test-user", {
+      delegationBudget: { maxChildren: 2, maxDepth: 1 },
+    }, taskGeneration!.retryCount, taskGeneration!.correlationId);
+    expect(enqueueSpy).toHaveBeenCalledOnce();
+    expect(queuedJobs).toHaveLength(0);
+    const [stillDeferredIntent] = await db.select().from(eventsTable)
+      .where(eq(eventsTable.id, `task-auto-execution-deferred:${taskId}`));
+    expect(stillDeferredIntent?.payload?.nextAttemptAt).toBe(deferredNextAttemptAt);
+
     await db.update(eventsTable)
       .set({
         payload: {
