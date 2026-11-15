@@ -764,6 +764,22 @@ export async function scheduleAiTaskExecution(
         scheduledAiTaskCompletions.delete(taskId);
         return;
       }
+      // A direct caller may race or repeat a wake-up while the durable
+      // intent is already deferred. Never let that local wake bypass the
+      // persisted retry window; the recovery dispatcher will enqueue it once due.
+      const nextAttemptAt = persisted.payload.nextAttemptAt
+        ? Date.parse(persisted.payload.nextAttemptAt)
+        : Number.NaN;
+      if (Number.isFinite(nextAttemptAt) && nextAttemptAt > Date.now()) {
+        resolveCompletion();
+        scheduledAiTaskCompletions.delete(taskId);
+        logger.info(
+          { taskId, nextAttemptAt: persisted.payload.nextAttemptAt },
+          "AI task execution remains deferred until its retry window is due",
+        );
+        return;
+      }
+
       const retryCount = persisted.retryCount;
       const correlationId = persisted.correlationId;
       const effectiveUserId = persisted.payload.userId;
