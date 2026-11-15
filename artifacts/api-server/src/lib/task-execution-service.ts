@@ -4635,7 +4635,8 @@ export async function executeTaskLifecycle(params: {
           dispatchIntent
           && dispatchIntent.projectId === before.projectId
           && dispatchIntent.taskId === before.id
-          && payload?.userId === params.userId
+          && payload !== undefined
+          && payload.userId === params.userId
           && payload.taskRetryCount === retryCountAtRead
           && intentCorrelationMatches
         );
