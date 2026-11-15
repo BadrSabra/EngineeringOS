@@ -495,7 +495,7 @@ function readApplyRecoveryProcessResult(
       `Apply recovery worker ${worker.applicationName} exited with ${exitCode}; ${worker.output()}`,
     );
   }
-  const match = worker.output().match(/APPLY_RECOVERY_RESULT:(\\{[^\\r\\n]*\\})/);
+  const match = worker.output().match(/APPLY_RECOVERY_RESULT:(\{[^\r\n]*\})/);
   if (!match?.[1]) {
     throw new Error(
       `Apply recovery worker ${worker.applicationName} returned no structured result; ${worker.output()}`,
