@@ -1929,8 +1929,16 @@ describe("workspace runtime full API startup recovery", () => {
           port: knownRuntimePort,
         });
         const priorOwnerId = knownBeforeCrash?.workerId;
+        if (!priorOwnerId) {
+          throw new Error([
+            "The first API process did not claim the known runtime lease.",
+            `runtimeRow=${JSON.stringify(knownBeforeCrash, (_key, value) => value instanceof Date ? value.toISOString() : value)}`,
+            `apiWorker=${apiBefore?.output() ?? "missing"}`,
+            `supervisorRequests=${JSON.stringify(supervisorRequests)}`,
+            `unexpectedSupervisorPaths=${JSON.stringify(unexpectedSupervisorPaths)}`,
+          ].join("\\n"));
+        }
         expect(priorOwnerId).toBeTruthy();
-        if (!priorOwnerId) throw new Error("The first API process did not claim the known runtime lease.");
         expect(priorOwnerId).not.toBe(seedWorkerId);
         expect(knownBeforeCrash?.leaseUntil?.getTime()).toBeGreaterThan(Date.now());
         expect(supervisorRequests).toHaveLength(0);
