@@ -473,7 +473,7 @@ async function waitForApplyRecoveryProcessLockWaiters(
         waiting.state,
         waiting.wait_event_type,
         waiting.wait_event,
-        pg_blocking_pids(waiting.pid) @> ARRAY[${projectLockHolderPid}]::integer[] AS blocked_by_project_holder,
+        pg_blocking_pids(waiting.pid) AS blocking_pids,
         left(waiting.query, 240) AS query
       FROM pg_stat_activity AS waiting
       WHERE waiting.pid <> pg_backend_pid()
@@ -487,16 +487,32 @@ async function waitForApplyRecoveryProcessLockWaiters(
       state: string | null;
       wait_event_type: string | null;
       wait_event: string | null;
-      blocked_by_project_holder: boolean;
+      blocking_pids: Array<number | string> | null;
       query: string | null;
     }>;
-    lastObserved = rows.map((row) =>
-      `pid=${row.pid}, app=${row.application_name}, state=${row.state}, wait=${row.wait_event_type ?? "none"}/${row.wait_event ?? "none"}, blockedByHolder=${row.blocked_by_project_holder}, query=${row.query ?? "none"}`
-    );
+    const rowsByPid = new Map(rows.map((row) => [Number(row.pid), row]));
+    const isTransitivelyBlockedByProjectHolder = (
+      pid: number,
+      visited = new Set<number>(),
+    ): boolean => {
+      if (pid === projectLockHolderPid) return true;
+      if (visited.has(pid)) return false;
+      const nextVisited = new Set(visited);
+      nextVisited.add(pid);
+      const row = rowsByPid.get(pid);
+      return (row?.blocking_pids ?? []).some((blocker) =>
+        isTransitivelyBlockedByProjectHolder(Number(blocker), nextVisited)
+      );
+    };
+    lastObserved = rows.map((row) => {
+      const blockingPids = (row.blocking_pids ?? []).map(Number);
+      const blockedByProjectHolder = isTransitivelyBlockedByProjectHolder(Number(row.pid));
+      return `pid=${row.pid}, app=${row.application_name}, state=${row.state}, wait=${row.wait_event_type ?? "none"}/${row.wait_event ?? "none"}, blockers=[${blockingPids.join(",")}], blockedByProjectHolder=${blockedByProjectHolder}, query=${row.query ?? "none"}`;
+    });
     const blockedPids = [...new Set(rows
       .filter((row) => row.state === "active"
         && row.wait_event_type === "Lock"
-        && row.blocked_by_project_holder)
+        && isTransitivelyBlockedByProjectHolder(Number(row.pid)))
       .map((row) => Number(row.pid))
       .filter((pid) => Number.isSafeInteger(pid)))];
     if (blockedPids.length >= 2) return blockedPids;
