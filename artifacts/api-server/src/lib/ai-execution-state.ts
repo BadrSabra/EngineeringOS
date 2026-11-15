@@ -1997,6 +1997,14 @@ export async function createAiExecution(params: {
     if (Number(childCount) >= lineage.budget.maxChildren) {
       throw new Error("Delegated execution child budget is exhausted.");
     }
+  } else if (params.delegationBudget) {
+    // A root execution may own the budget for work it will delegate later.
+    // Persist the same lineage contract used by child executions so the
+    // Task claim can verify that the supplied budget matches durable identity.
+    lineage = buildExecutionLineage({
+      executionId,
+      budget: params.delegationBudget,
+    });
   }
   const operationId = params.request.operationId ?? params.buildPlanMessageId ?? executionId;
   const operation = createAutonomousOperationContract({
