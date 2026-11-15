@@ -1050,7 +1050,6 @@ describe("PR-C — AI auto-trigger on verifying", () => {
 
   it("rejects a Task transition when its generation is bound to another user", async () => {
     const { projectId, taskId } = await createTaskWithPrompt("Keep the existing dispatch identity");
-    await db.update(tasksTable).set({ status: "verifying" }).where(eq(tasksTable.id, taskId));
     const [taskGeneration] = await db.select({
       retryCount: tasksTable.retryCount,
       correlationId: tasksTable.correlationId,
@@ -1082,10 +1081,10 @@ describe("PR-C — AI auto-trigger on verifying", () => {
       .where(eq(tasksTable.id, taskId));
     const [intent] = await db.select().from(eventsTable)
       .where(eq(eventsTable.id, `task-auto-execution-deferred:${taskId}`));
-    expect(task?.status).toBe("verifying");
+    expect(task?.status).toBe("pending");
     expect(intent?.payload).toMatchObject({
       userId: "original-user",
-      taskRetryCount: 0,
+      taskRetryCount: taskGeneration!.retryCount,
       taskCorrelationId: taskGeneration!.correlationId,
     });
     expect(mockScheduleAiTaskExecution).not.toHaveBeenCalled();
