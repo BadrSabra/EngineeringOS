@@ -107,6 +107,7 @@ async function main() {
   // Local invocations without DATABASE_URL retain the isolated-cluster path.
   if (
     process.env.TASK_DEFERRED_DISPATCH_CONCURRENCY_ONLY === "1"
+    && process.env.CI === "true"
     && process.env.DATABASE_URL
   ) {
     console.log("Running the two-process deferred Task dispatcher race against the provided disposable PostgreSQL database.");
