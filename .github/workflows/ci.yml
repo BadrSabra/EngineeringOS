@@ -335,6 +335,7 @@ jobs:
         run: |
           set -euo pipefail
           export NODE_ENV=test
+          export RUN_INDEPENDENT_APPLY_RECOVERY_TEST=1
           export SESSION_SECRET="$(node --input-type=module -e 'import { randomBytes } from "node:crypto"; process.stdout.write(randomBytes(32).toString("base64url"))')"
           pnpm --filter @workspace/api-server exec vitest run src/lib/agent-state/runtime-start-transition.test.ts --testTimeout=120000 -t "requires a Mission Goal, proves independent PostgreSQL sessions for Apply recovery, serializes acceptance replay with materialization, and fences idempotency"
 
