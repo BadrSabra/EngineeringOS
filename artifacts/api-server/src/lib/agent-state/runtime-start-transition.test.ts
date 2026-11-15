@@ -391,9 +391,74 @@ async function waitForLockWaiter(tables: readonly string[]): Promise<string> {
   throw new Error(`Timed out waiting on any of: ${tables.join(", ")}.`);
 }
 
-async function waitForApplyRecoveryLockWaiters(
+function startApplyRecoveryProcess(
+  databaseUrl: URL,
+  applicationName: string,
+  input: {
+    projectId: string;
+    executionId: string;
+    attempt: number;
+    episodeId: string;
+    actionId: string;
+    proposalId: string;
+  },
+): RuntimeTransitionApiProcess {
+  const childDatabaseUrl = new URL(databaseUrl.toString());
+  childDatabaseUrl.searchParams.set("application_name", applicationName);
+  const source = [
+    "(async () => {",
+    '  const { recoverAcceptedApplyChangesTransition } = await import("./src/lib/agent-state/runtime-start-transition.ts");',
+    '  const { pool } = await import("@workspace/db");',
+    '  const input = JSON.parse(process.env.APPLY_RECOVERY_INPUT ?? "{}");',
+    "  try {",
+    "    const result = await recoverAcceptedApplyChangesTransition(input);",
+    '    process.stdout.write("APPLY_RECOVERY_RESULT:" + JSON.stringify(result) + "\\n");',
+    "  } finally {",
+    "    await pool.end();",
+    "  }",
+    "})().catch((error) => {",
+    "  console.error(error);",
+    "  process.exitCode = 1;",
+    "});",
+  ].join("\\n");
+  const child = spawn(process.execPath, ["--import", "tsx", "-e", source], {
+    cwd: process.cwd(),
+    env: {
+      ...process.env,
+      DATABASE_URL: childDatabaseUrl.toString(),
+      APPLY_RECOVERY_INPUT: JSON.stringify(input),
+      NODE_ENV: "test",
+      LOG_LEVEL: "warn",
+      PGAPPNAME: applicationName,
+      AI_PROVIDER_EGRESS_DISABLED: "1",
+      AI_CREDENTIALS_ENCRYPTION_KEY:
+        `${crypto.randomUUID().replaceAll("-", "")}${crypto.randomUUID().replaceAll("-", "")}`,
+    },
+    stdio: "pipe",
+  });
+  child.stdin.end();
+  let output = "";
+  child.stdout.setEncoding("utf8").on("data", (chunk: string) => {
+    output = `${output}${chunk}`.slice(-32_000);
+  });
+  child.stderr.setEncoding("utf8").on("data", (chunk: string) => {
+    output = `${output}${chunk}`.slice(-32_000);
+  });
+  return {
+    child,
+    applicationName,
+    exit: new Promise((resolve, reject) => {
+      child.once("error", reject);
+      child.once("exit", (code, signal) => resolve({ code, signal }));
+    }),
+    output: () => output,
+  };
+}
+
+async function waitForApplyRecoveryProcessLockWaiters(
   projectLockHolderPid: number,
-  timeoutMs = 10_000,
+  applicationNames: readonly [string, string],
+  timeoutMs = 15_000,
 ): Promise<number[]> {
   const deadline = Date.now() + timeoutMs;
   let lastObservedPids: number[] = [];
@@ -406,6 +471,8 @@ async function waitForApplyRecoveryLockWaiters(
         AND waiting.state = 'active'
         AND waiting.wait_event_type = 'Lock'
         AND pg_blocking_pids(waiting.pid) @> ARRAY[${projectLockHolderPid}]::integer[]
+        AND (waiting.application_name = ${applicationNames[0]}
+          OR waiting.application_name = ${applicationNames[1]})
         AND waiting.query ILIKE '%projects%'
     `);
     lastObservedPids = [...new Set(
@@ -415,8 +482,26 @@ async function waitForApplyRecoveryLockWaiters(
     await new Promise((resolve) => setTimeout(resolve, 25));
   }
   throw new Error(
-    `Timed out waiting for two independent Apply recovery PostgreSQL sessions; observed backend PIDs: ${lastObservedPids.join(", ") || "none"}.`,
+    `Timed out waiting for both Apply recovery worker processes to block on the Project row; observed backend PIDs: ${lastObservedPids.join(", ") || "none"}.`,
   );
+}
+
+function readApplyRecoveryProcessResult(
+  worker: RuntimeTransitionApiProcess,
+): Awaited<ReturnType<typeof recoverAcceptedApplyChangesTransition>> {
+  const exitCode = worker.child.exitCode;
+  if (exitCode !== 0) {
+    throw new Error(
+      `Apply recovery worker ${worker.applicationName} exited with ${exitCode}; ${worker.output()}`,
+    );
+  }
+  const match = worker.output().match(/APPLY_RECOVERY_RESULT:(\\{[^\\r\\n]*\\})/);
+  if (!match?.[1]) {
+    throw new Error(
+      `Apply recovery worker ${worker.applicationName} returned no structured result; ${worker.output()}`,
+    );
+  }
+  return JSON.parse(match[1]) as Awaited<ReturnType<typeof recoverAcceptedApplyChangesTransition>>;
 }
 
 function postgresErrorCodes(value: unknown): string[] {
@@ -1428,26 +1513,45 @@ describe("runtime.start transition retry scheduling", () => {
     ]);
 
     let recoveryResults: Awaited<ReturnType<typeof recoverAcceptedApplyChangesTransition>>[] = [];
-    let recoveryCalls: Promise<Awaited<ReturnType<typeof recoverAcceptedApplyChangesTransition>>>[] = [];
+    const recoveryDatabaseUrl = requireRuntimeTransitionDisposableDatabaseUrl();
+    const recoveryApplicationNames = [
+      `apply-recovery-a-${crypto.randomUUID().slice(0, 12)}`,
+      `apply-recovery-b-${crypto.randomUUID().slice(0, 12)}`,
+    ] as const;
+    const recoveryProcesses: RuntimeTransitionApiProcess[] = [];
     try {
-      recoveryCalls = [
-        recoverAcceptedApplyChangesTransition(recoveryInput),
-        recoverAcceptedApplyChangesTransition(recoveryInput),
-      ];
-      const recoverySessionPids = await waitForApplyRecoveryLockWaiters(projectLockHolderPid);
+      // Each worker is a separate Node process with its own node-postgres Pool.
+      // This avoids mistaking a same-process call queue for a database race.
+      recoveryProcesses.push(
+        startApplyRecoveryProcess(recoveryDatabaseUrl, recoveryApplicationNames[0], recoveryInput),
+        startApplyRecoveryProcess(recoveryDatabaseUrl, recoveryApplicationNames[1], recoveryInput),
+      );
+      const recoverySessionPids = await waitForApplyRecoveryProcessLockWaiters(
+        projectLockHolderPid,
+        recoveryApplicationNames,
+      );
       expect(recoverySessionPids).toHaveLength(2);
       expect(new Set(recoverySessionPids).size).toBe(2);
 
-      // Releasing the Project lock lets the database serialize the two real
-      // recovery transactions in their production lock order.
+      // Releasing the Project lock lets PostgreSQL serialize two independent
+      // processes through the production recovery transaction and lock order.
       releaseProjectLock();
-      recoveryResults = await Promise.all(recoveryCalls);
+      await Promise.all(recoveryProcesses.map((worker) => worker.exit));
+      recoveryResults = recoveryProcesses.map(readApplyRecoveryProcessResult);
     } finally {
       releaseProjectLock();
       await projectLockTransaction;
-      // Also drain both calls when the lock-observation assertion fails, so
-      // afterEach cannot race fixture cleanup against in-flight transactions.
-      await Promise.allSettled(recoveryCalls);
+      // Drain or terminate both independent workers before fixture cleanup.
+      await Promise.all(recoveryProcesses.map(async (worker) => {
+        const exited = await Promise.race([
+          worker.exit.then(() => true),
+          new Promise<false>((resolve) => setTimeout(() => resolve(false), 10_000)),
+        ]);
+        if (!exited && worker.child.exitCode === null && worker.child.signalCode === null) {
+          worker.child.kill("SIGKILL");
+          await worker.exit;
+        }
+      }));
     }
     expect(
       recoveryResults.map((result) => result.kind).sort(),
