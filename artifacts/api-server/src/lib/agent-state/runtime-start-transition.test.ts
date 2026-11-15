@@ -407,8 +407,10 @@ function startApplyRecoveryProcess(
   childDatabaseUrl.searchParams.set("application_name", applicationName);
   const source = [
     "(async () => {",
+    '  process.stdout.write("APPLY_RECOVERY_WORKER_BOOT:" + JSON.stringify({ pid: process.pid, cwd: process.cwd(), applicationName: process.env.PGAPPNAME }) + "\\n");',
     '  const { recoverAcceptedApplyChangesTransition } = await import("./src/lib/agent-state/runtime-start-transition.ts");',
     '  const { pool } = await import("@workspace/db");',
+    '  process.stdout.write("APPLY_RECOVERY_WORKER_MODULES_READY\\n");',
     '  const input = JSON.parse(process.env.APPLY_RECOVERY_INPUT ?? "{}");',
     "  try {",
     "    const result = await recoverAcceptedApplyChangesTransition(input);",
@@ -458,31 +460,63 @@ function startApplyRecoveryProcess(
 async function waitForApplyRecoveryProcessLockWaiters(
   projectLockHolderPid: number,
   applicationNames: readonly [string, string],
+  workers: readonly RuntimeTransitionApiProcess[],
   timeoutMs = 15_000,
 ): Promise<number[]> {
   const deadline = Date.now() + timeoutMs;
-  let lastObservedPids: number[] = [];
+  let lastObserved: string[] = [];
   while (Date.now() < deadline) {
     const result = await db.execute(sql`
-      SELECT waiting.pid
+      SELECT
+        waiting.pid,
+        waiting.application_name,
+        waiting.state,
+        waiting.wait_event_type,
+        waiting.wait_event,
+        pg_blocking_pids(waiting.pid) @> ARRAY[${projectLockHolderPid}]::integer[] AS blocked_by_project_holder,
+        left(waiting.query, 240) AS query
       FROM pg_stat_activity AS waiting
       WHERE waiting.pid <> pg_backend_pid()
         AND waiting.datname = current_database()
-        AND waiting.state = 'active'
-        AND waiting.wait_event_type = 'Lock'
-        AND pg_blocking_pids(waiting.pid) @> ARRAY[${projectLockHolderPid}]::integer[]
         AND (waiting.application_name = ${applicationNames[0]}
           OR waiting.application_name = ${applicationNames[1]})
-        AND waiting.query ILIKE '%projects%'
     `);
-    lastObservedPids = [...new Set(
-      result.rows.map((row) => Number(row.pid)).filter((pid) => Number.isSafeInteger(pid)),
-    )];
-    if (lastObservedPids.length >= 2) return lastObservedPids;
+    const rows = result.rows as Array<{
+      pid: number | string;
+      application_name: string;
+      state: string | null;
+      wait_event_type: string | null;
+      wait_event: string | null;
+      blocked_by_project_holder: boolean;
+      query: string | null;
+    }>;
+    lastObserved = rows.map((row) =>
+      `pid=${row.pid}, app=${row.application_name}, state=${row.state}, wait=${row.wait_event_type ?? "none"}/${row.wait_event ?? "none"}, blockedByHolder=${row.blocked_by_project_holder}, query=${row.query ?? "none"}`
+    );
+    const blockedPids = [...new Set(rows
+      .filter((row) => row.state === "active"
+        && row.wait_event_type === "Lock"
+        && row.blocked_by_project_holder)
+      .map((row) => Number(row.pid))
+      .filter((pid) => Number.isSafeInteger(pid)))];
+    if (blockedPids.length >= 2) return blockedPids;
+
+    const exitedWorkers = workers.filter((worker) =>
+      worker.child.exitCode !== null || worker.child.signalCode !== null
+    );
+    if (exitedWorkers.length > 0) {
+      throw new Error(
+        `Apply recovery worker exited before reaching the Project lock. Database observations: ${lastObserved.join(" | ") || "none"}. Worker output: ${workers.map((worker) =>
+          `${worker.applicationName} exit=${worker.child.exitCode ?? "running"} signal=${worker.child.signalCode ?? "none"} output=${worker.output() || "empty"}`
+        ).join(" || ")}`,
+      );
+    }
     await new Promise((resolve) => setTimeout(resolve, 25));
   }
   throw new Error(
-    `Timed out waiting for both Apply recovery worker processes to block on the Project row; observed backend PIDs: ${lastObservedPids.join(", ") || "none"}.`,
+    `Timed out waiting for both Apply recovery worker processes to block on the Project row. Database observations: ${lastObserved.join(" | ") || "none"}. Worker output: ${workers.map((worker) =>
+      `${worker.applicationName} exit=${worker.child.exitCode ?? "running"} signal=${worker.child.signalCode ?? "none"} output=${worker.output() || "empty"}`
+    ).join(" || ")}`,
   );
 }
 
@@ -1529,6 +1563,7 @@ describe("runtime.start transition retry scheduling", () => {
       const recoverySessionPids = await waitForApplyRecoveryProcessLockWaiters(
         projectLockHolderPid,
         recoveryApplicationNames,
+        recoveryProcesses,
       );
       expect(recoverySessionPids).toHaveLength(2);
       expect(new Set(recoverySessionPids).size).toBe(2);
