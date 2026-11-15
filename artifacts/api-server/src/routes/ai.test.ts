@@ -10483,6 +10483,85 @@ describe("POST /api/ai/tasks/:taskId/execute", () => {
     expect(remainingIntent).toHaveLength(0);
   });
 
+  it("does not claim an already-queued automatic job after its Outbox receives a future deferral", async () => {
+    const projectId = await insertProject();
+    projectIds.push(projectId);
+    const taskId = await insertTask(projectId, "verifying");
+    await db.update(tasksTable)
+      .set({ prompt: "Do not start while the durable retry window is active" })
+      .where(eq(tasksTable.id, taskId));
+    const [taskGeneration] = await db.select({
+      retryCount: tasksTable.retryCount,
+      correlationId: tasksTable.correlationId,
+    }).from(tasksTable).where(eq(tasksTable.id, taskId));
+
+    const queuedJobs: Array<{ id: string; run: () => Promise<void> }> = [];
+    const enqueueSpy = vi.spyOn(heavyJobQueue, "enqueueWithIdDetailed")
+      .mockImplementation((id, run) => {
+        queuedJobs.push({ id, run });
+        return "enqueued";
+      });
+    const providerSpy = vi.spyOn(aiRouteHelpers, "resolveProvider").mockResolvedValue({
+      provider: "groq",
+      apiKey: "test-only-key",
+      source: "user",
+    });
+    const rateLimitSpy = vi.spyOn(aiRateLimiter, "checkProjectRateLimitDb")
+      .mockResolvedValue({ allowed: true });
+
+    try {
+      await scheduleAiTaskExecution(
+        taskId,
+        "test-user",
+        undefined,
+        taskGeneration!.retryCount,
+        taskGeneration!.correlationId,
+      );
+      expect(queuedJobs).toHaveLength(1);
+
+      const intentId = `task-auto-execution-deferred:${taskId}`;
+      const [requestedIntent] = await db.select().from(eventsTable)
+        .where(eq(eventsTable.id, intentId));
+      expect(requestedIntent?.type).toBe("TaskAutoExecutionDispatchRequested");
+
+      const deferredPayload = {
+        ...requestedIntent!.payload!,
+        nextAttemptAt: new Date(Date.now() + 60_000).toISOString(),
+      };
+      await db.update(eventsTable)
+        .set({
+          type: "TaskAutoExecutionDeferred",
+          severity: "warning",
+          payload: deferredPayload,
+        })
+        .where(eq(eventsTable.id, intentId));
+
+      // Simulate a job that entered the local queue before another worker
+      // persisted a new retry deadline. The claim transaction must recheck it.
+      enqueueSpy.mockRestore();
+      await queuedJobs[0]!.run();
+      await waitForScheduledAiTaskExecutions();
+
+      const [task] = await db.select({ status: tasksTable.status })
+        .from(tasksTable)
+        .where(eq(tasksTable.id, taskId));
+      const [intent] = await db.select().from(eventsTable)
+        .where(eq(eventsTable.id, intentId));
+      const executions = await db.select({ id: aiExecutionsTable.id })
+        .from(aiExecutionsTable)
+        .where(eq(aiExecutionsTable.linkedTaskId, taskId));
+
+      expect(task?.status).toBe("verifying");
+      expect(executions).toHaveLength(0);
+      expect(intent?.type).toBe("TaskAutoExecutionDeferred");
+      expect(intent?.payload).toEqual(deferredPayload);
+    } finally {
+      enqueueSpy.mockRestore();
+      providerSpy.mockRestore();
+      rateLimitSpy.mockRestore();
+    }
+  });
+
   it.each(["retryCount", "correlationId"] as const)(
     "does not dispatch a deferred intent after the Task %s generation changes",
     async (generationField) => {
