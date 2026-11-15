@@ -17154,6 +17154,7 @@ async function applyChangesHandler(req: Request, res: Response) {
   let missionGoalId: string | null = null;
   let missionId: string | null = null;
   let missionPlanRevision: string | null = null;
+  let worldTransitionIntent: ReturnType<typeof buildApplyChangesWorldTransitionIntent> | undefined;
   try {
     // Read and validate the proposal after acquiring the project lock. This
     // prevents two concurrent approvals from both observing "pending" and
@@ -17957,7 +17958,7 @@ async function applyChangesHandler(req: Request, res: Response) {
       // Bind the Mission transition to the exact server-owned World State
       // captured before the Episode, observations, and filesystem side effects.
       // The intent is immutable evidence metadata; it does not grant acceptance.
-      const worldTransitionIntent = missionGoalId && missionPlanRevision
+      worldTransitionIntent = missionGoalId && missionPlanRevision
         ? buildApplyChangesWorldTransitionIntent({
             projectId,
             proposalId,

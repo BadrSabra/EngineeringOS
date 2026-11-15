@@ -582,6 +582,8 @@ describe("Mission recipe dispatch", () => {
       successorTaskId,
       "test-user",
       expect.any(Object),
+      0,
+      null,
     );
     [successor] = await db
       .select({
@@ -1334,6 +1336,8 @@ describe("Mission recipe dispatch", () => {
       taskId,
       "test-user",
       expect.objectContaining({ parentExecutionId: null }),
+      0,
+      null,
     );
     const [goal] = await db
       .select({ status: aiGoalsTable.status })

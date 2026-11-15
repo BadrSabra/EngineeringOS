@@ -1415,7 +1415,6 @@ describe("real durable task execution lifecycle", () => {
           request: {
             projectId,
             linkedTaskId: taskId,
-            attempt: 0,
             message: "Stored Task execution identity fixture",
             modelMessage: "Stored Task execution identity fixture",
             validationTargetPaths: [],
@@ -1578,7 +1577,7 @@ describe("real durable task execution lifecycle", () => {
         expectedRetryCount: 0,
         expectedCorrelationId: null,
         workspaceRevision: now.toISOString(),
-      })).rejects.toThrow("fixture_task_claim_failure");
+      })).rejects.toThrow('Failed query: update "tasks"');
 
       const [task] = await db.select({
         status: tasksTable.status,
@@ -5670,6 +5669,28 @@ describe("real durable task execution lifecycle", () => {
           type: "TaskAutoExecutionDeferred",
           taskId,
         });
+
+        // Queue saturation intentionally applies a 30-second retry delay.
+        // Make this controlled race fixture due immediately so both API
+        // processes reach the Task claim lock instead of testing the backoff timer.
+        const [deferredIntentSnapshot] = await db
+          .select({ payload: eventsTable.payload })
+          .from(eventsTable)
+          .where(eq(eventsTable.id, deferredIntentId))
+          .limit(1);
+        if (
+          !deferredIntentSnapshot?.payload
+          || typeof deferredIntentSnapshot.payload !== "object"
+          || Array.isArray(deferredIntentSnapshot.payload)
+        ) {
+          throw new Error("Deferred Task dispatch fixture payload is unavailable.");
+        }
+        await db.update(eventsTable).set({
+          payload: {
+            ...(deferredIntentSnapshot.payload as Record<string, unknown>),
+            nextAttemptAt: new Date(Date.now() - 60_000).toISOString(),
+          },
+        }).where(eq(eventsTable.id, deferredIntentId));
 
         signalRoot = await mkdtemp(join("/tmp", "ai-task-deferred-dispatch-race-"));
         const queueSignalFiles = [
