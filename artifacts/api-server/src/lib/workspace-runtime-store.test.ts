@@ -163,6 +163,20 @@ async function reserveLoopbackPort(): Promise<number> {
   return port;
 }
 
+async function reserveManagedRuntimePort(): Promise<number> {
+  for (let port = 3000; port <= 3099; port += 1) {
+    const server = createServer();
+    const available = await new Promise<boolean>((resolve) => {
+      server.once("error", () => resolve(false));
+      server.listen(port, "127.0.0.1", () => {
+        server.close((error) => resolve(!error));
+      });
+    });
+    if (available) return port;
+  }
+  throw new Error("No available port in the managed workspace runtime range.");
+}
+
 async function waitForJsonFile<T>(
   filePath: string,
   timeoutMs: number,
@@ -1825,13 +1839,14 @@ describe("workspace runtime full API startup recovery", () => {
           },
         ]);
 
+        const expectedRuntimePort = await reserveManagedRuntimePort();
         runtimeLauncher = spawn("pnpm", ["run", "dev"], {
           cwd: knownRoot,
           env: {
             PATH: process.env.PATH ?? "",
             HOME: process.env.HOME ?? os.tmpdir(),
             NODE_ENV: "test",
-            PORT: "0",
+            PORT: String(expectedRuntimePort),
             RUNTIME_READY_FILE: runtimePortFile,
           },
           detached: true,
@@ -1841,6 +1856,7 @@ describe("workspace runtime full API startup recovery", () => {
         if (!knownRuntimePid) throw new Error("The detached runtime launcher did not start.");
         runtimePid = knownRuntimePid;
         const knownRuntimePort = await waitForRuntimePortFile(runtimePortFile, runtimeLauncher);
+        expect(knownRuntimePort).toBe(expectedRuntimePort);
         runtimePort = knownRuntimePort;
         expect(await fetchRuntimeFixture(knownRuntimePort)).toBe("runtime-startup-live");
 
