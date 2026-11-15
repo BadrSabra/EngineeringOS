@@ -101,6 +101,34 @@ async function stopPostgres(port) {
 }
 
 async function main() {
+  // GitHub Actions already provisions a disposable loopback PostgreSQL service
+  // and applies the schema before this dedicated concurrency gate. Reuse that
+  // database instead of requiring local initdb/pg_ctl binaries on the runner.
+  // Local invocations without DATABASE_URL retain the isolated-cluster path.
+  if (
+    process.env.TASK_DEFERRED_DISPATCH_CONCURRENCY_ONLY === "1"
+    && process.env.DATABASE_URL
+  ) {
+    console.log("Running the two-process deferred Task dispatcher race against the provided disposable PostgreSQL database.");
+    await run("pnpm", [
+      "--filter", "@workspace/api-server",
+      "exec", "vitest", "run",
+      "src/lib/task-execution-lifecycle.integration.test.ts",
+      "--pool=threads",
+      "--maxWorkers=1",
+      "--no-file-parallelism",
+      "-t",
+      "two API processes dispatch one deferred Task and the winning claim consumes its intent",
+    ], {
+      env: {
+        ...process.env,
+        NODE_ENV: "test",
+        RUN_DEFERRED_TASK_DISPATCH_CONCURRENCY: "1",
+      },
+    });
+    return;
+  }
+
   if (os.userInfo().uid === 0) {
     throw new Error("Refusing to initialize the temporary PostgreSQL cluster as root.");
   }
