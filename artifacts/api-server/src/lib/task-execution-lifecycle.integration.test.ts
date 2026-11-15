@@ -5670,6 +5670,20 @@ describe("real durable task execution lifecycle", () => {
           taskId,
         });
 
+        // Queue saturation records a bounded retry delay. This test is about
+        // cross-process claim serialization, not the retry scheduler, so make
+        // the persisted intent due before starting the competing dispatchers.
+        await db.update(eventsTable)
+          .set({
+            payload: sql`jsonb_set(
+              ${eventsTable.payload},
+              '{nextAttemptAt}',
+              to_jsonb(${new Date(Date.now() - 1_000).toISOString()}::text),
+              true
+            )`,
+          })
+          .where(eq(eventsTable.id, deferredIntentId));
+
         signalRoot = await mkdtemp(join("/tmp", "ai-task-deferred-dispatch-race-"));
         const queueSignalFiles = [
           join(signalRoot, "dispatcher-a-queued.json"),
