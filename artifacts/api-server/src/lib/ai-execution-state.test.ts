@@ -115,12 +115,18 @@ vi.mock("@workspace/db", () => {
     }),
     insert: () => ({
       values: (values: Record<string, unknown>) => {
-        Object.assign(execution, values);
+        // Return the inserted row without mutating the shared fixture used by
+        // later claim/resume tests. Preserve its stable ID to model the DB row.
+        const insertedExecution = {
+          ...execution,
+          ...values,
+          id: execution.id,
+        };
         return {
           onConflictDoNothing: () => ({
             returning: async () => {
               insertCount += 1;
-              return insertCount === 1 ? [execution] : [];
+              return insertCount === 1 ? [insertedExecution] : [];
             },
           }),
         };
