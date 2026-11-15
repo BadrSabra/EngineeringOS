@@ -78,6 +78,7 @@ vi.mock("@workspace/db", () => {
 
   let selectCount = 0;
   let insertCount = 0;
+  let persistedInsert: Record<string, unknown> | undefined;
   let releaseInitialReads!: () => void;
   const initialReadsReleased = new Promise<void>((resolve) => {
     releaseInitialReads = resolve;
@@ -96,7 +97,7 @@ vi.mock("@workspace/db", () => {
               await initialReadsReleased;
               return [];
             }
-            return [execution];
+            return [persistedInsert ?? execution];
           },
           for: () => ({
             limit: async () => {
@@ -107,7 +108,7 @@ vi.mock("@workspace/db", () => {
                 await initialReadsReleased;
                 return [];
               }
-              return [execution];
+              return [persistedInsert ?? execution];
             },
           }),
         }),
@@ -115,18 +116,19 @@ vi.mock("@workspace/db", () => {
     }),
     insert: () => ({
       values: (values: Record<string, unknown>) => {
-        // Return the inserted row without mutating the shared fixture used by
-        // later claim/resume tests. Preserve its stable ID to model the DB row.
-        const insertedExecution = {
-          ...execution,
-          ...values,
-          id: execution.id,
-        };
+        // Keep the real ID and lineage values supplied by createAiExecution.
+        // The conflicting caller must reload this same persisted row, while
+        // later claim/resume tests retain their separate baseline fixture.
+        const insertedExecution = { ...execution, ...values };
         return {
           onConflictDoNothing: () => ({
             returning: async () => {
               insertCount += 1;
-              return insertCount === 1 ? [insertedExecution] : [];
+              if (insertCount === 1) {
+                persistedInsert = insertedExecution;
+                return [insertedExecution];
+              }
+              return [];
             },
           }),
         };
@@ -154,6 +156,9 @@ vi.mock("@workspace/db", () => {
     aiExecutionAcceptancesTable: acceptanceTable,
     tasksTable: taskTable,
     __executionFixture: execution,
+    __resetInsertedExecutionFixture: () => {
+      persistedInsert = undefined;
+    },
   };
 });
 
@@ -263,23 +268,32 @@ describe("createAiExecution", () => {
       delegationBudget: { maxChildren: 2, maxDepth: 1 },
     };
 
-    const results = await Promise.all([
-      createAiExecution(params),
-      createAiExecution(params),
-    ]);
+    try {
+      const results = await Promise.all([
+        createAiExecution(params),
+        createAiExecution(params),
+      ]);
+      const persistedExecutionId = results[0]?.execution.id;
 
-    expect(results.map(({ execution }) => execution.id)).toEqual([
-      "execution-1",
-      "execution-1",
-    ]);
-    expect(results.map(({ created }) => created).sort()).toEqual([false, true]);
-    expect(results[0]?.execution).toMatchObject({
-      parentExecutionId: null,
-      delegationId: "delegation:execution-1",
-      rootExecutionId: "execution-1",
-      delegationDepth: 0,
-      delegationBudget: { maxChildren: 2, maxDepth: 1 },
-    });
+      expect(persistedExecutionId).toEqual(expect.any(String));
+      expect(results.map(({ execution }) => execution.id)).toEqual([
+        persistedExecutionId,
+        persistedExecutionId,
+      ]);
+      expect(results.map(({ created }) => created).sort()).toEqual([false, true]);
+      expect(results[0]?.execution).toMatchObject({
+        parentExecutionId: null,
+        delegationId: `delegation:${persistedExecutionId}`,
+        rootExecutionId: persistedExecutionId,
+        delegationDepth: 0,
+        delegationBudget: { maxChildren: 2, maxDepth: 1 },
+      });
+    } finally {
+      const dbModule = await import("@workspace/db") as unknown as {
+        __resetInsertedExecutionFixture: () => void;
+      };
+      dbModule.__resetInsertedExecutionFixture();
+    }
   });
 });
 
