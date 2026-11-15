@@ -414,7 +414,7 @@ function startApplyRecoveryProcess(
     '  const input = JSON.parse(process.env.APPLY_RECOVERY_INPUT ?? "{}");',
     "  try {",
     "    const result = await recoverAcceptedApplyChangesTransition(input);",
-    '    process.stdout.write("APPLY_RECOVERY_RESULT:" + JSON.stringify(result) + "\n");',
+    '    process.stdout.write("APPLY_RECOVERY_RESULT:" + JSON.stringify(result) + "\\n");',
     "  } finally {",
     "    await pool.end();",
     "  }",
