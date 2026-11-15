@@ -4743,6 +4743,12 @@ describe("real durable task execution lifecycle", () => {
           queuedJob = job;
           return "enqueued";
         });
+      let enqueueSpyRestored = false;
+      const restoreEnqueueSpy = () => {
+        if (enqueueSpyRestored) return;
+        enqueueSpy.mockRestore();
+        enqueueSpyRestored = true;
+      };
       runAgentWithFallback.mockImplementation(async () => {
         await writeFile(startSignalFile, JSON.stringify({
           taskId,
@@ -4765,6 +4771,9 @@ describe("real durable task execution lifecycle", () => {
         if (dispatched !== 1 || !queuedJob) {
           throw new Error(`Expected one deferred queue handoff, got ${dispatched}.`);
         }
+        // The spy only proves which Task won dispatch. Restore it before the
+        // accepted-observation Outbox is handed to this process-local queue.
+        restoreEnqueueSpy();
         await writeFile(queueSignalFile, JSON.stringify({
           taskId,
           processId: process.pid,
@@ -4787,7 +4796,7 @@ describe("real durable task execution lifecycle", () => {
         }
         await drainProjectObservationOutbox(completedTask.projectId);
       } finally {
-        enqueueSpy.mockRestore();
+        restoreEnqueueSpy();
       }
     },
     120_000,
