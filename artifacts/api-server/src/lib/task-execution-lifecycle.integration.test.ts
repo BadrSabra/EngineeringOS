@@ -381,6 +381,7 @@ import { appendEpisodeEvent } from "./agent-state/agent-episode-ledger.js";
 import { createValidationWorkspace } from "./ai-repair-validation.js";
 import { getPublicTaskExecutionAcceptance } from "./ai-execution-acceptance.js";
 import { heavyJobQueue } from "./job-queue.js";
+import { dispatchPendingTaskObservationOutbox } from "./task-observation-outbox.js";
 import {
   dispatchDeferredAiTaskExecutions,
   scheduleAiTaskExecution,
@@ -463,6 +464,11 @@ async function drainPendingObservationMaterializations(): Promise<unknown[]> {
 async function drainProjectObservationOutbox(projectId: string): Promise<void> {
   const deadline = Date.now() + 10_000;
   while (true) {
+    // The API process used by this fixture is not running the normal
+    // reconciliation scheduler. Explicitly dispatch durable observation
+    // intents here so cleanup waits for materialization, not an absent timer.
+    await dispatchPendingTaskObservationOutbox();
+
     const rows = await db
       .select({
         id: taskExecutionObservationOutboxTable.id,
