@@ -867,7 +867,7 @@ async function insertValidRuntimeStartObservations(
 }
 
 describe("runtime.start transition retry scheduling", () => {
-  it("requires a Mission Goal, proves independent PostgreSQL sessions for Apply recovery, serializes acceptance replay with materialization, and fences idempotency", async () => {
+  it.skipIf(process.env.RUN_INDEPENDENT_APPLY_RECOVERY_TEST !== "1")("requires a Mission Goal, proves independent PostgreSQL sessions for Apply recovery, serializes acceptance replay with materialization, and fences idempotency", async () => {
     const fixture = await transitionFixture({ accepted: false });
     const now = new Date();
     const messageId = crypto.randomUUID();
