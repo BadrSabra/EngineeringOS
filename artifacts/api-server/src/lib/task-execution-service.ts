@@ -4616,6 +4616,8 @@ export async function executeTaskLifecycle(params: {
         const [dispatchIntent] = await tx
           .select({
             type: eventsTable.type,
+            projectId: eventsTable.projectId,
+            taskId: eventsTable.taskId,
             payload: eventsTable.payload,
           })
           .from(eventsTable)
@@ -4627,11 +4629,22 @@ export async function executeTaskLifecycle(params: {
           && !Array.isArray(dispatchIntent.payload)
           ? dispatchIntent.payload as Record<string, unknown>
           : undefined;
+        const intentCorrelationMatches = payload?.taskCorrelationId === correlationIdAtRead
+          || (payload?.taskCorrelationId === undefined && correlationIdAtRead === null);
+        const intentMatchesCurrentGeneration = Boolean(
+          dispatchIntent
+          && dispatchIntent.projectId === before.projectId
+          && dispatchIntent.taskId === before.id
+          && payload?.userId === params.userId
+          && payload.taskRetryCount === retryCountAtRead
+          && intentCorrelationMatches
+        );
         const nextAttemptAt = typeof payload?.nextAttemptAt === "string"
           ? Date.parse(payload.nextAttemptAt)
           : Number.NaN;
         if (
           dispatchIntent?.type === TASK_AUTO_EXECUTION_DEFERRED_EVENT_TYPE
+          && intentMatchesCurrentGeneration
           && Number.isFinite(nextAttemptAt)
           && nextAttemptAt > Date.now()
         ) {
