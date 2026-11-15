@@ -120,7 +120,7 @@ export async function validateWorkflow(workflowPath, rootDirectory = root) {
       fail(workflowPath, `job \`${jobId}\` steps must be a YAML sequence.`);
     }
   }
-  if (relative(rootDirectory, workflowPath) === ".github/workflows/ci.yml") {
+  if (label === ".github/workflows/ci.yml") {
     const releaseJob = workflow.jobs["release-validation"];
     if (!releaseJob) {
       fail(workflowPath, 'job "release-validation" is required.');
