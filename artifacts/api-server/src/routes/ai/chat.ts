@@ -8480,6 +8480,10 @@ export async function handleChatStream(req: Request, res: Response) {
     resumeToken,
     idempotencyKey,
   } = chatBody.data;
+  // Capture turn order before the first asynchronous lookup. The session-state
+  // compare-and-set fence must follow request arrival, not project lookup
+  // completion order.
+  const { startedAt: now, assistantAt: msgNow } = allocateTurnTimestamps();
   const rawTurnClassification = classifyRequest(message);
   const rawTurnIntent = resolveTurnIntent(message, {
     classification: rawTurnClassification,
@@ -8705,8 +8709,6 @@ export async function handleChatStream(req: Request, res: Response) {
       });
     }
   }
-
-  const { startedAt: now, assistantAt: msgNow } = allocateTurnTimestamps();
 
   // Keep execution handoff fail-closed in the streaming route too. This check
   // happens before provider resolution and before SSE headers are committed.

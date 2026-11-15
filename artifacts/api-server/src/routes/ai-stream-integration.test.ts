@@ -14725,17 +14725,27 @@ describe("INT-005 — POST /api/ai/chat/stream: successful OpenRouter completion
       .post("/api/ai/chat/stream")
       .set("Content-Type", "application/json")
       .send({ projectId, sessionId, message: "continue older work" });
+    // Supertest does not execute a request until its thenable is consumed.
+    // Start the older turn before waiting for its provider call; a timeout
+    // must fail the test rather than simulate a successful start.
+    const oldTurn = oldTurnRequest.then((response) => response);
+    let rejectOldCallStart!: (error: Error) => void;
+    const oldCallStartTimeoutPromise = new Promise<never>((_, reject) => {
+      rejectOldCallStart = reject;
+    });
     const oldCallStartTimeout = setTimeout(
-      () => resolveOldCallStarted(),
+      () => rejectOldCallStart(new Error("Timed out waiting for the older chat turn to reach the provider")),
       5_000,
     );
-    await oldCallStarted;
-    clearTimeout(oldCallStartTimeout);
+    try {
+      await Promise.race([oldCallStarted, oldCallStartTimeoutPromise]);
+    } finally {
+      clearTimeout(oldCallStartTimeout);
+    }
     const newTurnRequest = request(app)
       .post("/api/ai/chat/stream")
       .set("Content-Type", "application/json")
       .send({ projectId, sessionId, message: "continue newer work" });
-    const oldTurn = oldTurnRequest.then((response) => response);
     const newTurn = newTurnRequest.then((response) => response);
     let rejectConcurrentStart!: (error: Error) => void;
     const concurrentStartTimeout = setTimeout(
