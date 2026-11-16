@@ -122,11 +122,12 @@ async function deriveApplyChangesProofV2Evidence(input: {
   request: Record<string, unknown>;
   requestedPayload: Record<string, unknown>;
   actionId: string;
+  requestedEvent: typeof aiAgentEpisodeEventsTable.$inferSelect;
   sourceRevision: string;
   candidateIdentity: string;
 }): Promise<ApplyChangesProofV2Evidence | undefined> {
   const {
-    tx, execution, proposal, request, requestedPayload, actionId,
+    tx, execution, proposal, request, requestedPayload, actionId, requestedEvent,
     sourceRevision, candidateIdentity,
   } = input;
   const authorizationResult = ApplyAuthorizationDecisionSchema.safeParse(
@@ -173,7 +174,6 @@ async function deriveApplyChangesProofV2Evidence(input: {
       proposalChanges as Parameters<typeof canonicalJsonHash>[0],
     )
     || authorization.changeSetHash !== proposal.changeSetHash
-    || authorization.changeSetHash !== request.changeSetHash
     || preconditions.actionId !== actionId
     || preconditions.executionId !== execution.id
     || preconditions.attempt !== execution.attempt
@@ -269,7 +269,6 @@ async function deriveApplyChangesProofV2Evidence(input: {
     || subsetPayload.proposalChangesHash !== authorization.proposalChangesHash
     || subsetPayload.approvedPathsHash !== authorization.approvedPathsHash
     || subsetPayload.changeSetHash !== proposal.changeSetHash
-    || subsetPayload.submittedChangeSetHash !== proposal.changeSetHash
     || subsetPayload.subsetAuthorized !== true
   ) return undefined;
 
@@ -327,23 +326,28 @@ async function deriveApplyChangesProofV2Evidence(input: {
   const leaseUntil = typeof leasePayload?.leaseUntil === "string"
     ? Date.parse(leasePayload.leaseUntil)
     : Number.NaN;
-  const requestedAt = Date.parse(
-    String(journalById.get(leaseCheck!.reference.id)?.createdAt ?? ""),
-  );
-  const requestedEventAt = requestedAt;
+  const leaseObservedAt = typeof leasePayload?.observedAt === "string"
+    ? Date.parse(leasePayload.observedAt)
+    : Number.NaN;
+  const requestedEventAt = requestedEvent.createdAt instanceof Date
+    ? requestedEvent.createdAt.getTime()
+    : Date.parse(String(requestedEvent.createdAt));
   const actionEvent = record(requestedPayload.action);
   if (
     !leasePayload
     || leasePayload.executionId !== execution.id
     || leasePayload.attempt !== execution.attempt
     || leasePayload.userId !== execution.userId
-    || leasePayload.workerId !== requestedPayload.actorId
+    || typeof leasePayload.workerId !== "string"
+    || leasePayload.workerId !== requestedEvent.actorId
+    || requestedEvent.actorType !== "worker"
     || !Number.isFinite(leaseUntil)
+    || !Number.isFinite(leaseObservedAt)
     || !Number.isFinite(requestedEventAt)
+    || leaseObservedAt > requestedEventAt
     || requestedEventAt > leaseUntil
     || actionEvent?.actionId !== actionId
-    || requestedPayload.actorType !== "worker"
-    || requestedPayload.actorId !== leasePayload.workerId
+    || execution.workerId !== leasePayload.workerId
   ) return undefined;
 
   if (worldIntent) {
@@ -356,8 +360,9 @@ async function deriveApplyChangesProofV2Evidence(input: {
     const persistedIntent = record(parentPayload?.worldTransitionIntent);
     if (
       !parentPayload
-      || parentPayload.missionId !== execution.goalId && execution.goalId === null
+      || typeof parentPayload.missionId !== "string"
       || parentPayload.goalId !== worldIntent.goalId
+      || execution.goalId !== worldIntent.goalId
       || !persistedIntent
       || canonicalJsonHash(persistedIntent as Parameters<typeof canonicalJsonHash>[0])
         !== canonicalJsonHash(worldIntent as Parameters<typeof canonicalJsonHash>[0])
@@ -638,6 +643,7 @@ export async function deriveApplyChangesProof(input: {
       request,
       requestedPayload,
       actionId,
+      requestedEvent: requestedEvents[0]!,
       sourceRevision,
       candidateIdentity,
     });
