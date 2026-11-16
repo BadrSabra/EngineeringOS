@@ -95,6 +95,9 @@ import {
   buildProjectFileSources,
   deriveFlightDeckState,
   isProvenValidation,
+  canonicalJsonHash,
+  buildApplyAuthorizationDecision,
+  buildApplyPreconditionReceipt,
   toPublicValidationResult,
   decideMutationRepair,
   createServerCapabilityRegistry,
@@ -3886,6 +3889,12 @@ type ApplyJournalStage =
   | "PREFLIGHT_STARTED"
   | "PREFLIGHT_PASSED"
   | "PREFLIGHT_FAILED"
+  | "APPLY_AUTHORIZATION_DECISION"
+  | "APPLY_APPROVED_SUBSET"
+  | "APPLY_VALIDATION_PASSED"
+  | "APPLY_CANDIDATE_STABLE"
+  | "APPLY_EXECUTION_LEASE"
+  | "APPLY_PARENT_SNAPSHOT"
   | "WRITING_STARTED"
   | "WRITTEN"
   | "WRITE_FAILED"
@@ -17470,17 +17479,10 @@ async function applyChangesHandler(req: Request, res: Response) {
     const appendApplyJournal = async (
       stage: ApplyJournalStage,
       payload: Record<string, unknown> = {},
-    ): Promise<void> => {
+    ): Promise<{ id: string; contentHash: string }> => {
       journalSequence += 1;
-      await db.insert(aiApplyJournalTable).values({
-        id: randomUUID(),
-        operationId: applyCorrelationId,
-        attemptId: applyAttemptId,
-        projectId,
-        proposalId,
-        stage,
-        sequence: journalSequence,
-        payload: {
+      const id = randomUUID();
+      const journalPayload = JSON.parse(JSON.stringify({
         operationId: applyCorrelationId,
         baseRevision: deliveryWorkspace.baseRevision,
         baseTreeHash: deliveryWorkspace.baseTreeHash,
@@ -17489,8 +17491,21 @@ async function applyChangesHandler(req: Request, res: Response) {
         changeSetHash: effectiveChangeSetHash,
         promotedTreeHash,
         ...payload,
-        },
+      })) as Record<string, unknown>;
+      const contentHash = canonicalJsonHash(
+        journalPayload as Parameters<typeof canonicalJsonHash>[0],
+      );
+      await db.insert(aiApplyJournalTable).values({
+        id,
+        operationId: applyCorrelationId,
+        attemptId: applyAttemptId,
+        projectId,
+        proposalId,
+        stage,
+        sequence: journalSequence,
+        payload: journalPayload,
       });
+      return { id, contentHash };
     };
     await appendApplyJournal("STARTED", {
       changeCount: changes.length,
