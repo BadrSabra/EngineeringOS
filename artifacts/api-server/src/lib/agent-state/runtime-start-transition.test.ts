@@ -58,6 +58,7 @@ import * as worldStateModule from "./world-state.js";
 import { DELIVERY_TREE_DIGEST_VERSION, hashDeliveryTree } from "../delivery-workspace.js";
 import {
   AGENT_STATE_LIMITS,
+  type ApplyPreconditionReceipt,
   buildApplyAuthorizationDecision,
   buildApplyPreconditionReceipt,
   canonicalJsonHash,
@@ -1518,15 +1519,8 @@ describe("runtime.start transition retry scheduling", () => {
     )).limit(1);
     if (!requestedApplyEvent) throw new Error("Apply proof v2 Action event is missing.");
     const originalActionPayload = requestedApplyEvent.payload as Record<string, unknown>;
-    const originalPreconditionReceipt = originalActionPayload.preconditionReceipt as {
-      receiptHash: string;
-      checks: Array<{
-        id: string;
-        outcome: "SATISFIED";
-        reference: { kind: "APPLY_JOURNAL"; id: string; stage: string; contentHash: string };
-      }>;
-      [key: string]: unknown;
-    };
+    const originalPreconditionReceipt =
+      originalActionPayload.preconditionReceipt as ApplyPreconditionReceipt;
     const replaceActionPayload = async (payload: Record<string, unknown>) => {
       await db.update(aiAgentEpisodeEventsTable).set({
         payload: payload as typeof requestedApplyEvent.payload,
