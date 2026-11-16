@@ -326,6 +326,42 @@ describe("hasAiExecutionResumeContract", () => {
   });
 });
 
+describe("versioned Apply execution request compatibility", () => {
+  const legacyV1Request = {
+    projectId: "project-1",
+    operationId: "operation-1",
+    message: "Apply approved changes",
+    modelMessage: "Apply approved changes",
+    validationTargetPaths: ["src/target.ts"],
+    workspaceRoot: "/workspace/project-1",
+    workspaceRevision: "a".repeat(40),
+    turnIntent: "APPLY_CHANGES",
+    proofRequired: true,
+    effectRequired: true,
+    applyChangesProofMode: "apply_changes_v1",
+  };
+
+  it("continues to parse legacy apply_changes_v1 requests unchanged", () => {
+    expect(parseExecutionRequest(JSON.stringify(legacyV1Request))).toMatchObject({
+      applyChangesProofMode: "apply_changes_v1",
+      proofRequired: true,
+      effectRequired: true,
+    });
+  });
+
+  it("requires an immutable change-set digest for apply_changes_v2", () => {
+    expect(parseExecutionRequest(JSON.stringify({
+      ...legacyV1Request,
+      applyChangesProofMode: "apply_changes_v2",
+      changeSetHash: "b".repeat(64),
+    })).map((request) => request.applyChangesProofMode)).toBe("apply_changes_v2");
+    expect(parseExecutionRequest(JSON.stringify({
+      ...legacyV1Request,
+      applyChangesProofMode: "apply_changes_v2",
+    }))).toBeUndefined();
+  });
+});
+
 describe("claimAiExecution", () => {
   it("rotates the terminal message reservation and completion timestamp for a resume", async () => {
     const dbModule = (await import("@workspace/db") as unknown as {
