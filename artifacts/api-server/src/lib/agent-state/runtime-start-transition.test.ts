@@ -1358,6 +1358,7 @@ describe("runtime.start transition retry scheduling", () => {
     const stabilityJournalRef = await appendV2ApplyJournal(
       "APPLY_CANDIDATE_STABLE",
       {
+        observedAt: new Date().toISOString(),
         candidateHashAfterValidation: candidateTreeHash,
         candidateHashBeforePromotion: candidateTreeHash,
         liveRootHashBeforePromotion: baseTreeHash,
