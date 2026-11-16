@@ -83,6 +83,17 @@ function asString(value: unknown): string | undefined {
   return typeof value === "string" ? value : undefined;
 }
 
+/** Resolve an attempt identity from either the new V2 envelope or a historical request. */
+export function resolveApplyAttemptIdFromRequest(
+  request: unknown,
+  fallbackId: string,
+): string {
+  const storedRequest = parseRecord(request);
+  return asString(storedRequest?.applyAttemptId)
+    ?? asString(storedRequest?.operationId)
+    ?? fallbackId;
+}
+
 function asStringArray(value: unknown): string[] {
   return Array.isArray(value)
     ? value.filter((item): item is string => typeof item === "string")
@@ -576,11 +587,8 @@ export async function reconcileInterruptedApplyChanges(): Promise<{
           .orderBy(desc(aiAgentEpisodeEventsTable.sequence))
         : [];
       const actionRecord = getApplyActionEvent(episodeEvents, proposal);
-      const storedRequest = parseRecord(selected.request);
       const attemptId = actionRecord?.attemptId
-        ?? asString(storedRequest?.applyAttemptId)
-        ?? asString(storedRequest?.operationId)
-        ?? selected.id;
+        ?? resolveApplyAttemptIdFromRequest(selected.request, selected.id);
       const journal = await db.select()
         .from(aiApplyJournalTable)
         .where(and(
@@ -779,7 +787,7 @@ export async function reconcileInterruptedApplyChanges(): Promise<{
         "interrupted apply reconciliation failed closed",
       );
       try {
-        const attemptId = asString(parseRecord(selected.request)?.operationId) ?? selected.id;
+        const attemptId = resolveApplyAttemptIdFromRequest(selected.request, selected.id);
         const persisted = await persistRecoveryDecision({
           proposal,
           execution: selected,
