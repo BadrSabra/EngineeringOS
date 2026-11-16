@@ -290,7 +290,10 @@ async function deriveApplyChangesProofV2Evidence(input: {
     || subsetPayload.proposalChangesHash !== authorization.proposalChangesHash
     || subsetPayload.approvedPathsHash !== authorization.approvedPathsHash
     || subsetPayload.changeSetHash !== proposal.changeSetHash
-    || subsetPayload.submittedChangeSetHash !== proposal.changeSetHash
+    // This hashes the user's submitted envelope before partial-Hunk rebasing.
+    // The effective candidate hash above intentionally describes the final
+    // materialized bytes and can therefore differ from the submitted hash.
+    || !digest(subsetPayload.submittedChangeSetHash)
     || subsetPayload.subsetAuthorized !== true
   ) return undefined;
 
