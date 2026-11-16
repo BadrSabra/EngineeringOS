@@ -215,11 +215,14 @@ async function deriveApplyChangesProofV2Evidence(input: {
 
   const referencedJournalIds = [...new Set(preconditions.checks.map((check) => check.reference.id))];
   if (referencedJournalIds.length === 0) return undefined;
+  const hasAttemptBoundV2 = request.applyChangesProofMode === APPLY_CHANGES_PROOF_MODE_V2
+    && typeof request.applyAttemptId === "string";
+  const journalAttemptId = hasAttemptBoundV2 ? request.applyAttemptId : request.operationId;
   const journalRows = await tx.select().from(aiApplyJournalTable).where(and(
     eq(aiApplyJournalTable.projectId, execution.projectId),
     eq(aiApplyJournalTable.proposalId, proposal.id),
     eq(aiApplyJournalTable.operationId, proposal.operationId ?? ""),
-    eq(aiApplyJournalTable.attemptId, request.applyAttemptId as string),
+    eq(aiApplyJournalTable.attemptId, journalAttemptId as string),
     inArray(aiApplyJournalTable.id, referencedJournalIds),
   ));
   if (journalRows.length !== referencedJournalIds.length) return undefined;
@@ -296,7 +299,7 @@ async function deriveApplyChangesProofV2Evidence(input: {
     // V2 binds the exact server-computed digest in the execution request to
     // the Journal payload; the candidate hash above describes final bytes.
     || !digest(subsetPayload.submittedChangeSetHash)
-    || (request.applyChangesProofMode === APPLY_CHANGES_PROOF_MODE_V2
+    || (hasAttemptBoundV2
       && subsetPayload.submittedChangeSetHash !== request.submittedChangeSetHash)
     || subsetPayload.subsetAuthorized !== true
   ) return undefined;
@@ -481,7 +484,10 @@ export async function deriveApplyChangesProof(input: {
   const operationId = execution.operationId;
   const isV2 = request.applyChangesProofMode === APPLY_CHANGES_PROOF_MODE_V2;
   const requestedOperationId = request.operationId;
-  const attemptId = isV2 ? request.applyAttemptId : requestedOperationId;
+  // V2 requests written before attempt-bound subset evidence keep the legacy
+  // operationId-as-attempt shape. New V2 requests carry both fields together.
+  const hasAttemptBoundV2 = isV2 && request.applyAttemptId !== undefined;
+  const attemptId = hasAttemptBoundV2 ? request.applyAttemptId : requestedOperationId;
   const proposalId = execution.proposalId;
   const sourceRevision = input.sourceRevision;
   const candidateIdentity = input.candidateIdentity;
@@ -492,7 +498,8 @@ export async function deriveApplyChangesProof(input: {
     || requestedOperationId !== operationId
     || typeof attemptId !== "string"
     || !attemptId.trim()
-    || (isV2 && !digest(request.submittedChangeSetHash))
+    || (isV2 && ((request.applyAttemptId === undefined) !== (request.submittedChangeSetHash === undefined)))
+    || (hasAttemptBoundV2 && !digest(request.submittedChangeSetHash))
     || !proposalId
     || typeof execution.workspaceRoot !== "string"
     || !execution.workspaceRoot
