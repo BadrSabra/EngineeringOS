@@ -119,6 +119,7 @@ async function deriveApplyChangesProofV2Evidence(input: {
   tx: ApplyChangesProofTransaction;
   execution: typeof aiExecutionsTable.$inferSelect;
   proposal: typeof aiChangeProposalsTable.$inferSelect;
+  episode: typeof aiAgentEpisodesTable.$inferSelect;
   request: Record<string, unknown>;
   requestedPayload: Record<string, unknown>;
   actionId: string;
@@ -127,7 +128,7 @@ async function deriveApplyChangesProofV2Evidence(input: {
   candidateIdentity: string;
 }): Promise<ApplyChangesProofV2Evidence | undefined> {
   const {
-    tx, execution, proposal, request, requestedPayload, actionId, requestedEvent,
+    tx, execution, proposal, episode, request, requestedPayload, actionId, requestedEvent,
     sourceRevision, candidateIdentity,
   } = input;
   const authorizationResult = ApplyAuthorizationDecisionSchema.safeParse(
@@ -194,6 +195,9 @@ async function deriveApplyChangesProofV2Evidence(input: {
       worldIntent.projectId !== execution.projectId
       || worldIntent.proposalId !== proposal.id
       || worldIntent.goalId !== execution.goalId
+      || worldIntent.goalId !== episode.goalId
+      || worldIntent.planRevision !== episode.planRevision
+      || worldIntent.parentWorldRevision !== episode.worldRevision
       || preconditions.planRevision !== worldIntent.planRevision
       || preconditions.parentWorldRevision !== worldIntent.parentWorldRevision
     )
@@ -363,6 +367,7 @@ async function deriveApplyChangesProofV2Evidence(input: {
       !parentPayload
       || typeof parentPayload.missionId !== "string"
       || parentPayload.goalId !== worldIntent.goalId
+      || parentPayload.missionId !== episode.missionId
       || execution.goalId !== worldIntent.goalId
       || !persistedIntent
       || canonicalJsonHash(persistedIntent as Parameters<typeof canonicalJsonHash>[0])
@@ -641,6 +646,7 @@ export async function deriveApplyChangesProof(input: {
       tx,
       execution,
       proposal,
+      episode,
       request,
       requestedPayload,
       actionId,
