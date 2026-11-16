@@ -17810,11 +17810,26 @@ async function applyChangesHandler(req: Request, res: Response) {
         automaticPromotionBlockedReason = "Automatic delivery promotion requires every approved change to pass preflight.";
       }
     }
+    const proofValidationReceipts = [...verificationByProfile.values()].flatMap((validation) =>
+      "evidence" in validation ? [publicValidationReceipt(validation)] : [],
+    );
+    const proofValidationReceiptsBound = proofValidationReceipts.length > 0
+      && proofValidationReceipts.length === verificationByProfile.size
+      && proofValidationReceipts.every((receipt) => (
+        receipt.status === "passed"
+        && receipt.evidence.operationId === applyCorrelationId
+        && receipt.evidence.projectRevision === deliveryWorkspace.baseRevision
+        && receipt.evidence.baseTreeHash === deliveryWorkspace.baseTreeHash
+        && receipt.evidence.candidateHash === candidateHash
+        && receipt.evidence.changeSetHash === effectiveChangeSetHash
+        && receipt.evidence.treeDigestVersion === DELIVERY_TREE_DIGEST_VERSION
+      ));
     const validationNeedsReview = candidateChangedDuringValidation
       || candidateChangedBeforePromotion
       || liveRootChangedBeforePromotion
       || preflightFailures.length > 0
       || Boolean(automaticPromotionBlockedReason)
+      || !proofValidationReceiptsBound
       || [...verificationByProfile.values()].some((validation) =>
       validation.status === "failed" ||
       validation.status === "unavailable" ||
@@ -18029,6 +18044,168 @@ async function applyChangesHandler(req: Request, res: Response) {
         beforeEvidenceRef,
         afterEvidenceRef,
       });
+      const approvedPathsHash = canonicalJsonHash(
+        writableChanges.map((change) => change.path).sort(),
+      );
+      const proposalChangesHash = canonicalJsonHash(
+        approvedChanges as Parameters<typeof canonicalJsonHash>[0],
+      );
+      const authorizationDecision = buildApplyAuthorizationDecision({
+        schemaVersion: 1,
+        decision: "ALLOW",
+        actorUserId: req.userId,
+        projectId,
+        projectOwnerId: project.ownerId,
+        proposalId: proposal.id,
+        proposalRevision: proposal.revision,
+        executionId: claimed.id,
+        attempt: claimed.attempt,
+        capabilityId: action.capabilityId,
+        approvedPathsHash,
+        proposalChangesHash,
+        changeSetHash: effectiveChangeSetHash,
+      });
+      const authorizationJournal = await appendApplyJournal(
+        "APPLY_AUTHORIZATION_DECISION",
+        {
+          authorizationDecision,
+          proposalEligibility: {
+            proposalId: proposal.id,
+            status: proposal.status,
+            approvalRequired: proposal.approvalRequired,
+            revision: proposal.revision,
+          },
+          projectOwnerId: project.ownerId,
+          actorUserId: req.userId,
+        },
+      );
+      const subsetJournal = await appendApplyJournal(
+        "APPLY_APPROVED_SUBSET",
+        {
+          proposalId: proposal.id,
+          proposalRevision: proposal.revision,
+          proposalChangesHash,
+          approvedPathsHash,
+          changeSetHash: effectiveChangeSetHash,
+          submittedChangeSetHash,
+          subsetAuthorized: true,
+        },
+      );
+      const validationJournal = await appendApplyJournal(
+        "APPLY_VALIDATION_PASSED",
+        {
+          allPassed: true,
+          validationReceipts: proofValidationReceipts,
+          baseTreeHash: deliveryWorkspace.baseTreeHash,
+          candidateTreeHash,
+          changeSetHash: effectiveChangeSetHash,
+          treeDigestVersion: DELIVERY_TREE_DIGEST_VERSION,
+        },
+      );
+      const candidateStabilityJournal = await appendApplyJournal(
+        "APPLY_CANDIDATE_STABLE",
+        {
+          candidateHashAfterValidation,
+          candidateHashBeforePromotion,
+          liveRootHashBeforePromotion,
+          baseTreeHash: deliveryWorkspace.baseTreeHash,
+          candidateTreeHash,
+          candidateStable: candidateHashAfterValidation === candidateHash
+            && candidateHashBeforePromotion === candidateHash,
+          liveRootBaseMatched: liveRootHashBeforePromotion === deliveryWorkspace.baseTreeHash,
+        },
+      );
+      const leaseJournal = await appendApplyJournal(
+        "APPLY_EXECUTION_LEASE",
+        {
+          executionId: claimed.id,
+          attempt: claimed.attempt,
+          userId: claimed.userId,
+          workerId,
+          leaseUntil: claimed.leaseUntil?.toISOString() ?? null,
+          observedAt: new Date().toISOString(),
+        },
+      );
+      const parentSnapshotJournal = worldTransitionIntent
+        ? await appendApplyJournal(
+            "APPLY_PARENT_SNAPSHOT",
+            {
+              missionId,
+              goalId: missionGoalId,
+              worldTransitionIntent,
+            },
+          )
+        : undefined;
+      const applyJournalReference = (
+        entry: { id: string; contentHash: string },
+        stage:
+          | "APPLY_AUTHORIZATION_DECISION"
+          | "APPLY_APPROVED_SUBSET"
+          | "APPLY_VALIDATION_PASSED"
+          | "APPLY_CANDIDATE_STABLE"
+          | "APPLY_EXECUTION_LEASE"
+          | "APPLY_PARENT_SNAPSHOT",
+      ) => ({
+        kind: "APPLY_JOURNAL" as const,
+        id: entry.id,
+        stage,
+        contentHash: entry.contentHash,
+      });
+      const preconditionChecks = [
+        {
+          id: "PROJECT_OWNER_MATCHED" as const,
+          outcome: "SATISFIED" as const,
+          reference: applyJournalReference(authorizationJournal, "APPLY_AUTHORIZATION_DECISION"),
+        },
+        {
+          id: "PROPOSAL_ELIGIBLE" as const,
+          outcome: "SATISFIED" as const,
+          reference: applyJournalReference(authorizationJournal, "APPLY_AUTHORIZATION_DECISION"),
+        },
+        {
+          id: "EXACT_APPROVED_SUBSET" as const,
+          outcome: "SATISFIED" as const,
+          reference: applyJournalReference(subsetJournal, "APPLY_APPROVED_SUBSET"),
+        },
+        {
+          id: "CANDIDATE_VALIDATION_PASSED" as const,
+          outcome: "SATISFIED" as const,
+          reference: applyJournalReference(validationJournal, "APPLY_VALIDATION_PASSED"),
+        },
+        {
+          id: "CANDIDATE_STABLE" as const,
+          outcome: "SATISFIED" as const,
+          reference: applyJournalReference(candidateStabilityJournal, "APPLY_CANDIDATE_STABLE"),
+        },
+        {
+          id: "LIVE_ROOT_BASE_MATCHED" as const,
+          outcome: "SATISFIED" as const,
+          reference: applyJournalReference(candidateStabilityJournal, "APPLY_CANDIDATE_STABLE"),
+        },
+        {
+          id: "EXECUTION_LEASE_OWNED" as const,
+          outcome: "SATISFIED" as const,
+          reference: applyJournalReference(leaseJournal, "APPLY_EXECUTION_LEASE"),
+        },
+        ...(worldTransitionIntent && parentSnapshotJournal
+          ? [{
+              id: "MISSION_PARENT_SNAPSHOT_BOUND" as const,
+              outcome: "SATISFIED" as const,
+              reference: applyJournalReference(parentSnapshotJournal, "APPLY_PARENT_SNAPSHOT"),
+            }]
+          : []),
+      ];
+      const preconditionReceipt = buildApplyPreconditionReceipt({
+        schemaVersion: 1,
+        actionId: action.actionId,
+        executionId: claimed.id,
+        attempt: claimed.attempt,
+        ...(worldTransitionIntent ? {
+          planRevision: worldTransitionIntent.planRevision,
+          parentWorldRevision: worldTransitionIntent.parentWorldRevision,
+        } : {}),
+        checks: preconditionChecks,
+      });
       await appendEpisodeEvent({
         episodeId: episode.episodeId,
         projectId,
@@ -18043,6 +18220,8 @@ async function applyChangesHandler(req: Request, res: Response) {
           action,
           effectContract,
           ...(worldTransitionIntent ? { worldTransitionIntent } : {}),
+          authorizationDecision,
+          preconditionReceipt,
         },
         actorType: "worker",
         actorId: workerId,
