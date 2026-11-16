@@ -7994,6 +7994,57 @@ describe("POST /api/ai/chat/apply-changes", () => {
       .where(eq(aiApplyJournalTable.operationId, proposalId))).toHaveLength(0);
   });
 
+  it("blocks a pending proposal after an interrupted promotion intent", async () => {
+    const projectId = await insertProject();
+    projectIds.push(projectId);
+    const proposalChanges = [{
+      path: "src/interrupted-promotion.ts",
+      absolutePath: `/tmp/interrupted-promotion-${randomUUID()}.ts`,
+      newContent: "export const interruptedPromotion = true;\\n",
+      originalContent: null,
+      reason: "Interrupted promotion journal test",
+      validationProfile: "api-ai-tests" as const,
+    }];
+    const proposalId = await insertChangeProposal(projectId, proposalChanges);
+    await db.update(aiChangeProposalsTable)
+      .set({ operationId: proposalId })
+      .where(eq(aiChangeProposalsTable.id, proposalId));
+    await db.insert(aiApplyJournalTable).values({
+      id: randomUUID(),
+      operationId: proposalId,
+      attemptId: `interrupted-attempt:${randomUUID()}`,
+      projectId,
+      proposalId,
+      stage: "PROMOTION_INTENT",
+      sequence: 1,
+      payload: {
+        candidateHash: "a".repeat(64),
+        files: [{
+          path: proposalChanges[0]!.path,
+          originalContent: null,
+          newContent: proposalChanges[0]!.newContent,
+        }],
+      },
+    });
+
+    const res = await request(app)
+      .post("/api/ai/chat/apply-changes")
+      .send({ projectId, proposalId, changes: proposalChanges });
+
+    expect(res.status).toBe(409);
+    expect(res.body).toEqual({
+      error: "This delivery must complete recovery validation before it can be applied again.",
+      code: "DELIVERY_RECOVERY_REQUIRED",
+      lifecycle: "proposed",
+      recoveryState: "recoverable",
+      nextAction: "Resume validation before applying the delivery again, or discard it if it is no longer needed.",
+    });
+    const journal = await db.select().from(aiApplyJournalTable)
+      .where(eq(aiApplyJournalTable.proposalId, proposalId));
+    expect(journal).toHaveLength(1);
+    expect(journal[0]?.stage).toBe("PROMOTION_INTENT");
+  });
+
   it("emits a warning AiChangesApplied event when no file can be written", async () => {
     // Keep the candidate workspace small while the change remains outside it.
     const { id } = await createApplyProject();
