@@ -820,6 +820,14 @@ describe("autonomous operation contract", () => {
       changeSetHash: "b".repeat(64),
       applyChangesProofMode: "apply_changes_v2",
     }))).toBeUndefined();
+    expect(parseExecutionRequest(JSON.stringify({
+      ...common,
+      operationId: "operation-1",
+      applyAttemptId: "operation-1",
+      submittedChangeSetHash: "c".repeat(64),
+      changeSetHash: "b".repeat(64),
+      applyChangesProofMode: "apply_changes_v2",
+    }))).toBeUndefined();
 
     expect(parseExecutionRequest(JSON.stringify({
       ...common,
