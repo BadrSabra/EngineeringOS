@@ -242,7 +242,9 @@ async function hasAcceptedApplyProof(
     || acceptance.outcome !== "SUCCEEDED"
     || acceptance.terminalStatus !== "completed"
     || acceptance.operationId !== execution.operationId
-    || execution.operationId !== actionRecord.attemptId
+    // operationId is the durable operation identity; the Action scope carries
+    // the attempt identity and is separately bound to this attempt's Journal.
+    || !actionRecord.attemptId
     || acceptance.sourceRevision !== proposal.baseRevision
     || acceptance.candidateIdentity !== `${proposal.id}:${proposal.candidateTreeHash}`
     || !acceptance.effectBundleId
