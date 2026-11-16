@@ -2,24 +2,40 @@ import { and, eq, inArray } from "drizzle-orm";
 import {
   aiAgentEpisodeEventsTable,
   aiAgentEpisodesTable,
+  aiApplyJournalTable,
   aiAgentEffectBundlesTable,
   aiAgentEffectsTable,
   aiAgentObservationsTable,
   aiChangeProposalsTable,
   aiExecutionsTable,
+  projectsTable,
 } from "@workspace/db";
-import { canonicalJsonHash, hashEffectContract } from "@workspace/ai-orchestrator";
+import {
+  ApplyAuthorizationDecisionSchema,
+  ApplyPreconditionReceiptSchema,
+  ApplyWorldTransitionIntentSchema,
+  canonicalJsonHash,
+  hashEffectContract,
+} from "@workspace/ai-orchestrator";
 import {
   APPLY_CHANGE_CAPABILITY_ID,
   buildApplyChangeAction,
   buildApplyChangeEffectContract,
 } from "./apply-change-effect.js";
 
-export const APPLY_CHANGES_PROOF_MODE = "apply_changes_v1" as const;
+export const APPLY_CHANGES_PROOF_MODE_V1 = "apply_changes_v1" as const;
+export const APPLY_CHANGES_PROOF_MODE_V2 = "apply_changes_v2" as const;
+/** Kept as the v1 alias so existing fixtures and historical callers remain explicit. */
+export const APPLY_CHANGES_PROOF_MODE = APPLY_CHANGES_PROOF_MODE_V1;
 
-export type ApplyChangesProofArtifact = {
+export function isApplyChangesProofMode(
+  value: unknown,
+): value is typeof APPLY_CHANGES_PROOF_MODE_V1 | typeof APPLY_CHANGES_PROOF_MODE_V2 {
+  return value === APPLY_CHANGES_PROOF_MODE_V1 || value === APPLY_CHANGES_PROOF_MODE_V2;
+}
+
+type ApplyChangesProofArtifactBase = {
   kind: "apply_changes";
-  version: 1;
   executionId: string;
   attempt: number;
   operationId: string;
@@ -41,6 +57,26 @@ export type ApplyChangesProofArtifact = {
   beforeObservationIds: string[];
   afterObservationIds: string[];
 };
+
+export type ApplyChangesProofArtifactV1 = ApplyChangesProofArtifactBase & {
+  version: 1;
+};
+
+export type ApplyChangesProofArtifactV2 = ApplyChangesProofArtifactBase & {
+  version: 2;
+  authorizationDecisionHash: string;
+  preconditionReceiptHash: string;
+  preconditionJournalIds: string[];
+};
+
+export type ApplyChangesProofArtifact =
+  | ApplyChangesProofArtifactV1
+  | ApplyChangesProofArtifactV2;
+
+type ApplyChangesProofV2Evidence = Pick<
+  ApplyChangesProofArtifactV2,
+  "authorizationDecisionHash" | "preconditionReceiptHash" | "preconditionJournalIds"
+>;
 
 type ApplyChangesProofTransaction =
   Parameters<Parameters<typeof import("@workspace/db").db.transaction>[0]>[0];
@@ -66,6 +102,273 @@ function treeHash(value: unknown): string | undefined {
 
 function digest(value: unknown): value is string {
   return typeof value === "string" && /^[a-f0-9]{64}$/i.test(value);
+}
+
+const APPLY_PRECONDITION_STAGE_BY_ID = {
+  PROJECT_OWNER_MATCHED: "APPLY_AUTHORIZATION_DECISION",
+  PROPOSAL_ELIGIBLE: "APPLY_AUTHORIZATION_DECISION",
+  EXACT_APPROVED_SUBSET: "APPLY_APPROVED_SUBSET",
+  CANDIDATE_VALIDATION_PASSED: "APPLY_VALIDATION_PASSED",
+  CANDIDATE_STABLE: "APPLY_CANDIDATE_STABLE",
+  LIVE_ROOT_BASE_MATCHED: "APPLY_CANDIDATE_STABLE",
+  EXECUTION_LEASE_OWNED: "APPLY_EXECUTION_LEASE",
+  MISSION_PARENT_SNAPSHOT_BOUND: "APPLY_PARENT_SNAPSHOT",
+} as const;
+
+async function deriveApplyChangesProofV2Evidence(input: {
+  tx: ApplyChangesProofTransaction;
+  execution: typeof aiExecutionsTable.$inferSelect;
+  proposal: typeof aiChangeProposalsTable.$inferSelect;
+  request: Record<string, unknown>;
+  requestedPayload: Record<string, unknown>;
+  actionId: string;
+  sourceRevision: string;
+  candidateIdentity: string;
+}): Promise<ApplyChangesProofV2Evidence | undefined> {
+  const {
+    tx, execution, proposal, request, requestedPayload, actionId,
+    sourceRevision, candidateIdentity,
+  } = input;
+  const authorizationResult = ApplyAuthorizationDecisionSchema.safeParse(
+    requestedPayload.authorizationDecision,
+  );
+  const preconditionResult = ApplyPreconditionReceiptSchema.safeParse(
+    requestedPayload.preconditionReceipt,
+  );
+  if (!authorizationResult.success || !preconditionResult.success) return undefined;
+  const authorization = authorizationResult.data;
+  const preconditions = preconditionResult.data;
+  let proposalChanges: unknown;
+  try {
+    proposalChanges = typeof proposal.changes === "string"
+      ? JSON.parse(proposal.changes)
+      : proposal.changes;
+  } catch {
+    return undefined;
+  }
+  if (!Array.isArray(proposalChanges)) return undefined;
+  const [project] = await tx.select({
+    id: projectsTable.id,
+    ownerId: projectsTable.ownerId,
+  }).from(projectsTable).where(eq(projectsTable.id, execution.projectId)).limit(1);
+  const requestedPaths = Array.isArray(request.validationTargetPaths)
+    && request.validationTargetPaths.every((item) => typeof item === "string" && item.trim())
+    ? request.validationTargetPaths as string[]
+    : undefined;
+  if (
+    !project
+    || !requestedPaths
+    || authorization.decision !== "ALLOW"
+    || authorization.actorUserId !== execution.userId
+    || authorization.actorUserId !== project.ownerId
+    || authorization.projectOwnerId !== project.ownerId
+    || authorization.projectId !== execution.projectId
+    || authorization.proposalId !== proposal.id
+    || authorization.proposalRevision !== proposal.revision
+    || authorization.executionId !== execution.id
+    || authorization.attempt !== execution.attempt
+    || authorization.capabilityId !== APPLY_CHANGE_CAPABILITY_ID
+    || authorization.approvedPathsHash !== canonicalJsonHash([...requestedPaths].sort())
+    || authorization.proposalChangesHash !== canonicalJsonHash(
+      proposalChanges as Parameters<typeof canonicalJsonHash>[0],
+    )
+    || authorization.changeSetHash !== proposal.changeSetHash
+    || authorization.changeSetHash !== request.changeSetHash
+    || preconditions.actionId !== actionId
+    || preconditions.executionId !== execution.id
+    || preconditions.attempt !== execution.attempt
+  ) return undefined;
+
+  const worldIntentResult = requestedPayload.worldTransitionIntent === undefined
+    ? undefined
+    : ApplyWorldTransitionIntentSchema.safeParse(requestedPayload.worldTransitionIntent);
+  if (requestedPayload.worldTransitionIntent !== undefined && !worldIntentResult?.success) {
+    return undefined;
+  }
+  const worldIntent = worldIntentResult?.success ? worldIntentResult.data : undefined;
+  if (
+    worldIntent
+    && (
+      worldIntent.projectId !== execution.projectId
+      || worldIntent.proposalId !== proposal.id
+      || worldIntent.goalId !== execution.goalId
+      || preconditions.planRevision !== worldIntent.planRevision
+      || preconditions.parentWorldRevision !== worldIntent.parentWorldRevision
+    )
+  ) return undefined;
+  if (!worldIntent && (
+    preconditions.planRevision !== undefined
+    || preconditions.parentWorldRevision !== undefined
+    || preconditions.checks.some((check) => check.id === "MISSION_PARENT_SNAPSHOT_BOUND")
+  )) return undefined;
+
+  const referencedJournalIds = [...new Set(preconditions.checks.map((check) => check.reference.id))];
+  if (referencedJournalIds.length === 0) return undefined;
+  const journalRows = await tx.select().from(aiApplyJournalTable).where(and(
+    eq(aiApplyJournalTable.projectId, execution.projectId),
+    eq(aiApplyJournalTable.proposalId, proposal.id),
+    eq(aiApplyJournalTable.operationId, proposal.operationId ?? ""),
+    eq(aiApplyJournalTable.attemptId, request.operationId as string),
+    inArray(aiApplyJournalTable.id, referencedJournalIds),
+  ));
+  if (journalRows.length !== referencedJournalIds.length) return undefined;
+  const journalById = new Map(journalRows.map((row) => [row.id, row]));
+  const payloadFor = (id: string, expectedStage: string): Record<string, unknown> | undefined => {
+    const row = journalById.get(id);
+    if (
+      !row
+      || row.stage !== expectedStage
+      || canonicalJsonHash(row.payload as Parameters<typeof canonicalJsonHash>[0])
+        !== preconditions.checks.find((check) => check.reference.id === id)?.reference.contentHash
+    ) return undefined;
+    return record(row.payload);
+  };
+  for (const check of preconditions.checks) {
+    const expectedStage = APPLY_PRECONDITION_STAGE_BY_ID[check.id];
+    if (check.reference.stage !== expectedStage) return undefined;
+    const journal = journalById.get(check.reference.id);
+    if (
+      !journal
+      || journal.stage !== expectedStage
+      || canonicalJsonHash(journal.payload as Parameters<typeof canonicalJsonHash>[0])
+        !== check.reference.contentHash
+    ) return undefined;
+  }
+
+  const authorizationChecks = preconditions.checks.filter((check) =>
+    check.id === "PROJECT_OWNER_MATCHED" || check.id === "PROPOSAL_ELIGIBLE"
+  );
+  if (authorizationChecks.length !== 2) return undefined;
+  const authorizationPayload = payloadFor(
+    authorizationChecks[0]!.reference.id,
+    "APPLY_AUTHORIZATION_DECISION",
+  );
+  const persistedDecision = record(authorizationPayload?.authorizationDecision);
+  const proposalEligibility = record(authorizationPayload?.proposalEligibility);
+  if (
+    !authorizationPayload
+    || !persistedDecision
+    || canonicalJsonHash(persistedDecision as Parameters<typeof canonicalJsonHash>[0])
+      !== authorization.decisionHash
+    || proposalEligibility?.proposalId !== proposal.id
+    || proposalEligibility.status !== "pending"
+    || proposalEligibility.approvalRequired !== false
+    || proposalEligibility.revision !== proposal.revision
+    || authorizationPayload.projectOwnerId !== project.ownerId
+    || authorizationPayload.actorUserId !== execution.userId
+  ) return undefined;
+
+  const subsetCheck = preconditions.checks.find((check) => check.id === "EXACT_APPROVED_SUBSET");
+  const subsetPayload = subsetCheck
+    ? payloadFor(subsetCheck.reference.id, "APPLY_APPROVED_SUBSET")
+    : undefined;
+  if (
+    !subsetPayload
+    || subsetPayload.proposalId !== proposal.id
+    || subsetPayload.proposalRevision !== proposal.revision
+    || subsetPayload.proposalChangesHash !== authorization.proposalChangesHash
+    || subsetPayload.approvedPathsHash !== authorization.approvedPathsHash
+    || subsetPayload.changeSetHash !== proposal.changeSetHash
+    || subsetPayload.submittedChangeSetHash !== proposal.changeSetHash
+    || subsetPayload.subsetAuthorized !== true
+  ) return undefined;
+
+  const validationCheck = preconditions.checks.find((check) =>
+    check.id === "CANDIDATE_VALIDATION_PASSED"
+  );
+  const validationPayload = validationCheck
+    ? payloadFor(validationCheck.reference.id, "APPLY_VALIDATION_PASSED")
+    : undefined;
+  const validationReceipts = Array.isArray(validationPayload?.validationReceipts)
+    ? validationPayload.validationReceipts
+    : [];
+  if (
+    !validationPayload
+    || validationPayload.allPassed !== true
+    || validationReceipts.length === 0
+    || validationReceipts.some((value) => {
+      const receipt = record(value);
+      const evidence = record(receipt?.evidence);
+      return receipt?.status !== "passed"
+        || typeof evidence?.evidenceId !== "string"
+        || typeof evidence.artifactRef !== "string"
+        || evidence.operationId !== proposal.operationId
+        || evidence.projectRevision !== sourceRevision
+        || evidence.baseTreeHash !== proposal.baseTreeHash
+        || evidence.candidateHash !== proposal.candidateTreeHash
+        || evidence.changeSetHash !== proposal.changeSetHash
+        || evidence.treeDigestVersion !== proposal.treeDigestVersion;
+    })
+    || validationPayload.baseTreeHash !== proposal.baseTreeHash
+    || validationPayload.candidateTreeHash !== proposal.candidateTreeHash
+    || validationPayload.changeSetHash !== proposal.changeSetHash
+    || validationPayload.treeDigestVersion !== proposal.treeDigestVersion
+  ) return undefined;
+
+  const stabilityCheck = preconditions.checks.find((check) => check.id === "CANDIDATE_STABLE");
+  const stabilityPayload = stabilityCheck
+    ? payloadFor(stabilityCheck.reference.id, "APPLY_CANDIDATE_STABLE")
+    : undefined;
+  if (
+    !stabilityPayload
+    || stabilityPayload.candidateHashAfterValidation !== proposal.candidateTreeHash
+    || stabilityPayload.candidateHashBeforePromotion !== proposal.candidateTreeHash
+    || stabilityPayload.liveRootHashBeforePromotion !== proposal.baseTreeHash
+    || stabilityPayload.baseTreeHash !== proposal.baseTreeHash
+    || stabilityPayload.candidateTreeHash !== proposal.candidateTreeHash
+    || stabilityPayload.candidateStable !== true
+    || stabilityPayload.liveRootBaseMatched !== true
+  ) return undefined;
+
+  const leaseCheck = preconditions.checks.find((check) => check.id === "EXECUTION_LEASE_OWNED");
+  const leasePayload = leaseCheck
+    ? payloadFor(leaseCheck.reference.id, "APPLY_EXECUTION_LEASE")
+    : undefined;
+  const leaseUntil = typeof leasePayload?.leaseUntil === "string"
+    ? Date.parse(leasePayload.leaseUntil)
+    : Number.NaN;
+  const requestedAt = Date.parse(
+    String(journalById.get(leaseCheck!.reference.id)?.createdAt ?? ""),
+  );
+  const requestedEventAt = requestedAt;
+  const actionEvent = record(requestedPayload.action);
+  if (
+    !leasePayload
+    || leasePayload.executionId !== execution.id
+    || leasePayload.attempt !== execution.attempt
+    || leasePayload.userId !== execution.userId
+    || leasePayload.workerId !== requestedPayload.actorId
+    || !Number.isFinite(leaseUntil)
+    || !Number.isFinite(requestedEventAt)
+    || requestedEventAt > leaseUntil
+    || actionEvent?.actionId !== actionId
+    || requestedPayload.actorType !== "worker"
+    || requestedPayload.actorId !== leasePayload.workerId
+  ) return undefined;
+
+  if (worldIntent) {
+    const parentCheck = preconditions.checks.find((check) =>
+      check.id === "MISSION_PARENT_SNAPSHOT_BOUND"
+    );
+    const parentPayload = parentCheck
+      ? payloadFor(parentCheck.reference.id, "APPLY_PARENT_SNAPSHOT")
+      : undefined;
+    const persistedIntent = record(parentPayload?.worldTransitionIntent);
+    if (
+      !parentPayload
+      || parentPayload.missionId !== execution.goalId && execution.goalId === null
+      || parentPayload.goalId !== worldIntent.goalId
+      || !persistedIntent
+      || canonicalJsonHash(persistedIntent as Parameters<typeof canonicalJsonHash>[0])
+        !== canonicalJsonHash(worldIntent as Parameters<typeof canonicalJsonHash>[0])
+    ) return undefined;
+  }
+
+  return {
+    authorizationDecisionHash: authorization.decisionHash,
+    preconditionReceiptHash: preconditions.receiptHash,
+    preconditionJournalIds: [...referencedJournalIds].sort(),
+  };
 }
 
 export function isCommittedApplyProposalProofBound(
@@ -103,7 +406,7 @@ export async function deriveApplyChangesProof(input: {
 }): Promise<ApplyChangesProofArtifact | undefined> {
   const { tx, execution, request } = input;
   if (
-    request?.applyChangesProofMode !== APPLY_CHANGES_PROOF_MODE
+    !isApplyChangesProofMode(request?.applyChangesProofMode)
     || request.proofRequired !== true
     || request.effectRequired !== true
     || request.turnIntent !== "APPLY_CHANGES"
@@ -304,9 +607,8 @@ export async function deriveApplyChangesProof(input: {
     || !validObservation(after, `${afterRef}:tree`, proposal.candidateTreeHash)
   ) return undefined;
 
-  return {
+  const baseArtifact: ApplyChangesProofArtifactBase = {
     kind: "apply_changes",
-    version: 1,
     executionId: execution.id,
     attempt: execution.attempt,
     operationId,
@@ -328,4 +630,19 @@ export async function deriveApplyChangesProof(input: {
     beforeObservationIds,
     afterObservationIds,
   };
+  if (request.applyChangesProofMode === APPLY_CHANGES_PROOF_MODE_V2) {
+    const v2Evidence = await deriveApplyChangesProofV2Evidence({
+      tx,
+      execution,
+      proposal,
+      request,
+      requestedPayload,
+      actionId,
+      sourceRevision,
+      candidateIdentity,
+    });
+    if (!v2Evidence) return undefined;
+    return { ...baseArtifact, version: 2, ...v2Evidence };
+  }
+  return { ...baseArtifact, version: 1 };
 }
