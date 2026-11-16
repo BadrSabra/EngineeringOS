@@ -2259,6 +2259,7 @@ export async function finalizeExecutionAcceptance(
       ?? null;
     const runtimeStartProofMode = storedRequest?.recipeProofMode === RUNTIME_START_GATE_C_PROOF_MODE;
     const applyChangesProofMode = isApplyChangesProofMode(storedRequest?.applyChangesProofMode);
+    let applyChangesProofFailureStage: string | undefined;
     const missionValidationProofMode =
       storedRequest?.proofEvidenceMode === "mission_validation_v1";
     const runtimeStartProof = runtimeStartProofMode && params.outcome === "SUCCEEDED"
@@ -2297,6 +2298,7 @@ export async function finalizeExecutionAcceptance(
             ?? null,
           effectBundleId: params.effectBundleId ?? priorApplyAcceptance?.effectBundleId ?? null,
           allowCompleted: true,
+          onV2ProofReject: (stage) => { applyChangesProofFailureStage = stage; },
         })
       : undefined;
     const evidenceRequired = runtimeStartProofMode
@@ -2506,7 +2508,9 @@ export async function finalizeExecutionAcceptance(
       return {
         accepted: false,
         duplicate: false,
-        reason: "Apply proof evidence is missing, stale, or mismatched.",
+        reason: applyChangesProofFailureStage
+          ? `Apply proof evidence is missing, stale, or mismatched (${applyChangesProofFailureStage}).`
+          : "Apply proof evidence is missing, stale, or mismatched.",
       };
     }
     const reviewReadyProposalCompletion =
