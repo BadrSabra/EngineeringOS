@@ -1150,6 +1150,7 @@ export function parseExecutionRequest(raw: string): AiExecutionRequestEnvelope |
           || (value.applyAttemptId !== undefined && (
             typeof value.applyAttemptId !== "string"
             || !value.applyAttemptId.trim()
+            || value.applyAttemptId === value.operationId
             || typeof value.submittedChangeSetHash !== "string"
             || !/^[a-f0-9]{64}$/.test(value.submittedChangeSetHash)
           ))
