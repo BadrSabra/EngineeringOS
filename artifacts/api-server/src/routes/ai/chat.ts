@@ -17232,20 +17232,37 @@ async function applyChangesHandler(req: Request, res: Response) {
     // A conflicted proposal is retryable only when its durable journal proves
     // that the previous attempt was blocked before promotion or rolled back
     // cleanly. Missing/unknown journal state is fail-closed.
+    const [latestApplyJournal] = proposal.operationId
+      ? await db
+        .select({ stage: aiApplyJournalTable.stage })
+        .from(aiApplyJournalTable)
+        .where(and(
+          eq(aiApplyJournalTable.operationId, proposal.operationId),
+          eq(aiApplyJournalTable.proposalId, proposal.id),
+        ))
+        .orderBy(desc(aiApplyJournalTable.sequence))
+        .limit(1)
+      : [];
+    // A process can stop after the durable promotion intent but before the
+    // Proposal's terminal transaction. In that case the row may still be
+    // "proposed"/pending, so lifecycle alone is not a recovery boundary.
+    // Permit automatic retry only for Journal states that prove no live write
+    // began, or a completed rollback / explicit pre-promotion block.
+    const safelyRetryableJournalStages = new Set([
+      "PREFLIGHT_STARTED",
+      "PREFLIGHT_PASSED",
+      "PREFLIGHT_FAILED",
+      "BLOCKED",
+      "ROLLED_BACK",
+    ]);
+    const journalRequiresValidation = Boolean(
+      latestApplyJournal && !safelyRetryableJournalStages.has(latestApplyJournal.stage),
+    );
     let recoveryRequiresValidation =
-      proposal.lifecycle === "isolated" || proposal.lifecycle === "abandoned";
+      proposal.lifecycle === "isolated"
+      || proposal.lifecycle === "abandoned"
+      || journalRequiresValidation;
     if (proposal.lifecycle === "conflicted") {
-      const [latestApplyJournal] = proposal.operationId
-        ? await db
-          .select({ stage: aiApplyJournalTable.stage })
-          .from(aiApplyJournalTable)
-          .where(and(
-            eq(aiApplyJournalTable.operationId, proposal.operationId),
-            eq(aiApplyJournalTable.proposalId, proposal.id),
-          ))
-          .orderBy(desc(aiApplyJournalTable.sequence))
-          .limit(1)
-        : [];
       recoveryRequiresValidation = !latestApplyJournal
         || !["BLOCKED", "ROLLED_BACK"].includes(latestApplyJournal.stage);
     }
