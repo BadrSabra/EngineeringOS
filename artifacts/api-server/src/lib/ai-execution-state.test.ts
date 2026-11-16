@@ -716,6 +716,49 @@ describe("autonomous operation contract", () => {
     }))).toBeUndefined();
   });
 
+  it("accepts Apply proof v1 and v2 requests while requiring the v2 candidate digest", () => {
+    const common = {
+      projectId: "project-1",
+      turnIntent: "APPLY_CHANGES",
+      operationId: "apply-attempt-1",
+      message: "approved Apply",
+      modelMessage: "approved Apply",
+      workspaceRoot: "/workspace/project-1",
+      workspaceRevision: "a".repeat(64),
+      validationTargetPaths: ["src/example.ts"],
+      proofRequired: true,
+      effectRequired: true,
+    };
+    const legacy = parseExecutionRequest(JSON.stringify({
+      ...common,
+      applyChangesProofMode: "apply_changes_v1",
+    }));
+    expect(legacy?.applyChangesProofMode).toBe("apply_changes_v1");
+
+    const v2 = parseExecutionRequest(JSON.stringify({
+      ...common,
+      changeSetHash: "b".repeat(64),
+      applyChangesProofMode: "apply_changes_v2",
+    }));
+    expect(v2?.applyChangesProofMode).toBe("apply_changes_v2");
+    expect(v2?.changeSetHash).toBe("b".repeat(64));
+
+    expect(parseExecutionRequest(JSON.stringify({
+      ...common,
+      applyChangesProofMode: "apply_changes_v2",
+    }))).toBeUndefined();
+    expect(parseExecutionRequest(JSON.stringify({
+      ...common,
+      changeSetHash: "not-a-digest",
+      applyChangesProofMode: "apply_changes_v2",
+    }))).toBeUndefined();
+    expect(parseExecutionRequest(JSON.stringify({
+      ...common,
+      changeSetHash: "b".repeat(64),
+      applyChangesProofMode: "apply_changes_v3",
+    }))).toBeUndefined();
+  });
+
   it("accepts a partially materialized orientation manifest for resumable analysis", () => {
     const request = parseExecutionRequest(JSON.stringify({
       projectId: "project-1",
