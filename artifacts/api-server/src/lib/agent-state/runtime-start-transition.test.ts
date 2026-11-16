@@ -1507,6 +1507,144 @@ describe("runtime.start transition retry scheduling", () => {
       candidateIdentity,
       proposalId,
     };
+    const [requestedApplyEvent] = await db.select().from(aiAgentEpisodeEventsTable).where(and(
+      eq(aiAgentEpisodeEventsTable.episodeId, fixture.episodeId),
+      eq(aiAgentEpisodeEventsTable.eventType, "ACTION_REQUESTED"),
+    )).limit(1);
+    if (!requestedApplyEvent) throw new Error("Apply proof v2 Action event is missing.");
+    const originalActionPayload = requestedApplyEvent.payload as Record<string, unknown>;
+    const originalPreconditionReceipt = originalActionPayload.preconditionReceipt as {
+      receiptHash: string;
+      checks: Array<{
+        id: string;
+        outcome: "SATISFIED";
+        reference: { kind: "APPLY_JOURNAL"; id: string; stage: string; contentHash: string };
+      }>;
+      [key: string]: unknown;
+    };
+    const replaceActionPayload = async (payload: Record<string, unknown>) => {
+      await db.update(aiAgentEpisodeEventsTable).set({
+        payload: payload as typeof requestedApplyEvent.payload,
+        payloadHash: hashEpisodeEventPayload(payload),
+      }).where(eq(aiAgentEpisodeEventsTable.id, requestedApplyEvent.id));
+    };
+    const rejectionInput = (suffix: string) => ({
+      ...acceptanceInput,
+      finalizationKey: `${acceptanceInput.finalizationKey}:reject:${suffix}`,
+    });
+    const rebindPreconditionReceipt = (
+      checks: typeof originalPreconditionReceipt.checks,
+    ) => {
+      const { receiptHash: _oldHash, ...body } = originalPreconditionReceipt;
+      const nextBody = { ...body, checks };
+      return {
+        ...nextBody,
+        receiptHash: canonicalJsonHash(
+          nextBody as Parameters<typeof canonicalJsonHash>[0],
+        ),
+      };
+    };
+
+    // A currently different Proposal revision must invalidate the v2 proof,
+    // even when the event, action, and journal rows remain unchanged.
+    await db.update(aiChangeProposalsTable).set({ revision: 1 })
+      .where(eq(aiChangeProposalsTable.id, proposalId));
+    await expect(finalizeExecutionAcceptance(rejectionInput("proposal-revision")))
+      .resolves.toMatchObject({ accepted: false });
+    await db.update(aiChangeProposalsTable).set({ revision: 0 })
+      .where(eq(aiChangeProposalsTable.id, proposalId));
+
+    // The v2 request binds the effective change-set digest independently of
+    // the Action payload; a mismatched durable request must fail closed.
+    await db.update(aiExecutionsTable).set({
+      request: JSON.stringify({ ...applyRequest, changeSetHash: "f".repeat(64) }),
+    }).where(eq(aiExecutionsTable.id, fixture.executionId));
+    await expect(finalizeExecutionAcceptance(rejectionInput("request-change-set")))
+      .resolves.toMatchObject({ accepted: false });
+    await db.update(aiExecutionsTable).set({
+      request: JSON.stringify(applyRequest),
+    }).where(eq(aiExecutionsTable.id, fixture.executionId));
+
+    // Missing required preconditions cannot be smuggled through by recomputing
+    // the receipt and outer event hashes: the bounded schema rejects the gap.
+    const incompleteChecks = originalPreconditionReceipt.checks
+      .filter((check) => check.id !== "CANDIDATE_VALIDATION_PASSED");
+    await replaceActionPayload({
+      ...originalActionPayload,
+      preconditionReceipt: rebindPreconditionReceipt(incompleteChecks),
+    });
+    await expect(finalizeExecutionAcceptance(rejectionInput("missing-precondition")))
+      .resolves.toMatchObject({ accepted: false });
+    await replaceActionPayload(originalActionPayload);
+
+    // A stale/unavailable validation receipt still fails when every enclosing
+    // content hash is made internally consistent.
+    const [validationJournalRow] = await db.select().from(aiApplyJournalTable)
+      .where(eq(aiApplyJournalTable.id, validationJournalRef.id)).limit(1);
+    if (!validationJournalRow) throw new Error("Apply validation Journal row is missing.");
+    const originalValidationPayload = validationJournalRow.payload;
+    const validationJournalPayload = {
+      ...originalValidationPayload,
+      validationReceipts: [{
+        ...(originalValidationPayload.validationReceipts?.[0] as Record<string, unknown>),
+        status: "unavailable",
+      }],
+    };
+    const validationJournalHash = canonicalJsonHash(
+      validationJournalPayload as Parameters<typeof canonicalJsonHash>[0],
+    );
+    await db.update(aiApplyJournalTable).set({ payload: validationJournalPayload })
+      .where(eq(aiApplyJournalTable.id, validationJournalRow.id));
+    const unavailableValidationChecks = originalPreconditionReceipt.checks.map((check) =>
+      check.id === "CANDIDATE_VALIDATION_PASSED"
+        ? { ...check, reference: { ...check.reference, contentHash: validationJournalHash } }
+        : check,
+    );
+    await replaceActionPayload({
+      ...originalActionPayload,
+      preconditionReceipt: rebindPreconditionReceipt(unavailableValidationChecks),
+    });
+    await expect(finalizeExecutionAcceptance(rejectionInput("unavailable-validation")))
+      .resolves.toMatchObject({ accepted: false });
+    await db.update(aiApplyJournalTable).set({ payload: originalValidationPayload })
+      .where(eq(aiApplyJournalTable.id, validationJournalRow.id));
+    await replaceActionPayload(originalActionPayload);
+
+    // Even with a valid receipt hash and a matching Journal content digest,
+    // an execution lease assigned to a different worker cannot authorize this Action.
+    const leaseCheck = originalPreconditionReceipt.checks.find((check) =>
+      check.id === "EXECUTION_LEASE_OWNED"
+    );
+    if (!leaseCheck) throw new Error("Apply lease precondition is missing from the fixture.");
+    const [leaseJournalRow] = await db.select().from(aiApplyJournalTable)
+      .where(eq(aiApplyJournalTable.id, leaseCheck.reference.id)).limit(1);
+    if (!leaseJournalRow) throw new Error("Apply lease Journal row is missing.");
+    const originalLeasePayload = leaseJournalRow.payload;
+    const mismatchedLeasePayload = {
+      ...originalLeasePayload,
+      workerId: "different-apply-worker",
+    };
+    const mismatchedLeaseHash = canonicalJsonHash(
+      mismatchedLeasePayload as Parameters<typeof canonicalJsonHash>[0],
+    );
+    await db.update(aiApplyJournalTable).set({ payload: mismatchedLeasePayload })
+      .where(eq(aiApplyJournalTable.id, leaseJournalRow.id));
+    const mismatchedLeaseChecks = originalPreconditionReceipt.checks.map((check) =>
+      check.id === "EXECUTION_LEASE_OWNED"
+        ? { ...check, reference: { ...check.reference, contentHash: mismatchedLeaseHash } }
+        : check,
+    );
+    await replaceActionPayload({
+      ...originalActionPayload,
+      preconditionReceipt: rebindPreconditionReceipt(mismatchedLeaseChecks),
+    });
+    await expect(finalizeExecutionAcceptance(rejectionInput("lease-worker-mismatch")))
+      .resolves.toMatchObject({ accepted: false });
+    await db.update(aiApplyJournalTable).set({ payload: originalLeasePayload })
+      .where(eq(aiApplyJournalTable.id, leaseJournalRow.id));
+    await replaceActionPayload(originalActionPayload);
+
+    // The valid v2 envelope must be accepted after the rejected variants are restored.
     const initialAcceptance = await finalizeExecutionAcceptance(acceptanceInput);
     expect(initialAcceptance).toMatchObject({ accepted: true, duplicate: false });
 
