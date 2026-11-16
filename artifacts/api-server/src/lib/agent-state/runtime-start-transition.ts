@@ -321,7 +321,7 @@ export async function recoverAcceptedApplyChangesTransition(input: {
         return { kind: "blocked", reason: "apply_recovery_parent_intent_missing_or_invalid" } as const;
       }
       const intent = intentResult.data;
-      const actionEventPayload = asRecord(matchingEvents[0]!.payload) ?? {};
+      const actionEventPayload = asRecord(actionEvents[0]!.payload) ?? {};
       const persistedEffectContract = actionEventPayload.effectContract;
       const expectedEffect = typeof scope.candidateTreeHash === "string"
         ? buildApplyChangeEffectProofExpectation({
