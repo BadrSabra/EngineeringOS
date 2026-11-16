@@ -166,6 +166,7 @@ async function deriveApplyChangesProofV2Evidence(input: {
     || authorization.projectOwnerId !== project.ownerId
     || authorization.projectId !== execution.projectId
     || authorization.proposalId !== proposal.id
+    || candidateIdentity !== `${proposal.id}:${proposal.candidateTreeHash}`
     || authorization.proposalRevision !== proposal.revision
     || authorization.executionId !== execution.id
     || authorization.attempt !== execution.attempt
