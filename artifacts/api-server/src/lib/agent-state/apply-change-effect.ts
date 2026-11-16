@@ -1,4 +1,5 @@
 import {
+  canonicalJsonHash,
   hashEffectContract,
   type AgentAction,
   type EffectContract,
