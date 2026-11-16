@@ -499,7 +499,10 @@ export async function deriveApplyChangesProof(input: {
     || typeof attemptId !== "string"
     || !attemptId.trim()
     || (isV2 && ((request.applyAttemptId === undefined) !== (request.submittedChangeSetHash === undefined)))
-    || (hasAttemptBoundV2 && !digest(request.submittedChangeSetHash))
+    || (hasAttemptBoundV2 && (
+      request.applyAttemptId === requestedOperationId
+      || !digest(request.submittedChangeSetHash)
+    ))
     || !proposalId
     || typeof execution.workspaceRoot !== "string"
     || !execution.workspaceRoot
