@@ -1638,6 +1638,29 @@ describe("runtime.start transition retry scheduling", () => {
       .resolves.toMatchObject({ accepted: false });
     await replaceActionPayload(originalActionPayload);
 
+    // A Mission-linked execution cannot remove its parent snapshot and remain
+    // provable, even when the attacker recomputes a valid seven-check receipt.
+    const missionFreeChecks = originalPreconditionReceipt.checks
+      .filter((check) => check.id !== "MISSION_PARENT_SNAPSHOT_BOUND");
+    const missionFreeReceipt = buildApplyPreconditionReceipt({
+      schemaVersion: 1,
+      actionId: originalPreconditionReceipt.actionId,
+      executionId: originalPreconditionReceipt.executionId,
+      attempt: originalPreconditionReceipt.attempt,
+      checks: missionFreeChecks,
+    });
+    const {
+      worldTransitionIntent: _worldTransitionIntent,
+      ...actionWithoutWorldIntent
+    } = originalActionPayload;
+    await replaceActionPayload({
+      ...actionWithoutWorldIntent,
+      preconditionReceipt: missionFreeReceipt,
+    });
+    await expect(finalizeExecutionAcceptance(rejectionInput("missing-mission-parent-snapshot")))
+      .resolves.toMatchObject({ accepted: false });
+    await replaceActionPayload(originalActionPayload);
+
     // A stale/unavailable validation receipt still fails when every enclosing
     // content hash is made internally consistent.
     const [validationJournalRow] = await db.select().from(aiApplyJournalTable)
