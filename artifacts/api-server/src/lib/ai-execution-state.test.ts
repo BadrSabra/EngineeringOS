@@ -355,12 +355,20 @@ describe("versioned Apply execution request compatibility", () => {
       applyChangesProofMode: "apply_changes_v2",
       applyAttemptId: "apply-attempt-1",
       changeSetHash: "b".repeat(64),
+      submittedChangeSetHash: "c".repeat(64),
     }));
     expect(parsedV2?.applyChangesProofMode).toBe("apply_changes_v2");
     expect(parsedV2?.changeSetHash).toBe("b".repeat(64));
+    expect(parsedV2?.submittedChangeSetHash).toBe("c".repeat(64));
     expect(parseExecutionRequest(JSON.stringify({
       ...legacyV1Request,
       applyChangesProofMode: "apply_changes_v2",
+    }))).toBeUndefined();
+    expect(parseExecutionRequest(JSON.stringify({
+      ...legacyV1Request,
+      applyChangesProofMode: "apply_changes_v2",
+      applyAttemptId: "apply-attempt-1",
+      changeSetHash: "b".repeat(64),
     }))).toBeUndefined();
     expect(parseExecutionRequest(JSON.stringify({
       ...legacyV1Request,
