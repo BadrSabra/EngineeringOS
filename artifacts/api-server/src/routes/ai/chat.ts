@@ -17993,6 +17993,7 @@ async function applyChangesHandler(req: Request, res: Response) {
           effectRequired: true,
           applyChangesProofMode: APPLY_CHANGES_PROOF_MODE_V2,
           changeSetHash: effectiveChangeSetHash,
+          submittedChangeSetHash,
         },
         idempotencyKey: `apply-changes:${applyAttemptId}`,
         correlationId: applyCorrelationId,
