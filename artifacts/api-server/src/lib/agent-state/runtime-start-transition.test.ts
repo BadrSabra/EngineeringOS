@@ -1533,9 +1533,13 @@ describe("runtime.start transition retry scheduling", () => {
     });
     const rebindPreconditionReceipt = (
       checks: typeof originalPreconditionReceipt.checks,
+      overrides: Partial<Pick<
+        typeof originalPreconditionReceipt,
+        "planRevision" | "parentWorldRevision"
+      >> = {},
     ) => {
       const { receiptHash: _oldHash, ...body } = originalPreconditionReceipt;
-      const nextBody = { ...body, checks };
+      const nextBody = { ...body, ...overrides, checks };
       return {
         ...nextBody,
         receiptHash: canonicalJsonHash(
@@ -1943,9 +1947,14 @@ describe("runtime.start transition retry scheduling", () => {
 
     // A well-formed but different plan digest must not be silently rebased.
     const originalIntent = originalRequestedPayload.worldTransitionIntent as Record<string, unknown>;
+    const wrongPlanRevision = "9".repeat(64);
     const payloadWithWrongPlan = {
       ...originalRequestedPayload,
-      worldTransitionIntent: { ...originalIntent, planRevision: "9".repeat(64) },
+      worldTransitionIntent: { ...originalIntent, planRevision: wrongPlanRevision },
+      preconditionReceipt: rebindPreconditionReceipt(
+        originalPreconditionReceipt.checks,
+        { planRevision: wrongPlanRevision },
+      ),
     };
     await db.update(aiAgentEpisodeEventsTable).set({
       payload: payloadWithWrongPlan as typeof requestedEvent.payload,
