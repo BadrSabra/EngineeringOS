@@ -37,14 +37,22 @@ type ApplyTransitionActionIdentity = {
  * Select only transitions owned by the exact Episode + Action being reconciled.
  * Other actions may legitimately share the same Execution attempt.
  */
-export function findApplyTransitionsForAction<T extends ApplyTransitionActionIdentity>(
+export type ApplyTransitionActionMatch<T> =
+  | { kind: "missing" }
+  | { kind: "matched"; transition: T }
+  | { kind: "ambiguous"; count: number };
+
+export function matchApplyTransitionForAction<T extends ApplyTransitionActionIdentity>(
   transitions: readonly T[],
   episodeId: string,
   actionId: string,
-): T[] {
-  return transitions.filter((transition) =>
+): ApplyTransitionActionMatch<T> {
+  const matches = transitions.filter((transition) =>
     transition.episodeId === episodeId && transition.actionId === actionId,
   );
+  if (matches.length === 0) return { kind: "missing" };
+  if (matches.length > 1) return { kind: "ambiguous", count: matches.length };
+  return { kind: "matched", transition: matches[0]! };
 }
 
 type ApplyRecoveryTreeDecision =
@@ -697,11 +705,11 @@ export async function reconcileInterruptedApplyChanges(): Promise<{
               eq(aiWorldTransitionsTable.attempt, selected.attempt),
             ))
           : [];
-        const matchingActionTransitions = actionId
-          ? findApplyTransitionsForAction(attemptTransitions, actionRecord.event.episodeId, actionId)
-          : [];
+        const actionTransitionMatch = actionId
+          ? matchApplyTransitionForAction(attemptTransitions, actionRecord.event.episodeId, actionId)
+          : { kind: "missing" as const };
 
-        if (hasSnapshotIntent && matchingActionTransitions.length > 1) {
+        if (hasSnapshotIntent && actionTransitionMatch.kind === "ambiguous") {
           logger.warn({
             projectId: proposal.projectId,
             proposalId: proposal.id,
@@ -709,12 +717,12 @@ export async function reconcileInterruptedApplyChanges(): Promise<{
             attempt: selected.attempt,
             episodeId: actionRecord.event.episodeId,
             actionId,
-            matchingTransitionCount: matchingActionTransitions.length,
+            matchingTransitionCount: actionTransitionMatch.count,
           }, "accepted Apply Changes has ambiguous same-action transitions; Mission proof remains blocked");
           continue;
         }
 
-        if (hasSnapshotIntent && actionId && goalId && matchingActionTransitions.length === 0) {
+        if (hasSnapshotIntent && actionId && goalId && actionTransitionMatch.kind === "missing") {
           const recovery = await recoverAcceptedApplyChangesTransition({
             projectId: proposal.projectId,
             executionId: selected.id,
