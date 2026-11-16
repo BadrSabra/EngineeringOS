@@ -1335,6 +1335,7 @@ describe("runtime.start transition retry scheduling", () => {
       evidence: {
         evidenceId: "apply-v2-validation-evidence",
         artifactRef: "validation:apply-v2:workspace-typecheck",
+        observedAt: now.toISOString(),
         operationId: executionIdentity.correlationId,
         projectRevision: baseRevision,
         baseTreeHash,
