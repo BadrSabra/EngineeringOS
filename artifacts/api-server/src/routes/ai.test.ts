@@ -9229,7 +9229,8 @@ describe("POST /api/ai/chat/apply-changes", () => {
       expect(JSON.parse(execution!.request)).toMatchObject({
         proofRequired: true,
         effectRequired: true,
-        applyChangesProofMode: "apply_changes_v1",
+        applyChangesProofMode: "apply_changes_v2",
+        changeSetHash: expect.stringMatching(/^[a-f0-9]{64}$/),
       });
 
       const [acceptance] = await db.select({
