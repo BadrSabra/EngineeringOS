@@ -893,6 +893,8 @@ export type AiExecutionRequestEnvelope = {
   applyChangesProofMode?: "apply_changes_v1" | "apply_changes_v2";
   /** Effective candidate change-set digest for versioned Apply proof reconstruction. */
   changeSetHash?: string;
+  /** Digest of the exact submitted change subset before hunk materialization/rebase. */
+  submittedChangeSetHash?: string;
   /** Unique Apply retry identity; distinct from the stable logical operationId. */
   applyAttemptId?: string;
   /** Server-owned effect proof requirement, retained for recovery/finalization. */
@@ -1148,7 +1150,12 @@ export function parseExecutionRequest(raw: string): AiExecutionRequestEnvelope |
         || typeof value.workspaceRevision !== "string"
         || !value.workspaceRevision.trim()
         || (value.applyChangesProofMode === APPLY_CHANGES_PROOF_MODE_V2
-          && (typeof value.changeSetHash !== "string" || !/^[a-f0-9]{64}$/.test(value.changeSetHash)))
+          && (
+            typeof value.changeSetHash !== "string"
+            || !/^[a-f0-9]{64}$/.test(value.changeSetHash)
+            || typeof value.submittedChangeSetHash !== "string"
+            || !/^[a-f0-9]{64}$/.test(value.submittedChangeSetHash)
+          ))
       )) ||
       (value.recipeProofMode !== undefined && (
         value.recipeProofMode !== "runtime_start_gate_c_v1"
