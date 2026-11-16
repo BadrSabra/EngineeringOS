@@ -576,8 +576,10 @@ export async function reconcileInterruptedApplyChanges(): Promise<{
           .orderBy(desc(aiAgentEpisodeEventsTable.sequence))
         : [];
       const actionRecord = getApplyActionEvent(episodeEvents, proposal);
+      const storedRequest = parseRecord(selected.request);
       const attemptId = actionRecord?.attemptId
-        ?? asString(parseRecord(selected.request)?.operationId)
+        ?? asString(storedRequest?.applyAttemptId)
+        ?? asString(storedRequest?.operationId)
         ?? selected.id;
       const journal = await db.select()
         .from(aiApplyJournalTable)
