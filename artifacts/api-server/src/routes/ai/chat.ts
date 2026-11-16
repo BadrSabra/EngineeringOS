@@ -17447,6 +17447,7 @@ async function applyChangesHandler(req: Request, res: Response) {
     // recovery/proof artifact; the durable root is only written after all
     // revision, path, and validation gates below pass.
     const submittedChangeSetHash = hashApplySubmittedSubset(changes);
+    const submittedCandidateBytesHash = hashChangeSet(changes);
     const preparedCandidateExists = proposal.operationId && proposal.workspaceRoot
       ? await deliveryWorkspaceExists(proposal.workspaceRoot, proposal.operationId)
       : false;
@@ -17454,7 +17455,7 @@ async function applyChangesHandler(req: Request, res: Response) {
       preparedCandidateExists
       && proposal.operationId
       && proposal.workspaceRoot
-      && proposal.changeSetHash === submittedChangeSetHash
+      && proposal.changeSetHash === submittedCandidateBytesHash
       && proposal.baseTreeHash
       && proposal.candidateTreeHash,
     );
