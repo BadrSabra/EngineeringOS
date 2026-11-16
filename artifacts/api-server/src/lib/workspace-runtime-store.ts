@@ -1,10 +1,11 @@
-import { and, eq, inArray, isNull, lt, or, sql } from "drizzle-orm";
+import { and, eq, gt, inArray, isNull, lte, or, sql } from "drizzle-orm";
 import {
   db,
   workspaceRuntimeTable,
   type WorkspaceRuntimeAttestationBinding,
   type WorkspaceRuntime,
 } from "@workspace/db";
+import { databaseLeaseUntil, databaseNow } from "./job-lease.js";
 
 export const RUNTIME_LEASE_MS = 30_000;
 
@@ -55,6 +56,13 @@ export interface WorkspaceRuntimeStore {
     patch: RuntimeStorePatch,
     expectedStatus?: WorkspaceRuntime["status"],
   ): Promise<boolean>;
+  renewOwnedSession(
+    projectId: string,
+    sessionId: string,
+    workerId: string,
+    leaseMs: number,
+    expectedStatus?: WorkspaceRuntime["status"],
+  ): Promise<WorkspaceRuntime | undefined>;
   releaseWorker(workerId: string): Promise<void>;
   listRecoverable(now: Date): Promise<WorkspaceRuntime[]>;
 }
@@ -79,7 +87,7 @@ export const databaseWorkspaceRuntimeStore: WorkspaceRuntimeStore = {
   async begin(input) {
     const takeover = or(
       isNull(workspaceRuntimeTable.leaseUntil),
-      lt(workspaceRuntimeTable.leaseUntil, input.now),
+      lte(workspaceRuntimeTable.leaseUntil, databaseNow()),
       inArray(workspaceRuntimeTable.status, ["stopped", "failed"]),
     );
     return db.transaction(async (tx) => {
@@ -113,13 +121,13 @@ export const databaseWorkspaceRuntimeStore: WorkspaceRuntimeStore = {
           port: null,
           pid: null,
           workerId: input.workerId,
-          leaseUntil: input.leaseUntil,
-          lastHeartbeatAt: input.now,
-          startedAt: input.now,
+          leaseUntil: databaseLeaseUntil(RUNTIME_LEASE_MS),
+          lastHeartbeatAt: databaseNow(),
+          startedAt: databaseNow(),
           stoppedAt: null,
           error: null,
           logs: [],
-          updatedAt: input.now,
+          updatedAt: databaseNow(),
         })
         .onConflictDoUpdate({
           target: workspaceRuntimeTable.projectId,
@@ -134,13 +142,13 @@ export const databaseWorkspaceRuntimeStore: WorkspaceRuntimeStore = {
             port: null,
             pid: null,
             workerId: input.workerId,
-            leaseUntil: input.leaseUntil,
-            lastHeartbeatAt: input.now,
-            startedAt: input.now,
+            leaseUntil: databaseLeaseUntil(RUNTIME_LEASE_MS),
+            lastHeartbeatAt: databaseNow(),
+            startedAt: databaseNow(),
             stoppedAt: null,
             error: null,
             logs: [],
-            updatedAt: input.now,
+            updatedAt: databaseNow(),
           },
           where: takeover,
         })
@@ -154,9 +162,9 @@ export const databaseWorkspaceRuntimeStore: WorkspaceRuntimeStore = {
       .update(workspaceRuntimeTable)
       .set({
         workerId: input.workerId,
-        leaseUntil: input.leaseUntil,
-        lastHeartbeatAt: input.now,
-        updatedAt: input.now,
+        leaseUntil: databaseLeaseUntil(RUNTIME_LEASE_MS),
+        lastHeartbeatAt: databaseNow(),
+        updatedAt: databaseNow(),
       })
       .where(and(
         eq(workspaceRuntimeTable.id, input.id),
@@ -165,7 +173,7 @@ export const databaseWorkspaceRuntimeStore: WorkspaceRuntimeStore = {
         or(
           isNull(workspaceRuntimeTable.workerId),
           isNull(workspaceRuntimeTable.leaseUntil),
-          lt(workspaceRuntimeTable.leaseUntil, input.now),
+          lte(workspaceRuntimeTable.leaseUntil, databaseNow()),
         ),
       ))
       .returning();
@@ -179,6 +187,7 @@ export const databaseWorkspaceRuntimeStore: WorkspaceRuntimeStore = {
       .where(and(
         eq(workspaceRuntimeTable.projectId, projectId),
         eq(workspaceRuntimeTable.workerId, workerId),
+        gt(workspaceRuntimeTable.leaseUntil, databaseNow()),
       ))
       .returning({ id: workspaceRuntimeTable.id });
     return Boolean(row);
@@ -189,6 +198,7 @@ export const databaseWorkspaceRuntimeStore: WorkspaceRuntimeStore = {
       eq(workspaceRuntimeTable.projectId, projectId),
       eq(workspaceRuntimeTable.sessionId, sessionId),
       eq(workspaceRuntimeTable.workerId, workerId),
+      gt(workspaceRuntimeTable.leaseUntil, databaseNow()),
     );
     const [row] = await db
       .update(workspaceRuntimeTable)
@@ -198,6 +208,26 @@ export const databaseWorkspaceRuntimeStore: WorkspaceRuntimeStore = {
         : identity)
       .returning({ id: workspaceRuntimeTable.id });
     return Boolean(row);
+  },
+
+  async renewOwnedSession(projectId, sessionId, workerId, leaseMs, expectedStatus) {
+    const identity = and(
+      eq(workspaceRuntimeTable.projectId, projectId),
+      eq(workspaceRuntimeTable.sessionId, sessionId),
+      eq(workspaceRuntimeTable.workerId, workerId),
+      gt(workspaceRuntimeTable.leaseUntil, databaseNow()),
+      ...(expectedStatus ? [eq(workspaceRuntimeTable.status, expectedStatus)] : []),
+    );
+    const [row] = await db
+      .update(workspaceRuntimeTable)
+      .set({
+        leaseUntil: databaseLeaseUntil(leaseMs),
+        lastHeartbeatAt: databaseNow(),
+        updatedAt: databaseNow(),
+      })
+      .where(identity)
+      .returning();
+    return row;
   },
 
   async releaseWorker(workerId) {
@@ -212,7 +242,7 @@ export const databaseWorkspaceRuntimeStore: WorkspaceRuntimeStore = {
       .where(eq(workspaceRuntimeTable.workerId, workerId));
   },
 
-  async listRecoverable(now) {
+  async listRecoverable(_now) {
     return db
       .select()
       .from(workspaceRuntimeTable)
@@ -221,7 +251,7 @@ export const databaseWorkspaceRuntimeStore: WorkspaceRuntimeStore = {
         or(
           isNull(workspaceRuntimeTable.workerId),
           isNull(workspaceRuntimeTable.leaseUntil),
-          lt(workspaceRuntimeTable.leaseUntil, now),
+          lte(workspaceRuntimeTable.leaseUntil, databaseNow()),
         ),
       ));
   },
@@ -288,7 +318,12 @@ export function createInMemoryWorkspaceRuntimeStore(): WorkspaceRuntimeStore {
     },
     async updateOwned(projectId, workerId, patch) {
       const row = rows.get(projectId);
-      if (!row || row.workerId !== workerId) return false;
+      if (
+        !row
+        || row.workerId !== workerId
+        || !row.leaseUntil
+        || row.leaseUntil <= new Date()
+      ) return false;
       Object.assign(row, patch, { updatedAt: patch.updatedAt ?? new Date() });
       return true;
     },
@@ -298,10 +333,28 @@ export function createInMemoryWorkspaceRuntimeStore(): WorkspaceRuntimeStore {
         !row
         || row.sessionId !== sessionId
         || row.workerId !== workerId
+        || !row.leaseUntil
+        || row.leaseUntil <= new Date()
         || (expectedStatus && row.status !== expectedStatus)
       ) return false;
       Object.assign(row, patch, { updatedAt: patch.updatedAt ?? new Date() });
       return true;
+    },
+    async renewOwnedSession(projectId, sessionId, workerId, leaseMs, expectedStatus) {
+      const row = rows.get(projectId);
+      const now = new Date();
+      if (
+        !row
+        || row.sessionId !== sessionId
+        || row.workerId !== workerId
+        || !row.leaseUntil
+        || row.leaseUntil <= now
+        || (expectedStatus && row.status !== expectedStatus)
+      ) return undefined;
+      row.leaseUntil = new Date(now.getTime() + leaseMs);
+      row.lastHeartbeatAt = now;
+      row.updatedAt = now;
+      return row;
     },
     async releaseWorker(workerId) {
       for (const row of rows.values()) {

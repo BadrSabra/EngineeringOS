@@ -73,6 +73,13 @@ export function isSensitiveProjectPath(filePath: string): boolean {
   return BLOCKED_SENSITIVE_PATH.test(filePath);
 }
 
+function isSensitiveReadPath(filePath: string): boolean {
+  const segments = filePath.split(/[\\/]/u).filter(Boolean);
+  const parentSegments = segments.slice(0, -1);
+  return isSensitiveProjectPath(filePath)
+    || parentSegments.some((segment) => BLOCKED_TREE_SEGMENT.test(segment));
+}
+
 /**
  * Convert filesystem failures into actionable, user-safe tool output.
  *
@@ -443,6 +450,29 @@ export async function safePath(resolvedRoot: string, filePath: string): Promise<
   return real;
 }
 
+type ReadableProjectPath =
+  | { kind: "ok"; absolutePath: string }
+  | { kind: "blocked"; reason: "sensitive" | "outside_root" };
+
+async function resolveReadableProjectPath(
+  resolvedRoot: string,
+  requestedPath: string,
+): Promise<ReadableProjectPath> {
+  if (isSensitiveReadPath(requestedPath)) {
+    return { kind: "blocked", reason: "sensitive" };
+  }
+  const absolutePath = await safePath(resolvedRoot, requestedPath);
+  if (!absolutePath) return { kind: "blocked", reason: "outside_root" };
+
+  const resolvedRelativePath = path.relative(resolvedRoot, absolutePath)
+    .split(path.sep)
+    .join("/");
+  if (isSensitiveReadPath(resolvedRelativePath)) {
+    return { kind: "blocked", reason: "sensitive" };
+  }
+  return { kind: "ok", absolutePath };
+}
+
 type OpenFileHandle = Awaited<ReturnType<typeof fs.open>>;
 
 function isPathWithinRoot(root: string, candidate: string): boolean {
@@ -519,12 +549,18 @@ export async function openVerifiedProjectFile(
     const openedRootPath = await fs.realpath(procFileDescriptorPath(root.handle));
     const openedFilePath = await fs.realpath(procFileDescriptorPath(fileHandle));
     const stat = await fileHandle.stat();
+    const openedRelativePath = path.relative(openedRootPath, openedFilePath)
+      .split(path.sep)
+      .join("/");
     if (
       openedRootPath !== root.canonicalPath
       || !isPathWithinRoot(openedRootPath, openedFilePath)
       || !stat.isFile()
     ) {
       throw new Error("project_file_identity_changed");
+    }
+    if (isSensitiveReadPath(openedRelativePath)) {
+      throw new Error("project_file_sensitive");
     }
     return fileHandle;
   } catch (error) {
@@ -820,6 +856,73 @@ async function readBoundedFilePrefix(
   } finally {
     await handle.close().catch(() => undefined);
   }
+}
+
+export type ProjectFilePrefixRead =
+  | { kind: "ok"; content: string; truncated: boolean }
+  | { kind: "blocked"; reason: "sensitive" | "outside_root" | "unavailable" | "invalid" };
+
+async function readProjectFilePrefixFromResolvedRoot(
+  resolvedRoot: string,
+  requestedPath: string,
+  maxBytes: number,
+  signal?: AbortSignal,
+): Promise<ProjectFilePrefixRead> {
+  assertFileOperationActive(signal);
+  if (inputByteLimitError("path", requestedPath, MAX_TOOL_PATH_BYTES)) {
+    return { kind: "blocked", reason: "invalid" };
+  }
+  if (!Number.isFinite(maxBytes) || maxBytes < 1) {
+    return { kind: "blocked", reason: "invalid" };
+  }
+  const resolvedPath = await resolveReadableProjectPath(resolvedRoot, requestedPath);
+  if (resolvedPath.kind === "blocked") return resolvedPath;
+
+  try {
+    const limit = Math.min(MAX_FORENSIC_READ_BYTES, Math.floor(maxBytes));
+    const { bytes, truncated } = await readBoundedFilePrefix(
+      resolvedPath.absolutePath,
+      limit,
+      signal,
+      resolvedRoot,
+    );
+    return { kind: "ok", content: bytes.toString("utf8"), truncated };
+  } catch (error) {
+    if (signal?.aborted) throw error;
+    if (error instanceof Error && error.message === "project_file_sensitive") {
+      return { kind: "blocked", reason: "sensitive" };
+    }
+    return { kind: "blocked", reason: "unavailable" };
+  }
+}
+
+/**
+ * Read a bounded UTF-8 prefix from a project-relative file using the same
+ * sensitive-path and pinned-descriptor checks as the file tools.
+ */
+export async function readProjectFilePrefix(
+  rootPath: string,
+  requestedPath: string,
+  maxBytes: number,
+  signal?: AbortSignal,
+): Promise<ProjectFilePrefixRead> {
+  assertFileOperationActive(signal);
+  if (isSensitiveReadPath(requestedPath)) {
+    return { kind: "blocked", reason: "sensitive" };
+  }
+  let resolvedRoot: string;
+  try {
+    resolvedRoot = await fs.realpath(path.resolve(rootPath));
+  } catch (error) {
+    if (signal?.aborted) throw error;
+    return { kind: "blocked", reason: "unavailable" };
+  }
+  return readProjectFilePrefixFromResolvedRoot(
+    resolvedRoot,
+    requestedPath,
+    maxBytes,
+    signal,
+  );
 }
 
 type SearchCandidate = {
@@ -1359,17 +1462,24 @@ export async function executeFileTool(
       const requestedPath = args.path ?? "";
       const pathError = inputByteLimitError("path", requestedPath, MAX_TOOL_PATH_BYTES);
       if (pathError) return pathError;
-      if (isSensitiveProjectPath(requestedPath)) {
+      const readablePath = await resolveReadableProjectPath(resolvedRoot, requestedPath);
+      if (readablePath.kind === "blocked" && readablePath.reason === "sensitive") {
         return `Error: reading "${requestedPath}" is not allowed because the path is classified as sensitive.`;
       }
-      const abs = await safePath(resolvedRoot, requestedPath);
-      if (!abs) return `Error: "${requestedPath}" resolves outside the project root.`;
+      if (readablePath.kind === "blocked") {
+        return `Error: "${requestedPath}" resolves outside the project root.`;
+      }
       try {
         const complete =
           args.complete === "true" ||
           (args.complete as unknown) === true;
         const limit = complete ? MAX_FORENSIC_READ_BYTES : MAX_READ_BYTES;
-        const { bytes, truncated } = await readBoundedFilePrefix(abs, limit, signal, resolvedRoot);
+        const { bytes, truncated } = await readBoundedFilePrefix(
+          readablePath.absolutePath,
+          limit,
+          signal,
+          resolvedRoot,
+        );
         if (complete) {
           const text = bytes.toString("utf-8");
           const content = truncated ? text + FORENSIC_READ_TRUNCATION_MARKER : text;
@@ -1389,11 +1499,13 @@ export async function executeFileTool(
       const requestedPath = args.path ?? "";
       const pathError = inputByteLimitError("path", requestedPath, MAX_TOOL_PATH_BYTES);
       if (pathError) return pathError;
-      if (isSensitiveProjectPath(requestedPath)) {
+      const readablePath = await resolveReadableProjectPath(resolvedRoot, requestedPath);
+      if (readablePath.kind === "blocked" && readablePath.reason === "sensitive") {
         return `Error: reading "${requestedPath}" is not allowed because the path is classified as sensitive.`;
       }
-      const abs = await safePath(resolvedRoot, requestedPath);
-      if (!abs) return `Error: "${requestedPath}" resolves outside the project root.`;
+      if (readablePath.kind === "blocked") {
+        return `Error: "${requestedPath}" resolves outside the project root.`;
+      }
       const startLine = Number(args.startLine);
       const endLine = Number(args.endLine);
       if (!Number.isInteger(startLine) || !Number.isInteger(endLine) || startLine < 1 || endLine < startLine) {
@@ -1406,7 +1518,7 @@ export async function executeFileTool(
       }
       try {
         const result = await readBoundedLineRange(
-          abs,
+          readablePath.absolutePath,
           startLine,
           endLine,
           signal,
@@ -1433,7 +1545,7 @@ export async function executeFileTool(
       const target = args.path ?? ".";
       const pathError = inputByteLimitError("path", target, MAX_TOOL_PATH_BYTES);
       if (pathError) return pathError;
-      if (isSensitiveProjectPath(target)) {
+      if (isSensitiveTreePath(target)) {
         return `Error: listing "${target}" is not allowed because the path is classified as sensitive.`;
       }
       const abs = await safePath(resolvedRoot, target);

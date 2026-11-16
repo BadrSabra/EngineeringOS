@@ -12,7 +12,13 @@ vi.mock("node:child_process", async (importOriginal) => {
 });
 
 import { spawn } from "node:child_process";
-import { executeFileTool, FILE_TOOL_DEFINITIONS, isSensitiveProjectPath, stripReadFileWrapper } from "../tools/file-tools.js";
+import {
+  executeFileTool,
+  FILE_TOOL_DEFINITIONS,
+  isSensitiveProjectPath,
+  readProjectFilePrefix,
+  stripReadFileWrapper,
+} from "../tools/file-tools.js";
 import { buildPatchHunks, hashPatchBase } from "../patch-contract.js";
 
 const mockSpawn = vi.mocked(spawn);
@@ -311,6 +317,56 @@ describe("executeFileTool — bounded source reads", () => {
 
     expect(direct).toMatch(/not allowed|sensitive/i);
     expect(ranged).toMatch(/not allowed|sensitive/i);
+  });
+
+  it("blocks an in-root symlink when its resolved target is sensitive", async () => {
+    const { root, cleanup } = await createSearchProject();
+    const secret = "DO_NOT_EXPOSE_AUDIT_SECRET";
+    try {
+      await fs.mkdir(path.join(root, "src"), { recursive: true });
+      await fs.writeFile(path.join(root, ".env"), secret, "utf8");
+      await fs.symlink(path.join(root, ".env"), path.join(root, "src", "config.ts"));
+
+      const direct = await executeFileTool("read_file", { path: "src/config.ts" }, root, []);
+      const ranged = await executeFileTool(
+        "read_file_range",
+        { path: "src/config.ts", startLine: "1", endLine: "2" },
+        root,
+        [],
+      );
+      const prefetched = await readProjectFilePrefix(root, "src/config.ts", 1_024);
+
+      expect(direct).toMatch(/sensitive/i);
+      expect(ranged).toMatch(/sensitive/i);
+      expect(prefetched).toEqual({ kind: "blocked", reason: "sensitive" });
+      expect(direct).not.toContain(secret);
+      expect(ranged).not.toContain(secret);
+    } finally {
+      await cleanup();
+    }
+  });
+
+  it("reads only a bounded prefix and stops immediately when cancelled", async () => {
+    const { root, cleanup } = await createSearchProject();
+    try {
+      await fs.mkdir(path.join(root, "src"), { recursive: true });
+      await fs.writeFile(path.join(root, "src", "large.ts"), "x".repeat(512 * 1024), "utf8");
+
+      const bounded = await readProjectFilePrefix(root, "src/large.ts", 4_096);
+      expect(bounded).toEqual({
+        kind: "ok",
+        content: "x".repeat(4_096),
+        truncated: true,
+      });
+
+      const controller = new AbortController();
+      controller.abort();
+      await expect(
+        readProjectFilePrefix(root, "src/large.ts", 4_096, controller.signal),
+      ).rejects.toThrow();
+    } finally {
+      await cleanup();
+    }
   });
 
   it("does not expose sensitive entries through directory listing", async () => {

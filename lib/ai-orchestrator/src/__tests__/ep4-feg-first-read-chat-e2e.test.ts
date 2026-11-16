@@ -208,6 +208,58 @@ describe("First-Evidence Gate: an explicit-file behavior query reads its target 
     }
   });
 
+  it("does not prefetch a source alias whose in-root symlink targets a sensitive file", async () => {
+    const rootPath = await fs.mkdtemp(path.join(tmpdir(), "eos-ep4-feg-sensitive-link-"));
+    const secret = "DO_NOT_EXPOSE_FEG_SECRET";
+    const fullFile = path.join(rootPath, FILE);
+    const providerMessages: string[] = [];
+    await fs.mkdir(path.dirname(fullFile), { recursive: true });
+    await fs.writeFile(path.join(rootPath, ".env"), secret, "utf8");
+    await fs.symlink(path.join(rootPath, ".env"), fullFile);
+
+    const fakeStrategy = {
+      providerId: "openrouter",
+      supportsNativeStream: false,
+      ownsModelFallback: true,
+      call: vi.fn(async (messages: unknown, opts: { model?: string }) => {
+        providerMessages.push(JSON.stringify(messages));
+        return {
+          content: JSON.stringify({ response: "No source body was supplied.", sources: [] }),
+          toolCalls: [],
+          model: opts.model ?? "initial-model",
+          usage: {},
+        };
+      }),
+      stream: vi.fn(),
+    };
+
+    await mockChatProviders(fakeStrategy);
+    const steps: AgentStep[] = [];
+    try {
+      const chat = await loadChatWithTestLifecycleSinks();
+      const result = await chat({
+        message: BEHAVIOR_MESSAGE,
+        history: [],
+        projectContext: makeContext(),
+        rootPath,
+        provider: "openrouter",
+        apiKey: "test-or-key",
+        onStep: (step) => steps.push(step),
+      });
+
+      expect(steps.some((step) =>
+        step.kind === "tool_result" && step.source === FILE,
+      )).toBe(false);
+      expect(steps.some((step) =>
+        step.kind === "diagnostic" && step.code === "FIRST_EVIDENCE_READ_ALLOWED",
+      )).toBe(false);
+      expect(providerMessages.join("\n")).not.toContain(secret);
+      expect(result.response).not.toContain(secret);
+    } finally {
+      await fs.rm(rootPath, { recursive: true, force: true });
+    }
+  });
+
   // Regression for FIRST_EVIDENCE_UNAVAILABLE: an explicit-file behavior query
   // that ALSO contains forensic-report template prose ("defect/repair",
   // "Finding/Repair Plan") used to have that prose parsed into bogus

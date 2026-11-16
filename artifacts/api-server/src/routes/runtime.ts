@@ -1,9 +1,11 @@
 import { Router } from "express";
 import { createHash, randomUUID } from "node:crypto";
+import { db } from "@workspace/db";
 import { toPublicRecipeReceipt } from "@workspace/ai-orchestrator";
 import { requireProjectAccess, requireProjectWriteAccess } from "../middlewares/requireProjectAccess.js";
 import { resolveRootPath } from "../lib/rootpath-validator.js";
 import { hashDeliveryTree } from "../lib/delivery-workspace.js";
+import { projectExecutionProofGraph } from "../lib/execution-proof-graph-projector.js";
 import {
   createRuntimeRestartRunner,
   createRuntimeStartRunner,
@@ -52,6 +54,33 @@ router.get("/projects/:projectId/runtime", requireProjectAccess, async (req, res
     unresolvedStartAlert: await workspaceRuntime.getProjectUnresolvedStartAlert(req.project!.id),
   });
 });
+
+router.get(
+  "/projects/:projectId/executions/:executionId/proof-graph/attempts/:attempt",
+  requireProjectAccess,
+  async (req, res) => {
+    const attemptValue = req.params.attempt;
+    const executionId = req.params.executionId;
+    if (
+      typeof executionId !== "string"
+      || !executionId.trim()
+      || typeof attemptValue !== "string"
+      || !/^(0|[1-9]\d*)$/.test(attemptValue)
+      || !Number.isSafeInteger(Number(attemptValue))
+    ) {
+      return res.status(400).json({
+        error: "A non-negative execution attempt is required.",
+        code: "PROOF_GRAPH_ATTEMPT_INVALID",
+      });
+    }
+    const result = await db.transaction((tx) => projectExecutionProofGraph(tx, {
+      projectId: req.project!.id,
+      executionId,
+      expectedAttempt: Number(attemptValue),
+    }));
+    return res.json(result);
+  },
+);
 
 router.post("/projects/:projectId/runtime/start", requireProjectWriteAccess, async (req, res) => {
   const project = req.project;

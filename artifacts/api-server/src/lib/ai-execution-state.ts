@@ -1,6 +1,6 @@
 import { createHash, randomUUID } from "node:crypto";
 import { Buffer } from "node:buffer";
-import { and, eq, gt, inArray, isNull, lt, or, sql } from "drizzle-orm";
+import { and, eq, gt, inArray, isNull, lt, lte, or, sql } from "drizzle-orm";
 import { db, aiExecutionsTable, aiExecutionAcceptancesTable, tasksTable } from "@workspace/db";
 import type { AiExecution } from "@workspace/db";
 import {
@@ -26,6 +26,7 @@ import {
   MAX_PROJECT_ORIENTATION_SOURCE_FILES,
 } from "@workspace/ai-orchestrator";
 import type { AiAcceptanceDisposition } from "./ai-terminal-outcome.js";
+import { databaseLeaseUntil, databaseNow } from "./job-lease.js";
 import {
   parseTaskObjectiveContract,
   parseTaskObjectiveValidatorReceipt,
@@ -2184,7 +2185,10 @@ export async function authorizeRecipeNodeExecution(params: {
   if (execution.workerId !== params.workerId) {
     return { allowed: false, reason: "recipe lease owner changed" };
   }
-  if (!execution.leaseUntil || execution.leaseUntil <= new Date()) {
+  if (!await ownsAiExecutionLease({
+    executionId: execution.id,
+    workerId: params.workerId,
+  })) {
     return { allowed: false, reason: "recipe lease expired" };
   }
   const checkpoint = parseAiExecutionCheckpoint(execution.checkpoint);
@@ -3041,10 +3045,10 @@ export async function claimAiExecution(params: {
     .set({
       status: "running",
       workerId: params.workerId,
-      leaseUntil: claimLeaseUntil,
-      lastHeartbeatAt: claimTime,
-      startedAt: claimTime,
-      updatedAt: claimTime,
+      leaseUntil: databaseLeaseUntil(AI_EXECUTION_LEASE_MS),
+      lastHeartbeatAt: databaseNow(),
+      startedAt: databaseNow(),
+      updatedAt: databaseNow(),
       error: null,
       cancelRequestedAt: null,
       ...(consumedTokenHash ? { resumeTokenHash: consumedTokenHash } : {}),
@@ -3131,16 +3135,16 @@ export async function checkpointAiExecution(params: {
     .set({
       checkpoint: JSON.stringify(durableCheckpoint),
       checkpointVersion: durableCheckpoint.sequence,
-      updatedAt: new Date(),
-      lastHeartbeatAt: new Date(),
-      leaseUntil: new Date(Date.now() + AI_EXECUTION_LEASE_MS),
+      updatedAt: databaseNow(),
+      lastHeartbeatAt: databaseNow(),
+      leaseUntil: databaseLeaseUntil(AI_EXECUTION_LEASE_MS),
     })
     .where(and(
       eq(aiExecutionsTable.id, params.executionId),
       eq(aiExecutionsTable.attempt, params.expectedAttempt),
       eq(aiExecutionsTable.workerId, params.workerId),
       eq(aiExecutionsTable.status, "running"),
-      gt(aiExecutionsTable.leaseUntil, new Date()),
+      gt(aiExecutionsTable.leaseUntil, databaseNow()),
       // A stale worker must not overwrite a newer durable checkpoint.
       lt(aiExecutionsTable.checkpointVersion, params.checkpoint.sequence),
     ))
@@ -3171,7 +3175,7 @@ export async function persistAiExecutionOrientationManifest(params: {
       eq(aiExecutionsTable.attempt, params.expectedAttempt),
       eq(aiExecutionsTable.workerId, params.workerId),
       eq(aiExecutionsTable.status, "running"),
-      gt(aiExecutionsTable.leaseUntil, new Date()),
+      gt(aiExecutionsTable.leaseUntil, databaseNow()),
     ))
     .limit(1);
   const request = row ? parseExecutionRequest(row.request) : undefined;
@@ -3198,14 +3202,14 @@ export async function persistAiExecutionOrientationManifest(params: {
     .update(aiExecutionsTable)
     .set({
       request: JSON.stringify(nextRequest),
-      updatedAt: new Date(),
+      updatedAt: databaseNow(),
     })
     .where(and(
       eq(aiExecutionsTable.id, params.executionId),
       eq(aiExecutionsTable.attempt, params.expectedAttempt),
       eq(aiExecutionsTable.workerId, params.workerId),
       eq(aiExecutionsTable.status, "running"),
-      gt(aiExecutionsTable.leaseUntil, new Date()),
+      gt(aiExecutionsTable.leaseUntil, databaseNow()),
     ))
     .returning({ id: aiExecutionsTable.id });
   return Boolean(updated);
@@ -3239,7 +3243,7 @@ export async function persistAiExecutionFactInvestigationManifest(params: {
       eq(aiExecutionsTable.attempt, params.expectedAttempt),
       eq(aiExecutionsTable.workerId, params.workerId),
       eq(aiExecutionsTable.status, "running"),
-      gt(aiExecutionsTable.leaseUntil, new Date()),
+      gt(aiExecutionsTable.leaseUntil, databaseNow()),
     ))
     .limit(1);
   const request = row ? parseExecutionRequest(row.request) : undefined;
@@ -3289,14 +3293,14 @@ export async function persistAiExecutionFactInvestigationManifest(params: {
     .update(aiExecutionsTable)
     .set({
       request: JSON.stringify(nextRequest),
-      updatedAt: new Date(),
+      updatedAt: databaseNow(),
     })
     .where(and(
       eq(aiExecutionsTable.id, params.executionId),
       eq(aiExecutionsTable.attempt, params.expectedAttempt),
       eq(aiExecutionsTable.workerId, params.workerId),
       eq(aiExecutionsTable.status, "running"),
-      gt(aiExecutionsTable.leaseUntil, new Date()),
+      gt(aiExecutionsTable.leaseUntil, databaseNow()),
     ))
     .returning({ id: aiExecutionsTable.id });
   return Boolean(updated);
@@ -3310,16 +3314,16 @@ export async function heartbeatAiExecution(params: {
   const [updated] = await db
     .update(aiExecutionsTable)
     .set({
-      lastHeartbeatAt: new Date(),
-      leaseUntil: new Date(Date.now() + AI_EXECUTION_LEASE_MS),
-      updatedAt: new Date(),
+      lastHeartbeatAt: databaseNow(),
+      leaseUntil: databaseLeaseUntil(AI_EXECUTION_LEASE_MS),
+      updatedAt: databaseNow(),
     })
     .where(and(
       eq(aiExecutionsTable.id, params.executionId),
       eq(aiExecutionsTable.attempt, params.expectedAttempt),
       eq(aiExecutionsTable.workerId, params.workerId),
       eq(aiExecutionsTable.status, "running"),
-      gt(aiExecutionsTable.leaseUntil, new Date()),
+      gt(aiExecutionsTable.leaseUntil, databaseNow()),
     ))
     .returning({ id: aiExecutionsTable.id });
   return Boolean(updated);
@@ -3330,23 +3334,17 @@ export async function ownsAiExecutionLease(params: {
   workerId: string;
 }): Promise<boolean> {
   const [execution] = await db
-    .select({
-      status: aiExecutionsTable.status,
-      workerId: aiExecutionsTable.workerId,
-      leaseUntil: aiExecutionsTable.leaseUntil,
-      cancelRequestedAt: aiExecutionsTable.cancelRequestedAt,
-    })
+    .select({ id: aiExecutionsTable.id })
     .from(aiExecutionsTable)
-    .where(eq(aiExecutionsTable.id, params.executionId))
+    .where(and(
+      eq(aiExecutionsTable.id, params.executionId),
+      eq(aiExecutionsTable.status, "running"),
+      eq(aiExecutionsTable.workerId, params.workerId),
+      gt(aiExecutionsTable.leaseUntil, databaseNow()),
+      isNull(aiExecutionsTable.cancelRequestedAt),
+    ))
     .limit(1);
-  return Boolean(
-    execution
-    && execution.status === "running"
-    && execution.workerId === params.workerId
-    && execution.leaseUntil
-    && execution.leaseUntil > new Date()
-    && !execution.cancelRequestedAt,
-  );
+  return Boolean(execution);
 }
 
 export type AiExecutionCompletionOutcome =
@@ -3468,6 +3466,7 @@ export async function completeAiExecutionWithResult(params: {
       eq(aiExecutionsTable.id, params.executionId),
       eq(aiExecutionsTable.workerId, params.workerId),
       eq(aiExecutionsTable.status, "running"),
+      gt(aiExecutionsTable.leaseUntil, databaseNow()),
     ))
     .limit(1);
   if (!current) {
@@ -3501,7 +3500,7 @@ export async function completeAiExecutionWithResult(params: {
       ) + 1
     : 1;
   if (params.recipeBinding) {
-    if (!current.leaseUntil || current.leaseUntil <= new Date()) {
+    if (!current.leaseUntil) {
       return { kind: "ownership_lost", reasonCode: "EXECUTION_LEASE_EXPIRED" };
     }
     try {
@@ -3914,7 +3913,7 @@ export async function terminalizeChatObservationExecution(params: {
   finalMessageId?: string | null;
   error?: string;
 }): Promise<boolean> {
-  const now = new Date();
+  const now = databaseNow();
   const workerOwned = Boolean(params.workerId);
   const statusCondition = workerOwned
     ? params.status === "cancelled"
@@ -3924,7 +3923,7 @@ export async function terminalizeChatObservationExecution(params: {
   const ownershipConditions = workerOwned
     ? [
         eq(aiExecutionsTable.workerId, params.workerId!),
-        gt(aiExecutionsTable.leaseUntil, now),
+        gt(aiExecutionsTable.leaseUntil, databaseNow()),
         ...(params.status === "cancelled"
           ? []
           : [isNull(aiExecutionsTable.cancelRequestedAt)]),
@@ -3993,7 +3992,7 @@ export async function failAiExecution(params: {
     .where(and(
       eq(aiExecutionsTable.id, params.executionId),
       eq(aiExecutionsTable.workerId, params.workerId),
-      gt(aiExecutionsTable.leaseUntil, new Date()),
+      gt(aiExecutionsTable.leaseUntil, databaseNow()),
       inArray(
         aiExecutionsTable.status,
         params.cancelled ? ["running", "cancelling"] : ["running"],
@@ -4249,7 +4248,7 @@ export async function reconcileAiExecutions(
           eq(aiExecutionsTable.status, "cancelling"),
           and(
             eq(aiExecutionsTable.status, "running"),
-            lt(aiExecutionsTable.leaseUntil, now),
+            lte(aiExecutionsTable.leaseUntil, databaseNow()),
           ),
         )
       : inArray(aiExecutionsTable.status, ["running", "cancelling"]),

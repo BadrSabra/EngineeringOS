@@ -90,6 +90,7 @@ import type {
   DiscoverySessionStatus,
   DiscoverySourceCapability,
   EvaluateRuleRequest,
+  ExecutionProofGraphProjectorResult,
   ExportAiExecutionAudit200,
   ExportAiMetricsParams,
   FailWorkflowPhaseInput,
@@ -855,6 +856,94 @@ export const useDeleteProject = <TError = ErrorType<void>,
       > => {
       return useMutation(getDeleteProjectMutationOptions(options));
     }
+
+export const getGetProjectExecutionProofGraphUrl = (projectId: string,
+    executionId: string,
+    attempt: number,) => {
+
+
+
+
+  return `/api/projects/${projectId}/executions/${executionId}/proof-graph/attempts/${attempt}`
+}
+
+/**
+ * Returns a read-only relationship projection. Its structural verdict is not Canonical Proof, execution eligibility, or mutation authority. Canonical Proof is returned separately.
+ * @summary Read the proof graph for one project execution attempt
+ */
+export const getProjectExecutionProofGraph = async (projectId: string,
+    executionId: string,
+    attempt: number, options?: Parameters<typeof customFetch>[1]): Promise<ExecutionProofGraphProjectorResult> => {
+
+  return customFetch<ExecutionProofGraphProjectorResult>(getGetProjectExecutionProofGraphUrl(projectId,executionId,attempt),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetProjectExecutionProofGraphQueryKey = (projectId: string,
+    executionId: string,
+    attempt: number,) => {
+    return [
+    `/api/projects/${projectId}/executions/${executionId}/proof-graph/attempts/${attempt}`
+    ] as const;
+    }
+
+
+export const getGetProjectExecutionProofGraphQueryOptions = <TData = Awaited<ReturnType<typeof getProjectExecutionProofGraph>>, TError = ErrorType<ApiError>>(projectId: string,
+    executionId: string,
+    attempt: number, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getProjectExecutionProofGraph>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetProjectExecutionProofGraphQueryKey(projectId,executionId,attempt);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getProjectExecutionProofGraph>>> = ({ signal }) => getProjectExecutionProofGraph(projectId,executionId,attempt, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, enabled: projectId !== null && projectId !== undefined && executionId !== null && executionId !== undefined && attempt !== null && attempt !== undefined, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getProjectExecutionProofGraph>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type GetProjectExecutionProofGraphQueryResult = NonNullable<Awaited<ReturnType<typeof getProjectExecutionProofGraph>>>
+export type GetProjectExecutionProofGraphQueryError = ErrorType<ApiError>
+
+
+/**
+ * @summary Read the proof graph for one project execution attempt
+ */
+
+export function useGetProjectExecutionProofGraph<TData = Awaited<ReturnType<typeof getProjectExecutionProofGraph>>, TError = ErrorType<ApiError>>(
+ projectId: string,
+    executionId: string,
+    attempt: number, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getProjectExecutionProofGraph>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getGetProjectExecutionProofGraphQueryOptions(projectId,executionId,attempt,options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
 
 export const getListBrowserValidationProfilesUrl = (projectId: string,) => {
 

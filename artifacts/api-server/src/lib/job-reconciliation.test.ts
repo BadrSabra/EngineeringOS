@@ -68,6 +68,11 @@ vi.mock("./job-queue.js", () => ({
 }));
 import { heavyJobQueue } from "./job-queue.js";
 
+vi.mock("./agent-state/observation-materializer.js", () => ({
+  materializeServerOwnedObservations: vi.fn().mockResolvedValue(undefined),
+}));
+import { materializeServerOwnedObservations } from "./agent-state/observation-materializer.js";
+
 // PR-03: Replace @workspace/ai-orchestrator with a spy so we can assert that
 // invalidateContextCache is called for every reconciled project without
 // needing a live context-builder instance.
@@ -106,6 +111,14 @@ describe("reconcileStuckJobs", () => {
     vi.mocked(heavyJobQueue.enqueueWithId).mockClear();
     vi.mocked(heavyJobQueue.enqueueWithIdDetailed).mockClear();
     vi.mocked(heavyJobQueue.has).mockClear();
+    vi.mocked(materializeServerOwnedObservations).mockReset().mockResolvedValue({
+      episodeId: "test-episode",
+      observationIds: [],
+      inserted: 0,
+      duplicates: 0,
+      stale: 0,
+      environmentStale: 0,
+    });
     while (projectCleanup.length > 0) {
       const id = projectCleanup.pop();
       if (id) {
@@ -1447,6 +1460,112 @@ describe("dispatchPersistedPendingJobs", () => {
     expect(health.deadLetteredTaskObservationMaterializations).toBeGreaterThanOrEqual(1);
   });
 
+  it("fences a slow observation worker after another worker reclaims its expired lease", async () => {
+    const projectId = await insertProject("active");
+    projectCleanup.push(projectId);
+    const executionId = randomUUID();
+    const attempt = 1;
+    const now = new Date();
+    await db.insert(aiExecutionsTable).values({
+      id: executionId,
+      projectId,
+      userId: "test-user",
+      idempotencyKey: `${executionId}:observation-outbox-lease-fence`,
+      correlationId: executionId,
+      attempt,
+      resumeTokenHash: "f".repeat(64),
+      request: "{}",
+      checkpoint: "{}",
+      status: "completed",
+      startedAt: now,
+      createdAt: now,
+      updatedAt: now,
+    });
+    const outboxId = `task-acceptance-observations:${executionId}:${attempt}`;
+    await db.insert(taskExecutionObservationOutboxTable).values({
+      id: outboxId,
+      projectId,
+      executionId,
+      attempt,
+      payload: { projectId, executionId, attempt, sources: [{ kind: "runtime_receipt" }] },
+      status: "pending",
+      attemptCount: 0,
+      nextAttemptAt: new Date(now.getTime() - 1_000),
+      createdAt: now,
+      updatedAt: now,
+    });
+
+    function deferred() {
+      let resolve!: () => void;
+      const promise = new Promise<void>((resolvePromise) => {
+        resolve = resolvePromise;
+      });
+      return { promise, resolve };
+    }
+    const firstStarted = deferred();
+    const firstGate = deferred();
+    const secondStarted = deferred();
+    const secondGate = deferred();
+    let calls = 0;
+    vi.mocked(materializeServerOwnedObservations).mockReset().mockImplementation(async () => {
+      calls += 1;
+      if (calls === 1) {
+        firstStarted.resolve();
+        await firstGate.promise;
+      } else {
+        secondStarted.resolve();
+        await secondGate.promise;
+      }
+      return {
+        episodeId: "test-episode",
+        observationIds: [],
+        inserted: 0,
+        duplicates: 0,
+        stale: 0,
+        environmentStale: 0,
+      };
+    });
+    vi.mocked(heavyJobQueue.enqueueWithIdDetailed).mockReset().mockReturnValue("enqueued");
+
+    const callbacksForRow = () => vi.mocked(heavyJobQueue.enqueueWithIdDetailed).mock.calls
+      .filter(([jobId]) => jobId === `task-observation-outbox:${outboxId}`)
+      .map(([, callback]) => callback);
+
+    await expect(dispatchPendingTaskObservationOutbox()).resolves.toBe(1);
+    const firstCallback = callbacksForRow()[0];
+    expect(firstCallback).toBeTypeOf("function");
+    const firstRun = firstCallback!();
+    await firstStarted.promise;
+
+    await db.update(taskExecutionObservationOutboxTable)
+      .set({ leaseUntil: new Date(Date.now() - 60_000) })
+      .where(eq(taskExecutionObservationOutboxTable.id, outboxId));
+    await expect(dispatchPendingTaskObservationOutbox()).resolves.toBe(1);
+    const secondCallback = callbacksForRow()[1];
+    expect(secondCallback).toBeTypeOf("function");
+    const secondRun = secondCallback!();
+    await secondStarted.promise;
+
+    const [reclaimed] = await db.select()
+      .from(taskExecutionObservationOutboxTable)
+      .where(eq(taskExecutionObservationOutboxTable.id, outboxId));
+    expect(reclaimed?.workerId).not.toBeNull();
+
+    firstGate.resolve();
+    await firstRun;
+    const [stillOwnedBySecond] = await db.select()
+      .from(taskExecutionObservationOutboxTable)
+      .where(eq(taskExecutionObservationOutboxTable.id, outboxId));
+    expect(stillOwnedBySecond?.status).toBe("running");
+    expect(stillOwnedBySecond?.workerId).toBe(reclaimed?.workerId);
+
+    secondGate.resolve();
+    await secondRun;
+    await expect(db.select()
+      .from(taskExecutionObservationOutboxTable)
+      .where(eq(taskExecutionObservationOutboxTable.id, outboxId))).resolves.toEqual([]);
+  });
+
   it("bounds retryable observation materialization failures and retains their domain code", async () => {
     const projectId = await insertProject("active");
     projectCleanup.push(projectId);
@@ -1495,6 +1614,8 @@ describe("dispatchPersistedPendingJobs", () => {
       updatedAt: now,
     });
 
+    vi.mocked(materializeServerOwnedObservations).mockReset()
+      .mockRejectedValue(new Error("observation_materialization_episode_not_found"));
     vi.mocked(heavyJobQueue.enqueueWithIdDetailed).mockReset().mockReturnValue("enqueued");
     await expect(dispatchPendingTaskObservationOutbox()).resolves.toBe(1);
     const callback = vi.mocked(heavyJobQueue.enqueueWithIdDetailed).mock.calls

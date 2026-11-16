@@ -154,3 +154,4 @@
 - [Dispatch crash recovery](dispatch-crash-recovery.md) — completed Missions record dispatch only from one completed Execution per root; runner is never re-invoked.
 - [Review worktree ownership](local-review-worktree-ownership.md) — Git review worktrees use proposal manifests and pinned writes, not the transient delivery-workspace marker.
 - [GitHub Git Data transfer](github-git-data-transfer.md) — verify blob/tree/commit hashes, account for API message bytes, and use the distinct ref-write endpoint.
+- [Playwright on Replit Nix](playwright-replit-nix.md) — downloaded Chromium also needs Nix shared libraries in the test process’s `LD_LIBRARY_PATH`; `.replit` packages alone may not expose them to shell tests.

@@ -1318,6 +1318,52 @@ export class WorkspaceRuntimeManager {
     });
   }
 
+  private startRecoveryLeaseHeartbeat(row: WorkspaceRuntime): {
+    renewNow: () => Promise<boolean>;
+    stop: () => void;
+  } {
+    let leaseLost = false;
+    let inFlight: Promise<boolean> | null = null;
+    const renewNow = (): Promise<boolean> => {
+      if (leaseLost) return Promise.resolve(false);
+      if (inFlight) return inFlight;
+      inFlight = this.store.renewOwnedSession(
+        row.projectId,
+        row.sessionId,
+        this.workerId,
+        RUNTIME_LEASE_MS,
+      )
+        .then((renewed) => {
+          if (!renewed) {
+            leaseLost = true;
+            return false;
+          }
+          row.leaseUntil = renewed.leaseUntil;
+          row.lastHeartbeatAt = renewed.lastHeartbeatAt;
+          return true;
+        })
+        .catch((error: unknown) => {
+          logger.warn(
+            { projectId: row.projectId, sessionId: row.sessionId, error },
+            "Workspace runtime recovery lease renewal failed",
+          );
+          return false;
+        })
+        .finally(() => {
+          inFlight = null;
+        });
+      return inFlight;
+    };
+    const heartbeat = setInterval(() => {
+      void renewNow();
+    }, Math.min(this.heartbeatIntervalMs, Math.floor(RUNTIME_LEASE_MS / 3)));
+    heartbeat.unref();
+    return {
+      renewNow,
+      stop: () => clearInterval(heartbeat),
+    };
+  }
+
   private async relinquishSessionForRetry(session: RuntimeSession): Promise<void> {
     this.stopHeartbeat(session);
     await this.store.updateOwnedSession(session.runtimeId, session.sessionId, this.workerId, {
@@ -1342,6 +1388,8 @@ export class WorkspaceRuntimeManager {
         leaseUntil: new Date(Date.now() + RUNTIME_LEASE_MS),
       });
       if (!claimed) continue;
+      const recoveryLease = this.startRecoveryLeaseHeartbeat(claimed);
+      try {
       // Supervisor command identity must be derived from the persisted session binding.
       // Never synthesize an empty revision when recovering an incomplete legacy row.
       const runtimeRevision = claimed.revision;
@@ -1391,12 +1439,9 @@ export class WorkspaceRuntimeManager {
             await this.releaseRecoveryClaim(claimed.projectId, claimed.sessionId);
             continue;
           }
-          claimed = {
-            ...claimed,
-            pid: observed.session.pid,
-            port: observed.session.port,
-            logs: observed.session.logs ?? claimed.logs,
-          };
+          claimed.pid = observed.session.pid;
+          claimed.port = observed.session.port;
+          claimed.logs = observed.session.logs ?? claimed.logs;
         } else if (
           observed?.status === "stopped"
           && observed.inventoryComplete
@@ -1421,6 +1466,7 @@ export class WorkspaceRuntimeManager {
       let adoptedLogs: string[] | undefined;
       if (!processAlive || !portReady) {
         if (claimed.pid && await isProcessGroupAlive(claimed.pid)) {
+          if (!await recoveryLease.renewNow()) continue;
           try {
             if (this.supervisor) {
               await this.supervisor.stop({
@@ -1481,6 +1527,7 @@ export class WorkspaceRuntimeManager {
       }
 
       if (this.supervisor && processAlive && portReady) {
+        if (!await recoveryLease.renewNow()) continue;
         try {
           const adopted = await this.supervisor.adopt({
             projectId: claimed.projectId,
@@ -1528,9 +1575,6 @@ export class WorkspaceRuntimeManager {
         continue;
       }
 
-      const adoptedRow = claimed.status === "starting"
-        ? { ...claimed, status: "running" as const }
-        : claimed;
       if (
         claimed.status === "starting"
         && !await this.store.updateOwnedSession(claimed.projectId, claimed.sessionId, this.workerId, {
@@ -1539,6 +1583,10 @@ export class WorkspaceRuntimeManager {
       ) {
         continue;
       }
+      if (!await recoveryLease.renewNow()) continue;
+      const adoptedRow = claimed.status === "starting"
+        ? { ...claimed, status: "running" as const }
+        : claimed;
       const existing = this.sessions.get(claimed.projectId);
       if (existing?.sessionId === claimed.sessionId) {
         existing.leaseUntil = claimed.leaseUntil?.toISOString() ?? null;
@@ -1557,6 +1605,9 @@ export class WorkspaceRuntimeManager {
       );
       this.sessions.set(claimed.projectId, session);
       this.startHeartbeat(session);
+      } finally {
+        recoveryLease.stop();
+      }
     }
     await this.syncUnresolvedStartAlerts(await this.store.listStarting());
   }
@@ -1690,7 +1741,7 @@ export class WorkspaceRuntimeManager {
       command: "pnpm run dev",
       revision: input.revision,
       environmentRevision: null,
-      startedAt: now.toISOString(),
+      startedAt: persisted.startedAt?.toISOString() ?? now.toISOString(),
       stoppedAt: null,
       pid: null,
       leaseUntil: persisted.leaseUntil?.toISOString() ?? new Date(now.getTime() + RUNTIME_LEASE_MS).toISOString(),
@@ -2143,13 +2194,11 @@ export class WorkspaceRuntimeManager {
       const renewLease = async (): Promise<boolean> => {
         const expectedStatus = session.status;
         if (expectedStatus !== "starting" && expectedStatus !== "running") return false;
-        const now = new Date();
-        const leaseUntil = new Date(now.getTime() + RUNTIME_LEASE_MS);
-        const owned = await this.store.updateOwnedSession(
+        const owned = await this.store.renewOwnedSession(
           session.runtimeId,
           session.sessionId,
           this.workerId,
-          { leaseUntil, lastHeartbeatAt: now },
+          RUNTIME_LEASE_MS,
           expectedStatus,
         );
         if (!owned) {
@@ -2160,8 +2209,8 @@ export class WorkspaceRuntimeManager {
           return false;
         }
         if (this.sessions.get(session.runtimeId) === session) {
-          session.leaseUntil = leaseUntil.toISOString();
-          session.lastHeartbeatAt = now.toISOString();
+          session.leaseUntil = owned.leaseUntil?.toISOString() ?? null;
+          session.lastHeartbeatAt = owned.lastHeartbeatAt?.toISOString() ?? null;
         }
         return true;
       };

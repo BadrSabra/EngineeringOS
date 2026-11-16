@@ -218,3 +218,29 @@ export type {
   ProofGraphValidationResult,
 } from "./proof-graph.js";
 
+export {
+  EXECUTION_PROOF_GRAPH_MAX_BYTES,
+  EXECUTION_PROOF_GRAPH_MAX_EDGES,
+  EXECUTION_PROOF_GRAPH_MAX_NODES,
+  EXECUTION_PROOF_GRAPH_VALIDATOR_VERSION,
+  EXECUTION_PROOF_GRAPH_VERSION,
+  ExecutionProofGraphEdgeSchema,
+  ExecutionProofGraphNodeSchema,
+  ExecutionProofGraphSchema,
+  executionProofGraphEdgeId,
+  executionProofGraphId,
+  executionProofGraphNodeId,
+  hashExecutionProofGraph,
+  validateExecutionProofGraph,
+} from "./execution-proof-graph.js";
+export type {
+  ExecutionProofGraph,
+  ExecutionProofGraphEdge,
+  ExecutionProofGraphEdgeInput,
+  ExecutionProofGraphNode,
+  ExecutionProofGraphNodeKind,
+  ExecutionProofGraphValidationResult,
+  ExecutionProofGraphViolation,
+  ExecutionProofGraphViolationCode,
+} from "./execution-proof-graph.js";
+

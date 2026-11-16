@@ -316,7 +316,9 @@ describe("database workspace runtime store", () => {
       status: "active",
     });
 
-    const now = new Date();
+    // Simulate a worker whose local clock is far behind PostgreSQL. Durable
+    // ownership must be based on database time, not these caller timestamps.
+    const now = new Date(0);
     const first = await databaseWorkspaceRuntimeStore.begin({
       projectId,
       projectRoot: root,
@@ -328,6 +330,16 @@ describe("database workspace runtime store", () => {
       leaseUntil: new Date(now.getTime() + RUNTIME_LEASE_MS),
     });
     expect(first?.workerId).toBe("worker-a");
+    expect(first?.startedAt?.getTime()).toBeGreaterThan(now.getTime());
+    expect(first?.leaseUntil?.getTime()).toBeGreaterThan(Date.now());
+    const renewed = await databaseWorkspaceRuntimeStore.renewOwnedSession(
+      projectId,
+      first!.sessionId,
+      "worker-a",
+      RUNTIME_LEASE_MS,
+      "starting",
+    );
+    expect(renewed?.leaseUntil?.getTime()).toBeGreaterThan(first!.leaseUntil!.getTime());
 
     const sameWorkerStart = await databaseWorkspaceRuntimeStore.begin({
       projectId,
@@ -478,12 +490,21 @@ describe("database workspace runtime store", () => {
     expect(await databaseWorkspaceRuntimeStore.listRecoverable(now)).toEqual([]);
 
     const leaseExpiredAt = new Date(now.getTime() - 1);
+    await db.update(workspaceRuntimeTable)
+      .set({ leaseUntil: leaseExpiredAt })
+      .where(eq(workspaceRuntimeTable.projectId, projectId));
     expect(await databaseWorkspaceRuntimeStore.updateOwnedSession(
       projectId,
       sessionId,
       "worker-before-restart",
-      { leaseUntil: leaseExpiredAt },
-    )).toBe(true);
+      { error: "stale owner write" },
+    )).toBe(false);
+    expect(await databaseWorkspaceRuntimeStore.renewOwnedSession(
+      projectId,
+      sessionId,
+      "worker-before-restart",
+      RUNTIME_LEASE_MS,
+    )).toBeUndefined();
     const recoverable = await databaseWorkspaceRuntimeStore.listRecoverable(now);
     expect(recoverable.map((runtime) => runtime.projectId)).toEqual([projectId]);
 
@@ -495,6 +516,12 @@ describe("database workspace runtime store", () => {
       leaseUntil: new Date(now.getTime() + RUNTIME_LEASE_MS),
     });
     expect(recovered?.workerId).toBe("worker-after-restart");
+    expect(await databaseWorkspaceRuntimeStore.updateOwnedSession(
+      projectId,
+      sessionId,
+      "worker-before-restart",
+      { error: "retired owner write" },
+    )).toBe(false);
     expect(await databaseWorkspaceRuntimeStore.claimRecovery({
       id: first.id,
       sessionId,
@@ -2058,6 +2085,79 @@ describe("workspace runtime full API startup recovery", () => {
 });
 
 describe("in-memory workspace runtime store session fencing", () => {
+  it("renews a claimed recovery lease until the recovery worker releases it", async () => {
+    const store = createInMemoryWorkspaceRuntimeStore();
+    const now = new Date();
+    await store.begin({
+      projectId: "recovering-runtime-project",
+      projectRoot: "/workspace/project",
+      sessionId: "session-recovering",
+      revision: "revision-recovering",
+      environmentRevision: null,
+      workerId: "worker-before-restart",
+      now,
+      leaseUntil: new Date(now.getTime() + RUNTIME_LEASE_MS),
+    });
+    await store.releaseWorker("worker-before-restart");
+    const claimed = await store.claimRecovery({
+      id: "recovering-runtime-project",
+      sessionId: "session-recovering",
+      workerId: "worker-after-restart",
+      now: new Date(),
+      leaseUntil: new Date(Date.now() + RUNTIME_LEASE_MS),
+    });
+    expect(claimed).toBeDefined();
+    if (!claimed) throw new Error("Recovery lease fixture was not claimed.");
+
+    const manager = new WorkspaceRuntimeManager({
+      store,
+      workerId: "worker-after-restart",
+      heartbeatIntervalMs: 5,
+    });
+    const guard = (manager as unknown as {
+      startRecoveryLeaseHeartbeat: (row: typeof claimed) => { stop: () => void };
+    }).startRecoveryLeaseHeartbeat(claimed);
+    const claimedLeaseUntil = claimed.leaseUntil?.getTime() ?? 0;
+    try {
+      await new Promise((resolve) => setTimeout(resolve, 30));
+    } finally {
+      guard.stop();
+    }
+
+    expect(claimed.leaseUntil?.getTime()).toBeGreaterThan(claimedLeaseUntil);
+    await manager.shutdown();
+  });
+
+  it("rejects writes and lease renewal by the expired owner before takeover", async () => {
+    const store = createInMemoryWorkspaceRuntimeStore();
+    const expiredAt = new Date(Date.now() - 1);
+    const row = await store.begin({
+      projectId: "expired-runtime-project",
+      projectRoot: "/workspace/project",
+      sessionId: "session-expired",
+      revision: "revision-expired",
+      environmentRevision: null,
+      workerId: "worker-expired",
+      now: expiredAt,
+      leaseUntil: expiredAt,
+    });
+    expect(row).toBeDefined();
+
+    expect(await store.updateOwnedSession(
+      "expired-runtime-project",
+      "session-expired",
+      "worker-expired",
+      { status: "failed" },
+    )).toBe(false);
+    expect(await store.renewOwnedSession(
+      "expired-runtime-project",
+      "session-expired",
+      "worker-expired",
+      RUNTIME_LEASE_MS,
+    )).toBeUndefined();
+    expect((await store.get("expired-runtime-project"))?.workerId).toBe("worker-expired");
+  });
+
   it("rejects recovery claims and lease writes for a replaced session", async () => {
     const store = createInMemoryWorkspaceRuntimeStore();
     const now = new Date();

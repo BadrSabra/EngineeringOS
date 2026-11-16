@@ -41,7 +41,6 @@
  *   dashboard UI before anything is written.
  */
 import path from "node:path";
-import fs from "node:fs/promises";
 import { createHash } from "node:crypto";
 import type { BenchmarkFixtureRepairAuthorization } from "../benchmark/fixture-repair-authorization.js";
 import {
@@ -255,7 +254,7 @@ import {
   executeExecutionNodePlan,
   executionNodeFailureDiagnosticFromDetail,
 } from "../execution-node-coordinator.js";
-import { stripReadFileWrapper } from "../tools/file-tools.js";
+import { readProjectFilePrefix, stripReadFileWrapper } from "../tools/file-tools.js";
 import { hasDisplayTruncationMarker, hasToolAppendedTruncationMarker } from "../source-read-status.js";
 import { classifyForensicTerminal, classifyObjectiveVerdict } from "../audit-telemetry.js";
 import type { RecoveryFailureKind, ObjectiveVerdictKind } from "../audit-telemetry.js";
@@ -357,6 +356,8 @@ const PROJECT_CHAT_READ_TOOL_NAMES = new Set([
   "search_code",
 ]);
 const MAX_COMPLETE_EVIDENCE_BYTES = 256 * 1024;
+const MAX_OBJECTIVE_LOCATOR_BYTES = 512 * 1024;
+const MAX_OBJECTIVE_LOCATOR_TOTAL_BYTES = 2 * 1024 * 1024;
 
 export type ProjectQuerySynthesisPromptMetrics = {
   messageCount: number;
@@ -3658,6 +3659,13 @@ export function isUsableObjectiveLocatorBody(body: string): boolean {
   return true;
 }
 
+function isBoundedObjectiveLocatorBody(body: string): boolean {
+  const trimmed = body.trim();
+  if (!trimmed || Buffer.byteLength(body, "utf8") > MAX_OBJECTIVE_LOCATOR_BYTES) return false;
+  if (/^Error\b/i.test(trimmed) || /^Contents of\s+/i.test(trimmed)) return false;
+  return !hasToolAppendedTruncationMarker(trimmed) && !hasDisplayTruncationMarker(trimmed);
+}
+
 export function recordPrefetchEvidence(
   entries: Array<{ key: string; content: string }>,
   destination: Map<string, string>,
@@ -4596,32 +4604,32 @@ function canonicalRelativePath(value: string): string {
 async function readForensicPrimaryTarget(
   rootPath: string,
   relPath: string,
+  signal?: AbortSignal,
+  maxBytes = MAX_COMPLETE_EVIDENCE_BYTES,
 ): Promise<{ ok: true; raw: string } | { ok: false; reason: string }> {
-  if (relPath.includes("\0")) {
-    return { ok: false, reason: "primary evidence target path contains a null byte" };
-  }
-  let resolvedRoot: string | null = null;
   try {
-    resolvedRoot = await fs.realpath(path.resolve(rootPath));
-  } catch {
-    return { ok: false, reason: "workspace root is inaccessible" };
-  }
-  const lexical = path.resolve(resolvedRoot, relPath);
-  if (lexical !== resolvedRoot && !lexical.startsWith(resolvedRoot + path.sep)) {
-    return { ok: false, reason: "primary evidence target escapes the workspace (lexical traversal)" };
-  }
-  let real: string;
-  try {
-    real = await fs.realpath(lexical);
-  } catch {
-    return { ok: false, reason: "primary evidence target does not exist on disk" };
-  }
-  if (real !== resolvedRoot && !real.startsWith(resolvedRoot + path.sep)) {
-    return { ok: false, reason: "primary evidence target resolves outside the workspace via a symlink" };
-  }
-  try {
-    return { ok: true, raw: await fs.readFile(real, "utf8") };
+    const read = await readProjectFilePrefix(
+      rootPath,
+      relPath,
+      maxBytes,
+      signal,
+    );
+    if (read.kind === "blocked") {
+      return {
+        ok: false,
+        reason: read.reason === "sensitive"
+          ? "primary evidence target is classified as sensitive"
+          : "primary evidence target is unavailable or outside the workspace",
+      };
+    }
+    if (read.truncated) {
+      return { ok: false, reason: "primary evidence target exceeds the bounded locator window" };
+    }
+    return { ok: true, raw: read.content };
   } catch (err) {
+    if (signal?.aborted) {
+      return { ok: false, reason: "primary evidence read was cancelled" };
+    }
     return {
       ok: false,
       reason: `primary evidence target read failed: ${safeErrorTag(err)}`,
@@ -4639,14 +4647,32 @@ export async function loadObjectiveEvidenceLocators(
   rootPath: string,
   requiredPaths: readonly string[],
   existing = new Map<string, string>(),
+  signal?: AbortSignal,
 ): Promise<Map<string, string>> {
+  let remainingBytes = Math.max(
+    0,
+    MAX_OBJECTIVE_LOCATOR_TOTAL_BYTES
+      - [...existing.values()].reduce(
+        (total, body) => total + Buffer.byteLength(body, "utf8"),
+        0,
+      ),
+  );
   for (const requiredPath of requiredPaths) {
+    if (signal?.aborted || remainingBytes <= 0) break;
     const locatorPath = canonicalRelativePath(requiredPath);
     if (!locatorPath) continue;
     const existingBody = existing.get(locatorPath);
-    if (existingBody !== undefined && isUsableObjectiveLocatorBody(existingBody)) continue;
-    const locator = await readForensicPrimaryTarget(rootPath, locatorPath);
-    if (locator.ok) existing.set(locatorPath, locator.raw);
+    if (existingBody !== undefined && isBoundedObjectiveLocatorBody(existingBody)) continue;
+    const locator = await readForensicPrimaryTarget(
+      rootPath,
+      locatorPath,
+      signal,
+      Math.min(MAX_OBJECTIVE_LOCATOR_BYTES, remainingBytes),
+    );
+    if (locator.ok) {
+      existing.set(locatorPath, locator.raw);
+      remainingBytes -= Buffer.byteLength(locator.raw, "utf8");
+    }
   }
   return existing;
 }
@@ -6671,6 +6697,10 @@ export async function chat(opts: {
         ...(isCapabilityProbeRequest(message) ? { deadlineMs: 150_000 } : {}),
       },
     });
+  const executionSignal =
+    signal && signal !== executionLedger.signal
+      ? AbortSignal.any([signal, executionLedger.signal])
+      : executionLedger.signal;
 
   // ── Profile classification ────────────────────────────────────────────────
   // Pure sync — classifies the message into simple/code/architecture/workflow/
@@ -7746,83 +7776,50 @@ export async function chat(opts: {
 
   let firstEvidenceReadEmitted = false;
   if (eagerReadTargets.length > 0 && rootPath) {
-    let resolvedRoot: string | null = null;
-    try {
-      resolvedRoot = await fs.realpath(path.resolve(rootPath));
-    } catch {
-      // rootPath is inaccessible — skip pre-read entirely.
-    }
-    if (resolvedRoot !== null) {
-      for (const relPath of eagerReadTargets) {
-        // Null bytes would confuse path APIs — reject immediately.
-        if (relPath.includes("\0")) continue;
-        // Provider fallback re-enters chat() with the same request-scoped
-        // read-status map. A truncated or failed eager read is already known
-        // to be unusable as proof; repeating the full read for every provider
-        // cannot improve evidence and can delay the bounded targeted recovery
-        // that the tool loop would perform if a provider becomes available.
-        // Keep the original status/locator and let the next phase decide
-        // whether a bounded read is warranted.
-        const retainedPrefetchStatus = prefetchReadStatuses.get(relPath);
+    for (const relPath of eagerReadTargets) {
+      if (executionSignal.aborted) break;
+      // Provider fallback re-enters chat() with the same request-scoped
+      // read-status map. A truncated or failed eager read is already known
+      // to be unusable as proof; do not repeat it on another provider.
+      const retainedPrefetchStatus = prefetchReadStatuses.get(relPath);
+      if (
+        retainedPrefetchStatus === "READ_TRUNCATED" ||
+        retainedPrefetchStatus === "READ_FAILED"
+      ) {
+        continue;
+      }
+      try {
+        const read = await readProjectFilePrefix(
+          rootPath,
+          relPath,
+          MAX_COMPLETE_EVIDENCE_BYTES,
+          executionSignal,
+        );
+        if (read.kind !== "ok") continue;
+
+        const content = read.content;
+        prefetchTraceContents.set(relPath, content);
+        const complete = !read.truncated;
+        prefetchReadStatuses.set(relPath, complete ? "READ_COMPLETE" : "READ_TRUNCATED");
+        if (complete) {
+          prefetchFileContents.set(relPath, content);
+          retainedEvidence?.set(relPath, content);
+          prefetchSources.push(relPath);
+          // Seed the shared dedup cache so the tool loop serves the complete
+          // read from cache instead of re-executing executeFileTool.
+          toolCallCache.set(toolCacheKey("read_file", { path: relPath }), content);
+        }
         if (
-          retainedPrefetchStatus === "READ_TRUNCATED" ||
-          retainedPrefetchStatus === "READ_FAILED"
+          firstEvidenceTargetPath &&
+          canonicalRelativePath(firstEvidenceTargetPath) === relPath &&
+          !firstEvidenceReadEmitted
         ) {
-          continue;
+          firstEvidenceReadEmitted = true;
         }
-        // Phase 1: lexical containment — catches all `..`-based traversal.
-        const lexical = path.resolve(resolvedRoot, relPath);
-        if (lexical !== resolvedRoot && !lexical.startsWith(resolvedRoot + path.sep)) {
-          console.warn(
-            JSON.stringify({
-              scope: "chat-agent",
-              code: "SINGLE_FILE_PREFETCH_PATH_TRAVERSAL_REJECTED",
-              relPath,
-            }),
-          );
-          continue;
-        }
-        // Phase 2: realpath — resolves symlinks to catch links that escape root.
-        let real: string;
-        try {
-          real = await fs.realpath(lexical);
-        } catch {
-          // File does not exist yet; the agent will surface the error.
-          continue;
-        }
-        if (real !== resolvedRoot && !real.startsWith(resolvedRoot + path.sep)) {
-          console.warn(
-            JSON.stringify({
-              scope: "chat-agent",
-              code: "SINGLE_FILE_PREFETCH_SYMLINK_ESCAPE_REJECTED",
-              relPath,
-            }),
-          );
-          continue;
-        }
-        try {
-          const content = await fs.readFile(real, "utf8");
-          prefetchTraceContents.set(relPath, content);
-          const complete = Buffer.byteLength(content, "utf8") <= MAX_COMPLETE_EVIDENCE_BYTES;
-          prefetchReadStatuses.set(relPath, complete ? "READ_COMPLETE" : "READ_TRUNCATED");
-          if (complete) {
-            prefetchFileContents.set(relPath, content);
-            retainedEvidence?.set(relPath, content);
-            prefetchSources.push(relPath);
-            // Seed the shared dedup cache so the tool loop serves the complete
-            // read from cache instead of re-executing executeFileTool.
-            toolCallCache.set(toolCacheKey("read_file", { path: relPath }), content);
-          }
-          if (
-            firstEvidenceTargetPath &&
-            canonicalRelativePath(firstEvidenceTargetPath) === relPath &&
-            !firstEvidenceReadEmitted
-          ) {
-            firstEvidenceReadEmitted = true;
-          }
-        } catch {
-          // Read failed (permissions, etc.) — skip silently.
-        }
+      } catch {
+        if (executionSignal.aborted) break;
+        // Missing, sensitive, or otherwise unreadable paths stay unavailable;
+        // the normal scoped tool path will report a bounded failure if needed.
       }
     }
   }
@@ -7838,6 +7835,7 @@ export async function chat(opts: {
       rootPath,
       [...objectiveSourcePaths],
       objectiveLocatorSources,
+      executionSignal,
     );
   }
 
@@ -8013,7 +8011,7 @@ export async function chat(opts: {
           ? undefined
           : request.objectiveScopePolicy ?? objective?.scopePolicy,
       missionReadPathScope: opts.missionReadPathScope,
-      signal: executionLedger.signal,
+      signal: executionSignal,
       toolCallId: invocationId,
       toolManifestHash: serverReadManifestHash,
       onReadOnlyInvocation: opts.onReadOnlyInvocation,
@@ -8654,7 +8652,7 @@ export async function chat(opts: {
       strategy,
       apiKey: apiKey ?? undefined,
       projectId,
-      signal: executionLedger.signal,
+      signal: executionSignal,
       executionLedger,
       targetResolution: turnIntent.projectTargetResolution,
       profile: projectOrientationMode ? "project_orientation" : "default",
@@ -9155,7 +9153,7 @@ export async function chat(opts: {
         powerModel,
         provider: providerId,
         apiKey: apiKey ?? undefined,
-        signal: executionLedger.signal,
+        signal: executionSignal,
         tools,
         rootPath,
         pendingChanges,
@@ -9513,7 +9511,7 @@ export async function chat(opts: {
                 childLoopOptions.allowedToolNames
                   ?? toolManifest.map((tool) => tool.function.name),
               ),
-              signal: executionLedger.signal,
+              signal: executionSignal,
               assertExecutionOwned: opts.assertExecutionOwned,
               executionId: executionLedger.id,
               toolCallId: automaticValidationToolCallId,
@@ -13202,7 +13200,11 @@ export async function chat(opts: {
         firstEvidenceRecoveryError =
           `${primaryPath} was already attempted by an earlier provider attempt`;
       } else {
-        const readResult = await readForensicPrimaryTarget(rootPath, primaryPath);
+        const readResult = await readForensicPrimaryTarget(
+          rootPath,
+          primaryPath,
+          executionSignal,
+        );
         if (readResult.ok) {
           forensicFileContents.set(primaryPath, readResult.raw);
           forensicEvidence = collectForensicEvidence(

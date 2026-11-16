@@ -222,6 +222,7 @@ const VALIDATION_COPY_OMIT = new Set([
 const VALIDATION_COPY_OMIT_ANYWHERE = new Set([
   ".git",
   ".cache",
+  ".terraform",
   "coverage",
   "dist",
   "node_modules",
