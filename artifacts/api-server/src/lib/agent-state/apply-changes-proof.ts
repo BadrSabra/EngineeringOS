@@ -126,18 +126,23 @@ async function deriveApplyChangesProofV2Evidence(input: {
   requestedEvent: typeof aiAgentEpisodeEventsTable.$inferSelect;
   sourceRevision: string;
   candidateIdentity: string;
+  onReject?: (stage: string) => void;
 }): Promise<ApplyChangesProofV2Evidence | undefined> {
   const {
     tx, execution, proposal, episode, request, requestedPayload, actionId, requestedEvent,
     sourceRevision, candidateIdentity,
   } = input;
+  const reject = (stage: string): undefined => {
+    input.onReject?.(stage);
+    return;
+  };
   const authorizationResult = ApplyAuthorizationDecisionSchema.safeParse(
     requestedPayload.authorizationDecision,
   );
   const preconditionResult = ApplyPreconditionReceiptSchema.safeParse(
     requestedPayload.preconditionReceipt,
   );
-  if (!authorizationResult.success || !preconditionResult.success) return undefined;
+  if (!authorizationResult.success || !preconditionResult.success) return reject("v2_authorization_or_receipt_schema_invalid");
   const authorization = authorizationResult.data;
   const preconditions = preconditionResult.data;
   let proposalChanges: unknown;
@@ -146,9 +151,9 @@ async function deriveApplyChangesProofV2Evidence(input: {
       ? JSON.parse(proposal.changes)
       : proposal.changes;
   } catch {
-    return undefined;
+    return reject("v2_proposal_changes_json_invalid");
   }
-  if (!Array.isArray(proposalChanges)) return undefined;
+  if (!Array.isArray(proposalChanges)) return reject("v2_proposal_changes_not_array");
   const [project] = await tx.select({
     id: projectsTable.id,
     ownerId: projectsTable.ownerId,
@@ -184,13 +189,13 @@ async function deriveApplyChangesProofV2Evidence(input: {
     || preconditions.actionId !== actionId
     || preconditions.executionId !== execution.id
     || preconditions.attempt !== execution.attempt
-  ) return undefined;
+  ) return reject("v2_authorization_identity_or_execution_binding_mismatch");
 
   const worldIntentResult = requestedPayload.worldTransitionIntent === undefined
     ? undefined
     : ApplyWorldTransitionIntentSchema.safeParse(requestedPayload.worldTransitionIntent);
   if (requestedPayload.worldTransitionIntent !== undefined && !worldIntentResult?.success) {
-    return undefined;
+    return reject("v2_world_transition_intent_schema_invalid");
   }
   const worldIntent = worldIntentResult?.success ? worldIntentResult.data : undefined;
   if (
@@ -205,16 +210,16 @@ async function deriveApplyChangesProofV2Evidence(input: {
       || preconditions.planRevision !== worldIntent.planRevision
       || preconditions.parentWorldRevision !== worldIntent.parentWorldRevision
     )
-  ) return undefined;
+  ) return reject("v2_world_transition_parent_binding_mismatch");
   if (!worldIntent && (
     execution.goalId !== null
     || preconditions.planRevision !== undefined
     || preconditions.parentWorldRevision !== undefined
     || preconditions.checks.some((check) => check.id === "MISSION_PARENT_SNAPSHOT_BOUND")
-  )) return undefined;
+  )) return reject("v2_mission_parent_binding_downgrade");
 
   const referencedJournalIds = [...new Set(preconditions.checks.map((check) => check.reference.id))];
-  if (referencedJournalIds.length === 0) return undefined;
+  if (referencedJournalIds.length === 0) return reject("v2_precondition_journal_references_empty");
   const journalRows = await tx.select().from(aiApplyJournalTable).where(and(
     eq(aiApplyJournalTable.projectId, execution.projectId),
     eq(aiApplyJournalTable.proposalId, proposal.id),
@@ -222,7 +227,7 @@ async function deriveApplyChangesProofV2Evidence(input: {
     eq(aiApplyJournalTable.attemptId, request.applyAttemptId as string),
     inArray(aiApplyJournalTable.id, referencedJournalIds),
   ));
-  if (journalRows.length !== referencedJournalIds.length) return undefined;
+  if (journalRows.length !== referencedJournalIds.length) return reject("v2_precondition_journal_rows_missing");
   const journalById = new Map(journalRows.map((row) => [row.id, row]));
   const payloadFor = (id: string, expectedStage: string): Record<string, unknown> | undefined => {
     const row = journalById.get(id);
@@ -231,19 +236,19 @@ async function deriveApplyChangesProofV2Evidence(input: {
       || row.stage !== expectedStage
       || canonicalJsonHash(row.payload as Parameters<typeof canonicalJsonHash>[0])
         !== preconditions.checks.find((check) => check.reference.id === id)?.reference.contentHash
-    ) return undefined;
+    ) return reject("v2_journal_reference_stage_or_content_hash_mismatch");
     return record(row.payload);
   };
   for (const check of preconditions.checks) {
     const expectedStage = APPLY_PRECONDITION_STAGE_BY_ID[check.id];
-    if (check.reference.stage !== expectedStage) return undefined;
+    if (check.reference.stage !== expectedStage) return reject("v2_journal_reference_stage_mismatch");
     const journal = journalById.get(check.reference.id);
     if (
       !journal
       || journal.stage !== expectedStage
       || canonicalJsonHash(journal.payload as Parameters<typeof canonicalJsonHash>[0])
         !== check.reference.contentHash
-    ) return undefined;
+    ) return reject("v2_journal_reference_integrity_mismatch");
   }
 
   const authorizationChecks = preconditions.checks.filter((check) =>
@@ -252,7 +257,7 @@ async function deriveApplyChangesProofV2Evidence(input: {
   if (
     authorizationChecks.length !== 2
     || authorizationChecks[0]!.reference.id !== authorizationChecks[1]!.reference.id
-  ) return undefined;
+  ) return reject("v2_authorization_precondition_references_mismatch");
   const authorizationPayload = payloadFor(
     authorizationChecks[0]!.reference.id,
     "APPLY_AUTHORIZATION_DECISION",
@@ -270,7 +275,7 @@ async function deriveApplyChangesProofV2Evidence(input: {
     || proposalEligibility.revision !== proposal.revision
     || authorizationPayload.projectOwnerId !== project.ownerId
     || authorizationPayload.actorUserId !== execution.userId
-  ) return undefined;
+  ) return reject("v2_persisted_authorization_decision_mismatch");
 
   const subsetCheck = preconditions.checks.find((check) => check.id === "EXACT_APPROVED_SUBSET");
   const subsetPayload = subsetCheck
@@ -285,7 +290,7 @@ async function deriveApplyChangesProofV2Evidence(input: {
     || subsetPayload.changeSetHash !== proposal.changeSetHash
     || subsetPayload.submittedChangeSetHash !== request.submittedChangeSetHash
     || subsetPayload.subsetAuthorized !== true
-  ) return undefined;
+  ) return reject("v2_exact_approved_subset_mismatch");
 
   const validationCheck = preconditions.checks.find((check) =>
     check.id === "CANDIDATE_VALIDATION_PASSED"
@@ -339,7 +344,7 @@ async function deriveApplyChangesProofV2Evidence(input: {
     || validationPayload.candidateTreeHash !== proposal.candidateTreeHash
     || validationPayload.changeSetHash !== proposal.changeSetHash
     || validationPayload.treeDigestVersion !== proposal.treeDigestVersion
-  ) return undefined;
+  ) return reject("v2_candidate_validation_receipt_mismatch");
 
   const stabilityChecks = preconditions.checks.filter((check) =>
     check.id === "CANDIDATE_STABLE" || check.id === "LIVE_ROOT_BASE_MATCHED"
@@ -347,7 +352,7 @@ async function deriveApplyChangesProofV2Evidence(input: {
   if (
     stabilityChecks.length !== 2
     || stabilityChecks[0]!.reference.id !== stabilityChecks[1]!.reference.id
-  ) return undefined;
+  ) return reject("v2_candidate_stability_reference_mismatch");
   const stabilityCheck = stabilityChecks[0];
   const stabilityPayload = stabilityCheck
     ? payloadFor(stabilityCheck.reference.id, "APPLY_CANDIDATE_STABLE")
@@ -361,7 +366,7 @@ async function deriveApplyChangesProofV2Evidence(input: {
     || stabilityPayload.candidateTreeHash !== proposal.candidateTreeHash
     || stabilityPayload.candidateStable !== true
     || stabilityPayload.liveRootBaseMatched !== true
-  ) return undefined;
+  ) return reject("v2_candidate_stability_receipt_mismatch");
 
   const leaseCheck = preconditions.checks.find((check) => check.id === "EXECUTION_LEASE_OWNED");
   const leasePayload = leaseCheck
@@ -393,7 +398,7 @@ async function deriveApplyChangesProofV2Evidence(input: {
     || requestedEventAt > leaseUntil
     || (execution.status === "running" && execution.workerId !== leasePayload.workerId)
     || actionEvent?.actionId !== actionId
-  ) return undefined;
+  ) return reject("v2_execution_lease_receipt_mismatch");
 
   if (worldIntent) {
     const parentCheck = preconditions.checks.find((check) =>
@@ -412,7 +417,7 @@ async function deriveApplyChangesProofV2Evidence(input: {
       || !persistedIntent
       || canonicalJsonHash(persistedIntent as Parameters<typeof canonicalJsonHash>[0])
         !== canonicalJsonHash(worldIntent as Parameters<typeof canonicalJsonHash>[0])
-    ) return undefined;
+    ) return reject("v2_mission_parent_journal_mismatch");
   }
 
   return {
@@ -454,8 +459,15 @@ export async function deriveApplyChangesProof(input: {
   candidateIdentity: string | null;
   effectBundleId: string | null;
   allowCompleted?: boolean;
+  onV2ProofReject?: (stage: string) => void;
 }): Promise<ApplyChangesProofArtifact | undefined> {
   const { tx, execution, request } = input;
+  const reject = (stage: string): undefined => {
+    if (request?.applyChangesProofMode === APPLY_CHANGES_PROOF_MODE_V2) {
+      input.onV2ProofReject?.(stage);
+    }
+    return;
+  };
   if (
     !isApplyChangesProofMode(request?.applyChangesProofMode)
     || request.proofRequired !== true
@@ -463,7 +475,7 @@ export async function deriveApplyChangesProof(input: {
     || request.turnIntent !== "APPLY_CHANGES"
     || execution.status !== "running"
       && !(input.allowCompleted && execution.status === "completed")
-  ) return undefined;
+  ) return reject("apply_request_mode_or_execution_state_invalid");
 
   const operationId = execution.operationId;
   const requestedOperationId = request.operationId;
@@ -493,7 +505,7 @@ export async function deriveApplyChangesProof(input: {
     || request.validationTargetPaths.some((item) =>
       typeof item !== "string" || !item.trim()
     )
-  ) return undefined;
+  ) return reject("apply_request_operation_attempt_or_workspace_binding_invalid");
 
   const [proposal] = await tx.select().from(aiChangeProposalsTable).where(and(
     eq(aiChangeProposalsTable.id, proposalId),
@@ -515,7 +527,7 @@ export async function deriveApplyChangesProof(input: {
     || !digest(proposal.changeSetHash)
     || proposal.promotedTreeHash !== proposal.candidateTreeHash
     || candidateIdentity !== `${proposal.id}:${proposal.candidateTreeHash}`
-  ) return undefined;
+  ) return reject("apply_proposal_missing_or_candidate_binding_invalid");
 
   const [episode] = await tx.select().from(aiAgentEpisodesTable).where(and(
     eq(aiAgentEpisodesTable.projectId, execution.projectId),
@@ -532,7 +544,7 @@ export async function deriveApplyChangesProof(input: {
     || episode.intentKind !== "APPLY_CHANGES"
     || episode.projectRevision !== sourceRevision
     || (!episodeIsVerifying && !(input.allowCompleted && episodeWasProven))
-  ) return undefined;
+  ) return reject("apply_episode_missing_or_scope_invalid");
 
   const actionId = `action:${execution.id}:${execution.attempt}:apply`;
   const beforeRef = `apply:${execution.id}:${execution.attempt}:before`;
@@ -573,7 +585,7 @@ export async function deriveApplyChangesProof(input: {
     event.eventType === "ACTION_COMMITTED"
     && record(event.payload)?.actionId === actionId
   ));
-  if (requestedEvents.length !== 1 || committedEvents.length !== 1) return undefined;
+  if (requestedEvents.length !== 1 || committedEvents.length !== 1) return reject("apply_action_requested_or_committed_event_ambiguous");
   const requestedPayload = record(requestedEvents[0]!.payload);
   const committedPayload = record(committedEvents[0]!.payload);
   if (
@@ -587,7 +599,7 @@ export async function deriveApplyChangesProof(input: {
     || committedPayload.status !== "promoted"
     || committedPayload.afterTreeHash !== proposal.candidateTreeHash
     || committedEvents[0]!.payloadHash !== canonicalJsonHash(committedPayload as never)
-  ) return undefined;
+  ) return reject("apply_action_or_commit_event_payload_invalid");
 
   const [bundle] = await tx.select().from(aiAgentEffectBundlesTable).where(and(
     eq(aiAgentEffectBundlesTable.id, input.effectBundleId),
@@ -596,9 +608,9 @@ export async function deriveApplyChangesProof(input: {
     eq(aiAgentEffectBundlesTable.attempt, execution.attempt),
     eq(aiAgentEffectBundlesTable.episodeId, episode.id),
   )).for("update").limit(1);
-  if (!bundle || bundle.verdict !== "OBSERVED") return undefined;
+  if (!bundle || bundle.verdict !== "OBSERVED") return reject("apply_effect_bundle_missing_or_not_observed");
   const effectIds = stringArray(bundle.effectIds);
-  if (!effectIds || effectIds.length !== 1) return undefined;
+  if (!effectIds || effectIds.length !== 1) return reject("apply_effect_bundle_cardinality_invalid");
   const [effect] = await tx.select().from(aiAgentEffectsTable).where(and(
     eq(aiAgentEffectsTable.id, effectIds[0]!),
     eq(aiAgentEffectsTable.projectId, execution.projectId),
@@ -616,10 +628,10 @@ export async function deriveApplyChangesProof(input: {
       !== canonicalJsonHash(effectContract.expectedStateChanges as never)
     || canonicalJsonHash(bundle.effectContractHashes as never)
       !== canonicalJsonHash([effectContractHash])
-  ) return undefined;
+  ) return reject("apply_observed_effect_contract_invalid");
   const effectEvidenceRefs = stringArray(effect.evidenceRefs);
   if (!effectEvidenceRefs?.includes(beforeRef) || !effectEvidenceRefs.includes(afterRef)) {
-    return undefined;
+    return reject("apply_effect_before_after_evidence_refs_invalid");
   }
 
   const beforeObservationIds = stringArray(effect.beforeObservationIds);
@@ -630,13 +642,13 @@ export async function deriveApplyChangesProof(input: {
     || !afterObservationIds
     || afterObservationIds.length !== 1
     || beforeObservationIds[0] === afterObservationIds[0]
-  ) return undefined;
+  ) return reject("apply_before_after_observation_identity_invalid");
   const allObservationIds = [...beforeObservationIds, ...afterObservationIds];
   const observations = await tx.select().from(aiAgentObservationsTable).where(and(
     eq(aiAgentObservationsTable.projectId, execution.projectId),
     inArray(aiAgentObservationsTable.id, allObservationIds),
   )).for("update");
-  if (observations.length !== 2) return undefined;
+  if (observations.length !== 2) return reject("apply_before_after_observation_rows_missing");
   const before = observations.find((row) => row.id === beforeObservationIds[0]);
   const after = observations.find((row) => row.id === afterObservationIds[0]);
   const validObservation = (
@@ -660,7 +672,7 @@ export async function deriveApplyChangesProof(input: {
   if (
     !validObservation(before, `${beforeRef}:tree`, proposal.baseTreeHash)
     || !validObservation(after, `${afterRef}:tree`, proposal.candidateTreeHash)
-  ) return undefined;
+  ) return reject("apply_candidate_observation_provenance_or_hash_invalid");
 
   const baseArtifact: ApplyChangesProofArtifactBase = {
     kind: "apply_changes",
