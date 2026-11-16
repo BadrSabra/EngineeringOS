@@ -219,7 +219,7 @@ async function deriveApplyChangesProofV2Evidence(input: {
     eq(aiApplyJournalTable.projectId, execution.projectId),
     eq(aiApplyJournalTable.proposalId, proposal.id),
     eq(aiApplyJournalTable.operationId, proposal.operationId ?? ""),
-    eq(aiApplyJournalTable.attemptId, attemptId as string),
+    eq(aiApplyJournalTable.attemptId, request.applyAttemptId as string),
     inArray(aiApplyJournalTable.id, referencedJournalIds),
   ));
   if (journalRows.length !== referencedJournalIds.length) return undefined;
@@ -296,7 +296,8 @@ async function deriveApplyChangesProofV2Evidence(input: {
     // V2 binds the exact server-computed digest in the execution request to
     // the Journal payload; the candidate hash above describes final bytes.
     || !digest(subsetPayload.submittedChangeSetHash)
-    || (isV2 && subsetPayload.submittedChangeSetHash !== request.submittedChangeSetHash)
+    || (request.applyChangesProofMode === APPLY_CHANGES_PROOF_MODE_V2
+      && subsetPayload.submittedChangeSetHash !== request.submittedChangeSetHash)
     || subsetPayload.subsetAuthorized !== true
   ) return undefined;
 
