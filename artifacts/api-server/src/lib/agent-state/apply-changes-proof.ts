@@ -292,16 +292,37 @@ async function deriveApplyChangesProofV2Evidence(input: {
   const validationReceipts = Array.isArray(validationPayload?.validationReceipts)
     ? validationPayload.validationReceipts
     : [];
+  const stabilityCheckForValidation = preconditions.checks.find((check) =>
+    check.id === "CANDIDATE_STABLE"
+  );
+  const stabilityJournalForValidation = stabilityCheckForValidation
+    ? journalById.get(stabilityCheckForValidation.reference.id)
+    : undefined;
+  const stabilityObservedAt = stabilityJournalForValidation?.createdAt instanceof Date
+    ? stabilityJournalForValidation.createdAt.getTime()
+    : Date.parse(String(stabilityJournalForValidation?.createdAt ?? ""));
   if (
     !validationPayload
     || validationPayload.allPassed !== true
     || validationReceipts.length === 0
+    || !Number.isFinite(stabilityObservedAt)
     || validationReceipts.some((value) => {
       const receipt = record(value);
       const evidence = record(receipt?.evidence);
+      const observedAt = typeof evidence?.observedAt === "string"
+        ? Date.parse(evidence.observedAt)
+        : Number.NaN;
+      const profile = typeof receipt?.profile === "string" ? receipt.profile.trim() : "";
       return receipt?.status !== "passed"
+        || !profile
+        || !Number.isFinite(observedAt)
+        || observedAt > stabilityObservedAt
+        || (typeof evidence?.validatorProfile === "string"
+          && evidence.validatorProfile !== profile)
         || typeof evidence?.evidenceId !== "string"
+        || !evidence.evidenceId.trim()
         || typeof evidence.artifactRef !== "string"
+        || !evidence.artifactRef.trim()
         || evidence.operationId !== proposal.operationId
         || evidence.projectRevision !== sourceRevision
         || evidence.baseTreeHash !== proposal.baseTreeHash
