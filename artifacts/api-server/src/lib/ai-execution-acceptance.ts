@@ -1645,8 +1645,22 @@ export function normalizeEvidenceSnapshot(input: EvidenceSnapshotInput | undefin
       ];
       const beforeObservationIds = artifact.beforeObservationIds;
       const afterObservationIds = artifact.afterObservationIds;
+      const v2JournalIds = artifact.version === 2
+        ? artifact.preconditionJournalIds
+        : undefined;
       if (
-        artifact.version !== 1
+        (artifact.version !== 1 && artifact.version !== 2)
+        || (artifact.version === 2 && (
+          !/^[a-f0-9]{64}$/i.test(artifact.authorizationDecisionHash)
+          || !/^[a-f0-9]{64}$/i.test(artifact.preconditionReceiptHash)
+          || !Array.isArray(v2JournalIds)
+          || v2JournalIds.length < 5
+          || v2JournalIds.length > 6
+          || v2JournalIds.some((id) =>
+            typeof id !== "string" || !id.trim() || id.length > 160
+          )
+          || new Set(v2JournalIds).size !== v2JournalIds.length
+        ))
         || !Number.isSafeInteger(artifact.attempt)
         || artifact.attempt < 0
         || requiredIds.some((value) =>
@@ -1671,9 +1685,8 @@ export function normalizeEvidenceSnapshot(input: EvidenceSnapshotInput | undefin
         )
         || beforeObservationIds[0] === afterObservationIds[0]
       ) return [];
-      return [{
-        kind: "apply_changes",
-        version: 1,
+      const normalizedBase = {
+        kind: "apply_changes" as const,
         executionId: artifact.executionId.slice(0, 160),
         attempt: artifact.attempt,
         operationId: artifact.operationId.slice(0, 160),
@@ -1694,7 +1707,16 @@ export function normalizeEvidenceSnapshot(input: EvidenceSnapshotInput | undefin
         effectContractHash: artifact.effectContractHash.toLowerCase(),
         beforeObservationIds: beforeObservationIds.slice(0, 1),
         afterObservationIds: afterObservationIds.slice(0, 1),
-      }];
+      };
+      return artifact.version === 2
+        ? [{
+            ...normalizedBase,
+            version: 2 as const,
+            authorizationDecisionHash: artifact.authorizationDecisionHash.toLowerCase(),
+            preconditionReceiptHash: artifact.preconditionReceiptHash.toLowerCase(),
+            preconditionJournalIds: v2JournalIds!.slice().sort(),
+          }]
+        : [{ ...normalizedBase, version: 1 as const }];
     }
     if (artifact.kind === "runtime_start_gate_c") {
       const sourceRevisionIdentity = classifyRuntimeStartGateCSourceRevision(
