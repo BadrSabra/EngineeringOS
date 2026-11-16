@@ -192,7 +192,10 @@ import {
   buildApplyChangeAction,
   buildApplyChangeEffectContract,
 } from "../../lib/agent-state/apply-change-effect.js";
-import { APPLY_CHANGES_PROOF_MODE } from "../../lib/agent-state/apply-changes-proof.js";
+import {
+  APPLY_CHANGES_PROOF_MODE_V2,
+  isApplyChangesProofMode,
+} from "../../lib/agent-state/apply-changes-proof.js";
 import { verifyAndPersistEffect } from "../../lib/agent-state/effect-observer.js";
 import {
   captureEnvironmentAttestation,
@@ -9121,7 +9124,7 @@ export async function handleChatStream(req: Request, res: Response) {
     intentRequiresEvidence: boolean,
   ): boolean => {
     if (
-      request.applyChangesProofMode === "apply_changes_v1"
+      isApplyChangesProofMode(request.applyChangesProofMode)
       || request.recipeProofMode === "runtime_start_gate_c_v1"
     ) {
       return false;
@@ -16835,7 +16838,7 @@ async function replayAcceptedApplyResponse(params: {
   if (
     executionRequest.turnIntent !== "APPLY_CHANGES"
     || executionRequest.proofRequired !== true
-    || executionRequest.applyChangesProofMode !== APPLY_CHANGES_PROOF_MODE
+    || !isApplyChangesProofMode(executionRequest.applyChangesProofMode)
   ) return rejectReplay("execution_request_mismatch");
 
   const [journal] = await db.select({
@@ -17969,7 +17972,8 @@ async function applyChangesHandler(req: Request, res: Response) {
           validationTargetPaths: writableChanges.map((change) => change.path),
           proofRequired: true,
           effectRequired: true,
-          applyChangesProofMode: APPLY_CHANGES_PROOF_MODE,
+          applyChangesProofMode: APPLY_CHANGES_PROOF_MODE_V2,
+          changeSetHash: effectiveChangeSetHash,
         },
         idempotencyKey: `apply-changes:${applyAttemptId}`,
         correlationId: applyCorrelationId,
