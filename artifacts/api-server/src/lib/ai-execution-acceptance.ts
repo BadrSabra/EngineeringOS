@@ -1646,7 +1646,7 @@ export function normalizeEvidenceSnapshot(input: EvidenceSnapshotInput | undefin
       const beforeObservationIds = artifact.beforeObservationIds;
       const afterObservationIds = artifact.afterObservationIds;
       if (
-        artifact.version !== 1
+        (artifact.version !== 1 && artifact.version !== 2)
         || !Number.isSafeInteger(artifact.attempt)
         || artifact.attempt < 0
         || requiredIds.some((value) =>
@@ -1671,9 +1671,8 @@ export function normalizeEvidenceSnapshot(input: EvidenceSnapshotInput | undefin
         )
         || beforeObservationIds[0] === afterObservationIds[0]
       ) return [];
-      return [{
-        kind: "apply_changes",
-        version: 1,
+      const normalizedBase = {
+        kind: "apply_changes" as const,
         executionId: artifact.executionId.slice(0, 160),
         attempt: artifact.attempt,
         operationId: artifact.operationId.slice(0, 160),
@@ -1694,6 +1693,28 @@ export function normalizeEvidenceSnapshot(input: EvidenceSnapshotInput | undefin
         effectContractHash: artifact.effectContractHash.toLowerCase(),
         beforeObservationIds: beforeObservationIds.slice(0, 1),
         afterObservationIds: afterObservationIds.slice(0, 1),
+      };
+      if (artifact.version === 1) {
+        return [{ ...normalizedBase, version: 1 }];
+      }
+      const journalIds = artifact.preconditionJournalIds;
+      if (
+        !/^[a-f0-9]{64}$/i.test(artifact.authorizationDecisionHash)
+        || !/^[a-f0-9]{64}$/i.test(artifact.preconditionReceiptHash)
+        || !Array.isArray(journalIds)
+        || journalIds.length < 1
+        || journalIds.length > 8
+        || journalIds.some((id) =>
+          typeof id !== "string" || !id.trim() || id.length > 160
+        )
+        || journalIds.some((id, index) => index > 0 && journalIds[index - 1]! >= id)
+      ) return [];
+      return [{
+        ...normalizedBase,
+        version: 2,
+        authorizationDecisionHash: artifact.authorizationDecisionHash.toLowerCase(),
+        preconditionReceiptHash: artifact.preconditionReceiptHash.toLowerCase(),
+        preconditionJournalIds: [...journalIds],
       }];
     }
     if (artifact.kind === "runtime_start_gate_c") {
