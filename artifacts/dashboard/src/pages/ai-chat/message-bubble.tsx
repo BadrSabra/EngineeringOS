@@ -23,6 +23,8 @@ import { CompletedActivityTimeline, activityEventsFromToolTrace } from './live-a
 import { FlightRecorder } from './flight-recorder';
 import { AcceptanceDispositionNotice } from './execution-proof';
 import { ContextProvenanceCard, ExecutionLedgerCard } from './context-cards';
+import { ExecutionProofGraphPanel } from './execution-proof-graph-panel';
+import { getProofGraphAttempt } from './proof-graph-eligibility';
 
 export function MessageBubble({
   msg,
@@ -75,6 +77,7 @@ export function MessageBubble({
   const isChatTurn = !isUser && msg.turnIntent === 'CHAT';
   const turnIntentLabel = getTurnIntentLabel(msg);
   const [technicalDetailsExpanded, setTechnicalDetailsExpanded] = useState(false);
+  const proofGraphAttempt = getProofGraphAttempt(msg, isUser, projectId);
   const canOfferMissionHandoff = isUser && Boolean(projectId && sessionId && onMissionHandoff);
   const sources = parseSources(msg.sources);
   const toolTrace = parseToolTrace(msg.toolTrace);
@@ -276,7 +279,8 @@ export function MessageBubble({
     || isForensicRun
     || activityEvents.length > 0
     || productionTrace
-    || crossFileTraces.length > 0,
+    || crossFileTraces.length > 0
+    || proofGraphAttempt !== null,
   );
   return (
     <div
@@ -646,6 +650,13 @@ export function MessageBubble({
             <SemanticTraceCard
               productionTrace={productionTrace}
               crossFileTraces={crossFileTraces}
+            />
+          )}
+          {proofGraphAttempt !== null && projectId && msg.executionId && (
+            <ExecutionProofGraphPanel
+              projectId={projectId}
+              executionId={msg.executionId}
+              attempt={proofGraphAttempt}
             />
           )}
           {forensicEvidence && (

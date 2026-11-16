@@ -79,6 +79,7 @@ test("contract fast path covers representative source changes", async () => {
     [["artifacts/dashboard/src/pages/Projects.tsx"], true],
     [["artifacts/dashboard/src/components/ChatSessionMissionHandoffs.tsx"], true],
     [["artifacts/dashboard/src/pages/ai-chat/delivery-proof.tsx"], true],
+    [["artifacts/dashboard/src/pages/ai-chat/execution-proof-graph-panel.tsx"], true],
     [["artifacts/dashboard/src/pages/ai-chat/use-provider-metrics.ts"], true],
     [["artifacts/dashboard/src/components/ExecutionProjectionPanel.tsx"], true],
     [["artifacts/dashboard/src/lib/ai-missions.ts"], true],

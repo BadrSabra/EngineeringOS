@@ -4779,6 +4779,562 @@ export interface AiExecutionDiagnostics {
   rateLimitAttempts?: AiExecutionDiagnosticsRateLimitAttemptsItem[];
 }
 
+export type ExecutionProofGraphNotProjectableKind = typeof ExecutionProofGraphNotProjectableKind[keyof typeof ExecutionProofGraphNotProjectableKind];
+
+
+export const ExecutionProofGraphNotProjectableKind = {
+  NOT_PROJECTABLE: 'NOT_PROJECTABLE',
+} as const;
+
+export type ExecutionProofGraphNotProjectableAuthority = typeof ExecutionProofGraphNotProjectableAuthority[keyof typeof ExecutionProofGraphNotProjectableAuthority];
+
+
+export const ExecutionProofGraphNotProjectableAuthority = {
+  READ_ONLY_PROJECTION: 'READ_ONLY_PROJECTION',
+} as const;
+
+export type ExecutionProofGraphNotProjectableReasonsItem = typeof ExecutionProofGraphNotProjectableReasonsItem[keyof typeof ExecutionProofGraphNotProjectableReasonsItem];
+
+
+export const ExecutionProofGraphNotProjectableReasonsItem = {
+  EXECUTION_NOT_FOUND: 'EXECUTION_NOT_FOUND',
+  ATTEMPT_MISMATCH: 'ATTEMPT_MISMATCH',
+  EXECUTION_NOT_COMPLETED: 'EXECUTION_NOT_COMPLETED',
+  UNSUPPORTED_PROOF_MODE: 'UNSUPPORTED_PROOF_MODE',
+  ACCEPTANCE_MISSING: 'ACCEPTANCE_MISSING',
+  EVIDENCE_SNAPSHOT_MISSING: 'EVIDENCE_SNAPSHOT_MISSING',
+  EVIDENCE_INCOMPLETE: 'EVIDENCE_INCOMPLETE',
+  CANONICAL_PROOF_REJECTED: 'CANONICAL_PROOF_REJECTED',
+  DOMAIN_PROOF_MISMATCH: 'DOMAIN_PROOF_MISMATCH',
+  SOURCE_ROWS_MISSING: 'SOURCE_ROWS_MISSING',
+  SOURCE_HASH_MISMATCH: 'SOURCE_HASH_MISMATCH',
+  IDENTITY_MISMATCH: 'IDENTITY_MISMATCH',
+  REVISION_MISMATCH: 'REVISION_MISMATCH',
+  GRAPH_INVALID: 'GRAPH_INVALID',
+} as const;
+
+export interface ExecutionProofGraphNotProjectable {
+  kind: ExecutionProofGraphNotProjectableKind;
+  authority: ExecutionProofGraphNotProjectableAuthority;
+  /** @maxLength 200 */
+  executionId: string;
+  /**
+     * @minimum 0
+     * @maximum 9007199254740991
+     */
+  expectedAttempt: number;
+  /**
+     * @minItems 1
+     * @maxItems 1
+     */
+  reasons: ExecutionProofGraphNotProjectableReasonsItem[];
+}
+
+export type ExecutionProofGraphProjectedKind = typeof ExecutionProofGraphProjectedKind[keyof typeof ExecutionProofGraphProjectedKind];
+
+
+export const ExecutionProofGraphProjectedKind = {
+  PROJECTED: 'PROJECTED',
+} as const;
+
+export type ExecutionProofGraphProjectedAuthority = typeof ExecutionProofGraphProjectedAuthority[keyof typeof ExecutionProofGraphProjectedAuthority];
+
+
+export const ExecutionProofGraphProjectedAuthority = {
+  READ_ONLY_PROJECTION: 'READ_ONLY_PROJECTION',
+} as const;
+
+export type ExecutionProofGraphVersion = typeof ExecutionProofGraphVersion[keyof typeof ExecutionProofGraphVersion];
+
+
+export const ExecutionProofGraphVersion = {
+  NUMBER_1: 1,
+} as const;
+
+export type ExecutionProofGraphProfile = typeof ExecutionProofGraphProfile[keyof typeof ExecutionProofGraphProfile];
+
+
+export const ExecutionProofGraphProfile = {
+  runtime_start_gate_c_v1: 'runtime_start_gate_c_v1',
+} as const;
+
+export type ExecutionProofGraphSourceRevisionKind = typeof ExecutionProofGraphSourceRevisionKind[keyof typeof ExecutionProofGraphSourceRevisionKind];
+
+
+export const ExecutionProofGraphSourceRevisionKind = {
+  workspace_tree: 'workspace_tree',
+  git_commit: 'git_commit',
+} as const;
+
+export type ExecutionProofGraphSourceRevisionSource = typeof ExecutionProofGraphSourceRevisionSource[keyof typeof ExecutionProofGraphSourceRevisionSource];
+
+
+export const ExecutionProofGraphSourceRevisionSource = {
+  delivery_tree_digest_v1: 'delivery_tree_digest_v1',
+  git_commit_object_id: 'git_commit_object_id',
+} as const;
+
+export type ExecutionProofGraphNodeKind = typeof ExecutionProofGraphNodeKind[keyof typeof ExecutionProofGraphNodeKind];
+
+
+export const ExecutionProofGraphNodeKind = {
+  EXECUTION: 'EXECUTION',
+  ACCEPTANCE: 'ACCEPTANCE',
+  EVIDENCE_SNAPSHOT: 'EVIDENCE_SNAPSHOT',
+  GATE_C_ARTIFACT: 'GATE_C_ARTIFACT',
+  EPISODE: 'EPISODE',
+  ACTION_EVENT: 'ACTION_EVENT',
+  EFFECT_BUNDLE: 'EFFECT_BUNDLE',
+  EFFECT: 'EFFECT',
+  OBSERVATION: 'OBSERVATION',
+} as const;
+
+export type ExecutionProofGraphNodeProofMode = typeof ExecutionProofGraphNodeProofMode[keyof typeof ExecutionProofGraphNodeProofMode];
+
+
+export const ExecutionProofGraphNodeProofMode = {
+  runtime_start_gate_c_v1: 'runtime_start_gate_c_v1',
+} as const;
+
+export type ExecutionProofGraphNodeRecipeId = typeof ExecutionProofGraphNodeRecipeId[keyof typeof ExecutionProofGraphNodeRecipeId];
+
+
+export const ExecutionProofGraphNodeRecipeId = {
+  runtimestart: 'runtime.start',
+} as const;
+
+export type ExecutionProofGraphNodeRecipeVersion = typeof ExecutionProofGraphNodeRecipeVersion[keyof typeof ExecutionProofGraphNodeRecipeVersion];
+
+
+export const ExecutionProofGraphNodeRecipeVersion = {
+  NUMBER_1: 1,
+} as const;
+
+export type ExecutionProofGraphNodeStatus = typeof ExecutionProofGraphNodeStatus[keyof typeof ExecutionProofGraphNodeStatus];
+
+
+export const ExecutionProofGraphNodeStatus = {
+  completed: 'completed',
+  observed: 'observed',
+} as const;
+
+export type ExecutionProofGraphNodeOutcome = typeof ExecutionProofGraphNodeOutcome[keyof typeof ExecutionProofGraphNodeOutcome];
+
+
+export const ExecutionProofGraphNodeOutcome = {
+  SUCCEEDED: 'SUCCEEDED',
+} as const;
+
+export type ExecutionProofGraphNodeTerminalStatus = typeof ExecutionProofGraphNodeTerminalStatus[keyof typeof ExecutionProofGraphNodeTerminalStatus];
+
+
+export const ExecutionProofGraphNodeTerminalStatus = {
+  completed: 'completed',
+} as const;
+
+export type ExecutionProofGraphNodeVerdict = typeof ExecutionProofGraphNodeVerdict[keyof typeof ExecutionProofGraphNodeVerdict];
+
+
+export const ExecutionProofGraphNodeVerdict = {
+  PROVEN: 'PROVEN',
+  OBSERVED: 'OBSERVED',
+} as const;
+
+export type ExecutionProofGraphNodeReadCount = typeof ExecutionProofGraphNodeReadCount[keyof typeof ExecutionProofGraphNodeReadCount];
+
+
+export const ExecutionProofGraphNodeReadCount = {
+  NUMBER_0: 0,
+} as const;
+
+export type ExecutionProofGraphNodeArtifactCount = typeof ExecutionProofGraphNodeArtifactCount[keyof typeof ExecutionProofGraphNodeArtifactCount];
+
+
+export const ExecutionProofGraphNodeArtifactCount = {
+  NUMBER_1: 1,
+} as const;
+
+export type ExecutionProofGraphNodeArtifactVersion = typeof ExecutionProofGraphNodeArtifactVersion[keyof typeof ExecutionProofGraphNodeArtifactVersion];
+
+
+export const ExecutionProofGraphNodeArtifactVersion = {
+  NUMBER_2: 2,
+} as const;
+
+export type ExecutionProofGraphNodeSourceRevisionKind = typeof ExecutionProofGraphNodeSourceRevisionKind[keyof typeof ExecutionProofGraphNodeSourceRevisionKind];
+
+
+export const ExecutionProofGraphNodeSourceRevisionKind = {
+  workspace_tree: 'workspace_tree',
+  git_commit: 'git_commit',
+} as const;
+
+export type ExecutionProofGraphNodeSourceRevisionSource = typeof ExecutionProofGraphNodeSourceRevisionSource[keyof typeof ExecutionProofGraphNodeSourceRevisionSource];
+
+
+export const ExecutionProofGraphNodeSourceRevisionSource = {
+  delivery_tree_digest_v1: 'delivery_tree_digest_v1',
+  git_commit_object_id: 'git_commit_object_id',
+} as const;
+
+export type ExecutionProofGraphNodeState = typeof ExecutionProofGraphNodeState[keyof typeof ExecutionProofGraphNodeState];
+
+
+export const ExecutionProofGraphNodeState = {
+  completed: 'completed',
+} as const;
+
+export type ExecutionProofGraphNodeReasonCode = typeof ExecutionProofGraphNodeReasonCode[keyof typeof ExecutionProofGraphNodeReasonCode];
+
+
+export const ExecutionProofGraphNodeReasonCode = {
+  CANONICAL_PROOF_PROVEN: 'CANONICAL_PROOF_PROVEN',
+} as const;
+
+export type ExecutionProofGraphNodeEventType = typeof ExecutionProofGraphNodeEventType[keyof typeof ExecutionProofGraphNodeEventType];
+
+
+export const ExecutionProofGraphNodeEventType = {
+  ACTION_REQUESTED: 'ACTION_REQUESTED',
+  ACTION_COMMITTED: 'ACTION_COMMITTED',
+} as const;
+
+export type ExecutionProofGraphNodeCapabilityId = typeof ExecutionProofGraphNodeCapabilityId[keyof typeof ExecutionProofGraphNodeCapabilityId];
+
+
+export const ExecutionProofGraphNodeCapabilityId = {
+  runtimestart: 'runtime.start',
+} as const;
+
+export type ExecutionProofGraphNodeObservationRole = typeof ExecutionProofGraphNodeObservationRole[keyof typeof ExecutionProofGraphNodeObservationRole];
+
+
+export const ExecutionProofGraphNodeObservationRole = {
+  before: 'before',
+  after: 'after',
+} as const;
+
+export type ExecutionProofGraphNodePredicate = typeof ExecutionProofGraphNodePredicate[keyof typeof ExecutionProofGraphNodePredicate];
+
+
+export const ExecutionProofGraphNodePredicate = {
+  runtimebefore_state: 'runtime.before_state',
+  runtimeafter_state: 'runtime.after_state',
+  runtimestatus: 'runtime.status',
+  runtimechild_process_environment: 'runtime.child_process_environment',
+  servingstatus: 'serving.status',
+} as const;
+
+export type ExecutionProofGraphNodeProvenance = typeof ExecutionProofGraphNodeProvenance[keyof typeof ExecutionProofGraphNodeProvenance];
+
+
+export const ExecutionProofGraphNodeProvenance = {
+  DIRECT_OBSERVATION: 'DIRECT_OBSERVATION',
+} as const;
+
+export type ExecutionProofGraphNodeCompleteness = typeof ExecutionProofGraphNodeCompleteness[keyof typeof ExecutionProofGraphNodeCompleteness];
+
+
+export const ExecutionProofGraphNodeCompleteness = {
+  complete: 'complete',
+} as const;
+
+export type ExecutionProofGraphNodeFreshness = typeof ExecutionProofGraphNodeFreshness[keyof typeof ExecutionProofGraphNodeFreshness];
+
+
+export const ExecutionProofGraphNodeFreshness = {
+  fresh: 'fresh',
+  stale: 'stale',
+  unknown: 'unknown',
+} as const;
+
+export type ExecutionProofGraphNodeEnvironmentFreshness = typeof ExecutionProofGraphNodeEnvironmentFreshness[keyof typeof ExecutionProofGraphNodeEnvironmentFreshness];
+
+
+export const ExecutionProofGraphNodeEnvironmentFreshness = {
+  fresh: 'fresh',
+  stale: 'stale',
+  unknown: 'unknown',
+} as const;
+
+export interface ExecutionProofGraphNode {
+  /** @maxLength 200 */
+  id: string;
+  /** @maxLength 200 */
+  projectId: string;
+  /** @maxLength 200 */
+  executionId: string;
+  /**
+     * @minimum 0
+     * @maximum 9007199254740991
+     */
+  attempt: number;
+  kind: ExecutionProofGraphNodeKind;
+  /** @maxLength 200 */
+  operationId?: string;
+  proofMode?: ExecutionProofGraphNodeProofMode;
+  recipeId?: ExecutionProofGraphNodeRecipeId;
+  recipeVersion?: ExecutionProofGraphNodeRecipeVersion;
+  status?: ExecutionProofGraphNodeStatus;
+  /** @maxLength 128 */
+  sourceRevision?: string;
+  /**
+     * @nullable
+     * @pattern ^[a-f0-9]{64}$
+     */
+  candidateIdentity?: string | null;
+  /** @maxLength 200 */
+  acceptanceId?: string;
+  /** @maxLength 200 */
+  evidenceSnapshotId?: string;
+  /** @maxLength 200 */
+  effectBundleId?: string;
+  outcome?: ExecutionProofGraphNodeOutcome;
+  terminalStatus?: ExecutionProofGraphNodeTerminalStatus;
+  evidenceRequired?: true;
+  evidenceComplete?: true;
+  /** @maxLength 200 */
+  snapshotId?: string;
+  verdict?: ExecutionProofGraphNodeVerdict;
+  complete?: true;
+  readCount?: ExecutionProofGraphNodeReadCount;
+  artifactCount?: ExecutionProofGraphNodeArtifactCount;
+  /** @pattern ^[a-f0-9]{64}$ */
+  artifactHash?: string;
+  artifactVersion?: ExecutionProofGraphNodeArtifactVersion;
+  sourceRevisionKind?: ExecutionProofGraphNodeSourceRevisionKind;
+  sourceRevisionSource?: ExecutionProofGraphNodeSourceRevisionSource;
+  /** @pattern ^[a-f0-9]{64}$ */
+  workspaceIdentity?: string;
+  /** @maxLength 200 */
+  episodeId?: string;
+  /** @maxLength 200 */
+  actionId?: string;
+  /** @maxLength 200 */
+  actionEventId?: string;
+  /** @maxLength 200 */
+  committedEventId?: string;
+  /** @maxLength 200 */
+  effectId?: string;
+  /** @pattern ^[a-f0-9]{64}$ */
+  actionHash?: string;
+  /** @pattern ^[a-f0-9]{64}$ */
+  effectContractHash?: string;
+  /** @pattern ^env-v1:[a-f0-9]{64}$ */
+  environmentRevision?: string;
+  /**
+     * @minItems 2
+     * @maxItems 8
+     * @items.maxLength 200
+     */
+  beforeObservationIds?: string[];
+  /**
+     * @minItems 2
+     * @maxItems 16
+     * @items.maxLength 200
+     */
+  afterObservationIds?: string[];
+  state?: ExecutionProofGraphNodeState;
+  reasonCode?: ExecutionProofGraphNodeReasonCode;
+  /** @maxLength 200 */
+  eventId?: string;
+  eventType?: ExecutionProofGraphNodeEventType;
+  /** @pattern ^[a-f0-9]{64}$ */
+  payloadHash?: string;
+  capabilityId?: ExecutionProofGraphNodeCapabilityId;
+  /** @maxLength 200 */
+  observationId?: string;
+  observationRole?: ExecutionProofGraphNodeObservationRole;
+  predicate?: ExecutionProofGraphNodePredicate;
+  provenance?: ExecutionProofGraphNodeProvenance;
+  completeness?: ExecutionProofGraphNodeCompleteness;
+  freshness?: ExecutionProofGraphNodeFreshness;
+  environmentFreshness?: ExecutionProofGraphNodeEnvironmentFreshness;
+  /** @pattern ^[a-f0-9]{64}$ */
+  valueHash?: string;
+}
+
+export type ExecutionProofGraphEdgeType = typeof ExecutionProofGraphEdgeType[keyof typeof ExecutionProofGraphEdgeType];
+
+
+export const ExecutionProofGraphEdgeType = {
+  EXECUTION_HAS_ACCEPTANCE: 'EXECUTION_HAS_ACCEPTANCE',
+  ACCEPTANCE_HAS_SNAPSHOT: 'ACCEPTANCE_HAS_SNAPSHOT',
+  EXECUTION_HAS_EPISODE: 'EXECUTION_HAS_EPISODE',
+  EPISODE_HAS_EVENT: 'EPISODE_HAS_EVENT',
+  EPISODE_HAS_EFFECT_BUNDLE: 'EPISODE_HAS_EFFECT_BUNDLE',
+  BUNDLE_HAS_EFFECT: 'BUNDLE_HAS_EFFECT',
+  EFFECT_HAS_OBSERVATION: 'EFFECT_HAS_OBSERVATION',
+  SNAPSHOT_HAS_ARTIFACT: 'SNAPSHOT_HAS_ARTIFACT',
+  ARTIFACT_BINDS_EVENT: 'ARTIFACT_BINDS_EVENT',
+  ARTIFACT_BINDS_EFFECT_BUNDLE: 'ARTIFACT_BINDS_EFFECT_BUNDLE',
+  ARTIFACT_BINDS_EFFECT: 'ARTIFACT_BINDS_EFFECT',
+  ARTIFACT_BINDS_OBSERVATION: 'ARTIFACT_BINDS_OBSERVATION',
+} as const;
+
+export type ExecutionProofGraphEdgeRole = typeof ExecutionProofGraphEdgeRole[keyof typeof ExecutionProofGraphEdgeRole];
+
+
+export const ExecutionProofGraphEdgeRole = {
+  before: 'before',
+  after: 'after',
+} as const;
+
+export interface ExecutionProofGraphEdge {
+  /** @maxLength 200 */
+  id: string;
+  /** @maxLength 200 */
+  from: string;
+  /** @maxLength 200 */
+  to: string;
+  type: ExecutionProofGraphEdgeType;
+  role?: ExecutionProofGraphEdgeRole;
+}
+
+export interface ExecutionProofGraph {
+  version: ExecutionProofGraphVersion;
+  profile: ExecutionProofGraphProfile;
+  /** @maxLength 200 */
+  graphId: string;
+  /** @maxLength 200 */
+  projectId: string;
+  /** @maxLength 200 */
+  executionId: string;
+  /**
+     * @minimum 0
+     * @maximum 9007199254740991
+     */
+  attempt: number;
+  /** @maxLength 200 */
+  operationId: string;
+  /** @maxLength 128 */
+  sourceRevision: string;
+  sourceRevisionKind: ExecutionProofGraphSourceRevisionKind;
+  sourceRevisionSource: ExecutionProofGraphSourceRevisionSource;
+  /**
+     * @nullable
+     * @pattern ^[a-f0-9]{64}$
+     */
+  candidateIdentity: string | null;
+  /** @pattern ^env-v1:[a-f0-9]{64}$ */
+  environmentRevision: string;
+  /**
+     * @minItems 1
+     * @maxItems 64
+     */
+  nodes: ExecutionProofGraphNode[];
+  /** @maxItems 128 */
+  edges: ExecutionProofGraphEdge[];
+}
+
+export type ProjectedCanonicalProofSummaryVerdict = typeof ProjectedCanonicalProofSummaryVerdict[keyof typeof ProjectedCanonicalProofSummaryVerdict];
+
+
+export const ProjectedCanonicalProofSummaryVerdict = {
+  PROVEN: 'PROVEN',
+} as const;
+
+export interface ProjectedCanonicalProofSummary {
+  accepted: true;
+  verdict: ProjectedCanonicalProofSummaryVerdict;
+  /** @maxLength 200 */
+  executionId: string;
+  /** @maxLength 200 */
+  acceptanceId: string;
+  /** @maxLength 200 */
+  evidenceSnapshotId: string;
+  /**
+     * @minimum 0
+     * @maximum 9007199254740991
+     */
+  attempt: number;
+  /** @maxLength 200 */
+  operationId: string;
+  /** @maxLength 128 */
+  sourceRevision: string;
+  /**
+     * @nullable
+     * @pattern ^[a-f0-9]{64}$
+     */
+  candidateIdentity: string | null;
+}
+
+export type ExecutionProofGraphStructuralValidationValidatorVersion = typeof ExecutionProofGraphStructuralValidationValidatorVersion[keyof typeof ExecutionProofGraphStructuralValidationValidatorVersion];
+
+
+export const ExecutionProofGraphStructuralValidationValidatorVersion = {
+  'execution-proof-graph-validatorv1': 'execution-proof-graph-validator.v1',
+} as const;
+
+export type ExecutionProofGraphStructuralValidationAuthority = typeof ExecutionProofGraphStructuralValidationAuthority[keyof typeof ExecutionProofGraphStructuralValidationAuthority];
+
+
+export const ExecutionProofGraphStructuralValidationAuthority = {
+  STRUCTURE_ONLY_NO_EXECUTION_AUTHORITY: 'STRUCTURE_ONLY_NO_EXECUTION_AUTHORITY',
+} as const;
+
+export type ExecutionProofGraphStructuralValidationVerdict = typeof ExecutionProofGraphStructuralValidationVerdict[keyof typeof ExecutionProofGraphStructuralValidationVerdict];
+
+
+export const ExecutionProofGraphStructuralValidationVerdict = {
+  PASS: 'PASS',
+  FAIL: 'FAIL',
+} as const;
+
+export type ExecutionProofGraphViolationCode = typeof ExecutionProofGraphViolationCode[keyof typeof ExecutionProofGraphViolationCode];
+
+
+export const ExecutionProofGraphViolationCode = {
+  SCHEMA_INVALID: 'SCHEMA_INVALID',
+  GRAPH_ID_MISMATCH: 'GRAPH_ID_MISMATCH',
+  NODE_ID_MISMATCH: 'NODE_ID_MISMATCH',
+  DUPLICATE_NODE: 'DUPLICATE_NODE',
+  IDENTITY_MISMATCH: 'IDENTITY_MISMATCH',
+  REVISION_MISMATCH: 'REVISION_MISMATCH',
+  STALE_EVIDENCE: 'STALE_EVIDENCE',
+  MISSING_REQUIRED_NODE: 'MISSING_REQUIRED_NODE',
+  DUPLICATE_REQUIRED_NODE: 'DUPLICATE_REQUIRED_NODE',
+  OBSERVATION_SET_MISMATCH: 'OBSERVATION_SET_MISMATCH',
+  DUPLICATE_EDGE: 'DUPLICATE_EDGE',
+  DANGLING_EDGE: 'DANGLING_EDGE',
+  EDGE_ID_MISMATCH: 'EDGE_ID_MISMATCH',
+  EDGE_TYPE_MISMATCH: 'EDGE_TYPE_MISMATCH',
+  MISSING_REQUIRED_EDGE: 'MISSING_REQUIRED_EDGE',
+  UNEXPECTED_EDGE: 'UNEXPECTED_EDGE',
+} as const;
+
+export interface ExecutionProofGraphViolation {
+  code: ExecutionProofGraphViolationCode;
+  /** @items.maxLength 200 */
+  path: string[];
+  /** @items.maxLength 200 */
+  edgeIds: string[];
+}
+
+export interface ExecutionProofGraphStructuralValidation {
+  validatorVersion: ExecutionProofGraphStructuralValidationValidatorVersion;
+  authority: ExecutionProofGraphStructuralValidationAuthority;
+  verdict: ExecutionProofGraphStructuralValidationVerdict;
+  /**
+     * @nullable
+     * @pattern ^[a-f0-9]{64}$
+     */
+  graphHash: string | null;
+  violations: ExecutionProofGraphViolation[];
+}
+
+export interface ExecutionProofGraphProjected {
+  kind: ExecutionProofGraphProjectedKind;
+  authority: ExecutionProofGraphProjectedAuthority;
+  /** @pattern ^[a-f0-9]{64}$ */
+  graphHash: string;
+  graph: ExecutionProofGraph;
+  canonicalProof: ProjectedCanonicalProofSummary;
+  structuralValidation: ExecutionProofGraphStructuralValidation;
+}
+
+export type ExecutionProofGraphProjectorResult = ExecutionProofGraphNotProjectable | ExecutionProofGraphProjected;
+
 export interface AiExecutionEvidenceBraidEvent {
   id: string;
   /** @minimum 0 */

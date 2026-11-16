@@ -657,6 +657,47 @@ describe("chat agent — ChatOutputSchema validation", () => {
     }
   });
 
+  it("does not load an objective locator through a symlink to a sensitive file", async () => {
+    const rootPath = await fs.mkdtemp(path.join(tmpdir(), "objective-locator-sensitive-link-"));
+    try {
+      await fs.mkdir(path.join(rootPath, "src"), { recursive: true });
+      await fs.writeFile(path.join(rootPath, ".env"), "DO_NOT_EXPOSE_AUDIT_SECRET", "utf8");
+      await fs.symlink(path.join(rootPath, ".env"), path.join(rootPath, "src", "config.ts"));
+
+      const { loadObjectiveEvidenceLocators } = await import("../agents/chat-agent.js");
+      const locators = await loadObjectiveEvidenceLocators(rootPath, ["src/config.ts"]);
+
+      expect(locators.has("src/config.ts")).toBe(false);
+      expect([...locators.values()].join("\n")).not.toContain("DO_NOT_EXPOSE_AUDIT_SECRET");
+    } finally {
+      await fs.rm(rootPath, { recursive: true, force: true });
+    }
+  });
+
+  it("does not retain an oversized objective locator and honors cancellation", async () => {
+    const rootPath = await fs.mkdtemp(path.join(tmpdir(), "objective-locator-bounded-"));
+    try {
+      await fs.mkdir(path.join(rootPath, "src"), { recursive: true });
+      await fs.writeFile(path.join(rootPath, "src", "large.ts"), "x".repeat(512 * 1024), "utf8");
+      const { loadObjectiveEvidenceLocators } = await import("../agents/chat-agent.js");
+
+      const locators = await loadObjectiveEvidenceLocators(rootPath, ["src/large.ts"]);
+      expect(locators.has("src/large.ts")).toBe(false);
+
+      const controller = new AbortController();
+      controller.abort();
+      const cancelled = await loadObjectiveEvidenceLocators(
+        rootPath,
+        ["src/large.ts"],
+        new Map(),
+        controller.signal,
+      );
+      expect(cancelled.size).toBe(0);
+    } finally {
+      await fs.rm(rootPath, { recursive: true, force: true });
+    }
+  });
+
   it("does not promote truncated prefetch output into retained evidence", async () => {
     const { recordPrefetchEvidence } = await import("../agents/chat-agent.js");
     const destination = new Map<string, string>();

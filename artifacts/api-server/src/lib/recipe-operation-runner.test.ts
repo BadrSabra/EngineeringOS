@@ -55,6 +55,7 @@ import {
 } from "./agent-state/environment-attestation.js";
 import { HOST_DISPOSABLE_TEMP_ROOT } from "./disposable-temp.js";
 import { heavyJobQueue } from "./job-queue.js";
+import { startWorkspaceRuntimeSupervisorTestFixture } from "./workspace-runtime-supervisor-test-fixture.js";
 import { runMissionGoal, wakeRuntimeTransitionMissionGoals } from "./mission-runtime.js";
 import {
   createRuntimeStartRunner,
@@ -2223,6 +2224,10 @@ describe("recipe operation preparation", () => {
     };
     let executionId: string | undefined;
     const executionIds: string[] = [];
+    let replaySupervisorFixture:
+      | Awaited<ReturnType<typeof startWorkspaceRuntimeSupervisorTestFixture>>
+      | undefined;
+    let replaySupervisorEnvironmentBefore: Record<string, string | undefined> | undefined;
     try {
       await db.insert(projectsTable).values({
         id: projectId,
@@ -2755,6 +2760,13 @@ describe("recipe operation preparation", () => {
       expect(registeredReplayCase).toBeDefined();
 
       await stopSourceRuntime();
+      replaySupervisorFixture = await startWorkspaceRuntimeSupervisorTestFixture({
+        allowedRoots: [rootPath, HOST_DISPOSABLE_TEMP_ROOT],
+      });
+      replaySupervisorEnvironmentBefore = Object.fromEntries(
+        Object.keys(replaySupervisorFixture.clientEnvironment).map((key) => [key, process.env[key]]),
+      );
+      Object.assign(process.env, replaySupervisorFixture.clientEnvironment);
       await writeFile(
         path.join(rootPath, ".runtime-fixture/mutate-next-replay"),
         "mutate\n",
@@ -3183,6 +3195,11 @@ describe("recipe operation preparation", () => {
       expect(proofUnavailableObservations.find((row) => row.predicate === "runtime.before_state"))
         .toMatchObject({ freshness: "stale" });
     } finally {
+      await replaySupervisorFixture?.stop();
+      for (const [key, value] of Object.entries(replaySupervisorEnvironmentBefore ?? {})) {
+        if (value === undefined) delete process.env[key];
+        else process.env[key] = value;
+      }
       await manager.shutdown();
       for (const executionId of executionIds) {
         await db.delete(aiExecutionAcceptancesTable).where(eq(aiExecutionAcceptancesTable.executionId, executionId));
@@ -3191,6 +3208,11 @@ describe("recipe operation preparation", () => {
       await db.delete(aiChatSessionsTable).where(eq(aiChatSessionsTable.id, sessionId));
       await db.delete(projectsTable).where(eq(projectsTable.id, projectId));
       await rm(rootPath, { recursive: true, force: true });
+      if (replaySupervisorEnvironmentBefore) {
+        expect(Object.fromEntries(
+          Object.keys(replaySupervisorEnvironmentBefore).map((key) => [key, process.env[key]]),
+        )).toEqual(replaySupervisorEnvironmentBefore);
+      }
     }
   }, 60_000);
 

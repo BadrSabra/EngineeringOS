@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { and, asc, eq, isNull, lt, lte, or } from "drizzle-orm";
+import { and, asc, eq, gt, isNull, lte, or, sql } from "drizzle-orm";
 import {
   db,
   taskExecutionObservationOutboxTable,
@@ -7,9 +7,15 @@ import {
 import type { MaterializeServerOwnedObservationsInput } from "./agent-state/observation-materializer.js";
 import { materializeServerOwnedObservations } from "./agent-state/observation-materializer.js";
 import { heavyJobQueue } from "./job-queue.js";
+import { databaseLeaseUntil, databaseNow } from "./job-lease.js";
 import { logger } from "./logger.js";
 
 export const MAX_TASK_OBSERVATION_OUTBOX_ATTEMPTS = 12;
+const TASK_OBSERVATION_OUTBOX_LEASE_MS = 5 * 60_000;
+const TASK_OBSERVATION_OUTBOX_HEARTBEAT_MS = Math.max(
+  1_000,
+  Math.floor(TASK_OBSERVATION_OUTBOX_LEASE_MS / 3),
+);
 const DEAD_LETTER_STATUS = "dead_letter";
 const PERMANENT_FAILURE_CODES = new Set([
   "INVALID_OBSERVATION_OUTBOX_PAYLOAD",
@@ -71,7 +77,7 @@ async function claimObservationOutboxRow(id: string): Promise<{
   payload: Record<string, unknown>;
 } | null> {
   return db.transaction(async (tx) => {
-    const now = new Date();
+    const now = databaseNow();
     const [row] = await tx.select({
       id: taskExecutionObservationOutboxTable.id,
       projectId: taskExecutionObservationOutboxTable.projectId,
@@ -91,7 +97,7 @@ async function claimObservationOutboxRow(id: string): Promise<{
             eq(taskExecutionObservationOutboxTable.status, "running"),
             or(
               isNull(taskExecutionObservationOutboxTable.leaseUntil),
-              lt(taskExecutionObservationOutboxTable.leaseUntil, now),
+              lte(taskExecutionObservationOutboxTable.leaseUntil, now),
             ),
           ),
         ),
@@ -105,7 +111,7 @@ async function claimObservationOutboxRow(id: string): Promise<{
       .set({
         status: "running",
         workerId,
-        leaseUntil: new Date(now.getTime() + 5 * 60_000),
+        leaseUntil: databaseLeaseUntil(TASK_OBSERVATION_OUTBOX_LEASE_MS),
         updatedAt: now,
       })
       .where(eq(taskExecutionObservationOutboxTable.id, id))
@@ -114,18 +120,35 @@ async function claimObservationOutboxRow(id: string): Promise<{
   });
 }
 
+async function renewObservationOutboxLease(id: string, workerId: string): Promise<boolean> {
+  const [renewed] = await db.update(taskExecutionObservationOutboxTable)
+    .set({
+      leaseUntil: databaseLeaseUntil(TASK_OBSERVATION_OUTBOX_LEASE_MS),
+      updatedAt: databaseNow(),
+    })
+    .where(and(
+      eq(taskExecutionObservationOutboxTable.id, id),
+      eq(taskExecutionObservationOutboxTable.status, "running"),
+      eq(taskExecutionObservationOutboxTable.workerId, workerId),
+      gt(taskExecutionObservationOutboxTable.leaseUntil, databaseNow()),
+    ))
+    .returning({ id: taskExecutionObservationOutboxTable.id });
+  return Boolean(renewed);
+}
+
 async function runObservationOutboxRow(id: string): Promise<void> {
   const claimed = await claimObservationOutboxRow(id);
   if (!claimed) return;
 
   const payload = parseObservationInput(claimed.payload, claimed);
   if (!payload) {
-    await recordObservationOutboxFailure(
+    const failure = await recordObservationOutboxFailure(
       id,
       claimed.workerId,
       "INVALID_OBSERVATION_OUTBOX_PAYLOAD",
       true,
     );
+    if (!failure.recorded) return;
     logger.error(
       {
         outboxId: id,
@@ -137,34 +160,60 @@ async function runObservationOutboxRow(id: string): Promise<void> {
     );
     return;
   }
+  let leaseLost = false;
+  let heartbeatInFlight = false;
+  const heartbeat = setInterval(() => {
+    if (leaseLost || heartbeatInFlight) return;
+    heartbeatInFlight = true;
+    void renewObservationOutboxLease(id, claimed.workerId)
+      .then((renewed) => {
+        if (!renewed) leaseLost = true;
+      })
+      .catch((error: unknown) => {
+        logger.warn(
+          { outboxId: id, executionId: claimed.executionId, attempt: claimed.attempt, error },
+          "Task observation outbox lease renewal failed",
+        );
+      })
+      .finally(() => {
+        heartbeatInFlight = false;
+      });
+  }, TASK_OBSERVATION_OUTBOX_HEARTBEAT_MS);
+  heartbeat.unref();
   try {
     await materializeServerOwnedObservations(payload);
+    if (leaseLost) return;
     await db.delete(taskExecutionObservationOutboxTable).where(and(
       eq(taskExecutionObservationOutboxTable.id, id),
       eq(taskExecutionObservationOutboxTable.status, "running"),
       eq(taskExecutionObservationOutboxTable.workerId, claimed.workerId),
+      gt(taskExecutionObservationOutboxTable.leaseUntil, databaseNow()),
     ));
   } catch (error) {
+    if (leaseLost) return;
     const failureCode = safeFailureCode(error);
     const terminal = PERMANENT_FAILURE_CODES.has(failureCode);
-    const deadLettered = await recordObservationOutboxFailure(
+    const failure = await recordObservationOutboxFailure(
       id,
       claimed.workerId,
       failureCode,
       terminal,
     );
+    if (!failure.recorded) return;
     const fields = {
       outboxId: id,
       executionId: claimed.executionId,
       attempt: claimed.attempt,
       code: failureCode,
-      deadLettered,
+      deadLettered: failure.deadLettered,
     };
-    if (deadLettered) {
+    if (failure.deadLettered) {
       logger.error(fields, "Accepted task observations moved to dead letter");
     } else {
       logger.warn(fields, "Accepted task observations remain queued for bounded retry");
     }
+  } finally {
+    clearInterval(heartbeat);
   }
 }
 
@@ -173,8 +222,9 @@ async function recordObservationOutboxFailure(
   workerId: string,
   failureCode: string,
   terminal: boolean,
-): Promise<boolean> {
+): Promise<{ recorded: boolean; deadLettered: boolean }> {
   return db.transaction(async (tx) => {
+    const now = databaseNow();
     const [row] = await tx.select({
       attemptCount: taskExecutionObservationOutboxTable.attemptCount,
     })
@@ -183,20 +233,21 @@ async function recordObservationOutboxFailure(
         eq(taskExecutionObservationOutboxTable.id, id),
         eq(taskExecutionObservationOutboxTable.status, "running"),
         eq(taskExecutionObservationOutboxTable.workerId, workerId),
+        gt(taskExecutionObservationOutboxTable.leaseUntil, now),
       ))
       .for("update")
       .limit(1);
-    if (!row) return false;
-    const now = new Date();
+    if (!row) return { recorded: false, deadLettered: false };
     const nextAttemptCount = row.attemptCount + 1;
     const deadLettered = terminal || nextAttemptCount >= MAX_TASK_OBSERVATION_OUTBOX_ATTEMPTS;
-    await tx.update(taskExecutionObservationOutboxTable)
+    const [updated] = await tx.update(taskExecutionObservationOutboxTable)
       .set({
         status: deadLettered ? DEAD_LETTER_STATUS : "pending",
         attemptCount: nextAttemptCount,
         nextAttemptAt: deadLettered
           ? now
-          : new Date(now.getTime() + retryDelayMs(row.attemptCount)),
+          : sql<Date>`(clock_timestamp() AT TIME ZONE 'UTC')
+              + (${retryDelayMs(row.attemptCount)} * interval '1 millisecond')`,
         workerId: null,
         leaseUntil: null,
         lastFailureCode: failureCode,
@@ -206,8 +257,13 @@ async function recordObservationOutboxFailure(
         eq(taskExecutionObservationOutboxTable.id, id),
         eq(taskExecutionObservationOutboxTable.status, "running"),
         eq(taskExecutionObservationOutboxTable.workerId, workerId),
-      ));
-    return deadLettered;
+        gt(taskExecutionObservationOutboxTable.leaseUntil, now),
+      ))
+      .returning({ id: taskExecutionObservationOutboxTable.id });
+    return {
+      recorded: Boolean(updated),
+      deadLettered: Boolean(updated) && deadLettered,
+    };
   });
 }
 
@@ -216,16 +272,15 @@ async function recordObservationOutboxFailure(
  * The row is never redriven while it is leased or still pending.
  */
 export async function requeueDeadLetteredTaskObservationOutboxRow(id: string): Promise<boolean> {
-  const now = new Date();
   const [row] = await db.update(taskExecutionObservationOutboxTable)
     .set({
       status: "pending",
       attemptCount: 0,
-      nextAttemptAt: now,
+      nextAttemptAt: databaseNow(),
       workerId: null,
       leaseUntil: null,
       lastFailureCode: null,
-      updatedAt: now,
+      updatedAt: databaseNow(),
     })
     .where(and(
       eq(taskExecutionObservationOutboxTable.id, id),
@@ -236,7 +291,7 @@ export async function requeueDeadLetteredTaskObservationOutboxRow(id: string): P
 }
 
 export async function dispatchPendingTaskObservationOutbox(limit = 100): Promise<number> {
-  const now = new Date();
+  const now = databaseNow();
   const rows = await db.select({ id: taskExecutionObservationOutboxTable.id })
     .from(taskExecutionObservationOutboxTable)
     .where(or(
@@ -248,7 +303,7 @@ export async function dispatchPendingTaskObservationOutbox(limit = 100): Promise
         eq(taskExecutionObservationOutboxTable.status, "running"),
         or(
           isNull(taskExecutionObservationOutboxTable.leaseUntil),
-          lt(taskExecutionObservationOutboxTable.leaseUntil, now),
+          lte(taskExecutionObservationOutboxTable.leaseUntil, now),
         ),
       ),
     ))

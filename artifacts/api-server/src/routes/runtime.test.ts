@@ -11,6 +11,7 @@ import {
   aiAgentEpisodesTable,
   aiAgentObservationsTable,
   aiExecutionAcceptancesTable,
+  aiExecutionEvidenceSnapshotsTable,
   aiExecutionsTable,
   aiChatSessionsTable,
   db,
@@ -19,6 +20,8 @@ import {
 import app from "../app.js";
 import { childProcessBindingDigest } from "../lib/agent-state/child-process-attestation.js";
 import { hashDeliveryTree } from "../lib/delivery-workspace.js";
+import { projectExecutionProofGraph } from "../lib/execution-proof-graph-projector.js";
+import { normalizeStoredRuntimeStartGateCProofArtifact } from "../lib/runtime-start-gate-c-proof.js";
 import {
   workspaceRuntime,
   type RuntimeAfterState,
@@ -118,7 +121,7 @@ function createRuntimeMock(
   return { startSpy, snapshot, afterState };
 }
 
-async function createProjectFixture(): Promise<{
+async function createProjectFixture(input: { ownerId?: string } = {}): Promise<{
   projectId: string;
   rootPath: string;
   sourceRevision: string;
@@ -131,7 +134,7 @@ async function createProjectFixture(): Promise<{
   const now = new Date();
   await db.insert(projectsTable).values({
     id: projectId,
-    ownerId: "test-user",
+    ownerId: input.ownerId ?? "test-user",
     name: `runtime-route-${projectId.slice(0, 8)}`,
     rootPath,
     language: "typescript",
@@ -160,6 +163,537 @@ afterEach(async () => {
     await db.delete(projectsTable).where(eq(projectsTable.id, fixture.projectId));
     rmSync(fixture.rootPath, { recursive: true, force: true });
   }
+});
+
+async function createCompletedRuntimeStart() {
+  const fixture = await createProjectFixture();
+  createRuntimeMock(fixture.projectId, fixture.sourceRevision);
+  const response = await request(app)
+    .post(`/api/projects/${fixture.projectId}/runtime/start`)
+    .set("Idempotency-Key", `graph-projector-${randomUUID()}`);
+  expect(response.status, JSON.stringify(response.body)).toBe(200);
+  const [execution] = await db.select({
+    id: aiExecutionsTable.id,
+    attempt: aiExecutionsTable.attempt,
+  }).from(aiExecutionsTable).where(eq(aiExecutionsTable.id, response.body.executionId));
+  expect(execution).toBeDefined();
+  const [acceptance] = await db.select({
+    evidenceSnapshotId: aiExecutionAcceptancesTable.evidenceSnapshotId,
+  }).from(aiExecutionAcceptancesTable).where(and(
+    eq(aiExecutionAcceptancesTable.executionId, response.body.executionId),
+    eq(aiExecutionAcceptancesTable.attempt, execution!.attempt),
+  ));
+  expect(acceptance?.evidenceSnapshotId).toBeTruthy();
+  const [snapshot] = await db.select({ artifactRefs: aiExecutionEvidenceSnapshotsTable.artifactRefs })
+    .from(aiExecutionEvidenceSnapshotsTable)
+    .where(eq(aiExecutionEvidenceSnapshotsTable.id, acceptance!.evidenceSnapshotId!));
+  const refs = Array.isArray(snapshot?.artifactRefs) ? snapshot.artifactRefs : [];
+  const storedArtifact = refs.find((value) => (
+    value && typeof value === "object" && !Array.isArray(value)
+    && (value as Record<string, unknown>).kind === "runtime_start_gate_c"
+  ));
+  const gateCArtifact = storedArtifact
+    ? normalizeStoredRuntimeStartGateCProofArtifact(storedArtifact)
+    : undefined;
+  expect(gateCArtifact).toBeDefined();
+  return { fixture, execution: execution!, gateCArtifact: gateCArtifact! };
+}
+
+describe("read-only Execution Proof Graph projector", () => {
+  it("fails closed when acceptance, its snapshot binding, or the proof mode is unsupported", async () => {
+    const missingAcceptance = await createCompletedRuntimeStart();
+    await db.delete(aiExecutionAcceptancesTable)
+      .where(eq(aiExecutionAcceptancesTable.executionId, missingAcceptance.execution.id));
+    const noAcceptanceResult = await db.transaction((tx) => projectExecutionProofGraph(tx, {
+      projectId: missingAcceptance.fixture.projectId,
+      executionId: missingAcceptance.execution.id,
+      expectedAttempt: missingAcceptance.execution.attempt,
+    }));
+    expect(noAcceptanceResult).toMatchObject({
+      kind: "NOT_PROJECTABLE",
+      reasons: ["ACCEPTANCE_MISSING"],
+    });
+
+    const missingSnapshot = await createCompletedRuntimeStart();
+    await db.update(aiExecutionAcceptancesTable)
+      .set({ evidenceSnapshotId: null })
+      .where(eq(aiExecutionAcceptancesTable.executionId, missingSnapshot.execution.id));
+    const noSnapshotResult = await db.transaction((tx) => projectExecutionProofGraph(tx, {
+      projectId: missingSnapshot.fixture.projectId,
+      executionId: missingSnapshot.execution.id,
+      expectedAttempt: missingSnapshot.execution.attempt,
+    }));
+    expect(noSnapshotResult).toMatchObject({
+      kind: "NOT_PROJECTABLE",
+      reasons: ["EVIDENCE_SNAPSHOT_MISSING"],
+    });
+
+    const unsupportedMode = await createCompletedRuntimeStart();
+    const [storedExecution] = await db.select({ request: aiExecutionsTable.request })
+      .from(aiExecutionsTable)
+      .where(eq(aiExecutionsTable.id, unsupportedMode.execution.id));
+    const requestBody = JSON.parse(storedExecution!.request) as Record<string, unknown>;
+    await db.update(aiExecutionsTable)
+      .set({ request: JSON.stringify({ ...requestBody, recipeProofMode: "unsupported.v1" }) })
+      .where(eq(aiExecutionsTable.id, unsupportedMode.execution.id));
+    const unsupportedResult = await db.transaction((tx) => projectExecutionProofGraph(tx, {
+      projectId: unsupportedMode.fixture.projectId,
+      executionId: unsupportedMode.execution.id,
+      expectedAttempt: unsupportedMode.execution.attempt,
+    }));
+    expect(unsupportedResult).toMatchObject({
+      kind: "NOT_PROJECTABLE",
+      reasons: ["UNSUPPORTED_PROOF_MODE"],
+    });
+  });
+
+  it("fails closed when candidate, source revision, or linked snapshot identity drifts", async () => {
+    const candidateMismatch = await createCompletedRuntimeStart();
+    await db.update(aiExecutionAcceptancesTable)
+      .set({ candidateIdentity: "unrelated-candidate" })
+      .where(eq(aiExecutionAcceptancesTable.executionId, candidateMismatch.execution.id));
+    const candidateResult = await db.transaction((tx) => projectExecutionProofGraph(tx, {
+      projectId: candidateMismatch.fixture.projectId,
+      executionId: candidateMismatch.execution.id,
+      expectedAttempt: candidateMismatch.execution.attempt,
+    }));
+    expect(candidateResult).toMatchObject({
+      kind: "NOT_PROJECTABLE",
+      reasons: ["DOMAIN_PROOF_MISMATCH"],
+    });
+
+    const revisionMismatch = await createCompletedRuntimeStart();
+    await db.update(aiExecutionAcceptancesTable)
+      .set({ sourceRevision: "unrelated-source-revision" })
+      .where(eq(aiExecutionAcceptancesTable.executionId, revisionMismatch.execution.id));
+    const revisionResult = await db.transaction((tx) => projectExecutionProofGraph(tx, {
+      projectId: revisionMismatch.fixture.projectId,
+      executionId: revisionMismatch.execution.id,
+      expectedAttempt: revisionMismatch.execution.attempt,
+    }));
+    expect(revisionResult).toMatchObject({
+      kind: "NOT_PROJECTABLE",
+      reasons: ["DOMAIN_PROOF_MISMATCH"],
+    });
+
+    const linkedSnapshotMismatch = await createCompletedRuntimeStart();
+    const unrelatedSnapshot = await createCompletedRuntimeStart();
+    const [unrelatedAcceptance] = await db.select({
+      evidenceSnapshotId: aiExecutionAcceptancesTable.evidenceSnapshotId,
+    }).from(aiExecutionAcceptancesTable)
+      .where(eq(aiExecutionAcceptancesTable.executionId, unrelatedSnapshot.execution.id));
+    await db.update(aiExecutionAcceptancesTable)
+      .set({ evidenceSnapshotId: unrelatedAcceptance!.evidenceSnapshotId })
+      .where(eq(aiExecutionAcceptancesTable.executionId, linkedSnapshotMismatch.execution.id));
+    const snapshotResult = await db.transaction((tx) => projectExecutionProofGraph(tx, {
+      projectId: linkedSnapshotMismatch.fixture.projectId,
+      executionId: linkedSnapshotMismatch.execution.id,
+      expectedAttempt: linkedSnapshotMismatch.execution.attempt,
+    }));
+    expect(snapshotResult).toMatchObject({
+      kind: "NOT_PROJECTABLE",
+      reasons: ["EVIDENCE_SNAPSHOT_MISSING"],
+    });
+  });
+
+  it("rejects failed or misbound runtime recipe receipts", async () => {
+    const failedReceipt = await createCompletedRuntimeStart();
+    const [failedExecution] = await db.select({
+      recipeReceipt: aiExecutionsTable.recipeReceipt,
+    }).from(aiExecutionsTable)
+      .where(eq(aiExecutionsTable.id, failedReceipt.execution.id));
+    const failedReceiptValue = failedExecution!.recipeReceipt as Record<string, unknown>;
+    await db.update(aiExecutionsTable)
+      .set({ recipeReceipt: { ...failedReceiptValue, status: "failed" } })
+      .where(eq(aiExecutionsTable.id, failedReceipt.execution.id));
+    const failedResult = await db.transaction((tx) => projectExecutionProofGraph(tx, {
+      projectId: failedReceipt.fixture.projectId,
+      executionId: failedReceipt.execution.id,
+      expectedAttempt: failedReceipt.execution.attempt,
+    }));
+    expect(failedResult).toMatchObject({
+      kind: "NOT_PROJECTABLE",
+      reasons: ["DOMAIN_PROOF_MISMATCH"],
+    });
+
+    const wrongAttemptReceipt = await createCompletedRuntimeStart();
+    const [attemptExecution] = await db.select({
+      recipeReceipt: aiExecutionsTable.recipeReceipt,
+    }).from(aiExecutionsTable)
+      .where(eq(aiExecutionsTable.id, wrongAttemptReceipt.execution.id));
+    const attemptReceiptValue = attemptExecution!.recipeReceipt as Record<string, unknown>;
+    await db.update(aiExecutionsTable)
+      .set({
+        recipeReceipt: {
+          ...attemptReceiptValue,
+          attempt: wrongAttemptReceipt.execution.attempt + 1,
+        },
+      })
+      .where(eq(aiExecutionsTable.id, wrongAttemptReceipt.execution.id));
+    const attemptResult = await db.transaction((tx) => projectExecutionProofGraph(tx, {
+      projectId: wrongAttemptReceipt.fixture.projectId,
+      executionId: wrongAttemptReceipt.execution.id,
+      expectedAttempt: wrongAttemptReceipt.execution.attempt,
+    }));
+    expect(attemptResult).toMatchObject({
+      kind: "NOT_PROJECTABLE",
+      reasons: ["DOMAIN_PROOF_MISMATCH"],
+    });
+
+    const wrongExecutionReceipt = await createCompletedRuntimeStart();
+    const [executionReceipt] = await db.select({
+      recipeReceipt: aiExecutionsTable.recipeReceipt,
+    }).from(aiExecutionsTable)
+      .where(eq(aiExecutionsTable.id, wrongExecutionReceipt.execution.id));
+    const executionReceiptValue = executionReceipt!.recipeReceipt as Record<string, unknown>;
+    await db.update(aiExecutionsTable)
+      .set({
+        recipeReceipt: {
+          ...executionReceiptValue,
+          executionId: randomUUID(),
+        },
+      })
+      .where(eq(aiExecutionsTable.id, wrongExecutionReceipt.execution.id));
+    const executionResult = await db.transaction((tx) => projectExecutionProofGraph(tx, {
+      projectId: wrongExecutionReceipt.fixture.projectId,
+      executionId: wrongExecutionReceipt.execution.id,
+      expectedAttempt: wrongExecutionReceipt.execution.attempt,
+    }));
+    expect(executionResult).toMatchObject({
+      kind: "NOT_PROJECTABLE",
+      reasons: ["DOMAIN_PROOF_MISMATCH"],
+    });
+  });
+
+  it("rejects a tampered Gate C artifact or incomplete evidence snapshot", async () => {
+    const tamperedArtifact = await createCompletedRuntimeStart();
+    const [artifactAcceptance] = await db.select({
+      evidenceSnapshotId: aiExecutionAcceptancesTable.evidenceSnapshotId,
+    }).from(aiExecutionAcceptancesTable)
+      .where(eq(aiExecutionAcceptancesTable.executionId, tamperedArtifact.execution.id));
+    const [artifactSnapshot] = await db.select({
+      id: aiExecutionEvidenceSnapshotsTable.id,
+      artifactRefs: aiExecutionEvidenceSnapshotsTable.artifactRefs,
+    }).from(aiExecutionEvidenceSnapshotsTable)
+      .where(eq(aiExecutionEvidenceSnapshotsTable.id, artifactAcceptance!.evidenceSnapshotId!));
+    const alteredArtifactRefs = (artifactSnapshot!.artifactRefs as Array<Record<string, unknown>>)
+      .map((artifact) => artifact.kind === "runtime_start_gate_c"
+        ? { ...artifact, operationId: "tampered-operation" }
+        : artifact);
+    await db.update(aiExecutionEvidenceSnapshotsTable)
+      .set({ artifactRefs: alteredArtifactRefs })
+      .where(eq(aiExecutionEvidenceSnapshotsTable.id, artifactSnapshot!.id));
+    const tamperedArtifactResult = await db.transaction((tx) => projectExecutionProofGraph(tx, {
+      projectId: tamperedArtifact.fixture.projectId,
+      executionId: tamperedArtifact.execution.id,
+      expectedAttempt: tamperedArtifact.execution.attempt,
+    }));
+    expect(tamperedArtifactResult).toMatchObject({
+      kind: "NOT_PROJECTABLE",
+      reasons: ["DOMAIN_PROOF_MISMATCH"],
+    });
+
+    const incompleteEvidence = await createCompletedRuntimeStart();
+    const [evidenceAcceptance] = await db.select({
+      evidenceSnapshotId: aiExecutionAcceptancesTable.evidenceSnapshotId,
+    }).from(aiExecutionAcceptancesTable)
+      .where(eq(aiExecutionAcceptancesTable.executionId, incompleteEvidence.execution.id));
+    await db.update(aiExecutionEvidenceSnapshotsTable)
+      .set({ complete: 0 })
+      .where(eq(
+        aiExecutionEvidenceSnapshotsTable.id,
+        evidenceAcceptance!.evidenceSnapshotId!,
+      ));
+    const incompleteEvidenceResult = await db.transaction((tx) => projectExecutionProofGraph(tx, {
+      projectId: incompleteEvidence.fixture.projectId,
+      executionId: incompleteEvidence.execution.id,
+      expectedAttempt: incompleteEvidence.execution.attempt,
+    }));
+    expect(incompleteEvidenceResult).toMatchObject({
+      kind: "NOT_PROJECTABLE",
+      reasons: ["EVIDENCE_INCOMPLETE"],
+    });
+  });
+
+  it("rejects an extra artifact that is not bound by the accepted snapshot", async () => {
+    const { fixture, execution } = await createCompletedRuntimeStart();
+    const [acceptance] = await db.select({
+      evidenceSnapshotId: aiExecutionAcceptancesTable.evidenceSnapshotId,
+    }).from(aiExecutionAcceptancesTable)
+      .where(eq(aiExecutionAcceptancesTable.executionId, execution.id));
+    const [snapshot] = await db.select({
+      id: aiExecutionEvidenceSnapshotsTable.id,
+      artifactRefs: aiExecutionEvidenceSnapshotsTable.artifactRefs,
+    }).from(aiExecutionEvidenceSnapshotsTable)
+      .where(eq(aiExecutionEvidenceSnapshotsTable.id, acceptance!.evidenceSnapshotId!));
+    const artifactRefs = snapshot!.artifactRefs as Array<Record<string, unknown>>;
+    await db.update(aiExecutionEvidenceSnapshotsTable)
+      .set({ artifactRefs: [...artifactRefs, { kind: "unbound_receipt", id: randomUUID() }] })
+      .where(eq(aiExecutionEvidenceSnapshotsTable.id, snapshot!.id));
+
+    const result = await db.transaction((tx) => projectExecutionProofGraph(tx, {
+      projectId: fixture.projectId,
+      executionId: execution.id,
+      expectedAttempt: execution.attempt,
+    }));
+    expect(result).toMatchObject({
+      kind: "NOT_PROJECTABLE",
+      reasons: ["IDENTITY_MISMATCH"],
+    });
+  });
+
+  it("reprojects only the revalidated current attempt and emits no observation values", async () => {
+    const { fixture, execution } = await createCompletedRuntimeStart();
+    const input = {
+      projectId: fixture.projectId,
+      executionId: execution.id,
+      expectedAttempt: execution.attempt,
+    };
+    const first = await db.transaction((tx) => projectExecutionProofGraph(tx, input));
+    const retry = await db.transaction((tx) => projectExecutionProofGraph(tx, input));
+    expect(first.kind).toBe("PROJECTED");
+    expect(retry.kind).toBe("PROJECTED");
+    if (first.kind !== "PROJECTED" || retry.kind !== "PROJECTED") return;
+
+    expect(first.authority).toBe("READ_ONLY_PROJECTION");
+    expect(first.canonicalProof).toMatchObject({
+      accepted: true,
+      verdict: "PROVEN",
+      executionId: execution.id,
+      attempt: execution.attempt,
+    });
+    expect(first.graphHash).toBe(retry.graphHash);
+    expect(first.graph).toEqual(retry.graph);
+    expect(first.graph.nodes.every((node) => !("value" in node))).toBe(true);
+    const serializedGraph = JSON.stringify(first.graph);
+    expect(serializedGraph).not.toContain("workspaceRoot");
+    expect(serializedGraph).not.toContain('"pid"');
+    expect(serializedGraph).not.toContain('"port"');
+
+    const wrongAttempt = await db.transaction((tx) => projectExecutionProofGraph(tx, {
+      ...input,
+      expectedAttempt: execution.attempt + 1,
+    }));
+    expect(wrongAttempt).toMatchObject({
+      kind: "NOT_PROJECTABLE",
+      reasons: ["ATTEMPT_MISMATCH"],
+    });
+    const wrongProject = await db.transaction((tx) => projectExecutionProofGraph(tx, {
+      ...input,
+      projectId: randomUUID(),
+    }));
+    expect(wrongProject).toMatchObject({
+      kind: "NOT_PROJECTABLE",
+      reasons: ["EXECUTION_NOT_FOUND"],
+    });
+
+    const [acceptance] = await db.select({
+      id: aiExecutionAcceptancesTable.id,
+      evidenceSnapshotId: aiExecutionAcceptancesTable.evidenceSnapshotId,
+    }).from(aiExecutionAcceptancesTable).where(and(
+      eq(aiExecutionAcceptancesTable.executionId, execution.id),
+      eq(aiExecutionAcceptancesTable.attempt, execution.attempt),
+    ));
+    expect(acceptance?.evidenceSnapshotId).toBeTruthy();
+    const [evidence] = await db.select().from(aiExecutionEvidenceSnapshotsTable)
+      .where(eq(aiExecutionEvidenceSnapshotsTable.id, acceptance!.evidenceSnapshotId!));
+    expect(evidence?.artifactRefs).toBeTruthy();
+  });
+
+  it("rejects an observation whose stored digest no longer matches its private value", async () => {
+    const { fixture, execution, gateCArtifact } = await createCompletedRuntimeStart();
+    const [observation] = await db.select({ id: aiAgentObservationsTable.id })
+      .from(aiAgentObservationsTable)
+      .where(eq(aiAgentObservationsTable.id, gateCArtifact.afterObservationIds[0]!))
+      .limit(1);
+    expect(observation).toBeDefined();
+    await db.update(aiAgentObservationsTable)
+      .set({ valueHash: "0".repeat(64) })
+      .where(eq(aiAgentObservationsTable.id, observation!.id));
+
+    const result = await db.transaction((tx) => projectExecutionProofGraph(tx, {
+      projectId: fixture.projectId,
+      executionId: execution.id,
+      expectedAttempt: execution.attempt,
+    }));
+    expect(result).toMatchObject({
+      kind: "NOT_PROJECTABLE",
+      reasons: ["SOURCE_HASH_MISMATCH"],
+    });
+  });
+
+  it("rejects missing evidence rows and revision drift instead of degrading the graph", async () => {
+    const missingFixture = await createCompletedRuntimeStart();
+    const [missingObservation] = await db.select({ id: aiAgentObservationsTable.id })
+      .from(aiAgentObservationsTable)
+      .where(eq(
+        aiAgentObservationsTable.id,
+        missingFixture.gateCArtifact.afterObservationIds[0]!,
+      ))
+      .limit(1);
+    expect(missingObservation).toBeDefined();
+    await db.delete(aiAgentObservationsTable)
+      .where(eq(aiAgentObservationsTable.id, missingObservation!.id));
+    const missingResult = await db.transaction((tx) => projectExecutionProofGraph(tx, {
+      projectId: missingFixture.fixture.projectId,
+      executionId: missingFixture.execution.id,
+      expectedAttempt: missingFixture.execution.attempt,
+    }));
+    expect(missingResult.kind).toBe("NOT_PROJECTABLE");
+
+    const driftFixture = await createCompletedRuntimeStart();
+    const [driftObservation] = await db.select({ id: aiAgentObservationsTable.id })
+      .from(aiAgentObservationsTable)
+      .where(eq(
+        aiAgentObservationsTable.id,
+        driftFixture.gateCArtifact.afterObservationIds[0]!,
+      ))
+      .limit(1);
+    expect(driftObservation).toBeDefined();
+    await db.update(aiAgentObservationsTable)
+      .set({ projectRevision: "workspace-tree-v1:" + "a".repeat(64) })
+      .where(eq(aiAgentObservationsTable.id, driftObservation!.id));
+    const driftResult = await db.transaction((tx) => projectExecutionProofGraph(tx, {
+      projectId: driftFixture.fixture.projectId,
+      executionId: driftFixture.execution.id,
+      expectedAttempt: driftFixture.execution.attempt,
+    }));
+    expect(driftResult).toMatchObject({
+      kind: "NOT_PROJECTABLE",
+      reasons: ["DOMAIN_PROOF_MISMATCH"],
+    });
+  });
+
+  it("holds source observations stable until the caller's transaction commits", async () => {
+    const { fixture, execution, gateCArtifact } = await createCompletedRuntimeStart();
+    const [observation] = await db.select({
+      id: aiAgentObservationsTable.id,
+      freshness: aiAgentObservationsTable.freshness,
+    }).from(aiAgentObservationsTable)
+      .where(eq(aiAgentObservationsTable.id, gateCArtifact.afterObservationIds[0]!))
+      .limit(1);
+    expect(observation?.freshness).toBe("fresh");
+
+    let announceProjected!: () => void;
+    const projectedReady = new Promise<void>((resolve) => {
+      announceProjected = resolve;
+    });
+    let releaseTransaction!: () => void;
+    const holdTransaction = new Promise<void>((resolve) => {
+      releaseTransaction = resolve;
+    });
+    const transaction = db.transaction(async (tx) => {
+      const result = await projectExecutionProofGraph(tx, {
+        projectId: fixture.projectId,
+        executionId: execution.id,
+        expectedAttempt: execution.attempt,
+      });
+      announceProjected();
+      await holdTransaction;
+      return result;
+    });
+    await projectedReady;
+
+    let updateSettled = false;
+    const concurrentUpdate = db.update(aiAgentObservationsTable)
+      .set({ freshness: "stale" })
+      .where(eq(aiAgentObservationsTable.id, observation!.id))
+      .then(() => {
+        updateSettled = true;
+      });
+    await new Promise((resolve) => setTimeout(resolve, 25));
+    const updateWasBlocked = !updateSettled;
+    releaseTransaction();
+    const result = await transaction;
+    await concurrentUpdate;
+    expect(updateWasBlocked).toBe(true);
+    expect(result.kind).toBe("PROJECTED");
+    if (result.kind === "PROJECTED") {
+      expect(result.graph.nodes.find((node) => (
+        node.kind === "OBSERVATION" && node.observationId === observation!.id
+      ))).toMatchObject({ freshness: "fresh" });
+    }
+    expect(updateSettled).toBe(true);
+  });
+});
+
+describe("GET /api/projects/:projectId/executions/:executionId/proof-graph/attempts/:attempt", () => {
+  it("returns the separate graph and canonical verdict only to the authorized project owner", async () => {
+    const { fixture, execution } = await createCompletedRuntimeStart();
+    const path = `/api/projects/${fixture.projectId}/executions/${execution.id}/proof-graph/attempts/${execution.attempt}`;
+    const [beforeExecution] = await db.select({
+      status: aiExecutionsTable.status,
+      attempt: aiExecutionsTable.attempt,
+    }).from(aiExecutionsTable).where(eq(aiExecutionsTable.id, execution.id));
+    const [beforeAcceptance] = await db.select({
+      outcome: aiExecutionAcceptancesTable.outcome,
+      attempt: aiExecutionAcceptancesTable.attempt,
+    }).from(aiExecutionAcceptancesTable).where(and(
+      eq(aiExecutionAcceptancesTable.executionId, execution.id),
+      eq(aiExecutionAcceptancesTable.attempt, execution.attempt),
+    ));
+    const response = await request(app).get(path);
+
+    expect(response.status, JSON.stringify(response.body)).toBe(200);
+    expect(response.body).toMatchObject({
+      kind: "PROJECTED",
+      authority: "READ_ONLY_PROJECTION",
+      canonicalProof: {
+        accepted: true,
+        verdict: "PROVEN",
+        executionId: execution.id,
+        attempt: execution.attempt,
+      },
+      structuralValidation: {
+        authority: "STRUCTURE_ONLY_NO_EXECUTION_AUTHORITY",
+        verdict: "PASS",
+      },
+    });
+    const serialized = JSON.stringify(response.body);
+    expect(response.body.graph.nodes.every((node: Record<string, unknown>) => !("value" in node))).toBe(true);
+    expect(serialized).not.toContain(fixture.rootPath);
+    expect(serialized).not.toContain("workspaceRoot");
+    expect(serialized).not.toContain('"pid"');
+    expect(serialized).not.toContain('"port"');
+    expect(serialized).not.toContain("runtime-session-");
+    const [afterExecution] = await db.select({
+      status: aiExecutionsTable.status,
+      attempt: aiExecutionsTable.attempt,
+    }).from(aiExecutionsTable).where(eq(aiExecutionsTable.id, execution.id));
+    const [afterAcceptance] = await db.select({
+      outcome: aiExecutionAcceptancesTable.outcome,
+      attempt: aiExecutionAcceptancesTable.attempt,
+    }).from(aiExecutionAcceptancesTable).where(and(
+      eq(aiExecutionAcceptancesTable.executionId, execution.id),
+      eq(aiExecutionAcceptancesTable.attempt, execution.attempt),
+    ));
+    expect(afterExecution).toEqual(beforeExecution);
+    expect(afterAcceptance).toEqual(beforeAcceptance);
+
+    const unauthorizedFixture = await createProjectFixture({ ownerId: "different-user" });
+    const unauthorized = await request(app)
+      .get(`/api/projects/${unauthorizedFixture.projectId}/executions/${execution.id}/proof-graph/attempts/${execution.attempt}`);
+    expect(unauthorized.status).toBe(403);
+    expect(JSON.stringify(unauthorized.body)).not.toContain('"graph"');
+  });
+
+  it("rejects malformed attempts and does not project an execution from another project", async () => {
+    const { fixture, execution } = await createCompletedRuntimeStart();
+    const invalidAttempt = await request(app)
+      .get(`/api/projects/${fixture.projectId}/executions/${execution.id}/proof-graph/attempts/not-an-attempt`);
+    expect(invalidAttempt.status).toBe(400);
+    expect(invalidAttempt.body.code).toBe("PROOF_GRAPH_ATTEMPT_INVALID");
+
+    const otherFixture = await createProjectFixture();
+    const mismatch = await request(app)
+      .get(`/api/projects/${otherFixture.projectId}/executions/${execution.id}/proof-graph/attempts/${execution.attempt}`);
+    expect(mismatch.status).toBe(200);
+    expect(mismatch.body).toMatchObject({
+      kind: "NOT_PROJECTABLE",
+      reasons: ["EXECUTION_NOT_FOUND"],
+    });
+    expect(mismatch.body.graph).toBeUndefined();
+  });
 });
 
 describe("POST /api/projects/:projectId/runtime/start", () => {

@@ -309,19 +309,26 @@ describe("AI repair validation registry", () => {
     await expect(fs.access(workspace!.rootPath)).rejects.toThrow();
   });
 
-  it("omits nested ignored build and test outputs while preserving source files", async () => {
+  it("omits nested ignored build, Terraform, and test outputs while preserving source files", async () => {
     const sourceRoot = await fs.mkdtemp(path.join(os.tmpdir(), "validation-output-source-"));
     const generatedDirectories = [
       ".test-roots/fixture",
       "artifacts/api-server/node_modules/pkg",
       "artifacts/api-server/dist",
       "artifacts/dashboard/test-results",
+      "infra/aws-preview/.terraform/providers",
     ];
     for (const relative of generatedDirectories) {
       const directory = path.join(sourceRoot, relative);
       await fs.mkdir(directory, { recursive: true });
       await fs.writeFile(path.join(directory, "generated.txt"), "temporary\n", "utf8");
     }
+    const terraformProvider = path.join(
+      sourceRoot,
+      "infra/aws-preview/.terraform/providers/aws-provider",
+    );
+    await fs.writeFile(terraformProvider, "");
+    await fs.truncate(terraformProvider, VALIDATION_WORKSPACE_MAX_FILE_BYTES + 1);
     const generatedBuildInfoFiles = [
       "tsconfig.tsbuildinfo",
       "lib/db/tsconfig.tsbuildinfo",

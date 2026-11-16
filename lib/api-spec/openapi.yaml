@@ -172,6 +172,47 @@ paths:
         "409":
           description: Workflow is active and must be stopped before deletion
 
+  /api/projects/{projectId}/executions/{executionId}/proof-graph/attempts/{attempt}:
+    get:
+      operationId: getProjectExecutionProofGraph
+      summary: Read the proof graph for one project execution attempt
+      description: >
+        Returns a read-only relationship projection. Its structural verdict is not Canonical
+        Proof, execution eligibility, or mutation authority. Canonical Proof is returned separately.
+      tags: [Projects]
+      parameters:
+        - name: projectId
+          in: path
+          required: true
+          schema: { type: string }
+        - name: executionId
+          in: path
+          required: true
+          schema: { type: string }
+        - name: attempt
+          in: path
+          required: true
+          schema: { type: integer, minimum: 0, maximum: 9007199254740991 }
+      responses:
+        "200":
+          description: Read-only proof graph or a bounded non-projectable result
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ExecutionProofGraphProjectorResult"
+        "400":
+          description: The required attempt value is invalid
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+        "403":
+          description: Project belongs to another user
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+
   /api/projects/{projectId}/browser-validation-profiles:
     get:
       operationId: listBrowserValidationProfiles
@@ -8813,6 +8854,284 @@ components:
         reasonCode: { type: string, nullable: true }
         nextActionCode: { type: string, nullable: true }
         resumable: { type: boolean }
+
+    ExecutionProofGraphProjectorResult:
+      oneOf:
+        - $ref: "#/components/schemas/ExecutionProofGraphNotProjectable"
+        - $ref: "#/components/schemas/ExecutionProofGraphProjected"
+      discriminator:
+        propertyName: kind
+        mapping:
+          NOT_PROJECTABLE: "#/components/schemas/ExecutionProofGraphNotProjectable"
+          PROJECTED: "#/components/schemas/ExecutionProofGraphProjected"
+
+    ExecutionProofGraphNotProjectable:
+      type: object
+      additionalProperties: false
+      required: [kind, authority, executionId, expectedAttempt, reasons]
+      properties:
+        kind: { type: string, enum: [NOT_PROJECTABLE] }
+        authority: { type: string, enum: [READ_ONLY_PROJECTION] }
+        executionId: { type: string, maxLength: 200 }
+        expectedAttempt: { type: integer, minimum: 0, maximum: 9007199254740991 }
+        reasons:
+          type: array
+          minItems: 1
+          maxItems: 1
+          items:
+            type: string
+            enum:
+              - EXECUTION_NOT_FOUND
+              - ATTEMPT_MISMATCH
+              - EXECUTION_NOT_COMPLETED
+              - UNSUPPORTED_PROOF_MODE
+              - ACCEPTANCE_MISSING
+              - EVIDENCE_SNAPSHOT_MISSING
+              - EVIDENCE_INCOMPLETE
+              - CANONICAL_PROOF_REJECTED
+              - DOMAIN_PROOF_MISMATCH
+              - SOURCE_ROWS_MISSING
+              - SOURCE_HASH_MISMATCH
+              - IDENTITY_MISMATCH
+              - REVISION_MISMATCH
+              - GRAPH_INVALID
+
+    ExecutionProofGraphProjected:
+      type: object
+      additionalProperties: false
+      required: [kind, authority, graph, graphHash, canonicalProof, structuralValidation]
+      properties:
+        kind: { type: string, enum: [PROJECTED] }
+        authority: { type: string, enum: [READ_ONLY_PROJECTION] }
+        graphHash: { type: string, pattern: "^[a-f0-9]{64}$" }
+        graph:
+          $ref: "#/components/schemas/ExecutionProofGraph"
+        canonicalProof:
+          $ref: "#/components/schemas/ProjectedCanonicalProofSummary"
+        structuralValidation:
+          $ref: "#/components/schemas/ExecutionProofGraphStructuralValidation"
+
+    ExecutionProofGraph:
+      type: object
+      additionalProperties: false
+      required:
+        - version
+        - profile
+        - graphId
+        - projectId
+        - executionId
+        - attempt
+        - operationId
+        - sourceRevision
+        - sourceRevisionKind
+        - sourceRevisionSource
+        - candidateIdentity
+        - environmentRevision
+        - nodes
+        - edges
+      properties:
+        version: { type: integer, enum: [1] }
+        profile: { type: string, enum: [runtime_start_gate_c_v1] }
+        graphId: { type: string, maxLength: 200 }
+        projectId: { type: string, maxLength: 200 }
+        executionId: { type: string, maxLength: 200 }
+        attempt: { type: integer, minimum: 0, maximum: 9007199254740991 }
+        operationId: { type: string, maxLength: 200 }
+        sourceRevision: { type: string, maxLength: 128 }
+        sourceRevisionKind: { type: string, enum: [workspace_tree, git_commit] }
+        sourceRevisionSource: { type: string, enum: [delivery_tree_digest_v1, git_commit_object_id] }
+        candidateIdentity: { type: [string, "null"], pattern: "^[a-f0-9]{64}$" }
+        environmentRevision: { type: string, pattern: "^env-v1:[a-f0-9]{64}$" }
+        nodes:
+          type: array
+          minItems: 1
+          maxItems: 64
+          items:
+            $ref: "#/components/schemas/ExecutionProofGraphNode"
+        edges:
+          type: array
+          maxItems: 128
+          items:
+            $ref: "#/components/schemas/ExecutionProofGraphEdge"
+
+    ExecutionProofGraphNode:
+      type: object
+      additionalProperties: false
+      required: [id, projectId, executionId, attempt, kind]
+      properties:
+        id: { type: string, maxLength: 200 }
+        projectId: { type: string, maxLength: 200 }
+        executionId: { type: string, maxLength: 200 }
+        attempt: { type: integer, minimum: 0, maximum: 9007199254740991 }
+        kind:
+          type: string
+          enum:
+            - EXECUTION
+            - ACCEPTANCE
+            - EVIDENCE_SNAPSHOT
+            - GATE_C_ARTIFACT
+            - EPISODE
+            - ACTION_EVENT
+            - EFFECT_BUNDLE
+            - EFFECT
+            - OBSERVATION
+        operationId: { type: string, maxLength: 200 }
+        proofMode: { type: string, enum: [runtime_start_gate_c_v1] }
+        recipeId: { type: string, enum: [runtime.start] }
+        recipeVersion: { type: integer, enum: [1] }
+        status: { type: string, enum: [completed, observed] }
+        sourceRevision: { type: string, maxLength: 128 }
+        candidateIdentity: { type: [string, "null"], pattern: "^[a-f0-9]{64}$" }
+        acceptanceId: { type: string, maxLength: 200 }
+        evidenceSnapshotId: { type: string, maxLength: 200 }
+        effectBundleId: { type: string, maxLength: 200 }
+        outcome: { type: string, enum: [SUCCEEDED] }
+        terminalStatus: { type: string, enum: [completed] }
+        evidenceRequired: { type: boolean, enum: [true] }
+        evidenceComplete: { type: boolean, enum: [true] }
+        snapshotId: { type: string, maxLength: 200 }
+        verdict: { type: string, enum: [PROVEN, OBSERVED] }
+        complete: { type: boolean, enum: [true] }
+        readCount: { type: integer, enum: [0] }
+        artifactCount: { type: integer, enum: [1] }
+        artifactHash: { type: string, pattern: "^[a-f0-9]{64}$" }
+        artifactVersion: { type: integer, enum: [2] }
+        sourceRevisionKind: { type: string, enum: [workspace_tree, git_commit] }
+        sourceRevisionSource: { type: string, enum: [delivery_tree_digest_v1, git_commit_object_id] }
+        workspaceIdentity: { type: string, pattern: "^[a-f0-9]{64}$" }
+        episodeId: { type: string, maxLength: 200 }
+        actionId: { type: string, maxLength: 200 }
+        actionEventId: { type: string, maxLength: 200 }
+        committedEventId: { type: string, maxLength: 200 }
+        effectId: { type: string, maxLength: 200 }
+        actionHash: { type: string, pattern: "^[a-f0-9]{64}$" }
+        effectContractHash: { type: string, pattern: "^[a-f0-9]{64}$" }
+        environmentRevision: { type: string, pattern: "^env-v1:[a-f0-9]{64}$" }
+        beforeObservationIds:
+          type: array
+          minItems: 2
+          maxItems: 8
+          items: { type: string, maxLength: 200 }
+        afterObservationIds:
+          type: array
+          minItems: 2
+          maxItems: 16
+          items: { type: string, maxLength: 200 }
+        state: { type: string, enum: [completed] }
+        reasonCode: { type: string, enum: [CANONICAL_PROOF_PROVEN] }
+        eventId: { type: string, maxLength: 200 }
+        eventType: { type: string, enum: [ACTION_REQUESTED, ACTION_COMMITTED] }
+        payloadHash: { type: string, pattern: "^[a-f0-9]{64}$" }
+        capabilityId: { type: string, enum: [runtime.start] }
+        observationId: { type: string, maxLength: 200 }
+        observationRole: { type: string, enum: [before, after] }
+        predicate:
+          type: string
+          enum:
+            - runtime.before_state
+            - runtime.after_state
+            - runtime.status
+            - runtime.child_process_environment
+            - serving.status
+        provenance: { type: string, enum: [DIRECT_OBSERVATION] }
+        completeness: { type: string, enum: [complete] }
+        freshness: { type: string, enum: [fresh, stale, unknown] }
+        environmentFreshness: { type: string, enum: [fresh, stale, unknown] }
+        valueHash: { type: string, pattern: "^[a-f0-9]{64}$" }
+
+    ExecutionProofGraphEdge:
+      type: object
+      additionalProperties: false
+      required: [id, from, to, type]
+      properties:
+        id: { type: string, maxLength: 200 }
+        from: { type: string, maxLength: 200 }
+        to: { type: string, maxLength: 200 }
+        type:
+          type: string
+          enum:
+            - EXECUTION_HAS_ACCEPTANCE
+            - ACCEPTANCE_HAS_SNAPSHOT
+            - EXECUTION_HAS_EPISODE
+            - EPISODE_HAS_EVENT
+            - EPISODE_HAS_EFFECT_BUNDLE
+            - BUNDLE_HAS_EFFECT
+            - EFFECT_HAS_OBSERVATION
+            - SNAPSHOT_HAS_ARTIFACT
+            - ARTIFACT_BINDS_EVENT
+            - ARTIFACT_BINDS_EFFECT_BUNDLE
+            - ARTIFACT_BINDS_EFFECT
+            - ARTIFACT_BINDS_OBSERVATION
+        role: { type: string, enum: [before, after] }
+
+    ProjectedCanonicalProofSummary:
+      type: object
+      additionalProperties: false
+      required:
+        - accepted
+        - verdict
+        - executionId
+        - acceptanceId
+        - evidenceSnapshotId
+        - attempt
+        - operationId
+        - sourceRevision
+        - candidateIdentity
+      properties:
+        accepted: { type: boolean, enum: [true] }
+        verdict: { type: string, enum: [PROVEN] }
+        executionId: { type: string, maxLength: 200 }
+        acceptanceId: { type: string, maxLength: 200 }
+        evidenceSnapshotId: { type: string, maxLength: 200 }
+        attempt: { type: integer, minimum: 0, maximum: 9007199254740991 }
+        operationId: { type: string, maxLength: 200 }
+        sourceRevision: { type: string, maxLength: 128 }
+        candidateIdentity: { type: [string, "null"], pattern: "^[a-f0-9]{64}$" }
+
+    ExecutionProofGraphStructuralValidation:
+      type: object
+      additionalProperties: false
+      required: [validatorVersion, authority, verdict, graphHash, violations]
+      properties:
+        validatorVersion: { type: string, enum: [execution-proof-graph-validator.v1] }
+        authority: { type: string, enum: [STRUCTURE_ONLY_NO_EXECUTION_AUTHORITY] }
+        verdict: { type: string, enum: [PASS, FAIL] }
+        graphHash: { type: [string, "null"], pattern: "^[a-f0-9]{64}$" }
+        violations:
+          type: array
+          items:
+            $ref: "#/components/schemas/ExecutionProofGraphViolation"
+
+    ExecutionProofGraphViolation:
+      type: object
+      additionalProperties: false
+      required: [code, path, edgeIds]
+      properties:
+        code:
+          type: string
+          enum:
+            - SCHEMA_INVALID
+            - GRAPH_ID_MISMATCH
+            - NODE_ID_MISMATCH
+            - DUPLICATE_NODE
+            - IDENTITY_MISMATCH
+            - REVISION_MISMATCH
+            - STALE_EVIDENCE
+            - MISSING_REQUIRED_NODE
+            - DUPLICATE_REQUIRED_NODE
+            - OBSERVATION_SET_MISMATCH
+            - DUPLICATE_EDGE
+            - DANGLING_EDGE
+            - EDGE_ID_MISMATCH
+            - EDGE_TYPE_MISMATCH
+            - MISSING_REQUIRED_EDGE
+            - UNEXPECTED_EDGE
+        path:
+          type: array
+          items: { type: string, maxLength: 200 }
+        edgeIds:
+          type: array
+          items: { type: string, maxLength: 200 }
 
     AiAcceptanceDisposition:
       type: object

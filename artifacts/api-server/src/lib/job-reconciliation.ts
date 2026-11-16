@@ -68,7 +68,7 @@ import {
   durableDispatchStageHealthTable,
   taskExecutionObservationOutboxTable,
 } from "@workspace/db";
-import { and, eq, gt, inArray, isNull, lt, ne, or, count, sql, asc } from "drizzle-orm";
+import { and, eq, gt, inArray, isNull, lt, lte, ne, or, count, sql, asc } from "drizzle-orm";
 import { invalidateContextCache } from "@workspace/ai-orchestrator";
 import { logger } from "./logger.js";
 import { heavyJobQueue } from "./job-queue.js";
@@ -1310,11 +1310,11 @@ export async function getDurableJobHealth(): Promise<{
       )),
       db.select({ value: count() }).from(discoverySessionsTable).where(and(
         eq(discoverySessionsTable.status, "discovering"),
-        or(isNull(discoverySessionsTable.leaseUntil), lt(discoverySessionsTable.leaseUntil, now)),
+        or(isNull(discoverySessionsTable.leaseUntil), lte(discoverySessionsTable.leaseUntil, now)),
       )),
       db.select({ value: count() }).from(tasksTable).where(and(
         eq(tasksTable.status, "running"),
-        or(isNull(tasksTable.leaseUntil), lt(tasksTable.leaseUntil, now)),
+        or(isNull(tasksTable.leaseUntil), lte(tasksTable.leaseUntil, now)),
       )),
       db.select({ value: count() }).from(scanJobsTable).where(and(eq(scanJobsTable.status, "failed"), eq(scanJobsTable.retryCount, scanJobsTable.maxRetries))),
       db.select({ value: count() }).from(tasksTable).where(and(eq(tasksTable.status, "failed"), eq(tasksTable.retryCount, tasksTable.maxRetries))),
@@ -1408,7 +1408,7 @@ export async function getDurableJobHealth(): Promise<{
           eq(taskExecutionObservationOutboxTable.status, "running"),
           or(
             isNull(taskExecutionObservationOutboxTable.leaseUntil),
-            lt(taskExecutionObservationOutboxTable.leaseUntil, now),
+            lte(taskExecutionObservationOutboxTable.leaseUntil, now),
           ),
         )),
       db.select({ value: count() }).from(taskExecutionObservationOutboxTable)

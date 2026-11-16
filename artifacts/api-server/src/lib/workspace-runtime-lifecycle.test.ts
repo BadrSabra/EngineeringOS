@@ -258,12 +258,13 @@ describe("Workspace Runtime lifecycle invariants", () => {
     });
 
     await entered.promise;
+    const forcedLeaseUntil = new Date(Date.now() + 5_000);
     await store.updateOwned("runtime-slow-start", "runtime-start-owner", {
-      leaseUntil: new Date(Date.now() - 1),
+      leaseUntil: forcedLeaseUntil,
     });
     await new Promise((resolve) => setTimeout(resolve, 50));
     const renewed = await store.get("runtime-slow-start");
-    expect(renewed?.leaseUntil?.getTime()).toBeGreaterThan(Date.now());
+    expect(renewed?.leaseUntil?.getTime()).toBeGreaterThan(forcedLeaseUntil.getTime());
 
     await recoveryWorker.recover();
     await expect(store.get("runtime-slow-start")).resolves.toMatchObject({
@@ -671,12 +672,15 @@ describe("Workspace Runtime lifecycle invariants", () => {
         attestationKeyVersion: null,
         workerId: "expired-runtime-worker",
         now: oldNow,
-        leaseUntil: new Date(Date.now() - 1),
+        leaseUntil: new Date(Date.now() + 60_000),
       });
       await store.updateOwned("runtime-orphan-recovery", "expired-runtime-worker", {
         status: "running",
         pid: leaderPid,
         port: 3_003,
+        workerId: null,
+        leaseUntil: null,
+        lastHeartbeatAt: null,
       });
       const manager = new WorkspaceRuntimeManager({
         store,

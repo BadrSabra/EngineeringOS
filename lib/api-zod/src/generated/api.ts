@@ -348,6 +348,239 @@ export const DeleteProjectResponse = zod.void()
 
 
 /**
+ * Returns a read-only relationship projection. Its structural verdict is not Canonical Proof, execution eligibility, or mutation authority. Canonical Proof is returned separately.
+ * @summary Read the proof graph for one project execution attempt
+ */
+export const getProjectExecutionProofGraphPathAttemptMin = 0;
+export const getProjectExecutionProofGraphPathAttemptMax = 9007199254740991;
+
+
+
+export const GetProjectExecutionProofGraphParams = zod.object({
+  "projectId": zod.coerce.string(),
+  "executionId": zod.coerce.string(),
+  "attempt": zod.coerce.number().int().min(getProjectExecutionProofGraphPathAttemptMin).max(getProjectExecutionProofGraphPathAttemptMax)
+})
+
+export const getProjectExecutionProofGraphResponseOneExecutionIdMax = 200;
+
+export const getProjectExecutionProofGraphResponseOneExpectedAttemptMin = 0;
+export const getProjectExecutionProofGraphResponseOneExpectedAttemptMax = 9007199254740991;
+
+export const getProjectExecutionProofGraphResponseOneReasonsMax = 1;
+
+export const getProjectExecutionProofGraphResponseTwoGraphHashRegExp = new RegExp('^[a-f0-9]{64}$');
+export const getProjectExecutionProofGraphResponseTwoGraphGraphIdMax = 200;
+
+export const getProjectExecutionProofGraphResponseTwoGraphProjectIdMax = 200;
+
+export const getProjectExecutionProofGraphResponseTwoGraphExecutionIdMax = 200;
+
+export const getProjectExecutionProofGraphResponseTwoGraphAttemptMin = 0;
+export const getProjectExecutionProofGraphResponseTwoGraphAttemptMax = 9007199254740991;
+
+export const getProjectExecutionProofGraphResponseTwoGraphOperationIdMax = 200;
+
+export const getProjectExecutionProofGraphResponseTwoGraphSourceRevisionMax = 128;
+
+export const getProjectExecutionProofGraphResponseTwoGraphCandidateIdentityRegExp = new RegExp('^[a-f0-9]{64}$');
+export const getProjectExecutionProofGraphResponseTwoGraphEnvironmentRevisionRegExp = new RegExp('^env-v1:[a-f0-9]{64}$');
+export const getProjectExecutionProofGraphResponseTwoGraphNodesItemIdMax = 200;
+
+export const getProjectExecutionProofGraphResponseTwoGraphNodesItemProjectIdMax = 200;
+
+export const getProjectExecutionProofGraphResponseTwoGraphNodesItemExecutionIdMax = 200;
+
+export const getProjectExecutionProofGraphResponseTwoGraphNodesItemAttemptMin = 0;
+export const getProjectExecutionProofGraphResponseTwoGraphNodesItemAttemptMax = 9007199254740991;
+
+export const getProjectExecutionProofGraphResponseTwoGraphNodesItemOperationIdMax = 200;
+
+export const getProjectExecutionProofGraphResponseTwoGraphNodesItemSourceRevisionMax = 128;
+
+export const getProjectExecutionProofGraphResponseTwoGraphNodesItemCandidateIdentityRegExp = new RegExp('^[a-f0-9]{64}$');
+export const getProjectExecutionProofGraphResponseTwoGraphNodesItemAcceptanceIdMax = 200;
+
+export const getProjectExecutionProofGraphResponseTwoGraphNodesItemEvidenceSnapshotIdMax = 200;
+
+export const getProjectExecutionProofGraphResponseTwoGraphNodesItemEffectBundleIdMax = 200;
+
+export const getProjectExecutionProofGraphResponseTwoGraphNodesItemSnapshotIdMax = 200;
+
+export const getProjectExecutionProofGraphResponseTwoGraphNodesItemArtifactHashRegExp = new RegExp('^[a-f0-9]{64}$');
+export const getProjectExecutionProofGraphResponseTwoGraphNodesItemWorkspaceIdentityRegExp = new RegExp('^[a-f0-9]{64}$');
+export const getProjectExecutionProofGraphResponseTwoGraphNodesItemEpisodeIdMax = 200;
+
+export const getProjectExecutionProofGraphResponseTwoGraphNodesItemActionIdMax = 200;
+
+export const getProjectExecutionProofGraphResponseTwoGraphNodesItemActionEventIdMax = 200;
+
+export const getProjectExecutionProofGraphResponseTwoGraphNodesItemCommittedEventIdMax = 200;
+
+export const getProjectExecutionProofGraphResponseTwoGraphNodesItemEffectIdMax = 200;
+
+export const getProjectExecutionProofGraphResponseTwoGraphNodesItemActionHashRegExp = new RegExp('^[a-f0-9]{64}$');
+export const getProjectExecutionProofGraphResponseTwoGraphNodesItemEffectContractHashRegExp = new RegExp('^[a-f0-9]{64}$');
+export const getProjectExecutionProofGraphResponseTwoGraphNodesItemEnvironmentRevisionRegExp = new RegExp('^env-v1:[a-f0-9]{64}$');
+export const getProjectExecutionProofGraphResponseTwoGraphNodesItemBeforeObservationIdsItemMax = 200;
+
+export const getProjectExecutionProofGraphResponseTwoGraphNodesItemBeforeObservationIdsMin = 2;
+export const getProjectExecutionProofGraphResponseTwoGraphNodesItemBeforeObservationIdsMax = 8;
+
+export const getProjectExecutionProofGraphResponseTwoGraphNodesItemAfterObservationIdsItemMax = 200;
+
+export const getProjectExecutionProofGraphResponseTwoGraphNodesItemAfterObservationIdsMin = 2;
+export const getProjectExecutionProofGraphResponseTwoGraphNodesItemAfterObservationIdsMax = 16;
+
+export const getProjectExecutionProofGraphResponseTwoGraphNodesItemEventIdMax = 200;
+
+export const getProjectExecutionProofGraphResponseTwoGraphNodesItemPayloadHashRegExp = new RegExp('^[a-f0-9]{64}$');
+export const getProjectExecutionProofGraphResponseTwoGraphNodesItemObservationIdMax = 200;
+
+export const getProjectExecutionProofGraphResponseTwoGraphNodesItemValueHashRegExp = new RegExp('^[a-f0-9]{64}$');
+export const getProjectExecutionProofGraphResponseTwoGraphNodesMax = 64;
+
+export const getProjectExecutionProofGraphResponseTwoGraphEdgesItemIdMax = 200;
+
+export const getProjectExecutionProofGraphResponseTwoGraphEdgesItemFromMax = 200;
+
+export const getProjectExecutionProofGraphResponseTwoGraphEdgesItemToMax = 200;
+
+export const getProjectExecutionProofGraphResponseTwoGraphEdgesMax = 128;
+
+export const getProjectExecutionProofGraphResponseTwoCanonicalProofExecutionIdMax = 200;
+
+export const getProjectExecutionProofGraphResponseTwoCanonicalProofAcceptanceIdMax = 200;
+
+export const getProjectExecutionProofGraphResponseTwoCanonicalProofEvidenceSnapshotIdMax = 200;
+
+export const getProjectExecutionProofGraphResponseTwoCanonicalProofAttemptMin = 0;
+export const getProjectExecutionProofGraphResponseTwoCanonicalProofAttemptMax = 9007199254740991;
+
+export const getProjectExecutionProofGraphResponseTwoCanonicalProofOperationIdMax = 200;
+
+export const getProjectExecutionProofGraphResponseTwoCanonicalProofSourceRevisionMax = 128;
+
+export const getProjectExecutionProofGraphResponseTwoCanonicalProofCandidateIdentityRegExp = new RegExp('^[a-f0-9]{64}$');
+export const getProjectExecutionProofGraphResponseTwoStructuralValidationGraphHashRegExp = new RegExp('^[a-f0-9]{64}$');
+export const getProjectExecutionProofGraphResponseTwoStructuralValidationViolationsItemPathItemMax = 200;
+
+export const getProjectExecutionProofGraphResponseTwoStructuralValidationViolationsItemEdgeIdsItemMax = 200;
+
+
+
+export const GetProjectExecutionProofGraphResponse = zod.union([zod.object({
+  "kind": zod.enum(['NOT_PROJECTABLE']),
+  "authority": zod.enum(['READ_ONLY_PROJECTION']),
+  "executionId": zod.string().max(getProjectExecutionProofGraphResponseOneExecutionIdMax),
+  "expectedAttempt": zod.number().int().min(getProjectExecutionProofGraphResponseOneExpectedAttemptMin).max(getProjectExecutionProofGraphResponseOneExpectedAttemptMax),
+  "reasons": zod.array(zod.enum(['EXECUTION_NOT_FOUND', 'ATTEMPT_MISMATCH', 'EXECUTION_NOT_COMPLETED', 'UNSUPPORTED_PROOF_MODE', 'ACCEPTANCE_MISSING', 'EVIDENCE_SNAPSHOT_MISSING', 'EVIDENCE_INCOMPLETE', 'CANONICAL_PROOF_REJECTED', 'DOMAIN_PROOF_MISMATCH', 'SOURCE_ROWS_MISSING', 'SOURCE_HASH_MISMATCH', 'IDENTITY_MISMATCH', 'REVISION_MISMATCH', 'GRAPH_INVALID'])).min(1).max(getProjectExecutionProofGraphResponseOneReasonsMax)
+}),zod.object({
+  "kind": zod.enum(['PROJECTED']),
+  "authority": zod.enum(['READ_ONLY_PROJECTION']),
+  "graphHash": zod.string().regex(getProjectExecutionProofGraphResponseTwoGraphHashRegExp),
+  "graph": zod.object({
+  "version": zod.literal(1),
+  "profile": zod.enum(['runtime_start_gate_c_v1']),
+  "graphId": zod.string().max(getProjectExecutionProofGraphResponseTwoGraphGraphIdMax),
+  "projectId": zod.string().max(getProjectExecutionProofGraphResponseTwoGraphProjectIdMax),
+  "executionId": zod.string().max(getProjectExecutionProofGraphResponseTwoGraphExecutionIdMax),
+  "attempt": zod.number().int().min(getProjectExecutionProofGraphResponseTwoGraphAttemptMin).max(getProjectExecutionProofGraphResponseTwoGraphAttemptMax),
+  "operationId": zod.string().max(getProjectExecutionProofGraphResponseTwoGraphOperationIdMax),
+  "sourceRevision": zod.string().max(getProjectExecutionProofGraphResponseTwoGraphSourceRevisionMax),
+  "sourceRevisionKind": zod.enum(['workspace_tree', 'git_commit']),
+  "sourceRevisionSource": zod.enum(['delivery_tree_digest_v1', 'git_commit_object_id']),
+  "candidateIdentity": zod.string().regex(getProjectExecutionProofGraphResponseTwoGraphCandidateIdentityRegExp).nullable(),
+  "environmentRevision": zod.string().regex(getProjectExecutionProofGraphResponseTwoGraphEnvironmentRevisionRegExp),
+  "nodes": zod.array(zod.object({
+  "id": zod.string().max(getProjectExecutionProofGraphResponseTwoGraphNodesItemIdMax),
+  "projectId": zod.string().max(getProjectExecutionProofGraphResponseTwoGraphNodesItemProjectIdMax),
+  "executionId": zod.string().max(getProjectExecutionProofGraphResponseTwoGraphNodesItemExecutionIdMax),
+  "attempt": zod.number().int().min(getProjectExecutionProofGraphResponseTwoGraphNodesItemAttemptMin).max(getProjectExecutionProofGraphResponseTwoGraphNodesItemAttemptMax),
+  "kind": zod.enum(['EXECUTION', 'ACCEPTANCE', 'EVIDENCE_SNAPSHOT', 'GATE_C_ARTIFACT', 'EPISODE', 'ACTION_EVENT', 'EFFECT_BUNDLE', 'EFFECT', 'OBSERVATION']),
+  "operationId": zod.string().max(getProjectExecutionProofGraphResponseTwoGraphNodesItemOperationIdMax).optional(),
+  "proofMode": zod.enum(['runtime_start_gate_c_v1']).optional(),
+  "recipeId": zod.enum(['runtime.start']).optional(),
+  "recipeVersion": zod.literal(1).optional(),
+  "status": zod.enum(['completed', 'observed']).optional(),
+  "sourceRevision": zod.string().max(getProjectExecutionProofGraphResponseTwoGraphNodesItemSourceRevisionMax).optional(),
+  "candidateIdentity": zod.string().regex(getProjectExecutionProofGraphResponseTwoGraphNodesItemCandidateIdentityRegExp).nullish(),
+  "acceptanceId": zod.string().max(getProjectExecutionProofGraphResponseTwoGraphNodesItemAcceptanceIdMax).optional(),
+  "evidenceSnapshotId": zod.string().max(getProjectExecutionProofGraphResponseTwoGraphNodesItemEvidenceSnapshotIdMax).optional(),
+  "effectBundleId": zod.string().max(getProjectExecutionProofGraphResponseTwoGraphNodesItemEffectBundleIdMax).optional(),
+  "outcome": zod.enum(['SUCCEEDED']).optional(),
+  "terminalStatus": zod.enum(['completed']).optional(),
+  "evidenceRequired": zod.literal(true).optional(),
+  "evidenceComplete": zod.literal(true).optional(),
+  "snapshotId": zod.string().max(getProjectExecutionProofGraphResponseTwoGraphNodesItemSnapshotIdMax).optional(),
+  "verdict": zod.enum(['PROVEN', 'OBSERVED']).optional(),
+  "complete": zod.literal(true).optional(),
+  "readCount": zod.literal(0).optional(),
+  "artifactCount": zod.literal(1).optional(),
+  "artifactHash": zod.string().regex(getProjectExecutionProofGraphResponseTwoGraphNodesItemArtifactHashRegExp).optional(),
+  "artifactVersion": zod.literal(2).optional(),
+  "sourceRevisionKind": zod.enum(['workspace_tree', 'git_commit']).optional(),
+  "sourceRevisionSource": zod.enum(['delivery_tree_digest_v1', 'git_commit_object_id']).optional(),
+  "workspaceIdentity": zod.string().regex(getProjectExecutionProofGraphResponseTwoGraphNodesItemWorkspaceIdentityRegExp).optional(),
+  "episodeId": zod.string().max(getProjectExecutionProofGraphResponseTwoGraphNodesItemEpisodeIdMax).optional(),
+  "actionId": zod.string().max(getProjectExecutionProofGraphResponseTwoGraphNodesItemActionIdMax).optional(),
+  "actionEventId": zod.string().max(getProjectExecutionProofGraphResponseTwoGraphNodesItemActionEventIdMax).optional(),
+  "committedEventId": zod.string().max(getProjectExecutionProofGraphResponseTwoGraphNodesItemCommittedEventIdMax).optional(),
+  "effectId": zod.string().max(getProjectExecutionProofGraphResponseTwoGraphNodesItemEffectIdMax).optional(),
+  "actionHash": zod.string().regex(getProjectExecutionProofGraphResponseTwoGraphNodesItemActionHashRegExp).optional(),
+  "effectContractHash": zod.string().regex(getProjectExecutionProofGraphResponseTwoGraphNodesItemEffectContractHashRegExp).optional(),
+  "environmentRevision": zod.string().regex(getProjectExecutionProofGraphResponseTwoGraphNodesItemEnvironmentRevisionRegExp).optional(),
+  "beforeObservationIds": zod.array(zod.string().max(getProjectExecutionProofGraphResponseTwoGraphNodesItemBeforeObservationIdsItemMax)).min(getProjectExecutionProofGraphResponseTwoGraphNodesItemBeforeObservationIdsMin).max(getProjectExecutionProofGraphResponseTwoGraphNodesItemBeforeObservationIdsMax).optional(),
+  "afterObservationIds": zod.array(zod.string().max(getProjectExecutionProofGraphResponseTwoGraphNodesItemAfterObservationIdsItemMax)).min(getProjectExecutionProofGraphResponseTwoGraphNodesItemAfterObservationIdsMin).max(getProjectExecutionProofGraphResponseTwoGraphNodesItemAfterObservationIdsMax).optional(),
+  "state": zod.enum(['completed']).optional(),
+  "reasonCode": zod.enum(['CANONICAL_PROOF_PROVEN']).optional(),
+  "eventId": zod.string().max(getProjectExecutionProofGraphResponseTwoGraphNodesItemEventIdMax).optional(),
+  "eventType": zod.enum(['ACTION_REQUESTED', 'ACTION_COMMITTED']).optional(),
+  "payloadHash": zod.string().regex(getProjectExecutionProofGraphResponseTwoGraphNodesItemPayloadHashRegExp).optional(),
+  "capabilityId": zod.enum(['runtime.start']).optional(),
+  "observationId": zod.string().max(getProjectExecutionProofGraphResponseTwoGraphNodesItemObservationIdMax).optional(),
+  "observationRole": zod.enum(['before', 'after']).optional(),
+  "predicate": zod.enum(['runtime.before_state', 'runtime.after_state', 'runtime.status', 'runtime.child_process_environment', 'serving.status']).optional(),
+  "provenance": zod.enum(['DIRECT_OBSERVATION']).optional(),
+  "completeness": zod.enum(['complete']).optional(),
+  "freshness": zod.enum(['fresh', 'stale', 'unknown']).optional(),
+  "environmentFreshness": zod.enum(['fresh', 'stale', 'unknown']).optional(),
+  "valueHash": zod.string().regex(getProjectExecutionProofGraphResponseTwoGraphNodesItemValueHashRegExp).optional()
+})).min(1).max(getProjectExecutionProofGraphResponseTwoGraphNodesMax),
+  "edges": zod.array(zod.object({
+  "id": zod.string().max(getProjectExecutionProofGraphResponseTwoGraphEdgesItemIdMax),
+  "from": zod.string().max(getProjectExecutionProofGraphResponseTwoGraphEdgesItemFromMax),
+  "to": zod.string().max(getProjectExecutionProofGraphResponseTwoGraphEdgesItemToMax),
+  "type": zod.enum(['EXECUTION_HAS_ACCEPTANCE', 'ACCEPTANCE_HAS_SNAPSHOT', 'EXECUTION_HAS_EPISODE', 'EPISODE_HAS_EVENT', 'EPISODE_HAS_EFFECT_BUNDLE', 'BUNDLE_HAS_EFFECT', 'EFFECT_HAS_OBSERVATION', 'SNAPSHOT_HAS_ARTIFACT', 'ARTIFACT_BINDS_EVENT', 'ARTIFACT_BINDS_EFFECT_BUNDLE', 'ARTIFACT_BINDS_EFFECT', 'ARTIFACT_BINDS_OBSERVATION']),
+  "role": zod.enum(['before', 'after']).optional()
+})).max(getProjectExecutionProofGraphResponseTwoGraphEdgesMax)
+}),
+  "canonicalProof": zod.object({
+  "accepted": zod.literal(true),
+  "verdict": zod.enum(['PROVEN']),
+  "executionId": zod.string().max(getProjectExecutionProofGraphResponseTwoCanonicalProofExecutionIdMax),
+  "acceptanceId": zod.string().max(getProjectExecutionProofGraphResponseTwoCanonicalProofAcceptanceIdMax),
+  "evidenceSnapshotId": zod.string().max(getProjectExecutionProofGraphResponseTwoCanonicalProofEvidenceSnapshotIdMax),
+  "attempt": zod.number().int().min(getProjectExecutionProofGraphResponseTwoCanonicalProofAttemptMin).max(getProjectExecutionProofGraphResponseTwoCanonicalProofAttemptMax),
+  "operationId": zod.string().max(getProjectExecutionProofGraphResponseTwoCanonicalProofOperationIdMax),
+  "sourceRevision": zod.string().max(getProjectExecutionProofGraphResponseTwoCanonicalProofSourceRevisionMax),
+  "candidateIdentity": zod.string().regex(getProjectExecutionProofGraphResponseTwoCanonicalProofCandidateIdentityRegExp).nullable()
+}),
+  "structuralValidation": zod.object({
+  "validatorVersion": zod.enum(['execution-proof-graph-validator.v1']),
+  "authority": zod.enum(['STRUCTURE_ONLY_NO_EXECUTION_AUTHORITY']),
+  "verdict": zod.enum(['PASS', 'FAIL']),
+  "graphHash": zod.string().regex(getProjectExecutionProofGraphResponseTwoStructuralValidationGraphHashRegExp).nullable(),
+  "violations": zod.array(zod.object({
+  "code": zod.enum(['SCHEMA_INVALID', 'GRAPH_ID_MISMATCH', 'NODE_ID_MISMATCH', 'DUPLICATE_NODE', 'IDENTITY_MISMATCH', 'REVISION_MISMATCH', 'STALE_EVIDENCE', 'MISSING_REQUIRED_NODE', 'DUPLICATE_REQUIRED_NODE', 'OBSERVATION_SET_MISMATCH', 'DUPLICATE_EDGE', 'DANGLING_EDGE', 'EDGE_ID_MISMATCH', 'EDGE_TYPE_MISMATCH', 'MISSING_REQUIRED_EDGE', 'UNEXPECTED_EDGE']),
+  "path": zod.array(zod.string().max(getProjectExecutionProofGraphResponseTwoStructuralValidationViolationsItemPathItemMax)),
+  "edgeIds": zod.array(zod.string().max(getProjectExecutionProofGraphResponseTwoStructuralValidationViolationsItemEdgeIdsItemMax))
+}))
+})
+})])
+
+
+/**
  * @summary List registered browser validation profiles for a project
  */
 export const ListBrowserValidationProfilesParams = zod.object({

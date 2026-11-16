@@ -348,16 +348,18 @@ async function heartbeatTaskExecution(params: {
 }): Promise<TaskExecutionHeartbeatFailure | null> {
   try {
     await db.transaction(async (tx) => {
-      const now = new Date();
-      const leaseUntil = new Date(now.getTime() + AI_EXECUTION_LEASE_MS);
       const [execution] = await tx.update(aiExecutionsTable)
-        .set({ lastHeartbeatAt: now, leaseUntil, updatedAt: now })
+        .set({
+          lastHeartbeatAt: databaseNow(),
+          leaseUntil: databaseLeaseUntil(AI_EXECUTION_LEASE_MS),
+          updatedAt: databaseNow(),
+        })
         .where(and(
           eq(aiExecutionsTable.id, params.executionId),
           eq(aiExecutionsTable.attempt, params.expectedAttempt),
           eq(aiExecutionsTable.workerId, params.workerId),
           eq(aiExecutionsTable.status, "running"),
-          gt(aiExecutionsTable.leaseUntil, now),
+          gt(aiExecutionsTable.leaseUntil, databaseNow()),
         ))
         .returning({ id: aiExecutionsTable.id });
       if (!execution) {
@@ -4910,12 +4912,8 @@ export async function executeTaskLifecycle(params: {
         .map(([key, value]) => [key, typeof value === "string" ? safeText(value, 240) : value]),
     );
     await db.transaction(async (tx) => {
-      const now = new Date();
       const [ownedExecution] = await tx
-        .select({
-          id: aiExecutionsTable.id,
-          leaseUntil: aiExecutionsTable.leaseUntil,
-        })
+        .select({ id: aiExecutionsTable.id })
         .from(aiExecutionsTable)
         .where(and(
           eq(aiExecutionsTable.id, executionId),
@@ -4923,7 +4921,7 @@ export async function executeTaskLifecycle(params: {
           eq(aiExecutionsTable.attempt, executionAttempt),
           eq(aiExecutionsTable.workerId, workerId),
           eq(aiExecutionsTable.status, "running"),
-          gt(aiExecutionsTable.leaseUntil, now),
+          gt(aiExecutionsTable.leaseUntil, databaseNow()),
         ))
         .for("update")
         .limit(1);
@@ -4945,13 +4943,19 @@ export async function executeTaskLifecycle(params: {
         .limit(1);
       if (!ownedTask) return;
 
-      const writeAt = new Date();
-      if (
-        !ownedExecution.leaseUntil
-        || ownedExecution.leaseUntil <= writeAt
-      ) {
-        return;
-      }
+      const [stillOwnedExecution] = await tx
+        .select({ id: aiExecutionsTable.id })
+        .from(aiExecutionsTable)
+        .where(and(
+          eq(aiExecutionsTable.id, executionId),
+          eq(aiExecutionsTable.linkedTaskId, before.id),
+          eq(aiExecutionsTable.attempt, executionAttempt),
+          eq(aiExecutionsTable.workerId, workerId),
+          eq(aiExecutionsTable.status, "running"),
+          gt(aiExecutionsTable.leaseUntil, databaseNow()),
+        ))
+        .limit(1);
+      if (!stillOwnedExecution) return;
 
       await tx.insert(taskLogsTable).values({
         id: randomUUID(), taskId: before.id, level, message: safeText(message, 500),
