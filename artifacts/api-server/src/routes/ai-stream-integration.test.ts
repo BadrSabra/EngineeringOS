@@ -5028,6 +5028,13 @@ describe("Implementation Plan Build handoff", () => {
       stderr: "",
       failedTests: [],
       changedFiles: ["src/non-build.ts"],
+      evidence: {
+        evidenceId: "non-build-validation",
+        observedAt: new Date().toISOString(),
+        artifactRef: "non-build-validation",
+        operationId,
+        projectRevision,
+      },
       detail: "Validation passed in the integration fixture.",
     });
     const apply = await request(app)
