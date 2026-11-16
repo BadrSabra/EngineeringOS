@@ -953,6 +953,9 @@ describe("runtime.start transition retry scheduling", () => {
     const [executionIdentity] = await db.select({
       operationId: aiExecutionsTable.operationId,
       correlationId: aiExecutionsTable.correlationId,
+      userId: aiExecutionsTable.userId,
+      workerId: aiExecutionsTable.workerId,
+      leaseUntil: aiExecutionsTable.leaseUntil,
     }).from(aiExecutionsTable)
       .where(eq(aiExecutionsTable.id, fixture.executionId));
     if (!executionIdentity?.operationId || !executionIdentity.correlationId) {
@@ -998,6 +1001,7 @@ describe("runtime.start transition retry scheduling", () => {
       candidateTreeHash,
       promotedTreeHash: candidateTreeHash,
       changeSetHash,
+      treeDigestVersion: DELIVERY_TREE_DIGEST_VERSION,
       createdAt: now,
     });
     await db.insert(aiMissionsTable).values({
@@ -1065,7 +1069,8 @@ describe("runtime.start transition retry scheduling", () => {
       workspaceRoot: rootPath,
       workspaceRevision: baseRevision,
       validationTargetPaths: ["src/target.ts"],
-      applyChangesProofMode: APPLY_CHANGES_PROOF_MODE,
+      changeSetHash,
+      applyChangesProofMode: APPLY_CHANGES_PROOF_MODE_V2,
       proofRequired: true,
       effectRequired: true,
       turnIntent: "APPLY_CHANGES",
