@@ -60,7 +60,10 @@ import * as taskExecutionService from "../lib/task-execution-service.js";
 import { insertTaskAutoExecutionIntent } from "../lib/task-auto-execution-outbox.js";
 import { heavyJobQueue } from "../lib/job-queue.js";
 import * as aiTaskRoutes from "./ai/tasks.js";
-import { reconcileInterruptedApplyChanges } from "../lib/apply-change-reconciliation.js";
+import {
+  reconcileInterruptedApplyChanges,
+  resolveApplyAttemptIdFromRequest,
+} from "../lib/apply-change-reconciliation.js";
 import {
   canCreateProposal,
   collectPreviouslyAcceptedPlanningEvidence,
@@ -93,6 +96,28 @@ import {
   hashDeliveryTree,
   DELIVERY_TREE_DIGEST_VERSION,
 } from "../lib/delivery-workspace.js";
+
+describe("Apply recovery attempt identity compatibility", () => {
+  it("uses the separate V2 applyAttemptId when the recovery path fails", () => {
+    expect(resolveApplyAttemptIdFromRequest({
+      operationId: "operation-1",
+      applyAttemptId: "attempt-2",
+    }, "fallback-execution")).toBe("attempt-2");
+  });
+
+  it("retains the historical operationId-as-attempt fallback", () => {
+    expect(resolveApplyAttemptIdFromRequest({
+      operationId: "legacy-attempt-1",
+    }, "fallback-execution")).toBe("legacy-attempt-1");
+  });
+
+  it("uses the execution fallback for a malformed or missing request", () => {
+    expect(resolveApplyAttemptIdFromRequest("{malformed", "fallback-execution"))
+      .toBe("fallback-execution");
+    expect(resolveApplyAttemptIdFromRequest(null, "fallback-execution"))
+      .toBe("fallback-execution");
+  });
+});
 
 describe("implementation planning evidence continuity", () => {
   it("reuses accepted evidence only when its source revision matches", () => {
