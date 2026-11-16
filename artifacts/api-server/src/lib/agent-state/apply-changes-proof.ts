@@ -245,7 +245,10 @@ async function deriveApplyChangesProofV2Evidence(input: {
   const authorizationChecks = preconditions.checks.filter((check) =>
     check.id === "PROJECT_OWNER_MATCHED" || check.id === "PROPOSAL_ELIGIBLE"
   );
-  if (authorizationChecks.length !== 2) return undefined;
+  if (
+    authorizationChecks.length !== 2
+    || authorizationChecks[0]!.reference.id !== authorizationChecks[1]!.reference.id
+  ) return undefined;
   const authorizationPayload = payloadFor(
     authorizationChecks[0]!.reference.id,
     "APPLY_AUTHORIZATION_DECISION",
@@ -276,6 +279,7 @@ async function deriveApplyChangesProofV2Evidence(input: {
     || subsetPayload.proposalChangesHash !== authorization.proposalChangesHash
     || subsetPayload.approvedPathsHash !== authorization.approvedPathsHash
     || subsetPayload.changeSetHash !== proposal.changeSetHash
+    || subsetPayload.submittedChangeSetHash !== proposal.changeSetHash
     || subsetPayload.subsetAuthorized !== true
   ) return undefined;
 
@@ -311,7 +315,14 @@ async function deriveApplyChangesProofV2Evidence(input: {
     || validationPayload.treeDigestVersion !== proposal.treeDigestVersion
   ) return undefined;
 
-  const stabilityCheck = preconditions.checks.find((check) => check.id === "CANDIDATE_STABLE");
+  const stabilityChecks = preconditions.checks.filter((check) =>
+    check.id === "CANDIDATE_STABLE" || check.id === "LIVE_ROOT_BASE_MATCHED"
+  );
+  if (
+    stabilityChecks.length !== 2
+    || stabilityChecks[0]!.reference.id !== stabilityChecks[1]!.reference.id
+  ) return undefined;
+  const stabilityCheck = stabilityChecks[0];
   const stabilityPayload = stabilityCheck
     ? payloadFor(stabilityCheck.reference.id, "APPLY_CANDIDATE_STABLE")
     : undefined;
@@ -351,8 +362,10 @@ async function deriveApplyChangesProofV2Evidence(input: {
     || !Number.isFinite(leaseUntil)
     || !Number.isFinite(leaseObservedAt)
     || !Number.isFinite(requestedEventAt)
+    || leaseObservedAt > leaseUntil
     || leaseObservedAt > requestedEventAt
     || requestedEventAt > leaseUntil
+    || (execution.status === "running" && execution.workerId !== leasePayload.workerId)
     || actionEvent?.actionId !== actionId
   ) return undefined;
 
