@@ -1442,6 +1442,9 @@ describe("runtime.start transition retry scheduling", () => {
       episodeId: fixture.episodeId,
       workerId: fixture.workerId,
       eventType: "ACTION_REQUESTED",
+      actorType: "worker",
+      actorId: fixture.workerId,
+      correlationId: executionIdentity.operationId,
       payload: {
         action: applyAction,
         actionId: applyActionId,
@@ -1583,10 +1586,13 @@ describe("runtime.start transition retry scheduling", () => {
       .where(eq(aiApplyJournalTable.id, validationJournalRef.id)).limit(1);
     if (!validationJournalRow) throw new Error("Apply validation Journal row is missing.");
     const originalValidationPayload = validationJournalRow.payload;
+    const originalValidationReceipts = Array.isArray(originalValidationPayload.validationReceipts)
+      ? originalValidationPayload.validationReceipts
+      : [];
     const validationJournalPayload = {
       ...originalValidationPayload,
       validationReceipts: [{
-        ...(originalValidationPayload.validationReceipts?.[0] as Record<string, unknown>),
+        ...(originalValidationReceipts[0] as Record<string, unknown> | undefined),
         status: "unavailable",
       }],
     };
