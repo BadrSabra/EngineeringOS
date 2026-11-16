@@ -18109,6 +18109,7 @@ async function applyChangesHandler(req: Request, res: Response) {
       const candidateStabilityJournal = await appendApplyJournal(
         "APPLY_CANDIDATE_STABLE",
         {
+          observedAt: new Date().toISOString(),
           candidateHashAfterValidation,
           candidateHashBeforePromotion,
           liveRootHashBeforePromotion,
