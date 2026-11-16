@@ -55,6 +55,7 @@ jobs:
               - 'artifacts/dashboard/src/pages/ai-chat/delivery-proof.tsx'
               - 'artifacts/dashboard/src/pages/ai-chat/evidence-panels.tsx'
               - 'artifacts/dashboard/src/pages/ai-chat/execution-proof.tsx'
+              - 'artifacts/dashboard/src/pages/ai-chat/execution-proof-graph-panel.tsx'
               - 'artifacts/dashboard/src/pages/ai-chat/execution-trace.tsx'
               - 'artifacts/dashboard/src/pages/ai-chat/forensic-evidence-card.tsx'
               - 'artifacts/dashboard/src/pages/ai-chat/message-bubble.tsx'

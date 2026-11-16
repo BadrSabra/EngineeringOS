@@ -16,6 +16,7 @@
     "artifacts/dashboard/src/pages/ai-chat/delivery-proof.tsx": "trigger",
     "artifacts/dashboard/src/pages/ai-chat/evidence-panels.tsx": "trigger",
     "artifacts/dashboard/src/pages/ai-chat/execution-proof.tsx": "trigger",
+    "artifacts/dashboard/src/pages/ai-chat/execution-proof-graph-panel.tsx": "trigger",
     "artifacts/dashboard/src/pages/ai-chat/execution-trace.tsx": "trigger",
     "artifacts/dashboard/src/pages/ai-chat/forensic-evidence-card.tsx": "trigger",
     "artifacts/dashboard/src/pages/ai-chat/message-bubble.tsx": "trigger",
