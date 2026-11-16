@@ -1138,7 +1138,11 @@ export function parseExecutionRequest(raw: string): AiExecutionRequestEnvelope |
         || typeof value.operationId !== "string"
         || !value.operationId.trim()
         || (value.applyChangesProofMode === APPLY_CHANGES_PROOF_MODE_V2
-          && (typeof value.applyAttemptId !== "string" || !value.applyAttemptId.trim()))
+          && (
+            typeof value.applyAttemptId !== "string"
+            || !value.applyAttemptId.trim()
+            || value.applyAttemptId === value.operationId
+          ))
         || typeof value.workspaceRoot !== "string"
         || !value.workspaceRoot.trim()
         || typeof value.workspaceRevision !== "string"
