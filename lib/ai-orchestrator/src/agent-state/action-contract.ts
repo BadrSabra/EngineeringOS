@@ -88,7 +88,7 @@ export const ApplyAuthorizationDecisionSchema = boundedContractSchema(
     decisionHash: revisionDigestSchema,
   }).superRefine((decision, ctx) => {
     const { decisionHash, ...body } = decision;
-    if (canonicalJsonHash(body) !== decisionHash) {
+    if (canonicalJsonHash(body as Parameters<typeof canonicalJsonHash>[0]) !== decisionHash) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
         path: ["decisionHash"],
@@ -112,7 +112,7 @@ export function buildApplyAuthorizationDecision(
 ): ApplyAuthorizationDecision {
   return ApplyAuthorizationDecisionSchema.parse({
     ...input,
-    decisionHash: canonicalJsonHash(input),
+    decisionHash: canonicalJsonHash(input as Parameters<typeof canonicalJsonHash>[0]),
   });
 }
 
@@ -147,63 +147,62 @@ const applyPreconditionReceiptBodySchema = z.object({
   planRevision: revisionDigestSchema.optional(),
   parentWorldRevision: revisionDigestSchema.optional(),
   checks: z.array(ApplyPreconditionCheckSchema).min(7).max(8),
-}).strict().superRefine((receipt, ctx) => {
-  const ids = receipt.checks.map((check) => check.id);
-  if (new Set(ids).size !== ids.length) {
-    ctx.addIssue({
-      code: z.ZodIssueCode.custom,
-      path: ["checks"],
-      message: "precondition check IDs must be unique",
-    });
-  }
-  const required = [
-    "PROJECT_OWNER_MATCHED",
-    "PROPOSAL_ELIGIBLE",
-    "EXACT_APPROVED_SUBSET",
-    "CANDIDATE_VALIDATION_PASSED",
-    "CANDIDATE_STABLE",
-    "LIVE_ROOT_BASE_MATCHED",
-    "EXECUTION_LEASE_OWNED",
-  ] as const;
-  for (const id of required) {
-    if (!ids.includes(id)) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        path: ["checks"],
-        message: `missing required precondition check: ${id}`,
-      });
-    }
-  }
-  const hasMissionBinding = receipt.planRevision !== undefined
-    || receipt.parentWorldRevision !== undefined;
-  if (hasMissionBinding) {
-    if (!receipt.planRevision || !receipt.parentWorldRevision
-      || !ids.includes("MISSION_PARENT_SNAPSHOT_BOUND")) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        path: ["checks"],
-        message: "Mission Apply requires a bound parent snapshot precondition",
-      });
-    }
-  } else if (ids.includes("MISSION_PARENT_SNAPSHOT_BOUND")) {
-    ctx.addIssue({
-      code: z.ZodIssueCode.custom,
-      path: ["checks"],
-      message: "Mission parent precondition requires plan and parent World revisions",
-    });
-  }
-});
+}).strict();
 
 export const ApplyPreconditionReceiptSchema = boundedContractSchema(
   applyPreconditionReceiptBodySchema.extend({
     receiptHash: revisionDigestSchema,
   }).superRefine((receipt, ctx) => {
     const { receiptHash, ...body } = receipt;
-    if (canonicalJsonHash(body) !== receiptHash) {
+    if (canonicalJsonHash(body as Parameters<typeof canonicalJsonHash>[0]) !== receiptHash) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
         path: ["receiptHash"],
         message: "receiptHash must match the canonical precondition receipt",
+      });
+    }
+    const ids = receipt.checks.map((check) => check.id);
+    if (new Set(ids).size !== ids.length) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["checks"],
+        message: "precondition check IDs must be unique",
+      });
+    }
+    const required = [
+      "PROJECT_OWNER_MATCHED",
+      "PROPOSAL_ELIGIBLE",
+      "EXACT_APPROVED_SUBSET",
+      "CANDIDATE_VALIDATION_PASSED",
+      "CANDIDATE_STABLE",
+      "LIVE_ROOT_BASE_MATCHED",
+      "EXECUTION_LEASE_OWNED",
+    ] as const;
+    for (const id of required) {
+      if (!ids.includes(id)) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["checks"],
+          message: `missing required precondition check: ${id}`,
+        });
+      }
+    }
+    const hasMissionBinding = receipt.planRevision !== undefined
+      || receipt.parentWorldRevision !== undefined;
+    if (hasMissionBinding) {
+      if (!receipt.planRevision || !receipt.parentWorldRevision
+        || !ids.includes("MISSION_PARENT_SNAPSHOT_BOUND")) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["checks"],
+          message: "Mission Apply requires a bound parent snapshot precondition",
+        });
+      }
+    } else if (ids.includes("MISSION_PARENT_SNAPSHOT_BOUND")) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["checks"],
+        message: "Mission parent precondition requires plan and parent World revisions",
       });
     }
   }),
@@ -216,7 +215,7 @@ export function buildApplyPreconditionReceipt(
 ): ApplyPreconditionReceipt {
   return ApplyPreconditionReceiptSchema.parse({
     ...input,
-    receiptHash: canonicalJsonHash(input),
+    receiptHash: canonicalJsonHash(input as Parameters<typeof canonicalJsonHash>[0]),
   });
 }
 
