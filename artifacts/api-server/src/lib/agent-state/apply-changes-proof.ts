@@ -174,6 +174,8 @@ async function deriveApplyChangesProofV2Evidence(input: {
       proposalChanges as Parameters<typeof canonicalJsonHash>[0],
     )
     || authorization.changeSetHash !== proposal.changeSetHash
+    || (request.applyChangesProofMode === APPLY_CHANGES_PROOF_MODE_V2
+      && request.changeSetHash !== authorization.changeSetHash)
     || preconditions.actionId !== actionId
     || preconditions.executionId !== execution.id
     || preconditions.attempt !== execution.attempt
@@ -347,7 +349,6 @@ async function deriveApplyChangesProofV2Evidence(input: {
     || leaseObservedAt > requestedEventAt
     || requestedEventAt > leaseUntil
     || actionEvent?.actionId !== actionId
-    || execution.workerId !== leasePayload.workerId
   ) return undefined;
 
   if (worldIntent) {
