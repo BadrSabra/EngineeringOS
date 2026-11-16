@@ -1639,6 +1639,34 @@ describe("runtime.start transition retry scheduling", () => {
       .resolves.toMatchObject({ accepted: false });
     await replaceActionPayload(originalActionPayload);
 
+    // A Mission-linked Execution cannot downgrade to the route-only seven-check
+    // contract by removing both its immutable parent intent and receipt binding.
+    const missionlessChecks = originalPreconditionReceipt.checks
+      .filter((check) => check.id !== "MISSION_PARENT_SNAPSHOT_BOUND");
+    const {
+      receiptHash: _oldParentReceiptHash,
+      planRevision: _oldPlanRevision,
+      parentWorldRevision: _oldParentWorldRevision,
+      ...missionlessReceiptBody
+    } = originalPreconditionReceipt;
+    const missionlessReceiptContent = {
+      ...missionlessReceiptBody,
+      checks: missionlessChecks,
+    };
+    const missionlessPreconditionReceipt = {
+      ...missionlessReceiptContent,
+      receiptHash: canonicalJsonHash(
+        missionlessReceiptContent as Parameters<typeof canonicalJsonHash>[0],
+      ),
+    };
+    const actionPayloadWithoutMissionParent = { ...originalActionPayload };
+    delete actionPayloadWithoutMissionParent.worldTransitionIntent;
+    actionPayloadWithoutMissionParent.preconditionReceipt = missionlessPreconditionReceipt;
+    await replaceActionPayload(actionPayloadWithoutMissionParent);
+    await expect(finalizeExecutionAcceptance(rejectionInput("mission-parent-snapshot-missing")))
+      .resolves.toMatchObject({ accepted: false });
+    await replaceActionPayload(originalActionPayload);
+
     // A stale/unavailable validation receipt still fails when every enclosing
     // content hash is made internally consistent.
     const [validationJournalRow] = await db.select().from(aiApplyJournalTable)
