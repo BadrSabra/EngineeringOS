@@ -353,6 +353,7 @@ describe("versioned Apply execution request compatibility", () => {
     const parsedV2 = parseExecutionRequest(JSON.stringify({
       ...legacyV1Request,
       applyChangesProofMode: "apply_changes_v2",
+      applyAttemptId: "apply-attempt-1",
       changeSetHash: "b".repeat(64),
     }));
     expect(parsedV2?.applyChangesProofMode).toBe("apply_changes_v2");
@@ -360,6 +361,12 @@ describe("versioned Apply execution request compatibility", () => {
     expect(parseExecutionRequest(JSON.stringify({
       ...legacyV1Request,
       applyChangesProofMode: "apply_changes_v2",
+    }))).toBeUndefined();
+    expect(parseExecutionRequest(JSON.stringify({
+      ...legacyV1Request,
+      applyChangesProofMode: "apply_changes_v2",
+      changeSetHash: "b".repeat(64),
+      applyAttemptId: "operation-1",
     }))).toBeUndefined();
   });
 });
