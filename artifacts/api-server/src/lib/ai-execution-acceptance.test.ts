@@ -100,6 +100,112 @@ describe("server-owned execution acceptance", () => {
     expect(snapshot.artifacts).toHaveLength(0);
   });
 
+  it("retains legacy Apply v1 evidence artifacts", () => {
+    const candidateTreeHash = "b".repeat(64);
+    const artifact: EvidenceArtifactInput = {
+      kind: "apply_changes",
+      version: 1,
+      executionId: "execution-1",
+      attempt: 0,
+      operationId: "apply-attempt-1",
+      proposalId: "proposal-1",
+      proposalOperationId: "operation-1",
+      sourceRevision: "revision-1",
+      candidateIdentity: `proposal-1:${candidateTreeHash}`,
+      baseTreeHash: "a".repeat(64),
+      candidateTreeHash,
+      changeSetHash: "c".repeat(64),
+      episodeId: "episode-1",
+      actionId: "action-1",
+      actionEventId: "action-event-1",
+      committedEventId: "committed-event-1",
+      effectBundleId: "effect-bundle-1",
+      effectId: "effect-1",
+      actionHash: "d".repeat(64),
+      effectContractHash: "e".repeat(64),
+      beforeObservationIds: ["before-1"],
+      afterObservationIds: ["after-1"],
+    };
+    const snapshot = normalizeEvidenceSnapshot({
+      required: true,
+      sourceEvidenceRequired: false,
+      verdict: "PROVEN",
+      artifacts: [artifact],
+    });
+
+    expect(snapshot.complete).toBe(true);
+    expect(snapshot.artifacts).toContainEqual(artifact);
+  });
+
+  it("retains Apply v2 authorization and Journal provenance and rejects malformed bindings", () => {
+    const candidateTreeHash = "b".repeat(64);
+    const artifact: EvidenceArtifactInput = {
+      kind: "apply_changes",
+      version: 2,
+      executionId: "execution-1",
+      attempt: 3,
+      operationId: "apply-attempt-3",
+      proposalId: "proposal-1",
+      proposalOperationId: "operation-1",
+      sourceRevision: "revision-1",
+      candidateIdentity: `proposal-1:${candidateTreeHash}`,
+      baseTreeHash: "a".repeat(64),
+      candidateTreeHash,
+      changeSetHash: "c".repeat(64),
+      episodeId: "episode-1",
+      actionId: "action-1",
+      actionEventId: "action-event-1",
+      committedEventId: "committed-event-1",
+      effectBundleId: "effect-bundle-1",
+      effectId: "effect-1",
+      actionHash: "d".repeat(64),
+      effectContractHash: "e".repeat(64),
+      beforeObservationIds: ["before-1"],
+      afterObservationIds: ["after-1"],
+      authorizationDecisionHash: "f".repeat(64),
+      preconditionReceiptHash: "0".repeat(64),
+      preconditionJournalIds: [
+        "journal-authorization",
+        "journal-preconditions",
+        "journal-subset",
+        "journal-validation",
+      ],
+    };
+    const snapshot = normalizeEvidenceSnapshot({
+      required: true,
+      sourceEvidenceRequired: false,
+      verdict: "PROVEN",
+      artifacts: [artifact],
+    });
+
+    expect(snapshot.complete).toBe(true);
+    expect(snapshot.artifacts).toContainEqual(artifact);
+
+    const unsortedJournalIds = normalizeEvidenceSnapshot({
+      required: true,
+      sourceEvidenceRequired: false,
+      verdict: "PROVEN",
+      artifacts: [{
+        ...artifact,
+        preconditionJournalIds: [...artifact.preconditionJournalIds].reverse(),
+      }],
+    });
+    expect(unsortedJournalIds.complete).toBe(false);
+    expect(unsortedJournalIds.artifacts).toHaveLength(0);
+
+    const malformedHash = normalizeEvidenceSnapshot({
+      required: true,
+      sourceEvidenceRequired: false,
+      verdict: "PROVEN",
+      artifacts: [{
+        ...artifact,
+        authorizationDecisionHash: "not-a-digest",
+      }],
+    });
+    expect(malformedHash.complete).toBe(false);
+    expect(malformedHash.artifacts).toHaveLength(0);
+  });
+
   it("retains typed Gate C source-revision provenance and rejects mismatched provenance", () => {
     const sourceRevision = `workspace-tree-v1:${"a".repeat(64)}`;
     const artifact = {
