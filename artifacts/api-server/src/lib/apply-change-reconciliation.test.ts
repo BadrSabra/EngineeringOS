@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   classifyApplyRecoveryTrees,
   matchApplyTransitionForAction,
+  matchesApplyExecutionAttempt,
   resolveApplyJournalAttemptId,
 } from "./apply-change-reconciliation.js";
 
@@ -144,5 +145,48 @@ describe("resolveApplyJournalAttemptId", () => {
       request: {},
       fallbackExecutionId: "execution",
     })).toBe("execution");
+  });
+});
+
+describe("matchesApplyExecutionAttempt", () => {
+  it("accepts a v2 Action attempt distinct from the stable operation ID", () => {
+    expect(matchesApplyExecutionAttempt({
+      actionAttemptId: "apply-attempt",
+      request: {
+        operationId: "stable-operation",
+        applyAttemptId: "apply-attempt",
+      },
+      fallbackExecutionId: "execution",
+    })).toBe(true);
+  });
+
+  it("rejects an Action that incorrectly uses the stable operation ID as its v2 attempt", () => {
+    expect(matchesApplyExecutionAttempt({
+      actionAttemptId: "stable-operation",
+      request: {
+        operationId: "stable-operation",
+        applyAttemptId: "apply-attempt",
+      },
+      fallbackExecutionId: "execution",
+    })).toBe(false);
+  });
+
+  it("preserves the v1 operation ID as the legacy attempt identity", () => {
+    expect(matchesApplyExecutionAttempt({
+      actionAttemptId: "legacy-operation",
+      request: { operationId: "legacy-operation" },
+      fallbackExecutionId: "execution",
+    })).toBe(true);
+  });
+
+  it("fails closed when the Action attempt identity is empty", () => {
+    expect(matchesApplyExecutionAttempt({
+      actionAttemptId: " ",
+      request: {
+        operationId: "stable-operation",
+        applyAttemptId: "apply-attempt",
+      },
+      fallbackExecutionId: "execution",
+    })).toBe(false);
   });
 });
