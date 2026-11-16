@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   classifyApplyRecoveryTrees,
   matchApplyTransitionForAction,
+  resolveApplyJournalAttemptId,
 } from "./apply-change-reconciliation.js";
 
 describe("classifyApplyRecoveryTrees", () => {
@@ -112,5 +113,36 @@ describe("matchApplyTransitionForAction", () => {
       "episode-1",
       "action-apply",
     )).toEqual({ kind: "ambiguous", count: 2 });
+  });
+});
+
+describe("resolveApplyJournalAttemptId", () => {
+  it("prefers the attempt recorded on the durable Action", () => {
+    expect(resolveApplyJournalAttemptId({
+      actionAttemptId: "action-attempt",
+      request: { applyAttemptId: "request-attempt", operationId: "operation" },
+      fallbackExecutionId: "execution",
+    })).toBe("action-attempt");
+  });
+
+  it("uses the persisted v2 applyAttemptId when ACTION_REQUESTED is missing", () => {
+    expect(resolveApplyJournalAttemptId({
+      request: { applyAttemptId: "apply-attempt", operationId: "stable-operation" },
+      fallbackExecutionId: "execution",
+    })).toBe("apply-attempt");
+  });
+
+  it("preserves the v1 operationId fallback", () => {
+    expect(resolveApplyJournalAttemptId({
+      request: { operationId: "legacy-operation" },
+      fallbackExecutionId: "execution",
+    })).toBe("legacy-operation");
+  });
+
+  it("uses the execution identity only when the request has no attempt key", () => {
+    expect(resolveApplyJournalAttemptId({
+      request: {},
+      fallbackExecutionId: "execution",
+    })).toBe("execution");
   });
 });
