@@ -139,6 +139,12 @@ describe("server-owned execution acceptance", () => {
 
   it("retains Apply v2 authorization and Journal provenance and rejects malformed bindings", () => {
     const candidateTreeHash = "b".repeat(64);
+    const journalIds = [
+      "journal-authorization",
+      "journal-preconditions",
+      "journal-subset",
+      "journal-validation",
+    ];
     const artifact: EvidenceArtifactInput = {
       kind: "apply_changes",
       version: 2,
@@ -164,12 +170,7 @@ describe("server-owned execution acceptance", () => {
       afterObservationIds: ["after-1"],
       authorizationDecisionHash: "f".repeat(64),
       preconditionReceiptHash: "0".repeat(64),
-      preconditionJournalIds: [
-        "journal-authorization",
-        "journal-preconditions",
-        "journal-subset",
-        "journal-validation",
-      ],
+      preconditionJournalIds: journalIds,
     };
     const snapshot = normalizeEvidenceSnapshot({
       required: true,
@@ -187,7 +188,7 @@ describe("server-owned execution acceptance", () => {
       verdict: "PROVEN",
       artifacts: [{
         ...artifact,
-        preconditionJournalIds: [...artifact.preconditionJournalIds].reverse(),
+        preconditionJournalIds: [...journalIds].reverse(),
       }],
     });
     expect(unsortedJournalIds.complete).toBe(false);
