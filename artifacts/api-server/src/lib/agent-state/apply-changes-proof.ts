@@ -177,7 +177,10 @@ async function deriveApplyChangesProofV2Evidence(input: {
     )
     || authorization.changeSetHash !== proposal.changeSetHash
     || (request.applyChangesProofMode === APPLY_CHANGES_PROOF_MODE_V2
-      && request.changeSetHash !== authorization.changeSetHash)
+      && (
+        request.changeSetHash !== authorization.changeSetHash
+        || !digest(request.submittedChangeSetHash)
+      ))
     || preconditions.actionId !== actionId
     || preconditions.executionId !== execution.id
     || preconditions.attempt !== execution.attempt
@@ -280,7 +283,7 @@ async function deriveApplyChangesProofV2Evidence(input: {
     || subsetPayload.proposalChangesHash !== authorization.proposalChangesHash
     || subsetPayload.approvedPathsHash !== authorization.approvedPathsHash
     || subsetPayload.changeSetHash !== proposal.changeSetHash
-    || subsetPayload.submittedChangeSetHash !== proposal.changeSetHash
+    || subsetPayload.submittedChangeSetHash !== request.submittedChangeSetHash
     || subsetPayload.subsetAuthorized !== true
   ) return undefined;
 
