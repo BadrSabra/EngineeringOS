@@ -143,6 +143,10 @@ describe("agent effect contract", () => {
   });
 
   it("binds versioned Apply authorization and precondition receipts while preserving legacy events", () => {
+    const applyAction = {
+      ...action,
+      capabilityId: "approved.source-promotion",
+    };
     const authorization = buildApplyAuthorizationDecision({
       schemaVersion: 1,
       decision: "ALLOW",
@@ -200,19 +204,19 @@ describe("agent effect contract", () => {
     expect(ApplyAuthorizationDecisionSchema.safeParse(authorization).success).toBe(true);
     expect(ApplyPreconditionReceiptSchema.safeParse(receipt).success).toBe(true);
     expect(AgentActionRequestedPayloadSchema.safeParse({
-      action,
-      actionId: action.actionId,
-      capabilityId: action.capabilityId,
-      expectedEffects: action.expectedEffects,
+      action: applyAction,
+      actionId: applyAction.actionId,
+      capabilityId: applyAction.capabilityId,
+      expectedEffects: applyAction.expectedEffects,
       worldTransitionIntent: intent,
       authorizationDecision: authorization,
       preconditionReceipt: receipt,
     }).success).toBe(true);
 
     // Old persisted ACTION_REQUESTED payloads remain parseable without v2 receipts.
-    expect(AgentActionRequestedPayloadSchema.safeParse({ action }).success).toBe(true);
+    expect(AgentActionRequestedPayloadSchema.safeParse({ action: applyAction }).success).toBe(true);
     expect(AgentActionRequestedPayloadSchema.safeParse({
-      action,
+      action: applyAction,
       authorizationDecision: authorization,
     }).success).toBe(false);
     expect(ApplyAuthorizationDecisionSchema.safeParse({
