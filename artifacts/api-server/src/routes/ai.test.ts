@@ -9244,12 +9244,17 @@ describe("POST /api/ai/chat/apply-changes", () => {
       expect(await db.select({ id: aiExecutionsTable.id })
         .from(aiExecutionsTable)
         .where(eq(aiExecutionsTable.proposalId, proposalId))).toHaveLength(1);
-      expect(JSON.parse(execution!.request)).toMatchObject({
+      const storedExecutionRequest = JSON.parse(execution!.request);
+      expect(storedExecutionRequest).toMatchObject({
         proofRequired: true,
         effectRequired: true,
         applyChangesProofMode: "apply_changes_v2",
+        operationId,
+        applyAttemptId: expect.any(String),
+        submittedChangeSetHash: expect.stringMatching(/^[a-f0-9]{64}$/),
         changeSetHash: expect.stringMatching(/^[a-f0-9]{64}$/),
       });
+      expect(storedExecutionRequest.applyAttemptId).not.toBe(operationId);
 
       const [acceptance] = await db.select({
         outcome: aiExecutionAcceptancesTable.outcome,
