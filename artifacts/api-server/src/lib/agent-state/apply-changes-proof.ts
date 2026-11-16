@@ -709,6 +709,7 @@ export async function deriveApplyChangesProof(input: {
       requestedEvent: requestedEvents[0]!,
       sourceRevision,
       candidateIdentity,
+      onReject: input.onV2ProofReject,
     });
     if (!v2Evidence) return undefined;
     return { ...baseArtifact, version: 2, ...v2Evidence };
