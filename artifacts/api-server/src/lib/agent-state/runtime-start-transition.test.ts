@@ -1548,6 +1548,62 @@ describe("runtime.start transition retry scheduling", () => {
       };
     };
 
+    const [authorizationJournalRow] = await db.select().from(aiApplyJournalTable)
+      .where(eq(aiApplyJournalTable.id, authorizationJournalRef.id)).limit(1);
+    if (!authorizationJournalRow) throw new Error("Apply authorization Journal row is missing.");
+    const originalAuthorizationJournalPayload = authorizationJournalRow.payload;
+    const authorizationBody = (({ decisionHash: _decisionHash, ...body }) => body)(authorizationDecision);
+    const replaceAuthorizationDecision = async (nextDecision: typeof authorizationDecision) => {
+      const nextJournalPayload = {
+        ...originalAuthorizationJournalPayload,
+        authorizationDecision: nextDecision,
+      };
+      const nextJournalHash = canonicalJsonHash(
+        nextJournalPayload as Parameters<typeof canonicalJsonHash>[0],
+      );
+      await db.update(aiApplyJournalTable).set({ payload: nextJournalPayload })
+        .where(eq(aiApplyJournalTable.id, authorizationJournalRow.id));
+      const nextChecks = originalPreconditionReceipt.checks.map((check) =>
+        check.id === "PROJECT_OWNER_MATCHED" || check.id === "PROPOSAL_ELIGIBLE"
+          ? { ...check, reference: { ...check.reference, contentHash: nextJournalHash } }
+          : check,
+      );
+      await replaceActionPayload({
+        ...originalActionPayload,
+        authorizationDecision: nextDecision,
+        preconditionReceipt: rebindPreconditionReceipt(nextChecks),
+      });
+    };
+
+    // A structurally valid decision for a different actor/project-owner pair
+    // cannot become current authorization by recomputing the inner and outer hashes.
+    const wrongActorDecision = buildApplyAuthorizationDecision({
+      ...authorizationBody,
+      actorUserId: "different-project-owner",
+      projectOwnerId: "different-project-owner",
+    });
+    await replaceAuthorizationDecision(wrongActorDecision);
+    await expect(finalizeExecutionAcceptance(rejectionInput("authorization-identity")))
+      .resolves.toMatchObject({ accepted: false });
+    await db.update(aiApplyJournalTable).set({
+      payload: originalAuthorizationJournalPayload,
+    }).where(eq(aiApplyJournalTable.id, authorizationJournalRow.id));
+    await replaceActionPayload(originalActionPayload);
+
+    // A validly re-hashed authorization for a different path set must not bind
+    // to the actual immutable Execution scope.
+    const wrongPathDecision = buildApplyAuthorizationDecision({
+      ...authorizationBody,
+      approvedPathsHash: canonicalJsonHash(["src/not-approved.ts"]),
+    });
+    await replaceAuthorizationDecision(wrongPathDecision);
+    await expect(finalizeExecutionAcceptance(rejectionInput("authorization-paths")))
+      .resolves.toMatchObject({ accepted: false });
+    await db.update(aiApplyJournalTable).set({
+      payload: originalAuthorizationJournalPayload,
+    }).where(eq(aiApplyJournalTable.id, authorizationJournalRow.id));
+    await replaceActionPayload(originalActionPayload);
+
     // A currently different Proposal revision must invalidate the v2 proof,
     // even when the event, action, and journal rows remain unchanged.
     await db.update(aiChangeProposalsTable).set({ revision: 1 })
