@@ -2219,6 +2219,14 @@ describe("runtime.start transition retry scheduling", () => {
       accepted: true,
       duplicate: true,
     });
+
+    // D2 advances episode.worldRevision to the resulting World State revision.
+    // The original parent remains bound by the immutable Apply Journal intent,
+    // so reloading the already accepted proof must still be idempotently valid.
+    await expect(finalizeExecutionAcceptance(acceptanceInput)).resolves.toMatchObject({
+      accepted: true,
+      duplicate: true,
+    });
     const acceptances = await db.select({
       id: aiExecutionAcceptancesTable.id,
       finalizationKey: aiExecutionAcceptancesTable.finalizationKey,
