@@ -219,7 +219,7 @@ async function deriveApplyChangesProofV2Evidence(input: {
     eq(aiApplyJournalTable.projectId, execution.projectId),
     eq(aiApplyJournalTable.proposalId, proposal.id),
     eq(aiApplyJournalTable.operationId, proposal.operationId ?? ""),
-    eq(aiApplyJournalTable.attemptId, request.operationId as string),
+    eq(aiApplyJournalTable.attemptId, attemptId as string),
     inArray(aiApplyJournalTable.id, referencedJournalIds),
   ));
   if (journalRows.length !== referencedJournalIds.length) return undefined;
@@ -293,9 +293,10 @@ async function deriveApplyChangesProofV2Evidence(input: {
     || subsetPayload.approvedPathsHash !== authorization.approvedPathsHash
     || subsetPayload.changeSetHash !== proposal.changeSetHash
     // This hashes the user's submitted envelope before partial-Hunk rebasing.
-    // The effective candidate hash above intentionally describes the final
-    // materialized bytes and can therefore differ from the submitted hash.
+    // V2 binds the exact server-computed digest in the execution request to
+    // the Journal payload; the candidate hash above describes final bytes.
     || !digest(subsetPayload.submittedChangeSetHash)
+    || (isV2 && subsetPayload.submittedChangeSetHash !== request.submittedChangeSetHash)
     || subsetPayload.subsetAuthorized !== true
   ) return undefined;
 
@@ -477,15 +478,20 @@ export async function deriveApplyChangesProof(input: {
   ) return undefined;
 
   const operationId = execution.operationId;
-  const attemptId = request.operationId;
+  const isV2 = request.applyChangesProofMode === APPLY_CHANGES_PROOF_MODE_V2;
+  const requestedOperationId = request.operationId;
+  const attemptId = isV2 ? request.applyAttemptId : requestedOperationId;
   const proposalId = execution.proposalId;
   const sourceRevision = input.sourceRevision;
   const candidateIdentity = input.candidateIdentity;
   if (
     !operationId
+    || typeof requestedOperationId !== "string"
+    || !requestedOperationId.trim()
+    || requestedOperationId !== operationId
     || typeof attemptId !== "string"
-    || !attemptId
-    || attemptId !== operationId
+    || !attemptId.trim()
+    || (isV2 && !digest(request.submittedChangeSetHash))
     || !proposalId
     || typeof execution.workspaceRoot !== "string"
     || !execution.workspaceRoot
