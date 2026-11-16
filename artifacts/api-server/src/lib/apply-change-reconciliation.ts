@@ -28,6 +28,25 @@ import {
   finalizeApplyChangesTransition,
 } from "./agent-state/runtime-start-transition.js";
 
+type ApplyTransitionActionIdentity = {
+  episodeId: string;
+  actionId: string;
+};
+
+/**
+ * Select only transitions owned by the exact Episode + Action being reconciled.
+ * Other actions may legitimately share the same Execution attempt.
+ */
+export function findApplyTransitionsForAction<T extends ApplyTransitionActionIdentity>(
+  transitions: readonly T[],
+  episodeId: string,
+  actionId: string,
+): T[] {
+  return transitions.filter((transition) =>
+    transition.episodeId === episodeId && transition.actionId === actionId,
+  );
+}
+
 type ApplyRecoveryTreeDecision =
   | "BASE_TREE_PRESENT"
   | "CANDIDATE_TREE_PRESENT"
@@ -664,19 +683,39 @@ export async function reconcileInterruptedApplyChanges(): Promise<{
       ) {
         const actionPayload = asRecord(actionRecord.event.payload);
         const hasSnapshotIntent = Boolean(asRecord(actionPayload?.worldTransitionIntent));
-        const [existingTransition] = await db.select({
-          id: aiWorldTransitionsTable.id,
-        }).from(aiWorldTransitionsTable).where(and(
-          eq(aiWorldTransitionsTable.projectId, proposal.projectId),
-          eq(aiWorldTransitionsTable.executionId, selected.id),
-          eq(aiWorldTransitionsTable.attempt, selected.attempt),
-        )).limit(1);
+        const actionId = asString(actionRecord.action.actionId);
+        const goalId = asString(asRecord(actionRecord.action.scope)?.goalId)
+          ?? asString(asRecord(actionPayload?.worldTransitionIntent)?.goalId);
+        const attemptTransitions = actionId
+          ? await db.select({
+              id: aiWorldTransitionsTable.id,
+              episodeId: aiWorldTransitionsTable.episodeId,
+              actionId: aiWorldTransitionsTable.actionId,
+            }).from(aiWorldTransitionsTable).where(and(
+              eq(aiWorldTransitionsTable.projectId, proposal.projectId),
+              eq(aiWorldTransitionsTable.executionId, selected.id),
+              eq(aiWorldTransitionsTable.attempt, selected.attempt),
+            ))
+          : [];
+        const matchingActionTransitions = actionId
+          ? findApplyTransitionsForAction(attemptTransitions, actionRecord.event.episodeId, actionId)
+          : [];
 
-        if (hasSnapshotIntent && !existingTransition) {
-          const actionId = asString(actionRecord.action.actionId);
-          const goalId = asString(asRecord(actionRecord.action.scope)?.goalId)
-            ?? asString(asRecord(actionPayload?.worldTransitionIntent)?.goalId);
-          if (actionId && goalId) {
+        if (hasSnapshotIntent && matchingActionTransitions.length > 1) {
+          logger.warn({
+            projectId: proposal.projectId,
+            proposalId: proposal.id,
+            executionId: selected.id,
+            attempt: selected.attempt,
+            episodeId: actionRecord.event.episodeId,
+            actionId,
+            matchingTransitionCount: matchingActionTransitions.length,
+          }, "accepted Apply Changes has ambiguous same-action transitions; Mission proof remains blocked");
+          continue;
+        }
+
+        if (hasSnapshotIntent && actionId && goalId && matchingActionTransitions.length === 0) {
+          {
             const recovery = await recoverAcceptedApplyChangesTransition({
               projectId: proposal.projectId,
               executionId: selected.id,
