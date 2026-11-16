@@ -204,7 +204,8 @@ async function deriveApplyChangesProofV2Evidence(input: {
     )
   ) return undefined;
   if (!worldIntent && (
-    preconditions.planRevision !== undefined
+    execution.goalId !== null
+    || preconditions.planRevision !== undefined
     || preconditions.parentWorldRevision !== undefined
     || preconditions.checks.some((check) => check.id === "MISSION_PARENT_SNAPSHOT_BOUND")
   )) return undefined;
