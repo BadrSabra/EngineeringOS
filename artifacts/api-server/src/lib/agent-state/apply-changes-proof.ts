@@ -200,7 +200,9 @@ async function deriveApplyChangesProofV2Evidence(input: {
       || worldIntent.goalId !== execution.goalId
       || worldIntent.goalId !== episode.goalId
       || worldIntent.planRevision !== episode.planRevision
-      || worldIntent.parentWorldRevision !== episode.worldRevision
+      // D2 materialization advances episode.worldRevision to the resulting
+      // World State revision. The original parent revision remains immutable
+      // in the bound APPLY_PARENT_SNAPSHOT Journal entry checked below.
       || preconditions.planRevision !== worldIntent.planRevision
       || preconditions.parentWorldRevision !== worldIntent.parentWorldRevision
     )
