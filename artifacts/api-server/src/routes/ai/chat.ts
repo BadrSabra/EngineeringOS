@@ -16842,6 +16842,21 @@ async function replayAcceptedApplyResponse(params: {
     || !isApplyChangesProofMode(executionRequest.applyChangesProofMode)
   ) return rejectReplay("execution_request_mismatch");
 
+  // Older requests used operationId as the attempt ID. New V2 requests keep
+  // operationId stable across retries and store applyAttemptId separately.
+  const attemptBoundV2 = executionRequest.applyChangesProofMode === APPLY_CHANGES_PROOF_MODE_V2
+    && typeof executionRequest.applyAttemptId === "string";
+  const journalAttemptId = attemptBoundV2
+    ? executionRequest.applyAttemptId as string
+    : execution.operationId;
+  if (attemptBoundV2 && (
+    executionRequest.operationId !== proposal.operationId
+    || executionRequest.applyAttemptId === executionRequest.operationId
+    || typeof executionRequest.submittedChangeSetHash !== "string"
+    || !/^[a-f0-9]{64}$/.test(executionRequest.submittedChangeSetHash)
+    || executionRequest.submittedChangeSetHash !== hashApplySubmittedSubset(changes)
+  )) return rejectReplay("submitted_subset_identity_mismatch");
+
   const [journal] = await db.select({
     operationId: aiApplyJournalTable.operationId,
     attemptId: aiApplyJournalTable.attemptId,
@@ -16849,7 +16864,7 @@ async function replayAcceptedApplyResponse(params: {
     payload: aiApplyJournalTable.payload,
   }).from(aiApplyJournalTable).where(and(
     eq(aiApplyJournalTable.operationId, proposal.operationId),
-    eq(aiApplyJournalTable.attemptId, execution.operationId),
+    eq(aiApplyJournalTable.attemptId, journalAttemptId),
     eq(aiApplyJournalTable.proposalId, proposal.id),
     eq(aiApplyJournalTable.projectId, projectId),
   )).orderBy(desc(aiApplyJournalTable.sequence)).limit(1);
@@ -16868,7 +16883,7 @@ async function replayAcceptedApplyResponse(params: {
   if (
     journal.stage !== "APPLIED"
     || journal.operationId !== proposal.operationId
-    || journal.attemptId !== execution.operationId
+    || journal.attemptId !== journalAttemptId
     || journalFiles.length !== journalPayload.appliedFiles.length
     || JSON.stringify([...journalFiles].sort())
       !== JSON.stringify([...appliedPaths].sort())
@@ -16882,6 +16897,27 @@ async function replayAcceptedApplyResponse(params: {
     || journalPayload.treeDigestVersion !== proposal.treeDigestVersion
     || journalPayload.rollbackFailures.length !== 0
   ) return rejectReplay("apply_journal_identity_mismatch");
+
+  if (attemptBoundV2) {
+    const [subsetJournal] = await db.select({
+      payload: aiApplyJournalTable.payload,
+    }).from(aiApplyJournalTable).where(and(
+      eq(aiApplyJournalTable.operationId, proposal.operationId),
+      eq(aiApplyJournalTable.attemptId, journalAttemptId),
+      eq(aiApplyJournalTable.projectId, projectId),
+      eq(aiApplyJournalTable.proposalId, proposal.id),
+      eq(aiApplyJournalTable.stage, "APPLY_APPROVED_SUBSET"),
+    )).limit(1);
+    const subsetPayloadValue = parseStoredJson(subsetJournal?.payload);
+    const subsetPayload = subsetPayloadValue && typeof subsetPayloadValue === "object"
+      && !Array.isArray(subsetPayloadValue)
+      ? subsetPayloadValue as Record<string, unknown>
+      : undefined;
+    if (
+      subsetPayload?.subsetAuthorized !== true
+      || subsetPayload.submittedChangeSetHash !== executionRequest.submittedChangeSetHash
+    ) return rejectReplay("submitted_subset_journal_mismatch");
+  }
 
   const validationEvidence = parsePublicValidationReceipts(parseStoredJson(proposal.validationEvidence));
   const replayResults = appliedChanges.map((change) => {
