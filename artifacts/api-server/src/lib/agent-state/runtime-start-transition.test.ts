@@ -16,6 +16,7 @@ import {
   aiChatMessagesTable,
   aiChangeProposalsTable,
   aiExecutionAcceptancesTable,
+  aiExecutionEvidenceSnapshotsTable,
   aiExecutionsTable,
   aiGoalDependenciesTable,
   aiGoalsTable,
@@ -1709,6 +1710,29 @@ describe("runtime.start transition retry scheduling", () => {
     // The valid v2 envelope must be accepted after the rejected variants are restored.
     const initialAcceptance = await finalizeExecutionAcceptance(acceptanceInput);
     expect(initialAcceptance).toMatchObject({ accepted: true, duplicate: false });
+    const acceptedSnapshotId = initialAcceptance.acceptance?.evidenceSnapshotId;
+    if (!acceptedSnapshotId) {
+      throw new Error("Accepted Apply proof v2 did not persist an evidence snapshot.");
+    }
+    const [acceptedSnapshot] = await db.select()
+      .from(aiExecutionEvidenceSnapshotsTable)
+      .where(eq(aiExecutionEvidenceSnapshotsTable.id, acceptedSnapshotId))
+      .limit(1);
+    const acceptedApplyArtifact = Array.isArray(acceptedSnapshot?.artifactRefs)
+      ? acceptedSnapshot.artifactRefs.find((artifact) => (
+          artifact && typeof artifact === "object" && !Array.isArray(artifact)
+          && (artifact as Record<string, unknown>).kind === "apply_changes"
+        ))
+      : undefined;
+    expect(acceptedApplyArtifact).toMatchObject({
+      kind: "apply_changes",
+      version: 2,
+      authorizationDecisionHash: authorizationDecision.decisionHash,
+      preconditionReceiptHash: preconditionReceipt.receiptHash,
+      preconditionJournalIds: [...new Set(
+        preconditionReceipt.checks.map((check) => check.reference.id),
+      )].sort(),
+    });
 
     // These are the route's independent direct observations used to reconstruct
     // the transition. The effect proof observations above remain separately bound.
