@@ -95,6 +95,9 @@ import {
   buildProjectFileSources,
   deriveFlightDeckState,
   isProvenValidation,
+  canonicalJsonHash,
+  buildApplyAuthorizationDecision,
+  buildApplyPreconditionReceipt,
   toPublicValidationResult,
   decideMutationRepair,
   createServerCapabilityRegistry,
@@ -188,8 +191,12 @@ import {
 import {
   buildApplyChangeAction,
   buildApplyChangeEffectContract,
+  hashApplySubmittedSubset,
 } from "../../lib/agent-state/apply-change-effect.js";
-import { APPLY_CHANGES_PROOF_MODE } from "../../lib/agent-state/apply-changes-proof.js";
+import {
+  APPLY_CHANGES_PROOF_MODE_V2,
+  isApplyChangesProofMode,
+} from "../../lib/agent-state/apply-changes-proof.js";
 import { verifyAndPersistEffect } from "../../lib/agent-state/effect-observer.js";
 import {
   captureEnvironmentAttestation,
@@ -3886,6 +3893,12 @@ type ApplyJournalStage =
   | "PREFLIGHT_STARTED"
   | "PREFLIGHT_PASSED"
   | "PREFLIGHT_FAILED"
+  | "APPLY_AUTHORIZATION_DECISION"
+  | "APPLY_APPROVED_SUBSET"
+  | "APPLY_VALIDATION_PASSED"
+  | "APPLY_CANDIDATE_STABLE"
+  | "APPLY_EXECUTION_LEASE"
+  | "APPLY_PARENT_SNAPSHOT"
   | "WRITING_STARTED"
   | "WRITTEN"
   | "WRITE_FAILED"
@@ -9112,7 +9125,7 @@ export async function handleChatStream(req: Request, res: Response) {
     intentRequiresEvidence: boolean,
   ): boolean => {
     if (
-      request.applyChangesProofMode === "apply_changes_v1"
+      isApplyChangesProofMode(request.applyChangesProofMode)
       || request.recipeProofMode === "runtime_start_gate_c_v1"
     ) {
       return false;
@@ -16826,7 +16839,7 @@ async function replayAcceptedApplyResponse(params: {
   if (
     executionRequest.turnIntent !== "APPLY_CHANGES"
     || executionRequest.proofRequired !== true
-    || executionRequest.applyChangesProofMode !== APPLY_CHANGES_PROOF_MODE
+    || !isApplyChangesProofMode(executionRequest.applyChangesProofMode)
   ) return rejectReplay("execution_request_mismatch");
 
   const [journal] = await db.select({
@@ -17220,20 +17233,38 @@ async function applyChangesHandler(req: Request, res: Response) {
     // A conflicted proposal is retryable only when its durable journal proves
     // that the previous attempt was blocked before promotion or rolled back
     // cleanly. Missing/unknown journal state is fail-closed.
+    const [latestApplyJournal] = proposal.operationId
+      ? await db
+        .select({ stage: aiApplyJournalTable.stage })
+        .from(aiApplyJournalTable)
+        .where(and(
+          eq(aiApplyJournalTable.operationId, proposal.operationId),
+          eq(aiApplyJournalTable.proposalId, proposal.id),
+        ))
+        .orderBy(desc(aiApplyJournalTable.createdAt), desc(aiApplyJournalTable.sequence))
+        .limit(1)
+      : [];
+    // Journal sequence is scoped to attemptId and restarts for each retry.
+    // Read by creation time first, then sequence within that attempt; ordering
+    // by sequence alone can let an older high-sequence ROLLED_BACK row mask a
+    // newer low-sequence PROMOTION_INTENT after a later process interruption.
+    // The Proposal lifecycle is only a projection, so unresolved Journal state
+    // remains authoritative even when that projection looks retryable.
+    const safelyRetryableJournalStages = new Set([
+      "PREFLIGHT_STARTED",
+      "PREFLIGHT_PASSED",
+      "PREFLIGHT_FAILED",
+      "BLOCKED",
+      "ROLLED_BACK",
+    ]);
+    const journalRequiresValidation = Boolean(
+      latestApplyJournal && !safelyRetryableJournalStages.has(latestApplyJournal.stage),
+    );
     let recoveryRequiresValidation =
-      proposal.lifecycle === "isolated" || proposal.lifecycle === "abandoned";
+      proposal.lifecycle === "isolated"
+      || proposal.lifecycle === "abandoned"
+      || journalRequiresValidation;
     if (proposal.lifecycle === "conflicted") {
-      const [latestApplyJournal] = proposal.operationId
-        ? await db
-          .select({ stage: aiApplyJournalTable.stage })
-          .from(aiApplyJournalTable)
-          .where(and(
-            eq(aiApplyJournalTable.operationId, proposal.operationId),
-            eq(aiApplyJournalTable.proposalId, proposal.id),
-          ))
-          .orderBy(desc(aiApplyJournalTable.sequence))
-          .limit(1)
-        : [];
       recoveryRequiresValidation = !latestApplyJournal
         || !["BLOCKED", "ROLLED_BACK"].includes(latestApplyJournal.stage);
     }
@@ -17415,7 +17446,8 @@ async function applyChangesHandler(req: Request, res: Response) {
     // before touching the user's checkout. This workspace is retained as the
     // recovery/proof artifact; the durable root is only written after all
     // revision, path, and validation gates below pass.
-    const submittedChangeSetHash = hashChangeSet(changes);
+    const submittedChangeSetHash = hashApplySubmittedSubset(changes);
+    const submittedCandidateBytesHash = hashChangeSet(changes);
     const preparedCandidateExists = proposal.operationId && proposal.workspaceRoot
       ? await deliveryWorkspaceExists(proposal.workspaceRoot, proposal.operationId)
       : false;
@@ -17423,7 +17455,7 @@ async function applyChangesHandler(req: Request, res: Response) {
       preparedCandidateExists
       && proposal.operationId
       && proposal.workspaceRoot
-      && proposal.changeSetHash === submittedChangeSetHash
+      && proposal.changeSetHash === submittedCandidateBytesHash
       && proposal.baseTreeHash
       && proposal.candidateTreeHash,
     );
@@ -17470,17 +17502,10 @@ async function applyChangesHandler(req: Request, res: Response) {
     const appendApplyJournal = async (
       stage: ApplyJournalStage,
       payload: Record<string, unknown> = {},
-    ): Promise<void> => {
+    ): Promise<{ id: string; contentHash: string }> => {
       journalSequence += 1;
-      await db.insert(aiApplyJournalTable).values({
-        id: randomUUID(),
-        operationId: applyCorrelationId,
-        attemptId: applyAttemptId,
-        projectId,
-        proposalId,
-        stage,
-        sequence: journalSequence,
-        payload: {
+      const id = randomUUID();
+      const journalPayload = JSON.parse(JSON.stringify({
         operationId: applyCorrelationId,
         baseRevision: deliveryWorkspace.baseRevision,
         baseTreeHash: deliveryWorkspace.baseTreeHash,
@@ -17489,8 +17514,21 @@ async function applyChangesHandler(req: Request, res: Response) {
         changeSetHash: effectiveChangeSetHash,
         promotedTreeHash,
         ...payload,
-        },
+      })) as Record<string, unknown>;
+      const contentHash = canonicalJsonHash(
+        journalPayload as Parameters<typeof canonicalJsonHash>[0],
+      );
+      await db.insert(aiApplyJournalTable).values({
+        id,
+        operationId: applyCorrelationId,
+        attemptId: applyAttemptId,
+        projectId,
+        proposalId,
+        stage,
+        sequence: journalSequence,
+        payload: journalPayload,
       });
+      return { id, contentHash };
     };
     await appendApplyJournal("STARTED", {
       changeCount: changes.length,
@@ -17795,11 +17833,26 @@ async function applyChangesHandler(req: Request, res: Response) {
         automaticPromotionBlockedReason = "Automatic delivery promotion requires every approved change to pass preflight.";
       }
     }
+    const proofValidationReceipts = [...verificationByProfile.values()].flatMap((validation) =>
+      "evidence" in validation ? [publicValidationReceipt(validation)] : [],
+    );
+    const proofValidationReceiptsBound = proofValidationReceipts.length > 0
+      && proofValidationReceipts.length === verificationByProfile.size
+      && proofValidationReceipts.every((receipt) => (
+        receipt.status === "passed"
+        && receipt.evidence.operationId === applyCorrelationId
+        && receipt.evidence.projectRevision === deliveryWorkspace.baseRevision
+        && receipt.evidence.baseTreeHash === deliveryWorkspace.baseTreeHash
+        && receipt.evidence.candidateHash === candidateHash
+        && receipt.evidence.changeSetHash === effectiveChangeSetHash
+        && receipt.evidence.treeDigestVersion === DELIVERY_TREE_DIGEST_VERSION
+      ));
     const validationNeedsReview = candidateChangedDuringValidation
       || candidateChangedBeforePromotion
       || liveRootChangedBeforePromotion
       || preflightFailures.length > 0
       || Boolean(automaticPromotionBlockedReason)
+      || !proofValidationReceiptsBound
       || [...verificationByProfile.values()].some((validation) =>
       validation.status === "failed" ||
       validation.status === "unavailable" ||
@@ -17931,7 +17984,8 @@ async function applyChangesHandler(req: Request, res: Response) {
           projectId,
           executionProfile: "approved_source_promotion",
           turnIntent: "APPLY_CHANGES",
-          operationId: applyAttemptId,
+          operationId: applyCorrelationId,
+          applyAttemptId,
           message: "Server-owned approved source promotion.",
           modelMessage: "Server-owned approved source promotion.",
           workspaceRevision: deliveryWorkspace.baseRevision,
@@ -17939,7 +17993,9 @@ async function applyChangesHandler(req: Request, res: Response) {
           validationTargetPaths: writableChanges.map((change) => change.path),
           proofRequired: true,
           effectRequired: true,
-          applyChangesProofMode: APPLY_CHANGES_PROOF_MODE,
+          applyChangesProofMode: APPLY_CHANGES_PROOF_MODE_V2,
+          changeSetHash: effectiveChangeSetHash,
+          submittedChangeSetHash,
         },
         idempotencyKey: `apply-changes:${applyAttemptId}`,
         correlationId: applyCorrelationId,
@@ -18014,6 +18070,169 @@ async function applyChangesHandler(req: Request, res: Response) {
         beforeEvidenceRef,
         afterEvidenceRef,
       });
+      const approvedPathsHash = canonicalJsonHash(
+        writableChanges.map((change) => change.path).sort(),
+      );
+      const proposalChangesHash = canonicalJsonHash(
+        approvedChanges as Parameters<typeof canonicalJsonHash>[0],
+      );
+      const authorizationDecision = buildApplyAuthorizationDecision({
+        schemaVersion: 1,
+        decision: "ALLOW",
+        actorUserId: req.userId,
+        projectId,
+        projectOwnerId: project.ownerId,
+        proposalId: proposal.id,
+        proposalRevision: proposal.revision,
+        executionId: claimed.id,
+        attempt: claimed.attempt,
+        capabilityId: action.capabilityId,
+        approvedPathsHash,
+        proposalChangesHash,
+        changeSetHash: effectiveChangeSetHash,
+      });
+      const authorizationJournal = await appendApplyJournal(
+        "APPLY_AUTHORIZATION_DECISION",
+        {
+          authorizationDecision,
+          proposalEligibility: {
+            proposalId: proposal.id,
+            status: proposal.status,
+            approvalRequired: proposal.approvalRequired,
+            revision: proposal.revision,
+          },
+          projectOwnerId: project.ownerId,
+          actorUserId: req.userId,
+        },
+      );
+      const subsetJournal = await appendApplyJournal(
+        "APPLY_APPROVED_SUBSET",
+        {
+          proposalId: proposal.id,
+          proposalRevision: proposal.revision,
+          proposalChangesHash,
+          approvedPathsHash,
+          changeSetHash: effectiveChangeSetHash,
+          submittedChangeSetHash,
+          subsetAuthorized: true,
+        },
+      );
+      const validationJournal = await appendApplyJournal(
+        "APPLY_VALIDATION_PASSED",
+        {
+          allPassed: true,
+          validationReceipts: proofValidationReceipts,
+          baseTreeHash: deliveryWorkspace.baseTreeHash,
+          candidateTreeHash,
+          changeSetHash: effectiveChangeSetHash,
+          treeDigestVersion: DELIVERY_TREE_DIGEST_VERSION,
+        },
+      );
+      const candidateStabilityJournal = await appendApplyJournal(
+        "APPLY_CANDIDATE_STABLE",
+        {
+          observedAt: new Date().toISOString(),
+          candidateHashAfterValidation,
+          candidateHashBeforePromotion,
+          liveRootHashBeforePromotion,
+          baseTreeHash: deliveryWorkspace.baseTreeHash,
+          candidateTreeHash,
+          candidateStable: candidateHashAfterValidation === candidateHash
+            && candidateHashBeforePromotion === candidateHash,
+          liveRootBaseMatched: liveRootHashBeforePromotion === deliveryWorkspace.baseTreeHash,
+        },
+      );
+      const leaseJournal = await appendApplyJournal(
+        "APPLY_EXECUTION_LEASE",
+        {
+          executionId: claimed.id,
+          attempt: claimed.attempt,
+          userId: claimed.userId,
+          workerId,
+          leaseUntil: claimed.leaseUntil?.toISOString() ?? null,
+          observedAt: new Date().toISOString(),
+        },
+      );
+      const parentSnapshotJournal = worldTransitionIntent
+        ? await appendApplyJournal(
+            "APPLY_PARENT_SNAPSHOT",
+            {
+              missionId,
+              goalId: missionGoalId,
+              worldTransitionIntent,
+            },
+          )
+        : undefined;
+      const applyJournalReference = (
+        entry: { id: string; contentHash: string },
+        stage:
+          | "APPLY_AUTHORIZATION_DECISION"
+          | "APPLY_APPROVED_SUBSET"
+          | "APPLY_VALIDATION_PASSED"
+          | "APPLY_CANDIDATE_STABLE"
+          | "APPLY_EXECUTION_LEASE"
+          | "APPLY_PARENT_SNAPSHOT",
+      ) => ({
+        kind: "APPLY_JOURNAL" as const,
+        id: entry.id,
+        stage,
+        contentHash: entry.contentHash,
+      });
+      const preconditionChecks = [
+        {
+          id: "PROJECT_OWNER_MATCHED" as const,
+          outcome: "SATISFIED" as const,
+          reference: applyJournalReference(authorizationJournal, "APPLY_AUTHORIZATION_DECISION"),
+        },
+        {
+          id: "PROPOSAL_ELIGIBLE" as const,
+          outcome: "SATISFIED" as const,
+          reference: applyJournalReference(authorizationJournal, "APPLY_AUTHORIZATION_DECISION"),
+        },
+        {
+          id: "EXACT_APPROVED_SUBSET" as const,
+          outcome: "SATISFIED" as const,
+          reference: applyJournalReference(subsetJournal, "APPLY_APPROVED_SUBSET"),
+        },
+        {
+          id: "CANDIDATE_VALIDATION_PASSED" as const,
+          outcome: "SATISFIED" as const,
+          reference: applyJournalReference(validationJournal, "APPLY_VALIDATION_PASSED"),
+        },
+        {
+          id: "CANDIDATE_STABLE" as const,
+          outcome: "SATISFIED" as const,
+          reference: applyJournalReference(candidateStabilityJournal, "APPLY_CANDIDATE_STABLE"),
+        },
+        {
+          id: "LIVE_ROOT_BASE_MATCHED" as const,
+          outcome: "SATISFIED" as const,
+          reference: applyJournalReference(candidateStabilityJournal, "APPLY_CANDIDATE_STABLE"),
+        },
+        {
+          id: "EXECUTION_LEASE_OWNED" as const,
+          outcome: "SATISFIED" as const,
+          reference: applyJournalReference(leaseJournal, "APPLY_EXECUTION_LEASE"),
+        },
+        ...(worldTransitionIntent && parentSnapshotJournal
+          ? [{
+              id: "MISSION_PARENT_SNAPSHOT_BOUND" as const,
+              outcome: "SATISFIED" as const,
+              reference: applyJournalReference(parentSnapshotJournal, "APPLY_PARENT_SNAPSHOT"),
+            }]
+          : []),
+      ];
+      const preconditionReceipt = buildApplyPreconditionReceipt({
+        schemaVersion: 1,
+        actionId: action.actionId,
+        executionId: claimed.id,
+        attempt: claimed.attempt,
+        ...(worldTransitionIntent ? {
+          planRevision: worldTransitionIntent.planRevision,
+          parentWorldRevision: worldTransitionIntent.parentWorldRevision,
+        } : {}),
+        checks: preconditionChecks,
+      });
       await appendEpisodeEvent({
         episodeId: episode.episodeId,
         projectId,
@@ -18028,6 +18247,8 @@ async function applyChangesHandler(req: Request, res: Response) {
           action,
           effectContract,
           ...(worldTransitionIntent ? { worldTransitionIntent } : {}),
+          authorizationDecision,
+          preconditionReceipt,
         },
         actorType: "worker",
         actorId: workerId,
@@ -18680,6 +18901,17 @@ async function applyChangesHandler(req: Request, res: Response) {
         },
       });
       applyProof.terminalFinalized = finalized.accepted;
+      if (!finalized.accepted) {
+        logger.warn({
+          projectId,
+          proposalId,
+          executionId: applyProof.executionId,
+          attempt: applyProof.attempt,
+          applyAttemptId,
+          reason: finalized.reason ?? "unknown_acceptance_rejection",
+          proofMode: APPLY_CHANGES_PROOF_MODE_V2,
+        }, "Apply proof acceptance was rejected; proposal remains blocked");
+      }
       acceptancePassed = finalized.accepted && allOk;
       if (acceptancePassed) {
         const [releasedProposal] = await db.update(aiChangeProposalsTable)

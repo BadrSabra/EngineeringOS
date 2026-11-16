@@ -2,24 +2,40 @@ import { and, eq, inArray } from "drizzle-orm";
 import {
   aiAgentEpisodeEventsTable,
   aiAgentEpisodesTable,
+  aiApplyJournalTable,
   aiAgentEffectBundlesTable,
   aiAgentEffectsTable,
   aiAgentObservationsTable,
   aiChangeProposalsTable,
   aiExecutionsTable,
+  projectsTable,
 } from "@workspace/db";
-import { canonicalJsonHash, hashEffectContract } from "@workspace/ai-orchestrator";
+import {
+  ApplyAuthorizationDecisionSchema,
+  ApplyPreconditionReceiptSchema,
+  ApplyWorldTransitionIntentSchema,
+  canonicalJsonHash,
+  hashEffectContract,
+} from "@workspace/ai-orchestrator";
 import {
   APPLY_CHANGE_CAPABILITY_ID,
   buildApplyChangeAction,
   buildApplyChangeEffectContract,
 } from "./apply-change-effect.js";
 
-export const APPLY_CHANGES_PROOF_MODE = "apply_changes_v1" as const;
+export const APPLY_CHANGES_PROOF_MODE_V1 = "apply_changes_v1" as const;
+export const APPLY_CHANGES_PROOF_MODE_V2 = "apply_changes_v2" as const;
+/** Kept as the v1 alias so existing fixtures and historical callers remain explicit. */
+export const APPLY_CHANGES_PROOF_MODE = APPLY_CHANGES_PROOF_MODE_V1;
 
-export type ApplyChangesProofArtifact = {
+export function isApplyChangesProofMode(
+  value: unknown,
+): value is typeof APPLY_CHANGES_PROOF_MODE_V1 | typeof APPLY_CHANGES_PROOF_MODE_V2 {
+  return value === APPLY_CHANGES_PROOF_MODE_V1 || value === APPLY_CHANGES_PROOF_MODE_V2;
+}
+
+type ApplyChangesProofArtifactBase = {
   kind: "apply_changes";
-  version: 1;
   executionId: string;
   attempt: number;
   operationId: string;
@@ -41,6 +57,26 @@ export type ApplyChangesProofArtifact = {
   beforeObservationIds: string[];
   afterObservationIds: string[];
 };
+
+export type ApplyChangesProofArtifactV1 = ApplyChangesProofArtifactBase & {
+  version: 1;
+};
+
+export type ApplyChangesProofArtifactV2 = ApplyChangesProofArtifactBase & {
+  version: 2;
+  authorizationDecisionHash: string;
+  preconditionReceiptHash: string;
+  preconditionJournalIds: string[];
+};
+
+export type ApplyChangesProofArtifact =
+  | ApplyChangesProofArtifactV1
+  | ApplyChangesProofArtifactV2;
+
+type ApplyChangesProofV2Evidence = Pick<
+  ApplyChangesProofArtifactV2,
+  "authorizationDecisionHash" | "preconditionReceiptHash" | "preconditionJournalIds"
+>;
 
 type ApplyChangesProofTransaction =
   Parameters<Parameters<typeof import("@workspace/db").db.transaction>[0]>[0];
@@ -66,6 +102,335 @@ function treeHash(value: unknown): string | undefined {
 
 function digest(value: unknown): value is string {
   return typeof value === "string" && /^[a-f0-9]{64}$/i.test(value);
+}
+
+const APPLY_PRECONDITION_STAGE_BY_ID = {
+  PROJECT_OWNER_MATCHED: "APPLY_AUTHORIZATION_DECISION",
+  PROPOSAL_ELIGIBLE: "APPLY_AUTHORIZATION_DECISION",
+  EXACT_APPROVED_SUBSET: "APPLY_APPROVED_SUBSET",
+  CANDIDATE_VALIDATION_PASSED: "APPLY_VALIDATION_PASSED",
+  CANDIDATE_STABLE: "APPLY_CANDIDATE_STABLE",
+  LIVE_ROOT_BASE_MATCHED: "APPLY_CANDIDATE_STABLE",
+  EXECUTION_LEASE_OWNED: "APPLY_EXECUTION_LEASE",
+  MISSION_PARENT_SNAPSHOT_BOUND: "APPLY_PARENT_SNAPSHOT",
+} as const;
+
+async function deriveApplyChangesProofV2Evidence(input: {
+  tx: ApplyChangesProofTransaction;
+  execution: typeof aiExecutionsTable.$inferSelect;
+  proposal: typeof aiChangeProposalsTable.$inferSelect;
+  episode: typeof aiAgentEpisodesTable.$inferSelect;
+  request: Record<string, unknown>;
+  requestedPayload: Record<string, unknown>;
+  actionId: string;
+  requestedEvent: typeof aiAgentEpisodeEventsTable.$inferSelect;
+  sourceRevision: string;
+  candidateIdentity: string;
+  onReject?: (stage: string) => void;
+}): Promise<ApplyChangesProofV2Evidence | undefined> {
+  const {
+    tx, execution, proposal, episode, request, requestedPayload, actionId, requestedEvent,
+    sourceRevision, candidateIdentity,
+  } = input;
+  const reject = (stage: string): undefined => {
+    input.onReject?.(stage);
+    return;
+  };
+  const authorizationResult = ApplyAuthorizationDecisionSchema.safeParse(
+    requestedPayload.authorizationDecision,
+  );
+  const preconditionResult = ApplyPreconditionReceiptSchema.safeParse(
+    requestedPayload.preconditionReceipt,
+  );
+  if (!authorizationResult.success || !preconditionResult.success) return reject("v2_authorization_or_receipt_schema_invalid");
+  const authorization = authorizationResult.data;
+  const preconditions = preconditionResult.data;
+  let proposalChanges: unknown;
+  try {
+    proposalChanges = typeof proposal.changes === "string"
+      ? JSON.parse(proposal.changes)
+      : proposal.changes;
+  } catch {
+    return reject("v2_proposal_changes_json_invalid");
+  }
+  if (!Array.isArray(proposalChanges)) return reject("v2_proposal_changes_not_array");
+  const [project] = await tx.select({
+    id: projectsTable.id,
+    ownerId: projectsTable.ownerId,
+  }).from(projectsTable).where(eq(projectsTable.id, execution.projectId)).limit(1);
+  const requestedPaths = Array.isArray(request.validationTargetPaths)
+    && request.validationTargetPaths.every((item) => typeof item === "string" && item.trim())
+    ? request.validationTargetPaths as string[]
+    : undefined;
+  if (
+    !project
+    || !requestedPaths
+    || authorization.decision !== "ALLOW"
+    || authorization.actorUserId !== execution.userId
+    || authorization.actorUserId !== project.ownerId
+    || authorization.projectOwnerId !== project.ownerId
+    || authorization.projectId !== execution.projectId
+    || authorization.proposalId !== proposal.id
+    || candidateIdentity !== `${proposal.id}:${proposal.candidateTreeHash}`
+    || authorization.proposalRevision !== proposal.revision
+    || authorization.executionId !== execution.id
+    || authorization.attempt !== execution.attempt
+    || authorization.capabilityId !== APPLY_CHANGE_CAPABILITY_ID
+    || authorization.approvedPathsHash !== canonicalJsonHash([...requestedPaths].sort())
+    || authorization.proposalChangesHash !== canonicalJsonHash(
+      proposalChanges as Parameters<typeof canonicalJsonHash>[0],
+    )
+    || authorization.changeSetHash !== proposal.changeSetHash
+    || (request.applyChangesProofMode === APPLY_CHANGES_PROOF_MODE_V2
+      && (
+        request.changeSetHash !== authorization.changeSetHash
+        || !digest(request.submittedChangeSetHash)
+      ))
+    || preconditions.actionId !== actionId
+    || preconditions.executionId !== execution.id
+    || preconditions.attempt !== execution.attempt
+  ) return reject("v2_authorization_identity_or_execution_binding_mismatch");
+
+  const worldIntentResult = requestedPayload.worldTransitionIntent === undefined
+    ? undefined
+    : ApplyWorldTransitionIntentSchema.safeParse(requestedPayload.worldTransitionIntent);
+  if (requestedPayload.worldTransitionIntent !== undefined && !worldIntentResult?.success) {
+    return reject("v2_world_transition_intent_schema_invalid");
+  }
+  const worldIntent = worldIntentResult?.success ? worldIntentResult.data : undefined;
+  if (
+    worldIntent
+    && (
+      worldIntent.projectId !== execution.projectId
+      || worldIntent.proposalId !== proposal.id
+      || worldIntent.goalId !== execution.goalId
+      || worldIntent.goalId !== episode.goalId
+      || worldIntent.planRevision !== episode.planRevision
+      || worldIntent.parentWorldRevision !== episode.worldRevision
+      || preconditions.planRevision !== worldIntent.planRevision
+      || preconditions.parentWorldRevision !== worldIntent.parentWorldRevision
+    )
+  ) return reject("v2_world_transition_parent_binding_mismatch");
+  if (!worldIntent && (
+    execution.goalId !== null
+    || preconditions.planRevision !== undefined
+    || preconditions.parentWorldRevision !== undefined
+    || preconditions.checks.some((check) => check.id === "MISSION_PARENT_SNAPSHOT_BOUND")
+  )) return reject("v2_mission_parent_binding_downgrade");
+
+  const referencedJournalIds = [...new Set(preconditions.checks.map((check) => check.reference.id))];
+  if (referencedJournalIds.length === 0) return reject("v2_precondition_journal_references_empty");
+  const journalRows = await tx.select().from(aiApplyJournalTable).where(and(
+    eq(aiApplyJournalTable.projectId, execution.projectId),
+    eq(aiApplyJournalTable.proposalId, proposal.id),
+    eq(aiApplyJournalTable.operationId, proposal.operationId ?? ""),
+    eq(aiApplyJournalTable.attemptId, request.applyAttemptId as string),
+    inArray(aiApplyJournalTable.id, referencedJournalIds),
+  ));
+  if (journalRows.length !== referencedJournalIds.length) return reject("v2_precondition_journal_rows_missing");
+  const journalById = new Map(journalRows.map((row) => [row.id, row]));
+  const payloadFor = (id: string, expectedStage: string): Record<string, unknown> | undefined => {
+    const row = journalById.get(id);
+    if (
+      !row
+      || row.stage !== expectedStage
+      || canonicalJsonHash(row.payload as Parameters<typeof canonicalJsonHash>[0])
+        !== preconditions.checks.find((check) => check.reference.id === id)?.reference.contentHash
+    ) return reject("v2_journal_reference_stage_or_content_hash_mismatch");
+    return record(row.payload);
+  };
+  for (const check of preconditions.checks) {
+    const expectedStage = APPLY_PRECONDITION_STAGE_BY_ID[check.id];
+    if (check.reference.stage !== expectedStage) return reject("v2_journal_reference_stage_mismatch");
+    const journal = journalById.get(check.reference.id);
+    if (
+      !journal
+      || journal.stage !== expectedStage
+      || canonicalJsonHash(journal.payload as Parameters<typeof canonicalJsonHash>[0])
+        !== check.reference.contentHash
+    ) return reject("v2_journal_reference_integrity_mismatch");
+  }
+
+  const authorizationChecks = preconditions.checks.filter((check) =>
+    check.id === "PROJECT_OWNER_MATCHED" || check.id === "PROPOSAL_ELIGIBLE"
+  );
+  if (
+    authorizationChecks.length !== 2
+    || authorizationChecks[0]!.reference.id !== authorizationChecks[1]!.reference.id
+  ) return reject("v2_authorization_precondition_references_mismatch");
+  const authorizationPayload = payloadFor(
+    authorizationChecks[0]!.reference.id,
+    "APPLY_AUTHORIZATION_DECISION",
+  );
+  const persistedDecision = record(authorizationPayload?.authorizationDecision);
+  const proposalEligibility = record(authorizationPayload?.proposalEligibility);
+  const persistedDecisionHash = persistedDecision?.decisionHash;
+  const persistedDecisionBody = persistedDecision
+    ? (({ decisionHash: _decisionHash, ...body }) => body)(persistedDecision)
+    : undefined;
+  if (
+    !authorizationPayload
+    || !persistedDecision
+    || persistedDecisionHash !== authorization.decisionHash
+    || !persistedDecisionBody
+    || canonicalJsonHash(persistedDecisionBody as Parameters<typeof canonicalJsonHash>[0])
+      !== authorization.decisionHash
+    || proposalEligibility?.proposalId !== proposal.id
+    || proposalEligibility.status !== "pending"
+    || proposalEligibility.approvalRequired !== false
+    || proposalEligibility.revision !== proposal.revision
+    || authorizationPayload.projectOwnerId !== project.ownerId
+    || authorizationPayload.actorUserId !== execution.userId
+  ) return reject("v2_persisted_authorization_decision_mismatch");
+
+  const subsetCheck = preconditions.checks.find((check) => check.id === "EXACT_APPROVED_SUBSET");
+  const subsetPayload = subsetCheck
+    ? payloadFor(subsetCheck.reference.id, "APPLY_APPROVED_SUBSET")
+    : undefined;
+  if (
+    !subsetPayload
+    || subsetPayload.proposalId !== proposal.id
+    || subsetPayload.proposalRevision !== proposal.revision
+    || subsetPayload.proposalChangesHash !== authorization.proposalChangesHash
+    || subsetPayload.approvedPathsHash !== authorization.approvedPathsHash
+    || subsetPayload.changeSetHash !== proposal.changeSetHash
+    || subsetPayload.submittedChangeSetHash !== request.submittedChangeSetHash
+    || subsetPayload.subsetAuthorized !== true
+  ) return reject("v2_exact_approved_subset_mismatch");
+
+  const validationCheck = preconditions.checks.find((check) =>
+    check.id === "CANDIDATE_VALIDATION_PASSED"
+  );
+  const validationPayload = validationCheck
+    ? payloadFor(validationCheck.reference.id, "APPLY_VALIDATION_PASSED")
+    : undefined;
+  const validationReceipts = Array.isArray(validationPayload?.validationReceipts)
+    ? validationPayload.validationReceipts
+    : [];
+  const stabilityCheckForValidation = preconditions.checks.find((check) =>
+    check.id === "CANDIDATE_STABLE"
+  );
+  const stabilityJournalForValidation = stabilityCheckForValidation
+    ? journalById.get(stabilityCheckForValidation.reference.id)
+    : undefined;
+  const stabilityPayloadForValidation = record(stabilityJournalForValidation?.payload);
+  const stabilityObservedAt = typeof stabilityPayloadForValidation?.observedAt === "string"
+    ? Date.parse(stabilityPayloadForValidation.observedAt)
+    : Number.NaN;
+  if (
+    !validationPayload
+    || validationPayload.allPassed !== true
+    || validationReceipts.length === 0
+    || !Number.isFinite(stabilityObservedAt)
+    || validationReceipts.some((value) => {
+      const receipt = record(value);
+      const evidence = record(receipt?.evidence);
+      const observedAt = typeof evidence?.observedAt === "string"
+        ? Date.parse(evidence.observedAt)
+        : Number.NaN;
+      const profile = typeof receipt?.profile === "string" ? receipt.profile.trim() : "";
+      return receipt?.status !== "passed"
+        || !profile
+        || !Number.isFinite(observedAt)
+        || observedAt > stabilityObservedAt
+        || (typeof evidence?.validatorProfile === "string"
+          && evidence.validatorProfile !== profile)
+        || typeof evidence?.evidenceId !== "string"
+        || !evidence.evidenceId.trim()
+        || typeof evidence.artifactRef !== "string"
+        || !evidence.artifactRef.trim()
+        || evidence.operationId !== proposal.operationId
+        || evidence.projectRevision !== sourceRevision
+        || evidence.baseTreeHash !== proposal.baseTreeHash
+        || evidence.candidateHash !== proposal.candidateTreeHash
+        || evidence.changeSetHash !== proposal.changeSetHash
+        || evidence.treeDigestVersion !== proposal.treeDigestVersion;
+    })
+    || validationPayload.baseTreeHash !== proposal.baseTreeHash
+    || validationPayload.candidateTreeHash !== proposal.candidateTreeHash
+    || validationPayload.changeSetHash !== proposal.changeSetHash
+    || validationPayload.treeDigestVersion !== proposal.treeDigestVersion
+  ) return reject("v2_candidate_validation_receipt_mismatch");
+
+  const stabilityChecks = preconditions.checks.filter((check) =>
+    check.id === "CANDIDATE_STABLE" || check.id === "LIVE_ROOT_BASE_MATCHED"
+  );
+  if (
+    stabilityChecks.length !== 2
+    || stabilityChecks[0]!.reference.id !== stabilityChecks[1]!.reference.id
+  ) return reject("v2_candidate_stability_reference_mismatch");
+  const stabilityCheck = stabilityChecks[0];
+  const stabilityPayload = stabilityCheck
+    ? payloadFor(stabilityCheck.reference.id, "APPLY_CANDIDATE_STABLE")
+    : undefined;
+  if (
+    !stabilityPayload
+    || stabilityPayload.candidateHashAfterValidation !== proposal.candidateTreeHash
+    || stabilityPayload.candidateHashBeforePromotion !== proposal.candidateTreeHash
+    || stabilityPayload.liveRootHashBeforePromotion !== proposal.baseTreeHash
+    || stabilityPayload.baseTreeHash !== proposal.baseTreeHash
+    || stabilityPayload.candidateTreeHash !== proposal.candidateTreeHash
+    || stabilityPayload.candidateStable !== true
+    || stabilityPayload.liveRootBaseMatched !== true
+  ) return reject("v2_candidate_stability_receipt_mismatch");
+
+  const leaseCheck = preconditions.checks.find((check) => check.id === "EXECUTION_LEASE_OWNED");
+  const leasePayload = leaseCheck
+    ? payloadFor(leaseCheck.reference.id, "APPLY_EXECUTION_LEASE")
+    : undefined;
+  const leaseUntil = typeof leasePayload?.leaseUntil === "string"
+    ? Date.parse(leasePayload.leaseUntil)
+    : Number.NaN;
+  const leaseObservedAt = typeof leasePayload?.observedAt === "string"
+    ? Date.parse(leasePayload.observedAt)
+    : Number.NaN;
+  const requestedEventAt = requestedEvent.createdAt instanceof Date
+    ? requestedEvent.createdAt.getTime()
+    : Date.parse(String(requestedEvent.createdAt));
+  const actionEvent = record(requestedPayload.action);
+  if (
+    !leasePayload
+    || leasePayload.executionId !== execution.id
+    || leasePayload.attempt !== execution.attempt
+    || leasePayload.userId !== execution.userId
+    || typeof leasePayload.workerId !== "string"
+    || leasePayload.workerId !== requestedEvent.actorId
+    || requestedEvent.actorType !== "worker"
+    || !Number.isFinite(leaseUntil)
+    || !Number.isFinite(leaseObservedAt)
+    || !Number.isFinite(requestedEventAt)
+    || leaseObservedAt > leaseUntil
+    || leaseObservedAt > requestedEventAt
+    || requestedEventAt > leaseUntil
+    || (execution.status === "running" && execution.workerId !== leasePayload.workerId)
+    || actionEvent?.actionId !== actionId
+  ) return reject("v2_execution_lease_receipt_mismatch");
+
+  if (worldIntent) {
+    const parentCheck = preconditions.checks.find((check) =>
+      check.id === "MISSION_PARENT_SNAPSHOT_BOUND"
+    );
+    const parentPayload = parentCheck
+      ? payloadFor(parentCheck.reference.id, "APPLY_PARENT_SNAPSHOT")
+      : undefined;
+    const persistedIntent = record(parentPayload?.worldTransitionIntent);
+    if (
+      !parentPayload
+      || typeof parentPayload.missionId !== "string"
+      || parentPayload.goalId !== worldIntent.goalId
+      || parentPayload.missionId !== episode.missionId
+      || execution.goalId !== worldIntent.goalId
+      || !persistedIntent
+      || canonicalJsonHash(persistedIntent as Parameters<typeof canonicalJsonHash>[0])
+        !== canonicalJsonHash(worldIntent as Parameters<typeof canonicalJsonHash>[0])
+    ) return reject("v2_mission_parent_journal_mismatch");
+  }
+
+  return {
+    authorizationDecisionHash: authorization.decisionHash,
+    preconditionReceiptHash: preconditions.receiptHash,
+    preconditionJournalIds: [...referencedJournalIds].sort(),
+  };
 }
 
 export function isCommittedApplyProposalProofBound(
@@ -100,27 +465,38 @@ export async function deriveApplyChangesProof(input: {
   candidateIdentity: string | null;
   effectBundleId: string | null;
   allowCompleted?: boolean;
+  onV2ProofReject?: (stage: string) => void;
 }): Promise<ApplyChangesProofArtifact | undefined> {
   const { tx, execution, request } = input;
+  const reject = (stage: string): undefined => {
+    if (request?.applyChangesProofMode === APPLY_CHANGES_PROOF_MODE_V2) {
+      input.onV2ProofReject?.(stage);
+    }
+    return;
+  };
   if (
-    request?.applyChangesProofMode !== APPLY_CHANGES_PROOF_MODE
+    !isApplyChangesProofMode(request?.applyChangesProofMode)
     || request.proofRequired !== true
     || request.effectRequired !== true
     || request.turnIntent !== "APPLY_CHANGES"
     || execution.status !== "running"
       && !(input.allowCompleted && execution.status === "completed")
-  ) return undefined;
+  ) return reject("apply_request_mode_or_execution_state_invalid");
 
   const operationId = execution.operationId;
-  const attemptId = request.operationId;
+  const requestedOperationId = request.operationId;
+  const attemptId = typeof request.applyAttemptId === "string"
+    ? request.applyAttemptId
+    : requestedOperationId;
   const proposalId = execution.proposalId;
   const sourceRevision = input.sourceRevision;
   const candidateIdentity = input.candidateIdentity;
   if (
     !operationId
+    || typeof requestedOperationId !== "string"
+    || requestedOperationId !== operationId
     || typeof attemptId !== "string"
-    || !attemptId
-    || attemptId !== operationId
+    || !attemptId.trim()
     || !proposalId
     || typeof execution.workspaceRoot !== "string"
     || !execution.workspaceRoot
@@ -135,7 +511,7 @@ export async function deriveApplyChangesProof(input: {
     || request.validationTargetPaths.some((item) =>
       typeof item !== "string" || !item.trim()
     )
-  ) return undefined;
+  ) return reject("apply_request_operation_attempt_or_workspace_binding_invalid");
 
   const [proposal] = await tx.select().from(aiChangeProposalsTable).where(and(
     eq(aiChangeProposalsTable.id, proposalId),
@@ -157,7 +533,7 @@ export async function deriveApplyChangesProof(input: {
     || !digest(proposal.changeSetHash)
     || proposal.promotedTreeHash !== proposal.candidateTreeHash
     || candidateIdentity !== `${proposal.id}:${proposal.candidateTreeHash}`
-  ) return undefined;
+  ) return reject("apply_proposal_missing_or_candidate_binding_invalid");
 
   const [episode] = await tx.select().from(aiAgentEpisodesTable).where(and(
     eq(aiAgentEpisodesTable.projectId, execution.projectId),
@@ -174,7 +550,7 @@ export async function deriveApplyChangesProof(input: {
     || episode.intentKind !== "APPLY_CHANGES"
     || episode.projectRevision !== sourceRevision
     || (!episodeIsVerifying && !(input.allowCompleted && episodeWasProven))
-  ) return undefined;
+  ) return reject("apply_episode_missing_or_scope_invalid");
 
   const actionId = `action:${execution.id}:${execution.attempt}:apply`;
   const beforeRef = `apply:${execution.id}:${execution.attempt}:before`;
@@ -215,7 +591,7 @@ export async function deriveApplyChangesProof(input: {
     event.eventType === "ACTION_COMMITTED"
     && record(event.payload)?.actionId === actionId
   ));
-  if (requestedEvents.length !== 1 || committedEvents.length !== 1) return undefined;
+  if (requestedEvents.length !== 1 || committedEvents.length !== 1) return reject("apply_action_requested_or_committed_event_ambiguous");
   const requestedPayload = record(requestedEvents[0]!.payload);
   const committedPayload = record(committedEvents[0]!.payload);
   if (
@@ -229,7 +605,7 @@ export async function deriveApplyChangesProof(input: {
     || committedPayload.status !== "promoted"
     || committedPayload.afterTreeHash !== proposal.candidateTreeHash
     || committedEvents[0]!.payloadHash !== canonicalJsonHash(committedPayload as never)
-  ) return undefined;
+  ) return reject("apply_action_or_commit_event_payload_invalid");
 
   const [bundle] = await tx.select().from(aiAgentEffectBundlesTable).where(and(
     eq(aiAgentEffectBundlesTable.id, input.effectBundleId),
@@ -238,9 +614,9 @@ export async function deriveApplyChangesProof(input: {
     eq(aiAgentEffectBundlesTable.attempt, execution.attempt),
     eq(aiAgentEffectBundlesTable.episodeId, episode.id),
   )).for("update").limit(1);
-  if (!bundle || bundle.verdict !== "OBSERVED") return undefined;
+  if (!bundle || bundle.verdict !== "OBSERVED") return reject("apply_effect_bundle_missing_or_not_observed");
   const effectIds = stringArray(bundle.effectIds);
-  if (!effectIds || effectIds.length !== 1) return undefined;
+  if (!effectIds || effectIds.length !== 1) return reject("apply_effect_bundle_cardinality_invalid");
   const [effect] = await tx.select().from(aiAgentEffectsTable).where(and(
     eq(aiAgentEffectsTable.id, effectIds[0]!),
     eq(aiAgentEffectsTable.projectId, execution.projectId),
@@ -258,10 +634,10 @@ export async function deriveApplyChangesProof(input: {
       !== canonicalJsonHash(effectContract.expectedStateChanges as never)
     || canonicalJsonHash(bundle.effectContractHashes as never)
       !== canonicalJsonHash([effectContractHash])
-  ) return undefined;
+  ) return reject("apply_observed_effect_contract_invalid");
   const effectEvidenceRefs = stringArray(effect.evidenceRefs);
   if (!effectEvidenceRefs?.includes(beforeRef) || !effectEvidenceRefs.includes(afterRef)) {
-    return undefined;
+    return reject("apply_effect_before_after_evidence_refs_invalid");
   }
 
   const beforeObservationIds = stringArray(effect.beforeObservationIds);
@@ -272,13 +648,13 @@ export async function deriveApplyChangesProof(input: {
     || !afterObservationIds
     || afterObservationIds.length !== 1
     || beforeObservationIds[0] === afterObservationIds[0]
-  ) return undefined;
+  ) return reject("apply_before_after_observation_identity_invalid");
   const allObservationIds = [...beforeObservationIds, ...afterObservationIds];
   const observations = await tx.select().from(aiAgentObservationsTable).where(and(
     eq(aiAgentObservationsTable.projectId, execution.projectId),
     inArray(aiAgentObservationsTable.id, allObservationIds),
   )).for("update");
-  if (observations.length !== 2) return undefined;
+  if (observations.length !== 2) return reject("apply_before_after_observation_rows_missing");
   const before = observations.find((row) => row.id === beforeObservationIds[0]);
   const after = observations.find((row) => row.id === afterObservationIds[0]);
   const validObservation = (
@@ -302,11 +678,10 @@ export async function deriveApplyChangesProof(input: {
   if (
     !validObservation(before, `${beforeRef}:tree`, proposal.baseTreeHash)
     || !validObservation(after, `${afterRef}:tree`, proposal.candidateTreeHash)
-  ) return undefined;
+  ) return reject("apply_candidate_observation_provenance_or_hash_invalid");
 
-  return {
+  const baseArtifact: ApplyChangesProofArtifactBase = {
     kind: "apply_changes",
-    version: 1,
     executionId: execution.id,
     attempt: execution.attempt,
     operationId,
@@ -328,4 +703,22 @@ export async function deriveApplyChangesProof(input: {
     beforeObservationIds,
     afterObservationIds,
   };
+  if (request.applyChangesProofMode === APPLY_CHANGES_PROOF_MODE_V2) {
+    const v2Evidence = await deriveApplyChangesProofV2Evidence({
+      tx,
+      execution,
+      proposal,
+      episode,
+      request,
+      requestedPayload,
+      actionId,
+      requestedEvent: requestedEvents[0]!,
+      sourceRevision,
+      candidateIdentity,
+      onReject: input.onV2ProofReject,
+    });
+    if (!v2Evidence) return undefined;
+    return { ...baseArtifact, version: 2, ...v2Evidence };
+  }
+  return { ...baseArtifact, version: 1 };
 }

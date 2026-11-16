@@ -39,6 +39,7 @@ import {
   type EvidenceSnapshotInput,
   type GoalExecutionProjection,
 } from "./ai-execution-acceptance.js";
+import { isApplyChangesProofMode, APPLY_CHANGES_PROOF_MODE_V2 } from "./agent-state/apply-changes-proof.js";
 import {
   buildExecutionLineage,
   type ExecutionDelegationBudget,
@@ -889,7 +890,13 @@ export type AiExecutionRequestEnvelope = {
   proofRequired?: boolean;
   proofEvidenceMode?: "artifact_only" | "mission_validation_v1";
   recipeProofMode?: "runtime_start_gate_c_v1";
-  applyChangesProofMode?: "apply_changes_v1";
+  applyChangesProofMode?: "apply_changes_v1" | "apply_changes_v2";
+  /** Effective candidate change-set digest for versioned Apply proof reconstruction. */
+  changeSetHash?: string;
+  /** Digest of the exact submitted change subset before hunk materialization/rebase. */
+  submittedChangeSetHash?: string;
+  /** Unique Apply retry identity; distinct from the stable logical operationId. */
+  applyAttemptId?: string;
   /** Server-owned effect proof requirement, retained for recovery/finalization. */
   effectRequired?: boolean;
 };
@@ -1124,7 +1131,7 @@ export function parseExecutionRequest(raw: string): AiExecutionRequestEnvelope |
         && value.proofEvidenceMode !== "mission_validation_v1") ||
       (value.proofEvidenceMode !== undefined && value.proofRequired !== true) ||
       (value.applyChangesProofMode !== undefined && (
-        value.applyChangesProofMode !== "apply_changes_v1"
+        !isApplyChangesProofMode(value.applyChangesProofMode)
         || value.proofRequired !== true
         || value.effectRequired !== true
         || value.turnIntent !== "APPLY_CHANGES"
@@ -1132,10 +1139,23 @@ export function parseExecutionRequest(raw: string): AiExecutionRequestEnvelope |
         || value.recipeProofMode !== undefined
         || typeof value.operationId !== "string"
         || !value.operationId.trim()
+        || (value.applyChangesProofMode === APPLY_CHANGES_PROOF_MODE_V2
+          && (
+            typeof value.applyAttemptId !== "string"
+            || !value.applyAttemptId.trim()
+            || value.applyAttemptId === value.operationId
+          ))
         || typeof value.workspaceRoot !== "string"
         || !value.workspaceRoot.trim()
         || typeof value.workspaceRevision !== "string"
         || !value.workspaceRevision.trim()
+        || (value.applyChangesProofMode === APPLY_CHANGES_PROOF_MODE_V2
+          && (
+            typeof value.changeSetHash !== "string"
+            || !/^[a-f0-9]{64}$/.test(value.changeSetHash)
+            || typeof value.submittedChangeSetHash !== "string"
+            || !/^[a-f0-9]{64}$/.test(value.submittedChangeSetHash)
+          ))
       )) ||
       (value.recipeProofMode !== undefined && (
         value.recipeProofMode !== "runtime_start_gate_c_v1"
@@ -3721,7 +3741,7 @@ export async function completeAiExecutionWithResult(params: {
     (request?.proofRequired === true
       && request.proofEvidenceMode !== "artifact_only"
       && request.proofEvidenceMode !== "mission_validation_v1"
-      && request.applyChangesProofMode !== "apply_changes_v1")
+      && !isApplyChangesProofMode(request.applyChangesProofMode))
     || projectOrientationAcceptance
     || forensicExecution
     || Boolean(params.analysisEvidence)

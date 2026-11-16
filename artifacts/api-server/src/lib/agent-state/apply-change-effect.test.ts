@@ -5,6 +5,7 @@ import {
   buildApplyChangeAction,
   buildApplyChangeEffectContract,
   buildApplyChangeEffectProofExpectation,
+  hashApplySubmittedSubset,
   isBoundApplyChangeEffectBundle,
 } from "./apply-change-effect.js";
 
@@ -122,5 +123,55 @@ describe("approved source promotion action/effect contract", () => {
       bundle,
       effects: [effect],
     })).toBe(false);
+  });
+});
+
+describe("hashApplySubmittedSubset", () => {
+  const base = {
+    path: "src/example.ts",
+    absolutePath: "/workspace/project/src/example.ts",
+    originalContent: "const a = 1;\nconst b = 2;\n",
+    newContent: "const a = 10;\nconst b = 20;\n",
+    baseHash: "a".repeat(64),
+    reason: "Update selected source lines",
+    validationProfile: "workspace-typecheck",
+  };
+  const firstHunk = {
+    startLine: 1,
+    endLine: 1,
+    expectedText: "const a = 1;",
+    replacementText: "const a = 10;",
+    reason: "Update a",
+  };
+  const secondHunk = {
+    startLine: 2,
+    endLine: 2,
+    expectedText: "const b = 2;",
+    replacementText: "const b = 20;",
+    reason: "Update b",
+  };
+
+  it("distinguishes partial hunk selections when full newContent is unchanged", () => {
+    const firstOnly = hashApplySubmittedSubset([{ ...base, hunks: [firstHunk] }]);
+    const secondOnly = hashApplySubmittedSubset([{ ...base, hunks: [secondHunk] }]);
+    const both = hashApplySubmittedSubset([{ ...base, hunks: [firstHunk, secondHunk] }]);
+
+    expect(firstOnly).not.toBe(secondOnly);
+    expect(firstOnly).not.toBe(both);
+    expect(secondOnly).not.toBe(both);
+  });
+
+  it("is independent of file ordering while preserving submitted hunk order", () => {
+    const firstFile = { ...base, hunks: [firstHunk] };
+    const secondFile = {
+      ...base,
+      path: "src/other.ts",
+      absolutePath: "/workspace/project/src/other.ts",
+      hunks: [secondHunk],
+    };
+    expect(hashApplySubmittedSubset([firstFile, secondFile]))
+      .toBe(hashApplySubmittedSubset([secondFile, firstFile]));
+    expect(hashApplySubmittedSubset([{ ...base, hunks: [firstHunk, secondHunk] }]))
+      .not.toBe(hashApplySubmittedSubset([{ ...base, hunks: [secondHunk, firstHunk] }]));
   });
 });

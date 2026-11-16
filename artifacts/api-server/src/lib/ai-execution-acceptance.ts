@@ -43,7 +43,7 @@ import {
   type RuntimeStartGateCProofArtifact,
 } from "./runtime-start-gate-c-proof.js";
 import {
-  APPLY_CHANGES_PROOF_MODE,
+  isApplyChangesProofMode,
   deriveApplyChangesProof,
   type ApplyChangesProofArtifact,
 } from "./agent-state/apply-changes-proof.js";
@@ -120,30 +120,7 @@ export type EvidenceArtifactInput = ({
   environmentRevision: string;
   beforeObservationIds: string[];
   afterObservationIds: string[];
-} & RuntimeStartGateCSourceRevisionIdentity) | {
-  kind: "apply_changes";
-  version: 1;
-  executionId: string;
-  attempt: number;
-  operationId: string;
-  proposalId: string;
-  proposalOperationId: string;
-  sourceRevision: string;
-  candidateIdentity: string;
-  baseTreeHash: string;
-  candidateTreeHash: string;
-  changeSetHash: string;
-  episodeId: string;
-  actionId: string;
-  actionEventId: string;
-  committedEventId: string;
-  effectBundleId: string;
-  effectId: string;
-  actionHash: string;
-  effectContractHash: string;
-  beforeObservationIds: string[];
-  afterObservationIds: string[];
-} | {
+} & RuntimeStartGateCSourceRevisionIdentity) | ApplyChangesProofArtifact | {
   kind: "png";
   evidenceId: string;
   artifactRef: string;
@@ -1164,7 +1141,7 @@ async function existingApplyAcceptanceHasCurrentProof(
   const request = parseStoredExecutionRequest(execution.request);
   if (request?.turnIntent !== "APPLY_CHANGES" || request.proofRequired !== true) return true;
   if (
-    request.applyChangesProofMode !== APPLY_CHANGES_PROOF_MODE
+    !isApplyChangesProofMode(request.applyChangesProofMode)
     || acceptance.outcome !== "SUCCEEDED"
     || acceptance.terminalStatus !== "completed"
     || acceptance.evidenceRequired !== 1
@@ -1669,7 +1646,7 @@ export function normalizeEvidenceSnapshot(input: EvidenceSnapshotInput | undefin
       const beforeObservationIds = artifact.beforeObservationIds;
       const afterObservationIds = artifact.afterObservationIds;
       if (
-        artifact.version !== 1
+        (artifact.version !== 1 && artifact.version !== 2)
         || !Number.isSafeInteger(artifact.attempt)
         || artifact.attempt < 0
         || requiredIds.some((value) =>
@@ -1694,9 +1671,8 @@ export function normalizeEvidenceSnapshot(input: EvidenceSnapshotInput | undefin
         )
         || beforeObservationIds[0] === afterObservationIds[0]
       ) return [];
-      return [{
-        kind: "apply_changes",
-        version: 1,
+      const normalizedBase = {
+        kind: "apply_changes" as const,
         executionId: artifact.executionId.slice(0, 160),
         attempt: artifact.attempt,
         operationId: artifact.operationId.slice(0, 160),
@@ -1717,6 +1693,28 @@ export function normalizeEvidenceSnapshot(input: EvidenceSnapshotInput | undefin
         effectContractHash: artifact.effectContractHash.toLowerCase(),
         beforeObservationIds: beforeObservationIds.slice(0, 1),
         afterObservationIds: afterObservationIds.slice(0, 1),
+      };
+      if (artifact.version === 1) {
+        return [{ ...normalizedBase, version: 1 }];
+      }
+      const journalIds = artifact.preconditionJournalIds;
+      if (
+        !/^[a-f0-9]{64}$/i.test(artifact.authorizationDecisionHash)
+        || !/^[a-f0-9]{64}$/i.test(artifact.preconditionReceiptHash)
+        || !Array.isArray(journalIds)
+        || journalIds.length < 1
+        || journalIds.length > 8
+        || journalIds.some((id) =>
+          typeof id !== "string" || !id.trim() || id.length > 160
+        )
+        || journalIds.some((id, index) => index > 0 && journalIds[index - 1]! >= id)
+      ) return [];
+      return [{
+        ...normalizedBase,
+        version: 2,
+        authorizationDecisionHash: artifact.authorizationDecisionHash.toLowerCase(),
+        preconditionReceiptHash: artifact.preconditionReceiptHash.toLowerCase(),
+        preconditionJournalIds: [...journalIds],
       }];
     }
     if (artifact.kind === "runtime_start_gate_c") {
@@ -2260,7 +2258,8 @@ export async function finalizeExecutionAcceptance(
       ?? params.evidence?.candidateIdentity
       ?? null;
     const runtimeStartProofMode = storedRequest?.recipeProofMode === RUNTIME_START_GATE_C_PROOF_MODE;
-    const applyChangesProofMode = storedRequest?.applyChangesProofMode === APPLY_CHANGES_PROOF_MODE;
+    const applyChangesProofMode = isApplyChangesProofMode(storedRequest?.applyChangesProofMode);
+    let applyChangesProofFailureStage: string | undefined;
     const missionValidationProofMode =
       storedRequest?.proofEvidenceMode === "mission_validation_v1";
     const runtimeStartProof = runtimeStartProofMode && params.outcome === "SUCCEEDED"
@@ -2299,6 +2298,7 @@ export async function finalizeExecutionAcceptance(
             ?? null,
           effectBundleId: params.effectBundleId ?? priorApplyAcceptance?.effectBundleId ?? null,
           allowCompleted: true,
+          onV2ProofReject: (stage) => { applyChangesProofFailureStage = stage; },
         })
       : undefined;
     const evidenceRequired = runtimeStartProofMode
@@ -2508,7 +2508,9 @@ export async function finalizeExecutionAcceptance(
       return {
         accepted: false,
         duplicate: false,
-        reason: "Apply proof evidence is missing, stale, or mismatched.",
+        reason: applyChangesProofFailureStage
+          ? `Apply proof evidence is missing, stale, or mismatched (${applyChangesProofFailureStage}).`
+          : "Apply proof evidence is missing, stale, or mismatched.",
       };
     }
     const reviewReadyProposalCompletion =
