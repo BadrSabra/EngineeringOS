@@ -18898,6 +18898,17 @@ async function applyChangesHandler(req: Request, res: Response) {
         },
       });
       applyProof.terminalFinalized = finalized.accepted;
+      if (!finalized.accepted) {
+        logger.warn({
+          projectId,
+          proposalId,
+          executionId: applyProof.executionId,
+          attempt: applyProof.attempt,
+          applyAttemptId,
+          reason: finalized.reason ?? "unknown_acceptance_rejection",
+          proofMode: APPLY_CHANGES_PROOF_MODE_V2,
+        }, "Apply proof acceptance was rejected; proposal remains blocked");
+      }
       acceptancePassed = finalized.accepted && allOk;
       if (acceptancePassed) {
         const [releasedProposal] = await db.update(aiChangeProposalsTable)
