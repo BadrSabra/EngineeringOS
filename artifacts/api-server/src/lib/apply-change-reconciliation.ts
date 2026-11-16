@@ -735,23 +735,23 @@ export async function reconcileInterruptedApplyChanges(): Promise<{
           }
 
           if (proposal.lifecycle === "blocked") {
-              const released = await releaseAcceptedApplyProjection({
-                proposal,
-                execution: selected,
-                attemptId,
-                actionRecord,
-                liveTreeHash,
-                effectBundleId: acceptedProofBundleId,
-              });
-              if (!released) {
-                logger.warn({
-                  projectId: proposal.projectId,
-                  proposalId: proposal.id,
-                  executionId: selected.id,
-                  transitionId: recovery.transitionId,
-                }, "recovered Apply transition remains pending because proposal acceptance projection could not be released");
-                continue;
-              }
+            const released = await releaseAcceptedApplyProjection({
+              proposal,
+              execution: selected,
+              attemptId,
+              actionRecord,
+              liveTreeHash,
+              effectBundleId: acceptedProofBundleId,
+            });
+            if (!released) {
+              logger.warn({
+                projectId: proposal.projectId,
+                proposalId: proposal.id,
+                executionId: selected.id,
+                transitionId: recovery.transitionId,
+              }, "recovered Apply transition remains pending because proposal acceptance projection could not be released");
+              continue;
+            }
             }
 
             const finalized = await finalizeApplyChangesTransition({
