@@ -350,11 +350,13 @@ describe("versioned Apply execution request compatibility", () => {
   });
 
   it("requires an immutable change-set digest for apply_changes_v2", () => {
-    expect(parseExecutionRequest(JSON.stringify({
+    const parsedV2 = parseExecutionRequest(JSON.stringify({
       ...legacyV1Request,
       applyChangesProofMode: "apply_changes_v2",
       changeSetHash: "b".repeat(64),
-    })).map((request) => request.applyChangesProofMode)).toBe("apply_changes_v2");
+    }));
+    expect(parsedV2?.applyChangesProofMode).toBe("apply_changes_v2");
+    expect(parsedV2?.changeSetHash).toBe("b".repeat(64));
     expect(parseExecutionRequest(JSON.stringify({
       ...legacyV1Request,
       applyChangesProofMode: "apply_changes_v2",
