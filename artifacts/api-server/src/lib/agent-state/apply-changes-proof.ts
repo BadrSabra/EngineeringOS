@@ -298,9 +298,10 @@ async function deriveApplyChangesProofV2Evidence(input: {
   const stabilityJournalForValidation = stabilityCheckForValidation
     ? journalById.get(stabilityCheckForValidation.reference.id)
     : undefined;
-  const stabilityObservedAt = stabilityJournalForValidation?.createdAt instanceof Date
-    ? stabilityJournalForValidation.createdAt.getTime()
-    : Date.parse(String(stabilityJournalForValidation?.createdAt ?? ""));
+  const stabilityPayloadForValidation = record(stabilityJournalForValidation?.payload);
+  const stabilityObservedAt = typeof stabilityPayloadForValidation?.observedAt === "string"
+    ? Date.parse(stabilityPayloadForValidation.observedAt)
+    : Number.NaN;
   if (
     !validationPayload
     || validationPayload.allPassed !== true
