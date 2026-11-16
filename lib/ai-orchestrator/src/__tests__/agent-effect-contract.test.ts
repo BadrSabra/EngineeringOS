@@ -2,6 +2,10 @@ import { describe, expect, it } from "vitest";
 import {
   AgentActionSchema,
   AgentActionRequestedPayloadSchema,
+  ApplyAuthorizationDecisionSchema,
+  ApplyPreconditionReceiptSchema,
+  buildApplyAuthorizationDecision,
+  buildApplyPreconditionReceipt,
   AgentEffectSchema,
   EffectContractSchema,
   classifyEffect,
@@ -136,6 +140,97 @@ describe("agent effect contract", () => {
       },
     }).success).toBe(false);
 
+  });
+
+  it("binds versioned Apply authorization and precondition receipts while preserving legacy events", () => {
+    const applyAction = {
+      ...action,
+      capabilityId: "approved.source-promotion",
+    };
+    const authorization = buildApplyAuthorizationDecision({
+      schemaVersion: 1,
+      decision: "ALLOW",
+      actorUserId: "user-1",
+      projectId: "project-1",
+      projectOwnerId: "user-1",
+      proposalId: "proposal-1",
+      proposalRevision: 4,
+      executionId: "execution-1",
+      attempt: 2,
+      capabilityId: "approved.source-promotion",
+      approvedPathsHash: "a".repeat(64),
+      proposalChangesHash: "b".repeat(64),
+      changeSetHash: "c".repeat(64),
+    });
+    const stages = {
+      PROJECT_OWNER_MATCHED: "APPLY_AUTHORIZATION_DECISION",
+      PROPOSAL_ELIGIBLE: "APPLY_AUTHORIZATION_DECISION",
+      EXACT_APPROVED_SUBSET: "APPLY_APPROVED_SUBSET",
+      CANDIDATE_VALIDATION_PASSED: "APPLY_VALIDATION_PASSED",
+      CANDIDATE_STABLE: "APPLY_CANDIDATE_STABLE",
+      LIVE_ROOT_BASE_MATCHED: "APPLY_CANDIDATE_STABLE",
+      EXECUTION_LEASE_OWNED: "APPLY_EXECUTION_LEASE",
+      MISSION_PARENT_SNAPSHOT_BOUND: "APPLY_PARENT_SNAPSHOT",
+    } as const;
+    const checks = Object.entries(stages).map(([id, stage], index) => ({
+      id: id as keyof typeof stages,
+      outcome: "SATISFIED" as const,
+      reference: {
+        kind: "APPLY_JOURNAL" as const,
+        id: `journal-${index}`,
+        stage,
+        contentHash: String(index + 1).repeat(64),
+      },
+    }));
+    const receipt = buildApplyPreconditionReceipt({
+      schemaVersion: 1,
+      actionId: "action-1",
+      executionId: "execution-1",
+      attempt: 2,
+      planRevision: "d".repeat(64),
+      parentWorldRevision: "e".repeat(64),
+      checks,
+    });
+    const intent = {
+      schemaVersion: 1 as const,
+      projectId: "project-1",
+      proposalId: "proposal-1",
+      goalId: "goal-1",
+      planRevision: "d".repeat(64),
+      parentWorldRevision: "e".repeat(64),
+      parentFactRefs: ["fact-1"],
+    };
+
+    expect(ApplyAuthorizationDecisionSchema.safeParse(authorization).success).toBe(true);
+    expect(ApplyPreconditionReceiptSchema.safeParse(receipt).success).toBe(true);
+    expect(AgentActionRequestedPayloadSchema.safeParse({
+      action: applyAction,
+      actionId: applyAction.actionId,
+      capabilityId: applyAction.capabilityId,
+      expectedEffects: applyAction.expectedEffects,
+      worldTransitionIntent: intent,
+      authorizationDecision: authorization,
+      preconditionReceipt: receipt,
+    }).success).toBe(true);
+
+    // Old persisted ACTION_REQUESTED payloads remain parseable without v2 receipts.
+    expect(AgentActionRequestedPayloadSchema.safeParse({ action: applyAction }).success).toBe(true);
+    expect(AgentActionRequestedPayloadSchema.safeParse({
+      action: applyAction,
+      authorizationDecision: authorization,
+    }).success).toBe(false);
+    expect(ApplyAuthorizationDecisionSchema.safeParse({
+      ...authorization,
+      projectOwnerId: "another-user",
+    }).success).toBe(false);
+    expect(ApplyPreconditionReceiptSchema.safeParse({
+      ...receipt,
+      checks: [...receipt.checks.slice(1), receipt.checks[1]],
+    }).success).toBe(false);
+    expect(ApplyPreconditionReceiptSchema.safeParse({
+      ...receipt,
+      receiptHash: "f".repeat(64),
+    }).success).toBe(false);
   });
 
   it("classifies a complete transition as observed", () => {
