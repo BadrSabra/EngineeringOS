@@ -8906,6 +8906,24 @@ describe("POST /api/ai/chat/apply-changes", () => {
         "const a = 10;\nconst b = 2;\nconst c = 3;\n",
       );
 
+      // Exact retry is replayable, but an alternate hunk selection over the
+      // same full newContent must not borrow the first attempt's acceptance.
+      const exactRetry = await request(app)
+        .post("/api/ai/chat/apply-changes")
+        .send({ projectId: id, proposalId, changes: partialChanges });
+      expect(exactRetry.status, JSON.stringify(exactRetry.body)).toBe(200);
+      expect(exactRetry.body.alreadyApplied).toBe(true);
+
+      const alternateHunkRetry = await request(app)
+        .post("/api/ai/chat/apply-changes")
+        .send({
+          projectId: id,
+          proposalId,
+          changes: [{ ...storedChanges[0], hunks: [secondHunk] }],
+        });
+      expect(alternateHunkRetry.status).toBe(409);
+      expect(alternateHunkRetry.body.code).toBe("APPLY_REPLAY_UNVERIFIED");
+
       const [acceptedProof] = await db.select()
         .from(aiExecutionAcceptancesTable)
         .where(eq(aiExecutionAcceptancesTable.executionId, execution!.id));
