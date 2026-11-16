@@ -1674,6 +1674,39 @@ describe("runtime.start transition retry scheduling", () => {
       .where(eq(aiApplyJournalTable.id, validationJournalRow.id));
     await replaceActionPayload(originalActionPayload);
 
+    // A passing result from the wrong project revision is stale, even if its
+    // receipt and Journal digests are recomputed consistently.
+    const staleValidationEvidence = {
+      ...(originalValidationReceipts[0] as Record<string, unknown>),
+      evidence: {
+        ...((originalValidationReceipts[0] as Record<string, unknown>).evidence as Record<string, unknown>),
+        projectRevision: "f".repeat(64),
+      },
+    };
+    const staleValidationPayload = {
+      ...originalValidationPayload,
+      validationReceipts: [staleValidationEvidence],
+    };
+    const staleValidationHash = canonicalJsonHash(
+      staleValidationPayload as Parameters<typeof canonicalJsonHash>[0],
+    );
+    await db.update(aiApplyJournalTable).set({ payload: staleValidationPayload })
+      .where(eq(aiApplyJournalTable.id, validationJournalRow.id));
+    const staleValidationChecks = originalPreconditionReceipt.checks.map((check) =>
+      check.id === "CANDIDATE_VALIDATION_PASSED"
+        ? { ...check, reference: { ...check.reference, contentHash: staleValidationHash } }
+        : check,
+    );
+    await replaceActionPayload({
+      ...originalActionPayload,
+      preconditionReceipt: rebindPreconditionReceipt(staleValidationChecks),
+    });
+    await expect(finalizeExecutionAcceptance(rejectionInput("stale-validation-revision")))
+      .resolves.toMatchObject({ accepted: false });
+    await db.update(aiApplyJournalTable).set({ payload: originalValidationPayload })
+      .where(eq(aiApplyJournalTable.id, validationJournalRow.id));
+    await replaceActionPayload(originalActionPayload);
+
     // Even with a valid receipt hash and a matching Journal content digest,
     // an execution lease assigned to a different worker cannot authorize this Action.
     const leaseCheck = originalPreconditionReceipt.checks.find((check) =>
