@@ -69,10 +69,7 @@ import {
   buildApplyChangeAction,
   buildApplyChangeEffectProofExpectation,
 } from "./apply-change-effect.js";
-import {
-  APPLY_CHANGES_PROOF_MODE,
-  APPLY_CHANGES_PROOF_MODE_V2,
-} from "./apply-changes-proof.js";
+import { APPLY_CHANGES_PROOF_MODE_V2 } from "./apply-changes-proof.js";
 
 function hashBoundedAgentStateJson(value: unknown, maxBytes: number): string {
   return canonicalJsonHash(parseBoundedJson(value, maxBytes));
