@@ -16815,11 +16815,9 @@ async function replayAcceptedApplyResponse(params: {
       ? [{ path: change.path, newContent: change.newContent }]
       : [];
   });
-  if (
-    appliedChanges.length !== parsedAppliedChanges.length
-    || hashChangeSet(appliedChanges) !== hashChangeSet(changes)
-    || hashChangeSet(appliedChanges) !== proposal.changeSetHash
-  ) return rejectReplay("applied_change_hash_mismatch");
+  if (appliedChanges.length !== parsedAppliedChanges.length) {
+    return rejectReplay("applied_changes_invalid");
+  }
 
   const [execution] = await db.select({
     id: aiExecutionsTable.id,
@@ -16849,6 +16847,17 @@ async function replayAcceptedApplyResponse(params: {
   const journalAttemptId = attemptBoundV2
     ? executionRequest.applyAttemptId as string
     : execution.operationId;
+  const appliedChangeSetHash = hashChangeSet(appliedChanges);
+  // For new V2, the Journal-bound submitted-subset digest proves which Hunk
+  // selection was approved. Candidate bytes are checked against the persisted
+  // proposal digest, not against the proposal's full newContent envelope:
+  // a valid partial-Hunk apply may intentionally produce different bytes.
+  // Historical V1/V2 requests retain the original byte-envelope comparison.
+  if (
+    appliedChangeSetHash !== proposal.changeSetHash
+    || (!attemptBoundV2 && appliedChangeSetHash !== hashChangeSet(changes))
+  ) return rejectReplay("applied_change_hash_mismatch");
+
   if (attemptBoundV2 && (
     executionRequest.operationId !== proposal.operationId
     || executionRequest.applyAttemptId === executionRequest.operationId
