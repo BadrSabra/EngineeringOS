@@ -302,13 +302,21 @@ export async function recoverAcceptedApplyChangesTransition(input: {
         eq(aiAgentEpisodeEventsTable.episodeId, input.episodeId),
         eq(aiAgentEpisodeEventsTable.eventType, "ACTION_REQUESTED"),
       ));
-      if (actionEvents.length !== 1) {
+      const matchingEvents = actionEvents.filter((event) => {
+        try {
+          const payload = parseAgentActionRequestedPayload(event.payload);
+          return payload.action.actionId === input.actionId;
+        } catch {
+          return false;
+        }
+      });
+      if (matchingEvents.length !== 1) {
         return { kind: "blocked", reason: "apply_recovery_action_event_missing_or_ambiguous" } as const;
       }
 
       let requestedPayload: ReturnType<typeof parseAgentActionRequestedPayload>;
       try {
-        requestedPayload = parseAgentActionRequestedPayload(actionEvents[0]!.payload);
+        requestedPayload = parseAgentActionRequestedPayload(matchingEvents[0]!.payload);
       } catch {
         return { kind: "blocked", reason: "apply_recovery_action_event_invalid" } as const;
       }
@@ -321,7 +329,7 @@ export async function recoverAcceptedApplyChangesTransition(input: {
         return { kind: "blocked", reason: "apply_recovery_parent_intent_missing_or_invalid" } as const;
       }
       const intent = intentResult.data;
-      const actionEventPayload = asRecord(actionEvents[0]!.payload) ?? {};
+      const actionEventPayload = asRecord(matchingEvents[0]!.payload) ?? {};
       const persistedEffectContract = actionEventPayload.effectContract;
       const expectedEffect = typeof scope.candidateTreeHash === "string"
         ? buildApplyChangeEffectProofExpectation({
@@ -341,8 +349,7 @@ export async function recoverAcceptedApplyChangesTransition(input: {
         persistedEffectContractHash = undefined;
       }
       if (
-        action.actionId !== input.actionId
-        || action.episodeId !== episode.id
+        action.episodeId !== episode.id
         || action.capabilityId !== APPLY_CHANGE_CAPABILITY_ID
         || action.expectedEffects.length !== 1
         || action.expectedEffects[0] !== APPLY_CHANGE_EFFECT_ID
