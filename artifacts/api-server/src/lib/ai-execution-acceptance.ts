@@ -120,9 +120,7 @@ export type EvidenceArtifactInput = ({
   environmentRevision: string;
   beforeObservationIds: string[];
   afterObservationIds: string[];
-} & RuntimeStartGateCSourceRevisionIdentity) | {
-  } & ApplyChangesProofArtifact | {
-} | {
+} & RuntimeStartGateCSourceRevisionIdentity) | ApplyChangesProofArtifact | {
   kind: "png";
   evidenceId: string;
   artifactRef: string;
