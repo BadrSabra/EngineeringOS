@@ -43,7 +43,7 @@ import {
   type RuntimeStartGateCProofArtifact,
 } from "./runtime-start-gate-c-proof.js";
 import {
-  APPLY_CHANGES_PROOF_MODE,
+  isApplyChangesProofMode,
   deriveApplyChangesProof,
   type ApplyChangesProofArtifact,
 } from "./agent-state/apply-changes-proof.js";
@@ -120,30 +120,7 @@ export type EvidenceArtifactInput = ({
   environmentRevision: string;
   beforeObservationIds: string[];
   afterObservationIds: string[];
-} & RuntimeStartGateCSourceRevisionIdentity) | {
-  kind: "apply_changes";
-  version: 1;
-  executionId: string;
-  attempt: number;
-  operationId: string;
-  proposalId: string;
-  proposalOperationId: string;
-  sourceRevision: string;
-  candidateIdentity: string;
-  baseTreeHash: string;
-  candidateTreeHash: string;
-  changeSetHash: string;
-  episodeId: string;
-  actionId: string;
-  actionEventId: string;
-  committedEventId: string;
-  effectBundleId: string;
-  effectId: string;
-  actionHash: string;
-  effectContractHash: string;
-  beforeObservationIds: string[];
-  afterObservationIds: string[];
-} | {
+} & RuntimeStartGateCSourceRevisionIdentity) | ApplyChangesProofArtifact | {
   kind: "png";
   evidenceId: string;
   artifactRef: string;
@@ -1164,7 +1141,7 @@ async function existingApplyAcceptanceHasCurrentProof(
   const request = parseStoredExecutionRequest(execution.request);
   if (request?.turnIntent !== "APPLY_CHANGES" || request.proofRequired !== true) return true;
   if (
-    request.applyChangesProofMode !== APPLY_CHANGES_PROOF_MODE
+    !isApplyChangesProofMode(request.applyChangesProofMode)
     || acceptance.outcome !== "SUCCEEDED"
     || acceptance.terminalStatus !== "completed"
     || acceptance.evidenceRequired !== 1
@@ -2260,7 +2237,7 @@ export async function finalizeExecutionAcceptance(
       ?? params.evidence?.candidateIdentity
       ?? null;
     const runtimeStartProofMode = storedRequest?.recipeProofMode === RUNTIME_START_GATE_C_PROOF_MODE;
-    const applyChangesProofMode = storedRequest?.applyChangesProofMode === APPLY_CHANGES_PROOF_MODE;
+    const applyChangesProofMode = isApplyChangesProofMode(storedRequest?.applyChangesProofMode);
     const missionValidationProofMode =
       storedRequest?.proofEvidenceMode === "mission_validation_v1";
     const runtimeStartProof = runtimeStartProofMode && params.outcome === "SUCCEEDED"
