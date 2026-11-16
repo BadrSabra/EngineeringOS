@@ -174,6 +174,8 @@ export type ProofGraphViolationCode =
   | "EXECUTION_HAS_NO_OUTPUT"
   | "OUTPUT_NOT_DIRECT_OBSERVATION"
   | "POST_CONTROL_NOT_BOUND_TO_EXECUTION_DATA"
+  | "POST_CONTROL_OUTPUT_COVERAGE_MISMATCH"
+  | "EXECUTION_PROJECT_MISMATCH"
   | "ORPHAN_NODE"
   | "DIRECT_SERVICE_EXECUTOR_EDGE"
   | "EXECUTION_CYCLE"
@@ -509,6 +511,19 @@ export function validateProofGraph(input: unknown): ProofGraphValidationResult {
         if (evidenceNodes.some((node) => !executionEvidence.has(node.id))) {
           addViolation("POST_CONTROL_NOT_BOUND_TO_EXECUTION_DATA", [edge.from, control.id, ...evidenceNodes.map((node) => node.id)], [edge.id]);
         }
+        if (control.ruleId === "EFFECT_PROVEN") {
+          const outputIds = new Set((outputsByExecution.get(edge.from) ?? []).map((node) => node.id));
+          const evidenceIds = new Set(evidenceNodes.map((node) => node.id));
+          const uncoveredOutputIds = [...outputIds].filter((id) => !evidenceIds.has(id)).sort(compareString);
+          const nonOutputEvidenceIds = [...evidenceIds].filter((id) => !outputIds.has(id)).sort(compareString);
+          if (uncoveredOutputIds.length > 0 || nonOutputEvidenceIds.length > 0) {
+            addViolation(
+              "POST_CONTROL_OUTPUT_COVERAGE_MISMATCH",
+              [edge.from, control.id, ...uncoveredOutputIds, ...nonOutputEvidenceIds],
+              [edge.id],
+            );
+          }
+        }
       }
     }
   }
@@ -526,6 +541,9 @@ export function validateProofGraph(input: unknown): ProofGraphValidationResult {
     }
   }
   for (const execution of executionNodes) {
+    if (execution.projectId !== graph.projectId) {
+      addViolation("EXECUTION_PROJECT_MISMATCH", [execution.id, execution.projectId, graph.projectId]);
+    }
     if (execution.planRevision !== graph.planRevision) {
       addViolation("EXECUTION_PLAN_REVISION_MISMATCH", [execution.id]);
     }

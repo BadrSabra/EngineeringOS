@@ -244,6 +244,36 @@ describe("Proof Graph Kernel v0", () => {
       item.code === "CONTROL_REVISION_BINDING_MISMATCH")).toBe(true);
   });
 
+  it("requires EFFECT_PROVEN to cover every DATA node produced by the execution", () => {
+    const graph = makeValidGraph();
+    const effect = graph.nodes.find((node) => node.id === "data-post-0");
+    if (!effect || effect.kind !== "DATA") throw new Error("missing effect evidence fixture");
+    const extraOutput: ProofGraphDataNode = {
+      ...effect,
+      id: "data-post-uncovered",
+      evidenceRef: "evidence-post-uncovered",
+      contentHash: "9".repeat(64),
+    };
+    graph.nodes.push(extraOutput);
+    graph.edges.push({
+      id: "edge-post-uncovered-output",
+      type: "EXECUTION_PRODUCES_DATA",
+      from: "execution-1",
+      to: extraOutput.id,
+    });
+
+    const result = validateProofGraph(graph);
+    const violation = result.violations.find((item) =>
+      item.code === "POST_CONTROL_OUTPUT_COVERAGE_MISMATCH");
+    expect(result.verdict).toBe("FAIL");
+    expect(violation?.path).toEqual([
+      "execution-1",
+      "control-post-0",
+      "data-post-uncovered",
+    ]);
+    expect(violation?.edgeIds).toEqual(["edge-post-verify-0"]);
+  });
+
   it("requires the materialized World Transition record to bind the resulting World revision", () => {
     const graph = makeValidGraph();
     const transition = graph.nodes.find((node) => node.id === "data-post-2");
@@ -338,6 +368,39 @@ describe("Proof Graph Kernel v0", () => {
       expect(mismatch).toHaveLength(1);
       expect(mismatch[0]?.path).toEqual(["execution-1", field]);
     }
+  });
+
+  it("rejects dependency executions from a different project than the graph envelope", () => {
+    const graph = makeValidGraph();
+    graph.nodes.push({
+      id: "execution-cross-project",
+      kind: "EXECUTION",
+      projectId: "project-2",
+      episodeId: "episode-dependency-2",
+      attempt: 1,
+      missionId: "mission-dependency-2",
+      goalId: "goal-dependency-2",
+      role: "AGENT",
+      actionId: "action-2",
+      capabilityId: "apply_changes",
+      scopeHash,
+      planRevision,
+      operationKind: "MUTATION",
+    });
+    graph.edges.push({
+      id: "cross-project-dependency",
+      type: "EXECUTION_DEPENDS_ON",
+      from: "execution-1",
+      to: "execution-cross-project",
+    });
+
+    const result = validateProofGraph(graph);
+    expect(result.verdict).toBe("FAIL");
+    expect(result.violations).toContainEqual({
+      code: "EXECUTION_PROJECT_MISMATCH",
+      path: ["execution-cross-project", "project-2", "project-1"],
+      edgeIds: [],
+    });
   });
 
   it("binds root Execution fields to the envelope and leaves dependency Execution contexts independent", () => {
