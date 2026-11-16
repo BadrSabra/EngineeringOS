@@ -131,8 +131,8 @@ describe("hashApplySubmittedSubset", () => {
   const base = {
     path: "src/example.ts",
     absolutePath: "/workspace/project/src/example.ts",
-    originalContent: "const a = 1;\\nconst b = 2;\\n",
-    newContent: "const a = 10;\\nconst b = 20;\\n",
+    originalContent: "const a = 1;\nconst b = 2;\n",
+    newContent: "const a = 10;\nconst b = 20;\n",
     baseHash: "a".repeat(64),
     reason: "Update selected source lines",
     validationProfile: "workspace-typecheck",
