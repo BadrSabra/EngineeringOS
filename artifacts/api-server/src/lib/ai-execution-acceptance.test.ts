@@ -100,6 +100,71 @@ describe("server-owned execution acceptance", () => {
     expect(snapshot.artifacts).toHaveLength(0);
   });
 
+  it("retains Apply proof v2 journal bindings and rejects malformed bindings", () => {
+    const artifact = {
+      kind: "apply_changes" as const,
+      version: 2 as const,
+      executionId: "execution-1",
+      attempt: 3,
+      operationId: "apply-attempt-3",
+      proposalId: "proposal-1",
+      proposalOperationId: "proposal-operation-1",
+      sourceRevision: "revision-1",
+      candidateIdentity: `proposal-1:${"b".repeat(64)}`,
+      baseTreeHash: "a".repeat(64),
+      candidateTreeHash: "b".repeat(64),
+      changeSetHash: "c".repeat(64),
+      episodeId: "episode-1",
+      actionId: "action-1",
+      actionEventId: "action-event-1",
+      committedEventId: "committed-event-1",
+      effectBundleId: "effect-bundle-1",
+      effectId: "effect-1",
+      actionHash: "d".repeat(64),
+      effectContractHash: "e".repeat(64),
+      beforeObservationIds: ["before-1"],
+      afterObservationIds: ["after-1"],
+      authorizationDecisionHash: "f".repeat(64),
+      preconditionReceiptHash: "1".repeat(64),
+      preconditionJournalIds: [
+        "journal-1",
+        "journal-2",
+        "journal-3",
+        "journal-4",
+        "journal-5",
+      ],
+    };
+    const valid = normalizeEvidenceSnapshot({
+      required: true,
+      sourceEvidenceRequired: false,
+      operationId: artifact.operationId,
+      workspaceRoot: "/tmp/fixture",
+      sourceRevision: artifact.sourceRevision,
+      candidateIdentity: artifact.candidateIdentity,
+      verdict: "PROVEN",
+      artifacts: [artifact],
+    });
+
+    expect(valid.complete).toBe(true);
+    expect(valid.artifacts).toContainEqual(artifact);
+
+    const malformed = normalizeEvidenceSnapshot({
+      required: true,
+      sourceEvidenceRequired: false,
+      operationId: artifact.operationId,
+      workspaceRoot: "/tmp/fixture",
+      sourceRevision: artifact.sourceRevision,
+      candidateIdentity: artifact.candidateIdentity,
+      verdict: "PROVEN",
+      artifacts: [{
+        ...artifact,
+        preconditionJournalIds: ["journal-1", "journal-1", "journal-2", "journal-3", "journal-4"],
+      } as unknown as EvidenceArtifactInput],
+    });
+    expect(malformed.complete).toBe(false);
+    expect(malformed.artifacts).toHaveLength(0);
+  });
+
   it("retains typed Gate C source-revision provenance and rejects mismatched provenance", () => {
     const sourceRevision = `workspace-tree-v1:${"a".repeat(64)}`;
     const artifact = {

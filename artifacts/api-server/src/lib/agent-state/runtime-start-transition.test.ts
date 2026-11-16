@@ -11,10 +11,12 @@ import {
   aiAgentEpisodesTable,
   aiAgentEpisodeEventsTable,
   aiAgentObservationsTable,
+  aiApplyJournalTable,
   aiChatSessionsTable,
   aiChatMessagesTable,
   aiChangeProposalsTable,
   aiExecutionAcceptancesTable,
+  aiExecutionEvidenceSnapshotsTable,
   aiExecutionsTable,
   aiGoalDependenciesTable,
   aiGoalsTable,
@@ -53,9 +55,12 @@ import {
   materializeWorldStateForProject,
 } from "./world-state.js";
 import * as worldStateModule from "./world-state.js";
-import { hashDeliveryTree } from "../delivery-workspace.js";
+import { DELIVERY_TREE_DIGEST_VERSION, hashDeliveryTree } from "../delivery-workspace.js";
 import {
   AGENT_STATE_LIMITS,
+  type ApplyPreconditionReceipt,
+  buildApplyAuthorizationDecision,
+  buildApplyPreconditionReceipt,
   canonicalJsonHash,
   GoalNextActionSchema,
   parseBoundedJson,
@@ -66,7 +71,7 @@ import {
   buildApplyChangeAction,
   buildApplyChangeEffectProofExpectation,
 } from "./apply-change-effect.js";
-import { APPLY_CHANGES_PROOF_MODE } from "./apply-changes-proof.js";
+import { APPLY_CHANGES_PROOF_MODE_V2 } from "./apply-changes-proof.js";
 
 function hashBoundedAgentStateJson(value: unknown, maxBytes: number): string {
   return canonicalJsonHash(parseBoundedJson(value, maxBytes));
@@ -947,6 +952,9 @@ describe("runtime.start transition retry scheduling", () => {
     const [executionIdentity] = await db.select({
       operationId: aiExecutionsTable.operationId,
       correlationId: aiExecutionsTable.correlationId,
+      userId: aiExecutionsTable.userId,
+      workerId: aiExecutionsTable.workerId,
+      leaseUntil: aiExecutionsTable.leaseUntil,
     }).from(aiExecutionsTable)
       .where(eq(aiExecutionsTable.id, fixture.executionId));
     if (!executionIdentity?.operationId || !executionIdentity.correlationId) {
@@ -992,6 +1000,7 @@ describe("runtime.start transition retry scheduling", () => {
       candidateTreeHash,
       promotedTreeHash: candidateTreeHash,
       changeSetHash,
+      treeDigestVersion: DELIVERY_TREE_DIGEST_VERSION,
       createdAt: now,
     });
     await db.insert(aiMissionsTable).values({
@@ -1059,7 +1068,8 @@ describe("runtime.start transition retry scheduling", () => {
       workspaceRoot: rootPath,
       workspaceRevision: baseRevision,
       validationTargetPaths: ["src/target.ts"],
-      applyChangesProofMode: APPLY_CHANGES_PROOF_MODE,
+      changeSetHash,
+      applyChangesProofMode: APPLY_CHANGES_PROOF_MODE_V2,
       proofRequired: true,
       effectRequired: true,
       turnIntent: "APPLY_CHANGES",
@@ -1223,6 +1233,211 @@ describe("runtime.start transition retry scheduling", () => {
       changeSetHash,
       approvedPaths: ["src/target.ts"],
     });
+    if (!executionIdentity.userId || !executionIdentity.leaseUntil) {
+      throw new Error("Apply proof v2 fixture requires a claimed execution owner and lease.");
+    }
+    const worldTransitionIntent = buildApplyChangesWorldTransitionIntent({
+      projectId: fixture.projectId,
+      proposalId,
+      goalId,
+      planRevision,
+      parentWorldRevision: input.parentWorldRevision,
+      parentFactRefs: input.parentFactRefs,
+    });
+    const proposalChangesHash = canonicalJsonHash([]);
+    const approvedPathsHash = canonicalJsonHash(["src/target.ts"]);
+    const authorizationDecision = buildApplyAuthorizationDecision({
+      schemaVersion: 1,
+      decision: "ALLOW",
+      actorUserId: executionIdentity.userId,
+      projectId: fixture.projectId,
+      projectOwnerId: executionIdentity.userId,
+      proposalId,
+      proposalRevision: 0,
+      executionId: fixture.executionId,
+      attempt: 0,
+      capabilityId: applyAction.capabilityId,
+      approvedPathsHash,
+      proposalChangesHash,
+      changeSetHash,
+    });
+    let applyJournalSequence = 1;
+    const appendV2ApplyJournal = async <
+      TStage extends
+        | "APPLY_AUTHORIZATION_DECISION"
+        | "APPLY_APPROVED_SUBSET"
+        | "APPLY_VALIDATION_PASSED"
+        | "APPLY_CANDIDATE_STABLE"
+        | "APPLY_EXECUTION_LEASE"
+        | "APPLY_PARENT_SNAPSHOT",
+    >(
+      stage: TStage,
+      stagePayload: Record<string, unknown>,
+    ) => {
+      const id = crypto.randomUUID();
+      const payload = {
+        operationId: executionIdentity.correlationId!,
+        baseRevision,
+        baseTreeHash,
+        candidateTreeHash,
+        treeDigestVersion: DELIVERY_TREE_DIGEST_VERSION,
+        changeSetHash,
+        promotedTreeHash: candidateTreeHash,
+        ...stagePayload,
+      };
+      const contentHash = canonicalJsonHash(payload as Parameters<typeof canonicalJsonHash>[0]);
+      await db.insert(aiApplyJournalTable).values({
+        id,
+        operationId: executionIdentity.correlationId!,
+        attemptId: executionIdentity.operationId!,
+        projectId: fixture.projectId,
+        proposalId,
+        stage,
+        sequence: applyJournalSequence++,
+        payload,
+        createdAt: new Date(),
+      });
+      return {
+        kind: "APPLY_JOURNAL" as const,
+        id,
+        stage,
+        contentHash,
+      };
+    };
+    const authorizationJournalRef = await appendV2ApplyJournal(
+      "APPLY_AUTHORIZATION_DECISION",
+      {
+        authorizationDecision,
+        proposalEligibility: {
+          proposalId,
+          status: "pending",
+          approvalRequired: false,
+          revision: 0,
+        },
+        projectOwnerId: executionIdentity.userId,
+        actorUserId: executionIdentity.userId,
+      },
+    );
+    const subsetJournalRef = await appendV2ApplyJournal(
+      "APPLY_APPROVED_SUBSET",
+      {
+        proposalId,
+        proposalRevision: 0,
+        proposalChangesHash,
+        approvedPathsHash,
+        changeSetHash,
+        submittedChangeSetHash: changeSetHash,
+        subsetAuthorized: true,
+      },
+    );
+    const validationReceipt = {
+      profile: "workspace-typecheck",
+      status: "passed",
+      evidence: {
+        evidenceId: "apply-v2-validation-evidence",
+        artifactRef: "validation:apply-v2:workspace-typecheck",
+        observedAt: now.toISOString(),
+        operationId: executionIdentity.correlationId,
+        projectRevision: baseRevision,
+        baseTreeHash,
+        candidateHash: candidateTreeHash,
+        changeSetHash,
+        treeDigestVersion: DELIVERY_TREE_DIGEST_VERSION,
+      },
+    };
+    const validationJournalRef = await appendV2ApplyJournal(
+      "APPLY_VALIDATION_PASSED",
+      {
+        allPassed: true,
+        validationReceipts: [validationReceipt],
+        baseTreeHash,
+        candidateTreeHash,
+        changeSetHash,
+        treeDigestVersion: DELIVERY_TREE_DIGEST_VERSION,
+      },
+    );
+    const stabilityJournalRef = await appendV2ApplyJournal(
+      "APPLY_CANDIDATE_STABLE",
+      {
+        candidateHashAfterValidation: candidateTreeHash,
+        candidateHashBeforePromotion: candidateTreeHash,
+        liveRootHashBeforePromotion: baseTreeHash,
+        baseTreeHash,
+        candidateTreeHash,
+        candidateStable: true,
+        liveRootBaseMatched: true,
+      },
+    );
+    const leaseObservedAt = new Date();
+    const leaseJournalRef = await appendV2ApplyJournal(
+      "APPLY_EXECUTION_LEASE",
+      {
+        executionId: fixture.executionId,
+        attempt: 0,
+        userId: executionIdentity.userId,
+        workerId: fixture.workerId,
+        leaseUntil: executionIdentity.leaseUntil.toISOString(),
+        observedAt: leaseObservedAt.toISOString(),
+      },
+    );
+    const parentJournalRef = await appendV2ApplyJournal(
+      "APPLY_PARENT_SNAPSHOT",
+      {
+        missionId,
+        goalId,
+        worldTransitionIntent,
+      },
+    );
+    const preconditionReceipt = buildApplyPreconditionReceipt({
+      schemaVersion: 1,
+      actionId: applyActionId,
+      executionId: fixture.executionId,
+      attempt: 0,
+      planRevision,
+      parentWorldRevision: input.parentWorldRevision,
+      checks: [
+        {
+          id: "PROJECT_OWNER_MATCHED",
+          outcome: "SATISFIED",
+          reference: authorizationJournalRef,
+        },
+        {
+          id: "PROPOSAL_ELIGIBLE",
+          outcome: "SATISFIED",
+          reference: authorizationJournalRef,
+        },
+        {
+          id: "EXACT_APPROVED_SUBSET",
+          outcome: "SATISFIED",
+          reference: subsetJournalRef,
+        },
+        {
+          id: "CANDIDATE_VALIDATION_PASSED",
+          outcome: "SATISFIED",
+          reference: validationJournalRef,
+        },
+        {
+          id: "CANDIDATE_STABLE",
+          outcome: "SATISFIED",
+          reference: stabilityJournalRef,
+        },
+        {
+          id: "LIVE_ROOT_BASE_MATCHED",
+          outcome: "SATISFIED",
+          reference: stabilityJournalRef,
+        },
+        {
+          id: "EXECUTION_LEASE_OWNED",
+          outcome: "SATISFIED",
+          reference: leaseJournalRef,
+        },
+        {
+          id: "MISSION_PARENT_SNAPSHOT_BOUND",
+          outcome: "SATISFIED",
+          reference: parentJournalRef,
+        },
+      ],
+    });
     await appendEpisodeEvent({
       projectId: fixture.projectId,
       executionId: fixture.executionId,
@@ -1230,20 +1445,18 @@ describe("runtime.start transition retry scheduling", () => {
       episodeId: fixture.episodeId,
       workerId: fixture.workerId,
       eventType: "ACTION_REQUESTED",
+      actorType: "worker",
+      actorId: fixture.workerId,
+      correlationId: executionIdentity.operationId,
       payload: {
         action: applyAction,
         actionId: applyActionId,
         capabilityId: APPLY_CHANGE_CAPABILITY_ID,
         expectedEffects: applyAction.expectedEffects,
         effectContract: applyEffect.contract,
-        worldTransitionIntent: buildApplyChangesWorldTransitionIntent({
-          projectId: fixture.projectId,
-          proposalId,
-          goalId,
-          planRevision,
-          parentWorldRevision: input.parentWorldRevision,
-          parentFactRefs: input.parentFactRefs,
-        }),
+        worldTransitionIntent,
+        authorizationDecision,
+        preconditionReceipt,
       },
     });
     await appendEpisodeEvent({
@@ -1300,8 +1513,281 @@ describe("runtime.start transition retry scheduling", () => {
       candidateIdentity,
       proposalId,
     };
+    const [requestedApplyEvent] = await db.select().from(aiAgentEpisodeEventsTable).where(and(
+      eq(aiAgentEpisodeEventsTable.episodeId, fixture.episodeId),
+      eq(aiAgentEpisodeEventsTable.eventType, "ACTION_REQUESTED"),
+    )).limit(1);
+    if (!requestedApplyEvent) throw new Error("Apply proof v2 Action event is missing.");
+    const originalActionPayload = requestedApplyEvent.payload as Record<string, unknown>;
+    const originalPreconditionReceipt =
+      originalActionPayload.preconditionReceipt as ApplyPreconditionReceipt;
+    const replaceActionPayload = async (payload: Record<string, unknown>) => {
+      await db.update(aiAgentEpisodeEventsTable).set({
+        payload: payload as typeof requestedApplyEvent.payload,
+        payloadHash: hashEpisodeEventPayload(payload),
+      }).where(eq(aiAgentEpisodeEventsTable.id, requestedApplyEvent.id));
+    };
+    const rejectionInput = (suffix: string) => ({
+      ...acceptanceInput,
+      finalizationKey: `${acceptanceInput.finalizationKey}:reject:${suffix}`,
+    });
+    const rebindPreconditionReceipt = (
+      checks: typeof originalPreconditionReceipt.checks,
+      overrides: Partial<Pick<
+        typeof originalPreconditionReceipt,
+        "planRevision" | "parentWorldRevision"
+      >> = {},
+    ) => {
+      const { receiptHash: _oldHash, ...body } = originalPreconditionReceipt;
+      const nextBody = { ...body, ...overrides, checks };
+      return {
+        ...nextBody,
+        receiptHash: canonicalJsonHash(
+          nextBody as Parameters<typeof canonicalJsonHash>[0],
+        ),
+      };
+    };
+
+    const [authorizationJournalRow] = await db.select().from(aiApplyJournalTable)
+      .where(eq(aiApplyJournalTable.id, authorizationJournalRef.id)).limit(1);
+    if (!authorizationJournalRow) throw new Error("Apply authorization Journal row is missing.");
+    const originalAuthorizationJournalPayload = authorizationJournalRow.payload;
+    const authorizationBody = (({ decisionHash: _decisionHash, ...body }) => body)(authorizationDecision);
+    const replaceAuthorizationDecision = async (nextDecision: typeof authorizationDecision) => {
+      const nextJournalPayload = {
+        ...originalAuthorizationJournalPayload,
+        authorizationDecision: nextDecision,
+      };
+      const nextJournalHash = canonicalJsonHash(
+        nextJournalPayload as Parameters<typeof canonicalJsonHash>[0],
+      );
+      await db.update(aiApplyJournalTable).set({ payload: nextJournalPayload })
+        .where(eq(aiApplyJournalTable.id, authorizationJournalRow.id));
+      const nextChecks = originalPreconditionReceipt.checks.map((check) =>
+        check.id === "PROJECT_OWNER_MATCHED" || check.id === "PROPOSAL_ELIGIBLE"
+          ? { ...check, reference: { ...check.reference, contentHash: nextJournalHash } }
+          : check,
+      );
+      await replaceActionPayload({
+        ...originalActionPayload,
+        authorizationDecision: nextDecision,
+        preconditionReceipt: rebindPreconditionReceipt(nextChecks),
+      });
+    };
+
+    // A structurally valid decision for a different actor/project-owner pair
+    // cannot become current authorization by recomputing the inner and outer hashes.
+    const wrongActorDecision = buildApplyAuthorizationDecision({
+      ...authorizationBody,
+      actorUserId: "different-project-owner",
+      projectOwnerId: "different-project-owner",
+    });
+    await replaceAuthorizationDecision(wrongActorDecision);
+    await expect(finalizeExecutionAcceptance(rejectionInput("authorization-identity")))
+      .resolves.toMatchObject({ accepted: false });
+    await db.update(aiApplyJournalTable).set({
+      payload: originalAuthorizationJournalPayload,
+    }).where(eq(aiApplyJournalTable.id, authorizationJournalRow.id));
+    await replaceActionPayload(originalActionPayload);
+
+    // A validly re-hashed authorization for a different path set must not bind
+    // to the actual immutable Execution scope.
+    const wrongPathDecision = buildApplyAuthorizationDecision({
+      ...authorizationBody,
+      approvedPathsHash: canonicalJsonHash(["src/not-approved.ts"]),
+    });
+    await replaceAuthorizationDecision(wrongPathDecision);
+    await expect(finalizeExecutionAcceptance(rejectionInput("authorization-paths")))
+      .resolves.toMatchObject({ accepted: false });
+    await db.update(aiApplyJournalTable).set({
+      payload: originalAuthorizationJournalPayload,
+    }).where(eq(aiApplyJournalTable.id, authorizationJournalRow.id));
+    await replaceActionPayload(originalActionPayload);
+
+    // A currently different Proposal revision must invalidate the v2 proof,
+    // even when the event, action, and journal rows remain unchanged.
+    await db.update(aiChangeProposalsTable).set({ revision: 1 })
+      .where(eq(aiChangeProposalsTable.id, proposalId));
+    await expect(finalizeExecutionAcceptance(rejectionInput("proposal-revision")))
+      .resolves.toMatchObject({ accepted: false });
+    await db.update(aiChangeProposalsTable).set({ revision: 0 })
+      .where(eq(aiChangeProposalsTable.id, proposalId));
+
+    // The v2 request binds the effective change-set digest independently of
+    // the Action payload; a mismatched durable request must fail closed.
+    await db.update(aiExecutionsTable).set({
+      request: JSON.stringify({ ...applyRequest, changeSetHash: "f".repeat(64) }),
+    }).where(eq(aiExecutionsTable.id, fixture.executionId));
+    await expect(finalizeExecutionAcceptance(rejectionInput("request-change-set")))
+      .resolves.toMatchObject({ accepted: false });
+    await db.update(aiExecutionsTable).set({
+      request: JSON.stringify(applyRequest),
+    }).where(eq(aiExecutionsTable.id, fixture.executionId));
+
+    // Missing required preconditions cannot be smuggled through by recomputing
+    // the receipt and outer event hashes: the bounded schema rejects the gap.
+    const incompleteChecks = originalPreconditionReceipt.checks
+      .filter((check) => check.id !== "CANDIDATE_VALIDATION_PASSED");
+    await replaceActionPayload({
+      ...originalActionPayload,
+      preconditionReceipt: rebindPreconditionReceipt(incompleteChecks),
+    });
+    await expect(finalizeExecutionAcceptance(rejectionInput("missing-precondition")))
+      .resolves.toMatchObject({ accepted: false });
+    await replaceActionPayload(originalActionPayload);
+
+    // A Mission-linked execution cannot remove its parent snapshot and remain
+    // provable, even when the attacker recomputes a valid seven-check receipt.
+    const missionFreeChecks = originalPreconditionReceipt.checks
+      .filter((check) => check.id !== "MISSION_PARENT_SNAPSHOT_BOUND");
+    const missionFreeReceipt = buildApplyPreconditionReceipt({
+      schemaVersion: 1,
+      actionId: originalPreconditionReceipt.actionId,
+      executionId: originalPreconditionReceipt.executionId,
+      attempt: originalPreconditionReceipt.attempt,
+      checks: missionFreeChecks,
+    });
+    const {
+      worldTransitionIntent: _worldTransitionIntent,
+      ...actionWithoutWorldIntent
+    } = originalActionPayload;
+    await replaceActionPayload({
+      ...actionWithoutWorldIntent,
+      preconditionReceipt: missionFreeReceipt,
+    });
+    await expect(finalizeExecutionAcceptance(rejectionInput("missing-mission-parent-snapshot")))
+      .resolves.toMatchObject({ accepted: false });
+    await replaceActionPayload(originalActionPayload);
+
+    // A stale/unavailable validation receipt still fails when every enclosing
+    // content hash is made internally consistent.
+    const [validationJournalRow] = await db.select().from(aiApplyJournalTable)
+      .where(eq(aiApplyJournalTable.id, validationJournalRef.id)).limit(1);
+    if (!validationJournalRow) throw new Error("Apply validation Journal row is missing.");
+    const originalValidationPayload = validationJournalRow.payload;
+    const originalValidationReceipts = Array.isArray(originalValidationPayload.validationReceipts)
+      ? originalValidationPayload.validationReceipts
+      : [];
+    const validationJournalPayload = {
+      ...originalValidationPayload,
+      validationReceipts: [{
+        ...(originalValidationReceipts[0] as Record<string, unknown> | undefined),
+        status: "unavailable",
+      }],
+    };
+    const validationJournalHash = canonicalJsonHash(
+      validationJournalPayload as Parameters<typeof canonicalJsonHash>[0],
+    );
+    await db.update(aiApplyJournalTable).set({ payload: validationJournalPayload })
+      .where(eq(aiApplyJournalTable.id, validationJournalRow.id));
+    const unavailableValidationChecks = originalPreconditionReceipt.checks.map((check) =>
+      check.id === "CANDIDATE_VALIDATION_PASSED"
+        ? { ...check, reference: { ...check.reference, contentHash: validationJournalHash } }
+        : check,
+    );
+    await replaceActionPayload({
+      ...originalActionPayload,
+      preconditionReceipt: rebindPreconditionReceipt(unavailableValidationChecks),
+    });
+    await expect(finalizeExecutionAcceptance(rejectionInput("unavailable-validation")))
+      .resolves.toMatchObject({ accepted: false });
+    await db.update(aiApplyJournalTable).set({ payload: originalValidationPayload })
+      .where(eq(aiApplyJournalTable.id, validationJournalRow.id));
+    await replaceActionPayload(originalActionPayload);
+
+    // A passing result from the wrong project revision is stale, even if its
+    // receipt and Journal digests are recomputed consistently.
+    const staleValidationEvidence = {
+      ...(originalValidationReceipts[0] as Record<string, unknown>),
+      evidence: {
+        ...((originalValidationReceipts[0] as Record<string, unknown>).evidence as Record<string, unknown>),
+        projectRevision: "f".repeat(64),
+      },
+    };
+    const staleValidationPayload = {
+      ...originalValidationPayload,
+      validationReceipts: [staleValidationEvidence],
+    };
+    const staleValidationHash = canonicalJsonHash(
+      staleValidationPayload as Parameters<typeof canonicalJsonHash>[0],
+    );
+    await db.update(aiApplyJournalTable).set({ payload: staleValidationPayload })
+      .where(eq(aiApplyJournalTable.id, validationJournalRow.id));
+    const staleValidationChecks = originalPreconditionReceipt.checks.map((check) =>
+      check.id === "CANDIDATE_VALIDATION_PASSED"
+        ? { ...check, reference: { ...check.reference, contentHash: staleValidationHash } }
+        : check,
+    );
+    await replaceActionPayload({
+      ...originalActionPayload,
+      preconditionReceipt: rebindPreconditionReceipt(staleValidationChecks),
+    });
+    await expect(finalizeExecutionAcceptance(rejectionInput("stale-validation-revision")))
+      .resolves.toMatchObject({ accepted: false });
+    await db.update(aiApplyJournalTable).set({ payload: originalValidationPayload })
+      .where(eq(aiApplyJournalTable.id, validationJournalRow.id));
+    await replaceActionPayload(originalActionPayload);
+
+    // Even with a valid receipt hash and a matching Journal content digest,
+    // an execution lease assigned to a different worker cannot authorize this Action.
+    const leaseCheck = originalPreconditionReceipt.checks.find((check) =>
+      check.id === "EXECUTION_LEASE_OWNED"
+    );
+    if (!leaseCheck) throw new Error("Apply lease precondition is missing from the fixture.");
+    const [leaseJournalRow] = await db.select().from(aiApplyJournalTable)
+      .where(eq(aiApplyJournalTable.id, leaseCheck.reference.id)).limit(1);
+    if (!leaseJournalRow) throw new Error("Apply lease Journal row is missing.");
+    const originalLeasePayload = leaseJournalRow.payload;
+    const mismatchedLeasePayload = {
+      ...originalLeasePayload,
+      workerId: "different-apply-worker",
+    };
+    const mismatchedLeaseHash = canonicalJsonHash(
+      mismatchedLeasePayload as Parameters<typeof canonicalJsonHash>[0],
+    );
+    await db.update(aiApplyJournalTable).set({ payload: mismatchedLeasePayload })
+      .where(eq(aiApplyJournalTable.id, leaseJournalRow.id));
+    const mismatchedLeaseChecks = originalPreconditionReceipt.checks.map((check) =>
+      check.id === "EXECUTION_LEASE_OWNED"
+        ? { ...check, reference: { ...check.reference, contentHash: mismatchedLeaseHash } }
+        : check,
+    );
+    await replaceActionPayload({
+      ...originalActionPayload,
+      preconditionReceipt: rebindPreconditionReceipt(mismatchedLeaseChecks),
+    });
+    await expect(finalizeExecutionAcceptance(rejectionInput("lease-worker-mismatch")))
+      .resolves.toMatchObject({ accepted: false });
+    await db.update(aiApplyJournalTable).set({ payload: originalLeasePayload })
+      .where(eq(aiApplyJournalTable.id, leaseJournalRow.id));
+    await replaceActionPayload(originalActionPayload);
+
+    // The valid v2 envelope must be accepted after the rejected variants are restored.
     const initialAcceptance = await finalizeExecutionAcceptance(acceptanceInput);
     expect(initialAcceptance).toMatchObject({ accepted: true, duplicate: false });
+    const acceptedSnapshotId = initialAcceptance.acceptance?.evidenceSnapshotId;
+    if (!acceptedSnapshotId) {
+      throw new Error("Accepted Apply proof v2 did not persist an evidence snapshot.");
+    }
+    const [acceptedSnapshot] = await db.select()
+      .from(aiExecutionEvidenceSnapshotsTable)
+      .where(eq(aiExecutionEvidenceSnapshotsTable.id, acceptedSnapshotId))
+      .limit(1);
+    const acceptedApplyArtifact = Array.isArray(acceptedSnapshot?.artifactRefs)
+      ? acceptedSnapshot.artifactRefs.find((artifact) => (
+          artifact && typeof artifact === "object" && !Array.isArray(artifact)
+          && (artifact as Record<string, unknown>).kind === "apply_changes"
+        ))
+      : undefined;
+    expect(acceptedApplyArtifact).toMatchObject({
+      kind: "apply_changes",
+      version: 2,
+      authorizationDecisionHash: authorizationDecision.decisionHash,
+      preconditionReceiptHash: preconditionReceipt.receiptHash,
+      preconditionJournalIds: [...new Set(
+        preconditionReceipt.checks.map((check) => check.reference.id),
+      )].sort(),
+    });
 
     // These are the route's independent direct observations used to reconstruct
     // the transition. The effect proof observations above remain separately bound.
@@ -1461,9 +1947,14 @@ describe("runtime.start transition retry scheduling", () => {
 
     // A well-formed but different plan digest must not be silently rebased.
     const originalIntent = originalRequestedPayload.worldTransitionIntent as Record<string, unknown>;
+    const wrongPlanRevision = "9".repeat(64);
     const payloadWithWrongPlan = {
       ...originalRequestedPayload,
-      worldTransitionIntent: { ...originalIntent, planRevision: "9".repeat(64) },
+      worldTransitionIntent: { ...originalIntent, planRevision: wrongPlanRevision },
+      preconditionReceipt: rebindPreconditionReceipt(
+        originalPreconditionReceipt.checks,
+        { planRevision: wrongPlanRevision },
+      ),
     };
     await db.update(aiAgentEpisodeEventsTable).set({
       payload: payloadWithWrongPlan as typeof requestedEvent.payload,
@@ -1734,6 +2225,14 @@ describe("runtime.start transition retry scheduling", () => {
     const finalized = await transitionWorker;
     expect(finalized.status).toBe("materialized");
     expect(await duplicateAcceptance).toMatchObject({
+      accepted: true,
+      duplicate: true,
+    });
+
+    // D2 advances episode.worldRevision to the resulting World State revision.
+    // The original parent remains bound by the immutable Apply Journal intent,
+    // so reloading the already accepted proof must still be idempotently valid.
+    await expect(finalizeExecutionAcceptance(acceptanceInput)).resolves.toMatchObject({
       accepted: true,
       duplicate: true,
     });
