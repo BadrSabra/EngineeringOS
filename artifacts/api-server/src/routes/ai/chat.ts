@@ -17240,14 +17240,15 @@ async function applyChangesHandler(req: Request, res: Response) {
           eq(aiApplyJournalTable.operationId, proposal.operationId),
           eq(aiApplyJournalTable.proposalId, proposal.id),
         ))
-        .orderBy(desc(aiApplyJournalTable.sequence))
+        .orderBy(desc(aiApplyJournalTable.createdAt), desc(aiApplyJournalTable.sequence))
         .limit(1)
       : [];
-    // A process can stop after the durable promotion intent but before the
-    // Proposal's terminal transaction. In that case the row may still be
-    // "proposed"/pending, so lifecycle alone is not a recovery boundary.
-    // Permit automatic retry only for Journal states that prove no live write
-    // began, or a completed rollback / explicit pre-promotion block.
+    // Journal sequence is scoped to attemptId and restarts for each retry.
+    // Read by creation time first, then sequence within that attempt; ordering
+    // by sequence alone can let an older high-sequence ROLLED_BACK row mask a
+    // newer low-sequence PROMOTION_INTENT after a later process interruption.
+    // The Proposal lifecycle is only a projection, so unresolved Journal state
+    // remains authoritative even when that projection looks retryable.
     const safelyRetryableJournalStages = new Set([
       "PREFLIGHT_STARTED",
       "PREFLIGHT_PASSED",
