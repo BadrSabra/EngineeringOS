@@ -715,8 +715,7 @@ export async function reconcileInterruptedApplyChanges(): Promise<{
         }
 
         if (hasSnapshotIntent && actionId && goalId && matchingActionTransitions.length === 0) {
-          {
-            const recovery = await recoverAcceptedApplyChangesTransition({
+          const recovery = await recoverAcceptedApplyChangesTransition({
               projectId: proposal.projectId,
               executionId: selected.id,
               attempt: selected.attempt,
@@ -776,7 +775,6 @@ export async function reconcileInterruptedApplyChanges(): Promise<{
             }, "reconciled accepted Apply Changes World Transition from its original snapshot");
             if (recovery.kind === "created" || finalized.status === "materialized") reconciled++;
             continue;
-          }
         }
 
         const released = await releaseAcceptedApplyProjection({
