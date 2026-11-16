@@ -792,6 +792,7 @@ describe("autonomous operation contract", () => {
       ...common,
       applyAttemptId: "apply-attempt-1",
       changeSetHash: "b".repeat(64),
+      submittedChangeSetHash: "c".repeat(64),
       applyChangesProofMode: "apply_changes_v2",
     };
     const v2 = parseExecutionRequest(JSON.stringify(v2Request));
