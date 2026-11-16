@@ -1070,6 +1070,7 @@ describe("runtime.start transition retry scheduling", () => {
       workspaceRevision: baseRevision,
       validationTargetPaths: ["src/target.ts"],
       changeSetHash,
+      submittedChangeSetHash: changeSetHash,
       applyChangesProofMode: APPLY_CHANGES_PROOF_MODE_V2,
       proofRequired: true,
       effectRequired: true,
