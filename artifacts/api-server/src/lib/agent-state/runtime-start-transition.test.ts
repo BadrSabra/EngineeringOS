@@ -11,6 +11,7 @@ import {
   aiAgentEpisodesTable,
   aiAgentEpisodeEventsTable,
   aiAgentObservationsTable,
+  aiApplyJournalTable,
   aiChatSessionsTable,
   aiChatMessagesTable,
   aiChangeProposalsTable,
@@ -53,9 +54,11 @@ import {
   materializeWorldStateForProject,
 } from "./world-state.js";
 import * as worldStateModule from "./world-state.js";
-import { hashDeliveryTree } from "../delivery-workspace.js";
+import { DELIVERY_TREE_DIGEST_VERSION, hashDeliveryTree } from "../delivery-workspace.js";
 import {
   AGENT_STATE_LIMITS,
+  buildApplyAuthorizationDecision,
+  buildApplyPreconditionReceipt,
   canonicalJsonHash,
   GoalNextActionSchema,
   parseBoundedJson,
@@ -66,7 +69,10 @@ import {
   buildApplyChangeAction,
   buildApplyChangeEffectProofExpectation,
 } from "./apply-change-effect.js";
-import { APPLY_CHANGES_PROOF_MODE } from "./apply-changes-proof.js";
+import {
+  APPLY_CHANGES_PROOF_MODE,
+  APPLY_CHANGES_PROOF_MODE_V2,
+} from "./apply-changes-proof.js";
 
 function hashBoundedAgentStateJson(value: unknown, maxBytes: number): string {
   return canonicalJsonHash(parseBoundedJson(value, maxBytes));
