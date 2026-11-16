@@ -8000,7 +8000,7 @@ describe("POST /api/ai/chat/apply-changes", () => {
     const proposalChanges = [{
       path: "src/interrupted-promotion.ts",
       absolutePath: `/tmp/interrupted-promotion-${randomUUID()}.ts`,
-      newContent: "export const interruptedPromotion = true;\\n",
+      newContent: "export const interruptedPromotion = true;\n",
       originalContent: null,
       reason: "Interrupted promotion journal test",
       validationProfile: "api-ai-tests" as const,
