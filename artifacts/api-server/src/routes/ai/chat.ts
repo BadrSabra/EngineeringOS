@@ -191,6 +191,7 @@ import {
 import {
   buildApplyChangeAction,
   buildApplyChangeEffectContract,
+  hashApplySubmittedSubset,
 } from "../../lib/agent-state/apply-change-effect.js";
 import {
   APPLY_CHANGES_PROOF_MODE_V2,
@@ -17427,7 +17428,8 @@ async function applyChangesHandler(req: Request, res: Response) {
     // before touching the user's checkout. This workspace is retained as the
     // recovery/proof artifact; the durable root is only written after all
     // revision, path, and validation gates below pass.
-    const submittedChangeSetHash = hashChangeSet(changes);
+    const submittedChangeSetHash = hashApplySubmittedSubset(changes);
+    const submittedCandidateBytesHash = hashChangeSet(changes);
     const preparedCandidateExists = proposal.operationId && proposal.workspaceRoot
       ? await deliveryWorkspaceExists(proposal.workspaceRoot, proposal.operationId)
       : false;
@@ -17435,7 +17437,7 @@ async function applyChangesHandler(req: Request, res: Response) {
       preparedCandidateExists
       && proposal.operationId
       && proposal.workspaceRoot
-      && proposal.changeSetHash === submittedChangeSetHash
+      && proposal.changeSetHash === submittedCandidateBytesHash
       && proposal.baseTreeHash
       && proposal.candidateTreeHash,
     );
@@ -17964,7 +17966,8 @@ async function applyChangesHandler(req: Request, res: Response) {
           projectId,
           executionProfile: "approved_source_promotion",
           turnIntent: "APPLY_CHANGES",
-          operationId: applyAttemptId,
+          operationId: applyCorrelationId,
+          applyAttemptId,
           message: "Server-owned approved source promotion.",
           modelMessage: "Server-owned approved source promotion.",
           workspaceRevision: deliveryWorkspace.baseRevision,
@@ -17974,6 +17977,7 @@ async function applyChangesHandler(req: Request, res: Response) {
           effectRequired: true,
           applyChangesProofMode: APPLY_CHANGES_PROOF_MODE_V2,
           changeSetHash: effectiveChangeSetHash,
+          submittedChangeSetHash,
         },
         idempotencyKey: `apply-changes:${applyAttemptId}`,
         correlationId: applyCorrelationId,
