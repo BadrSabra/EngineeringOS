@@ -754,11 +754,11 @@ describe("autonomous operation contract", () => {
     }))).toBeUndefined();
   });
 
-  it("accepts Apply proof v1 and v2 requests while requiring the v2 candidate digest", () => {
+  it("accepts Apply proof v1 and v2 requests with distinct operation and attempt identities", () => {
     const common = {
       projectId: "project-1",
       turnIntent: "APPLY_CHANGES",
-      operationId: "apply-attempt-1",
+      operationId: "apply-operation-1",
       message: "approved Apply",
       modelMessage: "approved Apply",
       workspaceRoot: "/workspace/project-1",
@@ -773,22 +773,30 @@ describe("autonomous operation contract", () => {
     }));
     expect(legacy?.applyChangesProofMode).toBe("apply_changes_v1");
 
-    const v2 = parseExecutionRequest(JSON.stringify({
+    const v2Request = {
       ...common,
+      applyAttemptId: "apply-attempt-1",
       changeSetHash: "b".repeat(64),
       applyChangesProofMode: "apply_changes_v2",
-    }));
+    };
+    const v2 = parseExecutionRequest(JSON.stringify(v2Request));
     expect(v2?.applyChangesProofMode).toBe("apply_changes_v2");
+    expect(v2?.operationId).toBe("apply-operation-1");
+    expect(v2?.applyAttemptId).toBe("apply-attempt-1");
     expect(v2?.changeSetHash).toBe("b".repeat(64));
 
     expect(parseExecutionRequest(JSON.stringify({
       ...common,
+      changeSetHash: "b".repeat(64),
       applyChangesProofMode: "apply_changes_v2",
     }))).toBeUndefined();
     expect(parseExecutionRequest(JSON.stringify({
-      ...common,
+      ...v2Request,
+      applyAttemptId: common.operationId,
+    }))).toBeUndefined();
+    expect(parseExecutionRequest(JSON.stringify({
+      ...v2Request,
       changeSetHash: "not-a-digest",
-      applyChangesProofMode: "apply_changes_v2",
     }))).toBeUndefined();
     expect(parseExecutionRequest(JSON.stringify({
       ...common,
