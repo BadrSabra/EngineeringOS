@@ -7994,38 +7994,59 @@ describe("POST /api/ai/chat/apply-changes", () => {
       .where(eq(aiApplyJournalTable.operationId, proposalId))).toHaveLength(0);
   });
 
-  it("blocks a pending proposal after an interrupted promotion intent", async () => {
+  it("does not let an older rollback row mask a newer interrupted promotion", async () => {
     const projectId = await insertProject();
     projectIds.push(projectId);
     const proposalChanges = [{
       path: "src/interrupted-promotion.ts",
       absolutePath: `/tmp/interrupted-promotion-${randomUUID()}.ts`,
-      newContent: "export const interruptedPromotion = true;\n",
+      newContent: "export const interruptedPromotion = true;\\n",
       originalContent: null,
       reason: "Interrupted promotion journal test",
       validationProfile: "api-ai-tests" as const,
     }];
     const proposalId = await insertChangeProposal(projectId, proposalChanges);
     await db.update(aiChangeProposalsTable)
-      .set({ operationId: proposalId })
+      .set({
+        operationId: proposalId,
+        lifecycle: "conflicted",
+        conflictReason: "A later promotion attempt was interrupted.",
+      })
       .where(eq(aiChangeProposalsTable.id, proposalId));
-    await db.insert(aiApplyJournalTable).values({
-      id: randomUUID(),
-      operationId: proposalId,
-      attemptId: `interrupted-attempt:${randomUUID()}`,
-      projectId,
-      proposalId,
-      stage: "PROMOTION_INTENT",
-      sequence: 1,
-      payload: {
-        candidateHash: "a".repeat(64),
-        files: [{
-          path: proposalChanges[0]!.path,
-          originalContent: null,
-          newContent: proposalChanges[0]!.newContent,
-        }],
+
+    const previousAttemptAt = new Date(Date.now() - 60_000);
+    const interruptedAttemptAt = new Date();
+    await db.insert(aiApplyJournalTable).values([
+      {
+        id: randomUUID(),
+        operationId: proposalId,
+        attemptId: `rolled-back-attempt:${proposalId}`,
+        projectId,
+        proposalId,
+        stage: "ROLLED_BACK",
+        sequence: 9,
+        payload: { reason: "previous attempt restored the original tree" },
+        createdAt: previousAttemptAt,
       },
-    });
+      {
+        id: randomUUID(),
+        operationId: proposalId,
+        attemptId: `interrupted-attempt:${proposalId}`,
+        projectId,
+        proposalId,
+        stage: "PROMOTION_INTENT",
+        sequence: 2,
+        payload: {
+          candidateHash: "a".repeat(64),
+          files: [{
+            path: proposalChanges[0]!.path,
+            originalContent: null,
+            newContent: proposalChanges[0]!.newContent,
+          }],
+        },
+        createdAt: interruptedAttemptAt,
+      },
+    ]);
 
     const res = await request(app)
       .post("/api/ai/chat/apply-changes")
@@ -8035,14 +8056,18 @@ describe("POST /api/ai/chat/apply-changes", () => {
     expect(res.body).toEqual({
       error: "This delivery must complete recovery validation before it can be applied again.",
       code: "DELIVERY_RECOVERY_REQUIRED",
-      lifecycle: "proposed",
+      lifecycle: "conflicted",
       recoveryState: "recoverable",
       nextAction: "Resume validation before applying the delivery again, or discard it if it is no longer needed.",
     });
     const journal = await db.select().from(aiApplyJournalTable)
       .where(eq(aiApplyJournalTable.proposalId, proposalId));
-    expect(journal).toHaveLength(1);
-    expect(journal[0]?.stage).toBe("PROMOTION_INTENT");
+    expect(journal).toHaveLength(2);
+    const latest = journal.reduce((current, row) =>
+      row.createdAt > current.createdAt ? row : current,
+    );
+    expect(latest.stage).toBe("PROMOTION_INTENT");
+    expect(latest.sequence).toBe(2);
   });
 
   it("emits a warning AiChangesApplied event when no file can be written", async () => {
