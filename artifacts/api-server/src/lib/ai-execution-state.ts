@@ -385,8 +385,12 @@ export function checkRecipeOperationBinding(
     const outside = expected.approvedPaths.map(normalizedRecipePath).find((item) => !approved.has(item));
     if (outside) return { allowed: false, reason: "scope_mismatch", detail: "Recipe action is outside the approved path scope." };
   }
+  // `leaseUntil` inside a recipe binding is a snapshot, not the durable lease
+  // authority. Heartbeats renew the database row independently, and hosts may
+  // have skewed clocks. Compare its timestamp only when a caller supplies an
+  // authoritative clock; production ownership is fenced by databaseNow().
   if (expected.requireLease && (!parsed.leaseOwner || !parsed.leaseUntil
-    || Date.parse(parsed.leaseUntil) <= (expected.now ?? new Date()).getTime())) {
+    || (expected.now !== undefined && Date.parse(parsed.leaseUntil) <= expected.now.getTime()))) {
     return { allowed: false, reason: "lease_expired", detail: "Recipe operation lease is missing or expired." };
   }
   if (parsed.missionBudget.maxParallelNodes > parsed.concurrencyBudget.maxInFlightNodes
@@ -2220,7 +2224,6 @@ export async function authorizeRecipeNodeExecution(params: {
       candidateWorkspace: storedBinding.candidateWorkspace,
       leaseOwner: params.workerId,
       requireLease: true,
-      now: new Date(),
     });
   } catch {
     return { allowed: false, reason: `recipe binding rejected before ${params.phase}` };
