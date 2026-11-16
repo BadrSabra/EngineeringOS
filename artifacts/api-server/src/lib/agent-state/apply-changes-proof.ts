@@ -264,10 +264,16 @@ async function deriveApplyChangesProofV2Evidence(input: {
   );
   const persistedDecision = record(authorizationPayload?.authorizationDecision);
   const proposalEligibility = record(authorizationPayload?.proposalEligibility);
+  const persistedDecisionHash = persistedDecision?.decisionHash;
+  const persistedDecisionBody = persistedDecision
+    ? (({ decisionHash: _decisionHash, ...body }) => body)(persistedDecision)
+    : undefined;
   if (
     !authorizationPayload
     || !persistedDecision
-    || canonicalJsonHash(persistedDecision as Parameters<typeof canonicalJsonHash>[0])
+    || persistedDecisionHash !== authorization.decisionHash
+    || !persistedDecisionBody
+    || canonicalJsonHash(persistedDecisionBody as Parameters<typeof canonicalJsonHash>[0])
       !== authorization.decisionHash
     || proposalEligibility?.proposalId !== proposal.id
     || proposalEligibility.status !== "pending"
