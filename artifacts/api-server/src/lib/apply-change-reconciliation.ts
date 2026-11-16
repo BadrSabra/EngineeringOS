@@ -110,6 +110,18 @@ function asString(value: unknown): string | undefined {
   return typeof value === "string" ? value : undefined;
 }
 
+export function resolveApplyJournalAttemptId(input: {
+  actionAttemptId?: string;
+  request: unknown;
+  fallbackExecutionId: string;
+}): string {
+  const request = parseRecord(input.request);
+  return input.actionAttemptId
+    ?? asString(request?.applyAttemptId)
+    ?? asString(request?.operationId)
+    ?? input.fallbackExecutionId;
+}
+
 function asStringArray(value: unknown): string[] {
   return Array.isArray(value)
     ? value.filter((item): item is string => typeof item === "string")
@@ -601,9 +613,11 @@ export async function reconcileInterruptedApplyChanges(): Promise<{
           .orderBy(desc(aiAgentEpisodeEventsTable.sequence))
         : [];
       const actionRecord = getApplyActionEvent(episodeEvents, proposal);
-      const attemptId = actionRecord?.attemptId
-        ?? asString(parseRecord(selected.request)?.operationId)
-        ?? selected.id;
+      const attemptId = resolveApplyJournalAttemptId({
+        actionAttemptId: actionRecord?.attemptId,
+        request: selected.request,
+        fallbackExecutionId: selected.id,
+      });
       const journal = await db.select()
         .from(aiApplyJournalTable)
         .where(and(
