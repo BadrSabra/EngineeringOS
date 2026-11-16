@@ -255,6 +255,7 @@ jobs:
         run: pnpm --filter @workspace/db run schema:canary
 
       - name: Apply and verify test database schema
+        id: test_database
         run: pnpm run db:schema:apply
 
       - name: Install Chromium for browser-backed tests
@@ -330,6 +331,7 @@ jobs:
           pnpm run test
 
       - name: Prove snapshot-bound Apply recovery across independent PostgreSQL sessions
+        if: always() && steps.test_database.outcome == 'success'
         timeout-minutes: 10
         shell: bash
         run: |
