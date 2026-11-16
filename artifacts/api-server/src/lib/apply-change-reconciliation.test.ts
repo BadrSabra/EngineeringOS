@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   classifyApplyRecoveryTrees,
-  findApplyTransitionsForAction,
+  matchApplyTransitionForAction,
 } from "./apply-change-reconciliation.js";
 
 describe("classifyApplyRecoveryTrees", () => {
@@ -69,30 +69,48 @@ describe("classifyApplyRecoveryTrees", () => {
   });
 });
 
-describe("findApplyTransitionsForAction", () => {
+describe("matchApplyTransitionForAction", () => {
   const sameAttemptTransitions = [
     { id: "other-action", episodeId: "episode-1", actionId: "action-other" },
     { id: "other-episode", episodeId: "episode-2", actionId: "action-apply" },
   ];
 
-  it("does not let another Episode or Action suppress Apply recovery", () => {
-    expect(findApplyTransitionsForAction(
+  it("treats unrelated Episode and Action rows as a missing Apply transition", () => {
+    expect(matchApplyTransitionForAction(
       sameAttemptTransitions,
       "episode-1",
       "action-apply",
-    )).toEqual([]);
+    )).toEqual({ kind: "missing" });
   });
 
-  it("recognizes only the exact Episode and Action", () => {
+  it("matches only the exact Episode and Action", () => {
     const expected = {
       id: "apply-action",
       episodeId: "episode-1",
       actionId: "action-apply",
     };
-    expect(findApplyTransitionsForAction(
+    expect(matchApplyTransitionForAction(
       [...sameAttemptTransitions, expected],
       "episode-1",
       "action-apply",
-    )).toEqual([expected]);
+    )).toEqual({ kind: "matched", transition: expected });
+  });
+
+  it("fails closed when duplicate transitions share the exact Action identity", () => {
+    const duplicate = {
+      id: "apply-action-duplicate",
+      episodeId: "episode-1",
+      actionId: "action-apply",
+    };
+    const expected = {
+      id: "apply-action",
+      episodeId: "episode-1",
+      actionId: "action-apply",
+    };
+    expect(matchApplyTransitionForAction(
+      [...sameAttemptTransitions, expected, duplicate],
+      "episode-1",
+      "action-apply",
+    )).toEqual({ kind: "ambiguous", count: 2 });
   });
 });
