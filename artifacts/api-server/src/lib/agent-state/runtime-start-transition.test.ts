@@ -1263,8 +1263,16 @@ describe("runtime.start transition retry scheduling", () => {
       changeSetHash,
     });
     let applyJournalSequence = 1;
-    const appendV2ApplyJournal = async (
-      stage: string,
+    const appendV2ApplyJournal = async <
+      TStage extends
+        | "APPLY_AUTHORIZATION_DECISION"
+        | "APPLY_APPROVED_SUBSET"
+        | "APPLY_VALIDATION_PASSED"
+        | "APPLY_CANDIDATE_STABLE"
+        | "APPLY_EXECUTION_LEASE"
+        | "APPLY_PARENT_SNAPSHOT",
+    >(
+      stage: TStage,
       stagePayload: Record<string, unknown>,
     ) => {
       const id = crypto.randomUUID();
@@ -1278,7 +1286,7 @@ describe("runtime.start transition retry scheduling", () => {
         promotedTreeHash: candidateTreeHash,
         ...stagePayload,
       };
-      const contentHash = canonicalJsonHash(payload);
+      const contentHash = canonicalJsonHash(payload as Parameters<typeof canonicalJsonHash>[0]);
       await db.insert(aiApplyJournalTable).values({
         id,
         operationId: executionIdentity.correlationId!,
