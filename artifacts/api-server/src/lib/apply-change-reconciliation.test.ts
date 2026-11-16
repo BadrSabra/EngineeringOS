@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { classifyApplyRecoveryTrees } from "./apply-change-reconciliation.js";
+import {
+  classifyApplyRecoveryTrees,
+  findApplyTransitionsForAction,
+} from "./apply-change-reconciliation.js";
 
 describe("classifyApplyRecoveryTrees", () => {
   const baseTreeHash = "base-tree";
@@ -63,5 +66,33 @@ describe("classifyApplyRecoveryTrees", () => {
       candidateWorkspaceTreeHash: baseTreeHash,
       rootAvailable: true,
     })).toBe("BASE_TREE_PRESENT");
+  });
+});
+
+describe("findApplyTransitionsForAction", () => {
+  const sameAttemptTransitions = [
+    { id: "other-action", episodeId: "episode-1", actionId: "action-other" },
+    { id: "other-episode", episodeId: "episode-2", actionId: "action-apply" },
+  ];
+
+  it("does not let another Episode or Action suppress Apply recovery", () => {
+    expect(findApplyTransitionsForAction(
+      sameAttemptTransitions,
+      "episode-1",
+      "action-apply",
+    )).toEqual([]);
+  });
+
+  it("recognizes only the exact Episode and Action", () => {
+    const expected = {
+      id: "apply-action",
+      episodeId: "episode-1",
+      actionId: "action-apply",
+    };
+    expect(findApplyTransitionsForAction(
+      [...sameAttemptTransitions, expected],
+      "episode-1",
+      "action-apply",
+    )).toEqual([expected]);
   });
 });
