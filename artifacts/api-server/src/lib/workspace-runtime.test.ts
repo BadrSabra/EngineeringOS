@@ -450,7 +450,7 @@ describe("WorkspaceRuntimeManager", () => {
     const sessionId = "runtime-recovery-missing-revision-session";
     const previousWorkerId = "runtime-recovery-previous-worker";
     const store = createInMemoryWorkspaceRuntimeStore();
-    const now = new Date(Date.now() - 60_000);
+    const now = new Date();
     await store.begin({
       projectId,
       projectRoot: process.cwd(),
@@ -459,7 +459,7 @@ describe("WorkspaceRuntimeManager", () => {
       environmentRevision: null,
       workerId: previousWorkerId,
       now,
-      leaseUntil: new Date(now.getTime() - 10_000),
+      leaseUntil: new Date(now.getTime() + 60_000),
     });
     await expect(store.updateOwnedSession(projectId, sessionId, previousWorkerId, {
       revision: null,
@@ -547,7 +547,7 @@ describe("WorkspaceRuntimeManager", () => {
         environmentRevision: null,
         workerId: staleWorkerId,
         now: startedAt,
-        leaseUntil: new Date(Date.now() - 10_000),
+        leaseUntil: new Date(Date.now() + 60_000),
       });
       await store.updateOwnedSession(projectId, sessionId, staleWorkerId, {
         status: "running",

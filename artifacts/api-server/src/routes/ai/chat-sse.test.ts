@@ -101,6 +101,20 @@ vi.mock("@workspace/db", () => {
   let exposeExecutionForCancel = false;
   let exposeFallbackDiagnosticExecution = false;
 
+  const isSqlExpression = (value: unknown): boolean =>
+    value !== null && typeof value === "object" && "queryChunks" in value;
+  const normalizeExecutionPatch = (values: Record<string, unknown>) => {
+    const normalized = { ...values };
+    const now = new Date();
+    for (const field of ["leaseUntil", "lastHeartbeatAt", "startedAt", "updatedAt"] as const) {
+      if (!isSqlExpression(normalized[field])) continue;
+      normalized[field] = field === "leaseUntil"
+        ? new Date(now.getTime() + 60 * 60 * 1000)
+        : now;
+    }
+    return normalized;
+  };
+
   /**
    * Returns an object that is:
    *   - directly awaitable (thenable) → resolves to `rows` (for inserts without .returning())
@@ -116,6 +130,7 @@ vi.mock("@workspace/db", () => {
   }
 
   const updateResult = (vals?: Record<string, unknown>) => {
+    const executionPatch = vals ? normalizeExecutionPatch(vals) : undefined;
     // Keep the cancellation fixture close to the real conditional updates:
     // a running execution skips the queued/paused terminal update, then
     // transitions through cancelling so the registered controller is aborted.
@@ -124,7 +139,7 @@ vi.mock("@workspace/db", () => {
     const skipCompetingClaim =
       vals?.status === "running" && fixture.execution.status === "running";
     if (vals && !skipQueuedCancellation && !skipCompetingClaim) {
-      fixture.execution = { ...fixture.execution, ...vals };
+      fixture.execution = { ...fixture.execution, ...executionPatch };
     }
     const promise = Promise.resolve();
     return Object.assign(promise, {
@@ -138,6 +153,20 @@ vi.mock("@workspace/db", () => {
         from: (table: unknown) => ({
           where: (predicate?: unknown) => ({
             limit: () => {
+              if (
+                (table as { _tag?: string })._tag === "aiExecutionsTable"
+                && Object.keys(fields ?? {}).join(",") === "id"
+                && isSqlExpression(predicate)
+              ) {
+                const leaseUntil = fixture.execution.leaseUntil;
+                const ownsLiveLease =
+                  fixture.execution.status === "running"
+                  && typeof fixture.execution.workerId === "string"
+                  && leaseUntil instanceof Date
+                  && leaseUntil > new Date()
+                  && fixture.execution.cancelRequestedAt == null;
+                return Promise.resolve(ownsLiveLease ? [{ id: fixture.execution.id }] : []);
+              }
               if (
                 (table as { _tag?: string })._tag === "aiExecutionsTable"
                 && typeof fixture.execution.finalMessageId === "string"
@@ -346,13 +375,16 @@ vi.mock("@workspace/db", () => {
             set: (vals: Record<string, unknown>) => ({
               where: () => {
                 const tableTag = (table as { _tag?: string })._tag;
+                const executionPatch = tableTag === "aiExecutionsTable"
+                  ? normalizeExecutionPatch(vals)
+                  : vals;
                 if (fixture.session && "activeTaskState" in vals && vals.activeTaskState != null) {
                   fixture.session = { ...fixture.session, ...vals };
                 }
                 const terminalExecutionUpdate =
                   tableTag === "aiExecutionsTable" && typeof vals.status === "string";
                 if (tableTag === "aiExecutionsTable" && (!("finalMessageId" in vals) || terminalExecutionUpdate)) {
-                  fixture.execution = { ...fixture.execution, ...vals };
+                  fixture.execution = { ...fixture.execution, ...executionPatch };
                 }
                 if (tableTag === "aiChatMessagesTable" && "outcome" in vals) {
                   const assistant = [...fixture.messages]
@@ -364,7 +396,7 @@ vi.mock("@workspace/db", () => {
                 const isFinalMessageReservation = typeof vals.finalMessageId === "string";
                 const reservationWon = !isFinalMessageReservation || fixture.execution.finalMessageId === null;
                 if (isFinalMessageReservation && (reservationWon || terminalExecutionUpdate)) {
-                  fixture.execution = { ...fixture.execution, ...vals };
+                  fixture.execution = { ...fixture.execution, ...executionPatch };
                 }
                 return Object.assign(updateResult, {
                   returning: () => Promise.resolve(reservationWon || terminalExecutionUpdate ? [fixture.execution] : []),
