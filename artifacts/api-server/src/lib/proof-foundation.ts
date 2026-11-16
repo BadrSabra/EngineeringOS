@@ -20,7 +20,7 @@ import {
   RUNTIME_START_GATE_C_PROOF_MODE,
 } from "./runtime-start-gate-c-proof.js";
 import {
-  APPLY_CHANGES_PROOF_MODE,
+  isApplyChangesProofMode,
   deriveApplyChangesProof,
   type ApplyChangesProofArtifact,
 } from "./agent-state/apply-changes-proof.js";
@@ -660,7 +660,7 @@ export async function loadCanonicalProof(
       && !Array.isArray(artifact)
       && (artifact as Record<string, unknown>).kind === "apply_changes"
     ));
-    const expectedArtifact = request.applyChangesProofMode === APPLY_CHANGES_PROOF_MODE
+    const expectedArtifact = isApplyChangesProofMode(request.applyChangesProofMode)
       && acceptance
       && acceptance.outcome === "SUCCEEDED"
       && acceptance.terminalStatus === "completed"
