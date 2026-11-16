@@ -190,6 +190,8 @@ async function deriveApplyChangesProofV2Evidence(input: {
     return undefined;
   }
   const worldIntent = worldIntentResult?.success ? worldIntentResult.data : undefined;
+  const missionBound = Boolean(execution.goalId || episode.goalId || episode.missionId);
+  if (missionBound && !worldIntent) return undefined;
   if (
     worldIntent
     && (
