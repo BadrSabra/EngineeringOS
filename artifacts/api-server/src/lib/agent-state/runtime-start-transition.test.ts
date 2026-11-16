@@ -1062,8 +1062,10 @@ describe("runtime.start transition retry scheduling", () => {
       planRevision,
       createdAt: now,
     });
+    const applyAttemptId = crypto.randomUUID();
     const applyRequest = {
       operationId: executionIdentity.operationId,
+      applyAttemptId,
       workspaceRoot: rootPath,
       workspaceRevision: baseRevision,
       validationTargetPaths: ["src/target.ts"],
@@ -1225,7 +1227,7 @@ describe("runtime.start transition retry scheduling", () => {
       projectId: fixture.projectId,
       operationId: executionIdentity.correlationId,
       proposalId,
-      attemptId: executionIdentity.operationId,
+      attemptId: applyAttemptId,
       sourceRevision: baseRevision,
       baseTreeHash,
       candidateTreeHash,
@@ -1288,7 +1290,7 @@ describe("runtime.start transition retry scheduling", () => {
       await db.insert(aiApplyJournalTable).values({
         id,
         operationId: executionIdentity.correlationId!,
-        attemptId: executionIdentity.operationId!,
+        attemptId: applyAttemptId,
         projectId: fixture.projectId,
         proposalId,
         stage,
