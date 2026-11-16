@@ -122,6 +122,23 @@ export function resolveApplyJournalAttemptId(input: {
     ?? input.fallbackExecutionId;
 }
 
+/**
+ * The stable operation ID and per-attempt ID are intentionally distinct for
+ * v2 Apply. Validate the Action against the persisted request's attempt key,
+ * while keeping Acceptance bound to the stable execution operation ID.
+ */
+export function matchesApplyExecutionAttempt(input: {
+  actionAttemptId: string;
+  request: unknown;
+  fallbackExecutionId: string;
+}): boolean {
+  return Boolean(input.actionAttemptId.trim())
+    && input.actionAttemptId === resolveApplyJournalAttemptId({
+      request: input.request,
+      fallbackExecutionId: input.fallbackExecutionId,
+    });
+}
+
 function asStringArray(value: unknown): string[] {
   return Array.isArray(value)
     ? value.filter((item): item is string => typeof item === "string")
@@ -281,7 +298,11 @@ async function hasAcceptedApplyProof(
     || acceptance.outcome !== "SUCCEEDED"
     || acceptance.terminalStatus !== "completed"
     || acceptance.operationId !== execution.operationId
-    || execution.operationId !== actionRecord.attemptId
+    || !matchesApplyExecutionAttempt({
+      actionAttemptId: actionRecord.attemptId,
+      request: execution.request,
+      fallbackExecutionId: execution.id,
+    })
     || acceptance.sourceRevision !== proposal.baseRevision
     || acceptance.candidateIdentity !== `${proposal.id}:${proposal.candidateTreeHash}`
     || !acceptance.effectBundleId
@@ -834,7 +855,10 @@ export async function reconcileInterruptedApplyChanges(): Promise<{
         "interrupted apply reconciliation failed closed",
       );
       try {
-        const attemptId = asString(parseRecord(selected.request)?.operationId) ?? selected.id;
+        const attemptId = resolveApplyJournalAttemptId({
+          request: selected.request,
+          fallbackExecutionId: selected.id,
+        });
         const persisted = await persistRecoveryDecision({
           proposal,
           execution: selected,
