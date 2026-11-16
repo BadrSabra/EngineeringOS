@@ -1234,6 +1234,202 @@ describe("runtime.start transition retry scheduling", () => {
       changeSetHash,
       approvedPaths: ["src/target.ts"],
     });
+    if (!executionIdentity.userId || !executionIdentity.leaseUntil) {
+      throw new Error("Apply proof v2 fixture requires a claimed execution owner and lease.");
+    }
+    const worldTransitionIntent = buildApplyChangesWorldTransitionIntent({
+      projectId: fixture.projectId,
+      proposalId,
+      goalId,
+      planRevision,
+      parentWorldRevision: input.parentWorldRevision,
+      parentFactRefs: input.parentFactRefs,
+    });
+    const proposalChangesHash = canonicalJsonHash([]);
+    const approvedPathsHash = canonicalJsonHash(["src/target.ts"]);
+    const authorizationDecision = buildApplyAuthorizationDecision({
+      schemaVersion: 1,
+      decision: "ALLOW",
+      actorUserId: executionIdentity.userId,
+      projectId: fixture.projectId,
+      projectOwnerId: executionIdentity.userId,
+      proposalId,
+      proposalRevision: 0,
+      executionId: fixture.executionId,
+      attempt: 0,
+      capabilityId: applyAction.capabilityId,
+      approvedPathsHash,
+      proposalChangesHash,
+      changeSetHash,
+    });
+    let applyJournalSequence = 1;
+    const appendV2ApplyJournal = async (
+      stage: string,
+      stagePayload: Record<string, unknown>,
+    ) => {
+      const id = crypto.randomUUID();
+      const payload = {
+        operationId: executionIdentity.correlationId!,
+        baseRevision,
+        baseTreeHash,
+        candidateTreeHash,
+        treeDigestVersion: DELIVERY_TREE_DIGEST_VERSION,
+        changeSetHash,
+        promotedTreeHash: candidateTreeHash,
+        ...stagePayload,
+      };
+      const contentHash = canonicalJsonHash(payload);
+      await db.insert(aiApplyJournalTable).values({
+        id,
+        operationId: executionIdentity.correlationId!,
+        attemptId: executionIdentity.operationId!,
+        projectId: fixture.projectId,
+        proposalId,
+        stage,
+        sequence: applyJournalSequence++,
+        payload,
+        createdAt: new Date(),
+      });
+      return {
+        kind: "APPLY_JOURNAL" as const,
+        id,
+        stage,
+        contentHash,
+      };
+    };
+    const authorizationJournalRef = await appendV2ApplyJournal(
+      "APPLY_AUTHORIZATION_DECISION",
+      {
+        authorizationDecision,
+        proposalEligibility: {
+          proposalId,
+          status: "pending",
+          approvalRequired: false,
+          revision: 0,
+        },
+        projectOwnerId: executionIdentity.userId,
+        actorUserId: executionIdentity.userId,
+      },
+    );
+    const subsetJournalRef = await appendV2ApplyJournal(
+      "APPLY_APPROVED_SUBSET",
+      {
+        proposalId,
+        proposalRevision: 0,
+        proposalChangesHash,
+        approvedPathsHash,
+        changeSetHash,
+        submittedChangeSetHash: changeSetHash,
+        subsetAuthorized: true,
+      },
+    );
+    const validationReceipt = {
+      profile: "workspace-typecheck",
+      status: "passed",
+      evidence: {
+        evidenceId: "apply-v2-validation-evidence",
+        artifactRef: "validation:apply-v2:workspace-typecheck",
+        operationId: executionIdentity.correlationId,
+        projectRevision: baseRevision,
+        baseTreeHash,
+        candidateHash: candidateTreeHash,
+        changeSetHash,
+        treeDigestVersion: DELIVERY_TREE_DIGEST_VERSION,
+      },
+    };
+    const validationJournalRef = await appendV2ApplyJournal(
+      "APPLY_VALIDATION_PASSED",
+      {
+        allPassed: true,
+        validationReceipts: [validationReceipt],
+        baseTreeHash,
+        candidateTreeHash,
+        changeSetHash,
+        treeDigestVersion: DELIVERY_TREE_DIGEST_VERSION,
+      },
+    );
+    const stabilityJournalRef = await appendV2ApplyJournal(
+      "APPLY_CANDIDATE_STABLE",
+      {
+        candidateHashAfterValidation: candidateTreeHash,
+        candidateHashBeforePromotion: candidateTreeHash,
+        liveRootHashBeforePromotion: baseTreeHash,
+        baseTreeHash,
+        candidateTreeHash,
+        candidateStable: true,
+        liveRootBaseMatched: true,
+      },
+    );
+    const leaseObservedAt = new Date();
+    const leaseJournalRef = await appendV2ApplyJournal(
+      "APPLY_EXECUTION_LEASE",
+      {
+        executionId: fixture.executionId,
+        attempt: 0,
+        userId: executionIdentity.userId,
+        workerId: fixture.workerId,
+        leaseUntil: executionIdentity.leaseUntil.toISOString(),
+        observedAt: leaseObservedAt.toISOString(),
+      },
+    );
+    const parentJournalRef = await appendV2ApplyJournal(
+      "APPLY_PARENT_SNAPSHOT",
+      {
+        missionId,
+        goalId,
+        worldTransitionIntent,
+      },
+    );
+    const preconditionReceipt = buildApplyPreconditionReceipt({
+      schemaVersion: 1,
+      actionId: applyActionId,
+      executionId: fixture.executionId,
+      attempt: 0,
+      planRevision,
+      parentWorldRevision: input.parentWorldRevision,
+      checks: [
+        {
+          id: "PROJECT_OWNER_MATCHED",
+          outcome: "SATISFIED",
+          reference: authorizationJournalRef,
+        },
+        {
+          id: "PROPOSAL_ELIGIBLE",
+          outcome: "SATISFIED",
+          reference: authorizationJournalRef,
+        },
+        {
+          id: "EXACT_APPROVED_SUBSET",
+          outcome: "SATISFIED",
+          reference: subsetJournalRef,
+        },
+        {
+          id: "CANDIDATE_VALIDATION_PASSED",
+          outcome: "SATISFIED",
+          reference: validationJournalRef,
+        },
+        {
+          id: "CANDIDATE_STABLE",
+          outcome: "SATISFIED",
+          reference: stabilityJournalRef,
+        },
+        {
+          id: "LIVE_ROOT_BASE_MATCHED",
+          outcome: "SATISFIED",
+          reference: stabilityJournalRef,
+        },
+        {
+          id: "EXECUTION_LEASE_OWNED",
+          outcome: "SATISFIED",
+          reference: leaseJournalRef,
+        },
+        {
+          id: "MISSION_PARENT_SNAPSHOT_BOUND",
+          outcome: "SATISFIED",
+          reference: parentJournalRef,
+        },
+      ],
+    });
     await appendEpisodeEvent({
       projectId: fixture.projectId,
       executionId: fixture.executionId,
@@ -1247,14 +1443,9 @@ describe("runtime.start transition retry scheduling", () => {
         capabilityId: APPLY_CHANGE_CAPABILITY_ID,
         expectedEffects: applyAction.expectedEffects,
         effectContract: applyEffect.contract,
-        worldTransitionIntent: buildApplyChangesWorldTransitionIntent({
-          projectId: fixture.projectId,
-          proposalId,
-          goalId,
-          planRevision,
-          parentWorldRevision: input.parentWorldRevision,
-          parentFactRefs: input.parentFactRefs,
-        }),
+        worldTransitionIntent,
+        authorizationDecision,
+        preconditionReceipt,
       },
     });
     await appendEpisodeEvent({
