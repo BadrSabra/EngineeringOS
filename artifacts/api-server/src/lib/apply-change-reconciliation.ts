@@ -716,25 +716,25 @@ export async function reconcileInterruptedApplyChanges(): Promise<{
 
         if (hasSnapshotIntent && actionId && goalId && matchingActionTransitions.length === 0) {
           const recovery = await recoverAcceptedApplyChangesTransition({
+            projectId: proposal.projectId,
+            executionId: selected.id,
+            attempt: selected.attempt,
+            episodeId: actionRecord.event.episodeId,
+            actionId,
+            proposalId: proposal.id,
+          });
+          if (recovery.kind === "blocked") {
+            logger.warn({
               projectId: proposal.projectId,
+              proposalId: proposal.id,
               executionId: selected.id,
               attempt: selected.attempt,
-              episodeId: actionRecord.event.episodeId,
-              actionId,
-              proposalId: proposal.id,
-            });
-            if (recovery.kind === "blocked") {
-              logger.warn({
-                projectId: proposal.projectId,
-                proposalId: proposal.id,
-                executionId: selected.id,
-                attempt: selected.attempt,
-                reason: recovery.reason,
-              }, "accepted Apply Changes has no recoverable snapshot-bound transition; Mission proof remains blocked");
-              continue;
-            }
+              reason: recovery.reason,
+            }, "accepted Apply Changes has no recoverable snapshot-bound transition; Mission proof remains blocked");
+            continue;
+          }
 
-            if (proposal.lifecycle === "blocked") {
+          if (proposal.lifecycle === "blocked") {
               const released = await releaseAcceptedApplyProjection({
                 proposal,
                 execution: selected,
