@@ -73,3 +73,13 @@ test("does not accept Firecracker when KVM is not accessible by the Agent user",
   );
   assert.equal(report.candidateExecutionAllowed, false);
 });
+
+test("blocks a root preflight even when stronger runtimes are present", () => {
+  const report = baseline({ uid: 0 });
+
+  assert.equal(report.host.effectiveUid, 0);
+  assert.ok(report.runtimes.runsc);
+  assert.ok(report.blockers.includes("agent_account_must_be_non_root"));
+  assert.equal(report.candidateExecutionAllowed, false);
+  assert.equal(report.classification, "diagnostic_only_not_qualification");
+});
