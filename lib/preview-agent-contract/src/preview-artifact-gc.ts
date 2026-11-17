@@ -88,6 +88,29 @@ export type PreviewArtifactDeleteReceiptClaims = {
   completedAt: string;
 };
 
+/**
+ * Local, reference-only storage capability required by the Preview Agent.
+ * The implementation must validate its own store identity and immutable
+ * manifest before removing a reference; it must never accept filesystem paths
+ * from a signed command or remove a shared content blob.
+ */
+export interface PreviewAgentArtifactReferenceStore {
+  removeReference(input: {
+    storeId: string;
+    jobId: string;
+    artifactRefId: string;
+    projectId: string;
+    proposalId: string;
+    operationId: string;
+    proposalRevision: number;
+    candidateRevision: string;
+    changeSetHash: string;
+    expectedDigest: string;
+    expectedSizeBytes: number;
+    expectedManifestDigest: string;
+  }): Promise<"deleted" | "already_deleted">;
+}
+
 export type PreviewArtifactDeletePollProofClaims = {
   version: 2;
   action: "poll-artifact-delete-command";

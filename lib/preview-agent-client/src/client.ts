@@ -15,7 +15,9 @@ import {
 import type {
   PreviewArtifactDeleteCommandClaims,
   PreviewArtifactDeleteReceiptClaims,
+  PreviewAgentArtifactReferenceStore,
 } from "@workspace/preview-agent-contract";
+export type { PreviewAgentArtifactReferenceStore } from "@workspace/preview-agent-contract";
 import {
   validatePreviewAgentIdentity,
   PreviewAgentIdentityError,
@@ -61,23 +63,6 @@ export class PreviewAgentClientError extends Error {
 }
 
 export type PreviewAgentFetch = typeof fetch;
-
-export interface PreviewAgentArtifactReferenceStore {
-  removeReference(input: {
-    storeId: string;
-    jobId: string;
-    artifactRefId: string;
-    projectId: string;
-    proposalId: string;
-    operationId: string;
-    proposalRevision: number;
-    candidateRevision: string;
-    changeSetHash: string;
-    expectedDigest: string;
-    expectedSizeBytes: number;
-    expectedManifestDigest: string;
-  }): Promise<"deleted" | "already_deleted">;
-}
 
 export type PairPreviewAgentInput = {
   apiUrl: string;
