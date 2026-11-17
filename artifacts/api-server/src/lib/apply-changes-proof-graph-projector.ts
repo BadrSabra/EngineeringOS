@@ -972,8 +972,6 @@ export async function projectApplyChangesProofGraph(
   ];
   const dataNodes = dataSpecs.map((spec) => makeDataNode(input, spec));
   const dataByKey = new Map(dataSpecs.map((spec, index) => [spec.key, dataNodes[index]!]));
-  const dataNodes = dataSpecs.map((spec) => makeDataNode(input, spec));
-  const dataByKey = new Map(dataSpecs.map((spec, index) => [spec.key, dataNodes[index]!]));
   const rules: Array<{ rule: ControlRule; keys: string[] }> = [
     { rule: "AUTHORIZATION_VALID", keys: ["authorization"] },
     { rule: "SCOPE_MATCHED", keys: ["scope"] },
