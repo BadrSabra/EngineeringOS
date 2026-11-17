@@ -1906,3 +1906,5 @@ Release + Environment + explicit approval
 **فشل فحص المسافات بعد استيراد main:** وصلت ثلاثة أسطر توثيقية من تحديثات GitHub بفراغات نهائية، لذلك فشل `git diff --check` قبل أي commit أو رفع. الفشل محصور في مسافات زائدة داخل `apply-proof-graph-authority-crosswalk.md` و`execution-proof-graph-projector-contract.md`؛ لا تغيّر السلوك أو الاختبارات، ولم تُمس الملفات الأخرى. ستُزال الفراغات فقط ثم يعاد فحص diff.
 
 **تعذر إنشاء شجرة فرع GitHub:** تحققت بصمة 35 كائن Blob بعد رفعها، لكن `POST /git/trees` أعاد 404؛ لم ينشأ Tree أو Commit أو Ref من هذه المحاولة ولم يتغير `main`. انتقل التنفيذ إلى فرع مراجعة منفصل مبني على `main` واختُبر مسار `Contents` على ملف توثيق مع تحقق SHA؛ لا تُكتب تغييرات إلى `main`، ولا يُفتح PR قبل اكتمال رفع جميع المسارات والتحقق منها.
+
+**حاجز صلاحية Workflow:** أعاد `PUT /contents/.github/workflows/recipe-operation-recovery-isolated.yml` حالة 404 بعد نجاح مزامنة 37 ملفًا. هذه العملية تتطلب صلاحية `Workflows:write` إضافة إلى `Contents:write`؛ لم يُرفع ملف Workflow ولم يُفتح PR، وظل `main` عند SHA الأساسي. لا يجوز إسقاط الملف أو تجاوز حماية المسار بصمت؛ يلزم إعادة توصيل GitHub بصلاحية Workflow ثم إعادة المحاولة على فرع المراجعة نفسه.
