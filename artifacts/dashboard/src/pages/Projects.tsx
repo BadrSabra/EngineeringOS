@@ -123,7 +123,7 @@ function ProjectsForAccount({ ownerId }: { ownerId: string }) {
     const generation = createGeneration.current;
     void queryClient.invalidateQueries({ queryKey: getListProjectsQueryKey() }).finally(() => {
       if (mounted.current && generation === createGeneration.current) {
-        setLocation(`/ai?projectId=${encodeURIComponent(operation.projectId!)}${draftId ? `&goalDraftId=${encodeURIComponent(draftId)}` : ''}`);
+        setLocation(`/projects/${encodeURIComponent(operation.projectId!)}/workspace${draftId ? `?goalDraftId=${encodeURIComponent(draftId)}` : ''}`);
       }
     });
   }, [operation?.status, operation?.projectId, operation?.id, draftId, ownerId, queryClient, setLocation, handoffRetry]);
