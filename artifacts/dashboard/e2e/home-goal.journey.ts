@@ -110,6 +110,38 @@ async function installGoalApiFixtures(
   });
 }
 
+function workspaceSnapshot(project: ProjectFixture) {
+  return {
+    contractVersion: 1,
+    observedAt: "2026-11-10T18:00:00.000Z",
+    project: {
+      id: project.id,
+      name: project.name,
+      description: "مراجعة رحلة تسجيل الدخول",
+      language: "TypeScript",
+      framework: "React",
+      status: project.status,
+      updatedAt: "2026-11-10T17:50:00.000Z",
+    },
+    work: {
+      tasksSource: "available",
+      recentTasks: [],
+      executionSource: "available",
+      latestExecution: null,
+      candidateSource: "available",
+      candidate: null,
+    },
+    runtime: {
+      source: "available",
+      status: "stopped",
+      runtimeRevision: null,
+      startedAt: null,
+      stoppedAt: "2026-11-10T17:40:00.000Z",
+    },
+    freshness: { partial: false, warnings: [] },
+  };
+}
+
 test.beforeEach(async ({ page }) => {
   blockedBrowserEgressHosts.clear();
   apiRequests.length = 0;
@@ -160,16 +192,13 @@ test("UXW-01 goal handoff works on mobile when dashboard analytics fail", async 
     "This journey requires the isolated local-auth browser fixture.",
   );
   await page.setViewportSize({ width: 402, height: 874 });
-  await installGoalApiFixtures(page, [{
+  const project = {
     id: "uxw-project-1",
     name: "بوابة العملاء",
-    language: "TypeScript",
-    framework: "React",
     status: "active",
-    rootPath: "/controlled/uxw",
-    qualityScore: 92,
     ownerId: "test-user",
-  }]);
+  };
+  await installGoalApiFixtures(page, [project], workspaceSnapshot(project));
   await page.goto(DASHBOARD_PATH, { waitUntil: "domcontentloaded" });
 
   await expect(page.getByRole("heading", { name: "مساحة العمل" })).toBeVisible();
@@ -203,7 +232,7 @@ test("UXW-01 goal handoff works on mobile when dashboard analytics fail", async 
   await expect(continueButton).toBeFocused();
   await page.keyboard.press("Enter");
 
-  await expect(page).toHaveURL(/\/dashboard\/ai\?projectId=uxw-project-1&goalDraftId=/);
+  await expect(page).toHaveURL(/\/dashboard\/projects\/uxw-project-1\/workspace\?goalDraftId=/);
   const drafts = await page.evaluate((key) => {
     const raw = window.sessionStorage.getItem(key);
     return raw ? JSON.parse(raw) : [];
@@ -244,7 +273,7 @@ test("UXW-01 new-project handoff preserves the goal without starting work", asyn
   expect(apiRequests.filter((request) => !request.startsWith("GET "))).toEqual([]);
 });
 
-test("UXW-01 restores the goal inside AI Chat without sending it", async ({
+test("UXW-01 restores the goal inside Project Workspace without sending it", async ({
   page,
 }) => {
   test.skip(
@@ -252,16 +281,13 @@ test("UXW-01 restores the goal inside AI Chat without sending it", async ({
     "This journey requires the isolated local-auth browser fixture.",
   );
   await page.setViewportSize({ width: 1280, height: 900 });
-  await installGoalApiFixtures(page, [{
+  const project = {
     id: "uxw-project-1",
     name: "بوابة العملاء",
-    language: "TypeScript",
-    framework: "React",
     status: "active",
-    rootPath: "/controlled/uxw",
-    qualityScore: 92,
     ownerId: "test-user",
-  }]);
+  };
+  await installGoalApiFixtures(page, [project], workspaceSnapshot(project));
   await page.goto(DASHBOARD_PATH, { waitUntil: "domcontentloaded" });
 
   const goal = "أريد مراجعة مشكلة تسجيل الدخول";
@@ -270,7 +296,8 @@ test("UXW-01 restores the goal inside AI Chat without sending it", async ({
   await page.getByTestId("select-goal-project").selectOption("uxw-project-1");
   await page.getByTestId("button-route-goal-project").click();
 
-  await expect(page).toHaveURL(/\/dashboard\/ai\?projectId=uxw-project-1&goalDraftId=/);
+  await expect(page).toHaveURL(/\/dashboard\/projects\/uxw-project-1\/workspace\?goalDraftId=/);
+  await expect(page.getByTestId("project-workspace")).toBeVisible();
   const composer = page.getByTestId("input-ai-chat-composer");
   await expect(composer).toHaveValue(goal);
   await expect(page.getByTestId("status-project-planning-handoff")).toBeVisible();
