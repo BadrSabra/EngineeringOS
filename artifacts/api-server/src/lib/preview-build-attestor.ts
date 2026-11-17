@@ -110,6 +110,7 @@ export async function acceptPreviewBuildReceipt(input: {
         builderImageDigest: job.builderImageDigest,
         buildId: job.buildId,
         outputArtifactKey: job.outputArtifactKey,
+        contractVersion: job.contractVersion,
         attemptId: job.jobId,
         idempotencyKey: job.clientRequestId,
         dispatchGeneration: job.dispatchGeneration,

@@ -89,17 +89,11 @@ async function readBoundedResponseText(response: Response): Promise<string> {
 function claimsForJob(job: PreviewBuildJob, now: Date): PreviewBuildJobClaims {
   const issuedAt = now.toISOString();
   const expiresAt = new Date(now.getTime() + 5 * 60_000).toISOString();
-  return {
-    version: 3,
-    action: "preview-build",
+  const common = {
+    action: "preview-build" as const,
     jobId: job.jobId,
-    attemptId: job.jobId,
-    idempotencyKey: job.clientRequestId,
-    dispatchGeneration: job.dispatchGeneration,
-    inputArtifactProvider: job.inputArtifactProvider,
-    outputArtifactProvider: job.outputArtifactProvider,
     buildId: job.buildId,
-    builderProfile: "vite-react-static-v1",
+    builderProfile: "vite-react-static-v1" as const,
     builderImageDigest: job.builderImageDigest,
     projectId: job.projectId,
     proposalId: job.proposalId,
@@ -115,6 +109,33 @@ function claimsForJob(job: PreviewBuildJob, now: Date): PreviewBuildJobClaims {
     issuedAt,
     expiresAt,
   };
+  if (job.contractVersion === 2) {
+    if (
+      job.inputArtifactProvider !== "s3" ||
+      job.outputArtifactProvider !== "s3"
+    ) {
+      throw new PreviewBuildAttestorClientError();
+    }
+    return {
+      ...common,
+      version: 2,
+      attemptId: job.jobId,
+      idempotencyKey: job.clientRequestId,
+      dispatchGeneration: job.dispatchGeneration,
+    };
+  }
+  if (job.contractVersion === 3) {
+    return {
+      ...common,
+      version: 3,
+      attemptId: job.jobId,
+      idempotencyKey: job.clientRequestId,
+      dispatchGeneration: job.dispatchGeneration,
+      inputArtifactProvider: job.inputArtifactProvider,
+      outputArtifactProvider: job.outputArtifactProvider,
+    };
+  }
+  throw new PreviewBuildAttestorClientError();
 }
 
 export async function attestPreviewBuildJob(input: {

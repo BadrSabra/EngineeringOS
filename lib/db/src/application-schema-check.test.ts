@@ -181,6 +181,18 @@ function completeSnapshot() {
     ) {
       return "1";
     }
+    if (
+      tableName === "preview_build_jobs" &&
+      columnName === "contract_version"
+    ) {
+      return "2";
+    }
+    if (
+      tableName === "preview_build_jobs" &&
+      columnName === "contract_version"
+    ) {
+      return "2";
+    }
     if (tableName === "project_bootstrap_jobs" && columnName === "attempt") {
       return "0";
     }

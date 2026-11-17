@@ -159,6 +159,31 @@ describe("Preview build job contract", () => {
     ).toEqual(value);
   });
 
+  it("signs V2 claims for durable V2 jobs without provider fields", () => {
+    const current = claims();
+    if (current.version !== 3) throw new Error("Expected V3 fixture.");
+    const {
+      version: _version,
+      inputArtifactProvider: _inputProvider,
+      outputArtifactProvider: _outputProvider,
+      ...shared
+    } = current;
+    const v2: PreviewBuildJobClaims = {
+      ...shared,
+      version: 2,
+    };
+
+    const token = tokenFor(v2);
+    const verified = verifyPreviewBuildJob({
+      token,
+      publicKeyPem,
+      now,
+    });
+
+    expect(verified).toEqual(v2);
+    expect(verified.version).toBe(2);
+  });
+
   it("rejects altered signatures, noncanonical payloads, and unsupported fields", () => {
     const token = tokenFor();
     const [payload, signature] = token.split(".");

@@ -242,10 +242,29 @@ describe("Preview Build Receipt verification", () => {
     const verified = verifyPreviewBuildReceipt({
       token: signLegacyV2Receipt(legacyV2Receipt()),
       publicKeyPem,
-      expected,
+      expected: { ...expected, contractVersion: 2 },
       now,
     });
     expect(verified.version).toBe(2);
+  });
+
+  it("requires a V2 job to receive a V2 or legacy V1 receipt", () => {
+    expect(() =>
+      verifyPreviewBuildReceipt({
+        token: signReceipt(receipt()),
+        publicKeyPem,
+        expected: { ...expected, contractVersion: 2 },
+        now,
+      }),
+    ).toThrow("Preview build receipt is invalid or unavailable.");
+    expect(() =>
+      verifyPreviewBuildReceipt({
+        token: signLegacyV2Receipt(legacyV2Receipt()),
+        publicKeyPem,
+        expected: { ...expected, contractVersion: 3 },
+        now,
+      }),
+    ).toThrow("Preview build receipt is invalid or unavailable.");
   });
 
   it("fails closed when the server-side artifact or builder binding is malformed", () => {

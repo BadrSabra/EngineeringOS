@@ -335,6 +335,7 @@ export function verifyPreviewBuildReceipt(input: {
     builderImageDigest: string;
     buildId: string;
     outputArtifactKey: string;
+    contractVersion?: 2 | 3;
     attemptId?: string;
     idempotencyKey?: string;
     dispatchGeneration?: number;
@@ -441,6 +442,9 @@ export function verifyPreviewBuildReceipt(input: {
     receipt.buildId !== expected.buildId ||
     receipt.outputArtifactKey !== expected.outputArtifactKey ||
     receipt.builderImageDigest !== expected.builderImageDigest ||
+    (expected.contractVersion !== undefined &&
+      receipt.version !== expected.contractVersion &&
+      !(expected.contractVersion === 2 && receipt.version === 1)) ||
     (receipt.version === 1 &&
       expected.dispatchGeneration !== undefined &&
       expected.dispatchGeneration !== 1) ||

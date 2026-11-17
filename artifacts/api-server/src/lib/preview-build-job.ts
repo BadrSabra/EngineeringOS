@@ -95,7 +95,7 @@ export type LegacyPreviewBuildJobClaimsV2 = PreviewBuildJobClaimsBase & {
   dispatchGeneration: number;
 };
 
-export type PreviewBuildJobClaims = PreviewBuildJobClaimsBase & {
+export type PreviewBuildJobClaimsV3 = PreviewBuildJobClaimsBase & {
   version: 3;
   attemptId: string;
   idempotencyKey: string;
@@ -104,10 +104,14 @@ export type PreviewBuildJobClaims = PreviewBuildJobClaimsBase & {
   outputArtifactProvider: PreviewArtifactProvider;
 };
 
+export type PreviewBuildJobClaims =
+  | LegacyPreviewBuildJobClaimsV2
+  | PreviewBuildJobClaimsV3;
+
 export type VerifiedPreviewBuildJobClaims =
   | LegacyPreviewBuildJobClaims
   | LegacyPreviewBuildJobClaimsV2
-  | PreviewBuildJobClaims;
+  | PreviewBuildJobClaimsV3;
 
 export class PreviewBuildJobError extends Error {
   constructor(
@@ -188,8 +192,11 @@ function validSourceRoot(value: unknown): value is string {
 }
 
 function canonicalClaims(claims: PreviewBuildJobClaims): string {
+  const fields =
+    claims.version === 2 ? JOB_FIELDS_V2 : JOB_FIELDS_V3;
+  const record = claims as unknown as Record<string, unknown>;
   return JSON.stringify(
-    Object.fromEntries(JOB_FIELDS_V3.map((field) => [field, claims[field]])),
+    Object.fromEntries(fields.map((field) => [field, record[field]])),
   );
 }
 
@@ -312,14 +319,17 @@ export function signPreviewBuildJob(input: {
   now?: Date;
 }): string {
   const validated = validateClaims(input.claims, input.now ?? new Date());
-  if (validated.version !== 3) {
+  if (validated.version !== 2 && validated.version !== 3) {
     throw new PreviewBuildJobError("PREVIEW_BUILD_JOB_INVALID");
   }
-  const claims = validated;
+  const claims = validated as PreviewBuildJobClaims;
   const payload = Buffer.from(canonicalClaims(claims), "utf8");
   const signature = signSignature(
     null,
-    Buffer.concat([SIGNING_DOMAIN_V3, payload]),
+    Buffer.concat([
+      claims.version === 2 ? SIGNING_DOMAIN_V2 : SIGNING_DOMAIN_V3,
+      payload,
+    ]),
     parseKey(input.privateKeyPem, "private"),
   );
   return `${payload.toString("base64url")}.${signature.toString("base64url")}`;

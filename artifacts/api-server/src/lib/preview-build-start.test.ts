@@ -82,6 +82,7 @@ function makeJob(overrides: Partial<PreviewBuildJob> = {}): PreviewBuildJob {
     outputArtifactGcState: "active",
     outputArtifactGcMarkedAt: null,
     builderImageDigest,
+    contractVersion: 3,
     issuedAt: now,
     tokenExpiresAt: new Date(now.getTime() + 5 * 60_000),
     status: "queued",
@@ -303,6 +304,7 @@ describe("Preview build start orchestration", () => {
   it("retries the same durable launching claim after an ambiguous response", async () => {
     const dependencies = baseDependencies();
     const launchingJob = makeJob({
+      contractVersion: 2,
       status: "launching",
       stateVersion: 1,
       startedAt: now,
@@ -345,10 +347,14 @@ describe("Preview build start orchestration", () => {
       dependencies.executor.launch.mock.calls[1]?.[0].claims,
     );
     expect(dependencies.executor.launch.mock.calls[0]?.[0].claims).toMatchObject({
+      version: 2,
       attemptId: jobId,
       idempotencyKey: clientRequestId,
       dispatchGeneration: 1,
     });
+    expect(
+      dependencies.executor.launch.mock.calls[0]?.[0].claims,
+    ).not.toHaveProperty("inputArtifactProvider");
   });
 
   it("retries an admitted job whose input upload failed before readiness", async () => {

@@ -156,17 +156,11 @@ function matchesCurrentCandidate(
 }
 
 function claimsForJob(job: PreviewBuildJob): PreviewBuildJobClaims {
-  return {
-    version: 3,
-    action: "preview-build",
+  const common = {
+    action: "preview-build" as const,
     jobId: job.jobId,
-    attemptId: job.jobId,
-    idempotencyKey: job.clientRequestId,
-    dispatchGeneration: job.dispatchGeneration,
-    inputArtifactProvider: job.inputArtifactProvider,
-    outputArtifactProvider: job.outputArtifactProvider,
     buildId: job.buildId,
-    builderProfile: "vite-react-static-v1",
+    builderProfile: "vite-react-static-v1" as const,
     builderImageDigest: job.builderImageDigest,
     projectId: job.projectId,
     proposalId: job.proposalId,
@@ -182,6 +176,33 @@ function claimsForJob(job: PreviewBuildJob): PreviewBuildJobClaims {
     issuedAt: job.issuedAt.toISOString(),
     expiresAt: job.tokenExpiresAt.toISOString(),
   };
+  if (job.contractVersion === 2) {
+    if (
+      job.inputArtifactProvider !== "s3" ||
+      job.outputArtifactProvider !== "s3"
+    ) {
+      throw new PreviewBuildStartError("PREVIEW_BUILD_JOB_UNAVAILABLE");
+    }
+    return {
+      ...common,
+      version: 2,
+      attemptId: job.jobId,
+      idempotencyKey: job.clientRequestId,
+      dispatchGeneration: job.dispatchGeneration,
+    };
+  }
+  if (job.contractVersion === 3) {
+    return {
+      ...common,
+      version: 3,
+      attemptId: job.jobId,
+      idempotencyKey: job.clientRequestId,
+      dispatchGeneration: job.dispatchGeneration,
+      inputArtifactProvider: job.inputArtifactProvider,
+      outputArtifactProvider: job.outputArtifactProvider,
+    };
+  }
+  throw new PreviewBuildStartError("PREVIEW_BUILD_JOB_UNAVAILABLE");
 }
 
 function jobIsWaitingForBuilder(job: PreviewBuildJob): boolean {

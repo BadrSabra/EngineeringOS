@@ -840,6 +840,13 @@ export const APPLICATION_SCHEMA_CONTRACT = {
         defaultExpression: /1/,
       },
       {
+        name: "contract_version",
+        dataType: "integer",
+        udtName: "int4",
+        nullable: false,
+        defaultExpression: /2/,
+      },
+      {
         name: "reconciliation_lease_owner",
         dataType: "uuid",
         udtName: "uuid",
@@ -3431,6 +3438,17 @@ export const APPLICATION_SCHEMA_CONTRACT = {
       name: "chk_preview_build_jobs_dispatch_generation_positive",
       tableName: "preview_build_jobs",
       definitionPattern: /dispatch_generation > 0/i,
+    },
+    {
+      name: "chk_preview_build_jobs_contract_version_supported",
+      tableName: "preview_build_jobs",
+      definitionPattern: /contract_version >= 2.*contract_version <= 3/i,
+    },
+    {
+      name: "chk_preview_build_jobs_v2_s3_only",
+      tableName: "preview_build_jobs",
+      definitionPattern:
+        /contract_version <> 2.*input_artifact_provider = 's3'.*output_artifact_provider = 's3'/i,
     },
     {
       name: "chk_preview_build_jobs_reconciliation_lease_pair",

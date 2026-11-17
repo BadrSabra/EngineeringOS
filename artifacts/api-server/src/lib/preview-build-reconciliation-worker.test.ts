@@ -50,6 +50,7 @@ function makeJob(overrides: Partial<PreviewBuildJob> = {}): PreviewBuildJob {
     outputArtifactGcState: "active",
     outputArtifactGcMarkedAt: null,
     builderImageDigest: `sha256:${"f".repeat(64)}`,
+    contractVersion: 3,
     issuedAt: new Date(now.getTime() - 60_000),
     tokenExpiresAt: new Date(now.getTime() + 240_000),
     status: "launching",
