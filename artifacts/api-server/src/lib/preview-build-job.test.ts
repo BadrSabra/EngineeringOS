@@ -159,7 +159,7 @@ describe("Preview build job contract", () => {
     ).toEqual(value);
   });
 
-  it("signs V2 claims for durable V2 jobs without provider fields", () => {
+  it("signs V2 claims for durable V2 jobs without provider fields", async () => {
     const current = claims();
     if (current.version !== 3) throw new Error("Expected V3 fixture.");
     const {
@@ -182,6 +182,16 @@ describe("Preview build job contract", () => {
 
     expect(verified).toEqual(v2);
     expect(verified.version).toBe(2);
+
+    const builder = await import(
+      new URL(
+        "../../../../infra/aws-preview/builder/job-contract.mjs",
+        import.meta.url,
+      ).href
+    );
+    expect(
+      builder.verifyPreviewBuildJobToken(token, publicKeyPem, now),
+    ).toEqual(v2);
   });
 
   it("rejects altered signatures, noncanonical payloads, and unsupported fields", () => {
