@@ -107,13 +107,14 @@ function removeReference(
   });
 }
 
-async function createStore() {
+async function createStore(expectedStoreId?: string) {
   const parent = await mkdtemp(join(tmpdir(), "preview-local-store-"));
   tempRoots.push(parent);
   const rootDir = join(parent, "cas");
   const store = await createLocalPreviewBuildInputObjectStore({
     rootDir,
     workspaceRoot: process.cwd(),
+    expectedStoreId,
   });
   return { parent, rootDir, store };
 }
@@ -226,6 +227,37 @@ describe("Local Preview build-input CAS", () => {
     expect(reopened.storeId).toBe(store.storeId);
     expect(identityStat.isFile()).toBe(true);
     expect(identityStat.mode & 0o777).toBe(0o600);
+  });
+
+  it("pins a new store root to the registered Agent store ID and rejects mismatches", async () => {
+    const expectedStoreId = "94cc6266-181a-44f9-90f8-bdd21ebcc748";
+    const { parent, rootDir, store } = await createStore(expectedStoreId);
+    const reopened = await createLocalPreviewBuildInputObjectStore({
+      rootDir,
+      workspaceRoot: process.cwd(),
+      expectedStoreId,
+    });
+
+    expect(store.storeId).toBe(expectedStoreId);
+    expect(reopened.storeId).toBe(expectedStoreId);
+    await expect(
+      createLocalPreviewBuildInputObjectStore({
+        rootDir,
+        workspaceRoot: process.cwd(),
+        expectedStoreId: "c617246f-3ccd-4e2d-91e8-e626827696ab",
+      }),
+    ).rejects.toMatchObject({
+      code: "PREVIEW_LOCAL_STORE_INVALID_CONFIG",
+    });
+    await expect(
+      createLocalPreviewBuildInputObjectStore({
+        rootDir: join(parent, "invalid-pin"),
+        workspaceRoot: process.cwd(),
+        expectedStoreId: "not-a-store-id",
+      }),
+    ).rejects.toMatchObject({
+      code: "PREVIEW_LOCAL_STORE_INVALID_CONFIG",
+    });
   });
 
   it("fails closed when the store identity is replaced by a symlink", async () => {

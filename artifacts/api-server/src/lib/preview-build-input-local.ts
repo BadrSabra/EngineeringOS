@@ -641,13 +641,37 @@ async function readStoreId(path: string): Promise<string> {
   return parseStoreId(await readRegularFile(path, 128));
 }
 
-async function loadOrCreateStoreId(rootDir: string): Promise<string> {
+async function loadOrCreateStoreId(
+  rootDir: string,
+  expectedStoreId?: string,
+): Promise<string> {
+  const pinnedStoreId = expectedStoreId?.toLowerCase();
+  if (pinnedStoreId !== undefined && !UUID_PATTERN.test(pinnedStoreId)) {
+    throw new LocalPreviewBuildInputStoreError(
+      "PREVIEW_LOCAL_STORE_INVALID_CONFIG",
+    );
+  }
   const identityPath = resolve(rootDir, STORE_IDENTITY_FILE);
   const readExisting = async () => {
     for (let attempt = 0; attempt < 20; attempt += 1) {
       try {
-        return await readStoreId(identityPath);
+        const existingStoreId = await readStoreId(identityPath);
+        if (
+          pinnedStoreId !== undefined &&
+          existingStoreId.toLowerCase() !== pinnedStoreId
+        ) {
+          throw new LocalPreviewBuildInputStoreError(
+            "PREVIEW_LOCAL_STORE_INVALID_CONFIG",
+          );
+        }
+        return existingStoreId;
       } catch (error) {
+        if (
+          error instanceof LocalPreviewBuildInputStoreError &&
+          error.code === "PREVIEW_LOCAL_STORE_INVALID_CONFIG"
+        ) {
+          throw error;
+        }
         if (
           error instanceof LocalPreviewBuildInputStoreError &&
           error.code === "PREVIEW_LOCAL_STORE_INVALID_OBJECT"
@@ -679,7 +703,7 @@ async function loadOrCreateStoreId(rootDir: string): Promise<string> {
       constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | FILE_FLAGS,
       0o600,
     );
-    const storeId = randomUUID();
+    const storeId = pinnedStoreId ?? randomUUID();
     await stage.writeFile(JSON.stringify({ version: 1, storeId }), "utf8");
     await stage.sync();
     await stage.close();
@@ -761,6 +785,11 @@ export async function createLocalPreviewArtifactObjectStore(input: {
   rootDir: string;
   workspaceRoot: string;
   maxBytes?: number;
+  /**
+   * Optionally pin a newly initialized local root to a server-registered
+   * Agent store identity. Existing roots must already have this exact ID.
+   */
+  expectedStoreId?: string;
 }): Promise<LocalPreviewArtifactObjectStore> {
   if (process.platform !== "linux") {
     throw new LocalPreviewBuildInputStoreError(
@@ -822,7 +851,10 @@ export async function createLocalPreviewArtifactObjectStore(input: {
       "PREVIEW_LOCAL_STORE_INVALID_CONFIG",
     );
   }
-  const storeId = await loadOrCreateStoreId(configuredRoot);
+  const storeId = await loadOrCreateStoreId(
+    configuredRoot,
+    input.expectedStoreId,
+  );
   const stagingRoot = resolve(configuredRoot, "staging");
   const stagingOwner = await currentStagingOwnerIdentity();
 
@@ -1519,6 +1551,7 @@ export async function createLocalPreviewBuildInputObjectStore(input: {
   rootDir: string;
   workspaceRoot: string;
   maxBytes?: number;
+  expectedStoreId?: string;
 }): Promise<LocalPreviewBuildInputObjectStore> {
   return createLocalPreviewArtifactObjectStore(input);
 }
