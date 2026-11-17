@@ -57,6 +57,7 @@ import {
   PreviewArtifactGcCommandIssueError,
 } from "./preview-artifact-gc-issuer.js";
 import {
+  collectLocalPreviewBuildInputsOnce,
   LOCAL_PREVIEW_INPUT_DELETE_GRACE_MS,
   LOCAL_PREVIEW_INPUT_DELETE_LEASE_MS,
   LOCAL_PREVIEW_INPUT_RETENTION_MS,
@@ -823,5 +824,39 @@ describe("Preview Agent artifact receipt database binding", () => {
     await expect(
       issueDeleteCommand(fixture, commandIssuedAt),
     ).rejects.toBeInstanceOf(PreviewArtifactGcCommandIssueError);
+  });
+
+  it("keeps Agent-owned references out of the API-local filesystem collector", async () => {
+    const fixture = await createGcFixture();
+    let removalCalls = 0;
+    const result = await collectLocalPreviewBuildInputsOnce({
+      store: {
+        async remove() {
+          removalCalls += 1;
+        },
+      },
+      now: new Date(
+        NOW.getTime() +
+          LOCAL_PREVIEW_INPUT_RETENTION_MS +
+          LOCAL_PREVIEW_INPUT_DELETE_GRACE_MS +
+          LOCAL_PREVIEW_INPUT_DELETE_LEASE_MS,
+      ),
+    });
+
+    const [stored] = await db
+      .select({
+        state: previewBuildJobsTable.inputArtifactGcState,
+        markedAt: previewBuildJobsTable.inputArtifactGcMarkedAt,
+      })
+      .from(previewBuildJobsTable)
+      .where(eq(previewBuildJobsTable.jobId, fixture.jobId));
+    expect(result).toMatchObject({
+      markedEligible: 0,
+      deletedReferences: 0,
+      deferredReferences: 0,
+      failedReferences: 0,
+    });
+    expect(removalCalls).toBe(0);
+    expect(stored).toEqual({ state: "active", markedAt: null });
   });
 });

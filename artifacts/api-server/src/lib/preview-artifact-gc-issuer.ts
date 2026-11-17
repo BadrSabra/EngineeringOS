@@ -140,22 +140,24 @@ export async function issuePreviewBuildInputDeleteCommand(input: {
   if (
     !UUID_PATTERN.test(input.jobId) ||
     !Number.isFinite(now.getTime()) ||
-    !input.buildJobPrivateKeyPem
+    !input.proof ||
+    typeof input.proof !== "object" ||
+    Array.isArray(input.proof)
   ) {
     throw new PreviewArtifactGcCommandIssueError(
       "PREVIEW_ARTIFACT_GC_COMMAND_ISSUE_INVALID",
     );
   }
+  if (!input.buildJobPrivateKeyPem) {
+    throw new PreviewArtifactGcCommandIssueError(
+      "PREVIEW_ARTIFACT_GC_COMMAND_ISSUE_UNAVAILABLE",
+    );
+  }
 
   try {
-    const [proofNodeId] =
-      input.proof && typeof input.proof === "object"
-        ? [Reflect.get(input.proof, "nodeId")]
-        : [undefined];
-    const [proofJobId] =
-      input.proof && typeof input.proof === "object"
-        ? [Reflect.get(input.proof, "jobId")]
-        : [undefined];
+    const proofRecord = input.proof as Record<string, unknown>;
+    const proofNodeId = proofRecord.nodeId;
+    const proofJobId = proofRecord.jobId;
     if (
       typeof proofNodeId !== "string" ||
       !UUID_PATTERN.test(proofNodeId) ||
