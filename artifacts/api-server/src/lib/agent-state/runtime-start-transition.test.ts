@@ -2425,7 +2425,10 @@ describe("runtime.start transition retry scheduling", () => {
     expect(projection.graph.nodes.filter((node) => node.kind === "CONTROL"))
       .toHaveLength(8);
 
-    const dataNodes = projection.graph.nodes.filter((node) => node.kind === "DATA");
+    const dataNodes = projection.graph.nodes.filter(
+      (node): node is Extract<(typeof projection.graph.nodes)[number], { kind: "DATA" }> =>
+        node.kind === "DATA",
+    );
     expect(dataNodes.length).toBeGreaterThan(8);
     expect(dataNodes.every((node) => node.evidenceRef.startsWith("db:"))).toBe(true);
     expect(dataNodes.some((node) => node.id.includes("candidate-workspace-base"))).toBe(true);
@@ -2505,23 +2508,26 @@ describe("runtime.start transition retry scheduling", () => {
       .where(eq(aiApplyJournalTable.id, journalReference.id)).limit(1);
     if (!journalRecord) throw new Error("Apply V2 exact-subset Journal row is missing.");
     const originalJournalPayload = journalRecord.payload;
-    await db.update(aiApplyJournalTable).set({
-      payload: {
-        ...(originalJournalPayload as Record<string, unknown>),
-        tamperedByProjectorTest: true,
-      },
-    }).where(eq(aiApplyJournalTable.id, journalRecord.id));
-    const tamperedProjection = await db.transaction(
-      (tx) => projectApplyChangesProofGraph(tx, projectionInput),
-      { isolationLevel: "repeatable read" },
-    );
-    expect(tamperedProjection).toMatchObject({
-      kind: "NOT_PROJECTABLE",
-      reasons: ["APPLY_PROOF_V2_MISMATCH"],
-    });
-    await db.update(aiApplyJournalTable).set({
-      payload: originalJournalPayload,
-    }).where(eq(aiApplyJournalTable.id, journalRecord.id));
+    try {
+      await db.update(aiApplyJournalTable).set({
+        payload: {
+          ...(originalJournalPayload as Record<string, unknown>),
+          tamperedByProjectorTest: true,
+        },
+      }).where(eq(aiApplyJournalTable.id, journalRecord.id));
+      const tamperedProjection = await db.transaction(
+        (tx) => projectApplyChangesProofGraph(tx, projectionInput),
+        { isolationLevel: "repeatable read" },
+      );
+      expect(tamperedProjection).toMatchObject({
+        kind: "NOT_PROJECTABLE",
+        reasons: ["APPLY_PROOF_V2_MISMATCH"],
+      });
+    } finally {
+      await db.update(aiApplyJournalTable).set({
+        payload: originalJournalPayload,
+      }).where(eq(aiApplyJournalTable.id, journalRecord.id));
+    }
 
     const afterProjection = {
       acceptances: await db.select({
