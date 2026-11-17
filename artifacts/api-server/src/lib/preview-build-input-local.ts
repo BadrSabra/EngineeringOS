@@ -20,6 +20,7 @@ import {
 } from "./preview-build-upload.js";
 import { previewBuildArtifactRefId } from "./preview-artifact-reference.js";
 import { isPreviewBuildOutputArtifactKey } from "./preview-build-output-key.js";
+import { validatePreviewArtifactManifest } from "@workspace/preview-artifact-manifest";
 
 const OBJECT_KEY_PATTERN =
   /^build-inputs\/([a-f0-9]{64})\/([a-f0-9]{64})\.zip$/;
@@ -915,76 +916,39 @@ export async function createLocalPreviewArtifactObjectStore(input: {
     expectedReference?: { jobId: string; artifactRefId: string },
   ): Promise<PreviewBuildArtifactWriteMetadata> {
     const identity = parseObjectKey(objectKey);
-    let manifest: unknown;
+    const expectedDigest = expectedArchiveDigest ?? identity.archiveDigest;
     try {
-      manifest = JSON.parse(manifestBytes.toString("utf8"));
+      const manifest = validatePreviewArtifactManifest({
+        manifestBytes,
+        objectKey,
+        expectedStoreId,
+        ...(expectedDigest === undefined
+          ? {}
+          : { expectedDigest }),
+        ...(expectedReference === undefined
+          ? {}
+          : {
+              expectedJobId: expectedReference.jobId,
+              expectedArtifactRefId: expectedReference.artifactRefId,
+            }),
+        maxBytes: Math.min(maxBytes, identity.maxBytes),
+        retentionPolicy: identity.retentionPolicy,
+      });
+      const expectedArtifactRefId = previewBuildArtifactRefId(
+        manifest.jobId,
+        identity.artifactRole,
+      );
+      if (manifest.artifactRefId !== expectedArtifactRefId) {
+        throw new LocalPreviewBuildInputStoreError(
+          "PREVIEW_LOCAL_STORE_INVALID_OBJECT",
+        );
+      }
+      return manifest;
     } catch {
       throw new LocalPreviewBuildInputStoreError(
         "PREVIEW_LOCAL_STORE_INVALID_OBJECT",
       );
     }
-    if (!manifest || typeof manifest !== "object" || Array.isArray(manifest)) {
-      throw new LocalPreviewBuildInputStoreError(
-        "PREVIEW_LOCAL_STORE_INVALID_OBJECT",
-      );
-    }
-    const record = manifest as Record<string, unknown>;
-    const jobId = record.jobId;
-    const artifactRefId = record.artifactRefId;
-    const archiveDigest = record.archiveDigest;
-    const contentLength = record.contentLength;
-    const expectedArtifactRefId =
-      typeof jobId === "string" && UUID_PATTERN.test(jobId)
-        ? previewBuildArtifactRefId(jobId, identity.artifactRole)
-        : "";
-    const canonical = JSON.stringify({
-      version: 3,
-      objectKey,
-      storeId: expectedStoreId,
-      jobId,
-      artifactRefId,
-      archiveDigest,
-      contentLength,
-      retentionPolicy: identity.retentionPolicy,
-    });
-    if (
-      Object.keys(record).length !== 8 ||
-      record.version !== 3 ||
-      record.objectKey !== objectKey ||
-      record.storeId !== expectedStoreId ||
-      record.jobId !== jobId ||
-      record.artifactRefId !== expectedArtifactRefId ||
-      (expectedReference !== undefined &&
-        (jobId !== expectedReference.jobId ||
-          artifactRefId !== expectedReference.artifactRefId)) ||
-      record.retentionPolicy !== identity.retentionPolicy ||
-      typeof archiveDigest !== "string" ||
-      !DIGEST_PATTERN.test(archiveDigest) ||
-      (identity.archiveDigest !== undefined &&
-        identity.archiveDigest !== archiveDigest) ||
-      (expectedArchiveDigest !== undefined &&
-        expectedArchiveDigest !== archiveDigest) ||
-      typeof contentLength !== "number" ||
-      !Number.isSafeInteger(contentLength) ||
-      contentLength < 1 ||
-      contentLength > Math.min(maxBytes, identity.maxBytes) ||
-      manifestBytes.toString("utf8") !== canonical
-    ) {
-      throw new LocalPreviewBuildInputStoreError(
-        "PREVIEW_LOCAL_STORE_INVALID_OBJECT",
-      );
-    }
-    return {
-      storeId: expectedStoreId,
-      jobId: jobId as string,
-      artifactRefId: artifactRefId as string,
-      digest: archiveDigest,
-      sizeBytes: contentLength,
-      manifestDigest: createHash("sha256")
-        .update(manifestBytes)
-        .digest("hex"),
-      retentionPolicy: identity.retentionPolicy,
-    };
   }
 
   await removeDeadProcessStagingFiles({

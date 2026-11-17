@@ -28,6 +28,9 @@
       "path": "./lib/preview-agent-contract"
     },
     {
+      "path": "./lib/preview-artifact-manifest"
+    },
+    {
       "path": "./lib/preview-agent-client"
     }
   ]
