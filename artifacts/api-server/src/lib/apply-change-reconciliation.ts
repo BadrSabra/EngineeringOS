@@ -83,6 +83,17 @@ function asString(value: unknown): string | undefined {
   return typeof value === "string" ? value : undefined;
 }
 
+/** Resolve an attempt identity from either the new V2 envelope or a historical request. */
+export function resolveApplyAttemptIdFromRequest(
+  request: unknown,
+  fallbackId: string,
+): string {
+  const storedRequest = parseRecord(request);
+  return asString(storedRequest?.applyAttemptId)
+    ?? asString(storedRequest?.operationId)
+    ?? fallbackId;
+}
+
 function asStringArray(value: unknown): string[] {
   return Array.isArray(value)
     ? value.filter((item): item is string => typeof item === "string")
@@ -242,7 +253,9 @@ async function hasAcceptedApplyProof(
     || acceptance.outcome !== "SUCCEEDED"
     || acceptance.terminalStatus !== "completed"
     || acceptance.operationId !== execution.operationId
-    || execution.operationId !== actionRecord.attemptId
+    // operationId is the durable operation identity; the Action scope carries
+    // the attempt identity and is separately bound to this attempt's Journal.
+    || !actionRecord.attemptId
     || acceptance.sourceRevision !== proposal.baseRevision
     || acceptance.candidateIdentity !== `${proposal.id}:${proposal.candidateTreeHash}`
     || !acceptance.effectBundleId
@@ -575,8 +588,7 @@ export async function reconcileInterruptedApplyChanges(): Promise<{
         : [];
       const actionRecord = getApplyActionEvent(episodeEvents, proposal);
       const attemptId = actionRecord?.attemptId
-        ?? asString(parseRecord(selected.request)?.operationId)
-        ?? selected.id;
+        ?? resolveApplyAttemptIdFromRequest(selected.request, selected.id);
       const journal = await db.select()
         .from(aiApplyJournalTable)
         .where(and(
@@ -775,7 +787,7 @@ export async function reconcileInterruptedApplyChanges(): Promise<{
         "interrupted apply reconciliation failed closed",
       );
       try {
-        const attemptId = asString(parseRecord(selected.request)?.operationId) ?? selected.id;
+        const attemptId = resolveApplyAttemptIdFromRequest(selected.request, selected.id);
         const persisted = await persistRecoveryDecision({
           proposal,
           execution: selected,

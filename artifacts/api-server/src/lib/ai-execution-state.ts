@@ -857,6 +857,10 @@ export type AiExecutionRequestEnvelope = {
   factInvestigation?: ProjectQueryInvestigationContract;
   /** Stable server-owned identity shared by all phases of one operation. */
   operationId?: string;
+  /** Distinct per-attempt identity for current Apply proof v2 requests. */
+  applyAttemptId?: string;
+  /** Digest of the exact submitted Apply subset, including selected patch hunks. */
+  submittedChangeSetHash?: string;
   capabilityProbe?: AiCapabilityProbeContract;
   /** Immutable resumable contract metadata, when this is a task execution. */
   resumeContract?: {
@@ -1140,8 +1144,18 @@ export function parseExecutionRequest(raw: string): AiExecutionRequestEnvelope |
         || !value.workspaceRoot.trim()
         || typeof value.workspaceRevision !== "string"
         || !value.workspaceRevision.trim()
-        || (value.applyChangesProofMode === APPLY_CHANGES_PROOF_MODE_V2
-          && (typeof value.changeSetHash !== "string" || !/^[a-f0-9]{64}$/.test(value.changeSetHash)))
+        || (value.applyChangesProofMode === APPLY_CHANGES_PROOF_MODE_V2 && (
+          typeof value.changeSetHash !== "string"
+          || !/^[a-f0-9]{64}$/.test(value.changeSetHash)
+          || ((value.applyAttemptId === undefined) !== (value.submittedChangeSetHash === undefined))
+          || (value.applyAttemptId !== undefined && (
+            typeof value.applyAttemptId !== "string"
+            || !value.applyAttemptId.trim()
+            || value.applyAttemptId === value.operationId
+            || typeof value.submittedChangeSetHash !== "string"
+            || !/^[a-f0-9]{64}$/.test(value.submittedChangeSetHash)
+          ))
+        ))
       )) ||
       (value.recipeProofMode !== undefined && (
         value.recipeProofMode !== "runtime_start_gate_c_v1"
