@@ -2,6 +2,7 @@
 
 > **الحالة:** وثيقة توجيهية تكميلية؛ وافق المستخدم في 2026-11-14 على بدء شريحة SBPCT المحددة فقط، دون تفويض refactor عام أو تغيير schema غير مثبت.  
 > **تاريخ اللقطة:** 2026-11-14
+> **إعادة مطابقة المصدر (2026-11-17):** SBPCT Phase A/B مدمجتان عبر PR #23؛ اختبار التنافس بين جلسات PostgreSQL مستقلة مدمج عبر PR #30 ونجح في CI #856. Release validation في التشغيل نفسه كانت skipped. راجع §1.1 أدناه و§10 في وثيقة SBPCT للتفاصيل. لم يتغير ترتيب الخطة الحاكمة.
 > **المراجع الحاكمة:** `docs/agent-generalization-execution-plan.md`، وبالأخص
 > §31، وسجل الحالة `docs/agent-generalization-progress.md`.  
 > **الغرض:** تحويل المقترحات المرفقة إلى نطاق تنفيذي واحد، مع الفصل بين
@@ -61,18 +62,14 @@ POST /ai/chat/apply-changes، ولا تستبدل ترتيب §31:
 استعادة الحالة الثانية باختبار غياب الصف. تبقى إعادة بناء الصف fail-closed
 عند تغير Parent؛ لا يجوز rebase صامت إلى current World State.
 
-**حالة المصدر على فرع العمل:** Phase A مطبقة. Phase B لديها الآن API
-استعادة مستقل داخل runtime-start-transition.ts، ويستدعيه
-reconcileInterruptedApplyChanges عند وجود قبول كامل وشجرة مرشحة مطابقة مع غياب
-transition row. يضم الاختبار المركّز سيناريو missing-row، واستدعاءين متزامنين،
-ورفض غياب intent ورفض تغير Parent، وإرجاع Goal/Mission من needs_replan
-إلى waiting مع الحفاظ على report-applied المنتظر، ثم يختبر Mission wake بعد materialization مرة واحدة مع تثبيت acceptance والملفات. هذه الاختبارات مؤلفة ولم تُشغّل بعد؛
-لذلك تظل الشريحة غير مكتملة ولا يجوز دمجها.
+**حالة المصدر المعتمدة على main (2026-11-17):** Phase A وPhase B مدمجتان عبر PR #23، واختبار التنافس عبر جلستَي PostgreSQL مستقلتين مدمج عبر PR #30. مرّ الاختبار المخصص في CI #856، كما نجح all-package typecheck واختبار المستودع. وظيفة Release validation في التشغيل نفسه كانت skipped؛ لذلك لا تسجل Release Validation كنجاح.
+
+تثبت الشريحة استعادة Transition المفقود من Parent intent الأصلي مع identity/effect/observation/environment/live-tree/active-plan/CAS checks، وبلا filesystem writes أو rebase صامت. لا تغلق P3.5/P6 بالكامل ولا تمنح صلاحية جديدة لـAcceptance أو D2 أو Mission.
 
 الوثيقة التنفيذية التفصيلية:
-docs/apply-changes-snapshot-bound-transition-recovery.md.
-هذه المهمة قيد التنفيذ على فرع مستقل؛ لا تعتبر مكتملة قبل اختبارات DB-backed
-على الرأس النهائي والتحقق من CAS وrecovery idempotency وMission wake.
+docs/apply-changes-snapshot-bound-transition-recovery.md، وبالأخص §10
+للحالة المدمجة وحدود CI الحالية. تُعامل ملاحظات §1.1 المؤرخة 2026-11-14
+عن الاختبارات غير المنفذة بوصفها سجلًا تاريخيًا استُبدل بنتيجة CI #856.
 
 ## 2. خط الأساس الذي تُبنى عليه الخطة
 

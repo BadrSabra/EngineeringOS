@@ -780,6 +780,55 @@ describe("autonomous operation contract", () => {
     expect(v2?.applyChangesProofMode).toBe("apply_changes_v2");
     expect(v2?.changeSetHash).toBe("b".repeat(64));
 
+    // Historical v2 requests keep their original operationId-as-attempt shape.
+    expect(v2?.applyAttemptId).toBeUndefined();
+    expect(v2?.submittedChangeSetHash).toBeUndefined();
+
+    const attemptBoundV2 = parseExecutionRequest(JSON.stringify({
+      ...common,
+      operationId: "operation-1",
+      applyAttemptId: "apply-attempt-1",
+      submittedChangeSetHash: "c".repeat(64),
+      changeSetHash: "b".repeat(64),
+      applyChangesProofMode: "apply_changes_v2",
+    }));
+    expect(attemptBoundV2).toMatchObject({
+      operationId: "operation-1",
+      applyAttemptId: "apply-attempt-1",
+      submittedChangeSetHash: "c".repeat(64),
+    });
+
+    expect(parseExecutionRequest(JSON.stringify({
+      ...common,
+      operationId: "operation-1",
+      applyAttemptId: "apply-attempt-1",
+      changeSetHash: "b".repeat(64),
+      applyChangesProofMode: "apply_changes_v2",
+    }))).toBeUndefined();
+    expect(parseExecutionRequest(JSON.stringify({
+      ...common,
+      operationId: "operation-1",
+      submittedChangeSetHash: "c".repeat(64),
+      changeSetHash: "b".repeat(64),
+      applyChangesProofMode: "apply_changes_v2",
+    }))).toBeUndefined();
+    expect(parseExecutionRequest(JSON.stringify({
+      ...common,
+      operationId: "operation-1",
+      applyAttemptId: "apply-attempt-1",
+      submittedChangeSetHash: "not-a-digest",
+      changeSetHash: "b".repeat(64),
+      applyChangesProofMode: "apply_changes_v2",
+    }))).toBeUndefined();
+    expect(parseExecutionRequest(JSON.stringify({
+      ...common,
+      operationId: "operation-1",
+      applyAttemptId: "operation-1",
+      submittedChangeSetHash: "c".repeat(64),
+      changeSetHash: "b".repeat(64),
+      applyChangesProofMode: "apply_changes_v2",
+    }))).toBeUndefined();
+
     expect(parseExecutionRequest(JSON.stringify({
       ...common,
       applyChangesProofMode: "apply_changes_v2",

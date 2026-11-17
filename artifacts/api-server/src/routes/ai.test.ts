@@ -60,7 +60,10 @@ import * as taskExecutionService from "../lib/task-execution-service.js";
 import { insertTaskAutoExecutionIntent } from "../lib/task-auto-execution-outbox.js";
 import { heavyJobQueue } from "../lib/job-queue.js";
 import * as aiTaskRoutes from "./ai/tasks.js";
-import { reconcileInterruptedApplyChanges } from "../lib/apply-change-reconciliation.js";
+import {
+  reconcileInterruptedApplyChanges,
+  resolveApplyAttemptIdFromRequest,
+} from "../lib/apply-change-reconciliation.js";
 import {
   canCreateProposal,
   collectPreviouslyAcceptedPlanningEvidence,
@@ -93,6 +96,28 @@ import {
   hashDeliveryTree,
   DELIVERY_TREE_DIGEST_VERSION,
 } from "../lib/delivery-workspace.js";
+
+describe("Apply recovery attempt identity compatibility", () => {
+  it("uses the separate V2 applyAttemptId when the recovery path fails", () => {
+    expect(resolveApplyAttemptIdFromRequest({
+      operationId: "operation-1",
+      applyAttemptId: "attempt-2",
+    }, "fallback-execution")).toBe("attempt-2");
+  });
+
+  it("retains the historical operationId-as-attempt fallback", () => {
+    expect(resolveApplyAttemptIdFromRequest({
+      operationId: "legacy-attempt-1",
+    }, "fallback-execution")).toBe("legacy-attempt-1");
+  });
+
+  it("uses the execution fallback for a malformed or missing request", () => {
+    expect(resolveApplyAttemptIdFromRequest("{malformed", "fallback-execution"))
+      .toBe("fallback-execution");
+    expect(resolveApplyAttemptIdFromRequest(null, "fallback-execution"))
+      .toBe("fallback-execution");
+  });
+});
 
 describe("implementation planning evidence continuity", () => {
   it("reuses accepted evidence only when its source revision matches", () => {
@@ -8906,6 +8931,24 @@ describe("POST /api/ai/chat/apply-changes", () => {
         "const a = 10;\nconst b = 2;\nconst c = 3;\n",
       );
 
+      // Exact retry is replayable, but an alternate hunk selection over the
+      // same full newContent must not borrow the first attempt's acceptance.
+      const exactRetry = await request(app)
+        .post("/api/ai/chat/apply-changes")
+        .send({ projectId: id, proposalId, changes: partialChanges });
+      expect(exactRetry.status, JSON.stringify(exactRetry.body)).toBe(200);
+      expect(exactRetry.body.alreadyApplied).toBe(true);
+
+      const alternateHunkRetry = await request(app)
+        .post("/api/ai/chat/apply-changes")
+        .send({
+          projectId: id,
+          proposalId,
+          changes: [{ ...storedChanges[0], hunks: [secondHunk] }],
+        });
+      expect(alternateHunkRetry.status).toBe(409);
+      expect(alternateHunkRetry.body.code).toBe("APPLY_REPLAY_UNVERIFIED");
+
       const [acceptedProof] = await db.select()
         .from(aiExecutionAcceptancesTable)
         .where(eq(aiExecutionAcceptancesTable.executionId, execution!.id));
@@ -9226,12 +9269,17 @@ describe("POST /api/ai/chat/apply-changes", () => {
       expect(await db.select({ id: aiExecutionsTable.id })
         .from(aiExecutionsTable)
         .where(eq(aiExecutionsTable.proposalId, proposalId))).toHaveLength(1);
-      expect(JSON.parse(execution!.request)).toMatchObject({
+      const storedExecutionRequest = JSON.parse(execution!.request);
+      expect(storedExecutionRequest).toMatchObject({
         proofRequired: true,
         effectRequired: true,
         applyChangesProofMode: "apply_changes_v2",
+        operationId,
+        applyAttemptId: expect.any(String),
+        submittedChangeSetHash: expect.stringMatching(/^[a-f0-9]{64}$/),
         changeSetHash: expect.stringMatching(/^[a-f0-9]{64}$/),
       });
+      expect(storedExecutionRequest.applyAttemptId).not.toBe(operationId);
 
       const [acceptance] = await db.select({
         outcome: aiExecutionAcceptancesTable.outcome,

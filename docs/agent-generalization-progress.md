@@ -4,7 +4,50 @@
 > يجب على الوكيل التالي تحديثه بعد كل خطوة مكتملة، وقبل الانتقال إلى الخطوة
 > التالية. لا تعتبر المرحلة منجزة من دون إدخال يثبت معيار الخروج والتحقق.
 
-## الحالة الحالية — 2026-11-14
+## الحالة الحالية المعتمدة — 2026-11-17
+
+**مرجع المصدر:** فرع main عند 5103e66368e181c3fa00d11d00ea25e51677e070، بعد دمج PR #40.
+
+### ما أصبح على main ومثبت المصدر
+
+- **SBPCT / Apply transition recovery:** PR #23 دمج تثبيت Parent World Snapshot وإعادة بناء Transition المفقود، وPR #30 دمج اختبار التنافس عبر عمليتي Worker مستقلتين واتصالَي PostgreSQL مستقلين. لا تعني هذه الشريحة إغلاق P3.5 أو P6 بالكامل.
+- **Apply Proof v2:** PR #37 أضاف Authorization Decision وPrecondition Receipt المرتبطين بالـJournal، وإعادة اشتقاقهما من السجلات الدائمة، مع استمرار قراءة V1 التاريخي. PR #40 فصل هوية العملية عن هوية المحاولة وربط بصمة التغييرات وHunks المقدمة بالـJournal والـExecution request، مع اختبارات التوافق وإعادة التشغيل.
+- **Proof Graph Kernel:** PR #38 دمج تشديد تغطية الآثار وهوية المشروع. يبقى validateProofGraph متحققًا بنيويًا فقط، ولا يمنح Acceptance أو Mutation أو Mission authority.
+- **Execution Proof Graph:** ملف التنفيذ الإنتاجي الحالي متخصص في runtime_start_gate_c_v1 عبر Projector ومسار قراءة مصادق عليه. لا يشمل Apply Proof v2.
+- **Apply Graph:** لم يُنفذ بعد Apply-specific read-only Projector. وجود Canonical Apply Proof v2 لا يساوي وجود Apply Proof Graph.
+
+### التحقق المرصود على main
+
+GitHub Actions run #856 (https://github.com/BadrSabra/EngineeringOS/actions/runs/43985363575) على رأس main أكمل بنجاح:
+- Validate: codegen drift + typecheck + tests.
+- Proof Graph Kernel v0 validation.
+- Type-check all packages وOpenAPI/codegen checks.
+- PostgreSQL-backed snapshot-bound Apply recovery عبر جلسات مستقلة.
+- اختبارات Task dispatch concurrency وTask acceptance بعد فقد HTTP response وRuntime process recovery.
+- OpenAPI contract drift guard وDetect contract changes/policy.
+
+**حد التحقق:** وظيفة Release validation في التشغيل نفسه كانت skipped. لذلك لا يوصف #856 بأنه Release Validation ناجح، ولا يُستنتج منه إغلاق بوابة الإصدار.
+
+### حدود المراحل والرؤية
+
+- E2 مغلقة بقرار المستخدم الصريح بتاريخ 2026-10-11؛ هذا قرار مرحلة، وليس إغلاقًا لجرد كل عائلات المصادر.
+- E3 ما زالت OPEN، وE3.2 replay safety ما زالت OPEN.
+- جرد عائلات المصادر لا يزال UNKNOWN؛ لا يجوز حساب نسبة تغطية أو Score عام.
+- G7 Shadow Mode غير مفعّل ولا توجد Live Cohort؛ G9 غير قابل للقياس وG10 لم يبدأ.
+- لا يغلق دمج Apply Proof v2 مشروع Apply Graph، ولا يجيز تغيير سلطة Acceptance أو D2 أو Mission successor release.
+
+### الترتيب التالي المقترح
+
+1. إبقاء Canonical Proof وD2 وWorld Transition وMission authorities منفصلة.
+2. بناء Apply Proof Graph Projector للقراءة فقط، انطلاقًا من V2 crosswalk والسجلات المعاد تحميلها، مع NOT_PROJECTABLE عند أي دليل ناقص.
+3. بعد ذلك معالجة Revision-Bound Context وContext Link freshness كمسار مستقل.
+4. تحديث سجل القياس وإغلاق جرد المستهلكين/المنتجين قبل أي نسبة تغطية أو تعميم.
+
+التحليل المعماري المصدرّي الكامل في docs/engineeringos-architecture-coherence-audit-2026-11-17.md.
+
+---
+
+## لقطة حالة تاريخية — 2026-11-14 (استُبدلت بالحالة المعتمدة أعلاه)
 
 **قرار الشريحة الحالية:** بدأ العمل على Snapshot-Bound Proof-Carrying Transition
 (SBPCT) لمسار Mission-linked Apply Changes، كمعالجة محدودة ضمن P3.5/P6 لا

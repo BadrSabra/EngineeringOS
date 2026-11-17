@@ -1,4 +1,5 @@
 import {
+  canonicalJsonHash,
   hashEffectContract,
   type AgentAction,
   type EffectContract,
@@ -6,6 +7,72 @@ import {
 
 export const APPLY_CHANGE_CAPABILITY_ID = "approved.source-promotion";
 export const APPLY_CHANGE_EFFECT_ID = "approved.source-promotion.observed";
+
+
+type ApplySubsetEvidence = {
+  kind: "finding" | "source" | "validation";
+  id: string;
+  label: string;
+  file?: string;
+  line?: number;
+};
+
+type ApplySubsetHunk = {
+  startLine: number;
+  endLine: number;
+  expectedText: string;
+  replacementText: string;
+  reason: string;
+  risk?: "low" | "medium" | "high";
+  evidence?: readonly ApplySubsetEvidence[];
+};
+
+export type ApplySubmittedSubsetChange = {
+  path: string;
+  absolutePath: string;
+  newContent: string;
+  originalContent: string | null;
+  baseHash?: string;
+  hunks?: readonly ApplySubsetHunk[];
+  reason: string;
+  validationProfile?: string;
+  risk?: "low" | "medium" | "high";
+  evidence?: readonly ApplySubsetEvidence[];
+};
+
+/**
+ * Hash the exact server-authorized submission, including the selected hunks.
+ * This is separate from hashChangeSet(), which describes candidate bytes
+ * (path + newContent) and cannot distinguish partial-hunk selections that
+ * share the same full proposed newContent.
+ */
+export function hashApplySubmittedSubset(
+  changes: readonly ApplySubmittedSubsetChange[],
+): string {
+  const canonical = [...changes]
+    .map((change) => ({
+      path: change.path,
+      absolutePath: change.absolutePath,
+      newContent: change.newContent,
+      originalContent: change.originalContent,
+      baseHash: change.baseHash ?? null,
+      hunks: (change.hunks ?? []).map((hunk) => ({
+        startLine: hunk.startLine,
+        endLine: hunk.endLine,
+        expectedText: hunk.expectedText,
+        replacementText: hunk.replacementText,
+        reason: hunk.reason,
+        risk: hunk.risk ?? null,
+        evidence: hunk.evidence ?? null,
+      })),
+      reason: change.reason,
+      validationProfile: change.validationProfile ?? null,
+      risk: change.risk ?? null,
+      evidence: change.evidence ?? null,
+    }))
+    .sort((left, right) => left.path < right.path ? -1 : left.path > right.path ? 1 : 0);
+  return canonicalJsonHash(canonical as Parameters<typeof canonicalJsonHash>[0]);
+}
 
 export function buildApplyChangeAction(input: {
   actionId: string;

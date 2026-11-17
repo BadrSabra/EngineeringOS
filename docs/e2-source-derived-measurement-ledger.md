@@ -1,7 +1,8 @@
 # E2 Source-Derived Measurement Ledger
 
-- **Updated:** 2026-10-10
-- **Stage:** E2 only; E3 remains stopped. E4 remains under its existing gates.
+- **Updated:** 2026-11-17 (governance/status addendum; the source census below remains the 2026-10-10 measurement snapshot)
+- **Stage:** E2 was explicitly closed by user decision on 2026-10-11; E3 is OPEN; E3.2 replay safety is OPEN; E4 remains behind its independent gates.
+- **Governance boundary:** E2 stage closure is not the same as closing every source family. The source census in this ledger remains UNKNOWN until entrypoints, writers, consumers, and recovery paths are exhaustively reconciled.
 - **Purpose:** Make E2 coverage measurable from source-discovered surfaces and invariants without deriving a denominator from test totals, `PROVEN` row counts, or a new Runtime catalog.
 - **Current result:** Source-family completeness is `UNKNOWN`; no total denominator, percentage, or overall score is valid yet.
 

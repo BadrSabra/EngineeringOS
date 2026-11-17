@@ -1,6 +1,6 @@
 # Snapshot-Bound Proof-Carrying Transition (SBPCT)
 
-**الحالة:** تنفيذ محدود قيد العمل على فرع fix/apply-changes-snapshot-bound-recovery.
+**الحالة الحالية (2026-11-17):** Phase A وPhase B مدمجتان على main؛ تحقق CI #856 من استرداد Snapshot-Bound Apply عبر جلستَي PostgreSQL مستقلتين. هذا لا يغلق P3.5 أو P6 بالكامل.
 **التاريخ:** 2026-11-14
 **النطاق:** Mission-linked POST /ai/chat/apply-changes فقط.
 **الخطة الحاكمة:** docs/agent-generalization-execution-plan.md §31 و§42.2/§42.6.
@@ -114,7 +114,7 @@
 11. Mission stays pending only while a legitimate durable recovery path exists; otherwise it remains blocked for replan.
 12. Typecheck, focused PostgreSQL tests, route/reconciliation tests, and release checks on the exact PR head.
 
-## 7. Current status and validation boundary (2026-11-14)
+## 7. Initial source/branch snapshot (2026-11-14; superseded by §10)
 
 - Source audit and branch creation completed.
 - main baseline at start: edc57435d763a51bf826a92eba291bcab50a8a4c.
@@ -191,3 +191,31 @@ It therefore remains a test candidate, not a passing test result.
 - Focused API typecheck, focused Vitest, and exact-head pull-request CI.
 
 No new table, event type, graph, runtime, or authority path is introduced.
+
+## 10. Current merged status and verification — 2026-11-17
+
+**Source baseline:** main at 5103e66368e181c3fa00d11d00ea25e51677e070.
+
+### Merged implementation
+
+- PR #23 merged Phase A parent snapshot binding and Phase B missing-transition recovery into main.
+- The recovery path recoverAcceptedApplyChangesTransition reconstructs only a missing transition from the exact accepted Execution/attempt, Action/Episode, EffectBundle, direct observations, environment, live promoted tree, Mission/Goal/active plan, and immutable parent intent.
+- Parent World Revision and fact references are compared with current authoritative state; drift fails closed, and recovery does not rebase or write files.
+- Only the Goal blocked with apply_transition_missing is restored, within the same transaction that inserts the recovered transition. Existing finalizer, materialization CAS, and Mission wake retain their authority.
+- PR #30 added the independent-session concurrency proof using two worker processes, separate PostgreSQL pools, distinct backend PIDs, and a holder transaction. It proves convergence to one created plus one existing result and exactly one persisted transition for the identity tuple.
+
+### Verification observed on main
+
+GitHub Actions run #856 (https://github.com/BadrSabra/EngineeringOS/actions/runs/43985363575) completed successfully:
+- Validate (codegen drift + typecheck + tests).
+- Dedicated step: Prove snapshot-bound Apply recovery across independent PostgreSQL sessions.
+- The dedicated proof was isolated from the broad parallel Vitest suite and passed.
+- The same run passed all-package typecheck and the test step.
+
+**Explicit limit:** The workflow's Release validation job was skipped. Do not report Release Validation as passed. The evidence establishes the targeted recovery/concurrency boundary, not closure of all P3.5/P6 invariants or every row in the broader recovery matrix.
+
+### Remaining boundaries
+
+- Apply Proof v2 authorization/precondition persistence (PR #37) and attempt/subset binding (PR #40) are adjacent merged work, not part of the SBPCT recovery authority itself.
+- An Apply Proof Graph Projector is still not implemented. SBPCT recovery evidence must be reloaded by any future read-only projector; no graph PASS may replace Canonical Proof, D2, or Mission successor gates.
+- Keep E3/E3.2 and the wider Mission/World State generalization gates independent.

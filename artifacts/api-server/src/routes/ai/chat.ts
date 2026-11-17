@@ -191,6 +191,7 @@ import {
 import {
   buildApplyChangeAction,
   buildApplyChangeEffectContract,
+  hashApplySubmittedSubset,
 } from "../../lib/agent-state/apply-change-effect.js";
 import {
   APPLY_CHANGES_PROOF_MODE_V2,
@@ -16814,11 +16815,9 @@ async function replayAcceptedApplyResponse(params: {
       ? [{ path: change.path, newContent: change.newContent }]
       : [];
   });
-  if (
-    appliedChanges.length !== parsedAppliedChanges.length
-    || hashChangeSet(appliedChanges) !== hashChangeSet(changes)
-    || hashChangeSet(appliedChanges) !== proposal.changeSetHash
-  ) return rejectReplay("applied_change_hash_mismatch");
+  if (appliedChanges.length !== parsedAppliedChanges.length) {
+    return rejectReplay("applied_changes_invalid");
+  }
 
   const [execution] = await db.select({
     id: aiExecutionsTable.id,
@@ -16841,6 +16840,32 @@ async function replayAcceptedApplyResponse(params: {
     || !isApplyChangesProofMode(executionRequest.applyChangesProofMode)
   ) return rejectReplay("execution_request_mismatch");
 
+  // Older requests used operationId as the attempt ID. New V2 requests keep
+  // operationId stable across retries and store applyAttemptId separately.
+  const attemptBoundV2 = executionRequest.applyChangesProofMode === APPLY_CHANGES_PROOF_MODE_V2
+    && typeof executionRequest.applyAttemptId === "string";
+  const journalAttemptId = attemptBoundV2
+    ? executionRequest.applyAttemptId as string
+    : execution.operationId;
+  const appliedChangeSetHash = hashChangeSet(appliedChanges);
+  // For new V2, the Journal-bound submitted-subset digest proves which Hunk
+  // selection was approved. Candidate bytes are checked against the persisted
+  // proposal digest, not against the proposal's full newContent envelope:
+  // a valid partial-Hunk apply may intentionally produce different bytes.
+  // Historical V1/V2 requests retain the original byte-envelope comparison.
+  if (
+    appliedChangeSetHash !== proposal.changeSetHash
+    || (!attemptBoundV2 && appliedChangeSetHash !== hashChangeSet(changes))
+  ) return rejectReplay("applied_change_hash_mismatch");
+
+  if (attemptBoundV2 && (
+    executionRequest.operationId !== proposal.operationId
+    || executionRequest.applyAttemptId === executionRequest.operationId
+    || typeof executionRequest.submittedChangeSetHash !== "string"
+    || !/^[a-f0-9]{64}$/.test(executionRequest.submittedChangeSetHash)
+    || executionRequest.submittedChangeSetHash !== hashApplySubmittedSubset(changes)
+  )) return rejectReplay("submitted_subset_identity_mismatch");
+
   const [journal] = await db.select({
     operationId: aiApplyJournalTable.operationId,
     attemptId: aiApplyJournalTable.attemptId,
@@ -16848,7 +16873,7 @@ async function replayAcceptedApplyResponse(params: {
     payload: aiApplyJournalTable.payload,
   }).from(aiApplyJournalTable).where(and(
     eq(aiApplyJournalTable.operationId, proposal.operationId),
-    eq(aiApplyJournalTable.attemptId, execution.operationId),
+    eq(aiApplyJournalTable.attemptId, journalAttemptId),
     eq(aiApplyJournalTable.proposalId, proposal.id),
     eq(aiApplyJournalTable.projectId, projectId),
   )).orderBy(desc(aiApplyJournalTable.sequence)).limit(1);
@@ -16867,7 +16892,7 @@ async function replayAcceptedApplyResponse(params: {
   if (
     journal.stage !== "APPLIED"
     || journal.operationId !== proposal.operationId
-    || journal.attemptId !== execution.operationId
+    || journal.attemptId !== journalAttemptId
     || journalFiles.length !== journalPayload.appliedFiles.length
     || JSON.stringify([...journalFiles].sort())
       !== JSON.stringify([...appliedPaths].sort())
@@ -16881,6 +16906,27 @@ async function replayAcceptedApplyResponse(params: {
     || journalPayload.treeDigestVersion !== proposal.treeDigestVersion
     || journalPayload.rollbackFailures.length !== 0
   ) return rejectReplay("apply_journal_identity_mismatch");
+
+  if (attemptBoundV2) {
+    const [subsetJournal] = await db.select({
+      payload: aiApplyJournalTable.payload,
+    }).from(aiApplyJournalTable).where(and(
+      eq(aiApplyJournalTable.operationId, proposal.operationId),
+      eq(aiApplyJournalTable.attemptId, journalAttemptId),
+      eq(aiApplyJournalTable.projectId, projectId),
+      eq(aiApplyJournalTable.proposalId, proposal.id),
+      eq(aiApplyJournalTable.stage, "APPLY_APPROVED_SUBSET"),
+    )).limit(1);
+    const subsetPayloadValue = parseStoredJson(subsetJournal?.payload);
+    const subsetPayload = subsetPayloadValue && typeof subsetPayloadValue === "object"
+      && !Array.isArray(subsetPayloadValue)
+      ? subsetPayloadValue as Record<string, unknown>
+      : undefined;
+    if (
+      subsetPayload?.subsetAuthorized !== true
+      || subsetPayload.submittedChangeSetHash !== executionRequest.submittedChangeSetHash
+    ) return rejectReplay("submitted_subset_journal_mismatch");
+  }
 
   const validationEvidence = parsePublicValidationReceipts(parseStoredJson(proposal.validationEvidence));
   const replayResults = appliedChanges.map((change) => {
@@ -17427,7 +17473,8 @@ async function applyChangesHandler(req: Request, res: Response) {
     // before touching the user's checkout. This workspace is retained as the
     // recovery/proof artifact; the durable root is only written after all
     // revision, path, and validation gates below pass.
-    const submittedChangeSetHash = hashChangeSet(changes);
+    const submittedChangeSetHash = hashApplySubmittedSubset(changes);
+    const submittedCandidateBytesHash = hashChangeSet(changes);
     const preparedCandidateExists = proposal.operationId && proposal.workspaceRoot
       ? await deliveryWorkspaceExists(proposal.workspaceRoot, proposal.operationId)
       : false;
@@ -17435,7 +17482,7 @@ async function applyChangesHandler(req: Request, res: Response) {
       preparedCandidateExists
       && proposal.operationId
       && proposal.workspaceRoot
-      && proposal.changeSetHash === submittedChangeSetHash
+      && proposal.changeSetHash === submittedCandidateBytesHash
       && proposal.baseTreeHash
       && proposal.candidateTreeHash,
     );
@@ -17964,7 +18011,8 @@ async function applyChangesHandler(req: Request, res: Response) {
           projectId,
           executionProfile: "approved_source_promotion",
           turnIntent: "APPLY_CHANGES",
-          operationId: applyAttemptId,
+          operationId: applyCorrelationId,
+          applyAttemptId,
           message: "Server-owned approved source promotion.",
           modelMessage: "Server-owned approved source promotion.",
           workspaceRevision: deliveryWorkspace.baseRevision,
@@ -17974,6 +18022,7 @@ async function applyChangesHandler(req: Request, res: Response) {
           effectRequired: true,
           applyChangesProofMode: APPLY_CHANGES_PROOF_MODE_V2,
           changeSetHash: effectiveChangeSetHash,
+          submittedChangeSetHash,
         },
         idempotencyKey: `apply-changes:${applyAttemptId}`,
         correlationId: applyCorrelationId,

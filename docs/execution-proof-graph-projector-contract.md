@@ -1,6 +1,6 @@
 # Execution Proof Graph Projector — Implementation Contract
 
-**Status:** implementation contract; no production projector is authorized by this document alone  
+**Status:** PGP-01–PGP-05 implementation is present on main at 5103e66368e181c3fa00d11d00ea25e51677e070 with scoped validation; this contract does not authorize extending the supported profile
 **Scope:** one authenticated `runtime.start` execution using `runtime_start_gate_c_v1`, on one exact attempt
 **Authority:** read-only projection; Canonical Proof and existing acceptance gates remain authoritative  
 **Persistence:** none; do not create graph tables, a second acceptance ledger, or a parallel evidence store
@@ -9,7 +9,7 @@
 
 Build a server-owned projector that derives a bounded, deterministic graph from the existing durable execution and proof records. The graph explains how those records relate; it does not create, improve, or replace proof.
 
-The first slice is the currently supported, direct project Runtime Start route (`POST /projects/:projectId/runtime/start`) and its `runtime_start_gate_c_v1` execution attempt. This route does not require a Mission or Goal. Its Gate C proof is reloaded by `loadCanonicalProof` from the exact execution, acceptance, evidence snapshot, Episode, action events, effect bundle, effect, and direct observations. It does not attempt to represent every Task, chat turn, Recipe, delivery, Runtime transition, or mutation in one universal graph.
+The first slice is the currently supported, direct project Runtime Start route (`POST /projects/:projectId/runtime/start`) and its `runtime_start_gate_c_v1` execution attempt. This route does not require a Mission or Goal. Its Gate C proof is reloaded by `loadCanonicalProof` from the exact execution, acceptance, evidence snapshot, Episode, action events, effect bundle, effect, and direct observations. It does not attempt to represent every Task, chat turn, Recipe, delivery, Runtime transition, or mutation in one universal graph. Apply Changes now has a separate Canonical Apply Proof v2 artifact, but that artifact is not part of this Runtime Start graph profile and does not imply an Apply Graph Projector exists.
 
 The existing `ProofGraph` kernel is a structural validator, not a projector. Its v0 schema requires Mission/Goal identities and a World/Workspace mutation shape. Do not fill those required fields with synthetic values to make a Mission-free execution fit. Keep v0 isolated and introduce a versioned successor contract in the existing proof-graph module only if the source crosswalk confirms the fields and invariants.
 
@@ -206,7 +206,7 @@ Add the Mission-free `runtime_start_gate_c_v1` typed contract and pure determini
 
 Implement one server-only source adapter that reloads and verifies records through the existing Canonical Proof boundary, constructs the graph, and validates it without persistence.
 
-**Implementation status:** implemented locally as a transaction-scoped server function. It locks the execution, acceptance, and evidence snapshot; revalidates Canonical Proof before and after locking the Gate C source rows; recomputes observation value hashes; builds and validates the graph; and performs no writes. The single authenticated API read path is tracked separately in PGP-04.
+**Implementation status:** implemented on main (5103e66368e181c3fa00d11d00ea25e51677e070) as a transaction-scoped server function. It locks the execution, acceptance, and evidence snapshot; revalidates Canonical Proof before and after locking the Gate C source rows; recomputes observation value hashes; builds and validates the graph; and performs no writes. The single authenticated API read path is tracked separately in PGP-04.
 
 **Closure evidence:** API typecheck passes. PostgreSQL-backed projector tests pass for positive projection and repeat-stable graph hash, wrong project, wrong attempt, missing bound observation, tampered observation digest, revision drift, and an update blocked until the caller transaction commits. These checks establish the PGP-03 projector boundary only; they do not close PGP-04 or PGP-05.
 
@@ -216,7 +216,7 @@ Implement one server-only source adapter that reloads and verifies records throu
 
 Expose the result only through one project-authorized execution-detail/evidence read path. Keep current evidence and acceptance UI semantics separate.
 
-**Implementation status:** implemented locally as `GET /projects/:projectId/executions/:executionId/proof-graph/attempts/:attempt`, guarded by the existing project-ownership middleware. It requires an explicit non-negative attempt in the path and returns the read-only graph result separately from Canonical Proof. AI Chat offers an on-demand display only when a successful terminal projection matches the exact assistant execution; it does not poll, change a verdict, or affect execution eligibility.
+**Implementation status:** implemented on main (5103e66368e181c3fa00d11d00ea25e51677e070) as `GET /projects/:projectId/executions/:executionId/proof-graph/attempts/:attempt`, guarded by the existing project-ownership middleware. It requires an explicit non-negative attempt in the path and returns the read-only graph result separately from Canonical Proof. AI Chat offers an on-demand display only when a successful terminal projection matches the exact assistant execution; it does not poll, change a verdict, or affect execution eligibility.
 
 **Closure evidence:** authenticated PostgreSQL-backed route tests pass for the authorized owner, foreign project owner denial, missing attempt, and an execution/project mismatch. The accepted response keeps `STRUCTURE_ONLY_NO_EXECUTION_AUTHORITY` separate from the canonical `PROVEN` summary and excludes workspace roots, process IDs, ports, and runtime session IDs.
 
@@ -228,7 +228,9 @@ Run the isolated Kernel suite, API typecheck, API integration tests, relevant au
 
 **Current scoped validation:** API typecheck passes; the full Runtime route integration file passes (18 tests), including fail-closed cases for a missing acceptance, a missing or cross-linked snapshot, unsupported proof mode, failed or misbound recipe receipts (wrong execution or attempt), candidate/source-revision drift against the unchanged Gate C artifact, tampered Gate C artifact identity, incomplete snapshot metadata, and an unbound extra artifact. Candidate and source-revision drift are rejected as `DOMAIN_PROOF_MISMATCH` when the stored Gate C artifact no longer matches the acceptance identity. Canonical Proof and `runtime.start` Gate C contract files pass (28 tests); Execution Proof Graph v1 and unchanged Proof Graph v0 suites pass (48 tests). The authenticated consumer tests are included in the Runtime route file. The direct Gate C plus Shadow Replay integration test also passes when its test-only signed UDS supervisor fixture is provisioned with bounded roots and its environment is restored after the test. `git diff --check` passes. This is focused PGP validation, not a claim that the entire API suite is green.
 
-**Close when:** the required focused checks pass and no broad dashboard polling or graph persistence has been introduced. PGP-01 through PGP-05 are implemented and their scoped validation passes locally. The entire API suite was not run and is not claimed green; broader unrelated suite failures remain outside this package. A Kernel-only pass is not closure for the projector.
+**Main/CI confirmation (2026-11-17):** GitHub Actions run #856 (https://github.com/BadrSabra/EngineeringOS/actions/runs/43985363575) on 5103e66368e181c3fa00d11d00ea25e51677e070 passed the Validate Proof Graph Kernel v0 step, all-package typecheck, and repository test step. The same run passed the dedicated independent-PostgreSQL-session Apply recovery proof. Its Release validation job was skipped; this does not establish Release Validation.
+
+**Close when:** the required focused checks pass and no broad dashboard polling or graph persistence has been introduced. PGP-01 through PGP-05 are implemented on main with scoped validation complete. The entire API suite was not run and is not claimed green; broader unrelated suite failures remain outside this package. A Kernel-only pass is not closure for the projector.
 
 ## 10. Required adversarial tests
 
@@ -247,8 +249,8 @@ Run the isolated Kernel suite, API typecheck, API integration tests, relevant au
 1. `ProofGraph` v0 is a structural validator with Mission/Goal and mutation-specific requirements; it is not the execution projector. The first successor profile is the Mission-independent `runtime_start_gate_c_v1` path only.
 2. The existing `ProofSpine` is a compact proof summary, not a graph; the existing `EvidenceGraph` is a read/claim graph, not execution proof.
 3. The existing `OperationEvidenceProjection` is not a consistent source snapshot and must not be used as the projector's authority.
-4. The old Mission-linked Apply crosswalk is historical input only and is outside this implementation scope.
+4. The current Mission-linked Apply crosswalk is a separate source contract. Apply Proof v2 is not included in this Runtime Start projector; an Apply graph requires its own adapter and tests, and must not be inferred from this profile.
 5. No production consumer may interpret graph `PASS` as proof acceptance.
 6. Validation boundary: the focused non-Mission workspace-tree `runtime.start` test passes through acceptance and `loadCanonicalProof`. The broader `derives runtime.start Canonical Proof from Gate C before the separate World State transition` test initially received `runner_blocked` because this workspace has no configured secure UDS Runtime Supervisor. The test now provisions the existing test-only signed UDS fixture, limits it to the project fixture and disposable temp root, and restores the prior environment; the replay then reaches the mutation check and the expected `replay_identity_mismatch` assertion passes. Production supervisor requirements and proof authority are unchanged.
 
-**Implementation order:** PGP-01 → PGP-02 → PGP-03 → PGP-04 → PGP-05. PGP-01 through PGP-05 are implemented locally with focused validation complete. Do not interpret graph structural PASS as Canonical Proof or mutation authority.
+**Implementation order:** PGP-01 → PGP-02 → PGP-03 → PGP-04 → PGP-05. PGP-01 through PGP-05 are implemented on main with scoped validation complete. Do not interpret graph structural PASS as Canonical Proof or mutation authority.
