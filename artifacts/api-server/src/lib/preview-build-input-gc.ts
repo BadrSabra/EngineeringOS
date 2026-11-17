@@ -4,6 +4,7 @@ import {
   eq,
   inArray,
   isNotNull,
+  isNull,
   lte,
   or,
 } from "drizzle-orm";
@@ -31,6 +32,7 @@ export type PreviewBuildInputGcReference = {
   inputArtifactRefId: string;
   archiveDigest: string;
   inputArtifactKey: string;
+  gcLeaseAt: Date;
 };
 
 export type PreviewBuildInputGcRepository = {
@@ -87,6 +89,7 @@ const databaseRepository: PreviewBuildInputGcRepository = {
       .where(
         and(
           eq(previewBuildJobsTable.inputArtifactProvider, "local"),
+          isNull(previewBuildJobsTable.inputArtifactOwnerNodeId),
           eq(previewBuildJobsTable.inputArtifactGcState, "active"),
           isNotNull(previewBuildJobsTable.completedAt),
           inArray(previewBuildJobsTable.status, TERMINAL_BUILD_STATUSES),
@@ -129,6 +132,7 @@ const databaseRepository: PreviewBuildInputGcRepository = {
             and(
               eq(previewBuildJobsTable.archiveDigest, archiveDigest),
               eq(previewBuildJobsTable.inputArtifactProvider, "local"),
+              isNull(previewBuildJobsTable.inputArtifactOwnerNodeId),
               eq(previewBuildJobsTable.inputArtifactGcState, "active"),
             ),
           )
@@ -155,6 +159,7 @@ const databaseRepository: PreviewBuildInputGcRepository = {
       .where(
         and(
           eq(previewBuildJobsTable.inputArtifactProvider, "local"),
+          isNull(previewBuildJobsTable.inputArtifactOwnerNodeId),
           or(
             and(
               eq(
@@ -205,7 +210,8 @@ const databaseRepository: PreviewBuildInputGcRepository = {
           (row) =>
             row.jobId === jobId &&
             row.inputArtifactRefId === inputArtifactRefId &&
-            row.inputArtifactKey === inputArtifactKey,
+            row.inputArtifactKey === inputArtifactKey &&
+            row.inputArtifactOwnerNodeId === null,
         );
         if (
           targetRows.length === 0 ||
@@ -246,6 +252,7 @@ const databaseRepository: PreviewBuildInputGcRepository = {
               ),
               eq(previewBuildJobsTable.archiveDigest, archiveDigest),
               eq(previewBuildJobsTable.inputArtifactProvider, "local"),
+              isNull(previewBuildJobsTable.inputArtifactOwnerNodeId),
               eq(previewBuildJobsTable.inputArtifactKey, inputArtifactKey),
               inArray(previewBuildJobsTable.inputArtifactGcState, [
                 "eligible_for_gc",
@@ -253,7 +260,15 @@ const databaseRepository: PreviewBuildInputGcRepository = {
               ]),
             ),
           );
-        return [{ jobId, inputArtifactRefId, archiveDigest, inputArtifactKey }];
+        return [
+          {
+            jobId,
+            inputArtifactRefId,
+            archiveDigest,
+            inputArtifactKey,
+            gcLeaseAt: now,
+          },
+        ];
       });
       for (const reference of references) {
         claimed.set(
@@ -272,7 +287,7 @@ const databaseRepository: PreviewBuildInputGcRepository = {
         .update(previewBuildJobsTable)
         .set({
           inputArtifactGcState: "deleted",
-          inputArtifactGcMarkedAt: now,
+          inputArtifactGcMarkedAt: reference.gcLeaseAt,
           updatedAt: now,
         })
         .where(
@@ -288,14 +303,22 @@ const databaseRepository: PreviewBuildInputGcRepository = {
             ),
             eq(previewBuildJobsTable.archiveDigest, reference.archiveDigest),
             eq(previewBuildJobsTable.inputArtifactProvider, "local"),
+            isNull(previewBuildJobsTable.inputArtifactOwnerNodeId),
             eq(previewBuildJobsTable.inputArtifactGcState, "deleting"),
+            eq(
+              previewBuildJobsTable.inputArtifactGcMarkedAt,
+              reference.gcLeaseAt,
+            ),
           ),
         )
         .returning({ jobId: previewBuildJobsTable.jobId });
       if (updated) return true;
 
       const [current] = await tx
-        .select({ state: previewBuildJobsTable.inputArtifactGcState })
+        .select({
+          state: previewBuildJobsTable.inputArtifactGcState,
+          gcLeaseAt: previewBuildJobsTable.inputArtifactGcMarkedAt,
+        })
         .from(previewBuildJobsTable)
         .where(
           and(
@@ -313,7 +336,10 @@ const databaseRepository: PreviewBuildInputGcRepository = {
           ),
         )
         .limit(1);
-      return current?.state === "deleted";
+      return (
+        current?.state === "deleted" &&
+        current.gcLeaseAt?.getTime() === reference.gcLeaseAt.getTime()
+      );
     });
   },
 };
