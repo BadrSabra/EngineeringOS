@@ -141,7 +141,7 @@ describe("Dashboard goal-first home", () => {
     expect(draft.text).toBe("ساعدني أفهم سبب بطء صفحة تسجيل الدخول في مشروع بوابة العملاء");
     expect(draft.sendAttemptedAt).toBeNull();
     expect(draft.projectId).toBe('project-1');
-    expect(mockSetLocation).toHaveBeenCalledWith(`/ai?projectId=project-1&goalDraftId=${draft.id}`);
+    expect(mockSetLocation).toHaveBeenCalledWith(`/projects/project-1/workspace?goalDraftId=${draft.id}`);
     expect(screen.getByText(/لن يُرسل النص تلقائيًا/)).toBeInTheDocument();
     expect(screen.queryByTestId('panel-goal-destination')).not.toBeInTheDocument();
   });
@@ -174,7 +174,7 @@ describe("Dashboard goal-first home", () => {
 
     const [draft] = readGoalDrafts('user-1').drafts;
     expect(draft.projectId).toBe('project-1');
-    expect(mockSetLocation).toHaveBeenCalledWith(`/ai?projectId=project-1&goalDraftId=${draft.id}`);
+    expect(mockSetLocation).toHaveBeenCalledWith(`/projects/project-1/workspace?goalDraftId=${draft.id}`);
   });
 
   it('preserves a zero-project goal only after the user chooses to create a project', () => {
@@ -246,7 +246,7 @@ describe("Dashboard goal-first home", () => {
 
     const [draft] = readGoalDrafts('user-1').drafts;
     expect(draft.projectId).toBe('project-1');
-    expect(mockSetLocation).toHaveBeenCalledWith(`/ai?projectId=project-1&goalDraftId=${draft.id}`);
+    expect(mockSetLocation).toHaveBeenCalledWith(`/projects/project-1/workspace?goalDraftId=${draft.id}`);
   });
 
   it('keeps multiple project matches ambiguous until the user selects one exact project', () => {
@@ -273,7 +273,7 @@ describe("Dashboard goal-first home", () => {
     fireEvent.click(screen.getByTestId('button-route-goal-project'));
     const [draft] = readGoalDrafts('user-1').drafts;
     expect(draft.projectId).toBe('project-2');
-    expect(mockSetLocation).toHaveBeenCalledWith(`/ai?projectId=project-2&goalDraftId=${draft.id}`);
+    expect(mockSetLocation).toHaveBeenCalledWith(`/projects/project-2/workspace?goalDraftId=${draft.id}`);
   });
 
   it("labels task totals as recorded status rather than proof", () => {
@@ -356,7 +356,7 @@ describe("Dashboard goal-first home", () => {
       projectId: "project-1",
       sendAttemptedAt: null,
     });
-    expect(mockSetLocation).toHaveBeenCalledWith(`/ai?projectId=project-1&goalDraftId=${draft.id}`);
+    expect(mockSetLocation).toHaveBeenCalledWith(`/projects/project-1/workspace?goalDraftId=${draft.id}`);
   });
 
   it("supports RTL keyboard goal handoff while the dashboard summary is unavailable", async () => {
@@ -400,7 +400,7 @@ describe("Dashboard goal-first home", () => {
       sendAttemptedAt: null,
     });
     expect(mockSetLocation).toHaveBeenCalledWith(
-      `/ai?projectId=project-1&goalDraftId=${draft.id}`,
+      `/projects/project-1/workspace?goalDraftId=${draft.id}`,
     );
   });
 });
