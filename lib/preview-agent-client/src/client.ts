@@ -1,10 +1,23 @@
 import { generateKeyPairSync, randomUUID, sign } from "node:crypto";
 import {
+  PreviewArtifactGcCommandError,
+  previewArtifactDeleteCommandFingerprint,
+  previewArtifactDeleteReceiptCompletedAtHint,
   previewAgentHeartbeatChallengeRequestPayload,
   previewAgentHeartbeatProofPayload,
   previewAgentPairingProofPayload,
   previewAgentPublicKeyFingerprint,
+  signPreviewArtifactDeletePollProof,
+  signPreviewArtifactDeleteReceipt,
+  verifyPreviewArtifactDeleteCommand,
+  verifyPreviewArtifactDeleteReceipt,
 } from "@workspace/preview-agent-contract";
+import type {
+  PreviewArtifactDeleteCommandClaims,
+  PreviewArtifactDeleteReceiptClaims,
+  PreviewAgentArtifactReferenceStore,
+} from "@workspace/preview-agent-contract";
+export type { PreviewAgentArtifactReferenceStore } from "@workspace/preview-agent-contract";
 import {
   validatePreviewAgentIdentity,
   PreviewAgentIdentityError,
@@ -37,6 +50,10 @@ export class PreviewAgentClientError extends Error {
       | "PREVIEW_AGENT_HEARTBEAT_REJECTED"
       | "PREVIEW_AGENT_HEARTBEAT_RETRY"
       | "PREVIEW_AGENT_SEQUENCE_EXHAUSTED"
+      | "PREVIEW_AGENT_ARTIFACT_DELETE_COMMAND_KEY_UNAVAILABLE"
+      | "PREVIEW_AGENT_ARTIFACT_STORE_UNAVAILABLE"
+      | "PREVIEW_AGENT_ARTIFACT_DELETE_RETRY"
+      | "PREVIEW_AGENT_ARTIFACT_DELETE_REJECTED"
       | "PREVIEW_AGENT_CLIENT_RESPONSE_INVALID",
     readonly retryAfterMs?: number,
   ) {
@@ -159,7 +176,9 @@ export async function pairPreviewAgent(
     response.storeId !== identity.storeId ||
     response.status !== "active" ||
     response.keyVersion !== 1 ||
-    response.fingerprint !== identity.fingerprint
+    response.publicKeyFingerprint !== identity.fingerprint ||
+    (response.commandPublicKeyPem !== undefined &&
+      typeof response.commandPublicKeyPem !== "string")
   ) {
     throw new PreviewAgentClientError(
       "PREVIEW_AGENT_CLIENT_RESPONSE_INVALID",
@@ -169,6 +188,9 @@ export async function pairPreviewAgent(
     ...identity,
     state: "active",
     keyVersion: 1,
+    ...(typeof response.commandPublicKeyPem === "string"
+      ? { commandPublicKeyPem: response.commandPublicKeyPem }
+      : {}),
     pairing: undefined,
   });
   await input.secretStore.set(active);
@@ -176,6 +198,273 @@ export async function pairPreviewAgent(
     nodeId: active.nodeId,
     fingerprint: active.fingerprint,
     keyVersion: active.keyVersion,
+  };
+}
+
+/**
+ * Polls one known local artifact job. The caller must obtain jobId from its
+ * local Artifact store; this function never accepts a storage path from the API.
+ * The store's removeReference operation must be idempotent and validate its own
+ * manifest before removing a reference.
+ */
+export async function processPreviewAgentArtifactDeleteCommand(input: {
+  apiUrl: string;
+  nodeId: string;
+  jobId: string;
+  secretStore: PreviewAgentSecretStore;
+  artifactStore: PreviewAgentArtifactReferenceStore;
+  fetchImpl?: PreviewAgentFetch;
+  now?: Date;
+}): Promise<
+  | { state: "idle"; jobId: string }
+  | { state: "receipt_deferred"; jobId: string }
+  | { state: "accepted"; jobId: string; alreadyAccepted: boolean }
+> {
+  const apiOrigin = normalizeApiOrigin(input.apiUrl);
+  const now = input.now ?? new Date();
+  if (!Number.isFinite(now.getTime()) || !isUuid(input.jobId)) {
+    throw new PreviewAgentClientError("PREVIEW_AGENT_CLIENT_RESPONSE_INVALID");
+  }
+  const identityValue = await input.secretStore.get(input.nodeId);
+  if (!identityValue || identityValue.state !== "active") {
+    throw new PreviewAgentClientError("PREVIEW_AGENT_PAIRING_REQUIRED");
+  }
+  const identity = validatePreviewAgentIdentity(identityValue);
+  if (!identity.commandPublicKeyPem) {
+    throw new PreviewAgentClientError(
+      "PREVIEW_AGENT_ARTIFACT_DELETE_COMMAND_KEY_UNAVAILABLE",
+    );
+  }
+
+  const pending = identity.pendingArtifactDelete;
+  const jobId = pending?.jobId ?? input.jobId;
+  if (pending?.receiptToken) {
+    const receiptCompletedAt = previewArtifactDeleteReceiptCompletedAtHint(
+      pending.receiptToken,
+    );
+    const command = verifyPreviewArtifactDeleteCommand({
+      token: pending.commandToken,
+      publicKeyPem: identity.commandPublicKeyPem,
+      now: receiptCompletedAt,
+    });
+    const receipt = verifyPreviewArtifactDeleteReceipt({
+      token: pending.receiptToken,
+      publicKeyPem: identity.publicKeyPem,
+      command,
+      // Authenticate and bind the receipt before using its timestamp to decide
+      // whether a new GC lease is needed.
+      now: receiptCompletedAt,
+    });
+    try {
+      verifyPreviewArtifactDeleteReceipt({
+        token: pending.receiptToken,
+        publicKeyPem: identity.publicKeyPem,
+        command,
+        now,
+      });
+      return submitPreviewArtifactDeleteReceipt({
+        apiOrigin,
+        identity,
+        command,
+        receipt,
+        commandToken: pending.commandToken,
+        receiptToken: pending.receiptToken,
+        secretStore: input.secretStore,
+        fetchImpl: input.fetchImpl,
+      });
+    } catch (error) {
+      if (
+        !(error instanceof PreviewArtifactGcCommandError) ||
+        error.code !== "PREVIEW_ARTIFACT_GC_RECEIPT_EXPIRED"
+      ) {
+        throw error;
+      }
+      // A stale receipt cannot be accepted by the API. Retire it only after
+      // its signature and exact command binding were verified above, then poll
+      // for the current lease. removeReference is required to be idempotent.
+      await input.secretStore.set(
+        validatePreviewAgentIdentity({
+          ...identity,
+          pendingArtifactDelete: undefined,
+        }),
+      );
+    }
+  }
+
+  if (input.artifactStore.storeId !== identity.storeId) {
+    throw new PreviewAgentClientError(
+      "PREVIEW_AGENT_ARTIFACT_STORE_UNAVAILABLE",
+    );
+  }
+
+  const proof = {
+    version: 2 as const,
+    action: "poll-artifact-delete-command" as const,
+    nodeId: identity.nodeId,
+    keyVersion: identity.keyVersion,
+    jobId,
+    issuedAt: now.toISOString(),
+    nonce: randomUUID(),
+  };
+  const signature = signPreviewArtifactDeletePollProof({
+    proof,
+    privateKeyPem: identity.privateKeyPem,
+    now,
+  });
+  const response = await postJson(
+    apiOrigin,
+    `/api/internal/preview-build-jobs/${jobId}/artifact-delete-command`,
+    { proof, signature },
+    input.fetchImpl,
+    true,
+  );
+  if (!response) return { state: "idle", jobId };
+  if (typeof response.commandToken !== "string") {
+    throw new PreviewAgentClientError(
+      "PREVIEW_AGENT_CLIENT_RESPONSE_INVALID",
+    );
+  }
+  const commandToken = response.commandToken;
+  const command = verifyPreviewArtifactDeleteCommand({
+    token: commandToken,
+    publicKeyPem: identity.commandPublicKeyPem,
+    now,
+  });
+  if (
+    command.nodeId !== identity.nodeId ||
+    command.keyVersion !== identity.keyVersion ||
+    command.storeId !== identity.storeId ||
+    command.jobId !== jobId ||
+    command.commandId !== response.commandId ||
+    command.expiresAt !== response.expiresAt ||
+    previewArtifactDeleteCommandFingerprint(command) !==
+      response.commandFingerprint
+  ) {
+    throw new PreviewAgentClientError(
+      "PREVIEW_AGENT_CLIENT_RESPONSE_INVALID",
+    );
+  }
+
+  const pendingIdentity = validatePreviewAgentIdentity({
+    ...identity,
+    pendingArtifactDelete: { jobId, commandToken },
+  });
+  await input.secretStore.set(pendingIdentity);
+
+  let result: "deleted" | "already_deleted";
+  try {
+    result = await input.artifactStore.removeReference({
+      storeId: command.storeId,
+      jobId,
+      artifactRefId: command.artifactRefId,
+      projectId: command.projectId,
+      proposalId: command.proposalId,
+      operationId: command.operationId,
+      proposalRevision: command.proposalRevision,
+      candidateRevision: command.candidateRevision,
+      changeSetHash: command.changeSetHash,
+      expectedDigest: command.artifactDigest,
+      expectedSizeBytes: command.sizeBytes,
+      expectedManifestDigest: command.manifestDigest,
+    });
+  } catch {
+    throw new PreviewAgentClientError(
+      "PREVIEW_AGENT_ARTIFACT_STORE_UNAVAILABLE",
+    );
+  }
+  if (result !== "deleted" && result !== "already_deleted") {
+    throw new PreviewAgentClientError(
+      "PREVIEW_AGENT_ARTIFACT_STORE_UNAVAILABLE",
+    );
+  }
+
+  const completedAt = input.now ? new Date(input.now) : new Date();
+  if (
+    completedAt.getTime() >
+    Date.parse(command.expiresAt) + 5_000
+  ) {
+    // The effect is idempotent. Keep the command journal; the next invocation
+    // polls for a fresh lease and confirms the reference before receipt signing.
+    return { state: "receipt_deferred", jobId };
+  }
+  const receiptClaims: PreviewArtifactDeleteReceiptClaims = {
+    version: 2,
+    action: "artifact-delete-receipt",
+    commandId: command.commandId,
+    commandFingerprint: previewArtifactDeleteCommandFingerprint(command),
+    nodeId: identity.nodeId,
+    keyVersion: identity.keyVersion,
+    storeId: identity.storeId,
+    artifactRefId: command.artifactRefId,
+    artifactDigest: command.artifactDigest,
+    manifestDigest: command.manifestDigest,
+    result,
+    completedAt: completedAt.toISOString(),
+  };
+  const receiptToken = signPreviewArtifactDeleteReceipt({
+    claims: receiptClaims,
+    privateKeyPem: identity.privateKeyPem,
+    now: completedAt,
+  });
+  const receiptPendingIdentity = validatePreviewAgentIdentity({
+    ...pendingIdentity,
+    pendingArtifactDelete: { jobId, commandToken, receiptToken },
+  });
+  await input.secretStore.set(receiptPendingIdentity);
+  return submitPreviewArtifactDeleteReceipt({
+    apiOrigin,
+    identity: receiptPendingIdentity,
+    command,
+    receipt: receiptClaims,
+    commandToken,
+    receiptToken,
+    secretStore: input.secretStore,
+    fetchImpl: input.fetchImpl,
+  });
+}
+
+async function submitPreviewArtifactDeleteReceipt(input: {
+  apiOrigin: string;
+  identity: PreviewAgentIdentity;
+  command: PreviewArtifactDeleteCommandClaims;
+  receipt: PreviewArtifactDeleteReceiptClaims;
+  commandToken: string;
+  receiptToken: string;
+  secretStore: PreviewAgentSecretStore;
+  fetchImpl?: PreviewAgentFetch;
+}): Promise<{
+  state: "accepted";
+  jobId: string;
+  alreadyAccepted: boolean;
+}> {
+  const response = await postJson(
+    input.apiOrigin,
+    `/api/internal/preview-build-jobs/${input.command.jobId}/artifact-delete-receipt`,
+    {
+      commandToken: input.commandToken,
+      receiptToken: input.receiptToken,
+    },
+    input.fetchImpl,
+  );
+  if (
+    response.jobId !== input.command.jobId ||
+    response.artifactDeleted !== true ||
+    typeof response.alreadyAccepted !== "boolean"
+  ) {
+    throw new PreviewAgentClientError(
+      "PREVIEW_AGENT_CLIENT_RESPONSE_INVALID",
+    );
+  }
+  await input.secretStore.set(
+    validatePreviewAgentIdentity({
+      ...input.identity,
+      pendingArtifactDelete: undefined,
+    }),
+  );
+  return {
+    state: "accepted",
+    jobId: input.command.jobId,
+    alreadyAccepted: response.alreadyAccepted,
   };
 }
 
@@ -491,8 +780,22 @@ async function postJson(
   origin: string,
   path: string,
   body: unknown,
+  fetchImpl?: PreviewAgentFetch,
+): Promise<Record<string, unknown>>;
+async function postJson(
+  origin: string,
+  path: string,
+  body: unknown,
+  fetchImpl: PreviewAgentFetch | undefined,
+  allowNoContent: true,
+): Promise<Record<string, unknown> | undefined>;
+async function postJson(
+  origin: string,
+  path: string,
+  body: unknown,
   fetchImpl: PreviewAgentFetch = fetch,
-): Promise<Record<string, unknown>> {
+  allowNoContent = false,
+): Promise<Record<string, unknown> | undefined> {
   let response: Response;
   try {
     response = await fetchImpl(new URL(path, origin), {
@@ -509,8 +812,13 @@ async function postJson(
     });
   } catch {
     throw new PreviewAgentClientError(
-      "PREVIEW_AGENT_PAIRING_UNAVAILABLE",
+      path.includes("/artifact-delete-")
+        ? "PREVIEW_AGENT_ARTIFACT_DELETE_RETRY"
+        : "PREVIEW_AGENT_PAIRING_UNAVAILABLE",
     );
+  }
+  if (response.status === 204 && allowNoContent) {
+    return undefined;
   }
   let text: string;
   try {
@@ -540,6 +848,22 @@ async function postJson(
   if (!response.ok) {
     const serverCode =
       typeof payload.error === "string" ? payload.error : undefined;
+    if (
+      path.includes("/artifact-delete-command") ||
+      path.includes("/artifact-delete-receipt")
+    ) {
+      if (
+        serverCode === "preview_artifact_delete_command_rejected" ||
+        serverCode === "preview_artifact_delete_receipt_rejected"
+      ) {
+        throw new PreviewAgentClientError(
+          "PREVIEW_AGENT_ARTIFACT_DELETE_REJECTED",
+        );
+      }
+      throw new PreviewAgentClientError(
+        "PREVIEW_AGENT_ARTIFACT_DELETE_RETRY",
+      );
+    }
     if (serverCode === "preview_agent_heartbeat_challenge_pending") {
       throw new PreviewAgentClientError(
         "PREVIEW_AGENT_HEARTBEAT_RETRY",

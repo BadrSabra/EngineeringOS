@@ -20,6 +20,7 @@ import {
 } from "./preview-build-upload.js";
 import { previewBuildArtifactRefId } from "./preview-artifact-reference.js";
 import { isPreviewBuildOutputArtifactKey } from "./preview-build-output-key.js";
+import { validatePreviewArtifactManifest } from "@workspace/preview-artifact-manifest";
 
 const OBJECT_KEY_PATTERN =
   /^build-inputs\/([a-f0-9]{64})\/([a-f0-9]{64})\.zip$/;
@@ -641,13 +642,37 @@ async function readStoreId(path: string): Promise<string> {
   return parseStoreId(await readRegularFile(path, 128));
 }
 
-async function loadOrCreateStoreId(rootDir: string): Promise<string> {
+async function loadOrCreateStoreId(
+  rootDir: string,
+  expectedStoreId?: string,
+): Promise<string> {
+  const pinnedStoreId = expectedStoreId?.toLowerCase();
+  if (pinnedStoreId !== undefined && !UUID_PATTERN.test(pinnedStoreId)) {
+    throw new LocalPreviewBuildInputStoreError(
+      "PREVIEW_LOCAL_STORE_INVALID_CONFIG",
+    );
+  }
   const identityPath = resolve(rootDir, STORE_IDENTITY_FILE);
   const readExisting = async () => {
     for (let attempt = 0; attempt < 20; attempt += 1) {
       try {
-        return await readStoreId(identityPath);
+        const existingStoreId = await readStoreId(identityPath);
+        if (
+          pinnedStoreId !== undefined &&
+          existingStoreId.toLowerCase() !== pinnedStoreId
+        ) {
+          throw new LocalPreviewBuildInputStoreError(
+            "PREVIEW_LOCAL_STORE_INVALID_CONFIG",
+          );
+        }
+        return existingStoreId;
       } catch (error) {
+        if (
+          error instanceof LocalPreviewBuildInputStoreError &&
+          error.code === "PREVIEW_LOCAL_STORE_INVALID_CONFIG"
+        ) {
+          throw error;
+        }
         if (
           error instanceof LocalPreviewBuildInputStoreError &&
           error.code === "PREVIEW_LOCAL_STORE_INVALID_OBJECT"
@@ -679,7 +704,7 @@ async function loadOrCreateStoreId(rootDir: string): Promise<string> {
       constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | FILE_FLAGS,
       0o600,
     );
-    const storeId = randomUUID();
+    const storeId = pinnedStoreId ?? randomUUID();
     await stage.writeFile(JSON.stringify({ version: 1, storeId }), "utf8");
     await stage.sync();
     await stage.close();
@@ -723,6 +748,15 @@ export type LocalPreviewBuildInputObjectStore =
       jobId: string;
       artifactRefId: string;
     }): Promise<PreviewBuildArtifactWriteMetadata>;
+    removeReference(input: {
+      storeId: string;
+      jobId: string;
+      artifactRefId: string;
+      expectedDigest: string;
+      expectedSizeBytes: number;
+      expectedManifestDigest: string;
+      expectedRetentionPolicy: PreviewBuildArtifactWriteMetadata["retentionPolicy"];
+    }): Promise<"deleted" | "already_deleted">;
     read(input: {
       objectKey: string;
       jobId: string;
@@ -752,6 +786,11 @@ export async function createLocalPreviewArtifactObjectStore(input: {
   rootDir: string;
   workspaceRoot: string;
   maxBytes?: number;
+  /**
+   * Optionally pin a newly initialized local root to a server-registered
+   * Agent store identity. Existing roots must already have this exact ID.
+   */
+  expectedStoreId?: string;
 }): Promise<LocalPreviewArtifactObjectStore> {
   if (process.platform !== "linux") {
     throw new LocalPreviewBuildInputStoreError(
@@ -813,7 +852,10 @@ export async function createLocalPreviewArtifactObjectStore(input: {
       "PREVIEW_LOCAL_STORE_INVALID_CONFIG",
     );
   }
-  const storeId = await loadOrCreateStoreId(configuredRoot);
+  const storeId = await loadOrCreateStoreId(
+    configuredRoot,
+    input.expectedStoreId,
+  );
   const stagingRoot = resolve(configuredRoot, "staging");
   const stagingOwner = await currentStagingOwnerIdentity();
 
@@ -874,76 +916,39 @@ export async function createLocalPreviewArtifactObjectStore(input: {
     expectedReference?: { jobId: string; artifactRefId: string },
   ): Promise<PreviewBuildArtifactWriteMetadata> {
     const identity = parseObjectKey(objectKey);
-    let manifest: unknown;
+    const expectedDigest = expectedArchiveDigest ?? identity.archiveDigest;
     try {
-      manifest = JSON.parse(manifestBytes.toString("utf8"));
+      const manifest = validatePreviewArtifactManifest({
+        manifestBytes,
+        objectKey,
+        expectedStoreId,
+        ...(expectedDigest === undefined
+          ? {}
+          : { expectedDigest }),
+        ...(expectedReference === undefined
+          ? {}
+          : {
+              expectedJobId: expectedReference.jobId,
+              expectedArtifactRefId: expectedReference.artifactRefId,
+            }),
+        maxBytes: Math.min(maxBytes, identity.maxBytes),
+        retentionPolicy: identity.retentionPolicy,
+      });
+      const expectedArtifactRefId = previewBuildArtifactRefId(
+        manifest.jobId,
+        identity.artifactRole,
+      );
+      if (manifest.artifactRefId !== expectedArtifactRefId) {
+        throw new LocalPreviewBuildInputStoreError(
+          "PREVIEW_LOCAL_STORE_INVALID_OBJECT",
+        );
+      }
+      return manifest;
     } catch {
       throw new LocalPreviewBuildInputStoreError(
         "PREVIEW_LOCAL_STORE_INVALID_OBJECT",
       );
     }
-    if (!manifest || typeof manifest !== "object" || Array.isArray(manifest)) {
-      throw new LocalPreviewBuildInputStoreError(
-        "PREVIEW_LOCAL_STORE_INVALID_OBJECT",
-      );
-    }
-    const record = manifest as Record<string, unknown>;
-    const jobId = record.jobId;
-    const artifactRefId = record.artifactRefId;
-    const archiveDigest = record.archiveDigest;
-    const contentLength = record.contentLength;
-    const expectedArtifactRefId =
-      typeof jobId === "string" && UUID_PATTERN.test(jobId)
-        ? previewBuildArtifactRefId(jobId, identity.artifactRole)
-        : "";
-    const canonical = JSON.stringify({
-      version: 3,
-      objectKey,
-      storeId: expectedStoreId,
-      jobId,
-      artifactRefId,
-      archiveDigest,
-      contentLength,
-      retentionPolicy: identity.retentionPolicy,
-    });
-    if (
-      Object.keys(record).length !== 8 ||
-      record.version !== 3 ||
-      record.objectKey !== objectKey ||
-      record.storeId !== expectedStoreId ||
-      record.jobId !== jobId ||
-      record.artifactRefId !== expectedArtifactRefId ||
-      (expectedReference !== undefined &&
-        (jobId !== expectedReference.jobId ||
-          artifactRefId !== expectedReference.artifactRefId)) ||
-      record.retentionPolicy !== identity.retentionPolicy ||
-      typeof archiveDigest !== "string" ||
-      !DIGEST_PATTERN.test(archiveDigest) ||
-      (identity.archiveDigest !== undefined &&
-        identity.archiveDigest !== archiveDigest) ||
-      (expectedArchiveDigest !== undefined &&
-        expectedArchiveDigest !== archiveDigest) ||
-      typeof contentLength !== "number" ||
-      !Number.isSafeInteger(contentLength) ||
-      contentLength < 1 ||
-      contentLength > Math.min(maxBytes, identity.maxBytes) ||
-      manifestBytes.toString("utf8") !== canonical
-    ) {
-      throw new LocalPreviewBuildInputStoreError(
-        "PREVIEW_LOCAL_STORE_INVALID_OBJECT",
-      );
-    }
-    return {
-      storeId: expectedStoreId,
-      jobId: jobId as string,
-      artifactRefId: artifactRefId as string,
-      digest: archiveDigest,
-      sizeBytes: contentLength,
-      manifestDigest: createHash("sha256")
-        .update(manifestBytes)
-        .digest("hex"),
-      retentionPolicy: identity.retentionPolicy,
-    };
   }
 
   await removeDeadProcessStagingFiles({
@@ -1016,7 +1021,7 @@ export async function createLocalPreviewArtifactObjectStore(input: {
 
   const store: Pick<
     LocalPreviewBuildInputObjectStore,
-    "putStream" | "inspect" | "read" | "remove"
+    "putStream" | "inspect" | "removeReference" | "read" | "remove"
   > = {
     async putStream({
       jobId,
@@ -1261,6 +1266,112 @@ export async function createLocalPreviewArtifactObjectStore(input: {
       return artifact;
     },
 
+    async removeReference(input) {
+      if (
+        input.storeId !== storeId ||
+        !UUID_PATTERN.test(input.jobId) ||
+        input.artifactRefId !==
+          previewBuildArtifactRefId(input.jobId, "input") ||
+        !DIGEST_PATTERN.test(input.expectedDigest) ||
+        !Number.isSafeInteger(input.expectedSizeBytes) ||
+        input.expectedSizeBytes < 1 ||
+        input.expectedSizeBytes > maxBytes ||
+        !DIGEST_PATTERN.test(input.expectedManifestDigest) ||
+        input.expectedRetentionPolicy !== "preview-build-input-24h-v1"
+      ) {
+        throw new LocalPreviewBuildInputStoreError(
+          "PREVIEW_LOCAL_STORE_INVALID_OBJECT",
+        );
+      }
+
+      const reference = referencePath(input.artifactRefId);
+      let before;
+      try {
+        before = await lstat(reference);
+      } catch (error) {
+        if (errorCode(error) === "ENOENT") return "already_deleted";
+        throw new LocalPreviewBuildInputStoreError(
+          "PREVIEW_LOCAL_STORE_UNAVAILABLE",
+        );
+      }
+      if (
+        !isPrivateRegularStoreFile(before, process.getuid?.()) ||
+        before.nlink !== 1
+      ) {
+        throw new LocalPreviewBuildInputStoreError(
+          "PREVIEW_LOCAL_STORE_INVALID_OBJECT",
+        );
+      }
+
+      const manifestBytes = await readRegularFile(reference, MAX_MANIFEST_BYTES);
+      let manifest: unknown;
+      try {
+        manifest = JSON.parse(manifestBytes.toString("utf8"));
+      } catch {
+        throw new LocalPreviewBuildInputStoreError(
+          "PREVIEW_LOCAL_STORE_INVALID_OBJECT",
+        );
+      }
+      const objectKey =
+        manifest &&
+        typeof manifest === "object" &&
+        !Array.isArray(manifest) &&
+        typeof (manifest as Record<string, unknown>).objectKey === "string"
+          ? ((manifest as Record<string, unknown>).objectKey as string)
+          : "";
+      const artifact = await validateManifest(
+        manifestBytes,
+        objectKey,
+        storeId,
+        input.expectedDigest,
+        { jobId: input.jobId, artifactRefId: input.artifactRefId },
+      );
+      if (
+        !objectKey.startsWith("build-inputs/") ||
+        artifact.digest !== input.expectedDigest ||
+        artifact.sizeBytes !== input.expectedSizeBytes ||
+        artifact.manifestDigest !== input.expectedManifestDigest ||
+        artifact.retentionPolicy !== input.expectedRetentionPolicy
+      ) {
+        throw new LocalPreviewBuildInputStoreError(
+          "PREVIEW_LOCAL_STORE_CONFLICT",
+        );
+      }
+
+      let current;
+      try {
+        current = await lstat(reference);
+      } catch (error) {
+        if (errorCode(error) === "ENOENT") return "already_deleted";
+        throw new LocalPreviewBuildInputStoreError(
+          "PREVIEW_LOCAL_STORE_UNAVAILABLE",
+        );
+      }
+      if (
+        !isPrivateRegularStoreFile(current, process.getuid?.()) ||
+        current.nlink !== 1 ||
+        current.dev !== before.dev ||
+        current.ino !== before.ino ||
+        current.size !== before.size ||
+        current.mtimeMs !== before.mtimeMs ||
+        current.ctimeMs !== before.ctimeMs
+      ) {
+        throw new LocalPreviewBuildInputStoreError(
+          "PREVIEW_LOCAL_STORE_CONFLICT",
+        );
+      }
+      try {
+        await unlink(reference);
+      } catch (error) {
+        if (errorCode(error) === "ENOENT") return "already_deleted";
+        throw new LocalPreviewBuildInputStoreError(
+          "PREVIEW_LOCAL_STORE_UNAVAILABLE",
+        );
+      }
+      await syncDirectory(dirname(reference));
+      return "deleted";
+    },
+
     async remove({ objectKey, jobId, artifactRefId, expectedDigest }) {
       const identity = parseObjectKey(objectKey);
       if (
@@ -1404,6 +1515,7 @@ export async function createLocalPreviewBuildInputObjectStore(input: {
   rootDir: string;
   workspaceRoot: string;
   maxBytes?: number;
+  expectedStoreId?: string;
 }): Promise<LocalPreviewBuildInputObjectStore> {
   return createLocalPreviewArtifactObjectStore(input);
 }

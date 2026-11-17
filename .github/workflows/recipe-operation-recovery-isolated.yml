@@ -1,0 +1,278 @@
+name: Recipe operation crash recovery (OS isolated)
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirm_recipe_recovery:
+        description: "Confirm the isolated recipe crash-recovery integration test"
+        required: true
+        type: boolean
+        default: false
+      allow_dependency_bootstrap_egress:
+        description: "Allow Docker and package downloads while preparing the image; the test container itself stays network-isolated."
+        required: true
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+jobs:
+  recipe-operation-recovery:
+    if: ${{ inputs.confirm_recipe_recovery && inputs.allow_dependency_bootstrap_egress }}
+    name: Recipe recovery in loopback-only container
+    runs-on: ubuntu-24.04
+    timeout-minutes: 50
+    concurrency:
+      group: recipe-operation-recovery-${{ github.ref }}
+      cancel-in-progress: false
+    permissions:
+      contents: read
+    steps:
+      - name: Record explicit dependency-bootstrap approval
+        shell: bash
+        env:
+          DEPENDENCY_BOOTSTRAP_EGRESS_APPROVED: ${{ inputs.allow_dependency_bootstrap_egress }}
+        run: |
+          set -Eeuo pipefail
+          results_dir="${RUNNER_TEMP}/engineeringos-recipe-recovery-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          mkdir -p "$results_dir"
+          if [[ "$DEPENDENCY_BOOTSTRAP_EGRESS_APPROVED" != "true" ]]; then
+            echo "Refusing external image and package preparation without explicit approval." >&2
+            exit 1
+          fi
+          printf '{"runId":"%s","runAttempt":%s,"dependencyBootstrapEgressApproved":true,"testContainerNetwork":"none","scope":"runner-and-image-preparation"}\n' \
+            "$GITHUB_RUN_ID" "$GITHUB_RUN_ATTEMPT" \
+            > "$results_dir/bootstrap-network-policy.json"
+
+      - name: Fail closed unless Docker network isolation works
+        id: os-isolation
+        timeout-minutes: 10
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          results_dir="${RUNNER_TEMP}/engineeringos-recipe-recovery-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          mkdir -p "$results_dir"
+          {
+            docker info >/dev/null
+            docker pull node:20.20.0-bookworm
+            host_net_namespace="$(readlink /proc/self/ns/net)"
+            [[ "$host_net_namespace" =~ ^net:\[[0-9]+\]$ ]]
+
+            docker run --rm \
+              --pull=never \
+              --network none \
+              --read-only \
+              --tmpfs /tmp:rw,nosuid,nodev,size=64m \
+              --pids-limit 32 \
+              --memory 512m \
+              --cpus 1 \
+              --cap-drop ALL \
+              --security-opt no-new-privileges:true \
+              --user 1000:1000 \
+              --env "ENGINEERINGOS_EXPECTED_HOST_NET_NAMESPACE=${host_net_namespace}" \
+              node:20.20.0-bookworm \
+              node -e '
+                const fs = require("node:fs");
+                const host = process.env.ENGINEERINGOS_EXPECTED_HOST_NET_NAMESPACE;
+                const self = fs.readlinkSync("/proc/self/ns/net");
+                const interfaces = fs.readdirSync("/sys/class/net").sort();
+                const ipv4Text = fs.readFileSync("/proc/net/route", "utf8");
+                const ipv6Text = fs.readFileSync("/proc/net/ipv6_route", "utf8");
+                const ipv4Routes = ipv4Text.trim().split(/\r?\n/).slice(1).filter(Boolean).map((line) => {
+                  const fields = line.trim().split(/\s+/);
+                  return { iface: fields[0], isDefault: fields[1] === "00000000" };
+                });
+                const ipv6Routes = ipv6Text.trim().split(/\r?\n/).filter(Boolean).map((line) => {
+                  const fields = line.trim().split(/\s+/);
+                  return {
+                    iface: fields.at(-1),
+                    isDefault: fields[0] === "00000000000000000000000000000000" && fields[1] === "00",
+                  };
+                });
+                const status = fs.readFileSync("/proc/self/status", "utf8");
+                const capValues = ["CapEff", "CapPrm", "CapBnd", "CapAmb"].map((key) => {
+                  const value = status.match(new RegExp(`^${key}:\\s*([a-f0-9]+)$`, "mu"))?.[1];
+                  return value === undefined ? null : BigInt(`0x${value}`);
+                });
+                const noNewPrivileges = status.match(/^NoNewPrivs:\s*(\d+)$/mu)?.[1] === "1";
+                const evidence = {
+                  hostNetNamespace: host,
+                  selfNetNamespace: self,
+                  interfaces,
+                  ipv4Routes,
+                  ipv6Routes,
+                  uid: process.getuid(),
+                  capabilitiesDropped: capValues.length === 4 && capValues.every((value) => value === 0n),
+                  noNewPrivileges,
+                };
+                const allRoutesAreLoopback = [...ipv4Routes, ...ipv6Routes]
+                  .every((route) => route.iface === "lo");
+                const ok =
+                  /^net:\[\d+\]$/.test(host ?? "") &&
+                  /^net:\[\d+\]$/.test(self) &&
+                  host !== self &&
+                  interfaces.length === 1 &&
+                  interfaces[0] === "lo" &&
+                  ipv4Routes.length > 0 &&
+                  ipv6Routes.length > 0 &&
+                  allRoutesAreLoopback &&
+                  process.getuid() !== 0 &&
+                  evidence.capabilitiesDropped &&
+                  noNewPrivileges;
+                console.log(JSON.stringify({ ok, ...evidence }));
+                if (!ok) process.exit(1);
+              '
+
+            printf 'host_net_namespace=%s\n' "$host_net_namespace" >> "$GITHUB_OUTPUT"
+          } 2>&1 | tee "$results_dir/docker-isolation-preflight.log"
+
+      - name: Check out the selected source revision
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+          fetch-depth: 1
+          clean: true
+          path: source
+
+      - name: Build and run the recipe crash-recovery test
+        timeout-minutes: 35
+        shell: bash
+        env:
+          EXPECTED_HOST_NET_NAMESPACE: ${{ steps.os-isolation.outputs.host_net_namespace }}
+          DEPENDENCY_BOOTSTRAP_EGRESS_APPROVED: ${{ inputs.allow_dependency_bootstrap_egress }}
+        run: |
+          set -Eeuo pipefail
+          run_key="${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          image_tag="engineeringos-recipe-recovery:${run_key}"
+          container_name="engineeringos-recipe-recovery-${run_key}"
+          results_dir="${RUNNER_TEMP}/engineeringos-recipe-recovery-${run_key}"
+          source_root="${GITHUB_WORKSPACE}/source"
+          test_uid="$(id -u)"
+          test_gid="$(id -g)"
+
+          mkdir -p "$results_dir"
+          exec > >(tee -a "$results_dir/build-and-run.log") 2>&1
+          if [[ "$DEPENDENCY_BOOTSTRAP_EGRESS_APPROVED" != "true" ]]; then
+            echo "Refusing image preparation without explicit dependency-bootstrap network approval." >&2
+            exit 1
+          fi
+          expected_source_sha="${GITHUB_SHA}"
+          checked_out_source_sha="$(git -C "$source_root" rev-parse --verify HEAD)"
+          if [[ ! "$expected_source_sha" =~ ^[0-9a-f]{40}$ ]] \
+            || [[ ! "$checked_out_source_sha" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "Refusing to run without full commit SHA evidence." >&2
+            exit 1
+          fi
+          printf '{"ref":"%s","expectedSha":"%s","checkedOutSha":"%s","dependencyBootstrapEgressApproved":true,"testContainerNetwork":"none"}\n' \
+            "$GITHUB_REF" "$expected_source_sha" "$checked_out_source_sha" \
+            > "$results_dir/source-revision.json"
+          if [[ "$checked_out_source_sha" != "$expected_source_sha" ]]; then
+            echo "Checked-out source does not match the workflow event SHA." >&2
+            exit 1
+          fi
+          if docker container inspect "$container_name" >/dev/null 2>&1; then
+            echo "Refusing to reuse an existing container name: $container_name" >&2
+            exit 1
+          fi
+          if docker image inspect "$image_tag" >/dev/null 2>&1; then
+            echo "Refusing to reuse an existing image tag: $image_tag" >&2
+            exit 1
+          fi
+
+          cleanup_owned_resources() {
+            status=$?
+            trap - EXIT INT TERM
+            if docker container inspect "$container_name" >/dev/null 2>&1; then
+              owner="$(docker container inspect \
+                --format '{{ index .Config.Labels "com.engineeringos.recipe-recovery.run" }}' \
+                "$container_name" 2>/dev/null || true)"
+              if [[ "$owner" == "$run_key" ]]; then
+                docker container rm --force "$container_name" >/dev/null 2>&1 || true
+              fi
+            fi
+            if docker image inspect "$image_tag" >/dev/null 2>&1; then
+              docker image rm "$image_tag" >/dev/null 2>&1 || true
+            fi
+            exit "$status"
+          }
+          trap cleanup_owned_resources EXIT
+          trap 'exit 130' INT
+          trap 'exit 143' TERM
+
+          docker build \
+            --pull=false \
+            --file "$source_root/.github/api-only-smoke.Dockerfile" \
+            --tag "$image_tag" \
+            --build-arg "SMOKE_UID=${test_uid}" \
+            --build-arg "SMOKE_GID=${test_gid}" \
+            "$source_root"
+
+          docker run --rm \
+            --name "$container_name" \
+            --label "com.engineeringos.recipe-recovery.run=${run_key}" \
+            --network none \
+            --read-only \
+            --tmpfs /tmp:rw,nosuid,nodev,size=2g,mode=1777 \
+            --pids-limit 512 \
+            --memory 6g \
+            --cpus 2 \
+            --cap-drop ALL \
+            --security-opt no-new-privileges:true \
+            --user "${test_uid}:${test_gid}" \
+            --mount "type=bind,source=${source_root},target=/workspace" \
+            --workdir /workspace \
+            --env "ENGINEERINGOS_EXPECTED_HOST_NET_NAMESPACE=${EXPECTED_HOST_NET_NAMESPACE}" \
+            --env CI=true \
+            --env HOME=/tmp/home \
+            --env TMPDIR=/tmp \
+            --env COREPACK_ENABLE_NETWORK=0 \
+            --env PNPM_OFFLINE=1 \
+            --env npm_config_offline=true \
+            --env npm_config_cache=/tmp/npm-cache \
+            --entrypoint /bin/bash \
+            "$image_tag" \
+            -lc 'set -Eeuo pipefail
+              node -e '\''
+                const fs = require("node:fs");
+                const host = process.env.ENGINEERINGOS_EXPECTED_HOST_NET_NAMESPACE;
+                const self = fs.readlinkSync("/proc/self/ns/net");
+                const interfaces = fs.readdirSync("/sys/class/net").sort();
+                const ipv4Routes = fs.readFileSync("/proc/net/route", "utf8")
+                  .trim().split(/\r?\n/).slice(1).filter(Boolean)
+                  .map((line) => line.trim().split(/\s+/)[0]);
+                const ipv6Routes = fs.readFileSync("/proc/net/ipv6_route", "utf8")
+                  .trim().split(/\r?\n/).filter(Boolean)
+                  .map((line) => line.trim().split(/\s+/).at(-1));
+                const status = fs.readFileSync("/proc/self/status", "utf8");
+                const capabilities = ["CapEff", "CapPrm", "CapBnd", "CapAmb"].map((key) => {
+                  const value = status.match(new RegExp(`^${key}:\\s*([a-f0-9]+)$`, "mu"))?.[1];
+                  return value === undefined ? null : BigInt(`0x${value}`);
+                });
+                const noNewPrivileges = status.match(/^NoNewPrivs:\s*(\d+)$/mu)?.[1] === "1";
+                const ok = /^net:\[\d+\]$/.test(host ?? "") &&
+                  /^net:\[\d+\]$/.test(self) && host !== self &&
+                  interfaces.length === 1 && interfaces[0] === "lo" &&
+                  ipv4Routes.length > 0 && ipv6Routes.length > 0 &&
+                  ipv4Routes.every((iface) => iface === "lo") &&
+                  ipv6Routes.every((iface) => iface === "lo") &&
+                  process.getuid() !== 0 && capabilities.length === 4 &&
+                  capabilities.every((value) => value === 0n) && noNewPrivileges;
+                console.log(JSON.stringify({ ok, hostNetNamespace: host, selfNetNamespace: self,
+                  interfaces, ipv4Routes, ipv6Routes, uid: process.getuid(),
+                  capabilitiesDropped: capabilities.every((value) => value === 0n), noNewPrivileges }));
+                if (!ok) process.exit(1);
+              '\''
+              pnpm install --offline --frozen-lockfile
+              MISSION_CONTROL_TEST_FILES=src/lib/recipe-operation-runner.test.ts \
+                MISSION_CONTROL_TEST_FILTER="fails closed after a recipe worker dies between GitHub ref update and receipt persistence" \
+                node scripts/run-mission-control-tests.mjs'
+
+      - name: Upload isolated recovery evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: engineeringos-recipe-recovery-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/engineeringos-recipe-recovery-${{ github.run_id }}-${{ github.run_attempt }}/
+          if-no-files-found: warn
+          retention-days: 14

@@ -29,9 +29,21 @@ import {
   verifyPreviewArtifactStoreCommand,
 } from "./preview-artifact-store-command.js";
 import {
+  previewArtifactDeleteCommandFingerprint,
+  previewArtifactDeleteCommandPublicKeyPem,
+  signPreviewArtifactDeletePollProof,
+  signPreviewArtifactDeleteReceipt,
+  type PreviewArtifactDeletePollProofClaims,
+  type PreviewArtifactDeleteReceiptClaims,
+  verifyPreviewArtifactDeleteCommand,
+} from "./preview-artifact-gc-command.js";
+import {
   acceptPreviewBuildInputStoreReceipt,
   PreviewArtifactStoreAcceptanceError,
 } from "./preview-artifact-store-acceptance.js";
+import {
+  acceptPreviewBuildInputDeleteReceipt,
+} from "./preview-artifact-gc-acceptance.js";
 import {
   claimPreviewBuildJobsForReconciliation,
   transitionPreviewBuildJob,
@@ -40,6 +52,16 @@ import {
   issuePreviewBuildInputStoreCommand,
   PreviewArtifactStoreCommandIssueError,
 } from "./preview-artifact-store-issuer.js";
+import {
+  issuePreviewBuildInputDeleteCommand,
+  PreviewArtifactGcCommandIssueError,
+} from "./preview-artifact-gc-issuer.js";
+import {
+  collectLocalPreviewBuildInputsOnce,
+  LOCAL_PREVIEW_INPUT_DELETE_GRACE_MS,
+  LOCAL_PREVIEW_INPUT_DELETE_LEASE_MS,
+  LOCAL_PREVIEW_INPUT_RETENTION_MS,
+} from "./preview-build-input-gc.js";
 
 const NOW = new Date("2026-11-12T12:00:00.000Z");
 const SOURCE_DIGEST = "a".repeat(64);
@@ -259,6 +281,59 @@ function createPollProof(
       now,
     }),
   };
+}
+
+function createDeletePollProof(
+  jobId: string,
+  nodeId: string,
+  now: Date,
+) {
+  const proof: PreviewArtifactDeletePollProofClaims = {
+    version: 2,
+    action: "poll-artifact-delete-command",
+    nodeId,
+    keyVersion: 1,
+    jobId,
+    issuedAt: now.toISOString(),
+    nonce: randomUUID(),
+  };
+  return {
+    proof,
+    signature: signPreviewArtifactDeletePollProof({
+      proof,
+      privateKeyPem: AGENT_PRIVATE_KEY_PEM,
+      now,
+    }),
+  };
+}
+
+async function createGcFixture() {
+  const fixture = await createFixture();
+  const completedAt = new Date(
+    NOW.getTime() - LOCAL_PREVIEW_INPUT_RETENTION_MS - 1_000,
+  );
+  await db
+    .update(previewBuildJobsTable)
+    .set({
+      status: "failed",
+      completedAt,
+      inputArtifactGcState: "active",
+      inputArtifactGcMarkedAt: null,
+    })
+    .where(eq(previewBuildJobsTable.jobId, fixture.jobId));
+  return fixture;
+}
+
+async function issueDeleteCommand(
+  fixture: Awaited<ReturnType<typeof createGcFixture>>,
+  now: Date,
+) {
+  return issuePreviewBuildInputDeleteCommand({
+    jobId: fixture.jobId,
+    ...createDeletePollProof(fixture.jobId, fixture.nodeId, now),
+    buildJobPrivateKeyPem: API_PRIVATE_KEY_PEM,
+    now,
+  });
 }
 
 afterEach(async () => {
@@ -592,5 +667,196 @@ describe("Preview Agent artifact receipt database binding", () => {
       .from(previewBuildJobsTable)
       .where(eq(previewBuildJobsTable.jobId, fixture.jobId));
     expect(job).toEqual({ readyAt: null, stateVersion: 0 });
+  });
+
+  it("leases expired input Artifacts to their owner and accepts an exact delete retry", async () => {
+    const fixture = await createGcFixture();
+    const firstPollAt = new Date(NOW.getTime() + 1_000);
+    await expect(
+      issueDeleteCommand(fixture, firstPollAt),
+    ).resolves.toBeNull();
+    const [eligible] = await db
+      .select({
+        state: previewBuildJobsTable.inputArtifactGcState,
+        markedAt: previewBuildJobsTable.inputArtifactGcMarkedAt,
+        stateVersion: previewBuildJobsTable.stateVersion,
+      })
+      .from(previewBuildJobsTable)
+      .where(eq(previewBuildJobsTable.jobId, fixture.jobId));
+    expect(eligible).toEqual({
+      state: "eligible_for_gc",
+      markedAt: firstPollAt,
+      stateVersion: 1,
+    });
+
+    const commandIssuedAt = new Date(
+      firstPollAt.getTime() + LOCAL_PREVIEW_INPUT_DELETE_GRACE_MS,
+    );
+    const first = await issueDeleteCommand(fixture, commandIssuedAt);
+    expect(first).not.toBeNull();
+    const retryAt = new Date(commandIssuedAt.getTime() + 1_000);
+    const retry = await issueDeleteCommand(fixture, retryAt);
+    expect(retry).toMatchObject({
+      commandId: first?.commandId,
+      commandFingerprint: first?.commandFingerprint,
+    });
+    expect(retry?.commandToken).not.toBe(first?.commandToken);
+
+    const command = verifyPreviewArtifactDeleteCommand({
+      token: first!.commandToken,
+      publicKeyPem: previewArtifactDeleteCommandPublicKeyPem(
+        API_PRIVATE_KEY_PEM,
+      ),
+      now: new Date(commandIssuedAt.getTime() + 2_000),
+    });
+    const completedAt = new Date(commandIssuedAt.getTime() + 3_000);
+    const receipt: PreviewArtifactDeleteReceiptClaims = {
+      version: 2,
+      action: "artifact-delete-receipt",
+      commandId: command.commandId,
+      commandFingerprint: previewArtifactDeleteCommandFingerprint(command),
+      nodeId: fixture.nodeId,
+      keyVersion: 1,
+      storeId: fixture.storeId,
+      artifactRefId: previewBuildArtifactRefId(fixture.jobId, "input"),
+      artifactDigest: ARCHIVE_DIGEST,
+      manifestDigest: MANIFEST_DIGEST,
+      result: "deleted",
+      completedAt: completedAt.toISOString(),
+    };
+    const receiptToken = signPreviewArtifactDeleteReceipt({
+      claims: receipt,
+      privateKeyPem: AGENT_PRIVATE_KEY_PEM,
+      now: completedAt,
+    });
+    const accepted = await acceptPreviewBuildInputDeleteReceipt({
+      jobId: fixture.jobId,
+      commandToken: first!.commandToken,
+      receiptToken,
+      buildJobPrivateKeyPem: API_PRIVATE_KEY_PEM,
+      now: new Date(completedAt.getTime() + 1_000),
+    });
+    const duplicate = await acceptPreviewBuildInputDeleteReceipt({
+      jobId: fixture.jobId,
+      commandToken: first!.commandToken,
+      receiptToken,
+      buildJobPrivateKeyPem: API_PRIVATE_KEY_PEM,
+      now: new Date(completedAt.getTime() + 2_000),
+    });
+    expect(accepted.alreadyAccepted).toBe(false);
+    expect(accepted.job.inputArtifactGcState).toBe("deleted");
+    expect(accepted.job.inputArtifactGcMarkedAt).toEqual(
+      new Date(command.gcLeaseAt),
+    );
+    expect(duplicate.alreadyAccepted).toBe(true);
+    expect(duplicate.job.stateVersion).toBe(accepted.job.stateVersion);
+  });
+
+  it("rejects a deletion receipt after the GC lease has been reclaimed", async () => {
+    const fixture = await createGcFixture();
+    const firstPollAt = new Date(NOW.getTime() + 1_000);
+    await issueDeleteCommand(fixture, firstPollAt);
+    const commandIssuedAt = new Date(
+      firstPollAt.getTime() + LOCAL_PREVIEW_INPUT_DELETE_GRACE_MS,
+    );
+    const issued = await issueDeleteCommand(fixture, commandIssuedAt);
+    const command = verifyPreviewArtifactDeleteCommand({
+      token: issued!.commandToken,
+      publicKeyPem: previewArtifactDeleteCommandPublicKeyPem(
+        API_PRIVATE_KEY_PEM,
+      ),
+      now: new Date(commandIssuedAt.getTime() + 1_000),
+    });
+    const completedAt = new Date(commandIssuedAt.getTime() + 2_000);
+    const receiptToken = signPreviewArtifactDeleteReceipt({
+      claims: {
+        version: 2,
+        action: "artifact-delete-receipt",
+        commandId: command.commandId,
+        commandFingerprint: previewArtifactDeleteCommandFingerprint(command),
+        nodeId: fixture.nodeId,
+        keyVersion: 1,
+        storeId: fixture.storeId,
+        artifactRefId: previewBuildArtifactRefId(fixture.jobId, "input"),
+        artifactDigest: ARCHIVE_DIGEST,
+        manifestDigest: MANIFEST_DIGEST,
+        result: "deleted",
+        completedAt: completedAt.toISOString(),
+      },
+      privateKeyPem: AGENT_PRIVATE_KEY_PEM,
+      now: completedAt,
+    });
+    const reclaimedAt = new Date(
+      commandIssuedAt.getTime() + LOCAL_PREVIEW_INPUT_DELETE_LEASE_MS + 1,
+    );
+    await db
+      .update(previewBuildJobsTable)
+      .set({
+        inputArtifactGcMarkedAt: reclaimedAt,
+        updatedAt: reclaimedAt,
+      })
+      .where(eq(previewBuildJobsTable.jobId, fixture.jobId));
+
+    await expect(
+      acceptPreviewBuildInputDeleteReceipt({
+        jobId: fixture.jobId,
+        commandToken: issued!.commandToken,
+        receiptToken,
+        buildJobPrivateKeyPem: API_PRIVATE_KEY_PEM,
+        now: new Date(reclaimedAt.getTime() + 1_000),
+      }),
+    ).rejects.toMatchObject({
+      code: "PREVIEW_ARTIFACT_GC_ACCEPTANCE_CONFLICT",
+    });
+  });
+
+  it("does not issue delete commands for a revoked owner Agent", async () => {
+    const fixture = await createGcFixture();
+    const firstPollAt = new Date(NOW.getTime() + 1_000);
+    await issueDeleteCommand(fixture, firstPollAt);
+    const commandIssuedAt = new Date(
+      firstPollAt.getTime() + LOCAL_PREVIEW_INPUT_DELETE_GRACE_MS,
+    );
+    await db
+      .update(previewAgentNodesTable)
+      .set({ status: "revoked", revokedAt: commandIssuedAt })
+      .where(eq(previewAgentNodesTable.nodeId, fixture.nodeId));
+    await expect(
+      issueDeleteCommand(fixture, commandIssuedAt),
+    ).rejects.toBeInstanceOf(PreviewArtifactGcCommandIssueError);
+  });
+
+  it("keeps Agent-owned references out of the API-local filesystem collector", async () => {
+    const fixture = await createGcFixture();
+    let removalCalls = 0;
+    const result = await collectLocalPreviewBuildInputsOnce({
+      store: {
+        async remove() {
+          removalCalls += 1;
+        },
+      },
+      now: new Date(
+        NOW.getTime() +
+          LOCAL_PREVIEW_INPUT_RETENTION_MS +
+          LOCAL_PREVIEW_INPUT_DELETE_GRACE_MS +
+          LOCAL_PREVIEW_INPUT_DELETE_LEASE_MS,
+      ),
+    });
+
+    const [stored] = await db
+      .select({
+        state: previewBuildJobsTable.inputArtifactGcState,
+        markedAt: previewBuildJobsTable.inputArtifactGcMarkedAt,
+      })
+      .from(previewBuildJobsTable)
+      .where(eq(previewBuildJobsTable.jobId, fixture.jobId));
+    expect(result).toMatchObject({
+      markedEligible: 0,
+      deletedReferences: 0,
+      deferredReferences: 0,
+      failedReferences: 0,
+    });
+    expect(removalCalls).toBe(0);
+    expect(stored).toEqual({ state: "active", markedAt: null });
   });
 });

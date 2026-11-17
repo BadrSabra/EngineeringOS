@@ -81,6 +81,9 @@ export function buildHostPreflight({
   const blockers = [];
 
   if (platform !== "linux") blockers.push("linux_host_required");
+  if (!Number.isSafeInteger(uid) || uid <= 0) {
+    blockers.push("agent_account_must_be_non_root");
+  }
   if (cgroupControllers === null) blockers.push("cgroup_v2_not_detected");
   if (runtimes.firecracker && !kvm.accessible) {
     blockers.push("firecracker_kvm_unavailable_to_current_user");

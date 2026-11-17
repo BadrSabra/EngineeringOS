@@ -3,11 +3,16 @@ import { describe, expect, it } from "vitest";
 import {
   PreviewArtifactGcCommandError,
   previewArtifactDeleteCommandFingerprint,
+  previewArtifactDeleteCommandId,
+  previewArtifactDeleteReceiptCompletedAtHint,
   signPreviewArtifactDeleteCommand,
+  signPreviewArtifactDeletePollProof,
   signPreviewArtifactDeleteReceipt,
   verifyPreviewArtifactDeleteCommand,
+  verifyPreviewArtifactDeletePollProof,
   verifyPreviewArtifactDeleteReceipt,
   type PreviewArtifactDeleteCommandClaims,
+  type PreviewArtifactDeletePollProofClaims,
   type PreviewArtifactDeleteReceiptClaims,
 } from "./preview-artifact-gc-command.js";
 import { MAX_PREVIEW_BUILD_ARCHIVE_BYTES } from "./preview-build-upload.js";
@@ -40,10 +45,13 @@ const OTHER_PUBLIC = OTHER_KEYS.publicKey.export({
 function validCommand(
   overrides: Partial<PreviewArtifactDeleteCommandClaims> = {},
 ): PreviewArtifactDeleteCommandClaims {
-  return {
-    version: 1,
+  const { commandId: requestedCommandId, ...claimOverrides } = overrides;
+  const claims = {
+    version: 2,
     action: "delete-artifact",
     commandId: "d69b66c5-9cb9-4c9a-ae60-1cc578c40700",
+    nodeId: "d7c2b0bb-e4ec-4aec-9b1d-04ec78446928",
+    keyVersion: 3,
     storeId: "e3397306-4254-4a5c-a5e8-3a48968751dd",
     artifactRefId: "4e97df98-4389-4c61-8c8d-cab6814f0bea",
     jobId: "8860f36d-5f3b-4fa9-a526-0c8e706ebc6a",
@@ -58,9 +66,24 @@ function validCommand(
     sizeBytes: 1024,
     manifestDigest: "d".repeat(64),
     retentionPolicy: "preview-build-input-24h-v1",
+    gcLeaseAt: new Date(NOW.getTime() - 5_000).toISOString(),
     issuedAt: NOW.toISOString(),
     expiresAt: new Date(NOW.getTime() + 30_000).toISOString(),
-    ...overrides,
+    ...claimOverrides,
+  } satisfies Omit<PreviewArtifactDeleteCommandClaims, "commandId"> & {
+    commandId: string;
+  };
+  return {
+    ...claims,
+    commandId:
+      requestedCommandId ??
+      previewArtifactDeleteCommandId({
+        nodeId: claims.nodeId,
+        keyVersion: claims.keyVersion,
+        jobId: claims.jobId,
+        artifactRefId: claims.artifactRefId,
+        gcLeaseAt: claims.gcLeaseAt,
+      }),
   };
 }
 
@@ -80,10 +103,12 @@ function validReceipt(
   overrides: Partial<PreviewArtifactDeleteReceiptClaims> = {},
 ): PreviewArtifactDeleteReceiptClaims {
   return {
-    version: 1,
+    version: 2,
     action: "artifact-delete-receipt",
     commandId: command.commandId,
     commandFingerprint: previewArtifactDeleteCommandFingerprint(command),
+    nodeId: command.nodeId,
+    keyVersion: command.keyVersion,
     storeId: command.storeId,
     artifactRefId: command.artifactRefId,
     artifactDigest: command.artifactDigest,
@@ -119,6 +144,125 @@ describe("Preview artifact delete command contract", () => {
       previewArtifactDeleteCommandFingerprint(first),
     );
     expect(signedCommand(retry)).not.toBe(signedCommand(first));
+  });
+
+  it("derives a stable command identity from the exact owner reference and GC lease", () => {
+    const command = validCommand();
+    expect(
+      previewArtifactDeleteCommandId({
+        nodeId: command.nodeId,
+        keyVersion: command.keyVersion,
+        jobId: command.jobId,
+        artifactRefId: command.artifactRefId,
+        gcLeaseAt: command.gcLeaseAt,
+      }),
+    ).toBe(command.commandId);
+    expect(
+      previewArtifactDeleteCommandId({
+        nodeId: "94cc6266-181a-44f9-90f8-bdd21ebcc748",
+        keyVersion: command.keyVersion,
+        jobId: command.jobId,
+        artifactRefId: command.artifactRefId,
+        gcLeaseAt: command.gcLeaseAt,
+      }),
+    ).not.toBe(command.commandId);
+    expect(
+      previewArtifactDeleteCommandId({
+        nodeId: command.nodeId,
+        keyVersion: command.keyVersion + 1,
+        jobId: command.jobId,
+        artifactRefId: command.artifactRefId,
+        gcLeaseAt: command.gcLeaseAt,
+      }),
+    ).not.toBe(command.commandId);
+    expect(
+      previewArtifactDeleteCommandId({
+        nodeId: command.nodeId,
+        keyVersion: command.keyVersion,
+        jobId: command.jobId,
+        artifactRefId: command.artifactRefId,
+        gcLeaseAt: new Date(Date.parse(command.gcLeaseAt) + 1).toISOString(),
+      }),
+    ).not.toBe(command.commandId);
+    expect(
+      previewArtifactDeleteCommandId({
+        nodeId: command.nodeId,
+        keyVersion: command.keyVersion,
+        jobId: command.jobId,
+        artifactRefId: "94cc6266-181a-44f9-90f8-bdd21ebcc748",
+        gcLeaseAt: command.gcLeaseAt,
+      }),
+    ).not.toBe(command.commandId);
+  });
+
+  it("rejects a command identity that does not bind its current GC lease", () => {
+    const command = validCommand();
+    const changedLease = {
+      ...command,
+      gcLeaseAt: new Date(Date.parse(command.gcLeaseAt) + 1).toISOString(),
+    };
+    expect(() =>
+      signPreviewArtifactDeleteCommand({
+        claims: changedLease,
+        privateKeyPem: API_PRIVATE,
+        now: NOW,
+      }),
+    ).toThrowError(
+      expect.objectContaining({
+        code: "PREVIEW_ARTIFACT_GC_COMMAND_INVALID",
+      }),
+    );
+  });
+
+  it("authenticates fresh Agent delete polls and rejects stale or altered proofs", () => {
+    const proof: PreviewArtifactDeletePollProofClaims = {
+      version: 2,
+      action: "poll-artifact-delete-command",
+      nodeId: validCommand().nodeId,
+      keyVersion: 3,
+      jobId: validCommand().jobId,
+      issuedAt: NOW.toISOString(),
+      nonce: "96232a4b-6f1a-4811-9b17-4c7fb75f1dc4",
+    };
+    const signature = signPreviewArtifactDeletePollProof({
+      proof,
+      privateKeyPem: OWNER_PRIVATE,
+      now: NOW,
+    });
+    expect(
+      verifyPreviewArtifactDeletePollProof({
+        proof,
+        signature,
+        publicKeyPem: OWNER_PUBLIC,
+        now: NOW,
+      }),
+    ).toEqual(proof);
+    expect(() =>
+      verifyPreviewArtifactDeletePollProof({
+        proof: { ...proof, jobId: "94cc6266-181a-44f9-90f8-bdd21ebcc748" },
+        signature,
+        publicKeyPem: OWNER_PUBLIC,
+        now: NOW,
+      }),
+    ).toThrowError(
+      expect.objectContaining({
+        code: "PREVIEW_ARTIFACT_GC_POLL_PROOF_SIGNATURE_INVALID",
+      }),
+    );
+    expect(() =>
+      signPreviewArtifactDeletePollProof({
+        proof: {
+          ...proof,
+          issuedAt: new Date(NOW.getTime() - 31_000).toISOString(),
+        },
+        privateKeyPem: OWNER_PRIVATE,
+        now: NOW,
+      }),
+    ).toThrowError(
+      expect.objectContaining({
+        code: "PREVIEW_ARTIFACT_GC_POLL_PROOF_EXPIRED",
+      }),
+    );
   });
 
   it("rejects a command signed by an untrusted key or with a changed target", () => {
@@ -199,6 +343,7 @@ describe("Preview artifact delete command contract", () => {
       privateKeyPem: OWNER_PRIVATE,
       now: NOW,
     });
+    expect(previewArtifactDeleteReceiptCompletedAtHint(token)).toEqual(NOW);
     expect(
       verifyPreviewArtifactDeleteReceipt({
         token,
@@ -223,6 +368,95 @@ describe("Preview artifact delete command contract", () => {
         code: "PREVIEW_ARTIFACT_GC_RECEIPT_INVALID",
       }),
     );
+  });
+
+  it("treats the receipt time hint as untrusted until signature verification", () => {
+    const command = validCommand();
+    const signed = signPreviewArtifactDeleteReceipt({
+      claims: validReceipt(command),
+      privateKeyPem: OWNER_PRIVATE,
+      now: NOW,
+    });
+    const [payload] = signed.split(".");
+    const tamperedClaims = JSON.parse(
+      Buffer.from(payload!, "base64url").toString("utf8"),
+    ) as Record<string, unknown>;
+    tamperedClaims.completedAt = new Date(NOW.getTime() + 20_000).toISOString();
+    const tampered = `${Buffer.from(JSON.stringify(tamperedClaims)).toString("base64url")}.${signed.split(".")[1]}`;
+    expect(previewArtifactDeleteReceiptCompletedAtHint(tampered)).toEqual(
+      new Date(NOW.getTime() + 20_000),
+    );
+    expect(() =>
+      verifyPreviewArtifactDeleteReceipt({
+        token: tampered,
+        publicKeyPem: OWNER_PUBLIC,
+        command,
+        now: new Date(NOW.getTime() + 20_000),
+      }),
+    ).toThrowError(
+      expect.objectContaining({
+        code: "PREVIEW_ARTIFACT_GC_RECEIPT_SIGNATURE_INVALID",
+      }),
+    );
+  });
+
+  it("rejects a validly signed receipt from a different Agent or key version", () => {
+    const command = validCommand();
+    for (const wrongOwner of [
+      { nodeId: "94cc6266-181a-44f9-90f8-bdd21ebcc748" },
+      { keyVersion: command.keyVersion + 1 },
+    ]) {
+      const token = signPreviewArtifactDeleteReceipt({
+        claims: validReceipt(command, wrongOwner),
+        privateKeyPem: OWNER_PRIVATE,
+        now: NOW,
+      });
+      expect(() =>
+        verifyPreviewArtifactDeleteReceipt({
+          token,
+          publicKeyPem: OWNER_PUBLIC,
+          command,
+          now: NOW,
+        }),
+      ).toThrowError(
+        expect.objectContaining({
+          code: "PREVIEW_ARTIFACT_GC_RECEIPT_INVALID",
+        }),
+      );
+    }
+  });
+
+  it("rejects a receipt completed outside the signed command window", () => {
+    const command = validCommand();
+    const completedBeforeIssue = signPreviewArtifactDeleteReceipt({
+      claims: validReceipt(command, {
+        completedAt: new Date(NOW.getTime() - 10_000).toISOString(),
+      }),
+      privateKeyPem: OWNER_PRIVATE,
+      now: NOW,
+    });
+    const completedAfterExpiry = signPreviewArtifactDeleteReceipt({
+      claims: validReceipt(command, {
+        completedAt: new Date(NOW.getTime() + 35_001).toISOString(),
+      }),
+      privateKeyPem: OWNER_PRIVATE,
+      now: new Date(NOW.getTime() + 35_001),
+    });
+
+    for (const token of [completedBeforeIssue, completedAfterExpiry]) {
+      expect(() =>
+        verifyPreviewArtifactDeleteReceipt({
+          token,
+          publicKeyPem: OWNER_PUBLIC,
+          command,
+          now: new Date(NOW.getTime() + 40_000),
+        }),
+      ).toThrowError(
+        expect.objectContaining({
+          code: "PREVIEW_ARTIFACT_GC_RECEIPT_INVALID",
+        }),
+      );
+    }
   });
 
   it("rejects receipts from the wrong owner key and receipts past their validity window", () => {

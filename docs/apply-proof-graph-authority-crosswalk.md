@@ -1,8 +1,8 @@
 # Apply Changes — Proof Graph Authority & Evidence Crosswalk
 
-**Status:** Apply Proof v2 authorization/precondition evidence is implemented on main; the Apply-specific read-only Proof Graph Projector remains pending  
+**Status:** Apply Proof v2 authorization/precondition evidence is implemented on main; the Apply-specific read-only Proof Graph Projector remains pending
 **Scope:** Mission-linked `APPLY_CHANGES` only  
-**Source baseline:** `main` at `5103e66368e181c3fa00d11d00ea25e51677e070` (2026-11-17); PR #37 and PR #40 are merged  
+**Source baseline:** `main` at `5103e66368e181c3fa00d11d00ea25e51677e070` (2026-11-17); PR #37 and PR #40 are merged
 **Purpose:** determine whether the current durable Apply records can be projected into the Proof Graph Kernel v0 without inventing evidence or changing execution authority.
 
 ## 1. Architectural decision

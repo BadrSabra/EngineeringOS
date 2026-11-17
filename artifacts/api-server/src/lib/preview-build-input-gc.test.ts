@@ -15,6 +15,7 @@ const reference: PreviewBuildInputGcReference = {
   inputArtifactRefId: "00000000-0000-8000-8000-000000000002",
   archiveDigest: "a".repeat(64),
   inputArtifactKey: `build-inputs/${"b".repeat(64)}/${"a".repeat(64)}.zip`,
+  gcLeaseAt: now,
 };
 
 function makeRepository() {
@@ -41,7 +42,7 @@ function makeRepository() {
           input.now.getTime() - LOCAL_PREVIEW_INPUT_DELETE_LEASE_MS
       ) {
         markedAt = input.now;
-        return [reference];
+        return [{ ...reference, gcLeaseAt: input.now }];
       }
       if (
         state !== "eligible_for_gc" ||
@@ -52,11 +53,16 @@ function makeRepository() {
       }
       state = "deleting";
       markedAt = input.now;
-      return [reference];
+      return [{ ...reference, gcLeaseAt: input.now }];
     },
-    async markDeleted() {
-      if (state === "deleted") return true;
-      if (state !== "deleting") return false;
+    async markDeleted({ reference: claimedReference }) {
+      if (
+        (state !== "deleting" && state !== "deleted") ||
+        !markedAt ||
+        markedAt.getTime() !== claimedReference.gcLeaseAt.getTime()
+      ) {
+        return false;
+      }
       state = "deleted";
       return true;
     },
@@ -132,6 +138,51 @@ describe("local Preview input garbage collection", () => {
       artifactRefId: reference.inputArtifactRefId,
       expectedDigest: reference.archiveDigest,
     });
+    expect(memory.state()).toBe("deleted");
+  });
+
+  it("does not let an expired collector complete after another worker takes over", async () => {
+    const memory = makeRepository();
+    const firstEligible = await memory.repository.markEligible({
+      now,
+      retentionMs,
+      batchSize: 1,
+    });
+    expect(firstEligible).toBe(1);
+
+    const firstClaimAt = new Date(now.getTime() + graceMs);
+    const [staleReference] = await memory.repository.claimDue({
+      now: firstClaimAt,
+      graceMs,
+      retentionMs,
+      batchSize: 1,
+    });
+    expect(staleReference).toBeDefined();
+
+    const takeoverAt = new Date(
+      firstClaimAt.getTime() + LOCAL_PREVIEW_INPUT_DELETE_LEASE_MS,
+    );
+    const [currentReference] = await memory.repository.claimDue({
+      now: takeoverAt,
+      graceMs,
+      retentionMs,
+      batchSize: 1,
+    });
+    expect(currentReference).toBeDefined();
+
+    await expect(
+      memory.repository.markDeleted({
+        reference: staleReference!,
+        now: takeoverAt,
+      }),
+    ).resolves.toBe(false);
+    expect(memory.state()).toBe("deleting");
+    await expect(
+      memory.repository.markDeleted({
+        reference: currentReference!,
+        now: takeoverAt,
+      }),
+    ).resolves.toBe(true);
     expect(memory.state()).toBe("deleted");
   });
 
