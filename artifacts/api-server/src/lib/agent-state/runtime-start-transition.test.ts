@@ -48,6 +48,7 @@ import {
 import { wakeApplyChangesMissionGoals, wakeRuntimeTransitionMissionGoals } from "../mission-runtime.js";
 import { startDurableJobDispatcher } from "../job-reconciliation.js";
 import { evaluateApplyChangesD2 } from "./apply-changes-mission-gate.js";
+import { projectApplyChangesProofGraph } from "../apply-changes-proof-graph-projector.js";
 import { heavyJobQueue } from "../job-queue.js";
 import { childProcessBindingDigest } from "./child-process-attestation.js";
 import {
@@ -2364,6 +2365,182 @@ describe("runtime.start transition retry scheduling", () => {
       effectBundleId: fixture.effectBundleId,
     });
     expect(await readFile(promotedFile, "utf8")).toBe("export const value = 'after';\n");
+    // Reconstruct the Apply V2 graph exclusively from durable records. The
+    // projection is read-only and keeps candidate-workspace evidence separate
+    // from live-project observations.
+    const beforeProjection = {
+      acceptances: await db.select({
+        id: aiExecutionAcceptancesTable.id,
+      }).from(aiExecutionAcceptancesTable)
+        .where(eq(aiExecutionAcceptancesTable.executionId, fixture.executionId)),
+      transitions: await db.select({
+        id: aiWorldTransitionsTable.id,
+        resultingWorldRevision: aiWorldTransitionsTable.resultingWorldRevision,
+      }).from(aiWorldTransitionsTable)
+        .where(eq(aiWorldTransitionsTable.executionId, fixture.executionId)),
+      facts: await db.select({
+        id: aiWorldFactsTable.id,
+        valueHash: aiWorldFactsTable.valueHash,
+      }).from(aiWorldFactsTable)
+        .where(eq(aiWorldFactsTable.projectId, fixture.projectId)),
+    };
+    const projectionInput = {
+      projectId: fixture.projectId,
+      executionId: fixture.executionId,
+      expectedAttempt: 0,
+      userId: executionIdentity.userId!,
+    };
+    const projection = await db.transaction(
+      (tx) => projectApplyChangesProofGraph(tx, projectionInput),
+      { isolationLevel: "repeatable read" },
+    );
+    expect(projection.kind, JSON.stringify(projection)).toBe("PROJECTED");
+    if (projection.kind !== "PROJECTED") {
+      throw new Error("Expected the accepted Apply V2 execution to project.");
+    }
+    expect(projection.authority).toBe("READ_ONLY_PROJECTION");
+    expect(projection.canonicalProof).toMatchObject({
+      accepted: true,
+      verdict: "PROVEN",
+      executionId: fixture.executionId,
+      acceptanceId: initialAcceptance.acceptance?.id,
+      attempt: 0,
+    });
+    expect(projection.missionD2).toMatchObject({
+      state: "proven",
+      missionId,
+      goalId,
+      executionId: fixture.executionId,
+      attempt: 0,
+      acceptanceId: initialAcceptance.acceptance?.id,
+      transitionId: recovered.transitionId,
+      planRevision,
+      candidateIdentity: `${proposalId}:${candidateTreeHash}`,
+    });
+    expect(projection.structuralValidation).toMatchObject({
+      authority: "STRUCTURE_ONLY_NO_EXECUTION_AUTHORITY",
+      verdict: "PASS",
+    });
+    expect(projection.graphHash).toMatch(/^[a-f0-9]{64}$/u);
+    expect(projection.graph.nodes.filter((node) => node.kind === "CONTROL"))
+      .toHaveLength(8);
+
+    const dataNodes = projection.graph.nodes.filter((node) => node.kind === "DATA");
+    expect(dataNodes.length).toBeGreaterThan(8);
+    expect(dataNodes.every((node) => node.evidenceRef.startsWith("db:"))).toBe(true);
+    expect(dataNodes.some((node) => node.id.includes("candidate-workspace-base"))).toBe(true);
+    expect(dataNodes.some((node) => node.id.includes("live-workspace-base:"))).toBe(true);
+    expect(dataNodes.some((node) => node.id.includes("candidate-effect"))).toBe(true);
+    expect(dataNodes.some((node) => node.id.includes("live-effect:"))).toBe(true);
+    expect(dataNodes.filter((node) => node.evidenceKind === "PRECONDITION").length)
+      .toBeGreaterThan(0);
+    expect(dataNodes.filter((node) => node.evidenceKind === "EXECUTION_ACCEPTANCE"))
+      .toHaveLength(2);
+
+    const repeatedProjection = await db.transaction(
+      (tx) => projectApplyChangesProofGraph(tx, projectionInput),
+      { isolationLevel: "repeatable read" },
+    );
+    expect(repeatedProjection).toMatchObject({
+      kind: "PROJECTED",
+      graphHash: projection.graphHash,
+    });
+
+    const wrongAttempt = await db.transaction(
+      (tx) => projectApplyChangesProofGraph(tx, {
+        ...projectionInput,
+        expectedAttempt: 1,
+      }),
+      { isolationLevel: "repeatable read" },
+    );
+    expect(wrongAttempt).toMatchObject({
+      kind: "NOT_PROJECTABLE",
+      reasons: ["ATTEMPT_INVALID"],
+    });
+
+    // Substituting a candidate observation for a project/live observation
+    // must fail the source identity check, even if its value hash is retained.
+    const liveBeforeNode = dataNodes.find((node) =>
+      node.id.includes("live-workspace-base:"),
+    );
+    if (!liveBeforeNode) throw new Error("Live workspace-before observation node is missing.");
+    const liveBeforeId = liveBeforeNode.evidenceRef.split("/").at(-1);
+    if (!liveBeforeId) throw new Error("Live workspace-before durable row ID is missing.");
+    const [liveBeforeObservation] = await db.select().from(aiAgentObservationsTable)
+      .where(eq(aiAgentObservationsTable.id, liveBeforeId)).limit(1);
+    if (!liveBeforeObservation) throw new Error("Live workspace-before durable row is missing.");
+    try {
+      await db.update(aiAgentObservationsTable)
+        .set({ subject: `project:${proposalId}:${candidateTreeHash}` })
+        .where(eq(aiAgentObservationsTable.id, liveBeforeId));
+      const substitutedProjection = await db.transaction(
+        (tx) => projectApplyChangesProofGraph(tx, projectionInput),
+        { isolationLevel: "repeatable read" },
+      );
+      expect(substitutedProjection).toMatchObject({
+        kind: "NOT_PROJECTABLE",
+        reasons: ["OBSERVATION_MISMATCH"],
+      });
+    } finally {
+      await db.update(aiAgentObservationsTable)
+        .set({ subject: liveBeforeObservation.subject })
+        .where(eq(aiAgentObservationsTable.id, liveBeforeId));
+    }
+
+    // Tampering with a referenced Journal payload must invalidate Canonical
+    // Apply Proof v2 even when the outer graph request is otherwise identical.
+    const [requestedV2Event] = await db.select().from(aiAgentEpisodeEventsTable)
+      .where(and(
+        eq(aiAgentEpisodeEventsTable.episodeId, fixture.episodeId),
+        eq(aiAgentEpisodeEventsTable.eventType, "ACTION_REQUESTED"),
+      )).limit(1);
+    if (!requestedV2Event) throw new Error("Accepted Apply V2 Action event is missing.");
+    const requestedV2Payload = requestedV2Event.payload as Record<string, unknown>;
+    const receipt = requestedV2Payload.preconditionReceipt as ApplyPreconditionReceipt;
+    const journalReference = receipt.checks.find((check) =>
+      check.id === "EXACT_APPROVED_SUBSET",
+    )?.reference;
+    if (!journalReference) throw new Error("Apply V2 exact-subset Journal reference is missing.");
+    const [journalRecord] = await db.select().from(aiApplyJournalTable)
+      .where(eq(aiApplyJournalTable.id, journalReference.id)).limit(1);
+    if (!journalRecord) throw new Error("Apply V2 exact-subset Journal row is missing.");
+    const originalJournalPayload = journalRecord.payload;
+    await db.update(aiApplyJournalTable).set({
+      payload: {
+        ...(originalJournalPayload as Record<string, unknown>),
+        tamperedByProjectorTest: true,
+      },
+    }).where(eq(aiApplyJournalTable.id, journalRecord.id));
+    const tamperedProjection = await db.transaction(
+      (tx) => projectApplyChangesProofGraph(tx, projectionInput),
+      { isolationLevel: "repeatable read" },
+    );
+    expect(tamperedProjection).toMatchObject({
+      kind: "NOT_PROJECTABLE",
+      reasons: ["APPLY_PROOF_V2_MISMATCH"],
+    });
+    await db.update(aiApplyJournalTable).set({
+      payload: originalJournalPayload,
+    }).where(eq(aiApplyJournalTable.id, journalRecord.id));
+
+    const afterProjection = {
+      acceptances: await db.select({
+        id: aiExecutionAcceptancesTable.id,
+      }).from(aiExecutionAcceptancesTable)
+        .where(eq(aiExecutionAcceptancesTable.executionId, fixture.executionId)),
+      transitions: await db.select({
+        id: aiWorldTransitionsTable.id,
+        resultingWorldRevision: aiWorldTransitionsTable.resultingWorldRevision,
+      }).from(aiWorldTransitionsTable)
+        .where(eq(aiWorldTransitionsTable.executionId, fixture.executionId)),
+      facts: await db.select({
+        id: aiWorldFactsTable.id,
+        valueHash: aiWorldFactsTable.valueHash,
+      }).from(aiWorldFactsTable)
+        .where(eq(aiWorldFactsTable.projectId, fixture.projectId)),
+    };
+    expect(afterProjection).toEqual(beforeProjection);
+
   });
 
   it("leaves an active transition pending without consuming retries before acceptance", async () => {
