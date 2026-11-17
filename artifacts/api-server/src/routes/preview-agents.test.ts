@@ -1,4 +1,5 @@
 import express, { type RequestHandler } from "express";
+import { generateKeyPairSync } from "node:crypto";
 import request from "supertest";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
@@ -9,6 +10,7 @@ import type { PreviewBuildJob } from "@workspace/db";
 import { PreviewArtifactStoreAcceptanceError } from "../lib/preview-artifact-store-acceptance.js";
 import { PreviewArtifactStoreCommandIssueError } from "../lib/preview-artifact-store-issuer.js";
 import { PreviewArtifactGcAcceptanceError } from "../lib/preview-artifact-gc-acceptance.js";
+import { previewArtifactDeleteCommandPublicKeyPem } from "../lib/preview-artifact-gc-command.js";
 import {
   PreviewArtifactGcCommandIssueError,
   type PreviewArtifactGcCommandIssue,
@@ -21,6 +23,10 @@ const pairing = {
   pairingCode: "A".repeat(43),
   expiresAt: new Date("2031-03-04T12:10:00.000Z"),
 };
+const commandSigningKeys = generateKeyPairSync("ed25519", {
+  publicKeyEncoding: { type: "spki", format: "pem" },
+  privateKeyEncoding: { type: "pkcs8", format: "pem" },
+});
 
 const node: PreviewAgentNodeSummary = {
   nodeId: pairing.nodeId,
@@ -117,7 +123,7 @@ function createApp(options: { production?: boolean } = {}) {
         alreadyAccepted: false,
       }),
     ),
-    buildJobPrivateKeyPem: "server-only signing key",
+    buildJobPrivateKeyPem: commandSigningKeys.privateKey,
     listNodes: vi.fn(async () => [node]),
     revokeNode: vi.fn(async () => ({ ...node, status: "revoked" as const, revokedAt: node.createdAt })),
     isProduction: options.production ?? false,
@@ -195,6 +201,9 @@ describe("Preview Agent pairing routes", () => {
       publicKeyFingerprint: node.publicKeyFingerprint,
       keyVersion: node.keyVersion,
       pairedAt: node.pairedAt!.toISOString(),
+      commandPublicKeyPem: previewArtifactDeleteCommandPublicKeyPem(
+        commandSigningKeys.privateKey,
+      ),
     });
     expect(response.body).not.toHaveProperty("publicKeyPem");
     expect(dependencies.completePairing).toHaveBeenCalledWith(body);
@@ -485,7 +494,7 @@ describe("Preview Agent pairing routes", () => {
       jobId: "123e4567-e89b-42d3-a456-426614174000",
       commandToken,
       receiptToken,
-      buildJobPrivateKeyPem: "server-only signing key",
+      buildJobPrivateKeyPem: commandSigningKeys.privateKey,
     });
   });
 
@@ -518,7 +527,7 @@ describe("Preview Agent pairing routes", () => {
       jobId,
       proof,
       signature,
-      buildJobPrivateKeyPem: "server-only signing key",
+      buildJobPrivateKeyPem: commandSigningKeys.privateKey,
     });
   });
 
@@ -715,7 +724,7 @@ describe("Preview Agent pairing routes", () => {
       jobId,
       commandToken: "server-signed-command",
       receiptToken: "agent-signed-receipt",
-      buildJobPrivateKeyPem: "server-only signing key",
+      buildJobPrivateKeyPem: commandSigningKeys.privateKey,
     });
   });
 

@@ -30,6 +30,7 @@ import {
   issuePreviewBuildInputDeleteCommand,
   PreviewArtifactGcCommandIssueError,
 } from "../lib/preview-artifact-gc-issuer.js";
+import { previewArtifactDeleteCommandPublicKeyPem } from "../lib/preview-artifact-gc-command.js";
 import {
   acceptPreviewAgentHeartbeat,
   issuePreviewAgentHeartbeatChallenge,
@@ -683,6 +684,17 @@ export function createPreviewAgentRouter(
       }
       try {
         const node = await dependencies.completePairing(parsed.data);
+        let commandPublicKeyPem: string | undefined;
+        if (dependencies.buildJobPrivateKeyPem) {
+          try {
+            commandPublicKeyPem = previewArtifactDeleteCommandPublicKeyPem(
+              dependencies.buildJobPrivateKeyPem,
+            );
+          } catch {
+            // Pairing and heartbeats remain available; GC stays unavailable
+            // because the Agent will not receive a key it can safely pin.
+          }
+        }
         response.status(200).json({
           nodeId: node.nodeId,
           storeId: node.storeId,
@@ -690,6 +702,7 @@ export function createPreviewAgentRouter(
           publicKeyFingerprint: node.publicKeyFingerprint,
           keyVersion: node.keyVersion,
           pairedAt: node.pairedAt,
+          ...(commandPublicKeyPem ? { commandPublicKeyPem } : {}),
         });
       } catch (error) {
         const code = unavailableCode(error);

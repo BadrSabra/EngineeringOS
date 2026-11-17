@@ -1,4 +1,5 @@
 import {
+  canonicalPreviewAgentPublicKeyPem,
   previewAgentPublicKeyFingerprint,
   previewAgentPublicKeyFingerprintFromPrivateKey,
 } from "@workspace/preview-agent-contract";
@@ -10,6 +11,12 @@ export type PendingHeartbeat = {
   expiresAt: string;
 };
 
+export type PendingArtifactDelete = {
+  jobId: string;
+  commandToken: string;
+  receiptToken?: string;
+};
+
 export type PreviewAgentIdentity = {
   version: 1;
   state: "pairing" | "active";
@@ -19,6 +26,7 @@ export type PreviewAgentIdentity = {
   publicKeyPem: string;
   privateKeyPem: string;
   fingerprint: string;
+  commandPublicKeyPem?: string;
   sequence: number;
   pairing?: {
     code: string;
@@ -26,6 +34,7 @@ export type PreviewAgentIdentity = {
   };
   lastChallengeRequestedAt?: string;
   pendingHeartbeat?: PendingHeartbeat;
+  pendingArtifactDelete?: PendingArtifactDelete;
   lastSeenAt?: string;
 };
 
@@ -127,6 +136,25 @@ export function validatePreviewAgentIdentity(
   }
 
   if (
+    record.commandPublicKeyPem !== undefined &&
+    (typeof record.commandPublicKeyPem !== "string" ||
+      record.commandPublicKeyPem.length > 16_384)
+  ) {
+    throw new PreviewAgentIdentityError("PREVIEW_AGENT_IDENTITY_INVALID");
+  }
+
+  let commandPublicKeyPem: string | undefined;
+  if (record.commandPublicKeyPem !== undefined) {
+    try {
+      commandPublicKeyPem = canonicalPreviewAgentPublicKeyPem(
+        record.commandPublicKeyPem as string,
+      );
+    } catch {
+      throw new PreviewAgentIdentityError("PREVIEW_AGENT_IDENTITY_INVALID");
+    }
+  }
+
+  if (
     record.lastChallengeRequestedAt !== undefined &&
     !isDate(record.lastChallengeRequestedAt)
   ) {
@@ -153,6 +181,27 @@ export function validatePreviewAgentIdentity(
       throw new PreviewAgentIdentityError("PREVIEW_AGENT_IDENTITY_INVALID");
     }
   }
+  if (record.pendingArtifactDelete !== undefined) {
+    const pending = record.pendingArtifactDelete as
+      | Record<string, unknown>
+      | null;
+    if (
+      !pending ||
+      typeof pending !== "object" ||
+      Array.isArray(pending) ||
+      typeof pending.jobId !== "string" ||
+      !UUID_PATTERN.test(pending.jobId) ||
+      typeof pending.commandToken !== "string" ||
+      pending.commandToken.length < 1 ||
+      pending.commandToken.length > 8_192 ||
+      (pending.receiptToken !== undefined &&
+        (typeof pending.receiptToken !== "string" ||
+          pending.receiptToken.length < 1 ||
+          pending.receiptToken.length > 8_192))
+    ) {
+      throw new PreviewAgentIdentityError("PREVIEW_AGENT_IDENTITY_INVALID");
+    }
+  }
 
   const identity: PreviewAgentIdentity = {
     version: 1,
@@ -165,6 +214,7 @@ export function validatePreviewAgentIdentity(
     fingerprint: record.fingerprint,
     sequence: record.sequence as number,
   };
+  if (commandPublicKeyPem) identity.commandPublicKeyPem = commandPublicKeyPem;
   if (record.state === "pairing") {
     const pairing = record.pairing as Record<string, unknown>;
     identity.pairing = {
@@ -186,6 +236,16 @@ export function validatePreviewAgentIdentity(
       challenge: pending.challenge as string,
       signature: pending.signature as string,
       expiresAt: pending.expiresAt as string,
+    };
+  }
+  if (record.pendingArtifactDelete !== undefined) {
+    const pending = record.pendingArtifactDelete as Record<string, unknown>;
+    identity.pendingArtifactDelete = {
+      jobId: pending.jobId as string,
+      commandToken: pending.commandToken as string,
+      ...(pending.receiptToken !== undefined
+        ? { receiptToken: pending.receiptToken as string }
+        : {}),
     };
   }
   return identity;

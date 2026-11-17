@@ -1,6 +1,6 @@
 # Local Preview Agent client
 
-This first client supports Linux and the server's existing Ed25519 pairing and heartbeat contracts. It only pairs and reports heartbeat; it does not read project files, execute commands, pull jobs, build Candidates, or start Preview Runtime.
+This first client supports Linux and the server's existing Ed25519 pairing and heartbeat contracts. Its library also implements one signed artifact-delete command at a time through an injected, reference-only Artifact store. The CLI does not configure such a store yet, so its `run` command still only pairs and reports heartbeat. The Agent does not read project files, execute commands, pull build jobs, build Candidates, or start Preview Runtime.
 
 ## Requirements
 
@@ -31,13 +31,15 @@ node lib/preview-agent-client/dist/cli.js run \
 
 `doctor` writes a random, non-sensitive probe to the Linux Secret Service, verifies the read-back, and clears it. It makes no API request and creates no Agent identity. A successful preflight does not prove a real pairing or heartbeat.
 
-The pairing code is entered through a non-echoing terminal prompt, not a flag or environment variable. The Ed25519 private key, temporary one-time pairing code, heartbeat sequence, and pending exact heartbeat proof are kept as one Secret Service item. The pairing code is removed from that item after the server confirms pairing. A private, PID-fenced lock under the user's state directory prevents two client processes from using the same node; a stale lock is reclaimed only after the recorded Linux process identity is proven dead or reused.
+The pairing code is entered through a non-echoing terminal prompt, not a flag or environment variable. The Ed25519 private key, temporary one-time pairing code, heartbeat sequence, pending exact heartbeat proof, and pending delete command/receipt are kept as one Secret Service item. When the API is configured for signed deletion commands, its public verification key is returned with the HTTPS pairing response and pinned in that item. The pairing code is removed after the server confirms pairing. A private, PID-fenced lock under the user's state directory prevents two client processes from using the same node; a stale lock is reclaimed only after the recorded Linux process identity is proven dead or reused.
 
 ## Safety behavior
 
 - The sequence is persisted before the signed challenge request, so crashes may skip a number but do not intentionally reuse one.
 - A lost challenge response is not retried with the same sequence; the client waits out the server's challenge TTL and then advances.
 - A lost heartbeat response is retried with the exact stored proof so the server's idempotent receipt can return the original acceptance.
+- A delete command is verified against the paired server key and the Agent/store/job identities before the local store is called. The command is persisted before deletion; a signed receipt is persisted before network submission and retried byte-for-byte after a lost response.
+- The delete adapter accepts object identities and expected digests only, never a server-supplied filesystem path. Until a qualified local CAS adapter is connected to the CLI, the deletion command library cannot remove files.
 - HTTP redirects, cookies, API origins with credentials/query/path, and non-HTTPS non-loopback origins are rejected.
 - Server response bodies, private keys, pairing codes, and signatures are never written to normal logs.
 - The process lock is local ownership only; server-side signatures, sequence checks, one-time challenge consumption, and revocation remain authoritative.

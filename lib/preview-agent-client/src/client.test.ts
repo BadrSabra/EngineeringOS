@@ -2,13 +2,20 @@ import { generateKeyPairSync } from "node:crypto";
 import { describe, expect, it, vi } from "vitest";
 import {
   createPreviewAgentHeartbeatChallenge,
+  previewArtifactDeleteCommandFingerprint,
+  previewArtifactDeleteCommandId,
   previewAgentPublicKeyFingerprint,
+  signPreviewArtifactDeleteCommand,
+  verifyPreviewArtifactDeletePollProof,
+  verifyPreviewArtifactDeleteReceipt,
   verifyPreviewAgentHeartbeatChallengeRequest,
   verifyPreviewAgentHeartbeatProof,
   verifyPreviewAgentPairingProof,
+  type PreviewArtifactDeleteCommandClaims,
 } from "@workspace/preview-agent-contract";
 import {
   pairPreviewAgent,
+  processPreviewAgentArtifactDeleteCommand,
   sendPreviewAgentHeartbeat,
   type PreviewAgentFetch,
 } from "./client.js";
@@ -24,6 +31,10 @@ const storeId = "bb550bc3-1930-4285-a33c-460b52dc8ea7";
 const pairingCode = "a".repeat(43);
 const now = new Date("2026-11-13T12:00:00.000Z");
 const apiUrl = "https://engineeringos.example";
+const commandKeys = generateKeyPairSync("ed25519", {
+  publicKeyEncoding: { type: "spki", format: "pem" },
+  privateKeyEncoding: { type: "pkcs8", format: "pem" },
+});
 
 class MemorySecretStore implements PreviewAgentSecretStore {
   readonly records = new Map<string, PreviewAgentIdentity>();
@@ -57,6 +68,55 @@ function activeIdentity(): PreviewAgentIdentity {
     privateKeyPem: keys.privateKey,
     fingerprint: previewAgentPublicKeyFingerprint(keys.publicKey),
     sequence: 0,
+  };
+}
+
+function deleteCommand(now: Date): {
+  claims: PreviewArtifactDeleteCommandClaims;
+  token: string;
+} {
+  const gcLeaseAt = new Date(now.getTime() - 60_000).toISOString();
+  const fields = {
+    version: 2 as const,
+    action: "delete-artifact" as const,
+    commandId: "",
+    nodeId,
+    keyVersion: 1,
+    storeId,
+    artifactRefId: "c81b38f7-7f24-48af-bd6f-bdafd8aa8111",
+    jobId: "8f76d6c3-195d-49ad-a4a2-6ae916de7a40",
+    projectId: "project-1",
+    proposalId: "proposal-1",
+    operationId: "operation-1",
+    proposalRevision: 3,
+    candidateRevision: "a".repeat(64),
+    changeSetHash: "b".repeat(64),
+    artifactKind: "preview-build-input" as const,
+    artifactDigest: "c".repeat(64),
+    sizeBytes: 1024,
+    manifestDigest: "d".repeat(64),
+    retentionPolicy: "preview-build-input-24h-v1" as const,
+    gcLeaseAt,
+    issuedAt: now.toISOString(),
+    expiresAt: new Date(now.getTime() + 30_000).toISOString(),
+  };
+  const claims = {
+    ...fields,
+    commandId: previewArtifactDeleteCommandId({
+      nodeId,
+      keyVersion: 1,
+      jobId: fields.jobId,
+      artifactRefId: fields.artifactRefId,
+      gcLeaseAt,
+    }),
+  };
+  return {
+    claims,
+    token: signPreviewArtifactDeleteCommand({
+      claims,
+      privateKeyPem: commandKeys.privateKey,
+      now,
+    }),
   };
 }
 
@@ -113,7 +173,8 @@ describe("Preview Agent local heartbeat client", () => {
         storeId,
         status: "active",
         keyVersion: 1,
-        fingerprint,
+        publicKeyFingerprint: fingerprint,
+        commandPublicKeyPem: commandKeys.publicKey,
       });
     });
 
@@ -133,6 +194,7 @@ describe("Preview Agent local heartbeat client", () => {
     expect(stored?.state).toBe("active");
     expect(stored?.pairing).toBeUndefined();
     expect(stored?.privateKeyPem).toContain("PRIVATE KEY");
+    expect(stored?.commandPublicKeyPem).toBe(commandKeys.publicKey);
   });
 
   it("reuses the same persisted pairing key after a lost response", async () => {
@@ -158,7 +220,7 @@ describe("Preview Agent local heartbeat client", () => {
         storeId,
         status: "active",
         keyVersion: 1,
-        fingerprint: previewAgentPublicKeyFingerprint(body.publicKeyPem),
+        publicKeyFingerprint: previewAgentPublicKeyFingerprint(body.publicKeyPem),
       });
     });
     const args = {
@@ -190,7 +252,7 @@ describe("Preview Agent local heartbeat client", () => {
         storeId,
         status: "active",
         keyVersion: 1,
-        fingerprint: "0".repeat(64),
+        publicKeyFingerprint: "0".repeat(64),
       }),
     );
 
@@ -420,7 +482,7 @@ describe("Preview Agent local heartbeat client", () => {
         storeId,
         status: "active",
         keyVersion: 1,
-        fingerprint: previewAgentPublicKeyFingerprint(body.publicKeyPem),
+        publicKeyFingerprint: previewAgentPublicKeyFingerprint(body.publicKeyPem),
       });
     });
     await expect(
@@ -435,5 +497,211 @@ describe("Preview Agent local heartbeat client", () => {
         now,
       }),
     ).resolves.toMatchObject({ nodeId, keyVersion: 1 });
+  });
+
+  it("verifies a signed delete command and persists its receipt before submission", async () => {
+    const secretStore = new MemorySecretStore();
+    const identity = activeIdentity();
+    identity.commandPublicKeyPem = commandKeys.publicKey;
+    await secretStore.set(identity);
+    const { claims, token } = deleteCommand(now);
+    let removed = 0;
+    let savedReceiptToken = "";
+    const fetchImpl = asFetch(async (url, init) => {
+      const body = JSON.parse(String(init.body)) as Record<string, unknown>;
+      expect(init.credentials).toBe("omit");
+      if (url.pathname.endsWith("/artifact-delete-command")) {
+        const proofBody = body as {
+          proof: Parameters<typeof verifyPreviewArtifactDeletePollProof>[0]["proof"];
+          signature: string;
+        };
+        expect(
+          verifyPreviewArtifactDeletePollProof({
+            proof: proofBody.proof,
+            signature: proofBody.signature,
+            publicKeyPem: identity.publicKeyPem,
+            now,
+          }),
+        ).toMatchObject({ nodeId, jobId: claims.jobId });
+        return jsonResponse({
+          commandId: claims.commandId,
+          commandFingerprint: previewArtifactDeleteCommandFingerprint(claims),
+          expiresAt: claims.expiresAt,
+          commandToken: token,
+        });
+      }
+      expect(url.pathname).toBe(
+        `/api/internal/preview-build-jobs/${claims.jobId}/artifact-delete-receipt`,
+      );
+      const receiptBody = body as {
+        commandToken: string;
+        receiptToken: string;
+      };
+      const saved = await secretStore.get(nodeId);
+      savedReceiptToken = saved?.pendingArtifactDelete?.receiptToken ?? "";
+      expect(savedReceiptToken).toBe(receiptBody.receiptToken);
+      expect(receiptBody.commandToken).toBe(token);
+      expect(
+        verifyPreviewArtifactDeleteReceipt({
+          token: receiptBody.receiptToken,
+          publicKeyPem: identity.publicKeyPem,
+          command: claims,
+          now,
+        }),
+      ).toMatchObject({ result: "deleted", artifactRefId: claims.artifactRefId });
+      return jsonResponse({
+        jobId: claims.jobId,
+        artifactDeleted: true,
+        alreadyAccepted: false,
+      });
+    });
+
+    const result = await processPreviewAgentArtifactDeleteCommand({
+      apiUrl,
+      nodeId,
+      jobId: claims.jobId,
+      secretStore,
+      fetchImpl,
+      now,
+      artifactStore: {
+        async removeReference(input) {
+          removed += 1;
+          expect(input).toMatchObject({
+            storeId,
+            jobId: claims.jobId,
+            artifactRefId: claims.artifactRefId,
+            expectedDigest: claims.artifactDigest,
+            expectedSizeBytes: claims.sizeBytes,
+            expectedManifestDigest: claims.manifestDigest,
+            candidateRevision: claims.candidateRevision,
+          });
+          return "deleted";
+        },
+      },
+    });
+
+    expect(result).toEqual({
+      state: "accepted",
+      jobId: claims.jobId,
+      alreadyAccepted: false,
+    });
+    expect(removed).toBe(1);
+    expect(savedReceiptToken).toMatch(/^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/);
+    expect((await secretStore.get(nodeId))?.pendingArtifactDelete).toBeUndefined();
+  });
+
+  it("retries the exact durable receipt after a lost response without deleting twice", async () => {
+    const secretStore = new MemorySecretStore();
+    const identity = activeIdentity();
+    identity.commandPublicKeyPem = commandKeys.publicKey;
+    await secretStore.set(identity);
+    const { claims, token } = deleteCommand(now);
+    let pollCount = 0;
+    let deleteCount = 0;
+    let receiptCount = 0;
+    const receipts: string[] = [];
+    const fetchImpl = asFetch(async (url, init) => {
+      const body = JSON.parse(String(init.body)) as Record<string, unknown>;
+      if (url.pathname.endsWith("/artifact-delete-command")) {
+        pollCount += 1;
+        return jsonResponse({
+          commandId: claims.commandId,
+          commandFingerprint: previewArtifactDeleteCommandFingerprint(claims),
+          expiresAt: claims.expiresAt,
+          commandToken: token,
+        });
+      }
+      const receipt = body.receiptToken as string;
+      receipts.push(receipt);
+      receiptCount += 1;
+      if (receiptCount === 1) throw new Error("receipt response lost");
+      return jsonResponse({
+        jobId: claims.jobId,
+        artifactDeleted: true,
+        alreadyAccepted: true,
+      });
+    });
+    const artifactStore = {
+      async removeReference() {
+        deleteCount += 1;
+        return "deleted" as const;
+      },
+    };
+    const input = {
+      apiUrl,
+      nodeId,
+      jobId: claims.jobId,
+      secretStore,
+      artifactStore,
+      fetchImpl,
+      now,
+    };
+
+    await expect(processPreviewAgentArtifactDeleteCommand(input)).rejects
+      .toMatchObject({ code: "PREVIEW_AGENT_ARTIFACT_DELETE_RETRY" });
+    const pending = (await secretStore.get(nodeId))?.pendingArtifactDelete;
+    expect(pending?.receiptToken).toBeTruthy();
+    await expect(
+      processPreviewAgentArtifactDeleteCommand({
+        ...input,
+        jobId: "94cc6266-181a-44f9-90f8-bdd21ebcc748",
+      }),
+    ).resolves.toEqual({
+      state: "accepted",
+      jobId: claims.jobId,
+      alreadyAccepted: true,
+    });
+
+    expect(pollCount).toBe(1);
+    expect(deleteCount).toBe(1);
+    expect(receiptCount).toBe(2);
+    expect(receipts[0]).toBe(receipts[1]);
+    expect((await secretStore.get(nodeId))?.pendingArtifactDelete).toBeUndefined();
+  });
+
+  it("rejects a validly signed command for another store before touching the store", async () => {
+    const secretStore = new MemorySecretStore();
+    const identity = activeIdentity();
+    identity.commandPublicKeyPem = commandKeys.publicKey;
+    await secretStore.set(identity);
+    const { claims: validClaims } = deleteCommand(now);
+    const claims = {
+      ...validClaims,
+      storeId: "94cc6266-181a-44f9-90f8-bdd21ebcc748",
+    };
+    const token = signPreviewArtifactDeleteCommand({
+      claims,
+      privateKeyPem: commandKeys.privateKey,
+      now,
+    });
+    let removed = false;
+    const fetchImpl = asFetch(async () =>
+      jsonResponse({
+        commandId: claims.commandId,
+        commandFingerprint: previewArtifactDeleteCommandFingerprint(claims),
+        expiresAt: claims.expiresAt,
+        commandToken: token,
+      }),
+    );
+
+    await expect(
+      processPreviewAgentArtifactDeleteCommand({
+        apiUrl,
+        nodeId,
+        jobId: claims.jobId,
+        secretStore,
+        fetchImpl,
+        now,
+        artifactStore: {
+          async removeReference() {
+            removed = true;
+            return "deleted";
+          },
+        },
+      }),
+    ).rejects.toMatchObject({
+      code: "PREVIEW_AGENT_CLIENT_RESPONSE_INVALID",
+    });
+    expect(removed).toBe(false);
   });
 });
