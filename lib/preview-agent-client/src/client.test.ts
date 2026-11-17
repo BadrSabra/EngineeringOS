@@ -565,6 +565,7 @@ describe("Preview Agent local heartbeat client", () => {
       fetchImpl,
       now,
       artifactStore: {
+        storeId,
         async removeReference(input) {
           removed += 1;
           expect(input).toMatchObject({
@@ -623,6 +624,7 @@ describe("Preview Agent local heartbeat client", () => {
       });
     });
     const artifactStore = {
+      storeId,
       async removeReference() {
         deleteCount += 1;
         return "deleted" as const;
@@ -729,6 +731,7 @@ describe("Preview Agent local heartbeat client", () => {
         fetchImpl,
         now,
         artifactStore: {
+          storeId,
           async removeReference(input) {
             referenceChecks += 1;
             expect(input.artifactRefId).toBe(current.claims.artifactRefId);
@@ -782,6 +785,7 @@ describe("Preview Agent local heartbeat client", () => {
         fetchImpl,
         now,
         artifactStore: {
+          storeId,
           async removeReference() {
             removed = true;
             return "deleted";
@@ -792,5 +796,38 @@ describe("Preview Agent local heartbeat client", () => {
       code: "PREVIEW_AGENT_CLIENT_RESPONSE_INVALID",
     });
     expect(removed).toBe(false);
+  });
+
+  it("refuses to poll when the configured local store differs from pairing", async () => {
+    const secretStore = new MemorySecretStore();
+    const identity = activeIdentity();
+    identity.commandPublicKeyPem = commandKeys.publicKey;
+    await secretStore.set(identity);
+    let networkCalls = 0;
+    const fetchImpl = asFetch(async () => {
+      networkCalls += 1;
+      throw new Error("network must not be used");
+    });
+
+    await expect(
+      processPreviewAgentArtifactDeleteCommand({
+        apiUrl,
+        nodeId,
+        jobId: deleteCommand(now).claims.jobId,
+        secretStore,
+        fetchImpl,
+        now,
+        artifactStore: {
+          storeId: "94cc6266-181a-44f9-90f8-bdd21ebcc748",
+          async removeReference() {
+            throw new Error("wrong store must not be touched");
+          },
+        },
+      }),
+    ).rejects.toMatchObject({
+      code: "PREVIEW_AGENT_ARTIFACT_STORE_UNAVAILABLE",
+    });
+
+    expect(networkCalls).toBe(0);
   });
 });

@@ -95,6 +95,7 @@ export type PreviewArtifactDeleteReceiptClaims = {
  * from a signed command or remove a shared content blob.
  */
 export interface PreviewAgentArtifactReferenceStore {
+  readonly storeId: string;
   removeReference(input: {
     storeId: string;
     jobId: string;

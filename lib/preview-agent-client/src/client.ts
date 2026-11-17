@@ -291,6 +291,12 @@ export async function processPreviewAgentArtifactDeleteCommand(input: {
     }
   }
 
+  if (input.artifactStore.storeId !== identity.storeId) {
+    throw new PreviewAgentClientError(
+      "PREVIEW_AGENT_ARTIFACT_STORE_UNAVAILABLE",
+    );
+  }
+
   const proof = {
     version: 2 as const,
     action: "poll-artifact-delete-command" as const,
