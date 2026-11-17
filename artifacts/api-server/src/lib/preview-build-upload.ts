@@ -18,6 +18,9 @@ import {
   PREVIEW_BUILD_INPUT_MANIFEST_PATH,
 } from "./preview-build-input.js";
 import { previewBuildArtifactRefId } from "./preview-artifact-reference.js";
+import {
+  MAX_PREVIEW_ARTIFACT_SIZE_BYTES as MAX_PREVIEW_BUILD_ARCHIVE_BYTES,
+} from "@workspace/preview-agent-contract";
 
 const SIGNING_DOMAIN = Buffer.from(
   "EngineeringOS Preview Build Input Upload v2\n",
@@ -25,7 +28,7 @@ const SIGNING_DOMAIN = Buffer.from(
 );
 const TOKEN_TTL_MS = 30_000;
 const CLOCK_SKEW_MS = 5_000;
-export const MAX_PREVIEW_BUILD_ARCHIVE_BYTES = 55 * 1024 * 1024;
+export { MAX_PREVIEW_BUILD_ARCHIVE_BYTES };
 const MAX_TOKEN_LENGTH = 8_192;
 const UUID_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
