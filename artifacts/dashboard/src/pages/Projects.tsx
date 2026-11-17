@@ -262,7 +262,7 @@ function ProjectsForAccount({ ownerId }: { ownerId: string }) {
                   {operation?.status === 'completed' ? <CheckCircle2 className="h-5 w-5 text-emerald-400" /> : operation?.status === 'failed' || bootstrapQuery.isError ? <AlertTriangle className="h-5 w-5 text-amber-400" /> : <Loader2 className="h-5 w-5 animate-spin text-primary" />}
                   <div>
                     <div className="text-sm font-semibold" data-testid="status-bootstrap-operation">{bootstrapStatusLabel(operation?.status ?? (bootstrapQuery.isLoading ? 'queued' : 'checking'))}</div>
-                    <div className="text-xs text-muted-foreground">{operation?.status === 'completed' && operation.projectId ? 'المشروع جاهز. جارٍ فتح محادثة المشروع…' : operation?.status === 'completed' ? 'اكتملت العملية دون مرجع لمشروع. لم تُفتح أي محادثة.' : operation?.status === 'failed' ? 'لم يتم تجهيز القالب.' : 'نتحقق من حالة العملية. ستتحدث هذه الشاشة كلما أبلغ الخادم عن تقدم.'}</div>
+                    <div className="text-xs text-muted-foreground">{operation?.status === 'completed' && operation.projectId ? 'المشروع جاهز. جارٍ فتح مساحة العمل…' : operation?.status === 'completed' ? 'اكتملت العملية دون مرجع لمشروع. لم تُفتح أي محادثة.' : operation?.status === 'failed' ? 'لم يتم تجهيز القالب.' : 'نتحقق من حالة العملية. ستتحدث هذه الشاشة كلما أبلغ الخادم عن تقدم.'}</div>
                   </div>
                 </div>
                 <div className="mt-5 rounded-lg border border-border bg-background/60 p-4 text-xs">
