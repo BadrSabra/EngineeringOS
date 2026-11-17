@@ -640,7 +640,9 @@ export async function projectApplyChangesProofGraph(
     || !stableEqual(transition.parentFactRefs, intent.parentFactRefs)
     || transition.actionId !== requestedPayload.action.actionId
     || transition.effectBundleId !== acceptance.effectBundleId
-    || transition.environmentRevision !== episode.environmentRevision
+    || !transition.environmentRevision
+    || !/^env-v1:[a-f0-9]{64}$/u.test(transition.environmentRevision)
+    || transition.environmentRevisionKey !== "revision:" + transition.environmentRevision
     || transition.taskScope !== "project"
   ) return notProjectable(input, "WORLD_TRANSITION_MISMATCH");
 
@@ -698,7 +700,7 @@ export async function projectApplyChangesProofGraph(
       && observation.completeness === "complete"
       && observation.freshness === "fresh"
       && observation.environmentFreshness === "fresh"
-      && observation.environmentRevision === episode.environmentRevision;
+      && observation.environmentRevision === transition.environmentRevision;
   };
   if (
     !observationValid(
