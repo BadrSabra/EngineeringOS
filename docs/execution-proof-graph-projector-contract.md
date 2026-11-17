@@ -1,6 +1,6 @@
 # Execution Proof Graph Projector — Implementation Contract
 
-**Status:** PGP-01–PGP-05 implementation is present on main at 5103e66368e181c3fa00d11d00ea25e51677e070 with scoped validation; this contract does not authorize extending the supported profile  
+**Status:** PGP-01–PGP-05 implementation is present on main at 5103e66368e181c3fa00d11d00ea25e51677e070 with scoped validation; this contract does not authorize extending the supported profile
 **Scope:** one authenticated `runtime.start` execution using `runtime_start_gate_c_v1`, on one exact attempt
 **Authority:** read-only projection; Canonical Proof and existing acceptance gates remain authoritative  
 **Persistence:** none; do not create graph tables, a second acceptance ledger, or a parallel evidence store
