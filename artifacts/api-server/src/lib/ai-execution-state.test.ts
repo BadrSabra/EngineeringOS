@@ -1088,6 +1088,7 @@ describe("autonomous operation contract", () => {
       phase: "running",
       leaseOwner: "worker-1",
       leaseUntil: "2026-01-01T00:05:00.000Z",
+      missionBudget: { maxProcessCount: 8 },
       capabilityEnvironment,
     });
     expect(checkRecipeOperationBinding(binding, { projectId: "project-2" }).reason).toBe("project_mismatch");
@@ -1095,6 +1096,10 @@ describe("autonomous operation contract", () => {
     expect(checkRecipeOperationBinding(binding, { approvedPaths: ["src/other.ts"] }).reason).toBe("scope_mismatch");
     expect(checkRecipeOperationBinding(binding, { phase: "queued" }).reason).toBe("phase_mismatch");
     expect(checkRecipeOperationBinding(binding, { leaseOwner: "worker-2" }).reason).toBe("lease_owner_mismatch");
+    expect(checkRecipeOperationBinding(binding, {
+      leaseOwner: "worker-1",
+      requireLease: true,
+    }).reason).toBe("allowed");
     expect(checkRecipeOperationBinding(binding, {
       leaseOwner: "worker-1",
       requireLease: true,
