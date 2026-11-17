@@ -6,6 +6,7 @@ import {
   previewArtifactDeleteCommandId,
   previewAgentPublicKeyFingerprint,
   signPreviewArtifactDeleteCommand,
+  signPreviewArtifactDeleteReceipt,
   verifyPreviewArtifactDeletePollProof,
   verifyPreviewArtifactDeleteReceipt,
   verifyPreviewAgentHeartbeatChallengeRequest,
@@ -656,6 +657,94 @@ describe("Preview Agent local heartbeat client", () => {
     expect(deleteCount).toBe(1);
     expect(receiptCount).toBe(2);
     expect(receipts[0]).toBe(receipts[1]);
+    expect((await secretStore.get(nodeId))?.pendingArtifactDelete).toBeUndefined();
+  });
+
+  it("refreshes an expired receipt after a long outage and rechecks the reference", async () => {
+    const secretStore = new MemorySecretStore();
+    const identity = activeIdentity();
+    identity.commandPublicKeyPem = commandKeys.publicKey;
+
+    const oldIssuedAt = new Date(now.getTime() - 6 * 60_000);
+    const old = deleteCommand(oldIssuedAt);
+    const oldCompletedAt = new Date(oldIssuedAt.getTime() + 20_000);
+    const oldReceiptToken = signPreviewArtifactDeleteReceipt({
+      claims: {
+        version: 2,
+        action: "artifact-delete-receipt",
+        commandId: old.claims.commandId,
+        commandFingerprint:
+          previewArtifactDeleteCommandFingerprint(old.claims),
+        nodeId,
+        keyVersion: 1,
+        storeId,
+        artifactRefId: old.claims.artifactRefId,
+        artifactDigest: old.claims.artifactDigest,
+        manifestDigest: old.claims.manifestDigest,
+        result: "deleted",
+        completedAt: oldCompletedAt.toISOString(),
+      },
+      privateKeyPem: identity.privateKeyPem,
+      now: oldCompletedAt,
+    });
+    identity.pendingArtifactDelete = {
+      jobId: old.claims.jobId,
+      commandToken: old.token,
+      receiptToken: oldReceiptToken,
+    };
+    await secretStore.set(identity);
+
+    const current = deleteCommand(now);
+    let pollCount = 0;
+    let receiptCount = 0;
+    let referenceChecks = 0;
+    const fetchImpl = asFetch(async (url, init) => {
+      const body = JSON.parse(String(init.body)) as Record<string, unknown>;
+      if (url.pathname.endsWith("/artifact-delete-command")) {
+        pollCount += 1;
+        return jsonResponse({
+          commandId: current.claims.commandId,
+          commandFingerprint:
+            previewArtifactDeleteCommandFingerprint(current.claims),
+          expiresAt: current.claims.expiresAt,
+          commandToken: current.token,
+        });
+      }
+      receiptCount += 1;
+      expect(body.commandToken).toBe(current.token);
+      expect(body.receiptToken).not.toBe(oldReceiptToken);
+      return jsonResponse({
+        jobId: current.claims.jobId,
+        artifactDeleted: true,
+        alreadyAccepted: false,
+      });
+    });
+
+    await expect(
+      processPreviewAgentArtifactDeleteCommand({
+        apiUrl,
+        nodeId,
+        jobId: old.claims.jobId,
+        secretStore,
+        fetchImpl,
+        now,
+        artifactStore: {
+          async removeReference(input) {
+            referenceChecks += 1;
+            expect(input.artifactRefId).toBe(current.claims.artifactRefId);
+            return "already_deleted";
+          },
+        },
+      }),
+    ).resolves.toEqual({
+      state: "accepted",
+      jobId: current.claims.jobId,
+      alreadyAccepted: false,
+    });
+
+    expect(pollCount).toBe(1);
+    expect(referenceChecks).toBe(1);
+    expect(receiptCount).toBe(1);
     expect((await secretStore.get(nodeId))?.pendingArtifactDelete).toBeUndefined();
   });
 

@@ -1,5 +1,6 @@
 import { generateKeyPairSync, randomUUID, sign } from "node:crypto";
 import {
+  PreviewArtifactGcCommandError,
   previewArtifactDeleteCommandFingerprint,
   previewArtifactDeleteReceiptCompletedAtHint,
   previewAgentHeartbeatChallengeRequestPayload,
@@ -231,7 +232,7 @@ export async function processPreviewAgentArtifactDeleteCommand(input: {
   now?: Date;
 }): Promise<
   | { state: "idle"; jobId: string }
-  | { state: "command_refreshed"; jobId: string }
+  | { state: "receipt_deferred"; jobId: string }
   | { state: "accepted"; jobId: string; alreadyAccepted: boolean }
 > {
   const apiOrigin = normalizeApiOrigin(input.apiUrl);
@@ -265,20 +266,44 @@ export async function processPreviewAgentArtifactDeleteCommand(input: {
       token: pending.receiptToken,
       publicKeyPem: identity.publicKeyPem,
       command,
-      // The signed completion time is only a hint until the receipt signature
-      // is verified; then it gives stable validation for retries after outages.
+      // Authenticate and bind the receipt before using its timestamp to decide
+      // whether a new GC lease is needed.
       now: receiptCompletedAt,
     });
-    return submitPreviewArtifactDeleteReceipt({
-      apiOrigin,
-      identity,
-      command,
-      receipt,
-      commandToken: pending.commandToken,
-      receiptToken: pending.receiptToken,
-      secretStore: input.secretStore,
-      fetchImpl: input.fetchImpl,
-    });
+    try {
+      verifyPreviewArtifactDeleteReceipt({
+        token: pending.receiptToken,
+        publicKeyPem: identity.publicKeyPem,
+        command,
+        now,
+      });
+      return submitPreviewArtifactDeleteReceipt({
+        apiOrigin,
+        identity,
+        command,
+        receipt,
+        commandToken: pending.commandToken,
+        receiptToken: pending.receiptToken,
+        secretStore: input.secretStore,
+        fetchImpl: input.fetchImpl,
+      });
+    } catch (error) {
+      if (
+        !(error instanceof PreviewArtifactGcCommandError) ||
+        error.code !== "PREVIEW_ARTIFACT_GC_RECEIPT_EXPIRED"
+      ) {
+        throw error;
+      }
+      // A stale receipt cannot be accepted by the API. Retire it only after
+      // its signature and exact command binding were verified above, then poll
+      // for the current lease. removeReference is required to be idempotent.
+      await input.secretStore.set(
+        validatePreviewAgentIdentity({
+          ...identity,
+          pendingArtifactDelete: undefined,
+        }),
+      );
+    }
   }
 
   const proof = {
@@ -367,9 +392,9 @@ export async function processPreviewAgentArtifactDeleteCommand(input: {
     completedAt.getTime() >
     Date.parse(command.expiresAt) + 5_000
   ) {
-    // The effect is idempotent. Keep the command journal and refresh its
-    // short-lived server authorization before constructing a receipt.
-    return { state: "command_refreshed", jobId };
+    // The effect is idempotent. Keep the command journal; the next invocation
+    // polls for a fresh lease and confirms the reference before receipt signing.
+    return { state: "receipt_deferred", jobId };
   }
   const receiptClaims: PreviewArtifactDeleteReceiptClaims = {
     version: 2,
