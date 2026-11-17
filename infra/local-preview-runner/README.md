@@ -12,7 +12,8 @@ It reads basic kernel/cgroup settings, checks the current account's access to
 present on `PATH`. It does not execute those binaries, install software, change
 permissions, contact a network, or run Candidate code. It reads `PATH` only to
 locate runtime filenames; it does not print `PATH` or any other environment
-value.
+value. A root account is reported as blocked; run the inventory as the intended
+unprivileged Agent account.
 
 The JSON is **diagnostic only**. It deliberately always reports
 `candidateExecutionAllowed: false`; presence of a runtime or KVM device does not

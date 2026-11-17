@@ -1024,6 +1024,8 @@ Backend Preview وUXW-08 أدناه **توسعة معمارية مستهدفة**
 
 **تجهيز فحص الخادم:** بعد اختيار خادم Linux مستقل، أضيف جرد تمهيدي للقراءة فقط تحت `infra/local-preview-runner/`. يعمل بحساب Agent غير root، ولا يشغّل أدوات العزل أو يثبتها، ولا يعدّ وجود KVM أو `runsc` دليل تأهيل. فحص Replit الحالي وجد Linux x64 وcgroup v2، لكنه لم يجد KVM أو أدوات العزل؛ هذه نتيجة لبيئة Replit وليست للخادم المستقل. يحتاج إغلاق بوابة العزل إلى تشغيل الجرد على الخادم ثم اختبارات مستقلة هناك؛ Candidate Preview يظل محظورًا.
 
+**تحسين فحص المضيف:** يضيف الجرد الآن مانعًا صريحًا إذا شُغّل بحساب root، ويختبر أن وجود Runtime أقوى لا يزيل هذا المانع. يبقى التقرير تشخيصيًا ولا يؤهل Runner أو يسمح بتشغيل Candidate؛ يلزم تشغيله على خادم Linux المستقل بالحساب المقصود.
+
 **التوصية المعمارية التالية:** تأهيل gVisor/runsc على خادم Linux مستقل كأول profile (مرشح للتأهيل فقط)، مع اتصال Agent صادر فقط وUDS مملوك للخادم لكل Session. لا نبدأ AWS أو Firecracker الآن، ولا نكشف Docker socket أو نقبل fallback إلى `runc`. إذا أظهر فحص التهديد أن gVisor لا يكفي، نعيد القرار إلى microVM قبل أي تشغيل Candidate.
 
 - افصل المسؤوليات بعقود صغيرة لا تسرّب تفاصيل AWS/Cloudflare: `PreviewBuildExecutor`, `PreviewArtifactStore`, `PreviewAttestationService`, `PreviewReceiptVerifier`, `PreviewSessionRuntime`, `PreviewRunnerAgent`, `PreviewExposureGateway`, `PreviewNodeRegistry`, و`PreviewPlacementPolicy`. `PreviewRunnerAgent` بروتوكول موثّق لعامل العقدة يطبّق أوامر Runtime موقعة، وليس مصدر حالة أو نظام تنفيذ مكررًا. لا تجمعها في provider واحد ضخم، ولا تُنشئ تنفيذًا موازيًا لوظائف موجودة.
