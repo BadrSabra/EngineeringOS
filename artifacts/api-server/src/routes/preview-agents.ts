@@ -23,6 +23,14 @@ import {
   PreviewArtifactStoreCommandIssueError,
 } from "../lib/preview-artifact-store-issuer.js";
 import {
+  acceptPreviewBuildInputDeleteReceipt,
+  PreviewArtifactGcAcceptanceError,
+} from "../lib/preview-artifact-gc-acceptance.js";
+import {
+  issuePreviewBuildInputDeleteCommand,
+  PreviewArtifactGcCommandIssueError,
+} from "../lib/preview-artifact-gc-issuer.js";
+import {
   acceptPreviewAgentHeartbeat,
   issuePreviewAgentHeartbeatChallenge,
   PreviewAgentHeartbeatError,
@@ -85,6 +93,25 @@ const artifactStorePollProofSchema = z
   })
   .strict();
 
+const artifactDeletePollProofSchema = z
+  .object({
+    proof: z
+      .object({
+        version: z.literal(2),
+        action: z.literal("poll-artifact-delete-command"),
+        nodeId: z.string().uuid(),
+        keyVersion: z.number().int().positive().max(1_000_000),
+        jobId: z.string().uuid(),
+        issuedAt: z
+          .string()
+          .regex(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/),
+        nonce: z.string().uuid(),
+      })
+      .strict(),
+    signature: z.string().length(86).regex(/^[A-Za-z0-9_-]+$/),
+  })
+  .strict();
+
 const previewAgentHeartbeatProofSchema = z
   .object({
     version: z.literal(1),
@@ -130,6 +157,8 @@ type PreviewAgentRouterDependencies = {
   submitCapabilityReport: typeof acceptPreviewAgentCapabilityReport;
   acceptArtifactStoreReceipt: typeof acceptPreviewBuildInputStoreReceipt;
   issueArtifactStoreCommand: typeof issuePreviewBuildInputStoreCommand;
+  acceptArtifactDeleteReceipt: typeof acceptPreviewBuildInputDeleteReceipt;
+  issueArtifactDeleteCommand: typeof issuePreviewBuildInputDeleteCommand;
   issueHeartbeatChallenge: typeof issuePreviewAgentHeartbeatChallenge;
   acceptHeartbeat: typeof acceptPreviewAgentHeartbeat;
   buildJobPrivateKeyPem: string | undefined;
@@ -149,6 +178,8 @@ const defaultDependencies: PreviewAgentRouterDependencies = {
   submitCapabilityReport: acceptPreviewAgentCapabilityReport,
   acceptArtifactStoreReceipt: acceptPreviewBuildInputStoreReceipt,
   issueArtifactStoreCommand: issuePreviewBuildInputStoreCommand,
+  acceptArtifactDeleteReceipt: acceptPreviewBuildInputDeleteReceipt,
+  issueArtifactDeleteCommand: issuePreviewBuildInputDeleteCommand,
   issueHeartbeatChallenge: issuePreviewAgentHeartbeatChallenge,
   acceptHeartbeat: acceptPreviewAgentHeartbeat,
   buildJobPrivateKeyPem: config.previewBuildJobPrivateKeyPem,
@@ -267,6 +298,49 @@ function artifactStoreCommandIssueCode(error: unknown): {
     }
   }
   return { status: 503, error: "preview_artifact_command_unavailable" };
+}
+
+function artifactDeleteReceiptCode(error: unknown): {
+  status: number;
+  error: string;
+} {
+  if (error instanceof PreviewArtifactGcAcceptanceError) {
+    switch (error.code) {
+      case "PREVIEW_ARTIFACT_GC_ACCEPTANCE_INVALID":
+        return { status: 403, error: "preview_artifact_delete_receipt_rejected" };
+      case "PREVIEW_ARTIFACT_GC_ACCEPTANCE_CONFLICT":
+        return { status: 409, error: "preview_artifact_delete_receipt_conflict" };
+      case "PREVIEW_ARTIFACT_GC_ACCEPTANCE_UNAVAILABLE":
+        return { status: 503, error: "preview_artifact_delete_receipt_unavailable" };
+    }
+  }
+  return {
+    status: 503,
+    error: "preview_artifact_delete_receipt_unavailable",
+  };
+}
+
+function artifactDeleteCommandIssueCode(error: unknown): {
+  status: number;
+  error: string;
+} {
+  if (error instanceof PreviewArtifactGcCommandIssueError) {
+    switch (error.code) {
+      case "PREVIEW_ARTIFACT_GC_COMMAND_ISSUE_INVALID":
+        return { status: 403, error: "preview_artifact_delete_command_rejected" };
+      case "PREVIEW_ARTIFACT_GC_COMMAND_ISSUE_CONFLICT":
+        return { status: 409, error: "preview_artifact_delete_command_conflict" };
+      case "PREVIEW_ARTIFACT_GC_COMMAND_ISSUE_UNAVAILABLE":
+        return {
+          status: 503,
+          error: "preview_artifact_delete_command_unavailable",
+        };
+    }
+  }
+  return {
+    status: 503,
+    error: "preview_artifact_delete_command_unavailable",
+  };
 }
 
 function heartbeatIssueCode(error: unknown): {
@@ -454,6 +528,98 @@ export function createPreviewAgentRouter(
         });
       } catch (error) {
         const mapped = artifactStoreReceiptCode(error);
+        response.status(mapped.status).json({ error: mapped.error });
+      }
+    },
+  );
+
+  router.post(
+    "/internal/preview-build-jobs/:jobId/artifact-delete-command",
+    dependencies.capabilityRateLimiter,
+    async (request, response): Promise<void> => {
+      response.setHeader("cache-control", "no-store");
+      if (
+        request.get("cookie") ||
+        (dependencies.isProduction && !request.secure)
+      ) {
+        response.status(403).json({
+          error: "preview_artifact_delete_command_rejected",
+        });
+        return;
+      }
+      const parsed = artifactDeletePollProofSchema.safeParse(request.body);
+      const jobId = singleRouteParam(request.params.jobId);
+      if (
+        !parsed.success ||
+        !jobId ||
+        !z.string().uuid().safeParse(jobId).success ||
+        parsed.data.proof.jobId !== jobId
+      ) {
+        response.status(400).json({
+          error: "invalid_preview_artifact_delete_poll",
+        });
+        return;
+      }
+      try {
+        const command = await dependencies.issueArtifactDeleteCommand({
+          jobId,
+          proof: parsed.data.proof,
+          signature: parsed.data.signature,
+          buildJobPrivateKeyPem: dependencies.buildJobPrivateKeyPem,
+        });
+        if (!command) {
+          response.status(204).end();
+          return;
+        }
+        response.status(200).json(command);
+      } catch (error) {
+        const mapped = artifactDeleteCommandIssueCode(error);
+        response.status(mapped.status).json({ error: mapped.error });
+      }
+    },
+  );
+
+  router.post(
+    "/internal/preview-build-jobs/:jobId/artifact-delete-receipt",
+    dependencies.capabilityRateLimiter,
+    async (request, response): Promise<void> => {
+      response.setHeader("cache-control", "no-store");
+      if (
+        request.get("cookie") ||
+        (dependencies.isProduction && !request.secure)
+      ) {
+        response.status(403).json({
+          error: "preview_artifact_delete_receipt_rejected",
+        });
+        return;
+      }
+      const parsed = artifactStoreReceiptSchema.safeParse(request.body);
+      const jobId = singleRouteParam(request.params.jobId);
+      if (
+        !parsed.success ||
+        !jobId ||
+        !z.string().uuid().safeParse(jobId).success
+      ) {
+        response.status(400).json({
+          error: "invalid_preview_artifact_delete_receipt",
+        });
+        return;
+      }
+      try {
+        const result = await dependencies.acceptArtifactDeleteReceipt({
+          jobId,
+          commandToken: parsed.data.commandToken,
+          receiptToken: parsed.data.receiptToken,
+          buildJobPrivateKeyPem: dependencies.buildJobPrivateKeyPem,
+        });
+        response.status(200).json({
+          jobId: result.job.jobId,
+          stateVersion: result.job.stateVersion,
+          artifactDeleted: result.job.inputArtifactGcState === "deleted",
+          alreadyAccepted: result.alreadyAccepted,
+        });
+      } catch (error) {
+        const mapped = artifactDeleteReceiptCode(error);
         response.status(mapped.status).json({ error: mapped.error });
       }
     },

@@ -16,10 +16,15 @@ const RECEIPT_DOMAIN = Buffer.from(
   "EngineeringOS Preview Artifact Delete Receipt v2\n",
   "utf8",
 );
+const POLL_PROOF_DOMAIN = Buffer.from(
+  "EngineeringOS Preview Artifact Delete Poll Proof v2\n",
+  "utf8",
+);
 const MAX_TOKEN_LENGTH = 8_192;
 const MAX_PAYLOAD_BYTES = 6_144;
 const MAX_COMMAND_TTL_MS = 60_000;
 const MAX_RECEIPT_AGE_MS = 5 * 60_000;
+const MAX_POLL_PROOF_AGE_MS = 30_000;
 const CLOCK_SKEW_MS = 5_000;
 const UUID_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -65,6 +70,16 @@ const RECEIPT_FIELDS = [
   "completedAt",
 ] as const;
 
+const POLL_PROOF_FIELDS = [
+  "version",
+  "action",
+  "nodeId",
+  "keyVersion",
+  "jobId",
+  "issuedAt",
+  "nonce",
+] as const;
+
 export type PreviewArtifactDeleteCommandClaims = {
   version: 2;
   action: "delete-artifact";
@@ -105,6 +120,16 @@ export type PreviewArtifactDeleteReceiptClaims = {
   completedAt: string;
 };
 
+export type PreviewArtifactDeletePollProofClaims = {
+  version: 2;
+  action: "poll-artifact-delete-command";
+  nodeId: string;
+  keyVersion: number;
+  jobId: string;
+  issuedAt: string;
+  nonce: string;
+};
+
 export class PreviewArtifactGcCommandError extends Error {
   constructor(
     readonly code:
@@ -114,11 +139,72 @@ export class PreviewArtifactGcCommandError extends Error {
       | "PREVIEW_ARTIFACT_GC_COMMAND_SIGNATURE_INVALID"
       | "PREVIEW_ARTIFACT_GC_RECEIPT_INVALID"
       | "PREVIEW_ARTIFACT_GC_RECEIPT_SIGNATURE_INVALID"
-      | "PREVIEW_ARTIFACT_GC_RECEIPT_EXPIRED",
+      | "PREVIEW_ARTIFACT_GC_RECEIPT_EXPIRED"
+      | "PREVIEW_ARTIFACT_GC_POLL_PROOF_INVALID"
+      | "PREVIEW_ARTIFACT_GC_POLL_PROOF_SIGNATURE_INVALID"
+      | "PREVIEW_ARTIFACT_GC_POLL_PROOF_EXPIRED",
   ) {
     super("Preview artifact delete authorization is invalid or unavailable.");
     this.name = "PreviewArtifactGcCommandError";
   }
+}
+
+function canonicalPollProof(
+  proof: PreviewArtifactDeletePollProofClaims,
+): string {
+  return JSON.stringify(
+    Object.fromEntries(
+      POLL_PROOF_FIELDS.map((field) => [field, proof[field]]),
+    ),
+  );
+}
+
+function validatePollProof(
+  value: unknown,
+  now: Date,
+): PreviewArtifactDeletePollProofClaims {
+  if (
+    !value ||
+    typeof value !== "object" ||
+    Array.isArray(value) ||
+    !Number.isFinite(now.getTime())
+  ) {
+    throw new PreviewArtifactGcCommandError(
+      "PREVIEW_ARTIFACT_GC_POLL_PROOF_INVALID",
+    );
+  }
+  const record = value as Record<string, unknown>;
+  if (
+    Object.keys(record).length !== POLL_PROOF_FIELDS.length ||
+    POLL_PROOF_FIELDS.some((field) => !(field in record)) ||
+    record.version !== 2 ||
+    record.action !== "poll-artifact-delete-command" ||
+    typeof record.nodeId !== "string" ||
+    !UUID_PATTERN.test(record.nodeId) ||
+    !Number.isSafeInteger(record.keyVersion) ||
+    (record.keyVersion as number) < 1 ||
+    typeof record.jobId !== "string" ||
+    !UUID_PATTERN.test(record.jobId) ||
+    !canonicalTimestamp(record.issuedAt) ||
+    typeof record.nonce !== "string" ||
+    !UUID_PATTERN.test(record.nonce)
+  ) {
+    throw new PreviewArtifactGcCommandError(
+      "PREVIEW_ARTIFACT_GC_POLL_PROOF_INVALID",
+    );
+  }
+  const issuedAt = Date.parse(record.issuedAt);
+  if (
+    issuedAt > now.getTime() + CLOCK_SKEW_MS ||
+    now.getTime() - issuedAt > MAX_POLL_PROOF_AGE_MS
+  ) {
+    throw new PreviewArtifactGcCommandError(
+      "PREVIEW_ARTIFACT_GC_POLL_PROOF_EXPIRED",
+    );
+  }
+  return Object.fromEntries(
+    POLL_PROOF_FIELDS.map((field) => [field, record[field]]),
+  ) as PreviewArtifactDeletePollProofClaims;
 }
 
 function parseKey(
@@ -398,6 +484,62 @@ export function signPreviewArtifactDeleteCommand(input: {
   return `${payload.toString("base64url")}.${signature.toString("base64url")}`;
 }
 
+export function previewArtifactDeleteCommandPublicKeyPem(
+  privateKeyPem: string | undefined,
+): string {
+  return createPublicKey(parseKey(privateKeyPem, "private"))
+    .export({ type: "spki", format: "pem" })
+    .toString();
+}
+
+export function signPreviewArtifactDeletePollProof(input: {
+  proof: PreviewArtifactDeletePollProofClaims;
+  privateKeyPem: string | undefined;
+  now?: Date;
+}): string {
+  const proof = validatePollProof(input.proof, input.now ?? new Date());
+  const payload = Buffer.from(canonicalPollProof(proof), "utf8");
+  return signSignature(
+    null,
+    Buffer.concat([POLL_PROOF_DOMAIN, payload]),
+    parseKey(input.privateKeyPem, "private"),
+  ).toString("base64url");
+}
+
+export function verifyPreviewArtifactDeletePollProof(input: {
+  proof: unknown;
+  signature: string;
+  publicKeyPem: string | undefined;
+  now?: Date;
+}): PreviewArtifactDeletePollProofClaims {
+  const proof = validatePollProof(input.proof, input.now ?? new Date());
+  if (
+    typeof input.signature !== "string" ||
+    !/^[A-Za-z0-9_-]{86}$/.test(input.signature)
+  ) {
+    throw new PreviewArtifactGcCommandError(
+      "PREVIEW_ARTIFACT_GC_POLL_PROOF_INVALID",
+    );
+  }
+  const signature = Buffer.from(input.signature, "base64url");
+  const payload = Buffer.from(canonicalPollProof(proof), "utf8");
+  if (
+    signature.length !== 64 ||
+    signature.toString("base64url") !== input.signature ||
+    !verifySignature(
+      null,
+      Buffer.concat([POLL_PROOF_DOMAIN, payload]),
+      parseKey(input.publicKeyPem, "public"),
+      signature,
+    )
+  ) {
+    throw new PreviewArtifactGcCommandError(
+      "PREVIEW_ARTIFACT_GC_POLL_PROOF_SIGNATURE_INVALID",
+    );
+  }
+  return Object.freeze(proof);
+}
+
 export function verifyPreviewArtifactDeleteCommand(input: {
   token: string;
   publicKeyPem: string | undefined;
@@ -449,6 +591,43 @@ export function signPreviewArtifactDeleteReceipt(input: {
     parseKey(input.privateKeyPem, "private"),
   );
   return `${payload.toString("base64url")}.${signature.toString("base64url")}`;
+}
+
+/**
+ * Returns only an untrusted timestamp hint so receipt acceptance can verify a
+ * command against the time the owner claims it completed. The caller must still
+ * verify the receipt signature before accepting any state change.
+ */
+export function previewArtifactDeleteReceiptCompletedAtHint(
+  token: string,
+): Date {
+  let decoded: ReturnType<typeof decodeSignedPayload>;
+  try {
+    decoded = decodeSignedPayload(token);
+  } catch {
+    throw new PreviewArtifactGcCommandError(
+      "PREVIEW_ARTIFACT_GC_RECEIPT_INVALID",
+    );
+  }
+  let value: unknown;
+  try {
+    value = JSON.parse(decoded.payload.toString("utf8"));
+  } catch {
+    throw new PreviewArtifactGcCommandError(
+      "PREVIEW_ARTIFACT_GC_RECEIPT_INVALID",
+    );
+  }
+  if (
+    !value ||
+    typeof value !== "object" ||
+    Array.isArray(value) ||
+    !canonicalTimestamp((value as Record<string, unknown>).completedAt)
+  ) {
+    throw new PreviewArtifactGcCommandError(
+      "PREVIEW_ARTIFACT_GC_RECEIPT_INVALID",
+    );
+  }
+  return new Date((value as Record<string, string>).completedAt);
 }
 
 export function verifyPreviewArtifactDeleteReceipt(input: {

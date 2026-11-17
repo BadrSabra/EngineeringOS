@@ -48,9 +48,9 @@ export type PreviewArtifactStoreCommandIssue = {
   commandToken: string;
 };
 
-function hasRegisteredOwner(
+export function previewAgentOwnsBuildArtifact(
   node: typeof previewAgentNodesTable.$inferSelect | undefined,
-  proof: PreviewArtifactStorePollProofClaims,
+  proof: { nodeId: string; keyVersion: number },
   job: {
     projectId: string;
     userId: string;
@@ -262,7 +262,7 @@ export async function issuePreviewBuildInputStoreCommand(input: {
         job.inputArtifactGcState !== "active" ||
         job.tokenExpiresAt.getTime() <= now.getTime() ||
         !lockedKeyProofValid ||
-        !hasRegisteredOwner(node, proof, job) ||
+        !previewAgentOwnsBuildArtifact(node, proof, job) ||
         !previewArtifactStoreCandidateIsCurrent(candidate ?? null, job)
       ) {
         throw new PreviewArtifactStoreCommandIssueError(

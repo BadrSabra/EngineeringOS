@@ -8,6 +8,11 @@ import { PreviewAgentCapabilityError } from "../lib/preview-agent-capability.js"
 import type { PreviewBuildJob } from "@workspace/db";
 import { PreviewArtifactStoreAcceptanceError } from "../lib/preview-artifact-store-acceptance.js";
 import { PreviewArtifactStoreCommandIssueError } from "../lib/preview-artifact-store-issuer.js";
+import { PreviewArtifactGcAcceptanceError } from "../lib/preview-artifact-gc-acceptance.js";
+import {
+  PreviewArtifactGcCommandIssueError,
+  type PreviewArtifactGcCommandIssue,
+} from "../lib/preview-artifact-gc-issuer.js";
 import { createPreviewAgentRouter } from "./preview-agents.js";
 
 const pairing = {
@@ -66,6 +71,26 @@ function createApp(options: { production?: boolean } = {}) {
       expiresAt: new Date("2031-03-04T12:00:30.000Z"),
       commandToken: `signed-command-for-${jobId}`,
     })),
+    acceptArtifactDeleteReceipt: vi.fn(async ({ jobId }: { jobId: string }) => ({
+      job: {
+        jobId,
+        stateVersion: 6,
+        inputArtifactGcState: "deleted",
+      } as PreviewBuildJob,
+      alreadyAccepted: false,
+    })),
+    issueArtifactDeleteCommand: vi.fn(
+      async ({
+        jobId,
+      }: {
+        jobId: string;
+      }): Promise<PreviewArtifactGcCommandIssue | null> => ({
+        commandId: "323e4567-e89b-42d3-a456-426614174002",
+        commandFingerprint: "b".repeat(64),
+        expiresAt: new Date("2031-03-04T12:00:30.000Z"),
+        commandToken: `signed-delete-command-for-${jobId}`,
+      }),
+    ),
     issueHeartbeatChallenge: vi.fn(
       async ({
         proof,
@@ -585,6 +610,140 @@ describe("Preview Agent pairing routes", () => {
     expect(conflictResponse.body).toEqual({
       error: "preview_artifact_receipt_conflict",
     });
+  });
+
+  it("requires a signed owner proof and returns no command while GC grace is pending", async () => {
+    const { app, dependencies } = createApp();
+    const path =
+      "/internal/preview-build-jobs/123e4567-e89b-42d3-a456-426614174000/artifact-delete-command";
+    const body = {
+      proof: {
+        version: 2,
+        action: "poll-artifact-delete-command",
+        nodeId: node.nodeId,
+        keyVersion: 1,
+        jobId: "123e4567-e89b-42d3-a456-426614174000",
+        issuedAt: "2031-03-04T12:00:00.000Z",
+        nonce: "923e4567-e89b-42d3-a456-426614174003",
+      },
+      signature: "s".repeat(86),
+    };
+    vi.mocked(dependencies.issueArtifactDeleteCommand).mockResolvedValueOnce(
+      null,
+    );
+    const pending = await request(app).post(path).send(body);
+    const issued = await request(app)
+      .post(path)
+      .send({ ...body, proof: { ...body.proof, nonce: "923e4567-e89b-42d3-a456-426614174004" } });
+
+    expect(pending.status).toBe(204);
+    expect(issued.status).toBe(200);
+    expect(issued.body).toMatchObject({
+      commandId: "323e4567-e89b-42d3-a456-426614174002",
+      commandToken:
+        "signed-delete-command-for-123e4567-e89b-42d3-a456-426614174000",
+    });
+    expect(dependencies.issueArtifactDeleteCommand).toHaveBeenCalledWith(
+      expect.objectContaining({
+        jobId: "123e4567-e89b-42d3-a456-426614174000",
+        proof: body.proof,
+        signature: body.signature,
+      }),
+    );
+    expect(issued.headers["cache-control"]).toBe("no-store");
+  });
+
+  it("rejects cookie/HTTP delete polling and maps lease conflicts", async () => {
+    const { app, dependencies } = createApp({ production: true });
+    const path =
+      "/internal/preview-build-jobs/123e4567-e89b-42d3-a456-426614174000/artifact-delete-command";
+    const body = {
+      proof: {
+        version: 2,
+        action: "poll-artifact-delete-command",
+        nodeId: node.nodeId,
+        keyVersion: 1,
+        jobId: "123e4567-e89b-42d3-a456-426614174000",
+        issuedAt: "2031-03-04T12:00:00.000Z",
+        nonce: "923e4567-e89b-42d3-a456-426614174005",
+      },
+      signature: "s".repeat(86),
+    };
+    const cookieResponse = await request(app)
+      .post(path)
+      .set("Cookie", "session=unexpected")
+      .set("x-forwarded-proto", "https")
+      .send(body);
+    const plaintextResponse = await request(app).post(path).send(body);
+    vi.mocked(dependencies.issueArtifactDeleteCommand).mockRejectedValueOnce(
+      new PreviewArtifactGcCommandIssueError(
+        "PREVIEW_ARTIFACT_GC_COMMAND_ISSUE_CONFLICT",
+      ),
+    );
+    const conflictResponse = await request(app)
+      .post(path)
+      .set("x-forwarded-proto", "https")
+      .send(body);
+
+    expect(cookieResponse.status).toBe(403);
+    expect(plaintextResponse.status).toBe(403);
+    expect(conflictResponse.status).toBe(409);
+    expect(conflictResponse.body).toEqual({
+      error: "preview_artifact_delete_command_conflict",
+    });
+  });
+
+  it("accepts signed delete receipts without returning command tokens", async () => {
+    const { app, dependencies } = createApp();
+    const jobId = "123e4567-e89b-42d3-a456-426614174000";
+    const response = await request(app)
+      .post(`/internal/preview-build-jobs/${jobId}/artifact-delete-receipt`)
+      .send({
+        commandToken: "server-signed-command",
+        receiptToken: "agent-signed-receipt",
+      });
+
+    expect(response.status).toBe(200);
+    expect(response.body).toEqual({
+      jobId,
+      stateVersion: 6,
+      artifactDeleted: true,
+      alreadyAccepted: false,
+    });
+    expect(response.body).not.toHaveProperty("commandToken");
+    expect(dependencies.acceptArtifactDeleteReceipt).toHaveBeenCalledWith({
+      jobId,
+      commandToken: "server-signed-command",
+      receiptToken: "agent-signed-receipt",
+      buildJobPrivateKeyPem: "server-only signing key",
+    });
+  });
+
+  it("rejects additional delete receipt fields and safely maps conflicts", async () => {
+    const { app, dependencies } = createApp();
+    const path =
+      "/internal/preview-build-jobs/123e4567-e89b-42d3-a456-426614174000/artifact-delete-receipt";
+    const invalid = await request(app).post(path).send({
+      commandToken: "server-signed-command",
+      receiptToken: "agent-signed-receipt",
+      artifactKey: "/caller/path",
+    });
+    vi.mocked(dependencies.acceptArtifactDeleteReceipt).mockRejectedValueOnce(
+      new PreviewArtifactGcAcceptanceError(
+        "PREVIEW_ARTIFACT_GC_ACCEPTANCE_CONFLICT",
+      ),
+    );
+    const conflict = await request(app).post(path).send({
+      commandToken: "server-signed-command",
+      receiptToken: "agent-signed-receipt",
+    });
+
+    expect(invalid.status).toBe(400);
+    expect(conflict.status).toBe(409);
+    expect(conflict.body).toEqual({
+      error: "preview_artifact_delete_receipt_conflict",
+    });
+    expect(dependencies.acceptArtifactDeleteReceipt).toHaveBeenCalledTimes(1);
   });
 
   it("lists safe node summaries and scopes revocation to the owned project", async () => {

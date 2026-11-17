@@ -4,11 +4,15 @@ import {
   PreviewArtifactGcCommandError,
   previewArtifactDeleteCommandFingerprint,
   previewArtifactDeleteCommandId,
+  previewArtifactDeleteReceiptCompletedAtHint,
   signPreviewArtifactDeleteCommand,
+  signPreviewArtifactDeletePollProof,
   signPreviewArtifactDeleteReceipt,
   verifyPreviewArtifactDeleteCommand,
+  verifyPreviewArtifactDeletePollProof,
   verifyPreviewArtifactDeleteReceipt,
   type PreviewArtifactDeleteCommandClaims,
+  type PreviewArtifactDeletePollProofClaims,
   type PreviewArtifactDeleteReceiptClaims,
 } from "./preview-artifact-gc-command.js";
 import { MAX_PREVIEW_BUILD_ARCHIVE_BYTES } from "./preview-build-upload.js";
@@ -210,6 +214,57 @@ describe("Preview artifact delete command contract", () => {
     );
   });
 
+  it("authenticates fresh Agent delete polls and rejects stale or altered proofs", () => {
+    const proof: PreviewArtifactDeletePollProofClaims = {
+      version: 2,
+      action: "poll-artifact-delete-command",
+      nodeId: validCommand().nodeId,
+      keyVersion: 3,
+      jobId: validCommand().jobId,
+      issuedAt: NOW.toISOString(),
+      nonce: "96232a4b-6f1a-4811-9b17-4c7fb75f1dc4",
+    };
+    const signature = signPreviewArtifactDeletePollProof({
+      proof,
+      privateKeyPem: OWNER_PRIVATE,
+      now: NOW,
+    });
+    expect(
+      verifyPreviewArtifactDeletePollProof({
+        proof,
+        signature,
+        publicKeyPem: OWNER_PUBLIC,
+        now: NOW,
+      }),
+    ).toEqual(proof);
+    expect(() =>
+      verifyPreviewArtifactDeletePollProof({
+        proof: { ...proof, jobId: "94cc6266-181a-44f9-90f8-bdd21ebcc748" },
+        signature,
+        publicKeyPem: OWNER_PUBLIC,
+        now: NOW,
+      }),
+    ).toThrowError(
+      expect.objectContaining({
+        code: "PREVIEW_ARTIFACT_GC_POLL_PROOF_SIGNATURE_INVALID",
+      }),
+    );
+    expect(() =>
+      signPreviewArtifactDeletePollProof({
+        proof: {
+          ...proof,
+          issuedAt: new Date(NOW.getTime() - 31_000).toISOString(),
+        },
+        privateKeyPem: OWNER_PRIVATE,
+        now: NOW,
+      }),
+    ).toThrowError(
+      expect.objectContaining({
+        code: "PREVIEW_ARTIFACT_GC_POLL_PROOF_EXPIRED",
+      }),
+    );
+  });
+
   it("rejects a command signed by an untrusted key or with a changed target", () => {
     const token = signedCommand();
     expect(() =>
@@ -288,6 +343,7 @@ describe("Preview artifact delete command contract", () => {
       privateKeyPem: OWNER_PRIVATE,
       now: NOW,
     });
+    expect(previewArtifactDeleteReceiptCompletedAtHint(token)).toEqual(NOW);
     expect(
       verifyPreviewArtifactDeleteReceipt({
         token,
@@ -310,6 +366,36 @@ describe("Preview artifact delete command contract", () => {
     ).toThrowError(
       expect.objectContaining({
         code: "PREVIEW_ARTIFACT_GC_RECEIPT_INVALID",
+      }),
+    );
+  });
+
+  it("treats the receipt time hint as untrusted until signature verification", () => {
+    const command = validCommand();
+    const signed = signPreviewArtifactDeleteReceipt({
+      claims: validReceipt(command),
+      privateKeyPem: OWNER_PRIVATE,
+      now: NOW,
+    });
+    const [payload] = signed.split(".");
+    const tamperedClaims = JSON.parse(
+      Buffer.from(payload!, "base64url").toString("utf8"),
+    ) as Record<string, unknown>;
+    tamperedClaims.completedAt = new Date(NOW.getTime() + 20_000).toISOString();
+    const tampered = `${Buffer.from(JSON.stringify(tamperedClaims)).toString("base64url")}.${signed.split(".")[1]}`;
+    expect(previewArtifactDeleteReceiptCompletedAtHint(tampered)).toEqual(
+      new Date(NOW.getTime() + 20_000),
+    );
+    expect(() =>
+      verifyPreviewArtifactDeleteReceipt({
+        token: tampered,
+        publicKeyPem: OWNER_PUBLIC,
+        command,
+        now: new Date(NOW.getTime() + 20_000),
+      }),
+    ).toThrowError(
+      expect.objectContaining({
+        code: "PREVIEW_ARTIFACT_GC_RECEIPT_SIGNATURE_INVALID",
       }),
     );
   });

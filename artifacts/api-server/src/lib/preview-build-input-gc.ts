@@ -88,6 +88,7 @@ const databaseRepository: PreviewBuildInputGcRepository = {
       .where(
         and(
           eq(previewBuildJobsTable.inputArtifactProvider, "local"),
+          isNull(previewBuildJobsTable.inputArtifactOwnerNodeId),
           eq(previewBuildJobsTable.inputArtifactGcState, "active"),
           isNotNull(previewBuildJobsTable.completedAt),
           inArray(previewBuildJobsTable.status, TERMINAL_BUILD_STATUSES),
@@ -130,6 +131,7 @@ const databaseRepository: PreviewBuildInputGcRepository = {
             and(
               eq(previewBuildJobsTable.archiveDigest, archiveDigest),
               eq(previewBuildJobsTable.inputArtifactProvider, "local"),
+              isNull(previewBuildJobsTable.inputArtifactOwnerNodeId),
               eq(previewBuildJobsTable.inputArtifactGcState, "active"),
             ),
           )
@@ -156,6 +158,7 @@ const databaseRepository: PreviewBuildInputGcRepository = {
       .where(
         and(
           eq(previewBuildJobsTable.inputArtifactProvider, "local"),
+          isNull(previewBuildJobsTable.inputArtifactOwnerNodeId),
           or(
             and(
               eq(
@@ -206,7 +209,8 @@ const databaseRepository: PreviewBuildInputGcRepository = {
           (row) =>
             row.jobId === jobId &&
             row.inputArtifactRefId === inputArtifactRefId &&
-            row.inputArtifactKey === inputArtifactKey,
+            row.inputArtifactKey === inputArtifactKey &&
+            row.inputArtifactOwnerNodeId === null,
         );
         if (
           targetRows.length === 0 ||
@@ -247,6 +251,7 @@ const databaseRepository: PreviewBuildInputGcRepository = {
               ),
               eq(previewBuildJobsTable.archiveDigest, archiveDigest),
               eq(previewBuildJobsTable.inputArtifactProvider, "local"),
+              isNull(previewBuildJobsTable.inputArtifactOwnerNodeId),
               eq(previewBuildJobsTable.inputArtifactKey, inputArtifactKey),
               inArray(previewBuildJobsTable.inputArtifactGcState, [
                 "eligible_for_gc",
@@ -281,7 +286,7 @@ const databaseRepository: PreviewBuildInputGcRepository = {
         .update(previewBuildJobsTable)
         .set({
           inputArtifactGcState: "deleted",
-          inputArtifactGcMarkedAt: now,
+          inputArtifactGcMarkedAt: reference.gcLeaseAt,
           updatedAt: now,
         })
         .where(
@@ -297,6 +302,7 @@ const databaseRepository: PreviewBuildInputGcRepository = {
             ),
             eq(previewBuildJobsTable.archiveDigest, reference.archiveDigest),
             eq(previewBuildJobsTable.inputArtifactProvider, "local"),
+            isNull(previewBuildJobsTable.inputArtifactOwnerNodeId),
             eq(previewBuildJobsTable.inputArtifactGcState, "deleting"),
             eq(
               previewBuildJobsTable.inputArtifactGcMarkedAt,
