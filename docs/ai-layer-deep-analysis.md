@@ -10,6 +10,29 @@ and the inspected test suites were not executed.
 **Change boundary:** This report does not change runtime code, database schema,
 provider credentials, or Dashboard behavior.
 
+## Current source revalidation addendum — 2026-11-17
+
+**Baseline:** main at 5103e66368e181c3fa00d11d00ea25e51677e070. This addendum refines the September 2026 audit; it does not claim a complete re-census of every AI ingress or run a new AI-provider campaign.
+
+### Confirmed context-boundary findings
+
+1. context-runtime/context-admission.ts::runAdmission checks project, operation, project revision, source root, and scan-correlation identity. An unbound context causes slices to be dropped. This is a real guard and must not be ignored when describing context admission.
+2. context-manifest.ts::contextManifestMatches and contextManifestAllowsExecution are exported helpers, but a workspace source search found no production caller; observed matches are their definitions, package exports, and tests. Treat them as available contracts, not as a universal execution gate.
+3. context-cache-manager.ts::buildContextCacheKey includes project, selected sections, plan hash, and optional source root, but not a repository/scan manifest fingerprint. The cache has a 30-second normal TTL, up to 120 seconds in aggressive mode, explicit invalidation, and a PostgreSQL notification hook for sibling API processes. Cache hits rebind operation identity and apply lifetime policy, but do not independently compare the cached manifest against a freshly computed current workspace revision. This is a potential freshness gap, not evidence that a stale-context exploit was reproduced.
+4. context-links.ts::link defaults link metadata to fresh and ADMIT. context-builder.ts applies slice admission/lifetime to the assembled context health, but the inspected link path does not consistently project those final decisions back into each link. Treat this as a provenance/presentation risk; do not describe it as an execution-authority bypass.
+5. The analysis-tool path has its own stronger operation/project/revision/root checks in ai-analysis-tools.ts. The context findings above must not be generalized into a claim that every AI tool path is unguarded.
+
+### Architecture and execution boundary
+
+- Apply Proof v2 is now present on main (PR #37), and PR #40 binds attempt identity and the exact submitted partial-Hunk envelope. This does not add an Apply Proof Graph Projector.
+- The production Execution Proof Graph path is scoped to runtime_start_gate_c_v1; the generic ProofGraph validator remains STRUCTURE_ONLY_NO_EXECUTION_AUTHORITY.
+- Mission and Workflow remain separate orchestration contracts. A Workflow phase status is not a Mission Goal proof or Canonical Acceptance.
+- E2 is closed by the explicit 2026-10-11 decision; E3 and E3.2 remain open. Source-family completeness remains UNKNOWN, so no project-wide coverage ratio or score is valid.
+
+### Recommended bounded follow-up
+
+Bind cache hits to a revision/manifest fingerprint or perform a cheap current-revision fence before admitting cached context; then project final slice freshness/admission into Context Links. Add focused race and cross-process invalidation tests before changing default cache semantics. Do not combine this with Apply Projector implementation or a universal context service.
+
 ## 1. Executive conclusion
 
 The AI layer has a mature safety-oriented architecture. The most important
