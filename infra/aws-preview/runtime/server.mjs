@@ -7,6 +7,8 @@ export const MAX_EXPANDED_BYTES = 64 * 1024 * 1024;
 const MAX_FILE_BYTES = 12 * 1024 * 1024;
 const MAX_FILE_COUNT = 5_000;
 const TAR_BLOCK_BYTES = 512;
+export const STATIC_PREVIEW_CSP_V1 =
+  "default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; media-src 'self' data: blob:; manifest-src 'self'; connect-src 'none'; worker-src 'none'; frame-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'";
 
 const CONTENT_TYPES = new Map([
   [".css", "text/css; charset=utf-8"],
@@ -302,9 +304,10 @@ export function createPreviewStaticServer(files) {
     response.setHeader("x-content-type-options", "nosniff");
     response.setHeader("referrer-policy", "no-referrer");
     response.setHeader("cache-control", "no-store");
+    response.setHeader("content-security-policy", STATIC_PREVIEW_CSP_V1);
     response.setHeader(
-      "content-security-policy",
-      "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'",
+      "permissions-policy",
+      "camera=(), microphone=(), geolocation=(), payment=(), usb=()",
     );
 
     if (request.method === "GET" && request.url === "/healthz") {
