@@ -31,6 +31,7 @@ export type PreviewBuildInputGcReference = {
   inputArtifactRefId: string;
   archiveDigest: string;
   inputArtifactKey: string;
+  gcLeaseAt: Date;
 };
 
 export type PreviewBuildInputGcRepository = {
@@ -253,7 +254,15 @@ const databaseRepository: PreviewBuildInputGcRepository = {
               ]),
             ),
           );
-        return [{ jobId, inputArtifactRefId, archiveDigest, inputArtifactKey }];
+        return [
+          {
+            jobId,
+            inputArtifactRefId,
+            archiveDigest,
+            inputArtifactKey,
+            gcLeaseAt: now,
+          },
+        ];
       });
       for (const reference of references) {
         claimed.set(
@@ -289,13 +298,20 @@ const databaseRepository: PreviewBuildInputGcRepository = {
             eq(previewBuildJobsTable.archiveDigest, reference.archiveDigest),
             eq(previewBuildJobsTable.inputArtifactProvider, "local"),
             eq(previewBuildJobsTable.inputArtifactGcState, "deleting"),
+            eq(
+              previewBuildJobsTable.inputArtifactGcMarkedAt,
+              reference.gcLeaseAt,
+            ),
           ),
         )
         .returning({ jobId: previewBuildJobsTable.jobId });
       if (updated) return true;
 
       const [current] = await tx
-        .select({ state: previewBuildJobsTable.inputArtifactGcState })
+        .select({
+          state: previewBuildJobsTable.inputArtifactGcState,
+          gcLeaseAt: previewBuildJobsTable.inputArtifactGcMarkedAt,
+        })
         .from(previewBuildJobsTable)
         .where(
           and(
@@ -313,7 +329,10 @@ const databaseRepository: PreviewBuildInputGcRepository = {
           ),
         )
         .limit(1);
-      return current?.state === "deleted";
+      return (
+        current?.state === "deleted" &&
+        current.gcLeaseAt?.getTime() === reference.gcLeaseAt.getTime()
+      );
     });
   },
 };
