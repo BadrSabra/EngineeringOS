@@ -92,6 +92,21 @@ function remove(
   });
 }
 
+function removeReference(
+  store: Awaited<ReturnType<typeof createLocalPreviewBuildInputObjectStore>>,
+  artifact: Awaited<ReturnType<typeof store.inspect>>,
+) {
+  return store.removeReference({
+    storeId: artifact.storeId,
+    jobId: artifact.jobId,
+    artifactRefId: artifact.artifactRefId,
+    expectedDigest: artifact.digest,
+    expectedSizeBytes: artifact.sizeBytes,
+    expectedManifestDigest: artifact.manifestDigest,
+    expectedRetentionPolicy: artifact.retentionPolicy,
+  });
+}
+
 async function createStore() {
   const parent = await mkdtemp(join(tmpdir(), "preview-local-store-"));
   tempRoots.push(parent);
@@ -548,6 +563,71 @@ describe("Local Preview build-input CAS", () => {
     await remove(store, second.objectKey, undefined, secondJobId);
     await remove(store, second.objectKey, undefined, secondJobId);
     await expect(lstat(blobPath)).rejects.toMatchObject({ code: "ENOENT" });
+  });
+
+  it("removes only a fully matched input reference and leaves shared blob cleanup separate", async () => {
+    const { rootDir, store } = await createStore();
+    const bytes = Buffer.from("reference receipt must not authorize shared blob deletion");
+    const first = objectKey(bytes, "3".repeat(64));
+    const second = objectKey(bytes, "4".repeat(64));
+    const firstJobId = "00000000-0000-8000-8000-000000000006";
+    const secondJobId = "00000000-0000-8000-8000-000000000007";
+    const blobPath = join(
+      rootDir,
+      "blobs",
+      first.archiveDigest.slice(0, 2),
+      `${first.archiveDigest.slice(2)}.zip`,
+    );
+    await put(store, {
+      ...first,
+      archive: bytes,
+      contentLength: bytes.length,
+    }, firstJobId);
+    await put(store, {
+      ...second,
+      archive: bytes,
+      contentLength: bytes.length,
+    }, secondJobId);
+    const firstMetadata = await inspect(store, first.objectKey, firstJobId);
+    const secondMetadata = await inspect(store, second.objectKey, secondJobId);
+
+    await expect(
+      store.removeReference({
+        storeId: firstMetadata.storeId,
+        jobId: firstMetadata.jobId,
+        artifactRefId: firstMetadata.artifactRefId,
+        expectedDigest: "f".repeat(64),
+        expectedSizeBytes: firstMetadata.sizeBytes,
+        expectedManifestDigest: firstMetadata.manifestDigest,
+        expectedRetentionPolicy: firstMetadata.retentionPolicy,
+      }),
+    ).rejects.toMatchObject({ code: "PREVIEW_LOCAL_STORE_INVALID_OBJECT" });
+    await expect(
+      store.removeReference({
+        storeId: firstMetadata.storeId,
+        jobId: firstMetadata.jobId,
+        artifactRefId: firstMetadata.artifactRefId,
+        expectedDigest: firstMetadata.digest,
+        expectedSizeBytes: firstMetadata.sizeBytes + 1,
+        expectedManifestDigest: firstMetadata.manifestDigest,
+        expectedRetentionPolicy: firstMetadata.retentionPolicy,
+      }),
+    ).rejects.toMatchObject({ code: "PREVIEW_LOCAL_STORE_CONFLICT" });
+    await expect(inspect(store, first.objectKey, firstJobId)).resolves.toEqual(
+      firstMetadata,
+    );
+
+    await expect(removeReference(store, firstMetadata)).resolves.toBe("deleted");
+    await expect(removeReference(store, firstMetadata)).resolves.toBe(
+      "already_deleted",
+    );
+    await expect(lstat(blobPath)).resolves.toBeDefined();
+    await expect(inspect(store, second.objectKey, secondJobId)).resolves.toEqual(
+      secondMetadata,
+    );
+    await expect(inspect(store, first.objectKey, firstJobId)).rejects.toThrow(
+      LocalPreviewBuildInputStoreError,
+    );
   });
 
   it("keeps same-key references job-scoped while deduplicating the shared blob", async () => {

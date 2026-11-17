@@ -723,6 +723,15 @@ export type LocalPreviewBuildInputObjectStore =
       jobId: string;
       artifactRefId: string;
     }): Promise<PreviewBuildArtifactWriteMetadata>;
+    removeReference(input: {
+      storeId: string;
+      jobId: string;
+      artifactRefId: string;
+      expectedDigest: string;
+      expectedSizeBytes: number;
+      expectedManifestDigest: string;
+      expectedRetentionPolicy: PreviewBuildArtifactWriteMetadata["retentionPolicy"];
+    }): Promise<"deleted" | "already_deleted">;
     read(input: {
       objectKey: string;
       jobId: string;
@@ -1016,7 +1025,7 @@ export async function createLocalPreviewArtifactObjectStore(input: {
 
   const store: Pick<
     LocalPreviewBuildInputObjectStore,
-    "putStream" | "inspect" | "read" | "remove"
+    "putStream" | "inspect" | "removeReference" | "read" | "remove"
   > = {
     async putStream({
       jobId,
@@ -1259,6 +1268,112 @@ export async function createLocalPreviewArtifactObjectStore(input: {
         );
       }
       return artifact;
+    },
+
+    async removeReference(input) {
+      if (
+        input.storeId !== storeId ||
+        !UUID_PATTERN.test(input.jobId) ||
+        input.artifactRefId !==
+          previewBuildArtifactRefId(input.jobId, "input") ||
+        !DIGEST_PATTERN.test(input.expectedDigest) ||
+        !Number.isSafeInteger(input.expectedSizeBytes) ||
+        input.expectedSizeBytes < 1 ||
+        input.expectedSizeBytes > maxBytes ||
+        !DIGEST_PATTERN.test(input.expectedManifestDigest) ||
+        input.expectedRetentionPolicy !== "preview-build-input-24h-v1"
+      ) {
+        throw new LocalPreviewBuildInputStoreError(
+          "PREVIEW_LOCAL_STORE_INVALID_OBJECT",
+        );
+      }
+
+      const reference = referencePath(input.artifactRefId);
+      let before;
+      try {
+        before = await lstat(reference);
+      } catch (error) {
+        if (errorCode(error) === "ENOENT") return "already_deleted";
+        throw new LocalPreviewBuildInputStoreError(
+          "PREVIEW_LOCAL_STORE_UNAVAILABLE",
+        );
+      }
+      if (
+        !isPrivateRegularStoreFile(before, process.getuid?.()) ||
+        before.nlink !== 1
+      ) {
+        throw new LocalPreviewBuildInputStoreError(
+          "PREVIEW_LOCAL_STORE_INVALID_OBJECT",
+        );
+      }
+
+      const manifestBytes = await readRegularFile(reference, MAX_MANIFEST_BYTES);
+      let manifest: unknown;
+      try {
+        manifest = JSON.parse(manifestBytes.toString("utf8"));
+      } catch {
+        throw new LocalPreviewBuildInputStoreError(
+          "PREVIEW_LOCAL_STORE_INVALID_OBJECT",
+        );
+      }
+      const objectKey =
+        manifest &&
+        typeof manifest === "object" &&
+        !Array.isArray(manifest) &&
+        typeof (manifest as Record<string, unknown>).objectKey === "string"
+          ? ((manifest as Record<string, unknown>).objectKey as string)
+          : "";
+      const artifact = await validateManifest(
+        manifestBytes,
+        objectKey,
+        storeId,
+        input.expectedDigest,
+        { jobId: input.jobId, artifactRefId: input.artifactRefId },
+      );
+      if (
+        !objectKey.startsWith("build-inputs/") ||
+        artifact.digest !== input.expectedDigest ||
+        artifact.sizeBytes !== input.expectedSizeBytes ||
+        artifact.manifestDigest !== input.expectedManifestDigest ||
+        artifact.retentionPolicy !== input.expectedRetentionPolicy
+      ) {
+        throw new LocalPreviewBuildInputStoreError(
+          "PREVIEW_LOCAL_STORE_CONFLICT",
+        );
+      }
+
+      let current;
+      try {
+        current = await lstat(reference);
+      } catch (error) {
+        if (errorCode(error) === "ENOENT") return "already_deleted";
+        throw new LocalPreviewBuildInputStoreError(
+          "PREVIEW_LOCAL_STORE_UNAVAILABLE",
+        );
+      }
+      if (
+        !isPrivateRegularStoreFile(current, process.getuid?.()) ||
+        current.nlink !== 1 ||
+        current.dev !== before.dev ||
+        current.ino !== before.ino ||
+        current.size !== before.size ||
+        current.mtimeMs !== before.mtimeMs ||
+        current.ctimeMs !== before.ctimeMs
+      ) {
+        throw new LocalPreviewBuildInputStoreError(
+          "PREVIEW_LOCAL_STORE_CONFLICT",
+        );
+      }
+      try {
+        await unlink(reference);
+      } catch (error) {
+        if (errorCode(error) === "ENOENT") return "already_deleted";
+        throw new LocalPreviewBuildInputStoreError(
+          "PREVIEW_LOCAL_STORE_UNAVAILABLE",
+        );
+      }
+      await syncDirectory(dirname(reference));
+      return "deleted";
     },
 
     async remove({ objectKey, jobId, artifactRefId, expectedDigest }) {
