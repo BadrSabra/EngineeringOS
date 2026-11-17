@@ -9,11 +9,11 @@ import {
 import { MAX_PREVIEW_BUILD_ARCHIVE_BYTES } from "./preview-build-upload.js";
 
 const COMMAND_DOMAIN = Buffer.from(
-  "EngineeringOS Preview Artifact Delete Command v1\n",
+  "EngineeringOS Preview Artifact Delete Command v2\n",
   "utf8",
 );
 const RECEIPT_DOMAIN = Buffer.from(
-  "EngineeringOS Preview Artifact Delete Receipt v1\n",
+  "EngineeringOS Preview Artifact Delete Receipt v2\n",
   "utf8",
 );
 const MAX_TOKEN_LENGTH = 8_192;
@@ -29,6 +29,8 @@ const COMMAND_FIELDS = [
   "version",
   "action",
   "commandId",
+  "nodeId",
+  "keyVersion",
   "storeId",
   "artifactRefId",
   "jobId",
@@ -43,6 +45,7 @@ const COMMAND_FIELDS = [
   "sizeBytes",
   "manifestDigest",
   "retentionPolicy",
+  "gcLeaseAt",
   "issuedAt",
   "expiresAt",
 ] as const;
@@ -52,6 +55,8 @@ const RECEIPT_FIELDS = [
   "action",
   "commandId",
   "commandFingerprint",
+  "nodeId",
+  "keyVersion",
   "storeId",
   "artifactRefId",
   "artifactDigest",
@@ -61,9 +66,11 @@ const RECEIPT_FIELDS = [
 ] as const;
 
 export type PreviewArtifactDeleteCommandClaims = {
-  version: 1;
+  version: 2;
   action: "delete-artifact";
   commandId: string;
+  nodeId: string;
+  keyVersion: number;
   storeId: string;
   artifactRefId: string;
   jobId: string;
@@ -78,15 +85,18 @@ export type PreviewArtifactDeleteCommandClaims = {
   sizeBytes: number;
   manifestDigest: string;
   retentionPolicy: "preview-build-input-24h-v1";
+  gcLeaseAt: string;
   issuedAt: string;
   expiresAt: string;
 };
 
 export type PreviewArtifactDeleteReceiptClaims = {
-  version: 1;
+  version: 2;
   action: "artifact-delete-receipt";
   commandId: string;
   commandFingerprint: string;
+  nodeId: string;
+  keyVersion: number;
   storeId: string;
   artifactRefId: string;
   artifactDigest: string;
@@ -171,6 +181,44 @@ function canonicalReceipt(
   );
 }
 
+export function previewArtifactDeleteCommandId(input: {
+  nodeId: string;
+  keyVersion: number;
+  jobId: string;
+  artifactRefId: string;
+  gcLeaseAt: string;
+}): string {
+  if (
+    !UUID_PATTERN.test(input.nodeId) ||
+    !Number.isSafeInteger(input.keyVersion) ||
+    input.keyVersion < 1 ||
+    !UUID_PATTERN.test(input.jobId) ||
+    !UUID_PATTERN.test(input.artifactRefId) ||
+    !canonicalTimestamp(input.gcLeaseAt)
+  ) {
+    throw new PreviewArtifactGcCommandError(
+      "PREVIEW_ARTIFACT_GC_COMMAND_INVALID",
+    );
+  }
+  const bytes = createHash("sha256")
+    .update("EngineeringOS Preview Artifact Delete Command ID v2\n")
+    .update(input.nodeId.toLowerCase(), "utf8")
+    .update("\n")
+    .update(String(input.keyVersion), "utf8")
+    .update("\n")
+    .update(input.jobId.toLowerCase(), "utf8")
+    .update("\n")
+    .update(input.artifactRefId.toLowerCase(), "utf8")
+    .update("\n")
+    .update(input.gcLeaseAt, "utf8")
+    .digest()
+    .subarray(0, 16);
+  bytes[6] = (bytes[6]! & 0x0f) | 0x80;
+  bytes[8] = (bytes[8]! & 0x3f) | 0x80;
+  const hex = bytes.toString("hex");
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
+}
+
 function validateCommand(
   value: unknown,
   now: Date,
@@ -189,10 +237,14 @@ function validateCommand(
   if (
     Object.keys(record).length !== COMMAND_FIELDS.length ||
     COMMAND_FIELDS.some((field) => !(field in record)) ||
-    record.version !== 1 ||
+    record.version !== 2 ||
     record.action !== "delete-artifact" ||
     !boundedText(record.commandId, 36) ||
     !UUID_PATTERN.test(String(record.commandId)) ||
+    !boundedText(record.nodeId, 36) ||
+    !UUID_PATTERN.test(String(record.nodeId)) ||
+    !Number.isSafeInteger(record.keyVersion) ||
+    (record.keyVersion as number) < 1 ||
     !boundedText(record.storeId, 36) ||
     !UUID_PATTERN.test(String(record.storeId)) ||
     !boundedText(record.artifactRefId, 36) ||
@@ -217,6 +269,7 @@ function validateCommand(
     typeof record.manifestDigest !== "string" ||
     !HASH_PATTERN.test(record.manifestDigest) ||
     record.retentionPolicy !== "preview-build-input-24h-v1" ||
+    !canonicalTimestamp(record.gcLeaseAt) ||
     !canonicalTimestamp(record.issuedAt) ||
     !canonicalTimestamp(record.expiresAt)
   ) {
@@ -227,6 +280,7 @@ function validateCommand(
 
   const issuedAt = Date.parse(record.issuedAt);
   const expiresAt = Date.parse(record.expiresAt);
+  const gcLeaseAt = Date.parse(record.gcLeaseAt);
   if (
     issuedAt > now.getTime() + CLOCK_SKEW_MS ||
     expiresAt <= now.getTime() ||
@@ -235,6 +289,21 @@ function validateCommand(
   ) {
     throw new PreviewArtifactGcCommandError(
       "PREVIEW_ARTIFACT_GC_COMMAND_EXPIRED",
+    );
+  }
+  if (
+    gcLeaseAt > issuedAt + CLOCK_SKEW_MS ||
+    record.commandId !==
+      previewArtifactDeleteCommandId({
+        nodeId: record.nodeId as string,
+        keyVersion: record.keyVersion as number,
+        jobId: record.jobId as string,
+        artifactRefId: record.artifactRefId as string,
+        gcLeaseAt: record.gcLeaseAt,
+      })
+  ) {
+    throw new PreviewArtifactGcCommandError(
+      "PREVIEW_ARTIFACT_GC_COMMAND_INVALID",
     );
   }
 
@@ -261,12 +330,16 @@ function validateReceipt(
   if (
     Object.keys(record).length !== RECEIPT_FIELDS.length ||
     RECEIPT_FIELDS.some((field) => !(field in record)) ||
-    record.version !== 1 ||
+    record.version !== 2 ||
     record.action !== "artifact-delete-receipt" ||
     !boundedText(record.commandId, 36) ||
     !UUID_PATTERN.test(String(record.commandId)) ||
     typeof record.commandFingerprint !== "string" ||
     !HASH_PATTERN.test(record.commandFingerprint) ||
+    !boundedText(record.nodeId, 36) ||
+    !UUID_PATTERN.test(String(record.nodeId)) ||
+    !Number.isSafeInteger(record.keyVersion) ||
+    (record.keyVersion as number) < 1 ||
     !boundedText(record.storeId, 36) ||
     !UUID_PATTERN.test(String(record.storeId)) ||
     !boundedText(record.artifactRefId, 36) ||
@@ -417,10 +490,16 @@ export function verifyPreviewArtifactDeleteReceipt(input: {
     receipt.commandId !== input.command.commandId ||
     receipt.commandFingerprint !==
       previewArtifactDeleteCommandFingerprint(input.command) ||
+    receipt.nodeId !== input.command.nodeId ||
+    receipt.keyVersion !== input.command.keyVersion ||
     receipt.storeId !== input.command.storeId ||
     receipt.artifactRefId !== input.command.artifactRefId ||
     receipt.artifactDigest !== input.command.artifactDigest ||
-    receipt.manifestDigest !== input.command.manifestDigest
+    receipt.manifestDigest !== input.command.manifestDigest ||
+    Date.parse(receipt.completedAt) <
+      Date.parse(input.command.issuedAt) - CLOCK_SKEW_MS ||
+    Date.parse(receipt.completedAt) >
+      Date.parse(input.command.expiresAt) + CLOCK_SKEW_MS
   ) {
     throw new PreviewArtifactGcCommandError(
       "PREVIEW_ARTIFACT_GC_RECEIPT_INVALID",
