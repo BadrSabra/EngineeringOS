@@ -31,6 +31,8 @@ const changeSetHash = "d".repeat(64);
 const builderImageDigest = `sha256:${"e".repeat(64)}`;
 const outputDigest = "f".repeat(64);
 const outputArtifactKey = `preview-build-outputs/${buildId}/g1/site.tar.gz`;
+const inputArtifactProvider = "s3" as const;
+const outputArtifactProvider = "s3" as const;
 const builderTaskArn =
   "arn:aws:ecs:eu-central-1:123456789012:task/preview-builder/abcdef0123456789abcdef0123456789";
 
@@ -96,13 +98,15 @@ function signReceipt(
   overrides: Partial<PreviewBuildReceiptClaims> = {},
 ): string {
   const claims: PreviewBuildReceiptClaims = {
-    version: 2,
+    version: 3,
     action: "preview-build-ready",
     receiptId,
     buildId,
     attemptId: jobId,
     idempotencyKey: "423e4567-e89b-42d3-a456-426614174003",
     dispatchGeneration: 1,
+    inputArtifactProvider,
+    outputArtifactProvider,
     builderProfile: "vite-react-static-v1",
     builderImageDigest,
     projectId: "project-1",
@@ -126,7 +130,7 @@ function signReceipt(
   const signature = signBytes(
     null,
     Buffer.concat([
-      Buffer.from("EngineeringOS Preview Build Receipt v2\n", "utf8"),
+      Buffer.from("EngineeringOS Preview Build Receipt v3\n", "utf8"),
       payload,
     ]),
     privateKeyPem,

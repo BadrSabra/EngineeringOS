@@ -216,8 +216,7 @@ export async function executePreviewBuilderJob(input: {
     inputArchiveDigest: claims.archiveDigest,
     buildId: claims.buildId,
     outputArtifactKey: claims.outputArtifactKey,
-    dispatchGeneration:
-      claims.version === 2 ? claims.dispatchGeneration : 1,
+    dispatchGeneration: claims.version === 1 ? 1 : claims.dispatchGeneration,
   });
   if (transfer.outputArtifactKey !== claims.outputArtifactKey) {
     throw new PreviewBuilderRunnerError("PREVIEW_BUILDER_JOB_REJECTED");

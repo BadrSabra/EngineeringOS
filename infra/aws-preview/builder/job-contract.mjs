@@ -8,6 +8,10 @@ const SIGNING_DOMAIN_V2 = Buffer.from(
   "EngineeringOS Preview Build Job v2\n",
   "utf8",
 );
+const SIGNING_DOMAIN_V3 = Buffer.from(
+  "EngineeringOS Preview Build Job v3\n",
+  "utf8",
+);
 const MAX_TOKEN_LENGTH = 8_192;
 const MAX_JOB_TTL_MS = 5 * 60_000;
 const CLOCK_SKEW_MS = 5_000;
@@ -44,6 +48,13 @@ const FIELDS_V2 = [
   "attemptId",
   "idempotencyKey",
   "dispatchGeneration",
+  "issuedAt",
+  "expiresAt",
+];
+const FIELDS_V3 = [
+  ...FIELDS_V2.slice(0, -2),
+  "inputArtifactProvider",
+  "outputArtifactProvider",
   "issuedAt",
   "expiresAt",
 ];
@@ -107,7 +118,9 @@ function validateClaims(value, now) {
       ? FIELDS_V1
       : claims.version === 2
         ? FIELDS_V2
-        : undefined;
+        : claims.version === 3
+          ? FIELDS_V3
+          : undefined;
   if (
     !fields ||
     Object.keys(claims).length !== fields.length ||
@@ -133,11 +146,14 @@ function validateClaims(value, now) {
     !OUTPUT_KEY.test(claims.outputArtifactKey ?? "") ||
     !canonicalTimestamp(claims.issuedAt) ||
     !canonicalTimestamp(claims.expiresAt) ||
-    (claims.version === 2 &&
+    ((claims.version === 2 || claims.version === 3) &&
       (claims.attemptId !== claims.jobId ||
         !UUID.test(claims.idempotencyKey ?? "") ||
         !Number.isSafeInteger(claims.dispatchGeneration) ||
-        claims.dispatchGeneration < 1))
+        claims.dispatchGeneration < 1)) ||
+    (claims.version === 3 &&
+      (claims.inputArtifactProvider !== "s3" ||
+        claims.outputArtifactProvider !== "s3"))
   ) {
     fail();
   }
@@ -145,17 +161,19 @@ function validateClaims(value, now) {
   const outputKey = OUTPUT_KEY.exec(claims.outputArtifactKey);
   const legacyOutputKey = `preview-build-outputs/${claims.buildId}/site.tar.gz`;
   const expectedGenerationOutputKey =
-    claims.version === 2
-      ? `preview-build-outputs/${claims.buildId}/g${claims.dispatchGeneration}/site.tar.gz`
-      : legacyOutputKey;
+    claims.version === 1
+      ? legacyOutputKey
+      : `preview-build-outputs/${claims.buildId}/g${claims.dispatchGeneration}/site.tar.gz`;
   if (
     inputKey?.[2]?.toLowerCase() !== claims.archiveDigest.toLowerCase() ||
     outputKey?.[1]?.toLowerCase() !== claims.buildId.toLowerCase() ||
     (claims.version === 1
       ? claims.outputArtifactKey !== legacyOutputKey
       : claims.outputArtifactKey !== expectedGenerationOutputKey &&
-        !(claims.dispatchGeneration === 1 &&
-          claims.outputArtifactKey === legacyOutputKey))
+        !(
+          claims.dispatchGeneration === 1 &&
+          claims.outputArtifactKey === legacyOutputKey
+        ))
   ) {
     fail();
   }
@@ -223,7 +241,11 @@ export function verifyPreviewBuildJobToken(
     !verifySignature(
       null,
       Buffer.concat([
-        claims.version === 1 ? SIGNING_DOMAIN_V1 : SIGNING_DOMAIN_V2,
+        claims.version === 1
+          ? SIGNING_DOMAIN_V1
+          : claims.version === 2
+            ? SIGNING_DOMAIN_V2
+            : SIGNING_DOMAIN_V3,
         canonical,
       ]),
       publicKey,

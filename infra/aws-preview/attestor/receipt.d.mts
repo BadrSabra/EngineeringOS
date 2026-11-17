@@ -25,6 +25,15 @@ export type PreviewBuildAttestorClaims =
       attemptId: string;
       idempotencyKey: string;
       dispatchGeneration: number;
+    })
+  | (PreviewBuildAttestorClaimsBase & {
+      version: 3;
+      jobId: string;
+      attemptId: string;
+      idempotencyKey: string;
+      dispatchGeneration: number;
+      inputArtifactProvider: "local" | "s3";
+      outputArtifactProvider: "local" | "s3";
     });
 
 export function canonicalPreviewBuildReceiptPayload(

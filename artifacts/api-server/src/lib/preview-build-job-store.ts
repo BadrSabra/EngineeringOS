@@ -464,10 +464,13 @@ export function previewBuildJobMatchesVerifiedReceipt(
     job.buildId === receipt.buildId &&
     job.outputArtifactKey === receipt.outputArtifactKey &&
     job.builderImageDigest === receipt.builderImageDigest &&
-    (receipt.version === 2
+    (receipt.version === 2 || receipt.version === 3
       ? receipt.attemptId === job.jobId &&
         receipt.idempotencyKey === job.clientRequestId &&
-        receipt.dispatchGeneration === job.dispatchGeneration
+        receipt.dispatchGeneration === job.dispatchGeneration &&
+        (receipt.version === 2 ||
+          (receipt.inputArtifactProvider === job.inputArtifactProvider &&
+            receipt.outputArtifactProvider === job.outputArtifactProvider))
       : job.dispatchGeneration === 1) &&
     (job.buildReceiptId === null || job.buildReceiptId === receipt.receiptId) &&
     job.outputDigest === receipt.buildOutputDigest

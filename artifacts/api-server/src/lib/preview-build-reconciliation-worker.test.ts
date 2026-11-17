@@ -120,6 +120,8 @@ function executorWithObserve(
   observe: () => Promise<PreviewBuildObservation>,
 ) {
   return {
+    inputArtifactProvider: "s3" as const,
+    outputArtifactProvider: "s3" as const,
     launch: vi.fn(async ({ claims }: { claims: { jobId: string; buildId: string } }) => ({
       jobId: claims.jobId,
       buildId: claims.buildId,
@@ -554,6 +556,8 @@ describe("durable Preview build reconciliation", () => {
       state: "pending" as const,
     }));
     const executor = {
+      inputArtifactProvider: "s3" as const,
+      outputArtifactProvider: "s3" as const,
       launch: vi.fn(async () => ({
         jobId,
         buildId,

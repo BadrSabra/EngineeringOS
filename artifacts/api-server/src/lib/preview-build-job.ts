@@ -16,6 +16,10 @@ const SIGNING_DOMAIN_V2 = Buffer.from(
   "EngineeringOS Preview Build Job v2\n",
   "utf8",
 );
+const SIGNING_DOMAIN_V3 = Buffer.from(
+  "EngineeringOS Preview Build Job v3\n",
+  "utf8",
+);
 const MAX_TOKEN_LENGTH = 8_192;
 const MAX_JOB_TTL_MS = 5 * 60_000;
 const CLOCK_SKEW_MS = 5_000;
@@ -55,6 +59,15 @@ const JOB_FIELDS_V2 = [
   "issuedAt",
   "expiresAt",
 ] as const;
+const JOB_FIELDS_V3 = [
+  ...JOB_FIELDS_V2.slice(0, -2),
+  "inputArtifactProvider",
+  "outputArtifactProvider",
+  "issuedAt",
+  "expiresAt",
+] as const;
+
+export type PreviewArtifactProvider = "local" | "s3";
 
 type PreviewBuildJobClaimsBase = PreviewBuildInputIdentity & {
   action: "preview-build";
@@ -75,15 +88,25 @@ export type LegacyPreviewBuildJobClaims = PreviewBuildJobClaimsBase & {
   version: 1;
 };
 
-export type PreviewBuildJobClaims = PreviewBuildJobClaimsBase & {
+export type LegacyPreviewBuildJobClaimsV2 = PreviewBuildJobClaimsBase & {
   version: 2;
   attemptId: string;
   idempotencyKey: string;
   dispatchGeneration: number;
 };
 
+export type PreviewBuildJobClaims = PreviewBuildJobClaimsBase & {
+  version: 3;
+  attemptId: string;
+  idempotencyKey: string;
+  dispatchGeneration: number;
+  inputArtifactProvider: PreviewArtifactProvider;
+  outputArtifactProvider: PreviewArtifactProvider;
+};
+
 export type VerifiedPreviewBuildJobClaims =
   | LegacyPreviewBuildJobClaims
+  | LegacyPreviewBuildJobClaimsV2
   | PreviewBuildJobClaims;
 
 export class PreviewBuildJobError extends Error {
@@ -166,14 +189,19 @@ function validSourceRoot(value: unknown): value is string {
 
 function canonicalClaims(claims: PreviewBuildJobClaims): string {
   return JSON.stringify(
-    Object.fromEntries(JOB_FIELDS_V2.map((field) => [field, claims[field]])),
+    Object.fromEntries(JOB_FIELDS_V3.map((field) => [field, claims[field]])),
   );
 }
 
 function canonicalVerifiedClaims(
   claims: VerifiedPreviewBuildJobClaims,
 ): string {
-  const fields = claims.version === 1 ? JOB_FIELDS_V1 : JOB_FIELDS_V2;
+  const fields =
+    claims.version === 1
+      ? JOB_FIELDS_V1
+      : claims.version === 2
+        ? JOB_FIELDS_V2
+        : JOB_FIELDS_V3;
   const record = claims as unknown as Record<string, unknown>;
   return JSON.stringify(
     Object.fromEntries(fields.map((field) => [field, record[field]])),
@@ -198,7 +226,9 @@ function validateClaims(
       ? JOB_FIELDS_V1
       : record.version === 2
         ? JOB_FIELDS_V2
-        : undefined;
+        : record.version === 3
+          ? JOB_FIELDS_V3
+          : undefined;
   if (
     !fields ||
     Object.keys(record).length !== fields.length ||
@@ -229,12 +259,17 @@ function validateClaims(
     !INPUT_KEY_PATTERN.test(record.inputArtifactKey) ||
     !canonicalTimestamp(record.issuedAt) ||
     !canonicalTimestamp(record.expiresAt) ||
-    (record.version === 2 &&
+    ((record.version === 2 || record.version === 3) &&
       (record.attemptId !== record.jobId ||
         typeof record.idempotencyKey !== "string" ||
         !UUID_PATTERN.test(record.idempotencyKey) ||
         !Number.isSafeInteger(record.dispatchGeneration) ||
-        (record.dispatchGeneration as number) < 1))
+        (record.dispatchGeneration as number) < 1)) ||
+    (record.version === 3 &&
+      ((record.inputArtifactProvider !== "local" &&
+        record.inputArtifactProvider !== "s3") ||
+        (record.outputArtifactProvider !== "local" &&
+          record.outputArtifactProvider !== "s3")))
   ) {
     throw new PreviewBuildJobError("PREVIEW_BUILD_JOB_INVALID");
   }
@@ -247,7 +282,7 @@ function validateClaims(
   if (
     !isPreviewBuildOutputArtifactKey(record.outputArtifactKey, {
       buildId: record.buildId as string,
-      ...(record.version === 2
+      ...(record.version === 2 || record.version === 3
         ? { dispatchGeneration: record.dispatchGeneration as number }
         : { dispatchGeneration: 1 }),
     })
@@ -277,14 +312,14 @@ export function signPreviewBuildJob(input: {
   now?: Date;
 }): string {
   const validated = validateClaims(input.claims, input.now ?? new Date());
-  if (validated.version !== 2) {
+  if (validated.version !== 3) {
     throw new PreviewBuildJobError("PREVIEW_BUILD_JOB_INVALID");
   }
   const claims = validated;
   const payload = Buffer.from(canonicalClaims(claims), "utf8");
   const signature = signSignature(
     null,
-    Buffer.concat([SIGNING_DOMAIN_V2, payload]),
+    Buffer.concat([SIGNING_DOMAIN_V3, payload]),
     parseKey(input.privateKeyPem, "private"),
   );
   return `${payload.toString("base64url")}.${signature.toString("base64url")}`;
@@ -334,7 +369,11 @@ export function verifyPreviewBuildJob(input: {
     !verifySignature(
       null,
       Buffer.concat([
-        claims.version === 1 ? SIGNING_DOMAIN_V1 : SIGNING_DOMAIN_V2,
+        claims.version === 1
+          ? SIGNING_DOMAIN_V1
+          : claims.version === 2
+            ? SIGNING_DOMAIN_V2
+            : SIGNING_DOMAIN_V3,
         payload,
       ]),
       parseKey(input.publicKeyPem, "public"),

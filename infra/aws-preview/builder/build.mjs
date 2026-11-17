@@ -173,11 +173,13 @@ function validateJobEnvironment(env) {
     inputMatch[2]?.toLowerCase() !== inputDigest.toLowerCase() ||
     !outputMatch ||
     outputMatch[1]?.toLowerCase() !== buildId.toLowerCase() ||
-    (job.version === 2 &&
+    ((job.version === 2 || job.version === 3) &&
       outputKey !==
         `preview-build-outputs/${buildId}/g${job.dispatchGeneration}/site.tar.gz` &&
-      !(job.dispatchGeneration === 1 &&
-        outputKey === `preview-build-outputs/${buildId}/site.tar.gz`)) ||
+      !(
+        job.dispatchGeneration === 1 &&
+        outputKey === `preview-build-outputs/${buildId}/site.tar.gz`
+      )) ||
     (job.version === 1 &&
       outputKey !== `preview-build-outputs/${buildId}/site.tar.gz`)
   ) {

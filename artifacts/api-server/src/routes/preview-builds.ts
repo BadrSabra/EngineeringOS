@@ -151,6 +151,8 @@ const defaultDependencies: PreviewBuildRouterDependencies = {
   serviceConfig: {
     builderImageDigest: config.previewBuilderImageDigest,
     sourceRoot: config.previewBuildSourceRoot,
+    inputArtifactProvider: "s3",
+    outputArtifactProvider: "s3",
   },
 };
 

@@ -90,12 +90,14 @@ function claimsForJob(job: PreviewBuildJob, now: Date): PreviewBuildJobClaims {
   const issuedAt = now.toISOString();
   const expiresAt = new Date(now.getTime() + 5 * 60_000).toISOString();
   return {
-    version: 2,
+    version: 3,
     action: "preview-build",
     jobId: job.jobId,
     attemptId: job.jobId,
     idempotencyKey: job.clientRequestId,
     dispatchGeneration: job.dispatchGeneration,
+    inputArtifactProvider: job.inputArtifactProvider,
+    outputArtifactProvider: job.outputArtifactProvider,
     buildId: job.buildId,
     builderProfile: "vite-react-static-v1",
     builderImageDigest: job.builderImageDigest,

@@ -121,6 +121,8 @@ function config() {
   return {
     builderImageDigest,
     sourceRoot: "web",
+    inputArtifactProvider: "s3" as const,
+    outputArtifactProvider: "s3" as const,
   };
 }
 
@@ -134,6 +136,7 @@ function baseDependencies() {
     findForOwner: vi.fn(async () => current),
     createArchive: vi.fn(async () => archive),
     inputArtifactStore: {
+      provider: "s3" as const,
       storeInput: vi.fn(async () => ({
         jobId,
         artifactRefId: previewBuildArtifactRefId(jobId, "input"),
@@ -172,6 +175,8 @@ function baseDependencies() {
       },
     ),
     executor: {
+      inputArtifactProvider: "s3" as const,
+      outputArtifactProvider: "s3" as const,
       launch: vi.fn(async (input: { claims: PreviewBuildJobClaims }) => ({
         jobId: input.claims.jobId,
         buildId: input.claims.buildId,
@@ -233,6 +238,8 @@ describe("Preview build start orchestration", () => {
         proposalId: candidate.id,
         sourceDigest,
         archiveDigest,
+        inputArtifactProvider: "s3",
+        outputArtifactProvider: "s3",
         builderImageDigest,
       }),
       now,
@@ -250,6 +257,8 @@ describe("Preview build start orchestration", () => {
           sourceDigest,
           archiveDigest,
           outputArtifactKey,
+          inputArtifactProvider: "s3",
+          outputArtifactProvider: "s3",
         }),
       }),
     );
@@ -425,6 +434,50 @@ describe("Preview build start orchestration", () => {
       code: "PREVIEW_BUILD_IDEMPOTENCY_CONFLICT",
     });
     expect(dependencies.executor.launch).not.toHaveBeenCalled();
+    expect(dependencies.createArchive).not.toHaveBeenCalled();
+  });
+
+  it("rejects a retry when the durable artifact provider differs", async () => {
+    const dependencies = baseDependencies();
+    dependencies.findByRequest.mockResolvedValueOnce(
+      makeJob({ inputArtifactProvider: "local" }),
+    );
+
+    await expect(
+      startOrResumePreviewBuild({
+        candidate,
+        projectId: candidate.projectId,
+        userId: "user-1",
+        clientRequestId,
+        config: config(),
+        dependencies,
+      }),
+    ).rejects.toMatchObject({
+      code: "PREVIEW_BUILD_IDEMPOTENCY_CONFLICT",
+    });
+    expect(dependencies.executor.launch).not.toHaveBeenCalled();
+    expect(dependencies.createArchive).not.toHaveBeenCalled();
+  });
+
+  it("rejects local artifact providers until an isolated local executor is enabled", async () => {
+    const dependencies = baseDependencies();
+
+    await expect(
+      startOrResumePreviewBuild({
+        candidate,
+        projectId: candidate.projectId,
+        userId: "user-1",
+        clientRequestId,
+        config: {
+          ...config(),
+          inputArtifactProvider: "local",
+        },
+        dependencies,
+      }),
+    ).rejects.toMatchObject({
+      code: "PREVIEW_BUILD_NOT_CONFIGURED",
+    });
+    expect(dependencies.findByRequest).not.toHaveBeenCalled();
     expect(dependencies.createArchive).not.toHaveBeenCalled();
   });
 

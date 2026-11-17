@@ -92,6 +92,8 @@ function makeRequestContext() {
   const config = {
     builderImageDigest: undefined,
     sourceRoot: undefined,
+    inputArtifactProvider: "s3" as const,
+    outputArtifactProvider: "s3" as const,
   };
   const dependencies = {
     requireProjectAccess: access,

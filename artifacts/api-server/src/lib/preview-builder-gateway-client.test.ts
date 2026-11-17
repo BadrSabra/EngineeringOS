@@ -13,12 +13,14 @@ const privateKeyPem = keyPair.privateKey.export({
   format: "pem",
 }) as string;
 const claims: PreviewBuildJobClaims = {
-  version: 2,
+  version: 3,
   action: "preview-build",
   jobId: "123e4567-e89b-42d3-a456-426614174000",
   attemptId: "123e4567-e89b-42d3-a456-426614174000",
   idempotencyKey: "323e4567-e89b-42d3-a456-426614174002",
   dispatchGeneration: 1,
+  inputArtifactProvider: "s3",
+  outputArtifactProvider: "s3",
   buildId: "223e4567-e89b-42d3-a456-426614174001",
   builderProfile: "vite-react-static-v1",
   builderImageDigest: `sha256:${"a".repeat(64)}`,

@@ -75,12 +75,14 @@ function createJob() {
   const inputArtifactKey = `build-inputs/${inputBindingDigest}/${inputArchiveDigest}.zip`;
   const outputArtifactKey = `preview-build-outputs/${buildId}/site.tar.gz`;
   const claims = {
-    version: 2,
+    version: 3,
     action: "preview-build",
     jobId,
     attemptId: jobId,
     idempotencyKey: "c9c99a91-cf7f-4f18-8c4b-08e53ca1e4aa",
     dispatchGeneration: 1,
+    inputArtifactProvider: "s3",
+    outputArtifactProvider: "s3",
     buildId,
     builderProfile: "vite-react-static-v1",
     builderImageDigest: imageDigest,
