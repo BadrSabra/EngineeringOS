@@ -146,6 +146,28 @@ export default function ProjectWorkspace() {
     );
   }
 
+  if (snapshot.project.id !== projectId) {
+    return (
+      <section dir="rtl" className="workspace-error" role="alert">
+        <div className="workspace-error-mark"><AlertTriangle className="h-5 w-5" /></div>
+        <div className="min-w-0">
+          <h1 className="text-lg font-semibold text-slate-100">تعارض هوية المشروع</h1>
+          <p className="mt-1 text-sm leading-6 text-slate-400">
+            اللقطة المستلمة لا تخص المشروع المطلوب؛ أخفينا محتواها حتى تصل قراءة بهوية مطابقة.
+          </p>
+          <button
+            type="button"
+            onClick={() => void refetch()}
+            className="workspace-retry mt-5"
+            disabled={isFetching}
+          >
+            <RefreshCw className="h-4 w-4" /> إعادة قراءة المشروع
+          </button>
+        </div>
+      </section>
+    );
+  }
+
   const { project, work, runtime, freshness } = snapshot;
   // Source availability is authoritative: do not render retained payloads from an unavailable read.
   const candidate = work.candidateSource === 'available' ? work.candidate : null;
