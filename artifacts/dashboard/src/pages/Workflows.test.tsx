@@ -199,6 +199,99 @@ describe('Workflows recovery rendering', () => {
     expect(vi.mocked(useAdvanceWorkflow).mock.results[0]?.value.mutate).not.toHaveBeenCalled();
   });
 
+  it('shows a safe, workflow-scoped error when starting a workflow fails', () => {
+    renderPage();
+    fireEvent.click(screen.getByRole('button', { name: 'تشغيل' }));
+
+    const startMutation = vi.mocked(useStartWorkflow).mock.results[0]?.value as unknown as {
+      mutate: ReturnType<typeof vi.fn>;
+    };
+    const options = startMutation.mutate.mock.calls[0]?.[1] as {
+      onError?: (error: Error) => void;
+    };
+
+    act(() => options.onError?.(new Error('private provider diagnostic: secret-token')));
+
+    expect(screen.getByTestId('workflow-action-error')).toHaveTextContent('تعذر تشغيل مسار العمل');
+    expect(screen.queryByText(/private provider diagnostic|secret-token/i)).not.toBeInTheDocument();
+  });
+
+  it('shows an operator error when advancing a running workflow is rejected', () => {
+    vi.mocked(useListWorkflows).mockReturnValue({
+      data: [{
+        id: 'workflow-1',
+        projectId: 'project-1',
+        name: 'Release pipeline',
+        description: 'An active workflow.',
+        status: 'running',
+        currentPhase: 'deploy',
+        executionCount: 1,
+        phases: [{ name: 'deploy', steps: ['Publish'] }],
+      }],
+      isLoading: false,
+      isError: false,
+      error: null,
+      refetch: vi.fn(),
+      isRefetching: false,
+      dataUpdatedAt: 0,
+    } as ReturnType<typeof useListWorkflows>);
+
+    renderPage();
+    fireEvent.click(screen.getByRole('button', { name: 'الانتقال إلى المرحلة التالية' }));
+
+    const advanceMutation = vi.mocked(useAdvanceWorkflow).mock.results[0]?.value as unknown as {
+      mutate: ReturnType<typeof vi.fn>;
+    };
+    const options = advanceMutation.mutate.mock.calls[0]?.[1] as {
+      onError?: (error: Error) => void;
+    };
+
+    act(() => options.onError?.(new Error('private transition diagnostic')));
+
+    expect(screen.getByTestId('workflow-action-error')).toHaveTextContent('تعذر الانتقال إلى المرحلة التالية');
+    expect(screen.queryByText(/private transition diagnostic/i)).not.toBeInTheDocument();
+  });
+
+  it('shows retry failures on the matching execution row without exposing server diagnostics', () => {
+    renderPage();
+    fireEvent.click(screen.getByRole('button', { name: /سجل التشغيل/i }));
+    fireEvent.click(screen.getByRole('button', { name: 'إعادة المحاولة' }));
+
+    const retryMutation = vi.mocked(useRetryWorkflowPhase).mock.results[0]?.value as unknown as {
+      mutate: ReturnType<typeof vi.fn>;
+    };
+    const options = retryMutation.mutate.mock.calls[0]?.[1] as {
+      onError?: (error: Error) => void;
+    };
+
+    act(() => options.onError?.(new Error('provider key leaked in diagnostic')));
+
+    const alert = screen.getByRole('alert');
+    expect(alert).toHaveTextContent('تعذرت إعادة محاولة هذا التشغيل');
+    expect(alert).not.toHaveTextContent('provider key leaked');
+  });
+
+  it('shows rollback failures beside the execution that could not be restored', () => {
+    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(true);
+    renderPage();
+    fireEvent.click(screen.getByRole('button', { name: /سجل التشغيل/i }));
+    fireEvent.click(screen.getByRole('button', { name: 'إعادة التشغيل من المرحلة build' }));
+
+    const rollbackMutation = vi.mocked(useRollbackWorkflowPhase).mock.results[0]?.value as unknown as {
+      mutate: ReturnType<typeof vi.fn>;
+    };
+    const options = rollbackMutation.mutate.mock.calls[0]?.[1] as {
+      onError?: (error: Error) => void;
+    };
+
+    act(() => options.onError?.(new Error('internal rollback trace')));
+
+    const alert = screen.getByRole('alert');
+    expect(alert).toHaveTextContent('تعذر استرجاع هذا التشغيل');
+    expect(alert).not.toHaveTextContent('internal rollback trace');
+    confirm.mockRestore();
+  });
+
   it('requires confirmation before deleting and warns that history is removed', () => {
     const confirm = vi.spyOn(window, 'confirm').mockReturnValue(true);
     renderPage();
