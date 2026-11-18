@@ -1,9 +1,10 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { DiscoverProjectWizard } from './DiscoverProjectWizard';
 
 const mocks = vi.hoisted(() => ({
   startDiscovery: vi.fn(),
+  importProject: vi.fn(),
   invalidateQueries: vi.fn(() => Promise.resolve()),
   navigate: vi.fn(),
   session: {
@@ -122,7 +123,7 @@ vi.mock('@workspace/api-client-react', () => ({
     data: id ? mocks.report : undefined,
     error: null,
   }),
-  useImportProject: () => ({ mutateAsync: vi.fn(), isPending: false }),
+  useImportProject: () => ({ mutateAsync: mocks.importProject, isPending: false }),
   useListProjects: () => ({ data: [] }),
   useScanProject: () => ({ mutateAsync: vi.fn(), isPending: false, isError: false }),
   getListProjectsQueryKey: () => ['/api/projects'],
@@ -149,6 +150,7 @@ describe('DiscoverProjectWizard Arabic findings', () => {
     mocks.sessionQuery.dataUpdatedAt = Date.parse('2026-11-18T16:20:00.000Z');
     mocks.sessionQuery.refetch.mockClear();
     mocks.startDiscovery.mockResolvedValue(mocks.session);
+    mocks.importProject.mockResolvedValue({ id: 'imported-project' });
   });
 
   it('marks a cached discovery session as stale after a failed poll and offers a direct retry', async () => {
@@ -228,6 +230,66 @@ describe('DiscoverProjectWizard Arabic findings', () => {
     expect(screen.getByText('src/app.ts:7 — export const app = createApp(); (2)')).toBeInTheDocument();
     expect(screen.getByText('Run pnpm test')).toBeInTheDocument();
     await waitFor(() => expect(detailsSummary.closest('details')).toHaveAttribute('open'));
+  });
+
+
+  it('does not schedule navigation when project import resolves after the wizard unmounts', async () => {
+    let resolveImport!: (project: { id: string }) => void;
+    mocks.importProject.mockReturnValue(new Promise<{ id: string }>((resolve) => { resolveImport = resolve; }));
+    const onClose = vi.fn();
+    const view = render(<DiscoverProjectWizard onClose={onClose} />);
+
+    fireEvent.change(screen.getByPlaceholderText('https://github.com/owner/repo'), {
+      target: { value: 'https://github.com/example/sample-app' },
+    });
+    fireEvent.click(screen.getByTestId('start-discovery'));
+    await screen.findByRole('heading', { name: 'نتائج استكشاف المشروع' });
+    fireEvent.click(screen.getByRole('button', { name: 'تأكيد وإضافة المشروع' }));
+    expect(mocks.importProject).toHaveBeenCalledOnce();
+
+    view.unmount();
+    vi.useFakeTimers();
+    try {
+      await act(async () => {
+        resolveImport({ id: 'imported-project' });
+        await Promise.resolve();
+      });
+      act(() => { vi.advanceTimersByTime(2500); });
+
+      expect(mocks.invalidateQueries).toHaveBeenCalledWith({ queryKey: ['/api/projects'] });
+      expect(mocks.navigate).not.toHaveBeenCalled();
+      expect(onClose).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('cancels the delayed project navigation when the wizard unmounts after import', async () => {
+    const onClose = vi.fn();
+    const view = render(<DiscoverProjectWizard onClose={onClose} />);
+
+    fireEvent.change(screen.getByPlaceholderText('https://github.com/owner/repo'), {
+      target: { value: 'https://github.com/example/sample-app' },
+    });
+    fireEvent.click(screen.getByTestId('start-discovery'));
+    await screen.findByRole('heading', { name: 'نتائج استكشاف المشروع' });
+
+    vi.useFakeTimers();
+    try {
+      await act(async () => {
+        fireEvent.click(screen.getByRole('button', { name: 'تأكيد وإضافة المشروع' }));
+        await Promise.resolve();
+      });
+      expect(screen.getByRole('heading', { name: 'تمت إضافة المشروع' })).toBeInTheDocument();
+
+      view.unmount();
+      act(() => { vi.advanceTimersByTime(2500); });
+
+      expect(mocks.navigate).not.toHaveBeenCalled();
+      expect(onClose).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('warns when discovery results are partial', async () => {
