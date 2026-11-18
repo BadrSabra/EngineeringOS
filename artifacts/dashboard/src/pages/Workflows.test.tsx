@@ -41,6 +41,7 @@ const mutation = () => ({ mutate: vi.fn(), isPending: false });
 const aiOrchestrationMutation = mutation();
 const deleteWorkflowMutation = mutation();
 const createWorkflowMutation = mutation();
+const retryWorkflowPhaseMutation = mutation();
 
 function renderPage() {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
@@ -118,6 +119,7 @@ beforeEach(() => {
     vi.mocked(hook).mockReturnValue(mutation() as never);
   }
   vi.mocked(useCreateWorkflow).mockReturnValue(createWorkflowMutation as never);
+  vi.mocked(useRetryWorkflowPhase).mockReturnValue(retryWorkflowPhaseMutation as never);
   vi.mocked(useAiOrchestrateWorkflow).mockReturnValue(aiOrchestrationMutation as never);
   vi.mocked(useDeleteWorkflow).mockReturnValue(deleteWorkflowMutation as never);
 });
@@ -145,8 +147,7 @@ describe('project-scoped Workflows view', () => {
     fireEvent.click(screen.getByRole('button', { name: /سجل التشغيل/i }));
     fireEvent.click(screen.getByRole('button', { name: 'إعادة المحاولة' }));
 
-    const retryMutation = vi.mocked(useRetryWorkflowPhase).mock.results[0]!.value.mutate;
-    const options = retryMutation.mock.calls[0]?.[1] as { onSuccess?: () => void };
+    const options = retryWorkflowPhaseMutation.mutate.mock.calls[0]?.[1] as { onSuccess?: () => void };
     act(() => options.onSuccess?.());
 
     expect(invalidateQueries).toHaveBeenCalledWith({
