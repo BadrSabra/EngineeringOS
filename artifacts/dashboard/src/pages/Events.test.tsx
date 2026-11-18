@@ -4,7 +4,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import Events from "./Events";
 
 vi.mock("@workspace/api-client-react", () => ({
-  getListEventsQueryKey: vi.fn((params) => ["/api/events", params]),
+  getListEventsQueryKey: vi.fn((params: unknown) => ["/api/events", params]),
   useListEvents: vi.fn(),
   useListProjects: vi.fn(),
 }));
