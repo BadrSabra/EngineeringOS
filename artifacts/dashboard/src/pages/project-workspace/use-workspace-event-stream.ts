@@ -60,33 +60,56 @@ function isResyncForProject(data: string, projectId: string): boolean {
   }
 }
 
+type WorkspaceEventStreamStatusSnapshot = {
+  projectId: string;
+  enabled: boolean;
+  status: WorkspaceEventStreamStatus;
+};
+
 export function useWorkspaceEventStream({
   projectId,
   enabled,
   onSnapshotInvalidated,
 }: WorkspaceEventStreamOptions): WorkspaceEventStreamStatus {
-  const invalidateRef = useRef(onSnapshotInvalidated);
-  invalidateRef.current = onSnapshotInvalidated;
-  const [status, setStatus] = useState<WorkspaceEventStreamStatus>(
-    enabled ? "connecting" : "offline",
-  );
+  const invalidateRef = useRef({ projectId, enabled, callback: onSnapshotInvalidated });
+  invalidateRef.current = { projectId, enabled, callback: onSnapshotInvalidated };
+  const [statusSnapshot, setStatusSnapshot] = useState<WorkspaceEventStreamStatusSnapshot>(() => ({
+    projectId,
+    enabled,
+    status: enabled && projectId ? "connecting" : "offline",
+  }));
+  const status = statusSnapshot.projectId === projectId && statusSnapshot.enabled === enabled
+    ? statusSnapshot.status
+    : enabled && projectId
+      ? "connecting"
+      : "offline";
 
   useEffect(() => {
+    const updateStatus = (nextStatus: WorkspaceEventStreamStatus) => {
+      setStatusSnapshot({ projectId, enabled, status: nextStatus });
+    };
+
     if (!enabled || !projectId) {
-      setStatus("offline");
+      updateStatus("offline");
       return;
     }
 
-    setStatus("connecting");
+    updateStatus("connecting");
     let connectedBefore = false;
     let disposed = false;
+    const invalidateCurrentProject = () => {
+      if (disposed) return;
+      const current = invalidateRef.current;
+      if (current.projectId !== projectId || current.enabled !== enabled) return;
+      current.callback();
+    };
     const seenEventIds = new Set<string>();
     const url = `/api/projects/${encodeURIComponent(projectId)}/workspace/events`;
     let source: EventSource;
     try {
       source = new EventSource(url, { withCredentials: true });
     } catch {
-      setStatus("offline");
+      updateStatus("offline");
       return;
     }
 
@@ -101,17 +124,19 @@ export function useWorkspaceEventStream({
     };
 
     const onChanged = (rawEvent: Event) => {
+      if (disposed) return;
       const message = rawEvent as MessageEvent<string>;
       const payload = parseChangedPayload(message.data, projectId);
       if (payload && rememberEvent(payload.eventId)) {
-        invalidateRef.current();
+        invalidateCurrentProject();
       }
     };
 
     const onResync = (rawEvent: Event) => {
+      if (disposed) return;
       const message = rawEvent as MessageEvent<string>;
       if (isResyncForProject(message.data, projectId)) {
-        invalidateRef.current();
+        invalidateCurrentProject();
       }
     };
 
@@ -119,13 +144,13 @@ export function useWorkspaceEventStream({
     source.addEventListener("workspace.resync", onResync);
     source.onopen = () => {
       if (disposed) return;
-      if (connectedBefore) invalidateRef.current();
+      if (connectedBefore) invalidateCurrentProject();
       connectedBefore = true;
-      setStatus("connected");
+      updateStatus("connected");
     };
     source.onerror = () => {
       if (disposed) return;
-      setStatus(source.readyState === EventSource.CLOSED ? "offline" : "reconnecting");
+      updateStatus(source.readyState === EventSource.CLOSED ? "offline" : "reconnecting");
     };
 
     return () => {
