@@ -4085,14 +4085,8 @@ describe("GET /api/ai/executions/:executionId/audit-export", () => {
     });
     expect(response.body.operationEvidence.proof.verdict).not.toBe("PROVEN");
     expect(response.body.operationEvidence.proof.failureReasons).not.toHaveLength(0);
-    expect(response.body.operationEvidence.proofSpine).toMatchObject({
-      accepted: false,
-      identity: {
-        attempt: 1,
-      },
-    });
-    expect(response.body.operationEvidence.proofSpine.verdict).not.toBe("PROVEN");
-    expect(response.body.operationEvidence.proofSpine.failureReasons).not.toHaveLength(0);
+    expect(response.body.operationEvidence).not.toHaveProperty("readiness");
+    expect(response.body.operationEvidence).not.toHaveProperty("proofSpine");
 
     const exported = JSON.stringify(response.body);
     expect(exported).not.toContain("sk-live-do-not-export");

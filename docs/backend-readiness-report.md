@@ -28,6 +28,8 @@ After correcting attempt attribution locally, the contract-parity test exposed a
 
 The broader route check returned **51 passed, 1 failed** across Workspace, SSE, and Preview Build tests. The failing case is an existing scan lifecycle test: its second scan expected `202` but received `409`. An isolated rerun of that exact case passed. The same run also logged the scanner's intentional `root_unavailable (root_unsafe)` rejection for a forged temporary discovery-clone root; it was not shown to cause the `409`. No production change was made for this timing-sensitive observation.
 
+The assigned-task completion checks later passed the dashboard restart smoke, but the release gate blocked on `AI_CONTRACT_AND_JSON_FAILED_1` (classified by its harness as an execution failure), and the separate dashboard journey command exited while reporting progress at 33/67. The isolated `ai.test.ts` case `redacts owner-scoped export and refuses prior-attempt Canonical Proof` reproduced the mismatch: it expected the undocumented `operationEvidence.proofSpine`, which the public projection intentionally omits. Its separate `operationEvidence.proof` assertions still required a non-`PROVEN` verdict and failure reasons. The stale assertion was updated to verify that internal fields stay absent; the isolated case now passes. The full completion gate has not been rerun after this test-only correction.
+
 ## Remediation delivered
 
 1. Preserve an event's explicit execution attempt; use `null` when it is not bound to one.
@@ -74,15 +76,16 @@ The projection remains explicitly `verified: false`; this change fixes provenanc
 | `pnpm run codegen:check` | Passed; OpenAPI parses and generated files are in sync. |
 | `pnpm --filter @workspace/api-server run typecheck` | Passed after fixing two type errors identified in the first typecheck attempt. |
 | Focused Operation Evidence and execution projection tests | 16 passed. |
+| `ai.test.ts` audit-export regression | Before test correction: 1 failed because it expected `proofSpine`; after correction: 1 passed, 241 skipped. |
 | `github-delivery-service.test.ts` | 5 passed. |
 | Workspace, SSE, and Preview Build route tests | Combined run: 51 passed, 1 failed (`projects.test.ts` second-scan case received 409 instead of 202). Isolated rerun of that exact case passed (1 passed, 41 skipped); treat the combined-run result as timing-sensitive, not as a confirmed regression. |
-| Full integration / E2E | Not run. The legacy Operation Evidence integration test is Mission-oriented and was excluded; no end-to-end acceptance, Apply, or Preview qualification claim is made. |
+| Integration / E2E | The legacy Operation Evidence integration test was excluded. The configured task validator ran the dashboard restart smoke (passed), but its release gate and separate dashboard journey did not finish successfully as described above; the full gate is pending a rerun after the isolated assertion correction. No end-to-end acceptance, Apply, or Preview qualification claim is made. |
 | Replit API workflow | Restarted successfully; `GET /api/healthz` returned `200`. Startup logs explicitly report that AI features return `428` until a provider is configured. |
 
 ## Repository and pull-request review
 
 - GitHub App access is available. Live `main` is `60875a23d5618bffc29e3405fe77be709e01d521`. The eleven commits after the previously observed `a0638fb` modify dashboard files only, so they do not overlap this backend change.
 - Local `main` is `96797dad2096e7cc344b34f5bf65eb9527d578b7`, eight commits ahead of stale local `origin/main`; it is not used as the PR base.
-- Open PRs reviewed by file list: #46 covers a broad Preview runner/build path; #36 and #28 touch execution/chat paths; #42 is an Apply proof-graph path. None directly edits the Operation Evidence/OpenAPI files changed here. Dashboard-only PRs #50 and #51 do not overlap.
+- Open PRs reviewed by file list: #46 covers a broad Preview runner/build path; #36 and #28 touch execution/chat paths; #42 is an Apply proof-graph path. None directly edits the Operation Evidence/OpenAPI implementation files changed here. This PR's test-only `ai.test.ts` assertion overlaps a file listed by #28 and #36, so recheck that hunk if either merges first. Dashboard-only PR #51 does not overlap.
 - GitHub rate-limited file enumeration for older open PRs #24–#27, so their exact file overlap was not confirmed. The review branch must be created from the live `main`, not the stale local ref.
 - The change is packaged as a single review commit based on live `main`; no direct update or merge of `main` was performed.
