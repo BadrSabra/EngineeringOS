@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Play, RotateCw, Server, Square, TerminalSquare } from 'lucide-react';
 
