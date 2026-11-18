@@ -314,7 +314,6 @@ function ExecutionHistory({
     data: executions,
     isLoading,
     isError,
-    error,
     refetch,
     isFetching,
     dataUpdatedAt,
