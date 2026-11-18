@@ -2,12 +2,16 @@ export {
   PreviewRunnerCommandError,
   isVerifiedPreviewRunnerCommandV1,
   previewRuntimeProfileDigest,
+  previewRunnerCommandPublicKeyPem,
+  signPreviewRunnerPollProofV1,
   signPreviewRunnerCommandV1,
+  verifyPreviewRunnerPollProofV1,
   verifyPreviewRunnerCommandV1,
 } from "./runner-command.js";
 export type {
   PreviewRunnerCommandV1,
   PreviewRunnerCommandBindingV1,
+  PreviewRunnerPollProofV1,
   PreviewRunnerStartCommandV1,
   PreviewRunnerObserveCommandV1,
   PreviewRunnerStopCommandV1,

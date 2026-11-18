@@ -30,6 +30,7 @@ const EnvSchema = z.object({
   PREVIEW_GATEWAY_URL: z.string().optional(),
   PREVIEW_BUILD_INPUT_UPLOAD_PRIVATE_KEY_PEM: z.string().optional(),
   PREVIEW_BUILD_JOB_PRIVATE_KEY_PEM: z.string().optional(),
+  PREVIEW_RUNNER_COMMAND_PRIVATE_KEY_PEM: z.string().optional(),
   PREVIEW_BUILD_RECEIPT_PUBLIC_KEY_PEM: z.string().optional(),
   PREVIEW_BUILDER_IMAGE_DIGEST: z.string().optional(),
   PREVIEW_BUILD_SOURCE_ROOT: z.string().optional(),
@@ -243,6 +244,8 @@ function loadConfig() {
     previewBuildInputUploadPrivateKeyPem:
       parsed.data.PREVIEW_BUILD_INPUT_UPLOAD_PRIVATE_KEY_PEM,
     previewBuildJobPrivateKeyPem: parsed.data.PREVIEW_BUILD_JOB_PRIVATE_KEY_PEM,
+    previewRunnerCommandPrivateKeyPem:
+      parsed.data.PREVIEW_RUNNER_COMMAND_PRIVATE_KEY_PEM,
     previewBuildReceiptPublicKeyPem:
       parsed.data.PREVIEW_BUILD_RECEIPT_PUBLIC_KEY_PEM,
     previewBuilderImageDigest: parsed.data.PREVIEW_BUILDER_IMAGE_DIGEST,

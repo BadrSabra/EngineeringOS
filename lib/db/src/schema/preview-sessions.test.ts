@@ -32,6 +32,7 @@ test("Preview sessions keep AWS rows compatible and allow neutral local bindings
     "runnerMessageDigest",
     "runnerMessageProjection",
     "runnerLeaseOwner",
+    "runnerLeaseProofDigest",
     "runnerLeaseExpiresAt",
     "taskDefinitionArn",
   ] as const) {

@@ -123,7 +123,7 @@ function actionForMessageType(
   return undefined;
 }
 
-function currentCandidateMatches(
+export function currentPreviewRunnerCandidateMatches(
   session: typeof previewSessionsTable.$inferSelect,
   candidate:
     | {
@@ -156,9 +156,11 @@ function currentCandidateMatches(
   );
 }
 
-function isCurrentVerifiedBuild(
+export function currentPreviewRunnerBuildMatches(
   session: typeof previewSessionsTable.$inferSelect,
-  candidate: NonNullable<Parameters<typeof currentCandidateMatches>[1]>,
+  candidate: NonNullable<
+    Parameters<typeof currentPreviewRunnerCandidateMatches>[1]
+  >,
   job: typeof previewBuildJobsTable.$inferSelect | undefined,
 ): job is typeof previewBuildJobsTable.$inferSelect {
   return Boolean(
@@ -236,7 +238,7 @@ export async function acceptPreviewRunnerMessage(input: {
         .where(eq(aiChangeProposalsTable.id, identity.proposalId))
         .for("update")
         .limit(1);
-      if (!currentCandidateMatches(identity, candidateRow)) {
+      if (!currentPreviewRunnerCandidateMatches(identity, candidateRow)) {
         throw new PreviewRunnerMessageAcceptanceError(
           "PREVIEW_RUNNER_MESSAGE_CONFLICT",
         );
@@ -250,7 +252,7 @@ export async function acceptPreviewRunnerMessage(input: {
             .for("update")
             .limit(1)
         : [];
-      if (!isCurrentVerifiedBuild(identity, candidateRow, buildJob)) {
+      if (!currentPreviewRunnerBuildMatches(identity, candidateRow, buildJob)) {
         throw new PreviewRunnerMessageAcceptanceError(
           "PREVIEW_RUNNER_MESSAGE_CONFLICT",
         );
@@ -269,8 +271,8 @@ export async function acceptPreviewRunnerMessage(input: {
         session.stateVersion !== identity.stateVersion ||
         session.executionGeneration !== identity.executionGeneration ||
         session.fencingGeneration !== identity.fencingGeneration ||
-        !currentCandidateMatches(session, candidateRow) ||
-        !isCurrentVerifiedBuild(session, candidateRow, buildJob)
+        !currentPreviewRunnerCandidateMatches(session, candidateRow) ||
+        !currentPreviewRunnerBuildMatches(session, candidateRow, buildJob)
       ) {
         throw new PreviewRunnerMessageAcceptanceError(
           "PREVIEW_RUNNER_MESSAGE_CONFLICT",
@@ -388,6 +390,7 @@ export async function acceptPreviewRunnerMessage(input: {
       if (
         !action ||
         !session.runnerLeaseOwner ||
+        !session.runnerLeaseProofDigest ||
         !session.runnerLeaseExpiresAt ||
         session.runnerLeaseExpiresAt <= now
       ) {
@@ -458,6 +461,7 @@ export async function acceptPreviewRunnerMessage(input: {
           runnerMessageProjection: update.projection,
           stateVersion: session.stateVersion + update.stateVersionIncrement,
           runnerLeaseOwner: null,
+          runnerLeaseProofDigest: null,
           runnerLeaseExpiresAt: null,
           updatedAt: now,
         })
@@ -478,6 +482,10 @@ export async function acceptPreviewRunnerMessage(input: {
             eq(previewSessionsTable.runnerNodeId, node.nodeId),
             eq(previewSessionsTable.runnerKeyVersion, node.keyVersion),
             eq(previewSessionsTable.runnerLeaseOwner, session.runnerLeaseOwner),
+            eq(
+              previewSessionsTable.runnerLeaseProofDigest,
+              session.runnerLeaseProofDigest,
+            ),
             eq(
               previewSessionsTable.runnerLeaseExpiresAt,
               session.runnerLeaseExpiresAt,

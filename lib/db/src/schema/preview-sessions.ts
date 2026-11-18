@@ -68,6 +68,7 @@ export const previewSessionsTable = pgTable(
       Record<string, unknown> | null
     >(),
     runnerLeaseOwner: text("runner_lease_owner"),
+    runnerLeaseProofDigest: text("runner_lease_proof_digest"),
     runnerLeaseExpiresAt: timestamp("runner_lease_expires_at", {
       withTimezone: true,
     }),
@@ -164,7 +165,16 @@ export const previewSessionsTable = pgTable(
     ),
     check(
       "chk_preview_sessions_runner_lease_pair",
-      sql`(${table.runnerLeaseOwner} IS NULL) = (${table.runnerLeaseExpiresAt} IS NULL)`,
+      sql`(
+        ${table.runnerLeaseOwner} IS NULL
+        AND ${table.runnerLeaseExpiresAt} IS NULL
+        AND ${table.runnerLeaseProofDigest} IS NULL
+      ) OR (
+        ${table.runnerLeaseOwner} IS NOT NULL
+        AND ${table.runnerLeaseExpiresAt} IS NOT NULL
+        AND ${table.runnerLeaseProofDigest} IS NOT NULL
+        AND ${table.runnerLeaseProofDigest} ~ '^[0-9a-f]{64}$'
+      )`,
     ),
   ],
 );
@@ -190,6 +200,7 @@ export const insertPreviewSessionSchema = createInsertSchema(
   runnerMessageDigest: true,
   runnerMessageProjection: true,
   runnerLeaseOwner: true,
+  runnerLeaseProofDigest: true,
   runnerLeaseExpiresAt: true,
   stateVersion: true,
   readyAt: true,

@@ -16,6 +16,7 @@ import {
   type PreviewArtifactGcCommandIssue,
 } from "../lib/preview-artifact-gc-issuer.js";
 import { PreviewRunnerMessageAcceptanceError } from "../lib/preview-runner-message-acceptance.js";
+import { PreviewRunnerCommandIssueError } from "../lib/preview-runner-command-issuer.js";
 import { createPreviewAgentRouter } from "./preview-agents.js";
 
 const pairing = {
@@ -25,6 +26,10 @@ const pairing = {
   expiresAt: new Date("2031-03-04T12:10:00.000Z"),
 };
 const commandSigningKeys = generateKeyPairSync("ed25519", {
+  publicKeyEncoding: { type: "spki", format: "pem" },
+  privateKeyEncoding: { type: "pkcs8", format: "pem" },
+});
+const runnerCommandSigningKeys = generateKeyPairSync("ed25519", {
   publicKeyEncoding: { type: "spki", format: "pem" },
   privateKeyEncoding: { type: "pkcs8", format: "pem" },
 });
@@ -132,7 +137,14 @@ function createApp(options: { production?: boolean } = {}) {
       alreadyAccepted: false,
       observedState: "ready",
     })),
+    issueRunnerCommand: vi.fn(async () => ({
+      commandId: "423e4567-e89b-42d3-a456-426614174003",
+      fencingGeneration: 4,
+      expiresAt: new Date("2031-03-04T12:00:30.000Z"),
+      commandToken: "short-lived.signed-command",
+    })),
     buildJobPrivateKeyPem: commandSigningKeys.privateKey,
+    runnerCommandPrivateKeyPem: runnerCommandSigningKeys.privateKey,
     listNodes: vi.fn(async () => [node]),
     revokeNode: vi.fn(async () => ({ ...node, status: "revoked" as const, revokedAt: node.createdAt })),
     isProduction: options.production ?? false,
@@ -213,6 +225,7 @@ describe("Preview Agent pairing routes", () => {
       commandPublicKeyPem: previewArtifactDeleteCommandPublicKeyPem(
         commandSigningKeys.privateKey,
       ),
+      runnerCommandPublicKeyPem: runnerCommandSigningKeys.publicKey,
     });
     expect(response.body).not.toHaveProperty("publicKeyPem");
     expect(dependencies.completePairing).toHaveBeenCalledWith(body);
@@ -861,5 +874,92 @@ describe("Preview Agent pairing routes", () => {
       projectId: "project-1",
       nodeId: node.nodeId,
     });
+  });
+});
+
+describe("Preview Runner command polling route", () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  const nodeId = pairing.nodeId;
+  const sessionId = "523e4567-e89b-42d3-a456-426614174004";
+  const proof = {
+    version: 1 as const,
+    action: "poll-preview-session-command" as const,
+    nodeId,
+    keyVersion: 1,
+    sessionId,
+    leaseOwner: "623e4567-e89b-42d3-a456-426614174005",
+    issuedAt: "2031-03-04T12:00:00.000Z",
+    nonce: "723e4567-e89b-42d3-a456-426614174006",
+  };
+  const path = `/internal/preview-agents/${nodeId}/preview-sessions/${sessionId}/command`;
+
+  it("returns only the short-lived signed command envelope", async () => {
+    const { app, dependencies } = createApp();
+    const response = await request(app)
+      .post(path)
+      .send({ proof, signature: "A".repeat(86) });
+
+    expect(response.status).toBe(200);
+    expect(response.body).toEqual({
+      commandId: "423e4567-e89b-42d3-a456-426614174003",
+      fencingGeneration: 4,
+      expiresAt: "2031-03-04T12:00:30.000Z",
+      commandToken: "short-lived.signed-command",
+    });
+    expect(response.headers["cache-control"]).toBe("no-store");
+    expect(dependencies.issueRunnerCommand).toHaveBeenCalledWith({
+      nodeId,
+      sessionId,
+      proof,
+      signature: "A".repeat(86),
+      commandPrivateKeyPem: runnerCommandSigningKeys.privateKey,
+    });
+  });
+
+  it("rejects route/body identity mismatches before reaching the issuer", async () => {
+    const { app, dependencies } = createApp();
+    const response = await request(app)
+      .post(path)
+      .send({
+        proof: {
+          ...proof,
+          sessionId: "823e4567-e89b-42d3-a456-426614174007",
+        },
+        signature: "A".repeat(86),
+      });
+
+    expect(response.status).toBe(400);
+    expect(dependencies.issueRunnerCommand).not.toHaveBeenCalled();
+  });
+
+  it("does not issue commands to browser-cookie or plaintext callers", async () => {
+    const { app, dependencies } = createApp({ production: true });
+    const cookieResponse = await request(app)
+      .post(path)
+      .set("Cookie", "session=unexpected")
+      .send({ proof, signature: "A".repeat(86) });
+    const insecureResponse = await request(app)
+      .post(path)
+      .send({ proof, signature: "A".repeat(86) });
+
+    expect(cookieResponse.status).toBe(403);
+    expect(insecureResponse.status).toBe(403);
+    expect(dependencies.issueRunnerCommand).not.toHaveBeenCalled();
+  });
+
+  it("keeps unqualified runtimes closed", async () => {
+    const { app, dependencies } = createApp();
+    vi.mocked(dependencies.issueRunnerCommand).mockRejectedValueOnce(
+      new PreviewRunnerCommandIssueError(
+        "PREVIEW_RUNNER_COMMAND_UNQUALIFIED",
+      ),
+    );
+    const response = await request(app)
+      .post(path)
+      .send({ proof, signature: "A".repeat(86) });
+
+    expect(response.status).toBe(409);
+    expect(response.body).toEqual({ error: "preview_runner_unqualified" });
   });
 });
