@@ -603,6 +603,7 @@ describe("Workspace task cards", () => {
     }];
     mocks.executions["execution-running"] = {
       id: "execution-running",
+      projectId: "project-1",
       linkedTaskId: "task-running",
       correlationId: "correlation-running",
       attempt: 3,
@@ -621,6 +622,61 @@ describe("Workspace task cards", () => {
     expect(screen.getByTestId("workspace-task-attempt-task-running")).toHaveTextContent("3");
     expect(screen.getByTestId("workspace-task-task-running"))
       .toHaveTextContent("محاولة مسجلة من التنفيذ المرتبط بالمهمة.");
+  });
+
+  it("does not expose an execution attempt when its project differs from the Workspace task project", () => {
+    const updatedAt = "2026-11-11T12:00:00.000Z";
+    mocks.snapshot = {
+      ...initialSnapshot,
+      work: {
+        ...initialSnapshot.work,
+        recentTasks: [{
+          id: "task-project-boundary",
+          title: "مهمة المشروع الحالي",
+          status: "running",
+          verificationDecision: null,
+          updatedAt,
+        }],
+      },
+    } as unknown as ProjectWorkspaceSnapshot;
+    mocks.taskDetails["task-project-boundary"] = {
+      id: "task-project-boundary",
+      projectId: "project-1",
+      title: "مهمة المشروع الحالي",
+      status: "running",
+      correlationId: "correlation-project-boundary",
+      updatedAt,
+    };
+    mocks.taskLogs["task-project-boundary"] = [{
+      id: "log-project-boundary",
+      taskId: "task-project-boundary",
+      correlationId: "correlation-project-boundary",
+      executionId: "execution-wrong-project",
+      attempt: 9,
+      sequence: 10,
+      timestamp: updatedAt,
+    }];
+    mocks.executions["execution-wrong-project"] = {
+      id: "execution-wrong-project",
+      projectId: "project-2",
+      linkedTaskId: "task-project-boundary",
+      correlationId: "correlation-project-boundary",
+      attempt: 9,
+    };
+
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+    });
+
+    render(
+      <QueryClientProvider client={queryClient}>
+        <ProjectWorkspace />
+      </QueryClientProvider>,
+    );
+
+    const attempt = screen.getByTestId("workspace-task-attempt-task-project-boundary");
+    expect(attempt).toHaveTextContent("غير متاحة");
+    expect(attempt).not.toHaveTextContent("9");
   });
 
   it("does not expose a cached attempt when task identity or updated timestamp differs from the Workspace snapshot", () => {
