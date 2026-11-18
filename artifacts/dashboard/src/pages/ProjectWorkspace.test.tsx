@@ -355,7 +355,7 @@ describe("ProjectWorkspace live snapshot refresh", () => {
     expect(staleState).toHaveAttribute("role", "alert");
     expect(staleState).toHaveTextContent("تعذر تحديث مساحة المشروع");
     expect(staleState).toHaveTextContent("مشروع البث");
-    expect(staleState.querySelector("time")).toHaveAttribute(
+    expect(screen.getByTestId("workspace-stale-snapshot-observed-at")).toHaveAttribute(
       "dateTime",
       "2026-11-11T12:00:00.000Z",
     );
