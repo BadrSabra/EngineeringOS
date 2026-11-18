@@ -5,6 +5,8 @@ import { ExecutionProjectionPanel } from "@/components/ExecutionProjectionPanel"
 type WorkspaceExecutionDetailProps = {
   executionId: string;
   projectId: string;
+  attempt?: number;
+  proposalId?: string | null;
 };
 
 function errorStatus(error: unknown): number | undefined {
@@ -15,6 +17,8 @@ function errorStatus(error: unknown): number | undefined {
 export default function WorkspaceExecutionDetail({
   executionId,
   projectId,
+  attempt,
+  proposalId,
 }: WorkspaceExecutionDetailProps) {
   const query = useGetAiExecution(executionId, {
     query: {
@@ -60,14 +64,24 @@ export default function WorkspaceExecutionDetail({
   }
 
   const execution = query.data;
-  if (
+  const identityMismatch =
     execution.id !== executionId
-    || (execution.projectId && execution.projectId !== projectId)
-    || execution.projection?.schemaVersion !== 2
-  ) {
+    || Boolean(execution.projectId && execution.projectId !== projectId)
+    || Boolean(
+      attempt !== undefined
+      && execution.attempt !== undefined
+      && execution.attempt !== attempt
+    )
+    || Boolean(
+      proposalId !== undefined
+      && execution.proposalId !== undefined
+      && (execution.proposalId ?? null) !== (proposalId ?? null)
+    );
+
+  if (identityMismatch || execution.projection?.schemaVersion !== 2) {
     return (
       <p className="mt-3 rounded-lg border border-amber-300/20 bg-amber-200/[.05] px-3 py-3 text-xs leading-5 text-amber-100/85" role="status">
-        تعذر مطابقة تفاصيل التنفيذ مع المشروع والنسخة الحاليين؛ لن نعرض إسقاطًا غير مطابق.
+        تعذر مطابقة تفاصيل التنفيذ مع المشروع أو المحاولة أو المرشح الحالي؛ لن نخلط بين إسقاطات مختلفة.
       </p>
     );
   }
