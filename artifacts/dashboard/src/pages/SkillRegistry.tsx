@@ -144,7 +144,7 @@ function RegistryEntry({
   const canApprove = row.promotionStatus === 'pending' && row.revocationStatus === 'active';
   const canRevoke = row.revocationStatus === 'active' && row.promotionStatus === 'promoted';
   const metricEntries = Object.entries(score.metricDeltas ?? {});
-  const actionBusy = busyAction === row.id;
+  const actionBusy = busyAction === `${row.projectId}:${row.id}`;
 
   return (
     <article className="overflow-hidden rounded-xl border border-slate-800 bg-slate-900/55 shadow-[0_14px_40px_rgba(0,0,0,0.18)]">
@@ -271,6 +271,7 @@ export default function SkillRegistry() {
   const [selectedProjectId, setSelectedProjectId] = useState('');
   const [registry, setRegistry] = useState<RegistryRow[]>([]);
   const [registryProjectId, setRegistryProjectId] = useState<string | null>(null);
+  const registryProjectIdRef = useRef<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [loadError, setLoadError] = useState<unknown>(null);
   const [loadErrorProjectId, setLoadErrorProjectId] = useState<string | null>(null);
@@ -290,6 +291,7 @@ export default function SkillRegistry() {
     if (!projectId) {
       requestVersion.current += 1;
       setRegistry([]);
+      registryProjectIdRef.current = null;
       setRegistryProjectId(null);
       setLastUpdated(undefined);
       setLastUpdatedProjectId(null);
@@ -304,6 +306,7 @@ export default function SkillRegistry() {
       const response = await fetchSkillRegistry(projectId);
       if (version === requestVersion.current) {
         setRegistry(response.registry ?? []);
+        registryProjectIdRef.current = projectId;
         setRegistryProjectId(projectId);
         setLastUpdated(Date.now());
         setLastUpdatedProjectId(projectId);
@@ -330,15 +333,16 @@ export default function SkillRegistry() {
   }, [effectiveProjectId, loadRegistry]);
 
   const replaceReturnedRow = useCallback((returned: RegistryRow) => {
-    if (registryProjectId !== returned.projectId) return;
+    if (registryProjectIdRef.current !== returned.projectId) return;
     setRegistry((current) => current.map((row) => row.id === returned.id ? returned : row));
     setLastUpdated(Date.now());
     setLastUpdatedProjectId(returned.projectId);
-  }, [registryProjectId]);
+  }, []);
 
   const handleApprove = useCallback(async (row: RegistryRow) => {
     if (!window.confirm(`Approve ${row.skillId} v${row.skillVersion} for immediate promotion?`)) return;
-    setBusyAction(row.id);
+    const actionKey = `${row.projectId}:${row.id}`;
+    setBusyAction(actionKey);
     setLoadError(null);
     try {
       const response = await approveSkillRegistry(row.id);
@@ -347,7 +351,7 @@ export default function SkillRegistry() {
       setLoadError(error);
       setLoadErrorProjectId(row.projectId);
     } finally {
-      setBusyAction(null);
+      setBusyAction((current) => current === actionKey ? null : current);
     }
   }, [replaceReturnedRow]);
 
@@ -397,6 +401,7 @@ export default function SkillRegistry() {
               value={effectiveProjectId}
               onChange={(event) => {
                 requestVersion.current += 1;
+                registryProjectIdRef.current = null;
                 setSelectedProjectId(event.target.value);
                 setRegistryProjectId(null);
                 setLoadError(null);
