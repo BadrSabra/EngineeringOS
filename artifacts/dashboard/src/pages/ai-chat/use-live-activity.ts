@@ -46,8 +46,8 @@ export function useLiveActivity() {
           ...activity,
           status: 'done' as const,
           detail: source
-            ? `${cached ? 'cached · ' : ''}${source}`
-            : cached ? 'cached' : activity.detail,
+            ? `${cached ? 'مخزّن مؤقتًا · ' : ''}${source}`
+            : cached ? 'مخزّن مؤقتًا' : activity.detail,
         }
       : activity);
     activityEventsRef.current = next;
