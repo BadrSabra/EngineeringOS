@@ -18,7 +18,7 @@ describe("describePreviewAgentHeartbeatAge", () => {
     expect(describePreviewAgentHeartbeatAge("2026-11-19T11:58:00.000Z", now))
       .toBe("قبل دقيقتين");
     expect(describePreviewAgentHeartbeatAge("2026-11-19T09:00:00.000Z", now))
-      .toBe("قبل ٣ ساعات");
+      .toBe("قبل 3 ساعات");
     expect(describePreviewAgentHeartbeatAge("2026-11-17T12:00:00.000Z", now))
       .toBe("قبل يومين");
   });
