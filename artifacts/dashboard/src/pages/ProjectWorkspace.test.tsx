@@ -283,4 +283,31 @@ describe("ProjectWorkspace live snapshot refresh", () => {
     expect(eventSource).toBeNull();
   });
 
+  it("does not show a retained Runtime status when the Runtime source is unavailable", () => {
+    mocks.snapshot = {
+      ...initialSnapshot,
+      runtime: {
+        ...initialSnapshot.runtime,
+        source: "unavailable",
+        status: "running",
+        runtimeRevision: "runtime-revision-stale",
+      },
+    } as unknown as ProjectWorkspaceSnapshot;
+
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+    });
+
+    render(
+      <QueryClientProvider client={queryClient}>
+        <ProjectWorkspace />
+      </QueryClientProvider>,
+    );
+
+    expect(screen.getByTestId("workspace-runtime-status")).toHaveTextContent("غير متاح");
+    expect(screen.getByTestId("workspace-runtime-status")).not.toHaveTextContent("قيد التنفيذ");
+    expect(screen.getByText("مصدر التشغيل غير متاح الآن؛ لا يمكن تأكيد الحالة الحالية.")).toBeInTheDocument();
+    expect(screen.queryByText("runtime-revision-stale")).not.toBeInTheDocument();
+  });
+
 });
