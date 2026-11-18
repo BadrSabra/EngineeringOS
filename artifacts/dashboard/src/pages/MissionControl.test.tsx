@@ -80,6 +80,7 @@ const missionControlFixture = vi.hoisted(() => ({
   },
   executions: [{
     id: 'execution-1',
+    projectId: 'project-1',
     state: 'READY_FOR_REVIEW',
     objective: 'Repair the auth scope check',
     provider: 'openrouter',
@@ -202,6 +203,7 @@ function runtimeStartDetail(overrides: Record<string, unknown> = {}) {
   const now = '2026-09-27T10:00:00.000Z';
   return {
     id: 'execution-1',
+    projectId: 'project-1',
     attempt: 2,
     recipeReceipt: { recipeId: 'runtime.start' },
     worldTransitions: [{
@@ -689,6 +691,44 @@ describe('Mission Control', () => {
     const timeline = screen.getByRole('region', { name: 'الخط الزمني لانتقال حالة العالم' });
     expect(timeline).toHaveTextContent('الإثبات المعتمد: BLOCKED');
     expect(timeline).not.toHaveTextContent('الإثبات المعتمد: PROVEN');
+  });
+
+  it('withholds proof and recovery controls when the matching execution detail belongs to another project', () => {
+    const originalPath = window.location.pathname + window.location.search;
+    currentMissionControl = {
+      ...missionControlFixture,
+      executions: [{
+        ...missionControlFixture.executions[0],
+        recovery: { uncertain: true },
+        operationId: 'operation-1',
+        revision: 'revision-1',
+      }],
+    } as typeof missionControlFixture;
+    currentExecutionDetail = runtimeStartDetail({
+      projectId: 'project-2',
+      linkedTaskId: undefined,
+      projection: completedProofProjection(),
+    });
+
+    try {
+      window.history.pushState({}, '', '/mission-control?projectId=project-1&executionId=execution-1');
+      renderPage();
+
+      expect(screen.getByTestId('mission-control-execution-project-mismatch')).toHaveTextContent(
+        'حُجبت الأدلة وروابط المتابعة وإجراءات الاستعادة',
+      );
+      expect(screen.queryByTestId('link-mission-control-ai')).not.toBeInTheDocument();
+      expect(screen.queryByTestId('mission-capsule')).not.toBeInTheDocument();
+      expect(screen.queryByRole('region', { name: 'سلسلة الأدلة' })).not.toBeInTheDocument();
+      expect(screen.queryByRole('region', { name: 'الخط الزمني لانتقال حالة العالم' })).not.toBeInTheDocument();
+
+      const recovery = screen.getByRole('region', { name: 'استعادة التنفيذ غير المحسوم' });
+      expect(recovery).toHaveTextContent('جارٍ التحقق من مالك التنفيذ');
+      expect(within(recovery).queryByRole('button', { name: 'استأنف مرة واحدة' })).not.toBeInTheDocument();
+      expect(within(recovery).queryByRole('button', { name: 'تخلَّ عنه بأمان' })).not.toBeInTheDocument();
+    } finally {
+      window.history.pushState({}, '', originalPath);
+    }
   });
 
   it('hides the execution capsule while the selected detail belongs to another execution', () => {
