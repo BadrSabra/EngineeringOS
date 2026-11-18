@@ -119,6 +119,7 @@ function WorkspaceTaskCard({
   const detailsUpdatedAt = taskDetails ? Date.parse(taskDetails.updatedAt) : Number.NaN;
   const taskMatchesSnapshot = Boolean(
     !taskQuery.isFetching
+    && !taskQuery.isError
     && taskDetails
     && taskDetails.id === task.id
     && taskDetails.projectId === projectId
