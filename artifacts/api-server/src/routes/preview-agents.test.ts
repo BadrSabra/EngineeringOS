@@ -137,12 +137,19 @@ function createApp(options: { production?: boolean } = {}) {
       alreadyAccepted: false,
       observedState: "ready",
     })),
-    issueRunnerCommand: vi.fn(async () => ({
-      commandId: "423e4567-e89b-42d3-a456-426614174003",
-      fencingGeneration: 4,
-      expiresAt: new Date("2031-03-04T12:00:30.000Z"),
-      commandToken: "short-lived.signed-command",
-    })),
+    issueRunnerCommand: vi.fn(
+      async (): Promise<{
+        commandId: string;
+        fencingGeneration: number;
+        expiresAt: Date;
+        commandToken: string;
+      } | null> => ({
+        commandId: "423e4567-e89b-42d3-a456-426614174003",
+        fencingGeneration: 4,
+        expiresAt: new Date("2031-03-04T12:00:30.000Z"),
+        commandToken: "short-lived.signed-command",
+      }),
+    ),
     buildJobPrivateKeyPem: commandSigningKeys.privateKey,
     runnerCommandPrivateKeyPem: runnerCommandSigningKeys.privateKey,
     listNodes: vi.fn(async () => [node]),
@@ -961,5 +968,16 @@ describe("Preview Runner command polling route", () => {
 
     expect(response.status).toBe(409);
     expect(response.body).toEqual({ error: "preview_runner_unqualified" });
+  });
+
+  it("returns no command when the session has no claimable action", async () => {
+    const { app, dependencies } = createApp();
+    vi.mocked(dependencies.issueRunnerCommand).mockResolvedValueOnce(null);
+    const response = await request(app)
+      .post(path)
+      .send({ proof, signature: "A".repeat(86) });
+
+    expect(response.status).toBe(204);
+    expect(response.text).toBe("");
   });
 });

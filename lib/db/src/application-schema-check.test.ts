@@ -1299,6 +1299,27 @@ describe("application schema contract", () => {
       ),
     );
 
+    const weakenedRunnerLeasePair = findApplicationSchemaIssues({
+      ...snapshot,
+      checkConstraints: snapshot.checkConstraints.map((constraint) =>
+        constraint.constraint_name === "chk_preview_sessions_runner_lease_pair"
+          ? {
+              ...constraint,
+              definition:
+                "CHECK ((runner_lease_owner IS NULL) = (runner_lease_expires_at IS NULL))",
+            }
+          : constraint,
+      ),
+    });
+    assert.ok(
+      weakenedRunnerLeasePair.some(
+        (issue) =>
+          issue.kind === "incompatible_check_constraint" &&
+          issue.tableName === "preview_sessions" &&
+          issue.objectName === "chk_preview_sessions_runner_lease_pair",
+      ),
+    );
+
     const missingProviderGuard = findApplicationSchemaIssues({
       ...snapshot,
       checkConstraints: snapshot.checkConstraints.filter(

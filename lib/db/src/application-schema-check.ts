@@ -3536,7 +3536,7 @@ export const APPLICATION_SCHEMA_CONTRACT = {
       name: "chk_preview_sessions_runner_lease_pair",
       tableName: "preview_sessions",
       definitionPattern:
-        /runner_lease_owner is null.*runner_lease_expires_at is null.*runner_lease_proof_digest is null.*runner_lease_owner is not null.*runner_lease_expires_at is not null.*runner_lease_proof_digest is not null/i,
+        /runner_lease_owner is null.*runner_lease_expires_at is null.*runner_lease_proof_digest is null.*runner_command_id is not null.*runner_lease_owner is not null.*runner_lease_expires_at is not null.*runner_lease_proof_digest is not null/i,
     },
     {
       name: "chk_preview_agent_nodes_heartbeat_challenge_pair",

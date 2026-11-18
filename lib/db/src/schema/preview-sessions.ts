@@ -170,7 +170,8 @@ export const previewSessionsTable = pgTable(
         AND ${table.runnerLeaseExpiresAt} IS NULL
         AND ${table.runnerLeaseProofDigest} IS NULL
       ) OR (
-        ${table.runnerLeaseOwner} IS NOT NULL
+        ${table.runnerCommandId} IS NOT NULL
+        AND ${table.runnerLeaseOwner} IS NOT NULL
         AND ${table.runnerLeaseExpiresAt} IS NOT NULL
         AND ${table.runnerLeaseProofDigest} IS NOT NULL
         AND ${table.runnerLeaseProofDigest} ~ '^[0-9a-f]{64}$'

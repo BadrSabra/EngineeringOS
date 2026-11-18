@@ -44,6 +44,33 @@ const RESOURCE_LIMITS: PreviewRunnerResourceLimitsV1 = Object.freeze({
   sessionTtlMs: 15 * 60_000,
 });
 
+function resourceLimitsForSession(
+  session: typeof previewSessionsTable.$inferSelect,
+  now: Date,
+): PreviewRunnerResourceLimitsV1 {
+  const remainingSessionMs = Math.floor(
+    session.expiresAt.getTime() - now.getTime(),
+  );
+  if (remainingSessionMs < 1_000) {
+    throw new PreviewRunnerCommandIssueError(
+      "PREVIEW_RUNNER_COMMAND_CONFLICT",
+    );
+  }
+  const sessionTtlMs = Math.min(
+    RESOURCE_LIMITS.sessionTtlMs,
+    remainingSessionMs,
+  );
+  return {
+    ...RESOURCE_LIMITS,
+    sessionTtlMs,
+    idleTimeoutMs: Math.min(RESOURCE_LIMITS.idleTimeoutMs, sessionTtlMs),
+    startupTimeoutMs: Math.min(
+      RESOURCE_LIMITS.startupTimeoutMs,
+      sessionTtlMs,
+    ),
+  };
+}
+
 export class PreviewRunnerCommandIssueError extends Error {
   constructor(
     readonly code:
@@ -86,27 +113,71 @@ function commandAction(
   return undefined;
 }
 
-function priorMessageMatchesCommand(
-  session: typeof previewSessionsTable.$inferSelect,
-): boolean {
-  return Boolean(
-    session.runnerCommandId &&
-      session.runnerMessageProjection?.commandId === session.runnerCommandId &&
-      session.runnerMessageId,
-  );
-}
+export function planPreviewRunnerLease(input: {
+  action: "start" | "observe";
+  now: Date;
+  currentCommandId: string | null;
+  currentFencingGeneration: number;
+  currentLeaseOwner: string | null;
+  currentLeaseProofDigest: string | null;
+  currentLeaseExpiresAt: Date | null;
+  requestedLeaseOwner: string;
+  requestedProofDigest: string;
+  acceptedMessageCommandId: string | null;
+  acceptedMessageType: unknown;
+  acceptedMessageStatus: unknown;
+  nextCommandId?: string;
+}): {
+  commandId: string;
+  fencingGeneration: number;
+  alreadyLeased: boolean;
+} {
+  const activeLease =
+    input.currentLeaseExpiresAt !== null &&
+    input.currentLeaseExpiresAt > input.now;
+  if (activeLease) {
+    if (
+      !input.currentCommandId ||
+      input.currentLeaseOwner !== input.requestedLeaseOwner ||
+      input.currentLeaseProofDigest !== input.requestedProofDigest
+    ) {
+      throw new PreviewRunnerCommandIssueError(
+        "PREVIEW_RUNNER_COMMAND_CONFLICT",
+      );
+    }
+    return {
+      commandId: input.currentCommandId,
+      fencingGeneration: input.currentFencingGeneration,
+      alreadyLeased: true,
+    };
+  }
 
-function isRetryableUnknownStart(
-  session: typeof previewSessionsTable.$inferSelect,
-  action: "start" | "observe",
-): boolean {
-  const projection = session.runnerMessageProjection;
-  return (
-    action === "start" &&
-    projection?.commandId === session.runnerCommandId &&
-    projection?.messageType === "start_ack" &&
-    projection?.status === "outcome_unknown"
-  );
+  const latestResponseBelongsToCommand =
+    input.currentCommandId !== null &&
+    input.acceptedMessageCommandId === input.currentCommandId;
+  const unknownStartOutcome =
+    input.action === "start" &&
+    input.acceptedMessageType === "start_ack" &&
+    input.acceptedMessageStatus === "outcome_unknown";
+  const canRetryExistingCommand =
+    input.currentCommandId !== null &&
+    (!latestResponseBelongsToCommand || unknownStartOutcome);
+  const fencingGeneration = input.currentFencingGeneration + 1;
+  if (
+    !Number.isSafeInteger(fencingGeneration) ||
+    fencingGeneration > MAX_POSTGRES_INTEGER
+  ) {
+    throw new PreviewRunnerCommandIssueError(
+      "PREVIEW_RUNNER_COMMAND_CONFLICT",
+    );
+  }
+  return {
+    commandId: canRetryExistingCommand
+      ? input.currentCommandId!
+      : (input.nextCommandId ?? randomUUID()),
+    fencingGeneration,
+    alreadyLeased: false,
+  };
 }
 
 function signedCommandFor(input: {
@@ -196,7 +267,7 @@ function signedCommandFor(input: {
         sizeBytes: job.outputArtifactSizeBytes,
       },
       runtimeProfile: profile.profile,
-      resourceLimits: RESOURCE_LIMITS,
+      resourceLimits: resourceLimitsForSession(session, now),
     };
   } else {
     if (
@@ -481,45 +552,30 @@ export async function issuePreviewRunnerSessionCommand(input: {
         session.runnerLeaseExpiresAt && session.runnerLeaseExpiresAt > now
           ? session.runnerLeaseExpiresAt
           : null;
-      if (
-        leaseUntil &&
-        (session.runnerLeaseOwner !== proof.leaseOwner ||
-          session.runnerLeaseProofDigest !== proofDigest)
-      ) {
-        throw new PreviewRunnerCommandIssueError(
-          "PREVIEW_RUNNER_COMMAND_CONFLICT",
-        );
-      }
-
-      const activeSameProof = Boolean(
-        leaseUntil &&
-          session.runnerLeaseOwner === proof.leaseOwner &&
-          session.runnerLeaseProofDigest === proofDigest &&
-          session.runnerCommandId,
-      );
-      const acceptedCurrentCommand = priorMessageMatchesCommand(session);
-      const reuseUnknownStart = isRetryableUnknownStart(session, action);
-      const commandId =
-        activeSameProof || (session.runnerCommandId && !acceptedCurrentCommand)
-          ? session.runnerCommandId!
-          : reuseUnknownStart
-            ? session.runnerCommandId!
-            : randomUUID();
-      const fencingGeneration = activeSameProof
-        ? session.fencingGeneration
-        : session.fencingGeneration + 1;
-      if (
-        !Number.isSafeInteger(fencingGeneration) ||
-        fencingGeneration > MAX_POSTGRES_INTEGER
-      ) {
-        throw new PreviewRunnerCommandIssueError(
-          "PREVIEW_RUNNER_COMMAND_CONFLICT",
-        );
-      }
+      const messageProjection = session.runnerMessageProjection;
+      const leasePlan = planPreviewRunnerLease({
+        action,
+        now,
+        currentCommandId: session.runnerCommandId,
+        currentFencingGeneration: session.fencingGeneration,
+        currentLeaseOwner: session.runnerLeaseOwner,
+        currentLeaseProofDigest: session.runnerLeaseProofDigest,
+        currentLeaseExpiresAt: leaseUntil,
+        requestedLeaseOwner: proof.leaseOwner,
+        requestedProofDigest: proofDigest,
+        acceptedMessageCommandId:
+          typeof messageProjection?.commandId === "string"
+            ? messageProjection.commandId
+            : null,
+        acceptedMessageType: messageProjection?.messageType,
+        acceptedMessageStatus: messageProjection?.status,
+        nextCommandId: randomUUID(),
+      });
+      const { commandId, fencingGeneration } = leasePlan;
 
       const proofExpiresAt =
         Date.parse(proof.issuedAt) + COMMAND_TTL_MS;
-      const expiresAt = activeSameProof
+      const expiresAt = leasePlan.alreadyLeased
         ? leaseUntil!
         : new Date(
             Math.min(
@@ -548,7 +604,7 @@ export async function issuePreviewRunnerSessionCommand(input: {
         now,
       });
 
-      if (activeSameProof) return issued;
+      if (leasePlan.alreadyLeased) return issued;
 
       const leasePredicates = [
         session.runnerLeaseOwner
