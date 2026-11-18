@@ -1,8 +1,9 @@
-import { fireEvent, render, screen } from '@testing-library/react';
+import { act, fireEvent, render, screen } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import ProjectDetail from './ProjectDetail';
 
 const mocks = vi.hoisted(() => ({
+  routeProjectId: 'project-1',
   project: {
     id: 'project-1',
     name: 'مشروع تجريبي',
@@ -38,8 +39,12 @@ const mocks = vi.hoisted(() => ({
 }));
 
 vi.mock('@workspace/api-client-react', () => ({
-  useGetProject: () => ({
-    data: mocks.project,
+  useGetProject: (projectId: string) => ({
+    data: {
+      ...mocks.project,
+      id: projectId,
+      name: projectId === 'project-2' ? 'مشروع آخر' : 'مشروع تجريبي',
+    },
     isLoading: false,
     isError: false,
     error: null,
@@ -72,7 +77,7 @@ vi.mock('@tanstack/react-query', () => ({
 }));
 
 vi.mock('wouter', () => ({
-  useRoute: () => [true, { id: 'project-1' }],
+  useRoute: () => [true, { id: mocks.routeProjectId }],
   Link: 'a',
 }));
 
@@ -94,6 +99,7 @@ vi.mock('@/components/GitPanel', () => ({ default: () => null }));
 describe('ProjectDetail Arabic presentation', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mocks.routeProjectId = 'project-1';
     mocks.summaryAvailable = true;
     mocks.summaryIsLoading = false;
     mocks.summaryIsError = false;
@@ -132,6 +138,45 @@ describe('ProjectDetail Arabic presentation', () => {
       },
       expect.objectContaining({ onSuccess: expect.any(Function), onError: expect.any(Function) }),
     );
+  });
+
+  it('starts a fresh local session when the project route changes and ignores a late callback from the previous project', () => {
+    const { rerender } = render(<ProjectDetail />);
+
+    fireEvent.click(screen.getByRole('button', { name: 'معلومات المشروع' }));
+    fireEvent.click(screen.getByRole('switch', {
+      name: 'السماح بتسجيل حالات جديدة لإعادة تشغيل الاستراتيجية',
+    }));
+
+    expect(mocks.mutate).toHaveBeenCalledWith(
+      {
+        projectId: 'project-1',
+        data: { strategyReplayOptIn: true },
+      },
+      expect.objectContaining({ onError: expect.any(Function) }),
+    );
+    const previousProjectCallbacks = mocks.mutate.mock.calls[0]![1] as {
+      onError: (error: Error) => void;
+    };
+
+    mocks.routeProjectId = 'project-2';
+    rerender(<ProjectDetail />);
+
+    expect(screen.getByRole('heading', { name: 'مشروع آخر' })).toBeInTheDocument();
+    expect(screen.queryByRole('switch', {
+      name: 'السماح بتسجيل حالات جديدة لإعادة تشغيل الاستراتيجية',
+    })).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'معلومات المشروع' }));
+    const nextProjectToggle = screen.getByRole('switch', {
+      name: 'السماح بتسجيل حالات جديدة لإعادة تشغيل الاستراتيجية',
+    });
+    expect(nextProjectToggle).not.toBeChecked();
+
+    act(() => previousProjectCallbacks.onError(new Error('Project A update failed.')));
+
+    expect(screen.queryByText('Project A update failed.')).not.toBeInTheDocument();
+    expect(nextProjectToggle).not.toBeChecked();
   });
 
   it('keeps the project page available when the optional summary request fails', () => {
