@@ -977,37 +977,45 @@ export function DiscoverProjectWizard({ onClose }: Props) {
           </div>
         )}
 
-        {/* Progress bar */}
-        <div className="space-y-1.5">
-          <div className="flex justify-between text-xs text-muted-foreground">
-            <span>{isError ? 'فشل الاستكشاف' : progress < 100 ? 'جارٍ الاستكشاف…' : 'اكتمل'}</span>
-            <span className="font-mono">{progress}%</span>
+        {sessionReadError && !hasCachedSessionSnapshot ? (
+          <div role="status" data-testid="discovery-session-progress-unavailable" className="rounded-lg border border-border/60 bg-secondary/30 px-4 py-3 text-xs text-muted-foreground">
+            لا يمكن عرض نسبة التقدم أو الخطوات الحالية حتى تنجح قراءة حالة الجلسة.
           </div>
-          <div className="w-full h-1.5 bg-secondary rounded-full overflow-hidden">
-            <div
-              className={`h-full rounded-full transition-all duration-500 ${isError ? 'bg-red-500' : 'bg-primary'}`}
-              style={{ width: `${progress}%` }}
-            />
-          </div>
-        </div>
-
-        {/* Steps */}
-        <div className="space-y-2">
-          {steps.map((s, i) => (
-            <div
-              key={i}
-              className={`flex items-center gap-3 py-1.5 px-3 rounded-lg transition-colors ${s.status === 'running' ? 'bg-primary/5' : ''}`}
-            >
-              <StepIcon status={s.status} />
-              <span className={`text-sm flex-1 ${s.status === 'done' ? 'text-foreground/60' : s.status === 'running' ? 'text-foreground font-medium' : 'text-muted-foreground/40'}`}>
-                {discoveryStepLabel(s.name)}
-              </span>
-              {s.durationMs !== undefined && s.status === 'done' && (
-                <span className="text-xs font-mono text-muted-foreground/40">{s.durationMs}ms</span>
-              )}
+        ) : (
+          <>
+            {/* Progress bar */}
+            <div className="space-y-1.5">
+              <div className="flex justify-between text-xs text-muted-foreground">
+                <span>{isError ? 'فشل الاستكشاف' : progress < 100 ? 'جارٍ الاستكشاف…' : 'اكتمل'}</span>
+                <span className="font-mono">{progress}%</span>
+              </div>
+              <div className="w-full h-1.5 bg-secondary rounded-full overflow-hidden">
+                <div
+                  className={`h-full rounded-full transition-all duration-500 ${isError ? 'bg-red-500' : 'bg-primary'}`}
+                  style={{ width: `${progress}%` }}
+                />
+              </div>
             </div>
-          ))}
-        </div>
+
+            {/* Steps */}
+            <div className="space-y-2">
+              {steps.map((s, i) => (
+                <div
+                  key={i}
+                  className={`flex items-center gap-3 py-1.5 px-3 rounded-lg transition-colors ${s.status === 'running' ? 'bg-primary/5' : ''}`}
+                >
+                  <StepIcon status={s.status} />
+                  <span className={`text-sm flex-1 ${s.status === 'done' ? 'text-foreground/60' : s.status === 'running' ? 'text-foreground font-medium' : 'text-muted-foreground/40'}`}>
+                    {discoveryStepLabel(s.name)}
+                  </span>
+                  {s.durationMs !== undefined && s.status === 'done' && (
+                    <span className="text-xs font-mono text-muted-foreground/40">{s.durationMs}ms</span>
+                  )}
+                </div>
+              ))}
+            </div>
+          </>
+        )}
 
         {isError && (() => {
           const { message, suggestCredentials } = parseGitError(session?.error);
