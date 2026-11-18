@@ -67,7 +67,7 @@ The same isolated runner can select a focused Playwright journey without
 running the multi-page visual capture. It keeps the loopback namespace,
 local-auth, and browser-egress checks. UXW-01 uses browser fixtures for every
 API request, so that focused run skips the unused temporary database; it does
-not produce the 32-capture visual receipt. For the UXW-01 goal-entry journeys:
+not produce the 36-capture visual receipt. For the UXW-01 goal-entry journeys:
 
 ```sh
 DASHBOARD_E2E_GREP="UXW-01" \
