@@ -27,6 +27,7 @@ import {
 } from '@workspace/api-client-react';
 
 const project = { id: 'project-1', name: 'Alpha service' };
+const secondProject = { id: 'project-2', name: 'Beta service' };
 const sourceEntity = {
   id: 'entity-source',
   projectId: project.id,
@@ -119,6 +120,70 @@ describe('Graph', () => {
     expect(screen.getByRole('button', { name: 'buildGraph' })).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'source.ts' })).not.toBeInTheDocument();
     expect(screen.getByText('الكيانات (1)')).toBeInTheDocument();
+  });
+
+  it('falls back to an available project when the selected project disappears', () => {
+    vi.mocked(useListProjects).mockReturnValue({
+      data: [project, secondProject],
+    } as ReturnType<typeof useListProjects>);
+
+    const { rerender } = render(<Graph />);
+    const projectSelect = screen.getByRole('combobox', { name: 'اختر مشروع الرسم البياني' });
+
+    fireEvent.change(projectSelect, { target: { value: secondProject.id } });
+
+    expect(useListGraphEntities).toHaveBeenLastCalledWith(
+      { projectId: secondProject.id },
+      expect.objectContaining({
+        query: expect.objectContaining({ enabled: true }),
+      }),
+    );
+
+    vi.mocked(useListProjects).mockReturnValue({
+      data: [project],
+    } as ReturnType<typeof useListProjects>);
+    rerender(<Graph />);
+
+    expect(projectSelect).toHaveValue(project.id);
+    expect(useListGraphEntities).toHaveBeenLastCalledWith(
+      { projectId: project.id },
+      expect.objectContaining({
+        query: expect.objectContaining({ enabled: true }),
+      }),
+    );
+  });
+
+  it('does not keep an entity selection or detail query when switching projects', () => {
+    vi.mocked(useListProjects).mockReturnValue({
+      data: [project, secondProject],
+    } as ReturnType<typeof useListProjects>);
+
+    render(<Graph />);
+    fireEvent.click(screen.getByRole('button', { name: 'source.ts' }));
+
+    expect(useGetGraphEntityNeighbors).toHaveBeenLastCalledWith(
+      sourceEntity.id,
+      expect.objectContaining({
+        query: expect.objectContaining({ enabled: true }),
+      }),
+    );
+
+    fireEvent.change(screen.getByRole('combobox', { name: 'اختر مشروع الرسم البياني' }), {
+      target: { value: secondProject.id },
+    });
+
+    expect(useGetGraphEntityNeighbors).toHaveBeenLastCalledWith(
+      '',
+      expect.objectContaining({
+        query: expect.objectContaining({ enabled: false }),
+      }),
+    );
+    expect(useGetGraphEntityImpact).toHaveBeenLastCalledWith(
+      { entityId: '', maxDepth: 3 },
+      expect.objectContaining({
+        query: expect.objectContaining({ enabled: false }),
+      }),
+    );
   });
 
   it('discloses incomplete entity and relationship pages with server-reported coverage counts', () => {
