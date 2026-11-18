@@ -113,6 +113,64 @@ describe('Metrics', () => {
     });
   });
 
+  it('reconciles a removed selected project with the latest available project list', async () => {
+    mockProjects([
+      { id: 'project-a', name: 'Alpha' },
+      { id: 'project-b', name: 'Beta' },
+    ]);
+    mockMetrics([]);
+
+    const page = render(<Metrics />);
+    fireEvent.change(screen.getByRole('combobox'), {
+      target: { value: 'project-b' },
+    });
+
+    await waitFor(() => {
+      expect(useListMetrics).toHaveBeenLastCalledWith(
+        { projectId: 'project-b' },
+        expect.objectContaining({ query: expect.objectContaining({ enabled: true }) }),
+      );
+    });
+
+    // Project B is removed or no longer visible to this account while the page
+    // remains mounted. The next read must not continue using its stale identity.
+    mockProjects([{ id: 'project-a', name: 'Alpha' }]);
+    page.rerender(<Metrics />);
+
+    await waitFor(() => {
+      expect(screen.getByRole('combobox')).toHaveValue('project-a');
+      expect(useListMetrics).toHaveBeenLastCalledWith(
+        { projectId: 'project-a' },
+        expect.objectContaining({ query: expect.objectContaining({ enabled: true }) }),
+      );
+    });
+  });
+
+  it('disables the metrics query when the selected project disappears and no projects remain', async () => {
+    mockProjects([
+      { id: 'project-a', name: 'Alpha' },
+      { id: 'project-b', name: 'Beta' },
+    ]);
+    mockMetrics([]);
+
+    const page = render(<Metrics />);
+    fireEvent.change(screen.getByRole('combobox'), {
+      target: { value: 'project-b' },
+    });
+
+    mockProjects([]);
+    page.rerender(<Metrics />);
+
+    await waitFor(() => {
+      expect(screen.getByRole('combobox')).toHaveValue('');
+      expect(screen.getByText('اختر مشروعًا لعرض مؤشراته.')).toBeInTheDocument();
+      expect(useListMetrics).toHaveBeenLastCalledWith(
+        { projectId: '' },
+        expect.objectContaining({ query: expect.objectContaining({ enabled: false }) }),
+      );
+    });
+  });
+
   it('offers project retry on load failure rather than showing an empty state', () => {
     vi.mocked(useListProjects).mockReturnValue({
       data: undefined,

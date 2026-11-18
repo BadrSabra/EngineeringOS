@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { useListMetrics, useListProjects, getListMetricsQueryKey } from '@workspace/api-client-react';
 import {
   LineChart,
@@ -28,7 +28,21 @@ export default function Metrics() {
   const [selectedProjectId, setSelectedProjectId] = useState<string>('');
   const [dateRange, setDateRange] = useState<DateRange>('30d');
 
-  const effectiveProjectId = selectedProjectId || (projects?.[0]?.id ?? '');
+  // A project can disappear from the owner's available list while Metrics stays
+  // mounted (for example after deletion in another tab). Never keep querying an
+  // id that is no longer present in the current project set.
+  const selectedProjectIsAvailable = Boolean(
+    selectedProjectId && projects?.some((project) => project.id === selectedProjectId),
+  );
+  const effectiveProjectId = selectedProjectIsAvailable
+    ? selectedProjectId
+    : (projects?.[0]?.id ?? '');
+
+  useEffect(() => {
+    if (selectedProjectId && projects && !selectedProjectIsAvailable) {
+      setSelectedProjectId('');
+    }
+  }, [selectedProjectId, projects, selectedProjectIsAvailable]);
 
   const { data: metrics, isLoading, isError, error, refetch, isRefetching, dataUpdatedAt } = useListMetrics(
     { projectId: effectiveProjectId },
