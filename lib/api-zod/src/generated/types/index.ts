@@ -643,6 +643,8 @@ export * from './operationEvidenceProjectionGapsItemKind';
 export * from './operationEvidenceProjectionGapsItemSource';
 export * from './operationEvidenceProjectionHashes';
 export * from './operationEvidenceProjectionReceiptsItem';
+export * from './operationEvidenceProjectionReceiptsItemKind';
+export * from './operationEvidenceProjectionReceiptsItemStatus';
 export * from './operationEvidenceProjectionVersion';
 export * from './operatorAlert';
 export * from './operatorAlertKind';

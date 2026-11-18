@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { buildOperationEvidenceProjection, type EvidenceInput } from "./operation-evidence.js";
+import { GetAiExecutionResponse } from "@workspace/api-zod";
+import {
+  buildOperationEvidenceProjection,
+  redactOperationEvidence,
+  type EvidenceInput,
+} from "./operation-evidence.js";
 
 function input(overrides: Partial<EvidenceInput> = {}): EvidenceInput {
   return {
@@ -89,6 +94,57 @@ describe("operation evidence projection", () => {
     expect(mismatched.gaps).toEqual(expect.arrayContaining([
       expect.objectContaining({ kind: "mismatch" }),
     ]));
+  });
+
+  it("does not attribute unbound or older event receipts to the current attempt", () => {
+    const projection = buildOperationEvidenceProjection(input({
+      execution: { ...input().execution, attempt: 2 },
+      events: [
+        {
+          id: "push-old-attempt",
+          type: "GitPushed",
+          severity: "success",
+          message: "push receipt",
+          timestamp: new Date("2026-08-24T10:00:04Z"),
+          payload: { status: "passed", operationId: "operation-1", executionAttempt: 1 },
+        },
+        {
+          id: "push-unbound-attempt",
+          type: "GitPushed",
+          severity: "success",
+          message: "legacy push receipt",
+          timestamp: new Date("2026-08-24T10:00:04Z"),
+          payload: { status: "passed", operationId: "operation-1" },
+        },
+        {
+          id: "push-explicit-attempt",
+          type: "GitPushed",
+          severity: "success",
+          message: "explicit attempt receipt",
+          timestamp: new Date("2026-08-24T10:00:04Z"),
+          payload: { status: "passed", operationId: "operation-1", attempt: 0 },
+        },
+      ],
+    }));
+
+    expect(projection.receipts.filter((receipt) => receipt.kind === "push").map((receipt) => receipt.attempt))
+      .toEqual([1, null, 0]);
+  });
+
+  it("returns only fields declared by the generated execution-detail contract", () => {
+    const publicProjection = redactOperationEvidence(buildOperationEvidenceProjection(input()));
+    const parsed = GetAiExecutionResponse.shape.operationEvidence.parse(publicProjection);
+    const normalized = {
+      ...parsed,
+      receipts: parsed.receipts.map((receipt) => ({
+        ...receipt,
+        timestamp: receipt.timestamp.toISOString(),
+      })),
+    };
+
+    expect(publicProjection).not.toHaveProperty("readiness");
+    expect(publicProjection).not.toHaveProperty("proofSpine");
+    expect(normalized).toEqual(publicProjection);
   });
 
   it("bounds and redacts provider-derived diagnostics", () => {

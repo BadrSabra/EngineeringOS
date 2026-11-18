@@ -51,7 +51,8 @@ export type EvidenceGap = {
 export type OperationReceipt = {
   kind: "process" | "provider" | "recipe" | "validation" | "promotion" | "commit" | "push";
   status: "started" | "passed" | "failed" | "blocked" | "cancelled" | "unknown";
-  attempt: number;
+  /** Exact execution attempt when retained; null means the receipt is not attempt-bound. */
+  attempt: number | null;
   timestamp: string;
   detail?: string;
   diagnostic?: string;
@@ -86,8 +87,12 @@ export type OperationEvidenceProjection = {
   };
   receipts: OperationReceipt[];
   gaps: EvidenceGap[];
-  readiness?: OperationalReadinessDecision;
   proof: PublicCanonicalProofProjection;
+};
+
+/** Internal calculations that are deliberately not part of the public API contract. */
+export type InternalOperationEvidenceProjection = OperationEvidenceProjection & {
+  readiness?: OperationalReadinessDecision;
   proofSpine: ProofSpineProjection;
 };
 
@@ -170,12 +175,21 @@ function receiptKind(value: string): OperationReceipt["kind"] {
   return "process";
 }
 
+function receiptAttempt(value: unknown): number | null {
+  const parsed = typeof value === "number"
+    ? value
+    : typeof value === "string" && value.trim().length > 0
+      ? Number(value)
+      : Number.NaN;
+  return Number.isSafeInteger(parsed) && parsed >= 0 && parsed <= 100 ? parsed : null;
+}
+
 function addGap(gaps: EvidenceGap[], gap: EvidenceGap): void {
   if (gaps.some((item) => item.kind === gap.kind && item.source === gap.source && item.detail === gap.detail)) return;
   if (gaps.length < OPERATION_EVIDENCE_LIMITS.gaps) gaps.push(gap);
 }
 
-export function buildOperationEvidenceProjection(input: EvidenceInput): OperationEvidenceProjection {
+export function buildOperationEvidenceProjection(input: EvidenceInput): InternalOperationEvidenceProjection {
   const execution = input.execution;
   const checkpoint = record(parseJson(execution.checkpoint));
   const request = record(parseJson(execution.request));
@@ -194,11 +208,17 @@ export function buildOperationEvidenceProjection(input: EvidenceInput): Operatio
   const journal = uniqueById(input.journal ?? [], OPERATION_EVIDENCE_LIMITS.journal);
   const gaps: EvidenceGap[] = [];
   const receipts: OperationReceipt[] = [];
-  const pushReceipt = (kind: OperationReceipt["kind"], value: unknown, timestamp: Date | string, attempt = 0, diagnostic?: unknown) => {
+  const pushReceipt = (
+    kind: OperationReceipt["kind"],
+    value: unknown,
+    timestamp: Date | string,
+    attempt: number | null = null,
+    diagnostic?: unknown,
+  ) => {
     receipts.push({
       kind,
       status: status(value),
-      attempt: Math.max(0, Math.min(100, Number.isInteger(attempt) ? attempt : 0)),
+      attempt: receiptAttempt(attempt),
       timestamp: new Date(timestamp).toISOString(),
       ...(text(value) ? { detail: text(value) } : {}),
       ...(text(diagnostic, 300) ? { diagnostic: text(diagnostic, 300) } : {}),
@@ -216,7 +236,7 @@ export function buildOperationEvidenceProjection(input: EvidenceInput): Operatio
         "recipe",
         nodeRecord.status ?? "unknown",
         String(nodeRecord.updatedAt ?? execution.completedAt?.toISOString?.() ?? execution.createdAt.toISOString()),
-        Number(nodeRecord.attempts ?? 0),
+        execution.attempt,
         nodeRecord.evidenceRefs ? "Recipe node evidence reference retained." : "Recipe node evidence reference is missing.",
       );
     }
@@ -234,12 +254,19 @@ export function buildOperationEvidenceProjection(input: EvidenceInput): Operatio
       kind,
       payload.status ?? event.type,
       event.timestamp,
-      Number(payload.attempt ?? execution.attempt),
+      receiptAttempt(payload.executionAttempt ?? payload.attempt),
       kind === "provider" ? "Provider diagnostic retained in server logs." : event.message,
     );
   }
   for (const entry of journal) {
-    pushReceipt(receiptKind(entry.stage), entry.stage, entry.createdAt, Number(record(entry.payload).attempt ?? 0), record(entry.payload).reason);
+    const payload = record(entry.payload);
+    pushReceipt(
+      receiptKind(entry.stage),
+      entry.stage,
+      entry.createdAt,
+      receiptAttempt(payload.executionAttempt ?? payload.attempt),
+      payload.reason,
+    );
   }
   if (execution.completedAt) pushReceipt("process", execution.status, execution.completedAt, execution.attempt, execution.error);
 
@@ -270,7 +297,7 @@ export function buildOperationEvidenceProjection(input: EvidenceInput): Operatio
   else if (["blocked", "paused"].includes(execution.status)) completeness = "blocked";
   else completeness = gaps.length > 0 ? "partial" : "uncertain";
 
-  const projection: OperationEvidenceProjection = {
+  const projection: InternalOperationEvidenceProjection = {
     version: 1,
     redacted: true,
     operationId,
@@ -330,7 +357,7 @@ function parseJson(value: string | null): unknown {
   try { return JSON.parse(value ?? ""); } catch { return undefined; }
 }
 
-export async function loadOperationEvidence(execution: AiExecution): Promise<OperationEvidenceProjection> {
+export async function loadOperationEvidence(execution: AiExecution): Promise<InternalOperationEvidenceProjection> {
   const operationId = execution.operationId ?? execution.correlationId ?? execution.id;
   const [events, audits, taskLogs, journal, proposals, goals] = await Promise.all([
     db.select({
@@ -501,5 +528,19 @@ export async function loadOperationEvidence(execution: AiExecution): Promise<Ope
 }
 
 export function redactOperationEvidence(value: OperationEvidenceProjection): OperationEvidenceProjection {
-  return redactUserFacingValue(value) as OperationEvidenceProjection;
+  return redactUserFacingValue({
+    version: value.version,
+    redacted: value.redacted,
+    operationId: value.operationId,
+    projectId: value.projectId,
+    revision: value.revision,
+    terminalState: value.terminalState,
+    completeness: value.completeness,
+    verified: value.verified,
+    hashes: value.hashes,
+    counts: value.counts,
+    receipts: value.receipts,
+    gaps: value.gaps,
+    proof: value.proof,
+  }) as OperationEvidenceProjection;
 }
