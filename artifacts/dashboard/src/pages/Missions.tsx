@@ -1434,7 +1434,7 @@ export default function Missions() {
   // Async action receipts belong to the project/mission view that initiated
   // them. Increment synchronously during render so a route or selection change
   // fences late callbacks before passive-effect cleanup can run.
-  const missionViewScopeKey = `${explicitProjectId ?? projectId}::${explicitMissionId ?? activeMissionId ?? ''}`;
+  const missionViewScopeKey = `${projectId}::${activeMissionId ?? ''}::${explicitProjectId ?? ''}::${explicitMissionId ?? ''}`;
   const missionViewScopeRef = useRef({ key: missionViewScopeKey, revision: 0 });
   useLayoutEffect(() => {
     if (missionViewScopeRef.current.key !== missionViewScopeKey) {
@@ -1442,6 +1442,9 @@ export default function Missions() {
         key: missionViewScopeKey,
         revision: missionViewScopeRef.current.revision + 1,
       };
+      setMutationError(null);
+      setMutationNotice(null);
+      setMissionActionError(null);
     }
   }, [missionViewScopeKey]);
 
