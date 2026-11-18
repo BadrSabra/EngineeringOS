@@ -1,3 +1,4 @@
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import type { AiExecutionProjection, GetAiExecution200 } from "@workspace/api-client-react";
@@ -58,6 +59,17 @@ const execution = {
   worldTransitions: [],
 } as unknown as GetAiExecution200;
 
+function renderWorkspaceExecutionDetail() {
+  const queryClient = new QueryClient({
+    defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+  });
+  return render(
+    <QueryClientProvider client={queryClient}>
+      <WorkspaceExecutionDetail executionId="execution-1" projectId="project-1" />
+    </QueryClientProvider>,
+  );
+}
+
 describe("WorkspaceExecutionDetail", () => {
   it("renders the server projection read-only and filters decision or recovery actions", () => {
     mocks.query = {
@@ -69,9 +81,7 @@ describe("WorkspaceExecutionDetail", () => {
       refetch: vi.fn(),
     };
 
-    render(
-      <WorkspaceExecutionDetail executionId="execution-1" projectId="project-1" />,
-    );
+    renderWorkspaceExecutionDetail();
 
     expect(screen.getByTestId("mission-capsule")).toBeInTheDocument();
     expect(screen.getByText("مراجعة تنفيذ مرتبطة بالمشروع")).toBeInTheDocument();
@@ -90,9 +100,7 @@ describe("WorkspaceExecutionDetail", () => {
       refetch: vi.fn(),
     };
 
-    render(
-      <WorkspaceExecutionDetail executionId="execution-1" projectId="project-1" />,
-    );
+    renderWorkspaceExecutionDetail();
 
     expect(screen.getByText(
       "تعذر مطابقة تفاصيل التنفيذ مع المشروع والنسخة الحاليين؛ لن نعرض إسقاطًا غير مطابق.",
@@ -111,9 +119,7 @@ describe("WorkspaceExecutionDetail", () => {
       refetch,
     };
 
-    render(
-      <WorkspaceExecutionDetail executionId="execution-1" projectId="project-1" />,
-    );
+    renderWorkspaceExecutionDetail();
 
     expect(screen.getByText("لا تملك صلاحية قراءة تفاصيل هذا التنفيذ.")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "إعادة تحميل تفاصيل التنفيذ" })).toBeInTheDocument();
