@@ -77,9 +77,10 @@ The projection remains explicitly `verified: false`; this change fixes provenanc
 | `pnpm --filter @workspace/api-server run typecheck` | Passed after fixing two type errors identified in the first typecheck attempt. |
 | Focused Operation Evidence and execution projection tests | 16 passed. |
 | `ai.test.ts` audit-export regression | Before test correction: 1 failed because it expected `proofSpine`; after correction: 1 passed, 241 skipped. |
+| AI route parity and full AI route tests | 245 passed across `ai-route-parity.test.ts` and `ai.test.ts` after the assertion correction. |
 | `github-delivery-service.test.ts` | 5 passed. |
 | Workspace, SSE, and Preview Build route tests | Combined run: 51 passed, 1 failed (`projects.test.ts` second-scan case received 409 instead of 202). Isolated rerun of that exact case passed (1 passed, 41 skipped); treat the combined-run result as timing-sensitive, not as a confirmed regression. |
-| Integration / E2E | The legacy Operation Evidence integration test was excluded. The configured task validator ran the dashboard restart smoke (passed), but its release gate and separate dashboard journey did not finish successfully as described above; the full gate is pending a rerun after the isolated assertion correction. No end-to-end acceptance, Apply, or Preview qualification claim is made. |
+| Integration / E2E | The legacy Operation Evidence integration test was excluded. The task validator's dashboard restart smoke passed and its nested Preview dashboard check passed; the separate dashboard journey stopped at 33/67. The full release gate was not rerun after the isolated assertion correction. No end-to-end acceptance, Apply, or Preview qualification claim is made. |
 | Replit API workflow | Restarted successfully; `GET /api/healthz` returned `200`. Startup logs explicitly report that AI features return `428` until a provider is configured. |
 
 ## Repository and pull-request review
