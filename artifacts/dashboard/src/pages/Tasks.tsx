@@ -1,4 +1,5 @@
 import React, { useMemo, useState, useEffect, useRef } from 'react';
+import { useSearch } from 'wouter';
 import {
   useListTasks,
   useExecuteTask,
@@ -1424,9 +1425,31 @@ function TaskEditDialog({
 // ─── Main component ───────────────────────────────────────────────────────────
 
 export default function Tasks() {
+  // Subscribe to Wouter's search location so query-only navigations update the
+  // route boundary even when the pathname remains /tasks.
+  const routeParams = new URLSearchParams(useSearch());
+  const requestedTaskId = routeParams.get('taskId') ?? '';
+  const requestedProjectId = routeParams.get('projectId') ?? '';
+
+  // A task deep link can change while this route remains mounted. Keep project-owned
+  // filters, selections, and mutation UI state inside the requested route session.
+  return (
+    <TasksSession
+      key={JSON.stringify([requestedProjectId, requestedTaskId])}
+      requestedTaskId={requestedTaskId}
+      requestedProjectId={requestedProjectId}
+    />
+  );
+}
+
+function TasksSession({
+  requestedTaskId,
+  requestedProjectId,
+}: {
+  requestedTaskId: string;
+  requestedProjectId: string;
+}) {
   const queryClient = useQueryClient();
-  const requestedTaskId = new URLSearchParams(window.location.search).get('taskId') ?? '';
-  const requestedProjectId = new URLSearchParams(window.location.search).get('projectId') ?? '';
   const [selectedProjectId, setSelectedProjectId] = useState('');
   const [filterStatus, setFilterStatus] = useState<TaskStatusFilter | ''>('');
   const [filterPriority, setFilterPriority] = useState<TaskPriorityFilter | ''>('');

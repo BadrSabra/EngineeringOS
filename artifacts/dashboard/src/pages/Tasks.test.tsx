@@ -2,6 +2,7 @@ import { act, fireEvent, render, screen, within } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import axe from 'axe-core';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { useLocation } from 'wouter';
 import type { AiExecutionProjection } from '@workspace/api-client-react';
 import Tasks from './Tasks';
 
@@ -309,6 +310,62 @@ describe('project-scoped task list contracts', () => {
     expect(useListTasks).toHaveBeenLastCalledWith(
       expect.objectContaining({ projectId: 'project-2' }), expect.anything(),
     );
+  });
+
+  it('resets project-owned task UI state when the route target changes in-place', () => {
+    vi.mocked(useListProjects).mockReturnValue({
+      data: [
+        { id: 'project-1', name: 'First' },
+        { id: 'project-2', name: 'Second' },
+        { id: 'project-3', name: 'Third' },
+      ],
+      isLoading: false, isError: false, error: null,
+    } as ReturnType<typeof useListProjects>);
+
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    function RouteNavigationProbe() {
+      const [, navigate] = useLocation();
+      return (
+        <button type="button" onClick={() => navigate('/tasks?projectId=project-3')}>
+          Navigate to project 3
+        </button>
+      );
+    }
+    const page = () => (
+      <QueryClientProvider client={queryClient}>
+        <>
+          <RouteNavigationProbe />
+          <Tasks />
+        </>
+      </QueryClientProvider>
+    );
+
+    window.history.replaceState({}, '', '/tasks?projectId=project-1');
+    render(page());
+
+    // A user can make a local project selection without unmounting the page.
+    fireEvent.change(screen.getByTestId('select-task-project'), { target: { value: 'project-2' } });
+    expect(screen.getByTestId('select-task-project')).toHaveValue('project-2');
+
+    // A later deep link must own the page, not the previous local selection/filter.
+    fireEvent.change(screen.getByLabelText('تصفية المهام حسب الحالة'), {
+      target: { value: 'completed' },
+    });
+    expect(screen.getByLabelText('تصفية المهام حسب الحالة')).toHaveValue('completed');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Navigate to project 3' }));
+
+    expect(useListTasks).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        projectId: 'project-3',
+        status: undefined,
+        priority: undefined,
+      }),
+      expect.objectContaining({ query: expect.objectContaining({ enabled: true }) }),
+    );
+    expect(screen.getByTestId('select-task-project')).toHaveValue('project-3');
+    expect(screen.getByLabelText('تصفية المهام حسب الحالة')).toHaveValue('');
+    expect(screen.queryByText('Repair provider authentication')).not.toBeInTheDocument();
   });
 
   it('resolves the project of a task deep link even when it is outside the first list page', () => {
