@@ -193,6 +193,9 @@ describe("ProjectWorkspace live snapshot refresh", () => {
     expect(screen.getByRole("region", { name: "محادثة المشروع" })).toBeInTheDocument();
     expect(screen.getByRole("region", { name: "معاينة المشروع" })).toBeInTheDocument();
     expect(screen.getByRole("complementary", { name: "العمل والثقة" })).toBeInTheDocument();
+    expect(screen.getByText("أحدث 8 مهام من المصدر؛ هذه ليست قائمة شاملة.")).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "عرض جميع مهام المشروع" }))
+      .toHaveAttribute("href", "/tasks?projectId=project-1");
 
     const previewGate = screen.getByTestId("workspace-preview-gate");
     expect(previewGate).toHaveTextContent("لا توجد معاينة تفاعلية مؤهلة بعد");
