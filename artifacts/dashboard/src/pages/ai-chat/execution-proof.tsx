@@ -653,8 +653,8 @@ export function AgentExecutionProofPanel({
   const readSources = Math.max(liveReadSources, persistedReadCount);
   const evidenceLabel = evidenceIntegrity
     ? evidenceIntegrity.consistent
-      ? 'Telemetry consistent'
-      : `${evidenceIntegrity.violations.length || 1} evidence violation${evidenceIntegrity.violations.length === 1 ? '' : 's'}`
+      ? 'بيانات التتبع متسقة'
+      : `${evidenceIntegrity.violations.length || 1} ${evidenceIntegrity.violations.length === 1 ? 'مخالفة' : 'مخالفات'} في سلامة الأدلة`
     : readSources > 0
       ? `${readSources} source file${readSources === 1 ? '' : 's'} read`
       : isFixtureLocal
@@ -1010,8 +1010,7 @@ export function AgentExecutionProofPanel({
       {evidenceIntegrity?.consistent === false && (
         <div className="border-b border-red-500/30 bg-red-500/10 px-3 py-2 text-[11px] text-red-200"
           role="alert" data-testid="alert-execution-evidence-integrity">
-          Evidence integrity needs attention: {evidenceIntegrity.violations.length || 1} violation
-          {evidenceIntegrity.violations.length === 1 ? '' : 's'} recorded. Review the proof before relying on this result.
+          سلامة الأدلة تحتاج إلى مراجعة: سُجّلت {evidenceIntegrity.violations.length || 1} مخالفة. راجع الإثبات قبل الاعتماد على النتيجة.
         </div>
       )}
       {evidenceIntegrity?.completionGateResult && (
