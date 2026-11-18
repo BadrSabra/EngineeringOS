@@ -63,7 +63,7 @@ beforeEach(() => {
   };
   pendingActions.clear();
   vi.stubGlobal('fetch', vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
-    const match = String(input).match(/\\/api\\/projects\\/([^/]+)\\/runtime(?:\\/(start|restart|stop))?$/);
+    const match = String(input).match(/\/api\/projects\/([^/]+)\/runtime(?:\/(start|restart|stop))?$/);
     if (!match) throw new Error(`Unexpected runtime URL: ${String(input)}`);
     const requestedProjectId = decodeURIComponent(match[1]!);
     const nextAction = match[2];
