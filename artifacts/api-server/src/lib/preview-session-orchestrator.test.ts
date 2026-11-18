@@ -20,6 +20,20 @@ const session = {
   buildReceiptId: "123e4567-e89b-42d3-a456-426614174000",
   taskDefinitionArn:
     "arn:aws:ecs:eu-central-1:123456789012:task-definition/engineeringos-preview-vite:4",
+  executionProvider: "aws_ecs",
+  executionRef: null,
+  runnerNodeId: null,
+  runnerKeyVersion: null,
+  runtimeProfileId: null,
+  runtimeProfileDigest: null,
+  channelRef: null,
+  executionGeneration: 1,
+  fencingGeneration: 1,
+  runnerCommandId: null,
+  runnerMessageId: null,
+  runnerMessageDigest: null,
+  runnerLeaseOwner: null,
+  runnerLeaseExpiresAt: null,
   status: "starting",
   runnerTaskArn: null,
   stateVersion: 0,
@@ -184,6 +198,30 @@ describe("Preview session ECS orchestration", () => {
       orchestrator.start({
         ...session,
         expiresAt: new Date(now.getTime() - 1),
+      }),
+    ).resolves.toBeNull();
+    expect(dispatched).toBe(false);
+  });
+
+  it("keeps Local Agent execution closed until its runtime path is qualified", async () => {
+    let dispatched = false;
+    const orchestrator = createPreviewSessionOrchestrator({
+      now: () => now,
+      dispatch: async () => {
+        dispatched = true;
+        return {
+          action: "start",
+          taskArn,
+          taskDefinitionArn: session.taskDefinitionArn,
+        };
+      },
+    });
+
+    await expect(
+      orchestrator.start({
+        ...session,
+        executionProvider: "local_agent",
+        taskDefinitionArn: null,
       }),
     ).resolves.toBeNull();
     expect(dispatched).toBe(false);

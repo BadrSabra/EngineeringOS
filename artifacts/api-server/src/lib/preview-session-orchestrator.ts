@@ -74,6 +74,8 @@ export function createPreviewSessionOrchestrator(dependencies?: {
     async start(session: PreviewSession): Promise<PreviewSession | null> {
       const issuedAt = now();
       if (
+        session.executionProvider !== "aws_ecs" ||
+        !session.taskDefinitionArn ||
         session.status !== "starting" ||
         session.stateVersion !== 0 ||
         !SESSION_ID_PATTERN.test(session.id) ||

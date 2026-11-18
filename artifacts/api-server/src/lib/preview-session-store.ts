@@ -218,6 +218,7 @@ export async function createStartingPreviewSession(
         buildOutputArtifactKey: receipt.outputArtifactKey,
         buildOutputDigest: receipt.buildOutputDigest,
         imageDigest: input.runtimeProfile.imageDigest,
+        executionProvider: "aws_ecs",
         taskDefinitionArn: input.runtimeProfile.taskDefinitionArn,
         expiresAt: input.expiresAt,
       })
@@ -274,6 +275,8 @@ export async function transitionPreviewSession(
     predicates.push(
       gt(previewSessionsTable.expiresAt, input.now),
       exists(currentCandidateExists(input.sessionId)),
+      eq(previewSessionsTable.executionProvider, "aws_ecs"),
+      isNotNull(previewSessionsTable.taskDefinitionArn),
       isNotNull(previewSessionsTable.runnerTaskArn),
     );
   } else if (input.nextStatus === "expired") {
@@ -316,6 +319,8 @@ export async function attachPreviewSessionTask(input: {
       and(
         eq(previewSessionsTable.id, input.sessionId),
         eq(previewSessionsTable.status, "starting"),
+        eq(previewSessionsTable.executionProvider, "aws_ecs"),
+        isNotNull(previewSessionsTable.taskDefinitionArn),
         eq(previewSessionsTable.stateVersion, input.expectedVersion),
         isNull(previewSessionsTable.runnerTaskArn),
         gt(previewSessionsTable.expiresAt, input.now),

@@ -20,6 +20,17 @@ Standard Docker/runc remains rejected for Candidate execution.
 
 **Authority:** Additive contract for UXW-03.1–03.4; it does not enable Backend Preview
 
+**Session schema foundation (2026-11-18):** The existing `preview_sessions` row
+now has provider-neutral execution identity, node/profile/channel binding,
+execution and fencing generations, current command/message replay fingerprints,
+and a paired Runner lease. Existing ECS rows keep `execution_provider =
+aws_ecs` by default and still require their real task-definition ARN; local
+rows have no ECS ARN and must satisfy the stronger Agent/profile binding check.
+The development database passed the application schema contract after this
+additive update. This is storage groundwork only: there is still no Local Agent
+session creator, Runner transport/acceptance route, replay-fencing handler, or
+qualified runtime, and the qualification registry remains empty.
+
 ## 1. Purpose
 
 Define one provider-neutral boundary between the API control plane, a trusted
@@ -44,7 +55,7 @@ for the exact provider/runtime version and policy may satisfy the minimum.
 
 | Existing boundary | Contract rule |
 |---|---|
-| `PreviewSessionStore` and `preview_sessions` | Remain the source of truth for Session identity and lifecycle. Do not create a second Session/job ledger. A schema migration may add provider-neutral execution fields after review; do not encode a local handle as an ECS ARN. |
+| `PreviewSessionStore` and `preview_sessions` | Remain the source of truth for Session identity and lifecycle. The existing row now carries provider-neutral execution fields; do not create a second Session/job ledger or encode a local handle as an ECS ARN. Local command acceptance is not yet wired. |
 | `VerifiedPreviewRuntimeProfile` / `preview-runtime-profile.ts` | This is currently AWS-specific (`imageDigest`, `taskDefinitionArn`). Preserve it for the AWS adapter; do not silently redefine it as the provider-neutral profile. |
 | `PreviewControlCommand` / `preview-control-command.ts` | The existing signed command is ECS-specific and uses AWS task-definition fields. Keep it compatible; introduce a separately versioned, domain-separated Runner message rather than widening its meaning. |
 | `PreviewEcsRunner` | Keep as an AWS adapter. Its Task Definition checks do not attest a stronger-than-runc boundary and do not qualify a live Runner. |
