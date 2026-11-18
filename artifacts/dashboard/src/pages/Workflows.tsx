@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { useLocation, useSearch } from 'wouter';
 import {
   useListWorkflows,
   useListProjects,
@@ -59,14 +60,22 @@ function orchestrationActionLabel(action: string): string {
   return labels[action] ?? action;
 }
 
-function CreateWorkflowModal({ onClose }: { onClose: () => void }) {
+function CreateWorkflowModal({
+  onClose,
+  initialProjectId,
+  onCreated,
+}: {
+  onClose: () => void;
+  initialProjectId: string;
+  onCreated: (projectId: string) => void;
+}) {
   const queryClient = useQueryClient();
   const { data: projects } = useListProjects();
   const createWorkflow = useCreateWorkflow();
 
   type PhaseInput = { name: string; steps: string[]; condition?: string };
 
-  const [projectId, setProjectId] = useState('');
+  const [projectId, setProjectId] = useState(initialProjectId);
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
   const [phases, setPhases] = useState<PhaseInput[]>([
@@ -126,8 +135,11 @@ function CreateWorkflowModal({ onClose }: { onClose: () => void }) {
         },
       },
       {
-        onSuccess: () => {
-          queryClient.invalidateQueries({ queryKey: getListWorkflowsQueryKey() });
+        onSuccess: (created) => {
+          void queryClient.invalidateQueries({
+            queryKey: getListWorkflowsQueryKey({ projectId: created.projectId }),
+          });
+          onCreated(created.projectId);
           onClose();
         },
       },
@@ -305,9 +317,11 @@ function CreateWorkflowModal({ onClose }: { onClose: () => void }) {
 
 function ExecutionHistory({
   workflowId,
+  projectId,
   phases,
 }: {
   workflowId: string;
+  projectId: string;
   phases: Array<{ name: string }>;
 }) {
   const { data: executions, isLoading, isError, error, refetch } = useListWorkflowExecutions(workflowId, {
@@ -328,8 +342,8 @@ function ExecutionHistory({
   };
 
   const invalidate = () => {
-    queryClient.invalidateQueries({ queryKey: getListWorkflowExecutionsQueryKey(workflowId) });
-    queryClient.invalidateQueries({ queryKey: getListWorkflowsQueryKey() });
+    void queryClient.invalidateQueries({ queryKey: getListWorkflowExecutionsQueryKey(workflowId) });
+    void queryClient.invalidateQueries({ queryKey: getListWorkflowsQueryKey({ projectId }) });
   };
 
   if (isLoading) {
@@ -488,8 +502,58 @@ function ExecutionHistory({
 }
 
 export default function Workflows() {
+  const routeParams = new URLSearchParams(useSearch());
+  const requestedProjectId = routeParams.get('projectId') ?? '';
+
+  // Project-scoped local state (expanded workflow, modal, and AI suggestions)
+  // must not survive a route transition to another project.
+  return (
+    <WorkflowsSession
+      key={requestedProjectId || 'default'}
+      requestedProjectId={requestedProjectId}
+    />
+  );
+}
+
+function WorkflowsSession({ requestedProjectId }: { requestedProjectId: string }) {
   const queryClient = useQueryClient();
-  const { data: workflows, isLoading, isError, error, refetch, isRefetching, dataUpdatedAt } = useListWorkflows({});
+  const [, navigate] = useLocation();
+  const projectsQuery = useListProjects();
+  const projects = projectsQuery.data ?? [];
+  const selectedProject = requestedProjectId
+    ? projects.find((project) => project.id === requestedProjectId)
+    : projects[0];
+  const projectId = selectedProject?.id ?? '';
+  const projectTargetUnavailable = Boolean(
+    requestedProjectId
+    && !projectsQuery.isLoading
+    && !projectsQuery.isError
+    && !selectedProject,
+  );
+  const listParams = { projectId: projectId || undefined };
+  const workflowsQuery = useListWorkflows(listParams, {
+    query: {
+      queryKey: getListWorkflowsQueryKey(listParams),
+      enabled: Boolean(projectId) && !projectsQuery.isError && !projectTargetUnavailable,
+    },
+  });
+  const {
+    data: rawWorkflows,
+    isLoading: workflowsLoading,
+    isError: workflowsError,
+    error,
+    refetch,
+    isRefetching,
+    dataUpdatedAt,
+  } = workflowsQuery;
+  // A route-scoped query key plus this identity check prevents stale or malformed
+  // cross-project rows from becoming visible in the active Workspace.
+  const workflows = projectId
+    ? (rawWorkflows ?? []).filter((workflow) => workflow.projectId === projectId)
+    : [];
+  const isLoading = projectsQuery.isLoading || Boolean(projectId && workflowsLoading);
+  const isError = workflowsError;
+
   const [expandedId, setExpandedId] = useState<string>('');
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [orchestrationState, setOrchestrationState] = useState<
@@ -508,9 +572,21 @@ export default function Workflows() {
   const orchestrateWorkflow = useAiOrchestrateWorkflow();
   const deleteWorkflow = useDeleteWorkflow();
 
+  const navigateToProject = (nextProjectId: string) => {
+    navigate(nextProjectId
+      ? '/workflows?projectId=' + encodeURIComponent(nextProjectId)
+      : '/workflows');
+  };
+
   const invalidateWorkflow = (workflowId: string) => {
-    queryClient.invalidateQueries({ queryKey: getListWorkflowsQueryKey() });
-    queryClient.invalidateQueries({ queryKey: getListWorkflowExecutionsQueryKey(workflowId) });
+    if (projectId) {
+      void queryClient.invalidateQueries({
+        queryKey: getListWorkflowsQueryKey({ projectId }),
+      });
+    }
+    void queryClient.invalidateQueries({
+      queryKey: getListWorkflowExecutionsQueryKey(workflowId),
+    });
   };
 
   const clearWorkflowActionError = (workflowId: string) => {
@@ -594,7 +670,7 @@ export default function Workflows() {
 
   const handleDelete = (workflowId: string, workflowName: string) => {
     const confirmed = window.confirm(
-      `حذف «${workflowName}»؟ سيؤدي ذلك أيضًا إلى حذف سجل تشغيل المسار نهائيًا.`,
+      'حذف «' + workflowName + '»؟ سيؤدي ذلك أيضًا إلى حذف سجل تشغيل المسار نهائيًا.',
     );
     if (!confirmed) return;
 
@@ -607,7 +683,11 @@ export default function Workflows() {
       { workflowId },
       {
         onSuccess: () => {
-          void queryClient.invalidateQueries({ queryKey: getListWorkflowsQueryKey() });
+          if (projectId) {
+            void queryClient.invalidateQueries({
+              queryKey: getListWorkflowsQueryKey({ projectId }),
+            });
+          }
           queryClient.removeQueries({ queryKey: getListWorkflowExecutionsQueryKey(workflowId) });
           setExpandedId((current) => current === workflowId ? '' : current);
           clearWorkflowActionError(workflowId);
@@ -623,8 +703,12 @@ export default function Workflows() {
     );
   };
 
+  const handleWorkflowCreated = (createdProjectId: string) => {
+    navigateToProject(createdProjectId);
+  };
+
   return (
-    <div className="space-y-6" dir="rtl" lang="ar">
+    <div className="space-y-6" dir="rtl" lang="ar" data-testid="workflows-page">
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
           <h1 className="text-2xl font-bold tracking-tight flex items-center gap-2">
@@ -632,25 +716,71 @@ export default function Workflows() {
           </h1>
           <p className="text-muted-foreground text-sm mt-1">تنفيذ مهام المشروع عبر مراحل متتابعة.</p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
+          <select
+            aria-label="مشروع مسارات العمل"
+            data-testid="select-workflow-project"
+            value={projectId}
+            onChange={(event) => navigateToProject(event.target.value)}
+            disabled={projectsQuery.isLoading || projectsQuery.isError || projects.length === 0}
+            className="rounded-md border border-border bg-secondary px-3 py-2 text-sm"
+          >
+            {!projectId && <option value="">اختر مشروعًا</option>}
+            {projects.map((project) => (
+              <option key={project.id} value={project.id}>{project.name}</option>
+            ))}
+          </select>
           <button
-          onClick={() => setShowCreateModal(true)}
-          className="bg-primary hover:bg-primary/90 text-primary-foreground px-4 py-2 rounded-md font-medium text-sm flex items-center gap-2 shadow-sm transition-colors"
-        >
-          <Plus className="w-4 h-4" /> مسار عمل جديد
-        </button>
-          <RefreshButton onRefresh={refetch} isRefreshing={isRefetching} lastUpdated={dataUpdatedAt} label="تحديث مسارات العمل" />
+            onClick={() => setShowCreateModal(true)}
+            disabled={projectsQuery.isLoading || projectsQuery.isError || projects.length === 0}
+            className="bg-primary hover:bg-primary/90 text-primary-foreground px-4 py-2 rounded-md font-medium text-sm flex items-center gap-2 shadow-sm transition-colors disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            <Plus className="w-4 h-4" /> مسار عمل جديد
+          </button>
+          {projectId && (
+            <RefreshButton
+              onRefresh={refetch}
+              isRefreshing={isRefetching}
+              lastUpdated={dataUpdatedAt}
+              label="تحديث مسارات العمل"
+            />
+          )}
         </div>
       </div>
 
-      {showCreateModal && <CreateWorkflowModal onClose={() => setShowCreateModal(false)} />}
+      {showCreateModal && (
+        <CreateWorkflowModal
+          initialProjectId={projectId}
+          onClose={() => setShowCreateModal(false)}
+          onCreated={handleWorkflowCreated}
+        />
+      )}
 
       <div className="grid grid-cols-1 gap-6">
-        {isLoading ? (
-          <div className="h-64 bg-card border border-border rounded-xl animate-pulse"></div>
+        {projectsQuery.isError ? (
+          <RequestError
+            message={projectsQuery.error instanceof Error ? projectsQuery.error.message : 'تعذر تحميل المشاريع.'}
+            onRetry={() => void projectsQuery.refetch()}
+          />
+        ) : projectTargetUnavailable ? (
+          <section
+            role="alert"
+            data-testid="workflow-project-unavailable"
+            className="rounded-xl border border-amber-500/30 bg-amber-500/5 p-6 text-sm text-muted-foreground"
+          >
+            المشروع المحدد غير متاح ضمن المشاريع التي يمكنك الوصول إليها. اختر مشروعًا آخر لمتابعة مسارات العمل.
+          </section>
+        ) : !projectId && !projectsQuery.isLoading ? (
+          <div className="border-2 border-dashed border-border rounded-xl p-16 text-center flex flex-col items-center">
+            <ListTree className="w-12 h-12 text-muted-foreground mb-4 opacity-50" />
+            <h3 className="text-lg font-semibold mb-2">لا توجد مشاريع متاحة</h3>
+            <p className="text-muted-foreground text-sm max-w-sm">أنشئ مشروعًا أولًا لتتمكن من إدارة مسارات العمل.</p>
+          </div>
+        ) : isLoading ? (
+          <div className="h-64 bg-card border border-border rounded-xl animate-pulse" role="status" aria-label="جارٍ تحميل مسارات العمل"></div>
         ) : isError ? (
           <RequestError message={error instanceof Error ? error.message : 'تعذر تحميل مسارات العمل.'} onRetry={() => void refetch()} />
-        ) : workflows?.length === 0 ? (
+        ) : workflows.length === 0 ? (
           <div className="border-2 border-dashed border-border rounded-xl p-16 text-center flex flex-col items-center">
             <ListTree className="w-12 h-12 text-muted-foreground mb-4 opacity-50" />
             <h3 className="text-lg font-semibold mb-2">لا توجد مسارات عمل بعد</h3>
@@ -665,7 +795,7 @@ export default function Workflows() {
             </button>
           </div>
         ) : (
-          workflows?.map((workflow) => (
+          workflows.map((workflow) => (
             <div
               key={workflow.id}
               className="bg-card border border-border rounded-xl p-6 shadow-sm"
@@ -911,7 +1041,7 @@ export default function Workflows() {
               </button>
               {expandedId === workflow.id && (
                 <div className="mt-3">
-                   <ExecutionHistory workflowId={workflow.id} phases={workflow.phases} />
+                  <ExecutionHistory workflowId={workflow.id} projectId={workflow.projectId} phases={workflow.phases} />
                 </div>
               )}
             </div>

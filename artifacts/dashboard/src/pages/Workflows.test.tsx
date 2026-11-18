@@ -3,6 +3,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import Workflows from './Workflows';
 import type { AiOrchestrationDecision } from '@workspace/api-client-react';
+import { useLocation } from 'wouter';
 
 vi.mock('@workspace/api-client-react', () => ({
   useListWorkflows: vi.fn(),
@@ -17,7 +18,7 @@ vi.mock('@workspace/api-client-react', () => ({
   useListWorkflowExecutions: vi.fn(),
   useAiOrchestrateWorkflow: vi.fn(),
   useDeleteWorkflow: vi.fn(),
-  getListWorkflowsQueryKey: vi.fn(() => ['workflows']),
+  getListWorkflowsQueryKey: vi.fn((params?: { projectId?: string }) => ['/api/workflows', ...(params ? [params] : [])]),
   getListWorkflowExecutionsQueryKey: vi.fn((workflowId: string) => ['workflow-executions', workflowId]),
 }));
 
@@ -40,6 +41,7 @@ const mutation = () => ({ mutate: vi.fn(), isPending: false });
 const aiOrchestrationMutation = mutation();
 const deleteWorkflowMutation = mutation();
 const createWorkflowMutation = mutation();
+const retryWorkflowPhaseMutation = mutation();
 
 function renderPage() {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
@@ -53,6 +55,7 @@ function renderPage() {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  window.history.replaceState({}, '', '/workflows');
   vi.mocked(useListWorkflows).mockReturnValue({
     data: [{
       id: 'workflow-1',
@@ -74,7 +77,13 @@ beforeEach(() => {
     isRefetching: false,
     dataUpdatedAt: 0,
   } as ReturnType<typeof useListWorkflows>);
-  vi.mocked(useListProjects).mockReturnValue({ data: [] } as ReturnType<typeof useListProjects>);
+  vi.mocked(useListProjects).mockReturnValue({
+    data: [{ id: 'project-1', name: 'Test Project' }],
+    isLoading: false,
+    isError: false,
+    error: null,
+    refetch: vi.fn(),
+  } as ReturnType<typeof useListProjects>);
   vi.mocked(useListWorkflowExecutions).mockReturnValue({
     data: [{
       id: 'execution-1',
@@ -110,8 +119,187 @@ beforeEach(() => {
     vi.mocked(hook).mockReturnValue(mutation() as never);
   }
   vi.mocked(useCreateWorkflow).mockReturnValue(createWorkflowMutation as never);
+  vi.mocked(useRetryWorkflowPhase).mockReturnValue(retryWorkflowPhaseMutation as never);
   vi.mocked(useAiOrchestrateWorkflow).mockReturnValue(aiOrchestrationMutation as never);
   vi.mocked(useDeleteWorkflow).mockReturnValue(deleteWorkflowMutation as never);
+});
+
+describe('project-scoped Workflows view', () => {
+  it('sends the active project in the API request and cache identity', () => {
+    renderPage();
+
+    expect(useListWorkflows).toHaveBeenCalledWith(
+      { projectId: 'project-1' },
+      expect.objectContaining({
+        query: expect.objectContaining({
+          queryKey: ['/api/workflows', { projectId: 'project-1' }],
+          enabled: true,
+        }),
+      }),
+    );
+    expect(screen.getByTestId('select-workflow-project')).toHaveValue('project-1');
+  });
+
+  it('invalidates the workflow history and only its owning project list after retry', () => {
+    const queryClient = renderPage();
+    const invalidateQueries = vi.spyOn(queryClient, 'invalidateQueries');
+
+    fireEvent.click(screen.getByRole('button', { name: /سجل التشغيل/i }));
+    fireEvent.click(screen.getByRole('button', { name: 'إعادة المحاولة' }));
+
+    const options = retryWorkflowPhaseMutation.mutate.mock.calls[0]?.[1] as { onSuccess?: () => void };
+    act(() => options.onSuccess?.());
+
+    expect(invalidateQueries).toHaveBeenCalledWith({
+      queryKey: ['workflow-executions', 'workflow-1'],
+    });
+    expect(invalidateQueries).toHaveBeenCalledWith({
+      queryKey: ['/api/workflows', { projectId: 'project-1' }],
+    });
+    expect(invalidateQueries).not.toHaveBeenCalledWith({
+      queryKey: ['/api/workflows'],
+    });
+  });
+
+  it('does not issue an enabled workflow read when no project is available', () => {
+    vi.mocked(useListProjects).mockReturnValue({
+      data: [],
+      isLoading: false,
+      isError: false,
+      error: null,
+      refetch: vi.fn(),
+    } as ReturnType<typeof useListProjects>);
+
+    renderPage();
+
+    expect(useListWorkflows).toHaveBeenCalledWith(
+      { projectId: undefined },
+      expect.objectContaining({
+        query: expect.objectContaining({ enabled: false }),
+      }),
+    );
+    expect(screen.getByText('لا توجد مشاريع متاحة')).toBeInTheDocument();
+    expect(screen.queryByText('Release pipeline')).not.toBeInTheDocument();
+  });
+
+  it('fails closed when an explicit project target is not in the owned project list', () => {
+    window.history.replaceState({}, '', '/workflows?projectId=not-owned');
+    renderPage();
+
+    expect(useListWorkflows).toHaveBeenCalledWith(
+      { projectId: undefined },
+      expect.objectContaining({
+        query: expect.objectContaining({ enabled: false }),
+      }),
+    );
+    expect(screen.getByTestId('workflow-project-unavailable')).toBeInTheDocument();
+    expect(screen.queryByText('Release pipeline')).not.toBeInTheDocument();
+  });
+
+  it('filters any workflow rows that do not belong to the active project', () => {
+    vi.mocked(useListWorkflows).mockReturnValue({
+      data: [{
+        id: 'foreign-workflow',
+        projectId: 'project-2',
+        name: 'Foreign project pipeline',
+        description: 'Must not be rendered here.',
+        status: 'idle',
+        currentPhase: null,
+        executionCount: 0,
+        phases: [{ name: 'build', steps: [] }],
+      }],
+      isLoading: false,
+      isError: false,
+      error: null,
+      refetch: vi.fn(),
+      isRefetching: false,
+      dataUpdatedAt: 0,
+    } as ReturnType<typeof useListWorkflows>);
+
+    renderPage();
+
+    expect(screen.queryByText('Foreign project pipeline')).not.toBeInTheDocument();
+    expect(screen.getByText('لا توجد مسارات عمل بعد')).toBeInTheDocument();
+  });
+
+  it('switches the route, query, and visible workflow session together', () => {
+    vi.mocked(useListProjects).mockReturnValue({
+      data: [
+        { id: 'project-1', name: 'First project' },
+        { id: 'project-2', name: 'Second project' },
+      ],
+      isLoading: false,
+      isError: false,
+      error: null,
+      refetch: vi.fn(),
+    } as ReturnType<typeof useListProjects>);
+
+    const firstWorkflow = {
+      id: 'workflow-1',
+      projectId: 'project-1',
+      name: 'First project pipeline',
+      description: 'First project workflow.',
+      status: 'idle',
+      currentPhase: null,
+      executionCount: 0,
+      phases: [{ name: 'build', steps: [] }],
+    };
+    const secondWorkflow = {
+      id: 'workflow-2',
+      projectId: 'project-2',
+      name: 'Second project pipeline',
+      description: 'Second project workflow.',
+      status: 'idle',
+      currentPhase: null,
+      executionCount: 0,
+      phases: [{ name: 'test', steps: [] }],
+    };
+    vi.mocked(useListWorkflows).mockImplementation((params) => ({
+      data: params?.projectId === 'project-2' ? [secondWorkflow] : [firstWorkflow],
+      isLoading: false,
+      isError: false,
+      error: null,
+      refetch: vi.fn(),
+      isRefetching: false,
+      dataUpdatedAt: 0,
+    } as ReturnType<typeof useListWorkflows>));
+
+    function RouteNavigationProbe() {
+      const [, navigate] = useLocation();
+      return (
+        <button type="button" onClick={() => navigate('/workflows?projectId=project-2')}>
+          Navigate to second workflow project
+        </button>
+      );
+    }
+
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    window.history.replaceState({}, '', '/workflows?projectId=project-1');
+    render(
+      <QueryClientProvider client={queryClient}>
+        <>
+          <RouteNavigationProbe />
+          <Workflows />
+        </>
+      </QueryClientProvider>,
+    );
+
+    expect(screen.getByText('First project pipeline')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Navigate to second workflow project' }));
+
+    expect(screen.getByTestId('select-workflow-project')).toHaveValue('project-2');
+    expect(screen.getByText('Second project pipeline')).toBeInTheDocument();
+    expect(screen.queryByText('First project pipeline')).not.toBeInTheDocument();
+    expect(useListWorkflows).toHaveBeenLastCalledWith(
+      { projectId: 'project-2' },
+      expect.objectContaining({
+        query: expect.objectContaining({
+          queryKey: ['/api/workflows', { projectId: 'project-2' }],
+          enabled: true,
+        }),
+      }),
+    );
+  });
 });
 
 describe('Workflows recovery rendering', () => {
@@ -329,7 +517,9 @@ describe('Workflows recovery rendering', () => {
 
     act(() => options.onSuccess?.());
 
-    expect(invalidateQueries).toHaveBeenCalledWith({ queryKey: ['workflows'] });
+    expect(invalidateQueries).toHaveBeenCalledWith({
+      queryKey: ['/api/workflows', { projectId: 'project-1' }],
+    });
     expect(removeQueries).toHaveBeenCalledWith({
       queryKey: ['workflow-executions', 'workflow-1'],
     });
