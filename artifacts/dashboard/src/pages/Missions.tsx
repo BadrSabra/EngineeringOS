@@ -1402,7 +1402,8 @@ export default function Missions() {
         setMissionsLoadedFor(projectId);
       })
       .catch((error: unknown) => {
-        if ((error as { name?: string }).name !== 'AbortError') setMissionsError(error);
+        if (controller.signal.aborted || (error as { name?: string }).name === 'AbortError') return;
+        setMissionsError(error);
       })
       .finally(() => {
         if (!controller.signal.aborted) setMissionsLoading(false);
@@ -1445,7 +1446,8 @@ export default function Missions() {
         setProjection(normalizeProjection(data));
       })
       .catch((error: unknown) => {
-        if ((error as { name?: string }).name !== 'AbortError') setProjectionError(error);
+        if (controller.signal.aborted || (error as { name?: string }).name === 'AbortError') return;
+        setProjectionError(error);
       })
       .finally(() => {
         if (!controller.signal.aborted) setProjectionLoading(false);
