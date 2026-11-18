@@ -53,6 +53,40 @@ const reasonLabels: Record<string, string> = {
   GRAPH_INVALID: 'علاقات المخطط لا تجتاز الفحص البنيوي.',
 };
 
+function matchesRequestedProofGraph(
+  result: ExecutionProofGraphProjectorResult,
+  requested: { projectId: string; executionId: string; attempt: number },
+): boolean {
+  if (result.kind === 'NOT_PROJECTABLE') {
+    return result.executionId === requested.executionId
+      && result.expectedAttempt === requested.attempt;
+  }
+
+  if (result.authority !== 'READ_ONLY_PROJECTION') return false;
+  const { graph, canonicalProof, structuralValidation } = result;
+  if (!graph || !canonicalProof || !structuralValidation || !Array.isArray(graph.nodes)) {
+    return false;
+  }
+
+  return (
+    graph.projectId === requested.projectId
+    && graph.executionId === requested.executionId
+    && graph.attempt === requested.attempt
+    && canonicalProof.executionId === requested.executionId
+    && canonicalProof.attempt === requested.attempt
+    && canonicalProof.operationId === graph.operationId
+    && canonicalProof.sourceRevision === graph.sourceRevision
+    && canonicalProof.candidateIdentity === graph.candidateIdentity
+    && structuralValidation.graphHash === result.graphHash
+    && graph.nodes.length > 0
+    && graph.nodes.every((node) =>
+      node !== null
+      && typeof node === 'object'
+      && node.projectId === requested.projectId
+      && node.executionId === requested.executionId)
+  );
+}
+
 function GraphContents({ result }: { result: ExecutionProofGraphProjectorResult }) {
   if (result.kind === 'NOT_PROJECTABLE') {
     return (
@@ -186,6 +220,9 @@ export function ExecutionProofGraphPanel({
       retry: false,
     },
   });
+  const responseMatchesRequest = query.data
+    ? matchesRequestedProofGraph(query.data, { projectId, executionId, attempt })
+    : false;
 
   return (
     <section
@@ -241,6 +278,14 @@ export function ExecutionProofGraphPanel({
               >
                 إعادة المحاولة
               </Button>
+            </div>
+          ) : query.data && !responseMatchesRequest ? (
+            <div
+              role="alert"
+              data-testid="status-proof-graph-identity-mismatch"
+              className="rounded-md border border-amber-500/30 bg-amber-500/10 p-3 text-xs text-amber-100"
+            >
+              استجابة مخطط الإثبات لا تطابق هوية المشروع أو التنفيذ أو المحاولة المطلوبة؛ لم نعرضها.
             </div>
           ) : query.data ? (
             <GraphContents result={query.data} />
