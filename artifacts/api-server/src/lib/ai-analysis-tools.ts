@@ -26,6 +26,7 @@ import type {
 } from "@workspace/ai-orchestrator";
 import {
   performScan,
+  ProjectScanCapacityBusyError,
   ProjectScanLockBusyError,
   ScanRootUnavailableError,
 } from "./scan-runner.js";
@@ -275,6 +276,7 @@ export function classifyAnalysisFailure(
   if (isToolOutputLimitExceeded(error)) return "output_limit";
   if (deadlineAt !== undefined && Date.now() >= deadlineAt) return "timeout";
   if (error instanceof ProjectScanLockBusyError) return "scan_busy";
+  if (error instanceof ProjectScanCapacityBusyError) return "scan_busy";
   if (isRootUnavailableError(error)) return "root_unavailable";
   if (/stale/i.test(error instanceof Error ? error.message : String(error))) {
     return "stale_revision";
@@ -527,7 +529,7 @@ export function createProjectAnalysisToolRunner(
             : failureCategory === "output_limit"
               ? "Analysis output exceeded the server limit and was not completed."
               : failureCategory === "scan_busy"
-                ? "A project scan is already running. Wait for it to finish before retrying; no new scan was started."
+                ? "A project scan is already running or shared scan capacity is full. Retry when capacity is available; no new scan was started."
             : failureCategory === "stale_revision"
               ? "Analysis observed a workspace revision change and was rejected."
               : failureCategory === "root_unavailable"

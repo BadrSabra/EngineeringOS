@@ -52,6 +52,8 @@ export const LockNamespace = {
   GITHUB_DELIVERY: 1006,
   /** Reserves the full archive-upload slot across API-server instances. */
   ARCHIVE_UPLOAD: 1007,
+  /** Reserves bounded global scan capacity across API-server instances. */
+  SCAN_GLOBAL_SLOT: 1008,
 } as const;
 
 /**
