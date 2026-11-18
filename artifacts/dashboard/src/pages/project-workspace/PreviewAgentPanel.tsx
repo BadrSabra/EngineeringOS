@@ -340,7 +340,7 @@ export default function PreviewAgentPanel({
   }
 
   return (
-    <section className="workspace-card" aria-labelledby="preview-agent-heading">
+    <section id="workspace-preview-agents" className="workspace-card scroll-mt-20" aria-labelledby="preview-agent-heading">
       <div className="workspace-card-heading">
         <div className="workspace-card-icon runtime">
           <KeyRound className="h-4 w-4" aria-hidden="true" />
