@@ -1,7 +1,7 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { ProjectWorkspaceSnapshot } from "@workspace/api-client-react";
+import { useGetAiExecution, type ProjectWorkspaceSnapshot } from "@workspace/api-client-react";
 import ProjectWorkspace from "./ProjectWorkspace";
 
 const mocks = vi.hoisted(() => ({
@@ -34,6 +34,13 @@ const mocks = vi.hoisted(() => ({
     },
     freshness: { partial: false, warnings: [] },
   } as unknown as ProjectWorkspaceSnapshot,
+  taskDetails: {} as Record<string, unknown>,
+  taskLogs: {} as Record<string, unknown[]>,
+  executions: {} as Record<string, unknown>,
+  taskFetching: {} as Record<string, boolean>,
+  taskError: {} as Record<string, boolean>,
+  taskLogsFetching: {} as Record<string, boolean>,
+  executionFetching: {} as Record<string, boolean>,
 }));
 
 class FakeEventSource {
@@ -69,6 +76,7 @@ class FakeEventSource {
 }
 
 let eventSource: FakeEventSource | null = null;
+const initialSnapshot = mocks.snapshot;
 
 vi.mock("@workspace/api-client-react", () => ({
   useGetProjectWorkspaceSnapshot: () => ({
@@ -83,6 +91,30 @@ vi.mock("@workspace/api-client-react", () => ({
     projectId,
     "workspace",
   ],
+  useGetTask: (taskId: string) => ({
+    data: mocks.taskDetails[taskId],
+    isLoading: false,
+    isError: Boolean(mocks.taskError[taskId]),
+    isFetching: Boolean(mocks.taskFetching[taskId]),
+  }),
+  getGetTaskQueryKey: (taskId: string) => [`/api/tasks/${taskId}`],
+  useGetTaskLogs: (taskId: string) => ({
+    data: mocks.taskLogs[taskId] ?? [],
+    isLoading: false,
+    isError: false,
+    isFetching: Boolean(mocks.taskLogsFetching[taskId]),
+  }),
+  getGetTaskLogsQueryKey: (taskId: string) => [`/api/tasks/${taskId}/logs`],
+  useGetAiExecution: vi.fn((executionId: string) => ({
+    data: mocks.executions[executionId],
+    isLoading: false,
+    isError: false,
+    isFetching: Boolean(mocks.executionFetching[executionId]),
+    refetch: vi.fn(),
+  })),
+  getGetAiExecutionQueryKey: (executionId: string) => [
+    `/api/ai/executions/${executionId}`,
+  ],
 }));
 
 vi.mock("wouter", () => ({
@@ -93,6 +125,15 @@ vi.mock("wouter", () => ({
 vi.mock("@/pages/AiChat", () => ({ default: () => null }));
 
 beforeEach(() => {
+  mocks.snapshot = initialSnapshot;
+  mocks.taskDetails = {};
+  mocks.taskLogs = {};
+  mocks.executions = {};
+  mocks.taskFetching = {};
+  mocks.taskError = {};
+  mocks.taskLogsFetching = {};
+  mocks.executionFetching = {};
+  vi.mocked(useGetAiExecution).mockClear();
   eventSource = null;
   vi.stubGlobal("EventSource", class extends FakeEventSource {
     constructor(url: string, options?: EventSourceInit) {
@@ -144,4 +185,603 @@ describe("ProjectWorkspace live snapshot refresh", () => {
     expect(screen.getByText("النسخة المرشحة")).toBeInTheDocument();
     expect(screen.getByText("حالة التشغيل")).toBeInTheDocument();
   });
+
+  it("separates the agent, preview canvas, and work-trust areas without treating Runtime as Preview", () => {
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+    });
+
+    render(
+      <QueryClientProvider client={queryClient}>
+        <ProjectWorkspace />
+      </QueryClientProvider>,
+    );
+
+    expect(screen.getByRole("navigation", { name: "التنقل بين أقسام مساحة المشروع" })).toBeInTheDocument();
+    expect(screen.getByRole("region", { name: "محادثة المشروع" })).toBeInTheDocument();
+    expect(screen.getByRole("region", { name: "معاينة المشروع" })).toBeInTheDocument();
+    expect(screen.getByRole("complementary", { name: "العمل والثقة" })).toBeInTheDocument();
+    expect(screen.getByText("أحدث 8 مهام من المصدر؛ هذه ليست قائمة شاملة.")).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "عرض جميع مهام المشروع" }))
+      .toHaveAttribute("href", "/tasks?projectId=project-1");
+
+    const previewGate = screen.getByTestId("workspace-preview-gate");
+    expect(previewGate).toHaveTextContent("لا توجد معاينة تفاعلية مؤهلة بعد");
+    expect(previewGate).toHaveTextContent("ليست إثباتًا على جاهزية Preview");
+    expect(screen.getByText("حالة التشغيل")).toBeInTheDocument();
+  });
+
+  it("does not render retained task, execution, or candidate data when their sources are unavailable", async () => {
+    mocks.snapshot = {
+      ...initialSnapshot,
+      work: {
+        tasksSource: "unavailable",
+        recentTasks: [{
+          id: "task-stale",
+          title: "مهمة قديمة لا يجب عرضها",
+          status: "running",
+          verificationDecision: null,
+          updatedAt: "2026-11-11T11:00:00.000Z",
+        }],
+        executionSource: "unavailable",
+        latestExecution: {
+          id: "execution-stale",
+          status: "completed",
+          attempt: 1,
+          proposalId: "proposal-stale",
+          baseRevision: "base-stale",
+          updatedAt: "2026-11-11T11:00:00.000Z",
+        },
+        candidateSource: "unavailable",
+        candidate: {
+          proposalId: "proposal-stale",
+          status: "pending",
+          lifecycle: "proposed",
+          revision: 3,
+          approvalRequired: true,
+          operationId: "operation-stale",
+          baseRevision: "base-stale",
+          candidateTreeHash: "tree-stale",
+          changeSetHash: "changes-stale",
+          createdAt: "2026-11-11T10:00:00.000Z",
+        },
+      },
+    } as unknown as ProjectWorkspaceSnapshot;
+
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+    });
+    const invalidate = vi.spyOn(queryClient, "invalidateQueries").mockResolvedValue(undefined);
+
+    render(
+      <QueryClientProvider client={queryClient}>
+        <ProjectWorkspace />
+      </QueryClientProvider>,
+    );
+
+    expect(screen.getByText("مصدر المهام غير متاح الآن؛ لا يمكن تأكيد قائمة العمل.")).toBeInTheDocument();
+    expect(screen.getByText("مصدر التنفيذ غير متاح؛ لا يمكن تأكيد حالة تنفيذ حديثة.")).toBeInTheDocument();
+    expect(screen.getByText("مصدر المرشح غير متاح؛ لا يمكن تأكيد حالة التغييرات.")).toBeInTheDocument();
+    expect(screen.queryByText("مهمة قديمة لا يجب عرضها")).not.toBeInTheDocument();
+    expect(screen.queryByText("آخر تنفيذ")).not.toBeInTheDocument();
+    expect(screen.queryByText("proposal-stale")).not.toBeInTheDocument();
+    expect(screen.queryByText("operation-stale")).not.toBeInTheDocument();
+    expect(useGetAiExecution).not.toHaveBeenCalled();
+
+    await waitFor(() => expect(eventSource).not.toBeNull());
+    act(() => eventSource!.emit("workspace.changed", {
+      eventVersion: 1,
+      projectId: "project-1",
+      eventId: "event-stale-source",
+      snapshotCursor: "cursor-stale-source",
+    }));
+    await waitFor(() => expect(invalidate).toHaveBeenCalledWith({
+      queryKey: ["/api/projects", "project-1", "workspace"],
+    }));
+    expect(invalidate).toHaveBeenCalledTimes(1);
+    expect(invalidate).not.toHaveBeenCalledWith({
+      queryKey: ["/api/ai/executions/execution-stale"],
+    });
+  });
+
+
+  it("fails closed when the returned Workspace snapshot belongs to another project", () => {
+    mocks.snapshot = {
+      ...initialSnapshot,
+      project: {
+        ...initialSnapshot.project,
+        id: "another-project",
+        name: "مشروع لا يخص هذا المسار",
+      },
+    } as unknown as ProjectWorkspaceSnapshot;
+
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+    });
+
+    render(
+      <QueryClientProvider client={queryClient}>
+        <ProjectWorkspace />
+      </QueryClientProvider>,
+    );
+
+    expect(screen.getByRole("alert")).toHaveTextContent("تعارض هوية المشروع");
+    expect(screen.getByText(
+      "اللقطة المستلمة لا تخص المشروع المطلوب؛ أخفينا محتواها حتى تصل قراءة بهوية مطابقة.",
+    )).toBeInTheDocument();
+    expect(screen.queryByText("مشروع لا يخص هذا المسار")).not.toBeInTheDocument();
+    expect(screen.queryByRole("region", { name: "محادثة المشروع" })).not.toBeInTheDocument();
+    expect(eventSource).toBeNull();
+  });
+
+  it("does not show a retained Runtime status when the Runtime source is unavailable", () => {
+    mocks.snapshot = {
+      ...initialSnapshot,
+      runtime: {
+        ...initialSnapshot.runtime,
+        source: "unavailable",
+        status: "running",
+        runtimeRevision: "runtime-revision-stale",
+      },
+    } as unknown as ProjectWorkspaceSnapshot;
+
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+    });
+
+    render(
+      <QueryClientProvider client={queryClient}>
+        <ProjectWorkspace />
+      </QueryClientProvider>,
+    );
+
+    expect(screen.getByTestId("workspace-runtime-status")).toHaveTextContent("غير متاح");
+    expect(screen.getByTestId("workspace-runtime-status")).not.toHaveTextContent("قيد التنفيذ");
+    expect(screen.getByText("مصدر التشغيل غير متاح الآن؛ لا يمكن تأكيد الحالة الحالية.")).toBeInTheDocument();
+    expect(screen.queryByText("runtime-revision-stale")).not.toBeInTheDocument();
+  });
+
+});
+
+
+describe("Workspace task cards", () => {
+  it("shows the source, task identity, accepted attempt, and a project-preserving detail link", () => {
+    const updatedAt = "2026-11-11T12:00:00.000Z";
+    mocks.snapshot = {
+      ...initialSnapshot,
+      work: {
+        ...initialSnapshot.work,
+        recentTasks: [{
+          id: "task-accepted",
+          title: "مهمة مرتبطة بقبول",
+          status: "completed",
+          verificationDecision: "verified",
+          updatedAt,
+        }],
+      },
+    } as unknown as ProjectWorkspaceSnapshot;
+    mocks.taskDetails["task-accepted"] = {
+      id: "task-accepted",
+      projectId: "project-1",
+      title: "مهمة مرتبطة بقبول",
+      status: "completed",
+      correlationId: "correlation-accepted",
+      updatedAt,
+      dependsOn: ["task-upstream"],
+      acceptance: { attempt: 2 },
+    };
+    mocks.taskLogsFetching["task-accepted"] = true;
+
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+    });
+
+    render(
+      <QueryClientProvider client={queryClient}>
+        <ProjectWorkspace />
+      </QueryClientProvider>,
+    );
+
+    expect(screen.getByTestId("workspace-task-source-task-accepted")).toHaveTextContent("ملخص مهام Workspace");
+    expect(screen.getByTestId("workspace-task-id-task-accepted")).toHaveTextContent("task-accepted");
+    expect(screen.getByTestId("workspace-task-attempt-task-accepted")).toHaveTextContent("2");
+    expect(screen.getByTestId("workspace-task-task-accepted"))
+      .toHaveTextContent("محاولة قبول مسجلة في سجل المهمة.");
+    expect(screen.getByTestId("workspace-task-dependencies-task-accepted")).toHaveTextContent("task-upstream");
+    expect(screen.getByRole("link", { name: "فتح المهمة المعتمَد عليها: task-upstream" }))
+      .toHaveAttribute("href", "/tasks?projectId=project-1&taskId=task-upstream");
+    expect(screen.getByRole("link", { name: "فتح تفاصيل المهمة: مهمة مرتبطة بقبول" }))
+      .toHaveAttribute("href", "/tasks?projectId=project-1&taskId=task-accepted");
+  });
+
+  it("uses the execution attempt only when the execution is linked to the same task and correlation", () => {
+    const updatedAt = "2026-11-11T12:00:00.000Z";
+    mocks.snapshot = {
+      ...initialSnapshot,
+      work: {
+        ...initialSnapshot.work,
+        recentTasks: [{
+          id: "task-running",
+          title: "مهمة قيد التنفيذ",
+          status: "running",
+          verificationDecision: null,
+          updatedAt,
+        }],
+      },
+    } as unknown as ProjectWorkspaceSnapshot;
+    mocks.taskDetails["task-running"] = {
+      id: "task-running",
+      projectId: "project-1",
+      title: "مهمة قيد التنفيذ",
+      status: "running",
+      correlationId: "correlation-running",
+      updatedAt,
+    };
+    mocks.taskLogs["task-running"] = [{
+      id: "log-running",
+      taskId: "task-running",
+      correlationId: "correlation-running",
+      executionId: "execution-running",
+      attempt: 3,
+      sequence: 7,
+      timestamp: updatedAt,
+    }];
+    mocks.executions["execution-running"] = {
+      id: "execution-running",
+      linkedTaskId: "task-running",
+      correlationId: "correlation-running",
+      attempt: 3,
+    };
+
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+    });
+
+    render(
+      <QueryClientProvider client={queryClient}>
+        <ProjectWorkspace />
+      </QueryClientProvider>,
+    );
+
+    expect(screen.getByTestId("workspace-task-attempt-task-running")).toHaveTextContent("3");
+    expect(screen.getByTestId("workspace-task-task-running"))
+      .toHaveTextContent("محاولة مسجلة من التنفيذ المرتبط بالمهمة.");
+  });
+
+  it("does not expose a cached attempt when task identity or updated timestamp differs from the Workspace snapshot", () => {
+    const summaryUpdatedAt = "2026-11-11T12:00:00.000Z";
+    mocks.snapshot = {
+      ...initialSnapshot,
+      work: {
+        ...initialSnapshot.work,
+        recentTasks: [{
+          id: "task-mismatched",
+          title: "مهمة تغيرت بعد اللقطة",
+          status: "completed",
+          verificationDecision: "verified",
+          updatedAt: summaryUpdatedAt,
+        }],
+      },
+    } as unknown as ProjectWorkspaceSnapshot;
+    mocks.taskDetails["task-mismatched"] = {
+      id: "task-mismatched",
+      projectId: "project-1",
+      title: "مهمة تغيرت بعد اللقطة",
+      status: "completed",
+      correlationId: "correlation-newer",
+      updatedAt: "2026-11-11T12:05:00.000Z",
+      dependsOn: ["stale-dependency"],
+      acceptance: { attempt: 7 },
+    };
+
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+    });
+
+    render(
+      <QueryClientProvider client={queryClient}>
+        <ProjectWorkspace />
+      </QueryClientProvider>,
+    );
+
+    const card = screen.getByTestId("workspace-task-task-mismatched");
+    expect(card).toHaveTextContent("مكتمل");
+    expect(screen.getByTestId("workspace-task-attempt-task-mismatched")).toHaveTextContent("غير متاحة");
+    expect(screen.getByTestId("workspace-task-attempt-task-mismatched")).not.toHaveTextContent("7");
+    expect(screen.getByTestId("workspace-task-dependencies-task-mismatched"))
+      .toHaveTextContent("غير متاحة في سجل المهمة");
+    expect(card).not.toHaveTextContent("stale-dependency");
+    expect(card).toHaveTextContent("تغير سجل المهمة منذ آخر لقطة");
+  });
+
+  it("fails closed on cached acceptance and dependencies when task detail refresh fails", () => {
+    const updatedAt = "2026-11-11T12:00:00.000Z";
+    mocks.snapshot = {
+      ...initialSnapshot,
+      work: {
+        ...initialSnapshot.work,
+        recentTasks: [{
+          id: "task-read-failed",
+          title: "تعذر تحديث تفاصيل المهمة",
+          status: "completed",
+          verificationDecision: "verified",
+          updatedAt,
+        }],
+      },
+    } as unknown as ProjectWorkspaceSnapshot;
+    mocks.taskDetails["task-read-failed"] = {
+      id: "task-read-failed",
+      projectId: "project-1",
+      title: "تعذر تحديث تفاصيل المهمة",
+      status: "completed",
+      correlationId: "correlation-cached",
+      updatedAt,
+      dependsOn: ["cached-dependency"],
+      acceptance: { attempt: 4 },
+    };
+    mocks.taskError["task-read-failed"] = true;
+
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+    });
+
+    render(
+      <QueryClientProvider client={queryClient}>
+        <ProjectWorkspace />
+      </QueryClientProvider>,
+    );
+
+    const card = screen.getByTestId("workspace-task-task-read-failed");
+    expect(screen.getByTestId("workspace-task-attempt-task-read-failed"))
+      .toHaveTextContent("غير متاحة");
+    expect(screen.getByTestId("workspace-task-attempt-task-read-failed"))
+      .not.toHaveTextContent("4");
+    expect(screen.getByTestId("workspace-task-dependencies-task-read-failed"))
+      .toHaveTextContent("غير متاحة في سجل المهمة");
+    expect(card).not.toHaveTextContent("cached-dependency");
+    expect(card).toHaveTextContent("تعذر قراءة سجل المهمة؛ لم نعرض رقم محاولة غير مؤكد.");
+  });
+
+  it("does not show an attempt from an execution that belongs to another task", () => {
+    const updatedAt = "2026-11-11T12:00:00.000Z";
+    mocks.snapshot = {
+      ...initialSnapshot,
+      work: {
+        ...initialSnapshot.work,
+        recentTasks: [{
+          id: "task-current",
+          title: "المهمة الحالية",
+          status: "running",
+          verificationDecision: null,
+          updatedAt,
+        }],
+      },
+    } as unknown as ProjectWorkspaceSnapshot;
+    mocks.taskDetails["task-current"] = {
+      id: "task-current",
+      projectId: "project-1",
+      title: "المهمة الحالية",
+      status: "running",
+      correlationId: "correlation-current",
+      updatedAt,
+    };
+    mocks.taskLogs["task-current"] = [{
+      id: "log-other-execution",
+      taskId: "task-current",
+      correlationId: "correlation-current",
+      executionId: "execution-other",
+      attempt: 9,
+      sequence: 10,
+      timestamp: updatedAt,
+    }];
+    mocks.executions["execution-other"] = {
+      id: "execution-other",
+      linkedTaskId: "task-other",
+      correlationId: "correlation-current",
+      attempt: 9,
+    };
+
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+    });
+
+    render(
+      <QueryClientProvider client={queryClient}>
+        <ProjectWorkspace />
+      </QueryClientProvider>,
+    );
+
+    expect(screen.getByTestId("workspace-task-attempt-task-current")).toHaveTextContent("غير متاحة");
+    expect(screen.getByTestId("workspace-task-attempt-task-current"))
+      .not.toHaveTextContent("9");
+  });
+
+  it("revalidates recent task and log reads when the Workspace stream changes", async () => {
+    const updatedAt = "2026-11-11T12:00:00.000Z";
+    mocks.snapshot = {
+      ...initialSnapshot,
+      work: {
+        ...initialSnapshot.work,
+        recentTasks: [{
+          id: "task-refresh",
+          title: "مهمة يجب إعادة قراءتها",
+          status: "running",
+          verificationDecision: null,
+          updatedAt,
+        }],
+      },
+    } as unknown as ProjectWorkspaceSnapshot;
+    mocks.taskDetails["task-refresh"] = {
+      id: "task-refresh",
+      projectId: "project-1",
+      title: "مهمة يجب إعادة قراءتها",
+      status: "running",
+      correlationId: "correlation-refresh",
+      updatedAt,
+    };
+
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+    });
+    const invalidate = vi.spyOn(queryClient, "invalidateQueries").mockResolvedValue(undefined);
+
+    render(
+      <QueryClientProvider client={queryClient}>
+        <ProjectWorkspace />
+      </QueryClientProvider>,
+    );
+
+    await waitFor(() => expect(eventSource).not.toBeNull());
+    act(() => eventSource!.emit("workspace.changed", {
+      eventVersion: 1,
+      projectId: "project-1",
+      eventId: "event-task-refresh",
+      snapshotCursor: "cursor-task-refresh",
+    }));
+
+    await waitFor(() => {
+      expect(invalidate).toHaveBeenCalledWith({ queryKey: ["/api/tasks/task-refresh"] });
+      expect(invalidate).toHaveBeenCalledWith({ queryKey: ["/api/tasks/task-refresh/logs"] });
+    });
+  });
+
+  it("does not display cached acceptance while the Task detail is being refreshed", () => {
+    const updatedAt = "2026-11-11T12:00:00.000Z";
+    mocks.snapshot = {
+      ...initialSnapshot,
+      work: {
+        ...initialSnapshot.work,
+        recentTasks: [{
+          id: "task-refreshing",
+          title: "مهمة يعاد تحميلها",
+          status: "completed",
+          verificationDecision: "verified",
+          updatedAt,
+        }],
+      },
+    } as unknown as ProjectWorkspaceSnapshot;
+    mocks.taskDetails["task-refreshing"] = {
+      id: "task-refreshing",
+      projectId: "project-1",
+      title: "مهمة يعاد تحميلها",
+      status: "completed",
+      correlationId: "correlation-refreshing",
+      updatedAt,
+      acceptance: { attempt: 4 },
+    };
+    mocks.taskFetching["task-refreshing"] = true;
+
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+    });
+
+    render(
+      <QueryClientProvider client={queryClient}>
+        <ProjectWorkspace />
+      </QueryClientProvider>,
+    );
+
+    expect(screen.getByTestId("workspace-task-attempt-task-refreshing")).toHaveTextContent("غير متاحة");
+    expect(screen.getByTestId("workspace-task-attempt-task-refreshing")).not.toHaveTextContent("4");
+    expect(screen.getByTestId("workspace-task-task-refreshing"))
+      .toHaveTextContent("جارٍ تحديث سجل المهمة؛ أخفينا المحاولة مؤقتاً.");
+  });
+
+  it("does not display a cached execution attempt while Task Logs are being refreshed", () => {
+    const updatedAt = "2026-11-11T12:00:00.000Z";
+    mocks.snapshot = {
+      ...initialSnapshot,
+      work: {
+        ...initialSnapshot.work,
+        recentTasks: [{
+          id: "task-logs-refreshing",
+          title: "سجل التنفيذ قيد التحديث",
+          status: "running",
+          verificationDecision: null,
+          updatedAt,
+        }],
+      },
+    } as unknown as ProjectWorkspaceSnapshot;
+    mocks.taskDetails["task-logs-refreshing"] = {
+      id: "task-logs-refreshing",
+      projectId: "project-1",
+      title: "سجل التنفيذ قيد التحديث",
+      status: "running",
+      correlationId: "correlation-logs-refreshing",
+      updatedAt,
+    };
+    mocks.taskLogs["task-logs-refreshing"] = [{
+      id: "log-logs-refreshing",
+      taskId: "task-logs-refreshing",
+      correlationId: "correlation-logs-refreshing",
+      executionId: "execution-logs-refreshing",
+      attempt: 5,
+      sequence: 4,
+      timestamp: updatedAt,
+    }];
+    mocks.executions["execution-logs-refreshing"] = {
+      id: "execution-logs-refreshing",
+      linkedTaskId: "task-logs-refreshing",
+      correlationId: "correlation-logs-refreshing",
+      attempt: 5,
+    };
+    mocks.taskLogsFetching["task-logs-refreshing"] = true;
+
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+    });
+
+    render(
+      <QueryClientProvider client={queryClient}>
+        <ProjectWorkspace />
+      </QueryClientProvider>,
+    );
+
+    expect(screen.getByTestId("workspace-task-attempt-task-logs-refreshing")).toHaveTextContent("غير متاحة");
+    expect(screen.getByTestId("workspace-task-attempt-task-logs-refreshing")).not.toHaveTextContent("5");
+  });
+
+  it("does not display a Task acceptance attempt without a current execution correlation", () => {
+    const updatedAt = "2026-11-11T12:00:00.000Z";
+    mocks.snapshot = {
+      ...initialSnapshot,
+      work: {
+        ...initialSnapshot.work,
+        recentTasks: [{
+          id: "task-without-correlation",
+          title: "مهمة بلا رابط تنفيذ حالي",
+          status: "completed",
+          verificationDecision: "verified",
+          updatedAt,
+        }],
+      },
+    } as unknown as ProjectWorkspaceSnapshot;
+    mocks.taskDetails["task-without-correlation"] = {
+      id: "task-without-correlation",
+      projectId: "project-1",
+      title: "مهمة بلا رابط تنفيذ حالي",
+      status: "completed",
+      correlationId: null,
+      updatedAt,
+      acceptance: { attempt: 8 },
+    };
+
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+    });
+
+    render(
+      <QueryClientProvider client={queryClient}>
+        <ProjectWorkspace />
+      </QueryClientProvider>,
+    );
+
+    expect(screen.getByTestId("workspace-task-attempt-task-without-correlation"))
+      .toHaveTextContent("غير متاحة");
+    expect(screen.getByTestId("workspace-task-attempt-task-without-correlation"))
+      .not.toHaveTextContent("8");
+  });
+
+
+
 });

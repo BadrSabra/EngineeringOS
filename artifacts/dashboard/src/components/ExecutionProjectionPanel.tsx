@@ -256,6 +256,9 @@ export function ExecutionProjectionPanel({
   const progress = projection.progress;
   const planSteps = projection.plan?.steps ?? [];
   const recentTools = projection.tools?.recent ?? [];
+  const activeTool = projection.tools?.activeTool ?? null;
+  const totalToolCalls = projection.tools?.totalCalls ?? recentTools.length;
+  const hasToolActivity = totalToolCalls > 0 || activeTool !== null || recentTools.length > 0;
   const changedFiles = projection.workspace?.changedFiles ?? [];
   const allowedActions = projection.allowedActions ?? [];
   const orderedActions = allowedActions.filter((action) => {
@@ -622,21 +625,31 @@ export function ExecutionProjectionPanel({
         </details>
       )}
 
-      {(recentTools.length > 0 || changedFiles.length > 0) && (
+      {(hasToolActivity || changedFiles.length > 0) && (
         <div className="mt-2 grid gap-2 sm:grid-cols-2">
-          {recentTools.length > 0 && (
+          {hasToolActivity && (
             <details className="rounded-md border border-border/45 bg-background/20 px-2.5 py-2" open={!compact}>
               <summary className="flex cursor-pointer list-none items-center gap-1.5 text-[10px] font-semibold text-foreground" data-testid="toggle-tools">
-                <Wrench className="h-3 w-3 text-primary" /> أدوات التنفيذ <span className="font-normal text-muted-foreground">({projection.tools?.totalCalls ?? recentTools.length} استدعاءات)</span>
+                <Wrench className="h-3 w-3 text-primary" /> أدوات التنفيذ <span className="font-normal text-muted-foreground">({totalToolCalls} استدعاءات)</span>
               </summary>
               <div className="mt-1 space-y-1 border-t border-border/30 pt-1.5">
-                {recentTools.map((tool, index) => (
+                {activeTool && (
+                  <div className="flex min-w-0 flex-wrap items-center gap-1.5 text-[10px]" data-testid="active-tool">
+                    <span className="text-primary">الأداة النشطة المسجلة</span>
+                    <code dir="ltr" className="min-w-0 truncate text-foreground">{activeTool}</code>
+                  </div>
+                )}
+                {recentTools.length > 0 ? recentTools.map((tool, index) => (
                   <div key={`${tool.tool}-${index}`} className="flex min-w-0 items-center gap-1.5 text-[10px]" data-testid={`tool-${index}`}>
                     <span className={tool.status === 'failed' ? 'text-red-200' : tool.status === 'started' ? 'text-primary' : 'text-emerald-200'}>{titleCase(tool.status)}</span>
                     <span dir="ltr" className="min-w-0 truncate text-muted-foreground">{tool.tool}</span>
                     {tool.source && <code dir="ltr" className="min-w-0 truncate text-muted-foreground/70">{tool.source}</code>}
                   </div>
-                ))}
+                )) : (
+                  <p className="text-[10px] leading-5 text-muted-foreground" data-testid="tools-recent-unavailable">
+                    لا تتوفر تفاصيل الاستدعاءات الأخيرة في هذا الإسقاط.
+                  </p>
+                )}
               </div>
             </details>
           )}

@@ -83,6 +83,8 @@ jobs:
               - 'artifacts/dashboard/src/pages/Metrics.tsx'
               - 'artifacts/dashboard/src/pages/MissionControl.tsx'
               - 'artifacts/dashboard/src/pages/ProjectDetail.tsx'
+              - 'artifacts/dashboard/src/pages/ProjectWorkspace.tsx'
+              - 'artifacts/dashboard/src/pages/project-workspace/WorkspaceExecutionDetail.tsx'
               - 'artifacts/dashboard/src/pages/Projects.tsx'
               - 'artifacts/dashboard/src/pages/Rules.tsx'
               - 'artifacts/dashboard/src/pages/Tasks.tsx'

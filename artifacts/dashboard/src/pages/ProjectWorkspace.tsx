@@ -4,8 +4,10 @@ import PreviewAgentPanel from '@/pages/project-workspace/PreviewAgentPanel';
 import type { ReactNode } from 'react';
 import { Link, useRoute } from 'wouter';
 import { Activity, AlertTriangle, ArrowRight, Check, Clock3, Code2, GitBranch, Layers3, RefreshCw, ShieldCheck, Sparkles, Terminal } from 'lucide-react';
-import { useGetProjectWorkspaceSnapshot, getGetProjectWorkspaceSnapshotQueryKey } from '@workspace/api-client-react';
+import { useGetProjectWorkspaceSnapshot, getGetProjectWorkspaceSnapshotQueryKey, getGetAiExecutionQueryKey, useGetTask, getGetTaskQueryKey, useGetTaskLogs, getGetTaskLogsQueryKey, useGetAiExecution } from '@workspace/api-client-react';
 import AiChat from '@/pages/AiChat';
+import ProjectCanvasPanel from '@/pages/project-workspace/ProjectCanvasPanel';
+import WorkspaceExecutionDetail from '@/pages/project-workspace/WorkspaceExecutionDetail';
 
 const statusLabels: Record<string, string> = {
   active: 'نشط',
@@ -65,7 +67,8 @@ function WorkspaceSkeleton() {
   return (
     <div className="space-y-5" role="status" aria-label="جارٍ تحميل مساحة المشروع">
       <div className="workspace-skeleton h-36 rounded-2xl" />
-      <div className="grid gap-5 lg:grid-cols-[minmax(0,1.55fr)_minmax(320px,.8fr)]">
+      <div className="workspace-layout-skeleton">
+        <div className="workspace-skeleton h-[560px] rounded-2xl" />
         <div className="workspace-skeleton h-[560px] rounded-2xl" />
         <div className="space-y-4">
           <div className="workspace-skeleton h-48 rounded-2xl" />
@@ -85,6 +88,192 @@ function SourceNote({ available, children }: { available: boolean; children: Rea
   );
 }
 
+
+type WorkspaceTaskSummaryItem = {
+  id: string;
+  title: string;
+  status: string;
+  verificationDecision: string | null;
+  updatedAt: string;
+};
+
+function isRecordedAttempt(value: unknown): value is number {
+  return typeof value === 'number' && Number.isSafeInteger(value) && value >= 0;
+}
+
+function WorkspaceTaskCard({
+  projectId,
+  task,
+}: {
+  projectId: string;
+  task: WorkspaceTaskSummaryItem;
+}) {
+  const taskQuery = useGetTask(task.id, {
+    query: {
+      queryKey: getGetTaskQueryKey(task.id),
+      staleTime: 0,
+    },
+  });
+  const taskDetails = taskQuery.data;
+  const summaryUpdatedAt = Date.parse(task.updatedAt);
+  const detailsUpdatedAt = taskDetails ? Date.parse(taskDetails.updatedAt) : Number.NaN;
+  const taskMatchesSnapshot = Boolean(
+    !taskQuery.isFetching
+    && !taskQuery.isError
+    && taskDetails
+    && taskDetails.id === task.id
+    && taskDetails.projectId === projectId
+    && taskDetails.status === task.status
+    && Number.isFinite(summaryUpdatedAt)
+    && Number.isFinite(detailsUpdatedAt)
+    && summaryUpdatedAt === detailsUpdatedAt,
+  );
+  const currentCorrelationId = taskMatchesSnapshot
+    && typeof taskDetails?.correlationId === 'string'
+    && taskDetails.correlationId.trim()
+    ? taskDetails.correlationId.trim()
+    : null;
+  const taskLogsQuery = useGetTaskLogs(task.id, {
+    query: {
+      queryKey: getGetTaskLogsQueryKey(task.id),
+      enabled: Boolean(currentCorrelationId),
+      staleTime: 0,
+      refetchInterval: task.status === 'running' ? 5_000 : false,
+    },
+  });
+  const latestExecutionLog = (taskLogsQuery.data ?? [])
+    .filter((log) =>
+      log.correlationId === currentCorrelationId
+      && typeof log.executionId === 'string'
+      && log.executionId.trim().length > 0)
+    .sort((left, right) =>
+      (left.sequence ?? -1) - (right.sequence ?? -1)
+      || Date.parse(String(left.timestamp)) - Date.parse(String(right.timestamp)))
+    .at(-1);
+  const executionId = latestExecutionLog?.executionId ?? '';
+  const executionQuery = useGetAiExecution(executionId, {
+    query: {
+      queryKey: getGetAiExecutionQueryKey(executionId),
+      enabled: Boolean(executionId),
+      staleTime: 0,
+      refetchInterval: task.status === 'running' ? 5_000 : false,
+    },
+  });
+  const execution = executionQuery.data;
+  const executionMatchesTask = Boolean(
+    !taskLogsQuery.isFetching
+    && !taskLogsQuery.isError
+    && !executionQuery.isFetching
+    && !executionQuery.isError
+    && execution
+    && execution.id === executionId
+    && execution.correlationId === currentCorrelationId
+    && execution.linkedTaskId === task.id,
+  );
+  const rawExecutionAttempt = execution?.attempt;
+  const executionAttempt = executionMatchesTask && isRecordedAttempt(rawExecutionAttempt)
+    ? rawExecutionAttempt
+    : null;
+  const rawAcceptanceAttempt = taskDetails?.acceptance?.attempt;
+  const acceptanceAttempt = taskMatchesSnapshot
+    && currentCorrelationId !== null
+    && task.status !== 'running'
+    && isRecordedAttempt(rawAcceptanceAttempt)
+    ? rawAcceptanceAttempt
+    : null;
+  const attempt = executionAttempt ?? acceptanceAttempt;
+  const rawDependencies = taskDetails?.dependsOn;
+  const dependencyIds = taskMatchesSnapshot
+    && Array.isArray(rawDependencies)
+    && rawDependencies.every((dependencyId) =>
+      typeof dependencyId === 'string' && dependencyId.trim().length > 0)
+    ? [...new Set(rawDependencies.map((dependencyId) => dependencyId.trim()))]
+    : null;
+
+  let attemptContext = 'لا تتوفر محاولة مرتبطة في القراءة الحالية.';
+  if (taskQuery.isLoading) {
+    attemptContext = 'جارٍ مطابقة سجل المهمة مع لقطة Workspace.';
+  } else if (taskQuery.isError) {
+    attemptContext = 'تعذر قراءة سجل المهمة؛ لم نعرض رقم محاولة غير مؤكد.';
+  } else if (taskQuery.isFetching) {
+    attemptContext = 'جارٍ تحديث سجل المهمة؛ أخفينا المحاولة مؤقتاً.';
+  } else if (!taskMatchesSnapshot) {
+    attemptContext = 'تغير سجل المهمة منذ آخر لقطة؛ حدّث مساحة المشروع قبل الاعتماد على المحاولة.';
+  } else if (acceptanceAttempt !== null) {
+    attemptContext = 'محاولة قبول مسجلة في سجل المهمة.';
+  } else if (taskLogsQuery.isFetching || executionQuery.isFetching) {
+    attemptContext = 'جارٍ تحديث سجل التنفيذ؛ أخفينا المحاولة مؤقتاً.';
+  } else if (attempt !== null) {
+    attemptContext = 'محاولة مسجلة من التنفيذ المرتبط بالمهمة.';
+  } else if (task.status === 'running' && !currentCorrelationId) {
+    attemptContext = 'لا توجد هوية تنفيذ حالية مرتبطة بالمهمة في هذه القراءة.';
+  } else if (task.status === 'running' && (taskLogsQuery.isError || executionQuery.isError)) {
+    attemptContext = 'تعذر تأكيد المحاولة الحالية من سجل التنفيذ.';
+  } else if (task.status === 'running') {
+    attemptContext = 'جارٍ تأكيد المحاولة الحالية من التنفيذ المرتبط.';
+  }
+
+  return (
+    <article className="workspace-task" data-testid={`workspace-task-${task.id}`}>
+      <div className="flex min-w-0 flex-1 items-start gap-2">
+        <span className="workspace-task-mark" />
+        <div className="min-w-0 flex-1">
+          <p dir="auto" className="text-sm leading-5 text-slate-200">{task.title}</p>
+          <div className="mt-1.5 flex flex-wrap items-center gap-2 text-[11px] text-slate-500">
+            <span>{dateLabel(task.updatedAt)}</span>
+            <span aria-hidden="true">·</span>
+            <span>التحقق: {label(task.verificationDecision)}</span>
+          </div>
+          <dl className="mt-2 grid grid-cols-1 gap-1 text-[11px] text-slate-400">
+            <div className="flex flex-wrap items-center gap-1.5">
+              <dt>المصدر:</dt><dd data-testid={`workspace-task-source-${task.id}`}>ملخص مهام Workspace</dd>
+            </div>
+            <div className="flex flex-wrap items-center gap-1.5">
+              <dt>معرّف المهمة:</dt><dd data-testid={`workspace-task-id-${task.id}`}><Identifier>{task.id}</Identifier></dd>
+            </div>
+            <div className="flex flex-wrap items-center gap-1.5">
+              <dt>المحاولة:</dt>
+              <dd data-testid={`workspace-task-attempt-${task.id}`}>
+                {attempt === null ? 'غير متاحة' : <Identifier>{attempt}</Identifier>}
+              </dd>
+              <span className="text-slate-500">{attemptContext}</span>
+            </div>
+            <div className="flex flex-wrap items-center gap-1.5">
+              <dt>التبعيات:</dt>
+              <dd data-testid={`workspace-task-dependencies-${task.id}`}>
+                {dependencyIds === null
+                  ? 'غير متاحة في سجل المهمة'
+                  : dependencyIds.length === 0
+                    ? 'لا توجد تبعيات مسجلة'
+                    : dependencyIds.map((dependencyId, index) => (
+                      <span key={dependencyId}>
+                        {index > 0 ? '، ' : null}
+                        <Link
+                          href={`/tasks?projectId=${encodeURIComponent(projectId)}&taskId=${encodeURIComponent(dependencyId)}`}
+                          className="text-cyan-300 underline-offset-4 hover:underline"
+                          aria-label={`فتح المهمة المعتمَد عليها: ${dependencyId}`}
+                        >
+                          <Identifier>{dependencyId}</Identifier>
+                        </Link>
+                      </span>
+                    ))}
+              </dd>
+            </div>
+          </dl>
+          <Link
+            href={`/tasks?projectId=${encodeURIComponent(projectId)}&taskId=${encodeURIComponent(task.id)}`}
+            className="mt-2 inline-flex text-xs font-medium text-cyan-300 underline-offset-4 hover:underline"
+            aria-label={`فتح تفاصيل المهمة: ${task.title}`}
+          >
+            فتح تفاصيل المهمة
+          </Link>
+        </div>
+      </div>
+      <span className={`workspace-status status-${task.status}`}>{label(task.status)}</span>
+    </article>
+  );
+}
+
 export default function ProjectWorkspace() {
   const [, params] = useRoute('/projects/:projectId/workspace');
   const projectId = params?.projectId ?? '';
@@ -98,6 +287,18 @@ export default function ProjectWorkspace() {
   });
   const { data: snapshot, isLoading, isError, refetch, isFetching } = snapshotQuery;
   const hasCurrentSnapshot = snapshot?.project.id === projectId;
+  const latestExecutionId = snapshot?.work.executionSource === 'available'
+    ? snapshot.work.latestExecution?.id ?? null
+    : null;
+  const recentTaskIds = snapshot?.work.tasksSource === 'available'
+    ? snapshot.work.recentTasks.map((task) => task.id)
+    : [];
+  const invalidateRecentTaskReads = () => {
+    for (const taskId of recentTaskIds) {
+      void queryClient.invalidateQueries({ queryKey: getGetTaskQueryKey(taskId) });
+      void queryClient.invalidateQueries({ queryKey: getGetTaskLogsQueryKey(taskId) });
+    }
+  };
   const streamStatus = useWorkspaceEventStream({
     projectId,
     enabled: !!projectId && hasCurrentSnapshot,
@@ -105,8 +306,24 @@ export default function ProjectWorkspace() {
       void queryClient.invalidateQueries({
         queryKey: getGetProjectWorkspaceSnapshotQueryKey(projectId),
       });
+      if (latestExecutionId) {
+        void queryClient.invalidateQueries({
+          queryKey: getGetAiExecutionQueryKey(latestExecutionId),
+        });
+      }
+      invalidateRecentTaskReads();
     },
   });
+
+  function refreshWorkspace() {
+    void refetch();
+    if (latestExecutionId) {
+      void queryClient.invalidateQueries({
+        queryKey: getGetAiExecutionQueryKey(latestExecutionId),
+      });
+    }
+    invalidateRecentTaskReads();
+  }
 
   if (isLoading) return <WorkspaceSkeleton />;
   if (isError || !snapshot) {
@@ -126,9 +343,32 @@ export default function ProjectWorkspace() {
     );
   }
 
+  if (snapshot.project.id !== projectId) {
+    return (
+      <section dir="rtl" className="workspace-error" role="alert">
+        <div className="workspace-error-mark"><AlertTriangle className="h-5 w-5" /></div>
+        <div className="min-w-0">
+          <h1 className="text-lg font-semibold text-slate-100">تعارض هوية المشروع</h1>
+          <p className="mt-1 text-sm leading-6 text-slate-400">
+            اللقطة المستلمة لا تخص المشروع المطلوب؛ أخفينا محتواها حتى تصل قراءة بهوية مطابقة.
+          </p>
+          <button
+            type="button"
+            onClick={() => void refetch()}
+            className="workspace-retry mt-5"
+            disabled={isFetching}
+          >
+            <RefreshCw className="h-4 w-4" /> إعادة قراءة المشروع
+          </button>
+        </div>
+      </section>
+    );
+  }
+
   const { project, work, runtime, freshness } = snapshot;
-  const candidate = work.candidate;
-  const execution = work.latestExecution;
+  // Source availability is authoritative: do not render retained payloads from an unavailable read.
+  const candidate = work.candidateSource === 'available' ? work.candidate : null;
+  const execution = work.executionSource === 'available' ? work.latestExecution : null;
 
   return (
     <div dir="rtl" lang="ar" className="project-workspace" data-testid="project-workspace">
@@ -139,7 +379,7 @@ export default function ProjectWorkspace() {
             <span>المشاريع</span><span aria-hidden="true" className="text-slate-600">/</span>
             <span className="truncate text-slate-300">{project.name}</span>
           </div>
-          <button type="button" className="workspace-refresh" onClick={() => void refetch()} disabled={isFetching}>
+          <button type="button" className="workspace-refresh" onClick={refreshWorkspace} disabled={isFetching}>
             <RefreshCw className={`h-3.5 w-3.5 ${isFetching ? 'animate-spin' : ''}`} />
             <span>{isFetching ? 'جارٍ التحديث' : 'تحديث الحالة'}</span>
           </button>
@@ -183,8 +423,18 @@ export default function ProjectWorkspace() {
         )}
       </header>
 
-      <div className="workspace-columns">
-        <section className="workspace-chat-panel" aria-label="المحادثة مع مساعد المشروع">
+      <nav className="workspace-panel-nav" aria-label="التنقل بين أقسام مساحة المشروع">
+        <a href="#workspace-panel-agent">المساعد</a>
+        <a href="#workspace-panel-canvas">المعاينة</a>
+        <a href="#workspace-panel-trust">العمل والثقة</a>
+      </nav>
+
+      <div className="workspace-layout">
+        <section
+          id="workspace-panel-agent"
+          className="workspace-panel workspace-chat-panel"
+          aria-label="محادثة المشروع"
+        >
           <div className="workspace-panel-heading">
             <span className="workspace-section-icon"><Sparkles className="h-4 w-4" /></span>
             <div>
@@ -197,42 +447,51 @@ export default function ProjectWorkspace() {
           </div>
         </section>
 
-        <aside className="workspace-trust-column" aria-label="ملخص العمل وحالة التشغيل">
+        <ProjectCanvasPanel
+          candidateSourceAvailable={work.candidateSource === 'available'}
+          hasCandidate={Boolean(candidate)}
+          runtimeSourceAvailable={runtime.source !== 'unavailable'}
+          runtimeStatusLabel={label(runtime.status)}
+        />
+
+        <aside
+          id="workspace-panel-trust"
+          className="workspace-panel workspace-trust-column"
+          aria-label="العمل والثقة"
+        >
           <section className="workspace-card">
             <div className="workspace-card-heading">
               <div className="workspace-card-icon work"><Activity className="h-4 w-4" /></div>
               <div className="min-w-0 flex-1">
                 <h2>العمل الأخير</h2>
-                <p>ملخص قراءة من المهام والتنفيذ</p>
+                <p>أحدث 8 مهام من المصدر؛ هذه ليست قائمة شاملة.</p>
               </div>
-              <span className="workspace-readonly">للاطلاع</span>
+              <div className="flex shrink-0 items-center gap-2">
+                <span className="workspace-readonly">للاطلاع</span>
+                <Link
+                  href={`/tasks?projectId=${encodeURIComponent(project.id)}`}
+                  className="text-xs font-medium text-cyan-300 underline-offset-4 hover:underline"
+                  aria-label="عرض جميع مهام المشروع"
+                >
+                  عرض الكل
+                </Link>
+              </div>
             </div>
             <SourceNote available={work.tasksSource === 'available'}>مصدر المهام غير متاح الآن؛ لا يمكن تأكيد قائمة العمل.</SourceNote>
-            {work.tasksSource === 'available' && work.recentTasks.length === 0 ? (
-              <div className="workspace-empty">
-                <div className="workspace-empty-mark"><Check className="h-4 w-4" /></div>
-                <p className="font-medium text-slate-300">لا توجد مهام حديثة مسجلة</p>
-                <p className="mt-1 text-xs leading-5 text-slate-500">هذا ملخص للمهام التي أعادها المصدر، وليس تأكيدًا على عدم وجود عمل خارجها.</p>
-              </div>
-            ) : (
-              <div className="mt-4 space-y-2">
-                {work.recentTasks.map((task) => (
-                  <article key={task.id} className="workspace-task">
-                    <div className="flex min-w-0 flex-1 items-start gap-2">
-                      <span className="workspace-task-mark" />
-                      <div className="min-w-0">
-                        <p dir="auto" className="text-sm leading-5 text-slate-200">{task.title}</p>
-                        <div className="mt-1.5 flex flex-wrap items-center gap-2 text-[11px] text-slate-500">
-                          <span>{dateLabel(task.updatedAt)}</span>
-                          <span aria-hidden="true">·</span>
-                          <span>التحقق: {label(task.verificationDecision)}</span>
-                        </div>
-                      </div>
-                    </div>
-                    <span className={`workspace-status status-${task.status}`}>{label(task.status)}</span>
-                  </article>
-                ))}
-              </div>
+            {work.tasksSource === 'available' && (
+              work.recentTasks.length === 0 ? (
+                <div className="workspace-empty">
+                  <div className="workspace-empty-mark"><Check className="h-4 w-4" /></div>
+                  <p className="font-medium text-slate-300">لا توجد مهام حديثة مسجلة</p>
+                  <p className="mt-1 text-xs leading-5 text-slate-500">هذا ملخص للمهام التي أعادها المصدر، وليس تأكيدًا على عدم وجود عمل خارجها.</p>
+                </div>
+              ) : (
+                <div className="mt-4 space-y-2">
+                  {work.recentTasks.map((task) => (
+                    <WorkspaceTaskCard key={task.id} projectId={project.id} task={task} />
+                  ))}
+                </div>
+              )
             )}
             <SourceNote available={work.executionSource === 'available'}>مصدر التنفيذ غير متاح؛ لا يمكن تأكيد حالة تنفيذ حديثة.</SourceNote>
             {execution && (
@@ -243,14 +502,12 @@ export default function ProjectWorkspace() {
                   <span className="text-xs text-slate-500">المحاولة <Identifier>{execution.attempt}</Identifier></span>
                   <span className="text-xs text-slate-500">{dateLabel(execution.updatedAt)}</span>
                 </div>
-                <details className="workspace-details mt-3">
-                  <summary>تفاصيل التنفيذ</summary>
-                  <dl className="workspace-detail-grid">
-                    <dt>معرّف التنفيذ</dt><dd><Identifier>{execution.id}</Identifier></dd>
-                    <dt>المرشح المرتبط</dt><dd><Identifier>{execution.proposalId}</Identifier></dd>
-                    <dt>نسخة الأساس</dt><dd><Identifier>{execution.baseRevision}</Identifier></dd>
-                  </dl>
-                </details>
+                <WorkspaceExecutionDetail
+                  executionId={execution.id}
+                  projectId={project.id}
+                  attempt={execution.attempt}
+                  proposalId={execution.proposalId}
+                />
               </div>
             )}
           </section>
@@ -299,7 +556,18 @@ export default function ProjectWorkspace() {
                 <h2>حالة التشغيل</h2>
                 <p>حالة جلسة المشروع المسجلة</p>
               </div>
-              <span className={`workspace-status status-${runtime.status}`}>{label(runtime.status)}</span>
+              {runtime.source === 'available' ? (
+                <span
+                  className={`workspace-status status-${runtime.status}`}
+                  data-testid="workspace-runtime-status"
+                >
+                  {label(runtime.status)}
+                </span>
+              ) : (
+                <span className="workspace-readonly" data-testid="workspace-runtime-status">
+                  غير متاح
+                </span>
+              )}
             </div>
             {runtime.source === 'unavailable' ? (
               <SourceNote available={false}>مصدر التشغيل غير متاح الآن؛ لا يمكن تأكيد الحالة الحالية.</SourceNote>

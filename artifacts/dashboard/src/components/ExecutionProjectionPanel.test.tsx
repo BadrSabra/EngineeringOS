@@ -323,6 +323,45 @@ describe('ExecutionProjectionPanel', () => {
     expect(onAction).toHaveBeenCalledTimes(1);
   });
 
+
+  it('shows the server-recorded active tool when recent tool details are empty', () => {
+    renderPanel(
+      <ExecutionProjectionPanel
+        projection={{
+          ...projection,
+          tools: { totalCalls: 4, activeTool: 'query_knowledge_graph', recent: [] },
+          workspace: { changedFiles: [], diffStatus: 'not_available' },
+        }}
+        compact
+        readOnly
+      />,
+    );
+
+    expect(screen.getByTestId('toggle-tools')).toHaveTextContent('4 استدعاءات');
+    expect(screen.getByTestId('active-tool')).toHaveTextContent('query_knowledge_graph');
+    expect(screen.getByTestId('tools-recent-unavailable')).toBeInTheDocument();
+  });
+
+  it('keeps the recorded tool-call count visible when the recent list and active tool are empty', () => {
+    renderPanel(
+      <ExecutionProjectionPanel
+        projection={{
+          ...projection,
+          tools: { totalCalls: 3, activeTool: null, recent: [] },
+          workspace: { changedFiles: [], diffStatus: 'not_available' },
+        }}
+        compact
+        readOnly
+      />,
+    );
+
+    expect(screen.getByTestId('toggle-tools')).toHaveTextContent('3 استدعاءات');
+    expect(screen.getByTestId('tools-recent-unavailable')).toHaveTextContent(
+      'لا تتوفر تفاصيل الاستدعاءات الأخيرة في هذا الإسقاط.',
+    );
+    expect(screen.queryByTestId('active-tool')).not.toBeInTheDocument();
+  });
+
   it('renders safely without projection and does not infer success from missing data', () => {
     const { container } = renderPanel(
       <ExecutionProjectionPanel

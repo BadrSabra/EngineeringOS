@@ -76,7 +76,7 @@ test("the visual runner isolates credentials, API traffic, and screenshots", () 
   );
   assert.match(
     runnerSource,
-    /browserAudit\.blockedRequestCount !== 0[\s\S]*?visualReport\?\.captures\?\.length !== 32/u,
+    /browserAudit\.blockedRequestCount !== 0[\s\S]*?visualReport\?\.captures\?\.length !== 36/u,
   );
   assert.match(
     viteSource,

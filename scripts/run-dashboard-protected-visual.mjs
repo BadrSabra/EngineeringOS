@@ -465,10 +465,10 @@ async function main() {
       visualReport = JSON.parse(await readFile(visualReportPath, "utf8"));
       if (
         visualReport?.outcome !== "passed" ||
-        visualReport?.captures?.length !== 32
+        visualReport?.captures?.length !== 36
       ) {
         throw new Error(
-          "The visual receipt did not prove 32 clean protected-page captures.",
+          "The visual receipt did not prove 36 clean protected-page captures.",
         );
       }
     }
