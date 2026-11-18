@@ -17,6 +17,9 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock("@workspace/api-client-react", () => ({
   useGetAiExecution: vi.fn(() => mocks.query),
+  getGetAiExecutionQueryKey: (executionId: string) => [
+    `/api/ai/executions/${executionId}`,
+  ],
 }));
 
 const projection = {
