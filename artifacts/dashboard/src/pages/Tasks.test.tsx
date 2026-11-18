@@ -341,7 +341,7 @@ describe('project-scoped task list contracts', () => {
     );
 
     window.history.replaceState({}, '', '/tasks?projectId=project-1');
-    const view = render(page());
+    render(page());
 
     // A user can make a local project selection without unmounting the page.
     fireEvent.change(screen.getByTestId('select-task-project'), { target: { value: 'project-2' } });
