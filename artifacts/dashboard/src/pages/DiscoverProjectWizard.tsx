@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import {
   useStartDiscovery,
@@ -477,6 +477,19 @@ export function DiscoverProjectWizard({ onClose }: Props) {
   const [workspaceProjectId, setWorkspaceProjectId] = useState<string>('');
   const [importedProjectId, setImportedProjectId] = useState<string | null>(null);
   const [scanTriggered, setScanTriggered] = useState(false);
+  const mountedRef = useRef(false);
+  const importRedirectTimerRef = useRef<number | null>(null);
+
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+      if (importRedirectTimerRef.current !== null) {
+        window.clearTimeout(importRedirectTimerRef.current);
+        importRedirectTimerRef.current = null;
+      }
+    };
+  }, []);
 
   const startDiscovery = useStartDiscovery();
   const archiveUpload = useUploadArchive();
@@ -582,9 +595,10 @@ export function DiscoverProjectWizard({ onClose }: Props) {
       if (!upload) {
         try {
           upload = await archiveUpload.mutateAsync({ data: { archive: file } });
+          if (!mountedRef.current) return;
           setUploadedArchive(upload);
         } catch (err: unknown) {
-          setStartError(extractArchiveUploadError(err));
+          if (mountedRef.current) setStartError(extractArchiveUploadError(err));
           return;
         }
       }
@@ -595,12 +609,15 @@ export function DiscoverProjectWizard({ onClose }: Props) {
       const result = await startDiscovery.mutateAsync({
         data: { sourceType, sourceConfig } as Parameters<typeof startDiscovery.mutateAsync>[0]['data'],
       });
+      if (!mountedRef.current) return;
       const s = result as unknown as DiscoverySession;
       setDiscoveryId(s.id);
       setSession(s);
       setStep(2);
     } catch (err: unknown) {
-      setStartError(extractApiError(err, 'تعذر بدء استكشاف المشروع. تحقق من البيانات وحاول مرة أخرى.'));
+      if (mountedRef.current) {
+        setStartError(extractApiError(err, 'تعذر بدء استكشاف المشروع. تحقق من البيانات وحاول مرة أخرى.'));
+      }
     }
   };
 
@@ -612,15 +629,24 @@ export function DiscoverProjectWizard({ onClose }: Props) {
         data: { discoveryId, overrides: Object.keys(overrides).length > 0 ? overrides : undefined },
       });
       const pid = (project as unknown as { id: string }).id;
+      void queryClient.invalidateQueries({ queryKey: getListProjectsQueryKey() });
+      if (!mountedRef.current) return;
+
       setImportedProjectId(pid);
       setStep(4);
-      queryClient.invalidateQueries({ queryKey: getListProjectsQueryKey() });
-      setTimeout(() => {
+      if (importRedirectTimerRef.current !== null) {
+        window.clearTimeout(importRedirectTimerRef.current);
+      }
+      importRedirectTimerRef.current = window.setTimeout(() => {
+        importRedirectTimerRef.current = null;
+        if (!mountedRef.current) return;
         onClose();
         navigate(`/projects/${pid}`);
       }, 2200);
     } catch (err) {
-      setImportError(extractApiError(err, 'تعذرت إضافة المشروع. حاول مرة أخرى.'));
+      if (mountedRef.current) {
+        setImportError(extractApiError(err, 'تعذرت إضافة المشروع. حاول مرة أخرى.'));
+      }
     }
   };
 
