@@ -256,10 +256,10 @@ export function ExecutionProjectionPanel({
   } | null>(null);
   const diffRequestIdRef = useRef(0);
   const currentExecutionIdRef = useRef(executionId ?? '');
-  currentExecutionIdRef.current = executionId ?? '';
   useEffect(() => {
     // Invalidate any in-flight read and discard the previous execution's
     // review snapshot whenever this shared panel is rebound.
+    currentExecutionIdRef.current = executionId ?? '';
     diffRequestIdRef.current += 1;
     setDiffReadState(null);
   }, [executionId]);
