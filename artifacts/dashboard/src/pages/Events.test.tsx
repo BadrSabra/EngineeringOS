@@ -3,6 +3,12 @@ import { fireEvent, render, screen } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import Events from "./Events";
 
+const routeState = vi.hoisted(() => ({ search: "" }));
+
+vi.mock("wouter", () => ({
+  useSearch: () => routeState.search,
+}));
+
 vi.mock("@workspace/api-client-react", () => ({
   getListEventsQueryKey: vi.fn((params: unknown) => ["/api/events", params]),
   useListEvents: vi.fn(),
@@ -35,6 +41,8 @@ const refetch = vi.fn();
 
 beforeEach(() => {
   vi.clearAllMocks();
+  routeState.search = "";
+  window.history.replaceState(null, "", "/");
   vi.mocked(useListProjects).mockReturnValue({
     data: [
       { id: "project-alpha", name: "Alpha" },
@@ -83,6 +91,41 @@ describe("Events", () => {
     expect(screen.getByText("Beta task failed")).toBeInTheDocument();
     expect(screen.getByText("عرض 1–2 من 2")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "الأقدم" })).toBeDisabled();
+  });
+
+  it("rebinds project filters and pagination when the route query changes in place", () => {
+    const view = render(<Events />);
+
+    expect(vi.mocked(useListEvents).mock.calls.at(-1)?.[0]).toEqual({
+      limit: 50,
+      page: 1,
+    });
+
+    routeState.search = "?projectId=project-beta&severity=warning&correlationId=beta-run&search=Beta&page=3";
+    view.rerender(<Events />);
+
+    fireEvent.click(screen.getByRole("button", { name: "إظهار أو إخفاء عوامل تصفية الأحداث" }));
+
+    const selects = screen.getAllByRole("combobox");
+    expect(selects[0]).toHaveValue("project-beta");
+    expect(selects[1]).toHaveValue("warning");
+    expect(screen.getByPlaceholderText("معرّف الارتباط")).toHaveValue("beta-run");
+    expect(screen.getByPlaceholderText("ابحث في السجلات...")).toHaveValue("Beta");
+    expect(screen.getByText(/صفحة 3/)).toBeInTheDocument();
+
+    expect(vi.mocked(useListEvents).mock.calls.at(-1)?.[0]).toEqual({
+      limit: 50,
+      page: 3,
+      projectId: "project-beta",
+      correlationId: "beta-run",
+      severity: "warning",
+      search: "Beta",
+    });
+
+    const writtenQuery = new URLSearchParams(window.location.search);
+    expect(writtenQuery.get("projectId")).toBe("project-beta");
+    expect(writtenQuery.get("correlationId")).toBe("beta-run");
+    expect(writtenQuery.get("page")).toBe("3");
   });
 
   it("labels an in-progress refresh and retains only the last successful read as a snapshot", () => {
