@@ -820,6 +820,8 @@ describe('Mission Control', () => {
           ...missionControlFixture.executions[0],
           id: 'cancelled-execution',
           state: 'CANCELLED',
+          operationId: 'operation-cancelled',
+          revision: 'revision-cancelled',
           acceptance: {
             attempt: 1,
             terminalStatus: 'cancelled',
@@ -866,22 +868,77 @@ describe('Mission Control', () => {
     renderPage();
 
     const acceptance = await screen.findByRole('region', { name: 'قبول التنفيذ الحالي' });
-    expect(within(acceptance).getByText('Start a new scoped run before relying on this result.')).toBeInTheDocument();
+    expect(within(acceptance).getByTestId('acceptance-next-action')).toHaveTextContent(
+      'لا تستأنف هذه المحاولة؛ ابدأ تنفيذًا جديدًا محدود النطاق',
+    );
+    expect(within(acceptance).getByTestId('acceptance-execution-context')).toHaveTextContent('operation-cancelled');
+    expect(within(acceptance).getByTestId('acceptance-execution-context')).toHaveTextContent('revision-cancelled');
     expect(within(acceptance).getByText('ABANDON_EXECUTION')).toBeInTheDocument();
     expect(within(acceptance).queryByText('REVIEW_INCOMPLETE_EVIDENCE')).not.toBeInTheDocument();
 
     fireEvent.click(screen.getByRole('button', { name: /incomplete evidence/i }));
-    expect(within(screen.getByRole('region', { name: 'قبول التنفيذ الحالي' })).getByText(
-      'Review the incomplete evidence before relying on this result.',
-    )).toBeInTheDocument();
+    expect(within(screen.getByRole('region', { name: 'قبول التنفيذ الحالي' })).getByTestId(
+      'acceptance-next-action',
+    )).toHaveTextContent('راجع الأدلة الناقصة وحدد ما لم يُثبت قبل الاعتماد أو التسليم.');
     expect(within(screen.getByRole('region', { name: 'قبول التنفيذ الحالي' })).getByText(
       'REVIEW_INCOMPLETE_EVIDENCE',
     )).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole('button', { name: /run capability probe/i }));
     const probeAcceptance = screen.getByRole('region', { name: 'قبول التنفيذ الحالي' });
-    expect(within(probeAcceptance).getByText('Start a new scoped probe.')).toBeInTheDocument();
+    expect(within(probeAcceptance).getByTestId('acceptance-next-action')).toHaveTextContent(
+      'ابدأ فحصًا جديدًا محدود النطاق؛ لا تعتمد نتيجة هذه المحاولة وحدها.',
+    );
     expect(within(probeAcceptance).getByText('START_NEW_PROBE')).toBeInTheDocument();
+  });
+
+  it('routes resumable acceptance to its owning Task and shows operation/revision context', async () => {
+    const originalPath = window.location.pathname + window.location.search;
+    currentMissionControl = {
+      ...missionControlFixture,
+      executions: [{
+        ...missionControlFixture.executions[0],
+        id: 'task-linked-execution',
+        operationId: 'operation-44',
+        revision: 'revision-9',
+        acceptance: {
+          attempt: 4,
+          terminalStatus: 'paused',
+          outcome: 'INTERRUPTED',
+          reasonCode: 'EXECUTION_PAUSED',
+          nextActionCode: 'RESUME_ALLOWED',
+          evidenceComplete: false,
+          evidenceRequired: true,
+          resumable: true,
+        },
+      }],
+    };
+    currentExecutionDetail = {
+      id: 'task-linked-execution',
+      projectId: 'project-1',
+      linkedTaskId: 'task-44',
+    };
+
+    try {
+      window.history.pushState(
+        {},
+        '',
+        '/mission-control?projectId=project-1&executionId=task-linked-execution',
+      );
+      renderPage();
+
+      const acceptance = await screen.findByRole('region', { name: 'قبول التنفيذ الحالي' });
+      expect(within(acceptance).getByTestId('acceptance-next-action')).toHaveTextContent(
+        'تابع عبر المهمة المالكة دون بدء محاولة جديدة',
+      );
+      const context = within(acceptance).getByTestId('acceptance-execution-context');
+      expect(context).toHaveTextContent('operation-44');
+      expect(context).toHaveTextContent('revision-9');
+      expect(within(context).getByRole('link', { name: 'افتح المهمة المالكة للاستئناف' }))
+        .toHaveAttribute('href', '/tasks?taskId=task-44');
+    } finally {
+      window.history.pushState({}, '', originalPath);
+    }
   });
 
   it('shows targeted incomplete acceptance even when the provider returned no proof snapshot', async () => {
@@ -911,10 +968,10 @@ describe('Mission Control', () => {
     };
     renderPage();
 
-    expect(screen.getByLabelText('Acceptance: incomplete')).toBeInTheDocument();
+    expect(screen.getByLabelText('القبول: غير مكتمل')).toBeInTheDocument();
     const acceptance = await screen.findByRole('region', { name: 'قبول التنفيذ الحالي' });
-    expect(acceptance).toHaveTextContent('Acceptance: incomplete');
-    expect(acceptance).toHaveTextContent('Review the incomplete evidence before relying on this result.');
+    expect(acceptance).toHaveTextContent('القبول: غير مكتمل');
+    expect(acceptance).toHaveTextContent('راجع الأدلة الناقصة وحدد ما لم يُثبت قبل الاعتماد أو التسليم.');
     expect(acceptance).toHaveTextContent('REVIEW_INCOMPLETE_EVIDENCE');
   });
 
