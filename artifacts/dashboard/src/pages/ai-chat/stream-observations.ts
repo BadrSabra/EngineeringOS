@@ -5,7 +5,7 @@ import type {
   AiStreamBehaviorProgressEvent,
 } from '@workspace/api-client-react';
 import type { LiveAgentActivityEvent, LiveAgentToolStep } from './live-activity';
-import { liveToolLabel, PLAN_STAGE_LABELS } from './live-activity';
+import { liveStageDisplayLabel, liveToolLabel, PLAN_STAGE_LABELS } from './live-activity';
 import { CHAT_STAGE_LABELS } from './stream-errors';
 
 export type LiveEvidenceIntegrity = {
@@ -103,8 +103,8 @@ export function createStreamObservationCallbacks({
       setExecutionNodes(event.nodes);
       appendLiveActivityEvent({
         kind: 'stage',
-        label: 'Execution plan loaded',
-        detail: `${event.nodes.length} node${event.nodes.length === 1 ? '' : 's'}`,
+        label: 'تم تحميل خطة التنفيذ',
+        detail: `عدد العقد: ${event.nodes.length}`,
         status: 'info',
       });
     },
@@ -115,7 +115,7 @@ export function createStreamObservationCallbacks({
       if (!isCurrent()) return;
       const detail = CHAT_STAGE_LABELS[stage] ?? stage;
       setAgentStage(detail);
-      appendLiveActivityEvent({ kind: 'stage', label: 'Stage', detail, status: 'info' });
+      appendLiveActivityEvent({ kind: 'stage', label: liveStageDisplayLabel(detail), status: 'info' });
     },
     onToolCall: (event) => {
       if (!isCurrent()) return;
@@ -161,10 +161,10 @@ export function createStreamObservationCallbacks({
       const files = event.files?.slice(0, 12);
       appendLiveActivityEvent({
         kind: 'plan',
-        label: `${PLAN_STAGE_LABELS[event.stage] ?? 'Plan activity'}${event.stepTitle ? ` · ${event.stepTitle}` : ''}`,
+        label: `${PLAN_STAGE_LABELS[event.stage] ?? 'نشاط الخطة'}${event.stepTitle ? ` · ${event.stepTitle}` : ''}`,
         detail: event.approvalRequired
-          ? `Approval required before changing: ${files?.join(', ') || 'approved files'}`
-          : event.resultSummary ?? (event.nextStepTitle ? `Next: ${event.nextStepTitle}` : undefined),
+          ? `الموافقة مطلوبة قبل تغيير الملفات: ${files?.join(', ') || 'approved files'}`
+          : event.resultSummary ?? (event.nextStepTitle ? `التالي: ${event.nextStepTitle}` : undefined),
         status: event.status,
       });
     },
@@ -176,16 +176,16 @@ export function createStreamObservationCallbacks({
       appendLiveActivityEvent({
         kind: 'validation',
         label: status === 'passed'
-          ? 'Validation passed'
-          : status === 'blocked' ? 'Validation blocked' : 'Validation failed',
+          ? 'اجتاز التحقق'
+          : status === 'blocked' ? 'حُظر التحقق' : 'فشل التحقق',
         detail: [
           event.validation.profile,
           event.repairState.replace(/_/g, ' '),
-          `attempt ${event.attempt}/${event.maxAttempts}`,
-          event.validation.exitCode != null ? `exit ${event.validation.exitCode}` : undefined,
-          event.validation.evidence.screenshotAvailable ? 'screenshot captured' : undefined,
+          `المحاولة ${event.attempt}/${event.maxAttempts}`,
+          event.validation.exitCode != null ? `رمز الخروج ${event.validation.exitCode}` : undefined,
+          event.validation.evidence.screenshotAvailable ? 'تم التقاط لقطة شاشة' : undefined,
           event.validation.evidence.consoleErrorCount
-            ? `${event.validation.evidence.consoleErrorCount} console error${event.validation.evidence.consoleErrorCount === 1 ? '' : 's'}`
+            ? `${event.validation.evidence.consoleErrorCount} أخطاء في وحدة التحكم`
             : undefined,
           event.validation.detail,
         ].filter(Boolean).join(' · '),
@@ -194,14 +194,21 @@ export function createStreamObservationCallbacks({
     },
     onRepairState: (event) => {
       if (!isCurrent()) return;
-      const label = event.state === 'VALIDATING'
+      const stageLabel = event.state === 'VALIDATING'
         ? 'Repair loop validating'
         : event.state === 'REPAIRING'
           ? 'Repair correction allowed'
           : event.state === 'READY_FOR_REVIEW'
             ? 'Ready for review'
             : 'Repair blocked';
-      setAgentStage(label);
+      const label = event.state === 'VALIDATING'
+        ? 'يجري التحقق ضمن دورة الإصلاح'
+        : event.state === 'REPAIRING'
+          ? 'سُمح بإجراء تصحيح'
+          : event.state === 'READY_FOR_REVIEW'
+            ? 'جاهز للمراجعة'
+            : 'تم حظر الإصلاح';
+      setAgentStage(stageLabel);
       appendLiveActivityEvent({
         kind: 'repair_state',
         label,
@@ -215,8 +222,8 @@ export function createStreamObservationCallbacks({
       setAgentStage('Model response received');
       appendLiveActivityEvent({
         kind: 'model',
-        label: 'Model response',
-        detail: 'Provider response received',
+        label: 'استجابة النموذج',
+        detail: 'تم استلام استجابة مزوّد الخدمة',
         status: 'info',
       });
     },
@@ -225,7 +232,7 @@ export function createStreamObservationCallbacks({
       setAgentIter({ iter: event.iter, max: event.max });
       appendLiveActivityEvent({
         kind: 'iteration',
-        label: 'Model iteration',
+        label: 'تكرار النموذج',
         detail: `${event.iter + 1}/${event.max}`,
         status: 'info',
       });
@@ -237,8 +244,8 @@ export function createStreamObservationCallbacks({
         : 'Execution guard stopped the run');
       appendLiveActivityEvent({
         kind: 'guard',
-        label: 'Execution guard',
-        detail: event.code === 'REPEATED_TOOL_CALL' ? `repeated ${event.tool}` : event.code,
+        label: 'حاجز حماية التنفيذ',
+        detail: event.code === 'REPEATED_TOOL_CALL' ? `تم رصد تكرار الأداة ${event.tool}` : event.code,
         status: 'info',
       });
     },
@@ -247,7 +254,7 @@ export function createStreamObservationCallbacks({
       setAgentStage(`Synthesizing from gathered evidence (${event.iter + 1}/${event.max})`);
       appendLiveActivityEvent({
         kind: 'synthesis',
-        label: 'Synthesis started',
+        label: 'بدأ تركيب النتائج',
         detail: `${event.iter + 1}/${event.max}`,
         status: 'active',
       });
@@ -261,11 +268,11 @@ export function createStreamObservationCallbacks({
       appendLiveActivityEvent({
         kind: event.code === 'EXECUTION_PHASE_TOOL_REJECTED' ? 'phase_rejection' : 'diagnostic',
         label: event.code === 'EXECUTION_PHASE_TOOL_REJECTED'
-          ? 'Phase policy blocked action'
-          : 'Execution diagnostic',
+          ? 'سياسة المرحلة منعت الإجراء'
+          : 'تشخيص التنفيذ',
         detail: event.code === 'EXECUTION_PHASE_TOOL_REJECTED' && event.phase && event.tool
-          ? `${event.tool} rejected during ${event.phase} phase`
-          : detail ? `${diagnostic} — ${detail}` : diagnostic,
+          ? `رُفضت الأداة ${event.tool} خلال المرحلة ${event.phase} (${event.code})`
+          : detail ? `${event.code} — ${detail}` : event.code,
         status: 'info',
       });
     },
@@ -282,21 +289,28 @@ export function createStreamObservationCallbacks({
       setAgentStage('Project scan queued');
       appendLiveActivityEvent({
         kind: 'stage',
-        label: 'Project scan queued',
-        detail: event.jobId.slice(0, 8),
+        label: 'أُضيف فحص المشروع إلى قائمة الانتظار',
+        detail: `معرّف المهمة: ${event.jobId.slice(0, 8)}`,
         status: 'active',
       });
     },
     onScanProgress: (event) => {
       if (!isCurrent()) return;
-      const label = event.status === 'running'
+      const stageLabel = event.status === 'running'
         ? 'Project scan running'
         : event.status === 'queued'
           ? 'Project scan queued'
           : event.status === 'completed'
             ? 'Project scan completed'
             : 'Project scan failed';
-      setAgentStage(label);
+      const label = event.status === 'running'
+        ? 'فحص المشروع قيد التنفيذ'
+        : event.status === 'queued'
+          ? 'أُضيف فحص المشروع إلى قائمة الانتظار'
+          : event.status === 'completed'
+            ? 'اكتمل فحص المشروع'
+            : 'فشل فحص المشروع';
+      setAgentStage(stageLabel);
       appendLiveActivityEvent({
         kind: 'stage',
         label,
@@ -307,8 +321,9 @@ export function createStreamObservationCallbacks({
     onScanCompleted: (event) => {
       if (!isCurrent()) return;
       const succeeded = event.status === 'completed';
-      const label = succeeded ? 'Project scan completed' : 'Project scan failed';
-      setAgentStage(label);
+      const stageLabel = succeeded ? 'Project scan completed' : 'Project scan failed';
+      const label = succeeded ? 'اكتمل فحص المشروع' : 'فشل فحص المشروع';
+      setAgentStage(stageLabel);
       appendLiveActivityEvent({
         kind: 'stage',
         label,
@@ -328,8 +343,14 @@ export function createStreamObservationCallbacks({
       setAgentStage(state);
       appendLiveActivityEvent({
         kind: 'stage',
-        label: 'Audit state',
-        detail: state,
+        label: 'حالة التدقيق',
+        detail: state === 'Evidence verified'
+          ? 'تم التحقق من الأدلة'
+          : state === 'Evidence unavailable — audit incomplete'
+            ? 'الأدلة غير متاحة؛ التدقيق غير مكتمل'
+            : state === 'Audit remains incomplete'
+              ? 'ما زال التدقيق غير مكتمل'
+              : 'تم تحديث حالة الأدلة',
         status: state === 'Evidence verified' ? 'done' : 'info',
       });
     },
@@ -344,8 +365,8 @@ export function createStreamObservationCallbacks({
       setAgentStage(status);
       appendLiveActivityEvent({
         kind: 'validation',
-        label: 'Response verification',
-        detail: `${status} (${event.acceptedEvidenceCount}/${event.evidenceCount} accepted)`,
+        label: 'التحقق من الإجابة',
+        detail: `${event.acceptedEvidenceCount > 0 ? 'اكتمل التحقق من الأدلة' : 'تم تسجيل حالة التحقق؛ الأدلة النهائية ما زالت معلّقة'} (${event.acceptedEvidenceCount}/${event.evidenceCount} مقبولة)`,
         status: event.acceptedEvidenceCount > 0 ? 'done' : 'info',
       });
     },
