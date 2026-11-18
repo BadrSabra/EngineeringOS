@@ -447,7 +447,7 @@ export function LiveAgentActivity({
 }) {
   const activityLogEndRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
-    activityLogEndRef.current?.scrollIntoView({ block: 'nearest' });
+    activityLogEndRef.current?.scrollIntoView?.({ block: 'nearest' });
   }, [activityEvents.length]);
 
   if (!busy) return null;
