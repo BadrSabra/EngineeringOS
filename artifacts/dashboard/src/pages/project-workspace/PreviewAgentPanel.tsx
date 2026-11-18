@@ -1,6 +1,6 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Copy, KeyRound, RefreshCw, ShieldAlert, X } from "lucide-react";
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 type PreviewAgentNode = {
   nodeId: string;
@@ -22,16 +22,6 @@ type PairingSetup = {
   storeId: string;
   pairingCode: string;
   expiresAt: string;
-};
-
-type ProjectScope = {
-  projectId: string;
-  generation: number;
-};
-
-type ScopedValue<T> = {
-  scope: ProjectScope;
-  value: T;
 };
 
 const queryKey = (projectId: string) => [
@@ -238,48 +228,19 @@ function PairingCode({
   );
 }
 
-export default function PreviewAgentPanel({
-  projectId,
-}: {
-  projectId: string;
-}) {
+export default function PreviewAgentPanel({ projectId }: { projectId: string }) {
+  // A project transition creates a fresh local session. One-time pairing codes,
+  // retry identities, and in-flight UI state cannot cross the project boundary.
+  return <PreviewAgentPanelSession key={projectId} projectId={projectId} />;
+}
+
+function PreviewAgentPanelSession({ projectId }: { projectId: string }) {
   const client = useQueryClient();
-  const [projectScope, setProjectScope] = useState<ProjectScope>(() => ({
-    projectId,
-    generation: 0,
-  }));
-  if (projectScope.projectId !== projectId) {
-    setProjectScope({
-      projectId,
-      generation: projectScope.generation + 1,
-    });
-  }
-  const scopeRef = useRef(projectScope);
-  useLayoutEffect(() => {
-    scopeRef.current = projectScope;
-  }, [projectScope]);
-
-  const [pairingSetupState, setPairingSetupState] = useState<ScopedValue<PairingSetup> | null>(null);
-  const [retryStoreState, setRetryStoreState] = useState<ScopedValue<string> | null>(null);
-  const [busyScope, setBusyScope] = useState<ProjectScope | null>(null);
-  const [revokingNodeState, setRevokingNodeState] = useState<ScopedValue<string> | null>(null);
-  const [errorState, setErrorState] = useState<ScopedValue<string> | null>(null);
-
-  // Volatile pairing material is visible only inside the exact project visit that created it.
-  const pairingSetup = pairingSetupState?.scope === projectScope ? pairingSetupState.value : null;
-  const retryStoreId = retryStoreState?.scope === projectScope ? retryStoreState.value : null;
-  const busy = busyScope === projectScope;
-  const revokingNodeId = revokingNodeState?.scope === projectScope ? revokingNodeState.value : null;
-  const error = errorState?.scope === projectScope ? errorState.value : null;
-
-  useEffect(() => {
-    // Release one-time pairing material and transient operations when the project changes.
-    setPairingSetupState(null);
-    setRetryStoreState(null);
-    setBusyScope(null);
-    setRevokingNodeState(null);
-    setErrorState(null);
-  }, [projectId]);
+  const [pairingSetup, setPairingSetup] = useState<PairingSetup | null>(null);
+  const [retryStoreId, setRetryStoreId] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [revokingNodeId, setRevokingNodeId] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
 
   const agentsQuery = useQuery({
     queryKey: queryKey(projectId),
@@ -291,28 +252,20 @@ export default function PreviewAgentPanel({
   const agents = agentsQuery.data ?? [];
 
   async function createPairing() {
-    const requestScope = projectScope;
-    const requestProjectId = requestScope.projectId;
-    const isCurrentScope = () => scopeRef.current === requestScope;
-    if (!isCurrentScope()) return;
-
-    setErrorState(null);
-    setBusyScope(requestScope);
+    setError(null);
+    setBusy(true);
     let storeId = retryStoreId;
     try {
       if (!storeId) {
         if (!globalThis.crypto?.randomUUID) {
-          setErrorState({
-            scope: requestScope,
-            value: "هذا المتصفح لا يدعم إنشاء هوية مخزن آمنة.",
-          });
+          setError("هذا المتصفح لا يدعم إنشاء هوية مخزن آمنة.");
           return;
         }
         storeId = globalThis.crypto.randomUUID();
-        setRetryStoreState({ scope: requestScope, value: storeId });
+        setRetryStoreId(storeId);
       }
       const response = await fetch(
-        `/api/projects/${encodeURIComponent(requestProjectId)}/preview-agents/pairings`,
+        `/api/projects/${encodeURIComponent(projectId)}/preview-agents/pairings`,
         {
           method: "POST",
           credentials: "include",
@@ -321,13 +274,11 @@ export default function PreviewAgentPanel({
           body: JSON.stringify({ storeId }),
         },
       );
-      if (!isCurrentScope()) return;
       if (!response.ok) {
-        if (response.status < 500) setRetryStoreState(null);
+        if (response.status < 500) setRetryStoreId(null);
         throw await responseError(response);
       }
       const body: unknown = await response.json();
-      if (!isCurrentScope()) return;
       if (
         !isRecord(body) ||
         typeof body.nodeId !== "string" ||
@@ -338,36 +289,28 @@ export default function PreviewAgentPanel({
       ) {
         throw new Error("استجابة الاقتران غير مكتملة؛ حدّث قائمة الأجهزة.");
       }
-      setPairingSetupState({
-        scope: requestScope,
-        value: {
-          nodeId: body.nodeId,
-          storeId,
-          pairingCode: body.pairingCode,
-          expiresAt: body.expiresAt,
-        },
+      setPairingSetup({
+        nodeId: body.nodeId,
+        storeId,
+        pairingCode: body.pairingCode,
+        expiresAt: body.expiresAt,
       });
-      setRetryStoreState(null);
-      await client.invalidateQueries({ queryKey: queryKey(requestProjectId) });
+      setRetryStoreId(null);
+      await client.invalidateQueries({ queryKey: queryKey(projectId) });
     } catch (cause) {
-      if (!isCurrentScope()) return;
-      setErrorState({
-        scope: requestScope,
-        value: cause instanceof TypeError
+      setError(
+        cause instanceof TypeError
           ? "لم يصل رد مؤكد من الخادم. أعد المحاولة؛ سيستخدم الطلب الهوية نفسها."
           : cause instanceof Error
             ? cause.message
             : "تعذر إنشاء طلب الاقتران. أعد المحاولة؛ سيستخدم الطلب الهوية نفسها.",
-      });
+      );
     } finally {
-      if (isCurrentScope()) setBusyScope(null);
+      setBusy(false);
     }
   }
 
   async function revoke(node: PreviewAgentNode) {
-    const requestScope = projectScope;
-    const requestProjectId = requestScope.projectId;
-    const isCurrentScope = () => scopeRef.current === requestScope;
     if (
       !window.confirm(
         "سيُلغى اقتران هذا الجهاز، ولن تقبل الخوادم نبضاته اللاحقة. هل تريد المتابعة؟",
@@ -375,36 +318,26 @@ export default function PreviewAgentPanel({
     ) {
       return;
     }
-    if (!isCurrentScope()) return;
-
-    setErrorState(null);
-    setRevokingNodeState({ scope: requestScope, value: node.nodeId });
+    setError(null);
+    setRevokingNodeId(node.nodeId);
     try {
       const response = await fetch(
-        `/api/projects/${encodeURIComponent(requestProjectId)}/preview-agents/${encodeURIComponent(node.nodeId)}/revoke`,
+        `/api/projects/${encodeURIComponent(projectId)}/preview-agents/${encodeURIComponent(node.nodeId)}/revoke`,
         {
           method: "POST",
           credentials: "include",
           cache: "no-store",
         },
       );
-      if (!isCurrentScope()) return;
       if (!response.ok) throw await responseError(response);
-      await client.invalidateQueries({ queryKey: queryKey(requestProjectId) });
-      if (!isCurrentScope()) return;
-      if (pairingSetup?.nodeId === node.nodeId) {
-        setPairingSetupState((current) =>
-          current?.scope === requestScope ? null : current,
-        );
-      }
+      await client.invalidateQueries({ queryKey: queryKey(projectId) });
+      if (pairingSetup?.nodeId === node.nodeId) setPairingSetup(null);
     } catch (cause) {
-      if (!isCurrentScope()) return;
-      setErrorState({
-        scope: requestScope,
-        value: cause instanceof Error ? cause.message : "تعذر إلغاء اقتران الجهاز.",
-      });
+      setError(
+        cause instanceof Error ? cause.message : "تعذر إلغاء اقتران الجهاز.",
+      );
     } finally {
-      if (isCurrentScope()) setRevokingNodeState(null);
+      setRevokingNodeId(null);
     }
   }
 
@@ -460,9 +393,7 @@ export default function PreviewAgentPanel({
       {pairingSetup && (
         <PairingCode
           setup={pairingSetup}
-          onExpire={() => setPairingSetupState((current) =>
-            current?.scope === projectScope ? null : current
-          )}
+          onExpire={() => setPairingSetup(null)}
         />
       )}
 
