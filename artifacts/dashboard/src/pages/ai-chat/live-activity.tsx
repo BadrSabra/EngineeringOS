@@ -41,11 +41,11 @@ export type LiveAgentActivityEvent = {
 };
 
 export const PLAN_STAGE_LABELS: Record<string, string> = {
-  understand: 'Understand',
-  scope: 'Scope',
-  plan: 'Plan',
-  execute: 'Execute',
-  validate: 'Validate',
+  understand: 'الفهم',
+  scope: 'تحديد النطاق',
+  plan: 'التخطيط',
+  execute: 'التنفيذ',
+  validate: 'التحقق',
 };
 
 export function liveToolLabel(step: LiveAgentToolStep): string {
@@ -55,17 +55,17 @@ export function liveToolLabel(step: LiveAgentToolStep): string {
     : '';
   switch (step.tool) {
     case 'read_file':
-      return `Reading source${suffix}`;
+      return `قراءة المصدر${suffix}`;
     case 'search_code':
-      return `Searching the codebase${suffix}`;
+      return `البحث في قاعدة الشيفرة${suffix}`;
     case 'list_files':
-      return `Mapping project files${suffix}`;
+      return `استكشاف ملفات المشروع${suffix}`;
     case 'git_status':
-      return 'Checking repository status';
+      return 'فحص حالة المستودع';
     case 'git_diff':
-      return 'Reviewing recent changes';
+      return 'مراجعة التغييرات الأخيرة';
     default:
-      return `${step.tool.replace(/_/g, ' ')}${suffix}`;
+      return `${step.tool}${suffix}`;
   }
 }
 
@@ -76,13 +76,13 @@ export function activityEventsFromToolTrace(trace: ToolTraceEntry[]): LiveAgentA
   for (const entry of trace) {
     if (entry.kind === 'plan_activity' && entry.stage) {
       const approval = entry.approvalRequired
-        ? `Approval required before changing: ${(entry.files ?? []).join(', ') || 'approved files'}`
+        ? `الموافقة مطلوبة قبل تغيير الملفات: ${(entry.files ?? []).join(', ') || 'approved files'}`
         : undefined;
       events.push({
         id: nextId++,
         kind: 'plan',
-        label: `${PLAN_STAGE_LABELS[entry.stage] ?? 'Plan activity'}${entry.stepTitle ? ` · ${entry.stepTitle}` : ''}`,
-        detail: approval ?? entry.resultSummary ?? (entry.nextStepTitle ? `Next: ${entry.nextStepTitle}` : undefined),
+        label: `${PLAN_STAGE_LABELS[entry.stage] ?? 'نشاط الخطة'}${entry.stepTitle ? ` · ${entry.stepTitle}` : ''}`,
+        detail: approval ?? entry.resultSummary ?? (entry.nextStepTitle ? `التالي: ${entry.nextStepTitle}` : undefined),
         status: (entry.status as 'active' | 'done' | 'info' | undefined) === 'active'
           ? 'active'
           : (entry.status as 'active' | 'done' | 'info' | undefined) === 'done'
@@ -124,10 +124,10 @@ export function activityEventsFromToolTrace(trace: ToolTraceEntry[]): LiveAgentA
             ? 'info'
             : 'done',
           detail: entry.source
-            ? `${entry.cached ? 'cached · ' : ''}${entry.source}`
+            ? `${entry.cached ? 'مخزّن مؤقتًا · ' : ''}${entry.source}`
             : entry.resultKind
               ? `${entry.resultKind}${entry.diagnosticCode ? ` · ${entry.diagnosticCode}` : ''}`
-              : entry.cached ? 'cached' : undefined,
+              : entry.cached ? 'مخزّن مؤقتًا' : undefined,
         };
         if (entry.resultSummary) events[eventIndex].detail = entry.resultSummary;
       }
@@ -136,8 +136,8 @@ export function activityEventsFromToolTrace(trace: ToolTraceEntry[]): LiveAgentA
           id: nextId++,
           kind: 'diagnostic',
           tool: entry.tool,
-          label: entry.resultKind === 'cancelled' ? 'Tool cancelled' : 'Tool failed',
-          detail: entry.diagnosticCode ?? entry.resultSummary ?? 'The operation did not complete.',
+          label: entry.resultKind === 'cancelled' ? 'أُلغيت الأداة' : 'فشل تنفيذ الأداة',
+          detail: entry.diagnosticCode ?? entry.resultSummary ?? 'لم تكتمل العملية.',
           status: 'info',
         });
       }
@@ -148,8 +148,8 @@ export function activityEventsFromToolTrace(trace: ToolTraceEntry[]): LiveAgentA
       events.push({
         id: nextId++,
         kind: 'model',
-        label: 'Model response',
-        detail: 'Provider response received',
+        label: 'استجابة النموذج',
+        detail: 'تم استلام استجابة مزوّد الخدمة',
         status: 'info',
       });
       continue;
@@ -159,7 +159,7 @@ export function activityEventsFromToolTrace(trace: ToolTraceEntry[]): LiveAgentA
       events.push({
         id: nextId++,
         kind: 'iteration',
-        label: 'Model iteration',
+        label: 'تكرار النموذج',
         detail: `${entry.iter + 1}/${entry.maxIterations ?? '?'}`,
         status: 'info',
       });
@@ -170,7 +170,7 @@ export function activityEventsFromToolTrace(trace: ToolTraceEntry[]): LiveAgentA
       events.push({
         id: nextId++,
         kind: 'synthesis',
-        label: 'Synthesis started',
+        label: 'بدأ تركيب النتائج',
         detail: typeof entry.iter === 'number'
           ? `${entry.iter + 1}/${entry.maxIterations ?? '?'}`
           : undefined,
@@ -185,26 +185,26 @@ export function activityEventsFromToolTrace(trace: ToolTraceEntry[]): LiveAgentA
         id: nextId++,
         kind: 'validation',
         label: status === 'passed'
-          ? 'Validation passed'
+          ? 'اجتاز التحقق'
           : status === 'blocked'
-            ? 'Validation blocked'
-            : 'Validation failed',
+            ? 'حُظر التحقق'
+            : 'فشل التحقق',
         detail: [
           entry.validation?.profile ?? entry.validationProfile,
            entry.validation?.terminalState
-             ? `state ${entry.validation.terminalState}`
+             ? `الحالة ${entry.validation.terminalState}`
              : undefined,
           (entry.attempt ?? entry.validationAttempt) != null
-            ? `attempt ${entry.attempt ?? entry.validationAttempt}/${entry.maxAttempts ?? entry.validationMaxAttempts ?? '?'}`
+            ? `المحاولة ${entry.attempt ?? entry.validationAttempt}/${entry.maxAttempts ?? entry.validationMaxAttempts ?? '?'}`
             : undefined,
            entry.validation?.elapsedMs !== undefined
-             ? `elapsed ${formatValidationDuration(entry.validation.elapsedMs)}`
+             ? `الزمن المنقضي ${formatValidationDuration(entry.validation.elapsedMs)}`
              : undefined,
            entry.validation?.remainingMs !== undefined
-             ? `remaining ${formatValidationDuration(entry.validation.remainingMs)}`
+             ? `الزمن المتبقي ${formatValidationDuration(entry.validation.remainingMs)}`
              : undefined,
           (entry.validation?.exitCode ?? entry.validationExitCode) != null
-            ? `exit ${entry.validation?.exitCode ?? entry.validationExitCode}`
+            ? `رمز الخروج ${entry.validation?.exitCode ?? entry.validationExitCode}`
             : undefined,
           entry.validation?.detail ?? entry.validationDetail,
            entry.validation?.nextAction,
@@ -220,12 +220,12 @@ export function activityEventsFromToolTrace(trace: ToolTraceEntry[]): LiveAgentA
         id: nextId++,
         kind: 'repair_state',
         label: state === 'VALIDATING'
-          ? 'Repair loop validating'
+          ? 'يجري التحقق ضمن دورة الإصلاح'
           : state === 'REPAIRING'
-            ? 'Repair correction allowed'
+            ? 'سُمح بإجراء تصحيح'
             : state === 'READY_FOR_REVIEW'
-              ? 'Ready for review'
-              : 'Repair blocked',
+              ? 'جاهز للمراجعة'
+              : 'تم حظر الإصلاح',
         detail: state === 'VALIDATING'
           ? `${entry.reason ?? 'Server-owned validation is running.'} Wait for the bounded result; promotion remains blocked until validation passes.`
           : entry.reason,
@@ -240,10 +240,10 @@ export function activityEventsFromToolTrace(trace: ToolTraceEntry[]): LiveAgentA
         id: nextId++,
         kind: isPhaseRejection ? 'phase_rejection' : 'diagnostic',
         tool: entry.tool,
-        label: isPhaseRejection ? 'Phase policy blocked action' : 'Execution diagnostic',
+        label: isPhaseRejection ? 'سياسة المرحلة منعت الإجراء' : 'تشخيص التنفيذ',
         detail: isPhaseRejection && entry.phase && entry.tool
-          ? `${entry.tool} rejected during ${entry.phase} phase`
-          : entry.code.replace(/_/g, ' ').toLowerCase(),
+          ? `رُفضت الأداة ${entry.tool} خلال المرحلة ${entry.phase}`
+          : entry.code,
         status: 'info',
       });
       continue;
@@ -253,7 +253,7 @@ export function activityEventsFromToolTrace(trace: ToolTraceEntry[]): LiveAgentA
       events.push({
         id: nextId++,
         kind: 'guard',
-        label: 'Execution guard',
+        label: 'حاجز حماية التنفيذ',
         detail: entry.message ?? entry.code,
         status: 'info',
       });
@@ -264,27 +264,27 @@ export function activityEventsFromToolTrace(trace: ToolTraceEntry[]): LiveAgentA
   // running after a reload.
   return events.map((event) =>
     event.status === 'active'
-      ? { ...event, status: 'info', detail: event.detail ?? 'No result event recorded' }
+      ? { ...event, status: 'info', detail: event.detail ?? 'لم تُسجّل نتيجة لهذه الخطوة' }
       : event,
   );
 }
 
 export function formatElapsed(seconds: number): string {
-  if (seconds < 60) return `${seconds}s`;
+  if (seconds < 60) return `${seconds} ث`;
   const minutes = Math.floor(seconds / 60);
   const remainder = seconds % 60;
-  return `${minutes}m ${String(remainder).padStart(2, '0')}s`;
+  return `${minutes} د ${String(remainder).padStart(2, '0')} ث`;
 }
 
 type LiveProgressStage = 'preparing' | 'planning' | 'evidence' | 'synthesis' | 'writing' | 'validation' | 'recovery';
 
 const LIVE_PROGRESS_STAGES: Array<{ key: LiveProgressStage; label: string }> = [
-  { key: 'preparing', label: 'Preparing' },
-  { key: 'planning', label: 'Planning' },
-  { key: 'evidence', label: 'Gathering evidence' },
-  { key: 'synthesis', label: 'Synthesizing' },
-  { key: 'writing', label: 'Writing response' },
-  { key: 'validation', label: 'Validating' },
+  { key: 'preparing', label: 'التحضير' },
+  { key: 'planning', label: 'التخطيط' },
+  { key: 'evidence', label: 'جمع الأدلة' },
+  { key: 'synthesis', label: 'تركيب النتائج' },
+  { key: 'writing', label: 'كتابة الرد' },
+  { key: 'validation', label: 'التحقق' },
 ];
 
 function deriveLiveProgressStage(
@@ -305,37 +305,73 @@ function deriveLiveProgressStage(
   return 'planning';
 }
 
+export function liveStageDisplayLabel(stage: string | null): string {
+  if (!stage) return 'جارٍ بدء التحليل';
+  const mappings: Array<[RegExp, string]> = [
+    [/^building context(?:…|\.\.\.)?/i, 'جارٍ تجهيز سياق المشروع…'],
+    [/^calling ai model(?:…|\.\.\.)?/i, 'جارٍ استدعاء نموذج الذكاء الاصطناعي…'],
+    [/^writing response(?:…|\.\.\.)?/i, 'جارٍ كتابة الرد…'],
+    [/^model response received/i, 'تم استلام استجابة النموذج'],
+    [/^validation passed/i, 'اجتاز التحقق'],
+    [/^validation blocked/i, 'حُظر التحقق'],
+    [/^validation failed/i, 'فشل التحقق'],
+    [/^repair loop validating/i, 'يجري التحقق ضمن دورة الإصلاح'],
+    [/^repair correction allowed/i, 'سُمح بإجراء تصحيح'],
+    [/^ready for review/i, 'جاهز للمراجعة'],
+    [/^repair blocked/i, 'تم حظر الإصلاح'],
+    [/^synthesizing from gathered evidence/i, 'جارٍ تركيب النتائج من الأدلة المجمّعة'],
+    [/^synthesizing/i, 'جارٍ تركيب النتائج'],
+    [/^execution diagnostic:/i, 'تشخيص التنفيذ:'],
+    [/^execution guard stopped the run/i, 'أوقف حاجز حماية التنفيذ العملية'],
+    [/^execution stopped: repeated /i, 'توقف التنفيذ بسبب تكرار الأداة: '],
+    [/^project scan queued/i, 'أُضيف فحص المشروع إلى قائمة الانتظار'],
+    [/^project scan running/i, 'فحص المشروع قيد التنفيذ'],
+    [/^project scan completed/i, 'اكتمل فحص المشروع'],
+    [/^project scan failed/i, 'فشل فحص المشروع'],
+    [/^evidence verified/i, 'تم التحقق من الأدلة'],
+    [/^evidence unavailable/i, 'الأدلة غير متاحة'],
+    [/^audit remains incomplete/i, 'ما زال التدقيق غير مكتمل'],
+    [/^evidence state updated/i, 'تم تحديث حالة الأدلة'],
+  ];
+  for (const [pattern, label] of mappings) {
+    const match = stage.match(pattern);
+    if (match) return `${label}${stage.slice(match[0].length)}`;
+  }
+  // Preserve unknown server stages instead of guessing their meaning.
+  return stage;
+}
+
 function liveStageDescription(stage: string | null, streamingContent: string, activeStep: LiveAgentToolStep | undefined): string {
-  if (streamingContent) return 'Turning the verified context into the response you will see below.';
+  if (streamingContent) return 'يجري تحويل السياق الذي تم التحقق منه إلى الرد المعروض أدناه.';
   if (activeStep) {
     switch (activeStep.tool) {
       case 'read_file':
-        return 'Reading source bodies so any findings can be tied to real evidence.';
+        return 'قراءة محتوى المصدر لربط النتائج بأدلة فعلية.';
       case 'search_code':
-        return 'Locating relevant symbols and references before opening the source.';
+        return 'البحث عن الرموز والمراجع ذات الصلة قبل فتح المصدر.';
       case 'list_files':
-        return 'Mapping the repository so the next reads stay focused and bounded.';
+        return 'استكشاف ملفات المستودع لحصر القراءات التالية.';
       default:
-        return 'Running a bounded repository check before continuing.';
+        return 'تنفيذ فحص محدود للمستودع قبل المتابعة.';
     }
   }
   const normalized = (stage ?? '').toLowerCase();
   if (normalized.includes('recover') || normalized.includes('diagnostic')) {
-    return 'Checking another model with the evidence already collected; no new source reads are being added.';
+    return 'فحص نموذج آخر باستخدام الأدلة التي جُمعت؛ لن تُضاف قراءات مصدر جديدة.';
   }
   if (normalized.includes('synthes')) {
-    return 'Evidence gathering is paused while the final forensic report is assembled.';
+    return 'توقف جمع الأدلة مؤقتًا أثناء إعداد التقرير النهائي.';
   }
   if (normalized.includes('model response')) {
-    return 'The current model is evaluating the collected context and tool results.';
+    return 'يجري النموذج الحالي تقييم السياق ونتائج الأدوات التي جُمعت.';
   }
   if (normalized.includes('building context')) {
-    return 'Preparing project context before the agent starts its focused investigation.';
+    return 'تجهيز سياق المشروع قبل بدء التحقيق المركز.';
   }
   if (normalized.includes('calling ai') || normalized.includes('calling model')) {
-    return 'Sending the bounded context to the current model for the next decision.';
+    return 'إرسال السياق المحدود إلى النموذج لاتخاذ القرار التالي.';
   }
-  return 'The agent is coordinating the next bounded step of the investigation.';
+  return 'ينسق الوكيل الخطوة التالية المحددة النطاق في التحقيق.';
 }
 
 export function LiveAgentActivity({
@@ -400,10 +436,10 @@ export function LiveAgentActivity({
   const progressStageIndex = LIVE_PROGRESS_STAGES.findIndex(({ key }) => key === progressStage);
   const isRecovery = progressStage === 'recovery';
   const activityLabel = streamingContent
-    ? 'Writing the response'
+    ? 'جارٍ كتابة الرد'
     : activeStep
       ? liveToolLabel(activeStep)
-      : stage ?? 'Starting analysis';
+      : liveStageDisplayLabel(stage);
   const latestProgress = [...activityEvents].reverse().find(
     (event) => event.kind === 'stage' && event.status === 'info',
   )?.label;
@@ -452,7 +488,7 @@ export function LiveAgentActivity({
               </span>
             )}
             <span className="ml-auto shrink-0 text-[10px] tabular-nums text-muted-foreground">
-              {formatElapsed(elapsedSeconds)} · Live
+              {formatElapsed(elapsedSeconds)} · مباشر
             </span>
           </div>
           <p className="mt-1 break-words text-[10px] leading-4 text-muted-foreground">
@@ -460,23 +496,23 @@ export function LiveAgentActivity({
           </p>
           {latestProgress && (
             <p className="mt-1 break-words text-[10px] leading-4 text-foreground/80">
-              <span className="font-medium text-primary">Latest update:</span> {latestProgress}
+              <span className="font-medium text-primary">آخر تحديث:</span> {latestProgress}
             </p>
           )}
           {auditScopeDescription && (
             <div className="mt-2 rounded border border-primary/20 bg-background/25 px-2 py-1.5 text-[10px] leading-4 text-foreground/85">
-              <span className="font-medium text-primary">Approved scope:</span>{' '}
+              <span className="font-medium text-primary">النطاق المصرّح به:</span>{' '}
               {auditScopeDescription}
             </div>
           )}
           {isFixtureLocal && (
             <p className="mt-1 text-[10px] leading-4 text-violet-300/80">
-              Evidence found only in fixture/test paths — production reachability not yet proven.
+              الأدلة موجودة فقط في مسارات fixture/test؛ ولم يُثبت بعد وصولها إلى مسارات الإنتاج.
             </p>
           )}
           <div
             className="mt-2 grid grid-cols-2 gap-x-1 gap-y-1 sm:grid-cols-3 lg:grid-cols-6"
-            aria-label={`Agent progress: ${LIVE_PROGRESS_STAGES[progressStageIndex]?.label ?? 'active'}`}
+            aria-label={`تقدم الوكيل: ${LIVE_PROGRESS_STAGES[progressStageIndex]?.label ?? 'نشط'}`}
             role="list"
           >
             {LIVE_PROGRESS_STAGES.map(({ key, label }, index) => (
@@ -499,7 +535,7 @@ export function LiveAgentActivity({
           </div>
           {isRecovery && (
             <div className="mt-2 rounded border border-amber-500/25 bg-amber-500/10 px-2 py-1 text-[10px] leading-4 text-amber-200">
-              The execution is in recovery or stopped state; collected evidence is retained and no completion is implied.
+              التنفيذ في حالة استرداد أو توقف؛ تُحتفظ بالأدلة التي جُمعت ولا يعني ذلك اكتمال المهمة.
             </div>
           )}
         </div>
@@ -508,27 +544,27 @@ export function LiveAgentActivity({
       <div className={`mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 border-t ${isFixtureLocal ? 'border-violet-500/15' : 'border-primary/10'} pt-2 text-[10px] text-muted-foreground`}>
         {steps.length > 0 && (
           <span>
-            <span className="text-foreground">{completed}/{steps.length}</span> actions complete
+            <span className="text-foreground">{completed}/{steps.length}</span> إجراء مكتمل
           </span>
         )}
         {activeStep && (
           <span>
-            step <span className="text-foreground">{activeStepNumber}</span> active
+            الخطوة <span className="text-foreground">{activeStepNumber}</span> قيد التنفيذ
           </span>
         )}
         {readSources > 0 && (
           <span>
-            <span className="text-foreground">{readSources}</span> source{readSources === 1 ? '' : 's'} read
+            <span className="text-foreground">{readSources}</span> مصدر مقروء
           </span>
         )}
         {iter && (
           <span>
-            <span className="text-foreground">{iter.iter + 1}/{iter.max}</span> pass
+            <span className="text-foreground">{iter.iter + 1}/{iter.max}</span> جولة
           </span>
         )}
         {diagnostics.length > 0 && (
           <span className="text-amber-300/90">
-            {diagnostics.length} recovery notice{diagnostics.length === 1 ? '' : 's'}
+            {diagnostics.length} تنبيه استرداد
           </span>
         )}
       </div>
@@ -536,8 +572,8 @@ export function LiveAgentActivity({
       {activityEvents.length > 0 && (
         <div className={`mt-2 border-t ${isFixtureLocal ? 'border-violet-500/15' : 'border-primary/10'} pt-2`}>
           <div className="flex items-center justify-between gap-2 text-[10px] text-muted-foreground">
-            <span>Live activity</span>
-            <span>{activityEvents.length} events</span>
+            <span>النشاط المباشر</span>
+            <span>{activityEvents.length} أحداث</span>
           </div>
           <div className="mt-1 max-h-56 min-w-0 overflow-y-auto overflow-x-hidden rounded border border-border/40 bg-background/20 px-2 py-1.5">
             {activityEvents.map((event) => (
@@ -565,7 +601,7 @@ export function LiveAgentActivity({
       {sourcePaths.length > 0 && (
         <div className={`mt-2 border-t ${isFixtureLocal ? 'border-violet-500/15' : 'border-primary/10'} pt-2`}>
           <div className="text-[10px] text-muted-foreground">
-            Sources read
+            مصادر تمت قراءتها
             <span className="ml-1 text-foreground">{sourcePaths.length}</span>
           </div>
           <div className="mt-1 max-h-24 min-w-0 overflow-y-auto overflow-x-hidden rounded border border-border/40 bg-background/20 p-1">
@@ -580,13 +616,13 @@ export function LiveAgentActivity({
 
       {diagnostics.length > 0 && (
         <div className="mt-1 break-words text-[10px] leading-4 text-amber-300/90" title={diagnostics[diagnostics.length - 1]}>
-          Recovery: {diagnostics[diagnostics.length - 1]}
+          الاسترداد: {diagnostics[diagnostics.length - 1]}
         </div>
       )}
 
       {lastCompleted && !activeStep && !streamingContent && (
         <div className="mt-1 break-words text-[10px] leading-4 text-muted-foreground">
-          Last completed: {liveToolLabel(lastCompleted)}
+          آخر خطوة مكتملة: {liveToolLabel(lastCompleted)}
         </div>
       )}
       {onCancel && (
@@ -594,10 +630,10 @@ export function LiveAgentActivity({
           type="button"
           onClick={onCancel}
           className="mt-2 inline-flex items-center gap-1.5 rounded border border-border/70 px-2 py-1 text-[10px] text-muted-foreground transition-colors hover:border-destructive/50 hover:bg-destructive/10 hover:text-destructive"
-          title="Stops the local live display only. The server execution remains resumable."
+          title="يوقف العرض المحلي المباشر فقط؛ ويظل التنفيذ على الخادم قابلاً للاستئناف."
         >
           <Square className="h-2.5 w-2.5 fill-current" />
-          Stop display
+          إيقاف العرض
         </button>
       )}
     </div>
@@ -617,8 +653,8 @@ export function CompletedActivityTimeline({
     <details open={defaultOpen} className="mt-1 w-full min-w-0 max-w-full">
       <summary className="flex cursor-pointer list-none items-center gap-1.5 text-[11px] text-muted-foreground hover:text-foreground">
         <Activity className="h-3 w-3" />
-        <span>Agent activity</span>
-        <span className="text-[10px]">· {events.length} events</span>
+        <span>نشاط الوكيل</span>
+        <span className="text-[10px]">· {events.length} أحداث</span>
         <ChevronRight className="h-3 w-3 transition-transform [[open]>&]:rotate-90" />
       </summary>
       <div className="mt-1 max-h-56 min-w-0 overflow-y-auto overflow-x-hidden rounded-lg border border-border/50 bg-background/30 px-3 py-2 text-[10px]">
