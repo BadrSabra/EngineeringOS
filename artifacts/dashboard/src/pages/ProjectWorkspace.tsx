@@ -4,9 +4,10 @@ import PreviewAgentPanel from '@/pages/project-workspace/PreviewAgentPanel';
 import type { ReactNode } from 'react';
 import { Link, useRoute } from 'wouter';
 import { Activity, AlertTriangle, ArrowRight, Check, Clock3, Code2, GitBranch, Layers3, RefreshCw, ShieldCheck, Sparkles, Terminal } from 'lucide-react';
-import { useGetProjectWorkspaceSnapshot, getGetProjectWorkspaceSnapshotQueryKey } from '@workspace/api-client-react';
+import { useGetProjectWorkspaceSnapshot, getGetProjectWorkspaceSnapshotQueryKey, getGetAiExecutionQueryKey } from '@workspace/api-client-react';
 import AiChat from '@/pages/AiChat';
 import ProjectCanvasPanel from '@/pages/project-workspace/ProjectCanvasPanel';
+import WorkspaceExecutionDetail from '@/pages/project-workspace/WorkspaceExecutionDetail';
 
 const statusLabels: Record<string, string> = {
   active: 'نشط',
@@ -100,6 +101,7 @@ export default function ProjectWorkspace() {
   });
   const { data: snapshot, isLoading, isError, refetch, isFetching } = snapshotQuery;
   const hasCurrentSnapshot = snapshot?.project.id === projectId;
+  const latestExecutionId = snapshot?.work.latestExecution?.id ?? null;
   const streamStatus = useWorkspaceEventStream({
     projectId,
     enabled: !!projectId && hasCurrentSnapshot,
@@ -107,6 +109,11 @@ export default function ProjectWorkspace() {
       void queryClient.invalidateQueries({
         queryKey: getGetProjectWorkspaceSnapshotQueryKey(projectId),
       });
+      if (latestExecutionId) {
+        void queryClient.invalidateQueries({
+          queryKey: getGetAiExecutionQueryKey(latestExecutionId),
+        });
+      }
     },
   });
 
@@ -266,14 +273,10 @@ export default function ProjectWorkspace() {
                   <span className="text-xs text-slate-500">المحاولة <Identifier>{execution.attempt}</Identifier></span>
                   <span className="text-xs text-slate-500">{dateLabel(execution.updatedAt)}</span>
                 </div>
-                <details className="workspace-details mt-3">
-                  <summary>تفاصيل التنفيذ</summary>
-                  <dl className="workspace-detail-grid">
-                    <dt>معرّف التنفيذ</dt><dd><Identifier>{execution.id}</Identifier></dd>
-                    <dt>المرشح المرتبط</dt><dd><Identifier>{execution.proposalId}</Identifier></dd>
-                    <dt>نسخة الأساس</dt><dd><Identifier>{execution.baseRevision}</Identifier></dd>
-                  </dl>
-                </details>
+                <WorkspaceExecutionDetail
+                  executionId={execution.id}
+                  projectId={project.id}
+                />
               </div>
             )}
           </section>
