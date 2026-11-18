@@ -228,11 +228,13 @@ function PairingCode({
   );
 }
 
-export default function PreviewAgentPanel({
-  projectId,
-}: {
-  projectId: string;
-}) {
+export default function PreviewAgentPanel({ projectId }: { projectId: string }) {
+  // A project transition creates a fresh local session. One-time pairing codes,
+  // retry identities, and in-flight UI state cannot cross the project boundary.
+  return <PreviewAgentPanelSession key={projectId} projectId={projectId} />;
+}
+
+function PreviewAgentPanelSession({ projectId }: { projectId: string }) {
   const client = useQueryClient();
   const [pairingSetup, setPairingSetup] = useState<PairingSetup | null>(null);
   const [retryStoreId, setRetryStoreId] = useState<string | null>(null);
