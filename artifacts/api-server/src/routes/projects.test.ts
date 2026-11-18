@@ -24,8 +24,9 @@ import { join } from "node:path";
 import * as scanner from "@workspace/scanner";
 import { heavyJobQueue } from "../lib/job-queue.js";
 import { LockNamespace, tryAdvisoryLock } from "../lib/advisory-lock.js";
-import { performScan, ProjectScanLockBusyError } from "../lib/scan-runner.js";
+import { performScan, ProjectScanLockBusyError, runScanJob } from "../lib/scan-runner.js";
 import { materializeProjectRoot } from "../lib/project-materialization.js";
+import { queuePostPushScan } from "../lib/post-push-scan.js";
 
 /**
  * Create a real scan-root dir that passes establishProjectRoot: scans now
@@ -1370,4 +1371,105 @@ describe("GET /api/projects/:projectId/workspace", () => {
     const missing = await request(app).get(`/api/projects/${randomUUID()}/workspace`);
     expect(missing.status).toBe(404);
   });
+});
+
+describe("post-push scan coalescing", () => {
+  const cleanupQueue: string[] = [];
+  const tempDirs: string[] = [];
+
+  afterEach(async () => {
+    vi.restoreAllMocks();
+    while (cleanupQueue.length > 0) {
+      const id = cleanupQueue.pop();
+      if (id) await cleanupProject(id);
+    }
+    while (tempDirs.length > 0) {
+      const dir = tempDirs.pop();
+      if (dir) removeProjectRootDir(dir);
+    }
+  });
+
+  it("keeps one follow-up during an active scan and runs it against the latest tree", async () => {
+    const rootPath = makeProjectRootDir();
+    tempDirs.push(rootPath);
+    writeFileSync(join(rootPath, "initial.ts"), "export const initial = true;\n");
+    const projectId = await insertProject(rootPath);
+    cleanupQueue.push(projectId);
+    const runningJobId = randomUUID();
+    await db.insert(scanJobsTable).values({
+      id: runningJobId,
+      projectId,
+      status: "queued",
+      createdAt: new Date(),
+    });
+    await db.update(projectsTable)
+      .set({ status: "scanning", updatedAt: new Date() })
+      .where(eq(projectsTable.id, projectId));
+
+    let releaseGraph!: () => void;
+    const graphGate = new Promise<void>((resolve) => {
+      releaseGraph = resolve;
+    });
+    let signalGraphStarted!: () => void;
+    const graphStarted = new Promise<void>((resolve) => {
+      signalGraphStarted = resolve;
+    });
+    const originalExtractGraph = scanner.extractGraph;
+    let graphCalls = 0;
+    vi.spyOn(scanner, "extractGraph").mockImplementation(async (files, options) => {
+      graphCalls += 1;
+      if (graphCalls === 1) {
+        signalGraphStarted();
+        await graphGate;
+      }
+      return originalExtractGraph(files, options);
+    });
+
+    let runningScan: Promise<void> | undefined;
+    try {
+      runningScan = runScanJob(runningJobId, projectId);
+      await graphStarted;
+
+      const firstPush = await queuePostPushScan(projectId, "push-during-active-scan-1");
+      expect(firstPush.coalesced).toBe(false);
+      writeFileSync(join(rootPath, "latest.ts"), "export const latest = true;\n");
+      const secondPush = await queuePostPushScan(projectId, "push-during-active-scan-2");
+      expect(secondPush).toEqual({ jobId: firstPush.jobId, coalesced: true });
+
+      releaseGraph();
+      await runningScan;
+
+      const [finishedScan] = await db
+        .select({ status: scanJobsTable.status })
+        .from(scanJobsTable)
+        .where(eq(scanJobsTable.id, runningJobId));
+      const [queuedFollowUp] = await db
+        .select({ id: scanJobsTable.id, status: scanJobsTable.status })
+        .from(scanJobsTable)
+        .where(eq(scanJobsTable.id, firstPush.jobId));
+      const [projectAfterFirstScan] = await db
+        .select({ status: projectsTable.status })
+        .from(projectsTable)
+        .where(eq(projectsTable.id, projectId));
+      expect(finishedScan?.status).toBe("completed");
+      expect(queuedFollowUp).toEqual({ id: firstPush.jobId, status: "queued" });
+      expect(projectAfterFirstScan?.status).toBe("scanning");
+
+      await runScanJob(firstPush.jobId, projectId);
+      const [latestScan] = await db
+        .select({ status: scanJobsTable.status, result: scanJobsTable.result })
+        .from(scanJobsTable)
+        .where(eq(scanJobsTable.id, firstPush.jobId));
+      expect(latestScan?.status).toBe("completed");
+      expect((latestScan?.result as { filesFound?: number } | null)?.filesFound).toBeGreaterThanOrEqual(2);
+      const [projectAfterFollowUp] = await db
+        .select({ status: projectsTable.status })
+        .from(projectsTable)
+        .where(eq(projectsTable.id, projectId));
+      expect(projectAfterFollowUp?.status).toBe("active");
+    } finally {
+      releaseGraph();
+      await runningScan?.catch(() => undefined);
+    }
+  }, 30_000);
 });

@@ -6,7 +6,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { execFile, spawn, type ChildProcess } from "node:child_process";
 import { promisify } from "node:util";
-import { eq, and, sql } from "drizzle-orm";
+import { eq, and, inArray, sql } from "drizzle-orm";
 import app from "../app.js";
 import {
   aiAgentEpisodeEventsTable,
@@ -647,11 +647,15 @@ process.exit(result.status ?? 1);
       let projectScansTerminal = false;
       while (Date.now() < scanDeadline) {
         const queuedEvents = await db
-          .select({ jobId: eventsTable.correlationId, payload: eventsTable.payload })
+          .select({
+            type: eventsTable.type,
+            jobId: eventsTable.correlationId,
+            payload: eventsTable.payload,
+          })
           .from(eventsTable)
           .where(and(
             eq(eventsTable.projectId, fixture.projectId),
-            eq(eventsTable.type, "ProjectScanQueued"),
+            inArray(eventsTable.type, ["ProjectScanQueued", "ProjectScanCoalesced"]),
           ));
         const manualScanEvent = queuedEvents.find(({ payload }) =>
           payload !== null
@@ -662,7 +666,14 @@ process.exit(result.status ?? 1);
           .select({ id: scanJobsTable.id, status: scanJobsTable.status })
           .from(scanJobsTable)
           .where(eq(scanJobsTable.projectId, fixture.projectId));
-        const manualScanJob = projectScanJobs.find((job) => job.id === manualScanEvent?.jobId);
+        const coalescedJobId = manualScanEvent?.type === "ProjectScanCoalesced"
+          && manualScanEvent.payload !== null
+          && typeof manualScanEvent.payload === "object"
+          && "jobId" in manualScanEvent.payload
+          && typeof manualScanEvent.payload.jobId === "string"
+          ? manualScanEvent.payload.jobId
+          : manualScanEvent?.jobId;
+        const manualScanJob = projectScanJobs.find((job) => job.id === coalescedJobId);
         manualScanStatus = manualScanJob?.status;
         projectScansTerminal = projectScanJobs.length > 0
           && projectScanJobs.every((job) => job.status === "completed" || job.status === "failed");

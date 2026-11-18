@@ -24,11 +24,11 @@ import {
   aiChangeProposalsTable,
   eventsTable,
   auditLogsTable,
-  scanJobsTable,
 } from "@workspace/db";
 import { eq, and, desc, sql } from "drizzle-orm";
 import { runScanJob } from "../lib/scan-runner.js";
 import { heavyJobQueue } from "../lib/job-queue.js";
+import { queuePostPushScan, type PostPushScanAdmission } from "../lib/post-push-scan.js";
 import { requireProjectAccess, requireProjectWriteAccess } from "../middlewares/requireProjectAccess.js";
 import { decryptApiKey, encryptApiKey } from "../lib/credentials-crypto.js";
 import { recordAudit } from "../lib/audit.js";
@@ -1462,62 +1462,43 @@ router.post("/projects/:projectId/git/push", requireProjectWriteAccess, async (r
     // reflect the new code without requiring a manual scan click.  We run this
     // after the response is sent to avoid blocking the push acknowledgement.
     setImmediate(async () => {
-      const scanNow = new Date();
-      const jobId = randomUUID();
+      let admission: PostPushScanAdmission | undefined;
       try {
-        await db.transaction(async (tx) => {
-          await tx.insert(scanJobsTable).values({
-            id: jobId,
-            projectId: project.id,
-            status: "queued",
-            createdAt: scanNow,
-          });
-
-          await tx.update(projectsTable).set({ status: "scanning", updatedAt: scanNow }).where(eq(projectsTable.id, project.id));
-
-          await tx.insert(eventsTable).values({
-            id: randomUUID(),
-            type: "ProjectScanQueued",
-            projectId: project.id,
-            severity: "info",
-            message: "Automatic scan queued after push",
-            correlationId: jobId,
-            payload: { parentCorrelationId: correlationId },
-          });
-        });
-
-        // PR-D1: enqueueWithId prevents duplicate execution if the stale-pending
-        // sweep re-fires before this closure has had a chance to start.
-        heavyJobQueue.enqueueWithId(jobId, () => runScanJob(jobId, project.id));
+        admission = await queuePostPushScan(project.id, correlationId);
+        // A refused local enqueue leaves the durable queued row available to
+        // the dispatcher; repeated pushes reuse that same row instead of
+        // creating an unbounded series of scans for one project.
+        const admittedJobId = admission.jobId;
+        const enqueueResult = heavyJobQueue.enqueueWithIdDetailed(
+          admittedJobId,
+          () => runScanJob(admittedJobId, project.id),
+        );
+        if (enqueueResult === "full") {
+          logger.warn(
+            { projectId: project.id, jobId: admittedJobId },
+            "post-push scan remains queued for the durable dispatcher",
+          );
+        }
         invalidateContextCache(project.id);
       } catch (scanErr) {
-        // Non-fatal — log and emit a warning event so the failure is visible in
-        // the dashboard activity feed; the push itself succeeded.
-        logger.error({ err: scanErr, projectId: project.id, scope: "git-push" }, "post-push scan failed");
-        await db.transaction(async (tx) => {
-          await tx
-            .update(scanJobsTable)
-            .set({
-              status: "failed",
-              error: "Failed to queue post-push scan",
-              finishedAt: new Date(),
-            })
-            .where(eq(scanJobsTable.id, jobId));
-
-          await tx
-            .update(projectsTable)
-            .set({ status: "active", updatedAt: new Date() })
-            .where(eq(projectsTable.id, project.id));
-
-          await tx.insert(eventsTable).values({
+        // The push already succeeded. If durable admission failed, emit a
+        // warning; if only local dispatch failed, the durable row stays queued
+        // and a later dispatcher pass can still run it.
+        logger.error(
+          { err: scanErr, projectId: project.id, jobId: admission?.jobId, scope: "git-push" },
+          admission ? "post-push scan dispatch failed; durable job remains queued" : "post-push scan failed",
+        );
+        if (!admission) {
+          await db.insert(eventsTable).values({
             id: randomUUID(),
             type: "ProjectScanFailed",
             projectId: project.id,
             severity: "warning",
-            message: "Post-push automatic scan failed — trigger a manual scan to refresh the knowledge graph.",
-           payload: { error: String(scanErr), parentCorrelationId: correlationId },
-          });
-        }).catch(() => {});
+            message: "Post-push automatic scan could not be queued — trigger a manual scan to refresh the knowledge graph.",
+            correlationId,
+            payload: { error: String(scanErr), parentCorrelationId: correlationId },
+          }).catch(() => {});
+        }
         invalidateContextCache(project.id);
       }
     });
