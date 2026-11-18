@@ -588,19 +588,19 @@ export default function AiChat({
       onTaskStarted: (event) => {
         appendLiveActivityEvent({
           kind: 'stage',
-          label: `${event.task === 'analyze' ? 'Analysis' : 'Review'} task accepted`,
+          label: event.task === 'analyze' ? 'تم قبول مهمة التحليل' : 'تم قبول مهمة المراجعة',
           status: 'done',
         });
       },
       onStage: (stage) => {
         const label = structuredTaskStageLabel(stage);
         setAgentStage(label);
-        appendLiveActivityEvent({ kind: 'stage', label, status: stage === 'completed' ? 'done' : 'active' });
+        appendLiveActivityEvent({ kind: 'stage', label: liveStageDisplayLabel(label), status: stage === 'completed' ? 'done' : 'active' });
       },
       onTaskProgress: (event) => {
         appendLiveActivityEvent({
           kind: 'stage',
-          label: event.message,
+          label: liveStageDisplayLabel(event.message),
           status: 'info',
         });
       },
@@ -608,15 +608,15 @@ export default function AiChat({
         setAgentModel('AI model');
         appendLiveActivityEvent({
           kind: 'model',
-          label: 'Model response',
-          detail: 'Provider response received',
+          label: 'استجابة النموذج',
+          detail: 'تم استلام استجابة مزوّد الخدمة',
           status: 'info',
         });
       },
       onTaskDone: (event) => {
         appendLiveActivityEvent({
           kind: 'stage',
-          label: task === 'analyze' ? 'Analysis result received' : 'Review result received',
+          label: task === 'analyze' ? 'اكتملت نتيجة التحليل' : 'اكتملت نتيجة المراجعة',
           status: 'done',
         });
         const activityEvents = agentActivityEventsRef.current;
