@@ -6,6 +6,19 @@ import { RefreshButton } from '@/components/OperatorResilience';
 const SEVERITIES = ['info', 'warning', 'error', 'success'] as const;
 const PAGE_SIZE = 50;
 
+function formatEventTime(timestamp: Date | string | number): string {
+  const date = timestamp instanceof Date ? timestamp : new Date(timestamp);
+  if (!Number.isFinite(date.getTime())) return 'وقت غير صالح';
+  return date.toISOString().slice(11, 19);
+}
+
+function formatEventReadAt(timestamp: number): string {
+  return new Intl.DateTimeFormat('ar-EG', {
+    dateStyle: 'medium',
+    timeStyle: 'medium',
+  }).format(new Date(timestamp));
+}
+
 function initialEventViewState() {
   const params = new URLSearchParams(window.location.search);
   return {
@@ -38,7 +51,7 @@ export default function Events() {
     window.history.replaceState(null, '', `${window.location.pathname}${query ? `?${query}` : ''}`);
   }, [projectId, severity, correlationId, searchTerm, page]);
 
-  const { data: eventsPage, isLoading, isError, error, refetch } = useListEvents({
+  const { data: eventsPage, isLoading, isFetching, isError, error, refetch, dataUpdatedAt } = useListEvents({
     limit: PAGE_SIZE,
     page,
     ...(projectId ? { projectId } : {}),
@@ -61,6 +74,18 @@ export default function Events() {
             سجل مباشر لأنشطة النظام.
             {' '}صفحة <bdi dir="ltr">{page}</bdi>. تُطبَّق عوامل التصفية على سجل الأحداث بالكامل.
           </p>
+          {!isLoading && !isError && eventsPage && dataUpdatedAt > 0 && (
+            <p
+              data-testid="events-read-status"
+              role={isFetching ? 'status' : undefined}
+              aria-live="polite"
+              className="mt-1 text-xs text-muted-foreground"
+            >
+              {isFetching
+                ? 'يجري تحديث السجل؛ الأحداث المعروضة تمثل آخر قراءة ناجحة.'
+                : <>آخر قراءة ناجحة: <time dateTime={new Date(dataUpdatedAt).toISOString()}>{formatEventReadAt(dataUpdatedAt)}</time></>}
+            </p>
+          )}
         </div>
         <div
           data-testid="events-controls"
@@ -80,7 +105,7 @@ export default function Events() {
             />
           </div>
           <div className="shrink-0">
-            <RefreshButton onRefresh={refetch} isRefreshing={isLoading} label="تحديث الأحداث" />
+            <RefreshButton onRefresh={refetch} isRefreshing={isFetching} label="تحديث الأحداث" />
           </div>
           <button
             aria-label="إظهار أو إخفاء عوامل تصفية الأحداث"
@@ -226,7 +251,7 @@ export default function Events() {
                         className={`flex gap-4 p-1.5 rounded hover:bg-white/5 transition-colors ${color}`}
                       >
                         <div className="w-32 opacity-70 shrink-0">
-                          {new Date(evt.timestamp).toISOString().split('T')[1].replace('Z', '')}
+                          {formatEventTime(evt.timestamp)}
                         </div>
                         <div className="w-16 font-bold uppercase shrink-0">
                           {evt.severity === 'info' ? 'معلومة' : evt.severity === 'warning' ? 'تحذير' : evt.severity === 'error' ? 'خطأ' : evt.severity === 'success' ? 'نجاح' : evt.severity || 'معلومة'}
