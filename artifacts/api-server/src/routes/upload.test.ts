@@ -1,6 +1,7 @@
 import express from "express";
 import request from "supertest";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { promises as fs } from "node:fs";
 import { mkdir, mkdtemp, readFile, readdir, rm, stat, writeFile } from "node:fs/promises";
 import { request as httpRequest } from "node:http";
 import { once } from "node:events";
@@ -23,11 +24,12 @@ vi.mock("../lib/upload-store.js", () => ({
   removeUpload: vi.fn(async () => {}),
 }));
 vi.mock("../lib/logger.js", () => ({
-  logger: { info: vi.fn(), error: vi.fn() },
+  logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
 }));
 
 import { createUploadRouter } from "./upload.js";
 import { registerUpload, removeUpload } from "../lib/upload-store.js";
+import { logger } from "../lib/logger.js";
 
 const tempDirs: string[] = [];
 
@@ -105,6 +107,105 @@ describe("archive upload temporary files", () => {
     expect(archiveFormat).toBe("zip");
     await expect(stat(archivePath)).rejects.toThrow();
     expect(await readdir(uploadTempDir)).toEqual([]);
+  });
+
+  it("retries staging cleanup after a transient filesystem error", async () => {
+    const uploadTempDir = await mkdtemp(join(tmpdir(), "upload-cleanup-retry-"));
+    tempDirs.push(uploadTempDir);
+    vi.mocked(logger.warn).mockClear();
+    const actualRm = rm;
+    let failFirstStagingCleanup = true;
+    const rmSpy = vi.spyOn(fs, "rm").mockImplementation(async (path, options) => {
+      if (
+        failFirstStagingCleanup &&
+        String(path).includes("eos-upload-stage-")
+      ) {
+        failFirstStagingCleanup = false;
+        const error = new Error("simulated staging cleanup failure") as NodeJS.ErrnoException;
+        error.code = "EACCES";
+        throw error;
+      }
+      return actualRm(path, options);
+    });
+    const app = express();
+    app.use(createUploadRouter(uploadTempDir, undefined, async () => ({
+      acquired: true,
+      release: vi.fn(async () => {}),
+    })));
+    const zip = new AdmZip();
+    zip.addFile("src/index.ts", Buffer.from("valid contents"));
+
+    try {
+      const response = await request(app)
+        .post("/upload/archive")
+        .attach("archive", zip.toBuffer(), "workspace.zip");
+
+      expect(response.status).toBe(201);
+      await waitFor(async () => (await readdir(uploadTempDir)).length === 0);
+      expect(rmSpy.mock.calls.filter(([path]) =>
+        String(path).includes("eos-upload-stage-"),
+      )).toHaveLength(2);
+      expect(await readdir(uploadTempDir)).toEqual([]);
+      expect(logger.warn).toHaveBeenCalledWith(
+        expect.objectContaining({
+          code: "ARCHIVE_STAGING_CLEANUP_FAILED",
+          errorCode: "EACCES",
+        }),
+        "archive staging cleanup failed; a later cleanup will retry",
+      );
+    } finally {
+      rmSpy.mockRestore();
+    }
+  });
+
+  it("reports an orphan cleanup failure and retries it before later uploads", async () => {
+    const uploadTempDir = await mkdtemp(join(tmpdir(), "upload-orphan-retry-"));
+    tempDirs.push(uploadTempDir);
+    const orphanName = "eos-upload-stage-123e4567-e89b-42d3-a456-426614174000";
+    const orphanPath = join(uploadTempDir, orphanName);
+    await mkdir(orphanPath, { mode: 0o700 });
+    vi.mocked(logger.warn).mockClear();
+    const actualRm = rm;
+    let failFirstOrphanCleanup = true;
+    const rmSpy = vi.spyOn(fs, "rm").mockImplementation(async (path, options) => {
+      if (failFirstOrphanCleanup && String(path) === orphanPath) {
+        failFirstOrphanCleanup = false;
+        const error = new Error("simulated orphan cleanup failure") as NodeJS.ErrnoException;
+        error.code = "EACCES";
+        throw error;
+      }
+      return actualRm(path, options);
+    });
+    const app = express();
+    app.use(createUploadRouter(uploadTempDir, undefined, async () => ({
+      acquired: true,
+      release: vi.fn(async () => {}),
+    })));
+    const zip = new AdmZip();
+    zip.addFile("src/index.ts", Buffer.from("valid contents"));
+
+    try {
+      const firstResponse = await request(app)
+        .post("/upload/archive")
+        .attach("archive", zip.toBuffer(), "workspace.zip");
+
+      expect(firstResponse.status).toBe(503);
+      expect(await readdir(uploadTempDir)).toEqual([orphanName]);
+      expect(logger.warn).toHaveBeenCalledWith(
+        expect.objectContaining({
+          code: "ARCHIVE_STAGING_CLEANUP_FAILED",
+          errorCode: "EACCES",
+        }),
+        "archive staging cleanup failed; a later cleanup will retry",
+      );
+
+      rmSpy.mockRestore();
+      const retryResponse = await request(app).post("/upload/archive");
+      expect(retryResponse.status).toBe(400);
+      expect(await readdir(uploadTempDir)).toEqual([]);
+    } finally {
+      rmSpy.mockRestore();
+    }
   });
 
   it("removes private staging after a malformed ZIP is rejected", async () => {

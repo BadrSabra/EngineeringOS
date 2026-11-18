@@ -71,7 +71,12 @@ async function cleanupOrphanedStagingDirectories(parent: string): Promise<void> 
     ) {
       continue;
     }
-    await fs.rm(directory, { recursive: true, force: true });
+    try {
+      await fs.rm(directory, { recursive: true, force: true });
+    } catch (error) {
+      logStagingCleanupFailure(error);
+      throw error;
+    }
   }
 }
 
@@ -81,6 +86,22 @@ function releaseArchiveRequest(
 ): void {
   releases.get(request)?.();
   releases.delete(request);
+}
+
+function logStagingCleanupFailure(error: unknown): void {
+  const errorCode =
+    error instanceof Error &&
+    "code" in error &&
+    typeof error.code === "string"
+      ? error.code
+      : undefined;
+  logger.warn(
+    {
+      code: "ARCHIVE_STAGING_CLEANUP_FAILED",
+      ...(errorCode ? { errorCode } : {}),
+    },
+    "archive staging cleanup failed; a later cleanup will retry",
+  );
 }
 
 export function createUploadRouter(
@@ -97,8 +118,14 @@ export function createUploadRouter(
   const cleanupStagingDirectory = async (request: object) => {
     const stagingDirectory = stagingDirectories.get(request);
     if (!stagingDirectory) return;
-    await fs.rm(stagingDirectory, { recursive: true, force: true }).catch(() => {});
-    stagingDirectories.delete(request);
+    try {
+      await fs.rm(stagingDirectory, { recursive: true, force: true });
+      stagingDirectories.delete(request);
+    } catch (error) {
+      // Keep the request's path so later cleanup in this request can retry.
+      // If it still fails, the guarded orphan sweep can retry on a future upload.
+      logStagingCleanupFailure(error);
+    }
   };
   const releaseDistributedLock = async (request: object) => {
     const release = distributedLockReleases.get(request);
