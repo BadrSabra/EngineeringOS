@@ -348,7 +348,9 @@ export default function ProjectWorkspace() {
             <div>
               <dt className="inline text-slate-500">وقت آخر قراءة ناجحة: </dt>
               <dd className="inline">
-                <time dateTime={snapshot.observedAt}>{dateLabel(snapshot.observedAt)}</time>
+                <time data-testid="workspace-stale-snapshot-observed-at" dateTime={snapshot.observedAt}>
+                  {dateLabel(snapshot.observedAt)}
+                </time>
               </dd>
             </div>
           </dl>
