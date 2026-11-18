@@ -60,6 +60,12 @@ function isResyncForProject(data: string, projectId: string): boolean {
   }
 }
 
+type WorkspaceEventStreamStatusSnapshot = {
+  projectId: string;
+  enabled: boolean;
+  status: WorkspaceEventStreamStatus;
+};
+
 export function useWorkspaceEventStream({
   projectId,
   enabled,
@@ -67,17 +73,28 @@ export function useWorkspaceEventStream({
 }: WorkspaceEventStreamOptions): WorkspaceEventStreamStatus {
   const invalidateRef = useRef(onSnapshotInvalidated);
   invalidateRef.current = onSnapshotInvalidated;
-  const [status, setStatus] = useState<WorkspaceEventStreamStatus>(
-    enabled ? "connecting" : "offline",
-  );
+  const [statusSnapshot, setStatusSnapshot] = useState<WorkspaceEventStreamStatusSnapshot>(() => ({
+    projectId,
+    enabled,
+    status: enabled && projectId ? "connecting" : "offline",
+  }));
+  const status = statusSnapshot.projectId === projectId && statusSnapshot.enabled === enabled
+    ? statusSnapshot.status
+    : enabled && projectId
+      ? "connecting"
+      : "offline";
 
   useEffect(() => {
+    const updateStatus = (nextStatus: WorkspaceEventStreamStatus) => {
+      setStatusSnapshot({ projectId, enabled, status: nextStatus });
+    };
+
     if (!enabled || !projectId) {
-      setStatus("offline");
+      updateStatus("offline");
       return;
     }
 
-    setStatus("connecting");
+    updateStatus("connecting");
     let connectedBefore = false;
     let disposed = false;
     const seenEventIds = new Set<string>();
@@ -86,7 +103,7 @@ export function useWorkspaceEventStream({
     try {
       source = new EventSource(url, { withCredentials: true });
     } catch {
-      setStatus("offline");
+      updateStatus("offline");
       return;
     }
 
@@ -101,6 +118,7 @@ export function useWorkspaceEventStream({
     };
 
     const onChanged = (rawEvent: Event) => {
+      if (disposed) return;
       const message = rawEvent as MessageEvent<string>;
       const payload = parseChangedPayload(message.data, projectId);
       if (payload && rememberEvent(payload.eventId)) {
@@ -109,6 +127,7 @@ export function useWorkspaceEventStream({
     };
 
     const onResync = (rawEvent: Event) => {
+      if (disposed) return;
       const message = rawEvent as MessageEvent<string>;
       if (isResyncForProject(message.data, projectId)) {
         invalidateRef.current();
@@ -121,11 +140,11 @@ export function useWorkspaceEventStream({
       if (disposed) return;
       if (connectedBefore) invalidateRef.current();
       connectedBefore = true;
-      setStatus("connected");
+      updateStatus("connected");
     };
     source.onerror = () => {
       if (disposed) return;
-      setStatus(source.readyState === EventSource.CLOSED ? "offline" : "reconnecting");
+      updateStatus(source.readyState === EventSource.CLOSED ? "offline" : "reconnecting");
     };
 
     return () => {
