@@ -43,8 +43,10 @@ beforeEach(() => {
   vi.mocked(useListEvents).mockReturnValue({
     data: { events: mockEvents, total: mockEvents.length },
     isLoading: false,
+    isFetching: false,
     isError: false,
     error: null,
+    dataUpdatedAt: new Date("2026-08-22T12:01:00.000Z").getTime(),
     refetch,
   } as ReturnType<typeof useListEvents>);
 });
@@ -66,6 +68,57 @@ describe("Events", () => {
     expect(screen.getByText("Beta task failed")).toBeInTheDocument();
     expect(screen.getByText("عرض 1–2 من 2")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "الأقدم" })).toBeDisabled();
+  });
+
+  it("labels an in-progress refresh and retains only the last successful read as a snapshot", () => {
+    vi.mocked(useListEvents).mockReturnValue({
+      data: { events: mockEvents, total: mockEvents.length },
+      isLoading: false,
+      isFetching: true,
+      isError: false,
+      error: null,
+      dataUpdatedAt: new Date("2026-08-22T12:01:00.000Z").getTime(),
+      refetch,
+    } as ReturnType<typeof useListEvents>);
+
+    render(<Events />);
+
+    expect(screen.getByRole("status")).toHaveTextContent(
+      "يجري تحديث السجل؛ الأحداث المعروضة تمثل آخر قراءة ناجحة.",
+    );
+    expect(screen.getByText("Alpha scan completed")).toBeInTheDocument();
+    expect(screen.queryByText(/لا توجد أحداث مسجلة/)).not.toBeInTheDocument();
+  });
+
+  it("shows the time of the last successful read when the event list is settled", () => {
+    render(<Events />);
+
+    expect(screen.getByTestId("events-read-status")).toHaveTextContent("آخر قراءة ناجحة:");
+    expect(screen.getByTestId("events-read-status").querySelector("time")).toHaveAttribute(
+      "dateTime",
+      "2026-08-22T12:01:00.000Z",
+    );
+  });
+
+  it("keeps malformed event timestamps visible without crashing the event list", () => {
+    vi.mocked(useListEvents).mockReturnValue({
+      data: {
+        events: [{ ...mockEvents[0], id: "event-invalid-time", timestamp: "not-a-timestamp" }],
+        total: 1,
+      },
+      isLoading: false,
+      isFetching: false,
+      isError: false,
+      error: null,
+      dataUpdatedAt: new Date("2026-08-22T12:01:00.000Z").getTime(),
+      refetch,
+    } as unknown as ReturnType<typeof useListEvents>);
+
+    render(<Events />);
+
+    expect(screen.getByText("Alpha scan completed")).toBeInTheDocument();
+    expect(screen.getByText("وقت غير صالح")).toBeInTheDocument();
+    expect(screen.getByText("عرض 1–1 من 1")).toBeInTheDocument();
   });
 
   it("keeps the Arabic page RTL and event identifiers LTR", () => {
