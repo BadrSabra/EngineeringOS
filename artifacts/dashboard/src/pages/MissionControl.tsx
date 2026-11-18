@@ -1373,7 +1373,13 @@ export default function MissionControl() {
   );
   const selectedExecution = executions.find((execution) => execution.id === selectedId)
     ?? (requestedExecutionId ? undefined : executions[0]);
-  const { data: selectedExecutionDetail, refetch: refetchSelectedExecutionDetail } = useGetAiExecution(selectedExecution?.id ?? '', {
+  const {
+    data: selectedExecutionDetail,
+    isError: selectedExecutionDetailIsError,
+    isLoading: selectedExecutionDetailIsLoading,
+    isFetching: selectedExecutionDetailIsFetching,
+    refetch: refetchSelectedExecutionDetail,
+  } = useGetAiExecution(selectedExecution?.id ?? '', {
     query: {
       queryKey: ['ai-mission-control-execution', selectedExecution?.id],
       enabled: Boolean(selectedExecution?.id),
@@ -1392,7 +1398,16 @@ export default function MissionControl() {
       },
     },
   });
-  const conversationHref = executionChatHref(selectedExecutionDetail, selectedExecution?.id, projectId);
+  // React Query can retain cached data after a failed refresh. That snapshot is
+  // not a confirmed current read and must not drive proof panels or actions.
+  const selectedExecutionDetailIsBound = Boolean(
+    selectedExecution
+    && selectedExecutionDetail?.id === selectedExecution.id
+    && !selectedExecutionDetailIsError,
+  );
+  const conversationHref = selectedExecutionDetailIsBound
+    ? executionChatHref(selectedExecutionDetail, selectedExecution?.id, projectId)
+    : null;
   const comparisonLiveExecution = executions.find((execution) => execution.id === comparisonLiveId) ?? executions[0];
   const historyStates = useMemo(
     () => Array.from(new Set(executions.map((execution) => textValue(execution.state)?.toUpperCase() ?? 'UNKNOWN'))),
@@ -1450,17 +1465,12 @@ export default function MissionControl() {
     ?? importedHistory?.executions[0];
   const updatedLabel = formatDate(typedData?.updatedAt);
   const selectedExecutionTaskId = selectedExecution?.linkedTaskId
-    ?? (selectedExecution && selectedExecutionDetail?.id === selectedExecution.id
-      ? selectedExecutionDetail.linkedTaskId
-      : undefined);
+    ?? (selectedExecutionDetailIsBound ? selectedExecutionDetail?.linkedTaskId : undefined);
   const selectedExecutionOperationId = textValue(selectedExecution?.operationId);
   const selectedExecutionRevision = textValue(selectedExecution?.revision);
   const selectedAcceptanceNextActionCode = textValue(
     asRecord(selectedExecution?.acceptance)?.nextActionCode,
   )?.toUpperCase();
-  const selectedExecutionDetailIsBound = Boolean(
-    selectedExecution && selectedExecutionDetail?.id === selectedExecution.id,
-  );
   const selectedExecutionProofPresentation = selectedExecutionDetailIsBound
     ? resolveExecutionProofPresentation(selectedExecutionDetail)
     : null;
@@ -1471,7 +1481,7 @@ export default function MissionControl() {
     const recovery = asRecord(execution.recovery);
     if (recovery?.uncertain !== true || recoveryPendingId) return;
     const owningTaskId = execution.linkedTaskId
-      ?? (selectedExecutionDetail?.id === execution.id
+      ?? (selectedExecutionDetailIsBound && selectedExecutionDetail?.id === execution.id
         ? selectedExecutionDetail.linkedTaskId
         : undefined);
     if (owningTaskId) {
@@ -1869,6 +1879,43 @@ export default function MissionControl() {
             </div>
           </section>
 
+          {selectedExecution && (
+            (selectedExecutionDetailIsError
+              || (selectedExecutionDetailIsLoading && !selectedExecutionDetail)
+              || (selectedExecutionDetailIsBound && selectedExecutionDetailIsFetching)) && (
+              <section
+                data-testid="mission-control-execution-detail-read-state"
+                className={`rounded-lg border px-3 py-2.5 text-xs ${selectedExecutionDetailIsError
+                  ? 'border-amber-500/30 bg-amber-500/5 text-amber-100'
+                  : 'border-border/60 bg-background/20 text-muted-foreground'}`}
+                role="status"
+                aria-live="polite"
+              >
+                {selectedExecutionDetailIsError ? (
+                  <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                    <span>
+                      {selectedExecutionDetail
+                        ? 'تعذر تحديث تفاصيل التنفيذ؛ أخفينا القراءة السابقة حتى لا تبدو أحدث مما هي عليه.'
+                        : 'تعذر تحميل تفاصيل التنفيذ وسلسلة الأدلة من المصدر المعتمد.'}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => void refetchSelectedExecutionDetail()}
+                      disabled={selectedExecutionDetailIsFetching}
+                      className="shrink-0 rounded-md border border-amber-300/30 px-2.5 py-1.5 font-medium hover:bg-amber-300/10 disabled:opacity-50"
+                    >
+                      {selectedExecutionDetailIsFetching ? 'جارٍ التحديث…' : 'إعادة تحميل تفاصيل التنفيذ'}
+                    </button>
+                  </div>
+                ) : selectedExecutionDetailIsLoading && !selectedExecutionDetail ? (
+                  <span>جارٍ تحميل تفاصيل التنفيذ وسلسلة الأدلة من المصدر المعتمد…</span>
+                ) : (
+                  <span>جارٍ تحديث التفاصيل؛ المعروض هو آخر قراءة ناجحة حتى يكتمل التحديث.</span>
+                )}
+              </section>
+            )
+          )}
+
           {selectedExecutionDetailIsBound && selectedExecutionDetail?.projection && selectedExecutionProofPresentation && (
             <MissionCapsule
               projection={selectedExecutionDetail.projection}
@@ -2130,6 +2177,10 @@ export default function MissionControl() {
                          افتح المهمة
                        </Link>
                      </div>
+                   ) : selectedExecutionDetailIsError ? (
+                     <p className="mt-3 text-xs text-amber-100" role="status">
+                       تعذر تأكيد تفاصيل التنفيذ؛ أعد تحميل التفاصيل قبل إتاحة الاستعادة.
+                     </p>
                    ) : selectedExecutionDetailIsBound ? (
                      <div className="mt-3 flex flex-wrap gap-2">
                        <button type="button" disabled={recoveryPendingId === selectedExecution.id} onClick={() => void recoverExecution(selectedExecution, 'resume')} className="rounded-md bg-primary px-3 py-2 text-xs font-semibold text-primary-foreground hover-elevate disabled:opacity-50">
