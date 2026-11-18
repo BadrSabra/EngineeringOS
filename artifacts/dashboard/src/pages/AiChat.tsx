@@ -4648,7 +4648,7 @@ export default function AiChat({
                    id="group-assistant-response-progress"
                    tabIndex={-1}
                    role="group"
-                   aria-label="Assistant response in progress"
+                   aria-label="رد المساعد قيد التنفيذ"
                    className="chat-message flex min-w-0 max-w-full gap-3 mb-6"
                  >
                   <div className="w-8 h-8 rounded-full bg-secondary border border-border flex items-center justify-center shrink-0 mt-0.5">
@@ -4664,7 +4664,7 @@ export default function AiChat({
                            <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-primary/70" />
                            <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-primary" />
                          </span>
-                         In progress
+                         جارٍ التنفيذ
                        </span>
                      </div>
                       <LiveAgentActivity
@@ -4697,10 +4697,10 @@ export default function AiChat({
                            ? <ShieldCheck className="w-3 h-3 shrink-0 text-green-300" />
                            : <ShieldAlert className="w-3 h-3 shrink-0 text-red-300" />}
                          <span className="font-medium">
-                           {liveEvidenceIntegrity.consistent ? 'Telemetry consistent' : 'Telemetry inconsistent'}
+                           {liveEvidenceIntegrity.consistent ? 'بيانات التتبع متسقة' : 'بيانات التتبع غير متسقة'}
                          </span>
                          {liveEvidenceIntegrity.violations.length > 0 && (
-                           <span className="truncate text-muted-foreground">· {liveEvidenceIntegrity.violations.length} violation{liveEvidenceIntegrity.violations.length === 1 ? '' : 's'}</span>
+                           <span className="truncate text-muted-foreground">· {liveEvidenceIntegrity.violations.length} {liveEvidenceIntegrity.violations.length === 1 ? 'مخالفة' : 'مخالفات'}</span>
                          )}
                        </div>
                      )}
@@ -4708,7 +4708,7 @@ export default function AiChat({
                      {agentSteps.length > 0 && (
                         <div className="rounded-lg border border-border/60 bg-background/25 px-3 py-2">
                           <div aria-hidden="true" className="mb-1 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
-                            Recent activity
+                            أحدث النشاط
                           </div>
                           <div className="flex flex-col gap-1 text-xs font-mono">
                             {agentSteps.slice(-6).map((step, i) => (
@@ -4721,7 +4721,7 @@ export default function AiChat({
                                 <span className={step.done ? 'text-muted-foreground' : 'text-foreground'}>
                                   {liveToolLabel(step)}
                                 </span>
-                                {step.cached && <span className="text-[10px] text-muted-foreground/60">(cached)</span>}
+                                {step.cached && <span className="text-[10px] text-muted-foreground/60">(مخزّن مؤقتًا)</span>}
                               </div>
                             ))}
                           </div>

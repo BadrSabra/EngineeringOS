@@ -2352,7 +2352,7 @@ describe('AiChat authenticated generated mutations', () => {
 
     expect(await screen.findByText('The provider completed the request successfully.')).toBeInTheDocument();
     expect(screen.queryByText(/INCOMPLETE:/)).not.toBeInTheDocument();
-    expect(screen.queryByText(/Execution diagnostic:/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/تشخيص التنفيذ:/)).not.toBeInTheDocument();
   });
 
   it('restores a paused execution after refresh and resumes the same execution', async () => {
@@ -6428,7 +6428,7 @@ it.each([
     });
 
     expect(screen.getByRole('status', { name: 'Behavior analysis progress' })).toBeInTheDocument();
-    expect(screen.getByRole('group', { name: 'Assistant response in progress' })).toBeInTheDocument();
+    expect(screen.getByRole('group', { name: 'رد المساعد قيد التنفيذ' })).toBeInTheDocument();
     expect(screen.getByText('Reading project evidence')).toBeInTheDocument();
     expect(screen.getByText('1 read')).toBeInTheDocument();
     expect(screen.getByText(/src\/routes\/request\.ts/)).toBeInTheDocument();
@@ -6487,7 +6487,7 @@ it.each([
     await waitFor(() => {
       expect(screen.queryByRole('status', { name: 'Behavior analysis progress' })).not.toBeInTheDocument();
     });
-    expect(screen.queryByRole('group', { name: 'Assistant response in progress' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('group', { name: 'رد المساعد قيد التنفيذ' })).not.toBeInTheDocument();
     expect(screen.getByText('Behavior answer')).toBeInTheDocument();
     expect(screen.getAllByText('The handler validates the request before dispatch.').length).toBeGreaterThan(0);
   });
@@ -6856,9 +6856,9 @@ it.each([
       });
     });
 
-    expect(screen.getByText('Agent activity')).toBeInTheDocument();
-    expect(screen.getByText(/Reading source/)).toBeInTheDocument();
-    expect(screen.getByText(/Model response/)).toBeInTheDocument();
+    expect(screen.getByText('نشاط الوكيل')).toBeInTheDocument();
+    expect(screen.getByText(/قراءة المصدر/)).toBeInTheDocument();
+    expect(screen.getByText(/استجابة النموذج/)).toBeInTheDocument();
     expect(screen.getAllByText(/src\/routes\/response\.ts/).length).toBeGreaterThan(0);
   });
 
@@ -7036,9 +7036,9 @@ it.each([
       });
     });
 
-    expect(screen.getByText('Agent activity')).toBeInTheDocument();
-    expect(screen.getByText(/Reading source/)).toBeInTheDocument();
-    expect(screen.getByText(/Model response/)).toBeInTheDocument();
+    expect(screen.getByText('نشاط الوكيل')).toBeInTheDocument();
+    expect(screen.getByText(/قراءة المصدر/)).toBeInTheDocument();
+    expect(screen.getByText(/استجابة النموذج/)).toBeInTheDocument();
     expect(screen.getAllByText(/src\/routes\/response\.ts/).length).toBeGreaterThan(0);
   });
 
@@ -7142,9 +7142,9 @@ it.each([
       });
     });
 
-    expect(screen.getByText('Agent activity')).toBeInTheDocument();
-    expect(screen.getByText(/Reading source/)).toBeInTheDocument();
-    expect(screen.getByText(/Model response/)).toBeInTheDocument();
+    expect(screen.getByText('نشاط الوكيل')).toBeInTheDocument();
+    expect(screen.getByText(/قراءة المصدر/)).toBeInTheDocument();
+    expect(screen.getByText(/استجابة النموذج/)).toBeInTheDocument();
     expect(screen.getAllByText(/src\/routes\/response\.ts/).length).toBeGreaterThan(0);
   });
 
@@ -7195,9 +7195,9 @@ it.each([
       });
     });
 
-    expect(screen.getByText('Agent activity')).toBeInTheDocument();
-    expect(screen.getByText(/Reading source/)).toBeInTheDocument();
-    expect(screen.getByText(/Model response/)).toBeInTheDocument();
+    expect(screen.getByText('نشاط الوكيل')).toBeInTheDocument();
+    expect(screen.getByText(/قراءة المصدر/)).toBeInTheDocument();
+    expect(screen.getByText(/استجابة النموذج/)).toBeInTheDocument();
     expect(screen.getAllByText(/src\/routes\/response\.ts/).length).toBeGreaterThan(0);
   });
 
@@ -7259,7 +7259,7 @@ it.each([
     expect(proofPanel).toHaveTextContent('حالة التنفيذ والإثبات');
     expect(proofPanel).toHaveTextContent('جارٍ التحقق من الحالة');
     expect(proofPanel).toHaveTextContent('execution-proof-1');
-    expect(proofPanel).toHaveTextContent('Telemetry consistent');
+    expect(proofPanel).toHaveTextContent('بيانات التتبع متسقة');
     expect(proofPanel).toHaveTextContent('No writes applied automatically');
     const objectiveProof = within(proofPanel).getByLabelText('Objective proof details');
     expect(objectiveProof).toHaveTextContent('PARTIALLY_PROVEN');
@@ -7341,7 +7341,7 @@ it.each([
 
     const panel = await screen.findByLabelText('إثبات التنفيذ وحالته');
     expect(within(panel).getByTestId('details-execution-proof-technical')).not.toHaveAttribute('open');
-    expect(within(panel).getByTestId('alert-execution-evidence-integrity')).toHaveTextContent('1 violation');
+    expect(within(panel).getByTestId('alert-execution-evidence-integrity')).toHaveTextContent('1 مخالفة');
     expect(within(panel).getByTestId('alert-execution-evidence-integrity').closest('details')).toBeNull();
     expect(within(panel).getByTestId('status-objective-completion')).toHaveTextContent('PARTIALLY PROVEN');
   });
@@ -7369,9 +7369,9 @@ it.each([
 
     fireEvent.click(await screen.findByRole('button', { name: 'Existing session' }));
 
-    expect(screen.getByText('Agent activity')).toBeInTheDocument();
-    expect(screen.getByText(/Reading source/)).toBeInTheDocument();
-    expect(screen.getByText(/Model response/)).toBeInTheDocument();
+    expect(screen.getByText('نشاط الوكيل')).toBeInTheDocument();
+    expect(screen.getByText(/قراءة المصدر/)).toBeInTheDocument();
+    expect(screen.getByText(/استجابة النموذج/)).toBeInTheDocument();
     expect(screen.getAllByText(/src\/routes\/history\.ts/).length).toBeGreaterThan(0);
   });
 
@@ -7583,16 +7583,16 @@ it.each([
     const reloadedRender = renderAiChat();
     fireEvent.click(await screen.findByRole('button', { name: 'Existing session' }));
 
-    const activity = screen.queryByText('Agent activity');
+    const activity = screen.queryByText('نشاط الوكيل');
     expect(activity).toBeInTheDocument();
-    expect(screen.getByText('Understand')).toBeInTheDocument();
-    expect(screen.getByText('Scope')).toBeInTheDocument();
-    expect(screen.getByText('Plan · Inspect response handler')).toBeInTheDocument();
-    expect(screen.getAllByText(/Execute/).length).toBeGreaterThan(0);
-    expect(screen.getByText('Validate')).toBeInTheDocument();
+    expect(screen.getByText('الفهم')).toBeInTheDocument();
+    expect(screen.getByText('تحديد النطاق')).toBeInTheDocument();
+    expect(screen.getByText('التنفيذ · Inspect response handler')).toBeInTheDocument();
+    expect(screen.getAllByText(/التنفيذ/).length).toBeGreaterThan(0);
+    expect(screen.getByText('التحقق')).toBeInTheDocument();
     expect(screen.getByText(/Read completed after reconnect/)).toBeInTheDocument();
     expect(screen.getAllByText(/Review response handler/).length).toBeGreaterThan(0);
-    expect(screen.getAllByText(/Approval required before changing:/)).toHaveLength(1);
+    expect(screen.getAllByText(/الموافقة مطلوبة قبل تغيير الملفات:/)).toHaveLength(1);
     expect(screen.getByText(/src\/routes\/response\.ts/)).toBeInTheDocument();
     expect(screen.getByText(/workspace-typecheck/)).toBeInTheDocument();
     expect(screen.queryByText(/src\/outside\.ts|whole repository|reveal-secret/)).not.toBeInTheDocument();
@@ -7628,9 +7628,9 @@ it.each([
 
     fireEvent.click(await screen.findByRole('button', { name: 'Existing session' }));
     expect(await screen.findByText(/توقف التنفيذ قبل قراءة/)).toBeInTheDocument();
-    expect(screen.queryByText(/Execution diagnostic:/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/تشخيص التنفيذ:/)).not.toBeInTheDocument();
 
-    const activity = screen.queryByText('Agent activity');
+    const activity = screen.queryByText('نشاط الوكيل');
     if (activity) {
       expect(activity.closest('details')).not.toHaveAttribute('open');
     }
@@ -7795,9 +7795,9 @@ it.each([
     renderAiChat();
     fireEvent.click(await screen.findByRole('button', { name: 'Existing session' }));
 
-    expect(await screen.findByText('Phase policy blocked action')).toBeInTheDocument();
-    expect(screen.getByText('write_file rejected during evidence phase')).toBeInTheDocument();
-    expect(screen.queryByText('Execution diagnostic')).not.toBeInTheDocument();
+    expect(await screen.findByText('سياسة المرحلة منعت الإجراء')).toBeInTheDocument();
+    expect(screen.getByText('رُفضت الأداة write_file خلال المرحلة evidence (EXECUTION_PHASE_TOOL_REJECTED)')).toBeInTheDocument();
+    expect(screen.queryByText('تشخيص التنفيذ')).not.toBeInTheDocument();
   });
 
   it('filters phase-policy rejections while preserving the active phase and rejected tool', async () => {
@@ -7833,7 +7833,7 @@ it.each([
       target: { value: 'phase_rejections' },
     });
 
-    expect(recorder).toHaveTextContent('Phase policy blocked action');
+    expect(recorder).toHaveTextContent('سياسة المرحلة منعت الإجراء');
     expect(recorder).toHaveTextContent('active phase: evidence');
     expect(recorder).toHaveTextContent('rejected tool: write_file');
     expect(recorder).not.toHaveTextContent('Called read_file');
@@ -8199,7 +8199,7 @@ it.each([
       }).onTaskProgress?.({
         type: 'task_progress',
         task: 'analyze',
-        message: 'Calling AI model…',
+        message: 'جارٍ استدعاء نموذج الذكاء الاصطناعي…',
       });
       (mocks.taskStreamCallbacks as Record<string, unknown> & {
         onModelCall?: (event: Record<string, unknown>) => void;
@@ -8224,9 +8224,9 @@ it.each([
     });
 
     expect(screen.getByText(/Analysis complete/)).toBeInTheDocument();
-    expect(screen.getByText('Agent activity')).toBeInTheDocument();
-    expect(screen.getByText(/Calling AI model/)).toBeInTheDocument();
-    expect(screen.getByText(/Provider response received/)).toBeInTheDocument();
+    expect(screen.getByText('نشاط الوكيل')).toBeInTheDocument();
+    expect(screen.getByText(/جارٍ استدعاء نموذج الذكاء الاصطناعي/)).toBeInTheDocument();
+    expect(screen.getByText(/تم استلام استجابة مزوّد الخدمة/)).toBeInTheDocument();
   });
 
   it('shows a retryable incomplete code review and preserves the failed attempt after retry', async () => {
