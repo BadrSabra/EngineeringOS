@@ -86,6 +86,48 @@ describe("Projects", () => {
     expect(dialog).toHaveAttribute('aria-modal', 'true');
   });
 
+  it('binds project creation to the newly routed goal draft when the route changes in-place', () => {
+    const firstDraft = storeHomeGoalDraft('الهدف الأول: مساحة عمل للعملاء', 'user-1')!;
+    const secondDraft = storeHomeGoalDraft('الهدف الثاني: لوحة متابعة للفريق', 'user-1')!;
+    window.history.replaceState({}, '', `/projects?create=1&goalDraftId=${firstDraft.id}`);
+
+    const view = render(<Projects />);
+    expect(screen.getByTestId('input-project-description')).toHaveValue(firstDraft.text);
+
+    fireEvent.change(screen.getByTestId('input-project-name'), {
+      target: { value: 'First Project' },
+    });
+
+    window.history.pushState({}, '', `/projects?create=1&goalDraftId=${secondDraft.id}`);
+    view.rerender(<Projects />);
+
+    expect(screen.getByTestId('input-project-name')).toHaveValue('');
+    expect(screen.getByTestId('input-project-description')).toHaveValue(secondDraft.text);
+
+    fireEvent.change(screen.getByTestId('input-project-name'), {
+      target: { value: 'Second Project' },
+    });
+    fireEvent.click(screen.getByTestId('button-start-project-bootstrap'));
+
+    expect(mocks.mutate).toHaveBeenCalledWith(
+      {
+        data: expect.objectContaining({
+          name: 'Second Project',
+          description: secondDraft.text,
+          idempotencyKey: expect.any(String),
+        }),
+      },
+      expect.anything(),
+    );
+
+    const savedDrafts = readGoalDrafts('user-1').drafts;
+    expect(savedDrafts.find((draft) => draft.id === firstDraft.id)?.bootstrap).toBeNull();
+    expect(savedDrafts.find((draft) => draft.id === secondDraft.id)?.bootstrap).toMatchObject({
+      projectName: 'Second Project',
+      operationId: null,
+    });
+  });
+
   it("renders all projects when search is empty", () => {
     render(<Projects />);
     expect(screen.getByText("alpha-service")).toBeInTheDocument();
