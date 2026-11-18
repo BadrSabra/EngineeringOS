@@ -87,7 +87,7 @@ function ProjectDetailSession({ projectId }: { projectId: string }) {
     );
   };
 
-  const { data: summary, isLoading: loadingSummary, isError: summaryError, refetch: refetchSummary } = useGetProjectSummary(projectId, {
+  const { data: summary, isLoading: loadingSummary, isError: summaryError, isFetching: summaryFetching, dataUpdatedAt: summaryUpdatedAt, refetch: refetchSummary } = useGetProjectSummary(projectId, {
     query: { enabled: !!projectId, queryKey: getGetProjectSummaryQueryKey(projectId) },
   });
 
@@ -139,6 +139,13 @@ function ProjectDetailSession({ projectId }: { projectId: string }) {
       </div>
     );
   }
+
+  const hasCompositeFreshness = !summaryError
+    && Number.isFinite(dataUpdatedAt) && dataUpdatedAt > 0
+    && Number.isFinite(summaryUpdatedAt) && summaryUpdatedAt > 0;
+  const compositeLastUpdatedAt = hasCompositeFreshness
+    ? Math.min(dataUpdatedAt, summaryUpdatedAt)
+    : undefined;
 
   const metrics = summary?.latestMetrics ?? null;
   const qualityScore = summary?.qualityScore;
@@ -258,7 +265,7 @@ function ProjectDetailSession({ projectId }: { projectId: string }) {
             <Activity className="h-4 w-4" aria-hidden="true" />
             مساحة العمل
           </Link>
-          <RefreshButton onRefresh={async () => { await refetchProject(); await refetchSummary(); }} isRefreshing={projectRefreshing} lastUpdated={dataUpdatedAt} label="تحديث المشروع" />
+          <RefreshButton onRefresh={async () => { await Promise.all([refetchProject(), refetchSummary()]); }} isRefreshing={projectRefreshing || summaryFetching} lastUpdated={compositeLastUpdatedAt} label="تحديث المشروع" />
           <button
             onClick={() => setShowProjectInfo((v) => !v)}
             className={`p-2 border rounded-md transition-colors ${showProjectInfo ? 'border-primary bg-primary/10 text-primary' : 'border-border hover:bg-secondary text-muted-foreground'}`}
