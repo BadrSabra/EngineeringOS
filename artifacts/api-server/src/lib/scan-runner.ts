@@ -29,6 +29,7 @@ import {
 import { logger } from "./logger.js";
 import { establishProjectRoot, type EstablishRootFailureReason } from "./project-root.js";
 import { tryAdvisoryLock, LockNamespace } from "./advisory-lock.js";
+import { acquireGlobalScanSlot } from "./scan-capacity.js";
 import { heavyJobQueue } from "./job-queue.js";
 import { provenanceFromEntity, provenanceFromRelationship, manualProvenance } from "./graph-provenance.js";
 import {
@@ -104,6 +105,13 @@ export class ProjectScanLockBusyError extends Error {
   constructor(projectId: string) {
     super(`a scan is already running for project ${projectId}`);
     this.name = "ProjectScanLockBusyError";
+  }
+}
+
+export class ProjectScanCapacityBusyError extends Error {
+  constructor() {
+    super("shared project scan capacity is currently full");
+    this.name = "ProjectScanCapacityBusyError";
   }
 }
 
@@ -215,6 +223,32 @@ export async function runScanJob(jobId: string, projectId: string): Promise<void
     return;
   }
 
+  let globalScanSlot: Awaited<ReturnType<typeof acquireGlobalScanSlot>> = undefined;
+  try {
+    globalScanSlot = await acquireGlobalScanSlot();
+  } catch (slotErr) {
+    logger.error(
+      { slotErr, jobId, projectId },
+      "scan-runner: global capacity check failed; keeping job queued",
+    );
+    await lock.release().catch((releaseErr) => {
+      logger.warn({ releaseErr, jobId }, "scan-runner: failed to release project lock after capacity error");
+    });
+    scheduleQueuedScanRetry(jobId, projectId);
+    return;
+  }
+  if (!globalScanSlot) {
+    logger.warn(
+      { jobId, projectId },
+      "scan-runner: global scan capacity is full; leaving job queued",
+    );
+    await lock.release().catch((releaseErr) => {
+      logger.warn({ releaseErr, jobId }, "scan-runner: failed to release project lock while capacity is full");
+    });
+    scheduleQueuedScanRetry(jobId, projectId);
+    return;
+  }
+
   // PR-01 (Durable Jobs): claim the job with a workerId + initial lease
   // before starting any work. If the claim returns false, the job is no
   // longer in "queued" state — either another worker already claimed it or
@@ -303,6 +337,11 @@ export async function runScanJob(jobId: string, projectId: string): Promise<void
         logger.warn({ releaseErr, jobId }, "scan-runner: failed to release advisory lock");
       });
     }
+    if (globalScanSlot) {
+      await globalScanSlot.release().catch((releaseErr) => {
+        logger.warn({ releaseErr, jobId }, "scan-runner: failed to release global capacity slot");
+      });
+    }
   }
 }
 
@@ -326,7 +365,10 @@ export async function performScan(
     throw new Error("project scan lock could not be acquired; scan was not started");
   }
   if (!lock.acquired) throw new ProjectScanLockBusyError(projectId);
+  let globalScanSlot: Awaited<ReturnType<typeof acquireGlobalScanSlot>> = undefined;
   try {
+    globalScanSlot = await acquireGlobalScanSlot();
+    if (!globalScanSlot) throw new ProjectScanCapacityBusyError();
     const [pendingJob] = await db
       .select({ id: scanJobsTable.id })
       .from(scanJobsTable)
@@ -338,6 +380,11 @@ export async function performScan(
     if (pendingJob) throw new ProjectScanLockBusyError(projectId);
     return await performScanCore(projectId, signal, scanJobId);
   } finally {
+    if (globalScanSlot) {
+      await globalScanSlot.release().catch((releaseErr) => {
+        logger.warn({ releaseErr, projectId }, "direct scan: failed to release global capacity slot");
+      });
+    }
     await lock.release().catch((releaseErr) => {
       logger.warn({ releaseErr, projectId }, "direct scan: failed to release project lock");
     });

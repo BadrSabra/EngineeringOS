@@ -1,6 +1,10 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { createProjectAnalysisToolRunner, classifyAnalysisFailure } from "./ai-analysis-tools.js";
-import { ProjectScanLockBusyError, ScanRootUnavailableError } from "./scan-runner.js";
+import {
+  ProjectScanCapacityBusyError,
+  ProjectScanLockBusyError,
+  ScanRootUnavailableError,
+} from "./scan-runner.js";
 
 const { mockPerformScan, mockDbSelect } = vi.hoisted(() => ({
   mockPerformScan: vi.fn(),
@@ -56,7 +60,7 @@ describe("project analysis root failure classification", () => {
   });
 
   it("reports a busy scan as retryable without accepting evidence", async () => {
-    mockPerformScan.mockRejectedValueOnce(new ProjectScanLockBusyError("project-a"));
+    mockPerformScan.mockRejectedValueOnce(new ProjectScanCapacityBusyError());
     const projectRevision = "2026-10-04T12:00:00.000Z";
     const runner = createProjectAnalysisToolRunner("project-a", process.cwd());
     const result = await runner(
@@ -73,11 +77,12 @@ describe("project analysis root failure classification", () => {
     );
 
     expect(classifyAnalysisFailure(new ProjectScanLockBusyError("project-a"))).toBe("scan_busy");
+    expect(classifyAnalysisFailure(new ProjectScanCapacityBusyError())).toBe("scan_busy");
     expect(result).toMatchObject({
       status: "unavailable",
       failureCategory: "scan_busy",
     });
-    expect(result.output).toMatch(/already running.*before retrying/i);
+    expect(result.output).toMatch(/already running or shared scan capacity is full/i);
     expect(result).not.toHaveProperty("source");
   });
 
