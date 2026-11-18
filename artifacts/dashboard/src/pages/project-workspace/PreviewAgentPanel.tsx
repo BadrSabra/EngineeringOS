@@ -1,6 +1,7 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Copy, KeyRound, RefreshCw, ShieldAlert, X } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
+import { describePreviewAgentHeartbeatAge } from "./preview-agent-heartbeat-presentation";
 
 type PreviewAgentNode = {
   nodeId: string;
@@ -422,11 +423,19 @@ function PreviewAgentPanelSession({ projectId }: { projectId: string }) {
                   </span>
                 </div>
                 <p className="mt-1.5 text-[11px] text-slate-500">
-                  {agent.lastSeenAt
-                    ? `آخر نبضة مسجلة: ${formatDate(agent.lastSeenAt)}`
-                    : agent.status === "pending"
-                      ? `ينتهي الطلب: ${formatDate(agent.pairingExpiresAt)}`
-                      : "لم تُسجل نبضة بعد"}
+                  {agent.lastSeenAt ? (
+                    <>
+                      آخر نبضة مسجلة: {formatDate(agent.lastSeenAt)}
+                      <span className="mx-1" aria-hidden="true">·</span>
+                      <span data-testid={`preview-agent-heartbeat-age-${agent.nodeId}`}>
+                        العمر الزمني للنبضة: {describePreviewAgentHeartbeatAge(agent.lastSeenAt)}
+                      </span>
+                    </>
+                  ) : agent.status === "pending" ? (
+                    `ينتهي الطلب: ${formatDate(agent.pairingExpiresAt)}`
+                  ) : (
+                    "لم تُسجل نبضة بعد"
+                  )}
                 </p>
                 {agent.publicKeyFingerprint && (
                   <p className="mt-1 break-all text-[10px] text-slate-600" dir="ltr">
