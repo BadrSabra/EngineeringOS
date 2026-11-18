@@ -117,6 +117,15 @@ export default function ProjectWorkspace() {
     },
   });
 
+  function refreshWorkspace() {
+    void refetch();
+    if (latestExecutionId) {
+      void queryClient.invalidateQueries({
+        queryKey: getGetAiExecutionQueryKey(latestExecutionId),
+      });
+    }
+  }
+
   if (isLoading) return <WorkspaceSkeleton />;
   if (isError || !snapshot) {
     return (
@@ -148,7 +157,7 @@ export default function ProjectWorkspace() {
             <span>المشاريع</span><span aria-hidden="true" className="text-slate-600">/</span>
             <span className="truncate text-slate-300">{project.name}</span>
           </div>
-          <button type="button" className="workspace-refresh" onClick={() => void refetch()} disabled={isFetching}>
+          <button type="button" className="workspace-refresh" onClick={refreshWorkspace} disabled={isFetching}>
             <RefreshCw className={`h-3.5 w-3.5 ${isFetching ? 'animate-spin' : ''}`} />
             <span>{isFetching ? 'جارٍ التحديث' : 'تحديث الحالة'}</span>
           </button>
