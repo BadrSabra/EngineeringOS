@@ -19,7 +19,7 @@ const publicKeyPem = keys.publicKey.export({
 
 function claims(): PreviewBuildJobClaims {
   return {
-    version: 2,
+    version: 3,
     action: "preview-build",
     jobId: "11234567-89ab-42cd-8abc-0123456789ab",
     buildId: "01234567-89ab-42cd-8abc-0123456789ab",
@@ -40,6 +40,8 @@ function claims(): PreviewBuildJobClaims {
     attemptId: "11234567-89ab-42cd-8abc-0123456789ab",
     idempotencyKey: "21234567-89ab-42cd-8abc-0123456789ab",
     dispatchGeneration: 1,
+    inputArtifactProvider: "s3",
+    outputArtifactProvider: "s3",
     issuedAt: now.toISOString(),
     expiresAt: new Date(now.getTime() + 5 * 60_000).toISOString(),
   };
@@ -81,6 +83,51 @@ function legacyTokenFor(): string {
   return `${payload.toString("base64url")}.${signature.toString("base64url")}`;
 }
 
+function legacyV2TokenFor(): string {
+  const current = claims();
+  const fields = [
+    "version",
+    "action",
+    "jobId",
+    "buildId",
+    "builderProfile",
+    "builderImageDigest",
+    "projectId",
+    "proposalId",
+    "operationId",
+    "proposalRevision",
+    "candidateRevision",
+    "changeSetHash",
+    "sourceRoot",
+    "sourceDigest",
+    "inputArtifactKey",
+    "archiveDigest",
+    "outputArtifactKey",
+    "attemptId",
+    "idempotencyKey",
+    "dispatchGeneration",
+    "issuedAt",
+    "expiresAt",
+  ];
+  const currentRecord = current as unknown as Record<string, unknown>;
+  const v2 = Object.fromEntries(
+    fields.map((field) => [
+      field,
+      field === "version" ? 2 : currentRecord[field],
+    ]),
+  );
+  const payload = Buffer.from(JSON.stringify(v2), "utf8");
+  const signature = signBytes(
+    null,
+    Buffer.concat([
+      Buffer.from("EngineeringOS Preview Build Job v2\n", "utf8"),
+      payload,
+    ]),
+    privateKeyPem,
+  );
+  return `${payload.toString("base64url")}.${signature.toString("base64url")}`;
+}
+
 function tokenFor(value = claims()) {
   return signPreviewBuildJob({
     claims: value,
@@ -110,6 +157,41 @@ describe("Preview build job contract", () => {
     expect(
       builder.verifyPreviewBuildJobToken(token, publicKeyPem, now),
     ).toEqual(value);
+  });
+
+  it("signs V2 claims for durable V2 jobs without provider fields", async () => {
+    const current = claims();
+    if (current.version !== 3) throw new Error("Expected V3 fixture.");
+    const {
+      version: _version,
+      inputArtifactProvider: _inputProvider,
+      outputArtifactProvider: _outputProvider,
+      ...shared
+    } = current;
+    const v2: PreviewBuildJobClaims = {
+      ...shared,
+      version: 2,
+    };
+
+    const token = tokenFor(v2);
+    const verified = verifyPreviewBuildJob({
+      token,
+      publicKeyPem,
+      now,
+    });
+
+    expect(verified).toEqual(v2);
+    expect(verified.version).toBe(2);
+
+    const builder = await import(
+      new URL(
+        "../../../../infra/aws-preview/builder/job-contract.mjs",
+        import.meta.url,
+      ).href
+    );
+    expect(
+      builder.verifyPreviewBuildJobToken(token, publicKeyPem, now),
+    ).toEqual(v2);
   });
 
   it("rejects altered signatures, noncanonical payloads, and unsupported fields", () => {
@@ -158,7 +240,7 @@ describe("Preview build job contract", () => {
     ).toThrow("Preview build job is invalid or unavailable.");
   });
 
-  it("requires V2 output paths to match the signed dispatch generation", () => {
+  it("requires versioned output paths to match the signed dispatch generation", () => {
     const generationTwo = {
       ...claims(),
       dispatchGeneration: 2,
@@ -182,7 +264,38 @@ describe("Preview build job contract", () => {
         publicKeyPem,
         now,
       }),
-    ).toMatchObject({ dispatchGeneration: 2, outputArtifactKey: current.outputArtifactKey });
+    ).toMatchObject({
+      dispatchGeneration: 2,
+      outputArtifactKey: current.outputArtifactKey,
+    });
+  });
+
+  it("binds artifact providers and rejects a Local claim at the AWS Builder", async () => {
+    const localClaim = {
+      ...claims(),
+      inputArtifactProvider: "local" as const,
+    };
+    expect(
+      verifyPreviewBuildJob({
+        token: tokenFor(localClaim),
+        publicKeyPem,
+        now,
+      }),
+    ).toMatchObject({ inputArtifactProvider: "local" });
+
+    const builder = await import(
+      new URL(
+        "../../../../infra/aws-preview/builder/job-contract.mjs",
+        import.meta.url,
+      ).href
+    );
+    expect(() =>
+      builder.verifyPreviewBuildJobToken(
+        tokenFor(localClaim),
+        publicKeyPem,
+        now,
+      ),
+    ).toThrow("Preview build job is invalid or unavailable.");
   });
 
   it("continues to verify short-lived v1 jobs without issuing new ones", async () => {
@@ -207,5 +320,20 @@ describe("Preview build job contract", () => {
     expect(
       builder.verifyPreviewBuildJobToken(token, publicKeyPem, now),
     ).toMatchObject({ version: 1 });
+  });
+
+  it("continues verifying V2 retry claims without issuing new ones", () => {
+    const token = legacyV2TokenFor();
+    expect(
+      verifyPreviewBuildJob({
+        token,
+        publicKeyPem,
+        now,
+      }),
+    ).toMatchObject({
+      version: 2,
+      jobId: "11234567-89ab-42cd-8abc-0123456789ab",
+      dispatchGeneration: 1,
+    });
   });
 });

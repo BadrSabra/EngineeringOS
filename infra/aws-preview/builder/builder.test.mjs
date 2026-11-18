@@ -25,7 +25,7 @@ import { parsePreviewStaticArchive } from "../runtime/server.mjs";
 const buildId = "01234567-89ab-42cd-8abc-0123456789ab";
 const signingKeys = generateKeyPairSync("ed25519");
 const buildJobSigningDomain = Buffer.from(
-  "EngineeringOS Preview Build Job v2\n",
+  "EngineeringOS Preview Build Job v3\n",
   "utf8",
 );
 const buildJobFields = [
@@ -49,6 +49,8 @@ const buildJobFields = [
   "attemptId",
   "idempotencyKey",
   "dispatchGeneration",
+  "inputArtifactProvider",
+  "outputArtifactProvider",
   "issuedAt",
   "expiresAt",
 ];
@@ -244,7 +246,7 @@ function jobEnvironment(input) {
   );
   const now = new Date();
   const claims = {
-    version: 2,
+    version: 3,
     action: "preview-build",
     jobId: "11234567-89ab-42cd-8abc-0123456789ab",
     buildId,
@@ -264,6 +266,8 @@ function jobEnvironment(input) {
     attemptId: "11234567-89ab-42cd-8abc-0123456789ab",
     idempotencyKey: "21234567-89ab-42cd-8abc-0123456789ab",
     dispatchGeneration: 1,
+    inputArtifactProvider: "s3",
+    outputArtifactProvider: "s3",
     issuedAt: now.toISOString(),
     expiresAt: new Date(now.getTime() + 5 * 60_000).toISOString(),
   };

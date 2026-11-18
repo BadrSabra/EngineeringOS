@@ -4,7 +4,9 @@ import {
   PreviewRunnerCommandError,
   isVerifiedPreviewRunnerCommandV1,
   previewRuntimeProfileDigest,
+  signPreviewRunnerPollProofV1,
   signPreviewRunnerCommandV1,
+  verifyPreviewRunnerPollProofV1,
   verifyPreviewRunnerCommandV1,
   type PreviewRunnerCommandBindingV1,
   type PreviewRunnerObserveCommandV1,
@@ -210,6 +212,49 @@ function sign(command: unknown): string {
 }
 
 describe("provider-neutral Preview Runner command contract", () => {
+  it("binds a short-lived poll proof to one node, session, and lease owner", () => {
+    const proof = {
+      version: 1 as const,
+      action: "poll-preview-session-command" as const,
+      nodeId: UUID_A,
+      keyVersion: 2,
+      sessionId: UUID_B,
+      leaseOwner: UUID_C,
+      issuedAt: NOW.toISOString(),
+      nonce: UUID_D,
+    };
+    const signature = signPreviewRunnerPollProofV1({
+      proof,
+      privateKeyPem,
+      now: NOW,
+    });
+
+    expect(
+      verifyPreviewRunnerPollProofV1({
+        proof,
+        signature,
+        publicKeyPem,
+        now: NOW,
+      }),
+    ).toEqual(proof);
+    expect(() =>
+      verifyPreviewRunnerPollProofV1({
+        proof: { ...proof, leaseOwner: UUID_E },
+        signature,
+        publicKeyPem,
+        now: NOW,
+      }),
+    ).toThrowError(PreviewRunnerCommandError);
+    expect(() =>
+      verifyPreviewRunnerPollProofV1({
+        proof,
+        signature,
+        publicKeyPem: otherPublicKeyPem,
+        now: NOW,
+      }),
+    ).toThrowError(PreviewRunnerCommandError);
+  });
+
   it("signs and verifies a strictly bound start command", () => {
     const command = startCommand();
     const verified = verifyPreviewRunnerCommandV1({

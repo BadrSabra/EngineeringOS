@@ -14,6 +14,10 @@ const SIGNING_DOMAIN_V2 = Buffer.from(
   "EngineeringOS Preview Build Receipt v2\n",
   "utf8",
 );
+const SIGNING_DOMAIN_V3 = Buffer.from(
+  "EngineeringOS Preview Build Receipt v3\n",
+  "utf8",
+);
 const MAX_TOKEN_LENGTH = 8_192;
 const MAX_RECEIPT_TTL_MS = 2 * 60_000;
 const CLOCK_SKEW_MS = 5_000;
@@ -39,27 +43,42 @@ type PreviewBuildReceiptClaimsBase = PreviewBuildInputIdentity & {
   expiresAt: string;
 };
 
-export type LegacyPreviewBuildReceiptClaims =
-  PreviewBuildReceiptClaimsBase & {
-    version: 1;
-  };
+export type LegacyPreviewBuildReceiptClaims = PreviewBuildReceiptClaimsBase & {
+  version: 1;
+};
 
 export type PreviewBuildReceiptClaims = PreviewBuildReceiptClaimsBase & {
-  version: 2;
+  version: 3;
   attemptId: string;
   idempotencyKey: string;
   dispatchGeneration: number;
+  inputArtifactProvider: "local" | "s3";
+  outputArtifactProvider: "local" | "s3";
 };
+
+export type LegacyPreviewBuildReceiptClaimsV2 =
+  PreviewBuildReceiptClaimsBase & {
+    version: 2;
+    attemptId: string;
+    idempotencyKey: string;
+    dispatchGeneration: number;
+  };
 
 export type AnyPreviewBuildReceiptClaims =
   | LegacyPreviewBuildReceiptClaims
+  | LegacyPreviewBuildReceiptClaimsV2
   | PreviewBuildReceiptClaims;
 
-export type VerifiedPreviewBuildReceipt = PreviewBuildReceiptClaims & {
-  readonly [verifiedReceiptBrand]: true;
-} | (LegacyPreviewBuildReceiptClaims & {
-  readonly [verifiedReceiptBrand]: true;
-});
+export type VerifiedPreviewBuildReceipt =
+  | (PreviewBuildReceiptClaims & {
+      readonly [verifiedReceiptBrand]: true;
+    })
+  | (LegacyPreviewBuildReceiptClaimsV2 & {
+      readonly [verifiedReceiptBrand]: true;
+    })
+  | (LegacyPreviewBuildReceiptClaims & {
+      readonly [verifiedReceiptBrand]: true;
+    });
 
 export class PreviewBuildReceiptError extends Error {
   constructor(
@@ -132,18 +151,27 @@ export function canonicalPreviewBuildReceiptPayload(
     expiresAt: receipt.expiresAt,
   };
   return JSON.stringify(
-    receipt.version === 2
+    receipt.version === 2 || receipt.version === 3
       ? {
           ...base,
           attemptId: receipt.attemptId,
           idempotencyKey: receipt.idempotencyKey,
           dispatchGeneration: receipt.dispatchGeneration,
+          ...(receipt.version === 3
+            ? {
+                inputArtifactProvider: receipt.inputArtifactProvider,
+                outputArtifactProvider: receipt.outputArtifactProvider,
+              }
+            : {}),
         }
       : base,
   );
 }
 
-function validateReceipt(value: unknown, now: Date): AnyPreviewBuildReceiptClaims {
+function validateReceipt(
+  value: unknown,
+  now: Date,
+): AnyPreviewBuildReceiptClaims {
   if (
     !value ||
     typeof value !== "object" ||
@@ -180,12 +208,20 @@ function validateReceipt(value: unknown, now: Date): AnyPreviewBuildReceiptClaim
     "dispatchGeneration",
     ...allowedKeysV1.slice(4),
   ];
+  const allowedKeysV3 = [
+    ...allowedKeysV2.slice(0, -2),
+    "inputArtifactProvider",
+    "outputArtifactProvider",
+    ...allowedKeysV2.slice(-2),
+  ];
   const allowedKeys =
     record.version === 1
       ? allowedKeysV1
       : record.version === 2
         ? allowedKeysV2
-        : undefined;
+        : record.version === 3
+          ? allowedKeysV3
+          : undefined;
   if (
     !allowedKeys ||
     Object.keys(record).length !== allowedKeys.length ||
@@ -216,13 +252,18 @@ function validateReceipt(value: unknown, now: Date): AnyPreviewBuildReceiptClaim
     !isPreviewBuildOutputArtifactKey(record.outputArtifactKey) ||
     !canonicalTimestamp(record.issuedAt) ||
     !canonicalTimestamp(record.expiresAt) ||
-    (record.version === 2 &&
+    ((record.version === 2 || record.version === 3) &&
       (typeof record.attemptId !== "string" ||
         !UUID_PATTERN.test(record.attemptId) ||
         typeof record.idempotencyKey !== "string" ||
         !UUID_PATTERN.test(record.idempotencyKey) ||
         !Number.isSafeInteger(record.dispatchGeneration) ||
-        (record.dispatchGeneration as number) < 1))
+        (record.dispatchGeneration as number) < 1)) ||
+    (record.version === 3 &&
+      ((record.inputArtifactProvider !== "local" &&
+        record.inputArtifactProvider !== "s3") ||
+        (record.outputArtifactProvider !== "local" &&
+          record.outputArtifactProvider !== "s3")))
   ) {
     throw new PreviewBuildReceiptError("PREVIEW_BUILD_RECEIPT_INVALID");
   }
@@ -257,15 +298,25 @@ function validateReceipt(value: unknown, now: Date): AnyPreviewBuildReceiptClaim
     issuedAt: record.issuedAt as string,
     expiresAt: record.expiresAt as string,
   };
-  return record.version === 2
+  return record.version === 3
     ? {
         ...common,
-        version: 2,
+        version: 3,
         attemptId: record.attemptId as string,
         idempotencyKey: record.idempotencyKey as string,
         dispatchGeneration: record.dispatchGeneration as number,
+        inputArtifactProvider: record.inputArtifactProvider as "local" | "s3",
+        outputArtifactProvider: record.outputArtifactProvider as "local" | "s3",
       }
-    : { ...common, version: 1 };
+    : record.version === 2
+      ? {
+          ...common,
+          version: 2,
+          attemptId: record.attemptId as string,
+          idempotencyKey: record.idempotencyKey as string,
+          dispatchGeneration: record.dispatchGeneration as number,
+        }
+      : { ...common, version: 1 };
 }
 
 function decodeCanonicalBase64Url(value: string): Buffer | undefined {
@@ -284,9 +335,12 @@ export function verifyPreviewBuildReceipt(input: {
     builderImageDigest: string;
     buildId: string;
     outputArtifactKey: string;
+    contractVersion?: 2 | 3;
     attemptId?: string;
     idempotencyKey?: string;
     dispatchGeneration?: number;
+    inputArtifactProvider?: "local" | "s3";
+    outputArtifactProvider?: "local" | "s3";
   };
   now?: Date;
 }): VerifiedPreviewBuildReceipt {
@@ -359,7 +413,11 @@ export function verifyPreviewBuildReceipt(input: {
     !verifySignature(
       null,
       Buffer.concat([
-        receipt.version === 1 ? SIGNING_DOMAIN_V1 : SIGNING_DOMAIN_V2,
+        receipt.version === 1
+          ? SIGNING_DOMAIN_V1
+          : receipt.version === 2
+            ? SIGNING_DOMAIN_V2
+            : SIGNING_DOMAIN_V3,
         canonical,
       ]),
       key,
@@ -384,6 +442,9 @@ export function verifyPreviewBuildReceipt(input: {
     receipt.buildId !== expected.buildId ||
     receipt.outputArtifactKey !== expected.outputArtifactKey ||
     receipt.builderImageDigest !== expected.builderImageDigest ||
+    (expected.contractVersion !== undefined &&
+      receipt.version !== expected.contractVersion &&
+      !(expected.contractVersion === 2 && receipt.version === 1)) ||
     (receipt.version === 1 &&
       expected.dispatchGeneration !== undefined &&
       expected.dispatchGeneration !== 1) ||
@@ -391,6 +452,16 @@ export function verifyPreviewBuildReceipt(input: {
       (receipt.attemptId !== expected.attemptId ||
         receipt.idempotencyKey !== expected.idempotencyKey ||
         receipt.dispatchGeneration !== expected.dispatchGeneration ||
+        !isPreviewBuildOutputArtifactKey(receipt.outputArtifactKey, {
+          buildId: receipt.buildId,
+          dispatchGeneration: receipt.dispatchGeneration,
+        }))) ||
+    (receipt.version === 3 &&
+      (receipt.attemptId !== expected.attemptId ||
+        receipt.idempotencyKey !== expected.idempotencyKey ||
+        receipt.dispatchGeneration !== expected.dispatchGeneration ||
+        receipt.inputArtifactProvider !== expected.inputArtifactProvider ||
+        receipt.outputArtifactProvider !== expected.outputArtifactProvider ||
         !isPreviewBuildOutputArtifactKey(receipt.outputArtifactKey, {
           buildId: receipt.buildId,
           dispatchGeneration: receipt.dispatchGeneration,

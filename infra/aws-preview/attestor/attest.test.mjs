@@ -73,6 +73,13 @@ const jobFieldsV2 = [
   "issuedAt",
   "expiresAt",
 ];
+const jobFieldsV3 = [
+  ...jobFieldsV2.slice(0, -2),
+  "inputArtifactProvider",
+  "outputArtifactProvider",
+  "issuedAt",
+  "expiresAt",
+];
 
 function signedJobToken() {
   const claims = {
@@ -149,6 +156,54 @@ function signedJobTokenV2({
     null,
     Buffer.concat([
       Buffer.from("EngineeringOS Preview Build Job v2\n", "utf8"),
+      payload,
+    ]),
+    jobKeys.privateKey,
+  );
+  return `${payload.toString("base64url")}.${signature.toString("base64url")}`;
+}
+
+function signedJobTokenV3({
+  inputArtifactProvider = "s3",
+  outputArtifactProvider = "s3",
+  dispatchGeneration = 2,
+  outputArtifactKey = `preview-build-outputs/${buildId}/g2/site.tar.gz`,
+} = {}) {
+  const claims = {
+    version: 3,
+    action: "preview-build",
+    jobId,
+    buildId,
+    builderProfile: "vite-react-static-v1",
+    builderImageDigest,
+    projectId: "project-1",
+    proposalId: "proposal-1",
+    operationId: "operation-1",
+    proposalRevision: 3,
+    candidateRevision: "b".repeat(64),
+    changeSetHash: "c".repeat(64),
+    sourceRoot: "web",
+    sourceDigest: "d".repeat(64),
+    inputArtifactKey: `build-inputs/${"e".repeat(64)}/${"f".repeat(64)}.zip`,
+    archiveDigest: "f".repeat(64),
+    outputArtifactKey,
+    attemptId: jobId,
+    idempotencyKey: "21234567-89ab-42cd-8abc-0123456789ab",
+    dispatchGeneration,
+    inputArtifactProvider,
+    outputArtifactProvider,
+    issuedAt: now.toISOString(),
+    expiresAt: new Date(now.getTime() + 5 * 60_000).toISOString(),
+  };
+  const payload = Buffer.from(
+    JSON.stringify(
+      Object.fromEntries(jobFieldsV3.map((key) => [key, claims[key]])),
+    ),
+  );
+  const signature = signBytes(
+    null,
+    Buffer.concat([
+      Buffer.from("EngineeringOS Preview Build Job v3\n", "utf8"),
       payload,
     ]),
     jobKeys.privateKey,
@@ -339,6 +394,51 @@ test("attests output in the exact dispatch-generation prefix", async () => {
       .outputArtifactKey,
     outputArtifactKey,
   );
+});
+
+test("attests V3 claims with both artifact providers bound into the receipt", async () => {
+  const deps = dependencies();
+  const result = await attestPreviewBuild({
+    jobToken: signedJobTokenV3(),
+    taskArn,
+    config: validConfig(),
+    ...deps,
+  });
+  assert.equal(result.outputDigest, outputDigest);
+  const record = JSON.parse(deps.stored[0].body.toString("utf8"));
+  const [payloadPart, signaturePart] = record.token.split(".");
+  const receipt = JSON.parse(
+    Buffer.from(payloadPart, "base64url").toString("utf8"),
+  );
+  assert.equal(receipt.version, 3);
+  assert.equal(receipt.inputArtifactProvider, "s3");
+  assert.equal(receipt.outputArtifactProvider, "s3");
+  assert.equal(
+    verifyBytes(
+      null,
+      Buffer.concat([
+        Buffer.from("EngineeringOS Preview Build Receipt v3\n", "utf8"),
+        Buffer.from(canonicalPreviewBuildReceiptPayload(receipt)),
+      ]),
+      receiptPublicKey,
+      Buffer.from(signaturePart, "base64url"),
+    ),
+    true,
+  );
+});
+
+test("rejects V3 artifact providers unsupported by the AWS Attestor", async () => {
+  const deps = dependencies();
+  await assert.rejects(
+    attestPreviewBuild({
+      jobToken: signedJobTokenV3({ inputArtifactProvider: "local" }),
+      taskArn,
+      config: validConfig(),
+      ...deps,
+    }),
+    { code: "PREVIEW_ATTESTOR_JOB_REJECTED" },
+  );
+  assert.equal(deps.stored.length, 0);
 });
 
 test("rejects a V2 claim whose output path belongs to another generation", async () => {

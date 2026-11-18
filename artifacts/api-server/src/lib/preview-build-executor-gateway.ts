@@ -1,9 +1,5 @@
-import {
-  observePreviewBuildJob,
-} from "./preview-build-observation-client.js";
-import {
-  dispatchPreviewBuilderJob,
-} from "./preview-builder-gateway-client.js";
+import { observePreviewBuildJob } from "./preview-build-observation-client.js";
+import { dispatchPreviewBuilderJob } from "./preview-builder-gateway-client.js";
 import { uploadPreviewBuildInput } from "./preview-build-input-client.js";
 import type {
   PreviewBuildExecutor,
@@ -23,6 +19,8 @@ export function createPreviewBuildGatewayExecutor(
   config: PreviewBuildGatewayExecutorConfig,
 ): PreviewBuildExecutor {
   return {
+    inputArtifactProvider: "s3",
+    outputArtifactProvider: "s3",
     launch: ({ claims, now }) =>
       dispatchPreviewBuilderJob({
         gatewayUrl: config.gatewayUrl,
@@ -44,6 +42,7 @@ export function createPreviewBuildGatewayInputArtifactStore(
   config: PreviewBuildGatewayExecutorConfig,
 ): PreviewBuildInputArtifactStore {
   return {
+    provider: "s3",
     storeInput: ({ jobId, identity, buildInput, now }) =>
       uploadPreviewBuildInput({
         gatewayUrl: config.gatewayUrl,

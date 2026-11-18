@@ -137,7 +137,7 @@ function validateBuildJob(
     claims.builderImageDigest !== config.builderConfig.imageDigest ||
     !isPreviewBuildOutputArtifactKey(claims.outputArtifactKey, {
       buildId: claims.buildId,
-      dispatchGeneration: claims.version === 2 ? claims.dispatchGeneration : 1,
+      dispatchGeneration: claims.version === 1 ? 1 : claims.dispatchGeneration,
     })
   ) {
     reject("PREVIEW_BUILD_ATTESTOR_JOB_REJECTED");
@@ -271,6 +271,12 @@ function launchFingerprint(input: {
         inputArtifactKey: input.claims.inputArtifactKey,
         archiveDigest: input.claims.archiveDigest,
         outputArtifactKey: input.claims.outputArtifactKey,
+        ...(input.claims.version === 3
+          ? {
+              inputArtifactProvider: input.claims.inputArtifactProvider,
+              outputArtifactProvider: input.claims.outputArtifactProvider,
+            }
+          : {}),
         builderTaskArn: input.builderTaskArn,
         attestorTaskDefinitionArn: input.config.taskDefinitionArn,
         attestorImageDigest: input.config.imageDigest,

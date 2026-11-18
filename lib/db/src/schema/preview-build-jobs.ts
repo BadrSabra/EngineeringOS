@@ -123,6 +123,10 @@ export const previewBuildJobsTable = pgTable(
     dispatchGeneration: integer("dispatch_generation")
       .notNull()
       .default(1),
+    contractVersion: integer("contract_version")
+      .$type<2 | 3>()
+      .notNull()
+      .default(2),
     // Legacy physical column retained to avoid a data migration; application code
     // treats this as an opaque execution reference.
     executionRef: text("builder_task_arn"),
@@ -153,6 +157,17 @@ export const previewBuildJobsTable = pgTable(
     check(
       "chk_preview_build_jobs_dispatch_generation_positive",
       sql`${table.dispatchGeneration} > 0`,
+    ),
+    check(
+      "chk_preview_build_jobs_contract_version_supported",
+      sql`${table.contractVersion} >= 2 AND ${table.contractVersion} <= 3`,
+    ),
+    check(
+      "chk_preview_build_jobs_v2_s3_only",
+      sql`${table.contractVersion} <> 2 OR (
+        ${table.inputArtifactProvider} = 's3'
+        AND ${table.outputArtifactProvider} = 's3'
+      )`,
     ),
     check(
       "chk_preview_build_jobs_reconciliation_lease_pair",
@@ -291,6 +306,7 @@ export const insertPreviewBuildJobSchema = createInsertSchema(
   buildReceiptId: true,
   failureCode: true,
   dispatchGeneration: true,
+  contractVersion: true,
   stateVersion: true,
   reconciliationLeaseOwner: true,
   reconciliationLeaseExpiresAt: true,

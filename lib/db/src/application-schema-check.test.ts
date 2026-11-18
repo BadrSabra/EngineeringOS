@@ -128,6 +128,12 @@ function completeSnapshot() {
       return "'starting'::preview_session_status";
     }
     if (
+      tableName === "preview_sessions" &&
+      columnName === "execution_provider"
+    ) {
+      return "'aws_ecs'::text";
+    }
+    if (
       tableName === "preview_agent_nodes" &&
       columnName === "status"
     ) {
@@ -150,6 +156,12 @@ function completeSnapshot() {
     }
     if (tableName === "preview_sessions" && columnName === "state_version") {
       return "0";
+    }
+    if (
+      tableName === "preview_sessions" &&
+      ["execution_generation", "fencing_generation"].includes(columnName)
+    ) {
+      return "1";
     }
     if (tableName === "preview_build_jobs" && columnName === "status") {
       return "'queued'::preview_build_job_status";
@@ -180,6 +192,18 @@ function completeSnapshot() {
       columnName === "dispatch_generation"
     ) {
       return "1";
+    }
+    if (
+      tableName === "preview_build_jobs" &&
+      columnName === "contract_version"
+    ) {
+      return "2";
+    }
+    if (
+      tableName === "preview_build_jobs" &&
+      columnName === "contract_version"
+    ) {
+      return "2";
     }
     if (tableName === "project_bootstrap_jobs" && columnName === "attempt") {
       return "0";
@@ -1209,6 +1233,126 @@ describe("application schema contract", () => {
           issue.tableName === "preview_build_jobs" &&
           issue.objectName ===
             "chk_preview_build_jobs_output_local_metadata",
+      ),
+    );
+  });
+
+  it("requires provider-neutral Preview session fencing and Runner bindings", () => {
+    const snapshot = completeSnapshot();
+    const missingMessageDigest = findApplicationSchemaIssues({
+      ...snapshot,
+      columns: snapshot.columns.filter(
+        (column) =>
+          !(
+            column.table_name === "preview_sessions" &&
+            column.column_name === "runner_message_digest"
+          ),
+      ),
+    });
+    assert.ok(
+      missingMessageDigest.some(
+        (issue) =>
+          issue.kind === "missing_column" &&
+          issue.tableName === "preview_sessions" &&
+          issue.objectName === "runner_message_digest",
+      ),
+    );
+
+    const missingMessageProjection = findApplicationSchemaIssues({
+      ...snapshot,
+      columns: snapshot.columns.filter(
+        (column) =>
+          !(
+            column.table_name === "preview_sessions" &&
+            column.column_name === "runner_message_projection"
+          ),
+      ),
+    });
+    assert.ok(
+      missingMessageProjection.some(
+        (issue) =>
+          issue.kind === "missing_column" &&
+          issue.tableName === "preview_sessions" &&
+          issue.objectName === "runner_message_projection",
+      ),
+    );
+
+    const weakenedMessagePair = findApplicationSchemaIssues({
+      ...snapshot,
+      checkConstraints: snapshot.checkConstraints.map((constraint) =>
+        constraint.constraint_name ===
+        "chk_preview_sessions_runner_message_pair"
+          ? {
+              ...constraint,
+              definition:
+                "CHECK (runner_message_id IS NULL OR runner_message_id IS NOT NULL)",
+            }
+          : constraint,
+      ),
+    });
+    assert.ok(
+      weakenedMessagePair.some(
+        (issue) =>
+          issue.kind === "incompatible_check_constraint" &&
+          issue.tableName === "preview_sessions" &&
+          issue.objectName === "chk_preview_sessions_runner_message_pair",
+      ),
+    );
+
+    const weakenedRunnerLeasePair = findApplicationSchemaIssues({
+      ...snapshot,
+      checkConstraints: snapshot.checkConstraints.map((constraint) =>
+        constraint.constraint_name === "chk_preview_sessions_runner_lease_pair"
+          ? {
+              ...constraint,
+              definition:
+                "CHECK ((runner_lease_owner IS NULL) = (runner_lease_expires_at IS NULL))",
+            }
+          : constraint,
+      ),
+    });
+    assert.ok(
+      weakenedRunnerLeasePair.some(
+        (issue) =>
+          issue.kind === "incompatible_check_constraint" &&
+          issue.tableName === "preview_sessions" &&
+          issue.objectName === "chk_preview_sessions_runner_lease_pair",
+      ),
+    );
+
+    const missingProviderGuard = findApplicationSchemaIssues({
+      ...snapshot,
+      checkConstraints: snapshot.checkConstraints.filter(
+        (constraint) =>
+          constraint.constraint_name !==
+          "chk_preview_sessions_provider_binding",
+      ),
+    });
+    assert.ok(
+      missingProviderGuard.some(
+        (issue) =>
+          issue.kind === "missing_check_constraint" &&
+          issue.tableName === "preview_sessions" &&
+          issue.objectName === "chk_preview_sessions_provider_binding",
+      ),
+    );
+
+    const missingRunnerNodeOwnership = findApplicationSchemaIssues({
+      ...snapshot,
+      foreignKeys: snapshot.foreignKeys.filter(
+        (key) =>
+          !(
+            key.table_name === "preview_sessions" &&
+            key.column_name === "runner_node_id"
+          ),
+      ),
+    });
+    assert.ok(
+      missingRunnerNodeOwnership.some(
+        (issue) =>
+          issue.kind === "missing_foreign_key" &&
+          issue.tableName === "preview_sessions" &&
+          issue.objectName === "runner_node_id",
       ),
     );
   });

@@ -609,7 +609,66 @@ export const APPLICATION_SCHEMA_CONTRACT = {
         name: "task_definition_arn",
         dataType: "text",
         udtName: "text",
+        nullable: true,
+      },
+      {
+        name: "execution_provider",
+        dataType: "text",
+        udtName: "text",
         nullable: false,
+        defaultExpression: /'aws_ecs'/,
+      },
+      ...[
+        "execution_ref",
+        "runtime_profile_id",
+        "runtime_profile_digest",
+        "runner_message_digest",
+        "runner_lease_owner",
+      ].map((name) => ({
+        name,
+        dataType: "text",
+        udtName: "text",
+        nullable: true,
+      })),
+      {
+        name: "runner_message_projection",
+        dataType: "jsonb",
+        udtName: "jsonb",
+        nullable: true,
+      },
+      ...[
+        "runner_node_id",
+        "channel_ref",
+        "runner_command_id",
+        "runner_message_id",
+      ].map((name) => ({
+        name,
+        dataType: "uuid",
+        udtName: "uuid",
+        nullable: true,
+      })),
+      ...["runner_key_version", "execution_generation", "fencing_generation"].map(
+        (name) => ({
+          name,
+          dataType: "integer",
+          udtName: "int4",
+          nullable: name === "runner_key_version",
+          ...(name === "execution_generation" || name === "fencing_generation"
+            ? { defaultExpression: /1/ }
+            : {}),
+        }),
+      ),
+      {
+        name: "runner_lease_expires_at",
+        dataType: "timestamp with time zone",
+        udtName: "timestamptz",
+        nullable: true,
+      },
+      {
+        name: "runner_lease_proof_digest",
+        dataType: "text",
+        udtName: "text",
+        nullable: true,
       },
       {
         name: "build_job_id",
@@ -838,6 +897,13 @@ export const APPLICATION_SCHEMA_CONTRACT = {
         udtName: "int4",
         nullable: false,
         defaultExpression: /1/,
+      },
+      {
+        name: "contract_version",
+        dataType: "integer",
+        udtName: "int4",
+        nullable: false,
+        defaultExpression: /2/,
       },
       {
         name: "reconciliation_lease_owner",
@@ -2781,6 +2847,29 @@ export const APPLICATION_SCHEMA_CONTRACT = {
       unique: true,
     },
     {
+      name: "uq_preview_sessions_execution_provider_ref",
+      tableName: "preview_sessions",
+      columns: ["execution_provider", "execution_ref"],
+      unique: true,
+    },
+    {
+      name: "uq_preview_sessions_runner_command_id",
+      tableName: "preview_sessions",
+      columns: ["runner_command_id"],
+      unique: true,
+    },
+    {
+      name: "uq_preview_sessions_runner_message_id",
+      tableName: "preview_sessions",
+      columns: ["runner_message_id"],
+      unique: true,
+    },
+    {
+      name: "idx_preview_sessions_runner_lease",
+      tableName: "preview_sessions",
+      columns: ["execution_provider", "status", "runner_lease_expires_at"],
+    },
+    {
       name: "preview_build_jobs_pkey",
       tableName: "preview_build_jobs",
       columns: ["job_id"],
@@ -3416,6 +3505,40 @@ export const APPLICATION_SCHEMA_CONTRACT = {
   ] satisfies readonly IndexContract[],
   checks: [
     {
+      name: "chk_preview_sessions_execution_provider",
+      tableName: "preview_sessions",
+      definitionPattern: /execution_provider.*'aws_ecs'.*'local_agent'/i,
+    },
+    {
+      name: "chk_preview_sessions_execution_generation_positive",
+      tableName: "preview_sessions",
+      definitionPattern: /execution_generation > 0.*fencing_generation > 0/i,
+    },
+    {
+      name: "chk_preview_sessions_provider_binding",
+      tableName: "preview_sessions",
+      definitionPattern:
+        /execution_provider.*'aws_ecs'.*task_definition_arn.*is not null.*execution_provider.*'local_agent'.*task_definition_arn.*is null.*runner_node_id.*is not null.*runner_key_version.*is not null.*runtime_profile_id.*is not null.*runtime_profile_digest.*is not null.*channel_ref.*is not null/i,
+    },
+    {
+      name: "chk_preview_sessions_local_execution_ref_ready",
+      tableName: "preview_sessions",
+      definitionPattern:
+        /execution_provider <> 'local_agent'.*status <> 'ready'.*execution_ref is not null/i,
+    },
+    {
+      name: "chk_preview_sessions_runner_message_pair",
+      tableName: "preview_sessions",
+      definitionPattern:
+        /runner_message_id is null.*runner_message_digest is null.*runner_message_projection is null.*runner_command_id is not null.*runner_message_id is not null.*runner_message_digest is not null.*runner_message_projection is not null/i,
+    },
+    {
+      name: "chk_preview_sessions_runner_lease_pair",
+      tableName: "preview_sessions",
+      definitionPattern:
+        /runner_lease_owner is null.*runner_lease_expires_at is null.*runner_lease_proof_digest is null.*runner_command_id is not null.*runner_lease_owner is not null.*runner_lease_expires_at is not null.*runner_lease_proof_digest is not null/i,
+    },
+    {
       name: "chk_preview_agent_nodes_heartbeat_challenge_pair",
       tableName: "preview_agent_nodes",
       definitionPattern:
@@ -3431,6 +3554,17 @@ export const APPLICATION_SCHEMA_CONTRACT = {
       name: "chk_preview_build_jobs_dispatch_generation_positive",
       tableName: "preview_build_jobs",
       definitionPattern: /dispatch_generation > 0/i,
+    },
+    {
+      name: "chk_preview_build_jobs_contract_version_supported",
+      tableName: "preview_build_jobs",
+      definitionPattern: /contract_version >= 2.*contract_version <= 3/i,
+    },
+    {
+      name: "chk_preview_build_jobs_v2_s3_only",
+      tableName: "preview_build_jobs",
+      definitionPattern:
+        /contract_version <> 2.*input_artifact_provider = 's3'.*output_artifact_provider = 's3'/i,
     },
     {
       name: "chk_preview_build_jobs_reconciliation_lease_pair",
@@ -3463,6 +3597,13 @@ export const APPLICATION_SCHEMA_CONTRACT = {
       columnName: "build_job_id",
       foreignTableName: "preview_build_jobs",
       foreignColumnName: "job_id",
+      deleteRule: "RESTRICT",
+    },
+    {
+      tableName: "preview_sessions",
+      columnName: "runner_node_id",
+      foreignTableName: "preview_agent_nodes",
+      foreignColumnName: "node_id",
       deleteRule: "RESTRICT",
     },
     {

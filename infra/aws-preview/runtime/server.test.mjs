@@ -8,6 +8,7 @@ import {
   parsePreviewStaticArchive,
   PreviewStaticRuntimeError,
   safePreviewRequestPath,
+  STATIC_PREVIEW_CSP_V1,
 } from "./server.mjs";
 
 function writeOctal(header, offset, length, value) {
@@ -154,11 +155,18 @@ describe("Preview static runtime", () => {
     const home = await fetch(origin);
     assert.equal(home.status, 200);
     assert.equal(await home.text(), "<main>preview</main>");
+    const contentSecurityPolicy = home.headers.get("content-security-policy");
+    assert.equal(contentSecurityPolicy, STATIC_PREVIEW_CSP_V1);
+    assert.match(contentSecurityPolicy ?? "", /connect-src 'none'/u);
+    assert.match(contentSecurityPolicy ?? "", /script-src 'self'/u);
+    assert.doesNotMatch(
+      contentSecurityPolicy ?? "",
+      /script-src[^;]*unsafe-inline/u,
+    );
+    assert.match(contentSecurityPolicy ?? "", /form-action 'none'/u);
     assert.equal(
-      home.headers
-        .get("content-security-policy")
-        ?.includes("connect-src 'self'"),
-      true,
+      home.headers.get("permissions-policy"),
+      "camera=(), microphone=(), geolocation=(), payment=(), usb=()",
     );
     assert.equal(home.headers.get("set-cookie"), null);
 

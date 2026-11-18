@@ -29,6 +29,14 @@ test("dispatch generation is durable, positive, and server-owned", () => {
   assert.equal("dispatchGeneration" in insertPreviewBuildJobSchema.shape, false);
 });
 
+test("job contract version defaults legacy rows to v2 and stays server-owned", () => {
+  const columns = getTableColumns(previewBuildJobsTable);
+
+  assert.equal(columns.contractVersion.notNull, true);
+  assert.equal(columns.contractVersion.default, 2);
+  assert.equal("contractVersion" in insertPreviewBuildJobSchema.shape, false);
+});
+
 test("reconciliation leases are nullable and server-owned", () => {
   const columns = getTableColumns(previewBuildJobsTable);
 

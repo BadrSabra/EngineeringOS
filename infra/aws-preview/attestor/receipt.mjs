@@ -2,6 +2,7 @@ import { createPrivateKey, randomUUID, sign as signBytes } from "node:crypto";
 
 const DOMAIN_V1 = Buffer.from("EngineeringOS Preview Build Receipt v1\n");
 const DOMAIN_V2 = Buffer.from("EngineeringOS Preview Build Receipt v2\n");
+const DOMAIN_V3 = Buffer.from("EngineeringOS Preview Build Receipt v3\n");
 const RECEIPT_TTL_MS = 90_000;
 const HASH = /^[a-f0-9]{64}$/i;
 
@@ -47,12 +48,18 @@ export function canonicalPreviewBuildReceiptPayload(receipt) {
     expiresAt: receipt.expiresAt,
   };
   return JSON.stringify(
-    receipt.version === 2
+    receipt.version === 2 || receipt.version === 3
       ? {
           ...base,
           attemptId: receipt.attemptId,
           idempotencyKey: receipt.idempotencyKey,
           dispatchGeneration: receipt.dispatchGeneration,
+          ...(receipt.version === 3
+            ? {
+                inputArtifactProvider: receipt.inputArtifactProvider,
+                outputArtifactProvider: receipt.outputArtifactProvider,
+              }
+            : {}),
         }
       : base,
   );
@@ -68,8 +75,8 @@ export function signPreviewBuildReceipt({
     !claims ||
     claims.action !== "preview-build" ||
     claims.builderProfile !== "vite-react-static-v1" ||
-    ![1, 2].includes(claims.version) ||
-    (claims.version === 2 &&
+    ![1, 2, 3].includes(claims.version) ||
+    ((claims.version === 2 || claims.version === 3) &&
       (claims.attemptId !== claims.jobId ||
         typeof claims.idempotencyKey !== "string" ||
         !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
@@ -77,6 +84,11 @@ export function signPreviewBuildReceipt({
         ) ||
         !Number.isSafeInteger(claims.dispatchGeneration) ||
         claims.dispatchGeneration < 1)) ||
+    (claims.version === 3 &&
+      ((claims.inputArtifactProvider !== "local" &&
+        claims.inputArtifactProvider !== "s3") ||
+        (claims.outputArtifactProvider !== "local" &&
+          claims.outputArtifactProvider !== "s3"))) ||
     !HASH.test(buildOutputDigest) ||
     !Number.isFinite(now.getTime())
   ) {
@@ -101,11 +113,17 @@ export function signPreviewBuildReceipt({
     outputArtifactKey: claims.outputArtifactKey,
     issuedAt: now.toISOString(),
     expiresAt: new Date(now.getTime() + RECEIPT_TTL_MS).toISOString(),
-    ...(claims.version === 2
+    ...(claims.version === 2 || claims.version === 3
       ? {
           attemptId: claims.attemptId,
           idempotencyKey: claims.idempotencyKey,
           dispatchGeneration: claims.dispatchGeneration,
+          ...(claims.version === 3
+            ? {
+                inputArtifactProvider: claims.inputArtifactProvider,
+                outputArtifactProvider: claims.outputArtifactProvider,
+              }
+            : {}),
         }
       : {}),
   };
@@ -115,7 +133,14 @@ export function signPreviewBuildReceipt({
   );
   const signature = signBytes(
     null,
-    Buffer.concat([receipt.version === 1 ? DOMAIN_V1 : DOMAIN_V2, payload]),
+    Buffer.concat([
+      receipt.version === 1
+        ? DOMAIN_V1
+        : receipt.version === 2
+          ? DOMAIN_V2
+          : DOMAIN_V3,
+      payload,
+    ]),
     requireSigningKey(privateKeyPem),
   );
   return {

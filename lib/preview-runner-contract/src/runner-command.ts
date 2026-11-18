@@ -12,9 +12,14 @@ const SIGNING_DOMAIN = Buffer.from(
   "EngineeringOS Preview Runner Command v1\n",
   "utf8",
 );
+const POLL_PROOF_DOMAIN = Buffer.from(
+  "EngineeringOS Preview Runner Poll Proof v1\n",
+  "utf8",
+);
 const MAX_TOKEN_LENGTH = 16_384;
 const MAX_PAYLOAD_BYTES = 12_288;
 const MAX_COMMAND_TTL_MS = 30_000;
+const MAX_POLL_PROOF_AGE_MS = 30_000;
 const MAX_SESSION_TTL_MS = 30 * 60_000;
 const CLOCK_SKEW_MS = 5_000;
 const UUID_PATTERN =
@@ -163,6 +168,32 @@ const commandSchema = z.discriminatedUnion("action", [
   stopCommandSchema,
 ]);
 
+const pollProofFields = [
+  "version",
+  "action",
+  "nodeId",
+  "keyVersion",
+  "sessionId",
+  "leaseOwner",
+  "issuedAt",
+  "nonce",
+] as const;
+
+const pollProofSchema = z
+  .object({
+    version: z.literal(1),
+    action: z.literal("poll-preview-session-command"),
+    nodeId: uuidSchema,
+    keyVersion: z.number().int().positive().max(1_000_000),
+    sessionId: uuidSchema,
+    leaseOwner: uuidSchema,
+    issuedAt: timestampSchema,
+    nonce: uuidSchema,
+  })
+  .strict();
+
+export type PreviewRunnerPollProofV1 = z.infer<typeof pollProofSchema>;
+
 export type PreviewArtifactRefV1 = z.infer<typeof artifactRefSchema>;
 export type PreviewRuntimeProfileV1 = z.infer<typeof runtimeProfileSchema>;
 export type PreviewRunnerResourceLimitsV1 = z.infer<
@@ -217,7 +248,10 @@ export class PreviewRunnerCommandError extends Error {
       | "RUNNER_COMMAND_SIGNATURE_INVALID"
       | "RUNNER_COMMAND_EXPIRED"
       | "RUNNER_COMMAND_BINDING_MISMATCH"
-      | "RUNNER_PROFILE_DIGEST_MISMATCH",
+      | "RUNNER_PROFILE_DIGEST_MISMATCH"
+      | "RUNNER_POLL_PROOF_INVALID"
+      | "RUNNER_POLL_PROOF_EXPIRED"
+      | "RUNNER_POLL_PROOF_SIGNATURE_INVALID",
   ) {
     super("Preview Runner command is invalid or unavailable.");
     this.name = "PreviewRunnerCommandError";
@@ -444,6 +478,84 @@ export function signPreviewRunnerCommandV1(input: {
     privateKey,
   );
   return `${encodeBase64Url(payload)}.${encodeBase64Url(signature)}`;
+}
+
+function parsePollProof(
+  value: unknown,
+  now: Date,
+): PreviewRunnerPollProofV1 {
+  const parsed = pollProofSchema.safeParse(value);
+  if (!parsed.success || !Number.isFinite(now.getTime())) {
+    throw new PreviewRunnerCommandError("RUNNER_POLL_PROOF_INVALID");
+  }
+  const issuedAt = Date.parse(parsed.data.issuedAt);
+  if (
+    issuedAt > now.getTime() + CLOCK_SKEW_MS ||
+    now.getTime() - issuedAt > MAX_POLL_PROOF_AGE_MS
+  ) {
+    throw new PreviewRunnerCommandError("RUNNER_POLL_PROOF_EXPIRED");
+  }
+  return parsed.data;
+}
+
+function canonicalPollProof(proof: PreviewRunnerPollProofV1): string {
+  return JSON.stringify(
+    Object.fromEntries(pollProofFields.map((field) => [field, proof[field]])),
+  );
+}
+
+export function signPreviewRunnerPollProofV1(input: {
+  proof: unknown;
+  privateKeyPem: string | undefined;
+  now?: Date;
+}): string {
+  const proof = parsePollProof(input.proof, input.now ?? new Date());
+  const privateKey = parseKey(input.privateKeyPem, "private");
+  const signature = sign(
+    null,
+    Buffer.concat([
+      POLL_PROOF_DOMAIN,
+      Buffer.from(canonicalPollProof(proof), "utf8"),
+    ]),
+    privateKey,
+  );
+  return encodeBase64Url(signature);
+}
+
+export function verifyPreviewRunnerPollProofV1(input: {
+  proof: unknown;
+  signature: string;
+  publicKeyPem: string | undefined;
+  now?: Date;
+}): PreviewRunnerPollProofV1 {
+  const proof = parsePollProof(input.proof, input.now ?? new Date());
+  const signature = decodeCanonicalBase64Url(input.signature);
+  if (!signature || signature.length !== 64) {
+    throw new PreviewRunnerCommandError("RUNNER_POLL_PROOF_INVALID");
+  }
+  const valid = verify(
+    null,
+    Buffer.concat([
+      POLL_PROOF_DOMAIN,
+      Buffer.from(canonicalPollProof(proof), "utf8"),
+    ]),
+    parseKey(input.publicKeyPem, "public"),
+    signature,
+  );
+  if (!valid) {
+    throw new PreviewRunnerCommandError(
+      "RUNNER_POLL_PROOF_SIGNATURE_INVALID",
+    );
+  }
+  return Object.freeze(proof);
+}
+
+export function previewRunnerCommandPublicKeyPem(
+  privateKeyPem: string | undefined,
+): string {
+  return createPublicKey(parseKey(privateKeyPem, "private"))
+    .export({ type: "spki", format: "pem" })
+    .toString();
 }
 
 export function verifyPreviewRunnerCommandV1(input: {

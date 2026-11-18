@@ -1,12 +1,17 @@
 # UXW-03 Runner Contract V1
 
 **Status:** Shared signed start/stop commands, signed Runner response/
-observation schemas, and a signed capability-snapshot verifier are implemented.
-Transport, durable replay/fencing, actual observation collection, Local Agent
-execution, and a qualified Runner remain unimplemented. The API has a
-server-owned qualification registry and persists accepted signed capability
-reports on the existing Agent node row; the registry is intentionally empty
-until a runtime and policy pass independent qualification.
+observation schemas, a signed capability-snapshot verifier, and a fail-closed
+signed-message acceptance endpoint and poll/lease command endpoint are
+implemented. They bind requests to the locked current Candidate, verified
+Build, active Agent key, qualified profile, command, execution/fencing
+generations, and live lease. A sanitized projection and token digests are
+retained on the existing Session row; bearer tokens are not stored. The profile
+and qualification registries are intentionally empty, the dedicated command
+signing key is not configured, and no local Session creator or Agent runtime
+exists. Therefore the endpoints cannot issue commands or run Candidate code.
+Stop-command issuance and independent Gateway observation also remain
+unimplemented.
 
 **Development-environment preflight (2026-11-13):** The current workspace runs
 as non-root UID 1000 and can reach Docker 27.5.1, but Docker reports only
@@ -19,6 +24,57 @@ started. It confirms that this workspace cannot qualify Backend Preview.
 Standard Docker/runc remains rejected for Candidate execution.
 
 **Authority:** Additive contract for UXW-03.1–03.4; it does not enable Backend Preview
+
+**Session schema foundation (2026-11-18):** The existing `preview_sessions` row
+now has provider-neutral execution identity, node/profile/channel binding,
+execution and fencing generations, current command/message replay fingerprints,
+latest verified message projection, and a paired Runner lease. Existing ECS
+rows keep `execution_provider = aws_ecs` by default and still require their real
+task-definition ARN; local rows have no ECS ARN and must satisfy the stronger
+Agent/profile binding check. The development database passed the application
+schema contract after the additive Session updates.
+
+**Signed message acceptance (2026-11-18):** The internal HTTPS-only,
+cookie-free `POST /api/internal/preview-sessions/:sessionId/runner-message`
+accepts only a bounded signed token. It reloads and locks Candidate, Build,
+Session, and Agent identities, verifies the fresh server-stored capability and
+profile digest, then checks the message against the current command, state
+version, execution generation, fencing generation, Candidate tuple, receipt,
+artifact, channel, active key version, and unexpired Agent lease. The exact
+accepted token digest makes a lost HTTP response retry-safe; unknown start
+outcomes keep the same state version so the same command can be reconciled.
+Only a typed verified projection is retained, never the signed bearer token.
+
+Acceptance does not make the Session ready or stopped: signed Runner claims are
+provenance, not independent Gateway health or cleanup proof. The Session stays
+in its existing lifecycle state until a separately verified transition exists.
+Because the two server-owned registries are empty, the issuer rejects
+production requests as unqualified; no Candidate code is enabled by this
+endpoint.
+
+**Signed command polling and lease recovery (2026-11-18):** A paired Agent can
+present a short-lived Ed25519 poll proof bound to its node, key version,
+session, and per-process lease owner. The server rechecks that proof under the
+current Candidate → Build → Session → Agent lock order, then requires a
+current verified Build, local artifact owned by the same Agent store, fresh
+capability evidence, and an independently qualified profile. It issues only a
+short-lived server-signed `start` or `observe` command. The dedicated
+`PREVIEW_RUNNER_COMMAND_PRIVATE_KEY_PEM` is separate from Build-command
+signing; its public half is returned during pairing for pinning by an Agent.
+
+The Session row now keeps the poll-proof digest alongside its lease. A retry
+with the same live owner and proof returns the same command identity and fence;
+another owner or a different proof cannot steal a live lease. After lease
+expiry the fencing generation advances. An unacknowledged start, including an
+`outcome_unknown` response, keeps its idempotency key; an accepted response
+causes the next command to get a new identity. The development schema was
+updated additively and currently contains no Preview Sessions.
+
+This is still not an active Runner deployment. The profile and qualification
+registries are empty, no dedicated command-signing secret is configured, and
+there is no local Session creator or Agent runtime in this path; therefore no
+command can currently be issued. Stop commands remain deferred until an
+authenticated Session-stop transition records a server-owned reason.
 
 ## 1. Purpose
 
@@ -44,7 +100,7 @@ for the exact provider/runtime version and policy may satisfy the minimum.
 
 | Existing boundary | Contract rule |
 |---|---|
-| `PreviewSessionStore` and `preview_sessions` | Remain the source of truth for Session identity and lifecycle. Do not create a second Session/job ledger. A schema migration may add provider-neutral execution fields after review; do not encode a local handle as an ECS ARN. |
+| `PreviewSessionStore` and `preview_sessions` | Remain the source of truth for Session identity and lifecycle. The existing row now carries provider-neutral execution fields; do not create a second Session/job ledger or encode a local handle as an ECS ARN. Local command acceptance is not yet wired. |
 | `VerifiedPreviewRuntimeProfile` / `preview-runtime-profile.ts` | This is currently AWS-specific (`imageDigest`, `taskDefinitionArn`). Preserve it for the AWS adapter; do not silently redefine it as the provider-neutral profile. |
 | `PreviewControlCommand` / `preview-control-command.ts` | The existing signed command is ECS-specific and uses AWS task-definition fields. Keep it compatible; introduce a separately versioned, domain-separated Runner message rather than widening its meaning. |
 | `PreviewEcsRunner` | Keep as an AWS adapter. Its Task Definition checks do not attest a stronger-than-runc boundary and do not qualify a live Runner. |

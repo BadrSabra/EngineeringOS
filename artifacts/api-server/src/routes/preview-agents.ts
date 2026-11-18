@@ -37,6 +37,15 @@ import {
   PreviewAgentHeartbeatError,
 } from "../lib/preview-agent-heartbeat.js";
 import {
+  acceptPreviewRunnerMessage,
+  PreviewRunnerMessageAcceptanceError,
+} from "../lib/preview-runner-message-acceptance.js";
+import {
+  getPreviewRunnerCommandPublicKey,
+  issuePreviewRunnerSessionCommand,
+  PreviewRunnerCommandIssueError,
+} from "../lib/preview-runner-command-issuer.js";
+import {
   requireProjectAccess,
   requireProjectWriteAccess,
 } from "../middlewares/requireProjectAccess.js";
@@ -149,6 +158,32 @@ const previewAgentHeartbeatSchema = z
   })
   .strict();
 
+const previewRunnerMessageSchema = z
+  .object({
+    token: z.string().min(1).max(16_384),
+  })
+  .strict();
+
+const previewRunnerPollProofSchema = z
+  .object({
+    proof: z
+      .object({
+        version: z.literal(1),
+        action: z.literal("poll-preview-session-command"),
+        nodeId: z.string().uuid(),
+        keyVersion: z.number().int().positive().max(1_000_000),
+        sessionId: z.string().uuid(),
+        leaseOwner: z.string().uuid(),
+        issuedAt: z
+          .string()
+          .regex(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/),
+        nonce: z.string().uuid(),
+      })
+      .strict(),
+    signature: z.string().length(86).regex(/^[A-Za-z0-9_-]+$/),
+  })
+  .strict();
+
 type PreviewAgentRouterDependencies = {
   requireAuth: RequestHandler;
   requireProjectAccess: RequestHandler;
@@ -162,7 +197,10 @@ type PreviewAgentRouterDependencies = {
   issueArtifactDeleteCommand: typeof issuePreviewBuildInputDeleteCommand;
   issueHeartbeatChallenge: typeof issuePreviewAgentHeartbeatChallenge;
   acceptHeartbeat: typeof acceptPreviewAgentHeartbeat;
+  acceptRunnerMessage: typeof acceptPreviewRunnerMessage;
+  issueRunnerCommand: typeof issuePreviewRunnerSessionCommand;
   buildJobPrivateKeyPem: string | undefined;
+  runnerCommandPrivateKeyPem: string | undefined;
   listNodes: typeof listPreviewAgentNodes;
   revokeNode: typeof revokePreviewAgentNode;
   isProduction: boolean;
@@ -183,7 +221,10 @@ const defaultDependencies: PreviewAgentRouterDependencies = {
   issueArtifactDeleteCommand: issuePreviewBuildInputDeleteCommand,
   issueHeartbeatChallenge: issuePreviewAgentHeartbeatChallenge,
   acceptHeartbeat: acceptPreviewAgentHeartbeat,
+  acceptRunnerMessage: acceptPreviewRunnerMessage,
+  issueRunnerCommand: issuePreviewRunnerSessionCommand,
   buildJobPrivateKeyPem: config.previewBuildJobPrivateKeyPem,
+  runnerCommandPrivateKeyPem: config.previewRunnerCommandPrivateKeyPem,
   listNodes: listPreviewAgentNodes,
   revokeNode: revokePreviewAgentNode,
   isProduction: config.isProduction,
@@ -363,11 +404,150 @@ function heartbeatIssueCode(error: unknown): {
   return { status: 503, error: "preview_agent_heartbeat_unavailable" };
 }
 
+function runnerMessageIssueCode(error: unknown): {
+  status: number;
+  error: string;
+} {
+  if (error instanceof PreviewRunnerMessageAcceptanceError) {
+    switch (error.code) {
+      case "PREVIEW_RUNNER_MESSAGE_INVALID":
+        return { status: 403, error: "preview_runner_message_rejected" };
+      case "PREVIEW_RUNNER_MESSAGE_UNQUALIFIED":
+        return { status: 409, error: "preview_runner_unqualified" };
+      case "PREVIEW_RUNNER_MESSAGE_CONFLICT":
+        return { status: 409, error: "preview_runner_message_stale" };
+      case "PREVIEW_RUNNER_MESSAGE_UNAVAILABLE":
+        return { status: 503, error: "preview_runner_message_unavailable" };
+    }
+  }
+  return { status: 503, error: "preview_runner_message_unavailable" };
+}
+
+function runnerCommandIssueCode(error: unknown): {
+  status: number;
+  error: string;
+} {
+  if (error instanceof PreviewRunnerCommandIssueError) {
+    switch (error.code) {
+      case "PREVIEW_RUNNER_COMMAND_INVALID":
+        return { status: 403, error: "preview_runner_poll_rejected" };
+      case "PREVIEW_RUNNER_COMMAND_UNQUALIFIED":
+        return { status: 409, error: "preview_runner_unqualified" };
+      case "PREVIEW_RUNNER_COMMAND_CONFLICT":
+        return { status: 409, error: "preview_runner_command_conflict" };
+      case "PREVIEW_RUNNER_COMMAND_UNAVAILABLE":
+        return { status: 503, error: "preview_runner_command_unavailable" };
+    }
+  }
+  return { status: 503, error: "preview_runner_command_unavailable" };
+}
+
 export function createPreviewAgentRouter(
   overrides: Partial<PreviewAgentRouterDependencies> = {},
 ) {
   const dependencies = { ...defaultDependencies, ...overrides };
   const router = Router();
+
+  router.post(
+    "/internal/preview-agents/:nodeId/preview-sessions/:sessionId/command",
+    dependencies.capabilityRateLimiter,
+    async (request, response): Promise<void> => {
+      response.setHeader("cache-control", "no-store");
+      const nodeId = singleRouteParam(request.params.nodeId);
+      const sessionId = singleRouteParam(request.params.sessionId);
+      if (
+        request.get("cookie") ||
+        (dependencies.isProduction && !request.secure)
+      ) {
+        response.status(403).json({ error: "preview_runner_poll_rejected" });
+        return;
+      }
+      const parsed = previewRunnerPollProofSchema.safeParse(request.body);
+      if (
+        !parsed.success ||
+        !nodeId ||
+        !sessionId ||
+        !z.string().uuid().safeParse(nodeId).success ||
+        !z.string().uuid().safeParse(sessionId).success ||
+        parsed.data.proof.nodeId !== nodeId ||
+        parsed.data.proof.sessionId !== sessionId
+      ) {
+        response.status(400).json({ error: "invalid_preview_runner_poll" });
+        return;
+      }
+      try {
+        const command = await dependencies.issueRunnerCommand({
+          nodeId,
+          sessionId,
+          proof: parsed.data.proof,
+          signature: parsed.data.signature,
+          commandPrivateKeyPem: dependencies.runnerCommandPrivateKeyPem,
+        });
+        if (!command) {
+          response.status(204).end();
+          return;
+        }
+        response.status(200).json({
+          commandId: command.commandId,
+          fencingGeneration: command.fencingGeneration,
+          expiresAt: command.expiresAt,
+          commandToken: command.commandToken,
+        });
+      } catch (error) {
+        const mapped = runnerCommandIssueCode(error);
+        response.status(mapped.status).json({ error: mapped.error });
+      }
+    },
+  );
+
+  router.post(
+    "/internal/preview-sessions/:sessionId/runner-message",
+    dependencies.capabilityRateLimiter,
+    async (request, response): Promise<void> => {
+      response.setHeader("cache-control", "no-store");
+      const sessionId = singleRouteParam(request.params.sessionId);
+      if (
+        request.get("cookie") ||
+        (dependencies.isProduction && !request.secure)
+      ) {
+        response.status(403).json({
+          error: "preview_runner_message_rejected",
+        });
+        return;
+      }
+      const parsed = previewRunnerMessageSchema.safeParse(request.body);
+      if (
+        !parsed.success ||
+        !sessionId ||
+        !z.string().uuid().safeParse(sessionId).success
+      ) {
+        response.status(400).json({
+          error: "invalid_preview_runner_message",
+        });
+        return;
+      }
+
+      try {
+        const result = await dependencies.acceptRunnerMessage({
+          sessionId,
+          token: parsed.data.token,
+        });
+        response.status(200).json({
+          sessionId: result.sessionId,
+          stateVersion: result.stateVersion,
+          action: result.action,
+          messageType: result.messageType,
+          alreadyAccepted: result.alreadyAccepted,
+          ...(result.observedState
+            ? { observedState: result.observedState }
+            : {}),
+        });
+      } catch (error) {
+        const mapped = runnerMessageIssueCode(error);
+        response.status(mapped.status).json({ error: mapped.error });
+      }
+    },
+  );
 
   router.post(
     "/internal/preview-agents/:nodeId/heartbeat-challenge",
@@ -695,6 +875,9 @@ export function createPreviewAgentRouter(
             // because the Agent will not receive a key it can safely pin.
           }
         }
+        const runnerCommandPublicKeyPem = getPreviewRunnerCommandPublicKey(
+          dependencies.runnerCommandPrivateKeyPem,
+        );
         response.status(200).json({
           nodeId: node.nodeId,
           storeId: node.storeId,
@@ -703,6 +886,9 @@ export function createPreviewAgentRouter(
           keyVersion: node.keyVersion,
           pairedAt: node.pairedAt,
           ...(commandPublicKeyPem ? { commandPublicKeyPem } : {}),
+          ...(runnerCommandPublicKeyPem
+            ? { runnerCommandPublicKeyPem }
+            : {}),
         });
       } catch (error) {
         const code = unavailableCode(error);

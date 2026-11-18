@@ -78,6 +78,7 @@ function makeJob(overrides: Partial<PreviewBuildJob> = {}): PreviewBuildJob {
     outputArtifactGcState: "active",
     outputArtifactGcMarkedAt: null,
     builderImageDigest: `sha256:${"e".repeat(64)}`,
+    contractVersion: 3,
     issuedAt: now,
     tokenExpiresAt: new Date(now.getTime() - 1),
     status: "builder_succeeded",
@@ -153,6 +154,32 @@ describe("Preview Attestor Gateway client", () => {
         cache: "no-store",
       }),
     );
+  });
+
+  it("keeps durable V2 jobs on the V2 attestation contract", async () => {
+    let requestBody: Record<string, unknown> | undefined;
+    const job = makeJob({ contractVersion: 2 });
+
+    await attestPreviewBuildJob({
+      gatewayUrl: "https://preview-gateway.example/",
+      privateKeyPem,
+      job,
+      executionRef: builderTaskArn,
+      now,
+      fetcher: async (_input, init) => {
+        requestBody = JSON.parse(String(init?.body)) as Record<string, unknown>;
+        return Response.json({ jobId, buildId, state: "pending" });
+      },
+    });
+
+    const claims = verifyPreviewBuildJob({
+      token: String(requestBody?.token),
+      publicKeyPem,
+      now,
+    });
+    expect(claims.version).toBe(2);
+    expect(claims).not.toHaveProperty("inputArtifactProvider");
+    expect(claims).not.toHaveProperty("outputArtifactProvider");
   });
 
   it("rejects a Gateway response for another durable job", async () => {

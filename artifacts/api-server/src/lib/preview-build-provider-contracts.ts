@@ -1,7 +1,10 @@
 import type { PreviewBuildJob } from "@workspace/db";
 import type { PreviewBuildInputArchive } from "./preview-build-input.js";
 import type { PreviewBuildInputIdentity } from "./preview-build-input.js";
-import type { PreviewBuildJobClaims } from "./preview-build-job.js";
+import type {
+  PreviewArtifactProvider,
+  PreviewBuildJobClaims,
+} from "./preview-build-job.js";
 
 export type PreviewBuildExecution = {
   jobId: string;
@@ -42,6 +45,7 @@ export type PreviewBuildInputArtifactReceipt = {
  * returned logical artifact identity and content digests.
  */
 export interface PreviewBuildInputArtifactStore {
+  readonly provider: PreviewArtifactProvider;
   storeInput(input: {
     jobId: string;
     identity: PreviewBuildInputIdentity;
@@ -56,6 +60,8 @@ export interface PreviewBuildInputArtifactStore {
  * owned by the API and is not delegated to the execution provider.
  */
 export interface PreviewBuildExecutor {
+  readonly inputArtifactProvider: PreviewArtifactProvider;
+  readonly outputArtifactProvider: PreviewArtifactProvider;
   launch(input: {
     claims: PreviewBuildJobClaims;
     now: Date;

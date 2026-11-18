@@ -8,6 +8,7 @@ import type { PreviewBuildInputArchive } from "./preview-build-input.js";
 import { previewBuildInputObjectKeyForArchive } from "./preview-build-upload.js";
 import { previewBuildArtifactRefId } from "./preview-artifact-reference.js";
 import {
+  type PreviewArtifactProvider,
   type PreviewBuildJobClaims,
 } from "./preview-build-job.js";
 import {
@@ -44,6 +45,8 @@ export type PreviewBuildCandidate = {
 export type PreviewBuildServiceConfig = {
   builderImageDigest: string | undefined;
   sourceRoot: string | undefined;
+  inputArtifactProvider: PreviewArtifactProvider | undefined;
+  outputArtifactProvider: PreviewArtifactProvider | undefined;
 };
 
 export class PreviewBuildStartError extends Error {
@@ -76,7 +79,10 @@ type PreviewBuildStartDependencies = {
   createJob?: typeof createQueuedPreviewBuildJob;
   markInputReady?: typeof markPreviewBuildInputReady;
   transitionJob?: typeof transitionPreviewBuildJob;
-  executor?: Pick<PreviewBuildExecutor, "launch">;
+  executor?: Pick<
+    PreviewBuildExecutor,
+    "launch" | "inputArtifactProvider" | "outputArtifactProvider"
+  >;
 };
 
 function candidateIdentity(
@@ -112,12 +118,16 @@ function assertServiceConfig(
 ): asserts config is {
   builderImageDigest: string;
   sourceRoot: string;
+  inputArtifactProvider: "s3";
+  outputArtifactProvider: "s3";
 } {
   if (
     !config.builderImageDigest ||
     !IMAGE_DIGEST_PATTERN.test(config.builderImageDigest) ||
     !config.sourceRoot ||
-    !isValidPreviewBuildSourceRoot(config.sourceRoot)
+    !isValidPreviewBuildSourceRoot(config.sourceRoot) ||
+    config.inputArtifactProvider !== "s3" ||
+    config.outputArtifactProvider !== "s3"
   ) {
     throw new PreviewBuildStartError("PREVIEW_BUILD_NOT_CONFIGURED");
   }
@@ -128,6 +138,8 @@ function matchesCurrentCandidate(
   candidate: PreviewBuildCandidate,
   sourceRoot: string,
   builderImageDigest: string,
+  inputArtifactProvider: PreviewArtifactProvider,
+  outputArtifactProvider: PreviewArtifactProvider,
 ): boolean {
   return (
     job.projectId === candidate.projectId &&
@@ -137,20 +149,18 @@ function matchesCurrentCandidate(
     job.candidateRevision === candidate.candidateTreeHash?.toLowerCase() &&
     job.changeSetHash === candidate.changeSetHash?.toLowerCase() &&
     job.sourceRoot === sourceRoot &&
-    job.builderImageDigest === builderImageDigest.toLowerCase()
+    job.builderImageDigest === builderImageDigest.toLowerCase() &&
+    job.inputArtifactProvider === inputArtifactProvider &&
+    job.outputArtifactProvider === outputArtifactProvider
   );
 }
 
 function claimsForJob(job: PreviewBuildJob): PreviewBuildJobClaims {
-  return {
-    version: 2,
-    action: "preview-build",
+  const common = {
+    action: "preview-build" as const,
     jobId: job.jobId,
-    attemptId: job.jobId,
-    idempotencyKey: job.clientRequestId,
-    dispatchGeneration: job.dispatchGeneration,
     buildId: job.buildId,
-    builderProfile: "vite-react-static-v1",
+    builderProfile: "vite-react-static-v1" as const,
     builderImageDigest: job.builderImageDigest,
     projectId: job.projectId,
     proposalId: job.proposalId,
@@ -166,6 +176,33 @@ function claimsForJob(job: PreviewBuildJob): PreviewBuildJobClaims {
     issuedAt: job.issuedAt.toISOString(),
     expiresAt: job.tokenExpiresAt.toISOString(),
   };
+  if (job.contractVersion === 2) {
+    if (
+      job.inputArtifactProvider !== "s3" ||
+      job.outputArtifactProvider !== "s3"
+    ) {
+      throw new PreviewBuildStartError("PREVIEW_BUILD_JOB_UNAVAILABLE");
+    }
+    return {
+      ...common,
+      version: 2,
+      attemptId: job.jobId,
+      idempotencyKey: job.clientRequestId,
+      dispatchGeneration: job.dispatchGeneration,
+    };
+  }
+  if (job.contractVersion === 3) {
+    return {
+      ...common,
+      version: 3,
+      attemptId: job.jobId,
+      idempotencyKey: job.clientRequestId,
+      dispatchGeneration: job.dispatchGeneration,
+      inputArtifactProvider: job.inputArtifactProvider,
+      outputArtifactProvider: job.outputArtifactProvider,
+    };
+  }
+  throw new PreviewBuildStartError("PREVIEW_BUILD_JOB_UNAVAILABLE");
 }
 
 function jobIsWaitingForBuilder(job: PreviewBuildJob): boolean {
@@ -211,7 +248,13 @@ export async function startOrResumePreviewBuild(input: {
   const transitionJob =
     input.dependencies?.transitionJob ?? transitionPreviewBuildJob;
   const executor = input.dependencies?.executor;
-  if (!executor || !inputArtifactStore) {
+  if (
+    !executor ||
+    !inputArtifactStore ||
+    inputArtifactStore.provider !== input.config.inputArtifactProvider ||
+    executor.inputArtifactProvider !== input.config.inputArtifactProvider ||
+    executor.outputArtifactProvider !== input.config.outputArtifactProvider
+  ) {
     throw new PreviewBuildStartError("PREVIEW_BUILD_NOT_CONFIGURED");
   }
 
@@ -229,6 +272,8 @@ export async function startOrResumePreviewBuild(input: {
         input.candidate,
         input.config.sourceRoot,
         input.config.builderImageDigest,
+        input.config.inputArtifactProvider,
+        input.config.outputArtifactProvider,
       )
     ) {
       throw new PreviewBuildStartError("PREVIEW_BUILD_IDEMPOTENCY_CONFLICT");
@@ -266,8 +311,8 @@ export async function startOrResumePreviewBuild(input: {
       sourceRoot: input.config.sourceRoot,
       sourceDigest: preparedBuildInput.manifest.sourceDigest,
       archiveDigest: preparedBuildInput.archiveDigest,
-      inputArtifactProvider: "s3",
-      outputArtifactProvider: "s3",
+      inputArtifactProvider: input.config.inputArtifactProvider,
+      outputArtifactProvider: input.config.outputArtifactProvider,
       builderImageDigest: input.config.builderImageDigest,
       issuedAt,
       tokenExpiresAt: new Date(issuedAt.getTime() + BUILD_JOB_TOKEN_TTL_MS),
@@ -293,6 +338,8 @@ export async function startOrResumePreviewBuild(input: {
         input.candidate,
         input.config.sourceRoot,
         input.config.builderImageDigest,
+        input.config.inputArtifactProvider,
+        input.config.outputArtifactProvider,
       )
     ) {
       throw new PreviewBuildStartError("PREVIEW_BUILD_CANDIDATE_STALE");

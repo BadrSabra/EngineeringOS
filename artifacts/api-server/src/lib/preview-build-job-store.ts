@@ -464,11 +464,20 @@ export function previewBuildJobMatchesVerifiedReceipt(
     job.buildId === receipt.buildId &&
     job.outputArtifactKey === receipt.outputArtifactKey &&
     job.builderImageDigest === receipt.builderImageDigest &&
-    (receipt.version === 2
-      ? receipt.attemptId === job.jobId &&
+    (job.contractVersion === 2
+      ? receipt.version === 1
+        ? job.dispatchGeneration === 1
+        : receipt.version === 2 &&
+          receipt.attemptId === job.jobId &&
+          receipt.idempotencyKey === job.clientRequestId &&
+          receipt.dispatchGeneration === job.dispatchGeneration
+      : job.contractVersion === 3 &&
+        receipt.version === 3 &&
+        receipt.attemptId === job.jobId &&
         receipt.idempotencyKey === job.clientRequestId &&
-        receipt.dispatchGeneration === job.dispatchGeneration
-      : job.dispatchGeneration === 1) &&
+        receipt.dispatchGeneration === job.dispatchGeneration &&
+        receipt.inputArtifactProvider === job.inputArtifactProvider &&
+        receipt.outputArtifactProvider === job.outputArtifactProvider) &&
     (job.buildReceiptId === null || job.buildReceiptId === receipt.receiptId) &&
     job.outputDigest === receipt.buildOutputDigest
   );
@@ -663,6 +672,7 @@ export async function createQueuedPreviewBuildJob(
         outputArtifactGcState: "active",
         outputArtifactGcMarkedAt: null,
         builderImageDigest: input.builderImageDigest.toLowerCase(),
+        contractVersion: 3,
         issuedAt: input.issuedAt,
         tokenExpiresAt: input.tokenExpiresAt,
         dispatchGeneration: 1,

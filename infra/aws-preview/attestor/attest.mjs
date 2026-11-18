@@ -197,14 +197,16 @@ async function attestOutput({ claims, taskArn, config, storage }) {
   const key = claims.outputArtifactKey;
   const legacyKey = `preview-build-outputs/${claims.buildId}/site.tar.gz`;
   const expectedKey =
-    claims.version === 2
+    claims.version === 2 || claims.version === 3
       ? `preview-build-outputs/${claims.buildId}/g${claims.dispatchGeneration}/site.tar.gz`
       : legacyKey;
   if (
     key !== expectedKey &&
-    !(claims.version === 2 &&
+    !(
+      (claims.version === 2 || claims.version === 3) &&
       claims.dispatchGeneration === 1 &&
-      key === legacyKey)
+      key === legacyKey
+    )
   ) {
     fail("PREVIEW_ATTESTOR_OUTPUT_REJECTED");
   }
@@ -291,12 +293,16 @@ export async function attestPreviewBuild(input) {
   if (
     !IMAGE_DIGEST.test(claims.builderImageDigest) ||
     claims.builderImageDigest !== input.config.builderImageDigest ||
+    (claims.version === 3 &&
+      (claims.inputArtifactProvider !== "s3" ||
+        claims.outputArtifactProvider !== "s3")) ||
     (claims.version === 1
       ? claims.outputArtifactKey !==
         `preview-build-outputs/${claims.buildId}/site.tar.gz`
       : claims.outputArtifactKey !==
           `preview-build-outputs/${claims.buildId}/g${claims.dispatchGeneration}/site.tar.gz` &&
         !(
+          (claims.version === 2 || claims.version === 3) &&
           claims.dispatchGeneration === 1 &&
           claims.outputArtifactKey ===
             `preview-build-outputs/${claims.buildId}/site.tar.gz`
