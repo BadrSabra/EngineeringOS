@@ -1281,7 +1281,7 @@ router.get("/tasks/:taskId/logs/stream", async (req, res) => {
   const terminalAlreadyKnown = existing.some((log) =>
     log.eventType === "terminal" && (cursor === 0 || (log.sequence ?? 0) <= cursor),
   );
-  let hasStructuredExecution = structured.length > 0;
+  const hasStructuredExecution = structured.length > 0;
   let terminalSeen = terminalAlreadyKnown;
   for (const log of existing) {
     if (cursor === 0 || (log.sequence !== null && log.sequence > cursor)) {
@@ -1341,7 +1341,6 @@ router.get("/tasks/:taskId/logs/stream", async (req, res) => {
 
       for (const log of newLogs) {
         send("log", publicTaskLog(log));
-        if (log.executionId && log.sequence !== null) hasStructuredExecution = true;
         if (log.sequence !== null) cursor = Math.max(cursor, log.sequence);
         if (log.eventType === "terminal") terminalSeen = true;
       }
