@@ -1329,7 +1329,7 @@ paths:
             application/json:
               schema:
                 type: object
-                required: [entity, outgoing, incoming, neighbors]
+                required: [entity, outgoing, incoming, neighbors, meta]
                 properties:
                   entity:
                     $ref: "#/components/schemas/GraphEntity"
@@ -1345,6 +1345,18 @@ paths:
                     type: array
                     items:
                       $ref: "#/components/schemas/GraphEntity"
+                  meta:
+                    type: object
+                    required: [entityLimit, relationshipLimit, responseSizeLimit, truncated]
+                    properties:
+                      entityLimit:
+                        type: integer
+                      relationshipLimit:
+                        type: integer
+                      responseSizeLimit:
+                        type: integer
+                      truncated:
+                        type: boolean
         "404":
           description: Entity not found
           content:

@@ -3152,7 +3152,13 @@ export const GetGraphEntityNeighborsResponse = zod.object({
 }).describe('A single piece of evidence that justifies a graph entity or relationship')).optional().describe('Source location records that justify this element')
 }).optional().describe('Provenance record for a graph entity or relationship. All fields are optional for backwards compatibility.\n'),
   "createdAt": zod.coerce.date()
-}))
+})),
+  "meta": zod.object({
+  "entityLimit": zod.number().int(),
+  "relationshipLimit": zod.number().int(),
+  "responseSizeLimit": zod.number().int(),
+  "truncated": zod.boolean()
+})
 })
 
 

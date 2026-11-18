@@ -255,26 +255,26 @@ router.get("/graph/entities/:entityId/neighbors", async (req, res) => {
   const ownerProject = await loadProjectByIdForUser(entity.projectId, req.userId, res);
   if (!ownerProject) return;
 
-  const outgoing = await db
+  const incidentRelationships = await db
     .select()
     .from(graphRelationshipsTable)
     .where(and(
-      eq(graphRelationshipsTable.sourceId, entityId),
+      or(
+        eq(graphRelationshipsTable.sourceId, entityId),
+        eq(graphRelationshipsTable.targetId, entityId),
+      )!,
       or(isNull(graphRelationshipsTable.projectId), eq(graphRelationshipsTable.projectId, ownerProject.id))!,
     ))
-    .limit(GRAPH_LIMITS.maxRelationships);
-  const incoming = await db
-    .select()
-    .from(graphRelationshipsTable)
-    .where(and(
-      eq(graphRelationshipsTable.targetId, entityId),
-      or(isNull(graphRelationshipsTable.projectId), eq(graphRelationshipsTable.projectId, ownerProject.id))!,
-    ))
-    .limit(GRAPH_LIMITS.maxRelationships);
+    .orderBy(asc(graphRelationshipsTable.id))
+    .limit(GRAPH_LIMITS.maxRelationships + 1);
+  const truncated = incidentRelationships.length > GRAPH_LIMITS.maxRelationships;
+  const boundedRelationships = incidentRelationships.slice(0, GRAPH_LIMITS.maxRelationships);
 
   const neighborIds = new Set<string>();
-  for (const r of outgoing) neighborIds.add(r.targetId);
-  for (const r of incoming) neighborIds.add(r.sourceId);
+  for (const relationship of boundedRelationships) {
+    if (relationship.sourceId === entityId) neighborIds.add(relationship.targetId);
+    if (relationship.targetId === entityId) neighborIds.add(relationship.sourceId);
+  }
 
   const neighbors =
     neighborIds.size > 0
@@ -288,15 +288,20 @@ router.get("/graph/entities/:entityId/neighbors", async (req, res) => {
       : [];
 
   const neighborIdSet = new Set(neighbors.map((neighbor) => neighbor.id));
+  const scopedRelationships = boundedRelationships.filter((relationship) =>
+    (relationship.sourceId === entityId || neighborIdSet.has(relationship.sourceId)) &&
+    (relationship.targetId === entityId || neighborIdSet.has(relationship.targetId))
+  );
   return sendBoundedGraphResponse(res, {
     entity,
-    outgoing: outgoing.filter((relationship) => neighborIdSet.has(relationship.targetId)),
-    incoming: incoming.filter((relationship) => neighborIdSet.has(relationship.sourceId)),
+    outgoing: scopedRelationships.filter((relationship) => relationship.sourceId === entityId),
+    incoming: scopedRelationships.filter((relationship) => relationship.targetId === entityId),
     neighbors,
     meta: {
       entityLimit: GRAPH_LIMITS.maxEntities,
       relationshipLimit: GRAPH_LIMITS.maxRelationships,
       responseSizeLimit: GRAPH_LIMITS.maxResponseBytes,
+      truncated,
     },
   });
 });
