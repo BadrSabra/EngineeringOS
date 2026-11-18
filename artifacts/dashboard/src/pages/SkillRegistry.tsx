@@ -357,7 +357,8 @@ export default function SkillRegistry() {
 
   const handleRevoke = useCallback(async (row: RegistryRow) => {
     if (!window.confirm(`Revoke ${row.skillId} v${row.skillVersion} immediately? This removes its active registry status.`)) return;
-    setBusyAction(row.id);
+    const actionKey = `${row.projectId}:${row.id}`;
+    setBusyAction(actionKey);
     setLoadError(null);
     try {
       const response = await revokeSkillRegistry(row.id);
@@ -366,7 +367,7 @@ export default function SkillRegistry() {
       setLoadError(error);
       setLoadErrorProjectId(row.projectId);
     } finally {
-      setBusyAction(null);
+      setBusyAction((current) => current === actionKey ? null : current);
     }
   }, [replaceReturnedRow]);
 
