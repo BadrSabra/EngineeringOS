@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useUser } from '@clerk/react';
 import { useQueryClient } from '@tanstack/react-query';
-import { useLocation } from 'wouter';
+import { useLocation, useSearch } from 'wouter';
 import { AssistantScopeSwitch } from '@/components/AssistantScopeSwitch';
 import {
   Activity,
@@ -43,10 +43,34 @@ function createUuid(): string {
 
 export default function GeneralChat() {
   const { user, isLoaded } = useUser();
-  const [, setLocation] = useLocation();
-  const routeParams = new URLSearchParams(window.location.search);
+  const locationSearch = useSearch();
+  const routeParams = new URLSearchParams(locationSearch);
   const routeDraftId = routeParams.get('goalDraftId');
   const routeSessionId = routeParams.get('sessionId');
+
+  return (
+    <GeneralChatSession
+      key={JSON.stringify([user?.id ?? null, routeDraftId, routeSessionId])}
+      user={user}
+      isLoaded={isLoaded}
+      routeDraftId={routeDraftId}
+      routeSessionId={routeSessionId}
+    />
+  );
+}
+
+function GeneralChatSession({
+  user,
+  isLoaded,
+  routeDraftId,
+  routeSessionId,
+}: {
+  user: ReturnType<typeof useUser>['user'];
+  isLoaded: boolean;
+  routeDraftId: string | null;
+  routeSessionId: string | null;
+}) {
+  const [, setLocation] = useLocation();
   const queryClient = useQueryClient();
   const sessionsQuery = useListGeneralChatSessions({
     query: { queryKey: getListGeneralChatSessionsQueryKey() },
@@ -55,7 +79,7 @@ export default function GeneralChat() {
     query: { queryKey: getListProjectsQueryKey(), enabled: isLoaded },
   });
   const projects = projectsQuery.data ?? [];
-  const [activeSessionId, setActiveSessionId] = useState(() => new URLSearchParams(window.location.search).get('sessionId') ?? '');
+  const [activeSessionId, setActiveSessionId] = useState(routeSessionId ?? '');
   const [draft, setDraft] = useState('');
   const [actionError, setActionError] = useState('');
   const [incomingGoalDraft, setIncomingGoalDraft] = useState<GoalDraft | null>(null);

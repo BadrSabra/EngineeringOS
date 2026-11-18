@@ -110,6 +110,52 @@ describe('Arabic conversation feedback boundaries', () => {
     expect(mocks.send).not.toHaveBeenCalled();
   });
 
+  it('rebinds the complete chat session when a deep link changes to another session in place', async () => {
+    const secondSession = {
+      id: 'session-2',
+      title: 'محادثة ثانية',
+      updatedAt: '2026-10-16T10:00:00Z',
+    };
+    mocks.sessions.data = [mocks.session, secondSession];
+    saveAssistantComposerDraft('user-1', 'general', 'session-1', 'مسودة الجلسة الأولى');
+    saveAssistantComposerDraft('user-1', 'general', 'session-2', 'مسودة الجلسة الثانية');
+    window.history.replaceState({}, '', '/general-chat?sessionId=session-1');
+
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const view = render(
+      <QueryClientProvider client={client}>
+        <GeneralChat />
+      </QueryClientProvider>,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByTestId('input-general-chat-message')).toHaveValue('مسودة الجلسة الأولى');
+    });
+    expect(screen.getByRole('heading', { name: 'نقاش المشروع' })).toBeInTheDocument();
+
+    window.history.replaceState({}, '', '/general-chat?sessionId=session-2');
+    window.dispatchEvent(new PopStateEvent('popstate'));
+    view.rerender(
+      <QueryClientProvider client={client}>
+        <GeneralChat />
+      </QueryClientProvider>,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByTestId('input-general-chat-message')).toHaveValue('مسودة الجلسة الثانية');
+    });
+    expect(screen.getByRole('heading', { name: 'محادثة ثانية' })).toBeInTheDocument();
+    expect(readAssistantComposerDraft('user-1', 'general', 'session-1')).toEqual({
+      ok: true,
+      text: 'مسودة الجلسة الأولى',
+    });
+    expect(readAssistantComposerDraft('user-1', 'general', 'session-2')).toEqual({
+      ok: true,
+      text: 'مسودة الجلسة الثانية',
+    });
+    expect(mocks.send).not.toHaveBeenCalled();
+  });
+
   it('returns to the selected project’s own saved session rather than another project’s session', () => {
     mocks.projects.data = [
       { id: 'project-1', name: 'مشروع واحد' },
