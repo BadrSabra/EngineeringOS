@@ -25,17 +25,20 @@ type FlightNode = {
 };
 
 const PHASES = [
-  { label: 'التنفيذ', states: ['BUILDING'] },
-  { label: 'الخطة', states: ['BUILDING'] },
-  { label: 'الاستكشاف', states: ['BUILDING'] },
-  { label: 'البناء', states: ['BUILDING', 'REPAIRING'] },
-  { label: 'التحقق', states: ['VALIDATING'] },
-  { label: 'الإصلاح', states: ['REPAIRING'] },
-  { label: 'المراجعة', states: ['READY_FOR_REVIEW'] },
-  { label: 'التطبيق', states: ['APPLIED'] },
-  { label: 'إيداع التغييرات', states: ['COMMITTED'] },
-  { label: 'دفع التغييرات', states: ['PUSHED'] },
+  { state: 'BUILDING', label: 'البناء' },
+  { state: 'VALIDATING', label: 'التحقق' },
+  { state: 'REPAIRING', label: 'الإصلاح' },
+  { state: 'READY_FOR_REVIEW', label: 'المراجعة' },
+  { state: 'APPLIED', label: 'التطبيق' },
+  { state: 'COMMITTED', label: 'إيداع التغييرات' },
+  { state: 'PUSHED', label: 'دفع التغييرات' },
 ] as const;
+
+const TERMINAL_PHASE_MESSAGES: Record<string, string> = {
+  BLOCKED: 'التنفيذ محظور؛ راجع سلسلة الإثبات والإجراء الآمن قبل أي متابعة.',
+  CANCELLED: 'أُلغي التنفيذ؛ لا نستنتج اكتمال أي مرحلة لم يسجلها الخادم.',
+  COMPLETED: 'اكتملت حالة التنفيذ المسجلة؛ ولا تعني هذه الحالة وحدها تسجيل التطبيق أو الإيداع أو الدفع.',
+};
 
 function readExecutionId(): string {
   return new URLSearchParams(window.location.search).get('executionId') ?? '';
@@ -390,8 +393,11 @@ export default function FlightDeck() {
   const isDeliveryExecution = execution.proofRequired
     || Boolean(execution.proposalId || execution.buildPlanMessageId || execution.linkedTaskId);
   const activePhase = isDeliveryExecution
-    ? PHASES.findIndex((phase) => phase.states.includes(state as never))
-    : -1;
+    ? PHASES.find((phase) => phase.state === state)
+    : undefined;
+  const terminalPhaseMessage = isDeliveryExecution
+    ? TERMINAL_PHASE_MESSAGES[state]
+    : undefined;
   const stage = typeof checkpoint.stage === 'string' ? checkpoint.stage : 'نقطة حفظ الخادم';
   const detail = typeof checkpoint.detail === 'string' ? checkpoint.detail : 'تُحفظ الأدلة ضمن سجل التنفيذ الدائم.';
   const scopeFiles = [...new Set(nodes.flatMap((node) => node.allowedFiles))];
@@ -504,20 +510,53 @@ export default function FlightDeck() {
           </div>
         </div>
 
-        <div className="mt-6 grid grid-cols-2 gap-2 md:grid-cols-5">
-          {PHASES.map((phase, index) => {
-            const complete = activePhase >= 0 && index < activePhase;
-            const active = index === activePhase;
-            return (
-              <div key={phase.label} className={`rounded-md border px-3 py-2 ${active ? 'border-primary/50 bg-primary/10' : 'border-border/60 bg-background/20'}`}>
-                <div className="flex items-center gap-2">
-                  {complete ? <CheckCircle2 className="h-3.5 w-3.5 text-emerald-300" /> : active ? <Activity className="h-3.5 w-3.5 text-primary" /> : <Circle className="h-3.5 w-3.5 text-muted-foreground" />}
-                  <span className={`text-xs font-medium ${active ? 'text-primary' : complete ? 'text-emerald-200' : 'text-muted-foreground'}`}>{phase.label}</span>
-                </div>
-              </div>
-            );
-          })}
-        </div>
+        {isDeliveryExecution ? (
+          <>
+            {terminalPhaseMessage && (
+              <p
+                className="mt-5 rounded-md border border-amber-500/25 bg-amber-500/5 px-3 py-2 text-xs leading-5 text-amber-100"
+                role="status"
+                data-testid="flight-deck-terminal-phase"
+              >
+                {terminalPhaseMessage}
+              </p>
+            )}
+            <div
+              className="mt-6 grid grid-cols-2 gap-2 md:grid-cols-4"
+              aria-label="مراحل دورة حياة التنفيذ المسجلة"
+              data-testid="flight-deck-lifecycle"
+            >
+              {PHASES.map((phase) => {
+                const active = phase.state === activePhase?.state;
+                return (
+                  <div
+                    key={phase.state}
+                    data-testid={`flight-deck-phase-${phase.state}`}
+                    data-phase-active={active ? 'true' : 'false'}
+                    aria-current={active ? 'step' : undefined}
+                    className={`rounded-md border px-3 py-2 ${active ? 'border-primary/50 bg-primary/10' : 'border-border/60 bg-background/20'}`}
+                  >
+                    <div className="flex items-center gap-2">
+                      {active
+                        ? <Activity className="h-3.5 w-3.5 text-primary" />
+                        : <Circle className="h-3.5 w-3.5 text-muted-foreground" />}
+                      <span className={`text-xs font-medium ${active ? 'text-primary' : 'text-muted-foreground'}`}>{phase.label}</span>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+            {!activePhase && !terminalPhaseMessage && (
+              <p className="mt-3 text-xs text-muted-foreground" role="status">
+                لم تُسجّل مرحلة نشطة معروفة لهذه الحالة؛ لم يتم استنتاج تقدم غير موجود في سجل الخادم.
+              </p>
+            )}
+          </>
+        ) : (
+          <p className="mt-6 rounded-md border border-border/50 bg-background/20 px-3 py-2 text-xs text-muted-foreground" role="status" data-testid="flight-deck-no-delivery-phases">
+            هذا التنفيذ لا يتبع دورة تسليم الشيفرة؛ لذلك لا تُعرض له مراحل بناء أو تطبيق أو نشر.
+          </p>
+        )}
       </section>
 
       <div className="grid gap-5 lg:grid-cols-[1.4fr_1fr]">
