@@ -85,6 +85,27 @@ describe("archive extraction safety policy", () => {
     await expect(readFile(join(tarRoot, "src/index.ts"), "utf8")).resolves.toContain("package ok");
   });
 
+  it("stops ZIP and TAR extraction when the request is aborted", async () => {
+    const zipRoot = await extractionRoot();
+    const zip = new AdmZip();
+    zip.addFile("src/index.ts", Buffer.from("should not be written"));
+    const zipAbort = new AbortController();
+    zipAbort.abort();
+
+    await expect(extractZipSafely(zip, zipRoot, undefined, zipAbort.signal))
+      .rejects.toMatchObject({ name: "AbortError" });
+    await expect(readFile(join(zipRoot, "src/index.ts"))).rejects.toThrow();
+
+    const tarRoot = await extractionRoot();
+    const tarPath = await tarFrom([{ name: "src/index.ts", content: "should not be written" }]);
+    const tarAbort = new AbortController();
+    tarAbort.abort();
+
+    await expect(extractTarGzSafely(tarPath, tarRoot, undefined, tarAbort.signal))
+      .rejects.toMatchObject({ name: "AbortError" });
+    await expect(readFile(join(tarRoot, "src/index.ts"))).rejects.toThrow();
+  });
+
   it.each(["../outside.txt", "..\\outside.txt", "nested/../outside.txt", "/tmp/outside.txt", "C:/outside.txt"])(
     "rejects traversal spelling %s",
     async (name) => {

@@ -10016,7 +10016,7 @@ test.describe("EngineeringOS dashboard browser journey", () => {
       });
       await secondPage.reload();
       await expect(
-        secondPage.getByRole("heading", { name: "تعذر تحميل مساحة العمل" }),
+        secondPage.getByRole("heading", { name: "تعذر تحميل ملخص العمل" }),
       ).toBeVisible();
       await expect(
         secondPage.getByRole("button", { name: "أعد المحاولة" }),
@@ -10750,8 +10750,7 @@ test.describe("EngineeringOS dashboard browser journey", () => {
       await page.getByTestId("select-goal-project").selectOption(project.id);
       await page.getByTestId("button-route-goal-project").click();
       await page.waitForURL((url) =>
-        url.pathname.endsWith("/ai")
-        && url.searchParams.get("projectId") === project!.id
+        url.pathname.endsWith(`/projects/${project!.id}/workspace`)
         && Boolean(url.searchParams.get("goalDraftId")),
       );
       await expect(page.getByTestId("status-project-planning-handoff")).toBeVisible();
@@ -10762,7 +10761,9 @@ test.describe("EngineeringOS dashboard browser journey", () => {
       await page.route(workspaceEventsPattern, async (route) => {
         if (!firstWorkspaceStreamAborted) {
           firstWorkspaceStreamAborted = true;
-          await route.abort("internetdisconnected");
+          // Reset this SSE request without putting the whole browser offline;
+          // native EventSource should retry the stream after a transport drop.
+          await route.abort("connectionreset");
           return;
         }
         await route.continue();
@@ -10968,7 +10969,8 @@ test.describe("EngineeringOS dashboard browser journey", () => {
     page,
     browser,
   }) => {
-    test.setTimeout(120_000);
+    // Two sequential real Clerk handoffs each use a bounded 60-second window.
+    test.setTimeout(180_000);
     test.skip(
       process.env.RUN_CONTROLLED_RELEASE_VALIDATION !== "1",
       "UXW-02 ownership journey requires two real Clerk sessions and the controlled runner.",
@@ -14176,10 +14178,11 @@ test.describe("EngineeringOS dashboard browser journey", () => {
     );
     await page.reload();
     await expect(
-      page.getByRole("heading", { name: "تعذر تحميل مساحة العمل" }),
+      page.getByRole("heading", { name: "تعذر تحميل ملخص العمل" }),
     ).toBeVisible();
     await expect(
       page.getByRole("button", { name: "أعد المحاولة" }),
     ).toBeVisible();
   });
+
 });

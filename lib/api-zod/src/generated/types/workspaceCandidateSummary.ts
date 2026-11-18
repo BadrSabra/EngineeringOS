@@ -5,6 +5,7 @@
  * EngineeringOS - Autonomous AI Engineering Platform API
  * OpenAPI spec version: 1.0.0
  */
+import type { WorkspaceCandidateSummaryLatestExecutionBinding } from './workspaceCandidateSummaryLatestExecutionBinding';
 import type { WorkspaceCandidateSummaryStatus } from './workspaceCandidateSummaryStatus';
 
 export interface WorkspaceCandidateSummary {
@@ -12,6 +13,8 @@ export interface WorkspaceCandidateSummary {
   status: WorkspaceCandidateSummaryStatus;
   /** @maxLength 40 */
   lifecycle: string;
+  /** Whether this proposal ID exactly matches work.latestExecution.proposalId. not_matched means the project candidate is not identified as output from the latest execution; unknown means the execution source was unavailable. This relationship does not assert verification or acceptance. */
+  latestExecutionBinding: WorkspaceCandidateSummaryLatestExecutionBinding;
   /** @minimum 0 */
   revision: number;
   approvalRequired: boolean;

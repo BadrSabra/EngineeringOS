@@ -7,6 +7,7 @@
  */
 
 /**
+ * Current only when consistent with the task status; null during pending, queued, or running work or when the stored decision conflicts. This summary is not revision-bound proof.
  * @nullable
  */
 export type WorkspaceTaskSummaryVerificationDecision = typeof WorkspaceTaskSummaryVerificationDecision[keyof typeof WorkspaceTaskSummaryVerificationDecision] | null;

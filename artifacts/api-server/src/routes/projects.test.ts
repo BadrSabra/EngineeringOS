@@ -217,6 +217,40 @@ async function waitForScanJob(
   throw new Error(`scan job ${jobId} did not finish within ${timeoutMs}ms`);
 }
 
+/** A terminal job row can be visible just before its worker releases the scan lock. */
+async function waitForScanLockRelease(
+  projectId: string,
+  timeoutMs = 5000,
+): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    const lock = await tryAdvisoryLock(LockNamespace.SCAN_JOB, projectId);
+    if (lock.acquired) {
+      await lock.release();
+      return;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
+  throw new Error(`scan lock for project ${projectId} was not released within ${timeoutMs}ms`);
+}
+
+async function waitForScanAudit(
+  projectId: string,
+  timeoutMs = 5000,
+): Promise<typeof auditLogsTable.$inferSelect> {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    const audits = await db
+      .select()
+      .from(auditLogsTable)
+      .where(eq(auditLogsTable.entityId, projectId));
+    const scanAudit = audits.find((audit) => audit.action === "scanned");
+    if (scanAudit) return scanAudit;
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
+  throw new Error(`scan audit for project ${projectId} was not written within ${timeoutMs}ms`);
+}
+
 describe("scan serialization across entry points", () => {
   it("fails closed when a direct scan cannot acquire the project lock", async () => {
     const projectId = randomUUID();
@@ -244,12 +278,65 @@ describe("scan serialization across entry points", () => {
       const response = await request(app).post(`/api/projects/${projectId}/scan`);
       expect(response.status).toBe(409);
       expect(response.body.error).toBe("scan_already_running");
+      expect(response.headers["retry-after"]).toBe("1");
+      expect(response.body.message).toBe(
+        "A scan still holds the project lock; retry after it is released.",
+      );
       const jobs = await db.select().from(scanJobsTable)
         .where(eq(scanJobsTable.projectId, projectId));
       expect(jobs).toHaveLength(0);
     } finally {
       await existingScan.release();
       await cleanupProject(projectId);
+    }
+  });
+
+  it("returns a retryable conflict until a terminal scan releases its project lock", async () => {
+    const scanDir = makeTempScanDir();
+    const projectId = await insertProject(scanDir);
+    const terminalJobId = randomUUID();
+    await db.insert(scanJobsTable).values({
+      id: terminalJobId,
+      projectId,
+      status: "completed",
+      createdAt: new Date(),
+      finishedAt: new Date(),
+    });
+
+    const terminalizingWorkerLock = await tryAdvisoryLock(
+      LockNamespace.SCAN_JOB,
+      projectId,
+    );
+    if (!terminalizingWorkerLock.acquired) {
+      await cleanupProject(projectId);
+      removeTempDir(scanDir);
+      throw new Error("Test could not acquire the scan finalization lock.");
+    }
+
+    let released = false;
+    try {
+      const whileHeld = await request(app).post(`/api/projects/${projectId}/scan`);
+      expect(whileHeld.status).toBe(409);
+      expect(whileHeld.headers["retry-after"]).toBe("1");
+      expect(whileHeld.body).toMatchObject({
+        error: "scan_already_running",
+        message: "A scan still holds the project lock; retry after it is released.",
+      });
+      const jobsWhileHeld = await db.select().from(scanJobsTable)
+        .where(eq(scanJobsTable.projectId, projectId));
+      expect(jobsWhileHeld.map((job) => job.id)).toEqual([terminalJobId]);
+
+      await terminalizingWorkerLock.release();
+      released = true;
+
+      const afterRelease = await request(app).post(`/api/projects/${projectId}/scan`);
+      expect(afterRelease.status).toBe(202);
+      expect(afterRelease.body.id).not.toBe(terminalJobId);
+      await waitForScanJob(afterRelease.body.id);
+    } finally {
+      if (!released) await terminalizingWorkerLock.release();
+      await cleanupProject(projectId);
+      removeTempDir(scanDir);
     }
   });
 
@@ -327,14 +414,11 @@ describe("POST /api/projects/:projectId/scan — error safety", () => {
       .limit(1);
     expect(project[0]?.status).toBe("active");
 
-    const audits = await db
-      .select()
-      .from(auditLogsTable)
-      .where(eq(auditLogsTable.entityId, projectId));
-    const scanAudit = audits.find((a) => a.action === "scanned");
-    expect(scanAudit).toBeDefined();
-    expect(scanAudit?.entityType).toBe("project");
-    expect(scanAudit?.projectId).toBe(projectId);
+    // The job reaches terminal status in the scan transaction; the audit entry
+    // is written immediately after that commit, so allow the post-commit write.
+    const scanAudit = await waitForScanAudit(projectId);
+    expect(scanAudit.entityType).toBe("project");
+    expect(scanAudit.projectId).toBe(projectId);
   });
 
   it("persists graph relationships during a scan", async () => {
@@ -652,7 +736,9 @@ describe("POST /api/projects/:projectId/scan — DB side-effects", () => {
     const res1 = await request(app).post(`/api/projects/${projectId}/scan`);
     await waitForScanJob(res1.body.id);
 
-    // Project must be back to "active" before second scan is accepted
+    // The terminal row commits before the worker releases its project lock.
+    // Wait for the complete admission boundary rather than racing that cleanup.
+    await waitForScanLockRelease(projectId);
     const res2 = await request(app).post(`/api/projects/${projectId}/scan`);
     expect(res2.status).toBe(202);
     await waitForScanJob(res2.body.id);
@@ -1103,6 +1189,7 @@ describe("GET /api/projects/:projectId/workspace", () => {
     });
     expect(response.body.work.candidate).toMatchObject({
       proposalId,
+      latestExecutionBinding: "matched",
       status: "pending",
       lifecycle: "validated",
       revision: 2,
@@ -1121,6 +1208,133 @@ describe("GET /api/projects/:projectId/workspace", () => {
     expect(response.body.runtime).not.toHaveProperty("pid");
     expect(response.body.runtime).not.toHaveProperty("logs");
     expect(response.body.runtime).not.toHaveProperty("sessionId");
+  });
+
+  it("does not imply that the latest project candidate came from the latest execution", async () => {
+    const projectId = await insertProject(`/tmp/workspace-binding-${randomUUID()}`);
+    cleanupQueue.push(projectId);
+    const sessionId = randomUUID();
+    const messageId = randomUUID();
+    const executionId = randomUUID();
+    const executionProposalId = randomUUID();
+    const latestProposalId = randomUUID();
+    const now = new Date();
+    await db.insert(aiChatSessionsTable).values({
+      id: sessionId,
+      projectId,
+      title: "Workspace binding fixture",
+      createdAt: now,
+      updatedAt: now,
+    });
+    await db.insert(aiChatMessagesTable).values({
+      id: messageId,
+      sessionId,
+      role: "assistant",
+      content: "Candidate output",
+    });
+    await db.insert(aiChangeProposalsTable).values([
+      {
+        id: executionProposalId,
+        projectId,
+        sessionId,
+        messageId,
+        changes: "[]",
+        status: "pending",
+        createdAt: new Date(now.getTime() - 1_000),
+      },
+      {
+        id: latestProposalId,
+        projectId,
+        sessionId,
+        messageId,
+        changes: "[]",
+        status: "pending",
+        createdAt: now,
+      },
+    ]);
+    await db.insert(aiExecutionsTable).values({
+      id: executionId,
+      projectId,
+      sessionId,
+      userId: "test-user",
+      idempotencyKey: randomUUID(),
+      resumeTokenHash: "resume-token-hash",
+      request: "{}",
+      checkpoint: "{}",
+      status: "completed",
+      attempt: 1,
+      proposalId: executionProposalId,
+      createdAt: now,
+      updatedAt: now,
+      completedAt: now,
+    });
+
+    const response = await request(app).get(`/api/projects/${projectId}/workspace`);
+
+    expect(response.status).toBe(200);
+    expect(response.body.work.latestExecution).toMatchObject({
+      id: executionId,
+      proposalId: executionProposalId,
+    });
+    expect(response.body.work.candidate).toMatchObject({
+      proposalId: latestProposalId,
+      latestExecutionBinding: "not_matched",
+    });
+  });
+
+  it("does not surface an old successful verification while its task is queued for retry", async () => {
+    const projectId = await insertProject(`/tmp/workspace-verification-${randomUUID()}`);
+    cleanupQueue.push(projectId);
+    const queuedTaskId = randomUUID();
+    const verifyingTaskId = randomUUID();
+    const mismatchedTaskId = randomUUID();
+
+    await db.insert(tasksTable).values([
+      {
+        id: queuedTaskId,
+        projectId,
+        title: "Queued retry with old success",
+        status: "queued",
+        verificationResult: {
+          passed: true,
+          decision: "verified",
+          steps: [],
+        },
+      },
+      {
+        id: verifyingTaskId,
+        projectId,
+        title: "Current verification in progress",
+        status: "verifying",
+        verificationResult: {
+          passed: false,
+          decision: "incomplete",
+          steps: [],
+        },
+      },
+      {
+        id: mismatchedTaskId,
+        projectId,
+        title: "Completed task with mismatched verification",
+        status: "completed",
+        verificationResult: {
+          passed: false,
+          decision: "failed",
+          steps: [],
+        },
+      },
+    ]);
+
+    const response = await request(app).get(`/api/projects/${projectId}/workspace`);
+
+    expect(response.status).toBe(200);
+    const tasks = response.body.work.recentTasks as Array<{
+      id: string;
+      verificationDecision: string | null;
+    }>;
+    expect(tasks.find((task) => task.id === queuedTaskId)?.verificationDecision).toBeNull();
+    expect(tasks.find((task) => task.id === verifyingTaskId)?.verificationDecision).toBe("incomplete");
+    expect(tasks.find((task) => task.id === mismatchedTaskId)?.verificationDecision).toBeNull();
   });
 
   it("reports a failed source as partial without returning its diagnostic", async () => {

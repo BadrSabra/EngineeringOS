@@ -813,6 +813,7 @@ export * from './workflowExecution';
 export * from './workflowPhase';
 export * from './workflowStatus';
 export * from './workspaceCandidateSummary';
+export * from './workspaceCandidateSummaryLatestExecutionBinding';
 export * from './workspaceCandidateSummaryStatus';
 export * from './workspaceExecutionSummary';
 export * from './workspaceExecutionSummaryStatus';

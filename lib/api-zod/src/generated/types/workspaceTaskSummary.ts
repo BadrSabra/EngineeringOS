@@ -12,7 +12,10 @@ export interface WorkspaceTaskSummary {
   id: string;
   title: string;
   status: TaskStatus;
-  /** @nullable */
+  /**
+     * Current only when consistent with the task status; null during pending, queued, or running work or when the stored decision conflicts. This summary is not revision-bound proof.
+     * @nullable
+     */
   verificationDecision: WorkspaceTaskSummaryVerificationDecision;
   updatedAt: Date;
 }

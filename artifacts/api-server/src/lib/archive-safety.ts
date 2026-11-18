@@ -12,11 +12,20 @@ export const ARCHIVE_LIMITS = {
   maxEntryBytes: 64 * 1024 * 1024,
   maxExpandedBytes: 256 * 1024 * 1024,
 } as const;
+export const ARCHIVE_UPLOAD_BODY_TIMEOUT_MS = 5 * 60_000;
+
 type ArchiveLimitSet = {
   maxEntries: number;
   maxEntryBytes: number;
   maxExpandedBytes: number;
 };
+
+function throwIfAborted(signal?: AbortSignal): void {
+  if (!signal?.aborted) return;
+  const error = new Error("Archive processing was aborted.");
+  error.name = "AbortError";
+  throw error;
+}
 
 export class ArchiveSafetyError extends Error {
   constructor(message: string) {
@@ -47,9 +56,8 @@ export class ArchiveProcessingLimiter {
 }
 
 /**
- * ZIP parsing and extraction are memory-expensive. Keep the current single-API
- * process to one archive at a time; the route rejects excess requests before
- * multer writes their bodies to disk.
+ * Process-local backpressure for archive requests. The route also reserves the
+ * shared PostgreSQL upload slot before Multer reads any request body.
  */
 export const archiveProcessingLimiter = new ArchiveProcessingLimiter(1);
 
@@ -101,13 +109,16 @@ export async function extractZipSafely(
   zip: AdmZip,
   root: string,
   limits: ArchiveLimitSet = ARCHIVE_LIMITS,
+  signal?: AbortSignal,
 ): Promise<void> {
+  throwIfAborted(signal);
   const entries = zip.getEntries();
   let expanded = 0;
   let count = 0;
   // Perform a complete metadata pass first. No bytes are decompressed until
   // the whole archive is known to fit the policy.
   for (const entry of entries) {
+    throwIfAborted(signal);
     count += 1;
     const entryName = entry.rawEntryName.toString("utf8");
     validateArchiveEntryPath(entryName, root);
@@ -120,6 +131,7 @@ export async function extractZipSafely(
   count = 0;
   expanded = 0;
   for (const entry of entries) {
+    throwIfAborted(signal);
     count += 1;
     const destination = validateArchiveEntryPath(entry.rawEntryName.toString("utf8"), root);
     const directory = entry.isDirectory || entry.entryName.endsWith("/") || entry.entryName.endsWith("\\");
@@ -130,12 +142,13 @@ export async function extractZipSafely(
       continue;
     }
     const data = entry.getData();
+    throwIfAborted(signal);
     // Check the actual decoded size too; this also protects against dishonest
     // metadata and ensures the accounting matches what reaches the filesystem.
     if (data.length !== size) expanded -= size;
     expanded = checkLimits(count, expanded, data.length, limits);
     await mkdir(resolve(destination, ".."), { recursive: true });
-    await writeFile(destination, data, { flag: "wx" });
+    await writeFile(destination, data, { flag: "wx", signal });
   }
 }
 
@@ -154,16 +167,20 @@ export async function extractTarGzSafely(
   tarPath: string,
   root: string,
   limits: ArchiveLimitSet = ARCHIVE_LIMITS,
+  signal?: AbortSignal,
 ): Promise<void> {
+  throwIfAborted(signal);
   const { stdout } = await execFileAsync(
     "tar",
     ["-tvzf", tarPath, "--full-time", "--numeric-owner"],
-    { timeout: 30_000, maxBuffer: 8 * 1024 * 1024 },
+    { timeout: 30_000, maxBuffer: 8 * 1024 * 1024, signal },
   );
+  throwIfAborted(signal);
   const entries = parseTarListing(stdout);
   let expanded = 0;
   let count = 0;
   for (const entry of entries) {
+    throwIfAborted(signal);
     count += 1;
     validateArchiveEntryPath(entry.name, root);
     if (entry.type !== "-" && entry.type !== "d") {
@@ -171,9 +188,10 @@ export async function extractTarGzSafely(
     }
     expanded = checkLimits(count, expanded, entry.type === "d" ? 0 : entry.size, limits);
   }
+  throwIfAborted(signal);
   await execFileAsync(
     "tar",
     ["-xzf", tarPath, "-C", root, "--no-same-owner", "--no-same-permissions", "--keep-directory-symlink"],
-    { timeout: 60_000, maxBuffer: 8 * 1024 * 1024 },
+    { timeout: 60_000, maxBuffer: 8 * 1024 * 1024, signal },
   );
 }

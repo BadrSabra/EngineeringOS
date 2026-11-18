@@ -896,7 +896,7 @@ export const GetProjectWorkspaceSnapshotResponse = zod.object({
   "id": zod.string(),
   "title": zod.string(),
   "status": zod.enum(['pending', 'queued', 'running', 'verifying', 'completed', 'failed', 'cancelled']),
-  "verificationDecision": zod.union([zod.literal('verified'),zod.literal('incomplete'),zod.literal('failed'),zod.literal('cancelled'),zod.literal(null)]).nullable(),
+  "verificationDecision": zod.union([zod.literal('verified'),zod.literal('incomplete'),zod.literal('failed'),zod.literal('cancelled'),zod.literal(null)]).nullable().describe('Current only when consistent with the task status; null during pending, queued, or running work or when the stored decision conflicts. This summary is not revision-bound proof.'),
   "updatedAt": zod.coerce.date()
 })),
   "executionSource": zod.enum(['available', 'unavailable']),
@@ -913,6 +913,7 @@ export const GetProjectWorkspaceSnapshotResponse = zod.object({
   "proposalId": zod.string(),
   "status": zod.enum(['pending', 'applied', 'rejected']),
   "lifecycle": zod.string().max(getProjectWorkspaceSnapshotResponseWorkCandidateOneLifecycleMax),
+  "latestExecutionBinding": zod.enum(['matched', 'not_matched', 'unknown']).describe('Whether this proposal ID exactly matches work.latestExecution.proposalId. not_matched means the project candidate is not identified as output from the latest execution; unknown means the execution source was unavailable. This relationship does not assert verification or acceptance.\n'),
   "revision": zod.number().int().min(getProjectWorkspaceSnapshotResponseWorkCandidateOneRevisionMin),
   "approvalRequired": zod.boolean(),
   "operationId": zod.string().nullable(),

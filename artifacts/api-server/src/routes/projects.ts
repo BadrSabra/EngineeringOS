@@ -38,6 +38,10 @@ import {
 } from "../lib/worker-scope.js";
 import { heavyJobQueue } from "../lib/job-queue.js";
 import { workspaceRuntime } from "../lib/workspace-runtime.js";
+import {
+  getWorkspaceCandidateExecutionBinding,
+  getWorkspaceTaskVerificationDecision,
+} from "../lib/workspace-snapshot.js";
 import { removeManagedProjectRoot } from "../lib/project-materialization.js";
 import { LockNamespace, tryAdvisoryLock } from "../lib/advisory-lock.js";
 import { getProjectWorldState } from "../lib/agent-state/world-state.js";
@@ -440,9 +444,10 @@ router.post("/projects/:projectId/scan", requireProjectWriteAccess, async (req, 
       logger.error({ err, projectId }, "failed to inspect active scan after admission lock contention");
       return res.status(503).json({ error: "Scan admission is temporarily unavailable" });
     }
+    res.setHeader("retry-after", "1");
     return res.status(409).json({
       error: "scan_already_running",
-      message: "A direct scan is already running for this project.",
+      message: "A scan still holds the project lock; retry after it is released.",
     });
   }
 
@@ -684,8 +689,6 @@ router.get(
     const candidateRow =
       candidateResult.status === "fulfilled" ? candidateResult.value[0] ?? null : null;
     const runtime = runtimeResult.status === "fulfilled" ? runtimeResult.value : null;
-    const verificationDecisions = new Set(["verified", "incomplete", "failed", "cancelled"]);
-
     const snapshot = {
       contractVersion: 1 as const,
       observedAt,
@@ -704,11 +707,10 @@ router.get(
           id: task.id,
           title: task.title,
           status: task.status,
-          verificationDecision:
-            task.verificationResult?.decision
-            && verificationDecisions.has(task.verificationResult.decision)
-              ? task.verificationResult.decision
-              : null,
+          verificationDecision: getWorkspaceTaskVerificationDecision(
+            task.status,
+            task.verificationResult?.decision,
+          ),
           updatedAt: task.updatedAt,
         })),
         executionSource: executionResult.status === "fulfilled" ? "available" as const : "unavailable" as const,
@@ -719,6 +721,12 @@ router.get(
               proposalId: candidateRow.id,
               status: candidateRow.status,
               lifecycle: candidateRow.lifecycle,
+              latestExecutionBinding: getWorkspaceCandidateExecutionBinding({
+                candidateProposalId: candidateRow.id,
+                executionSource:
+                  executionResult.status === "fulfilled" ? "available" : "unavailable",
+                latestExecutionProposalId: executionRow?.proposalId ?? null,
+              }),
               revision: candidateRow.revision,
               approvalRequired: candidateRow.approvalRequired,
               operationId: candidateRow.operationId,

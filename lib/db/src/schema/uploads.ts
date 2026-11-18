@@ -7,14 +7,11 @@
  * causing ARCHIVE_UPLOAD discovery to fail with a misleading "Upload not found
  * or expired" error.
  *
- * Moving metadata to the DB means the entry survives restarts. The extracted
- * files themselves stay in /tmp (they survive process restarts on Linux since
- * /tmp is a tmpfs that is not wiped between process starts, only on host reboot).
- * If a restart happens to be a full host reboot and the extracted dir is gone,
- * the ARCHIVE_UPLOAD adapter detects the missing dir on lookup and returns a
- * clear "re-upload required" error — no silent failure.
+ * Archive bytes live in private shared object storage. Discovery materializes a
+ * temporary local copy before scanning, so API replicas do not share local paths.
  */
-import { pgTable, text, timestamp, index } from "drizzle-orm/pg-core";
+import { sql } from "drizzle-orm";
+import { pgTable, text, timestamp, index, check } from "drizzle-orm/pg-core";
 
 export const uploadsTable = pgTable(
   "uploads",
@@ -25,8 +22,17 @@ export const uploadsTable = pgTable(
     /** Clerk user ID of the uploader. Enforced at the route level (requireAuth). */
     ownerId: text("owner_id").notNull(),
 
-    /** Absolute path of the extracted directory on the server filesystem. */
-    extractedDir: text("extracted_dir").notNull(),
+    /** Legacy local path, retained only for rows created before shared storage. */
+    extractedDir: text("extracted_dir"),
+
+    /** Object name inside the configured private bucket; never client supplied. */
+    storageKey: text("storage_key"),
+
+    /** Archive format needed to re-run the existing safe extractor on discovery. */
+    archiveFormat: text("archive_format"),
+
+    /** Retired rows remain until object deletion succeeds. */
+    state: text("state").notNull().default("active"),
 
     /** Original filename of the uploaded archive (for logging and UI display). */
     originalName: text("original_name").notNull(),
@@ -36,8 +42,7 @@ export const uploadsTable = pgTable(
 
     /**
      * When this entry expires. Set to createdAt + TTL at insert time.
-     * The periodic sweep and the startup reconciliation delete rows past
-     * this timestamp and remove their extracted directories.
+     * The periodic sweep retires expired rows and retries object cleanup.
      * Default TTL: 1 hour.
      */
     expiresAt: timestamp("expires_at").notNull(),
@@ -45,6 +50,15 @@ export const uploadsTable = pgTable(
   (t) => [
     index("idx_uploads_owner_id").on(t.ownerId),
     index("idx_uploads_expires_at").on(t.expiresAt),
+    check(
+      "uploads_state_check",
+      sql`${t.state} in ('storing', 'active', 'claimed', 'retired')`,
+    ),
+    check(
+      "uploads_storage_reference_check",
+      sql`(${t.storageKey} is null and ${t.archiveFormat} is null) or
+        (${t.storageKey} is not null and ${t.archiveFormat} in ('zip', 'tar.gz'))`,
+    ),
   ],
 );
 

@@ -1,4 +1,4 @@
-modules = ["nodejs-20", "web", "python-3.12", "postgresql-16"]
+modules = ["nodejs-20", "web"]
 
 [deployment]
 router = "application"
@@ -128,6 +128,8 @@ packages = ["glib", "nss", "atk", "at-spi2-atk", "cups", "dbus", "expat", "fontc
 [userenv]
 
 [userenv.shared]
+
+[userenv.development]
 
 [[ports]]
 localPort = 8080

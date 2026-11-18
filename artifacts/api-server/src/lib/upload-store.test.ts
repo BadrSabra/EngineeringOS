@@ -1,25 +1,26 @@
-/**
- * PR-D2 — Unit tests for the DB-backed upload store.
- *
- * DB is mocked via vi.mock so these tests run without a real PG connection.
- * The happy-path DB round-trip is covered by the discovery route integration
- * tests in discovery.test.ts.
- */
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-// ─── DB mock ─────────────────────────────────────────────────────────────────
-// We mock @workspace/db so the upload-store functions don't need a real
-// PG connection in unit test mode.
+const selectResults: unknown[][] = [];
+const updateResults: unknown[][] = [];
+const mockInsert = vi.fn();
+const mockDelete = vi.fn();
+const mockPut = vi.fn();
+const mockDownload = vi.fn();
+const mockObjectDelete = vi.fn();
 
-const mockSelect     = vi.fn();
-const mockInsert     = vi.fn();
-const mockDelete     = vi.fn();
-
-// Drizzle's fluent builder returns `this` from each method — simulate that.
 const selectBuilder = {
   from: vi.fn().mockReturnThis(),
   where: vi.fn().mockReturnThis(),
-  limit: vi.fn().mockImplementation(() => mockSelect()),
+  limit: vi.fn().mockImplementation(() => Promise.resolve(selectResults.shift() ?? [])),
+  then: (resolve: (value: unknown[]) => unknown, reject: (reason: unknown) => unknown) =>
+    Promise.resolve(selectResults.shift() ?? []).then(resolve, reject),
+};
+const updateBuilder = {
+  set: vi.fn().mockReturnThis(),
+  where: vi.fn().mockReturnThis(),
+  returning: vi.fn().mockImplementation(() => Promise.resolve(updateResults.shift() ?? [])),
+  then: (resolve: (value: unknown[]) => unknown, reject: (reason: unknown) => unknown) =>
+    Promise.resolve(updateResults.shift() ?? []).then(resolve, reject),
 };
 const insertBuilder = {
   values: vi.fn().mockImplementation(() => mockInsert()),
@@ -32,205 +33,199 @@ vi.mock("@workspace/db", () => ({
   db: {
     select: vi.fn(() => selectBuilder),
     insert: vi.fn(() => insertBuilder),
+    update: vi.fn(() => updateBuilder),
     delete: vi.fn(() => deleteBuilder),
   },
   uploadsTable: {
     id: "id",
     ownerId: "owner_id",
     extractedDir: "extracted_dir",
+    storageKey: "storage_key",
+    archiveFormat: "archive_format",
+    state: "state",
     originalName: "original_name",
     createdAt: "created_at",
     expiresAt: "expires_at",
   },
 }));
 
-// ─── fs mock ─────────────────────────────────────────────────────────────────
-vi.mock("node:fs/promises", () => ({
-  rm: vi.fn().mockResolvedValue(undefined),
-  access: vi.fn().mockResolvedValue(undefined), // dir exists by default
+vi.mock("./logger.js", () => ({
+  logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
 }));
 
-import { rm, access } from "node:fs/promises";
 import {
   registerUpload,
   lookupUpload,
+  claimUpload,
+  materializeClaimedUpload,
   removeUpload,
   sweepExpiredUploads,
   UPLOAD_TTL_MS,
 } from "./upload-store.js";
+import {
+  createArchiveObjectKey,
+  setArchiveObjectStorageForTests,
+} from "./archive-object-storage.js";
+import { archiveProcessingLimiter } from "./archive-safety.js";
+
+const now = () => new Date();
+function makeRow(overrides: Record<string, unknown> = {}) {
+  const createdAt = now();
+  return {
+    id: "11111111-1111-4111-8111-111111111111",
+    ownerId: "owner-1",
+    extractedDir: null,
+    storageKey: createArchiveObjectKey(
+      "owner-1",
+      "11111111-1111-4111-8111-111111111111",
+      "zip",
+    ),
+    archiveFormat: "zip",
+    state: "active",
+    originalName: "repo.zip",
+    createdAt,
+    expiresAt: new Date(Date.now() + 60_000),
+    ...overrides,
+  };
+}
+
+let restoreStorage: (() => void) | undefined;
 
 beforeEach(() => {
   vi.clearAllMocks();
-  // Reset builder mock returns to sane defaults after clearAllMocks
+  selectResults.length = 0;
+  updateResults.length = 0;
+  vi.stubEnv("PRIVATE_OBJECT_DIR", "/test-bucket/private");
+  mockInsert.mockResolvedValue(undefined);
+  mockDelete.mockResolvedValue(undefined);
+  mockPut.mockResolvedValue(undefined);
+  mockDownload.mockResolvedValue(undefined);
+  mockObjectDelete.mockResolvedValue(undefined);
+  restoreStorage = setArchiveObjectStorageForTests({
+    put: mockPut,
+    download: mockDownload,
+    delete: mockObjectDelete,
+  });
   selectBuilder.from.mockReturnThis();
   selectBuilder.where.mockReturnThis();
-  selectBuilder.limit.mockImplementation(() => mockSelect());
-  insertBuilder.values.mockImplementation(() => mockInsert());
-  deleteBuilder.where.mockImplementation(() => mockDelete());
+  selectBuilder.limit.mockImplementation(() => Promise.resolve(selectResults.shift() ?? []));
+  updateBuilder.set.mockReturnThis();
+  updateBuilder.where.mockReturnThis();
+  updateBuilder.returning.mockImplementation(() => Promise.resolve(updateResults.shift() ?? []));
 });
 
-// ─── registerUpload ────────────────────────────────────────────────────────────
+afterEach(() => {
+  restoreStorage?.();
+  restoreStorage = undefined;
+  vi.unstubAllEnvs();
+});
 
 describe("registerUpload", () => {
-  it("inserts a row into the DB", async () => {
-    mockInsert.mockResolvedValue(undefined);
-    await registerUpload("upload-1", "/tmp/eos-upload-1", "archive.zip", "user-1");
-    expect(mockInsert).toHaveBeenCalledOnce();
-  });
-
-  it("uses the configured TTL for expiresAt", async () => {
-    mockInsert.mockResolvedValue(undefined);
-    const { db } = await import("@workspace/db");
-    const before = Date.now();
-    await registerUpload("upload-ttl", "/tmp/eos-upload-ttl", "a.zip", "u1");
-    vi.mocked(db.insert).mock.results[0];
-    // We can only verify the function chain ran — the values are passed deep in the chain.
-    expect(mockInsert).toHaveBeenCalledOnce();
-    const after = Date.now();
-    // TTL should be positive and at most 2× the configured value (clock-safe).
-    expect(UPLOAD_TTL_MS).toBeGreaterThan(0);
-    expect(after - before).toBeLessThan(UPLOAD_TTL_MS * 2);
-  });
-});
-
-// ─── lookupUpload ──────────────────────────────────────────────────────────────
-
-describe("lookupUpload", () => {
-  it("returns undefined when the DB has no matching row", async () => {
-    mockSelect.mockResolvedValue([]);
-    const result = await lookupUpload("no-such-id", "user-1");
-    expect(result).toBeUndefined();
-  });
-
-  it("returns the entry when the row exists and has not expired", async () => {
-    const futureExpiry = new Date(Date.now() + 60_000);
-    mockSelect.mockResolvedValue([{
-      id: "upload-2",
-      ownerId: "user-1",
-      extractedDir: "/tmp/eos-upload-2",
-      originalName: "repo.zip",
-      createdAt: new Date(),
-      expiresAt: futureExpiry,
-    }]);
-    vi.mocked(access).mockResolvedValue(undefined); // dir exists
-
-    const result = await lookupUpload("upload-2", "user-1");
-    expect(result).toBeDefined();
-    expect(result?.ownerId).toBe("user-1");
-    expect(result?.extractedDir).toBe("/tmp/eos-upload-2");
-    expect(result?.originalName).toBe("repo.zip");
-  });
-
-  it("returns undefined and deletes the row when the entry has expired", async () => {
-    const pastExpiry = new Date(Date.now() - 1000);
-    mockSelect.mockResolvedValue([{
-      id: "expired-id",
-      ownerId: "user-1",
-      extractedDir: "/tmp/eos-upload-expired",
-      originalName: "old.zip",
-      createdAt: new Date(Date.now() - 4_000_000),
-      expiresAt: pastExpiry,
-    }]);
-    mockDelete.mockResolvedValue(undefined);
-
-    const result = await lookupUpload("expired-id", "user-1");
-    expect(result).toBeUndefined();
-    expect(mockDelete).toHaveBeenCalledOnce();
-    expect(rm).toHaveBeenCalledOnce();
-  });
-
-  it("returns undefined and removes the DB row when extractedDir no longer exists", async () => {
-    const futureExpiry = new Date(Date.now() + 60_000);
-    mockSelect.mockResolvedValue([{
-      id: "missing-dir-id",
-      ownerId: "user-1",
-      extractedDir: "/tmp/eos-upload-gone",
-      originalName: "gone.zip",
-      createdAt: new Date(),
-      expiresAt: futureExpiry,
-    }]);
-    vi.mocked(access).mockRejectedValue(new Error("ENOENT"));
-    mockDelete.mockResolvedValue(undefined);
-
-    const result = await lookupUpload("missing-dir-id", "user-1");
-    expect(result).toBeUndefined();
-    expect(mockDelete).toHaveBeenCalledOnce();
-  });
-
-  it("does not reveal or delete an upload owned by another user", async () => {
-    const futureExpiry = new Date(Date.now() + 60_000);
-    mockSelect.mockResolvedValue([{
-      id: "private-upload",
-      ownerId: "owner-1",
-      extractedDir: "/tmp/eos-upload-private",
-      originalName: "private.zip",
-      createdAt: new Date(),
-      expiresAt: futureExpiry,
-    }]);
-
-    const result = await lookupUpload("private-upload", "different-user");
-    expect(result).toBeUndefined();
-    expect(access).not.toHaveBeenCalled();
-    expect(mockDelete).not.toHaveBeenCalled();
-  });
-});
-
-// ─── removeUpload ──────────────────────────────────────────────────────────────
-
-describe("removeUpload", () => {
-  it("deletes the DB row and removes the extracted directory", async () => {
-    // First select to get the extractedDir, then delete
-    selectBuilder.limit.mockImplementationOnce(() =>
-      Promise.resolve([{
-        ownerId: "user-1",
-        extractedDir: "/tmp/eos-upload-rm",
-      }]),
+  it("stores archive bytes under an owner-scoped private object key before activation", async () => {
+    updateResults.push([{ id: "11111111-1111-4111-8111-111111111111" }]);
+    await registerUpload(
+      "11111111-1111-4111-8111-111111111111",
+      "/tmp/archive.zip",
+      "repo.zip",
+      "owner-1",
+      "zip",
     );
-    mockDelete.mockResolvedValue(undefined);
 
-    await removeUpload("upload-rm", "user-1");
-    expect(mockDelete).toHaveBeenCalledOnce();
-    expect(rm).toHaveBeenCalledWith("/tmp/eos-upload-rm", { recursive: true, force: true });
+    expect(mockInsert).toHaveBeenCalledOnce();
+    expect(mockPut).toHaveBeenCalledOnce();
+    const [objectKey] = mockPut.mock.calls[0];
+    expect(objectKey).toContain("/engineeringos/archive-uploads/");
+    expect(objectKey).toContain("/11111111-1111-4111-8111-111111111111/archive.zip");
+    expect(updateBuilder.set).toHaveBeenCalledWith({ state: "active" });
+    expect(UPLOAD_TTL_MS).toBeGreaterThan(0);
   });
 
-  it("is a no-op (does not throw) when the uploadId is not in the DB", async () => {
-    selectBuilder.limit.mockImplementationOnce(() => Promise.resolve([]));
-    mockDelete.mockResolvedValue(undefined);
+  it("keeps a cleanup receipt when a partial object still cannot be removed", async () => {
+    mockPut.mockRejectedValueOnce(new Error("upload interrupted"));
+    updateResults.push([], []);
+    selectResults.push([makeRow({ state: "retired" })]);
+    mockObjectDelete.mockRejectedValue(new Error("object service unavailable"));
 
-    await expect(removeUpload("nonexistent", "user-1")).resolves.toBeUndefined();
+    await expect(registerUpload(
+      "11111111-1111-4111-8111-111111111111",
+      "/tmp/archive.zip",
+      "repo.zip",
+      "owner-1",
+      "zip",
+    )).rejects.toThrow("upload interrupted");
+
+    expect(updateBuilder.set).toHaveBeenCalledWith({ state: "retired" });
+    expect(mockObjectDelete).toHaveBeenCalledTimes(2);
     expect(mockDelete).not.toHaveBeenCalled();
-    expect(rm).not.toHaveBeenCalled();
   });
 });
 
-// ─── sweepExpiredUploads ───────────────────────────────────────────────────────
+describe("upload ownership and claims", () => {
+  it("does not reveal another user's archive or attempt object access", async () => {
+    selectResults.push([]);
+    await expect(lookupUpload("private-id", "different-user")).resolves.toBeUndefined();
+    expect(mockDownload).not.toHaveBeenCalled();
+    expect(mockObjectDelete).not.toHaveBeenCalled();
+  });
 
-describe("sweepExpiredUploads", () => {
-  it("returns 0 when there are no expired entries", async () => {
-    mockSelect.mockResolvedValue([]);
-    const count = await sweepExpiredUploads();
-    expect(count).toBe(0);
+  it("claims one active upload for discovery", async () => {
+    updateResults.push([makeRow({ state: "claimed" })]);
+    const entry = await claimUpload(
+      "11111111-1111-4111-8111-111111111111",
+      "owner-1",
+    );
+    expect(entry?.state).toBe("claimed");
+    expect(updateBuilder.set).toHaveBeenCalledWith(expect.objectContaining({
+      state: "claimed",
+      expiresAt: expect.any(Date),
+    }));
+  });
+
+  it("rejects another local archive extraction before claiming an upload", async () => {
+    const release = archiveProcessingLimiter.tryAcquire();
+    expect(release).toEqual(expect.any(Function));
+    try {
+      await expect(
+        materializeClaimedUpload(
+          "11111111-1111-4111-8111-111111111111",
+          "owner-1",
+        ),
+      ).rejects.toMatchObject({
+        status: 429,
+      });
+      expect(updateBuilder.set).not.toHaveBeenCalled();
+    } finally {
+      release?.();
+    }
+  });
+
+  it("does not retire or delete an upload when a different owner requests removal", async () => {
+    updateResults.push([]);
+    selectResults.push([]);
+    await removeUpload("private-id", "different-user");
+    expect(mockObjectDelete).not.toHaveBeenCalled();
     expect(mockDelete).not.toHaveBeenCalled();
   });
+});
 
-  it("deletes each expired entry and removes its directory", async () => {
-    // sweepExpiredUploads ends the select chain at .where() (no .limit()),
-    // so we override .where to return the mock result directly for this test.
-    const expiredRows = [
-      { id: "exp-1", extractedDir: "/tmp/eos-upload-exp-1" },
-      { id: "exp-2", extractedDir: "/tmp/eos-upload-exp-2" },
-    ];
-    selectBuilder.where.mockImplementationOnce(() => Promise.resolve(expiredRows));
-    mockDelete.mockResolvedValue(undefined);
+describe("expiry and retryable cleanup", () => {
+  it("retires an expired upload before deleting its shared object", async () => {
+    const row = makeRow({ expiresAt: new Date(Date.now() - 1), state: "active" });
+    selectResults.push([row]);
+    updateResults.push([{ ...row, state: "retired" }]);
 
-    const count = await sweepExpiredUploads();
-    expect(count).toBe(2);
-    expect(mockDelete).toHaveBeenCalledTimes(2);
-    expect(rm).toHaveBeenCalledTimes(2);
+    await expect(lookupUpload(row.id, row.ownerId)).resolves.toBeUndefined();
+    expect(updateBuilder.set).toHaveBeenCalledWith({ state: "retired" });
+    expect(mockObjectDelete).toHaveBeenCalledOnce();
+    expect(mockDelete).toHaveBeenCalledOnce();
   });
 
-  it("returns 0 and logs (does not throw) when the DB query fails", async () => {
-    mockSelect.mockRejectedValue(new Error("DB connection lost"));
+  it("retries retired object cleanup during the expiry sweep", async () => {
+    const row = makeRow({ state: "retired" });
+    selectResults.push([row], [row]);
+    mockObjectDelete.mockRejectedValueOnce(new Error("temporary failure"));
     await expect(sweepExpiredUploads()).resolves.toBe(0);
+    expect(mockObjectDelete).toHaveBeenCalledOnce();
+    expect(mockDelete).not.toHaveBeenCalled();
   });
 });
