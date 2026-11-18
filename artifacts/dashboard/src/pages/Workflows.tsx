@@ -317,9 +317,11 @@ function CreateWorkflowModal({
 
 function ExecutionHistory({
   workflowId,
+  projectId,
   phases,
 }: {
   workflowId: string;
+  projectId: string;
   phases: Array<{ name: string }>;
 }) {
   const { data: executions, isLoading, isError, error, refetch } = useListWorkflowExecutions(workflowId, {
@@ -330,8 +332,8 @@ function ExecutionHistory({
   const rollbackPhase = useRollbackWorkflowPhase();
 
   const invalidate = () => {
-    queryClient.invalidateQueries({ queryKey: getListWorkflowExecutionsQueryKey(workflowId) });
-    queryClient.invalidateQueries({ queryKey: getListWorkflowsQueryKey() });
+    void queryClient.invalidateQueries({ queryKey: getListWorkflowExecutionsQueryKey(workflowId) });
+    void queryClient.invalidateQueries({ queryKey: getListWorkflowsQueryKey({ projectId }) });
   };
 
   if (isLoading) {
@@ -953,7 +955,7 @@ function WorkflowsSession({ requestedProjectId }: { requestedProjectId: string }
               </button>
               {expandedId === workflow.id && (
                 <div className="mt-3">
-                  <ExecutionHistory workflowId={workflow.id} phases={workflow.phases} />
+                  <ExecutionHistory workflowId={workflow.id} projectId={workflow.projectId} phases={workflow.phases} />
                 </div>
               )}
             </div>
