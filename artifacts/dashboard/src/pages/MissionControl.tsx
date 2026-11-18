@@ -1291,6 +1291,28 @@ export default function MissionControl() {
   const projectId = searchParams.get('projectId') ?? '';
   const requestedMissionId = searchParams.get('missionId') ?? '';
   const requestedExecutionId = searchParams.get('executionId') ?? '';
+
+  // Mission Control can stay mounted while its deep-link context changes.
+  // Give each project/mission/execution route a fresh local UI session.
+  return (
+    <MissionControlSession
+      key={JSON.stringify([projectId, requestedMissionId, requestedExecutionId])}
+      projectId={projectId}
+      requestedMissionId={requestedMissionId}
+      requestedExecutionId={requestedExecutionId}
+    />
+  );
+}
+
+function MissionControlSession({
+  projectId,
+  requestedMissionId,
+  requestedExecutionId,
+}: {
+  projectId: string;
+  requestedMissionId: string;
+  requestedExecutionId: string;
+}) {
   const missionProjectionQuery = useQuery({
     queryKey: ['mission-agent-projection', projectId, requestedMissionId],
     queryFn: () => fetchMissionProjection(requestedMissionId),
