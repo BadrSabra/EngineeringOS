@@ -76,7 +76,7 @@ export function activityEventsFromToolTrace(trace: ToolTraceEntry[]): LiveAgentA
   for (const entry of trace) {
     if (entry.kind === 'plan_activity' && entry.stage) {
       const approval = entry.approvalRequired
-        ? `الموافقة مطلوبة قبل تغيير الملفات: ${(entry.files ?? []).join(', ') || 'approved files'}`
+        ? `الموافقة مطلوبة قبل تغيير الملفات: ${(entry.files ?? []).join(', ') || 'الملفات المعتمدة'}`
         : undefined;
       events.push({
         id: nextId++,
@@ -227,7 +227,7 @@ export function activityEventsFromToolTrace(trace: ToolTraceEntry[]): LiveAgentA
               ? 'جاهز للمراجعة'
               : 'تم حظر الإصلاح',
         detail: state === 'VALIDATING'
-          ? `${entry.reason ?? 'Server-owned validation is running.'} Wait for the bounded result; promotion remains blocked until validation passes.`
+          ? `${entry.reason ?? 'يجري التحقق الذي يديره الخادم.'} انتظر النتيجة ضمن الحدود؛ يظل الانتقال محظورًا حتى ينجح التحقق.`
           : entry.reason,
         status: state === 'READY_FOR_REVIEW' ? 'done' : state === 'VALIDATING' ? 'active' : 'info',
       });
@@ -544,7 +544,7 @@ export function LiveAgentActivity({
       <div className={`mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 border-t ${isFixtureLocal ? 'border-violet-500/15' : 'border-primary/10'} pt-2 text-[10px] text-muted-foreground`}>
         {steps.length > 0 && (
           <span>
-            <span className="text-foreground">{completed}/{steps.length}</span> إجراء مكتمل
+            <span className="text-foreground">{completed}/{steps.length}</span> {steps.length === 1 ? 'إجراء مكتمل' : 'إجراءات مكتملة'}
           </span>
         )}
         {activeStep && (
@@ -554,7 +554,7 @@ export function LiveAgentActivity({
         )}
         {readSources > 0 && (
           <span>
-            <span className="text-foreground">{readSources}</span> مصدر مقروء
+            <span className="text-foreground">{readSources}</span> {readSources === 1 ? 'مصدر مقروء' : 'مصادر مقروءة'}
           </span>
         )}
         {iter && (
@@ -564,7 +564,7 @@ export function LiveAgentActivity({
         )}
         {diagnostics.length > 0 && (
           <span className="text-amber-300/90">
-            {diagnostics.length} تنبيه استرداد
+            {diagnostics.length} {diagnostics.length === 1 ? 'تنبيه استرداد' : 'تنبيهات استرداد'}
           </span>
         )}
       </div>
@@ -573,7 +573,7 @@ export function LiveAgentActivity({
         <div className={`mt-2 border-t ${isFixtureLocal ? 'border-violet-500/15' : 'border-primary/10'} pt-2`}>
           <div className="flex items-center justify-between gap-2 text-[10px] text-muted-foreground">
             <span>النشاط المباشر</span>
-            <span>{activityEvents.length} أحداث</span>
+            <span>عدد الأحداث: {activityEvents.length}</span>
           </div>
           <div className="mt-1 max-h-56 min-w-0 overflow-y-auto overflow-x-hidden rounded border border-border/40 bg-background/20 px-2 py-1.5">
             {activityEvents.map((event) => (
@@ -654,7 +654,7 @@ export function CompletedActivityTimeline({
       <summary className="flex cursor-pointer list-none items-center gap-1.5 text-[11px] text-muted-foreground hover:text-foreground">
         <Activity className="h-3 w-3" />
         <span>نشاط الوكيل</span>
-        <span className="text-[10px]">· {events.length} أحداث</span>
+        <span className="text-[10px]">· عدد الأحداث: {events.length}</span>
         <ChevronRight className="h-3 w-3 transition-transform [[open]>&]:rotate-90" />
       </summary>
       <div className="mt-1 max-h-56 min-w-0 overflow-y-auto overflow-x-hidden rounded-lg border border-border/50 bg-background/30 px-3 py-2 text-[10px]">
