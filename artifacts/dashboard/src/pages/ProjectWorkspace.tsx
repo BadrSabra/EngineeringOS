@@ -173,6 +173,10 @@ function WorkspaceTaskCard({
     ? rawAcceptanceAttempt
     : null;
   const attempt = executionAttempt ?? acceptanceAttempt;
+  const dependencyIds = taskMatchesSnapshot && Array.isArray(taskDetails?.dependsOn)
+    ? [...new Set(taskDetails.dependsOn.filter((dependencyId) =>
+      typeof dependencyId === 'string' && dependencyId.trim().length > 0))]
+    : null;
 
   let attemptContext = 'لا تتوفر محاولة مرتبطة في القراءة الحالية.';
   if (taskQuery.isLoading) {
@@ -215,6 +219,27 @@ function WorkspaceTaskCard({
                 {attempt === null ? 'غير متاحة' : <Identifier>{attempt}</Identifier>}
               </dd>
               <span className="text-slate-500">{attemptContext}</span>
+            </div>
+            <div className="flex flex-wrap items-center gap-1.5">
+              <dt>التبعيات:</dt>
+              <dd data-testid={`workspace-task-dependencies-${task.id}`}>
+                {dependencyIds === null
+                  ? 'غير متاحة في سجل المهمة'
+                  : dependencyIds.length === 0
+                    ? 'لا توجد تبعيات مسجلة'
+                    : dependencyIds.map((dependencyId, index) => (
+                      <span key={dependencyId}>
+                        {index > 0 ? '، ' : null}
+                        <Link
+                          href={`/tasks?projectId=${encodeURIComponent(projectId)}&taskId=${encodeURIComponent(dependencyId)}`}
+                          className="text-cyan-300 underline-offset-4 hover:underline"
+                          aria-label={`فتح المهمة المعتمَد عليها: ${dependencyId}`}
+                        >
+                          <Identifier>{dependencyId}</Identifier>
+                        </Link>
+                      </span>
+                    ))}
+              </dd>
             </div>
           </dl>
           <Link
