@@ -58,6 +58,11 @@ export default function Events() {
     ...(correlationId.trim() ? { correlationId: correlationId.trim() } : {}),
     ...(severity ? { severity: severity as (typeof SEVERITIES)[number] } : {}),
     ...(searchTerm.trim() ? { search: searchTerm.trim() } : {}),
+  }, {
+    query: {
+      refetchInterval: 15_000,
+      refetchIntervalInBackground: false,
+    },
   });
 
   const activeFilterCount = [projectId, severity, correlationId.trim(), searchTerm.trim()].filter(Boolean).length;
@@ -71,7 +76,7 @@ export default function Events() {
         <div>
           <h1 className="text-2xl font-bold tracking-tight">سجل الأحداث</h1>
           <p className="text-muted-foreground text-sm mt-1">
-            سجل مباشر لأنشطة النظام.
+            سجل أحداث النظام، يُحدّث تلقائيًا كل 15 ثانية أثناء عرض الصفحة.
             {' '}صفحة <bdi dir="ltr">{page}</bdi>. تُطبَّق عوامل التصفية على سجل الأحداث بالكامل.
           </p>
           {!isLoading && !isError && eventsPage && dataUpdatedAt > 0 && (
