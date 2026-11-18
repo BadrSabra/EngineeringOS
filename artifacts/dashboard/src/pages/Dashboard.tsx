@@ -399,7 +399,7 @@ export default function Dashboard() {
     } else if (!projectsQuery.isLoading && !projectsQuery.isError && projects.length === 0) {
       setLocation(`/projects?create=1&goalDraftId=${encodeURIComponent(savedDraft.id)}`);
     } else if (projectId) {
-      setLocation(`/ai?projectId=${encodeURIComponent(projectId)}&goalDraftId=${encodeURIComponent(savedDraft.id)}`);
+      setLocation(`/projects/${encodeURIComponent(projectId)}/workspace?goalDraftId=${encodeURIComponent(savedDraft.id)}`);
     } else {
       setLocation(`/ai?goalDraftId=${encodeURIComponent(savedDraft.id)}`);
     }

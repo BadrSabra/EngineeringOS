@@ -484,7 +484,7 @@ vi.mock('@workspace/api-client-react', () => {
   };
 });
 
-function renderAiChat(isDesktop = true) {
+function renderAiChat(isDesktop = true, workspaceProjectId?: string) {
   HTMLElement.prototype.scrollIntoView = vi.fn();
   Object.defineProperty(window, 'matchMedia', {
     configurable: true,
@@ -505,7 +505,7 @@ function renderAiChat(isDesktop = true) {
   const invalidateQueries = vi.spyOn(queryClient, 'invalidateQueries');
   const rendered = render(
     <QueryClientProvider client={queryClient}>
-      <AiChat />
+      <AiChat workspaceProjectId={workspaceProjectId} workspaceMode={Boolean(workspaceProjectId)} />
     </QueryClientProvider>,
   );
   return { invalidateQueries, queryClient, ...rendered };
@@ -999,6 +999,42 @@ describe('workspace goal draft handoff', () => {
       expect(screen.getByTestId('button-confirm-home-goal-project')).toBeEnabled();
       expect(screen.getByTestId('button-send-ai-message')).toBeDisabled();
       expect(screen.getByTestId('link-switch-to-general')).toHaveAttribute('href', '/general-chat');
+      expect(mocks.sentParams).toBeUndefined();
+      expect(mocks.taskSentParams).toBeUndefined();
+    } finally {
+      window.history.replaceState({}, '', originalPath);
+    }
+  });
+
+  it('restores a project goal draft inside the unified Workspace and still requires explicit confirmation', async () => {
+    const goal = 'راجع مشروع العملاء من مساحة العمل';
+    const draft = storeHomeGoalDraft(goal, 'user-1', 'project-2');
+    const originalPath = window.location.pathname + window.location.search;
+    mocks.projects = [
+      { id: 'project-1', name: 'First', language: 'TypeScript' },
+      { id: 'project-2', name: 'Second', language: 'TypeScript' },
+    ];
+    window.history.replaceState(
+      {},
+      '',
+      `/projects/project-2/workspace?goalDraftId=${encodeURIComponent(draft!.id)}`,
+    );
+
+    try {
+      renderAiChat(true, 'project-2');
+      await waitFor(() => expect(screen.getByTestId('input-ai-chat-composer')).toHaveValue(goal));
+
+      expect(screen.getByTestId('text-chat-current-project')).toHaveTextContent('Second');
+      expect(screen.getByTestId('status-home-goal-project-confirmation')).toHaveTextContent(
+        'هل تقصد تنفيذ هذا الهدف في مشروع «Second»؟',
+      );
+      expect(screen.getByTestId('button-confirm-home-goal-project')).toBeEnabled();
+      expect(screen.getByTestId('button-send-ai-message')).toBeDisabled();
+      expect(readGoalDrafts('user-1').drafts[0]).toMatchObject({
+        text: goal,
+        projectId: 'project-2',
+        sendAttemptedAt: null,
+      });
       expect(mocks.sentParams).toBeUndefined();
       expect(mocks.taskSentParams).toBeUndefined();
     } finally {
