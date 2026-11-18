@@ -162,7 +162,7 @@ describe('Graph', () => {
     const summaryUpdatedAt = new Date('2026-11-18T10:07:00.000Z').getTime();
 
     vi.mocked(useListGraphEntities).mockReturnValue({
-      data: { items: [entity] },
+      data: { items: [sourceEntity, targetEntity] },
       isLoading: false,
       isStale: false,
       isError: false,
