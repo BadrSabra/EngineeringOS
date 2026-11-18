@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import PreviewAgentPanel from "./PreviewAgentPanel";
 
@@ -14,18 +14,28 @@ function jsonResponse(body: unknown, status = 200): Response {
   });
 }
 
-function renderPanel() {
+function renderPanel(projectId = "project-1") {
   const queryClient = new QueryClient({
     defaultOptions: {
       queries: { retry: false, gcTime: 0 },
       mutations: { retry: false },
     },
   });
-  return render(
+  const view = render(
     <QueryClientProvider client={queryClient}>
-      <PreviewAgentPanel projectId="project-1" />
+      <PreviewAgentPanel projectId={projectId} />
     </QueryClientProvider>,
   );
+  return {
+    queryClient,
+    rerenderProject(nextProjectId: string) {
+      view.rerender(
+        <QueryClientProvider client={queryClient}>
+          <PreviewAgentPanel projectId={nextProjectId} />
+        </QueryClientProvider>,
+      );
+    },
+  };
 }
 
 beforeEach(() => {
@@ -140,6 +150,117 @@ describe("PreviewAgentPanel", () => {
     expect(postCalls).toHaveLength(2);
     expect(JSON.parse(String(postCalls[0][1]?.body))).toEqual({ storeId });
     expect(JSON.parse(String(postCalls[1][1]?.body))).toEqual({ storeId });
+  });
+
+  it("clears one-time pairing material when the Workspace changes projects", async () => {
+    const fetchMock = vi.fn().mockImplementation((input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.endsWith("/preview-agents/pairings")) {
+        return Promise.resolve(jsonResponse({
+          nodeId,
+          storeId,
+          pairingCode,
+          expiresAt: new Date(Date.now() + 5 * 60_000).toISOString(),
+        }, 201));
+      }
+      return Promise.resolve(jsonResponse([]));
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const view = renderPanel("project-1");
+    fireEvent.click(await screen.findByRole("button", { name: "ربط جهاز Linux" }));
+    expect(await screen.findByText(pairingCode)).toBeInTheDocument();
+
+    view.rerenderProject("project-2");
+
+    expect(screen.queryByText(pairingCode)).not.toBeInTheDocument();
+    expect(await screen.findByRole("button", { name: "ربط جهاز Linux" })).toBeInTheDocument();
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/projects/project-1/preview-agents/pairings",
+      expect.objectContaining({ method: "POST" }),
+    );
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/projects/project-2/preview-agents",
+      expect.anything(),
+    );
+  });
+
+  it("ignores a pairing response that arrives after the user switches projects", async () => {
+    let resolvePairing: ((response: Response) => void) | undefined;
+    const fetchMock = vi.fn((input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url === "/api/projects/project-1/preview-agents/pairings") {
+        return new Promise<Response>((resolve) => {
+          resolvePairing = resolve;
+        });
+      }
+      return Promise.resolve(jsonResponse([]));
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const view = renderPanel("project-1");
+    fireEvent.click(await screen.findByRole("button", { name: "ربط جهاز Linux" }));
+    await waitFor(() => expect(resolvePairing).toBeTypeOf("function"));
+
+    view.rerenderProject("project-2");
+
+    await act(async () => {
+      resolvePairing?.(jsonResponse({
+        nodeId,
+        storeId,
+        pairingCode,
+        expiresAt: new Date(Date.now() + 5 * 60_000).toISOString(),
+      }, 201));
+    });
+
+    expect(screen.queryByText(pairingCode)).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "ربط جهاز Linux" })).toBeInTheDocument();
+    expect(fetchMock).not.toHaveBeenCalledWith(
+      "/api/projects/project-2/preview-agents/pairings",
+      expect.anything(),
+    );
+  });
+
+  it("does not carry an uncertain retry store identity into another project", async () => {
+    const firstStoreId = "first-project-store";
+    const secondStoreId = "second-project-store";
+    const randomUUID = vi.fn()
+      .mockReturnValueOnce(firstStoreId)
+      .mockReturnValueOnce(secondStoreId);
+    vi.stubGlobal("crypto", { randomUUID } as unknown as Crypto);
+
+    const fetchMock = vi.fn((input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url === "/api/projects/project-1/preview-agents/pairings") {
+        return Promise.reject(new TypeError("network unavailable"));
+      }
+      if (url === "/api/projects/project-2/preview-agents/pairings") {
+        return Promise.resolve(jsonResponse({
+          nodeId,
+          storeId: secondStoreId,
+          pairingCode,
+          expiresAt: new Date(Date.now() + 5 * 60_000).toISOString(),
+        }, 201));
+      }
+      return Promise.resolve(jsonResponse([]));
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const view = renderPanel("project-1");
+    fireEvent.click(await screen.findByRole("button", { name: "ربط جهاز Linux" }));
+    expect(await screen.findByText(/سيستخدم الطلب الهوية نفسها/)).toBeInTheDocument();
+
+    view.rerenderProject("project-2");
+    fireEvent.click(await screen.findByRole("button", { name: "ربط جهاز Linux" }));
+    expect(await screen.findByText(pairingCode)).toBeInTheDocument();
+
+    const postCalls = fetchMock.mock.calls.filter(([url]) =>
+      String(url).endsWith("/preview-agents/pairings"),
+    );
+    expect(postCalls).toHaveLength(2);
+    expect(JSON.parse(String(postCalls[0]?.[1]?.body))).toEqual({ storeId: firstStoreId });
+    expect(JSON.parse(String(postCalls[1]?.[1]?.body))).toEqual({ storeId: secondStoreId });
+    expect(randomUUID).toHaveBeenCalledTimes(2);
   });
 
   it("revokes only the selected node after explicit confirmation", async () => {
