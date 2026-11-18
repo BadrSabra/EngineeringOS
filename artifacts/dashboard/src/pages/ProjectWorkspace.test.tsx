@@ -38,6 +38,7 @@ const mocks = vi.hoisted(() => ({
   taskLogs: {} as Record<string, unknown[]>,
   executions: {} as Record<string, unknown>,
   taskFetching: {} as Record<string, boolean>,
+  taskError: {} as Record<string, boolean>,
   taskLogsFetching: {} as Record<string, boolean>,
   executionFetching: {} as Record<string, boolean>,
 }));
@@ -93,7 +94,7 @@ vi.mock("@workspace/api-client-react", () => ({
   useGetTask: (taskId: string) => ({
     data: mocks.taskDetails[taskId],
     isLoading: false,
-    isError: false,
+    isError: Boolean(mocks.taskError[taskId]),
     isFetching: Boolean(mocks.taskFetching[taskId]),
   }),
   getGetTaskQueryKey: (taskId: string) => [`/api/tasks/${taskId}`],
@@ -129,6 +130,7 @@ beforeEach(() => {
   mocks.taskLogs = {};
   mocks.executions = {};
   mocks.taskFetching = {};
+  mocks.taskError = {};
   mocks.taskLogsFetching = {};
   mocks.executionFetching = {};
   vi.mocked(useGetAiExecution).mockClear();
@@ -490,6 +492,54 @@ describe("Workspace task cards", () => {
       .toHaveTextContent("غير متاحة في سجل المهمة");
     expect(card).not.toHaveTextContent("stale-dependency");
     expect(card).toHaveTextContent("تغير سجل المهمة منذ آخر لقطة");
+  });
+
+  it("fails closed on cached acceptance and dependencies when task detail refresh fails", () => {
+    const updatedAt = "2026-11-11T12:00:00.000Z";
+    mocks.snapshot = {
+      ...initialSnapshot,
+      work: {
+        ...initialSnapshot.work,
+        recentTasks: [{
+          id: "task-read-failed",
+          title: "تعذر تحديث تفاصيل المهمة",
+          status: "completed",
+          verificationDecision: "verified",
+          updatedAt,
+        }],
+      },
+    } as unknown as ProjectWorkspaceSnapshot;
+    mocks.taskDetails["task-read-failed"] = {
+      id: "task-read-failed",
+      projectId: "project-1",
+      title: "تعذر تحديث تفاصيل المهمة",
+      status: "completed",
+      correlationId: "correlation-cached",
+      updatedAt,
+      dependsOn: ["cached-dependency"],
+      acceptance: { attempt: 4 },
+    };
+    mocks.taskError["task-read-failed"] = true;
+
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+    });
+
+    render(
+      <QueryClientProvider client={queryClient}>
+        <ProjectWorkspace />
+      </QueryClientProvider>,
+    );
+
+    const card = screen.getByTestId("workspace-task-task-read-failed");
+    expect(screen.getByTestId("workspace-task-attempt-task-read-failed"))
+      .toHaveTextContent("غير متاحة");
+    expect(screen.getByTestId("workspace-task-attempt-task-read-failed"))
+      .not.toHaveTextContent("4");
+    expect(screen.getByTestId("workspace-task-dependencies-task-read-failed"))
+      .toHaveTextContent("غير متاحة في سجل المهمة");
+    expect(card).not.toHaveTextContent("cached-dependency");
+    expect(card).toHaveTextContent("تعذر قراءة سجل المهمة؛ لم نعرض رقم محاولة غير مؤكد.");
   });
 
   it("does not show an attempt from an execution that belongs to another task", () => {
