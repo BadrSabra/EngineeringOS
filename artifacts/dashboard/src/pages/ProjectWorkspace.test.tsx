@@ -338,6 +338,77 @@ describe("ProjectWorkspace live snapshot refresh", () => {
     expect(eventSource).toBeNull();
   });
 
+  it("keeps the Workspace refresh busy until its dependent execution and task reads settle", async () => {
+    const updatedAt = "2026-11-11T12:00:00.000Z";
+    mocks.snapshot = {
+      ...initialSnapshot,
+      work: {
+        ...initialSnapshot.work,
+        recentTasks: [{
+          id: "task-refresh-composite",
+          title: "مهمة مساحة المشروع",
+          status: "completed",
+          verificationDecision: null,
+          updatedAt,
+        }],
+        latestExecution: {
+          id: "execution-refresh-composite",
+          status: "completed",
+          attempt: 2,
+          proposalId: "proposal-refresh-composite",
+          updatedAt,
+        },
+      },
+    } as unknown as ProjectWorkspaceSnapshot;
+    mocks.snapshotQuery.refetch.mockResolvedValue({
+      data: mocks.snapshot,
+      isError: false,
+    } as never);
+
+    let resolveInvalidations!: () => void;
+    const pendingInvalidations = new Promise<void>((resolve) => {
+      resolveInvalidations = resolve;
+    });
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+    });
+    const invalidate = vi.spyOn(queryClient, "invalidateQueries")
+      .mockImplementation(() => pendingInvalidations);
+
+    render(
+      <QueryClientProvider client={queryClient}>
+        <ProjectWorkspace />
+      </QueryClientProvider>,
+    );
+
+    const refreshButton = screen.getByRole("button", { name: "تحديث الحالة" });
+    fireEvent.click(refreshButton);
+
+    await waitFor(() => expect(invalidate).toHaveBeenCalledTimes(3));
+    expect(mocks.snapshotQuery.refetch).toHaveBeenCalledOnce();
+    expect(invalidate).toHaveBeenCalledWith({
+      queryKey: ["/api/ai/executions/execution-refresh-composite"],
+    });
+    expect(invalidate).toHaveBeenCalledWith({
+      queryKey: ["/api/tasks/task-refresh-composite"],
+    });
+    expect(invalidate).toHaveBeenCalledWith({
+      queryKey: ["/api/tasks/task-refresh-composite/logs"],
+    });
+    expect(refreshButton).toBeDisabled();
+    expect(refreshButton).toHaveAttribute("aria-busy", "true");
+    expect(refreshButton).toHaveTextContent("جارٍ تحديث الحالة والعمل");
+
+    await act(async () => {
+      resolveInvalidations();
+      await pendingInvalidations;
+    });
+
+    await waitFor(() => expect(refreshButton).not.toBeDisabled());
+    expect(refreshButton).toHaveAttribute("aria-busy", "false");
+    expect(refreshButton).toHaveTextContent("تحديث الحالة");
+  });
+
   it("preserves only the last successful project identity and timestamp after a background snapshot read fails", () => {
     mocks.snapshotQuery.isError = true;
 
