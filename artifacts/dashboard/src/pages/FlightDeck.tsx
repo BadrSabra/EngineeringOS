@@ -348,6 +348,7 @@ function FlightDeckSession({
       enabled: Boolean(projectId),
       queryKey: ['flight-deck-git-log', projectId],
       staleTime: 15_000,
+      retry: false,
     },
   });
   const commitMutation = useGitCommit({
@@ -446,17 +447,20 @@ function FlightDeckSession({
   const changedFiles = gitStatus.data?.files ?? [];
   const recoveryRequired = deliveryRecoveryRequired(execution);
   const executionReadIsUncertain = isError || isFetching;
+  const workspaceReadIsUncertain = gitStatus.isLoading || gitStatus.isFetching || gitStatus.isError || !gitStatus.data;
   const canCommit = isDeliveryExecution && state === 'APPLIED'
     && Boolean(execution.proposalId && operationId)
     && changedFiles.length > 0
     && Boolean(commitMessage.trim())
     && !recoveryRequired
-    && !executionReadIsUncertain;
+    && !executionReadIsUncertain
+    && !workspaceReadIsUncertain;
   const canPush = isDeliveryExecution
     && state === 'COMMITTED'
     && Boolean(execution.proposalId && operationId)
     && !recoveryRequired
-    && !executionReadIsUncertain;
+    && !executionReadIsUncertain
+    && !workspaceReadIsUncertain;
 
   return (
     <div dir="rtl" lang="ar" className="space-y-5">
@@ -673,19 +677,29 @@ function FlightDeckSession({
               </div>
               <button
                 type="button"
-                onClick={() => queryClient.invalidateQueries({ queryKey: ['flight-deck-git-status', projectId] })}
-                className="rounded p-1.5 text-muted-foreground hover:bg-secondary hover:text-foreground"
-                title="تحديث حالة مساحة العمل"
+                data-testid="refresh-flight-deck-git"
+                onClick={() => void Promise.all([gitStatus.refetch(), gitLog.refetch()])}
+                disabled={gitStatus.isFetching || gitLog.isFetching}
+                className="rounded p-1.5 text-muted-foreground hover:bg-secondary hover:text-foreground disabled:cursor-wait disabled:opacity-60"
+                title="تحديث حالة مساحة العمل وسجل الإيداعات"
+                aria-label="تحديث بيانات Git"
               >
-                <RefreshCw className={`h-3.5 w-3.5 ${gitStatus.isFetching ? 'animate-spin' : ''}`} />
+                <RefreshCw className={`h-3.5 w-3.5 ${gitStatus.isFetching || gitLog.isFetching ? 'animate-spin' : ''}`} />
               </button>
             </div>
             {!projectId ? (
               <p className="mt-3 text-xs text-amber-200">لا يشمل هذا التنفيذ مشروعًا، لذا لا تتوفر إجراءات مساحة العمل.</p>
             ) : gitStatus.isError ? (
-              <p className="mt-3 text-xs text-red-200">حالة مساحة العمل غير متاحة. لم يُفعّل أي إجراء في Git.</p>
+              <p className="mt-3 text-xs text-red-200" role="alert">حالة مساحة العمل غير متاحة. لم يُفعّل أي إجراء في Git.</p>
+            ) : gitStatus.isLoading && !gitStatus.data ? (
+              <p className="mt-3 text-xs text-muted-foreground" role="status" data-testid="git-status-loading">جارٍ قراءة حالة مساحة العمل؛ لن تتاح إجراءات Git قبل اكتمال القراءة.</p>
             ) : (
               <>
+                {gitStatus.isFetching && gitStatus.data && (
+                  <p className="mt-3 rounded-md border border-amber-500/30 bg-amber-500/5 p-3 text-xs text-amber-100" role="status" data-testid="git-status-refreshing">
+                    جارٍ تحديث حالة مساحة العمل. اللقطة المعروضة هي آخر قراءة ناجحة، وإجراءات Commit وPush معطلة حتى تكتمل القراءة.
+                  </p>
+                )}
                 {recoveryRequired && (
                   <p className="mt-3 rounded-md border border-amber-500/30 bg-amber-500/5 p-3 text-xs text-amber-100">
                     يتطلب التسليم استعادة الحالة. طابق العملية مع حالة المشروع والمستودع البعيد قبل إعادة محاولة الإيداع أو الدفع.
@@ -709,7 +723,7 @@ function FlightDeckSession({
                     onChange={(event) => setCommitMessage(event.target.value)}
                     placeholder="صف التغيير الذي تم التحقق منه…"
                     className="mt-1 w-full rounded-md border border-border bg-background px-3 py-2 text-sm text-foreground outline-none focus:ring-1 focus:ring-primary"
-                    disabled={executionReadIsUncertain || state !== 'APPLIED' || !execution.proposalId || !operationId}
+                    disabled={executionReadIsUncertain || workspaceReadIsUncertain || state !== 'APPLIED' || !execution.proposalId || !operationId}
                   />
                 </label>
                 <div className="mt-3 grid gap-2 sm:grid-cols-2">
@@ -745,6 +759,32 @@ function FlightDeckSession({
                 )}
                 <div className="mt-3 border-t border-border/60 pt-3">
                   <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">الإيداعات الأخيرة</p>
+                  {gitLog.isError && (
+                    <div
+                      className="mt-2 rounded-md border border-amber-500/30 bg-amber-500/5 p-2 text-[11px] text-amber-100"
+                      role="alert"
+                      data-testid="git-log-read-warning"
+                    >
+                      <p>
+                        {gitLog.data
+                          ? 'تعذّر تحديث سجل الإيداعات؛ المعروض هو آخر سجل ناجح ولا يمثل قراءة حالية.'
+                          : 'تعذّر تحميل سجل الإيداعات. لا يمكن استنتاج أن المستودع خالٍ من الإيداعات.'}
+                      </p>
+                      <button
+                        type="button"
+                        className="mt-2 font-semibold underline underline-offset-2 disabled:opacity-60"
+                        onClick={() => void gitLog.refetch()}
+                        disabled={gitLog.isFetching}
+                      >
+                        إعادة محاولة سجل الإيداعات
+                      </button>
+                    </div>
+                  )}
+                  {gitLog.isFetching && gitLog.data && !gitLog.isError && (
+                    <p className="mt-2 text-[11px] text-muted-foreground" role="status" data-testid="git-log-refreshing">
+                      جارٍ تحديث سجل الإيداعات؛ المعروض هو آخر سجل ناجح.
+                    </p>
+                  )}
                   <div className="mt-2 space-y-1 text-[11px] text-muted-foreground">
                     {(gitLog.data?.commits ?? []).slice(0, 3).map((commit) => (
                       <div key={commit.hash} className="flex gap-2">
@@ -752,7 +792,8 @@ function FlightDeckSession({
                         <span className="truncate">{commit.subject}</span>
                       </div>
                     ))}
-                    {!gitLog.isLoading && (gitLog.data?.commits ?? []).length === 0 && <span>لا توجد إيداعات.</span>}
+                    {gitLog.isLoading && !gitLog.data && <span role="status">جارٍ تحميل سجل الإيداعات…</span>}
+                    {!gitLog.isLoading && !gitLog.isError && gitLog.data && gitLog.data.commits.length === 0 && <span>لا توجد إيداعات.</span>}
                   </div>
                 </div>
               </>

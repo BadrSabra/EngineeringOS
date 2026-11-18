@@ -12,6 +12,20 @@ const mocks = vi.hoisted(() => ({
     dataUpdatedAt: 1787032800000,
     refetch: vi.fn(),
   },
+  gitStatusQuery: {
+    data: { clean: true, files: [] as Array<{ path: string; status?: string }> },
+    isLoading: false,
+    isFetching: false,
+    isError: false,
+    refetch: vi.fn(),
+  },
+  gitLogQuery: {
+    data: { commits: [] as Array<{ hash: string; shortHash: string; subject: string }> } as { commits: Array<{ hash: string; shortHash: string; subject: string }> } | undefined,
+    isLoading: false,
+    isFetching: false,
+    isError: false,
+    refetch: vi.fn(),
+  },
 }));
 
 vi.mock('wouter', () => ({
@@ -29,13 +43,8 @@ vi.mock('@workspace/api-client-react', () => ({
     data: mocks.execution,
     ...mocks.executionQuery,
   })),
-  useGetGitStatus: vi.fn(() => ({
-    data: { clean: true, files: [] },
-    isLoading: false,
-    isFetching: false,
-    isError: false,
-  })),
-  useGetGitLog: vi.fn(() => ({ data: { commits: [] }, isLoading: false, isError: false })),
+  useGetGitStatus: vi.fn(() => ({ ...mocks.gitStatusQuery })),
+  useGetGitLog: vi.fn(() => ({ ...mocks.gitLogQuery })),
   useGitCommit: vi.fn(() => ({ mutate: vi.fn(), isPending: false })),
   useGitPush: vi.fn(() => ({ mutate: vi.fn(), isPending: false })),
 }));
@@ -106,6 +115,16 @@ beforeEach(() => {
   mocks.executionQuery.isFetching = false;
   mocks.executionQuery.dataUpdatedAt = 1787032800000;
   mocks.executionQuery.refetch.mockClear();
+  mocks.gitStatusQuery.data = { clean: true, files: [] };
+  mocks.gitStatusQuery.isLoading = false;
+  mocks.gitStatusQuery.isFetching = false;
+  mocks.gitStatusQuery.isError = false;
+  mocks.gitStatusQuery.refetch.mockClear();
+  mocks.gitLogQuery.data = { commits: [] };
+  mocks.gitLogQuery.isLoading = false;
+  mocks.gitLogQuery.isFetching = false;
+  mocks.gitLogQuery.isError = false;
+  mocks.gitLogQuery.refetch.mockClear();
 });
 
 describe('Flight Deck mission control', () => {
@@ -518,6 +537,64 @@ describe('Flight Deck mission control', () => {
 
     expect(screen.queryByTestId('flight-deck-execution-read-warning')).not.toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'دفع العملية المُودعة' })).toBeEnabled();
+  });
+
+  it('does not describe a failed Git history read as an empty repository and offers retry', () => {
+    mocks.gitLogQuery.data = undefined;
+    mocks.gitLogQuery.isError = true;
+
+    renderDeck();
+
+    expect(screen.getByTestId('git-log-read-warning')).toHaveTextContent(
+      'تعذّر تحميل سجل الإيداعات. لا يمكن استنتاج أن المستودع خالٍ من الإيداعات.',
+    );
+    expect(screen.queryByText('لا توجد إيداعات.')).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'إعادة محاولة سجل الإيداعات' }));
+    expect(mocks.gitLogQuery.refetch).toHaveBeenCalledTimes(1);
+  });
+
+  it('labels retained Git history as stale after a failed refresh without discarding it', () => {
+    mocks.gitLogQuery.data = {
+      commits: [{ hash: 'abc123', shortHash: 'abc123', subject: 'Previously observed commit' }],
+    };
+    mocks.gitLogQuery.isError = true;
+
+    renderDeck();
+
+    expect(screen.getByTestId('git-log-read-warning')).toHaveTextContent(
+      'المعروض هو آخر سجل ناجح ولا يمثل قراءة حالية',
+    );
+    expect(screen.getByText('Previously observed commit')).toBeInTheDocument();
+    expect(screen.queryByText('لا توجد إيداعات.')).not.toBeInTheDocument();
+  });
+
+  it('blocks delivery actions while Git workspace status is refreshing', () => {
+    mocks.execution = {
+      ...baseExecution('COMMITTED', 'passed'),
+      status: 'completed',
+      operationEvidence: {
+        completeness: 'complete',
+        proof: { verdict: 'PROVEN', accepted: true, failureReasons: [] },
+        receipts: [],
+        gaps: [],
+      },
+    };
+    mocks.gitStatusQuery.isFetching = true;
+
+    renderDeck();
+
+    expect(screen.getByTestId('git-status-refreshing')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'دفع العملية المُودعة' })).toBeDisabled();
+  });
+
+  it('refreshes Git status and history together from the workspace toolbar', () => {
+    renderDeck();
+
+    fireEvent.click(screen.getByRole('button', { name: 'تحديث بيانات Git' }));
+
+    expect(mocks.gitStatusQuery.refetch).toHaveBeenCalledTimes(1);
+    expect(mocks.gitLogQuery.refetch).toHaveBeenCalledTimes(1);
   });
 
   it('blocks delivery actions when a commit or push receipt is uncertain', () => {
