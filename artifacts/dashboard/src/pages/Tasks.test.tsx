@@ -1440,10 +1440,11 @@ describe('Tasks recovery rendering', () => {
         id: 'execution-live',
         correlationId: 'correlation-live',
         linkedTaskId: 'task-live-current-attempt',
-        attempt: 2,
+        attempt: 1,
+        operationId: 'operation-cached-stale',
       } as NonNullable<ReturnType<typeof useGetAiExecution>['data']>,
       isLoading: false,
-      isFetching: false,
+      isFetching: true,
       isError: false,
       error: null,
     } as ReturnType<typeof useGetAiExecution>);
