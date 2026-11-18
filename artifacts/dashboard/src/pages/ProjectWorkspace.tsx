@@ -164,12 +164,13 @@ function WorkspaceTaskCard({
     && execution.correlationId === currentCorrelationId
     && execution.linkedTaskId === task.id,
   );
-  const executionAttempt = executionMatchesTask && isRecordedAttempt(execution?.attempt)
-    ? execution.attempt
+  const rawExecutionAttempt = execution?.attempt;
+  const executionAttempt = executionMatchesTask && isRecordedAttempt(rawExecutionAttempt)
+    ? rawExecutionAttempt
     : null;
-  const acceptanceAttempt = task.status !== 'running'
-    && isRecordedAttempt(taskDetails?.acceptance?.attempt)
-    ? taskDetails.acceptance.attempt
+  const rawAcceptanceAttempt = taskDetails?.acceptance?.attempt;
+  const acceptanceAttempt = task.status !== 'running' && isRecordedAttempt(rawAcceptanceAttempt)
+    ? rawAcceptanceAttempt
     : null;
   const attempt = executionAttempt ?? acceptanceAttempt;
 
@@ -191,7 +192,7 @@ function WorkspaceTaskCard({
   }
 
   return (
-    <article className="workspace-task" data-testid={`workspace-task-${task.id}}>
+    <article className="workspace-task" data-testid={`workspace-task-${task.id}`}>
       <div className="flex min-w-0 flex-1 items-start gap-2">
         <span className="workspace-task-mark" />
         <div className="min-w-0 flex-1">
@@ -246,6 +247,15 @@ export default function ProjectWorkspace() {
   const latestExecutionId = snapshot?.work.executionSource === 'available'
     ? snapshot.work.latestExecution?.id ?? null
     : null;
+  const recentTaskIds = snapshot?.work.tasksSource === 'available'
+    ? snapshot.work.recentTasks.map((task) => task.id)
+    : [];
+  const invalidateRecentTaskReads = () => {
+    for (const taskId of recentTaskIds) {
+      void queryClient.invalidateQueries({ queryKey: getGetTaskQueryKey(taskId) });
+      void queryClient.invalidateQueries({ queryKey: getGetTaskLogsQueryKey(taskId) });
+    }
+  };
   const streamStatus = useWorkspaceEventStream({
     projectId,
     enabled: !!projectId && hasCurrentSnapshot,
@@ -258,6 +268,7 @@ export default function ProjectWorkspace() {
           queryKey: getGetAiExecutionQueryKey(latestExecutionId),
         });
       }
+      invalidateRecentTaskReads();
     },
   });
 
@@ -268,6 +279,7 @@ export default function ProjectWorkspace() {
         queryKey: getGetAiExecutionQueryKey(latestExecutionId),
       });
     }
+    invalidateRecentTaskReads();
   }
 
   if (isLoading) return <WorkspaceSkeleton />;
