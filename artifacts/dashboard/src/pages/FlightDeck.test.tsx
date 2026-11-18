@@ -1,10 +1,17 @@
-import { render, screen } from '@testing-library/react';
+import { fireEvent, render, screen } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import FlightDeck from './FlightDeck';
 
 const mocks = vi.hoisted(() => ({
   execution: undefined as Record<string, unknown> | undefined,
+  executionQuery: {
+    isLoading: false,
+    isError: false,
+    isFetching: false,
+    dataUpdatedAt: 1787032800000,
+    refetch: vi.fn(),
+  },
 }));
 
 vi.mock('wouter', () => ({
@@ -20,8 +27,7 @@ vi.mock('@/components/MissionCapsule', () => ({
 vi.mock('@workspace/api-client-react', () => ({
   useGetAiExecution: vi.fn(() => ({
     data: mocks.execution,
-    isLoading: false,
-    isError: false,
+    ...mocks.executionQuery,
   })),
   useGetGitStatus: vi.fn(() => ({
     data: { clean: true, files: [] },
@@ -95,6 +101,11 @@ function renderDeck() {
 beforeEach(() => {
   window.history.pushState({}, '', '/flight-deck?executionId=execution-1');
   mocks.execution = baseExecution('REPAIRING');
+  mocks.executionQuery.isLoading = false;
+  mocks.executionQuery.isError = false;
+  mocks.executionQuery.isFetching = false;
+  mocks.executionQuery.dataUpdatedAt = 1787032800000;
+  mocks.executionQuery.refetch.mockClear();
 });
 
 describe('Flight Deck mission control', () => {
@@ -390,6 +401,87 @@ describe('Flight Deck mission control', () => {
     expect(screen.getByText('No correlated operational events were retained.')).toBeInTheDocument();
     expect(screen.getByText(/لا تعتمد هذه النتيجة كأنها متحققة/)).toBeInTheDocument();
     expect(screen.queryByText('سلسلة متحققة')).toBeNull();
+  });
+
+  it('keeps the last successful execution snapshot visible after a failed refresh but blocks delivery actions', () => {
+    mocks.execution = {
+      ...baseExecution('COMMITTED', 'passed'),
+      status: 'completed',
+      operationEvidence: {
+        completeness: 'complete',
+        proof: { verdict: 'PROVEN', accepted: true, failureReasons: [] },
+        receipts: [],
+        gaps: [],
+      },
+    };
+    mocks.executionQuery.isError = true;
+
+    renderDeck();
+
+    expect(screen.getByRole('alert')).toHaveTextContent(
+      'تعذّر تحديث سجل التنفيذ. اللقطة المعروضة هي آخر قراءة ناجحة',
+    );
+    expect(screen.getByText('إعادة تحميل سجل التنفيذ')).toBeInTheDocument();
+    expect(screen.getByTestId('flight-deck-execution-read-warning').querySelector('time'))
+      .toHaveAttribute('dateTime', new Date(1787032800000).toISOString());
+    expect(screen.getByRole('button', { name: 'دفع العملية المُودعة' })).toBeDisabled();
+    expect(screen.getByText('عُقد الخطة')).toBeInTheDocument();
+    expect(screen.queryByText('لم تتوفر قراءة لسجل التنفيذ الآن.')).not.toBeInTheDocument();
+  });
+
+  it('blocks delivery actions while a newer execution read is still in progress', () => {
+    mocks.execution = {
+      ...baseExecution('COMMITTED', 'passed'),
+      status: 'completed',
+      operationEvidence: {
+        completeness: 'complete',
+        proof: { verdict: 'PROVEN', accepted: true, failureReasons: [] },
+        receipts: [],
+        gaps: [],
+      },
+    };
+    mocks.executionQuery.isFetching = true;
+
+    renderDeck();
+
+    expect(screen.getByRole('status')).toHaveTextContent(
+      'يجري تحديث سجل التنفيذ؛ اللقطة المعروضة هي آخر قراءة ناجحة.',
+    );
+    expect(screen.getByRole('button', { name: 'دفع العملية المُودعة' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'إعادة تحميل سجل التنفيذ' })).toBeDisabled();
+  });
+
+  it('offers a retry when the first execution read fails without cached data', () => {
+    mocks.execution = undefined;
+    mocks.executionQuery.isError = true;
+
+    renderDeck();
+
+    expect(screen.getByText(/تعذّر تحميل سجل التنفيذ/)).toBeInTheDocument();
+    expect(screen.getByText(/فشل القراءة لا يثبت أن التنفيذ غير موجود/)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'إعادة تحميل سجل التنفيذ' })).toBeInTheDocument();
+    expect(screen.queryByText('لم يُعِد الخادم سجل تنفيذ محفوظًا لهذا المعرّف.')).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'إعادة تحميل سجل التنفيذ' }));
+    expect(mocks.executionQuery.refetch).toHaveBeenCalledTimes(1);
+  });
+
+  it('allows delivery actions again after a current successful read', () => {
+    mocks.execution = {
+      ...baseExecution('COMMITTED', 'passed'),
+      status: 'completed',
+      operationEvidence: {
+        completeness: 'complete',
+        proof: { verdict: 'PROVEN', accepted: true, failureReasons: [] },
+        receipts: [],
+        gaps: [],
+      },
+    };
+
+    renderDeck();
+
+    expect(screen.queryByTestId('flight-deck-execution-read-warning')).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'دفع العملية المُودعة' })).toBeEnabled();
   });
 
   it('blocks delivery actions when a commit or push receipt is uncertain', () => {
