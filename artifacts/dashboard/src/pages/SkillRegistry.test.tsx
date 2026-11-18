@@ -119,7 +119,7 @@ describe('SkillRegistry', () => {
       target: { value: secondProject.id },
     });
 
-    expect(screen.getByText('المشروع المحدد:')).toHaveTextContent('Beta worker');
+    expect(screen.getByText(/المشروع المحدد:/)).toHaveTextContent('Beta worker');
     expect(screen.queryByText('candidate-review')).not.toBeInTheDocument();
     expect(screen.getByLabelText('جارٍ تحميل سجل المهارات')).toBeInTheDocument();
 
