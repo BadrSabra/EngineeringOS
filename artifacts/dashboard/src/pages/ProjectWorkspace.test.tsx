@@ -1,7 +1,7 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { ProjectWorkspaceSnapshot } from "@workspace/api-client-react";
+import { useGetAiExecution, type ProjectWorkspaceSnapshot } from "@workspace/api-client-react";
 import ProjectWorkspace from "./ProjectWorkspace";
 
 const mocks = vi.hoisted(() => ({
@@ -69,6 +69,7 @@ class FakeEventSource {
 }
 
 let eventSource: FakeEventSource | null = null;
+const initialSnapshot = mocks.snapshot;
 
 vi.mock("@workspace/api-client-react", () => ({
   useGetProjectWorkspaceSnapshot: () => ({
@@ -83,13 +84,13 @@ vi.mock("@workspace/api-client-react", () => ({
     projectId,
     "workspace",
   ],
-  useGetAiExecution: () => ({
+  useGetAiExecution: vi.fn(() => ({
     data: undefined,
     isLoading: false,
     isError: false,
     isFetching: false,
     refetch: vi.fn(),
-  }),
+  })),
   getGetAiExecutionQueryKey: (executionId: string) => [
     `/api/ai/executions/${executionId}`,
   ],
@@ -103,6 +104,8 @@ vi.mock("wouter", () => ({
 vi.mock("@/pages/AiChat", () => ({ default: () => null }));
 
 beforeEach(() => {
+  mocks.snapshot = initialSnapshot;
+  vi.mocked(useGetAiExecution).mockClear();
   eventSource = null;
   vi.stubGlobal("EventSource", class extends FakeEventSource {
     constructor(url: string, options?: EventSourceInit) {
@@ -176,4 +179,78 @@ describe("ProjectWorkspace live snapshot refresh", () => {
     expect(previewGate).toHaveTextContent("ليست إثباتًا على جاهزية Preview");
     expect(screen.getByText("حالة التشغيل")).toBeInTheDocument();
   });
+
+  it("does not render retained task, execution, or candidate data when their sources are unavailable", async () => {
+    mocks.snapshot = {
+      ...initialSnapshot,
+      work: {
+        tasksSource: "unavailable",
+        recentTasks: [{
+          id: "task-stale",
+          title: "مهمة قديمة لا يجب عرضها",
+          status: "running",
+          verificationDecision: null,
+          updatedAt: "2026-11-11T11:00:00.000Z",
+        }],
+        executionSource: "unavailable",
+        latestExecution: {
+          id: "execution-stale",
+          status: "completed",
+          attempt: 1,
+          proposalId: "proposal-stale",
+          baseRevision: "base-stale",
+          updatedAt: "2026-11-11T11:00:00.000Z",
+        },
+        candidateSource: "unavailable",
+        candidate: {
+          proposalId: "proposal-stale",
+          status: "pending",
+          lifecycle: "proposed",
+          revision: 3,
+          approvalRequired: true,
+          operationId: "operation-stale",
+          baseRevision: "base-stale",
+          candidateTreeHash: "tree-stale",
+          changeSetHash: "changes-stale",
+          createdAt: "2026-11-11T10:00:00.000Z",
+        },
+      },
+    } as unknown as ProjectWorkspaceSnapshot;
+
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+    });
+    const invalidate = vi.spyOn(queryClient, "invalidateQueries").mockResolvedValue(undefined);
+
+    render(
+      <QueryClientProvider client={queryClient}>
+        <ProjectWorkspace />
+      </QueryClientProvider>,
+    );
+
+    expect(screen.getByText("مصدر المهام غير متاح الآن؛ لا يمكن تأكيد قائمة العمل.")).toBeInTheDocument();
+    expect(screen.getByText("مصدر التنفيذ غير متاح؛ لا يمكن تأكيد حالة تنفيذ حديثة.")).toBeInTheDocument();
+    expect(screen.getByText("مصدر المرشح غير متاح؛ لا يمكن تأكيد حالة التغييرات.")).toBeInTheDocument();
+    expect(screen.queryByText("مهمة قديمة لا يجب عرضها")).not.toBeInTheDocument();
+    expect(screen.queryByText("آخر تنفيذ")).not.toBeInTheDocument();
+    expect(screen.queryByText("proposal-stale")).not.toBeInTheDocument();
+    expect(screen.queryByText("operation-stale")).not.toBeInTheDocument();
+    expect(useGetAiExecution).not.toHaveBeenCalled();
+
+    await waitFor(() => expect(eventSource).not.toBeNull());
+    act(() => eventSource!.emit("workspace.changed", {
+      eventVersion: 1,
+      projectId: "project-1",
+      eventId: "event-stale-source",
+      snapshotCursor: "cursor-stale-source",
+    }));
+    await waitFor(() => expect(invalidate).toHaveBeenCalledWith({
+      queryKey: ["/api/projects", "project-1", "workspace"],
+    }));
+    expect(invalidate).toHaveBeenCalledTimes(1);
+    expect(invalidate).not.toHaveBeenCalledWith({
+      queryKey: ["/api/ai/executions/execution-stale"],
+    });
+  });
+
 });
