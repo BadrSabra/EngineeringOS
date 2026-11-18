@@ -454,7 +454,7 @@ export default function ProjectDetail() {
                {hasCurrentScan && qualityScore !== undefined ? qualityScore : '—'}
             </div>
             <div className="text-muted-foreground text-sm mt-1">
-              {!summary ? 'الملخص غير متاح' : hasCurrentScan ? '/ 100' : 'غير متحقق منها'}
+              {!summary ? (loadingSummary ? 'جارٍ التحميل' : 'الملخص غير متاح') : hasCurrentScan ? '/ 100' : 'غير متحقق منها'}
             </div>
           </div>
 
