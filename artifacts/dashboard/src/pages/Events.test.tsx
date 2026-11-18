@@ -61,6 +61,18 @@ describe("Events", () => {
     expect(screen.getByRole("region", { name: /سجل الأحداث؛ مرّر أفقيًا لعرض بقية الأعمدة/i })).toHaveAttribute("tabindex", "0");
   });
 
+  it("polls the event log at a bounded interval only while the page is in the foreground", () => {
+    render(<Events />);
+
+    const call = vi.mocked(useListEvents).mock.calls.at(-1);
+    expect(call?.[1]).toEqual(expect.objectContaining({
+      query: expect.objectContaining({
+        refetchInterval: 15_000,
+        refetchIntervalInBackground: false,
+      }),
+    }));
+  });
+
   it("renders events from the all-project request", () => {
     render(<Events />);
 
