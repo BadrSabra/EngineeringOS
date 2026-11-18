@@ -118,7 +118,8 @@ function WorkspaceTaskCard({
   const summaryUpdatedAt = Date.parse(task.updatedAt);
   const detailsUpdatedAt = taskDetails ? Date.parse(taskDetails.updatedAt) : Number.NaN;
   const taskMatchesSnapshot = Boolean(
-    taskDetails
+    !taskQuery.isFetching
+    && taskDetails
     && taskDetails.id === task.id
     && taskDetails.projectId === projectId
     && taskDetails.status === task.status
@@ -159,7 +160,11 @@ function WorkspaceTaskCard({
   });
   const execution = executionQuery.data;
   const executionMatchesTask = Boolean(
-    execution
+    !taskLogsQuery.isFetching
+    && !taskLogsQuery.isError
+    && !executionQuery.isFetching
+    && !executionQuery.isError
+    && execution
     && execution.id === executionId
     && execution.correlationId === currentCorrelationId
     && execution.linkedTaskId === task.id,
@@ -186,6 +191,8 @@ function WorkspaceTaskCard({
     attemptContext = 'جارٍ مطابقة سجل المهمة مع لقطة Workspace.';
   } else if (taskQuery.isError) {
     attemptContext = 'تعذر قراءة سجل المهمة؛ لم نعرض رقم محاولة غير مؤكد.';
+  } else if (taskQuery.isFetching || taskLogsQuery.isFetching || executionQuery.isFetching) {
+    attemptContext = 'جارٍ تحديث سجل المهمة والتنفيذ؛ أخفينا المحاولة مؤقتاً.';
   } else if (!taskMatchesSnapshot) {
     attemptContext = 'تغير سجل المهمة منذ آخر لقطة؛ حدّث مساحة المشروع قبل الاعتماد على المحاولة.';
   } else if (attempt !== null) {
