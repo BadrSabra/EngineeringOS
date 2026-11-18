@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, within } from '@testing-library/react';
+import { act, fireEvent, render, screen, within } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import MissionControl from './MissionControl';
@@ -546,6 +546,77 @@ describe('Mission Control', () => {
       expect(within(recovery).queryByRole('button', { name: 'استأنف مرة واحدة' })).not.toBeInTheDocument();
       expect(within(recovery).queryByRole('button', { name: 'تخلَّ عنه بأمان' })).not.toBeInTheDocument();
     } finally {
+      window.history.pushState({}, '', originalPath);
+    }
+  });
+
+  it('keeps late recovery results bound to the execution that initiated them', async () => {
+    const originalPath = window.location.pathname + window.location.search;
+    const firstExecution = {
+      ...missionControlFixture.executions[0],
+      recovery: { uncertain: true },
+    };
+    const secondExecution = {
+      ...missionControlFixture.executions[0],
+      id: 'execution-2',
+      state: 'BLOCKED',
+      objective: 'Review the second execution',
+      recovery: { uncertain: true },
+    };
+    currentMissionControl = {
+      ...missionControlFixture,
+      executions: [firstExecution, secondExecution],
+    } as typeof missionControlFixture;
+    currentExecutionDetail = { id: 'execution-1', projectId: 'project-1' };
+
+    let resolveRecovery!: (response: { ok: boolean; json: () => Promise<{ outcome?: string; error?: string }> }) => void;
+    const fetchMock = vi.fn(() => new Promise((resolve) => {
+      resolveRecovery = resolve;
+    }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    try {
+      window.history.pushState({}, '', '/mission-control?projectId=project-1');
+      const page = renderPage();
+
+      const firstRecovery = screen.getByRole('region', { name: 'استعادة التنفيذ غير المحسوم' });
+      fireEvent.click(within(firstRecovery).getByRole('button', { name: 'استأنف مرة واحدة' }));
+      expect(fetchMock).toHaveBeenCalledWith(
+        '/api/ai/executions/execution-1/recovery',
+        expect.objectContaining({ method: 'POST' }),
+      );
+
+      // Manual selection changes inside the same route session, without
+      // remounting MissionControlSession.
+      currentExecutionDetail = { id: 'execution-2', projectId: 'project-1' };
+      fireEvent.click(screen.getByRole('button', { name: /execution-2/ }));
+      page.rerender(<MissionControl />);
+
+      const secondRecovery = screen.getByRole('region', { name: 'استعادة التنفيذ غير المحسوم' });
+      expect(within(secondRecovery).getByRole('button', { name: 'استأنف مرة واحدة' })).toBeDisabled();
+      expect(within(secondRecovery).getByText(/يوجد طلب استعادة آخر قيد التنفيذ/)).toBeInTheDocument();
+
+      await act(async () => {
+        resolveRecovery({
+          ok: true,
+          json: async () => ({ outcome: 'resumed' }),
+        });
+        await Promise.resolve();
+      });
+
+      // The accepted result belongs to execution-1, never the newly selected execution-2.
+      expect(within(secondRecovery).queryByText(
+        'تم قبول الاستئناف. افتح مساعد الذكاء الاصطناعي للمتابعة من نقطة الحفظ.',
+      )).not.toBeInTheDocument();
+      expect(within(secondRecovery).getByRole('button', { name: 'استأنف مرة واحدة' })).toBeEnabled();
+
+      fireEvent.click(screen.getByRole('button', { name: /execution-1/ }));
+      const restoredFirstRecovery = screen.getByRole('region', { name: 'استعادة التنفيذ غير المحسوم' });
+      expect(within(restoredFirstRecovery).getByText(
+        'تم قبول الاستئناف. افتح مساعد الذكاء الاصطناعي للمتابعة من نقطة الحفظ.',
+      )).toBeInTheDocument();
+    } finally {
+      vi.unstubAllGlobals();
       window.history.pushState({}, '', originalPath);
     }
   });
