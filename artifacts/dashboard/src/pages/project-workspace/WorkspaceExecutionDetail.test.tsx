@@ -45,6 +45,8 @@ const execution = {
   id: "execution-1",
   correlationId: null,
   projectId: "project-1",
+  attempt: 1,
+  proposalId: "proposal-1",
   status: "completed",
   flightState: "COMPLETED",
   evidenceVerdict: "PROVEN",
@@ -65,7 +67,7 @@ function renderWorkspaceExecutionDetail() {
   });
   return render(
     <QueryClientProvider client={queryClient}>
-      <WorkspaceExecutionDetail executionId="execution-1" projectId="project-1" />
+      <WorkspaceExecutionDetail executionId="execution-1" projectId="project-1" attempt={1} proposalId="proposal-1" />
     </QueryClientProvider>,
   );
 }
@@ -103,7 +105,32 @@ describe("WorkspaceExecutionDetail", () => {
     renderWorkspaceExecutionDetail();
 
     expect(screen.getByText(
-      "تعذر مطابقة تفاصيل التنفيذ مع المشروع والنسخة الحاليين؛ لن نعرض إسقاطًا غير مطابق.",
+      "تعذر مطابقة تفاصيل التنفيذ مع المشروع أو المحاولة أو المرشح الحالي؛ لن نخلط بين إسقاطات مختلفة.",
+    )).toBeInTheDocument();
+    expect(screen.queryByTestId("mission-capsule")).not.toBeInTheDocument();
+  });
+
+  it("rejects a different execution attempt even when the execution ID is unchanged", () => {
+    mocks.query = {
+      data: { ...execution, attempt: 1 },
+      isLoading: false,
+      isError: false,
+      isFetching: false,
+      error: undefined,
+      refetch: vi.fn(),
+    };
+
+    render(
+      <WorkspaceExecutionDetail
+        executionId="execution-1"
+        projectId="project-1"
+        attempt={2}
+        proposalId="proposal-1"
+      />,
+    );
+
+    expect(screen.getByText(
+      "تعذر مطابقة تفاصيل التنفيذ مع المشروع أو المحاولة أو المرشح الحالي؛ لن نخلط بين إسقاطات مختلفة.",
     )).toBeInTheDocument();
     expect(screen.queryByTestId("mission-capsule")).not.toBeInTheDocument();
   });
