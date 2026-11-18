@@ -173,9 +173,12 @@ function WorkspaceTaskCard({
     ? rawAcceptanceAttempt
     : null;
   const attempt = executionAttempt ?? acceptanceAttempt;
-  const dependencyIds = taskMatchesSnapshot && Array.isArray(taskDetails?.dependsOn)
-    ? [...new Set(taskDetails.dependsOn.filter((dependencyId) =>
-      typeof dependencyId === 'string' && dependencyId.trim().length > 0))]
+  const rawDependencies = taskDetails?.dependsOn;
+  const dependencyIds = taskMatchesSnapshot
+    && Array.isArray(rawDependencies)
+    && rawDependencies.every((dependencyId) =>
+      typeof dependencyId === 'string' && dependencyId.trim().length > 0)
+    ? [...new Set(rawDependencies.map((dependencyId) => dependencyId.trim()))]
     : null;
 
   let attemptContext = 'لا تتوفر محاولة مرتبطة في القراءة الحالية.';
@@ -446,9 +449,18 @@ export default function ProjectWorkspace() {
               <div className="workspace-card-icon work"><Activity className="h-4 w-4" /></div>
               <div className="min-w-0 flex-1">
                 <h2>العمل الأخير</h2>
-                <p>ملخص قراءة من المهام والتنفيذ</p>
+                <p>أحدث 8 مهام من المصدر؛ هذه ليست قائمة شاملة.</p>
               </div>
-              <span className="workspace-readonly">للاطلاع</span>
+              <div className="flex shrink-0 items-center gap-2">
+                <span className="workspace-readonly">للاطلاع</span>
+                <Link
+                  href={`/tasks?projectId=${encodeURIComponent(project.id)}`}
+                  className="text-xs font-medium text-cyan-300 underline-offset-4 hover:underline"
+                  aria-label="عرض جميع مهام المشروع"
+                >
+                  عرض الكل
+                </Link>
+              </div>
             </div>
             <SourceNote available={work.tasksSource === 'available'}>مصدر المهام غير متاح الآن؛ لا يمكن تأكيد قائمة العمل.</SourceNote>
             {work.tasksSource === 'available' && (
