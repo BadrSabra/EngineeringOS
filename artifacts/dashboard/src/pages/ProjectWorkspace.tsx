@@ -101,7 +101,9 @@ export default function ProjectWorkspace() {
   });
   const { data: snapshot, isLoading, isError, refetch, isFetching } = snapshotQuery;
   const hasCurrentSnapshot = snapshot?.project.id === projectId;
-  const latestExecutionId = snapshot?.work.latestExecution?.id ?? null;
+  const latestExecutionId = snapshot?.work.executionSource === 'available'
+    ? snapshot.work.latestExecution?.id ?? null
+    : null;
   const streamStatus = useWorkspaceEventStream({
     projectId,
     enabled: !!projectId && hasCurrentSnapshot,
@@ -145,8 +147,9 @@ export default function ProjectWorkspace() {
   }
 
   const { project, work, runtime, freshness } = snapshot;
-  const candidate = work.candidate;
-  const execution = work.latestExecution;
+  // Source availability is authoritative: do not render retained payloads from an unavailable read.
+  const candidate = work.candidateSource === 'available' ? work.candidate : null;
+  const execution = work.executionSource === 'available' ? work.latestExecution : null;
 
   return (
     <div dir="rtl" lang="ar" className="project-workspace" data-testid="project-workspace">
@@ -247,31 +250,33 @@ export default function ProjectWorkspace() {
               <span className="workspace-readonly">للاطلاع</span>
             </div>
             <SourceNote available={work.tasksSource === 'available'}>مصدر المهام غير متاح الآن؛ لا يمكن تأكيد قائمة العمل.</SourceNote>
-            {work.tasksSource === 'available' && work.recentTasks.length === 0 ? (
-              <div className="workspace-empty">
-                <div className="workspace-empty-mark"><Check className="h-4 w-4" /></div>
-                <p className="font-medium text-slate-300">لا توجد مهام حديثة مسجلة</p>
-                <p className="mt-1 text-xs leading-5 text-slate-500">هذا ملخص للمهام التي أعادها المصدر، وليس تأكيدًا على عدم وجود عمل خارجها.</p>
-              </div>
-            ) : (
-              <div className="mt-4 space-y-2">
-                {work.recentTasks.map((task) => (
-                  <article key={task.id} className="workspace-task">
-                    <div className="flex min-w-0 flex-1 items-start gap-2">
-                      <span className="workspace-task-mark" />
-                      <div className="min-w-0">
-                        <p dir="auto" className="text-sm leading-5 text-slate-200">{task.title}</p>
-                        <div className="mt-1.5 flex flex-wrap items-center gap-2 text-[11px] text-slate-500">
-                          <span>{dateLabel(task.updatedAt)}</span>
-                          <span aria-hidden="true">·</span>
-                          <span>التحقق: {label(task.verificationDecision)}</span>
+            {work.tasksSource === 'available' && (
+              work.recentTasks.length === 0 ? (
+                <div className="workspace-empty">
+                  <div className="workspace-empty-mark"><Check className="h-4 w-4" /></div>
+                  <p className="font-medium text-slate-300">لا توجد مهام حديثة مسجلة</p>
+                  <p className="mt-1 text-xs leading-5 text-slate-500">هذا ملخص للمهام التي أعادها المصدر، وليس تأكيدًا على عدم وجود عمل خارجها.</p>
+                </div>
+              ) : (
+                <div className="mt-4 space-y-2">
+                  {work.recentTasks.map((task) => (
+                    <article key={task.id} className="workspace-task">
+                      <div className="flex min-w-0 flex-1 items-start gap-2">
+                        <span className="workspace-task-mark" />
+                        <div className="min-w-0">
+                          <p dir="auto" className="text-sm leading-5 text-slate-200">{task.title}</p>
+                          <div className="mt-1.5 flex flex-wrap items-center gap-2 text-[11px] text-slate-500">
+                            <span>{dateLabel(task.updatedAt)}</span>
+                            <span aria-hidden="true">·</span>
+                            <span>التحقق: {label(task.verificationDecision)}</span>
+                          </div>
                         </div>
                       </div>
-                    </div>
-                    <span className={`workspace-status status-${task.status}`}>{label(task.status)}</span>
-                  </article>
-                ))}
-              </div>
+                      <span className={`workspace-status status-${task.status}`}>{label(task.status)}</span>
+                    </article>
+                  ))}
+                </div>
+              )
             )}
             <SourceNote available={work.executionSource === 'available'}>مصدر التنفيذ غير متاح؛ لا يمكن تأكيد حالة تنفيذ حديثة.</SourceNote>
             {execution && (
