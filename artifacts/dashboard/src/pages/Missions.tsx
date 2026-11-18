@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from 'react';
 import { Link, useSearch } from 'wouter';
 import {
   createTask,
@@ -1436,12 +1436,14 @@ export default function Missions() {
   // fences late callbacks before passive-effect cleanup can run.
   const missionViewScopeKey = `${explicitProjectId ?? projectId}::${explicitMissionId ?? activeMissionId ?? ''}`;
   const missionViewScopeRef = useRef({ key: missionViewScopeKey, revision: 0 });
-  if (missionViewScopeRef.current.key !== missionViewScopeKey) {
-    missionViewScopeRef.current = {
-      key: missionViewScopeKey,
-      revision: missionViewScopeRef.current.revision + 1,
-    };
-  }
+  useLayoutEffect(() => {
+    if (missionViewScopeRef.current.key !== missionViewScopeKey) {
+      missionViewScopeRef.current = {
+        key: missionViewScopeKey,
+        revision: missionViewScopeRef.current.revision + 1,
+      };
+    }
+  }, [missionViewScopeKey]);
 
   useEffect(() => {
     if (!activeMissionId) {
