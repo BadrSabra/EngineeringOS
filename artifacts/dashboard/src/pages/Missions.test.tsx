@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import Missions from './Missions';
@@ -1134,5 +1134,79 @@ describe('Missions explicit route targets', () => {
     expect(await screen.findByTestId('status-mission-target-unavailable')).toBeInTheDocument();
     expect(fetchMissionsMock).not.toHaveBeenCalled();
     window.history.replaceState(null, '', '/');
+  });
+});
+
+
+describe('Missions project isolation', () => {
+  const secondProject = { id: 'project-2', name: 'Second Project' };
+  const secondMission = {
+    ...mission,
+    id: 'mission-2',
+    projectId: secondProject.id,
+    title: 'Second project mission',
+    scope: { kind: 'project' as const, projectId: secondProject.id },
+  };
+
+  it('hides the previous project and ignores its aborted late list response after switching', async () => {
+    useListProjectsMock.mockReturnValue({
+      data: [project, secondProject],
+      isLoading: false,
+      isError: false,
+      error: null,
+      refetch: vi.fn(),
+    });
+
+    let firstProjectReadCount = 0;
+    let resolveFirstProjectRefresh: ((value: Array<typeof mission>) => void) | null = null;
+    let resolveSecondProjectMissions: ((value: Array<typeof mission>) => void) | null = null;
+
+    fetchMissionsMock.mockImplementation((requestedProjectId: string) => {
+      if (requestedProjectId === project.id) {
+        firstProjectReadCount += 1;
+        if (firstProjectReadCount === 1) return Promise.resolve([mission]);
+        return new Promise<Array<typeof mission>>((resolve) => {
+          resolveFirstProjectRefresh = resolve;
+        });
+      }
+      return new Promise<Array<typeof mission>>((resolve) => {
+        resolveSecondProjectMissions = resolve;
+      });
+    });
+
+    renderPage();
+    expect(await screen.findByTestId(`button-mission-${mission.id}`)).toBeInTheDocument();
+
+    fireEvent.click(screen.getByTestId('button-refresh-missions'));
+    await waitFor(() => expect(firstProjectReadCount).toBe(2));
+
+    fireEvent.change(screen.getByTestId('select-mission-project'), {
+      target: { value: secondProject.id },
+    });
+    await waitFor(() => expect(resolveSecondProjectMissions).not.toBeNull());
+
+    // The old project's list and detail must be withheld during the new project's read.
+    expect(screen.queryByTestId(`button-mission-${mission.id}`)).not.toBeInTheDocument();
+    expect(screen.queryByTestId(`text-mission-title-${mission.id}`)).not.toBeInTheDocument();
+
+    if (!resolveSecondProjectMissions) throw new Error('Second-project read was not started.');
+    await act(async () => {
+      resolveSecondProjectMissions?.([secondMission]);
+    });
+
+    expect(await screen.findByTestId(`button-mission-${secondMission.id}`)).toBeInTheDocument();
+    expect(await screen.findByTestId(`text-mission-title-${secondMission.id}`)).toHaveTextContent(
+      secondMission.title,
+    );
+
+    // A transport that resolves after AbortController cancellation must not replace project 2.
+    if (!resolveFirstProjectRefresh) throw new Error('First-project refresh was not started.');
+    await act(async () => {
+      resolveFirstProjectRefresh?.([mission]);
+    });
+
+    expect(screen.getByTestId(`button-mission-${secondMission.id}`)).toBeInTheDocument();
+    expect(screen.queryByTestId(`button-mission-${mission.id}`)).not.toBeInTheDocument();
+    expect(screen.queryByTestId(`text-mission-title-${mission.id}`)).not.toBeInTheDocument();
   });
 });
