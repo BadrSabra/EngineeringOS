@@ -109,6 +109,7 @@ describe('Graph', () => {
     expect(screen.getByRole('button', { name: 'source.ts' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'buildGraph' })).toBeInTheDocument();
     expect(screen.getByText('الكيانات (2)')).toBeInTheDocument();
+    expect(screen.queryByTestId('graph-partial-data-warning')).not.toBeInTheDocument();
     expect(container.querySelector('line')).toBeInTheDocument();
 
     fireEvent.change(screen.getByPlaceholderText('ابحث عن عنصر...'), {
@@ -118,6 +119,30 @@ describe('Graph', () => {
     expect(screen.getByRole('button', { name: 'buildGraph' })).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'source.ts' })).not.toBeInTheDocument();
     expect(screen.getByText('الكيانات (1)')).toBeInTheDocument();
+  });
+
+  it('discloses incomplete entity and relationship pages with server-reported coverage counts', () => {
+    vi.mocked(useListGraphEntities).mockReturnValue({
+      data: {
+        items: [sourceEntity, targetEntity],
+        meta: { page: 1, pageSize: 100, total: 145, truncated: true },
+      },
+      isLoading: false,
+    } as ReturnType<typeof useListGraphEntities>);
+    vi.mocked(useListGraphRelationships).mockReturnValue({
+      data: {
+        items: [relationship],
+        meta: { page: 1, pageSize: 100, total: 241, truncated: true },
+      },
+    } as ReturnType<typeof useListGraphRelationships>);
+
+    render(<Graph />);
+
+    const warning = screen.getByTestId('graph-partial-data-warning');
+    expect(warning).toHaveTextContent('الرسم المعروض جزئي');
+    expect(warning).toHaveTextContent('الكيانات المعروضة: 2 / 145');
+    expect(warning).toHaveTextContent('العلاقات المعروضة: 1 / 241');
+    expect(warning).toHaveAttribute('role', 'status');
   });
 
   it('consumes relationship items when an entity is selected', () => {
