@@ -288,6 +288,7 @@ export default function SkillRegistry() {
 
   const loadRegistry = useCallback(async (projectId: string, refresh = false) => {
     if (!projectId) {
+      requestVersion.current += 1;
       setRegistry([]);
       setRegistryProjectId(null);
       setLastUpdated(undefined);
@@ -329,9 +330,11 @@ export default function SkillRegistry() {
   }, [effectiveProjectId, loadRegistry]);
 
   const replaceReturnedRow = useCallback((returned: RegistryRow) => {
+    if (registryProjectId !== returned.projectId) return;
     setRegistry((current) => current.map((row) => row.id === returned.id ? returned : row));
     setLastUpdated(Date.now());
-  }, []);
+    setLastUpdatedProjectId(returned.projectId);
+  }, [registryProjectId]);
 
   const handleApprove = useCallback(async (row: RegistryRow) => {
     if (!window.confirm(`Approve ${row.skillId} v${row.skillVersion} for immediate promotion?`)) return;
@@ -342,6 +345,7 @@ export default function SkillRegistry() {
       replaceReturnedRow(response.registry);
     } catch (error) {
       setLoadError(error);
+      setLoadErrorProjectId(row.projectId);
     } finally {
       setBusyAction(null);
     }
@@ -356,6 +360,7 @@ export default function SkillRegistry() {
       replaceReturnedRow(response.registry);
     } catch (error) {
       setLoadError(error);
+      setLoadErrorProjectId(row.projectId);
     } finally {
       setBusyAction(null);
     }
@@ -391,6 +396,7 @@ export default function SkillRegistry() {
               data-testid="project-select"
               value={effectiveProjectId}
               onChange={(event) => {
+                requestVersion.current += 1;
                 setSelectedProjectId(event.target.value);
                 setRegistryProjectId(null);
                 setLoadError(null);
@@ -428,7 +434,7 @@ export default function SkillRegistry() {
         <>
           <section className="grid gap-3 sm:grid-cols-3" aria-label="ملخص سجل المهارات">
             {[
-              { label: 'مدخلات السجل', value: registry.length, icon: KeyRound, tone: 'text-cyan-300' },
+              { label: 'مدخلات السجل', value: visibleRegistry.length, icon: KeyRound, tone: 'text-cyan-300' },
               { label: 'بانتظار المراجعة', value: pendingCount, icon: Clock3, tone: 'text-amber-200' },
               { label: 'مُرقّاة / نشطة', value: activePromotedCount, icon: ShieldCheck, tone: 'text-emerald-300' },
             ].map(({ label, value, icon: Icon, tone }) => (
