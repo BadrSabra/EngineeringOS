@@ -196,10 +196,11 @@
   gap: 1rem;
   margin-top: 1rem;
 }
-.workspace-panel { min-width: 0; }
+.workspace-panel { min-width: 0; scroll-margin-top: 4.75rem; }
 .workspace-canvas-panel { padding: 1rem; }
 .workspace-canvas-panel .workspace-card-heading { min-height: 3rem; }
 .workspace-card-icon.canvas { background: hsl(190 34% 30% / .3); color: hsl(190 47% 74%); }
+.status-blocked { border-color: hsl(39 42% 45% / .4); background: hsl(39 39% 24% / .2); color: hsl(42 58% 77%); }
 .workspace-canvas-stage {
   display: flex;
   min-height: 34rem;
