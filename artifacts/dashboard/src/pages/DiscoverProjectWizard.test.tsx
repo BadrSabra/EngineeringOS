@@ -190,6 +190,8 @@ describe('DiscoverProjectWizard Arabic findings', () => {
     const warning = await screen.findByTestId('discovery-session-read-error');
     expect(warning).toHaveTextContent('معلومات البدء لا تؤكد التقدم الحالي');
     expect(screen.queryByTestId('discovery-session-last-success')).not.toBeInTheDocument();
+    expect(screen.getByTestId('discovery-session-progress-unavailable')).toBeInTheDocument();
+    expect(screen.queryByText('18%')).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'إعادة قراءة حالة الاستكشاف' }));
     expect(mocks.sessionQuery.refetch).toHaveBeenCalledOnce();
   });
