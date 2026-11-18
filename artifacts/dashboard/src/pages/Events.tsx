@@ -1,10 +1,23 @@
 import React, { useEffect, useState } from 'react';
-import { useListEvents, useListProjects } from '@workspace/api-client-react';
+import { getListEventsQueryKey, useListEvents, useListProjects } from '@workspace/api-client-react';
 import { Search, Filter, X } from 'lucide-react';
 import { RefreshButton } from '@/components/OperatorResilience';
 
 const SEVERITIES = ['info', 'warning', 'error', 'success'] as const;
 const PAGE_SIZE = 50;
+
+function formatEventTime(timestamp: Date | string | number): string {
+  const date = timestamp instanceof Date ? timestamp : new Date(timestamp);
+  if (!Number.isFinite(date.getTime())) return 'وقت غير صالح';
+  return date.toISOString().slice(11, 19);
+}
+
+function formatEventReadAt(timestamp: number): string {
+  return new Intl.DateTimeFormat('ar-EG', {
+    dateStyle: 'medium',
+    timeStyle: 'medium',
+  }).format(new Date(timestamp));
+}
 
 function initialEventViewState() {
   const params = new URLSearchParams(window.location.search);
@@ -38,13 +51,20 @@ export default function Events() {
     window.history.replaceState(null, '', `${window.location.pathname}${query ? `?${query}` : ''}`);
   }, [projectId, severity, correlationId, searchTerm, page]);
 
-  const { data: eventsPage, isLoading, isError, error, refetch } = useListEvents({
+  const eventQueryParams = {
     limit: PAGE_SIZE,
     page,
     ...(projectId ? { projectId } : {}),
     ...(correlationId.trim() ? { correlationId: correlationId.trim() } : {}),
     ...(severity ? { severity: severity as (typeof SEVERITIES)[number] } : {}),
     ...(searchTerm.trim() ? { search: searchTerm.trim() } : {}),
+  };
+  const { data: eventsPage, isLoading, isFetching, isError, error, refetch, dataUpdatedAt } = useListEvents(eventQueryParams, {
+    query: {
+      queryKey: getListEventsQueryKey(eventQueryParams),
+      refetchInterval: 15_000,
+      refetchIntervalInBackground: false,
+    },
   });
 
   const activeFilterCount = [projectId, severity, correlationId.trim(), searchTerm.trim()].filter(Boolean).length;
@@ -58,9 +78,21 @@ export default function Events() {
         <div>
           <h1 className="text-2xl font-bold tracking-tight">سجل الأحداث</h1>
           <p className="text-muted-foreground text-sm mt-1">
-            سجل مباشر لأنشطة النظام.
+            سجل أحداث النظام، يُحدّث تلقائيًا كل 15 ثانية أثناء عرض الصفحة.
             {' '}صفحة <bdi dir="ltr">{page}</bdi>. تُطبَّق عوامل التصفية على سجل الأحداث بالكامل.
           </p>
+          {!isLoading && !isError && eventsPage && dataUpdatedAt > 0 && (
+            <p
+              data-testid="events-read-status"
+              role={isFetching ? 'status' : undefined}
+              aria-live="polite"
+              className="mt-1 text-xs text-muted-foreground"
+            >
+              {isFetching
+                ? 'يجري تحديث السجل؛ الأحداث المعروضة تمثل آخر قراءة ناجحة.'
+                : <>آخر قراءة ناجحة: <time dateTime={new Date(dataUpdatedAt).toISOString()}>{formatEventReadAt(dataUpdatedAt)}</time></>}
+            </p>
+          )}
         </div>
         <div
           data-testid="events-controls"
@@ -80,7 +112,7 @@ export default function Events() {
             />
           </div>
           <div className="shrink-0">
-            <RefreshButton onRefresh={refetch} isRefreshing={isLoading} label="تحديث الأحداث" />
+            <RefreshButton onRefresh={refetch} isRefreshing={isFetching} label="تحديث الأحداث" />
           </div>
           <button
             aria-label="إظهار أو إخفاء عوامل تصفية الأحداث"
@@ -226,7 +258,7 @@ export default function Events() {
                         className={`flex gap-4 p-1.5 rounded hover:bg-white/5 transition-colors ${color}`}
                       >
                         <div className="w-32 opacity-70 shrink-0">
-                          {new Date(evt.timestamp).toISOString().split('T')[1].replace('Z', '')}
+                          {formatEventTime(evt.timestamp)}
                         </div>
                         <div className="w-16 font-bold uppercase shrink-0">
                           {evt.severity === 'info' ? 'معلومة' : evt.severity === 'warning' ? 'تحذير' : evt.severity === 'error' ? 'خطأ' : evt.severity === 'success' ? 'نجاح' : evt.severity || 'معلومة'}
