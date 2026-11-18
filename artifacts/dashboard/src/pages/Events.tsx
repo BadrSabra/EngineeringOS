@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { useListEvents, useListProjects } from '@workspace/api-client-react';
+import { getListEventsQueryKey, useListEvents, useListProjects } from '@workspace/api-client-react';
 import { Search, Filter, X } from 'lucide-react';
 import { RefreshButton } from '@/components/OperatorResilience';
 
@@ -51,15 +51,17 @@ export default function Events() {
     window.history.replaceState(null, '', `${window.location.pathname}${query ? `?${query}` : ''}`);
   }, [projectId, severity, correlationId, searchTerm, page]);
 
-  const { data: eventsPage, isLoading, isFetching, isError, error, refetch, dataUpdatedAt } = useListEvents({
+  const eventQueryParams = {
     limit: PAGE_SIZE,
     page,
     ...(projectId ? { projectId } : {}),
     ...(correlationId.trim() ? { correlationId: correlationId.trim() } : {}),
     ...(severity ? { severity: severity as (typeof SEVERITIES)[number] } : {}),
     ...(searchTerm.trim() ? { search: searchTerm.trim() } : {}),
-  }, {
+  };
+  const { data: eventsPage, isLoading, isFetching, isError, error, refetch, dataUpdatedAt } = useListEvents(eventQueryParams, {
     query: {
+      queryKey: getListEventsQueryKey(eventQueryParams),
       refetchInterval: 15_000,
       refetchIntervalInBackground: false,
     },
