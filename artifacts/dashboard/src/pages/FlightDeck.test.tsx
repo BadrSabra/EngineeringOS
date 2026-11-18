@@ -109,6 +109,42 @@ beforeEach(() => {
 });
 
 describe('Flight Deck mission control', () => {
+  it('resets the Git commit draft when the requested execution context changes in-place', () => {
+    const originalPath = window.location.pathname + window.location.search;
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+    });
+    const pageContent = () => (
+      <QueryClientProvider client={queryClient}>
+        <FlightDeck />
+      </QueryClientProvider>
+    );
+
+    try {
+      mocks.execution = { ...baseExecution('APPLIED'), id: 'execution-1', projectId: 'project-1' };
+      const page = render(pageContent());
+      const commitInput = screen.getByLabelText('رسالة الإيداع');
+
+      fireEvent.change(commitInput, { target: { value: 'Commit for project one' } });
+      expect(commitInput).toHaveValue('Commit for project one');
+
+      mocks.execution = {
+        ...baseExecution('APPLIED'),
+        id: 'execution-2',
+        projectId: 'project-2',
+        sessionId: 'session-2',
+      };
+      window.history.pushState({}, '', '/flight-deck?executionId=execution-2&projectId=project-2');
+      page.rerender(pageContent());
+
+      expect(screen.getByLabelText('رسالة الإيداع')).toHaveValue('');
+      expect(screen.getByTestId('link-flight-deck-ai'))
+        .toHaveAttribute('href', '/ai?projectId=project-2&sessionId=session-2');
+    } finally {
+      window.history.pushState({}, '', originalPath);
+    }
+  });
+
   it('returns to the server-bound AI session, including on a fresh page load', () => {
     renderDeck();
     expect(screen.getByTestId('link-flight-deck-ai'))
