@@ -263,6 +263,52 @@ describe("PreviewAgentPanel", () => {
     expect(randomUUID).toHaveBeenCalledTimes(2);
   });
 
+  it("keeps a delayed revoke failure inside the project where it started", async () => {
+    let rejectRevoke: ((response: Response) => void) | undefined;
+    const fetchMock = vi.fn((input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url === "/api/projects/project-1/preview-agents") {
+        return Promise.resolve(jsonResponse([{
+          nodeId,
+          projectId: "project-1",
+          storeId,
+          status: "active",
+          publicKeyFingerprint: null,
+          agentVersion: null,
+          platform: "linux",
+          keyVersion: 1,
+          pairingExpiresAt: null,
+          pairedAt: null,
+          lastSeenAt: null,
+          revokedAt: null,
+          createdAt: "2026-11-13T09:55:00.000Z",
+        }]));
+      }
+      if (url.endsWith(`/preview-agents/${nodeId}/revoke`)) {
+        return new Promise<Response>((resolve) => {
+          rejectRevoke = resolve;
+        });
+      }
+      return Promise.resolve(jsonResponse([]));
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const view = renderPanel("project-1");
+    fireEvent.click(await screen.findByRole("button", {
+      name: `إلغاء اقتران الجهاز ${nodeId.slice(0, 8)}`,
+    }));
+    await waitFor(() => expect(rejectRevoke).toBeTypeOf("function"));
+
+    view.rerenderProject("project-2");
+
+    await act(async () => {
+      rejectRevoke?.(jsonResponse({ error: "preview_agent_not_found" }, 404));
+    });
+
+    expect(screen.queryByText("لم يعد هذا العامل موجودًا في المشروع.")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "ربط جهاز Linux" })).toBeInTheDocument();
+  });
+
   it("revokes only the selected node after explicit confirmation", async () => {
     const fetchMock = vi
       .fn()
