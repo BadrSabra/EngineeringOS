@@ -162,22 +162,29 @@ export default function Graph() {
 
   const effectiveProjectId = selectedProjectId || (projects?.[0]?.id ?? '');
 
-  const { data: entitiesResponse, isLoading: entitiesLoading, isStale: entitiesStale, isError: entitiesError, error: entitiesErrorValue, refetch: refetchEntities, isRefetching, dataUpdatedAt } = useListGraphEntities(
+  const { data: entitiesResponse, isLoading: entitiesLoading, isStale: entitiesStale, isError: entitiesError, error: entitiesErrorValue, refetch: refetchEntities, isFetching: entitiesFetching, dataUpdatedAt: entitiesUpdatedAt } = useListGraphEntities(
     { projectId: effectiveProjectId },
     { query: { queryKey: getListGraphEntitiesQueryKey({ projectId: effectiveProjectId }), enabled: !!effectiveProjectId, staleTime: 30_000 } },
   );
   const entities = entitiesResponse?.items ?? [];
 
-  const { data: relationshipsResponse, isLoading: relationshipsLoading, isStale: relationshipsStale, isError: relationshipsError, refetch: refetchRelationships } = useListGraphRelationships(
+  const { data: relationshipsResponse, isLoading: relationshipsLoading, isStale: relationshipsStale, isError: relationshipsError, refetch: refetchRelationships, isFetching: relationshipsFetching, dataUpdatedAt: relationshipsUpdatedAt } = useListGraphRelationships(
     { projectId: effectiveProjectId },
     { query: { queryKey: getListGraphRelationshipsQueryKey({ projectId: effectiveProjectId }), enabled: !!effectiveProjectId, staleTime: 30_000 } },
   );
   const relationships = relationshipsResponse?.items ?? [];
 
-  const { data: summary, isLoading: summaryLoading, isStale: summaryStale, isError: summaryError, refetch: refetchSummary } = useGetGraphSummary(
+  const { data: summary, isLoading: summaryLoading, isStale: summaryStale, isError: summaryError, refetch: refetchSummary, isFetching: summaryFetching, dataUpdatedAt: summaryUpdatedAt } = useGetGraphSummary(
     effectiveProjectId,
     { query: { queryKey: getGetGraphSummaryQueryKey(effectiveProjectId), enabled: !!effectiveProjectId, staleTime: 60_000 } },
   );
+
+  const graphIsFetching = entitiesFetching || relationshipsFetching || summaryFetching;
+  const graphLastUpdated = [entitiesUpdatedAt, relationshipsUpdatedAt, summaryUpdatedAt].every(
+    (timestamp) => timestamp > 0,
+  )
+    ? Math.min(entitiesUpdatedAt, relationshipsUpdatedAt, summaryUpdatedAt)
+    : undefined;
 
   const { data: neighborData } = useGetGraphEntityNeighbors(
     selectedEntityId,
@@ -272,8 +279,10 @@ export default function Graph() {
         <div data-testid="graph-controls" className="flex w-full min-w-0 flex-wrap items-center gap-2 xl:w-auto xl:flex-nowrap xl:gap-3">
           <RefreshButton
             onRefresh={async () => { await Promise.all([refetchProjects(), refetchEntities(), refetchRelationships(), refetchSummary()]); }}
-            isRefreshing={isRefetching}
-            lastUpdated={dataUpdatedAt}
+            isRefreshing={graphIsFetching}
+            lastUpdated={graphLastUpdated}
+            updatedLabel="آخر تحديث:"
+            refreshingLabel="جارٍ تحديث مكونات الرسم…"
             label="تحديث الرسم البياني"
           />
           <select
