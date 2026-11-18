@@ -27,10 +27,29 @@ vi.mock("wouter", () => ({
 }));
 
 vi.mock("@/components/OperatorResilience", () => ({
-  RefreshButton: ({ onRefresh, label }: { onRefresh: () => void; label: string }) => (
-    <button type="button" aria-label={label} onClick={() => void onRefresh()}>
-      Refresh
-    </button>
+  RefreshButton: ({
+    onRefresh,
+    label,
+    isRefreshing = false,
+    lastUpdated,
+  }: {
+    onRefresh: () => void;
+    label: string;
+    isRefreshing?: boolean;
+    lastUpdated?: number;
+  }) => (
+    <div>
+      <span data-testid="dashboard-refresh-last-updated">{lastUpdated ?? 'none'}</span>
+      <button
+        type="button"
+        aria-label={label}
+        data-testid="dashboard-refresh-button"
+        disabled={isRefreshing}
+        onClick={() => void onRefresh()}
+      >
+        {isRefreshing ? 'جارٍ التحديث…' : 'Refresh'}
+      </button>
+    </div>
   ),
   RequestError: ({ title }: { title: string }) => <div role="alert">{title}</div>,
 }));
@@ -76,7 +95,9 @@ beforeEach(() => {
     data: dashboard,
     isLoading: false,
     error: null,
+    isError: false,
     refetch: vi.fn(),
+    isFetching: false,
     isRefetching: false,
     dataUpdatedAt: Date.now(),
   } as ReturnType<typeof useGetDashboard>);
@@ -105,6 +126,9 @@ beforeEach(() => {
         executionRowsPruned: 1,
       },
     },
+    isFetching: false,
+    isError: false,
+    dataUpdatedAt: Date.now(),
     refetch: vi.fn(),
   } as ReturnType<typeof useGetHealth>);
   vi.mocked(useListProjects).mockReturnValue({
@@ -113,6 +137,90 @@ beforeEach(() => {
     isError: false,
     refetch: vi.fn(),
   } as ReturnType<typeof useListProjects>);
+});
+
+describe("Dashboard composite refresh", () => {
+  it('keeps refresh busy while health is fetching and timestamps the oldest successful read', () => {
+    const dashboardUpdatedAt = new Date('2026-11-18T18:10:00.000Z').getTime();
+    const healthUpdatedAt = new Date('2026-11-18T18:05:00.000Z').getTime();
+
+    vi.mocked(useGetDashboard).mockReturnValue({
+      data: dashboard,
+      isLoading: false,
+      error: null,
+      isError: false,
+      refetch: vi.fn(),
+      isFetching: false,
+      isRefetching: false,
+      dataUpdatedAt: dashboardUpdatedAt,
+    } as ReturnType<typeof useGetDashboard>);
+    vi.mocked(useGetHealth).mockReturnValue({
+      data: { aiDiagnosticsRetention: null },
+      isFetching: true,
+      isError: false,
+      dataUpdatedAt: healthUpdatedAt,
+      refetch: vi.fn(),
+    } as ReturnType<typeof useGetHealth>);
+
+    render(<Dashboard />);
+
+    expect(screen.getByTestId('dashboard-refresh-button')).toBeDisabled();
+    expect(screen.getByTestId('dashboard-refresh-button')).toHaveTextContent('جارٍ التحديث');
+    expect(screen.getByTestId('dashboard-refresh-last-updated'))
+      .toHaveTextContent(String(healthUpdatedAt));
+  });
+
+  it('withholds the composite timestamp when either component read has failed', () => {
+    vi.mocked(useGetDashboard).mockReturnValue({
+      data: dashboard,
+      isLoading: false,
+      error: null,
+      isError: false,
+      refetch: vi.fn(),
+      isFetching: false,
+      isRefetching: false,
+      dataUpdatedAt: 2_000,
+    } as ReturnType<typeof useGetDashboard>);
+    vi.mocked(useGetHealth).mockReturnValue({
+      data: { aiDiagnosticsRetention: null },
+      isFetching: false,
+      isError: true,
+      dataUpdatedAt: 1_000,
+      refetch: vi.fn(),
+    } as ReturnType<typeof useGetHealth>);
+
+    render(<Dashboard />);
+
+    expect(screen.getByTestId('dashboard-refresh-last-updated')).toHaveTextContent('none');
+  });
+
+  it('refreshes both dashboard and health resources', () => {
+    const refetchDashboard = vi.fn().mockResolvedValue({ data: dashboard });
+    const refetchHealth = vi.fn().mockResolvedValue({ data: {} });
+    vi.mocked(useGetDashboard).mockReturnValue({
+      data: dashboard,
+      isLoading: false,
+      error: null,
+      isError: false,
+      refetch: refetchDashboard,
+      isFetching: false,
+      isRefetching: false,
+      dataUpdatedAt: 2_000,
+    } as ReturnType<typeof useGetDashboard>);
+    vi.mocked(useGetHealth).mockReturnValue({
+      data: { aiDiagnosticsRetention: null },
+      isFetching: false,
+      isError: false,
+      dataUpdatedAt: 1_000,
+      refetch: refetchHealth,
+    } as ReturnType<typeof useGetHealth>);
+
+    render(<Dashboard />);
+    fireEvent.click(screen.getByTestId('dashboard-refresh-button'));
+
+    expect(refetchDashboard).toHaveBeenCalledOnce();
+    expect(refetchHealth).toHaveBeenCalledOnce();
+  });
 });
 
 describe("Dashboard goal-first home", () => {
