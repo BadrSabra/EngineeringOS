@@ -442,7 +442,7 @@ describe("Workspace task cards", () => {
     );
 
     expect(screen.getByTestId("workspace-task-attempt-task-running")).toHaveTextContent("3");
-    expect(screen.getByTestId("workspace-task-attempt-task-running"))
+    expect(screen.getByTestId("workspace-task-task-running"))
       .toHaveTextContent("محاولة مسجلة من التنفيذ المرتبط بالمهمة.");
   });
 
