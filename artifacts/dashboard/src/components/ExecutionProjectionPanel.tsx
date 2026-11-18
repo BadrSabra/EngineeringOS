@@ -258,9 +258,10 @@ export function ExecutionProjectionPanel({
   const currentExecutionIdRef = useRef(executionId ?? '');
   currentExecutionIdRef.current = executionId ?? '';
   useEffect(() => {
-    // Invalidate any in-flight read whenever this shared panel is rebound to
-    // another execution, including a switch away and then back.
+    // Invalidate any in-flight read and discard the previous execution's
+    // review snapshot whenever this shared panel is rebound.
     diffRequestIdRef.current += 1;
+    setDiffReadState(null);
   }, [executionId]);
 
   if (!projection) return null;
