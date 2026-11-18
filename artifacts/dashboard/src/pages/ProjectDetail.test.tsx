@@ -36,6 +36,10 @@ const mocks = vi.hoisted(() => ({
   summaryAvailable: true,
   summaryIsLoading: false,
   summaryIsError: false,
+  summaryIsFetching: false,
+  summaryUpdatedAt: Date.parse('2026-10-13T12:00:00.000Z'),
+  projectIsRefetching: false,
+  projectUpdatedAt: Date.parse('2026-10-14T12:00:00.000Z'),
 }));
 
 vi.mock('@workspace/api-client-react', () => ({
@@ -49,13 +53,15 @@ vi.mock('@workspace/api-client-react', () => ({
     isError: false,
     error: null,
     refetch: mocks.refetchProject,
-    isRefetching: false,
-    dataUpdatedAt: Date.parse(mocks.project.updatedAt),
+    isRefetching: mocks.projectIsRefetching,
+    dataUpdatedAt: mocks.projectUpdatedAt,
   }),
   useGetProjectSummary: () => ({
     data: mocks.summaryAvailable ? mocks.summary : undefined,
     isLoading: mocks.summaryIsLoading,
     isError: mocks.summaryIsError,
+    isFetching: mocks.summaryIsFetching,
+    dataUpdatedAt: mocks.summaryUpdatedAt,
     refetch: mocks.refetchSummary,
   }),
   useUpdateProject: () => ({ mutate: mocks.mutate, isPending: false }),
@@ -86,7 +92,17 @@ vi.mock('@/lib/freshness', () => ({
 }));
 
 vi.mock('@/components/OperatorResilience', () => ({
-  RefreshButton: () => null,
+  RefreshButton: (props: { isRefreshing: boolean; lastUpdated?: number; onRefresh: () => Promise<void> }) => (
+    <button
+      type="button"
+      data-testid="project-refresh"
+      data-last-updated={props.lastUpdated ?? ''}
+      disabled={props.isRefreshing}
+      onClick={() => void props.onRefresh()}
+    >
+      refresh
+    </button>
+  ),
   RequestError: () => null,
 }));
 
@@ -103,6 +119,10 @@ describe('ProjectDetail Arabic presentation', () => {
     mocks.summaryAvailable = true;
     mocks.summaryIsLoading = false;
     mocks.summaryIsError = false;
+    mocks.summaryIsFetching = false;
+    mocks.summaryUpdatedAt = Date.parse('2026-10-13T12:00:00.000Z');
+    mocks.projectIsRefetching = false;
+    mocks.projectUpdatedAt = Date.parse('2026-10-14T12:00:00.000Z');
   });
 
   it('renders Arabic project labels while retaining the raw status code in project info', () => {
@@ -223,6 +243,25 @@ describe('ProjectDetail Arabic presentation', () => {
       'تُعرض آخر قراءة متاحة',
     );
     expect(screen.getByTestId('summary-task-total')).toHaveTextContent('2');
+  });
+
+  it('keeps the composite refresh busy until both project and summary reads settle and uses the older timestamp', () => {
+    mocks.summaryIsFetching = true;
+    mocks.summaryUpdatedAt = Date.parse('2026-10-12T12:00:00.000Z');
+
+    render(<ProjectDetail />);
+
+    const refresh = screen.getByTestId('project-refresh');
+    expect(refresh).toBeDisabled();
+    expect(refresh).toHaveAttribute('data-last-updated', String(mocks.summaryUpdatedAt));
+  });
+
+  it('withholds composite freshness when the summary refresh is in an error state', () => {
+    mocks.summaryIsError = true;
+
+    render(<ProjectDetail />);
+
+    expect(screen.getByTestId('project-refresh')).toHaveAttribute('data-last-updated', '');
   });
 
   it('isolates embedded English operational panels from the page RTL direction', () => {
