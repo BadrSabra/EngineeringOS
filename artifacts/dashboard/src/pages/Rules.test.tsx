@@ -65,16 +65,21 @@ function renderRulesPage() {
     defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
   });
   const invalidateQueries = vi.spyOn(queryClient, 'invalidateQueries');
-  render(
+  const renderPage = () => (
     <QueryClientProvider client={queryClient}>
       <Rules />
-    </QueryClientProvider>,
+    </QueryClientProvider>
   );
-  return { invalidateQueries };
+  const rendered = render(renderPage());
+  return {
+    invalidateQueries,
+    rerender: () => rendered.rerender(renderPage()),
+  };
 }
 
 beforeEach(() => {
   vi.clearAllMocks();
+  mocks.projects.splice(0, mocks.projects.length, { id: 'project-1', name: 'Owned Project' });
   mocks.rules[0] = {
     ...mocks.rules[0],
     title: 'Avoid unsafe eval',
@@ -158,6 +163,84 @@ describe('Rules actions', () => {
     ];
     act(() => callbacks.onSuccess());
     await waitFor(() => expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument());
+  });
+
+  it('reconciles a removed evaluation project to a currently owned project before submitting', async () => {
+    mocks.projects.push({ id: 'project-2', name: 'Second Project' });
+    const { rerender } = renderRulesPage();
+    expandRule();
+
+    const projectSelect = screen.getByLabelText('Evaluate against project');
+    await waitFor(() => expect(projectSelect).toHaveValue('project-1'));
+    fireEvent.change(projectSelect, { target: { value: 'project-2' } });
+    expect(projectSelect).toHaveValue('project-2');
+
+    // Simulate the latest owned-project query no longer containing the
+    // previously selected project while the page remains mounted.
+    mocks.projects.splice(0, mocks.projects.length, { id: 'project-1', name: 'Owned Project' });
+    rerender();
+
+    await waitFor(() => expect(projectSelect).toHaveValue('project-1'));
+    fireEvent.click(screen.getByRole('button', { name: 'Evaluate rule' }));
+
+    expect(mocks.mutations.evaluate.mutate).toHaveBeenCalledWith(
+      { ruleId: 'rule-1', data: { projectId: 'project-1' } },
+      expect.objectContaining({
+        onSuccess: expect.any(Function),
+        onError: expect.any(Function),
+      }),
+    );
+  });
+
+  it('ignores a late evaluation result after the operator changes project', async () => {
+    mocks.projects.push({ id: 'project-2', name: 'Second Project' });
+    renderRulesPage();
+    expandRule();
+
+    const projectSelect = screen.getByLabelText('Evaluate against project');
+    await waitFor(() => expect(projectSelect).toHaveValue('project-1'));
+    fireEvent.click(screen.getByRole('button', { name: 'Evaluate rule' }));
+
+    const [, callbacks] = mocks.mutations.evaluate.mutate.mock.calls[0] as [
+      unknown,
+      { onSuccess: (result: unknown) => void; onError: () => void },
+    ];
+
+    fireEvent.change(projectSelect, { target: { value: 'project-2' } });
+    act(() => callbacks.onSuccess({
+      ruleId: 'rule-1',
+      projectId: 'project-1',
+      matched: true,
+      matchCount: 1,
+      matches: [{ file: 'src/old-project.ts', line: 7, snippet: 'oldProjectMatch()' }],
+    }));
+
+    expect(screen.queryByTestId('rule-evaluation-result-rule-1')).not.toBeInTheDocument();
+
+    // Returning to the original project must not resurrect a result from a
+    // request that was superseded by the project switch.
+    fireEvent.change(projectSelect, { target: { value: 'project-1' } });
+    expect(screen.queryByTestId('rule-evaluation-result-rule-1')).not.toBeInTheDocument();
+  });
+
+  it('ignores a late evaluation error after the operator changes project', async () => {
+    mocks.projects.push({ id: 'project-2', name: 'Second Project' });
+    renderRulesPage();
+    expandRule();
+
+    const projectSelect = screen.getByLabelText('Evaluate against project');
+    await waitFor(() => expect(projectSelect).toHaveValue('project-1'));
+    fireEvent.click(screen.getByRole('button', { name: 'Evaluate rule' }));
+
+    const [, callbacks] = mocks.mutations.evaluate.mutate.mock.calls[0] as [
+      unknown,
+      { onSuccess: (result: unknown) => void; onError: () => void },
+    ];
+
+    fireEvent.change(projectSelect, { target: { value: 'project-2' } });
+    act(() => callbacks.onError());
+
+    expect(screen.queryByTestId('rule-evaluation-error-rule-1')).not.toBeInTheDocument();
   });
 
   it('evaluates a patterned rule against a selected owned project and renders matches', async () => {
