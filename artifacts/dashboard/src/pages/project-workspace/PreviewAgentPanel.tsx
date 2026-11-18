@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 
 type PreviewAgentNode = {
   nodeId: string;
+  projectId: string;
   storeId: string;
   status: "pending" | "active" | "revoked";
   publicKeyFingerprint: string | null;
@@ -49,10 +50,11 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === "object" && !Array.isArray(value);
 }
 
-function parseNode(value: unknown): PreviewAgentNode | null {
+function parseNode(value: unknown, expectedProjectId: string): PreviewAgentNode | null {
   if (!isRecord(value)) return null;
   if (
     typeof value.nodeId !== "string" ||
+    value.projectId !== expectedProjectId ||
     typeof value.storeId !== "string" ||
     (value.status !== "pending" &&
       value.status !== "active" &&
@@ -66,6 +68,7 @@ function parseNode(value: unknown): PreviewAgentNode | null {
     typeof field === "string" ? field : null;
   return {
     nodeId: value.nodeId,
+    projectId: expectedProjectId,
     storeId: value.storeId,
     status: value.status,
     publicKeyFingerprint: optionalString(value.publicKeyFingerprint),
@@ -104,9 +107,9 @@ async function fetchNodes(projectId: string): Promise<PreviewAgentNode[]> {
   if (!response.ok) throw await responseError(response);
   const value: unknown = await response.json();
   if (!Array.isArray(value)) throw new Error("تعذر قراءة قائمة الأجهزة.");
-  const nodes = value.map(parseNode);
+  const nodes = value.map((node) => parseNode(node, projectId));
   if (nodes.some((node) => node === null)) {
-    throw new Error("استجابة قائمة الأجهزة غير مكتملة.");
+    throw new Error("استجابة قائمة الأجهزة لا تطابق المشروع الحالي أو غير مكتملة.");
   }
   return nodes as PreviewAgentNode[];
 }
@@ -401,7 +404,9 @@ function PreviewAgentPanelSession({ projectId }: { projectId: string }) {
         <p className="mt-4 text-xs text-slate-500" role="status">جارٍ تحميل الأجهزة…</p>
       ) : agentsQuery.isError ? (
         <p className="mt-4 text-xs leading-5 text-amber-100/80" role="status">
-          تعذر قراءة الأجهزة. أعد المحاولة؛ لا يمكن تأكيد غياب اقترانات سابقة.
+          {agentsQuery.error instanceof Error && agentsQuery.error.message
+            ? agentsQuery.error.message
+            : "تعذر قراءة الأجهزة. أعد المحاولة؛ لا يمكن تأكيد غياب اقترانات سابقة."}
         </p>
       ) : agents.length === 0 ? (
         <div className="workspace-empty compact">
