@@ -193,12 +193,16 @@ function WorkspaceTaskCard({
     attemptContext = 'جارٍ مطابقة سجل المهمة مع لقطة Workspace.';
   } else if (taskQuery.isError) {
     attemptContext = 'تعذر قراءة سجل المهمة؛ لم نعرض رقم محاولة غير مؤكد.';
-  } else if (taskQuery.isFetching || taskLogsQuery.isFetching || executionQuery.isFetching) {
-    attemptContext = 'جارٍ تحديث سجل المهمة والتنفيذ؛ أخفينا المحاولة مؤقتاً.';
+  } else if (taskQuery.isFetching) {
+    attemptContext = 'جارٍ تحديث سجل المهمة؛ أخفينا المحاولة مؤقتاً.';
   } else if (!taskMatchesSnapshot) {
     attemptContext = 'تغير سجل المهمة منذ آخر لقطة؛ حدّث مساحة المشروع قبل الاعتماد على المحاولة.';
+  } else if (acceptanceAttempt !== null) {
+    attemptContext = 'محاولة قبول مسجلة في سجل المهمة.';
+  } else if (taskLogsQuery.isFetching || executionQuery.isFetching) {
+    attemptContext = 'جارٍ تحديث سجل التنفيذ؛ أخفينا المحاولة مؤقتاً.';
   } else if (attempt !== null) {
-    attemptContext = 'محاولة مسجلة من سجل المهمة أو التنفيذ المرتبط.';
+    attemptContext = 'محاولة مسجلة من التنفيذ المرتبط بالمهمة.';
   } else if (task.status === 'running' && !currentCorrelationId) {
     attemptContext = 'لا توجد هوية تنفيذ حالية مرتبطة بالمهمة في هذه القراءة.';
   } else if (task.status === 'running' && (taskLogsQuery.isError || executionQuery.isError)) {
