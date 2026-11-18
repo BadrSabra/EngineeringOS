@@ -6,6 +6,7 @@ import { Link, useRoute } from 'wouter';
 import { Activity, AlertTriangle, ArrowRight, Check, Clock3, Code2, GitBranch, Layers3, RefreshCw, ShieldCheck, Sparkles, Terminal } from 'lucide-react';
 import { useGetProjectWorkspaceSnapshot, getGetProjectWorkspaceSnapshotQueryKey } from '@workspace/api-client-react';
 import AiChat from '@/pages/AiChat';
+import ProjectCanvasPanel from '@/pages/project-workspace/ProjectCanvasPanel';
 
 const statusLabels: Record<string, string> = {
   active: 'نشط',
@@ -65,7 +66,7 @@ function WorkspaceSkeleton() {
   return (
     <div className="space-y-5" role="status" aria-label="جارٍ تحميل مساحة المشروع">
       <div className="workspace-skeleton h-36 rounded-2xl" />
-      <div className="grid gap-5 lg:grid-cols-[minmax(0,1.55fr)_minmax(320px,.8fr)]">
+      <div className="workspace-layout-skeleton">
         <div className="workspace-skeleton h-[560px] rounded-2xl" />
         <div className="space-y-4">
           <div className="workspace-skeleton h-48 rounded-2xl" />
@@ -183,8 +184,18 @@ export default function ProjectWorkspace() {
         )}
       </header>
 
-      <div className="workspace-columns">
-        <section className="workspace-chat-panel" aria-label="المحادثة مع مساعد المشروع">
+      <nav className="workspace-panel-nav" aria-label="التنقل بين أقسام مساحة المشروع">
+        <a href="#workspace-panel-agent">المساعد</a>
+        <a href="#workspace-panel-canvas">المعاينة</a>
+        <a href="#workspace-panel-trust">العمل والثقة</a>
+      </nav>
+
+      <div className="workspace-layout">
+        <section
+          id="workspace-panel-agent"
+          className="workspace-panel workspace-chat-panel"
+          aria-label="محادثة المشروع"
+        >
           <div className="workspace-panel-heading">
             <span className="workspace-section-icon"><Sparkles className="h-4 w-4" /></span>
             <div>
@@ -197,7 +208,18 @@ export default function ProjectWorkspace() {
           </div>
         </section>
 
-        <aside className="workspace-trust-column" aria-label="ملخص العمل وحالة التشغيل">
+        <ProjectCanvasPanel
+          candidateSourceAvailable={work.candidateSource === 'available'}
+          hasCandidate={Boolean(candidate)}
+          runtimeSourceAvailable={runtime.source !== 'unavailable'}
+          runtimeStatusLabel={label(runtime.status)}
+        />
+
+        <aside
+          id="workspace-panel-trust"
+          className="workspace-panel workspace-trust-column"
+          aria-label="العمل والثقة"
+        >
           <section className="workspace-card">
             <div className="workspace-card-heading">
               <div className="workspace-card-icon work"><Activity className="h-4 w-4" /></div>
