@@ -381,4 +381,40 @@ describe("PreviewAgentPanel", () => {
     expect(globalThis.confirm).toHaveBeenCalledTimes(1);
     expect(await screen.findByText("ملغى")).toBeInTheDocument();
   });
+
+  it.each([
+    ["a different project", "project-2"],
+    ["a missing project identity", undefined],
+  ])("fails closed when a listed Preview Agent has %s", async (_label, nodeProjectId) => {
+    const node = {
+      nodeId,
+      ...(nodeProjectId ? { projectId: nodeProjectId } : {}),
+      storeId,
+      status: "active",
+      publicKeyFingerprint: null,
+      agentVersion: "1.0.0",
+      platform: "linux",
+      keyVersion: 1,
+      pairingExpiresAt: null,
+      pairedAt: null,
+      lastSeenAt: "2026-11-13T10:01:00.000Z",
+      revokedAt: null,
+      createdAt: "2026-11-13T09:55:00.000Z",
+    };
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse([node]));
+    vi.stubGlobal("fetch", fetchMock);
+
+    renderPanel();
+
+    expect(await screen.findByText(
+      "استجابة قائمة الأجهزة لا تطابق المشروع الحالي أو غير مكتملة.",
+    )).toBeInTheDocument();
+    expect(screen.queryByText(new RegExp(`Linux Agent ${nodeId.slice(0, 8)}`)))
+      .not.toBeInTheDocument();
+    expect(screen.queryByRole("button", {
+      name: `إلغاء اقتران الجهاز ${nodeId.slice(0, 8)}`,
+    })).not.toBeInTheDocument();
+  });
+
+
 });
