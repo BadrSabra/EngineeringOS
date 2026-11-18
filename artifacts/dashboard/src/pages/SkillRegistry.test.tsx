@@ -1,5 +1,5 @@
 import React from 'react';
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import SkillRegistry from './SkillRegistry';
 
@@ -10,6 +10,7 @@ vi.mock('@workspace/api-client-react', () => ({
 import { useListProjects } from '@workspace/api-client-react';
 
 const project = { id: 'project-1', name: 'Alpha service' };
+const secondProject = { id: 'project-2', name: 'Beta worker' };
 const score = {
   contractVersion: 1,
   status: 'passed',
@@ -93,6 +94,91 @@ beforeEach(() => {
 });
 
 describe('SkillRegistry', () => {
+  it('hides the previous project registry immediately while the newly selected project loads', async () => {
+    let resolveSecondProject: ((response: Response) => void) | undefined;
+    vi.mocked(useListProjects).mockReturnValue({
+      data: [project, secondProject],
+      isLoading: false,
+      isError: false,
+      refetch: vi.fn(),
+    } as ReturnType<typeof useListProjects>);
+    vi.stubGlobal('fetch', vi.fn((url: string) => {
+      if (url.includes('projectId=project-2')) {
+        return new Promise<Response>((resolve) => { resolveSecondProject = resolve; });
+      }
+      return Promise.resolve({
+        ok: true,
+        json: async () => ({ registry: [pendingRegistry] }),
+      } as Response);
+    }));
+
+    render(<SkillRegistry />);
+    expect(await screen.findByText('candidate-review')).toBeInTheDocument();
+
+    fireEvent.change(screen.getByTestId('project-select'), {
+      target: { value: secondProject.id },
+    });
+
+    expect(screen.getByText('المشروع المحدد:')).toHaveTextContent('Beta worker');
+    expect(screen.queryByText('candidate-review')).not.toBeInTheDocument();
+    expect(screen.getByLabelText('جارٍ تحميل سجل المهارات')).toBeInTheDocument();
+
+    const secondProjectRow = {
+      ...pendingRegistry,
+      id: 'registry-2',
+      projectId: secondProject.id,
+      skillId: 'beta-skill',
+      candidateId: 'skill-candidate:beta',
+      proposalId: 'proposal-beta',
+    };
+    await act(async () => {
+      resolveSecondProject?.({
+        ok: true,
+        json: async () => ({ registry: [secondProjectRow] }),
+      } as Response);
+    });
+
+    expect(await screen.findByText('beta-skill')).toBeInTheDocument();
+    expect(screen.queryByText('candidate-review')).not.toBeInTheDocument();
+  });
+
+  it('keeps the previous project registry hidden when the newly selected project read fails', async () => {
+    let resolveSecondProject: ((response: Response) => void) | undefined;
+    vi.mocked(useListProjects).mockReturnValue({
+      data: [project, secondProject],
+      isLoading: false,
+      isError: false,
+      refetch: vi.fn(),
+    } as ReturnType<typeof useListProjects>);
+    vi.stubGlobal('fetch', vi.fn((url: string) => {
+      if (url.includes('projectId=project-2')) {
+        return new Promise<Response>((resolve) => { resolveSecondProject = resolve; });
+      }
+      return Promise.resolve({
+        ok: true,
+        json: async () => ({ registry: [pendingRegistry] }),
+      } as Response);
+    }));
+
+    render(<SkillRegistry />);
+    expect(await screen.findByText('candidate-review')).toBeInTheDocument();
+    fireEvent.change(screen.getByTestId('project-select'), {
+      target: { value: secondProject.id },
+    });
+    expect(screen.queryByText('candidate-review')).not.toBeInTheDocument();
+
+    await act(async () => {
+      resolveSecondProject?.({
+        ok: false,
+        status: 503,
+        json: async () => ({ message: 'Beta registry unavailable' }),
+      } as Response);
+    });
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('Beta registry unavailable');
+    expect(screen.queryByText('candidate-review')).not.toBeInTheDocument();
+  });
+
   it('loads a registry row and projects approve/revoke mutations immediately', async () => {
     render(<SkillRegistry />);
 
