@@ -1301,7 +1301,7 @@ describe('Tasks recovery rendering', () => {
       expect(screen.getByTestId('task-logs-refresh-error')).toHaveTextContent(
         'تعذر تحديث السجل من الخادم؛ نعرض السجلات المتاحة حاليًا دون حذفها.',
       );
-      expect(screen.getByText('Live event retained after refresh error.')).toBeInTheDocument();
+      expect(screen.getByText(/Live event retained after refresh error\./)).toBeInTheDocument();
       expect(screen.queryByText('تعذر تحميل سجل التنفيذ.')).not.toBeInTheDocument();
       fireEvent.click(screen.getByRole('button', { name: 'إعادة المحاولة' }));
       expect(refetchLogs).toHaveBeenCalledTimes(1);
