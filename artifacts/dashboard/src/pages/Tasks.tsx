@@ -880,25 +880,33 @@ function TaskLogsPanel({ task, taskStatus }: { task: TaskView; taskStatus: strin
       refetchInterval: currentExecutionId ? 5_000 : false,
     },
   });
-  const currentExecutionIsBound = Boolean(
+  const currentExecutionIdentityMatchesTask = Boolean(
     currentCorrelationId
     && currentExecutionId
     && currentExecution?.id === currentExecutionId
     && currentExecution.correlationId === currentCorrelationId
     && currentExecution.linkedTaskId === taskId,
   );
+  const currentExecutionIsBound = currentExecutionIdentityMatchesTask && !currentExecutionFetching;
   const currentExecutionAttempt = task.status === 'running' && currentExecutionFetching
     ? null
-    : currentExecutionIsBound
+    : currentExecutionIdentityMatchesTask
       ? currentExecution.attempt
       : null;
-  const currentExecutionOperationLog = currentCorrelationId && currentExecutionId
+  const currentExecutionAttemptFromLogs = currentCorrelationId && currentExecutionId
     ? [...logs].reverse().find((log) =>
       log.correlationId === currentCorrelationId
       && log.executionId === currentExecutionId
-      && (!currentExecutionIsBound
-        || typeof currentExecution?.attempt !== 'number'
-        || log.attempt === currentExecution.attempt)
+      && typeof log.attempt === 'number')?.attempt
+    : undefined;
+  const operationAttempt = currentExecutionIsBound && typeof currentExecution?.attempt === 'number'
+    ? currentExecution.attempt
+    : currentExecutionAttemptFromLogs;
+  const currentExecutionOperationLog = currentCorrelationId && currentExecutionId && typeof operationAttempt === 'number'
+    ? [...logs].reverse().find((log) =>
+      log.correlationId === currentCorrelationId
+      && log.executionId === currentExecutionId
+      && log.attempt === operationAttempt
       && typeof log.metadata?.operationId === 'string'
       && log.metadata.operationId.trim())
     : undefined;
