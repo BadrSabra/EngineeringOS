@@ -76,6 +76,7 @@ test("contract fast path covers representative source changes", async () => {
   for (const [changedPaths, expected] of [
     [["lib/api-spec/openapi.yaml"], true],
     [["lib/api-zod/src/generated/index.ts"], true],
+    [["artifacts/dashboard/src/pages/ProjectWorkspace.tsx"], true],
     [["artifacts/dashboard/src/pages/Projects.tsx"], true],
     [["artifacts/dashboard/src/components/ChatSessionMissionHandoffs.tsx"], true],
     [["artifacts/dashboard/src/pages/ai-chat/delivery-proof.tsx"], true],
