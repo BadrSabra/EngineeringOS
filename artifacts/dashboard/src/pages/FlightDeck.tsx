@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Activity, AlertTriangle, ArrowLeft, CheckCircle2, Clock3, ExternalLink, GitBranch, Circle, GitCommit, Loader2, RefreshCw, ShieldCheck, Upload } from 'lucide-react';
+import { Activity, AlertTriangle, ArrowLeft, Clock3, ExternalLink, GitBranch, Circle, GitCommit, Loader2, RefreshCw, ShieldCheck, Upload } from 'lucide-react';
 import { Link } from 'wouter';
 import { useQueryClient } from '@tanstack/react-query';
 import {
