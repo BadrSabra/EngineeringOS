@@ -167,6 +167,7 @@ function WorkspaceTaskCard({
     && !executionQuery.isError
     && execution
     && execution.id === executionId
+    && execution.projectId === projectId
     && execution.correlationId === currentCorrelationId
     && execution.linkedTaskId === task.id,
   );
