@@ -61,6 +61,18 @@ export default function ProjectCanvasPanel({
             </strong>
           </div>
         </div>
+        <div className="mt-3 flex flex-col items-start gap-2 border-t border-slate-700/60 pt-3">
+          <a
+            href="#workspace-preview-agents"
+            className="workspace-retry"
+            aria-label="الانتقال إلى إعداد جهاز Linux للمعاينة"
+          >
+            الانتقال إلى إعداد جهاز Linux
+          </a>
+          <p className="text-[11px] leading-5 text-slate-500">
+            الاقتران خطوة تجهيز للهوية فقط؛ لا يفتح المعاينة ولا يشغّل النسخة المرشحة.
+          </p>
+        </div>
       </div>
     </section>
   );
