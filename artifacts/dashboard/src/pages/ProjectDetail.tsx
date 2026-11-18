@@ -44,6 +44,13 @@ import { formatProjectTimestamp, projectStatusLabel } from '@/lib/project-detail
 export default function ProjectDetail() {
   const [, params] = useRoute('/projects/:id');
   const projectId = params?.id || '';
+
+  // ProjectDetail can remain mounted while Wouter changes the route parameter.
+  // A keyed session resets every project-owned UI state and embedded panel.
+  return <ProjectDetailSession key={projectId || 'missing-project'} projectId={projectId} />;
+}
+
+function ProjectDetailSession({ projectId }: { projectId: string }) {
   const queryClient = useQueryClient();
 
   const projectQuery = useGetProject(projectId, {
