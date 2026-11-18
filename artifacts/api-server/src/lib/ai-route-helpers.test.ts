@@ -17,8 +17,32 @@ import {
   providerAttemptModels,
   emitLedgerProviderAttempts,
   chatWithFallback,
+  resolveChatBudgetProjectId,
 } from "./ai-route-helpers.js";
 import type { ExecutionLedgerSnapshot } from "@workspace/ai-orchestrator";
+
+describe("chat project budget scope", () => {
+  it("uses the validated request project when telemetry context is absent", () => {
+    expect(resolveChatBudgetProjectId("project-a")).toBe("project-a");
+  });
+
+  it("uses the request project when telemetry explicitly has no project", () => {
+    expect(resolveChatBudgetProjectId("project-a", null)).toBe("project-a");
+  });
+
+  it("accepts matching request and telemetry project identities", () => {
+    expect(resolveChatBudgetProjectId("project-a", "project-a")).toBe("project-a");
+  });
+
+  it("does not infer project scope for a projectless request", () => {
+    expect(resolveChatBudgetProjectId(undefined, undefined)).toBeUndefined();
+  });
+
+  it("rejects telemetry context bound to a different project", () => {
+    expect(() => resolveChatBudgetProjectId("project-a", "project-b"))
+      .toThrow("AI budget project scope mismatch.");
+  });
+});
 
 describe("requestLooksToolBound", () => {
   it("flags code-analysis style messages as tool-bound", () => {
