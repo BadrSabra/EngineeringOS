@@ -8352,6 +8352,85 @@ test.describe("EngineeringOS dashboard browser journey", () => {
       executionDetails: { [EXECUTION_ID]: visualExecution },
     });
 
+    const workspaceVisualProjectId = "e2e-workspace-visual";
+    const workspaceVisualSnapshot = {
+      contractVersion: 1,
+      observedAt: "2026-11-18T00:00:00.000Z",
+      project: {
+        id: workspaceVisualProjectId,
+        name: "مشروع بصري لمساحة العمل",
+        description: "بيانات ثابتة لاختبار التخطيط المرئي دون تشغيل أو تعديل مشروع حقيقي.",
+        language: "TypeScript",
+        framework: "React",
+        status: "active",
+        updatedAt: "2026-11-18T00:00:00.000Z",
+      },
+      work: {
+        tasksSource: "available",
+        recentTasks: [],
+        executionSource: "available",
+        latestExecution: null,
+        candidateSource: "available",
+        candidate: null,
+      },
+      runtime: {
+        source: "available",
+        status: "stopped",
+        runtimeRevision: null,
+        startedAt: null,
+        stoppedAt: null,
+      },
+      freshness: { partial: false, warnings: [] },
+    };
+    const recordWorkspaceFixtureRequest = (method: string, path: string) => {
+      fixtureRequests.apiRequests.push(`${method} ${path}`);
+      if (method !== "GET" && method !== "HEAD") {
+        fixtureRequests.mutativeRequests.push(`${method} ${path}`);
+      }
+    };
+
+    // Workspace visual coverage is browser-only and read-only. The event
+    // stream receives 204 so EventSource stops reconnecting without a live API.
+    await page.route(
+      `**/api/projects/${workspaceVisualProjectId}/workspace`,
+      async (route) => {
+        const method = route.request().method().toUpperCase();
+        recordWorkspaceFixtureRequest(
+          method,
+          `/api/projects/${workspaceVisualProjectId}/workspace`,
+        );
+        if (method !== "GET") {
+          return route.fulfill(jsonResponse({ error: "read_only_visual_fixture" }, 405));
+        }
+        return route.fulfill(jsonResponse(workspaceVisualSnapshot));
+      },
+    );
+    await page.route(
+      `**/api/projects/${workspaceVisualProjectId}/workspace/events`,
+      async (route) => {
+        const method = route.request().method().toUpperCase();
+        recordWorkspaceFixtureRequest(
+          method,
+          `/api/projects/${workspaceVisualProjectId}/workspace/events`,
+        );
+        return route.fulfill({ status: 204 });
+      },
+    );
+    await page.route(
+      `**/api/projects/${workspaceVisualProjectId}/preview-agents`,
+      async (route) => {
+        const method = route.request().method().toUpperCase();
+        recordWorkspaceFixtureRequest(
+          method,
+          `/api/projects/${workspaceVisualProjectId}/preview-agents`,
+        );
+        if (method !== "GET") {
+          return route.fulfill(jsonResponse({ error: "read_only_visual_fixture" }, 405));
+        }
+        return route.fulfill(jsonResponse([]));
+      },
+    );
+
     const pageErrors: string[] = [];
     const consoleErrors: string[] = [];
     const failedRequests: Array<{ path: string; reason: string }> = [];
@@ -8393,6 +8472,11 @@ test.describe("EngineeringOS dashboard browser journey", () => {
         path: `${DASHBOARD_PATH}projects`,
         heading: "المشاريع",
         name: "projects",
+      },
+      {
+        path: `${DASHBOARD_PATH}projects/e2e-workspace-visual/workspace`,
+        heading: "مشروع بصري لمساحة العمل",
+        name: "workspace",
       },
       { path: `${DASHBOARD_PATH}tasks`, heading: "المهام", name: "tasks" },
       {
@@ -8467,6 +8551,31 @@ test.describe("EngineeringOS dashboard browser journey", () => {
           const pageContent = page.locator("main [dir='rtl']").first();
           await expect(pageContent).toBeVisible();
           expect(await pageContent.getAttribute("dir")).toBe("rtl");
+          if (route.name === "workspace") {
+            await expect(page.getByTestId("project-workspace")).toBeVisible();
+            await expect(page.getByRole("region", { name: "محادثة المشروع" })).toBeVisible();
+            await expect(page.getByRole("region", { name: "معاينة المشروع" })).toBeVisible();
+            await expect(page.getByRole("complementary", { name: "العمل والثقة" })).toBeVisible();
+            await expect(page.getByTestId("workspace-preview-gate")).toContainText(
+              "لا توجد معاينة تفاعلية مؤهلة بعد",
+            );
+            await expect(page.locator("#workspace-panel-canvas iframe")).toHaveCount(0);
+            if (viewport.width <= 1279) {
+              await expect(
+                page.getByRole("navigation", { name: "التنقل بين أقسام مساحة المشروع" }),
+              ).toBeVisible();
+            } else {
+              await expect(
+                page.getByRole("navigation", { name: "التنقل بين أقسام مساحة المشروع" }),
+              ).not.toBeVisible();
+            }
+            const workspaceColumns = await page.locator(".workspace-layout").evaluate(
+              (element) => getComputedStyle(element).gridTemplateColumns.split(" ").length,
+            );
+            expect(workspaceColumns).toBe(
+              viewport.width <= 767 ? 1 : viewport.width <= 1279 ? 2 : 3,
+            );
+          }
           if (route.name === "events") {
             expect(await page.getByText(rtlCorrelationId, { exact: true }).getAttribute("dir")).toBe("ltr");
             const command = page.getByText(rtlEventCommand, { exact: true });
@@ -8590,7 +8699,9 @@ test.describe("EngineeringOS dashboard browser journey", () => {
                 ? "populated-chart"
                 : route.name === "graph"
                   ? "selected-node"
-                  : "default",
+                  : route.name === "workspace"
+                    ? "gated-canvas"
+                    : "default",
             viewport: {
               name: viewport.name,
               width: viewport.width,
