@@ -168,24 +168,33 @@ function formatValue(value: unknown): string {
   return String(value);
 }
 
-function acceptanceNextActionLabel(value: unknown): string {
+function acceptanceNextActionLabel(
+  value: unknown,
+  context: { linkedTaskId?: string | null; hasConversation: boolean },
+): string {
   switch (textValue(value)?.toUpperCase()) {
     case 'RESUME_ALLOWED':
-      return 'Resume the saved execution checkpoint.';
+      if (context.linkedTaskId) {
+        return 'الاستئناف متاح من نقطة الحفظ؛ تابع عبر المهمة المالكة دون بدء محاولة جديدة.';
+      }
+      if (context.hasConversation) {
+        return 'الاستئناف متاح من نقطة الحفظ؛ تابع عبر المحادثة المرتبطة دون بدء محاولة جديدة.';
+      }
+      return 'الاستئناف مسموح، لكن رابط وجهة الاستعادة غير متاح هنا؛ افتح التنفيذ من وجهته المالكة قبل المتابعة.';
     case 'START_NEW_PROBE':
-      return 'Start a new scoped probe.';
+      return 'ابدأ فحصًا جديدًا محدود النطاق؛ لا تعتمد نتيجة هذه المحاولة وحدها.';
     case 'REVIEW_INCOMPLETE_EVIDENCE':
-      return 'Review the incomplete evidence before relying on this result.';
+      return 'راجع الأدلة الناقصة وحدد ما لم يُثبت قبل الاعتماد أو التسليم.';
     case 'RETRY_AFTER_PARSE':
-      return 'Retry after correcting the model response format.';
+      return 'صحّح تنسيق استجابة النموذج ثم أعد المحاولة؛ لا تعتمد المخرجات غير المطابقة.';
     case 'RETRY_AFTER_TIMEOUT':
-      return 'Retry after the timeout window has cleared.';
+      return 'انتظر زوال المهلة أو تعافي المزوّد ثم أعد المحاولة مع الاحتفاظ بسجل المحاولة الحالية.';
     case 'ABANDON_EXECUTION':
-      return 'Start a new scoped run before relying on this result.';
+      return 'لا تستأنف هذه المحاولة؛ ابدأ تنفيذًا جديدًا محدود النطاق بعد مراجعة سبب الإيقاف.';
     case 'NONE':
-      return 'No operator action is required.';
+      return 'لا يلزم إجراء إضافي من المشغّل لهذه المحاولة.';
     default:
-      return 'No operator action is recorded.';
+      return 'لم يسجل الخادم إجراءً موصى به؛ حدّث القراءة وراجع حالة المحاولة قبل أي إجراء.';
   }
 }
 
@@ -235,13 +244,13 @@ function taskObjectiveValidatorLabel(execution: MissionExecution | undefined): s
 function acceptanceStatusLabel(status: AcceptanceStatus): string {
   switch (status) {
     case 'PROVEN':
-      return 'Acceptance: proven';
+      return 'القبول: مثبت';
     case 'INCOMPLETE':
-      return 'Acceptance: incomplete';
+      return 'القبول: غير مكتمل';
     case 'FAILED':
-      return 'Acceptance: failed';
+      return 'القبول: فشل';
     case 'CANCELLED':
-      return 'Acceptance: cancelled';
+      return 'القبول: ملغى';
     default:
       return '';
   }
@@ -1444,6 +1453,11 @@ export default function MissionControl() {
     ?? (selectedExecution && selectedExecutionDetail?.id === selectedExecution.id
       ? selectedExecutionDetail.linkedTaskId
       : undefined);
+  const selectedExecutionOperationId = textValue(selectedExecution?.operationId);
+  const selectedExecutionRevision = textValue(selectedExecution?.revision);
+  const selectedAcceptanceNextActionCode = textValue(
+    asRecord(selectedExecution?.acceptance)?.nextActionCode,
+  )?.toUpperCase();
   const selectedExecutionDetailIsBound = Boolean(
     selectedExecution && selectedExecutionDetail?.id === selectedExecution.id,
   );
@@ -1891,11 +1905,16 @@ export default function MissionControl() {
                 </div>
                 <div>
                   <div className="text-[10px] uppercase tracking-wide text-muted-foreground">الخطوة التالية</div>
-                  <div className="text-primary">{acceptanceNextActionLabel(asRecord(selectedExecution?.acceptance)?.nextActionCode)}</div>
+                  <div className="text-primary" data-testid="acceptance-next-action">
+                    {acceptanceNextActionLabel(
+                      asRecord(selectedExecution?.acceptance)?.nextActionCode,
+                      { linkedTaskId: selectedExecutionTaskId, hasConversation: Boolean(conversationHref) },
+                    )}
+                  </div>
                 </div>
                 <div>
                   <div className="text-[10px] uppercase tracking-wide text-muted-foreground">رمز التشخيص</div>
-                  <div className="font-mono text-primary">{formatValue(asRecord(selectedExecution?.acceptance)?.nextActionCode)}</div>
+                  <div className="font-mono text-primary"><bdi dir="ltr">{formatValue(asRecord(selectedExecution?.acceptance)?.nextActionCode)}</bdi></div>
                 </div>
                 <div>
                   <div className="text-[10px] uppercase tracking-wide text-muted-foreground">نوع المهمة</div>
@@ -1904,6 +1923,31 @@ export default function MissionControl() {
                 <div>
                   <div className="text-[10px] uppercase tracking-wide text-muted-foreground">أداة التحقق</div>
                   <div className="font-mono">{taskObjectiveValidatorLabel(selectedExecution)}</div>
+                </div>
+                <div className="sm:col-span-4 rounded-md border border-border/50 bg-background/20 px-3 py-2" data-testid="acceptance-execution-context">
+                  <div className="text-[10px] font-semibold text-muted-foreground">هوية التنفيذ المرتبطة بالتوجيه</div>
+                  <div className="mt-1 flex flex-wrap gap-x-4 gap-y-1 text-[11px]">
+                    <span>العملية: <bdi dir="ltr" className="font-mono">{selectedExecutionOperationId ?? 'غير مسجل'}</bdi></span>
+                    <span>المراجعة: <bdi dir="ltr" className="font-mono">{selectedExecutionRevision ?? 'غير مسجلة'}</bdi></span>
+                  </div>
+                  {selectedAcceptanceNextActionCode === 'RESUME_ALLOWED' && selectedExecutionTaskId && (
+                    <Link
+                      href={`/tasks?taskId=${encodeURIComponent(selectedExecutionTaskId)}`}
+                      className="mt-2 inline-flex text-xs font-semibold text-primary hover:underline"
+                      data-testid="acceptance-owner-link"
+                    >
+                      افتح المهمة المالكة للاستئناف
+                    </Link>
+                  )}
+                  {selectedAcceptanceNextActionCode === 'RESUME_ALLOWED' && !selectedExecutionTaskId && conversationHref && (
+                    <Link
+                      href={conversationHref}
+                      className="mt-2 inline-flex text-xs font-semibold text-primary hover:underline"
+                      data-testid="acceptance-owner-link"
+                    >
+                      افتح محادثة التنفيذ للاستئناف
+                    </Link>
+                  )}
                 </div>
               </div>
               ) : (
