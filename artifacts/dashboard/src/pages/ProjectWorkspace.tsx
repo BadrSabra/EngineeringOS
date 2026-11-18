@@ -68,6 +68,7 @@ function WorkspaceSkeleton() {
       <div className="workspace-skeleton h-36 rounded-2xl" />
       <div className="workspace-layout-skeleton">
         <div className="workspace-skeleton h-[560px] rounded-2xl" />
+        <div className="workspace-skeleton h-[560px] rounded-2xl" />
         <div className="space-y-4">
           <div className="workspace-skeleton h-48 rounded-2xl" />
           <div className="workspace-skeleton h-48 rounded-2xl" />
