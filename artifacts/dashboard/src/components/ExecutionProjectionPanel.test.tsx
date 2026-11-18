@@ -103,7 +103,7 @@ describe('ExecutionProjectionPanel', () => {
       );
 
       expect(screen.queryByText('src/execution-a.ts')).not.toBeInTheDocument();
-      expect(screen.queryByLabelText('فروق التغييرات القابلة للمراجعة')).not.toBeInTheDocument();
+      expect(screen.queryByText('تغييرات قابلة للمراجعة')).not.toBeInTheDocument();
     } finally {
       fetchSpy.mockRestore();
     }
@@ -172,6 +172,14 @@ describe('ExecutionProjectionPanel', () => {
       expect(screen.queryByText('src/execution-a.ts')).not.toBeInTheDocument();
       expect(screen.queryByText('تغييرات قابلة للمراجعة')).not.toBeInTheDocument();
 
+      view.rerender(
+        <QueryClientProvider client={queryClient}>{panel('execution-a')}</QueryClientProvider>,
+      );
+      expect(screen.queryByText('src/execution-a.ts')).not.toBeInTheDocument();
+
+      view.rerender(
+        <QueryClientProvider client={queryClient}>{panel('execution-b')}</QueryClientProvider>,
+      );
       fireEvent.click(screen.getByTestId('button-action-review_diff'));
       expect(await screen.findByText('src/execution-b.ts')).toBeInTheDocument();
       expect(fetchSpy).toHaveBeenLastCalledWith(
