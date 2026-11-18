@@ -485,7 +485,13 @@ export function DiscoverProjectWizard({ onClose }: Props) {
   const { data: projectsListData } = useListProjects();
 
   // Polling via react-query (enabled only when discoveryId set and not done)
-  const { data: sessionData } = useGetDiscoverySession(discoveryId ?? '', {
+  const {
+    data: sessionData,
+    isError: sessionReadError,
+    isFetching: sessionReadFetching,
+    dataUpdatedAt: sessionDataUpdatedAt,
+    refetch: refetchSession,
+  } = useGetDiscoverySession(discoveryId ?? '', {
     query: {
       queryKey: getGetDiscoverySessionQueryKey(discoveryId ?? ''),
       enabled: !!discoveryId && step === 2,
@@ -498,6 +504,10 @@ export function DiscoverProjectWizard({ onClose }: Props) {
       },
     },
   });
+  const hasCachedSessionSnapshot = sessionData !== undefined;
+  const lastSuccessfulSessionRead = Number.isFinite(sessionDataUpdatedAt) && sessionDataUpdatedAt > 0
+    ? new Date(sessionDataUpdatedAt)
+    : null;
 
   const { data: summaryData, error: summaryError } = useGetDiscoverySummary(discoveryId ?? '', {
     query: {
@@ -936,6 +946,36 @@ export function DiscoverProjectWizard({ onClose }: Props) {
           <h2 className="text-xl font-bold tracking-tight mb-1">جارٍ تحليل المشروع…</h2>
           <p dir="auto" className="text-sm text-muted-foreground font-mono truncate">{sourceLabel()}</p>
         </div>
+
+        {sessionReadError && (
+          <div
+            role="alert"
+            data-testid="discovery-session-read-error"
+            className="rounded-xl border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-sm text-amber-100"
+          >
+            <p className="font-medium">
+              {hasCachedSessionSnapshot
+                ? 'تعذّر تحديث حالة الاستكشاف؛ التقدم المعروض هو آخر قراءة ناجحة ولا يؤكد الحالة الحالية.'
+                : 'تعذّرت قراءة حالة جلسة الاستكشاف بعد بدء الطلب؛ معلومات البدء لا تؤكد التقدم الحالي.'}
+            </p>
+            {lastSuccessfulSessionRead && (
+              <p data-testid="discovery-session-last-success" className="mt-1 text-xs text-amber-100/75">
+                آخر قراءة ناجحة:{' '}
+                <time dateTime={lastSuccessfulSessionRead.toISOString()}>
+                  {lastSuccessfulSessionRead.toLocaleString('ar-EG')}
+                </time>
+              </p>
+            )}
+            <button
+              type="button"
+              onClick={() => void refetchSession()}
+              disabled={sessionReadFetching}
+              className="mt-3 rounded-md border border-amber-300/30 px-3 py-1.5 text-xs font-semibold text-amber-100 transition-colors hover:bg-amber-300/10 disabled:cursor-wait disabled:opacity-60"
+            >
+              {sessionReadFetching ? 'جارٍ إعادة قراءة الحالة…' : 'إعادة قراءة حالة الاستكشاف'}
+            </button>
+          </div>
+        )}
 
         {/* Progress bar */}
         <div className="space-y-1.5">
