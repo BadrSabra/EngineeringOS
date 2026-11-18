@@ -41,6 +41,7 @@ type JsonRecord = Record<string, unknown>;
 
 type MissionExecution = {
   id: string;
+  projectId?: string | null;
   linkedTaskId?: string | null;
   state?: unknown;
   objective?: unknown;
@@ -1422,9 +1423,17 @@ function MissionControlSession({
   });
   // React Query can retain cached data after a failed refresh. That snapshot is
   // not a confirmed current read and must not drive proof panels or actions.
+  const selectedExecutionProjectId = textValue(selectedExecution?.projectId) ?? projectId;
+  const selectedExecutionDetailProjectBindingFailed = Boolean(
+    selectedExecution
+    && selectedExecutionDetail?.id === selectedExecution.id
+    && (!selectedExecutionProjectId || selectedExecutionDetail.projectId !== selectedExecutionProjectId),
+  );
   const selectedExecutionDetailIsBound = Boolean(
     selectedExecution
     && selectedExecutionDetail?.id === selectedExecution.id
+    && Boolean(selectedExecutionProjectId)
+    && selectedExecutionDetail.projectId === selectedExecutionProjectId
     && !selectedExecutionDetailIsError,
   );
   const conversationHref = selectedExecutionDetailIsBound
@@ -1902,18 +1911,33 @@ function MissionControlSession({
           </section>
 
           {selectedExecution && (
-            (selectedExecutionDetailIsError
+            (selectedExecutionDetailProjectBindingFailed
+              || selectedExecutionDetailIsError
               || (selectedExecutionDetailIsLoading && !selectedExecutionDetail)
               || (selectedExecutionDetailIsBound && selectedExecutionDetailIsFetching)) && (
               <section
                 data-testid="mission-control-execution-detail-read-state"
-                className={`rounded-lg border px-3 py-2.5 text-xs ${selectedExecutionDetailIsError
+                className={`rounded-lg border px-3 py-2.5 text-xs ${selectedExecutionDetailIsError || selectedExecutionDetailProjectBindingFailed
                   ? 'border-amber-500/30 bg-amber-500/5 text-amber-100'
                   : 'border-border/60 bg-background/20 text-muted-foreground'}`}
                 role="status"
                 aria-live="polite"
               >
-                {selectedExecutionDetailIsError ? (
+                {selectedExecutionDetailProjectBindingFailed ? (
+                  <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                    <span data-testid="mission-control-execution-project-mismatch">
+                      لم نتمكن من إثبات ارتباط تفاصيل التنفيذ بالمشروع الحالي؛ حُجبت الأدلة وروابط المتابعة وإجراءات الاستعادة.
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => void refetchSelectedExecutionDetail()}
+                      disabled={selectedExecutionDetailIsFetching}
+                      className="shrink-0 rounded-md border border-amber-300/30 px-2.5 py-1.5 font-medium hover:bg-amber-300/10 disabled:opacity-50"
+                    >
+                      {selectedExecutionDetailIsFetching ? 'جارٍ التحديث…' : 'إعادة تحميل تفاصيل التنفيذ'}
+                    </button>
+                  </div>
+                ) : selectedExecutionDetailIsError ? (
                   <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
                     <span>
                       {selectedExecutionDetail
