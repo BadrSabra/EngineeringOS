@@ -240,6 +240,7 @@ function PreviewAgentPanelSession({ projectId }: { projectId: string }) {
   const [retryStoreId, setRetryStoreId] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [revokingNodeId, setRevokingNodeId] = useState<string | null>(null);
+  const revocationInFlightRef = useRef(false);
   const [error, setError] = useState<string | null>(null);
 
   const agentsQuery = useQuery({
@@ -311,6 +312,7 @@ function PreviewAgentPanelSession({ projectId }: { projectId: string }) {
   }
 
   async function revoke(node: PreviewAgentNode) {
+    if (revocationInFlightRef.current) return;
     if (
       !window.confirm(
         "سيُلغى اقتران هذا الجهاز، ولن تقبل الخوادم نبضاته اللاحقة. هل تريد المتابعة؟",
@@ -318,6 +320,7 @@ function PreviewAgentPanelSession({ projectId }: { projectId: string }) {
     ) {
       return;
     }
+    revocationInFlightRef.current = true;
     setError(null);
     setRevokingNodeId(node.nodeId);
     try {
@@ -337,6 +340,7 @@ function PreviewAgentPanelSession({ projectId }: { projectId: string }) {
         cause instanceof Error ? cause.message : "تعذر إلغاء اقتران الجهاز.",
       );
     } finally {
+      revocationInFlightRef.current = false;
       setRevokingNodeId(null);
     }
   }
@@ -438,7 +442,7 @@ function PreviewAgentPanelSession({ projectId }: { projectId: string }) {
                 <button
                   type="button"
                   onClick={() => void revoke(agent)}
-                  disabled={revokingNodeId === agent.nodeId}
+                  disabled={revokingNodeId !== null}
                   className="inline-flex shrink-0 items-center gap-1 rounded-md border border-red-300/20 px-2 py-1.5 text-[11px] text-red-200 hover:bg-red-300/[.08] disabled:opacity-50"
                   aria-label={`إلغاء اقتران الجهاز ${agent.nodeId.slice(0, 8)}`}
                 >
