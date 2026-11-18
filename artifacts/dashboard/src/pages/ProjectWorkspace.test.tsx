@@ -356,6 +356,7 @@ describe("Workspace task cards", () => {
       status: "completed",
       correlationId: "correlation-accepted",
       updatedAt,
+      dependsOn: ["task-upstream"],
       acceptance: { attempt: 2 },
     };
 
@@ -372,6 +373,9 @@ describe("Workspace task cards", () => {
     expect(screen.getByTestId("workspace-task-source-task-accepted")).toHaveTextContent("ملخص مهام Workspace");
     expect(screen.getByTestId("workspace-task-id-task-accepted")).toHaveTextContent("task-accepted");
     expect(screen.getByTestId("workspace-task-attempt-task-accepted")).toHaveTextContent("2");
+    expect(screen.getByTestId("workspace-task-dependencies-task-accepted")).toHaveTextContent("task-upstream");
+    expect(screen.getByRole("link", { name: "فتح المهمة المعتمَد عليها: task-upstream" }))
+      .toHaveAttribute("href", "/tasks?projectId=project-1&taskId=task-upstream");
     expect(screen.getByRole("link", { name: "فتح تفاصيل المهمة: مهمة مرتبطة بقبول" }))
       .toHaveAttribute("href", "/tasks?projectId=project-1&taskId=task-accepted");
   });
