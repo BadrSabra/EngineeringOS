@@ -121,6 +121,9 @@ describe('SkillRegistry', () => {
 
     expect(screen.getByText(/المشروع المحدد:/)).toHaveTextContent('Beta worker');
     expect(screen.queryByText('candidate-review')).not.toBeInTheDocument();
+    expect(screen.queryByText(/آخر فحص/)).not.toBeInTheDocument();
+    const summary = screen.getByRole('region', { name: 'ملخص سجل المهارات' });
+    expect(Array.from(summary.querySelectorAll('p')).every((node) => node.textContent === '0')).toBe(true);
     expect(screen.getByLabelText('جارٍ تحميل سجل المهارات')).toBeInTheDocument();
 
     const secondProjectRow = {
