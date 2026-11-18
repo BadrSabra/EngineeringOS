@@ -126,7 +126,7 @@ describe('createStreamObservationCallbacks', () => {
     act(() => result.current.callbacks.onStage?.('streaming'));
     expect(result.current.agentStage).toBe('Writing response…');
     expect(result.current.activity.activityEvents).toMatchObject([
-      { kind: 'stage', label: 'Stage', detail: 'Writing response…', status: 'info' },
+      { kind: 'stage', label: 'جارٍ كتابة الرد…', status: 'info' },
     ]);
   });
 
