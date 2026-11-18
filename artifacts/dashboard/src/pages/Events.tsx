@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { getListEventsQueryKey, useListEvents, useListProjects } from '@workspace/api-client-react';
 import { Search, Filter, X } from 'lucide-react';
+import { useSearch } from 'wouter';
 import { RefreshButton } from '@/components/OperatorResilience';
 
 const SEVERITIES = ['info', 'warning', 'error', 'success'] as const;
@@ -19,8 +20,8 @@ function formatEventReadAt(timestamp: number): string {
   }).format(new Date(timestamp));
 }
 
-function initialEventViewState() {
-  const params = new URLSearchParams(window.location.search);
+function initialEventViewState(search: string) {
+  const params = new URLSearchParams(search);
   return {
     projectId: params.get('projectId') ?? '',
     severity: params.get('severity') ?? '',
@@ -31,13 +32,28 @@ function initialEventViewState() {
 }
 
 export default function Events() {
+  const locationSearch = useSearch();
+  const initialViewState = initialEventViewState(locationSearch);
+
+  return (
+    <EventsSession
+      key={JSON.stringify(initialViewState)}
+      initialViewState={initialViewState}
+    />
+  );
+}
+
+function EventsSession({
+  initialViewState,
+}: {
+  initialViewState: ReturnType<typeof initialEventViewState>;
+}) {
   const { data: projects } = useListProjects();
-  const [viewState] = useState(initialEventViewState);
-  const [projectId, setProjectId] = useState(viewState.projectId);
-  const [severity, setSeverity] = useState(viewState.severity);
-  const [correlationId, setCorrelationId] = useState(viewState.correlationId);
-  const [searchTerm, setSearchTerm] = useState(viewState.searchTerm);
-  const [page, setPage] = useState(viewState.page);
+  const [projectId, setProjectId] = useState(initialViewState.projectId);
+  const [severity, setSeverity] = useState(initialViewState.severity);
+  const [correlationId, setCorrelationId] = useState(initialViewState.correlationId);
+  const [searchTerm, setSearchTerm] = useState(initialViewState.searchTerm);
+  const [page, setPage] = useState(initialViewState.page);
   const [showFilters, setShowFilters] = useState(false);
 
   useEffect(() => {
