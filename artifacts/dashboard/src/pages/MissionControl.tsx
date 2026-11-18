@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import {
   Activity,
@@ -1505,22 +1505,48 @@ function MissionControlSession({
   const selectedExecutionProofPresentation = selectedExecutionDetailIsBound
     ? resolveExecutionProofPresentation(selectedExecutionDetail)
     : null;
-  const [recoveryPendingId, setRecoveryPendingId] = useState<string | null>(null);
-  const [recoveryMessage, setRecoveryMessage] = useState<string | null>(null);
+  const [recoveryUiState, setRecoveryUiState] = useState<{
+    projectId: string;
+    executionId: string;
+    requestId: number;
+    action: 'resume' | 'abandon';
+    status: 'pending' | 'message';
+    message?: string;
+  } | null>(null);
+  const recoveryRequestIdRef = useRef(0);
+  const selectedRecoveryUiState = selectedExecution
+    && recoveryUiState?.projectId === projectId
+    && recoveryUiState.executionId === selectedExecution.id
+    ? recoveryUiState
+    : null;
 
   async function recoverExecution(execution: MissionExecution, action: 'resume' | 'abandon') {
     const recovery = asRecord(execution.recovery);
-    if (recovery?.uncertain !== true || recoveryPendingId) return;
+    if (recovery?.uncertain !== true || recoveryUiState?.status === 'pending') return;
+    const requestId = ++recoveryRequestIdRef.current;
     const owningTaskId = execution.linkedTaskId
       ?? (selectedExecutionDetailIsBound && selectedExecutionDetail?.id === execution.id
         ? selectedExecutionDetail.linkedTaskId
         : undefined);
     if (owningTaskId) {
-      setRecoveryMessage('هذا التنفيذ مرتبط بمهمة. استخدم صفحة المهمة للاستعادة.');
+      setRecoveryUiState({
+        projectId,
+        executionId: execution.id,
+        requestId,
+        action,
+        status: 'message',
+        message: 'هذا التنفيذ مرتبط بمهمة. استخدم صفحة المهمة للاستعادة.',
+      });
       return;
     }
-    setRecoveryPendingId(execution.id);
-    setRecoveryMessage(null);
+
+    setRecoveryUiState({
+      projectId,
+      executionId: execution.id,
+      requestId,
+      action,
+      status: 'pending',
+    });
     try {
       const response = await fetch(`/api/ai/executions/${encodeURIComponent(execution.id)}/recovery`, {
         method: 'POST',
@@ -1533,14 +1559,24 @@ function MissionControlSession({
       });
       const body = await response.json().catch(() => ({})) as { error?: string; outcome?: string };
       if (!response.ok) throw new Error(body.error || 'لم تعد الاستعادة متاحة لهذا التنفيذ.');
-      setRecoveryMessage(body.outcome === 'abandoned'
-        ? 'تم التخلي عن التنفيذ بأمان، ولا تزال أدلته الأصلية متاحة.'
-        : 'تم قبول الاستئناف. افتح مساعد الذكاء الاصطناعي للمتابعة من نقطة الحفظ.');
-      await refetch();
+      setRecoveryUiState((current) => current?.requestId === requestId
+        ? {
+          ...current,
+          status: 'message',
+          message: body.outcome === 'abandoned'
+            ? 'تم التخلي عن التنفيذ بأمان، ولا تزال أدلته الأصلية متاحة.'
+            : 'تم قبول الاستئناف. افتح مساعد الذكاء الاصطناعي للمتابعة من نقطة الحفظ.',
+        }
+        : current);
+      void refetch();
     } catch (error) {
-      setRecoveryMessage(error instanceof Error ? error.message : 'تعذرت استعادة التنفيذ.');
-    } finally {
-      setRecoveryPendingId(null);
+      setRecoveryUiState((current) => current?.requestId === requestId
+        ? {
+          ...current,
+          status: 'message',
+          message: error instanceof Error ? error.message : 'تعذرت استعادة التنفيذ.',
+        }
+        : current);
     }
   }
 
@@ -2229,10 +2265,10 @@ function MissionControlSession({
                      </p>
                    ) : selectedExecutionDetailIsBound ? (
                      <div className="mt-3 flex flex-wrap gap-2">
-                       <button type="button" disabled={recoveryPendingId === selectedExecution.id} onClick={() => void recoverExecution(selectedExecution, 'resume')} className="rounded-md bg-primary px-3 py-2 text-xs font-semibold text-primary-foreground hover-elevate disabled:opacity-50">
-                         {recoveryPendingId === selectedExecution.id ? 'جارٍ التنفيذ…' : 'استأنف مرة واحدة'}
+                       <button type="button" disabled={recoveryUiState?.status === 'pending'} onClick={() => void recoverExecution(selectedExecution, 'resume')} className="rounded-md bg-primary px-3 py-2 text-xs font-semibold text-primary-foreground hover-elevate disabled:opacity-50">
+                         {selectedRecoveryUiState?.status === 'pending' ? 'جارٍ التنفيذ…' : 'استأنف مرة واحدة'}
                        </button>
-                       <button type="button" disabled={recoveryPendingId === selectedExecution.id} onClick={() => void recoverExecution(selectedExecution, 'abandon')} className="rounded-md border border-amber-500/35 px-3 py-2 text-xs font-semibold text-amber-100 hover-elevate disabled:opacity-50">
+                       <button type="button" disabled={recoveryUiState?.status === 'pending'} onClick={() => void recoverExecution(selectedExecution, 'abandon')} className="rounded-md border border-amber-500/35 px-3 py-2 text-xs font-semibold text-amber-100 hover-elevate disabled:opacity-50">
                          تخلَّ عنه بأمان
                        </button>
                      </div>
@@ -2241,7 +2277,16 @@ function MissionControlSession({
                        جارٍ التحقق من مالك التنفيذ قبل إتاحة الاستعادة.
                      </p>
                    )}
-                   {recoveryMessage && <p className="mt-2 text-[11px] text-amber-100" role="status">{recoveryMessage}</p>}
+                   {recoveryUiState?.status === 'pending' && !selectedRecoveryUiState && (
+                      <p className="mt-2 text-[11px] text-muted-foreground" role="status">
+                        يوجد طلب استعادة آخر قيد التنفيذ؛ لن يبدأ إجراء ثانٍ حتى يكتمل.
+                      </p>
+                    )}
+                    {selectedRecoveryUiState?.status === 'message' && selectedRecoveryUiState.message && (
+                      <p className="mt-2 text-[11px] text-amber-100" role="status">
+                        {selectedRecoveryUiState.message}
+                      </p>
+                    )}
                  </div>
                </div>
              </section>
