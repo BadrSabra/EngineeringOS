@@ -152,7 +152,7 @@ function nodeColor(type: string) { return TYPE_COLORS[type] ?? DEFAULT_COLOR; }
 export default function Graph() {
   const { data: projects, isLoading: projectsLoading, isError: projectsError, refetch: refetchProjects } = useListProjects();
   const [selectedProjectId, setSelectedProjectId] = useState('');
-  const [selectedEntityId, setSelectedEntityId] = useState('');
+  const [selectedEntity, setSelectedEntity] = useState<{ projectId: string; id: string } | null>(null);
   const [searchTerm, setSearchTerm] = useState('');
   const [detailTab, setDetailTab] = useState<'relations' | 'impact'>('relations');
   const [impactExpanded, setImpactExpanded] = useState(false);
@@ -160,7 +160,23 @@ export default function Graph() {
   const svgRef = useRef<SVGSVGElement>(null);
   const [svgSize, setSvgSize] = useState({ w: 600, h: 420 });
 
-  const effectiveProjectId = selectedProjectId || (projects?.[0]?.id ?? '');
+  // A selected project is valid only while it remains in the latest owned-project list.
+  // Derive the fallback immediately so no graph query is sent for a removed project.
+  const effectiveProjectId = projects?.some((project) => project.id === selectedProjectId)
+    ? selectedProjectId
+    : (projects?.[0]?.id ?? '');
+
+  // Entity detail queries and visual selection must belong to the active project.
+  // This also makes a removed project's selected node inert before effects run.
+  const selectedEntityId = selectedEntity?.projectId === effectiveProjectId ? selectedEntity.id : '';
+  const selectEntity = (entityId: string) =>
+    setSelectedEntity(entityId ? { projectId: effectiveProjectId, id: entityId } : null);
+
+  useEffect(() => {
+    if (selectedProjectId !== effectiveProjectId) {
+      setSelectedProjectId(effectiveProjectId);
+    }
+  }, [effectiveProjectId, selectedProjectId]);
 
   const { data: entitiesResponse, isLoading: entitiesLoading, isStale: entitiesStale, isError: entitiesError, error: entitiesErrorValue, refetch: refetchEntities, isRefetching, dataUpdatedAt } = useListGraphEntities(
     { projectId: effectiveProjectId },
@@ -278,7 +294,7 @@ export default function Graph() {
           />
           <select
             value={effectiveProjectId}
-            onChange={(e) => { setSelectedProjectId(e.target.value); setSelectedEntityId(''); }}
+            onChange={(e) => { setSelectedProjectId(e.target.value); selectEntity(''); }}
             aria-label="اختر مشروع الرسم البياني"
             className="w-full min-w-0 bg-card border border-border rounded-md px-3 py-2 text-sm focus:border-primary focus:outline-none sm:w-48 font-medium"
           >
@@ -413,7 +429,7 @@ export default function Graph() {
                 filteredEntities.slice(0, 150).map((entity) => (
                   <button
                     key={entity.id}
-                    onClick={() => setSelectedEntityId(entity.id === selectedEntityId ? '' : entity.id)}
+                    onClick={() => selectEntity(entity.id === selectedEntityId ? '' : entity.id)}
                     className={`w-full text-left text-xs p-1.5 rounded border truncate transition-colors ${
                       entity.id === selectedEntityId
                         ? 'bg-primary/20 border-primary text-foreground'
@@ -449,7 +465,7 @@ export default function Graph() {
             <svg
               ref={svgRef}
               className="w-full h-full"
-              onClick={() => setSelectedEntityId('')}
+              onClick={() => selectEntity('')}
             >
               <defs>
                 <marker id="arrow" markerWidth="6" markerHeight="6" refX="5" refY="3" orient="auto">
@@ -499,7 +515,7 @@ export default function Graph() {
                     <g
                       key={e.id}
                       transform={`translate(${pos.x},${pos.y})`}
-                      onClick={(ev) => { ev.stopPropagation(); setSelectedEntityId(e.id === selectedEntityId ? '' : e.id); setDetailTab('relations'); }}
+                      onClick={(ev) => { ev.stopPropagation(); selectEntity(e.id === selectedEntityId ? '' : e.id); setDetailTab('relations'); }}
                       style={{ cursor: 'pointer', opacity: nodeOpacity(e) }}
                     >
                       {isSelected && (
@@ -553,7 +569,7 @@ export default function Graph() {
                       return (
                         <button
                           key={c.entityId}
-                          onClick={() => setSelectedEntityId(c.entityId)}
+                          onClick={() => selectEntity(c.entityId)}
                           className="w-full flex items-center justify-between gap-2 text-xs p-1.5 rounded hover:bg-secondary transition-colors"
                         >
                           <div className="flex items-center gap-1.5 min-w-0">
@@ -587,7 +603,7 @@ export default function Graph() {
                   )}
                 </div>
                 <button
-                  onClick={() => setSelectedEntityId('')}
+                  onClick={() => selectEntity('')}
                   className="text-muted-foreground hover:text-foreground shrink-0 mt-0.5"
                 >
                   <X className="w-4 h-4" />
@@ -627,7 +643,7 @@ export default function Graph() {
                             return (
                               <button
                                 key={rel.id}
-                                onClick={() => setSelectedEntityId(rel.targetId)}
+                                onClick={() => selectEntity(rel.targetId)}
                                 className="w-full text-left text-xs p-2 bg-secondary/50 rounded border border-border/50 hover:bg-secondary transition-colors"
                                 title={target?.name || rel.targetId}
                               >
@@ -655,7 +671,7 @@ export default function Graph() {
                             return (
                               <button
                                 key={rel.id}
-                                onClick={() => setSelectedEntityId(rel.sourceId)}
+                                onClick={() => selectEntity(rel.sourceId)}
                                 className="w-full text-left text-xs p-2 bg-secondary/50 rounded border border-border/50 hover:bg-secondary transition-colors"
                                 title={source?.name || rel.sourceId}
                               >
@@ -703,7 +719,7 @@ export default function Graph() {
                           ).map((hop) => (
                             <button
                               key={hop.entity.id}
-                              onClick={() => setSelectedEntityId(hop.entity.id)}
+                              onClick={() => selectEntity(hop.entity.id)}
                               className="w-full text-left text-xs p-2 bg-secondary/50 rounded border border-border/50 hover:bg-secondary transition-colors"
                             >
                               <div className="flex items-center justify-between gap-1">
