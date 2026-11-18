@@ -1395,9 +1395,15 @@ export default function Missions() {
     setMissionsLoading(true);
     setMissionsError(null);
     fetchMissions(projectId, controller.signal)
-      .then((data) => { setMissions(Array.isArray(data) ? data : []); setMissionsLoadedFor(projectId); })
+      .then((data) => {
+        // A transport may resolve after abort; never let a superseded project read win.
+        if (controller.signal.aborted) return;
+        setMissions(Array.isArray(data) ? data : []);
+        setMissionsLoadedFor(projectId);
+      })
       .catch((error: unknown) => {
-        if ((error as { name?: string }).name !== 'AbortError') setMissionsError(error);
+        if (controller.signal.aborted || (error as { name?: string }).name === 'AbortError') return;
+        setMissionsError(error);
       })
       .finally(() => {
         if (!controller.signal.aborted) setMissionsLoading(false);
@@ -1405,17 +1411,23 @@ export default function Missions() {
     return () => controller.abort();
   }, [projectId, missionsReload]);
 
-  const explicitMissionAwaitingList = Boolean(explicitMissionId && (missionsLoading || missionsError || missionsLoadedFor !== projectId));
+  // A list is renderable only for the project whose read produced it.
+  // Keep old project data in memory for React's cleanup cycle, but never expose it under a new project.
+  const missionsBelongToProject = Boolean(projectId && missionsLoadedFor === projectId);
+  const projectMissions = missionsBelongToProject ? missions : [];
+  const explicitMissionAwaitingList = Boolean(
+    explicitMissionId && (missionsLoading || missionsError || !missionsBelongToProject),
+  );
   const explicitMissionMissing = Boolean(
     explicitMissionId && !selectedMissionId && !explicitMissionAwaitingList && projectId
-      && !missions.some((mission) => mission.id === explicitMissionId),
+      && !projectMissions.some((mission) => mission.id === explicitMissionId),
   );
-  const activeMissionId = selectedMissionId && missions.some((mission) => mission.id === selectedMissionId)
+  const activeMissionId = selectedMissionId && projectMissions.some((mission) => mission.id === selectedMissionId)
     ? selectedMissionId
     : explicitMissionId
-      ? (missions.some((mission) => mission.id === explicitMissionId) ? explicitMissionId : null)
-      : missions[0]?.id ?? null;
-  const activeMission = missions.find((mission) => mission.id === activeMissionId) ?? null;
+      ? (projectMissions.some((mission) => mission.id === explicitMissionId) ? explicitMissionId : null)
+      : projectMissions[0]?.id ?? null;
+  const activeMission = projectMissions.find((mission) => mission.id === activeMissionId) ?? null;
 
   useEffect(() => {
     if (!activeMissionId) {
@@ -1429,9 +1441,13 @@ export default function Missions() {
     setProjectionError(null);
     setProjection(null);
     fetchMissionProjection(activeMissionId, controller.signal)
-      .then((data) => setProjection(normalizeProjection(data)))
+      .then((data) => {
+        if (controller.signal.aborted) return;
+        setProjection(normalizeProjection(data));
+      })
       .catch((error: unknown) => {
-        if ((error as { name?: string }).name !== 'AbortError') setProjectionError(error);
+        if (controller.signal.aborted || (error as { name?: string }).name === 'AbortError') return;
+        setProjectionError(error);
       })
       .finally(() => {
         if (!controller.signal.aborted) setProjectionLoading(false);
@@ -1976,7 +1992,7 @@ export default function Missions() {
                       <p dir="auto" className="mt-1 text-xs text-slate-600">{selectedProject?.name ?? 'اختر مشروعًا'}</p>
                     </div>
                     <div className="flex items-center gap-2">
-                      <span className="rounded border border-slate-700 bg-slate-950/50 px-2 py-1 font-mono text-[10px] text-slate-500">{missions.length} total</span>
+                      <span className="rounded border border-slate-700 bg-slate-950/50 px-2 py-1 font-mono text-[10px] text-slate-500">{projectMissions.length} total</span>
                       <button type="button" onClick={() => openEditor({ type: 'mission-create' })} data-testid="button-create-mission" className="inline-flex items-center gap-1.5 rounded-md border border-cyan-400/30 bg-cyan-300/10 px-2.5 py-1.5 text-[11px] font-semibold text-cyan-100 transition-colors hover:bg-cyan-300/20">
                         <Plus className="h-3.5 w-3.5" />
                          ابدأ هدفًا رئيسيًا
@@ -1994,7 +2010,7 @@ export default function Missions() {
                 >
                   حالات Mission المعروضة محفوظة في السجل؛ لا تعني تحققًا حديثًا من Canonical Proof.
                 </p>
-                {missionsLoading ? (
+                {missionsLoading || (Boolean(projectId) && !missionsBelongToProject && !missionsError) ? (
                   <div className="space-y-2 p-3">
                     {[1, 2, 3].map((item) => <Skeleton key={item} className="h-24" />)}
                   </div>
@@ -2005,11 +2021,11 @@ export default function Missions() {
                     forbidden={errorStatus(missionsError) === 403}
                     onRetry={() => setMissionsReload((value) => value + 1)}
                   />
-                ) : missions.length === 0 ? (
+                ) : projectMissions.length === 0 ? (
                   <EmptyState icon={ListChecks} title="لا توجد أهداف لهذا المشروع في العرض الحالي" description="يمكنك بدء هدف رئيسي وتحديد ما تريد إنجازه في هذا المشروع." />
                 ) : (
                   <div className="space-y-2 p-3">
-                    {missions.map((mission) => {
+                    {projectMissions.map((mission) => {
                       const isCurrent = mission.id === activeMissionId;
                       return (
                         <button
