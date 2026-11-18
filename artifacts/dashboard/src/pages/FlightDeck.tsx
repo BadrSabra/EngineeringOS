@@ -298,6 +298,28 @@ export default function FlightDeck() {
   const executionId = readExecutionId();
   const requestedProjectId = readQueryParam('projectId');
   const requestedOperationId = readQueryParam('operationId');
+
+  // A route can point to another execution without unmounting this page.
+  // Keep Git drafts and mutation state scoped to the requested execution context.
+  return (
+    <FlightDeckSession
+      key={JSON.stringify([executionId, requestedProjectId, requestedOperationId])}
+      executionId={executionId}
+      requestedProjectId={requestedProjectId}
+      requestedOperationId={requestedOperationId}
+    />
+  );
+}
+
+function FlightDeckSession({
+  executionId,
+  requestedProjectId,
+  requestedOperationId,
+}: {
+  executionId: string;
+  requestedProjectId: string;
+  requestedOperationId: string;
+}) {
   const queryClient = useQueryClient();
   const [commitMessage, setCommitMessage] = useState('');
   const { data: execution, isLoading, isError, isFetching, refetch, dataUpdatedAt } = useGetAiExecution(executionId, {
