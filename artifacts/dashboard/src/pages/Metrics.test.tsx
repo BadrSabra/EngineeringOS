@@ -186,8 +186,36 @@ describe('Metrics', () => {
     });
   });
 
+  it('refetches metrics when the selected project remains available after project refresh', async () => {
+    const projects = [
+      { id: 'project-a', name: 'Alpha' },
+      { id: 'project-b', name: 'Beta' },
+    ];
+    mockProjects(projects);
+    render(<Metrics />);
+
+    fireEvent.change(screen.getByRole('combobox'), {
+      target: { value: 'project-b' },
+    });
+    await waitFor(() => {
+      expect(screen.getByRole('combobox')).toHaveValue('project-b');
+    });
+
+    refetchProjects.mockResolvedValue({
+      data: projects,
+      isError: false,
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'تحديث المؤشرات' }));
+
+    await waitFor(() => {
+      expect(refetchProjects).toHaveBeenCalledTimes(1);
+      expect(refetchMetrics).toHaveBeenCalledTimes(1);
+    });
+  });
+
   it('keeps refresh busy while either the projects or metrics read is fetching', () => {
-    mockProjects([{ id: 'project-a', name: 'Alpha' }], {
+    const projects = [{ id: 'project-a', name: 'Alpha' }];
+    mockProjects(projects, {
       isFetching: true,
       dataUpdatedAt: 2_000,
     });
@@ -196,9 +224,21 @@ describe('Metrics', () => {
       dataUpdatedAt: 3_000,
     });
 
-    render(<Metrics />);
+    const { rerender } = render(<Metrics />);
+    const refreshButton = screen.getByRole('button', { name: 'تحديث المؤشرات' });
+    expect(refreshButton).toBeDisabled();
 
-    expect(screen.getByRole('button', { name: 'تحديث المؤشرات' })).toBeDisabled();
+    mockProjects(projects, {
+      isFetching: false,
+      dataUpdatedAt: 2_000,
+    });
+    mockMetrics([], {
+      isFetching: true,
+      dataUpdatedAt: 3_000,
+    });
+    rerender(<Metrics />);
+
+    expect(refreshButton).toBeDisabled();
   });
 
   it('uses the oldest successful read as the composite last-updated time', () => {
@@ -216,6 +256,11 @@ describe('Metrics', () => {
     );
 
     mockMetrics([], { dataUpdatedAt: 0 });
+    rerender(<Metrics />);
+    expect(screen.queryByText(/آخر تحديث:/)).not.toBeInTheDocument();
+
+    mockProjects([{ id: 'project-a', name: 'Alpha' }], { dataUpdatedAt: 0 });
+    mockMetrics([], { dataUpdatedAt: 1_000 });
     rerender(<Metrics />);
 
     expect(screen.queryByText(/آخر تحديث:/)).not.toBeInTheDocument();
