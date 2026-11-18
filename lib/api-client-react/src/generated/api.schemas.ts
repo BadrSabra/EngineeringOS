@@ -6792,6 +6792,7 @@ export const ProjectWorkspaceSnapshotWorkCandidateSource = {
 } as const;
 
 /**
+ * Current only when consistent with the task status; null during pending, queued, or running work or when the stored decision conflicts. This summary is not revision-bound proof.
  * @nullable
  */
 export type WorkspaceTaskSummaryVerificationDecision = typeof WorkspaceTaskSummaryVerificationDecision[keyof typeof WorkspaceTaskSummaryVerificationDecision] | null;
@@ -6808,7 +6809,10 @@ export interface WorkspaceTaskSummary {
   id: string;
   title: string;
   status: TaskStatus;
-  /** @nullable */
+  /**
+     * Current only when consistent with the task status; null during pending, queued, or running work or when the stored decision conflicts. This summary is not revision-bound proof.
+     * @nullable
+     */
   verificationDecision: WorkspaceTaskSummaryVerificationDecision;
   updatedAt: string;
 }
@@ -6847,11 +6851,25 @@ export const WorkspaceCandidateSummaryStatus = {
   rejected: 'rejected',
 } as const;
 
+/**
+ * Whether this proposal ID exactly matches work.latestExecution.proposalId. not_matched means the project candidate is not identified as output from the latest execution; unknown means the execution source was unavailable. This relationship does not assert verification or acceptance.
+ */
+export type WorkspaceCandidateSummaryLatestExecutionBinding = typeof WorkspaceCandidateSummaryLatestExecutionBinding[keyof typeof WorkspaceCandidateSummaryLatestExecutionBinding];
+
+
+export const WorkspaceCandidateSummaryLatestExecutionBinding = {
+  matched: 'matched',
+  not_matched: 'not_matched',
+  unknown: 'unknown',
+} as const;
+
 export interface WorkspaceCandidateSummary {
   proposalId: string;
   status: WorkspaceCandidateSummaryStatus;
   /** @maxLength 40 */
   lifecycle: string;
+  /** Whether this proposal ID exactly matches work.latestExecution.proposalId. not_matched means the project candidate is not identified as output from the latest execution; unknown means the execution source was unavailable. This relationship does not assert verification or acceptance. */
+  latestExecutionBinding: WorkspaceCandidateSummaryLatestExecutionBinding;
   /** @minimum 0 */
   revision: number;
   approvalRequired: boolean;

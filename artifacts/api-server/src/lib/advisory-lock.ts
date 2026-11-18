@@ -34,12 +34,10 @@ export const LockNamespace = {
   /**
    * PR-3: Guards scan job execution.
    *
-   * Prevents two API-server instances from running the same scan job
-   * simultaneously in a multi-instance deployment. The lock is keyed on
-   * jobId, so two different jobs can still run concurrently — only the
-   * same jobId is serialised across instances. If the lock is not acquired,
-   * the second instance logs a warning and returns without failing the job
-   * row (the first instance owns it and will update the row on completion).
+   * Serializes scans for the same project across API-server instances.
+   * The lock is keyed on projectId, so distinct jobs for one project cannot
+   * mutate scan state concurrently. If a durable scan cannot acquire it, the
+   * worker leaves the job available for retry after the current holder exits.
    */
   SCAN_JOB: 1003,
   /**
@@ -52,7 +50,7 @@ export const LockNamespace = {
   WORKFLOW_TRANSITION: 1005,
   /** Guards one verified GitHub delivery operation during its remote mutation. */
   GITHUB_DELIVERY: 1006,
-  /** Guards archive parsing/extraction across API-server instances. */
+  /** Reserves the full archive-upload slot across API-server instances. */
   ARCHIVE_UPLOAD: 1007,
 } as const;
 

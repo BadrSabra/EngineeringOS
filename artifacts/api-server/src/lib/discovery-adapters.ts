@@ -15,7 +15,11 @@
  */
 
 import { rm } from "node:fs/promises";
-import { lookupUpload, removeUpload } from "./upload-store.js";
+import {
+  ArchiveUploadAdmissionError,
+  materializeClaimedUpload,
+  removeUpload,
+} from "./upload-store.js";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { randomUUID } from "crypto";
@@ -331,8 +335,20 @@ const archiveUploadAdapter: SupportedAdapter = {
     // Upload IDs are bearer-like values supplied by clients, so resolution
     // must be scoped to the authenticated uploader before any filesystem
     // path is returned or materialized.
-    const entry = await lookupUpload(config.uploadId!, ctx.userId);
-    if (!entry) {
+    let materialized;
+    try {
+      materialized = await materializeClaimedUpload(config.uploadId!, ctx.userId);
+    } catch (error) {
+      if (error instanceof ArchiveUploadAdmissionError) {
+        return {
+          error: error.message,
+          status: error.status,
+          reason: "resolution_failed",
+        };
+      }
+      throw error;
+    }
+    if (!materialized) {
       return {
         error:
           "Upload not found or expired. Archives are held for 1 hour — " +
@@ -343,11 +359,14 @@ const archiveUploadAdapter: SupportedAdapter = {
     }
     const uploadId = config.uploadId!;
     return {
-      rootPath: entry.extractedDir,
-      tempDir: entry.extractedDir,
-      materializeTo: (sessionId) => materializeProjectRoot(entry.extractedDir, sessionId),
-      // Delegate cleanup to the store so it handles both Map removal and rm().
-      cleanup: async () => removeUpload(uploadId, ctx.userId),
+      rootPath: materialized.extractedDir,
+      tempDir: materialized.extractedDir,
+      materializeTo: (sessionId) =>
+        materializeProjectRoot(materialized.extractedDir, sessionId),
+      cleanup: async () => {
+        await materialized.cleanupLocal();
+        await removeUpload(uploadId, ctx.userId);
+      },
     };
   },
 };

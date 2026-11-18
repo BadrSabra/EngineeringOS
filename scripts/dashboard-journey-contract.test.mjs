@@ -487,7 +487,7 @@ test("the standard release journey remains provider-free", () => {
   );
 
   const browserEnvironment = runnerSource.match(
-    /const child = spawn\([\s\S]*?env:\s*\{([\s\S]*?)\n\s*\},\s*\n\s*stdio:/,
+    /const journey = spawn\([\s\S]*?env:\s*withPlaywrightNixLibraries\(\{([\s\S]*?)\n\s*\}\),\s*\n\s*stdio:/,
   );
   assert.ok(
     browserEnvironment,
@@ -497,6 +497,11 @@ test("the standard release journey remains provider-free", () => {
     browserEnvironment[1],
     /DASHBOARD_E2E_LIVE_PROVIDER\s*:/,
     "The standard runner must not enable live provider execution.",
+  );
+  assert.match(
+    runnerSource,
+    /import \{ withPlaywrightNixLibraries \} from "\.\/playwright-nix-environment\.mjs"/,
+    "The browser runner must provide the configured Nix libraries to Firefox.",
   );
 });
 

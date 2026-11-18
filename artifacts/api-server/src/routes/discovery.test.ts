@@ -1,4 +1,4 @@
-import { afterAll, afterEach, describe, expect, it, vi } from "vitest";
+import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import request from "supertest";
 import express from "express";
 import AdmZip from "adm-zip";
@@ -18,7 +18,7 @@ import {
 } from "@workspace/db";
 import { randomUUID } from "crypto";
 import { mkdirSync, rmSync } from "node:fs";
-import { access, mkdir, rm, truncate, writeFile } from "node:fs/promises";
+import { access, mkdir, readFile, rm, truncate, writeFile } from "node:fs/promises";
 import { promisify } from "node:util";
 import { execFile } from "node:child_process";
 import { dirname, join } from "node:path";
@@ -29,6 +29,8 @@ import {
 } from "../lib/project-materialization.js";
 import { EOS_GIT_TEMP_PREFIX } from "../lib/path-validation.js";
 import { removeUpload } from "../lib/upload-store.js";
+import { setArchiveObjectStorageForTests } from "../lib/archive-object-storage.js";
+import { LockNamespace, tryAdvisoryLock } from "../lib/advisory-lock.js";
 
 const execFileAsync = promisify(execFile);
 const OTHER_USER = "someone-else";
@@ -44,6 +46,16 @@ foreignOwnerApp.use((req, _res, next) => {
   next();
 });
 foreignOwnerApp.use(discoveryRouter);
+
+// A separate Express API instance shares only PostgreSQL and the configured
+// archive object store with the upload-serving app.
+const secondApiReplica = express();
+secondApiReplica.use(express.json());
+secondApiReplica.use((req, _res, next) => {
+  req.userId = "test-user";
+  next();
+});
+secondApiReplica.use(discoveryRouter);
 
 // ─── Shared fixtures ──────────────────────────────────────────────────────────
 
@@ -89,6 +101,27 @@ function fakeResult(overrides: Partial<DiscoveryResultData> = {}): DiscoveryResu
  */
 const TEST_ROOTS_BASE = "/home/runner/workspace/.test-roots";
 const fixtureDirs: string[] = [];
+const sharedArchiveObjects = new Map<string, Buffer>();
+let restoreArchiveStorage: (() => void) | undefined;
+
+beforeAll(() => {
+  vi.stubEnv("PRIVATE_OBJECT_DIR", "/discovery-test-bucket/private");
+  restoreArchiveStorage = setArchiveObjectStorageForTests({
+    put: async (objectKey, sourcePath) => {
+      sharedArchiveObjects.set(objectKey, await readFile(sourcePath));
+    },
+    download: async (objectKey, destinationPath) => {
+      const contents = sharedArchiveObjects.get(objectKey);
+      if (!contents) throw new Error("test archive object not found");
+      await mkdir(dirname(destinationPath), { recursive: true, mode: 0o700 });
+      await writeFile(destinationPath, contents, { flag: "wx", mode: 0o600 });
+    },
+    delete: async (objectKey) => {
+      sharedArchiveObjects.delete(objectKey);
+    },
+  });
+});
+
 function makeSessionRootDir(): string {
   const dir = `${TEST_ROOTS_BASE}/discovery-${randomUUID()}`;
   mkdirSync(dir, { recursive: true });
@@ -97,6 +130,9 @@ function makeSessionRootDir(): string {
 }
 
 afterAll(() => {
+  restoreArchiveStorage?.();
+  vi.unstubAllEnvs();
+  sharedArchiveObjects.clear();
   for (const dir of fixtureDirs) {
     try { rmSync(dir, { recursive: true, force: true }); } catch { /* gone */ }
   }
@@ -460,8 +496,25 @@ describe("POST /api/upload/archive → POST /api/projects/discover", () => {
     expect(foreignDiscover.status).toBe(404);
     expect(foreignDiscover.body.reason).toBe("not_found");
 
-    const discover = await request(app)
-      .post("/api/projects/discover")
+    const archiveSlot = await tryAdvisoryLock(LockNamespace.ARCHIVE_UPLOAD, "global");
+    expect(archiveSlot.acquired).toBe(true);
+    try {
+      const busyDiscover = await request(secondApiReplica)
+        .post("/projects/discover")
+        .send({ sourceType: "ARCHIVE_UPLOAD", sourceConfig });
+      expect(busyDiscover.status).toBe(429);
+      const [stillAvailable] = await db
+        .select({ state: uploadsTable.state })
+        .from(uploadsTable)
+        .where(eq(uploadsTable.id, upload.body.uploadId))
+        .limit(1);
+      expect(stillAvailable?.state).toBe("active");
+    } finally {
+      if (archiveSlot.acquired) await archiveSlot.release();
+    }
+
+    const discover = await request(secondApiReplica)
+      .post("/projects/discover")
       .send({ sourceType: "ARCHIVE_UPLOAD", sourceConfig });
     expect(discover.status).toBe(202);
     expect(typeof discover.body.id).toBe("string");

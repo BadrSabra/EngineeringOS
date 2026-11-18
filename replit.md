@@ -72,34 +72,35 @@ For a fresh import:
    and verifies the application, audit outbox, and operator alert contracts.
 4. Start `Project` with the Run button.
 
-The current import has completed these steps. Express was updated within its
-existing major version because the imported lockfile's `proxy-addr@2.0.7`
-download was rejected by the package firewall. Express 5.3 uses `proxy-addr`
-2.0.8 or later; the firewall was not bypassed.
+These steps have been completed for this import. The frozen pnpm lockfile was
+installed, Replit-managed Clerk was provisioned for Development, the development
+database schema was applied and checked, and the existing Project workflows
+were started. Express was updated within its existing major version because the
+imported lockfile's `proxy-addr@2.0.7` download was rejected by the package
+firewall. Express 5.3 uses `proxy-addr` 2.0.8 or later; the firewall was not
+bypassed.
 
 ### Import verification
 
-- `/api/readiness`: HTTP 200; API, database, and schema report ready.
-- `/api/healthz`: HTTP 200.
-- `/api/projects` without a session: HTTP 401 (authentication remains enforced).
-- `/dashboard/` and `/dashboard/sign-in`: visually checked; the Arabic landing
-  page and Clerk sign-in form render.
-- Signed-in dashboard journeys and live AI-provider calls have not been
-  verified. AI features still require a provider key.
-- The development-banner plugin requests an unprefixed script and logs a 404
-  under the dashboard preview path; it does not prevent the app or sign-in form
-  from rendering.
-- For browser checks after a fresh import, install the test browser with
-  `pnpm --filter @workspace/dashboard exec playwright install firefox`.
-  Firefox was installed and independently opened the dashboard landing page.
-- The dashboard restart smoke check passed. The broader release checks did not
-  pass: their browser run initially lacked Firefox; a separate API regression
-  run then failed the stream completion assertion in
-  `src/routes/ai-stream-integration.test.ts` and timed out in the matching
-  paired-baseline auto-promotion case in `src/routes/ai.test.ts`.
-  These are not resolved by import setup; do not treat startup readiness as
-  release approval. The full release/browser suites have not been rerun after
-  installing Firefox.
+- `pnpm install --frozen-lockfile` restored dependencies for all 18 workspace
+  packages.
+- The development database schema, audit outbox schema, and operator alert
+  schema checks passed.
+- `/api/readiness` and `/api/healthz` return HTTP 200; readiness reports the
+  API, database, schema, and maintenance checks ready.
+- `/api/projects` without a session returns HTTP 401, confirming authentication
+  remains enforced.
+- `/dashboard/`, `/dashboard/sign-in`, and `/__mockup/` return HTTP 200. The
+  dashboard landing page and Clerk sign-in form were visually checked in the
+  browser. Clerk's Development-key warning is expected.
+- Controlled signed-in dashboard checks for Workspace restore/SSE and owner
+  isolation passed; the full release suite and live AI-provider calls remain
+  unverified. AI features return HTTP 428 until a provider key is saved through
+  the dashboard.
+- The optional `workspace-runtime-supervisor` workflow is disabled because its
+  secure Unix-socket provisioning values are unavailable. This does not prevent
+  the API or dashboard from starting, but runtime-managed project processes are
+  unavailable until that provisioning is completed.
 
 ## Required secrets (already provisioned)
 

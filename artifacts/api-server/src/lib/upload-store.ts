@@ -1,84 +1,263 @@
 /**
- * PR-D2 — DB-backed upload store for ARCHIVE_UPLOAD discovery.
- *
- * ## What changed and why
- *
- * Previously entries lived in an in-process `Map<string, UploadEntry>`. Any
- * process restart between `POST /api/upload/archive` (which creates the entry)
- * and `POST /api/projects/discover` (which consumes it) silently dropped the
- * entry, producing a misleading "Upload not found or expired" 404 on the
- * discovery call.
- *
- * The fix is simple: persist the upload metadata row to the `uploads` DB table.
- * The extracted files themselves stay in `/tmp/eos-upload-{uploadId}/` — those
- * directories survive process restarts on Replit because `/tmp` is a host-level
- * tmpfs, not wiped between process restarts (only on full host reboot). If a
- * full host reboot cleans up the dir, `lookupUpload` detects the missing dir
- * and returns `undefined` so the caller shows a clear "re-upload required" error.
- *
- * ## Public API (identical to the old in-memory store, all functions now async)
- *
- * - `registerUpload(uploadId, extractedDir, originalName, ownerId)` → `Promise<void>`
- * - `lookupUpload(uploadId, ownerId)` → `Promise<UploadEntry | undefined>`
- * - `removeUpload(uploadId, ownerId)` → `Promise<void>`
- * - `sweepExpiredUploads()` → `Promise<number>` (new — used by reconciliation sweep)
- *
- * ## TTL
- *
- * Default: 1 hour (configurable via UPLOAD_TTL_MS env var). The TTL is written
- * as an absolute `expires_at` timestamp at insert time — no in-process timers.
- * Expired entries are cleaned up by:
- *   1. Startup reconciliation (see job-reconciliation.ts `reconcileStuckJobs`)
- *   2. The periodic stale-job sweep (see `startStaleJobSweep`)
- *   3. `lookupUpload` itself — skips and removes expired rows on access (lazy GC)
+ * Owner-scoped archive metadata backed by PostgreSQL and private shared storage.
+ * Retired rows act as cleanup receipts until object deletion succeeds.
  */
-import { rm, access } from "node:fs/promises";
-import { db, uploadsTable } from "@workspace/db";
-import { and, eq, lt } from "drizzle-orm";
+import AdmZip from "adm-zip";
+import { and, eq, gt, lt, or } from "drizzle-orm";
+import { randomUUID } from "node:crypto";
+import { chmod, lstat, mkdir, mkdtemp, rm, unlink } from "node:fs/promises";
+import { join, relative, resolve, sep } from "node:path";
+import { tmpdir } from "node:os";
+import {
+  db,
+  uploadsTable,
+  type Upload,
+} from "@workspace/db";
+import {
+  createArchiveObjectKey,
+  deleteArchiveObject,
+  downloadArchiveObject,
+  putArchiveObject,
+  type ArchiveFormat,
+} from "./archive-object-storage.js";
+import {
+  extractTarGzSafely,
+  extractZipSafely,
+  archiveProcessingLimiter,
+} from "./archive-safety.js";
+import { LockNamespace, tryAdvisoryLock } from "./advisory-lock.js";
 import { logger } from "./logger.js";
 
 export const UPLOAD_TTL_MS = Number(
-  process.env.UPLOAD_TTL_MS ?? 60 * 60_000, // 1 hour
+  process.env.UPLOAD_TTL_MS ?? 60 * 60_000,
 );
 
-/** Shape returned by `lookupUpload` (unchanged from previous in-memory version). */
 export interface UploadEntry {
   ownerId: string;
-  extractedDir: string;
+  extractedDir?: string;
+  storageKey?: string;
+  archiveFormat?: ArchiveFormat;
   originalName: string;
   createdAt: number;
+  state: "storing" | "active" | "claimed" | "retired";
 }
 
-// ── Core API ─────────────────────────────────────────────────────────────────
+export interface MaterializedUpload {
+  entry: UploadEntry;
+  extractedDir: string;
+  cleanupLocal: () => Promise<void>;
+}
+
+export class ArchiveUploadAdmissionError extends Error {
+  constructor(
+    readonly status: 429 | 503,
+    message: string,
+  ) {
+    super(message);
+    this.name = "ArchiveUploadAdmissionError";
+  }
+}
+
+async function acquireDiscoveryArchiveAdmission(): Promise<() => Promise<void>> {
+  const releaseLocal = archiveProcessingLimiter.tryAcquire();
+  if (!releaseLocal) {
+    throw new ArchiveUploadAdmissionError(
+      429,
+      "Archive processing is temporarily busy.",
+    );
+  }
+
+  let lock;
+  try {
+    lock = await tryAdvisoryLock(LockNamespace.ARCHIVE_UPLOAD, "global");
+  } catch {
+    releaseLocal();
+    throw new ArchiveUploadAdmissionError(
+      503,
+      "Archive processing admission is unavailable.",
+    );
+  }
+  if (!lock.acquired) {
+    releaseLocal();
+    throw new ArchiveUploadAdmissionError(
+      429,
+      "Archive processing is temporarily busy.",
+    );
+  }
+
+  return async () => {
+    try {
+      await lock.release();
+    } catch (err) {
+      logger.warn({ err }, "upload-store: discovery archive lock release failed");
+    } finally {
+      releaseLocal();
+    }
+  };
+}
+
+function toEntry(row: Upload): UploadEntry {
+  return {
+    ownerId: row.ownerId,
+    extractedDir: row.extractedDir ?? undefined,
+    storageKey: row.storageKey ?? undefined,
+    archiveFormat:
+      row.archiveFormat === "zip" || row.archiveFormat === "tar.gz"
+        ? row.archiveFormat
+        : undefined,
+    originalName: row.originalName,
+    createdAt: row.createdAt.getTime(),
+    state: row.state as UploadEntry["state"],
+  };
+}
+
+function legacyUploadPath(uploadId: string, extractedDir: string): string {
+  const root = resolve(tmpdir());
+  const candidate = resolve(extractedDir);
+  const child = relative(root, candidate);
+  if (
+    !child ||
+    child === ".." ||
+    child.startsWith(`..${sep}`) ||
+    child.includes(sep) ||
+    !child.startsWith(`eos-extract-${uploadId}-`)
+  ) {
+    throw new Error("Legacy upload directory is outside its managed temporary root.");
+  }
+  return candidate;
+}
+
+async function cleanupRetiredRow(row: Upload): Promise<boolean> {
+  try {
+    if (row.storageKey) {
+      if (row.archiveFormat !== "zip" && row.archiveFormat !== "tar.gz") {
+        throw new Error("Retired archive has an invalid storage format.");
+      }
+      await deleteArchiveObject(
+        row.storageKey,
+        row.ownerId,
+        row.id,
+        row.archiveFormat,
+      );
+    } else if (row.extractedDir) {
+      await rm(legacyUploadPath(row.id, row.extractedDir), {
+        recursive: true,
+        force: true,
+      });
+    }
+  } catch (err) {
+    logger.warn(
+      { uploadId: row.id, err },
+      "upload-store: retired archive cleanup will retry",
+    );
+    return false;
+  }
+
+  await db
+    .delete(uploadsTable)
+    .where(and(
+      eq(uploadsTable.id, row.id),
+      eq(uploadsTable.ownerId, row.ownerId),
+      eq(uploadsTable.state, "retired"),
+    ));
+  logger.info({ uploadId: row.id }, "upload-store: retired entry removed");
+  return true;
+}
+
+async function retireUpload(uploadId: string, ownerId: string): Promise<void> {
+  const retired = await db
+    .update(uploadsTable)
+    .set({ state: "retired" })
+    .where(and(
+      eq(uploadsTable.id, uploadId),
+      eq(uploadsTable.ownerId, ownerId),
+      eq(uploadsTable.state, "active"),
+    ))
+    .returning();
+
+  const claimed = retired[0] ?? (await db
+    .select()
+    .from(uploadsTable)
+    .where(and(
+      eq(uploadsTable.id, uploadId),
+      eq(uploadsTable.ownerId, ownerId),
+      eq(uploadsTable.state, "retired"),
+    ))
+    .limit(1))[0];
+  if (claimed) await cleanupRetiredRow(claimed);
+}
 
 /**
- * Register a new upload entry in the DB.
- * Called by `POST /api/upload/archive` immediately after extraction.
+ * Persist an upload intent before streaming bytes so a process crash or partial
+ * object write leaves a durable, retryable cleanup record.
  */
 export async function registerUpload(
   uploadId: string,
-  extractedDir: string,
+  archivePath: string,
   originalName: string,
   ownerId: string,
+  archiveFormat: ArchiveFormat,
 ): Promise<void> {
   const now = new Date();
   const expiresAt = new Date(now.getTime() + UPLOAD_TTL_MS);
+  const storageKey = createArchiveObjectKey(ownerId, uploadId, archiveFormat);
+
   await db.insert(uploadsTable).values({
     id: uploadId,
     ownerId,
-    extractedDir,
+    extractedDir: null,
+    storageKey,
+    archiveFormat,
+    state: "storing",
     originalName,
     createdAt: now,
     expiresAt,
   });
-  logger.info({ uploadId, originalName, extractedDir, expiresAt }, "upload-store: registered");
+
+  try {
+    await putArchiveObject(
+      storageKey,
+      archivePath,
+      ownerId,
+      uploadId,
+      archiveFormat,
+    );
+    const activated = await db
+      .update(uploadsTable)
+      .set({ state: "active" })
+      .where(and(
+        eq(uploadsTable.id, uploadId),
+        eq(uploadsTable.ownerId, ownerId),
+        eq(uploadsTable.state, "storing"),
+        gt(uploadsTable.expiresAt, new Date()),
+      ))
+      .returning({ id: uploadsTable.id });
+    if (activated.length !== 1) {
+      throw new Error("Archive upload could not be activated.");
+    }
+    logger.info({ uploadId, originalName, expiresAt }, "upload-store: registered");
+  } catch (err) {
+    try {
+      await db
+        .update(uploadsTable)
+        .set({ state: "retired" })
+        .where(and(
+          eq(uploadsTable.id, uploadId),
+          eq(uploadsTable.ownerId, ownerId),
+        ));
+    } catch (retireErr) {
+      logger.error(
+        { uploadId, retireErr },
+        "upload-store: failed to retire partial upload",
+      );
+    }
+    await retireUpload(uploadId, ownerId).catch((cleanupErr: unknown) =>
+      logger.warn({ uploadId, cleanupErr }, "upload-store: partial upload cleanup deferred"),
+    );
+    throw err;
+  }
 }
 
-/**
- * Look up an upload by ID.
- * Returns `undefined` when the ID is unknown, has expired, or its extracted
- * directory no longer exists on disk (covers full-host-reboot recovery).
- */
 export async function lookupUpload(
   uploadId: string,
   ownerId: string,
@@ -86,107 +265,216 @@ export async function lookupUpload(
   const rows = await db
     .select()
     .from(uploadsTable)
-    .where(and(eq(uploadsTable.id, uploadId), eq(uploadsTable.ownerId, ownerId)))
+    .where(and(
+      eq(uploadsTable.id, uploadId),
+      eq(uploadsTable.ownerId, ownerId),
+      eq(uploadsTable.state, "active"),
+    ))
     .limit(1);
-
   const row = rows[0];
-  // Keep an application-level check in addition to the DB predicate. This
-  // protects callers if a future storage adapter returns a broader row than
-  // the current SQL query.
   if (!row || row.ownerId !== ownerId) return undefined;
 
-  // Lazy expiry: if the row is past its TTL, clean it up and signal not-found.
-  if (row.expiresAt.getTime() < Date.now()) {
-    await db.delete(uploadsTable).where(eq(uploadsTable.id, uploadId));
-    await rm(row.extractedDir, { recursive: true, force: true }).catch(() => {});
-    logger.info({ uploadId }, "upload-store: lazy-expired entry removed on lookup");
+  if (row.expiresAt.getTime() <= Date.now()) {
+    await retireUpload(uploadId, ownerId);
+    logger.info({ uploadId }, "upload-store: expired entry retired on lookup");
     return undefined;
   }
 
-  // Extra guard: if the dir was wiped by a full host reboot, remove the stale
-  // DB row and tell the caller to re-upload. Better a clear error than a
-  // confusing "directory does not exist" from the scanner pipeline.
+  if (row.storageKey && (row.archiveFormat === "zip" || row.archiveFormat === "tar.gz")) {
+    return toEntry(row);
+  }
+
+  if (!row.extractedDir) {
+    await retireUpload(uploadId, ownerId);
+    return undefined;
+  }
   try {
-    await access(row.extractedDir);
+    const path = legacyUploadPath(uploadId, row.extractedDir);
+    const stats = await lstat(path);
+    if (!stats.isDirectory() || stats.isSymbolicLink()) throw new Error("not a directory");
   } catch {
-    await db.delete(uploadsTable).where(eq(uploadsTable.id, uploadId));
-    logger.warn({ uploadId, extractedDir: row.extractedDir },
-      "upload-store: extracted dir no longer exists — DB row removed; user must re-upload");
+    await retireUpload(uploadId, ownerId);
+    logger.warn({ uploadId }, "upload-store: legacy extracted directory is unavailable");
     return undefined;
   }
-
-  return {
-    ownerId: row.ownerId,
-    extractedDir: row.extractedDir,
-    originalName: row.originalName,
-    createdAt: row.createdAt.getTime(),
-  };
+  return toEntry(row);
 }
 
 /**
- * Remove an upload entry from the DB and delete its extracted directory.
- * Called by the ARCHIVE_UPLOAD adapter's cleanup hook after discovery finishes.
+ * Atomically grants one discovery attempt the right to use an active upload.
+ * The durable claimed row remains until that attempt's cleanup or TTL sweep.
  */
+export async function claimUpload(
+  uploadId: string,
+  ownerId: string,
+): Promise<UploadEntry | undefined> {
+  const rows = await db
+    .update(uploadsTable)
+    // Give resolution a full TTL to download/materialize even when the upload
+    // was claimed immediately before its original expiry.
+    .set({
+      state: "claimed",
+      expiresAt: new Date(Date.now() + UPLOAD_TTL_MS),
+    })
+    .where(and(
+      eq(uploadsTable.id, uploadId),
+      eq(uploadsTable.ownerId, ownerId),
+      eq(uploadsTable.state, "active"),
+      gt(uploadsTable.expiresAt, new Date()),
+    ))
+    .returning();
+  return rows[0] ? toEntry(rows[0]) : undefined;
+}
+
+async function releaseUploadClaim(uploadId: string, ownerId: string): Promise<void> {
+  await db
+    .update(uploadsTable)
+    .set({ state: "active" })
+    .where(and(
+      eq(uploadsTable.id, uploadId),
+      eq(uploadsTable.ownerId, ownerId),
+      eq(uploadsTable.state, "claimed"),
+      gt(uploadsTable.expiresAt, new Date()),
+    ));
+}
+
+export async function materializeClaimedUpload(
+  uploadId: string,
+  ownerId: string,
+): Promise<MaterializedUpload | undefined> {
+  const releaseAdmission = await acquireDiscoveryArchiveAdmission();
+  try {
+    const entry = await claimUpload(uploadId, ownerId);
+    if (!entry) return undefined;
+
+    if (entry.extractedDir) {
+      try {
+        return {
+          entry,
+          extractedDir: legacyUploadPath(uploadId, entry.extractedDir),
+          cleanupLocal: async () => {},
+        };
+      } catch (err) {
+        await releaseUploadClaim(uploadId, ownerId).catch(() => undefined);
+        throw err;
+      }
+    }
+
+    if (
+      !entry.storageKey ||
+      (entry.archiveFormat !== "zip" && entry.archiveFormat !== "tar.gz") ||
+      entry.storageKey !== createArchiveObjectKey(ownerId, uploadId, entry.archiveFormat)
+    ) {
+      await removeUpload(uploadId, ownerId);
+      throw new Error("Archive upload storage reference is invalid.");
+    }
+
+    let workingDir: string | undefined;
+    const workingDirPrefix = join(tmpdir(), `eos-upload-resolve-${randomUUID()}-`);
+    try {
+      const localWorkingDir = await mkdtemp(workingDirPrefix);
+      workingDir = localWorkingDir;
+      await chmod(localWorkingDir, 0o700);
+      const extractionDir = join(localWorkingDir, "extracted");
+      const archivePath = join(
+        localWorkingDir,
+        entry.archiveFormat === "zip" ? "source.zip" : "source.tar.gz",
+      );
+      await mkdir(extractionDir, { mode: 0o700 });
+      await downloadArchiveObject(entry.storageKey, archivePath);
+      if (entry.archiveFormat === "zip") {
+        await extractZipSafely(new AdmZip(archivePath), extractionDir);
+      } else {
+        await extractTarGzSafely(archivePath, extractionDir);
+      }
+      await unlink(archivePath);
+      return {
+        entry,
+        extractedDir: extractionDir,
+        cleanupLocal: async () => {
+          await rm(localWorkingDir, { recursive: true, force: true });
+        },
+      };
+    } catch (err) {
+      if (workingDir) {
+        await rm(workingDir, { recursive: true, force: true }).catch(() => undefined);
+      }
+      await releaseUploadClaim(uploadId, ownerId).catch(() => undefined);
+      throw err;
+    }
+  } finally {
+    await releaseAdmission();
+  }
+}
+
 export async function removeUpload(uploadId: string, ownerId: string): Promise<void> {
   const rows = await db
-    .select({
-      ownerId: uploadsTable.ownerId,
-      extractedDir: uploadsTable.extractedDir,
-    })
+    .update(uploadsTable)
+    .set({ state: "retired" })
+    .where(and(
+      eq(uploadsTable.id, uploadId),
+      eq(uploadsTable.ownerId, ownerId),
+      or(
+        eq(uploadsTable.state, "active"),
+        eq(uploadsTable.state, "claimed"),
+        eq(uploadsTable.state, "storing"),
+      ),
+    ))
+    .returning();
+  const row = rows[0] ?? (await db
+    .select()
     .from(uploadsTable)
-    .where(and(eq(uploadsTable.id, uploadId), eq(uploadsTable.ownerId, ownerId)))
-    .limit(1);
-
-  if (!rows[0] || rows[0].ownerId !== ownerId) return;
-
-  await db
-    .delete(uploadsTable)
-    .where(and(eq(uploadsTable.id, uploadId), eq(uploadsTable.ownerId, ownerId)));
-
-  if (rows[0]) {
-    await rm(rows[0].extractedDir, { recursive: true, force: true }).catch(() => {});
-    logger.info({ uploadId }, "upload-store: removed");
-  }
+    .where(and(
+      eq(uploadsTable.id, uploadId),
+      eq(uploadsTable.ownerId, ownerId),
+      eq(uploadsTable.state, "retired"),
+    ))
+    .limit(1))[0];
+  if (row) await cleanupRetiredRow(row);
 }
 
-// ── Sweep ─────────────────────────────────────────────────────────────────────
-
-/**
- * Delete all DB rows whose `expires_at` is in the past and clean up their
- * extracted directories. Safe to call at any time — uses the DB-persisted
- * `expires_at` so it does not race with active uploads.
- *
- * Returns the number of entries deleted.
- *
- * Called by:
- * - `reconcileStuckJobs()` once at startup
- * - `startStaleJobSweep()` on each periodic tick alongside the job sweeps
- */
+/** Retire expired entries and retry prior object deletions without data loss. */
 export async function sweepExpiredUploads(): Promise<number> {
   const now = new Date();
-  let count = 0;
-
   try {
     const expired = await db
-      .select({ id: uploadsTable.id, extractedDir: uploadsTable.extractedDir })
+      .select()
       .from(uploadsTable)
-      .where(lt(uploadsTable.expiresAt, now));
+      .where(or(
+        lt(uploadsTable.expiresAt, now),
+        eq(uploadsTable.state, "retired"),
+      ));
 
-    if (expired.length === 0) return 0;
-
+    let removed = 0;
     for (const row of expired) {
-      // Delete the DB row first so a concurrent lookup doesn't race with rm().
-      await db
-        .delete(uploadsTable)
-        .where(and(eq(uploadsTable.id, row.id), lt(uploadsTable.expiresAt, now)));
-      await rm(row.extractedDir, { recursive: true, force: true }).catch(() => {});
-      count++;
-      logger.info({ uploadId: row.id, extractedDir: row.extractedDir },
-        "upload-store: sweep removed expired entry");
+      if (row.state !== "retired") {
+        await db
+          .update(uploadsTable)
+          .set({ state: "retired" })
+          .where(and(
+            eq(uploadsTable.id, row.id),
+            lt(uploadsTable.expiresAt, now),
+            or(
+              eq(uploadsTable.state, "storing"),
+              eq(uploadsTable.state, "active"),
+              eq(uploadsTable.state, "claimed"),
+            ),
+          ));
+      }
+      const [current] = await db
+        .select()
+        .from(uploadsTable)
+        .where(and(
+          eq(uploadsTable.id, row.id),
+          eq(uploadsTable.ownerId, row.ownerId),
+          eq(uploadsTable.state, "retired"),
+        ))
+        .limit(1);
+      if (current && await cleanupRetiredRow(current)) removed += 1;
     }
+    return removed;
   } catch (err) {
     logger.error({ err }, "upload-store: sweepExpiredUploads failed");
+    return 0;
   }
-
-  return count;
 }

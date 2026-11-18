@@ -20,12 +20,13 @@ import { randomUUID } from "crypto";
 import AdmZip from "adm-zip";
 import { join } from "node:path";
 import { requireAuth } from "../middlewares/requireAuth.js";
-import { registerUpload } from "../lib/upload-store.js";
+import { registerUpload, removeUpload } from "../lib/upload-store.js";
 import { logger } from "../lib/logger.js";
 import { LockNamespace, tryAdvisoryLock } from "../lib/advisory-lock.js";
 import {
   ArchiveProcessingLimiter,
   ArchiveSafetyError,
+  ARCHIVE_UPLOAD_BODY_TIMEOUT_MS,
   archiveProcessingLimiter,
   extractTarGzSafely,
   extractZipSafely,
@@ -47,6 +48,33 @@ async function createPrivateUploadDirectory(parent: string): Promise<string> {
   return directory;
 }
 
+async function cleanupOrphanedStagingDirectories(parent: string): Promise<void> {
+  let entries;
+  try {
+    entries = await fs.readdir(parent, { withFileTypes: true });
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return;
+    throw error;
+  }
+
+  const generatedDirectoryName =
+    /^eos-upload-stage-[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+  for (const entry of entries) {
+    if (!entry.isDirectory() || !generatedDirectoryName.test(entry.name)) continue;
+    const directory = join(parent, entry.name);
+    const stat = await fs.lstat(directory);
+    if (
+      !stat.isDirectory() ||
+      stat.isSymbolicLink() ||
+      (typeof process.getuid === "function" && stat.uid !== process.getuid()) ||
+      (stat.mode & 0o077) !== 0
+    ) {
+      continue;
+    }
+    await fs.rm(directory, { recursive: true, force: true });
+  }
+}
+
 function releaseArchiveRequest(
   releases: WeakMap<object, () => void>,
   request: object,
@@ -59,21 +87,18 @@ export function createUploadRouter(
   uploadTempDir = "/tmp",
   processingLimiter: ArchiveProcessingLimiter = archiveProcessingLimiter,
   acquireDistributedLock: typeof tryAdvisoryLock = tryAdvisoryLock,
+  bodyTimeoutMs = ARCHIVE_UPLOAD_BODY_TIMEOUT_MS,
 ) {
   const router = Router();
   const archiveReleases = new WeakMap<object, () => void>();
   const stagingDirectories = new WeakMap<object, string>();
   const distributedLockReleases = new WeakMap<object, () => Promise<void>>();
+  const requestAbortControllers = new WeakMap<object, AbortController>();
   const cleanupStagingDirectory = async (request: object) => {
     const stagingDirectory = stagingDirectories.get(request);
     if (!stagingDirectory) return;
     await fs.rm(stagingDirectory, { recursive: true, force: true }).catch(() => {});
     stagingDirectories.delete(request);
-  };
-  const cleanupIncomingUpload = async (request: Request) => {
-    if (request.file?.path) await fs.unlink(request.file.path).catch(() => {});
-    await cleanupStagingDirectory(request);
-    releaseArchiveRequest(archiveReleases, request);
   };
   const releaseDistributedLock = async (request: object) => {
     const release = distributedLockReleases.get(request);
@@ -84,6 +109,16 @@ export function createUploadRouter(
     } catch {
       logger.warn({ code: "ARCHIVE_LOCK_RELEASE_FAILED" }, "archive admission lock release failed");
     }
+  };
+  const releaseArchiveAdmission = async (request: object) => {
+    await releaseDistributedLock(request);
+    releaseArchiveRequest(archiveReleases, request);
+    requestAbortControllers.delete(request);
+  };
+  const cleanupIncomingUpload = async (request: Request) => {
+    if (request.file?.path) await fs.unlink(request.file.path).catch(() => {});
+    await cleanupStagingDirectory(request);
+    await releaseArchiveAdmission(request);
   };
 
   const upload = multer({
@@ -116,6 +151,7 @@ export function createUploadRouter(
       const release = processingLimiter.tryAcquire();
       if (!release) {
         res.setHeader("retry-after", "1");
+        res.setHeader("connection", "close");
         res.status(429).json({
           error: "Archive processing is temporarily busy",
           code: "UPLOAD_ARCHIVE_BUSY",
@@ -123,65 +159,85 @@ export function createUploadRouter(
         return;
       }
       archiveReleases.set(req, release);
-      upload.single("archive")(req, res, (err) => {
-        if (err instanceof MulterError && err.code === "LIMIT_FILE_SIZE") {
-          releaseArchiveRequest(archiveReleases, req);
-          const stagingDirectory = stagingDirectories.get(req);
-          if (stagingDirectory) {
-            void fs.rm(stagingDirectory, { recursive: true, force: true });
-            stagingDirectories.delete(req);
-          }
-          res.status(413).json({
-            error: "Archive exceeds the 50 MB upload limit",
-            code: "UPLOAD_TOO_LARGE",
-          });
-          return;
-        }
-        if (err) {
-          releaseArchiveRequest(archiveReleases, req);
-          const stagingDirectory = stagingDirectories.get(req);
-          if (stagingDirectory) {
-            void fs.rm(stagingDirectory, { recursive: true, force: true });
-            stagingDirectories.delete(req);
-          }
-          next(err);
-          return;
-        }
-        next();
-      });
-    },
-    (req, res, next) => {
-      if (!req.file) {
-        next();
-        return;
-      }
       void (async () => {
         let lock;
         try {
           lock = await acquireDistributedLock(LockNamespace.ARCHIVE_UPLOAD, "global");
         } catch {
-          await cleanupIncomingUpload(req);
-          res.status(503).json({
-            error: "Archive processing admission is unavailable",
-            code: "UPLOAD_ADMISSION_UNAVAILABLE",
-          });
+          await releaseArchiveAdmission(req);
+          if (!res.destroyed) {
+            res.setHeader("connection", "close");
+            res.status(503).json({
+              error: "Archive processing admission is unavailable",
+              code: "UPLOAD_ADMISSION_UNAVAILABLE",
+            });
+          }
           return;
         }
         if (!lock.acquired) {
-          await cleanupIncomingUpload(req);
+          await releaseArchiveAdmission(req);
           res.setHeader("retry-after", "1");
-          res.status(429).json({
-            error: "Archive processing is temporarily busy",
-            code: "UPLOAD_ARCHIVE_BUSY",
-          });
+          res.setHeader("connection", "close");
+          if (!res.destroyed) {
+            res.status(429).json({
+              error: "Archive processing is temporarily busy",
+              code: "UPLOAD_ARCHIVE_BUSY",
+            });
+          }
           return;
         }
         distributedLockReleases.set(req, lock.release);
-        next();
+        await cleanupOrphanedStagingDirectories(uploadTempDir);
+        const abortController = new AbortController();
+        requestAbortControllers.set(req, abortController);
+        req.once("aborted", () => abortController.abort());
+        res.once("close", () => {
+          if (!res.writableEnded) abortController.abort();
+        });
+
+        if (req.aborted || res.destroyed) {
+          abortController.abort();
+          await cleanupIncomingUpload(req);
+          return;
+        }
+
+        // The shared session lock is the one-slot, cross-replica reservation.
+        // Bound how long a slow request can hold it while Multer receives data.
+        const bodyTimer = setTimeout(() => {
+          abortController.abort();
+          req.destroy();
+        }, bodyTimeoutMs);
+        bodyTimer.unref?.();
+
+        upload.single("archive")(req, res, (err) => {
+          clearTimeout(bodyTimer);
+          void (async () => {
+            if (err) {
+              await cleanupIncomingUpload(req);
+              if (req.aborted || res.destroyed) return;
+              if (err instanceof MulterError && err.code === "LIMIT_FILE_SIZE") {
+                res.status(413).json({
+                  error: "Archive exceeds the 50 MB upload limit",
+                  code: "UPLOAD_TOO_LARGE",
+                });
+                return;
+              }
+              next(err);
+              return;
+            }
+            if (abortController.signal.aborted || req.aborted || res.destroyed) {
+              await cleanupIncomingUpload(req);
+              return;
+            }
+            next();
+          })().catch(async (error: unknown) => {
+            await cleanupIncomingUpload(req);
+            if (!res.headersSent && !res.destroyed) next(error);
+          });
+        });
       })().catch(async () => {
-        await releaseDistributedLock(req);
         await cleanupIncomingUpload(req);
-        if (!res.headersSent) {
+        if (!res.headersSent && !res.destroyed) {
           res.status(503).json({
             error: "Archive processing admission is unavailable",
             code: "UPLOAD_ADMISSION_UNAVAILABLE",
@@ -191,14 +247,17 @@ export function createUploadRouter(
     },
     async (req, res) => {
       if (!req.file) {
-        releaseArchiveRequest(archiveReleases, req);
-        res.status(400).json({
-          error: "No file uploaded. Send the archive as a multipart field named 'archive'.",
-        });
+        await releaseArchiveAdmission(req);
+        if (!res.destroyed) {
+          res.status(400).json({
+            error: "No file uploaded. Send the archive as a multipart field named 'archive'.",
+          });
+        }
         return;
       }
 
       const { originalname, path: uploadedPath } = req.file;
+      const abortSignal = requestAbortControllers.get(req)?.signal;
       const lower = originalname.toLowerCase();
       const isTarGz = lower.endsWith(".tar.gz") || lower.endsWith(".tgz");
       const isZip = lower.endsWith(".zip");
@@ -206,15 +265,16 @@ export function createUploadRouter(
       const uploadId = randomUUID();
       let extractionDirectory: string | undefined;
       let tarPath: string | undefined;
+      let registrationAttempted = false;
 
       try {
         if (!isTarGz && !isZip) {
-          await fs.unlink(uploadedPath).catch(() => {});
-          await cleanupStagingDirectory(req);
-          releaseArchiveRequest(archiveReleases, req);
-          res.status(400).json({
-            error: "Unsupported archive format. Only .zip and .tar.gz archives are supported.",
-          });
+          await cleanupIncomingUpload(req);
+          if (!res.destroyed) {
+            res.status(400).json({
+              error: "Unsupported archive format. Only .zip and .tar.gz archives are supported.",
+            });
+          }
           return;
         }
 
@@ -252,48 +312,69 @@ export function createUploadRouter(
 
         if (isZip) {
           const zip = new AdmZip(uploadedPath);
-          await extractZipSafely(zip, extractDir);
+          await extractZipSafely(zip, extractDir, undefined, abortSignal);
         } else {
           tarPath = join(extractDir, `.archive-${uploadId}.tar.gz`);
           await fs.copyFile(uploadedPath, tarPath);
-          await extractTarGzSafely(tarPath, extractDir);
+          await extractTarGzSafely(tarPath, extractDir, undefined, abortSignal);
           await fs.unlink(tarPath);
           tarPath = undefined;
         }
 
-        // PR-D2: registerUpload is now async (DB-backed). Pass the authenticated
-        // userId so the row can be owner-scoped for future access-control checks.
-        await registerUpload(uploadId, extractDir, originalname, req.userId!);
+        if (abortSignal?.aborted || req.aborted || res.destroyed) {
+          const error = new Error("Archive upload was cancelled.");
+          error.name = "AbortError";
+          throw error;
+        }
+
+        // Register the original archive in private shared storage. The validated
+        // extraction above remains local only long enough to reject unsafe input.
+        registrationAttempted = true;
+        await registerUpload(
+          uploadId,
+          uploadedPath,
+          originalname,
+          req.userId!,
+          isZip ? "zip" : "tar.gz",
+        );
+        if (abortSignal?.aborted || req.aborted || res.destroyed) {
+          const error = new Error("Archive upload was cancelled.");
+          error.name = "AbortError";
+          throw error;
+        }
 
         logger.info(
-          { uploadId, originalname, extractDir, format: isZip ? "zip" : "tar.gz" },
-          "archive uploaded and extracted",
+          { uploadId, originalname, format: isZip ? "zip" : "tar.gz" },
+          "archive uploaded to shared storage",
         );
 
+        await fs.rm(extractDir, { recursive: true, force: true });
+        extractionDirectory = undefined;
         await fs.unlink(uploadedPath).catch(() => {});
         await cleanupStagingDirectory(req);
-        await releaseDistributedLock(req);
-        releaseArchiveRequest(archiveReleases, req);
+        await releaseArchiveAdmission(req);
+        if (abortSignal?.aborted || req.aborted || res.destroyed) {
+          await removeUpload(uploadId, req.userId!).catch(() => {});
+          return;
+        }
         res.status(201).json({ uploadId, originalName: originalname });
       } catch (err) {
+        if (registrationAttempted) {
+          await removeUpload(uploadId, req.userId!).catch(() => {});
+        }
         if (extractionDirectory) {
           await fs.rm(extractionDirectory, { recursive: true, force: true }).catch(() => {});
         }
         if (tarPath) await fs.unlink(tarPath).catch(() => {});
-        await fs.unlink(uploadedPath).catch(() => {});
-        await cleanupStagingDirectory(req);
-        await releaseDistributedLock(req);
-        releaseArchiveRequest(archiveReleases, req);
+        await cleanupIncomingUpload(req);
+        if (abortSignal?.aborted || req.aborted || res.destroyed) return;
         const msg = err instanceof ArchiveSafetyError
           ? err.message
           : "archive is malformed or could not be extracted";
         logger.error({ err, uploadId, originalname }, "archive extraction failed");
         res.status(422).json({ error: `Archive extraction failed: ${msg}` });
       } finally {
-        await fs.unlink(uploadedPath).catch(() => {});
-        await cleanupStagingDirectory(req);
-        await releaseDistributedLock(req);
-        releaseArchiveRequest(archiveReleases, req);
+        await cleanupIncomingUpload(req);
       }
     },
   );

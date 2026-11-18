@@ -19,6 +19,7 @@ import {
   formatMissionCorrelationSummary,
   parseMissionCorrelationReportOutput,
 } from "./mission-correlation-report.mjs";
+import { withPlaywrightNixLibraries } from "./playwright-nix-environment.mjs";
 
 if (process.env.RUN_CONTROLLED_RELEASE_VALIDATION !== "1") {
   console.error(
@@ -1183,7 +1184,7 @@ try {
       ],
       {
         cwd: workspaceRoot,
-        env: {
+        env: withPlaywrightNixLibraries({
           ...process.env,
           CI: "true",
           DASHBOARD_E2E_BASE_URL: dashboardBaseUrl,
@@ -1215,7 +1216,7 @@ try {
           ...(Number.isFinite(liveTimeoutMs) && liveTimeoutMs > 0
             ? { DASHBOARD_E2E_LIVE_TIMEOUT_MS: String(liveTimeoutMs) }
             : {}),
-        },
+        }),
         stdio: "inherit",
       },
     );

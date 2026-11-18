@@ -86,7 +86,7 @@
 - [Runtime observation boundary](runtime-observation-boundary.md) — runtime and validator probes attest only a bound direct PID; temp validation roots never replace project provenance or grant acceptance.
 - [Preview build trust boundary](preview-build-trust-boundary.md) — ECS receives only an S3 environment-file ARN; exact fingerprints and client tokens recover ambiguous launches without duplicating tasks.
 - [Preview build-job lifecycle](preview-build-job-lifecycle.md) — job-and-role refs own CAS manifests; blobs deduplicate by digest, and only an independent receipt authorizes Preview.
-- [Archive upload admission](archive-upload-admission.md) — process-local throttles protect one API instance only; multi-replica and untrusted decompression need stronger shared isolation.
+- [Archive upload admission](archive-upload-admission.md) — share one process and database slot for upload and rediscovery; use sidecar-signed URLs for durable objects.
 - [Preview image builds](preview-image-build-reproducibility.md) — pin the Node digest and workspace pnpm; allow Builder only one task-scoped `/tmp` scratch volume.
 - [Preview محلي أولًا](preview-local-first-architecture.md) — ثبّت عقودًا محايدة ومخزنًا محليًا قبل Builder/Attestor/Runtime؛ AWS وCloudflare adapters اختيارية ولا تغير إثبات Candidate.
 - [Runtime replay fixture boundary](runtime-replay-fixture-boundary.md) — isolated replay fixtures must keep required runtime inputs outside excluded dependency directories.
@@ -154,4 +154,5 @@
 - [Dispatch crash recovery](dispatch-crash-recovery.md) — completed Missions record dispatch only from one completed Execution per root; runner is never re-invoked.
 - [Review worktree ownership](local-review-worktree-ownership.md) — Git review worktrees use proposal manifests and pinned writes, not the transient delivery-workspace marker.
 - [GitHub Git Data transfer](github-git-data-transfer.md) — verify blob/tree/commit hashes, account for API message bytes, and use the distinct ref-write endpoint.
-- [Playwright on Replit Nix](playwright-replit-nix.md) — downloaded Chromium also needs Nix shared libraries in the test process’s `LD_LIBRARY_PATH`; `.replit` packages alone may not expose them to shell tests.
+- [Playwright on Replit Nix](playwright-replit-nix.md) — Firefox and Chromium need Nix shared libraries in shell-test `LD_LIBRARY_PATH`; `.replit` packages alone may not expose them.
+- [Backend work scope](backend-work-scope.md) — The separate frontend owner controls `artifacts/dashboard/**`; backend changes need code evidence and intact trust gates.
