@@ -20,10 +20,26 @@ type RuntimeSnapshot = {
 
 const runtimeKey = (projectId: string) => ['workspace-runtime', projectId] as const;
 
+class RuntimeProjectScopeError extends Error {
+  constructor() {
+    super('أعاد الخادم حالة تشغيل تخص مشروعًا آخر. لم نعرض بياناتها داخل مساحة هذا المشروع.');
+    this.name = 'RuntimeProjectScopeError';
+  }
+}
+
+function assertRuntimeProject(value: unknown, projectId: string): RuntimeSnapshot {
+  if (!value || typeof value !== 'object' || Array.isArray(value)
+    || (value as { projectId?: unknown }).projectId !== projectId) {
+    throw new RuntimeProjectScopeError();
+  }
+  return value as RuntimeSnapshot;
+}
+
 async function readRuntime(projectId: string): Promise<RuntimeSnapshot> {
   const response = await fetch(`/api/projects/${encodeURIComponent(projectId)}/runtime`);
   if (!response.ok) throw new Error('تعذّر تحميل حالة تشغيل المشروع.');
-  return response.json() as Promise<RuntimeSnapshot>;
+  const payload: unknown = await response.json();
+  return assertRuntimeProject(payload, projectId);
 }
 
 async function mutateRuntime(projectId: string, action: 'start' | 'restart' | 'stop'): Promise<RuntimeSnapshot> {
@@ -32,9 +48,15 @@ async function mutateRuntime(projectId: string, action: 'start' | 'restart' | 's
     headers: { 'content-type': 'application/json' },
     body: '{}',
   });
-  const payload = await response.json().catch(() => ({}));
-  if (!response.ok) throw new Error(typeof payload.error === 'string' ? payload.error : 'تعذّر تنفيذ الإجراء على تشغيل المشروع.');
-  return payload as RuntimeSnapshot;
+  const payload: unknown = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    const message = payload && typeof payload === 'object'
+      && typeof (payload as { error?: unknown }).error === 'string'
+      ? (payload as { error: string }).error
+      : 'تعذّر تنفيذ الإجراء على تشغيل المشروع.';
+    throw new Error(message);
+  }
+  return assertRuntimeProject(payload, projectId);
 }
 
 function statusLabel(status: RuntimeStatus): string {
@@ -43,7 +65,13 @@ function statusLabel(status: RuntimeStatus): string {
 
 export default function WorkspaceRuntimePanel({ projectId }: { projectId: string }) {
   const queryClient = useQueryClient();
-  const [action, setAction] = useState<'start' | 'restart' | 'stop' | null>(null);
+  const actionRequestId = useRef(0);
+  const [pendingAction, setPendingAction] = useState<{
+    projectId: string;
+    requestId: number;
+    action: 'start' | 'restart' | 'stop';
+  } | null>(null);
+  const [actionError, setActionError] = useState<{ projectId: string; message: string } | null>(null);
   const runtimeQuery = useQuery({
     queryKey: runtimeKey(projectId),
     enabled: Boolean(projectId),
@@ -53,24 +81,38 @@ export default function WorkspaceRuntimePanel({ projectId }: { projectId: string
       return status === 'starting' || status === 'running' ? 2000 : false;
     },
   });
-  const runtime = runtimeQuery.data;
+  const runtime = runtimeQuery.data?.projectId === projectId ? runtimeQuery.data : undefined;
+  const projectAction = pendingAction?.projectId === projectId ? pendingAction : null;
+  const projectActionError = actionError?.projectId === projectId ? actionError.message : null;
 
   const runAction = async (nextAction: 'start' | 'restart' | 'stop') => {
-    setAction(nextAction);
+    const requestId = ++actionRequestId.current;
+    setPendingAction({ projectId, requestId, action: nextAction });
+    setActionError(null);
     try {
       const next = await mutateRuntime(projectId, nextAction);
       queryClient.setQueryData(runtimeKey(projectId), next);
     } catch (error) {
-      queryClient.setQueryData(runtimeKey(projectId), (old: RuntimeSnapshot | undefined) => old
-        ? { ...old, status: 'failed', error: error instanceof Error ? error.message : 'تعذّر تنفيذ الإجراء على تشغيل المشروع.' }
-        : old);
+      const message = error instanceof Error
+        ? error.message
+        : 'تعذّر تنفيذ الإجراء على تشغيل المشروع.';
+      if (error instanceof RuntimeProjectScopeError) {
+        // A mismatched response is not authoritative for either project's cache.
+        setActionError({ projectId, message });
+      } else {
+        queryClient.setQueryData(runtimeKey(projectId), (old: RuntimeSnapshot | undefined) => old
+          ? { ...old, status: 'failed', error: message }
+          : old);
+      }
     } finally {
-      setAction(null);
-      await runtimeQuery.refetch();
+      setPendingAction((current) => current?.requestId === requestId ? null : current);
+      // Invalidate the captured project's key. Never refetch whichever project
+      // happens to be active after this asynchronous action settles.
+      await queryClient.invalidateQueries({ queryKey: runtimeKey(projectId), exact: true });
     }
   };
 
-  if (runtimeQuery.isLoading) {
+  if (runtimeQuery.isLoading && !runtime) {
     return (
       <div dir="rtl" className="bg-card border border-border rounded-xl p-5 shadow-sm animate-pulse text-sm text-muted-foreground">
         جارٍ تحميل حالة تشغيل المشروع…
@@ -79,14 +121,28 @@ export default function WorkspaceRuntimePanel({ projectId }: { projectId: string
   }
 
   if (runtimeQuery.isError || !runtime) {
+    const message = runtimeQuery.error instanceof RuntimeProjectScopeError
+      ? runtimeQuery.error.message
+      : runtimeQuery.data && runtimeQuery.data.projectId !== projectId
+        ? 'بيانات التشغيل المحفوظة تخص مشروعًا آخر؛ لم نعرضها داخل مساحة هذا المشروع.'
+        : 'تعذّر تحميل حالة تشغيل المشروع. حدّث المشروع وحاول مرة أخرى.';
     return (
-      <div dir="rtl" className="bg-card border border-amber-500/30 rounded-xl p-5 shadow-sm text-sm text-amber-200">
-        تعذّر تحميل حالة تشغيل المشروع. حدّث المشروع وحاول مرة أخرى.
+      <div dir="rtl" className="bg-card border border-amber-500/30 rounded-xl p-5 shadow-sm text-sm text-amber-200" role="alert">
+        {message}
+        <button
+          type="button"
+          className="mr-2 underline underline-offset-2"
+          onClick={() => void runtimeQuery.refetch()}
+          disabled={runtimeQuery.isFetching}
+        >
+          إعادة المحاولة
+        </button>
       </div>
     );
   }
 
-  const busy = action !== null || runtime.status === 'starting';
+  const busy = projectAction !== null || runtime.status === 'starting';
+  const action = projectAction?.action ?? null;
   const statusClass = runtime.status === 'running'
     ? 'border-emerald-500/30 bg-emerald-500/5 text-emerald-300'
     : runtime.status === 'failed'
@@ -129,6 +185,11 @@ export default function WorkspaceRuntimePanel({ projectId }: { projectId: string
       {runtime.error && (
         <div className="mt-3 rounded-md border border-rose-500/20 bg-rose-500/5 px-3 py-2 text-xs text-rose-200" role="alert">
           <span dir="auto">{runtime.error}</span>
+        </div>
+      )}
+      {projectActionError && (
+        <div className="mt-3 rounded-md border border-amber-500/30 bg-amber-500/5 px-3 py-2 text-xs text-amber-100" role="alert">
+          <span dir="auto">{projectActionError}</span>
         </div>
       )}
 
