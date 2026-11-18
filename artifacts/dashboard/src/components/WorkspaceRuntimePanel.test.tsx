@@ -1,13 +1,14 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import WorkspaceRuntimePanel from './WorkspaceRuntimePanel';
 
 const projectId = 'project-1';
-let runtime: {
+type RuntimeStatus = 'running' | 'starting' | 'stopped' | 'failed';
+type RuntimeFixture = {
   projectId: string;
   sessionId: string;
-  status: 'running' | 'stopped';
+  status: RuntimeStatus;
   port: number;
   command: 'pnpm run dev';
   revision: string;
@@ -17,10 +18,12 @@ let runtime: {
   error: string | null;
   logs: string[];
 };
+let runtimeByProject: Record<string, RuntimeFixture>;
+const pendingActions = new Map<string, (snapshot: RuntimeFixture) => void>();
 
-function runtimeSnapshot(status: 'running' | 'stopped') {
+function runtimeSnapshot(status: RuntimeStatus, ownerProjectId = projectId): RuntimeFixture {
   return {
-    projectId,
+    projectId: ownerProjectId,
     sessionId: 'session-1',
     status,
     port: 5173,
@@ -34,31 +37,45 @@ function runtimeSnapshot(status: 'running' | 'stopped') {
   };
 }
 
-function renderPanel() {
+function renderPanel(targetProjectId = projectId) {
   const queryClient = new QueryClient({
     defaultOptions: {
       queries: { retry: false, refetchIntervalInBackground: false },
       mutations: { retry: false },
     },
   });
-  render(
+  const view = render(
     <QueryClientProvider client={queryClient}>
-      <WorkspaceRuntimePanel projectId={projectId} />
+      <WorkspaceRuntimePanel projectId={targetProjectId} />
     </QueryClientProvider>,
   );
-  return queryClient;
+  return { ...view, queryClient };
+}
+
+function response(snapshot: unknown) {
+  return { ok: true, json: async () => snapshot };
 }
 
 beforeEach(() => {
-  runtime = runtimeSnapshot('running');
-  vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
-    if (String(input).endsWith('/runtime/stop') && init?.method === 'POST') {
-      runtime = runtimeSnapshot('stopped');
+  runtimeByProject = {
+    [projectId]: runtimeSnapshot('running', projectId),
+    'project-2': runtimeSnapshot('running', 'project-2'),
+  };
+  pendingActions.clear();
+  vi.stubGlobal('fetch', vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+    const match = String(input).match(/\\/api\\/projects\\/([^/]+)\\/runtime(?:\\/(start|restart|stop))?$/);
+    if (!match) throw new Error(`Unexpected runtime URL: ${String(input)}`);
+    const requestedProjectId = decodeURIComponent(match[1]!);
+    const nextAction = match[2];
+    if (init?.method === 'POST' && nextAction) {
+      return new Promise((resolve) => {
+        pendingActions.set(`${requestedProjectId}:${nextAction}`, (snapshot) => {
+          runtimeByProject[requestedProjectId] = snapshot;
+          resolve(response(snapshot));
+        });
+      });
     }
-    return {
-      ok: true,
-      json: async () => runtime,
-    };
+    return Promise.resolve(response(runtimeByProject[requestedProjectId]));
   }));
 });
 
@@ -85,6 +102,73 @@ describe('WorkspaceRuntimePanel', () => {
       '/api/projects/project-1/runtime/stop',
       expect.objectContaining({ method: 'POST', body: '{}' }),
     );
+  });
+
+  it('rejects a runtime snapshot whose project identity differs from the requested project', async () => {
+    runtimeByProject[projectId] = runtimeSnapshot('running', 'project-foreign');
+
+    renderPanel();
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'أعاد الخادم حالة تشغيل تخص مشروعًا آخر. لم نعرض بياناتها داخل مساحة هذا المشروع.',
+    );
+    expect(screen.queryByText('2345')).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'إيقاف التشغيل' })).not.toBeInTheDocument();
+  });
+
+  it('keeps pending runtime actions isolated when the panel switches projects', async () => {
+    const view = renderPanel('project-1');
+
+    expect(await screen.findByText('قيد التشغيل')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'إيقاف التشغيل' }));
+    await waitFor(() => expect(pendingActions.has('project-1:stop')).toBe(true));
+
+    view.rerender(
+      <QueryClientProvider client={view.queryClient}>
+        <WorkspaceRuntimePanel projectId="project-2" />
+      </QueryClientProvider>,
+    );
+    expect(await screen.findByText('قيد التشغيل')).toBeInTheDocument();
+    const secondProjectStop = screen.getByRole('button', { name: 'إيقاف التشغيل' });
+    expect(secondProjectStop).toBeEnabled();
+    fireEvent.click(secondProjectStop);
+    await waitFor(() => expect(pendingActions.has('project-2:stop')).toBe(true));
+    expect(screen.getByRole('button', { name: 'إيقاف التشغيل' })).toBeDisabled();
+
+    await act(async () => {
+      pendingActions.get('project-1:stop')!(runtimeSnapshot('stopped', 'project-1'));
+      await Promise.resolve();
+    });
+
+    // The old project's completion must not clear the new project's busy state.
+    expect(screen.getByRole('button', { name: 'إيقاف التشغيل' })).toBeDisabled();
+
+    await act(async () => {
+      pendingActions.get('project-2:stop')!(runtimeSnapshot('stopped', 'project-2'));
+      await Promise.resolve();
+    });
+    expect(await screen.findByText('متوقّف')).toBeInTheDocument();
+  });
+
+  it('does not cache a mutation response under a different project identity', async () => {
+    runtimeByProject[projectId] = runtimeSnapshot('stopped', projectId);
+    const view = renderPanel();
+    expect(await screen.findByText('متوقّف')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'تشغيل المعاينة' }));
+    await waitFor(() => expect(pendingActions.has('project-1:start')).toBe(true));
+
+    await act(async () => {
+      pendingActions.get('project-1:start')!(runtimeSnapshot('running', 'project-2'));
+      await Promise.resolve();
+    });
+
+    expect(screen.getByRole('alert')).toHaveTextContent(
+      'أعاد الخادم حالة تشغيل تخص مشروعًا آخر.',
+    );
+    expect(screen.queryByText('2345')).not.toBeInTheDocument();
+    expect(view.queryClient.getQueryData(['workspace-runtime', 'project-1']))
+      .toEqual(runtimeSnapshot('stopped', 'project-1'));
   });
 
   it('shows a localized failure state when the runtime cannot be loaded', async () => {
