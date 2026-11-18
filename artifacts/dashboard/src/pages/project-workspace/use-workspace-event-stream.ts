@@ -71,8 +71,8 @@ export function useWorkspaceEventStream({
   enabled,
   onSnapshotInvalidated,
 }: WorkspaceEventStreamOptions): WorkspaceEventStreamStatus {
-  const invalidateRef = useRef(onSnapshotInvalidated);
-  invalidateRef.current = onSnapshotInvalidated;
+  const invalidateRef = useRef({ projectId, enabled, callback: onSnapshotInvalidated });
+  invalidateRef.current = { projectId, enabled, callback: onSnapshotInvalidated };
   const [statusSnapshot, setStatusSnapshot] = useState<WorkspaceEventStreamStatusSnapshot>(() => ({
     projectId,
     enabled,
@@ -97,6 +97,12 @@ export function useWorkspaceEventStream({
     updateStatus("connecting");
     let connectedBefore = false;
     let disposed = false;
+    const invalidateCurrentProject = () => {
+      if (disposed) return;
+      const current = invalidateRef.current;
+      if (current.projectId !== projectId || current.enabled !== enabled) return;
+      current.callback();
+    };
     const seenEventIds = new Set<string>();
     const url = `/api/projects/${encodeURIComponent(projectId)}/workspace/events`;
     let source: EventSource;
@@ -122,7 +128,7 @@ export function useWorkspaceEventStream({
       const message = rawEvent as MessageEvent<string>;
       const payload = parseChangedPayload(message.data, projectId);
       if (payload && rememberEvent(payload.eventId)) {
-        invalidateRef.current();
+        invalidateCurrentProject();
       }
     };
 
@@ -130,7 +136,7 @@ export function useWorkspaceEventStream({
       if (disposed) return;
       const message = rawEvent as MessageEvent<string>;
       if (isResyncForProject(message.data, projectId)) {
-        invalidateRef.current();
+        invalidateCurrentProject();
       }
     };
 
@@ -138,7 +144,7 @@ export function useWorkspaceEventStream({
     source.addEventListener("workspace.resync", onResync);
     source.onopen = () => {
       if (disposed) return;
-      if (connectedBefore) invalidateRef.current();
+      if (connectedBefore) invalidateCurrentProject();
       connectedBefore = true;
       updateStatus("connected");
     };
