@@ -1424,9 +1424,28 @@ function TaskEditDialog({
 // ─── Main component ───────────────────────────────────────────────────────────
 
 export default function Tasks() {
-  const queryClient = useQueryClient();
   const requestedTaskId = new URLSearchParams(window.location.search).get('taskId') ?? '';
   const requestedProjectId = new URLSearchParams(window.location.search).get('projectId') ?? '';
+
+  // A task deep link can change while this route remains mounted. Keep project-owned
+  // filters, selections, and mutation UI state inside the requested route session.
+  return (
+    <TasksSession
+      key={JSON.stringify([requestedProjectId, requestedTaskId])}
+      requestedTaskId={requestedTaskId}
+      requestedProjectId={requestedProjectId}
+    />
+  );
+}
+
+function TasksSession({
+  requestedTaskId,
+  requestedProjectId,
+}: {
+  requestedTaskId: string;
+  requestedProjectId: string;
+}) {
+  const queryClient = useQueryClient();
   const [selectedProjectId, setSelectedProjectId] = useState('');
   const [filterStatus, setFilterStatus] = useState<TaskStatusFilter | ''>('');
   const [filterPriority, setFilterPriority] = useState<TaskPriorityFilter | ''>('');
