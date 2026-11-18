@@ -485,7 +485,13 @@ export function DiscoverProjectWizard({ onClose }: Props) {
   const { data: projectsListData } = useListProjects();
 
   // Polling via react-query (enabled only when discoveryId set and not done)
-  const { data: sessionData } = useGetDiscoverySession(discoveryId ?? '', {
+  const {
+    data: sessionData,
+    isError: sessionReadError,
+    isFetching: sessionReadFetching,
+    dataUpdatedAt: sessionDataUpdatedAt,
+    refetch: refetchSession,
+  } = useGetDiscoverySession(discoveryId ?? '', {
     query: {
       queryKey: getGetDiscoverySessionQueryKey(discoveryId ?? ''),
       enabled: !!discoveryId && step === 2,
@@ -498,6 +504,10 @@ export function DiscoverProjectWizard({ onClose }: Props) {
       },
     },
   });
+  const hasCachedSessionSnapshot = sessionData !== undefined;
+  const lastSuccessfulSessionRead = Number.isFinite(sessionDataUpdatedAt) && sessionDataUpdatedAt > 0
+    ? new Date(sessionDataUpdatedAt)
+    : null;
 
   const { data: summaryData, error: summaryError } = useGetDiscoverySummary(discoveryId ?? '', {
     query: {
@@ -937,37 +947,75 @@ export function DiscoverProjectWizard({ onClose }: Props) {
           <p dir="auto" className="text-sm text-muted-foreground font-mono truncate">{sourceLabel()}</p>
         </div>
 
-        {/* Progress bar */}
-        <div className="space-y-1.5">
-          <div className="flex justify-between text-xs text-muted-foreground">
-            <span>{isError ? 'فشل الاستكشاف' : progress < 100 ? 'جارٍ الاستكشاف…' : 'اكتمل'}</span>
-            <span className="font-mono">{progress}%</span>
-          </div>
-          <div className="w-full h-1.5 bg-secondary rounded-full overflow-hidden">
-            <div
-              className={`h-full rounded-full transition-all duration-500 ${isError ? 'bg-red-500' : 'bg-primary'}`}
-              style={{ width: `${progress}%` }}
-            />
-          </div>
-        </div>
-
-        {/* Steps */}
-        <div className="space-y-2">
-          {steps.map((s, i) => (
-            <div
-              key={i}
-              className={`flex items-center gap-3 py-1.5 px-3 rounded-lg transition-colors ${s.status === 'running' ? 'bg-primary/5' : ''}`}
+        {sessionReadError && (
+          <div
+            role="alert"
+            data-testid="discovery-session-read-error"
+            className="rounded-xl border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-sm text-amber-100"
+          >
+            <p className="font-medium">
+              {hasCachedSessionSnapshot
+                ? 'تعذّر تحديث حالة الاستكشاف؛ التقدم المعروض هو آخر قراءة ناجحة ولا يؤكد الحالة الحالية.'
+                : 'تعذّرت قراءة حالة جلسة الاستكشاف بعد بدء الطلب؛ معلومات البدء لا تؤكد التقدم الحالي.'}
+            </p>
+            {lastSuccessfulSessionRead && (
+              <p data-testid="discovery-session-last-success" className="mt-1 text-xs text-amber-100/75">
+                آخر قراءة ناجحة:{' '}
+                <time dateTime={lastSuccessfulSessionRead.toISOString()}>
+                  {lastSuccessfulSessionRead.toLocaleString('ar-EG')}
+                </time>
+              </p>
+            )}
+            <button
+              type="button"
+              onClick={() => void refetchSession()}
+              disabled={sessionReadFetching}
+              className="mt-3 rounded-md border border-amber-300/30 px-3 py-1.5 text-xs font-semibold text-amber-100 transition-colors hover:bg-amber-300/10 disabled:cursor-wait disabled:opacity-60"
             >
-              <StepIcon status={s.status} />
-              <span className={`text-sm flex-1 ${s.status === 'done' ? 'text-foreground/60' : s.status === 'running' ? 'text-foreground font-medium' : 'text-muted-foreground/40'}`}>
-                {discoveryStepLabel(s.name)}
-              </span>
-              {s.durationMs !== undefined && s.status === 'done' && (
-                <span className="text-xs font-mono text-muted-foreground/40">{s.durationMs}ms</span>
-              )}
+              {sessionReadFetching ? 'جارٍ إعادة قراءة الحالة…' : 'إعادة قراءة حالة الاستكشاف'}
+            </button>
+          </div>
+        )}
+
+        {sessionReadError && !hasCachedSessionSnapshot ? (
+          <div role="status" data-testid="discovery-session-progress-unavailable" className="rounded-lg border border-border/60 bg-secondary/30 px-4 py-3 text-xs text-muted-foreground">
+            لا يمكن عرض نسبة التقدم أو الخطوات الحالية حتى تنجح قراءة حالة الجلسة.
+          </div>
+        ) : (
+          <>
+            {/* Progress bar */}
+            <div className="space-y-1.5">
+              <div className="flex justify-between text-xs text-muted-foreground">
+                <span>{isError ? 'فشل الاستكشاف' : progress < 100 ? 'جارٍ الاستكشاف…' : 'اكتمل'}</span>
+                <span className="font-mono">{progress}%</span>
+              </div>
+              <div className="w-full h-1.5 bg-secondary rounded-full overflow-hidden">
+                <div
+                  className={`h-full rounded-full transition-all duration-500 ${isError ? 'bg-red-500' : 'bg-primary'}`}
+                  style={{ width: `${progress}%` }}
+                />
+              </div>
             </div>
-          ))}
-        </div>
+
+            {/* Steps */}
+            <div className="space-y-2">
+              {steps.map((s, i) => (
+                <div
+                  key={i}
+                  className={`flex items-center gap-3 py-1.5 px-3 rounded-lg transition-colors ${s.status === 'running' ? 'bg-primary/5' : ''}`}
+                >
+                  <StepIcon status={s.status} />
+                  <span className={`text-sm flex-1 ${s.status === 'done' ? 'text-foreground/60' : s.status === 'running' ? 'text-foreground font-medium' : 'text-muted-foreground/40'}`}>
+                    {discoveryStepLabel(s.name)}
+                  </span>
+                  {s.durationMs !== undefined && s.status === 'done' && (
+                    <span className="text-xs font-mono text-muted-foreground/40">{s.durationMs}ms</span>
+                  )}
+                </div>
+              ))}
+            </div>
+          </>
+        )}
 
         {isError && (() => {
           const { message, suggestCredentials } = parseGitError(session?.error);
