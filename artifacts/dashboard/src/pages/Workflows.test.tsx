@@ -275,7 +275,7 @@ describe('Workflows recovery rendering', () => {
     const confirm = vi.spyOn(window, 'confirm').mockReturnValue(true);
     renderPage();
     fireEvent.click(screen.getByRole('button', { name: /سجل التشغيل/i }));
-    fireEvent.click(screen.getByRole('button', { name: 'إعادة التشغيل من build' }));
+    fireEvent.click(screen.getByRole('button', { name: 'إعادة التشغيل من المرحلة build' }));
 
     const rollbackMutation = vi.mocked(useRollbackWorkflowPhase).mock.results[0]?.value as unknown as {
       mutate: ReturnType<typeof vi.fn>;
