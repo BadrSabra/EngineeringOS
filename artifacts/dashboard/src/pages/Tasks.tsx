@@ -1240,18 +1240,24 @@ function acceptanceFilterKey(acceptance: TaskAcceptance): TaskAcceptanceFilter {
 
 function TaskCreateDialog({
   projects,
+  selectedProjectId,
   saving,
   error,
   onClose,
   onSubmit,
 }: {
   projects: Array<{ id: string | number; name: string }>;
+  selectedProjectId: string;
   saving: boolean;
   error: unknown;
   onClose: () => void;
   onSubmit: (data: CreateTaskInput) => void;
 }) {
-  const [projectId, setProjectId] = useState(String(projects[0]?.id ?? ''));
+  const [projectId, setProjectId] = useState(() => (
+    projects.some((project) => String(project.id) === selectedProjectId)
+      ? selectedProjectId
+      : String(projects[0]?.id ?? '')
+  ));
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
   const [priority, setPriority] = useState<CreateTaskInput['priority']>('p2');
@@ -2169,6 +2175,7 @@ function TasksSession({
       {createOpen ? (
         <TaskCreateDialog
           projects={projects.map((project) => ({ id: project.id, name: project.name }))}
+          selectedProjectId={String(projectId ?? '')}
           saving={createTask.isPending}
           error={createTask.error}
           onClose={() => {
