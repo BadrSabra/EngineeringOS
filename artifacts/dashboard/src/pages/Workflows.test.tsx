@@ -138,6 +138,28 @@ describe('project-scoped Workflows view', () => {
     expect(screen.getByTestId('select-workflow-project')).toHaveValue('project-1');
   });
 
+  it('invalidates the workflow history and only its owning project list after retry', () => {
+    const queryClient = renderPage();
+    const invalidateQueries = vi.spyOn(queryClient, 'invalidateQueries');
+
+    fireEvent.click(screen.getByRole('button', { name: /سجل التشغيل/i }));
+    fireEvent.click(screen.getByRole('button', { name: 'إعادة المحاولة' }));
+
+    const retryMutation = vi.mocked(useRetryWorkflowPhase).mock.results[0]!.value.mutate;
+    const options = retryMutation.mock.calls[0]?.[1] as { onSuccess?: () => void };
+    act(() => options.onSuccess?.());
+
+    expect(invalidateQueries).toHaveBeenCalledWith({
+      queryKey: ['workflow-executions', 'workflow-1'],
+    });
+    expect(invalidateQueries).toHaveBeenCalledWith({
+      queryKey: ['/api/workflows', { projectId: 'project-1' }],
+    });
+    expect(invalidateQueries).not.toHaveBeenCalledWith({
+      queryKey: ['/api/workflows'],
+    });
+  });
+
   it('does not issue an enabled workflow read when no project is available', () => {
     vi.mocked(useListProjects).mockReturnValue({
       data: [],
