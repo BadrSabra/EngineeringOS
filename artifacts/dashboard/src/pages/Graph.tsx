@@ -319,6 +319,32 @@ export default function Graph() {
         />
       ) : (
        <div className="grid min-w-0 grid-cols-1 gap-4 flex-1 min-h-0 md:grid-cols-[220px_minmax(0,1fr)] xl:grid-cols-[220px_minmax(0,1fr)_260px]">
+        {(entitiesResponse?.meta.truncated || relationshipsResponse?.meta.truncated) && (
+          <div
+            className="col-span-full rounded-lg border border-amber-500/35 bg-amber-500/5 px-3 py-3 text-xs text-amber-100"
+            role="status"
+            aria-live="polite"
+            data-testid="graph-partial-data-warning"
+          >
+            <p className="font-semibold">
+              الرسم المعروض جزئي؛ بعض صفحات الكيانات أو العلاقات لم تُحمّل. لا تعتمد عليه باعتباره خريطة الاعتماديات الكاملة.
+            </p>
+            <div className="mt-1 flex flex-wrap gap-x-4 gap-y-1 text-amber-100/80">
+              {entitiesResponse?.meta.truncated && (
+                <span>
+                  الكيانات المعروضة:{' '}
+                  <bdi dir="ltr">{entities.length} / {entitiesResponse.meta.total}</bdi>
+                </span>
+              )}
+              {relationshipsResponse?.meta.truncated && (
+                <span>
+                  العلاقات المعروضة:{' '}
+                  <bdi dir="ltr">{relationships.length} / {relationshipsResponse.meta.total}</bdi>
+                </span>
+              )}
+            </div>
+          </div>
+        )}
         {(entitiesStale || relationshipsStale || summaryStale) && (
           <div className="col-span-full rounded-lg border border-amber-500/30 bg-amber-500/5 px-3 py-2 text-xs text-amber-200" role="status">
             قد لا يعكس هذا العرض أحدث فحص مكتمل. حدّثه قبل الاعتماد عليه لاتخاذ قرارات بشأن الاعتماديات.
