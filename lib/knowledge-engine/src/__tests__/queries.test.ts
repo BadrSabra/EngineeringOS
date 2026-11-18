@@ -10,6 +10,7 @@ import {
 import {
   getImpactedEntities,
   getShortestPath,
+  getHighConfidencePath,
   getNeighborhood,
   fetchProjectGraph,
   getEvidenceForNode,
@@ -28,7 +29,7 @@ async function insertProject(): Promise<string> {
     id,
     ownerId: "test-user",
     name: `knowledge-engine-test-${id.slice(0, 8)}`,
-    rootPath: "/tmp/knowledge-engine-test",
+    rootPath: `/tmp/knowledge-engine-test-${id}`,
     language: "typescript",
     status: "active",
     createdAt: now,
@@ -252,6 +253,77 @@ describe("getNeighborhood", () => {
     expect(result.root?.id).toBe(a);
     const ids = result.entities.map((e) => e.id).sort();
     expect(ids).toEqual([b, c].sort());
+  });
+
+  it("does not return incoming or outgoing relationships with foreign-project endpoints", async () => {
+    const projectId = await insertProject();
+    const foreignProjectId = await insertProject();
+    cleanupQueue.push(projectId, foreignProjectId);
+    const rootId = randomUUID();
+    const localNeighborId = randomUUID();
+    const foreignNeighborId = randomUUID();
+    const now = new Date();
+
+    await db.insert(graphEntitiesTable).values([
+      { id: rootId, projectId, type: "module", name: "root.ts", createdAt: now },
+      { id: localNeighborId, projectId, type: "module", name: "local.ts", createdAt: now },
+      { id: foreignNeighborId, projectId: foreignProjectId, type: "module", name: "foreign.ts", createdAt: now },
+    ]);
+
+    const localRelationshipId = randomUUID();
+    const foreignIncomingRelationshipId = randomUUID();
+    const foreignOutgoingRelationshipId = randomUUID();
+    await db.insert(graphRelationshipsTable).values([
+      {
+        id: localRelationshipId,
+        projectId,
+        sourceId: rootId,
+        targetId: localNeighborId,
+        relation: "imports",
+        createdAt: now,
+      },
+      {
+        id: foreignIncomingRelationshipId,
+        projectId: null,
+        sourceId: foreignNeighborId,
+        targetId: rootId,
+        relation: "imports",
+        createdAt: now,
+      },
+      {
+        id: foreignOutgoingRelationshipId,
+        projectId: null,
+        sourceId: rootId,
+        targetId: foreignNeighborId,
+        relation: "imports",
+        confidence: 0.95,
+        createdAt: now,
+      },
+    ]);
+
+    const result = await getNeighborhood(db, rootId, 1, projectId);
+    const defaultScopedResult = await getNeighborhood(db, rootId, 1);
+
+    expect(result.entities.map((entity) => entity.id)).toEqual([localNeighborId]);
+    expect(new Set(result.relationships.map((relationship) => relationship.id))).toEqual(
+      new Set([localRelationshipId]),
+    );
+    expect(defaultScopedResult.entities.map((entity) => entity.id)).toEqual([localNeighborId]);
+    expect(new Set(defaultScopedResult.relationships.map((relationship) => relationship.id))).toEqual(
+      new Set([localRelationshipId]),
+    );
+
+    const impacted = await getImpactedEntities(db, rootId, 1);
+    expect(impacted?.impacted.map((hop) => hop.entity.id)).toEqual([localNeighborId]);
+
+    expect((await getShortestPath(db, rootId, foreignNeighborId, 1)).found).toBe(false);
+    expect((await getHighConfidencePath(db, rootId, foreignNeighborId, 0.8, 1)).found).toBe(false);
+
+    const semantic = await getSemanticNeighborhood(db, rootId, 1);
+    expect(semantic.entities.map((entity) => entity.id)).toEqual([localNeighborId]);
+    expect(new Set(semantic.relationships.map((relationship) => relationship.id))).toEqual(
+      new Set([localRelationshipId]),
+    );
   });
 
   it("returns a null root for a nonexistent entity", async () => {

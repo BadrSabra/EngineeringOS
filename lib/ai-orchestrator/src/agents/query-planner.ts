@@ -1129,7 +1129,7 @@ async function enrichPlanWithGraph(
     const top5 = matches.slice(0, 5);
     const neighbourResults = await Promise.all(
       top5.map((entity) =>
-        getNeighborhood(db, entity.id, 2).catch(() => null),
+        getNeighborhood(db, entity.id, 2, projectId).catch(() => null),
       ),
     );
 

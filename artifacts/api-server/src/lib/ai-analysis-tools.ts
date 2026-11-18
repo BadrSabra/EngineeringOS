@@ -483,7 +483,7 @@ export function createProjectAnalysisToolRunner(
         };
       }
       const result = operation === "impact"
-        ? await getImpactedEntities(db, target.id, depth)
+        ? await getImpactedEntities(db, target.id, depth, projectId)
         : await getNeighborhood(db, target.id, depth, projectId);
       check(controller.signal, attemptDeadline);
       await assertRevision();

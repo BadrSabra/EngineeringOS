@@ -168,6 +168,7 @@ export async function getImpactedEntities(
 
   if (!rootRows[0]) return null;
   const root = rootRows[0];
+  const traversalProjectId = projectId ?? root.projectId;
 
   const visited = new Set<string>([entityId]);
   const impacted: TraversalHop[] = [];
@@ -181,7 +182,7 @@ export async function getImpactedEntities(
     impacted.length < GRAPH_LIMITS.maxTraversalEntities &&
     work < GRAPH_LIMITS.maxTraversalWork
   ) {
-    const outgoing = await fetchOutgoing(db, frontier, projectId);
+    const outgoing = await fetchOutgoing(db, frontier, traversalProjectId);
     work += outgoing.length;
     const nextIds = outgoing
       .map((r) => r.targetId)
@@ -193,7 +194,11 @@ export async function getImpactedEntities(
     }
 
     const nextDepth = currentDepth + 1;
-    const nextEntities = await fetchEntitiesByIds(db, [...new Set(nextIds)], projectId);
+    const nextEntities = await fetchEntitiesByIds(
+      db,
+      [...new Set(nextIds)],
+      traversalProjectId,
+    );
     const entityMap = new Map(nextEntities.map((e) => [e.id, e]));
 
     for (const rel of outgoing) {
@@ -259,6 +264,7 @@ export async function getShortestPath(
     .where(and(eq(graphEntitiesTable.id, fromId), ...(projectId ? [eq(graphEntitiesTable.projectId, projectId)] : [])))
     .limit(1);
   if (!fromRows[0]) return { found: false };
+  const traversalProjectId = projectId ?? fromRows[0].projectId;
 
   const visited = new Set<string>([fromId]);
   const queue: BfsNode[] = [
@@ -274,10 +280,14 @@ export async function getShortestPath(
     const node = queue.shift()!;
     if (node.path.length > depth) break;
 
-    const outgoing = await fetchOutgoing(db, [node.entityId], projectId);
+    const outgoing = await fetchOutgoing(db, [node.entityId], traversalProjectId);
     work += outgoing.length;
     const targetIds = outgoing.map((r) => r.targetId).filter((id) => !visited.has(id));
-    const entities = await fetchEntitiesByIds(db, [...new Set(targetIds)], projectId);
+    const entities = await fetchEntitiesByIds(
+      db,
+      [...new Set(targetIds)],
+      traversalProjectId,
+    );
     const entityMap = new Map(entities.map((e) => [e.id, e]));
 
     for (const rel of outgoing) {
@@ -330,6 +340,7 @@ export async function getNeighborhood(
     .limit(1);
 
   if (!rootRows[0]) return { root: null, entities: [], relationships: [] };
+  const traversalProjectId = projectId ?? rootRows[0].projectId;
 
   const visited = new Set<string>([entityId]);
   const allRelationships: GraphRelationship[] = [];
@@ -338,7 +349,7 @@ export async function getNeighborhood(
 
   for (let d = 0; d < Math.min(depth, GRAPH_LIMITS.maxTraversalDepth); d++) {
     // Outgoing
-    const outgoing = await fetchOutgoing(db, frontier, projectId);
+    const outgoing = await fetchOutgoing(db, frontier, traversalProjectId);
     // Incoming
     const incoming =
       frontier.length > 0
@@ -347,26 +358,33 @@ export async function getNeighborhood(
             .from(graphRelationshipsTable)
             .where(and(
               inArray(graphRelationshipsTable.targetId, frontier),
-              ...(projectId
-                ? [or(isNull(graphRelationshipsTable.projectId), eq(graphRelationshipsTable.projectId, projectId))!]
+              ...(traversalProjectId
+                ? [or(isNull(graphRelationshipsTable.projectId), eq(graphRelationshipsTable.projectId, traversalProjectId))!]
                 : []),
             ))
         : [];
 
+    const candidateRelationships = [...outgoing, ...incoming];
     const nextIds = new Set<string>();
-    for (const rel of [...outgoing, ...incoming]) {
-      allRelationships.push(rel);
+    for (const rel of candidateRelationships) {
       if (!visited.has(rel.targetId)) nextIds.add(rel.targetId);
       if (!visited.has(rel.sourceId)) nextIds.add(rel.sourceId);
     }
 
     const newIds = [...nextIds].filter((id) => !visited.has(id));
-    if (newIds.length === 0) break;
-
-    const entities = await fetchEntitiesByIds(db, newIds, projectId);
+    const entities = newIds.length > 0
+      ? await fetchEntitiesByIds(db, newIds, traversalProjectId)
+      : [];
+    const validEntityIds = new Set([...visited, ...entities.map((entity) => entity.id)]);
+    for (const rel of candidateRelationships) {
+      if (validEntityIds.has(rel.sourceId) && validEntityIds.has(rel.targetId)) {
+        allRelationships.push(rel);
+      }
+    }
     allEntities.push(...entities);
     for (const e of entities) visited.add(e.id);
-    frontier = newIds;
+    if (newIds.length === 0 || entities.length === 0) break;
+    frontier = entities.map((entity) => entity.id);
   }
 
   return {
@@ -658,6 +676,7 @@ export async function getSemanticNeighborhood(
     .limit(1);
 
   if (!rootRows[0]) return { root: null, entities: [], relationships: [] };
+  const traversalProjectId = projectId ?? rootRows[0].projectId;
 
   const visited = new Set<string>([entityId]);
   const allRelationships: GraphRelationship[] = [];
@@ -667,9 +686,9 @@ export async function getSemanticNeighborhood(
   for (let d = 0; d < Math.min(depth, GRAPH_LIMITS.maxSemanticDepth); d++) {
     // Build conditions for this hop's outgoing edges
     const conditions: SQL[] = [inArray(graphRelationshipsTable.sourceId, frontier)];
-    if (projectId) {
+    if (traversalProjectId) {
       conditions.push(
-        or(isNull(graphRelationshipsTable.projectId), eq(graphRelationshipsTable.projectId, projectId))!,
+        or(isNull(graphRelationshipsTable.projectId), eq(graphRelationshipsTable.projectId, traversalProjectId))!,
       );
     }
     if (filters.edgeTypes && filters.edgeTypes.length > 0) {
@@ -713,14 +732,14 @@ export async function getSemanticNeighborhood(
       .slice(0, Math.max(0, GRAPH_LIMITS.maxTraversalEntities - visited.size));
     if (newIds.length === 0) break;
 
-    const entities = await fetchEntitiesByIds(db, newIds, projectId);
+    const entities = await fetchEntitiesByIds(db, newIds, traversalProjectId);
     const validEntityIds = new Set(entities.map((entity) => entity.id));
     for (const rel of outgoing) {
       if (validEntityIds.has(rel.targetId)) allRelationships.push(rel);
     }
     allEntities.push(...entities);
     for (const e of entities) visited.add(e.id);
-    frontier = newIds;
+    frontier = entities.map((entity) => entity.id);
   }
 
   return {
@@ -762,6 +781,7 @@ export async function getHighConfidencePath(
     .where(and(eq(graphEntitiesTable.id, fromId), ...(projectId ? [eq(graphEntitiesTable.projectId, projectId)] : [])))
     .limit(1);
   if (!fromRows[0]) return { found: false };
+  const traversalProjectId = projectId ?? fromRows[0].projectId;
 
   type BfsNode = { entityId: string; path: PathStep[] };
   const visited = new Set<string>([fromId]);
@@ -787,15 +807,19 @@ export async function getHighConfidencePath(
             and(
               eq(graphRelationshipsTable.sourceId, node.entityId),
               gte(graphRelationshipsTable.confidence, minConfidence),
-              ...(projectId
-                ? [or(isNull(graphRelationshipsTable.projectId), eq(graphRelationshipsTable.projectId, projectId))!]
+              ...(traversalProjectId
+                ? [or(isNull(graphRelationshipsTable.projectId), eq(graphRelationshipsTable.projectId, traversalProjectId))!]
                 : []),
             ),
           )
       : [];
 
     const targetIds = outgoing.map((r) => r.targetId).filter((id) => !visited.has(id));
-    const entities = await fetchEntitiesByIds(db, [...new Set(targetIds)], projectId);
+    const entities = await fetchEntitiesByIds(
+      db,
+      [...new Set(targetIds)],
+      traversalProjectId,
+    );
     const entityMap = new Map(entities.map((e) => [e.id, e]));
 
     for (const rel of outgoing) {
