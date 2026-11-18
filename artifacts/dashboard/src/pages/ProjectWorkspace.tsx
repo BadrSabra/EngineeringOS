@@ -4,7 +4,7 @@ import PreviewAgentPanel from '@/pages/project-workspace/PreviewAgentPanel';
 import type { ReactNode } from 'react';
 import { Link, useRoute } from 'wouter';
 import { Activity, AlertTriangle, ArrowRight, Check, Clock3, Code2, GitBranch, Layers3, RefreshCw, ShieldCheck, Sparkles, Terminal } from 'lucide-react';
-import { useGetProjectWorkspaceSnapshot, getGetProjectWorkspaceSnapshotQueryKey, getGetAiExecutionQueryKey } from '@workspace/api-client-react';
+import { useGetProjectWorkspaceSnapshot, getGetProjectWorkspaceSnapshotQueryKey, getGetAiExecutionQueryKey, useGetTask, getGetTaskQueryKey, useGetTaskLogs, getGetTaskLogsQueryKey, useGetAiExecution } from '@workspace/api-client-react';
 import AiChat from '@/pages/AiChat';
 import ProjectCanvasPanel from '@/pages/project-workspace/ProjectCanvasPanel';
 import WorkspaceExecutionDetail from '@/pages/project-workspace/WorkspaceExecutionDetail';
@@ -85,6 +85,148 @@ function SourceNote({ available, children }: { available: boolean; children: Rea
     <p className="mt-3 rounded-lg border border-amber-300/20 bg-amber-200/[.06] px-3 py-2 text-xs leading-6 text-amber-100/80" role="status">
       {children}
     </p>
+  );
+}
+
+
+type WorkspaceTaskSummaryItem = {
+  id: string;
+  title: string;
+  status: string;
+  verificationDecision: string | null;
+  updatedAt: string;
+};
+
+function isRecordedAttempt(value: unknown): value is number {
+  return typeof value === 'number' && Number.isSafeInteger(value) && value >= 0;
+}
+
+function WorkspaceTaskCard({
+  projectId,
+  task,
+}: {
+  projectId: string;
+  task: WorkspaceTaskSummaryItem;
+}) {
+  const taskQuery = useGetTask(task.id, {
+    query: {
+      queryKey: getGetTaskQueryKey(task.id),
+      staleTime: 0,
+    },
+  });
+  const taskDetails = taskQuery.data;
+  const summaryUpdatedAt = Date.parse(task.updatedAt);
+  const detailsUpdatedAt = taskDetails ? Date.parse(taskDetails.updatedAt) : Number.NaN;
+  const taskMatchesSnapshot = Boolean(
+    taskDetails
+    && taskDetails.id === task.id
+    && taskDetails.projectId === projectId
+    && taskDetails.status === task.status
+    && Number.isFinite(summaryUpdatedAt)
+    && Number.isFinite(detailsUpdatedAt)
+    && summaryUpdatedAt === detailsUpdatedAt,
+  );
+  const currentCorrelationId = taskMatchesSnapshot
+    && typeof taskDetails?.correlationId === 'string'
+    && taskDetails.correlationId.trim()
+    ? taskDetails.correlationId.trim()
+    : null;
+  const taskLogsQuery = useGetTaskLogs(task.id, {
+    query: {
+      queryKey: getGetTaskLogsQueryKey(task.id),
+      enabled: Boolean(currentCorrelationId),
+      staleTime: 0,
+      refetchInterval: task.status === 'running' ? 5_000 : false,
+    },
+  });
+  const latestExecutionLog = (taskLogsQuery.data ?? [])
+    .filter((log) =>
+      log.correlationId === currentCorrelationId
+      && typeof log.executionId === 'string'
+      && log.executionId.trim().length > 0)
+    .sort((left, right) =>
+      (left.sequence ?? -1) - (right.sequence ?? -1)
+      || Date.parse(String(left.timestamp)) - Date.parse(String(right.timestamp)))
+    .at(-1);
+  const executionId = latestExecutionLog?.executionId ?? '';
+  const executionQuery = useGetAiExecution(executionId, {
+    query: {
+      queryKey: getGetAiExecutionQueryKey(executionId),
+      enabled: Boolean(executionId),
+      staleTime: 0,
+      refetchInterval: task.status === 'running' ? 5_000 : false,
+    },
+  });
+  const execution = executionQuery.data;
+  const executionMatchesTask = Boolean(
+    execution
+    && execution.id === executionId
+    && execution.correlationId === currentCorrelationId
+    && execution.linkedTaskId === task.id,
+  );
+  const executionAttempt = executionMatchesTask && isRecordedAttempt(execution?.attempt)
+    ? execution.attempt
+    : null;
+  const acceptanceAttempt = task.status !== 'running'
+    && isRecordedAttempt(taskDetails?.acceptance?.attempt)
+    ? taskDetails.acceptance.attempt
+    : null;
+  const attempt = executionAttempt ?? acceptanceAttempt;
+
+  let attemptContext = 'لا تتوفر محاولة مرتبطة في القراءة الحالية.';
+  if (taskQuery.isLoading) {
+    attemptContext = 'جارٍ مطابقة سجل المهمة مع لقطة Workspace.';
+  } else if (taskQuery.isError) {
+    attemptContext = 'تعذر قراءة سجل المهمة؛ لم نعرض رقم محاولة غير مؤكد.';
+  } else if (!taskMatchesSnapshot) {
+    attemptContext = 'تغير سجل المهمة منذ آخر لقطة؛ حدّث مساحة المشروع قبل الاعتماد على المحاولة.';
+  } else if (attempt !== null) {
+    attemptContext = 'محاولة مسجلة من سجل المهمة أو التنفيذ المرتبط.';
+  } else if (task.status === 'running' && !currentCorrelationId) {
+    attemptContext = 'لا توجد هوية تنفيذ حالية مرتبطة بالمهمة في هذه القراءة.';
+  } else if (task.status === 'running' && (taskLogsQuery.isError || executionQuery.isError)) {
+    attemptContext = 'تعذر تأكيد المحاولة الحالية من سجل التنفيذ.';
+  } else if (task.status === 'running') {
+    attemptContext = 'جارٍ تأكيد المحاولة الحالية من التنفيذ المرتبط.';
+  }
+
+  return (
+    <article className="workspace-task" data-testid={`workspace-task-${task.id}}>
+      <div className="flex min-w-0 flex-1 items-start gap-2">
+        <span className="workspace-task-mark" />
+        <div className="min-w-0 flex-1">
+          <p dir="auto" className="text-sm leading-5 text-slate-200">{task.title}</p>
+          <div className="mt-1.5 flex flex-wrap items-center gap-2 text-[11px] text-slate-500">
+            <span>{dateLabel(task.updatedAt)}</span>
+            <span aria-hidden="true">·</span>
+            <span>التحقق: {label(task.verificationDecision)}</span>
+          </div>
+          <dl className="mt-2 grid grid-cols-1 gap-1 text-[11px] text-slate-400">
+            <div className="flex flex-wrap items-center gap-1.5">
+              <dt>المصدر:</dt><dd data-testid={`workspace-task-source-${task.id}`}>ملخص مهام Workspace</dd>
+            </div>
+            <div className="flex flex-wrap items-center gap-1.5">
+              <dt>معرّف المهمة:</dt><dd data-testid={`workspace-task-id-${task.id}`}><Identifier>{task.id}</Identifier></dd>
+            </div>
+            <div className="flex flex-wrap items-center gap-1.5">
+              <dt>المحاولة:</dt>
+              <dd data-testid={`workspace-task-attempt-${task.id}`}>
+                {attempt === null ? 'غير متاحة' : <Identifier>{attempt}</Identifier>}
+              </dd>
+              <span className="text-slate-500">{attemptContext}</span>
+            </div>
+          </dl>
+          <Link
+            href={`/tasks?projectId=${encodeURIComponent(projectId)}&taskId=${encodeURIComponent(task.id)}`}
+            className="mt-2 inline-flex text-xs font-medium text-cyan-300 underline-offset-4 hover:underline"
+            aria-label={`فتح تفاصيل المهمة: ${task.title}`}
+          >
+            فتح تفاصيل المهمة
+          </Link>
+        </div>
+      </div>
+      <span className={`workspace-status status-${task.status}`}>{label(task.status)}</span>
+    </article>
   );
 }
 
@@ -282,20 +424,7 @@ export default function ProjectWorkspace() {
               ) : (
                 <div className="mt-4 space-y-2">
                   {work.recentTasks.map((task) => (
-                    <article key={task.id} className="workspace-task">
-                      <div className="flex min-w-0 flex-1 items-start gap-2">
-                        <span className="workspace-task-mark" />
-                        <div className="min-w-0">
-                          <p dir="auto" className="text-sm leading-5 text-slate-200">{task.title}</p>
-                          <div className="mt-1.5 flex flex-wrap items-center gap-2 text-[11px] text-slate-500">
-                            <span>{dateLabel(task.updatedAt)}</span>
-                            <span aria-hidden="true">·</span>
-                            <span>التحقق: {label(task.verificationDecision)}</span>
-                          </div>
-                        </div>
-                      </div>
-                      <span className={`workspace-status status-${task.status}`}>{label(task.status)}</span>
-                    </article>
+                    <WorkspaceTaskCard key={task.id} projectId={project.id} task={task} />
                   ))}
                 </div>
               )
