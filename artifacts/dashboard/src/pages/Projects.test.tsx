@@ -158,7 +158,7 @@ describe("Projects", () => {
       data: { id: 'operation-a', status: 'completed', projectId: 'created-project' }, isLoading: false,
     } as ReturnType<typeof useGetProjectBootstrap>);
     render(<Projects />);
-    await waitFor(() => expect(mocks.setLocation).toHaveBeenCalledWith(`/ai?projectId=created-project&goalDraftId=${draft.id}`));
+    await waitFor(() => expect(mocks.setLocation).toHaveBeenCalledWith(`/projects/created-project/workspace?goalDraftId=${draft.id}`));
     expect(mocks.mutate).toHaveBeenCalledTimes(1);
     expect(readGoalDrafts('user-1').drafts[0].projectId).toBe('created-project');
     expect(readGoalDrafts('user-1').drafts[0].text).toBe(draft.text);
