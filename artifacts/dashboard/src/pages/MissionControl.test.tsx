@@ -124,6 +124,7 @@ const refetchMissionControl = vi.hoisted(() => vi.fn());
 const refetchExecutionDetail = vi.hoisted(() => vi.fn());
 const selectedExecutionQuery = vi.hoisted(() => ({
   options: undefined as any,
+  requestedId: undefined as string | undefined,
   state: {
     isError: false,
     isLoading: false,
@@ -142,6 +143,7 @@ vi.mock('@workspace/api-client-react', () => ({
     refetch: refetchMissionControl,
   }),
   useGetAiExecution: (_id: string, options: any) => {
+    selectedExecutionQuery.requestedId = _id;
     selectedExecutionQuery.options = options.query;
     return {
       data: currentExecutionDetail,
@@ -319,6 +321,7 @@ describe('Mission Control', () => {
   beforeEach(() => {
     currentMissionControl = missionControlFixture;
     currentExecutionDetail = undefined;
+    selectedExecutionQuery.requestedId = undefined;
     selectedExecutionQuery.state = {
       isError: false,
       isLoading: false,
@@ -327,6 +330,42 @@ describe('Mission Control', () => {
     };
     refetchMissionControl.mockReset();
     refetchExecutionDetail.mockReset();
+  });
+
+  it('honors a changed execution deep link without retaining the previous selection', () => {
+    const originalPath = window.location.pathname + window.location.search;
+    currentMissionControl = {
+      ...missionControlFixture,
+      executions: [
+        missionControlFixture.executions[0],
+        {
+          ...missionControlFixture.executions[0],
+          id: 'execution-2',
+          state: 'RUNNING',
+          objective: 'Review the second execution',
+        },
+      ],
+    };
+
+    try {
+      window.history.pushState({}, '', '/mission-control?projectId=project-1&executionId=execution-1');
+      const page = renderPage();
+      expect(selectedExecutionQuery.requestedId).toBe('execution-1');
+      expect(screen.getByRole('button', { name: /execution-1/ })).toHaveAttribute('aria-pressed', 'true');
+
+      window.history.pushState({}, '', '/mission-control?projectId=project-1&executionId=execution-2');
+      page.rerender(<MissionControl />);
+
+      expect(selectedExecutionQuery.requestedId).toBe('execution-2');
+      expect(screen.getByRole('button', { name: /execution-2/ })).toHaveAttribute('aria-pressed', 'true');
+      expect(screen.getByRole('button', { name: /execution-1/ })).toHaveAttribute('aria-pressed', 'false');
+
+      // Manual selection remains available inside the new route session.
+      fireEvent.click(screen.getByRole('button', { name: /execution-1/ }));
+      expect(selectedExecutionQuery.requestedId).toBe('execution-1');
+    } finally {
+      window.history.pushState({}, '', originalPath);
+    }
   });
 
   it('keeps the Arabic screen RTL while terminal commands remain LTR', () => {
