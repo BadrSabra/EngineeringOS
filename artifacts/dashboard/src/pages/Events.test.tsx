@@ -4,11 +4,12 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import Events from "./Events";
 
 vi.mock("@workspace/api-client-react", () => ({
+  getListEventsQueryKey: vi.fn((params) => ["/api/events", params]),
   useListEvents: vi.fn(),
   useListProjects: vi.fn(),
 }));
 
-import { useListEvents, useListProjects } from "@workspace/api-client-react";
+import { getListEventsQueryKey, useListEvents, useListProjects } from "@workspace/api-client-react";
 
 const mockEvents = [
   {
@@ -67,10 +68,12 @@ describe("Events", () => {
     const call = vi.mocked(useListEvents).mock.calls.at(-1);
     expect(call?.[1]).toEqual(expect.objectContaining({
       query: expect.objectContaining({
+        queryKey: expect.any(Array),
         refetchInterval: 15_000,
         refetchIntervalInBackground: false,
       }),
     }));
+    expect(vi.mocked(getListEventsQueryKey)).toHaveBeenCalledWith(call?.[0]);
   });
 
   it("renders events from the all-project request", () => {
