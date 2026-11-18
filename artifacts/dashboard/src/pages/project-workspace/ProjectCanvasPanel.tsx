@@ -33,7 +33,7 @@ export default function ProjectCanvasPanel({
           <h2 id="workspace-canvas-heading">معاينة المشروع</h2>
           <p>مساحة العرض المرتبطة بنسخة محددة من المشروع</p>
         </div>
-        <span className="workspace-status status-blocked">غير مفعّلة</span>
+        <span className="workspace-status status-blocked">غير متاحة حالياً</span>
       </div>
 
       <div className="workspace-canvas-stage" data-testid="workspace-preview-gate">
