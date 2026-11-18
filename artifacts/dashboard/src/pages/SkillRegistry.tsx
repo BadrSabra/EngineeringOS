@@ -402,6 +402,7 @@ export default function SkillRegistry() {
                 setLoadError(null);
                 setLoadErrorProjectId(null);
                 setLastUpdatedProjectId(null);
+                setBusyAction(null);
               }}
               disabled={projectsLoading || !projects?.length}
               className="w-full appearance-none rounded-md border border-slate-700 bg-slate-900 px-3 py-2.5 pr-9 text-sm font-medium text-slate-200 outline-none transition-colors hover:border-slate-600 focus:border-cyan-300/60 disabled:cursor-not-allowed disabled:opacity-60"
