@@ -310,9 +310,21 @@ function ExecutionHistory({
   workflowId: string;
   phases: Array<{ name: string }>;
 }) {
-  const { data: executions, isLoading, isError, error, refetch } = useListWorkflowExecutions(workflowId, {
+  const {
+    data: executions,
+    isLoading,
+    isError,
+    error,
+    refetch,
+    isFetching,
+    dataUpdatedAt,
+  } = useListWorkflowExecutions(workflowId, {
     query: { queryKey: getListWorkflowExecutionsQueryKey(workflowId), staleTime: 10_000 },
   });
+  const hasCachedSnapshot = executions !== undefined;
+  const lastSuccessfulRead = Number.isFinite(dataUpdatedAt) && dataUpdatedAt > 0
+    ? new Date(dataUpdatedAt)
+    : null;
   const queryClient = useQueryClient();
   const retryPhase = useRetryWorkflowPhase();
   const rollbackPhase = useRollbackWorkflowPhase();
@@ -326,7 +338,35 @@ function ExecutionHistory({
     return <div dir="rtl" className="text-xs text-muted-foreground animate-pulse py-2">جارٍ تحميل سجلات التشغيل…</div>;
   }
   if (isError) {
-    return <RequestError message={error instanceof Error ? error.message : 'تعذر تحميل سجلات التشغيل.'} onRetry={() => void refetch()} />;
+    return (
+      <div
+        role="alert"
+        data-testid="workflow-history-read-error"
+        className="rounded-lg border border-destructive/25 bg-destructive/5 px-3 py-3 text-xs"
+      >
+        <p className="font-semibold text-destructive">
+          {hasCachedSnapshot
+            ? 'تعذّر تحديث سجل تشغيل مسار العمل؛ أُخفيت القراءة السابقة لأنها لا تؤكد الحالة الحالية.'
+            : 'تعذّر تحميل سجل تشغيل مسار العمل؛ لا تتوفر قراءة ناجحة لهذه المحاولة.'}
+        </p>
+        {lastSuccessfulRead && (
+          <p data-testid="workflow-history-last-success" className="mt-1 text-[10px] text-muted-foreground">
+            آخر قراءة ناجحة:{' '}
+            <time dateTime={lastSuccessfulRead.toISOString()}>
+              {lastSuccessfulRead.toLocaleString('ar-EG')}
+            </time>
+          </p>
+        )}
+        <button
+          type="button"
+          onClick={() => void refetch()}
+          disabled={isFetching}
+          className="mt-3 rounded-md border border-destructive/30 px-3 py-1.5 text-xs font-medium text-destructive hover:bg-destructive/10 disabled:cursor-wait disabled:opacity-60"
+        >
+          {isFetching ? 'جارٍ إعادة المحاولة…' : 'إعادة تحميل سجل التشغيل'}
+        </button>
+      </div>
+    );
   }
   if (!executions || executions.length === 0) {
     return <p dir="rtl" className="text-xs text-muted-foreground italic py-2">لا توجد تشغيلات مسجلة بعد.</p>;
