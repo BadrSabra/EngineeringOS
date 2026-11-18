@@ -448,7 +448,7 @@ describe('Flight Deck mission control', () => {
       'يجري تحديث سجل التنفيذ؛ اللقطة المعروضة هي آخر قراءة ناجحة.',
     );
     expect(screen.getByRole('button', { name: 'دفع العملية المُودعة' })).toBeDisabled();
-    expect(screen.getByRole('button', { name: 'إعادة تحميل سجل التنفيذ' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'جارٍ تحديث السجل…' })).toBeDisabled();
   });
 
   it('offers a retry when the first execution read fails without cached data', () => {
