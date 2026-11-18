@@ -140,6 +140,68 @@ describe('Flight Deck mission control', () => {
     expect(screen.getAllByText(state === 'BLOCKED' ? 'BLOCKED' : 'PARTIAL').length).toBeGreaterThan(0);
   });
 
+  it.each([
+    ['BUILDING', 'البناء'],
+    ['VALIDATING', 'التحقق'],
+    ['REPAIRING', 'الإصلاح'],
+    ['READY_FOR_REVIEW', 'المراجعة'],
+    ['APPLIED', 'التطبيق'],
+    ['COMMITTED', 'إيداع التغييرات'],
+    ['PUSHED', 'دفع التغييرات'],
+  ] as const)('marks only the canonical %s lifecycle state as active', (state, label) => {
+    const proofAccepted = ['APPLIED', 'COMMITTED', 'PUSHED'].includes(state);
+    mocks.execution = {
+      ...baseExecution(state),
+      ...(proofAccepted ? {
+        operationEvidence: {
+          completeness: 'complete',
+          proof: { verdict: 'PROVEN', accepted: true, failureReasons: [] },
+          receipts: [],
+          gaps: [],
+        },
+        evidenceVerdict: 'PROVEN',
+      } : {}),
+    };
+    renderDeck();
+
+    const lifecycle = screen.getByTestId('flight-deck-lifecycle');
+    const activePhases = lifecycle.querySelectorAll('[aria-current="step"]');
+    expect(activePhases).toHaveLength(1);
+    expect(activePhases[0]).toHaveAttribute('data-testid', `flight-deck-phase-${state}`);
+    expect(activePhases[0]).toHaveTextContent(label);
+    expect(lifecycle.querySelectorAll('[data-phase-active="true"]')).toHaveLength(1);
+    expect(lifecycle).not.toHaveTextContent('الخطة');
+    expect(lifecycle).not.toHaveTextContent('الاستكشاف');
+    expect(lifecycle.querySelectorAll('[data-phase-active="false"]')).toHaveLength(6);
+  });
+
+  it.each([
+    ['BLOCKED', 'failed', 'التنفيذ محظور'],
+    ['CANCELLED', 'cancelled', 'أُلغي التنفيذ'],
+    ['COMPLETED', 'completed', 'اكتملت حالة التنفيذ المسجلة'],
+  ] as const)('shows %s as terminal without inventing a completed delivery phase', (state, status, message) => {
+    mocks.execution = {
+      ...baseExecution(state),
+      status,
+      ...(state === 'COMPLETED' ? {
+        evidenceVerdict: 'PROVEN',
+        operationEvidence: {
+          completeness: 'complete',
+          proof: { verdict: 'PROVEN', accepted: true, failureReasons: [] },
+          receipts: [],
+          gaps: [],
+        },
+      } : {}),
+    };
+    renderDeck();
+
+    const lifecycle = screen.getByTestId('flight-deck-lifecycle');
+    expect(screen.getByTestId('flight-deck-terminal-phase')).toHaveTextContent(message);
+    expect(lifecycle.querySelectorAll('[aria-current="step"]')).toHaveLength(0);
+    expect(lifecycle.querySelectorAll('[data-phase-active="true"]')).toHaveLength(0);
+    expect(screen.getByTestId('flight-deck-phase-PUSHED')).not.toHaveAttribute('aria-current');
+  });
+
   it('keeps non-delivery audit/chat executions out of the completed delivery presentation', () => {
     mocks.execution = {
       ...baseExecution('COMPLETED', 'passed'),
@@ -155,6 +217,8 @@ describe('Flight Deck mission control', () => {
 
     expect(screen.getByText('مراجعة / محادثة')).toBeInTheDocument();
     expect(screen.getByText('تنفيذ لا يتضمن تسليمًا')).toBeInTheDocument();
+    expect(screen.getByTestId('flight-deck-no-delivery-phases')).toBeInTheDocument();
+    expect(screen.queryByTestId('flight-deck-lifecycle')).not.toBeInTheDocument();
     expect(screen.queryByText('المهمة ← الدفع')).toBeNull();
   });
 
