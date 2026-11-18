@@ -88,6 +88,8 @@ function chatHandoffHref(
 type PendingMissionActionRequest = {
   identity: string;
   idempotencyKey: string;
+  projectId: string;
+  scopeRevision: number;
   action: MissionActionConfirmation;
 };
 
@@ -1429,6 +1431,18 @@ export default function Missions() {
       : projectMissions[0]?.id ?? null;
   const activeMission = projectMissions.find((mission) => mission.id === activeMissionId) ?? null;
 
+  // Async action receipts belong to the project/mission view that initiated
+  // them. Increment synchronously during render so a route or selection change
+  // fences late callbacks before passive-effect cleanup can run.
+  const missionViewScopeKey = `${explicitProjectId ?? projectId}::${explicitMissionId ?? activeMissionId ?? ''}`;
+  const missionViewScopeRef = useRef({ key: missionViewScopeKey, revision: 0 });
+  if (missionViewScopeRef.current.key !== missionViewScopeKey) {
+    missionViewScopeRef.current = {
+      key: missionViewScopeKey,
+      revision: missionViewScopeRef.current.revision + 1,
+    };
+  }
+
   useEffect(() => {
     if (!activeMissionId) {
       setProjection(null);
@@ -1479,6 +1493,9 @@ export default function Missions() {
     let cancelled = false;
     let timer: number | undefined;
     let schedulePoll: () => void;
+    const requestScopeRevision = inProgressMissionAction.scopeRevision;
+    const requestProjectId = inProgressMissionAction.projectId;
+    const isCurrentScope = () => missionViewScopeRef.current.revision === requestScopeRevision;
     const pollActionResult = async () => {
       try {
         const { action, identity, idempotencyKey } = inProgressMissionAction;
@@ -1489,7 +1506,13 @@ export default function Missions() {
         const freshProjection = normalizeProjection(
           await fetchMissionProjection(action.missionId),
         );
-        if (cancelled) return;
+        if (cancelled || !isCurrentScope()) return;
+        if (
+          freshProjection.mission.id !== action.missionId
+          || String(freshProjection.mission.projectId) !== requestProjectId
+        ) {
+          throw new Error('Mission action receipt did not match the initiating project and mission.');
+        }
         setProjection(freshProjection);
         setMissions((current) => current.map((item) => item.id === freshProjection.mission.id
           ? freshProjection.mission
@@ -1515,7 +1538,7 @@ export default function Missions() {
           ?? 'لم تُقبل نتيجة الإجراء. راجع الحالة المحدّثة قبل المحاولة مجددًا.');
         setMissionsReload((value) => value + 1);
       } catch (error: unknown) {
-        if (cancelled) return;
+        if (cancelled || !isCurrentScope()) return;
         const status = error instanceof MissionRequestError ? error.status : Number.NaN;
         if (Number.isFinite(status) && status < 500) {
           agentActionKeys.current.delete(inProgressMissionAction.identity);
@@ -1746,17 +1769,27 @@ export default function Missions() {
 
   const startMission = async () => {
     if (!activeMission || mutationSaving || !canStartMission || !missionDecisionIdentity) return;
-    const actionIdentity = `mission:${activeMission.id}:START`;
+    const requestProjectId = projectId;
+    const requestMissionId = activeMission.id;
+    const requestScopeRevision = missionViewScopeRef.current.revision;
+    const actionIdentity = `mission:${requestMissionId}:START`;
     const idempotencyKey = getAgentActionKey(actionIdentity);
     setMutationSaving(true);
     setMutationError(null);
     setMutationNotice(null);
     try {
-      const result = await executeMissionAgentAction(activeMission.id, {
+      const result = await executeMissionAgentAction(requestMissionId, {
         idempotencyKey,
         expectedDecision: missionDecisionIdentity,
       });
       clearAgentActionKey(actionIdentity);
+      if (missionViewScopeRef.current.revision !== requestScopeRevision) return;
+      if (
+        result.projection.mission.id !== requestMissionId
+        || String(result.projection.mission.projectId) !== requestProjectId
+      ) {
+        throw new Error('Mission action receipt did not match the initiating project and mission.');
+      }
       setProjection(result.projection);
       setMissions((current) => current.map((item) => item.id === result.projection.mission.id
         ? result.projection.mission
@@ -1768,6 +1801,7 @@ export default function Missions() {
       setProjectionReload((value) => value + 1);
     } catch (error: unknown) {
       if (error instanceof MissionRequestError && error.status < 500) clearAgentActionKey(actionIdentity);
+      if (missionViewScopeRef.current.revision !== requestScopeRevision) return;
       setMutationError(error);
       setMissionsReload((value) => value + 1);
       setProjectionReload((value) => value + 1);
@@ -1778,21 +1812,31 @@ export default function Missions() {
 
   const continueMission = async () => {
     if (!activeMission || mutationSaving || !canAutoContinue || !missionDecisionIdentity) return;
-    const actionIdentity = `mission:${activeMission.id}:AUTO_CONTINUE:${missionDecisionIdentity.target?.id ?? ''}`;
+    const requestProjectId = projectId;
+    const requestMissionId = activeMission.id;
+    const requestScopeRevision = missionViewScopeRef.current.revision;
+    const actionIdentity = `mission:${requestMissionId}:AUTO_CONTINUE:${missionDecisionIdentity.target?.id ?? ''}`;
     const idempotencyKey = getAgentActionKey(actionIdentity);
     setMutationSaving(true);
     setMutationError(null);
     setMutationNotice(null);
     try {
-      const result = await executeMissionAgentAction(activeMission.id, {
+      const result = await executeMissionAgentAction(requestMissionId, {
         idempotencyKey,
         expectedDecision: missionDecisionIdentity,
       });
+      if (result.outcome !== 'in_progress') clearAgentActionKey(actionIdentity);
+      if (missionViewScopeRef.current.revision !== requestScopeRevision) return;
+      if (
+        result.projection.mission.id !== requestMissionId
+        || String(result.projection.mission.projectId) !== requestProjectId
+      ) {
+        throw new Error('Mission action receipt did not match the initiating project and mission.');
+      }
       setProjection(result.projection);
       setMissions((current) => current.map((item) => item.id === result.projection.mission.id
         ? result.projection.mission
         : item));
-      if (result.outcome !== 'in_progress') clearAgentActionKey(actionIdentity);
       setMutationNotice(
         result.outcome === 'in_progress'
           ? 'المتابعة نفسها قيد التنفيذ بالفعل؛ حدّث الحالة لمعرفة نتيجتها.'
@@ -1801,6 +1845,7 @@ export default function Missions() {
       setProjectionReload((value) => value + 1);
     } catch (error: unknown) {
       if (error instanceof MissionRequestError && error.status < 500) clearAgentActionKey(actionIdentity);
+      if (missionViewScopeRef.current.revision !== requestScopeRevision) return;
       setMutationError(error);
       setMissionsReload((value) => value + 1);
       setProjectionReload((value) => value + 1);
@@ -1811,18 +1856,28 @@ export default function Missions() {
 
   const stopMissionExecution = async () => {
     if (!activeMission || !missionDecisionIdentity || !stopCommand || mutationSaving) return;
-    const actionIdentity = `mission:${activeMission.id}:STOP:${stopCommand.target.id}`;
+    const requestProjectId = projectId;
+    const requestMissionId = activeMission.id;
+    const requestScopeRevision = missionViewScopeRef.current.revision;
+    const actionIdentity = `mission:${requestMissionId}:STOP:${stopCommand.target.id}`;
     const idempotencyKey = getAgentActionKey(actionIdentity);
     setMutationSaving(true);
     setMutationError(null);
     setMutationNotice(null);
     try {
-      const result = await executeMissionAgentAction(activeMission.id, {
+      const result = await executeMissionAgentAction(requestMissionId, {
         idempotencyKey,
         expectedDecision: missionDecisionIdentity,
         command: 'STOP',
       });
       clearAgentActionKey(actionIdentity);
+      if (missionViewScopeRef.current.revision !== requestScopeRevision) return;
+      if (
+        result.projection.mission.id !== requestMissionId
+        || String(result.projection.mission.projectId) !== requestProjectId
+      ) {
+        throw new Error('Mission action receipt did not match the initiating project and mission.');
+      }
       setProjection(result.projection);
       setMissions((current) => current.map((item) => item.id === result.projection.mission.id
         ? result.projection.mission
@@ -1831,6 +1886,7 @@ export default function Missions() {
       setProjectionReload((value) => value + 1);
     } catch (error: unknown) {
       if (error instanceof MissionRequestError && error.status < 500) clearAgentActionKey(actionIdentity);
+      if (missionViewScopeRef.current.revision !== requestScopeRevision) return;
       setMutationError(error);
       setMissionsReload((value) => value + 1);
       setProjectionReload((value) => value + 1);
@@ -1844,6 +1900,8 @@ export default function Missions() {
     setMissionActionError(null);
     setMutationNotice(null);
     const action = pendingMissionAction;
+    const requestProjectId = projectId;
+    const requestScopeRevision = missionViewScopeRef.current.revision;
     const actionKind = action.type === 'replan' ? 'REPLAN' : 'APPROVE';
     const targetId = action.type === 'replan'
       ? action.expectedDecision.target?.id ?? ''
@@ -1856,13 +1914,29 @@ export default function Missions() {
         idempotencyKey,
         expectedDecision: action.expectedDecision,
       });
+      if (missionViewScopeRef.current.revision !== requestScopeRevision) {
+        if (result.outcome !== 'in_progress') clearAgentActionKey(actionIdentity);
+        return;
+      }
+      if (
+        result.projection.mission.id !== action.missionId
+        || String(result.projection.mission.projectId) !== requestProjectId
+      ) {
+        throw new Error('Mission action receipt did not match the initiating project and mission.');
+      }
       setProjection(result.projection);
       setMissions((current) => current.map((item) => item.id === result.projection.mission.id
         ? result.projection.mission
         : item));
       setMissionsReload((value) => value + 1);
       if (result.outcome === 'in_progress') {
-        setInProgressMissionAction({ identity: actionIdentity, idempotencyKey, action });
+        setInProgressMissionAction({
+          identity: actionIdentity,
+          idempotencyKey,
+          projectId: requestProjectId,
+          scopeRevision: requestScopeRevision,
+          action,
+        });
         return;
       }
       if (result.outcome === 'accepted' || result.outcome === 'completed') {
@@ -1878,6 +1952,7 @@ export default function Missions() {
       setProjectionReload((value) => value + 1);
     } catch (error: unknown) {
       if (error instanceof MissionRequestError && error.status < 500) clearAgentActionKey(actionIdentity);
+      if (missionViewScopeRef.current.revision !== requestScopeRevision) return;
       setMissionActionError(errorMessage(
         error,
         action.type === 'replan'
