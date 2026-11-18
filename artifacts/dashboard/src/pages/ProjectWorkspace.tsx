@@ -363,7 +363,18 @@ export default function ProjectWorkspace() {
                 <h2>حالة التشغيل</h2>
                 <p>حالة جلسة المشروع المسجلة</p>
               </div>
-              <span className={`workspace-status status-${runtime.status}`}>{label(runtime.status)}</span>
+              {runtime.source === 'available' ? (
+                <span
+                  className={`workspace-status status-${runtime.status}`}
+                  data-testid="workspace-runtime-status"
+                >
+                  {label(runtime.status)}
+                </span>
+              ) : (
+                <span className="workspace-readonly" data-testid="workspace-runtime-status">
+                  غير متاح
+                </span>
+              )}
             </div>
             {runtime.source === 'unavailable' ? (
               <SourceNote available={false}>مصدر التشغيل غير متاح الآن؛ لا يمكن تأكيد الحالة الحالية.</SourceNote>
