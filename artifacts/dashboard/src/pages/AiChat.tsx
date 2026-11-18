@@ -46,7 +46,7 @@ import { useLiveActivity } from './ai-chat/use-live-activity';
 import { DeepSeekKeyCard, GeminiKeyCard, GroqKeyCard, OpenRouterKeyCard } from './ai-chat/provider-key-cards';
 import { formatCodeReview, formatScanAnalysis, parseStructuredFailureMetadata, structuredTaskPrompt } from './ai-chat/structured-results';
 import { describeStreamError, safeStructuredFailure, structuredTaskStageLabel } from './ai-chat/stream-errors';
-import { ADDITIONAL_AI_ACTIONS, AI_ACTIONS, COMMON_AI_ACTIONS, LiveAgentActivity, type LiveAgentToolStep, liveToolLabel } from './ai-chat/live-activity';
+import { ADDITIONAL_AI_ACTIONS, AI_ACTIONS, COMMON_AI_ACTIONS, LiveAgentActivity, type LiveAgentToolStep, liveStageDisplayLabel, liveToolLabel } from './ai-chat/live-activity';
 import { createStreamObservationCallbacks, type LiveEvidenceIntegrity, type LiveVerdictScope } from './ai-chat/stream-observations';
 import { createStreamResetCallback } from './ai-chat/stream-recovery';
 import { createStreamIdentityCallbacks } from './ai-chat/stream-lifecycle';
