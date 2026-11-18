@@ -1,5 +1,5 @@
 import { AlertTriangle, Loader2, RefreshCw } from "lucide-react";
-import { useGetAiExecution } from "@workspace/api-client-react";
+import { getGetAiExecutionQueryKey, useGetAiExecution } from "@workspace/api-client-react";
 import { ExecutionProjectionPanel } from "@/components/ExecutionProjectionPanel";
 
 type WorkspaceExecutionDetailProps = {
@@ -22,6 +22,7 @@ export default function WorkspaceExecutionDetail({
 }: WorkspaceExecutionDetailProps) {
   const query = useGetAiExecution(executionId, {
     query: {
+      queryKey: getGetAiExecutionQueryKey(executionId),
       retry: false,
       refetchOnWindowFocus: true,
     },
