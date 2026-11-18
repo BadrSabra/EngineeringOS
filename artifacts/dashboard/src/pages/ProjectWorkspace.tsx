@@ -174,7 +174,9 @@ function WorkspaceTaskCard({
     ? rawExecutionAttempt
     : null;
   const rawAcceptanceAttempt = taskDetails?.acceptance?.attempt;
-  const acceptanceAttempt = task.status !== 'running' && isRecordedAttempt(rawAcceptanceAttempt)
+  const acceptanceAttempt = taskMatchesSnapshot
+    && task.status !== 'running'
+    && isRecordedAttempt(rawAcceptanceAttempt)
     ? rawAcceptanceAttempt
     : null;
   const attempt = executionAttempt ?? acceptanceAttempt;
