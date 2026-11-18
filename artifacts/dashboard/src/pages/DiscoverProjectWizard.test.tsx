@@ -15,6 +15,13 @@ const mocks = vi.hoisted(() => ({
     startedAt: '2026-10-14T12:00:00.000Z',
     completedAt: '2026-10-14T12:00:01.000Z',
   },
+  sessionWithoutCache: false,
+  sessionQuery: {
+    isError: false,
+    isFetching: false,
+    dataUpdatedAt: Date.parse('2026-11-18T16:20:00.000Z'),
+    refetch: vi.fn(),
+  },
   report: {
     id: 'discovery-1',
     detectedName: 'sample-app',
@@ -108,7 +115,8 @@ vi.mock('@workspace/api-client-react', () => ({
   }),
   useUploadArchive: () => ({ mutateAsync: vi.fn(), isPending: false }),
   useGetDiscoverySession: (id: string) => ({
-    data: id ? mocks.session : undefined,
+    data: id && !mocks.sessionWithoutCache ? mocks.session : undefined,
+    ...mocks.sessionQuery,
   }),
   useGetDiscoverySummary: (id: string) => ({
     data: id ? mocks.report : undefined,
@@ -133,7 +141,59 @@ vi.mock('wouter', () => ({
 describe('DiscoverProjectWizard Arabic findings', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mocks.session.status = 'ready';
+    mocks.session.progress = 100;
+    mocks.sessionWithoutCache = false;
+    mocks.sessionQuery.isError = false;
+    mocks.sessionQuery.isFetching = false;
+    mocks.sessionQuery.dataUpdatedAt = Date.parse('2026-11-18T16:20:00.000Z');
+    mocks.sessionQuery.refetch.mockClear();
     mocks.startDiscovery.mockResolvedValue(mocks.session);
+  });
+
+  it('marks a cached discovery session as stale after a failed poll and offers a direct retry', async () => {
+    mocks.session.status = 'discovering';
+    mocks.session.progress = 42;
+    mocks.sessionQuery.isError = true;
+    const lastSuccessfulRead = Date.parse('2026-11-18T16:20:00.000Z');
+
+    render(<DiscoverProjectWizard onClose={vi.fn()} />);
+    fireEvent.change(screen.getByPlaceholderText('https://github.com/owner/repo'), {
+      target: { value: 'https://github.com/example/sample-app' },
+    });
+    fireEvent.click(screen.getByTestId('start-discovery'));
+
+    const warning = await screen.findByTestId('discovery-session-read-error');
+    expect(warning).toHaveTextContent('آخر قراءة ناجحة ولا يؤكد الحالة الحالية');
+    expect(screen.getByTestId('discovery-session-last-success')).toHaveTextContent(
+      new Date(lastSuccessfulRead).toLocaleString('ar-EG'),
+    );
+    expect(screen.getByText('42%')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'إعادة قراءة حالة الاستكشاف' }));
+    expect(mocks.sessionQuery.refetch).toHaveBeenCalledOnce();
+  });
+
+  it('distinguishes an initial discovery-session read failure without inventing a last-success timestamp', async () => {
+    mocks.session.status = 'discovering';
+    mocks.session.progress = 18;
+    mocks.sessionWithoutCache = true;
+    mocks.sessionQuery.isError = true;
+    mocks.sessionQuery.dataUpdatedAt = 0;
+
+    render(<DiscoverProjectWizard onClose={vi.fn()} />);
+    fireEvent.change(screen.getByPlaceholderText('https://github.com/owner/repo'), {
+      target: { value: 'https://github.com/example/sample-app' },
+    });
+    fireEvent.click(screen.getByTestId('start-discovery'));
+
+    const warning = await screen.findByTestId('discovery-session-read-error');
+    expect(warning).toHaveTextContent('معلومات البدء لا تؤكد التقدم الحالي');
+    expect(screen.queryByTestId('discovery-session-last-success')).not.toBeInTheDocument();
+    expect(screen.getByTestId('discovery-session-progress-unavailable')).toBeInTheDocument();
+    expect(screen.queryByText('18%')).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'إعادة قراءة حالة الاستكشاف' }));
+    expect(mocks.sessionQuery.refetch).toHaveBeenCalledOnce();
   });
 
   it('shows localized support dimensions and risks while retaining original rule evidence in accessible details', async () => {
