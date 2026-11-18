@@ -301,7 +301,7 @@ export default function ProjectWorkspace() {
   };
   const streamStatus = useWorkspaceEventStream({
     projectId,
-    enabled: !!projectId && hasCurrentSnapshot,
+    enabled: !!projectId && hasCurrentSnapshot && !isError,
     onSnapshotInvalidated: () => {
       void queryClient.invalidateQueries({
         queryKey: getGetProjectWorkspaceSnapshotQueryKey(projectId),
@@ -326,6 +326,45 @@ export default function ProjectWorkspace() {
   }
 
   if (isLoading) return <WorkspaceSkeleton />;
+  if (isError && snapshot?.project.id === projectId) {
+    return (
+      <section
+        dir="rtl"
+        className="workspace-error"
+        role="alert"
+        data-testid="workspace-stale-snapshot"
+      >
+        <div className="workspace-error-mark"><AlertTriangle className="h-5 w-5" /></div>
+        <div className="min-w-0">
+          <h1 className="text-lg font-semibold text-slate-100">تعذر تحديث مساحة المشروع</h1>
+          <p className="mt-1 text-sm leading-6 text-slate-400">
+            احتفظنا بسياق آخر لقطة ناجحة للمشروع، لكن لا يمكن اعتبارها الحالة الحالية. أخفينا تفاصيل العمل والمساعد وإجراءات التنفيذ حتى تنجح قراءة جديدة.
+          </p>
+          <dl className="mt-4 space-y-2 text-xs text-slate-300">
+            <div>
+              <dt className="inline text-slate-500">المشروع: </dt>
+              <dd className="inline"><Identifier>{snapshot.project.name}</Identifier></dd>
+            </div>
+            <div>
+              <dt className="inline text-slate-500">وقت آخر قراءة ناجحة: </dt>
+              <dd className="inline">
+                <time dateTime={snapshot.observedAt}>{dateLabel(snapshot.observedAt)}</time>
+              </dd>
+            </div>
+          </dl>
+          <button
+            type="button"
+            onClick={() => void refetch()}
+            className="workspace-retry mt-5"
+            disabled={isFetching}
+          >
+            <RefreshCw className={`h-4 w-4 ${isFetching ? 'animate-spin' : ''}`} />
+            {isFetching ? 'جارٍ إعادة القراءة' : 'إعادة محاولة قراءة مساحة المشروع'}
+          </button>
+        </div>
+      </section>
+    );
+  }
   if (isError || !snapshot) {
     return (
       <section dir="rtl" className="workspace-error" role="alert">
