@@ -1,10 +1,16 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { act, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { useGetAiExecution, type ProjectWorkspaceSnapshot } from "@workspace/api-client-react";
 import ProjectWorkspace from "./ProjectWorkspace";
 
 const mocks = vi.hoisted(() => ({
+  snapshotQuery: {
+    isLoading: false,
+    isError: false,
+    isFetching: false,
+    refetch: vi.fn(),
+  },
   snapshot: {
     contractVersion: 1 as const,
     observedAt: "2026-11-11T12:00:00.000Z",
@@ -81,10 +87,7 @@ const initialSnapshot = mocks.snapshot;
 vi.mock("@workspace/api-client-react", () => ({
   useGetProjectWorkspaceSnapshot: () => ({
     data: mocks.snapshot,
-    isLoading: false,
-    isError: false,
-    isFetching: false,
-    refetch: vi.fn(),
+    ...mocks.snapshotQuery,
   }),
   getGetProjectWorkspaceSnapshotQueryKey: (projectId: string) => [
     "/api/projects",
@@ -137,6 +140,10 @@ vi.mock("@/components/ExecutionProjectionPanel", () => ({
 
 beforeEach(() => {
   mocks.snapshot = initialSnapshot;
+  mocks.snapshotQuery.isLoading = false;
+  mocks.snapshotQuery.isError = false;
+  mocks.snapshotQuery.isFetching = false;
+  mocks.snapshotQuery.refetch.mockReset();
   mocks.taskDetails = {};
   mocks.taskLogs = {};
   mocks.executions = {};
@@ -329,6 +336,38 @@ describe("ProjectWorkspace live snapshot refresh", () => {
     expect(screen.queryByText("مشروع لا يخص هذا المسار")).not.toBeInTheDocument();
     expect(screen.queryByRole("region", { name: "محادثة المشروع" })).not.toBeInTheDocument();
     expect(eventSource).toBeNull();
+  });
+
+  it("preserves only the last successful project identity and timestamp after a background snapshot read fails", () => {
+    mocks.snapshotQuery.isError = true;
+
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+    });
+
+    render(
+      <QueryClientProvider client={queryClient}>
+        <ProjectWorkspace />
+      </QueryClientProvider>,
+    );
+
+    const staleState = screen.getByTestId("workspace-stale-snapshot");
+    expect(staleState).toHaveAttribute("role", "alert");
+    expect(staleState).toHaveTextContent("تعذر تحديث مساحة المشروع");
+    expect(staleState).toHaveTextContent("مشروع البث");
+    expect(staleState.querySelector("time")).toHaveAttribute(
+      "dateTime",
+      "2026-11-11T12:00:00.000Z",
+    );
+    expect(staleState).toHaveTextContent("أخفينا تفاصيل العمل والمساعد وإجراءات التنفيذ");
+    expect(screen.queryByTestId("project-workspace")).not.toBeInTheDocument();
+    expect(screen.queryByRole("region", { name: "محادثة المشروع" })).not.toBeInTheDocument();
+    expect(screen.queryByText("النسخة المرشحة")).not.toBeInTheDocument();
+    expect(screen.queryByText("حالة التشغيل")).not.toBeInTheDocument();
+    expect(eventSource).toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: "إعادة محاولة قراءة مساحة المشروع" }));
+    expect(mocks.snapshotQuery.refetch).toHaveBeenCalledOnce();
   });
 
   it("does not show a retained Runtime status when the Runtime source is unavailable", () => {
