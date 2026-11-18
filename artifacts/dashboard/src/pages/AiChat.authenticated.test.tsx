@@ -238,6 +238,7 @@ const mocks = vi.hoisted(() => {
       projectId: string;
       message: string;
       sessionId?: string;
+      linkedTaskId?: string;
       executionId?: string;
       resumeToken?: string;
     } | undefined,
@@ -312,6 +313,7 @@ vi.mock('@workspace/api-client-react', () => {
             projectId: string;
             message: string;
             sessionId?: string;
+            linkedTaskId?: string;
             executionId?: string;
             resumeToken?: string;
           };
@@ -926,6 +928,49 @@ describe('AiChat Mission action gateway', () => {
       expect(await screen.findByText(/بدأ استئناف التنفيذ/)).toBeInTheDocument();
     } finally {
       window.history.replaceState({}, '', originalPath);
+    }
+  });
+});
+
+describe('task-linked chat route context', () => {
+  it('uses the current task ID after the route query changes without remounting', async () => {
+    const originalPath = window.location.pathname + window.location.search;
+    window.history.replaceState({}, '', '/ai?projectId=project-1&taskId=task-1');
+
+    try {
+      const view = renderAiChat();
+      const composer = await screen.findByTestId('input-ai-chat-composer');
+
+      fireEvent.change(composer, { target: { value: 'First task request' } });
+      fireEvent.keyDown(composer, { key: 'Enter' });
+
+      expect(mocks.sentParams).toMatchObject({
+        projectId: 'project-1',
+        message: 'First task request',
+        linkedTaskId: 'task-1',
+      });
+
+      window.history.replaceState({}, '', '/ai?projectId=project-1&taskId=task-2');
+      window.dispatchEvent(new PopStateEvent('popstate'));
+      view.rerender(
+        <QueryClientProvider client={view.queryClient}>
+          <AiChat />
+        </QueryClientProvider>,
+      );
+
+      fireEvent.change(composer, { target: { value: 'Second task request' } });
+      fireEvent.keyDown(composer, { key: 'Enter' });
+
+      await waitFor(() => {
+        expect(mocks.sentParams).toMatchObject({
+          projectId: 'project-1',
+          message: 'Second task request',
+          linkedTaskId: 'task-2',
+        });
+      });
+    } finally {
+      window.history.replaceState({}, '', originalPath);
+      window.dispatchEvent(new PopStateEvent('popstate'));
     }
   });
 });

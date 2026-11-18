@@ -113,17 +113,15 @@ export default function AiChat({
   const [moreActionsExpanded, setMoreActionsExpanded] = useState(false);
   const [sessionId, setSessionId] = useState<string | undefined>(undefined);
   const [sessionCreationPending, setSessionCreationPending] = useState(false);
-  // AI-TASK-006: task linkage — read from URL search params so the Tasks page
-  // can deep-link to /ai?taskId=<uuid>&projectId=<id> to open a task-aware session.
-  const [linkedTaskId] = useState<string | undefined>(() => {
-    const params = new URLSearchParams(window.location.search);
-    return params.get('taskId') ?? undefined;
-  });
+  // Keep task and goal-draft handoffs tied to the live route. useState would
+  // freeze these IDs at the first mount when only the query string changes.
+  const routeSearchParams = useMemo(() => new URLSearchParams(locationSearch), [locationSearch]);
+  const linkedTaskId = routeSearchParams.get('taskId') ?? undefined;
   const [input, setInput] = useState('');
   const draftHandoff = useGoalDraftHandoff({
     ownerId: isLoaded ? user?.id ?? null : null,
     routeProjectId: workspaceProjectId ?? chatRouteTarget?.projectId,
-    routeDraftId: new URLSearchParams(window.location.search).get('goalDraftId'),
+    routeDraftId: routeSearchParams.get('goalDraftId'),
     selectedProjectId, input, setInput,
   });
   const [scopeDraftRestored, setScopeDraftRestored] = useState(false);
