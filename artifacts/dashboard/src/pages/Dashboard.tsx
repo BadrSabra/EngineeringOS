@@ -329,15 +329,41 @@ export default function Dashboard() {
     ? matchGoalToProject(goalDraft, projects)
     : null;
   const dashboardQuery = useGetDashboard();
-  const { data: rawDashboard, isLoading, error, refetch, isRefetching, dataUpdatedAt } = dashboardQuery;
+  const {
+    data: rawDashboard,
+    isLoading,
+    error,
+    isError: dashboardIsError,
+    refetch,
+    isFetching: dashboardIsFetching,
+    dataUpdatedAt: dashboardUpdatedAt,
+  } = dashboardQuery;
   const dashboard = useMonotonicData(rawDashboard, rawDashboard?.freshnessRevision);
-  const { data: health, refetch: refetchHealth } = useGetHealth({
+  const healthQuery = useGetHealth({
     query: {
       queryKey: getGetHealthQueryKey(),
       refetchInterval: 30_000,
       retry: 1,
     },
   });
+  const {
+    data: health,
+    refetch: refetchHealth,
+    isFetching: healthIsFetching,
+    isError: healthIsError,
+    dataUpdatedAt: healthUpdatedAt,
+  } = healthQuery;
+
+  // The manual refresh updates both resources shown on this screen. Treat them
+  // as one snapshot: the control stays busy until both reads settle, and the
+  // timestamp describes the oldest successful component.
+  const dashboardSnapshotIsRefreshing = dashboardIsFetching || healthIsFetching;
+  const dashboardSnapshotLastUpdated = !dashboardIsError
+    && !healthIsError
+    && dashboardUpdatedAt > 0
+    && healthUpdatedAt > 0
+    ? Math.min(dashboardUpdatedAt, healthUpdatedAt)
+    : undefined;
   const { data: missionControl } = useGetAiMissionControl(undefined, {
     query: {
       queryKey: getGetAiMissionControlQueryKey(),
@@ -437,9 +463,10 @@ export default function Dashboard() {
         </div>
         <RefreshButton
           onRefresh={async () => { await refetch(); await refetchHealth(); }}
-          isRefreshing={isRefetching}
-          lastUpdated={error ? undefined : dataUpdatedAt}
+          isRefreshing={dashboardSnapshotIsRefreshing}
+          lastUpdated={error ? undefined : dashboardSnapshotLastUpdated}
           label="تحديث البيانات"
+          refreshingLabel="جارٍ تحديث البيانات…"
         />
       </div>
 
