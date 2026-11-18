@@ -144,4 +144,26 @@ describe("ProjectWorkspace live snapshot refresh", () => {
     expect(screen.getByText("النسخة المرشحة")).toBeInTheDocument();
     expect(screen.getByText("حالة التشغيل")).toBeInTheDocument();
   });
+
+  it("separates the agent, preview canvas, and work-trust areas without treating Runtime as Preview", () => {
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+    });
+
+    render(
+      <QueryClientProvider client={queryClient}>
+        <ProjectWorkspace />
+      </QueryClientProvider>,
+    );
+
+    expect(screen.getByRole("navigation", { name: "التنقل بين أقسام مساحة المشروع" })).toBeInTheDocument();
+    expect(screen.getByRole("region", { name: "محادثة المشروع" })).toBeInTheDocument();
+    expect(screen.getByRole("region", { name: "معاينة المشروع" })).toBeInTheDocument();
+    expect(screen.getByRole("complementary", { name: "العمل والثقة" })).toBeInTheDocument();
+
+    const previewGate = screen.getByTestId("workspace-preview-gate");
+    expect(previewGate).toHaveTextContent("لا توجد معاينة تفاعلية مؤهلة بعد");
+    expect(previewGate).toHaveTextContent("ليست إثباتًا على جاهزية Preview");
+    expect(screen.getByText("حالة التشغيل")).toBeInTheDocument();
+  });
 });
