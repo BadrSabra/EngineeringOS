@@ -124,6 +124,17 @@ vi.mock("wouter", () => ({
 
 vi.mock("@/pages/AiChat", () => ({ default: () => null }));
 
+vi.mock("@/components/ExecutionProjectionPanel", () => ({
+  ExecutionProjectionPanel: (props: Record<string, unknown>) => (
+    <div
+      data-testid="workspace-execution-projection"
+      data-execution-id={String(props.executionId)}
+      data-read-only={String(props.readOnly)}
+      data-hide-recovery-actions={String(props.hideRecoveryActions)}
+    />
+  ),
+}));
+
 beforeEach(() => {
   mocks.snapshot = initialSnapshot;
   mocks.taskDetails = {};
@@ -784,4 +795,88 @@ describe("Workspace task cards", () => {
 
 
 
+});
+
+
+
+describe("Workspace execution detail identity", () => {
+  const summary = {
+    id: "execution-identity",
+    status: "completed",
+    attempt: 4,
+    proposalId: "proposal-current",
+    baseRevision: "base-revision",
+    updatedAt: "2026-11-11T12:00:00.000Z",
+  };
+
+  function renderExecutionDetail(detail: Record<string, unknown>) {
+    mocks.snapshot = {
+      ...initialSnapshot,
+      work: {
+        ...initialSnapshot.work,
+        latestExecution: summary,
+      },
+    } as unknown as ProjectWorkspaceSnapshot;
+    mocks.executions[summary.id] = detail;
+
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+    });
+
+    return render(
+      <QueryClientProvider client={queryClient}>
+        <ProjectWorkspace />
+      </QueryClientProvider>,
+    );
+  }
+
+  function validDetail() {
+    return {
+      id: summary.id,
+      projectId: "project-1",
+      attempt: summary.attempt,
+      proposalId: summary.proposalId,
+      status: "completed",
+      flightState: "COMPLETED",
+      evidenceVerdict: "PROVEN",
+      resumable: false,
+      operationId: "operation-identity",
+      projection: { schemaVersion: 2 },
+    };
+  }
+
+  it("renders the execution projection only when the complete identity tuple matches", () => {
+    renderExecutionDetail(validDetail());
+
+    const panel = screen.getByTestId("workspace-execution-projection");
+    expect(panel).toHaveAttribute("data-execution-id", summary.id);
+    expect(panel).toHaveAttribute("data-read-only", "true");
+    expect(panel).toHaveAttribute("data-hide-recovery-actions", "true");
+    expect(screen.queryByText(/تعذر مطابقة تفاصيل التنفيذ/)).not.toBeInTheDocument();
+  });
+
+  it.each([
+    ["project identity is missing", { projectId: undefined }],
+    ["project belongs to another project", { projectId: "project-foreign" }],
+    ["attempt identity is missing", { attempt: undefined }],
+    ["attempt belongs to another attempt", { attempt: 3 }],
+    ["proposal identity is missing", { proposalId: undefined }],
+    ["proposal belongs to another candidate", { proposalId: "proposal-foreign" }],
+    ["proposal is null while a candidate is expected", { proposalId: null }],
+    ["execution identity is different", { id: "execution-foreign" }],
+  ] as const)("fails closed when %s", (_case, override) => {
+    renderExecutionDetail({ ...validDetail(), ...override });
+
+    expect(screen.getByText(
+      "تعذر مطابقة تفاصيل التنفيذ مع المشروع أو المحاولة أو المرشح الحالي؛ لن نخلط بين إسقاطات مختلفة.",
+    )).toBeInTheDocument();
+    expect(screen.queryByTestId("workspace-execution-projection")).not.toBeInTheDocument();
+  });
+
+  it("fails closed when the execution projection schema is not version 2", () => {
+    renderExecutionDetail({ ...validDetail(), projection: { schemaVersion: 1 } });
+
+    expect(screen.getByText(/تعذر مطابقة تفاصيل التنفيذ/)).toBeInTheDocument();
+    expect(screen.queryByTestId("workspace-execution-projection")).not.toBeInTheDocument();
+  });
 });

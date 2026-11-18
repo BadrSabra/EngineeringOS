@@ -65,19 +65,14 @@ export default function WorkspaceExecutionDetail({
   }
 
   const execution = query.data;
+  // The Workspace summary provides the expected identity tuple. Missing detail
+  // fields are not proof of a match: fail closed instead of rendering another
+  // attempt's projection under this project's current execution summary.
   const identityMismatch =
     execution.id !== executionId
-    || Boolean(execution.projectId && execution.projectId !== projectId)
-    || Boolean(
-      attempt !== undefined
-      && execution.attempt !== undefined
-      && execution.attempt !== attempt
-    )
-    || Boolean(
-      proposalId !== undefined
-      && execution.proposalId !== undefined
-      && (execution.proposalId ?? null) !== (proposalId ?? null)
-    );
+    || execution.projectId !== projectId
+    || (attempt !== undefined && execution.attempt !== attempt)
+    || (proposalId !== undefined && execution.proposalId !== proposalId);
 
   if (identityMismatch || execution.projection?.schemaVersion !== 2) {
     return (
