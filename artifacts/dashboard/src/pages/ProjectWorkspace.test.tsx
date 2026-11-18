@@ -208,6 +208,12 @@ describe("ProjectWorkspace live snapshot refresh", () => {
     const previewGate = screen.getByTestId("workspace-preview-gate");
     expect(previewGate).toHaveTextContent("لا توجد معاينة تفاعلية مؤهلة بعد");
     expect(previewGate).toHaveTextContent("ليست إثباتًا على جاهزية Preview");
+    expect(screen.getByRole("link", { name: "الانتقال إلى إعداد جهاز Linux للمعاينة" }))
+      .toHaveAttribute("href", "#workspace-preview-agents");
+    expect(document.getElementById("workspace-preview-agents"))
+      .toHaveTextContent("الاقتران يثبت هوية الجهاز فقط");
+    expect(document.getElementById("workspace-preview-agents"))
+      .toHaveAttribute("aria-labelledby", "preview-agent-heading");
     expect(screen.getByText("حالة التشغيل")).toBeInTheDocument();
   });
 
