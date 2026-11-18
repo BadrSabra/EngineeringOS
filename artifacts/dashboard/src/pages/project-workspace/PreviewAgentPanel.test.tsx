@@ -77,6 +77,8 @@ describe("PreviewAgentPanel", () => {
 
     expect(await screen.findByText("مقترن")).toBeInTheDocument();
     expect(screen.getByText(/آخر نبضة مسجلة:/)).toBeInTheDocument();
+    expect(screen.getByTestId(`preview-agent-heartbeat-age-${nodeId}`))
+      .toHaveTextContent("العمر الزمني للنبضة:");
     expect(screen.queryByText(/متصل الآن/)).not.toBeInTheDocument();
     expect(fetchMock).toHaveBeenCalledWith(
       "/api/projects/project-1/preview-agents",
