@@ -19,11 +19,17 @@ import {
 const refetchMetrics = vi.fn();
 const refetchProjects = vi.fn();
 
-function mockProjects(data: Array<{ id: string; name: string }> = []) {
+function mockProjects(
+  data: Array<{ id: string; name: string }> = [],
+  overrides: Record<string, unknown> = {},
+) {
   vi.mocked(useListProjects).mockReturnValue({
     data,
     isError: false,
+    isFetching: false,
+    dataUpdatedAt: 0,
     refetch: refetchProjects,
+    ...overrides,
   } as ReturnType<typeof useListProjects>);
 }
 
@@ -38,6 +44,7 @@ function mockMetrics(
     error: null,
     refetch: refetchMetrics,
     isRefetching: false,
+    isFetching: false,
     dataUpdatedAt: 0,
     ...overrides,
   } as ReturnType<typeof useListMetrics>);
@@ -113,10 +120,113 @@ describe('Metrics', () => {
     });
   });
 
+  it('falls back to a currently available project when the selected project is removed', async () => {
+    mockProjects([
+      { id: 'project-a', name: 'Alpha' },
+      { id: 'project-b', name: 'Beta' },
+    ]);
+
+    const { rerender } = render(<Metrics />);
+    fireEvent.change(screen.getByRole('combobox'), {
+      target: { value: 'project-b' },
+    });
+
+    await waitFor(() => {
+      expect(useListMetrics).toHaveBeenLastCalledWith(
+        { projectId: 'project-b' },
+        expect.objectContaining({
+          query: expect.objectContaining({ enabled: true }),
+        }),
+      );
+    });
+
+    mockProjects([{ id: 'project-a', name: 'Alpha' }]);
+    rerender(<Metrics />);
+
+    await waitFor(() => {
+      expect(screen.getByRole('combobox')).toHaveValue('project-a');
+      expect(useListMetrics).toHaveBeenLastCalledWith(
+        { projectId: 'project-a' },
+        expect.objectContaining({
+          query: expect.objectContaining({ enabled: true }),
+        }),
+      );
+    });
+  });
+
+  it('does not refetch metrics for a project removed by the same refresh', async () => {
+    mockProjects([
+      { id: 'project-a', name: 'Alpha' },
+      { id: 'project-b', name: 'Beta' },
+    ]);
+    const { rerender } = render(<Metrics />);
+
+    fireEvent.change(screen.getByRole('combobox'), {
+      target: { value: 'project-b' },
+    });
+    await waitFor(() => {
+      expect(screen.getByRole('combobox')).toHaveValue('project-b');
+    });
+
+    refetchProjects.mockResolvedValue({
+      data: [{ id: 'project-a', name: 'Alpha' }],
+      isError: false,
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'تحديث المؤشرات' }));
+
+    await waitFor(() => {
+      expect(refetchProjects).toHaveBeenCalledTimes(1);
+    });
+    expect(refetchMetrics).not.toHaveBeenCalled();
+
+    mockProjects([{ id: 'project-a', name: 'Alpha' }]);
+    rerender(<Metrics />);
+    await waitFor(() => {
+      expect(screen.getByRole('combobox')).toHaveValue('project-a');
+    });
+  });
+
+  it('keeps refresh busy while either the projects or metrics read is fetching', () => {
+    mockProjects([{ id: 'project-a', name: 'Alpha' }], {
+      isFetching: true,
+      dataUpdatedAt: 2_000,
+    });
+    mockMetrics([], {
+      isFetching: false,
+      dataUpdatedAt: 3_000,
+    });
+
+    render(<Metrics />);
+
+    expect(screen.getByRole('button', { name: 'تحديث المؤشرات' })).toBeDisabled();
+  });
+
+  it('uses the oldest successful read as the composite last-updated time', () => {
+    mockProjects([{ id: 'project-a', name: 'Alpha' }], {
+      dataUpdatedAt: 2_000,
+    });
+    mockMetrics([], {
+      dataUpdatedAt: 1_000,
+    });
+
+    const { rerender } = render(<Metrics />);
+
+    expect(screen.getByText(/آخر تحديث:/)).toHaveTextContent(
+      new Date(1_000).toLocaleTimeString(),
+    );
+
+    mockMetrics([], { dataUpdatedAt: 0 });
+    rerender(<Metrics />);
+
+    expect(screen.queryByText(/آخر تحديث:/)).not.toBeInTheDocument();
+  });
+
   it('offers project retry on load failure rather than showing an empty state', () => {
     vi.mocked(useListProjects).mockReturnValue({
       data: undefined,
       isError: true,
+      isFetching: false,
+      dataUpdatedAt: 0,
       refetch: refetchProjects,
     } as ReturnType<typeof useListProjects>);
 
