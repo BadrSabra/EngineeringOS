@@ -1598,6 +1598,28 @@ describe('Task creation', () => {
     expect(createTaskMutate).not.toHaveBeenCalled();
   });
 
+  it('defaults new task creation to the currently active project', () => {
+    vi.mocked(useListProjects).mockReturnValue({
+      data: [
+        { id: 'project-1', name: 'First Project' },
+        { id: 'project-2', name: 'Second Project' },
+      ],
+      isLoading: false,
+      isError: false,
+      error: null,
+    } as ReturnType<typeof useListProjects>);
+
+    renderPage();
+    fireEvent.change(screen.getByTestId('select-task-project'), {
+      target: { value: 'project-2' },
+    });
+
+    expect(screen.getByTestId('select-task-project')).toHaveValue('project-2');
+    fireEvent.click(screen.getByRole('button', { name: 'مهمة جديدة' }));
+
+    expect(screen.getByTestId('select-create-task-project')).toHaveValue('project-2');
+  });
+
   it('opens a clear form and sends the selected project and task fields', () => {
     renderPage();
 
