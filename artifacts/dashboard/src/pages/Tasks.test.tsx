@@ -1243,6 +1243,73 @@ describe('Tasks recovery rendering', () => {
     }
   });
 
+  it('preserves cached activity logs and offers refresh when the log query errors', () => {
+    const refetchLogs = vi.fn();
+    const retainedLog = {
+      id: 'retained-live-log',
+      taskId: 'task-live',
+      level: 'info' as const,
+      message: 'Live event retained after refresh error.',
+      timestamp: '2026-08-25T10:01:00.000Z',
+      eventType: 'activity' as const,
+    };
+    vi.mocked(useListTasks).mockReturnValue({
+      data: [{
+        id: 'task-live',
+        projectId: 'project-1',
+        title: 'Keep live activity visible',
+        status: 'running',
+        correlationId: 'correlation-live',
+        priority: 'p1',
+        phase: 'execute',
+        createdAt: '2026-08-25T10:00:00.000Z',
+        updatedAt: '2026-08-25T10:01:00.000Z',
+      }],
+      isLoading: false,
+      isError: false,
+      error: null,
+      refetch: vi.fn(),
+      isRefetching: false,
+      dataUpdatedAt: 0,
+    } as ReturnType<typeof useListTasks>);
+    vi.mocked(useGetTaskLogs).mockReturnValue({
+      data: [retainedLog],
+      isLoading: false,
+      isError: true,
+      error: new Error('refresh failed'),
+      refetch: refetchLogs,
+    } as ReturnType<typeof useGetTaskLogs>);
+    vi.mocked(useGetAiExecution).mockReturnValue({
+      data: undefined,
+      isLoading: false,
+      isError: false,
+      error: null,
+    } as ReturnType<typeof useGetAiExecution>);
+
+    class MockEventSource {
+      onerror: ((event: Event) => void) | null = null;
+      addEventListener = vi.fn();
+      close = vi.fn();
+    }
+    vi.stubGlobal('EventSource', MockEventSource);
+
+    try {
+      renderPage();
+      fireEvent.click(screen.getByRole('button', { name: 'عرض تفاصيل المهمة: Keep live activity visible' }));
+      fireEvent.click(screen.getByRole('button', { name: 'السجل' }));
+
+      expect(screen.getByTestId('task-logs-refresh-error')).toHaveTextContent(
+        'تعذر تحديث السجل من الخادم؛ نعرض السجلات المتاحة حاليًا دون حذفها.',
+      );
+      expect(screen.getByText(/Live event retained after refresh error\./)).toBeInTheDocument();
+      expect(screen.queryByText('تعذر تحميل سجل التنفيذ.')).not.toBeInTheDocument();
+      fireEvent.click(screen.getByRole('button', { name: 'إعادة المحاولة' }));
+      expect(refetchLogs).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
   it('keeps long activity timelines bounded while preserving the first and latest events', () => {
     const activityLogs = Array.from({ length: 120 }, (_, index) => ({
       id: `activity-${index}`,

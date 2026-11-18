@@ -997,7 +997,7 @@ function TaskLogsPanel({ task, taskStatus }: { task: TaskView; taskStatus: strin
       <div className="bg-background border border-border rounded-lg text-xs overflow-auto max-h-72 p-3 space-y-2">
         {!isRunning && isLoading ? (
           <span dir="rtl" className="text-muted-foreground animate-pulse">جارٍ تحميل سجل النشاط…</span>
-        ) : logsError ? (
+        ) : logsError && logs.length === 0 ? (
           <div className="text-destructive">
             <p dir="rtl">تعذر تحميل سجل التنفيذ.</p>
             <button type="button" onClick={() => void refetchLogs()} className="mt-2 underline">إعادة تحميل السجل</button>
@@ -1008,6 +1008,22 @@ function TaskLogsPanel({ task, taskStatus }: { task: TaskView; taskStatus: strin
           </span>
         ) : (
           <>
+            {logsError && (
+              <div
+                className="mb-2 rounded-md border border-amber-500/40 bg-amber-500/5 px-2 py-2 text-[10px] text-amber-700 dark:text-amber-300"
+                role="status"
+                data-testid="task-logs-refresh-error"
+              >
+                تعذر تحديث السجل من الخادم؛ نعرض السجلات المتاحة حاليًا دون حذفها.
+                <button
+                  type="button"
+                  onClick={() => void refetchLogs()}
+                  className="mr-2 underline underline-offset-2"
+                >
+                  إعادة المحاولة
+                </button>
+              </div>
+            )}
             {groupedActivity.length > MAX_VISIBLE_ACTIVITY_ITEMS && (
               <div className="rounded-md border border-border/70 bg-muted/20 px-2 py-1.5 text-[10px] text-muted-foreground" role="status">
                 نعرض أول حدث مؤكد وآخر {MAX_VISIBLE_ACTIVITY_ITEMS - 1} من أصل {groupedActivity.length} سجل نشاط.
