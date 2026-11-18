@@ -270,11 +270,14 @@ export default function SkillRegistry() {
   const { data: projects, isLoading: projectsLoading, isError: projectsError, refetch: refetchProjects } = useListProjects();
   const [selectedProjectId, setSelectedProjectId] = useState('');
   const [registry, setRegistry] = useState<RegistryRow[]>([]);
+  const [registryProjectId, setRegistryProjectId] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [loadError, setLoadError] = useState<unknown>(null);
+  const [loadErrorProjectId, setLoadErrorProjectId] = useState<string | null>(null);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [busyAction, setBusyAction] = useState<string | null>(null);
   const [lastUpdated, setLastUpdated] = useState<number>();
+  const [lastUpdatedProjectId, setLastUpdatedProjectId] = useState<string | null>(null);
   const requestVersion = useRef(0);
 
   const effectiveProjectId = selectedProjectId || String(projects?.[0]?.id ?? '');
@@ -285,21 +288,31 @@ export default function SkillRegistry() {
 
   const loadRegistry = useCallback(async (projectId: string, refresh = false) => {
     if (!projectId) {
+      requestVersion.current += 1;
       setRegistry([]);
+      setRegistryProjectId(null);
+      setLastUpdated(undefined);
+      setLastUpdatedProjectId(null);
       return;
     }
     const version = ++requestVersion.current;
     setLoadError(null);
+    setLoadErrorProjectId(null);
     if (refresh) setIsRefreshing(true);
     else setIsLoading(true);
     try {
       const response = await fetchSkillRegistry(projectId);
       if (version === requestVersion.current) {
         setRegistry(response.registry ?? []);
+        setRegistryProjectId(projectId);
         setLastUpdated(Date.now());
+        setLastUpdatedProjectId(projectId);
       }
     } catch (error) {
-      if (version === requestVersion.current) setLoadError(error);
+      if (version === requestVersion.current) {
+        setLoadError(error);
+        setLoadErrorProjectId(projectId);
+      }
     } finally {
       if (version === requestVersion.current) {
         setIsLoading(false);
@@ -317,9 +330,11 @@ export default function SkillRegistry() {
   }, [effectiveProjectId, loadRegistry]);
 
   const replaceReturnedRow = useCallback((returned: RegistryRow) => {
+    if (registryProjectId !== returned.projectId) return;
     setRegistry((current) => current.map((row) => row.id === returned.id ? returned : row));
     setLastUpdated(Date.now());
-  }, []);
+    setLastUpdatedProjectId(returned.projectId);
+  }, [registryProjectId]);
 
   const handleApprove = useCallback(async (row: RegistryRow) => {
     if (!window.confirm(`Approve ${row.skillId} v${row.skillVersion} for immediate promotion?`)) return;
@@ -330,6 +345,7 @@ export default function SkillRegistry() {
       replaceReturnedRow(response.registry);
     } catch (error) {
       setLoadError(error);
+      setLoadErrorProjectId(row.projectId);
     } finally {
       setBusyAction(null);
     }
@@ -344,13 +360,21 @@ export default function SkillRegistry() {
       replaceReturnedRow(response.registry);
     } catch (error) {
       setLoadError(error);
+      setLoadErrorProjectId(row.projectId);
     } finally {
       setBusyAction(null);
     }
   }, [replaceReturnedRow]);
 
-  const pendingCount = registry.filter((row) => row.promotionStatus === 'pending').length;
-  const activePromotedCount = registry.filter((row) => row.promotionStatus === 'promoted' && row.revocationStatus === 'active').length;
+  const registryMatchesProject = registryProjectId === effectiveProjectId;
+  const visibleRegistry = registryMatchesProject ? registry : [];
+  const visibleLoadError = loadErrorProjectId === effectiveProjectId ? loadError : null;
+  const visibleIsLoading = isLoading || (
+    Boolean(effectiveProjectId) && !registryMatchesProject && !visibleLoadError
+  );
+  const visibleLastUpdated = lastUpdatedProjectId === effectiveProjectId ? lastUpdated : undefined;
+  const pendingCount = visibleRegistry.filter((row) => row.promotionStatus === 'pending').length;
+  const activePromotedCount = visibleRegistry.filter((row) => row.promotionStatus === 'promoted' && row.revocationStatus === 'active').length;
 
   return (
     <div dir="rtl" lang="ar" className="min-h-[100dvh] space-y-6 pb-10">
@@ -371,7 +395,15 @@ export default function SkillRegistry() {
             <select
               data-testid="project-select"
               value={effectiveProjectId}
-              onChange={(event) => setSelectedProjectId(event.target.value)}
+              onChange={(event) => {
+                requestVersion.current += 1;
+                setSelectedProjectId(event.target.value);
+                setRegistryProjectId(null);
+                setLoadError(null);
+                setLoadErrorProjectId(null);
+                setLastUpdatedProjectId(null);
+                setBusyAction(null);
+              }}
               disabled={projectsLoading || !projects?.length}
               className="w-full appearance-none rounded-md border border-slate-700 bg-slate-900 px-3 py-2.5 pr-9 text-sm font-medium text-slate-200 outline-none transition-colors hover:border-slate-600 focus:border-cyan-300/60 disabled:cursor-not-allowed disabled:opacity-60"
             >
@@ -403,7 +435,7 @@ export default function SkillRegistry() {
         <>
           <section className="grid gap-3 sm:grid-cols-3" aria-label="ملخص سجل المهارات">
             {[
-              { label: 'مدخلات السجل', value: registry.length, icon: KeyRound, tone: 'text-cyan-300' },
+              { label: 'مدخلات السجل', value: visibleRegistry.length, icon: KeyRound, tone: 'text-cyan-300' },
               { label: 'بانتظار المراجعة', value: pendingCount, icon: Clock3, tone: 'text-amber-200' },
               { label: 'مُرقّاة / نشطة', value: activePromotedCount, icon: ShieldCheck, tone: 'text-emerald-300' },
             ].map(({ label, value, icon: Icon, tone }) => (
@@ -416,16 +448,16 @@ export default function SkillRegistry() {
 
           <div className="flex flex-col gap-2 text-xs text-slate-500 sm:flex-row sm:items-center sm:justify-between">
             <p className="flex items-center gap-2"><GitCommitHorizontal className="h-3.5 w-3.5 text-slate-600" /> المشروع المحدد: <span className="font-medium text-slate-300" dir="auto">{selectedProject?.name ?? effectiveProjectId}</span></p>
-            {lastUpdated ? <p>آخر فحص {new Date(lastUpdated).toLocaleTimeString('ar')}</p> : null}
+            {visibleLastUpdated ? <p>آخر فحص {new Date(visibleLastUpdated).toLocaleTimeString('ar')}</p> : null}
           </div>
 
-          {loadError ? <RequestError message={loadError instanceof Error ? loadError.message : 'تعذّر تحميل سجل المهارات.'} retryLabel="حاول مجددًا" onRetry={() => void loadRegistry(effectiveProjectId, true)} /> : null}
+          {visibleLoadError ? <RequestError message={visibleLoadError instanceof Error ? visibleLoadError.message : 'تعذّر تحميل سجل المهارات.'} retryLabel="حاول مجددًا" onRetry={() => void loadRegistry(effectiveProjectId, true)} /> : null}
 
-          {isLoading ? (
+          {visibleIsLoading ? (
             <div className="space-y-4" aria-label="جارٍ تحميل سجل المهارات">
               {[1, 2].map((item) => <div key={item} className="h-72 animate-pulse rounded-xl border border-slate-800 bg-slate-900/50" />)}
             </div>
-          ) : !loadError && registry.length === 0 ? (
+          ) : !visibleLoadError && visibleRegistry.length === 0 ? (
             <div className="rounded-xl border border-dashed border-slate-700 bg-slate-900/35 px-6 py-16 text-center">
               <LockKeyhole className="mx-auto mb-4 h-8 w-8 text-slate-600" />
               <h2 className="text-lg font-semibold text-slate-200">السجل خالٍ</h2>
@@ -433,7 +465,7 @@ export default function SkillRegistry() {
             </div>
           ) : (
             <div className="space-y-4">
-              {registry.map((row) => <RegistryEntry key={row.id} row={row} busyAction={busyAction} onApprove={handleApprove} onRevoke={handleRevoke} />)}
+              {visibleRegistry.map((row) => <RegistryEntry key={row.id} row={row} busyAction={busyAction} onApprove={handleApprove} onRevoke={handleRevoke} />)}
             </div>
           )}
         </>
