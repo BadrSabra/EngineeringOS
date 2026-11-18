@@ -300,7 +300,7 @@ export default function FlightDeck() {
   const requestedOperationId = readQueryParam('operationId');
   const queryClient = useQueryClient();
   const [commitMessage, setCommitMessage] = useState('');
-  const { data: execution, isLoading, isError } = useGetAiExecution(executionId, {
+  const { data: execution, isLoading, isError, isFetching, refetch, dataUpdatedAt } = useGetAiExecution(executionId, {
     query: {
       queryKey: ['ai-flight-deck-execution', executionId],
       enabled: Boolean(executionId),
@@ -367,14 +367,25 @@ export default function FlightDeck() {
     return <div dir="rtl" lang="ar" className="p-8 text-center text-sm text-muted-foreground animate-pulse">جارٍ تحميل إثبات العملية المحفوظ…</div>;
   }
 
-  if (isError || !execution) {
+  if (!execution) {
     return (
       <div dir="rtl" lang="ar" className="rounded-xl border border-red-500/30 bg-red-500/5 p-6">
         <div className="flex items-center gap-2 font-semibold text-red-200">
           <AlertTriangle className="h-4 w-4" />
-          إثبات التنفيذ غير متاح
+          تعذّر تحميل سجل التنفيذ
         </div>
-        <p className="mt-2 text-sm text-muted-foreground">لم يُعِد الخادم سجل تنفيذ محفوظًا لهذا المعرّف.</p>
+        <p className="mt-2 text-sm text-muted-foreground">
+          لم تتوفر قراءة لسجل التنفيذ الآن. فشل القراءة لا يثبت أن التنفيذ غير موجود أو أنه اكتمل.
+        </p>
+        <button
+          type="button"
+          onClick={() => void refetch()}
+          disabled={isFetching}
+          className="mt-4 inline-flex items-center gap-2 rounded-md border border-border px-3 py-2 text-sm hover:bg-secondary disabled:cursor-wait disabled:opacity-60"
+        >
+          <RefreshCw className={`h-3.5 w-3.5 ${isFetching ? 'animate-spin' : ''}`} />
+          {isFetching ? 'جارٍ إعادة القراءة…' : 'إعادة تحميل سجل التنفيذ'}
+        </button>
         <Link href="/ai" className="mt-4 inline-flex items-center gap-2 text-sm text-primary hover:underline">
           <ArrowLeft className="h-4 w-4" /> الرجوع إلى مساعد الذكاء الاصطناعي
         </Link>
@@ -412,15 +423,18 @@ export default function FlightDeck() {
   const elapsed = formatElapsed(execution.startedAt, execution.completedAt);
   const changedFiles = gitStatus.data?.files ?? [];
   const recoveryRequired = deliveryRecoveryRequired(execution);
+  const executionReadIsUncertain = isError || isFetching;
   const canCommit = isDeliveryExecution && state === 'APPLIED'
     && Boolean(execution.proposalId && operationId)
     && changedFiles.length > 0
     && Boolean(commitMessage.trim())
-    && !recoveryRequired;
+    && !recoveryRequired
+    && !executionReadIsUncertain;
   const canPush = isDeliveryExecution
     && state === 'COMMITTED'
     && Boolean(execution.proposalId && operationId)
-    && !recoveryRequired;
+    && !recoveryRequired
+    && !executionReadIsUncertain;
 
   return (
     <div dir="rtl" lang="ar" className="space-y-5">
@@ -432,6 +446,38 @@ export default function FlightDeck() {
         </Link>
         <span>/</span><Link href="/mission-control" className="hover:text-foreground hover:underline">مركز المهام</Link><span>/</span><span className="text-foreground">لوحة متابعة التنفيذ</span>
       </div>
+
+      {(isError || isFetching) && (
+        <div
+          data-testid="flight-deck-execution-read-warning"
+          role={isError ? 'alert' : 'status'}
+          aria-live="polite"
+          className="flex flex-col gap-3 rounded-lg border border-amber-500/30 bg-amber-500/5 p-3 sm:flex-row sm:items-center sm:justify-between"
+        >
+          <div className="min-w-0 text-xs text-amber-100">
+            <p>
+              {isError
+                ? 'تعذّر تحديث سجل التنفيذ. اللقطة المعروضة هي آخر قراءة ناجحة، ولا تؤكد الحالة الحالية.'
+                : 'يجري تحديث سجل التنفيذ؛ اللقطة المعروضة هي آخر قراءة ناجحة.'}
+            </p>
+            <p className="mt-1 text-amber-100/70">
+              لن تتاح إجراءات Commit أو Push حتى تنجح قراءة جديدة.
+              {dataUpdatedAt > 0 && (
+                <> آخر قراءة ناجحة: <time dateTime={new Date(dataUpdatedAt).toISOString()}>{new Date(dataUpdatedAt).toLocaleString('ar-EG')}</time></>
+              )}
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={() => void refetch()}
+            disabled={isFetching}
+            className="inline-flex shrink-0 items-center justify-center gap-2 rounded-md border border-amber-500/40 px-3 py-2 text-xs font-semibold text-amber-100 hover:bg-amber-500/10 disabled:cursor-wait disabled:opacity-60"
+          >
+            <RefreshCw className={`h-3.5 w-3.5 ${isFetching ? 'animate-spin' : ''}`} />
+            {isFetching ? 'جارٍ تحديث السجل…' : 'إعادة تحميل سجل التنفيذ'}
+          </button>
+        </div>
+      )}
 
       <section className="rounded-xl border border-border bg-card p-5">
         <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
@@ -641,7 +687,7 @@ export default function FlightDeck() {
                     onChange={(event) => setCommitMessage(event.target.value)}
                     placeholder="صف التغيير الذي تم التحقق منه…"
                     className="mt-1 w-full rounded-md border border-border bg-background px-3 py-2 text-sm text-foreground outline-none focus:ring-1 focus:ring-primary"
-                    disabled={state !== 'APPLIED' || !execution.proposalId || !operationId}
+                    disabled={executionReadIsUncertain || state !== 'APPLIED' || !execution.proposalId || !operationId}
                   />
                 </label>
                 <div className="mt-3 grid gap-2 sm:grid-cols-2">
