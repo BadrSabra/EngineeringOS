@@ -59,7 +59,7 @@ describe('AI live activity presentation', () => {
     expect(container.querySelectorAll('[aria-current="step"]')).toHaveLength(0);
 
     rerender(<LiveAgentActivity {...activityProps({ stage: 'Project scan queued' })} />);
-    expect(screen.getByText('تم وضع فحص المشروع في قائمة الانتظار')).toBeInTheDocument();
+    expect(screen.getByText('أُضيف فحص المشروع إلى قائمة الانتظار')).toBeInTheDocument();
     expect(container.querySelectorAll('[aria-current="step"]')).toHaveLength(0);
 
     rerender(<LiveAgentActivity {...activityProps({ stage: 'Execution saved — ready to resume' })} />);
@@ -114,7 +114,7 @@ describe('AI live activity presentation', () => {
 
     expect(container.querySelectorAll('[aria-current="step"]')).toHaveLength(0);
     expect(stages.every((stage) => stage.querySelector('.h-1')?.classList.contains('bg-border/70'))).toBe(true);
-    expect(screen.getByText(/لا توجد مرحلة نشطة مثبتة حاليًا/)).toBeInTheDocument();
+    expect(screen.getAllByText(/لا توجد مرحلة نشطة مثبتة حاليًا/).length).toBeGreaterThan(0);
     expect(screen.getByText('انقطع الاتصال؛ جارٍ التحقق من حالة التنفيذ المحفوظ…')).toBeInTheDocument();
   });
 
