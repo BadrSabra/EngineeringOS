@@ -37,6 +37,9 @@ const mocks = vi.hoisted(() => ({
   taskDetails: {} as Record<string, unknown>,
   taskLogs: {} as Record<string, unknown[]>,
   executions: {} as Record<string, unknown>,
+  taskFetching: {} as Record<string, boolean>,
+  taskLogsFetching: {} as Record<string, boolean>,
+  executionFetching: {} as Record<string, boolean>,
 }));
 
 class FakeEventSource {
@@ -91,21 +94,21 @@ vi.mock("@workspace/api-client-react", () => ({
     data: mocks.taskDetails[taskId],
     isLoading: false,
     isError: false,
-    isFetching: false,
+    isFetching: Boolean(mocks.taskFetching[taskId]),
   }),
   getGetTaskQueryKey: (taskId: string) => [`/api/tasks/${taskId}`],
   useGetTaskLogs: (taskId: string) => ({
     data: mocks.taskLogs[taskId] ?? [],
     isLoading: false,
     isError: false,
-    isFetching: false,
+    isFetching: Boolean(mocks.taskLogsFetching[taskId]),
   }),
   getGetTaskLogsQueryKey: (taskId: string) => [`/api/tasks/${taskId}/logs`],
   useGetAiExecution: vi.fn((executionId: string) => ({
     data: mocks.executions[executionId],
     isLoading: false,
     isError: false,
-    isFetching: false,
+    isFetching: Boolean(mocks.executionFetching[executionId]),
     refetch: vi.fn(),
   })),
   getGetAiExecutionQueryKey: (executionId: string) => [
@@ -125,6 +128,9 @@ beforeEach(() => {
   mocks.taskDetails = {};
   mocks.taskLogs = {};
   mocks.executions = {};
+  mocks.taskFetching = {};
+  mocks.taskLogsFetching = {};
+  mocks.executionFetching = {};
   vi.mocked(useGetAiExecution).mockClear();
   eventSource = null;
   vi.stubGlobal("EventSource", class extends FakeEventSource {
@@ -581,5 +587,102 @@ describe("Workspace task cards", () => {
       expect(invalidate).toHaveBeenCalledWith({ queryKey: ["/api/tasks/task-refresh/logs"] });
     });
   });
+
+  it("does not display cached acceptance while the Task detail is being refreshed", () => {
+    const updatedAt = "2026-11-11T12:00:00.000Z";
+    mocks.snapshot = {
+      ...initialSnapshot,
+      work: {
+        ...initialSnapshot.work,
+        recentTasks: [{
+          id: "task-refreshing",
+          title: "مهمة يعاد تحميلها",
+          status: "completed",
+          verificationDecision: "verified",
+          updatedAt,
+        }],
+      },
+    } as unknown as ProjectWorkspaceSnapshot;
+    mocks.taskDetails["task-refreshing"] = {
+      id: "task-refreshing",
+      projectId: "project-1",
+      title: "مهمة يعاد تحميلها",
+      status: "completed",
+      correlationId: "correlation-refreshing",
+      updatedAt,
+      acceptance: { attempt: 4 },
+    };
+    mocks.taskFetching["task-refreshing"] = true;
+
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+    });
+
+    render(
+      <QueryClientProvider client={queryClient}>
+        <ProjectWorkspace />
+      </QueryClientProvider>,
+    );
+
+    expect(screen.getByTestId("workspace-task-attempt-task-refreshing")).toHaveTextContent("غير متاحة");
+    expect(screen.getByTestId("workspace-task-attempt-task-refreshing")).not.toHaveTextContent("4");
+    expect(screen.getByTestId("workspace-task-task-refreshing"))
+      .toHaveTextContent("جارٍ تحديث سجل المهمة والتنفيذ؛ أخفينا المحاولة مؤقتاً.");
+  });
+
+  it("does not display a cached execution attempt while Task Logs are being refreshed", () => {
+    const updatedAt = "2026-11-11T12:00:00.000Z";
+    mocks.snapshot = {
+      ...initialSnapshot,
+      work: {
+        ...initialSnapshot.work,
+        recentTasks: [{
+          id: "task-logs-refreshing",
+          title: "سجل التنفيذ قيد التحديث",
+          status: "running",
+          verificationDecision: null,
+          updatedAt,
+        }],
+      },
+    } as unknown as ProjectWorkspaceSnapshot;
+    mocks.taskDetails["task-logs-refreshing"] = {
+      id: "task-logs-refreshing",
+      projectId: "project-1",
+      title: "سجل التنفيذ قيد التحديث",
+      status: "running",
+      correlationId: "correlation-logs-refreshing",
+      updatedAt,
+    };
+    mocks.taskLogs["task-logs-refreshing"] = [{
+      id: "log-logs-refreshing",
+      taskId: "task-logs-refreshing",
+      correlationId: "correlation-logs-refreshing",
+      executionId: "execution-logs-refreshing",
+      attempt: 5,
+      sequence: 4,
+      timestamp: updatedAt,
+    }];
+    mocks.executions["execution-logs-refreshing"] = {
+      id: "execution-logs-refreshing",
+      linkedTaskId: "task-logs-refreshing",
+      correlationId: "correlation-logs-refreshing",
+      attempt: 5,
+    };
+    mocks.taskLogsFetching["task-logs-refreshing"] = true;
+
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+    });
+
+    render(
+      <QueryClientProvider client={queryClient}>
+        <ProjectWorkspace />
+      </QueryClientProvider>,
+    );
+
+    expect(screen.getByTestId("workspace-task-attempt-task-logs-refreshing")).toHaveTextContent("غير متاحة");
+    expect(screen.getByTestId("workspace-task-attempt-task-logs-refreshing")).not.toHaveTextContent("5");
+  });
+
 
 });
