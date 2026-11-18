@@ -1286,17 +1286,28 @@ describe('Tasks recovery rendering', () => {
       error: null,
     } as ReturnType<typeof useGetAiExecution>);
 
-    renderPage();
-    fireEvent.click(screen.getByRole('button', { name: 'عرض تفاصيل المهمة: Keep live activity visible' }));
-    fireEvent.click(screen.getByRole('button', { name: 'السجل' }));
+    class MockEventSource {
+      onerror: ((event: Event) => void) | null = null;
+      addEventListener = vi.fn();
+      close = vi.fn();
+    }
+    vi.stubGlobal('EventSource', MockEventSource);
 
-    expect(screen.getByTestId('task-logs-refresh-error')).toHaveTextContent(
-      'تعذر تحديث السجل من الخادم؛ نعرض السجلات المتاحة حاليًا دون حذفها.',
-    );
-    expect(screen.getByText('Live event retained after refresh error.')).toBeInTheDocument();
-    expect(screen.queryByText('تعذر تحميل سجل التنفيذ.')).not.toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: 'إعادة المحاولة' }));
-    expect(refetchLogs).toHaveBeenCalledTimes(1);
+    try {
+      renderPage();
+      fireEvent.click(screen.getByRole('button', { name: 'عرض تفاصيل المهمة: Keep live activity visible' }));
+      fireEvent.click(screen.getByRole('button', { name: 'السجل' }));
+
+      expect(screen.getByTestId('task-logs-refresh-error')).toHaveTextContent(
+        'تعذر تحديث السجل من الخادم؛ نعرض السجلات المتاحة حاليًا دون حذفها.',
+      );
+      expect(screen.getByText('Live event retained after refresh error.')).toBeInTheDocument();
+      expect(screen.queryByText('تعذر تحميل سجل التنفيذ.')).not.toBeInTheDocument();
+      fireEvent.click(screen.getByRole('button', { name: 'إعادة المحاولة' }));
+      expect(refetchLogs).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.unstubAllGlobals();
+    }
   });
 
   it('keeps long activity timelines bounded while preserving the first and latest events', () => {
