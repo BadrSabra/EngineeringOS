@@ -311,6 +311,52 @@ describe('project-scoped task list contracts', () => {
     );
   });
 
+  it('resets project-owned task UI state when the route target changes in-place', () => {
+    vi.mocked(useListProjects).mockReturnValue({
+      data: [
+        { id: 'project-1', name: 'First' },
+        { id: 'project-2', name: 'Second' },
+        { id: 'project-3', name: 'Third' },
+      ],
+      isLoading: false, isError: false, error: null,
+    } as ReturnType<typeof useListProjects>);
+
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const page = () => (
+      <QueryClientProvider client={queryClient}>
+        <Tasks />
+      </QueryClientProvider>
+    );
+
+    window.history.replaceState({}, '', '/tasks?projectId=project-1');
+    const view = render(page());
+
+    // A user can make a local project selection without unmounting the page.
+    fireEvent.change(screen.getByTestId('select-task-project'), { target: { value: 'project-2' } });
+    expect(screen.getByTestId('select-task-project')).toHaveValue('project-2');
+
+    // A later deep link must own the page, not the previous local selection/filter.
+    fireEvent.change(screen.getByLabelText('تصفية المهام حسب الحالة'), {
+      target: { value: 'completed' },
+    });
+    expect(screen.getByLabelText('تصفية المهام حسب الحالة')).toHaveValue('completed');
+
+    window.history.pushState({}, '', '/tasks?projectId=project-3');
+    view.rerender(page());
+
+    expect(useListTasks).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        projectId: 'project-3',
+        status: undefined,
+        priority: undefined,
+      }),
+      expect.objectContaining({ query: expect.objectContaining({ enabled: true }) }),
+    );
+    expect(screen.getByTestId('select-task-project')).toHaveValue('project-3');
+    expect(screen.getByLabelText('تصفية المهام حسب الحالة')).toHaveValue('');
+    expect(screen.queryByText('Repair provider authentication')).not.toBeInTheDocument();
+  });
+
   it('resolves the project of a task deep link even when it is outside the first list page', () => {
     window.history.replaceState({}, '', '/tasks?taskId=target-task');
     vi.mocked(useListProjects).mockReturnValue({
