@@ -108,6 +108,14 @@ bypassed.
 - `SESSION_SECRET` — session signing key
 - `DATABASE_URL` — runtime-managed by Replit
 
+## Database connection budget
+
+- `DATABASE_POOL_MAX` — optional positive integer limiting PostgreSQL connections
+  per server process; defaults to 10 to preserve the current `pg` behavior.
+- With multiple API instances, the possible total is the instance count
+  multiplied by this per-process limit. Set it to fit the database's connection
+  budget.
+
 ## Optional secrets (AI features)
 
 AI features return HTTP 428 until at least one key is saved via the dashboard:

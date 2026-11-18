@@ -1,6 +1,10 @@
 import { drizzle } from "drizzle-orm/node-postgres";
 import pg from "pg";
 import * as schema from "./schema/index.js";
+import {
+  attachDatabasePoolErrorHandler,
+  parseDatabasePoolMax,
+} from "./pool-runtime.js";
 
 const { Pool } = pg;
 
@@ -10,7 +14,11 @@ if (!process.env.DATABASE_URL) {
   );
 }
 
-export const pool = new Pool({ connectionString: process.env.DATABASE_URL });
+export const pool = new Pool({
+  connectionString: process.env.DATABASE_URL,
+  max: parseDatabasePoolMax(process.env.DATABASE_POOL_MAX),
+});
+attachDatabasePoolErrorHandler(pool);
 export const db = drizzle(pool, { schema });
 
 export * from "./schema/index.js";
