@@ -2,6 +2,7 @@ import { act, fireEvent, render, screen, within } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import axe from 'axe-core';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { useLocation } from 'wouter';
 import type { AiExecutionProjection } from '@workspace/api-client-react';
 import Tasks from './Tasks';
 
@@ -322,9 +323,20 @@ describe('project-scoped task list contracts', () => {
     } as ReturnType<typeof useListProjects>);
 
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    function RouteNavigationProbe() {
+      const [, navigate] = useLocation();
+      return (
+        <button type="button" onClick={() => navigate('/tasks?projectId=project-3')}>
+          Navigate to project 3
+        </button>
+      );
+    }
     const page = () => (
       <QueryClientProvider client={queryClient}>
-        <Tasks />
+        <>
+          <RouteNavigationProbe />
+          <Tasks />
+        </>
       </QueryClientProvider>
     );
 
@@ -341,8 +353,7 @@ describe('project-scoped task list contracts', () => {
     });
     expect(screen.getByLabelText('تصفية المهام حسب الحالة')).toHaveValue('completed');
 
-    window.history.pushState({}, '', '/tasks?projectId=project-3');
-    view.rerender(page());
+    fireEvent.click(screen.getByRole('button', { name: 'Navigate to project 3' }));
 
     expect(useListTasks).toHaveBeenLastCalledWith(
       expect.objectContaining({
