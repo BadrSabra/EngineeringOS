@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useListMetrics, useListProjects, getListMetricsQueryKey } from '@workspace/api-client-react';
 import {
   LineChart,
@@ -24,16 +24,71 @@ const CHART_COLORS = {
 type DateRange = '7d' | '30d' | 'all';
 
 export default function Metrics() {
-  const { data: projects, isError: projectsError, refetch: refetchProjects } = useListProjects();
+  const {
+    data: projects,
+    isError: projectsError,
+    isFetching: projectsIsFetching,
+    dataUpdatedAt: projectsDataUpdatedAt,
+    refetch: refetchProjects,
+  } = useListProjects();
   const [selectedProjectId, setSelectedProjectId] = useState<string>('');
   const [dateRange, setDateRange] = useState<DateRange>('30d');
 
-  const effectiveProjectId = selectedProjectId || (projects?.[0]?.id ?? '');
+  // A saved selection is valid only while it belongs to the latest project list.
+  // Derive the fallback during render so a removed project is never queried for
+  // even one render after the owned-project result changes.
+  const effectiveProjectId = projects?.some((project) => project.id === selectedProjectId)
+    ? selectedProjectId
+    : (projects?.[0]?.id ?? '');
 
-  const { data: metrics, isLoading, isError, error, refetch, isRefetching, dataUpdatedAt } = useListMetrics(
+  useEffect(() => {
+    if (selectedProjectId !== effectiveProjectId) {
+      setSelectedProjectId(effectiveProjectId);
+    }
+  }, [effectiveProjectId, selectedProjectId]);
+
+  const currentProjectIdRef = useRef(effectiveProjectId);
+  currentProjectIdRef.current = effectiveProjectId;
+
+  const {
+    data: metrics,
+    isLoading,
+    isError,
+    error,
+    refetch,
+    isFetching: metricsIsFetching,
+    dataUpdatedAt: metricsDataUpdatedAt,
+  } = useListMetrics(
     { projectId: effectiveProjectId },
     { query: { queryKey: getListMetricsQueryKey({ projectId: effectiveProjectId }), enabled: !!effectiveProjectId, staleTime: 30_000 } },
   );
+
+  const refreshMetrics = async () => {
+    const requestedProjectId = effectiveProjectId;
+    const refreshedProjects = await refetchProjects();
+
+    // The current render's refetch() is bound to requestedProjectId. Do not
+    // invoke it if the project refresh removed that project or navigation has
+    // since selected a different one; the active query will follow the new ID.
+    if (
+      refreshedProjects.isError ||
+      !refreshedProjects.data?.some((project) => project.id === requestedProjectId) ||
+      currentProjectIdRef.current !== requestedProjectId
+    ) {
+      return;
+    }
+
+    await refetch();
+  };
+
+  const isRefreshing = projectsIsFetching || metricsIsFetching;
+  const lastUpdated = effectiveProjectId
+    && !projectsError
+    && !isError
+    && projectsDataUpdatedAt > 0
+    && metricsDataUpdatedAt > 0
+    ? Math.min(projectsDataUpdatedAt, metricsDataUpdatedAt)
+    : undefined;
 
   const allData = useMemo(
     () =>
@@ -63,14 +118,16 @@ export default function Metrics() {
           data-testid="metrics-controls"
           className="flex w-full min-w-0 flex-col gap-2 sm:w-auto sm:flex-row sm:items-center"
         >
-          <RefreshButton onRefresh={async () => { await refetchProjects(); await refetch(); }} isRefreshing={isRefetching} lastUpdated={dataUpdatedAt} label="تحديث المؤشرات" refreshingLabel="جارٍ التحديث…" updatedLabel="آخر تحديث:" />
+          <RefreshButton onRefresh={refreshMetrics} isRefreshing={isRefreshing} lastUpdated={lastUpdated} label="تحديث المؤشرات" refreshingLabel="جارٍ التحديث…" updatedLabel="آخر تحديث:" />
           <select
             value={effectiveProjectId}
             onChange={(e) => setSelectedProjectId(e.target.value)}
             aria-label="اختر المشروع"
             className="w-full min-w-0 bg-card border border-border rounded-md px-3 py-2 text-sm focus:border-primary focus:outline-none font-medium sm:w-56"
           >
-            {projects?.map((p) => (
+            {projects?.length === 0 ? (
+              <option value="" disabled>لا توجد مشاريع متاحة</option>
+            ) : projects?.map((p) => (
               <option key={p.id} value={p.id}>
                 {p.name}
               </option>

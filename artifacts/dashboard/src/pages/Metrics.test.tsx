@@ -19,11 +19,17 @@ import {
 const refetchMetrics = vi.fn();
 const refetchProjects = vi.fn();
 
-function mockProjects(data: Array<{ id: string; name: string }> = []) {
+function mockProjects(
+  data: Array<{ id: string; name: string }> = [],
+  overrides: Record<string, unknown> = {},
+) {
   vi.mocked(useListProjects).mockReturnValue({
     data,
     isError: false,
+    isFetching: false,
+    dataUpdatedAt: 0,
     refetch: refetchProjects,
+    ...overrides,
   } as ReturnType<typeof useListProjects>);
 }
 
@@ -38,6 +44,7 @@ function mockMetrics(
     error: null,
     refetch: refetchMetrics,
     isRefetching: false,
+    isFetching: false,
     dataUpdatedAt: 0,
     ...overrides,
   } as ReturnType<typeof useListMetrics>);
@@ -113,10 +120,158 @@ describe('Metrics', () => {
     });
   });
 
+  it('falls back to a currently available project when the selected project is removed', async () => {
+    mockProjects([
+      { id: 'project-a', name: 'Alpha' },
+      { id: 'project-b', name: 'Beta' },
+    ]);
+
+    const { rerender } = render(<Metrics />);
+    fireEvent.change(screen.getByRole('combobox'), {
+      target: { value: 'project-b' },
+    });
+
+    await waitFor(() => {
+      expect(useListMetrics).toHaveBeenLastCalledWith(
+        { projectId: 'project-b' },
+        expect.objectContaining({
+          query: expect.objectContaining({ enabled: true }),
+        }),
+      );
+    });
+
+    mockProjects([{ id: 'project-a', name: 'Alpha' }]);
+    rerender(<Metrics />);
+
+    await waitFor(() => {
+      expect(screen.getByRole('combobox')).toHaveValue('project-a');
+      expect(useListMetrics).toHaveBeenLastCalledWith(
+        { projectId: 'project-a' },
+        expect.objectContaining({
+          query: expect.objectContaining({ enabled: true }),
+        }),
+      );
+    });
+  });
+
+  it('does not refetch metrics for a project removed by the same refresh', async () => {
+    mockProjects([
+      { id: 'project-a', name: 'Alpha' },
+      { id: 'project-b', name: 'Beta' },
+    ]);
+    const { rerender } = render(<Metrics />);
+
+    fireEvent.change(screen.getByRole('combobox'), {
+      target: { value: 'project-b' },
+    });
+    await waitFor(() => {
+      expect(screen.getByRole('combobox')).toHaveValue('project-b');
+    });
+
+    refetchProjects.mockResolvedValue({
+      data: [{ id: 'project-a', name: 'Alpha' }],
+      isError: false,
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'تحديث المؤشرات' }));
+
+    await waitFor(() => {
+      expect(refetchProjects).toHaveBeenCalledTimes(1);
+    });
+    expect(refetchMetrics).not.toHaveBeenCalled();
+
+    mockProjects([{ id: 'project-a', name: 'Alpha' }]);
+    rerender(<Metrics />);
+    await waitFor(() => {
+      expect(screen.getByRole('combobox')).toHaveValue('project-a');
+    });
+  });
+
+  it('refetches metrics when the selected project remains available after project refresh', async () => {
+    const projects = [
+      { id: 'project-a', name: 'Alpha' },
+      { id: 'project-b', name: 'Beta' },
+    ];
+    mockProjects(projects);
+    render(<Metrics />);
+
+    fireEvent.change(screen.getByRole('combobox'), {
+      target: { value: 'project-b' },
+    });
+    await waitFor(() => {
+      expect(screen.getByRole('combobox')).toHaveValue('project-b');
+    });
+
+    refetchProjects.mockResolvedValue({
+      data: projects,
+      isError: false,
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'تحديث المؤشرات' }));
+
+    await waitFor(() => {
+      expect(refetchProjects).toHaveBeenCalledTimes(1);
+      expect(refetchMetrics).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  it('keeps refresh busy while either the projects or metrics read is fetching', () => {
+    const projects = [{ id: 'project-a', name: 'Alpha' }];
+    mockProjects(projects, {
+      isFetching: true,
+      dataUpdatedAt: 2_000,
+    });
+    mockMetrics([], {
+      isFetching: false,
+      dataUpdatedAt: 3_000,
+    });
+
+    const { rerender } = render(<Metrics />);
+    const refreshButton = screen.getByRole('button', { name: 'تحديث المؤشرات' });
+    expect(refreshButton).toBeDisabled();
+
+    mockProjects(projects, {
+      isFetching: false,
+      dataUpdatedAt: 2_000,
+    });
+    mockMetrics([], {
+      isFetching: true,
+      dataUpdatedAt: 3_000,
+    });
+    rerender(<Metrics />);
+
+    expect(refreshButton).toBeDisabled();
+  });
+
+  it('uses the oldest successful read as the composite last-updated time', () => {
+    mockProjects([{ id: 'project-a', name: 'Alpha' }], {
+      dataUpdatedAt: 2_000,
+    });
+    mockMetrics([], {
+      dataUpdatedAt: 1_000,
+    });
+
+    const { rerender } = render(<Metrics />);
+
+    expect(screen.getByText(/آخر تحديث:/)).toHaveTextContent(
+      new Date(1_000).toLocaleTimeString(),
+    );
+
+    mockMetrics([], { dataUpdatedAt: 0 });
+    rerender(<Metrics />);
+    expect(screen.queryByText(/آخر تحديث:/)).not.toBeInTheDocument();
+
+    mockProjects([{ id: 'project-a', name: 'Alpha' }], { dataUpdatedAt: 0 });
+    mockMetrics([], { dataUpdatedAt: 1_000 });
+    rerender(<Metrics />);
+
+    expect(screen.queryByText(/آخر تحديث:/)).not.toBeInTheDocument();
+  });
+
   it('offers project retry on load failure rather than showing an empty state', () => {
     vi.mocked(useListProjects).mockReturnValue({
       data: undefined,
       isError: true,
+      isFetching: false,
+      dataUpdatedAt: 0,
       refetch: refetchProjects,
     } as ReturnType<typeof useListProjects>);
 
@@ -126,6 +281,20 @@ describe('Metrics', () => {
     expect(screen.queryByText('لا توجد بيانات مؤشرات سابقة لهذا المشروع بعد.')).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'حاول مجددًا' }));
     expect(refetchProjects).toHaveBeenCalledTimes(1);
+  });
+
+  it('shows an explicit empty project option and disables metrics without a project', () => {
+    mockProjects([]);
+    render(<Metrics />);
+
+    expect(screen.getByRole('combobox')).toHaveValue('');
+    expect(screen.getByRole('option', { name: 'لا توجد مشاريع متاحة' })).toBeDisabled();
+    expect(useListMetrics).toHaveBeenLastCalledWith(
+      { projectId: '' },
+      expect.objectContaining({
+        query: expect.objectContaining({ enabled: false }),
+      }),
+    );
   });
 
   it('has no axe violations in the no-project state', async () => {
