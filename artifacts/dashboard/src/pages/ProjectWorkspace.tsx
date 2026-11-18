@@ -1,7 +1,7 @@
 import { useQueryClient } from '@tanstack/react-query';
 import { useWorkspaceEventStream } from '@/pages/project-workspace/use-workspace-event-stream';
 import PreviewAgentPanel from '@/pages/project-workspace/PreviewAgentPanel';
-import type { ReactNode } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { Link, useRoute } from 'wouter';
 import { Activity, AlertTriangle, ArrowRight, Check, Clock3, Code2, GitBranch, Layers3, RefreshCw, ShieldCheck, Sparkles, Terminal } from 'lucide-react';
 import { useGetProjectWorkspaceSnapshot, getGetProjectWorkspaceSnapshotQueryKey, getGetAiExecutionQueryKey, useGetTask, getGetTaskQueryKey, useGetTaskLogs, getGetTaskLogsQueryKey, useGetAiExecution } from '@workspace/api-client-react';
@@ -286,6 +286,14 @@ export default function ProjectWorkspace() {
     },
   });
   const { data: snapshot, isLoading, isError, refetch, isFetching } = snapshotQuery;
+  const [isRefreshingWorkspace, setIsRefreshingWorkspace] = useState(false);
+  const currentProjectIdRef = useRef(projectId);
+  currentProjectIdRef.current = projectId;
+  const refreshGenerationRef = useRef(0);
+  useEffect(() => {
+    refreshGenerationRef.current += 1;
+    setIsRefreshingWorkspace(false);
+  }, [projectId]);
   const hasCurrentSnapshot = snapshot?.project.id === projectId;
   const latestExecutionId = snapshot?.work.executionSource === 'available'
     ? snapshot.work.latestExecution?.id ?? null
@@ -293,12 +301,11 @@ export default function ProjectWorkspace() {
   const recentTaskIds = snapshot?.work.tasksSource === 'available'
     ? snapshot.work.recentTasks.map((task) => task.id)
     : [];
-  const invalidateRecentTaskReads = () => {
-    for (const taskId of recentTaskIds) {
-      void queryClient.invalidateQueries({ queryKey: getGetTaskQueryKey(taskId) });
-      void queryClient.invalidateQueries({ queryKey: getGetTaskLogsQueryKey(taskId) });
-    }
-  };
+  const invalidateRecentTaskReads = (taskIds: string[] = recentTaskIds) =>
+    Promise.all(taskIds.flatMap((taskId) => [
+      queryClient.invalidateQueries({ queryKey: getGetTaskQueryKey(taskId) }),
+      queryClient.invalidateQueries({ queryKey: getGetTaskLogsQueryKey(taskId) }),
+    ]));
   const streamStatus = useWorkspaceEventStream({
     projectId,
     enabled: !!projectId && hasCurrentSnapshot && !isError,
@@ -311,18 +318,94 @@ export default function ProjectWorkspace() {
           queryKey: getGetAiExecutionQueryKey(latestExecutionId),
         });
       }
-      invalidateRecentTaskReads();
+      void invalidateRecentTaskReads();
     },
   });
 
-  function refreshWorkspace() {
-    void refetch();
-    if (latestExecutionId) {
-      void queryClient.invalidateQueries({
-        queryKey: getGetAiExecutionQueryKey(latestExecutionId),
+  async function refreshWorkspace() {
+    const requestedProjectId = projectId;
+    const refreshGeneration = refreshGenerationRef.current;
+    if (!requestedProjectId) return;
+
+    setIsRefreshingWorkspace(true);
+    try {
+      // Refresh the authoritative snapshot first; dependent reads must be
+      // selected from that snapshot rather than from the pre-refresh render.
+      const refreshedSnapshot = await refetch();
+      if (
+        currentProjectIdRef.current !== requestedProjectId
+        || refreshGenerationRef.current !== refreshGeneration
+        || refreshedSnapshot.isError
+        || refreshedSnapshot.data?.project.id !== requestedProjectId
+      ) {
+        return;
+      }
+
+      const refreshedWork = refreshedSnapshot.data.work;
+      const refreshedExecutionId = refreshedWork.executionSource === 'available'
+        ? refreshedWork.latestExecution?.id ?? null
+        : null;
+      const refreshedTaskIds = refreshedWork.tasksSource === 'available'
+        ? refreshedWork.recentTasks.map((task) => task.id)
+        : [];
+
+      // Refresh task identities and logs before resolving the execution IDs
+      // that the visible task cards use for their attempt/evidence panels.
+      await invalidateRecentTaskReads(refreshedTaskIds);
+      if (
+        currentProjectIdRef.current !== requestedProjectId
+        || refreshGenerationRef.current !== refreshGeneration
+      ) {
+        return;
+      }
+
+      const taskExecutionIds = refreshedTaskIds.flatMap((taskId) => {
+        const taskDetails = queryClient.getQueryData(getGetTaskQueryKey(taskId)) as
+          | { projectId?: string; correlationId?: string | null }
+          | undefined;
+        const correlationId = typeof taskDetails?.correlationId === 'string'
+          ? taskDetails.correlationId.trim()
+          : '';
+        if (taskDetails?.projectId !== requestedProjectId || !correlationId) return [];
+
+        const logs = queryClient.getQueryData(getGetTaskLogsQueryKey(taskId)) as
+          | Array<{
+            correlationId?: string | null;
+            executionId?: string | null;
+            sequence?: number | null;
+            timestamp?: string | null;
+          }>
+          | undefined;
+        const latestExecutionLog = (logs ?? [])
+          .filter((log) =>
+            log.correlationId === correlationId
+            && typeof log.executionId === 'string'
+            && log.executionId.trim().length > 0)
+          .sort((left, right) =>
+            (left.sequence ?? -1) - (right.sequence ?? -1)
+            || Date.parse(String(left.timestamp)) - Date.parse(String(right.timestamp)))
+          .at(-1);
+        return latestExecutionLog?.executionId ? [latestExecutionLog.executionId] : [];
       });
+      const executionIds = [...new Set([
+        ...(refreshedExecutionId ? [refreshedExecutionId] : []),
+        ...taskExecutionIds,
+      ])];
+
+      await Promise.all(executionIds.map((executionId) =>
+        queryClient.invalidateQueries({
+          queryKey: getGetAiExecutionQueryKey(executionId),
+        }),
+      ));
+    } finally {
+      // A late completion from project A must not clear project B's refresh state.
+      if (
+        currentProjectIdRef.current === requestedProjectId
+        && refreshGenerationRef.current === refreshGeneration
+      ) {
+        setIsRefreshingWorkspace(false);
+      }
     }
-    invalidateRecentTaskReads();
   }
 
   if (isLoading) return <WorkspaceSkeleton />;
@@ -420,9 +503,15 @@ export default function ProjectWorkspace() {
             <span>المشاريع</span><span aria-hidden="true" className="text-slate-600">/</span>
             <span className="truncate text-slate-300">{project.name}</span>
           </div>
-          <button type="button" className="workspace-refresh" onClick={refreshWorkspace} disabled={isFetching}>
-            <RefreshCw className={`h-3.5 w-3.5 ${isFetching ? 'animate-spin' : ''}`} />
-            <span>{isFetching ? 'جارٍ التحديث' : 'تحديث الحالة'}</span>
+          <button
+            type="button"
+            className="workspace-refresh"
+            onClick={() => void refreshWorkspace()}
+            disabled={isFetching || isRefreshingWorkspace}
+            aria-busy={isFetching || isRefreshingWorkspace}
+          >
+            <RefreshCw className={`h-3.5 w-3.5 ${isFetching || isRefreshingWorkspace ? 'animate-spin' : ''}`} />
+            <span>{isFetching || isRefreshingWorkspace ? 'جارٍ تحديث الحالة والعمل' : 'تحديث الحالة'}</span>
           </button>
         </div>
         <div className="mt-5 flex flex-col justify-between gap-5 md:flex-row md:items-end">

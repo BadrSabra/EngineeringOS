@@ -338,6 +338,125 @@ describe("ProjectWorkspace live snapshot refresh", () => {
     expect(eventSource).toBeNull();
   });
 
+  it("keeps the Workspace refresh busy until task-linked execution evidence also settles", async () => {
+    const updatedAt = "2026-11-11T12:00:00.000Z";
+    const taskDetails = {
+      id: "task-refresh-composite",
+      projectId: "project-1",
+      title: "مهمة مساحة المشروع",
+      status: "completed",
+      correlationId: "correlation-refresh-composite",
+      updatedAt,
+    };
+    const taskLogs = [{
+      id: "log-refresh-composite",
+      taskId: "task-refresh-composite",
+      correlationId: "correlation-refresh-composite",
+      executionId: "execution-task-linked",
+      sequence: 5,
+      timestamp: updatedAt,
+    }];
+    mocks.snapshot = {
+      ...initialSnapshot,
+      work: {
+        ...initialSnapshot.work,
+        recentTasks: [{
+          id: "task-refresh-composite",
+          title: "مهمة مساحة المشروع",
+          status: "completed",
+          verificationDecision: null,
+          updatedAt,
+        }],
+        latestExecution: {
+          id: "execution-refresh-composite",
+          status: "completed",
+          attempt: 2,
+          proposalId: "proposal-refresh-composite",
+          updatedAt,
+        },
+      },
+    } as unknown as ProjectWorkspaceSnapshot;
+    mocks.taskDetails["task-refresh-composite"] = taskDetails;
+    mocks.taskLogs["task-refresh-composite"] = taskLogs;
+    mocks.executions["execution-task-linked"] = {
+      id: "execution-task-linked",
+      projectId: "project-1",
+      linkedTaskId: "task-refresh-composite",
+      correlationId: "correlation-refresh-composite",
+      attempt: 2,
+    };
+    mocks.snapshotQuery.refetch.mockResolvedValue({
+      data: mocks.snapshot,
+      isError: false,
+    } as never);
+
+    let resolveTaskReads!: () => void;
+    let resolveExecutionReads!: () => void;
+    const pendingTaskReads = new Promise<void>((resolve) => {
+      resolveTaskReads = resolve;
+    });
+    const pendingExecutionReads = new Promise<void>((resolve) => {
+      resolveExecutionReads = resolve;
+    });
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+    });
+    queryClient.setQueryData(["/api/tasks/task-refresh-composite"], taskDetails);
+    queryClient.setQueryData(["/api/tasks/task-refresh-composite/logs"], taskLogs);
+    const invalidate = vi.spyOn(queryClient, "invalidateQueries")
+      .mockImplementation((filters) => {
+        const firstKey = filters?.queryKey?.[0];
+        return typeof firstKey === "string" && firstKey.startsWith("/api/tasks/")
+          ? pendingTaskReads
+          : pendingExecutionReads;
+      });
+
+    render(
+      <QueryClientProvider client={queryClient}>
+        <ProjectWorkspace />
+      </QueryClientProvider>,
+    );
+
+    const refreshButton = screen.getByRole("button", { name: "تحديث الحالة" });
+    fireEvent.click(refreshButton);
+
+    await waitFor(() => expect(invalidate).toHaveBeenCalledTimes(2));
+    expect(mocks.snapshotQuery.refetch).toHaveBeenCalledOnce();
+    expect(invalidate).toHaveBeenCalledWith({
+      queryKey: ["/api/tasks/task-refresh-composite"],
+    });
+    expect(invalidate).toHaveBeenCalledWith({
+      queryKey: ["/api/tasks/task-refresh-composite/logs"],
+    });
+    expect(refreshButton).toBeDisabled();
+    expect(refreshButton).toHaveAttribute("aria-busy", "true");
+    expect(refreshButton).toHaveTextContent("جارٍ تحديث الحالة والعمل");
+
+    await act(async () => {
+      resolveTaskReads();
+      await pendingTaskReads;
+    });
+
+    await waitFor(() => expect(invalidate).toHaveBeenCalledTimes(4));
+    expect(invalidate).toHaveBeenCalledWith({
+      queryKey: ["/api/ai/executions/execution-refresh-composite"],
+    });
+    expect(invalidate).toHaveBeenCalledWith({
+      queryKey: ["/api/ai/executions/execution-task-linked"],
+    });
+    expect(refreshButton).toBeDisabled();
+    expect(refreshButton).toHaveAttribute("aria-busy", "true");
+
+    await act(async () => {
+      resolveExecutionReads();
+      await pendingExecutionReads;
+    });
+
+    await waitFor(() => expect(refreshButton).not.toBeDisabled());
+    expect(refreshButton).toHaveAttribute("aria-busy", "false");
+    expect(refreshButton).toHaveTextContent("تحديث الحالة");
+  });
+
   it("preserves only the last successful project identity and timestamp after a background snapshot read fails", () => {
     mocks.snapshotQuery.isError = true;
 
