@@ -1771,6 +1771,31 @@ export const OperationEvidenceProjectionCompleteness = {
   uncertain: 'uncertain',
 } as const;
 
+export type OperationEvidenceProjectionReceiptsItemKind = typeof OperationEvidenceProjectionReceiptsItemKind[keyof typeof OperationEvidenceProjectionReceiptsItemKind];
+
+
+export const OperationEvidenceProjectionReceiptsItemKind = {
+  process: 'process',
+  provider: 'provider',
+  recipe: 'recipe',
+  validation: 'validation',
+  promotion: 'promotion',
+  commit: 'commit',
+  push: 'push',
+} as const;
+
+export type OperationEvidenceProjectionReceiptsItemStatus = typeof OperationEvidenceProjectionReceiptsItemStatus[keyof typeof OperationEvidenceProjectionReceiptsItemStatus];
+
+
+export const OperationEvidenceProjectionReceiptsItemStatus = {
+  started: 'started',
+  passed: 'passed',
+  failed: 'failed',
+  blocked: 'blocked',
+  cancelled: 'cancelled',
+  unknown: 'unknown',
+} as const;
+
 export type OperationEvidenceProjectionGapsItemKind = typeof OperationEvidenceProjectionGapsItemKind[keyof typeof OperationEvidenceProjectionGapsItemKind];
 
 
@@ -1832,7 +1857,17 @@ export interface CanonicalProofProjection {
 
 export type OperationEvidenceProjectionHashes = {
   /** @nullable */
+  digestVersion: string | null;
+  /** @nullable */
   changeSet: string | null;
+  /** @nullable */
+  baseTree: string | null;
+  /** @nullable */
+  candidateTree: string | null;
+  /** @nullable */
+  promotedTree: string | null;
+  /** @nullable */
+  commitTree: string | null;
   /** @nullable */
   committed: string | null;
 };
@@ -1847,7 +1882,20 @@ export type OperationEvidenceProjectionCounts = {
   receipts: number;
 };
 
-export type OperationEvidenceProjectionReceiptsItem = { [key: string]: unknown };
+export type OperationEvidenceProjectionReceiptsItem = {
+  kind: OperationEvidenceProjectionReceiptsItemKind;
+  status: OperationEvidenceProjectionReceiptsItemStatus;
+  /**
+     * Exact execution attempt when retained; null means the receipt is not attempt-bound.
+     * @minimum 0
+     * @maximum 100
+     * @nullable
+     */
+  attempt: number | null;
+  timestamp: string;
+  detail?: string;
+  diagnostic?: string;
+};
 
 export type OperationEvidenceProjectionGapsItem = {
   kind: OperationEvidenceProjectionGapsItemKind;

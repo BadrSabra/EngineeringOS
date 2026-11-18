@@ -6581,9 +6581,14 @@ components:
         hashes:
           type: object
           additionalProperties: false
-          required: [changeSet, committed]
+          required: [digestVersion, changeSet, baseTree, candidateTree, promotedTree, commitTree, committed]
           properties:
+            digestVersion: { type: ["string", "null"] }
             changeSet: { type: ["string", "null"] }
+            baseTree: { type: ["string", "null"] }
+            candidateTree: { type: ["string", "null"] }
+            promotedTree: { type: ["string", "null"] }
+            commitTree: { type: ["string", "null"] }
             committed: { type: ["string", "null"] }
         counts:
           type: object
@@ -6599,7 +6604,21 @@ components:
             receipts: { type: integer }
         receipts:
           type: array
-          items: { type: object, additionalProperties: true }
+          items:
+            type: object
+            additionalProperties: false
+            required: [kind, status, attempt, timestamp]
+            properties:
+              kind: { type: string, enum: [process, provider, recipe, validation, promotion, commit, push] }
+              status: { type: string, enum: [started, passed, failed, blocked, cancelled, unknown] }
+              attempt:
+                type: ["integer", "null"]
+                minimum: 0
+                maximum: 100
+                description: Exact execution attempt when retained; null means the receipt is not attempt-bound.
+              timestamp: { type: string, format: date-time }
+              detail: { type: string }
+              diagnostic: { type: string }
         gaps:
           type: array
           items:

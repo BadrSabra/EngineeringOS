@@ -4921,6 +4921,9 @@ export const getAiExecutionResponseAcceptanceOneDispositionRetryAfterMsMin = 0;
 
 export const getAiExecutionResponseTerminalProjectionOneAttemptMin = 0;
 
+export const getAiExecutionResponseOperationEvidenceReceiptsItemAttemptMin = 0;
+export const getAiExecutionResponseOperationEvidenceReceiptsItemAttemptMax = 100;
+
 export const getAiExecutionResponseOperationEvidenceProofFailureReasonsMax = 8;
 
 export const getAiExecutionResponseOperationEvidenceProofAttemptMin = 0;
@@ -5136,7 +5139,12 @@ export const GetAiExecutionResponse = zod.object({
   "completeness": zod.enum(['complete', 'partial', 'retained-with-gaps', 'blocked', 'failed', 'cancelled', 'uncertain']),
   "verified": zod.literal(false),
   "hashes": zod.object({
+  "digestVersion": zod.string().nullable(),
   "changeSet": zod.string().nullable(),
+  "baseTree": zod.string().nullable(),
+  "candidateTree": zod.string().nullable(),
+  "promotedTree": zod.string().nullable(),
+  "commitTree": zod.string().nullable(),
   "committed": zod.string().nullable()
 }),
   "counts": zod.object({
@@ -5148,7 +5156,14 @@ export const GetAiExecutionResponse = zod.object({
   "journal": zod.number().int(),
   "receipts": zod.number().int()
 }),
-  "receipts": zod.array(zod.record(zod.string(), zod.unknown())),
+  "receipts": zod.array(zod.object({
+  "kind": zod.enum(['process', 'provider', 'recipe', 'validation', 'promotion', 'commit', 'push']),
+  "status": zod.enum(['started', 'passed', 'failed', 'blocked', 'cancelled', 'unknown']),
+  "attempt": zod.number().int().min(getAiExecutionResponseOperationEvidenceReceiptsItemAttemptMin).max(getAiExecutionResponseOperationEvidenceReceiptsItemAttemptMax).nullable().describe('Exact execution attempt when retained; null means the receipt is not attempt-bound.'),
+  "timestamp": zod.coerce.date(),
+  "detail": zod.string().optional(),
+  "diagnostic": zod.string().optional()
+})),
   "gaps": zod.array(zod.object({
   "kind": zod.enum(['missing', 'expired', 'inaccessible', 'mismatch', 'unrecorded']),
   "source": zod.enum(['execution', 'checkpoint', 'event', 'audit', 'task-log', 'journal', 'proposal', 'revision']),
@@ -5643,6 +5658,9 @@ export const ExportAiExecutionAuditParams = zod.object({
   "executionId": zod.coerce.string()
 })
 
+export const exportAiExecutionAuditResponseOperationEvidenceReceiptsItemAttemptMin = 0;
+export const exportAiExecutionAuditResponseOperationEvidenceReceiptsItemAttemptMax = 100;
+
 export const exportAiExecutionAuditResponseOperationEvidenceProofFailureReasonsMax = 8;
 
 export const exportAiExecutionAuditResponseOperationEvidenceProofAttemptMin = 0;
@@ -5718,7 +5736,12 @@ export const ExportAiExecutionAuditResponse = zod.object({
   "completeness": zod.enum(['complete', 'partial', 'retained-with-gaps', 'blocked', 'failed', 'cancelled', 'uncertain']),
   "verified": zod.literal(false),
   "hashes": zod.object({
+  "digestVersion": zod.string().nullable(),
   "changeSet": zod.string().nullable(),
+  "baseTree": zod.string().nullable(),
+  "candidateTree": zod.string().nullable(),
+  "promotedTree": zod.string().nullable(),
+  "commitTree": zod.string().nullable(),
   "committed": zod.string().nullable()
 }),
   "counts": zod.object({
@@ -5730,7 +5753,14 @@ export const ExportAiExecutionAuditResponse = zod.object({
   "journal": zod.number().int(),
   "receipts": zod.number().int()
 }),
-  "receipts": zod.array(zod.record(zod.string(), zod.unknown())),
+  "receipts": zod.array(zod.object({
+  "kind": zod.enum(['process', 'provider', 'recipe', 'validation', 'promotion', 'commit', 'push']),
+  "status": zod.enum(['started', 'passed', 'failed', 'blocked', 'cancelled', 'unknown']),
+  "attempt": zod.number().int().min(exportAiExecutionAuditResponseOperationEvidenceReceiptsItemAttemptMin).max(exportAiExecutionAuditResponseOperationEvidenceReceiptsItemAttemptMax).nullable().describe('Exact execution attempt when retained; null means the receipt is not attempt-bound.'),
+  "timestamp": zod.coerce.date(),
+  "detail": zod.string().optional(),
+  "diagnostic": zod.string().optional()
+})),
   "gaps": zod.array(zod.object({
   "kind": zod.enum(['missing', 'expired', 'inaccessible', 'mismatch', 'unrecorded']),
   "source": zod.enum(['execution', 'checkpoint', 'event', 'audit', 'task-log', 'journal', 'proposal', 'revision']),
@@ -6163,6 +6193,9 @@ export const getAiMissionControlResponseBenchmarkEmpiricalCampaignCasesItemAttem
 
 export const getAiMissionControlResponseBenchmarkEmpiricalCampaignCasesMax = 128;
 
+export const getAiMissionControlResponseExecutionsItemEvidenceProjectionReceiptsItemAttemptMin = 0;
+export const getAiMissionControlResponseExecutionsItemEvidenceProjectionReceiptsItemAttemptMax = 100;
+
 export const getAiMissionControlResponseExecutionsItemEvidenceProjectionProofFailureReasonsMax = 8;
 
 export const getAiMissionControlResponseExecutionsItemEvidenceProjectionProofAttemptMin = 0;
@@ -6533,7 +6566,12 @@ export const GetAiMissionControlResponse = zod.object({
   "completeness": zod.enum(['complete', 'partial', 'retained-with-gaps', 'blocked', 'failed', 'cancelled', 'uncertain']),
   "verified": zod.literal(false),
   "hashes": zod.object({
+  "digestVersion": zod.string().nullable(),
   "changeSet": zod.string().nullable(),
+  "baseTree": zod.string().nullable(),
+  "candidateTree": zod.string().nullable(),
+  "promotedTree": zod.string().nullable(),
+  "commitTree": zod.string().nullable(),
   "committed": zod.string().nullable()
 }),
   "counts": zod.object({
@@ -6545,7 +6583,14 @@ export const GetAiMissionControlResponse = zod.object({
   "journal": zod.number().int(),
   "receipts": zod.number().int()
 }),
-  "receipts": zod.array(zod.record(zod.string(), zod.unknown())),
+  "receipts": zod.array(zod.object({
+  "kind": zod.enum(['process', 'provider', 'recipe', 'validation', 'promotion', 'commit', 'push']),
+  "status": zod.enum(['started', 'passed', 'failed', 'blocked', 'cancelled', 'unknown']),
+  "attempt": zod.number().int().min(getAiMissionControlResponseExecutionsItemEvidenceProjectionReceiptsItemAttemptMin).max(getAiMissionControlResponseExecutionsItemEvidenceProjectionReceiptsItemAttemptMax).nullable().describe('Exact execution attempt when retained; null means the receipt is not attempt-bound.'),
+  "timestamp": zod.coerce.date(),
+  "detail": zod.string().optional(),
+  "diagnostic": zod.string().optional()
+})),
   "gaps": zod.array(zod.object({
   "kind": zod.enum(['missing', 'expired', 'inaccessible', 'mismatch', 'unrecorded']),
   "source": zod.enum(['execution', 'checkpoint', 'event', 'audit', 'task-log', 'journal', 'proposal', 'revision']),

@@ -8,7 +8,17 @@
 
 export type OperationEvidenceProjectionHashes = {
   /** @nullable */
+  digestVersion: string | null;
+  /** @nullable */
   changeSet: string | null;
+  /** @nullable */
+  baseTree: string | null;
+  /** @nullable */
+  candidateTree: string | null;
+  /** @nullable */
+  promotedTree: string | null;
+  /** @nullable */
+  commitTree: string | null;
   /** @nullable */
   committed: string | null;
 };

@@ -5,5 +5,20 @@
  * EngineeringOS - Autonomous AI Engineering Platform API
  * OpenAPI spec version: 1.0.0
  */
+import type { OperationEvidenceProjectionReceiptsItemKind } from './operationEvidenceProjectionReceiptsItemKind';
+import type { OperationEvidenceProjectionReceiptsItemStatus } from './operationEvidenceProjectionReceiptsItemStatus';
 
-export type OperationEvidenceProjectionReceiptsItem = { [key: string]: unknown };
+export type OperationEvidenceProjectionReceiptsItem = {
+  kind: OperationEvidenceProjectionReceiptsItemKind;
+  status: OperationEvidenceProjectionReceiptsItemStatus;
+  /**
+     * Exact execution attempt when retained; null means the receipt is not attempt-bound.
+     * @minimum 0
+     * @maximum 100
+     * @nullable
+     */
+  attempt: number | null;
+  timestamp: Date;
+  detail?: string;
+  diagnostic?: string;
+};

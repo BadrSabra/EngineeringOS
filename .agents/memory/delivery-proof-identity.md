@@ -18,3 +18,9 @@ Apply Mission lineage pins the exact source acceptance ID when the handoff is cr
 **Why:** Applying a candidate replaces Proposal validation evidence with post-promotion receipts and may update tree hashes. Re-reading those mutable fields loses the source-only binding even though the original accepted Execution and proof remain valid.
 
 **How to apply:** Persist the verified source acceptance ID on the existing lineage edge. On delivery or replay, verify that acceptance belongs to the exact source Execution, attempt, project, then reload Canonical Proof; never relax identity checks or treat post-promotion validation as source acceptance.
+
+For public evidence projections, an operation-correlated event is not automatically bound to the current execution attempt. Preserve an explicit event attempt when present and otherwise report `null`; only receipts derived from the execution row itself inherit that row's attempt.
+
+**Why:** A durable delivery event can outlive or predate the execution attempt currently loaded for display. Filling a missing attempt from that current row creates false provenance even though it grants no new authority.
+
+**How to apply:** Resolve event attempt from its own `executionAttempt` or `attempt` metadata only. Keep operation-level events such as a push receipt unbound until the writer persists a verified execution-attempt identity.
