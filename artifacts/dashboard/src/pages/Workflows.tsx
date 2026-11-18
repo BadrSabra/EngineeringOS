@@ -316,6 +316,16 @@ function ExecutionHistory({
   const queryClient = useQueryClient();
   const retryPhase = useRetryWorkflowPhase();
   const rollbackPhase = useRollbackWorkflowPhase();
+  const [actionErrors, setActionErrors] = useState<Record<string, string>>({});
+
+  const clearActionError = (executionId: string) => {
+    setActionErrors((previous) => {
+      if (!(executionId in previous)) return previous;
+      const next = { ...previous };
+      delete next[executionId];
+      return next;
+    });
+  };
 
   const invalidate = () => {
     queryClient.invalidateQueries({ queryKey: getListWorkflowExecutionsQueryKey(workflowId) });
@@ -382,6 +392,11 @@ function ExecutionHistory({
                 لم يكتمل تشغيل مسار العمل.
               </div>
             )}
+            {actionErrors[exec.id] && (
+              <p dir="rtl" className="mt-2 text-[11px] leading-5 text-destructive" role="alert">
+                {actionErrors[exec.id]}
+              </p>
+            )}
             {(() => {
               const execution = exec as ExecutionWithRecovery;
               const recovery = execution.recovery ?? execution.recoverySummary
@@ -394,12 +409,22 @@ function ExecutionHistory({
           </div>
           {exec.status === 'failed' && (
             <button
-              onClick={() =>
+              onClick={() => {
+                clearActionError(exec.id);
                 retryPhase.mutate(
                   { workflowId, executionId: exec.id },
-                  { onSuccess: invalidate },
-                )
-              }
+                  {
+                    onSuccess: () => {
+                      clearActionError(exec.id);
+                      invalidate();
+                    },
+                    onError: () => setActionErrors((previous) => ({
+                      ...previous,
+                      [exec.id]: 'تعذرت إعادة محاولة هذا التشغيل. لم تُسجل إعادة المحاولة بنجاح؛ حدّث السجل ثم حاول مجدداً.',
+                    })),
+                  },
+                );
+              }}
               disabled={retryPhase.isPending}
               className="shrink-0 flex items-center gap-1 text-primary hover:underline disabled:opacity-50"
             >
@@ -429,9 +454,19 @@ function ExecutionHistory({
                             `إعادة هذا التشغيل إلى المرحلة "${targetPhase}"؟ ستحتاج المراحل اللاحقة المكتملة إلى التنفيذ مجددًا.`,
                           )
                         ) {
+                          clearActionError(exec.id);
                           rollbackPhase.mutate(
                             { workflowId, executionId: exec.id, data: { targetPhase } },
-                            { onSuccess: invalidate },
+                            {
+                              onSuccess: () => {
+                                clearActionError(exec.id);
+                                invalidate();
+                              },
+                              onError: () => setActionErrors((previous) => ({
+                                ...previous,
+                                [exec.id]: 'تعذر استرجاع هذا التشغيل إلى المرحلة المحددة. لم يُسجل الاسترجاع بنجاح؛ حدّث السجل ثم حاول مجدداً.',
+                              })),
+                            },
                           );
                         }
                       }}
@@ -464,6 +499,7 @@ export default function Workflows() {
     | null
   >(null);
   const [deleteErrors, setDeleteErrors] = useState<Record<string, string>>({});
+  const [actionErrors, setActionErrors] = useState<Record<string, string>>({});
 
   const startWorkflow = useStartWorkflow();
   const stopWorkflow = useStopWorkflow();
@@ -477,23 +513,67 @@ export default function Workflows() {
     queryClient.invalidateQueries({ queryKey: getListWorkflowExecutionsQueryKey(workflowId) });
   };
 
+  const clearWorkflowActionError = (workflowId: string) => {
+    setActionErrors((previous) => {
+      if (!(workflowId in previous)) return previous;
+      const next = { ...previous };
+      delete next[workflowId];
+      return next;
+    });
+  };
+
   const handleToggle = (workflowId: string, status: string) => {
     const isRunning = status === 'running';
     const mutation = isRunning ? stopWorkflow : startWorkflow;
+    clearWorkflowActionError(workflowId);
     mutation.mutate(
       { workflowId },
-      { onSuccess: () => invalidateWorkflow(workflowId) },
+      {
+        onSuccess: () => {
+          clearWorkflowActionError(workflowId);
+          invalidateWorkflow(workflowId);
+        },
+        onError: () => setActionErrors((previous) => ({
+          ...previous,
+          [workflowId]: isRunning
+            ? 'تعذر إيقاف مسار العمل. لم تتأكد الواجهة من تغيير الحالة؛ حدّث السجل ثم حاول مجدداً.'
+            : 'تعذر تشغيل مسار العمل. لم تتأكد الواجهة من بدء التنفيذ؛ حدّث السجل ثم حاول مجدداً.',
+        })),
+      },
     );
   };
 
   const handleAdvance = (workflowId: string) => {
-    advanceWorkflow.mutate({ workflowId }, { onSuccess: () => invalidateWorkflow(workflowId) });
+    clearWorkflowActionError(workflowId);
+    advanceWorkflow.mutate(
+      { workflowId },
+      {
+        onSuccess: () => {
+          clearWorkflowActionError(workflowId);
+          invalidateWorkflow(workflowId);
+        },
+        onError: () => setActionErrors((previous) => ({
+          ...previous,
+          [workflowId]: 'تعذر الانتقال إلى المرحلة التالية. لم يُسجل الانتقال بنجاح؛ حدّث السجل ثم حاول مجدداً.',
+        })),
+      },
+    );
   };
 
   const handleFailPhase = (workflowId: string) => {
+    clearWorkflowActionError(workflowId);
     failPhase.mutate(
       { workflowId, data: { error: 'Manually marked as failed by operator' } },
-      { onSuccess: () => invalidateWorkflow(workflowId) },
+      {
+        onSuccess: () => {
+          clearWorkflowActionError(workflowId);
+          invalidateWorkflow(workflowId);
+        },
+        onError: () => setActionErrors((previous) => ({
+          ...previous,
+          [workflowId]: 'تعذر تسجيل فشل المرحلة الحالية. لم يتغير السجل؛ حدّثه ثم حاول مجدداً.',
+        })),
+      },
     );
   };
 
@@ -530,6 +610,7 @@ export default function Workflows() {
           void queryClient.invalidateQueries({ queryKey: getListWorkflowsQueryKey() });
           queryClient.removeQueries({ queryKey: getListWorkflowExecutionsQueryKey(workflowId) });
           setExpandedId((current) => current === workflowId ? '' : current);
+          clearWorkflowActionError(workflowId);
           setOrchestrationState((current) => current?.workflowId === workflowId ? null : current);
         },
         onError: (requestError) => {
@@ -690,6 +771,11 @@ export default function Workflows() {
 
               {deleteErrors[workflow.id] && (
                 <p dir="auto" className="mb-4 text-sm text-destructive" role="alert">{deleteErrors[workflow.id]}</p>
+              )}
+              {actionErrors[workflow.id] && (
+                <p dir="rtl" className="mb-4 text-sm leading-6 text-destructive" role="alert" data-testid="workflow-action-error">
+                  {actionErrors[workflow.id]}
+                </p>
               )}
 
               {orchestrationState?.workflowId === workflow.id && orchestrationState.status === 'error' && (
