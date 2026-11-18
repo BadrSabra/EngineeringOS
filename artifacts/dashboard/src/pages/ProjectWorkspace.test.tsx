@@ -452,8 +452,8 @@ describe("Workspace task cards", () => {
         recentTasks: [{
           id: "task-mismatched",
           title: "مهمة تغيرت بعد اللقطة",
-          status: "running",
-          verificationDecision: null,
+          status: "completed",
+          verificationDecision: "verified",
           updatedAt: summaryUpdatedAt,
         }],
       },
@@ -479,9 +479,9 @@ describe("Workspace task cards", () => {
     );
 
     const card = screen.getByTestId("workspace-task-task-mismatched");
-    expect(card).toHaveTextContent("قيد التنفيذ");
-    expect(card).not.toHaveTextContent("مكتمل");
+    expect(card).toHaveTextContent("مكتمل");
     expect(screen.getByTestId("workspace-task-attempt-task-mismatched")).toHaveTextContent("غير متاحة");
+    expect(screen.getByTestId("workspace-task-attempt-task-mismatched")).not.toHaveTextContent("7");
     expect(card).toHaveTextContent("تغير سجل المهمة منذ آخر لقطة");
   });
 
