@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import {
   getListRulesQueryKey,
@@ -57,12 +57,25 @@ export default function RuleDetailActions({ rule }: { rule: Rule }) {
   const [evaluationProjectId, setEvaluationProjectId] = useState('');
   const [evaluationResult, setEvaluationResult] = useState<EvaluationView | null>(null);
   const [evaluationError, setEvaluationError] = useState<string | null>(null);
+  const evaluationRequestVersion = useRef(0);
+
+  // A locally remembered ID is usable only while it remains in the latest
+  // owned-project result. Derive the fallback during render so the action
+  // cannot submit a removed project ID while the reconciliation effect runs.
+  const effectiveEvaluationProjectId = projects.some(
+    (project) => project.id === evaluationProjectId,
+  )
+    ? evaluationProjectId
+    : (projects[0]?.id ?? '');
 
   useEffect(() => {
-    if (!evaluationProjectId && projects.length > 0) {
-      setEvaluationProjectId(projects[0].id);
-    }
-  }, [evaluationProjectId, projects]);
+    if (evaluationProjectId === effectiveEvaluationProjectId) return;
+
+    evaluationRequestVersion.current += 1;
+    setEvaluationProjectId(effectiveEvaluationProjectId);
+    setEvaluationResult(null);
+    setEvaluationError(null);
+  }, [evaluationProjectId, effectiveEvaluationProjectId]);
 
   const invalidateRules = () => {
     void queryClient.invalidateQueries({ queryKey: getListRulesQueryKey() });
@@ -138,26 +151,37 @@ export default function RuleDetailActions({ rule }: { rule: Rule }) {
   };
 
   const runEvaluation = () => {
-    if (!evaluationProjectId || !rule.pattern) return;
+    const projectId = effectiveEvaluationProjectId;
+    if (!projectId || !rule.pattern || !projects.some((project) => project.id === projectId)) return;
+
+    const requestVersion = ++evaluationRequestVersion.current;
     setEvaluationError(null);
     setEvaluationResult(null);
     setActionStatus(null);
     evaluateRule.mutate(
-      { ruleId: rule.id, data: { projectId: evaluationProjectId } },
+      { ruleId: rule.id, data: { projectId } },
       {
         onSuccess: (result) => {
-          setEvaluationResult(result as EvaluationView);
+          if (requestVersion !== evaluationRequestVersion.current) return;
+
+          const evaluation = result as EvaluationView;
+          if (evaluation.projectId !== projectId) return;
+
+          setEvaluationResult(evaluation);
           invalidateRules();
         },
         onError: () => {
+          if (requestVersion !== evaluationRequestVersion.current) return;
           setEvaluationError('Could not evaluate this rule against the selected project.');
         },
       },
     );
   };
 
-  const selectedProject = projects.find((project) => project.id === evaluationProjectId);
-  const showResult = evaluationResult?.projectId === evaluationProjectId;
+  const selectedProject = projects.find(
+    (project) => project.id === effectiveEvaluationProjectId,
+  );
+  const showResult = evaluationResult?.projectId === effectiveEvaluationProjectId;
 
   return (
     <div className="border-t border-border pt-4">
@@ -301,8 +325,9 @@ export default function RuleDetailActions({ rule }: { rule: Rule }) {
               <label className="min-w-0 flex-1 space-y-1.5 text-xs font-medium text-muted-foreground">
                 Evaluate against project
                 <select
-                  value={evaluationProjectId}
+                  value={effectiveEvaluationProjectId}
                   onChange={(event) => {
+                    evaluationRequestVersion.current += 1;
                     setEvaluationProjectId(event.target.value);
                     setEvaluationResult(null);
                     setEvaluationError(null);
@@ -324,7 +349,8 @@ export default function RuleDetailActions({ rule }: { rule: Rule }) {
                 onClick={runEvaluation}
                 disabled={
                   evaluateRule.isPending ||
-                  !evaluationProjectId ||
+                  !effectiveEvaluationProjectId ||
+                  !selectedProject ||
                   !rule.pattern ||
                   projectsQuery.isLoading ||
                   projectsQuery.isError
