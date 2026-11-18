@@ -392,7 +392,14 @@ function TaskAcceptancePanel({
   onResume: () => void;
   isResuming: boolean;
 }) {
-  const { data, isLoading, isFetching, isError } = useGetTask(taskId, {
+  const {
+    data,
+    isLoading,
+    isFetching,
+    isError,
+    refetch,
+    dataUpdatedAt,
+  } = useGetTask(taskId, {
     query: {
       queryKey: getGetTaskQueryKey(taskId),
       staleTime: 0,
@@ -410,6 +417,9 @@ function TaskAcceptancePanel({
     return () => window.clearInterval(timer);
   }, [retryAt]);
   const retryGate = taskRetryGate(retryAt, clockMs);
+  const lastSuccessfulRead = Number.isFinite(dataUpdatedAt) && dataUpdatedAt > 0
+    ? new Date(dataUpdatedAt)
+    : null;
 
   if (isLoading) {
     return (
@@ -420,8 +430,32 @@ function TaskAcceptancePanel({
   }
   if (isError) {
     return (
-      <div className="mb-4 rounded-lg border border-amber-500/30 bg-amber-500/5 p-3 text-xs text-muted-foreground">
-        سجل قبول الخادم غير متاح الآن. حدّث تفاصيل المهمة لمعرفة نتيجتها المسجلة؛ تعذر التحميل لا يثبت نجاحها أو فشلها.
+      <div
+        data-testid="task-acceptance-read-error"
+        role="alert"
+        className="mb-4 rounded-lg border border-amber-500/30 bg-amber-500/5 p-3 text-xs text-muted-foreground"
+      >
+        <p>
+          {acceptance
+            ? 'تعذّر تحديث سجل قبول المهمة؛ أُخفيت النتيجة السابقة لأنها لا تؤكد قبول المحاولة الحالية.'
+            : 'سجل قبول الخادم غير متاح الآن؛ تعذّر التحميل لا يثبت نجاح المهمة أو فشلها.'}
+        </p>
+        {lastSuccessfulRead && (
+          <p className="mt-1">
+            آخر قراءة ناجحة:{' '}
+            <time dateTime={lastSuccessfulRead.toISOString()}>
+              {lastSuccessfulRead.toLocaleString('ar-EG')}
+            </time>
+          </p>
+        )}
+        <button
+          type="button"
+          onClick={() => void refetch()}
+          disabled={isFetching}
+          className="mt-2 inline-flex items-center rounded-md border border-amber-500/30 px-2.5 py-1.5 font-semibold text-amber-700 hover:bg-amber-500/10 dark:text-amber-200 disabled:cursor-wait disabled:opacity-60"
+        >
+          {isFetching ? 'جارٍ تحديث سجل القبول…' : 'إعادة تحميل سجل القبول'}
+        </button>
       </div>
     );
   }

@@ -727,6 +727,80 @@ describe('Tasks recovery rendering', () => {
     expect(screen.queryByRole('button', { name: 'استئناف تنفيذ المهمة' })).not.toBeInTheDocument();
   });
 
+  it('hides cached acceptance after a failed refresh and offers a retry with the last successful read time', () => {
+    const refetch = vi.fn();
+    const dataUpdatedAt = new Date('2026-08-25T10:02:00.000Z').getTime();
+    vi.mocked(useGetTask).mockReturnValue({
+      data: {
+        status: 'verifying',
+        acceptance: {
+          attempt: 1,
+          terminalStatus: 'paused',
+          outcome: 'FAILED',
+          reasonCode: 'EXECUTION_LEASE_EXPIRED',
+          nextActionCode: 'RESUME_ALLOWED',
+          evidenceComplete: false,
+          evidenceRequired: false,
+          resumable: true,
+          disposition: {
+            reasonCodes: ['EXECUTION_LEASE_EXPIRED'],
+            outcome: 'FAILED',
+            recoveryState: 'REQUIRED',
+            nextActionCode: 'RESUME_ALLOWED',
+            operatorAction: 'Resume the saved task checkpoint.',
+          },
+        },
+      },
+      isLoading: false,
+      isFetching: false,
+      isError: true,
+      error: new Error('Task detail refresh failed'),
+      dataUpdatedAt,
+      refetch,
+    } as ReturnType<typeof useGetTask>);
+
+    renderPage();
+    fireEvent.click(screen.getByRole('button', { name: 'عرض تفاصيل المهمة: Repair provider authentication' }));
+
+    const readError = screen.getByTestId('task-acceptance-read-error');
+    expect(readError).toHaveTextContent(
+      'تعذّر تحديث سجل قبول المهمة؛ أُخفيت النتيجة السابقة',
+    );
+    expect(readError.querySelector('time')).toHaveAttribute(
+      'dateTime',
+      new Date(dataUpdatedAt).toISOString(),
+    );
+    expect(screen.queryByRole('region', { name: 'نتيجة قبول الخادم' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'استئناف تنفيذ المهمة' })).not.toBeInTheDocument();
+
+    fireEvent.click(within(readError).getByRole('button', { name: 'إعادة تحميل سجل القبول' }));
+    expect(refetch).toHaveBeenCalledTimes(1);
+  });
+
+  it('offers a direct retry when the first Task acceptance read fails without cached data', () => {
+    const refetch = vi.fn();
+    vi.mocked(useGetTask).mockReturnValue({
+      data: undefined,
+      isLoading: false,
+      isFetching: false,
+      isError: true,
+      error: new Error('Task detail unavailable'),
+      dataUpdatedAt: 0,
+      refetch,
+    } as ReturnType<typeof useGetTask>);
+
+    renderPage();
+    fireEvent.click(screen.getByRole('button', { name: 'عرض تفاصيل المهمة: Repair provider authentication' }));
+
+    const readError = screen.getByTestId('task-acceptance-read-error');
+    expect(readError).toHaveTextContent('سجل قبول الخادم غير متاح الآن');
+    expect(readError).toHaveTextContent('تعذّر التحميل لا يثبت نجاح المهمة أو فشلها');
+    expect(readError.querySelector('time')).toBeNull();
+
+    fireEvent.click(within(readError).getByRole('button', { name: 'إعادة تحميل سجل القبول' }));
+    expect(refetch).toHaveBeenCalledTimes(1);
+  });
+
   it('does not present the prior acceptance while a resume request is pending', () => {
     vi.mocked(useListTasks).mockReturnValue({
       data: [{
