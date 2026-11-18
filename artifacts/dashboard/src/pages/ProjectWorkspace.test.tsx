@@ -253,4 +253,34 @@ describe("ProjectWorkspace live snapshot refresh", () => {
     });
   });
 
+
+  it("fails closed when the returned Workspace snapshot belongs to another project", () => {
+    mocks.snapshot = {
+      ...initialSnapshot,
+      project: {
+        ...initialSnapshot.project,
+        id: "another-project",
+        name: "مشروع لا يخص هذا المسار",
+      },
+    } as unknown as ProjectWorkspaceSnapshot;
+
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+    });
+
+    render(
+      <QueryClientProvider client={queryClient}>
+        <ProjectWorkspace />
+      </QueryClientProvider>,
+    );
+
+    expect(screen.getByRole("alert")).toHaveTextContent("تعارض هوية المشروع");
+    expect(screen.getByText(
+      "اللقطة المستلمة لا تخص المشروع المطلوب؛ أخفينا محتواها حتى تصل قراءة بهوية مطابقة.",
+    )).toBeInTheDocument();
+    expect(screen.queryByText("مشروع لا يخص هذا المسار")).not.toBeInTheDocument();
+    expect(screen.queryByRole("region", { name: "محادثة المشروع" })).not.toBeInTheDocument();
+    expect(eventSource).toBeNull();
+  });
+
 });
