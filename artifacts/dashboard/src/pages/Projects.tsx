@@ -51,8 +51,27 @@ export default function Projects() {
 }
 
 function ProjectsForAccount({ ownerId }: { ownerId: string }) {
+  const routeDraftId = new URLSearchParams(window.location.search).get('goalDraftId') ?? '';
+
+  // The same /projects route can receive another goal handoff without unmounting.
+  // Bind all create-form and bootstrap state to the exact handoff draft.
+  return (
+    <ProjectsForAccountSession
+      key={JSON.stringify([ownerId, routeDraftId])}
+      ownerId={ownerId}
+      routeDraftId={routeDraftId}
+    />
+  );
+}
+
+function ProjectsForAccountSession({
+  ownerId,
+  routeDraftId,
+}: {
+  ownerId: string;
+  routeDraftId: string;
+}) {
   const [, setLocation] = useLocation();
-  const routeDraftId = new URLSearchParams(window.location.search).get('goalDraftId');
   const draftSnapshot = readGoalDrafts(ownerId);
   const incomingDraft = draftSnapshot.drafts.find((draft) => draft.id === routeDraftId);
   const [draftId, setDraftId] = useState(incomingDraft?.id ?? '');
