@@ -114,7 +114,7 @@ export default function ProjectDetail() {
     );
   };
 
-  if (loadingProject || loadingSummary) {
+  if (loadingProject) {
     return (
       <div dir="rtl" className="p-8 text-center animate-pulse text-muted-foreground">
         جارٍ تحميل بيانات المشروع...
@@ -122,18 +122,19 @@ export default function ProjectDetail() {
     );
   }
 
-  if (projectError || summaryError || !project || !summary) {
+  if (projectError || !project) {
     return (
       <div dir="rtl">
         <RequestError
           message={projectErrorValue instanceof Error ? projectErrorValue.message : 'بيانات المشروع غير متاحة.'}
-          onRetry={() => void Promise.all([refetchProject(), refetchSummary()])}
+          onRetry={() => void refetchProject()}
         />
       </div>
     );
   }
 
-  const metrics = summary.latestMetrics ?? null;
+  const metrics = summary?.latestMetrics ?? null;
+  const qualityScore = summary?.qualityScore;
   const hasCurrentScan = Boolean(project.lastScanAt) && project.status !== 'scanning';
 
   return (
@@ -170,6 +171,33 @@ export default function ProjectDetail() {
             ? `تعكس هذه البيانات الفحص المكتمل بتاريخ ${formatProjectTimestamp(project.lastScanAt)}.`
             : 'لا يوجد فحص مكتمل لهذا المشروع. لم يُتحقق من الدرجات أو خريطة المشروع للمصدر الحالي.'}
       </div>
+
+      {(loadingSummary || summaryError || !summary) && (
+        <div
+          className="flex flex-col gap-2 rounded-lg border border-amber-500/30 bg-amber-500/5 px-3 py-2 text-xs text-amber-100 sm:flex-row sm:items-center sm:justify-between"
+          role="status"
+          data-testid="project-summary-status"
+        >
+          <span>
+            {summaryError
+              ? summary
+                ? 'تعذر تحديث ملخص المشروع؛ تُعرض آخر قراءة متاحة وقد لا تكون الأحدث.'
+                : 'تعذر تحميل ملخص المشروع. تظل بيانات المشروع الأساسية متاحة.'
+              : loadingSummary
+                ? 'جارٍ تحميل ملخص المشروع؛ يمكنك متابعة تفاصيل المشروع أثناء ذلك.'
+                : 'لا تتوفر قراءة لملخص المشروع حاليًا.'}
+          </span>
+          {(summaryError || (!loadingSummary && !summary)) && (
+            <button
+              type="button"
+              onClick={() => void refetchSummary()}
+              className="shrink-0 rounded-md border border-amber-300/30 px-2.5 py-1.5 font-medium hover:bg-amber-300/10"
+            >
+              إعادة محاولة الملخص
+            </button>
+          )}
+        </div>
+      )}
 
       {/* Project header */}
       <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-4 bg-card border border-border rounded-xl p-6 shadow-sm relative overflow-hidden">
@@ -414,16 +442,20 @@ export default function ProjectDetail() {
           <div className="text-center mb-6">
              <div
               className={`text-6xl font-bold font-mono ${
-                summary.qualityScore >= 80
-                  ? 'text-emerald-500'
-                  : summary.qualityScore >= 60
-                  ? 'text-yellow-500'
-                  : 'text-destructive'
+                !hasCurrentScan || qualityScore === undefined
+                  ? 'text-muted-foreground'
+                  : qualityScore >= 80
+                    ? 'text-emerald-500'
+                    : qualityScore >= 60
+                      ? 'text-yellow-500'
+                      : 'text-destructive'
               }`}
             >
-               {hasCurrentScan ? summary.qualityScore : '—'}
+               {hasCurrentScan && qualityScore !== undefined ? qualityScore : '—'}
             </div>
-            <div className="text-muted-foreground text-sm mt-1">{hasCurrentScan ? '/ 100' : 'غير متحقق منها'}</div>
+            <div className="text-muted-foreground text-sm mt-1">
+              {!summary ? (loadingSummary ? 'جارٍ التحميل' : 'الملخص غير متاح') : hasCurrentScan ? '/ 100' : 'غير متحقق منها'}
+            </div>
           </div>
 
           {metrics && (
@@ -469,36 +501,30 @@ export default function ProjectDetail() {
           <h2 className="font-semibold flex items-center gap-2 mb-4">
             <Activity className="w-4 h-4 text-primary" /> ملخص المهام
           </h2>
-          <div className="grid grid-cols-2 gap-3">
-            <div className="bg-secondary/50 border border-border rounded-lg p-3 text-center">
-              <div className="text-2xl font-bold font-mono">{summary.taskCounts.total}</div>
-              <div className="text-xs text-muted-foreground uppercase mt-1 tracking-wider">
-                الإجمالي
+          {summary ? (
+            <div className="grid grid-cols-2 gap-3">
+              <div className="bg-secondary/50 border border-border rounded-lg p-3 text-center">
+                <div className="text-2xl font-bold font-mono" data-testid="summary-task-total">{summary.taskCounts.total}</div>
+                <div className="text-xs text-muted-foreground uppercase mt-1 tracking-wider">الإجمالي</div>
+              </div>
+              <div className="bg-blue-500/10 border border-blue-500/20 rounded-lg p-3 text-center">
+                <div className="text-2xl font-bold font-mono text-blue-500">{summary.taskCounts.running}</div>
+                <div className="text-xs text-blue-500/80 uppercase mt-1 tracking-wider">قيد التنفيذ</div>
+              </div>
+              <div className="bg-emerald-500/10 border border-emerald-500/20 rounded-lg p-3 text-center">
+                <div className="text-2xl font-bold font-mono text-emerald-500">{summary.taskCounts.completed}</div>
+                <div className="text-xs text-emerald-500/80 uppercase mt-1 tracking-wider">مكتملة</div>
+              </div>
+              <div className="bg-destructive/10 border border-destructive/20 rounded-lg p-3 text-center">
+                <div className="text-2xl font-bold font-mono text-destructive">{summary.taskCounts.failed}</div>
+                <div className="text-xs text-destructive/80 uppercase mt-1 tracking-wider">فاشلة</div>
               </div>
             </div>
-            <div className="bg-blue-500/10 border border-blue-500/20 rounded-lg p-3 text-center">
-              <div className="text-2xl font-bold font-mono text-blue-500">
-                {summary.taskCounts.running}
-              </div>
-              <div className="text-xs text-blue-500/80 uppercase mt-1 tracking-wider">قيد التنفيذ</div>
-            </div>
-            <div className="bg-emerald-500/10 border border-emerald-500/20 rounded-lg p-3 text-center">
-              <div className="text-2xl font-bold font-mono text-emerald-500">
-                {summary.taskCounts.completed}
-              </div>
-              <div className="text-xs text-emerald-500/80 uppercase mt-1 tracking-wider">
-                مكتملة
-              </div>
-            </div>
-            <div className="bg-destructive/10 border border-destructive/20 rounded-lg p-3 text-center">
-              <div className="text-2xl font-bold font-mono text-destructive">
-                {summary.taskCounts.failed}
-              </div>
-              <div className="text-xs text-destructive/80 uppercase mt-1 tracking-wider">
-                فاشلة
-              </div>
-            </div>
-          </div>
+          ) : (
+            <p className="text-sm text-muted-foreground" data-testid="summary-task-counts-unavailable">
+              {loadingSummary ? 'جارٍ تحميل أعداد المهام…' : 'أعداد المهام غير متاحة؛ لا يمكن استنتاجها من غياب الملخص.'}
+            </p>
+          )}
         </div>
 
         {/* Recent events */}
@@ -507,7 +533,11 @@ export default function ProjectDetail() {
             <Clock className="w-4 h-4 text-primary" /> الأحداث الأخيرة
           </h2>
           <div className="flex-1 overflow-y-auto space-y-2">
-            {summary.recentEvents?.length ? (
+            {!summary ? (
+              <p className="text-sm text-muted-foreground" data-testid="summary-events-unavailable">
+                {loadingSummary ? 'جارٍ تحميل الأحداث…' : 'الأحداث الأخيرة غير متاحة دون ملخص المشروع.'}
+              </p>
+            ) : summary.recentEvents?.length ? (
               summary.recentEvents.slice(0, 8).map((evt) => (
                 <div
                   key={evt.id}

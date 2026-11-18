@@ -32,6 +32,9 @@ const mocks = vi.hoisted(() => ({
   refetchProject: vi.fn(),
   refetchSummary: vi.fn(),
   invalidateQueries: vi.fn(() => Promise.resolve()),
+  summaryAvailable: true,
+  summaryIsLoading: false,
+  summaryIsError: false,
 }));
 
 vi.mock('@workspace/api-client-react', () => ({
@@ -45,9 +48,9 @@ vi.mock('@workspace/api-client-react', () => ({
     dataUpdatedAt: Date.parse(mocks.project.updatedAt),
   }),
   useGetProjectSummary: () => ({
-    data: mocks.summary,
-    isLoading: false,
-    isError: false,
+    data: mocks.summaryAvailable ? mocks.summary : undefined,
+    isLoading: mocks.summaryIsLoading,
+    isError: mocks.summaryIsError,
     refetch: mocks.refetchSummary,
   }),
   useUpdateProject: () => ({ mutate: mocks.mutate, isPending: false }),
@@ -91,6 +94,9 @@ vi.mock('@/components/GitPanel', () => ({ default: () => null }));
 describe('ProjectDetail Arabic presentation', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mocks.summaryAvailable = true;
+    mocks.summaryIsLoading = false;
+    mocks.summaryIsError = false;
   });
 
   it('renders Arabic project labels while retaining the raw status code in project info', () => {
@@ -126,6 +132,52 @@ describe('ProjectDetail Arabic presentation', () => {
       },
       expect.objectContaining({ onSuccess: expect.any(Function), onError: expect.any(Function) }),
     );
+  });
+
+  it('keeps the project page available when the optional summary request fails', () => {
+    mocks.summaryAvailable = false;
+    mocks.summaryIsError = true;
+
+    render(<ProjectDetail />);
+
+    expect(screen.getByRole('heading', { name: 'مشروع تجريبي' })).toBeInTheDocument();
+    expect(screen.getByTestId('project-summary-status')).toHaveTextContent(
+      'تظل بيانات المشروع الأساسية متاحة',
+    );
+    expect(screen.getByTestId('summary-task-counts-unavailable')).toHaveTextContent(
+      'لا يمكن استنتاجها من غياب الملخص',
+    );
+    expect(screen.getByTestId('summary-events-unavailable')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'إعادة محاولة الملخص' }));
+    expect(mocks.refetchSummary).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not block project details while the optional summary is loading', () => {
+    mocks.summaryAvailable = false;
+    mocks.summaryIsLoading = true;
+
+    render(<ProjectDetail />);
+
+    expect(screen.getByRole('heading', { name: 'مشروع تجريبي' })).toBeInTheDocument();
+    expect(screen.getByTestId('project-summary-status')).toHaveTextContent(
+      'جارٍ تحميل ملخص المشروع',
+    );
+    expect(screen.getByTestId('summary-task-counts-unavailable')).toHaveTextContent(
+      'جارٍ تحميل أعداد المهام',
+    );
+  });
+
+  it('keeps the last available summary visible when its refresh fails', () => {
+    mocks.summaryIsError = true;
+
+    render(<ProjectDetail />);
+
+    expect(screen.getByRole('heading', { name: 'مشروع تجريبي' })).toBeInTheDocument();
+    expect(screen.getByTestId('project-summary-status')).toHaveTextContent(
+      'تُعرض آخر قراءة متاحة',
+    );
+    expect(screen.getByTestId('summary-task-total')).toHaveTextContent('2');
   });
 
   it('isolates embedded English operational panels from the page RTL direction', () => {
