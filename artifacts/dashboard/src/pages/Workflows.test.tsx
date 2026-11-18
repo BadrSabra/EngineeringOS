@@ -272,6 +272,7 @@ describe('Workflows recovery rendering', () => {
   });
 
   it('shows rollback failures beside the execution that could not be restored', () => {
+    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(true);
     renderPage();
     fireEvent.click(screen.getByRole('button', { name: /سجل التشغيل/i }));
     fireEvent.click(screen.getByRole('button', { name: 'إعادة التشغيل من build' }));
@@ -288,6 +289,7 @@ describe('Workflows recovery rendering', () => {
     const alert = screen.getByRole('alert');
     expect(alert).toHaveTextContent('تعذر استرجاع هذا التشغيل');
     expect(alert).not.toHaveTextContent('internal rollback trace');
+    confirm.mockRestore();
   });
 
   it('requires confirmation before deleting and warns that history is removed', () => {
