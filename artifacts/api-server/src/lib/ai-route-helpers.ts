@@ -71,6 +71,26 @@ import { classifyProviderFailure } from "./provider-failure-diagnostics.js";
 import { resolveAiRetryAfterSource } from "./ai-terminal-outcome.js";
 
 export type { ProviderId };
+
+/**
+ * The request's validated project is the authority for project-budget
+ * admission. Telemetry context is optional and must not silently disable or
+ * redirect that admission.
+ */
+export function resolveChatBudgetProjectId(
+  requestProjectId?: string,
+  telemetryProjectId?: string | null,
+): string | undefined {
+  if (
+    requestProjectId
+    && telemetryProjectId
+    && requestProjectId !== telemetryProjectId
+  ) {
+    throw new Error("AI budget project scope mismatch.");
+  }
+  return requestProjectId ?? telemetryProjectId ?? undefined;
+}
+
 /**
  * Remove deployment details from values that cross an AI route's user-facing
  * boundary. Keep the original provider output for server-side diagnostics,
@@ -1079,6 +1099,10 @@ export async function chatWithFallback(
   effectiveProvider: ProviderId;
   executionLedger?: ExecutionLedger;
 }> {
+  const budgetProjectId = resolveChatBudgetProjectId(
+    baseParams.projectId,
+    baseParams.telemetryContext?.projectId,
+  );
   if (typeof baseParams.onToolInvocation !== "function") {
     throw new Error("TOOL_INVOCATION_LIFECYCLE_REQUIRED");
   }
@@ -1154,7 +1178,6 @@ export async function chatWithFallback(
     contractRecoveryLatencyMs: null,
     contractFailureKind: null,
   };
-  const budgetProjectId = baseParams.telemetryContext?.projectId;
   if (budgetProjectId) {
     executionLedger.setProviderRequestBudgetHooks?.({
       reserve: async ({ sequence, estimatedTokens }) => {
