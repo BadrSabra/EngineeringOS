@@ -691,5 +691,47 @@ describe("Workspace task cards", () => {
     expect(screen.getByTestId("workspace-task-attempt-task-logs-refreshing")).not.toHaveTextContent("5");
   });
 
+  it("does not display a Task acceptance attempt without a current execution correlation", () => {
+    const updatedAt = "2026-11-11T12:00:00.000Z";
+    mocks.snapshot = {
+      ...initialSnapshot,
+      work: {
+        ...initialSnapshot.work,
+        recentTasks: [{
+          id: "task-without-correlation",
+          title: "مهمة بلا رابط تنفيذ حالي",
+          status: "completed",
+          verificationDecision: "verified",
+          updatedAt,
+        }],
+      },
+    } as unknown as ProjectWorkspaceSnapshot;
+    mocks.taskDetails["task-without-correlation"] = {
+      id: "task-without-correlation",
+      projectId: "project-1",
+      title: "مهمة بلا رابط تنفيذ حالي",
+      status: "completed",
+      correlationId: null,
+      updatedAt,
+      acceptance: { attempt: 8 },
+    };
+
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+    });
+
+    render(
+      <QueryClientProvider client={queryClient}>
+        <ProjectWorkspace />
+      </QueryClientProvider>,
+    );
+
+    expect(screen.getByTestId("workspace-task-attempt-task-without-correlation"))
+      .toHaveTextContent("غير متاحة");
+    expect(screen.getByTestId("workspace-task-attempt-task-without-correlation"))
+      .not.toHaveTextContent("8");
+  });
+
+
 
 });
