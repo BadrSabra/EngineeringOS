@@ -349,14 +349,54 @@ export default function ProjectWorkspace() {
         ? refreshedWork.recentTasks.map((task) => task.id)
         : [];
 
-      await Promise.all([
-        refreshedExecutionId
-          ? queryClient.invalidateQueries({
-            queryKey: getGetAiExecutionQueryKey(refreshedExecutionId),
-          })
-          : Promise.resolve(),
-        invalidateRecentTaskReads(refreshedTaskIds),
-      ]);
+      // Refresh task identities and logs before resolving the execution IDs
+      // that the visible task cards use for their attempt/evidence panels.
+      await invalidateRecentTaskReads(refreshedTaskIds);
+      if (
+        currentProjectIdRef.current !== requestedProjectId
+        || refreshGenerationRef.current !== refreshGeneration
+      ) {
+        return;
+      }
+
+      const taskExecutionIds = refreshedTaskIds.flatMap((taskId) => {
+        const taskDetails = queryClient.getQueryData(getGetTaskQueryKey(taskId)) as
+          | { projectId?: string; correlationId?: string | null }
+          | undefined;
+        const correlationId = typeof taskDetails?.correlationId === 'string'
+          ? taskDetails.correlationId.trim()
+          : '';
+        if (taskDetails?.projectId !== requestedProjectId || !correlationId) return [];
+
+        const logs = queryClient.getQueryData(getGetTaskLogsQueryKey(taskId)) as
+          | Array<{
+            correlationId?: string | null;
+            executionId?: string | null;
+            sequence?: number | null;
+            timestamp?: string | null;
+          }>
+          | undefined;
+        const latestExecutionLog = (logs ?? [])
+          .filter((log) =>
+            log.correlationId === correlationId
+            && typeof log.executionId === 'string'
+            && log.executionId.trim().length > 0)
+          .sort((left, right) =>
+            (left.sequence ?? -1) - (right.sequence ?? -1)
+            || Date.parse(String(left.timestamp)) - Date.parse(String(right.timestamp)))
+          .at(-1);
+        return latestExecutionLog?.executionId ? [latestExecutionLog.executionId] : [];
+      });
+      const executionIds = [...new Set([
+        ...(refreshedExecutionId ? [refreshedExecutionId] : []),
+        ...taskExecutionIds,
+      ])];
+
+      await Promise.all(executionIds.map((executionId) =>
+        queryClient.invalidateQueries({
+          queryKey: getGetAiExecutionQueryKey(executionId),
+        }),
+      ));
     } finally {
       // A late completion from project A must not clear project B's refresh state.
       if (
