@@ -381,4 +381,86 @@ describe("PreviewAgentPanel", () => {
     expect(globalThis.confirm).toHaveBeenCalledTimes(1);
     expect(await screen.findByText("ملغى")).toBeInTheDocument();
   });
+  it("serializes revoke actions so a second device cannot start while the first revoke is pending", async () => {
+    const secondNodeId = "a2e2e88b-0be0-4dc4-9a2c-6ebc70f19da4";
+    let resolveFirstRevoke: ((response: Response) => void) | undefined;
+    const fetchMock = vi.fn((input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url === "/api/projects/project-1/preview-agents") {
+        return Promise.resolve(jsonResponse([
+          {
+            nodeId,
+            projectId: "project-1",
+            storeId,
+            status: "active",
+            publicKeyFingerprint: null,
+            agentVersion: null,
+            platform: "linux",
+            keyVersion: 1,
+            pairingExpiresAt: null,
+            pairedAt: null,
+            lastSeenAt: null,
+            revokedAt: null,
+            createdAt: "2026-11-13T09:55:00.000Z",
+          },
+          {
+            nodeId: secondNodeId,
+            projectId: "project-1",
+            storeId: "other-store",
+            status: "active",
+            publicKeyFingerprint: null,
+            agentVersion: null,
+            platform: "linux",
+            keyVersion: 1,
+            pairingExpiresAt: null,
+            pairedAt: null,
+            lastSeenAt: null,
+            revokedAt: null,
+            createdAt: "2026-11-13T09:56:00.000Z",
+          },
+        ]));
+      }
+      if (url.endsWith(`/preview-agents/${nodeId}/revoke`)) {
+        return new Promise<Response>((resolve) => {
+          resolveFirstRevoke = resolve;
+        });
+      }
+      if (url.endsWith(`/preview-agents/${secondNodeId}/revoke`)) {
+        return Promise.resolve(jsonResponse({ nodeId: secondNodeId, status: "revoked" }));
+      }
+      return Promise.resolve(jsonResponse([]));
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    renderPanel();
+    const firstButton = await screen.findByRole("button", {
+      name: `إلغاء اقتران الجهاز ${nodeId.slice(0, 8)}`,
+    });
+    const secondButton = await screen.findByRole("button", {
+      name: `إلغاء اقتران الجهاز ${secondNodeId.slice(0, 8)}`,
+    });
+
+    fireEvent.click(firstButton);
+    await waitFor(() => expect(resolveFirstRevoke).toBeTypeOf("function"));
+
+    expect(firstButton).toBeDisabled();
+    expect(secondButton).toBeDisabled();
+    expect(firstButton).toHaveTextContent("جارٍ الإلغاء");
+    expect(secondButton).toHaveTextContent("إلغاء");
+
+    fireEvent.click(secondButton);
+    expect(fetchMock).not.toHaveBeenCalledWith(
+      `/api/projects/project-1/preview-agents/${secondNodeId}/revoke`,
+      expect.anything(),
+    );
+    expect(globalThis.confirm).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      resolveFirstRevoke?.(jsonResponse({ nodeId, status: "revoked" }));
+    });
+
+    await waitFor(() => expect(secondButton).toBeEnabled());
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+  });
+
 });
