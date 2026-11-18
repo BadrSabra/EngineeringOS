@@ -276,6 +276,8 @@ export default function ProjectWorkspace() {
                 <WorkspaceExecutionDetail
                   executionId={execution.id}
                   projectId={project.id}
+                  attempt={execution.attempt}
+                  proposalId={execution.proposalId}
                 />
               </div>
             )}
