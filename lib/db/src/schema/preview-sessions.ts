@@ -4,6 +4,7 @@ import {
   check,
   index,
   integer,
+  jsonb,
   pgEnum,
   pgTable,
   text,
@@ -63,6 +64,9 @@ export const previewSessionsTable = pgTable(
     runnerCommandId: uuid("runner_command_id"),
     runnerMessageId: uuid("runner_message_id"),
     runnerMessageDigest: text("runner_message_digest"),
+    runnerMessageProjection: jsonb("runner_message_projection").$type<
+      Record<string, unknown> | null
+    >(),
     runnerLeaseOwner: text("runner_lease_owner"),
     runnerLeaseExpiresAt: timestamp("runner_lease_expires_at", {
       withTimezone: true,
@@ -149,11 +153,13 @@ export const previewSessionsTable = pgTable(
       sql`(
         ${table.runnerMessageId} IS NULL
         AND ${table.runnerMessageDigest} IS NULL
+        AND ${table.runnerMessageProjection} IS NULL
       ) OR (
         ${table.runnerCommandId} IS NOT NULL
         AND ${table.runnerMessageId} IS NOT NULL
         AND ${table.runnerMessageDigest} IS NOT NULL
         AND ${table.runnerMessageDigest} ~ '^[0-9a-f]{64}$'
+        AND ${table.runnerMessageProjection} IS NOT NULL
       )`,
     ),
     check(
@@ -182,6 +188,7 @@ export const insertPreviewSessionSchema = createInsertSchema(
   runnerCommandId: true,
   runnerMessageId: true,
   runnerMessageDigest: true,
+  runnerMessageProjection: true,
   runnerLeaseOwner: true,
   runnerLeaseExpiresAt: true,
   stateVersion: true,

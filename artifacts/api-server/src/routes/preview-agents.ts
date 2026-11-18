@@ -37,6 +37,10 @@ import {
   PreviewAgentHeartbeatError,
 } from "../lib/preview-agent-heartbeat.js";
 import {
+  acceptPreviewRunnerMessage,
+  PreviewRunnerMessageAcceptanceError,
+} from "../lib/preview-runner-message-acceptance.js";
+import {
   requireProjectAccess,
   requireProjectWriteAccess,
 } from "../middlewares/requireProjectAccess.js";
@@ -149,6 +153,12 @@ const previewAgentHeartbeatSchema = z
   })
   .strict();
 
+const previewRunnerMessageSchema = z
+  .object({
+    token: z.string().min(1).max(16_384),
+  })
+  .strict();
+
 type PreviewAgentRouterDependencies = {
   requireAuth: RequestHandler;
   requireProjectAccess: RequestHandler;
@@ -162,6 +172,7 @@ type PreviewAgentRouterDependencies = {
   issueArtifactDeleteCommand: typeof issuePreviewBuildInputDeleteCommand;
   issueHeartbeatChallenge: typeof issuePreviewAgentHeartbeatChallenge;
   acceptHeartbeat: typeof acceptPreviewAgentHeartbeat;
+  acceptRunnerMessage: typeof acceptPreviewRunnerMessage;
   buildJobPrivateKeyPem: string | undefined;
   listNodes: typeof listPreviewAgentNodes;
   revokeNode: typeof revokePreviewAgentNode;
@@ -183,6 +194,7 @@ const defaultDependencies: PreviewAgentRouterDependencies = {
   issueArtifactDeleteCommand: issuePreviewBuildInputDeleteCommand,
   issueHeartbeatChallenge: issuePreviewAgentHeartbeatChallenge,
   acceptHeartbeat: acceptPreviewAgentHeartbeat,
+  acceptRunnerMessage: acceptPreviewRunnerMessage,
   buildJobPrivateKeyPem: config.previewBuildJobPrivateKeyPem,
   listNodes: listPreviewAgentNodes,
   revokeNode: revokePreviewAgentNode,
@@ -363,11 +375,79 @@ function heartbeatIssueCode(error: unknown): {
   return { status: 503, error: "preview_agent_heartbeat_unavailable" };
 }
 
+function runnerMessageIssueCode(error: unknown): {
+  status: number;
+  error: string;
+} {
+  if (error instanceof PreviewRunnerMessageAcceptanceError) {
+    switch (error.code) {
+      case "PREVIEW_RUNNER_MESSAGE_INVALID":
+        return { status: 403, error: "preview_runner_message_rejected" };
+      case "PREVIEW_RUNNER_MESSAGE_UNQUALIFIED":
+        return { status: 409, error: "preview_runner_unqualified" };
+      case "PREVIEW_RUNNER_MESSAGE_CONFLICT":
+        return { status: 409, error: "preview_runner_message_stale" };
+      case "PREVIEW_RUNNER_MESSAGE_UNAVAILABLE":
+        return { status: 503, error: "preview_runner_message_unavailable" };
+    }
+  }
+  return { status: 503, error: "preview_runner_message_unavailable" };
+}
+
 export function createPreviewAgentRouter(
   overrides: Partial<PreviewAgentRouterDependencies> = {},
 ) {
   const dependencies = { ...defaultDependencies, ...overrides };
   const router = Router();
+
+  router.post(
+    "/internal/preview-sessions/:sessionId/runner-message",
+    dependencies.capabilityRateLimiter,
+    async (request, response): Promise<void> => {
+      response.setHeader("cache-control", "no-store");
+      const sessionId = singleRouteParam(request.params.sessionId);
+      if (
+        request.get("cookie") ||
+        (dependencies.isProduction && !request.secure)
+      ) {
+        response.status(403).json({
+          error: "preview_runner_message_rejected",
+        });
+        return;
+      }
+      const parsed = previewRunnerMessageSchema.safeParse(request.body);
+      if (
+        !parsed.success ||
+        !sessionId ||
+        !z.string().uuid().safeParse(sessionId).success
+      ) {
+        response.status(400).json({
+          error: "invalid_preview_runner_message",
+        });
+        return;
+      }
+
+      try {
+        const result = await dependencies.acceptRunnerMessage({
+          sessionId,
+          token: parsed.data.token,
+        });
+        response.status(200).json({
+          sessionId: result.sessionId,
+          stateVersion: result.stateVersion,
+          action: result.action,
+          messageType: result.messageType,
+          alreadyAccepted: result.alreadyAccepted,
+          ...(result.observedState
+            ? { observedState: result.observedState }
+            : {}),
+        });
+      } catch (error) {
+        const mapped = runnerMessageIssueCode(error);
+        response.status(mapped.status).json({ error: mapped.error });
+      }
+    },
+  );
 
   router.post(
     "/internal/preview-agents/:nodeId/heartbeat-challenge",

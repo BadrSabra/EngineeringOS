@@ -15,6 +15,7 @@ import {
   PreviewArtifactGcCommandIssueError,
   type PreviewArtifactGcCommandIssue,
 } from "../lib/preview-artifact-gc-issuer.js";
+import { PreviewRunnerMessageAcceptanceError } from "../lib/preview-runner-message-acceptance.js";
 import { createPreviewAgentRouter } from "./preview-agents.js";
 
 const pairing = {
@@ -123,6 +124,14 @@ function createApp(options: { production?: boolean } = {}) {
         alreadyAccepted: false,
       }),
     ),
+    acceptRunnerMessage: vi.fn(async ({ sessionId }: { sessionId: string }) => ({
+      sessionId,
+      stateVersion: 8,
+      action: "observe" as const,
+      messageType: "observation" as const,
+      alreadyAccepted: false,
+      observedState: "ready",
+    })),
     buildJobPrivateKeyPem: commandSigningKeys.privateKey,
     listNodes: vi.fn(async () => [node]),
     revokeNode: vi.fn(async () => ({ ...node, status: "revoked" as const, revokedAt: node.createdAt })),
@@ -468,6 +477,77 @@ describe("Preview Agent pairing routes", () => {
     expect(cookieResponse.status).toBe(403);
     expect(plaintextResponse.status).toBe(403);
     expect(dependencies.acceptHeartbeat).not.toHaveBeenCalled();
+  });
+
+  it("accepts only a bounded signed Runner token and returns a safe projection", async () => {
+    const { app, dependencies } = createApp();
+    const sessionId = "923e4567-e89b-42d3-a456-426614174003";
+    const token = "opaque.signed-runner-message";
+    const response = await request(app)
+      .post(`/internal/preview-sessions/${sessionId}/runner-message`)
+      .send({ token });
+
+    expect(response.status).toBe(200);
+    expect(response.headers["cache-control"]).toBe("no-store");
+    expect(response.body).toEqual({
+      sessionId,
+      stateVersion: 8,
+      action: "observe",
+      messageType: "observation",
+      alreadyAccepted: false,
+      observedState: "ready",
+    });
+    expect(response.body).not.toHaveProperty("token");
+    expect(response.body).not.toHaveProperty("signature");
+    expect(dependencies.acceptRunnerMessage).toHaveBeenCalledWith({
+      sessionId,
+      token,
+    });
+  });
+
+  it("rejects malformed Runner messages before calling the acceptance store", async () => {
+    const { app, dependencies } = createApp();
+    const response = await request(app)
+      .post(
+        "/internal/preview-sessions/923e4567-e89b-42d3-a456-426614174003/runner-message",
+      )
+      .send({
+        token: "opaque.signed-runner-message",
+        runnerNodeId: node.nodeId,
+      });
+
+    expect(response.status).toBe(400);
+    expect(dependencies.acceptRunnerMessage).not.toHaveBeenCalled();
+  });
+
+  it("requires TLS without cookies and maps stale Runner bindings safely", async () => {
+    const { app, dependencies } = createApp({ production: true });
+    const path =
+      "/internal/preview-sessions/923e4567-e89b-42d3-a456-426614174003/runner-message";
+    const body = { token: "opaque.signed-runner-message" };
+    const cookieResponse = await request(app)
+      .post(path)
+      .set("Cookie", "session=unexpected")
+      .set("x-forwarded-proto", "https")
+      .send(body);
+    const plaintextResponse = await request(app).post(path).send(body);
+    vi.mocked(dependencies.acceptRunnerMessage).mockRejectedValueOnce(
+      new PreviewRunnerMessageAcceptanceError(
+        "PREVIEW_RUNNER_MESSAGE_CONFLICT",
+      ),
+    );
+    const staleResponse = await request(app)
+      .post(path)
+      .set("x-forwarded-proto", "https")
+      .send(body);
+
+    expect(cookieResponse.status).toBe(403);
+    expect(plaintextResponse.status).toBe(403);
+    expect(staleResponse.status).toBe(409);
+    expect(staleResponse.body).toEqual({
+      error: "preview_runner_message_stale",
+    });
+    expect(dependencies.acceptRunnerMessage).toHaveBeenCalledTimes(1);
   });
 
   it("accepts an owner receipt and returns no signed command or receipt", async () => {

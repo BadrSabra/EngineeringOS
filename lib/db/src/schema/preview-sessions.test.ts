@@ -30,6 +30,7 @@ test("Preview sessions keep AWS rows compatible and allow neutral local bindings
     "runnerCommandId",
     "runnerMessageId",
     "runnerMessageDigest",
+    "runnerMessageProjection",
     "runnerLeaseOwner",
     "runnerLeaseExpiresAt",
     "taskDefinitionArn",

@@ -1258,6 +1258,47 @@ describe("application schema contract", () => {
       ),
     );
 
+    const missingMessageProjection = findApplicationSchemaIssues({
+      ...snapshot,
+      columns: snapshot.columns.filter(
+        (column) =>
+          !(
+            column.table_name === "preview_sessions" &&
+            column.column_name === "runner_message_projection"
+          ),
+      ),
+    });
+    assert.ok(
+      missingMessageProjection.some(
+        (issue) =>
+          issue.kind === "missing_column" &&
+          issue.tableName === "preview_sessions" &&
+          issue.objectName === "runner_message_projection",
+      ),
+    );
+
+    const weakenedMessagePair = findApplicationSchemaIssues({
+      ...snapshot,
+      checkConstraints: snapshot.checkConstraints.map((constraint) =>
+        constraint.constraint_name ===
+        "chk_preview_sessions_runner_message_pair"
+          ? {
+              ...constraint,
+              definition:
+                "CHECK (runner_message_id IS NULL OR runner_message_id IS NOT NULL)",
+            }
+          : constraint,
+      ),
+    });
+    assert.ok(
+      weakenedMessagePair.some(
+        (issue) =>
+          issue.kind === "incompatible_check_constraint" &&
+          issue.tableName === "preview_sessions" &&
+          issue.objectName === "chk_preview_sessions_runner_message_pair",
+      ),
+    );
+
     const missingProviderGuard = findApplicationSchemaIssues({
       ...snapshot,
       checkConstraints: snapshot.checkConstraints.filter(

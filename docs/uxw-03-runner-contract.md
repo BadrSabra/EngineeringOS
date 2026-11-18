@@ -1,12 +1,15 @@
 # UXW-03 Runner Contract V1
 
 **Status:** Shared signed start/stop commands, signed Runner response/
-observation schemas, and a signed capability-snapshot verifier are implemented.
-Transport, durable replay/fencing, actual observation collection, Local Agent
-execution, and a qualified Runner remain unimplemented. The API has a
-server-owned qualification registry and persists accepted signed capability
-reports on the existing Agent node row; the registry is intentionally empty
-until a runtime and policy pass independent qualification.
+observation schemas, a signed capability-snapshot verifier, and a fail-closed
+signed-message acceptance endpoint are implemented. The endpoint binds each
+message to the locked current Candidate, verified Build row, active Agent key,
+qualified profile, command, execution/fencing generations, and live lease. A
+sanitized projection and token digest are retained on the existing Session row;
+the bearer token is not stored. Command delivery, recovery/reissue transport,
+independent runtime observation, Local Agent execution, and a qualified Runner
+remain unimplemented. The profile and qualification registries are intentionally
+empty until a runtime and policy pass independent qualification.
 
 **Development-environment preflight (2026-11-13):** The current workspace runs
 as non-root UID 1000 and can reach Docker 27.5.1, but Docker reports only
@@ -23,13 +26,31 @@ Standard Docker/runc remains rejected for Candidate execution.
 **Session schema foundation (2026-11-18):** The existing `preview_sessions` row
 now has provider-neutral execution identity, node/profile/channel binding,
 execution and fencing generations, current command/message replay fingerprints,
-and a paired Runner lease. Existing ECS rows keep `execution_provider =
+latest verified message projection, and a paired Runner lease. Existing ECS rows keep `execution_provider =
 aws_ecs` by default and still require their real task-definition ARN; local
 rows have no ECS ARN and must satisfy the stronger Agent/profile binding check.
-The development database passed the application schema contract after this
-additive update. This is storage groundwork only: there is still no Local Agent
-session creator, Runner transport/acceptance route, replay-fencing handler, or
-qualified runtime, and the qualification registry remains empty.
+The development database passed the application schema contract after the
+additive Session updates. This remains control-plane groundwork: there is no
+Local Agent session creator or command-delivery/recovery transport, and the
+runtime-profile and qualification registries remain empty.
+
+**Signed message acceptance (2026-11-18):** The internal HTTPS-only,
+cookie-free `POST /api/internal/preview-sessions/:sessionId/runner-message`
+accepts only a bounded signed token. It reloads and locks Candidate, Build,
+Session, and Agent identities, verifies the fresh server-stored capability and
+profile digest, then checks the message against the current command, state
+version, execution generation, fencing generation, Candidate tuple, receipt,
+artifact, channel, active key version, and unexpired Agent lease. The exact
+accepted token digest makes a lost HTTP response retry-safe; unknown start
+outcomes keep the same state version so the same command can be reconciled.
+Only a typed verified projection is retained, never the signed bearer token.
+
+Acceptance does not make the Session ready or stopped: signed Runner claims are
+provenance, not independent Gateway health or cleanup proof. The Session stays
+in its existing lifecycle state until a separately verified transition exists.
+Because the two server-owned registries are empty and no local session or
+command issuer exists, production requests cannot currently reach a successful
+execution path; no Candidate code is enabled by this endpoint.
 
 ## 1. Purpose
 

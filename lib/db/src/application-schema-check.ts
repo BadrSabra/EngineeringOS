@@ -630,6 +630,12 @@ export const APPLICATION_SCHEMA_CONTRACT = {
         udtName: "text",
         nullable: true,
       })),
+      {
+        name: "runner_message_projection",
+        dataType: "jsonb",
+        udtName: "jsonb",
+        nullable: true,
+      },
       ...[
         "runner_node_id",
         "channel_ref",
@@ -3518,7 +3524,7 @@ export const APPLICATION_SCHEMA_CONTRACT = {
       name: "chk_preview_sessions_runner_message_pair",
       tableName: "preview_sessions",
       definitionPattern:
-        /runner_message_id is null.*runner_message_digest is null.*runner_command_id is not null.*runner_message_id is not null.*runner_message_digest is not null/i,
+        /runner_message_id is null.*runner_message_digest is null.*runner_message_projection is null.*runner_command_id is not null.*runner_message_id is not null.*runner_message_digest is not null.*runner_message_projection is not null/i,
     },
     {
       name: "chk_preview_sessions_runner_lease_pair",

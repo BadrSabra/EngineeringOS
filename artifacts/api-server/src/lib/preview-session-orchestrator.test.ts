@@ -32,6 +32,7 @@ const session = {
   runnerCommandId: null,
   runnerMessageId: null,
   runnerMessageDigest: null,
+  runnerMessageProjection: null,
   runnerLeaseOwner: null,
   runnerLeaseExpiresAt: null,
   status: "starting",
