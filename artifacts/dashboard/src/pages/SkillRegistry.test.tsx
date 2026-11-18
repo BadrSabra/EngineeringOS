@@ -182,6 +182,66 @@ describe('SkillRegistry', () => {
     expect(screen.queryByText('candidate-review')).not.toBeInTheDocument();
   });
 
+  it('ignores a late approval result from the previous project after the new registry has loaded', async () => {
+    let resolveApproval: ((response: Response) => void) | undefined;
+    const secondProjectRow = {
+      ...pendingRegistry,
+      id: 'registry-2',
+      projectId: secondProject.id,
+      skillId: 'beta-skill',
+      candidateId: 'skill-candidate:beta',
+      proposalId: 'proposal-beta',
+    };
+    vi.mocked(useListProjects).mockReturnValue({
+      data: [project, secondProject],
+      isLoading: false,
+      isError: false,
+      refetch: vi.fn(),
+    } as ReturnType<typeof useListProjects>);
+    vi.stubGlobal('fetch', vi.fn((url: string, init?: RequestInit) => {
+      if (init?.method === 'POST' && url.endsWith('/approve')) {
+        return new Promise<Response>((resolve) => { resolveApproval = resolve; });
+      }
+      if (url.includes('projectId=project-2')) {
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({ registry: [secondProjectRow] }),
+        } as Response);
+      }
+      return Promise.resolve({
+        ok: true,
+        json: async () => ({ registry: [pendingRegistry] }),
+      } as Response);
+    }));
+
+    render(<SkillRegistry />);
+    expect(await screen.findByText('candidate-review')).toBeInTheDocument();
+    fireEvent.click(screen.getByTestId('approve-registry-1'));
+    fireEvent.change(screen.getByTestId('project-select'), {
+      target: { value: secondProject.id },
+    });
+
+    expect(await screen.findByText('beta-skill')).toBeInTheDocument();
+    await act(async () => {
+      resolveApproval?.({
+        ok: true,
+        json: async () => ({
+          registry: {
+            ...pendingRegistry,
+            promotionStatus: 'promoted',
+            approvedBy: 'operator-1',
+            approvedAt: '2026-09-23T10:01:00.000Z',
+          },
+        }),
+      } as Response);
+    });
+
+    expect(screen.getByText('beta-skill')).toBeInTheDocument();
+    expect(screen.getByText('pending')).toBeInTheDocument();
+    expect(screen.queryByText('candidate-review')).not.toBeInTheDocument();
+    expect(screen.queryByText('promoted')).not.toBeInTheDocument();
+  });
+
   it('loads a registry row and projects approve/revoke mutations immediately', async () => {
     render(<SkillRegistry />);
 
