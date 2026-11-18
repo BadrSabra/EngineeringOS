@@ -722,14 +722,14 @@ function WorkflowsSession({ requestedProjectId }: { requestedProjectId: string }
                   <div className="flex items-center gap-3">
                     <h2 dir="auto" className="text-xl font-bold">{workflow.name}</h2>
                     <span
-                      className={\`px-2 py-0.5 rounded text-xs font-bold border
-                      \${
+                      className={`px-2 py-0.5 rounded text-xs font-bold border
+                      ${
                         workflow.status === 'running'
                           ? 'bg-primary/10 text-primary border-primary/20'
                           : workflow.status === 'completed'
                           ? 'bg-emerald-500/10 text-emerald-500 border-emerald-500/20'
                           : 'bg-secondary text-muted-foreground border-border'
-                      }\`}
+                      }`}
                     >
                       {workflow.status === 'running' ? (
                         <Activity className="w-3 h-3 inline ml-1 animate-pulse" />
@@ -771,12 +771,12 @@ function WorkflowsSession({ requestedProjectId }: { requestedProjectId: string }
                   <button
                     onClick={() => handleToggle(workflow.id, workflow.status)}
                     disabled={startWorkflow.isPending || stopWorkflow.isPending}
-                    className={\`px-4 py-2 rounded-md font-medium text-sm flex items-center gap-2 shadow-sm transition-colors disabled:opacity-50
-                      \${
+                    className={`px-4 py-2 rounded-md font-medium text-sm flex items-center gap-2 shadow-sm transition-colors disabled:opacity-50
+                      ${
                         workflow.status === 'running'
                           ? 'bg-destructive/10 text-destructive hover:bg-destructive hover:text-destructive-foreground border border-destructive/20'
                           : 'bg-primary text-primary-foreground hover:bg-primary/90'
-                      }\`}
+                      }`}
                   >
                     {workflow.status === 'running' ? (
                       <>
@@ -841,7 +841,7 @@ function WorkflowsSession({ requestedProjectId }: { requestedProjectId: string }
                     <div className="mt-3">
                       <h4 className="text-xs font-semibold tracking-wide text-muted-foreground">ما يعيق التقدم</h4>
                       <ul className="mt-1 list-disc pr-5 text-sm">
-                        {orchestrationState.decision.blockers.map((blocker, index) => <li dir="auto" key={\`\${index}-\${blocker}\`}>{blocker}</li>)}
+                        {orchestrationState.decision.blockers.map((blocker, index) => <li dir="auto" key={`${index}-${blocker}`}>{blocker}</li>)}
                       </ul>
                     </div>
                   )}
@@ -849,7 +849,7 @@ function WorkflowsSession({ requestedProjectId }: { requestedProjectId: string }
                     <div className="mt-3">
                       <h4 className="text-xs font-semibold tracking-wide text-muted-foreground">مقترحات</h4>
                       <ul className="mt-1 list-disc pr-5 text-sm">
-                        {orchestrationState.decision.suggestions.map((suggestion, index) => <li dir="auto" key={\`\${index}-\${suggestion}\`}>{suggestion}</li>)}
+                        {orchestrationState.decision.suggestions.map((suggestion, index) => <li dir="auto" key={`${index}-${suggestion}`}>{suggestion}</li>)}
                       </ul>
                     </div>
                   )}
@@ -878,8 +878,8 @@ function WorkflowsSession({ requestedProjectId }: { requestedProjectId: string }
                     <div className="absolute top-1/2 right-0 w-full h-0.5 bg-secondary -translate-y-1/2 z-0"></div>
                   {(workflow.status === 'running' || workflow.status === 'completed') && (
                     <div
-                      className={\`absolute top-1/2 right-0 h-0.5 bg-primary -translate-y-1/2 z-0 transition-all duration-500\${workflow.status === 'running' ? ' animate-pulse' : ''}\`}
-                      style={{ width: \`\${progressPct}%\` }}
+                      className={`absolute top-1/2 right-0 h-0.5 bg-primary -translate-y-1/2 z-0 transition-all duration-500${workflow.status === 'running' ? ' animate-pulse' : ''}`}
+                      style={{ width: `${progressPct}%` }}
                     ></div>
                   )}
                   <div className="flex items-center justify-between relative z-10">
@@ -892,14 +892,14 @@ function WorkflowsSession({ requestedProjectId }: { requestedProjectId: string }
                       return (
                         <div key={idx} className="flex flex-col items-center bg-card px-2">
                           <div
-                            className={\`w-8 h-8 rounded-full flex items-center justify-center border-2 mb-2
-                            \${
+                            className={`w-8 h-8 rounded-full flex items-center justify-center border-2 mb-2
+                            ${
                               isCompleted
                                 ? 'bg-emerald-500 border-emerald-500 text-white'
                                 : isCurrent
                                 ? 'bg-primary/20 border-primary text-primary shadow-[0_0_15px_rgba(0,165,255,0.5)]'
                                 : 'bg-secondary border-border text-muted-foreground'
-                            }\`}
+                            }`}
                           >
                             {isCompleted ? (
                               <CheckCircle2 className="w-4 h-4" />
@@ -908,13 +908,13 @@ function WorkflowsSession({ requestedProjectId }: { requestedProjectId: string }
                             )}
                           </div>
                           <span
-                            className={\`text-xs font-bold uppercase tracking-wider \${
+                            className={`text-xs font-bold uppercase tracking-wider ${
                               isCurrent
                                 ? 'text-primary'
                                 : isCompleted
                                 ? 'text-foreground'
                                 : 'text-muted-foreground'
-                            }\`}
+                            }`}
                           >
                             <bdi dir="auto">{phase.name}</bdi>
                           </span>
