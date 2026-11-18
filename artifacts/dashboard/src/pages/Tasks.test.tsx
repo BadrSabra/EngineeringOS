@@ -330,7 +330,7 @@ describe('project-scoped task list contracts', () => {
       expect.objectContaining({ projectId: 'project-2' }), expect.anything(),
     );
     expect(screen.getByText('Deep linked work')).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'عرض تفاصيل المهمة: Deep linked work' }))
+    expect(screen.getByRole('button', { name: 'طي تفاصيل المهمة: Deep linked work' }))
       .toHaveAttribute('aria-expanded', 'true');
     expect(screen.queryByText('Repair provider authentication')).not.toBeInTheDocument();
   });
