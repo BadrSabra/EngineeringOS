@@ -283,6 +283,20 @@ describe('Metrics', () => {
     expect(refetchProjects).toHaveBeenCalledTimes(1);
   });
 
+  it('shows an explicit empty project option and disables metrics without a project', () => {
+    mockProjects([]);
+    render(<Metrics />);
+
+    expect(screen.getByRole('combobox')).toHaveValue('');
+    expect(screen.getByRole('option', { name: 'لا توجد مشاريع متاحة' })).toBeDisabled();
+    expect(useListMetrics).toHaveBeenLastCalledWith(
+      { projectId: '' },
+      expect.objectContaining({
+        query: expect.objectContaining({ enabled: false }),
+      }),
+    );
+  });
+
   it('has no axe violations in the no-project state', async () => {
     const { container } = render(<Metrics />);
 
