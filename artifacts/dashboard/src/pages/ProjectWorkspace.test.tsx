@@ -465,6 +465,7 @@ describe("Workspace task cards", () => {
       status: "completed",
       correlationId: "correlation-newer",
       updatedAt: "2026-11-11T12:05:00.000Z",
+      dependsOn: ["stale-dependency"],
       acceptance: { attempt: 7 },
     };
 
@@ -482,6 +483,9 @@ describe("Workspace task cards", () => {
     expect(card).toHaveTextContent("مكتمل");
     expect(screen.getByTestId("workspace-task-attempt-task-mismatched")).toHaveTextContent("غير متاحة");
     expect(screen.getByTestId("workspace-task-attempt-task-mismatched")).not.toHaveTextContent("7");
+    expect(screen.getByTestId("workspace-task-dependencies-task-mismatched"))
+      .toHaveTextContent("غير متاحة في سجل المهمة");
+    expect(card).not.toHaveTextContent("stale-dependency");
     expect(card).toHaveTextContent("تغير سجل المهمة منذ آخر لقطة");
   });
 
