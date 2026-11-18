@@ -1314,7 +1314,15 @@ router.get("/tasks/:taskId/logs/stream", async (req, res) => {
     }
   }, 5 * 60_000);
 
-  let terminalDeadline: number | null = terminalSeen ? Date.now() : null;
+  const terminalTaskStatuses = ["completed", "failed", "cancelled", "verifying"];
+  const taskWasTerminalAtSubscribe = terminalTaskStatuses.includes(task.status);
+  // A terminal legacy task can close from its initial snapshot. An active task
+  // must remain subscribed even when its first structured progress row has not
+  // been persisted yet.
+  let terminalDeadline: number | null = terminalSeen
+    || (taskWasTerminalAtSubscribe && !hasStructuredExecution)
+    ? Date.now()
+    : null;
   let polling = false;
   interval = setInterval(async () => {
     if (closed || polling) return;
@@ -1345,11 +1353,10 @@ router.get("/tasks/:taskId/logs/stream", async (req, res) => {
         .where(eq(tasksTable.id, taskId))
         .limit(1);
 
-      if (current?.status && ["completed", "failed", "cancelled", "verifying"].includes(current.status)) {
+      if (current?.status && terminalTaskStatuses.includes(current.status)) {
         terminalDeadline ??= Date.now() + 15_000;
       }
       const canClose = !current
-        || !hasStructuredExecution
         || terminalSeen
         || (terminalDeadline !== null && Date.now() >= terminalDeadline);
       if (canClose) {

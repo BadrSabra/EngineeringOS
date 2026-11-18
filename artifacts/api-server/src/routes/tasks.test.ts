@@ -439,6 +439,81 @@ describe("Task lifecycle", () => {
     expect(logs.body.length).toBeGreaterThan(0);
   });
 
+
+  it("keeps the SSE stream open when the first structured progress rows arrive after subscription", async () => {
+    const { taskId } = await createTask();
+    const executionId = randomUUID();
+    const correlationId = randomUUID();
+    const startedAt = new Date();
+
+    await db.update(tasksTable)
+      .set({ status: "running", updatedAt: startedAt })
+      .where(eq(tasksTable.id, taskId));
+
+    let streamSettled = false;
+    const streamPromise = request(app)
+      .get(`/api/tasks/${taskId}/logs/stream`)
+      .then((response) => {
+        streamSettled = true;
+        return response;
+      });
+
+    // Allow the stream to send headers and pass its initial empty-log snapshot.
+    // The first poll happens at 500 ms; the old implementation closed here
+    // solely because the initial snapshot had no structured events.
+    await new Promise((resolve) => setTimeout(resolve, 700));
+    const closedBeforeProgress = streamSettled;
+
+    const progressAt = new Date();
+    const terminalAt = new Date(progressAt.getTime() + 1);
+    await db.insert(taskLogsTable).values([
+      {
+        id: randomUUID(),
+        taskId,
+        level: "info",
+        message: "execution acquired",
+        timestamp: progressAt,
+        correlationId,
+        eventType: "progress",
+        executionId,
+        attempt: 1,
+        sequence: 1,
+        progressStage: "acquisition",
+        progressStatus: "completed",
+        progressMessage: "Execution is owned by the active worker.",
+        startedAt,
+        finishedAt: progressAt,
+      },
+      {
+        id: randomUUID(),
+        taskId,
+        level: "info",
+        message: "task completed",
+        timestamp: terminalAt,
+        correlationId,
+        eventType: "terminal",
+        executionId,
+        attempt: 1,
+        sequence: 2,
+        progressStage: "result",
+        progressStatus: "completed",
+        progressMessage: "Task completed successfully.",
+        progressPercent: 100,
+        terminalOutcome: "SUCCEEDED",
+      },
+    ]);
+    await db.update(tasksTable)
+      .set({ status: "completed", updatedAt: terminalAt, completedAt: terminalAt })
+      .where(eq(tasksTable.id, taskId));
+
+    const replay = await streamPromise;
+    expect(closedBeforeProgress).toBe(false);
+    expect(replay.status).toBe(200);
+    expect(replay.text).toContain("execution acquired");
+    expect(replay.text).toContain("task completed");
+    expect(replay.text).toContain("event: done");
+  });
+
   it("replays structured progress in sequence order and resumes after a cursor", async () => {
     const { taskId } = await createTask();
     const executionId = randomUUID();
