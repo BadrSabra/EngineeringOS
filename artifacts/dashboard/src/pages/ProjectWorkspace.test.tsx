@@ -443,7 +443,7 @@ describe("Workspace task cards", () => {
 
     expect(screen.getByTestId("workspace-task-attempt-task-running")).toHaveTextContent("3");
     expect(screen.getByTestId("workspace-task-attempt-task-running"))
-      .toHaveTextContent("محاولة مسجلة من سجل المهمة أو التنفيذ المرتبط.");
+      .toHaveTextContent("محاولة مسجلة من التنفيذ المرتبط بالمهمة.");
   });
 
   it("does not expose a cached attempt when task identity or updated timestamp differs from the Workspace snapshot", () => {
@@ -634,7 +634,7 @@ describe("Workspace task cards", () => {
     expect(screen.getByTestId("workspace-task-attempt-task-refreshing")).toHaveTextContent("غير متاحة");
     expect(screen.getByTestId("workspace-task-attempt-task-refreshing")).not.toHaveTextContent("4");
     expect(screen.getByTestId("workspace-task-task-refreshing"))
-      .toHaveTextContent("جارٍ تحديث سجل المهمة والتنفيذ؛ أخفينا المحاولة مؤقتاً.");
+      .toHaveTextContent("جارٍ تحديث سجل المهمة؛ أخفينا المحاولة مؤقتاً.");
   });
 
   it("does not display a cached execution attempt while Task Logs are being refreshed", () => {
