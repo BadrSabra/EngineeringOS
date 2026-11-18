@@ -260,9 +260,16 @@ centrality and connected-component heuristics. Query and inference tests
 cover the intended algorithms.
 
 The engine is deliberately simple and graph-empty projects return empty
-results. Some neighborhood incoming-edge query paths need a focused explicit
-project-scope regression check before graph traversal is treated as authoritative
-proof. Graph results must remain subordinate to source-owned evidence and
+results. A 2026-11-18 disposable-PostgreSQL regression reproduced a project
+boundary leak: a scoped neighborhood returned incoming and outgoing
+relationships with `project_id = NULL` whose endpoints belonged to another
+project. Traversal functions now default to the root entity's project, and
+neighborhood results include a relationship only when both endpoints resolve
+inside that project. The regression also checks impact, path, high-confidence
+path, and semantic-neighborhood queries.
+
+This closes the traversal-scope gap, not graph freshness or proof authority.
+Graph results must remain subordinate to source-owned evidence and
 project/revision binding.
 
 ### 4.7 Git and external delivery
@@ -441,7 +448,7 @@ accepted-evidence reuse, and benchmark work.
 |---|---|---|---|
 | **Archive Upload reachability and proof — resolved** | The wizard exposes the existing upload route and passes its returned `uploadId` into discovery. The Clerk-authenticated journey uses real upload, discovery, import, and scan routes. | Existing authenticated upload/discovery routes, OpenAPI operation, generated upload hook, and discovery `uploadId` contract. | The real browser journey reaches a completed scan and deletes its temporary project. API tests verify malformed, unsafe, unsupported, oversized, missing-file, and cross-owner rejection; browser tests cover user-visible validation and retry after simulated 413/422 responses. The broader 50-test browser journey stopped at 21/50 for an undetermined reason; this remains separate. |
 | **Per-transport budget wiring is implemented; full route proof remains** | The shared ledger now reserves/reconciles analysis, review, task execution, chat/tool loops, capability preflight, synthesis, retries, and model fallbacks by exact reservation identity. Focused tests cover request-before-network ordering, repeated fallback requests, and telemetry/reconciliation failure isolation; a full route campaign remains unverified. | Existing `ai-budget.ts` reservation hook and request-owned execution ledger; no second budget subsystem. | A provider-free isolated route fixture proves exactly one reservation and reconciliation per physical request across all routes, no network after rejected admission, no fabricated attempt IDs, and conservative charging when usage is unknown. |
-| **Graph and scanner freshness are not a complete proof guarantee** | Stale or weak graph/fallback data can mislead navigation or scope selection if later code treats it as source proof. | Existing graph provenance, scanner revision, source-read/evidence acceptance. | A changed/deleted file or graph revision mismatch is surfaced as stale/incomplete; every graph traversal used for project evidence is project-scoped; regex/fallback evidence cannot satisfy a behavioral objective without a complete source read; focused tests cover incoming-edge and cleanup paths. |
+| **Graph and scanner freshness are not a complete proof guarantee** | Stale or weak graph/fallback data can mislead navigation or scope selection if later code treats it as source proof. | Existing graph provenance, scanner revision, source-read/evidence acceptance. | The project-scope traversal portion is covered by PostgreSQL regressions for incoming/outgoing cross-project endpoints and the related traversal helpers. Remaining acceptance: a changed/deleted file or graph revision mismatch is surfaced as stale/incomplete; regex/fallback evidence cannot satisfy a behavioral objective without a complete source read; cleanup paths remain tested separately. |
 
 ### P1 — operational proof
 
