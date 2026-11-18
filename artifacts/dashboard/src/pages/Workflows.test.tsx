@@ -142,6 +142,63 @@ describe('Workflows recovery rendering', () => {
     expect(screen.queryByText(/raw upstream response/i)).not.toBeInTheDocument();
   });
 
+  it('hides cached executions after a failed history refresh and shows when the last read succeeded', () => {
+    const refetch = vi.fn();
+    const dataUpdatedAt = Date.parse('2026-11-18T15:00:00.000Z');
+    vi.mocked(useListWorkflowExecutions).mockReturnValue({
+      data: [{
+        id: 'cached-failed-execution',
+        workflowId: 'workflow-1',
+        status: 'failed',
+        currentPhase: 'deploy',
+        startedAt: '2026-11-18T14:00:00.000Z',
+        completedPhases: ['build'],
+      }],
+      isLoading: false,
+      isError: true,
+      error: new Error('History refresh failed'),
+      refetch,
+      isFetching: false,
+      dataUpdatedAt,
+    } as ReturnType<typeof useListWorkflowExecutions>);
+
+    renderPage();
+    fireEvent.click(screen.getByRole('button', { name: /سجل التشغيل/i }));
+
+    const alert = screen.getByTestId('workflow-history-read-error');
+    expect(alert).toHaveTextContent('أُخفيت القراءة السابقة');
+    expect(screen.getByTestId('workflow-history-last-success')).toHaveTextContent(
+      new Date(dataUpdatedAt).toLocaleString('ar-EG'),
+    );
+    expect(screen.queryByText('فشل التشغيل · لم يُسجل اكتماله بنجاح')).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'إعادة المحاولة' })).not.toBeInTheDocument();
+
+    fireEvent.click(within(alert).getByRole('button', { name: 'إعادة تحميل سجل التشغيل' }));
+    expect(refetch).toHaveBeenCalledOnce();
+  });
+
+  it('offers a direct retry when the first workflow history read fails without cached data', () => {
+    const refetch = vi.fn();
+    vi.mocked(useListWorkflowExecutions).mockReturnValue({
+      data: undefined,
+      isLoading: false,
+      isError: true,
+      error: new Error('History unavailable'),
+      refetch,
+      isFetching: false,
+      dataUpdatedAt: 0,
+    } as ReturnType<typeof useListWorkflowExecutions>);
+
+    renderPage();
+    fireEvent.click(screen.getByRole('button', { name: /سجل التشغيل/i }));
+
+    const alert = screen.getByTestId('workflow-history-read-error');
+    expect(alert).toHaveTextContent('لا تتوفر قراءة ناجحة لهذه المحاولة');
+    expect(screen.queryByTestId('workflow-history-last-success')).not.toBeInTheDocument();
+    fireEvent.click(within(alert).getByRole('button', { name: 'إعادة تحميل سجل التشغيل' }));
+    expect(refetch).toHaveBeenCalledOnce();
+  });
+
   it('labels completed workflow runs as recorded status rather than proof', () => {
     vi.mocked(useListWorkflowExecutions).mockReturnValue({
       data: [{
