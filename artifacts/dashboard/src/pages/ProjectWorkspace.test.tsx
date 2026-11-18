@@ -83,6 +83,16 @@ vi.mock("@workspace/api-client-react", () => ({
     projectId,
     "workspace",
   ],
+  useGetAiExecution: () => ({
+    data: undefined,
+    isLoading: false,
+    isError: false,
+    isFetching: false,
+    refetch: vi.fn(),
+  }),
+  getGetAiExecutionQueryKey: (executionId: string) => [
+    `/api/ai/executions/${executionId}`,
+  ],
 }));
 
 vi.mock("wouter", () => ({
