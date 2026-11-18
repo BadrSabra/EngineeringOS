@@ -82,17 +82,21 @@ const incompleteEvidenceResult = {
   reasons: ['EVIDENCE_INCOMPLETE'],
 } as unknown as ExecutionProofGraphProjectorResult;
 
-function renderPanel() {
+function renderPanel({
+  projectId = "project-1",
+  executionId = "execution-1",
+  attempt = 2,
+}: {
+  projectId?: string;
+  executionId?: string;
+  attempt?: number;
+} = {}) {
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false } },
   });
   return render(
     <QueryClientProvider client={queryClient}>
-      <ExecutionProofGraphPanel
-        projectId="project-1"
-        executionId="execution-1"
-        attempt={2}
-      />
+      <ExecutionProofGraphPanel projectId={projectId} executionId={executionId} attempt={attempt} />
     </QueryClientProvider>,
   );
 }
@@ -152,4 +156,73 @@ describe('ExecutionProofGraphPanel', () => {
     expect(await screen.findByTestId('status-proof-graph-unavailable'))
       .toHaveTextContent('لقطة الأدلة غير مكتملة أو لا تستوفي شروط القبول.');
   });
+  it.each([
+    {
+      label: "graph project",
+      result: {
+        ...projectedResult,
+        graph: { ...projectedResult.graph, projectId: "project-foreign" },
+      },
+    },
+    {
+      label: "graph execution",
+      result: {
+        ...projectedResult,
+        graph: { ...projectedResult.graph, executionId: "execution-foreign" },
+      },
+    },
+    {
+      label: "graph attempt",
+      result: {
+        ...projectedResult,
+        graph: { ...projectedResult.graph, attempt: 1 },
+      },
+    },
+    {
+      label: "canonical proof attempt",
+      result: {
+        ...projectedResult,
+        canonicalProof: { ...projectedResult.canonicalProof, attempt: 1 },
+      },
+    },
+    {
+      label: "node project",
+      result: {
+        ...projectedResult,
+        graph: {
+          ...projectedResult.graph,
+          nodes: projectedResult.graph.nodes.map((node, index) =>
+            index === 0 ? { ...node, projectId: "project-foreign" } : node),
+        },
+      },
+    },
+  ])("fails closed when a projected response has a mismatched $label identity", async ({ result }) => {
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify(result), {
+      status: 200,
+      headers: { 'content-type': 'application/json' },
+    })));
+
+    renderPanel();
+    fireEvent.click(screen.getByTestId('button-proof-graph-execution-1'));
+
+    expect(await screen.findByTestId('status-proof-graph-identity-mismatch'))
+      .toHaveTextContent('لا تطابق هوية المشروع أو التنفيذ أو المحاولة المطلوبة');
+    expect(screen.queryByTestId('proof-graph-result')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('status-proof-graph-unavailable')).not.toBeInTheDocument();
+  });
+
+  it('does not render a NOT_PROJECTABLE reason for a different execution attempt', async () => {
+    const response = { ...notProjectableResult, expectedAttempt: 3 };
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify(response), {
+      status: 200,
+      headers: { 'content-type': 'application/json' },
+    })));
+
+    renderPanel();
+    fireEvent.click(screen.getByTestId('button-proof-graph-execution-1'));
+
+    expect(await screen.findByTestId('status-proof-graph-identity-mismatch')).toBeInTheDocument();
+    expect(screen.queryByTestId('status-proof-graph-unavailable')).not.toBeInTheDocument();
+  });
+
 });
