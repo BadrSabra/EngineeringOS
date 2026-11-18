@@ -110,6 +110,68 @@ describe("GET /api/graph/entities/:entityId/neighbors", () => {
     expect(res.body.incoming[0].sourceId).toBe(c);
     const neighborIds = res.body.neighbors.map((n: { id: string }) => n.id).sort();
     expect(neighborIds).toEqual([b, c].sort());
+    expect(res.body.meta.truncated).toBe(false);
+  });
+
+  it("caps combined incoming and outgoing relationships and reports truncation", async () => {
+    const projectId = await insertProject();
+    cleanupQueue.push(projectId);
+    const rootId = randomUUID();
+    const now = new Date();
+    const outgoingIds = Array.from({ length: 30 }, () => randomUUID());
+    const incomingIds = Array.from({ length: 31 }, () => randomUUID());
+    await db.insert(graphEntitiesTable).values([
+      { id: rootId, projectId, type: "module", name: "root.ts", createdAt: now },
+      ...outgoingIds.map((id, index) => ({
+        id,
+        projectId,
+        type: "module" as const,
+        name: `outgoing-${index}.ts`,
+        createdAt: now,
+      })),
+      ...incomingIds.map((id, index) => ({
+        id,
+        projectId,
+        type: "module" as const,
+        name: `incoming-${index}.ts`,
+        createdAt: now,
+      })),
+    ]);
+    await db.insert(graphRelationshipsTable).values([
+      ...outgoingIds.map((targetId) => ({
+        id: randomUUID(),
+        projectId,
+        sourceId: rootId,
+        targetId,
+        relation: "imports",
+        createdAt: now,
+      })),
+      ...incomingIds.map((sourceId) => ({
+        id: randomUUID(),
+        projectId,
+        sourceId,
+        targetId: rootId,
+        relation: "imports",
+        createdAt: now,
+      })),
+    ]);
+
+    const res = await request(app).get(`/api/graph/entities/${rootId}/neighbors`);
+
+    expect(res.status).toBe(200);
+    expect(res.body.outgoing.length + res.body.incoming.length).toBe(60);
+    expect(res.body.neighbors).toHaveLength(60);
+    expect(res.body.meta).toMatchObject({
+      relationshipLimit: 60,
+      truncated: true,
+    });
+    const returnedRelationships = [...res.body.outgoing, ...res.body.incoming];
+    expect(new Set(returnedRelationships.map((item: { id: string }) => item.id)).size).toBe(60);
+    for (const direction of [res.body.outgoing, res.body.incoming]) {
+      expect(direction.map((item: { id: string }) => item.id)).toEqual(
+        direction.map((item: { id: string }) => item.id).sort(),
+      );
+    }
   });
 
   it("returns empty arrays for an isolated entity", async () => {

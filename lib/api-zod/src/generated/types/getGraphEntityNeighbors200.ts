@@ -5,6 +5,7 @@
  * EngineeringOS - Autonomous AI Engineering Platform API
  * OpenAPI spec version: 1.0.0
  */
+import type { GetGraphEntityNeighbors200Meta } from './getGraphEntityNeighbors200Meta';
 import type { GraphEntity } from './graphEntity';
 import type { GraphRelationship } from './graphRelationship';
 
@@ -13,4 +14,5 @@ export type GetGraphEntityNeighbors200 = {
   outgoing: GraphRelationship[];
   incoming: GraphRelationship[];
   neighbors: GraphEntity[];
+  meta: GetGraphEntityNeighbors200Meta;
 };

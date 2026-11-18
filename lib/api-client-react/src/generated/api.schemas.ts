@@ -8256,11 +8256,19 @@ toId: string;
 maxDepth?: number;
 };
 
+export type GetGraphEntityNeighbors200Meta = {
+  entityLimit: number;
+  relationshipLimit: number;
+  responseSizeLimit: number;
+  truncated: boolean;
+};
+
 export type GetGraphEntityNeighbors200 = {
   entity: GraphEntity;
   outgoing: GraphRelationship[];
   incoming: GraphRelationship[];
   neighbors: GraphEntity[];
+  meta: GetGraphEntityNeighbors200Meta;
 };
 
 export type GetGraphSubgraphParams = {

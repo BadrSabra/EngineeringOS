@@ -520,6 +520,7 @@ export * from './getAiMetricsProvider';
 export * from './getAiMissionControlParams';
 export * from './getGraphEntityImpactParams';
 export * from './getGraphEntityNeighbors200';
+export * from './getGraphEntityNeighbors200Meta';
 export * from './getGraphPathParams';
 export * from './getGraphSemanticNeighborhoodParams';
 export * from './getGraphSubgraphParams';
