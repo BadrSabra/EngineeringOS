@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { describe, expect, it, vi } from 'vitest';
 import {
@@ -61,6 +61,137 @@ function renderPanel(ui: React.ReactNode, queryClient?: QueryClient) {
 }
 
 describe('ExecutionProjectionPanel', () => {
+  it('hides an already loaded diff when the shared panel switches to another execution', async () => {
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(
+      JSON.stringify({
+        changes: [{
+          path: 'src/execution-a.ts',
+          originalContent: 'const before = 1;',
+          newContent: 'const after = 1;',
+          truncated: false,
+        }],
+      }),
+      { status: 200, headers: { 'Content-Type': 'application/json' } },
+    ));
+    const reviewProjection: AiExecutionProjection = {
+      ...projection,
+      approval: { required: false, status: 'NOT_REQUIRED', proposalId: null },
+      verification: { status: 'passed', evidenceVerdict: 'PROVEN', proofRequired: false },
+      allowedActions: ['REVIEW_DIFF'],
+    };
+    const panel = (executionId: string) => (
+      <ExecutionProjectionPanel
+        projection={reviewProjection}
+        executionId={executionId}
+        executionStatus="completed"
+        flightState="READY_FOR_REVIEW"
+      />
+    );
+
+    try {
+      const view = renderPanel(panel('execution-a'), queryClient);
+      fireEvent.click(screen.getByTestId('button-action-review_diff'));
+      expect(await screen.findByText('src/execution-a.ts')).toBeInTheDocument();
+      expect(fetchSpy).toHaveBeenCalledWith(
+        '/api/ai/executions/execution-a/diff',
+        expect.objectContaining({ credentials: 'include' }),
+      );
+
+      view.rerender(
+        <QueryClientProvider client={queryClient}>{panel('execution-b')}</QueryClientProvider>,
+      );
+
+      expect(screen.queryByText('src/execution-a.ts')).not.toBeInTheDocument();
+      expect(screen.queryByText('تغييرات قابلة للمراجعة')).not.toBeInTheDocument();
+    } finally {
+      fetchSpy.mockRestore();
+    }
+  });
+
+  it('ignores a late diff response from the previous execution after selection changes', async () => {
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    let resolveExecutionA!: (response: Response) => void;
+    const fetchSpy = vi.spyOn(globalThis, 'fetch')
+      .mockImplementationOnce(() => new Promise<Response>((resolve) => {
+        resolveExecutionA = resolve;
+      }))
+      .mockResolvedValueOnce(new Response(
+        JSON.stringify({
+          changes: [{
+            path: 'src/execution-b.ts',
+            originalContent: 'const before = 2;',
+            newContent: 'const after = 2;',
+            truncated: false,
+          }],
+        }),
+        { status: 200, headers: { 'Content-Type': 'application/json' } },
+      ));
+    const reviewProjection: AiExecutionProjection = {
+      ...projection,
+      approval: { required: false, status: 'NOT_REQUIRED', proposalId: null },
+      verification: { status: 'passed', evidenceVerdict: 'PROVEN', proofRequired: false },
+      allowedActions: ['REVIEW_DIFF'],
+    };
+    const panel = (executionId: string) => (
+      <ExecutionProjectionPanel
+        projection={reviewProjection}
+        executionId={executionId}
+        executionStatus="completed"
+        flightState="READY_FOR_REVIEW"
+      />
+    );
+
+    try {
+      const view = renderPanel(panel('execution-a'), queryClient);
+      fireEvent.click(screen.getByTestId('button-action-review_diff'));
+      await waitFor(() => expect(fetchSpy).toHaveBeenCalledWith(
+        '/api/ai/executions/execution-a/diff',
+        expect.anything(),
+      ));
+
+      view.rerender(
+        <QueryClientProvider client={queryClient}>{panel('execution-b')}</QueryClientProvider>,
+      );
+      expect(screen.queryByText('src/execution-a.ts')).not.toBeInTheDocument();
+
+      await act(async () => {
+        resolveExecutionA(new Response(
+          JSON.stringify({
+            changes: [{
+              path: 'src/execution-a.ts',
+              originalContent: 'const old = true;',
+              newContent: 'const old = false;',
+              truncated: false,
+            }],
+          }),
+          { status: 200, headers: { 'Content-Type': 'application/json' } },
+        ));
+      });
+
+      expect(screen.queryByText('src/execution-a.ts')).not.toBeInTheDocument();
+      expect(screen.queryByText('تغييرات قابلة للمراجعة')).not.toBeInTheDocument();
+
+      view.rerender(
+        <QueryClientProvider client={queryClient}>{panel('execution-a')}</QueryClientProvider>,
+      );
+      expect(screen.queryByText('src/execution-a.ts')).not.toBeInTheDocument();
+
+      view.rerender(
+        <QueryClientProvider client={queryClient}>{panel('execution-b')}</QueryClientProvider>,
+      );
+      fireEvent.click(screen.getByTestId('button-action-review_diff'));
+      expect(await screen.findByText('src/execution-b.ts')).toBeInTheDocument();
+      expect(fetchSpy).toHaveBeenLastCalledWith(
+        '/api/ai/executions/execution-b/diff',
+        expect.objectContaining({ credentials: 'include' }),
+      );
+      expect(screen.queryByText('src/execution-a.ts')).not.toBeInTheDocument();
+    } finally {
+      fetchSpy.mockRestore();
+    }
+  });
+
   it('keeps source bytes LTR and exposes only a server-allowed Arabic review action', () => {
     const onAction = vi.fn();
     renderPanel(<ExecutionProjectionPanel

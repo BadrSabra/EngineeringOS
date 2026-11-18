@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import {
   AlertTriangle,
   CheckCircle2,
@@ -247,11 +247,31 @@ export function ExecutionProjectionPanel({
   const [pendingAction, setPendingAction] = useState<ProjectionAction | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
   const [proofOpen, setProofOpen] = useState(false);
-  const [diffLoading, setDiffLoading] = useState(false);
-  const [diffError, setDiffError] = useState<string | null>(null);
-  const [diff, setDiff] = useState<ReviewDiff[] | null>(null);
+  const [diffReadState, setDiffReadState] = useState<{
+    executionId: string;
+    requestId: number;
+    loading: boolean;
+    error: string | null;
+    changes: ReviewDiff[] | null;
+  } | null>(null);
+  const diffRequestIdRef = useRef(0);
+  const currentExecutionIdRef = useRef(executionId ?? '');
+  useEffect(() => {
+    // Invalidate any in-flight read and discard the previous execution's
+    // review snapshot whenever this shared panel is rebound.
+    currentExecutionIdRef.current = executionId ?? '';
+    diffRequestIdRef.current += 1;
+    setDiffReadState(null);
+  }, [executionId]);
 
   if (!projection) return null;
+
+  const scopedDiffReadState = diffReadState?.executionId === (executionId ?? '')
+    ? diffReadState
+    : null;
+  const diffLoading = scopedDiffReadState?.loading ?? false;
+  const diffError = scopedDiffReadState?.error ?? null;
+  const diff = scopedDiffReadState?.changes ?? null;
 
   const progress = projection.progress;
   const planSteps = projection.plan?.steps ?? [];
@@ -302,14 +322,33 @@ export function ExecutionProjectionPanel({
   const secondaryActions = orderedActions.filter((action) => action !== primaryAction);
 
   async function loadDiff(): Promise<void> {
-    if (!executionId) {
-      setDiffError('معرّف التنفيذ غير متاح لهذه المراجعة.');
+    const requestedExecutionId = executionId ?? '';
+    const requestId = ++diffRequestIdRef.current;
+    const ownsDiffRead = () => (
+      diffRequestIdRef.current === requestId
+      && currentExecutionIdRef.current === requestedExecutionId
+    );
+
+    if (!requestedExecutionId) {
+      setDiffReadState({
+        executionId: requestedExecutionId,
+        requestId,
+        loading: false,
+        error: 'معرّف التنفيذ غير متاح لهذه المراجعة.',
+        changes: null,
+      });
       return;
     }
-    setDiffLoading(true);
-    setDiffError(null);
+
+    setDiffReadState({
+      executionId: requestedExecutionId,
+      requestId,
+      loading: true,
+      error: null,
+      changes: null,
+    });
     try {
-      const response = await fetch(`/api/ai/executions/${encodeURIComponent(executionId)}/diff`, {
+      const response = await fetch(`/api/ai/executions/${encodeURIComponent(requestedExecutionId)}/diff`, {
         credentials: 'include',
         headers: { Accept: 'application/json' },
       });
@@ -318,11 +357,23 @@ export function ExecutionProjectionPanel({
         error?: string;
       };
       if (!response.ok) throw new Error(body.error || 'تعذر تحميل فروق التغييرات للمراجعة.');
-      setDiff(Array.isArray(body.changes) ? body.changes : []);
+      if (!ownsDiffRead()) return;
+      setDiffReadState({
+        executionId: requestedExecutionId,
+        requestId,
+        loading: false,
+        error: null,
+        changes: Array.isArray(body.changes) ? body.changes : [],
+      });
     } catch (error) {
-      setDiffError(error instanceof Error ? error.message : 'تعذر تحميل فروق التغييرات للمراجعة.');
-    } finally {
-      setDiffLoading(false);
+      if (!ownsDiffRead()) return;
+      setDiffReadState({
+        executionId: requestedExecutionId,
+        requestId,
+        loading: false,
+        error: error instanceof Error ? error.message : 'تعذر تحميل فروق التغييرات للمراجعة.',
+        changes: null,
+      });
     }
   }
 
