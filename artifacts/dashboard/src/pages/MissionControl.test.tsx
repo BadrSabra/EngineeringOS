@@ -122,7 +122,15 @@ let currentMissionControl = missionControlFixture;
 let currentExecutionDetail: any = undefined;
 const refetchMissionControl = vi.hoisted(() => vi.fn());
 const refetchExecutionDetail = vi.hoisted(() => vi.fn());
-const selectedExecutionQuery = vi.hoisted(() => ({ options: undefined as any }));
+const selectedExecutionQuery = vi.hoisted(() => ({
+  options: undefined as any,
+  state: {
+    isError: false,
+    isLoading: false,
+    isFetching: false,
+    error: null as unknown,
+  },
+}));
 
 vi.mock('@workspace/api-client-react', () => ({
   useGetAiMissionControl: () => ({
@@ -137,10 +145,7 @@ vi.mock('@workspace/api-client-react', () => ({
     selectedExecutionQuery.options = options.query;
     return {
       data: currentExecutionDetail,
-      error: null,
-      isError: false,
-      isLoading: false,
-      isFetching: false,
+      ...selectedExecutionQuery.state,
       refetch: refetchExecutionDetail,
     };
   },
@@ -314,6 +319,12 @@ describe('Mission Control', () => {
   beforeEach(() => {
     currentMissionControl = missionControlFixture;
     currentExecutionDetail = undefined;
+    selectedExecutionQuery.state = {
+      isError: false,
+      isLoading: false,
+      isFetching: false,
+      error: null,
+    };
     refetchMissionControl.mockReset();
     refetchExecutionDetail.mockReset();
   });
@@ -546,6 +557,81 @@ describe('Mission Control', () => {
     const empiricalCard = screen.getByRole('region', { name: 'مراجعة الجودة التجريبية' });
     expect(within(empiricalCard).getByText('لم يُشغّل بعد')).toBeInTheDocument();
     expect(within(empiricalCard).queryByText('not run')).not.toBeInTheDocument();
+  });
+
+  it('does not present cached proof detail as current after the detail refresh fails', () => {
+    currentMissionControl = {
+      ...missionControlFixture,
+      executions: [{
+        ...missionControlFixture.executions[0],
+        operationId: 'operation-1',
+        revision: 'revision-1',
+        recovery: { uncertain: true },
+      }],
+    } as typeof missionControlFixture;
+    currentExecutionDetail = runtimeStartDetail({
+      projection: completedProofProjection(),
+      linkedTaskId: undefined,
+    });
+    selectedExecutionQuery.state = {
+      isError: true,
+      isLoading: false,
+      isFetching: false,
+      error: new Error('temporary network failure'),
+    };
+
+    renderPage();
+
+    const readState = screen.getByTestId('mission-control-execution-detail-read-state');
+    expect(readState).toHaveTextContent(
+      'تعذر تحديث تفاصيل التنفيذ؛ أخفينا القراءة السابقة حتى لا تبدو أحدث مما هي عليه.',
+    );
+    expect(screen.getByRole('button', { name: 'إعادة تحميل تفاصيل التنفيذ' })).toBeInTheDocument();
+    expect(screen.queryByTestId('mission-capsule')).not.toBeInTheDocument();
+    expect(screen.queryByRole('region', { name: 'سلسلة الأدلة' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('region', { name: 'الخط الزمني لانتقال حالة العالم' })).not.toBeInTheDocument();
+    expect(screen.getByText(
+      'تعذر تأكيد تفاصيل التنفيذ؛ أعد تحميل التفاصيل قبل إتاحة الاستعادة.',
+    )).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'استأنف مرة واحدة' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'تخلَّ عنه بأمان' })).not.toBeInTheDocument();
+  });
+
+  it('shows an explicit loading state while selected execution details are first fetched', () => {
+    currentExecutionDetail = undefined;
+    selectedExecutionQuery.state = {
+      isError: false,
+      isLoading: true,
+      isFetching: true,
+      error: null,
+    };
+
+    renderPage();
+
+    expect(screen.getByTestId('mission-control-execution-detail-read-state')).toHaveTextContent(
+      'جارٍ تحميل تفاصيل التنفيذ وسلسلة الأدلة من المصدر المعتمد',
+    );
+    expect(screen.queryByTestId('mission-capsule')).not.toBeInTheDocument();
+    expect(screen.queryByRole('region', { name: 'سلسلة الأدلة' })).not.toBeInTheDocument();
+  });
+
+  it('marks retained detail as the last successful read while a refresh is in flight', () => {
+    currentExecutionDetail = runtimeStartDetail({
+      projection: completedProofProjection(),
+    });
+    selectedExecutionQuery.state = {
+      isError: false,
+      isLoading: false,
+      isFetching: true,
+      error: null,
+    };
+
+    renderPage();
+
+    expect(screen.getByTestId('mission-control-execution-detail-read-state')).toHaveTextContent(
+      'المعروض هو آخر قراءة ناجحة حتى يكتمل التحديث',
+    );
+    expect(screen.getByTestId('mission-capsule')).toBeInTheDocument();
   });
 
   it('does not show successful completion when the current OperationEvidence proof is unaccepted', () => {
