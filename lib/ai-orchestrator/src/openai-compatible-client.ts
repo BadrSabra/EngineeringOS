@@ -2425,13 +2425,14 @@ export async function openrouterCompleteWithFallback(
           },
         });
       }
-      // PR-003: treat MODEL_UNAVAILABLE (422/410) the same as MODEL_NOT_FOUND.
-      // Bounded Recovery also owns transient fallback: it disables the
-      // per-model retry above and advances immediately to the next live
-      // reasoning candidate instead of letting chat-agent replay a tool-loop
-      // chain on top of this one.
+      // A normal request has already consumed the one bounded same-model
+      // retry in openrouterCompleteRaw. If that retry is exhausted, advance to
+      // the next compatible free candidate. Preserve Retry-After as a wait
+      // signal and never rotate around a provider/account rate limit.
       const fallbackOnTransient =
-        opts.retryTransient === false && isTransientError(err);
+        isTransientError(err) &&
+        !isRateLimitFailure(err) &&
+        (opts.retryTransient === false || err.retryAfterMs === undefined);
       const fallbackOnEmptyResponse =
         err instanceof GroqClientError && err.code === "EMPTY_RESPONSE";
       if (
@@ -2796,9 +2797,13 @@ export async function* openrouterCompleteStream(
             transientRetried = true;
             continue;
           }
+          const fallbackOnTransient =
+            isTransientError(providerError) &&
+            !isRateLimitFailure(providerError) &&
+            (opts.retryTransient === false ||
+              (transientRetried && providerError.retryAfterMs === undefined));
           const canAdvance = !isRateLimitFailure(providerError) &&
-            (isModelUnavailableError(providerError) ||
-              (opts.retryTransient === false && isTransientError(providerError)));
+            (isModelUnavailableError(providerError) || fallbackOnTransient);
           if (!canAdvance || index >= chain.length - 1) {
             const terminalError = rateLimitTerminalError ?? providerError;
             throw new GroqClientError(terminalError.code, terminalError.message, {
