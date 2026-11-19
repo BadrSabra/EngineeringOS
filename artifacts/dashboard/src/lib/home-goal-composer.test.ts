@@ -32,6 +32,16 @@ describe('home goal composer storage', () => {
     expect(readHomeGoalComposer('user-2')).toEqual({ text: 'هدف الحساب الثاني', status: 'saved' });
   });
 
+  it('prevents a handed-off draft from reappearing if storage cannot remove its key', () => {
+    saveHomeGoalComposer('user-1', 'هدف نُقل إلى المساعد');
+    vi.spyOn(Storage.prototype, 'removeItem').mockImplementation(() => {
+      throw new DOMException('Removal is unavailable', 'SecurityError');
+    });
+
+    expect(clearHomeGoalComposer('user-1')).toBe(true);
+    expect(readHomeGoalComposer('user-1')).toEqual({ text: '', status: null });
+  });
+
   it('does not replace a valid draft with text beyond the input limit', () => {
     saveHomeGoalComposer('user-1', 'مسودة سليمة');
 

@@ -195,15 +195,9 @@ describe("Dashboard goal-first home", () => {
   it("keeps the composer draft when the handoff copy cannot be created", () => {
     const storedDrafts = [];
     for (let index = 0; index < 8; index += 1) {
-      storedDrafts.push(storeHomeGoalDraft("user-1", `هدف محفوظ ${index}`));
+      storedDrafts.push(storeHomeGoalDraft(`هدف محفوظ ${index}`, "user-1"));
     }
-    console.log(
-      "goal storage setup",
-      storedDrafts.map(Boolean),
-      storedDrafts[0],
-      window.sessionStorage.getItem("engineeringos:goal-drafts:v2"),
-      readGoalDrafts("user-1"),
-    );
+    expect(storedDrafts.every(Boolean)).toBe(true);
     expect(readGoalDrafts("user-1").drafts).toHaveLength(8);
     const text = "احتفظ بهذا الهدف إذا تعذر نقله";
     saveHomeGoalComposer("user-1", text);

@@ -58,6 +58,11 @@ export function clearHomeGoalComposer(ownerId: string | null | undefined): boole
     window.sessionStorage.removeItem(key);
     return true;
   } catch {
-    return false;
+    try {
+      window.sessionStorage.setItem(key, '');
+      return true;
+    } catch {
+      return false;
+    }
   }
 }
