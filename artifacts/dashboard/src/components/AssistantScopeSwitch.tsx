@@ -1,8 +1,20 @@
-import { FolderKanban, MessageSquareText } from 'lucide-react';
+import { useState } from 'react';
+import { FolderKanban, MessageSquareText, Search } from 'lucide-react';
 import { Link } from 'wouter';
 
 type AssistantScope = 'general' | 'project';
 type ProjectOption = { id: string; name: string };
+
+function normalizeProjectSearch(value: string): string {
+  return value
+    .normalize('NFKC')
+    .toLocaleLowerCase('ar')
+    .replace(/[\u0640\p{M}]/gu, '')
+    .replace(/[أإآٱ]/g, 'ا')
+    .replace(/ى/g, 'ي')
+    .trim()
+    .replace(/\s+/g, ' ');
+}
 
 export function AssistantScopeSwitch({
   currentScope,
@@ -25,6 +37,18 @@ export function AssistantScopeSwitch({
   onSwitchToGeneral?: () => boolean;
   compact?: boolean;
 }) {
+  const [projectSearch, setProjectSearch] = useState('');
+  const normalizedQuery = normalizeProjectSearch(projectSearch);
+  const matchingProjects = projects.filter((project) =>
+    !normalizedQuery || normalizeProjectSearch(project.name).includes(normalizedQuery),
+  );
+
+  const chooseProject = (projectId: string) => {
+    if (!projects.some((project) => project.id === projectId)) return;
+    onSelectProject?.(projectId);
+    setProjectSearch('');
+  };
+
   return (
     <nav aria-label="الانتقال بين السؤال العام والعمل داخل مشروع">
       {currentScope === 'general' ? (
@@ -53,23 +77,61 @@ export function AssistantScopeSwitch({
               أنشئ مشروعًا
             </Link>
           ) : (
-            <div className="flex items-center gap-1.5">
+            <div className="flex flex-wrap items-center gap-1.5">
               <FolderKanban className="h-3.5 w-3.5 shrink-0 text-muted-foreground" aria-hidden="true" />
+              <div className="relative">
+                <Search className="pointer-events-none absolute right-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" aria-hidden="true" />
+                <input
+                  type="search"
+                  autoComplete="off"
+                  value={projectSearch}
+                  onChange={(event) => setProjectSearch(event.target.value)}
+                  onKeyDown={(event) => {
+                    const isComposing = event.nativeEvent.isComposing || event.nativeEvent.keyCode === 229;
+                    if (event.key === 'Enter' && !isComposing && matchingProjects.length === 1) {
+                      event.preventDefault();
+                      chooseProject(matchingProjects[0]!.id);
+                    }
+                  }}
+                  placeholder="ابحث عن مشروع…"
+                  aria-label="ابحث باسم المشروع"
+                  aria-controls="scope-project-search-results"
+                  data-testid="input-scope-project-search"
+                  disabled={!onSelectProject}
+                  className="min-h-8 w-36 rounded-md border border-border bg-background/70 py-1 pe-2 ps-7 text-xs text-foreground outline-none placeholder:text-muted-foreground focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
+                />
+              </div>
               <select
+                id="scope-project-search-results"
                 aria-label="اختر مشروعًا للعمل داخله"
                 data-testid="select-scope-project"
                 defaultValue=""
                 onChange={(event) => {
                   const projectId = event.currentTarget.value;
-                  if (projects.some((project) => project.id === projectId)) onSelectProject?.(projectId);
+                  if (projects.some((project) => project.id === projectId)) chooseProject(projectId);
                 }}
-                className="min-h-8 max-w-48 rounded-md border border-border bg-background/70 px-2 text-xs text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                disabled={!onSelectProject}
+                className="min-h-8 max-w-48 rounded-md border border-border bg-background/70 px-2 text-xs text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
               >
                 <option value="" disabled>اختر مشروعًا…</option>
-                {projects.map((project) => (
+                {matchingProjects.map((project) => (
                   <option key={project.id} value={project.id}>{project.name}</option>
                 ))}
               </select>
+              <span
+                aria-live="polite"
+                aria-atomic="true"
+                data-testid="status-scope-project-search"
+                className="text-[10px] text-muted-foreground"
+              >
+                {normalizedQuery && matchingProjects.length === 0
+                  ? 'لم نعثر على مشروع بهذا الاسم.'
+                  : normalizedQuery
+                    ? matchingProjects.length === 1
+                      ? 'مشروع واحد. اضغط Enter لاختياره.'
+                      : 'توجد عدة مشاريع. اختر من القائمة.'
+                    : ''}
+              </span>
             </div>
           )}
         </div>
