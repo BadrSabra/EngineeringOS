@@ -6,6 +6,7 @@ import { pathToFileURL } from "node:url";
 import request from "supertest";
 import app from "../app.js";
 import { db, aiUsageEventsTable, operatorAlertsTable } from "@workspace/db";
+import { getDatabaseUtcClock } from "./ai-budget.js";
 import {
   boundAiUsageAttemptSample,
   getAiExecutionDiagnostics,
@@ -28,6 +29,33 @@ afterEach(async () => {
     await db.delete(operatorAlertsTable)
       .where(eq(operatorAlertsTable.fingerprint, `ai_usage_quota_exceeded:user:${userId}`));
   }
+  it("timestamps provider attempts with PostgreSQL time when the API worker clock is skewed", async () => {
+    const correlationId = "database-clock-telemetry-" + crypto.randomUUID();
+    createdCorrelations.push(correlationId);
+    const databaseClock = await getDatabaseUtcClock(db);
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date(databaseClock.now.getTime() + 48 * 60 * 60_000));
+    try {
+      await recordAiUsageAttempt(
+        { userId: "telemetry-database-clock-owner", correlationId },
+        {
+          attemptId: correlationId + ":attempt",
+          provider: "openrouter",
+          model: "fixture/free-model",
+          outcome: "success",
+          usageStatus: "unknown",
+        },
+      );
+    } finally {
+      vi.useRealTimers();
+    }
+    const [row] = await db.select().from(aiUsageEventsTable)
+      .where(eq(aiUsageEventsTable.correlationId, correlationId));
+    expect(row?.occurredAt).toBeInstanceOf(Date);
+    expect(Math.abs((row?.occurredAt.getTime() ?? 0) - databaseClock.now.getTime())).toBeLessThan(10_000);
+    expect(row?.occurredAt.toISOString().slice(0, 10)).toBe(databaseClock.day);
+  });
+
 });
 
 describe("durable AI telemetry", () => {
