@@ -7,6 +7,7 @@ import { Activity, AlertTriangle, ArrowRight, Check, Clock3, Code2, GitBranch, L
 import { useGetProjectWorkspaceSnapshot, getGetProjectWorkspaceSnapshotQueryKey, getGetAiExecutionQueryKey, useGetTask, getGetTaskQueryKey, useGetTaskLogs, getGetTaskLogsQueryKey, useGetAiExecution } from '@workspace/api-client-react';
 import AiChat from '@/pages/AiChat';
 import ProjectCanvasPanel from '@/pages/project-workspace/ProjectCanvasPanel';
+import ProjectWorkspaceSwitcher from '@/pages/project-workspace/ProjectWorkspaceSwitcher';
 import WorkspaceExecutionDetail from '@/pages/project-workspace/WorkspaceExecutionDetail';
 
 const statusLabels: Record<string, string> = {
@@ -512,7 +513,10 @@ export default function ProjectWorkspace() {
           <div className="flex min-w-0 items-center gap-2 text-xs text-slate-400">
             <Link href="/projects" className="workspace-back" aria-label="العودة إلى المشاريع"><ArrowRight className="h-4 w-4" /></Link>
             <span>المشاريع</span><span aria-hidden="true" className="text-slate-600">/</span>
-            <span className="truncate text-slate-300">{project.name}</span>
+            <ProjectWorkspaceSwitcher
+              currentProjectId={project.id}
+              currentProjectName={project.name}
+            />
           </div>
           <button
             type="button"
