@@ -19,7 +19,7 @@ let previousEncryptionKey: string | undefined;
 
 function persistedCredentialFingerprint(apiKey: string): string {
   return createHmac("sha256", Buffer.from(fixtureEncryptionKey, "hex"))
-    .update("openrouter-credential-cooldown:v1\\0", "utf8")
+    .update("openrouter-credential-cooldown:v1\0", "utf8")
     .update(apiKey, "utf8")
     .digest("hex");
 }
