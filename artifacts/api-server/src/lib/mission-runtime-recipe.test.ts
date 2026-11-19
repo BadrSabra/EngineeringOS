@@ -455,26 +455,16 @@ async function createQueuedMissionRecipeFixture(label: string): Promise<QueuedMi
 describe("Mission recipe dispatch", () => {
   it("does not cancel or block a queued replay when another worker claims it before preflight", async () => {
     const fixture = await createQueuedMissionRecipeFixture("preflight-owner-race");
-    let releaseMissionLock!: () => void;
-    let signalMissionLockReady!: () => void;
-    const missionLockReady = new Promise<void>((resolve) => {
-      signalMissionLockReady = resolve;
-    });
-    const holdMissionLock = new Promise<void>((resolve) => {
-      releaseMissionLock = resolve;
-    });
-    const missionLockTransaction = db.transaction(async (tx) => {
-      await tx.select({ id: aiMissionsTable.id })
-        .from(aiMissionsTable)
-        .where(eq(aiMissionsTable.id, fixture.missionId))
-        .for("update");
-      signalMissionLockReady();
-      await holdMissionLock;
-    });
+    const queuedJobs: Array<() => Promise<void>> = [];
+    const queueSpy = vi.spyOn(heavyJobQueue, "enqueueWithId")
+      .mockImplementation((_id, job) => {
+        queuedJobs.push(job);
+        return true;
+      });
 
     try {
-      await missionLockReady;
       expect(await dispatchPendingMissionRecipes()).toBe(1);
+      expect(queuedJobs).toHaveLength(1);
       await db.update(aiExecutionsTable).set({
         status: "running",
         workerId: "other-api-worker",
@@ -483,25 +473,24 @@ describe("Mission recipe dispatch", () => {
         startedAt: new Date(),
         updatedAt: new Date(),
       }).where(eq(aiExecutionsTable.id, fixture.executionId));
+
+      await queuedJobs[0]!();
     } finally {
-      releaseMissionLock();
-      await missionLockTransaction;
+      queueSpy.mockRestore();
     }
 
-    await vi.waitFor(async () => {
-      const [goal] = await db.select({
-        status: aiGoalsTable.status,
-        blockedReason: aiGoalsTable.blockedReason,
-      }).from(aiGoalsTable).where(eq(aiGoalsTable.id, fixture.goalId));
-      const [execution] = await db.select({
-        status: aiExecutionsTable.status,
-        workerId: aiExecutionsTable.workerId,
-      }).from(aiExecutionsTable).where(eq(aiExecutionsTable.id, fixture.executionId));
-      expect(goal).toMatchObject({ status: "running", blockedReason: null });
-      expect(execution).toMatchObject({
-        status: "running",
-        workerId: "other-api-worker",
-      });
+    const [goal] = await db.select({
+      status: aiGoalsTable.status,
+      blockedReason: aiGoalsTable.blockedReason,
+    }).from(aiGoalsTable).where(eq(aiGoalsTable.id, fixture.goalId));
+    const [execution] = await db.select({
+      status: aiExecutionsTable.status,
+      workerId: aiExecutionsTable.workerId,
+    }).from(aiExecutionsTable).where(eq(aiExecutionsTable.id, fixture.executionId));
+    expect(goal).toMatchObject({ status: "running", blockedReason: null });
+    expect(execution).toMatchObject({
+      status: "running",
+      workerId: "other-api-worker",
     });
     expect(recipeRunner).not.toHaveBeenCalled();
   });
