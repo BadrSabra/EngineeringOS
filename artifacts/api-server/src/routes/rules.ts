@@ -229,7 +229,7 @@ router.post("/rules/:ruleId/evaluate", async (req, res) => {
   // A rule result is only authoritative when the complete project source
   // was inspected. walkProject may throw for an unavailable root, or return a
   // partial manifest after file/directory read failures and configured caps.
-  let walk;
+  let walk: Awaited<ReturnType<typeof walkProject>>;
   try {
     walk = await walkProject(project.rootPath);
   } catch {
