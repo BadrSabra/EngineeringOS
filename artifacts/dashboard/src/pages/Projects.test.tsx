@@ -1,4 +1,4 @@
-import { act, render, screen, fireEvent, waitFor } from "@testing-library/react";
+import { act, render, screen, fireEvent, waitFor, within } from "@testing-library/react";
 import axe from 'axe-core';
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import Projects from "./Projects";
@@ -31,8 +31,17 @@ vi.mock("@workspace/api-client-react", () => ({
 // Mock wouter
 vi.mock("wouter", () => ({
   useLocation: () => ['/projects', mocks.setLocation],
-  Link: ({ href, children }: { href: string; children: React.ReactNode }) => (
-    <a href={href}>{children}</a>
+  Link: ({
+    href,
+    to,
+    children,
+    ...props
+  }: {
+    href?: string;
+    to?: string;
+    children: React.ReactNode;
+  } & Omit<React.AnchorHTMLAttributes<HTMLAnchorElement>, "href">) => (
+    <a href={to ?? href} {...props}>{children}</a>
   ),
 }));
 
@@ -48,7 +57,7 @@ vi.mock("./DiscoverProjectWizard", () => ({
 import { useListProjects, useGetProjectBootstrap } from "@workspace/api-client-react";
 
 const mockProjects = [
-  { id: "1", name: "alpha-service", status: "active", language: "TypeScript", qualityScore: 0.9, lastScanAt: null },
+  { id: "1", name: "alpha-service", status: "active", language: "TypeScript", rootPath: "/workspace/alpha", qualityScore: 0.9, lastScanAt: null },
   { id: "2", name: "beta-worker", status: "scanning", language: "Python", qualityScore: null, lastScanAt: null },
   { id: "3", name: "gamma-lib", status: "archived", language: "TypeScript", qualityScore: 0.7, lastScanAt: null },
 ];
@@ -151,6 +160,42 @@ describe("Projects", () => {
     expect(screen.getByText("alpha-service")).toBeInTheDocument();
     expect(screen.getByText("beta-worker")).toBeInTheDocument();
     expect(screen.getByText("gamma-lib")).toBeInTheDocument();
+  });
+
+  it("shows project states in Arabic and keeps technical details optional", () => {
+    render(<Projects />);
+
+    expect(screen.getByText("متاح للعمل")).toBeInTheDocument();
+    expect(screen.getByText("جارٍ الفحص")).toBeInTheDocument();
+    expect(screen.getByText("مؤرشف")).toBeInTheDocument();
+    expect(screen.getAllByText("لم يُفحص بعد")).toHaveLength(3);
+    expect(screen.getByRole("link", { name: "افتح مشروع alpha-service" })).toHaveAttribute("href", "/projects/1");
+
+    const details = screen.getByTestId("project-technical-details-1");
+    expect(details).not.toHaveAttribute("open");
+    expect(within(details).getByText("/workspace/alpha")).not.toBeVisible();
+
+    fireEvent.click(within(details).getByText("تفاصيل تقنية إضافية"));
+
+    expect(details).toHaveAttribute("open");
+    expect(within(details).getByText("TypeScript")).toBeVisible();
+    expect(within(details).getByText("/workspace/alpha")).toHaveAttribute("dir", "ltr");
+    expect(within(details).getByText("0.9 / 100")).toBeInTheDocument();
+  });
+
+  it("does not guess a user-facing label for an unknown project state", () => {
+    vi.mocked(useListProjects).mockReturnValue({
+      data: [{ ...mockProjects[0], status: "paused" }],
+      isLoading: false,
+      isError: false,
+      error: null,
+    } as ReturnType<typeof useListProjects>);
+    render(<Projects />);
+
+    expect(screen.getByText("حالة غير معروفة")).toBeInTheDocument();
+    const details = screen.getByTestId("project-technical-details-1");
+    fireEvent.click(within(details).getByText("تفاصيل تقنية إضافية"));
+    expect(within(details).getByText("paused")).toHaveAttribute("dir", "ltr");
   });
 
   it("filters projects by name (case-insensitive)", () => {
