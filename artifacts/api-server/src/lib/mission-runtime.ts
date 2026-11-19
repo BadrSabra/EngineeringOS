@@ -6,6 +6,7 @@ import {
   and,
   desc,
   eq,
+  gt,
   inArray,
   isNotNull,
   isNull,
@@ -90,6 +91,7 @@ import {
 } from "./mission-agent-action-receipt.js";
 import { resolveMissionLineage } from "./mission-lineage.js";
 import { getLifecycleWorkerScopeProjectId } from "./worker-scope.js";
+import { databaseNow } from "./job-lease.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -1883,6 +1885,37 @@ async function syncRecipeObjectiveState(params: {
   });
 }
 
+async function findLiveMissionRecipeOwner(dispatch: RecipeDispatch) {
+  const rows = await db
+    .select({
+      id: aiExecutionsTable.id,
+      attempt: aiExecutionsTable.attempt,
+    })
+    .from(aiExecutionsTable)
+    .where(and(
+      dispatch.expectedExecutionId
+        ? eq(aiExecutionsTable.id, dispatch.expectedExecutionId)
+        : undefined,
+      dispatch.expectedAttempt !== undefined
+        ? eq(aiExecutionsTable.attempt, dispatch.expectedAttempt)
+        : undefined,
+      eq(aiExecutionsTable.projectId, dispatch.projectId),
+      eq(aiExecutionsTable.goalId, dispatch.goalId),
+      eq(aiExecutionsTable.userId, dispatch.userId),
+      eq(aiExecutionsTable.operationId, dispatch.operationId),
+      eq(aiExecutionsTable.idempotencyKey, dispatch.idempotencyKey),
+      inArray(aiExecutionsTable.status, ["running", "cancelling"]),
+      gt(aiExecutionsTable.leaseUntil, databaseNow()),
+    ))
+    .limit(1);
+  return rows[0];
+}
+
+function isRecipeExecutionLeaseBusy(error: unknown): boolean {
+  return error instanceof Error
+    && error.message === "Recipe operation could not acquire its durable lease.";
+}
+
 async function executeMissionRecipe(dispatch: RecipeDispatch): Promise<void> {
   try {
     const preflight = await authorizeMissionRecipeDispatch(
@@ -1892,6 +1925,18 @@ async function executeMissionRecipe(dispatch: RecipeDispatch): Promise<void> {
         : undefined,
     );
     if (!preflight.allowed) {
+      if (preflight.reason === "execution_identity_changed") {
+        const activeOwner = await findLiveMissionRecipeOwner(dispatch).catch(() => undefined);
+        if (activeOwner) {
+          logger.info({
+            goalId: dispatch.goalId,
+            operationId: dispatch.operationId,
+            executionId: activeOwner.id,
+            attempt: activeOwner.attempt,
+          }, "Mission recipe dispatch yielded to the live durable execution owner");
+          return;
+        }
+      }
       if (dispatch.expectedExecutionId) {
         await requestAiExecutionCancel({
           executionId: dispatch.expectedExecutionId,
@@ -2109,6 +2154,18 @@ async function executeMissionRecipe(dispatch: RecipeDispatch): Promise<void> {
         : {}),
     });
   } catch (error) {
+    if (isRecipeExecutionLeaseBusy(error)) {
+      const activeOwner = await findLiveMissionRecipeOwner(dispatch).catch(() => undefined);
+      if (activeOwner) {
+        logger.info({
+          goalId: dispatch.goalId,
+          operationId: dispatch.operationId,
+          executionId: activeOwner.id,
+          attempt: activeOwner.attempt,
+        }, "Mission recipe dispatch yielded to the live durable execution owner");
+        return;
+      }
+    }
     logger.warn({
       goalId: dispatch.goalId,
       operationId: dispatch.operationId,

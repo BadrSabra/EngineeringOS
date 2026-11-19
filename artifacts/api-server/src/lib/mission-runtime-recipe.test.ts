@@ -326,7 +326,220 @@ afterEach(async () => {
   }
 });
 
+type QueuedMissionRecipeFixture = {
+  projectId: string;
+  missionId: string;
+  goalId: string;
+  executionId: string;
+  operationId: string;
+  idempotencyKey: string;
+};
+
+async function createQueuedMissionRecipeFixture(label: string): Promise<QueuedMissionRecipeFixture> {
+  const rootPath = await createTestRoot(label);
+  const projectId = randomUUID();
+  const missionId = randomUUID();
+  const goalId = randomUUID();
+  const executionId = randomUUID();
+  const now = new Date();
+  const planRevision = createHash("sha256").update(randomUUID()).digest("hex");
+  const action = {
+    kind: "recipe" as const,
+    recipeId: "validation.recover",
+    recipeVersion: 1,
+    approvedPaths: ["lib/ai-orchestrator/src/index.ts"],
+    candidateIdentity: null,
+  };
+  const digest = createHash("sha256").update(JSON.stringify({
+    goalId,
+    recipeId: action.recipeId,
+    recipeVersion: action.recipeVersion,
+    approvedPaths: action.approvedPaths,
+    candidateIdentity: null,
+  })).digest("hex");
+  const operationId = `mission-goal-${goalId}-${digest.slice(0, 16)}`;
+  const idempotencyKey = `mission-goal:${goalId}:${digest.slice(0, 32)}`;
+  const sourceRevision = (await execFileAsync("git", ["-C", rootPath, "rev-parse", "HEAD"]))
+    .stdout.trim();
+  const binding = {
+    projectId,
+    operationId,
+    sourceRevision,
+    candidateIdentity: null,
+    candidateWorkspace: null,
+    approvedPaths: action.approvedPaths,
+    phase: "queued" as const,
+    leaseOwner: null,
+    leaseUntil: null,
+    missionBudget: {
+      maxNodes: 24,
+      maxParallelNodes: 1,
+      maxTotalTimeoutMs: 120_000,
+      maxProcessCount: 1,
+      maxOutputBytes: 200_000,
+    },
+    concurrencyBudget: {
+      maxInFlightNodes: 1,
+      maxProcesses: 1,
+    },
+  };
+  projectIds.push(projectId);
+  await db.insert(projectsTable).values({
+    id: projectId,
+    ownerId: "test-user",
+    name: `mission-recipe-${label}-${projectId.slice(0, 8)}`,
+    rootPath,
+    language: "typescript",
+    status: "active",
+    createdAt: now,
+    updatedAt: now,
+  });
+  await db.insert(aiMissionsTable).values({
+    id: missionId,
+    projectId,
+    userId: "test-user",
+    title: "Mission recipe lease fixture",
+    intent: "Exercise durable recipe lease contention",
+    status: "active",
+    scope: { kind: "project", projectId },
+    autonomyPolicy: { activePlanRevision: planRevision },
+    createdAt: now,
+    updatedAt: now,
+  });
+  await db.insert(aiGoalsTable).values({
+    id: goalId,
+    missionId,
+    projectId,
+    title: "Recover validation",
+    status: "running",
+    successCriteria: { planRevision: { hash: planRevision } },
+    outcomeContract: {
+      deliveryRequired: false,
+      planRevision: { hash: planRevision },
+    },
+    nextAction: action,
+    createdAt: now,
+    updatedAt: now,
+  });
+  await db.insert(aiExecutionsTable).values({
+    id: executionId,
+    projectId,
+    goalId,
+    userId: "test-user",
+    operationId,
+    idempotencyKey,
+    resumeTokenHash: `recipe-contention-${executionId}`,
+    request: JSON.stringify({
+      projectId,
+      missionId,
+      goalId,
+      operationId,
+      message: `recipe:${operationId}`,
+      modelMessage: `recipe:${operationId}`,
+      workspaceRevision: sourceRevision,
+    }),
+    checkpoint: JSON.stringify({
+      stage: "queued",
+      sequence: 0,
+      recipeBinding: binding,
+      updatedAt: now.toISOString(),
+    }),
+    status: "queued",
+    createdAt: now,
+    updatedAt: now,
+  });
+  return { projectId, missionId, goalId, executionId, operationId, idempotencyKey };
+}
+
+
 describe("Mission recipe dispatch", () => {
+  it("does not cancel or block a queued replay when another worker claims it before preflight", async () => {
+    const fixture = await createQueuedMissionRecipeFixture("preflight-owner-race");
+    let releaseMissionLock!: () => void;
+    let signalMissionLockReady!: () => void;
+    const missionLockReady = new Promise<void>((resolve) => {
+      signalMissionLockReady = resolve;
+    });
+    const holdMissionLock = new Promise<void>((resolve) => {
+      releaseMissionLock = resolve;
+    });
+    const missionLockTransaction = db.transaction(async (tx) => {
+      await tx.select({ id: aiMissionsTable.id })
+        .from(aiMissionsTable)
+        .where(eq(aiMissionsTable.id, fixture.missionId))
+        .for("update");
+      signalMissionLockReady();
+      await holdMissionLock;
+    });
+
+    try {
+      await missionLockReady;
+      expect(await dispatchPendingMissionRecipes()).toBe(1);
+      await db.update(aiExecutionsTable).set({
+        status: "running",
+        workerId: "other-api-worker",
+        leaseUntil: new Date(Date.now() + 60_000),
+        lastHeartbeatAt: new Date(),
+        startedAt: new Date(),
+        updatedAt: new Date(),
+      }).where(eq(aiExecutionsTable.id, fixture.executionId));
+    } finally {
+      releaseMissionLock();
+      await missionLockTransaction;
+    }
+
+    await vi.waitFor(async () => {
+      const [goal] = await db.select({
+        status: aiGoalsTable.status,
+        blockedReason: aiGoalsTable.blockedReason,
+      }).from(aiGoalsTable).where(eq(aiGoalsTable.id, fixture.goalId));
+      const [execution] = await db.select({
+        status: aiExecutionsTable.status,
+        workerId: aiExecutionsTable.workerId,
+      }).from(aiExecutionsTable).where(eq(aiExecutionsTable.id, fixture.executionId));
+      expect(goal).toMatchObject({ status: "running", blockedReason: null });
+      expect(execution).toMatchObject({
+        status: "running",
+        workerId: "other-api-worker",
+      });
+    });
+    expect(recipeRunner).not.toHaveBeenCalled();
+  });
+
+  it("does not replan when recipe claim contention leaves a live durable owner", async () => {
+    const fixture = await createQueuedMissionRecipeFixture("claim-owner-race");
+    recipeRunner.mockImplementation(async () => {
+      await db.update(aiExecutionsTable).set({
+        status: "running",
+        workerId: "other-api-worker",
+        leaseUntil: new Date(Date.now() + 60_000),
+        lastHeartbeatAt: new Date(),
+        startedAt: new Date(),
+        updatedAt: new Date(),
+      }).where(eq(aiExecutionsTable.id, fixture.executionId));
+      throw new Error("Recipe operation could not acquire its durable lease.");
+    });
+
+    expect(await dispatchPendingMissionRecipes()).toBe(1);
+    await vi.waitFor(async () => {
+      expect(recipeRunner).toHaveBeenCalledOnce();
+      const [goal] = await db.select({
+        status: aiGoalsTable.status,
+        blockedReason: aiGoalsTable.blockedReason,
+      }).from(aiGoalsTable).where(eq(aiGoalsTable.id, fixture.goalId));
+      const [execution] = await db.select({
+        status: aiExecutionsTable.status,
+        workerId: aiExecutionsTable.workerId,
+      }).from(aiExecutionsTable).where(eq(aiExecutionsTable.id, fixture.executionId));
+      expect(goal).toMatchObject({ status: "running", blockedReason: null });
+      expect(execution).toMatchObject({
+        status: "running",
+        workerId: "other-api-worker",
+      });
+    });
+  });
+
+
   it("releases a dependent Goal only after the GitHub delivery proof is current", async () => {
     const rootPath = await createTestRoot("delivery-successor");
     const projectId = randomUUID();
