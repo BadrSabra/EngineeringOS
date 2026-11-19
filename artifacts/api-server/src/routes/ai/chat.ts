@@ -15361,25 +15361,35 @@ router.get("/ai/chat/:sessionId/messages", async (req, res) => {
     .from(aiChatMessagesTable)
     .where(eq(aiChatMessagesTable.sessionId, sessionId))
     .orderBy(aiChatMessagesTable.createdAt);
-  const executionIds = [...new Set(
-    messages
-      .map((message) => message.executionId)
-      .filter((executionId): executionId is string => Boolean(executionId)),
-  )];
-  const acceptanceQuery = executionIds.length > 0
-    ? db
+  const acceptanceMessageIds = messages
+    .filter((message) => Boolean(message.executionId))
+    .map((message) => message.id);
+  const acceptanceRows = acceptanceMessageIds.length > 0
+    ? await db
       .select()
       .from(aiExecutionAcceptancesTable)
-      .where(inArray(aiExecutionAcceptancesTable.executionId, executionIds))
-    : undefined;
-  const acceptanceRows = acceptanceQuery
-    ? await acceptanceQuery.limit(500)
+      .where(inArray(aiExecutionAcceptancesTable.messageId, acceptanceMessageIds))
+      .orderBy(desc(aiExecutionAcceptancesTable.attempt))
     : [];
+  // Resolve history acceptance by the exact execution/message identity. The
+  // messageId filter keeps this read scoped to the session, and selecting the
+  // highest attempt preserves the latest accepted projection for that row.
+  const acceptanceByMessage = new Map<string, (typeof acceptanceRows)[number]>();
+  for (const row of acceptanceRows) {
+    if (!row.messageId) continue;
+    const key = `${row.executionId}:${row.messageId}`;
+    const current = acceptanceByMessage.get(key);
+    if (!current || row.attempt > current.attempt) {
+      acceptanceByMessage.set(key, row);
+    }
+  }
+  const acceptanceForMessage = (message: (typeof messages)[number]) => {
+    if (!message.executionId) return undefined;
+    return acceptanceByMessage.get(`${message.executionId}:${message.id}`);
+  };
   const projectionEntries = messages.flatMap((message) => {
     if (!message.executionId) return [];
-    const acceptance = acceptanceRows
-      .filter((row) => row.executionId === message.executionId && row.messageId === message.id)
-      .sort((left, right) => right.attempt - left.attempt)[0];
+    const acceptance = acceptanceForMessage(message);
     return [{
       messageId: message.id,
       executionId: message.executionId,
@@ -15413,11 +15423,7 @@ router.get("/ai/chat/:sessionId/messages", async (req, res) => {
     const terminalMetadata = terminalMetadataFromTrace(message.toolTrace);
     const { forensicDiagnostic: historicalForensicDiagnostic, ...safeTerminalMetadata } = terminalMetadata;
     const includeForensicDetails = isForensicHistoryTurn(message.turnIntent);
-    const executionAcceptance = message.executionId
-      ? acceptanceRows
-        .filter((row) => row.executionId === message.executionId && row.messageId === message.id)
-        .sort((left, right) => right.attempt - left.attempt)[0]
-      : undefined;
+    const executionAcceptance = acceptanceForMessage(message);
     const projectedAcceptance = projectExecutionAcceptance(executionAcceptance);
     const projectQueryResponseProvenance = projectQueryResponseProvenanceFromTrace(message.toolTrace);
     const terminalProjection = terminalProjectionByMessage.get(message.id);
