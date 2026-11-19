@@ -7,7 +7,57 @@ beforeEach(() => {
 });
 
 describe('assistant scope switch', () => {
-  it('requires an explicit project choice from general chat', () => {
+  it('searches projects and switches directly when a single result remains', async () => {
+    const onSelectProject = vi.fn();
+    render(<AssistantScopeSwitch
+      currentScope="general"
+      projects={[
+        { id: 'project-1', name: 'مَتجر الورد' },
+        { id: 'project-2', name: 'لوحة التقارير' },
+      ]}
+      onSelectProject={onSelectProject}
+    />);
+
+    const search = screen.getByRole('searchbox', { name: 'ابحث باسم المشروع' });
+    fireEvent.change(search, { target: { value: 'متجر الورد' } });
+    const selector = screen.getByRole('combobox', { name: 'اختر مشروعًا للعمل داخله' });
+    expect(selector).toHaveValue('');
+    expect(screen.getByRole('option', { name: 'مَتجر الورد' })).toHaveValue('project-1');
+    expect(screen.queryByRole('option', { name: 'لوحة التقارير' })).not.toBeInTheDocument();
+
+    fireEvent.keyDown(search, { key: 'Enter' });
+    expect(onSelectProject).toHaveBeenCalledWith('project-1');
+    expect(search).toHaveValue('');
+  });
+
+  it('does not choose during IME composition and keeps multiple matches explicit', () => {
+    const onSelectProject = vi.fn();
+    render(<AssistantScopeSwitch
+      currentScope="general"
+      projects={[
+        { id: 'project-1', name: 'مشروع ألف' },
+        { id: 'project-2', name: 'مشروع باء' },
+      ]}
+      onSelectProject={onSelectProject}
+    />);
+
+    const search = screen.getByRole('searchbox', { name: 'ابحث باسم المشروع' });
+    fireEvent.change(search, { target: { value: 'مشروع ألف' } });
+    fireEvent.keyDown(search, { key: 'Enter', isComposing: true });
+    expect(onSelectProject).not.toHaveBeenCalled();
+
+    fireEvent.change(search, { target: { value: 'مشروع' } });
+    fireEvent.keyDown(search, { key: 'Enter' });
+    expect(onSelectProject).not.toHaveBeenCalled();
+    expect(screen.getByTestId('status-scope-project-search')).toHaveTextContent(
+      'توجد عدة مشاريع. اختر من القائمة.',
+    );
+    const selector = screen.getByRole('combobox', { name: 'اختر مشروعًا للعمل داخله' });
+    fireEvent.change(selector, { target: { value: 'project-2' } });
+    expect(onSelectProject).toHaveBeenCalledWith('project-2');
+  });
+
+  it('shows an empty search state without changing project scope', () => {
     const onSelectProject = vi.fn();
     render(<AssistantScopeSwitch
       currentScope="general"
@@ -15,10 +65,9 @@ describe('assistant scope switch', () => {
       onSelectProject={onSelectProject}
     />);
 
-    const selector = screen.getByRole('combobox', { name: 'اختر مشروعًا للعمل داخله' });
-    expect(selector).toHaveValue('');
-    fireEvent.change(selector, { target: { value: 'project-1' } });
-    expect(onSelectProject).toHaveBeenCalledWith('project-1');
+    fireEvent.change(screen.getByRole('searchbox'), { target: { value: 'غير موجود' } });
+    expect(screen.getByTestId('status-scope-project-search')).toHaveTextContent('لم نعثر على مشروع بهذا الاسم');
+    expect(onSelectProject).not.toHaveBeenCalled();
   });
 
   it('shows loading, retry, and create-project states from the real project list', () => {
