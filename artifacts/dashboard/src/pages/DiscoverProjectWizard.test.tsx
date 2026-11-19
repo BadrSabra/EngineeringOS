@@ -156,6 +156,7 @@ describe('DiscoverProjectWizard Arabic findings', () => {
   it('explains where each project source comes from before the user starts scanning', () => {
     render(<DiscoverProjectWizard onClose={vi.fn()} />);
 
+    expect(screen.getByRole('group', { name: 'طرق اختيار مصدر المشروع' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /رابط المشروع/ })).toHaveTextContent(
       'الصق رابط HTTPS للمستودع',
     );
@@ -166,6 +167,21 @@ describe('DiscoverProjectWizard Arabic findings', () => {
       'خيار متقدم يتطلب مسار المجلد على خادم التطبيق',
     );
     expect(screen.getByText(/لا يبدأ الفحص إلا بعد ضغطك/)).toBeInTheDocument();
+    expect(mocks.startDiscovery).not.toHaveBeenCalled();
+  });
+
+  it('exposes the selected source and updates it without starting a scan', () => {
+    render(<DiscoverProjectWizard onClose={vi.fn()} />);
+
+    const gitSource = screen.getByTestId('source-card-GIT_REPOSITORY');
+    const archiveSource = screen.getByTestId('source-card-ARCHIVE_UPLOAD');
+    expect(gitSource).toHaveAttribute('aria-pressed', 'true');
+    expect(archiveSource).toHaveAttribute('aria-pressed', 'false');
+
+    fireEvent.click(archiveSource);
+
+    expect(gitSource).toHaveAttribute('aria-pressed', 'false');
+    expect(archiveSource).toHaveAttribute('aria-pressed', 'true');
     expect(mocks.startDiscovery).not.toHaveBeenCalled();
   });
 
