@@ -228,7 +228,7 @@ router.put("/projects/:projectId/browser-validation-profiles/:name", requireProj
 
   if (saveResult.kind === "limit") {
     return res.status(400).json({
-      error: "A project may have at most " + BROWSER_PROFILE_LIMITS.maxProfiles + " browser validation profiles.",
+      error: `A project may have at most ${BROWSER_PROFILE_LIMITS.maxProfiles} browser validation profiles.`,
       reason: "browser_profile_limit",
     });
   }
