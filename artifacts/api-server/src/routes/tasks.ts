@@ -595,9 +595,9 @@ router.post("/tasks/:taskId/execute", async (req, res) => {
     .from(tasksTable)
     .where(eq(tasksTable.id, taskId))
     .limit(1);
-  if (!taskToExecute) return res.status(404).json({ error: "Task not found" });
+  if (!task[0]) return res.status(404).json({ error: "Task not found" });
 
-  const project = await loadProjectByIdForUser(taskToExecute.projectId, req.userId, res);
+  const project = await loadProjectByIdForUser(task[0].projectId, req.userId, res);
   if (!project) return;
 
   const now = new Date();
