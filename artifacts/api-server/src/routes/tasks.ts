@@ -304,18 +304,18 @@ router.post("/tasks", async (req, res) => {
       if (invalidIds.length > 0) throw new TaskDependencyReferenceError(invalidIds);
 
       const rows = await tx.insert(tasksTable)
-      .values({ id: taskId, ...body, correlationId, createdAt: now, updatedAt: now })
-      .returning();
-    await tx.insert(eventsTable).values({
-      id: randomUUID(), type: "TaskCreated", projectId: body.projectId,
-      taskId: rows[0].id, severity: "info",
-      message: `Task "${body.title}" created (${body.priority})`, correlationId,
-    });
-    await recordAuditInTransaction(tx, {
-      entityType: "task", entityId: rows[0].id, action: "created",
-      projectId: body.projectId, actor: req.userId, correlationId,
-      stateAfter: rows[0],
-    });
+        .values({ id: taskId, ...body, correlationId, createdAt: now, updatedAt: now })
+        .returning();
+      await tx.insert(eventsTable).values({
+        id: randomUUID(), type: "TaskCreated", projectId: body.projectId,
+        taskId: rows[0].id, severity: "info",
+        message: `Task "${body.title}" created (${body.priority})`, correlationId,
+      });
+      await recordAuditInTransaction(tx, {
+        entityType: "task", entityId: rows[0].id, action: "created",
+        projectId: body.projectId, actor: req.userId, correlationId,
+        stateAfter: rows[0],
+      });
       return rows;
     });
   } catch (error) {
@@ -512,10 +512,13 @@ router.delete("/tasks/:taskId", async (req, res) => {
       projectId: tasksTable.projectId,
     }).from(tasksTable)
       .where(sql`${tasksTable.dependsOn} @> ${JSON.stringify([taskId])}::jsonb`);
-    if (dependents.length > 0) {
+    const localDependents = dependents.filter(
+      (dependent) => dependent.projectId === project.id,
+    );
+    if (localDependents.length > 0) {
       throw new TaskHasDependentsError(
-        dependents.filter((dependent) => dependent.projectId === project.id).map((dependent) => dependent.id),
-        dependents.length,
+        localDependents.map((dependent) => dependent.id),
+        localDependents.length,
       );
     }
     const activeExecutions = await tx.select({ id: aiExecutionsTable.id })
