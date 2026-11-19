@@ -39,6 +39,7 @@ import {
   createPendingGitHubDeliveryTransition,
   createPendingRuntimeStartTransition,
   createPendingApplyChangesTransition,
+  terminalizeUnmutatedGitHubDeliveryTransition,
   buildApplyChangesWorldTransitionIntent,
   recoverAcceptedApplyChangesTransition,
   finalizeApplyChangesTransition,
@@ -920,6 +921,156 @@ async function insertValidRuntimeStartObservations(
   };
   await db.insert(aiAgentObservationsTable).values(childProcessObservation);
 }
+
+describe("Agent State transition ownership uses PostgreSQL lease time", () => {
+  function applyInput(fixture: TransitionFixture) {
+    return {
+      projectId: fixture.projectId,
+      executionId: fixture.executionId,
+      attempt: 0,
+      episodeId: fixture.episodeId,
+      actionId: "clock-skew:apply",
+      effectBundleId: fixture.effectBundleId,
+      proposalId: "proposal:clock-skew",
+      goalId: "goal:clock-skew",
+      planRevision: "a".repeat(64),
+      workerId: fixture.workerId,
+      parentWorldRevision: fixture.transitionInput.parentWorldRevision,
+      parentFactRefs: [],
+      beforeObservationIds: [],
+      afterObservationIds: [],
+      evidenceRefs: [],
+      environmentRevision: fixture.environmentRevision,
+      promotedTreeHash: "b".repeat(64),
+    };
+  }
+
+  function deliveryInput(fixture: TransitionFixture, operationId: string) {
+    return {
+      projectId: fixture.projectId,
+      executionId: fixture.executionId,
+      attempt: 0,
+      episodeId: fixture.episodeId,
+      actionId: "clock-skew:github-delivery:" + operationId,
+      workerId: fixture.workerId,
+      operationId,
+      proposalId: "proposal:" + operationId,
+      remoteUrl: "https://github.com/example/project.git",
+      branch: "main",
+      parentWorldRevision: fixture.transitionInput.parentWorldRevision,
+      parentFactRefs: [],
+      taskScope: "project",
+      beforeObservationIds: ["before:" + operationId],
+    };
+  }
+
+  it("accepts a live PostgreSQL lease when the API clock is 24 hours ahead", async () => {
+    const fixture = await transitionFixture();
+    const bindOperationId = crypto.randomUUID();
+    const terminalizeOperationId = crypto.randomUUID();
+    const bindTransitionId = await createPendingGitHubDeliveryTransition(
+      deliveryInput(fixture, bindOperationId),
+    );
+    const terminalizeTransitionId = await createPendingGitHubDeliveryTransition(
+      deliveryInput(fixture, terminalizeOperationId),
+    );
+    const databaseNearNow = Date.now();
+    await db.update(aiExecutionsTable).set({
+      leaseUntil: new Date(databaseNearNow + 5 * 60_000),
+    }).where(eq(aiExecutionsTable.id, fixture.executionId));
+
+    vi.useFakeTimers({ toFake: ["Date"] });
+    try {
+      vi.setSystemTime(new Date(databaseNearNow + 24 * 60 * 60_000));
+
+      await expect(createPendingApplyChangesTransition(applyInput(fixture))).resolves.toBeTruthy();
+      await expect(createPendingRuntimeStartTransition(fixture.transitionInput))
+        .resolves.toBe(fixture.transitionId);
+      await expect(createPendingGitHubDeliveryTransition(
+        deliveryInput(fixture, crypto.randomUUID()),
+      )).resolves.toBeTruthy();
+      await expect(bindGitHubDeliveryTransitionEffect({
+        projectId: fixture.projectId,
+        executionId: fixture.executionId,
+        attempt: 0,
+        episodeId: fixture.episodeId,
+        actionId: "clock-skew:github-delivery:" + bindOperationId,
+        effectBundleId: fixture.effectBundleId,
+        workerId: fixture.workerId,
+        operationId: bindOperationId,
+        afterObservationIds: ["after:" + bindOperationId],
+      })).resolves.toBe(bindTransitionId);
+
+      await terminalizeUnmutatedGitHubDeliveryTransition({
+        projectId: fixture.projectId,
+        executionId: fixture.executionId,
+        attempt: 0,
+        operationId: terminalizeOperationId,
+        workerId: fixture.workerId,
+        failureCode: "clock_skew_test",
+      });
+      const [terminalized] = await db.select().from(aiWorldTransitionsTable)
+        .where(eq(aiWorldTransitionsTable.id, terminalizeTransitionId)).limit(1);
+      expect(terminalized?.status).toBe("terminal_failed");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("rejects an expired PostgreSQL lease when the API clock is 24 hours behind", async () => {
+    const fixture = await transitionFixture();
+    const bindOperationId = crypto.randomUUID();
+    const terminalizeOperationId = crypto.randomUUID();
+    const bindTransitionId = await createPendingGitHubDeliveryTransition(
+      deliveryInput(fixture, bindOperationId),
+    );
+    const terminalizeTransitionId = await createPendingGitHubDeliveryTransition(
+      deliveryInput(fixture, terminalizeOperationId),
+    );
+    const databaseNearNow = Date.now();
+    await db.update(aiExecutionsTable).set({
+      leaseUntil: new Date(databaseNearNow - 5 * 60_000),
+    }).where(eq(aiExecutionsTable.id, fixture.executionId));
+
+    vi.useFakeTimers({ toFake: ["Date"] });
+    try {
+      vi.setSystemTime(new Date(databaseNearNow - 24 * 60 * 60_000));
+
+      await expect(createPendingApplyChangesTransition(applyInput(fixture)))
+        .rejects.toThrow("apply_transition_owner_stale");
+      await expect(createPendingRuntimeStartTransition(fixture.transitionInput))
+        .rejects.toThrow("runtime_start_transition_owner_stale");
+      await expect(createPendingGitHubDeliveryTransition(
+        deliveryInput(fixture, crypto.randomUUID()),
+      )).rejects.toThrow("github_delivery_transition_owner_stale");
+      await expect(bindGitHubDeliveryTransitionEffect({
+        projectId: fixture.projectId,
+        executionId: fixture.executionId,
+        attempt: 0,
+        episodeId: fixture.episodeId,
+        actionId: "clock-skew:github-delivery:" + bindOperationId,
+        effectBundleId: fixture.effectBundleId,
+        workerId: fixture.workerId,
+        operationId: bindOperationId,
+        afterObservationIds: ["after:" + bindOperationId],
+      })).rejects.toThrow("github_delivery_transition_owner_stale");
+
+      await terminalizeUnmutatedGitHubDeliveryTransition({
+        projectId: fixture.projectId,
+        executionId: fixture.executionId,
+        attempt: 0,
+        operationId: terminalizeOperationId,
+        workerId: fixture.workerId,
+        failureCode: "clock_skew_test",
+      });
+      const [terminalized] = await db.select().from(aiWorldTransitionsTable)
+        .where(eq(aiWorldTransitionsTable.id, terminalizeTransitionId)).limit(1);
+      expect(terminalized?.status).toBe("pending");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});
 
 describe("runtime.start transition retry scheduling", () => {
   it.skipIf(process.env.RUN_INDEPENDENT_APPLY_RECOVERY_TEST !== "1")("requires a Mission Goal, proves independent PostgreSQL sessions for Apply recovery, serializes acceptance replay with materialization, and fences idempotency", async () => {
