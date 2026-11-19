@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { and, asc, eq, gt, isNull, lte, or, sql } from "drizzle-orm";
+import { and, asc, eq, gt, gte, isNull, lt, lte, or, sql } from "drizzle-orm";
 import {
   db,
   taskExecutionObservationOutboxTable,
@@ -84,6 +84,7 @@ async function claimObservationOutboxRow(id: string): Promise<{
       executionId: taskExecutionObservationOutboxTable.executionId,
       attempt: taskExecutionObservationOutboxTable.attempt,
       payload: taskExecutionObservationOutboxTable.payload,
+      attemptCount: taskExecutionObservationOutboxTable.attemptCount,
     })
       .from(taskExecutionObservationOutboxTable)
       .where(and(
@@ -101,6 +102,7 @@ async function claimObservationOutboxRow(id: string): Promise<{
             ),
           ),
         ),
+        lt(taskExecutionObservationOutboxTable.attemptCount, MAX_TASK_OBSERVATION_OUTBOX_ATTEMPTS),
       ))
       .for("update")
       .limit(1);
@@ -110,13 +112,22 @@ async function claimObservationOutboxRow(id: string): Promise<{
     const [claimed] = await tx.update(taskExecutionObservationOutboxTable)
       .set({
         status: "running",
+        attemptCount: sql`${taskExecutionObservationOutboxTable.attemptCount} + 1`,
         workerId,
         leaseUntil: databaseLeaseUntil(TASK_OBSERVATION_OUTBOX_LEASE_MS),
         updatedAt: now,
       })
-      .where(eq(taskExecutionObservationOutboxTable.id, id))
-      .returning({ id: taskExecutionObservationOutboxTable.id });
-    return claimed ? { ...row, workerId } : null;
+      .where(and(
+        eq(taskExecutionObservationOutboxTable.id, id),
+        lt(taskExecutionObservationOutboxTable.attemptCount, MAX_TASK_OBSERVATION_OUTBOX_ATTEMPTS),
+      ))
+      .returning({
+        id: taskExecutionObservationOutboxTable.id,
+        attemptCount: taskExecutionObservationOutboxTable.attemptCount,
+      });
+    return claimed
+      ? { ...row, attemptCount: claimed.attemptCount, workerId }
+      : null;
   });
 }
 
@@ -238,16 +249,17 @@ async function recordObservationOutboxFailure(
       .for("update")
       .limit(1);
     if (!row) return { recorded: false, deadLettered: false };
-    const nextAttemptCount = row.attemptCount + 1;
-    const deadLettered = terminal || nextAttemptCount >= MAX_TASK_OBSERVATION_OUTBOX_ATTEMPTS;
+    // attemptCount is incremented atomically when the lease is claimed, so
+    // worker crashes and explicit failures consume the same bounded budget.
+    const currentAttemptCount = row.attemptCount;
+    const deadLettered = terminal || currentAttemptCount >= MAX_TASK_OBSERVATION_OUTBOX_ATTEMPTS;
     const [updated] = await tx.update(taskExecutionObservationOutboxTable)
       .set({
         status: deadLettered ? DEAD_LETTER_STATUS : "pending",
-        attemptCount: nextAttemptCount,
         nextAttemptAt: deadLettered
           ? now
           : sql<Date>`(clock_timestamp() AT TIME ZONE 'UTC')
-              + (${retryDelayMs(row.attemptCount)} * interval '1 millisecond')`,
+              + (${retryDelayMs(Math.max(0, currentAttemptCount - 1))} * interval '1 millisecond')`,
         workerId: null,
         leaseUntil: null,
         lastFailureCode: failureCode,
@@ -292,12 +304,40 @@ export async function requeueDeadLetteredTaskObservationOutboxRow(id: string): P
 
 export async function dispatchPendingTaskObservationOutbox(limit = 100): Promise<number> {
   const now = databaseNow();
+
+  // An expired final lease means the worker consumed the last allowed attempt
+  // but died before it could persist a normal failure transition. Terminalize
+  // these rows before selecting work so crash-only retries cannot loop forever.
+  await db.update(taskExecutionObservationOutboxTable)
+    .set({
+      status: DEAD_LETTER_STATUS,
+      workerId: null,
+      leaseUntil: null,
+      lastFailureCode: "TASK_OBSERVATION_OUTBOX_ATTEMPTS_EXHAUSTED",
+      nextAttemptAt: now,
+      updatedAt: now,
+    })
+    .where(and(
+      gte(taskExecutionObservationOutboxTable.attemptCount, MAX_TASK_OBSERVATION_OUTBOX_ATTEMPTS),
+      or(
+        eq(taskExecutionObservationOutboxTable.status, "pending"),
+        and(
+          eq(taskExecutionObservationOutboxTable.status, "running"),
+          or(
+            isNull(taskExecutionObservationOutboxTable.leaseUntil),
+            lte(taskExecutionObservationOutboxTable.leaseUntil, now),
+          ),
+        ),
+      ),
+    ));
+
   const rows = await db.select({ id: taskExecutionObservationOutboxTable.id })
     .from(taskExecutionObservationOutboxTable)
     .where(or(
       and(
         eq(taskExecutionObservationOutboxTable.status, "pending"),
         lte(taskExecutionObservationOutboxTable.nextAttemptAt, now),
+        lt(taskExecutionObservationOutboxTable.attemptCount, MAX_TASK_OBSERVATION_OUTBOX_ATTEMPTS),
       ),
       and(
         eq(taskExecutionObservationOutboxTable.status, "running"),
@@ -305,6 +345,7 @@ export async function dispatchPendingTaskObservationOutbox(limit = 100): Promise
           isNull(taskExecutionObservationOutboxTable.leaseUntil),
           lte(taskExecutionObservationOutboxTable.leaseUntil, now),
         ),
+        lt(taskExecutionObservationOutboxTable.attemptCount, MAX_TASK_OBSERVATION_OUTBOX_ATTEMPTS),
       ),
     ))
     .orderBy(
