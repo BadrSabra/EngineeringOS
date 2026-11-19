@@ -134,7 +134,7 @@ describe("Dashboard goal-first home", () => {
     expect(mockSetLocation).not.toHaveBeenCalled();
   });
 
-  it("shows a unique project suggestion and requires an explicit scope choice before handoff", () => {
+  it("routes to a unique project with one explicit click without sending the goal", () => {
     vi.mocked(useListOperatorAlerts).mockReturnValue({
       data: { alerts: [] },
       isLoading: false,
@@ -148,12 +148,13 @@ describe("Dashboard goal-first home", () => {
     fireEvent.change(screen.getByTestId("input-home-goal"), {
       target: { value: "ساعدني أفهم سبب بطء صفحة تسجيل الدخول في مشروع بوابة العملاء" },
     });
-    fireEvent.click(screen.getByTestId("button-start-goal"));
 
     expect(mockSetLocation).not.toHaveBeenCalled();
-    expect(screen.getByTestId("text-goal-project-suggestion")).toHaveTextContent("بوابة العملاء");
+    expect(screen.getByTestId("text-home-goal-project-suggestion")).toHaveTextContent("بوابة العملاء");
+    expect(screen.getByTestId("button-start-goal")).toHaveAccessibleName("تابع مع مشروع بوابة العملاء");
+    expect(screen.getByTestId("button-choose-goal-destination")).toHaveTextContent("اختيار وجهة أخرى");
     expect(readGoalDrafts("user-1").drafts).toHaveLength(0);
-    fireEvent.click(screen.getByTestId("button-route-goal-suggested-project"));
+    fireEvent.click(screen.getByTestId("button-start-goal"));
 
     const [draft] = readGoalDrafts('user-1').drafts;
     expect(draft.text).toBe("ساعدني أفهم سبب بطء صفحة تسجيل الدخول في مشروع بوابة العملاء");
@@ -162,6 +163,28 @@ describe("Dashboard goal-first home", () => {
     expect(mockSetLocation).toHaveBeenCalledWith(`/projects/project-1/workspace?goalDraftId=${draft.id}`);
     expect(screen.getByText(/لن يُرسل النص تلقائيًا/)).toBeInTheDocument();
     expect(screen.queryByTestId('panel-goal-destination')).not.toBeInTheDocument();
+  });
+
+  it("keeps other destination choices available when a project is suggested", () => {
+    render(<Dashboard />);
+    fireEvent.change(screen.getByTestId("input-home-goal"), {
+      target: { value: "ساعدني أفهم سبب بطء صفحة تسجيل الدخول في مشروع بوابة العملاء" },
+    });
+
+    fireEvent.click(screen.getByTestId("button-choose-goal-destination"));
+
+    expect(screen.getByTestId("panel-goal-destination")).toBeInTheDocument();
+    expect(mockSetLocation).not.toHaveBeenCalled();
+    expect(readGoalDrafts("user-1").drafts).toHaveLength(0);
+    fireEvent.click(screen.getByTestId("button-route-goal-general"));
+
+    const [draft] = readGoalDrafts("user-1").drafts;
+    expect(draft).toMatchObject({
+      text: "ساعدني أفهم سبب بطء صفحة تسجيل الدخول في مشروع بوابة العملاء",
+      projectId: null,
+      sendAttemptedAt: null,
+    });
+    expect(mockSetLocation).toHaveBeenCalledWith(`/general-chat?goalDraftId=${draft.id}`);
   });
 
   it('waits for project names before showing a suggestion and never routes while they load', () => {

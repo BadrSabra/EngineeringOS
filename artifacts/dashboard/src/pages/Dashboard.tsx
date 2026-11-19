@@ -346,6 +346,7 @@ export default function Dashboard() {
   const goalProjectMatch = !projectsQuery.isLoading && !projectsQuery.isError
     ? matchGoalToProject(goalDraft, projects)
     : null;
+  const suggestedProject = goalProjectMatch?.kind === 'unique' ? goalProjectMatch.project : null;
   const dashboardQuery = useGetDashboard();
   const { data: rawDashboard, isLoading, error, refetch, isRefetching, dataUpdatedAt } = dashboardQuery;
   const dashboard = useMonotonicData(rawDashboard, rawDashboard?.freshnessRevision);
@@ -538,6 +539,16 @@ export default function Dashboard() {
         <p className="mt-3 text-xs leading-5 text-muted-foreground">
           إذا ذُكر مشروع واحد بوضوح سنقترحه داخل المساعد؛ لن يُستخدم نطاقه قبل تأكيدك.
         </p>
+        {suggestedProject && !showGoalDestinationPrompt && (
+          <p
+            role="status"
+            data-testid="text-home-goal-project-suggestion"
+            className="mt-3 rounded-lg border border-primary/20 bg-primary/5 px-3 py-2 text-sm"
+          >
+            المشروع المقترح: <bdi dir="auto" className="font-semibold">{suggestedProject.name}</bdi>
+            <span className="text-muted-foreground"> — لن يُرسل الهدف قبل مراجعته.</span>
+          </p>
+        )}
         {showGoalDestinationPrompt && (
           <div
             dir="rtl"
@@ -670,16 +681,32 @@ export default function Dashboard() {
               {goalDraft.length}/{HOME_GOAL_MAX_LENGTH}
             </span>
           </p>
-          <Button
-            type="button"
-            data-testid="button-start-goal"
-            disabled={!goalDraft.trim()}
-            onClick={continueWithGoal}
-            className="w-full gap-2 sm:w-auto"
-          >
-            متابعة
-            <ArrowLeft aria-hidden="true" className="h-4 w-4" />
-          </Button>
+          {!showGoalDestinationPrompt && (
+            <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row">
+              <Button
+                type="button"
+                data-testid="button-start-goal"
+                aria-label={suggestedProject ? `تابع مع مشروع ${suggestedProject.name}` : undefined}
+                disabled={!goalDraft.trim()}
+                onClick={() => suggestedProject ? continueToProject(suggestedProject.id) : continueWithGoal()}
+                className="w-full gap-2 sm:w-auto"
+              >
+                {suggestedProject ? 'تابع مع المشروع المقترح' : 'متابعة'}
+                <ArrowLeft aria-hidden="true" className="h-4 w-4" />
+              </Button>
+              {suggestedProject && (
+                <Button
+                  type="button"
+                  variant="outline"
+                  data-testid="button-choose-goal-destination"
+                  onClick={continueWithGoal}
+                  className="w-full sm:w-auto"
+                >
+                  اختيار وجهة أخرى
+                </Button>
+              )}
+            </div>
+          )}
         </div>
         {goalHandoffError && (
           <p
