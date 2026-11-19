@@ -26,16 +26,20 @@ vi.mock("@workspace/db", () => ({
   ],
 }));
 
-import { drainPendingAudits, getPendingAuditCount, loadPendingAudits, recordAudit, recordAuditInTransaction } from "./audit.js";
-import { getOperationalCounters, resetOperationalCounters } from "./operational-counters.js";
 
 describe("audit write recovery", () => {
-  beforeEach(() => {
+  let audit: typeof import("./audit.js");
+  let counters: typeof import("./operational-counters.js");
+
+  beforeEach(async () => {
+    vi.resetModules();
     vi.useFakeTimers();
+    audit = await import("./audit.js");
+    counters = await import("./operational-counters.js");
     insertMock.mockReset();
     selectMock.mockReset().mockReturnValue({ from: vi.fn().mockResolvedValue([]) });
     deleteMock.mockReset().mockReturnValue({ where: vi.fn().mockResolvedValue(undefined) });
-    resetOperationalCounters();
+    counters.resetOperationalCounters();
   });
 
   afterEach(() => {
@@ -55,23 +59,23 @@ describe("audit write recovery", () => {
         values: vi.fn().mockReturnValue({ onConflictDoNothing: vi.fn().mockResolvedValue(undefined) }),
       }));
 
-    await expect(recordAudit({
+    await expect(audit.recordAudit({
       entityType: "project",
       entityId: "project-1",
       action: "updated",
     })).resolves.toBeUndefined();
 
-    expect(getPendingAuditCount()).toBe(1);
-    expect(getOperationalCounters()).toMatchObject({
+    expect(audit.getPendingAuditCount()).toBe(1);
+    expect(counters.getOperationalCounters()).toMatchObject({
       auditWriteFailures: 1,
       auditWritesPending: 1,
       auditWritesRecovered: 0,
     });
 
-    await drainPendingAudits();
+    await audit.drainPendingAudits();
 
-    expect(getPendingAuditCount()).toBe(0);
-    expect(getOperationalCounters()).toMatchObject({
+    expect(audit.getPendingAuditCount()).toBe(0);
+    expect(counters.getOperationalCounters()).toMatchObject({
       auditWriteFailures: 1,
       auditWritesPending: 0,
       auditWritesRecovered: 1,
@@ -103,17 +107,17 @@ describe("audit write recovery", () => {
       };
     });
 
-    await recordAudit({
+    await audit.recordAudit({
       entityType: "project",
       entityId: "deleted-project",
       projectId: "deleted-project",
       action: "deleted",
     });
-    await drainPendingAudits();
+    await audit.drainPendingAudits();
 
     expect(auditAttempts).toBe(3);
-    expect(getPendingAuditCount()).toBe(0);
-    expect(getOperationalCounters()).toMatchObject({
+    expect(audit.getPendingAuditCount()).toBe(0);
+    expect(counters.getOperationalCounters()).toMatchObject({
       auditWriteFailures: 1,
       auditWritesPending: 0,
       auditWritesRecovered: 1,
@@ -126,32 +130,32 @@ describe("audit write recovery", () => {
       ? { values: vi.fn().mockRejectedValue(new Error("database still unavailable")) }
       : { values: vi.fn().mockReturnValue({ onConflictDoUpdate: vi.fn().mockResolvedValue(undefined) }) });
 
-    await recordAudit({
+    await audit.recordAudit({
       entityType: "task",
       entityId: "task-1",
       action: "executed",
     });
-    await drainPendingAudits();
+    await audit.drainPendingAudits();
 
-    expect(getPendingAuditCount()).toBe(1);
-    expect(getOperationalCounters().auditWritesPending).toBe(1);
-    expect(getOperationalCounters().auditWriteFailures).toBe(2);
+    expect(audit.getPendingAuditCount()).toBe(1);
+    expect(counters.counters.getOperationalCounters().auditWritesPending).toBe(1);
+    expect(counters.counters.getOperationalCounters().auditWriteFailures).toBe(2);
   });
 
   it("reports when neither the audit destination nor durable outbox is available", async () => {
-    await loadPendingAudits();
+    await audit.loadPendingAudits();
     insertMock.mockImplementation(() => ({
       values: vi.fn().mockRejectedValue(new Error("database unavailable")),
     }));
 
-    await recordAudit({
+    await audit.recordAudit({
       entityType: "project",
       entityId: "project-no-durable-audit",
       action: "updated",
     });
 
-    expect(getPendingAuditCount()).toBe(1);
-    expect(getOperationalCounters()).toMatchObject({
+    expect(audit.getPendingAuditCount()).toBe(1);
+    expect(counters.getOperationalCounters()).toMatchObject({
       auditPersistenceUnavailable: 1,
       mutationsWithoutAudit: 1,
     });
@@ -166,7 +170,7 @@ describe("audit write recovery", () => {
       }),
     };
 
-    await expect(recordAuditInTransaction(transaction, {
+    await expect(audit.recordAuditInTransaction(transaction, {
       entityType: "task",
       entityId: "task-transaction",
       action: "updated",
@@ -201,13 +205,13 @@ describe("audit write recovery", () => {
       ? { values: vi.fn().mockReturnValue({ onConflictDoNothing: vi.fn().mockResolvedValue(undefined) }) }
       : { values: vi.fn().mockReturnValue({ onConflictDoUpdate: vi.fn().mockResolvedValue(undefined) }) });
 
-    await loadPendingAudits();
-    expect(getPendingAuditCount()).toBe(1);
+    await audit.loadPendingAudits();
+    expect(audit.getPendingAuditCount()).toBe(1);
 
-    await drainPendingAudits();
+    await audit.drainPendingAudits();
 
-    expect(getPendingAuditCount()).toBe(0);
-    expect(getOperationalCounters().auditWritesRecovered).toBe(1);
+    expect(audit.getPendingAuditCount()).toBe(0);
+    expect(counters.counters.getOperationalCounters().auditWritesRecovered).toBe(1);
     expect(deleteMock).toHaveBeenCalled();
   });
 });
