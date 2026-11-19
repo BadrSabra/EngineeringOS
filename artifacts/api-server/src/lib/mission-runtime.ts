@@ -1,7 +1,7 @@
 import { execFile } from "node:child_process";
 import { createHash, randomUUID } from "node:crypto";
 import { realpath } from "node:fs/promises";
-import { promisify } from "node:util";
+import { isDeepStrictEqual, promisify } from "node:util";
 import {
   and,
   desc,
@@ -4099,6 +4099,26 @@ export async function wakeMissionGoalsForEvent(event: MissionEventEnvelope): Pro
   return changed ? 1 : 0;
 }
 
+function normalizeMissionEventValue(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(normalizeMissionEventValue);
+  if (!value || typeof value !== "object") return value;
+  return Object.fromEntries(
+    Object.entries(value as Record<string, unknown>)
+      .filter(([, nested]) => nested !== undefined)
+      .map(([key, nested]) => [key, normalizeMissionEventValue(nested)]),
+  );
+}
+
+function sameMissionEventEnvelope(
+  left: MissionEventEnvelope,
+  right: MissionEventEnvelope,
+): boolean {
+  return isDeepStrictEqual(
+    normalizeMissionEventValue(left),
+    normalizeMissionEventValue(right),
+  );
+}
+
 type StoredMissionEvent = {
   envelope?: MissionEventEnvelope;
   processedAt?: string | null;
@@ -4158,23 +4178,47 @@ export async function receiveMissionEvent(event: MissionEventEnvelope): Promise<
   const existing = inserted
     ? []
     : await db
-      .select({ payload: eventsTable.payload })
+      .select({
+        payload: eventsTable.payload,
+        projectId: eventsTable.projectId,
+        goalId: eventsTable.goalId,
+        correlationId: eventsTable.correlationId,
+      })
       .from(eventsTable)
       .where(and(
         eq(eventsTable.id, event.eventId),
         eq(eventsTable.type, MISSION_EXTERNAL_EVENT_TYPE),
       ))
       .limit(1);
-  if (!inserted && !storedMissionEvent(existing[0]?.payload ?? null)) {
+  const stored = inserted
+    ? undefined
+    : storedMissionEvent(existing[0]?.payload ?? null);
+  const storedRow = existing[0];
+  const duplicateMatchesOriginal = inserted || Boolean(
+    stored?.envelope
+    && sameMissionEventEnvelope(stored.envelope, event)
+    && storedRow?.projectId === event.projectId
+    && storedRow?.goalId === (event.goalId ?? null)
+    && storedRow?.correlationId === (event.correlationId ?? event.eventId),
+  );
+  if (!duplicateMatchesOriginal) {
     return { eventId: event.eventId, persisted: false, woken: false, duplicate: true };
   }
+  if (stored?.processedAt != null) {
+    return { eventId: event.eventId, persisted: true, woken: false, duplicate: true };
+  }
 
-  const woken = await wakeMissionGoalsForEvent(event);
+  // A duplicate may only retry the exact durable event. Always wake from the
+  // stored envelope and preserve its payload; never let a reused eventId
+  // retarget or rewrite an already-persisted inbox item.
+  const eventToWake = stored?.envelope ?? event;
+  const payloadToMark = inserted ? payload : storedRow?.payload ?? payload;
+  const woken = await wakeMissionGoalsForEvent(eventToWake);
   if (woken > 0) {
     await db.update(eventsTable)
       .set({
         payload: {
-          ...payload,
+          ...payloadToMark,
           processedAt: new Date().toISOString(),
         },
       })
