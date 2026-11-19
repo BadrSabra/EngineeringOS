@@ -205,6 +205,14 @@ export default function DashboardWorkSummary() {
               <>
                 <p className="font-medium">لا توجد عناصر مسجّلة لعرضها الآن.</p>
                 <p className="mt-1 text-xs text-muted-foreground">اكتب هدفك في الأعلى لتبدأ، وسيظهر هنا ما يتقدم وما يحتاج مراجعتك.</p>
+                <a
+                  href="#home-goal-draft"
+                  data-testid="link-start-goal-from-empty-summary"
+                  className="mt-3 inline-flex items-center gap-1.5 rounded-md border border-primary/25 bg-primary/10 px-3 py-2 text-xs font-medium text-primary transition hover:bg-primary/15 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+                >
+                  ابدأ بهدفك
+                  <ArrowLeft aria-hidden="true" className="h-3.5 w-3.5" />
+                </a>
               </>
             )}
           </div>
