@@ -119,6 +119,36 @@ describe("GET /events — list", () => {
     expect(ids).not.toContain(typeBId);
   });
 
+  it("rejects unsupported severity filters with a client error", async () => {
+    const projectId = await insertProject();
+    projectIds.push(projectId);
+
+    const res = await request(app).get(
+      `/api/events?projectId=${projectId}&severity=critical`,
+    );
+
+    expect(res.status).toBe(400);
+    expect(res.body).toEqual({
+      error: "severity must be one of: info, warning, error, success",
+    });
+  });
+
+  it("treats a whitespace-only severity filter as absent", async () => {
+    const projectId = await insertProject();
+    projectIds.push(projectId);
+    const infoEventId = await insertEvent({ projectId, severity: "info" });
+    const errorEventId = await insertEvent({ projectId, severity: "error" });
+
+    const res = await request(app).get(
+      `/api/events?projectId=${projectId}&severity=%20%20`,
+    );
+
+    expect(res.status).toBe(200);
+    const ids = (res.body.events as { id: string }[]).map((event) => event.id);
+    expect(ids).toEqual(expect.arrayContaining([infoEventId, errorEventId]));
+    expect(res.body.total).toBe(2);
+  });
+
   it("filters events by correlationId", async () => {
     const projectId = await insertProject();
     projectIds.push(projectId);
