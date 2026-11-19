@@ -1129,11 +1129,17 @@ async function oacCompleteRawUntracked(
     }
   }
 
+  const timeoutMs = opts.timeoutMs ?? DEFAULT_TIMEOUT_MS;
   const controller = new AbortController();
+  const timer = setTimeout(
+    () => controller.abort(new Error(`${providerName} request timed out`)),
+    timeoutMs,
+  );
   const onAbort = () => controller.abort(signal?.reason);
   if (signal?.aborted) onAbort();
   else signal?.addEventListener("abort", onAbort, { once: true });
   const cleanup = () => {
+    clearTimeout(timer);
     signal?.removeEventListener("abort", onAbort);
   };
 
@@ -1204,10 +1210,21 @@ async function oacCompleteRawUntracked(
     );
   }
   if (!response.ok) {
-    const text = await readBoundedProviderResponseText(
-      response,
-      MAX_PROVIDER_ERROR_BODY_BYTES,
-    ).catch(() => "");
+    let text = "";
+    try {
+      text = await readBoundedProviderResponseText(
+        response,
+        MAX_PROVIDER_ERROR_BODY_BYTES,
+      );
+    } catch (error) {
+      if (controller.signal.aborted) {
+        cleanup();
+        throw new GroqClientError("TIMEOUT", `${providerName} response body timed out`, {
+          cause: error,
+          context: { providerName, providerModel: model },
+        });
+      }
+    }
     cleanup();
     // Keep diagnostics structured; response bodies may contain untrusted text.
     console.warn(
