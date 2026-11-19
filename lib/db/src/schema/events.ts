@@ -59,6 +59,10 @@ export const eventsTable = pgTable("events", {
   index("idx_events_correlation_id").on(t.correlationId),
   // Partial uniqueness is intentionally limited to verified GitHub delivery
   // records; generic/manual activity events may share the same correlation ID.
+  // Ordered, bounded startup recovery of incomplete verified GitHub deliveries.
+  index("idx_events_github_delivery_attempt_recovery")
+    .on(t.timestamp, t.id)
+    .where(sql`${t.type} = 'GitPushAttemptStarted' AND ${t.correlationId} IS NOT NULL`),
   uniqueIndex("uq_events_github_delivery_attempt")
     .on(t.projectId, t.correlationId)
     .where(sql`${t.type} = 'GitPushAttemptStarted' AND ${t.correlationId} IS NOT NULL`),
