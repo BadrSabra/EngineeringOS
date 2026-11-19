@@ -1,6 +1,6 @@
 import { Buffer } from "node:buffer";
 import { randomUUID } from "node:crypto";
-import { and, count, eq, gte, inArray, isNotNull, isNull, notExists, sql } from "drizzle-orm";
+import { and, count, eq, gte, inArray, isNotNull, isNull, lt, notExists, sql } from "drizzle-orm";
 import {
   db,
   aiProjectBudgetsTable,
@@ -97,6 +97,20 @@ export function utcDay(date = new Date()): string {
   return date.toISOString().slice(0, 10);
 }
 
+export type DatabaseUtcClock = { now: Date; day: string };
+
+/** Read one database-owned UTC clock snapshot for budget admission and reporting. */
+export async function getDatabaseUtcClock(executor: BudgetExecutor = db): Promise<DatabaseUtcClock> {
+  const [clock] = await executor.select({
+    now: sql<Date>`CURRENT_TIMESTAMP`,
+    day: sql<string>`to_char(CURRENT_TIMESTAMP AT TIME ZONE 'UTC', 'YYYY-MM-DD')`,
+  });
+  if (!(clock?.now instanceof Date) || typeof clock.day !== "string") {
+    throw new Error("Could not resolve the database UTC clock for AI usage.");
+  }
+  return { now: clock.now, day: clock.day };
+}
+
 function utcDayStart(day = utcDay()): Date {
   return new Date(`${day}T00:00:00.000Z`);
 }
@@ -133,6 +147,7 @@ async function loadOrCreateBudget(
   executor: BudgetExecutor,
   projectId: string,
   ownerId: string,
+  clock: DatabaseUtcClock,
 ): Promise<AiProjectBudget> {
   const existing = await executor
     .select()
@@ -140,7 +155,7 @@ async function loadOrCreateBudget(
     .where(and(eq(aiProjectBudgetsTable.projectId, projectId), eq(aiProjectBudgetsTable.ownerId, ownerId)))
     .for("update");
   if (existing[0]) return existing[0];
-  const now = new Date();
+  const now = clock.now;
   const defaults = defaultAiBudgetInput();
   await executor.insert(aiProjectBudgetsTable).values({
     id: randomUUID(),
@@ -148,7 +163,7 @@ async function loadOrCreateBudget(
     projectId,
     ownerId,
     ...defaults,
-    resetAt: new Date(utcDayStart().getTime() + 86_400_000),
+    resetAt: new Date(utcDayStart(clock.day).getTime() + 86_400_000),
     createdAt: now,
     updatedAt: now,
   }).onConflictDoNothing({ target: aiProjectBudgetsTable.projectId });
@@ -163,10 +178,12 @@ async function loadOrCreateBudget(
 
 async function usageForDay(executor: BudgetExecutor, projectId: string, day: string) {
   const since = utcDayStart(day);
+  const until = new Date(since.getTime() + 86_400_000);
   const [unreservedUsageAttempts, consumedReservations, reservations, tokenUsage, unreservedEventTokens, reservedKnownTokens, reservedTokens, chargedTokens, unreportedReservations] = await Promise.all([
     executor.select({ value: count() }).from(aiUsageEventsTable).where(and(
       eq(aiUsageEventsTable.projectId, projectId),
       gte(aiUsageEventsTable.occurredAt, since),
+      lt(aiUsageEventsTable.occurredAt, until),
       isNull(aiUsageEventsTable.modelTaskContract),
       notExists(executor.select({ id: aiBudgetReservationsTable.id })
         .from(aiBudgetReservationsTable)
@@ -193,6 +210,7 @@ async function usageForDay(executor: BudgetExecutor, projectId: string, day: str
     }).from(aiUsageEventsTable).where(and(
       eq(aiUsageEventsTable.projectId, projectId),
       gte(aiUsageEventsTable.occurredAt, since),
+      lt(aiUsageEventsTable.occurredAt, until),
       isNull(aiUsageEventsTable.modelTaskContract),
     )),
     executor.select({
@@ -205,6 +223,7 @@ async function usageForDay(executor: BudgetExecutor, projectId: string, day: str
     }).from(aiUsageEventsTable).where(and(
       eq(aiUsageEventsTable.projectId, projectId),
       gte(aiUsageEventsTable.occurredAt, since),
+      lt(aiUsageEventsTable.occurredAt, until),
       isNull(aiUsageEventsTable.modelTaskContract),
       notExists(executor.select({ id: aiBudgetReservationsTable.id })
         .from(aiBudgetReservationsTable)
@@ -405,7 +424,8 @@ export async function admitAiProviderAttempt(params: {
   estimatedTokens?: number;
 }): Promise<{ budget: AiProjectBudget; state: AiBudgetState; projected: number }> {
   const result = await db.transaction(async (tx) => {
-    const budget = await loadOrCreateBudget(tx, params.projectId, params.ownerId);
+    const clock = await getDatabaseUtcClock(tx);
+    const budget = await loadOrCreateBudget(tx, params.projectId, params.ownerId, clock);
     const existing = await tx.select()
       .from(aiBudgetReservationsTable)
       .where(and(
@@ -414,10 +434,10 @@ export async function admitAiProviderAttempt(params: {
       ))
       .limit(1);
     if (existing[0]) {
-      const usage = await usageForDay(tx, params.projectId, utcDay());
+      const usage = await usageForDay(tx, params.projectId, clock.day);
       return { budget, state: budgetStateFor(usage, budget), projected: usage.projected };
     }
-    const usage = await usageForDay(tx, params.projectId, utcDay());
+    const usage = await usageForDay(tx, params.projectId, clock.day);
     if (usage.projected >= budget.dailyAttemptLimit) {
       throw new AiBudgetAdmissionError("attempts");
     }
@@ -435,7 +455,7 @@ export async function admitAiProviderAttempt(params: {
       projectId: params.projectId,
       ownerId: params.ownerId,
       attemptId: params.attemptId,
-      utcDay: utcDay(),
+      utcDay: clock.day,
       status: "reserved",
       estimatedTokens,
     });
@@ -457,8 +477,9 @@ export async function admitAiProviderAttempt(params: {
 }
 
 export async function getAiProjectBudgetSummary(params: { ownerId: string; projectId: string }) {
-  const budget = await loadOrCreateBudget(db, params.projectId, params.ownerId);
-  const usage = await usageForDay(db, params.projectId, utcDay());
+  const clock = await getDatabaseUtcClock(db);
+  const budget = await loadOrCreateBudget(db, params.projectId, params.ownerId, clock);
+  const usage = await usageForDay(db, params.projectId, clock.day);
   const state = budgetStateFor(usage, budget);
   return {
     schemaVersion: budget.schemaVersion,
@@ -488,7 +509,8 @@ export async function updateAiProjectBudget(
 ) {
   const error = validateAiBudgetInput(params);
   if (error) throw new Error(error);
-  const now = new Date();
+  const clock = await getDatabaseUtcClock(db);
+  const now = clock.now;
   await db.insert(aiProjectBudgetsTable).values({
     id: randomUUID(),
     schemaVersion: 1,
@@ -497,7 +519,7 @@ export async function updateAiProjectBudget(
     dailyAttemptLimit: params.dailyAttemptLimit,
     dailyTokenLimit: params.dailyTokenLimit,
     warningThreshold: params.warningThreshold,
-    resetAt: new Date(utcDayStart().getTime() + 86_400_000),
+    resetAt: new Date(utcDayStart(clock.day).getTime() + 86_400_000),
     createdAt: now,
     updatedAt: now,
   }).onConflictDoUpdate({
