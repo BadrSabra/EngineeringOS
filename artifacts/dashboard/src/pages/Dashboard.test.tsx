@@ -116,6 +116,24 @@ beforeEach(() => {
 });
 
 describe("Dashboard goal-first home", () => {
+  it("copies an editable goal example without submitting or choosing a project", () => {
+    render(<Dashboard />);
+
+    fireEvent.click(screen.getByTestId("button-home-goal-example-fix-problem"));
+
+    expect(screen.getByTestId("input-home-goal")).toHaveValue(
+      "أريد إصلاح مشكلة تظهر في مشروعي. ساعدني أولًا على فهم سببها.",
+    );
+    expect(mockSetLocation).not.toHaveBeenCalled();
+    expect(readGoalDrafts("user-1").drafts).toHaveLength(0);
+    expect(screen.queryByTestId("panel-goal-destination")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("group-home-goal-examples")).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByTestId("button-start-goal"));
+    expect(screen.getByTestId("panel-goal-destination")).toBeInTheDocument();
+    expect(mockSetLocation).not.toHaveBeenCalled();
+  });
+
   it("shows a unique project suggestion and requires an explicit scope choice before handoff", () => {
     vi.mocked(useListOperatorAlerts).mockReturnValue({
       data: { alerts: [] },
