@@ -124,6 +124,10 @@ describe("Dashboard goal-first home", () => {
     expect(screen.getByTestId("input-home-goal")).toHaveValue(
       "أريد إصلاح مشكلة تظهر في مشروعي. ساعدني أولًا على فهم سببها.",
     );
+    const goalInput = screen.getByTestId("input-home-goal") as HTMLTextAreaElement;
+    expect(goalInput).toHaveFocus();
+    expect(goalInput.selectionStart).toBe(goalInput.value.length);
+    expect(goalInput.selectionEnd).toBe(goalInput.value.length);
     expect(mockSetLocation).not.toHaveBeenCalled();
     expect(readGoalDrafts("user-1").drafts).toHaveLength(0);
     expect(screen.queryByTestId("panel-goal-destination")).not.toBeInTheDocument();
