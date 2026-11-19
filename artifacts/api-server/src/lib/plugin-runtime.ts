@@ -445,7 +445,7 @@ export async function persistPluginDispatch(
       status: "pending",
       attemptCount: 0,
       maxAttempts: PLUGIN_RUN_MAX_ATTEMPTS,
-      nextAttemptAt: new Date(),
+      nextAttemptAt: databaseNow(),
     })))
     .onConflictDoNothing({
       target: [pluginRunsTable.dispatchId, pluginRunsTable.pluginId],
@@ -630,7 +630,7 @@ async function runPluginRun(runId: string): Promise<void> {
           severity: event.severity,
           message: event.message,
           payload: (event.payload ?? null) as Record<string, unknown> | null,
-          timestamp: new Date(),
+          timestamp: databaseNow(),
           correlationId: context.scanCorrelationId,
         })));
       }

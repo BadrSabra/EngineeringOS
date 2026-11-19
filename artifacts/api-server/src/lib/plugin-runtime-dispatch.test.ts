@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { randomUUID } from "node:crypto";
 import request from "supertest";
-import { eq } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import {
   auditLogsTable,
   db,
@@ -137,6 +137,60 @@ describe("project-scoped plugin scan dispatch", () => {
     })).rejects.toThrow("scan rollback fixture");
     expect(await db.select().from(pluginDispatchBatchesTable)
       .where(eq(pluginDispatchBatchesTable.id, ctx.scanCorrelationId))).toEqual([]);
+  });
+
+  it("anchors initial plugin readiness and emitted event times to PostgreSQL despite API clock skew", async () => {
+    const dayMs = 24 * 60 * 60_000;
+    const contexts: ScanCompleteContext[] = [];
+
+    for (const clockSkewMs of [dayMs, -dayMs]) {
+      const ctx = scanContext(await activatedProject());
+      const [beforeRow] = (await db.execute(sql`SELECT clock_timestamp() AS now`)).rows as Array<{ now: Date | string }>;
+      const beforeNow = new Date(String(beforeRow?.now));
+      if (!beforeRow?.now || Number.isNaN(beforeNow.getTime())) {
+        throw new Error("Could not read PostgreSQL time");
+      }
+
+      vi.useFakeTimers({
+        now: new Date(beforeNow.getTime() + clockSkewMs),
+        toFake: ["Date"],
+      });
+      try {
+        await db.transaction((tx) => persistPluginDispatch(tx, ctx));
+        const [run] = await db
+          .select({ nextAttemptAt: pluginRunsTable.nextAttemptAt })
+          .from(pluginRunsTable)
+          .where(eq(pluginRunsTable.dispatchId, ctx.scanCorrelationId));
+        const [afterPersistRow] = (await db.execute(sql`SELECT clock_timestamp() AS now`)).rows as Array<{ now: Date | string }>;
+        const afterPersistNow = new Date(String(afterPersistRow?.now));
+        if (!run?.nextAttemptAt || !afterPersistRow?.now || Number.isNaN(afterPersistNow.getTime())) {
+          throw new Error("Initial plugin run was not persisted");
+        }
+        expect(
+          Math.abs(run.nextAttemptAt.getTime() - afterPersistNow.getTime()),
+        ).toBeLessThan(5_000);
+      } finally {
+        vi.useRealTimers();
+      }
+      contexts.push(ctx);
+    }
+
+    for (const ctx of contexts) {
+      await dispatchPendingPluginRuns({ dispatchId: ctx.scanCorrelationId });
+      await waitForPluginRuns(ctx.scanCorrelationId);
+      const [event] = await db
+        .select({ timestamp: eventsTable.timestamp })
+        .from(eventsTable)
+        .where(eq(eventsTable.correlationId, ctx.scanCorrelationId));
+      const [afterCompletionRow] = (await db.execute(sql`SELECT clock_timestamp() AS now`)).rows as Array<{ now: Date | string }>;
+      const afterCompletionNow = new Date(String(afterCompletionRow?.now));
+      if (!event?.timestamp || !afterCompletionRow?.now || Number.isNaN(afterCompletionNow.getTime())) {
+        throw new Error("Plugin completion event was not persisted");
+      }
+      expect(
+        Math.abs(event.timestamp.getTime() - afterCompletionNow.getTime()),
+      ).toBeLessThan(5_000);
+    }
   });
 
   it("keeps repeated dispatch idempotent and correlates exactly one event", async () => {
