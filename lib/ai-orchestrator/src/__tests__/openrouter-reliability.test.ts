@@ -2094,7 +2094,7 @@ describe("openrouterCompleteStream — bounded retry and disconnect safety", () 
       if (attemptedModels.length <= 2) {
         throw new Error("fixture connection reset");
       }
-      return streamResponse([sseDelta("fallback"), "data: [DONE]\\n\\n"]);
+      return streamResponse([sseDelta("fallback"), "data: [DONE]\n\n"]);
     });
     global.fetch = fetchMock as typeof fetch;
 
