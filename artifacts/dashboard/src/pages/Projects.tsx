@@ -164,6 +164,11 @@ function ProjectsForAccountSession({
     pollingStartedAt.current = null;
   };
 
+  const openCreate = () => {
+    idempotencyKey.current = '';
+    setShowCreate(true);
+  };
+
   const submitCreate = (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     const name = projectName.trim();
@@ -385,7 +390,7 @@ function ProjectsForAccountSession({
             </button>
             <button
               type="button"
-              onClick={() => { idempotencyKey.current = ''; setShowCreate(true); }}
+              onClick={openCreate}
               data-testid="button-new-project"
               className="flex items-center gap-2 rounded-md border border-border bg-card px-4 py-2 text-sm font-medium transition-colors hover:border-primary/40 hover:bg-secondary"
             >
@@ -434,12 +439,24 @@ function ProjectsForAccountSession({
                 : 'يمكنك إنشاء مشروع جديد، أو استكشاف مشروع موجود لفهم ملفاته ومشكلاته.'}
             </p>
             {!normalizedSearch && (
-              <button
-                onClick={() => setShowDiscover(true)}
-                className="bg-primary hover:bg-primary/90 text-primary-foreground px-5 py-2.5 rounded-lg font-semibold text-sm flex items-center gap-2 transition-colors"
-              >
-                <Radar className="w-4 h-4" /> استكشف مشروعًا موجودًا
-              </button>
+              <div className="flex flex-wrap justify-center gap-3">
+                <button
+                  type="button"
+                  onClick={openCreate}
+                  data-testid="button-empty-create-project"
+                  className="bg-primary hover:bg-primary/90 text-primary-foreground px-5 py-2.5 rounded-lg font-semibold text-sm flex items-center gap-2 transition-colors"
+                >
+                  <Plus className="w-4 h-4" /> أنشئ مشروعًا جديدًا
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setShowDiscover(true)}
+                  data-testid="button-empty-discover-project"
+                  className="border border-border bg-card hover:bg-secondary text-foreground px-5 py-2.5 rounded-lg font-semibold text-sm flex items-center gap-2 transition-colors"
+                >
+                  <Radar className="w-4 h-4" /> استكشف مشروعًا موجودًا
+                </button>
+              </div>
             )}
           </div>
         )}
