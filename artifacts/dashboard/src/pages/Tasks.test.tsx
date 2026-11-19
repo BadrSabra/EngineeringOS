@@ -451,6 +451,45 @@ describe('project-scoped task list contracts', () => {
     expect(vi.mocked(useExecuteTask).mock.results.at(-1)!.value.mutate).not.toHaveBeenCalled();
   });
 
+  it('clears task filters in one action without changing the selected project', () => {
+    window.history.replaceState({}, '', '/tasks?projectId=project-1');
+    renderPage();
+
+    fireEvent.change(screen.getByRole('combobox', { name: 'تصفية المهام حسب الحالة' }), {
+      target: { value: 'failed' },
+    });
+    fireEvent.change(screen.getByRole('combobox', { name: 'تصفية المهام حسب الأولوية' }), {
+      target: { value: 'p1' },
+    });
+    fireEvent.change(screen.getByRole('combobox', { name: 'تصفية المهام حسب القبول' }), {
+      target: { value: 'recovery-required' },
+    });
+    fireEvent.change(screen.getByRole('textbox', { name: 'ابحث عن مهمة' }), {
+      target: { value: 'Repair' },
+    });
+
+    const summary = screen.getByTestId('status-task-filter-summary');
+    expect(summary).toHaveTextContent('فشل مسجل');
+    expect(summary).toHaveTextContent('عالية (P1)');
+    expect(summary).toHaveTextContent('يتطلب استردادًا');
+    expect(summary).toHaveTextContent('Repair');
+
+    fireEvent.click(screen.getByTestId('button-clear-task-filters'));
+
+    expect(screen.getByTestId('select-task-project')).toHaveValue('project-1');
+    expect(screen.getByRole('combobox', { name: 'تصفية المهام حسب الحالة' })).toHaveValue('');
+    expect(screen.getByRole('combobox', { name: 'تصفية المهام حسب الأولوية' })).toHaveValue('');
+    expect(screen.getByRole('combobox', { name: 'تصفية المهام حسب القبول' })).toHaveValue('');
+    expect(screen.getByRole('textbox', { name: 'ابحث عن مهمة' })).toHaveValue('');
+    expect(screen.queryByTestId('status-task-filter-summary')).not.toBeInTheDocument();
+    expect(screen.getByText('Repair provider authentication')).toBeInTheDocument();
+    expect(screen.getByText('Recover from provider quota')).toBeInTheDocument();
+    expect(useListTasks).toHaveBeenLastCalledWith(
+      expect.objectContaining({ projectId: 'project-1', status: undefined, priority: undefined }),
+      expect.anything(),
+    );
+  });
+
   it('routes a named Arabic retry to the same task without executing, rolling back, or opening its card', () => {
     renderPage();
     const snapshot = vi.mocked(useListTasks).mock.results.at(-1)!.value;

@@ -1553,6 +1553,7 @@ function TasksSession({
         && t.acceptance
         && acceptanceFilterKey(t.acceptance) === filterAcceptance)),
   ) ?? [];
+  const hasActiveTaskFilters = Boolean(searchTerm || filterStatus || filterPriority || filterAcceptance);
 
   const handleAction = (action: 'execute' | 'retry' | 'rollback' | 'resume', taskId: string) => {
     const label = { execute: 'التنفيذ', retry: 'إعادة المحاولة', rollback: 'التراجع', resume: 'الاستئناف' }[action];
@@ -1779,8 +1780,13 @@ function TasksSession({
       </div>
 
       {/* Active filter badge */}
-      {(searchTerm || filterAcceptance) && (
-        <div className="shrink-0 flex items-center gap-2 text-xs">
+      {hasActiveTaskFilters && (
+        <div
+          className="shrink-0 flex flex-wrap items-center gap-2 text-xs"
+          role="group"
+          aria-label="ملخص فلاتر المهام والنتائج"
+          data-testid="status-task-filter-summary"
+        >
           <span className="text-muted-foreground">يعرض الفلتر</span>
           <span className="font-semibold">{visibleTasks.length}</span>
           <span className="text-muted-foreground">من {tasks?.length ?? 0} مهمة في القائمة المحمّلة</span>
@@ -1789,11 +1795,36 @@ function TasksSession({
               {searchTerm}
             </span>
           )}
+          {filterStatus && (
+            <span className="bg-primary/10 border border-primary/30 text-primary px-2 py-0.5 rounded">
+              {taskStatusLabel(filterStatus)}
+            </span>
+          )}
+          {filterPriority && (
+            <span className="bg-primary/10 border border-primary/30 text-primary px-2 py-0.5 rounded">
+              {{ p0: 'حرجة (P0)', p1: 'عالية (P1)', p2: 'متوسطة (P2)', p3: 'منخفضة (P3)' }[filterPriority]}
+            </span>
+          )}
           {filterAcceptance && (
             <span className="bg-primary/10 border border-primary/30 text-primary px-2 py-0.5 rounded">
               {{ accepted: 'قبول مسجل', interrupted: 'تنفيذ منقطع', failed: 'فشل مسجل', 'recovery-required': 'يتطلب استردادًا' }[filterAcceptance]}
             </span>
           )}
+          <button
+            type="button"
+            onClick={() => {
+              setSearchTerm('');
+              setFilterStatus('');
+              setFilterPriority('');
+              setFilterAcceptance('');
+            }}
+            aria-label="مسح فلاتر المهام"
+            data-testid="button-clear-task-filters"
+            className="inline-flex items-center gap-1 rounded px-2 py-1 font-medium text-primary hover:bg-primary/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+          >
+            <X className="h-3 w-3" aria-hidden="true" />
+            مسح الفلاتر
+          </button>
         </div>
       )}
 
