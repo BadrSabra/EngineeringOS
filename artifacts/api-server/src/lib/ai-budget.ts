@@ -11,7 +11,7 @@ import {
 } from "@workspace/db";
 import { logger } from "./logger.js";
 
-type BudgetExecutor = Pick<typeof db, "select" | "insert" | "update">;
+type BudgetExecutor = Pick<typeof db, "select" | "insert" | "update" | "execute">;
 
 export const AI_BUDGET_DEFAULT_ATTEMPT_LIMIT = 100;
 export const AI_BUDGET_MIN_ATTEMPT_LIMIT = 1;
@@ -101,14 +101,16 @@ export type DatabaseUtcClock = { now: Date; day: string };
 
 /** Read one database-owned UTC clock snapshot for budget admission and reporting. */
 export async function getDatabaseUtcClock(executor: BudgetExecutor = db): Promise<DatabaseUtcClock> {
-  const [clock] = await executor.select({
-    now: sql<Date>`CURRENT_TIMESTAMP`,
-    day: sql<string>`to_char(CURRENT_TIMESTAMP AT TIME ZONE 'UTC', 'YYYY-MM-DD')`,
-  });
-  if (!(clock?.now instanceof Date) || typeof clock.day !== "string") {
+  const result = await executor.execute(sql`SELECT
+    CURRENT_TIMESTAMP AS now,
+    to_char(CURRENT_TIMESTAMP AT TIME ZONE 'UTC', 'YYYY-MM-DD') AS day
+  `);
+  const clock = (result.rows as Array<{ now: Date | string; day: string }>)[0];
+  const now = clock?.now instanceof Date ? clock.now : new Date(String(clock?.now ?? ""));
+  if (!clock || !Number.isFinite(now.getTime()) || typeof clock.day !== "string") {
     throw new Error("Could not resolve the database UTC clock for AI usage.");
   }
-  return { now: clock.now, day: clock.day };
+  return { now, day: clock.day };
 }
 
 function utcDayStart(day = utcDay()): Date {
