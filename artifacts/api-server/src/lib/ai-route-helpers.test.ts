@@ -4,6 +4,7 @@
 import { describe, expect, it } from "vitest";
 import {
   GroqClientError,
+  getProviderMetrics,
   type ProviderId,
 } from "@workspace/ai-orchestrator";
 import {
@@ -16,6 +17,7 @@ import {
   normalizeProviderFailure,
   providerAttemptModels,
   emitLedgerProviderAttempts,
+  providerMetricAvailabilityState,
   chatWithFallback,
   resolveChatBudgetProjectId,
 } from "./ai-route-helpers.js";
@@ -41,6 +43,39 @@ describe("chat project budget scope", () => {
   it("rejects telemetry context bound to a different project", () => {
     expect(() => resolveChatBudgetProjectId("project-a", "project-b"))
       .toThrow("AI budget project scope mismatch.");
+  });
+});
+
+describe("provider metric availability state", () => {
+  it("keeps missing and cancellation-only samples unknown", () => {
+    expect(providerMetricAvailabilityState({
+      requests: 0,
+      successRate: null,
+      consecutiveFailures: 0,
+    })).toBe("unknown");
+    expect(providerMetricAvailabilityState({
+      requests: 4,
+      successRate: null,
+      consecutiveFailures: 0,
+    })).toBe("unknown");
+  });
+
+  it("marks completed provider samples degraded or healthy from measured outcomes", () => {
+    expect(providerMetricAvailabilityState({
+      requests: 4,
+      successRate: 0.5,
+      consecutiveFailures: 0,
+    })).toBe("degraded");
+    expect(providerMetricAvailabilityState({
+      requests: 4,
+      successRate: 1,
+      consecutiveFailures: 0,
+    })).toBe("healthy");
+    expect(providerMetricAvailabilityState({
+      requests: 4,
+      successRate: 1,
+      consecutiveFailures: 1,
+    })).toBe("degraded");
   });
 });
 
@@ -284,6 +319,125 @@ describe("ledger provider-attempt projection", () => {
         usageStatus: "known",
       },
     ]);
+  });
+
+  it("projects physical provider failures and cross-provider recovery into runtime health metrics", async () => {
+    const before = new Map(getProviderMetrics().map((entry) => [entry.provider, entry]));
+    const state = {
+      completedEventCount: 0,
+      attemptNumber: 0,
+      fallbackCount: 0,
+    };
+
+    await emitLedgerProviderAttempts(
+      snapshot([]),
+      snapshot([
+        {
+          kind: "provider_attempt",
+          status: "failed",
+          at: 10,
+          reservationId: "provider-request:metric-failure",
+          provider: "OpenRouter",
+          model: "model-a",
+          operation: "provider_request",
+          reason: "MODEL_NOT_FOUND",
+          durationMs: 24,
+        },
+        {
+          kind: "provider_attempt",
+          status: "completed",
+          at: 20,
+          reservationId: "provider-request:metric-fallback",
+          provider: "DeepSeek",
+          model: "deepseek-fixture",
+          operation: "provider_request",
+          durationMs: 31,
+        },
+      ]),
+      state,
+    );
+
+    const after = new Map(getProviderMetrics().map((entry) => [entry.provider, entry]));
+    const openrouterBefore = before.get("openrouter");
+    const openrouterAfter = after.get("openrouter");
+    const deepseekBefore = before.get("deepseek");
+    const deepseekAfter = after.get("deepseek");
+
+    expect((openrouterAfter?.requests ?? 0) - (openrouterBefore?.requests ?? 0)).toBe(1);
+    expect((openrouterAfter?.failures ?? 0) - (openrouterBefore?.failures ?? 0)).toBe(1);
+    expect((openrouterAfter?.invalidModels ?? 0) - (openrouterBefore?.invalidModels ?? 0)).toBe(1);
+    expect((deepseekAfter?.requests ?? 0) - (deepseekBefore?.requests ?? 0)).toBe(1);
+    expect((deepseekAfter?.fallbackSuccesses ?? 0) - (deepseekBefore?.fallbackSuccesses ?? 0)).toBe(1);
+    expect(deepseekAfter?.lastSuccessAt).not.toBeNull();
+  });
+
+  it("does not count same-provider model fallback as a provider fallback success", async () => {
+    const before = getProviderMetrics().find((entry) => entry.provider === "openrouter");
+    const beforeFallbackSuccesses = before?.fallbackSuccesses ?? 0;
+
+    await emitLedgerProviderAttempts(
+      snapshot([]),
+      snapshot([
+        {
+          kind: "provider_attempt",
+          status: "failed",
+          at: 10,
+          provider: "OpenRouter",
+          model: "model-a",
+          operation: "provider_request",
+          reason: "MODEL_NOT_FOUND",
+          durationMs: 10,
+        },
+        {
+          kind: "provider_attempt",
+          status: "completed",
+          at: 20,
+          provider: "OpenRouter",
+          model: "model-b",
+          operation: "provider_request",
+          durationMs: 15,
+        },
+      ]),
+      { completedEventCount: 0, attemptNumber: 0, fallbackCount: 0 },
+    );
+
+    const after = getProviderMetrics().find((entry) => entry.provider === "openrouter");
+    expect(after?.fallbackSuccesses ?? 0).toBe(beforeFallbackSuccesses);
+  });
+
+  it("keeps caller cancellation out of provider failures and the success-rate denominator", async () => {
+    const before = getProviderMetrics().find((entry) => entry.provider === "gemini");
+    const beforeRequests = before?.requests ?? 0;
+    const beforeFailures = before?.failures ?? 0;
+    const beforeSuccessRate = before?.successRate ?? null;
+    const beforeConsecutiveFailures = before?.consecutiveFailures ?? 0;
+    const beforeLastFailureAt = before?.lastFailureAt ?? null;
+
+    await emitLedgerProviderAttempts(
+      snapshot([]),
+      snapshot([{
+        kind: "provider_attempt",
+        status: "failed",
+        at: 10,
+        reservationId: "provider-request:metric-cancelled",
+        provider: "Gemini",
+        model: "gemini-fixture",
+        operation: "provider_request",
+        reason: "TIMEOUT",
+        durationMs: 15,
+      }]),
+      { completedEventCount: 0, attemptNumber: 0, fallbackCount: 0 },
+      undefined,
+      undefined,
+      { cancelled: true },
+    );
+
+    const after = getProviderMetrics().find((entry) => entry.provider === "gemini");
+    expect(after?.requests).toBe(beforeRequests + 1);
+    expect(after?.failures).toBe(beforeFailures);
+    expect(after?.consecutiveFailures ?? 0).toBe(beforeConsecutiveFailures);
+    expect(after?.lastFailureAt ?? null).toBe(beforeLastFailureAt);
+    expect(after?.successRate ?? null).toBe(beforeSuccessRate);
   });
 
   it("does not let a usage-telemetry write failure become a provider retry", async () => {

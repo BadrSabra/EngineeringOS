@@ -25,6 +25,7 @@ import {
   invalidateProviderLifecycle,
   probeProviderHealth,
   getCapabilityProbePreflightTools,
+  recordProviderAttempt,
   toPublicExecutionLedgerSnapshot,
   isCapabilityProbeRequest,
   deriveOrientationSourceSelectionRecord,
@@ -71,6 +72,20 @@ import { classifyProviderFailure } from "./provider-failure-diagnostics.js";
 import { resolveAiRetryAfterSource } from "./ai-terminal-outcome.js";
 
 export type { ProviderId };
+
+/**
+ * A provider without any completed attempt has no measured success rate.
+ * In particular, cancelled-only traffic is unknown, not a healthy sample.
+ */
+export function providerMetricAvailabilityState(metric: {
+  requests: number;
+  successRate: number | null;
+  consecutiveFailures: number;
+}): "unknown" | "degraded" | "healthy" {
+  if (metric.requests === 0 || metric.successRate === null) return "unknown";
+  if (metric.consecutiveFailures > 0 || metric.successRate < 0.8) return "degraded";
+  return "healthy";
+}
 
 /**
  * The request's validated project is the authority for project-budget
@@ -637,6 +652,7 @@ export async function emitLedgerProviderAttempts(
     completionTokens: number | null;
     usageStatus: "known" | "partial" | "unknown";
   } & AiContractTelemetry>,
+  options: { cancelled?: boolean; providerFallback?: boolean } = {},
 ): Promise<{ emitted: number; failed: number }> {
   // The before snapshot is part of the contract even though the cursor is
   // carried across provider fallbacks. It protects this helper when a caller
@@ -646,6 +662,12 @@ export async function emitLedgerProviderAttempts(
   const cursor = Math.max(state.completedEventCount, beforeCount);
   const newEvents = currentEvents.slice(cursor);
   state.completedEventCount = currentEvents.length;
+  // A cancelled request may contain earlier provider failures. Attribute
+  // cancellation only to its final failed physical attempt, not the whole
+  // batch, so genuine provider failures remain visible in health metrics.
+  const cancelledEvent = options.cancelled
+    ? [...newEvents].reverse().find((event) => event.status === "failed")
+    : undefined;
 
   let emitted = 0;
   let failed = 0;
@@ -663,6 +685,22 @@ export async function emitLedgerProviderAttempts(
     state.attemptNumber += 1;
     const outcome = event.status === "failed" ? "failure" : "success";
     if (outcome === "failure") failed += 1;
+    const metricOutcome = event === cancelledEvent && outcome === "failure"
+      ? "cancelled"
+      : outcome;
+    const crossedProviderBoundary =
+      options.providerFallback === true
+      || (
+        state.previousProvider !== undefined
+        && state.previousProvider !== provider
+      );
+    recordProviderAttempt(
+      provider,
+      metricOutcome,
+      event.durationMs ?? 0,
+      outcome === "failure" ? event.reason ?? "PROVIDER_REQUEST_FAILED" : null,
+      metricOutcome === "success" && crossedProviderBoundary,
+    );
     try {
       const latestMetadata = newEvents.at(-1) === event ? metadata : undefined;
       const usage = event.usage ?? latestMetadata ?? { usageStatus: "unknown" as const };
@@ -867,6 +905,11 @@ export async function runAgentWithFallback<T>(
               );
             });
           }
+        },
+        undefined,
+        {
+          cancelled: afterSnapshot.terminalReason === "cancelled",
+          providerFallback: providerIndex > 0,
         },
       );
       logicalAttemptNumber = projectionState.attemptNumber;

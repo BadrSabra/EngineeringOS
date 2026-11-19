@@ -18,7 +18,10 @@ import { aiProviderCredentialsTable } from "@workspace/db";
 import { eq, and } from "drizzle-orm";
 import { decryptApiKey, encryptApiKey } from "../../lib/credentials-crypto.js";
 import { logger } from "../../lib/logger.js";
-import { resolveProvider } from "../../lib/ai-route-helpers.js";
+import {
+  providerMetricAvailabilityState,
+  resolveProvider,
+} from "../../lib/ai-route-helpers.js";
 import {
   PROVIDER_REGISTRY,
   PROVIDER_PRIORITY,
@@ -324,11 +327,7 @@ router.get("/ai/metrics", async (req, res) => {
         ? "circuit_open"
         : isCatalogStale
           ? "catalog_stale"
-          : metric.requests === 0
-            ? "unknown"
-            : metric.consecutiveFailures > 0 || (metric.successRate !== null && metric.successRate < 0.8)
-              ? "degraded"
-              : "healthy";
+          : providerMetricAvailabilityState(metric);
     return {
       ...metric,
       configured: isConfigured,

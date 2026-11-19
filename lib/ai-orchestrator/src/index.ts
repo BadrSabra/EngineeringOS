@@ -1269,6 +1269,7 @@ export {
   recordFallbackSuccess,
   recordInvalidModel,
   recordLatency,
+  recordProviderAttempt,
   getProviderMetrics,
 } from "./provider-metrics.js";
 export type { ProviderMetricsSnapshot } from "./provider-metrics.js";

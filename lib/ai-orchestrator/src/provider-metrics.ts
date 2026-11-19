@@ -19,6 +19,8 @@
 
 import type { ProviderId } from "./provider-registry.js";
 
+export type ProviderAttemptMetricOutcome = "success" | "failure" | "cancelled";
+
 export type ProviderMetricsSnapshot = {
   provider: ProviderId;
   requests: number;
@@ -29,7 +31,7 @@ export type ProviderMetricsSnapshot = {
   p95LatencyMs: number | null;
   avgLatencyMs: number | null;
   /** PR-05: health fields */
-  successRate: number | null;      // 0–1; null when no requests recorded
+  successRate: number | null;      // 0–1; null when no completed requests recorded
   lastSuccessAt: string | null;    // ISO-8601
   lastFailureAt: string | null;    // ISO-8601
   consecutiveFailures: number;
@@ -39,7 +41,9 @@ const MAX_LATENCY_SAMPLES = 100;
 
 type ProviderCounters = {
   requests:          number;
+  successes:         number;
   failures:          number;
+  cancelled:         number;
   fallbackSuccesses: number;
   invalidModels:     number;
   latencySamples:    number[];
@@ -56,7 +60,9 @@ function getOrCreate(provider: ProviderId): ProviderCounters {
   if (!c) {
     c = {
       requests:           0,
+      successes:          0,
       failures:           0,
+      cancelled:          0,
       fallbackSuccesses:  0,
       invalidModels:      0,
       latencySamples:     [],
@@ -83,8 +89,54 @@ export function recordFailure(provider: ProviderId): void {
 /** PR-05: record a successful provider response. */
 export function recordSuccess(provider: ProviderId): void {
   const c = getOrCreate(provider);
+  c.successes += 1;
   c.consecutiveFailures = 0;
   c.lastSuccessAt = new Date();
+}
+
+function recordCancellation(provider: ProviderId): void {
+  getOrCreate(provider).cancelled += 1;
+}
+
+/**
+ * Record one completed physical provider attempt from the request execution
+ * ledger. Cancellation is distinct from provider failure, and fallback
+ * success is counted only after execution crosses a provider boundary.
+ */
+export function recordProviderAttempt(
+  provider: ProviderId,
+  outcome: ProviderAttemptMetricOutcome,
+  latencyMs: number,
+  failureKind?: string | null,
+  providerFallback = false,
+): void {
+  const safeLatencyMs = Number.isFinite(latencyMs) && latencyMs >= 0
+    ? Math.round(latencyMs)
+    : 0;
+  recordRequest(provider);
+  recordLatency(provider, safeLatencyMs);
+
+  if (outcome === "success") {
+    recordSuccess(provider);
+    if (providerFallback) recordFallbackSuccess(provider);
+    return;
+  }
+
+  if (outcome === "cancelled") {
+    recordCancellation(provider);
+    return;
+  }
+
+  recordFailure(provider);
+  const normalizedFailureKind = typeof failureKind === "string"
+    ? failureKind.trim().toUpperCase()
+    : "";
+  if (
+    normalizedFailureKind === "MODEL_NOT_FOUND"
+    || normalizedFailureKind === "MODEL_UNAVAILABLE"
+  ) {
+    recordInvalidModel(provider);
+  }
 }
 
 export function recordFallbackSuccess(provider: ProviderId): void {
@@ -116,8 +168,10 @@ export function getProviderMetrics(): ProviderMetricsSnapshot[] {
     const avg = sorted.length > 0
       ? Math.round(sorted.reduce((s, v) => s + v, 0) / sorted.length)
       : null;
-    const successes = c.requests - c.failures;
-    const successRate = c.requests > 0 ? successes / c.requests : null;
+    const completedRequests = c.requests - c.cancelled;
+    const successRate = completedRequests > 0
+      ? c.successes / completedRequests
+      : null;
 
     results.push({
       provider,
