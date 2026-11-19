@@ -556,6 +556,8 @@ export default function Dashboard() {
                     ? 'قد يكون هذا الهدف متعلقًا بهذا المشروع.'
                     : goalProjectMatch?.kind === 'ambiguous'
                       ? 'اختر المشروع المقصود؛ ظهر أكثر من احتمال.'
+                      : projects.length === 1
+                        ? 'يمكنك اختيار مشروعك الوحيد للمتابعة.'
                       : projects.length === 0
                         ? 'لا توجد مشاريع مرتبطة بهذا الحساب بعد.'
                         : 'حدد المشروع الذي تريد العمل ضمنه.'}
@@ -572,6 +574,8 @@ export default function Dashboard() {
                   ? 'اختر الاقتراح أو مشروعًا آخر. سيطلب مساعد المشروع تأكيد النطاق قبل إرسال الهدف.'
                   : goalProjectMatch?.kind === 'ambiguous'
                     ? 'حدد مشروعًا واحدًا، أو اختر محادثة عامة بلا سياق ملفات المشروع.'
+                    : projects.length === 1 && goalProjectMatch?.kind === 'none'
+                      ? 'لن نستخدم المشروع أو ننقل الهدف إليه حتى تختاره صراحةً.'
                 : projects.length === 0 && !projectsQuery.isLoading
                   ? 'أنشئ مشروعًا لإتاحة العمل على ملفاته، أو اختر محادثة عامة.'
                   : projectsQuery.isLoading
@@ -591,32 +595,52 @@ export default function Dashboard() {
               )}
               {!projectsQuery.isLoading && !projectsQuery.isError && projects.length > 0 && (
                 <div className="w-full space-y-2">
-                  <label htmlFor="goal-project-select" className="block text-xs font-medium">
-                    المشروع
-                  </label>
-                  <select
-                    id="goal-project-select"
-                    data-testid="select-goal-project"
-                    value={selectedGoalProjectId}
-                    onChange={(event) => {
-                      setSelectedGoalProjectId(event.target.value);
-                      if (goalHandoffError) setGoalHandoffError('');
-                    }}
-                    className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm text-foreground"
-                  >
-                    <option value="">اختر المشروع المقصود</option>
-                    {projects.map((project) => (
-                      <option key={project.id} value={project.id}>{project.name}</option>
-                    ))}
-                  </select>
-                  <Button
-                    type="button"
-                    disabled={!selectedGoalProjectId}
-                    onClick={() => continueToProject(selectedGoalProjectId)}
-                    data-testid="button-route-goal-project"
-                  >
-                    تابع مع المشروع المحدد
-                  </Button>
+                  {projects.length === 1 && goalProjectMatch?.kind === 'none' ? (
+                    <div className="rounded-lg border border-border bg-card/60 p-3">
+                      <p className="text-xs text-muted-foreground">المشروع الوحيد المتاح لهذا الحساب</p>
+                      <p className="mt-1 text-sm font-medium" dir="auto" data-testid="text-only-goal-project">
+                        {projects[0].name}
+                      </p>
+                      <Button
+                        type="button"
+                        onClick={() => continueToProject(projects[0].id)}
+                        data-testid="button-route-goal-only-project"
+                        aria-label={`تابع ضمن مشروع ${projects[0].name}`}
+                        className="mt-3"
+                      >
+                        تابع ضمن هذا المشروع
+                      </Button>
+                    </div>
+                  ) : (
+                    <>
+                      <label htmlFor="goal-project-select" className="block text-xs font-medium">
+                        المشروع
+                      </label>
+                      <select
+                        id="goal-project-select"
+                        data-testid="select-goal-project"
+                        value={selectedGoalProjectId}
+                        onChange={(event) => {
+                          setSelectedGoalProjectId(event.target.value);
+                          if (goalHandoffError) setGoalHandoffError('');
+                        }}
+                        className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm text-foreground"
+                      >
+                        <option value="">اختر المشروع المقصود</option>
+                        {projects.map((project) => (
+                          <option key={project.id} value={project.id}>{project.name}</option>
+                        ))}
+                      </select>
+                      <Button
+                        type="button"
+                        disabled={!selectedGoalProjectId}
+                        onClick={() => continueToProject(selectedGoalProjectId)}
+                        data-testid="button-route-goal-project"
+                      >
+                        تابع مع المشروع المحدد
+                      </Button>
+                    </>
+                  )}
                 </div>
               )}
               {goalProjectMatch?.kind === 'unique' && !projectsQuery.isLoading && !projectsQuery.isError && (
