@@ -826,7 +826,7 @@ describe("Discovery cleanup ownership and races", () => {
 
     if (importResult.status === 201) {
       projectId = importResult.body.id;
-      await completeInitialScanForTest(projectId);
+      await completeInitialScanForTest(projectId!);
       await expect(access(rootPath)).resolves.toBeUndefined();
       const deleted = await request(app).delete(`/api/projects/${projectId}`);
       expect(deleted.status).toBe(204);
@@ -1610,7 +1610,7 @@ describe("Git discovery → durable import", () => {
     expect(imported.status).toBe(201);
     expect(scanEnqueueSpy).toHaveBeenCalledOnce();
     projectId = imported.body.id;
-    await completeInitialScanForTest(projectId);
+    await completeInitialScanForTest(projectId!);
     expect(imported.body.rootPath).toBe(storedSession!.rootPath);
     expect(imported.body.rootPath).toContain(MANAGED_PROJECT_ROOTS_DIR);
 
