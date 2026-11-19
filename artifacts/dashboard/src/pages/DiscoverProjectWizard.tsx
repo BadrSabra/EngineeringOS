@@ -1164,6 +1164,48 @@ export function DiscoverProjectWizard({ onClose }: Props) {
           </div>
         )}
 
+        {/* Identity */}
+        <div className="bg-card border border-border/50 rounded-xl overflow-hidden">
+          <div className="px-4 py-2.5 border-b border-border/50 bg-secondary/30">
+            <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">معلومات المشروع</span>
+          </div>
+          <div className="px-4 py-1">
+            <ReportRow icon={FileCode2} label="اسم المشروع" value={name} isOverride={!!overrides['name']} editable onEdit={setOverride('name')} />
+            <ReportRow icon={Terminal} label="لغة البرمجة الأساسية" value={language} isOverride={!!overrides['language']} editable onEdit={setOverride('language')} />
+            <ReportRow icon={Layers} label="إطار العمل" value={framework} isOverride={!!overrides['framework']} editable onEdit={setOverride('framework')} />
+            <ReportRow icon={Cpu} label="بيئة التشغيل" value={report.detectedRuntime} />
+            <ReportRow icon={Package} label="أداة إدارة الحزم" value={report.detectedPackageManager} />
+            <ReportRow icon={GitBranch} label="بنية المشروع" value={report.detectedArchitecture} />
+          </div>
+        </div>
+
+        {report.supportMatrix && (
+          <p
+            role="note"
+            data-testid="discovery-support-boundary"
+            className="rounded-lg border border-border/50 bg-secondary/20 px-3 py-2 text-xs leading-relaxed text-muted-foreground"
+          >
+            اكتشاف لغة المشروع لا يعني أن جميع أنواع التحليل أو التحقق متاحة.
+          </p>
+        )}
+
+        <details
+          data-testid="discovery-technical-details"
+          className="overflow-hidden rounded-xl border border-border/50 bg-card"
+        >
+          <summary
+            data-testid="summary-discovery-technical-details"
+            className="flex cursor-pointer list-none items-center justify-between gap-3 px-4 py-3 transition-colors hover:bg-secondary/30 [&::-webkit-details-marker]:hidden"
+          >
+            <span>
+              <span className="block text-sm font-semibold">تفاصيل تقنية إضافية</span>
+              <span className="mt-0.5 block text-xs text-muted-foreground">
+                التقنيات والمؤشرات ومستوى الدعم المتاح.
+              </span>
+            </span>
+            <ChevronLeft className="h-4 w-4 shrink-0 text-muted-foreground" aria-hidden="true" />
+          </summary>
+          <div className="space-y-4 border-t border-border/50 p-4">
         {/* Confidence bar */}
         <div className="bg-card border border-border/50 rounded-xl px-4 py-3 flex items-center gap-4">
           <div className="flex-1">
@@ -1178,21 +1220,6 @@ export function DiscoverProjectWizard({ onClose }: Props) {
           <div className="text-xs text-muted-foreground text-right shrink-0">
             <div className="font-mono">{report.moduleCount} وحدات</div>
             <div className="font-mono">{fmt(report.repoSizeBytes)}</div>
-          </div>
-        </div>
-
-        {/* Identity */}
-        <div className="bg-card border border-border/50 rounded-xl overflow-hidden">
-          <div className="px-4 py-2.5 border-b border-border/50 bg-secondary/30">
-            <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">معلومات المشروع</span>
-          </div>
-          <div className="px-4 py-1">
-            <ReportRow icon={FileCode2} label="اسم المشروع" value={name} isOverride={!!overrides['name']} editable onEdit={setOverride('name')} />
-            <ReportRow icon={Terminal} label="لغة البرمجة الأساسية" value={language} isOverride={!!overrides['language']} editable onEdit={setOverride('language')} />
-            <ReportRow icon={Layers} label="إطار العمل" value={framework} isOverride={!!overrides['framework']} editable onEdit={setOverride('framework')} />
-            <ReportRow icon={Cpu} label="بيئة التشغيل" value={report.detectedRuntime} />
-            <ReportRow icon={Package} label="أداة إدارة الحزم" value={report.detectedPackageManager} />
-            <ReportRow icon={GitBranch} label="بنية المشروع" value={report.detectedArchitecture} />
           </div>
         </div>
 
@@ -1211,7 +1238,7 @@ export function DiscoverProjectWizard({ onClose }: Props) {
         </div>
 
         {/* Stats */}
-        <div className="grid grid-cols-4 gap-3">
+        <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
           {[
             { label: 'واجهات API', value: report.detectedApis.length },
             { label: 'الوحدات', value: report.moduleCount },
@@ -1297,6 +1324,8 @@ export function DiscoverProjectWizard({ onClose }: Props) {
             <span key={l} className="text-xs bg-secondary text-muted-foreground border border-border/50 px-2.5 py-1 rounded-full">{l}</span>
           ))}
         </div>
+          </div>
+        </details>
 
         {/* Risks */}
         {report.detectedRisks.length > 0 && (
