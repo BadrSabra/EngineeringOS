@@ -304,7 +304,7 @@ describe("verified GitHub delivery service", () => {
             if (requestPath.endsWith(`/git/commits/${remoteCommitHash}`)) {
               return {
                 tree: { sha: localTreeSha },
-                message: `Verified delivery\\n\\nEngineeringOS-Operation: ${operationId}`,
+                message: `Verified delivery\n\nEngineeringOS-Operation: ${operationId}`,
                 parents: [{ sha: parentHash }],
               };
             }
