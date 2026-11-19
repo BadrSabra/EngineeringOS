@@ -367,30 +367,56 @@ function buildSnapshot(models: OpenRouterModelEntry[]): OpenRouterCatalogSnapsho
 function applyPersistedState(
   state: {
     snapshot: OpenRouterCatalogSnapshot | null;
+    databaseNowMs: number;
     refreshedAtMs: number | null;
     expiresAtMs: number | null;
     failureBackoffUntilMs: number | null;
     lastFailureCode: string | null;
   } | null,
 ): "fresh" | "backoff" | "missing" {
-  const now = Date.now();
+  // Persisted timestamps are written by PostgreSQL. Compare them with the
+  // database clock sampled in the same read, never with an API worker's clock.
+  const databaseNowMs = state?.databaseNowMs;
+  if (typeof databaseNowMs !== "number" || !Number.isFinite(databaseNowMs)) {
+    return "missing";
+  }
+
   if (
     state?.snapshot &&
     isCatalogSnapshot(state.snapshot) &&
     state.refreshedAtMs !== null &&
-    state.expiresAtMs !== null &&
-    state.expiresAtMs > now &&
-    state.refreshedAtMs <= now + 60_000 &&
-    state.expiresAtMs - state.refreshedAtMs <= CATALOG_TTL_MS + 60_000
+    state.expiresAtMs !== null
   ) {
-    applySnapshot(state.snapshot, state.refreshedAtMs, state.expiresAtMs);
-    return "fresh";
+    const snapshotAgeMs = databaseNowMs - state.refreshedAtMs;
+    const remainingTtlMs = state.expiresAtMs - databaseNowMs;
+    if (
+      remainingTtlMs > 0 &&
+      snapshotAgeMs >= -60_000 &&
+      state.expiresAtMs >= state.refreshedAtMs &&
+      state.expiresAtMs - state.refreshedAtMs <= CATALOG_TTL_MS + 60_000
+    ) {
+      // Rebase the database-owned remaining TTL onto this process's clock.
+      // Subsequent admission checks are local-only and do not need a DB query.
+      const localNowMs = Date.now();
+      applySnapshot(
+        state.snapshot,
+        localNowMs - Math.max(0, snapshotAgeMs),
+        localNowMs + remainingTtlMs,
+      );
+      return "fresh";
+    }
   }
-  if (state?.failureBackoffUntilMs && state.failureBackoffUntilMs > now) {
+
+  if (
+    state?.failureBackoffUntilMs !== null &&
+    state?.failureBackoffUntilMs !== undefined &&
+    state.failureBackoffUntilMs > databaseNowMs
+  ) {
     _refreshAttempted = true;
     _lastRefreshStatus = "failed";
     _lastRefreshError = state.lastFailureCode ?? "provider_failure";
-    _nextRefreshAt = state.failureBackoffUntilMs;
+    // Store a local deadline derived from the database-clock remaining duration.
+    _nextRefreshAt = Date.now() + (state.failureBackoffUntilMs - databaseNowMs);
     return "backoff";
   }
   return "missing";

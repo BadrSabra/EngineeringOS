@@ -82,6 +82,9 @@ describe("PostgreSQL OpenRouter catalog persistence", () => {
         lastFailureCode: null,
         failureBackoffUntilMs: null,
       });
+      const persisted = await workerA.read();
+      expect(persisted?.databaseNowMs).toEqual(expect.any(Number));
+      expect(Number.isFinite(persisted?.databaseNowMs)).toBe(true);
     } finally {
       await staleLease.release();
       await replacementLease?.release();
