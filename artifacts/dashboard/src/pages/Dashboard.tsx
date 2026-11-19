@@ -51,6 +51,24 @@ function formatQueueWaitAge(ageMs: number): string {
 
 type ShadowQueueProjection = NonNullable<AiMissionControl['shadowComparisonQueue']>;
 
+const HOME_GOAL_EXAMPLES = [
+  {
+    id: 'fix-problem',
+    label: 'إصلاح مشكلة',
+    text: 'أريد إصلاح مشكلة تظهر في مشروعي. ساعدني أولًا على فهم سببها.',
+  },
+  {
+    id: 'add-feature',
+    label: 'إضافة ميزة',
+    text: 'أريد إضافة ميزة إلى مشروعي. ساعدني على تحديد المطلوب والخطوات قبل التنفيذ.',
+  },
+  {
+    id: 'understand-project',
+    label: 'فهم المشروع',
+    text: 'اشرح لي ما يفعله مشروعي وأين يمكنني البدء في تحسينه.',
+  },
+] as const;
+
 function ShadowQueueDelayNotice({ queue }: { queue: ShadowQueueProjection }) {
   if (queue.status !== 'active' && queue.delayAlertStatus !== 'open') return null;
 
@@ -462,10 +480,42 @@ export default function Dashboard() {
               ما الذي تريد إنجازه؟
             </h2>
             <p className="mt-1 max-w-2xl text-sm leading-6 text-muted-foreground">
-              اكتب هدفك بلغتك. ستراجع المسودة والمشروع المناسب داخل المساعد قبل إرسالها.
+              اكتب هدفك بلغتك، أو اختر مثالًا وعدّله. ستراجع المسودة والمشروع المناسب داخل المساعد قبل إرسالها.
             </p>
           </div>
         </div>
+
+        {!goalDraft.trim() && (
+          <div
+            dir="rtl"
+            lang="ar"
+            data-testid="group-home-goal-examples"
+            className="mt-4"
+          >
+            <p id="home-goal-examples-heading" className="mb-2 text-xs font-medium text-muted-foreground">
+              أمثلة يمكنك تعديلها
+            </p>
+            <div role="group" aria-labelledby="home-goal-examples-heading" className="flex flex-wrap gap-2">
+              {HOME_GOAL_EXAMPLES.map((example) => (
+                <Button
+                  key={example.id}
+                  type="button"
+                  variant="outline"
+                  data-testid={`button-home-goal-example-${example.id}`}
+                  onClick={() => {
+                    setGoalDraft(example.text);
+                    setSelectedGoalProjectId('');
+                    setShowGoalDestinationPrompt(false);
+                    if (goalHandoffError) setGoalHandoffError('');
+                  }}
+                  className="h-auto min-h-9 whitespace-normal text-start"
+                >
+                  {example.label}
+                </Button>
+              ))}
+            </div>
+          </div>
+        )}
 
         <label htmlFor="home-goal-draft" className="sr-only">
           اكتب هدفك
