@@ -1641,6 +1641,13 @@ async function syncRecipeObjectiveState(params: {
           .for("update")
           .limit(1)
       : [];
+    if (
+      params.expectedAttempt !== undefined
+      && durableExecution?.attempt !== params.expectedAttempt
+    ) {
+      return;
+    }
+
     const outcome = jsonRecord(goal.outcomeContract);
     const acceptance = jsonRecord(outcome.acceptance);
     const acceptanceScope = jsonRecord(acceptance.scope);
@@ -2400,6 +2407,167 @@ export async function dispatchPendingMissionRecipes(
   }
 
   return dispatched;
+}
+
+/**
+ * Reprojects a completed Mission recipe whose durable Acceptance committed
+ * before its worker could synchronize the Goal/Mission projection.
+ *
+ * This path consumes only the exact completed execution, attempt, Acceptance,
+ * recipe receipt, and persisted recipe binding. It never dispatches a recipe
+ * or invokes a capability; external effects are not replayed.
+ */
+export async function reconcileCompletedMissionRecipeAcceptances(
+  limit = 32,
+  scopeProjectId?: string,
+): Promise<number> {
+  const candidates = await db
+    .select({
+      executionId: aiExecutionsTable.id,
+      attempt: aiExecutionsTable.attempt,
+      projectId: aiExecutionsTable.projectId,
+      goalId: aiExecutionsTable.goalId,
+      userId: aiExecutionsTable.userId,
+      operationId: aiExecutionsTable.operationId,
+      idempotencyKey: aiExecutionsTable.idempotencyKey,
+      baseRevision: aiExecutionsTable.baseRevision,
+      checkpoint: aiExecutionsTable.checkpoint,
+      recipeReceipt: aiExecutionsTable.recipeReceipt,
+      missionId: aiGoalsTable.missionId,
+      nextAction: aiGoalsTable.nextAction,
+      outcomeContract: aiGoalsTable.outcomeContract,
+      acceptanceFinalizationKey: aiExecutionAcceptancesTable.finalizationKey,
+      acceptanceOperationId: aiExecutionAcceptancesTable.operationId,
+      acceptanceReasonCode: aiExecutionAcceptancesTable.reasonCode,
+      acceptanceSourceRevision: aiExecutionAcceptancesTable.sourceRevision,
+      acceptanceCandidateIdentity: aiExecutionAcceptancesTable.candidateIdentity,
+    })
+    .from(aiExecutionsTable)
+    .innerJoin(aiGoalsTable, eq(aiGoalsTable.id, aiExecutionsTable.goalId))
+    .innerJoin(aiMissionsTable, and(
+      eq(aiMissionsTable.id, aiGoalsTable.missionId),
+      eq(aiMissionsTable.projectId, aiGoalsTable.projectId),
+      eq(aiMissionsTable.userId, aiExecutionsTable.userId),
+    ))
+    .innerJoin(aiExecutionAcceptancesTable, and(
+      eq(aiExecutionAcceptancesTable.executionId, aiExecutionsTable.id),
+      eq(aiExecutionAcceptancesTable.attempt, aiExecutionsTable.attempt),
+      eq(aiExecutionAcceptancesTable.terminalStatus, "completed"),
+      eq(aiExecutionAcceptancesTable.outcome, "SUCCEEDED"),
+    ))
+    .where(and(
+      eq(aiExecutionsTable.status, "completed"),
+      isNotNull(aiExecutionsTable.goalId),
+      isNotNull(aiExecutionsTable.recipeReceipt),
+      eq(aiGoalsTable.status, "running"),
+      inArray(aiMissionsTable.status, ["active", "waiting"]),
+      scopeProjectId ? eq(aiExecutionsTable.projectId, scopeProjectId) : undefined,
+    ))
+    .orderBy(aiExecutionsTable.updatedAt, aiExecutionsTable.id)
+    .limit(Math.max(1, Math.min(Math.floor(limit), 100)));
+
+  let reconciled = 0;
+  for (const row of candidates) {
+    try {
+      const action = GoalNextActionSchema.safeParse(row.nextAction);
+      const receipt = RecipeReceiptSchema.safeParse(row.recipeReceipt);
+      const checkpoint = parseAiExecutionCheckpoint(row.checkpoint);
+      const binding = checkpoint?.recipeBinding;
+      if (
+        !action.success
+        || action.data.kind !== "recipe"
+        || !receipt.success
+        || receipt.data.status !== "completed"
+        || receipt.data.executionId !== row.executionId
+        || receipt.data.operationId !== row.operationId
+        || (receipt.data.attempt !== undefined && receipt.data.attempt !== row.attempt)
+        || receipt.data.recipeId !== action.data.recipeId
+        || receipt.data.recipeVersion !== action.data.recipeVersion
+        || !row.operationId
+        || row.acceptanceOperationId !== row.operationId
+        || row.acceptanceReasonCode !== "ACCEPTED"
+        || row.acceptanceFinalizationKey
+          !== `execution:${row.executionId}:attempt:${row.attempt}:completed`
+        || checkpoint?.stage !== "completed"
+        || !binding
+        || binding.projectId !== row.projectId
+        || binding.operationId !== row.operationId
+        || binding.phase !== "running"
+        || (binding.candidateIdentity ?? null) !== (action.data.candidateIdentity ?? null)
+        || JSON.stringify(binding.approvedPaths) !== JSON.stringify(action.data.approvedPaths)
+      ) {
+        continue;
+      }
+
+      const identity = await recipeOperationIdentity(
+        db,
+        row.projectId,
+        row.goalId!,
+        action.data,
+      );
+      if (
+        !identity
+        || identity.operationId !== row.operationId
+        || identity.idempotencyKey !== row.idempotencyKey
+      ) {
+        continue;
+      }
+
+      const sourceRevision = receipt.data.sourceRevision
+        ?? binding.sourceRevision
+        ?? row.baseRevision;
+      const candidateIdentity = action.data.candidateIdentity ?? null;
+      if (
+        typeof sourceRevision !== "string"
+        || sourceRevision.length === 0
+        || binding.sourceRevision !== sourceRevision
+        || (row.baseRevision != null && row.baseRevision !== sourceRevision)
+        || row.acceptanceSourceRevision !== sourceRevision
+        || (row.acceptanceCandidateIdentity ?? null) !== candidateIdentity
+      ) {
+        continue;
+      }
+
+      const deliveryRequired = jsonRecord(row.outcomeContract).deliveryRequired === true;
+      await syncRecipeObjectiveState({
+        goalId: row.goalId!,
+        missionId: row.missionId,
+        projectId: row.projectId,
+        userId: row.userId,
+        operationId: row.operationId,
+        idempotencyKey: row.idempotencyKey,
+        executionId: row.executionId,
+        expectedExecutionId: row.executionId,
+        expectedAttempt: row.attempt,
+        attempt: row.attempt,
+        sourceRevision,
+        candidateIdentity,
+        status: "completed",
+        ...(deliveryRequired
+          ? {
+              deliveryReceipt: {
+                kind: "recipe" as const,
+                status: "completed" as const,
+                executionId: receipt.data.executionId,
+                attempt: row.attempt,
+                operationId: receipt.data.operationId,
+                sourceRevision: receipt.data.sourceRevision ?? sourceRevision,
+                candidateTreeHash: receipt.data.candidateTreeHash ?? candidateIdentity,
+                treeHash: receipt.data.treeHash ?? null,
+              },
+            }
+          : {}),
+      });
+      reconciled += 1;
+    } catch (error) {
+      logger.warn({
+        executionId: row.executionId,
+        goalId: row.goalId,
+        error: error instanceof Error ? error.message.slice(0, 240) : "recipe_acceptance_reconciliation_failed",
+      }, "Completed Mission recipe acceptance projection recovery failed");
+    }
+  }
+  return reconciled;
 }
 
 /**
