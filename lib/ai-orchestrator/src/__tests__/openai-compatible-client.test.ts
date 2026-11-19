@@ -459,6 +459,96 @@ describe("validateGeminiDefaultModels", () => {
         checkedModels: defaults,
       });
   });
+
+  it("aborts a stalled model-catalog request and reports TIMEOUT", async () => {
+    vi.useFakeTimers();
+    let markFetchStarted: () => void = () => undefined;
+    const fetchStarted = new Promise<void>((resolve) => {
+      markFetchStarted = resolve;
+    });
+    const fetchMock = vi.fn(async (_url: string | URL, init?: RequestInit) => {
+      markFetchStarted();
+      return await new Promise<Response>((_resolve, reject) => {
+        const signal = init?.signal;
+        if (!signal) {
+          reject(new Error("missing abort signal"));
+          return;
+        }
+        if (signal.aborted) {
+          reject(new Error("request aborted"));
+          return;
+        }
+        signal.addEventListener("abort", () => reject(new Error("request aborted")), {
+          once: true,
+        });
+      });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const request = validateGeminiDefaultModels("valid-gemini-key", defaults);
+    const timeoutAssertion = expect(request).rejects.toSatisfy(
+      (error: unknown) => error instanceof GroqClientError && error.code === "TIMEOUT",
+    );
+
+    try {
+      await fetchStarted;
+      await vi.advanceTimersByTimeAsync(60_000);
+      await timeoutAssertion;
+
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+      expect((fetchMock.mock.calls[0]?.[1] as RequestInit).signal?.aborted).toBe(true);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("keeps TIMEOUT classification when model-catalog response parsing is stalled", async () => {
+    vi.useFakeTimers();
+    let markJsonStarted: () => void = () => undefined;
+    const jsonStarted = new Promise<void>((resolve) => {
+      markJsonStarted = resolve;
+    });
+    const fetchMock = vi.fn(async (_url: string | URL, init?: RequestInit) => {
+      const signal = init?.signal;
+      return {
+        ok: true,
+        status: 200,
+        json: vi.fn(async () => {
+          markJsonStarted();
+          return await new Promise<never>((_resolve, reject) => {
+            if (!signal) {
+              reject(new Error("missing abort signal"));
+              return;
+            }
+            if (signal.aborted) {
+              reject(new Error("request aborted"));
+              return;
+            }
+            signal.addEventListener("abort", () => reject(new Error("request aborted")), {
+              once: true,
+            });
+          });
+        }),
+      } as unknown as Response;
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const request = validateGeminiDefaultModels("valid-gemini-key", defaults);
+    const timeoutAssertion = expect(request).rejects.toSatisfy(
+      (error: unknown) => error instanceof GroqClientError && error.code === "TIMEOUT",
+    );
+
+    try {
+      await jsonStarted;
+      await vi.advanceTimersByTimeAsync(60_000);
+      await timeoutAssertion;
+
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+      expect((fetchMock.mock.calls[0]?.[1] as RequestInit).signal?.aborted).toBe(true);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 });
 
 // ── OpenRouter fallback ────────────────────────────────────────────────────────
