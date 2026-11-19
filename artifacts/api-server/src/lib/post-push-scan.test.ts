@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { and, eq, gt } from "drizzle-orm";
 import {
   db,
@@ -68,6 +68,47 @@ describe("post-push scan admission", () => {
       jobId: first.jobId,
       parentCorrelationId: "push-second",
     });
+  });
+
+  it("writes durable scan timestamps using PostgreSQL time despite API clock skew", async () => {
+    const dayMs = 24 * 60 * 60_000;
+
+    for (const clockSkewMs of [dayMs, -dayMs]) {
+      const projectId = await insertProject();
+      const [before] = await db.select({ now: databaseNow() });
+      if (!before?.now) throw new Error("Could not read the PostgreSQL clock");
+
+      vi.useFakeTimers({
+        now: new Date(before.now.getTime() + clockSkewMs),
+        toFake: ["Date"],
+      });
+      try {
+        const first = await queuePostPushScan(projectId, "clock-skew-push-1");
+        const second = await queuePostPushScan(projectId, "clock-skew-push-2");
+        expect(first).toMatchObject({ coalesced: false });
+        expect(second).toEqual({ jobId: first.jobId, coalesced: true });
+      } finally {
+        vi.useRealTimers();
+      }
+
+      const [job] = await db
+        .select({ createdAt: scanJobsTable.createdAt })
+        .from(scanJobsTable)
+        .where(eq(scanJobsTable.projectId, projectId));
+      const [project] = await db
+        .select({ updatedAt: projectsTable.updatedAt })
+        .from(projectsTable)
+        .where(eq(projectsTable.id, projectId));
+      const [after] = await db.select({ now: databaseNow() });
+      if (!job?.createdAt || !project?.updatedAt || !after?.now) {
+        throw new Error("Post-push scan timestamps were not persisted");
+      }
+
+      // Both queue creation and coalescing must use the DB clock, not the
+      // deliberately skewed process clock. Allow a small integration-test margin.
+      expect(Math.abs(job.createdAt.getTime() - after.now.getTime())).toBeLessThan(5_000);
+      expect(Math.abs(project.updatedAt.getTime() - after.now.getTime())).toBeLessThan(5_000);
+    }
   });
 
   it("keeps an active scan intact and leaves one queued successor after failure", async () => {
