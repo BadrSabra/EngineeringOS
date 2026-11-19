@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { and, eq, inArray, isNull, lte, or } from "drizzle-orm";
+import { and, eq, inArray, isNull, lte, or, sql } from "drizzle-orm";
 import {
   aiAgentEpisodesTable,
   aiAgentEpisodeEventsTable,
@@ -123,6 +123,10 @@ export function buildApplyChangesWorldTransitionIntent(input: {
 
 const ACTIVE_EXECUTION_STATUSES = new Set(["queued", "running", "paused", "cancelling"]);
 
+function executionLeaseActiveProjection() {
+  return sql<boolean>`${aiExecutionsTable.leaseUntil} > (clock_timestamp() AT TIME ZONE 'UTC')`;
+}
+
 function unique(values: readonly string[]): string[] {
   return [...new Set(values.filter((value) => value.trim().length > 0))];
 }
@@ -150,14 +154,23 @@ export async function createPendingApplyChangesTransition(
     })}`,
   ]);
   return db.transaction(async (tx) => {
-    const [execution] = await tx.select().from(aiExecutionsTable).where(and(
-      eq(aiExecutionsTable.id, input.executionId),
-      eq(aiExecutionsTable.projectId, input.projectId),
-      eq(aiExecutionsTable.attempt, input.attempt),
-    )).for("update").limit(1);
+    const [execution] = await tx
+      .select({
+        status: aiExecutionsTable.status,
+        workerId: aiExecutionsTable.workerId,
+        leaseActive: executionLeaseActiveProjection(),
+      })
+      .from(aiExecutionsTable)
+      .where(and(
+        eq(aiExecutionsTable.id, input.executionId),
+        eq(aiExecutionsTable.projectId, input.projectId),
+        eq(aiExecutionsTable.attempt, input.attempt),
+      ))
+      .for("update")
+      .limit(1);
     if (!execution || execution.status !== "running"
       || execution.workerId !== input.workerId
-      || !execution.leaseUntil || execution.leaseUntil <= new Date()) {
+      || !execution.leaseActive) {
       throw new Error("apply_transition_owner_stale");
     }
     const [existing] = await tx.select().from(aiWorldTransitionsTable).where(and(
@@ -727,7 +740,11 @@ export async function createPendingRuntimeStartTransition(
   const evidenceRefs = unique(input.evidenceRefs);
   return db.transaction(async (tx) => {
     const [execution] = await tx
-      .select()
+      .select({
+        status: aiExecutionsTable.status,
+        workerId: aiExecutionsTable.workerId,
+        leaseActive: executionLeaseActiveProjection(),
+      })
       .from(aiExecutionsTable)
       .where(and(
         eq(aiExecutionsTable.id, input.executionId),
@@ -740,8 +757,7 @@ export async function createPendingRuntimeStartTransition(
       !execution
       || execution.status !== "running"
       || execution.workerId !== input.workerId
-      || !execution.leaseUntil
-      || execution.leaseUntil <= new Date()
+      || !execution.leaseActive
     ) {
       throw new Error("runtime_start_transition_owner_stale");
     }
@@ -867,14 +883,23 @@ export async function createPendingGitHubDeliveryTransition(
     throw new Error("github_delivery_transition_intent_invalid");
   }
   return db.transaction(async (tx) => {
-    const [execution] = await tx.select().from(aiExecutionsTable).where(and(
-      eq(aiExecutionsTable.id, input.executionId),
-      eq(aiExecutionsTable.projectId, input.projectId),
-      eq(aiExecutionsTable.attempt, input.attempt),
-    )).for("update").limit(1);
+    const [execution] = await tx
+      .select({
+        status: aiExecutionsTable.status,
+        workerId: aiExecutionsTable.workerId,
+        leaseActive: executionLeaseActiveProjection(),
+      })
+      .from(aiExecutionsTable)
+      .where(and(
+        eq(aiExecutionsTable.id, input.executionId),
+        eq(aiExecutionsTable.projectId, input.projectId),
+        eq(aiExecutionsTable.attempt, input.attempt),
+      ))
+      .for("update")
+      .limit(1);
     if (
       !execution || execution.status !== "running" || execution.workerId !== input.workerId
-      || !execution.leaseUntil || execution.leaseUntil <= new Date()
+      || !execution.leaseActive
     ) {
       throw new Error("github_delivery_transition_owner_stale");
     }
@@ -947,14 +972,23 @@ export async function bindGitHubDeliveryTransitionEffect(input: {
     throw new Error("github_delivery_transition_after_state_missing");
   }
   return db.transaction(async (tx) => {
-    const [execution] = await tx.select().from(aiExecutionsTable).where(and(
-      eq(aiExecutionsTable.id, input.executionId),
-      eq(aiExecutionsTable.projectId, input.projectId),
-      eq(aiExecutionsTable.attempt, input.attempt),
-    )).for("update").limit(1);
+    const [execution] = await tx
+      .select({
+        status: aiExecutionsTable.status,
+        workerId: aiExecutionsTable.workerId,
+        leaseActive: executionLeaseActiveProjection(),
+      })
+      .from(aiExecutionsTable)
+      .where(and(
+        eq(aiExecutionsTable.id, input.executionId),
+        eq(aiExecutionsTable.projectId, input.projectId),
+        eq(aiExecutionsTable.attempt, input.attempt),
+      ))
+      .for("update")
+      .limit(1);
     if (
       !execution || execution.status !== "running" || execution.workerId !== input.workerId
-      || !execution.leaseUntil || execution.leaseUntil <= new Date()
+      || !execution.leaseActive
     ) {
       throw new Error("github_delivery_transition_owner_stale");
     }
@@ -996,14 +1030,23 @@ export async function terminalizeUnmutatedGitHubDeliveryTransition(input: {
   failureCode: string;
 }): Promise<void> {
   await db.transaction(async (tx) => {
-    const [execution] = await tx.select().from(aiExecutionsTable).where(and(
-      eq(aiExecutionsTable.id, input.executionId),
-      eq(aiExecutionsTable.projectId, input.projectId),
-      eq(aiExecutionsTable.attempt, input.attempt),
-    )).for("update").limit(1);
+    const [execution] = await tx
+      .select({
+        status: aiExecutionsTable.status,
+        workerId: aiExecutionsTable.workerId,
+        leaseActive: executionLeaseActiveProjection(),
+      })
+      .from(aiExecutionsTable)
+      .where(and(
+        eq(aiExecutionsTable.id, input.executionId),
+        eq(aiExecutionsTable.projectId, input.projectId),
+        eq(aiExecutionsTable.attempt, input.attempt),
+      ))
+      .for("update")
+      .limit(1);
     if (
       !execution || execution.status !== "running" || execution.workerId !== input.workerId
-      || !execution.leaseUntil || execution.leaseUntil <= new Date()
+      || !execution.leaseActive
     ) return;
     const [transition] = await tx.select().from(aiWorldTransitionsTable).where(and(
       eq(aiWorldTransitionsTable.projectId, input.projectId),
