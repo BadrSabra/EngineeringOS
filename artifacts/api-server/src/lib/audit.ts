@@ -45,6 +45,9 @@ type AuditWriter = Pick<typeof db, "insert">;
 const pendingAudits = new Map<string, PendingAudit>();
 const retryDelaysMs = [1_000, 5_000, 30_000, 60_000];
 let retryTimer: NodeJS.Timeout | undefined;
+let pendingAuditReloadTimer: NodeJS.Timeout | undefined;
+let pendingAuditReloadAttempts = 0;
+let loadingPendingAudits = false;
 let draining = false;
 
 async function insertAudit(row: typeof auditLogsTable.$inferInsert): Promise<void> {
@@ -107,6 +110,22 @@ function scheduleRetry(): void {
   retryTimer.unref?.();
 }
 
+/**
+ * Retry recovery reads when the durable outbox is unavailable during startup.
+ * Uses bounded backoff and never blocks API startup on a transient DB outage.
+ */
+function schedulePendingAuditReload(): void {
+  if (pendingAuditReloadTimer || loadingPendingAudits) return;
+  const retryIndex = Math.min(pendingAuditReloadAttempts, retryDelaysMs.length - 1);
+  const delay = retryDelaysMs[retryIndex]!;
+  pendingAuditReloadAttempts += 1;
+  pendingAuditReloadTimer = setTimeout(() => {
+    pendingAuditReloadTimer = undefined;
+    void loadPendingAudits();
+  }, delay);
+  pendingAuditReloadTimer.unref?.();
+}
+
 async function persistPendingAudit(pending: PendingAudit): Promise<void> {
   await db
     .insert(pendingAuditLogsTable)
@@ -132,26 +151,40 @@ async function removePersistedAudit(id: string): Promise<void> {
 
 /**
  * Reload the durable outbox before accepting traffic. A temporary database
- * outage must not make startup fail; the next process-local retry will still
- * attempt to recover rows once the database is reachable.
+ * outage must not strand rows written by a previous process until restart.
  */
 export async function loadPendingAudits(): Promise<void> {
+  if (loadingPendingAudits) return;
+  loadingPendingAudits = true;
   try {
     const rows = await db.select().from(pendingAuditLogsTable);
-    pendingAudits.clear();
+    // Merge rather than clear: a write may have entered the local queue while
+    // this recovery read was in flight. The local item is the newest state.
     for (const persisted of rows) {
+      if (pendingAudits.has(persisted.id)) continue;
       pendingAudits.set(persisted.id, {
         row: persisted.row as typeof auditLogsTable.$inferInsert,
         attempts: persisted.attempts,
         nextAttemptAt: persisted.nextAttemptAt.getTime(),
       });
     }
+    pendingAuditReloadAttempts = 0;
+    if (pendingAuditReloadTimer) {
+      clearTimeout(pendingAuditReloadTimer);
+      pendingAuditReloadTimer = undefined;
+    }
     setPendingAudits(pendingAudits.size);
     logger.info({ pendingAudits: pendingAudits.size }, "reloaded pending audit log entries");
     scheduleRetry();
   } catch (err) {
     incrementAuditPersistenceUnavailable();
-    logger.error({ err }, "failed to reload pending audit log entries; continuing with an empty in-memory queue");
+    logger.error(
+      { err, retryAttempt: pendingAuditReloadAttempts + 1 },
+      "failed to reload durable pending audit log entries; retry scheduled",
+    );
+    schedulePendingAuditReload();
+  } finally {
+    loadingPendingAudits = false;
   }
 }
 
