@@ -17,6 +17,7 @@ import {
   normalizeProviderFailure,
   providerAttemptModels,
   emitLedgerProviderAttempts,
+  providerMetricAvailabilityState,
   chatWithFallback,
   resolveChatBudgetProjectId,
 } from "./ai-route-helpers.js";
