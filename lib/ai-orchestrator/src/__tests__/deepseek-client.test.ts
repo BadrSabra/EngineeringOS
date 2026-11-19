@@ -1,5 +1,9 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { deepseekCompleteRaw, deepseekCompleteStream, validateDeepSeekDefaultModels } from "../deepseek-client.js";
+import {
+  deepseekCompleteRaw,
+  deepseekCompleteStream,
+  validateDeepSeekDefaultModels,
+} from "../deepseek-client.js";
 import { createExecutionLedger } from "../execution-ledger.js";
 import { MAX_PROVIDER_RESPONSE_BYTES } from "../provider-response-limits.js";
 
@@ -100,6 +104,7 @@ describe("DeepSeek response limits", () => {
       usage: { promptTokens: 13, completionTokens: 5, usageStatus: "known" },
     }));
   });
+
   it("aborts a stalled completion when timeoutMs elapses", async () => {
     vi.useFakeTimers();
     let requestSignal: AbortSignal | null | undefined;
@@ -125,6 +130,7 @@ describe("DeepSeek response limits", () => {
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
+
   it("aborts a stalled stream when timeoutMs elapses", async () => {
     vi.useFakeTimers();
     let requestSignal: AbortSignal | null | undefined;
@@ -140,11 +146,11 @@ describe("DeepSeek response limits", () => {
     );
     vi.stubGlobal("fetch", fetchMock);
     const pending = (async () => {
-      for await (const _chunk of deepseekCompleteStream(
+      for await (const chunk of deepseekCompleteStream(
         [{ role: "user", content: "hi" }],
         { apiKey: "fixture-key", timeoutMs: 25 },
       )) {
-        // The fixture intentionally never yields before its signal is aborted.
+        expect(chunk).toBeDefined();
       }
     })();
 
@@ -153,6 +159,7 @@ describe("DeepSeek response limits", () => {
     expect(requestSignal?.aborted).toBe(true);
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
+
 
   it("aborts a stalled model-catalog probe at its configured timeout", async () => {
     vi.useFakeTimers();
