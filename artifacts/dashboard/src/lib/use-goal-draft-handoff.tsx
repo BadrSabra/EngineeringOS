@@ -174,7 +174,20 @@ export function GoalDraftNotice({ handoff }: { handoff: ReturnType<typeof useGoa
                 <p className="break-words whitespace-pre-wrap">{draft.text}</p>
                 {draft.bootstrap && !draft.projectId
                   ? <Link href={`/projects?create=1&goalDraftId=${encodeURIComponent(draft.id)}`} className="inline-block mt-2 text-primary">متابعة إنشاء المشروع</Link>
-                  : <Button type="button" size="sm" variant="ghost" onClick={() => handoff.activate(draft.id)}>استخدم هذه المسودة</Button>}
+                  : (
+                    <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1">
+                      {draft.projectId && draft.sendAttemptedAt === null && (
+                        <Link
+                          href={`/projects/${encodeURIComponent(draft.projectId)}/workspace?goalDraftId=${encodeURIComponent(draft.id)}`}
+                          data-testid={`link-open-goal-draft-project-${draft.id}`}
+                          className="text-primary underline underline-offset-2"
+                        >
+                          افتحها في المشروع المرتبط
+                        </Link>
+                      )}
+                      <Button type="button" size="sm" variant="ghost" onClick={() => handoff.activate(draft.id)}>استخدم هذه المسودة</Button>
+                    </div>
+                  )}
                 {!draft.bootstrap && <Button type="button" size="sm" variant="ghost" onClick={() => handoff.dismiss(draft.id)}>حذف هذه المسودة</Button>}
               </li>
             ))}

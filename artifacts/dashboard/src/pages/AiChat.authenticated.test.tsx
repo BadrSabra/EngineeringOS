@@ -12,7 +12,7 @@ import AiChat, {
   parseAiChatRouteTarget,
 } from './AiChat';
 import storedMissionCorrelationReport from '../lib/fixtures/stored-mission-correlation-report.json';
-import { readGoalDrafts, storeGoalDraft, storeHomeGoalDraft } from '../lib/home-goal-handoff';
+import { readGoalDrafts, storeGoalDraft, storeHomeGoalDraft, updateGoalDraft } from '../lib/home-goal-handoff';
 import {
   buildAssistantScopeHref,
   readAssistantComposerDraft,
@@ -1139,16 +1139,32 @@ describe('workspace goal draft handoff', () => {
 
   it('offers two conflicting sources without consuming either or selecting one silently', async () => {
     storeHomeGoalDraft('هدف من الرئيسية', 'user-1');
-    storeGoalDraft('user-1', 'وصف مشروع جديد', 'starter', 'project-1');
+    const projectDraft = storeGoalDraft('user-1', 'وصف مشروع جديد', 'starter', 'project-1')!;
     renderAiChat();
     await waitFor(() => expect(screen.getAllByRole('button', { name: 'استخدم هذه المسودة' })).toHaveLength(2));
     expect(screen.getByTestId('input-ai-chat-composer')).toHaveValue('');
     expect(readGoalDrafts('user-1').drafts).toHaveLength(2);
+    expect(screen.getByTestId(`link-open-goal-draft-project-${projectDraft.id}`)).toHaveAttribute(
+      'href',
+      `/projects/project-1/workspace?goalDraftId=${projectDraft.id}`,
+    );
     expect(mocks.sentParams).toBeUndefined();
     fireEvent.click(screen.getAllByRole('button', { name: 'استخدم هذه المسودة' })[0]);
     expect(screen.getByTestId('input-ai-chat-composer')).toHaveValue('هدف من الرئيسية');
     expect(screen.getByTestId('button-send-ai-message')).toBeDisabled();
     expect(readGoalDrafts('user-1').drafts).toHaveLength(2);
+  });
+
+  it('does not route an attempted project draft through the unsent-draft shortcut', async () => {
+    const draft = storeGoalDraft('user-1', 'مسودة سبق بدء إرسالها', 'starter', 'project-1')!;
+    expect(updateGoalDraft('user-1', draft.id, { sendAttemptedAt: Date.now() })).not.toBeNull();
+    renderAiChat();
+
+    await waitFor(() => expect(screen.getByRole('button', { name: 'استخدم هذه المسودة' })).toBeInTheDocument());
+    expect(screen.queryByTestId(`link-open-goal-draft-project-${draft.id}`)).not.toBeInTheDocument();
+    expect(screen.getByText(/سبق بدء إرساله؛ ليس إثبات قبول/)).toBeInTheDocument();
+    expect(mocks.sentParams).toBeUndefined();
+    expect(mocks.taskSentParams).toBeUndefined();
   });
 
   it('keeps goal text when switching project and invalidates the earlier confirmation', async () => {
