@@ -91,6 +91,14 @@ describe("task observation outbox attempt budget", () => {
         await new Promise<void>((resolve) => {
           releaseMaterializer = resolve;
         });
+        return {
+          episodeId: "task-observation-outbox-test-episode",
+          observationIds: [],
+          inserted: 0,
+          duplicates: 0,
+          stale: 0,
+          environmentStale: 0,
+        };
       });
 
       expect(await dispatchPendingTaskObservationOutbox(1)).toBe(1);
