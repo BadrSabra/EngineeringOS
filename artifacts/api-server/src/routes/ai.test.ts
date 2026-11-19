@@ -10438,8 +10438,13 @@ describe("POST /api/ai/tasks/:taskId/execute", () => {
       .set({ prompt: "Use the database clock for this deferred retry" })
       .where(eq(tasksTable.id, taskId));
 
-    const [databaseClock] = await db.select({ now: sql<Date>`clock_timestamp()` });
-    const databaseNowMs = databaseClock!.now.getTime();
+    const databaseClockResult = await db.execute(sql`SELECT clock_timestamp() AS now`);
+    const databaseClockValue = (databaseClockResult.rows as Array<{ now: Date | string }>)[0]?.now;
+    const databaseNow = databaseClockValue instanceof Date ? databaseClockValue : new Date(String(databaseClockValue ?? ""));
+    if (!databaseClockValue || !Number.isFinite(databaseNow.getTime())) {
+      throw new Error("Could not read PostgreSQL time");
+    }
+    const databaseNowMs = databaseNow.getTime();
     const enqueueSpy = vi.spyOn(heavyJobQueue, "enqueueWithIdDetailed").mockReturnValueOnce("full");
 
     vi.useFakeTimers({ toFake: ["Date"] });
@@ -10471,8 +10476,13 @@ describe("POST /api/ai/tasks/:taskId/execute", () => {
       retryCount: tasksTable.retryCount,
       correlationId: tasksTable.correlationId,
     }).from(tasksTable).where(eq(tasksTable.id, taskId));
-    const [databaseClock] = await db.select({ now: sql<Date>`clock_timestamp()` });
-    const nextAttemptAt = new Date(databaseClock!.now.getTime() + 10 * 60_000).toISOString();
+    const databaseClockResult = await db.execute(sql`SELECT clock_timestamp() AS now`);
+    const databaseClockValue = (databaseClockResult.rows as Array<{ now: Date | string }>)[0]?.now;
+    const databaseNow = databaseClockValue instanceof Date ? databaseClockValue : new Date(String(databaseClockValue ?? ""));
+    if (!databaseClockValue || !Number.isFinite(databaseNow.getTime())) {
+      throw new Error("Could not read PostgreSQL time");
+    }
+    const nextAttemptAt = new Date(databaseNow.getTime() + 10 * 60_000).toISOString();
     await db.insert(eventsTable).values({
       id: `task-auto-execution-deferred:${taskId}`,
       type: "TaskAutoExecutionDeferred",
@@ -10497,7 +10507,7 @@ describe("POST /api/ai/tasks/:taskId/execute", () => {
         return "full";
       });
     vi.useFakeTimers({ toFake: ["Date"] });
-    vi.setSystemTime(new Date(databaseClock!.now.getTime() + 24 * 60 * 60_000));
+    vi.setSystemTime(new Date(databaseNow.getTime() + 24 * 60 * 60_000));
     try {
       await scheduleAiTaskExecution(
         taskId,
