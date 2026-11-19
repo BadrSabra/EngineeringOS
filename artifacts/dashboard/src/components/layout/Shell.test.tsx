@@ -6,21 +6,56 @@ import { Shell } from './Shell';
 
 const mocks = vi.hoisted(() => ({
   signOut: vi.fn(),
+  projects: {
+    data: [] as { id: string; name: string; updatedAt: Date }[],
+    isLoading: false,
+    isError: false,
+  },
 }));
 
 vi.mock('@clerk/react', () => ({
-  useUser: () => ({ user: { fullName: 'Test Operator' } }),
+  useUser: () => ({ user: { fullName: 'Test Operator' }, isLoaded: true }),
   useClerk: () => ({ signOut: mocks.signOut }),
+}));
+
+vi.mock('@workspace/api-client-react', () => ({
+  getListProjectsQueryKey: () => ['/api/projects'],
+  useListProjects: () => mocks.projects,
 }));
 
 afterEach(() => {
   cleanup();
   vi.clearAllMocks();
+  mocks.projects.data = [];
   window.history.replaceState({}, '', '/');
   document.body.style.overflow = '';
 });
 
 describe('Shell mobile navigation', () => {
+  it('opens the most recently updated project workspace directly from the sidebar', () => {
+    mocks.projects.data = [
+      { id: 'project-older', name: 'مشروع أقدم', updatedAt: new Date('2026-11-10T12:00:00Z') },
+      { id: 'project-newer', name: 'مشروع أحدث', updatedAt: new Date('2026-11-18T12:00:00Z') },
+    ];
+    window.history.replaceState({}, '', '/projects/project-newer/workspace');
+    render(<Router><Shell><div>Current page</div></Shell></Router>);
+
+    const recentProject = screen.getByTestId('link-recent-project');
+    expect(recentProject).toHaveAttribute('href', '/projects/project-newer/workspace');
+    expect(recentProject).toHaveAttribute('aria-current', 'page');
+    expect(recentProject).toHaveAccessibleName('افتح مساحة العمل لمشروع مشروع أحدث');
+    expect(recentProject).toHaveTextContent('مشروع أحدث');
+    expect(screen.queryByText('مشروع أقدم')).not.toBeInTheDocument();
+  });
+
+  it('does not show a stale quick link when no projects are available', () => {
+    mocks.projects.data = [];
+    render(<Router><Shell><div>Current page</div></Shell></Router>);
+
+    expect(screen.queryByTestId('link-recent-project')).not.toBeInTheDocument();
+    expect(screen.getByTestId('link-nav-projects')).toHaveAttribute('href', '/projects');
+  });
+
   it('has no axe violations with navigation closed or open', async () => {
     const { container } = render(
       <Router>
