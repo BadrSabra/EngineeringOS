@@ -3079,6 +3079,51 @@ describe("_trimMessagesForOpenRouter — atomic-group context trim", () => {
     ]);
   });
 
+  it("drops a partial multi-tool turn when the next non-tool message arrives", () => {
+    const result = _trimMessagesForOpenRouter([
+      { role: "system", content: "system" },
+      makeAssistantWithTools(["call-a", "call-b"]),
+      makeToolResult("call-a"),
+      { role: "user", content: "continue" },
+    ]);
+
+    expect(result).toEqual([
+      { role: "system", content: "system" },
+      { role: "user", content: "continue" },
+    ]);
+  });
+
+  it("drops a partial multi-tool turn at the end of history", () => {
+    const result = _trimMessagesForOpenRouter([
+      { role: "system", content: "system" },
+      makeAssistantWithTools(["call-a", "call-b"]),
+      makeToolResult("call-a"),
+    ]);
+
+    expect(result).toEqual([{ role: "system", content: "system" }]);
+  });
+
+  it("keeps complete multi-tool turns and ignores duplicate or unbound tool results", () => {
+    const assistantTurn = makeAssistantWithTools(["call-a", "call-b"]);
+    const result = _trimMessagesForOpenRouter([
+      { role: "system", content: "system" },
+      assistantTurn,
+      { role: "tool", content: "missing tool_call_id" } as RawMessage,
+      makeToolResult("call-b"),
+      makeToolResult("call-b"),
+      makeToolResult("call-a"),
+      { role: "user", content: "continue" },
+    ]);
+
+    expect(result).toEqual([
+      { role: "system", content: "system" },
+      makeAssistantWithTools(["call-a", "call-b"]),
+      makeToolResult("call-b"),
+      makeToolResult("call-a"),
+      { role: "user", content: "continue" },
+    ]);
+  });
+
   it("returns the full array unchanged when within the 20-message limit", () => {
     const messages: RawMessage[] = [
       { role: "system", content: "sys" },
