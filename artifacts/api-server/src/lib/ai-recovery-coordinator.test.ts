@@ -140,6 +140,18 @@ describe("automatic task recovery admission", () => {
     });
   });
 
+  it("does not plan a new Task retry while the acceptance still marks it resumable", () => {
+    const result = planTaskRecovery(candidate({
+      action: "RETRY_AFTER_TIMEOUT",
+      resumable: 1,
+    }));
+
+    expect(result).toEqual({
+      kind: "skip",
+      reason: "resume_not_authorized",
+    });
+  });
+
   it("rejects cross-project or cross-task execution scope", () => {
     expect(planTaskRecovery(candidate({ executionProjectId: "other-project" }))).toEqual({
       kind: "skip",

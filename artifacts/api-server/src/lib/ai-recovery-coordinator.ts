@@ -483,6 +483,10 @@ export function planTaskRecovery(
     };
   }
 
+  if (candidate.resumable !== 0) {
+    return { kind: "skip", reason: "resume_not_authorized" };
+  }
+
   return {
     kind: "retry",
     action,
