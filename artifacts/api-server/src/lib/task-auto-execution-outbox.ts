@@ -52,6 +52,7 @@ export async function insertTaskAutoExecutionIntent(
 ): Promise<boolean> {
   const [task] = await tx
     .select({
+      id: tasksTable.id,
       projectId: tasksTable.projectId,
       status: tasksTable.status,
       prompt: tasksTable.prompt,
