@@ -20,10 +20,17 @@ import {
   removeManagedProjectRoot,
 } from "./project-materialization.js";
 import { invalidateContextCache } from "@workspace/ai-orchestrator";
+import {
+  assertProjectBootstrapWorkerLease,
+  claimProjectBootstrapJob,
+  heartbeatProjectBootstrapJob,
+  ProjectBootstrapLeaseLost,
+  setProjectBootstrapWorkingRoot,
+} from "./project-bootstrap-lease.js";
+export { PROJECT_BOOTSTRAP_LEASE_MS } from "./project-bootstrap-lease.js";
 
 export const PROJECT_BOOTSTRAP_TEMPLATE_VERSION = "react-vite-v1";
 export const PROJECT_BOOTSTRAP_MAX_ATTEMPTS = 3;
-export const PROJECT_BOOTSTRAP_LEASE_MS = 120_000;
 export const PROJECT_BOOTSTRAP_HEARTBEAT_MS = 20_000;
 export const PROJECT_BOOTSTRAP_INSTALL_TIMEOUT_MS = 180_000;
 
@@ -51,13 +58,6 @@ class ProjectBootstrapFailure extends Error {
   }
 }
 
-class ProjectBootstrapLeaseLost extends Error {
-  constructor() {
-    super("Project bootstrap worker no longer owns the operation.");
-    this.name = "ProjectBootstrapLeaseLost";
-  }
-}
-
 export function toProjectBootstrapOperation(job: ProjectBootstrapJob) {
   return {
     id: job.id,
@@ -77,7 +77,6 @@ export async function createProjectBootstrapJob(params: {
   name: string;
   description: string;
 }): Promise<ProjectBootstrapJob> {
-  const now = new Date();
   const jobId = randomUUID();
   const [inserted] = await db
     .insert(projectBootstrapJobsTable)
@@ -91,8 +90,8 @@ export async function createProjectBootstrapJob(params: {
       status: "queued",
       attempt: 0,
       maxAttempts: PROJECT_BOOTSTRAP_MAX_ATTEMPTS,
-      createdAt: now,
-      updatedAt: now,
+      createdAt: sql<Date>`clock_timestamp() AT TIME ZONE 'UTC'`,
+      updatedAt: sql<Date>`clock_timestamp() AT TIME ZONE 'UTC'`,
     })
     .onConflictDoNothing({
       target: [
@@ -155,85 +154,6 @@ export function enqueueProjectBootstrapJob(id: string): boolean {
       );
     }
   });
-}
-
-function isOwnedByWorker(job: ProjectBootstrapJob | undefined, workerId: string): boolean {
-  return Boolean(
-    job?.status === "running"
-    && job.workerId === workerId
-    && job.leaseUntil
-    && job.leaseUntil.getTime() > Date.now(),
-  );
-}
-
-async function assertWorkerLease(jobId: string, workerId: string): Promise<void> {
-  const [job] = await db
-    .select()
-    .from(projectBootstrapJobsTable)
-    .where(
-      and(
-        eq(projectBootstrapJobsTable.id, jobId),
-        eq(projectBootstrapJobsTable.status, "running"),
-        eq(projectBootstrapJobsTable.workerId, workerId),
-        gt(projectBootstrapJobsTable.leaseUntil, new Date()),
-      ),
-    )
-    .limit(1);
-  if (!isOwnedByWorker(job, workerId)) throw new ProjectBootstrapLeaseLost();
-}
-
-async function claimProjectBootstrapJob(
-  jobId: string,
-  workerId: string,
-): Promise<ProjectBootstrapJob | undefined> {
-  const now = new Date();
-  const [job] = await db
-    .update(projectBootstrapJobsTable)
-    .set({
-      status: "running",
-      attempt: sql`${projectBootstrapJobsTable.attempt} + 1`,
-      workerId,
-      leaseUntil: new Date(now.getTime() + PROJECT_BOOTSTRAP_LEASE_MS),
-      lastHeartbeatAt: now,
-      startedAt: now,
-      updatedAt: now,
-      errorCode: null,
-      errorMessage: null,
-    })
-    .where(
-      and(
-        eq(projectBootstrapJobsTable.id, jobId),
-        eq(projectBootstrapJobsTable.status, "queued"),
-        lt(projectBootstrapJobsTable.attempt, projectBootstrapJobsTable.maxAttempts),
-      ),
-    )
-    .returning();
-  return job;
-}
-
-async function setWorkingRoot(
-  jobId: string,
-  workerId: string,
-  rootPath: string,
-): Promise<void> {
-  const [updated] = await db
-    .update(projectBootstrapJobsTable)
-    .set({
-      workingRootPath: rootPath,
-      leaseUntil: new Date(Date.now() + PROJECT_BOOTSTRAP_LEASE_MS),
-      lastHeartbeatAt: new Date(),
-      updatedAt: new Date(),
-    })
-    .where(
-      and(
-        eq(projectBootstrapJobsTable.id, jobId),
-        eq(projectBootstrapJobsTable.status, "running"),
-        eq(projectBootstrapJobsTable.workerId, workerId),
-        gt(projectBootstrapJobsTable.leaseUntil, new Date()),
-      ),
-    )
-    .returning({ id: projectBootstrapJobsTable.id });
-  if (!updated) throw new ProjectBootstrapLeaseLost();
 }
 
 function bootstrapCommandEnvironment(): NodeJS.ProcessEnv {
@@ -338,24 +258,8 @@ function startHeartbeat(
   return setInterval(() => {
     if (inFlight || controller.signal.aborted) return;
     inFlight = true;
-    const now = new Date();
-    void db
-      .update(projectBootstrapJobsTable)
-      .set({
-        leaseUntil: new Date(now.getTime() + PROJECT_BOOTSTRAP_LEASE_MS),
-        lastHeartbeatAt: now,
-        updatedAt: now,
-      })
-      .where(
-        and(
-          eq(projectBootstrapJobsTable.id, jobId),
-          eq(projectBootstrapJobsTable.status, "running"),
-          eq(projectBootstrapJobsTable.workerId, workerId),
-          gt(projectBootstrapJobsTable.leaseUntil, now),
-        ),
-      )
-      .returning({ id: projectBootstrapJobsTable.id })
-      .then(([owned]) => {
+    void heartbeatProjectBootstrapJob(jobId, workerId)
+      .then((owned) => {
         if (!owned) controller.abort();
       })
       .catch((error) => {
@@ -376,7 +280,6 @@ async function commitCreatedProject(params: {
   workerId: string;
   canonicalRootPath: string;
 }): Promise<string> {
-  const now = new Date();
   const projectId = randomUUID();
   const correlationId = randomUUID();
   await db.transaction(async (tx) => {
@@ -391,8 +294,8 @@ async function commitCreatedProject(params: {
         language: "TypeScript",
         framework: "React/Vite",
         status: "active",
-        createdAt: now,
-        updatedAt: now,
+        createdAt: sql<Date>`clock_timestamp() AT TIME ZONE 'UTC'`,
+        updatedAt: sql<Date>`clock_timestamp() AT TIME ZONE 'UTC'`,
       })
       .returning();
 
@@ -423,15 +326,15 @@ async function commitCreatedProject(params: {
         workingRootPath: null,
         errorCode: null,
         errorMessage: null,
-        updatedAt: now,
-        finishedAt: now,
+        updatedAt: sql<Date>`clock_timestamp() AT TIME ZONE 'UTC'`,
+        finishedAt: sql<Date>`clock_timestamp() AT TIME ZONE 'UTC'`,
       })
       .where(
         and(
           eq(projectBootstrapJobsTable.id, params.job.id),
           eq(projectBootstrapJobsTable.status, "running"),
           eq(projectBootstrapJobsTable.workerId, params.workerId),
-          gt(projectBootstrapJobsTable.leaseUntil, now),
+          gt(projectBootstrapJobsTable.leaseUntil, sql<Date>`clock_timestamp() AT TIME ZONE 'UTC'`),
         ),
       )
       .returning({ id: projectBootstrapJobsTable.id });
@@ -446,7 +349,6 @@ async function finishFailedAttempt(params: {
   workerId: string;
   error: ProjectBootstrapFailure;
 }): Promise<void> {
-  const now = new Date();
   const retry = params.error.retryable && params.job.attempt < params.job.maxAttempts;
   await db
     .update(projectBootstrapJobsTable)
@@ -457,15 +359,15 @@ async function finishFailedAttempt(params: {
       workingRootPath: null,
       errorCode: retry ? null : params.error.code,
       errorMessage: retry ? null : params.error.safeMessage,
-      updatedAt: now,
-      finishedAt: retry ? null : now,
+      updatedAt: sql<Date>`clock_timestamp() AT TIME ZONE 'UTC'`,
+      finishedAt: retry ? null : sql<Date>`clock_timestamp() AT TIME ZONE 'UTC'`,
     })
     .where(
       and(
         eq(projectBootstrapJobsTable.id, params.job.id),
         eq(projectBootstrapJobsTable.status, "running"),
         eq(projectBootstrapJobsTable.workerId, params.workerId),
-        gt(projectBootstrapJobsTable.leaseUntil, now),
+        gt(projectBootstrapJobsTable.leaseUntil, sql<Date>`clock_timestamp() AT TIME ZONE 'UTC'`),
       ),
     );
 }
@@ -482,16 +384,16 @@ export async function runProjectBootstrapJob(jobId: string): Promise<void> {
   let rootWasMaterialized = false;
 
   try {
-    await setWorkingRoot(job.id, workerId, rootPath);
+    await setProjectBootstrapWorkingRoot(job.id, workerId, rootPath);
     await access(TEMPLATE_DIRECTORY);
-    await assertWorkerLease(job.id, workerId);
+    await assertProjectBootstrapWorkerLease(job.id, workerId);
     await materializeProjectRoot(TEMPLATE_DIRECTORY, attemptRootKey, {
       excludeTopLevel: ["node_modules", "dist", "coverage"],
     });
     rootWasMaterialized = true;
-    await assertWorkerLease(job.id, workerId);
+    await assertProjectBootstrapWorkerLease(job.id, workerId);
     await installTemplateDependencies(rootPath, controller.signal);
-    await assertWorkerLease(job.id, workerId);
+    await assertProjectBootstrapWorkerLease(job.id, workerId);
 
     const rootResult = await establishProjectRoot(rootPath, { requireMarkers: true });
     if (!rootResult.ok) {
@@ -545,14 +447,13 @@ export async function runProjectBootstrapJob(jobId: string): Promise<void> {
 }
 
 async function reclaimExpiredBootstrapLeases(): Promise<number> {
-  const now = new Date();
   const expired = await db
     .select()
     .from(projectBootstrapJobsTable)
     .where(
       and(
         eq(projectBootstrapJobsTable.status, "running"),
-        lte(projectBootstrapJobsTable.leaseUntil, now),
+        lte(projectBootstrapJobsTable.leaseUntil, sql<Date>`clock_timestamp() AT TIME ZONE 'UTC'`),
       ),
     )
     .limit(100);
@@ -570,15 +471,15 @@ async function reclaimExpiredBootstrapLeases(): Promise<number> {
         errorMessage: retry
           ? null
           : "The project could not be created after several attempts. Please start again.",
-        updatedAt: now,
-        finishedAt: retry ? null : now,
+        updatedAt: sql<Date>`clock_timestamp() AT TIME ZONE 'UTC'`,
+        finishedAt: retry ? null : sql<Date>`clock_timestamp() AT TIME ZONE 'UTC'`,
       })
       .where(
         and(
           eq(projectBootstrapJobsTable.id, job.id),
           eq(projectBootstrapJobsTable.status, "running"),
           eq(projectBootstrapJobsTable.workerId, job.workerId!),
-          lte(projectBootstrapJobsTable.leaseUntil, now),
+          lte(projectBootstrapJobsTable.leaseUntil, sql<Date>`clock_timestamp() AT TIME ZONE 'UTC'`),
         ),
       )
       .returning({ id: projectBootstrapJobsTable.id });
