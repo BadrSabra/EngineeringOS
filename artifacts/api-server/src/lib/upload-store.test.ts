@@ -237,6 +237,28 @@ describe("expiry and retryable cleanup", () => {
     expect(mockDelete).toHaveBeenCalledOnce();
   });
 
+  it("does not retire a claim renewed after the expiry sweep selected it", async () => {
+    const selectedExpiredClaim = makeRow({
+      state: "claimed",
+      expiresAt: new Date(Date.now() - 1),
+    });
+    const renewedClaim = makeRow({
+      state: "claimed",
+      expiresAt: new Date(Date.now() + 60_000),
+    });
+    selectResults.push([selectedExpiredClaim], [renewedClaim]);
+    // The conditional UPDATE affects zero rows because the claim was renewed
+    // after the expiry query selected its stale snapshot.
+    updateResults.push([]);
+
+    await expect(sweepExpiredUploads()).resolves.toBe(0);
+
+    expect(sqlText(selectBuilder.where.mock.calls[0]?.[0])).toContain("CURRENT_TIMESTAMP");
+    expect(sqlText(updateBuilder.where.mock.calls[0]?.[0])).toContain("CURRENT_TIMESTAMP");
+    expect(mockObjectDelete).not.toHaveBeenCalled();
+    expect(mockDelete).not.toHaveBeenCalled();
+  });
+
   it("retries retired object cleanup during the expiry sweep", async () => {
     const row = makeRow({ state: "retired" });
     selectResults.push([row], [row]);
