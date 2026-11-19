@@ -4814,6 +4814,39 @@ export const CreateGeneralChatSessionResponse = zod.object({
 
 
 /**
+ * @summary Search completed message content in the authenticated user's general conversations
+ */
+export const searchGeneralChatMessagesByContentQueryQueryMin = 2;
+export const searchGeneralChatMessagesByContentQueryQueryMax = 120;
+
+
+
+export const SearchGeneralChatMessagesByContentQueryParams = zod.object({
+  "query": zod.coerce.string().min(searchGeneralChatMessagesByContentQueryQueryMin).max(searchGeneralChatMessagesByContentQueryQueryMax)
+})
+
+export const searchGeneralChatMessagesByContentResponseSessionIdMax = 100;
+
+export const searchGeneralChatMessagesByContentResponseSessionTitleMax = 100;
+
+export const searchGeneralChatMessagesByContentResponseMessageIdMax = 100;
+
+export const searchGeneralChatMessagesByContentResponseSnippetMax = 400;
+
+
+
+export const SearchGeneralChatMessagesByContentResponseItem = zod.object({
+  "sessionId": zod.string().min(1).max(searchGeneralChatMessagesByContentResponseSessionIdMax),
+  "sessionTitle": zod.string().max(searchGeneralChatMessagesByContentResponseSessionTitleMax),
+  "messageId": zod.string().min(1).max(searchGeneralChatMessagesByContentResponseMessageIdMax),
+  "role": zod.enum(['user', 'assistant']),
+  "snippet": zod.string().max(searchGeneralChatMessagesByContentResponseSnippetMax),
+  "messageCreatedAt": zod.coerce.date()
+})
+export const SearchGeneralChatMessagesByContentResponse = zod.array(SearchGeneralChatMessagesByContentResponseItem)
+
+
+/**
  * @summary Delete one of the authenticated user's general conversations
  */
 export const DeleteGeneralChatSessionParams = zod.object({

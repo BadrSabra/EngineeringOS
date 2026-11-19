@@ -38,6 +38,7 @@ import {
   rememberAssistantScopeContext,
   saveAssistantComposerDraft,
 } from '@/lib/assistant-scope-continuity';
+import GeneralChatMessageSearch from './GeneralChatMessageSearch';
 
 function createUuid(): string {
   return crypto.randomUUID();
@@ -458,6 +459,7 @@ function GeneralChatSession({
           </div>
         </div>
         <div className="flex items-center gap-2">
+          <GeneralChatMessageSearch disabled={!isLoaded || Boolean(incomingGoalDraft) || Boolean(goalDraftAttached)} />
           <AssistantScopeSwitch
             currentScope="general"
             projects={projects}

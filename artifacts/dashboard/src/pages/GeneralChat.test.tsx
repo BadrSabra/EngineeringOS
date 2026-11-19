@@ -18,6 +18,7 @@ const mocks = vi.hoisted(() => {
     sessions: { data: [session], isLoading: false, isError: false, refetch: vi.fn() },
     projects: { data: [{ id: 'project-1', name: 'مشروع واحد' }], isLoading: false, isError: false, refetch: vi.fn() },
     messages: { data: [] as { id: string; role: string; content: string; status: string; errorMessage?: string }[], isLoading: false, isError: false, refetch: vi.fn() },
+    contentSearch: { data: [] as { sessionId: string; sessionTitle: string; messageId: string; role: 'user' | 'assistant'; snippet: string; messageCreatedAt: string }[], isFetching: false, isError: false, refetch: vi.fn() },
     create: vi.fn(), remove: vi.fn(), send: vi.fn(),
   };
 });
@@ -26,9 +27,11 @@ vi.mock('@workspace/api-client-react', () => ({
   getListProjectsQueryKey: () => ['/api/projects'],
   getListGeneralChatSessionsQueryKey: () => ['/api/ai/general-chat/sessions'],
   getListGeneralChatMessagesQueryKey: (id: string) => ['/api/ai/general-chat/sessions', id, 'messages'],
+  getSearchGeneralChatMessagesByContentQueryKey: (params: { query: string }) => ['/api/ai/general-chat/message-search', params],
   useListProjects: () => mocks.projects,
   useListGeneralChatSessions: () => mocks.sessions,
   useListGeneralChatMessages: () => mocks.messages,
+  useSearchGeneralChatMessagesByContent: () => mocks.contentSearch,
   useCreateGeneralChatSession: () => ({ mutate: mocks.create, isPending: false }),
   useDeleteGeneralChatSession: () => ({ mutate: mocks.remove, isPending: false }),
   useSendGeneralChatMessage: () => ({ mutate: mocks.send, isPending: false }),
@@ -67,6 +70,9 @@ beforeEach(() => {
   mocks.messages.data = [];
   mocks.messages.isLoading = false;
   mocks.messages.isError = false;
+  mocks.contentSearch.data = [];
+  mocks.contentSearch.isFetching = false;
+  mocks.contentSearch.isError = false;
 });
 
 describe('Arabic conversation feedback boundaries', () => {
@@ -339,6 +345,42 @@ describe('Arabic conversation feedback boundaries', () => {
     expect(screen.getByTestId('button-select-general-session-session-1')).toBeInTheDocument();
     expect(screen.getByTestId('button-select-general-session-session-2')).toBeInTheDocument();
     expect(screen.getByTestId('button-select-general-session-session-3')).toBeInTheDocument();
+  });
+
+  it('opens the saved conversation that contains a searched message without sending or deleting', () => {
+    const matchedSession = {
+      id: 'session-2',
+      title: 'محادثة فيها الإجابة',
+      updatedAt: '2026-10-15T10:00:00Z',
+    };
+    mocks.sessions.data = [mocks.session, matchedSession];
+    mocks.contentSearch.data = [{
+      sessionId: matchedSession.id,
+      sessionTitle: matchedSession.title,
+      messageId: 'message-match',
+      role: 'assistant',
+      snippet: 'هذه هي العبارة التي تشرح النتيجة المطلوبة.',
+      messageCreatedAt: '2026-10-15T10:00:00Z',
+    }];
+    window.history.replaceState({}, '', '/general-chat?sessionId=session-1');
+    renderPage();
+
+    fireEvent.click(screen.getByTestId('button-open-general-chat-message-search'));
+    fireEvent.change(screen.getByTestId('input-general-chat-message-search'), {
+      target: { value: 'النتيجة المطلوبة' },
+    });
+    fireEvent.click(screen.getByTestId('button-submit-general-chat-message-search'));
+
+    const resultButton = screen.getByTestId('button-open-general-message-search-result-message-match');
+    expect(resultButton).toHaveTextContent('محادثة فيها الإجابة');
+    expect(resultButton).toHaveTextContent('هذه هي العبارة التي تشرح النتيجة المطلوبة.');
+    fireEvent.click(resultButton);
+
+    expect(window.location.search).toContain('sessionId=session-2');
+    expect(screen.getByRole('heading', { name: 'محادثة فيها الإجابة' })).toBeInTheDocument();
+    expect(mocks.send).not.toHaveBeenCalled();
+    expect(mocks.create).not.toHaveBeenCalled();
+    expect(mocks.remove).not.toHaveBeenCalled();
   });
 
   it('keeps a home handoff separate from the latest session until the user creates a new conversation', () => {

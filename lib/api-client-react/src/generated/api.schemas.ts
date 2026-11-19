@@ -6416,6 +6416,33 @@ export interface GeneralChatMessage {
   createdAt: string;
 }
 
+export type GeneralChatContentSearchResultRole = typeof GeneralChatContentSearchResultRole[keyof typeof GeneralChatContentSearchResultRole];
+
+
+export const GeneralChatContentSearchResultRole = {
+  user: 'user',
+  assistant: 'assistant',
+} as const;
+
+export interface GeneralChatContentSearchResult {
+  /**
+     * @minLength 1
+     * @maxLength 100
+     */
+  sessionId: string;
+  /** @maxLength 100 */
+  sessionTitle: string;
+  /**
+     * @minLength 1
+     * @maxLength 100
+     */
+  messageId: string;
+  role: GeneralChatContentSearchResultRole;
+  /** @maxLength 400 */
+  snippet: string;
+  messageCreatedAt: string;
+}
+
 export interface GeneralChatMessageRequest {
   turnId: string;
   /**
@@ -8293,6 +8320,14 @@ sourceType?: string;
 semanticTag?: string;
 observedOnly?: boolean;
 heuristicOnly?: boolean;
+};
+
+export type SearchGeneralChatMessagesByContentParams = {
+/**
+ * @minLength 2
+ * @maxLength 120
+ */
+query: string;
 };
 
 /**
