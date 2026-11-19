@@ -36,12 +36,14 @@ export async function resolveRetryDeadlineFromDatabaseClock(
   const delayMs = normalizeRetryDelay(retryAfterMs);
   if (delayMs === undefined) return undefined;
 
-  const [clock] = await db.select({
-    databaseNow: sql<Date>`clock_timestamp()`,
-  });
-  const retryAt = clock
-    ? retryDeadlineFromDatabaseTime(clock.databaseNow, delayMs)
-    : undefined;
+  const result = await db.execute(sql`SELECT clock_timestamp() AS "databaseNow"`);
+  const clockRow = result.rows[0] as { databaseNow?: unknown } | undefined;
+  const databaseNow = clockRow?.databaseNow instanceof Date
+    ? clockRow.databaseNow
+    : clockRow?.databaseNow !== undefined
+      ? new Date(String(clockRow.databaseNow))
+      : new Date(Number.NaN);
+  const retryAt = retryDeadlineFromDatabaseTime(databaseNow, delayMs);
   if (!retryAt) {
     throw new Error("DATABASE_CLOCK_UNAVAILABLE");
   }

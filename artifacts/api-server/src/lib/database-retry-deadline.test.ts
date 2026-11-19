@@ -1,11 +1,11 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const databaseMock = vi.hoisted(() => ({
-  select: vi.fn(),
+  execute: vi.fn(),
 }));
 
 vi.mock("@workspace/db", () => ({
-  db: { select: databaseMock.select },
+  db: { execute: databaseMock.execute },
 }));
 
 import {
@@ -15,7 +15,7 @@ import {
 
 describe("structured retry deadlines", () => {
   beforeEach(() => {
-    databaseMock.select.mockReset();
+    databaseMock.execute.mockReset();
   });
 
   it("derives the absolute deadline from the supplied database instant", () => {
@@ -33,25 +33,23 @@ describe("structured retry deadlines", () => {
   });
 
   it("reads PostgreSQL time before constructing a retry deadline", async () => {
-    databaseMock.select.mockResolvedValueOnce([{
-      databaseNow: new Date("2026-11-19T12:00:00.000Z"),
-    }]);
+    databaseMock.execute.mockResolvedValueOnce({
+      rows: [{ databaseNow: new Date("2026-11-19T12:00:00.000Z") }],
+    });
 
     await expect(resolveRetryDeadlineFromDatabaseClock(30_000))
       .resolves.toBe("2026-11-19T12:00:30.000Z");
-    expect(databaseMock.select).toHaveBeenCalledTimes(1);
-    expect(databaseMock.select).toHaveBeenCalledWith({
-      databaseNow: expect.anything(),
-    });
+    expect(databaseMock.execute).toHaveBeenCalledTimes(1);
+    expect(String(databaseMock.execute.mock.calls[0]?.[0])).toContain("clock_timestamp()");
   });
 
   it("does not issue a database query for an invalid delay", async () => {
     await expect(resolveRetryDeadlineFromDatabaseClock(0)).resolves.toBeUndefined();
-    expect(databaseMock.select).not.toHaveBeenCalled();
+    expect(databaseMock.execute).not.toHaveBeenCalled();
   });
 
   it("fails closed when the database clock cannot produce a deadline", async () => {
-    databaseMock.select.mockResolvedValueOnce([]);
+    databaseMock.execute.mockResolvedValueOnce({ rows: [] });
     await expect(resolveRetryDeadlineFromDatabaseClock(1_000))
       .rejects.toThrow("DATABASE_CLOCK_UNAVAILABLE");
   });
