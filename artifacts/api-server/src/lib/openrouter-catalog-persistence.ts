@@ -15,6 +15,7 @@ type CatalogRow = {
   expires_at: Date | string | null;
   failure_backoff_until: Date | string | null;
   last_failure_code: string | null;
+  database_now_ms: number | string;
 };
 
 function timestampMs(value: Date | string | null): number | null {
@@ -38,7 +39,8 @@ export function createOpenRouterCatalogPersistence(
     async read(): Promise<OpenRouterCatalogStoredState | null> {
       const result = await databasePool.query<CatalogRow>(
       `SELECT snapshot, refreshed_at, expires_at,
-              failure_backoff_until, last_failure_code
+              failure_backoff_until, last_failure_code,
+              (EXTRACT(EPOCH FROM clock_timestamp()) * 1000)::double precision AS database_now_ms
        FROM openrouter_catalog_snapshots
        WHERE catalog_key = $1
        LIMIT 1`,
@@ -46,8 +48,13 @@ export function createOpenRouterCatalogPersistence(
       );
       const row = result.rows[0];
       if (!row) return null;
+      const databaseNowMs = Number(row.database_now_ms);
+      if (!Number.isFinite(databaseNowMs)) {
+        throw new Error("OpenRouter catalog read returned an invalid database clock");
+      }
       return {
         snapshot: row.snapshot as OpenRouterCatalogSnapshot | null,
+        databaseNowMs,
         refreshedAtMs: timestampMs(row.refreshed_at),
         expiresAtMs: timestampMs(row.expires_at),
         failureBackoffUntilMs: timestampMs(row.failure_backoff_until),

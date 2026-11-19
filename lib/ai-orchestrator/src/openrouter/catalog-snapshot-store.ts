@@ -16,6 +16,8 @@ export type OpenRouterCatalogSnapshot = {
 
 export type OpenRouterCatalogStoredState = {
   snapshot: OpenRouterCatalogSnapshot | null;
+  /** PostgreSQL clock sampled by the same read as the persisted timestamps. */
+  databaseNowMs: number;
   refreshedAtMs: number | null;
   expiresAtMs: number | null;
   failureBackoffUntilMs: number | null;

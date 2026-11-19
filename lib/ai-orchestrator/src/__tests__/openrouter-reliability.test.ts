@@ -218,6 +218,115 @@ describe("bounded live free catalog admission", () => {
     });
   });
 
+  it("accepts a fresh shared snapshot when the API worker clock is ahead of PostgreSQL", async () => {
+    const databaseNowMs = Date.now();
+    const persistedState: OpenRouterCatalogStoredState = {
+      snapshot: {
+        version: 1,
+        freeModels: [{
+          id: STATIC_FREE_CHAT_TEST_MODEL,
+          supportsJsonObject: true,
+          supportsJsonSchema: true,
+        }],
+        paidModels: [],
+        paidPolicyFingerprint: "clock-skew-fixture",
+      },
+      refreshedAtMs: databaseNowMs - 30_000,
+      expiresAtMs: databaseNowMs + 9 * 60_000,
+      failureBackoffUntilMs: null,
+      lastFailureCode: null,
+      databaseNowMs,
+    };
+    configureOpenRouterCatalogPersistence({
+      async read() {
+        return structuredClone(persistedState);
+      },
+      async acquireRefreshLease() {
+        return undefined;
+      },
+    });
+
+    // Simulate an API replica whose wall clock is one day ahead.
+    vi.useFakeTimers({ now: databaseNowMs + 24 * 60 * 60_000 });
+    global.fetch = vi.fn() as typeof fetch;
+    await refreshDynamicCatalog("test-key");
+
+    expect(global.fetch).not.toHaveBeenCalled();
+    expect(getUsableDynamicModelIds()).toContain(STATIC_FREE_CHAT_TEST_MODEL);
+    expect(getDynamicCatalogStatus()).toMatchObject({
+      usable: true,
+      lastRefreshStatus: "success",
+    });
+  });
+
+  it("rejects an expired shared snapshot when the API worker clock is behind PostgreSQL", async () => {
+    const databaseNowMs = Date.now();
+    const persistedState: OpenRouterCatalogStoredState = {
+      snapshot: {
+        version: 1,
+        freeModels: [{
+          id: STATIC_FREE_CHAT_TEST_MODEL,
+          supportsJsonObject: true,
+          supportsJsonSchema: true,
+        }],
+        paidModels: [],
+        paidPolicyFingerprint: "clock-skew-fixture",
+      },
+      refreshedAtMs: databaseNowMs - 10 * 60_000 - 10_000,
+      expiresAtMs: databaseNowMs - 10_000,
+      failureBackoffUntilMs: null,
+      lastFailureCode: null,
+      databaseNowMs,
+    };
+    configureOpenRouterCatalogPersistence({
+      async read() {
+        return structuredClone(persistedState);
+      },
+      async acquireRefreshLease() {
+        return undefined;
+      },
+    });
+
+    // A 30-second slow clock would otherwise accept this recently expired row.
+    vi.useFakeTimers({ now: databaseNowMs - 30_000 });
+    global.fetch = vi.fn() as typeof fetch;
+    await refreshDynamicCatalog("test-key");
+
+    expect(getUsableDynamicModelIds()).toBeNull();
+    expect(getDynamicCatalogStatus()).toMatchObject({ usable: false });
+  });
+
+  it("honors shared refresh backoff using PostgreSQL time when the API worker clock is ahead", async () => {
+    const databaseNowMs = Date.now();
+    const persistedState: OpenRouterCatalogStoredState = {
+      snapshot: null,
+      refreshedAtMs: null,
+      expiresAtMs: null,
+      failureBackoffUntilMs: databaseNowMs + 15_000,
+      lastFailureCode: "http_429",
+      databaseNowMs,
+    };
+    const acquireRefreshLease = vi.fn(async () => undefined);
+    configureOpenRouterCatalogPersistence({
+      async read() {
+        return structuredClone(persistedState);
+      },
+      acquireRefreshLease,
+    });
+
+    vi.useFakeTimers({ now: databaseNowMs + 24 * 60 * 60_000 });
+    global.fetch = vi.fn() as typeof fetch;
+    await refreshDynamicCatalog("test-key");
+
+    expect(acquireRefreshLease).not.toHaveBeenCalled();
+    expect(global.fetch).not.toHaveBeenCalled();
+    expect(getDynamicCatalogStatus()).toMatchObject({
+      usable: false,
+      lastRefreshStatus: "failed",
+      lastRefreshError: "http_429",
+    });
+  });
+
   it("shares provider failure backoff so other workers do not repeat catalog requests", async () => {
     const shared = createSharedCatalogFixture();
     global.fetch = vi.fn().mockResolvedValue(fetchResponse(429, {})) as typeof fetch;
@@ -271,7 +380,9 @@ function fetchResponse(status: number, body: unknown): Response {
   });
 }
 
-function createSharedCatalogFixture(): {
+function createSharedCatalogFixture(
+  databaseClock: () => number = () => Date.now(),
+): {
   persistence: OpenRouterCatalogPersistence;
   getState: () => OpenRouterCatalogStoredState | null;
 } {
@@ -279,16 +390,19 @@ function createSharedCatalogFixture(): {
   let leaseHeld = false;
   const persistence: OpenRouterCatalogPersistence = {
     async read() {
-      return state ? structuredClone(state) : null;
+      return state
+        ? { ...structuredClone(state), databaseNowMs: databaseClock() }
+        : null;
     },
     async acquireRefreshLease() {
       if (leaseHeld) return undefined;
       leaseHeld = true;
       return {
         async commitSnapshot(snapshot, ttlMs) {
-          const now = Date.now();
+          const now = databaseClock();
           state = {
             snapshot: structuredClone(snapshot),
+            databaseNowMs: now,
             refreshedAtMs: now,
             expiresAtMs: now + ttlMs,
             failureBackoffUntilMs: null,
@@ -297,11 +411,13 @@ function createSharedCatalogFixture(): {
           return structuredClone(state);
         },
         async recordFailure(failureCode, backoffMs) {
+          const now = databaseClock();
           state = {
             snapshot: state?.snapshot ?? null,
+            databaseNowMs: now,
             refreshedAtMs: state?.refreshedAtMs ?? null,
             expiresAtMs: state?.expiresAtMs ?? null,
-            failureBackoffUntilMs: Date.now() + backoffMs,
+            failureBackoffUntilMs: now + backoffMs,
             lastFailureCode: failureCode,
           };
         },
