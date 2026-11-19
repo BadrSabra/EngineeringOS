@@ -277,6 +277,103 @@ describe('project-scoped task list contracts', () => {
     );
   });
 
+  it('restores task search and filters from a copied task-list link', () => {
+    window.history.replaceState(
+      {},
+      '',
+      '/tasks?projectId=project-1&status=failed&priority=p1&acceptance=interrupted&search=Repair',
+    );
+    renderPage();
+
+    expect(screen.getByRole('combobox', { name: 'تصفية المهام حسب الحالة' })).toHaveValue('failed');
+    expect(screen.getByRole('combobox', { name: 'تصفية المهام حسب الأولوية' })).toHaveValue('p1');
+    expect(screen.getByRole('combobox', { name: 'تصفية المهام حسب القبول' })).toHaveValue('interrupted');
+    expect(screen.getByRole('textbox', { name: 'ابحث عن مهمة' })).toHaveValue('Repair');
+    expect(useListTasks).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        projectId: 'project-1',
+        status: 'failed',
+        priority: 'p1',
+      }),
+      expect.anything(),
+    );
+  });
+
+  it('applies new filters when navigation changes only the task-list query', () => {
+    function RouteNavigationProbe() {
+      const [, navigate] = useLocation();
+      return (
+        <button
+          type="button"
+          onClick={() => navigate('/tasks?projectId=project-1&status=running&priority=p2&search=quota')}
+        >
+          Open filtered task link
+        </button>
+      );
+    }
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    window.history.replaceState({}, '', '/tasks?projectId=project-1&status=failed');
+    render(
+      <QueryClientProvider client={queryClient}>
+        <>
+          <RouteNavigationProbe />
+          <Tasks />
+        </>
+      </QueryClientProvider>,
+    );
+
+    expect(screen.getByRole('combobox', { name: 'تصفية المهام حسب الحالة' })).toHaveValue('failed');
+    fireEvent.click(screen.getByRole('button', { name: 'Open filtered task link' }));
+
+    expect(screen.getByRole('combobox', { name: 'تصفية المهام حسب الحالة' })).toHaveValue('running');
+    expect(screen.getByRole('combobox', { name: 'تصفية المهام حسب الأولوية' })).toHaveValue('p2');
+    expect(screen.getByRole('textbox', { name: 'ابحث عن مهمة' })).toHaveValue('quota');
+  });
+
+  it('updates the task-list link and clears filters without losing route context', () => {
+    window.history.replaceState(
+      {},
+      '',
+      '/tasks?projectId=project-1&taskId=task-auth&view=compact#task-results',
+    );
+    renderPage();
+
+    fireEvent.change(screen.getByRole('textbox', { name: 'ابحث عن مهمة' }), {
+      target: { value: 'Repair provider' },
+    });
+    fireEvent.change(screen.getByRole('combobox', { name: 'تصفية المهام حسب الحالة' }), {
+      target: { value: 'failed' },
+    });
+    fireEvent.change(screen.getByRole('combobox', { name: 'تصفية المهام حسب الأولوية' }), {
+      target: { value: 'p1' },
+    });
+    fireEvent.change(screen.getByRole('combobox', { name: 'تصفية المهام حسب القبول' }), {
+      target: { value: 'recovery-required' },
+    });
+
+    let url = new URL(window.location.href);
+    expect(url.searchParams.get('projectId')).toBe('project-1');
+    expect(url.searchParams.get('taskId')).toBe('task-auth');
+    expect(url.searchParams.get('view')).toBe('compact');
+    expect(url.searchParams.get('status')).toBe('failed');
+    expect(url.searchParams.get('priority')).toBe('p1');
+    expect(url.searchParams.get('acceptance')).toBe('recovery-required');
+    expect(url.searchParams.get('search')).toBe('Repair provider');
+    expect(url.hash).toBe('#task-results');
+
+    fireEvent.click(screen.getByTestId('button-clear-task-filters'));
+
+    url = new URL(window.location.href);
+    expect(url.searchParams.get('projectId')).toBe('project-1');
+    expect(url.searchParams.get('taskId')).toBe('task-auth');
+    expect(url.searchParams.get('view')).toBe('compact');
+    expect(url.searchParams.has('status')).toBe(false);
+    expect(url.searchParams.has('priority')).toBe(false);
+    expect(url.searchParams.has('acceptance')).toBe(false);
+    expect(url.searchParams.has('search')).toBe(false);
+    expect(url.hash).toBe('#task-results');
+  });
+
   it('does not fall back to the first project for an unavailable explicit target', () => {
     window.history.replaceState({}, '', '/tasks?projectId=unavailable-project');
     renderPage();
