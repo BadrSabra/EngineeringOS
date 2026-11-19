@@ -1545,16 +1545,26 @@ export default function Missions() {
   const projectErrorStatus = typeof projectsQueryError === 'object' && projectsQueryError !== null && 'status' in projectsQueryError
     ? Number((projectsQueryError as { status?: unknown }).status)
     : null;
-  const projectionGoals = projection?.goals ?? [];
-  const decisionProjectionIsCurrent = Boolean(
+  // A projection is usable only when it belongs to the mission currently selected.
+  // Async reads and action responses can outlive a selection change; never render
+  // their previous mission's data under the new mission header.
+  const projectionBelongsToActiveMission = Boolean(
     activeMission
-    && projection?.mission.id === activeMission.id
-    && projection.mission.projectId === activeMission.projectId
-    && projection?.engineeringAgent?.schemaVersion === 2
-    && projection?.engineeringAgent?.missionId === activeMission.id,
+    && projection?.mission?.id === activeMission.id
+    && String(projection.mission.projectId) === String(activeMission.projectId),
+  );
+  const currentProjection = projectionBelongsToActiveMission ? projection : null;
+  const projectionGoals = currentProjection?.goals ?? [];
+  const decisionProjectionIsCurrent = Boolean(
+    currentProjection
+    && activeMission
+    && currentProjection.mission.id === activeMission.id
+    && String(currentProjection.mission.projectId) === String(activeMission.projectId)
+    && currentProjection.engineeringAgent?.schemaVersion === 2
+    && currentProjection.engineeringAgent?.missionId === activeMission.id,
   );
   const missionDecision = decisionProjectionIsCurrent
-    ? projection!.engineeringAgent.nextAction
+    ? currentProjection!.engineeringAgent.nextAction
     : null;
   const missionDecisionIdentity: EngineeringAgentDecision | null = missionDecision
     ? {
@@ -1575,7 +1585,7 @@ export default function Missions() {
   const needsReplan = missionDecision?.kind === 'REPLAN'
     && (decisionTargetIsMission || decisionTargetIsCurrentGoal);
   const approvalGoalId = missionDecision?.kind === 'APPROVE'
-    ? projection?.engineeringAgent.goalId ?? null
+    ? currentProjection?.engineeringAgent.goalId ?? null
     : null;
   const approvalGoalIsCurrent = Boolean(
     approvalGoalId
@@ -1586,7 +1596,7 @@ export default function Missions() {
   const canStartMission = missionDecision?.kind === 'START' && decisionTargetIsMission;
   const canAutoContinue = missionDecision?.kind === 'AUTO_CONTINUE' && decisionTargetIsCurrentGoal;
   const stopCommand = decisionProjectionIsCurrent
-    ? projection?.engineeringAgent.availableCommands.find((command) => command.kind === 'STOP') ?? null
+    ? currentProjection?.engineeringAgent.availableCommands.find((command) => command.kind === 'STOP') ?? null
     : null;
   const reviewExecutionId = missionDecision?.kind === 'REVIEW'
     && missionDecision.target?.kind === 'execution'
@@ -1603,12 +1613,12 @@ export default function Missions() {
       const rightTime = Date.parse(right.completedAt ?? right.updatedAt);
       return (Number.isFinite(rightTime) ? rightTime : 0) - (Number.isFinite(leftTime) ? leftTime : 0);
     })[0];
-  const projectionIsPartial = projection
-    ? projection.counts.goals !== projectionGoals.length
-      || projection.counts.tasks !== projectionGoals.reduce((sum, item) => sum + item.tasks.length, 0)
-      || projection.counts.workflows !== projectionGoals.reduce((sum, item) => sum + item.workflows.length, 0)
-      || projection.counts.executions !== projectionGoals.reduce((sum, item) => sum + item.executions.length, 0)
-      || projection.counts.events !== projectionGoals.reduce((sum, item) => sum + item.events.length, 0)
+  const projectionIsPartial = currentProjection
+    ? currentProjection.counts.goals !== projectionGoals.length
+      || currentProjection.counts.tasks !== projectionGoals.reduce((sum, item) => sum + item.tasks.length, 0)
+      || currentProjection.counts.workflows !== projectionGoals.reduce((sum, item) => sum + item.workflows.length, 0)
+      || currentProjection.counts.executions !== projectionGoals.reduce((sum, item) => sum + item.executions.length, 0)
+      || currentProjection.counts.events !== projectionGoals.reduce((sum, item) => sum + item.events.length, 0)
     : false;
 
   const openEditor = (next: Exclude<EditorState, null>) => {
@@ -2146,14 +2156,14 @@ export default function Missions() {
                       </div>
                       <div className="mt-5 flex flex-wrap gap-x-6 gap-y-3">
                         <Metric label="Status" value={missionStatusMessage(activeMission.status)} accent="text-cyan-200" />
-                        <Metric label="Goals" value={projection?.counts.goals ?? '—'} />
-                        <Metric label="Tasks" value={projection?.counts.tasks ?? '—'} />
+                        <Metric label="Goals" value={currentProjection?.counts.goals ?? '—'} />
+                        <Metric label="Tasks" value={currentProjection?.counts.tasks ?? '—'} />
                       </div>
-                      {projection?.mission.id === activeMission.id
-                        && projection.mission.projectId === activeMission.projectId
-                        && projection.engineeringAgent?.missionId === activeMission.id ? (
+                      {currentProjection?.mission.id === activeMission.id
+                        && String(currentProjection.mission.projectId) === String(activeMission.projectId)
+                        && currentProjection.engineeringAgent?.missionId === activeMission.id ? (
                         <div className="mt-4" data-testid={`mission-agent-projection-${activeMission.id}`}>
-                          <MissionAgentProjectionSummary projection={projection.engineeringAgent} />
+                          <MissionAgentProjectionSummary projection={currentProjection.engineeringAgent} />
                         </div>
                       ) : null}
                     </div>
@@ -2261,7 +2271,22 @@ export default function Missions() {
                         forbidden={errorStatus(projectionError) === 403}
                         onRetry={() => setProjectionReload((value) => value + 1)}
                       />
-                    ) : projection ? (
+                    ) : projection && activeMission && !currentProjection ? (
+                      <div
+                        data-testid="mission-projection-identity-error"
+                        role="status"
+                        className="m-4 rounded-md border border-amber-300/20 bg-amber-300/5 px-3 py-3 text-xs leading-5 text-amber-100/85"
+                      >
+                        <p>تعذر مطابقة تفاصيل الهدف مع الهدف المحدد؛ لم نعرض بيانات مرتبطة بهدف آخر.</p>
+                        <button
+                          type="button"
+                          onClick={() => setProjectionReload((value) => value + 1)}
+                          className="mt-2 rounded-md border border-amber-300/30 px-2.5 py-1.5 font-medium hover:bg-amber-300/10"
+                        >
+                          إعادة تحميل تفاصيل الهدف
+                        </button>
+                      </div>
+                    ) : currentProjection ? (
                       <div className="p-4 md:p-5">
                         {projectionIsPartial ? (
                           <div className="mb-4 flex items-start gap-2.5 rounded-md border border-amber-300/20 bg-amber-300/5 px-3 py-2.5 text-xs text-amber-100/80">
@@ -2269,7 +2294,7 @@ export default function Missions() {
                             <span>Some activity is still loading. The latest result will appear here automatically.</span>
                           </div>
                         ) : null}
-                        {projection.agentControl ? (
+                        {currentProjection.agentControl ? (
                           <section
                             aria-label="Agent control"
                             className="mb-5 rounded-lg border border-cyan-300/15 bg-cyan-300/[0.035] p-3.5"
@@ -2287,25 +2312,25 @@ export default function Missions() {
                                 </p>
                               </div>
                               <span className="rounded-full border border-slate-700 px-2.5 py-1 font-mono text-[10px] uppercase tracking-wide text-slate-400">
-                                {projection.agentControl.handoff.dispatchStatus === 'dispatched'
+                                {currentProjection.agentControl.handoff.dispatchStatus === 'dispatched'
                                   ? 'Dispatched'
                                   : 'Dispatch pending'}
                               </span>
                             </div>
                             <div className="mt-3 flex flex-wrap items-center justify-between gap-3 border-t border-slate-800/80 pt-3">
                               <div className="text-[11px] text-slate-500">
-                                Confirmed {formatDate(projection.agentControl.handoff.confirmedAt, true)}
+                                Confirmed {formatDate(currentProjection.agentControl.handoff.confirmedAt, true)}
                                 <span className="mx-2 text-slate-700">·</span>
-                                Plan {compactId(projection.agentControl.handoff.planHash)}
+                                Plan {compactId(currentProjection.agentControl.handoff.planHash)}
                               </div>
                               {chatHandoffHref(
                                 String(activeMission.projectId),
-                                projection.agentControl.handoff,
+                                currentProjection.agentControl.handoff,
                               ) ? (
                                 <Link
                                   href={chatHandoffHref(
                                     String(activeMission.projectId),
-                                    projection.agentControl.handoff,
+                                    currentProjection.agentControl.handoff,
                                   )!}
                                   data-testid="link-mission-handoff-chat"
                                   className="inline-flex items-center gap-1.5 text-xs font-medium text-cyan-200 hover:text-cyan-100"
@@ -2337,8 +2362,8 @@ export default function Missions() {
                               <GoalCard
                                 key={item.goal.id}
                                 item={item}
-                                planBinding={projection?.currentPlan?.binding}
-                                inCurrentPlan={Array.isArray(projection?.currentPlan?.goalIds) ? projection.currentPlan.goalIds.includes(item.goal.id) : undefined}
+                                planBinding={currentProjection?.currentPlan?.binding}
+                                inCurrentPlan={Array.isArray(currentProjection?.currentPlan?.goalIds) ? projection.currentPlan.goalIds.includes(item.goal.id) : undefined}
                                 expanded={expandedGoalId === item.goal.id}
                                 onToggle={() => setExpandedGoalId((current) => current === item.goal.id ? null : item.goal.id)}
                                 onEdit={() => openEditor({ type: 'goal-edit', missionId: activeMission.id, goal: item.goal })}
