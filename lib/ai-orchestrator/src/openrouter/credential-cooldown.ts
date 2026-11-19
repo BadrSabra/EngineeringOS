@@ -89,10 +89,16 @@ const postgresPersistence: CredentialCooldownPersistence = {
 
   async write(fingerprint, cooldown) {
     const { pool } = await import("@workspace/db");
+    // Persist a duration, not a host-generated epoch. PostgreSQL owns the
+    // absolute expiry so API replicas with skewed wall clocks agree on the
+    // same provider Retry-After window.
+    const remainingMs = Math.ceil(cooldown.coolingUntil - Date.now());
+    if (!Number.isSafeInteger(remainingMs) || remainingMs <= 0) return;
+
     await pool.query(
       `INSERT INTO openrouter_credential_cooldowns
          (credential_fingerprint, cooling_until, error_code, scope, updated_at)
-       VALUES ($1, to_timestamp($2::double precision / 1000.0), $3, $4, now())
+       VALUES ($1, now() + ($2::double precision * interval '1 millisecond'), $3, $4, now())
        ON CONFLICT (credential_fingerprint) DO UPDATE
        SET cooling_until = GREATEST(
              openrouter_credential_cooldowns.cooling_until,
@@ -109,7 +115,7 @@ const postgresPersistence: CredentialCooldownPersistence = {
              ELSE openrouter_credential_cooldowns.scope
            END,
            updated_at = now()`,
-      [fingerprint, cooldown.coolingUntil, cooldown.code, cooldown.scope],
+      [fingerprint, remainingMs, cooldown.code, cooldown.scope],
     );
     await pool.query(
       "DELETE FROM openrouter_credential_cooldowns WHERE cooling_until <= now()",
