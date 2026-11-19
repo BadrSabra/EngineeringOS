@@ -1,11 +1,25 @@
-import { Network, Activity, GitMerge, ShieldAlert } from 'lucide-react';
+import { Network, Target, Activity, ShieldCheck } from 'lucide-react';
 import { Link } from 'wouter';
 
-const FEATURES = [
-  { icon: Network, label: 'خريطة توضح كيف ترتبط أجزاء مشروعك ببعضها' },
-  { icon: GitMerge, label: 'خطوات واضحة من الفحص إلى المراجعة ثم الإصدار' },
-  { icon: ShieldAlert, label: 'قواعد تحددها أنت مع سجل لما تم تنفيذه' },
-  { icon: Activity, label: 'متابعة مباشرة لما يحدث في مشاريعك' },
+const WORKFLOW_STEPS = [
+  {
+    number: '١',
+    icon: Target,
+    title: 'اكتب هدفك',
+    description: 'صف النتيجة التي تريدها بلغتك، دون اختيار أدوات برمجية.',
+  },
+  {
+    number: '٢',
+    icon: Activity,
+    title: 'تابع الخطوات',
+    description: 'اعرف ما يجري في مشروعك وما يحتاج قرارًا أو مراجعة منك.',
+  },
+  {
+    number: '٣',
+    icon: ShieldCheck,
+    title: 'راجع ما اكتمل',
+    description: 'اطّلع على النتائج وبيانات التحقق المتاحة قبل اعتماد العمل.',
+  },
 ];
 
 export default function Landing() {
@@ -21,7 +35,7 @@ export default function Landing() {
       </header>
 
       <main className="flex-1 flex items-center justify-center px-6">
-        <div className="max-w-2xl w-full text-center space-y-8 py-16">
+        <div className="max-w-4xl w-full text-center space-y-8 py-14">
           <div className="space-y-3">
             <div className="text-xs font-mono text-muted-foreground tracking-wider">
               مساحة عمل لمشاريعك البرمجية
@@ -50,17 +64,36 @@ export default function Landing() {
             </Link>
           </div>
 
-          <div className="grid grid-cols-2 gap-3 pt-6 text-start">
-            {FEATURES.map((f) => (
-              <div
-                key={f.label}
-                className="flex items-start gap-3 rounded-md border border-border bg-card p-4"
-              >
-                <f.icon className="w-4 h-4 text-primary shrink-0 mt-0.5" />
-                <span className="text-sm text-muted-foreground">{f.label}</span>
-              </div>
-            ))}
-          </div>
+          <section aria-labelledby="landing-workflow-title" className="space-y-4 pt-4 text-right">
+            <div className="space-y-1">
+              <h2 id="landing-workflow-title" className="text-lg font-semibold">
+                رحلتك تبدأ بهدفك
+              </h2>
+              <p className="text-sm text-muted-foreground">
+                من وصف ما تريده إلى متابعة ما اكتمل، في مساحة واحدة.
+              </p>
+            </div>
+            <ol
+              aria-label="خطوات العمل في EngineeringOS"
+              className="grid grid-cols-1 gap-3 text-start sm:grid-cols-3"
+            >
+              {WORKFLOW_STEPS.map((step) => (
+                <li
+                  key={step.number}
+                  className="rounded-md border border-border bg-card p-4"
+                >
+                  <div className="flex items-center gap-2 text-primary">
+                    <span aria-hidden="true" className="text-xs font-mono">{step.number}</span>
+                    <step.icon className="h-4 w-4" aria-hidden="true" />
+                  </div>
+                  <h3 className="mt-3 text-sm font-semibold">{step.title}</h3>
+                  <p className="mt-1 text-sm leading-6 text-muted-foreground">
+                    {step.description}
+                  </p>
+                </li>
+              ))}
+            </ol>
+          </section>
         </div>
       </main>
     </div>

@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { render, screen, within } from "@testing-library/react";
 import { describe, it, expect, vi } from "vitest";
 import Landing from "./Landing";
 
@@ -25,12 +25,16 @@ describe("Landing", () => {
     expect(createAccount).toHaveAttribute("href", "/sign-up");
   });
 
-  it("renders all four feature cards", () => {
+  it("explains the goal-first journey in three clear steps", () => {
     render(<Landing />);
-    expect(screen.getByText('خريطة توضح كيف ترتبط أجزاء مشروعك ببعضها')).toBeInTheDocument();
-    expect(screen.getByText('خطوات واضحة من الفحص إلى المراجعة ثم الإصدار')).toBeInTheDocument();
-    expect(screen.getByText('قواعد تحددها أنت مع سجل لما تم تنفيذه')).toBeInTheDocument();
-    expect(screen.getByText('متابعة مباشرة لما يحدث في مشاريعك')).toBeInTheDocument();
+
+    expect(screen.getByRole('heading', { level: 2, name: 'رحلتك تبدأ بهدفك' })).toBeInTheDocument();
+    const steps = screen.getByRole('list', { name: 'خطوات العمل في EngineeringOS' });
+    expect(within(steps).getAllByRole('listitem')).toHaveLength(3);
+    expect(within(steps).getByText('اكتب هدفك')).toBeInTheDocument();
+    expect(within(steps).getByText('تابع الخطوات')).toBeInTheDocument();
+    expect(within(steps).getByText('راجع ما اكتمل')).toBeInTheDocument();
+    expect(within(steps).getByText(/بيانات التحقق المتاحة/)).toBeInTheDocument();
   });
 
   it("renders the EngineeringOS brand name in the header", () => {
