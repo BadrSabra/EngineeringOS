@@ -25,7 +25,7 @@ import {
   ScanProjectParams,
   GetScanJobParams,
 } from "@workspace/api-zod";
-import { eq, desc, and, inArray } from "drizzle-orm";
+import { eq, desc, and, inArray, count } from "drizzle-orm";
 import { randomUUID } from "crypto";
 import { logger } from "../lib/logger.js";
 import { recordAuditInTransaction } from "../lib/audit.js";
@@ -584,8 +584,15 @@ router.get(
 router.get("/projects/:projectId/summary", requireProjectAccess, async (req, res) => {
   const { projectId } = GetProjectSummaryParams.parse(req.params);
 
-  const [taskRows, recentEvents, latestMetric] = await Promise.all([
-    db.select().from(tasksTable).where(eq(tasksTable.projectId, projectId)),
+  const [taskStatusRows, recentEvents, latestMetric] = await Promise.all([
+    db
+      .select({
+        status: tasksTable.status,
+        taskCount: count(),
+      })
+      .from(tasksTable)
+      .where(eq(tasksTable.projectId, projectId))
+      .groupBy(tasksTable.status),
     db
       .select()
       .from(eventsTable)
@@ -601,17 +608,18 @@ router.get("/projects/:projectId/summary", requireProjectAccess, async (req, res
   ]);
 
   const project = req.project!;
+  const countByStatus = new Map(
+    taskStatusRows.map(({ status, taskCount }) => [status, Number(taskCount)] as const),
+  );
+  const countFor = (status: (typeof tasksTable.$inferSelect)["status"]) =>
+    countByStatus.get(status) ?? 0;
 
   const taskCounts = {
-    total: taskRows.length,
-    pending: taskRows.filter(
-      (t) => t.status === "pending" || t.status === "queued",
-    ).length,
-    running: taskRows.filter(
-      (t) => t.status === "running" || t.status === "verifying",
-    ).length,
-    completed: taskRows.filter((t) => t.status === "completed").length,
-    failed: taskRows.filter((t) => t.status === "failed").length,
+    total: taskStatusRows.reduce((total, row) => total + Number(row.taskCount), 0),
+    pending: countFor("pending") + countFor("queued"),
+    running: countFor("running") + countFor("verifying"),
+    completed: countFor("completed"),
+    failed: countFor("failed"),
   };
 
   return res.json({
