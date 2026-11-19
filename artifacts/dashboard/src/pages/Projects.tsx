@@ -239,9 +239,22 @@ function ProjectsForAccountSession({
           <section role="dialog" aria-modal="true" aria-labelledby="create-project-title" dir="rtl" lang="ar" className="w-full max-w-xl overflow-hidden rounded-2xl border border-border bg-card shadow-2xl">
             <div className="flex items-start justify-between border-b border-border px-6 py-5">
               <div>
-                <div className="font-mono text-[10px] uppercase tracking-[0.22em] text-primary">مشروع جديد / React + Vite</div>
-                <h2 id="create-project-title" className="mt-1 text-xl font-semibold">ابدأ مشروعًا من قالب جاهز</h2>
-                <p className="mt-1 text-sm text-muted-foreground">يجهّز EngineeringOS القالب المعتمد ويعرض لك حالة العملية خطوة بخطوة.</p>
+                <div className="text-xs font-medium text-primary">مشروع ويب جديد</div>
+                <h2 id="create-project-title" className="mt-1 text-xl font-semibold">ابدأ مشروعك من قالب ويب جاهز</h2>
+                <p className="mt-1 text-sm text-muted-foreground">
+                  سنجهّز مساحة ويب أساسية؛ لا تحتاج لاختيار أدوات برمجة. اكتب وصفًا إن رغبت، وستراجعه في مساحة العمل قبل إرساله.
+                </p>
+                <details data-testid="details-project-template" className="mt-2 text-xs text-muted-foreground">
+                  <summary
+                    data-testid="summary-project-template-details"
+                    className="w-fit cursor-pointer rounded-sm underline decoration-dotted underline-offset-4 outline-none focus-visible:ring-2 focus-visible:ring-primary"
+                  >
+                    التفاصيل التقنية
+                  </summary>
+                  <p className="mt-2">
+                    يستخدم القالب <bdi dir="ltr" className="font-mono">React + Vite</bdi>.
+                  </p>
+                </details>
               </div>
               <button type="button" onClick={resetCreate} aria-label="إغلاق نافذة إنشاء المشروع" data-testid="button-close-project-create" className="rounded-md p-2 text-muted-foreground hover:bg-secondary hover:text-foreground"><X className="h-4 w-4" /></button>
             </div>
@@ -259,13 +272,13 @@ function ProjectsForAccountSession({
                   <span dir="ltr" className="block text-left font-mono text-[10px] text-muted-foreground">{projectName.length}/80</span>
                 </label>
                 <label className="block space-y-2">
-                  <span className="text-sm font-medium">ماذا تريد أن تبني؟ <span className="font-normal text-muted-foreground">(اختياري)</span></span>
+                  <span className="text-sm font-medium">ما الذي تريد أن يساعدك المشروع في إنجازه؟ <span className="font-normal text-muted-foreground">(اختياري)</span></span>
                   <textarea maxLength={currentDraft?.source === 'home' ? 2000 : 3000} readOnly={Boolean(currentDraft?.bootstrap)} rows={5} value={projectDescription} onChange={(event) => { setProjectDescription(event.target.value); idempotencyKey.current = ''; }} placeholder="صف المشكلة، ومن سيستخدم المشروع، وأول نتيجة مفيدة تريدها." dir="auto" data-testid="input-project-description" className="w-full resize-y rounded-lg border border-input bg-background px-3 py-2.5 text-sm leading-relaxed outline-none transition focus:border-primary/60 focus:ring-2 focus:ring-primary/15" />
                   <span dir="ltr" className="block text-left font-mono text-[10px] text-muted-foreground">{projectDescription.length}/3000</span>
                 </label>
                 <div className="flex items-start gap-3 rounded-lg border border-primary/20 bg-primary/5 p-3 text-xs leading-relaxed text-muted-foreground">
                   <ShieldCheck className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
-                  <p>القالب يديره الخادم. سيظهر وصفك في محادثة المشروع كمسودة تخطيط غير مُرسَلة؛ ولا يمنح إذنًا بأي تعديل ولا يبدأ تشغيل المساعد الذكي.</p>
+                  <p>سيظهر وصفك في مساحة العمل كمسودة لا تُرسل تلقائيًا. تجهيز القالب لا يمنح إذنًا بتعديل الملفات؛ راجع المسودة واختر المتابعة بنفسك.</p>
                 </div>
                 {bootstrapError && <p role="alert" data-testid="status-bootstrap-error" className="rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2 text-sm text-destructive">{bootstrapError}</p>}
                 <div className="flex justify-end gap-2 pt-1">
