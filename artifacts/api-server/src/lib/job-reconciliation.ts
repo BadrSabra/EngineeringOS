@@ -964,7 +964,7 @@ export async function reconcileStaleAiTasks(): Promise<number> {
  * Returns the number of jobs re-enqueued.
  */
 export async function requeueStalePendingJobs(): Promise<number> {
-  const cutoff = new Date(Date.now() - STALE_PENDING_TIMEOUT_MS);
+  const staleCutoff = sql<Date>`${databaseNow()} - (${STALE_PENDING_TIMEOUT_MS} * interval '1 millisecond')`;
   let requeued = 0;
 
   try {
@@ -974,7 +974,7 @@ export async function requeueStalePendingJobs(): Promise<number> {
       .where(
         and(
           eq(scanJobsTable.status, "queued"),
-          lt(scanJobsTable.createdAt, cutoff),
+          lt(scanJobsTable.createdAt, staleCutoff),
         ),
       );
 
@@ -995,8 +995,8 @@ export async function requeueStalePendingJobs(): Promise<number> {
             code: "STALE_PENDING_REQUEUE",
             jobId: job.id,
             projectId: job.projectId,
-            cutoff: cutoff.toISOString(),
-            timeoutMs: STALE_PENDING_TIMEOUT_MS,
+            ageThresholdMs: STALE_PENDING_TIMEOUT_MS,
+            cutoffClock: "database",
           },
           "scan job stuck in queued — re-enqueued by stale-pending sweep",
         );
@@ -1273,7 +1273,6 @@ export async function getDurableJobHealth(): Promise<{
   }>;
 }> {
   const now = databaseNow();
-  const nowIso = new Date().toISOString();
   const stalePendingCutoff = sql<Date>`(clock_timestamp() AT TIME ZONE 'UTC') - (${STALE_PENDING_TIMEOUT_MS} * interval '1 millisecond')`;
   try {
     const [
@@ -1371,9 +1370,471 @@ export async function getDurableJobHealth(): Promise<{
               or(
                 eq(eventsTable.type, "TaskAutoExecutionDispatchRequested"),
                 sql`(
-                  ${eventsTable.payload}->>'nextAttemptAt' IS NULL
-                  OR ${eventsTable.payload}->>'nextAttemptAt' !~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}T'
-                  OR ${eventsTable.payload}->>'nextAttemptAt' <= ${nowIso}
+                  CASE
+                    WHEN ${eventsTable.payload}->>'nextAttemptAt'
+                      ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}[.][0-9]{3}Z
+              ),
+            ),
+          ),
+        )),
+      db.select({
+        value: sql<string | null>`to_char(
+          min(${eventsTable.timestamp}),
+          'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"'
+        )`,
+      }).from(eventsTable)
+        .where(inArray(eventsTable.type, [
+          "TaskAutoExecutionDispatchRequested",
+          "TaskAutoExecutionDeferred",
+        ])),
+      db.select({ value: count() }).from(durableDispatchStageHealthTable)
+        .where(eq(durableDispatchStageHealthTable.lastOutcome, "failed")),
+      db.select({
+        stageName: durableDispatchStageHealthTable.stageName,
+        lastOutcome: durableDispatchStageHealthTable.lastOutcome,
+        lastRunAt: durableDispatchStageHealthTable.lastRunAt,
+        lastSuccessAt: durableDispatchStageHealthTable.lastSuccessAt,
+        lastFailureAt: durableDispatchStageHealthTable.lastFailureAt,
+        consecutiveFailures: durableDispatchStageHealthTable.consecutiveFailures,
+        lastErrorCode: durableDispatchStageHealthTable.lastErrorCode,
+        lastDispatchedCount: durableDispatchStageHealthTable.lastDispatchedCount,
+      }).from(durableDispatchStageHealthTable).orderBy(asc(durableDispatchStageHealthTable.stageName)),
+      db.select({ value: count() }).from(taskExecutionObservationOutboxTable)
+        .where(eq(taskExecutionObservationOutboxTable.status, "pending")),
+      db.select({ value: count() }).from(taskExecutionObservationOutboxTable)
+        .where(and(
+          eq(taskExecutionObservationOutboxTable.status, "pending"),
+          lt(taskExecutionObservationOutboxTable.createdAt, stalePendingCutoff),
+        )),
+      db.select({ value: count() }).from(taskExecutionObservationOutboxTable)
+        .where(and(
+          eq(taskExecutionObservationOutboxTable.status, "running"),
+          or(
+            isNull(taskExecutionObservationOutboxTable.leaseUntil),
+            lte(taskExecutionObservationOutboxTable.leaseUntil, now),
+          ),
+        )),
+      db.select({ value: count() }).from(taskExecutionObservationOutboxTable)
+        .where(and(
+          eq(taskExecutionObservationOutboxTable.status, "pending"),
+          gt(taskExecutionObservationOutboxTable.attemptCount, 0),
+        )),
+      db.select({ value: count() }).from(taskExecutionObservationOutboxTable)
+        .where(eq(taskExecutionObservationOutboxTable.status, "dead_letter")),
+    ]);
+    const values = {
+      queuedScanJobs: Number(queuedScans.value),
+      pendingDiscoverySessions: Number(pendingDiscoveries.value),
+      staleQueuedScanJobs: Number(staleQueuedScans.value),
+      stalePendingDiscoverySessions: Number(stalePendingDiscoveries.value),
+      expiredScanLeases: Number(expiredScans.value),
+      expiredDiscoveryLeases: Number(expiredDiscoveries.value),
+      expiredTaskLeases: Number(expiredTasks.value),
+      retryExhaustedScanJobs: Number(exhaustedScans.value),
+      retryExhaustedTasks: Number(exhaustedTasks.value),
+      pendingAiTaskDispatches: Number(requestedAiTaskDispatches.value),
+      deferredAiTaskDispatches: Number(deferredAiTaskDispatches.value),
+      deferredAiTaskDispatchesByReason: deferredAiTaskDispatchReasonRows.map((row) => ({
+        reasonCode: row.reasonCode,
+        count: Number(row.value),
+      })),
+      staleAiTaskDispatches: Number(staleAiTaskDispatches.value),
+      oldestAiTaskDispatchAt: oldestAiTaskDispatch.value ?? null,
+      failedDispatchStages: Number(failedStages.value),
+      pendingTaskObservationMaterializations: Number(pendingObservationRows.value),
+      staleTaskObservationMaterializations: Number(staleObservationRows.value),
+      expiredTaskObservationLeases: Number(expiredObservationLeases.value),
+      failedTaskObservationMaterializations: Number(failedObservationRows.value),
+      deadLetteredTaskObservationMaterializations: Number(deadLetterObservationRows.value),
+      dispatchStages: stageRows.map((row) => ({
+        stageName: row.stageName,
+        lastOutcome: row.lastOutcome,
+        lastRunAt: row.lastRunAt.toISOString(),
+        lastSuccessAt: row.lastSuccessAt?.toISOString() ?? null,
+        lastFailureAt: row.lastFailureAt?.toISOString() ?? null,
+        consecutiveFailures: row.consecutiveFailures,
+        lastErrorCode: row.lastErrorCode,
+        lastDispatchedCount: row.lastDispatchedCount,
+      })),
+    };
+    const needsAttention =
+      values.staleQueuedScanJobs > 0
+      || values.stalePendingDiscoverySessions > 0
+      || values.expiredScanLeases + values.expiredDiscoveryLeases + values.expiredTaskLeases > 0
+      || values.retryExhaustedScanJobs + values.retryExhaustedTasks > 0
+      || values.staleAiTaskDispatches > 0
+      || values.failedDispatchStages > 0
+      || values.staleTaskObservationMaterializations > 0
+      || values.expiredTaskObservationLeases > 0
+      || values.failedTaskObservationMaterializations > 0
+      || values.deadLetteredTaskObservationMaterializations > 0;
+    return { status: needsAttention ? "degraded" : "healthy", ...values };
+  } catch (error) {
+    logger.error({ error, scope: "job-reconciliation" }, "durable job health query failed");
+    return {
+      status: "degraded",
+      queuedScanJobs: 0,
+      pendingDiscoverySessions: 0,
+      staleQueuedScanJobs: 0,
+      stalePendingDiscoverySessions: 0,
+      expiredScanLeases: 0,
+      expiredDiscoveryLeases: 0,
+      expiredTaskLeases: 0,
+      retryExhaustedScanJobs: 0,
+      retryExhaustedTasks: 0,
+      pendingAiTaskDispatches: 0,
+      deferredAiTaskDispatches: 0,
+      deferredAiTaskDispatchesByReason: [],
+      staleAiTaskDispatches: 0,
+      oldestAiTaskDispatchAt: null,
+      failedDispatchStages: 0,
+      pendingTaskObservationMaterializations: 0,
+      staleTaskObservationMaterializations: 0,
+      expiredTaskObservationLeases: 0,
+      failedTaskObservationMaterializations: 0,
+      deadLetteredTaskObservationMaterializations: 0,
+      dispatchStages: [],
+    };
+  }
+}
+
+/**
+ * Keep persisted pending work flowing while the server is alive. This
+ * complements startup reconciliation and also lets a healthy instance recover
+ * work written by another instance that died before local dispatch.
+ */
+export function startDurableJobDispatcher(): NodeJS.Timeout {
+  logger.info(
+    { intervalMs: DURABLE_JOB_DISPATCH_INTERVAL_MS },
+    "durable job dispatcher scheduled",
+  );
+
+  void dispatchPersistedPendingJobs();
+  void wakeDueMissionGoals();
+  void wakeReadyMissionGoals();
+  void wakeRuntimeTransitionMissionGoals();
+  void retryTransitionsAndReconcileApplyGoals();
+  return setInterval(() => {
+    void dispatchPersistedPendingJobs();
+    void wakeDueMissionGoals();
+    void wakeReadyMissionGoals();
+    void wakeRuntimeTransitionMissionGoals();
+    void retryTransitionsAndReconcileApplyGoals();
+  }, DURABLE_JOB_DISPATCH_INTERVAL_MS);
+}
+
+/**
+ * Release-test worker that is pinned to one explicitly assigned project.
+ * It intentionally avoids the general scan/discovery/runtime/stale-job
+ * sweepers; only Mission lifecycle work for this project is dispatched.
+ */
+export function startScopedMissionLifecycleDispatcher(
+  projectId: string,
+): NodeJS.Timeout {
+  const dispatch = async () => {
+    try {
+      await dispatchAutonomousTaskRecoveries({ projectId });
+      await reconcileAutomaticMissionReplans(16, projectId);
+      await reconcileMissionPlanOutcomesIfDue(projectId);
+      await reconcileMissionDecisionShadowsIfDue(projectId);
+      await dispatchPendingMissionRecipes(32, projectId);
+      await reconcileCompletedMissionRecipeAcceptances(32, projectId);
+      await replayPendingMissionEvents(32, projectId);
+      await dispatchPendingShadowReplays(32, projectId);
+      await dispatchPendingMissionChatHandoffs(32, projectId);
+      await wakeDueMissionGoals(32, projectId);
+      await wakeReadyMissionGoals(32, projectId);
+      await wakeRuntimeTransitionMissionGoals(32, projectId);
+      await wakeApplyChangesMissionGoals(32, projectId);
+    } catch (err) {
+      logger.error(
+        { err, projectId },
+        "scoped lifecycle worker dispatch failed",
+      );
+    }
+  };
+
+  logger.info(
+    { projectId, intervalMs: DURABLE_JOB_DISPATCH_INTERVAL_MS },
+    "project-scoped lifecycle dispatcher scheduled",
+  );
+  void dispatch();
+  return setInterval(() => void dispatch(), DURABLE_JOB_DISPATCH_INTERVAL_MS);
+}
+
+async function retryTransitionsAndReconcileApplyGoals(): Promise<void> {
+  try {
+    await retryPendingRuntimeStartTransitions();
+    await wakeApplyChangesMissionGoals();
+  } catch (error) {
+    logger.warn(
+      { error },
+      "apply Mission transition reconciliation failed",
+    );
+  }
+}
+
+/**
+ * Start the periodic stale-job sweep. Returns the interval handle so the
+ * caller can clear it on graceful shutdown if needed.
+ *
+ * PR-D1: Now runs both `failStaleRunningJobs` (hung running jobs) and
+ * `requeueStalePendingJobs` (lost queued closures) on each tick.
+ */
+export function startStaleJobSweep(): NodeJS.Timeout {
+  logger.info(
+    {
+      intervalMs: STALE_JOB_SWEEP_INTERVAL_MS,
+      pendingTimeoutMs: STALE_PENDING_TIMEOUT_MS,
+    },
+    "stale-job sweep scheduled",
+  );
+  return setInterval(async () => {
+    const [
+      failed,
+      requeued,
+      failedDiscoveries,
+      recoveredTasks,
+      reconciledAiExecutions,
+      expiredUploads,
+      wokenGoals,
+      wokenDependencyGoals,
+    ] = await Promise.all([
+      failStaleRunningJobs(),
+      requeueStalePendingJobs(),
+      failStaleDiscoverySessions(),
+      reconcileStaleAiTasks(),
+      reconcileAiExecutions({ expiredOnly: true }),
+      sweepExpiredUploads(),
+      wakeDueMissionGoals(),
+      wakeReadyMissionGoals(),
+      wakeRuntimeTransitionMissionGoals(),
+      retryTransitionsAndReconcileApplyGoals(),
+    ]);
+    if (failed > 0) {
+      logger.warn({ failed }, "stale-job sweep: timed out running scan jobs marked failed");
+    }
+    if (requeued > 0) {
+      logger.warn({ requeued }, "stale-job sweep: stale pending scan jobs re-enqueued");
+    }
+    if (failedDiscoveries > 0 || recoveredTasks > 0) {
+      logger.warn({ failedDiscoveries, recoveredTasks }, "stale-job sweep: abandoned work reconciled");
+    }
+    if (reconciledAiExecutions > 0) {
+      logger.warn(
+        { reconciledAiExecutions },
+        "stale-job sweep: expired AI execution leases reconciled",
+      );
+    }
+    if (expiredUploads > 0) {
+      logger.info({ expiredUploads }, "stale-job sweep: expired upload entries removed");
+    }
+    if (wokenGoals > 0 || wokenDependencyGoals > 0) {
+      logger.info(
+        { wokenGoals, wokenDependencyGoals },
+        "stale-job sweep: Mission Goals woken",
+      );
+    }
+  }, STALE_JOB_SWEEP_INTERVAL_MS);
+}
+
+/**
+ * Handles tasks left in "running" state after a process crash.
+ *
+ * AI task execution (scheduleAiTaskExecution) claims verifying → running,
+ * then calls the Groq agent. The inner try/catch rolls back to "verifying"
+ * on normal execution failure, but a hard crash (SIGKILL, OOM) bypasses that
+ * rollback, leaving the task permanently stuck in "running".
+ *
+ * Treatment:
+ *   "running" + retryCount < maxRetries → reset to "verifying" (re-triggerable)
+ *   "running" + retryCount >= maxRetries → mark "failed" (give up)
+ *
+ * We never auto-re-execute here because:
+ *   1. We don't have the userId needed to resolve a Groq API key.
+ *   2. The agent may have applied partial changes — the user should review first.
+ *
+ * Resetting to "verifying" makes the task visible on the dashboard and allows
+ * the user or the auto-trigger to re-execute it cleanly.
+ */
+async function reconcileAiTasks(): Promise<number> {
+  const now = databaseNow();
+  const abandonedTask = or(
+    lt(tasksTable.leaseUntil, databaseNow()),
+    isNull(tasksTable.leaseUntil),
+  );
+
+  const runningTasks = await db
+    .select({
+      id: tasksTable.id,
+      projectId: tasksTable.projectId,
+      title: tasksTable.title,
+      retryCount: tasksTable.retryCount,
+      maxRetries: tasksTable.maxRetries,
+    })
+    .from(tasksTable)
+    .where(and(eq(tasksTable.status, "running"), abandonedTask));
+
+  if (runningTasks.length === 0) return 0;
+
+  let resetCount = 0;
+  let failedCount = 0;
+
+  for (const task of runningTasks) {
+    const correlationId = randomUUID();
+
+    if (task.retryCount < task.maxRetries) {
+      // Reset to verifying so the task can be re-triggered. The AI call was
+      // interrupted mid-flight — we can't resume, but we can let it run again.
+      const [resetTask] = await db
+        .update(tasksTable)
+        .set({
+          status: "verifying",
+          retryCount: task.retryCount + 1,
+          updatedAt: now,
+          // PR-01: clear lease so the task can be re-claimed on next execution
+          workerId: null,
+          leaseUntil: null,
+          lastHeartbeatAt: null,
+        })
+        .where(and(eq(tasksTable.id, task.id), eq(tasksTable.status, "running"), abandonedTask))
+        .returning({ id: tasksTable.id });
+
+      if (!resetTask) {
+        logger.warn(
+          {
+            scope: "job-reconciliation",
+            code: "AI_TASK_RESET_CONFLICT",
+            taskId: task.id,
+            projectId: task.projectId,
+            correlationId,
+          },
+          "running AI task changed concurrently during reconciliation; reset skipped",
+        );
+      }
+
+      if (resetTask) {
+        invalidateContextCache(task.projectId);
+        await db.insert(taskLogsTable).values({
+          id: randomUUID(),
+          taskId: task.id,
+          level: "warn",
+          message: `Task reset to "verifying" after process restart (retry ${task.retryCount + 1}/${task.maxRetries}). Re-trigger to execute.`,
+          correlationId,
+        });
+        resetCount++;
+      }
+    } else {
+      // Exceeded maxRetries — mark permanently failed.
+      const [failedTask] = await db
+        .update(tasksTable)
+        .set({
+          status: "failed",
+          updatedAt: now,
+          completedAt: now,
+          // PR-01: clear lease on permanent failure
+          workerId: null,
+          leaseUntil: null,
+          lastHeartbeatAt: null,
+        })
+        .where(and(eq(tasksTable.id, task.id), eq(tasksTable.status, "running"), abandonedTask))
+        .returning({ id: tasksTable.id });
+
+      if (!failedTask) {
+        logger.warn(
+          {
+            scope: "job-reconciliation",
+            code: "AI_TASK_FAIL_CONFLICT",
+            taskId: task.id,
+            projectId: task.projectId,
+            correlationId,
+          },
+          "running AI task changed concurrently during reconciliation; failure write skipped",
+        );
+      }
+
+      if (failedTask) {
+        await db.insert(taskLogsTable).values({
+          id: randomUUID(),
+          taskId: task.id,
+          level: "error",
+          message: `Task permanently failed after process restart: retry limit of ${task.maxRetries} exceeded. ${ORPHANED_RUNNING_MESSAGE}`,
+          correlationId,
+        });
+        invalidateContextCache(task.projectId);
+        failedCount++;
+      }
+    }
+  }
+
+  logger.warn(
+    {
+      count: runningTasks.length,
+      reset: resetCount,
+      failed: failedCount,
+      taskIds: runningTasks.map((t) => t.id),
+    },
+    "reconciled interrupted AI tasks after restart: reset to verifying or failed",
+  );
+
+  return runningTasks.length;
+}
+
+/**
+ * Runs all startup reconciliation passes. Never throws — a reconciliation
+ * bug must not prevent the server from starting.
+ */
+export async function reconcileStuckJobs(): Promise<{
+  scanJobs: number;
+  discoverySessions: number;
+  aiTasks: number;
+  aiExecutions: number;
+  deliveries: number;
+  expiredUploads: number;
+}> {
+  try {
+    const [
+      scanJobs,
+      discoverySessions,
+      aiTasks,
+      expiredUploads,
+      githubDeliveryRecoveries,
+    ] = await Promise.all([
+      reconcileScanJobs(),
+      reconcileDiscoverySessions(),
+      reconcileAiTasks(),
+      sweepExpiredUploads(),
+      reconcileInterruptedGitHubDeliveryAttempts(),
+    ]);
+    // Apply reconciliation depends on execution lease reconciliation. Keep
+    // both passes ordered so the delivery reconciler cannot race a proof-bound
+    // apply and automatically write files from its promotion journal.
+    const aiExecutions = await reconcileAiExecutions({ expiredOnly: true });
+    const applyRecovery = await reconcileInterruptedApplyChanges();
+    const legacyDeliveries = await reconcileInterruptedDeliveries(applyRecovery.protectedProposalIds);
+    const deliveries = legacyDeliveries + applyRecovery.reconciled + githubDeliveryRecoveries;
+    if (applyRecovery.reconciled > 0) {
+      logger.info(
+        { applyChanges: applyRecovery.reconciled },
+        "startup reconciliation: proof-bound apply states reconciled without filesystem writes",
+      );
+    }
+    if (aiExecutions > 0) {
+      logger.info({ aiExecutions }, "startup reconciliation: paused interrupted AI executions");
+    }
+    if (expiredUploads > 0) {
+      logger.info({ expiredUploads }, "startup reconciliation: expired upload entries swept");
+    }
+    return { scanJobs, discoverySessions, aiTasks, aiExecutions, deliveries, expiredUploads };
+  } catch (err) {
+    logger.error({ err }, "startup job reconciliation failed");
+    return { scanJobs: 0, discoverySessions: 0, aiTasks: 0, aiExecutions: 0, deliveries: 0, expiredUploads: 0 };
+  }
+}
+
+                    THEN (${eventsTable.payload}->>'nextAttemptAt')::timestamptz <= clock_timestamp()
+                    ELSE TRUE
+                  END
                 )`,
               ),
             ),
