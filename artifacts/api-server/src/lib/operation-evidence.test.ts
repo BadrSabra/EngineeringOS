@@ -17,6 +17,7 @@ import {
 } from "@workspace/db";
 import {
   buildOperationEvidenceProjection,
+  loadOperationEvidence,
   redactOperationEvidence,
   type EvidenceInput,
 } from "./operation-evidence.js";
