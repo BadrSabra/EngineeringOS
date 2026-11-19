@@ -174,18 +174,19 @@ describe("Preview Agent heartbeat PostgreSQL lifecycle", () => {
         });
         const [afterIssue] = await db
           .select({
-            now: sql<Date>`clock_timestamp()`,
+            now: sql<string>`clock_timestamp()::text`,
             expiresAt: previewAgentNodesTable.heartbeatChallengeExpiresAt,
           })
           .from(previewAgentNodesTable)
           .where(eq(previewAgentNodesTable.nodeId, pairing.nodeId));
-        if (!afterIssue?.now || !afterIssue.expiresAt) {
+        const afterIssueNow = afterIssue?.now ? new Date(afterIssue.now) : null;
+        if (!afterIssueNow || Number.isNaN(afterIssueNow.getTime()) || !afterIssue?.expiresAt) {
           throw new Error("Heartbeat challenge expiry was not persisted");
         }
         expect(
           Math.abs(
             afterIssue.expiresAt.getTime()
-              - afterIssue.now.getTime()
+              - afterIssueNow.getTime()
               - PREVIEW_AGENT_HEARTBEAT_CHALLENGE_TTL_MS,
           ),
         ).toBeLessThan(5_000);
@@ -200,16 +201,17 @@ describe("Preview Agent heartbeat PostgreSQL lifecycle", () => {
         const accepted = await acceptPreviewAgentHeartbeat(signed);
         const [afterAccept] = await db
           .select({
-            now: sql<Date>`clock_timestamp()`,
+            now: sql<string>`clock_timestamp()::text`,
             lastSeenAt: previewAgentNodesTable.lastSeenAt,
           })
           .from(previewAgentNodesTable)
           .where(eq(previewAgentNodesTable.nodeId, pairing.nodeId));
-        if (!afterAccept?.now || !afterAccept.lastSeenAt) {
+        const afterAcceptNow = afterAccept?.now ? new Date(afterAccept.now) : null;
+        if (!afterAcceptNow || Number.isNaN(afterAcceptNow.getTime()) || !afterAccept?.lastSeenAt) {
           throw new Error("Accepted heartbeat presence timestamp was not persisted");
         }
         expect(
-          Math.abs(afterAccept.lastSeenAt.getTime() - afterAccept.now.getTime()),
+          Math.abs(afterAccept.lastSeenAt.getTime() - afterAcceptNow.getTime()),
         ).toBeLessThan(5_000);
         expect(accepted.lastSeenAt.getTime()).toBe(afterAccept.lastSeenAt.getTime());
       } finally {
