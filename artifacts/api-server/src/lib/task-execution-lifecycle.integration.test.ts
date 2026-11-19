@@ -484,7 +484,10 @@ async function drainProjectObservationOutbox(projectId: string): Promise<void> {
       .where(eq(taskExecutionObservationOutboxTable.projectId, projectId));
     if (rows.length === 0) break;
 
-    const failed = rows.find((row) => row.status === "dead_letter" || row.attemptCount > 0);
+    const failed = rows.find((row) => (
+      row.status === "dead_letter"
+      || (row.status === "pending" && row.attemptCount > 0)
+    ));
     if (failed) {
       throw new Error(
         `Task observation outbox ${failed.id} did not materialize: ${failed.lastFailureCode ?? failed.status}`,
