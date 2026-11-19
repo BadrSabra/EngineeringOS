@@ -47,6 +47,13 @@ const GENERAL_CHAT_STARTERS = [
   { id: 'clarify-goal', label: 'توضيح ما أريد', prompt: 'ساعدني على توضيح ما أريد إنجازه: ' },
 ] as const;
 
+function normalizeGeneralChatSearchText(value: string): string {
+  return value
+    .normalize('NFKC')
+    .replace(/[\u064B-\u065F\u0670]/g, '')
+    .toLocaleLowerCase();
+}
+
 export default function GeneralChat() {
   const { user, isLoaded } = useUser();
   const locationSearch = useSearch();
@@ -86,6 +93,7 @@ function GeneralChatSession({
   });
   const projects = projectsQuery.data ?? [];
   const [activeSessionId, setActiveSessionId] = useState(routeSessionId ?? '');
+  const [sessionSearch, setSessionSearch] = useState('');
   const [draft, setDraft] = useState('');
   const [actionError, setActionError] = useState('');
   const [incomingGoalDraft, setIncomingGoalDraft] = useState<GoalDraft | null>(null);
@@ -105,6 +113,15 @@ function GeneralChatSession({
   const orderedSessions = useMemo(
     () => [...sessions].sort((left, right) => right.updatedAt.localeCompare(left.updatedAt)),
     [sessions],
+  );
+  const sessionSearchTerm = normalizeGeneralChatSearchText(sessionSearch.trim());
+  const matchingSessions = useMemo(
+    () => sessionSearchTerm
+      ? orderedSessions.filter((session) => normalizeGeneralChatSearchText(
+        session.title || 'محادثة بلا عنوان',
+      ).includes(sessionSearchTerm))
+      : orderedSessions,
+    [orderedSessions, sessionSearchTerm],
   );
   const activeSession = orderedSessions.find((session) => session.id === activeSessionId);
   const messagesQuery = useListGeneralChatMessages(activeSessionId, {
@@ -446,6 +463,22 @@ function GeneralChatSession({
             <span lang="ar" className="text-[10px] text-muted-foreground">المحادثات المحفوظة</span>
             <span className="font-mono text-[10px] text-muted-foreground">{sessions.length.toString().padStart(2, '0')}</span>
           </div>
+          {!sessionsQuery.isLoading && !sessionsQuery.isError && orderedSessions.length > 0 && (
+            <div dir="rtl" lang="ar" className="px-2 pb-2">
+              <label htmlFor="general-session-search" className="sr-only">
+                ابحث في عناوين المحادثات
+              </label>
+              <input
+                id="general-session-search"
+                type="search"
+                value={sessionSearch}
+                onChange={(event) => setSessionSearch(event.target.value)}
+                placeholder="ابحث في العناوين"
+                data-testid="input-search-general-sessions"
+                className="w-full rounded-md border border-border bg-background px-3 py-2 text-xs outline-none placeholder:text-muted-foreground focus-visible:ring-2 focus-visible:ring-primary"
+              />
+            </div>
+          )}
           <div className="min-h-0 flex-1 overflow-y-auto px-2 pb-3">
             {sessionsQuery.isLoading ? (
               <div className="space-y-2 p-2" aria-label="جارٍ تحميل المحادثات">
@@ -462,9 +495,21 @@ function GeneralChatSession({
                 <p className="text-xs font-medium">لا توجد محادثات في القائمة بعد</p>
                 <p className="mt-1 text-[11px] leading-relaxed text-muted-foreground">أنشئ محادثة لبدء نقاش محفوظ، منفصل عن مشاريعك.</p>
               </div>
+            ) : matchingSessions.length === 0 ? (
+              <div dir="rtl" lang="ar" role="status" data-testid="status-general-session-search-empty" className="m-2 rounded-lg border border-dashed border-border px-3 py-5 text-center">
+                <p className="text-xs font-medium">لا توجد عناوين تطابق البحث.</p>
+                <button
+                  type="button"
+                  onClick={() => setSessionSearch('')}
+                  data-testid="button-clear-general-session-search"
+                  className="mt-2 text-xs font-medium text-primary hover:underline"
+                >
+                  مسح البحث
+                </button>
+              </div>
             ) : (
               <div className="space-y-1">
-                {orderedSessions.map((session) => (
+                {matchingSessions.map((session) => (
                   <div key={session.id} className={`group flex items-center gap-1 rounded-lg border px-2 py-1.5 transition-colors ${activeSessionId === session.id ? 'border-primary/30 bg-primary/8' : 'border-transparent hover:border-border hover:bg-secondary/45'}`}>
                     <button
                       type="button"

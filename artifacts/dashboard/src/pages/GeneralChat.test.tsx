@@ -219,7 +219,38 @@ describe('Arabic conversation feedback boundaries', () => {
     renderPage();
     expect(screen.getByRole('status')).toHaveTextContent('لا توجد محادثات في القائمة بعد');
     expect(screen.getByTestId('button-create-first-general-chat')).toHaveTextContent('إنشاء محادثة');
+    expect(screen.queryByTestId('input-search-general-sessions')).not.toBeInTheDocument();
     expect(mocks.create).not.toHaveBeenCalled();
+  });
+
+  it('filters saved conversation titles and lets the user clear an empty result', () => {
+    mocks.sessions.data = [
+      mocks.session,
+      { id: 'session-2', title: 'تحليل الخيار الأول', updatedAt: '2026-10-15T10:00:00Z' },
+      { id: 'session-3', title: 'تحليل الخيار الثاني', updatedAt: '2026-10-16T10:00:00Z' },
+    ];
+    window.history.replaceState({}, '', '/general-chat?sessionId=session-1');
+    renderPage();
+
+    const search = screen.getByTestId('input-search-general-sessions');
+    expect(search).toHaveAccessibleName('ابحث في عناوين المحادثات');
+    fireEvent.change(search, { target: { value: '  تَحليل ' } });
+
+    expect(screen.getByTestId('button-select-general-session-session-2')).toBeInTheDocument();
+    expect(screen.getByTestId('button-select-general-session-session-3')).toBeInTheDocument();
+    expect(screen.queryByTestId('button-select-general-session-session-1')).not.toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'نقاش المشروع' })).toBeInTheDocument();
+    expect(mocks.remove).not.toHaveBeenCalled();
+    expect(mocks.create).not.toHaveBeenCalled();
+
+    fireEvent.change(search, { target: { value: 'عنوان غير موجود' } });
+    expect(screen.getByTestId('status-general-session-search-empty')).toHaveTextContent(
+      'لا توجد عناوين تطابق البحث',
+    );
+    fireEvent.click(screen.getByTestId('button-clear-general-session-search'));
+    expect(screen.getByTestId('button-select-general-session-session-1')).toBeInTheDocument();
+    expect(screen.getByTestId('button-select-general-session-session-2')).toBeInTheDocument();
+    expect(screen.getByTestId('button-select-general-session-session-3')).toBeInTheDocument();
   });
 
   it('keeps a home handoff separate from the latest session until the user creates a new conversation', () => {
