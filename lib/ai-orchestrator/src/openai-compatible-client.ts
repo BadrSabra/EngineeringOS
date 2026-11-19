@@ -662,6 +662,16 @@ function isTransientError(err: unknown): err is GroqClientError {
   );
 }
 
+/** A positive server Retry-After is a wait boundary, not a model-selection hint. */
+function hasPositiveRetryAfter(err: unknown): boolean {
+  return (
+    err instanceof GroqClientError &&
+    typeof err.retryAfterMs === "number" &&
+    Number.isFinite(err.retryAfterMs) &&
+    err.retryAfterMs > 0
+  );
+}
+
 export type OpenRouterFailureAction =
   | "retry"
   | "choose-alternative"
@@ -891,7 +901,9 @@ function classifyStatus(
     providerMessage: pMessage ?? body.slice(0, 200),
     providerName,
     providerModel:   model,
-    retryAfterMs:    status === 429 ? parseRetryAfterMs(headers) : undefined,
+    // Retry-After also applies to HTTP 503 Service Unavailable. Capture it
+    // so fallback policy cannot rotate models before the server allows retry.
+    retryAfterMs:    status === 429 || status === 503 ? parseRetryAfterMs(headers) : undefined,
     ...(rateLimitScope ? { rateLimitScope } : {}),
     ...(providerDetails.upstreamProvider
       ? { upstreamProvider: providerDetails.upstreamProvider.slice(0, 120) }
@@ -1822,7 +1834,8 @@ export async function openrouterCompleteRaw(
     if (
       !isTransientError(err) ||
       opts.retryTransient === false ||
-      isRateLimitFailure(err)
+      isRateLimitFailure(err) ||
+      hasPositiveRetryAfter(err)
     ) {
       throw err;
     }
@@ -2432,7 +2445,7 @@ export async function openrouterCompleteWithFallback(
       const fallbackOnTransient =
         isTransientError(err) &&
         !isRateLimitFailure(err) &&
-        (opts.retryTransient === false || err.retryAfterMs === undefined);
+        !hasPositiveRetryAfter(err);
       const fallbackOnEmptyResponse =
         err instanceof GroqClientError && err.code === "EMPTY_RESPONSE";
       if (
@@ -2792,7 +2805,7 @@ export async function* openrouterCompleteStream(
             opts.retryTransient !== false &&
             isTransientError(providerError) &&
             !isRateLimitFailure(providerError) &&
-            providerError.retryAfterMs === undefined
+            !hasPositiveRetryAfter(providerError)
           ) {
             transientRetried = true;
             continue;
@@ -2800,8 +2813,8 @@ export async function* openrouterCompleteStream(
           const fallbackOnTransient =
             isTransientError(providerError) &&
             !isRateLimitFailure(providerError) &&
-            (opts.retryTransient === false ||
-              (transientRetried && providerError.retryAfterMs === undefined));
+            !hasPositiveRetryAfter(providerError) &&
+            (opts.retryTransient === false || transientRetried);
           const canAdvance = !isRateLimitFailure(providerError) &&
             (isModelUnavailableError(providerError) || fallbackOnTransient);
           if (!canAdvance || index >= chain.length - 1) {
