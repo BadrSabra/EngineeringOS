@@ -181,6 +181,24 @@ describe("Projects", () => {
     expect(detailsLink).toHaveAccessibleName('تفاصيل مشروع alpha-service');
   });
 
+  it("offers project creation directly from the empty state without starting it", () => {
+    vi.mocked(useListProjects).mockReturnValue({
+      data: [],
+      isLoading: false,
+      isError: false,
+      error: null,
+    } as ReturnType<typeof useListProjects>);
+
+    render(<Projects />);
+
+    expect(screen.getByRole("status")).toHaveTextContent("لا توجد مشاريع بعد");
+    expect(screen.getByTestId("button-empty-discover-project")).toBeInTheDocument();
+    fireEvent.click(screen.getByTestId("button-empty-create-project"));
+
+    expect(screen.getByRole("dialog", { name: "ابدأ مشروعك من قالب ويب جاهز" })).toBeInTheDocument();
+    expect(mocks.mutate).not.toHaveBeenCalled();
+  });
+
   it("filters projects by name (case-insensitive)", () => {
     render(<Projects />);
     const input = screen.getByRole('textbox', { name: 'ابحث عن مشروع بالاسم أو الوصف أو التقنية' });
@@ -224,6 +242,7 @@ describe("Projects", () => {
     fireEvent.change(input, { target: { value: "zzz-no-match" } });
     expect(screen.queryByText("alpha-service")).not.toBeInTheDocument();
     expect(screen.getByRole('status')).toHaveTextContent('لا توجد مشاريع تطابق بحثك');
+    expect(screen.queryByTestId('button-empty-create-project')).not.toBeInTheDocument();
     expect(mocks.mutate).not.toHaveBeenCalled();
   });
 
