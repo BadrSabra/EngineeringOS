@@ -28,8 +28,8 @@ vi.mock("@workspace/db", () => ({
 
 
 describe("audit write recovery", () => {
-  let audit: typeof import("./audit.js");
-  let counters: typeof import("./operational-counters.js");
+  let audit!: typeof import("./audit.js");
+  let counters!: typeof import("./operational-counters.js");
 
   beforeEach(async () => {
     vi.resetModules();
