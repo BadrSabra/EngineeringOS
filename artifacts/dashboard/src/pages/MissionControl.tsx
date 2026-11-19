@@ -24,7 +24,7 @@ import {
   XCircle,
   Zap,
 } from 'lucide-react';
-import { Link } from 'wouter';
+import { Link, useSearch } from 'wouter';
 import {
   useGetAiMissionControl,
   useGetAiExecution,
@@ -1288,7 +1288,10 @@ function MissionSkeleton() {
 }
 
 export default function MissionControl() {
-  const searchParams = new URLSearchParams(window.location.search);
+  // Subscribe to query-only navigation; reading window.location directly does not
+  // rerender this page when the pathname remains /mission-control.
+  const routeSearch = useSearch();
+  const searchParams = new URLSearchParams(routeSearch);
   const projectId = searchParams.get('projectId') ?? '';
   const requestedMissionId = searchParams.get('missionId') ?? '';
   const requestedExecutionId = searchParams.get('executionId') ?? '';
