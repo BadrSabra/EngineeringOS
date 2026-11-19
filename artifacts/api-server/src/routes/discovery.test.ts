@@ -1179,8 +1179,8 @@ describe("POST /projects/import — transaction integrity", () => {
     expect(importedEvent?.message).toMatch(/event-test/);
   });
 
-  it("imports every detectedApi, including routes beyond the former cap", async () => {
-    const detectedApis = Array.from({ length: 60 }, (_, i) => `/api/route-${i}`);
+  it("imports every detectedApi across multiple bounded insert batches", async () => {
+    const detectedApis = Array.from({ length: 520 }, (_, i) => `/api/route-${i}`);
     const discoveryId = await insertReadySession(fakeResult({ detectedApis }));
     const res = await request(app).post("/api/projects/import").send({ discoveryId });
     expect(res.status).toBe(201);
