@@ -75,11 +75,6 @@ import { logger } from "./logger.js";
 import { heavyJobQueue } from "./job-queue.js";
 import { runScanJob, terminalizeFailedScanJob } from "./scan-runner.js";
 
-const githubDeliveryReceiptEvents = alias(eventsTable, "github_delivery_receipt");
-const githubDeliveryRecoveryEvents = alias(eventsTable, "github_delivery_recovery");
-
-/** Maximum number of incomplete GitHub delivery attempts reconciled per pass. */
-export const GITHUB_DELIVERY_RECOVERY_BATCH_SIZE = 100;
 import { dispatchPendingPluginRuns } from "./plugin-runtime.js";
 import { runDiscovery } from "./discovery-runner.js";
 import { sweepExpiredUploads } from "./upload-store.js";
@@ -112,6 +107,12 @@ import { dispatchPendingMissionChatHandoffs } from "./mission-chat-handoffs.js";
 import { retryPendingRuntimeStartTransitions } from "./agent-state/runtime-start-transition.js";
 import { dispatchDeferredAiTaskExecutions } from "../routes/ai/tasks.js";
 import { dispatchPendingTaskObservationOutbox } from "./task-observation-outbox.js";
+
+const githubDeliveryReceiptEvents = alias(eventsTable, "github_delivery_receipt");
+const githubDeliveryRecoveryEvents = alias(eventsTable, "github_delivery_recovery");
+
+/** Maximum number of incomplete GitHub delivery attempts reconciled per pass. */
+export const GITHUB_DELIVERY_RECOVERY_BATCH_SIZE = 100;
 
 const ORPHANED_RUNNING_MESSAGE =
   "Job was in progress when the server restarted and could not be resumed.";
