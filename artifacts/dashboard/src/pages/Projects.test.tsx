@@ -201,7 +201,7 @@ describe("Projects", () => {
 
   it("filters projects by name (case-insensitive)", () => {
     render(<Projects />);
-    const input = screen.getByRole('textbox', { name: 'ابحث عن مشروع بالاسم أو الوصف أو التقنية' });
+    const input = screen.getByRole('textbox', { name: 'ابحث عن مشروع بكلمات من الاسم أو الوصف أو التقنية' });
     fireEvent.change(input, { target: { value: "ALPHA" } });
     expect(screen.getByText("alpha-service")).toBeInTheDocument();
     expect(screen.queryByText("beta-worker")).not.toBeInTheDocument();
@@ -238,7 +238,7 @@ describe("Projects", () => {
 
   it("shows empty state when no projects match the search", () => {
     render(<Projects />);
-    const input = screen.getByRole('textbox', { name: 'ابحث عن مشروع بالاسم أو الوصف أو التقنية' });
+    const input = screen.getByRole('textbox', { name: 'ابحث عن مشروع بكلمات من الاسم أو الوصف أو التقنية' });
     fireEvent.change(input, { target: { value: "zzz-no-match" } });
     expect(screen.queryByText("alpha-service")).not.toBeInTheDocument();
     expect(screen.getByRole('status')).toHaveTextContent('لا توجد مشاريع تطابق بحثك');
@@ -365,6 +365,17 @@ describe("Projects", () => {
 
     expect(screen.queryByText('alpha-service')).not.toBeInTheDocument();
     expect(screen.getByRole('status')).toHaveTextContent('لا توجد مشاريع بعد');
+  });
+
+  it('finds one project with terms spread across its description and technology', () => {
+    render(<Projects />);
+    fireEvent.change(screen.getByTestId('input-project-search'), {
+      target: { value: 'SUPPORT React' },
+    });
+
+    expect(screen.getByTestId('card-project-1')).toBeInTheDocument();
+    expect(screen.queryByTestId('card-project-2')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('card-project-3')).not.toBeInTheDocument();
   });
 
 });
