@@ -110,9 +110,11 @@ async function findStructuredExecutionCooldown(params: {
 
   if (rows.length === 0) return undefined;
 
-  const [{ databaseNow: databaseClockNow }] = await db.select({
-    databaseNow: sql<Date>`clock_timestamp()`,
-  });
+  const clockResult = await db.execute(sql`SELECT clock_timestamp() AS "databaseNow"`);
+  const clockValue = clockResult.rows[0]?.databaseNow;
+  const databaseClockNow = clockValue instanceof Date
+    ? clockValue
+    : new Date(String(clockValue));
   const now = databaseClockNow.getTime();
   if (!Number.isFinite(now)) {
     throw new Error("DATABASE_CLOCK_UNAVAILABLE");
