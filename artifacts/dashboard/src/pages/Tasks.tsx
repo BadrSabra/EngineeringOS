@@ -768,8 +768,10 @@ function isTaskLogForTask(value: unknown, taskId: string): value is TaskLog {
   return log.taskId === taskId
     && typeof log.id === 'string'
     && log.id.trim().length > 0
+    && (log.level === 'debug' || log.level === 'info' || log.level === 'warn' || log.level === 'error')
     && typeof log.message === 'string'
-    && typeof log.timestamp === 'string';
+    && typeof log.timestamp === 'string'
+    && Number.isFinite(Date.parse(log.timestamp));
 }
 
 function stageDuration(step: TimelineStep): string | null {
