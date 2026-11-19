@@ -144,6 +144,7 @@ type RecoveryRequest = Request & {
 export async function runChatExecutionRecovery(params: {
   executionId: string;
   userId: string;
+  expectedAttempt: number;
   mode?: "resume" | "retry";
 }): Promise<{
   ok: boolean;
@@ -154,6 +155,9 @@ export async function runChatExecutionRecovery(params: {
 }> {
   const execution = await getAiExecutionForUser(params.executionId, params.userId);
   if (!execution) return { ok: false, reason: "execution_not_found" };
+  if (execution.attempt !== params.expectedAttempt) {
+    return { ok: false, reason: "execution_attempt_changed" };
+  }
 
   const request = parseExecutionRequest(execution.request);
   if (
