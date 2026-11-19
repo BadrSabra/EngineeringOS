@@ -2,6 +2,9 @@ import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { QuickNavigation } from './QuickNavigation';
 
+let originalScrollIntoView: PropertyDescriptor | undefined;
+let originalCanvasGetContext: PropertyDescriptor | undefined;
+
 const mocks = vi.hoisted(() => ({
   setLocation: vi.fn(),
   projects: {
@@ -25,6 +28,16 @@ vi.mock('wouter', () => ({
 }));
 
 beforeEach(() => {
+  originalScrollIntoView = Object.getOwnPropertyDescriptor(HTMLElement.prototype, 'scrollIntoView');
+  originalCanvasGetContext = Object.getOwnPropertyDescriptor(HTMLCanvasElement.prototype, 'getContext');
+  Object.defineProperty(HTMLElement.prototype, 'scrollIntoView', {
+    configurable: true,
+    value: vi.fn(),
+  });
+  Object.defineProperty(HTMLCanvasElement.prototype, 'getContext', {
+    configurable: true,
+    value: vi.fn(() => null),
+  });
   vi.stubGlobal('ResizeObserver', class {
     observe() {}
     unobserve() {}
@@ -37,6 +50,16 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  if (originalScrollIntoView) {
+    Object.defineProperty(HTMLElement.prototype, 'scrollIntoView', originalScrollIntoView);
+  } else {
+    Reflect.deleteProperty(HTMLElement.prototype, 'scrollIntoView');
+  }
+  if (originalCanvasGetContext) {
+    Object.defineProperty(HTMLCanvasElement.prototype, 'getContext', originalCanvasGetContext);
+  } else {
+    Reflect.deleteProperty(HTMLCanvasElement.prototype, 'getContext');
+  }
   vi.unstubAllGlobals();
 });
 

@@ -74,7 +74,7 @@ export function QuickNavigation() {
         </kbd>
       </button>
 
-      <CommandDialog open={open} onOpenChange={setOpen}>
+      <CommandDialog label="ابحث عن صفحة أو مشروع" open={open} onOpenChange={setOpen}>
         <DialogTitle className="sr-only">البحث عن صفحة أو مشروع</DialogTitle>
         <CommandInput
           aria-label="ابحث عن صفحة أو مشروع"
