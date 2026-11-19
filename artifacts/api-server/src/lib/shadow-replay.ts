@@ -1132,11 +1132,16 @@ export async function runShadowReplayAttempt(
   const validationProfiles = request.validationProfiles ?? [];
   let ownershipLost = false;
   const renewReplayLease = async (): Promise<boolean> => {
-    const renewed = await updateReplayOwned(replay.id, owner, {
-      leaseUntil: shadowReplayDatabaseLeaseUntil(SHADOW_REPLAY_LEASE_MS),
-    });
+    const [renewed] = await db
+      .update(aiShadowReplaysTable)
+      .set({
+        leaseUntil: shadowReplayDatabaseLeaseUntil(SHADOW_REPLAY_LEASE_MS),
+        updatedAt: shadowReplayDatabaseNow(),
+      })
+      .where(replayOwnerWhere(replay.id, owner))
+      .returning({ id: aiShadowReplaysTable.id });
     if (!renewed) ownershipLost = true;
-    return renewed;
+    return Boolean(renewed);
   };
   if (validationProfiles.length === 0) {
     await updateReplayOwned(replay.id, owner, {
