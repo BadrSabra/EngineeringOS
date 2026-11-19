@@ -187,7 +187,7 @@ describe("database-authoritative chat turn ordering", () => {
 
     // Let the older provider turn finish only after the newer turn has
     // committed its messages and resumable state.
-    older.child.stdin.write("finish\n");
+    older.child.stdin.end("finish\n");
     const olderExit = await older.exited;
     expect(olderExit.code, olderExit.stderr).toBe(0);
 
