@@ -317,53 +317,90 @@ function groupMessages(messages: RawMessage[]): MessageGroup[] {
  */
 function sanitizeOutboundMessages(messages: RawMessage[]): RawMessage[] {
   const sanitized: RawMessage[] = [];
-  let activeToolCallIds = new Set<string>();
+  let pendingToolTurn: RawMessage[] | null = null;
+  let pendingToolCallIds: Set<string> | null = null;
+
+  const discardPendingToolTurn = () => {
+    pendingToolTurn = null;
+    pendingToolCallIds = null;
+  };
 
   for (const message of messages) {
     if (message.role === "assistant") {
+      // A new assistant turn closes any previous tool turn. An incomplete
+      // previous turn is intentionally discarded rather than sent malformed.
+      discardPendingToolTurn();
+
       const hasContent =
         typeof message.content === "string" && message.content.trim().length > 0;
       const toolCalls = Array.isArray(message.tool_calls) ? message.tool_calls : [];
 
-      if (!hasContent && toolCalls.length === 0) {
-        activeToolCallIds = new Set<string>();
+      if (!hasContent && toolCalls.length === 0) continue;
+
+      if (toolCalls.length > 0) {
+        const declaredIds = toolCalls.map((toolCall) => toolCall.id);
+        const validIds = declaredIds.filter(
+          (id): id is string => typeof id === "string" && id.trim().length > 0,
+        );
+
+        // Every declared call needs a unique, non-empty identity before this
+        // turn can be replayed to a provider.
+        if (
+          validIds.length !== declaredIds.length ||
+          new Set(validIds).size !== declaredIds.length
+        ) {
+          continue;
+        }
+
+        pendingToolTurn = [{
+          ...message,
+          tool_calls: toolCalls.map((toolCall) => ({
+            id: toolCall.id,
+            type: "function" as const,
+            function: {
+              name: toolCall.function.name,
+              arguments: toolCall.function.arguments,
+            },
+          })),
+        }];
+        pendingToolCallIds = new Set(validIds);
         continue;
       }
 
-      activeToolCallIds = new Set(
-        toolCalls
-          .map((toolCall) => toolCall.id)
-          .filter((id): id is string => Boolean(id)),
-      );
-      sanitized.push({
-        ...message,
-        ...(toolCalls.length > 0
-          ? {
-              tool_calls: toolCalls.map((toolCall) => ({
-                id: toolCall.id,
-                type: "function" as const,
-                function: {
-                  name: toolCall.function.name,
-                  arguments: toolCall.function.arguments,
-                },
-              })),
-            }
-          : {}),
-      });
+      sanitized.push(message);
       continue;
     }
 
     if (message.role === "tool") {
       const toolCallId = message.tool_call_id;
-      if (toolCallId && !activeToolCallIds.has(toolCallId)) continue;
-      sanitized.push(message);
+      if (
+        !pendingToolTurn ||
+        !pendingToolCallIds ||
+        typeof toolCallId !== "string" ||
+        !pendingToolCallIds.has(toolCallId)
+      ) {
+        continue;
+      }
+
+      pendingToolTurn.push(message);
+      pendingToolCallIds.delete(toolCallId);
+
+      // Buffer the assistant request and its tool results as one atomic unit.
+      // Never forward the assistant request until every declared call has a
+      // corresponding result.
+      if (pendingToolCallIds.size === 0) {
+        sanitized.push(...pendingToolTurn);
+        discardPendingToolTurn();
+      }
       continue;
     }
 
-    activeToolCallIds = new Set<string>();
+    // User/system/developer messages break an unfinished tool turn.
+    discardPendingToolTurn();
     sanitized.push(message);
   }
 
+  // An unfinished tool turn at end-of-history is not provider-valid.
   return sanitized;
 }
 
