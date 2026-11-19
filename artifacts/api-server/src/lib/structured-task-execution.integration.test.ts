@@ -65,9 +65,14 @@ async function persistStructuredProviderCooldown(
   fixture: Awaited<ReturnType<typeof createStructuredExecutionFixture>>,
   retryOffsetMs: number,
 ): Promise<string> {
-  const [{ databaseNow }] = await db.select({
-    databaseNow: sql<Date>`clock_timestamp()`,
-  });
+  const clockResult = await db.execute(sql`SELECT clock_timestamp() AS "databaseNow"`);
+  const clockValue = clockResult.rows[0]?.databaseNow;
+  const databaseNow = clockValue instanceof Date
+    ? clockValue
+    : new Date(String(clockValue));
+  if (!Number.isFinite(databaseNow.getTime())) {
+    throw new Error("Could not read PostgreSQL time for the cooldown fixture.");
+  }
   const retryAt = new Date(databaseNow.getTime() + retryOffsetMs).toISOString();
   const messageId = await fixture.execution.persistAssistant({
     content: "Provider temporarily unavailable.",
