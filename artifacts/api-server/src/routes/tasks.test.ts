@@ -149,7 +149,10 @@ describe("Task lifecycle", () => {
     expect(unchanged?.status).toBe("pending");
     const startedEvents = await db.select({ id: eventsTable.id })
       .from(eventsTable)
-      .where(eq(eventsTable.type, "TaskExecutionStarted"));
+      .where(and(
+        eq(eventsTable.type, "TaskExecutionStarted"),
+        eq(eventsTable.projectId, prerequisite.projectId),
+      ));
     expect(startedEvents).toHaveLength(0);
 
     await db.update(tasksTable)
