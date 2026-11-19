@@ -6,6 +6,11 @@ const mocks = vi.hoisted(() => ({
   startDiscovery: vi.fn(),
   importProject: vi.fn(),
   scanProject: vi.fn(),
+  scanProjectState: {
+    isPending: false,
+    isError: false,
+    error: null as unknown,
+  },
   invalidateQueries: vi.fn(() => Promise.resolve()),
   navigate: vi.fn(),
   session: {
@@ -132,7 +137,10 @@ vi.mock('@workspace/api-client-react', () => ({
     isFetching: false,
     isError: false,
   }),
-  useScanProject: () => ({ mutateAsync: mocks.scanProject, isPending: false, isError: false }),
+  useScanProject: () => ({
+    mutateAsync: mocks.scanProject,
+    ...mocks.scanProjectState,
+  }),
   getListProjectsQueryKey: () => ['/api/projects'],
   getGetDiscoverySessionQueryKey: (id: string) => ['/api/projects/discover', id],
   getGetDiscoverySummaryQueryKey: (id: string) => ['/api/projects/discover', id, 'summary'],
@@ -160,6 +168,9 @@ describe('DiscoverProjectWizard Arabic findings', () => {
     mocks.startDiscovery.mockResolvedValue(mocks.session);
     mocks.importProject.mockResolvedValue({ id: 'imported-project' });
     mocks.scanProject.mockResolvedValue(undefined);
+    mocks.scanProjectState.isPending = false;
+    mocks.scanProjectState.isError = false;
+    mocks.scanProjectState.error = null;
   });
 
   it('explains where each project source comes from before the user starts scanning', () => {
@@ -395,6 +406,42 @@ describe('DiscoverProjectWizard Arabic findings', () => {
     expect(screen.getByTestId('button-open-imported-project')).toBeInTheDocument();
     expect(mocks.navigate).not.toHaveBeenCalled();
     expect(onClose).not.toHaveBeenCalled();
+  });
+
+  it('keeps the project scan retryable after a failed attempt', async () => {
+    mocks.scanProject
+      .mockImplementationOnce(async () => {
+        mocks.scanProjectState.isError = true;
+        mocks.scanProjectState.error = new Error('Scan queue unavailable');
+        throw new Error('Scan queue unavailable');
+      })
+      .mockImplementationOnce(async () => {
+        mocks.scanProjectState.isError = false;
+        mocks.scanProjectState.error = null;
+        return undefined;
+      });
+
+    render(<DiscoverProjectWizard onClose={vi.fn()} />);
+    fireEvent.change(screen.getByPlaceholderText('https://github.com/owner/repo'), {
+      target: { value: 'https://github.com/example/sample-app' },
+    });
+    fireEvent.click(screen.getByTestId('start-discovery'));
+    await screen.findByRole('heading', { name: 'نتائج استكشاف المشروع' });
+    fireEvent.click(screen.getByRole('button', { name: 'تأكيد وإضافة المشروع' }));
+    await screen.findByRole('heading', { name: 'تمت إضافة المشروع' });
+
+    fireEvent.click(screen.getByRole('button', { name: 'ابدأ الفحص' }));
+    const retryButton = await screen.findByRole('button', { name: 'أعد محاولة الفحص' });
+    expect(screen.getByTestId('scan-project-error')).toBeInTheDocument();
+    expect(retryButton).toBeEnabled();
+
+    fireEvent.click(retryButton);
+    await waitFor(() => expect(mocks.scanProject).toHaveBeenCalledTimes(2));
+    expect(mocks.scanProject).toHaveBeenNthCalledWith(1, { projectId: 'imported-project' });
+    expect(mocks.scanProject).toHaveBeenNthCalledWith(2, { projectId: 'imported-project' });
+    expect(await screen.findByTestId('scan-project-success')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'أعد محاولة الفحص' })).not.toBeInTheDocument();
+    expect(screen.getByTestId('button-open-imported-project')).toBeInTheDocument();
   });
 
   it('warns when discovery results are partial', async () => {

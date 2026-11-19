@@ -653,6 +653,17 @@ export function DiscoverProjectWizard({ onClose }: Props) {
     }
   };
 
+  const handleScan = async () => {
+    if (!importedProjectId || scanProject.isPending) return;
+    setScanTriggered(true);
+    try {
+      await scanProject.mutateAsync({ projectId: importedProjectId });
+    } catch {
+      // Keep the successfully imported project on screen and make the scan retryable.
+      if (mountedRef.current) setScanTriggered(false);
+    }
+  };
+
   const setOverride = (key: string) => (value: string) =>
     setOverrides((prev) => ({ ...prev, [key]: value }));
 
@@ -1510,26 +1521,24 @@ export function DiscoverProjectWizard({ onClose }: Props) {
       {importedProjectId && !scanTriggered && (
         <div className="flex justify-center">
           <button
-            onClick={async () => {
-              setScanTriggered(true);
-              await scanProject.mutateAsync({ projectId: importedProjectId });
-            }}
+            type="button"
+            onClick={() => void handleScan()}
             disabled={scanProject.isPending}
             className="px-5 py-2 bg-primary hover:bg-primary/90 text-primary-foreground text-sm font-semibold rounded-lg flex items-center gap-2 disabled:opacity-60 transition-colors"
           >
             {scanProject.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <GitBranch className="w-4 h-4" />}
-            ابدأ الفحص
+            {scanProject.isPending ? 'جارٍ بدء الفحص…' : scanProject.isError ? 'أعد محاولة الفحص' : 'ابدأ الفحص'}
           </button>
         </div>
       )}
       {scanTriggered && !scanProject.isPending && !scanProject.isError && (
-        <p className="text-center text-xs text-emerald-400 flex items-center justify-center gap-1.5">
+        <p data-testid="scan-project-success" role="status" className="text-center text-xs text-emerald-400 flex items-center justify-center gap-1.5">
           <CheckCircle2 className="w-3.5 h-3.5" /> بدأ الفحص، وستظهر نتائجه في لوحة المشروع.
         </p>
       )}
       {scanProject.isError && (
-        <p dir="auto" className="text-center text-xs text-red-400 flex items-center justify-center gap-1.5">
-          <AlertTriangle className="w-3.5 h-3.5" /> {extractApiError(scanProject.error, 'تعذر بدء الفحص.')}
+        <p data-testid="scan-project-error" role="alert" dir="auto" className="text-center text-xs text-red-400 flex items-center justify-center gap-1.5">
+          <AlertTriangle className="w-3.5 h-3.5" /> {extractApiError(scanProject.error, 'تعذر بدء الفحص. يمكنك إعادة المحاولة دون مغادرة هذه الشاشة.')}
         </p>
       )}
       <p dir="rtl" lang="ar" className="text-center text-xs text-muted-foreground">
