@@ -1500,3 +1500,32 @@ describe("post-push scan coalescing", () => {
     }
   }, 30_000);
 });
+
+
+describe("project deletion — scan serialization", () => {
+  it("refuses deletion while a direct scan owns the project's distributed scan lock", async () => {
+    const projectId = await insertProject(`/tmp/project-delete-active-scan-${randomUUID()}`);
+    const scanLock = await tryAdvisoryLock(LockNamespace.SCAN_JOB, projectId);
+    expect(scanLock.acquired).toBe(true);
+    if (!scanLock.acquired) {
+      await cleanupProject(projectId);
+      return;
+    }
+
+    try {
+      const response = await request(app).delete(`/api/projects/${projectId}`);
+
+      expect(response.status).toBe(409);
+      expect(response.body).toMatchObject({
+        error: "project_active_work",
+      });
+      const remaining = await db.select({ id: projectsTable.id })
+        .from(projectsTable)
+        .where(eq(projectsTable.id, projectId));
+      expect(remaining).toHaveLength(1);
+    } finally {
+      await scanLock.release();
+      await cleanupProject(projectId);
+    }
+  });
+});

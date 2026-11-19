@@ -339,69 +339,112 @@ router.patch("/projects/:projectId", requireProjectWriteAccess, async (req, res)
 // Delete project
 router.delete("/projects/:projectId", requireProjectWriteAccess, async (req, res) => {
   const { projectId } = DeleteProjectParams.parse(req.params);
-  const before = req.project!;
   const correlationId = randomUUID();
 
-  const [activeScan, activeExecution, activeWorkflow, activeDelivery] = await Promise.all([
-    db.select({ id: scanJobsTable.id }).from(scanJobsTable).where(and(
-      eq(scanJobsTable.projectId, projectId),
-      inArray(scanJobsTable.status, ["queued", "running"]),
-    )).limit(1),
-    db.select({ id: aiExecutionsTable.id }).from(aiExecutionsTable).where(and(
-      eq(aiExecutionsTable.projectId, projectId),
-      inArray(aiExecutionsTable.status, ["queued", "running", "paused", "cancelling"]),
-    )).limit(1),
-    db.select({ id: workflowExecutionsTable.id }).from(workflowExecutionsTable)
-      .innerJoin(workflowsTable, eq(workflowExecutionsTable.workflowId, workflowsTable.id))
-      .where(and(
-        eq(workflowsTable.projectId, projectId),
-        eq(workflowExecutionsTable.status, "running"),
-      )).limit(1),
-    db.select({ id: aiChangeProposalsTable.id }).from(aiChangeProposalsTable).where(and(
-      eq(aiChangeProposalsTable.projectId, projectId),
-      inArray(aiChangeProposalsTable.lifecycle, ["isolated", "validated"]),
-    )).limit(1),
-  ]);
-  if (activeScan.length || activeExecution.length || activeWorkflow.length || activeDelivery.length) {
+  // Direct scans (including refresh_project_scan inside AI analysis) and
+  // durable scan workers share this distributed lock. Deletion must own it
+  // for the full lifecycle so it cannot remove a managed root while a scan
+  // is still reading that project's files.
+  let deletionLock: Awaited<ReturnType<typeof tryAdvisoryLock>>;
+  try {
+    deletionLock = await tryAdvisoryLock(LockNamespace.SCAN_JOB, projectId);
+  } catch (err) {
+    logger.error({ err, projectId }, "failed to acquire scan lock for project deletion");
+    return res.status(503).json({
+      error: "Project deletion is temporarily unavailable.",
+      reason: "scan_state_unavailable",
+    });
+  }
+  if (!deletionLock.acquired) {
+    res.setHeader("retry-after", "1");
     return res.status(409).json({
       error: "project_active_work",
-      reason: "Stop or reconcile active scans, deliveries, workflows, and AI executions before deleting this project.",
+      reason: "A scan or scan admission is in progress. Retry project deletion after it completes.",
     });
   }
 
-  await db.transaction(async (tx) => {
-    await recordAuditInTransaction(tx, {
-      entityType: "project", entityId: projectId, action: "deleted", projectId,
-      stateBefore: before, correlationId,
-    });
-    await tx.insert(eventsTable).values({
-      id: randomUUID(), type: "ProjectDeleted", projectId,
-      severity: "info", message: `Project "${before.name}" deleted`, correlationId,
-    });
-    await tx.delete(projectsTable).where(eq(projectsTable.id, projectId));
-  });
-
-  // Imported Git/archive projects own their durable materialized root.
-  // Direct projects point at user-owned directories and are intentionally
-  // left untouched; the marker + managed-directory check makes this explicit.
   try {
-    const removed = await removeManagedProjectRoot(before.rootPath);
-    if (removed) {
-      logger.info(
-        { projectId, rootPath: before.rootPath },
-        "Removed managed durable project root after project deletion",
+    const result = await db.transaction(async (tx) => {
+      // queuePostPushScan can enqueue a follow-up while another scan owns the
+      // advisory lock. Lock the project row before checking durable work so
+      // its admission either commits first (and is observed below) or sees
+      // that the project has already been deleted.
+      const [project] = await tx
+        .select()
+        .from(projectsTable)
+        .where(eq(projectsTable.id, projectId))
+        .for("update")
+        .limit(1);
+      if (!project) return { kind: "missing" as const };
+
+      const activeScan = await tx.select({ id: scanJobsTable.id }).from(scanJobsTable).where(and(
+        eq(scanJobsTable.projectId, projectId),
+        inArray(scanJobsTable.status, ["queued", "running"]),
+      )).limit(1);
+      const activeExecution = await tx.select({ id: aiExecutionsTable.id }).from(aiExecutionsTable).where(and(
+        eq(aiExecutionsTable.projectId, projectId),
+        inArray(aiExecutionsTable.status, ["queued", "running", "paused", "cancelling"]),
+      )).limit(1);
+      const activeWorkflow = await tx.select({ id: workflowExecutionsTable.id }).from(workflowExecutionsTable)
+        .innerJoin(workflowsTable, eq(workflowExecutionsTable.workflowId, workflowsTable.id))
+        .where(and(
+          eq(workflowsTable.projectId, projectId),
+          eq(workflowExecutionsTable.status, "running"),
+        )).limit(1);
+      const activeDelivery = await tx.select({ id: aiChangeProposalsTable.id }).from(aiChangeProposalsTable).where(and(
+        eq(aiChangeProposalsTable.projectId, projectId),
+        inArray(aiChangeProposalsTable.lifecycle, ["isolated", "validated"]),
+      )).limit(1);
+
+      if (activeScan.length || activeExecution.length || activeWorkflow.length || activeDelivery.length) {
+        return { kind: "active" as const };
+      }
+
+      await recordAuditInTransaction(tx, {
+        entityType: "project", entityId: projectId, action: "deleted", projectId,
+        stateBefore: project, correlationId,
+      });
+      await tx.insert(eventsTable).values({
+        id: randomUUID(), type: "ProjectDeleted", projectId,
+        severity: "info", message: `Project "${project.name}" deleted`, correlationId,
+      });
+      await tx.delete(projectsTable).where(eq(projectsTable.id, projectId));
+      return { kind: "deleted" as const, project };
+    });
+
+    if (result.kind === "missing") {
+      return res.status(404).json({ error: "Project not found" });
+    }
+    if (result.kind === "active") {
+      return res.status(409).json({
+        error: "project_active_work",
+        reason: "Stop or reconcile active scans, deliveries, workflows, and AI executions before deleting this project.",
+      });
+    }
+
+    // Imported Git/archive projects own their durable materialized root.
+    // Direct projects point at user-owned directories and are intentionally
+    // left untouched; the marker + managed-directory check makes this explicit.
+    try {
+      const removed = await removeManagedProjectRoot(result.project.rootPath);
+      if (removed) {
+        logger.info(
+          { projectId, rootPath: result.project.rootPath },
+          "Removed managed durable project root after project deletion",
+        );
+      }
+    } catch (err) {
+      logger.warn(
+        { err, projectId, rootPath: result.project.rootPath },
+        "Project deleted but managed durable root cleanup failed",
       );
     }
-  } catch (err) {
-    logger.warn(
-      { err, projectId, rootPath: before.rootPath },
-      "Project deleted but managed durable root cleanup failed",
-    );
+
+    invalidateContextCache(projectId);
+    return res.status(204).send();
+  } finally {
+    await deletionLock.release();
   }
-
-  invalidateContextCache(projectId);
-
-  return res.status(204).send();
 });
 
 /**
