@@ -479,16 +479,11 @@ export function DiscoverProjectWizard({ onClose }: Props) {
   const [importedProjectId, setImportedProjectId] = useState<string | null>(null);
   const [scanTriggered, setScanTriggered] = useState(false);
   const mountedRef = useRef(false);
-  const importRedirectTimerRef = useRef<number | null>(null);
 
   useEffect(() => {
     mountedRef.current = true;
     return () => {
       mountedRef.current = false;
-      if (importRedirectTimerRef.current !== null) {
-        window.clearTimeout(importRedirectTimerRef.current);
-        importRedirectTimerRef.current = null;
-      }
     };
   }, []);
 
@@ -635,15 +630,6 @@ export function DiscoverProjectWizard({ onClose }: Props) {
 
       setImportedProjectId(pid);
       setStep(4);
-      if (importRedirectTimerRef.current !== null) {
-        window.clearTimeout(importRedirectTimerRef.current);
-      }
-      importRedirectTimerRef.current = window.setTimeout(() => {
-        importRedirectTimerRef.current = null;
-        if (!mountedRef.current) return;
-        onClose();
-        navigate(`/projects/${pid}`);
-      }, 2200);
     } catch (err) {
       if (mountedRef.current) {
         setImportError(extractApiError(err, 'تعذرت إضافة المشروع. حاول مرة أخرى.'));
@@ -1528,7 +1514,24 @@ export function DiscoverProjectWizard({ onClose }: Props) {
           <AlertTriangle className="w-3.5 h-3.5" /> {extractApiError(scanProject.error, 'تعذر بدء الفحص.')}
         </p>
       )}
-      <p className="text-center text-xs text-muted-foreground">جارٍ الانتقال إلى لوحة المشروع…</p>
+      <p dir="rtl" lang="ar" className="text-center text-xs text-muted-foreground">
+        المشروع جاهز. افتح لوحته الآن أو ابدأ فحصه أولًا.
+      </p>
+      {importedProjectId && (
+        <div className="flex justify-center">
+          <button
+            type="button"
+            onClick={() => {
+              onClose();
+              navigate(`/projects/${importedProjectId}`);
+            }}
+            data-testid="button-open-imported-project"
+            className="inline-flex items-center gap-2 rounded-lg border border-primary/35 bg-primary/10 px-5 py-2 text-sm font-semibold text-primary transition-colors hover:bg-primary/15"
+          >
+            فتح لوحة المشروع
+          </button>
+        </div>
+      )}
     </div>
   );
 
