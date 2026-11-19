@@ -1424,8 +1424,8 @@ describe("Git discovery → durable import", () => {
     await execFileAsync("git", ["init", "-q", worktree]);
     await execFileAsync("git", ["-C", worktree, "config", "user.email", "test@example.com"]);
     await execFileAsync("git", ["-C", worktree, "config", "user.name", "EngineeringOS Test"]);
-    await writeFile(join(worktree, "package.json"), "{}\\n");
-    await writeFile(join(worktree, "README.md"), "queue refusal fixture\\n");
+    await writeFile(join(worktree, "package.json"), "{}\n");
+    await writeFile(join(worktree, "README.md"), "queue refusal fixture\n");
     await execFileAsync("git", ["-C", worktree, "add", "."]);
     await execFileAsync("git", ["-C", worktree, "commit", "-q", "-m", "fixture"]);
     await execFileAsync("git", ["clone", "--bare", "-q", worktree, bareRepo]);
