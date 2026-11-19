@@ -32,7 +32,7 @@ import { RefreshButton, RequestError } from '@/components/OperatorResilience';
 import DashboardWorkSummary from '@/components/DashboardWorkSummary';
 import { useMonotonicData } from '@/lib/freshness';
 import { HOME_GOAL_MAX_LENGTH, storeHomeGoalDraft } from '@/lib/home-goal-handoff';
-import { matchGoalToProject } from '@/lib/goal-project-routing';
+import { matchGoalToProject, suggestGoalProjects } from '@/lib/goal-project-routing';
 
 function formatHealthTimestamp(value: Date | string | null | undefined): string {
   if (!value) return 'غير مسجل';
@@ -346,6 +346,11 @@ export default function Dashboard() {
   const goalProjectMatch = !projectsQuery.isLoading && !projectsQuery.isError
     ? matchGoalToProject(goalDraft, projects)
     : null;
+  const goalProjectSuggestions = !projectsQuery.isLoading
+    && !projectsQuery.isError
+    && goalProjectMatch?.kind !== 'unique'
+    ? suggestGoalProjects(goalDraft, projects)
+    : [];
   const directGoalProject = !showGoalDestinationPrompt && goalProjectMatch?.kind === 'unique'
     ? goalProjectMatch.project
     : null;
@@ -562,7 +567,9 @@ export default function Dashboard() {
                   : goalProjectMatch?.kind === 'unique'
                     ? 'قد يكون هذا الهدف متعلقًا بهذا المشروع.'
                     : goalProjectMatch?.kind === 'ambiguous'
-                      ? 'اختر المشروع المقصود؛ ظهر أكثر من احتمال.'
+                      ? 'قد يتعلق الهدف بأكثر من مشروع. راجع الاقتراحات واختر واحدًا.'
+                      : goalProjectSuggestions.length > 0
+                        ? 'لم يظهر اسم مشروع كامل؛ قد تساعدك هذه الاقتراحات.'
                       : projects.length === 1
                         ? 'يمكنك اختيار مشروعك الوحيد للمتابعة.'
                       : projects.length === 0
@@ -580,7 +587,9 @@ export default function Dashboard() {
                 : goalProjectMatch?.kind === 'unique'
                   ? 'اختر الاقتراح أو مشروعًا آخر. سيطلب مساعد المشروع تأكيد النطاق قبل إرسال الهدف.'
                   : goalProjectMatch?.kind === 'ambiguous'
-                    ? 'حدد مشروعًا واحدًا، أو اختر محادثة عامة بلا سياق ملفات المشروع.'
+                    ? 'راجع سبب كل اقتراح واختر وجهة واحدة؛ لن نفتح أي مشروع حتى تختار.'
+                    : goalProjectSuggestions.length > 0
+                      ? 'هذه اقتراحات من كلمات مشتركة فقط. اختر مشروعًا صراحةً أو افتح القائمة لاختيار غيره.'
                     : projects.length === 1 && goalProjectMatch?.kind === 'none'
                       ? 'لن نستخدم المشروع أو ننقل الهدف إليه حتى تختاره صراحةً.'
                 : projects.length === 0 && !projectsQuery.isLoading
@@ -602,7 +611,9 @@ export default function Dashboard() {
               )}
               {!projectsQuery.isLoading && !projectsQuery.isError && projects.length > 0 && (
                 <div className="w-full space-y-2">
-                  {projects.length === 1 && goalProjectMatch?.kind === 'none' ? (
+                  {projects.length === 1
+                  && goalProjectMatch?.kind === 'none'
+                  && goalProjectSuggestions.length === 0 ? (
                     <div className="rounded-lg border border-border bg-card/60 p-3">
                       <p className="text-xs text-muted-foreground">المشروع الوحيد المتاح لهذا الحساب</p>
                       <p className="mt-1 text-sm font-medium" dir="auto" data-testid="text-only-goal-project">
@@ -617,6 +628,79 @@ export default function Dashboard() {
                       >
                         تابع ضمن هذا المشروع
                       </Button>
+                    </div>
+                  ) : goalProjectSuggestions.length > 0 ? (
+                    <div className="space-y-3">
+                      <ul
+                        data-testid="list-goal-project-suggestions"
+                        className="space-y-2"
+                      >
+                        {goalProjectSuggestions.map((suggestion) => (
+                          <li
+                            key={suggestion.project.id}
+                            data-testid={`card-goal-project-candidate-${suggestion.project.id}`}
+                            className="flex flex-col gap-3 rounded-lg border border-primary/20 bg-primary/5 p-3 sm:flex-row sm:items-center sm:justify-between"
+                          >
+                            <div className="min-w-0">
+                              <p className="text-sm font-medium" dir="auto">
+                                {suggestion.project.name}
+                              </p>
+                              <p
+                                data-testid={`text-goal-project-candidate-reason-${suggestion.project.id}`}
+                                className="mt-1 text-xs text-muted-foreground"
+                              >
+                                {suggestion.kind === 'exact'
+                                  ? 'ورد اسم المشروع في هدفك.'
+                                  : `تطابقت كلمة ${suggestion.matchedTerms.map((term) => `«${term}»`).join('، ')} من الاسم مع هدفك.`}
+                              </p>
+                            </div>
+                            <Button
+                              type="button"
+                              onClick={() => continueToProject(suggestion.project.id)}
+                              data-testid={`button-route-goal-candidate-${suggestion.project.id}`}
+                              aria-label={`اختر مشروع ${suggestion.project.name}`}
+                              className="shrink-0"
+                            >
+                              اختر هذا المشروع
+                            </Button>
+                          </li>
+                        ))}
+                      </ul>
+                      {goalProjectSuggestions.length < projects.length && (
+                        <details className="rounded-lg border border-border bg-card/60 px-3 py-2">
+                          <summary className="cursor-pointer text-sm font-medium">
+                            أريد اختيار مشروع آخر
+                          </summary>
+                          <div className="mt-3 space-y-2">
+                            <label htmlFor="goal-project-select" className="block text-xs font-medium">
+                              المشروع
+                            </label>
+                            <select
+                              id="goal-project-select"
+                              data-testid="select-goal-project"
+                              value={selectedGoalProjectId}
+                              onChange={(event) => {
+                                setSelectedGoalProjectId(event.target.value);
+                                if (goalHandoffError) setGoalHandoffError('');
+                              }}
+                              className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm text-foreground"
+                            >
+                              <option value="">اختر المشروع المقصود</option>
+                              {projects.map((project) => (
+                                <option key={project.id} value={project.id}>{project.name}</option>
+                              ))}
+                            </select>
+                            <Button
+                              type="button"
+                              disabled={!selectedGoalProjectId}
+                              onClick={() => continueToProject(selectedGoalProjectId)}
+                              data-testid="button-route-goal-project"
+                            >
+                              تابع مع المشروع المحدد
+                            </Button>
+                          </div>
+                        </details>
+                      )}
                     </div>
                   ) : (
                     <>
