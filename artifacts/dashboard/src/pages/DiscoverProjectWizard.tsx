@@ -491,7 +491,23 @@ export function DiscoverProjectWizard({ onClose }: Props) {
   const archiveUpload = useUploadArchive();
   const importProject = useImportProject();
   const scanProject = useScanProject();
-  const { data: projectsListData } = useListProjects();
+  const {
+    data: projectsListData,
+    isLoading: projectsLoading,
+    isFetching: projectsFetching,
+  } = useListProjects();
+  const workspaceProjects = projectsListData as Project[] | undefined;
+  const explicitWorkspaceProjectId = workspaceProjects?.some(
+    (project) => project.id === workspaceProjectId,
+  ) ? workspaceProjectId : '';
+  const automaticWorkspaceProjectId =
+    sourceType === 'WORKSPACE_PROJECT'
+    && !projectsLoading
+    && !projectsFetching
+    && workspaceProjects?.length === 1
+      ? workspaceProjects[0]!.id
+      : '';
+  const selectedWorkspaceProjectId = explicitWorkspaceProjectId || automaticWorkspaceProjectId;
 
   // Polling via react-query (enabled only when discoveryId set and not done)
   const {
@@ -549,7 +565,7 @@ export function DiscoverProjectWizard({ onClose }: Props) {
     }
     if (sourceType === 'WORKSPACE_PROJECT') {
       const projects = projectsListData as Project[] | undefined;
-      const proj = projects?.find((p) => p.id === workspaceProjectId);
+      const proj = projects?.find((p) => p.id === selectedWorkspaceProjectId);
       return proj?.name ?? 'مشروع مسجّل';
     }
     if (sourceType === 'ARCHIVE_UPLOAD') {
@@ -577,8 +593,8 @@ export function DiscoverProjectWizard({ onClose }: Props) {
         sourceConfig.credentials = { username: gitUsername.trim() || 'oauth2', token: gitToken.trim() };
       }
     } else if (sourceType === 'WORKSPACE_PROJECT') {
-      if (!workspaceProjectId) { setStartError('اختر مشروعًا أولًا.'); return; }
-      sourceConfig = { projectId: workspaceProjectId };
+      if (!selectedWorkspaceProjectId) { setStartError('اختر مشروعًا أولًا.'); return; }
+      sourceConfig = { projectId: selectedWorkspaceProjectId };
     } else if (sourceType === 'ARCHIVE_UPLOAD') {
       const file = archiveFile;
       const fileError = getArchiveFileError(file);
@@ -713,7 +729,7 @@ export function DiscoverProjectWizard({ onClose }: Props) {
           <div className="space-y-1.5">
             <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">اختر مشروعًا</label>
             {(() => {
-              const projects = projectsListData as Project[] | undefined;
+              const projects = workspaceProjects;
               if (!projects || projects.length === 0) {
                 return (
                   <p className="text-xs text-muted-foreground/60 py-2">
@@ -726,16 +742,18 @@ export function DiscoverProjectWizard({ onClose }: Props) {
                   {projects.map((proj) => (
                     <button
                       key={proj.id}
+                      data-testid={`workspace-project-${proj.id}`}
                       type="button"
+                      aria-pressed={selectedWorkspaceProjectId === proj.id}
                       onClick={() => setWorkspaceProjectId(proj.id)}
                       className={`w-full text-right rounded-lg border px-3.5 py-2.5 flex items-center gap-3 transition-all
-                        ${workspaceProjectId === proj.id
+                        ${selectedWorkspaceProjectId === proj.id
                           ? 'border-primary bg-primary/5 ring-1 ring-primary/30'
                           : 'border-border hover:border-primary/40 bg-card'
                         }`}
                     >
-                      <div className={`w-7 h-7 rounded-md flex items-center justify-center shrink-0 ${workspaceProjectId === proj.id ? 'bg-primary/15' : 'bg-secondary'}`}>
-                        <Layers className={`w-3.5 h-3.5 ${workspaceProjectId === proj.id ? 'text-primary' : 'text-muted-foreground'}`} />
+                      <div className={`w-7 h-7 rounded-md flex items-center justify-center shrink-0 ${selectedWorkspaceProjectId === proj.id ? 'bg-primary/15' : 'bg-secondary'}`}>
+                        <Layers className={`w-3.5 h-3.5 ${selectedWorkspaceProjectId === proj.id ? 'text-primary' : 'text-muted-foreground'}`} />
                       </div>
                       <div className="min-w-0 flex-1">
                         <div className="text-sm font-medium truncate">{proj.name}</div>

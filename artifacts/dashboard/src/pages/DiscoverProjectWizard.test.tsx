@@ -18,6 +18,7 @@ const mocks = vi.hoisted(() => ({
     completedAt: '2026-10-14T12:00:01.000Z',
   },
   sessionWithoutCache: false,
+  projects: [] as { id: string; name: string; rootPath: string; language?: string | null }[],
   sessionQuery: {
     isError: false,
     isFetching: false,
@@ -125,7 +126,12 @@ vi.mock('@workspace/api-client-react', () => ({
     error: null,
   }),
   useImportProject: () => ({ mutateAsync: mocks.importProject, isPending: false }),
-  useListProjects: () => ({ data: [] }),
+  useListProjects: () => ({
+    data: mocks.projects,
+    isLoading: false,
+    isFetching: false,
+    isError: false,
+  }),
   useScanProject: () => ({ mutateAsync: mocks.scanProject, isPending: false, isError: false }),
   getListProjectsQueryKey: () => ['/api/projects'],
   getGetDiscoverySessionQueryKey: (id: string) => ['/api/projects/discover', id],
@@ -146,6 +152,7 @@ describe('DiscoverProjectWizard Arabic findings', () => {
     mocks.session.status = 'ready';
     mocks.session.progress = 100;
     mocks.sessionWithoutCache = false;
+    mocks.projects = [];
     mocks.sessionQuery.isError = false;
     mocks.sessionQuery.isFetching = false;
     mocks.sessionQuery.dataUpdatedAt = Date.parse('2026-11-18T16:20:00.000Z');
@@ -184,6 +191,46 @@ describe('DiscoverProjectWizard Arabic findings', () => {
 
     expect(gitSource).toHaveAttribute('aria-pressed', 'false');
     expect(archiveSource).toHaveAttribute('aria-pressed', 'true');
+    expect(mocks.startDiscovery).not.toHaveBeenCalled();
+  });
+
+  it('selects the sole existing project automatically but waits for an explicit scan', async () => {
+    mocks.projects = [{
+      id: 'existing-project',
+      name: 'المشروع الوحيد',
+      rootPath: '/workspace/project',
+      language: 'TypeScript',
+    }];
+    render(<DiscoverProjectWizard onClose={vi.fn()} />);
+
+    fireEvent.click(screen.getByTestId('source-card-WORKSPACE_PROJECT'));
+    const onlyProject = screen.getByTestId('workspace-project-existing-project');
+    await waitFor(() => expect(onlyProject).toHaveAttribute('aria-pressed', 'true'));
+    expect(mocks.startDiscovery).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByTestId('start-discovery'));
+    await waitFor(() => {
+      expect(mocks.startDiscovery).toHaveBeenCalledWith({
+        data: {
+          sourceType: 'WORKSPACE_PROJECT',
+          sourceConfig: { projectId: 'existing-project' },
+        },
+      });
+    });
+  });
+
+  it('keeps project choice explicit when more than one project is available', () => {
+    mocks.projects = [
+      { id: 'project-one', name: 'المشروع الأول', rootPath: '/workspace/one' },
+      { id: 'project-two', name: 'المشروع الثاني', rootPath: '/workspace/two' },
+    ];
+    render(<DiscoverProjectWizard onClose={vi.fn()} />);
+
+    fireEvent.click(screen.getByTestId('source-card-WORKSPACE_PROJECT'));
+    expect(screen.getByTestId('workspace-project-project-one')).toHaveAttribute('aria-pressed', 'false');
+    expect(screen.getByTestId('workspace-project-project-two')).toHaveAttribute('aria-pressed', 'false');
+    fireEvent.click(screen.getByTestId('start-discovery'));
+    expect(screen.getByTestId('discovery-start-error')).toHaveTextContent('اختر مشروعًا أولًا.');
     expect(mocks.startDiscovery).not.toHaveBeenCalled();
   });
 
