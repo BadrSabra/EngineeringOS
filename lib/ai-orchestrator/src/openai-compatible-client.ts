@@ -2861,7 +2861,15 @@ export async function validateGeminiDefaultModels(
   defaults: { fast: string; powerful: string },
 ): Promise<GeminiDefaultModelValidation> {
   const controller = new AbortController();
-  const timer: ReturnType<typeof setTimeout> | undefined = undefined;
+  const timer = setTimeout(() => {
+    controller.abort(new Error("Gemini model availability check timed out"));
+  }, DEFAULT_TIMEOUT_MS);
+  const timeoutError = (cause: unknown) =>
+    new GroqClientError(
+      "TIMEOUT",
+      "Gemini model availability check timed out.",
+      { cause, context: { providerName: "Gemini" } },
+    );
 
   try {
     assertProviderEgressEnabled();
@@ -2907,6 +2915,7 @@ export async function validateGeminiDefaultModels(
     try {
       payload = (await response.json()) as GeminiModelListResponse;
     } catch (error) {
+      if (controller.signal.aborted) throw timeoutError(error);
       throw new GroqClientError(
         "SERVER_ERROR",
         "Gemini returned an invalid model availability response.",
@@ -2948,11 +2957,7 @@ export async function validateGeminiDefaultModels(
   } catch (error) {
     if (error instanceof GroqClientError) throw error;
     if (controller.signal.aborted) {
-      throw new GroqClientError(
-        "TIMEOUT",
-        "Gemini model availability check timed out.",
-        { cause: error, context: { providerName: "Gemini" } },
-      );
+      throw timeoutError(error);
     }
     throw new GroqClientError(
       "NETWORK_ERROR",
