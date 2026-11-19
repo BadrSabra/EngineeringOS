@@ -18,7 +18,7 @@ import {
 } from "@workspace/db";
 import { eq, desc, asc, sql } from "drizzle-orm";
 import type { NodePgDatabase } from "drizzle-orm/node-postgres";
-import type { ContextManifestCacheIdentity } from "./context-manifest.js";
+import type { ContextManifestCacheIdentity, RepositoryRevisionManifest } from "./context-manifest.js";
 import type { ContextCollection } from "./context-contract.js";
 
 // ─── Queryable ────────────────────────────────────────────────────────────────
@@ -461,7 +461,6 @@ export async function loadScanJobs(
     .limit(1);
   return rows[0];
 }
-
 
 /**
  * Read only the current scan identity needed to validate a context-cache hit.
