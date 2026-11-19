@@ -565,7 +565,21 @@ function ProjectDetailSession({ projectId }: { projectId: string }) {
                     <Activity className="w-3.5 h-3.5 text-primary mt-0.5 shrink-0" />
                   )}
                   <div>
-                    <div dir="auto" className="text-xs font-medium">{evt.message || evt.type}</div>
+                    {evt.correlationId ? (
+                      <Link
+                        href={`/events?projectId=${encodeURIComponent(projectId)}&correlationId=${encodeURIComponent(evt.correlationId)}`}
+                        aria-label={`عرض سجل الأحداث للعملية: ${evt.message || evt.type}`}
+                        data-testid={`link-summary-event-${evt.id}`}
+                        dir="auto"
+                        className="text-xs font-medium hover:text-primary hover:underline focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary rounded"
+                      >
+                        {evt.message || evt.type}
+                      </Link>
+                    ) : (
+                      <div dir="auto" className="text-xs font-medium" data-testid={`text-summary-event-${evt.id}`}>
+                        {evt.message || evt.type}
+                      </div>
+                    )}
                     <div className="text-[10px] text-muted-foreground font-mono">
                       {new Date(evt.timestamp).toLocaleTimeString()}
                     </div>

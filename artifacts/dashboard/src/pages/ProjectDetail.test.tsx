@@ -20,7 +20,15 @@ const mocks = vi.hoisted(() => ({
     latestMetrics: null,
     qualityScore: 82,
     taskCounts: { total: 2, running: 1, completed: 1, failed: 0 },
-    recentEvents: [],
+    recentEvents: [] as Array<{
+      id: string;
+      projectId: string;
+      type: string;
+      message?: string;
+      timestamp: Date | string;
+      severity?: string;
+      correlationId?: string;
+    }>,
   },
   graphSummary: {
     entityCount: 2,
@@ -121,6 +129,7 @@ describe('ProjectDetail Arabic presentation', () => {
     mocks.summaryIsError = false;
     mocks.summaryIsFetching = false;
     mocks.summaryUpdatedAt = Date.parse('2026-10-13T12:00:00.000Z');
+    mocks.summary.recentEvents = [];
     mocks.projectIsRefetching = false;
     mocks.projectUpdatedAt = Date.parse('2026-10-14T12:00:00.000Z');
   });
@@ -243,6 +252,43 @@ describe('ProjectDetail Arabic presentation', () => {
       'تُعرض آخر قراءة متاحة',
     );
     expect(screen.getByTestId('summary-task-total')).toHaveTextContent('2');
+  });
+
+  it('opens the event log filtered to the project and operation when an event is correlated', () => {
+    mocks.summary.recentEvents = [{
+      id: 'event-linked',
+      projectId: 'project-1',
+      type: 'TaskFailed',
+      message: 'تعذّر تنفيذ المهمة',
+      timestamp: '2026-10-14T12:30:00.000Z',
+      severity: 'error',
+      correlationId: 'operation/123',
+    }];
+
+    render(<ProjectDetail />);
+
+    expect(screen.getByTestId('link-summary-event-event-linked')).toHaveAttribute(
+      'href',
+      '/events?projectId=project-1&correlationId=operation%2F123',
+    );
+    expect(screen.getByRole('link', { name: 'عرض سجل الأحداث للعملية: تعذّر تنفيذ المهمة' }))
+      .toBeInTheDocument();
+  });
+
+  it('keeps events without an operation id readable without creating a misleading link', () => {
+    mocks.summary.recentEvents = [{
+      id: 'event-unlinked',
+      projectId: 'project-1',
+      type: 'ProjectUpdated',
+      message: 'تم تحديث المشروع',
+      timestamp: '2026-10-14T12:30:00.000Z',
+    }];
+
+    render(<ProjectDetail />);
+
+    expect(screen.getByTestId('text-summary-event-event-unlinked'))
+      .toHaveTextContent('تم تحديث المشروع');
+    expect(screen.queryByTestId('link-summary-event-event-unlinked')).not.toBeInTheDocument();
   });
 
   it('keeps the composite refresh busy until both project and summary reads settle and uses the older timestamp', () => {
