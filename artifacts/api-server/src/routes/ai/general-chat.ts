@@ -7,6 +7,8 @@ import {
 } from "@workspace/db";
 import {
   DeleteGeneralChatSessionParams,
+  SearchGeneralChatMessagesByContentQueryParams,
+  SearchGeneralChatMessagesByContentResponse,
   SendGeneralChatMessageBody,
   SendGeneralChatMessageParams,
 } from "@workspace/api-zod";
@@ -16,7 +18,7 @@ import {
   getStrategy,
   type ProviderId,
 } from "@workspace/ai-orchestrator";
-import { and, desc, eq, isNull, lte, or } from "drizzle-orm";
+import { and, desc, eq, ilike, isNull, lte, or, sql } from "drizzle-orm";
 import { requireAuth } from "../../middlewares/requireAuth.js";
 import {
   redactUserFacingText,
@@ -31,6 +33,7 @@ router.use(requireAuth);
 
 const HISTORY_MESSAGE_LIMIT = 20;
 const MESSAGE_LIST_LIMIT = 500;
+const MESSAGE_SEARCH_RESULT_LIMIT = 20;
 const GENERAL_CHAT_TURN_LEASE_MS = 60_000;
 const GENERAL_CHAT_SYSTEM_PROMPT = [
   "You are EngineeringOS's general engineering assistant.",
@@ -81,6 +84,19 @@ async function loadOwnedSession(sessionId: string, ownerId: string) {
   return session;
 }
 
+function escapeLikePattern(value: string): string {
+  return value.replace(/[\\%_]/g, "\\$&");
+}
+
+function searchSnippet(content: string, query: string): string {
+  const safeContent = redactUserFacingText(content).replace(/\s+/g, " ").trim();
+  const matchAt = safeContent.toLocaleLowerCase().indexOf(query.toLocaleLowerCase());
+  const start = matchAt < 0 ? 0 : Math.max(0, matchAt - 100);
+  const end = Math.min(safeContent.length, Math.max(start + 240, matchAt + query.length + 120));
+  return `${start > 0 ? "…" : ""}${safeContent.slice(start, end)}${end < safeContent.length ? "…" : ""}`
+    .slice(0, 400);
+}
+
 router.get("/ai/general-chat/sessions", async (req, res) => {
   const sessions = await db
     .select()
@@ -89,6 +105,72 @@ router.get("/ai/general-chat/sessions", async (req, res) => {
     .orderBy(desc(aiGeneralChatSessionsTable.updatedAt))
     .limit(100);
   return res.json(sessions.map(publicSession));
+});
+
+router.get("/ai/general-chat/message-search", async (req, res): Promise<void> => {
+  if (typeof req.query.query !== "string") {
+    res.status(400).json({ error: "A single search query is required." });
+    return;
+  }
+  const parsedQuery = SearchGeneralChatMessagesByContentQueryParams.safeParse({
+    query: req.query.query,
+  });
+  if (!parsedQuery.success) {
+    res.status(400).json({ error: "Search query must contain 2 to 120 characters." });
+    return;
+  }
+  const query = parsedQuery.data.query.trim();
+  if (query.length < 2) {
+    res.status(400).json({ error: "Search query must contain 2 to 120 characters." });
+    return;
+  }
+
+  const matchesBySession = db
+    .selectDistinctOn([aiGeneralChatSessionsTable.id], {
+      sessionId: sql<string>`${aiGeneralChatSessionsTable.id}`.as("session_id"),
+      sessionTitle: sql<string>`${aiGeneralChatSessionsTable.title}`.as("session_title"),
+      sessionUpdatedAt: sql<Date>`${aiGeneralChatSessionsTable.updatedAt}`.as("session_updated_at"),
+      messageId: sql<string>`${aiGeneralChatMessagesTable.id}`.as("message_id"),
+      role: sql<"user" | "assistant">`${aiGeneralChatMessagesTable.role}`.as("message_role"),
+      content: sql<string>`${aiGeneralChatMessagesTable.content}`.as("message_content"),
+      messageCreatedAt: sql<Date>`${aiGeneralChatMessagesTable.createdAt}`.as("message_created_at"),
+    })
+    .from(aiGeneralChatMessagesTable)
+    .innerJoin(
+      aiGeneralChatSessionsTable,
+      eq(aiGeneralChatMessagesTable.sessionId, aiGeneralChatSessionsTable.id),
+    )
+    .where(and(
+      eq(aiGeneralChatSessionsTable.ownerId, req.userId!),
+      eq(aiGeneralChatMessagesTable.status, "completed"),
+      ilike(aiGeneralChatMessagesTable.content, `%${escapeLikePattern(query)}%`),
+    ))
+    .orderBy(
+      aiGeneralChatSessionsTable.id,
+      desc(aiGeneralChatMessagesTable.createdAt),
+      desc(aiGeneralChatMessagesTable.id),
+    )
+    .as("general_chat_message_matches");
+
+  const matches = await db
+    .select()
+    .from(matchesBySession)
+    .orderBy(
+      desc(matchesBySession.sessionUpdatedAt),
+      desc(matchesBySession.messageCreatedAt),
+      desc(matchesBySession.sessionId),
+    )
+    .limit(MESSAGE_SEARCH_RESULT_LIMIT);
+
+  const response = SearchGeneralChatMessagesByContentResponse.parse(matches.map((match) => ({
+    sessionId: match.sessionId,
+    sessionTitle: redactUserFacingText(match.sessionTitle).slice(0, 100),
+    messageId: match.messageId,
+    role: match.role,
+    snippet: searchSnippet(match.content, query),
+    messageCreatedAt: match.messageCreatedAt,
+  })));
+  res.json(response);
 });
 
 router.post("/ai/general-chat/sessions", async (req, res) => {

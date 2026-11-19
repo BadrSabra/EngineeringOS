@@ -95,6 +95,7 @@ import type {
   ExportAiMetricsParams,
   FailWorkflowPhaseInput,
   GeminiKeyStatus,
+  GeneralChatContentSearchResult,
   GeneralChatMessage,
   GeneralChatMessageOutput,
   GeneralChatMessageRequest,
@@ -185,6 +186,7 @@ import type {
   SaveGroqKeyInput,
   SaveOpenRouterKeyInput,
   ScanJob,
+  SearchGeneralChatMessagesByContentParams,
   StartDiscoveryInput,
   StreamTaskLogsParams,
   Task,
@@ -6069,6 +6071,90 @@ export const useCreateGeneralChatSession = <TError = ErrorType<unknown>,
       > => {
       return useMutation(getCreateGeneralChatSessionMutationOptions(options));
     }
+
+export const getSearchGeneralChatMessagesByContentUrl = (params: SearchGeneralChatMessagesByContentParams,) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : String(value))
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0 ? `/api/ai/general-chat/message-search?${stringifiedParams}` : `/api/ai/general-chat/message-search`
+}
+
+/**
+ * @summary Search completed message content in the authenticated user's general conversations
+ */
+export const searchGeneralChatMessagesByContent = async (params: SearchGeneralChatMessagesByContentParams, options?: Parameters<typeof customFetch>[1]): Promise<GeneralChatContentSearchResult[]> => {
+
+  return customFetch<GeneralChatContentSearchResult[]>(getSearchGeneralChatMessagesByContentUrl(params),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getSearchGeneralChatMessagesByContentQueryKey = (params?: SearchGeneralChatMessagesByContentParams,) => {
+    return [
+    `/api/ai/general-chat/message-search`, ...(params ? [params] : [])
+    ] as const;
+    }
+
+
+export const getSearchGeneralChatMessagesByContentQueryOptions = <TData = Awaited<ReturnType<typeof searchGeneralChatMessagesByContent>>, TError = ErrorType<void>>(params: SearchGeneralChatMessagesByContentParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof searchGeneralChatMessagesByContent>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getSearchGeneralChatMessagesByContentQueryKey(params);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof searchGeneralChatMessagesByContent>>> = ({ signal }) => searchGeneralChatMessagesByContent(params, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof searchGeneralChatMessagesByContent>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type SearchGeneralChatMessagesByContentQueryResult = NonNullable<Awaited<ReturnType<typeof searchGeneralChatMessagesByContent>>>
+export type SearchGeneralChatMessagesByContentQueryError = ErrorType<void>
+
+
+/**
+ * @summary Search completed message content in the authenticated user's general conversations
+ */
+
+export function useSearchGeneralChatMessagesByContent<TData = Awaited<ReturnType<typeof searchGeneralChatMessagesByContent>>, TError = ErrorType<void>>(
+ params: SearchGeneralChatMessagesByContentParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof searchGeneralChatMessagesByContent>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getSearchGeneralChatMessagesByContentQueryOptions(params,options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
 
 export const getDeleteGeneralChatSessionUrl = (sessionId: string,) => {
 

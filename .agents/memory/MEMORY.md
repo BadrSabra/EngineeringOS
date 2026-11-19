@@ -124,6 +124,7 @@
 - [Skill registry Gate 4](skill-registry-gate4.md) — revalidate proof and paired baselines under Mission→Goal-first locks; preflight identities must be rechecked.
 - [Skill runtime registry enforcement](skill-runtime-registry.md) — active registry status is rechecked per recipe node and the full proof binding persists through resume.
 - [Existing schema type compatibility](schema-compatibility.md) — preserve established PostgreSQL column types during additive Drizzle work unless an explicit cast migration is approved.
+- [Drizzle DISTINCT subquery aliases](drizzle-distinct-subquery-aliases.md) — alias every selected field uniquely before wrapping joined `selectDistinctOn` results in a subquery.
 - [Drizzle push scope](drizzle-push-scope.md) — isolate reviewed pushes; post-merge force requires a read-only constraint guard and complete schema verification.
 - [Action effect evidence boundary](action-effect-observation-boundary.md) — mutation effects require direct fresh before/after observations; acceptance and receipts cannot substitute for runtime observation or PROVEN.
 - [Strategy replay acceptance](strategy-replay-acceptance.md) — runtime.start proof comes only from its bound Gate C evidence path; replay receipts still require an independent Canonical Proof reload.
