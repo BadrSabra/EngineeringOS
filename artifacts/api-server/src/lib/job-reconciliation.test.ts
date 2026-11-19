@@ -1207,6 +1207,7 @@ describe("requeueStalePendingJobs", () => {
   const projectCleanup: string[] = [];
 
   afterEach(async () => {
+    vi.useRealTimers();
     vi.mocked(heavyJobQueue.enqueueWithId).mockClear();
     vi.mocked(heavyJobQueue.enqueueWithIdDetailed).mockClear();
     vi.mocked(heavyJobQueue.has).mockClear();
@@ -1266,6 +1267,47 @@ describe("requeueStalePendingJobs", () => {
     const calls = vi.mocked(heavyJobQueue.enqueueWithId).mock.calls;
     const calledIds = calls.map((c) => c[0]);
     expect(calledIds).not.toContain(freshJobId);
+  });
+
+  it("does not re-enqueue a fresh Scan when the API clock is 24 hours ahead", async () => {
+    const projectId = await insertProject("scanning");
+    projectCleanup.push(projectId);
+    const freshJobId = randomUUID();
+    await db.insert(scanJobsTable).values({
+      id: freshJobId,
+      projectId,
+      status: "queued",
+      createdAt: sql<Date>`clock_timestamp() AT TIME ZONE 'UTC'`,
+    });
+
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date(Date.now() + 24 * 60 * 60 * 1_000));
+
+    const requeued = await requeueStalePendingJobs();
+    expect(requeued).toBe(0);
+    expect(vi.mocked(heavyJobQueue.enqueueWithId)).not.toHaveBeenCalled();
+  });
+
+  it("re-enqueues an expired Scan when the API clock is 24 hours behind", async () => {
+    const projectId = await insertProject("scanning");
+    projectCleanup.push(projectId);
+    const staleJobId = randomUUID();
+    await db.insert(scanJobsTable).values({
+      id: staleJobId,
+      projectId,
+      status: "queued",
+      createdAt: sql<Date>`(clock_timestamp() AT TIME ZONE 'UTC') - ((${STALE_PENDING_TIMEOUT_MS} + 60_000) * interval '1 millisecond')`,
+    });
+
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date(Date.now() - 24 * 60 * 60 * 1_000));
+
+    const requeued = await requeueStalePendingJobs();
+    expect(requeued).toBeGreaterThanOrEqual(1);
+    expect(vi.mocked(heavyJobQueue.enqueueWithId)).toHaveBeenCalledWith(
+      staleJobId,
+      expect.any(Function),
+    );
   });
 
   it("skips jobs already present in the in-memory queue (enqueueWithId returns false)", async () => {
