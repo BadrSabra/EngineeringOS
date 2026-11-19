@@ -98,9 +98,10 @@ router.get(
     res.setHeader("Connection", "keep-alive");
     res.setHeader("X-Accel-Buffering", "no");
     res.flushHeaders();
-    res.write("retry: 3000\n\n");
 
     let stopped = false;
+    let backpressured = false;
+    let resolveDrainWaiter: ((writable: boolean) => void) | undefined;
     let sourceFailureNotified = initialSourceUnavailable;
     let lastAccessCheckAt = Date.now();
     let pollTimer: NodeJS.Timeout | undefined;
@@ -112,27 +113,50 @@ router.get(
       clearInterval(heartbeatTimer);
     };
 
+    const waitForDrain = (): Promise<boolean> => {
+      if (stopped || res.writableEnded || res.destroyed) {
+        return Promise.resolve(false);
+      }
+      if (!backpressured) return Promise.resolve(true);
+      return new Promise((resolve) => {
+        resolveDrainWaiter = resolve;
+      });
+    };
+
     const stopStream = () => {
       if (stopped) return;
       stopped = true;
       clearTimers();
+      backpressured = false;
+      resolveDrainWaiter?.(false);
+      resolveDrainWaiter = undefined;
       if (!res.writableEnded) res.end();
     };
 
+    // A false write result means the frame was accepted into Node's buffer,
+    // but the consumer is not draining quickly enough. Pause further writes
+    // until the writable stream emits "drain"; do not terminate the SSE stream.
     const writeFrame = (frame: string): boolean => {
       if (stopped || res.writableEnded || res.destroyed) return false;
-      const accepted = res.write(frame);
-      if (!accepted) stopStream();
-      return accepted;
+      const canContinue = res.write(frame);
+      if (!canContinue) backpressured = true;
+      // The frame was queued even when canContinue is false.
+      return true;
     };
 
-    const sendResync = (
+    const sendFrame = async (frame: string): Promise<boolean> => {
+      if (!(await waitForDrain())) return false;
+      if (!writeFrame(frame)) return false;
+      return waitForDrain();
+    };
+
+    const sendResync = async (
       reason: WorkspaceResyncReason,
       nextCursor: WorkspaceEventCursorRow | null = cursor,
-    ): boolean => {
+    ): Promise<boolean> => {
       cursor = nextCursor;
       const token = cursor ? encodeWorkspaceEventCursor(cursor.id) : null;
-      return writeFrame(formatWorkspaceSseFrame(
+      return sendFrame(formatWorkspaceSseFrame(
         "workspace.resync",
         {
           eventVersion: 1,
@@ -145,24 +169,33 @@ router.get(
     };
 
     const heartbeatTimer = setInterval(() => {
-      if (!stopped && !res.writableEnded && !res.destroyed) {
-        if (!res.write(": keep-alive\n\n")) stopStream();
+      if (!stopped && !backpressured && !res.writableEnded && !res.destroyed) {
+        // Heartbeats obey the same backpressure signal as event frames.
+        if (!res.write(": keep-alive\n\n")) backpressured = true;
       }
     }, HEARTBEAT_INTERVAL_MS);
     renewalTimer = setTimeout(stopStream, MAX_STREAM_DURATION_MS);
 
+    res.on("drain", () => {
+      if (!backpressured) return;
+      backpressured = false;
+      const resume = resolveDrainWaiter;
+      resolveDrainWaiter = undefined;
+      resume?.(!stopped && !res.writableEnded && !res.destroyed);
+    });
     res.on("close", () => {
       if (!res.writableEnded) stopStream();
       else clearTimers();
     });
     req.on("aborted", stopStream);
 
+    if (!(await sendFrame("retry: 3000\n\n"))) return;
     if (initialResyncReason) {
-      sendResync(initialResyncReason, cursor);
+      if (!(await sendResync(initialResyncReason, cursor))) return;
     }
 
     const poll = async (): Promise<void> => {
-      if (stopped || res.writableEnded || res.destroyed) return;
+      if (!(await waitForDrain())) return;
 
       try {
         const now = Date.now();
@@ -204,11 +237,12 @@ router.get(
 
         if (rows.length > WORKSPACE_EVENT_REPLAY_LIMIT) {
           const latest = await getLatestProjectEvent(projectId);
-          sendResync("replay_limit", latest);
+          if (!(await sendResync("replay_limit", latest))) return;
         } else {
           for (const row of rows) {
+            if (!(await waitForDrain())) return;
             const snapshotCursor = encodeWorkspaceEventCursor(row.id);
-            const accepted = writeFrame(formatWorkspaceSseFrame(
+            if (!writeFrame(formatWorkspaceSseFrame(
               "workspace.changed",
               {
                 eventVersion: 1,
@@ -220,9 +254,11 @@ router.get(
                 snapshotCursor,
               },
               snapshotCursor,
-            ));
-            if (!accepted) return;
+            ))) return;
+            // Advance only after the frame is queued. If write() reported
+            // backpressure, wait before attempting the next frame.
             cursor = row;
+            if (!(await waitForDrain())) return;
           }
         }
       } catch (error) {
@@ -231,7 +267,7 @@ router.get(
           "Workspace event stream poll failed",
         );
         if (!sourceFailureNotified) {
-          sendResync("source_unavailable");
+          await sendResync("source_unavailable");
           sourceFailureNotified = true;
         }
       }

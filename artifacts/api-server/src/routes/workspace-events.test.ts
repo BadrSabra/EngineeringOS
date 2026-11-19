@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it } from "vitest";
+import { get as httpGet } from "node:http";
 import request from "supertest";
 import { eq, sql } from "drizzle-orm";
 import { randomUUID } from "node:crypto";
@@ -211,6 +212,107 @@ describe("GET /projects/:projectId/workspace/events", () => {
       });
 
     expect(replayedIds).toEqual([followingId]);
+  });
+
+  it("keeps replaying events after a slow client applies TCP backpressure", async () => {
+    const projectId = await insertProject();
+    const baselineTime = Date.now() - 3_000;
+    const baselineId = await insertEvent({
+      projectId,
+      timestamp: new Date(baselineTime),
+      message: "replay baseline",
+    });
+    const expectedIds: string[] = [];
+    for (let index = 0; index < 100; index += 1) {
+      const eventId = randomUUID();
+      expectedIds.push(eventId);
+      await insertEvent({
+        projectId,
+        id: eventId,
+        timestamp: new Date(baselineTime + index + 1),
+      });
+    }
+
+    const server = app.listen(0, "127.0.0.1");
+    await new Promise<void>((resolve, reject) => {
+      server.once("listening", resolve);
+      server.once("error", reject);
+    });
+    const address = server.address();
+    if (!address || typeof address === "string") {
+      throw new Error("Test server did not bind a TCP port");
+    }
+
+    try {
+      const body = await new Promise<string>((resolve, reject) => {
+        let responseBody = "";
+        let settled = false;
+        let client: ReturnType<typeof httpGet> | undefined;
+        const timeout = setTimeout(() => {
+          if (settled) return;
+          settled = true;
+          client?.destroy();
+          reject(new Error("Timed out waiting for replay after TCP backpressure"));
+        }, 6_000);
+        client = httpGet(
+          `http://127.0.0.1:${address.port}/api/projects/${projectId}/workspace/events`,
+          { headers: { "Last-Event-ID": encodeWorkspaceEventCursor(baselineId) } },
+          (response) => {
+            response.pause();
+            response.setEncoding("utf8");
+            response.on("data", (chunk: string) => {
+              responseBody += chunk;
+              const delivered = responseBody
+                .split("\n\n")
+                .filter((frame) => frame.includes("event: workspace.changed"))
+                .length;
+              if (!settled && delivered >= expectedIds.length) {
+                settled = true;
+                clearTimeout(timeout);
+                resolve(responseBody);
+                response.destroy();
+              }
+            });
+            // Keep the socket unread long enough for the server response buffer
+            // to fill, then let it drain and verify the complete replay arrives.
+            response.pause();
+            const resumeTimer = setTimeout(() => response.resume(), 250);
+            response.on("end", () => {
+              if (settled) return;
+              settled = true;
+              clearTimeout(timeout);
+              clearTimeout(resumeTimer);
+              reject(new Error("Workspace stream ended before replay completed"));
+            });
+            response.on("error", (error) => {
+              if (settled) return;
+              settled = true;
+              clearTimeout(timeout);
+              clearTimeout(resumeTimer);
+              reject(error);
+            });
+          },
+        );
+        client.on("error", (error) => {
+          if (settled) return;
+          settled = true;
+          clearTimeout(timeout);
+          reject(error);
+        });
+      });
+
+      const frames = body
+        .split("\n\n")
+        .filter((frame) => frame.includes("event: workspace.changed"));
+      const replayedIds = frames.map((frame) => {
+        const dataLine = frame.split("\n").find((line) => line.startsWith("data: "));
+        return (JSON.parse(dataLine!.slice("data: ".length)) as { eventId: string }).eventId;
+      });
+      expect(replayedIds).toEqual(expectedIds);
+    } finally {
+      server.closeAllConnections();
+      await new Promise<void>((resolve) => server.close(() => resolve()));
+    }
   });
 
   it("resynchronizes for a foreign project cursor and denies foreign project access", async () => {
