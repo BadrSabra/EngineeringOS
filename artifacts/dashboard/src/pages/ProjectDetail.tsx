@@ -22,7 +22,6 @@ import {
   ShieldAlert,
   Zap,
   Wrench,
-  TerminalSquare,
   CheckCircle2,
   AlertTriangle,
   Clock,
@@ -178,12 +177,13 @@ function ProjectDetailSession({ projectId }: { projectId: string }) {
               : 'border-amber-500/30 bg-amber-500/5 text-amber-200'
         }`}
         role="status"
+        data-testid="project-scan-freshness"
       >
         {project.status === 'scanning'
-          ? 'الفحص جارٍ الآن. تظل الدرجات وبيانات خريطة المشروع أدناه من آخر فحص مكتمل حتى يعلن الخادم نتيجة الفحص الجديد.'
+          ? 'يجري فحص المشروع الآن. تظل النتائج المعروضة من آخر فحص مكتمل حتى ينتهي الفحص الجديد.'
           : hasCurrentScan
-            ? `تعكس هذه البيانات الفحص المكتمل بتاريخ ${formatProjectTimestamp(project.lastScanAt)}.`
-            : 'لا يوجد فحص مكتمل لهذا المشروع. لم يُتحقق من الدرجات أو خريطة المشروع للمصدر الحالي.'}
+            ? `تعرض الصفحة نتائج آخر فحص مكتمل بتاريخ ${formatProjectTimestamp(project.lastScanAt)}.`
+            : 'لم يكتمل فحص لهذا المشروع بعد. يمكنك البدء بهدفك في مساحة العمل، أو إجراء فحص للحصول على ملخص وخريطة للمشروع.'}
       </div>
 
       {(loadingSummary || summaryError || !summary) && (
@@ -236,59 +236,51 @@ function ProjectDetailSession({ projectId }: { projectId: string }) {
               {projectStatusLabel(project.status)}
             </span>
           </div>
-          <p className="text-muted-foreground font-mono text-sm flex items-center gap-2">
-            <TerminalSquare className="w-4 h-4" /> {project.rootPath}
-          </p>
-          <div className="flex items-center gap-4 mt-4 text-sm">
-            <span className="flex items-center gap-1.5 border border-border bg-secondary/50 px-2 py-1 rounded-md">
-              <span className="text-muted-foreground">اللغة:</span>{' '}
-              <span className="font-semibold capitalize">{project.language}</span>
-            </span>
-            {project.framework && (
-              <span className="flex items-center gap-1.5 border border-border bg-secondary/50 px-2 py-1 rounded-md">
-                <span className="text-muted-foreground">إطار العمل:</span>{' '}
-                <span className="font-semibold">{project.framework}</span>
-              </span>
-            )}
+          <div className="flex items-center mt-4 text-sm">
             <span className="flex items-center gap-1.5 border border-border bg-secondary/50 px-2 py-1 rounded-md text-muted-foreground">
               <Clock className="w-3.5 h-3.5" /> آخر فحص:{' '}
               {formatProjectTimestamp(project.lastScanAt)}
             </span>
           </div>
         </div>
-        <div className="flex items-center gap-3">
-          <Link
-            href={`/projects/${encodeURIComponent(projectId)}/workspace`}
-            data-testid="link-project-workspace"
-            className="inline-flex items-center gap-2 rounded-md border border-primary/35 bg-primary/10 px-3 py-2 text-sm font-medium text-primary transition-colors hover:bg-primary/15"
-          >
-            <Activity className="h-4 w-4" aria-hidden="true" />
-            مساحة العمل
-          </Link>
-          <RefreshButton onRefresh={async () => { await Promise.all([refetchProject(), refetchSummary()]); }} isRefreshing={projectRefreshing || summaryFetching} lastUpdated={compositeLastUpdatedAt} label="تحديث المشروع" />
-          <button
-            onClick={() => setShowProjectInfo((v) => !v)}
-            className={`p-2 border rounded-md transition-colors ${showProjectInfo ? 'border-primary bg-primary/10 text-primary' : 'border-border hover:bg-secondary text-muted-foreground'}`}
-            title="معلومات المشروع"
-            aria-label="معلومات المشروع"
-          >
-            <Settings className="w-4 h-4" />
-          </button>
-          <button
-            onClick={handleScan}
-            disabled={scanProject.isPending || project.status === 'scanning'}
-            className="bg-primary hover:bg-primary/90 text-primary-foreground px-4 py-2 rounded-md font-medium text-sm flex items-center gap-2 disabled:opacity-60 transition-colors"
-          >
-            {project.status === 'scanning' ? (
-              <>
-                <Activity className="w-4 h-4 animate-pulse" /> جارٍ الفحص…
-              </>
-            ) : (
-              <>
-                <Play className="w-4 h-4" /> ابدأ الفحص
-              </>
-            )}
-          </button>
+        <div className="flex flex-col items-start gap-2 sm:items-end">
+          <div className="flex flex-wrap items-center justify-end gap-3">
+            <Link
+              href={`/projects/${encodeURIComponent(projectId)}/workspace`}
+              data-testid="link-project-workspace"
+              className="inline-flex items-center gap-2 rounded-md bg-primary px-3 py-2 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90"
+            >
+              <Activity className="h-4 w-4" aria-hidden="true" />
+              ابدأ بهدفك
+            </Link>
+            <RefreshButton onRefresh={async () => { await Promise.all([refetchProject(), refetchSummary()]); }} isRefreshing={projectRefreshing || summaryFetching} lastUpdated={compositeLastUpdatedAt} label="تحديث المشروع" />
+            <button
+              onClick={() => setShowProjectInfo((v) => !v)}
+              className={`p-2 border rounded-md transition-colors ${showProjectInfo ? 'border-primary bg-primary/10 text-primary' : 'border-border hover:bg-secondary text-muted-foreground'}`}
+              title="معلومات المشروع"
+              aria-label="معلومات المشروع"
+            >
+              <Settings className="w-4 h-4" />
+            </button>
+            <button
+              onClick={handleScan}
+              disabled={scanProject.isPending || project.status === 'scanning'}
+              className="border border-border bg-secondary px-4 py-2 rounded-md font-medium text-sm text-foreground flex items-center gap-2 hover:bg-secondary/80 disabled:opacity-60 transition-colors"
+            >
+              {project.status === 'scanning' ? (
+                <>
+                  <Activity className="w-4 h-4 animate-pulse" /> جارٍ الفحص…
+                </>
+              ) : (
+                <>
+                  <Play className="w-4 h-4" /> فحص المشروع
+                </>
+              )}
+            </button>
+          </div>
+          <p className="max-w-sm text-xs leading-5 text-muted-foreground">
+            صف ما تريد إنجازه، وتابع التقدم والنتيجة داخل مساحة المشروع.
+          </p>
         </div>
       </div>
 

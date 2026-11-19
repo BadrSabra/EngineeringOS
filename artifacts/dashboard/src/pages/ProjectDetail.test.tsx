@@ -116,6 +116,10 @@ describe('ProjectDetail Arabic presentation', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mocks.routeProjectId = 'project-1';
+    mocks.project = {
+      ...mocks.project,
+      lastScanAt: '2026-10-14T12:00:00.000Z',
+    };
     mocks.summaryAvailable = true;
     mocks.summaryIsLoading = false;
     mocks.summaryIsError = false;
@@ -130,12 +134,41 @@ describe('ProjectDetail Arabic presentation', () => {
 
     expect(container.firstElementChild).toHaveAttribute('dir', 'rtl');
     expect(screen.getByText('نشط')).toBeInTheDocument();
-    expect(screen.getByText('اللغة:')).toBeInTheDocument();
     expect(screen.getByText(/آخر فحص:/)).toBeInTheDocument();
+    expect(screen.queryByText('اللغة:')).not.toBeInTheDocument();
+    expect(screen.queryByText('/workspace/example')).not.toBeInTheDocument();
+    expect(screen.queryByText('TypeScript')).not.toBeInTheDocument();
+    expect(screen.queryByText('React', { exact: true })).not.toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'ابدأ بهدفك' })).toHaveAttribute(
+      'href',
+      '/projects/project-1/workspace',
+    );
 
     fireEvent.click(screen.getByRole('button', { name: 'معلومات المشروع' }));
     expect(screen.getByText('الحالة')).toBeInTheDocument();
     expect(screen.getByText('active')).toBeInTheDocument();
+    expect(screen.getByText('مسار المشروع')).toBeInTheDocument();
+    expect(screen.getByText('/workspace/example')).toBeInTheDocument();
+    expect(screen.getByText('TypeScript')).toBeInTheDocument();
+    expect(screen.getByText('React', { exact: true })).toBeInTheDocument();
+  });
+
+  it('offers goal-first work before a technical scan when no completed scan exists', () => {
+    mocks.project = { ...mocks.project, lastScanAt: null };
+
+    render(<ProjectDetail />);
+
+    expect(screen.getByTestId('project-scan-freshness')).toHaveTextContent(
+      'لم يكتمل فحص لهذا المشروع بعد',
+    );
+    expect(screen.getByTestId('project-scan-freshness')).toHaveTextContent(
+      'يمكنك البدء بهدفك في مساحة العمل',
+    );
+    expect(screen.getByRole('link', { name: 'ابدأ بهدفك' })).toHaveClass('bg-primary');
+    const scanButton = screen.getByRole('button', { name: 'فحص المشروع' });
+    expect(scanButton).toBeEnabled();
+    expect(scanButton).toHaveClass('bg-secondary');
+    expect(scanButton).not.toHaveClass('bg-primary');
   });
 
   it('keeps Strategy Replay opt-in off by default, explains its limits, and preserves the mutation value', () => {
