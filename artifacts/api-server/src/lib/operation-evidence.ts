@@ -1,4 +1,4 @@
-import { and, eq } from "drizzle-orm";
+import { and, desc, eq } from "drizzle-orm";
 import {
   db,
   aiApplyJournalTable,
@@ -297,6 +297,23 @@ export function buildOperationEvidenceProjection(input: EvidenceInput): Internal
   else if (["blocked", "paused"].includes(execution.status)) completeness = "blocked";
   else completeness = gaps.length > 0 ? "partial" : "uncertain";
 
+  const chronologicalReceipts = receipts
+    .map((receipt, index) => ({ receipt, index }))
+    .sort((left, right) => (
+      Date.parse(left.receipt.timestamp) - Date.parse(right.receipt.timestamp)
+      || left.index - right.index
+    ))
+    .map(({ receipt }) => receipt);
+  const startedReceipt = receipts[0];
+  const boundedReceipts = chronologicalReceipts.length > OPERATION_EVIDENCE_LIMITS.receipts
+    ? [
+        ...(startedReceipt ? [startedReceipt] : []),
+        ...chronologicalReceipts
+          .filter((receipt) => receipt !== startedReceipt)
+          .slice(-(OPERATION_EVIDENCE_LIMITS.receipts - (startedReceipt ? 1 : 0))),
+      ].sort((left, right) => Date.parse(left.timestamp) - Date.parse(right.timestamp))
+    : chronologicalReceipts;
+
   const projection: InternalOperationEvidenceProjection = {
     version: 1,
     redacted: true,
@@ -322,9 +339,9 @@ export function buildOperationEvidenceProjection(input: EvidenceInput): Internal
       audit: audits.length,
       taskLogs: taskLogs.length,
       journal: journal.length,
-      receipts: Math.min(receipts.length, OPERATION_EVIDENCE_LIMITS.receipts),
+      receipts: boundedReceipts.length,
     },
-    receipts: receipts.slice(0, OPERATION_EVIDENCE_LIMITS.receipts),
+    receipts: boundedReceipts,
     gaps,
     proof: input.proof ?? unavailableProofProjection(),
     proofSpine: input.proofSpine
@@ -359,25 +376,37 @@ function parseJson(value: string | null): unknown {
 
 export async function loadOperationEvidence(execution: AiExecution): Promise<InternalOperationEvidenceProjection> {
   const operationId = execution.operationId ?? execution.correlationId ?? execution.id;
-  const [events, audits, taskLogs, journal, proposals, goals] = await Promise.all([
+  const [eventRows, auditRows, taskLogRows, journalRows, proposals, goals] = await Promise.all([
     db.select({
       id: eventsTable.id, type: eventsTable.type, severity: eventsTable.severity, message: eventsTable.message,
       timestamp: eventsTable.timestamp, payload: eventsTable.payload,
-    }).from(eventsTable).where(and(eq(eventsTable.projectId, execution.projectId), eq(eventsTable.correlationId, operationId))),
+    }).from(eventsTable)
+      .where(and(eq(eventsTable.projectId, execution.projectId), eq(eventsTable.correlationId, operationId)))
+      .orderBy(desc(eventsTable.timestamp), desc(eventsTable.id))
+      .limit(OPERATION_EVIDENCE_LIMITS.events),
     db.select({
       id: auditLogsTable.id, action: auditLogsTable.action, entityType: auditLogsTable.entityType,
       timestamp: auditLogsTable.timestamp, reason: auditLogsTable.reason,
-    }).from(auditLogsTable).where(and(eq(auditLogsTable.projectId, execution.projectId), eq(auditLogsTable.correlationId, operationId))),
+    }).from(auditLogsTable)
+      .where(and(eq(auditLogsTable.projectId, execution.projectId), eq(auditLogsTable.correlationId, operationId)))
+      .orderBy(desc(auditLogsTable.timestamp), desc(auditLogsTable.id))
+      .limit(OPERATION_EVIDENCE_LIMITS.audit),
     execution.linkedTaskId
       ? db.select({
           id: taskLogsTable.id, level: taskLogsTable.level, message: taskLogsTable.message,
           timestamp: taskLogsTable.timestamp, metadata: taskLogsTable.metadata,
-        }).from(taskLogsTable).where(and(eq(taskLogsTable.taskId, execution.linkedTaskId), eq(taskLogsTable.correlationId, operationId)))
+        }).from(taskLogsTable)
+          .where(and(eq(taskLogsTable.taskId, execution.linkedTaskId), eq(taskLogsTable.correlationId, operationId)))
+          .orderBy(desc(taskLogsTable.timestamp), desc(taskLogsTable.id))
+          .limit(OPERATION_EVIDENCE_LIMITS.taskLogs)
       : Promise.resolve([]),
     db.select({
       id: aiApplyJournalTable.id, stage: aiApplyJournalTable.stage, sequence: aiApplyJournalTable.sequence,
       attemptId: aiApplyJournalTable.attemptId, createdAt: aiApplyJournalTable.createdAt, payload: aiApplyJournalTable.payload,
-    }).from(aiApplyJournalTable).where(and(eq(aiApplyJournalTable.projectId, execution.projectId), eq(aiApplyJournalTable.operationId, operationId))),
+    }).from(aiApplyJournalTable)
+      .where(and(eq(aiApplyJournalTable.projectId, execution.projectId), eq(aiApplyJournalTable.operationId, operationId)))
+      .orderBy(desc(aiApplyJournalTable.createdAt), desc(aiApplyJournalTable.sequence), desc(aiApplyJournalTable.id))
+      .limit(OPERATION_EVIDENCE_LIMITS.journal),
     execution.proposalId
       ? db.select({
            revision: aiChangeProposalsTable.revision, baseRevision: aiChangeProposalsTable.baseRevision,
@@ -397,6 +426,12 @@ export async function loadOperationEvidence(execution: AiExecution): Promise<Int
         )).limit(1)
       : Promise.resolve([]),
   ]);
+  // SQL limits choose the newest bounded window; reverse it before projection so
+  // the public evidence timeline remains chronological.
+  const events = eventRows.reverse();
+  const audits = auditRows.reverse();
+  const taskLogs = taskLogRows.reverse();
+  const journal = journalRows.reverse();
   const proposal = proposals[0] ?? null;
   const goal = goals[0] ?? null;
   const [mission] = goal
