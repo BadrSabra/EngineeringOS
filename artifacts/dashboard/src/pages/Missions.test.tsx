@@ -1213,9 +1213,15 @@ describe('Missions project isolation', () => {
 
 describe('Missions projection identity', () => {
   it.each([
-    ['mission', { ...mission, id: 'mission-foreign', title: 'Foreign mission projection' }],
-    ['project', { ...mission, projectId: 'project-foreign', title: 'Foreign project projection' }],
-  ])('withholds details when the projection belongs to a different %s', async (_scope, returnedMission) => {
+    {
+      scope: 'mission',
+      returnedMission: { ...mission, id: 'mission-foreign', title: 'Foreign mission projection' },
+    },
+    {
+      scope: 'project',
+      returnedMission: { ...mission, projectId: 'project-foreign', title: 'Foreign project projection' },
+    },
+  ])('withholds details when the projection belongs to another $scope', async ({ returnedMission }) => {
     fetchMissionsMock.mockResolvedValue([mission]);
     fetchMissionProjectionMock.mockResolvedValue({
       mission: returnedMission,
