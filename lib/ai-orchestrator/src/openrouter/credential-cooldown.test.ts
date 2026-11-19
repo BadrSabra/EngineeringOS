@@ -1,3 +1,4 @@
+import { createHmac } from "node:crypto";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { GroqClientError } from "../errors.js";
 import {
@@ -15,6 +16,13 @@ import {
 const fixtureApiKey = "fixture-openrouter-credential-for-cooldown";
 const fixtureEncryptionKey = "0123456789abcdef".repeat(4);
 let previousEncryptionKey: string | undefined;
+
+function persistedCredentialFingerprint(apiKey: string): string {
+  return createHmac("sha256", Buffer.from(fixtureEncryptionKey, "hex"))
+    .update("openrouter-credential-cooldown:v1\\0", "utf8")
+    .update(apiKey, "utf8")
+    .digest("hex");
+}
 
 function createMemoryCredentialPersistence(): CredentialCooldownPersistence {
   const stored = new Map<string, {
@@ -87,6 +95,61 @@ describe("OpenRouter credential cooldown persistence", () => {
           code: "QUOTA",
           rateLimitScope: "account_quota",
         });
+      } finally {
+        await pool.end();
+      }
+    },
+  );
+
+  it.skipIf(process.env.OPENROUTER_CREDENTIAL_COOLDOWN_DB_TEST !== "1")(
+    "anchors persisted Retry-After expiry to PostgreSQL despite application clock skew",
+    async () => {
+      _setOpenRouterCredentialCooldownPersistenceForTest(undefined);
+      const { pool } = await import("@workspace/db");
+      const realNow = Date.now.bind(Date);
+      const clockSkews = [
+        { name: "ahead", offsetMs: 24 * 60 * 60_000 },
+        { name: "behind", offsetMs: -24 * 60 * 60_000 },
+      ] as const;
+
+      try {
+        for (const skew of clockSkews) {
+          const apiKey = `${fixtureApiKey}-clock-${skew.name}`;
+          const fingerprint = persistedCredentialFingerprint(apiKey);
+          const clock = vi.spyOn(Date, "now").mockImplementation(
+            () => realNow() + skew.offsetMs,
+          );
+
+          try {
+            await recordOpenRouterCredentialCooldown(
+              apiKey,
+              new GroqClientError("RATE_LIMITED", "fixture clock-skew limit", {
+                context: {
+                  rateLimitScope: "provider_credential",
+                  retryAfterMs: 30_000,
+                },
+              }),
+            );
+
+            // Force the next admission through the shared PostgreSQL row,
+            // rather than allowing the process-local cooldown to mask it.
+            _resetOpenRouterCredentialCooldownsForTest();
+            await expect(assertOpenRouterCredentialAvailable(apiKey)).rejects.toSatisfy(
+              (error: unknown) =>
+                error instanceof GroqClientError
+                && error.code === "RATE_LIMITED"
+                && Number.isSafeInteger(error.retryAfterMs)
+                && error.retryAfterMs! > 0
+                && error.retryAfterMs! <= 30_000,
+            );
+          } finally {
+            clock.mockRestore();
+            await pool.query(
+              "DELETE FROM openrouter_credential_cooldowns WHERE credential_fingerprint = $1",
+              [fingerprint],
+            );
+          }
+        }
       } finally {
         await pool.end();
       }
