@@ -406,7 +406,7 @@ async function persistDeferredAiTaskExecution(
   options?: AiTaskExecutionOptions,
   expectedRetryCount?: number,
   expectedCorrelationId?: string | null,
-): Promise<{ retryCount: number; correlationId: string | null; payload: DeferredAiTaskExecution } | null> {
+): Promise<{ retryCount: number; correlationId: string | null; payload: DeferredAiTaskExecution; databaseNow: Date } | null> {
   return db.transaction(async (tx) => {
     const [task] = await tx
       .select({
@@ -442,7 +442,14 @@ async function persistDeferredAiTaskExecution(
       .limit(1);
     const parsed = parseDeferredAiTaskExecution(intent?.payload);
     if (!parsed) return null;
-    return { retryCount: task.retryCount, correlationId: task.correlationId, payload: parsed };
+    const [databaseClock] = await tx.select({ now: sql<Date>`clock_timestamp()` });
+    if (!databaseClock?.now) return null;
+    return {
+      retryCount: task.retryCount,
+      correlationId: task.correlationId,
+      payload: parsed,
+      databaseNow: databaseClock.now,
+    };
   });
 }
 
@@ -519,6 +526,9 @@ async function markDeferredAiTaskExecution(
       || parsed.taskRetryCount !== retryCount
       || parsed.taskCorrelationId !== correlationId
     ) return;
+    const [databaseClock] = await tx.select({ now: sql<Date>`clock_timestamp()` });
+    if (!databaseClock?.now) return;
+    const retryDelay = Math.max(1, delayMs ?? retryDelayMs(parsed.attemptCount));
     await tx.update(eventsTable)
       .set({
         type: TASK_AUTO_EXECUTION_DEFERRED_EVENT_TYPE,
@@ -529,10 +539,7 @@ async function markDeferredAiTaskExecution(
           taskRetryCount: retryCount,
           attemptCount: parsed.attemptCount + 1,
           lastFailureCode: reasonCode,
-          nextAttemptAt: new Date(Date.now() + Math.max(
-            1,
-            delayMs ?? retryDelayMs(parsed.attemptCount),
-          )).toISOString(),
+          nextAttemptAt: new Date(databaseClock.now.getTime() + retryDelay).toISOString(),
         },
       })
       .where(eq(eventsTable.id, id));
@@ -777,7 +784,7 @@ export async function scheduleAiTaskExecution(
       const nextAttemptAt = persisted.payload.nextAttemptAt
         ? Date.parse(persisted.payload.nextAttemptAt)
         : Number.NaN;
-      if (Number.isFinite(nextAttemptAt) && nextAttemptAt > Date.now()) {
+      if (Number.isFinite(nextAttemptAt) && nextAttemptAt > persisted.databaseNow.getTime()) {
         resolveCompletion();
         scheduledAiTaskCompletions.delete(taskId);
         logger.info(
@@ -907,7 +914,9 @@ export async function discardDeferredAiTaskIntentIfUnchanged(intent: {
  * intent with a bounded retry time; the Task claim consumes it atomically.
  */
 export async function dispatchDeferredAiTaskExecutions(limit = 100): Promise<number> {
-  const nowIso = new Date().toISOString();
+  const [databaseClock] = await db.select({ now: sql<Date>`clock_timestamp()` });
+  if (!databaseClock?.now) return 0;
+  const nowIso = databaseClock.now.toISOString();
   const deferred = await db
     .select({
       intentId: eventsTable.id,
