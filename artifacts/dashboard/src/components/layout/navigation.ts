@@ -79,8 +79,23 @@ export function isNavigationItemActive(pathname: string, href: string): boolean 
 }
 
 export function getNavigationPageLabel(pathname: string): string {
+  const routePath = pathname.split(/[?#]/, 1)[0] ?? '/';
+  const segments = routePath.split('/').filter(Boolean);
+
+  if (segments[0] === 'general-chat') return 'محادثة عامة';
+  if (
+    segments[0] === 'projects'
+    && segments.length >= 3
+    && segments[2] === 'workspace'
+  ) {
+    return 'مساحة المشروع';
+  }
+  if (segments[0] === 'projects' && segments.length >= 2) {
+    return 'تفاصيل المشروع';
+  }
+
   const matchingItem = ALL_NAV_ITEMS
-    .filter((item) => isNavigationItemActive(pathname, item.href))
+    .filter((item) => isNavigationItemActive(routePath, item.href))
     .sort((left, right) => right.href.length - left.href.length)[0];
 
   return matchingItem?.label ?? 'مساحة العمل';

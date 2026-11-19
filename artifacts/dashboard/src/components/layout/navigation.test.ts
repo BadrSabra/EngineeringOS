@@ -27,10 +27,18 @@ describe('dashboard navigation', () => {
     expect(PRIMARY_NAV_ITEMS.filter((item) => item.href === '/ai' || item.href === '/general-chat')).toHaveLength(1);
   });
 
-  it('maps nested project routes to their parent destination', () => {
-    expect(getNavigationPageLabel('/projects/abc123')).toBe('المشاريع');
+  it('names project details and workspaces separately from the project list', () => {
+    expect(getNavigationPageLabel('/projects')).toBe('المشاريع');
+    expect(getNavigationPageLabel('/projects/abc123')).toBe('تفاصيل المشروع');
+    expect(getNavigationPageLabel('/projects/abc123/workspace?goalDraftId=draft-1')).toBe('مساحة المشروع');
     expect(isNavigationItemActive('/projects/abc123', '/projects')).toBe(true);
     expect(isNavigationItemActive('/projects-old', '/projects')).toBe(false);
+  });
+
+  it('names general-chat routes without adding them to primary navigation', () => {
+    expect(getNavigationPageLabel('/general-chat?sessionId=session-1')).toBe('محادثة عامة');
+    expect(getNavigationPageLabel('/general-chatty')).toBe('مساحة العمل');
+    expect(PRIMARY_NAV_ITEMS.some((item) => item.href === '/general-chat')).toBe(false);
   });
 
   it('does not treat the home page as active for every route', () => {

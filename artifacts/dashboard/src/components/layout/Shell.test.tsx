@@ -93,6 +93,17 @@ describe('Shell mobile navigation', () => {
     expect(groupButton).toHaveAttribute('aria-expanded', 'false');
   });
 
+  it('shows the current location for general conversations and project workspaces', () => {
+    window.history.replaceState({}, '', '/general-chat?sessionId=session-1');
+    const view = render(<Router><Shell><div>General conversation</div></Shell></Router>);
+    expect(screen.getByTestId('text-current-page')).toHaveTextContent('محادثة عامة');
+
+    view.unmount();
+    window.history.replaceState({}, '', '/projects/project-1/workspace');
+    render(<Router><Shell><div>Project workspace</div></Shell></Router>);
+    expect(screen.getByTestId('text-current-page')).toHaveTextContent('مساحة المشروع');
+  });
+
   it('isolates RTL navigation from existing page content and preserves the sign-out handoff', () => {
     render(<Router><Shell><div>Technical content</div></Shell></Router>);
     fireEvent.click(screen.getByTestId('button-open-navigation'));
