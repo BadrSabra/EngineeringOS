@@ -1,7 +1,7 @@
 /**
  * Focused tests for chat-provider routing helpers.
  */
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
   GroqClientError,
   getProviderMetrics,
@@ -22,6 +22,61 @@ import {
   resolveChatBudgetProjectId,
 } from "./ai-route-helpers.js";
 import type { ExecutionLedgerSnapshot } from "@workspace/ai-orchestrator";
+import { createRetryableSingleFlightLoader } from "./ai-route-helpers.js";
+
+describe("retryable single-flight history loader", () => {
+  it("retries a failed initial read after backoff and stays loaded after recovery", async () => {
+    let now = 1_000;
+    let attempts = 0;
+    const onError = vi.fn();
+    const ensureLoaded = createRetryableSingleFlightLoader(
+      async () => {
+        attempts += 1;
+        if (attempts === 1) throw new Error("temporary database outage");
+      },
+      { retryDelayMs: 5_000, now: () => now, onError },
+    );
+
+    await expect(ensureLoaded()).resolves.toBeUndefined();
+    expect(attempts).toBe(1);
+    expect(onError).toHaveBeenCalledTimes(1);
+
+    await ensureLoaded();
+    now += 4_999;
+    await ensureLoaded();
+    expect(attempts).toBe(1);
+
+    now += 1;
+    await ensureLoaded();
+    expect(attempts).toBe(2);
+    await ensureLoaded();
+    expect(attempts).toBe(2);
+  });
+
+  it("shares one in-flight read across concurrent callers", async () => {
+    let release: (() => void) | undefined;
+    const load = vi.fn(
+      () => new Promise<void>((resolve) => {
+        release = resolve;
+      }),
+    );
+    const ensureLoaded = createRetryableSingleFlightLoader(
+      load,
+      { retryDelayMs: 1_000 },
+    );
+
+    const first = ensureLoaded();
+    const second = ensureLoaded();
+    await Promise.resolve();
+    expect(load).toHaveBeenCalledTimes(1);
+
+    release?.();
+    await Promise.all([first, second]);
+    await ensureLoaded();
+    expect(load).toHaveBeenCalledTimes(1);
+  });
+});
+
 
 describe("chat project budget scope", () => {
   it("uses the validated request project when telemetry context is absent", () => {
