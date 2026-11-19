@@ -80,10 +80,28 @@ describe("Projects", () => {
     const draft = storeHomeGoalDraft('أنشئ تطبيق العملاء', 'user-1')!;
     window.history.replaceState({}, '', `/projects?create=1&goalDraftId=${draft.id}`);
     const goalDialog = render(<Projects />);
-    const dialog = await screen.findByRole('dialog', { name: 'ابدأ مشروعًا من قالب جاهز' });
+    const dialog = await screen.findByRole('dialog', { name: 'ابدأ مشروعك من قالب ويب جاهز' });
     const dialogResults = await axe.run(goalDialog.container, { rules });
     expect(dialogResults.violations.map(({ id }) => id)).toEqual([]);
     expect(dialog).toHaveAttribute('aria-modal', 'true');
+  });
+
+  it('explains project creation plainly and keeps framework details optional', () => {
+    render(<Projects />);
+    fireEvent.click(screen.getByTestId('button-new-project'));
+
+    expect(screen.getByRole('dialog', { name: 'ابدأ مشروعك من قالب ويب جاهز' })).toBeInTheDocument();
+    expect(screen.getByText('مشروع ويب جديد')).toBeInTheDocument();
+    expect(screen.getByText(/لا تحتاج لاختيار أدوات برمجة/)).toBeInTheDocument();
+    expect(screen.getByText(/مسودة لا تُرسل تلقائيًا/)).toBeInTheDocument();
+    expect(screen.getByText('React + Vite')).not.toBeVisible();
+    expect(mocks.mutate).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByTestId('summary-project-template-details'));
+
+    expect(screen.getByText('React + Vite')).toBeVisible();
+    expect(screen.getByTestId('details-project-template')).toHaveAttribute('open');
+    expect(mocks.mutate).not.toHaveBeenCalled();
   });
 
   it('binds project creation to the newly routed goal draft when the route changes in-place', () => {
