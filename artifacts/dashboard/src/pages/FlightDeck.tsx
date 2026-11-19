@@ -322,7 +322,7 @@ function FlightDeckSession({
 }) {
   const queryClient = useQueryClient();
   const [commitMessage, setCommitMessage] = useState('');
-  const { data: execution, isLoading, isError, isFetching, refetch, dataUpdatedAt } = useGetAiExecution(executionId, {
+  const { data: executionResponse, isLoading, isError, isFetching, refetch, dataUpdatedAt } = useGetAiExecution(executionId, {
     query: {
       queryKey: ['ai-flight-deck-execution', executionId],
       enabled: Boolean(executionId),
@@ -332,7 +332,16 @@ function FlightDeckSession({
       },
     },
   });
-  const projectId = execution?.projectId ?? requestedProjectId;
+  // The route context is a request, not proof of response ownership. Bind all
+  // proof and Git consumers to the exact execution and requested project.
+  const executionMatchesRequest = Boolean(
+    executionResponse
+    && executionResponse.id === executionId
+    && (!requestedProjectId || executionResponse.projectId === requestedProjectId)
+  );
+  const identityMismatch = Boolean(executionResponse && !executionMatchesRequest);
+  const execution = executionMatchesRequest ? executionResponse : undefined;
+  const projectId = execution?.projectId ?? '';
   const operationId = execution?.operationId ?? requestedOperationId;
   const conversationHref = executionChatHref(execution, executionId, requestedProjectId);
   const gitStatus = useGetGitStatus(projectId, {
@@ -392,13 +401,20 @@ function FlightDeckSession({
 
   if (!execution) {
     return (
-      <div dir="rtl" lang="ar" className="rounded-xl border border-red-500/30 bg-red-500/5 p-6">
+      <div
+        dir="rtl"
+        lang="ar"
+        data-testid={identityMismatch ? 'flight-deck-identity-mismatch' : undefined}
+        className="rounded-xl border border-red-500/30 bg-red-500/5 p-6"
+      >
         <div className="flex items-center gap-2 font-semibold text-red-200">
           <AlertTriangle className="h-4 w-4" />
-          تعذّر تحميل سجل التنفيذ
+          {identityMismatch ? 'تعذر مطابقة تفاصيل التنفيذ' : 'تعذّر تحميل سجل التنفيذ'}
         </div>
         <p className="mt-2 text-sm text-muted-foreground">
-          لم تتوفر قراءة لسجل التنفيذ الآن. فشل القراءة لا يثبت أن التنفيذ غير موجود أو أنه اكتمل.
+          {identityMismatch
+            ? 'أعادت القراءة سجلًا لا يطابق معرّف التنفيذ المطلوب أو المشروع المحدد في الرابط. حُجبت التفاصيل وإجراءات Git حتى تتوفر استجابة تطابق السياق.'
+            : 'لم تتوفر قراءة لسجل التنفيذ الآن. فشل القراءة لا يثبت أن التنفيذ غير موجود أو أنه اكتمل.'}
         </p>
         <button
           type="button"
