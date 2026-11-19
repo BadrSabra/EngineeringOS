@@ -153,6 +153,22 @@ describe('DiscoverProjectWizard Arabic findings', () => {
     mocks.importProject.mockResolvedValue({ id: 'imported-project' });
   });
 
+  it('explains where each project source comes from before the user starts scanning', () => {
+    render(<DiscoverProjectWizard onClose={vi.fn()} />);
+
+    expect(screen.getByRole('button', { name: /رابط المشروع/ })).toHaveTextContent(
+      'الصق رابط HTTPS للمستودع',
+    );
+    expect(screen.getByRole('button', { name: /ملف مضغوط من جهازك/ })).toHaveTextContent(
+      'ارفع نسخة ZIP أو TAR.GZ أو TGZ',
+    );
+    expect(screen.getByRole('button', { name: /مجلد موجود على الخادم/ })).toHaveTextContent(
+      'خيار متقدم يتطلب مسار المجلد على خادم التطبيق',
+    );
+    expect(screen.getByText(/لا يبدأ الفحص إلا بعد ضغطك/)).toBeInTheDocument();
+    expect(mocks.startDiscovery).not.toHaveBeenCalled();
+  });
+
   it('marks a cached discovery session as stale after a failed poll and offers a direct retry', async () => {
     mocks.session.status = 'discovering';
     mocks.session.progress = 42;

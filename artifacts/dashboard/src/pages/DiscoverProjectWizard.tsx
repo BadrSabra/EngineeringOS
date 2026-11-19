@@ -179,30 +179,31 @@ interface SourceDef {
 const SOURCE_DEFS: SourceDef[] = [
   {
     type: 'GIT_REPOSITORY',
-    label: 'مستودع Git',
-    description: 'أضف مستودعًا بعيدًا لفحصه.',
+    label: 'رابط المشروع',
+    description: 'الصق رابط HTTPS للمستودع، مثل GitHub أو GitLab. قد يحتاج المشروع الخاص إلى بيانات دخول.',
     icon: GitBranch,
     available: true,
     badge: 'موصى به',
   },
   {
     type: 'LOCAL_FOLDER',
-    label: 'مجلد على الخادم',
-    description: 'افحص مجلدًا محفوظًا على هذا الخادم.',
+    label: 'مجلد موجود على الخادم',
+    description: 'خيار متقدم يتطلب مسار المجلد على خادم التطبيق، وليس مجلدًا من جهازك.',
     icon: FolderOpen,
     available: true,
+    badge: 'متقدم',
   },
   {
     type: 'WORKSPACE_PROJECT',
-    label: 'مشروع مسجّل',
-    description: 'أعد فحص مشروع أضفته من قبل.',
+    label: 'مشروع أضفته من قبل',
+    description: 'أعد فحص مشروع موجود في مساحة عملك.',
     icon: Layers,
     available: true,
   },
   {
     type: 'ARCHIVE_UPLOAD',
-    label: 'رفع ملف مشروع',
-    description: 'ارفع ملفًا بصيغة .zip أو .tar.gz أو .tgz لفحصه.',
+    label: 'ملف مضغوط من جهازك',
+    description: 'ارفع نسخة ZIP أو TAR.GZ أو TGZ من ملفات المشروع.',
     icon: Package,
     available: true,
   },
@@ -659,7 +660,7 @@ export function DiscoverProjectWizard({ onClose }: Props) {
       <div>
         <h2 className="text-xl font-bold tracking-tight mb-1">اكتشف مشروعًا</h2>
         <p className="text-sm text-muted-foreground">
-          اختر طريقة إضافة مشروعك، وسيفحصه EngineeringOS تلقائيًا.
+          اختر الطريقة التي تناسب مكان ملفات مشروعك. لا يبدأ الفحص إلا بعد ضغطك على «ابدأ الفحص».
         </p>
       </div>
 
