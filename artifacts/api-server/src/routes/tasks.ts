@@ -402,8 +402,20 @@ router.patch("/tasks/:taskId", async (req, res) => {
   let updated: Array<typeof tasksTable.$inferSelect>;
   try {
     updated = await db.transaction(async (tx) => {
-      if (body.status === "verifying" && before[0].prompt) {
-        const blockers = await getTaskDependencyBlockers(tx, before[0]);
+      // Keep one lock order across all Task admission paths: dependent Task,
+      // then its prerequisite rows. This avoids PATCH-vs-execute lock inversion.
+      const [lockedTask] = await tx.select().from(tasksTable)
+        .where(and(
+          eq(tasksTable.id, taskId),
+          eq(tasksTable.status, before[0].status),
+          isNull(tasksTable.workerId),
+        ))
+        .for("update")
+        .limit(1);
+      if (!lockedTask) return [];
+
+      if (body.status === "verifying" && lockedTask.prompt) {
+        const blockers = await getTaskDependencyBlockers(tx, lockedTask);
         if (blockers.length > 0) throw new TaskDependencyBlockedError(blockers);
       }
       const rows = await tx.update(tasksTable)
