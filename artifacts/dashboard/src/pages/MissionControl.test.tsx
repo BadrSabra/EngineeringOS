@@ -2,12 +2,17 @@ import { act, fireEvent, render, screen, within } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import MissionControl from './MissionControl';
+import { useLocation } from 'wouter';
 
-vi.mock('wouter', () => ({
-  Link: ({ href, children, ...props }: React.AnchorHTMLAttributes<HTMLAnchorElement>) => (
-    <a href={href} {...props}>{children}</a>
-  ),
-}));
+vi.mock('wouter', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('wouter')>();
+  return {
+    ...actual,
+    Link: ({ href, children, ...props }: React.AnchorHTMLAttributes<HTMLAnchorElement>) => (
+      <a href={href} {...props}>{children}</a>
+    ),
+  };
+});
 
 const missionControlFixture = vi.hoisted(() => ({
   updatedAt: '2026-08-19T01:03:24.000Z',
@@ -154,15 +159,33 @@ vi.mock('@workspace/api-client-react', () => ({
   },
 }));
 
-function renderPage() {
+function renderPage(extraContent?: React.ReactNode) {
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false } },
   });
-  return render(<MissionControl />, {
-    wrapper: function QueryWrapper({ children }: { children: React.ReactNode }) {
-      return <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>;
+  return render(
+    <>
+      {extraContent}
+      <MissionControl />
+    </>,
+    {
+      wrapper: function QueryWrapper({ children }: { children: React.ReactNode }) {
+        return <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>;
+      },
     },
-  });
+  );
+}
+
+function RouteNavigationProbe() {
+  const [, navigate] = useLocation();
+  return (
+    <button
+      type="button"
+      onClick={() => navigate('/mission-control?projectId=project-1&executionId=execution-2')}
+    >
+      Navigate to second execution
+    </button>
+  );
 }
 
 function usageFixture(overrides: Record<string, unknown> = {}) {
@@ -334,7 +357,7 @@ describe('Mission Control', () => {
     refetchExecutionDetail.mockReset();
   });
 
-  it('honors a changed execution deep link without retaining the previous selection', () => {
+  it('honors a query-only execution navigation without retaining the previous selection', () => {
     const originalPath = window.location.pathname + window.location.search;
     currentMissionControl = {
       ...missionControlFixture,
@@ -351,12 +374,14 @@ describe('Mission Control', () => {
 
     try {
       window.history.pushState({}, '', '/mission-control?projectId=project-1&executionId=execution-1');
-      const page = renderPage();
+      renderPage(<RouteNavigationProbe />);
       expect(selectedExecutionQuery.requestedId).toBe('execution-1');
       expect(screen.getByRole('button', { name: /execution-1/ })).toHaveAttribute('aria-pressed', 'true');
 
-      window.history.pushState({}, '', '/mission-control?projectId=project-1&executionId=execution-2');
-      page.rerender(<MissionControl />);
+      // Navigate through Wouter without changing the pathname or forcing a rerender.
+      fireEvent.click(screen.getByRole('button', { name: 'Navigate to second execution' }));
+      expect(window.location.pathname).toBe('/mission-control');
+      expect(new URLSearchParams(window.location.search).get('executionId')).toBe('execution-2');
 
       expect(selectedExecutionQuery.requestedId).toBe('execution-2');
       expect(screen.getByRole('button', { name: /execution-2/ })).toHaveAttribute('aria-pressed', 'true');
