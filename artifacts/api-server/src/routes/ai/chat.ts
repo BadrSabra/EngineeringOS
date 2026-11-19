@@ -15361,19 +15361,22 @@ router.get("/ai/chat/:sessionId/messages", async (req, res) => {
     .from(aiChatMessagesTable)
     .where(eq(aiChatMessagesTable.sessionId, sessionId))
     .orderBy(aiChatMessagesTable.createdAt);
-  const acceptanceMessageIds = messages
-    .filter((message) => Boolean(message.executionId))
-    .map((message) => message.id);
-  const acceptanceRows = acceptanceMessageIds.length > 0
+  const executionIds = [...new Set(
+    messages
+      .map((message) => message.executionId)
+      .filter((executionId): executionId is string => Boolean(executionId)),
+  )];
+  const acceptanceRows = executionIds.length > 0
     ? await db
       .select()
       .from(aiExecutionAcceptancesTable)
-      .where(inArray(aiExecutionAcceptancesTable.messageId, acceptanceMessageIds))
+      .where(inArray(aiExecutionAcceptancesTable.executionId, executionIds))
       .orderBy(desc(aiExecutionAcceptancesTable.attempt))
     : [];
-  // Resolve history acceptance by the exact execution/message identity. The
-  // messageId filter keeps this read scoped to the session, and selecting the
-  // highest attempt preserves the latest accepted projection for that row.
+  // Keep the acceptance read bounded to this session's executions (the
+  // executionId-leading index supports this predicate), but never truncate the
+  // history to an arbitrary number of acceptance rows.
+  // Match each row to its exact message and retain the highest attempt.
   const acceptanceByMessage = new Map<string, (typeof acceptanceRows)[number]>();
   for (const row of acceptanceRows) {
     if (!row.messageId) continue;
