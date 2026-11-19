@@ -963,7 +963,7 @@ export async function reconcileStaleAiTasks(): Promise<number> {
  * Returns the number of jobs re-enqueued.
  */
 export async function requeueStalePendingJobs(): Promise<number> {
-  const cutoff = new Date(Date.now() - STALE_PENDING_TIMEOUT_MS);
+  const staleCutoff = sql<Date>`${databaseNow()} - (${STALE_PENDING_TIMEOUT_MS} * interval '1 millisecond')`;
   let requeued = 0;
 
   try {
@@ -973,7 +973,7 @@ export async function requeueStalePendingJobs(): Promise<number> {
       .where(
         and(
           eq(scanJobsTable.status, "queued"),
-          lt(scanJobsTable.createdAt, cutoff),
+          lt(scanJobsTable.createdAt, staleCutoff),
         ),
       );
 
@@ -994,8 +994,8 @@ export async function requeueStalePendingJobs(): Promise<number> {
             code: "STALE_PENDING_REQUEUE",
             jobId: job.id,
             projectId: job.projectId,
-            cutoff: cutoff.toISOString(),
-            timeoutMs: STALE_PENDING_TIMEOUT_MS,
+            ageThresholdMs: STALE_PENDING_TIMEOUT_MS,
+            cutoffClock: "database",
           },
           "scan job stuck in queued — re-enqueued by stale-pending sweep",
         );
