@@ -1821,6 +1821,63 @@ describe("error classification", () => {
   });
 });
 
+// ── Non-streaming transient free-model failover ────────────────────────────────
+
+describe("openrouterCompleteWithFallback — transient free-model failover", () => {
+  const globalFetch = global.fetch;
+
+  afterEach(() => {
+    global.fetch = globalFetch;
+    vi.restoreAllMocks();
+  });
+
+  it("advances after the one same-model transient retry is exhausted", async () => {
+    const firstModel = FREE_MODELS.find((model) => model.capabilities.includes("chat"))!.id;
+    const secondModel = buildFallbackChainFromId(firstModel, undefined, {
+      capability: "chat",
+    }).find((model) => model !== firstModel)!;
+    const attemptedModels: string[] = [];
+
+    global.fetch = vi.fn(async (url: string | URL, init?: RequestInit) => {
+      if (String(url).endsWith("/models")) {
+        return fetchResponse(200, {
+          data: [firstModel, secondModel].map((id) => ({
+            id,
+            pricing: { prompt: "0", completion: "0" },
+            supported_parameters: ["tools", "response_format"],
+          })),
+        });
+      }
+
+      const body = JSON.parse(String(init?.body ?? "{}")) as { model?: string };
+      const model = body.model ?? "";
+      attemptedModels.push(model);
+      if (attemptedModels.length <= 2) {
+        return fetchResponse(503, { error: { message: "temporary upstream failure" } });
+      }
+      return fetchResponse(200, {
+        choices: [{ message: { content: "fallback answer" } }],
+        model,
+        usage: { prompt_tokens: 1, completion_tokens: 1 },
+      });
+    }) as typeof fetch;
+
+    const result = await openrouterCompleteWithFallback(
+      [{ role: "user", content: "hello" }],
+      {
+        apiKey: "fixture-key",
+        model: firstModel,
+        capability: "chat",
+        maxFallbackModels: 2,
+      },
+    );
+
+    expect(result.content).toBe("fallback answer");
+    expect(attemptedModels).toEqual([firstModel, firstModel, secondModel]);
+    expect(attemptedModels.every((model) => model.endsWith(":free"))).toBe(true);
+  });
+});
+
 // ── Streaming reliability ─────────────────────────────────────────────────────
 
 describe("openrouterCompleteStream — bounded retry and disconnect safety", () => {
@@ -2023,6 +2080,40 @@ describe("openrouterCompleteStream — bounded retry and disconnect safety", () 
 
     expect(chunks.join("")).toBe("recovered");
     expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("advances to the next free model after the bounded same-model transient retry is exhausted", async () => {
+    const firstModel = FREE_MODELS.find((model) => model.capabilities.includes("chat"))!.id;
+    const secondModel = buildFallbackChainFromId(firstModel, undefined, {
+      capability: "chat",
+    }).find((model) => model !== firstModel)!;
+    const attemptedModels: string[] = [];
+    const fetchMock = vi.fn(async (_url: string | URL, init?: RequestInit) => {
+      const body = JSON.parse(String(init?.body ?? "{}")) as { model?: string };
+      attemptedModels.push(body.model ?? "");
+      if (attemptedModels.length <= 2) {
+        throw new Error("fixture connection reset");
+      }
+      return streamResponse([sseDelta("fallback"), "data: [DONE]\n\n"]);
+    });
+    global.fetch = fetchMock as typeof fetch;
+
+    const chunks: string[] = [];
+    for await (const chunk of openrouterCompleteStream(
+      [{ role: "user", content: "hi" }],
+      {
+        apiKey: "fixture-key",
+        model: firstModel,
+        capability: "chat",
+        maxFallbackModels: 2,
+      },
+    )) {
+      chunks.push(chunk);
+    }
+
+    expect(chunks.join("")).toBe("fallback");
+    expect(attemptedModels).toEqual([firstModel, firstModel, secondModel]);
+    expect(attemptedModels.every((model) => model.endsWith(":free"))).toBe(true);
   });
 
   it("advances to the next capability-compatible free model when unavailable", async () => {
