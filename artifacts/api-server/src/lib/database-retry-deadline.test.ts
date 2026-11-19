@@ -16,7 +16,6 @@ import {
 describe("structured retry deadlines", () => {
   beforeEach(() => {
     databaseMock.select.mockReset();
-    databaseMock.select.mockReset();
   });
 
   it("derives the absolute deadline from the supplied database instant", () => {
