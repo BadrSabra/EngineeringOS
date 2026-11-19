@@ -54,6 +54,10 @@ const MEMORY_SWEEP_INTERVAL_MS = 6 * 60 * 60 * 1000;
 const OUTBOX_POLL_INTERVAL_MS = 30 * 1000;
 const OUTBOX_BATCH_SIZE = 25;
 const OUTBOX_RETRY_DELAYS_MS = [1_000, 5_000, 30_000, 60_000];
+/** Durable outbox scheduling uses PostgreSQL time, not a worker's local clock. */
+const sessionMemoryDatabaseNow = () => sql<Date>`clock_timestamp() AT TIME ZONE 'UTC'`;
+const sessionMemoryDatabaseDeadline = (delayMs: number) =>
+  sql<Date>`(clock_timestamp() AT TIME ZONE 'UTC') + (${delayMs} * interval '1 millisecond')`;
 const MAX_SEMANTIC_MEMORIES_PER_TURN = 6;
 const MAX_SEMANTIC_CONTENT_CHARS = 800;
 const MAX_SEMANTIC_SCOPE_CHARS = 160;
@@ -530,7 +534,7 @@ export async function writeSessionMemories(
     responseText: payload.responseText,
     semanticRecords: payload.semanticRecords,
     attempts: 0,
-    nextAttemptAt: now,
+    nextAttemptAt: sessionMemoryDatabaseNow(),
     createdAt: now,
   }).onConflictDoNothing();
 
@@ -583,7 +587,7 @@ export async function drainSessionMemoryOutbox(): Promise<void> {
     pending = await db
       .select()
       .from(aiSessionMemoryOutboxTable)
-      .where(lte(aiSessionMemoryOutboxTable.nextAttemptAt, new Date()))
+      .where(lte(aiSessionMemoryOutboxTable.nextAttemptAt, sessionMemoryDatabaseNow()))
       .orderBy(asc(aiSessionMemoryOutboxTable.nextAttemptAt))
       .limit(OUTBOX_BATCH_SIZE);
   } catch (err) {
@@ -625,7 +629,7 @@ export async function drainSessionMemoryOutbox(): Promise<void> {
       const delay = OUTBOX_RETRY_DELAYS_MS[Math.min(attempts - 1, OUTBOX_RETRY_DELAYS_MS.length - 1)]!;
       try {
         await db.update(aiSessionMemoryOutboxTable)
-          .set({ attempts, nextAttemptAt: new Date(Date.now() + delay) })
+          .set({ attempts, nextAttemptAt: sessionMemoryDatabaseDeadline(delay) })
           .where(eq(aiSessionMemoryOutboxTable.id, entry.id));
       } catch (updateErr) {
         console.warn(JSON.stringify({

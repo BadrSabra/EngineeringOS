@@ -1,6 +1,6 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { randomUUID } from "node:crypto";
-import { eq } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import {
   aiChatSessionsTable,
   aiSessionMemoryOutboxTable,
@@ -387,6 +387,81 @@ describe("session memory policy", () => {
   it("returns no memory when the database is unavailable", async () => {
     // Empty project IDs are rejected before any database call.
     await expect(fetchSessionMemories("", 5)).resolves.toEqual([]);
+  });
+
+  it.each([
+    {
+      label: "a worker clock behind PostgreSQL",
+      offsetMs: -24 * 60 * 60 * 1_000,
+      delayMs: 0,
+      delivered: true,
+    },
+    {
+      label: "a worker clock ahead of PostgreSQL",
+      offsetMs: 24 * 60 * 60 * 1_000,
+      delayMs: 60 * 60 * 1_000,
+      delivered: false,
+    },
+  ])("uses PostgreSQL time for outbox eligibility with $label", async ({ offsetMs, delayMs, delivered }) => {
+    const projectId = randomUUID();
+    const sessionId = randomUUID();
+    const turnId = randomUUID();
+    const now = new Date();
+    await db.insert(projectsTable).values({
+      id: projectId,
+      ownerId: "session-memory-clock-test",
+      name: "session-memory-clock-test",
+      rootPath: `/tmp/session-memory-clock-test-${projectId}`,
+      language: "typescript",
+      status: "active",
+      createdAt: now,
+      updatedAt: now,
+    });
+    await db.insert(aiChatSessionsTable).values({
+      id: sessionId,
+      projectId,
+      title: "session-memory-clock-test",
+      createdAt: now,
+      updatedAt: now,
+    });
+
+    const outboxId = `${sessionId}:${turnId}`;
+    try {
+      await db.insert(aiSessionMemoryOutboxTable).values({
+        id: outboxId,
+        projectId,
+        sessionId,
+        turnId,
+        toolSources: ["src/app.ts"],
+        responseText: "A durable session summary that should be materialized only when its database deadline is due.",
+        semanticRecords: [],
+        attempts: 0,
+        nextAttemptAt: sql<Date>`(clock_timestamp() AT TIME ZONE 'UTC') + (${delayMs} * interval '1 millisecond')`,
+        createdAt: sql<Date>`clock_timestamp() AT TIME ZONE 'UTC'`,
+      });
+
+      const localNow = Date.now();
+      vi.useFakeTimers({ toFake: ["Date"] });
+      vi.setSystemTime(new Date(localNow + offsetMs));
+      try {
+        await drainSessionMemoryOutbox();
+      } finally {
+        vi.useRealTimers();
+      }
+
+      const remaining = await db.select().from(aiSessionMemoryOutboxTable)
+        .where(eq(aiSessionMemoryOutboxTable.id, outboxId));
+      const memories = await db.select().from(aiSessionMemoriesTable)
+        .where(eq(aiSessionMemoriesTable.projectId, projectId));
+      expect(remaining).toHaveLength(delivered ? 0 : 1);
+      expect(memories.length > 0).toBe(delivered);
+    } finally {
+      vi.useRealTimers();
+      await db.delete(aiSessionMemoryOutboxTable).where(eq(aiSessionMemoryOutboxTable.id, outboxId));
+      await db.delete(aiSessionMemoriesTable).where(eq(aiSessionMemoriesTable.projectId, projectId));
+      await db.delete(aiChatSessionsTable).where(eq(aiChatSessionsTable.id, sessionId));
+      await db.delete(projectsTable).where(eq(projectsTable.id, projectId));
+    }
   });
 
   it("delivers one durable write idempotently and decays once per day", async () => {
