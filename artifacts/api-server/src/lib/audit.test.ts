@@ -138,8 +138,8 @@ describe("audit write recovery", () => {
     await audit.drainPendingAudits();
 
     expect(audit.getPendingAuditCount()).toBe(1);
-    expect(counters.counters.getOperationalCounters().auditWritesPending).toBe(1);
-    expect(counters.counters.getOperationalCounters().auditWriteFailures).toBe(2);
+    expect(counters.getOperationalCounters().auditWritesPending).toBe(1);
+    expect(counters.getOperationalCounters().auditWriteFailures).toBe(2);
   });
 
   it("reports when neither the audit destination nor durable outbox is available", async () => {
@@ -211,7 +211,7 @@ describe("audit write recovery", () => {
     await audit.drainPendingAudits();
 
     expect(audit.getPendingAuditCount()).toBe(0);
-    expect(counters.counters.getOperationalCounters().auditWritesRecovered).toBe(1);
+    expect(counters.getOperationalCounters().auditWritesRecovered).toBe(1);
     expect(deleteMock).toHaveBeenCalled();
   });
 });
