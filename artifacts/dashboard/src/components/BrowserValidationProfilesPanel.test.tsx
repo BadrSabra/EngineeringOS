@@ -121,6 +121,54 @@ describe('BrowserValidationProfilesPanel', () => {
     });
   });
 
+  it('opens a reviewable basic page-check template without saving it automatically', async () => {
+    renderPanel();
+
+    fireEvent.click(screen.getByTestId('button-basic-browser-profile'));
+    expect(screen.getByRole('dialog')).toBeInTheDocument();
+    expect(screen.getByLabelText('اسم الإعداد')).toHaveValue('homepage-check');
+    expect(screen.getByLabelText('المهلة (مللي ثانية)')).toHaveValue(60_000);
+    expect(screen.getByLabelText('نوع الخطوة 1')).toHaveValue('navigate');
+    expect(screen.getByLabelText('مسار الخطوة 1')).toHaveValue('/');
+    expect(screen.getByLabelText('نوع الخطوة 2')).toHaveValue('assert_visible');
+    expect(screen.getByLabelText('محدد CSS للخطوة 2')).toHaveValue('body');
+    expect(mocks.upsert.mutate).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByTestId('button-save-browser-profile'));
+    await waitFor(() => {
+      expect(mocks.upsert.mutate).toHaveBeenCalledWith(
+        {
+          projectId: 'project-1',
+          name: 'homepage-check',
+          data: {
+            timeoutMs: 60_000,
+            steps: [
+              { type: 'navigate', path: '/' },
+              { type: 'assert_visible', selector: 'body' },
+            ],
+          },
+        },
+        expect.objectContaining({
+          onSuccess: expect.any(Function),
+          onError: expect.any(Function),
+        }),
+      );
+    });
+  });
+
+  it('chooses an unused template name instead of overwriting an existing profile', () => {
+    mocks.profiles = [
+      profile({ name: 'homepage-check' }),
+      profile({ id: 'profile-2', name: 'homepage-check-2' }),
+    ];
+    renderPanel();
+
+    fireEvent.click(screen.getByTestId('button-basic-browser-profile'));
+
+    expect(screen.getByLabelText('اسم الإعداد')).toHaveValue('homepage-check-3');
+    expect(mocks.upsert.mutate).not.toHaveBeenCalled();
+  });
+
   it('edits a profile and presents server validation errors without changing the profile name', async () => {
     mocks.profiles = [profile({ freshnessStatus: 'stale', freshnessReason: 'stale_revision' })];
     renderPanel();
