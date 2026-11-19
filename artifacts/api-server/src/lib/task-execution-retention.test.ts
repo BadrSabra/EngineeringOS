@@ -31,15 +31,15 @@ describe("task execution history retention", () => {
 
     expect(query).toHaveBeenCalledTimes(4);
     expect(String(query.mock.calls[0]?.[0])).toContain(
-      "COALESCE($1::timestamptz, clock_timestamp()) - INTERVAL '30 days'",
+      "COALESCE($1::timestamptz, clock_timestamp()) - ($2::int * INTERVAL '1 day')",
     );
-    expect(query.mock.calls[0]?.[1]).toEqual([now, TASK_HISTORY_RETENTION_BATCH_SIZE]);
-    expect(query.mock.calls[1]?.[1]).toEqual([["log-1"], now]);
+    expect(query.mock.calls[0]?.[1]).toEqual([now, TASK_LOG_RETENTION_DAYS, TASK_HISTORY_RETENTION_BATCH_SIZE]);
+    expect(query.mock.calls[1]?.[1]).toEqual([["log-1"], now, TASK_LOG_RETENTION_DAYS]);
     expect(String(query.mock.calls[2]?.[0])).toContain(
-      "COALESCE($1::timestamptz, clock_timestamp()) - INTERVAL '90 days'",
+      "COALESCE($1::timestamptz, clock_timestamp()) - ($2::int * INTERVAL '1 day')",
     );
-    expect(query.mock.calls[2]?.[1]).toEqual([now, TASK_HISTORY_RETENTION_BATCH_SIZE]);
-    expect(query.mock.calls[3]?.[1]).toEqual([["execution-1"], now]);
+    expect(query.mock.calls[2]?.[1]).toEqual([now, AI_EXECUTION_RECEIPT_RETENTION_DAYS, TASK_HISTORY_RETENTION_BATCH_SIZE]);
+    expect(query.mock.calls[3]?.[1]).toEqual([["execution-1"], now, AI_EXECUTION_RECEIPT_RETENTION_DAYS]);
     expect(getTaskExecutionRetentionHealth()).toEqual({
       status: "success",
       attemptedAt: now.toISOString(),
@@ -62,13 +62,13 @@ describe("task execution history retention", () => {
 
       expect(query).toHaveBeenCalledTimes(2);
       expect(String(query.mock.calls[0]?.[0])).toContain(
-        "COALESCE($1::timestamptz, clock_timestamp()) - INTERVAL '30 days'",
+        "COALESCE($1::timestamptz, clock_timestamp()) - ($2::int * INTERVAL '1 day')",
       );
       expect(String(query.mock.calls[1]?.[0])).toContain(
-        "COALESCE($1::timestamptz, clock_timestamp()) - INTERVAL '90 days'",
+        "COALESCE($1::timestamptz, clock_timestamp()) - ($2::int * INTERVAL '1 day')",
       );
-      expect(query.mock.calls[0]?.[1]).toEqual([null, TASK_HISTORY_RETENTION_BATCH_SIZE]);
-      expect(query.mock.calls[1]?.[1]).toEqual([null, TASK_HISTORY_RETENTION_BATCH_SIZE]);
+      expect(query.mock.calls[0]?.[1]).toEqual([null, TASK_LOG_RETENTION_DAYS, TASK_HISTORY_RETENTION_BATCH_SIZE]);
+      expect(query.mock.calls[1]?.[1]).toEqual([null, AI_EXECUTION_RECEIPT_RETENTION_DAYS, TASK_HISTORY_RETENTION_BATCH_SIZE]);
     } finally {
       query.mockRestore();
     }

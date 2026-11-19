@@ -85,7 +85,7 @@ export async function pruneTaskExecutionHistory(now?: Date): Promise<void> {
       `SELECT l.id
        FROM task_logs l
        JOIN tasks t ON t.id = l.task_id
-       WHERE l.timestamp < COALESCE($1::timestamptz, clock_timestamp()) - INTERVAL '30 days'
+       WHERE l.timestamp < COALESCE($1::timestamptz, clock_timestamp()) - ($2::int * INTERVAL '1 day')
          AND t.status IN ('completed', 'failed', 'cancelled')
          AND NOT EXISTS (
            SELECT 1 FROM ai_executions e
@@ -93,8 +93,8 @@ export async function pruneTaskExecutionHistory(now?: Date): Promise<void> {
              AND e.status IN ('queued', 'running', 'paused', 'cancelling')
          )
        ORDER BY l.timestamp ASC, l.id ASC
-       LIMIT $2`,
-      [now ?? null, TASK_HISTORY_RETENTION_BATCH_SIZE],
+       LIMIT $3`,
+      [now ?? null, TASK_LOG_RETENTION_DAYS, TASK_HISTORY_RETENTION_BATCH_SIZE],
     );
     taskLogRowsScanned = logs.rowCount ?? logs.rows.length;
     if (logs.rows.length > 0) {
@@ -104,13 +104,13 @@ export async function pruneTaskExecutionHistory(now?: Date): Promise<void> {
          WHERE l.id = ANY($1::text[])
            AND t.id = l.task_id
            AND t.status IN ('completed', 'failed', 'cancelled')
-           AND l.timestamp < COALESCE($2::timestamptz, clock_timestamp()) - INTERVAL '30 days'
+           AND l.timestamp < COALESCE($2::timestamptz, clock_timestamp()) - ($3::int * INTERVAL '1 day')
            AND NOT EXISTS (
              SELECT 1 FROM ai_executions e
              WHERE e.linked_task_id = t.id
                AND e.status IN ('queued', 'running', 'paused', 'cancelling')
            )`,
-        [logs.rows.map((row) => row.id), now ?? null],
+        [logs.rows.map((row) => row.id), now ?? null, TASK_LOG_RETENTION_DAYS],
       );
       taskLogRowsRemoved = removed.rowCount ?? 0;
     }
@@ -120,7 +120,7 @@ export async function pruneTaskExecutionHistory(now?: Date): Promise<void> {
     const receipts = await pool.query<{ id: string }>(
       `SELECT e.id
        FROM ai_executions e
-       WHERE e.updated_at < COALESCE($1::timestamptz, clock_timestamp()) - INTERVAL '90 days'
+       WHERE e.updated_at < COALESCE($1::timestamptz, clock_timestamp()) - ($2::int * INTERVAL '1 day')
          ${RETAIN_EXECUTIONS_WITH_DEPENDENCIES_SQL}
          AND e.status IN ('cancelled', 'completed', 'failed')
          AND NOT EXISTS (
@@ -130,15 +130,15 @@ export async function pruneTaskExecutionHistory(now?: Date): Promise<void> {
              AND newer.status IN ('queued', 'running', 'paused', 'cancelling')
          )
        ORDER BY e.updated_at ASC, e.id ASC
-       LIMIT $2`,
-      [now ?? null, TASK_HISTORY_RETENTION_BATCH_SIZE],
+       LIMIT $3`,
+      [now ?? null, AI_EXECUTION_RECEIPT_RETENTION_DAYS, TASK_HISTORY_RETENTION_BATCH_SIZE],
     );
     receiptRowsScanned = receipts.rowCount ?? receipts.rows.length;
     if (receipts.rows.length > 0) {
       const removed = await pool.query(
         `DELETE FROM ai_executions e
          WHERE e.id = ANY($1::text[])
-           AND e.updated_at < COALESCE($2::timestamptz, clock_timestamp()) - INTERVAL '90 days'
+           AND e.updated_at < COALESCE($2::timestamptz, clock_timestamp()) - ($3::int * INTERVAL '1 day')
            ${RETAIN_EXECUTIONS_WITH_DEPENDENCIES_SQL}
            AND e.status IN ('cancelled', 'completed', 'failed')
            AND NOT EXISTS (
@@ -147,7 +147,7 @@ export async function pruneTaskExecutionHistory(now?: Date): Promise<void> {
                AND e.linked_task_id IS NOT NULL
                AND newer.status IN ('queued', 'running', 'paused', 'cancelling')
            )`,
-        [receipts.rows.map((row) => row.id), now ?? null],
+        [receipts.rows.map((row) => row.id), now ?? null, AI_EXECUTION_RECEIPT_RETENTION_DAYS],
       );
       receiptRowsRemoved = removed.rowCount ?? 0;
     }
