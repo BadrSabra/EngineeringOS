@@ -76,26 +76,18 @@ function computeLayerStats(rels: GraphRelationship[]): LayeredProvenanceStats {
 }
 
 /**
- * KG-01/04: In-memory semantic-tag filter for relationships returned by
- * traversal queries.
+ * Build the JSONB array-intersection predicate shared by graph queries.
  *
- * `semanticTags` is stored as a JSONB array — JSONB array intersection is not
- * easily expressible as a simple Drizzle condition, so we apply this filter
- * after the DB fetch. A relationship passes if its `semanticTags` column
- * contains at least one tag from the requested set (OR semantics).
- *
- * `getEdgesByType` uses the database-level JSONB predicate instead, so its
- * limit is applied after semantic-tag filtering.
+ * Push semantic-tag matching into PostgreSQL so each query's row limit is
+ * applied to matching relationships, not to an arbitrary unfiltered prefix.
+ * The ?| operator preserves the API's existing OR semantics.
  */
-function applySemanticTagsFilter(
-  rels: GraphRelationship[],
-  tags: string[],
-): GraphRelationship[] {
-  if (tags.length === 0) return rels;
-  return rels.filter((r) => {
-    const relTags = r.semanticTags as string[] | null | undefined;
-    return relTags?.some((t) => tags.includes(t)) ?? false;
-  });
+function semanticTagsCondition(tags: string[] | undefined): SQL | undefined {
+  if (!tags || tags.length === 0) return undefined;
+  return sql`${graphRelationshipsTable.semanticTags} ?| ARRAY[${sql.join(
+    tags.map((tag) => sql`${tag}`),
+    sql`, `,
+  )}]`;
 }
 
 // ─── Neighbor fetching ────────────────────────────────────────────────────────
@@ -571,17 +563,8 @@ export async function getEdgesByType(
   if (filters.heuristicOnly) {
     conditions.push(eq(graphRelationshipsTable.isHeuristic, true));
   }
-  if (filters.semanticTags && filters.semanticTags.length > 0) {
-    // JSONB `?|` checks whether the array contains at least one requested tag.
-    // Applying this predicate before LIMIT prevents matching edges beyond the
-    // first 2000 unfiltered rows from disappearing from the result.
-    conditions.push(
-      sql`${graphRelationshipsTable.semanticTags} ?| ARRAY[${sql.join(
-        filters.semanticTags.map((tag) => sql`${tag}`),
-        sql`, `,
-      )}]`,
-    );
-  }
+  const semanticTagsFilter = semanticTagsCondition(filters.semanticTags);
+  if (semanticTagsFilter) conditions.push(semanticTagsFilter);
 
   // KG-05: all filters, including semanticTags, are applied before the limit.
   const results = await db
@@ -708,19 +691,18 @@ export async function getSemanticNeighborhood(
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       conditions.push(inArray(graphRelationshipsTable.sourceType, filters.sourceTypes as any[]));
     }
+    const semanticTagsFilter = semanticTagsCondition(filters.semanticTags);
+    if (semanticTagsFilter) conditions.push(semanticTagsFilter);
 
     const rawOutgoing = frontier.length > 0
       ? await db
           .select()
           .from(graphRelationshipsTable)
           .where(and(...conditions))
+          .orderBy(asc(graphRelationshipsTable.id))
           .limit(GRAPH_LIMITS.maxRelationships)
       : [];
-    // KG-01/04: semanticTags filter — applied post-fetch per hop
-    const outgoing =
-      filters.semanticTags && filters.semanticTags.length > 0
-        ? applySemanticTagsFilter(rawOutgoing, filters.semanticTags)
-        : rawOutgoing;
+    const outgoing = rawOutgoing;
 
     const nextIds = new Set<string>();
     for (const rel of outgoing) {
@@ -1025,8 +1007,9 @@ export async function getLayeredGraphView(
   const entities = await db
     .select()
     .from(graphEntitiesTable)
-      .where(eq(graphEntitiesTable.projectId, projectId))
-      .limit(GRAPH_LIMITS.maxEntities);
+    .where(eq(graphEntitiesTable.projectId, projectId))
+    .orderBy(asc(graphEntitiesTable.id))
+    .limit(GRAPH_LIMITS.maxEntities);
 
   const entityIds = entities.map((entity) => entity.id);
   const baseConditions: SQL[] = [
@@ -1055,17 +1038,16 @@ export async function getLayeredGraphView(
   if (filters.heuristicOnly) {
     baseConditions.push(eq(graphRelationshipsTable.isHeuristic, true));
   }
+  const semanticTagsFilter = semanticTagsCondition(filters.semanticTags);
+  if (semanticTagsFilter) baseConditions.push(semanticTagsFilter);
 
   const rawRels = await db
     .select()
     .from(graphRelationshipsTable)
     .where(and(...baseConditions))
+    .orderBy(asc(graphRelationshipsTable.id))
     .limit(GRAPH_LIMITS.maxRelationships);
-  // KG-01/04: semanticTags filter — applied post-fetch (JSONB array intersection)
-  const allRels =
-    filters.semanticTags && filters.semanticTags.length > 0
-      ? applySemanticTagsFilter(rawRels, filters.semanticTags)
-      : rawRels;
+  const allRels = rawRels;
 
   const structural = allRels.filter((r) => !r.isHeuristic && !r.isRuntimeObserved);
   const heuristic = allRels.filter((r) => r.isHeuristic);

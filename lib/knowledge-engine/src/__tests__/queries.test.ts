@@ -1,6 +1,7 @@
 import { afterEach, describe, it, expect } from "vitest";
 import { randomUUID } from "crypto";
 import { eq } from "drizzle-orm";
+import { GRAPH_LIMITS } from "../graph-limits.js";
 import {
   db,
   projectsTable,
@@ -716,6 +717,41 @@ describe("getLayeredGraphView — KG-01/04 filter uniformity", () => {
     expect(tags).toContain("auth");
   });
 
+  it("applies semanticTags before the relationship limit", async () => {
+    const projectId = await insertProject();
+    cleanupQueue.push(projectId);
+    const sourceId = randomUUID();
+    const targetIds = Array.from({ length: GRAPH_LIMITS.maxRelationships + 1 }, () => randomUUID());
+    const now = new Date();
+
+    await db.insert(graphEntitiesTable).values([
+      { id: sourceId, projectId, type: "module", name: "source.ts", createdAt: now },
+      ...targetIds.map((id, index) => ({
+        id,
+        projectId,
+        type: "module" as const,
+        name: `target-${index}.ts`,
+        createdAt: now,
+      })),
+    ]);
+    await db.insert(graphRelationshipsTable).values(targetIds.map((targetId, index) => ({
+      id: `layered-tag-limit-${projectId}-${String(index).padStart(3, "0")}`,
+      projectId,
+      sourceId,
+      targetId,
+      relation: "imports",
+      relationType: "imports" as const,
+      isHeuristic: false,
+      isRuntimeObserved: false,
+      semanticTags: index === GRAPH_LIMITS.maxRelationships ? ["security"] : [`unrelated-${index}`],
+      createdAt: now,
+    })));
+
+    const view = await getLayeredGraphView(db, projectId, { semanticTags: ["security"] });
+    expect(view.structural.relationships.map((relationship) => relationship.targetId))
+      .toEqual([targetIds[GRAPH_LIMITS.maxRelationships]]);
+  });
+
   it("observedOnly filter — only runtime-observed edges returned", async () => {
     const projectId = await insertProject();
     cleanupQueue.push(projectId);
@@ -801,6 +837,43 @@ describe("getSemanticNeighborhood — KG-01/04 filter uniformity", () => {
     const reachedIds = result.entities.map((e) => e.id);
     expect(reachedIds).toContain(b);
     expect(reachedIds).not.toContain(c);
+  });
+
+  it("applies semanticTags before each hop's relationship limit", async () => {
+    const projectId = await insertProject();
+    cleanupQueue.push(projectId);
+    const rootId = randomUUID();
+    const targetIds = Array.from({ length: GRAPH_LIMITS.maxRelationships + 1 }, () => randomUUID());
+    const now = new Date();
+
+    await db.insert(graphEntitiesTable).values([
+      { id: rootId, projectId, type: "module", name: "root.ts", createdAt: now },
+      ...targetIds.map((id, index) => ({
+        id,
+        projectId,
+        type: "module" as const,
+        name: `neighbor-${index}.ts`,
+        createdAt: now,
+      })),
+    ]);
+    await db.insert(graphRelationshipsTable).values(targetIds.map((targetId, index) => ({
+      id: `neighborhood-tag-limit-${projectId}-${String(index).padStart(3, "0")}`,
+      projectId,
+      sourceId: rootId,
+      targetId,
+      relation: "imports",
+      relationType: "imports" as const,
+      isHeuristic: false,
+      isRuntimeObserved: false,
+      semanticTags: index === GRAPH_LIMITS.maxRelationships ? ["security"] : [`unrelated-${index}`],
+      createdAt: now,
+    })));
+
+    const result = await getSemanticNeighborhood(db, rootId, 1, { semanticTags: ["security"] }, projectId);
+    expect(result.relationships.map((relationship) => relationship.targetId))
+      .toEqual([targetIds[GRAPH_LIMITS.maxRelationships]]);
+    expect(result.entities.map((entity) => entity.id))
+      .toEqual([targetIds[GRAPH_LIMITS.maxRelationships]]);
   });
 });
 
