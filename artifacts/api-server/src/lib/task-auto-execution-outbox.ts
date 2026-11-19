@@ -1,5 +1,6 @@
 import { db, eventsTable, tasksTable } from "@workspace/db";
 import { eq } from "drizzle-orm";
+import { getTaskDependencyBlockers } from "./task-dependencies.js";
 
 export const TASK_AUTO_EXECUTION_REQUESTED_EVENT_TYPE =
   "TaskAutoExecutionDispatchRequested";
@@ -56,6 +57,7 @@ export async function insertTaskAutoExecutionIntent(
       prompt: tasksTable.prompt,
       retryCount: tasksTable.retryCount,
       correlationId: tasksTable.correlationId,
+      dependsOn: tasksTable.dependsOn,
     })
     .from(tasksTable)
     .where(eq(tasksTable.id, input.taskId))
@@ -70,6 +72,12 @@ export async function insertTaskAutoExecutionIntent(
   ) {
     return false;
   }
+
+  // Every automatic execution ingress (manual Task transition, AI Task route,
+  // and Mission handoff) converges here. Recheck dependencies under the same
+  // transaction before an intent becomes dispatchable.
+  const dependencyBlockers = await getTaskDependencyBlockers(tx, task);
+  if (dependencyBlockers.length > 0) return false;
 
   const id = taskAutoExecutionIntentId(input.taskId);
   const [existing] = await tx
