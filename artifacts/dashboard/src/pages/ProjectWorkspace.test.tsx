@@ -827,6 +827,70 @@ describe("Workspace task cards", () => {
       .not.toHaveTextContent("9");
   });
 
+  it("does not request an execution from a TaskLog owned by another task", () => {
+    const updatedAt = "2026-11-11T12:00:00.000Z";
+    mocks.snapshot = {
+      ...initialSnapshot,
+      work: {
+        ...initialSnapshot.work,
+        recentTasks: [{
+          id: "task-current",
+          title: "المهمة الحالية",
+          status: "running",
+          verificationDecision: null,
+          updatedAt,
+        }],
+      },
+    } as unknown as ProjectWorkspaceSnapshot;
+    mocks.taskDetails["task-current"] = {
+      id: "task-current",
+      projectId: "project-1",
+      title: "المهمة الحالية",
+      status: "running",
+      correlationId: "correlation-current",
+      updatedAt,
+    };
+    mocks.taskLogs["task-current"] = [{
+      id: "log-foreign-task",
+      taskId: "task-other",
+      correlationId: "correlation-current",
+      executionId: "execution-from-foreign-log",
+      attempt: 17,
+      sequence: 11,
+      timestamp: updatedAt,
+    }];
+    // Even a matching downstream execution must not be fetched from a
+    // TaskLog whose own task identity is foreign.
+    mocks.executions["execution-from-foreign-log"] = {
+      id: "execution-from-foreign-log",
+      projectId: "project-1",
+      linkedTaskId: "task-current",
+      correlationId: "correlation-current",
+      attempt: 17,
+    };
+
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+    });
+
+    render(
+      <QueryClientProvider client={queryClient}>
+        <ProjectWorkspace />
+      </QueryClientProvider>,
+    );
+
+    expect(screen.getByTestId("workspace-task-attempt-task-current"))
+      .toHaveTextContent("غير متاحة");
+    expect(screen.getByTestId("workspace-task-attempt-task-current"))
+      .not.toHaveTextContent("17");
+    expect(screen.getByTestId("workspace-task-task-current"))
+      .toHaveTextContent("سجل التنفيذ لا يطابق المهمة الحالية؛ لم نعرض المحاولة.");
+    expect(vi.mocked(useGetAiExecution)).not.toHaveBeenCalledWith(
+      "execution-from-foreign-log",
+      expect.anything(),
+    );
+  });
+
   it("revalidates recent task and log reads when the Workspace stream changes", async () => {
     const updatedAt = "2026-11-11T12:00:00.000Z";
     mocks.snapshot = {
