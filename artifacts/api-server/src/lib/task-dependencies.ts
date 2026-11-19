@@ -1,4 +1,4 @@
-import { inArray } from "drizzle-orm";
+import { asc, inArray } from "drizzle-orm";
 import { db, tasksTable } from "@workspace/db";
 
 export type TaskDependencyTransaction =
@@ -6,7 +6,11 @@ export type TaskDependencyTransaction =
 
 export type TaskDependencyBlocker = {
   taskId: string;
-  reason: "dependency_unavailable" | "dependency_not_completed";
+  reason:
+    | "dependency_unavailable"
+    | "dependency_not_completed"
+    | "dependency_cycle"
+    | "dependency_graph_too_large";
   status?: string;
 };
 
@@ -47,6 +51,7 @@ export async function invalidTaskDependencyReferences(
     })
     .from(tasksTable)
     .where(inArray(tasksTable.id, ids))
+    .orderBy(asc(tasksTable.id))
     .for("update");
 
   const validIds = new Set(
@@ -55,44 +60,128 @@ export async function invalidTaskDependencyReferences(
   return ids.filter((id) => !validIds.has(id));
 }
 
+const MAX_TASK_DEPENDENCY_NODES = 256;
+
 /**
- * A task is runnable only after every dependency exists in the same project
- * and has reached the terminal "completed" state. Missing/foreign references
- * fail closed as unavailable rather than leaking another project's task.
+ * A Task is runnable only when its complete prerequisite chain is valid and
+ * completed. Walk the transitive graph because legacy Tasks may have been
+ * marked completed before dependency admission was enforced.
+ *
+ * Every batch is locked in stable ID order. Missing/foreign references,
+ * cycles, and oversized graphs fail closed instead of silently truncating.
  */
 export async function getTaskDependencyBlockers(
   tx: TaskDependencyTransaction,
   task: {
+    id: string;
     projectId: string;
     dependsOn: string[] | null;
   },
 ): Promise<TaskDependencyBlocker[]> {
-  const dependencyIds = [...new Set(task.dependsOn ?? [])];
-  if (dependencyIds.length === 0) return [];
+  const root: {
+    id: string;
+    projectId: string;
+    status: string;
+    dependsOn: string[] | null;
+  } = {
+    id: task.id,
+    projectId: task.projectId,
+    status: "running",
+    dependsOn: task.dependsOn,
+  };
+  const nodes = new Map<string, typeof root>([[root.id, root]]);
+  const requested = new Set<string>([root.id]);
+  let frontier = [...new Set(task.dependsOn ?? [])];
+  const blockers: TaskDependencyBlocker[] = [];
 
-  const rows = await tx
-    .select({
-      id: tasksTable.id,
-      projectId: tasksTable.projectId,
-      status: tasksTable.status,
-    })
-    .from(tasksTable)
-    .where(inArray(tasksTable.id, dependencyIds))
-    .for("update");
-  const byId = new Map(rows.map((row) => [row.id, row]));
+  while (frontier.length > 0) {
+    const batch = [...new Set(frontier)].filter((id) => !requested.has(id)).sort();
+    frontier = [];
+    if (batch.length === 0) break;
 
-  return dependencyIds.flatMap((taskId) => {
-    const dependency = byId.get(taskId);
-    if (!dependency || dependency.projectId !== task.projectId) {
-      return [{ taskId, reason: "dependency_unavailable" as const }];
+    if (nodes.size + batch.length > MAX_TASK_DEPENDENCY_NODES + 1) {
+      blockers.push({
+        taskId: root.id,
+        reason: "dependency_graph_too_large",
+      });
+      break;
     }
+
+    for (const id of batch) requested.add(id);
+
+    const rows = await tx
+      .select({
+        id: tasksTable.id,
+        projectId: tasksTable.projectId,
+        status: tasksTable.status,
+        dependsOn: tasksTable.dependsOn,
+      })
+      .from(tasksTable)
+      .where(inArray(tasksTable.id, batch))
+      .orderBy(asc(tasksTable.id))
+      .for("update");
+
+    const rowsById = new Map(rows.map((row) => [row.id, row]));
+    for (const id of batch) {
+      const dependency = rowsById.get(id);
+      if (!dependency || dependency.projectId !== task.projectId) {
+        blockers.push({ taskId: id, reason: "dependency_unavailable" });
+        continue;
+      }
+      nodes.set(id, dependency);
+      for (const parentId of dependency.dependsOn ?? []) {
+        if (!requested.has(parentId)) frontier.push(parentId);
+      }
+    }
+  }
+
+  for (const dependency of nodes.values()) {
+    if (dependency.id === root.id) continue;
     if (dependency.status !== "completed") {
-      return [{
-        taskId,
-        reason: "dependency_not_completed" as const,
+      blockers.push({
+        taskId: dependency.id,
+        reason: "dependency_not_completed",
         status: dependency.status,
-      }];
+      });
     }
-    return [];
-  });
+  }
+
+  // A cycle is invalid even when every row has a legacy "completed" status.
+  const visiting = new Set<string>();
+  const visited = new Set<string>();
+  const findCycle = (id: string, path: string[]): string[] | null => {
+    if (visiting.has(id)) {
+      const start = path.indexOf(id);
+      return start >= 0 ? [...path.slice(start), id] : [id, id];
+    }
+    if (visited.has(id)) return null;
+
+    visiting.add(id);
+    const node = nodes.get(id);
+    for (const parentId of node?.dependsOn ?? []) {
+      if (!nodes.has(parentId)) continue;
+      const cycle = findCycle(parentId, [...path, id]);
+      if (cycle) return cycle;
+    }
+    visiting.delete(id);
+    visited.add(id);
+    return null;
+  };
+
+  for (const id of nodes.keys()) {
+    const cycle = findCycle(id, []);
+    if (cycle) {
+      blockers.push({ taskId: cycle[0] ?? root.id, reason: "dependency_cycle" });
+      break;
+    }
+  }
+
+  const unique = new Map<string, TaskDependencyBlocker>();
+  for (const blocker of blockers) {
+    unique.set(`${blocker.reason}:${blocker.taskId}`, blocker);
+  }
+  return [...unique.values()].sort(
+    (left, right) => left.taskId.localeCompare(right.taskId)
+      || left.reason.localeCompare(right.reason),
+  );
 }
