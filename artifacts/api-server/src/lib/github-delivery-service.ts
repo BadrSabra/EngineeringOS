@@ -554,6 +554,17 @@ export async function executeVerifiedGitHubDelivery(
     && existingPush.commitHash === proposal.commitHash
     && typeof existingPush.remoteCommitHash === "string"
   ) {
+    const recordedRemote = typeof existingPush.remoteUrl === "string"
+      ? parseGitHubRemote(existingPush.remoteUrl)
+      : undefined;
+    const recordedDestinationMatches = existingPush.branch === params.branch
+      && recordedRemote?.owner.toLowerCase() === remote.owner.toLowerCase()
+      && recordedRemote?.repo.toLowerCase() === remote.repo.toLowerCase();
+    if (!recordedDestinationMatches) {
+      return blocked(
+        "The verified delivery receipt belongs to a different GitHub repository or branch.",
+      );
+    }
     try {
       const receiptRequest = await getRequest();
       if (!receiptRequest) {

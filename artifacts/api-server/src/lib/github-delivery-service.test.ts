@@ -288,6 +288,36 @@ describe("verified GitHub delivery service", () => {
         operationMarker: `EngineeringOS-Operation: ${operationId}`,
       });
 
+      for (const changedDestination of [
+        { remoteUrl: "https://github.com/another-owner/project.git", branch: "main" },
+        { remoteUrl: "https://github.com/example/project.git", branch: "release" },
+      ]) {
+        const changedDestinationCalls: string[] = [];
+        const changedDestinationReplay = await executeVerifiedGitHubDelivery({
+          ...params({ projectId, proposalId, operationId, rootPath }),
+          ...changedDestination,
+          request: async (requestPath, init) => {
+            changedDestinationCalls.push(`${init?.method ?? "GET"} ${requestPath}`);
+            if (requestPath.includes("/git/ref/heads/")) {
+              return { object: { sha: remoteCommitHash } };
+            }
+            if (requestPath.endsWith(`/git/commits/${remoteCommitHash}`)) {
+              return {
+                tree: { sha: localTreeSha },
+                message: `Verified delivery\n\nEngineeringOS-Operation: ${operationId}`,
+                parents: [{ sha: parentHash }],
+              };
+            }
+            throw new Error(`unexpected GitHub path: ${requestPath}`);
+          },
+        });
+        expect(changedDestinationReplay).toMatchObject({
+          status: "blocked",
+          detail: "The verified delivery receipt belongs to a different GitHub repository or branch.",
+        });
+        expect(changedDestinationCalls).toEqual([]);
+      }
+
       const driftCalls: string[] = [];
       const driftedReplay = await executeVerifiedGitHubDelivery({
         ...params({ projectId, proposalId, operationId, rootPath }),
