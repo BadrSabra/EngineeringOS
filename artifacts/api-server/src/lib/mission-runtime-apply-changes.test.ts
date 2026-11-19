@@ -826,8 +826,8 @@ const invalidApplyProofCases: Array<{
     },
   },
   {
-    name: "Mission operation identity differs from the stored Proposal",
-    expectedReason: "apply_proposal_binding_invalid",
+    name: "Mission operation identity diverges from the Execution binding",
+    expectedReason: "apply_execution_operation_mismatch",
     mutate: async (fixture) => {
       const [mission] = await db.select({ autonomyPolicy: aiMissionsTable.autonomyPolicy })
         .from(aiMissionsTable).where(eq(aiMissionsTable.id, fixture.missionId));
