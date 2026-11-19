@@ -964,7 +964,7 @@ export async function reconcileStaleAiTasks(): Promise<number> {
  * Returns the number of jobs re-enqueued.
  */
 export async function requeueStalePendingJobs(): Promise<number> {
-  const cutoff = new Date(Date.now() - STALE_PENDING_TIMEOUT_MS);
+  const cutoff = sql<Date>`${databaseNow()} - (${STALE_PENDING_TIMEOUT_MS} * interval '1 millisecond')`;
   let requeued = 0;
 
   try {
@@ -995,8 +995,8 @@ export async function requeueStalePendingJobs(): Promise<number> {
             code: "STALE_PENDING_REQUEUE",
             jobId: job.id,
             projectId: job.projectId,
-            cutoff: cutoff.toISOString(),
-            timeoutMs: STALE_PENDING_TIMEOUT_MS,
+            ageThresholdMs: STALE_PENDING_TIMEOUT_MS,
+            cutoffClock: "database",
           },
           "scan job stuck in queued — re-enqueued by stale-pending sweep",
         );
@@ -1273,7 +1273,6 @@ export async function getDurableJobHealth(): Promise<{
   }>;
 }> {
   const now = databaseNow();
-  const nowIso = new Date().toISOString();
   const stalePendingCutoff = sql<Date>`(clock_timestamp() AT TIME ZONE 'UTC') - (${STALE_PENDING_TIMEOUT_MS} * interval '1 millisecond')`;
   try {
     const [
@@ -1371,9 +1370,11 @@ export async function getDurableJobHealth(): Promise<{
               or(
                 eq(eventsTable.type, "TaskAutoExecutionDispatchRequested"),
                 sql`(
-                  ${eventsTable.payload}->>'nextAttemptAt' IS NULL
-                  OR ${eventsTable.payload}->>'nextAttemptAt' !~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}T'
-                  OR ${eventsTable.payload}->>'nextAttemptAt' <= ${nowIso}
+                  CASE
+                    WHEN pg_input_is_valid(${eventsTable.payload}->>'nextAttemptAt', 'timestamp with time zone')
+                    THEN (${eventsTable.payload}->>'nextAttemptAt')::timestamptz <= clock_timestamp()
+                    ELSE TRUE
+                  END
                 )`,
               ),
             ),
