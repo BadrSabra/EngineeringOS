@@ -249,21 +249,25 @@ describe("Dashboard goal-first home", () => {
     expect(mockSetLocation).toHaveBeenCalledWith(`/general-chat?goalDraftId=${draft.id}`);
   });
 
-  it('requires an explicit project selection when the goal does not name the only project', () => {
+  it('offers a one-click explicit handoff for the sole project without assuming scope', () => {
     render(<Dashboard />);
     fireEvent.change(screen.getByTestId('input-home-goal'), { target: { value: 'ساعدني على فهم التخزين المؤقت' } });
     fireEvent.click(screen.getByTestId('button-start-goal'));
 
     expect(mockSetLocation).not.toHaveBeenCalled();
-    expect(screen.getByTestId('panel-goal-destination')).toHaveTextContent('حدد المشروع الذي تريد العمل ضمنه');
-    expect(screen.getByTestId('button-route-goal-project')).toBeDisabled();
+    expect(screen.getByTestId('panel-goal-destination')).toHaveTextContent('يمكنك اختيار مشروعك الوحيد للمتابعة');
+    expect(screen.getByTestId('text-only-goal-project')).toHaveTextContent('بوابة العملاء');
+    expect(screen.queryByTestId('select-goal-project')).not.toBeInTheDocument();
     expect(readGoalDrafts('user-1').drafts).toHaveLength(0);
 
-    fireEvent.change(screen.getByTestId('select-goal-project'), { target: { value: 'project-1' } });
-    fireEvent.click(screen.getByTestId('button-route-goal-project'));
+    fireEvent.click(screen.getByTestId('button-route-goal-only-project'));
 
     const [draft] = readGoalDrafts('user-1').drafts;
-    expect(draft.projectId).toBe('project-1');
+    expect(draft).toMatchObject({
+      text: 'ساعدني على فهم التخزين المؤقت',
+      projectId: 'project-1',
+      sendAttemptedAt: null,
+    });
     expect(mockSetLocation).toHaveBeenCalledWith(`/projects/project-1/workspace?goalDraftId=${draft.id}`);
   });
 
@@ -365,8 +369,7 @@ describe("Dashboard goal-first home", () => {
       target: { value: "أريد إصلاح مشكلة تسجيل الدخول" },
     });
     fireEvent.click(screen.getByTestId("button-start-goal"));
-    fireEvent.change(screen.getByTestId("select-goal-project"), { target: { value: "project-1" } });
-    fireEvent.click(screen.getByTestId("button-route-goal-project"));
+    fireEvent.click(screen.getByTestId("button-route-goal-only-project"));
 
     const [draft] = readGoalDrafts("user-1").drafts;
     expect(draft).toMatchObject({
@@ -403,11 +406,9 @@ describe("Dashboard goal-first home", () => {
     await user.keyboard("{Enter}");
     expect(screen.getByTestId("panel-goal-destination")).toBeInTheDocument();
 
-    const projectSelector = screen.getByTestId("select-goal-project");
-    await user.selectOptions(projectSelector, "project-1");
-    projectSelector.focus();
-    await user.tab();
-    const continueButton = screen.getByTestId("button-route-goal-project");
+    await user.tab({ shift: true });
+    await user.tab({ shift: true });
+    const continueButton = screen.getByTestId("button-route-goal-only-project");
     expect(continueButton).toHaveFocus();
     await user.keyboard("{Enter}");
 
