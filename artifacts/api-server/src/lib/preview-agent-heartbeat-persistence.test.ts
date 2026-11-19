@@ -1,11 +1,11 @@
 import { generateKeyPairSync, randomUUID, sign } from "node:crypto";
-import { eq } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import {
   db,
   previewAgentNodesTable,
   projectsTable,
 } from "@workspace/db";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   completePreviewAgentPairing,
   createPreviewAgentPairing,
@@ -150,6 +150,112 @@ async function issueChallenge(input: {
 }
 
 describe("Preview Agent heartbeat PostgreSQL lifecycle", () => {
+  it("uses PostgreSQL time for challenge expiry and presence despite API clock skew", async () => {
+    const dayMs = 24 * 60 * 60_000;
+
+    for (const clockSkewMs of [dayMs, -dayMs]) {
+      const { pairing, keys } = await createPairedAgent();
+      const [beforeRow] = (await db.execute(sql`SELECT clock_timestamp() AS now`)).rows as Array<{ now: Date | string }>;
+      const beforeNow = new Date(String(beforeRow?.now));
+      if (!beforeRow?.now || Number.isNaN(beforeNow.getTime())) {
+        throw new Error("Could not read PostgreSQL time");
+      }
+
+      vi.useFakeTimers({
+        now: new Date(beforeNow.getTime() + clockSkewMs),
+        toFake: ["Date"],
+      });
+      try {
+        const issued = await issueChallenge({
+          nodeId: pairing.nodeId,
+          keyVersion: 1,
+          sequence: 1,
+          privateKeyPem: keys.privateKeyPem,
+        });
+        const [afterIssue] = await db
+          .select({
+            now: sql<Date>`clock_timestamp()`,
+            expiresAt: previewAgentNodesTable.heartbeatChallengeExpiresAt,
+          })
+          .from(previewAgentNodesTable)
+          .where(eq(previewAgentNodesTable.nodeId, pairing.nodeId));
+        if (!afterIssue?.now || !afterIssue.expiresAt) {
+          throw new Error("Heartbeat challenge expiry was not persisted");
+        }
+        expect(
+          Math.abs(
+            afterIssue.expiresAt.getTime()
+              - afterIssue.now.getTime()
+              - PREVIEW_AGENT_HEARTBEAT_CHALLENGE_TTL_MS,
+          ),
+        ).toBeLessThan(5_000);
+
+        const signed = heartbeatProof({
+          nodeId: pairing.nodeId,
+          keyVersion: issued.keyVersion,
+          sequence: 1,
+          challenge: issued.challenge,
+          privateKeyPem: keys.privateKeyPem,
+        });
+        const accepted = await acceptPreviewAgentHeartbeat(signed);
+        const [afterAccept] = await db
+          .select({
+            now: sql<Date>`clock_timestamp()`,
+            lastSeenAt: previewAgentNodesTable.lastSeenAt,
+          })
+          .from(previewAgentNodesTable)
+          .where(eq(previewAgentNodesTable.nodeId, pairing.nodeId));
+        if (!afterAccept?.now || !afterAccept.lastSeenAt) {
+          throw new Error("Accepted heartbeat presence timestamp was not persisted");
+        }
+        expect(
+          Math.abs(afterAccept.lastSeenAt.getTime() - afterAccept.now.getTime()),
+        ).toBeLessThan(5_000);
+        expect(accepted.lastSeenAt.getTime()).toBe(afterAccept.lastSeenAt.getTime());
+      } finally {
+        vi.useRealTimers();
+      }
+    }
+  });
+
+  it("rejects a database-expired challenge even when the API clock is behind", async () => {
+    const { pairing, keys } = await createPairedAgent();
+    const [databaseNowRow] = (await db.execute(sql`SELECT clock_timestamp() AS now`)).rows as Array<{ now: Date | string }>;
+    const databaseNow = new Date(String(databaseNowRow?.now));
+    if (!databaseNowRow?.now || Number.isNaN(databaseNow.getTime())) {
+      throw new Error("Could not read PostgreSQL time");
+    }
+
+    const issued = await issueChallenge({
+      nodeId: pairing.nodeId,
+      keyVersion: 1,
+      sequence: 1,
+      privateKeyPem: keys.privateKeyPem,
+      now: new Date(
+        databaseNow.getTime() - PREVIEW_AGENT_HEARTBEAT_CHALLENGE_TTL_MS - 1,
+      ),
+    });
+    const signed = heartbeatProof({
+      nodeId: pairing.nodeId,
+      keyVersion: issued.keyVersion,
+      sequence: 1,
+      challenge: issued.challenge,
+      privateKeyPem: keys.privateKeyPem,
+    });
+
+    vi.useFakeTimers({
+      now: new Date(databaseNow.getTime() - 24 * 60 * 60_000),
+      toFake: ["Date"],
+    });
+    try {
+      await expect(acceptPreviewAgentHeartbeat(signed)).rejects.toMatchObject({
+        code: "PREVIEW_AGENT_HEARTBEAT_INVALID",
+      });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("consumes a hashed challenge once and makes only an identical retry idempotent", async () => {
     const { pairing, keys, now } = await createPairedAgent();
     const challengeRequest = signedChallengeRequest({

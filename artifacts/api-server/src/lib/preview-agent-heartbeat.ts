@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { and, eq, isNull } from "drizzle-orm";
+import { and, eq, isNull, sql } from "drizzle-orm";
 import {
   db,
   previewAgentNodesTable,
@@ -31,6 +31,24 @@ export class PreviewAgentHeartbeatError extends Error {
     super("Preview Agent heartbeat is invalid or unavailable.");
     this.name = "PreviewAgentHeartbeatError";
   }
+}
+
+type PreviewAgentHeartbeatTransaction = Parameters<Parameters<typeof db.transaction>[0]>[0];
+
+async function resolveHeartbeatDecisionTime(
+  tx: PreviewAgentHeartbeatTransaction,
+  override?: Date,
+): Promise<Date> {
+  // Production requests use PostgreSQL's clock so API replica clock skew
+  // cannot change the signed challenge's expiry window or presence timestamp.
+  // The explicit override is retained only for deterministic lifecycle tests.
+  if (override) return override;
+  const [row] = (await tx.execute(sql`SELECT clock_timestamp() AS now`)).rows as Array<{ now: Date | string }>;
+  const now = new Date(String(row?.now));
+  if (!row?.now || !Number.isFinite(now.getTime())) {
+    throw new PreviewAgentHeartbeatError("PREVIEW_AGENT_HEARTBEAT_UNAVAILABLE");
+  }
+  return now;
 }
 
 export type PreviewAgentHeartbeatProof = {
@@ -96,7 +114,7 @@ export async function issuePreviewAgentHeartbeatChallenge(input: {
   challenge: string;
   expiresAt: Date;
 }> {
-  const now = input.now ?? new Date();
+  const nowOverride = input.now;
   const { proof, signature } = input;
   if (
     proof.version !== 1 ||
@@ -111,7 +129,7 @@ export async function issuePreviewAgentHeartbeatChallenge(input: {
     proof.sequence > 2_147_483_647 ||
     typeof signature !== "string" ||
     !SIGNATURE_PATTERN.test(signature) ||
-    !Number.isFinite(now.getTime())
+    (nowOverride !== undefined && !Number.isFinite(nowOverride.getTime()))
   ) {
     throw new PreviewAgentHeartbeatError("PREVIEW_AGENT_HEARTBEAT_INVALID");
   }
@@ -124,10 +142,6 @@ export async function issuePreviewAgentHeartbeatChallenge(input: {
   }
   const challenge = createPreviewAgentHeartbeatChallenge();
   const challengeHash = hashPreviewAgentHeartbeatChallenge(challenge);
-  const expiresAt = new Date(
-    now.getTime() + PREVIEW_AGENT_HEARTBEAT_CHALLENGE_TTL_MS,
-  );
-
   try {
     return await db.transaction(async (tx) => {
       const [node] = await tx
@@ -162,6 +176,10 @@ export async function issuePreviewAgentHeartbeatChallenge(input: {
           "PREVIEW_AGENT_HEARTBEAT_INVALID",
         );
       }
+      const now = await resolveHeartbeatDecisionTime(tx, nowOverride);
+      const expiresAt = new Date(
+        now.getTime() + PREVIEW_AGENT_HEARTBEAT_CHALLENGE_TTL_MS,
+      );
       if (
         node.heartbeatChallengeHash &&
         node.heartbeatChallengeExpiresAt &&
@@ -231,7 +249,7 @@ export async function acceptPreviewAgentHeartbeat(input: {
   lastSeenAt: Date;
   alreadyAccepted: boolean;
 }> {
-  const now = input.now ?? new Date();
+  const nowOverride = input.now;
   const { proof, signature } = input;
   if (
     !UUID_PATTERN.test(proof.nodeId) ||
@@ -243,7 +261,7 @@ export async function acceptPreviewAgentHeartbeat(input: {
     proof.sequence > 2_147_483_647 ||
     typeof signature !== "string" ||
     !SIGNATURE_PATTERN.test(signature) ||
-    !Number.isFinite(now.getTime())
+    (nowOverride !== undefined && !Number.isFinite(nowOverride.getTime()))
   ) {
     throw new PreviewAgentHeartbeatError(
       "PREVIEW_AGENT_HEARTBEAT_INVALID",
@@ -326,6 +344,7 @@ export async function acceptPreviewAgentHeartbeat(input: {
         );
       }
 
+      const now = await resolveHeartbeatDecisionTime(tx, nowOverride);
       if (
         !node.heartbeatChallengeHash ||
         !node.heartbeatChallengeExpiresAt ||
