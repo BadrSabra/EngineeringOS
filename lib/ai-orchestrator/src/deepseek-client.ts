@@ -44,6 +44,25 @@ export const DEEPSEEK_MODEL_POWERFUL = "deepseek-chat";
 
 const DEEPSEEK_BASE_URL    = "https://api.deepseek.com";
 const DEEPSEEK_MODELS_URL = `${DEEPSEEK_BASE_URL}/models`;
+const DEFAULT_TIMEOUT_MS = 60_000;
+const DEFAULT_MODEL_CATALOG_TIMEOUT_MS = 10_000;
+
+function resolveDeepSeekTimeoutMs(value: number | undefined, fallback = DEFAULT_TIMEOUT_MS): number {
+  if (value === undefined || !Number.isFinite(value) || value <= 0) return fallback;
+  return Math.min(Math.ceil(value), 2_147_483_647);
+}
+
+function resolveDeepSeekSignal(
+  callerSignal: AbortSignal | undefined,
+  executionLedger: ExecutionLedger | undefined,
+): AbortSignal | undefined {
+  const ledgerSignal = executionLedger?.signal;
+  if (callerSignal && ledgerSignal && callerSignal !== ledgerSignal) {
+    return AbortSignal.any([callerSignal, ledgerSignal]);
+  }
+  return callerSignal ?? ledgerSignal;
+}
+
 
 export type DeepSeekDefaultModelRole = "fast" | "powerful";
 export type DeepSeekDefaultModelValidation = {
@@ -59,9 +78,13 @@ type DeepSeekModelListResponse = {
 export async function validateDeepSeekDefaultModels(
   apiKey: string,
   defaults: { fast: string; powerful: string },
+  timeoutMs = DEFAULT_MODEL_CATALOG_TIMEOUT_MS,
 ): Promise<DeepSeekDefaultModelValidation> {
   const controller = new AbortController();
-  const timer: ReturnType<typeof setTimeout> | undefined = undefined;
+  const timer = setTimeout(
+    () => controller.abort(new Error("DeepSeek model catalog timed out")),
+    resolveDeepSeekTimeoutMs(timeoutMs, DEFAULT_MODEL_CATALOG_TIMEOUT_MS),
+  );
   try {
     assertProviderEgressEnabled();
     const response = await fetch(DEEPSEEK_MODELS_URL, {
@@ -160,9 +183,10 @@ export async function* deepseekCompleteStream(
     maxTokens = 4096,
     timeoutMs,
     apiKey,
-    signal,
+    signal: callerSignal,
+    executionLedger,
   } = opts;
-  void timeoutMs;
+  const signal = resolveDeepSeekSignal(callerSignal, executionLedger);
 
   const body: Record<string, unknown> = {
     model,
@@ -173,7 +197,10 @@ export async function* deepseekCompleteStream(
   };
 
   const controller = new AbortController();
-  const timer: ReturnType<typeof setTimeout> | undefined = undefined;
+  const timer = setTimeout(
+    () => controller.abort(new Error("DeepSeek streaming request timed out")),
+    resolveDeepSeekTimeoutMs(timeoutMs),
+  );
   const onAbort = () => controller.abort(signal?.reason);
   if (signal?.aborted) onAbort();
   else signal?.addEventListener("abort", onAbort, { once: true });
@@ -213,6 +240,11 @@ export async function* deepseekCompleteStream(
     const text = await response.text().catch(() => "");
     clearTimeout(timer);
     signal?.removeEventListener("abort", onAbort);
+    if (controller.signal.aborted) {
+      throw new GroqClientError("TIMEOUT", "DeepSeek streaming request timed out", {
+        context: { providerName: "DeepSeek", providerModel: model },
+      });
+    }
     throw classifyStatus(response.status, text);
   }
 
@@ -319,12 +351,12 @@ export async function deepseekCompleteRaw(
     maxTokens = 4096,
     timeoutMs,
     apiKey,
-    signal,
+    signal: callerSignal,
     executionLedger,
     tools,
     toolChoice,
   } = opts;
-  void timeoutMs;
+  const signal = resolveDeepSeekSignal(callerSignal, executionLedger);
 
   const body: Record<string, unknown> = {
     model,
@@ -343,7 +375,6 @@ export async function deepseekCompleteRaw(
   }
 
   const controller = new AbortController();
-  const timer: ReturnType<typeof setTimeout> | undefined = undefined;
   const onAbort = () => controller.abort(signal?.reason);
   if (signal?.aborted) onAbort();
   else signal?.addEventListener("abort", onAbort, { once: true });
@@ -358,7 +389,6 @@ export async function deepseekCompleteRaw(
       estimatedTokens: estimateProviderRequestTokens(body),
     });
     if (!admission.admitted) {
-      clearTimeout(timer);
       signal?.removeEventListener("abort", onAbort);
       throw new GroqClientError("TIMEOUT", "DeepSeek request budget exhausted");
     }
@@ -371,10 +401,13 @@ export async function deepseekCompleteRaw(
       operation: "provider_request",
     })
   ) {
-    clearTimeout(timer);
     signal?.removeEventListener("abort", onAbort);
     throw new GroqClientError("TIMEOUT", "DeepSeek request budget exhausted");
   }
+  const timer = setTimeout(
+    () => controller.abort(new Error("DeepSeek request timed out")),
+    resolveDeepSeekTimeoutMs(timeoutMs),
+  );
   providerAttemptStartedAt = Date.now();
   let providerAttemptSettled = false;
   const settleProviderAttempt = async (
@@ -425,17 +458,20 @@ export async function deepseekCompleteRaw(
       signal: controller.signal,
     });
   } catch (err) {
-    await settleProviderAttempt("failed", err);
+    const failure = controller.signal.aborted
+      ? new GroqClientError("TIMEOUT", "DeepSeek request timed out", {
+          cause: err,
+          context: { providerName: "DeepSeek", providerModel: model },
+        })
+      : new GroqClientError(
+          "NETWORK_ERROR",
+          err instanceof Error ? err.message : "Network error contacting DeepSeek",
+          { cause: err, context: { providerName: "DeepSeek", providerModel: model } },
+        );
+    await settleProviderAttempt("failed", failure);
     clearTimeout(timer);
     signal?.removeEventListener("abort", onAbort);
-    if (controller.signal.aborted) {
-      throw new GroqClientError("TIMEOUT", "DeepSeek request timed out", { cause: err });
-    }
-    throw new GroqClientError(
-      "NETWORK_ERROR",
-      err instanceof Error ? err.message : "Network error contacting DeepSeek",
-      { cause: err },
-    );
+    throw failure;
   }
   try {
     if (!response.ok) {
@@ -443,6 +479,11 @@ export async function deepseekCompleteRaw(
         response,
         MAX_PROVIDER_ERROR_BODY_BYTES,
       ).catch(() => "");
+      if (controller.signal.aborted) {
+        throw new GroqClientError("TIMEOUT", "DeepSeek request timed out", {
+          context: { providerName: "DeepSeek", providerModel: model },
+        });
+      }
       throw classifyStatus(response.status, text);
     }
 
@@ -496,8 +537,14 @@ export async function deepseekCompleteRaw(
     await settleProviderAttempt("completed", undefined, providerUsage);
     return normalized;
   } catch (err) {
-    await settleProviderAttempt("failed", err);
-    throw err;
+    const failure = controller.signal.aborted && !(err instanceof GroqClientError)
+      ? new GroqClientError("TIMEOUT", "DeepSeek request timed out", {
+          cause: err,
+          context: { providerName: "DeepSeek", providerModel: model },
+        })
+      : err;
+    await settleProviderAttempt("failed", failure);
+    throw failure;
   } finally {
     clearTimeout(timer);
     signal?.removeEventListener("abort", onAbort);

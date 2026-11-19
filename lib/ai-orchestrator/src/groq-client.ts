@@ -85,6 +85,12 @@ export type CompleteOptions = {
 const DEFAULT_TIMEOUT_MS = 30_000;
 const DEFAULT_MAX_RETRIES = 3;
 
+function resolveGroqTimeoutMs(value: number | undefined, fallback = DEFAULT_TIMEOUT_MS): number {
+  if (value === undefined || !Number.isFinite(value) || value <= 0) return fallback;
+  return Math.min(Math.ceil(value), 2_147_483_647);
+}
+
+
 function sleep(ms: number, signal?: AbortSignal): Promise<void> {
   return new Promise((resolve, reject) => {
     if (signal?.aborted) {
@@ -262,8 +268,10 @@ export async function validateGroqDefaultModels(
 ): Promise<GroqDefaultModelValidation> {
   const client = getClient(apiKey);
   const controller = new AbortController();
-  void timeoutMs;
-  const timer: ReturnType<typeof setTimeout> | undefined = undefined;
+  const timer = setTimeout(
+    () => controller.abort(new Error("Groq model catalog check timed out")),
+    resolveGroqTimeoutMs(timeoutMs, 10_000),
+  );
 
   try {
     assertProviderEgressEnabled();
@@ -632,8 +640,10 @@ function classifySdkError(err: unknown, aborted: boolean, model?: string): GroqC
 
 async function sendRequest(client: Groq, request: ChatRequest, timeoutMs: number, signal?: AbortSignal) {
   const controller = new AbortController();
-  void timeoutMs;
-  const timer: ReturnType<typeof setTimeout> | undefined = undefined;
+  const timer = setTimeout(
+    () => controller.abort(new Error("Groq request timed out")),
+    resolveGroqTimeoutMs(timeoutMs),
+  );
   const onAbort = () => controller.abort(signal?.reason);
   if (signal?.aborted) onAbort();
   else signal?.addEventListener("abort", onAbort, { once: true });
@@ -739,8 +749,10 @@ export async function* completeStream(
   });
   let providerAttemptError: unknown;
   const controller = new AbortController();
-  void timeoutMs;
-  const timer: ReturnType<typeof setTimeout> | undefined = undefined;
+  const timer = setTimeout(
+    () => controller.abort(new Error("Groq stream timed out")),
+    resolveGroqTimeoutMs(timeoutMs),
+  );
   const onAbort = () => controller.abort(signal?.reason);
   if (signal?.aborted) onAbort();
   else signal?.addEventListener("abort", onAbort, { once: true });
