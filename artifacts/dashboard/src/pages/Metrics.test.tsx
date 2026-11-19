@@ -3,6 +3,7 @@ import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import axe from 'axe-core';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import Metrics from './Metrics';
+import { useLocation } from 'wouter';
 
 vi.mock('@workspace/api-client-react', () => ({
   useListMetrics: vi.fn(),
@@ -52,6 +53,7 @@ function mockMetrics(
 
 beforeEach(() => {
   vi.clearAllMocks();
+  window.history.replaceState({}, '', '/metrics');
   mockProjects();
   mockMetrics();
 });
@@ -96,6 +98,106 @@ describe('Metrics', () => {
       }),
     );
     expect(getListMetricsQueryKey).toHaveBeenCalledWith({ projectId: 'project-a' });
+  });
+
+  it('restores the project and date range from a metrics link', () => {
+    window.history.replaceState({}, '', '/metrics?projectId=project-b&range=7d');
+    mockProjects([
+      { id: 'project-a', name: 'Alpha' },
+      { id: 'project-b', name: 'Beta' },
+    ]);
+
+    render(<Metrics />);
+
+    expect(screen.getByRole('combobox', { name: 'اختر المشروع' })).toHaveValue('project-b');
+    expect(screen.getByRole('button', { name: '٧ أيام' })).toHaveAttribute('aria-pressed', 'true');
+    expect(useListMetrics).toHaveBeenCalledWith(
+      { projectId: 'project-b' },
+      expect.objectContaining({
+        query: expect.objectContaining({ enabled: true }),
+      }),
+    );
+  });
+
+  it('updates the metrics link while preserving other route context', () => {
+    window.history.replaceState({}, '', '/metrics?projectId=project-a&panel=quality#trend');
+    mockProjects([
+      { id: 'project-a', name: 'Alpha' },
+      { id: 'project-b', name: 'Beta' },
+    ]);
+
+    render(<Metrics />);
+    fireEvent.change(screen.getByRole('combobox', { name: 'اختر المشروع' }), {
+      target: { value: 'project-b' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: '٧ أيام' }));
+
+    let url = new URL(window.location.href);
+    expect(url.searchParams.get('projectId')).toBe('project-b');
+    expect(url.searchParams.get('range')).toBe('7d');
+    expect(url.searchParams.get('panel')).toBe('quality');
+    expect(url.hash).toBe('#trend');
+
+    fireEvent.click(screen.getByRole('button', { name: '٣٠ يومًا' }));
+    url = new URL(window.location.href);
+    expect(url.searchParams.get('projectId')).toBe('project-b');
+    expect(url.searchParams.has('range')).toBe(false);
+    expect(url.searchParams.get('panel')).toBe('quality');
+    expect(url.hash).toBe('#trend');
+  });
+
+  it('uses safe defaults for unsupported URL selections and canonicalizes them', async () => {
+    window.history.replaceState({}, '', '/metrics?projectId=removed-project&range=90d&panel=quality');
+    mockProjects([{ id: 'project-a', name: 'Alpha' }]);
+
+    render(<Metrics />);
+
+    await waitFor(() => {
+      expect(screen.getByRole('combobox', { name: 'اختر المشروع' })).toHaveValue('project-a');
+      expect(screen.getByRole('button', { name: '٣٠ يومًا' })).toHaveAttribute('aria-pressed', 'true');
+    });
+    const url = new URL(window.location.href);
+    expect(url.searchParams.get('projectId')).toBe('project-a');
+    expect(url.searchParams.has('range')).toBe(false);
+    expect(url.searchParams.get('panel')).toBe('quality');
+  });
+
+  it('applies new selections when navigation changes only the metrics query', () => {
+    function RouteNavigationProbe() {
+      const [, navigate] = useLocation();
+      return (
+        <button
+          type="button"
+          onClick={() => navigate('/metrics?projectId=project-b&range=all')}
+        >
+          Open saved metrics view
+        </button>
+      );
+    }
+    window.history.replaceState({}, '', '/metrics?projectId=project-a');
+    mockProjects([
+      { id: 'project-a', name: 'Alpha' },
+      { id: 'project-b', name: 'Beta' },
+    ]);
+
+    render(
+      <>
+        <RouteNavigationProbe />
+        <Metrics />
+      </>,
+    );
+
+    expect(screen.getByRole('combobox', { name: 'اختر المشروع' })).toHaveValue('project-a');
+    fireEvent.click(screen.getByRole('button', { name: 'Open saved metrics view' }));
+
+    expect(screen.getByRole('combobox', { name: 'اختر المشروع' })).toHaveValue('project-b');
+    expect(screen.getByRole('button', { name: 'الكل' })).toHaveAttribute('aria-pressed', 'true');
+    expect(useListMetrics).toHaveBeenLastCalledWith(
+      { projectId: 'project-b' },
+      expect.objectContaining({
+        query: expect.objectContaining({ enabled: true }),
+      }),
+    );
   });
 
   it('uses a newly selected project for the next metrics query', async () => {
