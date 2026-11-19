@@ -30,14 +30,16 @@ describe("task execution history retention", () => {
     await pruneTaskExecutionHistory(now);
 
     expect(query).toHaveBeenCalledTimes(4);
-    expect(query.mock.calls[0]?.[1]).toEqual([
-      new Date(now.getTime() - TASK_LOG_RETENTION_DAYS * 24 * 60 * 60 * 1000),
-      TASK_HISTORY_RETENTION_BATCH_SIZE,
-    ]);
-    expect(query.mock.calls[2]?.[1]).toEqual([
-      new Date(now.getTime() - AI_EXECUTION_RECEIPT_RETENTION_DAYS * 24 * 60 * 60 * 1000),
-      TASK_HISTORY_RETENTION_BATCH_SIZE,
-    ]);
+    expect(String(query.mock.calls[0]?.[0])).toContain(
+      "COALESCE($1::timestamptz, clock_timestamp()) - ($2::int * INTERVAL '1 day')",
+    );
+    expect(query.mock.calls[0]?.[1]).toEqual([now, TASK_LOG_RETENTION_DAYS, TASK_HISTORY_RETENTION_BATCH_SIZE]);
+    expect(query.mock.calls[1]?.[1]).toEqual([["log-1"], now, TASK_LOG_RETENTION_DAYS]);
+    expect(String(query.mock.calls[2]?.[0])).toContain(
+      "COALESCE($1::timestamptz, clock_timestamp()) - ($2::int * INTERVAL '1 day')",
+    );
+    expect(query.mock.calls[2]?.[1]).toEqual([now, AI_EXECUTION_RECEIPT_RETENTION_DAYS, TASK_HISTORY_RETENTION_BATCH_SIZE]);
+    expect(query.mock.calls[3]?.[1]).toEqual([["execution-1"], now, AI_EXECUTION_RECEIPT_RETENTION_DAYS]);
     expect(getTaskExecutionRetentionHealth()).toEqual({
       status: "success",
       attemptedAt: now.toISOString(),
@@ -48,6 +50,28 @@ describe("task execution history retention", () => {
       receiptRowsRemoved: 1,
     });
     query.mockRestore();
+  });
+
+  it("uses PostgreSQL time for production retention cutoffs", async () => {
+    const query = vi.spyOn(pool, "query")
+      .mockResolvedValueOnce({ rows: [], rowCount: 0 } as never)
+      .mockResolvedValueOnce({ rows: [], rowCount: 0 } as never);
+
+    try {
+      await pruneTaskExecutionHistory();
+
+      expect(query).toHaveBeenCalledTimes(2);
+      expect(String(query.mock.calls[0]?.[0])).toContain(
+        "COALESCE($1::timestamptz, clock_timestamp()) - ($2::int * INTERVAL '1 day')",
+      );
+      expect(String(query.mock.calls[1]?.[0])).toContain(
+        "COALESCE($1::timestamptz, clock_timestamp()) - ($2::int * INTERVAL '1 day')",
+      );
+      expect(query.mock.calls[0]?.[1]).toEqual([null, TASK_LOG_RETENTION_DAYS, TASK_HISTORY_RETENTION_BATCH_SIZE]);
+      expect(query.mock.calls[1]?.[1]).toEqual([null, AI_EXECUTION_RECEIPT_RETENTION_DAYS, TASK_HISTORY_RETENTION_BATCH_SIZE]);
+    } finally {
+      query.mockRestore();
+    }
   });
 
   it("retains execution receipts that anchor durable acceptance history", async () => {

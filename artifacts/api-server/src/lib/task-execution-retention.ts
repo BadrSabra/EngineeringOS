@@ -63,8 +63,10 @@ export function getTaskExecutionRetentionHealth(): TaskExecutionRetentionHealth 
  * execution can only make a candidate safer to retain, never cause active
  * work to be deleted.
  */
-export async function pruneTaskExecutionHistory(now = new Date()): Promise<void> {
-  const attemptedAt = now.toISOString();
+export async function pruneTaskExecutionHistory(now?: Date): Promise<void> {
+  // The optional timestamp is a deterministic test seam. Production cleanup
+  // uses PostgreSQL clock_timestamp() in each selection and deletion predicate.
+  const attemptedAt = (now ?? new Date()).toISOString();
   let taskLogRowsScanned = 0;
   let taskLogRowsRemoved = 0;
   let receiptRowsScanned = 0;
@@ -78,15 +80,12 @@ export async function pruneTaskExecutionHistory(now = new Date()): Promise<void>
   health.receiptRowsRemoved = 0;
 
   try {
-    const logCutoff = new Date(now.getTime() - TASK_LOG_RETENTION_DAYS * 24 * 60 * 60 * 1000);
-    const receiptCutoff = new Date(now.getTime() - AI_EXECUTION_RECEIPT_RETENTION_DAYS * 24 * 60 * 60 * 1000);
-
     // Delete logs only for terminal tasks with no active or resumable run.
     const logs = await pool.query<{ id: string }>(
       `SELECT l.id
        FROM task_logs l
        JOIN tasks t ON t.id = l.task_id
-       WHERE l.timestamp < $1
+       WHERE l.timestamp < COALESCE($1::timestamptz, clock_timestamp()) - ($2::int * INTERVAL '1 day')
          AND t.status IN ('completed', 'failed', 'cancelled')
          AND NOT EXISTS (
            SELECT 1 FROM ai_executions e
@@ -94,8 +93,8 @@ export async function pruneTaskExecutionHistory(now = new Date()): Promise<void>
              AND e.status IN ('queued', 'running', 'paused', 'cancelling')
          )
        ORDER BY l.timestamp ASC, l.id ASC
-       LIMIT $2`,
-      [logCutoff, TASK_HISTORY_RETENTION_BATCH_SIZE],
+       LIMIT $3`,
+      [now ?? null, TASK_LOG_RETENTION_DAYS, TASK_HISTORY_RETENTION_BATCH_SIZE],
     );
     taskLogRowsScanned = logs.rowCount ?? logs.rows.length;
     if (logs.rows.length > 0) {
@@ -105,12 +104,13 @@ export async function pruneTaskExecutionHistory(now = new Date()): Promise<void>
          WHERE l.id = ANY($1::text[])
            AND t.id = l.task_id
            AND t.status IN ('completed', 'failed', 'cancelled')
+           AND l.timestamp < COALESCE($2::timestamptz, clock_timestamp()) - ($3::int * INTERVAL '1 day')
            AND NOT EXISTS (
              SELECT 1 FROM ai_executions e
              WHERE e.linked_task_id = t.id
                AND e.status IN ('queued', 'running', 'paused', 'cancelling')
            )`,
-        [logs.rows.map((row) => row.id)],
+        [logs.rows.map((row) => row.id), now ?? null, TASK_LOG_RETENTION_DAYS],
       );
       taskLogRowsRemoved = removed.rowCount ?? 0;
     }
@@ -120,7 +120,7 @@ export async function pruneTaskExecutionHistory(now = new Date()): Promise<void>
     const receipts = await pool.query<{ id: string }>(
       `SELECT e.id
        FROM ai_executions e
-       WHERE e.updated_at < $1
+       WHERE e.updated_at < COALESCE($1::timestamptz, clock_timestamp()) - ($2::int * INTERVAL '1 day')
          ${RETAIN_EXECUTIONS_WITH_DEPENDENCIES_SQL}
          AND e.status IN ('cancelled', 'completed', 'failed')
          AND NOT EXISTS (
@@ -130,15 +130,15 @@ export async function pruneTaskExecutionHistory(now = new Date()): Promise<void>
              AND newer.status IN ('queued', 'running', 'paused', 'cancelling')
          )
        ORDER BY e.updated_at ASC, e.id ASC
-       LIMIT $2`,
-      [receiptCutoff, TASK_HISTORY_RETENTION_BATCH_SIZE],
+       LIMIT $3`,
+      [now ?? null, AI_EXECUTION_RECEIPT_RETENTION_DAYS, TASK_HISTORY_RETENTION_BATCH_SIZE],
     );
     receiptRowsScanned = receipts.rowCount ?? receipts.rows.length;
     if (receipts.rows.length > 0) {
       const removed = await pool.query(
         `DELETE FROM ai_executions e
          WHERE e.id = ANY($1::text[])
-           AND e.updated_at < $2
+           AND e.updated_at < COALESCE($2::timestamptz, clock_timestamp()) - ($3::int * INTERVAL '1 day')
            ${RETAIN_EXECUTIONS_WITH_DEPENDENCIES_SQL}
            AND e.status IN ('cancelled', 'completed', 'failed')
            AND NOT EXISTS (
@@ -147,7 +147,7 @@ export async function pruneTaskExecutionHistory(now = new Date()): Promise<void>
                AND e.linked_task_id IS NOT NULL
                AND newer.status IN ('queued', 'running', 'paused', 'cancelling')
            )`,
-        [receipts.rows.map((row) => row.id), receiptCutoff],
+        [receipts.rows.map((row) => row.id), now ?? null, AI_EXECUTION_RECEIPT_RETENTION_DAYS],
       );
       receiptRowsRemoved = removed.rowCount ?? 0;
     }
