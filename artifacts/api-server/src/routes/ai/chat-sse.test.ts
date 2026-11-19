@@ -152,7 +152,7 @@ vi.mock("@workspace/db", () => {
       select: (fields?: Record<string, unknown>) => ({
         from: (table: unknown) => ({
           where: (predicate?: unknown) => ({
-            limit: () => {
+            limit: (limit?: number) => {
               if (
                 (table as { _tag?: string })._tag === "aiExecutionsTable"
                 && Object.keys(fields ?? {}).join(",") === "id"
@@ -190,7 +190,9 @@ vi.mock("@workspace/db", () => {
                 return Promise.resolve([...fixture.messages]);
               }
               if ((table as { _tag?: string })._tag === "aiExecutionAcceptancesTable") {
-                return Promise.resolve([...acceptanceRows]);
+                return Promise.resolve(
+                  limit === undefined ? [...acceptanceRows] : acceptanceRows.slice(0, limit),
+                );
               }
               if (
                 exposeFallbackDiagnosticExecution
@@ -241,10 +243,14 @@ vi.mock("@workspace/db", () => {
                 : (table as { _tag?: string })._tag === "aiChatMessagesTable"
                   ? [...fixture.messages]
                   : (table as { _tag?: string })._tag === "aiExecutionAcceptancesTable"
-                    ? (exposeFallbackDiagnosticExecution ? [...acceptanceRows] : [])
+                    ? [...acceptanceRows].sort(
+                        (left, right) => Number(right.attempt ?? 0) - Number(left.attempt ?? 0),
+                      )
                   : [];
               return Object.assign(Promise.resolve(rows), {
-                limit: () => Promise.resolve(rows),
+                limit: (maxRows?: number) => Promise.resolve(
+                  maxRows === undefined ? rows : rows.slice(0, maxRows),
+                ),
               });
             },
           }),
@@ -1221,6 +1227,99 @@ describe("provider history projection parity", () => {
     });
 
     expect(histories).toEqual([[], []]);
+  });
+});
+
+describe("GET /api/ai/chat/:sessionId/messages — historical acceptance projection", () => {
+  it("retains a message acceptance when the session has more than 500 acceptance rows", async () => {
+    const dbModule = (await import("@workspace/db") as unknown as {
+      __chatTestFixture: {
+        session: Record<string, unknown> | null;
+        messages: Array<Record<string, unknown>>;
+      };
+      __chatTestAcceptances: Array<Record<string, unknown>>;
+    });
+    const sessionId = "history-acceptance-session";
+    const executionId = "history-acceptance-execution";
+    const messageId = "history-acceptance-message";
+    const fixture = dbModule.__chatTestFixture;
+    fixture.session = {
+      id: sessionId,
+      projectId: null,
+      title: "Long acceptance history",
+      linkedTaskId: null,
+      createdAt: new Date("2026-01-01T00:00:00.000Z"),
+      updatedAt: new Date("2026-01-01T00:00:00.000Z"),
+    };
+    fixture.messages.push({
+      id: messageId,
+      sessionId,
+      role: "assistant",
+      content: "Historically accepted response",
+      executionId,
+      turnIntent: "CHAT",
+      sources: "[]",
+      toolTrace: "[]",
+      repairPlanMetadata: null,
+      createdAt: new Date("2026-01-01T00:00:01.000Z"),
+    });
+
+    const acceptanceRows = dbModule.__chatTestAcceptances;
+    for (let attempt = 1; attempt <= 500; attempt += 1) {
+      acceptanceRows.push({
+        id: `unrelated-acceptance-${attempt}`,
+        executionId,
+        projectId: "test-project-id",
+        attempt,
+        finalizationKey: `unrelated-finalization-${attempt}`,
+        terminalStatus: "completed",
+        outcome: "FAILED",
+        reasonCode: "FAILED",
+        nextActionCode: "ABANDON_EXECUTION",
+        disposition: null,
+        evidenceRequired: 0,
+        evidenceComplete: 0,
+        resumable: 0,
+        messageId: `unrelated-message-${attempt}`,
+        createdAt: new Date("2026-01-01T00:00:02.000Z"),
+      });
+    }
+    acceptanceRows.push({
+      id: "target-acceptance",
+      executionId,
+      projectId: "test-project-id",
+      attempt: 501,
+      finalizationKey: "target-finalization",
+      terminalStatus: "completed",
+      outcome: "SUCCEEDED",
+      reasonCode: "ACCEPTED",
+      nextActionCode: "NONE",
+      disposition: {
+        reasonCodes: [],
+        outcome: "SUCCEEDED",
+        recoveryState: "NONE",
+        nextActionCode: "NONE",
+        operatorAction: "No action required",
+      },
+      evidenceRequired: 0,
+      evidenceComplete: 0,
+      resumable: 0,
+      messageId,
+      createdAt: new Date("2026-01-01T00:00:03.000Z"),
+    });
+
+    const response = await request(app).get(`/api/ai/chat/${sessionId}/messages`);
+
+    expect(response.status, JSON.stringify(response.body)).toBe(200);
+    expect(response.body).toHaveLength(1);
+    expect(response.body[0]).toMatchObject({
+      id: messageId,
+      acceptanceDisposition: {
+        outcome: "SUCCEEDED",
+        recoveryState: "NONE",
+        nextActionCode: "NONE",
+      },
+    });
   });
 });
 
