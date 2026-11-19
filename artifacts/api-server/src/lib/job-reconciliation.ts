@@ -1371,9 +1371,11 @@ export async function getDurableJobHealth(): Promise<{
                 eq(eventsTable.type, "TaskAutoExecutionDispatchRequested"),
                 sql`(
                   CASE
-                    WHEN ${eventsTable.payload}->>'nextAttemptAt'
-                      ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}[.][0-9]{3}Z
-              ),
+                    WHEN pg_input_is_valid(${eventsTable.payload}->>'nextAttemptAt', 'timestamp with time zone')
+                    THEN (${eventsTable.payload}->>'nextAttemptAt')::timestamptz <= clock_timestamp()
+                    ELSE TRUE
+                  END
+                )`,
             ),
           ),
         )),
