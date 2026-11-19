@@ -72,6 +72,9 @@ vi.mock("drizzle-orm", () => ({
   desc: vi.fn((c: unknown) => c),
   asc:  vi.fn((c: unknown) => c),
   and:  vi.fn(() => Symbol("and")),
+  sql: Object.assign(vi.fn(() => Symbol("sql")), {
+    raw: vi.fn(() => Symbol("sql-raw")),
+  }),
 }));
 
 // ── DB mock ───────────────────────────────────────────────────────────────────
@@ -449,6 +452,46 @@ describe("buildProjectContext → AgentContextSchema", () => {
     const second = await buildProjectContext(PROJECT_ID);
     expect(second.project).toBe(first.project);
     expect(second.project).not.toContain("MutatedProject");
+  });
+
+
+  it("rebuilds a cached context when the latest persisted scan revision changes", async () => {
+    const first = await buildProjectContext(PROJECT_ID);
+    const metricsReadsBefore = _tableHits.get(metricsTable as object) ?? 0;
+
+    const result = {
+      projectRevision: "repository-revision-2",
+      scanCompleteness: "COMPLETE",
+      sourceProvenance: "filesystem-scan",
+      scanCorrelationId: "scan-correlation-2",
+      scannerVersion: "scanner-2",
+      repositoryManifest: {
+        revision: "repository-revision-2",
+        sourceRoot: "/workspace/test",
+        files: [],
+        completeness: "COMPLETE",
+      },
+    };
+    _tableData.set(scanJobsTable as object, [{
+      ...makeScanJob("completed"),
+      result,
+      // The mock query returns projected values as top-level fields.
+      projectRevision: result.projectRevision,
+      scanCompleteness: result.scanCompleteness,
+      sourceProvenance: result.sourceProvenance,
+      scanCorrelationId: result.scanCorrelationId,
+      scannerVersion: result.scannerVersion,
+      repositoryManifestRevision: result.repositoryManifest.revision,
+      repositoryManifestSourceRoot: result.repositoryManifest.sourceRoot,
+      repositoryManifestCompleteness: result.repositoryManifest.completeness,
+    }]);
+
+    const second = await buildProjectContext(PROJECT_ID);
+
+    expect(second.workspaceRevision).not.toBe(first.workspaceRevision);
+    expect(second.workspaceRevision).toBe("repository-revision-2");
+    expect(second.contextManifest?.scanCorrelationId).toBe("scan-correlation-2");
+    expect(_tableHits.get(metricsTable as object)).toBeGreaterThan(metricsReadsBefore);
   });
 
   it("includes only the bounded server-owned World State projection", async () => {
