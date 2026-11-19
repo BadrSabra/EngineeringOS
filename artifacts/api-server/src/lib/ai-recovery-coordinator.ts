@@ -953,6 +953,7 @@ async function runChatRecovery(
     executionId: candidate.executionId,
     userId: candidate.userId,
     mode: plan.kind,
+    expectedAttempt: candidate.executionAttempt,
   });
   if (!result.ok) {
     const failureCode = sanitizeChatRecoveryFailureCode(result.failureCode);
