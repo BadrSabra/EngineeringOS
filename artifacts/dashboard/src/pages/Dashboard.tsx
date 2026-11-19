@@ -431,6 +431,13 @@ export default function Dashboard() {
     }
   }
 
+  function chooseGoalDestination() {
+    if (!goalDraft.trim()) return;
+    setGoalHandoffError('');
+    setSelectedGoalProjectId('');
+    setShowGoalDestinationPrompt(true);
+  }
+
   function continueWithGoal() {
     const normalizedGoal = goalDraft.trim();
     if (!normalizedGoal) return;
@@ -761,24 +768,37 @@ export default function Dashboard() {
               {goalDraft.length}/{HOME_GOAL_MAX_LENGTH}
             </span>
           </p>
-          <Button
-            type="button"
-            data-testid="button-start-goal"
-            aria-label={directGoalProject ? `متابعة إلى مشروع ${directGoalProject.name}` : undefined}
-            disabled={!goalDraft.trim() || showGoalDestinationPrompt}
-            onClick={continueWithGoal}
-            className="w-full gap-2 sm:w-auto"
-          >
-            {directGoalProject ? (
-              <span className="inline-flex min-w-0 items-center gap-1">
-                <span>متابعة إلى</span>
-                <bdi dir="auto" className="max-w-[12rem] truncate">{directGoalProject.name}</bdi>
-              </span>
-            ) : (
-              'متابعة'
+          <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row">
+            <Button
+              type="button"
+              data-testid="button-start-goal"
+              aria-label={directGoalProject ? `متابعة إلى مشروع ${directGoalProject.name}` : undefined}
+              disabled={!goalDraft.trim() || showGoalDestinationPrompt}
+              onClick={continueWithGoal}
+              className="w-full gap-2 sm:w-auto"
+            >
+              {directGoalProject ? (
+                <span className="inline-flex min-w-0 items-center gap-1">
+                  <span>متابعة إلى</span>
+                  <bdi dir="auto" className="max-w-[12rem] truncate">{directGoalProject.name}</bdi>
+                </span>
+              ) : (
+                'متابعة'
+              )}
+              <ArrowLeft aria-hidden="true" className="h-4 w-4" />
+            </Button>
+            {directGoalProject && (
+              <Button
+                type="button"
+                variant="outline"
+                data-testid="button-choose-goal-destination"
+                onClick={chooseGoalDestination}
+                className="w-full sm:w-auto"
+              >
+                اختيار وجهة أخرى
+              </Button>
             )}
-            <ArrowLeft aria-hidden="true" className="h-4 w-4" />
-          </Button>
+          </div>
         </div>
         {goalHandoffError && (
           <p
