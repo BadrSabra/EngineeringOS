@@ -452,18 +452,27 @@ router.post("/projects/:projectId/scan", requireProjectWriteAccess, async (req, 
   }
 
   let job: typeof scanJobsTable.$inferSelect;
+  let createdJob = false;
   try {
-    const [activeJob] = await db
-      .select()
-      .from(scanJobsTable)
-      .where(and(
-        eq(scanJobsTable.projectId, projectId),
-        inArray(scanJobsTable.status, ["queued", "running"]),
-      ))
-      .limit(1);
-    if (activeJob) return res.status(202).json(activeJob);
+    const admission = await db.transaction(async (tx) => {
+      // Git-push coalescing uses the same project row to serialize queued-scan
+      // admission with manual scan requests across API-server instances.
+      await tx
+        .select({ id: projectsTable.id })
+        .from(projectsTable)
+        .where(eq(projectsTable.id, projectId))
+        .for("update")
+        .limit(1);
+      const [activeJob] = await tx
+        .select()
+        .from(scanJobsTable)
+        .where(and(
+          eq(scanJobsTable.projectId, projectId),
+          inArray(scanJobsTable.status, ["queued", "running"]),
+        ))
+        .limit(1);
+      if (activeJob) return { job: activeJob, created: false };
 
-    job = await db.transaction(async (tx) => {
       const [createdJob] = await tx
         .insert(scanJobsTable)
         .values({ id: jobId, projectId, status: "queued", createdAt: now })
@@ -488,8 +497,10 @@ router.post("/projects/:projectId/scan", requireProjectWriteAccess, async (req, 
         correlationId: jobId,
       });
 
-      return createdJob;
+      return { job: createdJob, created: true };
     });
+    job = admission.job;
+    createdJob = admission.created;
   } catch (err) {
     logger.error({ err, projectId, jobId }, "failed to create scan job");
     return res.status(500).json({ error: "Failed to queue scan job" });
@@ -497,6 +508,13 @@ router.post("/projects/:projectId/scan", requireProjectWriteAccess, async (req, 
     await admissionLock.release().catch((releaseErr) => {
       logger.warn({ releaseErr, projectId, jobId }, "failed to release scan admission lock");
     });
+  }
+
+  if (!createdJob) {
+    if (job.status === "queued") {
+      heavyJobQueue.enqueueWithId(job.id, () => runScanJob(job.id, projectId));
+    }
+    return res.status(202).json(job);
   }
 
   // Fire-and-forget, but bounded: heavyJobQueue caps how many scan/discovery

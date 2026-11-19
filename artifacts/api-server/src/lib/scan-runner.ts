@@ -115,6 +115,18 @@ export class ProjectScanCapacityBusyError extends Error {
   }
 }
 
+async function hasQueuedScan(tx: ScanJobTransaction, projectId: string): Promise<boolean> {
+  const [queued] = await tx
+    .select({ id: scanJobsTable.id })
+    .from(scanJobsTable)
+    .where(and(
+      eq(scanJobsTable.projectId, projectId),
+      eq(scanJobsTable.status, "queued"),
+    ))
+    .limit(1);
+  return Boolean(queued);
+}
+
 /**
  * Persist one terminal Scan failure transition and its project/event effects
  * atomically. `guard` must describe the current worker or stale-recovery fence.
@@ -126,6 +138,14 @@ export async function terminalizeFailedScanJob(input: {
   guard: SQL;
 }): Promise<boolean> {
   const finalized = await db.transaction(async (tx) => {
+    // Serialize terminal status with post-push scan admission. A queued
+    // successor keeps the project in "scanning" even when this attempt fails.
+    await tx
+      .select({ id: projectsTable.id })
+      .from(projectsTable)
+      .where(eq(projectsTable.id, input.projectId))
+      .for("update")
+      .limit(1);
     const [failed] = await tx
       .update(scanJobsTable)
       .set({
@@ -147,7 +167,10 @@ export async function terminalizeFailedScanJob(input: {
 
     await tx
       .update(projectsTable)
-      .set({ status: "active", updatedAt: databaseNow() })
+      .set({
+        status: await hasQueuedScan(tx, input.projectId) ? "scanning" : "active",
+        updatedAt: databaseNow(),
+      })
       .where(and(
         eq(projectsTable.id, input.projectId),
         eq(projectsTable.status, "scanning"),
@@ -821,10 +844,18 @@ async function performScanCore(
     // ── 7. Update project quality score and restore status ─────────────────
     // Guard with `status = "scanning"` so a concurrent newer job that owns
     // the project is not overwritten if, somehow, two jobs run in overlap.
+    // Locking the project row also serializes this terminal projection with a
+    // post-push enqueue that may leave one queued follow-up behind this scan.
+    await tx
+      .select({ id: projectsTable.id })
+      .from(projectsTable)
+      .where(eq(projectsTable.id, projectId))
+      .for("update")
+      .limit(1);
     await tx
       .update(projectsTable)
       .set({
-        status: "active",
+        status: await hasQueuedScan(tx, projectId) ? "scanning" : "active",
         qualityScore: metrics.overallScore,
         lastScanAt: now,
         updatedAt: now,
