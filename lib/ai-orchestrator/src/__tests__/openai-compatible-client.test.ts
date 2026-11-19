@@ -221,6 +221,60 @@ describe("geminiCompleteRaw", () => {
     });
   });
 
+  it("aborts a native tool call when timeoutMs elapses", async () => {
+    vi.useFakeTimers();
+    let markFetchStarted: () => void = () => undefined;
+    const fetchStarted = new Promise<void>((resolve) => {
+      markFetchStarted = resolve;
+    });
+    const fetchMock = vi.fn(async (_url: string | URL, init?: RequestInit) => {
+      markFetchStarted();
+      return await new Promise<Response>((_resolve, reject) => {
+        const signal = init?.signal;
+        if (!signal) {
+          reject(new Error("missing abort signal"));
+          return;
+        }
+        if (signal.aborted) {
+          reject(new Error("request aborted"));
+          return;
+        }
+        signal.addEventListener("abort", () => reject(new Error("request aborted")), {
+          once: true,
+        });
+      });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const request = geminiCompleteRaw(baseMessages as any, {
+      apiKey: "test-key",
+      model: "gemini-3-flash-preview",
+      timeoutMs: 25,
+      tools: [{
+        type: "function",
+        function: {
+          name: "read_file",
+          description: "Read a file",
+          parameters: { type: "object", properties: { path: { type: "string" } } },
+        },
+      }],
+    });
+    const timeoutAssertion = expect(request).rejects.toSatisfy(
+      (error: unknown) => error instanceof GroqClientError && error.code === "TIMEOUT",
+    );
+
+    try {
+      await fetchStarted;
+      await vi.advanceTimersByTimeAsync(25);
+      await timeoutAssertion;
+
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+      expect((fetchMock.mock.calls[0]?.[1] as RequestInit).signal?.aborted).toBe(true);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("replays Gemini thought signatures on the next native tool round", async () => {
     const captured: Array<Record<string, unknown>> = [];
     let requestCount = 0;

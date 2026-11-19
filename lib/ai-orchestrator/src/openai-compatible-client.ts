@@ -3094,9 +3094,10 @@ async function geminiCompleteWithTools(
   let error: unknown;
   let providerUsage: ProviderRequestUsage = { usageStatus: "unknown" };
   const timeoutMs = opts.timeoutMs ?? DEFAULT_TIMEOUT_MS;
-  void timeoutMs;
   const controller = new AbortController();
-  const timer: ReturnType<typeof setTimeout> | undefined = undefined;
+  const timer = setTimeout(() => {
+    controller.abort(new Error("Gemini request timed out"));
+  }, timeoutMs);
   const onAbort = () => controller.abort(opts.signal?.reason);
   if (opts.signal?.aborted) onAbort();
   else opts.signal?.addEventListener("abort", onAbort, { once: true });
