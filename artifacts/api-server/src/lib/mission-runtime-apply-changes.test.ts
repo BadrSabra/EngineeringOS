@@ -759,6 +759,18 @@ const invalidApplyProofCases: Array<{
     },
   },
   {
+    name: "Execution and Acceptance operation identities differ from the Mission-bound Proposal",
+    expectedReason: "apply_execution_operation_mismatch",
+    mutate: async (fixture) => {
+      await db.update(aiExecutionsTable)
+        .set({ operationId: "other-operation" })
+        .where(eq(aiExecutionsTable.id, fixture.executionId));
+      await db.update(aiExecutionAcceptancesTable)
+        .set({ operationId: "other-operation" })
+        .where(eq(aiExecutionAcceptancesTable.executionId, fixture.executionId));
+    },
+  },
+  {
     name: "proposal operation identity changed after Mission binding",
     expectedReason: "apply_proposal_binding_invalid",
     mutate: async (fixture) => {
