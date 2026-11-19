@@ -1,7 +1,7 @@
 import { promises as fs } from "node:fs";
 import path from "node:path";
 import { createHash, randomUUID } from "node:crypto";
-import { and, eq, gt, inArray, isNull, lte, or, sql } from "drizzle-orm";
+import { and, eq, inArray, or, sql } from "drizzle-orm";
 import {
   aiChangeProposalsTable,
   aiExecutionAcceptancesTable,
@@ -40,6 +40,12 @@ import {
   type CanonicalProof,
 } from "./proof-foundation.js";
 import { heavyJobQueue } from "./job-queue.js";
+import {
+  shadowReplayDatabaseNow,
+  shadowReplayDatabaseLeaseUntil,
+  shadowReplayLeaseIsExpired,
+  shadowReplayLeaseIsLive,
+} from "./shadow-replay-lease.js";
 import {
   parseTaskObjectiveContract,
   type TaskObjectiveContract,
@@ -722,7 +728,6 @@ type ShadowReplayLeaseOwner = {
 function replayOwnerWhere(
   replayId: string,
   owner: ShadowReplayLeaseOwner,
-  now: Date,
 ) {
   return and(
     eq(aiShadowReplaysTable.id, replayId),
@@ -730,7 +735,7 @@ function replayOwnerWhere(
     eq(aiShadowReplaysTable.workerId, owner.workerId),
     eq(aiShadowReplaysTable.attempt, owner.attempt),
     eq(aiShadowReplaysTable.status, "running"),
-    gt(aiShadowReplaysTable.leaseUntil, now),
+    shadowReplayLeaseIsLive(),
   );
 }
 
@@ -739,11 +744,10 @@ async function updateReplayOwned(
   owner: ShadowReplayLeaseOwner,
   values: Partial<typeof aiShadowReplaysTable.$inferInsert>,
 ): Promise<boolean> {
-  const now = new Date();
   const [updated] = await db
     .update(aiShadowReplaysTable)
-    .set({ ...values, updatedAt: now })
-    .where(replayOwnerWhere(replayId, owner, now))
+    .set({ ...values, updatedAt: shadowReplayDatabaseNow() })
+    .where(replayOwnerWhere(replayId, owner))
     .returning({ id: aiShadowReplaysTable.id });
   return Boolean(updated);
 }
@@ -754,15 +758,14 @@ async function cleanupReplayWorkspace(
 ): Promise<boolean> {
   if (!replay.replayWorkspaceRoot) return replay.replayWorkspaceCleaned;
   const replayWorkspaceRoot = replay.replayWorkspaceRoot;
-  const now = new Date();
   const [renewed] = await db
     .update(aiShadowReplaysTable)
     .set({
-      leaseUntil: new Date(now.getTime() + SHADOW_REPLAY_LEASE_MS),
-      updatedAt: now,
+      leaseUntil: shadowReplayDatabaseLeaseUntil(SHADOW_REPLAY_LEASE_MS),
+      updatedAt: shadowReplayDatabaseNow(),
     })
     .where(and(
-      replayOwnerWhere(replay.id, owner, now),
+      replayOwnerWhere(replay.id, owner),
       eq(aiShadowReplaysTable.replayWorkspaceRoot, replayWorkspaceRoot),
     ))
     .returning({ id: aiShadowReplaysTable.id });
@@ -772,17 +775,16 @@ async function cleanupReplayWorkspace(
   } catch {
     return false;
   }
-  const cleanedAt = new Date();
   const [cleaned] = await db
     .update(aiShadowReplaysTable)
     .set({
       replayWorkspaceRoot: null,
       replayWorkspaceCleaned: true,
-      leaseUntil: new Date(cleanedAt.getTime() + SHADOW_REPLAY_LEASE_MS),
-      updatedAt: cleanedAt,
+      leaseUntil: shadowReplayDatabaseLeaseUntil(SHADOW_REPLAY_LEASE_MS),
+      updatedAt: shadowReplayDatabaseNow(),
     })
     .where(and(
-      replayOwnerWhere(replay.id, owner, cleanedAt),
+      replayOwnerWhere(replay.id, owner),
       eq(aiShadowReplaysTable.replayWorkspaceRoot, replayWorkspaceRoot),
     ))
     .returning({ id: aiShadowReplaysTable.id });
@@ -1022,7 +1024,6 @@ export async function runShadowReplayAttempt(
     && execution.status !== "completed"
   ) return false;
 
-  const startedAt = new Date();
   const owner: ShadowReplayLeaseOwner = {
     userId,
     workerId: `shadow-replay:${replay.id}:${randomUUID()}`,
@@ -1034,9 +1035,9 @@ export async function runShadowReplayAttempt(
       status: "running",
       attempt: owner.attempt,
       workerId: owner.workerId,
-      leaseUntil: new Date(startedAt.getTime() + SHADOW_REPLAY_LEASE_MS),
-      startedAt: replay.startedAt ?? startedAt,
-      updatedAt: startedAt,
+      leaseUntil: shadowReplayDatabaseLeaseUntil(SHADOW_REPLAY_LEASE_MS),
+      startedAt: replay.startedAt ?? shadowReplayDatabaseNow(),
+      updatedAt: shadowReplayDatabaseNow(),
     })
     .where(and(
       eq(aiShadowReplaysTable.id, replay.id),
@@ -1046,10 +1047,7 @@ export async function runShadowReplayAttempt(
         eq(aiShadowReplaysTable.status, "queued"),
         and(
           eq(aiShadowReplaysTable.status, "running"),
-          or(
-            isNull(aiShadowReplaysTable.leaseUntil),
-            lte(aiShadowReplaysTable.leaseUntil, startedAt),
-          ),
+          shadowReplayLeaseIsExpired(),
         ),
       ),
     ))
@@ -1134,11 +1132,16 @@ export async function runShadowReplayAttempt(
   const validationProfiles = request.validationProfiles ?? [];
   let ownershipLost = false;
   const renewReplayLease = async (): Promise<boolean> => {
-    const renewed = await updateReplayOwned(replay.id, owner, {
-      leaseUntil: new Date(Date.now() + SHADOW_REPLAY_LEASE_MS),
-    });
+    const [renewed] = await db
+      .update(aiShadowReplaysTable)
+      .set({
+        leaseUntil: shadowReplayDatabaseLeaseUntil(SHADOW_REPLAY_LEASE_MS),
+        updatedAt: shadowReplayDatabaseNow(),
+      })
+      .where(replayOwnerWhere(replay.id, owner))
+      .returning({ id: aiShadowReplaysTable.id });
     if (!renewed) ownershipLost = true;
-    return renewed;
+    return Boolean(renewed);
   };
   if (validationProfiles.length === 0) {
     await updateReplayOwned(replay.id, owner, {
