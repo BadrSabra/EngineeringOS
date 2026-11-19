@@ -162,7 +162,9 @@ describe("database-authoritative chat turn ordering", () => {
     const fixture = await insertProjectAndSession();
 
     const older = startWorker({
-      ...fixture,
+      sessionId: fixture.sessionId,
+      projectId: fixture.projectId,
+      userId: fixture.ownerId,
       label: "older",
       // The earlier request's application clock is 24 hours ahead.
       clockSkewMs: 24 * 60 * 60 * 1000,
@@ -171,7 +173,9 @@ describe("database-authoritative chat turn ordering", () => {
     const olderReservation = await older.reserved;
 
     const newer = startWorker({
-      ...fixture,
+      sessionId: fixture.sessionId,
+      projectId: fixture.projectId,
+      userId: fixture.ownerId,
       label: "newer",
       // The later request's application clock is 24 hours behind.
       clockSkewMs: -24 * 60 * 60 * 1000,
