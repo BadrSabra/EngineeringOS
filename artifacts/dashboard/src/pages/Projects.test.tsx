@@ -31,8 +31,22 @@ vi.mock("@workspace/api-client-react", () => ({
 // Mock wouter
 vi.mock("wouter", () => ({
   useLocation: () => ['/projects', mocks.setLocation],
-  Link: ({ href, children }: { href: string; children: React.ReactNode }) => (
-    <a href={href}>{children}</a>
+  Link: ({
+    to,
+    href,
+    children,
+    className,
+    "data-testid": dataTestId,
+    "aria-label": ariaLabel,
+  }: {
+    to?: string;
+    href?: string;
+    children: React.ReactNode;
+    className?: string;
+    "data-testid"?: string;
+    "aria-label"?: string;
+  }) => (
+    <a href={to ?? href} className={className} data-testid={dataTestId} aria-label={ariaLabel}>{children}</a>
   ),
 }));
 
@@ -151,6 +165,20 @@ describe("Projects", () => {
     expect(screen.getByText("alpha-service")).toBeInTheDocument();
     expect(screen.getByText("beta-worker")).toBeInTheDocument();
     expect(screen.getByText("gamma-lib")).toBeInTheDocument();
+  });
+
+  it('opens the workspace directly from each project card and keeps project details available', () => {
+    render(<Projects />);
+
+    const card = screen.getByTestId('card-project-1');
+    const workspaceLink = screen.getByTestId('link-project-workspace-1');
+    const detailsLink = screen.getByTestId('link-project-details-1');
+
+    expect(card).toContainElement(workspaceLink);
+    expect(workspaceLink).toHaveAttribute('href', '/projects/1/workspace');
+    expect(workspaceLink).toHaveAccessibleName('افتح مساحة العمل لمشروع alpha-service');
+    expect(detailsLink).toHaveAttribute('href', '/projects/1');
+    expect(detailsLink).toHaveAccessibleName('تفاصيل مشروع alpha-service');
   });
 
   it("filters projects by name (case-insensitive)", () => {
