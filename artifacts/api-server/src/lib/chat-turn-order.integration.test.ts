@@ -143,7 +143,9 @@ async function insertProjectAndSession(): Promise<{
 
 afterEach(async () => {
   for (const child of childProcesses.splice(0)) {
-    if (child.exitCode === null && !child.killed) child.kill("SIGKILL");
+    if (child.exitCode !== null) continue;
+    if (!child.killed) child.kill("SIGKILL");
+    await new Promise<void>((resolve) => child.once("exit", () => resolve()));
   }
   for (const sessionId of cleanupSessions.splice(0)) {
     await db.delete(aiChatSessionsTable)
