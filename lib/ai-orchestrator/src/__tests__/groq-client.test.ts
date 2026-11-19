@@ -545,6 +545,7 @@ describe("groq-client", () => {
     await complete([{ role: "user", content: "hi" }]);
     expect(capturedKey).toBe("env-fallback-key");
   });
+
   it("aborts a stalled completion when timeoutMs elapses", async () => {
     vi.useFakeTimers();
     let requestSignal: AbortSignal | undefined;
@@ -575,6 +576,7 @@ describe("groq-client", () => {
     expect(create).toHaveBeenCalledTimes(1);
   });
 
+
   it("aborts a stalled stream when timeoutMs elapses", async () => {
     vi.useFakeTimers();
     let requestSignal: AbortSignal | undefined;
@@ -599,10 +601,10 @@ describe("groq-client", () => {
     }));
     const { completeStream } = await import("../groq-client.js");
     const pending = (async () => {
-      for await (const _chunk of completeStream([{ role: "user", content: "hi" }], {
+      for await (const chunk of completeStream([{ role: "user", content: "hi" }], {
         timeoutMs: 25,
       })) {
-        // The fixture intentionally never yields before its signal is aborted.
+        expect(chunk).toBeDefined();
       }
     })();
 
@@ -611,6 +613,7 @@ describe("groq-client", () => {
     expect(requestSignal?.aborted).toBe(true);
     expect(create).toHaveBeenCalledTimes(1);
   });
+
 
   it("aborts a stalled model-catalog probe at its configured timeout", async () => {
     vi.useFakeTimers();
