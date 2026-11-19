@@ -14,6 +14,7 @@ import {
 } from 'recharts';
 import { BarChart3, AlertTriangle } from 'lucide-react';
 import { RefreshButton, RequestError } from '@/components/OperatorResilience';
+import { useSearch } from 'wouter';
 
 const CHART_COLORS = {
   architecture: '#10b981',
@@ -23,7 +24,31 @@ const CHART_COLORS = {
 
 type DateRange = '7d' | '30d' | 'all';
 
+function readDateRange(value: string | null): DateRange {
+  return value === '7d' || value === 'all' ? value : '30d';
+}
+
 export default function Metrics() {
+  const routeParams = new URLSearchParams(useSearch());
+  const initialProjectId = routeParams.get('projectId') ?? '';
+  const initialDateRange = readDateRange(routeParams.get('range'));
+
+  return (
+    <MetricsSession
+      key={JSON.stringify([initialProjectId, initialDateRange])}
+      initialProjectId={initialProjectId}
+      initialDateRange={initialDateRange}
+    />
+  );
+}
+
+function MetricsSession({
+  initialProjectId,
+  initialDateRange,
+}: {
+  initialProjectId: string;
+  initialDateRange: DateRange;
+}) {
   const {
     data: projects,
     isError: projectsError,
@@ -31,8 +56,8 @@ export default function Metrics() {
     dataUpdatedAt: projectsDataUpdatedAt,
     refetch: refetchProjects,
   } = useListProjects();
-  const [selectedProjectId, setSelectedProjectId] = useState<string>('');
-  const [dateRange, setDateRange] = useState<DateRange>('30d');
+  const [selectedProjectId, setSelectedProjectId] = useState<string>(initialProjectId);
+  const [dateRange, setDateRange] = useState<DateRange>(initialDateRange);
 
   // A saved selection is valid only while it belongs to the latest project list.
   // Derive the fallback during render so a removed project is never queried for
@@ -40,12 +65,29 @@ export default function Metrics() {
   const effectiveProjectId = projects?.some((project) => project.id === selectedProjectId)
     ? selectedProjectId
     : (projects?.[0]?.id ?? '');
+  const projectsLoaded = projects !== undefined;
 
   useEffect(() => {
-    if (selectedProjectId !== effectiveProjectId) {
+    if (projectsLoaded && selectedProjectId !== effectiveProjectId) {
       setSelectedProjectId(effectiveProjectId);
     }
-  }, [effectiveProjectId, selectedProjectId]);
+  }, [effectiveProjectId, projectsLoaded, selectedProjectId]);
+
+  useEffect(() => {
+    const url = new URL(window.location.href);
+    if (projectsLoaded) {
+      if (effectiveProjectId) url.searchParams.set('projectId', effectiveProjectId);
+      else url.searchParams.delete('projectId');
+    }
+    if (dateRange === '30d') url.searchParams.delete('range');
+    else url.searchParams.set('range', dateRange);
+
+    const nextUrl = `${url.pathname}${url.search}${url.hash}`;
+    const currentUrl = `${window.location.pathname}${window.location.search}${window.location.hash}`;
+    if (nextUrl !== currentUrl) {
+      window.history.replaceState(window.history.state, '', nextUrl);
+    }
+  }, [dateRange, effectiveProjectId, projectsLoaded]);
 
   const currentProjectIdRef = useRef(effectiveProjectId);
   currentProjectIdRef.current = effectiveProjectId;
@@ -140,6 +182,8 @@ export default function Metrics() {
             {(['7d', '30d', 'all'] as DateRange[]).map((r) => (
               <button
                 key={r}
+                type="button"
+                aria-pressed={dateRange === r}
                 onClick={() => setDateRange(r)}
                 className={`min-w-0 flex-1 px-3 py-2 transition-colors sm:flex-none ${
                   dateRange === r
