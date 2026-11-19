@@ -526,11 +526,12 @@ export async function loadCurrentContextManifestCacheIdentity(
         : latest?.scanCompleteness === "COMPLETE"
           ? "COMPLETE" as const
           : "UNAVAILABLE" as const;
-    const repositoryCompleteness =
-      latest?.repositoryManifestCompleteness === "COMPLETE" ||
-      latest?.repositoryManifestCompleteness === "PARTIAL" ||
-      latest?.repositoryManifestCompleteness === "UNAVAILABLE"
-        ? latest.repositoryManifestCompleteness
+    const persistedRepositoryCompleteness = latest?.repositoryManifestCompleteness;
+    const repositoryCompleteness: RepositoryRevisionManifest["completeness"] | undefined =
+      persistedRepositoryCompleteness === "COMPLETE" ||
+      persistedRepositoryCompleteness === "PARTIAL" ||
+      persistedRepositoryCompleteness === "UNAVAILABLE"
+        ? persistedRepositoryCompleteness
         : undefined;
     const repositoryManifest =
       typeof latest?.repositoryManifestRevision === "string" &&
