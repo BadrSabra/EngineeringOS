@@ -41,6 +41,9 @@ import {
 
 const router = Router();
 
+// Keep multi-row INSERTs comfortably below PostgreSQL's bind-parameter limit.
+const DISCOVERY_IMPORT_GRAPH_BATCH_SIZE = 250;
+
 // ─── Error helpers ──────────────────────────────────────────────────────────────
 
 /**
@@ -519,31 +522,37 @@ router.post("/projects/import", async (req, res) => {
       // 3. Graph entity stubs from detected API routes
       // Every stub carries a full provenance record so downstream consumers
       // can always tell these rows came from discovery, not from a full AST scan.
-      for (const apiRoute of result.detectedApis) {
-        await tx.insert(graphEntitiesTable).values({
-          id: randomUUID(),
-          projectId,
-          type: "api",
-          name: apiRoute,
+      // Build rows in memory, then persist bounded multi-row batches instead of
+      // holding the import transaction open for one round trip per API route.
+      const extractedAt = now.toISOString();
+      const graphEntityRows = result.detectedApis.map((apiRoute) => ({
+        id: randomUUID(),
+        projectId,
+        type: "api" as const,
+        name: apiRoute,
+        sourceType: "discovery-import" as const,
+        confidence: 0.8,
+        provenance: {
           sourceType: "discovery-import",
-          confidence: 0.8,
-          provenance: {
-            sourceType: "discovery-import",
-            method: "api-route-detection",
-            extractedAt: now.toISOString(),
-            evidence: [{ file: "discovery-session", kind: "heuristic" as const }],
-          },
-          createdAt: now,
-        });
+          method: "api-route-detection",
+          extractedAt,
+          evidence: [{ file: "discovery-session", kind: "heuristic" as const }],
+        },
+        createdAt: now,
+      }));
+      for (let offset = 0; offset < graphEntityRows.length; offset += DISCOVERY_IMPORT_GRAPH_BATCH_SIZE) {
+        await tx
+          .insert(graphEntitiesTable)
+          .values(graphEntityRows.slice(offset, offset + DISCOVERY_IMPORT_GRAPH_BATCH_SIZE));
       }
 
-      // 4. Tasks from rule violations (top 20)
-      const availableRules = await tx
-        .select()
-        .from(rulesTable)
-        .where(isNull(rulesTable.projectId));
-
-      for (const violation of result.ruleViolations.slice(0, 20)) {
+      // 4. Tasks from rule violations (top 20). Resolve all plans first and
+      // persist them together so the bounded task set costs one INSERT.
+      const violations = result.ruleViolations.slice(0, 20);
+      const availableRules = violations.length > 0
+        ? await tx.select().from(rulesTable).where(isNull(rulesTable.projectId))
+        : [];
+      const taskRows = violations.map((violation) => {
         const sourcePlan = violation.remediationPlan;
         const rule = availableRules.find(
           (candidate) =>
@@ -576,7 +585,7 @@ router.post("/projects/import", async (req, res) => {
           },
         });
 
-        await tx.insert(tasksTable).values({
+        return {
           id: randomUUID(),
           projectId,
           ruleId: remediationPlan.ruleId ?? undefined,
@@ -584,23 +593,26 @@ router.post("/projects/import", async (req, res) => {
           description:
             remediationPlan.fixDescription ??
             `${remediationPlan.occurrenceCount} occurrence(s) detected for ${remediationPlan.ruleCode}. Review the bounded evidence before execution.`,
-          status: "pending",
+          status: "pending" as const,
           priority:
             remediationPlan.severity === "critical"
-              ? "p0"
+              ? "p0" as const
               : remediationPlan.severity === "high"
-              ? "p1"
+              ? "p1" as const
               : remediationPlan.severity === "medium"
-              ? "p2"
-              : "p3",
+              ? "p2" as const
+              : "p3" as const,
           relatedFiles: remediationPlan.relatedFiles,
           prompt: buildRemediationPrompt(remediationPlan),
-          phase: "remediation",
+          phase: "remediation" as const,
           remediationPlan,
           correlationId: remediationPlan.source.correlationId ?? body.discoveryId,
           createdAt: now,
           updatedAt: now,
-        });
+        };
+      });
+      if (taskRows.length > 0) {
+        await tx.insert(tasksTable).values(taskRows);
       }
 
       // 5. ProjectImported event
