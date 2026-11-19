@@ -346,6 +346,9 @@ export default function Dashboard() {
   const goalProjectMatch = !projectsQuery.isLoading && !projectsQuery.isError
     ? matchGoalToProject(goalDraft, projects)
     : null;
+  const directGoalProject = !showGoalDestinationPrompt && goalProjectMatch?.kind === 'unique'
+    ? goalProjectMatch.project
+    : null;
   const dashboardQuery = useGetDashboard();
   const { data: rawDashboard, isLoading, error, refetch, isRefetching, dataUpdatedAt } = dashboardQuery;
   const dashboard = useMonotonicData(rawDashboard, rawDashboard?.freshnessRevision);
@@ -427,6 +430,10 @@ export default function Dashboard() {
     const normalizedGoal = goalDraft.trim();
     if (!normalizedGoal) return;
     setGoalHandoffError('');
+    if (goalProjectMatch?.kind === 'unique') {
+      handoffGoal('project', goalProjectMatch.project.id);
+      return;
+    }
     setSelectedGoalProjectId('');
     setShowGoalDestinationPrompt(true);
   }
@@ -536,7 +543,7 @@ export default function Dashboard() {
           className="mt-5 min-h-28 resize-y border-border/80 bg-background/80 text-sm leading-6"
         />
         <p className="mt-3 text-xs leading-5 text-muted-foreground">
-          إذا ذُكر مشروع واحد بوضوح سنقترحه داخل المساعد؛ لن يُستخدم نطاقه قبل تأكيدك.
+          إذا طابق الهدف مشروعًا واحدًا بوضوح، سيظهر اسمه على زر المتابعة. ينقل الزر النص كمسودة فقط؛ لا يُرسل الهدف ولا يوافق على تغييرات.
         </p>
         {showGoalDestinationPrompt && (
           <div
@@ -673,11 +680,19 @@ export default function Dashboard() {
           <Button
             type="button"
             data-testid="button-start-goal"
-            disabled={!goalDraft.trim()}
+            aria-label={directGoalProject ? `متابعة إلى مشروع ${directGoalProject.name}` : undefined}
+            disabled={!goalDraft.trim() || showGoalDestinationPrompt}
             onClick={continueWithGoal}
             className="w-full gap-2 sm:w-auto"
           >
-            متابعة
+            {directGoalProject ? (
+              <span className="inline-flex min-w-0 items-center gap-1">
+                <span>متابعة إلى</span>
+                <bdi dir="auto" className="max-w-[12rem] truncate">{directGoalProject.name}</bdi>
+              </span>
+            ) : (
+              'متابعة'
+            )}
             <ArrowLeft aria-hidden="true" className="h-4 w-4" />
           </Button>
         </div>

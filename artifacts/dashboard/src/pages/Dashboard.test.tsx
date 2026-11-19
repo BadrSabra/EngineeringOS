@@ -134,7 +134,7 @@ describe("Dashboard goal-first home", () => {
     expect(mockSetLocation).not.toHaveBeenCalled();
   });
 
-  it("shows a unique project suggestion and requires an explicit scope choice before handoff", () => {
+  it("uses one clearly named action for a unique project match without sending the draft", () => {
     vi.mocked(useListOperatorAlerts).mockReturnValue({
       data: { alerts: [] },
       isLoading: false,
@@ -148,12 +148,12 @@ describe("Dashboard goal-first home", () => {
     fireEvent.change(screen.getByTestId("input-home-goal"), {
       target: { value: "ساعدني أفهم سبب بطء صفحة تسجيل الدخول في مشروع بوابة العملاء" },
     });
-    fireEvent.click(screen.getByTestId("button-start-goal"));
-
+    const continueButton = screen.getByTestId("button-start-goal");
+    expect(continueButton).toHaveAccessibleName("متابعة إلى مشروع بوابة العملاء");
+    expect(screen.queryByTestId("panel-goal-destination")).not.toBeInTheDocument();
     expect(mockSetLocation).not.toHaveBeenCalled();
-    expect(screen.getByTestId("text-goal-project-suggestion")).toHaveTextContent("بوابة العملاء");
     expect(readGoalDrafts("user-1").drafts).toHaveLength(0);
-    fireEvent.click(screen.getByTestId("button-route-goal-suggested-project"));
+    fireEvent.click(continueButton);
 
     const [draft] = readGoalDrafts('user-1').drafts;
     expect(draft.text).toBe("ساعدني أفهم سبب بطء صفحة تسجيل الدخول في مشروع بوابة العملاء");
