@@ -41,6 +41,12 @@ function createUuid(): string {
   return crypto.randomUUID();
 }
 
+const GENERAL_CHAT_STARTERS = [
+  { id: 'explain', label: 'شرح فكرة', prompt: 'اشرح لي هذه الفكرة بلغة بسيطة: ' },
+  { id: 'compare', label: 'مقارنة خيارين', prompt: 'قارن بين هذين الخيارين وساعدني على فهم الفرق: ' },
+  { id: 'clarify-goal', label: 'توضيح ما أريد', prompt: 'ساعدني على توضيح ما أريد إنجازه: ' },
+] as const;
+
 export default function GeneralChat() {
   const { user, isLoaded } = useUser();
   const locationSearch = useSearch();
@@ -90,6 +96,7 @@ function GeneralChatSession({
   const [pendingDraftStorageError, setPendingDraftStorageError] = useState('');
   const [scopeDraftRestored, setScopeDraftRestored] = useState(false);
   const [scopeDraftStorageError, setScopeDraftStorageError] = useState('');
+  const composerRef = useRef<HTMLTextAreaElement>(null);
   const restoredScopeDraftKey = useRef('');
   const createSession = useCreateGeneralChatSession();
   const deleteSession = useDeleteGeneralChatSession();
@@ -383,6 +390,19 @@ function GeneralChatSession({
     setLocation(buildAssistantScopeHref(projectContext));
   };
 
+  const handleStarterPrompt = (prompt: string) => {
+    setDraft(prompt);
+    setScopeDraftRestored(false);
+    setScopeDraftStorageError('');
+
+    const contextId = getAssistantComposerContextId('general', null, activeSessionId);
+    if (user?.id && contextId && !saveAssistantComposerDraft(user.id, 'general', contextId, prompt)) {
+      setScopeDraftStorageError('تعذر حفظ النص غير المرسل لهذه المحادثة؛ انسخه قبل تغيير المساحة.');
+    }
+
+    composerRef.current?.focus();
+  };
+
   return (
     <div className="flex min-h-[calc(100dvh-8rem)] flex-col overflow-hidden rounded-2xl border border-border bg-card/40 lg:min-h-[calc(100dvh-8rem)]">
       <header className="flex flex-wrap items-center justify-between gap-4 border-b border-border px-5 py-4 sm:px-7">
@@ -568,6 +588,24 @@ function GeneralChatSession({
                     <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-2xl border border-border bg-secondary/55 text-primary"><Bot className="h-5 w-5" /></div>
                     <h3 className="mt-4 text-base font-semibold">ابدأ برسالتك الأولى</h3>
                     <p className="mt-1 text-sm leading-relaxed text-muted-foreground">ناقش سؤالًا أو فكرة أو قارن بين خيارات. هذه المحادثة منفصلة عن مساحة المشروع وملفاته وأدواته.</p>
+                    {!draft.trim() && (
+                      <div className="mt-5">
+                        <p className="mb-2 text-xs text-muted-foreground">سيُضاف المثال إلى خانة الكتابة فقط؛ راجعه وعدّله قبل الإرسال.</p>
+                        <div role="group" aria-label="أسئلة مقترحة" className="flex flex-wrap justify-center gap-2">
+                          {GENERAL_CHAT_STARTERS.map((starter) => (
+                            <button
+                              key={starter.id}
+                              type="button"
+                              onClick={() => handleStarterPrompt(starter.prompt)}
+                              data-testid={`button-general-chat-prompt-${starter.id}`}
+                              className="rounded-full border border-border bg-background/70 px-3 py-1.5 text-xs font-medium text-foreground transition-colors hover:border-primary/40 hover:bg-primary/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                            >
+                              {starter.label}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    )}
                   </div>
                 ) : (
                   <div className="mx-auto max-w-3xl space-y-5">
@@ -598,6 +636,7 @@ function GeneralChatSession({
                 <div className="mx-auto max-w-3xl">
                   <div className="flex items-end gap-2 rounded-xl border border-border bg-card p-2 transition focus-within:border-primary/40 focus-within:ring-2 focus-within:ring-primary/10">
                     <textarea
+                      ref={composerRef}
                       value={draft}
                       onChange={(event) => {
                         const nextDraft = event.target.value.slice(0, goalDraftAttached ? 2_000 : 12_000);

@@ -55,6 +55,24 @@ beforeEach(() => {
 });
 
 describe('Arabic conversation feedback boundaries', () => {
+  it('prefills a starter prompt without creating or sending a conversation', () => {
+    renderPage();
+
+    expect(screen.getByRole('group', { name: 'أسئلة مقترحة' })).toBeInTheDocument();
+    fireEvent.click(screen.getByTestId('button-general-chat-prompt-explain'));
+
+    expect(screen.getByTestId('input-general-chat-message')).toHaveValue(
+      'اشرح لي هذه الفكرة بلغة بسيطة: ',
+    );
+    expect(readAssistantComposerDraft('user-1', 'general', 'session-1')).toEqual({
+      ok: true,
+      text: 'اشرح لي هذه الفكرة بلغة بسيطة: ',
+    });
+    expect(mocks.create).not.toHaveBeenCalled();
+    expect(mocks.send).not.toHaveBeenCalled();
+    expect(screen.queryByRole('group', { name: 'أسئلة مقترحة' })).not.toBeInTheDocument();
+  });
+
   it('requires choosing a project from the actual project list', () => {
     renderPage();
     expect(screen.getByTestId('select-scope-project')).toHaveValue('');
