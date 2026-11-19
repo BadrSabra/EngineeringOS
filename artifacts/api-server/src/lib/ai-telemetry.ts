@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { and, desc, eq, gte, isNotNull, isNull, sql } from "drizzle-orm";
+import { and, desc, eq, gte, isNotNull, isNull, lt, sql } from "drizzle-orm";
 import {
   db,
   pool,
@@ -21,7 +21,7 @@ import {
   type ProviderId,
 } from "@workspace/ai-orchestrator";
 import { logger } from "./logger.js";
-import { reconcileAiBudgetReservation } from "./ai-budget.js";
+import { getDatabaseUtcClock, reconcileAiBudgetReservation } from "./ai-budget.js";
 import {
   AI_EXECUTION_CONTRACT_FAILURE_CATEGORIES,
   AI_EXECUTION_DIAGNOSTIC_PROVIDERS,
@@ -509,8 +509,6 @@ export async function recordAiUsageAttempt(
   context: AiTelemetryContext,
   attempt: AiTelemetryAttempt,
 ): Promise<void> {
-  const now = new Date();
-  const expiresAt = new Date(now.getTime() + AI_USAGE_RETENTION_DAYS * 24 * 60 * 60 * 1000);
   const promptTokens = boundedInteger(attempt.promptTokens);
   const completionTokens = boundedInteger(attempt.completionTokens);
   const usageStatus = attempt.usageStatus
@@ -529,6 +527,11 @@ export async function recordAiUsageAttempt(
   const isRateLimitedFailure = attempt.outcome === "failure"
     && classifyProviderFailure({ code: attempt.providerFailureKind ?? undefined }) === "RATE_LIMITED";
   try {
+    const databaseClock = await getDatabaseUtcClock(db);
+    const now = databaseClock.now;
+    const expiresAt = new Date(now.getTime() + AI_USAGE_RETENTION_DAYS * 24 * 60 * 60 * 1000);
+    const dayStart = new Date(databaseClock.day + "T00:00:00.000Z");
+    const dayEnd = new Date(dayStart.getTime() + 86_400_000);
     await db.insert(aiUsageEventsTable).values({
       id: randomUUID(),
       schemaVersion: 1,
@@ -581,13 +584,12 @@ export async function recordAiUsageAttempt(
       completionTokens,
       usageStatus,
     });
-    const dayStart = new Date(now);
-    dayStart.setUTCHours(0, 0, 0, 0);
     const daily = await db.select({ count: sql<number>`count(*)` })
       .from(aiUsageEventsTable)
       .where(and(
         eq(aiUsageEventsTable.userId, context.userId),
         gte(aiUsageEventsTable.occurredAt, dayStart),
+        lt(aiUsageEventsTable.occurredAt, dayEnd),
         isNull(aiUsageEventsTable.modelTaskContract),
       ));
     if (Number(daily[0]?.count ?? 0) >= AI_USAGE_DAILY_ATTEMPT_LIMIT) {
