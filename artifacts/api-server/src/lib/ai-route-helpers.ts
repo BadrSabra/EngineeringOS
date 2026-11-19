@@ -74,6 +74,20 @@ import { resolveAiRetryAfterSource } from "./ai-terminal-outcome.js";
 export type { ProviderId };
 
 /**
+ * A provider without any completed attempt has no measured success rate.
+ * In particular, cancelled-only traffic is unknown, not a healthy sample.
+ */
+export function providerMetricAvailabilityState(metric: {
+  requests: number;
+  successRate: number | null;
+  consecutiveFailures: number;
+}): "unknown" | "degraded" | "healthy" {
+  if (metric.requests === 0 || metric.successRate === null) return "unknown";
+  if (metric.consecutiveFailures > 0 || metric.successRate < 0.8) return "degraded";
+  return "healthy";
+}
+
+/**
  * The request's validated project is the authority for project-budget
  * admission. Telemetry context is optional and must not silently disable or
  * redirect that admission.

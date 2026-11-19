@@ -45,6 +45,39 @@ describe("chat project budget scope", () => {
   });
 });
 
+describe("provider metric availability state", () => {
+  it("keeps missing and cancellation-only samples unknown", () => {
+    expect(providerMetricAvailabilityState({
+      requests: 0,
+      successRate: null,
+      consecutiveFailures: 0,
+    })).toBe("unknown");
+    expect(providerMetricAvailabilityState({
+      requests: 4,
+      successRate: null,
+      consecutiveFailures: 0,
+    })).toBe("unknown");
+  });
+
+  it("marks completed provider samples degraded or healthy from measured outcomes", () => {
+    expect(providerMetricAvailabilityState({
+      requests: 4,
+      successRate: 0.5,
+      consecutiveFailures: 0,
+    })).toBe("degraded");
+    expect(providerMetricAvailabilityState({
+      requests: 4,
+      successRate: 1,
+      consecutiveFailures: 0,
+    })).toBe("healthy");
+    expect(providerMetricAvailabilityState({
+      requests: 4,
+      successRate: 1,
+      consecutiveFailures: 1,
+    })).toBe("degraded");
+  });
+});
+
 describe("requestLooksToolBound", () => {
   it("flags code-analysis style messages as tool-bound", () => {
     expect(requestLooksToolBound("Please analyze the codebase and inspect the file tree")).toBe(true);
