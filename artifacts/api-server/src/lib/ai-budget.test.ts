@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { eq } from "drizzle-orm";
 import {
   aiBudgetReservationsTable,
@@ -13,6 +13,7 @@ import {
   admitAiProviderAttempt,
   defaultAiBudgetInput,
   getAiProjectBudgetSummary,
+  getDatabaseUtcClock,
   reconcileAiBudgetReservation,
 } from "./ai-budget.js";
 import { emitLedgerProviderAttempts } from "./ai-route-helpers.js";
@@ -450,5 +451,36 @@ describe("AI project budget admission", () => {
         admissionTotal: 20,
       },
     });
+  });
+  it("uses one PostgreSQL UTC day for admission even when the API worker clock is skewed", async () => {
+    const projectId = crypto.randomUUID();
+    const ownerId = "budget-database-clock-user";
+    const attemptId = "database-clock-" + projectId;
+    const now = new Date();
+    projectIds.push(projectId);
+    await db.insert(projectsTable).values({ id: projectId, ownerId, name: "ai-budget-clock-" + projectId.slice(0, 8), rootPath: "/tmp/ai-budget-clock-" + projectId, language: "typescript", status: "active", createdAt: now, updatedAt: now });
+    await db.insert(aiProjectBudgetsTable).values({ id: crypto.randomUUID(), schemaVersion: 1, projectId, ownerId, dailyAttemptLimit: 10, dailyTokenLimit: 100_000, warningThreshold: 0.8, resetAt: new Date(now.getTime() + 86_400_000), createdAt: now, updatedAt: now });
+    const databaseClock = await getDatabaseUtcClock(db);
+    const workerClockBeforeSkew = new Date();
+    vi.setSystemTime(new Date(databaseClock.now.getTime() + 48 * 60 * 60 * 1000));
+    try { await admitAiProviderAttempt({ ownerId, projectId, attemptId }); }
+    finally { vi.setSystemTime(workerClockBeforeSkew); }
+    const [reservation] = await db.select({ utcDay: aiBudgetReservationsTable.utcDay }).from(aiBudgetReservationsTable).where(eq(aiBudgetReservationsTable.attemptId, attemptId));
+    expect(reservation?.utcDay).toBe(databaseClock.day);
+  });
+
+  it("excludes usage events outside the selected UTC day from project budget totals", async () => {
+    const projectId = crypto.randomUUID();
+    const ownerId = "budget-day-window-user";
+    const correlationId = "future-budget-event-" + projectId;
+    const now = new Date();
+    projectIds.push(projectId);
+    await db.insert(projectsTable).values({ id: projectId, ownerId, name: "ai-budget-window-" + projectId.slice(0, 8), rootPath: "/tmp/ai-budget-window-" + projectId, language: "typescript", status: "active", createdAt: now, updatedAt: now });
+    const databaseClock = await getDatabaseUtcClock(db);
+    const todayStart = new Date(databaseClock.day + "T00:00:00.000Z");
+    const futureOccurredAt = new Date(todayStart.getTime() + 86_400_000 + 60_000);
+    await db.insert(aiUsageEventsTable).values({ id: crypto.randomUUID(), schemaVersion: 1, projectId, userId: ownerId, correlationId, attemptId: correlationId + ":attempt", provider: "openrouter", model: "fixture/free-model", outcome: "success", promptTokens: 9, completionTokens: 4, usageStatus: "known", occurredAt: futureOccurredAt, expiresAt: new Date(futureOccurredAt.getTime() + 90 * 86_400_000) });
+    const summary = await getAiProjectBudgetSummary({ ownerId, projectId });
+    expect(summary).toMatchObject({ consumedAttempts: 0, reservedAttempts: 0, tokenUsage: { promptTokens: 0, completionTokens: 0, total: 0, status: "known", admissionTotal: 0 } });
   });
 });
