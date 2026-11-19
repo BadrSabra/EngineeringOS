@@ -665,16 +665,22 @@ export function DiscoverProjectWizard({ onClose }: Props) {
       </div>
 
       {/* Source type cards */}
-      <div className="grid grid-cols-2 gap-2.5">
+      <div
+        role="group"
+        aria-label="طرق اختيار مصدر المشروع"
+        data-testid="group-project-source-options"
+        className="grid grid-cols-1 gap-2.5 sm:grid-cols-2"
+      >
         {SOURCE_DEFS.map((src) => {
           const Icon = src.icon;
           const selected = sourceType === src.type;
           return (
             <button
               key={src.type}
-              data-testid={src.type === 'ARCHIVE_UPLOAD' ? 'source-card-ARCHIVE_UPLOAD' : undefined}
+              data-testid={`source-card-${src.type}`}
               type="button"
               disabled={!src.available}
+              aria-pressed={selected}
               onClick={() => { if (src.available) setSourceType(src.type); }}
               className={`relative text-right rounded-xl border p-3.5 flex items-start gap-3 transition-all
                 ${src.available ? 'cursor-pointer' : 'cursor-not-allowed opacity-50'}
