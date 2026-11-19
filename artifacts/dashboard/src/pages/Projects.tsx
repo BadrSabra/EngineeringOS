@@ -447,19 +447,28 @@ function ProjectsForAccountSession({
         {!isLoading && filtered && filtered.length > 0 && (
           <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
             {filtered.map((project) => (
-              <Link
+              <article
                 key={project.id}
-                to={`/projects/${project.id}`}
-                className="bg-card border border-border hover:border-primary/40 rounded-xl p-5 flex flex-col gap-3 transition-all hover:shadow-md hover:shadow-primary/5 group relative overflow-hidden"
+                data-testid={`card-project-${project.id}`}
+                className="bg-card border border-border rounded-xl p-5 flex flex-col gap-3 group relative overflow-hidden"
               >
-                <div className="absolute top-0 left-0 w-0.5 h-full bg-primary/0 group-hover:bg-primary/60 transition-all" />
+                <div className="absolute top-0 left-0 w-0.5 h-full bg-primary/40 transition-all" aria-hidden="true" />
                 <div className="flex items-start justify-between gap-2">
                   <div className="flex items-center gap-2.5 min-w-0">
                     <div className="w-8 h-8 rounded-lg bg-primary/10 flex items-center justify-center shrink-0">
                       <FolderGit2 className="w-4 h-4 text-primary" />
                     </div>
                     <div className="min-w-0">
-                      <div className="font-semibold truncate">{project.name}</div>
+                      <div className="font-semibold truncate">
+                        <Link
+                          to={`/projects/${encodeURIComponent(project.id)}`}
+                          data-testid={`link-project-details-${project.id}`}
+                          aria-label={`تفاصيل مشروع ${project.name}`}
+                          className="rounded-sm outline-none transition-colors hover:text-primary focus-visible:ring-2 focus-visible:ring-primary"
+                        >
+                          {project.name}
+                        </Link>
+                      </div>
                       <div className="text-xs text-muted-foreground mt-0.5 flex items-center gap-1.5">
                         {project.language && (
                           <span className="font-mono bg-secondary/80 px-1.5 py-0.5 rounded text-[10px]">
@@ -493,43 +502,56 @@ function ProjectsForAccountSession({
                   {project.rootPath}
                 </div>
 
-                <div className="mt-auto grid grid-cols-2 gap-3 pt-3 border-t border-border/50">
-                  <div>
-                    <div className="text-xs text-muted-foreground uppercase tracking-wider mb-1 flex items-center gap-1">
-                      <ShieldCheck className="w-3 h-3" /> Quality
+                <div className="mt-auto flex flex-wrap items-end justify-between gap-3 pt-3 border-t border-border/50">
+                  <div className="grid min-w-0 flex-1 grid-cols-2 gap-3">
+                    <div>
+                      <div className="text-xs text-muted-foreground uppercase tracking-wider mb-1 flex items-center gap-1">
+                        <ShieldCheck className="w-3 h-3" /> Quality
+                      </div>
+                      <div className="font-mono font-bold text-lg flex items-baseline gap-1">
+                        <span
+                          className={
+                            project.qualityScore && project.qualityScore >= 80
+                              ? 'text-emerald-500'
+                              : project.qualityScore && project.qualityScore >= 60
+                              ? 'text-yellow-500'
+                              : 'text-destructive'
+                          }
+                        >
+                          {project.qualityScore ?? '--'}
+                        </span>
+                        <span className="text-xs text-muted-foreground font-sans font-normal">/ 100</span>
+                      </div>
                     </div>
-                    <div className="font-mono font-bold text-lg flex items-baseline gap-1">
-                      <span
-                        className={
-                          project.qualityScore && project.qualityScore >= 80
-                            ? 'text-emerald-500'
-                            : project.qualityScore && project.qualityScore >= 60
-                            ? 'text-yellow-500'
-                            : 'text-destructive'
-                        }
-                      >
-                        {project.qualityScore ?? '--'}
-                      </span>
-                      <span className="text-xs text-muted-foreground font-sans font-normal">/ 100</span>
+                    <div>
+                      <div className="text-xs text-muted-foreground uppercase tracking-wider mb-1">
+                        Last Scan
+                      </div>
+                      <div className="text-sm font-medium">
+                        {project.lastScanAt
+                          ? new Date(project.lastScanAt).toLocaleDateString(undefined, {
+                              month: 'short',
+                              day: 'numeric',
+                              hour: '2-digit',
+                              minute: '2-digit',
+                            })
+                          : 'Never'}
+                      </div>
                     </div>
                   </div>
-                  <div>
-                    <div className="text-xs text-muted-foreground uppercase tracking-wider mb-1">
-                      Last Scan
-                    </div>
-                    <div className="text-sm font-medium">
-                      {project.lastScanAt
-                        ? new Date(project.lastScanAt).toLocaleDateString(undefined, {
-                            month: 'short',
-                            day: 'numeric',
-                            hour: '2-digit',
-                            minute: '2-digit',
-                          })
-                        : 'Never'}
-                    </div>
+                  <div className="flex w-full items-center justify-between gap-3 sm:w-auto sm:justify-end">
+                    <Link
+                      to={`/projects/${encodeURIComponent(project.id)}/workspace`}
+                      data-testid={`link-project-workspace-${project.id}`}
+                      aria-label={`افتح مساحة العمل لمشروع ${project.name}`}
+                      className="inline-flex items-center gap-2 rounded-md bg-primary px-3 py-2 text-xs font-semibold text-primary-foreground transition-colors hover:bg-primary/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2"
+                    >
+                      مساحة العمل
+                      <ArrowRight className="h-3.5 w-3.5 rotate-180" aria-hidden="true" />
+                    </Link>
                   </div>
                 </div>
-              </Link>
+              </article>
             ))}
           </div>
         )}
