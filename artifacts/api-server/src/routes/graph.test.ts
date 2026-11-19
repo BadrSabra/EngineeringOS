@@ -1512,3 +1512,68 @@ describe("GET /api/graph/path — KG-05 depthLimit metadata", () => {
     expect(res.body.meta.depthLimit).toBe(8);
   });
 });
+
+
+// ─── Relationship list semantic-tag dispatch ──────────────────────────────────
+
+describe("GET /api/graph/relationships — semanticTag filter", () => {
+  const cleanupQueue: string[] = [];
+
+  afterEach(async () => {
+    while (cleanupQueue.length > 0) {
+      const id = cleanupQueue.pop();
+      if (id) await cleanupProject(id);
+    }
+  });
+
+  it("applies semanticTag before returning relationship rows", async () => {
+    const projectId = await insertProject();
+    cleanupQueue.push(projectId);
+
+    const sourceId = randomUUID();
+    const matchingTargetId = randomUUID();
+    const otherTargetId = randomUUID();
+    const matchingRelationshipId = randomUUID();
+    const otherRelationshipId = randomUUID();
+    const now = new Date();
+
+    await db.insert(graphEntitiesTable).values([
+      { id: sourceId, projectId, type: "module", name: "source.ts", createdAt: now },
+      { id: matchingTargetId, projectId, type: "module", name: "billing.ts", createdAt: now },
+      { id: otherTargetId, projectId, type: "module", name: "identity.ts", createdAt: now },
+    ]);
+
+    await db.insert(graphRelationshipsTable).values([
+      {
+        id: matchingRelationshipId,
+        projectId,
+        sourceId,
+        targetId: matchingTargetId,
+        relation: "imports",
+        relationType: "imports",
+        semanticTags: ["domain:billing"],
+        createdAt: now,
+      },
+      {
+        id: otherRelationshipId,
+        projectId,
+        sourceId,
+        targetId: otherTargetId,
+        relation: "imports",
+        relationType: "imports",
+        semanticTags: ["domain:identity"],
+        createdAt: now,
+      },
+    ]);
+
+    const res = await request(app)
+      .get("/api/graph/relationships")
+      .query({ projectId, semanticTag: "domain:billing" });
+
+    expect(res.status).toBe(200);
+    expect(res.body.items.map((item: { id: string }) => item.id)).toEqual([
+      matchingRelationshipId,
+    ]);
+    expect(res.body.meta.total).toBe(1);
+  });
+});
