@@ -186,18 +186,37 @@ describe("browser validation profiles — ownership and safety", () => {
       .send({ steps: browserProfileSteps, timeoutMs: 60001 })).status).toBe(400);
   });
 
-  it("caps profiles without preventing replacement of an existing profile", async () => {
+  it("enforces the profile cap across concurrent creates and still permits replacement", async () => {
     const projectId = await insertProject("/tmp/browser-profile-cap-" + randomUUID());
     cleanupQueue.push(projectId);
-    for (let i = 0; i < 32; i++) {
+    for (let i = 0; i < 31; i++) {
       const result = await request(app)
-        .put(`/api/projects/${projectId}/browser-validation-profiles/p${i}`)
+        .put("/api/projects/" + projectId + "/browser-validation-profiles/p" + i)
         .send({ steps: [{ type: "assert_visible", selector: "body" }] });
       expect(result.status).toBe(200);
     }
-    expect((await request(app).put(`/api/projects/${projectId}/browser-validation-profiles/overflow`)
+
+    // Both requests race for the final slot. Exactly one may create a new
+    // profile; the second must observe the committed row after taking the lock.
+    const raced = await Promise.all([
+      request(app)
+        .put("/api/projects/" + projectId + "/browser-validation-profiles/p31")
+        .send({ steps: [{ type: "assert_visible", selector: "body" }] }),
+      request(app)
+        .put("/api/projects/" + projectId + "/browser-validation-profiles/p32")
+        .send({ steps: [{ type: "assert_visible", selector: "body" }] }),
+    ]);
+    expect(raced.map((response) => response.status).sort()).toEqual([200, 400]);
+
+    const savedProfiles = await db
+      .select({ name: browserValidationProfilesTable.name })
+      .from(browserValidationProfilesTable)
+      .where(eq(browserValidationProfilesTable.projectId, projectId));
+    expect(savedProfiles).toHaveLength(32);
+
+    expect((await request(app).put("/api/projects/" + projectId + "/browser-validation-profiles/overflow")
       .send({ steps: [{ type: "assert_visible", selector: "body" }] })).status).toBe(400);
-    expect((await request(app).put(`/api/projects/${projectId}/browser-validation-profiles/p0`)
+    expect((await request(app).put("/api/projects/" + projectId + "/browser-validation-profiles/p0")
       .send({ steps: [{ type: "read_visible_text" }] })).status).toBe(200);
   });
 });

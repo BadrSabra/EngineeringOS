@@ -175,24 +175,67 @@ router.put("/projects/:projectId/browser-validation-profiles/:name", requireProj
       reason: "validation_error",
     });
   }
-  const existing = await db.select({ name: browserValidationProfilesTable.name })
-    .from(browserValidationProfilesTable)
-    .where(eq(browserValidationProfilesTable.projectId, project.id));
-  const replacing = existing.some((row) => row.name === body.name);
-  if (existing.length >= BROWSER_PROFILE_LIMITS.maxProfiles && !replacing) {
+
+  // Serialize the cap check and upsert on the project row. Without this lock,
+  // concurrent creates with different names can both observe the same free slot.
+  const saveResult = await db.transaction(async (tx) => {
+    const [lockedProject] = await tx
+      .select({
+        id: projectsTable.id,
+        updatedAt: projectsTable.updatedAt,
+      })
+      .from(projectsTable)
+      .where(eq(projectsTable.id, project.id))
+      .for("update")
+      .limit(1);
+    if (!lockedProject) return { kind: "missing" as const };
+
+    const existing = await tx
+      .select({ name: browserValidationProfilesTable.name })
+      .from(browserValidationProfilesTable)
+      .where(eq(browserValidationProfilesTable.projectId, lockedProject.id));
+    const replacing = existing.some((row) => row.name === body.name);
+    if (existing.length >= BROWSER_PROFILE_LIMITS.maxProfiles && !replacing) {
+      return { kind: "limit" as const };
+    }
+
+    const currentRevision = lockedProject.updatedAt.toISOString();
+    const now = new Date();
+    const [saved] = await tx
+      .insert(browserValidationProfilesTable)
+      .values({
+        id: randomUUID(),
+        projectId: lockedProject.id,
+        ...profile,
+        revision: currentRevision,
+        createdAt: now,
+        updatedAt: now,
+      })
+      .onConflictDoUpdate({
+        target: [browserValidationProfilesTable.projectId, browserValidationProfilesTable.name],
+        set: {
+          revision: currentRevision,
+          permittedOrigin: profile.permittedOrigin,
+          steps: profile.steps,
+          timeoutMs: profile.timeoutMs,
+          updatedAt: now,
+        },
+      })
+      .returning();
+    if (!saved) throw new Error("Browser validation profile could not be saved.");
+    return { kind: "saved" as const, profile: saved, currentRevision };
+  });
+
+  if (saveResult.kind === "limit") {
     return res.status(400).json({
       error: `A project may have at most ${BROWSER_PROFILE_LIMITS.maxProfiles} browser validation profiles.`,
       reason: "browser_profile_limit",
     });
   }
-  const now = new Date();
-  const [saved] = await db.insert(browserValidationProfilesTable).values({
-    id: randomUUID(), projectId: project.id, ...profile, createdAt: now, updatedAt: now,
-  }).onConflictDoUpdate({
-    target: [browserValidationProfilesTable.projectId, browserValidationProfilesTable.name],
-    set: { revision: profile.revision, permittedOrigin: profile.permittedOrigin, steps: profile.steps, timeoutMs: profile.timeoutMs, updatedAt: now },
-  }).returning();
-  return res.json(publicBrowserProfile(saved, project.updatedAt.toISOString()));
+  if (saveResult.kind === "missing") {
+    return res.status(404).json({ error: "Project not found" });
+  }
+  return res.json(publicBrowserProfile(saveResult.profile, saveResult.currentRevision));
 });
 
 router.delete("/projects/:projectId/browser-validation-profiles/:name", requireProjectWriteAccess, async (req, res) => {
