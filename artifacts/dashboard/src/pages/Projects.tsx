@@ -28,7 +28,6 @@ import {
 } from 'lucide-react';
 import { Link } from 'wouter';
 import { DiscoverProjectWizard } from './DiscoverProjectWizard';
-import { newestUpdatedAt, useMonotonicData } from '@/lib/freshness';
 import { readGoalDrafts, storeGoalDraft, updateGoalDraft } from '@/lib/home-goal-handoff';
 
 // Display-only labels; the server status values are never changed.
@@ -89,7 +88,9 @@ function ProjectsForAccountSession({
       retry: (failureCount, err) => isRetryableProjectError(err, failureCount),
     },
   });
-  const projects = useMonotonicData(rawProjects, newestUpdatedAt(rawProjects));
+  // A list is a collection snapshot: per-project timestamps cannot represent deletion.
+  // Accept the newest query result, including an authoritative empty collection.
+  const projects = rawProjects;
   const [showDiscover, setShowDiscover] = useState(false);
   const [showCreate, setShowCreate] = useState(Boolean(incomingDraft));
   const [search, setSearch] = useState('');

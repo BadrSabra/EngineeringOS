@@ -247,4 +247,31 @@ describe("Projects", () => {
     expect(readGoalDrafts('user-1').drafts[0].bootstrap?.operationId).toBe('late-operation');
     expect(readGoalDrafts('user-1').drafts[0].projectId).toBeNull();
   });
+
+  it('replaces a populated project list with an authoritative empty snapshot', () => {
+    vi.mocked(useListProjects).mockReturnValue({
+      data: mockProjects.map((project, index) => ({
+        ...project,
+        updatedAt: `2026-11-19T00:0${index}:00.000Z`,
+      })),
+      isLoading: false,
+      isError: false,
+      error: null,
+    } as ReturnType<typeof useListProjects>);
+
+    const view = render(<Projects />);
+    expect(screen.getByText('alpha-service')).toBeInTheDocument();
+
+    vi.mocked(useListProjects).mockReturnValue({
+      data: [],
+      isLoading: false,
+      isError: false,
+      error: null,
+    } as ReturnType<typeof useListProjects>);
+    view.rerender(<Projects />);
+
+    expect(screen.queryByText('alpha-service')).not.toBeInTheDocument();
+    expect(screen.getByRole('status')).toHaveTextContent('لا توجد مشاريع بعد');
+  });
+
 });
