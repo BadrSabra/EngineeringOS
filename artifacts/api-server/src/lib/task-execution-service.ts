@@ -67,7 +67,10 @@ import {
 } from "./ai-route-helpers.js";
 import type { ProviderId } from "./ai-route-helpers.js";
 import { logger } from "./logger.js";
-import { getTaskDependencyBlockers } from "./task-dependencies.js";
+import {
+  getTaskDependencyBlockers,
+  type TaskDependencyBlocker,
+} from "./task-dependencies.js";
 import { TASK_AUTO_EXECUTION_DEFERRED_EVENT_TYPE, taskAutoExecutionIntentId } from "./task-auto-execution-outbox.js";
 import { dispatchPendingTaskObservationOutbox } from "./task-observation-outbox.js";
 import { taskTransitionConflict, type TaskStatus } from "./task-state.js";
@@ -180,6 +183,7 @@ export type TaskExecutionOutcome = {
   executionId?: string;
   errorCode?: string;
   retryAfterMs?: number;
+  blockedDependencies?: TaskDependencyBlocker[];
   parseCode?: string;
   error?: unknown;
 };
@@ -4579,7 +4583,12 @@ export async function executeTaskLifecycle(params: {
         claimedExecution: NonNullable<Awaited<ReturnType<typeof claimAiExecution>>>;
         correlationId: string;
       }
-    | { kind: "conflict"; errorCode: string; retryAfterMs?: number };
+    | {
+        kind: "conflict";
+        errorCode: string;
+        retryAfterMs?: number;
+        blockedDependencies?: TaskDependencyBlocker[];
+      };
   try {
     claim = await db.transaction(async (tx) => {
       if (missionGoal) {
@@ -4622,6 +4631,7 @@ export async function executeTaskLifecycle(params: {
         return {
           kind: "conflict" as const,
           errorCode: "task_dependencies_not_completed",
+          blockedDependencies: dependencyBlockers,
         };
       }
 
@@ -4858,6 +4868,9 @@ export async function executeTaskLifecycle(params: {
       status: "conflict",
       errorCode: claim.errorCode,
       ...(claim.retryAfterMs !== undefined ? { retryAfterMs: claim.retryAfterMs } : {}),
+      ...(claim.blockedDependencies
+        ? { blockedDependencies: claim.blockedDependencies }
+        : {}),
     };
   }
   const { durable, claimedExecution, correlationId } = claim;
