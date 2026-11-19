@@ -311,9 +311,10 @@ function groupMessages(messages: RawMessage[]): MessageGroup[] {
  * Remove structurally invalid messages before sending to strict
  * OpenAI-compatible providers. A provider may return an empty assistant turn
  * after a tool loop; replaying that turn during synthesis/recovery produces a
- * 400 even when the context is below the trimming limit. Tool results are
- * retained only when they belong to the immediately preceding assistant
- * tool-call turn.
+ * 400 even when the context is below the trimming limit. Tool-call turns are
+ * buffered and emitted only after every declared call has one matching result.
+ * Incomplete turns and orphaned, duplicate, or unbound tool results are
+ * discarded rather than forwarded as malformed provider history.
  */
 function sanitizeOutboundMessages(messages: RawMessage[]): RawMessage[] {
   const sanitized: RawMessage[] = [];
