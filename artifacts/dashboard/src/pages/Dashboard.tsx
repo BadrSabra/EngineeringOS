@@ -32,6 +32,11 @@ import { RefreshButton, RequestError } from '@/components/OperatorResilience';
 import DashboardWorkSummary from '@/components/DashboardWorkSummary';
 import { useMonotonicData } from '@/lib/freshness';
 import { HOME_GOAL_MAX_LENGTH, storeHomeGoalDraft } from '@/lib/home-goal-handoff';
+import {
+  clearHomeGoalComposer,
+  readHomeGoalComposer,
+  saveHomeGoalComposer,
+} from '@/lib/home-goal-composer';
 import { matchGoalToProject } from '@/lib/goal-project-routing';
 
 function formatHealthTimestamp(value: Date | string | null | undefined): string {
@@ -334,8 +339,13 @@ function OperatorAlertsCard() {
 
 export default function Dashboard() {
   const { user } = useUser();
+  return <DashboardForUser key={user?.id ?? 'signed-out'} ownerId={user?.id ?? null} />;
+}
+
+function DashboardForUser({ ownerId }: { ownerId: string | null }) {
   const [, setLocation] = useLocation();
-  const [goalDraft, setGoalDraft] = useState('');
+  const [goalComposer, setGoalComposer] = useState(() => readHomeGoalComposer(ownerId));
+  const goalDraft = goalComposer.text;
   const [goalHandoffError, setGoalHandoffError] = useState('');
   const [showGoalDestinationPrompt, setShowGoalDestinationPrompt] = useState(false);
   const [selectedGoalProjectId, setSelectedGoalProjectId] = useState('');
@@ -402,14 +412,16 @@ export default function Dashboard() {
       }
     }
 
-    const savedDraft = user?.id
-      ? storeHomeGoalDraft(normalizedGoal, user.id, destination === 'project' ? projectId : null)
+    const savedDraft = ownerId
+      ? storeHomeGoalDraft(normalizedGoal, ownerId, destination === 'project' ? projectId : null)
       : null;
     if (!savedDraft) {
       setGoalHandoffError('تعذر نقل المسودة إلى المساعد. احتفظ بنصك وحاول مرة أخرى.');
       return;
     }
 
+    const composerCleared = clearHomeGoalComposer(ownerId);
+    setGoalComposer({ text: '', status: composerCleared ? null : 'error' });
     setGoalHandoffError('');
     setShowGoalDestinationPrompt(false);
     if (destination === 'general') {
@@ -441,6 +453,13 @@ export default function Dashboard() {
 
   function continueToGeneral() {
     handoffGoal('general');
+  }
+
+  function updateGoalDraft(text: string) {
+    setGoalComposer({ text, status: saveHomeGoalComposer(ownerId, text) });
+    setSelectedGoalProjectId('');
+    setShowGoalDestinationPrompt(false);
+    if (goalHandoffError) setGoalHandoffError('');
   }
 
   return (
@@ -503,10 +522,9 @@ export default function Dashboard() {
                   variant="outline"
                   data-testid={`button-home-goal-example-${example.id}`}
                   onClick={() => {
-                    setGoalDraft(example.text);
+                    updateGoalDraft(example.text);
                     setSelectedGoalProjectId('');
                     setShowGoalDestinationPrompt(false);
-                    if (goalHandoffError) setGoalHandoffError('');
                   }}
                   className="h-auto min-h-9 whitespace-normal text-start"
                 >
@@ -526,15 +544,20 @@ export default function Dashboard() {
           dir="auto"
           maxLength={HOME_GOAL_MAX_LENGTH}
           value={goalDraft}
-          onChange={(event) => {
-            setGoalDraft(event.target.value);
-            setSelectedGoalProjectId('');
-            setShowGoalDestinationPrompt(false);
-            if (goalHandoffError) setGoalHandoffError('');
-          }}
+          onChange={(event) => updateGoalDraft(event.target.value)}
           placeholder="مثال: ساعدني أفهم سبب بطء صفحة تسجيل الدخول وأقترح حلًا آمنًا."
           className="mt-5 min-h-28 resize-y border-border/80 bg-background/80 text-sm leading-6"
         />
+        {goalComposer.status === 'saved' && (
+          <p role="status" data-testid="status-home-goal-saved" className="mt-2 text-xs text-muted-foreground">
+            حُفظت المسودة مؤقتًا في هذا التبويب، ولن تُرسل تلقائيًا.
+          </p>
+        )}
+        {goalComposer.status === 'error' && (
+          <p role="status" data-testid="status-home-goal-save-error" className="mt-2 text-xs text-destructive">
+            تعذر حفظ المسودة مؤقتًا. انسخ نصك قبل مغادرة الصفحة.
+          </p>
+        )}
         <p className="mt-3 text-xs leading-5 text-muted-foreground">
           إذا ذُكر مشروع واحد بوضوح سنقترحه داخل المساعد؛ لن يُستخدم نطاقه قبل تأكيدك.
         </p>

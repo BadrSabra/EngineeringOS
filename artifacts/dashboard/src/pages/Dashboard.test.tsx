@@ -1,12 +1,17 @@
 import { fireEvent, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import Dashboard from "./Dashboard";
-import { readGoalDrafts } from "../lib/home-goal-handoff";
-vi.mock('@clerk/react', () => ({ useUser: () => ({ user: { id: 'user-1' } }) }));
+import { readGoalDrafts, storeHomeGoalDraft } from "../lib/home-goal-handoff";
+import { readHomeGoalComposer, saveHomeGoalComposer } from "../lib/home-goal-composer";
 
-const { mockSetLocation } = vi.hoisted(() => ({
+const { mockSetLocation, mockIdentity } = vi.hoisted(() => ({
   mockSetLocation: vi.fn(),
+  mockIdentity: { userId: 'user-1' },
+}));
+
+vi.mock('@clerk/react', () => ({
+  useUser: () => ({ user: mockIdentity.userId ? { id: mockIdentity.userId } : null }),
 }));
 
 vi.mock("wouter", () => ({
@@ -71,6 +76,7 @@ const dashboard = {
 beforeEach(() => {
   vi.clearAllMocks();
   mockSetLocation.mockReset();
+  mockIdentity.userId = 'user-1';
   window.sessionStorage.clear();
   vi.mocked(useGetDashboard).mockReturnValue({
     data: dashboard,
@@ -115,6 +121,10 @@ beforeEach(() => {
   } as ReturnType<typeof useListProjects>);
 });
 
+afterEach(() => {
+  vi.restoreAllMocks();
+});
+
 describe("Dashboard goal-first home", () => {
   it("copies an editable goal example without submitting or choosing a project", () => {
     render(<Dashboard />);
@@ -131,6 +141,96 @@ describe("Dashboard goal-first home", () => {
 
     fireEvent.click(screen.getByTestId("button-start-goal"));
     expect(screen.getByTestId("panel-goal-destination")).toBeInTheDocument();
+    expect(mockSetLocation).not.toHaveBeenCalled();
+  });
+
+  it("restores an unfinished goal after revisiting without choosing scope or sending it", () => {
+    const text = "أريد فهم سبب بطء مشروعي قبل اقتراح أي تعديل";
+    saveHomeGoalComposer("user-1", text);
+
+    const firstView = render(<Dashboard />);
+    expect(screen.getByTestId("input-home-goal")).toHaveValue(text);
+    expect(screen.getByTestId("status-home-goal-saved")).toHaveTextContent("لن تُرسل تلقائيًا");
+    expect(readGoalDrafts("user-1").drafts).toHaveLength(0);
+    expect(mockSetLocation).not.toHaveBeenCalled();
+
+    firstView.unmount();
+    render(<Dashboard />);
+
+    expect(screen.getByTestId("input-home-goal")).toHaveValue(text);
+    expect(mockSetLocation).not.toHaveBeenCalled();
+  });
+
+  it("reloads the matching draft instead of exposing another account's text", () => {
+    saveHomeGoalComposer("user-1", "مسودة الحساب الأول");
+    saveHomeGoalComposer("user-2", "مسودة الحساب الثاني");
+    const view = render(<Dashboard />);
+
+    expect(screen.getByTestId("input-home-goal")).toHaveValue("مسودة الحساب الأول");
+
+    mockIdentity.userId = "user-2";
+    view.rerender(<Dashboard />);
+
+    expect(screen.getByTestId("input-home-goal")).toHaveValue("مسودة الحساب الثاني");
+  });
+
+  it("clears the temporary composer copy only after creating the explicit handoff", () => {
+    const text = "اشرح لي خيارات التخزين المؤقت";
+    saveHomeGoalComposer("user-1", text);
+    render(<Dashboard />);
+
+    fireEvent.click(screen.getByTestId("button-start-goal"));
+    expect(mockSetLocation).not.toHaveBeenCalled();
+    expect(readHomeGoalComposer("user-1").text).toBe(text);
+
+    fireEvent.click(screen.getByTestId("button-route-goal-general"));
+
+    expect(readHomeGoalComposer("user-1")).toEqual({ text: "", status: null });
+    expect(readGoalDrafts("user-1").drafts).toMatchObject([
+      { text, projectId: null, sendAttemptedAt: null },
+    ]);
+    expect(mockSetLocation).toHaveBeenCalled();
+  });
+
+  it("keeps the composer draft when the handoff copy cannot be created", () => {
+    const storedDrafts = [];
+    for (let index = 0; index < 8; index += 1) {
+      storedDrafts.push(storeHomeGoalDraft("user-1", `هدف محفوظ ${index}`));
+    }
+    console.log(
+      "goal storage setup",
+      storedDrafts.map(Boolean),
+      storedDrafts[0],
+      window.sessionStorage.getItem("engineeringos:goal-drafts:v2"),
+      readGoalDrafts("user-1"),
+    );
+    expect(readGoalDrafts("user-1").drafts).toHaveLength(8);
+    const text = "احتفظ بهذا الهدف إذا تعذر نقله";
+    saveHomeGoalComposer("user-1", text);
+    expect(readHomeGoalComposer("user-1")).toEqual({ text, status: "saved" });
+    render(<Dashboard />);
+
+    fireEvent.click(screen.getByTestId("button-start-goal"));
+    fireEvent.click(screen.getByTestId("button-route-goal-general"));
+
+    expect(readGoalDrafts("user-1").drafts).toHaveLength(8);
+    expect(readHomeGoalComposer("user-1")).toEqual({ text, status: "saved" });
+    expect(screen.getByTestId("status-home-goal-error")).toHaveTextContent("تعذر نقل المسودة");
+    expect(mockSetLocation).not.toHaveBeenCalled();
+  });
+
+  it("keeps the goal editable and warns when temporary storage is unavailable", () => {
+    vi.spyOn(Storage.prototype, "setItem").mockImplementation(() => {
+      throw new DOMException("Storage is unavailable", "QuotaExceededError");
+    });
+    render(<Dashboard />);
+
+    fireEvent.change(screen.getByTestId("input-home-goal"), {
+      target: { value: "هذا النص يظل قابلًا للتحرير" },
+    });
+
+    expect(screen.getByTestId("input-home-goal")).toHaveValue("هذا النص يظل قابلًا للتحرير");
+    expect(screen.getByTestId("status-home-goal-save-error")).toHaveTextContent("انسخ نصك");
     expect(mockSetLocation).not.toHaveBeenCalled();
   });
 
