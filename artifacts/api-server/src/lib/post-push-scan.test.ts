@@ -1,5 +1,5 @@
-import { afterEach, describe, expect, it } from "vitest";
-import { and, eq, gt } from "drizzle-orm";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { and, eq, gt, sql } from "drizzle-orm";
 import {
   db,
   eventsTable,
@@ -14,6 +14,16 @@ import { queuePostPushScan } from "./post-push-scan.js";
 
 const projectIds: string[] = [];
 const heldLocks: Array<{ release(): Promise<void> }> = [];
+async function readDatabaseNow(): Promise<Date> {
+  const result = await db.execute(sql`SELECT clock_timestamp() AS now`);
+  const raw = (result.rows[0] as { now?: Date | string } | undefined)?.now;
+  const value = raw instanceof Date ? raw : new Date(String(raw));
+  if (!raw || !Number.isFinite(value.getTime())) {
+    throw new Error("Could not read the PostgreSQL clock");
+  }
+  return value;
+}
+
 
 async function insertProject(status: "active" | "scanning" = "active"): Promise<string> {
   const id = randomUUID();
@@ -68,6 +78,43 @@ describe("post-push scan admission", () => {
       jobId: first.jobId,
       parentCorrelationId: "push-second",
     });
+  });
+
+  it("writes durable scan timestamps using PostgreSQL time despite API clock skew", async () => {
+    const dayMs = 24 * 60 * 60_000;
+
+    for (const clockSkewMs of [dayMs, -dayMs]) {
+      const projectId = await insertProject();
+      const before = await readDatabaseNow();
+
+      vi.useFakeTimers({
+        now: new Date(before.getTime() + clockSkewMs),
+        toFake: ["Date"],
+      });
+      try {
+        const first = await queuePostPushScan(projectId, "clock-skew-push-1");
+        const second = await queuePostPushScan(projectId, "clock-skew-push-2");
+        expect(first).toMatchObject({ coalesced: false });
+        expect(second).toEqual({ jobId: first.jobId, coalesced: true });
+      } finally {
+        vi.useRealTimers();
+      }
+
+      const [job] = await db
+        .select({ createdAt: scanJobsTable.createdAt })
+        .from(scanJobsTable)
+        .where(eq(scanJobsTable.projectId, projectId));
+      const [project] = await db
+        .select({ updatedAt: projectsTable.updatedAt })
+        .from(projectsTable)
+        .where(eq(projectsTable.id, projectId));
+      const after = await readDatabaseNow();
+      if (!job?.createdAt || !project?.updatedAt) {
+        throw new Error("Post-push scan timestamps were not persisted");
+      }
+      expect(Math.abs(job.createdAt.getTime() - after.getTime())).toBeLessThan(5_000);
+      expect(Math.abs(project.updatedAt.getTime() - after.getTime())).toBeLessThan(5_000);
+    }
   });
 
   it("keeps an active scan intact and leaves one queued successor after failure", async () => {

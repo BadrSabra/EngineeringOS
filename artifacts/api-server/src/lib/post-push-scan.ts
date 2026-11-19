@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { and, asc, eq } from "drizzle-orm";
 import { db, eventsTable, projectsTable, scanJobsTable } from "@workspace/db";
 import { LockNamespace, tryAdvisoryLock } from "./advisory-lock.js";
+import { databaseNow } from "./job-lease.js";
 
 export type PostPushScanAdmission = {
   jobId: string;
@@ -40,7 +41,8 @@ export async function queuePostPushScan(
         ))
         .orderBy(asc(scanJobsTable.createdAt), asc(scanJobsTable.id))
         .limit(1);
-      const now = new Date();
+      // Persist scan admission timestamps on the same clock used by recovery workers.
+      const now = databaseNow();
 
       if (queuedJob) {
         await tx
