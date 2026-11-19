@@ -14,6 +14,7 @@ import {
 } from "@workspace/db";
 import { randomUUID } from "crypto";
 import { insertTaskAutoExecutionIntent } from "../lib/task-auto-execution-outbox.js";
+import { executeTaskLifecycle } from "../lib/task-execution-service.js";
 
 // PR-C: hoist mock fn so vi.mock factory can close over it before module eval.
 const { mockScheduleAiTaskExecution } = vi.hoisted(() => ({
@@ -163,6 +164,40 @@ describe("Task lifecycle", () => {
     const allowed = await request(app).post(`/api/tasks/${dependentId}/execute`);
     expect(allowed.status).toBe(202);
     expect(allowed.body.status).toBe("verifying");
+  });
+
+  it("rechecks dependencies in the final execution transaction before creating an AI execution", async () => {
+    const prerequisite = await createTask();
+    const dependent = await request(app).post("/api/tasks").send({
+      projectId: prerequisite.projectId,
+      title: "final-claim-dependent",
+      priority: "p2",
+      dependsOn: [prerequisite.taskId],
+    });
+    expect(dependent.status).toBe(201);
+    const dependentId = dependent.body.id as string;
+
+    const outcome = await executeTaskLifecycle({
+      taskId: dependentId,
+      userId: "test-user",
+      provider: {} as never,
+      trigger: "manual",
+      expectedStatuses: ["pending"],
+    });
+
+    expect(outcome).toMatchObject({
+      ok: false,
+      status: "conflict",
+      errorCode: "task_dependencies_not_completed",
+    });
+    const [task] = await db.select({ status: tasksTable.status })
+      .from(tasksTable)
+      .where(eq(tasksTable.id, dependentId));
+    expect(task?.status).toBe("pending");
+    const executions = await db.select({ id: aiExecutionsTable.id })
+      .from(aiExecutionsTable)
+      .where(eq(aiExecutionsTable.linkedTaskId, dependentId));
+    expect(executions).toHaveLength(0);
   });
 
   it("prevents deletion of a prerequisite that is still referenced by another task", async () => {
