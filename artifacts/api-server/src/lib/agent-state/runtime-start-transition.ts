@@ -162,10 +162,12 @@ export async function createPendingApplyChangesTransition(
       })
       .from(aiExecutionsTable)
       .where(and(
-      eq(aiExecutionsTable.id, input.executionId),
-      eq(aiExecutionsTable.projectId, input.projectId),
-      eq(aiExecutionsTable.attempt, input.attempt),
-    )).for("update").limit(1);
+        eq(aiExecutionsTable.id, input.executionId),
+        eq(aiExecutionsTable.projectId, input.projectId),
+        eq(aiExecutionsTable.attempt, input.attempt),
+      ))
+      .for("update")
+      .limit(1);
     if (!execution || execution.status !== "running"
       || execution.workerId !== input.workerId
       || !execution.leaseActive) {
@@ -889,10 +891,12 @@ export async function createPendingGitHubDeliveryTransition(
       })
       .from(aiExecutionsTable)
       .where(and(
-      eq(aiExecutionsTable.id, input.executionId),
-      eq(aiExecutionsTable.projectId, input.projectId),
-      eq(aiExecutionsTable.attempt, input.attempt),
-    )).for("update").limit(1);
+        eq(aiExecutionsTable.id, input.executionId),
+        eq(aiExecutionsTable.projectId, input.projectId),
+        eq(aiExecutionsTable.attempt, input.attempt),
+      ))
+      .for("update")
+      .limit(1);
     if (
       !execution || execution.status !== "running" || execution.workerId !== input.workerId
       || !execution.leaseActive
@@ -976,10 +980,12 @@ export async function bindGitHubDeliveryTransitionEffect(input: {
       })
       .from(aiExecutionsTable)
       .where(and(
-      eq(aiExecutionsTable.id, input.executionId),
-      eq(aiExecutionsTable.projectId, input.projectId),
-      eq(aiExecutionsTable.attempt, input.attempt),
-    )).for("update").limit(1);
+        eq(aiExecutionsTable.id, input.executionId),
+        eq(aiExecutionsTable.projectId, input.projectId),
+        eq(aiExecutionsTable.attempt, input.attempt),
+      ))
+      .for("update")
+      .limit(1);
     if (
       !execution || execution.status !== "running" || execution.workerId !== input.workerId
       || !execution.leaseActive
@@ -1032,10 +1038,12 @@ export async function terminalizeUnmutatedGitHubDeliveryTransition(input: {
       })
       .from(aiExecutionsTable)
       .where(and(
-      eq(aiExecutionsTable.id, input.executionId),
-      eq(aiExecutionsTable.projectId, input.projectId),
-      eq(aiExecutionsTable.attempt, input.attempt),
-    )).for("update").limit(1);
+        eq(aiExecutionsTable.id, input.executionId),
+        eq(aiExecutionsTable.projectId, input.projectId),
+        eq(aiExecutionsTable.attempt, input.attempt),
+      ))
+      .for("update")
+      .limit(1);
     if (
       !execution || execution.status !== "running" || execution.workerId !== input.workerId
       || !execution.leaseActive
