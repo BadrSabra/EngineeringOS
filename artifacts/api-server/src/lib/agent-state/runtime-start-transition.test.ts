@@ -965,7 +965,7 @@ describe("Agent State transition ownership uses PostgreSQL lease time", () => {
   }
 
   it("accepts a live PostgreSQL lease when the API clock is 24 hours ahead", async () => {
-    const fixture = await transitionFixture();
+    const fixture = await transitionFixture({ accepted: false });
     const bindOperationId = crypto.randomUUID();
     const terminalizeOperationId = crypto.randomUUID();
     const bindTransitionId = await createPendingGitHubDeliveryTransition(
@@ -1018,7 +1018,7 @@ describe("Agent State transition ownership uses PostgreSQL lease time", () => {
   });
 
   it("rejects an expired PostgreSQL lease when the API clock is 24 hours behind", async () => {
-    const fixture = await transitionFixture();
+    const fixture = await transitionFixture({ accepted: false });
     const bindOperationId = crypto.randomUUID();
     const terminalizeOperationId = crypto.randomUUID();
     const bindTransitionId = await createPendingGitHubDeliveryTransition(
