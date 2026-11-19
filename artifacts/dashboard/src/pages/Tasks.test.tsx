@@ -1582,6 +1582,92 @@ describe('Tasks recovery rendering', () => {
   });
 });
 
+describe('Task live log identity', () => {
+  it('renders only SSE log rows owned by the expanded task', () => {
+    let receiveLog: ((event: { data: string }) => void) | undefined;
+    class MockEventSource {
+      addEventListener = vi.fn((eventName: string, listener: (event: { data: string }) => void) => {
+        if (eventName === 'log') receiveLog = listener;
+      });
+      close = vi.fn();
+    }
+
+    vi.stubGlobal('EventSource', MockEventSource);
+    vi.mocked(useListTasks).mockReturnValue({
+      data: [{
+        id: 'task-live',
+        projectId: 'project-1',
+        title: 'Watch live task events',
+        status: 'running',
+        correlationId: 'correlation-live',
+        priority: 'p1',
+        phase: 'execute',
+        createdAt: '2026-08-25T10:00:00.000Z',
+        updatedAt: '2026-08-25T10:01:00.000Z',
+      }],
+      isLoading: false,
+      isError: false,
+      error: null,
+      refetch: vi.fn(),
+      isRefetching: false,
+      dataUpdatedAt: 0,
+    } as ReturnType<typeof useListTasks>);
+    vi.mocked(useGetTaskLogs).mockReturnValue({
+      data: [],
+      isLoading: false,
+      isError: false,
+      error: null,
+      refetch: vi.fn(),
+    } as ReturnType<typeof useGetTaskLogs>);
+    vi.mocked(useGetAiExecution).mockReturnValue({
+      data: undefined,
+      isLoading: false,
+      isFetching: false,
+      isError: false,
+      error: null,
+    } as ReturnType<typeof useGetAiExecution>);
+
+    let rendered: ReturnType<typeof render> | undefined;
+    try {
+      rendered = renderPage();
+      fireEvent.click(screen.getByRole('button', { name: 'عرض تفاصيل المهمة: Watch live task events' }));
+      fireEvent.click(screen.getByRole('button', { name: 'السجل' }));
+      expect(receiveLog).toBeTypeOf('function');
+
+      act(() => receiveLog?.({ data: JSON.stringify({
+        id: 'foreign-task-log',
+        taskId: 'task-foreign',
+        level: 'info',
+        message: 'Foreign task activity must stay hidden.',
+        timestamp: '2026-08-25T10:01:01.000Z',
+        sequence: 50,
+      }) }));
+      act(() => receiveLog?.({ data: JSON.stringify({
+        id: 'missing-owner-log',
+        level: 'info',
+        message: 'Unowned activity must stay hidden.',
+        timestamp: '2026-08-25T10:01:02.000Z',
+        sequence: 51,
+      }) }));
+      expect(screen.queryByText(/Foreign task activity must stay hidden/)).not.toBeInTheDocument();
+      expect(screen.queryByText(/Unowned activity must stay hidden/)).not.toBeInTheDocument();
+
+      act(() => receiveLog?.({ data: JSON.stringify({
+        id: 'current-task-log',
+        taskId: 'task-live',
+        level: 'info',
+        message: 'Current task activity is visible.',
+        timestamp: '2026-08-25T10:01:03.000Z',
+        sequence: 1,
+      }) }));
+      expect(screen.getByText(/Current task activity is visible/)).toBeInTheDocument();
+    } finally {
+      rendered?.unmount();
+      vi.unstubAllGlobals();
+    }
+  });
+});
+
 describe('Task creation', () => {
   it('keeps the Arabic form local until submit and resets cancelled input on reopen', () => {
     renderPage();
