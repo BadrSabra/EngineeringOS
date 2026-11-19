@@ -29,6 +29,7 @@ import {
 import { Link } from 'wouter';
 import { DiscoverProjectWizard } from './DiscoverProjectWizard';
 import { readGoalDrafts, storeGoalDraft, updateGoalDraft } from '@/lib/home-goal-handoff';
+import { matchesProjectSearch } from '@/lib/project-search';
 
 // Display-only labels; the server status values are never changed.
 const bootstrapStatusLabels: Record<string, string> = {
@@ -229,11 +230,7 @@ function ProjectsForAccountSession({
   }, [error]);
 
   const normalizedSearch = search.trim().toLowerCase();
-  const filtered = projects?.filter((project) => {
-    if (!normalizedSearch) return true;
-    return [project.name, project.description, project.language, project.framework]
-      .some((value) => value?.toLowerCase().includes(normalizedSearch));
-  });
+  const filtered = projects?.filter((project) => matchesProjectSearch(project, search));
 
   return (
     <>
@@ -359,8 +356,8 @@ function ProjectsForAccountSession({
                 ref={searchInputRef}
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
-                aria-label="ابحث عن مشروع بالاسم أو الوصف أو التقنية"
-                placeholder="ابحث بالاسم أو الوصف أو التقنية..."
+                aria-label="ابحث عن مشروع بكلمات من الاسم أو الوصف أو التقنية"
+                placeholder="ابحث بكلمة أو أكثر من الاسم أو الوصف أو التقنية..."
                 dir="auto"
                 data-testid="input-project-search"
                 className={`bg-card border border-border rounded-md py-2 text-sm focus:outline-none focus:ring-1 focus:ring-primary w-64 ${
