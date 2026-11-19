@@ -463,7 +463,7 @@ describe("Mission recipe dispatch", () => {
       });
 
     try {
-      expect(await dispatchPendingMissionRecipes()).toBe(1);
+      expect(await dispatchPendingMissionRecipes(32, fixture.projectId)).toBe(1);
       expect(queuedJobs).toHaveLength(1);
       await db.update(aiExecutionsTable).set({
         status: "running",
@@ -509,7 +509,7 @@ describe("Mission recipe dispatch", () => {
       throw new Error("Recipe operation could not acquire its durable lease.");
     });
 
-    expect(await dispatchPendingMissionRecipes()).toBe(1);
+    expect(await dispatchPendingMissionRecipes(32, fixture.projectId)).toBe(1);
     await vi.waitFor(async () => {
       expect(recipeRunner).toHaveBeenCalledOnce();
       const [goal] = await db.select({
