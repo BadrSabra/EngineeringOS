@@ -31,6 +31,13 @@ export const listAiChatMessagesResponseExecutionLedgerOneModelsMax = 16;
 /**
  * @summary Health check
  */
+export const getHealthResponseDatabasePoolActiveClientsMin = 0;
+
+export const getHealthResponseDatabasePoolIdleClientsMin = 0;
+
+export const getHealthResponseDatabasePoolWaitingRequestsMin = 0;
+
+
 export const getHealthResponseJobRecoveryPendingAiTaskDispatchesMin = 0;
 
 export const getHealthResponseJobRecoveryDeferredAiTaskDispatchesMin = 0;
@@ -64,6 +71,12 @@ export const getHealthResponseUnresolvedRuntimeStartOneOldestAgeMsMin = 0;
 
 export const GetHealthResponse = zod.object({
   "status": zod.enum(['ok']),
+  "databasePool": zod.object({
+  "activeClients": zod.number().int().min(getHealthResponseDatabasePoolActiveClientsMin).describe('Checked-out or connecting clients, computed as total minus idle.'),
+  "idleClients": zod.number().int().min(getHealthResponseDatabasePoolIdleClientsMin),
+  "waitingRequests": zod.number().int().min(getHealthResponseDatabasePoolWaitingRequestsMin),
+  "maxClients": zod.number().int().min(1)
+}).optional().describe('Content-free, per-process PostgreSQL pool snapshot. Waiting requests are observational and do not change health liveness or readiness.\n'),
   "jobQueue": zod.object({
   "running": zod.number().int().describe('Number of jobs currently executing'),
   "queued": zod.number().int().describe('Number of jobs waiting for a free concurrency slot'),

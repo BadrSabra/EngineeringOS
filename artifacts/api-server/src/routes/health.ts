@@ -1,5 +1,6 @@
 import { Router, type IRouter, type RequestHandler } from "express";
 import { GetHealthResponse } from "@workspace/api-zod";
+import { getDatabasePoolMetrics, type DatabasePoolMetrics } from "@workspace/db";
 import { heavyJobQueue } from "../lib/job-queue.js";
 import { getOperationalCounters } from "../lib/operational-counters.js";
 import {
@@ -58,45 +59,52 @@ export function createReadinessHandler(
 
 router.get("/readiness", createReadinessHandler());
 
-router.get("/healthz", async (_req, res) => {
-  let durableShadowCampaign = null;
-  let unresolvedRuntimeStart:
-    | Awaited<ReturnType<typeof workspaceRuntime.getUnresolvedStartHealth>>
-    | null = null;
-  try {
-    durableShadowCampaign = await loadLatestAgentEpisodeShadowCampaignScorecard() ?? null;
-  } catch (error) {
-    logger.warn(
-      { scope: "healthz", code: "shadow_campaign_scorecard_unavailable", error },
-      "Shadow campaign scorecard could not be loaded",
-    );
-  }
-  try {
-    unresolvedRuntimeStart = await workspaceRuntime.getUnresolvedStartHealth();
-  } catch (error) {
-    logger.warn(
-      { scope: "healthz", code: "unresolved_runtime_start_health_unavailable", error },
-      "Unresolved runtime start health could not be loaded",
-    );
-  }
-  const data = GetHealthResponse.parse({
-    status: "ok",
-    jobQueue: heavyJobQueue.getStats(),
-    // Surface operational counters so operators can see degraded subsystems
-    // and whether failed audit writes are still awaiting recovery.
-    operationalCounters: {
-      ...getOperationalCounters(),
-      agentEpisodeShadow: {
-        ...getOperationalCounters().agentEpisodeShadow,
-        durableScorecard: durableShadowCampaign,
+export function createHealthHandler(
+  poolMetricsProbe: () => DatabasePoolMetrics = getDatabasePoolMetrics,
+): RequestHandler {
+  return async (_req, res) => {
+    let durableShadowCampaign = null;
+    let unresolvedRuntimeStart:
+      | Awaited<ReturnType<typeof workspaceRuntime.getUnresolvedStartHealth>>
+      | null = null;
+    try {
+      durableShadowCampaign = await loadLatestAgentEpisodeShadowCampaignScorecard() ?? null;
+    } catch (error) {
+      logger.warn(
+        { scope: "healthz", code: "shadow_campaign_scorecard_unavailable", error },
+        "Shadow campaign scorecard could not be loaded",
+      );
+    }
+    try {
+      unresolvedRuntimeStart = await workspaceRuntime.getUnresolvedStartHealth();
+    } catch (error) {
+      logger.warn(
+        { scope: "healthz", code: "unresolved_runtime_start_health_unavailable", error },
+        "Unresolved runtime start health could not be loaded",
+      );
+    }
+    const data = GetHealthResponse.parse({
+      status: "ok",
+      databasePool: poolMetricsProbe(),
+      jobQueue: heavyJobQueue.getStats(),
+      // Surface operational counters so operators can see degraded subsystems
+      // and whether failed audit writes are still awaiting recovery.
+      operationalCounters: {
+        ...getOperationalCounters(),
+        agentEpisodeShadow: {
+          ...getOperationalCounters().agentEpisodeShadow,
+          durableScorecard: durableShadowCampaign,
+        },
       },
-    },
-    aiDiagnosticsRetention: getAiDiagnosticsRetentionHealth(),
-    taskExecutionRetention: getTaskExecutionRetentionHealth(),
-    jobRecovery: await getDurableJobHealth(),
-    unresolvedRuntimeStart,
-  });
-  res.json(data);
-});
+      aiDiagnosticsRetention: getAiDiagnosticsRetentionHealth(),
+      taskExecutionRetention: getTaskExecutionRetentionHealth(),
+      jobRecovery: await getDurableJobHealth(),
+      unresolvedRuntimeStart,
+    });
+    res.json(data);
+  };
+}
+
+router.get("/healthz", createHealthHandler());
 
 export default router;

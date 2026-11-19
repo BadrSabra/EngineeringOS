@@ -14,6 +14,31 @@ export type DatabasePoolErrorReporter = (
   details: DatabasePoolErrorDetails,
 ) => void;
 
+export type DatabasePoolMetrics = {
+  activeClients: number;
+  idleClients: number;
+  waitingRequests: number;
+  maxClients: number;
+};
+
+export type DatabasePoolMetricsSource = {
+  totalCount: number;
+  idleCount: number;
+  waitingCount: number;
+};
+
+export function readDatabasePoolMetrics(
+  pool: DatabasePoolMetricsSource,
+  maxClients: number,
+): DatabasePoolMetrics {
+  return {
+    activeClients: pool.totalCount - pool.idleCount,
+    idleClients: pool.idleCount,
+    waitingRequests: pool.waitingCount,
+    maxClients,
+  };
+}
+
 /**
  * pg-pool currently defaults to ten clients. Keep that behavior unless the
  * deployment explicitly sets its per-process connection budget.

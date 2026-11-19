@@ -5,6 +5,7 @@ import {
   attachDatabasePoolErrorHandler,
   DEFAULT_DATABASE_POOL_MAX,
   parseDatabasePoolMax,
+  readDatabasePoolMetrics,
   type DatabasePoolErrorDetails,
 } from "./pool-runtime.js";
 
@@ -16,6 +17,19 @@ describe("database pool runtime", () => {
 
   it("accepts a configured positive integer connection budget", () => {
     assert.equal(parseDatabasePoolMax("4"), 4);
+  });
+
+  it("reports active, idle, waiting, and maximum clients without interpreting pressure", () => {
+    assert.deepEqual(readDatabasePoolMetrics({
+      totalCount: 4,
+      idleCount: 1,
+      waitingCount: 3,
+    }, 4), {
+      activeClients: 3,
+      idleClients: 1,
+      waitingRequests: 3,
+      maxClients: 4,
+    });
   });
 
   it("rejects invalid connection budgets before creating a pool", () => {

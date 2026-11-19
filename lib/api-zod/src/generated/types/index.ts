@@ -378,6 +378,7 @@ export * from './dashboardWorkSummaryItem';
 export * from './dashboardWorkSummaryItemKind';
 export * from './dashboardWorkSummaryItemPlanBinding';
 export * from './dashboardWorkSummaryItemStateBasis';
+export * from './databasePoolHealth';
 export * from './decideAiImplementationPlan200';
 export * from './decideAiImplementationPlan200TaskResult';
 export * from './deepSeekKeyStatus';

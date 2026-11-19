@@ -2496,6 +2496,23 @@ export const HealthStatusStatus = {
 } as const;
 
 /**
+ * Content-free, per-process PostgreSQL pool snapshot. Waiting requests are observational and do not change health liveness or readiness.
+ */
+export interface DatabasePoolHealth {
+  /**
+     * Checked-out or connecting clients, computed as total minus idle.
+     * @minimum 0
+     */
+  activeClients: number;
+  /** @minimum 0 */
+  idleClients: number;
+  /** @minimum 0 */
+  waitingRequests: number;
+  /** @minimum 1 */
+  maxClients: number;
+}
+
+/**
  * Current state of the in-process job queue (scan + discovery jobs). ⚠️ This queue is process-local — jobs in flight are lost on restart. The reconciliation layer marks orphaned DB rows as `failed` on startup, but the work must be re-submitted by the caller.
  */
 export interface JobQueueStats {
@@ -2716,6 +2733,7 @@ export interface UnresolvedRuntimeStartHealth {
 
 export interface HealthStatus {
   status: HealthStatusStatus;
+  databasePool?: DatabasePoolHealth;
   jobQueue?: JobQueueStats;
   operationalCounters?: OperationalCounters;
   aiDiagnosticsRetention?: AiDiagnosticsRetentionHealth;
