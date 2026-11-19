@@ -901,7 +901,9 @@ function classifyStatus(
     providerMessage: pMessage ?? body.slice(0, 200),
     providerName,
     providerModel:   model,
-    // Retry-After also applies to HTTP 503 Service Unavailable. Capture it\n    // so fallback policy cannot rotate models before the server allows retry.\n    retryAfterMs:    status === 429 || status === 503 ? parseRetryAfterMs(headers) : undefined,
+    // Retry-After also applies to HTTP 503 Service Unavailable. Capture it
+    // so fallback policy cannot rotate models before the server allows retry.
+    retryAfterMs:    status === 429 || status === 503 ? parseRetryAfterMs(headers) : undefined,
     ...(rateLimitScope ? { rateLimitScope } : {}),
     ...(providerDetails.upstreamProvider
       ? { upstreamProvider: providerDetails.upstreamProvider.slice(0, 120) }
