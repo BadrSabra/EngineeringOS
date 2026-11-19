@@ -3075,6 +3075,11 @@ export const APPLICATION_SCHEMA_CONTRACT = {
       columns: ["task_id", "timestamp"],
     },
     {
+      name: "idx_task_logs_task_id_sequence",
+      tableName: "task_logs",
+      columns: ["task_id", "sequence"],
+    },
+    {
       name: "idx_task_logs_correlation_id",
       tableName: "task_logs",
       columns: ["correlation_id"],

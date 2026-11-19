@@ -1337,7 +1337,8 @@ router.get("/tasks/:taskId/logs/stream", async (req, res) => {
           eq(taskLogsTable.taskId, taskId),
           gt(taskLogsTable.sequence, cursor),
         ))
-        .orderBy(asc(taskLogsTable.timestamp), asc(taskLogsTable.id));
+        // The Task-wide sequence is the replay cursor; worker timestamps may move backwards.
+        .orderBy(asc(taskLogsTable.sequence), asc(taskLogsTable.timestamp), asc(taskLogsTable.id));
 
       for (const log of newLogs) {
         send("log", publicTaskLog(log));

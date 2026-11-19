@@ -729,12 +729,13 @@ describe("application schema contract", () => {
     );
   });
 
-  it("reports missing memory indexes and foreign keys by their real tables", () => {
+  it("reports missing Task-log and memory indexes and foreign keys by their real tables", () => {
     const snapshot = completeSnapshot();
     const issues = findApplicationSchemaIssues({
       ...snapshot,
       indexes: snapshot.indexes.filter(
         (index) =>
+          index.indexname !== "idx_task_logs_task_id_sequence" &&
           index.indexname !== "idx_ai_session_memories_project_scope" &&
           index.indexname !== "idx_ai_session_memory_outbox_next_attempt_at",
       ),
@@ -755,6 +756,7 @@ describe("application schema contract", () => {
         )
         .map((item) => `${item.kind}:${item.tableName}.${item.objectName}`),
       [
+        "missing_index:task_logs.idx_task_logs_task_id_sequence",
         "missing_index:ai_session_memories.idx_ai_session_memories_project_scope",
         "missing_index:ai_session_memory_outbox.idx_ai_session_memory_outbox_next_attempt_at",
         "missing_foreign_key:ai_session_memory_outbox.session_id",

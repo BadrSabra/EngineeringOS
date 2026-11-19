@@ -465,7 +465,8 @@ describe("Task lifecycle", () => {
     const closedBeforeProgress = streamSettled;
 
     const progressAt = new Date();
-    const terminalAt = new Date(progressAt.getTime() + 1);
+    // A later sequence can carry an earlier worker timestamp after clock skew.
+    const terminalAt = new Date(progressAt.getTime() - 1);
     await db.insert(taskLogsTable).values([
       {
         id: randomUUID(),
@@ -507,6 +508,9 @@ describe("Task lifecycle", () => {
       .where(eq(tasksTable.id, taskId));
 
     const replay = await streamPromise;
+    const replayedSequences = [...replay.text.matchAll(/event: log\ndata: (\{.*\})\n/g)]
+      .map((match) => JSON.parse(match[1]) as { sequence: number });
+    expect(replayedSequences.map((log) => log.sequence)).toEqual([1, 2]);
     expect(closedBeforeProgress).toBe(false);
     expect(replay.status).toBe(200);
     expect(replay.text).toContain("execution acquired");
