@@ -123,6 +123,10 @@ export function buildApplyChangesWorldTransitionIntent(input: {
 
 const ACTIVE_EXECUTION_STATUSES = new Set(["queued", "running", "paused", "cancelling"]);
 
+function executionLeaseActiveProjection() {
+  return sql<boolean>`${aiExecutionsTable.leaseUntil} > (clock_timestamp() AT TIME ZONE 'UTC')`;
+}
+
 function unique(values: readonly string[]): string[] {
   return [...new Set(values.filter((value) => value.trim().length > 0))];
 }
@@ -150,11 +154,14 @@ export async function createPendingApplyChangesTransition(
     })}`,
   ]);
   return db.transaction(async (tx) => {
-    const [execution] = await tx.select({
+    const [execution] = await tx
+      .select({
         status: aiExecutionsTable.status,
         workerId: aiExecutionsTable.workerId,
-        leaseActive: sql<boolean>`${aiExecutionsTable.leaseUntil} > (clock_timestamp() AT TIME ZONE 'UTC')`,
-      }).from(aiExecutionsTable).where(and(
+        leaseActive: executionLeaseActiveProjection(),
+      })
+      .from(aiExecutionsTable)
+      .where(and(
       eq(aiExecutionsTable.id, input.executionId),
       eq(aiExecutionsTable.projectId, input.projectId),
       eq(aiExecutionsTable.attempt, input.attempt),
@@ -734,7 +741,7 @@ export async function createPendingRuntimeStartTransition(
       .select({
         status: aiExecutionsTable.status,
         workerId: aiExecutionsTable.workerId,
-        leaseActive: sql<boolean>`${aiExecutionsTable.leaseUntil} > (clock_timestamp() AT TIME ZONE 'UTC')`,
+        leaseActive: executionLeaseActiveProjection(),
       })
       .from(aiExecutionsTable)
       .where(and(
@@ -874,11 +881,14 @@ export async function createPendingGitHubDeliveryTransition(
     throw new Error("github_delivery_transition_intent_invalid");
   }
   return db.transaction(async (tx) => {
-    const [execution] = await tx.select({
+    const [execution] = await tx
+      .select({
         status: aiExecutionsTable.status,
         workerId: aiExecutionsTable.workerId,
-        leaseActive: sql<boolean>`${aiExecutionsTable.leaseUntil} > (clock_timestamp() AT TIME ZONE 'UTC')`,
-      }).from(aiExecutionsTable).where(and(
+        leaseActive: executionLeaseActiveProjection(),
+      })
+      .from(aiExecutionsTable)
+      .where(and(
       eq(aiExecutionsTable.id, input.executionId),
       eq(aiExecutionsTable.projectId, input.projectId),
       eq(aiExecutionsTable.attempt, input.attempt),
@@ -958,11 +968,14 @@ export async function bindGitHubDeliveryTransitionEffect(input: {
     throw new Error("github_delivery_transition_after_state_missing");
   }
   return db.transaction(async (tx) => {
-    const [execution] = await tx.select({
+    const [execution] = await tx
+      .select({
         status: aiExecutionsTable.status,
         workerId: aiExecutionsTable.workerId,
-        leaseActive: sql<boolean>`${aiExecutionsTable.leaseUntil} > (clock_timestamp() AT TIME ZONE 'UTC')`,
-      }).from(aiExecutionsTable).where(and(
+        leaseActive: executionLeaseActiveProjection(),
+      })
+      .from(aiExecutionsTable)
+      .where(and(
       eq(aiExecutionsTable.id, input.executionId),
       eq(aiExecutionsTable.projectId, input.projectId),
       eq(aiExecutionsTable.attempt, input.attempt),
@@ -1011,11 +1024,14 @@ export async function terminalizeUnmutatedGitHubDeliveryTransition(input: {
   failureCode: string;
 }): Promise<void> {
   await db.transaction(async (tx) => {
-    const [execution] = await tx.select({
+    const [execution] = await tx
+      .select({
         status: aiExecutionsTable.status,
         workerId: aiExecutionsTable.workerId,
-        leaseActive: sql<boolean>`${aiExecutionsTable.leaseUntil} > (clock_timestamp() AT TIME ZONE 'UTC')`,
-      }).from(aiExecutionsTable).where(and(
+        leaseActive: executionLeaseActiveProjection(),
+      })
+      .from(aiExecutionsTable)
+      .where(and(
       eq(aiExecutionsTable.id, input.executionId),
       eq(aiExecutionsTable.projectId, input.projectId),
       eq(aiExecutionsTable.attempt, input.attempt),
