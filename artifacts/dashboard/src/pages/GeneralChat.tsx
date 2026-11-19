@@ -8,7 +8,9 @@ import {
   AlertTriangle,
   ArrowUp,
   Bot,
+  Check,
   CirclePlus,
+  Copy,
   MessageSquareText,
   Plus,
   RefreshCw,
@@ -46,6 +48,11 @@ const GENERAL_CHAT_STARTERS = [
   { id: 'compare', label: 'مقارنة خيارين', prompt: 'قارن بين هذين الخيارين وساعدني على فهم الفرق: ' },
   { id: 'clarify-goal', label: 'توضيح ما أريد', prompt: 'ساعدني على توضيح ما أريد إنجازه: ' },
 ] as const;
+
+type GeneralChatCopyFeedback = {
+  messageId: string;
+  status: 'copying' | 'copied' | 'error';
+};
 
 function normalizeGeneralChatSearchText(value: string): string {
   return value
@@ -96,6 +103,7 @@ function GeneralChatSession({
   const [sessionSearch, setSessionSearch] = useState('');
   const [draft, setDraft] = useState('');
   const [actionError, setActionError] = useState('');
+  const [copyFeedback, setCopyFeedback] = useState<GeneralChatCopyFeedback | null>(null);
   const [incomingGoalDraft, setIncomingGoalDraft] = useState<GoalDraft | null>(null);
   const [goalDraftAttached, setGoalDraftAttached] = useState<GoalDraft | null>(null);
   const [goalDraftResolved, setGoalDraftResolved] = useState(!routeDraftId);
@@ -109,6 +117,20 @@ function GeneralChatSession({
   const createSession = useCreateGeneralChatSession();
   const deleteSession = useDeleteGeneralChatSession();
   const sendMessage = useSendGeneralChatMessage();
+  const copyMessage = async (messageId: string, content: string) => {
+    setCopyFeedback({ messageId, status: 'copying' });
+    if (typeof navigator === 'undefined' || !navigator.clipboard?.writeText) {
+      setCopyFeedback({ messageId, status: 'error' });
+      return;
+    }
+
+    try {
+      await navigator.clipboard.writeText(content);
+      setCopyFeedback({ messageId, status: 'copied' });
+    } catch {
+      setCopyFeedback({ messageId, status: 'error' });
+    }
+  };
   const sessions = sessionsQuery.data ?? [];
   const orderedSessions = useMemo(
     () => [...sessions].sort((left, right) => right.updatedAt.localeCompare(left.updatedAt)),
@@ -667,6 +689,37 @@ function GeneralChatSession({
                           </div>
                           <p dir="auto" className="whitespace-pre-wrap break-words text-sm leading-relaxed">{message.content}</p>
                           {message.status === 'failed' && <p dir="auto" className="mt-2 border-t border-border pt-2 text-xs text-muted-foreground">{message.errorMessage || 'لم يكتمل هذا الرد. راجع ما سُجّل، ويمكنك إرسال رسالة متابعة عندما تكون جاهزًا.'}</p>}
+                          {message.role === 'assistant' && message.status === 'completed' && message.content.trim() && (
+                            <div dir="rtl" className="mt-3 flex flex-wrap items-center gap-2">
+                              <button
+                                type="button"
+                                data-testid={`button-copy-general-message-${message.id}`}
+                                aria-label={copyFeedback?.messageId === message.id && copyFeedback.status === 'copied' ? 'تم نسخ الرد' : 'نسخ الرد'}
+                                disabled={copyFeedback?.status === 'copying'}
+                                onClick={() => void copyMessage(message.id, message.content)}
+                                className="inline-flex min-h-8 items-center gap-1.5 rounded-md border border-border px-2.5 py-1 text-xs text-muted-foreground transition hover:bg-secondary hover:text-foreground disabled:cursor-wait disabled:opacity-60"
+                              >
+                                {copyFeedback?.messageId === message.id && copyFeedback.status === 'copied'
+                                  ? <Check className="h-3.5 w-3.5" aria-hidden="true" />
+                                  : <Copy className="h-3.5 w-3.5" aria-hidden="true" />}
+                                {copyFeedback?.messageId === message.id && copyFeedback.status === 'copying'
+                                  ? 'جارٍ النسخ…'
+                                  : copyFeedback?.messageId === message.id && copyFeedback.status === 'copied'
+                                    ? 'تم النسخ'
+                                    : 'نسخ الرد'}
+                              </button>
+                              {copyFeedback?.messageId === message.id && copyFeedback.status === 'copied' && (
+                                <span role="status" data-testid={`status-copy-general-message-${message.id}`} className="text-xs text-muted-foreground">
+                                  نُسخ الرد إلى الحافظة.
+                                </span>
+                              )}
+                              {copyFeedback?.messageId === message.id && copyFeedback.status === 'error' && (
+                                <span role="alert" data-testid={`error-copy-general-message-${message.id}`} className="text-xs text-amber-200">
+                                  تعذر النسخ إلى الحافظة. يمكنك تحديد النص ونسخه يدويًا.
+                                </span>
+                              )}
+                            </div>
+                          )}
                         </div>
                       </article>
                     ))}

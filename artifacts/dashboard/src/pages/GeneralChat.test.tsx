@@ -39,6 +39,21 @@ function renderPage() {
   return render(<QueryClientProvider client={client}><GeneralChat /></QueryClientProvider>);
 }
 
+function installClipboard(writeText: (text: string) => Promise<void>) {
+  const originalDescriptor = Object.getOwnPropertyDescriptor(navigator, 'clipboard');
+  Object.defineProperty(navigator, 'clipboard', {
+    configurable: true,
+    value: { writeText },
+  });
+  return () => {
+    if (originalDescriptor) {
+      Object.defineProperty(navigator, 'clipboard', originalDescriptor);
+    } else {
+      Reflect.deleteProperty(navigator, 'clipboard');
+    }
+  };
+}
+
 beforeEach(() => {
   vi.clearAllMocks();
   window.sessionStorage.clear();
@@ -55,6 +70,54 @@ beforeEach(() => {
 });
 
 describe('Arabic conversation feedback boundaries', () => {
+  it('copies completed assistant replies only and confirms success', async () => {
+    const answer = 'النتيجة المقترحة:\nراجع src/App.tsx';
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    const restoreClipboard = installClipboard(writeText);
+    mocks.messages.data = [
+      { id: 'assistant-complete', role: 'assistant', content: answer, status: 'completed' },
+      { id: 'assistant-pending', role: 'assistant', content: 'رد جزئي', status: 'pending' },
+      { id: 'assistant-failed', role: 'assistant', content: 'رد غير مكتمل', status: 'failed' },
+      { id: 'user-complete', role: 'user', content: 'سؤال المستخدم', status: 'completed' },
+    ];
+
+    try {
+      renderPage();
+
+      expect(screen.getByTestId('button-copy-general-message-assistant-complete')).toBeInTheDocument();
+      expect(screen.queryByTestId('button-copy-general-message-assistant-pending')).not.toBeInTheDocument();
+      expect(screen.queryByTestId('button-copy-general-message-assistant-failed')).not.toBeInTheDocument();
+      expect(screen.queryByTestId('button-copy-general-message-user-complete')).not.toBeInTheDocument();
+
+      fireEvent.click(screen.getByTestId('button-copy-general-message-assistant-complete'));
+      await waitFor(() => expect(writeText).toHaveBeenCalledWith(answer));
+      expect(await screen.findByTestId('status-copy-general-message-assistant-complete')).toHaveTextContent(
+        'نُسخ الرد إلى الحافظة.',
+      );
+    } finally {
+      restoreClipboard();
+    }
+  });
+
+  it('shows manual-copy guidance when the clipboard rejects a reply', async () => {
+    const writeText = vi.fn().mockRejectedValue(new Error('clipboard unavailable'));
+    const restoreClipboard = installClipboard(writeText);
+    mocks.messages.data = [
+      { id: 'assistant-reply', role: 'assistant', content: 'رد قابل للنسخ', status: 'completed' },
+    ];
+
+    try {
+      renderPage();
+
+      fireEvent.click(screen.getByTestId('button-copy-general-message-assistant-reply'));
+      expect(await screen.findByTestId('error-copy-general-message-assistant-reply')).toHaveTextContent(
+        'تعذر النسخ إلى الحافظة. يمكنك تحديد النص ونسخه يدويًا.',
+      );
+    } finally {
+      restoreClipboard();
+    }
+  });
+
   it('prefills a starter prompt without creating or sending a conversation', () => {
     renderPage();
 
