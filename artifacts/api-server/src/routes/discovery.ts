@@ -17,7 +17,7 @@ import {
   GetDiscoverySummaryParams,
   GetDiscoverySummaryResponse,
 } from "@workspace/api-zod";
-import { eq, and, isNull, isNotNull, lt, or } from "drizzle-orm";
+import { eq, and, isNull, isNotNull, lt, or, sql } from "drizzle-orm";
 import { randomUUID } from "crypto";
 import { logger } from "../lib/logger.js";
 import { recordAudit } from "../lib/audit.js";
@@ -69,7 +69,7 @@ function isUniqueViolation(err: unknown, constraintName: string): boolean {
 // ─── Cleanup old sessions (>24h) ──────────────────────────────────────────────
 
 export async function cleanupOldSessions(): Promise<void> {
-  const cutoff = new Date(Date.now() - 24 * 60 * 60 * 1000);
+  const cutoff = sql<Date>`${databaseNow()} - interval '24 hours'`;
   // A retention TTL must not terminate a worker that still owns a live
   // database lease. Use the database clock, and repeat this predicate in the
   // DELETE below so a heartbeat racing this candidate read wins safely.
@@ -284,7 +284,7 @@ router.post("/projects/discover", async (req, res) => {
       progress: 0,
       currentStep: STEPS[0],
       steps: initialSteps,
-      startedAt: new Date(),
+      startedAt: databaseNow(),
     });
   } catch (err) {
     if (durableRootPath) await removeManagedProjectRoot(durableRootPath);

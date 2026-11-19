@@ -2,7 +2,7 @@ import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest
 import request from "supertest";
 import express from "express";
 import AdmZip from "adm-zip";
-import { eq } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import app from "../app.js";
 import discoveryRouter, { cleanupOldSessions } from "./discovery.js";
 import { heavyJobQueue } from "../lib/job-queue.js";
@@ -32,6 +32,7 @@ import { EOS_GIT_TEMP_PREFIX } from "../lib/path-validation.js";
 import { removeUpload } from "../lib/upload-store.js";
 import { setArchiveObjectStorageForTests } from "../lib/archive-object-storage.js";
 import { LockNamespace, tryAdvisoryLock } from "../lib/advisory-lock.js";
+import { databaseNow } from "../lib/job-lease.js";
 
 const execFileAsync = promisify(execFile);
 const OTHER_USER = "someone-else";
@@ -1548,5 +1549,80 @@ describe("Git discovery → durable import", () => {
     const deleted = await request(app).delete(`/api/projects/${projectId}`);
     expect(deleted.status).toBe(204);
     await expect(access(storedSession!.rootPath)).rejects.toThrow();
+  });
+});
+
+describe("Discovery session retention uses the database clock", () => {
+  const retentionSessionIds: string[] = [];
+
+  afterEach(async () => {
+    vi.restoreAllMocks();
+    for (const id of retentionSessionIds.splice(0)) {
+      await db.delete(discoverySessionsTable)
+        .where(eq(discoverySessionsTable.id, id))
+        .catch(() => undefined);
+    }
+  });
+
+  it("does not collect a fresh session when the API host clock is ahead", async () => {
+    const id = randomUUID();
+    retentionSessionIds.push(id);
+    await db.insert(discoverySessionsTable).values({
+      id,
+      ownerId: "test-user",
+      status: "pending",
+      rootPath: `/tmp/discovery-retention-${id}`,
+      sourceType: "LOCAL_FOLDER",
+      progress: 0,
+      steps: [],
+      startedAt: databaseNow(),
+    });
+
+    const [databaseClockRow] = (await db.execute(sql`SELECT clock_timestamp() AS now`)).rows as Array<{ now: Date | string }>;
+    const databaseClock = new Date(String(databaseClockRow?.now));
+    if (!databaseClockRow?.now || Number.isNaN(databaseClock.getTime())) {
+      throw new Error("Could not read PostgreSQL time");
+    }
+    vi.spyOn(Date, "now").mockReturnValue(
+      databaseClock.getTime() + 48 * 60 * 60 * 1000,
+    );
+
+    await cleanupOldSessions();
+
+    const remaining = await db.select({ id: discoverySessionsTable.id })
+      .from(discoverySessionsTable)
+      .where(eq(discoverySessionsTable.id, id));
+    expect(remaining).toHaveLength(1);
+  });
+
+  it("collects an expired session when the API host clock is behind", async () => {
+    const [databaseClockRow] = (await db.execute(sql`SELECT clock_timestamp() AS now`)).rows as Array<{ now: Date | string }>;
+    const databaseClock = new Date(String(databaseClockRow?.now));
+    if (!databaseClockRow?.now || Number.isNaN(databaseClock.getTime())) {
+      throw new Error("Could not read PostgreSQL time");
+    }
+    const id = randomUUID();
+    retentionSessionIds.push(id);
+    await db.insert(discoverySessionsTable).values({
+      id,
+      ownerId: "test-user",
+      status: "pending",
+      rootPath: `/tmp/discovery-retention-${id}`,
+      sourceType: "LOCAL_FOLDER",
+      progress: 0,
+      steps: [],
+      startedAt: new Date(databaseClock.getTime() - 25 * 60 * 60 * 1000),
+    });
+
+    vi.spyOn(Date, "now").mockReturnValue(
+      databaseClock.getTime() - 48 * 60 * 60 * 1000,
+    );
+
+    await cleanupOldSessions();
+
+    const remaining = await db.select({ id: discoverySessionsTable.id })
+      .from(discoverySessionsTable)
+      .where(eq(discoverySessionsTable.id, id));
+    expect(remaining).toHaveLength(0);
   });
 });
