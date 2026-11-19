@@ -1,4 +1,4 @@
-import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import request from "supertest";
 import express from "express";
 import AdmZip from "adm-zip";
@@ -11,6 +11,7 @@ import {
   db,
   discoverySessionsTable,
   projectsTable,
+  scanJobsTable,
   metricsTable,
   eventsTable,
   tasksTable,
@@ -165,6 +166,7 @@ async function insertReadySession(
 
 async function cleanupSessionAndProject(): Promise<void> {
   if (projectId) {
+    await db.delete(scanJobsTable).where(eq(scanJobsTable.projectId, projectId)).catch(() => undefined);
     await db.delete(graphEntitiesTable).where(eq(graphEntitiesTable.projectId, projectId)).catch(() => undefined);
     await db.delete(tasksTable).where(eq(tasksTable.projectId, projectId)).catch(() => undefined);
     await db.delete(metricsTable).where(eq(metricsTable.projectId, projectId)).catch(() => undefined);
@@ -176,6 +178,20 @@ async function cleanupSessionAndProject(): Promise<void> {
     await db.delete(discoverySessionsTable).where(eq(discoverySessionsTable.id, sessionId)).catch(() => undefined);
     sessionId = null;
   }
+}
+
+async function completeInitialScanForTest(targetProjectId: string): Promise<void> {
+  const [scanJob] = await db
+    .select({ id: scanJobsTable.id })
+    .from(scanJobsTable)
+    .where(eq(scanJobsTable.projectId, targetProjectId));
+  if (!scanJob) throw new Error("Initial scan job was not persisted");
+  await db.update(scanJobsTable)
+    .set({ status: "completed", finishedAt: new Date() })
+    .where(eq(scanJobsTable.id, scanJob.id));
+  await db.update(projectsTable)
+    .set({ status: "active" })
+    .where(eq(projectsTable.id, targetProjectId));
 }
 
 async function waitForDiscoveryToSettle(id: string): Promise<void> {
@@ -197,7 +213,7 @@ async function writeDiscoveryReleaseReceipt(input: {
   sessionId: string;
   discoveryState: "ready";
   importStatus: number;
-  projectStatus: "active";
+  projectStatus: "active" | "scanning";
   durableRootMaterialized: boolean;
   temporaryCloneCleaned: boolean;
 }): Promise<void> {
@@ -683,7 +699,14 @@ describe("GET /projects/discover/:id/summary completeness", () => {
 });
 
 describe("Discovery cleanup ownership and races", () => {
-  afterEach(cleanupSessionAndProject);
+  beforeEach(() => {
+    vi.spyOn(heavyJobQueue, "enqueueWithId").mockReturnValue(true);
+  });
+
+  afterEach(async () => {
+    vi.restoreAllMocks();
+    await cleanupSessionAndProject();
+  });
 
   it("retires stale unimported sessions and removes their managed root", async () => {
     const discoveryId = randomUUID();
@@ -762,6 +785,7 @@ describe("Discovery cleanup ownership and races", () => {
       .send({ discoveryId });
     expect(imported.status).toBe(201);
     projectId = imported.body.id;
+    await completeInitialScanForTest(projectId!);
 
     await db
       .update(discoverySessionsTable)
@@ -803,6 +827,7 @@ describe("Discovery cleanup ownership and races", () => {
 
     if (importResult.status === 201) {
       projectId = importResult.body.id;
+      await completeInitialScanForTest(projectId!);
       await expect(access(rootPath)).resolves.toBeUndefined();
       const deleted = await request(app).delete(`/api/projects/${projectId}`);
       expect(deleted.status).toBe(204);
@@ -881,7 +906,14 @@ describe("GET /projects/discover/:id/summary", () => {
 // ─── POST /projects/import — atomic claim ─────────────────────────────────────
 
 describe("POST /projects/import — atomic claim", () => {
-  afterEach(cleanupSessionAndProject);
+  beforeEach(() => {
+    vi.spyOn(heavyJobQueue, "enqueueWithId").mockReturnValue(true);
+  });
+
+  afterEach(async () => {
+    vi.restoreAllMocks();
+    await cleanupSessionAndProject();
+  });
 
   it("keeps imported remediation plans partial when discovery was partial", async () => {
     const discoveryId = await insertReadySession(fakeResult({
@@ -1135,8 +1167,14 @@ describe("POST /projects/import — transaction integrity", () => {
   const createdProjectIds: string[] = [];
   const createdSessionIds: string[] = [];
 
+  beforeEach(() => {
+    vi.spyOn(heavyJobQueue, "enqueueWithId").mockReturnValue(true);
+  });
+
   afterEach(async () => {
+    vi.restoreAllMocks();
     for (const pid of createdProjectIds.splice(0)) {
+      await db.delete(scanJobsTable).where(eq(scanJobsTable.projectId, pid)).catch(() => undefined);
       await db.delete(graphEntitiesTable).where(eq(graphEntitiesTable.projectId, pid)).catch(() => undefined);
       await db.delete(tasksTable).where(eq(tasksTable.projectId, pid)).catch(() => undefined);
       await db.delete(metricsTable).where(eq(metricsTable.projectId, pid)).catch(() => undefined);
@@ -1178,6 +1216,48 @@ describe("POST /projects/import — transaction integrity", () => {
     expect(importedEvent).toBeDefined();
     expect(importedEvent?.severity).toBe("success");
     expect(importedEvent?.message).toMatch(/event-test/);
+  });
+
+  it("persists and dispatches one initial full scan with a successful import", async () => {
+    const discoveryId = await insertReadySession(fakeResult());
+    const res = await request(app).post("/api/projects/import").send({ discoveryId });
+
+    expect(res.status).toBe(201);
+    projectId = res.body.id;
+    expect(res.body.status).toBe("scanning");
+
+    const [scanJob] = await db
+      .select()
+      .from(scanJobsTable)
+      .where(eq(scanJobsTable.projectId, projectId!));
+    expect(scanJob).toMatchObject({ projectId, status: "queued" });
+    expect(heavyJobQueue.enqueueWithId).toHaveBeenCalledOnce();
+    expect(heavyJobQueue.enqueueWithId).toHaveBeenCalledWith(scanJob!.id, expect.any(Function));
+
+    const events = await db.select().from(eventsTable).where(eq(eventsTable.projectId, projectId!));
+    const queuedEvent = events.find((event) => event.type === "ProjectScanQueued");
+    expect(queuedEvent).toMatchObject({
+      correlationId: scanJob!.id,
+      payload: { jobId: scanJob!.id },
+    });
+  });
+
+  it("keeps the initial scan durable when the local queue is full", async () => {
+    vi.mocked(heavyJobQueue.enqueueWithId).mockReturnValue(false);
+    const discoveryId = await insertReadySession(fakeResult());
+
+    const res = await request(app).post("/api/projects/import").send({ discoveryId });
+
+    expect(res.status).toBe(201);
+    projectId = res.body.id;
+    expect(res.body.status).toBe("scanning");
+
+    const [scanJob] = await db
+      .select()
+      .from(scanJobsTable)
+      .where(eq(scanJobsTable.projectId, projectId!));
+    expect(scanJob?.status).toBe("queued");
+    expect(heavyJobQueue.enqueueWithId).toHaveBeenCalledOnce();
   });
 
   it("imports every detectedApi across multiple bounded insert batches", async () => {
@@ -1523,11 +1603,15 @@ describe("Git discovery → durable import", () => {
     expect(tempClonePath).toBeDefined();
     await expect(access(tempClonePath!)).rejects.toThrow();
 
+    const scanEnqueueSpy = vi.spyOn(heavyJobQueue, "enqueueWithId").mockReturnValue(true);
+    restoreEnqueue = () => scanEnqueueSpy.mockRestore();
     const imported = await request(app)
       .post("/api/projects/import")
       .send({ discoveryId });
     expect(imported.status).toBe(201);
+    expect(scanEnqueueSpy).toHaveBeenCalledOnce();
     projectId = imported.body.id;
+    await completeInitialScanForTest(projectId!);
     expect(imported.body.rootPath).toBe(storedSession!.rootPath);
     expect(imported.body.rootPath).toContain(MANAGED_PROJECT_ROOTS_DIR);
 
