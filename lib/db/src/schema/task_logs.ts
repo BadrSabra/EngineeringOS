@@ -45,6 +45,8 @@ export const taskLogsTable = pgTable("task_logs", {
   index("idx_task_logs_task_id").on(t.taskId),
   // Covers: WHERE task_id = ? ORDER BY timestamp DESC (paginated log reads)
   index("idx_task_logs_task_id_timestamp").on(t.taskId, t.timestamp),
+  // Covers the live SSE replay query: WHERE task_id = ? AND sequence > ?.
+  index("idx_task_logs_task_id_sequence").on(t.taskId, t.sequence),
   // Covers: WHERE correlation_id = ? (trace linking across tables)
   index("idx_task_logs_correlation_id").on(t.correlationId),
   index("idx_task_logs_task_execution_sequence").on(t.taskId, t.executionId, t.sequence),
