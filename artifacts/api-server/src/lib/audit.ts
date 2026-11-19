@@ -45,6 +45,9 @@ type AuditWriter = Pick<typeof db, "insert">;
 const pendingAudits = new Map<string, PendingAudit>();
 const retryDelaysMs = [1_000, 5_000, 30_000, 60_000];
 let retryTimer: NodeJS.Timeout | undefined;
+let pendingAuditReloadTimer: NodeJS.Timeout | undefined;
+let pendingAuditReloadAttempts = 0;
+let loadingPendingAudits = false;
 let draining = false;
 
 async function insertAudit(row: typeof auditLogsTable.$inferInsert): Promise<void> {
@@ -107,6 +110,22 @@ function scheduleRetry(): void {
   retryTimer.unref?.();
 }
 
+/**
+ * Retry loading the durable audit outbox when startup/recovery reads fail.
+ * The delay is bounded by the same backoff schedule used for audit writes.
+ */
+function schedulePendingAuditReload(): void {
+  if (pendingAuditReloadTimer) return;
+  const retryIndex = Math.min(pendingAuditReloadAttempts, retryDelaysMs.length - 1);
+  const delay = retryDelaysMs[retryIndex]!;
+  pendingAuditReloadAttempts += 1;
+  pendingAuditReloadTimer = setTimeout(() => {
+    pendingAuditReloadTimer = undefined;
+    void loadPendingAudits();
+  }, delay);
+  pendingAuditReloadTimer.unref?.();
+}
+
 async function persistPendingAudit(pending: PendingAudit): Promise<void> {
   await db
     .insert(pendingAuditLogsTable)
@@ -131,27 +150,42 @@ async function removePersistedAudit(id: string): Promise<void> {
 }
 
 /**
- * Reload the durable outbox before accepting traffic. A temporary database
- * outage must not make startup fail; the next process-local retry will still
- * attempt to recover rows once the database is reachable.
+ * Reload the durable outbox before accepting traffic. If the database is
+ * temporarily unavailable, retry the read with bounded backoff so rows written
+ * by a previous process are not stranded until the next service restart.
  */
 export async function loadPendingAudits(): Promise<void> {
+  if (loadingPendingAudits) return;
+  loadingPendingAudits = true;
   try {
     const rows = await db.select().from(pendingAuditLogsTable);
-    pendingAudits.clear();
+    // Merge durable rows instead of clearing the process-local queue: audit
+    // writes may have been queued while a previous reload was still failing.
     for (const persisted of rows) {
+      if (pendingAudits.has(persisted.id)) continue;
       pendingAudits.set(persisted.id, {
         row: persisted.row as typeof auditLogsTable.$inferInsert,
         attempts: persisted.attempts,
         nextAttemptAt: persisted.nextAttemptAt.getTime(),
       });
     }
+    pendingAuditReloadAttempts = 0;
+    if (pendingAuditReloadTimer) {
+      clearTimeout(pendingAuditReloadTimer);
+      pendingAuditReloadTimer = undefined;
+    }
     setPendingAudits(pendingAudits.size);
     logger.info({ pendingAudits: pendingAudits.size }, "reloaded pending audit log entries");
     scheduleRetry();
   } catch (err) {
     incrementAuditPersistenceUnavailable();
-    logger.error({ err }, "failed to reload pending audit log entries; continuing with an empty in-memory queue");
+    logger.error(
+      { err, retryAttempt: pendingAuditReloadAttempts + 1 },
+      "failed to reload durable pending audit log entries; retry scheduled",
+    );
+    schedulePendingAuditReload();
+  } finally {
+    loadingPendingAudits = false;
   }
 }
 

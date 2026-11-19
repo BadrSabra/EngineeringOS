@@ -210,4 +210,57 @@ describe("audit write recovery", () => {
     expect(getOperationalCounters().auditWritesRecovered).toBe(1);
     expect(deleteMock).toHaveBeenCalled();
   });
+
+
+  it("retries durable outbox loading after a transient startup read failure", async () => {
+    // Model a fresh process so the test starts without an in-memory audit queue.
+    vi.resetModules();
+    const audit = await import("./audit.js");
+    const counters = await import("./operational-counters.js");
+    const row = {
+      id: "audit-reloaded-after-startup-outage",
+      entityType: "project",
+      entityId: "project-1",
+      action: "updated",
+      actor: "system",
+      projectId: null,
+      changedFields: null,
+      stateBefore: null,
+      stateAfter: null,
+      reason: null,
+      correlationId: null,
+    };
+    selectMock
+      .mockReset()
+      .mockReturnValueOnce({
+        from: vi.fn().mockRejectedValue(new Error("temporary database outage")),
+      })
+      .mockReturnValueOnce({
+        from: vi.fn().mockResolvedValue([{
+          id: row.id,
+          row,
+          attempts: 1,
+          nextAttemptAt: new Date(Date.now() + 60_000),
+          createdAt: new Date(),
+        }]),
+      });
+
+    await audit.loadPendingAudits();
+
+    expect(selectMock).toHaveBeenCalledTimes(1);
+    expect(audit.getPendingAuditCount()).toBe(0);
+    expect(counters.getOperationalCounters().auditPersistenceUnavailable).toBe(1);
+
+    await vi.advanceTimersByTimeAsync(999);
+    expect(selectMock).toHaveBeenCalledTimes(1);
+
+    await vi.advanceTimersByTimeAsync(1);
+
+    expect(selectMock).toHaveBeenCalledTimes(2);
+    expect(audit.getPendingAuditCount()).toBe(1);
+    expect(counters.getOperationalCounters()).toMatchObject({
+      auditPersistenceUnavailable: 1,
+      auditWritesPending: 1,
+    });
+  });
 });
