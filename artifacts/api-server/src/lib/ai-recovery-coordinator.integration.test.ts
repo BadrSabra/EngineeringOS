@@ -1054,6 +1054,7 @@ describe("durable automatic conversational recovery", () => {
         executionId: fixture.executionId,
         userId: "recovery-chat-test-user",
         mode: "resume",
+        expectedAttempt: 0,
       });
       expect(executeTaskLifecycle).not.toHaveBeenCalled();
     } finally {
@@ -1064,6 +1065,38 @@ describe("durable automatic conversational recovery", () => {
     }
   });
 
+  it("keeps queued Chat recovery bound to the attempt captured before the queue delay", async () => {
+    const fixture = await insertChatFixture();
+    try {
+      expect(await dispatchAutonomousTaskRecoveries({ projectId: fixture.projectId })).toBe(1);
+      expect(queuedJobs).toHaveLength(1);
+      expect(queuedJobs[0]?.id).toBe(`ai-recovery:chat:${fixture.executionId}:0:resume`);
+
+      // Simulate another actor advancing the execution after dispatch but before the local queue runs.
+      await db.update(aiExecutionsTable)
+        .set({ attempt: 1, status: "failed" })
+        .where(eq(aiExecutionsTable.id, fixture.executionId));
+      await queuedJobs[0]!.run();
+
+      expect(runChatExecutionRecovery).toHaveBeenCalledTimes(1);
+      expect(runChatExecutionRecovery).toHaveBeenCalledWith({
+        executionId: fixture.executionId,
+        userId: "recovery-chat-test-user",
+        mode: "resume",
+        expectedAttempt: 0,
+      });
+      const [execution] = await db.select({ attempt: aiExecutionsTable.attempt })
+        .from(aiExecutionsTable)
+        .where(eq(aiExecutionsTable.id, fixture.executionId));
+      expect(execution?.attempt).toBe(1);
+      expect(executeTaskLifecycle).not.toHaveBeenCalled();
+    } finally {
+      await db.delete(aiExecutionAcceptancesTable).where(eq(aiExecutionAcceptancesTable.executionId, fixture.executionId));
+      await db.delete(aiExecutionsTable).where(eq(aiExecutionsTable.id, fixture.executionId));
+      await db.delete(aiChatSessionsTable).where(eq(aiChatSessionsTable.id, fixture.sessionId));
+      await db.delete(projectsTable).where(eq(projectsTable.id, fixture.projectId));
+    }
+  });
   it("reconciles an expired PROJECT_QUERY lease, accepts its bound resume token, and dispatches recovery", async () => {
     const fixture = await insertChatFixture();
     const workspaceRevision = new Date().toISOString();
@@ -1176,6 +1209,7 @@ describe("durable automatic conversational recovery", () => {
         executionId: fixture.executionId,
         userId: "recovery-chat-test-user",
         mode: "resume",
+        expectedAttempt: 0,
       });
       expect(executeTaskLifecycle).not.toHaveBeenCalled();
     } finally {
@@ -1203,6 +1237,7 @@ describe("durable automatic conversational recovery", () => {
         executionId: fixture.executionId,
         userId: "recovery-chat-test-user",
         mode: "resume",
+        expectedAttempt: 0,
       });
       expect(executeTaskLifecycle).not.toHaveBeenCalled();
     } finally {
@@ -1228,6 +1263,7 @@ describe("durable automatic conversational recovery", () => {
         executionId: fixture.executionId,
         userId: "recovery-chat-test-user",
         mode: "retry",
+        expectedAttempt: 0,
       });
       expect(executeTaskLifecycle).not.toHaveBeenCalled();
     } finally {

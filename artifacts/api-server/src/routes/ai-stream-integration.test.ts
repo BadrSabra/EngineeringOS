@@ -4149,6 +4149,7 @@ describe("Durable AI execution crash/reconnect", () => {
     const resumed = await runChatExecutionRecovery({
       executionId: created.execution.id,
       userId: "test-user",
+      expectedAttempt: 0,
       mode: "resume",
     });
 
@@ -4433,6 +4434,7 @@ describe("Durable AI execution crash/reconnect", () => {
     const recovered = await runChatExecutionRecovery({
       executionId: created.execution.id,
       userId: "test-user",
+      expectedAttempt: 0,
       mode: "resume",
     });
     expect(
