@@ -86,6 +86,139 @@ describe("Task lifecycle", () => {
     expect(list.status).toBe(200);
     expect(list.body.some((t: { id: string }) => t.id === taskId)).toBe(true);
   });
+  it("stores explicit task dependencies only when they reference tasks in the same project", async () => {
+    const prerequisite = await createTask();
+    const created = await request(app).post("/api/tasks").send({
+      projectId: prerequisite.projectId,
+      title: "dependent-task",
+      priority: "p1",
+      dependsOn: [prerequisite.taskId],
+    });
+
+    expect(created.status).toBe(201);
+    expect(created.body.dependsOn).toEqual([prerequisite.taskId]);
+
+    const foreignProjectId = await insertProject();
+    cleanupQueue.push(foreignProjectId);
+    const foreignTaskId = randomUUID();
+    await db.insert(tasksTable).values({
+      id: foreignTaskId,
+      projectId: foreignProjectId,
+      title: "foreign-prerequisite",
+      status: "pending",
+    });
+
+    const invalid = await request(app).post("/api/tasks").send({
+      projectId: prerequisite.projectId,
+      title: "invalid-dependent-task",
+      priority: "p2",
+      dependsOn: [randomUUID(), foreignTaskId, foreignTaskId],
+    });
+    expect(invalid.status).toBe(400);
+    expect(invalid.body.error).toBe("invalid_task_dependencies");
+    expect(invalid.body.dependencyIds).toEqual(
+      expect.arrayContaining([foreignTaskId]),
+    );
+  });
+
+  it("does not execute a task until every same-project prerequisite is completed", async () => {
+    const prerequisite = await createTask();
+    const dependent = await request(app).post("/api/tasks").send({
+      projectId: prerequisite.projectId,
+      title: "dependent-verification",
+      priority: "p2",
+      dependsOn: [prerequisite.taskId],
+    });
+    expect(dependent.status).toBe(201);
+    const dependentId = dependent.body.id as string;
+
+    const blocked = await request(app).post(`/api/tasks/${dependentId}/execute`);
+    expect(blocked.status).toBe(409);
+    expect(blocked.body.error).toBe("task_dependencies_not_completed");
+    expect(blocked.body.blockedDependencies).toEqual([
+      expect.objectContaining({
+        taskId: prerequisite.taskId,
+        reason: "dependency_not_completed",
+        status: "pending",
+      }),
+    ]);
+
+    const [unchanged] = await db.select({ status: tasksTable.status })
+      .from(tasksTable)
+      .where(eq(tasksTable.id, dependentId));
+    expect(unchanged?.status).toBe("pending");
+    const startedEvents = await db.select({ id: eventsTable.id })
+      .from(eventsTable)
+      .where(eq(eventsTable.type, "TaskExecutionStarted"));
+    expect(startedEvents).toHaveLength(0);
+
+    await db.update(tasksTable)
+      .set({ status: "completed", completedAt: new Date() })
+      .where(eq(tasksTable.id, prerequisite.taskId));
+
+    const allowed = await request(app).post(`/api/tasks/${dependentId}/execute`);
+    expect(allowed.status).toBe(202);
+    expect(allowed.body.status).toBe("verifying");
+  });
+
+  it("prevents deletion of a prerequisite that is still referenced by another task", async () => {
+    const prerequisite = await createTask();
+    const dependent = await request(app).post("/api/tasks").send({
+      projectId: prerequisite.projectId,
+      title: "dependent-retained",
+      priority: "p2",
+      dependsOn: [prerequisite.taskId],
+    });
+    expect(dependent.status).toBe(201);
+
+    const deleted = await request(app).delete(`/api/tasks/${prerequisite.taskId}`);
+    expect(deleted.status).toBe(409);
+    expect(deleted.body.error).toBe("task_has_dependents");
+    expect(deleted.body.dependentTaskIds).toContain(dependent.body.id);
+
+    const retained = await db.select({ id: tasksTable.id })
+      .from(tasksTable)
+      .where(eq(tasksTable.id, prerequisite.taskId));
+    expect(retained).toHaveLength(1);
+  });
+
+  it("blocks the PATCH-to-verifying auto-dispatch path while prerequisites are incomplete", async () => {
+    const projectId = await insertProject();
+    cleanupQueue.push(projectId);
+    const prerequisiteId = randomUUID();
+    await db.insert(tasksTable).values({
+      id: prerequisiteId,
+      projectId,
+      title: "pending-prerequisite",
+      status: "pending",
+    });
+    const dependentId = randomUUID();
+    await db.insert(tasksTable).values({
+      id: dependentId,
+      projectId,
+      title: "auto-dispatched-dependent",
+      status: "pending",
+      prompt: "Run the approved task",
+      dependsOn: [prerequisiteId],
+    });
+    mockScheduleAiTaskExecution.mockClear();
+
+    const response = await request(app)
+      .patch(`/api/tasks/${dependentId}`)
+      .send({ status: "verifying" });
+
+    expect(response.status).toBe(409);
+    expect(response.body.error).toBe("task_dependencies_not_completed");
+    const [task] = await db.select({ status: tasksTable.status })
+      .from(tasksTable)
+      .where(eq(tasksTable.id, dependentId));
+    expect(task?.status).toBe("pending");
+    await expect(db.select().from(eventsTable)
+      .where(eq(eventsTable.id, `task-auto-execution-deferred:${dependentId}`)))
+      .resolves.toHaveLength(0);
+    expect(mockScheduleAiTaskExecution).not.toHaveBeenCalled();
+  });
+
 
   it("includes the allowlisted current acceptance in the task list", async () => {
     const { projectId, taskId } = await createTask();
