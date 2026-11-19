@@ -1025,3 +1025,2871 @@ describe("Agent State transition ownership uses PostgreSQL lease time", () => {
       deliveryInput(fixture, bindOperationId),
     );
     const terminalizeTransitionId = await createPendingGitHubDeliveryTransition(
+      deliveryInput(fixture, terminalizeOperationId),
+    );
+    const databaseNearNow = Date.now();
+    await db.update(aiExecutionsTable).set({
+      leaseUntil: new Date(databaseNearNow - 5 * 60_000),
+    }).where(eq(aiExecutionsTable.id, fixture.executionId));
+
+    vi.useFakeTimers({ toFake: ["Date"] });
+    try {
+      vi.setSystemTime(new Date(databaseNearNow - 24 * 60 * 60_000));
+
+      await expect(createPendingApplyChangesTransition(applyInput(fixture)))
+        .rejects.toThrow("apply_transition_owner_stale");
+      await expect(createPendingRuntimeStartTransition(fixture.transitionInput))
+        .rejects.toThrow("runtime_start_transition_owner_stale");
+      await expect(createPendingGitHubDeliveryTransition(
+        deliveryInput(fixture, crypto.randomUUID()),
+      )).rejects.toThrow("github_delivery_transition_owner_stale");
+      await expect(bindGitHubDeliveryTransitionEffect({
+        projectId: fixture.projectId,
+        executionId: fixture.executionId,
+        attempt: 0,
+        episodeId: fixture.episodeId,
+        actionId: "clock-skew:github-delivery:" + bindOperationId,
+        effectBundleId: fixture.effectBundleId,
+        workerId: fixture.workerId,
+        operationId: bindOperationId,
+        afterObservationIds: ["after:" + bindOperationId],
+      })).rejects.toThrow("github_delivery_transition_owner_stale");
+
+      await terminalizeUnmutatedGitHubDeliveryTransition({
+        projectId: fixture.projectId,
+        executionId: fixture.executionId,
+        attempt: 0,
+        operationId: terminalizeOperationId,
+        workerId: fixture.workerId,
+        failureCode: "clock_skew_test",
+      });
+      const [terminalized] = await db.select().from(aiWorldTransitionsTable)
+        .where(eq(aiWorldTransitionsTable.id, terminalizeTransitionId)).limit(1);
+      expect(terminalized?.status).toBe("pending");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});
+
+describe("runtime.start transition retry scheduling", () => {
+  it.skipIf(process.env.RUN_INDEPENDENT_APPLY_RECOVERY_TEST !== "1")("requires a Mission Goal, proves independent PostgreSQL sessions for Apply recovery, serializes acceptance replay with materialization, and fences idempotency", async () => {
+    const fixture = await transitionFixture({ accepted: false });
+    const now = new Date();
+    const messageId = crypto.randomUUID();
+    const proposalId = crypto.randomUUID();
+    const missionId = crypto.randomUUID();
+    const goalId = crypto.randomUUID();
+    const reportGoalId = crypto.randomUUID();
+    const planRevision = "f".repeat(64);
+    const baseRevision = fixture.sourceRevision;
+    const rootPath = path.join(
+      process.cwd(),
+      ".runtime-start-transition-test",
+      fixture.projectId,
+    );
+    await mkdir(path.join(rootPath, "src"), { recursive: true });
+    const promotedFile = path.join(rootPath, "src", "target.ts");
+    await writeFile(promotedFile, "export const value = 'before';\n", "utf8");
+    const baseTreeHash = await hashDeliveryTree(rootPath);
+    await writeFile(promotedFile, "export const value = 'after';\n", "utf8");
+    const candidateTreeHash = await hashDeliveryTree(rootPath);
+    createdWorkspaceRoots.push(rootPath);
+    const changeSetHash = "d".repeat(64);
+    const candidateIdentity = `${proposalId}:${candidateTreeHash}`;
+    await db.update(aiExecutionsTable)
+      .set({ correlationId: fixture.operationId })
+      .where(eq(aiExecutionsTable.id, fixture.executionId));
+    const [executionIdentity] = await db.select({
+      operationId: aiExecutionsTable.operationId,
+      correlationId: aiExecutionsTable.correlationId,
+      userId: aiExecutionsTable.userId,
+      workerId: aiExecutionsTable.workerId,
+      leaseUntil: aiExecutionsTable.leaseUntil,
+    }).from(aiExecutionsTable)
+      .where(eq(aiExecutionsTable.id, fixture.executionId));
+    if (!executionIdentity?.operationId || !executionIdentity.correlationId) {
+      throw new Error("Apply proof fixture requires execution and proposal operation identities.");
+    }
+    const beforeObservationId = crypto.randomUUID();
+    const afterObservationId = crypto.randomUUID();
+    const requirement = {
+      kind: "apply.changes",
+      version: 1,
+      sourceStepId: "apply-changes",
+      proposalId,
+      baseRevision,
+      candidateTreeHash,
+      changeSetHash,
+      from: "candidate",
+      to: "applied",
+    };
+    const plan = {
+      hash: planRevision,
+      applyRequirement: requirement,
+      steps: [
+        { id: "apply-changes", dependencies: [] },
+        { id: "report-applied", dependencies: ["apply-changes"] },
+      ],
+    };
+    await db.insert(aiChatMessagesTable).values({
+      id: messageId, sessionId: (await db.select({ id: aiChatSessionsTable.id })
+        .from(aiChatSessionsTable).where(eq(aiChatSessionsTable.projectId, fixture.projectId)).limit(1))[0]!.id,
+      role: "user", content: "apply", createdAt: now,
+    });
+    await db.insert(aiChangeProposalsTable).values({
+      id: proposalId, projectId: fixture.projectId,
+      sessionId: (await db.select({ id: aiChatSessionsTable.id })
+        .from(aiChatSessionsTable).where(eq(aiChatSessionsTable.projectId, fixture.projectId)).limit(1))[0]!.id,
+      messageId,
+      changes: "[]",
+      status: "applied",
+      lifecycle: "applied",
+      operationId: executionIdentity.correlationId,
+      baseRevision,
+      baseTreeHash,
+      candidateTreeHash,
+      promotedTreeHash: candidateTreeHash,
+      changeSetHash,
+      treeDigestVersion: DELIVERY_TREE_DIGEST_VERSION,
+      createdAt: now,
+    });
+    await db.insert(aiMissionsTable).values({
+      id: missionId, projectId: fixture.projectId,
+      userId: `runtime-transition-test:${fixture.projectId}`,
+      title: "Apply transition", intent: "apply", status: "waiting",
+      scope: { kind: "project", projectId: fixture.projectId },
+      autonomyPolicy: {
+        activePlanRevision: planRevision,
+        applyMission: {
+          proposalId,
+          proposalRevision: 0,
+          baseTreeHash,
+          operationId: executionIdentity.correlationId,
+          candidateIdentity: `${proposalId}:${candidateTreeHash}`,
+          baseRevision,
+          candidateTreeHash,
+          changeSetHash,
+          requirement,
+        },
+      },
+      createdAt: now, updatedAt: now,
+    });
+    await db.insert(aiGoalsTable).values({
+      id: goalId, missionId, projectId: fixture.projectId, title: "Apply",
+      status: "waiting_for_event", blockedReason: "apply_changes_pending",
+      nextAction: { kind: "wait", reason: "event", wakeAt: null },
+      successCriteria: {
+        stepId: "apply-changes",
+        applyRequirement: requirement,
+        planRevision: plan,
+      },
+      outcomeContract: {
+        stepId: "apply-changes",
+        applyRequirement: requirement,
+        candidateIdentity: `${proposalId}:${candidateTreeHash}`,
+        planRevision: plan,
+      },
+      createdAt: now, updatedAt: now,
+    });
+    await db.insert(aiGoalsTable).values({
+      id: reportGoalId,
+      missionId,
+      projectId: fixture.projectId,
+      title: "Report applied changes",
+      status: "waiting_for_event",
+      blockedReason: "dependencies_pending",
+      nextAction: { kind: "wait", reason: "event", wakeAt: null },
+      successCriteria: { stepId: "report-applied", planRevision: plan },
+      outcomeContract: { stepId: "report-applied", planRevision: plan },
+      createdAt: now,
+      updatedAt: now,
+    });
+    await db.insert(aiGoalDependenciesTable).values({
+      id: crypto.randomUUID(),
+      missionId,
+      projectId: fixture.projectId,
+      goalId: reportGoalId,
+      dependsOnGoalId: goalId,
+      planRevision,
+      createdAt: now,
+    });
+    const applyRequest = {
+      operationId: executionIdentity.operationId,
+      workspaceRoot: rootPath,
+      workspaceRevision: baseRevision,
+      validationTargetPaths: ["src/target.ts"],
+      changeSetHash,
+      applyChangesProofMode: APPLY_CHANGES_PROOF_MODE_V2,
+      proofRequired: true,
+      effectRequired: true,
+      turnIntent: "APPLY_CHANGES",
+    };
+    await db.update(aiExecutionsTable).set({
+      goalId,
+      proposalId,
+      workspaceRoot: rootPath,
+      request: JSON.stringify(applyRequest),
+    })
+      .where(eq(aiExecutionsTable.id, fixture.executionId));
+    await db.update(aiAgentEpisodesTable).set({
+      missionId,
+      goalId,
+      planRevision,
+      intentKind: "APPLY_CHANGES",
+      state: "verifying",
+      projectRevision: baseRevision,
+      worldRevision: fixture.transitionInput.parentWorldRevision,
+      verdict: null,
+      reasonCode: null,
+      closedAt: null,
+    })
+      .where(eq(aiAgentEpisodesTable.id, fixture.episodeId));
+    await db.insert(aiAgentObservationsTable).values({
+        id: beforeObservationId,
+        projectId: fixture.projectId,
+        executionId: fixture.executionId,
+        episodeId: fixture.episodeId,
+        kind: "direct_observation",
+        observationRole: "workspace.tree_hash",
+        sourceType: "direct_observation",
+        sourceId: beforeObservationId,
+        subject: `project:${fixture.projectId}`,
+        predicate: "workspace.tree_hash",
+        value: baseTreeHash,
+        valueHash: "1".repeat(64),
+        sequence: 0,
+        taskScope: "project",
+        environmentRevisionKey: `revision:${fixture.environmentRevision}`,
+        provenance: "DIRECT_OBSERVATION",
+        sourceVersion: baseTreeHash,
+        sourceRefs: [],
+        observedAt: now,
+        projectRevision: baseTreeHash,
+        environmentRevision: fixture.environmentRevision,
+        completeness: "complete",
+        freshness: "fresh",
+        environmentFreshness: "fresh",
+        evidenceRefs: ["apply-proof"],
+        createdAt: now,
+      });
+    await db.insert(aiAgentObservationsTable).values({
+        id: afterObservationId,
+        projectId: fixture.projectId,
+        executionId: fixture.executionId,
+        episodeId: fixture.episodeId,
+        kind: "direct_observation",
+        observationRole: "workspace.tree_hash",
+        sourceType: "direct_observation",
+        sourceId: afterObservationId,
+        subject: `project:${fixture.projectId}`,
+        predicate: "workspace.tree_hash",
+        value: candidateTreeHash,
+        valueHash: "2".repeat(64),
+        sequence: 1,
+        taskScope: "project",
+        environmentRevisionKey: `revision:${fixture.environmentRevision}`,
+        provenance: "DIRECT_OBSERVATION",
+        sourceVersion: candidateTreeHash,
+        sourceRefs: [],
+        observedAt: now,
+        projectRevision: candidateTreeHash,
+        environmentRevision: fixture.environmentRevision,
+        completeness: "complete",
+        freshness: "fresh",
+        environmentFreshness: "fresh",
+        evidenceRefs: ["apply-proof"],
+        createdAt: now,
+      });
+    const applyActionId = `action:${fixture.executionId}:0:apply`;
+    const beforeEvidenceRef = `apply:${fixture.executionId}:0:before`;
+    const afterEvidenceRef = `apply:${fixture.executionId}:0:after`;
+    const proofBeforeObservationId = crypto.randomUUID();
+    const proofAfterObservationId = crypto.randomUUID();
+    const applyEffect = buildApplyChangeEffectProofExpectation({
+      executionId: fixture.executionId,
+      attempt: 0,
+      proposalId,
+      candidateTreeHash,
+    });
+    const input = {
+      projectId: fixture.projectId, executionId: fixture.executionId, attempt: 0,
+      episodeId: fixture.episodeId, actionId: applyActionId,
+      effectBundleId: fixture.effectBundleId, proposalId, goalId, planRevision,
+      workerId: fixture.workerId, parentWorldRevision: fixture.transitionInput.parentWorldRevision,
+      parentFactRefs: [], beforeObservationIds: [beforeObservationId], afterObservationIds: [afterObservationId],
+      evidenceRefs: ["apply-proof"], environmentRevision: fixture.environmentRevision,
+      promotedTreeHash: candidateTreeHash,
+    };
+    let id = await createPendingApplyChangesTransition(input);
+    expect(await createPendingApplyChangesTransition(input)).toBe(id);
+    await expect(createPendingApplyChangesTransition({
+      ...input, parentFactRefs: ["different"],
+    })).rejects.toThrow("apply_transition_idempotency_conflict");
+    await expect(createPendingApplyChangesTransition({ ...input, goalId: "" }))
+      .rejects.toThrow("apply_transition_goal_required");
+
+    const proofObservationBase = {
+      projectId: fixture.projectId,
+      executionId: fixture.executionId,
+      episodeId: fixture.episodeId,
+      kind: "direct_observation" as const,
+      observationRole: "workspace.tree_hash",
+      sourceType: "direct_observation",
+      subject: `project:${candidateIdentity}`,
+      predicate: "workspace.tree_hash",
+      taskScope: "project",
+      environmentRevisionKey: `revision:${fixture.environmentRevision}`,
+      provenance: "DIRECT_OBSERVATION" as const,
+      sourceVersion: baseRevision,
+      sourceRefs: [],
+      observedAt: now,
+      projectRevision: baseRevision,
+      environmentRevision: fixture.environmentRevision,
+      completeness: "complete" as const,
+      freshness: "fresh" as const,
+      environmentFreshness: "fresh" as const,
+      createdAt: now,
+    };
+    await db.insert(aiAgentObservationsTable).values([
+      {
+        ...proofObservationBase,
+        id: proofBeforeObservationId,
+        sourceId: `${beforeEvidenceRef}:tree`,
+        value: baseTreeHash,
+        valueHash: canonicalJsonHash(baseTreeHash),
+        sequence: 2,
+        evidenceRefs: [beforeEvidenceRef],
+      },
+      {
+        ...proofObservationBase,
+        id: proofAfterObservationId,
+        sourceId: `${afterEvidenceRef}:tree`,
+        value: candidateTreeHash,
+        valueHash: canonicalJsonHash(candidateTreeHash),
+        sequence: 3,
+        evidenceRefs: [afterEvidenceRef],
+      },
+    ]);
+    const applyAction = buildApplyChangeAction({
+      actionId: applyActionId,
+      episodeId: fixture.episodeId,
+      projectId: fixture.projectId,
+      operationId: executionIdentity.correlationId,
+      proposalId,
+      attemptId: executionIdentity.operationId,
+      sourceRevision: baseRevision,
+      baseTreeHash,
+      candidateTreeHash,
+      changeSetHash,
+      approvedPaths: ["src/target.ts"],
+    });
+    if (!executionIdentity.userId || !executionIdentity.leaseUntil) {
+      throw new Error("Apply proof v2 fixture requires a claimed execution owner and lease.");
+    }
+    const worldTransitionIntent = buildApplyChangesWorldTransitionIntent({
+      projectId: fixture.projectId,
+      proposalId,
+      goalId,
+      planRevision,
+      parentWorldRevision: input.parentWorldRevision,
+      parentFactRefs: input.parentFactRefs,
+    });
+    const proposalChangesHash = canonicalJsonHash([]);
+    const approvedPathsHash = canonicalJsonHash(["src/target.ts"]);
+    const authorizationDecision = buildApplyAuthorizationDecision({
+      schemaVersion: 1,
+      decision: "ALLOW",
+      actorUserId: executionIdentity.userId,
+      projectId: fixture.projectId,
+      projectOwnerId: executionIdentity.userId,
+      proposalId,
+      proposalRevision: 0,
+      executionId: fixture.executionId,
+      attempt: 0,
+      capabilityId: applyAction.capabilityId,
+      approvedPathsHash,
+      proposalChangesHash,
+      changeSetHash,
+    });
+    let applyJournalSequence = 1;
+    const appendV2ApplyJournal = async <
+      TStage extends
+        | "APPLY_AUTHORIZATION_DECISION"
+        | "APPLY_APPROVED_SUBSET"
+        | "APPLY_VALIDATION_PASSED"
+        | "APPLY_CANDIDATE_STABLE"
+        | "APPLY_EXECUTION_LEASE"
+        | "APPLY_PARENT_SNAPSHOT",
+    >(
+      stage: TStage,
+      stagePayload: Record<string, unknown>,
+    ) => {
+      const id = crypto.randomUUID();
+      const payload = {
+        operationId: executionIdentity.correlationId!,
+        baseRevision,
+        baseTreeHash,
+        candidateTreeHash,
+        treeDigestVersion: DELIVERY_TREE_DIGEST_VERSION,
+        changeSetHash,
+        promotedTreeHash: candidateTreeHash,
+        ...stagePayload,
+      };
+      const contentHash = canonicalJsonHash(payload as Parameters<typeof canonicalJsonHash>[0]);
+      await db.insert(aiApplyJournalTable).values({
+        id,
+        operationId: executionIdentity.correlationId!,
+        attemptId: executionIdentity.operationId!,
+        projectId: fixture.projectId,
+        proposalId,
+        stage,
+        sequence: applyJournalSequence++,
+        payload,
+        createdAt: new Date(),
+      });
+      return {
+        kind: "APPLY_JOURNAL" as const,
+        id,
+        stage,
+        contentHash,
+      };
+    };
+    const authorizationJournalRef = await appendV2ApplyJournal(
+      "APPLY_AUTHORIZATION_DECISION",
+      {
+        authorizationDecision,
+        proposalEligibility: {
+          proposalId,
+          status: "pending",
+          approvalRequired: false,
+          revision: 0,
+        },
+        projectOwnerId: executionIdentity.userId,
+        actorUserId: executionIdentity.userId,
+      },
+    );
+    const subsetJournalRef = await appendV2ApplyJournal(
+      "APPLY_APPROVED_SUBSET",
+      {
+        proposalId,
+        proposalRevision: 0,
+        proposalChangesHash,
+        approvedPathsHash,
+        changeSetHash,
+        submittedChangeSetHash: changeSetHash,
+        subsetAuthorized: true,
+      },
+    );
+    const validationReceipt = {
+      profile: "workspace-typecheck",
+      status: "passed",
+      evidence: {
+        evidenceId: "apply-v2-validation-evidence",
+        artifactRef: "validation:apply-v2:workspace-typecheck",
+        observedAt: now.toISOString(),
+        operationId: executionIdentity.correlationId,
+        projectRevision: baseRevision,
+        baseTreeHash,
+        candidateHash: candidateTreeHash,
+        changeSetHash,
+        treeDigestVersion: DELIVERY_TREE_DIGEST_VERSION,
+      },
+    };
+    const validationJournalRef = await appendV2ApplyJournal(
+      "APPLY_VALIDATION_PASSED",
+      {
+        allPassed: true,
+        validationReceipts: [validationReceipt],
+        baseTreeHash,
+        candidateTreeHash,
+        changeSetHash,
+        treeDigestVersion: DELIVERY_TREE_DIGEST_VERSION,
+      },
+    );
+    const stabilityJournalRef = await appendV2ApplyJournal(
+      "APPLY_CANDIDATE_STABLE",
+      {
+        candidateHashAfterValidation: candidateTreeHash,
+        candidateHashBeforePromotion: candidateTreeHash,
+        liveRootHashBeforePromotion: baseTreeHash,
+        baseTreeHash,
+        candidateTreeHash,
+        candidateStable: true,
+        liveRootBaseMatched: true,
+      },
+    );
+    const leaseObservedAt = new Date();
+    const leaseJournalRef = await appendV2ApplyJournal(
+      "APPLY_EXECUTION_LEASE",
+      {
+        executionId: fixture.executionId,
+        attempt: 0,
+        userId: executionIdentity.userId,
+        workerId: fixture.workerId,
+        leaseUntil: executionIdentity.leaseUntil.toISOString(),
+        observedAt: leaseObservedAt.toISOString(),
+      },
+    );
+    const parentJournalRef = await appendV2ApplyJournal(
+      "APPLY_PARENT_SNAPSHOT",
+      {
+        missionId,
+        goalId,
+        worldTransitionIntent,
+      },
+    );
+    const preconditionReceipt = buildApplyPreconditionReceipt({
+      schemaVersion: 1,
+      actionId: applyActionId,
+      executionId: fixture.executionId,
+      attempt: 0,
+      planRevision,
+      parentWorldRevision: input.parentWorldRevision,
+      checks: [
+        {
+          id: "PROJECT_OWNER_MATCHED",
+          outcome: "SATISFIED",
+          reference: authorizationJournalRef,
+        },
+        {
+          id: "PROPOSAL_ELIGIBLE",
+          outcome: "SATISFIED",
+          reference: authorizationJournalRef,
+        },
+        {
+          id: "EXACT_APPROVED_SUBSET",
+          outcome: "SATISFIED",
+          reference: subsetJournalRef,
+        },
+        {
+          id: "CANDIDATE_VALIDATION_PASSED",
+          outcome: "SATISFIED",
+          reference: validationJournalRef,
+        },
+        {
+          id: "CANDIDATE_STABLE",
+          outcome: "SATISFIED",
+          reference: stabilityJournalRef,
+        },
+        {
+          id: "LIVE_ROOT_BASE_MATCHED",
+          outcome: "SATISFIED",
+          reference: stabilityJournalRef,
+        },
+        {
+          id: "EXECUTION_LEASE_OWNED",
+          outcome: "SATISFIED",
+          reference: leaseJournalRef,
+        },
+        {
+          id: "MISSION_PARENT_SNAPSHOT_BOUND",
+          outcome: "SATISFIED",
+          reference: parentJournalRef,
+        },
+      ],
+    });
+    await appendEpisodeEvent({
+      projectId: fixture.projectId,
+      executionId: fixture.executionId,
+      attempt: 0,
+      episodeId: fixture.episodeId,
+      workerId: fixture.workerId,
+      eventType: "ACTION_REQUESTED",
+      actorType: "worker",
+      actorId: fixture.workerId,
+      correlationId: executionIdentity.operationId,
+      payload: {
+        action: applyAction,
+        actionId: applyActionId,
+        capabilityId: APPLY_CHANGE_CAPABILITY_ID,
+        expectedEffects: applyAction.expectedEffects,
+        effectContract: applyEffect.contract,
+        worldTransitionIntent,
+        authorizationDecision,
+        preconditionReceipt,
+      },
+    });
+    await appendEpisodeEvent({
+      projectId: fixture.projectId,
+      executionId: fixture.executionId,
+      attempt: 0,
+      episodeId: fixture.episodeId,
+      workerId: fixture.workerId,
+      eventType: "ACTION_COMMITTED",
+      payload: {
+        actionId: applyActionId,
+        status: "promoted",
+        afterTreeHash: candidateTreeHash,
+      },
+    });
+    const applyEffectId = crypto.randomUUID();
+    await db.insert(aiAgentEffectsTable).values({
+      id: applyEffectId,
+      projectId: fixture.projectId,
+      executionId: fixture.executionId,
+      episodeId: fixture.episodeId,
+      attempt: 0,
+      actionId: input.actionId,
+      capabilityId: APPLY_CHANGE_CAPABILITY_ID,
+      effectContractHash: applyEffect.effectContractHash,
+      beforeObservationIds: [proofBeforeObservationId],
+      afterObservationIds: [proofAfterObservationId],
+      expectedEffects: applyEffect.contract.expectedStateChanges,
+      status: "observed",
+      missingEffects: [],
+      contradictionRefs: [],
+      evidenceRefs: [beforeEvidenceRef, afterEvidenceRef],
+      createdAt: new Date(),
+    });
+    await db.update(aiAgentEffectBundlesTable).set({
+      effectIds: [applyEffectId],
+      effectContractHashes: [applyEffect.effectContractHash],
+      verdict: "OBSERVED",
+    }).where(eq(aiAgentEffectBundlesTable.id, fixture.effectBundleId));
+
+    const acceptanceInput = {
+      executionId: fixture.executionId,
+      expectedAttempt: 0,
+      workerId: fixture.workerId,
+      finalizationKey: `final:${fixture.executionId}`,
+      outcome: "SUCCEEDED" as const,
+      terminalStatus: "completed" as const,
+      reasonCode: "CANONICAL_PROOF_PROVEN",
+      recoveryState: "NONE" as const,
+      effectRequired: true,
+      effectBundleId: fixture.effectBundleId,
+      workspaceRoot: rootPath,
+      sourceRevision: baseRevision,
+      candidateIdentity,
+      proposalId,
+    };
+    const [requestedApplyEvent] = await db.select().from(aiAgentEpisodeEventsTable).where(and(
+      eq(aiAgentEpisodeEventsTable.episodeId, fixture.episodeId),
+      eq(aiAgentEpisodeEventsTable.eventType, "ACTION_REQUESTED"),
+    )).limit(1);
+    if (!requestedApplyEvent) throw new Error("Apply proof v2 Action event is missing.");
+    const originalActionPayload = requestedApplyEvent.payload as Record<string, unknown>;
+    const originalPreconditionReceipt =
+      originalActionPayload.preconditionReceipt as ApplyPreconditionReceipt;
+    const replaceActionPayload = async (payload: Record<string, unknown>) => {
+      await db.update(aiAgentEpisodeEventsTable).set({
+        payload: payload as typeof requestedApplyEvent.payload,
+        payloadHash: hashEpisodeEventPayload(payload),
+      }).where(eq(aiAgentEpisodeEventsTable.id, requestedApplyEvent.id));
+    };
+    const rejectionInput = (suffix: string) => ({
+      ...acceptanceInput,
+      finalizationKey: `${acceptanceInput.finalizationKey}:reject:${suffix}`,
+    });
+    const rebindPreconditionReceipt = (
+      checks: typeof originalPreconditionReceipt.checks,
+      overrides: Partial<Pick<
+        typeof originalPreconditionReceipt,
+        "planRevision" | "parentWorldRevision"
+      >> = {},
+    ) => {
+      const { receiptHash: _oldHash, ...body } = originalPreconditionReceipt;
+      const nextBody = { ...body, ...overrides, checks };
+      return {
+        ...nextBody,
+        receiptHash: canonicalJsonHash(
+          nextBody as Parameters<typeof canonicalJsonHash>[0],
+        ),
+      };
+    };
+
+    const [authorizationJournalRow] = await db.select().from(aiApplyJournalTable)
+      .where(eq(aiApplyJournalTable.id, authorizationJournalRef.id)).limit(1);
+    if (!authorizationJournalRow) throw new Error("Apply authorization Journal row is missing.");
+    const originalAuthorizationJournalPayload = authorizationJournalRow.payload;
+    const authorizationBody = (({ decisionHash: _decisionHash, ...body }) => body)(authorizationDecision);
+    const replaceAuthorizationDecision = async (nextDecision: typeof authorizationDecision) => {
+      const nextJournalPayload = {
+        ...originalAuthorizationJournalPayload,
+        authorizationDecision: nextDecision,
+      };
+      const nextJournalHash = canonicalJsonHash(
+        nextJournalPayload as Parameters<typeof canonicalJsonHash>[0],
+      );
+      await db.update(aiApplyJournalTable).set({ payload: nextJournalPayload })
+        .where(eq(aiApplyJournalTable.id, authorizationJournalRow.id));
+      const nextChecks = originalPreconditionReceipt.checks.map((check) =>
+        check.id === "PROJECT_OWNER_MATCHED" || check.id === "PROPOSAL_ELIGIBLE"
+          ? { ...check, reference: { ...check.reference, contentHash: nextJournalHash } }
+          : check,
+      );
+      await replaceActionPayload({
+        ...originalActionPayload,
+        authorizationDecision: nextDecision,
+        preconditionReceipt: rebindPreconditionReceipt(nextChecks),
+      });
+    };
+
+    // A structurally valid decision for a different actor/project-owner pair
+    // cannot become current authorization by recomputing the inner and outer hashes.
+    const wrongActorDecision = buildApplyAuthorizationDecision({
+      ...authorizationBody,
+      actorUserId: "different-project-owner",
+      projectOwnerId: "different-project-owner",
+    });
+    await replaceAuthorizationDecision(wrongActorDecision);
+    await expect(finalizeExecutionAcceptance(rejectionInput("authorization-identity")))
+      .resolves.toMatchObject({ accepted: false });
+    await db.update(aiApplyJournalTable).set({
+      payload: originalAuthorizationJournalPayload,
+    }).where(eq(aiApplyJournalTable.id, authorizationJournalRow.id));
+    await replaceActionPayload(originalActionPayload);
+
+    // A validly re-hashed authorization for a different path set must not bind
+    // to the actual immutable Execution scope.
+    const wrongPathDecision = buildApplyAuthorizationDecision({
+      ...authorizationBody,
+      approvedPathsHash: canonicalJsonHash(["src/not-approved.ts"]),
+    });
+    await replaceAuthorizationDecision(wrongPathDecision);
+    await expect(finalizeExecutionAcceptance(rejectionInput("authorization-paths")))
+      .resolves.toMatchObject({ accepted: false });
+    await db.update(aiApplyJournalTable).set({
+      payload: originalAuthorizationJournalPayload,
+    }).where(eq(aiApplyJournalTable.id, authorizationJournalRow.id));
+    await replaceActionPayload(originalActionPayload);
+
+    // A currently different Proposal revision must invalidate the v2 proof,
+    // even when the event, action, and journal rows remain unchanged.
+    await db.update(aiChangeProposalsTable).set({ revision: 1 })
+      .where(eq(aiChangeProposalsTable.id, proposalId));
+    await expect(finalizeExecutionAcceptance(rejectionInput("proposal-revision")))
+      .resolves.toMatchObject({ accepted: false });
+    await db.update(aiChangeProposalsTable).set({ revision: 0 })
+      .where(eq(aiChangeProposalsTable.id, proposalId));
+
+    // The v2 request binds the effective change-set digest independently of
+    // the Action payload; a mismatched durable request must fail closed.
+    await db.update(aiExecutionsTable).set({
+      request: JSON.stringify({ ...applyRequest, changeSetHash: "f".repeat(64) }),
+    }).where(eq(aiExecutionsTable.id, fixture.executionId));
+    await expect(finalizeExecutionAcceptance(rejectionInput("request-change-set")))
+      .resolves.toMatchObject({ accepted: false });
+    await db.update(aiExecutionsTable).set({
+      request: JSON.stringify(applyRequest),
+    }).where(eq(aiExecutionsTable.id, fixture.executionId));
+
+    // Missing required preconditions cannot be smuggled through by recomputing
+    // the receipt and outer event hashes: the bounded schema rejects the gap.
+    const incompleteChecks = originalPreconditionReceipt.checks
+      .filter((check) => check.id !== "CANDIDATE_VALIDATION_PASSED");
+    await replaceActionPayload({
+      ...originalActionPayload,
+      preconditionReceipt: rebindPreconditionReceipt(incompleteChecks),
+    });
+    await expect(finalizeExecutionAcceptance(rejectionInput("missing-precondition")))
+      .resolves.toMatchObject({ accepted: false });
+    await replaceActionPayload(originalActionPayload);
+
+    // A Mission-linked execution cannot remove its parent snapshot and remain
+    // provable, even when the attacker recomputes a valid seven-check receipt.
+    const missionFreeChecks = originalPreconditionReceipt.checks
+      .filter((check) => check.id !== "MISSION_PARENT_SNAPSHOT_BOUND");
+    const missionFreeReceipt = buildApplyPreconditionReceipt({
+      schemaVersion: 1,
+      actionId: originalPreconditionReceipt.actionId,
+      executionId: originalPreconditionReceipt.executionId,
+      attempt: originalPreconditionReceipt.attempt,
+      checks: missionFreeChecks,
+    });
+    const {
+      worldTransitionIntent: _worldTransitionIntent,
+      ...actionWithoutWorldIntent
+    } = originalActionPayload;
+    await replaceActionPayload({
+      ...actionWithoutWorldIntent,
+      preconditionReceipt: missionFreeReceipt,
+    });
+    await expect(finalizeExecutionAcceptance(rejectionInput("missing-mission-parent-snapshot")))
+      .resolves.toMatchObject({ accepted: false });
+    await replaceActionPayload(originalActionPayload);
+
+    // A stale/unavailable validation receipt still fails when every enclosing
+    // content hash is made internally consistent.
+    const [validationJournalRow] = await db.select().from(aiApplyJournalTable)
+      .where(eq(aiApplyJournalTable.id, validationJournalRef.id)).limit(1);
+    if (!validationJournalRow) throw new Error("Apply validation Journal row is missing.");
+    const originalValidationPayload = validationJournalRow.payload;
+    const originalValidationReceipts = Array.isArray(originalValidationPayload.validationReceipts)
+      ? originalValidationPayload.validationReceipts
+      : [];
+    const validationJournalPayload = {
+      ...originalValidationPayload,
+      validationReceipts: [{
+        ...(originalValidationReceipts[0] as Record<string, unknown> | undefined),
+        status: "unavailable",
+      }],
+    };
+    const validationJournalHash = canonicalJsonHash(
+      validationJournalPayload as Parameters<typeof canonicalJsonHash>[0],
+    );
+    await db.update(aiApplyJournalTable).set({ payload: validationJournalPayload })
+      .where(eq(aiApplyJournalTable.id, validationJournalRow.id));
+    const unavailableValidationChecks = originalPreconditionReceipt.checks.map((check) =>
+      check.id === "CANDIDATE_VALIDATION_PASSED"
+        ? { ...check, reference: { ...check.reference, contentHash: validationJournalHash } }
+        : check,
+    );
+    await replaceActionPayload({
+      ...originalActionPayload,
+      preconditionReceipt: rebindPreconditionReceipt(unavailableValidationChecks),
+    });
+    await expect(finalizeExecutionAcceptance(rejectionInput("unavailable-validation")))
+      .resolves.toMatchObject({ accepted: false });
+    await db.update(aiApplyJournalTable).set({ payload: originalValidationPayload })
+      .where(eq(aiApplyJournalTable.id, validationJournalRow.id));
+    await replaceActionPayload(originalActionPayload);
+
+    // A passing result from the wrong project revision is stale, even if its
+    // receipt and Journal digests are recomputed consistently.
+    const staleValidationEvidence = {
+      ...(originalValidationReceipts[0] as Record<string, unknown>),
+      evidence: {
+        ...((originalValidationReceipts[0] as Record<string, unknown>).evidence as Record<string, unknown>),
+        projectRevision: "f".repeat(64),
+      },
+    };
+    const staleValidationPayload = {
+      ...originalValidationPayload,
+      validationReceipts: [staleValidationEvidence],
+    };
+    const staleValidationHash = canonicalJsonHash(
+      staleValidationPayload as Parameters<typeof canonicalJsonHash>[0],
+    );
+    await db.update(aiApplyJournalTable).set({ payload: staleValidationPayload })
+      .where(eq(aiApplyJournalTable.id, validationJournalRow.id));
+    const staleValidationChecks = originalPreconditionReceipt.checks.map((check) =>
+      check.id === "CANDIDATE_VALIDATION_PASSED"
+        ? { ...check, reference: { ...check.reference, contentHash: staleValidationHash } }
+        : check,
+    );
+    await replaceActionPayload({
+      ...originalActionPayload,
+      preconditionReceipt: rebindPreconditionReceipt(staleValidationChecks),
+    });
+    await expect(finalizeExecutionAcceptance(rejectionInput("stale-validation-revision")))
+      .resolves.toMatchObject({ accepted: false });
+    await db.update(aiApplyJournalTable).set({ payload: originalValidationPayload })
+      .where(eq(aiApplyJournalTable.id, validationJournalRow.id));
+    await replaceActionPayload(originalActionPayload);
+
+    // Even with a valid receipt hash and a matching Journal content digest,
+    // an execution lease assigned to a different worker cannot authorize this Action.
+    const leaseCheck = originalPreconditionReceipt.checks.find((check) =>
+      check.id === "EXECUTION_LEASE_OWNED"
+    );
+    if (!leaseCheck) throw new Error("Apply lease precondition is missing from the fixture.");
+    const [leaseJournalRow] = await db.select().from(aiApplyJournalTable)
+      .where(eq(aiApplyJournalTable.id, leaseCheck.reference.id)).limit(1);
+    if (!leaseJournalRow) throw new Error("Apply lease Journal row is missing.");
+    const originalLeasePayload = leaseJournalRow.payload;
+    const mismatchedLeasePayload = {
+      ...originalLeasePayload,
+      workerId: "different-apply-worker",
+    };
+    const mismatchedLeaseHash = canonicalJsonHash(
+      mismatchedLeasePayload as Parameters<typeof canonicalJsonHash>[0],
+    );
+    await db.update(aiApplyJournalTable).set({ payload: mismatchedLeasePayload })
+      .where(eq(aiApplyJournalTable.id, leaseJournalRow.id));
+    const mismatchedLeaseChecks = originalPreconditionReceipt.checks.map((check) =>
+      check.id === "EXECUTION_LEASE_OWNED"
+        ? { ...check, reference: { ...check.reference, contentHash: mismatchedLeaseHash } }
+        : check,
+    );
+    await replaceActionPayload({
+      ...originalActionPayload,
+      preconditionReceipt: rebindPreconditionReceipt(mismatchedLeaseChecks),
+    });
+    await expect(finalizeExecutionAcceptance(rejectionInput("lease-worker-mismatch")))
+      .resolves.toMatchObject({ accepted: false });
+    await db.update(aiApplyJournalTable).set({ payload: originalLeasePayload })
+      .where(eq(aiApplyJournalTable.id, leaseJournalRow.id));
+    await replaceActionPayload(originalActionPayload);
+
+    // The valid v2 envelope must be accepted after the rejected variants are restored.
+    const initialAcceptance = await finalizeExecutionAcceptance(acceptanceInput);
+    expect(initialAcceptance).toMatchObject({ accepted: true, duplicate: false });
+    const acceptedSnapshotId = initialAcceptance.acceptance?.evidenceSnapshotId;
+    if (!acceptedSnapshotId) {
+      throw new Error("Accepted Apply proof v2 did not persist an evidence snapshot.");
+    }
+    const [acceptedSnapshot] = await db.select()
+      .from(aiExecutionEvidenceSnapshotsTable)
+      .where(eq(aiExecutionEvidenceSnapshotsTable.id, acceptedSnapshotId))
+      .limit(1);
+    const acceptedApplyArtifact = Array.isArray(acceptedSnapshot?.artifactRefs)
+      ? acceptedSnapshot.artifactRefs.find((artifact) => (
+          artifact && typeof artifact === "object" && !Array.isArray(artifact)
+          && (artifact as Record<string, unknown>).kind === "apply_changes"
+        ))
+      : undefined;
+    expect(acceptedApplyArtifact).toMatchObject({
+      kind: "apply_changes",
+      version: 2,
+      authorizationDecisionHash: authorizationDecision.decisionHash,
+      preconditionReceiptHash: preconditionReceipt.receiptHash,
+      preconditionJournalIds: [...new Set(
+        preconditionReceipt.checks.map((check) => check.reference.id),
+      )].sort(),
+    });
+
+    // These are the route's independent direct observations used to reconstruct
+    // the transition. The effect proof observations above remain separately bound.
+    const liveTreeObservationBase = {
+      projectId: fixture.projectId,
+      executionId: fixture.executionId,
+      episodeId: fixture.episodeId,
+      kind: "direct_observation" as const,
+      observationRole: "before",
+      sourceType: "direct_observation",
+      subject: `project:${fixture.projectId}`,
+      predicate: "workspace.tree_hash",
+      taskScope: "project",
+      environmentRevisionKey: `revision:${fixture.environmentRevision}`,
+      provenance: "DIRECT_OBSERVATION" as const,
+      sourceRefs: [],
+      observedAt: now,
+      completeness: "complete" as const,
+      freshness: "fresh" as const,
+      environmentFreshness: "fresh" as const,
+      environmentRevision: fixture.environmentRevision,
+      evidenceRefs: ["apply-proof"],
+      createdAt: now,
+    };
+    const liveBeforeObservationId = crypto.randomUUID();
+    const liveAfterObservationId = crypto.randomUUID();
+    await db.insert(aiAgentObservationsTable).values([
+      {
+        ...liveTreeObservationBase,
+        id: liveBeforeObservationId,
+        sourceId: `apply:${fixture.executionId}:0:before:live-tree`,
+        value: baseTreeHash,
+        valueHash: canonicalJsonHash(baseTreeHash),
+        sourceVersion: baseTreeHash,
+        projectRevision: baseTreeHash,
+        observationRole: "before",
+        sequence: 4,
+      },
+      {
+        ...liveTreeObservationBase,
+        id: liveAfterObservationId,
+        sourceId: `apply:${fixture.executionId}:0:after:live-tree`,
+        value: candidateTreeHash,
+        valueHash: canonicalJsonHash(candidateTreeHash),
+        sourceVersion: candidateTreeHash,
+        projectRevision: candidateTreeHash,
+        observationRole: "after",
+        sequence: 5,
+      },
+    ]);
+
+    // Simulate the precise crash gap: Apply is accepted, but its pending
+    // World Transition row is absent. Recovery must reuse the original intent.
+    await db.delete(aiWorldTransitionsTable).where(eq(aiWorldTransitionsTable.id, id));
+    const recoveryInput = {
+      projectId: fixture.projectId,
+      executionId: fixture.executionId,
+      attempt: 0,
+      episodeId: fixture.episodeId,
+      actionId: input.actionId,
+      proposalId,
+    };
+
+    // Reproduce the real D2 failure projection: the missing transition has
+    // already moved this exact Goal and Mission to needs_replan.
+    await db.update(aiGoalsTable).set({
+      status: "needs_replan",
+      blockedReason: "apply_transition_missing",
+      nextWakeAt: null,
+      updatedAt: now,
+    }).where(eq(aiGoalsTable.id, goalId));
+    await db.update(aiMissionsTable).set({
+      status: "needs_replan",
+      updatedAt: now,
+    }).where(eq(aiMissionsTable.id, missionId));
+
+    // A legacy or damaged Action event without the immutable intent must not
+    // reconstruct a new parent from current World State.
+    const [requestedEvent] = await db.select().from(aiAgentEpisodeEventsTable).where(and(
+      eq(aiAgentEpisodeEventsTable.episodeId, fixture.episodeId),
+      eq(aiAgentEpisodeEventsTable.eventType, "ACTION_REQUESTED"),
+    )).limit(1);
+    if (!requestedEvent) throw new Error("Apply ACTION_REQUESTED event was not persisted.");
+    const originalRequestedPayload = requestedEvent.payload as Record<string, unknown>;
+    const payloadWithoutIntent = { ...originalRequestedPayload };
+    delete payloadWithoutIntent.worldTransitionIntent;
+    await db.update(aiAgentEpisodeEventsTable).set({
+      payload: payloadWithoutIntent as typeof requestedEvent.payload,
+      payloadHash: hashEpisodeEventPayload(payloadWithoutIntent),
+    }).where(eq(aiAgentEpisodeEventsTable.id, requestedEvent.id));
+    await expect(recoverAcceptedApplyChangesTransition(recoveryInput)).resolves.toMatchObject({
+      kind: "blocked",
+      reason: "apply_recovery_parent_intent_missing_or_invalid",
+    });
+    await db.update(aiAgentEpisodeEventsTable).set({
+      payload: originalRequestedPayload as typeof requestedEvent.payload,
+      payloadHash: hashEpisodeEventPayload(originalRequestedPayload),
+    }).where(eq(aiAgentEpisodeEventsTable.id, requestedEvent.id));
+
+    // A changed authoritative parent is also non-recoverable. The test fact is
+    // deliberately outside the originating Episode so the exact production
+    // projection sees it as an intervening World State change.
+    const parentDriftFactId = crypto.randomUUID();
+    const parentDriftValue = { source: "apply-recovery-parent-drift-test" };
+    await db.insert(aiWorldFactsTable).values({
+      id: parentDriftFactId,
+      projectId: fixture.projectId,
+      taskScope: "project",
+      environmentRevisionKey: "unknown",
+      subject: `project:${fixture.projectId}`,
+      predicate: "test.apply_recovery_parent_drift",
+      value: parentDriftValue,
+      valueHash: hashBoundedAgentStateJson(parentDriftValue, AGENT_STATE_LIMITS.observationValueBytes),
+      version: 1,
+      status: "confirmed",
+      sourceObservationIds: [],
+      projectRevision: baseRevision,
+      environmentRevision: null,
+      environmentFreshness: "unknown",
+      supersedesFactId: null,
+      createdAt: now,
+      updatedAt: now,
+    });
+    await expect(recoverAcceptedApplyChangesTransition(recoveryInput)).resolves.toMatchObject({
+      kind: "blocked",
+      reason: "apply_recovery_parent_snapshot_changed",
+    });
+    await db.delete(aiWorldFactsTable).where(eq(aiWorldFactsTable.id, parentDriftFactId));
+
+    await expect(recoverAcceptedApplyChangesTransition({
+      ...recoveryInput,
+      attempt: 1,
+    })).resolves.toMatchObject({
+      kind: "blocked",
+      reason: "apply_recovery_episode_scope_missing",
+    });
+
+    // The ACTION_REQUESTED action identity is part of the immutable attempt
+    // binding; recovery must not select a different action from the same Episode.
+    const originalAction = originalRequestedPayload.action as Record<string, unknown>;
+    const payloadWithWrongAction = {
+      ...originalRequestedPayload,
+      action: { ...originalAction, actionId: "tampered-action-id" },
+    };
+    await db.update(aiAgentEpisodeEventsTable).set({
+      payload: payloadWithWrongAction as typeof requestedEvent.payload,
+      payloadHash: hashEpisodeEventPayload(payloadWithWrongAction),
+    }).where(eq(aiAgentEpisodeEventsTable.id, requestedEvent.id));
+    await expect(recoverAcceptedApplyChangesTransition(recoveryInput)).resolves.toMatchObject({
+      kind: "blocked",
+      reason: "apply_recovery_action_event_missing_or_ambiguous",
+    });
+    await db.update(aiAgentEpisodeEventsTable).set({
+      payload: originalRequestedPayload as typeof requestedEvent.payload,
+      payloadHash: hashEpisodeEventPayload(originalRequestedPayload),
+    }).where(eq(aiAgentEpisodeEventsTable.id, requestedEvent.id));
+
+    // A well-formed but different plan digest must not be silently rebased.
+    const originalIntent = originalRequestedPayload.worldTransitionIntent as Record<string, unknown>;
+    const wrongPlanRevision = "9".repeat(64);
+    const payloadWithWrongPlan = {
+      ...originalRequestedPayload,
+      worldTransitionIntent: { ...originalIntent, planRevision: wrongPlanRevision },
+      preconditionReceipt: rebindPreconditionReceipt(
+        originalPreconditionReceipt.checks,
+        { planRevision: wrongPlanRevision },
+      ),
+    };
+    await db.update(aiAgentEpisodeEventsTable).set({
+      payload: payloadWithWrongPlan as typeof requestedEvent.payload,
+      payloadHash: hashEpisodeEventPayload(payloadWithWrongPlan),
+    }).where(eq(aiAgentEpisodeEventsTable.id, requestedEvent.id));
+    await expect(recoverAcceptedApplyChangesTransition(recoveryInput)).resolves.toMatchObject({
+      kind: "blocked",
+      reason: "apply_recovery_action_or_intent_binding_invalid",
+    });
+    await db.update(aiAgentEpisodeEventsTable).set({
+      payload: originalRequestedPayload as typeof requestedEvent.payload,
+      payloadHash: hashEpisodeEventPayload(originalRequestedPayload),
+    }).where(eq(aiAgentEpisodeEventsTable.id, requestedEvent.id));
+
+    // Direct observations must remain fresh and share the same environment revision.
+    await db.update(aiAgentObservationsTable).set({ freshness: "stale" })
+      .where(eq(aiAgentObservationsTable.id, liveAfterObservationId));
+    await expect(recoverAcceptedApplyChangesTransition(recoveryInput)).resolves.toMatchObject({
+      kind: "blocked",
+      reason: "apply_recovery_world_observation_binding_invalid",
+    });
+    await db.update(aiAgentObservationsTable).set({ freshness: "fresh" })
+      .where(eq(aiAgentObservationsTable.id, liveAfterObservationId));
+
+    await db.update(aiAgentObservationsTable).set({
+      sourceId: "apply:" + fixture.executionId + ":0:after:missing-observation-test",
+    }).where(eq(aiAgentObservationsTable.id, liveAfterObservationId));
+    await expect(recoverAcceptedApplyChangesTransition(recoveryInput)).resolves.toMatchObject({
+      kind: "blocked",
+      reason: "apply_recovery_world_observations_missing_or_ambiguous",
+    });
+    await db.update(aiAgentObservationsTable).set({
+      sourceId: "apply:" + fixture.executionId + ":0:after:live-tree",
+    }).where(eq(aiAgentObservationsTable.id, liveAfterObservationId));
+
+    await db.update(aiAgentObservationsTable).set({ provenance: "DERIVED" })
+      .where(eq(aiAgentObservationsTable.id, liveAfterObservationId));
+    await expect(recoverAcceptedApplyChangesTransition(recoveryInput)).resolves.toMatchObject({
+      kind: "blocked",
+      reason: "apply_recovery_world_observation_binding_invalid",
+    });
+    await db.update(aiAgentObservationsTable).set({ provenance: "DIRECT_OBSERVATION" })
+      .where(eq(aiAgentObservationsTable.id, liveAfterObservationId));
+
+    await db.update(aiAgentObservationsTable).set({
+      environmentRevision: "env-v1:" + "d".repeat(64),
+    }).where(eq(aiAgentObservationsTable.id, liveAfterObservationId));
+    await expect(recoverAcceptedApplyChangesTransition(recoveryInput)).resolves.toMatchObject({
+      kind: "blocked",
+      reason: "apply_recovery_world_observation_binding_invalid",
+    });
+    await db.update(aiAgentObservationsTable).set({
+      environmentRevision: fixture.environmentRevision,
+    }).where(eq(aiAgentObservationsTable.id, liveAfterObservationId));
+
+    // A candidate hash in persisted evidence is insufficient if the live tree drifted.
+    await writeFile(promotedFile, "export const value = 'tampered';\n");
+    await expect(recoverAcceptedApplyChangesTransition(recoveryInput)).resolves.toMatchObject({
+      kind: "blocked",
+      reason: "apply_recovery_live_tree_mismatch",
+    });
+    await writeFile(promotedFile, "export const value = 'after';\n");
+
+    // Hold the Project row lock before either recovery starts. Both recovery
+    // calls must reach PostgreSQL on separate backend sessions and wait on this
+    // same lock; this proves the race is not merely Promise scheduling inside
+    // one connection or a same-process mock.
+    let announceProjectLockAcquired!: () => void;
+    const projectLockAcquired = new Promise<void>((resolve) => {
+      announceProjectLockAcquired = resolve;
+    });
+    let releaseProjectLock!: () => void;
+    const projectLockRelease = new Promise<void>((resolve) => {
+      releaseProjectLock = resolve;
+    });
+    let projectLockHolderPid = 0;
+    const projectLockTransaction = db.transaction(async (tx) => {
+      const [lockedProject] = await tx.select({ id: projectsTable.id })
+        .from(projectsTable)
+        .where(eq(projectsTable.id, fixture.projectId))
+        .for("update")
+        .limit(1);
+      if (!lockedProject) throw new Error("Apply recovery concurrency fixture Project is missing.");
+      const backend = await tx.execute(sql`SELECT pg_backend_pid() AS pid`);
+      projectLockHolderPid = Number(backend.rows[0]?.pid);
+      if (!Number.isSafeInteger(projectLockHolderPid) || projectLockHolderPid <= 0) {
+        throw new Error("Could not identify the PostgreSQL backend holding the Apply recovery Project lock.");
+      }
+      announceProjectLockAcquired();
+      await projectLockRelease;
+    });
+    await Promise.race([
+      projectLockAcquired,
+      projectLockTransaction.then(() => {
+        throw new Error("Apply recovery Project-lock holder exited before acquiring its lock.");
+      }),
+    ]);
+
+    let recoveryResults: Awaited<ReturnType<typeof recoverAcceptedApplyChangesTransition>>[] = [];
+    const recoveryDatabaseUrl = requireRuntimeTransitionDisposableDatabaseUrl();
+    const recoveryApplicationNames = [
+      `apply-recovery-a-${crypto.randomUUID().slice(0, 12)}`,
+      `apply-recovery-b-${crypto.randomUUID().slice(0, 12)}`,
+    ] as const;
+    const recoveryProcesses: RuntimeTransitionApiProcess[] = [];
+    try {
+      // Each worker is a separate Node process with its own node-postgres Pool.
+      // This avoids mistaking a same-process call queue for a database race.
+      recoveryProcesses.push(
+        startApplyRecoveryProcess(recoveryDatabaseUrl, recoveryApplicationNames[0], recoveryInput),
+        startApplyRecoveryProcess(recoveryDatabaseUrl, recoveryApplicationNames[1], recoveryInput),
+      );
+      const recoverySessionPids = await waitForApplyRecoveryProcessLockWaiters(
+        projectLockHolderPid,
+        recoveryApplicationNames,
+        recoveryProcesses,
+      );
+      expect(recoverySessionPids).toHaveLength(2);
+      expect(new Set(recoverySessionPids).size).toBe(2);
+
+      // Releasing the Project lock lets PostgreSQL serialize two independent
+      // processes through the production recovery transaction and lock order.
+      releaseProjectLock();
+      await Promise.all(recoveryProcesses.map((worker) => worker.exit));
+      recoveryResults = recoveryProcesses.map(readApplyRecoveryProcessResult);
+    } finally {
+      releaseProjectLock();
+      await projectLockTransaction;
+      // Drain or terminate both independent workers before fixture cleanup.
+      await Promise.all(recoveryProcesses.map(async (worker) => {
+        const exited = await Promise.race([
+          worker.exit.then(() => true),
+          new Promise<false>((resolve) => setTimeout(() => resolve(false), 10_000)),
+        ]);
+        if (!exited && worker.child.exitCode === null && worker.child.signalCode === null) {
+          worker.child.kill("SIGKILL");
+          await worker.exit;
+        }
+      }));
+    }
+    expect(
+      recoveryResults.map((result) => result.kind).sort(),
+      JSON.stringify(recoveryResults),
+    ).toEqual(["created", "existing"]);
+    const recovered = recoveryResults.find((result) => result.kind === "created");
+    const replayed = recoveryResults.find((result) => result.kind === "existing");
+    if (recovered?.kind !== "created" || replayed?.kind !== "existing") {
+      throw new Error(`Expected one create and one idempotent replay, got ${JSON.stringify(recoveryResults)}`);
+    }
+    expect(replayed.transitionId).toBe(recovered.transitionId);
+    const recoveredTransitions = await db.select({
+      id: aiWorldTransitionsTable.id,
+    }).from(aiWorldTransitionsTable).where(and(
+      eq(aiWorldTransitionsTable.projectId, fixture.projectId),
+      eq(aiWorldTransitionsTable.executionId, fixture.executionId),
+      eq(aiWorldTransitionsTable.attempt, 0),
+      eq(aiWorldTransitionsTable.episodeId, fixture.episodeId),
+      eq(aiWorldTransitionsTable.actionId, input.actionId),
+    ));
+    expect(recoveredTransitions.map((transition) => transition.id)).toEqual([recovered.transitionId]);
+    id = recovered.transitionId;
+    const [recoveredGoal] = await db.select().from(aiGoalsTable).where(eq(aiGoalsTable.id, goalId));
+    const [recoveredMission] = await db.select().from(aiMissionsTable).where(eq(aiMissionsTable.id, missionId));
+    const [waitingSuccessor] = await db.select().from(aiGoalsTable).where(eq(aiGoalsTable.id, reportGoalId));
+    expect(recoveredGoal).toMatchObject({
+      status: "waiting_for_event",
+      blockedReason: "apply_changes_pending",
+    });
+    expect(recoveredMission?.status).toBe("waiting");
+    expect(waitingSuccessor).toMatchObject({
+      status: "waiting_for_event",
+      blockedReason: "dependencies_pending",
+    });
+    expect(await readFile(promotedFile, "utf8")).toBe("export const value = 'after';\n");
+
+    const finalizeInput = {
+      projectId: fixture.projectId,
+      executionId: fixture.executionId,
+      attempt: 0,
+      episodeId: fixture.episodeId,
+      actionId: input.actionId,
+      effectBundleId: fixture.effectBundleId,
+    };
+    let announceMaterializerReady!: () => void;
+    const materializerReady = new Promise<void>((resolve) => {
+      announceMaterializerReady = resolve;
+    });
+    let releaseMaterializer!: () => void;
+    const materializerRelease = new Promise<void>((resolve) => {
+      releaseMaterializer = resolve;
+    });
+    let announceBundleLocked!: () => void;
+    const bundleLocked = new Promise<void>((resolve) => {
+      announceBundleLocked = resolve;
+    });
+    let releaseBundleBlocker!: () => void;
+    const bundleBlockerRelease = new Promise<void>((resolve) => {
+      releaseBundleBlocker = resolve;
+    });
+    const materializationErrors: unknown[] = [];
+    const originalMaterializer = worldStateModule.materializeWorldStateForProject;
+    const materializer = vi.spyOn(worldStateModule, "materializeWorldStateForProject")
+      .mockImplementation(async (projectId, options, beforeCommit) => {
+        try {
+          return await originalMaterializer(projectId, options, async (tx, result) => {
+            announceMaterializerReady();
+            await materializerRelease;
+            await beforeCommit?.(tx, result);
+          });
+        } catch (error) {
+          materializationErrors.push(error);
+          throw error;
+        }
+      });
+
+    const pending: Promise<unknown>[] = [];
+    let transitionWorker: ReturnType<typeof finalizeApplyChangesTransition> | undefined;
+    let duplicateAcceptance: ReturnType<typeof finalizeExecutionAcceptance> | undefined;
+    try {
+      const bundleBlocker = db.transaction(async (tx) => {
+        await tx.select({ id: aiAgentEffectBundlesTable.id })
+          .from(aiAgentEffectBundlesTable)
+          .where(eq(aiAgentEffectBundlesTable.id, fixture.effectBundleId))
+          .for("update");
+        announceBundleLocked();
+        await bundleBlockerRelease;
+      });
+      pending.push(bundleBlocker);
+      await bundleLocked;
+
+      transitionWorker = finalizeApplyChangesTransition(finalizeInput);
+      pending.push(transitionWorker);
+      await materializerReady;
+      duplicateAcceptance = finalizeExecutionAcceptance(acceptanceInput);
+      pending.push(duplicateAcceptance);
+      const acceptanceWaitedOn = await waitForLockWaiter(["ai_agent_effect_bundles"]);
+      expect(acceptanceWaitedOn).toBe("ai_agent_effect_bundles");
+
+      releaseMaterializer();
+      const workerWaitedOn = await waitForLockWaiter([
+        "ai_executions",
+        "ai_agent_episodes",
+      ]);
+      releaseBundleBlocker();
+      const outcomes = await Promise.allSettled(pending);
+      const deadlockCodes = [
+        ...outcomes.flatMap((outcome) =>
+          outcome.status === "rejected" ? postgresErrorCodes(outcome.reason) : [],
+        ),
+        ...materializationErrors.flatMap(postgresErrorCodes),
+      ].filter((code) => code === "40P01");
+      expect(workerWaitedOn).toBe("ai_executions");
+      expect(deadlockCodes).toEqual([]);
+      expect(outcomes.map((outcome) => outcome.status)).toEqual([
+        "fulfilled",
+        "fulfilled",
+        "fulfilled",
+      ]);
+    } finally {
+      releaseMaterializer();
+      releaseBundleBlocker();
+      await Promise.allSettled(pending);
+    }
+
+    if (!transitionWorker || !duplicateAcceptance) {
+      throw new Error("Apply acceptance/materializer overlap did not start.");
+    }
+    const finalized = await transitionWorker;
+    expect(finalized.status).toBe("materialized");
+    expect(await duplicateAcceptance).toMatchObject({
+      accepted: true,
+      duplicate: true,
+    });
+
+    // D2 advances episode.worldRevision to the resulting World State revision.
+    // The original parent remains bound by the immutable Apply Journal intent,
+    // so reloading the already accepted proof must still be idempotently valid.
+    await expect(finalizeExecutionAcceptance(acceptanceInput)).resolves.toMatchObject({
+      accepted: true,
+      duplicate: true,
+    });
+    const acceptances = await db.select({
+      id: aiExecutionAcceptancesTable.id,
+      finalizationKey: aiExecutionAcceptancesTable.finalizationKey,
+    }).from(aiExecutionAcceptancesTable)
+      .where(and(
+        eq(aiExecutionAcceptancesTable.executionId, fixture.executionId),
+        eq(aiExecutionAcceptancesTable.attempt, 0),
+      ));
+    expect(acceptances).toHaveLength(1);
+    expect(acceptances[0]?.id).toBe(initialAcceptance.acceptance?.id);
+    const concurrentReplays = await Promise.all([
+      finalizeApplyChangesTransition(finalizeInput),
+      finalizeApplyChangesTransition(finalizeInput),
+    ]);
+    expect(concurrentReplays.every((result) =>
+      result.status === "materialized" || result.status === "pending",
+    )).toBe(true);
+    expect(concurrentReplays.some((result) => result.status === "materialized")).toBe(true);
+    expect(materializer).toHaveBeenCalledTimes(1);
+    const [materializedTransition] = await db.select({
+      changedFactRefs: aiWorldTransitionsTable.changedFactRefs,
+    }).from(aiWorldTransitionsTable)
+      .where(eq(aiWorldTransitionsTable.id, id));
+    const materializedFacts = await db.select({
+      id: aiWorldFactsTable.id,
+      sourceObservationIds: aiWorldFactsTable.sourceObservationIds,
+    }).from(aiWorldFactsTable)
+      .where(eq(aiWorldFactsTable.projectId, fixture.projectId));
+    const transitionObservationIds = new Set<string>([liveBeforeObservationId, liveAfterObservationId]);
+    const expectedChangedFactRefs = materializedFacts
+      .filter((fact) => Array.isArray(fact.sourceObservationIds)
+        && fact.sourceObservationIds.some((observationId: unknown) => (
+          typeof observationId === "string" && transitionObservationIds.has(observationId)
+        )))
+      .map((fact) => fact.id)
+      .sort((left, right) => left.localeCompare(right));
+    const changedFactRefs = materializedTransition?.changedFactRefs;
+    const actualChangedFactRefs = Array.isArray(changedFactRefs)
+      ? changedFactRefs
+        .filter((factRef: unknown): factRef is string => typeof factRef === "string")
+        .sort((left, right) => left.localeCompare(right))
+      : [];
+    expect(expectedChangedFactRefs.length).toBeGreaterThan(0);
+    expect(actualChangedFactRefs).toEqual(expectedChangedFactRefs);
+    expect(materializedFacts.some((fact) =>
+      Array.isArray(fact.sourceObservationIds)
+      && fact.sourceObservationIds.includes(liveAfterObservationId)
+      && actualChangedFactRefs.includes(fact.id)
+    )).toBe(true);
+
+    const [mission] = await db.select().from(aiMissionsTable).where(eq(aiMissionsTable.id, missionId));
+    const [goal] = await db.select().from(aiGoalsTable).where(eq(aiGoalsTable.id, goalId));
+    const criteria = goal?.successCriteria as {
+      planRevision?: { steps?: Array<{ id?: string; dependencies?: string[] }> };
+    };
+    const outcome = goal?.outcomeContract as { candidateIdentity?: string };
+    expect(criteria.planRevision?.steps).toHaveLength(2);
+    expect(criteria.planRevision?.steps?.map((step) => step.id).sort())
+      .toEqual(["apply-changes", "report-applied"]);
+    expect(criteria.planRevision?.steps?.find((step) => step.id === "report-applied")?.dependencies)
+      .toContain("apply-changes");
+    expect(GoalNextActionSchema.safeParse(goal?.nextAction).success).toBe(true);
+    expect(outcome.candidateIdentity).toBe(`${proposalId}:${candidateTreeHash}`);
+    const evaluation = await db.transaction((tx) => evaluateApplyChangesD2(tx, {
+      goal: goal!,
+      mission: mission!,
+      activePlanRevision: planRevision,
+    }));
+    expect(evaluation, `D2 fixture: ${JSON.stringify({
+      evaluation,
+      successCriteria: goal?.successCriteria,
+      outcomeContract: goal?.outcomeContract,
+      nextAction: goal?.nextAction,
+      autonomyPolicy: mission?.autonomyPolicy,
+    })}`).toMatchObject({
+      state: "proven",
+      executionId: fixture.executionId,
+      transitionId: id,
+      effectBundleId: fixture.effectBundleId,
+      requirement,
+      planRevision,
+      candidateIdentity: `${proposalId}:${candidateTreeHash}`,
+    });
+
+    const factsBeforeRetry = await db.select({ id: aiWorldFactsTable.id })
+      .from(aiWorldFactsTable).where(eq(aiWorldFactsTable.projectId, fixture.projectId));
+    await expect(finalizeApplyChangesTransition(finalizeInput)).resolves.toMatchObject({
+      status: "materialized",
+      worldRevision: finalized.worldRevision,
+    });
+    const factsAfterRetry = await db.select({ id: aiWorldFactsTable.id })
+      .from(aiWorldFactsTable).where(eq(aiWorldFactsTable.projectId, fixture.projectId));
+    expect(factsAfterRetry).toEqual(factsBeforeRetry);
+
+    // Re-enter the production Mission wake path only after the recovered
+    // transition has materialized. The Apply Goal must complete from D2 proof,
+    // while its dependent report Goal advances through its own waiting action.
+    expect(await wakeApplyChangesMissionGoals(16, fixture.projectId)).toBe(1);
+    expect(await wakeApplyChangesMissionGoals(16, fixture.projectId)).toBe(0);
+    const [completedApplyGoal] = await db.select({
+      status: aiGoalsTable.status,
+      blockedReason: aiGoalsTable.blockedReason,
+    }).from(aiGoalsTable).where(eq(aiGoalsTable.id, goalId));
+    const [continuedReportGoal] = await db.select({
+      status: aiGoalsTable.status,
+      blockedReason: aiGoalsTable.blockedReason,
+    }).from(aiGoalsTable).where(eq(aiGoalsTable.id, reportGoalId));
+    const [continuedMission] = await db.select({
+      status: aiMissionsTable.status,
+    }).from(aiMissionsTable).where(eq(aiMissionsTable.id, missionId));
+    expect(completedApplyGoal).toEqual({ status: "completed", blockedReason: null });
+    expect(continuedReportGoal).toEqual({ status: "waiting_for_event", blockedReason: null });
+    expect(continuedMission?.status).toBe("waiting");
+    const finalAcceptances = await db.select({
+      id: aiExecutionAcceptancesTable.id,
+      outcome: aiExecutionAcceptancesTable.outcome,
+      effectBundleId: aiExecutionAcceptancesTable.effectBundleId,
+    }).from(aiExecutionAcceptancesTable).where(and(
+      eq(aiExecutionAcceptancesTable.executionId, fixture.executionId),
+      eq(aiExecutionAcceptancesTable.attempt, 0),
+    ));
+    expect(finalAcceptances).toHaveLength(1);
+    expect(finalAcceptances[0]).toMatchObject({
+      id: initialAcceptance.acceptance?.id,
+      outcome: "SUCCEEDED",
+      effectBundleId: fixture.effectBundleId,
+    });
+    expect(await readFile(promotedFile, "utf8")).toBe("export const value = 'after';\n");
+  });
+
+  it("leaves an active transition pending without consuming retries before acceptance", async () => {
+    const fixture = await transitionFixture({ accepted: false });
+
+    expect(await retryPendingRuntimeStartTransitions(1)).toBe(1);
+    const [transition] = await db.select({
+      status: aiWorldTransitionsTable.status,
+      retryCount: aiWorldTransitionsTable.retryCount,
+      failureCode: aiWorldTransitionsTable.failureCode,
+      nextRetryAt: aiWorldTransitionsTable.nextRetryAt,
+    }).from(aiWorldTransitionsTable)
+      .where(eq(aiWorldTransitionsTable.id, fixture.transitionId));
+
+    expect(transition).toMatchObject({
+      status: "pending",
+      retryCount: 0,
+      failureCode: null,
+      nextRetryAt: null,
+    });
+  });
+
+  it("fails explicitly when execution ends without a successful acceptance", async () => {
+    const fixture = await transitionFixture({ accepted: false });
+    const now = new Date();
+    await db.update(aiExecutionsTable)
+      .set({ status: "failed", completedAt: now, updatedAt: now })
+      .where(eq(aiExecutionsTable.id, fixture.executionId));
+
+    expect(await retryPendingRuntimeStartTransitions(1)).toBe(1);
+    const [transition] = await db.select({
+      status: aiWorldTransitionsTable.status,
+      failureCode: aiWorldTransitionsTable.failureCode,
+      retryCount: aiWorldTransitionsTable.retryCount,
+      nextRetryAt: aiWorldTransitionsTable.nextRetryAt,
+    }).from(aiWorldTransitionsTable)
+      .where(eq(aiWorldTransitionsTable.id, fixture.transitionId));
+
+    expect(transition).toMatchObject({
+      status: "terminal_failed",
+      failureCode: "runtime_start_transition_acceptance_missing",
+      retryCount: 0,
+      nextRetryAt: null,
+    });
+  });
+
+  it("fails closed when acceptance is not bound to the transition EffectBundle", async () => {
+    const fixture = await transitionFixture();
+    await db.update(aiExecutionAcceptancesTable)
+      .set({ effectBundleId: null })
+      .where(eq(aiExecutionAcceptancesTable.executionId, fixture.executionId));
+
+    expect(await retryPendingRuntimeStartTransitions(1)).toBe(1);
+    const [transition] = await db.select({
+      status: aiWorldTransitionsTable.status,
+      failureCode: aiWorldTransitionsTable.failureCode,
+      retryCount: aiWorldTransitionsTable.retryCount,
+    }).from(aiWorldTransitionsTable)
+      .where(eq(aiWorldTransitionsTable.id, fixture.transitionId));
+
+    expect(transition).toMatchObject({
+      status: "terminal_failed",
+      failureCode: "runtime_start_transition_acceptance_effect_bundle_mismatch",
+      retryCount: 0,
+    });
+  });
+
+  it("resumes transition processing after the active execution is accepted", async () => {
+    const fixture = await transitionFixture({ accepted: false });
+    expect(await retryPendingRuntimeStartTransitions(1)).toBe(1);
+    await acceptTransitionFixture(fixture);
+
+    expect(await retryPendingRuntimeStartTransitions(1)).toBe(1);
+    const [transition] = await db.select({
+      status: aiWorldTransitionsTable.status,
+      failureCode: aiWorldTransitionsTable.failureCode,
+    }).from(aiWorldTransitionsTable)
+      .where(eq(aiWorldTransitionsTable.id, fixture.transitionId));
+
+    // The fixture intentionally lacks direct before/after observation rows;
+    // reaching this failure proves the accepted transition passed the wait gate.
+    expect(transition).toMatchObject({
+      status: "terminal_failed",
+      failureCode: "runtime_start_transition_observations_incomplete",
+    });
+  });
+
+  it("returns the same transition for an identical retry", async () => {
+    const fixture = await transitionFixture({ accepted: false });
+
+    await expect(createPendingRuntimeStartTransition(fixture.transitionInput))
+      .resolves.toBe(fixture.transitionId);
+  });
+
+  it.each([
+    ["environmentRevision", { environmentRevision: `env-v1:${"e".repeat(64)}` }],
+    ["parentFactRefs", { parentFactRefs: ["fact:different"] }],
+    ["evidenceRefs", { evidenceRefs: ["evidence:different"] }],
+  ] as const)("rejects an idempotency retry with changed %s", async (_field, changed) => {
+    const fixture = await transitionFixture({ accepted: false });
+
+    await expect(createPendingRuntimeStartTransition({
+      ...fixture.transitionInput,
+      ...changed,
+    })).rejects.toThrow("runtime_start_transition_idempotency_conflict");
+  });
+
+  it("does not claim a pending transition before its backoff is due", async () => {
+    const fixture = await transitionFixture();
+    const nextRetryAt = new Date(Date.now() + 60_000);
+    await db.update(aiWorldTransitionsTable)
+      .set({ status: "retrying", nextRetryAt, retryCount: 1 })
+      .where(eq(aiWorldTransitionsTable.id, fixture.transitionId));
+
+    expect(await retryPendingRuntimeStartTransitions()).toBe(0);
+    const [transition] = await db.select({
+      status: aiWorldTransitionsTable.status,
+      retryCount: aiWorldTransitionsTable.retryCount,
+      nextRetryAt: aiWorldTransitionsTable.nextRetryAt,
+    }).from(aiWorldTransitionsTable)
+      .where(eq(aiWorldTransitionsTable.id, fixture.transitionId));
+    expect(transition).toMatchObject({
+      status: "retrying",
+      retryCount: 1,
+      nextRetryAt,
+    });
+  });
+
+  it("serializes concurrent runtime.start claims and D2 successor dispatch", async () => {
+    const fixture = await transitionFixture({ missionHandoff: true });
+    const mission = fixture.missionHandoff;
+    if (!mission) throw new Error("Mission handoff fixture was not created.");
+    await insertValidRuntimeStartObservations(fixture);
+    const materializer = vi.spyOn(worldStateModule, "materializeWorldStateForProject");
+    const finalizeInput = {
+      projectId: fixture.projectId,
+      executionId: fixture.executionId,
+      attempt: 0,
+      episodeId: fixture.episodeId,
+      actionId: fixture.transitionInput.actionId,
+      effectBundleId: fixture.effectBundleId,
+    };
+
+    const finalizations = await Promise.all([
+      finalizeRuntimeStartTransition(finalizeInput),
+      finalizeRuntimeStartTransition(finalizeInput),
+    ]);
+    expect(finalizations.every((result) =>
+      result.status === "materialized" || result.status === "pending",
+    )).toBe(true);
+    expect(finalizations.some((result) => result.status === "materialized")).toBe(true);
+    expect(materializer).toHaveBeenCalledTimes(1);
+
+    const [transition] = await db.select({
+      status: aiWorldTransitionsTable.status,
+    }).from(aiWorldTransitionsTable)
+      .where(eq(aiWorldTransitionsTable.id, fixture.transitionId));
+    expect(transition?.status).toBe("materialized");
+
+    const enqueue = vi.spyOn(heavyJobQueue, "enqueueWithId").mockReturnValue(true);
+    const wakeCounts = await Promise.all([
+      wakeRuntimeTransitionMissionGoals(),
+      wakeRuntimeTransitionMissionGoals(),
+    ]);
+    expect(wakeCounts.reduce((total, count) => total + count, 0)).toBe(1);
+    expect(enqueue).toHaveBeenCalledTimes(1);
+    const dispatches = await db.select({
+      id: eventsTable.id,
+    }).from(eventsTable).where(and(
+      eq(eventsTable.projectId, fixture.projectId),
+      eq(eventsTable.goalId, mission.targetGoalId),
+      eq(eventsTable.type, "AiGoalRecipeDispatchRequested"),
+    ));
+    expect(dispatches).toHaveLength(1);
+  });
+
+  it("recovers a persisted accepted transition through the startup dispatcher before releasing D2", async () => {
+    const fixture = await transitionFixture({ missionHandoff: true });
+    const mission = fixture.missionHandoff;
+    if (!mission) throw new Error("Mission handoff fixture was not created.");
+    await insertValidRuntimeStartObservations(fixture);
+    const enqueue = vi.spyOn(heavyJobQueue, "enqueueWithId").mockReturnValue(true);
+    const dispatcher = startDurableJobDispatcher();
+    let status: string | undefined;
+    let dispatchCount = 0;
+
+    try {
+      const deadline = Date.now() + 20_000;
+      while (Date.now() < deadline) {
+        const [transition] = await db.select({
+          status: aiWorldTransitionsTable.status,
+        }).from(aiWorldTransitionsTable)
+          .where(eq(aiWorldTransitionsTable.id, fixture.transitionId));
+        status = transition?.status;
+        const dispatches = await db.select({
+          id: eventsTable.id,
+        }).from(eventsTable).where(and(
+          eq(eventsTable.projectId, fixture.projectId),
+          eq(eventsTable.goalId, mission.targetGoalId),
+          eq(eventsTable.type, "AiGoalRecipeDispatchRequested"),
+        ));
+        dispatchCount = dispatches.length;
+        if (status === "materialized" && dispatchCount > 0 && enqueue.mock.calls.length > 0) break;
+        await new Promise((resolve) => setTimeout(resolve, 100));
+      }
+      await new Promise((resolve) => setTimeout(resolve, 100));
+      const dispatches = await db.select({
+        id: eventsTable.id,
+      }).from(eventsTable).where(and(
+        eq(eventsTable.projectId, fixture.projectId),
+        eq(eventsTable.goalId, mission.targetGoalId),
+        eq(eventsTable.type, "AiGoalRecipeDispatchRequested"),
+      ));
+      dispatchCount = dispatches.length;
+      expect(status).toBe("materialized");
+      expect(dispatchCount).toBe(1);
+      expect(enqueue).toHaveBeenCalledTimes(1);
+    } finally {
+      clearInterval(dispatcher);
+    }
+  });
+
+  it.skipIf(process.env.RUN_RUNTIME_MISSION_STARTUP_RECOVERY !== "1")(
+    "recovers a persisted Mission acceptance and World Transition through full API startup",
+    async () => {
+      const databaseUrl = requireRuntimeTransitionDisposableDatabaseUrl();
+      const fixture = await transitionFixture({ missionHandoff: true });
+      const mission = fixture.missionHandoff;
+      if (!mission) throw new Error("Mission handoff fixture was not created.");
+      await insertValidRuntimeStartObservations(fixture);
+
+      const isolatedRoot = await mkdtemp(
+        path.join(os.tmpdir(), "runtime-transition-api-startup-"),
+      );
+      createdWorkspaceRoots.push(isolatedRoot);
+      await db.update(projectsTable)
+        .set({ rootPath: path.join(isolatedRoot, "unavailable-project-root") })
+        .where(eq(projectsTable.id, fixture.projectId));
+
+      const port = await reserveRuntimeTransitionApiPort();
+      const applicationName = `runtime-transition-startup-${crypto.randomUUID().slice(0, 12)}`;
+      let api: RuntimeTransitionApiProcess | undefined;
+      try {
+        api = startRuntimeTransitionApiProcess(databaseUrl, applicationName, port);
+        await waitForRuntimeTransitionApiReady(api, port);
+        expect(api.output()).toContain("RUNTIME_START_TRANSITION_INDEX_IMPORTED");
+
+        let transitionStatus: string | undefined;
+        let dispatchCount = 0;
+        const deadline = Date.now() + 45_000;
+        while (Date.now() < deadline) {
+          if (api.child.exitCode !== null || api.child.signalCode !== null) {
+            throw new Error(`Runtime transition API exited during durable recovery; ${api.output()}`);
+          }
+          const [transition] = await db.select({
+            status: aiWorldTransitionsTable.status,
+          }).from(aiWorldTransitionsTable)
+            .where(eq(aiWorldTransitionsTable.id, fixture.transitionId));
+          transitionStatus = transition?.status;
+          const dispatches = await db.select({
+            id: eventsTable.id,
+          }).from(eventsTable).where(and(
+            eq(eventsTable.projectId, fixture.projectId),
+            eq(eventsTable.goalId, mission.targetGoalId),
+            eq(eventsTable.type, "AiGoalRecipeDispatchRequested"),
+          ));
+          dispatchCount = dispatches.length;
+          if (transitionStatus === "materialized" && dispatchCount > 0) break;
+          await new Promise((resolve) => setTimeout(resolve, 100));
+        }
+
+        await new Promise((resolve) => setTimeout(resolve, 250));
+        const [transition] = await db.select({
+          status: aiWorldTransitionsTable.status,
+          projectId: aiWorldTransitionsTable.projectId,
+          executionId: aiWorldTransitionsTable.executionId,
+          attempt: aiWorldTransitionsTable.attempt,
+          effectBundleId: aiWorldTransitionsTable.effectBundleId,
+        }).from(aiWorldTransitionsTable)
+          .where(eq(aiWorldTransitionsTable.id, fixture.transitionId));
+        const dispatches = await db.select({
+          id: eventsTable.id,
+        }).from(eventsTable).where(and(
+          eq(eventsTable.projectId, fixture.projectId),
+          eq(eventsTable.goalId, mission.targetGoalId),
+          eq(eventsTable.type, "AiGoalRecipeDispatchRequested"),
+        ));
+        const [acceptance] = await db.select({
+          attempt: aiExecutionAcceptancesTable.attempt,
+          operationId: aiExecutionAcceptancesTable.operationId,
+          outcome: aiExecutionAcceptancesTable.outcome,
+          reasonCode: aiExecutionAcceptancesTable.reasonCode,
+          effectBundleId: aiExecutionAcceptancesTable.effectBundleId,
+        }).from(aiExecutionAcceptancesTable).where(and(
+          eq(aiExecutionAcceptancesTable.executionId, fixture.executionId),
+          eq(aiExecutionAcceptancesTable.attempt, 0),
+        ));
+
+        expect(transitionStatus).toBe("materialized");
+        expect(transition).toMatchObject({
+          status: "materialized",
+          projectId: fixture.projectId,
+          executionId: fixture.executionId,
+          attempt: 0,
+          effectBundleId: fixture.effectBundleId,
+        });
+        expect(acceptance).toMatchObject({
+          attempt: 0,
+          operationId: fixture.operationId,
+          outcome: "SUCCEEDED",
+          reasonCode: "CANONICAL_PROOF_PROVEN",
+          effectBundleId: fixture.effectBundleId,
+        });
+        expect(dispatchCount).toBe(1);
+        expect(dispatches).toHaveLength(1);
+      } finally {
+        if (api) await stopRuntimeTransitionApiProcess(api);
+      }
+    },
+    240_000,
+  );
+
+  it.skipIf(process.env.RUN_RUNTIME_MISSION_STARTUP_CRASH_RECOVERY !== "1")(
+    "recovers a persisted Mission acceptance after API SIGKILL blocks transition materialization",
+    async () => {
+      const databaseUrl = requireRuntimeTransitionDisposableDatabaseUrl();
+      const fixture = await transitionFixture({ missionHandoff: true });
+      const mission = fixture.missionHandoff;
+      if (!mission) throw new Error("Mission handoff fixture was not created.");
+      await insertValidRuntimeStartObservations(fixture);
+
+      const isolatedRoot = await mkdtemp(
+        path.join(os.tmpdir(), "runtime-transition-api-crash-"),
+      );
+      createdWorkspaceRoots.push(isolatedRoot);
+      await db.update(projectsTable)
+        .set({ rootPath: path.join(isolatedRoot, "unavailable-project-root") })
+        .where(eq(projectsTable.id, fixture.projectId));
+
+      let releaseTransitionLock!: () => void;
+      let resolveTransitionLocked!: () => void;
+      let transitionLockReleased = false;
+      const transitionLockReleasedPromise = new Promise<void>((resolve) => {
+        releaseTransitionLock = resolve;
+      });
+      const transitionLocked = new Promise<void>((resolve) => {
+        resolveTransitionLocked = resolve;
+      });
+      const transitionLockTransaction = db.transaction(async (tx) => {
+        await tx.execute(sql`
+          SELECT id
+          FROM ai_world_transitions
+          WHERE id = ${fixture.transitionId}
+          FOR UPDATE
+        `);
+        resolveTransitionLocked();
+        await transitionLockReleasedPromise;
+      });
+      const releaseLock = () => {
+        if (transitionLockReleased) return;
+        transitionLockReleased = true;
+        releaseTransitionLock();
+      };
+      const lockReady = Promise.race([
+        transitionLocked,
+        transitionLockTransaction.then(() => {
+          throw new Error("Runtime transition row lock ended before the crash test released it.");
+        }),
+      ]);
+
+      const firstPort = await reserveRuntimeTransitionApiPort();
+      const firstApplicationName = `runtime-transition-crash-${crypto.randomUUID().slice(0, 12)}`;
+      const replacementPort = await reserveRuntimeTransitionApiPort();
+      const replacementApplicationName = `runtime-transition-recovery-${crypto.randomUUID().slice(0, 12)}`;
+      let crashedApi: RuntimeTransitionApiProcess | undefined;
+      let replacementApi: RuntimeTransitionApiProcess | undefined;
+      try {
+        await lockReady;
+        crashedApi = startRuntimeTransitionApiProcess(
+          databaseUrl,
+          firstApplicationName,
+          firstPort,
+        );
+        await waitForRuntimeTransitionApiLockWait(crashedApi);
+
+        crashedApi.child.kill("SIGKILL");
+        const crashedExit = await crashedApi.exit;
+        expect(crashedExit.signal).toBe("SIGKILL");
+        releaseLock();
+        await transitionLockTransaction;
+        await waitForRuntimeTransitionApiDatabaseDisconnect(firstApplicationName);
+
+        const [pendingTransition] = await db.select({
+          status: aiWorldTransitionsTable.status,
+          resultingWorldRevision: aiWorldTransitionsTable.resultingWorldRevision,
+          materializedAt: aiWorldTransitionsTable.materializedAt,
+          materializedObservationIds: aiWorldTransitionsTable.materializedObservationIds,
+        }).from(aiWorldTransitionsTable)
+          .where(eq(aiWorldTransitionsTable.id, fixture.transitionId));
+        const pendingDispatches = await db.select({
+          id: eventsTable.id,
+        }).from(eventsTable).where(and(
+          eq(eventsTable.projectId, fixture.projectId),
+          eq(eventsTable.goalId, mission.targetGoalId),
+          eq(eventsTable.type, "AiGoalRecipeDispatchRequested"),
+        ));
+        const [persistedAcceptance] = await db.select({
+          attempt: aiExecutionAcceptancesTable.attempt,
+          operationId: aiExecutionAcceptancesTable.operationId,
+          outcome: aiExecutionAcceptancesTable.outcome,
+          reasonCode: aiExecutionAcceptancesTable.reasonCode,
+          effectBundleId: aiExecutionAcceptancesTable.effectBundleId,
+        }).from(aiExecutionAcceptancesTable).where(and(
+          eq(aiExecutionAcceptancesTable.executionId, fixture.executionId),
+          eq(aiExecutionAcceptancesTable.attempt, 0),
+        ));
+
+        expect(pendingTransition).toMatchObject({
+          status: "pending",
+          resultingWorldRevision: null,
+          materializedAt: null,
+          materializedObservationIds: [],
+        });
+        expect(pendingDispatches).toHaveLength(0);
+        expect(persistedAcceptance).toMatchObject({
+          attempt: 0,
+          operationId: fixture.operationId,
+          outcome: "SUCCEEDED",
+          reasonCode: "CANONICAL_PROOF_PROVEN",
+          effectBundleId: fixture.effectBundleId,
+        });
+
+        replacementApi = startRuntimeTransitionApiProcess(
+          databaseUrl,
+          replacementApplicationName,
+          replacementPort,
+        );
+        await waitForRuntimeTransitionApiReady(replacementApi, replacementPort);
+        expect(replacementApi.output()).toContain("RUNTIME_START_TRANSITION_INDEX_IMPORTED");
+
+        let transitionStatus: string | undefined;
+        let dispatchCount = 0;
+        const recoveryDeadline = Date.now() + 60_000;
+        while (Date.now() < recoveryDeadline) {
+          if (replacementApi.child.exitCode !== null || replacementApi.child.signalCode !== null) {
+            throw new Error(`Replacement API exited during transition recovery; ${replacementApi.output()}`);
+          }
+          const [transition] = await db.select({
+            status: aiWorldTransitionsTable.status,
+          }).from(aiWorldTransitionsTable)
+            .where(eq(aiWorldTransitionsTable.id, fixture.transitionId));
+          transitionStatus = transition?.status;
+          const dispatches = await db.select({
+            id: eventsTable.id,
+          }).from(eventsTable).where(and(
+            eq(eventsTable.projectId, fixture.projectId),
+            eq(eventsTable.goalId, mission.targetGoalId),
+            eq(eventsTable.type, "AiGoalRecipeDispatchRequested"),
+          ));
+          dispatchCount = dispatches.length;
+          if (transitionStatus === "materialized" && dispatchCount > 0) break;
+          await new Promise((resolve) => setTimeout(resolve, 100));
+        }
+
+        await new Promise((resolve) => setTimeout(resolve, 250));
+        const [recoveredTransition] = await db.select({
+          status: aiWorldTransitionsTable.status,
+          projectId: aiWorldTransitionsTable.projectId,
+          executionId: aiWorldTransitionsTable.executionId,
+          attempt: aiWorldTransitionsTable.attempt,
+          effectBundleId: aiWorldTransitionsTable.effectBundleId,
+          resultingWorldRevision: aiWorldTransitionsTable.resultingWorldRevision,
+          materializedAt: aiWorldTransitionsTable.materializedAt,
+        }).from(aiWorldTransitionsTable)
+          .where(eq(aiWorldTransitionsTable.id, fixture.transitionId));
+        const recoveredDispatches = await db.select({
+          id: eventsTable.id,
+        }).from(eventsTable).where(and(
+          eq(eventsTable.projectId, fixture.projectId),
+          eq(eventsTable.goalId, mission.targetGoalId),
+          eq(eventsTable.type, "AiGoalRecipeDispatchRequested"),
+        ));
+        const [recoveredAcceptance] = await db.select({
+          attempt: aiExecutionAcceptancesTable.attempt,
+          operationId: aiExecutionAcceptancesTable.operationId,
+          outcome: aiExecutionAcceptancesTable.outcome,
+          reasonCode: aiExecutionAcceptancesTable.reasonCode,
+          effectBundleId: aiExecutionAcceptancesTable.effectBundleId,
+        }).from(aiExecutionAcceptancesTable).where(and(
+          eq(aiExecutionAcceptancesTable.executionId, fixture.executionId),
+          eq(aiExecutionAcceptancesTable.attempt, 0),
+        ));
+
+        expect(transitionStatus).toBe("materialized");
+        expect(recoveredTransition).toMatchObject({
+          status: "materialized",
+          projectId: fixture.projectId,
+          executionId: fixture.executionId,
+          attempt: 0,
+          effectBundleId: fixture.effectBundleId,
+          materializedAt: expect.any(Date),
+        });
+        expect(recoveredTransition?.resultingWorldRevision).toEqual(expect.any(String));
+        expect(recoveredAcceptance).toMatchObject({
+          attempt: 0,
+          operationId: fixture.operationId,
+          outcome: "SUCCEEDED",
+          reasonCode: "CANONICAL_PROOF_PROVEN",
+          effectBundleId: fixture.effectBundleId,
+        });
+        expect(dispatchCount).toBe(1);
+        expect(recoveredDispatches).toHaveLength(1);
+      } finally {
+        if (crashedApi) {
+          if (crashedApi.child.exitCode === null && crashedApi.child.signalCode === null) {
+            crashedApi.child.kill("SIGKILL");
+            await crashedApi.exit;
+          }
+        }
+        releaseLock();
+        await transitionLockTransaction;
+        if (crashedApi) {
+          await waitForRuntimeTransitionApiDatabaseDisconnect(firstApplicationName);
+        }
+        if (replacementApi) await stopRuntimeTransitionApiProcess(replacementApi);
+      }
+    },
+    240_000,
+  );
+
+  it.skipIf(process.env.RUN_RUNTIME_MISSION_MATERIALIZATION_CRASH_RECOVERY !== "1")(
+    "rolls back World State writes when the API is SIGKILLed inside transition materialization",
+    async () => {
+      const databaseUrl = requireRuntimeTransitionDisposableDatabaseUrl();
+      const fixture = await transitionFixture({ missionHandoff: true });
+      const mission = fixture.missionHandoff;
+      if (!mission) throw new Error("Mission handoff fixture was not created.");
+      await insertValidRuntimeStartObservations(fixture);
+      const [transitionEvidence] = await db.select({
+        beforeObservationIds: aiWorldTransitionsTable.beforeObservationIds,
+        afterObservationIds: aiWorldTransitionsTable.afterObservationIds,
+      }).from(aiWorldTransitionsTable)
+        .where(eq(aiWorldTransitionsTable.id, fixture.transitionId));
+      if (!transitionEvidence) throw new Error("Runtime transition fixture was not persisted.");
+      const linkedObservationIds = [
+        ...(Array.isArray(transitionEvidence.beforeObservationIds)
+          ? transitionEvidence.beforeObservationIds.filter((id): id is string => typeof id === "string")
+          : []),
+        ...(Array.isArray(transitionEvidence.afterObservationIds)
+          ? transitionEvidence.afterObservationIds.filter((id): id is string => typeof id === "string")
+          : []),
+      ];
+      if (linkedObservationIds.length === 0) {
+        throw new Error("Runtime transition fixture has no linked observations.");
+      }
+
+      const isolatedRoot = await mkdtemp(
+        path.join(os.tmpdir(), "runtime-transition-api-midcommit-"),
+      );
+      createdWorkspaceRoots.push(isolatedRoot);
+      await db.update(projectsTable)
+        .set({ rootPath: path.join(isolatedRoot, "unavailable-project-root") })
+        .where(eq(projectsTable.id, fixture.projectId));
+
+      const beforeFacts = await db.select({
+        id: aiWorldFactsTable.id,
+        status: aiWorldFactsTable.status,
+        sourceObservationIds: aiWorldFactsTable.sourceObservationIds,
+        updatedAt: aiWorldFactsTable.updatedAt,
+      }).from(aiWorldFactsTable)
+        .where(eq(aiWorldFactsTable.projectId, fixture.projectId));
+      const pause = await installRuntimeTransitionCommitPause(fixture.projectId);
+      const firstPort = await reserveRuntimeTransitionApiPort();
+      const firstApplicationName = `runtime-transition-midcommit-${crypto.randomUUID().slice(0, 12)}`;
+      const replacementPort = await reserveRuntimeTransitionApiPort();
+      const replacementApplicationName = `runtime-transition-midretry-${crypto.randomUUID().slice(0, 12)}`;
+      let pauseInstalled = true;
+      let crashedApi: RuntimeTransitionApiProcess | undefined;
+      let replacementApi: RuntimeTransitionApiProcess | undefined;
+      try {
+        crashedApi = startRuntimeTransitionApiProcess(
+          databaseUrl,
+          firstApplicationName,
+          firstPort,
+        );
+        await waitForRuntimeTransitionApiMaterializationSleep(crashedApi);
+
+        crashedApi.child.kill("SIGKILL");
+        const crashedExit = await crashedApi.exit;
+        expect(crashedExit.signal).toBe("SIGKILL");
+        await waitForRuntimeTransitionApiDatabaseDisconnect(firstApplicationName);
+        await dropRuntimeTransitionCommitPause(pause);
+        pauseInstalled = false;
+
+        const [afterCrashTransition] = await db.select({
+          status: aiWorldTransitionsTable.status,
+          resultingWorldRevision: aiWorldTransitionsTable.resultingWorldRevision,
+          materializedAt: aiWorldTransitionsTable.materializedAt,
+          materializedObservationIds: aiWorldTransitionsTable.materializedObservationIds,
+          nextRetryAt: aiWorldTransitionsTable.nextRetryAt,
+        }).from(aiWorldTransitionsTable)
+          .where(eq(aiWorldTransitionsTable.id, fixture.transitionId));
+        const afterCrashFacts = await db.select({
+          id: aiWorldFactsTable.id,
+          status: aiWorldFactsTable.status,
+          sourceObservationIds: aiWorldFactsTable.sourceObservationIds,
+          updatedAt: aiWorldFactsTable.updatedAt,
+        }).from(aiWorldFactsTable)
+          .where(eq(aiWorldFactsTable.projectId, fixture.projectId));
+        const factsForTransition = afterCrashFacts.filter((fact) =>
+          Array.isArray(fact.sourceObservationIds)
+          && fact.sourceObservationIds.some((id: unknown) => linkedObservationIds.includes(String(id)))
+        );
+        const crashDispatches = await db.select({
+          id: eventsTable.id,
+        }).from(eventsTable).where(and(
+          eq(eventsTable.projectId, fixture.projectId),
+          eq(eventsTable.goalId, mission.targetGoalId),
+          eq(eventsTable.type, "AiGoalRecipeDispatchRequested"),
+        ));
+        const [acceptanceAfterCrash] = await db.select({
+          attempt: aiExecutionAcceptancesTable.attempt,
+          operationId: aiExecutionAcceptancesTable.operationId,
+          outcome: aiExecutionAcceptancesTable.outcome,
+          reasonCode: aiExecutionAcceptancesTable.reasonCode,
+          effectBundleId: aiExecutionAcceptancesTable.effectBundleId,
+        }).from(aiExecutionAcceptancesTable).where(and(
+          eq(aiExecutionAcceptancesTable.executionId, fixture.executionId),
+          eq(aiExecutionAcceptancesTable.attempt, 0),
+        ));
+
+        const snapshotFacts = (rows: typeof beforeFacts) => rows
+          .map((fact) => JSON.stringify(fact))
+          .sort();
+        expect(afterCrashTransition).toMatchObject({
+          status: "retrying",
+          resultingWorldRevision: null,
+          materializedAt: null,
+          materializedObservationIds: [],
+        });
+        expect(afterCrashTransition?.nextRetryAt).toEqual(expect.any(Date));
+        expect(snapshotFacts(afterCrashFacts)).toEqual(snapshotFacts(beforeFacts));
+        expect(factsForTransition).toHaveLength(0);
+        expect(crashDispatches).toHaveLength(0);
+        expect(acceptanceAfterCrash).toMatchObject({
+          attempt: 0,
+          operationId: fixture.operationId,
+          outcome: "SUCCEEDED",
+          reasonCode: "CANONICAL_PROOF_PROVEN",
+          effectBundleId: fixture.effectBundleId,
+        });
+
+        replacementApi = startRuntimeTransitionApiProcess(
+          databaseUrl,
+          replacementApplicationName,
+          replacementPort,
+        );
+        await waitForRuntimeTransitionApiReady(replacementApi, replacementPort);
+        expect(replacementApi.output()).toContain("RUNTIME_START_TRANSITION_INDEX_IMPORTED");
+
+        let transitionStatus: string | undefined;
+        let dispatchCount = 0;
+        const recoveryDeadline = Date.now() + 120_000;
+        while (Date.now() < recoveryDeadline) {
+          if (replacementApi.child.exitCode !== null || replacementApi.child.signalCode !== null) {
+            throw new Error(`Replacement API exited during transition recovery; ${replacementApi.output()}`);
+          }
+          const [transition] = await db.select({
+            status: aiWorldTransitionsTable.status,
+          }).from(aiWorldTransitionsTable)
+            .where(eq(aiWorldTransitionsTable.id, fixture.transitionId));
+          transitionStatus = transition?.status;
+          const dispatches = await db.select({
+            id: eventsTable.id,
+          }).from(eventsTable).where(and(
+            eq(eventsTable.projectId, fixture.projectId),
+            eq(eventsTable.goalId, mission.targetGoalId),
+            eq(eventsTable.type, "AiGoalRecipeDispatchRequested"),
+          ));
+          dispatchCount = dispatches.length;
+          if (transitionStatus === "materialized" && dispatchCount > 0) break;
+          await new Promise((resolve) => setTimeout(resolve, 200));
+        }
+
+        await new Promise((resolve) => setTimeout(resolve, 250));
+        const [recoveredTransition] = await db.select({
+          status: aiWorldTransitionsTable.status,
+          resultingWorldRevision: aiWorldTransitionsTable.resultingWorldRevision,
+          materializedAt: aiWorldTransitionsTable.materializedAt,
+        }).from(aiWorldTransitionsTable)
+          .where(eq(aiWorldTransitionsTable.id, fixture.transitionId));
+        const recoveredFacts = await db.select({
+          sourceObservationIds: aiWorldFactsTable.sourceObservationIds,
+        }).from(aiWorldFactsTable)
+          .where(eq(aiWorldFactsTable.projectId, fixture.projectId));
+        const recoveredFactsForTransition = recoveredFacts.filter((fact) =>
+          Array.isArray(fact.sourceObservationIds)
+          && fact.sourceObservationIds.some((id: unknown) => linkedObservationIds.includes(String(id)))
+        );
+        const recoveredDispatches = await db.select({
+          id: eventsTable.id,
+        }).from(eventsTable).where(and(
+          eq(eventsTable.projectId, fixture.projectId),
+          eq(eventsTable.goalId, mission.targetGoalId),
+          eq(eventsTable.type, "AiGoalRecipeDispatchRequested"),
+        ));
+
+        expect(transitionStatus).toBe("materialized");
+        expect(recoveredTransition).toMatchObject({
+          status: "materialized",
+          materializedAt: expect.any(Date),
+        });
+        expect(recoveredTransition?.resultingWorldRevision).toEqual(expect.any(String));
+        expect(recoveredFactsForTransition.length).toBeGreaterThan(0);
+        expect(dispatchCount).toBe(1);
+        expect(recoveredDispatches).toHaveLength(1);
+      } finally {
+        if (crashedApi
+          && crashedApi.child.exitCode === null
+          && crashedApi.child.signalCode === null) {
+          crashedApi.child.kill("SIGKILL");
+          await crashedApi.exit;
+        }
+        if (crashedApi) {
+          await waitForRuntimeTransitionApiDatabaseDisconnect(firstApplicationName);
+        }
+        if (pauseInstalled) await dropRuntimeTransitionCommitPause(pause);
+        if (replacementApi) await stopRuntimeTransitionApiProcess(replacementApi);
+      }
+    },
+    240_000,
+  );
+
+  it("keeps Gate C acceptance when due transition projection fails", async () => {
+    const fixture = await transitionFixture();
+    expect(await retryPendingRuntimeStartTransitions(1)).toBe(1);
+
+    const [transition] = await db.select({
+      status: aiWorldTransitionsTable.status,
+      failureCode: aiWorldTransitionsTable.failureCode,
+      retryCount: aiWorldTransitionsTable.retryCount,
+    }).from(aiWorldTransitionsTable)
+      .where(and(
+        eq(aiWorldTransitionsTable.id, fixture.transitionId),
+        eq(aiWorldTransitionsTable.executionId, fixture.executionId),
+      ));
+    expect(transition).toMatchObject({
+      status: "terminal_failed",
+      retryCount: 0,
+    });
+    const [acceptance] = await db.select({
+      outcome: aiExecutionAcceptancesTable.outcome,
+      effectBundleId: aiExecutionAcceptancesTable.effectBundleId,
+    }).from(aiExecutionAcceptancesTable)
+      .where(eq(aiExecutionAcceptancesTable.executionId, fixture.executionId));
+    expect(acceptance).toMatchObject({
+      outcome: "SUCCEEDED",
+      effectBundleId: expect.any(String),
+    });
+  });
+
+  it("recovers a transient projection failure without changing Gate C acceptance", async () => {
+    const fixture = await transitionFixture();
+    await insertValidRuntimeStartObservations(fixture);
+    const materializer = vi.spyOn(worldStateModule, "materializeWorldStateForProject")
+      .mockRejectedValueOnce(new Error("world_state_materialization_failed"));
+
+    expect(await retryPendingRuntimeStartTransitions(1)).toBe(1);
+    const [afterFailure] = await db.select({
+      status: aiWorldTransitionsTable.status,
+      failureCode: aiWorldTransitionsTable.failureCode,
+      retryCount: aiWorldTransitionsTable.retryCount,
+      nextRetryAt: aiWorldTransitionsTable.nextRetryAt,
+    }).from(aiWorldTransitionsTable)
+      .where(eq(aiWorldTransitionsTable.id, fixture.transitionId));
+    expect(afterFailure).toMatchObject({
+      status: "retrying",
+      failureCode: "world_state_materialization_failed",
+      retryCount: 1,
+    });
+    expect(afterFailure?.nextRetryAt).toBeInstanceOf(Date);
+
+    const [acceptanceAfterFailure] = await db.select({
+      outcome: aiExecutionAcceptancesTable.outcome,
+      effectBundleId: aiExecutionAcceptancesTable.effectBundleId,
+    }).from(aiExecutionAcceptancesTable)
+      .where(eq(aiExecutionAcceptancesTable.executionId, fixture.executionId));
+    expect(acceptanceAfterFailure).toMatchObject({
+      outcome: "SUCCEEDED",
+      effectBundleId: fixture.effectBundleId,
+    });
+    const factsAfterFailure = await db.select({ id: aiWorldFactsTable.id })
+      .from(aiWorldFactsTable)
+      .where(eq(aiWorldFactsTable.projectId, fixture.projectId));
+    expect(factsAfterFailure).toHaveLength(0);
+
+    await db.update(aiWorldTransitionsTable)
+      .set({ nextRetryAt: new Date(Date.now() - 1_000) })
+      .where(eq(aiWorldTransitionsTable.id, fixture.transitionId));
+    materializer.mockRestore();
+
+    expect(await retryPendingRuntimeStartTransitions(1)).toBe(1);
+    const [recovered] = await db.select({
+      status: aiWorldTransitionsTable.status,
+      failureCode: aiWorldTransitionsTable.failureCode,
+      retryCount: aiWorldTransitionsTable.retryCount,
+      resultingWorldRevision: aiWorldTransitionsTable.resultingWorldRevision,
+      materializedObservationIds: aiWorldTransitionsTable.materializedObservationIds,
+    }).from(aiWorldTransitionsTable)
+      .where(eq(aiWorldTransitionsTable.id, fixture.transitionId));
+    expect(recovered).toMatchObject({
+      status: "materialized",
+      failureCode: null,
+      retryCount: 1,
+      materializedObservationIds: [
+        fixture.beforeObservationId,
+        fixture.afterObservationId,
+        fixture.statusObservationId,
+        fixture.childProcessObservationId,
+      ],
+    });
+    expect(recovered?.resultingWorldRevision).toMatch(/^[a-f0-9]{64}$/);
+
+    const [acceptanceAfterRecovery] = await db.select({
+      outcome: aiExecutionAcceptancesTable.outcome,
+      effectBundleId: aiExecutionAcceptancesTable.effectBundleId,
+    }).from(aiExecutionAcceptancesTable)
+      .where(eq(aiExecutionAcceptancesTable.executionId, fixture.executionId));
+    expect(acceptanceAfterRecovery).toMatchObject({
+      outcome: "SUCCEEDED",
+      effectBundleId: fixture.effectBundleId,
+    });
+
+    const factsAfterRecovery = await db.select({ id: aiWorldFactsTable.id })
+      .from(aiWorldFactsTable)
+      .where(eq(aiWorldFactsTable.projectId, fixture.projectId));
+    expect(await retryPendingRuntimeStartTransitions(1)).toBe(0);
+    const factsAfterDuplicateScan = await db.select({ id: aiWorldFactsTable.id })
+      .from(aiWorldFactsTable)
+      .where(eq(aiWorldFactsTable.projectId, fixture.projectId));
+    expect(factsAfterDuplicateScan).toEqual(factsAfterRecovery);
+  });
+
+  it("dispatches one Mission successor only after the exact runtime.start transition materializes", async () => {
+    const fixture = await transitionFixture({ missionHandoff: true });
+    const mission = fixture.missionHandoff;
+    if (!mission) throw new Error("Mission handoff fixture was not created.");
+    expect(fixture.taskScope).toMatch(/^scope:[a-f0-9]{64}$/);
+    await insertValidRuntimeStartObservations(fixture);
+    const enqueue = vi.spyOn(heavyJobQueue, "enqueueWithId").mockReturnValue(true);
+
+    const finalized = await finalizeRuntimeStartTransition({
+      projectId: fixture.projectId,
+      executionId: fixture.executionId,
+      attempt: 0,
+      episodeId: fixture.episodeId,
+      actionId: fixture.transitionInput.actionId,
+      effectBundleId: fixture.effectBundleId,
+    });
+    expect(finalized.status).toBe("materialized");
+
+    const [transition] = await db.select().from(aiWorldTransitionsTable)
+      .where(eq(aiWorldTransitionsTable.id, fixture.transitionId));
+    expect(transition).toMatchObject({
+      status: "materialized",
+      effectBundleId: fixture.effectBundleId,
+      taskScope: fixture.taskScope,
+      parentWorldRevision: fixture.transitionInput.parentWorldRevision,
+      resultingWorldRevision: expect.stringMatching(/^[a-f0-9]{64}$/),
+      beforeObservationIds: [fixture.beforeObservationId],
+      afterObservationIds: [
+        fixture.afterObservationId,
+        fixture.statusObservationId,
+        fixture.childProcessObservationId,
+      ],
+    });
+    const runtimeTransitionObservationIds = new Set<string>([
+      fixture.beforeObservationId,
+      fixture.afterObservationId,
+      fixture.statusObservationId,
+      fixture.childProcessObservationId,
+    ]);
+    const runtimeTransitionFacts = await db.select({
+      id: aiWorldFactsTable.id,
+      subject: aiWorldFactsTable.subject,
+      predicate: aiWorldFactsTable.predicate,
+      sourceObservationIds: aiWorldFactsTable.sourceObservationIds,
+    }).from(aiWorldFactsTable)
+      .where(eq(aiWorldFactsTable.projectId, fixture.projectId));
+    const expectedRuntimeChangedFactRefs = runtimeTransitionFacts
+      .filter((fact) => Array.isArray(fact.sourceObservationIds)
+        && fact.sourceObservationIds.some((observationId: unknown) => (
+          typeof observationId === "string"
+          && runtimeTransitionObservationIds.has(observationId)
+        )))
+      .map((fact) => fact.id)
+      .sort((left, right) => left.localeCompare(right));
+    const actualRuntimeChangedFactRefs = Array.isArray(transition?.changedFactRefs)
+      ? transition.changedFactRefs
+        .filter((factRef): factRef is string => typeof factRef === "string")
+        .sort((left, right) => left.localeCompare(right))
+      : [];
+    expect(expectedRuntimeChangedFactRefs.length).toBeGreaterThan(0);
+    expect(actualRuntimeChangedFactRefs).toEqual(expectedRuntimeChangedFactRefs);
+    expect(runtimeTransitionFacts.some((fact) =>
+      fact.subject.startsWith("runtime:")
+      && fact.predicate === "runtime.status"
+      && Array.isArray(fact.sourceObservationIds)
+      && fact.sourceObservationIds.includes(fixture.statusObservationId)
+      && actualRuntimeChangedFactRefs.includes(fact.id)
+    )).toBe(true);
+
+    const woken = await wakeRuntimeTransitionMissionGoals();
+    const [targetAfterWake] = await db.select({
+      status: aiGoalsTable.status,
+      blockedReason: aiGoalsTable.blockedReason,
+    }).from(aiGoalsTable).where(eq(aiGoalsTable.id, mission.targetGoalId));
+    expect(woken).toBe(1);
+    expect(targetAfterWake).toMatchObject({
+      status: "running",
+      blockedReason: null,
+    });
+    expect(await wakeRuntimeTransitionMissionGoals()).toBe(0);
+
+    const dispatches = await db.select({
+      type: eventsTable.type,
+      goalId: eventsTable.goalId,
+      payload: eventsTable.payload,
+    }).from(eventsTable).where(eq(eventsTable.projectId, fixture.projectId));
+    const targetDispatches = dispatches.filter((event) =>
+      event.type === "AiGoalRecipeDispatchRequested"
+      && event.goalId === mission.targetGoalId,
+    );
+    expect(targetDispatches).toHaveLength(1);
+    expect(targetDispatches[0]?.payload).toMatchObject({
+      transitionProof: {
+        transitionId: fixture.transitionId,
+        executionId: fixture.executionId,
+        attempt: 0,
+        episodeId: fixture.episodeId,
+        actionId: fixture.transitionInput.actionId,
+        effectBundleId: fixture.effectBundleId,
+        parentWorldRevision: fixture.transitionInput.parentWorldRevision,
+        resultingWorldRevision: transition?.resultingWorldRevision,
+        projectRevision: fixture.sourceRevision,
+        environmentRevision: fixture.environmentRevision,
+        beforeObservationIds: [fixture.beforeObservationId],
+        afterObservationIds: [
+          fixture.afterObservationId,
+          fixture.statusObservationId,
+          fixture.childProcessObservationId,
+        ],
+        sourceStepId: "runtime-start",
+        targetStepId: "target-step",
+        activePlanHash: mission.planRevision,
+      },
+    });
+    expect(enqueue).toHaveBeenCalledTimes(1);
+  });
+
+  it("blocks the Mission successor when transition scope differs from its source Episode", async () => {
+    const fixture = await transitionFixture({ missionHandoff: true });
+    const mission = fixture.missionHandoff;
+    if (!mission) throw new Error("Mission handoff fixture was not created.");
+    await insertValidRuntimeStartObservations(fixture);
+    const finalized = await finalizeRuntimeStartTransition({
+      projectId: fixture.projectId,
+      executionId: fixture.executionId,
+      attempt: 0,
+      episodeId: fixture.episodeId,
+      actionId: fixture.transitionInput.actionId,
+      effectBundleId: fixture.effectBundleId,
+    });
+    expect(finalized.status).toBe("materialized");
+    await db.update(aiWorldTransitionsTable)
+      .set({ taskScope: "project" })
+      .where(eq(aiWorldTransitionsTable.id, fixture.transitionId));
+
+    expect(await wakeRuntimeTransitionMissionGoals()).toBe(0);
+    const [target] = await db.select({
+      status: aiGoalsTable.status,
+      blockedReason: aiGoalsTable.blockedReason,
+    }).from(aiGoalsTable).where(eq(aiGoalsTable.id, mission.targetGoalId));
+    expect(target).toEqual({
+      status: "needs_replan",
+      blockedReason: "runtime_start_transition_unproven",
+    });
+    const targetDispatches = await db.select({ id: eventsTable.id })
+      .from(eventsTable)
+      .where(and(
+        eq(eventsTable.projectId, fixture.projectId),
+        eq(eventsTable.goalId, mission.targetGoalId),
+        eq(eventsTable.type, "AiGoalRecipeDispatchRequested"),
+      ));
+    expect(targetDispatches).toHaveLength(0);
+  });
+
+  const invalidChildEvidenceScenarios: Array<{
+    label: string;
+    expectedFailure: string;
+    omitChildReference?: boolean;
+    childOverrides?: NonNullable<Parameters<typeof insertValidRuntimeStartObservations>[1]>;
+  }> = [
+    {
+      label: "missing from the transition's linked evidence",
+      expectedFailure: "runtime_start_transition_child_process_attestation_missing",
+      omitChildReference: true,
+    },
+    {
+      label: "incomplete",
+      expectedFailure: "runtime_start_transition_observations_incomplete",
+      childOverrides: { completeness: "partial" },
+    },
+    {
+      label: "stale",
+      expectedFailure: "runtime_start_transition_observations_incomplete",
+      childOverrides: { freshness: "stale", environmentFreshness: "stale" },
+    },
+    {
+      label: "unknown",
+      expectedFailure: "runtime_start_transition_child_process_attestation_unproven",
+      childOverrides: { value: { status: "unknown", reasonCode: "child_process_unknown" } },
+    },
+    {
+      label: "bound to a different runtime session",
+      expectedFailure: "runtime_start_transition_child_process_attestation_unproven",
+      childOverrides: { value: { sessionId: "other-runtime-session" } },
+    },
+    {
+      label: "with a mismatched binding digest",
+      expectedFailure: "runtime_start_transition_child_process_attestation_unproven",
+      childOverrides: { value: { bindingDigest: "f".repeat(64) } },
+    },
+  ];
+  it.each(invalidChildEvidenceScenarios)("blocks World Delta when child-process evidence is $label", async (scenario) => {
+    const fixture = await transitionFixture({ missionHandoff: true });
+    const mission = fixture.missionHandoff;
+    if (!mission) throw new Error("Mission handoff fixture was not created.");
+    const parent = await getProjectWorldState(fixture.projectId, {
+      excludeEpisodeIds: [fixture.episodeId],
+    });
+    const enqueue = vi.spyOn(heavyJobQueue, "enqueueWithId").mockReturnValue(true);
+    await insertValidRuntimeStartObservations(fixture, scenario.childOverrides);
+    if (scenario.omitChildReference) {
+      await db.update(aiWorldTransitionsTable)
+        .set({
+          afterObservationIds: [
+            fixture.afterObservationId,
+            fixture.statusObservationId,
+          ],
+        })
+        .where(eq(aiWorldTransitionsTable.id, fixture.transitionId));
+    }
+
+    const result = await finalizeRuntimeStartTransition({
+      projectId: fixture.projectId,
+      executionId: fixture.executionId,
+      attempt: 0,
+      episodeId: fixture.episodeId,
+      actionId: fixture.transitionInput.actionId,
+      effectBundleId: fixture.effectBundleId,
+    });
+    expect(result).toMatchObject({
+      status: "terminal_failed",
+      failureCode: scenario.expectedFailure,
+    });
+
+    const [transition] = await db.select({
+      status: aiWorldTransitionsTable.status,
+      failureCode: aiWorldTransitionsTable.failureCode,
+      retryCount: aiWorldTransitionsTable.retryCount,
+    }).from(aiWorldTransitionsTable)
+      .where(eq(aiWorldTransitionsTable.id, fixture.transitionId));
+    expect(transition).toMatchObject({
+      status: "terminal_failed",
+      failureCode: scenario.expectedFailure,
+      retryCount: 0,
+    });
+
+    const [acceptance] = await db.select({
+      outcome: aiExecutionAcceptancesTable.outcome,
+      effectBundleId: aiExecutionAcceptancesTable.effectBundleId,
+    }).from(aiExecutionAcceptancesTable)
+      .where(eq(aiExecutionAcceptancesTable.executionId, fixture.executionId));
+    expect(acceptance).toMatchObject({
+      outcome: "SUCCEEDED",
+      effectBundleId: fixture.effectBundleId,
+    });
+
+    const after = await getProjectWorldState(fixture.projectId, {
+      excludeEpisodeIds: [fixture.episodeId],
+    });
+    expect(after.worldRevision).toBe(parent.worldRevision);
+    expect(after.facts).toEqual(parent.facts);
+
+    expect(await wakeRuntimeTransitionMissionGoals()).toBe(0);
+    const dispatches = await db.select({
+      type: eventsTable.type,
+      goalId: eventsTable.goalId,
+    }).from(eventsTable).where(eq(eventsTable.projectId, fixture.projectId));
+    expect(dispatches.some((event) =>
+      event.type === "AiGoalRecipeDispatchRequested"
+      && event.goalId === mission.targetGoalId,
+    )).toBe(false);
+    const [target] = await db.select({
+      status: aiGoalsTable.status,
+      blockedReason: aiGoalsTable.blockedReason,
+    }).from(aiGoalsTable).where(eq(aiGoalsTable.id, mission.targetGoalId));
+    expect(target).toMatchObject({
+      status: "needs_replan",
+      blockedReason: "runtime_start_transition_unproven",
+    });
+    expect(enqueue).not.toHaveBeenCalled();
+  });
+
+  it("terminalizes due retry-exhausted work without attempting projection", async () => {
+    const fixture = await transitionFixture();
+    await db.update(aiWorldTransitionsTable)
+      .set({ status: "retrying", retryCount: 8, nextRetryAt: new Date(Date.now() - 1_000) })
+      .where(eq(aiWorldTransitionsTable.id, fixture.transitionId));
+
+    expect(await retryPendingRuntimeStartTransitions(1)).toBe(1);
+    const [transition] = await db.select({
+      status: aiWorldTransitionsTable.status,
+      failureCode: aiWorldTransitionsTable.failureCode,
+      nextRetryAt: aiWorldTransitionsTable.nextRetryAt,
+    }).from(aiWorldTransitionsTable)
+      .where(eq(aiWorldTransitionsTable.id, fixture.transitionId));
+    expect(transition).toMatchObject({
+      status: "terminal_failed",
+      failureCode: "world_state_materialization_retry_exhausted",
+      nextRetryAt: null,
+    });
+  });
+
+  it("rolls back World State facts if the transition commit fails in the same transaction", async () => {
+    const fixture = await transitionFixture();
+    const observationId = crypto.randomUUID();
+    const environmentRevision = `env-v1:${"c".repeat(64)}`;
+    const projectRevision = "a".repeat(64);
+    const now = new Date();
+    await db.insert(aiAgentObservationsTable).values({
+      id: observationId,
+      projectId: fixture.projectId,
+      executionId: fixture.executionId,
+      episodeId: fixture.episodeId,
+      taskScope: "project",
+      environmentRevisionKey: `revision:${environmentRevision}`,
+      kind: "direct_observation",
+      provenance: "DIRECT_OBSERVATION",
+      observationRole: "runtime.test",
+      sourceType: "direct_observation",
+      sourceId: observationId,
+      sourceVersion: projectRevision,
+      subject: `runtime:${fixture.projectId}`,
+      predicate: "runtime.test_state",
+      value: { status: "observed" },
+      valueHash: "d".repeat(64),
+      sourceRefs: [],
+      observedAt: now,
+      projectRevision,
+      environmentRevision,
+      completeness: "complete",
+      freshness: "fresh",
+      environmentFreshness: "fresh",
+      evidenceRefs: [],
+      sequence: 1,
+      createdAt: now,
+    });
+    const parent = await getProjectWorldState(fixture.projectId, {
+      excludeEpisodeIds: [fixture.episodeId],
+    });
+
+    await expect(materializeWorldStateForProject(fixture.projectId, {
+      observationIds: [observationId],
+      expectedWorldRevision: parent.worldRevision,
+      expectedRevisionExcludeEpisodeIds: [fixture.episodeId],
+    }, async () => {
+      throw new Error("transition_commit_test_failure");
+    })).rejects.toThrow("transition_commit_test_failure");
+
+    const after = await getProjectWorldState(fixture.projectId, {
+      excludeEpisodeIds: [fixture.episodeId],
+    });
+    expect(after.worldRevision).toBe(parent.worldRevision);
+    expect(after.facts).toHaveLength(0);
+  });
+
+  it("rebinds a resumed GitHub delivery attempt without replacing its direct before-state", async () => {
+    const projectId = crypto.randomUUID();
+    const sessionId = crypto.randomUUID();
+    const operationId = crypto.randomUUID();
+    const proposalId = crypto.randomUUID();
+    const userId = `github-delivery-transition-test:${projectId}`;
+    const now = new Date();
+    await db.insert(projectsTable).values({
+      id: projectId,
+      ownerId: userId,
+      name: "GitHub delivery transition retry test",
+      rootPath: `${process.cwd()}/.github-delivery-transition-test/${projectId}`,
+      language: "typescript",
+      status: "active",
+      createdAt: now,
+      updatedAt: now,
+    });
+    createdProjects.push(projectId);
+    await db.insert(aiChatSessionsTable).values({
+      id: sessionId,
+      projectId,
+      title: "GitHub delivery transition retry test",
+      createdAt: now,
+      updatedAt: now,
+    });
+    const created = await createAiExecution({
+      userId,
+      projectId,
+      sessionId,
+      idempotencyKey: `${operationId}:github-delivery-transition-retry`,
+      request: {
+        projectId,
+        operationId,
+        sessionId,
+        message: "Retry GitHub delivery transition",
+        modelMessage: "Retry GitHub delivery transition",
+        workspaceRevision: "a".repeat(64),
+        validationTargetPaths: [],
+      },
+    });
+    const executionId = created.execution.id;
+    createdExecutionIds.push(executionId);
+    const firstWorkerId = `github-delivery-transition-worker-a:${projectId}`;
+    const firstClaim = await claimAiExecution({
+      executionId,
+      userId,
+      workerId: firstWorkerId,
+    });
+    expect(firstClaim?.attempt).toBe(0);
+    const firstEpisode = await startEpisode({
+      projectId,
+      executionId,
+      attempt: 0,
+      workerId: firstWorkerId,
+      idempotencyKey: `${operationId}:github-delivery-episode:0`,
+      projectRevision: "a".repeat(64),
+      intentKind: "RUNTIME_START",
+      scope: { kind: "project", paths: [] },
+    });
+    const parent = await getProjectWorldState(projectId, {
+      excludeEpisodeIds: [firstEpisode.episodeId],
+    });
+    const beforeObservationId = crypto.randomUUID();
+    const transitionId = await createPendingGitHubDeliveryTransition({
+      projectId,
+      executionId,
+      attempt: 0,
+      episodeId: firstEpisode.episodeId,
+      actionId: `github-delivery-action:${operationId}`,
+      workerId: firstWorkerId,
+      operationId,
+      proposalId,
+      remoteUrl: "https://github.com/example/project.git",
+      branch: "main",
+      parentWorldRevision: parent.worldRevision,
+      parentFactRefs: parent.currentFacts.map((fact) => fact.id),
+      taskScope: "project",
+      beforeObservationIds: [beforeObservationId],
+    });
+
+    await db.update(aiExecutionsTable).set({
+      status: "paused",
+      workerId: null,
+      leaseUntil: null,
+      updatedAt: new Date(),
+    }).where(eq(aiExecutionsTable.id, executionId));
+    const recovery = await recoverAiExecutionResumeToken({
+      executionId,
+      userId,
+      expectedAttempt: 0,
+    });
+    expect(recovery).toBeDefined();
+    const secondWorkerId = `github-delivery-transition-worker-b:${projectId}`;
+    const secondClaim = await claimAiExecution({
+      executionId,
+      userId,
+      workerId: secondWorkerId,
+      resumeToken: recovery!.resumeToken,
+    });
+    expect(secondClaim?.attempt).toBe(1);
+    const secondEpisode = await startEpisode({
+      projectId,
+      executionId,
+      attempt: 1,
+      workerId: secondWorkerId,
+      idempotencyKey: `${operationId}:github-delivery-episode:1`,
+      projectRevision: "a".repeat(64),
+      intentKind: "RUNTIME_START",
+      scope: { kind: "project", paths: [] },
+    });
+    const afterObservationId = crypto.randomUUID();
+    const effectBundleId = `github-delivery-effect:${operationId}:attempt-1`;
+    await db.insert(aiAgentEffectBundlesTable).values({
+      id: effectBundleId,
+      projectId,
+      executionId,
+      attempt: 1,
+      episodeId: secondEpisode.episodeId,
+      effectIds: [],
+      effectContractHashes: [],
+      verdict: "OBSERVED",
+    });
+    await expect(bindGitHubDeliveryTransitionEffect({
+      projectId,
+      executionId,
+      attempt: 1,
+      episodeId: secondEpisode.episodeId,
+      actionId: `github-delivery-action:${operationId}`,
+      effectBundleId,
+      workerId: secondWorkerId,
+      operationId,
+      afterObservationIds: [afterObservationId],
+    })).resolves.toBe(transitionId);
+
+    const [transition] = await db.select().from(aiWorldTransitionsTable)
+      .where(eq(aiWorldTransitionsTable.id, transitionId)).limit(1);
+    expect(transition).toMatchObject({
+      attempt: 1,
+      episodeId: secondEpisode.episodeId,
+      actionId: `github-delivery-action:${operationId}`,
+      effectBundleId,
+      beforeObservationIds: [beforeObservationId],
+      afterObservationIds: [afterObservationId],
+      status: "pending",
+    });
+  });
+});
+
+describe("Apply Changes snapshot-bound transition intent", () => {
+  it("preserves the captured parent and sorts fact references deterministically", () => {
+    const intent = buildApplyChangesWorldTransitionIntent({
+      projectId: "project-1",
+      proposalId: "proposal-1",
+      goalId: "goal-1",
+      planRevision: "a".repeat(64),
+      parentWorldRevision: "b".repeat(64),
+      parentFactRefs: ["fact-z", "fact-a", "fact-m"],
+    });
+
+    expect(intent).toEqual({
+      schemaVersion: 1,
+      projectId: "project-1",
+      proposalId: "proposal-1",
+      goalId: "goal-1",
+      planRevision: "a".repeat(64),
+      parentWorldRevision: "b".repeat(64),
+      parentFactRefs: ["fact-a", "fact-m", "fact-z"],
+    });
+  });
+
+  it("rejects an invalid or oversized parent snapshot", () => {
+    expect(() => buildApplyChangesWorldTransitionIntent({
+      projectId: "project-1",
+      proposalId: "proposal-1",
+      goalId: "goal-1",
+      planRevision: "not-a-revision",
+      parentWorldRevision: "b".repeat(64),
+      parentFactRefs: [],
+    })).toThrow("apply_world_transition_intent_invalid");
+
+    expect(() => buildApplyChangesWorldTransitionIntent({
+      projectId: "project-1",
+      proposalId: "proposal-1",
+      goalId: "goal-1",
+      planRevision: "a".repeat(64),
+      parentWorldRevision: "b".repeat(64),
+      parentFactRefs: Array.from({ length: 257 }, (_, index) => `fact-${index}`),
+    })).toThrow("apply_world_transition_intent_invalid");
+  });
+});
