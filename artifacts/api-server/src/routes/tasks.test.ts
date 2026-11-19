@@ -1,6 +1,6 @@
 import { vi, afterEach, beforeEach, describe, expect, it } from "vitest";
 import request from "supertest";
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import app from "../app.js";
 import {
   db,
@@ -13,6 +13,7 @@ import {
   aiExecutionAcceptancesTable,
 } from "@workspace/db";
 import { randomUUID } from "crypto";
+import { insertTaskAutoExecutionIntent } from "../lib/task-auto-execution-outbox.js";
 
 // PR-C: hoist mock fn so vi.mock factory can close over it before module eval.
 const { mockScheduleAiTaskExecution } = vi.hoisted(() => ({
@@ -183,6 +184,50 @@ describe("Task lifecycle", () => {
       .from(tasksTable)
       .where(eq(tasksTable.id, prerequisite.taskId));
     expect(retained).toHaveLength(1);
+  });
+
+  it("does not persist an automatic dispatch intent while task dependencies are incomplete", async () => {
+    const { projectId, taskId } = await createTaskWithPrompt("Wait for prerequisite completion");
+    const prerequisiteId = randomUUID();
+    await db.insert(tasksTable).values({
+      id: prerequisiteId,
+      projectId,
+      title: "outbox-prerequisite",
+      status: "pending",
+    });
+    await db.update(tasksTable)
+      .set({ status: "verifying", dependsOn: [prerequisiteId] })
+      .where(eq(tasksTable.id, taskId));
+
+    const [generation] = await db.select({
+      retryCount: tasksTable.retryCount,
+    }).from(tasksTable).where(eq(tasksTable.id, taskId));
+    const persistedWhileBlocked = await db.transaction((tx) =>
+      insertTaskAutoExecutionIntent(tx, {
+        taskId,
+        userId: "test-user",
+        retryCount: generation!.retryCount,
+      }),
+    );
+    expect(persistedWhileBlocked).toBe(false);
+    await expect(db.select().from(eventsTable)
+      .where(eq(eventsTable.id, `task-auto-execution-deferred:${taskId}`)))
+      .resolves.toHaveLength(0);
+
+    await db.update(tasksTable)
+      .set({ status: "completed", completedAt: new Date() })
+      .where(eq(tasksTable.id, prerequisiteId));
+    const persistedAfterCompletion = await db.transaction((tx) =>
+      insertTaskAutoExecutionIntent(tx, {
+        taskId,
+        userId: "test-user",
+        retryCount: generation!.retryCount,
+      }),
+    );
+    expect(persistedAfterCompletion).toBe(true);
+    const [intent] = await db.select().from(eventsTable)
+      .where(eq(eventsTable.id, `task-auto-execution-deferred:${taskId}`));
+    expect(intent?.type).toBe("TaskAutoExecutionDispatchRequested");
   });
 
   it("blocks the PATCH-to-verifying auto-dispatch path while prerequisites are incomplete", async () => {
