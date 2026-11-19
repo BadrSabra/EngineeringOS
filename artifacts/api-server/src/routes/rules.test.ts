@@ -2,6 +2,7 @@
  * Tests for rules.ts: CRUD, severity/project filters, rule evaluation.
  */
 import { afterEach, describe, expect, it } from "vitest";
+import { mkdir, rm, writeFile } from "node:fs/promises";
 import request from "supertest";
 import { eq } from "drizzle-orm";
 import { randomUUID } from "crypto";
@@ -53,6 +54,14 @@ async function insertProject(): Promise<string> {
 
 const ruleCleanup: string[] = [];
 const projectCleanup: string[] = [];
+const projectRootCleanup: string[] = [];
+
+async function createProjectSource(projectId: string, fileName: string, content: string): Promise<void> {
+  const rootPath = `/tmp/rules-test-project-${projectId}`;
+  await mkdir(rootPath, { recursive: true });
+  await writeFile(`${rootPath}/${fileName}`, content);
+  projectRootCleanup.push(rootPath);
+}
 
 async function cleanup() {
   for (const id of ruleCleanup.splice(0)) {
@@ -63,6 +72,9 @@ async function cleanup() {
     await db.delete(eventsTable).where(eq(eventsTable.projectId, id)).catch(() => undefined);
     await db.delete(auditLogsTable).where(eq(auditLogsTable.projectId, id)).catch(() => undefined);
     await db.delete(projectsTable).where(eq(projectsTable.id, id)).catch(() => undefined);
+  }
+  for (const rootPath of projectRootCleanup.splice(0)) {
+    await rm(rootPath, { recursive: true, force: true }).catch(() => undefined);
   }
 }
 
@@ -316,7 +328,7 @@ describe("POST /rules/:ruleId/evaluate", () => {
     expect(typeof res.body.note).toBe("string");
   });
 
-  it("evaluates a pattern against a missing path: matched=false, matchCount=0", async () => {
+  it("fails closed when the project root is unavailable and records no clean evaluation", async () => {
     const id = await insertRule({ pattern: "console\\.log" });
     ruleCleanup.push(id);
 
@@ -326,22 +338,55 @@ describe("POST /rules/:ruleId/evaluate", () => {
     const res = await request(app)
       .post(`/api/rules/${id}/evaluate`)
       .send({ projectId });
-    expect(res.status).toBe(200);
-    expect(res.body.ruleId).toBe(id);
-    expect(res.body.projectId).toBe(projectId);
-    expect(typeof res.body.matched).toBe("boolean");
-    expect(typeof res.body.matchCount).toBe("number");
-    expect(Array.isArray(res.body.matches)).toBe(true);
+
+    expect(res.status).toBe(503);
+    expect(res.body).toMatchObject({
+      error: "rule_evaluation_incomplete",
+      reason: "project_root_unavailable",
+    });
+    const [rule] = await db.select().from(rulesTable).where(eq(rulesTable.id, id));
+    expect(rule?.hitCount).toBe(0);
+    const events = await db.select().from(eventsTable).where(eq(eventsTable.projectId, projectId));
+    expect(events.some((event) => event.type === "RuleEvaluated")).toBe(false);
+    const audits = await db.select().from(auditLogsTable).where(eq(auditLogsTable.entityId, id));
+    expect(audits.some((audit) => audit.action === "evaluated")).toBe(false);
   });
 
-  it("creates a RuleEvaluated event and an audit entry", async () => {
+  it("fails closed when oversized source files cannot be inspected by the rule matcher", async () => {
+    const id = await insertRule({ pattern: "needle" });
+    ruleCleanup.push(id);
+
+    const projectId = await insertProject();
+    projectCleanup.push(projectId);
+    await createProjectSource(projectId, "large.ts", "needle".padEnd(512 * 1024 + 1, "x"));
+
+    const res = await request(app)
+      .post(`/api/rules/${id}/evaluate`)
+      .send({ projectId });
+
+    expect(res.status).toBe(503);
+    expect(res.body).toMatchObject({
+      error: "rule_evaluation_incomplete",
+      reason: "project_source_incomplete",
+    });
+    expect(res.body.incompleteReasons).toContain("oversized_files");
+    const [rule] = await db.select().from(rulesTable).where(eq(rulesTable.id, id));
+    expect(rule?.hitCount).toBe(0);
+    const events = await db.select().from(eventsTable).where(eq(eventsTable.projectId, projectId));
+    expect(events.some((event) => event.type === "RuleEvaluated")).toBe(false);
+  });
+
+  it("creates a RuleEvaluated event and an audit entry only after a complete source walk", async () => {
     const id = await insertRule({ pattern: "console\\.log" });
     ruleCleanup.push(id);
 
     const projectId = await insertProject();
     projectCleanup.push(projectId);
+    await createProjectSource(projectId, "index.ts", 'console.log("rule match");\n');
 
-    await request(app).post(`/api/rules/${id}/evaluate`).send({ projectId });
+    const evaluated = await request(app).post(`/api/rules/${id}/evaluate`).send({ projectId });
+    expect(evaluated.status).toBe(200);
+    expect(evaluated.body).toMatchObject({ matched: true, matchCount: 1 });
 
     const events = await db
       .select()
