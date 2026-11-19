@@ -50,6 +50,8 @@ async function createOutboxRow() {
     projectId,
     executionId,
     attempt: 1,
+    nextAttemptAt: new Date(0),
+    createdAt: new Date(0),
     payload: {
       projectId,
       executionId,
