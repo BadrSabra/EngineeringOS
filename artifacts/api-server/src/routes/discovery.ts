@@ -17,7 +17,7 @@ import {
   GetDiscoverySummaryParams,
   GetDiscoverySummaryResponse,
 } from "@workspace/api-zod";
-import { eq, and, isNull, isNotNull, lt } from "drizzle-orm";
+import { eq, and, isNull, isNotNull, lt, or } from "drizzle-orm";
 import { randomUUID } from "crypto";
 import { logger } from "../lib/logger.js";
 import { recordAudit } from "../lib/audit.js";
@@ -33,6 +33,7 @@ import { validateRootPath, verifyProjectRoot } from "../lib/path-validation.js";
 import { establishProjectRoot } from "../lib/project-root.js";
 import { removeManagedProjectRoot } from "../lib/project-materialization.js";
 import { runDiscovery, STEPS } from "../lib/discovery-runner.js";
+import { databaseNow } from "../lib/job-lease.js";
 import {
   buildRemediationPlan,
   buildRemediationPrompt,
@@ -66,6 +67,13 @@ function isUniqueViolation(err: unknown, constraintName: string): boolean {
 
 export async function cleanupOldSessions(): Promise<void> {
   const cutoff = new Date(Date.now() - 24 * 60 * 60 * 1000);
+  // A retention TTL must not terminate a worker that still owns a live
+  // database lease. Use the database clock, and repeat this predicate in the
+  // DELETE below so a heartbeat racing this candidate read wins safely.
+  const leaseExpiredOrMissing = or(
+    isNull(discoverySessionsTable.leaseUntil),
+    lt(discoverySessionsTable.leaseUntil, databaseNow()),
+  );
   const staleSessions = await db
     .select({
       id: discoverySessionsTable.id,
@@ -76,6 +84,7 @@ export async function cleanupOldSessions(): Promise<void> {
       and(
         lt(discoverySessionsTable.startedAt, cutoff),
         isNull(discoverySessionsTable.importedProjectId),
+        leaseExpiredOrMissing,
       ),
     );
 
@@ -92,6 +101,7 @@ export async function cleanupOldSessions(): Promise<void> {
           eq(discoverySessionsTable.id, session.id),
           lt(discoverySessionsTable.startedAt, cutoff),
           isNull(discoverySessionsTable.importedProjectId),
+          leaseExpiredOrMissing,
         ),
       )
       .returning({ rootPath: discoverySessionsTable.rootPath });

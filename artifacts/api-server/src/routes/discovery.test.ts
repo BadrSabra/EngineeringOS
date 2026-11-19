@@ -710,6 +710,45 @@ describe("Discovery cleanup ownership and races", () => {
     await expect(access(rootPath)).rejects.toThrow();
   });
 
+  it("preserves a stale unimported session while a discovery worker owns a live lease", async () => {
+    const discoveryId = randomUUID();
+    const rootPath = join(MANAGED_PROJECT_ROOTS_DIR, "leased-" + discoveryId);
+    const workerId = randomUUID();
+    await mkdir(rootPath, { recursive: true });
+    await writeFile(join(rootPath, ".engineeringos-managed-root"), "engineeringos-managed-project-root\n");
+    await db.insert(discoverySessionsTable).values({
+      id: discoveryId,
+      ownerId: "test-user",
+      status: "discovering",
+      rootPath,
+      sourceType: "LOCAL_FOLDER",
+      steps: [],
+      result: fakeResult(),
+      startedAt: new Date(Date.now() - 25 * 60 * 60 * 1000),
+      workerId,
+      leaseUntil: new Date(Date.now() + 48 * 60 * 60 * 1000),
+      lastHeartbeatAt: new Date(),
+    });
+    sessionId = discoveryId;
+
+    try {
+      await cleanupOldSessions();
+
+      const rows = await db
+        .select({
+          id: discoverySessionsTable.id,
+          workerId: discoverySessionsTable.workerId,
+        })
+        .from(discoverySessionsTable)
+        .where(eq(discoverySessionsTable.id, discoveryId));
+      expect(rows).toHaveLength(1);
+      expect(rows[0]?.workerId).toBe(workerId);
+      await expect(access(rootPath)).resolves.toBeUndefined();
+    } finally {
+      await removeManagedProjectRoot(rootPath);
+    }
+  });
+
   it("removes an imported stale session without removing the imported project root", async () => {
     const rootPath = join(MANAGED_PROJECT_ROOTS_DIR, `imported-${randomUUID()}`);
     await mkdir(rootPath, { recursive: true });
