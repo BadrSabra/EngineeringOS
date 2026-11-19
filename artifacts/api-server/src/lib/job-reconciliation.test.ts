@@ -2817,7 +2817,7 @@ describe("bounded GitHub delivery startup recovery", () => {
     const pendingCount = GITHUB_DELIVERY_RECOVERY_BATCH_SIZE + 2;
     for (let index = 0; index < pendingCount; index++) {
       const operationId = randomUUID();
-      const attemptPayload = index === 0
+      const attemptPayload: Record<string, unknown> = index === 0
         ? {
             proposalId: randomUUID(),
             operationId,
