@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import ProjectPluginsPanel from "./ProjectPluginsPanel";
 
@@ -80,8 +80,11 @@ describe("ProjectPluginsPanel", () => {
     expect(
       screen.getByText("غير متاحة على مستوى النظام"),
     ).toBeInTheDocument();
+    const unavailablePlugins = screen.getByTestId("details-unavailable-project-plugins");
+    expect(unavailablePlugins).not.toHaveAttribute("open");
+    fireEvent.click(within(unavailablePlugins).getByText(/إضافات غير قابلة للتفعيل/));
     expect(
-      screen.getByRole("switch", {
+      within(unavailablePlugins).getByRole("switch", {
         name: "تفعيل فحوص الإضافة لهذا المشروع: Performance Profiler",
       }),
     ).toBeDisabled();
@@ -93,6 +96,29 @@ describe("ProjectPluginsPanel", () => {
     renderPanel();
     expect(screen.getByText("لا تتوافق مع لغة المشروع")).toBeInTheDocument();
     expect(screen.queryByText("مفعّلة لفحوص هذا المشروع")).not.toBeInTheDocument();
+    expect(
+      screen.getByRole("switch", {
+        name: "إيقاف فحوص الإضافة لهذا المشروع: React/TypeScript Analyzer",
+      }),
+    ).toBeEnabled();
+  });
+
+  it("keeps an incompatible plugin out of the primary list and prevents activating it", () => {
+    listQuery.data = [{
+      ...listQuery.data[0]!,
+      projectEnabled: false,
+      compatibleWithProject: false,
+    }];
+    renderPanel();
+
+    const unavailablePlugins = screen.getByTestId("details-unavailable-project-plugins");
+    expect(unavailablePlugins).not.toHaveAttribute("open");
+    fireEvent.click(within(unavailablePlugins).getByText(/إضافات غير قابلة للتفعيل/));
+    expect(
+      within(unavailablePlugins).getByRole("switch", {
+        name: "تفعيل فحوص الإضافة لهذا المشروع: React/TypeScript Analyzer",
+      }),
+    ).toBeDisabled();
   });
 
   it("updates only this project's activation and refreshes the query", () => {
