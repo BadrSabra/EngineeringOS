@@ -3,6 +3,7 @@ import { db } from "@workspace/db";
 import {
   discoverySessionsTable,
   projectsTable,
+  scanJobsTable,
   eventsTable,
   metricsTable,
   graphEntitiesTable,
@@ -33,6 +34,7 @@ import { validateRootPath, verifyProjectRoot } from "../lib/path-validation.js";
 import { establishProjectRoot } from "../lib/project-root.js";
 import { removeManagedProjectRoot } from "../lib/project-materialization.js";
 import { runDiscovery, STEPS } from "../lib/discovery-runner.js";
+import { runScanJob } from "../lib/scan-runner.js";
 import { databaseNow } from "../lib/job-lease.js";
 import {
   buildRemediationPlan,
@@ -445,6 +447,7 @@ router.post("/projects/import", async (req, res) => {
   const overrides = body.overrides ?? {};
   const now = new Date();
   const projectId = randomUUID();
+  const scanJobId = randomUUID();
 
   const projectName = overrides.name ?? result.detectedName;
   const projectLanguage = overrides.language ?? result.detectedLanguage;
@@ -472,7 +475,8 @@ router.post("/projects/import", async (req, res) => {
           rootPath: rootResult.canonicalPath,
           language: projectLanguage,
           framework: projectFramework,
-          status: "active",
+          // Discovery seeds summary data; the initial scan persists the full graph.
+          status: "scanning",
           qualityScore: result.qualityScore,
           lastScanAt: now,
           createdAt: now,
@@ -625,6 +629,25 @@ router.post("/projects/import", async (req, res) => {
         timestamp: now,
       });
 
+      // Persist the initial full scan intent in the same transaction as import.
+      // This prevents a successful import from losing its first scan on a crash.
+      await tx.insert(scanJobsTable).values({
+        id: scanJobId,
+        projectId,
+        status: "queued",
+        createdAt: databaseNow(),
+      });
+      await tx.insert(eventsTable).values({
+        id: randomUUID(),
+        type: "ProjectScanQueued",
+        projectId,
+        severity: "info",
+        message: "Initial project scan queued after Discovery import",
+        payload: { jobId: scanJobId },
+        timestamp: now,
+        correlationId: scanJobId,
+      });
+
       return inserted;
     });
   } catch (txErr) {
@@ -654,6 +677,26 @@ router.post("/projects/import", async (req, res) => {
     const message = txErr instanceof Error ? txErr.message : "Import transaction failed";
     logger.error({ txErr, discoveryId: body.discoveryId }, message);
     return res.status(500).json({ error: message, reason: "import_failed" });
+  }
+
+  // Dispatch after the import transaction commits. A full local queue must not
+  // fail the import: the durable scan row is recovered by the existing dispatcher.
+  try {
+    const enqueued = heavyJobQueue.enqueueWithId(
+      scanJobId,
+      () => runScanJob(scanJobId, projectId),
+    );
+    if (!enqueued) {
+      logger.info(
+        { projectId, scanJobId },
+        "initial project scan remains queued for durable dispatch",
+      );
+    }
+  } catch (enqueueError) {
+    logger.warn(
+      { enqueueError, projectId, scanJobId },
+      "initial project scan dispatch deferred to durable dispatcher",
+    );
   }
 
   // Best-effort audit: the import transaction has already committed and the
