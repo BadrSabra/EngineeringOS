@@ -1246,6 +1246,29 @@ type TaskStatusFilter = 'pending' | 'queued' | 'running' | 'verifying' | 'comple
 type TaskPriorityFilter = 'p0' | 'p1' | 'p2' | 'p3';
 type TaskAcceptanceFilter = 'accepted' | 'interrupted' | 'failed' | 'recovery-required';
 
+const TASK_STATUS_FILTER_OPTIONS = ['pending', 'running', 'verifying', 'completed', 'failed'] as const;
+const TASK_PRIORITY_FILTER_OPTIONS = ['p0', 'p1', 'p2', 'p3'] as const;
+const TASK_ACCEPTANCE_FILTER_OPTIONS = ['accepted', 'interrupted', 'failed', 'recovery-required'] as const;
+
+type TaskListFilters = {
+  status: TaskStatusFilter | '';
+  priority: TaskPriorityFilter | '';
+  acceptance: TaskAcceptanceFilter | '';
+  search: string;
+};
+
+function readTaskListFilters(params: URLSearchParams): TaskListFilters {
+  const status = params.get('status');
+  const priority = params.get('priority');
+  const acceptance = params.get('acceptance');
+  return {
+    status: TASK_STATUS_FILTER_OPTIONS.find((value) => value === status) ?? '',
+    priority: TASK_PRIORITY_FILTER_OPTIONS.find((value) => value === priority) ?? '',
+    acceptance: TASK_ACCEPTANCE_FILTER_OPTIONS.find((value) => value === acceptance) ?? '',
+    search: params.get('search') ?? '',
+  };
+}
+
 function acceptanceFilterKey(acceptance: TaskAcceptance): TaskAcceptanceFilter {
   if (acceptance.disposition?.recoveryState && acceptance.disposition.recoveryState !== 'NONE') {
     return 'recovery-required';
@@ -1450,17 +1473,20 @@ function TaskEditDialog({
 export default function Tasks() {
   // Subscribe to Wouter's search location so query-only navigations update the
   // route boundary even when the pathname remains /tasks.
-  const routeParams = new URLSearchParams(useSearch());
+  const routeSearch = useSearch();
+  const routeParams = new URLSearchParams(routeSearch);
   const requestedTaskId = routeParams.get('taskId') ?? '';
   const requestedProjectId = routeParams.get('projectId') ?? '';
+  const initialFilters = readTaskListFilters(routeParams);
 
   // A task deep link can change while this route remains mounted. Keep project-owned
   // filters, selections, and mutation UI state inside the requested route session.
   return (
     <TasksSession
-      key={JSON.stringify([requestedProjectId, requestedTaskId])}
+      key={JSON.stringify([requestedProjectId, requestedTaskId, initialFilters])}
       requestedTaskId={requestedTaskId}
       requestedProjectId={requestedProjectId}
+      initialFilters={initialFilters}
     />
   );
 }
@@ -1468,16 +1494,18 @@ export default function Tasks() {
 function TasksSession({
   requestedTaskId,
   requestedProjectId,
+  initialFilters,
 }: {
   requestedTaskId: string;
   requestedProjectId: string;
+  initialFilters: TaskListFilters;
 }) {
   const queryClient = useQueryClient();
   const [selectedProjectId, setSelectedProjectId] = useState('');
-  const [filterStatus, setFilterStatus] = useState<TaskStatusFilter | ''>('');
-  const [filterPriority, setFilterPriority] = useState<TaskPriorityFilter | ''>('');
-  const [filterAcceptance, setFilterAcceptance] = useState<TaskAcceptanceFilter | ''>('');
-  const [searchTerm, setSearchTerm] = useState('');
+  const [filterStatus, setFilterStatus] = useState<TaskStatusFilter | ''>(initialFilters.status);
+  const [filterPriority, setFilterPriority] = useState<TaskPriorityFilter | ''>(initialFilters.priority);
+  const [filterAcceptance, setFilterAcceptance] = useState<TaskAcceptanceFilter | ''>(initialFilters.acceptance);
+  const [searchTerm, setSearchTerm] = useState(initialFilters.search);
   const [expandedTask, setExpandedTask] = useState<string | null>(() => requestedTaskId || null);
   const [logsTab, setLogsTab] = useState<Record<string, 'details' | 'logs'>>({});
   const [createOpen, setCreateOpen] = useState(false);
@@ -1554,6 +1582,26 @@ function TasksSession({
         && acceptanceFilterKey(t.acceptance) === filterAcceptance)),
   ) ?? [];
   const hasActiveTaskFilters = Boolean(searchTerm || filterStatus || filterPriority || filterAcceptance);
+
+  useEffect(() => {
+    const url = new URL(window.location.href);
+    const filterParams: Array<[string, string]> = [
+      ['status', filterStatus],
+      ['priority', filterPriority],
+      ['acceptance', filterAcceptance],
+      ['search', searchTerm],
+    ];
+    for (const [key, value] of filterParams) {
+      if (value) url.searchParams.set(key, value);
+      else url.searchParams.delete(key);
+    }
+
+    const nextUrl = `${url.pathname}${url.search}${url.hash}`;
+    const currentUrl = `${window.location.pathname}${window.location.search}${window.location.hash}`;
+    if (nextUrl !== currentUrl) {
+      window.history.replaceState(window.history.state, '', nextUrl);
+    }
+  }, [filterStatus, filterPriority, filterAcceptance, searchTerm]);
 
   const handleAction = (action: 'execute' | 'retry' | 'rollback' | 'resume', taskId: string) => {
     const label = { execute: 'التنفيذ', retry: 'إعادة المحاولة', rollback: 'التراجع', resume: 'الاستئناف' }[action];
