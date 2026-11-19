@@ -1878,6 +1878,139 @@ describe("openrouterCompleteWithFallback — transient free-model failover", () 
   });
 });
 
+// ── Server-directed backoff for OpenRouter 503 responses ──────────────────────
+
+describe("OpenRouter Retry-After on 503 Service Unavailable", () => {
+  const globalFetch = global.fetch;
+
+  afterEach(() => {
+    global.fetch = globalFetch;
+    vi.restoreAllMocks();
+  });
+
+  it.each([undefined, false] as const)(
+    "does not retry or rotate a completion before Retry-After (retryTransient=%s)",
+    async (retryTransient) => {
+      const firstModel = FREE_MODELS.find((model) => model.capabilities.includes("chat"))!.id;
+      const attemptedModels: string[] = [];
+      const fetchMock = vi.fn(async (_url: string | URL, init?: RequestInit) => {
+        const body = JSON.parse(String(init?.body ?? "{}")) as { model?: string };
+        attemptedModels.push(body.model ?? "");
+        return new Response(
+          JSON.stringify({ error: { message: "temporarily unavailable" } }),
+          {
+            status: 503,
+            headers: { "content-type": "application/json", "retry-after": "30" },
+          },
+        );
+      });
+      global.fetch = fetchMock as typeof fetch;
+
+      await expect(openrouterCompleteWithFallback(
+        [{ role: "user", content: "hello" }],
+        {
+          apiKey: "fixture-key",
+          model: firstModel,
+          capability: "chat",
+          maxFallbackModels: 2,
+          ...(retryTransient !== undefined ? { retryTransient } : {}),
+        },
+      )).rejects.toMatchObject({
+        code: "SERVER_ERROR",
+        providerStatus: 503,
+        retryAfterMs: 30_000,
+        providerAttemptedModels: [firstModel],
+      });
+
+      expect(attemptedModels).toEqual([firstModel]);
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+    },
+  );
+
+  it.each([undefined, false] as const)(
+    "does not retry or advance a stream before Retry-After (retryTransient=%s)",
+    async (retryTransient) => {
+      const firstModel = FREE_MODELS.find((model) => model.capabilities.includes("chat"))!.id;
+      const attemptedModels: string[] = [];
+      const fetchMock = vi.fn(async (_url: string | URL, init?: RequestInit) => {
+        const body = JSON.parse(String(init?.body ?? "{}")) as { model?: string };
+        attemptedModels.push(body.model ?? "");
+        return new Response(
+          JSON.stringify({ error: { message: "temporarily unavailable" } }),
+          {
+            status: 503,
+            headers: { "content-type": "application/json", "retry-after": "30" },
+          },
+        );
+      });
+      global.fetch = fetchMock as typeof fetch;
+
+      const run = async () => {
+        for await (const _chunk of openrouterCompleteStream(
+          [{ role: "user", content: "hello" }],
+          {
+            apiKey: "fixture-key",
+            model: firstModel,
+            capability: "chat",
+            maxFallbackModels: 2,
+            ...(retryTransient !== undefined ? { retryTransient } : {}),
+          },
+        )) {
+          // A 503 is rejected before the stream emits content.
+        }
+      };
+
+      await expect(run()).rejects.toMatchObject({
+        code: "SERVER_ERROR",
+        providerStatus: 503,
+        retryAfterMs: 30_000,
+        providerAttemptedModels: [firstModel],
+      });
+
+      expect(attemptedModels).toEqual([firstModel]);
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+    },
+  );
+
+  it("treats Retry-After: 0 as immediately eligible for the bounded retry", async () => {
+    const firstModel = FREE_MODELS.find((model) => model.capabilities.includes("chat"))!.id;
+    const attemptedModels: string[] = [];
+    const fetchMock = vi.fn(async (_url: string | URL, init?: RequestInit) => {
+      const body = JSON.parse(String(init?.body ?? "{}")) as { model?: string };
+      attemptedModels.push(body.model ?? "");
+      if (attemptedModels.length === 1) {
+        return new Response(
+          JSON.stringify({ error: { message: "temporary maintenance" } }),
+          {
+            status: 503,
+            headers: { "content-type": "application/json", "retry-after": "0" },
+          },
+        );
+      }
+      return fetchResponse(200, {
+        choices: [{ message: { content: "recovered" } }],
+        model: firstModel,
+        usage: { prompt_tokens: 1, completion_tokens: 1 },
+      });
+    });
+    global.fetch = fetchMock as typeof fetch;
+
+    const result = await openrouterCompleteWithFallback(
+      [{ role: "user", content: "hello" }],
+      {
+        apiKey: "fixture-key",
+        model: firstModel,
+        capability: "chat",
+        maxFallbackModels: 1,
+      },
+    );
+
+    expect(result.content).toBe("recovered");
+    expect(attemptedModels).toEqual([firstModel, firstModel]);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+});
+
 // ── Streaming reliability ─────────────────────────────────────────────────────
 
 describe("openrouterCompleteStream — bounded retry and disconnect safety", () => {
