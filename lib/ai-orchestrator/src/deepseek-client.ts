@@ -52,6 +52,17 @@ function resolveDeepSeekTimeoutMs(value: number | undefined, fallback = DEFAULT_
   return Math.min(Math.ceil(value), 2_147_483_647);
 }
 
+function resolveDeepSeekSignal(
+  callerSignal: AbortSignal | undefined,
+  executionLedger: ExecutionLedger | undefined,
+): AbortSignal | undefined {
+  const ledgerSignal = executionLedger?.signal;
+  if (callerSignal && ledgerSignal && callerSignal !== ledgerSignal) {
+    return AbortSignal.any([callerSignal, ledgerSignal]);
+  }
+  return callerSignal ?? ledgerSignal;
+}
+
 
 export type DeepSeekDefaultModelRole = "fast" | "powerful";
 export type DeepSeekDefaultModelValidation = {
@@ -172,8 +183,10 @@ export async function* deepseekCompleteStream(
     maxTokens = 4096,
     timeoutMs,
     apiKey,
-    signal,
+    signal: callerSignal,
+    executionLedger,
   } = opts;
+  const signal = resolveDeepSeekSignal(callerSignal, executionLedger);
 
   const body: Record<string, unknown> = {
     model,
@@ -338,11 +351,12 @@ export async function deepseekCompleteRaw(
     maxTokens = 4096,
     timeoutMs,
     apiKey,
-    signal,
+    signal: callerSignal,
     executionLedger,
     tools,
     toolChoice,
   } = opts;
+  const signal = resolveDeepSeekSignal(callerSignal, executionLedger);
 
   const body: Record<string, unknown> = {
     model,
