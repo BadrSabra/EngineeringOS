@@ -38,8 +38,16 @@ const bootstrapStatusLabels: Record<string, string> = {
   completed: 'اكتمل',
   failed: 'فشل',
 };
+const projectStatusLabels: Record<string, string> = {
+  active: 'متاح للعمل',
+  scanning: 'جارٍ الفحص',
+  archived: 'مؤرشف',
+};
 function bootstrapStatusLabel(status: string) {
   return bootstrapStatusLabels[status] ?? status;
+}
+function projectStatusLabel(status: string) {
+  return projectStatusLabels[status] ?? 'حالة غير معروفة';
 }
 
 export default function Projects() {
@@ -425,29 +433,22 @@ function ProjectsForAccountSession({
         {!isLoading && filtered && filtered.length > 0 && (
           <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
             {filtered.map((project) => (
-              <Link
+              <article
                 key={project.id}
-                to={`/projects/${project.id}`}
-                className="bg-card border border-border hover:border-primary/40 rounded-xl p-5 flex flex-col gap-3 transition-all hover:shadow-md hover:shadow-primary/5 group relative overflow-hidden"
+                className="bg-card border border-border hover:border-primary/40 rounded-xl p-5 flex flex-col gap-3 transition-all hover:shadow-md hover:shadow-primary/5"
               >
-                <div className="absolute top-0 left-0 w-0.5 h-full bg-primary/0 group-hover:bg-primary/60 transition-all" />
                 <div className="flex items-start justify-between gap-2">
                   <div className="flex items-center gap-2.5 min-w-0">
                     <div className="w-8 h-8 rounded-lg bg-primary/10 flex items-center justify-center shrink-0">
                       <FolderGit2 className="w-4 h-4 text-primary" />
                     </div>
                     <div className="min-w-0">
-                      <div className="font-semibold truncate">{project.name}</div>
-                      <div className="text-xs text-muted-foreground mt-0.5 flex items-center gap-1.5">
-                        {project.language && (
-                          <span className="font-mono bg-secondary/80 px-1.5 py-0.5 rounded text-[10px]">
-                            {project.language}
-                          </span>
-                        )}
-                        {project.framework && (
-                          <span className="truncate text-muted-foreground/60">{project.framework}</span>
-                        )}
-                      </div>
+                      <Link
+                        to={`/projects/${project.id}`}
+                        className="block truncate font-semibold hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+                      >
+                        {project.name}
+                      </Link>
                     </div>
                   </div>
                   <div
@@ -459,55 +460,74 @@ function ProjectsForAccountSession({
                         : 'bg-muted/50 text-muted-foreground border-border'
                     }`}
                   >
-                    {project.status}
+                    {projectStatusLabel(project.status)}
                   </div>
                 </div>
 
                 {project.description && (
-                  <p className="text-xs text-muted-foreground line-clamp-2">{project.description}</p>
+                  <p dir="auto" className="text-xs text-muted-foreground line-clamp-2">{project.description}</p>
                 )}
 
-                <div className="text-sm text-muted-foreground font-mono truncate bg-secondary/50 px-3 py-2 rounded-md border border-border/50">
-                  {project.rootPath}
-                </div>
-
-                <div className="mt-auto grid grid-cols-2 gap-3 pt-3 border-t border-border/50">
+                <div className="mt-auto flex items-end justify-between gap-3 border-t border-border/50 pt-3">
                   <div>
-                    <div className="text-xs text-muted-foreground uppercase tracking-wider mb-1 flex items-center gap-1">
-                      <ShieldCheck className="w-3 h-3" /> Quality
-                    </div>
-                    <div className="font-mono font-bold text-lg flex items-baseline gap-1">
-                      <span
-                        className={
-                          project.qualityScore && project.qualityScore >= 80
-                            ? 'text-emerald-500'
-                            : project.qualityScore && project.qualityScore >= 60
-                            ? 'text-yellow-500'
-                            : 'text-destructive'
-                        }
-                      >
-                        {project.qualityScore ?? '--'}
-                      </span>
-                      <span className="text-xs text-muted-foreground font-sans font-normal">/ 100</span>
-                    </div>
-                  </div>
-                  <div>
-                    <div className="text-xs text-muted-foreground uppercase tracking-wider mb-1">
-                      Last Scan
-                    </div>
+                    <div className="mb-1 text-xs text-muted-foreground">آخر فحص</div>
                     <div className="text-sm font-medium">
                       {project.lastScanAt
-                        ? new Date(project.lastScanAt).toLocaleDateString(undefined, {
-                            month: 'short',
-                            day: 'numeric',
-                            hour: '2-digit',
-                            minute: '2-digit',
+                        ? new Date(project.lastScanAt).toLocaleString('ar-EG', {
+                            dateStyle: 'medium',
+                            timeStyle: 'short',
                           })
-                        : 'Never'}
+                        : 'لم يُفحص بعد'}
                     </div>
                   </div>
+                  <Link
+                    to={`/projects/${project.id}`}
+                    aria-label={`افتح مشروع ${project.name}`}
+                    className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-sm font-medium text-primary hover:bg-primary/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+                  >
+                    افتح المشروع <ArrowRight className="h-4 w-4 rotate-180" aria-hidden="true" />
+                  </Link>
                 </div>
-              </Link>
+
+                <details
+                  data-testid={`project-technical-details-${project.id}`}
+                  className="rounded-lg border border-border/50 bg-secondary/20 px-3 py-2 text-xs"
+                >
+                  <summary className="w-fit cursor-pointer text-muted-foreground underline decoration-dotted underline-offset-4 hover:text-foreground">
+                    تفاصيل تقنية إضافية
+                  </summary>
+                  <div className="mt-3 space-y-2 text-muted-foreground">
+                    <div className="flex justify-between gap-3">
+                      <span>حالة النظام</span>
+                      <bdi dir="ltr" className="font-mono text-foreground">{project.status}</bdi>
+                    </div>
+                    {project.language && (
+                      <div className="flex justify-between gap-3">
+                        <span>لغة البرمجة</span>
+                        <bdi dir="ltr" className="font-mono text-foreground">{project.language}</bdi>
+                      </div>
+                    )}
+                    {project.framework && (
+                      <div className="flex justify-between gap-3">
+                        <span>إطار العمل</span>
+                        <bdi dir="ltr" className="font-mono text-foreground">{project.framework}</bdi>
+                      </div>
+                    )}
+                    {project.rootPath && (
+                      <div className="flex justify-between gap-3">
+                        <span>موقع الملفات</span>
+                        <bdi dir="ltr" className="break-all text-left font-mono text-foreground">{project.rootPath}</bdi>
+                      </div>
+                    )}
+                    {project.qualityScore != null && (
+                      <div className="flex justify-between gap-3">
+                        <span>مؤشر الجودة</span>
+                        <bdi dir="ltr" className="font-mono text-foreground">{project.qualityScore} / 100</bdi>
+                      </div>
+                    )}
+                  </div>
+                </details>
+              </article>
             ))}
           </div>
         )}
