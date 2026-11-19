@@ -6,8 +6,8 @@ const { userState } = vi.hoisted(() => ({
 }));
 vi.mock("@clerk/react", () => ({ useUser: () => userState }));
 vi.mock("wouter", () => ({
-  Link: ({ href, children, className, "data-testid": t }: { href: string; children: React.ReactNode; className?: string; "data-testid"?: string }) => (
-    <a href={href} className={className} data-testid={t}>{children}</a>
+  Link: ({ href, children, className, "data-testid": t, "aria-label": ariaLabel }: { href: string; children: React.ReactNode; className?: string; "data-testid"?: string; "aria-label"?: string }) => (
+    <a href={href} className={className} data-testid={t} aria-label={ariaLabel}>{children}</a>
   ),
 }));
 vi.mock("@workspace/api-client-react", () => ({
@@ -90,6 +90,22 @@ describe("DashboardWorkSummary", () => {
     expect(cov).toHaveTextContent("عرض جزئي");
     expect(cov).toHaveTextContent("ليس عددًا كليًا");
     expect(cov).toHaveTextContent("3");
+  });
+
+  it("shows a useful next step for each section while preserving the detail destinations", () => {
+    mockQuery({ data: summary });
+    render(<DashboardWorkSummary />);
+
+    expect(screen.getByTestId("text-work-item-action-d1")).toHaveTextContent("اعرف ما يلزم");
+    expect(screen.getByTestId("link-work-item-mission-d1")).toHaveAccessibleName("اعرف ما يلزم: وافق على الخطة");
+    expect(screen.getByTestId("text-work-item-action-a1")).toHaveTextContent("تابع التقدم");
+    expect(screen.getByTestId("link-work-item-task-a1")).toHaveAccessibleName("تابع التقدم: إصلاح البحث");
+    expect(screen.getByTestId("text-work-item-action-r1")).toHaveTextContent("راجع السجل");
+    expect(screen.getByTestId("link-work-item-task-r1")).toHaveAccessibleName("راجع السجل: تحسين الدخول");
+    expect(screen.getByTestId("link-work-item-mission-d1")).toHaveAttribute("href", "/missions/d1");
+    expect(screen.getByTestId("link-work-item-task-a1")).toHaveAttribute("href", "/tasks/t1");
+    expect(screen.getByTestId("link-work-item-task-r1")).toHaveAttribute("href", "/tasks/t1");
+    expect(screen.queryByRole("button", { name: /اعرف ما يلزم|تابع التقدم|راجع السجل/ })).toBeNull();
   });
 
   it("shows an error distinct from empty, and retry only rereads", () => {
