@@ -228,6 +228,11 @@ import { getProjectWorldState } from "../../lib/agent-state/world-state.js";
 import { runMissionGoal } from "../../lib/mission-runtime.js";
 import { tryAdvisoryLock, LockNamespace } from "../../lib/advisory-lock.js";
 import {
+  allocateUnboundChatTurnTimestamps,
+  reservePersistedChatTurnTimestamps,
+  sessionTaskStateIsAtOrBefore,
+} from "../../lib/chat-turn-order.js";
+import {
   getRepairValidationProfile,
   runRepairValidation,
   runRepairPreviewValidation,
@@ -1185,12 +1190,14 @@ async function streamDeterministicChatReply(params: {
   projectId: string;
   message: string;
   existingSession?: typeof aiChatSessionsTable.$inferSelect;
+  timestamps?: { startedAt: Date; assistantAt: Date };
   content: string;
   operation: "workflow_status" | "execution_failure_diagnostic";
   operationMetadata: Record<string, unknown>;
 }): Promise<void> {
-  const startedAt = Date.now();
-  const now = new Date();
+  const startedWallClockMs = Date.now();
+  const timestamps = params.timestamps ?? allocateUnboundChatTurnTimestamps();
+  const now = timestamps.startedAt;
   const sessionId = params.existingSession?.id ?? randomUUID();
   const title = params.existingSession?.title
     ?? (params.message.trim().length > 10
@@ -1198,7 +1205,7 @@ async function streamDeterministicChatReply(params: {
       : `Session ${now.toISOString().slice(0, 16).replace("T", " ")}`);
   const userMessageId = randomUUID();
   const assistantMessageId = randomUUID();
-  const assistantCreatedAt = new Date(now.getTime() + 1);
+  const assistantCreatedAt = timestamps.assistantAt;
   const sources: string[] = [];
   const toolTrace = JSON.stringify([{
     kind: "deterministic_operational_reply",
@@ -1288,7 +1295,7 @@ async function streamDeterministicChatReply(params: {
     toolTrace,
     pendingChanges: [],
     operationMode: "CHAT",
-    telemetry: { latencyMs: Date.now() - startedAt },
+    telemetry: { latencyMs: Date.now() - startedWallClockMs },
   }));
   params.res.end();
 }
@@ -2618,21 +2625,6 @@ export function projectMissionCorrelationReportForExport(
     ? { ...report, generatedAt: report.generatedAt.toISOString() }
     : report;
   return redactUserFacingValue(normalized) as Record<string, unknown>;
-}
-
-// A turn is persisted only after its provider call completes, but history must
-// remain ordered by the time the user submitted each turn. Allocate a unique
-// two-millisecond window up front so concurrent completions cannot interleave
-// the user/assistant rows or make equal-timestamp ordering database-dependent.
-let lastAllocatedTurnTimestamp = 0;
-function allocateTurnTimestamps(): { startedAt: Date; assistantAt: Date } {
-  const wallClock = Date.now();
-  const startedAtMs = Math.max(wallClock, lastAllocatedTurnTimestamp + 2);
-  lastAllocatedTurnTimestamp = startedAtMs;
-  return {
-    startedAt: new Date(startedAtMs),
-    assistantAt: new Date(startedAtMs + 1),
-  };
 }
 
 type ApprovedImplementationPlan = Extract<
@@ -5910,20 +5902,6 @@ function nextSessionTaskState(args: {
   return null;
 }
 
-/**
- * Only the turn that is at least as new as the state currently stored on the
- * session may replace or clear that state. Keep this predicate on the UPDATE
- * itself: a CASE expression in an otherwise-unconditional UPDATE can be
- * evaluated from a snapshot taken before the statement waits for a row lock.
- */
-function sessionTaskStateIsAtOrBefore(msgNow: Date) {
-  return sql`COALESCE(
-    NULLIF(${aiChatSessionsTable.activeTaskState}::jsonb->>'lastProgressAt', '')::timestamptz,
-    ${aiChatSessionsTable.updatedAt}
-  ) <= ${msgNow}
-  AND ${aiChatSessionsTable.updatedAt} <= ${msgNow}`;
-}
-
 const router = Router();
 
 router.get("/ai/delivery/policy", async (req, res) => {
@@ -6092,8 +6070,14 @@ router.post("/ai/chat", async (req, res) => {
     linkedTaskId,
     objective,
   } = chatBody.data;
+  let turnTimestamps = requestedSessionId
+    ? await reservePersistedChatTurnTimestamps({
+        projectId,
+        sessionId: requestedSessionId,
+        userId: req.userId,
+      })
+    : undefined;
   const chatTurnIntent = resolveTurnIntent(message);
-  const { startedAt: now, assistantAt: msgNow } = allocateTurnTimestamps();
 
   const project = await loadProjectByIdForUser(projectId, req.userId, res);
   if (!project) return;
@@ -6106,7 +6090,14 @@ router.post("/ai/chat", async (req, res) => {
       return res.status(200).json(latestSessionQualityIncompletePayload(message));
     }
     sessionId = latestSession.id;
+    turnTimestamps = await reservePersistedChatTurnTimestamps({
+      projectId,
+      sessionId: latestSession.id,
+      userId: req.userId,
+    });
   }
+  const { startedAt: now, assistantAt: msgNow } =
+    turnTimestamps ?? allocateUnboundChatTurnTimestamps();
 
   if (chatTurnIntent.serverAction === "RESTART_SERVICES") {
     try {
@@ -8493,10 +8484,16 @@ export async function handleChatStream(req: Request, res: Response) {
     resumeToken,
     idempotencyKey,
   } = chatBody.data;
-  // Capture turn order before the first asynchronous lookup. The session-state
-  // compare-and-set fence must follow request arrival, not project lookup
-  // completion order.
-  const { startedAt: now, assistantAt: msgNow } = allocateTurnTimestamps();
+  // Existing sessions reserve an admission ticket in PostgreSQL before
+  // project/context lookups. Requests without a persisted session receive an
+  // unbound ticket because they create a new server-generated session ID.
+  let turnTimestamps = requestedSessionId
+    ? await reservePersistedChatTurnTimestamps({
+        projectId,
+        sessionId: requestedSessionId,
+        userId: req.userId,
+      })
+    : undefined;
   const rawTurnClassification = classifyRequest(message);
   const rawTurnIntent = resolveTurnIntent(message, {
     classification: rawTurnClassification,
@@ -8590,6 +8587,7 @@ export async function handleChatStream(req: Request, res: Response) {
         projectId,
         message,
         existingSession: existingOperationalSession,
+        timestamps: turnTimestamps ?? allocateUnboundChatTurnTimestamps(),
         content: buildWorkflowStatusResponse(message, workflows, latestExecutions),
         operation: "workflow_status",
         operationMetadata: { workflowCount: workflows.length },
@@ -8620,6 +8618,7 @@ export async function handleChatStream(req: Request, res: Response) {
       projectId,
       message,
       existingSession: existingOperationalSession,
+      timestamps: turnTimestamps ?? allocateUnboundChatTurnTimestamps(),
       content: buildPreviousFailureResponse(message, failure),
       operation: "execution_failure_diagnostic",
       operationMetadata: {
@@ -8682,7 +8681,14 @@ export async function handleChatStream(req: Request, res: Response) {
       return;
     }
     sessionId = latestSession.id;
+    turnTimestamps = await reservePersistedChatTurnTimestamps({
+      projectId,
+      sessionId: latestSession.id,
+      userId: req.userId,
+    });
   }
+  const { startedAt: now, assistantAt: msgNow } =
+    turnTimestamps ?? allocateUnboundChatTurnTimestamps();
 
   if (rawTurnIntent.serverAction === "RESTART_SERVICES") {
     try {
