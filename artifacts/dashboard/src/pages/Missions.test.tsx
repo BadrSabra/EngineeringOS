@@ -1210,3 +1210,33 @@ describe('Missions project isolation', () => {
     expect(screen.queryByTestId(`text-mission-title-${mission.id}`)).not.toBeInTheDocument();
   });
 });
+
+describe('Missions projection identity', () => {
+  it.each([
+    {
+      scope: 'mission',
+      returnedMission: { ...mission, id: 'mission-foreign', title: 'Foreign mission projection' },
+    },
+    {
+      scope: 'project',
+      returnedMission: { ...mission, projectId: 'project-foreign', title: 'Foreign project projection' },
+    },
+  ])('withholds details when the projection belongs to another $scope', async ({ returnedMission }) => {
+    fetchMissionsMock.mockResolvedValue([mission]);
+    fetchMissionProjectionMock.mockResolvedValue({
+      mission: returnedMission,
+      engineeringAgent: null,
+      agentControl: null,
+      currentPlan: { revision: null, binding: 'legacy_unversioned', goalIds: [] },
+      goals: [],
+      counts: { goals: 7, tasks: 0, workflows: 0, executions: 0, events: 0 },
+    } as never);
+
+    renderPage();
+
+    expect(await screen.findByTestId('mission-projection-identity-error')).toBeInTheDocument();
+    expect(screen.getByTestId(`text-mission-title-${mission.id}`)).toHaveTextContent(mission.title);
+    expect(screen.queryByText('7', { exact: true })).not.toBeInTheDocument();
+    expect(screen.queryByText(returnedMission.title)).not.toBeInTheDocument();
+  });
+});
