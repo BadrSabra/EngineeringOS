@@ -1212,14 +1212,13 @@ describe('Missions project isolation', () => {
 });
 
 describe('Missions projection identity', () => {
-  it('withholds details when the projection belongs to a different mission', async () => {
+  it.each([
+    ['mission', { ...mission, id: 'mission-foreign', title: 'Foreign mission projection' }],
+    ['project', { ...mission, projectId: 'project-foreign', title: 'Foreign project projection' }],
+  ])('withholds details when the projection belongs to a different %s', async (_scope, returnedMission) => {
     fetchMissionsMock.mockResolvedValue([mission]);
     fetchMissionProjectionMock.mockResolvedValue({
-      mission: {
-        ...mission,
-        id: 'mission-foreign',
-        title: 'Foreign mission projection',
-      },
+      mission: returnedMission,
       engineeringAgent: null,
       agentControl: null,
       currentPlan: { revision: null, binding: 'legacy_unversioned', goalIds: [] },
@@ -1232,6 +1231,6 @@ describe('Missions projection identity', () => {
     expect(await screen.findByTestId('mission-projection-identity-error')).toBeInTheDocument();
     expect(screen.getByTestId(`text-mission-title-${mission.id}`)).toHaveTextContent(mission.title);
     expect(screen.queryByText('7', { exact: true })).not.toBeInTheDocument();
-    expect(screen.queryByText('Foreign mission projection')).not.toBeInTheDocument();
+    expect(screen.queryByText(returnedMission.title)).not.toBeInTheDocument();
   });
 });

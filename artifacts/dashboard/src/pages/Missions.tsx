@@ -2363,7 +2363,7 @@ export default function Missions() {
                                 key={item.goal.id}
                                 item={item}
                                 planBinding={currentProjection?.currentPlan?.binding}
-                                inCurrentPlan={Array.isArray(currentProjection?.currentPlan?.goalIds) ? projection.currentPlan.goalIds.includes(item.goal.id) : undefined}
+                                inCurrentPlan={Array.isArray(currentProjection?.currentPlan?.goalIds) ? currentProjection.currentPlan.goalIds.includes(item.goal.id) : undefined}
                                 expanded={expandedGoalId === item.goal.id}
                                 onToggle={() => setExpandedGoalId((current) => current === item.goal.id ? null : item.goal.id)}
                                 onEdit={() => openEditor({ type: 'goal-edit', missionId: activeMission.id, goal: item.goal })}
