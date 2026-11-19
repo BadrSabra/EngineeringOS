@@ -1068,18 +1068,45 @@ describe("GET /api/projects/:projectId/summary", () => {
     }
   });
 
-  it("returns aggregated task counts and 404s for unknown project", async () => {
+  it("aggregates task counts in the requested project and 404s for unknown project", async () => {
     const projectId = await insertProject("/tmp/summary-test-" + randomUUID());
-    cleanupQueue.push(projectId);
+    const otherProjectId = await insertProject("/tmp/summary-other-" + randomUUID());
+    cleanupQueue.push(projectId, otherProjectId);
+
+    const statuses = [
+      "pending",
+      "pending",
+      "queued",
+      "running",
+      "running",
+      "verifying",
+      "completed",
+      "failed",
+      "cancelled",
+    ] as const;
+    await db.insert(tasksTable).values(
+      statuses.map((status) => ({
+        id: randomUUID(),
+        projectId,
+        title: `summary-${status}-${randomUUID().slice(0, 8)}`,
+        status,
+      })),
+    );
+    await db.insert(tasksTable).values({
+      id: randomUUID(),
+      projectId: otherProjectId,
+      title: "foreign-project-task",
+      status: "completed",
+    });
 
     const res = await request(app).get(`/api/projects/${projectId}/summary`);
     expect(res.status).toBe(200);
     expect(res.body.taskCounts).toEqual({
-      total: 0,
-      pending: 0,
-      running: 0,
-      completed: 0,
-      failed: 0,
+      total: 9,
+      pending: 3,
+      running: 3,
+      completed: 1,
+      failed: 1,
     });
 
     const notFound = await request(app).get(`/api/projects/${randomUUID()}/summary`);
