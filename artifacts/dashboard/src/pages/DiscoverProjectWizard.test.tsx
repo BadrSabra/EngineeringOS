@@ -230,6 +230,14 @@ describe('DiscoverProjectWizard Arabic findings', () => {
       },
     });
 
+    const technicalDetails = screen.getByTestId('discovery-technical-details');
+    const technicalSummary = screen.getByTestId('summary-discovery-technical-details');
+    expect(technicalDetails).not.toHaveAttribute('open');
+    expect(screen.getByTestId('discovery-support-boundary')).toBeVisible();
+    expect(technicalSummary).toHaveTextContent('تفاصيل تقنية إضافية');
+    fireEvent.click(technicalSummary);
+    await waitFor(() => expect(technicalDetails).toHaveAttribute('open'));
+
     expect(screen.getAllByText('جاهزية التغيير:')).toHaveLength(2);
     expect(screen.getByText('يمكن إعداد خطة تستند إلى ملفات المشروع.')).toBeInTheDocument();
     expect(screen.getByText('لم يُكتشف إطار لاختبار المشروع.')).toBeInTheDocument();
