@@ -164,6 +164,30 @@ describe("Dashboard goal-first home", () => {
     expect(screen.queryByTestId('panel-goal-destination')).not.toBeInTheDocument();
   });
 
+  it("keeps an explicit general-chat choice available when a unique project is suggested", () => {
+    render(<Dashboard />);
+    fireEvent.change(screen.getByTestId("input-home-goal"), {
+      target: { value: "ساعدني أفهم سبب بطء صفحة تسجيل الدخول في مشروع بوابة العملاء" },
+    });
+
+    expect(screen.getByTestId("button-choose-goal-destination")).toHaveTextContent("اختيار وجهة أخرى");
+    fireEvent.click(screen.getByTestId("button-choose-goal-destination"));
+
+    expect(screen.getByTestId("panel-goal-destination")).toBeInTheDocument();
+    expect(screen.getByTestId("button-route-goal-general")).toBeInTheDocument();
+    expect(mockSetLocation).not.toHaveBeenCalled();
+    expect(readGoalDrafts("user-1").drafts).toHaveLength(0);
+
+    fireEvent.click(screen.getByTestId("button-route-goal-general"));
+    const [draft] = readGoalDrafts("user-1").drafts;
+    expect(draft).toMatchObject({
+      text: "ساعدني أفهم سبب بطء صفحة تسجيل الدخول في مشروع بوابة العملاء",
+      projectId: null,
+      sendAttemptedAt: null,
+    });
+    expect(mockSetLocation).toHaveBeenCalledWith(`/general-chat?goalDraftId=${draft.id}`);
+  });
+
   it('waits for project names before showing a suggestion and never routes while they load', () => {
     vi.mocked(useListProjects).mockReturnValue({
       data: undefined, isLoading: true, isError: false, refetch: vi.fn(),
