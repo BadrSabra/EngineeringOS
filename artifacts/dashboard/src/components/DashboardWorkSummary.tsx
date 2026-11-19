@@ -77,12 +77,13 @@ function formatTime(value: string): string {
 
 type SectionKey = 'decisions' | 'active' | 'recent';
 
-const SECTIONS: { key: SectionKey; title: string; meaning: string; empty: string; icon: typeof Hand; tone: string }[] = [
+const SECTIONS: { key: SectionKey; title: string; meaning: string; empty: string; actionLabel: string; icon: typeof Hand; tone: string }[] = [
   {
     key: 'decisions',
     title: 'يحتاج مراجعتك',
     meaning: 'عناصر تحتاج أن تراجعها: قد تكون انتظارًا أو تعثرًا أو حاجة لإعادة تخطيط، وليست بالضرورة طلب موافقة. أي قرار يُتخذ داخل التفاصيل، لا من هنا.',
     empty: 'لا شيء ضمن هذا العرض المحدود يحتاج مراجعتك.',
+    actionLabel: 'اعرف ما يلزم',
     icon: Hand,
     tone: 'border-amber-500/30 bg-amber-500/[0.04]',
   },
@@ -91,6 +92,7 @@ const SECTIONS: { key: SectionKey; title: string; meaning: string; empty: string
     title: 'يعمل الآن',
     meaning: 'عمل حالته المسجّلة جارية أو في الانتظار. التصنيف إرشادي ومبني على السجل فقط.',
     empty: 'لا عمل جارٍ ضمن هذا العرض المحدود.',
+    actionLabel: 'تابع التقدم',
     icon: CircleDot,
     tone: 'border-primary/25 bg-primary/[0.03]',
   },
@@ -99,18 +101,20 @@ const SECTIONS: { key: SectionKey; title: string; meaning: string; empty: string
     title: 'انتهى مؤخرًا',
     meaning: 'عمل وصل إلى حالة نهائية مسجّلة. "مكتملة" هنا وصف للسجل وليست إثباتًا؛ افتح التفاصيل لمراجعة الأدلة.',
     empty: 'لا عمل منتهٍ ضمن هذا العرض المحدود.',
+    actionLabel: 'راجع السجل',
     icon: History,
     tone: 'border-border bg-card',
   },
 ];
 
-function WorkItem({ item }: { item: DashboardWorkSummaryItem }) {
+function WorkItem({ item, actionLabel }: { item: DashboardWorkSummaryItem; actionLabel: string }) {
   const plan = PLAN_LABELS[item.planBinding];
   return (
     <li>
       <Link
         href={toRouterHref(item.href)}
         data-testid={`link-work-item-${item.kind}-${item.id}`}
+        aria-label={`${actionLabel}: ${item.title}`}
         className="group flex items-start gap-3 rounded-lg px-3 py-2.5 transition-colors hover:bg-background/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
       >
         <div className="min-w-0 flex-1">
@@ -125,7 +129,7 @@ function WorkItem({ item }: { item: DashboardWorkSummaryItem }) {
           </p>
         </div>
         <span className="mt-1 flex shrink-0 items-center gap-1 text-xs font-medium text-primary opacity-80 group-hover:opacity-100">
-          افتح التفاصيل
+          <span data-testid={`text-work-item-action-${item.id}`}>{actionLabel}</span>
           <ArrowLeft aria-hidden="true" className="h-3.5 w-3.5" />
         </span>
       </Link>
@@ -235,7 +239,7 @@ export default function DashboardWorkSummary() {
                   <p className="mt-1 px-1 text-xs leading-5 text-muted-foreground">{s.meaning}</p>
                   {items.length ? (
                     <ul className="mt-2 -mx-1 divide-y divide-border/60">
-                      {items.map((item) => <WorkItem key={`${item.kind}-${item.id}`} item={item} />)}
+                      {items.map((item) => <WorkItem key={`${item.kind}-${item.id}`} item={item} actionLabel={s.actionLabel} />)}
                     </ul>
                   ) : (
                     <p className="mt-3 px-1 pb-1 text-xs text-muted-foreground" data-testid={`empty-work-${s.key}`}>{s.empty}</p>
