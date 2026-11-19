@@ -11,6 +11,7 @@ import {
   auditLogsTable,
 } from "@workspace/db";
 import { randomUUID } from "crypto";
+import { LockNamespace, tryAdvisoryLock } from "../lib/advisory-lock.js";
 
 async function insertProject(): Promise<string> {
   const id = randomUUID();
@@ -575,6 +576,36 @@ describe("Workflow phase orchestration", () => {
     expect(advanceAudits[0].stateAfter).toEqual({ currentPhase: "test" });
   });
 
+
+  it("uses one distributed transition lock for every workflow state mutation", async () => {
+    const workflowId = randomUUID();
+    const executionId = randomUUID();
+    const transitionLock = await tryAdvisoryLock(LockNamespace.WORKFLOW_TRANSITION, workflowId);
+    expect(transitionLock.acquired).toBe(true);
+    if (!transitionLock.acquired) {
+      throw new Error("Could not acquire the workflow transition lock for the regression test");
+    }
+
+    try {
+      const responses = await Promise.all([
+        request(app).delete(`/api/workflows/${workflowId}`),
+        request(app).post(`/api/workflows/${workflowId}/start`),
+        request(app).post(`/api/workflows/${workflowId}/stop`),
+        request(app).post(`/api/workflows/${workflowId}/advance`),
+        request(app).post(`/api/workflows/${workflowId}/fail-phase`),
+        request(app).post(`/api/workflows/${workflowId}/executions/${executionId}/retry-phase`),
+        request(app).post(`/api/workflows/${workflowId}/executions/${executionId}/rollback-phase`),
+      ]);
+
+      for (const response of responses) {
+        expect(response.status).toBe(409);
+        expect(response.body.code).toBe("WORKFLOW_TRANSITION_IN_PROGRESS");
+      }
+    } finally {
+      await transitionLock.release();
+    }
+  });
+
   it("stops a running workflow without deadlocking against a concurrent phase advance", async () => {
     const { workflowId } = await createStartedWorkflow();
     let releaseWorkflowLock!: () => void;
@@ -612,7 +643,9 @@ describe("Workflow phase orchestration", () => {
           (response) => ({ status: response.status, body: response.body }),
           (error) => ({ error }),
         );
-      await waitForBlockedWorkflowWrites(2);
+      const advancedWhileStopOwnsTransition = await advanceRequest;
+      if (!("status" in advancedWhileStopOwnsTransition)) throw advancedWhileStopOwnsTransition.error;
+      expect(advancedWhileStopOwnsTransition.status).toBe(409);
     } finally {
       releaseWorkflowLock();
       await lockTransaction;
