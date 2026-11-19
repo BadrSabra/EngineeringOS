@@ -1,6 +1,10 @@
 /**
  * Background OpenRouter Free-Model Catalog Refresh Scheduler
  *
+ * OpenRouter's GET /models endpoint is public. This shared maintenance task
+ * therefore refreshes anonymously and must never borrow a per-user credential.
+ * Authenticated inference paths can still refresh through their own request key.
+ *
  * Keeps the dynamic free-tier model catalog warm so the first chat request of
  * any session — even after hours of idle time — never hits a stale model list.
  *
@@ -25,70 +29,29 @@
  *   process.once('SIGTERM', stop);
  */
 
-import { eq } from "drizzle-orm";
-import { db } from "@workspace/db";
-import { aiProviderCredentialsTable } from "@workspace/db";
 import {
   refreshDynamicCatalog,
   auditStaticCatalog,
   isProviderEgressDisabled,
 } from "@workspace/ai-orchestrator";
 import { FREE_MODELS } from "@workspace/ai-orchestrator";
-import { decryptApiKey } from "./credentials-crypto.js";
 import { logger } from "./logger.js";
 
 export const CATALOG_REFRESH_INTERVAL_MS = 5 * 60 * 1_000; // 5 minutes
 
 /**
- * Resolve the best available OpenRouter API key for the catalog refresh.
- * Checks env var first, then falls back to any stored user key in the DB.
- * Returns undefined when no key is configured anywhere.
+ * Run one anonymous catalog refresh cycle and audit the resulting snapshot.
+ * Returns true when the refresh was attempted.
  */
-export async function resolveAnyCatalogKey(): Promise<string | undefined> {
-  // 1. Server-wide env var — cheapest to check.
-  const envKey = process.env.OPENROUTER_API_KEY;
-  if (envKey && envKey.trim().length >= 10) return envKey.trim();
-
-  // 2. Any user-stored key in the DB (first one found — all hit the same
-  //    public /models endpoint so any valid key will do).
-  try {
-    const [row] = await db
-      .select({ encryptedApiKey: aiProviderCredentialsTable.encryptedApiKey })
-      .from(aiProviderCredentialsTable)
-      .where(eq(aiProviderCredentialsTable.provider, "openrouter"))
-      .limit(1);
-
-    if (row) {
-      return decryptApiKey(row.encryptedApiKey);
-    }
-  } catch (err) {
-    logger.warn({ err }, "catalog-refresh: failed to query DB for OpenRouter key — will retry next interval");
-  }
-
-  return undefined;
-}
-
-/**
- * Run one catalog refresh cycle: resolve a key, refresh the catalog, audit.
- * Returns true when the refresh was attempted, false when skipped (no key).
- */
-export async function runCatalogRefresh(
-  getKey: () => Promise<string | undefined> = resolveAnyCatalogKey,
-): Promise<boolean> {
+export async function runCatalogRefresh(): Promise<boolean> {
   // Fixture release validation must not resolve credentials (including from
   // the database) or attempt provider traffic.
   if (isProviderEgressDisabled()) {
     logger.debug("catalog-refresh: provider egress disabled — skipping refresh");
     return false;
   }
-  const key = await getKey();
-  if (!key) {
-    logger.debug("catalog-refresh: no OpenRouter key available — skipping refresh");
-    return false;
-  }
-
   try {
-    await refreshDynamicCatalog(key);
+    await refreshDynamicCatalog();
     // Audit the static catalog against the freshly-loaded live list and log
     // any stale entries (models that have moved from free→paid).
     const stale = auditStaticCatalog(FREE_MODELS.map((m) => m.id));
@@ -117,21 +80,18 @@ export type CatalogRefreshScheduler = {
  * arrives), then repeats every `intervalMs` (default 5 min).
  *
  * @param opts.intervalMs   Override the refresh interval (default 5 min). Useful in tests.
- * @param opts.getKey       Override the key resolver. Useful in tests.
  * @returns { stop }        Call stop() on SIGTERM/SIGINT for clean shutdown.
  */
 export function startCatalogRefreshScheduler(opts?: {
   intervalMs?: number;
-  getKey?: () => Promise<string | undefined>;
 }): CatalogRefreshScheduler {
   const intervalMs = opts?.intervalMs ?? CATALOG_REFRESH_INTERVAL_MS;
-  const getKey     = opts?.getKey     ?? resolveAnyCatalogKey;
 
   // Immediate first run — fire-and-forget, errors are caught inside runCatalogRefresh.
-  void runCatalogRefresh(getKey);
+  void runCatalogRefresh();
 
   const handle = setInterval(() => {
-    void runCatalogRefresh(getKey);
+    void runCatalogRefresh();
   }, intervalMs);
 
   // Prevent the interval from keeping the Node.js process alive when
