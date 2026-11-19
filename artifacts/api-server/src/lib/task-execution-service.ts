@@ -67,6 +67,7 @@ import {
 } from "./ai-route-helpers.js";
 import type { ProviderId } from "./ai-route-helpers.js";
 import { logger } from "./logger.js";
+import { getTaskDependencyBlockers } from "./task-dependencies.js";
 import { TASK_AUTO_EXECUTION_DEFERRED_EVENT_TYPE, taskAutoExecutionIntentId } from "./task-auto-execution-outbox.js";
 import { dispatchPendingTaskObservationOutbox } from "./task-observation-outbox.js";
 import { taskTransitionConflict, type TaskStatus } from "./task-state.js";
@@ -4594,7 +4595,11 @@ export async function executeTaskLifecycle(params: {
       // acceptance lock; resume-token recovery otherwise creates the inverse
       // order against a concurrent manual Task claim.
       const [lockedTask] = await tx
-        .select({ id: tasksTable.id })
+        .select({
+          id: tasksTable.id,
+          projectId: tasksTable.projectId,
+          dependsOn: tasksTable.dependsOn,
+        })
         .from(tasksTable)
         .where(and(
           eq(tasksTable.id, before.id),
@@ -4607,6 +4612,17 @@ export async function executeTaskLifecycle(params: {
         .limit(1);
       if (!lockedTask) {
         return { kind: "conflict" as const, errorCode: "task_state_changed" };
+      }
+
+      // Revalidate dependencies at the final execution claim, not just when an
+      // outbox intent is written. This also fences already-enqueued closures
+      // and direct lifecycle callers from starting out of order.
+      const dependencyBlockers = await getTaskDependencyBlockers(tx, lockedTask);
+      if (dependencyBlockers.length > 0) {
+        return {
+          kind: "conflict" as const,
+          errorCode: "task_dependencies_not_completed",
+        };
       }
 
       // The scheduler checks nextAttemptAt before enqueue, but a job may
