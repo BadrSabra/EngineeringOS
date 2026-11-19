@@ -762,6 +762,16 @@ function logOrder(a: TaskLog, b: TaskLog): number {
   return a.timestamp.localeCompare(b.timestamp) || a.id.localeCompare(b.id);
 }
 
+function isTaskLogForTask(value: unknown, taskId: string): value is TaskLog {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
+  const log = value as Record<string, unknown>;
+  return log.taskId === taskId
+    && typeof log.id === 'string'
+    && log.id.trim().length > 0
+    && typeof log.message === 'string'
+    && typeof log.timestamp === 'string';
+}
+
 function stageDuration(step: TimelineStep): string | null {
   if (!step.startedAt) return null;
   const end = step.finishedAt ? new Date(step.finishedAt).getTime() : Date.now();
@@ -806,7 +816,12 @@ function TaskLogsPanel({ task, taskStatus }: { task: TaskView; taskStatus: strin
 
     es.addEventListener('log', (e) => {
       try {
-        const log = JSON.parse(e.data) as TaskLog;
+        const payload: unknown = JSON.parse(e.data);
+        // Keep the same task-ownership boundary for live events as for REST logs.
+        // The server scopes this stream by task ID, but the client must not render
+        // a malformed or foreign row inside the currently expanded task.
+        if (!isTaskLogForTask(payload, taskId)) return;
+        const log = payload;
         if (seenIds.current.has(log.id)) return;
         seenIds.current.add(log.id);
         if (log.sequence !== null && log.sequence !== undefined) cursor.current = Math.max(cursor.current, log.sequence);
