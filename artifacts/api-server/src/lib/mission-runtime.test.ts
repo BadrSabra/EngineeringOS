@@ -2057,6 +2057,91 @@ describe("Mission goal runtime", () => {
     });
   });
 
+  it("rejects a reused event ID that targets a different Goal", async () => {
+    const original = await createMissionFixture({
+      kind: "wait",
+      reason: "event",
+      wakeAt: null,
+    });
+    const alternate = await createMissionFixture({
+      kind: "wait",
+      reason: "event",
+      wakeAt: null,
+    });
+    const eventId = randomUUID();
+    const originalEvent = createMissionEventEnvelope({
+      eventId,
+      type: "ExternalValidationCompleted",
+      projectId: original.projectId,
+      goalId: original.goalId,
+      payload: { validationId: "original-validation" },
+    });
+
+    await expect(receiveMissionEvent(originalEvent)).resolves.toMatchObject({
+      persisted: true,
+      woken: false,
+      duplicate: false,
+    });
+    await runMissionGoal({
+      goalId: alternate.goalId,
+      userId: "test-user",
+      trigger: "activation",
+    });
+    const [alternateBeforeReplay] = await db
+      .select({ status: aiGoalsTable.status })
+      .from(aiGoalsTable)
+      .where(eq(aiGoalsTable.id, alternate.goalId));
+    expect(alternateBeforeReplay?.status).toBe("waiting_for_event");
+
+    const conflictingEvent = createMissionEventEnvelope({
+      eventId,
+      type: "DifferentExternalEvent",
+      projectId: alternate.projectId,
+      goalId: alternate.goalId,
+      payload: { validationId: "alternate-validation" },
+    });
+    await expect(receiveMissionEvent(conflictingEvent)).resolves.toEqual({
+      eventId,
+      persisted: false,
+      woken: false,
+      duplicate: true,
+    });
+
+    const [storedEvent] = await db
+      .select({ payload: eventsTable.payload })
+      .from(eventsTable)
+      .where(eq(eventsTable.id, eventId))
+      .limit(1);
+    expect(storedEvent?.payload).toMatchObject({
+      missionEvent: originalEvent,
+      processedAt: null,
+    });
+
+    const [alternateAfterConflict] = await db
+      .select({ status: aiGoalsTable.status })
+      .from(aiGoalsTable)
+      .where(eq(aiGoalsTable.id, alternate.goalId));
+    expect(alternateAfterConflict?.status).toBe("waiting_for_event");
+
+    await runMissionGoal({
+      goalId: original.goalId,
+      userId: "test-user",
+      trigger: "activation",
+    });
+    expect(await replayPendingMissionEvents()).toBe(1);
+
+    const [originalAfterReplay] = await db
+      .select({ status: aiGoalsTable.status })
+      .from(aiGoalsTable)
+      .where(eq(aiGoalsTable.id, original.goalId));
+    const [alternateAfterReplay] = await db
+      .select({ status: aiGoalsTable.status })
+      .from(aiGoalsTable)
+      .where(eq(aiGoalsTable.id, alternate.goalId));
+    expect(originalAfterReplay?.status).toBe("needs_replan");
+    expect(alternateAfterReplay?.status).toBe("waiting_for_event");
+  });
+
   it("does not deadlock when due-wake reconciliation overlaps Mission-before-Goal locks", async () => {
     const due = await createMissionFixture({
       kind: "wait",
