@@ -10,6 +10,8 @@ test("runtime-observed graph reads use a project-scoped composite index", () => 
   );
 
   assert.ok(runtimeIndex, "the runtime observation index must be declared");
-  assert.equal(runtimeIndex.config.columns[0], graphRelationshipsTable.projectId);
-  assert.equal(runtimeIndex.config.columns[1], graphRelationshipsTable.isRuntimeObserved);
+  assert.deepEqual(
+    runtimeIndex.config.columns.map((column) => column.name),
+    ["project_id", "is_runtime_observed"],
+  );
 });
