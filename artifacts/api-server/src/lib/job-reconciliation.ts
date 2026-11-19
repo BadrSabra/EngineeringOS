@@ -68,11 +68,13 @@ import {
   durableDispatchStageHealthTable,
   taskExecutionObservationOutboxTable,
 } from "@workspace/db";
-import { and, eq, gt, inArray, isNull, lt, lte, ne, or, count, sql, asc } from "drizzle-orm";
+import { and, eq, gt, inArray, isNull, isNotNull, lt, lte, ne, or, count, sql, asc, notExists } from "drizzle-orm";
+import { alias } from "drizzle-orm/pg-core";
 import { invalidateContextCache } from "@workspace/ai-orchestrator";
 import { logger } from "./logger.js";
 import { heavyJobQueue } from "./job-queue.js";
 import { runScanJob, terminalizeFailedScanJob } from "./scan-runner.js";
+
 import { dispatchPendingPluginRuns } from "./plugin-runtime.js";
 import { runDiscovery } from "./discovery-runner.js";
 import { sweepExpiredUploads } from "./upload-store.js";
@@ -105,6 +107,12 @@ import { dispatchPendingMissionChatHandoffs } from "./mission-chat-handoffs.js";
 import { retryPendingRuntimeStartTransitions } from "./agent-state/runtime-start-transition.js";
 import { dispatchDeferredAiTaskExecutions } from "../routes/ai/tasks.js";
 import { dispatchPendingTaskObservationOutbox } from "./task-observation-outbox.js";
+
+const githubDeliveryReceiptEvents = alias(eventsTable, "github_delivery_receipt");
+const githubDeliveryRecoveryEvents = alias(eventsTable, "github_delivery_recovery");
+
+/** Maximum number of incomplete GitHub delivery attempts reconciled per pass. */
+export const GITHUB_DELIVERY_RECOVERY_BATCH_SIZE = 100;
 
 const ORPHANED_RUNNING_MESSAGE =
   "Job was in progress when the server restarted and could not be resumed.";
@@ -377,6 +385,57 @@ function matchesGitHubDeliveryReceipt(
  * GitHub request from startup.
  */
 async function reconcileInterruptedGitHubDeliveryAttempts(): Promise<number> {
+  // Only load attempts that still need work. Exact receipts and existing
+  // recovery markers are checked with correlated anti-joins in PostgreSQL,
+  // so old completed history does not consume every scheduler pass.
+  const exactReceipt = db
+    .select({ id: githubDeliveryReceiptEvents.id })
+    .from(githubDeliveryReceiptEvents)
+    .where(and(
+      eq(githubDeliveryReceiptEvents.projectId, eventsTable.projectId),
+      eq(githubDeliveryReceiptEvents.type, "GitPushed"),
+      eq(githubDeliveryReceiptEvents.correlationId, eventsTable.correlationId),
+      sql`jsonb_typeof(${eventsTable.payload}->'proposalId') = 'string'`,
+      sql`jsonb_typeof(${eventsTable.payload}->'operationId') = 'string'`,
+      sql`jsonb_typeof(${eventsTable.payload}->'commitHash') = 'string'`,
+      sql`jsonb_typeof(${eventsTable.payload}->'expectedCommitHash') = 'string'`,
+      sql`jsonb_typeof(${eventsTable.payload}->'expectedParentHash') = 'string'`,
+      sql`jsonb_typeof(${eventsTable.payload}->'expectedTreeHash') = 'string'`,
+      sql`jsonb_typeof(${eventsTable.payload}->'branch') = 'string'`,
+      sql`jsonb_typeof(${eventsTable.payload}->'remoteUrl') = 'string'`,
+      sql`jsonb_typeof(${eventsTable.payload}->'operationMarker') = 'string'`,
+      sql`${eventsTable.payload}->>'operationId' = ${eventsTable.correlationId}`,
+      sql`${eventsTable.payload}->>'expectedCommitHash' = ${eventsTable.payload}->>'commitHash'`,
+      sql`${eventsTable.payload}->>'operationMarker' = ('EngineeringOS-Operation: ' || ${eventsTable.correlationId})`,
+      sql`jsonb_typeof(${githubDeliveryReceiptEvents.payload}->'proposalId') = 'string'`,
+      sql`jsonb_typeof(${githubDeliveryReceiptEvents.payload}->'operationId') = 'string'`,
+      sql`jsonb_typeof(${githubDeliveryReceiptEvents.payload}->'commitHash') = 'string'`,
+      sql`jsonb_typeof(${githubDeliveryReceiptEvents.payload}->'remoteCommitHash') = 'string'`,
+      sql`jsonb_typeof(${githubDeliveryReceiptEvents.payload}->'remoteParentHash') = 'string'`,
+      sql`jsonb_typeof(${githubDeliveryReceiptEvents.payload}->'remoteTreeHash') = 'string'`,
+      sql`jsonb_typeof(${githubDeliveryReceiptEvents.payload}->'operationMarker') = 'string'`,
+      sql`jsonb_typeof(${githubDeliveryReceiptEvents.payload}->'branch') = 'string'`,
+      sql`jsonb_typeof(${githubDeliveryReceiptEvents.payload}->'remoteUrl') = 'string'`,
+      sql`${githubDeliveryReceiptEvents.payload}->>'proposalId' = ${eventsTable.payload}->>'proposalId'`,
+      sql`${githubDeliveryReceiptEvents.payload}->>'operationId' = ${eventsTable.correlationId}`,
+      sql`${githubDeliveryReceiptEvents.payload}->>'commitHash' = ${eventsTable.payload}->>'commitHash'`,
+      sql`${githubDeliveryReceiptEvents.payload}->>'remoteCommitHash' = ${eventsTable.payload}->>'commitHash'`,
+      sql`${githubDeliveryReceiptEvents.payload}->>'remoteParentHash' = ${eventsTable.payload}->>'expectedParentHash'`,
+      sql`${githubDeliveryReceiptEvents.payload}->>'remoteTreeHash' = ${eventsTable.payload}->>'expectedTreeHash'`,
+      sql`${githubDeliveryReceiptEvents.payload}->>'operationMarker' = ${eventsTable.payload}->>'operationMarker'`,
+      sql`${githubDeliveryReceiptEvents.payload}->>'branch' = ${eventsTable.payload}->>'branch'`,
+      sql`${githubDeliveryReceiptEvents.payload}->>'remoteUrl' = ${eventsTable.payload}->>'remoteUrl'`,
+    ));
+
+  const existingRecoveryMarker = db
+    .select({ id: githubDeliveryRecoveryEvents.id })
+    .from(githubDeliveryRecoveryEvents)
+    .where(and(
+      eq(githubDeliveryRecoveryEvents.projectId, eventsTable.projectId),
+      eq(githubDeliveryRecoveryEvents.type, "GitPushRecoveryRequired"),
+      eq(githubDeliveryRecoveryEvents.correlationId, eventsTable.correlationId),
+    ));
+
   const attempts = await db
     .select({
       id: eventsTable.id,
@@ -384,17 +443,18 @@ async function reconcileInterruptedGitHubDeliveryAttempts(): Promise<number> {
       correlationId: eventsTable.correlationId,
     })
     .from(eventsTable)
-    .where(eq(eventsTable.type, "GitPushAttemptStarted"));
+    .where(and(
+      eq(eventsTable.type, "GitPushAttemptStarted"),
+      isNotNull(eventsTable.correlationId),
+      notExists(exactReceipt),
+      notExists(existingRecoveryMarker),
+    ))
+    .orderBy(asc(eventsTable.timestamp), asc(eventsTable.id))
+    .limit(GITHUB_DELIVERY_RECOVERY_BATCH_SIZE);
 
   let markedCount = 0;
   for (const candidate of attempts) {
-    if (!candidate.correlationId) {
-      logger.error(
-        { eventId: candidate.id, projectId: candidate.projectId },
-        "GitHub delivery attempt has no operation identity; startup cannot reconcile it",
-      );
-      continue;
-    }
+    if (!candidate.correlationId) continue;
     try {
       const created = await db.transaction(async (tx) => {
         const [attemptRow] = await tx
@@ -439,13 +499,11 @@ async function reconcileInterruptedGitHubDeliveryAttempts(): Promise<number> {
             eq(eventsTable.type, "GitPushRecoveryRequired"),
             eq(eventsTable.correlationId, operationId),
           ));
-        if (existingMarkers.some((marker) =>
-          eventPayloadRecord(marker.payload)?.recoveryState !== "RESOLVED"
-        )) {
-          return false;
-        }
+        // The partial unique index permits only one marker per operation.
+        // A new delivery must use a new operation identity.
+        if (existingMarkers.length > 0) return false;
 
-        await tx.insert(eventsTable).values({
+        const [insertedMarker] = await tx.insert(eventsTable).values({
           id: randomUUID(),
           type: "GitPushRecoveryRequired",
           projectId: attemptRow.projectId,
@@ -479,8 +537,8 @@ async function reconcileInterruptedGitHubDeliveryAttempts(): Promise<number> {
         }).onConflictDoNothing({
           target: [eventsTable.projectId, eventsTable.correlationId],
           where: sql`${eventsTable.type} = 'GitPushRecoveryRequired' AND ${eventsTable.correlationId} IS NOT NULL`,
-        });
-        return true;
+        }).returning({ id: eventsTable.id });
+        return Boolean(insertedMarker);
       });
       if (created) markedCount++;
     } catch (error) {
@@ -493,13 +551,12 @@ async function reconcileInterruptedGitHubDeliveryAttempts(): Promise<number> {
 
   if (markedCount > 0) {
     logger.warn(
-      { count: markedCount },
+      { count: markedCount, batchSize: GITHUB_DELIVERY_RECOVERY_BATCH_SIZE },
       "startup marked unreceipted verified GitHub deliveries for exact recovery; no remote retries were issued",
     );
   }
   return markedCount;
 }
-
 
 /**
  * Handles scan_jobs left in non-terminal states:
