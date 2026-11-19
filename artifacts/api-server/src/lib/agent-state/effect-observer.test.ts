@@ -1,6 +1,6 @@
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { randomUUID } from "node:crypto";
-import { and, eq } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import {
   aiAgentEffectBundlesTable,
   aiAgentEffectsTable,
@@ -145,7 +145,113 @@ function actionForFixture() {
 
 describe("server-owned effect observer", () => {
   beforeEach(createFixture);
-  afterEach(removeFixture);
+  afterEach(async () => {
+    vi.useRealTimers();
+    await removeFixture();
+  });
+
+  it.each([
+    {
+      label: "24 hours behind PostgreSQL",
+      offsetMs: -24 * 60 * 60 * 1_000,
+      leaseExpired: true,
+    },
+    {
+      label: "24 hours ahead of PostgreSQL",
+      offsetMs: 24 * 60 * 60 * 1_000,
+      leaseExpired: false,
+    },
+  ])("checks effect-worker ownership against database time when the API clock is $label", async ({
+    offsetMs,
+    leaseExpired,
+  }) => {
+    const pair = await materializePair();
+    await db.update(aiExecutionsTable).set({
+      leaseUntil: leaseExpired
+        ? sql<Date>`(clock_timestamp() AT TIME ZONE 'UTC') - interval '1 millisecond'`
+        : sql<Date>`(clock_timestamp() AT TIME ZONE 'UTC') + interval '5 minutes'`,
+    }).where(eq(aiExecutionsTable.id, executionId));
+
+    const hostNow = Date.now();
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(hostNow + offsetMs);
+    try {
+      const operation = verifyAndPersistEffect({
+        projectId,
+        executionId,
+        attempt: 0,
+        episodeId,
+        workerId,
+        action: actionForFixture(),
+        effectContract,
+        beforeObservationIds: [pair.beforeId],
+        afterObservationIds: [pair.afterId],
+      });
+      if (leaseExpired) {
+        await expect(operation).rejects.toThrow("effect_stale_worker");
+      } else {
+        await expect(operation).resolves.toMatchObject({ status: "observed" });
+      }
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it.each([
+    {
+      label: "24 hours behind PostgreSQL",
+      offsetMs: -24 * 60 * 60 * 1_000,
+      leaseExpired: true,
+    },
+    {
+      label: "24 hours ahead of PostgreSQL",
+      offsetMs: 24 * 60 * 60 * 1_000,
+      leaseExpired: false,
+    },
+  ])("checks observation-worker ownership against database time when the API clock is $label", async ({
+    offsetMs,
+    leaseExpired,
+  }) => {
+    await db.update(aiExecutionsTable).set({
+      leaseUntil: leaseExpired
+        ? sql<Date>`(clock_timestamp() AT TIME ZONE 'UTC') - interval '1 millisecond'`
+        : sql<Date>`(clock_timestamp() AT TIME ZONE 'UTC') + interval '5 minutes'`,
+    }).where(eq(aiExecutionsTable.id, executionId));
+    const [databaseClock] = await db.select({
+      now: sql<Date>`clock_timestamp() AT TIME ZONE 'UTC'`,
+    }).from(aiExecutionsTable).where(eq(aiExecutionsTable.id, executionId));
+
+    const hostNow = Date.now();
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(hostNow + offsetMs);
+    try {
+      const operation = materializeServerOwnedObservations({
+        projectId,
+        executionId,
+        attempt: 0,
+        projectRevision: "revision-1",
+        episodeId,
+        workerLease: { workerId },
+        materializeWorldState: false,
+        sources: [{
+          kind: "direct_observation",
+          sourceId: `worker-clock:${randomUUID()}`,
+          subject: "workspace",
+          predicate: "worker_clock_probe",
+          value: { accepted: true },
+          sourceRevision: "revision-1",
+          observedAt: databaseClock!.now.toISOString(),
+        }],
+      });
+      if (leaseExpired) {
+        await expect(operation).rejects.toThrow("observation_materialization_stale_worker");
+      } else {
+        await expect(operation).resolves.toMatchObject({ inserted: 1, duplicates: 0 });
+      }
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 
   it("persists one observed effect, links acceptance, and is idempotent", async () => {
     const pair = await materializePair();
