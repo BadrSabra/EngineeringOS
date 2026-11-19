@@ -752,7 +752,13 @@ function GeneralChatSession({
                           }
                         }
                       }}
-                      onKeyDown={(event) => { if (event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); handleSend(); } }}
+                      onKeyDown={(event) => {
+                        const isComposing = event.nativeEvent.isComposing || event.nativeEvent.keyCode === 229;
+                        if (event.key === 'Enter' && !event.shiftKey && !isComposing) {
+                          event.preventDefault();
+                          handleSend();
+                        }
+                      }}
                       maxLength={goalDraftAttached ? 2_000 : 12_000}
                       rows={2}
                       placeholder={hasPendingReply ? 'بانتظار اكتمال رد المساعد…' : 'اكتب سؤالًا أو فكرة لمناقشتها…'}
@@ -772,9 +778,23 @@ function GeneralChatSession({
                       {sendMessage.isPending ? <RefreshCw className="h-4 w-4 animate-spin" /> : <ArrowUp className="h-4 w-4" />}
                     </button>
                   </div>
-                  <div className="mt-2 flex items-center justify-between gap-3 text-[10px] text-muted-foreground">
+                  <div className="mt-2 flex flex-wrap items-center justify-between gap-3 text-[10px] text-muted-foreground">
                     <span dir="rtl" lang="ar" className="inline-flex items-center gap-1.5"><ShieldCheck className="h-3 w-3 text-primary" /> محادثة مستقلة؛ ملفات المشاريع وأدواتها خارج نطاقها.</span>
-                    <span className="shrink-0 font-mono">{draft.length}/12000</span>
+                    <div className="flex items-center gap-3">
+                      <span
+                        data-testid="text-general-chat-keyboard-hint"
+                        className="hidden items-center gap-1 sm:inline-flex"
+                        dir="rtl"
+                        lang="ar"
+                      >
+                        <kbd dir="ltr" className="rounded border border-border px-1">Enter</kbd>
+                        <span>للإرسال</span>
+                        <span aria-hidden="true">·</span>
+                        <kbd dir="ltr" className="rounded border border-border px-1">Shift+Enter</kbd>
+                        <span>لسطر جديد</span>
+                      </span>
+                      <span className="shrink-0 font-mono">{draft.length}/12000</span>
+                    </div>
                   </div>
                 </div>
               </div>
