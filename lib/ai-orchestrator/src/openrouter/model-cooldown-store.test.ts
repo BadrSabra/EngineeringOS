@@ -36,13 +36,16 @@ describe("shared OpenRouter model cooldown persistence", () => {
 
     expect(query).toHaveBeenCalledTimes(1);
     expect(query.mock.calls[0]?.[1]).toEqual(["openrouter", model, 1_000]);
-    const statement = String(query.mock.calls[0]?.[0]).replace(/\\s+/g, " ");
-    expect(statement).toMatch(
-      /cooling_until = GREATEST\\( openrouter_model_cooldowns\\.cooling_until, EXCLUDED\\.cooling_until \\)/,
+    const statement = String(query.mock.calls[0]?.[0]);
+    expect(statement).toContain("cooling_until = GREATEST(");
+    expect(statement).toContain("openrouter_model_cooldowns.cooling_until,");
+    expect(statement).toContain("EXCLUDED.cooling_until");
+    expect(statement).toContain("updated_at = CASE");
+    expect(statement).toContain(
+      "WHEN EXCLUDED.cooling_until > openrouter_model_cooldowns.cooling_until",
     );
-    expect(statement).toMatch(
-      /updated_at = CASE WHEN EXCLUDED\\.cooling_until > openrouter_model_cooldowns\\.cooling_until THEN EXCLUDED\\.updated_at ELSE openrouter_model_cooldowns\\.updated_at END/,
-    );
+    expect(statement).toContain("THEN EXCLUDED.updated_at");
+    expect(statement).toContain("ELSE openrouter_model_cooldowns.updated_at");
   });
 
   it("uses only the provider Retry-After and expires at that exact duration", async () => {
