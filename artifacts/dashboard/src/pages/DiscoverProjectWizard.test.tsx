@@ -5,6 +5,7 @@ import { DiscoverProjectWizard } from './DiscoverProjectWizard';
 const mocks = vi.hoisted(() => ({
   startDiscovery: vi.fn(),
   importProject: vi.fn(),
+  scanProject: vi.fn(),
   invalidateQueries: vi.fn(() => Promise.resolve()),
   navigate: vi.fn(),
   session: {
@@ -125,7 +126,7 @@ vi.mock('@workspace/api-client-react', () => ({
   }),
   useImportProject: () => ({ mutateAsync: mocks.importProject, isPending: false }),
   useListProjects: () => ({ data: [] }),
-  useScanProject: () => ({ mutateAsync: vi.fn(), isPending: false, isError: false }),
+  useScanProject: () => ({ mutateAsync: mocks.scanProject, isPending: false, isError: false }),
   getListProjectsQueryKey: () => ['/api/projects'],
   getGetDiscoverySessionQueryKey: (id: string) => ['/api/projects/discover', id],
   getGetDiscoverySummaryQueryKey: (id: string) => ['/api/projects/discover', id, 'summary'],
@@ -151,6 +152,7 @@ describe('DiscoverProjectWizard Arabic findings', () => {
     mocks.sessionQuery.refetch.mockClear();
     mocks.startDiscovery.mockResolvedValue(mocks.session);
     mocks.importProject.mockResolvedValue({ id: 'imported-project' });
+    mocks.scanProject.mockResolvedValue(undefined);
   });
 
   it('explains where each project source comes from before the user starts scanning', () => {
@@ -273,7 +275,7 @@ describe('DiscoverProjectWizard Arabic findings', () => {
   });
 
 
-  it('does not schedule navigation when project import resolves after the wizard unmounts', async () => {
+  it('does not navigate when project import resolves after the wizard unmounts', async () => {
     let resolveImport!: (project: { id: string }) => void;
     mocks.importProject.mockReturnValue(new Promise<{ id: string }>((resolve) => { resolveImport = resolve; }));
     const onClose = vi.fn();
@@ -288,25 +290,19 @@ describe('DiscoverProjectWizard Arabic findings', () => {
     expect(mocks.importProject).toHaveBeenCalledOnce();
 
     view.unmount();
-    vi.useFakeTimers();
-    try {
-      await act(async () => {
-        resolveImport({ id: 'imported-project' });
-        await Promise.resolve();
-      });
-      act(() => { vi.advanceTimersByTime(2500); });
+    await act(async () => {
+      resolveImport({ id: 'imported-project' });
+      await Promise.resolve();
+    });
 
-      expect(mocks.invalidateQueries).toHaveBeenCalledWith({ queryKey: ['/api/projects'] });
-      expect(mocks.navigate).not.toHaveBeenCalled();
-      expect(onClose).not.toHaveBeenCalled();
-    } finally {
-      vi.useRealTimers();
-    }
+    expect(mocks.invalidateQueries).toHaveBeenCalledWith({ queryKey: ['/api/projects'] });
+    expect(mocks.navigate).not.toHaveBeenCalled();
+    expect(onClose).not.toHaveBeenCalled();
   });
 
-  it('cancels the delayed project navigation when the wizard unmounts after import', async () => {
+  it('keeps the success screen open until the user opens the project', async () => {
     const onClose = vi.fn();
-    const view = render(<DiscoverProjectWizard onClose={onClose} />);
+    render(<DiscoverProjectWizard onClose={onClose} />);
 
     fireEvent.change(screen.getByPlaceholderText('https://github.com/owner/repo'), {
       target: { value: 'https://github.com/example/sample-app' },
@@ -321,15 +317,37 @@ describe('DiscoverProjectWizard Arabic findings', () => {
         await Promise.resolve();
       });
       expect(screen.getByRole('heading', { name: 'تمت إضافة المشروع' })).toBeInTheDocument();
+      expect(screen.getByTestId('button-open-imported-project')).toBeInTheDocument();
 
-      view.unmount();
-      act(() => { vi.advanceTimersByTime(2500); });
-
-      expect(mocks.navigate).not.toHaveBeenCalled();
+      act(() => { vi.advanceTimersByTime(3_000); });
       expect(onClose).not.toHaveBeenCalled();
+      expect(mocks.navigate).not.toHaveBeenCalled();
+
+      fireEvent.click(screen.getByTestId('button-open-imported-project'));
+      expect(onClose).toHaveBeenCalledOnce();
+      expect(mocks.navigate).toHaveBeenCalledWith('/projects/imported-project');
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  it('allows the user to start a scan before opening the imported project', async () => {
+    const onClose = vi.fn();
+    render(<DiscoverProjectWizard onClose={onClose} />);
+
+    fireEvent.change(screen.getByPlaceholderText('https://github.com/owner/repo'), {
+      target: { value: 'https://github.com/example/sample-app' },
+    });
+    fireEvent.click(screen.getByTestId('start-discovery'));
+    await screen.findByRole('heading', { name: 'نتائج استكشاف المشروع' });
+    fireEvent.click(screen.getByRole('button', { name: 'تأكيد وإضافة المشروع' }));
+    await screen.findByRole('heading', { name: 'تمت إضافة المشروع' });
+
+    fireEvent.click(screen.getByRole('button', { name: 'ابدأ الفحص' }));
+    await waitFor(() => expect(mocks.scanProject).toHaveBeenCalledWith({ projectId: 'imported-project' }));
+    expect(screen.getByTestId('button-open-imported-project')).toBeInTheDocument();
+    expect(mocks.navigate).not.toHaveBeenCalled();
+    expect(onClose).not.toHaveBeenCalled();
   });
 
   it('warns when discovery results are partial', async () => {
