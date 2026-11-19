@@ -114,7 +114,7 @@ describe("task observation outbox attempt budget", () => {
       });
       expect(claimed?.workerId).toBeTruthy();
 
-      // Simulate a process dying while materialization is in flight. The next
+      // Simulate an abandoned worker while materialization is in flight. The next
       // dispatcher may recover the row only after this persisted lease expires.
       await db.update(taskExecutionObservationOutboxTable)
         .set({ leaseUntil: new Date(0) })

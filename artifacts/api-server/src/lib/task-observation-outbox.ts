@@ -74,6 +74,7 @@ async function claimObservationOutboxRow(id: string): Promise<{
   projectId: string;
   executionId: string;
   attempt: number;
+  attemptCount: number;
   payload: Record<string, unknown>;
 } | null> {
   return db.transaction(async (tx) => {
