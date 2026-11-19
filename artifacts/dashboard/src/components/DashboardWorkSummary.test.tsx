@@ -47,6 +47,20 @@ describe("DashboardWorkSummary", () => {
     mockQuery({ data: { ...summary, decisions: [], active: [], recent: [], coverage: { ...coverage, partial: true } } });
     render(<DashboardWorkSummary />);
     expect(screen.getByTestId("text-work-empty-bounded")).toHaveTextContent("ضمن هذا العرض المحدود");
+    expect(screen.queryByTestId("link-start-goal-from-empty-summary")).not.toBeInTheDocument();
+  });
+
+  it("links a complete empty summary directly to the goal input", () => {
+    mockQuery({ data: { ...summary, decisions: [], active: [], recent: [] } });
+    render(<DashboardWorkSummary />);
+
+    expect(screen.getByTestId("status-work-overview-empty")).toHaveTextContent(
+      "لا توجد عناصر مسجّلة لعرضها الآن",
+    );
+    expect(screen.getByTestId("link-start-goal-from-empty-summary")).toHaveAttribute(
+      "href",
+      "#home-goal-draft",
+    );
   });
 
   it("maps unknown statuses generically", () => {
@@ -83,6 +97,7 @@ describe("DashboardWorkSummary", () => {
     render(<DashboardWorkSummary />);
     expect(screen.getByTestId("status-work-overview-error")).toHaveTextContent("لا يعني أنه لا يوجد عمل");
     expect(screen.queryByTestId("status-work-overview-empty")).toBeNull();
+    expect(screen.queryByTestId("link-start-goal-from-empty-summary")).not.toBeInTheDocument();
     fireEvent.click(screen.getByTestId("button-retry-work-overview"));
     expect(refetch).toHaveBeenCalledTimes(1);
   });
