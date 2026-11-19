@@ -92,6 +92,16 @@ function normalizeSteps(steps: BrowserValidationStep[]): BrowserValidationStep[]
   });
 }
 
+function nextBasicProfileName(profiles: BrowserValidationProfile[]): string {
+  const baseName = 'homepage-check';
+  const existingNames = new Set(profiles.map((profile) => profile.name));
+  if (!existingNames.has(baseName)) return baseName;
+
+  let suffix = 2;
+  while (existingNames.has(`${baseName}-${suffix}`)) suffix += 1;
+  return `${baseName}-${suffix}`;
+}
+
 function stepSummary(step: BrowserValidationStep): ReactNode {
   switch (step.type) {
     case 'navigate': return <>فتح المسار <bdi dir="ltr">{step.path}</bdi></>;
@@ -136,6 +146,19 @@ export default function BrowserValidationProfilesPanel({ projectId }: { projectI
     setDraft({
       name: '',
       steps: [createStep('navigate')],
+      timeoutMs: MAX_TIMEOUT_MS,
+    });
+  };
+  const openBasicProfile = () => {
+    setFeedback('');
+    setFormError('');
+    setEditingName(null);
+    setDraft({
+      name: nextBasicProfileName(profiles),
+      steps: [
+        { type: 'navigate', path: '/' },
+        { type: 'assert_visible', selector: 'body' },
+      ],
       timeoutMs: MAX_TIMEOUT_MS,
     });
   };
@@ -232,6 +255,16 @@ export default function BrowserValidationProfilesPanel({ projectId }: { projectI
             className="inline-flex items-center gap-1.5 rounded-md bg-primary px-3 py-2 text-xs font-semibold text-primary-foreground hover:bg-primary/90"
           >
             <Plus className="h-3.5 w-3.5" /> إضافة فحص
+          </button>
+          <button
+            type="button"
+            onClick={openBasicProfile}
+            data-testid="button-basic-browser-profile"
+            aria-label="إنشاء فحص أساسي للصفحة"
+            title="يفتح الصفحة الرئيسية ويتأكد من ظهورها؛ يمكنك مراجعة الإعداد قبل الحفظ."
+            className="inline-flex items-center gap-1.5 rounded-md border border-primary/30 bg-primary/5 px-3 py-2 text-xs font-semibold text-primary hover:bg-primary/10"
+          >
+            فحص أساسي
           </button>
         </div>
       </div>
