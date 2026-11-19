@@ -33,6 +33,7 @@ import {
   getDurableJobHealth,
   reconcileStaleAiTasks,
   reconcileStuckJobs,
+  GITHUB_DELIVERY_RECOVERY_BATCH_SIZE,
   requeueStalePendingJobs,
   runDurableDispatchStages,
   STALE_PENDING_TIMEOUT_MS,
@@ -2761,5 +2762,150 @@ describe("dispatchPersistedPendingJobs", () => {
     vi.mocked(heavyJobQueue.enqueueWithIdDetailed).mockReturnValue("duplicate");
 
     await expect(dispatchPersistedPendingJobs()).resolves.toBe(0);
+  });
+});
+
+
+describe("bounded GitHub delivery startup recovery", () => {
+  it("processes only pending attempts per pass and excludes only exact terminal receipts", async () => {
+    const projectId = await insertProject("active");
+    const now = new Date();
+    const exactOperationId = randomUUID();
+    const exactAttempt = {
+      proposalId: randomUUID(),
+      operationId: exactOperationId,
+      commitHash: "commit-exact",
+      expectedCommitHash: "commit-exact",
+      expectedParentHash: "parent-exact",
+      expectedTreeHash: "tree-exact",
+      branch: "main",
+      remoteUrl: "https://github.com/example/exact.git",
+      operationMarker: `EngineeringOS-Operation: ${exactOperationId}`,
+    };
+    const events: Array<typeof eventsTable.$inferInsert> = [
+      {
+        id: randomUUID(),
+        type: "GitPushAttemptStarted",
+        projectId,
+        severity: "info",
+        message: "Exact successful delivery attempt",
+        correlationId: exactOperationId,
+        timestamp: new Date(now.getTime() - 10_000),
+        payload: exactAttempt,
+      },
+      {
+        id: randomUUID(),
+        type: "GitPushed",
+        projectId,
+        severity: "success",
+        message: "Exact successful delivery receipt",
+        correlationId: exactOperationId,
+        payload: {
+          proposalId: exactAttempt.proposalId,
+          operationId: exactOperationId,
+          commitHash: exactAttempt.commitHash,
+          remoteCommitHash: exactAttempt.commitHash,
+          remoteParentHash: exactAttempt.expectedParentHash,
+          remoteTreeHash: exactAttempt.expectedTreeHash,
+          operationMarker: exactAttempt.operationMarker,
+          branch: exactAttempt.branch,
+          remoteUrl: exactAttempt.remoteUrl,
+        },
+      },
+    ];
+
+    const pendingCount = GITHUB_DELIVERY_RECOVERY_BATCH_SIZE + 2;
+    for (let index = 0; index < pendingCount; index++) {
+      const operationId = randomUUID();
+      const attemptPayload = index === 0
+        ? {
+            proposalId: randomUUID(),
+            operationId,
+            commitHash: "commit-mismatch",
+            expectedCommitHash: "commit-mismatch",
+            expectedParentHash: "parent-mismatch",
+            expectedTreeHash: "tree-mismatch",
+            branch: "main",
+            remoteUrl: "https://github.com/example/mismatch.git",
+            operationMarker: `EngineeringOS-Operation: ${operationId}`,
+          }
+        : { operationId };
+
+      events.push({
+        id: randomUUID(),
+        type: "GitPushAttemptStarted",
+        projectId,
+        severity: "info",
+        message: "Pending delivery attempt",
+        correlationId: operationId,
+        timestamp: new Date(now.getTime() + index),
+        payload: attemptPayload,
+      });
+
+      if (index === 0) {
+        events.push({
+          id: randomUUID(),
+          type: "GitPushed",
+          projectId,
+          severity: "success",
+          message: "Mismatched delivery receipt",
+          correlationId: operationId,
+          payload: {
+            proposalId: attemptPayload.proposalId,
+            operationId,
+            commitHash: attemptPayload.commitHash,
+            remoteCommitHash: attemptPayload.commitHash,
+            remoteParentHash: attemptPayload.expectedParentHash,
+            remoteTreeHash: "different-tree",
+            operationMarker: attemptPayload.operationMarker,
+            branch: attemptPayload.branch,
+            remoteUrl: attemptPayload.remoteUrl,
+          },
+        });
+      }
+    }
+
+    try {
+      await db.insert(eventsTable).values(events);
+
+      await reconcileStuckJobs();
+      const firstPass = await db.select({ id: eventsTable.id })
+        .from(eventsTable)
+        .where(and(
+          eq(eventsTable.projectId, projectId),
+          eq(eventsTable.type, "GitPushRecoveryRequired"),
+        ));
+      expect(firstPass).toHaveLength(GITHUB_DELIVERY_RECOVERY_BATCH_SIZE);
+
+      await reconcileStuckJobs();
+      const secondPass = await db.select({ id: eventsTable.id, correlationId: eventsTable.correlationId })
+        .from(eventsTable)
+        .where(and(
+          eq(eventsTable.projectId, projectId),
+          eq(eventsTable.type, "GitPushRecoveryRequired"),
+        ));
+      expect(secondPass).toHaveLength(pendingCount);
+      expect(new Set(secondPass.map((marker) => marker.correlationId)).size).toBe(pendingCount);
+
+      const exactReceiptMarkers = await db.select({ id: eventsTable.id })
+        .from(eventsTable)
+        .where(and(
+          eq(eventsTable.projectId, projectId),
+          eq(eventsTable.type, "GitPushRecoveryRequired"),
+          eq(eventsTable.correlationId, exactOperationId),
+        ));
+      expect(exactReceiptMarkers).toHaveLength(0);
+
+      await reconcileStuckJobs();
+      const afterThirdPass = await db.select({ id: eventsTable.id })
+        .from(eventsTable)
+        .where(and(
+          eq(eventsTable.projectId, projectId),
+          eq(eventsTable.type, "GitPushRecoveryRequired"),
+        ));
+      expect(afterThirdPass).toHaveLength(pendingCount);
+    } finally {
+      await db.delete(projectsTable).where(eq(projectsTable.id, projectId));
+    }
   });
 });
