@@ -310,7 +310,7 @@ router.post("/projects/discover", async (req, res) => {
   // reconciliation pass or stale-pending sweep cannot enqueue the same session
   // twice. The discovery runner transitions status on its own, so a duplicate
   // would race on the "discovering" status update — this prevents that entirely.
-  heavyJobQueue.enqueueWithId(id, async () => {
+  const locallyEnqueued = heavyJobQueue.enqueueWithId(id, async () => {
     try {
       await runDiscovery(id, scanRootPath, () => cleanupResolveResult(resolved));
     } catch (err) {
@@ -319,6 +319,24 @@ router.post("/projects/discover", async (req, res) => {
       await cleanupResolveResult(resolved).catch(() => undefined);
     }
   });
+
+  // Git clones and archive extractions have already been materialized into
+  // scanRootPath before the durable session is inserted. If this API instance
+  // cannot accept the callback (duplicate or local queue capacity), the
+  // persisted pending row remains eligible for the durable dispatcher, while
+  // the adapter-owned temporary source is no longer needed.
+  if (!locallyEnqueued) {
+    await cleanupResolveResult(resolved).catch((cleanupErr: unknown) => {
+      logger.warn(
+        {
+          sessionId: id,
+          sourceType: body.sourceType,
+          errorName: cleanupErr instanceof Error ? cleanupErr.name : "UnknownError",
+        },
+        "Discovery source cleanup failed after local enqueue was refused",
+      );
+    });
+  }
 
   return res.status(202).json(toSessionResponse(session[0]));
 });

@@ -5,6 +5,7 @@ import AdmZip from "adm-zip";
 import { eq } from "drizzle-orm";
 import app from "../app.js";
 import discoveryRouter, { cleanupOldSessions } from "./discovery.js";
+import { heavyJobQueue } from "../lib/job-queue.js";
 import { setGitCloneExecutorForTests } from "../lib/discovery-adapters.js";
 import {
   db,
@@ -1395,16 +1396,76 @@ describe("POST /projects/import — transaction integrity", () => {
 describe("Git discovery → durable import", () => {
   let fixtureRoot: string | undefined;
   let restoreGitClone: (() => void) | undefined;
+  let restoreEnqueue: (() => void) | undefined;
   let tempClonePath: string | undefined;
+  let managedRootPath: string | undefined;
 
   afterEach(async () => {
     restoreGitClone?.();
     restoreGitClone = undefined;
+    restoreEnqueue?.();
+    restoreEnqueue = undefined;
     if (fixtureRoot) {
       await rm(fixtureRoot, { recursive: true, force: true });
       fixtureRoot = undefined;
     }
     await cleanupSessionAndProject();
+    if (managedRootPath) {
+      await removeManagedProjectRoot(managedRootPath).catch(() => undefined);
+      managedRootPath = undefined;
+    }
+  });
+
+  it("cleans the temporary clone when the local queue refuses the durable session", async () => {
+    fixtureRoot = `/home/runner/workspace/.test-roots/git-queue-refusal-${randomUUID()}`;
+    const worktree = join(fixtureRoot, "worktree");
+    const bareRepo = join(fixtureRoot, "repo.git");
+    await mkdir(worktree, { recursive: true });
+    await execFileAsync("git", ["init", "-q", worktree]);
+    await execFileAsync("git", ["-C", worktree, "config", "user.email", "test@example.com"]);
+    await execFileAsync("git", ["-C", worktree, "config", "user.name", "EngineeringOS Test"]);
+    await writeFile(join(worktree, "package.json"), "{}\n");
+    await writeFile(join(worktree, "README.md"), "queue refusal fixture\n");
+    await execFileAsync("git", ["-C", worktree, "add", "."]);
+    await execFileAsync("git", ["-C", worktree, "commit", "-q", "-m", "fixture"]);
+    await execFileAsync("git", ["clone", "--bare", "-q", worktree, bareRepo]);
+
+    const approvedRemoteUrl = "https://github.com/octocat/Hello-World.git";
+    restoreGitClone = setGitCloneExecutorForTests(async (cloneArgs, options) => {
+      tempClonePath = cloneArgs[4];
+      if (!tempClonePath) throw new Error("Git clone destination was not provided");
+      await execFileAsync("git", ["clone", "--depth", "1", bareRepo, tempClonePath], options);
+    });
+    const enqueueSpy = vi.spyOn(heavyJobQueue, "enqueueWithId").mockReturnValue(false);
+    restoreEnqueue = () => enqueueSpy.mockRestore();
+
+    const start = await request(app)
+      .post("/api/projects/discover")
+      .send({
+        sourceType: "GIT_REPOSITORY",
+        sourceConfig: { url: approvedRemoteUrl },
+      });
+
+    expect(start.status).toBe(202);
+    sessionId = start.body.id as string;
+    expect(enqueueSpy).toHaveBeenCalledOnce();
+
+    const [storedSession] = await db
+      .select({
+        status: discoverySessionsTable.status,
+        rootPath: discoverySessionsTable.rootPath,
+      })
+      .from(discoverySessionsTable)
+      .where(eq(discoverySessionsTable.id, sessionId))
+      .limit(1);
+
+    expect(storedSession?.status).toBe("pending");
+    managedRootPath = storedSession?.rootPath;
+    expect(managedRootPath?.startsWith(`${MANAGED_PROJECT_ROOTS_DIR}/`)).toBe(true);
+    await expect(access(managedRootPath!)).resolves.toBeUndefined();
+
+    expect(tempClonePath).toBeDefined();
+    await expect(access(tempClonePath!)).rejects.toThrow();
   });
 
   it("materializes the clone before temp cleanup and removes it with the project", async () => {
