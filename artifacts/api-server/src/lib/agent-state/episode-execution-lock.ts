@@ -1,9 +1,10 @@
-import { and, eq } from "drizzle-orm";
+import { and, eq, getTableColumns, sql } from "drizzle-orm";
 import {
   aiAgentEpisodesTable,
   aiExecutionsTable,
   db,
 } from "@workspace/db";
+import { databaseNow } from "../job-lease.js";
 
 type EpisodeExecutionTransaction = Parameters<Parameters<typeof db.transaction>[0]>[0];
 
@@ -12,6 +13,7 @@ export type EpisodeExecutionLockResult =
       kind: "locked";
       episode: typeof aiAgentEpisodesTable.$inferSelect;
       execution: typeof aiExecutionsTable.$inferSelect;
+      leaseActive: boolean;
     }
   | { kind: "episode_not_found" | "execution_not_found" | "episode_changed" };
 
@@ -34,8 +36,11 @@ export async function lockEpisodeExecutionPair(
     .limit(1);
   if (!identity) return { kind: "episode_not_found" };
 
-  const [execution] = await tx
-    .select()
+  const [executionRecord] = await tx
+    .select({
+      ...getTableColumns(aiExecutionsTable),
+      leaseActive: sql<boolean>`COALESCE(${aiExecutionsTable.leaseUntil} > ${databaseNow()}, false)`,
+    })
     .from(aiExecutionsTable)
     .where(and(
       eq(aiExecutionsTable.id, identity.executionId),
@@ -43,7 +48,8 @@ export async function lockEpisodeExecutionPair(
     ))
     .for("update")
     .limit(1);
-  if (!execution) return { kind: "execution_not_found" };
+  if (!executionRecord) return { kind: "execution_not_found" };
+  const { leaseActive, ...execution } = executionRecord;
 
   const [episode] = await tx
     .select()
@@ -59,5 +65,5 @@ export async function lockEpisodeExecutionPair(
     return { kind: "episode_changed" };
   }
 
-  return { kind: "locked", episode, execution };
+  return { kind: "locked", episode, execution, leaseActive: leaseActive === true };
 }
