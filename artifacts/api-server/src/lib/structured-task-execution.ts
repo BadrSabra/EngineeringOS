@@ -1,5 +1,5 @@
 import { randomUUID } from "crypto";
-import { and, desc, eq } from "drizzle-orm";
+import { and, desc, eq, sql } from "drizzle-orm";
 import {
   aiChatMessagesTable,
   aiChatSessionsTable,
@@ -24,6 +24,7 @@ import {
   type AiExecutionRequestEnvelope,
   type AiProviderAttemptCheckpoint,
 } from "./ai-execution-state.js";
+import { databaseNow } from "./job-lease.js";
 import { logger } from "./logger.js";
 
 export type StructuredTask = "analyze" | "review";
@@ -107,7 +108,17 @@ async function findStructuredExecutionCooldown(params: {
     .orderBy(desc(aiExecutionAcceptancesTable.createdAt))
     .limit(16);
 
-  const now = Date.now();
+  if (rows.length === 0) return undefined;
+
+  const clockResult = await db.execute(sql`SELECT clock_timestamp() AS "databaseNow"`);
+  const clockValue = clockResult.rows[0]?.databaseNow;
+  const databaseClockNow = clockValue instanceof Date
+    ? clockValue
+    : new Date(String(clockValue));
+  const now = databaseClockNow.getTime();
+  if (!Number.isFinite(now)) {
+    throw new Error("DATABASE_CLOCK_UNAVAILABLE");
+  }
   for (const row of rows) {
     const request = parseExecutionRequest(row.request);
     if (!request || request.turnIntent !== turnIntent) continue;
@@ -433,7 +444,7 @@ export async function startStructuredExecution(params: {
           status: aiExecutionsTable.status,
           workerId: aiExecutionsTable.workerId,
           attempt: aiExecutionsTable.attempt,
-          leaseUntil: aiExecutionsTable.leaseUntil,
+          leaseActive: sql<boolean>`COALESCE(${aiExecutionsTable.leaseUntil} > ${databaseNow()}, false)`,
         })
         .from(aiExecutionsTable)
         .where(eq(aiExecutionsTable.id, execution!.id))
@@ -446,8 +457,7 @@ export async function startStructuredExecution(params: {
         || !allowedState
         || current.workerId !== workerId
         || current.attempt !== execution!.attempt
-        || !current.leaseUntil
-        || current.leaseUntil <= now
+        || !current.leaseActive
       ) {
         throw Object.assign(new Error("Execution lease ownership was lost."), {
           code: "EXECUTION_OWNERSHIP_LOST",
@@ -487,7 +497,7 @@ export async function startStructuredExecution(params: {
         status: aiExecutionsTable.status,
         workerId: aiExecutionsTable.workerId,
         attempt: aiExecutionsTable.attempt,
-        leaseUntil: aiExecutionsTable.leaseUntil,
+        leaseActive: sql<boolean>`COALESCE(${aiExecutionsTable.leaseUntil} > ${databaseNow()}, false)`,
         cancelRequestedAt: aiExecutionsTable.cancelRequestedAt,
       })
       .from(aiExecutionsTable)
@@ -500,8 +510,7 @@ export async function startStructuredExecution(params: {
     return current?.status === "running"
       && current.workerId === workerId
       && current.attempt === execution!.attempt
-      && current.leaseUntil !== null
-      && current.leaseUntil > new Date();
+      && current.leaseActive;
   };
   const isCancellationRequested = async () => {
     const current = await readExecutionState();
@@ -509,8 +518,7 @@ export async function startStructuredExecution(params: {
       && current.workerId === workerId
       && current.attempt === execution!.attempt
       && current.cancelRequestedAt !== null
-      && current.leaseUntil !== null
-      && current.leaseUntil > new Date();
+      && current.leaseActive;
   };
 
   const complete = async (message: {
