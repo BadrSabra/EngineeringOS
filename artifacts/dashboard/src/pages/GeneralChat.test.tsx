@@ -142,6 +142,31 @@ describe('Arabic conversation feedback boundaries', () => {
     expect(screen.getByRole('option', { name: 'مشروع واحد' })).toHaveValue('project-1');
   });
 
+  it('keeps Enter inside Arabic IME composition and shows the keyboard shortcuts', () => {
+    renderPage();
+    const input = screen.getByTestId('input-general-chat-message');
+    fireEvent.change(input, { target: { value: 'رسالة عربية' } });
+
+    expect(screen.getByTestId('text-general-chat-keyboard-hint')).toHaveTextContent(
+      'Enterللإرسال·Shift+Enterلسطر جديد',
+    );
+
+    fireEvent.keyDown(input, { key: 'Enter', isComposing: true });
+    expect(mocks.send).not.toHaveBeenCalled();
+    expect(input).toHaveValue('رسالة عربية');
+
+    fireEvent.keyDown(input, { key: 'Enter', shiftKey: true });
+    expect(mocks.send).not.toHaveBeenCalled();
+    expect(input).toHaveValue('رسالة عربية');
+
+    fireEvent.keyDown(input, { key: 'Enter' });
+    expect(mocks.send).toHaveBeenCalledWith(
+      expect.objectContaining({ sessionId: 'session-1', data: expect.objectContaining({ message: 'رسالة عربية' }) }),
+      expect.any(Object),
+    );
+    expect(input).toHaveValue('');
+  });
+
   it('preserves an unsent general draft by account and session before opening the chosen project', () => {
     renderPage();
     fireEvent.change(screen.getByTestId('input-general-chat-message'), {
