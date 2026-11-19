@@ -34,6 +34,7 @@ export type ApplyMissionLink = {
   missionId: string;
   planRevision: string;
   proposalId: string;
+  operationId: string;
   baseRevision: string;
   candidateTreeHash: string;
   candidateIdentity: string;
@@ -155,6 +156,7 @@ export async function loadApplyMissionLink(
     missionId: linked.mission.id,
     planRevision: binding.planRevision,
     proposalId: binding.requirement.proposalId,
+    operationId: binding.operationId,
     baseRevision: binding.requirement.baseRevision,
     candidateTreeHash: binding.requirement.candidateTreeHash,
     candidateIdentity: binding.candidateIdentity,
@@ -171,6 +173,7 @@ export function isBoundApplyTransition(
   return Boolean(
     acceptance?.outcome === "SUCCEEDED"
     && acceptance.terminalStatus === "completed"
+    && execution.operationId === link.operationId
     && acceptance.operationId === execution.operationId
     && acceptance.effectBundleId
     && transition.projectId === execution.projectId
@@ -204,6 +207,7 @@ export function projectApplyMissionLink(
     transition
     && acceptance?.outcome === "SUCCEEDED"
     && acceptance.terminalStatus === "completed"
+    && execution.operationId === link.operationId
     && acceptance.operationId === execution.operationId
     && acceptance.effectBundleId === transition.effectBundleId
     && link.goal.status === "completed"

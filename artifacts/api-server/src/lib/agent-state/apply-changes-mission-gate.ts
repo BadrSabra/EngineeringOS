@@ -602,6 +602,9 @@ export async function evaluateApplyChangesD2(
   if (execution.status !== "completed") {
     return { state: "failed", reason: "apply_execution_not_accepted" };
   }
+  if (execution.operationId !== binding.operationId) {
+    return { state: "failed", reason: "apply_execution_operation_mismatch" };
+  }
 
   const proposalQuery = tx.select()
     .from(aiChangeProposalsTable)
