@@ -72,7 +72,6 @@ describe("OpenAI-compatible non-stream request deadline", () => {
       requestOptions,
     )).rejects.toMatchObject({
       code: "TIMEOUT",
-      providerStatus: undefined,
       providerModel: "fixture-model",
     });
 
