@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { getListEventsQueryKey, useListEvents, useListProjects } from '@workspace/api-client-react';
 import { Search, Filter, X } from 'lucide-react';
 import { RefreshButton } from '@/components/OperatorResilience';
+import { Link } from 'wouter';
 
 const SEVERITIES = ['info', 'warning', 'error', 'success'] as const;
 const PAGE_SIZE = 50;
@@ -243,6 +244,7 @@ export default function Events() {
               ) : (
                 <div className="space-y-0.5">
                   {(events || []).map((evt) => {
+                    const eventProject = projects?.find((project) => project.id === evt.projectId);
                     const color =
                       evt.severity === 'error'
                         ? 'text-red-400 bg-red-950/20'
@@ -264,7 +266,23 @@ export default function Events() {
                           {evt.severity === 'info' ? 'معلومة' : evt.severity === 'warning' ? 'تحذير' : evt.severity === 'error' ? 'خطأ' : evt.severity === 'success' ? 'نجاح' : evt.severity || 'معلومة'}
                         </div>
                         <div className="w-32 opacity-80 shrink-0 truncate"><bdi dir="ltr">{evt.type}</bdi></div>
-                        <div className="w-48 opacity-60 shrink-0 truncate"><bdi dir="ltr">{evt.projectId || '-'}</bdi></div>
+                        <div className="w-48 opacity-60 shrink-0 truncate">
+                          {eventProject ? (
+                            <Link
+                              href={`/projects/${encodeURIComponent(evt.projectId)}/workspace`}
+                              aria-label={`فتح مساحة المشروع: ${eventProject.name}`}
+                              data-testid={`link-event-project-${evt.id}`}
+                              title={evt.projectId}
+                              className="hover:text-primary hover:underline focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary rounded"
+                            >
+                              <bdi dir="auto">{eventProject.name}</bdi>
+                            </Link>
+                          ) : evt.projectId ? (
+                            <bdi dir="ltr" data-testid={`text-event-project-${evt.id}`}>{evt.projectId}</bdi>
+                          ) : (
+                            <span data-testid={`text-event-project-${evt.id}`}>-</span>
+                          )}
+                        </div>
                         <div className="w-56 opacity-60 shrink-0 truncate" title={evt.correlationId || undefined}>
                           {evt.correlationId ? <bdi dir="ltr">{evt.correlationId}</bdi> : 'غير مرتبط'}
                         </div>
