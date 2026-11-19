@@ -222,6 +222,10 @@ describe("ProjectWorkspace live snapshot refresh", () => {
     expect(screen.getByText("أحدث 8 مهام من المصدر؛ هذه ليست قائمة شاملة.")).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "عرض جميع مهام المشروع" }))
       .toHaveAttribute("href", "/tasks?projectId=project-1");
+    expect(screen.getByTestId("link-start-request-from-empty-work"))
+      .toHaveAttribute("href", "#workspace-panel-agent");
+    expect(screen.getByTestId("link-discuss-work-from-empty-candidate"))
+      .toHaveAttribute("href", "#workspace-panel-agent");
 
     const previewGate = screen.getByTestId("workspace-preview-gate");
     expect(previewGate).toHaveTextContent("لا توجد معاينة تفاعلية مؤهلة بعد");
@@ -286,6 +290,8 @@ describe("ProjectWorkspace live snapshot refresh", () => {
     expect(screen.getByText("مصدر المهام غير متاح الآن؛ لا يمكن تأكيد قائمة العمل.")).toBeInTheDocument();
     expect(screen.getByText("مصدر التنفيذ غير متاح؛ لا يمكن تأكيد حالة تنفيذ حديثة.")).toBeInTheDocument();
     expect(screen.getByText("مصدر المرشح غير متاح؛ لا يمكن تأكيد حالة التغييرات.")).toBeInTheDocument();
+    expect(screen.queryByTestId("link-start-request-from-empty-work")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("link-discuss-work-from-empty-candidate")).not.toBeInTheDocument();
     expect(screen.queryByText("مهمة قديمة لا يجب عرضها")).not.toBeInTheDocument();
     expect(screen.queryByText("آخر تنفيذ")).not.toBeInTheDocument();
     expect(screen.queryByText("proposal-stale")).not.toBeInTheDocument();
