@@ -288,7 +288,10 @@ describe("Task lifecycle", () => {
   });
 
   it("does not persist an automatic dispatch intent while task dependencies are incomplete", async () => {
-    const { projectId, taskId } = await createTaskWithPrompt("Wait for prerequisite completion");
+    const { projectId, taskId } = await createTask();
+    await db.update(tasksTable)
+      .set({ prompt: "Wait for prerequisite completion" })
+      .where(eq(tasksTable.id, taskId));
     const prerequisiteId = randomUUID();
     await db.insert(tasksTable).values({
       id: prerequisiteId,
