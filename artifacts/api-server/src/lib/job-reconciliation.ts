@@ -86,6 +86,7 @@ import { dispatchAutonomousTaskRecoveries } from "./ai-recovery-coordinator.js";
 import { databaseNow } from "./job-lease.js";
 import {
   dispatchPendingMissionRecipes,
+  reconcileCompletedMissionRecipeAcceptances,
   replayPendingMissionEvents,
   wakeDueMissionGoals,
   wakeReadyMissionGoals,
@@ -1207,6 +1208,10 @@ async function dispatchPersistedPendingJobsOnce(): Promise<number> {
     { name: "mission-replans", run: () => reconcileAutomaticMissionReplans() },
     { name: "decision-dispatch", run: () => reconcileApprovedMissionDecisionDispatches() },
     { name: "mission-recipes", run: () => dispatchPendingMissionRecipes() },
+    {
+      name: "mission-recipe-acceptance-recovery",
+      run: () => reconcileCompletedMissionRecipeAcceptances(),
+    },
     { name: "mission-events", run: () => replayPendingMissionEvents() },
     { name: "shadow-replays", run: () => dispatchPendingShadowReplays() },
     { name: "chat-handoffs", run: () => dispatchPendingMissionChatHandoffs() },
@@ -1535,6 +1540,7 @@ export function startScopedMissionLifecycleDispatcher(
       await reconcileMissionPlanOutcomesIfDue(projectId);
       await reconcileMissionDecisionShadowsIfDue(projectId);
       await dispatchPendingMissionRecipes(32, projectId);
+      await reconcileCompletedMissionRecipeAcceptances(32, projectId);
       await replayPendingMissionEvents(32, projectId);
       await dispatchPendingShadowReplays(32, projectId);
       await dispatchPendingMissionChatHandoffs(32, projectId);

@@ -61,6 +61,7 @@ vi.mock("../routes/ai/tasks.js", async () => {
 
 import {
   dispatchPendingMissionRecipes,
+  reconcileCompletedMissionRecipeAcceptances,
   runMissionGoal,
   wakeReadyMissionGoals,
 } from "./mission-runtime.js";
@@ -2251,5 +2252,177 @@ describe("Mission recipe dispatch", () => {
       .from(aiGoalsTable)
       .where(eq(aiGoalsTable.id, goalId));
     expect(goal?.status).toBe(pendingDependency ? "waiting_for_event" : goalStatus);
+  });
+});
+
+describe("Mission recipe acceptance recovery", () => {
+  it("reprojects an accepted recipe after a process restart without invoking the recipe runner", async () => {
+    const rootPath = await createTestRoot("recipe-accepted-projection-recovery");
+    const projectId = randomUUID();
+    const missionId = randomUUID();
+    const goalId = randomUUID();
+    const executionId = randomUUID();
+    const now = new Date();
+    const planRevision = createHash("sha256").update(randomUUID()).digest("hex");
+    const action = {
+      kind: "recipe" as const,
+      recipeId: "validation.recover",
+      recipeVersion: 1,
+      approvedPaths: ["lib/ai-orchestrator/src/index.ts"],
+      candidateIdentity: null,
+    };
+    const digest = createHash("sha256").update(JSON.stringify({
+      goalId,
+      recipeId: action.recipeId,
+      recipeVersion: action.recipeVersion,
+      approvedPaths: action.approvedPaths,
+      candidateIdentity: null,
+    })).digest("hex");
+    const operationId = `mission-goal-${goalId}-${digest.slice(0, 16)}`;
+    const idempotencyKey = `mission-goal:${goalId}:${digest.slice(0, 32)}`;
+    const sourceRevision = (await execFileAsync("git", ["-C", rootPath, "rev-parse", "HEAD"]))
+      .stdout.trim();
+    const binding = {
+      projectId,
+      operationId,
+      sourceRevision,
+      candidateIdentity: null,
+      candidateWorkspace: null,
+      approvedPaths: action.approvedPaths,
+      phase: "running" as const,
+      leaseOwner: "recipe-worker-recovered",
+      leaseUntil: new Date(now.getTime() + 60_000).toISOString(),
+      missionBudget: {
+        maxNodes: 24,
+        maxParallelNodes: 1,
+        maxTotalTimeoutMs: 120_000,
+        maxProcessCount: 1,
+        maxOutputBytes: 200_000,
+      },
+      concurrencyBudget: {
+        maxInFlightNodes: 1,
+        maxProcesses: 1,
+      },
+    };
+    projectIds.push(projectId);
+    await db.insert(projectsTable).values({
+      id: projectId,
+      ownerId: "test-user",
+      name: `recipe-acceptance-recovery-${projectId.slice(0, 8)}`,
+      rootPath,
+      language: "typescript",
+      status: "active",
+      createdAt: now,
+      updatedAt: now,
+    });
+    await db.insert(aiMissionsTable).values({
+      id: missionId,
+      projectId,
+      userId: "test-user",
+      title: "Recipe acceptance projection recovery",
+      intent: "Recover only the post-acceptance Mission projection",
+      status: "active",
+      scope: { kind: "project", projectId },
+      autonomyPolicy: { activePlanRevision: planRevision },
+      createdAt: now,
+      updatedAt: now,
+    });
+    await db.insert(aiGoalsTable).values({
+      id: goalId,
+      missionId,
+      projectId,
+      title: "Accepted recipe",
+      status: "running",
+      successCriteria: { planRevision: { hash: planRevision } },
+      outcomeContract: {
+        deliveryRequired: false,
+        planRevision: { hash: planRevision },
+      },
+      nextAction: action,
+      createdAt: now,
+      updatedAt: now,
+    });
+    await db.insert(aiExecutionsTable).values({
+      id: executionId,
+      projectId,
+      goalId,
+      userId: "test-user",
+      operationId,
+      idempotencyKey,
+      resumeTokenHash: `recipe-acceptance-recovery:${executionId}`,
+      request: JSON.stringify({
+        projectId,
+        goalId,
+        operationId,
+        message: `recipe:${operationId}`,
+        modelMessage: `recipe:${operationId}`,
+        workspaceRevision: sourceRevision,
+        proofRequired: true,
+        proofEvidenceMode: "artifact_only",
+      }),
+      checkpoint: JSON.stringify({
+        stage: "running",
+        sequence: 0,
+        recipeBinding: { ...binding, phase: "queued", leaseOwner: null, leaseUntil: null },
+        updatedAt: now.toISOString(),
+      }),
+      status: "running",
+      baseRevision: sourceRevision,
+      createdAt: now,
+      updatedAt: now,
+      startedAt: now,
+    });
+
+    const acceptedExecutionId = await seedSuccessfulRecipeProof({
+      projectId,
+      goalId,
+      operationId,
+      idempotencyKey,
+      sourceRevision,
+      rootPath,
+      recipeId: action.recipeId,
+      recipeVersion: action.recipeVersion,
+      candidateIdentity: null,
+    }, executionId);
+    expect(acceptedExecutionId).toBe(executionId);
+    await db.update(aiExecutionsTable).set({
+      checkpoint: JSON.stringify({
+        stage: "completed",
+        sequence: 1,
+        recipeBinding: binding,
+        updatedAt: new Date().toISOString(),
+      }),
+    }).where(eq(aiExecutionsTable.id, executionId));
+    await db.update(aiExecutionAcceptancesTable).set({
+      finalizationKey: `execution:${executionId}:attempt:0:completed`,
+      reasonCode: "ACCEPTED",
+      operationId,
+      sourceRevision,
+      candidateIdentity: null,
+    }).where(and(
+      eq(aiExecutionAcceptancesTable.executionId, executionId),
+      eq(aiExecutionAcceptancesTable.attempt, 0),
+    ));
+
+    expect(await reconcileCompletedMissionRecipeAcceptances(16, projectId)).toBe(1);
+    const [goal] = await db.select({
+      status: aiGoalsTable.status,
+      blockedReason: aiGoalsTable.blockedReason,
+    }).from(aiGoalsTable).where(eq(aiGoalsTable.id, goalId));
+    expect(goal).toMatchObject({ status: "completed", blockedReason: null });
+    expect(recipeRunner).not.toHaveBeenCalled();
+    expect(githubDeliveryRunner).not.toHaveBeenCalled();
+
+    const [mission] = await db.select({ status: aiMissionsTable.status })
+      .from(aiMissionsTable).where(eq(aiMissionsTable.id, missionId));
+    expect(mission?.status).toBe("completed");
+    const syncEvents = await db.select({ id: eventsTable.id })
+      .from(eventsTable)
+      .where(and(
+        eq(eventsTable.goalId, goalId),
+        eq(eventsTable.type, "AiGoalRecipeStatusSynced"),
+      ));
+    expect(syncEvents).toHaveLength(1);
+    expect(await reconcileCompletedMissionRecipeAcceptances(16, projectId)).toBe(0);
   });
 });
