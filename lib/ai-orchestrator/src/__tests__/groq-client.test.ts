@@ -11,6 +11,7 @@ describe("groq-client", () => {
   });
 
   afterEach(() => {
+    vi.useRealTimers();
     vi.doUnmock("groq-sdk");
     if (originalApiKey === undefined) delete process.env.GROQ_API_KEY;
     else process.env.GROQ_API_KEY = originalApiKey;
@@ -544,4 +545,102 @@ describe("groq-client", () => {
     await complete([{ role: "user", content: "hi" }]);
     expect(capturedKey).toBe("env-fallback-key");
   });
+
+  it("aborts a stalled completion when timeoutMs elapses", async () => {
+    vi.useFakeTimers();
+    let requestSignal: AbortSignal | undefined;
+    const create = vi.fn((_request: unknown, options?: { signal?: AbortSignal }) =>
+      new Promise((_resolve, reject) => {
+        requestSignal = options?.signal;
+        requestSignal?.addEventListener(
+          "abort",
+          () => reject(new DOMException("The request was aborted", "AbortError")),
+          { once: true },
+        );
+      }),
+    );
+    vi.doMock("groq-sdk", () => ({
+      default: class {
+        chat = { completions: { create } };
+      },
+    }));
+    const { complete } = await import("../groq-client.js");
+    const pending = complete([{ role: "user", content: "hi" }], {
+      timeoutMs: 25,
+      maxRetries: 0,
+    });
+
+    const timeoutAssertion = expect(pending).rejects.toMatchObject({ code: "TIMEOUT" });
+    await vi.advanceTimersByTimeAsync(25);
+    await timeoutAssertion;
+    expect(requestSignal?.aborted).toBe(true);
+    expect(create).toHaveBeenCalledTimes(1);
+  });
+
+  it("aborts a stalled stream when timeoutMs elapses", async () => {
+    vi.useFakeTimers();
+    let requestSignal: AbortSignal | undefined;
+    const create = vi.fn(async (_request: unknown, options?: { signal?: AbortSignal }) => {
+      requestSignal = options?.signal;
+      return {
+        async *[Symbol.asyncIterator]() {
+          await new Promise<never>((_resolve, reject) => {
+            requestSignal?.addEventListener(
+              "abort",
+              () => reject(new DOMException("The stream was aborted", "AbortError")),
+              { once: true },
+            );
+          });
+        },
+      };
+    });
+    vi.doMock("groq-sdk", () => ({
+      default: class {
+        chat = { completions: { create } };
+      },
+    }));
+    const { completeStream } = await import("../groq-client.js");
+    const pending = (async () => {
+      for await (const chunk of completeStream([{ role: "user", content: "hi" }], {
+        timeoutMs: 25,
+      })) {
+        expect(chunk).toBeDefined();
+      }
+    })();
+
+    const timeoutAssertion = expect(pending).rejects.toMatchObject({ code: "TIMEOUT" });
+    await vi.advanceTimersByTimeAsync(25);
+    await timeoutAssertion;
+    expect(requestSignal?.aborted).toBe(true);
+    expect(create).toHaveBeenCalledTimes(1);
+  });
+
+  it("aborts a stalled model-catalog probe at its configured timeout", async () => {
+    vi.useFakeTimers();
+    let requestSignal: AbortSignal | undefined;
+    const list = vi.fn((options?: { signal?: AbortSignal }) =>
+      new Promise((_resolve, reject) => {
+        requestSignal = options?.signal;
+        requestSignal?.addEventListener(
+          "abort",
+          () => reject(new DOMException("The catalog request was aborted", "AbortError")),
+          { once: true },
+        );
+      }),
+    );
+    vi.doMock("groq-sdk", () => ({
+      default: class {
+        models = { list };
+      },
+    }));
+    const { validateGroqDefaultModels } = await import("../groq-client.js");
+    const pending = validateGroqDefaultModels("test-key", undefined, 25);
+
+    const timeoutAssertion = expect(pending).rejects.toMatchObject({ code: "TIMEOUT" });
+    await vi.advanceTimersByTimeAsync(25);
+    await timeoutAssertion;
+    expect(requestSignal?.aborted).toBe(true);
+    expect(list).toHaveBeenCalledTimes(1);
+  });
+
 });
