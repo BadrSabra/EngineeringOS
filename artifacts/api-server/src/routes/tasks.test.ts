@@ -189,6 +189,11 @@ describe("Task lifecycle", () => {
       ok: false,
       status: "conflict",
       errorCode: "task_dependencies_not_completed",
+      blockedDependencies: [{
+        taskId: prerequisite.taskId,
+        reason: "dependency_not_completed",
+        status: "pending",
+      }],
     });
     const [task] = await db.select({ status: tasksTable.status })
       .from(tasksTable)
