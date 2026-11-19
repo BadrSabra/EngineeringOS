@@ -96,6 +96,24 @@ function expandRule() {
 }
 
 describe('Rules actions', () => {
+  it('makes the read-only behavior clear when no rules have been added', () => {
+    const savedRules = mocks.rules;
+    mocks.rules = [];
+
+    try {
+      renderRulesPage();
+
+      expect(screen.getByRole('heading', { level: 1, name: 'قواعد الفحص' })).toBeInTheDocument();
+      expect(screen.getByText(/فحص القاعدة يعرض النتائج للمراجعة ولا يغيّر ملفات المشروع/)).toBeInTheDocument();
+      expect(screen.getByRole('heading', { level: 3, name: 'لم تضف قواعد للفحص بعد' })).toBeInTheDocument();
+      expect(screen.getByText(/يعرض النتائج للمراجعة فقط، ولا يغيّر ملفات المشروع/)).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: 'أنشئ أول قاعدة' })).toBeInTheDocument();
+      expect(screen.queryByText(/تشغيل الإصلاحات تلقائيًا/)).not.toBeInTheDocument();
+    } finally {
+      mocks.rules = savedRules;
+    }
+  });
+
   it('edits supported fields through the generated update contract', async () => {
     const { invalidateQueries } = renderRulesPage();
     expandRule();

@@ -115,10 +115,10 @@ export default function Rules() {
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
           <h1 className="text-2xl font-bold tracking-tight flex items-center gap-2">
-            <ShieldAlert className="w-6 h-6 text-primary" /> محرك القواعد
+            <ShieldAlert className="w-6 h-6 text-primary" /> قواعد الفحص
           </h1>
           <p className="text-muted-foreground text-sm mt-1">
-            حدّد أنماطًا ثابتة وقواعد استدلال مدعومة بالذكاء الاصطناعي.
+            حدّد أنماطًا تريد رصدها. فحص القاعدة يعرض النتائج للمراجعة ولا يغيّر ملفات المشروع.
           </p>
         </div>
         <div className="flex items-center gap-3">
@@ -363,12 +363,12 @@ export default function Rules() {
           <div className="border-2 border-dashed border-border rounded-xl p-16 text-center flex flex-col items-center">
             <ShieldAlert className="w-12 h-12 text-muted-foreground mb-4 opacity-50" />
             <h3 className="text-lg font-semibold mb-2">
-              {searchTerm || filterSeverity ? 'لا توجد قواعد تطابق عوامل التصفية' : 'لم تُعرّف أي قواعد بعد'}
+              {searchTerm || filterSeverity ? 'لا توجد قواعد تطابق عوامل التصفية' : 'لم تضف قواعد للفحص بعد'}
             </h3>
             <p className="text-muted-foreground text-sm max-w-sm mb-6">
               {searchTerm || filterSeverity
                 ? 'جرّب تعديل البحث أو مستوى الخطورة.'
-                : 'أنشئ قواعد لاكتشاف الأنماط وفرض المعايير وتشغيل الإصلاحات تلقائيًا.'}
+                : 'أضف قاعدة لتحديد نمط تريد رصده في المشروع. فحص القاعدة يعرض النتائج للمراجعة فقط، ولا يغيّر ملفات المشروع.'}
             </p>
             {!(searchTerm || filterSeverity) && (
               <button
