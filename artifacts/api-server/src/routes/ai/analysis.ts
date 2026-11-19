@@ -54,6 +54,7 @@ import {
   type AiTerminalProjection,
 } from "../../lib/ai-terminal-outcome.js";
 import { serializeAiSseEvent } from "@workspace/api-zod";
+import { resolveRetryDeadlineFromDatabaseClock } from "../../lib/database-retry-deadline.js";
 
 const router = Router();
 
@@ -588,7 +589,7 @@ async function persistStructuredExecutionFailure(params: {
     : effectiveDetails.retryAfterMs;
   const retryAfterSource = retry?.source;
   const retryAt = retryAfterMs !== undefined
-    ? new Date(Date.now() + retryAfterMs).toISOString()
+    ? await resolveRetryDeadlineFromDatabaseClock(retryAfterMs)
     : undefined;
   let messageId: string;
   try {
