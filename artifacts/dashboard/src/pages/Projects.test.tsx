@@ -48,9 +48,9 @@ vi.mock("./DiscoverProjectWizard", () => ({
 import { useListProjects, useGetProjectBootstrap } from "@workspace/api-client-react";
 
 const mockProjects = [
-  { id: "1", name: "alpha-service", status: "active", language: "TypeScript", qualityScore: 0.9, lastScanAt: null },
-  { id: "2", name: "beta-worker", status: "scanning", language: "Python", qualityScore: null, lastScanAt: null },
-  { id: "3", name: "gamma-lib", status: "archived", language: "TypeScript", qualityScore: 0.7, lastScanAt: null },
+  { id: "1", name: "alpha-service", description: "Customer support tools", status: "active", language: "TypeScript", framework: "React", qualityScore: 0.9, lastScanAt: null },
+  { id: "2", name: "beta-worker", description: "Background job runner", status: "scanning", language: "Python", framework: "FastAPI", qualityScore: null, lastScanAt: null },
+  { id: "3", name: "gamma-lib", description: "Reusable interface widgets", status: "archived", language: "TypeScript", framework: "Vue", qualityScore: 0.7, lastScanAt: null },
 ];
 
 beforeEach(() => {
@@ -155,16 +155,44 @@ describe("Projects", () => {
 
   it("filters projects by name (case-insensitive)", () => {
     render(<Projects />);
-    const input = screen.getByRole('textbox', { name: 'ابحث عن مشروع' });
+    const input = screen.getByRole('textbox', { name: 'ابحث عن مشروع بالاسم أو الوصف أو التقنية' });
     fireEvent.change(input, { target: { value: "ALPHA" } });
     expect(screen.getByText("alpha-service")).toBeInTheDocument();
     expect(screen.queryByText("beta-worker")).not.toBeInTheDocument();
     expect(screen.queryByText("gamma-lib")).not.toBeInTheDocument();
   });
 
+  it.each([
+    ['CUSTOMER SUPPORT', 'alpha-service', ['beta-worker', 'gamma-lib']],
+    ['python', 'beta-worker', ['alpha-service', 'gamma-lib']],
+    ['fastapi', 'beta-worker', ['alpha-service', 'gamma-lib']],
+  ])('finds a project by description, language, or framework: %s', (query, projectName, hiddenProjects) => {
+    render(<Projects />);
+    fireEvent.change(screen.getByTestId('input-project-search'), { target: { value: query } });
+
+    expect(screen.getByText(projectName)).toBeInTheDocument();
+    hiddenProjects.forEach((name) => {
+      expect(screen.queryByText(name)).not.toBeInTheDocument();
+    });
+  });
+
+  it('clears a project search and restores all results without losing input focus', () => {
+    render(<Projects />);
+    const input = screen.getByTestId('input-project-search');
+    fireEvent.change(input, { target: { value: 'FastAPI' } });
+
+    fireEvent.click(screen.getByTestId('button-clear-project-search'));
+
+    expect(input).toHaveValue('');
+    expect(input).toHaveFocus();
+    expect(screen.getByText('alpha-service')).toBeInTheDocument();
+    expect(screen.getByText('beta-worker')).toBeInTheDocument();
+    expect(screen.getByText('gamma-lib')).toBeInTheDocument();
+  });
+
   it("shows empty state when no projects match the search", () => {
     render(<Projects />);
-    const input = screen.getByRole('textbox', { name: 'ابحث عن مشروع' });
+    const input = screen.getByRole('textbox', { name: 'ابحث عن مشروع بالاسم أو الوصف أو التقنية' });
     fireEvent.change(input, { target: { value: "zzz-no-match" } });
     expect(screen.queryByText("alpha-service")).not.toBeInTheDocument();
     expect(screen.getByRole('status')).toHaveTextContent('لا توجد مشاريع تطابق بحثك');

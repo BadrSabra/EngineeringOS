@@ -94,6 +94,7 @@ function ProjectsForAccountSession({
   const [showDiscover, setShowDiscover] = useState(false);
   const [showCreate, setShowCreate] = useState(Boolean(incomingDraft));
   const [search, setSearch] = useState('');
+  const searchInputRef = useRef<HTMLInputElement>(null);
   const [projectName, setProjectName] = useState(incomingDraft?.bootstrap?.projectName ?? '');
   const [projectDescription, setProjectDescription] = useState(incomingDraft?.text ?? '');
   const [bootstrapId, setBootstrapId] = useState(incomingDraft?.bootstrap?.operationId ?? '');
@@ -222,9 +223,12 @@ function ProjectsForAccountSession({
     if (error) emitProjectLoadFailed(error);
   }, [error]);
 
-  const filtered = projects?.filter((p) =>
-    p.name.toLowerCase().includes(search.toLowerCase()),
-  );
+  const normalizedSearch = search.trim().toLowerCase();
+  const filtered = projects?.filter((project) => {
+    if (!normalizedSearch) return true;
+    return [project.name, project.description, project.language, project.framework]
+      .some((value) => value?.toLowerCase().includes(normalizedSearch));
+  });
 
   return (
     <>
@@ -347,13 +351,31 @@ function ProjectsForAccountSession({
               <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
               <input
                 type="text"
+                ref={searchInputRef}
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
-                aria-label="ابحث عن مشروع"
-                placeholder="ابحث عن مشروع..."
+                aria-label="ابحث عن مشروع بالاسم أو الوصف أو التقنية"
+                placeholder="ابحث بالاسم أو الوصف أو التقنية..."
                 dir="auto"
-                className="bg-card border border-border rounded-md pl-9 pr-4 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-primary w-64"
+                data-testid="input-project-search"
+                className={`bg-card border border-border rounded-md py-2 text-sm focus:outline-none focus:ring-1 focus:ring-primary w-64 ${
+                  normalizedSearch ? 'pl-9 pr-9' : 'pl-9 pr-4'
+                }`}
               />
+              {normalizedSearch && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSearch('');
+                    searchInputRef.current?.focus();
+                  }}
+                  aria-label="مسح البحث"
+                  data-testid="button-clear-project-search"
+                  className="absolute right-2 top-1/2 -translate-y-1/2 rounded p-1 text-muted-foreground hover:bg-secondary hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+                >
+                  <X className="h-3.5 w-3.5" aria-hidden="true" />
+                </button>
+              )}
             </div>
             <button
               onClick={() => setShowDiscover(true)}
@@ -404,14 +426,14 @@ function ProjectsForAccountSession({
               <Radar className="w-7 h-7 text-primary/60" />
             </div>
             <h3 className="font-semibold text-lg mb-1">
-              {search ? 'لا توجد مشاريع تطابق بحثك' : 'لا توجد مشاريع بعد'}
+              {normalizedSearch ? 'لا توجد مشاريع تطابق بحثك' : 'لا توجد مشاريع بعد'}
             </h3>
             <p className="text-sm text-muted-foreground max-w-xs mb-5">
-              {search
-                ? 'جرّب عبارة بحث أخرى.'
+              {normalizedSearch
+                ? 'جرّب اسم المشروع أو وصفه أو إحدى تقنياته.'
                 : 'يمكنك إنشاء مشروع جديد، أو استكشاف مشروع موجود لفهم ملفاته ومشكلاته.'}
             </p>
-            {!search && (
+            {!normalizedSearch && (
               <button
                 onClick={() => setShowDiscover(true)}
                 className="bg-primary hover:bg-primary/90 text-primary-foreground px-5 py-2.5 rounded-lg font-semibold text-sm flex items-center gap-2 transition-colors"
