@@ -156,6 +156,76 @@ describe("task objective contracts", () => {
     expect(result.allowed).toBe(true);
   });
 
+  it("rejects execution paths outside the objective scope while allowing a narrower scope", () => {
+    const contract = buildTaskObjectiveContract({
+      ...base,
+      message: "Implement a feature for checkout",
+      targetPaths: ["src/checkout.ts", "src/cart.ts"],
+    })!;
+    const acceptedReceipt = {
+      validatorId: "registered-validation.v1",
+      status: "PROVEN" as const,
+      operationId: "operation-scoped",
+      projectId: base.projectId,
+      workspaceRevision: base.workspaceRevision,
+      artifactRef: "validation-result:scoped",
+      validatorProfile: "workspace-typecheck",
+    };
+    const common = {
+      contract,
+      workspaceRevision: base.workspaceRevision,
+      projectId: base.projectId,
+      operationId: "operation-scoped",
+      objectiveValidated: true,
+      evidenceVerdict: "PROVEN",
+      evidenceComplete: true,
+      validatorReceipts: [acceptedReceipt],
+    };
+
+    const narrowed = validateTaskObjectiveContract({
+      ...common,
+      targetPaths: ["src/checkout.ts"],
+    });
+    expect(narrowed).toEqual({ allowed: true, codes: [], reasons: [] });
+
+    const expanded = validateTaskObjectiveContract({
+      ...common,
+      targetPaths: ["src/checkout.ts", "src/cart.ts", "secrets/.env"],
+    });
+    expect(expanded.allowed).toBe(false);
+    expect(expanded.codes).toContain("scope_mismatch");
+    expect(expanded.reasons).toContain(
+      "execution target scope exceeds the task objective contract",
+    );
+  });
+
+  it("keeps an empty objective path list unconstrained for legacy operations", () => {
+    const contract = buildTaskObjectiveContract({
+      ...base,
+      message: "Implement a feature for checkout",
+    })!;
+    const result = validateTaskObjectiveContract({
+      contract,
+      workspaceRevision: base.workspaceRevision,
+      projectId: base.projectId,
+      objectiveValidated: true,
+      evidenceVerdict: "PROVEN",
+      evidenceComplete: true,
+      targetPaths: ["src/checkout.ts"],
+      validatorReceipts: [{
+        validatorId: "registered-validation.v1",
+        status: "PROVEN",
+        operationId: "operation-legacy",
+        projectId: base.projectId,
+        workspaceRevision: base.workspaceRevision,
+        artifactRef: "validation-result:legacy",
+        validatorProfile: "workspace-typecheck",
+      }],
+      operationId: "operation-legacy",
+    });
+    expect(result).toEqual({ allowed: true, codes: [], reasons: [] });
+  });
+
   it("does not let a registered code-validation profile prove a browser validator", () => {
     const contract = buildTaskObjectiveContract({
       ...base,

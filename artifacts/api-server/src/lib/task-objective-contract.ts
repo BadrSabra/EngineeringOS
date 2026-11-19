@@ -402,8 +402,12 @@ export function validateTaskObjectiveContract(
   if (input.projectId && input.contract.projectId !== input.projectId) {
     add("scope_mismatch", "task objective project does not match the execution project");
   }
-  if (input.targetPaths && input.contract.targetPaths.some((path) => !input.targetPaths!.includes(path))) {
-    add("scope_mismatch", "task objective target scope does not match the execution scope");
+  if (
+    input.targetPaths
+    && input.contract.targetPaths.length > 0
+    && input.targetPaths.some((path) => !input.contract.targetPaths.includes(path))
+  ) {
+    add("scope_mismatch", "execution target scope exceeds the task objective contract");
   }
   if (input.contract.validatorIds.some((id) => !SUPPORTED_VALIDATORS.has(id))) {
     add("validator_unavailable", `no server-owned validator is registered for ${input.contract.kind}`);
