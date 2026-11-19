@@ -2144,8 +2144,9 @@ describe("provider-metrics — health tracking", () => {
     recordRequest("groq");
     recordFailure("groq");
     recordSuccess("groq");
+    recordSuccess("groq");
     const snap = getProviderMetrics().find((m) => m.provider === "groq");
-    // 3 requests, 1 failure → success rate = 2/3
+    // 3 requests, 1 failure, 2 completed successes → success rate = 2/3
     expect(snap?.successRate).toBeCloseTo(2 / 3, 2);
   });
 
