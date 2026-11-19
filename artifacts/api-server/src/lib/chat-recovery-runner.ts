@@ -1,4 +1,10 @@
 import type { Request, Response } from "express";
+import { and, eq, inArray, sql } from "drizzle-orm";
+import {
+  aiExecutionAcceptancesTable,
+  aiExecutionsTable,
+  db,
+} from "@workspace/db";
 import {
   getAiExecutionForUser,
   hasAiExecutionResumeContract,
@@ -10,6 +16,24 @@ import {
   finalizeChatRecoveryExhaustion,
   handleChatStream,
 } from "../routes/ai/chat.js";
+
+export type DatabaseRetryWindowDecision = "due" | "not_due" | "invalid";
+
+/**
+ * A persisted retry deadline is compared to the database clock, not the API
+ * host clock. Invalid metadata fails closed.
+ */
+export function evaluateRetryWindowAtDatabaseTime(
+  retryAt: unknown,
+  databaseNowMs: number,
+): DatabaseRetryWindowDecision {
+  if (!Number.isFinite(databaseNowMs)) return "invalid";
+  if (retryAt === undefined) return "due";
+  if (typeof retryAt !== "string") return "invalid";
+  const retryAtMs = Date.parse(retryAt);
+  if (!Number.isFinite(retryAtMs)) return "invalid";
+  return retryAtMs <= databaseNowMs ? "due" : "not_due";
+}
 
 type InternalResponse = Response & {
   recoveryStatusCode: number;
@@ -169,17 +193,67 @@ export async function runChatExecutionRecovery(params: {
   }
 
   const recovered = params.mode === "retry"
-    ? await recoverAiExecutionRetryToken({
-        executionId: execution.id,
-        userId: params.userId,
-        expectedAttempt: execution.attempt,
+    ? await db.transaction(async (tx) => {
+        // Lock the exact execution/acceptance pair, then compare the durable
+        // retryAt to PostgreSQL time before the helper rotates its capability.
+        const [lockedExecution] = await tx
+          .select({
+            databaseNow: sql<string>`clock_timestamp()::text`,
+          })
+          .from(aiExecutionsTable)
+          .where(and(
+            eq(aiExecutionsTable.id, execution.id),
+            eq(aiExecutionsTable.userId, params.userId),
+            eq(aiExecutionsTable.attempt, params.expectedAttempt),
+            inArray(aiExecutionsTable.status, ["paused", "failed"]),
+          ))
+          .for("update")
+          .limit(1);
+        if (!lockedExecution) return { kind: "conflict" as const };
+
+        const [acceptance] = await tx
+          .select({ disposition: aiExecutionAcceptancesTable.disposition })
+          .from(aiExecutionAcceptancesTable)
+          .where(and(
+            eq(aiExecutionAcceptancesTable.executionId, execution.id),
+            eq(aiExecutionAcceptancesTable.attempt, params.expectedAttempt),
+          ))
+          .for("update")
+          .limit(1);
+        const disposition = acceptance?.disposition;
+        const retryAt = disposition && typeof disposition === "object" && !Array.isArray(disposition)
+          ? (disposition as Record<string, unknown>).retryAt
+          : undefined;
+        const databaseNowMs = Date.parse(lockedExecution.databaseNow);
+        const retryWindow = evaluateRetryWindowAtDatabaseTime(retryAt, databaseNowMs);
+        if (retryWindow === "not_due") return { kind: "not_due" as const };
+        if (retryWindow === "invalid") return { kind: "conflict" as const };
+
+        const recovered = await recoverAiExecutionRetryToken({
+          executionId: execution.id,
+          userId: params.userId,
+          expectedAttempt: params.expectedAttempt,
+          transaction: tx,
+        });
+        return recovered
+          ? { kind: "recovered" as const, recovered }
+          : { kind: "conflict" as const };
       })
-    : await recoverAiExecutionResumeToken({
-        executionId: execution.id,
-        userId: params.userId,
-        expectedAttempt: execution.attempt,
-      });
-  if (!recovered) return { ok: false, reason: "resume_claim_conflict" };
+    : {
+        kind: "recovered" as const,
+        recovered: await recoverAiExecutionResumeToken({
+          executionId: execution.id,
+          userId: params.userId,
+          expectedAttempt: execution.attempt,
+        }),
+      };
+  if (recovered.kind === "not_due") {
+    return { ok: false, reason: "retry_not_due" };
+  }
+  if (recovered.kind !== "recovered" || !recovered.recovered) {
+    return { ok: false, reason: "resume_claim_conflict" };
+  }
+  const recoveredToken = recovered.recovered;
 
   const response = createInternalResponse();
   const body: Record<string, unknown> = {
@@ -187,7 +261,7 @@ export async function runChatExecutionRecovery(params: {
     message: request.message,
     sessionId: request.sessionId,
     executionId: execution.id,
-    resumeToken: recovered.resumeToken,
+    resumeToken: recoveredToken.resumeToken,
   };
   if (request.linkedTaskId) body.linkedTaskId = request.linkedTaskId;
   if (request.buildPlanMessageId) body.buildPlanMessageId = request.buildPlanMessageId;
@@ -217,7 +291,7 @@ export async function runChatExecutionRecovery(params: {
   const completedExecution = await getAiExecutionForUser(execution.id, params.userId);
   if (
     !completedExecution
-    || completedExecution.attempt !== recovered.execution.attempt + 1
+    || completedExecution.attempt !== recoveredToken.execution.attempt + 1
     || completedExecution.status !== "completed"
   ) {
     return {
