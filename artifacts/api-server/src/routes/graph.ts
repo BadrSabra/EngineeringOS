@@ -159,7 +159,8 @@ router.get("/graph/relationships", async (req, res) => {
   // KG 2.0: if the relationships table has projectId, query directly
   const filters = parseKgFilters(req.query as Record<string, unknown>);
   if (filters.edgeTypes || filters.minConfidence !== undefined ||
-      filters.sourceTypes || filters.observedOnly || filters.heuristicOnly) {
+      filters.sourceTypes || filters.observedOnly || filters.heuristicOnly ||
+      (filters.semanticTags && filters.semanticTags.length > 0)) {
     const rels = await getEdgesByType(db, project.id, filters, params.sourceId);
     const items = rels.slice(pagination.offset, pagination.offset + pagination.pageSize);
     return sendBoundedGraphResponse(res, {
