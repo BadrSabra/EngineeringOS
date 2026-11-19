@@ -247,8 +247,15 @@ const postgresPersistence: ModelCooldownPersistence = {
          (provider, model, cooling_until, updated_at)
        VALUES ($1, $2, now() + ($3::double precision * interval '1 millisecond'), now())
        ON CONFLICT (provider, model) DO UPDATE
-       SET cooling_until = now() + ($3::double precision * interval '1 millisecond'),
-           updated_at = now()`,
+       SET cooling_until = GREATEST(
+             openrouter_model_cooldowns.cooling_until,
+             EXCLUDED.cooling_until
+           ),
+           updated_at = CASE
+             WHEN EXCLUDED.cooling_until > openrouter_model_cooldowns.cooling_until
+               THEN EXCLUDED.updated_at
+             ELSE openrouter_model_cooldowns.updated_at
+           END`,
       [provider, model, cooldownMs],
      );
   },

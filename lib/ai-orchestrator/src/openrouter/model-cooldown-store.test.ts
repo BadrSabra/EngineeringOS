@@ -1,3 +1,6 @@
+const { query } = vi.hoisted(() => ({ query: vi.fn() }));
+vi.mock("@workspace/db", () => ({ pool: { query } }));
+
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   _resetCircuitsForTest,
@@ -21,7 +24,28 @@ describe("shared OpenRouter model cooldown persistence", () => {
     _resetCircuitsForTest();
     _resetLocalAdaptiveModelCooldownsForTest();
     _setModelCooldownPersistenceForTest(undefined);
+    query.mockReset();
     vi.useRealTimers();
+  });
+
+  it("preserves a longer persisted cooldown and its adaptive-history timestamp", async () => {
+    const model = "fixture/cooldown-window-model";
+    query.mockResolvedValueOnce({ rows: [], rowCount: 1 });
+
+    await persistSharedPoolModelCooldown("openrouter", model, 1_000);
+
+    expect(query).toHaveBeenCalledTimes(1);
+    expect(query.mock.calls[0]?.[1]).toEqual(["openrouter", model, 1_000]);
+    const statement = String(query.mock.calls[0]?.[0]);
+    expect(statement).toContain("cooling_until = GREATEST(");
+    expect(statement).toContain("openrouter_model_cooldowns.cooling_until,");
+    expect(statement).toContain("EXCLUDED.cooling_until");
+    expect(statement).toContain("updated_at = CASE");
+    expect(statement).toContain(
+      "WHEN EXCLUDED.cooling_until > openrouter_model_cooldowns.cooling_until",
+    );
+    expect(statement).toContain("THEN EXCLUDED.updated_at");
+    expect(statement).toContain("ELSE openrouter_model_cooldowns.updated_at");
   });
 
   it("uses only the provider Retry-After and expires at that exact duration", async () => {
