@@ -24,12 +24,14 @@ import {
   runAgentWithFallback,
 } from "../../lib/ai-route-helpers.js";
 import { logger } from "../../lib/logger.js";
+import { databaseLeaseUntil, databaseNow } from "../../lib/job-lease.js";
 
 const router = Router();
 router.use(requireAuth);
 
 const HISTORY_MESSAGE_LIMIT = 20;
 const MESSAGE_LIST_LIMIT = 500;
+const GENERAL_CHAT_TURN_LEASE_MS = 60_000;
 const GENERAL_CHAT_SYSTEM_PROMPT = [
   "You are EngineeringOS's general engineering assistant.",
   "Answer using only general knowledge and the conversation history.",
@@ -90,15 +92,14 @@ router.get("/ai/general-chat/sessions", async (req, res) => {
 });
 
 router.post("/ai/general-chat/sessions", async (req, res) => {
-  const now = new Date();
   const [session] = await db
     .insert(aiGeneralChatSessionsTable)
     .values({
       id: randomUUID(),
       ownerId: req.userId!,
       title: "New conversation",
-      createdAt: now,
-      updatedAt: now,
+      createdAt: databaseNow(),
+      updatedAt: databaseNow(),
     })
     .returning();
   return res.status(201).json(publicSession(session));
@@ -161,8 +162,6 @@ async function claimTurn(params: {
   message: string;
 }): Promise<ClaimResult> {
   const workerId = randomUUID();
-  const now = new Date();
-  const leaseUntil = new Date(now.getTime() + 60_000);
 
   return db.transaction(async (tx) => {
     let [userMessage] = await tx
@@ -187,7 +186,7 @@ async function claimTurn(params: {
           role: "user",
           content: params.message,
           status: "completed",
-          createdAt: now,
+          createdAt: databaseNow(),
         })
         .onConflictDoNothing();
       [userMessage] = await tx
@@ -211,7 +210,7 @@ async function claimTurn(params: {
       const title = params.message.replace(/\s+/g, " ").trim().slice(0, 72) || "New conversation";
       await tx
         .update(aiGeneralChatSessionsTable)
-        .set({ title, updatedAt: now })
+        .set({ title, updatedAt: databaseNow() })
         .where(
           and(
             eq(aiGeneralChatSessionsTable.id, params.sessionId),
@@ -222,7 +221,7 @@ async function claimTurn(params: {
     } else {
       await tx
         .update(aiGeneralChatSessionsTable)
-        .set({ updatedAt: now })
+        .set({ updatedAt: databaseNow() })
         .where(
           and(
             eq(aiGeneralChatSessionsTable.id, params.sessionId),
@@ -254,8 +253,8 @@ async function claimTurn(params: {
           content: "",
           status: "pending",
           workerId,
-          leaseUntil,
-          createdAt: now,
+          leaseUntil: databaseLeaseUntil(GENERAL_CHAT_TURN_LEASE_MS),
+          createdAt: databaseNow(),
         })
         .onConflictDoNothing();
       [assistantMessage] = await tx
@@ -277,14 +276,14 @@ async function claimTurn(params: {
     } else {
       const [claimed] = await tx
         .update(aiGeneralChatMessagesTable)
-        .set({ workerId, leaseUntil })
+        .set({ workerId, leaseUntil: databaseLeaseUntil(GENERAL_CHAT_TURN_LEASE_MS) })
         .where(
           and(
             eq(aiGeneralChatMessagesTable.id, assistantMessage.id),
             eq(aiGeneralChatMessagesTable.status, "pending"),
             or(
               isNull(aiGeneralChatMessagesTable.leaseUntil),
-              lte(aiGeneralChatMessagesTable.leaseUntil, now),
+              lte(aiGeneralChatMessagesTable.leaseUntil, databaseNow()),
             ),
           ),
         )
@@ -511,7 +510,7 @@ router.post("/ai/general-chat/sessions/:sessionId/messages", async (req, res) =>
     }
     await db
       .update(aiGeneralChatSessionsTable)
-      .set({ updatedAt: new Date() })
+      .set({ updatedAt: databaseNow() })
       .where(
         and(
           eq(aiGeneralChatSessionsTable.id, sessionId),
