@@ -226,16 +226,39 @@ router.post("/rules/:ruleId/evaluate", async (req, res) => {
     });
   }
 
-  // walkProject hard-fails on a missing/inaccessible path since the scanner
-  // hard-fail PR.  Treat that as an empty file set (0 matches) so the route
-  // still emits a RuleEvaluated event + audit entry and returns 200 — the
-  // rule is valid, the project just has no accessible source yet.
-  let files: Awaited<ReturnType<typeof walkProject>>["files"] = [];
-  let walkNote: string | undefined;
+  // A rule result is only authoritative when the complete project source
+  // was inspected. walkProject may throw for an unavailable root, or return a
+  // partial manifest after file/directory read failures and configured caps.
+  let walk;
   try {
-    ({ files } = await walkProject(project.rootPath));
+    walk = await walkProject(project.rootPath);
   } catch {
-    walkNote = "Project root path is not accessible — matched against empty file set";
+    return res.status(503).json({
+      error: "rule_evaluation_incomplete",
+      reason: "project_root_unavailable",
+      message: "The project source could not be read. No rule evaluation was recorded.",
+    });
+  }
+
+  const incompleteReasons = [
+    ...(walk.revisionManifest.incompleteReasons ?? []),
+    ...(walk.truncated ? ["truncated"] : []),
+    ...(walk.filesSkipped !== 0 ? ["files_skipped"] : []),
+    ...(walk.files.some((file) => file.oversized) ? ["oversized_files"] : []),
+  ].map((reason) => reason.split(":")[0]!);
+  if (
+    !walk.rootExists ||
+    walk.revisionManifest.completeness !== "COMPLETE" ||
+    walk.truncated ||
+    walk.filesSkipped !== 0 ||
+    walk.files.some((file) => file.oversized)
+  ) {
+    return res.status(503).json({
+      error: "rule_evaluation_incomplete",
+      reason: "project_source_incomplete",
+      message: "The project source could not be inspected completely. No rule evaluation was recorded.",
+      incompleteReasons: [...new Set(incompleteReasons)].slice(0, 8),
+    });
   }
 
   const ruleInput: RuleInput = {
@@ -246,7 +269,7 @@ router.post("/rules/:ruleId/evaluate", async (req, res) => {
     enabled: rule[0].enabled ?? true,
   };
 
-  const result = matchRule(ruleInput, files);
+  const result = matchRule(ruleInput, walk.files);
 
   await db
     .update(rulesTable)
@@ -286,7 +309,6 @@ router.post("/rules/:ruleId/evaluate", async (req, res) => {
       line: m.line,
       snippet: m.snippet,
     })),
-    ...(walkNote ? { note: walkNote } : {}),
   });
 });
 
