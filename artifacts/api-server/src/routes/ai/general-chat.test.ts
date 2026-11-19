@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import request from "supertest";
-import { eq, sql } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import {
   aiGeneralChatMessagesTable,
   aiGeneralChatSessionsTable,
@@ -93,7 +93,10 @@ describe("General Chat database-authoritative turn leases", () => {
   it("renews a pending turn lease while provider work is still running", async () => {
     const { sessionId, turnId } = await seedPendingTurn("active");
     const [assistant] = await db.select().from(aiGeneralChatMessagesTable)
-      .where(eq(aiGeneralChatMessagesTable.sessionId, sessionId));
+      .where(and(
+        eq(aiGeneralChatMessagesTable.sessionId, sessionId),
+        eq(aiGeneralChatMessagesTable.role, "assistant"),
+      ));
     expect(assistant).toBeDefined();
     await db.update(aiGeneralChatMessagesTable)
       .set({ leaseUntil: sql<Date>`(clock_timestamp() AT TIME ZONE 'UTC') + interval '5 seconds'` })
@@ -128,7 +131,10 @@ describe("General Chat database-authoritative turn leases", () => {
   it("aborts provider work when a replacement worker takes ownership of the pending turn", async () => {
     const { sessionId, turnId } = await seedPendingTurn("active");
     const [assistant] = await db.select().from(aiGeneralChatMessagesTable)
-      .where(eq(aiGeneralChatMessagesTable.sessionId, sessionId));
+      .where(and(
+        eq(aiGeneralChatMessagesTable.sessionId, sessionId),
+        eq(aiGeneralChatMessagesTable.role, "assistant"),
+      ));
     expect(assistant).toBeDefined();
     await db.update(aiGeneralChatMessagesTable)
       .set({ workerId: "replacement-worker" })
