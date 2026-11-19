@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useLayoutEffect, useRef, useState } from 'react';
 import { useUser } from '@clerk/react';
 import {
   getGetAiMissionControlQueryKey,
@@ -336,9 +336,19 @@ export default function Dashboard() {
   const { user } = useUser();
   const [, setLocation] = useLocation();
   const [goalDraft, setGoalDraft] = useState('');
+  const goalInputRef = useRef<HTMLTextAreaElement | null>(null);
+  const focusGoalInputAfterUpdate = useRef(false);
   const [goalHandoffError, setGoalHandoffError] = useState('');
   const [showGoalDestinationPrompt, setShowGoalDestinationPrompt] = useState(false);
   const [selectedGoalProjectId, setSelectedGoalProjectId] = useState('');
+  useLayoutEffect(() => {
+    if (!focusGoalInputAfterUpdate.current) return;
+    const input = goalInputRef.current;
+    if (!input) return;
+    input.focus();
+    input.setSelectionRange(input.value.length, input.value.length);
+    focusGoalInputAfterUpdate.current = false;
+  }, [goalDraft]);
   const projectsQuery = useListProjects(undefined, {
     query: { queryKey: getListProjectsQueryKey() },
   });
@@ -503,6 +513,7 @@ export default function Dashboard() {
                   variant="outline"
                   data-testid={`button-home-goal-example-${example.id}`}
                   onClick={() => {
+                    focusGoalInputAfterUpdate.current = true;
                     setGoalDraft(example.text);
                     setSelectedGoalProjectId('');
                     setShowGoalDestinationPrompt(false);
@@ -523,6 +534,7 @@ export default function Dashboard() {
         <Textarea
           id="home-goal-draft"
           data-testid="input-home-goal"
+          ref={goalInputRef}
           dir="auto"
           maxLength={HOME_GOAL_MAX_LENGTH}
           value={goalDraft}
