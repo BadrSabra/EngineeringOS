@@ -188,4 +188,79 @@ describe("DeepSeek response limits", () => {
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
+
+  it("aborts a stalled completion when its execution ledger is cancelled", async () => {
+    const parentController = new AbortController();
+    const ledger = createExecutionLedger({ signal: parentController.signal });
+    let requestSignal: AbortSignal | null | undefined;
+    let markStarted!: () => void;
+    const requestStarted = new Promise<void>((resolve) => { markStarted = resolve; });
+    const fetchMock = vi.fn((_input: string | URL, init?: RequestInit) =>
+      new Promise<Response>((_resolve, reject) => {
+        requestSignal = init?.signal;
+        markStarted();
+        requestSignal?.addEventListener(
+          "abort",
+          () => reject(new DOMException("The request was aborted", "AbortError")),
+          { once: true },
+        );
+      }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    const pending = deepseekCompleteRaw(
+      [{ role: "user", content: "hi" }],
+      { apiKey: "fixture-key", timeoutMs: 5_000, executionLedger: ledger },
+    );
+    const rejection = expect(pending).rejects.toMatchObject({ code: "TIMEOUT" });
+
+    await requestStarted;
+    parentController.abort();
+    await rejection;
+
+    expect(requestSignal?.aborted).toBe(true);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("composes caller cancellation with execution-ledger cancellation for streams", async () => {
+    const parentController = new AbortController();
+    const callerController = new AbortController();
+    const ledger = createExecutionLedger({ signal: parentController.signal });
+    let requestSignal: AbortSignal | null | undefined;
+    let markStarted!: () => void;
+    const requestStarted = new Promise<void>((resolve) => { markStarted = resolve; });
+    const fetchMock = vi.fn((_input: string | URL, init?: RequestInit) =>
+      new Promise<Response>((_resolve, reject) => {
+        requestSignal = init?.signal;
+        markStarted();
+        requestSignal?.addEventListener(
+          "abort",
+          () => reject(new DOMException("The stream was aborted", "AbortError")),
+          { once: true },
+        );
+      }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    const pending = (async () => {
+      for await (const chunk of deepseekCompleteStream(
+        [{ role: "user", content: "hi" }],
+        {
+          apiKey: "fixture-key",
+          timeoutMs: 5_000,
+          signal: callerController.signal,
+          executionLedger: ledger,
+        },
+      )) {
+        expect(chunk).toBeDefined();
+      }
+    })();
+    const rejection = expect(pending).rejects.toMatchObject({ code: "TIMEOUT" });
+
+    await requestStarted;
+    parentController.abort();
+    await rejection;
+
+    expect(callerController.signal.aborted).toBe(false);
+    expect(requestSignal?.aborted).toBe(true);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
 });
