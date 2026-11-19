@@ -281,6 +281,8 @@ export const graphRelationshipsTable = pgTable(
     index("idx_graph_rels_source_id").on(t.sourceId),
     index("idx_graph_rels_target_id").on(t.targetId),
     index("idx_graph_rels_project_id").on(t.projectId),
+    // Runtime-observation reads always scope by project before filtering observed edges.
+    index("idx_graph_rels_project_runtime_observed").on(t.projectId, t.isRuntimeObserved),
     index("idx_graph_rels_relation_type").on(t.relationType),
     index("idx_graph_rels_confidence").on(t.confidence),
     index("idx_graph_rels_is_heuristic").on(t.isHeuristic),
