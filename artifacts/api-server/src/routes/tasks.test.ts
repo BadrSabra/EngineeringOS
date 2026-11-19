@@ -205,6 +205,67 @@ describe("Task lifecycle", () => {
     expect(executions).toHaveLength(0);
   });
 
+  it("blocks a task when a legacy-completed prerequisite has an incomplete ancestor", async () => {
+    const deepest = await createTask();
+    const middle = await request(app).post("/api/tasks").send({
+      projectId: deepest.projectId,
+      title: "legacy-completed-middle",
+      priority: "p2",
+      dependsOn: [deepest.taskId],
+    });
+    expect(middle.status).toBe(201);
+    const leaf = await request(app).post("/api/tasks").send({
+      projectId: deepest.projectId,
+      title: "transitive-dependent",
+      priority: "p2",
+      dependsOn: [middle.body.id],
+    });
+    expect(leaf.status).toBe(201);
+
+    // Simulate a row completed before dependency admission was enforced.
+    await db.update(tasksTable)
+      .set({ status: "completed", completedAt: new Date() })
+      .where(eq(tasksTable.id, middle.body.id));
+
+    const response = await request(app).post(`/api/tasks/${leaf.body.id}/execute`);
+    expect(response.status).toBe(409);
+    expect(response.body.error).toBe("task_dependencies_not_completed");
+    expect(response.body.blockedDependencies).toContainEqual(
+      expect.objectContaining({
+        taskId: deepest.taskId,
+        reason: "dependency_not_completed",
+        status: "pending",
+      }),
+    );
+  });
+
+  it("fails closed on a legacy cyclic task dependency graph", async () => {
+    const first = await createTask();
+    const second = await request(app).post("/api/tasks").send({
+      projectId: first.projectId,
+      title: "cycle-second",
+      priority: "p2",
+      dependsOn: [first.taskId],
+    });
+    expect(second.status).toBe(201);
+
+    // Cycles cannot be created through the current POST contract (which only
+    // references pre-existing IDs); simulate legacy/out-of-band corrupt data.
+    await db.update(tasksTable)
+      .set({ status: "completed", completedAt: new Date(), dependsOn: [second.body.id] })
+      .where(eq(tasksTable.id, first.taskId));
+    await db.update(tasksTable)
+      .set({ status: "completed", completedAt: new Date() })
+      .where(eq(tasksTable.id, second.body.id));
+
+    const response = await request(app).post(`/api/tasks/${first.taskId}/execute`);
+    expect(response.status).toBe(409);
+    expect(response.body.error).toBe("task_dependencies_not_completed");
+    expect(response.body.blockedDependencies).toContainEqual(
+      expect.objectContaining({ reason: "dependency_cycle" }),
+    );
+  });
+
   it("prevents deletion of a prerequisite that is still referenced by another task", async () => {
     const prerequisite = await createTask();
     const dependent = await request(app).post("/api/tasks").send({
