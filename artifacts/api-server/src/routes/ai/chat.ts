@@ -1190,12 +1190,14 @@ async function streamDeterministicChatReply(params: {
   projectId: string;
   message: string;
   existingSession?: typeof aiChatSessionsTable.$inferSelect;
+  timestamps?: { startedAt: Date; assistantAt: Date };
   content: string;
   operation: "workflow_status" | "execution_failure_diagnostic";
   operationMetadata: Record<string, unknown>;
 }): Promise<void> {
-  const startedAt = Date.now();
-  const now = new Date();
+  const startedWallClockMs = Date.now();
+  const timestamps = params.timestamps ?? allocateUnboundChatTurnTimestamps();
+  const now = timestamps.startedAt;
   const sessionId = params.existingSession?.id ?? randomUUID();
   const title = params.existingSession?.title
     ?? (params.message.trim().length > 10
@@ -1203,7 +1205,7 @@ async function streamDeterministicChatReply(params: {
       : `Session ${now.toISOString().slice(0, 16).replace("T", " ")}`);
   const userMessageId = randomUUID();
   const assistantMessageId = randomUUID();
-  const assistantCreatedAt = new Date(now.getTime() + 1);
+  const assistantCreatedAt = timestamps.assistantAt;
   const sources: string[] = [];
   const toolTrace = JSON.stringify([{
     kind: "deterministic_operational_reply",
@@ -1293,7 +1295,7 @@ async function streamDeterministicChatReply(params: {
     toolTrace,
     pendingChanges: [],
     operationMode: "CHAT",
-    telemetry: { latencyMs: Date.now() - startedAt },
+    telemetry: { latencyMs: Date.now() - startedWallClockMs },
   }));
   params.res.end();
 }
@@ -8585,6 +8587,7 @@ export async function handleChatStream(req: Request, res: Response) {
         projectId,
         message,
         existingSession: existingOperationalSession,
+        timestamps: turnTimestamps ?? allocateUnboundChatTurnTimestamps(),
         content: buildWorkflowStatusResponse(message, workflows, latestExecutions),
         operation: "workflow_status",
         operationMetadata: { workflowCount: workflows.length },
@@ -8615,6 +8618,7 @@ export async function handleChatStream(req: Request, res: Response) {
       projectId,
       message,
       existingSession: existingOperationalSession,
+      timestamps: turnTimestamps ?? allocateUnboundChatTurnTimestamps(),
       content: buildPreviousFailureResponse(message, failure),
       operation: "execution_failure_diagnostic",
       operationMetadata: {
