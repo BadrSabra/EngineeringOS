@@ -40,10 +40,15 @@ async function waitForRelease(): Promise<void> {
   await new Promise<void>((resolve) => {
     let input = "";
     process.stdin.setEncoding("utf8");
-    process.stdin.on("data", (chunk: string) => {
+    const onData = (chunk: string) => {
       input += chunk;
-      if (input.includes("finish")) resolve();
-    });
+      if (input.includes("finish")) {
+        process.stdin.off("data", onData);
+        process.stdin.pause();
+        resolve();
+      }
+    };
+    process.stdin.on("data", onData);
   });
 }
 
