@@ -1437,6 +1437,7 @@ describe("requeueStalePendingJobs", () => {
     vi.useFakeTimers({ toFake: ["Date"] });
     vi.setSystemTime(new Date(Date.now() - 24 * 60 * 60_000));
 
+    vi.mocked(heavyJobQueue.enqueueWithId).mockReturnValue(true);
     const requeued = await requeueStalePendingJobs();
     expect(requeued).toBeGreaterThanOrEqual(1);
     expect(vi.mocked(heavyJobQueue.enqueueWithId)).toHaveBeenCalledWith(
