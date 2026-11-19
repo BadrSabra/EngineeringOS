@@ -283,7 +283,7 @@ router.post("/tasks", async (req, res) => {
   const now = new Date();
   const correlationId = randomUUID();
   const taskId = randomUUID();
-  let task: typeof tasksTable.$inferSelect[];
+  let task: Array<typeof tasksTable.$inferSelect>;
   try {
     task = await db.transaction(async (tx) => {
       // Serialize dependency creation with prerequisite deletion for this project.
@@ -414,7 +414,7 @@ router.patch("/tasks/:taskId", async (req, res) => {
         .limit(1);
       if (!lockedTask) return [];
 
-      if (body.status === "verifying" && lockedTask.prompt) {
+      if (body.status === "verifying") {
         const blockers = await getTaskDependencyBlockers(tx, lockedTask);
         if (blockers.length > 0) throw new TaskDependencyBlockedError(blockers);
       }
