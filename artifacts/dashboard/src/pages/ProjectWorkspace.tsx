@@ -141,15 +141,22 @@ function WorkspaceTaskCard({
       refetchInterval: task.status === 'running' ? 5_000 : false,
     },
   });
-  const latestExecutionLog = (taskLogsQuery.data ?? [])
-    .filter((log) =>
-      log.correlationId === currentCorrelationId
-      && typeof log.executionId === 'string'
-      && log.executionId.trim().length > 0)
-    .sort((left, right) =>
-      (left.sequence ?? -1) - (right.sequence ?? -1)
-      || Date.parse(String(left.timestamp)) - Date.parse(String(right.timestamp)))
-    .at(-1);
+  // The log endpoint is queried for this task, but keep the response's own
+  // identity as an independent boundary before using it to discover executions.
+  const taskLogsBelongToTask = (taskLogsQuery.data ?? []).every(
+    (log) => log.taskId === task.id,
+  );
+  const latestExecutionLog = taskLogsBelongToTask
+    ? (taskLogsQuery.data ?? [])
+      .filter((log) =>
+        log.correlationId === currentCorrelationId
+        && typeof log.executionId === 'string'
+        && log.executionId.trim().length > 0)
+      .sort((left, right) =>
+        (left.sequence ?? -1) - (right.sequence ?? -1)
+        || Date.parse(String(left.timestamp)) - Date.parse(String(right.timestamp)))
+      .at(-1)
+    : undefined;
   const executionId = latestExecutionLog?.executionId ?? '';
   const executionQuery = useGetAiExecution(executionId, {
     query: {
@@ -163,6 +170,7 @@ function WorkspaceTaskCard({
   const executionMatchesTask = Boolean(
     !taskLogsQuery.isFetching
     && !taskLogsQuery.isError
+    && taskLogsBelongToTask
     && !executionQuery.isFetching
     && !executionQuery.isError
     && execution
@@ -202,6 +210,8 @@ function WorkspaceTaskCard({
     attemptContext = 'تغير سجل المهمة منذ آخر لقطة؛ حدّث مساحة المشروع قبل الاعتماد على المحاولة.';
   } else if (acceptanceAttempt !== null) {
     attemptContext = 'محاولة قبول مسجلة في سجل المهمة.';
+  } else if (!taskLogsBelongToTask) {
+    attemptContext = 'سجل التنفيذ لا يطابق المهمة الحالية؛ لم نعرض المحاولة.';
   } else if (taskLogsQuery.isFetching || executionQuery.isFetching) {
     attemptContext = 'جارٍ تحديث سجل التنفيذ؛ أخفينا المحاولة مؤقتاً.';
   } else if (attempt !== null) {
