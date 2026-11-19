@@ -2,6 +2,7 @@ import { useUser } from '@clerk/react';
 import {
   getGetDashboardWorkSummaryQueryKey,
   useGetDashboardWorkSummary,
+  type DashboardWorkSummary,
   type DashboardWorkSummaryItem,
 } from '@workspace/api-client-react';
 import { ArrowLeft, CircleDot, Hand, History, Info, RotateCw } from 'lucide-react';
@@ -107,7 +108,15 @@ const SECTIONS: { key: SectionKey; title: string; meaning: string; empty: string
   },
 ];
 
-function WorkItem({ item, actionLabel }: { item: DashboardWorkSummaryItem; actionLabel: string }) {
+function WorkItem({
+  item,
+  actionLabel,
+  featured = false,
+}: {
+  item: DashboardWorkSummaryItem;
+  actionLabel: string;
+  featured?: boolean;
+}) {
   const plan = PLAN_LABELS[item.planBinding];
   return (
     <li>
@@ -115,7 +124,7 @@ function WorkItem({ item, actionLabel }: { item: DashboardWorkSummaryItem; actio
         href={toRouterHref(item.href)}
         data-testid={`link-work-item-${item.kind}-${item.id}`}
         aria-label={`${actionLabel}: ${item.title}`}
-        className="group flex items-start gap-3 rounded-lg px-3 py-2.5 transition-colors hover:bg-background/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+        className={`group flex items-start gap-3 rounded-lg transition-colors hover:bg-background/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary ${featured ? 'border border-primary/25 bg-background/35 p-4' : 'px-3 py-2.5'}`}
       >
         <div className="min-w-0 flex-1">
           <p className="truncate text-sm font-medium" data-testid={`text-work-title-${item.id}`}>{item.title}</p>
@@ -134,6 +143,49 @@ function WorkItem({ item, actionLabel }: { item: DashboardWorkSummaryItem; actio
         </span>
       </Link>
     </li>
+  );
+}
+
+type FeaturedSection = 'decisions' | 'active';
+
+function chooseFeaturedWork(data: DashboardWorkSummary): {
+  item: DashboardWorkSummaryItem;
+  section: FeaturedSection;
+} | null {
+  if (data.decisions[0]) return { item: data.decisions[0], section: 'decisions' };
+  if (data.active[0]) return { item: data.active[0], section: 'active' };
+  return null;
+}
+
+function FeaturedWork({ item, section }: NonNullable<ReturnType<typeof chooseFeaturedWork>>) {
+  const isDecision = section === 'decisions';
+  return (
+    <section
+      aria-labelledby="featured-work-heading"
+      data-testid="section-featured-work"
+      className="rounded-xl border border-primary/30 bg-primary/[.045] p-3"
+    >
+      <div className="flex items-center gap-2 px-1">
+        {isDecision
+          ? <Hand aria-hidden="true" className="h-4 w-4 text-primary" />
+          : <CircleDot aria-hidden="true" className="h-4 w-4 text-primary" />}
+        <h3 id="featured-work-heading" className="text-sm font-semibold">ابدأ من هنا</h3>
+        <span className="rounded bg-secondary px-1.5 py-0.5 text-[11px] text-muted-foreground">
+          {isDecision ? 'يحتاج مراجعتك' : 'يعمل الآن'}
+        </span>
+      </div>
+      <p className="mt-1 px-1 text-xs leading-5 text-muted-foreground">
+        {isDecision
+          ? 'أبرزنا أحدث عنصر في قسم ما يحتاج مراجعتك.'
+          : 'لا يوجد عنصر يحتاج مراجعتك؛ أبرزنا أحدث عمل جارٍ.'}
+      </p>
+      <ul className="mt-2">
+        <WorkItem item={item} actionLabel={isDecision ? 'اعرف ما يلزم' : 'تابع التقدم'} featured />
+      </ul>
+      <p className="mt-2 px-1 text-[11px] leading-5 text-muted-foreground">
+        هذا ترتيب للعناصر المسجّلة الظاهرة فقط، وليس تحققًا من الإنجاز أو قرارًا نيابةً عنك.
+      </p>
+    </section>
   );
 }
 
@@ -195,6 +247,7 @@ export default function DashboardWorkSummary() {
     );
   } else if (data) {
     const allEmpty = !data.decisions.length && !data.active.length && !data.recent.length;
+    const featured = chooseFeaturedWork(data);
     const c = data.coverage;
     body = (
       <div className="space-y-3">
@@ -221,33 +274,43 @@ export default function DashboardWorkSummary() {
             )}
           </div>
         ) : (
-          <div className="grid gap-3 lg:grid-cols-3">
-            {SECTIONS.map((s) => {
-              const items = data[s.key];
-              const Icon = s.icon;
-              return (
-                <section
-                  key={s.key}
-                  aria-labelledby={`work-section-${s.key}`}
-                  data-testid={`section-work-${s.key}`}
-                  className={`rounded-xl border p-3 ${s.tone}`}
-                >
-                  <div className="flex items-center gap-2 px-1">
-                    <Icon aria-hidden="true" className="h-4 w-4 text-primary" />
-                    <h3 id={`work-section-${s.key}`} className="text-sm font-semibold">{s.title}</h3>
-                  </div>
-                  <p className="mt-1 px-1 text-xs leading-5 text-muted-foreground">{s.meaning}</p>
-                  {items.length ? (
-                    <ul className="mt-2 -mx-1 divide-y divide-border/60">
-                      {items.map((item) => <WorkItem key={`${item.kind}-${item.id}`} item={item} actionLabel={s.actionLabel} />)}
-                    </ul>
-                  ) : (
-                    <p className="mt-3 px-1 pb-1 text-xs text-muted-foreground" data-testid={`empty-work-${s.key}`}>{s.empty}</p>
-                  )}
-                </section>
-              );
-            })}
-          </div>
+          <>
+            {featured && <FeaturedWork item={featured.item} section={featured.section} />}
+            <div className="grid gap-3 lg:grid-cols-3">
+              {SECTIONS.map((s) => {
+                const items = data[s.key].filter((item) => (
+                  !featured
+                  || s.key !== featured.section
+                  || item.id !== featured.item.id
+                  || item.kind !== featured.item.kind
+                ));
+                const Icon = s.icon;
+                return (
+                  <section
+                    key={s.key}
+                    aria-labelledby={`work-section-${s.key}`}
+                    data-testid={`section-work-${s.key}`}
+                    className={`rounded-xl border p-3 ${s.tone}`}
+                  >
+                    <div className="flex items-center gap-2 px-1">
+                      <Icon aria-hidden="true" className="h-4 w-4 text-primary" />
+                      <h3 id={`work-section-${s.key}`} className="text-sm font-semibold">{s.title}</h3>
+                    </div>
+                    <p className="mt-1 px-1 text-xs leading-5 text-muted-foreground">{s.meaning}</p>
+                    {items.length ? (
+                      <ul className="mt-2 -mx-1 divide-y divide-border/60">
+                        {items.map((item) => <WorkItem key={`${item.kind}-${item.id}`} item={item} actionLabel={s.actionLabel} />)}
+                      </ul>
+                    ) : (
+                      <p className="mt-3 px-1 pb-1 text-xs text-muted-foreground" data-testid={`empty-work-${s.key}`}>
+                        {featured?.section === s.key ? 'أبرزنا العنصر الأول أعلاه.' : s.empty}
+                      </p>
+                    )}
+                  </section>
+                );
+              })}
+            </div>
+          </>
         )}
         <div data-testid="text-work-coverage" className="flex items-start gap-2 rounded-lg bg-secondary/40 px-3 py-2 text-xs leading-5 text-muted-foreground">
           <Info aria-hidden="true" className="mt-0.5 h-3.5 w-3.5 shrink-0" />

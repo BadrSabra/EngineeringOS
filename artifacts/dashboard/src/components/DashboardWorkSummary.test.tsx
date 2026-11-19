@@ -73,13 +73,67 @@ describe("DashboardWorkSummary", () => {
   it("separates sections and labels completion as recorded, not proof", () => {
     mockQuery({ data: summary });
     render(<DashboardWorkSummary />);
-    expect(within(screen.getByTestId("section-work-decisions")).getByText("وافق على الخطة")).toBeInTheDocument();
+    expect(within(screen.getByTestId("section-featured-work")).getByText("وافق على الخطة")).toBeInTheDocument();
+    expect(within(screen.getByTestId("section-work-decisions")).queryByText("وافق على الخطة")).toBeNull();
     expect(within(screen.getByTestId("section-work-active")).getByText("إصلاح البحث")).toBeInTheDocument();
     const recent = screen.getByTestId("section-work-recent");
     expect(within(recent).queryByText("إصلاح البحث")).toBeNull();
     expect(screen.getByTestId("status-work-item-r1")).toHaveTextContent("مسجّلة كمنتهية");
     expect(document.body.textContent).not.toMatch(/تم التحقق|سُلّمت بنجاح|verified/i);
     expect(screen.queryByRole("button", { name: /موافق|تشغيل|أعد المحاولة/ })).toBeNull();
+  });
+
+  it("puts the newest review item first and removes only that duplicate from its section", () => {
+    mockQuery({
+      data: {
+        ...summary,
+        decisions: [
+          item({ id: "d1", title: "راجع نتيجة البحث", status: "waiting", href: "/missions/d1", kind: "mission", updatedAt: "2026-08-30T12:04:00.000Z" }),
+          item({ id: "d2", title: "راجع إعدادات المشروع", status: "blocked", href: "/tasks/d2" }),
+        ],
+        active: [item({ id: "a1", title: "إصلاح البحث", updatedAt: "2026-08-30T12:10:00.000Z" })],
+      },
+    });
+    render(<DashboardWorkSummary />);
+
+    const featured = screen.getByTestId("section-featured-work");
+    expect(within(featured).getByText("راجع نتيجة البحث")).toBeInTheDocument();
+    expect(within(featured).getByRole("link", { name: "اعرف ما يلزم: راجع نتيجة البحث" })).toHaveAttribute(
+      "href",
+      "/missions/d1",
+    );
+    expect(within(screen.getByTestId("section-work-decisions")).queryByText("راجع نتيجة البحث")).toBeNull();
+    expect(within(screen.getByTestId("section-work-decisions")).getByText("راجع إعدادات المشروع")).toBeInTheDocument();
+    expect(within(screen.getByTestId("section-work-active")).getByText("إصلاح البحث")).toBeInTheDocument();
+    expect(featured).toHaveTextContent("ليس تحققًا من الإنجاز");
+  });
+
+  it("falls back to current work when nothing needs review", () => {
+    mockQuery({
+      data: {
+        ...summary,
+        decisions: [],
+        active: [item({ id: "a1", title: "إصلاح البحث", href: "/tasks/a1" })],
+      },
+    });
+    render(<DashboardWorkSummary />);
+
+    const featured = screen.getByTestId("section-featured-work");
+    expect(featured).toHaveTextContent("لا يوجد عنصر يحتاج مراجعتك");
+    expect(within(featured).getByRole("link", { name: "تابع التقدم: إصلاح البحث" })).toHaveAttribute(
+      "href",
+      "/tasks/a1",
+    );
+    expect(within(screen.getByTestId("section-work-active")).queryByText("إصلاح البحث")).toBeNull();
+  });
+
+  it("does not turn recent history into a suggested next step", () => {
+    mockQuery({ data: { ...summary, decisions: [], active: [] } });
+    render(<DashboardWorkSummary />);
+
+    expect(screen.queryByTestId("section-featured-work")).toBeNull();
+    expect(within(screen.getByTestId("section-work-recent")).getByText("تحسين الدخول")).toBeInTheDocument();
+    expect(screen.getByTestId("status-work-item-r1")).toHaveTextContent("مسجّلة كمنتهية");
   });
 
   it("links to item href and shows partial coverage without totals", () => {
