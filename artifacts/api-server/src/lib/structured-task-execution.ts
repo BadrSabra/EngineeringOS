@@ -108,6 +108,8 @@ async function findStructuredExecutionCooldown(params: {
     .orderBy(desc(aiExecutionAcceptancesTable.createdAt))
     .limit(16);
 
+  if (rows.length === 0) return undefined;
+
   const [{ databaseNow: databaseClockNow }] = await db.select({
     databaseNow: sql<Date>`clock_timestamp()`,
   });
