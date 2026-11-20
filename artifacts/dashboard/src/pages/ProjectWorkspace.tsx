@@ -601,14 +601,24 @@ export default function ProjectWorkspace() {
             <p dir="auto" className="mt-2 max-w-3xl text-sm leading-6 text-slate-400">
               {project.description || 'تحدث مع المساعد عن العمل المطلوب، وتابع الحالة المسجلة هنا.'}
             </p>
-            <Link
-              href={`/projects/${encodeURIComponent(project.id)}`}
-              aria-label={`فتح تفاصيل المشروع: ${project.name}`}
-              data-testid="link-project-details-from-workspace"
-              className="mt-3 inline-flex items-center rounded-md border border-slate-700 px-2.5 py-1.5 text-xs font-medium text-cyan-200 transition hover:border-cyan-300/40 hover:bg-cyan-300/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-200"
-            >
-              تفاصيل المشروع
-            </Link>
+            <div className="mt-3 flex flex-wrap gap-2">
+              <Link
+                href={`/projects/${encodeURIComponent(project.id)}`}
+                aria-label={`فتح تفاصيل المشروع: ${project.name}`}
+                data-testid="link-project-details-from-workspace"
+                className="inline-flex items-center rounded-md border border-slate-700 px-2.5 py-1.5 text-xs font-medium text-cyan-200 transition hover:border-cyan-300/40 hover:bg-cyan-300/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-200"
+              >
+                تفاصيل المشروع
+              </Link>
+              <Link
+                href={`/metrics?projectId=${encodeURIComponent(project.id)}`}
+                aria-label={`عرض مؤشرات المشروع: ${project.name}`}
+                data-testid="link-project-metrics-from-workspace"
+                className="inline-flex items-center rounded-md border border-slate-700 px-2.5 py-1.5 text-xs font-medium text-cyan-200 transition hover:border-cyan-300/40 hover:bg-cyan-300/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-200"
+              >
+                مؤشرات المشروع
+              </Link>
+            </div>
           </div>
           <div className="flex flex-wrap gap-2 text-xs">
             <span className="workspace-meta"><Code2 className="h-3.5 w-3.5" /><Identifier>{project.language}</Identifier></span>
