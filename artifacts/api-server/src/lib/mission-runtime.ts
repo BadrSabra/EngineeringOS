@@ -2900,6 +2900,7 @@ export async function runMissionGoal(params: {
     projectId: string;
     planRevision: string;
     dispatchGoalIds: string[];
+    dispatchLeaseToken: string;
   };
 }): Promise<MissionGoalRunResult> {
   let taskDispatchGeneration: { retryCount: number; correlationId: string | null } | undefined;
@@ -3006,7 +3007,36 @@ export async function runMissionGoal(params: {
           eq(aiMissionHandoffsTable.dispatchStatus, "pending"),
         ))
         .for("update");
-      const planGoals = handoff?.activationPlan?.goals;
+      if (!handoff) {
+        return {
+          status: "conflict" as const,
+          goalId: goal.id,
+          reason: "handoff_identity_changed",
+        };
+      }
+      const dispatchLease = handoff.dispatchLease;
+      const leaseExpiry = typeof dispatchLease?.expiresAt === "string"
+        ? Date.parse(dispatchLease.expiresAt)
+        : Number.NaN;
+      const clockResult = await tx.execute(sql`SELECT clock_timestamp() AS now`);
+      const rawClock = (clockResult.rows as Array<{ now: Date | string }>)[0]?.now;
+      const databaseNow = rawClock instanceof Date
+        ? rawClock
+        : new Date(String(rawClock ?? ""));
+      if (
+        dispatchLease?.token !== params.expectedHandoffBinding.dispatchLeaseToken
+        || !rawClock
+        || !Number.isFinite(databaseNow.getTime())
+        || !Number.isFinite(leaseExpiry)
+        || leaseExpiry <= databaseNow.getTime()
+      ) {
+        return {
+          status: "conflict" as const,
+          goalId: goal.id,
+          reason: "handoff_dispatch_lease_lost",
+        };
+      }
+      const planGoals = handoff.activationPlan?.goals;
       const validPlanGoals = Array.isArray(planGoals)
         && planGoals.every((planGoal) => (
           Boolean(planGoal)

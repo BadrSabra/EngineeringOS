@@ -63,6 +63,8 @@ export const aiMissionHandoffsTable = pgTable("ai_mission_handoffs", {
   dispatchStatus: aiMissionHandoffDispatchStatusEnum("dispatch_status")
     .notNull()
     .default("pending"),
+  dispatchLease: jsonb("dispatch_lease")
+    .$type<{ token: string; expiresAt: string } | null>(),
   dispatchedAt: timestamp("dispatched_at"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
