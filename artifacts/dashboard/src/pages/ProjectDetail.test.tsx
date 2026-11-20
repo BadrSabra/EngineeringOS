@@ -1,9 +1,12 @@
 import { act, fireEvent, render, screen } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import ProjectDetail from './ProjectDetail';
+import { readGoalDrafts } from '@/lib/home-goal-handoff';
 
 const mocks = vi.hoisted(() => ({
   routeProjectId: 'project-1',
+  user: { id: 'user-1' } as { id: string } | null,
+  setLocation: vi.fn(),
   project: {
     id: 'project-1',
     name: 'مشروع تجريبي',
@@ -50,6 +53,10 @@ const mocks = vi.hoisted(() => ({
   projectUpdatedAt: Date.parse('2026-10-14T12:00:00.000Z'),
 }));
 
+vi.mock('@clerk/react', () => ({
+  useUser: () => ({ isLoaded: true, user: mocks.user }),
+}));
+
 vi.mock('@workspace/api-client-react', () => ({
   useGetProject: (projectId: string) => ({
     data: {
@@ -92,6 +99,7 @@ vi.mock('@tanstack/react-query', () => ({
 
 vi.mock('wouter', () => ({
   useRoute: () => [true, { id: mocks.routeProjectId }],
+  useLocation: () => ['/projects/project-1', mocks.setLocation],
   Link: 'a',
 }));
 
@@ -123,7 +131,9 @@ vi.mock('@/components/GitPanel', () => ({ default: () => null }));
 describe('ProjectDetail Arabic presentation', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    window.sessionStorage.clear();
     mocks.routeProjectId = 'project-1';
+    mocks.user = { id: 'user-1' };
     mocks.summaryAvailable = true;
     mocks.summaryIsLoading = false;
     mocks.summaryIsError = false;
@@ -254,7 +264,7 @@ describe('ProjectDetail Arabic presentation', () => {
     expect(screen.getByTestId('summary-task-total')).toHaveTextContent('2');
   });
 
-  it('opens the event log filtered to the project and operation when an event is correlated', () => {
+  it('opens the event log or project assistant directly from a correlated failure', () => {
     mocks.summary.recentEvents = [{
       id: 'event-linked',
       projectId: 'project-1',
@@ -273,6 +283,42 @@ describe('ProjectDetail Arabic presentation', () => {
     );
     expect(screen.getByRole('link', { name: 'عرض سجل الأحداث للعملية: تعذّر تنفيذ المهمة' }))
       .toBeInTheDocument();
+    fireEvent.click(screen.getByTestId('button-event-goal-handoff-event-linked'));
+
+    const draft = readGoalDrafts('user-1').drafts[0];
+    expect(draft).toMatchObject({ source: 'home', projectId: 'project-1' });
+    expect(draft.text).toContain('تعذّر تنفيذ المهمة');
+    expect(mocks.setLocation).toHaveBeenCalledWith(
+      `/projects/project-1/workspace?goalDraftId=${draft.id}#workspace-panel-agent`,
+    );
+  });
+
+  it('offers direct assistant help for warnings but not routine events', () => {
+    mocks.summary.recentEvents = [
+      {
+        id: 'event-warning',
+        projectId: 'project-1',
+        type: 'RuntimeWarning',
+        message: 'يحتاج التشغيل إلى مراجعة',
+        timestamp: '2026-10-14T12:30:00.000Z',
+        severity: 'warning',
+        correlationId: 'operation-warning',
+      },
+      {
+        id: 'event-info',
+        projectId: 'project-1',
+        type: 'ProjectUpdated',
+        message: 'تم تحديث المشروع',
+        timestamp: '2026-10-14T12:31:00.000Z',
+        severity: 'info',
+      },
+    ];
+
+    render(<ProjectDetail />);
+
+    expect(screen.getByTestId('button-event-goal-handoff-event-warning')).toBeInTheDocument();
+    expect(screen.queryByTestId('button-event-goal-handoff-event-info')).not.toBeInTheDocument();
+    expect(screen.getByTestId('link-summary-event-event-warning')).toBeInTheDocument();
   });
 
   it('keeps events without an operation id readable without creating a misleading link', () => {
