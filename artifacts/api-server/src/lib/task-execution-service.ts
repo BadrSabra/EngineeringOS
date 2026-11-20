@@ -67,6 +67,7 @@ import {
 } from "./ai-route-helpers.js";
 import type { ProviderId } from "./ai-route-helpers.js";
 import { logger } from "./logger.js";
+import { resolveTaskRecoveryDecision } from "./task-recovery-decision.js";
 import {
   getTaskDependencyBlockers,
   type TaskDependencyBlocker,
@@ -975,11 +976,26 @@ async function finalizeTaskExecutionAcceptance(params: {
   retryAfterSource?: "provider" | "local_adaptive" | "adaptive_default" | "local_admission";
   rateLimitScope?: "upstream_shared_pool" | "provider_credential" | "account_quota" | "unknown";
 }): Promise<{ accepted: boolean; duplicate: boolean }> {
+  const recoveryDecision = params.outcome === "SUCCEEDED"
+    ? undefined
+    : resolveTaskRecoveryDecision({
+        code: params.receipt.terminalReason,
+        reasonCode: params.reasonCode,
+        failureClass: params.receipt.failureClass,
+        retryable: params.retryable,
+        cancelled: params.outcome === "INTERRUPTED" || params.terminalStatus === "cancelled",
+      });
+  const receipt = recoveryDecision
+    ? { ...params.receipt, recoveryDecision }
+    : params.receipt;
+  const logMetadata = recoveryDecision
+    ? { ...(params.logMetadata ?? {}), recoveryDecision }
+    : params.logMetadata;
   const taskFinalization: TaskExecutionFinalization = {
     taskId: params.task.id,
     workerId: params.workerId,
     status: params.finalStatus,
-    agentResponse: JSON.stringify(params.receipt),
+    agentResponse: JSON.stringify(receipt),
     remediationPlan: markRemediationPlanVerified(
       params.task.remediationPlan,
       false,
@@ -993,7 +1009,7 @@ async function finalizeTaskExecutionAcceptance(params: {
     log: {
       level: params.logLevel,
       message: params.logMessage,
-      metadata: params.logMetadata,
+      metadata: logMetadata,
     },
     event: {
       type: params.outcome === "SUCCEEDED"
@@ -1018,6 +1034,7 @@ async function finalizeTaskExecutionAcceptance(params: {
         terminalReason: params.receipt.terminalReason,
         trigger: params.trigger,
         retryable: params.retryable,
+        ...(recoveryDecision ? { recoveryDecision } : {}),
       },
     },
     audit: {
@@ -1032,6 +1049,7 @@ async function finalizeTaskExecutionAcceptance(params: {
         revision: params.receipt.revision,
         terminalStatus: params.receipt.terminalStatus,
         terminalReason: params.receipt.terminalReason,
+        ...(recoveryDecision ? { recoveryDecision } : {}),
       },
     },
   };
