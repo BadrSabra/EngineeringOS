@@ -103,7 +103,9 @@ function payloadMatchesTask(
     && payload.taskCorrelationId === task.correlationId;
 }
 
-async function databaseClock(tx: Pick<typeof db, "execute">): Promise<Date | null> {
+type TaskExecutionTransaction = Parameters<Parameters<typeof db.transaction>[0]>[0];
+
+async function databaseClock(tx: TaskExecutionTransaction | typeof db): Promise<Date | null> {
   const result = await tx.execute(sql`SELECT clock_timestamp() AS now`);
   const value = (result.rows as Array<{ now: Date | string }>)[0]?.now;
   const date = value instanceof Date ? value : new Date(String(value ?? ""));
@@ -456,13 +458,21 @@ export async function runDeferredTaskVerification(taskId: string): Promise<boole
       correlationId,
       payload: { before: { status: task.status }, after: { status: "running" } },
     });
-    return { task: row, rootPath: project.rootPath, originalStatus: payload.originalStatus };
+    return {
+      task: row,
+      rootPath: project.rootPath,
+      originalStatus: payload.originalStatus,
+      userId: payload.userId,
+    };
   });
   if (!claimed) return false;
 
   const heartbeat = startDeferredTaskHeartbeat(taskId, workerId);
   try {
-    if (!await heartbeat.renewNow()) return false;
+    if (!await heartbeat.renewNow()) {
+      await heartbeat.stop();
+      return false;
+    }
     const verification = await runTaskVerification(claimed.task, claimed.rootPath);
     if (!await heartbeat.stop()) return false;
 
@@ -539,7 +549,7 @@ export async function runDeferredTaskVerification(taskId: string): Promise<boole
       if (finalStatus === "verifying" && row.prompt) {
         aiDispatch = await insertTaskAutoExecutionIntent(tx, {
           taskId,
-          userId: undefined as unknown as string,
+          userId: claimed.userId,
           retryCount: row.retryCount,
         });
       }
@@ -553,14 +563,13 @@ export async function runDeferredTaskVerification(taskId: string): Promise<boole
     if (!finalized.updated) return false;
 
     if (finalized.aiDispatch && claimed.task.prompt) {
-      const payload = await db.select({ payload: eventsTable.payload })
-        .from(eventsTable)
-        .where(eq(eventsTable.id, `task-auto-execution-deferred:${taskId}`))
-        .limit(1);
-      const userId = (payload[0]?.payload as Record<string, unknown> | undefined)?.userId;
-      if (typeof userId === "string") {
-        await scheduleAiTaskExecution(taskId, userId, undefined, claimed.task.retryCount, claimed.task.correlationId);
-      }
+      await scheduleAiTaskExecution(
+        taskId,
+        claimed.userId,
+        undefined,
+        claimed.task.retryCount,
+        claimed.task.correlationId,
+      );
     }
     return true;
   } catch (error) {
