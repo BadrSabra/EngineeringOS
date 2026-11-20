@@ -2481,10 +2481,9 @@ describe("runtime.start transition retry scheduling", () => {
       .from(aiWorldFactsTable).where(eq(aiWorldFactsTable.projectId, fixture.projectId));
     expect(factsAfterRetry).toEqual(factsBeforeRetry);
 
-    // Re-enter the production Mission wake path only after the recovered
-    // transition has materialized. The Apply Goal must complete from D2 proof,
-    // while its dependent report Goal advances through its own waiting action.
-    expect(await wakeApplyChangesMissionGoals(16, fixture.projectId)).toBe(1);
+    // The finalizer emits this scoped wake only after the materialization
+    // commit. A later reconciliation wake must therefore be an idempotent no-op.
+    expect(await wakeApplyChangesMissionGoals(16, fixture.projectId)).toBe(0);
     expect(await wakeApplyChangesMissionGoals(16, fixture.projectId)).toBe(0);
     const [completedApplyGoal] = await db.select({
       status: aiGoalsTable.status,
