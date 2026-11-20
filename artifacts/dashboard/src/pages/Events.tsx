@@ -82,6 +82,13 @@ export default function Events() {
   const events = eventsPage?.events ?? [];
   const total = eventsPage?.total ?? 0;
   const hasNextPage = page * PAGE_SIZE < total;
+  const clearEventFilters = () => {
+    setProjectId('');
+    setSeverity('');
+    setCorrelationId('');
+    setSearchTerm('');
+    setPage(1);
+  };
 
   return (
     <div dir="rtl" lang="ar" className="space-y-6 h-full flex flex-col">
@@ -217,13 +224,7 @@ export default function Events() {
           </div>
           {activeFilterCount > 0 && (
             <button
-              onClick={() => {
-                setProjectId('');
-                setSeverity('');
-                setCorrelationId('');
-                setSearchTerm('');
-                setPage(1);
-              }}
+              onClick={clearEventFilters}
               className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground"
             >
               <X className="w-3 h-3" /> مسح عوامل التصفية
@@ -268,8 +269,22 @@ export default function Events() {
                   </button>
                 </div>
               ) : (events?.length ?? 0) === 0 ? (
-                <div className="p-8 text-muted-foreground opacity-50">
-                  {activeFilterCount > 0 ? 'لا توجد أحداث تطابق عوامل التصفية الحالية.' : 'لا توجد أحداث مسجلة.'}
+                <div className="flex flex-col items-center gap-3 p-8 text-center text-muted-foreground">
+                  <p>
+                    {activeFilterCount > 0 ? 'لا توجد أحداث تطابق عوامل التصفية الحالية.' : 'لا توجد أحداث مسجلة.'}
+                  </p>
+                  {activeFilterCount > 0 && !showFilters && (
+                    <button
+                      type="button"
+                      onClick={clearEventFilters}
+                      aria-label="مسح كل عوامل تصفية سجل الأحداث"
+                      data-testid="button-clear-event-filters-empty"
+                      className="inline-flex items-center gap-1 rounded-md border border-border px-3 py-1.5 text-xs font-medium text-foreground transition-colors hover:bg-secondary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+                    >
+                      <X className="h-3 w-3" aria-hidden="true" />
+                      مسح عوامل التصفية
+                    </button>
+                  )}
                 </div>
               ) : (
                 <div className="space-y-0.5">
