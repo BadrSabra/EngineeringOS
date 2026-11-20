@@ -708,8 +708,16 @@ export default function ProjectWorkspace() {
                 <h2>العمل الأخير</h2>
                 <p>أحدث 8 مهام من المصدر؛ هذه ليست قائمة شاملة.</p>
               </div>
-              <div className="flex shrink-0 items-center gap-2">
+              <div className="flex shrink-0 flex-wrap items-center gap-2">
                 <span className="workspace-readonly">للاطلاع</span>
+                <Link
+                  href={`/tasks?projectId=${encodeURIComponent(project.id)}&followUp=1`}
+                  className="text-xs font-medium text-cyan-300 underline-offset-4 hover:underline"
+                  aria-label="عرض مهام المشروع التي تحتاج إجراء"
+                  data-testid="link-workspace-follow-up-tasks"
+                >
+                  تحتاج إجراء
+                </Link>
                 <Link
                   href={`/tasks?projectId=${encodeURIComponent(project.id)}`}
                   className="text-xs font-medium text-cyan-300 underline-offset-4 hover:underline"
