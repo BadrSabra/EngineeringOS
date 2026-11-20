@@ -490,10 +490,23 @@ export async function runDeferredTaskVerification(taskId: string): Promise<boole
       steps: steps.map((step) => ({ ...step, kind: step.kind ?? ("automatic" as const) })),
     };
     const finalized = await db.transaction(async (tx) => {
+      // Keep the same lock order as admission (Task first, prerequisites next)
+      // to avoid PATCH/verification deadlocks under concurrent updates.
+      const [currentTask] = await tx.select().from(tasksTable)
+        .where(and(
+          eq(tasksTable.id, taskId),
+          eq(tasksTable.status, "running"),
+          eq(tasksTable.workerId, workerId),
+          gt(tasksTable.leaseUntil, databaseNow()),
+        ))
+        .for("update")
+        .limit(1);
+      if (!currentTask) return { updated: false, aiDispatch: false };
+
       // A prerequisite may be reopened while local verification is running.
       // Re-check under the finalization transaction so the child cannot pass
       // its gate using a stale dependency snapshot.
-      const latestBlockers = await getTaskDependencyBlockers(tx, claimed.task);
+      const latestBlockers = await getTaskDependencyBlockers(tx, currentTask);
       if (latestBlockers.length > 0) {
         const [restored] = await tx.update(tasksTable).set({
           status: claimed.originalStatus,
