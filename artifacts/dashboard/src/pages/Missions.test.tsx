@@ -401,7 +401,7 @@ describe('Missions management', () => {
     });
     expect(await screen.findByTestId(`button-mission-${mission.id}`)).toBeInTheDocument();
     expect(screen.getByTestId(`text-mission-title-${mission.id}`)).toHaveTextContent(mission.title);
-    expect(screen.getByText(/بدأ الهدف الرئيسي\./)).toBeInTheDocument();
+    expect(screen.getByText('قد تكون الخطة قيد الإعداد. حدّث البيانات بعد قليل لمعرفة الحالة المسجلة.')).toBeInTheDocument();
     expect(fetchMissionsMock).toHaveBeenCalledTimes(1);
   });
 
@@ -1223,7 +1223,7 @@ describe('Missions project isolation', () => {
     expect(screen.getByTestId(`text-mission-title-${secondMission.id}`)).toHaveTextContent(
       secondMission.title,
     );
-    expect(screen.queryByRole('status')).not.toBeInTheDocument();
+    expect(screen.getByTestId('mission-agent-state-mission-2')).toHaveAttribute('data-state', 'PLANNING');
     expect(screen.queryByText('بدأ الهدف الرئيسي. تابع حالة إعداد الخطة وتنفيذها.')).not.toBeInTheDocument();
   });
 
