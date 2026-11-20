@@ -463,6 +463,34 @@ describe('DiscoverProjectWizard Arabic findings', () => {
     );
   });
 
+  it('prefills a reviewable draft from a suggested first goal without sending it', async () => {
+    render(<DiscoverProjectWizard onClose={vi.fn()} />);
+
+    fireEvent.change(screen.getByPlaceholderText('https://github.com/owner/repo'), {
+      target: { value: 'https://github.com/example/sample-app' },
+    });
+    fireEvent.click(screen.getByTestId('start-discovery'));
+    await screen.findByRole('heading', { name: 'نتائج استكشاف المشروع' });
+    fireEvent.click(screen.getByRole('button', { name: 'تأكيد وإضافة المشروع' }));
+    await screen.findByRole('heading', { name: 'تمت إضافة المشروع' });
+
+    const suggestion = screen.getByTestId('button-discovery-goal-starter-understand');
+    fireEvent.click(suggestion);
+
+    expect(suggestion).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.getByTestId('textarea-discovery-first-goal')).toHaveValue(
+      'اشرح لي بنية المشروع، وحدد خطوة تالية مناسبة، دون تعديل الملفات.',
+    );
+    expect(mocks.navigate).not.toHaveBeenCalled();
+    expect(readGoalDrafts('user-1').drafts).toHaveLength(0);
+
+    fireEvent.click(screen.getByTestId('button-open-imported-project-workspace'));
+
+    expect(readGoalDrafts('user-1').drafts[0]?.text)
+      .toBe('اشرح لي بنية المشروع، وحدد خطوة تالية مناسبة، دون تعديل الملفات.');
+    expect(mocks.navigate).toHaveBeenCalledOnce();
+  });
+
   it('keeps the success screen open when the first-goal draft cannot be saved', async () => {
     for (let index = 0; index < 8; index += 1) {
       expect(storeHomeGoalDraft(`هدف ${index}`, 'user-1')).not.toBeNull();

@@ -151,6 +151,23 @@ interface Props {
 
 const MAX_ARCHIVE_SIZE_BYTES = 50 * 1024 * 1024;
 const ARCHIVE_FILE_ACCEPT = '.zip,.tar.gz,.tgz';
+const DISCOVERY_GOAL_STARTERS = [
+  {
+    id: 'understand',
+    label: 'افهم المشروع',
+    text: 'اشرح لي بنية المشروع، وحدد خطوة تالية مناسبة، دون تعديل الملفات.',
+  },
+  {
+    id: 'run',
+    label: 'شغّل المشروع',
+    text: 'ساعدني على تشغيل المشروع، واعرض ما يلزم قبل تنفيذ أي تغيير.',
+  },
+  {
+    id: 'improve',
+    label: 'اقترح تحسينًا',
+    text: 'اقترح تحسينًا صغيرًا لتجربة المستخدم واشرح أثره قبل أي تعديل.',
+  },
+] as const;
 
 function getArchiveFileError(file: File | null): string | null {
   if (!file) return 'اختر ملفًا مضغوطًا للمتابعة.';
@@ -1607,6 +1624,26 @@ export function DiscoverProjectWizard({ onClose }: Props) {
             >
               عند فتح المساعد ستظهر كمسودة مرتبطة بهذا المشروع، لمراجعتها قبل الإرسال.
             </p>
+            <div>
+              <p className="mb-2 text-xs text-muted-foreground">أفكار جاهزة، يمكنك تعديلها قبل المتابعة:</p>
+              <div role="group" aria-label="أفكار جاهزة لهدف المشروع" className="flex flex-wrap gap-2">
+                {DISCOVERY_GOAL_STARTERS.map((starter) => (
+                  <button
+                    key={starter.id}
+                    type="button"
+                    data-testid={`button-discovery-goal-starter-${starter.id}`}
+                    aria-pressed={firstGoal.trim() === starter.text}
+                    onClick={() => {
+                      setFirstGoal(starter.text);
+                      setGoalHandoffError(null);
+                    }}
+                    className="rounded-full border border-border px-3 py-1.5 text-xs text-muted-foreground transition-colors hover:border-primary/50 hover:bg-primary/5 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+                  >
+                    {starter.label}
+                  </button>
+                ))}
+              </div>
+            </div>
             {goalHandoffError && (
               <p
                 data-testid="status-discovery-goal-handoff-error"
