@@ -44,9 +44,11 @@ import {
   recoverAcceptedApplyChangesTransition,
   finalizeApplyChangesTransition,
   finalizeRuntimeStartTransition,
+  dispatchPendingMaterializedMissionTransitionWakes,
   retryPendingRuntimeStartTransitions,
 } from "./runtime-start-transition.js";
 import { wakeApplyChangesMissionGoals, wakeRuntimeTransitionMissionGoals } from "../mission-runtime.js";
+import * as missionRuntimeModule from "../mission-runtime.js";
 import { startDurableJobDispatcher } from "../job-reconciliation.js";
 import { evaluateApplyChangesD2 } from "./apply-changes-mission-gate.js";
 import { heavyJobQueue } from "../job-queue.js";
@@ -3854,6 +3856,69 @@ describe("runtime.start transition retry scheduling", () => {
       afterObservationIds: [afterObservationId],
       status: "pending",
     });
+  });
+});
+
+describe("Materialized Mission World Transition wake outbox", () => {
+  it("recovers the post-commit wake after immediate delivery fails", async () => {
+    const fixture = await transitionFixture({ missionHandoff: true });
+    const mission = fixture.missionHandoff;
+    if (!mission) throw new Error("Mission handoff fixture was not created.");
+    await insertValidRuntimeStartObservations(fixture);
+    const enqueue = vi.spyOn(heavyJobQueue, "enqueueWithId").mockReturnValue(true);
+    const wake = vi.spyOn(missionRuntimeModule, "wakeRuntimeTransitionMissionGoals")
+      .mockRejectedValueOnce(new Error("synthetic_immediate_wake_loss"));
+
+    const finalized = await finalizeRuntimeStartTransition({
+      projectId: fixture.projectId,
+      executionId: fixture.executionId,
+      attempt: 0,
+      episodeId: fixture.episodeId,
+      actionId: fixture.transitionInput.actionId,
+      effectBundleId: fixture.effectBundleId,
+    });
+    expect(finalized.status).toBe("materialized");
+    expect(wake).toHaveBeenCalledOnce();
+
+    const [intent] = await db.select().from(eventsTable).where(and(
+      eq(eventsTable.projectId, fixture.projectId),
+      eq(eventsTable.goalId, mission.sourceGoalId),
+      eq(eventsTable.type, "AiMissionWorldTransitionWakeRequested"),
+    )).limit(1);
+    expect(intent?.payload).toMatchObject({
+      schemaVersion: 1,
+      transitionId: fixture.transitionId,
+      transitionKind: "runtime_start",
+      missionId: mission.missionId,
+      goalId: mission.sourceGoalId,
+      executionId: fixture.executionId,
+      episodeId: fixture.episodeId,
+    });
+    expect(intent?.payload?.processedAt).toBeUndefined();
+    expect(intent?.payload?.attemptCount).toBe(1);
+
+    // Simulate the backoff becoming due without waiting for a scheduler tick.
+    await db.update(eventsTable).set({
+      payload: {
+        ...(intent!.payload ?? {}),
+        nextAttemptAt: new Date(Date.now() - 1_000).toISOString(),
+      },
+    }).where(eq(eventsTable.id, intent!.id));
+    wake.mockRestore();
+
+    expect(await dispatchPendingMaterializedMissionTransitionWakes(32, fixture.projectId)).toBe(1);
+    const [delivered] = await db.select().from(eventsTable)
+      .where(eq(eventsTable.id, intent!.id)).limit(1);
+    expect(typeof delivered?.payload?.processedAt).toBe("string");
+
+    const dispatches = await db.select({ id: eventsTable.id })
+      .from(eventsTable).where(and(
+        eq(eventsTable.projectId, fixture.projectId),
+        eq(eventsTable.goalId, mission.targetGoalId),
+        eq(eventsTable.type, "AiGoalRecipeDispatchRequested"),
+      ));
+    expect(dispatches).toHaveLength(1);
+    expect(enqueue).toHaveBeenCalledOnce();
   });
 });
 
