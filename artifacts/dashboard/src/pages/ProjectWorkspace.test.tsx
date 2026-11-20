@@ -574,6 +574,52 @@ describe("ProjectWorkspace live snapshot refresh", () => {
       .toHaveAttribute("href", "/tasks?projectId=project-1&taskId=task-failed");
   });
 
+  it("routes pending candidate review to its summary rather than the Preview gate", () => {
+    mocks.snapshot = {
+      ...initialSnapshot,
+      work: {
+        ...initialSnapshot.work,
+        candidate: {
+          proposalId: "proposal-review-1",
+          status: "pending",
+          lifecycle: "proposed",
+          revision: 1,
+          approvalRequired: true,
+          operationId: "operation-review-1",
+          baseRevision: "base-review-1",
+          candidateTreeHash: "tree-review-1",
+          changeSetHash: "changes-review-1",
+          createdAt: "2026-11-11T12:00:00.000Z",
+        },
+      },
+    } as unknown as ProjectWorkspaceSnapshot;
+
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+    });
+
+    render(
+      <QueryClientProvider client={queryClient}>
+        <ProjectWorkspace />
+      </QueryClientProvider>,
+    );
+
+    expect(screen.getByTestId("workspace-next-step")).toHaveTextContent(
+      "راجع ملخص النسخة المقترحة",
+    );
+    expect(screen.getByTestId("workspace-next-step-action")).toHaveAttribute(
+      "href",
+      "#workspace-candidate-summary",
+    );
+    expect(document.getElementById("workspace-candidate-summary")).toHaveTextContent(
+      "الموافقة مطلوبة",
+    );
+    expect(screen.getByTestId("workspace-next-step-action")).not.toHaveAttribute(
+      "href",
+      "#workspace-panel-canvas",
+    );
+  });
+
 });
 
 

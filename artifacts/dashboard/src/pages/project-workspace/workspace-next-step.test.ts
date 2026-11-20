@@ -30,8 +30,9 @@ describe('resolveWorkspaceNextStep', () => {
       candidate: { status: 'pending', approvalRequired: true },
     })).toMatchObject({
       kind: 'link',
-      title: 'راجع العمل المقترح',
-      href: '#workspace-panel-canvas',
+      title: 'راجع ملخص النسخة المقترحة',
+      actionLabel: 'عرض تفاصيل النسخة',
+      href: '#workspace-candidate-summary',
     });
   });
 
