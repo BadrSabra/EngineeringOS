@@ -1,3 +1,4 @@
+# TEMPORARY CODEGEN DIAGNOSTIC TRIGGER - remove after inspection
 openapi: 3.1.0
 info:
   title: api
