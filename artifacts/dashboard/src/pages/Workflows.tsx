@@ -35,6 +35,7 @@ import {
   X,
   Trash2,
   Sparkles,
+  Copy,
 } from 'lucide-react';
 import { RefreshButton, RequestError } from '@/components/OperatorResilience';
 import { ProviderRecoveryCard } from '@/components/ProviderRecoveryCard';
@@ -61,6 +62,12 @@ function orchestrationActionLabel(action: string): string {
 }
 
 type PhaseInput = { name: string; steps: string[]; condition?: string };
+type WorkflowCopySource = {
+  projectId: string;
+  name: string;
+  description?: string | null;
+  phases?: PhaseInput[] | null;
+};
 
 type WorkflowStarter = {
   id: string;
@@ -109,25 +116,33 @@ const WORKFLOW_STARTERS: WorkflowStarter[] = [
 function CreateWorkflowModal({
   onClose,
   initialProjectId,
+  initialWorkflow,
   onCreated,
 }: {
   onClose: () => void;
   initialProjectId: string;
+  initialWorkflow?: WorkflowCopySource | null;
   onCreated: (projectId: string) => void;
 }) {
   const queryClient = useQueryClient();
   const { data: projects } = useListProjects();
   const createWorkflow = useCreateWorkflow();
 
-  const [projectId, setProjectId] = useState(initialProjectId);
-  const [name, setName] = useState('');
-  const [description, setDescription] = useState('');
+  const [projectId, setProjectId] = useState(initialWorkflow?.projectId ?? initialProjectId);
+  const [name, setName] = useState(initialWorkflow ? `نسخة من ${initialWorkflow.name}` : '');
+  const [description, setDescription] = useState(initialWorkflow?.description ?? '');
   const [starterId, setStarterId] = useState('');
-  const [phases, setPhases] = useState<PhaseInput[]>([
-    { name: 'build', steps: [] },
-    { name: 'test', steps: [] },
-    { name: 'deploy', steps: [] },
-  ]);
+  const [phases, setPhases] = useState<PhaseInput[]>(() => initialWorkflow
+    ? (initialWorkflow.phases ?? []).map((phase) => ({
+      name: phase.name,
+      steps: [...phase.steps],
+      ...(phase.condition ? { condition: phase.condition } : {}),
+    }))
+    : [
+      { name: 'build', steps: [] },
+      { name: 'test', steps: [] },
+      { name: 'deploy', steps: [] },
+    ]);
 
   const chooseStarter = (id: string) => {
     setStarterId(id);
@@ -205,7 +220,8 @@ function CreateWorkflowModal({
       <div role="dialog" aria-modal="true" aria-labelledby="create-workflow-title" dir="rtl" lang="ar" className="bg-card border border-border rounded-xl shadow-xl w-full max-w-lg p-6 space-y-5">
         <div className="flex items-center justify-between">
           <h2 id="create-workflow-title" className="text-lg font-bold flex items-center gap-2">
-            <GitMerge className="w-5 h-5 text-primary" /> إنشاء مسار عمل
+            <GitMerge className="w-5 h-5 text-primary" />
+            {initialWorkflow ? 'نسخ مسار العمل' : 'إنشاء مسار عمل'}
           </h2>
           <button
             onClick={onClose}
@@ -237,6 +253,14 @@ function CreateWorkflowModal({
             <p data-testid="text-workflow-starter-guidance" className="mt-1 text-[11px] leading-5 text-muted-foreground">
               يملأ القالب الحقول لتعديلها. المراحل للمتابعة فقط؛ لا تنفّذ أوامر أو تغيّر ملفات، وإنشاؤه لا يبدأ التشغيل.
             </p>
+            {initialWorkflow && (
+              <p
+                data-testid="text-workflow-copy-guidance"
+                className="mt-2 rounded-md border border-border/70 bg-background/50 px-3 py-2 text-[11px] leading-5 text-muted-foreground"
+              >
+                نُسخ الاسم والوصف والمراحل إلى مسودة قابلة للتعديل؛ لن يُنسخ سجل التشغيل ولن يبدأ المسار تلقائيًا.
+              </p>
+            )}
           </div>
           <div>
             <label htmlFor="workflow-project" className="text-xs font-medium text-muted-foreground block mb-1">المشروع</label>
@@ -381,7 +405,11 @@ function CreateWorkflowModal({
             disabled={!canSubmit || createWorkflow.isPending}
             className="bg-primary hover:bg-primary/90 text-primary-foreground px-4 py-2 rounded-md font-medium text-sm disabled:opacity-50 transition-colors"
           >
-            {createWorkflow.isPending ? 'جارٍ الإنشاء…' : 'إنشاء المسار'}
+            {createWorkflow.isPending
+              ? 'جارٍ الإنشاء…'
+              : initialWorkflow
+                ? 'إنشاء النسخة'
+                : 'إنشاء المسار'}
           </button>
         </div>
       </div>
@@ -655,6 +683,7 @@ function WorkflowsSession({
 
   const [expandedId, setExpandedId] = useState<string>(requestedWorkflowId);
   const [showCreateModal, setShowCreateModal] = useState(false);
+  const [workflowToCopy, setWorkflowToCopy] = useState<WorkflowCopySource | null>(null);
   const [orchestrationState, setOrchestrationState] = useState<
     | { workflowId: string; status: 'loading' }
     | { workflowId: string; status: 'success'; decision: AiOrchestrationDecision }
@@ -675,6 +704,16 @@ function WorkflowsSession({
     navigate(nextProjectId
       ? '/workflows?projectId=' + encodeURIComponent(nextProjectId)
       : '/workflows');
+  };
+
+  const closeCreateModal = () => {
+    setShowCreateModal(false);
+    setWorkflowToCopy(null);
+  };
+
+  const openCreateModal = () => {
+    setWorkflowToCopy(null);
+    setShowCreateModal(true);
   };
 
   const invalidateWorkflow = (workflowId: string) => {
@@ -830,7 +869,9 @@ function WorkflowsSession({
             ))}
           </select>
           <button
-            onClick={() => setShowCreateModal(true)}
+            onClick={openCreateModal}
+            type="button"
+            data-testid="button-create-workflow"
             disabled={projectsQuery.isLoading || projectsQuery.isError || projects.length === 0}
             className="bg-primary hover:bg-primary/90 text-primary-foreground px-4 py-2 rounded-md font-medium text-sm flex items-center gap-2 shadow-sm transition-colors disabled:cursor-not-allowed disabled:opacity-50"
           >
@@ -849,8 +890,9 @@ function WorkflowsSession({
 
       {showCreateModal && (
         <CreateWorkflowModal
-          initialProjectId={projectId}
-          onClose={() => setShowCreateModal(false)}
+          initialProjectId={workflowToCopy?.projectId ?? projectId}
+          initialWorkflow={workflowToCopy}
+          onClose={closeCreateModal}
           onCreated={handleWorkflowCreated}
         />
       )}
@@ -895,7 +937,9 @@ function WorkflowsSession({
               أنشئ مسارًا لتنسيق خطوات العمل تلقائيًا عبر عدة مراحل.
             </p>
             <button
-              onClick={() => setShowCreateModal(true)}
+              onClick={openCreateModal}
+              type="button"
+              data-testid="button-create-workflow-empty"
               className="bg-primary hover:bg-primary/90 text-primary-foreground px-4 py-2 rounded-md font-medium text-sm flex items-center gap-2 shadow-sm transition-colors"
             >
               <Plus className="w-4 h-4" /> مسار عمل جديد
@@ -992,6 +1036,18 @@ function WorkflowsSession({
                   {orchestrationState?.workflowId === workflow.id && orchestrationState.status === 'loading'
                     ? 'جارٍ التحليل…'
                     : 'اطلب مقترحًا'}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setWorkflowToCopy(workflow);
+                    setShowCreateModal(true);
+                  }}
+                  data-testid={`button-copy-workflow-${workflow.id}`}
+                  aria-label={`نسخ إعدادات مسار العمل ${workflow.name}`}
+                  className="px-3 py-2 rounded-md font-medium text-sm flex items-center gap-2 border border-border text-muted-foreground hover:bg-secondary"
+                >
+                  <Copy className="w-4 h-4" /> نسخ الإعدادات
                 </button>
                 <button
                   onClick={() => handleDelete(workflow.id, workflow.name)}
