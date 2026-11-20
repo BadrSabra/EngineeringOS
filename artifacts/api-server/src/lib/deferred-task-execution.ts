@@ -152,6 +152,7 @@ export async function persistDeferredTaskVerificationIntent(
     .limit(1);
   if (
     !task
+    || (task.status !== "pending" && task.status !== "queued")
     || task.status !== input.originalStatus
     || task.retryCount !== input.retryCount
     || task.correlationId !== input.taskCorrelationId
@@ -588,7 +589,7 @@ export async function runDeferredTaskVerification(taskId: string): Promise<boole
         entityId: taskId,
         action: "executed",
         projectId: claimed.task.projectId,
-        actor: undefined,
+        actor: claimed.userId,
         stateBefore: { status: claimed.originalStatus },
         stateAfter: { status: finalStatus },
         changedFields: { verificationResult },
@@ -632,6 +633,7 @@ export async function runDeferredTaskVerification(taskId: string): Promise<boole
       workerId,
       claimed.originalStatus,
       correlationId,
+      claimed.userId,
       error,
     );
     return false;
@@ -643,6 +645,7 @@ async function recordDeferredVerificationFailure(
   workerId: string,
   originalStatus: DeferredTaskStatus,
   correlationId: string,
+  userId: string,
   error: unknown,
 ): Promise<void> {
   const message = error instanceof Error ? error.message : String(error);
