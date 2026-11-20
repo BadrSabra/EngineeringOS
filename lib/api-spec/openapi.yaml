@@ -11981,6 +11981,25 @@ components:
           type: integer
         clusterCount:
           type: integer
+        meta:
+          type: object
+          required: [entityLimit, relationshipLimit, responseSizeLimit, truncated, truncatedEntities, truncatedRelationships]
+          properties:
+            entityLimit:
+              type: integer
+            relationshipLimit:
+              type: integer
+            responseSizeLimit:
+              type: integer
+            truncated:
+              type: boolean
+              description: True when the summary contains a bounded subset of the project's graph.
+            truncatedEntities:
+              type: boolean
+              description: True when more project entities exist than the entity limit.
+            truncatedRelationships:
+              type: boolean
+              description: True when more relationships exist for the selected entity set than the relationship limit.
         # KG-03: provenance-layered breakdown — always present on GET /graph/summary
         layered:
           $ref: "#/components/schemas/LayeredGraphSummary"
