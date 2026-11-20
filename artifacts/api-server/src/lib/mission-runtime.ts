@@ -2,6 +2,7 @@ import { execFile } from "node:child_process";
 import { createHash, randomUUID } from "node:crypto";
 import { realpath } from "node:fs/promises";
 import { isDeepStrictEqual, promisify } from "node:util";
+import { alias } from "drizzle-orm/pg-core";
 import {
   and,
   desc,
@@ -3582,6 +3583,34 @@ export async function wakeReadyMissionGoals(
   limit = 32,
   scopeProjectId?: string,
 ): Promise<number> {
+  // Sort Goals whose exact, current-plan dependencies are already terminal
+  // ahead of Goals still waiting on known prerequisites. The bounded batch
+  // must not let old blocked rows starve a newly-ready Goal on every pass.
+  // Missing/cross-scope dependency rows are deliberately not hidden here:
+  // loadGoalDependencyState() still selects and diagnoses them under locks.
+  const unresolvedDependencyGoal = alias(aiGoalsTable, "unresolved_dependency_goal");
+  const unresolvedDependencies = db
+    .select({ id: aiGoalDependenciesTable.id })
+    .from(aiGoalDependenciesTable)
+    .innerJoin(unresolvedDependencyGoal, and(
+      eq(unresolvedDependencyGoal.id, aiGoalDependenciesTable.dependsOnGoalId),
+      eq(unresolvedDependencyGoal.missionId, aiGoalsTable.missionId),
+      eq(unresolvedDependencyGoal.projectId, aiGoalsTable.projectId),
+    ))
+    .where(and(
+      eq(aiGoalDependenciesTable.goalId, aiGoalsTable.id),
+      eq(aiGoalDependenciesTable.missionId, aiGoalsTable.missionId),
+      eq(aiGoalDependenciesTable.projectId, aiGoalsTable.projectId),
+      sql`(
+        ${aiGoalsTable.outcomeContract}->'planRevision'->>'hash' IS NULL
+        OR BTRIM(${aiGoalsTable.outcomeContract}->'planRevision'->>'hash') = ''
+        OR ${aiGoalDependenciesTable.planRevision}
+          = ${aiGoalsTable.outcomeContract}->'planRevision'->>'hash'
+      )`,
+      notInArray(unresolvedDependencyGoal.status, ["completed"]),
+    ))
+    .limit(1);
+
   const candidates = await db
     .select({
       id: aiGoalsTable.id,
@@ -3617,7 +3646,11 @@ export async function wakeReadyMissionGoals(
       ),
       scopeProjectId ? eq(aiGoalsTable.projectId, scopeProjectId) : undefined,
     ))
-    .orderBy(aiGoalsTable.updatedAt, aiGoalsTable.id)
+    .orderBy(
+      sql`CASE WHEN EXISTS (${unresolvedDependencies}) THEN 1 ELSE 0 END`,
+      aiGoalsTable.updatedAt,
+      aiGoalsTable.id,
+    )
     .limit(Math.max(1, Math.min(limit, 100)));
 
   let woken = 0;
