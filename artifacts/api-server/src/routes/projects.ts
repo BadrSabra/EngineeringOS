@@ -307,6 +307,10 @@ router.post("/projects", async (req, res) => {
   }
 
   const now = new Date();
+  // Normal project registration now has the same durable first-scan behavior
+  // as Discovery import. Controlled lifecycle fixture projects stay scan-free
+  // so the isolated worker does not scan its own test fixture.
+  const scanJobId = scopeProjectId ? undefined : randomUUID();
   // One correlationId per mutation request — same convention as scans (see
   // scan-runner.ts) — written to both the event and the audit row so the
   // full trace of "what happened because of this request" is one filter
@@ -315,13 +319,36 @@ router.post("/projects", async (req, res) => {
   const project = await db.transaction(async (tx) => {
     const [created] = await tx.insert(projectsTable).values({
       id: scopeProjectId ?? randomUUID(), ownerId: req.userId, ...body,
-      rootPath: rootResult.canonicalPath, status: "active",
+      rootPath: rootResult.canonicalPath,
+      status: scanJobId ? "scanning" : "active",
       createdAt: now, updatedAt: now,
     }).returning();
     await tx.insert(eventsTable).values({
       id: randomUUID(), type: "ProjectCreated", projectId: created.id,
       severity: "info", message: `Project "${body.name}" registered`, correlationId,
     });
+
+    // Commit the scan intent with the project itself. A process restart or a
+    // saturated local queue cannot leave a newly registered project unscanned:
+    // job-reconciliation dispatches persisted queued rows after commit.
+    if (scanJobId) {
+      await tx.insert(scanJobsTable).values({
+        id: scanJobId,
+        projectId: created.id,
+        status: "queued",
+        createdAt: now,
+      });
+      await tx.insert(eventsTable).values({
+        id: randomUUID(),
+        type: "ProjectScanQueued",
+        projectId: created.id,
+        severity: "info",
+        message: "Initial project scan queued after direct registration",
+        payload: { jobId: scanJobId },
+        correlationId: scanJobId,
+      });
+    }
+
     await recordAuditInTransaction(tx, {
       entityType: "project", entityId: created.id, action: "created",
       projectId: created.id, stateAfter: created, correlationId,
@@ -330,6 +357,29 @@ router.post("/projects", async (req, res) => {
   });
 
   invalidateContextCache(project[0].id);
+
+  // Dispatch only after the durable project + scan transaction commits. If the
+  // bounded local queue is full, or dispatch throws, reconciliation will pick
+  // up the persisted queued row; project creation itself remains successful.
+  if (scanJobId) {
+    try {
+      const enqueued = heavyJobQueue.enqueueWithId(
+        scanJobId,
+        () => runScanJob(scanJobId, project[0].id),
+      );
+      if (!enqueued) {
+        logger.info(
+          { projectId: project[0].id, scanJobId },
+          "initial project scan remains queued for durable dispatch",
+        );
+      }
+    } catch (enqueueError) {
+      logger.warn(
+        { enqueueError, projectId: project[0].id, scanJobId },
+        "initial project scan dispatch deferred to durable dispatcher",
+      );
+    }
+  }
 
   return res.status(201).json(project[0]);
 });
