@@ -154,6 +154,17 @@ describe("workflow orchestration context fingerprint", () => {
     })).not.toBe(fingerprint);
   });
 
+  it("keeps a stable fingerprint when the event excerpt is unavailable", () => {
+    const withoutEvents = { ...context, recentEvents: undefined };
+    const first = fingerprintWorkflowOrchestrationContext(withoutEvents);
+    const second = fingerprintWorkflowOrchestrationContext({ ...withoutEvents });
+    expect(first).toBe(second);
+    expect(first).not.toBe(fingerprintWorkflowOrchestrationContext({
+      ...context,
+      recentEvents: "",
+    }));
+  });
+
   it("changes when tasks, metrics, or scan revision changes", () => {
     const fingerprint = fingerprintWorkflowOrchestrationContext(context);
     expect(fingerprintWorkflowOrchestrationContext({
