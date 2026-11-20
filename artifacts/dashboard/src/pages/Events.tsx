@@ -93,7 +93,10 @@ function EventsSession({
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 shrink-0">
         <div>
           <h1 className="text-2xl font-bold tracking-tight">سجل الأحداث</h1>
-          <p className="text-muted-foreground text-sm mt-1">
+          <p
+            data-testid="events-page-indicator"
+            className="text-muted-foreground text-sm mt-1"
+          >
             سجل أحداث النظام، يُحدّث تلقائيًا كل 15 ثانية أثناء عرض الصفحة.
             {' '}صفحة <bdi dir="ltr">{page}</bdi>. تُطبَّق عوامل التصفية على سجل الأحداث بالكامل.
           </p>
