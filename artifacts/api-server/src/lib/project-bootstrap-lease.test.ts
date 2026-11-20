@@ -41,7 +41,7 @@ describe("project bootstrap database-clock leases", () => {
     const jobId = await insertQueuedJob();
     const workerId = randomUUID();
     const [before] = await db.select({
-      now: sql<Date>`clock_timestamp() AT TIME ZONE 'UTC'`,
+      nowMs: sql<string>`extract(epoch from clock_timestamp()) * 1000`,
     }).from(projectBootstrapJobsTable)
       .where(eq(projectBootstrapJobsTable.id, jobId))
       .limit(1);
@@ -68,7 +68,7 @@ describe("project bootstrap database-clock leases", () => {
       leaseUntil: projectBootstrapJobsTable.leaseUntil,
     }).from(projectBootstrapJobsTable)
       .where(eq(projectBootstrapJobsTable.id, jobId));
-    const leaseDeltaMs = row.leaseUntil!.getTime() - before.now.getTime();
+    const leaseDeltaMs = row.leaseUntil!.getTime() - Number(before.nowMs);
 
     expect(row.status).toBe("running");
     expect(row.workerId).toBe(workerId);
