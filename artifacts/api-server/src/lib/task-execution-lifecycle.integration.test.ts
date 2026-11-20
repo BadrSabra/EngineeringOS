@@ -9403,7 +9403,7 @@ describe("real durable task execution lifecycle", () => {
     let wakeArguments: [number, string | undefined] | null = null;
     const wakeSpy = vi.spyOn(missionRuntime, "wakeReadyMissionGoals")
       .mockImplementation(async (limit, scopeProjectId) => {
-        wakeArguments = [limit, scopeProjectId];
+        wakeArguments = [limit ?? 32, scopeProjectId];
         const [committedGoal] = await db.select({ status: aiGoalsTable.status })
           .from(aiGoalsTable).where(eq(aiGoalsTable.id, goalId));
         const [committedTask] = await db.select({ status: tasksTable.status })
