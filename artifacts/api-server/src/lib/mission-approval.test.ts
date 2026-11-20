@@ -170,6 +170,7 @@ describe("Mission Goal approval adapter", () => {
       trigger: "resume",
       expectedApprovalBinding: {
         approvalKind: "plan",
+        dispatchIntentId: expect.stringMatching(/^mission-goal-approval:/),
         approvalEventId: expect.any(String),
         planRevision,
         stepId,
@@ -291,6 +292,7 @@ describe("Mission Goal approval adapter", () => {
       trigger: "resume",
       expectedApprovalBinding: {
         approvalKind: "proposal",
+        dispatchIntentId: expect.stringMatching(/^mission-goal-approval:/),
         approvalEventId: expect.any(String),
         executionId: created.execution.id,
         proposalId,
