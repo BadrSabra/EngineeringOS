@@ -16,6 +16,7 @@ import {
 } from "./ai-execution-state.js";
 import { logger } from "./logger.js";
 import { heavyJobQueue } from "./job-queue.js";
+import { databaseNow } from "./job-lease.js";
 import { executeTaskLifecycle } from "./task-execution-service.js";
 import {
   runChatRecoveryExhaustionFinalization,
@@ -240,6 +241,7 @@ function requiresManualProviderLimitAction(
   if (
     retryAfterSource === "project_rate_limit"
     || retryAfterSource === "local_admission"
+    || retryAfterSource === "provider_unavailable"
     || rateLimitScope === "project"
     || rateLimitScope === "local_admission"
   ) {
@@ -271,6 +273,30 @@ export function calculateRecoveryRetryAt(
   return new Date(nowMs + delayMs).toISOString();
 }
 
+const PROVIDER_UNAVAILABLE_BASE_BACKOFF_MS = 60_000;
+const PROVIDER_UNAVAILABLE_MAX_BACKOFF_MS = 15 * 60_000;
+
+export function calculateProviderUnavailableBackoffMs(deferralCount: number): number {
+  const exponent = Number.isFinite(deferralCount)
+    ? Math.min(4, Math.max(0, Math.floor(deferralCount)))
+    : 0;
+  return Math.min(
+    PROVIDER_UNAVAILABLE_BASE_BACKOFF_MS * (2 ** exponent),
+    PROVIDER_UNAVAILABLE_MAX_BACKOFF_MS,
+  );
+}
+
+function databaseClockMilliseconds(value: unknown): number | undefined {
+  const timestamp = value instanceof Date
+    ? value.getTime()
+    : typeof value === "string"
+      ? Date.parse(value)
+      : typeof value === "number"
+        ? value
+        : Number.NaN;
+  return Number.isFinite(timestamp) ? timestamp : undefined;
+}
+
 export function chatRecoveryRetryAfterSeconds(result: {
   statusCode?: number;
   retryAfterSec?: number;
@@ -298,8 +324,15 @@ async function deferRecoveryForRateLimit(params: {
   action: string;
   retryAfterSec?: number;
 }): Promise<void> {
-  const retryAt = calculateRecoveryRetryAt(params.retryAfterSec);
-  if (!retryAt) return;
+  const retryAfterSec = params.retryAfterSec;
+  if (
+    typeof retryAfterSec !== "number"
+    || !Number.isFinite(retryAfterSec)
+    || retryAfterSec <= 0
+  ) {
+    return;
+  }
+  const retryAfterMs = Math.max(1, Math.ceil(retryAfterSec)) * 1_000;
 
   try {
     await db.transaction(async (tx) => {
@@ -321,9 +354,17 @@ async function deferRecoveryForRateLimit(params: {
         !acceptance
         || acceptance.outcome !== "FAILED"
         || acceptance.nextActionCode !== params.action
+        || asDisposition(acceptance.disposition).recoveryState !== "REQUIRED"
       ) {
         return;
       }
+
+      const [clock] = await tx.select({ now: databaseNow() });
+      const nowMs = databaseClockMilliseconds(clock?.now);
+      const retryAt = nowMs === undefined
+        ? undefined
+        : calculateRecoveryRetryAt(retryAfterSec, nowMs);
+      if (!retryAt) return;
 
       await tx
         .update(aiExecutionAcceptancesTable)
@@ -331,7 +372,7 @@ async function deferRecoveryForRateLimit(params: {
           disposition: {
             ...asRecord(acceptance.disposition),
             retryAt,
-            retryAfterMs: Math.max(1, Math.ceil(params.retryAfterSec as number)) * 1_000,
+            retryAfterMs,
             retryAfterSource: "project_rate_limit",
           },
         })
@@ -342,6 +383,86 @@ async function deferRecoveryForRateLimit(params: {
       { error, executionId: params.executionId },
       "automatic recovery rate-limit backoff could not be persisted",
     );
+  }
+}
+
+/**
+ * A missing provider is often transient (for example, no eligible free model
+ * is currently available). Keep the accepted recovery decision pending and
+ * retry it with bounded backoff instead of resolving providers on every
+ * reconciliation tick. The acceptance lock makes concurrent API replicas
+ * share one cooldown rather than extending it on every duplicate attempt.
+ */
+async function deferRecoveryForUnavailableProvider(params: {
+  executionId: string;
+  executionAttempt: number;
+  action: string;
+}): Promise<number | undefined> {
+  try {
+    return await db.transaction(async (tx) => {
+      const [acceptance] = await tx
+        .select({
+          id: aiExecutionAcceptancesTable.id,
+          outcome: aiExecutionAcceptancesTable.outcome,
+          nextActionCode: aiExecutionAcceptancesTable.nextActionCode,
+          disposition: aiExecutionAcceptancesTable.disposition,
+        })
+        .from(aiExecutionAcceptancesTable)
+        .where(and(
+          eq(aiExecutionAcceptancesTable.executionId, params.executionId),
+          eq(aiExecutionAcceptancesTable.attempt, params.executionAttempt),
+        ))
+        .for("update");
+
+      const disposition = asDisposition(acceptance?.disposition);
+      if (
+        !acceptance
+        || acceptance.outcome !== "FAILED"
+        || acceptance.nextActionCode !== params.action
+        || disposition.recoveryState !== "REQUIRED"
+      ) {
+        return undefined;
+      }
+
+      const [clock] = await tx.select({ now: databaseNow() });
+      const nowMs = databaseClockMilliseconds(clock?.now);
+      if (nowMs === undefined) return undefined;
+
+      const existingRetryAtMs = parseRetryAt(disposition.retryAt);
+      if (existingRetryAtMs !== undefined && existingRetryAtMs > nowMs) {
+        return undefined;
+      }
+
+      const previousDeferrals = typeof disposition.providerUnavailableDeferralCount === "number"
+        && Number.isSafeInteger(disposition.providerUnavailableDeferralCount)
+        && disposition.providerUnavailableDeferralCount >= 0
+        ? disposition.providerUnavailableDeferralCount
+        : 0;
+      const retryAfterMs = calculateProviderUnavailableBackoffMs(previousDeferrals);
+      const deferredAt = new Date(nowMs).toISOString();
+
+      await tx
+        .update(aiExecutionAcceptancesTable)
+        .set({
+          disposition: {
+            ...asRecord(acceptance.disposition),
+            retryAt: new Date(nowMs + retryAfterMs).toISOString(),
+            retryAfterMs,
+            retryAfterSource: "provider_unavailable",
+            providerUnavailableDeferralCount: previousDeferrals + 1,
+            providerUnavailableDeferredAt: deferredAt,
+          },
+        })
+        .where(eq(aiExecutionAcceptancesTable.id, acceptance.id));
+
+      return retryAfterMs;
+    });
+  } catch (error) {
+    logger.warn(
+      { error, executionId: params.executionId },
+      "automatic recovery provider-unavailable backoff could not be persisted",
+    );
+    return undefined;
   }
 }
 
@@ -865,9 +986,19 @@ async function runRecovery(candidate: TaskRecoveryCandidate, plan: Extract<TaskR
 
   const resolved = await resolveProvider(candidate.userId, { qualityProfile: "task_execution" });
   if (!resolved) {
-    await writeRecoveryLog(candidate, "Automatic recovery deferred: no AI provider is available.", "warn", {
-      reason: "no_provider",
+    const retryAfterMs = await deferRecoveryForUnavailableProvider({
+      executionId: candidate.executionId,
+      executionAttempt: candidate.executionAttempt,
+      action: candidate.action,
     });
+    await writeRecoveryLog(
+      candidate,
+      retryAfterMs
+        ? "Automatic recovery deferred because no AI provider is currently available; a bounded retry was persisted."
+        : "Automatic recovery deferred because no AI provider is currently available; the durable retry window could not be updated.",
+      "warn",
+      { reason: "provider_unavailable", ...(retryAfterMs ? { retryAfterMs } : {}) },
+    );
     return;
   }
 
@@ -933,9 +1064,16 @@ async function runChatRecovery(
     qualityProfile: "analysis",
   });
   if (!resolved) {
+    const retryAfterMs = await deferRecoveryForUnavailableProvider({
+      executionId: candidate.executionId,
+      executionAttempt: candidate.executionAttempt,
+      action: candidate.action,
+    });
     logger.warn(
-      { executionId: candidate.executionId },
-      "automatic chat recovery deferred: no AI provider is available",
+      { executionId: candidate.executionId, ...(retryAfterMs ? { retryAfterMs } : {}) },
+      retryAfterMs
+        ? "automatic chat recovery deferred because no AI provider is currently available; a bounded retry was persisted"
+        : "automatic chat recovery deferred because no AI provider is currently available; the durable retry window could not be updated",
     );
     return;
   }
@@ -1017,10 +1155,15 @@ export async function dispatchAutonomousTaskRecoveries(scope: {
       findRecoveryCandidates(scope),
       findChatRecoveryCandidates(scope),
     ]);
+    const [clock] = await db.select({ now: databaseNow() });
+    const nowMs = databaseClockMilliseconds(clock?.now);
+    if (nowMs === undefined) {
+      throw new Error("PostgreSQL clock is unavailable for automatic recovery admission");
+    }
     const seenTasks = new Set<string>();
     for (const candidate of rows) {
       if (seenTasks.has(candidate.taskId)) continue;
-      const plan = planTaskRecovery(candidate);
+      const plan = planTaskRecovery(candidate, nowMs);
       if (plan.kind === "skip") continue;
       seenTasks.add(candidate.taskId);
       if (heavyJobQueue.enqueueWithId(plan.queueKey, async () => {
@@ -1040,7 +1183,7 @@ export async function dispatchAutonomousTaskRecoveries(scope: {
     for (const candidate of chatRows) {
       if (seenExecutions.has(candidate.executionId)) continue;
       seenExecutions.add(candidate.executionId);
-      const plan = planChatRecovery(candidate);
+      const plan = planChatRecovery(candidate, nowMs);
       if (plan.kind === "skip") {
         if (plan.reason === "automatic_recovery_exhausted") {
           const queueKey = `ai-recovery:chat:${candidate.executionId}:${candidate.executionAttempt}:recovery-finalize`;
