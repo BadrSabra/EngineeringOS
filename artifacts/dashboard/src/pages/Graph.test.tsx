@@ -150,6 +150,55 @@ describe('Graph', () => {
       .toHaveAttribute('stroke-opacity', '0.85');
   });
 
+  it('selects an exact graph search match on Enter without guessing among partial matches', () => {
+    const helperEntity = {
+      ...targetEntity,
+      id: 'entity-target-helper',
+      name: 'buildGraphHelper',
+      path: 'src/graph-helper.ts',
+    };
+    const duplicateTargetEntity = {
+      ...targetEntity,
+      id: 'entity-target-copy',
+      path: 'src/legacy-graph.ts',
+    };
+    vi.mocked(useListGraphEntities).mockReturnValue({
+      data: {
+        items: [sourceEntity, targetEntity, helperEntity, duplicateTargetEntity],
+        meta: { ...graphMeta, total: 4 },
+      },
+      isLoading: false,
+    } as ReturnType<typeof useListGraphEntities>);
+
+    render(<Graph />);
+    const searchInput = screen.getByRole('textbox', { name: 'البحث في عناصر الرسم البياني' });
+
+    fireEvent.change(searchInput, { target: { value: 'build' } });
+    fireEvent.keyDown(searchInput, { key: 'Enter', code: 'Enter' });
+    expect(useGetGraphEntityNeighbors).toHaveBeenLastCalledWith(
+      '',
+      expect.objectContaining({ query: expect.objectContaining({ enabled: false }) }),
+    );
+
+    fireEvent.change(searchInput, { target: { value: 'buildGraph' } });
+    fireEvent.keyDown(searchInput, { key: 'Enter', code: 'Enter' });
+    expect(useGetGraphEntityNeighbors).toHaveBeenLastCalledWith(
+      '',
+      expect.objectContaining({ query: expect.objectContaining({ enabled: false }) }),
+    );
+
+    fireEvent.change(searchInput, { target: { value: 'buildGraphHelper' } });
+    expect(screen.getByTestId('graph-search-status')).toHaveTextContent(
+      'اضغط Enter لتحديد النتيجة.',
+    );
+    fireEvent.keyDown(searchInput, { key: 'Enter', code: 'Enter' });
+
+    expect(useGetGraphEntityNeighbors).toHaveBeenLastCalledWith(
+      helperEntity.id,
+      expect.objectContaining({ query: expect.objectContaining({ enabled: true }) }),
+    );
+  });
+
   it('leaves the full map unchanged when a search has no matches', () => {
     render(<Graph />);
 
