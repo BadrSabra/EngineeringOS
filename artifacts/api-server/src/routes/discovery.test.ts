@@ -972,7 +972,7 @@ describe("POST /projects/import — atomic claim", () => {
     });
   });
 
-  it("imports a ready session exactly once and rejects a concurrent second import", async () => {
+  it("returns the committed Project to both requests when imports race", async () => {
     const discoveryId = await insertReadySession(fakeResult());
 
     const [first, second] = await Promise.all([
@@ -980,18 +980,23 @@ describe("POST /projects/import — atomic claim", () => {
       request(app).post("/api/projects/import").send({ discoveryId }),
     ]);
 
-    const statuses = [first.status, second.status].sort();
-    expect(statuses).toEqual([201, 409]);
+    expect(first.status).toBe(201);
+    expect(second.status).toBe(201);
+    expect(first.body.id).toBe(second.body.id);
+    projectId = first.body.id;
 
-    const winner = first.status === 201 ? first : second;
-    projectId = winner.body.id;
-
-    // DB-level proof: exactly one project row, session claimed exactly once
+    // DB-level proof: one project, one initial scan, and one session claim.
     const projectRows = await db
       .select()
       .from(projectsTable)
-      .where(eq(projectsTable.id, winner.body.id));
+      .where(eq(projectsTable.id, projectId!));
     expect(projectRows).toHaveLength(1);
+
+    const scanJobs = await db
+      .select()
+      .from(scanJobsTable)
+      .where(eq(scanJobsTable.projectId, projectId!));
+    expect(scanJobs).toHaveLength(1);
 
     const session = await db
       .select()
@@ -999,7 +1004,7 @@ describe("POST /projects/import — atomic claim", () => {
       .where(eq(discoverySessionsTable.id, discoveryId))
       .limit(1);
     expect(session[0]?.status).toBe("imported");
-    expect(session[0]?.importedProjectId).toBe(winner.body.id);
+    expect(session[0]?.importedProjectId).toBe(projectId);
   });
 
   it("returns 409 root_unavailable when the session root is a dead temporary git clone", async () => {
@@ -1341,10 +1346,9 @@ describe("POST /projects/import — transaction integrity", () => {
 
   // ── No partial writes on failure ──────────────────────────────────────────
 
-  it("leaves session in 'ready' state after a failed concurrent import", async () => {
-    // Run two concurrent imports; the loser gets 409. The session must remain
-    // accessible and still in "ready" state (or "imported" for the winner's
-    // side), never in a partially-written limbo.
+  it("returns one committed Project to concurrent import requests without partial writes", async () => {
+    // Both requests must resolve to the same committed Project; neither may
+    // leave a second project or a partially-written session behind.
     const discoveryId = await insertReadySession(fakeResult());
 
     const [first, second] = await Promise.all([
