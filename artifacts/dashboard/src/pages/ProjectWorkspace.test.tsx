@@ -40,6 +40,7 @@ const mocks = vi.hoisted(() => ({
     },
     freshness: { partial: false, warnings: [] },
   } as unknown as ProjectWorkspaceSnapshot,
+    projects: [{ id: "project-1", name: "مشروع البث" }],
   taskDetails: {} as Record<string, unknown>,
   taskLogs: {} as Record<string, unknown[]>,
   executions: {} as Record<string, unknown>,
@@ -85,6 +86,14 @@ let eventSource: FakeEventSource | null = null;
 const initialSnapshot = mocks.snapshot;
 
 vi.mock("@workspace/api-client-react", () => ({
+  getListProjectsQueryKey: () => ["/api/projects"],
+  useListProjects: () => ({
+    data: mocks.projects,
+    isLoading: false,
+    isError: false,
+    isFetching: false,
+    refetch: vi.fn(),
+  }),
   useGetProjectWorkspaceSnapshot: () => ({
     data: mocks.snapshot,
     ...mocks.snapshotQuery,
