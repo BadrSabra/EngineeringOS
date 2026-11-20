@@ -2233,6 +2233,32 @@ describe('Task creation', () => {
     expect(screen.getByTestId('select-create-task-project')).toHaveValue('project-2');
   });
 
+  it('opens a new-task deep link for the requested project without submitting it', async () => {
+    window.history.replaceState({}, '', '/tasks?projectId=project-2&create=1');
+    vi.mocked(useListProjects).mockReturnValue({
+      data: [
+        { id: 'project-1', name: 'First Project' },
+        { id: 'project-2', name: 'Second Project' },
+      ],
+      isLoading: false,
+      isError: false,
+      error: null,
+    } as ReturnType<typeof useListProjects>);
+
+    renderPage();
+
+    const dialog = await screen.findByRole('dialog', { name: 'إضافة مهمة' });
+    expect(screen.getByTestId('select-create-task-project')).toHaveValue('project-2');
+    expect(document.activeElement).toBe(screen.getByTestId('input-create-task-title'));
+    expect(new URL(window.location.href).searchParams.get('projectId')).toBe('project-2');
+    expect(new URL(window.location.href).searchParams.has('create')).toBe(false);
+    expect(createTaskMutate).not.toHaveBeenCalled();
+
+    fireEvent.click(within(dialog).getByRole('button', { name: 'إغلاق نافذة المهمة' }));
+    expect(screen.queryByRole('dialog', { name: 'إضافة مهمة' })).not.toBeInTheDocument();
+    expect(createTaskMutate).not.toHaveBeenCalled();
+  });
+
   it('opens a clear form and sends the selected project and task fields', () => {
     renderPage();
 

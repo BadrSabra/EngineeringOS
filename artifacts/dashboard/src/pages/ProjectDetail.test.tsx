@@ -439,4 +439,16 @@ describe('ProjectDetail Arabic presentation', () => {
 
     expect(container.querySelectorAll('div[dir="ltr"]')).toHaveLength(5);
   });
+
+  it('opens a new task form already scoped to this project', () => {
+    render(<ProjectDetail />);
+
+    expect(screen.getByTestId('link-create-project-task')).toHaveAttribute(
+      'href',
+      '/tasks?projectId=project-1&create=1',
+    );
+    expect(screen.getByTestId('link-create-project-task')).toHaveAccessibleName(
+      'أضف مهمة إلى مشروع مشروع تجريبي',
+    );
+  });
 });
