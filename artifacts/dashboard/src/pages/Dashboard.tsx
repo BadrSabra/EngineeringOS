@@ -620,7 +620,7 @@ function DashboardForUser({ ownerId }: { ownerId: string | null }) {
                     : goalProjectMatch?.kind === 'ambiguous'
                       ? 'قد يتعلق الهدف بأكثر من مشروع. راجع الاقتراحات واختر واحدًا.'
                       : goalProjectSuggestions.length > 0
-                        ? 'لم يظهر اسم مشروع كامل؛ قد تساعدك هذه الاقتراحات.'
+                        ? 'لم يظهر اسم مشروع كامل؛ راجع أسباب هذه الاقتراحات.'
                       : projects.length === 1
                         ? 'يمكنك اختيار مشروعك الوحيد للمتابعة.'
                       : projects.length === 0
@@ -640,7 +640,7 @@ function DashboardForUser({ ownerId }: { ownerId: string | null }) {
                   : goalProjectMatch?.kind === 'ambiguous'
                     ? 'راجع سبب كل اقتراح واختر وجهة واحدة؛ لن نفتح أي مشروع حتى تختار.'
                     : goalProjectSuggestions.length > 0
-                      ? 'هذه اقتراحات من كلمات مشتركة فقط. اختر مشروعًا صراحةً أو افتح القائمة لاختيار غيره.'
+                      ? 'تعرض الاقتراحات سبب التشابه؛ اختر مشروعًا صراحةً أو افتح القائمة لاختيار غيره.'
                     : projects.length === 1 && goalProjectMatch?.kind === 'none'
                       ? 'لن نستخدم المشروع أو ننقل الهدف إليه حتى تختاره صراحةً.'
                 : projects.length === 0 && !projectsQuery.isLoading
@@ -702,7 +702,9 @@ function DashboardForUser({ ownerId }: { ownerId: string | null }) {
                               >
                                 {suggestion.kind === 'exact'
                                   ? 'ورد اسم المشروع في هدفك.'
-                                  : `تطابقت كلمة ${suggestion.matchedTerms.map((term) => `«${term}»`).join('، ')} من الاسم مع هدفك.`}
+                                  : suggestion.kind === 'partial'
+                                    ? `تطابقت كلمة ${suggestion.matchedTerms.map((term) => `«${term}»`).join('، ')} من الاسم مع هدفك.`
+                                    : `تطابقت كلمات ${suggestion.matchedTerms.map((term) => `«${term}»`).join('، ')} مع وصف المشروع أو تقنياته المسجلة.`}
                               </p>
                             </div>
                             <Button
