@@ -481,6 +481,37 @@ describe('project-scoped task list contracts', () => {
     );
   });
 
+  it.each([
+    { status: 'queued', visibleTitle: 'Queued work', hiddenTitle: 'Cancelled work', label: 'في قائمة الانتظار' },
+    { status: 'cancelled', visibleTitle: 'Cancelled work', hiddenTitle: 'Queued work', label: 'أُلغيت' },
+  ])('restores the $status status filter from a direct task-list URL', ({ status, visibleTitle, hiddenTitle, label }) => {
+    const baseTask = taskListFixture().data?.[0];
+    if (!baseTask) throw new Error('Expected a task fixture');
+    const task = (id: string, title: string, taskStatus: string) => ({
+      ...baseTask,
+      id,
+      title,
+      status: taskStatus,
+      agentResponse: undefined,
+    });
+    vi.mocked(useListTasks).mockReturnValue({
+      ...taskListFixture(),
+      data: [
+        task('queued-task', 'Queued work', 'queued'),
+        task('cancelled-task', 'Cancelled work', 'cancelled'),
+      ],
+    } as ReturnType<typeof useListTasks>);
+    window.history.replaceState({}, '', `/tasks?projectId=project-1&status=${status}`);
+
+    renderPage();
+
+    expect(screen.getByRole('combobox', { name: 'تصفية المهام حسب الحالة' }))
+      .toHaveValue(status);
+    expect(screen.getByText(visibleTitle)).toBeInTheDocument();
+    expect(screen.queryByText(hiddenTitle)).not.toBeInTheDocument();
+    expect(screen.getByTestId('status-task-filter-summary')).toHaveTextContent(label);
+  });
+
   it('filters the loaded project list to tasks that need a next step', () => {
     const baseTask = {
       ...recoveryCases[0],

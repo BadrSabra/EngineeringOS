@@ -1358,7 +1358,7 @@ type TaskStatusFilter = 'active' | 'pending' | 'queued' | 'running' | 'verifying
 type TaskPriorityFilter = 'p0' | 'p1' | 'p2' | 'p3';
 type TaskAcceptanceFilter = 'accepted' | 'interrupted' | 'failed' | 'recovery-required';
 
-const TASK_STATUS_FILTER_OPTIONS = ['pending', 'running', 'verifying', 'completed', 'failed', 'active'] as const;
+const TASK_STATUS_FILTER_OPTIONS = ['pending', 'queued', 'running', 'verifying', 'completed', 'failed', 'cancelled', 'active'] as const;
 const TASK_PRIORITY_FILTER_OPTIONS = ['p0', 'p1', 'p2', 'p3'] as const;
 const TASK_ACCEPTANCE_FILTER_OPTIONS = ['accepted', 'interrupted', 'failed', 'recovery-required'] as const;
 
@@ -2090,10 +2090,12 @@ function TasksSession({
               <option value="">كل الحالات</option>
               <option value="active">جارٍ أو في الانتظار</option>
               <option value="pending">بانتظار التنفيذ</option>
+              <option value="queued">في قائمة الانتظار</option>
               <option value="running">قيد التنفيذ</option>
               <option value="verifying">قيد التحقق</option>
               <option value="completed">انتهت بحسب السجل</option>
               <option value="failed">فشل مسجل</option>
+              <option value="cancelled">أُلغيت</option>
             </select>
             <select
               aria-label="تصفية المهام حسب الأولوية"
