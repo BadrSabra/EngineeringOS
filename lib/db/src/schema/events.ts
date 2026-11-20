@@ -62,6 +62,15 @@ export const eventsTable = pgTable("events", {
   index("idx_events_mission_goal_wake_pending")
     .on(t.timestamp, t.id)
     .where(sql`${t.type} IN ('MissionGoalWakeRequested', 'MissionGoalWakeDeferred')`),
+  // The Mission event inbox is read by exact Goal/project scope, not by a
+  // global scan of unprocessed event history.
+  index("idx_events_mission_inbox_pending_goal")
+    .on(t.projectId, t.goalId, t.timestamp, t.id)
+    .where(sql`${t.type} = 'AiMissionExternalEventReceived' AND ${t.payload}->>'processedAt' IS NULL`),
+  // Only pending/deferred wake requests participate in the lifecycle queue.
+  index("idx_events_mission_wake_pending")
+    .on(t.timestamp, t.id)
+    .where(sql`${t.type} IN ('AiMissionEventWakeRequested', 'AiMissionEventWakeDeferred')`),
   // Partial uniqueness is intentionally limited to verified GitHub delivery
   // records; generic/manual activity events may share the same correlation ID.
   // Ordered, bounded startup recovery of incomplete verified GitHub deliveries.

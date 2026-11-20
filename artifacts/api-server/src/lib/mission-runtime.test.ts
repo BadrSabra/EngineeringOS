@@ -21,7 +21,6 @@ import {
 import {
   deriveProofGatedMissionStatus,
   receiveMissionEvent,
-  replayPendingMissionEvents,
   runMissionGoal,
   wakeRuntimeTransitionMissionGoals,
   wakeDueMissionGoals,
@@ -39,6 +38,8 @@ import { getProjectWorldState } from "./agent-state/world-state.js";
 import { taskScopeIdentity } from "./agent-state/observation-materializer.js";
 import { buildExecutionProofProjection } from "./execution-proof.js";
 import { heavyJobQueue } from "./job-queue.js";
+import * as missionRuntimeModule from "./mission-runtime.js";
+import { dispatchPendingMissionEventWakes } from "./mission-event-wake-outbox.js";
 
 describe("taskScopeIdentity Episode contract compatibility", () => {
   it("normalizes database rows and public Episode contracts to one scope identity", () => {
@@ -2091,9 +2092,9 @@ describe("Mission goal runtime", () => {
       userId: "test-user",
       trigger: "activation",
     });
-    // Entering the event wait drains only this Goal's durable inbox. A global
-    // periodic replay is no longer needed for this normal transition.
-    expect(await replayPendingMissionEvents()).toBe(0);
+    // Goal wait and its replay intent commit together; the exact Goal inbox is
+    // drained immediately after commit rather than by a global inbox sweep.
+    expect(await dispatchPendingMissionEventWakes()).toBe(0);
 
     const [goal] = await db
       .select({ status: aiGoalsTable.status, nextAction: aiGoalsTable.nextAction })
@@ -2115,7 +2116,130 @@ describe("Mission goal runtime", () => {
     });
   });
 
-  it("does not let processed inbox rows consume the pending replay limit", async () => {
+  it("backfills a legacy event-wait Goal once without scanning unrelated inbox rows", async () => {
+    const fixture = await createMissionFixture({
+      kind: "wait",
+      reason: "event",
+      wakeAt: null,
+    });
+    const event = createMissionEventEnvelope({
+      eventId: randomUUID(),
+      type: "ExternalValidationCompleted",
+      projectId: fixture.projectId,
+      goalId: fixture.goalId,
+      payload: { validationId: "legacy-pending-event" },
+    });
+
+    // Simulate the pre-outbox order: inbox event arrives and its event-specific
+    // wake request is acknowledged while the Goal is not waiting.
+    await expect(receiveMissionEvent(event)).resolves.toMatchObject({
+      persisted: true,
+      woken: false,
+      duplicate: false,
+    });
+    const [goalBeforeWait] = await db.select({ status: aiGoalsTable.status })
+      .from(aiGoalsTable).where(eq(aiGoalsTable.id, fixture.goalId));
+    expect(goalBeforeWait?.status).toBe("queued");
+
+    // Simulate a Goal that was already in event wait when the outbox contract
+    // was deployed: no goal_entered_event_wait marker exists for this row.
+    await db.update(aiGoalsTable).set({
+      status: "waiting_for_event",
+      blockedReason: null,
+      updatedAt: new Date(),
+    }).where(eq(aiGoalsTable.id, fixture.goalId));
+
+    expect(await dispatchPendingMissionEventWakes(10, fixture.projectId)).toBe(1);
+    const [goalAfterBackfill] = await db.select({
+      status: aiGoalsTable.status,
+    }).from(aiGoalsTable).where(eq(aiGoalsTable.id, fixture.goalId));
+    const [inbox] = await db.select({ payload: eventsTable.payload })
+      .from(eventsTable).where(eq(eventsTable.id, event.eventId));
+    const backfilledIntents = (await db.select({
+      id: eventsTable.id,
+      type: eventsTable.type,
+      payload: eventsTable.payload,
+    }).from(eventsTable).where(and(
+      eq(eventsTable.projectId, fixture.projectId),
+      eq(eventsTable.goalId, fixture.goalId),
+      eq(eventsTable.type, "AiMissionEventWakeDispatched"),
+    ))).filter((row) =>
+      (row.payload as Record<string, unknown> | null)?.source === "goal_entered_event_wait",
+    );
+    expect(goalAfterBackfill?.status).toBe("needs_replan");
+    expect(inbox?.payload).toMatchObject({ processedAt: expect.any(String) });
+    expect(backfilledIntents).toHaveLength(1);
+
+    // The legacy row is not re-enqueued on every scheduler tick.
+    expect(await dispatchPendingMissionEventWakes(10, fixture.projectId)).toBe(0);
+    const allWakeIntents = (await db.select({ payload: eventsTable.payload })
+      .from(eventsTable).where(and(
+        eq(eventsTable.projectId, fixture.projectId),
+        eq(eventsTable.goalId, fixture.goalId),
+        eq(eventsTable.type, "AiMissionEventWakeDispatched"),
+      ))).filter((row) =>
+        (row.payload as Record<string, unknown> | null)?.source === "goal_entered_event_wait",
+      );
+    expect(allWakeIntents).toHaveLength(1);
+  });
+
+  it("retries a targeted event wake from its durable outbox after a transient failure", async () => {
+    const fixture = await createMissionFixture({
+      kind: "wait",
+      reason: "event",
+      wakeAt: null,
+    });
+    await runMissionGoal({
+      goalId: fixture.goalId,
+      userId: "test-user",
+      trigger: "activation",
+    });
+    const event = createMissionEventEnvelope({
+      eventId: randomUUID(),
+      type: "ExternalValidationCompleted",
+      projectId: fixture.projectId,
+      goalId: fixture.goalId,
+      payload: { validationId: "retry-outbox" },
+    });
+    const wakeSpy = vi.spyOn(missionRuntimeModule, "wakeMissionGoalsForEvent")
+      .mockRejectedValueOnce(new Error("temporary_database_failure"));
+
+    await expect(receiveMissionEvent(event)).resolves.toMatchObject({
+      persisted: true,
+      woken: false,
+      duplicate: false,
+    });
+    const [deferred] = await db.select({
+      id: eventsTable.id,
+      payload: eventsTable.payload,
+    }).from(eventsTable).where(and(
+      eq(eventsTable.type, "AiMissionEventWakeDeferred"),
+      eq(eventsTable.goalId, fixture.goalId),
+    ));
+    expect(deferred?.payload).toMatchObject({ attemptCount: 1 });
+
+    await db.update(eventsTable).set({
+      payload: {
+        ...(deferred?.payload ?? {}),
+        nextAttemptAt: "2000-01-01T00:00:00.000Z",
+      },
+    }).where(eq(eventsTable.id, deferred!.id));
+
+    expect(await dispatchPendingMissionEventWakes(10, fixture.projectId)).toBe(1);
+    const [goal] = await db.select({ status: aiGoalsTable.status })
+      .from(aiGoalsTable).where(eq(aiGoalsTable.id, fixture.goalId));
+    const [inbox] = await db.select({ payload: eventsTable.payload })
+      .from(eventsTable).where(eq(eventsTable.id, event.eventId));
+    const [intent] = await db.select({ type: eventsTable.type })
+      .from(eventsTable).where(eq(eventsTable.id, deferred!.id));
+    expect(goal?.status).toBe("needs_replan");
+    expect((inbox?.payload as Record<string, unknown> | undefined)?.processedAt)
+      .toEqual(expect.any(String));
+    expect(intent?.type).toBe("AiMissionEventWakeDispatched");
+    wakeSpy.mockRestore();
+  });
+
+  it("does not revisit processed inbox events on later outbox passes", async () => {
     const alreadyProcessed = await createMissionFixture({
       kind: "wait",
       reason: "event",
@@ -2138,12 +2262,6 @@ describe("Mission goal runtime", () => {
       woken: true,
       duplicate: false,
     });
-    // Ensure this processed row sorts before the pending event regardless of
-    // test execution speed or timestamp precision.
-    await db.update(eventsTable)
-      .set({ timestamp: new Date("2000-01-01T00:00:00.000Z") })
-      .where(eq(eventsTable.id, processedEvent.eventId));
-
     const pending = await createMissionFixture({
       kind: "wait",
       reason: "event",
@@ -2167,7 +2285,7 @@ describe("Mission goal runtime", () => {
       trigger: "activation",
     });
 
-    expect(await replayPendingMissionEvents(1)).toBe(0);
+    expect(await dispatchPendingMissionEventWakes(1)).toBe(0);
     const [pendingGoal] = await db
       .select({ status: aiGoalsTable.status })
       .from(aiGoalsTable)
@@ -2245,7 +2363,7 @@ describe("Mission goal runtime", () => {
       userId: "test-user",
       trigger: "activation",
     });
-    expect(await replayPendingMissionEvents()).toBe(0);
+    expect(await dispatchPendingMissionEventWakes()).toBe(0);
 
     const [originalAfterReplay] = await db
       .select({ status: aiGoalsTable.status })

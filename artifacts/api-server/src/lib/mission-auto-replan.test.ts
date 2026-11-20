@@ -17,11 +17,11 @@ import { heavyJobQueue } from "./job-queue.js";
 import { autoReplanMission, buildReplanContext } from "./mission-auto-replan.js";
 import {
   receiveMissionEvent,
-  replayPendingMissionEvents,
   runMissionGoal,
 } from "./mission-runtime.js";
 import { createMissionEventEnvelope } from "./mission-events.js";
 import { taskScopeIdentity } from "./agent-state/observation-materializer.js";
+import { dispatchPendingMissionEventWakes } from "./mission-event-wake-outbox.js";
 import { loadMissionWorldStatePlanningRead } from "./mission-world-state-planning-read.js";
 import { diagnoseRuntimeStartWorldStateFailure } from "./world-state-failure-diagnosis.js";
 
@@ -899,8 +899,8 @@ describe("automatic Mission replanning", () => {
       updatedAt: new Date(),
     }).where(eq(aiMissionsTable.id, fixture.missionId));
 
-    await expect(replayPendingMissionEvents(32, fixture.projectId)).resolves.toBe(1);
-    await expect(replayPendingMissionEvents(32, fixture.projectId)).resolves.toBe(0);
+    await expect(dispatchPendingMissionEventWakes(32, fixture.projectId)).resolves.toBe(1);
+    await expect(dispatchPendingMissionEventWakes(32, fixture.projectId)).resolves.toBe(0);
 
     const [mission] = await db.select({
       status: aiMissionsTable.status,

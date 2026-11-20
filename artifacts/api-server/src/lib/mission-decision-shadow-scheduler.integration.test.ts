@@ -6,7 +6,7 @@ const {
   reconcileAutomaticMissionReplans,
   reconcileApprovedMissionDecisionDispatches,
   dispatchPendingMissionRecipes,
-  replayPendingMissionEvents,
+  dispatchPendingMissionEventWakes,
   dispatchPendingShadowReplays,
   dispatchPendingMissionChatHandoffs,
   dispatchProjectBootstrapJobs,
@@ -21,7 +21,7 @@ const {
   reconcileAutomaticMissionReplans: vi.fn(async () => 0),
   reconcileApprovedMissionDecisionDispatches: vi.fn(async () => 0),
   dispatchPendingMissionRecipes: vi.fn(async () => 0),
-  replayPendingMissionEvents: vi.fn(async () => 0),
+  dispatchPendingMissionEventWakes: vi.fn(async () => 0),
   dispatchPendingShadowReplays: vi.fn(async () => 0),
   dispatchPendingMissionChatHandoffs: vi.fn(async () => 0),
   dispatchProjectBootstrapJobs: vi.fn(async () => 0),
@@ -44,11 +44,13 @@ vi.mock("./mission-auto-replan.js", () => ({
 }));
 vi.mock("./mission-runtime.js", () => ({
   dispatchPendingMissionRecipes,
-  replayPendingMissionEvents,
   wakeDueMissionGoals,
   wakeReadyMissionGoals,
   wakeRuntimeTransitionMissionGoals,
   wakeApplyChangesMissionGoals,
+}));
+vi.mock("./mission-event-wake-outbox.js", () => ({
+  dispatchPendingMissionEventWakes,
 }));
 vi.mock("./mission-strategy-plan-outcome-store.js", () => ({
   reconcilePendingMissionPlanOutcomes,
@@ -84,7 +86,7 @@ describe("Mission decision shadow scheduler integration", () => {
     reconcileAutomaticMissionReplans.mockClear();
     reconcileApprovedMissionDecisionDispatches.mockClear();
     dispatchPendingMissionRecipes.mockClear();
-    replayPendingMissionEvents.mockClear();
+    dispatchPendingMissionEventWakes.mockClear();
     dispatchPendingShadowReplays.mockClear();
     dispatchPendingMissionChatHandoffs.mockClear();
     dispatchProjectBootstrapJobs.mockClear();
