@@ -10430,6 +10430,105 @@ describe("POST /api/ai/tasks/:taskId/execute", () => {
     expect(persisted).not.toContain("/var/task/");
   });
 
+  it("anchors deferred retry deadlines to PostgreSQL time when the API clock is behind", async () => {
+    const projectId = await insertProject();
+    projectIds.push(projectId);
+    const taskId = await insertTask(projectId, "verifying");
+    await db.update(tasksTable)
+      .set({ prompt: "Use the database clock for this deferred retry" })
+      .where(eq(tasksTable.id, taskId));
+
+    const databaseClockResult = await db.execute(sql`SELECT clock_timestamp() AS now`);
+    const databaseClockValue = (databaseClockResult.rows as Array<{ now: Date | string }>)[0]?.now;
+    const databaseNow = databaseClockValue instanceof Date ? databaseClockValue : new Date(String(databaseClockValue ?? ""));
+    if (!databaseClockValue || !Number.isFinite(databaseNow.getTime())) {
+      throw new Error("Could not read PostgreSQL time");
+    }
+    const databaseNowMs = databaseNow.getTime();
+    const enqueueSpy = vi.spyOn(heavyJobQueue, "enqueueWithIdDetailed").mockReturnValueOnce("full");
+
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date(databaseNowMs - 24 * 60 * 60_000));
+    try {
+      await scheduleAiTaskExecution(taskId, "test-user");
+
+      const [intent] = await db.select().from(eventsTable)
+        .where(eq(eventsTable.id, `task-auto-execution-deferred:${taskId}`));
+      expect(intent?.type).toBe("TaskAutoExecutionDeferred");
+      const retryAt = Date.parse(String(intent?.payload?.nextAttemptAt));
+      expect(retryAt).toBeGreaterThanOrEqual(databaseNowMs + 29_000);
+      expect(retryAt).toBeLessThanOrEqual(databaseNowMs + 32_000);
+    } finally {
+      vi.useRealTimers();
+      enqueueSpy.mockRestore();
+    }
+  });
+
+  it("does not let an API clock ahead of PostgreSQL bypass a future retry window", async () => {
+    const projectId = await insertProject();
+    projectIds.push(projectId);
+    const taskId = await insertTask(projectId, "verifying");
+    await db.update(tasksTable)
+      .set({ prompt: "Wait until the persisted retry window is due" })
+      .where(eq(tasksTable.id, taskId));
+
+    const [taskGeneration] = await db.select({
+      retryCount: tasksTable.retryCount,
+      correlationId: tasksTable.correlationId,
+    }).from(tasksTable).where(eq(tasksTable.id, taskId));
+    const databaseClockResult = await db.execute(sql`SELECT clock_timestamp() AS now`);
+    const databaseClockValue = (databaseClockResult.rows as Array<{ now: Date | string }>)[0]?.now;
+    const databaseNow = databaseClockValue instanceof Date ? databaseClockValue : new Date(String(databaseClockValue ?? ""));
+    if (!databaseClockValue || !Number.isFinite(databaseNow.getTime())) {
+      throw new Error("Could not read PostgreSQL time");
+    }
+    const nextAttemptAt = new Date(databaseNow.getTime() + 10 * 60_000).toISOString();
+    await db.insert(eventsTable).values({
+      id: `task-auto-execution-deferred:${taskId}`,
+      type: "TaskAutoExecutionDeferred",
+      projectId,
+      taskId,
+      severity: "warning",
+      message: "Task retry is intentionally deferred",
+      payload: {
+        userId: "test-user",
+        taskRetryCount: taskGeneration!.retryCount,
+        taskCorrelationId: taskGeneration!.correlationId,
+        attemptCount: 1,
+        lastFailureCode: "LOCAL_QUEUE_FULL",
+        nextAttemptAt,
+      },
+    });
+
+    const enqueuedTaskIds: string[] = [];
+    const enqueueSpy = vi.spyOn(heavyJobQueue, "enqueueWithIdDetailed")
+      .mockImplementation((id) => {
+        enqueuedTaskIds.push(id);
+        return "full";
+      });
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date(databaseNow.getTime() + 24 * 60 * 60_000));
+    try {
+      await scheduleAiTaskExecution(
+        taskId,
+        "test-user",
+        undefined,
+        taskGeneration!.retryCount,
+        taskGeneration!.correlationId,
+      );
+      await aiTaskRoutes.dispatchDeferredAiTaskExecutions();
+
+      expect(enqueuedTaskIds).not.toContain(taskId);
+      const [stillDeferred] = await db.select().from(eventsTable)
+        .where(eq(eventsTable.id, `task-auto-execution-deferred:${taskId}`));
+      expect(stillDeferred?.type).toBe("TaskAutoExecutionDeferred");
+      expect(stillDeferred?.payload?.nextAttemptAt).toBe(nextAttemptAt);
+    } finally {
+      vi.useRealTimers();
+      enqueueSpy.mockRestore();
+    }
+  });
+
   it("retries a queue-full automatic task after capacity returns without creating a second execution", async () => {
     const projectId = await insertProject();
     projectIds.push(projectId);
