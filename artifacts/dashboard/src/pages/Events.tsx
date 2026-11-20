@@ -48,7 +48,9 @@ export default function Events() {
   const [correlationId, setCorrelationId] = useState(viewState.correlationId);
   const [searchTerm, setSearchTerm] = useState(viewState.searchTerm);
   const [page, setPage] = useState(viewState.page);
-  const [showFilters, setShowFilters] = useState(false);
+  const [showFilters, setShowFilters] = useState(() => (
+    Boolean(viewState.projectId || viewState.severity || viewState.correlationId.trim())
+  ));
   const searchInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
