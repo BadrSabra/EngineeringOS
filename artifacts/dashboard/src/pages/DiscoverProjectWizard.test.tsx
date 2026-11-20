@@ -176,20 +176,36 @@ describe('DiscoverProjectWizard Arabic findings', () => {
   it('explains where each project source comes from before the user starts scanning', () => {
     render(<DiscoverProjectWizard onClose={vi.fn()} />);
 
-    expect(screen.getByRole('group', { name: 'طرق اختيار مصدر المشروع' })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /رابط المشروع/ })).toHaveTextContent(
-      'الصق رابط HTTPS للمستودع',
-    );
-    expect(screen.getByRole('button', { name: /ملف مضغوط من جهازك/ })).toHaveTextContent(
-      'ارفع نسخة ZIP أو TAR.GZ أو TGZ',
-    );
-    expect(screen.getByRole('button', { name: /مجلد موجود على الخادم/ })).toHaveTextContent(
-      'خيار متقدم يتطلب مسار المجلد على خادم التطبيق',
-    );
+    const commonSources = screen.getByRole('group', { name: 'طرق اختيار مصدر المشروع' });
+    const advancedSources = screen.getByTestId('details-advanced-project-sources');
+    expect(commonSources).toContainElement(screen.getByTestId('source-card-GIT_REPOSITORY'));
+    expect(commonSources).toContainElement(screen.getByTestId('source-card-WORKSPACE_PROJECT'));
+    expect(commonSources).toContainElement(screen.getByTestId('source-card-ARCHIVE_UPLOAD'));
+    expect(commonSources).not.toContainElement(screen.getByTestId('source-card-LOCAL_FOLDER'));
+    expect(advancedSources).toContainElement(screen.getByTestId('source-card-LOCAL_FOLDER'));
+    expect(advancedSources).toContainElement(screen.getByTestId('source-card-REMOTE_FILESYSTEM'));
+    expect(advancedSources).toContainElement(screen.getByTestId('source-card-DOCKER_VOLUME'));
+    expect(advancedSources).not.toHaveAttribute('open');
     expect(screen.getByText(/لا يبدأ الفحص إلا بعد ضغطك/)).toBeInTheDocument();
     expect(mocks.startDiscovery).not.toHaveBeenCalled();
   });
 
+  it('opens advanced source choices only when requested and keeps unavailable sources disabled', () => {
+    render(<DiscoverProjectWizard onClose={vi.fn()} />);
+
+    const advancedSources = screen.getByTestId('details-advanced-project-sources');
+    expect(advancedSources).not.toHaveAttribute('open');
+    fireEvent.click(screen.getByText('خيارات متقدمة'));
+    expect(advancedSources).toHaveAttribute('open');
+
+    const localFolder = screen.getByTestId('source-card-LOCAL_FOLDER');
+    fireEvent.click(localFolder);
+
+    expect(localFolder).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.getByPlaceholderText('/path/to/your/project')).toBeInTheDocument();
+    expect(screen.getByTestId('source-card-REMOTE_FILESYSTEM')).toBeDisabled();
+    expect(screen.getByTestId('source-card-DOCKER_VOLUME')).toBeDisabled();
+  });
   it('exposes the selected source and updates it without starting a scan', () => {
     render(<DiscoverProjectWizard onClose={vi.fn()} />);
 
