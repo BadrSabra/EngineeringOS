@@ -156,6 +156,7 @@ export default function Graph() {
   const [selectedProjectId, setSelectedProjectId] = useState('');
   const [selectedEntity, setSelectedEntity] = useState<{ projectId: string; id: string } | null>(null);
   const [searchTerm, setSearchTerm] = useState('');
+  const normalizedSearchTerm = searchTerm.trim().toLowerCase();
   const [detailTab, setDetailTab] = useState<'relations' | 'impact'>('relations');
   const [impactExpanded, setImpactExpanded] = useState(false);
 
@@ -259,9 +260,14 @@ export default function Graph() {
   }, [entities]);
 
   const filteredEntities = useMemo(
-    () => entities.filter((e) => e.name.toLowerCase().includes(searchTerm.toLowerCase())),
-    [entities, searchTerm],
+    () => entities.filter((e) => e.name.toLowerCase().includes(normalizedSearchTerm)),
+    [entities, normalizedSearchTerm],
   );
+  const searchMatchIds = useMemo(
+    () => new Set(filteredEntities.map((entity) => entity.id)),
+    [filteredEntities],
+  );
+  const hasSearchMatches = normalizedSearchTerm.length > 0 && searchMatchIds.size > 0;
 
   function nodeRadius(e: GraphEntity) {
     if (e.id === selectedEntityId) return 12;
@@ -270,13 +276,17 @@ export default function Graph() {
   }
 
   function nodeOpacity(e: GraphEntity) {
-    if (!selectedEntityId) return 1;
     if (e.id === selectedEntityId) return 1;
+    if (hasSearchMatches) return searchMatchIds.has(e.id) ? 1 : 0.12;
+    if (!selectedEntityId) return 1;
     if (neighborIds.has(e.id) || impactedIds.has(e.id)) return 0.9;
     return 0.18;
   }
 
   function edgeOpacity(r: GraphRelationship) {
+    if (hasSearchMatches) {
+      return searchMatchIds.has(r.sourceId) || searchMatchIds.has(r.targetId) ? 0.85 : 0.04;
+    }
     if (!selectedEntityId) return 0.25;
     if (connectedRelIds.has(r.id)) return 0.85;
     return 0.05;
@@ -326,6 +336,22 @@ export default function Graph() {
           </div>
         </div>
       </div>
+      {normalizedSearchTerm && (
+        <p
+          role="status"
+          aria-live="polite"
+          data-testid="graph-search-status"
+          className="shrink-0 text-xs text-muted-foreground"
+        >
+          {hasSearchMatches ? (
+            <>
+              أُبرزت <bdi dir="ltr">{filteredEntities.length}</bdi> نتيجة وروابطها على الخريطة؛ بقيت بقية العناصر ظاهرة.
+            </>
+          ) : (
+            'لا توجد نتائج مطابقة؛ بقيت الخريطة كاملة.'
+          )}
+        </p>
+      )}
 
       {projectsLoading ? (
         <div className="rounded-xl border border-border bg-card p-8 text-center text-sm text-muted-foreground animate-pulse">
@@ -509,6 +535,7 @@ export default function Graph() {
                   return (
                     <line
                       key={r.id}
+                      data-testid={`graph-edge-${r.id}`}
                       x1={src.x} y1={src.y}
                       x2={tgt.x} y2={tgt.y}
                       stroke={isImpact ? '#f59e0b' : isConnected ? '#6366f1' : '#94a3b8'}
@@ -533,6 +560,7 @@ export default function Graph() {
                   return (
                     <g
                       key={e.id}
+                      data-testid={`graph-node-${e.id}`}
                       transform={`translate(${pos.x},${pos.y})`}
                       onClick={(ev) => { ev.stopPropagation(); selectEntity(e.id === selectedEntityId ? '' : e.id); setDetailTab('relations'); }}
                       style={{ cursor: 'pointer', opacity: nodeOpacity(e) }}
