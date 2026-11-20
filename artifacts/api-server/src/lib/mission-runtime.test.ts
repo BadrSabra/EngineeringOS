@@ -815,9 +815,9 @@ async function contendWithMissionThenGoalLock(params: {
 }
 
 describe("Mission goal runtime", () => {
-  it("rejects a stale approval binding after the active plan changes while runtime waits for the Mission lock", async () => {
+  it("rejects a replaced approval event binding while runtime waits for the Mission lock", async () => {
     const planRevision = "a".repeat(64);
-    const rotatedPlanRevision = "b".repeat(64);
+    const rotatedApprovalEventId = randomUUID();
     const stepId = "approved-step";
     const taskId = randomUUID();
     const approvalEventId = randomUUID();
@@ -900,13 +900,36 @@ describe("Mission goal runtime", () => {
     const allowRevisionCommit = new Promise<void>((resolve) => {
       releaseRevision = resolve;
     });
-    const revisionRotation = db.transaction(async (tx) => {
-      await tx.update(aiMissionsTable)
+    const approvalRotation = db.transaction(async (tx) => {
+      await tx.select({ id: aiMissionsTable.id })
+        .from(aiMissionsTable)
+        .where(eq(aiMissionsTable.id, fixture.missionId))
+        .for("update");
+      await tx.update(aiGoalsTable)
         .set({
-          autonomyPolicy: { activePlanRevision: rotatedPlanRevision },
+          outcomeContract: {
+            stepId,
+            planRevision: {
+              hash: planRevision,
+              steps: [{
+                id: stepId,
+                kind: "execute",
+                approvalRequired: true,
+                readOnly: false,
+                files: ["README.md"],
+              }],
+            },
+            planApproval: {
+              kind: "mission_plan_step",
+              state: "APPROVED",
+              approvalEventId: rotatedApprovalEventId,
+              planRevision,
+              stepId,
+            },
+          },
           updatedAt: new Date(),
         })
-        .where(eq(aiMissionsTable.id, fixture.missionId));
+        .where(eq(aiGoalsTable.id, fixture.goalId));
       acquiredMissionLock();
       await allowRevisionCommit;
     });
@@ -925,14 +948,14 @@ describe("Mission goal runtime", () => {
         stepId,
       },
     });
-    const waitedForRevision = await Promise.race([
+    const waitedForApproval = await Promise.race([
       runPromise.then(() => false),
       new Promise<boolean>((resolve) => setTimeout(() => resolve(true), 100)),
     ]);
     releaseRevision();
-    await revisionRotation;
+    await approvalRotation;
 
-    expect(waitedForRevision).toBe(true);
+    expect(waitedForApproval).toBe(true);
     await expect(runPromise).resolves.toMatchObject({
       status: "conflict",
       goalId: fixture.goalId,
