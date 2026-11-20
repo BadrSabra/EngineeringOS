@@ -7,10 +7,12 @@ import {
   eventsTable,
   projectBootstrapJobsTable,
   projectsTable,
+  scanJobsTable,
 } from "@workspace/db";
 import { and, eq, gt, lt, lte, sql } from "drizzle-orm";
 import type { ProjectBootstrapJob } from "@workspace/db";
 import { heavyJobQueue } from "./job-queue.js";
+import { runScanJob } from "./scan-runner.js";
 import { logger } from "./logger.js";
 import { recordAuditInTransaction } from "./audit.js";
 import { establishProjectRoot } from "./project-root.js";
@@ -371,13 +373,14 @@ function startHeartbeat(
   }, PROJECT_BOOTSTRAP_HEARTBEAT_MS);
 }
 
-async function commitCreatedProject(params: {
+export async function commitCreatedProject(params: {
   job: ProjectBootstrapJob;
   workerId: string;
   canonicalRootPath: string;
-}): Promise<string> {
+}): Promise<{ projectId: string; scanJobId: string }> {
   const now = new Date();
   const projectId = randomUUID();
+  const scanJobId = randomUUID();
   const correlationId = randomUUID();
   await db.transaction(async (tx) => {
     const [created] = await tx
@@ -390,7 +393,9 @@ async function commitCreatedProject(params: {
         rootPath: params.canonicalRootPath,
         language: "TypeScript",
         framework: "React/Vite",
-        status: "active",
+        // A bootstrapped project is not ready for analysis until its first
+        // durable scan has been admitted in this same transaction.
+        status: "scanning",
         createdAt: now,
         updatedAt: now,
       })
@@ -413,6 +418,27 @@ async function commitCreatedProject(params: {
       stateAfter: created,
       correlationId,
     });
+
+    // Persist the first scan together with the project. The normal durable
+    // scan dispatcher can recover this row after a crash or when local queue
+    // capacity is temporarily exhausted; no second endpoint or client retry
+    // is required to make the new project analyzable.
+    await tx.insert(scanJobsTable).values({
+      id: scanJobId,
+      projectId,
+      status: "queued",
+      createdAt: now,
+    });
+    await tx.insert(eventsTable).values({
+      id: randomUUID(),
+      type: "ProjectScanQueued",
+      projectId,
+      severity: "info",
+      message: "Initial scan queued after project bootstrap",
+      payload: { jobId: scanJobId, trigger: "project_bootstrap" },
+      correlationId: scanJobId,
+    });
+
     const [completed] = await tx
       .update(projectBootstrapJobsTable)
       .set({
@@ -438,7 +464,29 @@ async function commitCreatedProject(params: {
     if (!completed) throw new ProjectBootstrapLeaseLost();
   });
   invalidateContextCache(projectId);
-  return projectId;
+
+  // Fast path: dispatch immediately on this API instance. If the bounded
+  // queue declines the closure (for example, under load), the committed
+  // scan_jobs row remains queued and the durable dispatcher will pick it up.
+  try {
+    const enqueued = heavyJobQueue.enqueueWithId(
+      scanJobId,
+      () => runScanJob(scanJobId, projectId),
+    );
+    if (!enqueued) {
+      logger.info(
+        { bootstrapId: params.job.id, projectId, scanJobId },
+        "initial project scan remains queued for durable dispatch",
+      );
+    }
+  } catch (error) {
+    logger.warn(
+      { error, bootstrapId: params.job.id, projectId, scanJobId },
+      "initial project scan could not enter the local queue; durable dispatch will retry",
+    );
+  }
+
+  return { projectId, scanJobId };
 }
 
 async function finishFailedAttempt(params: {
@@ -501,14 +549,14 @@ export async function runProjectBootstrapJob(jobId: string): Promise<void> {
         false,
       );
     }
-    const projectId = await commitCreatedProject({
+    const { projectId, scanJobId } = await commitCreatedProject({
       job,
       workerId,
       canonicalRootPath: rootResult.canonicalPath,
     });
     logger.info(
-      { bootstrapId: job.id, projectId, attempt: job.attempt },
-      "Project bootstrap completed",
+      { bootstrapId: job.id, projectId, scanJobId, attempt: job.attempt },
+      "Project bootstrap completed and initial scan queued",
     );
   } catch (error) {
     if (rootWasMaterialized || rootPath) {
