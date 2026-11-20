@@ -644,16 +644,19 @@ router.post("/tasks/:taskId/execute", async (req, res) => {
 
     const blockers = await getTaskDependencyBlockers(tx, lockedTask);
     if (blockers.length > 0) {
-      const persisted = blockers.every(
-        (blocker) => blocker.reason === "dependency_not_completed",
-      ) && await persistDeferredTaskVerificationIntent(tx, {
-        taskId,
-        userId: req.userId,
-        retryCount: lockedTask.retryCount,
-        taskCorrelationId: lockedTask.correlationId,
-        originalStatus: lockedTask.status as "pending" | "queued",
-        blockers,
-      });
+      const deferableStatus = lockedTask.status === "pending" || lockedTask.status === "queued"
+        ? lockedTask.status
+        : null;
+      const persisted = deferableStatus !== null
+        && blockers.every((blocker) => blocker.reason === "dependency_not_completed")
+        && await persistDeferredTaskVerificationIntent(tx, {
+          taskId,
+          userId: req.userId,
+          retryCount: lockedTask.retryCount,
+          taskCorrelationId: lockedTask.correlationId,
+          originalStatus: deferableStatus,
+          blockers,
+        });
       return persisted
         ? { kind: "deferred" as const, task: lockedTask, blockers }
         : { kind: "blocked" as const, blockers };
