@@ -294,4 +294,30 @@ describe('Graph', () => {
     fireEvent.click(screen.getByRole('button', { name: 'source.ts' }));
     expect(screen.getByText('src/source.ts', { exact: true })).toHaveAttribute('dir', 'ltr');
   });
+
+  it('explains graph summary numbers without presenting them as a quality score', () => {
+    vi.mocked(useGetGraphSummary).mockReturnValue({
+      data: {
+        projectId: project.id,
+        entityCount: 2,
+        relationshipCount: 1,
+        entitiesByType: { file: 1, function: 1 },
+        relationsByType: { calls: 1 },
+        topConnected: [],
+        avgDegree: 1,
+        isolatedCount: 1,
+        clusterCount: 1,
+      },
+    } as ReturnType<typeof useGetGraphSummary>);
+    render(<Graph />);
+
+    expect(screen.getByText('ملخص الخريطة')).toBeInTheDocument();
+    expect(screen.getByText('عناصر مكتشفة')).toBeInTheDocument();
+    expect(screen.getByText('روابط بين العناصر')).toBeInTheDocument();
+    expect(screen.getByText('مجموعات مترابطة')).toBeInTheDocument();
+    expect(screen.getByText('متوسط الروابط لكل عنصر')).toBeInTheDocument();
+    expect(screen.getByTestId('graph-summary-explanation'))
+      .toHaveTextContent('ولا تمثل تقييمًا لجودة المشروع.');
+    expect(screen.getByText('عناصر بلا روابط ظاهرة:')).toBeInTheDocument();
+  });
 });

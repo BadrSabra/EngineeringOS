@@ -397,29 +397,35 @@ export default function Graph() {
                ) : summary && (
             <div className="border-t border-border pt-3 mb-4 space-y-2">
               <h3 className="font-semibold text-xs uppercase tracking-wider text-muted-foreground mb-2 flex items-center gap-1.5">
-                <GitMerge className="w-3.5 h-3.5" /> إحصاءات الرسم البياني
+                <GitMerge className="w-3.5 h-3.5" /> ملخص الخريطة
               </h3>
               <div className="grid grid-cols-2 gap-2 text-xs">
                 <div className="bg-secondary/50 rounded-lg p-2 text-center">
                   <div className="font-mono font-bold text-lg text-primary">{summary.entityCount}</div>
-                  <div className="text-muted-foreground">الكيانات</div>
+                  <div className="text-muted-foreground">عناصر مكتشفة</div>
                 </div>
                 <div className="bg-secondary/50 rounded-lg p-2 text-center">
                   <div className="font-mono font-bold text-lg text-primary">{summary.relationshipCount}</div>
-                  <div className="text-muted-foreground">العلاقات</div>
+                  <div className="text-muted-foreground">روابط بين العناصر</div>
                 </div>
                 <div className="bg-secondary/50 rounded-lg p-2 text-center">
                   <div className="font-mono font-bold text-lg">{summary.clusterCount}</div>
-                  <div className="text-muted-foreground">المجموعات</div>
+                  <div className="text-muted-foreground">مجموعات مترابطة</div>
                 </div>
                 <div className="bg-secondary/50 rounded-lg p-2 text-center">
                   <div className="font-mono font-bold text-lg">{summary.avgDegree.toFixed(1)}</div>
-                  <div className="text-muted-foreground">متوسط الدرجة</div>
+                  <div className="text-muted-foreground">متوسط الروابط لكل عنصر</div>
                 </div>
               </div>
+              <p
+                data-testid="graph-summary-explanation"
+                className="text-[11px] leading-relaxed text-muted-foreground"
+              >
+                تلخص هذه الأرقام ما استخرجه الفحص من الملفات، ولا تمثل تقييمًا لجودة المشروع.
+              </p>
               {summary.isolatedCount > 0 && (
                 <div className="text-xs text-muted-foreground bg-secondary/30 rounded px-2 py-1">
-                  {summary.isolatedCount} عقدة معزولة
+                  عناصر بلا روابط ظاهرة: <bdi dir="ltr">{summary.isolatedCount}</bdi>
                 </div>
               )}
             </div>
