@@ -130,6 +130,45 @@ describe('Rules actions', () => {
     }
   });
 
+  it('generates a unique rule code so creating a rule needs one fewer manual field', () => {
+    renderRulesPage();
+    fireEvent.click(screen.getByRole('button', { name: 'قاعدة جديدة' }));
+
+    const codeInput = screen.getByTestId('input-new-rule-code');
+    const generatedCode = (codeInput as HTMLInputElement).value;
+    expect(generatedCode).toMatch(/^RULE-[0-9A-F]{20}$/);
+    expect(screen.getByText('أنشأنا رمزًا فريدًا لك؛ يمكنك تغييره إذا احتجت.')).toBeInTheDocument();
+
+    fireEvent.change(screen.getByPlaceholderText('مثال: منع حقن SQL في الاستعلامات'), {
+      target: { value: 'مراجعة استخدام eval' },
+    });
+    fireEvent.change(screen.getByTestId('input-rule-pattern'), {
+      target: { value: 'eval\\(' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'إنشاء القاعدة' }));
+
+    expect(mocks.mutations.create.mutate).toHaveBeenCalledWith(
+      {
+        data: expect.objectContaining({
+          code: generatedCode,
+          title: 'مراجعة استخدام eval',
+          pattern: 'eval\\(',
+        }),
+      },
+      expect.objectContaining({ onSuccess: expect.any(Function) }),
+    );
+
+    const [, callbacks] = mocks.mutations.create.mutate.mock.calls[0] as [
+      unknown,
+      { onSuccess: () => void },
+    ];
+    act(() => callbacks.onSuccess());
+    fireEvent.click(screen.getByRole('button', { name: 'قاعدة جديدة' }));
+    const nextCode = (screen.getByTestId('input-new-rule-code') as HTMLInputElement).value;
+    expect(nextCode).toMatch(/^RULE-[0-9A-F]{20}$/);
+    expect(nextCode).not.toBe(generatedCode);
+  });
+
   it('edits supported fields through the generated update contract', async () => {
     const { invalidateQueries } = renderRulesPage();
     expandRule();

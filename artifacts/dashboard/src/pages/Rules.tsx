@@ -36,6 +36,10 @@ const SEVERITY_ORDER: Record<string, number> = {
   info: 4,
 };
 
+function createRuleCode(): string {
+  return `RULE-${globalThis.crypto.randomUUID().replace(/-/g, '').slice(0, 20).toUpperCase()}`;
+}
+
 export default function Rules() {
   const queryClient = useQueryClient();
   const [filterSeverity, setFilterSeverity] = useState<RuleSeverity | ''>('');
@@ -64,6 +68,14 @@ export default function Rules() {
   );
 
   const createRule = useCreateRule();
+
+  function openCreateForm() {
+    setNewRule((current) => ({
+      ...current,
+      code: current.code || createRuleCode(),
+    }));
+    setShowCreate(true);
+  }
 
   const visibleRules = useMemo(() => {
     if (!rules) return [];
@@ -169,7 +181,8 @@ export default function Rules() {
           </div>
           <RefreshButton onRefresh={refetch} isRefreshing={isRefetching} lastUpdated={dataUpdatedAt} label="تحديث القواعد" refreshingLabel="جارٍ التحديث…" updatedLabel="آخر تحديث:" />
           <button
-            onClick={() => setShowCreate(true)}
+            type="button"
+            onClick={openCreateForm}
             className="bg-primary hover:bg-primary/90 text-primary-foreground px-4 py-2 rounded-md font-medium text-sm flex items-center gap-2 shadow-sm transition-colors"
           >
             <Plus className="w-4 h-4" /> قاعدة جديدة
@@ -248,15 +261,21 @@ export default function Rules() {
                 />
               </div>
               <div className="space-y-1.5">
-              <label className="text-xs font-medium text-muted-foreground uppercase tracking-wider">رمز القاعدة</label>
+              <label htmlFor="new-rule-code" className="text-xs font-medium text-muted-foreground uppercase tracking-wider">رمز القاعدة</label>
                 <input
+                  id="new-rule-code"
+                  data-testid="input-new-rule-code"
+                  aria-describedby="new-rule-code-help"
                   required
                   value={newRule.code}
                   onChange={(e) => setNewRule({ ...newRule, code: e.target.value })}
                   className="w-full bg-secondary border border-border rounded-md px-3 py-2 text-sm font-mono focus:border-primary focus:outline-none"
-                placeholder="SEC-001"
+                placeholder="يُنشأ تلقائيًا"
                 dir="ltr"
                 />
+                <p id="new-rule-code-help" className="text-[11px] text-muted-foreground">
+                  أنشأنا رمزًا فريدًا لك؛ يمكنك تغييره إذا احتجت.
+                </p>
               </div>
             </div>
             <div className="space-y-1.5">
@@ -381,7 +400,8 @@ export default function Rules() {
             </p>
             {!(searchTerm || filterSeverity) && (
               <button
-                onClick={() => setShowCreate(true)}
+                type="button"
+                onClick={openCreateForm}
                 className="bg-primary text-primary-foreground px-4 py-2 rounded-md font-medium text-sm flex items-center gap-2"
               >
                 <Plus className="w-4 h-4" /> أنشئ أول قاعدة
