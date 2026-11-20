@@ -112,7 +112,7 @@ describe("recovery: jobs with expired leases after crash", () => {
     );
   });
 
-  it("a discovering session with an expired lease is marked error on recovery", async () => {
+  it("fails closed for an expired Discovery lease backed by a temporary Git checkout", async () => {
     const sessionId = randomUUID();
     sessionCleanup.push(sessionId);
 
@@ -120,6 +120,7 @@ describe("recovery: jobs with expired leases after crash", () => {
       id: sessionId,
       ownerId: "recovery-test-user",
       rootPath: `/tmp/discovery-${sessionId}`,
+      sourceType: "GIT_REPOSITORY",
       status: "discovering",
       workerId: randomUUID(),
       leaseUntil: new Date(Date.now() - 1_000),
@@ -134,6 +135,9 @@ describe("recovery: jobs with expired leases after crash", () => {
       .from(discoverySessionsTable)
       .where(eq(discoverySessionsTable.id, sessionId));
     expect(row.status).toBe("error");
+    expect(row.error).toContain("temporary or unsupported root");
+    expect(row.recoveryAttempts).toBe(0);
+    expect(row.completedAt).not.toBeNull();
     expect(row.workerId).toBeNull();
   });
 
