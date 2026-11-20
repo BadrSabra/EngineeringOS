@@ -55,6 +55,7 @@ import { MissionCapsule } from '@/components/MissionCapsule';
 import { resolveExecutionProofPresentation } from '@/lib/execution-proof-presentation';
 import { executionChatHref } from '@/lib/execution-chat-link';
 import { isTaskFollowUpCandidate } from '@/lib/task-follow-up-filter';
+import { shouldPollTaskDispatchList } from '@/lib/task-dispatch-polling';
 
 // ─── Task logs sub-component ──────────────────────────────────────────────────
 // Separated so the hook always runs unconditionally within the mounted component.
@@ -1674,6 +1675,10 @@ function TasksSession({
       query: {
         queryKey: getListTasksQueryKey(listParams),
         enabled: Boolean(projectId),
+        // The list should follow durable dispatch progress without polling idle Tasks.
+        refetchInterval: (query) => (
+          shouldPollTaskDispatchList(query.state.data) ? 5_000 : false
+        ),
       },
     },
   );
