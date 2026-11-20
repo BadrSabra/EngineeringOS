@@ -2040,16 +2040,23 @@ describe("Mission goal runtime", () => {
       userId: "test-user",
       trigger: "activation",
     });
-    expect(await replayPendingMissionEvents()).toBe(1);
+    // Entering the event wait drains only this Goal's durable inbox. A global
+    // periodic replay is no longer needed for this normal transition.
     expect(await replayPendingMissionEvents()).toBe(0);
 
     const [goal] = await db
       .select({ status: aiGoalsTable.status, nextAction: aiGoalsTable.nextAction })
       .from(aiGoalsTable)
       .where(eq(aiGoalsTable.id, waiting.goalId));
+    const [inboxEvent] = await db.select({ payload: eventsTable.payload })
+      .from(eventsTable).where(eq(eventsTable.id, event.eventId));
     expect(goal).toMatchObject({
       status: "needs_replan",
       nextAction: { kind: "replan" },
+    });
+    expect(inboxEvent?.payload).toMatchObject({
+      missionEvent: event,
+      processedAt: expect.any(String),
     });
     await expect(receiveMissionEvent(event)).resolves.toMatchObject({
       persisted: true,
@@ -2109,7 +2116,7 @@ describe("Mission goal runtime", () => {
       trigger: "activation",
     });
 
-    expect(await replayPendingMissionEvents(1)).toBe(1);
+    expect(await replayPendingMissionEvents(1)).toBe(0);
     const [pendingGoal] = await db
       .select({ status: aiGoalsTable.status })
       .from(aiGoalsTable)
@@ -2187,7 +2194,7 @@ describe("Mission goal runtime", () => {
       userId: "test-user",
       trigger: "activation",
     });
-    expect(await replayPendingMissionEvents()).toBe(1);
+    expect(await replayPendingMissionEvents()).toBe(0);
 
     const [originalAfterReplay] = await db
       .select({ status: aiGoalsTable.status })

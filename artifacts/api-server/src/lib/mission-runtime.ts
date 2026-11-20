@@ -2611,6 +2611,7 @@ export async function runMissionGoal(params: {
   };
 }): Promise<MissionGoalRunResult> {
   let taskDispatchGeneration: { retryCount: number; correlationId: string | null } | undefined;
+  let eventWaitGoalId: string | undefined;
   const decision = await db.transaction(async (tx): Promise<MissionGoalRunResult> => {
     const recordActionEffect = async <T extends MissionGoalRunResult>(run: T): Promise<T> => {
       if (
@@ -3310,6 +3311,7 @@ export async function runMissionGoal(params: {
           updatedAt: new Date(),
         })
         .where(eq(aiGoalsTable.id, goal.id));
+      if (action.reason === "event") eventWaitGoalId = goal.id;
       return { status: "waiting" as const, goalId: goal.id };
     }
 
@@ -3566,6 +3568,22 @@ export async function runMissionGoal(params: {
     }
     return decision;
   });
+
+  if (eventWaitGoalId) {
+    try {
+      // The wait transition is committed now. Replay only this Goal's durable
+      // inbox rows; wakeMissionGoalsForEvent rechecks the event and plan under
+      // the existing Mission/Goal locks before requesting a replan.
+      await replayPendingMissionEvents(32, undefined, eventWaitGoalId);
+    } catch (error) {
+      // The inbox remains durable and the periodic reconciler is the recovery
+      // path when this best-effort, post-commit wake cannot run.
+      logger.warn({
+        error,
+        goalId: eventWaitGoalId,
+      }, "Early Mission events could not be replayed after the Goal entered its event wait");
+    }
+  }
 
   if (decision.recipeDispatch && decision.status === "scheduled" && !decision.executionId) {
     heavyJobQueue.enqueueWithId(decision.recipeDispatch.operationId, async () => {
@@ -4352,6 +4370,7 @@ export async function receiveMissionEvent(event: MissionEventEnvelope): Promise<
 export async function replayPendingMissionEvents(
   limit = 32,
   scopeProjectId?: string,
+  scopeGoalId?: string,
 ): Promise<number> {
   const rows = await db
     .select({
@@ -4365,6 +4384,7 @@ export async function replayPendingMissionEvents(
       sql`${eventsTable.payload}->'missionEvent' IS NOT NULL`,
       sql`${eventsTable.payload}->>'processedAt' IS NULL`,
       scopeProjectId ? eq(eventsTable.projectId, scopeProjectId) : undefined,
+      scopeGoalId ? eq(eventsTable.goalId, scopeGoalId) : undefined,
     ))
     .orderBy(eventsTable.timestamp, eventsTable.id)
     .limit(Math.max(1, Math.min(limit, 100)));
@@ -4374,6 +4394,7 @@ export async function replayPendingMissionEvents(
     const stored = storedMissionEvent(row.payload);
     if (!stored?.envelope || stored.processedAt) continue;
     if (scopeProjectId && stored.envelope.projectId !== scopeProjectId) continue;
+    if (scopeGoalId && stored.envelope.goalId !== scopeGoalId) continue;
     const woken = await wakeMissionGoalsForEvent(stored.envelope);
     if (woken === 0) continue;
     await db.update(eventsTable)
