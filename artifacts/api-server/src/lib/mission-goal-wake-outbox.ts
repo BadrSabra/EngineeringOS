@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { and, asc, eq, inArray, or, sql } from "drizzle-orm";
 import {
   aiGoalsTable,
@@ -16,6 +17,7 @@ export const MISSION_GOAL_WAKE_SUPERSEDED = "MissionGoalWakeSuperseded";
 export const MISSION_GOAL_WAKE_DEAD_LETTER = "MissionGoalWakeDeadLetter";
 
 export const MAX_MISSION_GOAL_WAKE_ATTEMPTS = 8;
+export const MISSION_GOAL_WAKE_DISPATCH_LEASE_MS = 10 * 60_000;
 const MIN_RETRY_DELAY_MS = 10_000;
 const MAX_RETRY_DELAY_MS = 5 * 60_000;
 
@@ -31,6 +33,13 @@ type MissionGoalWakePayload = {
   dispatchedAt?: string;
   wokenDependents?: number;
 };
+
+export type MissionGoalWakeDispatchLeaseClaim =
+  | { acquired: true; token: string; expiresAt: string }
+  | {
+      acquired: false;
+      reason: "intent_not_pending" | "retry_not_due" | "already_leased";
+    };
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value && typeof value === "object" && !Array.isArray(value));
@@ -123,24 +132,100 @@ async function readDatabaseNow(): Promise<Date | null> {
   return raw && Number.isFinite(value.getTime()) ? value : null;
 }
 
+/**
+ * Claim a pending Mission Goal wake before doing any dispatch work. The row
+ * lock makes the claim exclusive across API replicas; the expiry makes it
+ * recoverable after a process exits without releasing its lease.
+ */
+export async function claimMissionGoalWakeDispatchLease(
+  tx: MissionGoalWakeOutboxTransaction,
+  input: { intentId: string },
+): Promise<MissionGoalWakeDispatchLeaseClaim> {
+  const [intent] = await tx.select({
+    type: eventsTable.type,
+    payload: eventsTable.payload,
+  }).from(eventsTable)
+    .where(eq(eventsTable.id, input.intentId))
+    .for("update")
+    .limit(1);
+
+  if (
+    !intent
+    || ![MISSION_GOAL_WAKE_REQUESTED, MISSION_GOAL_WAKE_DEFERRED].includes(intent.type)
+  ) {
+    return { acquired: false, reason: "intent_not_pending" };
+  }
+
+  const clockResult = await tx.execute(sql`SELECT clock_timestamp() AS now`);
+  const rawNow = (clockResult.rows as Array<{ now: Date | string }>)[0]?.now;
+  const now = rawNow instanceof Date ? rawNow : new Date(String(rawNow ?? ""));
+  if (!rawNow || !Number.isFinite(now.getTime())) {
+    return { acquired: false, reason: "intent_not_pending" };
+  }
+
+  const payload = isRecord(intent.payload) ? intent.payload : {};
+  const retryAt = typeof payload.nextAttemptAt === "string"
+    ? Date.parse(payload.nextAttemptAt)
+    : Number.NaN;
+  if (Number.isFinite(retryAt) && retryAt > now.getTime()) {
+    return { acquired: false, reason: "retry_not_due" };
+  }
+
+  const currentLease = isRecord(payload.dispatchLease) ? payload.dispatchLease : undefined;
+  const leaseExpiry = typeof currentLease?.expiresAt === "string"
+    ? Date.parse(currentLease.expiresAt)
+    : Number.NaN;
+  if (Number.isFinite(leaseExpiry) && leaseExpiry > now.getTime()) {
+    return { acquired: false, reason: "already_leased" };
+  }
+
+  const token = randomUUID();
+  const expiresAt = new Date(
+    now.getTime() + MISSION_GOAL_WAKE_DISPATCH_LEASE_MS,
+  ).toISOString();
+  await tx.update(eventsTable)
+    .set({
+      payload: {
+        ...payload,
+        dispatchLease: { token, expiresAt },
+      },
+    })
+    .where(eq(eventsTable.id, input.intentId));
+
+  return { acquired: true, token, expiresAt };
+}
+
 async function markWakeIntent(
   id: string,
   expectedTypes: string[],
   type: string,
   payload: Record<string, unknown>,
   message: string,
+  dispatchLeaseToken: string,
 ): Promise<boolean> {
+  const payloadWithoutLease = { ...payload };
+  delete payloadWithoutLease.dispatchLease;
   const [updated] = await db.update(eventsTable)
-    .set({ type, payload, message, timestamp: await readDatabaseNow() ?? new Date() })
+    .set({
+      type,
+      payload: payloadWithoutLease,
+      message,
+      timestamp: await readDatabaseNow() ?? new Date(),
+    })
     .where(and(
       eq(eventsTable.id, id),
       inArray(eventsTable.type, expectedTypes),
+      sql`${eventsTable.payload}->'dispatchLease'->>'token' = ${dispatchLeaseToken}`,
     ))
     .returning({ id: eventsTable.id });
   return Boolean(updated);
 }
 
-async function deferWakeIntent(id: string, error: unknown): Promise<void> {
+async function deferWakeIntent(
+  id: string,
+  error: unknown,
+  dispatchLeaseToken: string,
+): Promise<void> {
   await db.transaction(async (tx) => {
     const [row] = await tx.select({
       type: eventsTable.type,
@@ -152,6 +237,12 @@ async function deferWakeIntent(id: string, error: unknown): Promise<void> {
     if (!row || ![MISSION_GOAL_WAKE_REQUESTED, MISSION_GOAL_WAKE_DEFERRED].includes(row.type)) {
       return;
     }
+    const currentPayload = isRecord(row.payload) ? row.payload : undefined;
+    const currentLease = currentPayload && isRecord(currentPayload.dispatchLease)
+      ? currentPayload.dispatchLease
+      : undefined;
+    // An expired worker must never defer a newer dispatcher's intent.
+    if (currentLease?.token !== dispatchLeaseToken) return;
     // Read PostgreSQL time through the transaction's own connection. A
     // nested global-pool query here could deadlock when the pool is saturated.
     const clockResult = await tx.execute(sql`SELECT clock_timestamp() AS now`);
@@ -202,6 +293,20 @@ async function deferWakeIntent(id: string, error: unknown): Promise<void> {
  * idempotent. The outbox row is acknowledged only after both finish.
  */
 export async function dispatchMissionGoalWakeIntent(id: string): Promise<boolean> {
+  let lease: MissionGoalWakeDispatchLeaseClaim;
+  try {
+    lease = await db.transaction((tx) => claimMissionGoalWakeDispatchLease(tx, {
+      intentId: id,
+    }));
+  } catch (error) {
+    logger.warn(
+      { intentId: id, failureCode: safeFailureCode(error) },
+      "Mission Goal wake lease could not be acquired; durable intent remains pending",
+    );
+    return false;
+  }
+  if (!lease.acquired) return false;
+
   let intent: {
     id: string;
     type: string;
@@ -220,7 +325,7 @@ export async function dispatchMissionGoalWakeIntent(id: string): Promise<boolean
       .where(eq(eventsTable.id, id))
       .limit(1);
   } catch (error) {
-    await deferWakeIntent(id, error);
+    await deferWakeIntent(id, error, lease.token);
     logger.warn(
       { intentId: id, failureCode: safeFailureCode(error) },
       "Mission Goal wake intent could not be loaded; durable retry scheduled",
@@ -235,7 +340,7 @@ export async function dispatchMissionGoalWakeIntent(id: string): Promise<boolean
   try {
     const payload = parsePayload(intent.payload);
     if (!payload || !intent.goalId || intent.goalId !== payload.goalId) {
-      await deferWakeIntent(id, new Error("INVALID_MISSION_GOAL_WAKE_PAYLOAD"));
+      await deferWakeIntent(id, new Error("INVALID_MISSION_GOAL_WAKE_PAYLOAD"), lease.token);
       return false;
     }
 
@@ -280,13 +385,14 @@ export async function dispatchMissionGoalWakeIntent(id: string): Promise<boolean
           reason: "goal_completion_generation_changed",
         },
         "Mission Goal wake intent was superseded by a later Goal state.",
+        lease.token,
       );
       return false;
     }
 
     const wokenDependents = await wakeReadyMissionGoals(32, intent.projectId, payload.goalId);
     await finalizeMissionPlanOutcomesAfterGoalCompletion(payload.goalId);
-    await markWakeIntent(
+    return await markWakeIntent(
       id,
       [MISSION_GOAL_WAKE_REQUESTED, MISSION_GOAL_WAKE_DEFERRED],
       MISSION_GOAL_WAKE_DISPATCHED,
@@ -296,10 +402,10 @@ export async function dispatchMissionGoalWakeIntent(id: string): Promise<boolean
         wokenDependents,
       },
       "Mission Goal wake intent was dispatched.",
+      lease.token,
     );
-    return true;
   } catch (error) {
-    await deferWakeIntent(id, error);
+    await deferWakeIntent(id, error, lease.token);
     logger.warn(
       {
         intentId: id,
@@ -340,6 +446,14 @@ export async function dispatchPendingMissionGoalWakes(
           )`,
         ),
       ),
+      // Active leases stay out of poll batches; expired/malformed leases are
+      // eligible for automatic recovery after process loss.
+      sql`(
+        ${eventsTable.payload}->'dispatchLease' IS NULL
+        OR ${eventsTable.payload}->'dispatchLease'->>'expiresAt' IS NULL
+        OR ${eventsTable.payload}->'dispatchLease'->>'expiresAt' !~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}T'
+        OR ${eventsTable.payload}->'dispatchLease'->>'expiresAt' <= ${nowIso}
+      )`,
     ))
     .orderBy(asc(eventsTable.timestamp), asc(eventsTable.id))
     .limit(Math.max(1, Math.min(limit, 100)));
