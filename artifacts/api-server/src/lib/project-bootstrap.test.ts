@@ -1,3 +1,4 @@
+import { randomUUID } from "crypto";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { and, eq, or } from "drizzle-orm";
 import {
@@ -21,7 +22,7 @@ const bootstrapJobIds: string[] = [];
 const projectIds: string[] = [];
 
 async function insertRunningBootstrapJob(leaseUntil: Date) {
-  const id = crypto.randomUUID();
+  const id = randomUUID();
   const now = new Date();
   const [job] = await db
     .insert(projectBootstrapJobsTable)
