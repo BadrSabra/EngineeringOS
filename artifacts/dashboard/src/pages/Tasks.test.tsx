@@ -273,6 +273,30 @@ describe('project-scoped task list contracts', () => {
     expect(draft.text).not.toContain('raw provider diagnostic');
   });
 
+  it('offers the project assistant from a running task detail', () => {
+    const fixture = taskListFixture();
+    vi.mocked(useListTasks).mockReturnValue({
+      ...fixture,
+      data: fixture.data?.map((task) => (
+        task.id === 'task-auth' ? { ...task, status: 'running' } : task
+      )),
+    } as ReturnType<typeof useListTasks>);
+    renderPage();
+    fireEvent.click(screen.getByRole('button', {
+      name: 'عرض تفاصيل المهمة: Repair provider authentication',
+    }));
+
+    expect(screen.getByTestId('button-task-assistant-handoff-task-auth')).toBeInTheDocument();
+    fireEvent.click(screen.getByTestId('button-task-assistant-handoff-task-auth'));
+
+    const draft = readGoalDrafts('owner-a').drafts[0];
+    expect(draft.text).toContain('فهم تقدم هذه المهمة');
+    expect(draft.text).toContain('الحالة المسجلة: قيد التنفيذ');
+    expect(draft.text).not.toContain('provider-secret-token');
+    expect(draft.text).not.toContain('sk-provider-secret');
+    expect(draft.text).not.toContain('raw provider diagnostic');
+  });
+
   it('has no axe violations in the task list and task creation dialog', async () => {
     const { container } = renderPage();
     const rules = { 'color-contrast': { enabled: false } };
