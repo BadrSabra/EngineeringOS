@@ -7648,6 +7648,14 @@ export interface GraphSummary {
   avgDegree: number;
   isolatedCount: number;
   clusterCount: number;
+  meta?: {
+    entityLimit: number;
+    relationshipLimit: number;
+    responseSizeLimit: number;
+    truncated: boolean;
+    truncatedEntities: boolean;
+    truncatedRelationships: boolean;
+  };
   layered?: LayeredGraphSummary;
 }
 
