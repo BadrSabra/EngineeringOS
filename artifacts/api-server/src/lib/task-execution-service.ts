@@ -4623,9 +4623,10 @@ export async function executeTaskLifecycle(params: {
         return { kind: "conflict" as const, errorCode: "task_state_changed" };
       }
 
-      // Revalidate dependencies at the final execution claim, not just when an
-      // outbox intent is written. This also fences already-enqueued closures
-      // and direct lifecycle callers from starting out of order.
+      // Revalidate dependencies at the final execution claim. A durable Outbox
+      // intent is only a request to retry, not authorization; this also fences
+      // already-enqueued closures and direct lifecycle callers from starting
+      // out of order.
       const dependencyBlockers = await getTaskDependencyBlockers(tx, lockedTask);
       if (dependencyBlockers.length > 0) {
         return {

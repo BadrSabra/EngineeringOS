@@ -493,6 +493,7 @@ async function clearDeferredAiTaskExecution(
 
 const MIN_AUTO_TASK_RETRY_MS = 60_000;
 const MAX_AUTO_TASK_RETRY_MS = 15 * 60_000;
+const TASK_DEPENDENCY_RECHECK_MS = 30_000;
 
 function retryDelayMs(attemptCount: number): number {
   return Math.min(
@@ -711,14 +712,17 @@ async function runAiTaskExecution(
           }
         }
         const conflictCode = lifecycle.errorCode ?? "TASK_CLAIM_CONFLICT";
+        const retryDelayMs = conflictCode === "task_dependencies_not_completed"
+          ? TASK_DEPENDENCY_RECHECK_MS
+          : requiresOperatorTaskDispatchConflict(conflictCode)
+            ? MAX_AUTO_TASK_RETRY_MS
+            : lifecycle.retryAfterMs;
         await markDeferredAiTaskExecution(
           taskId,
           retryCount,
           correlationId,
           conflictCode,
-          requiresOperatorTaskDispatchConflict(conflictCode)
-            ? MAX_AUTO_TASK_RETRY_MS
-            : lifecycle.retryAfterMs,
+          retryDelayMs,
         );
       } else {
         await clearDeferredAiTaskExecution(taskId, retryCount, correlationId);

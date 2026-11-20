@@ -205,6 +205,68 @@ describe("Task lifecycle", () => {
     expect(executions).toHaveLength(0);
   });
 
+  it("does not let a durable automatic intent bypass dependencies at the final execution claim", async () => {
+    const prerequisite = await createTask();
+    const dependent = await request(app).post("/api/tasks").send({
+      projectId: prerequisite.projectId,
+      title: "automatic-final-claim-dependent",
+      priority: "p2",
+      dependsOn: [prerequisite.taskId],
+    });
+    expect(dependent.status).toBe(201);
+    const dependentId = dependent.body.id as string;
+    await db.update(tasksTable)
+      .set({
+        status: "verifying",
+        prompt: "Run only after the prerequisite is completed",
+      })
+      .where(eq(tasksTable.id, dependentId));
+
+    const [generation] = await db.select({
+      retryCount: tasksTable.retryCount,
+      correlationId: tasksTable.correlationId,
+    }).from(tasksTable).where(eq(tasksTable.id, dependentId));
+    const persisted = await db.transaction((tx) =>
+      insertTaskAutoExecutionIntent(tx, {
+        taskId: dependentId,
+        userId: "test-user",
+        retryCount: generation!.retryCount,
+      }),
+    );
+    expect(persisted).toBe(true);
+
+    const outcome = await executeTaskLifecycle({
+      taskId: dependentId,
+      userId: "test-user",
+      provider: {} as never,
+      trigger: "automatic",
+      expectedStatuses: ["verifying"],
+      expectedRetryCount: generation!.retryCount,
+      expectedCorrelationId: generation!.correlationId,
+    });
+
+    expect(outcome).toMatchObject({
+      ok: false,
+      status: "conflict",
+      errorCode: "task_dependencies_not_completed",
+      blockedDependencies: [{
+        taskId: prerequisite.taskId,
+        reason: "dependency_not_completed",
+        status: "pending",
+      }],
+    });
+    const [task] = await db.select({ status: tasksTable.status })
+      .from(tasksTable)
+      .where(eq(tasksTable.id, dependentId));
+    expect(task?.status).toBe("verifying");
+    expect(await db.select({ id: aiExecutionsTable.id })
+      .from(aiExecutionsTable)
+      .where(eq(aiExecutionsTable.linkedTaskId, dependentId))).toHaveLength(0);
+    const [intent] = await db.select().from(eventsTable)
+      .where(eq(eventsTable.id, `task-auto-execution-deferred:${dependentId}`));
+    expect(intent?.type).toBe("TaskAutoExecutionDispatchRequested");
+  });
+
   it("blocks a task when a legacy-completed prerequisite has an incomplete ancestor", async () => {
     const deepest = await createTask();
     const middle = await request(app).post("/api/tasks").send({
@@ -287,7 +349,7 @@ describe("Task lifecycle", () => {
     expect(retained).toHaveLength(1);
   });
 
-  it("does not persist an automatic dispatch intent while task dependencies are incomplete", async () => {
+  it("persists an automatic dispatch intent while task dependencies are incomplete", async () => {
     const { projectId, taskId } = await createTask();
     await db.update(tasksTable)
       .set({ prompt: "Wait for prerequisite completion" })
@@ -313,10 +375,14 @@ describe("Task lifecycle", () => {
         retryCount: generation!.retryCount,
       }),
     );
-    expect(persistedWhileBlocked).toBe(false);
-    await expect(db.select().from(eventsTable)
-      .where(eq(eventsTable.id, `task-auto-execution-deferred:${taskId}`)))
-      .resolves.toHaveLength(0);
+    expect(persistedWhileBlocked).toBe(true);
+    const [intentWhileBlocked] = await db.select().from(eventsTable)
+      .where(eq(eventsTable.id, `task-auto-execution-deferred:${taskId}`));
+    expect(intentWhileBlocked).toMatchObject({
+      type: "TaskAutoExecutionDispatchRequested",
+      projectId,
+      taskId,
+    });
 
     await db.update(tasksTable)
       .set({ status: "completed", completedAt: new Date() })
@@ -334,7 +400,7 @@ describe("Task lifecycle", () => {
     expect(intent?.type).toBe("TaskAutoExecutionDispatchRequested");
   });
 
-  it("blocks the PATCH-to-verifying auto-dispatch path while prerequisites are incomplete", async () => {
+  it("persists and schedules PATCH-to-verifying while prerequisites are incomplete", async () => {
     const projectId = await insertProject();
     cleanupQueue.push(projectId);
     const prerequisiteId = randomUUID();
@@ -353,22 +419,40 @@ describe("Task lifecycle", () => {
       prompt: "Run the approved task",
       dependsOn: [prerequisiteId],
     });
+    const [generation] = await db.select({
+      retryCount: tasksTable.retryCount,
+      correlationId: tasksTable.correlationId,
+    }).from(tasksTable).where(eq(tasksTable.id, dependentId));
     mockScheduleAiTaskExecution.mockClear();
 
     const response = await request(app)
       .patch(`/api/tasks/${dependentId}`)
       .send({ status: "verifying" });
 
-    expect(response.status).toBe(409);
-    expect(response.body.error).toBe("task_dependencies_not_completed");
+    expect(response.status).toBe(200);
     const [task] = await db.select({ status: tasksTable.status })
       .from(tasksTable)
       .where(eq(tasksTable.id, dependentId));
-    expect(task?.status).toBe("pending");
-    await expect(db.select().from(eventsTable)
-      .where(eq(eventsTable.id, `task-auto-execution-deferred:${dependentId}`)))
-      .resolves.toHaveLength(0);
-    expect(mockScheduleAiTaskExecution).not.toHaveBeenCalled();
+    expect(task?.status).toBe("verifying");
+    const [intent] = await db.select().from(eventsTable)
+      .where(eq(eventsTable.id, `task-auto-execution-deferred:${dependentId}`));
+    expect(intent).toMatchObject({
+      type: "TaskAutoExecutionDispatchRequested",
+      projectId,
+      taskId: dependentId,
+      payload: {
+        userId: "test-user",
+        taskRetryCount: generation!.retryCount,
+        taskCorrelationId: generation!.correlationId,
+      },
+    });
+    expect(mockScheduleAiTaskExecution).toHaveBeenCalledWith(
+      dependentId,
+      "test-user",
+      undefined,
+      generation!.retryCount,
+      generation!.correlationId,
+    );
   });
 
 
