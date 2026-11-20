@@ -3900,10 +3900,15 @@ describe("Materialized Mission World Transition wake outbox", () => {
 
     // Simulate the backoff becoming due without waiting for a scheduler tick.
     await db.update(eventsTable).set({
-      payload: {
-        ...(intent!.payload ?? {}),
-        nextAttemptAt: new Date(Date.now() - 1_000).toISOString(),
-      },
+      payload: sql`jsonb_set(
+        ${eventsTable.payload},
+        '{nextAttemptAt}',
+        to_jsonb(to_char(
+          clock_timestamp() - interval '1 second',
+          'YYYY-MM-DD"T"HH24:MI:SS.US"Z"'
+        )),
+        true
+      )`,
     }).where(eq(eventsTable.id, intent!.id));
     wake.mockRestore();
 
@@ -3946,10 +3951,15 @@ describe("Materialized Mission World Transition wake outbox", () => {
     )).limit(1);
     expect(intent?.payload?.attemptCount).toBe(1);
     await db.update(eventsTable).set({
-      payload: {
-        ...(intent!.payload ?? {}),
-        nextAttemptAt: new Date(Date.now() - 1_000).toISOString(),
-      },
+      payload: sql`jsonb_set(
+        ${eventsTable.payload},
+        '{nextAttemptAt}',
+        to_jsonb(to_char(
+          clock_timestamp() - interval '1 second',
+          'YYYY-MM-DD"T"HH24:MI:SS.US"Z"'
+        )),
+        true
+      )`,
     }).where(eq(eventsTable.id, intent!.id));
 
     let releaseWake!: () => void;
@@ -4003,10 +4013,15 @@ describe("Materialized Mission World Transition wake outbox", () => {
       eq(eventsTable.type, "AiMissionWorldTransitionWakeRequested"),
     )).limit(1);
     await db.update(eventsTable).set({
-      payload: {
-        ...(intent!.payload ?? {}),
-        nextAttemptAt: new Date(Date.now() - 1_000).toISOString(),
-      },
+      payload: sql`jsonb_set(
+        ${eventsTable.payload},
+        '{nextAttemptAt}',
+        to_jsonb(to_char(
+          clock_timestamp() - interval '1 second',
+          'YYYY-MM-DD"T"HH24:MI:SS.US"Z"'
+        )),
+        true
+      )`,
     }).where(eq(eventsTable.id, intent!.id));
 
     let releaseFirstWake!: () => void;
@@ -4033,10 +4048,15 @@ describe("Materialized Mission World Transition wake outbox", () => {
       .where(eq(eventsTable.id, intent!.id)).limit(1);
     expect(typeof leased?.payload?.wakeLeaseToken).toBe("string");
     await db.update(eventsTable).set({
-      payload: {
-        ...(leased!.payload ?? {}),
-        wakeLeaseUntil: new Date(Date.now() - 1_000).toISOString(),
-      },
+      payload: sql`jsonb_set(
+        ${eventsTable.payload},
+        '{wakeLeaseUntil}',
+        to_jsonb(to_char(
+          clock_timestamp() - interval '1 second',
+          'YYYY-MM-DD"T"HH24:MI:SS.US"Z"'
+        )),
+        true
+      )`,
     }).where(eq(eventsTable.id, intent!.id));
 
     await expect(dispatchMissionWorldTransitionWakeIntent(intent!.id)).resolves.toBe(true);
