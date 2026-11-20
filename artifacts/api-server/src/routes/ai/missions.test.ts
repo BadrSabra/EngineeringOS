@@ -1657,6 +1657,83 @@ describe("AI missions and goals", () => {
     ))).toBe(true);
   });
 
+  it("wakes a current-plan Goal after an explicit queued Task action is patched", async () => {
+    const projectId = await insertProject();
+    const missionId = randomUUID();
+    const planRevision = `manual-patch-plan-${randomUUID()}`;
+    const now = new Date();
+    await db.insert(aiMissionsTable).values({
+      id: missionId,
+      projectId,
+      userId: "test-user",
+      title: "Patched Goal dispatch",
+      intent: "Wake the Mission runtime after an explicit current-plan Task action is queued",
+      status: "active",
+      scope: { kind: "project", projectId },
+      autonomyPolicy: { activePlanRevision: planRevision },
+      createdAt: now,
+      updatedAt: now,
+    });
+
+    const created = await request(app)
+      .post(`/api/ai/missions/${missionId}/goals`)
+      .send({
+        title: "Wait for Task binding",
+        planRevision,
+        successCriteria: { validator: "manual-patch" },
+        nextAction: { kind: "wait", reason: "event", wakeAt: null },
+      });
+    expect(created.status).toBe(201);
+    expect(created.body.status).toBe("waiting_for_event");
+
+    const cosmeticUpdate = await request(app)
+      .patch(`/api/ai/goals/${created.body.id}`)
+      .send({ title: "Wait for the exact Task binding" });
+    expect(cosmeticUpdate.status).toBe(200);
+    expect(cosmeticUpdate.body.status).toBe("waiting_for_event");
+    const beforeDispatch = await db.select({ id: eventsTable.id })
+      .from(eventsTable)
+      .where(and(
+        eq(eventsTable.goalId, created.body.id),
+        eq(eventsTable.type, "AiGoalDispatchRequested"),
+      ));
+    expect(beforeDispatch).toHaveLength(0);
+
+    const taskId = randomUUID();
+    await db.insert(tasksTable).values({
+      id: taskId,
+      projectId,
+      goalId: created.body.id,
+      title: "Execute the patched Goal action",
+      prompt: "Inspect the current project and report the bounded result.",
+      status: "verifying",
+      retryCount: 0,
+      maxRetries: 2,
+      idempotencyKey: randomUUID(),
+      createdAt: now,
+      updatedAt: now,
+    });
+
+    const patched = await request(app)
+      .patch(`/api/ai/goals/${created.body.id}`)
+      .send({
+        status: "queued",
+        nextAction: { kind: "task", taskId, purpose: "execution" },
+      });
+    expect(patched.status).toBe(200);
+
+    const dispatches = await db.select().from(eventsTable)
+      .where(and(
+        eq(eventsTable.goalId, created.body.id),
+        eq(eventsTable.type, "AiGoalDispatchRequested"),
+      ));
+    expect(dispatches).toHaveLength(1);
+    expect(dispatches[0]).toMatchObject({
+      taskId,
+      payload: { trigger: "resume", action: "task" },
+    });
+  });
+
   it("auto-starts a manual root only when it is bound to the current active plan", async () => {
     const projectId = await insertProject();
     const missionId = randomUUID();
