@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { PgDialect } from "drizzle-orm/pg-core";
 
 const databaseMock = vi.hoisted(() => ({
   execute: vi.fn(),
@@ -40,7 +41,8 @@ describe("structured retry deadlines", () => {
     await expect(resolveRetryDeadlineFromDatabaseClock(30_000))
       .resolves.toBe("2026-11-19T12:00:30.000Z");
     expect(databaseMock.execute).toHaveBeenCalledTimes(1);
-    expect(String(databaseMock.execute.mock.calls[0]?.[0])).toContain("clock_timestamp()");
+    const query = databaseMock.execute.mock.calls[0]?.[0];
+    expect(new PgDialect().sqlToQuery(query).sql).toContain("clock_timestamp()");
   });
 
   it("does not issue a database query for an invalid delay", async () => {
