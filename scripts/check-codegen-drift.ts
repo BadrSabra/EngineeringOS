@@ -211,6 +211,36 @@ if (changed.length === 0) {
   );
   for (const f of changed) {
     console.error(`    • ${f}`);
+
+    // Include a small first-difference window so CI identifies the generated
+    // contract drift instead of reporting only the file name.
+    const expectedFile = join(WORKSPACE_ROOT, f);
+    const actualFile = join(generatedRoot, f);
+    try {
+      const expectedLines = readFileSync(expectedFile, "utf8").split(/\r?\n/);
+      const actualLines = readFileSync(actualFile, "utf8").split(/\r?\n/);
+      let firstDifference = 0;
+      while (
+        firstDifference < expectedLines.length
+        && firstDifference < actualLines.length
+        && expectedLines[firstDifference] === actualLines[firstDifference]
+      ) {
+        firstDifference++;
+      }
+      const start = Math.max(0, firstDifference - 3);
+      const end = firstDifference + 5;
+      console.error(`      First difference near line ${firstDifference + 1}:`);
+      for (let line = start; line < end; line++) {
+        const expected = expectedLines[line];
+        const actual = actualLines[line];
+        if (expected === actual) continue;
+        if (expected !== undefined) console.error(`      committed: ${line + 1}: ${expected}`);
+        if (actual !== undefined) console.error(`      generated: ${line + 1}: ${actual}`);
+      }
+      console.error(`      line counts: committed=${expectedLines.length}, generated=${actualLines.length}`);
+    } catch (error) {
+      console.error(`      Could not render a text diff: ${error instanceof Error ? error.message : String(error)}`);
+    }
   }
   console.error(
     "\n    Fix: pnpm --filter @workspace/api-spec run codegen && git add lib/api-zod lib/api-client-react\n",
