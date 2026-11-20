@@ -275,6 +275,15 @@ function OperatorAlertsCard() {
               {alerts.map((alert) => {
                 const copy = getOperatorAlertCopy(alert);
                 const isCatalogUnavailable = alert.kind === 'groq_model_catalog_unavailable';
+                const projectId = alert.projectId?.trim();
+                const destinationHref = copy.destination === 'projects'
+                  ? projectId
+                    ? `/projects/${encodeURIComponent(projectId)}`
+                    : '/projects'
+                  : '/ai';
+                const destinationLabel = copy.destination === 'projects'
+                  ? projectId ? 'افتح المشروع المتأثر' : 'إدارة المشاريع'
+                  : 'إعدادات مزود المساعد';
                 return (
                   <div
                     key={alert.id}
@@ -325,10 +334,10 @@ function OperatorAlertsCard() {
                         <span>عدد مرات الرصد: {alert.occurrenceCount.toLocaleString('ar-EG')}</span>
                       )}
                       <Link
-                        href={copy.destination === 'projects' ? '/projects' : '/ai'}
+                        href={destinationHref}
                         className="text-primary hover:underline"
                       >
-                        {copy.destination === 'projects' ? 'إدارة المشاريع' : 'إعدادات مزود المساعد'}
+                        {destinationLabel}
                       </Link>
                     </div>
                   </div>
