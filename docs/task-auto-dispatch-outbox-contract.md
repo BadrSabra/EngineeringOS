@@ -16,6 +16,14 @@ This document records the server-owned Task dispatch contract. The database even
 
 There is one logical Outbox identity per Task, keyed by **task-auto-execution-deferred:<taskId>**. The event key is stable; the generation and authorization identity are enforced by the payload and the Task row lock.
 
+## Cross-process dispatch lease
+
+Before a process-local worker is enqueued, the dispatcher claims a short-lived **dispatchLease** on the existing Outbox event. The claim transaction locks the Task first and the Outbox row second, then rechecks the exact Task generation, user/project ownership, prompt, current retry window, and any existing lease. PostgreSQL row locking makes this claim exclusive across API replicas; process-local maps remain only an optimization.
+
+The lease payload contains a random **token** and an **expiresAt** timestamp derived from the database clock. Dispatch scans ignore unexpired leases, avoiding repeated page selection and queue pressure. A worker must present its token when releasing or deferring the intent; an expired worker cannot clear a newer dispatcher's lease. Queue-capacity and pre-claim failures remove only their own lease while preserving the durable intent and its bounded retry time.
+
+The lease is a dispatch coordination mechanism, not an Execution lease and not execution authority. It expires after ten minutes so a process crash cannot strand the intent. The final **executeTaskLifecycle** transaction still locks and validates the Task, dependency graph, retry window, and existing lifecycle gates; only that transaction can create/claim an Execution and consume the matching Outbox intent. No new table, migration, route, provider path, or proof-gate change is introduced.
+
 ## Outbox identity
 
 Every new intent records:
@@ -85,6 +93,7 @@ The relevant test coverage is kept at the existing boundaries rather than replac
 - AI route tests verify that a dependency-blocked Task becomes Deferred without creating an Execution and is redispatched automatically once its prerequisite is complete.
 - Mission runtime tests verify the Outbox and **AiGoalDispatchRequested** survive a simulated lost local wake.
 - AI route tests cover stale retry/correlation generations, delegation/owner identity conflicts, legacy null-correlation normalization, queue capacity, provider/rate-limit pre-claim deferral, already-active Execution ownership, an old queue closure racing a newer Task generation, stale-snapshot cleanup that must not delete a replacement Outbox row, and an ineligible Task becoming runnable again before pruning.
+- Task route integration tests prove that two concurrent dispatchers receive only one database lease, that an expired lease can be reclaimed, and that an old token cannot release the replacement lease.
 - **task-execution-lifecycle.integration.test.ts** also covers future Acceptance retry retention, a reused idempotency-key Execution with a mismatched parent/budget/attempt, and rollback when the final Task claim update fails. The existing two-process deferred-dispatch race remains in place.
 - **job-reconciliation.test.ts** distinguishes overdue/due intents from intentionally future-scheduled retries, verifies reason bucketing, and asserts that orphaned intent rows remain visible in health.
 - Task route tests verify atomic Outbox retirement on rollback and deletion; AI route tests verify background pruning of pre-existing orphaned and terminal-Task rows.

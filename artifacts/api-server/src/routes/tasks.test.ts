@@ -13,7 +13,11 @@ import {
   aiExecutionAcceptancesTable,
 } from "@workspace/db";
 import { randomUUID } from "crypto";
-import { insertTaskAutoExecutionIntent } from "../lib/task-auto-execution-outbox.js";
+import {
+  claimTaskAutoExecutionDispatchLease,
+  insertTaskAutoExecutionIntent,
+  releaseTaskAutoExecutionDispatchLease,
+} from "../lib/task-auto-execution-outbox.js";
 import { executeTaskLifecycle } from "../lib/task-execution-service.js";
 
 // PR-C: hoist mock fn so vi.mock factory can close over it before module eval.
@@ -1424,6 +1428,70 @@ describe("PR-C — AI auto-trigger on verifying", () => {
     }
     return { projectId, taskId };
   }
+
+  it("serializes competing Task Outbox dispatchers and reclaims an expired lease", async () => {
+    const { taskId } = await createTaskWithPrompt("Run exactly once across API replicas.");
+    const execute = await request(app).post(`/api/tasks/${taskId}/execute`);
+    expect(execute.status).toBe(202);
+
+    const [generation] = await db.select({
+      retryCount: tasksTable.retryCount,
+      correlationId: tasksTable.correlationId,
+    }).from(tasksTable).where(eq(tasksTable.id, taskId));
+    const input = {
+      taskId,
+      userId: "test-user",
+      retryCount: generation!.retryCount,
+      correlationId: generation!.correlationId,
+    };
+
+    const contenders = await Promise.all([
+      db.transaction((tx) => claimTaskAutoExecutionDispatchLease(tx, input)),
+      db.transaction((tx) => claimTaskAutoExecutionDispatchLease(tx, input)),
+    ]);
+    const winners = contenders.filter((result) => result.acquired);
+    expect(winners).toHaveLength(1);
+    const firstLease = winners[0]!;
+    if (!firstLease.acquired) throw new Error("Expected one Task dispatch lease owner.");
+
+    const [leasedIntent] = await db.select().from(eventsTable)
+      .where(eq(eventsTable.id, `task-auto-execution-deferred:${taskId}`));
+    expect(leasedIntent?.payload?.dispatchLease).toMatchObject({
+      token: firstLease.token,
+      expiresAt: firstLease.expiresAt,
+    });
+
+    // A crashed dispatcher leaves a bounded lease. Once it expires, another
+    // process may claim the exact same Task generation without manual repair.
+    await db.update(eventsTable).set({
+      payload: {
+        ...(leasedIntent!.payload ?? {}),
+        dispatchLease: {
+          token: firstLease.token,
+          expiresAt: new Date(Date.now() - 1_000).toISOString(),
+        },
+      },
+    }).where(eq(eventsTable.id, `task-auto-execution-deferred:${taskId}`));
+
+    const recovered = await db.transaction((tx) => claimTaskAutoExecutionDispatchLease(tx, input));
+    expect(recovered.acquired).toBe(true);
+    if (!recovered.acquired) throw new Error("Expected the expired lease to be recoverable.");
+    expect(recovered.token).not.toBe(firstLease.token);
+
+    // A late worker holding the old token cannot release the new owner's lease.
+    const staleRelease = await db.transaction((tx) =>
+      releaseTaskAutoExecutionDispatchLease(tx, { taskId, token: firstLease.token }),
+    );
+    expect(staleRelease).toBe(false);
+    const currentRelease = await db.transaction((tx) =>
+      releaseTaskAutoExecutionDispatchLease(tx, { taskId, token: recovered.token }),
+    );
+    expect(currentRelease).toBe(true);
+
+    const [releasedIntent] = await db.select().from(eventsTable)
+      .where(eq(eventsTable.id, `task-auto-execution-deferred:${taskId}`));
+    expect(releasedIntent?.payload?.dispatchLease).toBeUndefined();
+  });
 
   it("execute route: schedules AI when task enters verifying with a prompt", async () => {
     const { taskId } = await createTaskWithPrompt("Fix the auth middleware");
