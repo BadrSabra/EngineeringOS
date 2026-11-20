@@ -130,6 +130,7 @@ describe('ProjectDetail Arabic presentation', () => {
     mocks.summaryIsFetching = false;
     mocks.summaryUpdatedAt = Date.parse('2026-10-13T12:00:00.000Z');
     mocks.summary.recentEvents = [];
+    mocks.summary.taskCounts.failed = 0;
     mocks.projectIsRefetching = false;
     mocks.projectUpdatedAt = Date.parse('2026-10-14T12:00:00.000Z');
   });
@@ -225,6 +226,28 @@ describe('ProjectDetail Arabic presentation', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'إعادة محاولة الملخص' }));
     expect(mocks.refetchSummary).toHaveBeenCalledTimes(1);
+  });
+
+  it('opens the failed-task list for this project directly from a positive failure count', () => {
+    mocks.summary.taskCounts.failed = 2;
+
+    render(<ProjectDetail />);
+
+    expect(screen.getByTestId('link-project-failed-tasks')).toHaveAttribute(
+      'href',
+      '/tasks?projectId=project-1&status=failed',
+    );
+    expect(screen.getByTestId('link-project-failed-tasks')).toHaveAccessibleName(
+      'اعرض 2 مهمة متعثرة في مشروع مشروع تجريبي',
+    );
+    expect(screen.getByTestId('summary-task-failed')).toHaveTextContent('2');
+  });
+
+  it('does not offer an empty failed-task shortcut when the project has no failures', () => {
+    render(<ProjectDetail />);
+
+    expect(screen.getByTestId('summary-task-failed')).toHaveTextContent('0');
+    expect(screen.queryByTestId('link-project-failed-tasks')).not.toBeInTheDocument();
   });
 
   it('does not block project details while the optional summary is loading', () => {
