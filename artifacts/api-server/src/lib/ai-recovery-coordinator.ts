@@ -736,7 +736,7 @@ async function writeRecoveryLog(
 async function claimTaskRetry(
   candidate: TaskRecoveryCandidate,
   plan: Extract<TaskRecoveryPlan, { kind: "retry" }>,
-): Promise<{ retryCount: number } | undefined> {
+): Promise<{ retryCount: number; correlationId: string | null } | undefined> {
   return db.transaction(async (tx) => {
     // Take the Task lock before execution/acceptance, matching the task
     // lifecycle claim order. This keeps a manual execute from holding Task
