@@ -549,14 +549,14 @@ export async function runProjectBootstrapJob(jobId: string): Promise<void> {
         false,
       );
     }
-    const projectId = await commitCreatedProject({
+    const { projectId, scanJobId } = await commitCreatedProject({
       job,
       workerId,
       canonicalRootPath: rootResult.canonicalPath,
     });
     logger.info(
-      { bootstrapId: job.id, projectId, attempt: job.attempt },
-      "Project bootstrap completed",
+      { bootstrapId: job.id, projectId, scanJobId, attempt: job.attempt },
+      "Project bootstrap completed and initial scan queued",
     );
   } catch (error) {
     if (rootWasMaterialized || rootPath) {
