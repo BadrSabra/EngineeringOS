@@ -1310,6 +1310,7 @@ async function claimGitHubDeliveryTransition(input: {
 const MISSION_WORLD_TRANSITION_WAKE_EVENT = "AiMissionWorldTransitionWakeRequested";
 const MISSION_WORLD_TRANSITION_WAKE_MAX_ATTEMPTS = 8;
 const MISSION_WORLD_TRANSITION_WAKE_MAX_BACKOFF_MS = 15 * 60_000;
+const MISSION_WORLD_TRANSITION_WAKE_DISPATCH_LEASE_MS = 10 * 60_000;
 
 type MissionWorldTransitionWakeKind = "runtime_start" | "apply_changes" | "github_delivery";
 type RuntimeTransitionTransaction = Parameters<Parameters<typeof db.transaction>[0]>[0];
@@ -1410,14 +1411,73 @@ async function ensureMissionWorldTransitionWakeIntent(
   });
 }
 
+async function claimMissionWorldTransitionWakeDispatchLease(
+  intentId: string,
+): Promise<{ acquired: true; token: string } | { acquired: false }> {
+  return db.transaction(async (tx) => {
+    const [intent] = await tx.select({
+      type: eventsTable.type,
+      payload: eventsTable.payload,
+    }).from(eventsTable)
+      .where(and(
+        eq(eventsTable.id, intentId),
+        eq(eventsTable.type, MISSION_WORLD_TRANSITION_WAKE_EVENT),
+      ))
+      .for("update")
+      .limit(1);
+    if (!intent) return { acquired: false };
+
+    const payload = asRecord(intent.payload) ?? {};
+    if (typeof payload.processedAt === "string" || typeof payload.deadLetterAt === "string") {
+      return { acquired: false };
+    }
+
+    const clockResult = await tx.execute(sql`SELECT clock_timestamp() AS now`);
+    const rawNow = (clockResult.rows as Array<{ now: Date | string }>)[0]?.now;
+    const now = rawNow instanceof Date ? rawNow : new Date(String(rawNow ?? ""));
+    if (!rawNow || !Number.isFinite(now.getTime())) return { acquired: false };
+
+    const retryAt = typeof payload.nextAttemptAt === "string"
+      ? Date.parse(payload.nextAttemptAt)
+      : Number.NaN;
+    if (Number.isFinite(retryAt) && retryAt > now.getTime()) return { acquired: false };
+
+    const currentLease = asRecord(payload.dispatchLease);
+    const leaseExpiry = typeof currentLease?.expiresAt === "string"
+      ? Date.parse(currentLease.expiresAt)
+      : Number.NaN;
+    if (Number.isFinite(leaseExpiry) && leaseExpiry > now.getTime()) {
+      return { acquired: false };
+    }
+
+    const token = randomUUID();
+    const expiresAt = new Date(
+      now.getTime() + MISSION_WORLD_TRANSITION_WAKE_DISPATCH_LEASE_MS,
+    ).toISOString();
+    await tx.update(eventsTable)
+      .set({
+        payload: {
+          ...payload,
+          dispatchLease: { token, expiresAt },
+        },
+      })
+      .where(eq(eventsTable.id, intentId));
+
+    return { acquired: true, token };
+  });
+}
+
 async function markMissionWorldTransitionWakeProcessed(
   intentId: string,
   payload: Record<string, unknown>,
+  dispatchLeaseToken: string,
   details: Record<string, unknown> = {},
-): Promise<void> {
-  await db.update(eventsTable).set({
+): Promise<boolean> {
+  const payloadWithoutLease: Record<string, unknown> = { ...payload };
+  delete payloadWithoutLease.dispatchLease;
+  const [updated] = await db.update(eventsTable).set({
     payload: {
-      ...payload,
+      ...payloadWithoutLease,
       ...details,
       processedAt: new Date().toISOString(),
       nextAttemptAt: null,
@@ -1426,70 +1486,121 @@ async function markMissionWorldTransitionWakeProcessed(
   }).where(and(
     eq(eventsTable.id, intentId),
     eq(eventsTable.type, MISSION_WORLD_TRANSITION_WAKE_EVENT),
+    sql`${eventsTable.payload}->'dispatchLease'->>'token' = ${dispatchLeaseToken}`,
     sql`${eventsTable.payload}->>'processedAt' IS NULL`,
-  ));
+    sql`${eventsTable.payload}->>'deadLetterAt' IS NULL`,
+  )).returning({ id: eventsTable.id });
+  return Boolean(updated);
 }
 
 async function deferMissionWorldTransitionWake(
   intentId: string,
-  payload: Record<string, unknown>,
   error: unknown,
-): Promise<void> {
-  const attemptCount = Number.isSafeInteger(payload.attemptCount)
-    ? Number(payload.attemptCount) + 1
-    : 1;
-  const now = Date.now();
-  const exhausted = attemptCount >= MISSION_WORLD_TRANSITION_WAKE_MAX_ATTEMPTS;
-  const backoffMs = Math.min(
-    MISSION_WORLD_TRANSITION_WAKE_MAX_BACKOFF_MS,
-    30_000 * (2 ** Math.min(attemptCount - 1, 5)),
-  );
-  const message = error instanceof Error ? error.message : "mission_world_transition_wake_failed";
-  await db.update(eventsTable).set({
-    payload: {
+  dispatchLeaseToken: string,
+): Promise<boolean> {
+  return db.transaction(async (tx) => {
+    const [intent] = await tx.select({
+      type: eventsTable.type,
+      payload: eventsTable.payload,
+    }).from(eventsTable)
+      .where(eq(eventsTable.id, intentId))
+      .for("update")
+      .limit(1);
+    if (!intent || intent.type !== MISSION_WORLD_TRANSITION_WAKE_EVENT) return false;
+
+    const payload = asRecord(intent.payload) ?? {};
+    const currentLease = asRecord(payload.dispatchLease);
+    if (
+      currentLease?.token !== dispatchLeaseToken
+      || typeof payload.processedAt === "string"
+      || typeof payload.deadLetterAt === "string"
+    ) return false;
+
+    const clockResult = await tx.execute(sql`SELECT clock_timestamp() AS now`);
+    const rawNow = (clockResult.rows as Array<{ now: Date | string }>)[0]?.now;
+    const now = rawNow instanceof Date ? rawNow : new Date(String(rawNow ?? ""));
+    if (!rawNow || !Number.isFinite(now.getTime())) return false;
+
+    const attemptCount = Number.isSafeInteger(payload.attemptCount)
+      ? Number(payload.attemptCount) + 1
+      : 1;
+    const exhausted = attemptCount >= MISSION_WORLD_TRANSITION_WAKE_MAX_ATTEMPTS;
+    const backoffMs = Math.min(
+      MISSION_WORLD_TRANSITION_WAKE_MAX_BACKOFF_MS,
+      30_000 * (2 ** Math.min(attemptCount - 1, 5)),
+    );
+    const message = error instanceof Error ? error.message : "mission_world_transition_wake_failed";
+    const nextPayload: Record<string, unknown> = {
       ...payload,
       attemptCount,
       lastError: message.slice(0, 240),
-      nextAttemptAt: exhausted ? null : new Date(now + backoffMs).toISOString(),
-      ...(exhausted ? { deadLetterAt: new Date(now).toISOString() } : {}),
-    },
-  }).where(and(
-    eq(eventsTable.id, intentId),
-    eq(eventsTable.type, MISSION_WORLD_TRANSITION_WAKE_EVENT),
-    sql`${eventsTable.payload}->>'processedAt' IS NULL`,
-    sql`${eventsTable.payload}->>'deadLetterAt' IS NULL`,
-  ));
+      nextAttemptAt: exhausted ? null : new Date(now.getTime() + backoffMs).toISOString(),
+      ...(exhausted ? { deadLetterAt: now.toISOString() } : {}),
+    };
+    delete nextPayload.dispatchLease;
+
+    const [updated] = await tx.update(eventsTable)
+      .set({ payload: nextPayload })
+      .where(and(
+        eq(eventsTable.id, intentId),
+        eq(eventsTable.type, MISSION_WORLD_TRANSITION_WAKE_EVENT),
+        sql`${eventsTable.payload}->'dispatchLease'->>'token' = ${dispatchLeaseToken}`,
+        sql`${eventsTable.payload}->>'processedAt' IS NULL`,
+        sql`${eventsTable.payload}->>'deadLetterAt' IS NULL`,
+      ))
+      .returning({ id: eventsTable.id });
+    return Boolean(updated);
+  });
 }
 
 export async function dispatchMissionWorldTransitionWakeIntent(
   intentId: string,
 ): Promise<boolean> {
-  const [intent] = await db.select({
-    id: eventsTable.id,
-    projectId: eventsTable.projectId,
-    goalId: eventsTable.goalId,
-    payload: eventsTable.payload,
-  }).from(eventsTable).where(and(
-    eq(eventsTable.id, intentId),
-    eq(eventsTable.type, MISSION_WORLD_TRANSITION_WAKE_EVENT),
-  )).limit(1);
-  if (!intent?.payload) return false;
+  const lease = await claimMissionWorldTransitionWakeDispatchLease(intentId);
+  if (!lease.acquired) return false;
 
-  const payload = intent.payload;
-  if (typeof payload.processedAt === "string" || typeof payload.deadLetterAt === "string") {
-    return false;
-  }
-  const transitionId = typeof payload.transitionId === "string" ? payload.transitionId : "";
-  const expectedKind = payload.transitionKind;
-  const projectId = typeof payload.projectId === "string" ? payload.projectId : "";
-  const missionId = typeof payload.missionId === "string" ? payload.missionId : "";
-  const goalId = typeof payload.goalId === "string" ? payload.goalId : "";
-  const executionId = typeof payload.executionId === "string" ? payload.executionId : "";
-  const attempt = typeof payload.attempt === "number" ? payload.attempt : -1;
-  const episodeId = typeof payload.episodeId === "string" ? payload.episodeId : "";
-  const actionId = typeof payload.actionId === "string" ? payload.actionId : "";
-
+  let intent: {
+    id: string;
+    projectId: string;
+    goalId: string | null;
+    payload: Record<string, unknown> | null;
+  } | undefined;
+  let payload: Record<string, unknown> = {};
+  let transitionId = "";
+  let expectedKind: unknown;
   try {
+    [intent] = await db.select({
+      id: eventsTable.id,
+      projectId: eventsTable.projectId,
+      goalId: eventsTable.goalId,
+      payload: eventsTable.payload,
+    }).from(eventsTable).where(and(
+      eq(eventsTable.id, intentId),
+      eq(eventsTable.type, MISSION_WORLD_TRANSITION_WAKE_EVENT),
+    )).limit(1);
+    if (!intent?.payload) {
+      await deferMissionWorldTransitionWake(
+        intentId,
+        new Error("mission_world_transition_wake_payload_missing"),
+        lease.token,
+      );
+      return false;
+    }
+
+    payload = asRecord(intent.payload) ?? {};
+    if (typeof payload.processedAt === "string" || typeof payload.deadLetterAt === "string") {
+      return false;
+    }
+    transitionId = typeof payload.transitionId === "string" ? payload.transitionId : "";
+    expectedKind = payload.transitionKind;
+    const projectId = typeof payload.projectId === "string" ? payload.projectId : "";
+    const missionId = typeof payload.missionId === "string" ? payload.missionId : "";
+    const goalId = typeof payload.goalId === "string" ? payload.goalId : "";
+    const executionId = typeof payload.executionId === "string" ? payload.executionId : "";
+    const attempt = typeof payload.attempt === "number" ? payload.attempt : -1;
+    const episodeId = typeof payload.episodeId === "string" ? payload.episodeId : "";
+    const actionId = typeof payload.actionId === "string" ? payload.actionId : "";
+
     if (
       payload.schemaVersion !== 1
       || !transitionId || !projectId || !missionId || !goalId
@@ -1499,10 +1610,9 @@ export async function dispatchMissionWorldTransitionWakeIntent(
       || goalId !== intent.goalId
       || !isMissionWorldTransitionWakeKind(expectedKind)
     ) {
-      await markMissionWorldTransitionWakeProcessed(intent.id, payload, {
+      return await markMissionWorldTransitionWakeProcessed(intent.id, payload, lease.token, {
         terminalReason: "invalid_wake_intent",
       });
-      return true;
     }
 
     const [transition] = await db.select({
@@ -1538,10 +1648,9 @@ export async function dispatchMissionWorldTransitionWakeIntent(
       || episode.missionId !== missionId
       || episode.goalId !== goalId
     ) {
-      await markMissionWorldTransitionWakeProcessed(intent.id, payload, {
+      return await markMissionWorldTransitionWakeProcessed(intent.id, payload, lease.token, {
         terminalReason: "transition_or_mission_binding_superseded",
       });
-      return true;
     }
 
     const missionRuntime = await import("../mission-runtime.js");
@@ -1554,16 +1663,28 @@ export async function dispatchMissionWorldTransitionWakeIntent(
       await missionRuntime.wakeReadyMissionGoals(32, projectId, goalId);
     }
 
-    await markMissionWorldTransitionWakeProcessed(intent.id, payload, {
+    return await markMissionWorldTransitionWakeProcessed(intent.id, payload, lease.token, {
       dispatchOutcome: "delivered",
     });
-    return true;
   } catch (error) {
-    await deferMissionWorldTransitionWake(intent.id, payload, error);
+    try {
+      await deferMissionWorldTransitionWake(intentId, error, lease.token);
+    } catch (deferError) {
+      logger.warn(
+        {
+          scope: "mission-world-transition-wake",
+          intentId,
+          transitionId,
+          transitionKind: expectedKind,
+          error: deferError,
+        },
+        "Mission World Transition wake retry could not be persisted; the dispatch lease will expire for recovery.",
+      );
+    }
     logger.warn(
       {
         scope: "mission-world-transition-wake",
-        intentId: intent.id,
+        intentId,
         transitionId,
         transitionKind: expectedKind,
         error,
@@ -1583,6 +1704,12 @@ export async function dispatchPendingMaterializedMissionTransitionWakes(
   limit = 32,
   scopeProjectId?: string,
 ): Promise<number> {
+  const clockResult = await db.execute(sql`SELECT clock_timestamp() AS now`);
+  const rawNow = (clockResult.rows as Array<{ now: Date | string }>)[0]?.now;
+  const databaseNow = rawNow instanceof Date ? rawNow : new Date(String(rawNow ?? ""));
+  if (!rawNow || !Number.isFinite(databaseNow.getTime())) return 0;
+  const nowIso = databaseNow.toISOString();
+
   const candidates = await db.select({ id: eventsTable.id })
     .from(eventsTable)
     .where(and(
@@ -1590,7 +1717,13 @@ export async function dispatchPendingMaterializedMissionTransitionWakes(
       scopeProjectId ? eq(eventsTable.projectId, scopeProjectId) : undefined,
       sql`${eventsTable.payload}->>'processedAt' IS NULL`,
       sql`${eventsTable.payload}->>'deadLetterAt' IS NULL`,
-      sql`(${eventsTable.payload}->>'nextAttemptAt' IS NULL OR (${eventsTable.payload}->>'nextAttemptAt')::timestamptz <= NOW())`,
+      sql`(${eventsTable.payload}->>'nextAttemptAt' IS NULL OR (${eventsTable.payload}->>'nextAttemptAt')::timestamptz <= ${nowIso})`,
+      sql`(
+        ${eventsTable.payload}->'dispatchLease' IS NULL
+        OR ${eventsTable.payload}->'dispatchLease'->>'expiresAt' IS NULL
+        OR ${eventsTable.payload}->'dispatchLease'->>'expiresAt' !~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}T'
+        OR ${eventsTable.payload}->'dispatchLease'->>'expiresAt' <= ${nowIso}
+      )`,
     ))
     .orderBy(eventsTable.timestamp, eventsTable.id)
     .limit(Math.max(1, Math.min(Math.floor(limit), 100)));
