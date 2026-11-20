@@ -211,6 +211,10 @@ describe('project-scoped Workflows view', () => {
       }),
     );
     expect(screen.getByText('لا توجد مشاريع متاحة')).toBeInTheDocument();
+    expect(screen.getByTestId('link-workflows-empty-goal-first'))
+      .toHaveAttribute('href', '/');
+    expect(screen.getByRole('link', { name: 'ابدأ بوصف هدفك في مساحة العمل' }))
+      .toBeInTheDocument();
     expect(screen.queryByText('Release pipeline')).not.toBeInTheDocument();
   });
 
