@@ -1,6 +1,7 @@
 import { act, fireEvent, render, screen } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import ProjectDetail from './ProjectDetail';
+import { useListTasks } from '@workspace/api-client-react';
 import { readGoalDrafts } from '@/lib/home-goal-handoff';
 
 const mocks = vi.hoisted(() => ({
@@ -33,6 +34,7 @@ const mocks = vi.hoisted(() => ({
       correlationId?: string;
     }>,
   },
+  failedTasks: [] as Array<{ id: string; projectId: string; title: string; status: string }>,
   graphSummary: {
     entityCount: 2,
     relationshipCount: 1,
@@ -80,7 +82,13 @@ vi.mock('@workspace/api-client-react', () => ({
     refetch: mocks.refetchSummary,
   }),
   useUpdateProject: () => ({ mutate: mocks.mutate, isPending: false }),
-  useListTasks: vi.fn(),
+  useListTasks: vi.fn(() => ({
+    data: mocks.failedTasks,
+    isLoading: false,
+    isError: false,
+    isFetching: false,
+    refetch: vi.fn(),
+  })),
   useGetGraphSummary: () => ({
     data: mocks.graphSummary,
     isLoading: false,
@@ -141,6 +149,7 @@ describe('ProjectDetail Arabic presentation', () => {
     mocks.summaryUpdatedAt = Date.parse('2026-10-13T12:00:00.000Z');
     mocks.summary.recentEvents = [];
     mocks.summary.taskCounts.failed = 0;
+    mocks.failedTasks = [];
     mocks.projectIsRefetching = false;
     mocks.projectUpdatedAt = Date.parse('2026-10-14T12:00:00.000Z');
   });
@@ -251,6 +260,52 @@ describe('ProjectDetail Arabic presentation', () => {
       'اعرض 2 مهمة متعثرة في مشروع مشروع تجريبي',
     );
     expect(screen.getByTestId('summary-task-failed')).toHaveTextContent('2');
+  });
+
+  it('opens the only failed task directly while keeping review explicit', () => {
+    mocks.summary.taskCounts.failed = 1;
+    mocks.failedTasks = [{
+      id: 'failed-task-1',
+      projectId: 'project-1',
+      title: 'راجع النتيجة',
+      status: 'failed',
+    }];
+
+    render(<ProjectDetail />);
+
+    expect(useListTasks).toHaveBeenCalledWith(
+      { projectId: 'project-1', status: 'failed', pageSize: 2 },
+      expect.objectContaining({
+        query: expect.objectContaining({
+          enabled: true,
+          queryKey: ['/api/tasks', { projectId: 'project-1', status: 'failed', pageSize: 2 }],
+        }),
+      }),
+    );
+    expect(screen.getByTestId('link-project-failed-tasks')).toHaveAttribute(
+      'href',
+      '/tasks?projectId=project-1&taskId=failed-task-1',
+    );
+    expect(screen.getByTestId('link-project-failed-tasks')).toHaveAccessibleName(
+      'راجع تفاصيل المهمة المتعثرة: راجع النتيجة',
+    );
+  });
+
+  it('keeps the failed-task list fallback when the task read does not match the project', () => {
+    mocks.summary.taskCounts.failed = 1;
+    mocks.failedTasks = [{
+      id: 'failed-task-other-project',
+      projectId: 'project-2',
+      title: 'مهمة خارج المشروع',
+      status: 'failed',
+    }];
+
+    render(<ProjectDetail />);
+
+    expect(screen.getByTestId('link-project-failed-tasks')).toHaveAttribute(
+      'href',
+      '/tasks?projectId=project-1&status=failed',
+    );
   });
 
   it('does not offer an empty failed-task shortcut when the project has no failures', () => {

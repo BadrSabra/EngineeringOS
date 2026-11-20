@@ -92,11 +92,28 @@ function ProjectDetailSession({ projectId }: { projectId: string }) {
     query: { enabled: !!projectId, queryKey: getGetProjectSummaryQueryKey(projectId) },
   });
 
-  // Prefetch tasks into the query cache for the Tasks tab (result not used directly here).
+  // Prefetch tasks into the query cache for the Tasks tab.
   useListTasks(
     { projectId },
     { query: { enabled: !!projectId, queryKey: getListTasksQueryKey({ projectId }) } },
   );
+
+  const failedTasksQuery = useListTasks(
+    { projectId, status: 'failed', pageSize: 2 },
+    {
+      query: {
+        enabled: !!projectId && summary?.taskCounts.failed === 1,
+        queryKey: getListTasksQueryKey({ projectId, status: 'failed', pageSize: 2 }),
+        staleTime: 10_000,
+      },
+    },
+  );
+  const matchingFailedTasks = failedTasksQuery.data?.filter(
+    (task) => task.projectId === projectId && task.status === 'failed',
+  );
+  const soleFailedTask = summary?.taskCounts.failed === 1 && matchingFailedTasks?.length === 1
+    ? matchingFailedTasks[0]
+    : undefined;
 
   const { data: graphSummary, isLoading: loadingGraphSummary, isError: graphSummaryError } = useGetGraphSummary(projectId, {
     query: { enabled: !!projectId, queryKey: getGetGraphSummaryQueryKey(projectId), staleTime: 60_000 },
@@ -532,8 +549,12 @@ function ProjectDetailSession({ projectId }: { projectId: string }) {
               </div>
               {summary.taskCounts.failed > 0 ? (
                 <Link
-                  href={`/tasks?projectId=${encodeURIComponent(projectId)}&status=failed`}
-                  aria-label={`اعرض ${summary.taskCounts.failed} مهمة متعثرة في مشروع ${project.name}`}
+                  href={soleFailedTask
+                    ? `/tasks?projectId=${encodeURIComponent(projectId)}&taskId=${encodeURIComponent(soleFailedTask.id)}`
+                    : `/tasks?projectId=${encodeURIComponent(projectId)}&status=failed`}
+                  aria-label={soleFailedTask
+                    ? `راجع تفاصيل المهمة المتعثرة: ${soleFailedTask.title}`
+                    : `اعرض ${summary.taskCounts.failed} مهمة متعثرة في مشروع ${project.name}`}
                   data-testid="link-project-failed-tasks"
                   className="rounded-lg border border-destructive/20 bg-destructive/10 p-3 text-center transition-colors hover:bg-destructive/15 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-destructive"
                 >
