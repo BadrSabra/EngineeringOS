@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { and, desc, eq, inArray, isNotNull, isNull } from "drizzle-orm";
+import { and, desc, eq, inArray, isNotNull, isNull, sql } from "drizzle-orm";
 import {
   aiExecutionAcceptancesTable,
   aiExecutionsTable,
@@ -83,6 +83,10 @@ type RecoveryDisposition = {
   retryAfterSource?: unknown;
   rateLimitScope?: unknown;
   automaticRecoveryBlocked?: unknown;
+  providerUnavailableRetryAfterMs?: unknown;
+  providerUnavailableDeferralSource?: unknown;
+  providerUnavailableDeferralCount?: unknown;
+  providerUnavailableDeferredAt?: unknown;
 };
 
 export type TaskRecoveryCandidate = {
@@ -363,7 +367,9 @@ async function deferRecoveryForRateLimit(params: {
         return;
       }
 
-      const [clock] = await tx.select({ now: databaseNow() });
+      const clockResult = await tx.execute(sql`SELECT clock_timestamp() AT TIME ZONE 'UTC' AS now`);
+      const clockValue = (clockResult.rows as Array<{ now: Date | string }>)[0]?.now;
+      const nowMs = databaseClockMilliseconds(clockValue);
       const nowMs = databaseClockMilliseconds(clock?.now);
       const retryAt = nowMs === undefined
         ? undefined
@@ -433,7 +439,9 @@ async function deferRecoveryForUnavailableProvider(params: {
         return undefined;
       }
 
-      const [clock] = await tx.select({ now: databaseNow() });
+      const clockResult = await tx.execute(sql`SELECT clock_timestamp() AT TIME ZONE 'UTC' AS now`);
+      const clockValue = (clockResult.rows as Array<{ now: Date | string }>)[0]?.now;
+      const nowMs = databaseClockMilliseconds(clockValue);
       const nowMs = databaseClockMilliseconds(clock?.now);
       if (nowMs === undefined) return undefined;
 
@@ -927,7 +935,9 @@ async function claimTaskRetry(
       .for("update")
       .limit(1);
     const disposition = asDisposition(acceptance?.disposition);
-    const [clock] = await tx.select({ now: databaseNow() });
+    const clockResult = await tx.execute(sql`SELECT clock_timestamp() AT TIME ZONE 'UTC' AS now`);
+      const clockValue = (clockResult.rows as Array<{ now: Date | string }>)[0]?.now;
+      const nowMs = databaseClockMilliseconds(clockValue);
     const nowMs = databaseClockMilliseconds(clock?.now);
     if (nowMs === undefined) return undefined;
     const retryAtMs = parseRetryAt(disposition.retryAt);
@@ -1173,7 +1183,9 @@ export async function dispatchAutonomousTaskRecoveries(scope: {
       findRecoveryCandidates(scope),
       findChatRecoveryCandidates(scope),
     ]);
-    const [clock] = await db.select({ now: databaseNow() });
+    const clockResult = await db.execute(sql`SELECT clock_timestamp() AT TIME ZONE 'UTC' AS now`);
+    const clockValue = (clockResult.rows as Array<{ now: Date | string }>)[0]?.now;
+    const nowMs = databaseClockMilliseconds(clockValue);
     const nowMs = databaseClockMilliseconds(clock?.now);
     if (nowMs === undefined) {
       throw new Error("PostgreSQL clock is unavailable for automatic recovery admission");
