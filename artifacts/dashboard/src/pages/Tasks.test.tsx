@@ -255,6 +255,27 @@ function renderTaskAcceptanceWithRetryAt(retryAt: string) {
 }
 
 describe('project-scoped task list contracts', () => {
+  it('opens event history scoped to the task project and correlation id', () => {
+    const fixture = taskListFixture();
+    vi.mocked(useListTasks).mockReturnValue({
+      ...fixture,
+      data: fixture.data?.map((task) => (
+        task.id === 'task-auth' ? { ...task, correlationId: 'trace/123' } : task
+      )),
+    } as ReturnType<typeof useListTasks>);
+
+    renderPage();
+    fireEvent.click(screen.getByRole('button', {
+      name: 'عرض تفاصيل المهمة: Repair provider authentication',
+    }));
+
+    expect(screen.getByTestId('link-task-event-log-task-auth'))
+      .toHaveAttribute('href', '/events?projectId=project-1&correlationId=trace%2F123');
+    expect(screen.getByRole('link', {
+      name: 'عرض سجل الأحداث للمهمة: Repair provider authentication',
+    })).toBeInTheDocument();
+  });
+
   it('offers the project assistant from a failed task detail', () => {
     renderPage();
     fireEvent.click(screen.getByRole('button', {

@@ -2420,6 +2420,19 @@ function TasksSession({
                     {getDetailTab(task.id) === 'details' ? (
                       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                         <div>
+                          {typeof task.correlationId === 'string' && task.correlationId.trim() && (
+                            <div className="mb-4">
+                              <Link
+                                href={`/events?projectId=${encodeURIComponent(task.projectId)}&correlationId=${encodeURIComponent(task.correlationId.trim())}`}
+                                aria-label={`عرض سجل الأحداث للمهمة: ${task.title}`}
+                                data-testid={`link-task-event-log-${task.id}`}
+                                className="inline-flex items-center gap-1.5 rounded-md border border-border px-3 py-1.5 text-xs font-medium text-primary transition-colors hover:bg-primary/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+                              >
+                                <Activity className="h-3.5 w-3.5" aria-hidden="true" />
+                                عرض سجل الأحداث المرتبطة
+                              </Link>
+                            </div>
+                          )}
                           <h4 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-3">
                             Task Details
                           </h4>
