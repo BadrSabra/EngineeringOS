@@ -22,25 +22,26 @@ function deferred<T>() {
   return { promise, resolve };
 }
 
-async function createHandoffFixture() {
-  const projectId = `mission-chat-handoff-${randomUUID()}`;
+async function createHandoffFixture(existingProjectId?: string) {
+  const projectId = existingProjectId ?? `mission-chat-handoff-${randomUUID()}`;
   const missionId = randomUUID();
   const goalId = randomUUID();
   const handoffId = randomUUID();
   const planRevision = `chat-plan-${randomUUID()}`;
   const now = new Date();
-  projectIds.push(projectId);
-
-  await db.insert(projectsTable).values({
-    id: projectId,
-    ownerId: "mission-chat-handoff-test",
-    name: "Mission Chat handoff lease test",
-    rootPath: `/tmp/${projectId}`,
-    language: "typescript",
-    status: "active",
-    createdAt: now,
-    updatedAt: now,
-  });
+  if (!existingProjectId) {
+    projectIds.push(projectId);
+    await db.insert(projectsTable).values({
+      id: projectId,
+      ownerId: "mission-chat-handoff-test",
+      name: "Mission Chat handoff lease test",
+      rootPath: `/tmp/${projectId}`,
+      language: "typescript",
+      status: "active",
+      createdAt: now,
+      updatedAt: now,
+    });
+  }
   await db.insert(aiMissionsTable).values({
     id: missionId,
     projectId,
@@ -196,7 +197,7 @@ describe("Mission Chat handoff dispatch lease", () => {
 
   it("does not let an active early lease starve a later ready handoff", async () => {
     const busy = await createHandoffFixture();
-    const ready = await createHandoffFixture();
+    const ready = await createHandoffFixture(busy.projectId);
     const now = new Date();
     await db.update(aiMissionHandoffsTable).set({
       createdAt: new Date(now.getTime() - 60_000),
@@ -214,7 +215,7 @@ describe("Mission Chat handoff dispatch lease", () => {
     );
 
     await expect(
-      dispatchPendingMissionChatHandoffs(1),
+      dispatchPendingMissionChatHandoffs(1, busy.projectId),
     ).resolves.toBe(1);
     expect(runGoal).toHaveBeenCalledOnce();
     expect(runGoal).toHaveBeenCalledWith(expect.objectContaining({
