@@ -447,10 +447,16 @@ function ProjectDetailSession({ projectId }: { projectId: string }) {
               </div>
               <div className="flex flex-wrap gap-2">
                 {graphSummary.topConnected.slice(0, 5).map((c) => (
-                  <div key={c.entityId} className="flex items-center gap-1.5 text-xs bg-background border border-border rounded-md px-2 py-1">
+                  <Link
+                    key={c.entityId}
+                    href={`/graph?projectId=${encodeURIComponent(project.id)}&search=${encodeURIComponent(c.entityName)}`}
+                    aria-label={`ابحث عن ${c.entityName} في خريطة المشروع`}
+                    data-testid={`link-project-graph-entity-${c.entityId}`}
+                    className="flex items-center gap-1.5 text-xs bg-background border border-border rounded-md px-2 py-1 transition-colors hover:border-primary/50 hover:bg-secondary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+                  >
                     <span className="font-medium truncate max-w-[120px]">{c.entityName}</span>
                     <span className="font-mono text-primary shrink-0">{c.totalDegree}°</span>
-                  </div>
+                  </Link>
                 ))}
               </div>
             </div>

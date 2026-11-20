@@ -153,11 +153,30 @@ function nodeColor(type: string) { return TYPE_COLORS[type] ?? DEFAULT_COLOR; }
 // ─── Component ────────────────────────────────────────────────────────────────
 
 export default function Graph() {
+  const routeParams = new URLSearchParams(useSearch());
+  const requestedProjectId = routeParams.get('projectId') ?? '';
+  const initialSearchTerm = routeParams.get('search') ?? '';
+
+  return (
+    <GraphSession
+      key={JSON.stringify([requestedProjectId, initialSearchTerm])}
+      requestedProjectId={requestedProjectId}
+      initialSearchTerm={initialSearchTerm}
+    />
+  );
+}
+
+function GraphSession({
+  requestedProjectId,
+  initialSearchTerm,
+}: {
+  requestedProjectId: string;
+  initialSearchTerm: string;
+}) {
   const [, setLocation] = useLocation();
-  const requestedProjectId = new URLSearchParams(useSearch()).get('projectId') ?? '';
   const { data: projects, isLoading: projectsLoading, isError: projectsError, refetch: refetchProjects } = useListProjects();
   const [selectedEntity, setSelectedEntity] = useState<{ projectId: string; id: string } | null>(null);
-  const [searchTerm, setSearchTerm] = useState('');
+  const [searchTerm, setSearchTerm] = useState(initialSearchTerm);
   const normalizedSearchTerm = searchTerm.trim().toLowerCase();
   const [detailTab, setDetailTab] = useState<'relations' | 'impact'>('relations');
   const [impactExpanded, setImpactExpanded] = useState(false);
