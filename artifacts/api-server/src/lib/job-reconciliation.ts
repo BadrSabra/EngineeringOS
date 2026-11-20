@@ -97,6 +97,7 @@ import {
   reconcileApprovedMissionDecisionDispatches,
   reconcileAutomaticMissionReplans,
 } from "./mission-auto-replan.js";
+import { dispatchPendingMissionReplans } from "./mission-replan-outbox.js";
 import { reconcilePendingMissionPlanOutcomes } from "./mission-strategy-plan-outcome-store.js";
 import { reconcilePendingMissionDecisionShadows } from "./mission-strategy-shadow-store.js";
 import { resolveMissionDecisionShadowProjectScope } from "./mission-decision-shadow-scope.js";
@@ -1292,7 +1293,8 @@ async function dispatchPersistedPendingJobsOnce(): Promise<number> {
       run: () => dispatchPendingTaskObservationOutbox(pageLimit),
     },
     { name: "task-recovery", run: () => dispatchAutonomousTaskRecoveries() },
-    { name: "mission-replans", run: () => reconcileAutomaticMissionReplans() },
+    { name: "mission-replan-outbox", run: () => dispatchPendingMissionReplans(pageLimit) },
+    { name: "mission-replan-recovery", run: () => reconcileAutomaticMissionReplans() },
     { name: "decision-dispatch", run: () => reconcileApprovedMissionDecisionDispatches() },
     { name: "mission-goal-wakes", run: () => dispatchPendingMissionGoalWakes(pageLimit) },
     { name: "mission-recipes", run: () => dispatchPendingMissionRecipes() },
@@ -1629,6 +1631,7 @@ export function startScopedMissionLifecycleDispatcher(
   const dispatch = async () => {
     try {
       await dispatchAutonomousTaskRecoveries({ projectId });
+      await dispatchPendingMissionReplans(32, projectId);
       await reconcileAutomaticMissionReplans(16, projectId);
       await reconcileMissionPlanOutcomesIfDue(projectId);
       await reconcileMissionDecisionShadowsIfDue(projectId);
