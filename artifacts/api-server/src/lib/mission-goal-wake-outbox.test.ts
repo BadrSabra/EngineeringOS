@@ -201,6 +201,9 @@ describe("Mission Goal wake outbox", () => {
       expiresAt: firstLease.expiresAt,
     });
 
+    // Another replica's recovery scan must not enqueue work while this lease is active.
+    expect(await dispatchPendingMissionGoalWakes(10, fixture.projectId)).toBe(0);
+
     // Simulate a process crash. A replacement process may reclaim the exact
     // intent after the persisted lease expiry without operator intervention.
     await db.update(eventsTable).set({
