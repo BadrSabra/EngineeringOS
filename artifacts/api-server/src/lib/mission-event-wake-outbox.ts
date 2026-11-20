@@ -482,7 +482,7 @@ async function processIntent(
       }).from(eventsTable)
         .where(eq(eventsTable.id, intent.id))
         .limit(1);
-      const currentPayload = isRecord(currentIntent?.payload) ? currentIntent.payload : {};
+      const currentPayload: Record<string, unknown> = isRecord(currentIntent?.payload) ? currentIntent.payload : {};
       if (
         currentPayload.replanPending === true
         && typeof currentPayload.replanMissionId === "string"
