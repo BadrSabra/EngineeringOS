@@ -1071,7 +1071,7 @@ describe("accepted project-query fallback diagnostic", () => {
 
 describe("provider history projection parity", () => {
   const sessionId = "11111111-1111-4111-8111-111111111111";
-  const repeatedMessage = "What is the current project status?";
+  const repeatedMessage = "What is the difference between a unit test and an integration test?";
   const repairPlan = [{
     findingId: "F-1",
     files: ["src/guard.ts"],
