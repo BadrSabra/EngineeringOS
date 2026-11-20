@@ -1021,6 +1021,21 @@ export async function reconcileStaleAiTasks(): Promise<number> {
 }
 
 /**
+ * Recover expired Execution state before making its linked Task available
+ * for review or a later explicit retry. Startup and periodic recovery share
+ * this order so the durable Execution acceptance always precedes the Task
+ * projection; neither step replays provider or tool work.
+ */
+export async function reconcileExpiredTaskExecutions(): Promise<{
+  tasks: number;
+  executions: number;
+}> {
+  const executions = await reconcileAiExecutions({ expiredOnly: true });
+  const tasks = await reconcileStaleAiTasks();
+  return { tasks, executions };
+}
+
+/**
  * PR-D1: Re-enqueue scan jobs that have been stuck in "queued" state for
  * longer than `STALE_PENDING_TIMEOUT_MS` without progressing to "running".
  *
@@ -1676,23 +1691,24 @@ export function startStaleJobSweep(): NodeJS.Timeout {
       failed,
       requeued,
       reconciledDiscoveries,
-      recoveredTasks,
-      reconciledAiExecutions,
       expiredUploads,
       wokenGoals,
       wokenDependencyGoals,
+      wokenRuntimeTransitionGoals,
     ] = await Promise.all([
       failStaleRunningJobs(),
       requeueStalePendingJobs(),
       failStaleDiscoverySessions(),
-      reconcileStaleAiTasks(),
-      reconcileAiExecutions({ expiredOnly: true }),
       sweepExpiredUploads(),
       wakeDueMissionGoals(),
       wakeReadyMissionGoals(),
       wakeRuntimeTransitionMissionGoals(),
       retryTransitionsAndReconcileApplyGoals(),
     ]);
+    const {
+      tasks: recoveredTasks,
+      executions: reconciledAiExecutions,
+    } = await reconcileExpiredTaskExecutions();
     if (failed > 0) {
       logger.warn({ failed }, "stale-job sweep: timed out running scan jobs marked failed");
     }
@@ -1711,155 +1727,13 @@ export function startStaleJobSweep(): NodeJS.Timeout {
     if (expiredUploads > 0) {
       logger.info({ expiredUploads }, "stale-job sweep: expired upload entries removed");
     }
-    if (wokenGoals > 0 || wokenDependencyGoals > 0) {
+    if (wokenGoals > 0 || wokenDependencyGoals > 0 || wokenRuntimeTransitionGoals > 0) {
       logger.info(
-        { wokenGoals, wokenDependencyGoals },
+        { wokenGoals, wokenDependencyGoals, wokenRuntimeTransitionGoals },
         "stale-job sweep: Mission Goals woken",
       );
     }
   }, STALE_JOB_SWEEP_INTERVAL_MS);
-}
-
-/**
- * Handles tasks left in "running" state after a process crash.
- *
- * AI task execution (scheduleAiTaskExecution) claims verifying → running,
- * then calls the Groq agent. The inner try/catch rolls back to "verifying"
- * on normal execution failure, but a hard crash (SIGKILL, OOM) bypasses that
- * rollback, leaving the task permanently stuck in "running".
- *
- * Treatment:
- *   "running" + retryCount < maxRetries → reset to "verifying" (re-triggerable)
- *   "running" + retryCount >= maxRetries → mark "failed" (give up)
- *
- * We never auto-re-execute here because:
- *   1. We don't have the userId needed to resolve a Groq API key.
- *   2. The agent may have applied partial changes — the user should review first.
- *
- * Resetting to "verifying" makes the task visible on the dashboard and allows
- * the user or the auto-trigger to re-execute it cleanly.
- */
-async function reconcileAiTasks(): Promise<number> {
-  const now = databaseNow();
-  const abandonedTask = or(
-    lt(tasksTable.leaseUntil, databaseNow()),
-    isNull(tasksTable.leaseUntil),
-  );
-
-  const runningTasks = await db
-    .select({
-      id: tasksTable.id,
-      projectId: tasksTable.projectId,
-      title: tasksTable.title,
-      retryCount: tasksTable.retryCount,
-      maxRetries: tasksTable.maxRetries,
-    })
-    .from(tasksTable)
-    .where(and(eq(tasksTable.status, "running"), abandonedTask));
-
-  if (runningTasks.length === 0) return 0;
-
-  let resetCount = 0;
-  let failedCount = 0;
-
-  for (const task of runningTasks) {
-    const correlationId = randomUUID();
-
-    if (task.retryCount < task.maxRetries) {
-      // Reset to verifying so the task can be re-triggered. The AI call was
-      // interrupted mid-flight — we can't resume, but we can let it run again.
-      const [resetTask] = await db
-        .update(tasksTable)
-        .set({
-          status: "verifying",
-          retryCount: task.retryCount + 1,
-          updatedAt: now,
-          // PR-01: clear lease so the task can be re-claimed on next execution
-          workerId: null,
-          leaseUntil: null,
-          lastHeartbeatAt: null,
-        })
-        .where(and(eq(tasksTable.id, task.id), eq(tasksTable.status, "running"), abandonedTask))
-        .returning({ id: tasksTable.id });
-
-      if (!resetTask) {
-        logger.warn(
-          {
-            scope: "job-reconciliation",
-            code: "AI_TASK_RESET_CONFLICT",
-            taskId: task.id,
-            projectId: task.projectId,
-            correlationId,
-          },
-          "running AI task changed concurrently during reconciliation; reset skipped",
-        );
-      }
-
-      if (resetTask) {
-        invalidateContextCache(task.projectId);
-        await db.insert(taskLogsTable).values({
-          id: randomUUID(),
-          taskId: task.id,
-          level: "warn",
-          message: `Task reset to "verifying" after process restart (retry ${task.retryCount + 1}/${task.maxRetries}). Re-trigger to execute.`,
-          correlationId,
-        });
-        resetCount++;
-      }
-    } else {
-      // Exceeded maxRetries — mark permanently failed.
-      const [failedTask] = await db
-        .update(tasksTable)
-        .set({
-          status: "failed",
-          updatedAt: now,
-          completedAt: now,
-          // PR-01: clear lease on permanent failure
-          workerId: null,
-          leaseUntil: null,
-          lastHeartbeatAt: null,
-        })
-        .where(and(eq(tasksTable.id, task.id), eq(tasksTable.status, "running"), abandonedTask))
-        .returning({ id: tasksTable.id });
-
-      if (!failedTask) {
-        logger.warn(
-          {
-            scope: "job-reconciliation",
-            code: "AI_TASK_FAIL_CONFLICT",
-            taskId: task.id,
-            projectId: task.projectId,
-            correlationId,
-          },
-          "running AI task changed concurrently during reconciliation; failure write skipped",
-        );
-      }
-
-      if (failedTask) {
-        await db.insert(taskLogsTable).values({
-          id: randomUUID(),
-          taskId: task.id,
-          level: "error",
-          message: `Task permanently failed after process restart: retry limit of ${task.maxRetries} exceeded. ${ORPHANED_RUNNING_MESSAGE}`,
-          correlationId,
-        });
-        invalidateContextCache(task.projectId);
-        failedCount++;
-      }
-    }
-  }
-
-  logger.warn(
-    {
-      count: runningTasks.length,
-      reset: resetCount,
-      failed: failedCount,
-      taskIds: runningTasks.map((t) => t.id),
-    },
-    "reconciled interrupted AI tasks after restart: reset to verifying or failed",
-  );
-
-  return runningTasks.length;
 }
 
 /**
@@ -1878,20 +1752,23 @@ export async function reconcileStuckJobs(): Promise<{
     const [
       scanJobs,
       discoverySessions,
-      aiTasks,
       expiredUploads,
       githubDeliveryRecoveries,
     ] = await Promise.all([
       reconcileScanJobs(),
       reconcileDiscoverySessions(),
-      reconcileAiTasks(),
       sweepExpiredUploads(),
       reconcileInterruptedGitHubDeliveryAttempts(),
     ]);
+    // Keep linked Task and Execution recovery on the same ordered path at
+    // startup and during the periodic stale-job sweep.
+    const {
+      tasks: aiTasks,
+      executions: aiExecutions,
+    } = await reconcileExpiredTaskExecutions();
     // Apply reconciliation depends on execution lease reconciliation. Keep
     // both passes ordered so the delivery reconciler cannot race a proof-bound
     // apply and automatically write files from its promotion journal.
-    const aiExecutions = await reconcileAiExecutions({ expiredOnly: true });
     const applyRecovery = await reconcileInterruptedApplyChanges();
     const legacyDeliveries = await reconcileInterruptedDeliveries(applyRecovery.protectedProposalIds);
     const deliveries = legacyDeliveries + applyRecovery.reconciled + githubDeliveryRecoveries;

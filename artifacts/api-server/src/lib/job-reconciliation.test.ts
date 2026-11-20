@@ -31,6 +31,7 @@ import {
   failStaleRunningJobs,
   failStaleDiscoverySessions,
   getDurableJobHealth,
+  reconcileExpiredTaskExecutions,
   reconcileStaleAiTasks,
   reconcileStuckJobs,
   GITHUB_DELIVERY_RECOVERY_BATCH_SIZE,
@@ -651,10 +652,10 @@ describe("reconcileStuckJobs", () => {
       });
 
       try {
-        const [reconciledTasks, reconciledExecutions] = await Promise.all([
-          reconcileStaleAiTasks(),
-          reconcileAiExecutions({ expiredOnly: true }),
-        ]);
+        const {
+          tasks: reconciledTasks,
+          executions: reconciledExecutions,
+        } = await reconcileExpiredTaskExecutions();
         expect(reconciledTasks).toBe(1);
         expect(reconciledExecutions).toBe(1);
 
