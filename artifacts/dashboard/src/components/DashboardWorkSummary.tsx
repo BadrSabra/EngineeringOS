@@ -69,6 +69,27 @@ export function toRouterHref(href: string): string {
   return href.startsWith('/') ? href : `/${href}`;
 }
 
+function WorkSummaryDestinations({ context }: { context: 'empty' | 'coverage' }) {
+  return (
+    <div className="mt-2 flex flex-wrap gap-2">
+      <Link
+        href={toRouterHref('/tasks')}
+        data-testid={`link-work-${context}-tasks`}
+        className="inline-flex items-center rounded-md border border-primary/25 bg-primary/5 px-2.5 py-1.5 font-medium text-primary underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+      >
+        استعرض المهام
+      </Link>
+      <Link
+        href={toRouterHref('/projects')}
+        data-testid={`link-work-${context}-projects`}
+        className="inline-flex items-center rounded-md border border-primary/25 bg-primary/5 px-2.5 py-1.5 font-medium text-primary underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+      >
+        استعرض المشاريع
+      </Link>
+    </div>
+  );
+}
+
 function formatTime(value: string): string {
   const d = new Date(value);
   return Number.isNaN(d.getTime())
@@ -256,7 +277,8 @@ export default function DashboardWorkSummary() {
             {c.partial || c.goalsTruncated || c.excludedExecutionCount > 0 ? (
               <>
                 <p className="font-medium" data-testid="text-work-empty-bounded">لا توجد عناصر ضمن هذا العرض المحدود.</p>
-                <p className="mt-1 text-xs text-muted-foreground">قد يوجد عمل آخر لم يشمله هذا العرض؛ افتح المهام أو المشاريع لرؤية كل شيء.</p>
+                <p className="mt-1 text-xs text-muted-foreground">قد يوجد عمل آخر لم يشمله هذا العرض.</p>
+                <WorkSummaryDestinations context="empty" />
               </>
             ) : (
               <>
@@ -314,14 +336,19 @@ export default function DashboardWorkSummary() {
         )}
         <div data-testid="text-work-coverage" className="flex items-start gap-2 rounded-lg bg-secondary/40 px-3 py-2 text-xs leading-5 text-muted-foreground">
           <Info aria-hidden="true" className="mt-0.5 h-3.5 w-3.5 shrink-0" />
-          <p>
-            {c.partial || c.goalsTruncated
-              ? `هذا عرض جزئي: نقرأ حتى ${c.sourceLimit} سجلات من كل نوع ونعرض حتى ${c.sectionLimit} في كل قسم، لذا قد يوجد عمل آخر غير ظاهر. `
-              : `نقرأ حتى ${c.sourceLimit} سجلات من كل نوع ونعرض حتى ${c.sectionLimit} في كل قسم. `}
-            {c.excludedExecutionCount > 0 && `لم نعرض ${c.excludedExecutionCount} من عمليات التشغيل غير المصنّفة أو الخاصة بالمحادثة. `}
-            التصنيف إرشادي ومبني على الحالة المسجّلة. 
-            هذا ليس عددًا كليًا لعملك. آخر قراءة: {formatTime(data.observedAt)}.
-          </p>
+          <div>
+            <p>
+              {c.partial || c.goalsTruncated
+                ? `هذا عرض جزئي: نقرأ حتى ${c.sourceLimit} سجلات من كل نوع ونعرض حتى ${c.sectionLimit} في كل قسم، لذا قد يوجد عمل آخر غير ظاهر. `
+                : `نقرأ حتى ${c.sourceLimit} سجلات من كل نوع ونعرض حتى ${c.sectionLimit} في كل قسم. `}
+              {c.excludedExecutionCount > 0 && `لم نعرض ${c.excludedExecutionCount} من عمليات التشغيل غير المصنّفة أو الخاصة بالمحادثة. `}
+              التصنيف إرشادي ومبني على الحالة المسجّلة.
+              هذا ليس عددًا كليًا لعملك. آخر قراءة: {formatTime(data.observedAt)}.
+            </p>
+            {!allEmpty && (c.partial || c.goalsTruncated || c.excludedExecutionCount > 0) && (
+              <WorkSummaryDestinations context="coverage" />
+            )}
+          </div>
         </div>
       </div>
     );

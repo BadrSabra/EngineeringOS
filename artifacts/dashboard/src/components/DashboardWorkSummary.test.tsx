@@ -48,6 +48,9 @@ describe("DashboardWorkSummary", () => {
     render(<DashboardWorkSummary />);
     expect(screen.getByTestId("text-work-empty-bounded")).toHaveTextContent("ضمن هذا العرض المحدود");
     expect(screen.queryByTestId("link-start-goal-from-empty-summary")).not.toBeInTheDocument();
+    expect(screen.getByTestId("link-work-empty-tasks")).toHaveAttribute("href", "/tasks");
+    expect(screen.getByTestId("link-work-empty-projects")).toHaveAttribute("href", "/projects");
+    expect(screen.queryByTestId("link-work-coverage-tasks")).not.toBeInTheDocument();
   });
 
   it("links a complete empty summary directly to the goal input", () => {
@@ -57,6 +60,8 @@ describe("DashboardWorkSummary", () => {
     expect(screen.getByTestId("status-work-overview-empty")).toHaveTextContent(
       "لا توجد عناصر مسجّلة لعرضها الآن",
     );
+    expect(screen.queryByTestId("link-work-empty-tasks")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("link-work-coverage-tasks")).not.toBeInTheDocument();
     expect(screen.getByTestId("link-start-goal-from-empty-summary")).toHaveAttribute(
       "href",
       "#home-goal-draft",
@@ -144,6 +149,9 @@ describe("DashboardWorkSummary", () => {
     expect(cov).toHaveTextContent("عرض جزئي");
     expect(cov).toHaveTextContent("ليس عددًا كليًا");
     expect(cov).toHaveTextContent("3");
+    expect(screen.getByTestId("link-work-coverage-tasks")).toHaveAttribute("href", "/tasks");
+    expect(screen.getByTestId("link-work-coverage-projects")).toHaveAttribute("href", "/projects");
+    expect(screen.queryByTestId("link-work-empty-tasks")).not.toBeInTheDocument();
   });
 
   it("shows a useful next step for each section while preserving the detail destinations", () => {
