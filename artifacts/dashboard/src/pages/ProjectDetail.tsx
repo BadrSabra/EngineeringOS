@@ -581,9 +581,19 @@ function ProjectDetailSession({ projectId }: { projectId: string }) {
 
         {/* Recent events */}
         <div className="bg-card border border-border rounded-xl p-5 shadow-sm flex flex-col">
-          <h2 className="font-semibold flex items-center gap-2 mb-4">
-            <Clock className="w-4 h-4 text-primary" /> الأحداث الأخيرة
-          </h2>
+          <div className="mb-4 flex items-center justify-between gap-2">
+            <h2 className="font-semibold flex items-center gap-2">
+              <Clock className="w-4 h-4 text-primary" /> الأحداث الأخيرة
+            </h2>
+            <Link
+              href={`/events?projectId=${encodeURIComponent(projectId)}`}
+              aria-label={`اعرض كل أحداث مشروع ${project.name}`}
+              data-testid="link-project-event-log"
+              className="flex shrink-0 items-center gap-1 rounded text-xs text-primary hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+            >
+              سجل الأحداث <ExternalLink className="h-3 w-3" aria-hidden="true" />
+            </Link>
+          </div>
           <div className="flex-1 overflow-y-auto space-y-2">
             {!summary ? (
               <p className="text-sm text-muted-foreground" data-testid="summary-events-unavailable">
