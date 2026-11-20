@@ -29,6 +29,7 @@ import { runTaskVerification } from "../services/task-service.js";
 import { markRemediationPlanVerified } from "./remediation-plan.js";
 import { insertTaskAutoExecutionIntent } from "./task-auto-execution-outbox.js";
 import { scheduleAiTaskExecution } from "../routes/ai/tasks.js";
+import { invalidateContextCache } from "@workspace/ai-orchestrator";
 
 export const TASK_EXECUTION_WAITING_FOR_DEPENDENCIES =
   "TaskExecutionWaitingForDependencies";
@@ -628,6 +629,7 @@ export async function runDeferredTaskVerification(taskId: string): Promise<boole
       return { updated: true, aiDispatch };
     });
     if (!finalized.updated) return false;
+    invalidateContextCache(claimed.task.projectId);
 
     if (finalized.aiDispatch && claimed.task.prompt) {
       await scheduleAiTaskExecution(
