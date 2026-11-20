@@ -401,8 +401,8 @@ router.patch("/tasks/:taskId", async (req, res) => {
   let updated: Array<typeof tasksTable.$inferSelect>;
   try {
     updated = await db.transaction(async (tx) => {
-      // Keep one lock order across all Task admission paths: dependent Task,
-      // then its prerequisite rows. This avoids PATCH-vs-execute lock inversion.
+      // Lock the Task before changing its status or recording its Outbox intent.
+      // The final execution claim locks and revalidates its prerequisite chain.
       const [lockedTask] = await tx.select().from(tasksTable)
         .where(and(
           eq(tasksTable.id, taskId),
