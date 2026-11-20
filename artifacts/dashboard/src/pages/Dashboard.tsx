@@ -29,6 +29,7 @@ import { Link, useLocation } from 'wouter';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { RefreshButton, RequestError } from '@/components/OperatorResilience';
+import EventAssistantHandoff from '@/components/EventAssistantHandoff';
 import DashboardWorkSummary from '@/components/DashboardWorkSummary';
 import { useMonotonicData } from '@/lib/freshness';
 import { HOME_GOAL_MAX_LENGTH, storeHomeGoalDraft } from '@/lib/home-goal-handoff';
@@ -987,6 +988,7 @@ function DashboardForUser({ ownerId }: { ownerId: string | null }) {
               const href = homeEventLogHref(event);
               const eventLabel = event.message || event.type;
               const hasCorrelationId = Boolean(event.correlationId?.trim());
+              const projectName = event.projectId ? projectNameById.get(event.projectId) : undefined;
               return (
                 <div
                   key={event.id}
@@ -1035,6 +1037,13 @@ function DashboardForUser({ ownerId }: { ownerId: string | null }) {
                         </span>
                       )}
                     </p>
+                    {projectName
+                      && (event.severity === 'error' || event.severity === 'warning')
+                      && (
+                        <div className="mt-2">
+                          <EventAssistantHandoff event={event} projectName={projectName} />
+                        </div>
+                      )}
                   </div>
                 </div>
               );
