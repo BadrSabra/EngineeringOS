@@ -25,6 +25,7 @@ describe('resolveWorkspaceNextStep', () => {
       recentTasks: [
         { id: 'task-running', title: 'مهمة نشطة', status: 'running' },
         { id: 'task-failed', title: 'مهمة متعثرة', status: 'failed' },
+        { id: 'task-blocked', title: 'مهمة متوقفة', status: 'blocked' },
       ],
       candidate: { status: 'pending', approvalRequired: true },
     })).toMatchObject({
@@ -49,6 +50,24 @@ describe('resolveWorkspaceNextStep', () => {
       actionLabel: 'راجع المهمة',
       ariaLabel: 'الخطوة المقترحة: مراجعة المهمة المتعثّرة: إصلاح التحميل',
       href: '/tasks?projectId=project%2Falpha&taskId=task-failed',
+    });
+  });
+
+  it('surfaces a blocked task before active or newer work without resuming it', () => {
+    expect(resolveWorkspaceNextStep({
+      ...baseInput,
+      recentTasks: [
+        { id: 'task-running', title: 'مهمة جارية', status: 'running' },
+        { id: 'task-blocked', title: 'مراجعة المتطلبات', status: 'blocked' },
+        { id: 'task-completed', title: 'مهمة أحدث', status: 'completed' },
+      ],
+    })).toMatchObject({
+      kind: 'link',
+      title: 'راجع المهمة المتوقفة',
+      description: expect.stringContaining('لن نستأنفها تلقائيًا'),
+      actionLabel: 'افتح المهمة',
+      ariaLabel: 'الخطوة المقترحة: مراجعة المهمة المتوقفة: مراجعة المتطلبات',
+      href: '/tasks?projectId=project%2Falpha&taskId=task-blocked',
     });
   });
 
