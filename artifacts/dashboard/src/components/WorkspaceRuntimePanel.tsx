@@ -1,6 +1,9 @@
 import { useRef, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { Play, RotateCw, Server, Square, TerminalSquare } from 'lucide-react';
+import { useUser } from '@clerk/react';
+import { Play, RotateCw, Server, Sparkles, Square, TerminalSquare } from 'lucide-react';
+import { useLocation } from 'wouter';
+import { storeHomeGoalDraft } from '@/lib/home-goal-handoff';
 
 type RuntimeStatus = 'stopped' | 'starting' | 'running' | 'failed';
 
@@ -65,6 +68,8 @@ function statusLabel(status: RuntimeStatus): string {
 
 export default function WorkspaceRuntimePanel({ projectId }: { projectId: string }) {
   const queryClient = useQueryClient();
+  const { isLoaded, user } = useUser();
+  const [, setLocation] = useLocation();
   const actionRequestId = useRef(0);
   const [pendingAction, setPendingAction] = useState<{
     projectId: string;
@@ -72,6 +77,10 @@ export default function WorkspaceRuntimePanel({ projectId }: { projectId: string
     action: 'start' | 'restart' | 'stop';
   } | null>(null);
   const [actionError, setActionError] = useState<{ projectId: string; message: string } | null>(null);
+  const [assistantHandoffError, setAssistantHandoffError] = useState<{
+    projectId: string;
+    message: string;
+  } | null>(null);
   const runtimeQuery = useQuery({
     queryKey: runtimeKey(projectId),
     enabled: Boolean(projectId),
@@ -110,6 +119,26 @@ export default function WorkspaceRuntimePanel({ projectId }: { projectId: string
       // happens to be active after this asynchronous action settles.
       await queryClient.invalidateQueries({ queryKey: runtimeKey(projectId), exact: true });
     }
+  };
+
+  const askAssistantAboutPreview = () => {
+    if (!user?.id || !projectId) return;
+    const draft = storeHomeGoalDraft([
+      'ساعدني على فهم سبب تعذّر تشغيل معاينة هذا المشروع.',
+      'الحالة المسجلة «تعذّر التشغيل» تشير إلى النتيجة فقط ولا تثبت سببها.',
+      'افحص الأدلة وسجل التشغيل المتاحين، وميّز ما ثبت مما يحتاج إلى تحقق. اقترح خطوة آمنة واحدة. لا تشغّل أوامر ولا تغيّر الملفات ولا تعِد تشغيل المعاينة قبل موافقتي.',
+    ].join('\n\n'), user.id, projectId);
+    if (!draft) {
+      setAssistantHandoffError({
+        projectId,
+        message: 'تعذر حفظ سياق المعاينة. لم نفتح المساعد حتى لا يضيع النص.',
+      });
+      return;
+    }
+    setAssistantHandoffError(null);
+    setLocation(
+      `/projects/${encodeURIComponent(projectId)}/workspace?goalDraftId=${encodeURIComponent(draft.id)}#workspace-panel-agent`,
+    );
   };
 
   if (runtimeQuery.isLoading && !runtime) {
@@ -184,6 +213,27 @@ export default function WorkspaceRuntimePanel({ projectId }: { projectId: string
       {runtime.error && (
         <div className="mt-3 rounded-md border border-rose-500/20 bg-rose-500/5 px-3 py-2 text-xs text-rose-200" role="alert">
           <span dir="auto">{runtime.error}</span>
+        </div>
+      )}
+      {runtime.status === 'failed' && isLoaded && user?.id && (
+        <div className="mt-3 rounded-md border border-primary/25 bg-primary/5 px-3 py-3">
+          <p className="text-xs leading-5 text-muted-foreground">
+            يمكنك طلب مراجعة المشكلة داخل مساعد المشروع؛ لا نرسل سجل التشغيل أو رسالة الخطأ معه.
+          </p>
+          <button
+            type="button"
+            onClick={askAssistantAboutPreview}
+            className="mt-2 inline-flex items-center gap-2 rounded-md border border-primary/35 bg-primary/10 px-3 py-2 text-xs font-medium text-primary transition-colors hover:bg-primary/15 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+            data-testid="button-runtime-assistant-handoff"
+          >
+            <Sparkles className="h-3.5 w-3.5" aria-hidden="true" />
+            اسأل المساعد عن مشكلة المعاينة
+          </button>
+          {assistantHandoffError?.projectId === projectId && (
+            <p className="mt-2 text-xs text-destructive" role="alert">
+              {assistantHandoffError.message}
+            </p>
+          )}
         </div>
       )}
       {projectActionError && (
