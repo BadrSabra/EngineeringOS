@@ -104,7 +104,10 @@ import { reconcilePendingMissionDecisionShadows } from "./mission-strategy-shado
 import { resolveMissionDecisionShadowProjectScope } from "./mission-decision-shadow-scope.js";
 import { dispatchPendingShadowReplays } from "./shadow-replay.js";
 import { dispatchPendingMissionChatHandoffs } from "./mission-chat-handoffs.js";
-import { retryPendingRuntimeStartTransitions } from "./agent-state/runtime-start-transition.js";
+import {
+  dispatchPendingMaterializedMissionTransitionWakes,
+  retryPendingRuntimeStartTransitions,
+} from "./agent-state/runtime-start-transition.js";
 import { dispatchDeferredAiTaskExecutions } from "../routes/ai/tasks.js";
 import { dispatchPendingTaskObservationOutbox } from "./task-observation-outbox.js";
 
@@ -1266,6 +1269,10 @@ async function dispatchPersistedPendingJobsOnce(): Promise<number> {
     { name: "decision-dispatch", run: () => reconcileApprovedMissionDecisionDispatches() },
     { name: "mission-recipes", run: () => dispatchPendingMissionRecipes() },
     {
+      name: "mission-world-transition-wakes",
+      run: () => dispatchPendingMaterializedMissionTransitionWakes(pageLimit),
+    },
+    {
       name: "mission-recipe-acceptance-recovery",
       run: () => reconcileCompletedMissionRecipeAcceptances(),
     },
@@ -1602,6 +1609,7 @@ export function startScopedMissionLifecycleDispatcher(
       await replayPendingMissionEvents(32, projectId);
       await dispatchPendingShadowReplays(32, projectId);
       await dispatchPendingMissionChatHandoffs(32, projectId);
+      await dispatchPendingMaterializedMissionTransitionWakes(32, projectId);
       await wakeDueMissionGoals(32, projectId);
       await wakeReadyMissionGoals(32, projectId);
       await wakeRuntimeTransitionMissionGoals(32, projectId);
