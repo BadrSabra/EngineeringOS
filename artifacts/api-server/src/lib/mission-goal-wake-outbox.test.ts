@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it } from "vitest";
+import { randomUUID } from "node:crypto";
 import { and, eq } from "drizzle-orm";
 import {
   aiGoalDependenciesTable,
@@ -20,7 +21,7 @@ import {
 const projectIds: string[] = [];
 
 async function createProject(): Promise<string> {
-  const projectId = `mission-goal-wake-outbox-${crypto.randomUUID()}`;
+  const projectId = `mission-goal-wake-outbox-${randomUUID()}`;
   const now = new Date();
   projectIds.push(projectId);
   await db.insert(projectsTable).values({
@@ -38,10 +39,10 @@ async function createProject(): Promise<string> {
 
 async function createPlanFixture() {
   const projectId = await createProject();
-  const missionId = crypto.randomUUID();
-  const prerequisiteGoalId = crypto.randomUUID();
-  const successorGoalId = crypto.randomUUID();
-  const planRevision = `mission-goal-wake-${crypto.randomUUID()}`;
+  const missionId = randomUUID();
+  const prerequisiteGoalId = randomUUID();
+  const successorGoalId = randomUUID();
+  const planRevision = `mission-goal-wake-${randomUUID()}`;
   const now = new Date();
 
   await db.insert(aiMissionsTable).values({
@@ -83,7 +84,7 @@ async function createPlanFixture() {
     },
   ]);
   await db.insert(aiGoalDependenciesTable).values({
-    id: crypto.randomUUID(),
+    id: randomUUID(),
     missionId,
     projectId,
     goalId: successorGoalId,
