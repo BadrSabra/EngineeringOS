@@ -167,6 +167,13 @@ describe('ProjectDetail Arabic presentation', () => {
     expect(screen.getByText('active')).toBeInTheDocument();
   });
 
+  it('opens the knowledge graph with the current project selected', () => {
+    render(<ProjectDetail />);
+
+    expect(screen.getByRole('link', { name: 'استكشف خريطة المشروع: مشروع تجريبي' }))
+      .toHaveAttribute('href', '/graph?projectId=project-1');
+  });
+
   it('keeps Strategy Replay opt-in off by default, explains its limits, and preserves the mutation value', () => {
     render(<ProjectDetail />);
     fireEvent.click(screen.getByRole('button', { name: 'معلومات المشروع' }));
