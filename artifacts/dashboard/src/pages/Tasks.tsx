@@ -2418,7 +2418,7 @@ function TasksSession({
                             onResume={() => handleAction('resume', task.id)}
                             isResuming={resumeTask.isPending}
                           />
-                          {task.status === 'failed' && (() => {
+                          {(() => {
                             const taskProject = projects.find((project) => project.id === task.projectId);
                             if (!taskProject) return null;
                             return (
