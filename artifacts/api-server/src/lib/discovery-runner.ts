@@ -361,7 +361,8 @@ function computeConfidence(result: Partial<DiscoveryResultData>, fileCount: numb
  * first action. This is intentional: it lets job-reconciliation know
  * that any session still in "pending" at startup truly never started
  * (safe to re-enqueue), while "discovering" sessions were interrupted
- * mid-run (marked as error instead).
+ * mid-run. Reconciliation restarts durable local/workspace roots from step
+ * zero within a bounded budget and fails closed for temporary source roots.
  *
  * Never throws — all errors are recorded on the session row.
  */
