@@ -19,15 +19,36 @@ describe('resolveWorkspaceNextStep', () => {
     });
   });
 
-  it('asks for review before pointing to an active task when approval is pending', () => {
+  it('keeps pending approval first when a failed task is also recorded', () => {
     expect(resolveWorkspaceNextStep({
       ...baseInput,
-      recentTasks: [{ id: 'task-running', title: 'مهمة نشطة', status: 'running' }],
+      recentTasks: [
+        { id: 'task-running', title: 'مهمة نشطة', status: 'running' },
+        { id: 'task-failed', title: 'مهمة متعثرة', status: 'failed' },
+      ],
       candidate: { status: 'pending', approvalRequired: true },
     })).toMatchObject({
       kind: 'link',
       title: 'راجع العمل المقترح',
       href: '#workspace-panel-canvas',
+    });
+  });
+
+  it('surfaces a recorded failed task before active or newer work without restarting it', () => {
+    expect(resolveWorkspaceNextStep({
+      ...baseInput,
+      recentTasks: [
+        { id: 'task-running', title: 'مهمة جارية', status: 'running' },
+        { id: 'task-failed', title: 'إصلاح التحميل', status: 'failed' },
+        { id: 'task-completed', title: 'مهمة أحدث', status: 'completed' },
+      ],
+    })).toMatchObject({
+      kind: 'link',
+      title: 'راجع المهمة المتعثّرة',
+      description: expect.stringContaining('لن نعيد تشغيلها تلقائيًا'),
+      actionLabel: 'راجع المهمة',
+      ariaLabel: 'الخطوة المقترحة: مراجعة المهمة المتعثّرة: إصلاح التحميل',
+      href: '/tasks?projectId=project%2Falpha&taskId=task-failed',
     });
   });
 

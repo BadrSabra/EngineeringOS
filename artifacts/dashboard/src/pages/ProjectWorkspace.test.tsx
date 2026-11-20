@@ -534,6 +534,46 @@ describe("ProjectWorkspace live snapshot refresh", () => {
     expect(screen.queryByText("runtime-revision-stale")).not.toBeInTheDocument();
   });
 
+  it("opens a failed task from the workspace next-step recommendation", () => {
+    mocks.snapshot = {
+      ...initialSnapshot,
+      work: {
+        ...initialSnapshot.work,
+        recentTasks: [
+          {
+            id: "task-running",
+            title: "مهمة جارية",
+            status: "running",
+            verificationDecision: null,
+            updatedAt: "2026-11-11T12:01:00.000Z",
+          },
+          {
+            id: "task-failed",
+            title: "تعذر تحميل البيانات",
+            status: "failed",
+            verificationDecision: "failed",
+            updatedAt: "2026-11-11T12:00:00.000Z",
+          },
+        ],
+      },
+    } as unknown as ProjectWorkspaceSnapshot;
+
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+    });
+
+    render(
+      <QueryClientProvider client={queryClient}>
+        <ProjectWorkspace />
+      </QueryClientProvider>,
+    );
+
+    expect(screen.getByTestId("workspace-next-step")).toHaveTextContent("راجع المهمة المتعثّرة");
+    expect(screen.getByTestId("workspace-next-step")).toHaveTextContent("لن نعيد تشغيلها تلقائيًا");
+    expect(screen.getByTestId("workspace-next-step-action"))
+      .toHaveAttribute("href", "/tasks?projectId=project-1&taskId=task-failed");
+  });
+
 });
 
 
