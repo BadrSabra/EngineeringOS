@@ -1352,11 +1352,13 @@ describe("POST /projects/import — transaction integrity", () => {
       request(app).post("/api/projects/import").send({ discoveryId }),
     ]);
 
-    const winner = first.status === 201 ? first : second;
-    projectId = winner.body.id;
+    expect(first.status).toBe(201);
+    expect(second.status).toBe(201);
+    expect(first.body.id).toBe(second.body.id);
+    projectId = first.body.id;
 
     // The session must be fully committed to "imported" — never stuck in a
-    // partial state.
+    // partial state, and both API replicas must return the same committed row.
     const session = await db
       .select()
       .from(discoverySessionsTable)
@@ -1365,12 +1367,17 @@ describe("POST /projects/import — transaction integrity", () => {
     expect(session[0]?.status).toBe("imported");
     expect(session[0]?.importedProjectId).toBe(projectId);
 
-    // Exactly one project row must exist.
     const projects = await db
       .select()
       .from(projectsTable)
       .where(eq(projectsTable.id, projectId!));
     expect(projects).toHaveLength(1);
+
+    const scanJobs = await db
+      .select()
+      .from(scanJobsTable)
+      .where(eq(scanJobsTable.projectId, projectId!));
+    expect(scanJobs).toHaveLength(1);
   });
 
   it("returns 201 even when recordAudit throws after a successful import", async () => {
@@ -1398,23 +1405,34 @@ describe("POST /projects/import — transaction integrity", () => {
     vi.restoreAllMocks();
   });
 
-  it("leaves no project row after a 409 from importing an already-imported session", async () => {
-    // Import once successfully, then attempt a re-import. The second attempt
-    // must leave no extra project row behind (the transaction must roll back).
+  it("replays the original Project without creating a second project or initial scan", async () => {
     const discoveryId = await insertReadySession(fakeResult());
     const first = await request(app).post("/api/projects/import").send({ discoveryId });
     expect(first.status).toBe(201);
     projectId = first.body.id;
 
     const second = await request(app).post("/api/projects/import").send({ discoveryId });
-    expect(second.status).toBe(409);
+    expect(second.status).toBe(201);
+    expect(second.body.id).toBe(first.body.id);
 
-    // Still exactly one project row.
-    const rows = await db
+    const projects = await db
       .select()
       .from(projectsTable)
       .where(eq(projectsTable.id, projectId!));
-    expect(rows).toHaveLength(1);
+    expect(projects).toHaveLength(1);
+
+    const scanJobs = await db
+      .select()
+      .from(scanJobsTable)
+      .where(eq(scanJobsTable.projectId, projectId!));
+    expect(scanJobs).toHaveLength(1);
+
+    const projectEvents = await db
+      .select({ type: eventsTable.type })
+      .from(eventsTable)
+      .where(eq(eventsTable.projectId, projectId!));
+    expect(projectEvents.filter((event) => event.type === "ProjectImported")).toHaveLength(1);
+    expect(projectEvents.filter((event) => event.type === "ProjectScanQueued")).toHaveLength(1);
   });
 
   // ── rootPath uniqueness — two different sessions, same rootPath ───────────
