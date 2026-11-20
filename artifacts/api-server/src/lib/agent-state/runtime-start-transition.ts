@@ -1303,6 +1303,37 @@ async function claimGitHubDeliveryTransition(input: {
   });
 }
 
+/**
+ * A materialized World Transition is a wake signal, not execution authority.
+ * Each transition kind re-enters its existing proof-aware Mission consumer.
+ * This runs only after the transition transaction commits; reconciliation
+ * remains the durable fallback if the best-effort wake cannot be delivered.
+ */
+async function wakeMissionAfterMaterializedTransition(input: {
+  projectId: string;
+  transitionKind: "apply_changes" | "github_delivery";
+}): Promise<void> {
+  try {
+    const missionRuntime = await import("../mission-runtime.js");
+    if (input.transitionKind === "apply_changes") {
+      await missionRuntime.wakeApplyChangesMissionGoals(32, input.projectId);
+      return;
+    }
+    await missionRuntime.reconcileCompletedMissionRecipeAcceptances(32, input.projectId);
+    await missionRuntime.wakeReadyMissionGoals(32, input.projectId);
+  } catch (error) {
+    logger.warn(
+      {
+        scope: "mission-transition-wakeup",
+        projectId: input.projectId,
+        transitionKind: input.transitionKind,
+        error,
+      },
+      "World Transition committed but immediate Mission wake failed; durable reconciliation remains available.",
+    );
+  }
+}
+
 export async function finalizeGitHubDeliveryTransition(input: {
   projectId: string;
   executionId: string;
@@ -1317,6 +1348,10 @@ export async function finalizeGitHubDeliveryTransition(input: {
 }> {
   const claim = await claimGitHubDeliveryTransition(input);
   if (claim.kind === "materialized") {
+    await wakeMissionAfterMaterializedTransition({
+      projectId: input.projectId,
+      transitionKind: "github_delivery",
+    });
     return { status: "materialized", worldRevision: claim.worldRevision };
   }
   if (claim.kind === "terminal_failed") {
@@ -1476,6 +1511,10 @@ export async function finalizeGitHubDeliveryTransition(input: {
         "GitHub delivery World State materialized but cache invalidation failed",
       );
     }
+    await wakeMissionAfterMaterializedTransition({
+      projectId: input.projectId,
+      transitionKind: "github_delivery",
+    });
     return { status: "materialized", worldRevision: materialized.worldRevision };
   } catch (error) {
     const message = error instanceof Error ? error.message : "";
@@ -2108,7 +2147,13 @@ export async function finalizeApplyChangesTransition(input: {
   effectBundleId: string;
 }): Promise<{ status: "materialized" | "terminal_failed" | "pending"; worldRevision?: string; failureCode?: string }> {
   const claim = await claimApplyChangesTransition(input);
-  if (claim.kind === "materialized") return { status: "materialized", worldRevision: claim.worldRevision };
+  if (claim.kind === "materialized") {
+    await wakeMissionAfterMaterializedTransition({
+      projectId: input.projectId,
+      transitionKind: "apply_changes",
+    });
+    return { status: "materialized", worldRevision: claim.worldRevision };
+  }
   if (claim.kind === "terminal_failed") return { status: "terminal_failed", failureCode: claim.failureCode };
   if (claim.kind === "pending") return { status: "pending", ...(claim.failureCode ? { failureCode: claim.failureCode } : {}) };
   const { transition, leaseUntil, binding } = claim;
@@ -2313,6 +2358,10 @@ export async function finalizeApplyChangesTransition(input: {
       if (!boundEpisode) throw new Error("apply_transition_episode_scope_mismatch");
     });
     try { invalidateContextSlice(input.projectId, "worldState"); } catch { /* projection remains authoritative */ }
+    await wakeMissionAfterMaterializedTransition({
+      projectId: input.projectId,
+      transitionKind: "apply_changes",
+    });
     return { status: "materialized", worldRevision: materialized.worldRevision };
   } catch (error) {
     const message = error instanceof Error ? error.message : "";
