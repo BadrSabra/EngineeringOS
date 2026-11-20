@@ -1892,6 +1892,12 @@ async function syncRecipeObjectiveState(params: {
       },
     });
   });
+}
+
+async function syncRecipeObjectiveStateAndFinalizeMissionOutcome(
+  params: Parameters<typeof syncRecipeObjectiveState>[0],
+): Promise<void> {
+  await syncRecipeObjectiveState(params);
   if (params.status === "completed") {
     await finalizeMissionPlanOutcomesAfterGoalCompletion(params.goalId);
   }
@@ -1955,7 +1961,7 @@ async function executeMissionRecipe(dispatch: RecipeDispatch): Promise<void> {
           userId: dispatch.userId,
         }).catch(() => undefined);
       }
-      await syncRecipeObjectiveState({
+      await syncRecipeObjectiveStateAndFinalizeMissionOutcome({
         ...dispatch,
         status: "blocked",
         reason: preflight.reason,
@@ -1971,7 +1977,7 @@ async function executeMissionRecipe(dispatch: RecipeDispatch): Promise<void> {
       ))
       .limit(1);
     if (!project) {
-      await syncRecipeObjectiveState({
+      await syncRecipeObjectiveStateAndFinalizeMissionOutcome({
         ...dispatch,
         status: "blocked",
         reason: "project_not_found",
@@ -1980,7 +1986,7 @@ async function executeMissionRecipe(dispatch: RecipeDispatch): Promise<void> {
     }
     const rootResult = await establishProjectRoot(project.rootPath);
     if (!rootResult.ok) {
-      await syncRecipeObjectiveState({
+      await syncRecipeObjectiveStateAndFinalizeMissionOutcome({
         ...dispatch,
         status: "blocked",
         reason: "project_root_unavailable",
@@ -1996,7 +2002,7 @@ async function executeMissionRecipe(dispatch: RecipeDispatch): Promise<void> {
         || project.status === "archived"
         || !project.gitRemoteUrl
       ) {
-        await syncRecipeObjectiveState({
+        await syncRecipeObjectiveStateAndFinalizeMissionOutcome({
           ...dispatch,
           status: "blocked",
           reason: !delivery
@@ -2012,7 +2018,7 @@ async function executeMissionRecipe(dispatch: RecipeDispatch): Promise<void> {
     }
     const candidate = await loadRecipeCandidate(dispatch.projectId, dispatch.action, sourceRevision);
     if (dispatch.action.candidateIdentity && !candidate) {
-      await syncRecipeObjectiveState({
+      await syncRecipeObjectiveStateAndFinalizeMissionOutcome({
         ...dispatch,
         status: "blocked",
         reason: "candidate_not_available_for_current_revision",
@@ -2031,7 +2037,7 @@ async function executeMissionRecipe(dispatch: RecipeDispatch): Promise<void> {
           candidateTreeHash: dispatch.action.candidateIdentity,
         });
       } catch (error) {
-        await syncRecipeObjectiveState({
+        await syncRecipeObjectiveStateAndFinalizeMissionOutcome({
           ...dispatch,
           sourceRevision,
           candidateIdentity: dispatch.action.candidateIdentity ?? null,
@@ -2130,7 +2136,7 @@ async function executeMissionRecipe(dispatch: RecipeDispatch): Promise<void> {
       && !Array.isArray(goalAfterExecution.outcomeContract)
       && (goalAfterExecution.outcomeContract as { deliveryRequired?: unknown }).deliveryRequired === true;
     const measurementContinuationRequiresReplan = Boolean(result.measurementContinuation);
-    await syncRecipeObjectiveState({
+    await syncRecipeObjectiveStateAndFinalizeMissionOutcome({
       ...dispatch,
       executionId: result.executionId,
       attempt: parsedReceipt?.attempt,
@@ -2183,7 +2189,7 @@ async function executeMissionRecipe(dispatch: RecipeDispatch): Promise<void> {
       operationId: dispatch.operationId,
       error: error instanceof Error ? error.message.slice(0, 240) : "recipe_execution_failed",
     }, "Mission recipe execution failed");
-    await syncRecipeObjectiveState({
+    await syncRecipeObjectiveStateAndFinalizeMissionOutcome({
       ...dispatch,
       status: "needs_replan",
       reason: "recipe_execution_failed",
@@ -2534,7 +2540,7 @@ export async function reconcileCompletedMissionRecipeAcceptances(
       }
 
       const deliveryRequired = jsonRecord(row.outcomeContract).deliveryRequired === true;
-      await syncRecipeObjectiveState({
+      await syncRecipeObjectiveStateAndFinalizeMissionOutcome({
         goalId: row.goalId!,
         missionId: row.missionId,
         projectId: row.projectId,
