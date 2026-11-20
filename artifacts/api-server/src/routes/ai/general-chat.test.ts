@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import request from "supertest";
-import { eq, sql } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import {
   aiGeneralChatMessagesTable,
   aiGeneralChatSessionsTable,
@@ -9,6 +9,7 @@ import {
 } from "@workspace/db";
 import app from "../../app.js";
 import * as aiRouteHelpers from "../../lib/ai-route-helpers.js";
+import { startGeneralChatTurnLeaseHeartbeat } from "./general-chat.js";
 
 const sessionIds: string[] = [];
 
@@ -89,4 +90,76 @@ describe("General Chat database-authoritative turn leases", () => {
       errorCode: "AI_PROVIDER_UNAVAILABLE",
     });
   });
+  it("renews a pending turn lease while provider work is still running", async () => {
+    const { sessionId, turnId } = await seedPendingTurn("active");
+    const [assistant] = await db.select().from(aiGeneralChatMessagesTable)
+      .where(and(
+        eq(aiGeneralChatMessagesTable.sessionId, sessionId),
+        eq(aiGeneralChatMessagesTable.role, "assistant"),
+      ));
+    expect(assistant).toBeDefined();
+    await db.update(aiGeneralChatMessagesTable)
+      .set({ leaseUntil: sql<Date>`(clock_timestamp() AT TIME ZONE 'UTC') + interval '5 seconds'` })
+      .where(eq(aiGeneralChatMessagesTable.id, assistant!.id));
+    const [beforeHeartbeat] = await db.select().from(aiGeneralChatMessagesTable)
+      .where(eq(aiGeneralChatMessagesTable.id, assistant!.id));
+    const abortController = new AbortController();
+    const heartbeat = startGeneralChatTurnLeaseHeartbeat({
+      assistantMessageId: assistant!.id,
+      workerId: "previous-worker",
+      sessionId,
+      turnId,
+      abortController,
+    }, 15);
+    try {
+      const deadline = Date.now() + 1_500;
+      let afterHeartbeat = beforeHeartbeat;
+      while (Date.now() < deadline) {
+        [afterHeartbeat] = await db.select().from(aiGeneralChatMessagesTable)
+          .where(eq(aiGeneralChatMessagesTable.id, assistant!.id));
+        if (afterHeartbeat!.leaseUntil!.getTime() > beforeHeartbeat!.leaseUntil!.getTime()) break;
+        await new Promise((resolve) => setTimeout(resolve, 10));
+      }
+      expect(afterHeartbeat!.leaseUntil!.getTime())
+        .toBeGreaterThan(beforeHeartbeat!.leaseUntil!.getTime());
+      expect(abortController.signal.aborted).toBe(false);
+    } finally {
+      clearInterval(heartbeat);
+    }
+  });
+
+  it("aborts provider work when a replacement worker takes ownership of the pending turn", async () => {
+    const { sessionId, turnId } = await seedPendingTurn("active");
+    const [assistant] = await db.select().from(aiGeneralChatMessagesTable)
+      .where(and(
+        eq(aiGeneralChatMessagesTable.sessionId, sessionId),
+        eq(aiGeneralChatMessagesTable.role, "assistant"),
+      ));
+    expect(assistant).toBeDefined();
+    await db.update(aiGeneralChatMessagesTable)
+      .set({ workerId: "replacement-worker" })
+      .where(eq(aiGeneralChatMessagesTable.id, assistant!.id));
+
+    const abortController = new AbortController();
+    const heartbeat = startGeneralChatTurnLeaseHeartbeat({
+      assistantMessageId: assistant!.id,
+      workerId: "previous-worker",
+      sessionId,
+      turnId,
+      abortController,
+    }, 15);
+    try {
+      await new Promise<void>((resolve, reject) => {
+        const timeout = setTimeout(() => reject(new Error("heartbeat did not detect ownership loss")), 1_500);
+        abortController.signal.addEventListener("abort", () => {
+          clearTimeout(timeout);
+          resolve();
+        }, { once: true });
+      });
+      expect(abortController.signal.aborted).toBe(true);
+    } finally {
+      clearInterval(heartbeat);
+    }
+  });
+
 });

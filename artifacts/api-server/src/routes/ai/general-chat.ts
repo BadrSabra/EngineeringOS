@@ -16,7 +16,7 @@ import {
   getStrategy,
   type ProviderId,
 } from "@workspace/ai-orchestrator";
-import { and, desc, eq, isNull, lte, or } from "drizzle-orm";
+import { and, desc, eq, gt, isNull, lte, or } from "drizzle-orm";
 import { requireAuth } from "../../middlewares/requireAuth.js";
 import {
   redactUserFacingText,
@@ -32,6 +32,52 @@ router.use(requireAuth);
 const HISTORY_MESSAGE_LIMIT = 20;
 const MESSAGE_LIST_LIMIT = 500;
 const GENERAL_CHAT_TURN_LEASE_MS = 60_000;
+const GENERAL_CHAT_TURN_HEARTBEAT_INTERVAL_MS = Math.floor(GENERAL_CHAT_TURN_LEASE_MS / 3);
+
+export function startGeneralChatTurnLeaseHeartbeat(params: {
+  assistantMessageId: string;
+  workerId: string;
+  sessionId: string;
+  turnId: string;
+  abortController: AbortController;
+}, heartbeatIntervalMs = GENERAL_CHAT_TURN_HEARTBEAT_INTERVAL_MS): ReturnType<typeof setInterval> {
+  let renewalInFlight = false;
+  const heartbeat = setInterval(() => {
+    if (renewalInFlight || params.abortController.signal.aborted) return;
+    renewalInFlight = true;
+
+    void db.update(aiGeneralChatMessagesTable)
+      .set({ leaseUntil: databaseLeaseUntil(GENERAL_CHAT_TURN_LEASE_MS) })
+      .where(and(
+        eq(aiGeneralChatMessagesTable.id, params.assistantMessageId),
+        eq(aiGeneralChatMessagesTable.status, "pending"),
+        eq(aiGeneralChatMessagesTable.workerId, params.workerId),
+        gt(aiGeneralChatMessagesTable.leaseUntil, databaseNow()),
+      ))
+      .returning({ id: aiGeneralChatMessagesTable.id })
+      .then(([renewed]) => {
+        if (renewed) return;
+        logger.warn(
+          { sessionId: params.sessionId, turnId: params.turnId },
+          "General chat worker lost its turn lease",
+        );
+        params.abortController.abort(new Error("general_chat_turn_lease_lost"));
+      })
+      .catch((error: unknown) => {
+        logger.error(
+          { error, sessionId: params.sessionId, turnId: params.turnId },
+          "General chat turn lease heartbeat failed",
+        );
+        params.abortController.abort(error);
+      })
+      .finally(() => {
+        renewalInFlight = false;
+      });
+  }, Math.max(1, Math.floor(heartbeatIntervalMs)));
+
+  heartbeat.unref?.();
+  return heartbeat;
+}
 const GENERAL_CHAT_SYSTEM_PROMPT = [
   "You are EngineeringOS's general engineering assistant.",
   "Answer using only general knowledge and the conversation history.",
@@ -326,6 +372,7 @@ async function completeAssistantMessage(params: {
         eq(aiGeneralChatMessagesTable.id, params.assistantMessageId),
         eq(aiGeneralChatMessagesTable.status, "pending"),
         eq(aiGeneralChatMessagesTable.workerId, params.workerId),
+        gt(aiGeneralChatMessagesTable.leaseUntil, databaseNow()),
       ),
     )
     .returning();
@@ -462,6 +509,13 @@ router.post("/ai/general-chat/sessions/:sessionId/messages", async (req, res) =>
   };
   req.once("aborted", abortOnDisconnect);
   res.once("close", abortOnDisconnect);
+  const leaseHeartbeat = startGeneralChatTurnLeaseHeartbeat({
+    assistantMessageId: claim.assistantMessage.id,
+    workerId: claim.workerId,
+    sessionId,
+    turnId,
+    abortController,
+  });
 
   try {
     const { result } = await runAgentWithFallback(
@@ -551,6 +605,7 @@ router.post("/ai/general-chat/sessions/:sessionId/messages", async (req, res) =>
       assistantMessage: publicMessage(assistantMessage),
     });
   } finally {
+    clearInterval(leaseHeartbeat);
     req.off("aborted", abortOnDisconnect);
     res.off("close", abortOnDisconnect);
   }
