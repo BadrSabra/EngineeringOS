@@ -1422,13 +1422,14 @@ function parseDatabaseUtcTimestamp(value: unknown): Date | null {
     ? new Date(value.getTime())
     : typeof value === "string" && value.trim().length > 0
       ? new Date(
-          /(?:Z|[+-]\\d{2}:\\d{2})$/i.test(value.trim())
+          /(?:Z|[+-]\d{2}:\d{2})$/i.test(value.trim())
             ? value.trim().replace(" ", "T")
             : `${value.trim().replace(" ", "T")}Z`,
         )
       : null;
   return candidate && Number.isFinite(candidate.getTime()) ? candidate : null;
 }
+
 type MissionWorldTransitionWakeClaim = {
   id: string;
   projectId: string | null;
