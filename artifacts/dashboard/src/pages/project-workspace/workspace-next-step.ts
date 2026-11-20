@@ -73,6 +73,18 @@ export function resolveWorkspaceNextStep({
     };
   }
 
+  const failedTask = recentTasks.find((task) => task.status === 'failed');
+  if (failedTask) {
+    return {
+      kind: 'link',
+      title: 'راجع المهمة المتعثّرة',
+      description: 'هناك مهمة مسجّلة كمتعثرّة. افتح تفاصيلها لمعرفة آخر حالة والخطوة المتاحة؛ لن نعيد تشغيلها تلقائيًا.',
+      actionLabel: 'راجع المهمة',
+      ariaLabel: `الخطوة المقترحة: مراجعة المهمة المتعثّرة: ${failedTask.title}`,
+      href: `/tasks?projectId=${encodeURIComponent(projectId)}&taskId=${encodeURIComponent(failedTask.id)}`,
+    };
+  }
+
   const activeTask = recentTasks.find((task) => ACTIVE_TASK_STATUSES.has(task.status));
   if (activeTask) {
     return {
