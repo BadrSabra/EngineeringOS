@@ -4190,6 +4190,7 @@ export async function wakeDueMissionGoals(
 export async function wakeMissionGoalsForEvent(
   event: MissionEventEnvelope,
   inboxEventId?: string,
+  dispatchContext?: { intentId: string; dispatchLeaseToken: string },
 ): Promise<number> {
   if (event.schemaVersion !== 1 || event.projectId.length === 0 || !event.goalId) return 0;
 
@@ -4296,25 +4297,81 @@ export async function wakeMissionGoalsForEvent(
           .where(eq(eventsTable.id, inboxEventId));
       }
     }
+
+    // The wake marker and the Goal/Mission/inbox transition commit atomically.
+    // If the process exits before replanning, the same leased Outbox intent
+    // retains the exact Mission to resume rather than acknowledging a lost wake.
+    if (dispatchContext) {
+      const [wakeIntent] = await tx.select({
+        type: eventsTable.type,
+        payload: eventsTable.payload,
+      }).from(eventsTable)
+        .where(eq(eventsTable.id, dispatchContext.intentId))
+        .for("update")
+        .limit(1);
+      const wakePayload = wakeIntent?.payload
+        && typeof wakeIntent.payload === "object"
+        && !Array.isArray(wakeIntent.payload)
+        ? wakeIntent.payload
+        : {};
+      const rawLease = wakePayload.dispatchLease;
+      const dispatchLease = rawLease
+        && typeof rawLease === "object"
+        && !Array.isArray(rawLease)
+        ? rawLease as Record<string, unknown>
+        : undefined;
+      const clockResult = await tx.execute(sql`SELECT clock_timestamp() AS now`);
+      const rawClock = (clockResult.rows as Array<{ now: Date | string }>)[0]?.now;
+      const databaseNow = rawClock instanceof Date
+        ? rawClock
+        : new Date(String(rawClock ?? ""));
+      const leaseExpiry = typeof dispatchLease?.expiresAt === "string"
+        ? Date.parse(dispatchLease.expiresAt)
+        : Number.NaN;
+      if (
+        !wakeIntent
+        || ![ "AiMissionEventWakeRequested", "AiMissionEventWakeDeferred" ].includes(wakeIntent.type)
+        || dispatchLease?.token !== dispatchContext.dispatchLeaseToken
+        || !rawClock
+        || !Number.isFinite(databaseNow.getTime())
+        || !Number.isFinite(leaseExpiry)
+        || leaseExpiry <= databaseNow.getTime()
+      ) {
+        throw new Error("MISSION_EVENT_WAKE_LEASE_LOST");
+      }
+      await tx.update(eventsTable)
+        .set({
+          payload: {
+            ...wakePayload,
+            replanPending: true,
+            replanMissionId: mission.id,
+            replanGoalId: goal.id,
+            replanEventId: event.eventId,
+            replanWakeCount: 1,
+          },
+        })
+        .where(eq(eventsTable.id, dispatchContext.intentId));
+    }
     return true;
   });
 
   if (!changed) return 0;
 
-  // The durable event has crossed the locked Goal/Mission wait boundary.
-  // Attempt the existing autonomous replan coordinator after commit; its
-  // Mission lock, policy, evidence, and retry-budget gates remain authoritative.
-  // The periodic dispatcher remains the recovery path if this local wake fails.
-  try {
-    const { autoReplanMission } = await import("./mission-auto-replan.js");
-    await autoReplanMission(candidate.missionId);
-  } catch (error) {
-    logger.warn({
-      error,
-      missionId: candidate.missionId,
-      goalId: candidate.id,
-      eventId: event.eventId,
-    }, "Mission event wake could not start automatic replanning; durable reconciliation will retry");
+  // Outbox dispatchers persist replanPending above and execute the planner as
+  // part of the same leased delivery. Keep the legacy direct-call fallback for
+  // callers that do not supply a dispatch lease context.
+  if (!dispatchContext) {
+    try {
+      const { autoReplanMission } = await import("./mission-auto-replan.js");
+      await autoReplanMission(candidate.missionId);
+    } catch (error) {
+      logger.warn({
+        error,
+        missionId: candidate.missionId,
+        goalId: candidate.id,
+        eventId: event.eventId,
+      }, "Legacy Mission event wake could not start automatic replanning.");
+    }
   }
 
   return 1;
