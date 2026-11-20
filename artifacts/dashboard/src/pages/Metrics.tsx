@@ -1,5 +1,14 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { useListMetrics, useListProjects, getListMetricsQueryKey } from '@workspace/api-client-react';
+import { useQueryClient } from '@tanstack/react-query';
+import {
+  useListMetrics,
+  useListProjects,
+  useScanProject,
+  useGetScanJob,
+  getListMetricsQueryKey,
+  getListProjectsQueryKey,
+  getGetScanJobQueryKey,
+} from '@workspace/api-client-react';
 import {
   LineChart,
   Line,
@@ -12,7 +21,7 @@ import {
   Bar,
   Legend,
 } from 'recharts';
-import { BarChart3, AlertTriangle } from 'lucide-react';
+import { BarChart3, AlertTriangle, Play, RefreshCw } from 'lucide-react';
 import { RefreshButton, RequestError } from '@/components/OperatorResilience';
 import { useSearch } from 'wouter';
 
@@ -49,6 +58,7 @@ function MetricsSession({
   initialProjectId: string;
   initialDateRange: DateRange;
 }) {
+  const queryClient = useQueryClient();
   const {
     data: projects,
     isError: projectsError,
@@ -58,6 +68,8 @@ function MetricsSession({
   } = useListProjects();
   const [selectedProjectId, setSelectedProjectId] = useState<string>(initialProjectId);
   const [dateRange, setDateRange] = useState<DateRange>(initialDateRange);
+  const [activeScan, setActiveScan] = useState<{ projectId: string; jobId: string } | null>(null);
+  const terminalScanJobId = useRef<string | null>(null);
 
   // A saved selection is valid only while it belongs to the latest project list.
   // Derive the fallback during render so a removed project is never queried for
@@ -104,6 +116,34 @@ function MetricsSession({
     { projectId: effectiveProjectId },
     { query: { queryKey: getListMetricsQueryKey({ projectId: effectiveProjectId }), enabled: !!effectiveProjectId, staleTime: 30_000 } },
   );
+  const scanProject = useScanProject();
+  const scanJob = useGetScanJob(activeScan?.projectId ?? '', activeScan?.jobId ?? '', {
+    query: {
+      queryKey: getGetScanJobQueryKey(activeScan?.projectId ?? '', activeScan?.jobId ?? ''),
+      enabled: Boolean(activeScan),
+      refetchInterval: (query) => (
+        query.state.data?.status === 'queued' || query.state.data?.status === 'running'
+          ? 1500
+          : false
+      ),
+    },
+  });
+  const activeScanStatus = activeScan && scanJob.data?.id === activeScan.jobId
+    ? scanJob.data?.status
+    : undefined;
+
+  useEffect(() => {
+    if (!activeScan || !activeScanStatus) return;
+    if (activeScanStatus !== 'completed' && activeScanStatus !== 'failed') return;
+    if (terminalScanJobId.current === activeScan.jobId) return;
+    terminalScanJobId.current = activeScan.jobId;
+    void queryClient.invalidateQueries({ queryKey: getListProjectsQueryKey() });
+    if (activeScanStatus === 'completed') {
+      void queryClient.invalidateQueries({
+        queryKey: getListMetricsQueryKey({ projectId: activeScan.projectId }),
+      });
+    }
+  }, [activeScan, activeScanStatus, queryClient]);
 
   const refreshMetrics = async () => {
     const requestedProjectId = effectiveProjectId;
@@ -121,6 +161,33 @@ function MetricsSession({
     }
 
     await refetch();
+  };
+
+  const currentProject = projects?.find((project) => project.id === effectiveProjectId);
+  const trackedScanMatchesJob = scanJob.data?.id === activeScan?.jobId;
+  const trackedScanInProgress = Boolean(activeScan) && (
+    !trackedScanMatchesJob
+    || activeScanStatus === 'queued'
+    || activeScanStatus === 'running'
+  );
+  const currentTrackedScanIsTerminal = activeScan?.projectId === effectiveProjectId
+    && (activeScanStatus === 'completed' || activeScanStatus === 'failed');
+  const projectScanInProgress = currentProject?.status === 'scanning' && !currentTrackedScanIsTerminal;
+  const scanBusy = scanProject.isPending || trackedScanInProgress || projectScanInProgress;
+
+  const startScan = () => {
+    if (!effectiveProjectId || scanBusy) return;
+    const projectId = effectiveProjectId;
+    scanProject.mutate(
+      { projectId },
+      {
+        onSuccess: (job) => {
+          terminalScanJobId.current = null;
+          setActiveScan({ projectId, jobId: job.id });
+          void queryClient.invalidateQueries({ queryKey: getListProjectsQueryKey() });
+        },
+      },
+    );
   };
 
   const isRefreshing = projectsIsFetching || metricsIsFetching;
@@ -209,10 +276,79 @@ function MetricsSession({
       ) : isError ? (
         <RequestError message={error instanceof Error ? error.message : 'تعذّر تحميل المؤشرات.'} retryLabel="حاول مجددًا" onRetry={() => void refetch()} />
       ) : formatData.length === 0 ? (
-        <div className="h-64 bg-card border border-border rounded-xl flex flex-col items-center justify-center text-muted-foreground">
+        <div className="min-h-64 bg-card border border-border rounded-xl flex flex-col items-center justify-center gap-2 px-4 py-8 text-center text-muted-foreground">
           <AlertTriangle className="w-8 h-8 mb-2 opacity-50" />
           <p>لا توجد بيانات مؤشرات سابقة لهذا المشروع بعد.</p>
           <p className="text-xs mt-1 opacity-70">شغّل فحصًا لإنشاء أول لقطة للبيانات.</p>
+          <button
+            type="button"
+            onClick={startScan}
+            disabled={!effectiveProjectId || scanBusy}
+            data-testid="button-start-metrics-scan"
+            className="mt-2 inline-flex items-center gap-2 rounded-md bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground transition-colors hover:bg-primary/90 disabled:cursor-wait disabled:opacity-60"
+          >
+            {scanBusy
+              ? <RefreshCw className="h-4 w-4 animate-spin" aria-hidden="true" />
+              : <Play className="h-4 w-4" aria-hidden="true" />}
+            {scanProject.isPending
+              ? 'جارٍ طلب الفحص…'
+              : trackedScanInProgress
+                ? activeScan?.projectId === effectiveProjectId ? 'جارٍ الفحص…' : 'فحص مشروع آخر جارٍ…'
+                : projectScanInProgress
+                  ? 'الفحص جارٍ بالفعل…'
+                  : activeScan?.projectId === effectiveProjectId && activeScanStatus === 'failed'
+                    ? 'أعد الفحص'
+                    : 'ابدأ الفحص'}
+          </button>
+          {scanProject.isError && (
+            <p role="alert" className="max-w-md text-xs text-destructive">
+              {scanProject.error instanceof Error ? scanProject.error.message : 'تعذّر بدء الفحص. حاول مجددًا.'}
+            </p>
+          )}
+          {activeScan?.projectId === effectiveProjectId && scanJob.isError && (
+            <div role="alert" className="max-w-md text-xs text-destructive">
+              <p>تعذّر التحقق من حالة الفحص؛ لن نبدأ فحصًا مكررًا.</p>
+              <button type="button" onClick={() => void scanJob.refetch()} className="mt-1 underline underline-offset-2">
+                أعد التحقق
+              </button>
+            </div>
+          )}
+          {activeScan?.projectId === effectiveProjectId
+            && (activeScanStatus === 'queued' || activeScanStatus === 'running')
+            && !scanJob.isError && (
+              <p role="status" className="max-w-md text-xs">
+                يعمل الفحص في الخلفية؛ ستُحدّث المؤشرات عند اكتماله.
+              </p>
+            )}
+          {activeScan?.projectId === effectiveProjectId
+            && activeScanStatus === undefined
+            && !scanJob.isError && (
+              <p role="status" className="max-w-md text-xs">
+                جارٍ التحقق من حالة الفحص.
+              </p>
+            )}
+          {activeScan?.projectId === effectiveProjectId && activeScanStatus === 'failed' && (
+            <p role="alert" className="max-w-md text-xs text-destructive">
+              {scanJob.data?.error || 'تعذّر إكمال الفحص. يمكنك المحاولة مجددًا.'}
+            </p>
+          )}
+          {activeScan?.projectId === effectiveProjectId
+            && activeScanStatus === 'completed'
+            && (
+              <p role="status" className="max-w-md text-xs">
+                اكتمل الفحص، ولم تظهر مؤشرات لهذا المشروع بعد.
+              </p>
+            )}
+          {projectScanInProgress && !trackedScanInProgress && (
+            <p role="status" className="max-w-md text-xs">
+              يجري فحص هذا المشروع بالفعل. لن نرسل طلب فحص مكررًا.
+            </p>
+          )}
+          {trackedScanInProgress && activeScan?.projectId !== effectiveProjectId && (
+            <p role="status" className="max-w-md text-xs">
+              يجري فحص مشروع آخر؛ ستتمكن من بدء فحص هذا المشروع بعد انتهائه.
+            </p>
+          )}
         </div>
       ) : (
         <div className="min-w-0 space-y-6">
