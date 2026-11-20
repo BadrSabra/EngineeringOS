@@ -1109,7 +1109,7 @@ export const CreateTaskBody = zod.object({
   "dependsOn": zod.array(zod.string()).optional(),
   "phase": zod.string().optional(),
   "prompt": zod.string().min(1).max(12000).optional(),
-  "executeImmediately": zod.boolean().optional().default(false)
+  "executeImmediately": zod.boolean().default(false)
 })
 
 export const createTaskResponseRemediationPlanOneOccurrenceCountMin = 0;
