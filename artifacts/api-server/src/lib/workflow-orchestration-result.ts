@@ -42,7 +42,7 @@ export type WorkflowOrchestrationContextSnapshot = {
   recentTasks: string;
   latestMetrics: string;
   graphSummary: string;
-  recentEvents: string;
+  recentEvents?: string | null;
   workflows: string;
   worldState?: string;
   metricsVerified: boolean;
@@ -58,7 +58,13 @@ export type WorkflowOrchestrationContextSnapshot = {
 export function fingerprintWorkflowOrchestrationContext(
   context: WorkflowOrchestrationContextSnapshot,
 ): string {
-  const stableEvents = context.recentEvents
+  // Context loaders may omit the optional event excerpt (for example when
+  // an older session has no event projection). Keep the absence explicit in
+  // the fingerprint instead of crashing the orchestration request.
+  const recentEvents = typeof context.recentEvents === "string"
+    ? context.recentEvents
+    : "[recent events unavailable]";
+  const stableEvents = recentEvents
     .split("\n")
     .filter((line) => !line.includes("AiWorkflowOrchestration:"))
     .join("\n");
