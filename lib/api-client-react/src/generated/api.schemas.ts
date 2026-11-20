@@ -7226,6 +7226,10 @@ export interface CreateTaskInput {
   relatedFiles?: string[];
   dependsOn?: string[];
   phase?: string;
+  /**
+     * @minLength 1
+     * @maxLength 12000
+     */
   prompt?: string;
   executeImmediately?: boolean;
 }
