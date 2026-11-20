@@ -23,6 +23,7 @@ import {
   AlertCircle,
 } from 'lucide-react';
 import { RefreshButton, RequestError } from '@/components/OperatorResilience';
+import GraphAssistantHandoff from '@/components/GraphAssistantHandoff';
 
 // ─── Force layout ─────────────────────────────────────────────────────────────
 
@@ -636,6 +637,10 @@ export default function Graph() {
               </div>
 
               <div className="flex-1 overflow-y-auto min-h-0">
+                <GraphAssistantHandoff
+                  entity={neighborData.entity}
+                  projectId={effectiveProjectId}
+                />
                 {/* Relations tab */}
                 {detailTab === 'relations' && (
                   <div className="space-y-4 pr-1">
