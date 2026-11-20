@@ -18,6 +18,7 @@ import {
   ChevronDown,
   ChevronRight,
 } from 'lucide-react';
+import RuleGoalHandoff from '@/components/RuleGoalHandoff';
 import { RefreshButton, RequestError } from '@/components/OperatorResilience';
 import RuleDetailActions from '@/components/RuleDetailActions';
 
@@ -472,6 +473,7 @@ export default function Rules() {
                     <div>{rule.enabled ? '● مفعّلة' : '○ معطّلة'}</div>
                   </div>
                   <RuleDetailActions rule={rule} />
+                  {rule.projectId && <RuleGoalHandoff rule={rule} />}
                 </div>
               )}
             </div>
