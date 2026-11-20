@@ -2,6 +2,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { validateGroqDefaultModels } from "../groq-client.js";
 import { GroqClientError } from "../errors.js";
 import {
+  _resetForTest as resetDynamicCatalogForTest,
+  _setSnapshotForTest as setDynamicCatalogSnapshotForTest,
+} from "../openrouter/dynamic-catalog.js";
+import {
   _resetProviderLifecycleForTest,
   getProviderLifecycleSnapshot,
   invalidateProviderLifecycle,
@@ -43,6 +47,7 @@ describe("provider lifecycle", () => {
       },
     }));
     _resetProviderLifecycleForTest();
+    resetDynamicCatalogForTest();
   });
 
   afterEach(() => {
@@ -52,6 +57,58 @@ describe("provider lifecycle", () => {
       else process.env[name] = value;
     }
     vi.useRealTimers();
+    resetDynamicCatalogForTest();
+  });
+
+  it("uses live free fallback candidates instead of requiring the emergency model ID", async () => {
+    const liveFreeModels = [
+      "nvidia/nemotron-3.5-lightning:free",
+      "cohere/north-mini-code:free",
+    ];
+    setDynamicCatalogSnapshotForTest(liveFreeModels);
+
+    const lifecycle = await getProviderLifecycleSnapshot({
+      provider: "openrouter",
+      apiKey: "openrouter-live-catalog-key",
+      source: "user",
+      check: true,
+      requirements: { requireTools: true, requireJson: true },
+    });
+
+    expect(lifecycle.selectable).toBe(true);
+    expect(lifecycle.modelStatus).toBe("model_healthy");
+    expect(lifecycle.roles).toEqual([
+      {
+        role: "fast",
+        modelId: "nvidia/nemotron-3.5-lightning:free",
+        status: "healthy",
+        checkedAt: expect.any(String),
+      },
+      {
+        role: "powerful",
+        modelId: "cohere/north-mini-code:free",
+        status: "healthy",
+        checkedAt: expect.any(String),
+      },
+    ]);
+    expect(lifecycle.roles.every((role) => liveFreeModels.includes(role.modelId))).toBe(true);
+  });
+
+  it("fails closed when the live catalog has no known compatible free model", async () => {
+    setDynamicCatalogSnapshotForTest(["retired/unknown-model:free"]);
+
+    const lifecycle = await getProviderLifecycleSnapshot({
+      provider: "openrouter",
+      apiKey: "openrouter-empty-compatible-catalog-key",
+      source: "user",
+      check: true,
+      requirements: { requireTools: true },
+    });
+
+    expect(lifecycle.selectable).toBe(false);
+    expect(lifecycle.modelStatus).toBe("model_missing");
+    expect(lifecycle.reasonCodes).toContain("model_missing");
+    expect(lifecycle.roles.every((role) => role.status === "missing")).toBe(true);
   });
 
   it("deduplicates checks and refreshes after the TTL", async () => {
