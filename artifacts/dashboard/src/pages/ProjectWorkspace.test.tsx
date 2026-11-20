@@ -563,6 +563,14 @@ describe("Workspace task cards", () => {
       dependsOn: ["task-upstream"],
       acceptance: { attempt: 2 },
     };
+    mocks.taskDetails["task-upstream"] = {
+      id: "task-upstream",
+      projectId: "project-1",
+      title: "تهيئة قاعدة البيانات",
+      status: "completed",
+      correlationId: null,
+      updatedAt,
+    };
     mocks.taskLogsFetching["task-accepted"] = true;
 
     const queryClient = new QueryClient({
@@ -580,12 +588,86 @@ describe("Workspace task cards", () => {
     expect(screen.getByTestId("workspace-task-attempt-task-accepted")).toHaveTextContent("2");
     expect(screen.getByTestId("workspace-task-task-accepted"))
       .toHaveTextContent("محاولة قبول مسجلة في سجل المهمة.");
-    expect(screen.getByTestId("workspace-task-dependencies-task-accepted")).toHaveTextContent("task-upstream");
-    expect(screen.getByRole("link", { name: "فتح المهمة المعتمَد عليها: task-upstream" }))
+    expect(screen.getByTestId("workspace-task-dependencies-task-accepted")).toHaveTextContent("تهيئة قاعدة البيانات");
+    expect(screen.getByTestId("workspace-task-dependencies-task-accepted")).not.toHaveTextContent("task-upstream");
+    expect(screen.getByRole("link", { name: "فتح المهمة المعتمَد عليها: تهيئة قاعدة البيانات" }))
       .toHaveAttribute("href", "/tasks?projectId=project-1&taskId=task-upstream");
     expect(screen.getByRole("link", { name: "فتح تفاصيل المهمة: مهمة مرتبطة بقبول" }))
       .toHaveAttribute("href", "/tasks?projectId=project-1&taskId=task-accepted");
     expect(screen.queryByTestId("link-workspace-task-chat-task-accepted")).not.toBeInTheDocument();
+  });
+
+  it.each([
+    {
+      state: "غير متاح",
+      title: "عنوان غير متاح",
+      details: undefined,
+    },
+    {
+      state: "من مشروع آخر",
+      title: "عنوان لا يخص هذا المشروع",
+      details: {
+        id: "task-upstream",
+        projectId: "project-other",
+        title: "عنوان لا يخص هذا المشروع",
+        status: "completed",
+        correlationId: null,
+        updatedAt: "2026-11-11T12:00:00.000Z",
+      },
+    },
+    {
+      state: "بمعرّف آخر",
+      title: "عنوان لمهمة أخرى",
+      details: {
+        id: "task-other",
+        projectId: "project-1",
+        title: "عنوان لمهمة أخرى",
+        status: "completed",
+        correlationId: null,
+        updatedAt: "2026-11-11T12:00:00.000Z",
+      },
+    },
+  ])("keeps a dependency ID when its details are $state", ({ title, details }) => {
+    const updatedAt = "2026-11-11T12:00:00.000Z";
+    mocks.snapshot = {
+      ...initialSnapshot,
+      work: {
+        ...initialSnapshot.work,
+        recentTasks: [{
+          id: "task-with-dependency",
+          title: "المهمة التابعة",
+          status: "completed",
+          verificationDecision: null,
+          updatedAt,
+        }],
+      },
+    } as unknown as ProjectWorkspaceSnapshot;
+    mocks.taskDetails["task-with-dependency"] = {
+      id: "task-with-dependency",
+      projectId: "project-1",
+      title: "المهمة التابعة",
+      status: "completed",
+      correlationId: null,
+      updatedAt,
+      dependsOn: ["task-upstream"],
+    };
+    if (details) mocks.taskDetails["task-upstream"] = details;
+
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+    });
+
+    render(
+      <QueryClientProvider client={queryClient}>
+        <ProjectWorkspace />
+      </QueryClientProvider>,
+    );
+
+    const dependencies = screen.getByTestId("workspace-task-dependencies-task-with-dependency");
+    expect(dependencies).toHaveTextContent("task-upstream");
+    expect(dependencies).not.toHaveTextContent(title);
+    expect(screen.getByRole("link", { name: "فتح المهمة المعتمَد عليها: task-upstream" }))
+      .toHaveAttribute("href", "/tasks?projectId=project-1&taskId=task-upstream");
   });
 
   it("uses the execution attempt only when the execution is linked to the same task and correlation", () => {
