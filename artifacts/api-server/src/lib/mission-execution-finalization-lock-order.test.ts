@@ -105,6 +105,7 @@ async function createFixture() {
   return {
     projectId,
     missionId,
+    goalId,
     taskId,
     executionId,
     workerId,
