@@ -50,6 +50,7 @@ describe('Project workspace project switcher', () => {
     );
 
     expect(screen.getByTestId('button-workspace-project-switcher')).toHaveTextContent('بوابة العملاء');
+    expect(screen.queryByTestId('input-workspace-project-search')).not.toBeInTheDocument();
     expect(screen.queryByTestId('link-switch-workspace-project-project-1')).not.toBeInTheDocument();
     fireEvent.click(screen.getByTestId('button-workspace-project-switcher'));
 
@@ -101,5 +102,37 @@ describe('Project workspace project switcher', () => {
     expect(screen.getByRole('status')).toHaveTextContent('تعذر التحقق من قائمة المشاريع الأخرى');
     expect(screen.queryByTestId('button-workspace-project-switcher')).not.toBeInTheDocument();
     expect(screen.queryByText('مشروع آخر')).not.toBeInTheDocument();
+  });
+
+  it('filters long project lists with Arabic spelling normalization and explains no matches', () => {
+    mocks.projectsQuery.data = [
+      { id: 'current', name: 'المشروع الحالي' },
+      { id: 'management', name: 'إِدارةُ المشاريع' },
+      { id: 'reports', name: 'التقارير' },
+      { id: 'mobile', name: 'تطبيق الجوال' },
+      { id: 'api', name: 'واجهة الخدمات' },
+      { id: 'sales', name: 'المبيعات' },
+      { id: 'support', name: 'دعم العملاء' },
+    ];
+
+    render(
+      <ProjectWorkspaceSwitcher
+        currentProjectId="current"
+        currentProjectName="المشروع الحالي"
+      />,
+    );
+
+    fireEvent.click(screen.getByTestId('button-workspace-project-switcher'));
+    const search = screen.getByRole('searchbox', { name: 'ابحث عن مشروع' });
+    fireEvent.change(search, { target: { value: 'ادارة' } });
+
+    expect(screen.getByTestId('link-switch-workspace-project-management')).toHaveAttribute(
+      'href',
+      '/projects/management/workspace',
+    );
+    expect(screen.queryByTestId('link-switch-workspace-project-reports')).not.toBeInTheDocument();
+
+    fireEvent.change(search, { target: { value: 'مشروع غير موجود' } });
+    expect(screen.getByRole('status')).toHaveTextContent('لا توجد مشاريع تطابق البحث');
   });
 });
