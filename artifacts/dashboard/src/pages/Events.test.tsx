@@ -97,6 +97,26 @@ describe("Events", () => {
     expect(screen.getByRole("button", { name: "الأقدم" })).toBeDisabled();
   });
 
+  it("reveals active filters when opening a shared filtered event view", () => {
+    window.history.replaceState(
+      {},
+      "",
+      "/events?projectId=project-alpha&severity=error&correlationId=run-42",
+    );
+
+    render(<Events />);
+
+    expect(screen.getByTestId("select-event-severity")).toHaveValue("error");
+    expect(screen.getByTestId("input-event-correlation")).toHaveValue("run-42");
+    expect(vi.mocked(useListEvents).mock.calls.at(-1)?.[0]).toEqual({
+      limit: 50,
+      page: 1,
+      projectId: "project-alpha",
+      correlationId: "run-42",
+      severity: "error",
+    });
+  });
+
   it("filters by a clicked event severity and returns to the newest page", () => {
     window.history.replaceState({}, "", "/events?search=Task&page=3");
     render(<Events />);
