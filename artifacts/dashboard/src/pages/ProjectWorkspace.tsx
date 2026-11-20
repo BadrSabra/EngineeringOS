@@ -763,11 +763,15 @@ export default function ProjectWorkspace() {
             )}
           </section>
 
-          <section className="workspace-card">
+          <section
+            id="workspace-candidate-summary"
+            className="workspace-card"
+            aria-labelledby="workspace-candidate-heading"
+          >
             <div className="workspace-card-heading">
               <div className="workspace-card-icon candidate"><GitBranch className="h-4 w-4" /></div>
               <div className="min-w-0 flex-1">
-                <h2>النسخة المرشحة</h2>
+                <h2 id="workspace-candidate-heading">النسخة المرشحة</h2>
                 <p>حالة المرشح المسجلة للمشروع</p>
               </div>
               {candidate && <span className={`workspace-status status-${candidate.status}`}>{label(candidate.status)}</span>}
