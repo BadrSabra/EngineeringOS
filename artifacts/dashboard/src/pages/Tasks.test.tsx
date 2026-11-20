@@ -573,6 +573,7 @@ describe('project-scoped task list contracts', () => {
   it('does not fall back to the first project for an unavailable explicit target', () => {
     window.history.replaceState({}, '', '/tasks?projectId=unavailable-project');
     renderPage();
+    expect(screen.getByTestId('select-task-project')).toBeInTheDocument();
     expect(useListTasks).toHaveBeenCalledWith(
       expect.anything(),
       expect.objectContaining({ query: expect.objectContaining({ enabled: false }) }),
@@ -769,7 +770,9 @@ describe('project-scoped task list contracts', () => {
 
     fireEvent.click(screen.getByTestId('button-clear-task-filters'));
 
-    expect(screen.getByTestId('select-task-project')).toHaveValue('project-1');
+    expect(screen.queryByTestId('select-task-project')).not.toBeInTheDocument();
+    expect(screen.getByTestId('text-task-project-context')).toHaveTextContent('Test Project');
+    expect(new URLSearchParams(window.location.search).get('projectId')).toBe('project-1');
     expect(screen.getByRole('combobox', { name: 'تصفية المهام حسب الحالة' })).toHaveValue('');
     expect(screen.getByRole('combobox', { name: 'تصفية المهام حسب الأولوية' })).toHaveValue('');
     expect(screen.getByRole('combobox', { name: 'تصفية المهام حسب القبول' })).toHaveValue('');
@@ -2175,7 +2178,11 @@ describe('Task creation', () => {
   it('opens a clear form and sends the selected project and task fields', () => {
     renderPage();
 
+    expect(screen.queryByTestId('select-task-project')).not.toBeInTheDocument();
+    expect(screen.getByTestId('text-task-project-context')).toHaveTextContent('Test Project');
     fireEvent.click(screen.getByRole('button', { name: 'مهمة جديدة' }));
+    expect(screen.queryByTestId('select-create-task-project')).not.toBeInTheDocument();
+    expect(screen.getByTestId('text-create-task-project')).toHaveTextContent('Test Project');
     fireEvent.change(screen.getByTestId('input-create-task-title'), {
       target: { value: 'Add a health check' },
     });

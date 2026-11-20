@@ -154,5 +154,6 @@
 - [Dispatch crash recovery](dispatch-crash-recovery.md) — completed Missions record dispatch only from one completed Execution per root; runner is never re-invoked.
 - [Review worktree ownership](local-review-worktree-ownership.md) — Git review worktrees use proposal manifests and pinned writes, not the transient delivery-workspace marker.
 - [GitHub Git Data transfer](github-git-data-transfer.md) — verify blob/tree/commit hashes, account for API message bytes, and use the distinct ref-write endpoint.
+- [CodeExecution connector boundary](code-execution-connector-boundary.md) — keep connection objects inside one impure call; return only serializable response data.
 - [Playwright on Replit Nix](playwright-replit-nix.md) — Firefox and Chromium need Nix shared libraries in shell-test `LD_LIBRARY_PATH`; `.replit` packages alone may not expose them.
 - [Backend work scope](backend-work-scope.md) — The separate frontend owner controls `artifacts/dashboard/**`; backend changes need code evidence and intact trust gates.
