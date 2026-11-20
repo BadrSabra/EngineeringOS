@@ -62,6 +62,10 @@ export const eventsTable = pgTable("events", {
   index("idx_events_mission_goal_wake_pending")
     .on(t.timestamp, t.id)
     .where(sql`${t.type} IN ('MissionGoalWakeRequested', 'MissionGoalWakeDeferred')`),
+  // Bounded global scan for durable Mission replan requests and retries.
+  index("idx_events_mission_replan_pending")
+    .on(t.timestamp, t.id)
+    .where(sql`${t.type} IN ('MissionReplanRequested', 'MissionReplanDeferred')`),
   // The Mission event inbox is read by exact Goal/project scope, not by a
   // global scan of unprocessed event history.
   index("idx_events_mission_inbox_pending_goal")
