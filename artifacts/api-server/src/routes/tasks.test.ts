@@ -13,7 +13,12 @@ import {
   aiExecutionAcceptancesTable,
 } from "@workspace/db";
 import { randomUUID } from "crypto";
-import { insertTaskAutoExecutionIntent } from "../lib/task-auto-execution-outbox.js";
+import {
+  TASK_AUTO_EXECUTION_DEFERRED_EVENT_TYPE,
+  insertTaskAutoExecutionIntent,
+  taskAutoExecutionIntentId,
+} from "../lib/task-auto-execution-outbox.js";
+import { TASK_DEPENDENCY_WAKE_FAILURE_CODE } from "../lib/task-dependency-wake.js";
 import { executeTaskLifecycle } from "../lib/task-execution-service.js";
 
 // PR-C: hoist mock fn so vi.mock factory can close over it before module eval.
@@ -1008,6 +1013,87 @@ describe("Task lifecycle", () => {
     expect(logs.body.find((log: { metadata?: unknown }) => log.metadata)?.metadata).toBeUndefined();
   });
 
+  it("wakes deferred automatic dependents when operator verification completes a prerequisite", async () => {
+    mockScheduleAiTaskExecution.mockClear();
+    const { projectId, taskId: prerequisiteTaskId } = await createTask();
+    await db.update(tasksTable).set({
+      remediationPlan: {
+        version: 1,
+        ruleId: null,
+        ruleCode: "TEST-DEPENDENCY-001",
+        ruleTitle: "Dependency wake check",
+        severity: "medium",
+        occurrenceCount: 1,
+        evidence: [{ file: "src/example.ts", line: 1, snippet: "x", occurrences: 1 }],
+        relatedFiles: [],
+        fixDescription: "Complete the prerequisite verification.",
+        verificationSteps: ["Confirm the prerequisite behavior."],
+        source: { type: "scan", correlationId: null, revision: null, completeness: "COMPLETE" },
+        status: "ready",
+      },
+    }).where(eq(tasksTable.id, prerequisiteTaskId));
+
+    const childResponse = await request(app).post("/api/tasks").send({
+      projectId,
+      title: "automatically resume after prerequisite",
+      priority: "p2",
+      dependsOn: [prerequisiteTaskId],
+    });
+    expect(childResponse.status).toBe(201);
+    const childTaskId = childResponse.body.id as string;
+    await db.update(tasksTable)
+      .set({ status: "verifying", prompt: "Continue after the prerequisite completes." })
+      .where(eq(tasksTable.id, childTaskId));
+    const [childTask] = await db.select({
+      retryCount: tasksTable.retryCount,
+      correlationId: tasksTable.correlationId,
+    }).from(tasksTable).where(eq(tasksTable.id, childTaskId));
+    expect(childTask).toBeDefined();
+
+    const deferredUntil = new Date(Date.now() + 24 * 60 * 60_000).toISOString();
+    await db.insert(eventsTable).values({
+      id: taskAutoExecutionIntentId(childTaskId),
+      type: TASK_AUTO_EXECUTION_DEFERRED_EVENT_TYPE,
+      projectId,
+      taskId: childTaskId,
+      message: "Waiting for prerequisite completion",
+      payload: {
+        userId: "test-user",
+        taskRetryCount: childTask!.retryCount,
+        taskCorrelationId: childTask!.correlationId,
+        attemptCount: 1,
+        nextAttemptAt: deferredUntil,
+        lastFailureCode: TASK_DEPENDENCY_WAKE_FAILURE_CODE,
+      },
+    });
+
+    const started = await request(app).post("/api/tasks/" + prerequisiteTaskId + "/execute");
+    expect(started.status).toBe(202);
+    expect(started.body.status).toBe("verifying");
+
+    const completed = await request(app).post("/api/tasks/" + prerequisiteTaskId + "/verification").send({
+      checkId: "rule-verification-1",
+      passed: true,
+      evidence: "The expected prerequisite behavior was observed.",
+    });
+    expect(completed.status).toBe(200);
+    expect(completed.body.status).toBe("completed");
+
+    const [intent] = await db.select({
+      type: eventsTable.type,
+      payload: eventsTable.payload,
+    }).from(eventsTable).where(eq(eventsTable.id, taskAutoExecutionIntentId(childTaskId)));
+    expect(intent?.type).toBe(TASK_AUTO_EXECUTION_DEFERRED_EVENT_TYPE);
+    expect(intent?.payload?.lastFailureCode).toBe(TASK_DEPENDENCY_WAKE_FAILURE_CODE);
+    expect(Date.parse(String(intent?.payload?.nextAttemptAt))).toBeLessThan(Date.parse(deferredUntil));
+    expect(mockScheduleAiTaskExecution).toHaveBeenCalledWith(
+      childTaskId,
+      "test-user",
+      undefined,
+      childTask!.retryCount,
+      childTask!.correlationId,
+    );
+  });
   it("requires explicit evidence for every server-owned rule verification check", async () => {
     const { taskId } = await createTask();
     await db.update(tasksTable).set({
