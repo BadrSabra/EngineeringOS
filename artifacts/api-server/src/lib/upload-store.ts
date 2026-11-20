@@ -3,7 +3,7 @@
  * Retired rows act as cleanup receipts until object deletion succeeds.
  */
 import AdmZip from "adm-zip";
-import { and, eq, gt, lt, or } from "drizzle-orm";
+import { and, eq, gt, lte, or, sql } from "drizzle-orm";
 import { randomUUID } from "node:crypto";
 import { chmod, lstat, mkdir, mkdtemp, rm, unlink } from "node:fs/promises";
 import { join, relative, resolve, sep } from "node:path";
@@ -188,6 +188,27 @@ async function retireUpload(uploadId: string, ownerId: string): Promise<void> {
 }
 
 /**
+ * Retire only an active row that PostgreSQL confirms has expired.
+ * The conditional update prevents an old read from deleting a renewed claim.
+ */
+async function retireExpiredUpload(uploadId: string, ownerId: string): Promise<void> {
+  const [retired] = await db
+    .update(uploadsTable)
+    .set({ state: "retired" })
+    .where(and(
+      eq(uploadsTable.id, uploadId),
+      eq(uploadsTable.ownerId, ownerId),
+      eq(uploadsTable.state, "active"),
+      lte(uploadsTable.expiresAt, sql`CURRENT_TIMESTAMP`),
+    ))
+    .returning();
+  if (retired) {
+    await cleanupRetiredRow(retired);
+    logger.info({ uploadId }, "upload-store: expired entry retired on lookup");
+  }
+}
+
+/**
  * Persist an upload intent before streaming bytes so a process crash or partial
  * object write leaves a durable, retryable cleanup record.
  */
@@ -198,8 +219,6 @@ export async function registerUpload(
   ownerId: string,
   archiveFormat: ArchiveFormat,
 ): Promise<void> {
-  const now = new Date();
-  const expiresAt = new Date(now.getTime() + UPLOAD_TTL_MS);
   const storageKey = createArchiveObjectKey(ownerId, uploadId, archiveFormat);
 
   await db.insert(uploadsTable).values({
@@ -210,8 +229,8 @@ export async function registerUpload(
     archiveFormat,
     state: "storing",
     originalName,
-    createdAt: now,
-    expiresAt,
+    // PostgreSQL owns upload expiry so every API replica uses one clock.
+    expiresAt: sql`CURRENT_TIMESTAMP + (${UPLOAD_TTL_MS} * INTERVAL '1 millisecond')`,
   });
 
   try {
@@ -229,13 +248,16 @@ export async function registerUpload(
         eq(uploadsTable.id, uploadId),
         eq(uploadsTable.ownerId, ownerId),
         eq(uploadsTable.state, "storing"),
-        gt(uploadsTable.expiresAt, new Date()),
+        gt(uploadsTable.expiresAt, sql`CURRENT_TIMESTAMP`),
       ))
       .returning({ id: uploadsTable.id });
     if (activated.length !== 1) {
       throw new Error("Archive upload could not be activated.");
     }
-    logger.info({ uploadId, originalName, expiresAt }, "upload-store: registered");
+    logger.info(
+      { uploadId, originalName, ttlMs: UPLOAD_TTL_MS },
+      "upload-store: registered",
+    );
   } catch (err) {
     try {
       await db
@@ -269,14 +291,12 @@ export async function lookupUpload(
       eq(uploadsTable.id, uploadId),
       eq(uploadsTable.ownerId, ownerId),
       eq(uploadsTable.state, "active"),
+      gt(uploadsTable.expiresAt, sql`CURRENT_TIMESTAMP`),
     ))
     .limit(1);
   const row = rows[0];
-  if (!row || row.ownerId !== ownerId) return undefined;
-
-  if (row.expiresAt.getTime() <= Date.now()) {
-    await retireUpload(uploadId, ownerId);
-    logger.info({ uploadId }, "upload-store: expired entry retired on lookup");
+  if (!row || row.ownerId !== ownerId) {
+    await retireExpiredUpload(uploadId, ownerId);
     return undefined;
   }
 
@@ -314,13 +334,13 @@ export async function claimUpload(
     // was claimed immediately before its original expiry.
     .set({
       state: "claimed",
-      expiresAt: new Date(Date.now() + UPLOAD_TTL_MS),
+      expiresAt: sql`CURRENT_TIMESTAMP + (${UPLOAD_TTL_MS} * INTERVAL '1 millisecond')`,
     })
     .where(and(
       eq(uploadsTable.id, uploadId),
       eq(uploadsTable.ownerId, ownerId),
       eq(uploadsTable.state, "active"),
-      gt(uploadsTable.expiresAt, new Date()),
+      gt(uploadsTable.expiresAt, sql`CURRENT_TIMESTAMP`),
     ))
     .returning();
   return rows[0] ? toEntry(rows[0]) : undefined;
@@ -334,7 +354,7 @@ async function releaseUploadClaim(uploadId: string, ownerId: string): Promise<vo
       eq(uploadsTable.id, uploadId),
       eq(uploadsTable.ownerId, ownerId),
       eq(uploadsTable.state, "claimed"),
-      gt(uploadsTable.expiresAt, new Date()),
+      gt(uploadsTable.expiresAt, sql`CURRENT_TIMESTAMP`),
     ));
 }
 
@@ -435,41 +455,49 @@ export async function removeUpload(uploadId: string, ownerId: string): Promise<v
 
 /** Retire expired entries and retry prior object deletions without data loss. */
 export async function sweepExpiredUploads(): Promise<number> {
-  const now = new Date();
   try {
     const expired = await db
       .select()
       .from(uploadsTable)
       .where(or(
-        lt(uploadsTable.expiresAt, now),
+        lte(uploadsTable.expiresAt, sql`CURRENT_TIMESTAMP`),
         eq(uploadsTable.state, "retired"),
       ));
 
     let removed = 0;
     for (const row of expired) {
+      let current: Upload | undefined;
       if (row.state !== "retired") {
-        await db
+        // Use the row returned by the conditional transition itself. A stale
+        // expiry snapshot must never be followed by a second, broader read that
+        // can mistake a renewed claim for a retired cleanup receipt.
+        const [retired] = await db
           .update(uploadsTable)
           .set({ state: "retired" })
           .where(and(
             eq(uploadsTable.id, row.id),
-            lt(uploadsTable.expiresAt, now),
+            eq(uploadsTable.ownerId, row.ownerId),
+            lte(uploadsTable.expiresAt, sql`CURRENT_TIMESTAMP`),
             or(
               eq(uploadsTable.state, "storing"),
               eq(uploadsTable.state, "active"),
               eq(uploadsTable.state, "claimed"),
             ),
-          ));
+          ))
+          .returning();
+        current = retired;
+      } else {
+        const [retired] = await db
+          .select()
+          .from(uploadsTable)
+          .where(and(
+            eq(uploadsTable.id, row.id),
+            eq(uploadsTable.ownerId, row.ownerId),
+            eq(uploadsTable.state, "retired"),
+          ))
+          .limit(1);
+        current = retired;
       }
-      const [current] = await db
-        .select()
-        .from(uploadsTable)
-        .where(and(
-          eq(uploadsTable.id, row.id),
-          eq(uploadsTable.ownerId, row.ownerId),
-          eq(uploadsTable.state, "retired"),
-        ))
-        .limit(1);
       if (current && await cleanupRetiredRow(current)) removed += 1;
     }
     return removed;

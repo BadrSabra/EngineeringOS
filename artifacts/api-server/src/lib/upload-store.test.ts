@@ -68,6 +68,16 @@ import {
 } from "./archive-object-storage.js";
 import { archiveProcessingLimiter } from "./archive-safety.js";
 
+function sqlText(value: unknown): string {
+  if (typeof value === "string") return value;
+  if (Array.isArray(value)) return value.map(sqlText).join("");
+  if (!value || typeof value !== "object") return "";
+  const record = value as { queryChunks?: unknown[]; value?: unknown[] };
+  if (Array.isArray(record.queryChunks)) return record.queryChunks.map(sqlText).join("");
+  if (Array.isArray(record.value)) return record.value.map(sqlText).join("");
+  return "";
+}
+
 const now = () => new Date();
 function makeRow(overrides: Record<string, unknown> = {}) {
   const createdAt = now();
@@ -132,6 +142,9 @@ describe("registerUpload", () => {
     );
 
     expect(mockInsert).toHaveBeenCalledOnce();
+    const insertValues = insertBuilder.values.mock.calls[0]?.[0] as Record<string, unknown>;
+    expect(insertValues.createdAt).toBeUndefined();
+    expect(sqlText(insertValues.expiresAt)).toContain("CURRENT_TIMESTAMP");
     expect(mockPut).toHaveBeenCalledOnce();
     const [objectKey] = mockPut.mock.calls[0];
     expect(objectKey).toContain("/engineeringos/archive-uploads/");
@@ -175,10 +188,10 @@ describe("upload ownership and claims", () => {
       "owner-1",
     );
     expect(entry?.state).toBe("claimed");
-    expect(updateBuilder.set).toHaveBeenCalledWith(expect.objectContaining({
-      state: "claimed",
-      expiresAt: expect.any(Date),
-    }));
+    const claimUpdate = updateBuilder.set.mock.calls[0]?.[0] as Record<string, unknown>;
+    expect(claimUpdate.state).toBe("claimed");
+    expect(sqlText(claimUpdate.expiresAt)).toContain("CURRENT_TIMESTAMP");
+    expect(sqlText(updateBuilder.where.mock.calls[0]?.[0])).toContain("CURRENT_TIMESTAMP");
   });
 
   it("rejects another local archive extraction before claiming an upload", async () => {
@@ -209,15 +222,43 @@ describe("upload ownership and claims", () => {
 });
 
 describe("expiry and retryable cleanup", () => {
-  it("retires an expired upload before deleting its shared object", async () => {
+  it("retires an expired upload using the database expiry predicate", async () => {
     const row = makeRow({ expiresAt: new Date(Date.now() - 1), state: "active" });
-    selectResults.push([row]);
+    // An expired row is excluded by the SELECT predicate and retired with a
+    // conditional UPDATE against PostgreSQL's current time.
+    selectResults.push([]);
     updateResults.push([{ ...row, state: "retired" }]);
 
     await expect(lookupUpload(row.id, row.ownerId)).resolves.toBeUndefined();
+    expect(sqlText(selectBuilder.where.mock.calls[0]?.[0])).toContain("CURRENT_TIMESTAMP");
+    expect(sqlText(updateBuilder.where.mock.calls[0]?.[0])).toContain("CURRENT_TIMESTAMP");
     expect(updateBuilder.set).toHaveBeenCalledWith({ state: "retired" });
     expect(mockObjectDelete).toHaveBeenCalledOnce();
     expect(mockDelete).toHaveBeenCalledOnce();
+  });
+
+  it("does not retire a claim renewed after the expiry sweep selected it", async () => {
+    const selectedExpiredClaim = makeRow({
+      state: "claimed",
+      expiresAt: new Date(Date.now() - 1),
+    });
+    const renewedClaim = makeRow({
+      state: "claimed",
+      expiresAt: new Date(Date.now() + 60_000),
+    });
+    selectResults.push([selectedExpiredClaim], [renewedClaim]);
+    // The conditional UPDATE affects zero rows because the claim was renewed
+    // after the expiry query selected its stale snapshot.
+    updateResults.push([]);
+
+    await expect(sweepExpiredUploads()).resolves.toBe(0);
+
+    expect(sqlText(selectBuilder.where.mock.calls[0]?.[0])).toContain("CURRENT_TIMESTAMP");
+    expect(sqlText(updateBuilder.where.mock.calls[0]?.[0])).toContain("CURRENT_TIMESTAMP");
+    expect(updateBuilder.returning).toHaveBeenCalledOnce();
+    expect(selectBuilder.limit).not.toHaveBeenCalled();
+    expect(mockObjectDelete).not.toHaveBeenCalled();
+    expect(mockDelete).not.toHaveBeenCalled();
   });
 
   it("retries retired object cleanup during the expiry sweep", async () => {
