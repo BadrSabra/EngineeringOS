@@ -21,6 +21,10 @@ import {
 import RuleGoalHandoff from '@/components/RuleGoalHandoff';
 import { RefreshButton, RequestError } from '@/components/OperatorResilience';
 import RuleDetailActions from '@/components/RuleDetailActions';
+import RulePatternInput, {
+  patternForRuleCreation,
+  type RulePatternMode,
+} from '@/components/RulePatternInput';
 
 type RuleSeverity = 'critical' | 'high' | 'medium' | 'low' | 'info';
 
@@ -37,6 +41,7 @@ export default function Rules() {
   const [filterSeverity, setFilterSeverity] = useState<RuleSeverity | ''>('');
   const [searchTerm, setSearchTerm] = useState('');
   const [showCreate, setShowCreate] = useState(false);
+  const [patternMode, setPatternMode] = useState<RulePatternMode>('regex');
   const [expandedRule, setExpandedRule] = useState<string | null>(null);
   const [newRule, setNewRule] = useState({
     title: '',
@@ -82,12 +87,19 @@ export default function Rules() {
   const handleCreate = (e: React.FormEvent) => {
     e.preventDefault();
     createRule.mutate(
-      { data: { ...newRule, verifySteps: newRule.verifySteps.map((s) => s.trim()).filter(Boolean) } },
+      {
+        data: {
+          ...newRule,
+          pattern: patternForRuleCreation(newRule.pattern, patternMode),
+          verifySteps: newRule.verifySteps.map((s) => s.trim()).filter(Boolean),
+        },
+      },
       {
         onSuccess: () => {
           setShowCreate(false);
           queryClient.invalidateQueries({ queryKey: getListRulesQueryKey() });
           setNewRule({ title: '', code: '', description: '', pattern: '', fixDescription: '', severity: 'high', verifySteps: [] });
+          setPatternMode('regex');
         },
       },
     );
@@ -258,16 +270,12 @@ export default function Rules() {
               />
             </div>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div className="space-y-1.5">
-                <label className="text-xs font-medium text-muted-foreground uppercase tracking-wider">النمط (Regex)</label>
-                <input
-                  value={newRule.pattern}
-                  onChange={(e) => setNewRule({ ...newRule, pattern: e.target.value })}
-                  className="w-full bg-secondary border border-border rounded-md px-3 py-2 text-sm font-mono focus:border-primary focus:outline-none"
-                  placeholder={`e.g. execute\\s*\\(.*\\$\\{`}
-                  dir="ltr"
-                />
-              </div>
+              <RulePatternInput
+                value={newRule.pattern}
+                mode={patternMode}
+                onChange={(pattern) => setNewRule({ ...newRule, pattern })}
+                onModeChange={setPatternMode}
+              />
               <div className="space-y-1.5">
                 <label className="text-xs font-medium text-muted-foreground uppercase tracking-wider">مستوى الخطورة</label>
                 <select
