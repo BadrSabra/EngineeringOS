@@ -14,6 +14,11 @@ import {
 } from '@/components/ui/command';
 import { DialogTitle } from '@/components/ui/dialog';
 import { NAV_GROUPS, PRIMARY_NAV_ITEMS } from './navigation';
+import {
+  addProjectContextToHref,
+  getExplicitProjectId,
+  isProjectScopedNavigationHref,
+} from './quick-navigation-context';
 
 const QUICK_NAV_ITEMS = [
   ...PRIMARY_NAV_ITEMS,
@@ -28,12 +33,17 @@ function navigationTestId(href: string): string {
 
 export function QuickNavigation() {
   const [open, setOpen] = useState(false);
-  const [, setLocation] = useLocation();
+  const [location, setLocation] = useLocation();
   const { user, isLoaded } = useUser();
   const projectsQuery = useListProjects(undefined, {
     query: { queryKey: getListProjectsQueryKey(), enabled: isLoaded && Boolean(user?.id) },
   });
   const projects = projectsQuery.data ?? [];
+  const requestedProjectId = getExplicitProjectId(
+    location,
+    typeof window === 'undefined' ? '' : window.location.search,
+  );
+  const currentProject = projects.find((project) => project.id === requestedProjectId);
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
@@ -53,7 +63,7 @@ export function QuickNavigation() {
 
   const navigateTo = (href: string) => {
     setOpen(false);
-    setLocation(href);
+    setLocation(addProjectContextToHref(href, currentProject?.id ?? null));
   };
 
   return (
@@ -98,7 +108,11 @@ export function QuickNavigation() {
               >
                 <item.icon className="h-4 w-4" aria-hidden="true" />
                 <span>{item.label}</span>
-                <CommandShortcut>صفحة</CommandShortcut>
+                <CommandShortcut>
+                  {currentProject && isProjectScopedNavigationHref(item.href)
+                    ? 'ضمن المشروع الحالي'
+                    : 'صفحة'}
+                </CommandShortcut>
               </CommandItem>
             ))}
           </CommandGroup>
