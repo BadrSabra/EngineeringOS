@@ -111,7 +111,7 @@ describe("Events", () => {
     expect(selects[1]).toHaveValue("warning");
     expect(screen.getByPlaceholderText("معرّف الارتباط")).toHaveValue("beta-run");
     expect(screen.getByPlaceholderText("ابحث في السجلات...")).toHaveValue("Beta");
-    expect(screen.getByText(/صفحة 3/)).toBeInTheDocument();
+    expect(screen.getByTestId("events-page-indicator")).toHaveTextContent(/صفحة\s*3/);
 
     expect(vi.mocked(useListEvents).mock.calls.at(-1)?.[0]).toEqual({
       limit: 50,
