@@ -4220,10 +4220,10 @@ describe("recipe operation preparation", () => {
         effectBundleId: bundleId,
       });
       expect(deliveryTransition?.attempt).toBe(0);
-      expect(acceptanceReconciliationWake).toHaveBeenCalledTimes(1);
-      expect(acceptanceReconciliationWake).toHaveBeenCalledWith(32, fixture.params.projectId);
-      expect(dependentGoalWake).toHaveBeenCalledTimes(1);
-      expect(dependentGoalWake).toHaveBeenCalledWith(32, fixture.params.projectId);
+      // This fixture has no Mission/Goal binding. The durable transition
+      // must not manufacture a Mission wake for an unrelated project operation.
+      expect(acceptanceReconciliationWake).not.toHaveBeenCalled();
+      expect(dependentGoalWake).not.toHaveBeenCalled();
       const transitionObservationIds = [
         ...(deliveryTransition?.beforeObservationIds as string[] ?? []),
         ...(deliveryTransition?.afterObservationIds as string[] ?? []),
