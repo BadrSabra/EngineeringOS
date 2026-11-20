@@ -626,4 +626,44 @@ describe('Workflows recovery rendering', () => {
       expect.objectContaining({ onSuccess: expect.any(Function) }),
     );
   });
+
+  it('fills an editable workflow starter without starting it', () => {
+    renderPage();
+
+    fireEvent.click(screen.getByRole('button', { name: 'مسار عمل جديد' }));
+    const dialog = screen.getByRole('dialog', { name: 'إنشاء مسار عمل' });
+    fireEvent.change(within(dialog).getByLabelText('قالب بداية (اختياري)'), {
+      target: { value: 'goal' },
+    });
+    expect(within(dialog).getByLabelText('اسم المسار')).toHaveValue('من الهدف إلى نتيجة قابلة للتحقق');
+    expect(within(dialog).getByLabelText('اسم المرحلة 1')).toHaveValue('حدد النتيجة');
+    expect(within(dialog).getByLabelText('اسم المرحلة 2')).toHaveValue('نفّذ العمل');
+    expect(within(dialog).getByLabelText('اسم المرحلة 3')).toHaveValue('تحقق من النتيجة');
+    expect(within(dialog).getByTestId('text-workflow-starter-guidance')).toHaveTextContent(
+      'المراحل للمتابعة فقط؛ لا تنفّذ أوامر أو تغيّر ملفات، وإنشاؤه لا يبدأ التشغيل.',
+    );
+
+    fireEvent.change(within(dialog).getByLabelText('اسم المسار'), {
+      target: { value: 'هدف الربع الحالي' },
+    });
+    fireEvent.click(within(dialog).getByRole('button', { name: 'إنشاء المسار' }));
+
+    expect(createWorkflowMutation.mutate).toHaveBeenCalledWith(
+      {
+        data: {
+          projectId: 'project-1',
+          name: 'هدف الربع الحالي',
+          description: 'مراحل لمتابعة الهدف ومراجعة نتيجته.',
+          phases: [
+            { name: 'حدد النتيجة', steps: [] },
+            { name: 'نفّذ العمل', steps: [] },
+            { name: 'تحقق من النتيجة', steps: [] },
+          ],
+        },
+      },
+      expect.objectContaining({ onSuccess: expect.any(Function) }),
+    );
+    const startMutation = vi.mocked(useStartWorkflow).mock.results[0]?.value as { mutate: ReturnType<typeof vi.fn> };
+    expect(startMutation.mutate).not.toHaveBeenCalled();
+  });
 });

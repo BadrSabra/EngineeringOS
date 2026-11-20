@@ -60,6 +60,52 @@ function orchestrationActionLabel(action: string): string {
   return labels[action] ?? action;
 }
 
+type PhaseInput = { name: string; steps: string[]; condition?: string };
+
+type WorkflowStarter = {
+  id: string;
+  label: string;
+  name: string;
+  description: string;
+  phases: PhaseInput[];
+};
+
+const WORKFLOW_STARTERS: WorkflowStarter[] = [
+  {
+    id: 'goal',
+    label: 'تحويل هدف إلى نتيجة',
+    name: 'من الهدف إلى نتيجة قابلة للتحقق',
+    description: 'مراحل لمتابعة الهدف ومراجعة نتيجته.',
+    phases: [
+      { name: 'حدد النتيجة', steps: [] },
+      { name: 'نفّذ العمل', steps: [] },
+      { name: 'تحقق من النتيجة', steps: [] },
+    ],
+  },
+  {
+    id: 'issue',
+    label: 'إصلاح مشكلة',
+    name: 'فهم المشكلة والتحقق من إصلاحها',
+    description: 'مراحل لمتابعة المشكلة من فهمها إلى مراجعة الإصلاح.',
+    phases: [
+      { name: 'افهم المشكلة', steps: [] },
+      { name: 'عالج السبب', steps: [] },
+      { name: 'تحقق من الإصلاح', steps: [] },
+    ],
+  },
+  {
+    id: 'review',
+    label: 'مراجعة تغيير',
+    name: 'مراجعة تغيير قبل اعتماده',
+    description: 'مراحل لمراجعة التغيير وتسجيل القرار والتحقق بعد التطبيق.',
+    phases: [
+      { name: 'راجع التغيير', steps: [] },
+      { name: 'اتخذ القرار', steps: [] },
+      { name: 'تحقق بعد التطبيق', steps: [] },
+    ],
+  },
+];
+
 function CreateWorkflowModal({
   onClose,
   initialProjectId,
@@ -73,16 +119,24 @@ function CreateWorkflowModal({
   const { data: projects } = useListProjects();
   const createWorkflow = useCreateWorkflow();
 
-  type PhaseInput = { name: string; steps: string[]; condition?: string };
-
   const [projectId, setProjectId] = useState(initialProjectId);
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
+  const [starterId, setStarterId] = useState('');
   const [phases, setPhases] = useState<PhaseInput[]>([
     { name: 'build', steps: [] },
     { name: 'test', steps: [] },
     { name: 'deploy', steps: [] },
   ]);
+
+  const chooseStarter = (id: string) => {
+    setStarterId(id);
+    const starter = WORKFLOW_STARTERS.find((item) => item.id === id);
+    if (!starter) return;
+    setName(starter.name);
+    setDescription(starter.description);
+    setPhases(starter.phases.map((phase) => ({ ...phase, steps: [...phase.steps] })));
+  };
 
   const updatePhaseName = (idx: number, value: string) =>
     setPhases((prev) => prev.map((p, i) => (i === idx ? { ...p, name: value } : p)));
@@ -164,6 +218,26 @@ function CreateWorkflowModal({
         </div>
 
         <div className="space-y-3">
+          <div>
+            <label htmlFor="workflow-starter" className="text-xs font-medium text-muted-foreground block mb-1">
+              قالب بداية (اختياري)
+            </label>
+            <select
+              id="workflow-starter"
+              data-testid="select-workflow-starter"
+              value={starterId}
+              onChange={(event) => chooseStarter(event.target.value)}
+              className="w-full bg-secondary/50 border border-border rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-primary"
+            >
+              <option value="">مسار مخصص — الحقول الحالية</option>
+              {WORKFLOW_STARTERS.map((starter) => (
+                <option key={starter.id} value={starter.id}>{starter.label}</option>
+              ))}
+            </select>
+            <p data-testid="text-workflow-starter-guidance" className="mt-1 text-[11px] leading-5 text-muted-foreground">
+              يملأ القالب الحقول لتعديلها. المراحل للمتابعة فقط؛ لا تنفّذ أوامر أو تغيّر ملفات، وإنشاؤه لا يبدأ التشغيل.
+            </p>
+          </div>
           <div>
             <label htmlFor="workflow-project" className="text-xs font-medium text-muted-foreground block mb-1">المشروع</label>
             <select
