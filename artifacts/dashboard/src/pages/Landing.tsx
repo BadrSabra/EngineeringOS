@@ -49,19 +49,24 @@ export default function Landing() {
             </p>
           </div>
 
-          <div className="flex items-center justify-center gap-3">
-            <Link
-              href="/sign-in"
-              className="inline-flex items-center justify-center rounded-md bg-primary text-primary-foreground border border-primary-border px-6 py-2.5 text-sm font-medium hover-elevate active-elevate-2"
-            >
-              تسجيل الدخول
-            </Link>
+          <div className="flex flex-col items-center justify-center gap-3 sm:flex-row">
             <Link
               href="/sign-up"
-              className="inline-flex items-center justify-center rounded-md border bg-secondary text-secondary-foreground border-secondary-border px-6 py-2.5 text-sm font-medium hover-elevate active-elevate-2"
+              data-testid="link-start-goal"
+              className="inline-flex items-center justify-center rounded-md bg-primary text-primary-foreground border border-primary-border px-6 py-2.5 text-sm font-medium hover-elevate active-elevate-2"
             >
-              إنشاء حساب
+              ابدأ بهدفك
             </Link>
+            <p className="text-sm text-muted-foreground">
+              لديك حساب بالفعل؟{' '}
+              <Link
+                href="/sign-in"
+                data-testid="link-sign-in"
+                className="font-medium text-primary underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+              >
+                تسجيل الدخول
+              </Link>
+            </p>
           </div>
 
           <section aria-labelledby="landing-workflow-title" className="space-y-4 pt-4 text-right">
