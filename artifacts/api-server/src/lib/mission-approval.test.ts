@@ -23,6 +23,13 @@ vi.mock("./mission-runtime.js", () => ({
 }));
 
 import { approveMissionGoal } from "./mission-approval.js";
+import {
+  dispatchMissionGoalApprovalIntent,
+  dispatchPendingMissionGoalApprovals,
+  insertMissionGoalApprovalIntent,
+  MISSION_GOAL_APPROVAL_DEFERRED,
+  MISSION_GOAL_APPROVAL_DISPATCHED,
+} from "./mission-goal-approval-outbox.js";
 
 const projectIds: string[] = [];
 
@@ -34,6 +41,128 @@ afterEach(async () => {
 });
 
 describe("Mission Goal approval adapter", () => {
+  it("recovers a committed plan approval after the post-commit dispatch fails", async () => {
+    const projectId = crypto.randomUUID();
+    const missionId = crypto.randomUUID();
+    const goalId = crypto.randomUUID();
+    const approvalEventId = crypto.randomUUID();
+    const planRevision = "b".repeat(64);
+    const now = new Date();
+    const stepId = "execute";
+    projectIds.push(projectId);
+    missionRunner
+      .mockRejectedValueOnce(new Error("temporary_runtime_unavailable"))
+      .mockResolvedValueOnce({ status: "scheduled", goalId });
+
+    await db.insert(projectsTable).values({
+      id: projectId,
+      ownerId: "test-user",
+      name: "mission-approval-outbox-" + projectId.slice(0, 8),
+      rootPath: process.cwd(),
+      language: "typescript",
+      status: "active",
+      createdAt: now,
+      updatedAt: now,
+    });
+    await db.insert(aiMissionsTable).values({
+      id: missionId,
+      projectId,
+      userId: "test-user",
+      title: "Approved plan step",
+      intent: "Resume a previously approved step.",
+      status: "active",
+      scope: { kind: "project", projectId },
+      autonomyPolicy: { activePlanRevision: planRevision },
+      createdAt: now,
+      updatedAt: now,
+    });
+    await db.insert(aiGoalsTable).values({
+      id: goalId,
+      missionId,
+      projectId,
+      title: "Execute approved step",
+      status: "queued",
+      successCriteria: {
+        kind: "mission_plan_step",
+        stepId,
+        planRevision: { hash: planRevision },
+      },
+      outcomeContract: {
+        stepId,
+        planRevision: { hash: planRevision },
+        planApproval: {
+          kind: "mission_plan_step",
+          state: "APPROVED",
+          approvalEventId,
+          planRevision,
+          stepId,
+        },
+      },
+      nextAction: { kind: "task", taskId: crypto.randomUUID(), purpose: "activation" },
+      createdAt: now,
+      updatedAt: now,
+    });
+    await db.insert(eventsTable).values({
+      id: approvalEventId,
+      type: "AiGoalApprovalGranted",
+      projectId,
+      goalId,
+      severity: "success",
+      message: "Mission Goal plan step approved",
+      payload: {
+        missionId,
+        goalId,
+        approvalKind: "mission_plan_step",
+        planRevision,
+        stepId,
+      },
+      timestamp: now,
+    });
+    const intentId = await db.transaction((tx) => insertMissionGoalApprovalIntent(tx, {
+      missionId,
+      projectId,
+      goalId,
+      userId: "test-user",
+      approvalEventId,
+      approvalKind: "plan",
+      planRevision,
+      stepId,
+      requestedAt: now,
+    }));
+
+    const firstAttempt = await dispatchMissionGoalApprovalIntent(intentId);
+    expect(firstAttempt).toMatchObject({
+      dispatched: false,
+      reason: "approval_dispatch_deferred",
+    });
+    expect(missionRunner).toHaveBeenCalledTimes(1);
+    const [deferred] = await db.select().from(eventsTable).where(eq(eventsTable.id, intentId));
+    expect(deferred?.type).toBe(MISSION_GOAL_APPROVAL_DEFERRED);
+    expect(deferred?.payload).toMatchObject({ attemptCount: 1 });
+
+    await db.update(eventsTable).set({
+      payload: {
+        ...(deferred?.payload ?? {}),
+        nextAttemptAt: "2000-01-01T00:00:00.000Z",
+      },
+    }).where(eq(eventsTable.id, intentId));
+
+    await expect(dispatchPendingMissionGoalApprovals(10, projectId)).resolves.toBe(1);
+    const [dispatched] = await db.select().from(eventsTable).where(eq(eventsTable.id, intentId));
+    expect(dispatched?.type).toBe(MISSION_GOAL_APPROVAL_DISPATCHED);
+    expect(dispatched?.payload).toMatchObject({
+      attemptCount: 1,
+      dispatchStatus: "scheduled",
+    });
+    expect(missionRunner).toHaveBeenCalledTimes(2);
+    expect(missionRunner).toHaveBeenLastCalledWith({
+      goalId,
+      userId: "test-user",
+      trigger: "resume",
+    });
+  });
+
+
   it("atomically opens the current proposal gate and resumes the existing runtime", async () => {
     const projectId = crypto.randomUUID();
     const missionId = crypto.randomUUID();
