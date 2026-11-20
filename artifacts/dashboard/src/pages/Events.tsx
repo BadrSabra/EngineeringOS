@@ -310,7 +310,19 @@ export default function Events() {
                             </button>
                           ) : severityLabel(evt.severity)}
                         </div>
-                        <div className="w-32 opacity-80 shrink-0 truncate"><bdi dir="ltr">{evt.type}</bdi></div>
+                        <div className="w-32 shrink-0">
+                          <div className="truncate opacity-80"><bdi dir="ltr">{evt.type}</bdi></div>
+                          {evt.workflowId && (
+                            <Link
+                              href={`/workflows?projectId=${encodeURIComponent(evt.projectId)}&workflowId=${encodeURIComponent(evt.workflowId)}`}
+                              aria-label={`افتح سجل مسار العمل المرتبط بالحدث ${evt.type}`}
+                              data-testid={`link-event-workflow-${evt.id}`}
+                              className="mt-1 block truncate text-[10px] font-medium text-primary hover:underline focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary"
+                            >
+                              افتح سجل التشغيل
+                            </Link>
+                          )}
+                        </div>
                         <div className="w-48 opacity-60 shrink-0 truncate">
                           {eventProject ? (
                             <Link
