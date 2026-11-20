@@ -57,7 +57,6 @@ export async function insertTaskAutoExecutionIntent(
       prompt: tasksTable.prompt,
       retryCount: tasksTable.retryCount,
       correlationId: tasksTable.correlationId,
-      dependsOn: tasksTable.dependsOn,
     })
     .from(tasksTable)
     .where(eq(tasksTable.id, input.taskId))

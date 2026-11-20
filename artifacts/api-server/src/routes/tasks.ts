@@ -403,7 +403,7 @@ router.patch("/tasks/:taskId", async (req, res) => {
     updated = await db.transaction(async (tx) => {
       // Lock the Task before changing its status or recording its Outbox intent.
       // The final execution claim locks and revalidates its prerequisite chain.
-      const [lockedTask] = await tx.select().from(tasksTable)
+      const [lockedTask] = await tx.select({ id: tasksTable.id }).from(tasksTable)
         .where(and(
           eq(tasksTable.id, taskId),
           eq(tasksTable.status, before[0].status),

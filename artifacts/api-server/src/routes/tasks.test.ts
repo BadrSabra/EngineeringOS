@@ -205,7 +205,6 @@ describe("Task lifecycle", () => {
     expect(executions).toHaveLength(0);
   });
 
-
   it("does not let a durable automatic intent bypass dependencies at the final execution claim", async () => {
     const prerequisite = await createTask();
     const dependent = await request(app).post("/api/tasks").send({

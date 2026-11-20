@@ -10529,7 +10529,6 @@ describe("POST /api/ai/tasks/:taskId/execute", () => {
     }
   });
 
-
   it("automatically redispatches a dependency-blocked Task after its prerequisite completes", async () => {
     const projectId = await insertProject();
     projectIds.push(projectId);
@@ -10575,8 +10574,9 @@ describe("POST /api/ai/tasks/:taskId/execute", () => {
         generation!.retryCount,
         generation!.correlationId,
       );
-      expect(queuedJobs.map((job) => job.id)).toContain(taskId);
-      await queuedJobs[0]!.run();
+      const firstQueuedJob = queuedJobs.find((job) => job.id === taskId);
+      expect(firstQueuedJob).toBeDefined();
+      await firstQueuedJob!.run();
       await waitForScheduledAiTaskExecutions();
 
       const [deferred] = await db.select().from(eventsTable)
