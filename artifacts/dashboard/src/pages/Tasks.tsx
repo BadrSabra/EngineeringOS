@@ -2260,12 +2260,24 @@ function TasksSession({
         ) : projectsError ? (
           <RequestError title="تعذر تحميل المشاريع" retryLabel="إعادة المحاولة" message={projectError instanceof Error ? projectError.message : 'تعذر تحميل المشاريع.'} onRetry={() => void refetchProjects()} />
         ) : !projectId ? (
-          <div role="status" className="rounded-xl border border-border p-6 text-sm">
-            {requestedTaskId && requestedTaskError
-              ? (taskTargetError instanceof Error ? taskTargetError.message : 'تعذر فتح المهمة المطلوبة.')
-              : targetProjectId
-                ? 'المشروع المطلوب غير متاح. اختر مشروعًا آخر صراحةً للمتابعة.'
-                : 'اختر مشروعًا لعرض مهامه. يمكنك إنشاء مشروع من صفحة المشاريع.'}
+          <div className="flex flex-col items-start gap-3 rounded-xl border border-border p-6 text-sm">
+            <p role="status">
+              {requestedTaskId && requestedTaskError
+                ? (taskTargetError instanceof Error ? taskTargetError.message : 'تعذر فتح المهمة المطلوبة.')
+                : targetProjectId
+                  ? 'المشروع المطلوب غير متاح. اختر مشروعًا آخر صراحةً للمتابعة.'
+                  : 'اختر مشروعًا لعرض مهامه. يمكنك إنشاء مشروع من صفحة المشاريع.'}
+            </p>
+            {!requestedTaskId && !targetProjectId && (
+              <Link
+                href="/"
+                aria-label="ابدأ بوصف هدفك في مساحة العمل"
+                data-testid="link-tasks-empty-goal-first"
+                className="inline-flex items-center justify-center rounded-lg bg-primary px-4 py-2.5 text-sm font-semibold text-primary-foreground transition-colors hover:bg-primary/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2"
+              >
+                ابدأ بهدفك
+              </Link>
+            )}
           </div>
         ) : isError ? (
           <RequestError
