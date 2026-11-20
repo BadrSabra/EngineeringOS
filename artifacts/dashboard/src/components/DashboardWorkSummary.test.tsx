@@ -154,6 +154,56 @@ describe("DashboardWorkSummary", () => {
     );
   });
 
+  it("opens the project assistant from the featured main goal without calling it a task", () => {
+    mockQuery({
+      data: {
+        ...summary,
+        decisions: [
+          item({
+            id: "goal-1",
+            kind: "mission",
+            title: "وافق على الخطة\nثم راجع النتيجة",
+            status: "waiting",
+            href: "/missions/goal-1",
+          }),
+        ],
+      },
+    });
+    render(<DashboardWorkSummary />);
+
+    fireEvent.click(screen.getByTestId("button-work-summary-assistant-mission-goal-1"));
+
+    const draft = readGoalDrafts("owner-a").drafts[0];
+    expect(draft).toMatchObject({ projectId: "p1", source: "home" });
+    expect(draft.text).toContain("ساعدني على فهم هذا الهدف الرئيسي المسجّل");
+    expect(draft.text).toContain("النوع: الهدف الرئيسي");
+    expect(draft.text).toContain("العنوان المسجّل: «وافق على الخطة ثم راجع النتيجة»");
+    expect(draft.text).toContain("الحالة المسجّلة: متوقفة بانتظار مراجعة");
+    expect(draft.text).toContain("لا تخلط الهدف الرئيسي بمهامه التنفيذية");
+    expect(draft.text).toContain("حالته المسجّلة وحدها لا تثبت اكتماله");
+    expect(draft.text).toContain("لا تغيّر الملفات ولا تعِد تشغيل العمل قبل موافقتي.");
+    expect(draft.text).not.toContain("task-logs");
+    expect(setLocation).toHaveBeenCalledWith(
+      `/projects/p1/workspace?goalDraftId=${draft.id}#workspace-panel-agent`,
+    );
+  });
+
+  it("does not offer a mission handoff without a project scope", () => {
+    mockQuery({
+      data: {
+        ...summary,
+        decisions: [item({ id: "goal-unscoped", kind: "mission", projectId: null })],
+        active: [],
+        recent: [],
+      },
+    });
+    render(<DashboardWorkSummary />);
+
+    expect(
+      screen.queryByTestId("button-work-summary-assistant-mission-goal-unscoped"),
+    ).not.toBeInTheDocument();
+  });
+
   it("stays on the dashboard if it cannot save the work summary draft", () => {
     for (let index = 0; index < 8; index += 1) {
       expect(storeHomeGoalDraft(`هدف ${index}`, "owner-a")).not.toBeNull();
@@ -175,6 +225,7 @@ describe("DashboardWorkSummary", () => {
     render(<DashboardWorkSummary />);
 
     expect(screen.queryByTestId("button-work-summary-assistant-task-a1")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("button-work-summary-assistant-mission-d1")).not.toBeInTheDocument();
   });
 
   it("does not turn recent history into a suggested next step", () => {
