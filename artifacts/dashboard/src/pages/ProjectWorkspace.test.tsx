@@ -1357,3 +1357,24 @@ describe("Workspace execution detail identity", () => {
     expect(screen.queryByTestId("workspace-execution-projection")).not.toBeInTheDocument();
   });
 });
+
+describe("Workspace project navigation", () => {
+  it("opens the current project's details without returning to the project list", () => {
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+    });
+
+    render(
+      <QueryClientProvider client={queryClient}>
+        <ProjectWorkspace />
+      </QueryClientProvider>,
+    );
+
+    expect(screen.getByTestId("link-project-details-from-workspace")).toHaveAttribute(
+      "href",
+      "/projects/project-1",
+    );
+    expect(screen.getByRole("link", { name: "فتح تفاصيل المشروع: مشروع البث" }))
+      .toBeInTheDocument();
+  });
+});
