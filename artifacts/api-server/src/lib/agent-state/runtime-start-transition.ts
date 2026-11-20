@@ -137,22 +137,6 @@ function unique(values: readonly string[]): string[] {
  * remains a hint: the Mission runtime reloads the transition, plan, dependency
  * proofs, and execution authority under its existing locks before dispatch.
  */
-async function wakeRuntimeGoalsAfterTransitionMaterialized(projectId: string): Promise<void> {
-  try {
-    const { wakeRuntimeTransitionMissionGoals } = await import("../mission-runtime.js");
-    await wakeRuntimeTransitionMissionGoals(32, projectId);
-  } catch (error) {
-    logger.warn(
-      {
-        scope: "runtime-start-transition",
-        projectId,
-        error,
-      },
-      "Runtime transition committed but immediate Mission Goal wake failed; durable reconciliation remains available.",
-    );
-  }
-}
-
 function transitionIdempotencyKey(input: RuntimeStartTransitionIntent): string {
   return `runtime.start:${input.executionId}:${input.attempt}:${input.episodeId}:${input.actionId}`;
 }
@@ -1325,24 +1309,310 @@ async function claimGitHubDeliveryTransition(input: {
   });
 }
 
+const MISSION_WORLD_TRANSITION_WAKE_EVENT = "AiMissionWorldTransitionWakeRequested";
+const MISSION_WORLD_TRANSITION_WAKE_MAX_ATTEMPTS = 8;
+const MISSION_WORLD_TRANSITION_WAKE_MAX_BACKOFF_MS = 15 * 60_000;
+
+type MissionWorldTransitionWakeKind = "runtime_start" | "apply_changes" | "github_delivery";
+type RuntimeTransitionTransaction = Parameters<Parameters<typeof db.transaction>[0]>[0];
+
+type MissionWorldTransitionWakeIdentity = {
+  projectId: string;
+  executionId: string;
+  attempt: number;
+  episodeId: string;
+  actionId: string;
+};
+
+function missionWorldTransitionWakeKind(
+  idempotencyKey: string,
+): MissionWorldTransitionWakeKind | undefined {
+  if (idempotencyKey.startsWith("runtime.start:")) return "runtime_start";
+  if (idempotencyKey.startsWith("apply.changes:")) return "apply_changes";
+  if (idempotencyKey.startsWith("github.delivery:")) return "github_delivery";
+  return undefined;
+}
+
+function missionWorldTransitionWakeIntentId(transitionId: string): string {
+  return `mission-world-transition-wake:${transitionId}`;
+}
+
+/**
+ * Persist the Mission wake request in the same transaction that materializes
+ * the World Transition. The event is scheduling metadata only; consumers
+ * re-enter their existing proof, plan, ownership, and authorization gates.
+ */
+async function insertMissionWorldTransitionWakeIntent(
+  tx: RuntimeTransitionTransaction,
+  transition: typeof aiWorldTransitionsTable.$inferSelect,
+): Promise<string | null> {
+  const transitionKind = missionWorldTransitionWakeKind(transition.idempotencyKey);
+  if (!transitionKind) return null;
+
+  const [episode] = await tx.select({
+    missionId: aiAgentEpisodesTable.missionId,
+    goalId: aiAgentEpisodesTable.goalId,
+  }).from(aiAgentEpisodesTable).where(and(
+    eq(aiAgentEpisodesTable.id, transition.episodeId),
+    eq(aiAgentEpisodesTable.projectId, transition.projectId),
+    eq(aiAgentEpisodesTable.executionId, transition.executionId),
+    eq(aiAgentEpisodesTable.attempt, transition.attempt),
+  )).limit(1);
+  if (!episode?.missionId || !episode.goalId) return null;
+
+  const id = missionWorldTransitionWakeIntentId(transition.id);
+  await tx.insert(eventsTable).values({
+    id,
+    type: MISSION_WORLD_TRANSITION_WAKE_EVENT,
+    projectId: transition.projectId,
+    goalId: episode.goalId,
+    correlationId: transition.executionId,
+    severity: "info",
+    message: "A materialized World Transition requested a Mission wake",
+    payload: {
+      schemaVersion: 1,
+      transitionId: transition.id,
+      transitionKind,
+      projectId: transition.projectId,
+      missionId: episode.missionId,
+      goalId: episode.goalId,
+      executionId: transition.executionId,
+      attempt: transition.attempt,
+      episodeId: transition.episodeId,
+      actionId: transition.actionId,
+      attemptCount: 0,
+    },
+  }).onConflictDoNothing();
+  return id;
+}
+
+async function ensureMissionWorldTransitionWakeIntent(
+  identity: MissionWorldTransitionWakeIdentity,
+  expectedKind: MissionWorldTransitionWakeKind,
+): Promise<string | null> {
+  return db.transaction(async (tx) => {
+    const [transition] = await tx.select().from(aiWorldTransitionsTable).where(and(
+      eq(aiWorldTransitionsTable.projectId, identity.projectId),
+      eq(aiWorldTransitionsTable.executionId, identity.executionId),
+      eq(aiWorldTransitionsTable.attempt, identity.attempt),
+      eq(aiWorldTransitionsTable.episodeId, identity.episodeId),
+      eq(aiWorldTransitionsTable.actionId, identity.actionId),
+      eq(aiWorldTransitionsTable.status, "materialized"),
+    )).limit(1);
+    if (!transition || missionWorldTransitionWakeKind(transition.idempotencyKey) !== expectedKind) {
+      return null;
+    }
+    return insertMissionWorldTransitionWakeIntent(tx, transition);
+  });
+}
+
+async function markMissionWorldTransitionWakeProcessed(
+  intentId: string,
+  payload: Record<string, unknown>,
+  details: Record<string, unknown> = {},
+): Promise<void> {
+  await db.update(eventsTable).set({
+    payload: {
+      ...payload,
+      ...details,
+      processedAt: new Date().toISOString(),
+      nextAttemptAt: null,
+      lastError: null,
+    },
+  }).where(and(
+    eq(eventsTable.id, intentId),
+    eq(eventsTable.type, MISSION_WORLD_TRANSITION_WAKE_EVENT),
+    sql`${eventsTable.payload}->>'processedAt' IS NULL`,
+  ));
+}
+
+async function deferMissionWorldTransitionWake(
+  intentId: string,
+  payload: Record<string, unknown>,
+  error: unknown,
+): Promise<void> {
+  const attemptCount = Number.isSafeInteger(payload.attemptCount)
+    ? Number(payload.attemptCount) + 1
+    : 1;
+  const now = Date.now();
+  const exhausted = attemptCount >= MISSION_WORLD_TRANSITION_WAKE_MAX_ATTEMPTS;
+  const backoffMs = Math.min(
+    MISSION_WORLD_TRANSITION_WAKE_MAX_BACKOFF_MS,
+    1_000 * (2 ** Math.min(attemptCount - 1, 10)),
+  );
+  const message = error instanceof Error ? error.message : "mission_world_transition_wake_failed";
+  await db.update(eventsTable).set({
+    payload: {
+      ...payload,
+      attemptCount,
+      lastError: message.slice(0, 240),
+      nextAttemptAt: exhausted ? null : new Date(now + backoffMs).toISOString(),
+      ...(exhausted ? { deadLetterAt: new Date(now).toISOString() } : {}),
+    },
+  }).where(and(
+    eq(eventsTable.id, intentId),
+    eq(eventsTable.type, MISSION_WORLD_TRANSITION_WAKE_EVENT),
+    sql`${eventsTable.payload}->>'processedAt' IS NULL`,
+    sql`${eventsTable.payload}->>'deadLetterAt' IS NULL`,
+  ));
+}
+
+export async function dispatchMissionWorldTransitionWakeIntent(
+  intentId: string,
+): Promise<boolean> {
+  const [intent] = await db.select({
+    id: eventsTable.id,
+    projectId: eventsTable.projectId,
+    goalId: eventsTable.goalId,
+    payload: eventsTable.payload,
+  }).from(eventsTable).where(and(
+    eq(eventsTable.id, intentId),
+    eq(eventsTable.type, MISSION_WORLD_TRANSITION_WAKE_EVENT),
+  )).limit(1);
+  if (!intent?.payload) return false;
+
+  const payload = intent.payload;
+  if (typeof payload.processedAt === "string" || typeof payload.deadLetterAt === "string") {
+    return false;
+  }
+  const transitionId = typeof payload.transitionId === "string" ? payload.transitionId : "";
+  const expectedKind = payload.transitionKind;
+  const projectId = typeof payload.projectId === "string" ? payload.projectId : "";
+  const missionId = typeof payload.missionId === "string" ? payload.missionId : "";
+  const goalId = typeof payload.goalId === "string" ? payload.goalId : "";
+  const executionId = typeof payload.executionId === "string" ? payload.executionId : "";
+  const attempt = typeof payload.attempt === "number" ? payload.attempt : -1;
+  const episodeId = typeof payload.episodeId === "string" ? payload.episodeId : "";
+  const actionId = typeof payload.actionId === "string" ? payload.actionId : "";
+
+  try {
+    if (
+      payload.schemaVersion !== 1
+      || !transitionId || !projectId || !missionId || !goalId
+      || !executionId || !Number.isInteger(attempt) || attempt < 0
+      || !episodeId || !actionId
+      || projectId !== intent.projectId
+      || goalId !== intent.goalId
+      || !["runtime_start", "apply_changes", "github_delivery"].includes(String(expectedKind))
+    ) {
+      await markMissionWorldTransitionWakeProcessed(intent.id, payload, {
+        terminalReason: "invalid_wake_intent",
+      });
+      return true;
+    }
+
+    const [transition] = await db.select({
+      status: aiWorldTransitionsTable.status,
+      idempotencyKey: aiWorldTransitionsTable.idempotencyKey,
+      executionId: aiWorldTransitionsTable.executionId,
+      attempt: aiWorldTransitionsTable.attempt,
+      episodeId: aiWorldTransitionsTable.episodeId,
+      actionId: aiWorldTransitionsTable.actionId,
+    }).from(aiWorldTransitionsTable).where(and(
+      eq(aiWorldTransitionsTable.id, transitionId),
+      eq(aiWorldTransitionsTable.projectId, projectId),
+    )).limit(1);
+    const [episode] = await db.select({
+      missionId: aiAgentEpisodesTable.missionId,
+      goalId: aiAgentEpisodesTable.goalId,
+    }).from(aiAgentEpisodesTable).where(and(
+      eq(aiAgentEpisodesTable.id, episodeId),
+      eq(aiAgentEpisodesTable.projectId, projectId),
+      eq(aiAgentEpisodesTable.executionId, executionId),
+      eq(aiAgentEpisodesTable.attempt, attempt),
+    )).limit(1);
+
+    if (
+      !transition
+      || transition.status !== "materialized"
+      || transition.executionId !== executionId
+      || transition.attempt !== attempt
+      || transition.episodeId !== episodeId
+      || transition.actionId !== actionId
+      || missionWorldTransitionWakeKind(transition.idempotencyKey) !== expectedKind
+      || episode?.missionId !== missionId
+      || episode.goalId !== goalId
+    ) {
+      await markMissionWorldTransitionWakeProcessed(intent.id, payload, {
+        terminalReason: "transition_or_mission_binding_superseded",
+      });
+      return true;
+    }
+
+    const missionRuntime = await import("../mission-runtime.js");
+    if (expectedKind === "runtime_start") {
+      await missionRuntime.wakeRuntimeTransitionMissionGoals(32, projectId, missionId);
+    } else if (expectedKind === "apply_changes") {
+      await missionRuntime.wakeApplyChangesMissionGoals(1, projectId, goalId);
+    } else {
+      await missionRuntime.reconcileCompletedMissionRecipeAcceptances(1, projectId, executionId);
+      await missionRuntime.wakeReadyMissionGoals(32, projectId, goalId);
+    }
+
+    await markMissionWorldTransitionWakeProcessed(intent.id, payload, {
+      dispatchOutcome: "delivered",
+    });
+    return true;
+  } catch (error) {
+    await deferMissionWorldTransitionWake(intent.id, payload, error);
+    logger.warn(
+      {
+        scope: "mission-world-transition-wake",
+        intentId: intent.id,
+        transitionId,
+        transitionKind: expectedKind,
+        error,
+      },
+      "Materialized Mission World Transition wake delivery failed; the durable intent was deferred.",
+    );
+    return false;
+  }
+}
+
+/**
+ * Bounded outbox dispatcher for materialized Mission World Transitions.
+ * This closes the commit-to-wake crash window without making the outbox an
+ * execution grant or replaying any external effect.
+ */
+export async function dispatchPendingMaterializedMissionTransitionWakes(
+  limit = 32,
+  scopeProjectId?: string,
+): Promise<number> {
+  const candidates = await db.select({ id: eventsTable.id })
+    .from(eventsTable)
+    .where(and(
+      eq(eventsTable.type, MISSION_WORLD_TRANSITION_WAKE_EVENT),
+      scopeProjectId ? eq(eventsTable.projectId, scopeProjectId) : undefined,
+      sql`${eventsTable.payload}->>'processedAt' IS NULL`,
+      sql`${eventsTable.payload}->>'deadLetterAt' IS NULL`,
+      sql`(${eventsTable.payload}->>'nextAttemptAt' IS NULL OR (${eventsTable.payload}->>'nextAttemptAt')::timestamptz <= NOW())`,
+    ))
+    .orderBy(eventsTable.timestamp, eventsTable.id)
+    .limit(Math.max(1, Math.min(Math.floor(limit), 100)));
+
+  let dispatched = 0;
+  for (const candidate of candidates) {
+    if (await dispatchMissionWorldTransitionWakeIntent(candidate.id)) dispatched += 1;
+  }
+  return dispatched;
+}
+
 /**
  * A materialized World Transition is a wake signal, not execution authority.
- * Each transition kind re-enters its existing proof-aware Mission consumer.
- * This runs only after the transition transaction commits; reconciliation
- * remains the durable fallback if the best-effort wake cannot be delivered.
+ * Mission consumers reload the exact intent and retain their existing gates.
  */
 async function wakeMissionAfterMaterializedTransition(input: {
   projectId: string;
-  transitionKind: "apply_changes" | "github_delivery";
+  transitionKind: MissionWorldTransitionWakeKind;
+  transitionIdentity: MissionWorldTransitionWakeIdentity;
+  intentId?: string | null;
 }): Promise<void> {
   try {
-    const missionRuntime = await import("../mission-runtime.js");
-    if (input.transitionKind === "apply_changes") {
-      await missionRuntime.wakeApplyChangesMissionGoals(32, input.projectId);
-      return;
-    }
-    await missionRuntime.reconcileCompletedMissionRecipeAcceptances(32, input.projectId);
-    await missionRuntime.wakeReadyMissionGoals(32, input.projectId);
+    const intentId = input.intentId ?? await ensureMissionWorldTransitionWakeIntent(
+      input.transitionIdentity,
+      input.transitionKind,
+    );
+    if (intentId) await dispatchMissionWorldTransitionWakeIntent(intentId);
   } catch (error) {
     logger.warn(
       {
@@ -1351,7 +1621,7 @@ async function wakeMissionAfterMaterializedTransition(input: {
         transitionKind: input.transitionKind,
         error,
       },
-      "World Transition committed but immediate Mission wake failed; durable reconciliation remains available.",
+      "World Transition committed but immediate Mission wake failed; durable outbox reconciliation remains available.",
     );
   }
 }
@@ -1373,6 +1643,7 @@ export async function finalizeGitHubDeliveryTransition(input: {
     await wakeMissionAfterMaterializedTransition({
       projectId: input.projectId,
       transitionKind: "github_delivery",
+      transitionIdentity: input,
     });
     return { status: "materialized", worldRevision: claim.worldRevision };
   }
@@ -1494,6 +1765,7 @@ export async function finalizeGitHubDeliveryTransition(input: {
       || after.candidateTreeHash !== after.committedTreeHash
     ) throw new Error("github_delivery_transition_observations_unproven");
 
+    let wakeIntentId: string | null = null;
     const materialized = await materializeWorldStateForProject(input.projectId, {
       observationIds,
       expectedWorldRevision: transition.parentWorldRevision,
@@ -1524,6 +1796,7 @@ export async function finalizeGitHubDeliveryTransition(input: {
         eq(aiWorldTransitionsTable.nextRetryAt, leaseUntil),
       )).returning({ id: aiWorldTransitionsTable.id });
       if (updated.length === 0) throw new Error("github_delivery_transition_owner_stale");
+      wakeIntentId = await insertMissionWorldTransitionWakeIntent(tx, transition);
     });
     try {
       invalidateContextSlice(input.projectId, "worldState");
@@ -1536,6 +1809,8 @@ export async function finalizeGitHubDeliveryTransition(input: {
     await wakeMissionAfterMaterializedTransition({
       projectId: input.projectId,
       transitionKind: "github_delivery",
+      transitionIdentity: input,
+      intentId: wakeIntentId,
     });
     return { status: "materialized", worldRevision: materialized.worldRevision };
   } catch (error) {
@@ -1692,7 +1967,11 @@ export async function finalizeRuntimeStartTransition(input: {
 }> {
   const claim = await claimRuntimeStartTransition(input);
   if (claim.kind === "materialized") {
-    await wakeRuntimeGoalsAfterTransitionMaterialized(input.projectId);
+    await wakeMissionAfterMaterializedTransition({
+      projectId: input.projectId,
+      transitionKind: "runtime_start",
+      transitionIdentity: input,
+    });
     return { status: "materialized", worldRevision: claim.worldRevision };
   }
   if (claim.kind === "terminal_failed") {
@@ -1841,6 +2120,7 @@ export async function finalizeRuntimeStartTransition(input: {
       throw new Error("runtime_start_transition_child_process_attestation_unproven");
     }
 
+    let wakeIntentId: string | null = null;
     const materialized = await materializeWorldStateForProject(input.projectId, {
       observationIds,
       expectedWorldRevision: transition.parentWorldRevision,
@@ -1880,6 +2160,7 @@ export async function finalizeRuntimeStartTransition(input: {
       if (updated.length === 0) {
         throw new Error("runtime_start_transition_owner_stale");
       }
+      wakeIntentId = await insertMissionWorldTransitionWakeIntent(tx, transition);
     });
     try {
       invalidateContextSlice(input.projectId, "worldState");
@@ -1896,7 +2177,12 @@ export async function finalizeRuntimeStartTransition(input: {
         "World State materialized but context invalidation failed",
       );
     }
-    await wakeRuntimeGoalsAfterTransitionMaterialized(input.projectId);
+    await wakeMissionAfterMaterializedTransition({
+      projectId: input.projectId,
+      transitionKind: "runtime_start",
+      transitionIdentity: input,
+      intentId: wakeIntentId,
+    });
     return { status: "materialized", worldRevision: materialized.worldRevision };
   } catch (error) {
     const code = failureCode(error);
@@ -2175,6 +2461,7 @@ export async function finalizeApplyChangesTransition(input: {
     await wakeMissionAfterMaterializedTransition({
       projectId: input.projectId,
       transitionKind: "apply_changes",
+      transitionIdentity: input,
     });
     return { status: "materialized", worldRevision: claim.worldRevision };
   }
@@ -2271,6 +2558,7 @@ export async function finalizeApplyChangesTransition(input: {
       || treeValue(after) !== binding.promotedTreeHash) {
       throw new Error("apply_transition_tree_observations_unproven");
     }
+    let wakeIntentId: string | null = null;
     const materialized = await materializeWorldStateForProject(input.projectId, {
       observationIds: unique([...beforeIds, ...afterIds]),
       expectedWorldRevision: transition.parentWorldRevision,
@@ -2380,11 +2668,14 @@ export async function finalizeApplyChangesTransition(input: {
         eq(aiAgentEpisodesTable.planRevision, binding.planRevision),
       )).returning({ id: aiAgentEpisodesTable.id });
       if (!boundEpisode) throw new Error("apply_transition_episode_scope_mismatch");
+      wakeIntentId = await insertMissionWorldTransitionWakeIntent(tx, transition);
     });
     try { invalidateContextSlice(input.projectId, "worldState"); } catch { /* projection remains authoritative */ }
     await wakeMissionAfterMaterializedTransition({
       projectId: input.projectId,
       transitionKind: "apply_changes",
+      transitionIdentity: input,
+      intentId: wakeIntentId,
     });
     return { status: "materialized", worldRevision: materialized.worldRevision };
   } catch (error) {
