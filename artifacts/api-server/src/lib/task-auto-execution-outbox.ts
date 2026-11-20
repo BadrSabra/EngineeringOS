@@ -1,5 +1,6 @@
+import { randomUUID } from "crypto";
 import { db, eventsTable, tasksTable } from "@workspace/db";
-import { eq } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 
 export const TASK_AUTO_EXECUTION_REQUESTED_EVENT_TYPE =
   "TaskAutoExecutionDispatchRequested";
@@ -168,5 +169,154 @@ export async function insertTaskAutoExecutionIntent(
       payload,
     }).onConflictDoNothing();
   }
+  return true;
+}
+
+
+/**
+ * A dispatcher lease prevents multiple API replicas from enqueueing the same
+ * durable Task intent at once. It is scheduling metadata only: the Task
+ * lifecycle claim remains the authority to create an Execution.
+ */
+export const TASK_AUTO_EXECUTION_DISPATCH_LEASE_MS = 10 * 60_000;
+
+export type TaskAutoExecutionDispatchLeaseClaim =
+  | { acquired: true; token: string; expiresAt: string }
+  | {
+      acquired: false;
+      reason: "task_not_runnable" | "intent_mismatch" | "retry_not_due" | "already_leased";
+    };
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value && typeof value === "object" && !Array.isArray(value));
+}
+
+export async function claimTaskAutoExecutionDispatchLease(
+  tx: TaskAutoExecutionOutboxTransaction,
+  input: {
+    taskId: string;
+    userId: string;
+    retryCount: number;
+    correlationId: string | null;
+  },
+): Promise<TaskAutoExecutionDispatchLeaseClaim> {
+  // Keep the same Task -> Outbox lock order used by producers and the final
+  // execution claim. This serializes contenders across API processes.
+  const [task] = await tx
+    .select({
+      id: tasksTable.id,
+      projectId: tasksTable.projectId,
+      status: tasksTable.status,
+      prompt: tasksTable.prompt,
+      retryCount: tasksTable.retryCount,
+      correlationId: tasksTable.correlationId,
+    })
+    .from(tasksTable)
+    .where(eq(tasksTable.id, input.taskId))
+    .for("update")
+    .limit(1);
+
+  if (
+    !task
+    || task.status !== "verifying"
+    || !task.prompt
+    || task.retryCount !== input.retryCount
+    || task.correlationId !== input.correlationId
+  ) {
+    return { acquired: false, reason: "task_not_runnable" };
+  }
+
+  const intentId = taskAutoExecutionIntentId(input.taskId);
+  const [intent] = await tx
+    .select({
+      type: eventsTable.type,
+      projectId: eventsTable.projectId,
+      taskId: eventsTable.taskId,
+      payload: eventsTable.payload,
+    })
+    .from(eventsTable)
+    .where(eq(eventsTable.id, intentId))
+    .for("update")
+    .limit(1);
+
+  const payload = intent?.payload;
+  const correlationMatches = payload?.taskCorrelationId === task.correlationId
+    || (payload?.taskCorrelationId === undefined && task.correlationId === null);
+  if (
+    !intent
+    || (
+      intent.type !== TASK_AUTO_EXECUTION_REQUESTED_EVENT_TYPE
+      && intent.type !== TASK_AUTO_EXECUTION_DEFERRED_EVENT_TYPE
+    )
+    || intent.projectId !== task.projectId
+    || intent.taskId !== task.id
+    || !payload
+    || payload.userId !== input.userId
+    || payload.taskRetryCount !== input.retryCount
+    || !correlationMatches
+  ) {
+    return { acquired: false, reason: "intent_mismatch" };
+  }
+
+  const clockResult = await tx.execute(sql`SELECT clock_timestamp() AS now`);
+  const clockValue = (clockResult.rows as Array<{ now: Date | string }>)[0]?.now;
+  const databaseNow = clockValue instanceof Date ? clockValue : new Date(String(clockValue ?? ""));
+  if (!clockValue || !Number.isFinite(databaseNow.getTime())) {
+    return { acquired: false, reason: "intent_mismatch" };
+  }
+
+  const nextAttemptAt = typeof payload.nextAttemptAt === "string"
+    ? Date.parse(payload.nextAttemptAt)
+    : Number.NaN;
+  if (Number.isFinite(nextAttemptAt) && nextAttemptAt > databaseNow.getTime()) {
+    return { acquired: false, reason: "retry_not_due" };
+  }
+
+  const currentLease = isRecord(payload.dispatchLease) ? payload.dispatchLease : undefined;
+  const currentLeaseExpiry = typeof currentLease?.expiresAt === "string"
+    ? Date.parse(currentLease.expiresAt)
+    : Number.NaN;
+  if (Number.isFinite(currentLeaseExpiry) && currentLeaseExpiry > databaseNow.getTime()) {
+    return { acquired: false, reason: "already_leased" };
+  }
+
+  const token = randomUUID();
+  const expiresAt = new Date(
+    databaseNow.getTime() + TASK_AUTO_EXECUTION_DISPATCH_LEASE_MS,
+  ).toISOString();
+  await tx.update(eventsTable)
+    .set({
+      payload: {
+        ...payload,
+        dispatchLease: { token, expiresAt },
+      },
+    })
+    .where(eq(eventsTable.id, intentId));
+
+  return { acquired: true, token, expiresAt };
+}
+
+/** Release only the lease owned by this exact dispatcher token. */
+export async function releaseTaskAutoExecutionDispatchLease(
+  tx: TaskAutoExecutionOutboxTransaction,
+  input: { taskId: string; token: string },
+): Promise<boolean> {
+  const intentId = taskAutoExecutionIntentId(input.taskId);
+  const [intent] = await tx
+    .select({ payload: eventsTable.payload })
+    .from(eventsTable)
+    .where(eq(eventsTable.id, intentId))
+    .for("update")
+    .limit(1);
+  const payload = intent?.payload;
+  const lease = payload && isRecord(payload.dispatchLease)
+    ? payload.dispatchLease
+    : undefined;
+  if (!payload || lease?.token !== input.token) return false;
+
+  const { dispatchLease: _dispatchLease, ...nextPayload } = payload;
+  await tx.update(eventsTable)
+    .set({ payload: nextPayload })
+    .where(eq(eventsTable.id, intentId));
   return true;
 }
