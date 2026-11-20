@@ -48,6 +48,12 @@ import {
 } from "../lib/task-dependencies.js";
 import { redactUserFacingText } from "../lib/ai-route-helpers.js";
 import {
+  persistDeferredTaskVerificationIntent,
+  taskExecutionWaitIntentId,
+  TASK_EXECUTION_WAITING_FOR_DEPENDENCIES,
+  TASK_EXECUTION_DEFERRED_FAILED,
+} from "../lib/deferred-task-execution.js";
+import {
   buildRuleVerificationChecks,
   markRemediationPlanVerified,
 } from "../lib/remediation-plan.js";
@@ -571,6 +577,13 @@ router.delete("/tasks/:taskId", async (req, res) => {
       sql`${eventsTable.payload}->>'taskRetryCount' = ${String(lockedTask.retryCount)}`,
       sql`${eventsTable.payload}->>'taskCorrelationId' IS NOT DISTINCT FROM ${lockedTask.correlationId}`,
     ));
+    await tx.delete(eventsTable).where(and(
+      eq(eventsTable.id, taskExecutionWaitIntentId(taskId)),
+      inArray(eventsTable.type, [
+        TASK_EXECUTION_WAITING_FOR_DEPENDENCIES,
+        TASK_EXECUTION_DEFERRED_FAILED,
+      ]),
+    ));
     await tx.delete(tasksTable).where(eq(tasksTable.id, taskId));
     });
   } catch (error) {
@@ -631,7 +644,19 @@ router.post("/tasks/:taskId/execute", async (req, res) => {
 
     const blockers = await getTaskDependencyBlockers(tx, lockedTask);
     if (blockers.length > 0) {
-      return { kind: "blocked" as const, blockers };
+      const persisted = blockers.every(
+        (blocker) => blocker.reason === "dependency_not_completed",
+      ) && await persistDeferredTaskVerificationIntent(tx, {
+        taskId,
+        userId: req.userId,
+        retryCount: lockedTask.retryCount,
+        taskCorrelationId: lockedTask.correlationId,
+        originalStatus: lockedTask.status as "pending" | "queued",
+        blockers,
+      });
+      return persisted
+        ? { kind: "deferred" as const, task: lockedTask, blockers }
+        : { kind: "blocked" as const, blockers };
     }
 
     const [claimed] = await tx
@@ -649,6 +674,15 @@ router.post("/tasks/:taskId/execute", async (req, res) => {
       ? { kind: "claimed" as const, task: lockedTask }
       : { kind: "conflict" as const, status: lockedTask.status };
   });
+  if (admission.kind === "deferred") {
+    return res.status(202).json({
+      id: admission.task.id,
+      status: admission.task.status,
+      executionDeferred: true,
+      waitingForDependencies: true,
+      blockedDependencies: admission.blockers,
+    });
+  }
   if (admission.kind === "blocked") {
     return res.status(409).json({
       error: "task_dependencies_not_completed",
