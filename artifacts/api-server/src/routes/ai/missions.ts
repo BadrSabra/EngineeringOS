@@ -40,6 +40,7 @@ import type { MissionStrategyDecision } from "../../lib/mission-strategy-engine.
 import { requireAuth } from "../../middlewares/requireAuth.js";
 import { loadProjectByIdForUser } from "../../middlewares/requireProjectAccess.js";
 import { parsePagination } from "../../lib/pagination.js";
+import { logger } from "../../lib/logger.js";
 import {
   APPLY_MISSION_CREATION_PAUSED_MESSAGE,
   isLiveWorkspaceWriteUncoordinated,
@@ -4375,19 +4376,28 @@ router.post("/ai/missions/:missionId/goals", async (req, res) => {
     ...(body.planRevision ? { planRevision: { hash: body.planRevision } } : {}),
   };
   try {
-    const [goal] = await db.transaction(async (tx) => {
+    const result = await db.transaction(async (tx) => {
       const [lockedMission] = await tx
-        .select({ id: aiMissionsTable.id, status: aiMissionsTable.status })
+        .select()
         .from(aiMissionsTable)
         .where(and(
           eq(aiMissionsTable.id, owned.mission.id),
           eq(aiMissionsTable.projectId, owned.project.id),
         ))
         .for("update");
-      if (!lockedMission) return [];
+      if (!lockedMission) return { goal: undefined, shouldDispatchImmediately: false };
       if (lockedMission.status === "completed") {
         throw new MissionReactivationRequired();
       }
+      const activePlanRevision = typeof lockedMission.autonomyPolicy.activePlanRevision === "string"
+        ? lockedMission.autonomyPolicy.activePlanRevision
+        : undefined;
+      const action = GoalNextActionSchema.safeParse(body.nextAction);
+      const isCurrentPlanRoot = ["active", "waiting"].includes(lockedMission.status)
+        && Boolean(activePlanRevision)
+        && body.planRevision === activePlanRevision
+        && (body.dependsOnGoalIds ?? []).length === 0
+        && action.success;
       const created = await tx.insert(aiGoalsTable).values({
         id: goalId,
         missionId: owned.mission.id,
@@ -4396,7 +4406,10 @@ router.post("/ai/missions/:missionId/goals", async (req, res) => {
         title: body.title,
         description: body.description ?? null,
         priority: body.priority,
-        successCriteria: body.successCriteria ?? {},
+        successCriteria: {
+          ...(body.successCriteria ?? {}),
+          ...(isCurrentPlanRoot ? { kind: "mission_manual_step" } : {}),
+        },
         evidenceContract: body.evidenceContract ?? {},
         outcomeContract: nextOutcomeContract,
         nextAction: body.nextAction ?? {},
@@ -4420,12 +4433,39 @@ router.post("/ai/missions/:missionId/goals", async (req, res) => {
         payload: {
           missionId: owned.mission.id,
           dependencyRevision: body.planRevision ?? null,
+          autoDispatchEligible: isCurrentPlanRoot,
         },
       });
-      return created;
+      return {
+        goal: created[0],
+        shouldDispatchImmediately: isCurrentPlanRoot
+          && action.success
+          && action.data.kind !== "task",
+      };
     });
-    if (!goal) return res.status(404).json({ error: "Mission not found" });
-    return res.status(201).json(goal);
+    if (!result.goal) return res.status(404).json({ error: "Mission not found" });
+    if (result.shouldDispatchImmediately) {
+      try {
+        await runMissionGoal({
+          goalId: result.goal.id,
+          userId: req.userId,
+          trigger: "activation",
+        });
+      } catch (error) {
+        // The Goal is durably marked as an active-plan root. Reconciliation
+        // will retry it after this post-commit dispatch attempt fails.
+        logger.error(
+          { error, missionId: owned.mission.id, goalId: result.goal.id },
+          "manual Mission Goal dispatch failed; durable wake reconciliation will retry",
+        );
+      }
+    }
+    const [currentGoal] = result.shouldDispatchImmediately
+      ? await db.select().from(aiGoalsTable)
+        .where(eq(aiGoalsTable.id, result.goal.id))
+        .limit(1)
+      : [];
+    return res.status(201).json(currentGoal ?? result.goal);
   } catch (error) {
     if (error instanceof MissionReactivationRequired) {
       return res.status(409).json({
