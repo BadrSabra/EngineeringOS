@@ -7,6 +7,7 @@ let originalCanvasGetContext: PropertyDescriptor | undefined;
 
 const mocks = vi.hoisted(() => ({
   setLocation: vi.fn(),
+  location: '/',
   userId: 'user-1' as string | null,
   isLoaded: true,
   projectQueryArgs: [] as unknown[],
@@ -33,7 +34,7 @@ vi.mock('@workspace/api-client-react', () => ({
 }));
 
 vi.mock('wouter', () => ({
-  useLocation: () => ['/', mocks.setLocation],
+  useLocation: () => [mocks.location, mocks.setLocation],
 }));
 
 beforeEach(() => {
@@ -53,6 +54,7 @@ beforeEach(() => {
     disconnect() {}
   });
   vi.clearAllMocks();
+  mocks.location = '/';
   mocks.userId = 'user-1';
   mocks.isLoaded = true;
   mocks.projectQueryArgs = [];
@@ -90,6 +92,32 @@ describe('quick navigation', () => {
 
     expect(mocks.setLocation).toHaveBeenCalledWith('/projects/project-1/workspace');
     await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
+  });
+
+  it('keeps the explicit project when navigating to a project-scoped page', async () => {
+    mocks.location = '/projects/project-1/workspace';
+    mocks.projects.data = [{ id: 'project-1', name: 'دفتر الورشة' }];
+    window.history.replaceState({}, '', '/dashboard/projects/project-1/workspace');
+    render(<QuickNavigation />);
+
+    fireEvent.click(screen.getByTestId('button-open-quick-navigation'));
+    const taskPage = await screen.findByTestId('quick-nav-page-tasks');
+    expect(taskPage).toHaveTextContent('ضمن المشروع الحالي');
+    fireEvent.click(taskPage);
+
+    expect(mocks.setLocation).toHaveBeenCalledWith('/tasks?projectId=project-1');
+  });
+
+  it('does not inherit a project query from the general assistant', async () => {
+    mocks.location = '/general-chat';
+    mocks.projects.data = [{ id: 'project-1', name: 'دفتر الورشة' }];
+    window.history.replaceState({}, '', '/dashboard/general-chat?projectId=project-1');
+    render(<QuickNavigation />);
+
+    fireEvent.click(screen.getByTestId('button-open-quick-navigation'));
+    fireEvent.click(await screen.findByTestId('quick-nav-page-tasks'));
+
+    expect(mocks.setLocation).toHaveBeenCalledWith('/tasks');
   });
 
   it('opens from the keyboard shortcut while preserving text-field input', async () => {
