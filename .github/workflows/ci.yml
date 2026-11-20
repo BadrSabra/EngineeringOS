@@ -106,6 +106,7 @@ jobs:
               - 'artifacts/dashboard/src/pages/Missions.tsx'
               - 'artifacts/dashboard/src/pages/SkillRegistry.tsx'
               - 'artifacts/dashboard/src/pages/project-workspace/ProjectWorkspaceSwitcher.tsx'
+              - 'artifacts/dashboard/src/components/layout/QuickNavigation.tsx'
 
       - name: Verify Dashboard contract trigger policy
         run: node --test scripts/dashboard-contract-trigger.test.mjs
