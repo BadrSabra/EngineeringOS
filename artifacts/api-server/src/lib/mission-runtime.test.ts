@@ -1978,10 +1978,12 @@ describe("Mission goal runtime", () => {
   });
 
   it("uses PostgreSQL time for scheduled wakes across application clock skew", async () => {
-    const [databaseClock] = await db.select({
-      now: sql<Date>`clock_timestamp() AT TIME ZONE 'UTC'`,
-    });
-    if (!databaseClock?.now) throw new Error("mission_wake_database_clock_missing");
+    const clockResult = await db.execute(sql`SELECT clock_timestamp() AT TIME ZONE 'UTC' AS now`);
+    const clockValue = (clockResult.rows as Array<{ now: Date | string }>)[0]?.now;
+    const databaseClock = clockValue instanceof Date ? clockValue : new Date(String(clockValue ?? ""));
+    if (!clockValue || !Number.isFinite(databaseClock.getTime())) {
+      throw new Error("mission_wake_database_clock_missing");
+    }
 
     const due = await createMissionFixture({
       kind: "wait",
