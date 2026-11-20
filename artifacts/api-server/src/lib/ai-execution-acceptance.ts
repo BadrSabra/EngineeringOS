@@ -48,6 +48,7 @@ import {
   type ApplyChangesProofArtifact,
 } from "./agent-state/apply-changes-proof.js";
 import { canonicalJsonHash, ValidationProfileSchema } from "@workspace/ai-orchestrator";
+import { logger } from "./logger.js";
 
 const CURRENT_EVIDENCE_READ_METADATA_VERSION = 1;
 
@@ -624,8 +625,8 @@ async function syncLinkedObjectiveState(
     now: Date;
     acceptanceProjection?: GoalAcceptanceProjection;
   },
-) {
-  if (!params.task.goalId) return;
+): Promise<string | null> {
+  if (!params.task.goalId) return null;
 
   const [goalIdentity] = await tx
     .select({
@@ -638,7 +639,7 @@ async function syncLinkedObjectiveState(
       eq(aiGoalsTable.projectId, params.task.projectId),
     ))
     .limit(1);
-  if (!goalIdentity) return;
+  if (!goalIdentity) return null;
 
   // Terminal projection shares the Mission-before-Goal lock order used by
   // direct completion and Mission/Goal proof gates.
@@ -650,7 +651,7 @@ async function syncLinkedObjectiveState(
       eq(aiMissionsTable.projectId, params.task.projectId),
     ))
     .for("update");
-  if (!mission) return;
+  if (!mission) return null;
 
   const [goal] = await tx
     .select()
@@ -661,7 +662,7 @@ async function syncLinkedObjectiveState(
       eq(aiGoalsTable.projectId, params.task.projectId),
     ))
     .for("update");
-  if (!goal) return;
+  if (!goal) return null;
   const missionIsOperatorOwned =
     mission.status === "blocked"
     || mission.status === "cancelled"
@@ -673,7 +674,7 @@ async function syncLinkedObjectiveState(
     || goal.status === "waiting_for_approval"
     || goal.status === "completed"
     || goal.status === "failed";
-  if (missionIsOperatorOwned || goalIsOperatorOwned) return;
+  if (missionIsOperatorOwned || goalIsOperatorOwned) return null;
 
   const siblingTasks = await tx
     .select({ id: tasksTable.id, status: tasksTable.status })
@@ -841,36 +842,46 @@ async function syncLinkedObjectiveState(
         return deriveProofGatedMissionStatus(tx, mission, goals);
       })()
     : derivedMissionStatus;
-  if (mission.status === nextMissionStatus) return;
+  if (mission.status !== nextMissionStatus) {
 
-  await tx.update(aiMissionsTable)
-    .set({
-      status: nextMissionStatus,
-      completedAt: nextMissionStatus === "completed" ? mission.completedAt ?? params.now : null,
-      updatedAt: params.now,
-    })
-    .where(and(
-      eq(aiMissionsTable.id, mission.id),
-      eq(aiMissionsTable.projectId, params.task.projectId),
-    ));
-  await tx.insert(eventsTable).values({
-    id: randomUUID(),
-    type: "AiMissionStatusSynced",
-    projectId: params.task.projectId,
-    taskId: params.task.id,
-    severity: nextMissionStatus === "completed" ? "success" : nextMissionStatus === "needs_replan" || nextMissionStatus === "failed" ? "warning" : "info",
-    message: `AI mission "${mission.title}" → ${nextMissionStatus}`,
-    correlationId: params.correlationId ?? undefined,
-    payload: {
-      executionId: params.executionId,
+    await tx.update(aiMissionsTable)
+      .set({
+        status: nextMissionStatus,
+        completedAt: nextMissionStatus === "completed" ? mission.completedAt ?? params.now : null,
+        updatedAt: params.now,
+      })
+      .where(and(
+        eq(aiMissionsTable.id, mission.id),
+        eq(aiMissionsTable.projectId, params.task.projectId),
+      ));
+    await tx.insert(eventsTable).values({
+      id: randomUUID(),
+      type: "AiMissionStatusSynced",
+      projectId: params.task.projectId,
       taskId: params.task.id,
-      goalId: goal.id,
-      before: mission.status,
-      after: nextMissionStatus,
-      outcome: params.outcome,
-      retryable: params.retryable,
-    },
-  });
+      severity: nextMissionStatus === "completed" ? "success" : nextMissionStatus === "needs_replan" || nextMissionStatus === "failed" ? "warning" : "info",
+      message: `AI mission "${mission.title}" → ${nextMissionStatus}`,
+      correlationId: params.correlationId ?? undefined,
+      payload: {
+        executionId: params.executionId,
+        taskId: params.task.id,
+        goalId: goal.id,
+        before: mission.status,
+        after: nextMissionStatus,
+        outcome: params.outcome,
+        retryable: params.retryable,
+      },
+    });
+  }
+
+  // Only a newly accepted retryable failure may wake autonomous replanning.
+  // The coordinator rechecks autonomy, diagnosis, evidence, and retry budget under its Mission lock.
+  return params.outcome === "FAILED"
+    && params.retryable
+    && nextGoalStatus === "needs_replan"
+    && nextMissionStatus === "needs_replan"
+    ? mission.id
+    : null;
 }
 
 async function syncWorkflowGoalProjection(
@@ -2126,7 +2137,8 @@ async function lockFinalizationMissionRows(
 export async function finalizeExecutionAcceptance(
   params: FinalizeExecutionAcceptanceParams,
 ): Promise<FinalizeExecutionAcceptanceResult> {
-  return db.transaction(async (tx) => {
+  const immediateReplanTarget: { value: { missionId: string; projectId: string; executionId: string } | null } = { value: null };
+  const result = await db.transaction(async (tx) => {
     const persistActionReceipt = async (
       acceptance: typeof aiExecutionAcceptancesTable.$inferSelect,
     ) => {
@@ -3039,7 +3051,7 @@ export async function finalizeExecutionAcceptance(
       if (!updatedTask) throw new Error("task_state_changed_during_finalize");
 
       const correlationId = params.taskFinalization.correlationId ?? execution.correlationId;
-      await syncLinkedObjectiveState(tx, {
+      const replanMissionId = await syncLinkedObjectiveState(tx, {
         task,
         taskStatus: updatedTask.status,
         outcome,
@@ -3084,6 +3096,13 @@ export async function finalizeExecutionAcceptance(
           updatedAt: now,
         },
       });
+      if (replanMissionId) {
+        immediateReplanTarget.value = {
+          missionId: replanMissionId,
+          projectId: execution.projectId,
+          executionId: execution.id,
+        };
+      }
       if (params.taskFinalization.log) {
         await tx.insert(taskLogsTable).values({
           id: randomUUID(),
@@ -3211,4 +3230,26 @@ export async function finalizeExecutionAcceptance(
     }
     return { accepted: true, duplicate: false, acceptance };
   });
+
+  // The acceptance and Goal/Mission projection are durable before replanning.
+  // This is a best-effort fast path; the persisted Mission reconciler remains
+  // the recovery path if this process cannot invoke the coordinator.
+  const replanTarget = immediateReplanTarget.value;
+  if (result.accepted && !result.duplicate && replanTarget) {
+    try {
+      const { autoReplanMission } = await import("./mission-auto-replan.js");
+      await autoReplanMission(replanTarget.missionId);
+    } catch (error) {
+      logger.warn(
+        {
+          ...replanTarget,
+          error,
+          scope: "task-acceptance",
+        },
+        "Immediate Mission replan failed after accepted retryable Task failure; durable reconciliation remains available.",
+      );
+    }
+  }
+
+  return result;
 }
