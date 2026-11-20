@@ -33,6 +33,7 @@ import {
   isBoundApplyChangeEffectBundle,
 } from "./apply-change-effect.js";
 import { logger } from "../logger.js";
+import { databaseLeaseUntil, databaseNow } from "../job-lease.js";
 import { establishProjectRoot } from "../project-root.js";
 import { hashDeliveryTree } from "../delivery-workspace.js";
 
@@ -1410,31 +1411,140 @@ async function ensureMissionWorldTransitionWakeIntent(
   });
 }
 
+const MISSION_WORLD_TRANSITION_WAKE_LEASE_MS = 90_000;
+const MISSION_WORLD_TRANSITION_WAKE_HEARTBEAT_MS = Math.max(
+  1_000,
+  Math.floor(MISSION_WORLD_TRANSITION_WAKE_LEASE_MS / 3),
+);
+
+type MissionWorldTransitionWakeClaim = {
+  id: string;
+  projectId: string | null;
+  goalId: string | null;
+  payload: Record<string, unknown>;
+  workerId: string;
+};
+
+/**
+ * Claim the durable wake intent before doing any Mission work. The row lock
+ * makes claim/takeover atomic across API replicas; timestamps come from the
+ * database clock so hosts cannot disagree about lease expiry.
+ */
+async function claimMissionWorldTransitionWakeIntent(
+  intentId: string,
+): Promise<MissionWorldTransitionWakeClaim | null> {
+  return db.transaction(async (tx) => {
+    const [intent] = await tx.select({
+      id: eventsTable.id,
+      projectId: eventsTable.projectId,
+      goalId: eventsTable.goalId,
+      payload: eventsTable.payload,
+      now: databaseNow(),
+      leaseUntil: databaseLeaseUntil(MISSION_WORLD_TRANSITION_WAKE_LEASE_MS),
+    }).from(eventsTable).where(and(
+      eq(eventsTable.id, intentId),
+      eq(eventsTable.type, MISSION_WORLD_TRANSITION_WAKE_EVENT),
+    )).for("update").limit(1);
+
+    if (!intent?.payload) return null;
+    const payload = intent.payload as Record<string, unknown>;
+    if (typeof payload.processedAt === "string" || typeof payload.deadLetterAt === "string") {
+      return null;
+    }
+
+    const nextAttemptAt = typeof payload.nextAttemptAt === "string"
+      ? Date.parse(payload.nextAttemptAt)
+      : Number.NaN;
+    if (Number.isFinite(nextAttemptAt) && nextAttemptAt > intent.now.getTime()) return null;
+
+    const currentLeaseUntil = typeof payload.wakeLeaseUntil === "string"
+      ? Date.parse(payload.wakeLeaseUntil)
+      : Number.NaN;
+    if (Number.isFinite(currentLeaseUntil) && currentLeaseUntil > intent.now.getTime()) {
+      return null;
+    }
+
+    const workerId = randomUUID();
+    const claimedPayload = {
+      ...payload,
+      wakeLeaseToken: workerId,
+      wakeLeaseUntil: intent.leaseUntil.toISOString(),
+    };
+    const [claimed] = await tx.update(eventsTable).set({
+      payload: claimedPayload,
+    }).where(and(
+      eq(eventsTable.id, intentId),
+      eq(eventsTable.type, MISSION_WORLD_TRANSITION_WAKE_EVENT),
+      sql`${eventsTable.payload}->>'processedAt' IS NULL`,
+      sql`${eventsTable.payload}->>'deadLetterAt' IS NULL`,
+    )).returning({ id: eventsTable.id });
+
+    return claimed
+      ? {
+          id: intent.id,
+          projectId: intent.projectId,
+          goalId: intent.goalId,
+          payload: claimedPayload,
+          workerId,
+        }
+      : null;
+  });
+}
+
+async function heartbeatMissionWorldTransitionWakeIntent(
+  intentId: string,
+  workerId: string,
+): Promise<boolean> {
+  const [renewed] = await db.update(eventsTable).set({
+    payload: sql`jsonb_set(
+      ${eventsTable.payload},
+      '{wakeLeaseUntil}',
+      to_jsonb((clock_timestamp() + (${MISSION_WORLD_TRANSITION_WAKE_LEASE_MS} * interval '1 millisecond'))::text),
+      true
+    )`,
+  }).where(and(
+    eq(eventsTable.id, intentId),
+    eq(eventsTable.type, MISSION_WORLD_TRANSITION_WAKE_EVENT),
+    sql`${eventsTable.payload}->>'wakeLeaseToken' = ${workerId}`,
+    sql`${eventsTable.payload}->>'processedAt' IS NULL`,
+    sql`${eventsTable.payload}->>'deadLetterAt' IS NULL`,
+    sql`(${eventsTable.payload}->>'wakeLeaseUntil')::timestamptz > clock_timestamp()`,
+  )).returning({ id: eventsTable.id });
+  return Boolean(renewed);
+}
+
 async function markMissionWorldTransitionWakeProcessed(
   intentId: string,
   payload: Record<string, unknown>,
+  workerId: string,
   details: Record<string, unknown> = {},
-): Promise<void> {
-  await db.update(eventsTable).set({
+): Promise<boolean> {
+  const [updated] = await db.update(eventsTable).set({
     payload: {
       ...payload,
       ...details,
       processedAt: new Date().toISOString(),
       nextAttemptAt: null,
       lastError: null,
+      wakeLeaseToken: null,
+      wakeLeaseUntil: null,
     },
   }).where(and(
     eq(eventsTable.id, intentId),
     eq(eventsTable.type, MISSION_WORLD_TRANSITION_WAKE_EVENT),
     sql`${eventsTable.payload}->>'processedAt' IS NULL`,
-  ));
+    sql`${eventsTable.payload}->>'wakeLeaseToken' = ${workerId}`,
+    sql`(${eventsTable.payload}->>'wakeLeaseUntil')::timestamptz > clock_timestamp()`,
+  )).returning({ id: eventsTable.id });
+  return Boolean(updated);
 }
 
 async function deferMissionWorldTransitionWake(
   intentId: string,
   payload: Record<string, unknown>,
+  workerId: string,
   error: unknown,
-): Promise<void> {
+): Promise<boolean> {
   const attemptCount = Number.isSafeInteger(payload.attemptCount)
     ? Number(payload.attemptCount) + 1
     : 1;
@@ -1445,64 +1555,79 @@ async function deferMissionWorldTransitionWake(
     30_000 * (2 ** Math.min(attemptCount - 1, 5)),
   );
   const message = error instanceof Error ? error.message : "mission_world_transition_wake_failed";
-  await db.update(eventsTable).set({
+  const [updated] = await db.update(eventsTable).set({
     payload: {
       ...payload,
       attemptCount,
       lastError: message.slice(0, 240),
       nextAttemptAt: exhausted ? null : new Date(now + backoffMs).toISOString(),
       ...(exhausted ? { deadLetterAt: new Date(now).toISOString() } : {}),
+      wakeLeaseToken: null,
+      wakeLeaseUntil: null,
     },
   }).where(and(
     eq(eventsTable.id, intentId),
     eq(eventsTable.type, MISSION_WORLD_TRANSITION_WAKE_EVENT),
     sql`${eventsTable.payload}->>'processedAt' IS NULL`,
     sql`${eventsTable.payload}->>'deadLetterAt' IS NULL`,
-  ));
+    sql`${eventsTable.payload}->>'wakeLeaseToken' = ${workerId}`,
+    sql`(${eventsTable.payload}->>'wakeLeaseUntil')::timestamptz > clock_timestamp()`,
+  )).returning({ id: eventsTable.id });
+  return Boolean(updated);
 }
 
 export async function dispatchMissionWorldTransitionWakeIntent(
   intentId: string,
 ): Promise<boolean> {
-  const [intent] = await db.select({
-    id: eventsTable.id,
-    projectId: eventsTable.projectId,
-    goalId: eventsTable.goalId,
-    payload: eventsTable.payload,
-  }).from(eventsTable).where(and(
-    eq(eventsTable.id, intentId),
-    eq(eventsTable.type, MISSION_WORLD_TRANSITION_WAKE_EVENT),
-  )).limit(1);
-  if (!intent?.payload) return false;
+  const claim = await claimMissionWorldTransitionWakeIntent(intentId);
+  if (!claim) return false;
 
-  const payload = intent.payload;
-  if (typeof payload.processedAt === "string" || typeof payload.deadLetterAt === "string") {
-    return false;
-  }
-  const transitionId = typeof payload.transitionId === "string" ? payload.transitionId : "";
-  const expectedKind = payload.transitionKind;
-  const projectId = typeof payload.projectId === "string" ? payload.projectId : "";
-  const missionId = typeof payload.missionId === "string" ? payload.missionId : "";
-  const goalId = typeof payload.goalId === "string" ? payload.goalId : "";
-  const executionId = typeof payload.executionId === "string" ? payload.executionId : "";
-  const attempt = typeof payload.attempt === "number" ? payload.attempt : -1;
-  const episodeId = typeof payload.episodeId === "string" ? payload.episodeId : "";
-  const actionId = typeof payload.actionId === "string" ? payload.actionId : "";
+  const payload = claim.payload;
+  let leaseLost = false;
+  let heartbeatInFlight = false;
+  const heartbeat = setInterval(() => {
+    if (leaseLost || heartbeatInFlight) return;
+    heartbeatInFlight = true;
+    void heartbeatMissionWorldTransitionWakeIntent(intentId, claim.workerId)
+      .then((renewed) => {
+        if (!renewed) leaseLost = true;
+      })
+      .catch((error: unknown) => {
+        logger.warn(
+          { intentId, workerId: claim.workerId, error },
+          "Mission World Transition wake lease renewal failed",
+        );
+      })
+      .finally(() => {
+        heartbeatInFlight = false;
+      });
+  }, MISSION_WORLD_TRANSITION_WAKE_HEARTBEAT_MS);
+  heartbeat.unref();
 
   try {
+    const transitionId = typeof payload.transitionId === "string" ? payload.transitionId : "";
+    const expectedKind = payload.transitionKind;
+    const projectId = typeof payload.projectId === "string" ? payload.projectId : "";
+    const missionId = typeof payload.missionId === "string" ? payload.missionId : "";
+    const goalId = typeof payload.goalId === "string" ? payload.goalId : "";
+    const executionId = typeof payload.executionId === "string" ? payload.executionId : "";
+    const attempt = typeof payload.attempt === "number" ? payload.attempt : -1;
+    const episodeId = typeof payload.episodeId === "string" ? payload.episodeId : "";
+    const actionId = typeof payload.actionId === "string" ? payload.actionId : "";
+
     if (
       payload.schemaVersion !== 1
       || !transitionId || !projectId || !missionId || !goalId
       || !executionId || !Number.isInteger(attempt) || attempt < 0
       || !episodeId || !actionId
-      || projectId !== intent.projectId
-      || goalId !== intent.goalId
+      || projectId !== claim.projectId
+      || goalId !== claim.goalId
       || !isMissionWorldTransitionWakeKind(expectedKind)
     ) {
-      await markMissionWorldTransitionWakeProcessed(intent.id, payload, {
+      if (leaseLost) return false;
+      return await markMissionWorldTransitionWakeProcessed(intentId, payload, claim.workerId, {
         terminalReason: "invalid_wake_intent",
       });
-      return true;
     }
 
     const [transition] = await db.select({
@@ -1538,10 +1663,10 @@ export async function dispatchMissionWorldTransitionWakeIntent(
       || episode.missionId !== missionId
       || episode.goalId !== goalId
     ) {
-      await markMissionWorldTransitionWakeProcessed(intent.id, payload, {
+      if (leaseLost) return false;
+      return await markMissionWorldTransitionWakeProcessed(intentId, payload, claim.workerId, {
         terminalReason: "transition_or_mission_binding_superseded",
       });
-      return true;
     }
 
     const missionRuntime = await import("../mission-runtime.js");
@@ -1554,23 +1679,28 @@ export async function dispatchMissionWorldTransitionWakeIntent(
       await missionRuntime.wakeReadyMissionGoals(32, projectId, goalId);
     }
 
-    await markMissionWorldTransitionWakeProcessed(intent.id, payload, {
+    if (leaseLost) return false;
+    return await markMissionWorldTransitionWakeProcessed(intentId, payload, claim.workerId, {
       dispatchOutcome: "delivered",
     });
-    return true;
   } catch (error) {
-    await deferMissionWorldTransitionWake(intent.id, payload, error);
+    if (leaseLost) return false;
+    const deferred = await deferMissionWorldTransitionWake(intentId, payload, claim.workerId, error);
+    if (!deferred) return false;
     logger.warn(
       {
         scope: "mission-world-transition-wake",
-        intentId: intent.id,
-        transitionId,
-        transitionKind: expectedKind,
+        intentId,
+        workerId: claim.workerId,
+        transitionId: payload.transitionId,
+        transitionKind: payload.transitionKind,
         error,
       },
       "Materialized Mission World Transition wake delivery failed; the durable intent was deferred.",
     );
     return false;
+  } finally {
+    clearInterval(heartbeat);
   }
 }
 
@@ -1591,6 +1721,7 @@ export async function dispatchPendingMaterializedMissionTransitionWakes(
       sql`${eventsTable.payload}->>'processedAt' IS NULL`,
       sql`${eventsTable.payload}->>'deadLetterAt' IS NULL`,
       sql`(${eventsTable.payload}->>'nextAttemptAt' IS NULL OR (${eventsTable.payload}->>'nextAttemptAt')::timestamptz <= NOW())`,
+      sql`(${eventsTable.payload}->>'wakeLeaseUntil' IS NULL OR (${eventsTable.payload}->>'wakeLeaseUntil')::timestamptz <= NOW())`,
     ))
     .orderBy(eventsTable.timestamp, eventsTable.id)
     .limit(Math.max(1, Math.min(Math.floor(limit), 100)));
