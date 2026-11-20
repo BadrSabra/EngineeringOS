@@ -15,6 +15,10 @@ import {
 import { randomUUID } from "crypto";
 import { insertTaskAutoExecutionIntent } from "../lib/task-auto-execution-outbox.js";
 import { executeTaskLifecycle } from "../lib/task-execution-service.js";
+import {
+  runDeferredTaskVerification,
+  taskExecutionWaitIntentId,
+} from "../lib/deferred-task-execution.js";
 
 // PR-C: hoist mock fn so vi.mock factory can close over it before module eval.
 const { mockScheduleAiTaskExecution } = vi.hoisted(() => ({
@@ -135,8 +139,9 @@ describe("Task lifecycle", () => {
     const dependentId = dependent.body.id as string;
 
     const blocked = await request(app).post(`/api/tasks/${dependentId}/execute`);
-    expect(blocked.status).toBe(409);
-    expect(blocked.body.error).toBe("task_dependencies_not_completed");
+    expect(blocked.status).toBe(202);
+    expect(blocked.body.executionDeferred).toBe(true);
+    expect(blocked.body.waitingForDependencies).toBe(true);
     expect(blocked.body.blockedDependencies).toEqual([
       expect.objectContaining({
         taskId: prerequisite.taskId,
@@ -149,21 +154,37 @@ describe("Task lifecycle", () => {
       .from(tasksTable)
       .where(eq(tasksTable.id, dependentId));
     expect(unchanged?.status).toBe("pending");
-    const startedEvents = await db.select({ id: eventsTable.id })
+    const [waitIntent] = await db.select().from(eventsTable)
+      .where(eq(eventsTable.id, taskExecutionWaitIntentId(dependentId)));
+    expect(waitIntent?.type).toBe("TaskExecutionWaitingForDependencies");
+    const startedBeforePrerequisites = await db.select({ id: eventsTable.id })
       .from(eventsTable)
       .where(and(
         eq(eventsTable.type, "TaskExecutionStarted"),
         eq(eventsTable.projectId, prerequisite.projectId),
       ));
-    expect(startedEvents).toHaveLength(0);
+    expect(startedBeforePrerequisites).toHaveLength(0);
 
     await db.update(tasksTable)
       .set({ status: "completed", completedAt: new Date() })
       .where(eq(tasksTable.id, prerequisite.taskId));
 
-    const allowed = await request(app).post(`/api/tasks/${dependentId}/execute`);
-    expect(allowed.status).toBe(202);
-    expect(allowed.body.status).toBe("verifying");
+    const resumed = await runDeferredTaskVerification(dependentId);
+    expect(resumed).toBe(true);
+    const [verified] = await db.select({ status: tasksTable.status })
+      .from(tasksTable)
+      .where(eq(tasksTable.id, dependentId));
+    expect(verified?.status).toBe("verifying");
+    await expect(db.select().from(eventsTable)
+      .where(eq(eventsTable.id, taskExecutionWaitIntentId(dependentId))))
+      .resolves.toHaveLength(0);
+    const startedAfterPrerequisites = await db.select({ id: eventsTable.id })
+      .from(eventsTable)
+      .where(and(
+        eq(eventsTable.type, "TaskExecutionStarted"),
+        eq(eventsTable.taskId, dependentId),
+      ));
+    expect(startedAfterPrerequisites).toHaveLength(1);
   });
 
   it("rechecks dependencies in the final execution transaction before creating an AI execution", async () => {
@@ -228,8 +249,8 @@ describe("Task lifecycle", () => {
       .where(eq(tasksTable.id, middle.body.id));
 
     const response = await request(app).post(`/api/tasks/${leaf.body.id}/execute`);
-    expect(response.status).toBe(409);
-    expect(response.body.error).toBe("task_dependencies_not_completed");
+    expect(response.status).toBe(202);
+    expect(response.body.executionDeferred).toBe(true);
     expect(response.body.blockedDependencies).toContainEqual(
       expect.objectContaining({
         taskId: deepest.taskId,
