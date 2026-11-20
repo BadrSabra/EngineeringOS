@@ -631,11 +631,17 @@ describe("POST /api/projects — audit trail", () => {
       .select()
       .from(auditLogsTable)
       .where(eq(auditLogsTable.entityId, res.body.id));
-    expect(audits).toHaveLength(1);
-    expect(audits[0].entityType).toBe("project");
-    expect(audits[0].action).toBe("created");
-    expect((audits[0].stateAfter as { name?: string; status?: string } | null)?.name).toBe(res.body.name);
-    expect((audits[0].stateAfter as { name?: string; status?: string } | null)?.status).toBe("scanning");
+    // The completed scan may add its own audit record for the same project.
+    // Assert the project-creation record independently rather than requiring
+    // it to be the only audit entry after the scan has finished.
+    const creationAudits = audits.filter(
+      (audit) => audit.entityType === "project" && audit.action === "created",
+    );
+    expect(creationAudits).toHaveLength(1);
+    const [creationAudit] = creationAudits;
+    if (!creationAudit) throw new Error("Project creation audit record was not persisted.");
+    expect((creationAudit.stateAfter as { name?: string; status?: string } | null)?.name).toBe(res.body.name);
+    expect((creationAudit.stateAfter as { name?: string; status?: string } | null)?.status).toBe("scanning");
   });
 
   it("returns 204, removes the project, and preserves its deletion audit entry", async () => {
