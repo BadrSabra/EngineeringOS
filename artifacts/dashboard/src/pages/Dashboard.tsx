@@ -11,7 +11,7 @@ import {
   useGetDashboard,
   useGetHealth,
 } from '@workspace/api-client-react';
-import type { AiMissionControl, OperatorAlert } from '@workspace/api-client-react';
+import type { AiMissionControl, Event, OperatorAlert } from '@workspace/api-client-react';
 import {
   Activity,
   AlertTriangle,
@@ -38,6 +38,16 @@ function formatHealthTimestamp(value: Date | string | null | undefined): string 
   if (!value) return 'غير مسجل';
   const date = new Date(value);
   return Number.isNaN(date.getTime()) ? 'غير مسجل' : date.toLocaleString('ar-EG');
+}
+
+function homeEventLogHref(event: Pick<Event, 'projectId' | 'correlationId'>): string | null {
+  const params = new URLSearchParams();
+  const projectId = event.projectId.trim();
+  const correlationId = event.correlationId?.trim() ?? '';
+  if (projectId) params.set('projectId', projectId);
+  if (correlationId) params.set('correlationId', correlationId);
+  const query = params.toString();
+  return query ? `/events?${query}` : null;
 }
 
 function formatQueueWaitAge(ageMs: number): string {
@@ -353,6 +363,7 @@ export default function Dashboard() {
     query: { queryKey: getListProjectsQueryKey() },
   });
   const projects = projectsQuery.data ?? [];
+  const projectNameById = new Map(projects.map((project) => [project.id, project.name]));
   const goalProjectMatch = !projectsQuery.isLoading && !projectsQuery.isError
     ? matchGoalToProject(goalDraft, projects)
     : null;
@@ -821,37 +832,62 @@ export default function Dashboard() {
         </div>
         {dashboard.recentEvents?.length ? (
           <div className="divide-y divide-border">
-            {dashboard.recentEvents.slice(0, 3).map((event) => (
-              <div
-                key={event.id}
-                data-testid={`event-home-${event.id}`}
-                className="flex gap-3 px-4 py-3 sm:px-5"
-              >
-                <div className="mt-0.5 shrink-0">
-                  {event.severity === 'error' || event.severity === 'warning' ? (
-                    <AlertTriangle
-                      aria-hidden="true"
-                      className={`h-4 w-4 ${event.severity === 'error' ? 'text-destructive' : 'text-yellow-500'}`}
-                    />
-                  ) : event.severity === 'success' ? (
-                    <CheckCircle2 aria-hidden="true" className="h-4 w-4 text-emerald-500" />
-                  ) : (
-                    <Activity aria-hidden="true" className="h-4 w-4 text-primary" />
-                  )}
-                </div>
-                <div className="min-w-0">
-                  <p className="text-sm font-medium">{event.message || event.type}</p>
-                  <p className="mt-1 text-xs text-muted-foreground">
-                    {formatHealthTimestamp(event.timestamp)}
-                    {event.projectId && (
-                      <span className="mr-2 font-mono" dir="ltr">
-                        {event.projectId.slice(0, 8)}
-                      </span>
+            {dashboard.recentEvents.slice(0, 3).map((event) => {
+              const href = homeEventLogHref(event);
+              const eventLabel = event.message || event.type;
+              const hasCorrelationId = Boolean(event.correlationId?.trim());
+              return (
+                <div
+                  key={event.id}
+                  data-testid={`event-home-${event.id}`}
+                  className="flex gap-3 px-4 py-3 sm:px-5"
+                >
+                  <div className="mt-0.5 shrink-0">
+                    {event.severity === 'error' || event.severity === 'warning' ? (
+                      <AlertTriangle
+                        aria-hidden="true"
+                        className={`h-4 w-4 ${event.severity === 'error' ? 'text-destructive' : 'text-yellow-500'}`}
+                      />
+                    ) : event.severity === 'success' ? (
+                      <CheckCircle2 aria-hidden="true" className="h-4 w-4 text-emerald-500" />
+                    ) : (
+                      <Activity aria-hidden="true" className="h-4 w-4 text-primary" />
                     )}
-                  </p>
+                  </div>
+                  <div className="min-w-0">
+                    {href ? (
+                      <Link
+                        href={href}
+                        aria-label={hasCorrelationId
+                          ? `عرض سجل العملية المرتبطة بالحدث: ${eventLabel}`
+                          : `عرض سجل أحداث المشروع لهذا الحدث: ${eventLabel}`}
+                        data-testid={`link-home-event-${event.id}`}
+                        dir="auto"
+                        className="rounded text-sm font-medium text-primary underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+                      >
+                        {eventLabel}
+                      </Link>
+                    ) : (
+                      <p
+                        data-testid={`text-home-event-${event.id}`}
+                        dir="auto"
+                        className="text-sm font-medium"
+                      >
+                        {eventLabel}
+                      </p>
+                    )}
+                    <p className="mt-1 text-xs text-muted-foreground">
+                      {formatHealthTimestamp(event.timestamp)}
+                      {event.projectId && (
+                        <span className="mr-2" data-testid={`text-event-project-home-${event.id}`}>
+                          المشروع: <bdi dir="auto">{projectNameById.get(event.projectId) ?? 'اسم غير متاح'}</bdi>
+                        </span>
+                      )}
+                    </p>
+                  </div>
                 </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         ) : (
           <div className="px-4 py-6 text-sm text-muted-foreground sm:px-5">

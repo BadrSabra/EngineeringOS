@@ -15,13 +15,17 @@ vi.mock("wouter", () => ({
     children,
     className,
     "data-testid": dataTestId,
+    "aria-label": ariaLabel,
+    dir,
   }: {
     href: string;
     children: React.ReactNode;
     className?: string;
     "data-testid"?: string;
+    "aria-label"?: string;
+    dir?: string;
   }) => (
-    <a href={href} className={className} data-testid={dataTestId}>{children}</a>
+    <a href={href} className={className} data-testid={dataTestId} aria-label={ariaLabel} dir={dir}>{children}</a>
   ),
   useLocation: () => ["/", mockSetLocation],
 }));
@@ -425,6 +429,93 @@ describe("Dashboard goal-first home", () => {
     expect(mockSetLocation).toHaveBeenCalledWith(
       `/projects/project-1/workspace?goalDraftId=${draft.id}`,
     );
+  });
+});
+
+describe("Dashboard recent activity", () => {
+  it("opens the exact filtered event log and shows a readable project name", () => {
+    vi.mocked(useGetDashboard).mockReturnValue({
+      data: {
+        ...dashboard,
+        recentEvents: [{
+          id: "event-correlated",
+          projectId: "project-1",
+          type: "TaskFailed",
+          severity: "error",
+          message: "تعذّر تنفيذ المهمة",
+          correlationId: "operation/123",
+          timestamp: "2026-11-20T12:00:00.000Z",
+        }],
+      },
+      isLoading: false,
+      error: null,
+      refetch: vi.fn(),
+      isRefetching: false,
+      dataUpdatedAt: Date.now(),
+    } as ReturnType<typeof useGetDashboard>);
+
+    render(<Dashboard />);
+
+    expect(screen.getByRole("link", {
+      name: "عرض سجل العملية المرتبطة بالحدث: تعذّر تنفيذ المهمة",
+    })).toHaveAttribute(
+      "href",
+      "/events?projectId=project-1&correlationId=operation%2F123",
+    );
+    const projectLabel = screen.getByTestId("text-event-project-home-event-correlated");
+    expect(projectLabel).toHaveTextContent("المشروع: بوابة العملاء");
+    expect(projectLabel.querySelector("bdi")).toHaveTextContent("بوابة العملاء");
+    expect(projectLabel.querySelector("bdi")).toHaveAttribute("dir", "auto");
+    expect(screen.queryByText("project-1", { exact: true })).not.toBeInTheDocument();
+  });
+
+  it("filters project-only events and leaves events without filter context as plain text", () => {
+    vi.mocked(useGetDashboard).mockReturnValue({
+      data: {
+        ...dashboard,
+        recentEvents: [
+          {
+            id: "event-project-only",
+            projectId: "project-1",
+            type: "ProjectUpdated",
+            message: "تم تحديث المشروع",
+            timestamp: "2026-11-20T12:00:00.000Z",
+          },
+          {
+            id: "event-unavailable-project",
+            projectId: "deleted-project",
+            type: "ProjectArchived",
+            message: "حدث في مشروع لم يعد متاحًا",
+            timestamp: "2026-11-20T12:01:00.000Z",
+          },
+          {
+            id: "event-without-context",
+            projectId: "",
+            type: "SystemNotice",
+            message: "تحديث عام للنظام",
+            timestamp: "2026-11-20T12:02:00.000Z",
+          },
+        ],
+      },
+      isLoading: false,
+      error: null,
+      refetch: vi.fn(),
+      isRefetching: false,
+      dataUpdatedAt: Date.now(),
+    } as ReturnType<typeof useGetDashboard>);
+
+    render(<Dashboard />);
+
+    expect(screen.getByTestId("link-home-event-event-project-only"))
+      .toHaveAttribute("href", "/events?projectId=project-1");
+    expect(screen.getByTestId("text-event-project-home-event-unavailable-project"))
+      .toHaveTextContent("المشروع: اسم غير متاح");
+    expect(screen.getByTestId("link-home-event-event-unavailable-project"))
+      .toHaveAttribute("href", "/events?projectId=deleted-project");
+    expect(screen.getByTestId("text-home-event-event-without-context"))
+      .toHaveTextContent("تحديث عام للنظام");
+    expect(screen.queryByTestId("link-home-event-event-without-context"))
+      .not.toBeInTheDocument();
   });
 });
 
