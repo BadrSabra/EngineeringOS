@@ -367,35 +367,55 @@ describe("reconcileStuckJobs", () => {
     expect(job[0]?.error).toBeNull();
   });
 
-  // ── Discovery sessions: discovering → error ────────────────────────────────
+  // ── Discovery sessions: expired durable leases → bounded replay ────────────
 
-  it("marks orphaned discovering sessions as errored", async () => {
-    const sessionId = randomUUID();
-    await db.insert(discoverySessionsTable).values({
-      id: sessionId,
-      ownerId: "test-user",
-      status: "discovering",
-      rootPath: "/tmp/reconcile-discovery-test",
-      sourceType: "LOCAL_FOLDER",
-      progress: 40,
-      currentStep: "Scanning source tree",
-      steps: [],
-      startedAt: new Date(),
-    });
-    sessionCleanup.push(sessionId);
+  it.each(["LOCAL_FOLDER", "WORKSPACE_PROJECT"] as const)(
+    "restarts an interrupted %s Discovery session from step zero",
+    async (sourceType) => {
+      const sessionId = randomUUID();
+      const expiredAt = new Date(Date.now() - 60_000);
+      await db.insert(discoverySessionsTable).values({
+        id: sessionId,
+        ownerId: "test-user",
+        status: "discovering",
+        rootPath: `/tmp/reconcile-discovery-${sourceType.toLowerCase()}`,
+        sourceType,
+        progress: 40,
+        currentStep: "Scanning source tree",
+        steps: [{ name: "Finding repository", status: "done" }],
+        workerId: randomUUID(),
+        leaseUntil: expiredAt,
+        lastHeartbeatAt: expiredAt,
+        startedAt: new Date(Date.now() - 120_000),
+      });
+      sessionCleanup.push(sessionId);
 
-    const result = await reconcileStuckJobs();
-    expect(result.discoverySessions).toBeGreaterThanOrEqual(1);
+      const result = await reconcileStuckJobs();
+      expect(result.discoverySessions).toBeGreaterThanOrEqual(1);
 
-    const session = await db
-      .select()
-      .from(discoverySessionsTable)
-      .where(eq(discoverySessionsTable.id, sessionId))
-      .limit(1);
-    expect(session[0]?.status).toBe("error");
-    expect(session[0]?.error).toBeTruthy();
-    expect(session[0]?.completedAt).not.toBeNull();
-  });
+      const [session] = await db
+        .select()
+        .from(discoverySessionsTable)
+        .where(eq(discoverySessionsTable.id, sessionId))
+        .limit(1);
+      expect(session.status).toBe("pending");
+      expect(session.recoveryAttempts).toBe(1);
+      expect(session.progress).toBe(0);
+      expect(session.currentStep).toBe("Finding repository");
+      expect(session.steps.length).toBeGreaterThan(0);
+      expect(session.steps.every((step) => step.status === "pending")).toBe(true);
+      expect(session.result).toBeNull();
+      expect(session.error).toBeNull();
+      expect(session.completedAt).toBeNull();
+      expect(session.workerId).toBeNull();
+      expect(session.leaseUntil).toBeNull();
+
+      expect(vi.mocked(heavyJobQueue.enqueueWithId)).toHaveBeenCalledWith(
+        sessionId,
+        expect.any(Function),
+      );
+    },
+  );
 
   // ── Discovery sessions: pending → re-enqueued ─────────────────────────────
 
@@ -468,9 +488,97 @@ describe("reconcileStuckJobs", () => {
     expect(await reconcileStaleAiTasks()).toBe(1);
     const [session] = await db.select().from(discoverySessionsTable).where(eq(discoverySessionsTable.id, sessionId));
     const [task] = await db.select().from(tasksTable).where(eq(tasksTable.id, taskId));
-    expect(session.status).toBe("error");
+    expect(session.status).toBe("pending");
+    expect(session.recoveryAttempts).toBe(1);
+    expect(session.workerId).toBeNull();
     expect(task.status).toBe("verifying");
     expect(task.workerId).toBeNull();
+  });
+
+  it.each([
+    {
+      name: "a temporary Git checkout",
+      sourceType: "GIT_REPOSITORY" as const,
+      recoveryAttempts: 0,
+      errorFragment: "temporary or unsupported root",
+    },
+    {
+      name: "an exhausted restart-recovery budget",
+      sourceType: "LOCAL_FOLDER" as const,
+      recoveryAttempts: 2,
+      errorFragment: "restart-recovery limit",
+    },
+  ])(
+    "fails closed for $name instead of replaying an unsafe Discovery root",
+    async ({ sourceType, recoveryAttempts, errorFragment }) => {
+      const sessionId = randomUUID();
+      const expiredAt = new Date(Date.now() - 60_000);
+      sessionCleanup.push(sessionId);
+      await db.insert(discoverySessionsTable).values({
+        id: sessionId,
+        ownerId: "test-user",
+        status: "discovering",
+        rootPath: `/tmp/reconcile-unsafe-${sessionId}`,
+        sourceType,
+        recoveryAttempts,
+        progress: 55,
+        currentStep: "Building dependency graph",
+        steps: [],
+        workerId: randomUUID(),
+        leaseUntil: expiredAt,
+        lastHeartbeatAt: expiredAt,
+        startedAt: new Date(Date.now() - 120_000),
+      });
+
+      expect(await failStaleDiscoverySessions()).toBe(1);
+      const [session] = await db
+        .select()
+        .from(discoverySessionsTable)
+        .where(eq(discoverySessionsTable.id, sessionId));
+      expect(session.status).toBe("error");
+      expect(session.error).toContain(errorFragment);
+      expect(session.recoveryAttempts).toBe(recoveryAttempts);
+      expect(session.completedAt).not.toBeNull();
+      expect(session.workerId).toBeNull();
+      expect(session.leaseUntil).toBeNull();
+      expect(vi.mocked(heavyJobQueue.enqueueWithId)).not.toHaveBeenCalledWith(
+        sessionId,
+        expect.any(Function),
+      );
+    },
+  );
+
+  it("allows only one concurrent reconciler to consume a Discovery restart attempt", async () => {
+    const sessionId = randomUUID();
+    const expiredAt = new Date(Date.now() - 60_000);
+    sessionCleanup.push(sessionId);
+    await db.insert(discoverySessionsTable).values({
+      id: sessionId,
+      ownerId: "test-user",
+      status: "discovering",
+      rootPath: `/tmp/reconcile-concurrent-${sessionId}`,
+      sourceType: "LOCAL_FOLDER",
+      recoveryAttempts: 0,
+      progress: 65,
+      currentStep: "Calculating metrics",
+      steps: [],
+      workerId: randomUUID(),
+      leaseUntil: expiredAt,
+      lastHeartbeatAt: expiredAt,
+      startedAt: new Date(Date.now() - 120_000),
+    });
+
+    const outcomes = await Promise.all([
+      failStaleDiscoverySessions(),
+      failStaleDiscoverySessions(),
+    ]);
+    expect(outcomes.reduce((total, value) => total + value, 0)).toBe(1);
+    const [session] = await db
+      .select()
+      .from(discoverySessionsTable)
+      .where(eq(discoverySessionsTable.id, sessionId));
+    expect(session.status).toBe("pending");
+    expect(session.recoveryAttempts).toBe(1);
   });
 
   it.each([
