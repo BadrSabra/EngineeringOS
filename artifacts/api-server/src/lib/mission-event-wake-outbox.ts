@@ -1,4 +1,4 @@
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { and, asc, eq, inArray, or, sql } from "drizzle-orm";
 import { aiGoalsTable, db, eventsTable } from "@workspace/db";
 import type { MissionEventEnvelope } from "./mission-events.js";
@@ -11,6 +11,7 @@ export const MISSION_EVENT_WAKE_DEAD_LETTER = "AiMissionEventWakeDeadLetter";
 export const MISSION_EXTERNAL_EVENT_TYPE = "AiMissionExternalEventReceived";
 
 export const MAX_MISSION_EVENT_WAKE_ATTEMPTS = 8;
+export const MISSION_EVENT_WAKE_DISPATCH_LEASE_MS = 10 * 60_000;
 const MIN_RETRY_DELAY_MS = 10_000;
 const MAX_RETRY_DELAY_MS = 5 * 60_000;
 const INBOX_REPLAY_BATCH_SIZE = 100;
@@ -37,6 +38,13 @@ type WakeIntentRow = {
   goalId: string | null;
   payload: Record<string, unknown> | null;
 };
+
+export type MissionEventWakeDispatchLeaseClaim =
+  | { acquired: true; token: string; expiresAt: string }
+  | {
+      acquired: false;
+      reason: "intent_not_pending" | "retry_not_due" | "already_leased";
+    };
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value && typeof value === "object" && !Array.isArray(value));
@@ -125,6 +133,71 @@ async function databaseNow(
 }
 
 /**
+ * Acquire exclusive ownership of one Mission event wake before inbox work.
+ * The row lock serializes API replicas; expiry recovers ownership after process
+ * loss. This lease is dispatch coordination, never execution authority.
+ */
+export async function claimMissionEventWakeDispatchLease(
+  tx: MissionEventWakeTransaction,
+  input: { intentId: string },
+): Promise<MissionEventWakeDispatchLeaseClaim> {
+  const [intent] = await tx.select({
+    type: eventsTable.type,
+    payload: eventsTable.payload,
+  }).from(eventsTable)
+    .where(eq(eventsTable.id, input.intentId))
+    .for("update")
+    .limit(1);
+
+  if (
+    !intent
+    || ![MISSION_EVENT_WAKE_REQUESTED, MISSION_EVENT_WAKE_DEFERRED].includes(intent.type)
+  ) {
+    return { acquired: false, reason: "intent_not_pending" };
+  }
+
+  const now = await databaseNow(tx);
+  if (!now) return { acquired: false, reason: "intent_not_pending" };
+
+  const payload = isRecord(intent.payload) ? intent.payload : {};
+  const retryAt = typeof payload.nextAttemptAt === "string"
+    ? Date.parse(payload.nextAttemptAt)
+    : Number.NaN;
+  if (Number.isFinite(retryAt) && retryAt > now.getTime()) {
+    return { acquired: false, reason: "retry_not_due" };
+  }
+
+  const currentLease = isRecord(payload.dispatchLease) ? payload.dispatchLease : undefined;
+  const leaseExpiry = typeof currentLease?.expiresAt === "string"
+    ? Date.parse(currentLease.expiresAt)
+    : Number.NaN;
+  if (Number.isFinite(leaseExpiry) && leaseExpiry > now.getTime()) {
+    return { acquired: false, reason: "already_leased" };
+  }
+
+  const token = randomUUID();
+  const expiresAt = new Date(
+    now.getTime() + MISSION_EVENT_WAKE_DISPATCH_LEASE_MS,
+  ).toISOString();
+  await tx.update(eventsTable)
+    .set({
+      payload: {
+        ...payload,
+        dispatchLease: { token, expiresAt },
+      },
+    })
+    .where(and(
+      eq(eventsTable.id, input.intentId),
+      inArray(eventsTable.type, [
+        MISSION_EVENT_WAKE_REQUESTED,
+        MISSION_EVENT_WAKE_DEFERRED,
+      ]),
+    ));
+
+  return { acquired: true, token, expiresAt };
+}
+
+/**
  * Persist a targeted wake request in the same transaction as either the
  * external inbox insert or the Goal's transition into wait/event.
  *
@@ -179,18 +252,55 @@ async function markIntent(
   payload: Record<string, unknown>,
   severity: "info" | "warning" | "error",
   message: string,
+  dispatchLeaseToken: string,
 ): Promise<boolean> {
-  const [updated] = await db.update(eventsTable)
-    .set({ type, payload, severity, message, timestamp: new Date() })
-    .where(and(
+  return db.transaction(async (tx) => {
+    const [row] = await tx.select({
+      type: eventsTable.type,
+      payload: eventsTable.payload,
+    }).from(eventsTable)
+      .where(eq(eventsTable.id, id))
+      .for("update")
+      .limit(1);
+    if (!row || !expectedTypes.includes(row.type)) return false;
+
+    const now = await databaseNow(tx);
+    if (!now) return false;
+    const currentPayload = isRecord(row.payload) ? row.payload : {};
+    const currentLease = isRecord(currentPayload.dispatchLease)
+      ? currentPayload.dispatchLease
+      : undefined;
+    const leaseExpiry = typeof currentLease?.expiresAt === "string"
+      ? Date.parse(currentLease.expiresAt)
+      : Number.NaN;
+    // An expired worker cannot acknowledge, even before a replacement claims it.
+    if (
+      currentLease?.token !== dispatchLeaseToken
+      || !Number.isFinite(leaseExpiry)
+      || leaseExpiry <= now.getTime()
+    ) return false;
+
+    const finalPayload = { ...payload };
+    delete finalPayload.dispatchLease;
+    const [updated] = await tx.update(eventsTable).set({
+      type,
+      payload: finalPayload,
+      severity,
+      message,
+      timestamp: now,
+    }).where(and(
       eq(eventsTable.id, id),
       inArray(eventsTable.type, expectedTypes),
-    ))
-    .returning({ id: eventsTable.id });
-  return Boolean(updated);
+    )).returning({ id: eventsTable.id });
+    return Boolean(updated);
+  });
 }
 
-async function deadLetterIntent(id: string, reason: string): Promise<void> {
+async function deadLetterIntent(
+  id: string,
+  reason: string,
+  dispatchLeaseToken: string,
+): Promise<void> {
   await markIntent(
     id,
     [MISSION_EVENT_WAKE_REQUESTED, MISSION_EVENT_WAKE_DEFERRED],
@@ -202,10 +312,15 @@ async function deadLetterIntent(id: string, reason: string): Promise<void> {
     },
     "error",
     "Mission event wake request was rejected because its durable identity is invalid.",
+    dispatchLeaseToken,
   );
 }
 
-async function deferIntent(id: string, error: unknown): Promise<void> {
+async function deferIntent(
+  id: string,
+  error: unknown,
+  dispatchLeaseToken: string,
+): Promise<void> {
   await db.transaction(async (tx) => {
     const [row] = await tx.select({
       type: eventsTable.type,
@@ -218,8 +333,23 @@ async function deferIntent(id: string, error: unknown): Promise<void> {
       !row
       || ![MISSION_EVENT_WAKE_REQUESTED, MISSION_EVENT_WAKE_DEFERRED].includes(row.type)
     ) return;
+
     const now = await databaseNow(tx);
     if (!now) throw new Error("MISSION_EVENT_WAKE_DATABASE_CLOCK_UNAVAILABLE");
+    const currentPayload = isRecord(row.payload) ? row.payload : {};
+    const currentLease = isRecord(currentPayload.dispatchLease)
+      ? currentPayload.dispatchLease
+      : undefined;
+    const leaseExpiry = typeof currentLease?.expiresAt === "string"
+      ? Date.parse(currentLease.expiresAt)
+      : Number.NaN;
+    // A late failure cannot defer another worker's intent.
+    if (
+      currentLease?.token !== dispatchLeaseToken
+      || !Number.isFinite(leaseExpiry)
+      || leaseExpiry <= now.getTime()
+    ) return;
+
     const parsed = parseWakePayload(row.payload);
     if (!parsed) {
       await tx.update(eventsTable).set({
@@ -312,6 +442,20 @@ export async function dispatchMissionEventWakeIntent(id: string): Promise<{
   dispatched: boolean;
   woken: number;
 }> {
+  let lease: MissionEventWakeDispatchLeaseClaim;
+  try {
+    lease = await db.transaction((tx) =>
+      claimMissionEventWakeDispatchLease(tx, { intentId: id }),
+    );
+  } catch (error) {
+    logger.warn(
+      { intentId: id, failureCode: safeFailureCode(error) },
+      "Mission event wake lease could not be acquired; durable intent remains pending.",
+    );
+    return { dispatched: false, woken: 0 };
+  }
+  if (!lease.acquired) return { dispatched: false, woken: 0 };
+
   let intent: WakeIntentRow | undefined;
   try {
     [intent] = await db.select({
@@ -327,9 +471,10 @@ export async function dispatchMissionEventWakeIntent(id: string): Promise<{
       !intent
       || ![MISSION_EVENT_WAKE_REQUESTED, MISSION_EVENT_WAKE_DEFERRED].includes(intent.type)
     ) return { dispatched: false, woken: 0 };
+
     const payload = parseWakePayload(intent.payload);
     if (!payload || intent.goalId !== payload.goalId) {
-      await deadLetterIntent(id, "INVALID_MISSION_EVENT_WAKE_IDENTITY");
+      await deadLetterIntent(id, "INVALID_MISSION_EVENT_WAKE_IDENTITY", lease.token);
       return { dispatched: false, woken: 0 };
     }
     const woken = await processIntent(intent, payload);
@@ -344,11 +489,12 @@ export async function dispatchMissionEventWakeIntent(id: string): Promise<{
       },
       "info",
       "Mission event wake request was dispatched.",
+      lease.token,
     );
-    return { dispatched, woken };
+    return { dispatched, woken: dispatched ? woken : 0 };
   } catch (error) {
     try {
-      await deferIntent(id, error);
+      await deferIntent(id, error, lease.token);
     } catch (deferError) {
       logger.error(
         { intentId: id, failureCode: safeFailureCode(deferError) },
@@ -452,6 +598,13 @@ export async function dispatchPendingMissionEventWakes(
           sql`(${eventsTable.payload}->>'nextAttemptAt' IS NULL OR ${eventsTable.payload}->>'nextAttemptAt' <= ${now.toISOString()})`,
         ),
       ),
+      // Active leases stay out of poll batches; expired/malformed leases are recoverable.
+      sql`(
+        ${eventsTable.payload}->'dispatchLease' IS NULL
+        OR ${eventsTable.payload}->'dispatchLease'->>'expiresAt' IS NULL
+        OR ${eventsTable.payload}->'dispatchLease'->>'expiresAt' !~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}T'
+        OR ${eventsTable.payload}->'dispatchLease'->>'expiresAt' <= ${now.toISOString()}
+      )`,
     ))
     .orderBy(asc(eventsTable.timestamp), asc(eventsTable.id))
     .limit(Math.max(1, Math.min(Math.floor(limit), 100)));
