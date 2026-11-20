@@ -66,7 +66,7 @@ beforeEach(() => {
       currentPhase: 'deploy',
       executionCount: 1,
       phases: [
-        { name: 'build', steps: ['Compile'] },
+        { name: 'build', steps: ['Compile'], condition: 'qualityScore >= 80' },
         { name: 'deploy', steps: ['Publish'] },
       ],
     }],
@@ -664,6 +664,51 @@ describe('Workflows recovery rendering', () => {
       expect.objectContaining({ onSuccess: expect.any(Function) }),
     );
     const startMutation = vi.mocked(useStartWorkflow).mock.results[0]?.value as { mutate: ReturnType<typeof vi.fn> };
+    expect(startMutation.mutate).not.toHaveBeenCalled();
+  });
+
+  it('copies workflow settings into an editable draft without copying runs or starting it', () => {
+    renderPage();
+
+    fireEvent.click(screen.getByTestId('button-copy-workflow-workflow-1'));
+    const dialog = screen.getByRole('dialog', { name: 'نسخ مسار العمل' });
+
+    expect(within(dialog).getByLabelText('اسم المسار')).toHaveValue('نسخة من Release pipeline');
+    expect(within(dialog).getByLabelText('الوصف (اختياري)')).toHaveValue(
+      'A workflow with a failed execution.',
+    );
+    expect(within(dialog).getByLabelText('اسم المرحلة 1')).toHaveValue('build');
+    expect(within(dialog).getByLabelText('وصف الخطوة 1 من المرحلة 1')).toHaveValue('Compile');
+    expect(within(dialog).getByLabelText('شرط الانتقال للمرحلة 1')).toHaveValue(
+      'qualityScore >= 80',
+    );
+    expect(within(dialog).getByTestId('text-workflow-copy-guidance')).toHaveTextContent(
+      'لن يُنسخ سجل التشغيل ولن يبدأ المسار تلقائيًا.',
+    );
+    expect(createWorkflowMutation.mutate).not.toHaveBeenCalled();
+
+    fireEvent.change(within(dialog).getByLabelText('اسم المسار'), {
+      target: { value: 'نسخة مخصصة' },
+    });
+    fireEvent.click(within(dialog).getByRole('button', { name: 'إنشاء النسخة' }));
+
+    expect(createWorkflowMutation.mutate).toHaveBeenCalledWith(
+      {
+        data: {
+          projectId: 'project-1',
+          name: 'نسخة مخصصة',
+          description: 'A workflow with a failed execution.',
+          phases: [
+            { name: 'build', steps: ['Compile'], condition: 'qualityScore >= 80' },
+            { name: 'deploy', steps: ['Publish'] },
+          ],
+        },
+      },
+      expect.objectContaining({ onSuccess: expect.any(Function) }),
+    );
+    const startMutation = vi.mocked(useStartWorkflow).mock.results[0]?.value as {
+      mutate: ReturnType<typeof vi.fn>;
+    };
     expect(startMutation.mutate).not.toHaveBeenCalled();
   });
 });
