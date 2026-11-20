@@ -178,22 +178,29 @@ export default function Graph() {
     }
   }, [effectiveProjectId, selectedProjectId]);
 
-  const { data: entitiesResponse, isLoading: entitiesLoading, isStale: entitiesStale, isError: entitiesError, error: entitiesErrorValue, refetch: refetchEntities, isRefetching, dataUpdatedAt } = useListGraphEntities(
+  const { data: entitiesResponse, isLoading: entitiesLoading, isStale: entitiesStale, isError: entitiesError, error: entitiesErrorValue, refetch: refetchEntities, isFetching: entitiesFetching, dataUpdatedAt: entitiesUpdatedAt } = useListGraphEntities(
     { projectId: effectiveProjectId },
     { query: { queryKey: getListGraphEntitiesQueryKey({ projectId: effectiveProjectId }), enabled: !!effectiveProjectId, staleTime: 30_000 } },
   );
   const entities = entitiesResponse?.items ?? [];
 
-  const { data: relationshipsResponse, isLoading: relationshipsLoading, isStale: relationshipsStale, isError: relationshipsError, refetch: refetchRelationships } = useListGraphRelationships(
+  const { data: relationshipsResponse, isLoading: relationshipsLoading, isStale: relationshipsStale, isError: relationshipsError, refetch: refetchRelationships, isFetching: relationshipsFetching, dataUpdatedAt: relationshipsUpdatedAt } = useListGraphRelationships(
     { projectId: effectiveProjectId },
     { query: { queryKey: getListGraphRelationshipsQueryKey({ projectId: effectiveProjectId }), enabled: !!effectiveProjectId, staleTime: 30_000 } },
   );
   const relationships = relationshipsResponse?.items ?? [];
 
-  const { data: summary, isLoading: summaryLoading, isStale: summaryStale, isError: summaryError, refetch: refetchSummary } = useGetGraphSummary(
+  const { data: summary, isLoading: summaryLoading, isStale: summaryStale, isError: summaryError, refetch: refetchSummary, isFetching: summaryFetching, dataUpdatedAt: summaryUpdatedAt } = useGetGraphSummary(
     effectiveProjectId,
     { query: { queryKey: getGetGraphSummaryQueryKey(effectiveProjectId), enabled: !!effectiveProjectId, staleTime: 60_000 } },
   );
+
+  const graphIsFetching = entitiesFetching || relationshipsFetching || summaryFetching;
+  const graphLastUpdated = [entitiesUpdatedAt, relationshipsUpdatedAt, summaryUpdatedAt].every(
+    (timestamp) => timestamp > 0,
+  )
+    ? Math.min(entitiesUpdatedAt, relationshipsUpdatedAt, summaryUpdatedAt)
+    : undefined;
 
   const { data: neighborData } = useGetGraphEntityNeighbors(
     selectedEntityId,
@@ -288,8 +295,10 @@ export default function Graph() {
         <div data-testid="graph-controls" className="flex w-full min-w-0 flex-wrap items-center gap-2 xl:w-auto xl:flex-nowrap xl:gap-3">
           <RefreshButton
             onRefresh={async () => { await Promise.all([refetchProjects(), refetchEntities(), refetchRelationships(), refetchSummary()]); }}
-            isRefreshing={isRefetching}
-            lastUpdated={dataUpdatedAt}
+            isRefreshing={graphIsFetching}
+            lastUpdated={graphLastUpdated}
+            updatedLabel="آخر تحديث:"
+            refreshingLabel="جارٍ تحديث مكونات الرسم…"
             label="تحديث الرسم البياني"
           />
           <select
@@ -335,7 +344,7 @@ export default function Graph() {
         />
       ) : (
        <div className="grid min-w-0 grid-cols-1 gap-4 flex-1 min-h-0 md:grid-cols-[220px_minmax(0,1fr)] xl:grid-cols-[220px_minmax(0,1fr)_260px]">
-        {(entitiesResponse?.meta.truncated || relationshipsResponse?.meta.truncated) && (
+        {(entitiesResponse?.meta?.truncated || relationshipsResponse?.meta?.truncated) && (
           <div
             className="col-span-full rounded-lg border border-amber-500/35 bg-amber-500/5 px-3 py-3 text-xs text-amber-100"
             role="status"
@@ -346,13 +355,13 @@ export default function Graph() {
               الرسم المعروض جزئي؛ بعض صفحات الكيانات أو العلاقات لم تُحمّل. لا تعتمد عليه باعتباره خريطة الاعتماديات الكاملة.
             </p>
             <div className="mt-1 flex flex-wrap gap-x-4 gap-y-1 text-amber-100/80">
-              {entitiesResponse?.meta.truncated && (
+              {entitiesResponse?.meta?.truncated && (
                 <span>
                   الكيانات المعروضة:{' '}
                   <bdi dir="ltr">{entities.length} / {entitiesResponse.meta.total}</bdi>
                 </span>
               )}
-              {relationshipsResponse?.meta.truncated && (
+              {relationshipsResponse?.meta?.truncated && (
                 <span>
                   العلاقات المعروضة:{' '}
                   <bdi dir="ltr">{relationships.length} / {relationshipsResponse.meta.total}</bdi>

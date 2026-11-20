@@ -221,6 +221,58 @@ describe('Graph', () => {
     expect(screen.getAllByText('buildGraph').length).toBeGreaterThan(0);
   });
 
+  it('treats the graph refresh as a composite read and timestamps it by the oldest component', () => {
+    const entitiesUpdatedAt = new Date('2026-11-18T10:05:00.000Z').getTime();
+    const relationshipsUpdatedAt = new Date('2026-11-18T10:02:00.000Z').getTime();
+    const summaryUpdatedAt = new Date('2026-11-18T10:07:00.000Z').getTime();
+
+    vi.mocked(useListGraphEntities).mockReturnValue({
+      data: { items: [sourceEntity, targetEntity] },
+      isLoading: false,
+      isStale: false,
+      isError: false,
+      refetch: vi.fn(),
+      isFetching: false,
+      dataUpdatedAt: entitiesUpdatedAt,
+    } as ReturnType<typeof useListGraphEntities>);
+    vi.mocked(useListGraphRelationships).mockReturnValue({
+      data: { items: [relationship] },
+      isLoading: false,
+      isStale: false,
+      isError: false,
+      refetch: vi.fn(),
+      isFetching: true,
+      dataUpdatedAt: relationshipsUpdatedAt,
+    } as ReturnType<typeof useListGraphRelationships>);
+    vi.mocked(useGetGraphSummary).mockReturnValue({
+      data: {
+        projectId: project.id,
+        entityCount: 2,
+        relationshipCount: 1,
+        entitiesByType: { file: 1, function: 1 },
+        relationsByType: { calls: 1 },
+        topConnected: [],
+        avgDegree: 1,
+        isolatedCount: 0,
+        clusterCount: 1,
+      },
+      isLoading: false,
+      isStale: false,
+      isError: false,
+      refetch: vi.fn(),
+      isFetching: false,
+      dataUpdatedAt: summaryUpdatedAt,
+    } as ReturnType<typeof useGetGraphSummary>);
+
+    render(<Graph />);
+
+    expect(screen.getByRole('button', { name: 'تحديث الرسم البياني' })).toBeDisabled();
+    const updatedTime = new Date(relationshipsUpdatedAt).toLocaleTimeString();
+    const updatedTimeElement = screen.getByText(updatedTime, { exact: true });
+    expect(updatedTimeElement).toHaveAttribute('dir', 'ltr');
+    expect(updatedTimeElement.parentElement).toHaveTextContent(`آخر تحديث: ${updatedTime}`);
+  });
+
   it('keeps the page RTL and source paths LTR in the graph details', () => {
     const { container } = render(<Graph />);
 
