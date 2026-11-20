@@ -433,10 +433,19 @@ function ProjectsForAccountSession({
             <p className="text-sm text-muted-foreground max-w-xs mb-5">
               {normalizedSearch
                 ? 'جرّب اسم المشروع أو وصفه أو إحدى تقنياته.'
-                : 'يمكنك إنشاء مشروع جديد، أو استكشاف مشروع موجود لفهم ملفاته ومشكلاته.'}
+                : 'يمكنك تجهيز مشروع، أو استكشاف مشروع موجود، أو البدء بوصف النتيجة التي تريدها.'}
             </p>
             {!normalizedSearch && (
               <div className="flex flex-wrap justify-center gap-3">
+                <Link
+                  href="/"
+                  data-testid="link-empty-goal-first"
+                  aria-label="ابدأ بوصف هدفك في مساحة العمل"
+                  className="inline-flex items-center gap-2 rounded-lg border border-primary/30 bg-primary/10 px-5 py-2.5 text-sm font-semibold text-primary transition-colors hover:bg-primary/15 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+                >
+                  ابدأ بوصف هدفك
+                  <ArrowRight className="h-4 w-4 rotate-180" aria-hidden="true" />
+                </Link>
                 <button
                   type="button"
                   onClick={openCreate}
