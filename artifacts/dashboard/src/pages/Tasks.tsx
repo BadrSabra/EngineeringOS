@@ -1,5 +1,5 @@
 import React, { useMemo, useState, useEffect, useRef } from 'react';
-import { Link, useSearch } from 'wouter';
+import { Link, useLocation, useSearch } from 'wouter';
 import {
   useListTasks,
   useExecuteTask,
@@ -1703,6 +1703,7 @@ function TasksSession({
   initialFilters: TaskListFilters;
 }) {
   const queryClient = useQueryClient();
+  const [, navigate] = useLocation();
   const [selectedProjectId, setSelectedProjectId] = useState('');
   const [filterStatus, setFilterStatus] = useState<TaskStatusFilter | ''>(initialFilters.status);
   const [filterPriority, setFilterPriority] = useState<TaskPriorityFilter | ''>(initialFilters.priority);
@@ -1823,6 +1824,15 @@ function TasksSession({
         && t.acceptance
         && acceptanceFilterKey(t.acceptance) === filterAcceptance)),
   ) ?? [];
+  const normalizedTaskSearch = searchTerm.trim().toLowerCase();
+  const exactTaskSearchMatches = normalizedTaskSearch
+    ? visibleTasks.filter((task) => task.title.trim().toLowerCase() === normalizedTaskSearch)
+    : [];
+  const keyboardSearchTask = exactTaskSearchMatches.length === 1
+    ? exactTaskSearchMatches[0]
+    : exactTaskSearchMatches.length === 0 && normalizedTaskSearch && visibleTasks.length === 1
+      ? visibleTasks[0]
+      : undefined;
   const hasActiveTaskFilters = Boolean(searchTerm || filterStatus || filterPriority || filterAcceptance || filterFollowUp);
   const showTaskProjectSelector = projects.length !== 1 || projectId !== projects[0]?.id;
   const canQuickCreateTask = Boolean(projectId) && (
@@ -1881,6 +1891,14 @@ function TasksSession({
     window.history.replaceState(window.history.state, '', `${url.pathname}${url.search}${url.hash}`);
     if (nextProjectId !== String(projectId ?? '')) setQuickTaskTitle('');
     setSelectedProjectId(nextProjectId);
+  };
+
+  const openTaskSearchResult = () => {
+    if (!keyboardSearchTask) return;
+    const params = new URLSearchParams(window.location.search);
+    params.set('projectId', keyboardSearchTask.projectId);
+    params.set('taskId', keyboardSearchTask.id);
+    navigate(`/tasks?${params.toString()}${window.location.hash}`);
   };
 
   const handleCreateTask = (data: CreateTaskInput, source: 'dialog' | 'quick' = 'dialog') => {
@@ -2108,6 +2126,11 @@ function TasksSession({
               type="text"
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
+              onKeyDown={(event) => {
+                if (event.key !== 'Enter' || !keyboardSearchTask) return;
+                event.preventDefault();
+                openTaskSearchResult();
+              }}
               aria-label="ابحث عن مهمة"
               placeholder="ابحث عن مهمة..."
               dir="auto"
@@ -2184,6 +2207,9 @@ function TasksSession({
             <span className="bg-primary/10 border border-primary/30 text-primary px-2 py-0.5 rounded font-mono">
               {searchTerm}
             </span>
+          )}
+          {keyboardSearchTask && (
+            <span className="text-muted-foreground">اضغط Enter لفتح المهمة المطابقة.</span>
           )}
           {filterStatus && (
             <span className="bg-primary/10 border border-primary/30 text-primary px-2 py-0.5 rounded">

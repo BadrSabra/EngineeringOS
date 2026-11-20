@@ -367,6 +367,53 @@ describe('project-scoped task list contracts', () => {
     );
   });
 
+  it('opens a safe task search match and preserves project, filters, and hash in the link', () => {
+    window.history.replaceState(
+      {},
+      '',
+      '/tasks?projectId=project-1&status=failed&priority=p1&search=Repair%20provider%20authentication#task-results',
+    );
+    renderPage();
+
+    const searchInput = screen.getByRole('textbox', { name: 'ابحث عن مهمة' });
+    expect(screen.getByText('اضغط Enter لفتح المهمة المطابقة.')).toBeInTheDocument();
+    fireEvent.keyDown(searchInput, { key: 'Enter', code: 'Enter' });
+
+    const params = new URLSearchParams(window.location.search);
+    expect(params.get('projectId')).toBe('project-1');
+    expect(params.get('taskId')).toBe('task-auth');
+    expect(params.get('status')).toBe('failed');
+    expect(params.get('priority')).toBe('p1');
+    expect(params.get('search')).toBe('Repair provider authentication');
+    expect(window.location.hash).toBe('#task-results');
+    expect(screen.getByRole('button', {
+      name: 'طي تفاصيل المهمة: Repair provider authentication',
+    })).toHaveAttribute('aria-expanded', 'true');
+  });
+
+  it('does not guess which task to open when exact task titles are duplicated', () => {
+    const fixture = taskListFixture();
+    const duplicate = { ...fixture.data?.[0], id: 'task-auth-copy' };
+    vi.mocked(useListTasks).mockReturnValue({
+      ...fixture,
+      data: [...(fixture.data ?? []), duplicate],
+    } as ReturnType<typeof useListTasks>);
+    window.history.replaceState(
+      {},
+      '',
+      '/tasks?projectId=project-1&search=Repair%20provider%20authentication',
+    );
+    renderPage();
+
+    fireEvent.keyDown(screen.getByRole('textbox', { name: 'ابحث عن مهمة' }), {
+      key: 'Enter',
+      code: 'Enter',
+    });
+
+    expect(new URLSearchParams(window.location.search).has('taskId')).toBe(false);
+    expect(screen.queryByText('اضغط Enter لفتح المهمة المطابقة.')).not.toBeInTheDocument();
+  });
+
   it('filters the active-work shortcut to queued, running, and verifying tasks', () => {
     const baseTask = taskListFixture().data?.[0];
     if (!baseTask) throw new Error('Expected a task fixture');
