@@ -290,4 +290,35 @@ describe("Events", () => {
     expect(screen.getByText("لا توجد أحداث مسجلة.")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Retry" })).not.toBeInTheDocument();
   });
+
+  it("clears event search in one click without losing project or severity filters", () => {
+    window.history.replaceState(
+      {},
+      "",
+      "/events?projectId=project-beta&severity=error&search=Task&page=3",
+    );
+
+    render(<Events />);
+
+    const searchInput = screen.getByRole("textbox", { name: "ابحث في سجل الأحداث" });
+    expect(searchInput).toHaveValue("Task");
+
+    fireEvent.click(screen.getByRole("button", { name: "مسح البحث عن الأحداث" }));
+
+    expect(searchInput).toHaveValue("");
+    expect(document.activeElement).toBe(searchInput);
+    expect(screen.queryByTestId("button-clear-event-search")).not.toBeInTheDocument();
+    expect(vi.mocked(useListEvents).mock.calls.at(-1)?.[0]).toEqual({
+      limit: 50,
+      page: 1,
+      projectId: "project-beta",
+      severity: "error",
+    });
+
+    const params = new URLSearchParams(window.location.search);
+    expect(params.get("projectId")).toBe("project-beta");
+    expect(params.get("severity")).toBe("error");
+    expect(params.has("search")).toBe(false);
+    expect(params.has("page")).toBe(false);
+  });
 });
