@@ -23,6 +23,8 @@ import {
 } from "@workspace/ai-orchestrator";
 import type { JsonValue } from "@workspace/ai-orchestrator";
 import { buildActionCreditAssignment } from "./action-credit-assignment.js";
+import { databaseNow } from "../job-lease.js";
+import { lockEpisodeExecutionPair } from "./episode-execution-lock.js";
 
 type EffectObserverTransaction = Parameters<Parameters<typeof db.transaction>[0]>[0];
 
@@ -67,11 +69,12 @@ function appendUnique(current: unknown, additions: readonly string[]): string[] 
 function verifyWorkerExecution(
   execution: typeof aiExecutionsTable.$inferSelect | undefined,
   input: VerifyEffectInput,
+  leaseActive: boolean,
 ): asserts execution is typeof aiExecutionsTable.$inferSelect {
   if (!execution) throw new Error("effect_execution_not_found");
   if (execution.projectId !== input.projectId) throw new Error("effect_project_mismatch");
   if (execution.attempt !== input.attempt) throw new Error("effect_attempt_mismatch");
-  if (execution.workerId !== input.workerId || !execution.leaseUntil || execution.leaseUntil <= new Date()) {
+  if (execution.workerId !== input.workerId || !leaseActive) {
     throw new Error("effect_stale_worker");
   }
   if (!ACTIVE_EXECUTION_STATUSES.has(execution.status)) {
@@ -204,26 +207,25 @@ export async function verifyAndPersistEffect(
   const effectContractHash = hashEffectContract(effectContract);
 
   return db.transaction(async (tx) => {
-    const [execution] = await tx
-      .select()
-      .from(aiExecutionsTable)
-      .where(and(
-        eq(aiExecutionsTable.id, input.executionId),
-        eq(aiExecutionsTable.projectId, input.projectId),
-      ))
-      .for("update");
-    verifyWorkerExecution(execution, input);
-
-    const [episode] = await tx
-      .select()
-      .from(aiAgentEpisodesTable)
-      .where(and(
-        eq(aiAgentEpisodesTable.id, input.episodeId),
-        eq(aiAgentEpisodesTable.projectId, input.projectId),
-      ))
-      .for("update");
-    if (!episode) throw new Error("effect_episode_not_found");
-    if (episode.executionId !== input.executionId || episode.attempt !== input.attempt) {
+    const lockedPair = await lockEpisodeExecutionPair(tx, {
+      projectId: input.projectId,
+      episodeId: input.episodeId,
+    });
+    if (lockedPair.kind === "episode_not_found") {
+      throw new Error("effect_episode_not_found");
+    }
+    if (lockedPair.kind === "execution_not_found") {
+      throw new Error("effect_execution_not_found");
+    }
+    if (lockedPair.kind !== "locked") {
+      throw new Error("effect_episode_identity_mismatch");
+    }
+    const { execution, episode, leaseActive } = lockedPair;
+    if (execution.id !== input.executionId || episode.executionId !== input.executionId) {
+      throw new Error("effect_episode_identity_mismatch");
+    }
+    verifyWorkerExecution(execution, input, leaseActive);
+    if (episode.attempt !== input.attempt) {
       throw new Error("effect_episode_identity_mismatch");
     }
     if (typeof episode.workerId !== "string" || episode.workerId.trim().length === 0) {
@@ -275,7 +277,7 @@ export async function verifyAndPersistEffect(
       beforeObservationIds: input.beforeObservationIds,
       afterObservationIds: input.afterObservationIds,
     });
-    const now = new Date();
+    const now = databaseNow();
 
     await tx.insert(aiAgentEffectsTable).values({
       id: effectId,

@@ -22,6 +22,7 @@ import {
   type ChildProcessEnvironmentAttestation,
 } from "./child-process-attestation.js";
 import { lockEpisodeExecutionPair } from "./episode-execution-lock.js";
+import { databaseNow } from "../job-lease.js";
 import { materializeWorldStateForProject } from "./world-state.js";
 
 const MAX_SOURCES = 32;
@@ -734,7 +735,7 @@ export async function materializeServerOwnedObservations(
     if (lockedPair.kind !== "locked") {
       throw new Error("observation_materialization_episode_identity_changed");
     }
-    const { execution, episode } = lockedPair;
+    const { execution, episode, leaseActive } = lockedPair;
     if (
       execution.projectId !== input.projectId
       || execution.id !== input.executionId
@@ -750,7 +751,7 @@ export async function materializeServerOwnedObservations(
         execution.status !== "running"
         || execution.workerId !== input.workerLease.workerId
         || !execution.leaseUntil
-        || execution.leaseUntil.getTime() <= Date.now()
+        || !leaseActive
         || execution.cancelRequestedAt
       ) {
         throw new Error("observation_materialization_stale_worker");
@@ -931,7 +932,7 @@ export async function materializeServerOwnedObservations(
     const boundedObservationRefs = [...observationRefs].slice(0, 128);
     if (inserted > 0 || boundedObservationRefs.length !== initialObservationRefs.length) {
       await tx.update(aiAgentEpisodesTable)
-        .set({ observationRefs: boundedObservationRefs, updatedAt: new Date() })
+        .set({ observationRefs: boundedObservationRefs, updatedAt: databaseNow() })
         .where(eq(aiAgentEpisodesTable.id, episode.id));
     }
     return { episodeId: episode.id, observationIds, inserted, duplicates, stale, environmentStale };
