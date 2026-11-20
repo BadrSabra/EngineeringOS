@@ -112,6 +112,40 @@ describe('Rule goal handoff integration', () => {
 });
 
 describe('Rules actions', () => {
+  it('opens the only matching rule when Enter is pressed in search', () => {
+    renderRulesPage();
+    const search = screen.getByRole('textbox', { name: 'ابحث في القواعد' });
+
+    fireEvent.change(search, { target: { value: 'unsafe' } });
+    fireEvent.keyDown(search, { key: 'Enter', code: 'Enter' });
+
+    expect(screen.getByRole('button', { name: 'طيّ القاعدة Avoid unsafe eval' }))
+      .toHaveAttribute('aria-expanded', 'true');
+  });
+
+  it('does not choose a rule when Enter is pressed with multiple matches', () => {
+    const savedRules = mocks.rules;
+    mocks.rules = [
+      ...savedRules,
+      { ...savedRules[0], id: 'rule-2', code: 'SEC-002', title: 'Unsafe template evaluation' },
+    ];
+
+    try {
+      renderRulesPage();
+      const search = screen.getByRole('textbox', { name: 'ابحث في القواعد' });
+
+      fireEvent.change(search, { target: { value: 'unsafe' } });
+      fireEvent.keyDown(search, { key: 'Enter', code: 'Enter' });
+
+      expect(screen.getByRole('button', { name: 'توسيع القاعدة Avoid unsafe eval' }))
+        .toHaveAttribute('aria-expanded', 'false');
+      expect(screen.getByRole('button', { name: 'توسيع القاعدة Unsafe template evaluation' }))
+        .toHaveAttribute('aria-expanded', 'false');
+    } finally {
+      mocks.rules = savedRules;
+    }
+  });
+
   it('makes the read-only behavior clear when no rules have been added', () => {
     const savedRules = mocks.rules;
     mocks.rules = [];
