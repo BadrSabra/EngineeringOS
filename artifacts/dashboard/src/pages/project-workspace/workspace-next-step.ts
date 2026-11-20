@@ -127,6 +127,6 @@ export function resolveWorkspaceNextStep({
     description: 'اكتب النتيجة التي تريدها للمساعد في مساحة الحوار. لن يُرسل النص حتى تختار الإرسال.',
     actionLabel: 'اكتب هدفك',
     ariaLabel: 'الخطوة المقترحة: كتابة طلب جديد في مساحة الحوار',
-    href: '#workspace-panel-agent',
+    href: '#workspace-goal-input',
   };
 }

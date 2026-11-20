@@ -91,6 +91,9 @@ function SourceNote({ available, children }: { available: boolean; children: Rea
   );
 }
 
+function focusWorkspaceGoalComposer() {
+  document.getElementById('workspace-goal-input')?.focus();
+}
 
 type WorkspaceTaskSummaryItem = {
   id: string;
@@ -673,6 +676,11 @@ export default function ProjectWorkspace() {
         ) : (
           <Link
             href={nextStep.href}
+            onClick={() => {
+              if (nextStep.href === '#workspace-goal-input') {
+                focusWorkspaceGoalComposer();
+              }
+            }}
             aria-label={nextStep.ariaLabel}
             data-testid="workspace-next-step-action"
             className="inline-flex shrink-0 items-center justify-center gap-2 rounded-md border border-cyan-300/25 px-3 py-2 text-xs font-medium text-cyan-100 transition hover:bg-cyan-300/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-200"
@@ -754,7 +762,8 @@ export default function ProjectWorkspace() {
                   <p className="font-medium text-slate-300">لا توجد مهام حديثة مسجلة</p>
                   <p className="mt-1 text-xs leading-5 text-slate-500">هذا ملخص للمهام التي أعادها المصدر، وليس تأكيدًا على عدم وجود عمل خارجها.</p>
                   <a
-                    href="#workspace-panel-agent"
+                    href="#workspace-goal-input"
+                    onClick={focusWorkspaceGoalComposer}
                     data-testid="link-start-request-from-empty-work"
                     aria-label="ابدأ طلبًا جديدًا في مساحة الحوار"
                     className="mt-3 inline-flex items-center gap-1.5 rounded-md border border-cyan-300/20 bg-cyan-300/[.06] px-3 py-2 text-xs font-medium text-cyan-100 transition hover:bg-cyan-300/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-200"
@@ -809,7 +818,8 @@ export default function ProjectWorkspace() {
                 <p className="font-medium text-slate-300">لا يوجد مرشح مسجل في هذه القراءة</p>
                 <p className="mt-1 text-xs leading-5 text-slate-500">لن نعرض مراجعة أو اعتمادًا ما لم يسجله المصدر.</p>
                 <a
-                  href="#workspace-panel-agent"
+                  href="#workspace-goal-input"
+                  onClick={focusWorkspaceGoalComposer}
                   data-testid="link-discuss-work-from-empty-candidate"
                   aria-label="ناقش العمل المطلوب في مساحة الحوار"
                   className="mt-3 inline-flex items-center gap-1.5 rounded-md border border-cyan-300/20 bg-cyan-300/[.06] px-3 py-2 text-xs font-medium text-cyan-100 transition hover:bg-cyan-300/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-200"
