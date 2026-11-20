@@ -92,6 +92,7 @@ import {
   replayPendingMissionEvents,
   wakeDueMissionGoals,
   wakeReadyMissionGoals,
+  wakeRuntimeTransitionMissionGoals,
 } from "./mission-runtime.js";
 import {
   reconcileApprovedMissionDecisionDispatches,
