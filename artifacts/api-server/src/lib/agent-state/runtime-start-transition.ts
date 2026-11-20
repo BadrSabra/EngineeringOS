@@ -1426,9 +1426,9 @@ function parseDatabaseUtcTimestamp(value: unknown): Date | null {
   let normalized = value.trim().replace(" ", "T");
   // PostgreSQL text output may encode UTC as +00 rather than +00:00.
   normalized = normalized
-    .replace(/([+-]\\d{2})$/, "$1:00")
-    .replace(/([+-]\\d{2})(\\d{2})$/, "$1:$2");
-  if (!/(?:Z|[+-]\\d{2}:\\d{2})$/i.test(normalized)) normalized += "Z";
+    .replace(/([+-]\d{2})$/, "$1:00")
+    .replace(/([+-]\d{2})(\d{2})$/, "$1:$2");
+  if (!/(?:Z|[+-]\d{2}:\d{2})$/i.test(normalized)) normalized += "Z";
 
   const candidate = new Date(normalized);
   return Number.isFinite(candidate.getTime()) ? candidate : null;
