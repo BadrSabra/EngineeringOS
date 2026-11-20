@@ -106,6 +106,10 @@ import { dispatchPendingShadowReplays } from "./shadow-replay.js";
 import { dispatchPendingMissionChatHandoffs } from "./mission-chat-handoffs.js";
 import { retryPendingRuntimeStartTransitions } from "./agent-state/runtime-start-transition.js";
 import { dispatchDeferredAiTaskExecutions } from "../routes/ai/tasks.js";
+import {
+  dispatchDeferredTaskVerifications,
+  recoverExpiredDeferredTaskVerifications,
+} from "./deferred-task-execution.js";
 import { dispatchPendingTaskObservationOutbox } from "./task-observation-outbox.js";
 
 const githubDeliveryReceiptEvents = alias(eventsTable, "github_delivery_receipt");
@@ -954,12 +958,16 @@ export async function failStaleDiscoverySessions(): Promise<number> {
  * avoiding duplicate model/tool side effects.
  */
 export async function reconcileStaleAiTasks(): Promise<number> {
+  const deferredVerificationRecoveries = await recoverExpiredDeferredTaskVerifications().catch((err) => {
+    logger.error({ err, scope: "job-reconciliation" }, "recoverExpiredDeferredTaskVerifications failed");
+    return 0;
+  });
   const now = databaseNow();
   const abandonedLease = or(
     isNull(tasksTable.leaseUntil),
     lt(tasksTable.leaseUntil, databaseNow()),
   )!;
-  let recovered = 0;
+  let recovered = deferredVerificationRecoveries;
   try {
     const stale = await db.select({
       id: tasksTable.id,
@@ -1256,6 +1264,7 @@ async function dispatchPersistedPendingJobsOnce(): Promise<number> {
         return added;
       },
     },
+    { name: "deferred-task-verifications", run: () => dispatchDeferredTaskVerifications(pageLimit) },
     { name: "deferred-ai-task-executions", run: () => dispatchDeferredAiTaskExecutions(pageLimit) },
     {
       name: "task-acceptance-observations",
