@@ -1,8 +1,16 @@
 import React from 'react';
-import { Link } from 'wouter';
+import { Link, useLocation } from 'wouter';
 import { AlertCircle, ArrowRight, Home } from 'lucide-react';
 
+function projectOverviewHref(pathname: string): string | null {
+  const match = pathname.match(/^\/projects\/([^/?#]+)(?:\/.*)?$/);
+  return match ? `/projects/${match[1]}` : null;
+}
+
 export default function NotFound() {
+  const [pathname] = useLocation();
+  const projectHref = projectOverviewHref(pathname);
+
   return (
     <main
       dir="rtl"
@@ -24,10 +32,24 @@ export default function NotFound() {
           قد يكون الرابط غير صحيح أو لم يعد متاحًا. يمكنك العودة إلى مشاريعك ومتابعة العمل.
         </p>
         <div className="flex flex-wrap justify-center gap-3">
+          {projectHref && (
+            <Link
+              href={projectHref}
+              data-testid="link-not-found-project"
+              className="inline-flex items-center gap-2 rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground transition hover:bg-primary/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2"
+            >
+              <ArrowRight aria-hidden="true" className="h-4 w-4" />
+              العودة إلى هذا المشروع
+            </Link>
+          )}
           <Link
             href="/projects"
             data-testid="link-not-found-projects"
-            className="inline-flex items-center gap-2 rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground transition hover:bg-primary/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2"
+            className={`inline-flex items-center gap-2 rounded-md px-4 py-2 text-sm font-medium transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 ${
+              projectHref
+                ? 'border border-border text-foreground hover:bg-secondary'
+                : 'bg-primary text-primary-foreground hover:bg-primary/90'
+            }`}
           >
             <ArrowRight aria-hidden="true" className="h-4 w-4" />
             المشاريع
