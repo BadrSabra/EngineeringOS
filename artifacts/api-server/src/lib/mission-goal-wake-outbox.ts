@@ -1,4 +1,4 @@
-import { and, asc, eq, inArray, lte, or, sql } from "drizzle-orm";
+import { and, asc, eq, inArray, or, sql } from "drizzle-orm";
 import {
   aiGoalsTable,
   aiMissionsTable,
