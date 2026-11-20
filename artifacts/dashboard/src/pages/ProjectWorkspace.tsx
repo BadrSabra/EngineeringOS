@@ -3,7 +3,7 @@ import { useWorkspaceEventStream } from '@/pages/project-workspace/use-workspace
 import PreviewAgentPanel from '@/pages/project-workspace/PreviewAgentPanel';
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { Link, useRoute } from 'wouter';
-import { Activity, AlertTriangle, ArrowRight, Check, Clock3, Code2, GitBranch, Layers3, RefreshCw, ShieldCheck, Sparkles, Terminal } from 'lucide-react';
+import { Activity, AlertTriangle, ArrowRight, Check, Clock3, Code2, GitBranch, Layers3, Plus, RefreshCw, ShieldCheck, Sparkles, Terminal } from 'lucide-react';
 import { useGetProjectWorkspaceSnapshot, getGetProjectWorkspaceSnapshotQueryKey, getGetAiExecutionQueryKey, useGetTask, getGetTaskQueryKey, useGetTaskLogs, getGetTaskLogsQueryKey, useGetAiExecution } from '@workspace/api-client-react';
 import { executionChatHref } from '@/lib/execution-chat-link';
 import AiChat from '@/pages/AiChat';
@@ -716,7 +716,7 @@ export default function ProjectWorkspace() {
                 <h2>العمل الأخير</h2>
                 <p>أحدث 8 مهام من المصدر؛ هذه ليست قائمة شاملة.</p>
               </div>
-              <div className="flex shrink-0 items-center gap-2">
+              <div className="flex shrink-0 flex-wrap items-center gap-2">
                 <span className="workspace-readonly">للاطلاع</span>
                 <Link
                   href={`/tasks?projectId=${encodeURIComponent(project.id)}`}
@@ -724,6 +724,15 @@ export default function ProjectWorkspace() {
                   aria-label="عرض جميع مهام المشروع"
                 >
                   عرض الكل
+                </Link>
+                <Link
+                  href={`/tasks?projectId=${encodeURIComponent(project.id)}&create=1`}
+                  className="inline-flex items-center gap-1 rounded-md border border-cyan-300/30 bg-cyan-300/[.06] px-2 py-1 text-xs font-medium text-cyan-100 transition hover:bg-cyan-300/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-200"
+                  aria-label={`إنشاء مهمة جديدة في ${project.name}`}
+                  data-testid="link-create-task-from-workspace"
+                >
+                  <Plus className="h-3.5 w-3.5" aria-hidden="true" />
+                  مهمة جديدة
                 </Link>
               </div>
             </div>
