@@ -40,6 +40,8 @@ function candidate(overrides: Partial<TaskRecoveryCandidate> = {}): TaskRecovery
 function chatCandidate(overrides: Partial<ChatRecoveryCandidate> = {}): ChatRecoveryCandidate {
   return {
     executionId: "execution-chat-1",
+    acceptanceId: "acceptance-chat-1",
+    acceptanceFinalizationKey: "finalization-chat-1",
     executionProjectId: "project-1",
     executionStatus: "failed",
     executionAttempt: 0,
@@ -341,8 +343,8 @@ describe("automatic task recovery admission", () => {
     const disposition = {
       recoveryState: "REQUIRED",
       retryAt,
-      retryAfterMs: 60_000,
-      retryAfterSource: "provider_unavailable",
+      providerUnavailableRetryAfterMs: 60_000,
+      providerUnavailableDeferralSource: "provider_unavailable",
       providerUnavailableDeferralCount: 1,
     };
 
@@ -384,7 +386,7 @@ describe("automatic task recovery admission", () => {
       recoveryState: "REQUIRED",
       failureKind: "RATE_LIMIT",
       retryAt,
-      retryAfterSource: "provider_unavailable",
+      providerUnavailableDeferralSource: "provider_unavailable",
       rateLimitScope: "project",
     };
 
@@ -403,6 +405,36 @@ describe("automatic task recovery admission", () => {
     }), atDeadline)).toMatchObject({
       kind: "retry",
       action: "RETRY_AFTER_RATE_LIMIT",
+    });
+  });
+
+  it("preserves upstream provider retry evidence during a local provider-unavailable deferral", () => {
+    const retryAt = "2026-09-17T12:01:00.000Z";
+    const disposition = {
+      recoveryState: "REQUIRED",
+      failureKind: "RATE_LIMIT",
+      retryAt,
+      retryAfterSource: "provider",
+      providerUnavailableDeferralSource: "provider_unavailable",
+    };
+    const taskPlan = planTaskRecovery(candidate({
+      action: "RETRY_AFTER_TIMEOUT",
+      disposition,
+    }), Date.parse(retryAt));
+    const chatPlan = planChatRecovery(chatCandidate({
+      action: "RETRY_AFTER_TIMEOUT",
+      reasonCode: "EXECUTION_PROVIDER_FAILURE",
+      resumable: 0,
+      disposition,
+    }), Date.parse(retryAt));
+
+    expect(taskPlan).toEqual({
+      kind: "skip",
+      reason: "provider_rate_limit_requires_manual_action",
+    });
+    expect(chatPlan).toEqual({
+      kind: "skip",
+      reason: "provider_rate_limit_requires_manual_action",
     });
   });
 
