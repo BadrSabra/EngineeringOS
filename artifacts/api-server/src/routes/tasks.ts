@@ -44,7 +44,6 @@ import {
   duplicateTaskDependencyIds,
   getTaskDependencyBlockers,
   invalidTaskDependencyReferences,
-  TaskDependencyBlockedError,
 } from "../lib/task-dependencies.js";
 import { redactUserFacingText } from "../lib/ai-route-helpers.js";
 import {
@@ -414,10 +413,6 @@ router.patch("/tasks/:taskId", async (req, res) => {
         .limit(1);
       if (!lockedTask) return [];
 
-      if (body.status === "verifying") {
-        const blockers = await getTaskDependencyBlockers(tx, lockedTask);
-        if (blockers.length > 0) throw new TaskDependencyBlockedError(blockers);
-      }
       const rows = await tx.update(tasksTable)
         .set({ ...body, updatedAt: new Date() })
         .where(and(
@@ -460,12 +455,6 @@ router.patch("/tasks/:taskId", async (req, res) => {
       return rows;
     });
   } catch (error) {
-    if (error instanceof TaskDependencyBlockedError) {
-      return res.status(409).json({
-        error: "task_dependencies_not_completed",
-        blockedDependencies: error.blockers,
-      });
-    }
     if (error instanceof TaskStateConflictError) {
       return res.status(409).json({
         error: "task_dispatch_identity_conflict",

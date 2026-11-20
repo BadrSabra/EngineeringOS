@@ -1,6 +1,5 @@
 import { db, eventsTable, tasksTable } from "@workspace/db";
 import { eq } from "drizzle-orm";
-import { getTaskDependencyBlockers } from "./task-dependencies.js";
 
 export const TASK_AUTO_EXECUTION_REQUESTED_EVENT_TYPE =
   "TaskAutoExecutionDispatchRequested";
@@ -74,12 +73,11 @@ export async function insertTaskAutoExecutionIntent(
     return false;
   }
 
-  // Every automatic execution ingress (manual Task transition, AI Task route,
-  // and Mission handoff) converges here. Recheck dependencies under the same
-  // transaction before an intent becomes dispatchable.
-  const dependencyBlockers = await getTaskDependencyBlockers(tx, task);
-  if (dependencyBlockers.length > 0) return false;
-
+  // This row records durable dispatch intent, not execution authorization.
+  // Keep it even while prerequisites are pending so the scheduler can retry
+  // without requiring another operator action. executeTaskLifecycle rechecks
+  // the complete dependency graph under the Task lock before any Execution
+  // can be created; blocked automatic attempts retain this intent as Deferred.
   const id = taskAutoExecutionIntentId(input.taskId);
   const [existing] = await tx
     .select({

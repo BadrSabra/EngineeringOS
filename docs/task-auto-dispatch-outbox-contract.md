@@ -30,6 +30,12 @@ A same-generation idempotent write may reuse an existing intent only when event 
 
 A dispatch closure carries the generation it read. It must not start against a changed Task generation, and it may clear/defer an intent only when the persisted retry count and correlation ID still match that closure. Mission delegation is taken from the durable intent, not silently reconstructed from a later caller.
 
+## Dependency wait and execution authority
+
+A Task Outbox intent is a durable request to attempt automatic dispatch; it is not permission to create an Execution. Producers may persist the intent while one or more transitive prerequisites are still incomplete. This keeps the requested Task visible to the server-owned scheduler instead of requiring an operator to repeat PATCH/execute after every prerequisite completes.
+
+The final `executeTaskLifecycle` claim transaction remains the authority boundary: it locks the Task, walks and locks the full dependency chain, and rejects missing/foreign references, non-completed prerequisites, cycles, or oversized graphs before creating or claiming an Execution. A dependency-blocked automatic attempt makes no provider-generation request and retains the exact Outbox identity as **TaskAutoExecutionDeferred** with a 30-second recheck. The durable dispatcher polls at 10-second intervals by default and re-enqueues the intent when it becomes due. Once the prerequisite chain is complete, the next due attempt proceeds without another operator action.
+
 ## State transitions and closure rules
 
 | State / event type | Meaning | Allowed transition |
@@ -53,6 +59,7 @@ The only successful-consumption boundary is the transaction in **executeTaskLife
 | **LOCAL_QUEUE_FULL** | Deferred with a bounded local retry. |
 | **PROJECT_RATE_LIMITED** | Deferred until the trusted project **retryAfterSec** window (or its safe default). |
 | **PROVIDER_NOT_CONFIGURED** | Deferred with the longer configuration-wait interval; the Task remains visible in **verifying**. |
+| **task_dependencies_not_completed** | Deferred for a 30-second dependency recheck; the final claim revalidates the transitive chain and creates no Execution until every prerequisite is complete. |
 | **mission_***, **execution_identity_changed**, **execution_already_claimed**, **invalid_task_transition** | Classified as a Mission/execution gate or owner conflict; no rapid retry loop. A matching active Execution is handled separately as an already-owned generation. |
 | Other pre-claim exception | Bounded exponential backoff; keep the exact intent until the Task/Execution identity is rechecked. |
 
@@ -74,7 +81,8 @@ The sub-projection may become degraded for overdue dispatches or failed recovery
 
 The relevant test coverage is kept at the existing boundaries rather than replacing them with queue mocks:
 
-- Task PATCH and execute route tests verify persisted generation identity and rollback on conflicting dispatch ownership.
+- Task PATCH and execute route tests verify persisted generation identity and rollback on conflicting dispatch ownership. PATCH-to-verifying also verifies that a dependency-blocked intent is persisted and scheduled, while a direct automatic final-claim regression proves the dependency gate still prevents premature Execution creation.
+- AI route tests verify that a dependency-blocked Task becomes Deferred without creating an Execution and is redispatched automatically once its prerequisite is complete.
 - Mission runtime tests verify the Outbox and **AiGoalDispatchRequested** survive a simulated lost local wake.
 - AI route tests cover stale retry/correlation generations, delegation/owner identity conflicts, legacy null-correlation normalization, queue capacity, provider/rate-limit pre-claim deferral, already-active Execution ownership, an old queue closure racing a newer Task generation, stale-snapshot cleanup that must not delete a replacement Outbox row, and an ineligible Task becoming runnable again before pruning.
 - **task-execution-lifecycle.integration.test.ts** also covers future Acceptance retry retention, a reused idempotency-key Execution with a mismatched parent/budget/attempt, and rollback when the final Task claim update fails. The existing two-process deferred-dispatch race remains in place.
