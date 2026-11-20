@@ -231,8 +231,21 @@ describe('Graph', () => {
     expect(screen.getByRole('button', { name: 'العلاقات' })).toBeInTheDocument();
     expect(screen.getByTestId('graph-assistant-handoff')).toBeInTheDocument();
     expect(screen.getByText('الصادرة (1)')).toBeInTheDocument();
-    expect(screen.getByText('calls')).toBeInTheDocument();
+    expect(screen.getByText('استدعاء')).toBeInTheDocument();
+    expect(screen.getByTestId('graph-relation-value')).toHaveAttribute('title', 'العلاقة التقنية: calls');
     expect(screen.getAllByText('buildGraph').length).toBeGreaterThan(0);
+  });
+
+  it('shows Arabic entity labels in the legend and selected-node details', () => {
+    render(<Graph />);
+
+    expect(screen.getByText('ملف')).toBeInTheDocument();
+    expect(screen.getByText('دالة')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'source.ts' }));
+
+    expect(screen.getAllByText('ملف').length).toBeGreaterThan(1);
+    expect(screen.getAllByText('ملف', { selector: '[title="النوع التقني: file"]' }).length)
+      .toBeGreaterThan(0);
   });
 
   it('treats the graph refresh as a composite read and timestamps it by the oldest component', () => {
