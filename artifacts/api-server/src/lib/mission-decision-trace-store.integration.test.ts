@@ -1620,7 +1620,7 @@ describe("Mission decision trace persistence", () => {
     const trace = await getMissionDecisionTrace(approvalTrace.decisionId);
     expect(trace?.events.map(({ stage }) => stage))
       .toEqual(["PROPOSED", "EVALUATED", "SELECTED", "APPROVED", "PLAN_APPLIED", "DISPATCHED"]);
-    expect(missionRunner.mock.calls.map(([input]) => input.goalId))
+    expect(missionRunner.mock.calls.map(([input]) => (input as { goalId: string }).goalId))
       .toEqual([goalIds[0], goalIds[1], goalIds[0]]);
     expect(dispatched.map(({ goalId }) => goalId).sort())
       .toEqual([...goalIds].sort());
