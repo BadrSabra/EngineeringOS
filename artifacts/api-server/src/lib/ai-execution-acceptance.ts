@@ -48,6 +48,7 @@ import {
   type ApplyChangesProofArtifact,
 } from "./agent-state/apply-changes-proof.js";
 import { canonicalJsonHash, ValidationProfileSchema } from "@workspace/ai-orchestrator";
+import { logger } from "./logger.js";
 
 const CURRENT_EVIDENCE_READ_METADATA_VERSION = 1;
 
@@ -624,8 +625,8 @@ async function syncLinkedObjectiveState(
     now: Date;
     acceptanceProjection?: GoalAcceptanceProjection;
   },
-) {
-  if (!params.task.goalId) return;
+): Promise<boolean> {
+  if (!params.task.goalId) return false;
 
   const [goalIdentity] = await tx
     .select({
@@ -638,7 +639,7 @@ async function syncLinkedObjectiveState(
       eq(aiGoalsTable.projectId, params.task.projectId),
     ))
     .limit(1);
-  if (!goalIdentity) return;
+  if (!goalIdentity) return false;
 
   // Terminal projection shares the Mission-before-Goal lock order used by
   // direct completion and Mission/Goal proof gates.
@@ -650,7 +651,7 @@ async function syncLinkedObjectiveState(
       eq(aiMissionsTable.projectId, params.task.projectId),
     ))
     .for("update");
-  if (!mission) return;
+  if (!mission) return false;
 
   const [goal] = await tx
     .select()
@@ -661,7 +662,7 @@ async function syncLinkedObjectiveState(
       eq(aiGoalsTable.projectId, params.task.projectId),
     ))
     .for("update");
-  if (!goal) return;
+  if (!goal) return false;
   const missionIsOperatorOwned =
     mission.status === "blocked"
     || mission.status === "cancelled"
@@ -673,7 +674,7 @@ async function syncLinkedObjectiveState(
     || goal.status === "waiting_for_approval"
     || goal.status === "completed"
     || goal.status === "failed";
-  if (missionIsOperatorOwned || goalIsOperatorOwned) return;
+  if (missionIsOperatorOwned || goalIsOperatorOwned) return false;
 
   const siblingTasks = await tx
     .select({ id: tasksTable.id, status: tasksTable.status })
@@ -841,7 +842,9 @@ async function syncLinkedObjectiveState(
         return deriveProofGatedMissionStatus(tx, mission, goals);
       })()
     : derivedMissionStatus;
-  if (mission.status === nextMissionStatus) return;
+  if (mission.status === nextMissionStatus) {
+    return goalChanged && nextGoalStatus === "completed";
+  }
 
   await tx.update(aiMissionsTable)
     .set({
@@ -871,6 +874,7 @@ async function syncLinkedObjectiveState(
       retryable: params.retryable,
     },
   });
+  return goalChanged && nextGoalStatus === "completed";
 }
 
 async function syncWorkflowGoalProjection(
@@ -2126,7 +2130,8 @@ async function lockFinalizationMissionRows(
 export async function finalizeExecutionAcceptance(
   params: FinalizeExecutionAcceptanceParams,
 ): Promise<FinalizeExecutionAcceptanceResult> {
-  return db.transaction(async (tx) => {
+  let completedTaskGoalProjectId: string | null = null;
+  const result = await db.transaction(async (tx) => {
     const persistActionReceipt = async (
       acceptance: typeof aiExecutionAcceptancesTable.$inferSelect,
     ) => {
@@ -3039,7 +3044,7 @@ export async function finalizeExecutionAcceptance(
       if (!updatedTask) throw new Error("task_state_changed_during_finalize");
 
       const correlationId = params.taskFinalization.correlationId ?? execution.correlationId;
-      await syncLinkedObjectiveState(tx, {
+      const linkedGoalCompleted = await syncLinkedObjectiveState(tx, {
         task,
         taskStatus: updatedTask.status,
         outcome,
@@ -3084,6 +3089,9 @@ export async function finalizeExecutionAcceptance(
           updatedAt: now,
         },
       });
+      if (linkedGoalCompleted) {
+        completedTaskGoalProjectId = execution.projectId;
+      }
       if (params.taskFinalization.log) {
         await tx.insert(taskLogsTable).values({
           id: randomUUID(),
@@ -3211,4 +3219,22 @@ export async function finalizeExecutionAcceptance(
     }
     return { accepted: true, duplicate: false, acceptance };
   });
+
+  if (result.accepted && !result.duplicate && completedTaskGoalProjectId) {
+    try {
+      const { wakeReadyMissionGoals } = await import("./mission-runtime.js");
+      await wakeReadyMissionGoals(32, completedTaskGoalProjectId);
+    } catch (error) {
+      logger.warn(
+        {
+          error,
+          projectId: completedTaskGoalProjectId,
+          scope: "task-acceptance",
+        },
+        "Mission dependent Goal wake failed after Task acceptance; durable reconciliation remains available.",
+      );
+    }
+  }
+
+  return result;
 }
