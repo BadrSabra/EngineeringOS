@@ -148,6 +148,8 @@ describe('ProjectDetail Arabic presentation', () => {
     mocks.summaryIsFetching = false;
     mocks.summaryUpdatedAt = Date.parse('2026-10-13T12:00:00.000Z');
     mocks.summary.recentEvents = [];
+    mocks.summary.taskCounts.running = 1;
+    mocks.summary.taskCounts.completed = 1;
     mocks.summary.taskCounts.failed = 0;
     mocks.failedTasks = [];
     mocks.projectIsRefetching = false;
@@ -313,6 +315,38 @@ describe('ProjectDetail Arabic presentation', () => {
 
     expect(screen.getByTestId('summary-task-failed')).toHaveTextContent('0');
     expect(screen.queryByTestId('link-project-failed-tasks')).not.toBeInTheDocument();
+  });
+
+  it('opens all, running, and completed project tasks from their summary counts', () => {
+    render(<ProjectDetail />);
+
+    expect(screen.getByTestId('link-project-all-tasks')).toHaveAttribute(
+      'href',
+      '/tasks?projectId=project-1',
+    );
+    expect(screen.getByTestId('link-project-all-tasks')).toHaveAccessibleName(
+      'اعرض جميع المهام في مشروع مشروع تجريبي (2)',
+    );
+    expect(screen.getByTestId('link-project-running-tasks')).toHaveAttribute(
+      'href',
+      '/tasks?projectId=project-1&status=running',
+    );
+    expect(screen.getByTestId('link-project-completed-tasks')).toHaveAttribute(
+      'href',
+      '/tasks?projectId=project-1&status=completed',
+    );
+  });
+
+  it('keeps zero-count running and completed summaries non-interactive', () => {
+    mocks.summary.taskCounts.running = 0;
+    mocks.summary.taskCounts.completed = 0;
+
+    render(<ProjectDetail />);
+
+    expect(screen.getByTestId('summary-task-running')).toHaveTextContent('0');
+    expect(screen.getByTestId('summary-task-completed')).toHaveTextContent('0');
+    expect(screen.queryByTestId('link-project-running-tasks')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('link-project-completed-tasks')).not.toBeInTheDocument();
   });
 
   it('does not block project details while the optional summary is loading', () => {

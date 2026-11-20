@@ -42,6 +42,57 @@ import ProjectPluginsPanel from '@/components/ProjectPluginsPanel';
 import BrowserValidationProfilesPanel from '@/components/BrowserValidationProfilesPanel';
 import { formatProjectTimestamp, projectStatusLabel } from '@/lib/project-detail-copy';
 
+function ProjectTaskCountCard({
+  projectId,
+  projectName,
+  count,
+  status,
+  label,
+}: {
+  projectId: string;
+  projectName: string;
+  count: number;
+  status?: 'running' | 'completed';
+  label: string;
+}) {
+  const color = status === 'running'
+    ? { card: 'bg-blue-500/10 border-blue-500/20', count: 'text-blue-500', label: 'text-blue-500/80' }
+    : status === 'completed'
+      ? { card: 'bg-emerald-500/10 border-emerald-500/20', count: 'text-emerald-500', label: 'text-emerald-500/80' }
+      : { card: 'bg-secondary/50 border-border', count: 'text-foreground', label: 'text-muted-foreground' };
+  const content = (
+    <>
+      <div
+        className={`text-2xl font-bold font-mono ${color.count}`}
+        data-testid={`summary-task-${status ?? 'total'}`}
+      >
+        {count}
+      </div>
+      <div className={`text-xs uppercase mt-1 tracking-wider ${color.label}`}>{label}</div>
+    </>
+  );
+
+  if (status && count === 0) {
+    return <div className={`rounded-lg border p-3 text-center ${color.card}`}>{content}</div>;
+  }
+
+  const href = `/tasks?projectId=${encodeURIComponent(projectId)}${status ? `&status=${status}` : ''}`;
+  const accessibleName = status
+    ? `اعرض المهام ${label} في مشروع ${projectName} (${count})`
+    : `اعرض جميع المهام في مشروع ${projectName} (${count})`;
+
+  return (
+    <Link
+      href={href}
+      aria-label={accessibleName}
+      data-testid={`link-project-${status ?? 'all'}-tasks`}
+      className={`rounded-lg border p-3 text-center transition-colors hover:bg-secondary/70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary ${color.card}`}
+    >
+      {content}
+    </Link>
+  );
+}
+
 export default function ProjectDetail() {
   const [, params] = useRoute('/projects/:id');
   const projectId = params?.id || '';
@@ -535,18 +586,26 @@ function ProjectDetailSession({ projectId }: { projectId: string }) {
           </h2>
           {summary ? (
             <div className="grid grid-cols-2 gap-3">
-              <div className="bg-secondary/50 border border-border rounded-lg p-3 text-center">
-                <div className="text-2xl font-bold font-mono" data-testid="summary-task-total">{summary.taskCounts.total}</div>
-                <div className="text-xs text-muted-foreground uppercase mt-1 tracking-wider">الإجمالي</div>
-              </div>
-              <div className="bg-blue-500/10 border border-blue-500/20 rounded-lg p-3 text-center">
-                <div className="text-2xl font-bold font-mono text-blue-500">{summary.taskCounts.running}</div>
-                <div className="text-xs text-blue-500/80 uppercase mt-1 tracking-wider">قيد التنفيذ</div>
-              </div>
-              <div className="bg-emerald-500/10 border border-emerald-500/20 rounded-lg p-3 text-center">
-                <div className="text-2xl font-bold font-mono text-emerald-500">{summary.taskCounts.completed}</div>
-                <div className="text-xs text-emerald-500/80 uppercase mt-1 tracking-wider">مكتملة</div>
-              </div>
+              <ProjectTaskCountCard
+                projectId={projectId}
+                projectName={project.name}
+                count={summary.taskCounts.total}
+                label="الإجمالي"
+              />
+              <ProjectTaskCountCard
+                projectId={projectId}
+                projectName={project.name}
+                count={summary.taskCounts.running}
+                status="running"
+                label="قيد التنفيذ"
+              />
+              <ProjectTaskCountCard
+                projectId={projectId}
+                projectName={project.name}
+                count={summary.taskCounts.completed}
+                status="completed"
+                label="مكتملة"
+              />
               {summary.taskCounts.failed > 0 ? (
                 <Link
                   href={soleFailedTask
