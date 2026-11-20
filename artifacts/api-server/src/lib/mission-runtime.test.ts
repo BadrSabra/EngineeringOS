@@ -1988,12 +1988,12 @@ describe("Mission goal runtime", () => {
     const due = await createMissionFixture({
       kind: "wait",
       reason: "event",
-      wakeAt: new Date(databaseClock.now.getTime() - 60_000).toISOString(),
+      wakeAt: new Date(databaseClock.getTime() - 60_000).toISOString(),
     });
     const future = await createMissionFixture({
       kind: "wait",
       reason: "event",
-      wakeAt: new Date(databaseClock.now.getTime() + 60 * 60_000).toISOString(),
+      wakeAt: new Date(databaseClock.getTime() + 60 * 60_000).toISOString(),
     });
     await runMissionGoal({
       goalId: due.goalId,
