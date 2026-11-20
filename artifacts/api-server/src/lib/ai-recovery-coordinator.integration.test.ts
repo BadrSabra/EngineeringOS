@@ -430,6 +430,58 @@ describe("durable automatic task recovery", () => {
     }
   });
 
+  it("persists the retry intent when a worker is interrupted before the lifecycle claim", async () => {
+    const fixture = await insertFixture();
+    try {
+      await db.update(tasksTable)
+        .set({ status: "queued" })
+        .where(eq(tasksTable.id, fixture.taskId));
+      executeTaskLifecycle.mockRejectedValueOnce(
+        new Error("simulated worker interruption before lifecycle claim"),
+      );
+
+      expect(await dispatchAutonomousTaskRecoveries({ projectId: fixture.projectId })).toBe(1);
+      expect(queuedJobs).toHaveLength(1);
+
+      await queuedJobs[0]!.run();
+
+      const [task] = await db.select({
+        status: tasksTable.status,
+        retryCount: tasksTable.retryCount,
+        correlationId: tasksTable.correlationId,
+      }).from(tasksTable).where(eq(tasksTable.id, fixture.taskId));
+      expect(task).toMatchObject({ status: "verifying", retryCount: 1 });
+      expect(task?.correlationId).toEqual(expect.any(String));
+      expect(task?.correlationId).not.toBe(fixture.executionId);
+
+      const [intent] = await db.select({
+        type: eventsTable.type,
+        projectId: eventsTable.projectId,
+        taskId: eventsTable.taskId,
+        payload: eventsTable.payload,
+      }).from(eventsTable)
+        .where(eq(eventsTable.id, taskAutoExecutionIntentId(fixture.taskId)));
+      expect(intent).toMatchObject({
+        type: TASK_AUTO_EXECUTION_REQUESTED_EVENT_TYPE,
+        projectId: fixture.projectId,
+        taskId: fixture.taskId,
+        payload: {
+          userId: "recovery-test-user",
+          taskRetryCount: 1,
+          taskCorrelationId: task?.correlationId,
+        },
+      });
+      expect(executeTaskLifecycle).toHaveBeenCalledOnce();
+    } finally {
+      await db.delete(eventsTable).where(eq(eventsTable.projectId, fixture.projectId));
+      await db.delete(aiExecutionAcceptancesTable)
+        .where(eq(aiExecutionAcceptancesTable.executionId, fixture.executionId));
+      await db.delete(aiExecutionsTable).where(eq(aiExecutionsTable.id, fixture.executionId));
+      await db.delete(tasksTable).where(eq(tasksTable.id, fixture.taskId));
+      await db.delete(projectsTable).where(eq(projectsTable.id, fixture.projectId));
+    }
+  });
+
   it("moves queued Tasks into the durable retry dispatch lane", async () => {
     const fixture = await insertFixture();
     try {
