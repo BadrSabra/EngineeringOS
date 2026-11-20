@@ -1417,6 +1417,18 @@ const MISSION_WORLD_TRANSITION_WAKE_HEARTBEAT_MS = Math.max(
   Math.floor(MISSION_WORLD_TRANSITION_WAKE_LEASE_MS / 3),
 );
 
+function parseDatabaseUtcTimestamp(value: unknown): Date | null {
+  const candidate = value instanceof Date
+    ? new Date(value.getTime())
+    : typeof value === "string" && value.trim().length > 0
+      ? new Date(
+          /(?:Z|[+-]\\d{2}:\\d{2})$/i.test(value.trim())
+            ? value.trim().replace(" ", "T")
+            : `${value.trim().replace(" ", "T")}Z`,
+        )
+      : null;
+  return candidate && Number.isFinite(candidate.getTime()) ? candidate : null;
+}
 type MissionWorldTransitionWakeClaim = {
   id: string;
   projectId: string | null;
@@ -1447,6 +1459,10 @@ async function claimMissionWorldTransitionWakeIntent(
     )).for("update").limit(1);
 
     if (!intent?.payload) return null;
+    const now = parseDatabaseUtcTimestamp(intent.now);
+    const leaseUntil = parseDatabaseUtcTimestamp(intent.leaseUntil);
+    if (!now || !leaseUntil) return null;
+
     const payload = intent.payload as Record<string, unknown>;
     if (typeof payload.processedAt === "string" || typeof payload.deadLetterAt === "string") {
       return null;
@@ -1455,12 +1471,12 @@ async function claimMissionWorldTransitionWakeIntent(
     const nextAttemptAt = typeof payload.nextAttemptAt === "string"
       ? Date.parse(payload.nextAttemptAt)
       : Number.NaN;
-    if (Number.isFinite(nextAttemptAt) && nextAttemptAt > intent.now.getTime()) return null;
+    if (Number.isFinite(nextAttemptAt) && nextAttemptAt > now.getTime()) return null;
 
     const currentLeaseUntil = typeof payload.wakeLeaseUntil === "string"
       ? Date.parse(payload.wakeLeaseUntil)
       : Number.NaN;
-    if (Number.isFinite(currentLeaseUntil) && currentLeaseUntil > intent.now.getTime()) {
+    if (Number.isFinite(currentLeaseUntil) && currentLeaseUntil > now.getTime()) {
       return null;
     }
 
@@ -1468,7 +1484,7 @@ async function claimMissionWorldTransitionWakeIntent(
     const claimedPayload = {
       ...payload,
       wakeLeaseToken: workerId,
-      wakeLeaseUntil: intent.leaseUntil.toISOString(),
+      wakeLeaseUntil: leaseUntil.toISOString(),
     };
     const [claimed] = await tx.update(eventsTable).set({
       payload: claimedPayload,
@@ -1548,7 +1564,11 @@ async function deferMissionWorldTransitionWake(
   const attemptCount = Number.isSafeInteger(payload.attemptCount)
     ? Number(payload.attemptCount) + 1
     : 1;
-  const now = Date.now();
+  const clockResult = await db.execute(sql`SELECT clock_timestamp() AS now`);
+  const rawClock = (clockResult.rows as Array<{ now: Date | string }>)[0]?.now;
+  const databaseClock = parseDatabaseUtcTimestamp(rawClock);
+  if (!databaseClock) return false;
+  const now = databaseClock.getTime();
   const exhausted = attemptCount >= MISSION_WORLD_TRANSITION_WAKE_MAX_ATTEMPTS;
   const backoffMs = Math.min(
     MISSION_WORLD_TRANSITION_WAKE_MAX_BACKOFF_MS,
