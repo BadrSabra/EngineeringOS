@@ -884,14 +884,14 @@ function TaskLogsPanel({ task, taskStatus }: { task: TaskView; taskStatus: strin
     currentCorrelationId
     && currentExecutionId
     && currentExecution?.id === currentExecutionId
-    && currentExecution.correlationId === currentCorrelationId
-    && currentExecution.linkedTaskId === taskId,
+    && currentExecution?.correlationId === currentCorrelationId
+    && currentExecution?.linkedTaskId === taskId,
   );
   const currentExecutionIsBound = currentExecutionIdentityMatchesTask && !currentExecutionFetching;
   const currentExecutionAttempt = task.status === 'running' && currentExecutionFetching
     ? null
     : currentExecutionIdentityMatchesTask
-      ? currentExecution.attempt
+      ? currentExecution?.attempt
       : null;
   const currentExecutionAttemptFromLogs = currentCorrelationId && currentExecutionId
     ? [...logs].reverse().find((log) =>
