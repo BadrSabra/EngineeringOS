@@ -343,6 +343,9 @@ describe('project-scoped task list contracts', () => {
       expect.anything(),
       expect.objectContaining({ query: expect.objectContaining({ enabled: false }) }),
     );
+    expect(screen.getByRole('link', {
+      name: 'ابدأ بوصف هدفك في مساحة العمل',
+    })).toHaveAttribute('href', '/');
   });
 
   it('restores task search and filters from a copied task-list link', () => {
@@ -579,6 +582,7 @@ describe('project-scoped task list contracts', () => {
       expect.objectContaining({ query: expect.objectContaining({ enabled: false }) }),
     );
     expect(screen.getByRole('status')).toHaveTextContent('المشروع المطلوب غير متاح');
+    expect(screen.queryByTestId('link-tasks-empty-goal-first')).not.toBeInTheDocument();
     expect(screen.queryByText('Repair provider authentication')).not.toBeInTheDocument();
   });
 
