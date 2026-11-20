@@ -48,6 +48,12 @@ import {
 } from "../lib/task-dependencies.js";
 import { redactUserFacingText } from "../lib/ai-route-helpers.js";
 import {
+  persistDeferredTaskVerificationIntent,
+  taskExecutionWaitIntentId,
+  TASK_EXECUTION_WAITING_FOR_DEPENDENCIES,
+  TASK_EXECUTION_DEFERRED_FAILED,
+} from "../lib/deferred-task-execution.js";
+import {
   buildRuleVerificationChecks,
   markRemediationPlanVerified,
 } from "../lib/remediation-plan.js";
@@ -571,6 +577,13 @@ router.delete("/tasks/:taskId", async (req, res) => {
       sql`${eventsTable.payload}->>'taskRetryCount' = ${String(lockedTask.retryCount)}`,
       sql`${eventsTable.payload}->>'taskCorrelationId' IS NOT DISTINCT FROM ${lockedTask.correlationId}`,
     ));
+    await tx.delete(eventsTable).where(and(
+      eq(eventsTable.id, taskExecutionWaitIntentId(taskId)),
+      inArray(eventsTable.type, [
+        TASK_EXECUTION_WAITING_FOR_DEPENDENCIES,
+        TASK_EXECUTION_DEFERRED_FAILED,
+      ]),
+    ));
     await tx.delete(tasksTable).where(eq(tasksTable.id, taskId));
     });
   } catch (error) {
@@ -631,7 +644,22 @@ router.post("/tasks/:taskId/execute", async (req, res) => {
 
     const blockers = await getTaskDependencyBlockers(tx, lockedTask);
     if (blockers.length > 0) {
-      return { kind: "blocked" as const, blockers };
+      const deferableStatus = lockedTask.status === "pending" || lockedTask.status === "queued"
+        ? lockedTask.status
+        : null;
+      const persisted = deferableStatus !== null
+        && blockers.every((blocker) => blocker.reason === "dependency_not_completed")
+        && await persistDeferredTaskVerificationIntent(tx, {
+          taskId,
+          userId: req.userId,
+          retryCount: lockedTask.retryCount,
+          taskCorrelationId: lockedTask.correlationId,
+          originalStatus: deferableStatus,
+          blockers,
+        });
+      return persisted
+        ? { kind: "deferred" as const, task: lockedTask, blockers }
+        : { kind: "blocked" as const, blockers };
     }
 
     const [claimed] = await tx
@@ -649,6 +677,15 @@ router.post("/tasks/:taskId/execute", async (req, res) => {
       ? { kind: "claimed" as const, task: lockedTask }
       : { kind: "conflict" as const, status: lockedTask.status };
   });
+  if (admission.kind === "deferred") {
+    return res.status(202).json({
+      id: admission.task.id,
+      status: admission.task.status,
+      executionDeferred: true,
+      waitingForDependencies: true,
+      blockedDependencies: admission.blockers,
+    });
+  }
   if (admission.kind === "blocked") {
     return res.status(409).json({
       error: "task_dependencies_not_completed",
@@ -1392,7 +1429,26 @@ router.get("/tasks/:taskId/logs/stream", async (req, res) => {
   res.setHeader("X-Accel-Buffering", "no");
   res.flushHeaders();
 
+  let closed = false;
+  let interval: ReturnType<typeof setInterval> | null = null;
+  let ttl: ReturnType<typeof setTimeout> | null = null;
+  const cleanup = () => {
+    if (interval) clearInterval(interval);
+    if (ttl) clearTimeout(ttl);
+    interval = null;
+    ttl = null;
+  };
+
+  // GET request bodies finish before a streaming response. Observe the
+  // response socket from this point so a disconnect during the snapshot read
+  // cannot leave a poll timer running.
+  res.once("close", () => {
+    closed = true;
+    cleanup();
+  });
+
   const send = (event: string, data: unknown) => {
+    if (closed || res.writableEnded || res.destroyed) return;
     res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
   };
 
@@ -1403,6 +1459,9 @@ router.get("/tasks/:taskId/logs/stream", async (req, res) => {
     .from(taskLogsTable)
     .where(eq(taskLogsTable.taskId, taskId))
     .orderBy(asc(taskLogsTable.sequence), asc(taskLogsTable.timestamp), asc(taskLogsTable.id));
+
+  if (closed || res.writableEnded || res.destroyed) return;
+
   const structured = existing.filter((log) => log.executionId && log.sequence !== null);
   const terminalAlreadyKnown = existing.some((log) =>
     log.eventType === "terminal" && (cursor === 0 || (log.sequence ?? 0) <= cursor),
@@ -1417,23 +1476,10 @@ router.get("/tasks/:taskId/logs/stream", async (req, res) => {
     }
   }
 
-  let closed = false;
-  let interval: ReturnType<typeof setInterval> | null = null;
-  let ttl: ReturnType<typeof setTimeout> | null = null;
-  const cleanup = () => {
-    if (interval) clearInterval(interval);
-    if (ttl) clearTimeout(ttl);
-    interval = null;
-    ttl = null;
-  };
-  req.on("close", () => {
-    closed = true;
-    cleanup();
-  });
 
   // 5-minute max stream lifetime
   ttl = setTimeout(() => {
-    if (!closed) {
+    if (!closed && !res.writableEnded && !res.destroyed) {
       send("done", { reason: "timeout", cursor });
       cleanup();
       res.end();
@@ -1451,7 +1497,7 @@ router.get("/tasks/:taskId/logs/stream", async (req, res) => {
     : null;
   let polling = false;
   interval = setInterval(async () => {
-    if (closed || polling) return;
+    if (closed || res.writableEnded || res.destroyed || polling) return;
     polling = true;
     try {
       // Sequence is server-owned and never derived from model text. Legacy
@@ -1466,6 +1512,8 @@ router.get("/tasks/:taskId/logs/stream", async (req, res) => {
         // The Task-wide sequence is the replay cursor; worker timestamps may move backwards.
         .orderBy(asc(taskLogsTable.sequence), asc(taskLogsTable.timestamp), asc(taskLogsTable.id));
 
+      if (closed || res.writableEnded || res.destroyed) return;
+
       for (const log of newLogs) {
         send("log", publicTaskLog(log));
         if (log.sequence !== null) cursor = Math.max(cursor, log.sequence);
@@ -1479,6 +1527,8 @@ router.get("/tasks/:taskId/logs/stream", async (req, res) => {
         .from(tasksTable)
         .where(eq(tasksTable.id, taskId))
         .limit(1);
+
+      if (closed || res.writableEnded || res.destroyed) return;
 
       if (current?.status && terminalTaskStatuses.includes(current.status)) {
         terminalDeadline ??= Date.now() + 15_000;

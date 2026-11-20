@@ -13,8 +13,14 @@ import {
   aiExecutionAcceptancesTable,
 } from "@workspace/db";
 import { randomUUID } from "crypto";
+import { get as httpGet, type IncomingMessage } from "node:http";
+import { once } from "node:events";
 import { insertTaskAutoExecutionIntent } from "../lib/task-auto-execution-outbox.js";
 import { executeTaskLifecycle } from "../lib/task-execution-service.js";
+import {
+  runDeferredTaskVerification,
+  taskExecutionWaitIntentId,
+} from "../lib/deferred-task-execution.js";
 
 // PR-C: hoist mock fn so vi.mock factory can close over it before module eval.
 const { mockScheduleAiTaskExecution } = vi.hoisted(() => ({
@@ -123,7 +129,7 @@ describe("Task lifecycle", () => {
     );
   });
 
-  it("does not execute a task until every same-project prerequisite is completed", async () => {
+  it("durably defers requested task execution until every same-project prerequisite is completed", async () => {
     const prerequisite = await createTask();
     const dependent = await request(app).post("/api/tasks").send({
       projectId: prerequisite.projectId,
@@ -135,8 +141,9 @@ describe("Task lifecycle", () => {
     const dependentId = dependent.body.id as string;
 
     const blocked = await request(app).post(`/api/tasks/${dependentId}/execute`);
-    expect(blocked.status).toBe(409);
-    expect(blocked.body.error).toBe("task_dependencies_not_completed");
+    expect(blocked.status).toBe(202);
+    expect(blocked.body.executionDeferred).toBe(true);
+    expect(blocked.body.waitingForDependencies).toBe(true);
     expect(blocked.body.blockedDependencies).toEqual([
       expect.objectContaining({
         taskId: prerequisite.taskId,
@@ -149,21 +156,37 @@ describe("Task lifecycle", () => {
       .from(tasksTable)
       .where(eq(tasksTable.id, dependentId));
     expect(unchanged?.status).toBe("pending");
-    const startedEvents = await db.select({ id: eventsTable.id })
+    const [waitIntent] = await db.select().from(eventsTable)
+      .where(eq(eventsTable.id, taskExecutionWaitIntentId(dependentId)));
+    expect(waitIntent?.type).toBe("TaskExecutionWaitingForDependencies");
+    const startedBeforePrerequisites = await db.select({ id: eventsTable.id })
       .from(eventsTable)
       .where(and(
         eq(eventsTable.type, "TaskExecutionStarted"),
         eq(eventsTable.projectId, prerequisite.projectId),
       ));
-    expect(startedEvents).toHaveLength(0);
+    expect(startedBeforePrerequisites).toHaveLength(0);
 
     await db.update(tasksTable)
       .set({ status: "completed", completedAt: new Date() })
       .where(eq(tasksTable.id, prerequisite.taskId));
 
-    const allowed = await request(app).post(`/api/tasks/${dependentId}/execute`);
-    expect(allowed.status).toBe(202);
-    expect(allowed.body.status).toBe("verifying");
+    const resumed = await runDeferredTaskVerification(dependentId);
+    expect(resumed).toBe(true);
+    const [verified] = await db.select({ status: tasksTable.status })
+      .from(tasksTable)
+      .where(eq(tasksTable.id, dependentId));
+    expect(verified?.status).toBe("verifying");
+    await expect(db.select().from(eventsTable)
+      .where(eq(eventsTable.id, taskExecutionWaitIntentId(dependentId))))
+      .resolves.toHaveLength(0);
+    const startedAfterPrerequisites = await db.select({ id: eventsTable.id })
+      .from(eventsTable)
+      .where(and(
+        eq(eventsTable.type, "TaskExecutionStarted"),
+        eq(eventsTable.taskId, dependentId),
+      ));
+    expect(startedAfterPrerequisites).toHaveLength(1);
   });
 
   it("rechecks dependencies in the final execution transaction before creating an AI execution", async () => {
@@ -205,7 +228,7 @@ describe("Task lifecycle", () => {
     expect(executions).toHaveLength(0);
   });
 
-  it("blocks a task when a legacy-completed prerequisite has an incomplete ancestor", async () => {
+  it("defers a task when a legacy-completed prerequisite has an incomplete ancestor", async () => {
     const deepest = await createTask();
     const middle = await request(app).post("/api/tasks").send({
       projectId: deepest.projectId,
@@ -228,8 +251,8 @@ describe("Task lifecycle", () => {
       .where(eq(tasksTable.id, middle.body.id));
 
     const response = await request(app).post(`/api/tasks/${leaf.body.id}/execute`);
-    expect(response.status).toBe(409);
-    expect(response.body.error).toBe("task_dependencies_not_completed");
+    expect(response.status).toBe(202);
+    expect(response.body.executionDeferred).toBe(true);
     expect(response.body.blockedDependencies).toContainEqual(
       expect.objectContaining({
         taskId: deepest.taskId,
@@ -264,6 +287,9 @@ describe("Task lifecycle", () => {
     expect(response.body.blockedDependencies).toContainEqual(
       expect.objectContaining({ reason: "dependency_cycle" }),
     );
+    await expect(db.select().from(eventsTable)
+      .where(eq(eventsTable.id, taskExecutionWaitIntentId(first.taskId))))
+      .resolves.toHaveLength(0);
   });
 
   it("prevents deletion of a prerequisite that is still referenced by another task", async () => {
@@ -724,6 +750,74 @@ describe("Task lifecycle", () => {
     expect(logs.body.length).toBeGreaterThan(0);
   });
 
+
+  it("clears the task-log poller when the SSE response disconnects", async () => {
+    const { taskId } = await createTask();
+    await db.insert(taskLogsTable).values({
+      id: randomUUID(),
+      taskId,
+      level: "info",
+      message: "disconnect sentinel",
+      timestamp: new Date(),
+    });
+
+    const setIntervalSpy = vi.spyOn(globalThis, "setInterval");
+    const clearIntervalSpy = vi.spyOn(globalThis, "clearInterval");
+    const intervalCallStart = setIntervalSpy.mock.calls.length;
+    const server = app.listen(0);
+
+    try {
+      await new Promise<void>((resolve, reject) => {
+        server.once("listening", resolve);
+        server.once("error", reject);
+      });
+      const address = server.address();
+      if (!address || typeof address === "string") {
+        throw new Error("Expected the test server to bind an ephemeral TCP port.");
+      }
+
+      const response = await new Promise<IncomingMessage>((resolve, reject) => {
+        const client = httpGet({
+          hostname: "127.0.0.1",
+          port: address.port,
+          path: "/api/tasks/" + taskId + "/logs/stream",
+          agent: false,
+        });
+        client.once("response", resolve);
+        client.once("error", reject);
+      });
+
+      await new Promise<void>((resolve, reject) => {
+        response.once("data", () => resolve());
+        response.once("error", reject);
+      });
+      await vi.waitFor(() => {
+        expect(setIntervalSpy.mock.calls
+          .slice(intervalCallStart)
+          .some(([, delay]) => delay === 500)).toBe(true);
+      });
+
+      const pollTimers = setIntervalSpy.mock.results
+        .slice(intervalCallStart)
+        .map((result, index) => ({
+          timer: result.value,
+          delay: setIntervalSpy.mock.calls[intervalCallStart + index]?.[1],
+        }))
+        .filter((entry) => entry.delay === 500);
+      expect(pollTimers).toHaveLength(1);
+
+      const responseClosed = once(response, "close");
+      response.destroy();
+      await responseClosed;
+      await vi.waitFor(() => {
+        expect(clearIntervalSpy).toHaveBeenCalledWith(pollTimers[0].timer);
+      });
+    } finally {
+      setIntervalSpy.mockRestore();
+      clearIntervalSpy.mockRestore();
+      await new Promise<void>((resolve) => server.close(() => resolve()));
+    }
+  });
 
   it("keeps the SSE stream open when the first structured progress rows arrive after subscription", async () => {
     const { taskId } = await createTask();
