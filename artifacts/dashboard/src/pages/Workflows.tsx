@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { useLocation, useSearch } from 'wouter';
+import { Link, useLocation, useSearch } from 'wouter';
 import {
   useListWorkflows,
   useListProjects,
@@ -849,6 +849,14 @@ function WorkflowsSession({ requestedProjectId }: { requestedProjectId: string }
             <ListTree className="w-12 h-12 text-muted-foreground mb-4 opacity-50" />
             <h3 className="text-lg font-semibold mb-2">لا توجد مشاريع متاحة</h3>
             <p className="text-muted-foreground text-sm max-w-sm">أنشئ مشروعًا أولًا لتتمكن من إدارة مسارات العمل.</p>
+            <Link
+              href="/"
+              data-testid="link-workflows-empty-goal-first"
+              aria-label="ابدأ بوصف هدفك في مساحة العمل"
+              className="mt-5 inline-flex items-center justify-center rounded-lg bg-primary px-4 py-2.5 text-sm font-semibold text-primary-foreground transition-colors hover:bg-primary/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2"
+            >
+              ابدأ بهدفك
+            </Link>
           </div>
         ) : isLoading ? (
           <div className="h-64 bg-card border border-border rounded-xl animate-pulse" role="status" aria-label="جارٍ تحميل مسارات العمل"></div>
