@@ -2288,6 +2288,24 @@ describe('Task creation', () => {
     );
   });
 
+  it('summarizes known prerequisites on collapsed task cards', () => {
+    vi.mocked(useListTasks).mockReturnValue(taskListFixture({
+      'task-auth': ['task-quota', 'task-outage', 'missing-prerequisite'],
+    }));
+    renderPage();
+
+    const summary = screen.getByTestId('summary-task-dependencies-task-auth');
+    expect(summary).toHaveTextContent('المتطلبات');
+    expect(summary).toHaveTextContent('Recover from provider quota');
+    expect(summary).toHaveTextContent('Recover from provider outage');
+    expect(summary).toHaveTextContent('و1 أخرى');
+    expect(summary).not.toHaveTextContent('missing-prerequisite');
+    expect(screen.queryByTestId('section-task-dependencies-task-auth')).not.toBeInTheDocument();
+    expect(screen.getByRole('button', {
+      name: 'عرض تفاصيل المهمة: Repair provider authentication',
+    })).toHaveAttribute('aria-describedby', 'task-dependency-summary-task-auth');
+  });
+
   it('loads prerequisite context when a task filter hides it from the list', () => {
     const filteredTasks = taskListFixture({
       'task-auth': ['task-quota'],
