@@ -16,7 +16,7 @@ import {
 } from "./ai-execution-state.js";
 import { logger } from "./logger.js";
 import { heavyJobQueue } from "./job-queue.js";
-import { databaseNow } from "./job-lease.js";
+
 import { executeTaskLifecycle } from "./task-execution-service.js";
 import {
   runChatRecoveryExhaustionFinalization,
@@ -370,7 +370,6 @@ async function deferRecoveryForRateLimit(params: {
       const clockResult = await tx.execute(sql`SELECT clock_timestamp() AT TIME ZONE 'UTC' AS now`);
       const clockValue = (clockResult.rows as Array<{ now: Date | string }>)[0]?.now;
       const nowMs = databaseClockMilliseconds(clockValue);
-      const nowMs = databaseClockMilliseconds(clock?.now);
       const retryAt = nowMs === undefined
         ? undefined
         : calculateRecoveryRetryAt(retryAfterSec, nowMs);
@@ -442,7 +441,6 @@ async function deferRecoveryForUnavailableProvider(params: {
       const clockResult = await tx.execute(sql`SELECT clock_timestamp() AT TIME ZONE 'UTC' AS now`);
       const clockValue = (clockResult.rows as Array<{ now: Date | string }>)[0]?.now;
       const nowMs = databaseClockMilliseconds(clockValue);
-      const nowMs = databaseClockMilliseconds(clock?.now);
       if (nowMs === undefined) return undefined;
 
       const existingRetryAtMs = parseRetryAt(disposition.retryAt);
@@ -938,7 +936,6 @@ async function claimTaskRetry(
     const clockResult = await tx.execute(sql`SELECT clock_timestamp() AT TIME ZONE 'UTC' AS now`);
       const clockValue = (clockResult.rows as Array<{ now: Date | string }>)[0]?.now;
       const nowMs = databaseClockMilliseconds(clockValue);
-    const nowMs = databaseClockMilliseconds(clock?.now);
     if (nowMs === undefined) return undefined;
     const retryAtMs = parseRetryAt(disposition.retryAt);
     if (
@@ -1186,7 +1183,6 @@ export async function dispatchAutonomousTaskRecoveries(scope: {
     const clockResult = await db.execute(sql`SELECT clock_timestamp() AT TIME ZONE 'UTC' AS now`);
     const clockValue = (clockResult.rows as Array<{ now: Date | string }>)[0]?.now;
     const nowMs = databaseClockMilliseconds(clockValue);
-    const nowMs = databaseClockMilliseconds(clock?.now);
     if (nowMs === undefined) {
       throw new Error("PostgreSQL clock is unavailable for automatic recovery admission");
     }
