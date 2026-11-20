@@ -382,6 +382,13 @@ describe("GET /api/graph/summary/:projectId", () => {
     // A has the highest degree (1 incoming from C, 1 outgoing to B)
     expect(s.topConnected[0].entityId).toBe(a);
     expect(s.topConnected[0].totalDegree).toBe(2);
+    expect(s.meta).toMatchObject({
+      entityLimit: 80,
+      relationshipLimit: 60,
+      truncated: false,
+      truncatedEntities: false,
+      truncatedRelationships: false,
+    });
   });
 
   it("returns zero counts for a project with no graph data", async () => {
