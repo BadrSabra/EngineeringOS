@@ -10,6 +10,7 @@ import AiChat from '@/pages/AiChat';
 import ProjectCanvasPanel from '@/pages/project-workspace/ProjectCanvasPanel';
 import ProjectWorkspaceSwitcher from '@/pages/project-workspace/ProjectWorkspaceSwitcher';
 import WorkspaceExecutionDetail from '@/pages/project-workspace/WorkspaceExecutionDetail';
+import { resolveWorkspaceNextStep } from '@/pages/project-workspace/workspace-next-step';
 
 const statusLabels: Record<string, string> = {
   active: 'نشط',
@@ -521,6 +522,14 @@ export default function ProjectWorkspace() {
   // Source availability is authoritative: do not render retained payloads from an unavailable read.
   const candidate = work.candidateSource === 'available' ? work.candidate : null;
   const execution = work.executionSource === 'available' ? work.latestExecution : null;
+  const nextStep = resolveWorkspaceNextStep({
+    projectId: project.id,
+    freshnessPartial: freshness.partial,
+    tasksSource: work.tasksSource,
+    recentTasks: work.tasksSource === 'available' ? work.recentTasks : [],
+    candidateSource: work.candidateSource,
+    candidate,
+  });
 
   return (
     <div dir="rtl" lang="ar" className="project-workspace" data-testid="project-workspace">
@@ -583,6 +592,47 @@ export default function ProjectWorkspace() {
           </div>
         )}
       </header>
+
+      <section
+        className="mt-5 flex flex-col gap-3 rounded-xl border border-cyan-300/20 bg-cyan-300/[.04] p-4 sm:flex-row sm:items-center sm:justify-between"
+        aria-labelledby="workspace-next-step-title"
+        data-testid="workspace-next-step"
+      >
+        <div className="min-w-0">
+          <p className="text-[10px] font-semibold uppercase tracking-[.16em] text-cyan-200">
+            الخطوة التالية
+          </p>
+          <h2 id="workspace-next-step-title" className="mt-1 text-sm font-semibold text-slate-100">
+            {nextStep.title}
+          </h2>
+          <p data-testid="workspace-next-step-description" className="mt-1 text-xs leading-5 text-slate-400">
+            {nextStep.description}
+          </p>
+        </div>
+        {nextStep.kind === 'refresh' ? (
+          <button
+            type="button"
+            onClick={() => void refreshWorkspace()}
+            disabled={isFetching || isRefreshingWorkspace}
+            aria-label={nextStep.ariaLabel}
+            data-testid="workspace-next-step-action"
+            className="inline-flex shrink-0 items-center justify-center gap-2 rounded-md border border-cyan-300/25 px-3 py-2 text-xs font-medium text-cyan-100 transition hover:bg-cyan-300/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-200 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            <RefreshCw className={`h-3.5 w-3.5 ${isFetching || isRefreshingWorkspace ? 'animate-spin' : ''}`} />
+            {nextStep.actionLabel}
+          </button>
+        ) : (
+          <Link
+            href={nextStep.href}
+            aria-label={nextStep.ariaLabel}
+            data-testid="workspace-next-step-action"
+            className="inline-flex shrink-0 items-center justify-center gap-2 rounded-md border border-cyan-300/25 px-3 py-2 text-xs font-medium text-cyan-100 transition hover:bg-cyan-300/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-200"
+          >
+            {nextStep.actionLabel}
+            <ArrowRight className="h-3.5 w-3.5" aria-hidden="true" />
+          </Link>
+        )}
+      </section>
 
       <nav className="workspace-panel-nav" aria-label="التنقل بين أقسام مساحة المشروع">
         <a href="#workspace-panel-agent">المساعد</a>

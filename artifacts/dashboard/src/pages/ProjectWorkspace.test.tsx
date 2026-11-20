@@ -226,6 +226,9 @@ describe("ProjectWorkspace live snapshot refresh", () => {
 
     expect(screen.getByRole("navigation", { name: "التنقل بين أقسام مساحة المشروع" })).toBeInTheDocument();
     expect(screen.getByRole("region", { name: "محادثة المشروع" })).toBeInTheDocument();
+    expect(screen.getByTestId("workspace-next-step")).toHaveTextContent("ابدأ بطلب جديد");
+    expect(screen.getByTestId("workspace-next-step-action"))
+      .toHaveAttribute("href", "#workspace-panel-agent");
     expect(screen.getByRole("region", { name: "معاينة المشروع" })).toBeInTheDocument();
     expect(screen.getByRole("complementary", { name: "العمل والثقة" })).toBeInTheDocument();
     expect(screen.getByText("أحدث 8 مهام من المصدر؛ هذه ليست قائمة شاملة.")).toBeInTheDocument();
