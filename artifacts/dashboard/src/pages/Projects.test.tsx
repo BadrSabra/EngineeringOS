@@ -193,6 +193,10 @@ describe("Projects", () => {
 
     expect(screen.getByRole("status")).toHaveTextContent("لا توجد مشاريع بعد");
     expect(screen.getByTestId("button-empty-discover-project")).toBeInTheDocument();
+    expect(screen.getByTestId('link-empty-goal-first'))
+      .toHaveAttribute('href', '/');
+    expect(screen.getByTestId('link-empty-goal-first'))
+      .toHaveAccessibleName('ابدأ بوصف هدفك في مساحة العمل');
     fireEvent.click(screen.getByTestId("button-empty-create-project"));
 
     expect(screen.getByRole("dialog", { name: "ابدأ مشروعك من قالب ويب جاهز" })).toBeInTheDocument();
@@ -243,6 +247,7 @@ describe("Projects", () => {
     expect(screen.queryByText("alpha-service")).not.toBeInTheDocument();
     expect(screen.getByRole('status')).toHaveTextContent('لا توجد مشاريع تطابق بحثك');
     expect(screen.queryByTestId('button-empty-create-project')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('link-empty-goal-first')).not.toBeInTheDocument();
     expect(mocks.mutate).not.toHaveBeenCalled();
   });
 
