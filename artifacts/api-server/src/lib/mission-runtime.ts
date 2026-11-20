@@ -2429,6 +2429,7 @@ export async function dispatchPendingMissionRecipes(
 export async function reconcileCompletedMissionRecipeAcceptances(
   limit = 32,
   scopeProjectId?: string,
+  executionId?: string,
 ): Promise<number> {
   const candidates = await db
     .select({
@@ -2471,6 +2472,7 @@ export async function reconcileCompletedMissionRecipeAcceptances(
       eq(aiGoalsTable.status, "running"),
       inArray(aiMissionsTable.status, ["active", "waiting"]),
       scopeProjectId ? eq(aiExecutionsTable.projectId, scopeProjectId) : undefined,
+      executionId ? eq(aiExecutionsTable.id, executionId) : undefined,
     ))
     .orderBy(aiExecutionsTable.updatedAt, aiExecutionsTable.id)
     .limit(Math.max(1, Math.min(Math.floor(limit), 100)));
@@ -3806,6 +3808,7 @@ export async function wakeReadyMissionGoals(
 export async function wakeApplyChangesMissionGoals(
   limit = 32,
   scopeProjectId?: string,
+  goalId?: string,
 ): Promise<number> {
   const candidates = await db.select({
     goalId: aiGoalsTable.id,
@@ -3819,6 +3822,7 @@ export async function wakeApplyChangesMissionGoals(
       eq(aiGoalsTable.status, "waiting_for_event"),
       eq(aiGoalsTable.blockedReason, "apply_changes_pending"),
       scopeProjectId ? eq(aiGoalsTable.projectId, scopeProjectId) : undefined,
+      goalId ? eq(aiGoalsTable.id, goalId) : undefined,
     ))
     .orderBy(aiGoalsTable.updatedAt, aiGoalsTable.id)
     .limit(Math.max(1, Math.min(limit, 100)));
@@ -3847,6 +3851,7 @@ export async function wakeApplyChangesMissionGoals(
 export async function wakeRuntimeTransitionMissionGoals(
   limit = 32,
   scopeProjectId?: string,
+  missionId?: string,
 ): Promise<number> {
   const candidates = await db
     .select({
@@ -3859,6 +3864,7 @@ export async function wakeRuntimeTransitionMissionGoals(
       eq(aiGoalsTable.status, "waiting_for_event"),
       eq(aiGoalsTable.blockedReason, "runtime_transition_pending"),
       scopeProjectId ? eq(aiGoalsTable.projectId, scopeProjectId) : undefined,
+      missionId ? eq(aiGoalsTable.missionId, missionId) : undefined,
     ))
     .orderBy(aiGoalsTable.updatedAt, aiGoalsTable.id)
     .limit(Math.max(1, Math.min(limit, 100)));
