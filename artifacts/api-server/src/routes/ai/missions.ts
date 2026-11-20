@@ -4336,8 +4336,7 @@ router.patch("/ai/goals/:goalId", async (req, res) => {
         && goalPlanRevision === activePlanRevision
         && updated.status === "queued"
         && (becameQueued || actionChanged)
-        && parsedNextAction.success
-        && (parsedNextAction.data.kind === "task" || parsedNextAction.data.kind === "recipe");
+        && parsedNextAction.success;
       return { updated, shouldDispatchImmediately };
     });
     if (!result.updated) return res.status(404).json({ error: "Goal not found" });
