@@ -1111,6 +1111,136 @@ export async function reconcileAutomaticMissionReplans(
   return replanned;
 }
 
+type ApprovedMissionDispatchRun = Pick<
+  MissionGoalRunResult,
+  "goalId" | "status" | "executionId"
+>;
+
+async function dispatchApprovedMissionDecision(
+  decisionId: string,
+  runGoal: typeof runMissionGoal,
+  preDispatchedRuns: ApprovedMissionDispatchRun[] = [],
+): Promise<boolean> {
+  const plan = await getApprovedMissionDecisionDispatchPlan(decisionId);
+  if (!plan) return false;
+
+  // A Mission that already completed finished its roots before the crash;
+  // record their Executions instead of running the Goals again.
+  const finishedRootRuns = plan.finishedRootRuns;
+  const runs: ApprovedMissionDispatchRun[] = [];
+  if (finishedRootRuns) {
+    for (const goalId of plan.rootGoalIds) {
+      const finished = finishedRootRuns.find((run) => run.goalId === goalId);
+      if (!finished) throw new Error("mission_decision_dispatch_root_result_missing");
+      runs.push({ goalId, status: "completed", executionId: finished.executionId });
+    }
+  } else {
+    for (const goalId of plan.rootGoalIds) {
+      // The just-approved Goal may already have been run by approveMissionGoal.
+      // Reuse that exact result rather than issuing a duplicate lifecycle call.
+      const alreadyRun = preDispatchedRuns.find((run) =>
+        run.goalId === goalId
+        && Boolean(run.executionId)
+        && ["scheduled", "waiting", "completed"].includes(run.status),
+      );
+      const run = alreadyRun ?? await runGoal({
+        goalId,
+        userId: plan.userId,
+        trigger: "replan",
+      });
+      if (run.goalId !== goalId) {
+        throw new Error("mission_decision_dispatch_goal_identity_mismatch");
+      }
+      runs.push(run);
+    }
+  }
+
+  const items = plan.rootGoalIds.map((goalId, position) => {
+    const run = runs[position];
+    if (!run || run.goalId !== goalId) {
+      throw new Error("mission_decision_dispatch_root_result_missing");
+    }
+    return {
+      position,
+      goalId,
+      executionId: run.executionId ?? null,
+      runStatus: run.status,
+    };
+  });
+  if (!items.some(({ executionId }) => executionId !== null)) return false;
+
+  const recorded = await db.transaction(async (tx) => {
+    const [mission] = await tx.select({
+      id: aiMissionsTable.id,
+      projectId: aiMissionsTable.projectId,
+      userId: aiMissionsTable.userId,
+      status: aiMissionsTable.status,
+      autonomyPolicy: aiMissionsTable.autonomyPolicy,
+    }).from(aiMissionsTable)
+      .where(and(
+        eq(aiMissionsTable.id, plan.missionId),
+        eq(aiMissionsTable.projectId, plan.projectId),
+      ))
+      .for("update");
+    if (
+      !mission
+      || (mission.status !== "active"
+        && !(finishedRootRuns && mission.status === "completed"))
+      || jsonRecord(mission.autonomyPolicy).activePlanRevision !== plan.planRevision
+    ) {
+      return null;
+    }
+
+    for (const item of items) {
+      if (!item.executionId) continue;
+      const [execution] = await tx.select({ id: aiExecutionsTable.id })
+        .from(aiExecutionsTable)
+        .where(and(
+          eq(aiExecutionsTable.id, item.executionId),
+          eq(aiExecutionsTable.projectId, plan.projectId),
+          eq(aiExecutionsTable.goalId, item.goalId),
+          eq(aiExecutionsTable.userId, plan.userId),
+        ))
+        .for("update");
+      if (!execution) {
+        throw new Error("mission_decision_dispatch_execution_unbound");
+      }
+    }
+    return recordMissionDecisionDispatchBatchInTransaction(tx, {
+      decisionId: plan.decisionId,
+      planRevision: plan.planRevision,
+      occurredAt: new Date(),
+      items,
+    });
+  });
+  return recorded?.event.kind === "appended";
+}
+
+/**
+ * Event-driven fast path invoked after the final required human approval.
+ * It deliberately bypasses the sweep's process-local cooldown; correctness is
+ * provided by the persisted trace/dispatch batch and the Mission/Goal locks.
+ */
+export async function dispatchApprovedMissionDecisionImmediately(
+  decisionId: string,
+  preDispatchedRuns: ApprovedMissionDispatchRun[] = [],
+): Promise<boolean> {
+  try {
+    return await dispatchApprovedMissionDecision(decisionId, runMissionGoal, preDispatchedRuns);
+  } catch (error) {
+    const errorCode = error instanceof MissionDecisionTraceStoreError
+      ? error.code
+      : error instanceof Error && /^[a-z_]+$/.test(error.message)
+        ? error.message
+        : "recovery_failed";
+    console.warn("Immediate Mission decision dispatch failed closed", {
+      decisionId,
+      errorCode,
+    });
+    return false;
+  }
+}
+
 export async function reconcileApprovedMissionDecisionDispatches(
   limit = 16,
   runGoal: typeof runMissionGoal = runMissionGoal,
@@ -1133,92 +1263,7 @@ export async function reconcileApprovedMissionDecisionDispatches(
   for (const { decisionId } of candidates) {
     if (!shouldAttemptApprovedDecisionDispatch(decisionId)) continue;
     try {
-      const plan = await getApprovedMissionDecisionDispatchPlan(decisionId);
-      if (!plan) continue;
-
-      // A Mission that already completed finished its roots before the crash;
-      // record their Executions instead of running the Goals again.
-      const finishedRootRuns = plan.finishedRootRuns;
-      const runs: Array<Pick<MissionGoalRunResult, "goalId" | "status" | "executionId">> = [];
-      if (finishedRootRuns) {
-        for (const goalId of plan.rootGoalIds) {
-          const finished = finishedRootRuns.find((run) => run.goalId === goalId);
-          if (!finished) throw new Error("mission_decision_dispatch_root_result_missing");
-          runs.push({ goalId, status: "completed", executionId: finished.executionId });
-        }
-      } else {
-        for (const goalId of plan.rootGoalIds) {
-          const run = await runGoal({
-            goalId,
-            userId: plan.userId,
-            trigger: "replan",
-          });
-          if (run.goalId !== goalId) {
-            throw new Error("mission_decision_dispatch_goal_identity_mismatch");
-          }
-          runs.push(run);
-        }
-      }
-
-      const items = plan.rootGoalIds.map((goalId, position) => {
-        const run = runs[position];
-        if (!run || run.goalId !== goalId) {
-          throw new Error("mission_decision_dispatch_root_result_missing");
-        }
-        return {
-          position,
-          goalId,
-          executionId: run.executionId ?? null,
-          runStatus: run.status,
-        };
-      });
-      if (!items.some(({ executionId }) => executionId !== null)) continue;
-
-      const recorded = await db.transaction(async (tx) => {
-        const [mission] = await tx.select({
-          id: aiMissionsTable.id,
-          projectId: aiMissionsTable.projectId,
-          userId: aiMissionsTable.userId,
-          status: aiMissionsTable.status,
-          autonomyPolicy: aiMissionsTable.autonomyPolicy,
-        }).from(aiMissionsTable)
-          .where(and(
-            eq(aiMissionsTable.id, plan.missionId),
-            eq(aiMissionsTable.projectId, plan.projectId),
-          ))
-          .for("update");
-        if (
-          !mission
-          || (mission.status !== "active"
-            && !(finishedRootRuns && mission.status === "completed"))
-          || jsonRecord(mission.autonomyPolicy).activePlanRevision !== plan.planRevision
-        ) {
-          return null;
-        }
-
-        for (const item of items) {
-          if (!item.executionId) continue;
-          const [execution] = await tx.select({ id: aiExecutionsTable.id })
-            .from(aiExecutionsTable)
-            .where(and(
-              eq(aiExecutionsTable.id, item.executionId),
-              eq(aiExecutionsTable.projectId, plan.projectId),
-              eq(aiExecutionsTable.goalId, item.goalId),
-              eq(aiExecutionsTable.userId, plan.userId),
-            ))
-            .for("update");
-          if (!execution) {
-            throw new Error("mission_decision_dispatch_execution_unbound");
-          }
-        }
-        return recordMissionDecisionDispatchBatchInTransaction(tx, {
-          decisionId: plan.decisionId,
-          planRevision: plan.planRevision,
-          occurredAt: new Date(),
-          items,
-        });
-      });
-      if (recorded?.event.kind === "appended") recordedDispatches++;
+      if (await dispatchApprovedMissionDecision(decisionId, runGoal)) recordedDispatches++;
     } catch (error) {
       const errorCode = error instanceof MissionDecisionTraceStoreError
         ? error.code
