@@ -479,14 +479,17 @@ describe("Task lifecycle", () => {
       });
 
       // The initial snapshot writes the sentinel before the poll interval can
-      // run. Destroying the response at this point exercises the live cleanup.
+      // run. Wait for the route to install its poller before disconnecting so
+      // this test exercises cleanup of a live timer rather than racing setup.
       await new Promise<void>((resolve, reject) => {
         response.once("data", () => resolve());
         response.once("error", reject);
       });
-      const responseClosed = once(response, "close");
-      response.destroy();
-      await responseClosed;
+      await vi.waitFor(() => {
+        expect(setIntervalSpy.mock.calls
+          .slice(intervalCallStart)
+          .some(([, delay]) => delay === 500)).toBe(true);
+      });
 
       const pollTimers = setIntervalSpy.mock.results
         .slice(intervalCallStart)
@@ -495,9 +498,16 @@ describe("Task lifecycle", () => {
           delay: setIntervalSpy.mock.calls[intervalCallStart + index]?.[1],
         }))
         .filter((entry) => entry.delay === 500);
-
       expect(pollTimers).toHaveLength(1);
-      expect(clearIntervalSpy).toHaveBeenCalledWith(pollTimers[0].timer);
+
+      const responseClosed = once(response, "close");
+      response.destroy();
+      await responseClosed;
+      // The client observes its socket close before the server has necessarily
+      // dispatched the corresponding ServerResponse close handler.
+      await vi.waitFor(() => {
+        expect(clearIntervalSpy).toHaveBeenCalledWith(pollTimers[0].timer);
+      });
     } finally {
       setIntervalSpy.mockRestore();
       clearIntervalSpy.mockRestore();
