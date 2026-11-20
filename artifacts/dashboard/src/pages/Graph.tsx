@@ -24,6 +24,7 @@ import {
 } from 'lucide-react';
 import { RefreshButton, RequestError } from '@/components/OperatorResilience';
 import GraphAssistantHandoff from '@/components/GraphAssistantHandoff';
+import { graphEntityTypeLabel, graphRelationLabel } from '@/lib/graph-copy';
 
 // ─── Force layout ─────────────────────────────────────────────────────────────
 
@@ -386,7 +387,9 @@ export default function Graph() {
             {Object.entries(TYPE_COLORS).map(([type, color]) => (
               <div key={type} className="flex items-center gap-1.5">
                 <div className="w-2.5 h-2.5 rounded-full shrink-0" style={{ backgroundColor: color }} />
-                <span className="capitalize text-muted-foreground">{type}</span>
+                <span className="text-muted-foreground" title={`النوع التقني: ${type}`}>
+                  {graphEntityTypeLabel(type)}
+                </span>
               </div>
             ))}
           </div>
@@ -601,7 +604,13 @@ export default function Graph() {
                 <div className="min-w-0">
                   <div className="flex items-center gap-1.5 mb-0.5">
                     <div className="w-2.5 h-2.5 rounded-full shrink-0" style={{ backgroundColor: nodeColor(neighborData.entity.type) }} />
-                    <bdi dir="ltr" className="text-xs uppercase font-mono text-muted-foreground">{neighborData.entity.type}</bdi>
+                    <bdi
+                      dir={graphEntityTypeLabel(neighborData.entity.type) === neighborData.entity.type ? 'ltr' : 'rtl'}
+                      className="text-xs text-muted-foreground"
+                      title={`النوع التقني: ${neighborData.entity.type}`}
+                    >
+                      {graphEntityTypeLabel(neighborData.entity.type)}
+                    </bdi>
                   </div>
                   <h3 dir="ltr" className="font-semibold text-sm truncate" title={neighborData.entity.name}>
                     {neighborData.entity.name}
@@ -654,6 +663,7 @@ export default function Graph() {
                         <div className="space-y-1">
                           {neighborData.outgoing.map((rel) => {
                             const target = entityById.get(rel.targetId);
+                            const relationLabel = graphRelationLabel(rel.relation);
                             return (
                               <button
                                 key={rel.id}
@@ -661,7 +671,14 @@ export default function Graph() {
                                 className="w-full text-left text-xs p-2 bg-secondary/50 rounded border border-border/50 hover:bg-secondary transition-colors"
                                 title={target?.name || rel.targetId}
                               >
-                                <div data-testid="graph-relation-value" dir="ltr" className="min-w-0 break-all font-mono text-muted-foreground text-[10px] mb-0.5">{rel.relation}</div>
+                                <div
+                                  data-testid="graph-relation-value"
+                                  dir={relationLabel === rel.relation ? 'ltr' : 'rtl'}
+                                  title={`العلاقة التقنية: ${rel.relation}`}
+                                  className="min-w-0 break-all text-muted-foreground text-[10px] mb-0.5"
+                                >
+                                  {relationLabel}
+                                </div>
                                 <div className="truncate flex items-center gap-1">
                                   <div className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: nodeColor(target?.type ?? '') }} />
                                   {target?.name || rel.targetId.slice(0, 12)}
@@ -682,6 +699,7 @@ export default function Graph() {
                         <div className="space-y-1">
                           {neighborData.incoming.map((rel) => {
                             const source = entityById.get(rel.sourceId);
+                            const relationLabel = graphRelationLabel(rel.relation);
                             return (
                               <button
                                 key={rel.id}
@@ -689,7 +707,14 @@ export default function Graph() {
                                 className="w-full text-left text-xs p-2 bg-secondary/50 rounded border border-border/50 hover:bg-secondary transition-colors"
                                 title={source?.name || rel.sourceId}
                               >
-                                <div data-testid="graph-relation-value" dir="ltr" className="min-w-0 break-all font-mono text-muted-foreground text-[10px] mb-0.5">{rel.relation}</div>
+                                <div
+                                  data-testid="graph-relation-value"
+                                  dir={relationLabel === rel.relation ? 'ltr' : 'rtl'}
+                                  title={`العلاقة التقنية: ${rel.relation}`}
+                                  className="min-w-0 break-all text-muted-foreground text-[10px] mb-0.5"
+                                >
+                                  {relationLabel}
+                                </div>
                                 <div className="truncate flex items-center gap-1">
                                   <div className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: nodeColor(source?.type ?? '') }} />
                                   {source?.name || rel.sourceId.slice(0, 12)}
