@@ -1588,7 +1588,8 @@ export async function syncRecipeObjectiveState(params: {
     proposalId?: string | null;
   };
 }): Promise<void> {
-  let provenGoalCompleted = false;
+  let wakeIntentId: string | null = null;
+  let immediateReplanMissionId: string | null = null;
   await db.transaction(async (tx) => {
     const [mission] = await tx
       .select()
@@ -1831,18 +1832,27 @@ export async function syncRecipeObjectiveState(params: {
         },
       });
     }
-    provenGoalCompleted = nextGoalStatus === "completed";
+    const completedAt = nextGoalStatus === "completed" ? goal.completedAt ?? new Date() : null;
     await tx.update(aiGoalsTable)
       .set({
         status: nextGoalStatus,
         blockedReason: nextGoalStatus === "completed" || nextGoalStatus === "verifying"
           ? null
           : (completionReason ?? "Recipe execution did not complete."),
-        completedAt: nextGoalStatus === "completed" ? goal.completedAt ?? new Date() : null,
+        completedAt,
         nextWakeAt: null,
         updatedAt: new Date(),
       })
       .where(eq(aiGoalsTable.id, goal.id));
+    if (goal.status !== "completed" && nextGoalStatus === "completed" && completedAt) {
+      const { insertMissionGoalWakeIntent } = await import("./mission-goal-wake-outbox.js");
+      wakeIntentId = await insertMissionGoalWakeIntent(tx, {
+        missionId: mission.id,
+        projectId: params.projectId,
+        goalId: goal.id,
+        completedAt,
+      });
+    }
     await tx.insert(eventsTable).values({
       id: randomUUID(),
       type: "AiGoalRecipeStatusSynced",
@@ -1872,6 +1882,14 @@ export async function syncRecipeObjectiveState(params: {
       .for("update");
     if (["blocked", "cancelled", "completed", "failed"].includes(mission.status)) return;
     const nextMissionStatus = await deriveProofGatedMissionStatus(tx, mission, goals);
+    if (
+      goal.status !== nextGoalStatus
+      && mission.status !== nextMissionStatus
+      && nextGoalStatus === "needs_replan"
+      && nextMissionStatus === "needs_replan"
+    ) {
+      immediateReplanMissionId = mission.id;
+    }
     if (mission.status === nextMissionStatus) return;
     await tx.update(aiMissionsTable)
       .set({
@@ -1894,10 +1912,38 @@ export async function syncRecipeObjectiveState(params: {
       },
     });
   });
-  if (provenGoalCompleted) {
-    // Commit canonical completion before waking only this Goal's dependents.
-    // The periodic reconciler remains the recovery path if this wake is lost.
-    await wakeReadyMissionGoals(32, params.projectId, params.goalId);
+  if (wakeIntentId) {
+    try {
+      const { dispatchMissionGoalWakeIntent } = await import("./mission-goal-wake-outbox.js");
+      await dispatchMissionGoalWakeIntent(wakeIntentId);
+    } catch (error) {
+      logger.warn(
+        { error, missionId: params.missionId, goalId: params.goalId, projectId: params.projectId },
+        "Mission Goal wake dispatch failed after Recipe completion; durable outbox recovery remains available.",
+      );
+    }
+  }
+
+  // Recipe failure is a durable state transition. Re-enter the existing
+  // coordinator only after the Goal and Mission projections commit; it still
+  // owns autonomy, diagnosis, approval, evidence, and retry-budget gates.
+  if (immediateReplanMissionId) {
+    try {
+      const { autoReplanMission } = await import("./mission-auto-replan.js");
+      await autoReplanMission(immediateReplanMissionId);
+    } catch (error) {
+      logger.warn(
+        {
+          error,
+          missionId: immediateReplanMissionId,
+          projectId: params.projectId,
+          goalId: params.goalId,
+          operationId: params.operationId,
+          scope: "mission-recipe",
+        },
+        "Immediate Mission replan failed after Recipe failure; durable reconciliation remains available.",
+      );
+    }
   }
 }
 
@@ -2189,6 +2235,12 @@ async function executeMissionRecipe(dispatch: RecipeDispatch): Promise<void> {
     }, "Mission recipe execution failed");
     await syncRecipeObjectiveStateAndFinalizeMissionOutcome({
       ...dispatch,
+      ...(dispatch.expectedExecutionId
+        ? { executionId: dispatch.expectedExecutionId }
+        : {}),
+      ...(dispatch.expectedAttempt !== undefined
+        ? { attempt: dispatch.expectedAttempt }
+        : {}),
       status: "needs_replan",
       reason: "recipe_execution_failed",
     }).catch(() => undefined);
