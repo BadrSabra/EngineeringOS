@@ -7232,9 +7232,7 @@ export interface CreateTaskInput {
      * @maxLength 12000
      */
   prompt?: string;
-  /**
-     * Start AI execution as part of Task creation. Requires a non-empty prompt; the Task and durable dispatch intent are committed atomically.
-     */
+  /** Start AI execution as part of Task creation. Requires a non-empty prompt; the Task and durable dispatch intent are committed atomically. */
   executeImmediately?: boolean;
 }
 
