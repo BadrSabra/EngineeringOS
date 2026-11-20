@@ -12,6 +12,7 @@ import {
   getUsableDynamicModelIds,
   refreshDynamicCatalog,
 } from "./openrouter/dynamic-catalog.js";
+import { resolveFallbackChainUnrotated } from "./openrouter/model-resolver.js";
 import {
   loadProvider,
   type ProviderId,
@@ -278,21 +279,38 @@ async function checkProvider(
       if (!ids || ids.size === 0) {
         throw new GroqClientError("SERVER_ERROR", "catalog unavailable");
       }
+
+      // Readiness must use the same free-only candidate resolver as inference.
+      // The registry's default is an emergency hint, not a required live model:
+      // it may disappear while other compatible free candidates remain.
       const config = loadProvider(provider);
-      const missing = (["fast", "powerful"] as const).filter(
-        (role) => !ids.has(config.defaultModels[role]),
-      );
+      const capability = requirements.requireTools
+        ? "tool_calling"
+        : requirements.requireJson
+          ? "json"
+          : "chat";
+      const roles = (["fast", "powerful"] as const).map((role) => {
+        const candidates = resolveFallbackChainUnrotated({
+          capability,
+          quality: role,
+          requireTools: requirements.requireTools,
+          requireJson: requirements.requireJson,
+          requireStreaming: requirements.requireStreaming,
+        });
+        return {
+          role,
+          modelId: candidates[0]?.id ?? config.defaultModels[role],
+          status: candidates.length > 0 ? "healthy" as const : "missing" as const,
+          checkedAt,
+        };
+      });
+      const missing = roles.filter((role) => role.status === "missing");
       const modelStatus =
         missing.length === 0 ? "model_healthy" :
           missing.length === 1 ? "model_partial" : "model_missing";
       model = {
         modelStatus,
-        roles: (["fast", "powerful"] as const).map((role) => ({
-          role,
-          modelId: config.defaultModels[role],
-          status: missing.includes(role) ? "missing" as const : "healthy" as const,
-          checkedAt,
-        })),
+        roles,
         reasonCodes: [modelStatus === "model_healthy" ? "model_healthy" : modelStatus],
       };
     } else {
