@@ -291,6 +291,36 @@ describe("Events", () => {
     expect(screen.queryByRole("button", { name: "Retry" })).not.toBeInTheDocument();
   });
 
+  it("clears every active filter directly from the empty results state", () => {
+    window.history.replaceState(
+      {},
+      "",
+      "/events?projectId=project-beta&severity=error&correlationId=trace-123&search=missing&page=3",
+    );
+    vi.mocked(useListEvents).mockReturnValue({
+      data: { events: [], total: 0 },
+      isLoading: false,
+      isFetching: false,
+      isError: false,
+      error: null,
+      dataUpdatedAt: new Date("2026-08-22T12:01:00.000Z").getTime(),
+      refetch,
+    } as ReturnType<typeof useListEvents>);
+
+    render(<Events />);
+
+    expect(screen.getByTestId("button-clear-event-filters-empty")).toBeInTheDocument();
+    expect(screen.queryByTestId("select-event-severity")).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByTestId("button-clear-event-filters-empty"));
+
+    expect(vi.mocked(useListEvents).mock.calls.at(-1)?.[0]).toEqual({
+      limit: 50,
+      page: 1,
+    });
+    expect(new URLSearchParams(window.location.search).size).toBe(0);
+  });
+
   it("clears event search in one click without losing project or severity filters", () => {
     window.history.replaceState(
       {},
