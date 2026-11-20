@@ -802,9 +802,29 @@ export function DiscoverProjectWizard({ onClose }: Props) {
               const projects = workspaceProjects;
               if (!projects || projects.length === 0) {
                 return (
-                  <p className="text-xs text-muted-foreground/60 py-2">
-                    لا توجد مشاريع مسجّلة. أضف مشروعًا من Git أو من ملف مضغوط أولًا.
-                  </p>
+                  <div className="space-y-3 py-2">
+                    <p className="text-xs text-muted-foreground/60">
+                      لا توجد مشاريع مسجّلة. اختر طريقة أخرى لإضافة المشروع.
+                    </p>
+                    <div className="flex flex-wrap gap-2">
+                      <button
+                        type="button"
+                        data-testid="button-switch-to-git-source"
+                        onClick={() => setSourceType('GIT_REPOSITORY')}
+                        className="rounded-md bg-primary px-3 py-2 text-xs font-semibold text-primary-foreground transition-colors hover:bg-primary/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2"
+                      >
+                        أضف من رابط Git
+                      </button>
+                      <button
+                        type="button"
+                        data-testid="button-switch-to-archive-source"
+                        onClick={() => setSourceType('ARCHIVE_UPLOAD')}
+                        className="rounded-md border border-border px-3 py-2 text-xs font-semibold text-foreground transition-colors hover:bg-secondary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2"
+                      >
+                        ارفع ملفًا مضغوطًا
+                      </button>
+                    </div>
+                  </div>
                 );
               }
               return (

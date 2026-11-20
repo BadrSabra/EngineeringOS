@@ -256,6 +256,23 @@ describe('DiscoverProjectWizard Arabic findings', () => {
     });
   });
 
+  it('switches directly to an available source when no workspace projects exist', () => {
+    render(<DiscoverProjectWizard onClose={vi.fn()} />);
+
+    fireEvent.click(screen.getByTestId('source-card-WORKSPACE_PROJECT'));
+    expect(screen.getByText('لا توجد مشاريع مسجّلة. اختر طريقة أخرى لإضافة المشروع.')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByTestId('button-switch-to-git-source'));
+    expect(screen.getByTestId('source-card-GIT_REPOSITORY')).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.getByPlaceholderText('https://github.com/owner/repo')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByTestId('source-card-WORKSPACE_PROJECT'));
+    fireEvent.click(screen.getByTestId('button-switch-to-archive-source'));
+    expect(screen.getByTestId('source-card-ARCHIVE_UPLOAD')).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.getByTestId('archive-file-input')).toBeInTheDocument();
+    expect(mocks.startDiscovery).not.toHaveBeenCalled();
+  });
+
   it('keeps project choice explicit when more than one project is available', () => {
     mocks.projects = [
       { id: 'project-one', name: 'المشروع الأول', rootPath: '/workspace/one' },
