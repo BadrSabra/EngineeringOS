@@ -596,14 +596,35 @@ describe("POST /api/projects — audit trail", () => {
     }
   });
 
-  it("records a project_created audit entry with stateAfter", async () => {
+  it("records project creation and durably queues its initial scan", async () => {
     const rootDir = makeProjectRootDir();
     const res = await request(app)
       .post("/api/projects")
       .send({ name: `audit-test-${randomUUID()}`, rootPath: rootDir, language: "typescript" });
     expect(res.status).toBe(201);
     expect(res.body.rootPath).toBe(rootDir);
+    expect(res.body.status).toBe("scanning");
     cleanupQueue.push(res.body.id);
+
+    const scanJobs = await db
+      .select()
+      .from(scanJobsTable)
+      .where(eq(scanJobsTable.projectId, res.body.id));
+    expect(scanJobs).toHaveLength(1);
+    const [initialScan] = scanJobs;
+    if (!initialScan) throw new Error("Project creation did not persist its initial scan job.");
+    expect(["queued", "running", "completed"]).toContain(initialScan.status);
+
+    const queuedEvents = await db
+      .select()
+      .from(eventsTable)
+      .where(eq(eventsTable.projectId, res.body.id));
+    const queuedEvent = queuedEvents.find((event) => event.type === "ProjectScanQueued");
+    expect(queuedEvent?.correlationId).toBe(initialScan.id);
+    expect(queuedEvent?.payload).toMatchObject({ jobId: initialScan.id });
+
+    const scanOutcome = await waitForScanJob(initialScan.id);
+    expect(scanOutcome.status).toBe("completed");
     removeProjectRootDir(rootDir);
 
     const audits = await db
@@ -613,7 +634,8 @@ describe("POST /api/projects — audit trail", () => {
     expect(audits).toHaveLength(1);
     expect(audits[0].entityType).toBe("project");
     expect(audits[0].action).toBe("created");
-    expect((audits[0].stateAfter as { name?: string } | null)?.name).toBe(res.body.name);
+    expect((audits[0].stateAfter as { name?: string; status?: string } | null)?.name).toBe(res.body.name);
+    expect((audits[0].stateAfter as { name?: string; status?: string } | null)?.status).toBe("scanning");
   });
 
   it("returns 204, removes the project, and preserves its deletion audit entry", async () => {
@@ -795,6 +817,12 @@ describe("Project ownership scoping (PR-02/PR-03)", () => {
     expect(res.status).toBe(201);
     cleanupQueue.push(res.body.id);
     expect(res.body.ownerId).toBe("test-user");
+    const [initialScan] = await db.select().from(scanJobsTable)
+      .where(eq(scanJobsTable.projectId, res.body.id)).limit(1);
+    expect(initialScan).toBeDefined();
+    if (initialScan) {
+      expect((await waitForScanJob(initialScan.id)).status).toBe("completed");
+    }
     removeProjectRootDir(rootDir);
   });
 
