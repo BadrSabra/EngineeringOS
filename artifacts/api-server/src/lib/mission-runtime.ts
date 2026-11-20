@@ -2650,10 +2650,144 @@ async function syncRecipeObjectiveStateAndFinalizeMissionOutcome(
   }
 }
 
+
+export type MissionGoalApprovalBinding =
+  | {
+      approvalKind: "plan";
+      approvalEventId: string;
+      planRevision: string;
+      stepId: string;
+      decisionTraceId?: string;
+    }
+  | {
+      approvalKind: "proposal";
+      approvalEventId: string;
+      executionId: string;
+      proposalId: string;
+      revision: number;
+    };
+
+function missionApprovalRecord(value: unknown): Record<string, unknown> {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : {};
+}
+
+/**
+ * Revalidate the exact durable approval while runMissionGoal holds the
+ * Mission -> Goal locks. Outbox preflight alone is not an authorization
+ * boundary because the approval or plan can change before runtime admission.
+ */
+async function missionGoalApprovalBindingIsCurrent(
+  tx: MissionTransaction,
+  mission: typeof aiMissionsTable.$inferSelect,
+  goal: typeof aiGoalsTable.$inferSelect,
+  binding: MissionGoalApprovalBinding,
+): Promise<boolean> {
+  if (!["active", "waiting"].includes(mission.status) || goal.status !== "queued") {
+    return false;
+  }
+
+  const [approvalEvent] = await tx.select({
+    id: eventsTable.id,
+    type: eventsTable.type,
+    projectId: eventsTable.projectId,
+    goalId: eventsTable.goalId,
+    payload: eventsTable.payload,
+  }).from(eventsTable)
+    .where(eq(eventsTable.id, binding.approvalEventId))
+    .limit(1);
+  if (!approvalEvent
+    || approvalEvent.type !== "AiGoalApprovalGranted"
+    || approvalEvent.projectId !== mission.projectId
+    || approvalEvent.goalId !== goal.id
+  ) return false;
+
+  const eventPayload = missionApprovalRecord(approvalEvent.payload);
+  if (eventPayload.missionId !== mission.id) return false;
+
+  if (binding.approvalKind === "plan") {
+    const successCriteria = missionApprovalRecord(goal.successCriteria);
+    const outcome = missionApprovalRecord(goal.outcomeContract);
+    const plan = missionApprovalRecord(outcome.planRevision);
+    const successPlan = missionApprovalRecord(successCriteria.planRevision);
+    const planSteps = Array.isArray(plan.steps) ? plan.steps.map(missionApprovalRecord) : [];
+    const planStep = planSteps.find((step) => step.id === binding.stepId);
+    const approval = missionApprovalRecord(outcome.planApproval);
+    const policy = missionApprovalRecord(mission.autonomyPolicy);
+    const action = missionApprovalRecord(goal.nextAction);
+    return eventPayload.approvalKind === "mission_plan_step"
+      && eventPayload.planRevision === binding.planRevision
+      && eventPayload.stepId === binding.stepId
+      && (binding.decisionTraceId === undefined
+        || eventPayload.decisionTraceId === binding.decisionTraceId)
+      && successCriteria.stepId === binding.stepId
+      && (successCriteria.kind === "mission_plan_step" || successCriteria.kind === "mission_replan_step")
+      && plan.hash === binding.planRevision
+      && successPlan.hash === binding.planRevision
+      && planStep?.kind === "execute"
+      && planStep.approvalRequired === true
+      && planStep.readOnly === false
+      && !planStep.recipe
+      && Array.isArray(planStep.files)
+      && planStep.files.length > 0
+      && policy.activePlanRevision === binding.planRevision
+      && outcome.stepId === binding.stepId
+      && approval.kind === "mission_plan_step"
+      && approval.state === "APPROVED"
+      && approval.approvalEventId === binding.approvalEventId
+      && approval.planRevision === binding.planRevision
+      && approval.stepId === binding.stepId
+      && action.kind === "task";
+  }
+
+  if (eventPayload.approvalKind !== "proposal"
+    || eventPayload.executionId !== binding.executionId
+    || eventPayload.proposalId !== binding.proposalId
+    || eventPayload.revision !== binding.revision
+  ) return false;
+
+  const [execution] = await tx.select({
+    id: aiExecutionsTable.id,
+    proposalId: aiExecutionsTable.proposalId,
+    status: aiExecutionsTable.status,
+  }).from(aiExecutionsTable)
+    .where(and(
+      eq(aiExecutionsTable.id, binding.executionId),
+      eq(aiExecutionsTable.goalId, goal.id),
+      eq(aiExecutionsTable.projectId, mission.projectId),
+      eq(aiExecutionsTable.userId, mission.userId),
+    ))
+    .for("update")
+    .limit(1);
+  if (!execution
+    || execution.proposalId !== binding.proposalId
+    || !["queued", "running", "paused", "failed"].includes(execution.status)
+  ) return false;
+
+  const [proposal] = await tx.select({
+    id: aiChangeProposalsTable.id,
+    status: aiChangeProposalsTable.status,
+    revision: aiChangeProposalsTable.revision,
+    approvalRequired: aiChangeProposalsTable.approvalRequired,
+  }).from(aiChangeProposalsTable)
+    .where(and(
+      eq(aiChangeProposalsTable.id, binding.proposalId),
+      eq(aiChangeProposalsTable.projectId, mission.projectId),
+    ))
+    .for("update")
+    .limit(1);
+  return Boolean(proposal
+    && proposal.status === "pending"
+    && proposal.approvalRequired === false
+    && proposal.revision === binding.revision);
+}
+
 export async function runMissionGoal(params: {
   goalId: string;
   userId: string;
   trigger: MissionGoalRunTrigger;
+  expectedApprovalBinding?: MissionGoalApprovalBinding;
   actionReceipt?: MissionAgentActionReceiptIdentity;
   delegation?: MissionDelegationBinding;
   expectedHandoffBinding?: {
@@ -2735,6 +2869,16 @@ export async function runMissionGoal(params: {
       .for("update");
     if (!goal) {
       return { status: "conflict" as const, goalId: params.goalId, reason: "goal_not_found" };
+    }
+
+    if (params.expectedApprovalBinding
+      && !await missionGoalApprovalBindingIsCurrent(tx, mission, goal, params.expectedApprovalBinding)
+    ) {
+      return {
+        status: "conflict" as const,
+        goalId: goal.id,
+        reason: "approval_binding_mismatch",
+      };
     }
 
     if (params.expectedHandoffBinding) {
