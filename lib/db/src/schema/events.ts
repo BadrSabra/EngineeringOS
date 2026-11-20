@@ -57,6 +57,11 @@ export const eventsTable = pgTable("events", {
   // Single-column correlationId index — kept for cross-project audit trail
   // lookups (e.g. "show me everything from correlation X regardless of project").
   index("idx_events_correlation_id").on(t.correlationId),
+  // The bounded Mission Goal wake dispatcher selects only pending/deferred
+  // outbox intents globally, ordered by timestamp and stable event identity.
+  index("idx_events_mission_goal_wake_pending")
+    .on(t.timestamp, t.id)
+    .where(sql`${t.type} IN ('MissionGoalWakeRequested', 'MissionGoalWakeDeferred')`),
   // Partial uniqueness is intentionally limited to verified GitHub delivery
   // records; generic/manual activity events may share the same correlation ID.
   // Ordered, bounded startup recovery of incomplete verified GitHub deliveries.

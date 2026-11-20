@@ -54,6 +54,10 @@ import {
   type MissionGoalRunTrigger,
 } from "../../lib/mission-runtime.js";
 import {
+  dispatchMissionGoalWakeIntent,
+  insertMissionGoalWakeIntent,
+} from "../../lib/mission-goal-wake-outbox.js";
+import {
   parseExecutionRequest,
   recoverAiExecutionResumeToken,
   recoverAiExecutionRetryToken,
@@ -4103,7 +4107,7 @@ router.patch("/ai/goals/:goalId", async (req, res) => {
           eq(aiMissionsTable.projectId, owned.project.id),
         ))
         .for("update");
-      if (!lockedMission) return { updated: undefined, shouldDispatchImmediately: false };
+      if (!lockedMission) return { updated: undefined, wakeIntentId: undefined, shouldDispatchImmediately: false };
       const [currentGoal] = await tx.select()
         .from(aiGoalsTable)
         .where(and(
@@ -4112,7 +4116,7 @@ router.patch("/ai/goals/:goalId", async (req, res) => {
           eq(aiGoalsTable.projectId, owned.project.id),
         ))
         .for("update");
-      if (!currentGoal) return { updated: undefined, shouldDispatchImmediately: false };
+      if (!currentGoal) return { updated: undefined, wakeIntentId: undefined, shouldDispatchImmediately: false };
       const proofContractChanged = (
         body.successCriteria !== undefined
         && !isDeepStrictEqual(body.successCriteria, currentGoal.successCriteria)
@@ -4214,7 +4218,7 @@ router.patch("/ai/goals/:goalId", async (req, res) => {
         .set(updateValues)
         .where(eq(aiGoalsTable.id, currentGoal.id))
         .returning();
-      if (!updated) return { updated: undefined };
+      if (!updated) return { updated: undefined, wakeIntentId: undefined, shouldDispatchImmediately: false };
 
       if (Object.prototype.hasOwnProperty.call(body, "dependsOnGoalIds")) {
         await setGoalDependencies(tx, {
@@ -4317,6 +4321,15 @@ router.patch("/ai/goals/:goalId", async (req, res) => {
           });
         }
       }
+      const newlyCompleted = currentGoal.status !== "completed" && updated.status === "completed";
+      const wakeIntentId = newlyCompleted && updated.completedAt
+        ? await insertMissionGoalWakeIntent(tx, {
+            missionId: goal.missionId,
+            projectId: goal.projectId,
+            goalId: goal.id,
+            completedAt: updated.completedAt,
+          })
+        : undefined;
       const parsedNextAction = GoalNextActionSchema.safeParse(updated.nextAction);
       const missionPolicy = readRecord(lockedMission.autonomyPolicy);
       const activePlanRevision = typeof missionPolicy?.activePlanRevision === "string"
@@ -4337,9 +4350,22 @@ router.patch("/ai/goals/:goalId", async (req, res) => {
         && updated.status === "queued"
         && (becameQueued || actionChanged)
         && parsedNextAction.success;
-      return { updated, shouldDispatchImmediately };
+      return { updated, wakeIntentId, shouldDispatchImmediately };
     });
     if (!result.updated) return res.status(404).json({ error: "Goal not found" });
+    if (result.wakeIntentId) {
+      // The durable wake is committed with the proof-gated Goal transition.
+      // This post-commit dispatch is only the low-latency path; the durable
+      // dispatcher retries the same intent after process interruption/failure.
+      try {
+        await dispatchMissionGoalWakeIntent(result.wakeIntentId);
+      } catch (error) {
+        logger.error(
+          { error, missionId: goal.missionId, goalId: goal.id, intentId: result.wakeIntentId },
+          "post-patch Mission Goal wake enqueue failed; durable intent remains pending",
+        );
+      }
+    }
     if (result.shouldDispatchImmediately) {
       try {
         await runMissionGoal({
@@ -4348,8 +4374,6 @@ router.patch("/ai/goals/:goalId", async (req, res) => {
           trigger: "resume",
         });
       } catch (error) {
-        // The Goal update committed before dispatch. The durable queued Goal
-        // remains visible to Mission reconciliation if this local wake fails.
         logger.error(
           { error, missionId: owned.mission.id, goalId: result.updated.id },
           "patched Mission Goal dispatch failed; durable wake reconciliation will retry",

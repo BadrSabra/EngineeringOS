@@ -107,6 +107,7 @@ import { dispatchPendingMissionChatHandoffs } from "./mission-chat-handoffs.js";
 import { retryPendingRuntimeStartTransitions } from "./agent-state/runtime-start-transition.js";
 import { dispatchDeferredAiTaskExecutions } from "../routes/ai/tasks.js";
 import { dispatchPendingTaskObservationOutbox } from "./task-observation-outbox.js";
+import { dispatchPendingMissionGoalWakes } from "./mission-goal-wake-outbox.js";
 
 const githubDeliveryReceiptEvents = alias(eventsTable, "github_delivery_receipt");
 const githubDeliveryRecoveryEvents = alias(eventsTable, "github_delivery_recovery");
@@ -1276,6 +1277,7 @@ async function dispatchPersistedPendingJobsOnce(): Promise<number> {
     { name: "task-recovery", run: () => dispatchAutonomousTaskRecoveries() },
     { name: "mission-replans", run: () => reconcileAutomaticMissionReplans() },
     { name: "decision-dispatch", run: () => reconcileApprovedMissionDecisionDispatches() },
+    { name: "mission-goal-wakes", run: () => dispatchPendingMissionGoalWakes(pageLimit) },
     { name: "mission-recipes", run: () => dispatchPendingMissionRecipes() },
     {
       name: "mission-recipe-acceptance-recovery",

@@ -625,7 +625,8 @@ async function syncLinkedObjectiveState(
     now: Date;
     acceptanceProjection?: GoalAcceptanceProjection;
   },
-): Promise<string | null> {
+): Promise<{ replanMissionId?: string; wakeIntentId?: string } | null> {
+  let completedGoalWakeIntentId: string | null = null;
   if (!params.task.goalId) return null;
 
   const [goalIdentity] = await tx
@@ -760,11 +761,12 @@ async function syncLinkedObjectiveState(
   // A manually blocked/cancelled goal remains operator-owned. Automatic
   // execution may advance an active/recoverable goal but must not reopen it.
   const goalChanged = !goalIsOperatorOwned && goal.status !== nextGoalStatus;
+  const completedAt = nextGoalStatus === "completed" ? goal.completedAt ?? params.now : null;
   if (goalChanged) {
     await tx.update(aiGoalsTable)
       .set({
         status: nextGoalStatus,
-        completedAt: nextGoalStatus === "completed" ? goal.completedAt ?? params.now : null,
+        completedAt,
         blockedReason: nextGoalStatus === "needs_replan"
           ? !dependencyProofReady
             ? "dependency_proof_unproven"
@@ -814,6 +816,15 @@ async function syncLinkedObjectiveState(
           : {}),
       },
     });
+    if (goalChanged && nextGoalStatus === "completed" && completedAt) {
+      const { insertMissionGoalWakeIntent } = await import("./mission-goal-wake-outbox.js");
+      completedGoalWakeIntentId = await insertMissionGoalWakeIntent(tx, {
+        missionId: mission.id,
+        projectId: params.task.projectId,
+        goalId: goal.id,
+        completedAt,
+      });
+    }
   }
 
   const goals = await tx
@@ -876,12 +887,16 @@ async function syncLinkedObjectiveState(
 
   // Only a newly accepted retryable failure may wake autonomous replanning.
   // The coordinator rechecks autonomy, diagnosis, evidence, and retry budget under its Mission lock.
-  return params.outcome === "FAILED"
+  if (
+    params.outcome === "FAILED"
     && params.retryable
     && nextGoalStatus === "needs_replan"
     && nextMissionStatus === "needs_replan"
-    ? mission.id
-    : null;
+  ) {
+    return { replanMissionId: mission.id };
+  }
+  if (completedGoalWakeIntentId) return { wakeIntentId: completedGoalWakeIntentId };
+  return null;
 }
 
 async function syncWorkflowGoalProjection(
@@ -2138,6 +2153,7 @@ export async function finalizeExecutionAcceptance(
   params: FinalizeExecutionAcceptanceParams,
 ): Promise<FinalizeExecutionAcceptanceResult> {
   const immediateReplanTarget: { value: { missionId: string; projectId: string; executionId: string } | null } = { value: null };
+  const immediateTaskGoalWakeTarget: { value: { projectId: string; wakeIntentId: string } | null } = { value: null };
   const result = await db.transaction(async (tx) => {
     const persistActionReceipt = async (
       acceptance: typeof aiExecutionAcceptancesTable.$inferSelect,
@@ -3051,7 +3067,7 @@ export async function finalizeExecutionAcceptance(
       if (!updatedTask) throw new Error("task_state_changed_during_finalize");
 
       const correlationId = params.taskFinalization.correlationId ?? execution.correlationId;
-      const replanMissionId = await syncLinkedObjectiveState(tx, {
+      const linkedGoalFollowUp = await syncLinkedObjectiveState(tx, {
         task,
         taskStatus: updatedTask.status,
         outcome,
@@ -3096,11 +3112,17 @@ export async function finalizeExecutionAcceptance(
           updatedAt: now,
         },
       });
-      if (replanMissionId) {
+      if (linkedGoalFollowUp?.replanMissionId) {
         immediateReplanTarget.value = {
-          missionId: replanMissionId,
+          missionId: linkedGoalFollowUp.replanMissionId,
           projectId: execution.projectId,
           executionId: execution.id,
+        };
+      }
+      if (linkedGoalFollowUp?.wakeIntentId) {
+        immediateTaskGoalWakeTarget.value = {
+          projectId: execution.projectId,
+          wakeIntentId: linkedGoalFollowUp.wakeIntentId,
         };
       }
       if (params.taskFinalization.log) {
@@ -3247,6 +3269,26 @@ export async function finalizeExecutionAcceptance(
           scope: "task-acceptance",
         },
         "Immediate Mission replan failed after accepted retryable Task failure; durable reconciliation remains available.",
+      );
+    }
+  }
+
+  // This is a post-commit scheduling hint, not an execution grant.
+  // The Mission runtime rechecks the dependent Goal's plan, proof, and
+  // authorization; periodic reconciliation remains the recovery path.
+  const taskGoalWakeTarget = immediateTaskGoalWakeTarget.value;
+  if (result.accepted && !result.duplicate && taskGoalWakeTarget) {
+    try {
+      const { dispatchMissionGoalWakeIntent } = await import("./mission-goal-wake-outbox.js");
+      await dispatchMissionGoalWakeIntent(taskGoalWakeTarget.wakeIntentId);
+    } catch (error) {
+      logger.warn(
+        {
+          ...taskGoalWakeTarget,
+          error,
+          scope: "task-acceptance",
+        },
+        "Mission dependent Goal wake failed after proven Task acceptance; durable reconciliation remains available.",
       );
     }
   }
