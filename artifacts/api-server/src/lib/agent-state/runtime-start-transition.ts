@@ -1857,6 +1857,7 @@ export async function finalizeRuntimeStartTransition(input: {
         "World State materialized but context invalidation failed",
       );
     }
+    await wakeRuntimeGoalsAfterTransitionMaterialized(input.projectId);
     return { status: "materialized", worldRevision: materialized.worldRevision };
   } catch (error) {
     const code = failureCode(error);
@@ -2336,7 +2337,6 @@ export async function finalizeApplyChangesTransition(input: {
       if (!boundEpisode) throw new Error("apply_transition_episode_scope_mismatch");
     });
     try { invalidateContextSlice(input.projectId, "worldState"); } catch { /* projection remains authoritative */ }
-    await wakeRuntimeGoalsAfterTransitionMaterialized(input.projectId);
     return { status: "materialized", worldRevision: materialized.worldRevision };
   } catch (error) {
     const message = error instanceof Error ? error.message : "";
