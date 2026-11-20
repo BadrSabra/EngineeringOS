@@ -194,6 +194,12 @@ router.post("/ai/tasks/:taskId/resume", async (req, res) => {
     });
   }
   if (lifecycle.status === "conflict") {
+    if (lifecycle.errorCode === "task_dependencies_not_completed") {
+      return res.status(409).json({
+        error: "task_dependencies_not_completed",
+        blockedDependencies: lifecycle.blockedDependencies ?? [],
+      });
+    }
     const retryResponse = respondWithTaskRetryGate(
       res,
       lifecycle.errorCode,
@@ -285,6 +291,12 @@ router.post("/ai/tasks/:taskId/execute", async (req, res) => {
     throw error;
   }
   if (lifecycle.status === "conflict") {
+    if (lifecycle.errorCode === "task_dependencies_not_completed") {
+      return res.status(409).json({
+        error: "task_dependencies_not_completed",
+        blockedDependencies: lifecycle.blockedDependencies ?? [],
+      });
+    }
     const retryResponse = respondWithTaskRetryGate(
       res,
       lifecycle.errorCode,

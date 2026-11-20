@@ -2,6 +2,7 @@ import { Router } from "express";
 import { db } from "@workspace/db";
 import {
   aiGoalsTable,
+  projectsTable,
   tasksTable,
   eventsTable,
   taskLogsTable,
@@ -39,6 +40,12 @@ import { scheduleAiTaskExecution } from "./ai.js";
 import { insertTaskAutoExecutionIntent, taskAutoExecutionIntentId } from "../lib/task-auto-execution-outbox.js";
 import { parsePagination } from "../lib/pagination.js";
 import { taskTransitionConflict, type TaskStatus } from "../lib/task-state.js";
+import {
+  duplicateTaskDependencyIds,
+  getTaskDependencyBlockers,
+  invalidTaskDependencyReferences,
+  TaskDependencyBlockedError,
+} from "../lib/task-dependencies.js";
 import { redactUserFacingText } from "../lib/ai-route-helpers.js";
 import {
   buildRuleVerificationChecks,
@@ -77,6 +84,23 @@ async function projectCurrentTaskExecutionReceipt<
 }
 
 class TaskStateConflictError extends Error {}
+
+class TaskDependencyReferenceError extends Error {
+  constructor(readonly dependencyIds: string[]) {
+    super("Task dependencies must reference existing tasks in the same project and cannot repeat.");
+    this.name = "TaskDependencyReferenceError";
+  }
+}
+
+class TaskHasDependentsError extends Error {
+  constructor(
+    readonly dependentTaskIds: string[],
+    readonly dependentCount: number,
+  ) {
+    super("This task is a prerequisite for other tasks and cannot be deleted yet.");
+    this.name = "TaskHasDependentsError";
+  }
+}
 
 async function renewManualTaskLease(taskId: string, workerId: string): Promise<boolean> {
   const [renewed] = await db
@@ -258,22 +282,51 @@ router.post("/tasks", async (req, res) => {
 
   const now = new Date();
   const correlationId = randomUUID();
-  const task = await db.transaction(async (tx) => {
-    const rows = await tx.insert(tasksTable)
-      .values({ id: randomUUID(), ...body, correlationId, createdAt: now, updatedAt: now })
-      .returning();
-    await tx.insert(eventsTable).values({
-      id: randomUUID(), type: "TaskCreated", projectId: body.projectId,
-      taskId: rows[0].id, severity: "info",
-      message: `Task "${body.title}" created (${body.priority})`, correlationId,
+  const taskId = randomUUID();
+  let task: Array<typeof tasksTable.$inferSelect>;
+  try {
+    task = await db.transaction(async (tx) => {
+      // Serialize dependency creation with prerequisite deletion for this project.
+      await tx.select({ id: projectsTable.id })
+        .from(projectsTable)
+        .where(eq(projectsTable.id, project.id))
+        .for("update")
+        .limit(1);
+
+      const dependencyIds = body.dependsOn ?? [];
+      const duplicateIds = duplicateTaskDependencyIds(dependencyIds);
+      const unavailableIds = await invalidTaskDependencyReferences(
+        tx,
+        project.id,
+        dependencyIds,
+      );
+      const invalidIds = [...new Set([...duplicateIds, ...unavailableIds])];
+      if (invalidIds.length > 0) throw new TaskDependencyReferenceError(invalidIds);
+
+      const rows = await tx.insert(tasksTable)
+        .values({ id: taskId, ...body, correlationId, createdAt: now, updatedAt: now })
+        .returning();
+      await tx.insert(eventsTable).values({
+        id: randomUUID(), type: "TaskCreated", projectId: body.projectId,
+        taskId: rows[0].id, severity: "info",
+        message: `Task "${body.title}" created (${body.priority})`, correlationId,
+      });
+      await recordAuditInTransaction(tx, {
+        entityType: "task", entityId: rows[0].id, action: "created",
+        projectId: body.projectId, actor: req.userId, correlationId,
+        stateAfter: rows[0],
+      });
+      return rows;
     });
-    await recordAuditInTransaction(tx, {
-      entityType: "task", entityId: rows[0].id, action: "created",
-      projectId: body.projectId, actor: req.userId, correlationId,
-      stateAfter: rows[0],
-    });
-    return rows;
-  });
+  } catch (error) {
+    if (error instanceof TaskDependencyReferenceError) {
+      return res.status(400).json({
+        error: "invalid_task_dependencies",
+        dependencyIds: error.dependencyIds,
+      });
+    }
+    throw error;
+  }
 
   invalidateContextCache(project.id);
 
@@ -349,6 +402,22 @@ router.patch("/tasks/:taskId", async (req, res) => {
   let updated: Array<typeof tasksTable.$inferSelect>;
   try {
     updated = await db.transaction(async (tx) => {
+      // Keep one lock order across all Task admission paths: dependent Task,
+      // then its prerequisite rows. This avoids PATCH-vs-execute lock inversion.
+      const [lockedTask] = await tx.select().from(tasksTable)
+        .where(and(
+          eq(tasksTable.id, taskId),
+          eq(tasksTable.status, before[0].status),
+          isNull(tasksTable.workerId),
+        ))
+        .for("update")
+        .limit(1);
+      if (!lockedTask) return [];
+
+      if (body.status === "verifying") {
+        const blockers = await getTaskDependencyBlockers(tx, lockedTask);
+        if (blockers.length > 0) throw new TaskDependencyBlockedError(blockers);
+      }
       const rows = await tx.update(tasksTable)
         .set({ ...body, updatedAt: new Date() })
         .where(and(
@@ -391,6 +460,12 @@ router.patch("/tasks/:taskId", async (req, res) => {
       return rows;
     });
   } catch (error) {
+    if (error instanceof TaskDependencyBlockedError) {
+      return res.status(409).json({
+        error: "task_dependencies_not_completed",
+        blockedDependencies: error.blockers,
+      });
+    }
     if (error instanceof TaskStateConflictError) {
       return res.status(409).json({
         error: "task_dispatch_identity_conflict",
@@ -437,8 +512,27 @@ router.delete("/tasks/:taskId", async (req, res) => {
   const correlationId = randomUUID();
   try {
     await db.transaction(async (tx) => {
+    await tx.select({ id: projectsTable.id })
+      .from(projectsTable)
+      .where(eq(projectsTable.id, project.id))
+      .for("update")
+      .limit(1);
     const [lockedTask] = await tx.select().from(tasksTable)
       .where(eq(tasksTable.id, taskId)).for("update");
+    const dependents = await tx.select({
+      id: tasksTable.id,
+      projectId: tasksTable.projectId,
+    }).from(tasksTable)
+      .where(sql`${tasksTable.dependsOn} @> ${JSON.stringify([taskId])}::jsonb`);
+    const localDependents = dependents.filter(
+      (dependent) => dependent.projectId === project.id,
+    );
+    if (localDependents.length > 0) {
+      throw new TaskHasDependentsError(
+        localDependents.map((dependent) => dependent.id),
+        localDependents.length,
+      );
+    }
     const activeExecutions = await tx.select({ id: aiExecutionsTable.id })
       .from(aiExecutionsTable)
       .where(and(
@@ -480,6 +574,13 @@ router.delete("/tasks/:taskId", async (req, res) => {
     await tx.delete(tasksTable).where(eq(tasksTable.id, taskId));
     });
   } catch (error) {
+    if (error instanceof TaskHasDependentsError) {
+      return res.status(409).json({
+        error: "task_has_dependents",
+        dependentTaskIds: error.dependentTaskIds,
+        dependentCount: error.dependentCount,
+      });
+    }
     if (error instanceof TaskStateConflictError) {
       return res.status(409).json({ error: "task_active_work", reason: error.message });
     }
@@ -521,22 +622,47 @@ router.post("/tasks/:taskId/execute", async (req, res) => {
   // pending/queued. A conditional UPDATE with a status guard means a second
   // request racing on the same task sees 0 rows affected and gets a clean
   // 409 instead of both requests running verification concurrently.
-  const claimed = await db
-    .update(tasksTable)
-    .set({
-      status: "running",
-      workerId,
-      leaseUntil: databaseLeaseUntil(AI_TASK_LEASE_MS),
-      lastHeartbeatAt: databaseNow(),
-      updatedAt: databaseNow(),
-    })
-    .where(and(eq(tasksTable.id, taskId), inArray(tasksTable.status, ["pending", "queued"])))
-    .returning();
-  if (claimed.length === 0) {
-    return res
-      .status(409)
-      .json({ error: `Cannot execute task with status "${task[0].status}"` });
+  const admission = await db.transaction(async (tx) => {
+    const [lockedTask] = await tx.select().from(tasksTable)
+      .where(eq(tasksTable.id, taskId))
+      .for("update")
+      .limit(1);
+    if (!lockedTask) return { kind: "missing" as const };
+
+    const blockers = await getTaskDependencyBlockers(tx, lockedTask);
+    if (blockers.length > 0) {
+      return { kind: "blocked" as const, blockers };
+    }
+
+    const [claimed] = await tx
+      .update(tasksTable)
+      .set({
+        status: "running",
+        workerId,
+        leaseUntil: databaseLeaseUntil(AI_TASK_LEASE_MS),
+        lastHeartbeatAt: databaseNow(),
+        updatedAt: databaseNow(),
+      })
+      .where(and(eq(tasksTable.id, taskId), inArray(tasksTable.status, ["pending", "queued"])))
+      .returning();
+    return claimed
+      ? { kind: "claimed" as const, task: lockedTask }
+      : { kind: "conflict" as const, status: lockedTask.status };
+  });
+  if (admission.kind === "blocked") {
+    return res.status(409).json({
+      error: "task_dependencies_not_completed",
+      blockedDependencies: admission.blockers,
+    });
   }
+  if (admission.kind !== "claimed") {
+    return admission.kind === "missing"
+      ? res.status(404).json({ error: "Task not found" })
+      : res.status(409).json({
+          error: `Cannot execute task with status "${admission.status}"`,
+        });
+  }
+  const taskToExecute = admission.task;
 
   const leaseHeartbeat = startManualTaskLeaseHeartbeat(taskId, workerId);
   try {
@@ -560,12 +686,12 @@ router.post("/tasks/:taskId/execute", async (req, res) => {
     await db.insert(eventsTable).values({
       id: randomUUID(),
       type: "TaskExecutionStarted",
-      projectId: task[0].projectId,
+      projectId: taskToExecute.projectId,
       taskId,
       severity: "info",
-      message: `Executing task "${task[0].title}"`,
+      message: `Executing task "${taskToExecute.title}"`,
       correlationId,
-      payload: { before: { status: task[0].status }, after: { status: "running" } },
+      payload: { before: { status: taskToExecute.status }, after: { status: "running" } },
     });
 
     if (!await leaseHeartbeat.renewNow()) {
@@ -575,7 +701,7 @@ router.post("/tasks/:taskId/execute", async (req, res) => {
     // Delegate to the task service (business logic extracted from route — audit W-003/PR-03).
     let verification;
     try {
-      verification = await runTaskVerification(task[0], project.rootPath);
+      verification = await runTaskVerification(taskToExecute, project.rootPath);
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       if (!await leaseHeartbeat.stop()) {
@@ -585,7 +711,7 @@ router.post("/tasks/:taskId/execute", async (req, res) => {
         const [restored] = await tx
           .update(tasksTable)
           .set({
-            status: task[0].status,
+            status: taskToExecute.status,
             updatedAt: databaseNow(),
             workerId: null,
             leaseUntil: null,
@@ -612,21 +738,21 @@ router.post("/tasks/:taskId/execute", async (req, res) => {
         await tx.insert(eventsTable).values({
           id: randomUUID(),
           type: "TaskExecutionFailed",
-          projectId: task[0].projectId,
+          projectId: taskToExecute.projectId,
           taskId,
           severity: "error",
-          message: `Executing task "${task[0].title}" failed: ${message}`,
+          message: `Executing task "${taskToExecute.title}" failed: ${message}`,
           correlationId,
-          payload: { before: { status: "running" }, after: { status: task[0].status } },
+          payload: { before: { status: "running" }, after: { status: taskToExecute.status } },
         });
 
         await recordAuditInTransaction(tx, {
           entityType: "task",
           entityId: taskId,
           action: "execution_failed",
-          projectId: task[0].projectId,
+          projectId: taskToExecute.projectId,
           stateBefore: { status: "running" },
-          stateAfter: { status: task[0].status },
+          stateAfter: { status: taskToExecute.status },
           changedFields: { error: message },
           correlationId,
         });
@@ -674,7 +800,7 @@ router.post("/tasks/:taskId/execute", async (req, res) => {
             status: finalStatus,
             verificationResult,
             remediationPlan: markRemediationPlanVerified(
-              task[0].remediationPlan,
+              taskToExecute.remediationPlan,
               finalStatus === "completed",
             ),
             updatedAt: finalizedAt,
@@ -711,7 +837,7 @@ router.post("/tasks/:taskId/execute", async (req, res) => {
               : finalStatus === "failed"
                 ? "TaskFailed"
                 : "TaskVerifying",
-          projectId: task[0].projectId,
+          projectId: taskToExecute.projectId,
           taskId,
           severity:
             finalStatus === "completed"
@@ -719,7 +845,7 @@ router.post("/tasks/:taskId/execute", async (req, res) => {
               : finalStatus === "failed"
                 ? "error"
                 : "warning",
-          message: `Task "${task[0].title}" → ${finalStatus}`,
+          message: `Task "${taskToExecute.title}" → ${finalStatus}`,
           correlationId,
           payload: { before: { status: "running" }, after: { status: finalStatus } },
         });
@@ -727,13 +853,13 @@ router.post("/tasks/:taskId/execute", async (req, res) => {
           entityType: "task",
           entityId: taskId,
           action: "executed",
-          projectId: task[0].projectId,
-          stateBefore: { status: task[0].status },
+          projectId: taskToExecute.projectId,
+          stateBefore: { status: taskToExecute.status },
           stateAfter: { status: finalStatus },
           changedFields: { verificationResult },
           correlationId,
         });
-        if (finalStatus === "verifying" && task[0].prompt) {
+        if (finalStatus === "verifying" && taskToExecute.prompt) {
           const intentPersisted = await insertTaskAutoExecutionIntent(tx, {
             taskId,
             userId: req.userId,
@@ -759,7 +885,7 @@ router.post("/tasks/:taskId/execute", async (req, res) => {
 
     // PR-C: the durable intent was committed with the Task transition. Wake
     // the local queue without waiting for the AI execution itself.
-    if (finalStatus === "verifying" && task[0].prompt) {
+    if (finalStatus === "verifying" && taskToExecute.prompt) {
       await scheduleAiTaskExecution(
         taskId,
         req.userId,
