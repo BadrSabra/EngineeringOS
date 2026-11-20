@@ -131,6 +131,28 @@ function unique(values: readonly string[]): string[] {
   return [...new Set(values.filter((value) => value.trim().length > 0))];
 }
 
+/**
+ * Materializing a Runtime Start transition is a durable signal that a waiting
+ * Mission Goal may now be eligible. The wake is deliberately post-commit and
+ * remains a hint: the Mission runtime reloads the transition, plan, dependency
+ * proofs, and execution authority under its existing locks before dispatch.
+ */
+async function wakeRuntimeGoalsAfterTransitionMaterialized(projectId: string): Promise<void> {
+  try {
+    const { wakeRuntimeTransitionMissionGoals } = await import("../mission-runtime.js");
+    await wakeRuntimeTransitionMissionGoals(32, projectId);
+  } catch (error) {
+    logger.warn(
+      {
+        scope: "runtime-start-transition",
+        projectId,
+        error,
+      },
+      "Runtime transition committed but immediate Mission Goal wake failed; durable reconciliation remains available.",
+    );
+  }
+}
+
 function transitionIdempotencyKey(input: RuntimeStartTransitionIntent): string {
   return `runtime.start:${input.executionId}:${input.attempt}:${input.episodeId}:${input.actionId}`;
 }
@@ -1631,6 +1653,7 @@ export async function finalizeRuntimeStartTransition(input: {
 }> {
   const claim = await claimRuntimeStartTransition(input);
   if (claim.kind === "materialized") {
+    await wakeRuntimeGoalsAfterTransitionMaterialized(input.projectId);
     return { status: "materialized", worldRevision: claim.worldRevision };
   }
   if (claim.kind === "terminal_failed") {
@@ -1834,6 +1857,7 @@ export async function finalizeRuntimeStartTransition(input: {
         "World State materialized but context invalidation failed",
       );
     }
+    await wakeRuntimeGoalsAfterTransitionMaterialized(input.projectId);
     return { status: "materialized", worldRevision: materialized.worldRevision };
   } catch (error) {
     const code = failureCode(error);
