@@ -23,7 +23,7 @@ import {
 } from 'recharts';
 import { BarChart3, AlertTriangle, Play, RefreshCw } from 'lucide-react';
 import { RefreshButton, RequestError } from '@/components/OperatorResilience';
-import { useSearch } from 'wouter';
+import { Link, useSearch } from 'wouter';
 
 const CHART_COLORS = {
   architecture: '#10b981',
@@ -228,6 +228,16 @@ function MetricsSession({
           className="flex w-full min-w-0 flex-col gap-2 sm:w-auto sm:flex-row sm:items-center"
         >
           <RefreshButton onRefresh={refreshMetrics} isRefreshing={isRefreshing} lastUpdated={lastUpdated} label="تحديث المؤشرات" refreshingLabel="جارٍ التحديث…" updatedLabel="آخر تحديث:" />
+          {currentProject && (
+            <Link
+              href={`/projects/${encodeURIComponent(currentProject.id)}/workspace`}
+              aria-label={`افتح مساحة العمل لمشروع ${currentProject.name}`}
+              data-testid="link-metrics-project-workspace"
+              className="inline-flex min-h-8 w-full shrink-0 items-center justify-center rounded-md border border-border bg-card px-3 py-2 text-xs font-medium text-foreground transition-colors hover:bg-secondary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring sm:w-auto"
+            >
+              مساحة العمل
+            </Link>
+          )}
           <select
             value={effectiveProjectId}
             onChange={(e) => setSelectedProjectId(e.target.value)}
