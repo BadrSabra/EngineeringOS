@@ -135,6 +135,36 @@ describe('Graph', () => {
     expect(screen.getByText('الكيانات (1)')).toBeInTheDocument();
   });
 
+  it('highlights matching entities and their links while keeping the rest of the map visible', () => {
+    render(<Graph />);
+
+    fireEvent.change(screen.getByPlaceholderText('ابحث عن عنصر...'), {
+      target: { value: ' source ' },
+    });
+
+    expect(screen.getByTestId('graph-search-status'))
+      .toHaveTextContent('أُبرزت 1 نتيجة وروابطها على الخريطة');
+    expect(screen.getByTestId('graph-node-entity-source')).toHaveStyle({ opacity: '1' });
+    expect(screen.getByTestId('graph-node-entity-target')).toHaveStyle({ opacity: '0.12' });
+    expect(screen.getByTestId('graph-edge-relationship-1'))
+      .toHaveAttribute('stroke-opacity', '0.85');
+  });
+
+  it('leaves the full map unchanged when a search has no matches', () => {
+    render(<Graph />);
+
+    fireEvent.change(screen.getByPlaceholderText('ابحث عن عنصر...'), {
+      target: { value: 'missing-item' },
+    });
+
+    expect(screen.getByTestId('graph-search-status'))
+      .toHaveTextContent('لا توجد نتائج مطابقة؛ بقيت الخريطة كاملة.');
+    expect(screen.getByTestId('graph-node-entity-source')).toHaveStyle({ opacity: '1' });
+    expect(screen.getByTestId('graph-node-entity-target')).toHaveStyle({ opacity: '1' });
+    expect(screen.getByTestId('graph-edge-relationship-1'))
+      .toHaveAttribute('stroke-opacity', '0.25');
+  });
+
   it('falls back to an available project when the selected project disappears', () => {
     vi.mocked(useListProjects).mockReturnValue({
       data: [project, secondProject],
