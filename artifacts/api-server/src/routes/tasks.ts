@@ -1266,8 +1266,27 @@ router.get("/tasks/:taskId/logs/stream", async (req, res) => {
   res.setHeader("X-Accel-Buffering", "no");
   res.flushHeaders();
 
+  let closed = false;
+  let interval: ReturnType<typeof setInterval> | null = null;
+  let ttl: ReturnType<typeof setTimeout> | null = null;
+  const cleanup = () => {
+    if (interval) clearInterval(interval);
+    if (ttl) clearTimeout(ttl);
+    interval = null;
+    ttl = null;
+  };
+
+  // The request body is already complete for this GET. Track the response
+  // socket instead, and attach before any post-header database reads so an
+  // early client disconnect cannot be missed.
+  res.once("close", () => {
+    closed = true;
+    cleanup();
+  });
+
   const send = (event: string, data: unknown) => {
-    res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
+    if (closed || res.writableEnded || res.destroyed) return;
+    res.write("event: " + event + "\ndata: " + JSON.stringify(data) + "\n\n");
   };
 
   const requestedCursor = Number(req.query.after ?? req.get("Last-Event-ID") ?? 0);
@@ -1277,6 +1296,10 @@ router.get("/tasks/:taskId/logs/stream", async (req, res) => {
     .from(taskLogsTable)
     .where(eq(taskLogsTable.taskId, taskId))
     .orderBy(asc(taskLogsTable.sequence), asc(taskLogsTable.timestamp), asc(taskLogsTable.id));
+
+  // The client may close while the initial snapshot is being read.
+  if (closed || res.writableEnded || res.destroyed) return;
+
   const structured = existing.filter((log) => log.executionId && log.sequence !== null);
   const terminalAlreadyKnown = existing.some((log) =>
     log.eventType === "terminal" && (cursor === 0 || (log.sequence ?? 0) <= cursor),
@@ -1291,23 +1314,9 @@ router.get("/tasks/:taskId/logs/stream", async (req, res) => {
     }
   }
 
-  let closed = false;
-  let interval: ReturnType<typeof setInterval> | null = null;
-  let ttl: ReturnType<typeof setTimeout> | null = null;
-  const cleanup = () => {
-    if (interval) clearInterval(interval);
-    if (ttl) clearTimeout(ttl);
-    interval = null;
-    ttl = null;
-  };
-  req.on("close", () => {
-    closed = true;
-    cleanup();
-  });
-
   // 5-minute max stream lifetime
   ttl = setTimeout(() => {
-    if (!closed) {
+    if (!closed && !res.writableEnded && !res.destroyed) {
       send("done", { reason: "timeout", cursor });
       cleanup();
       res.end();
@@ -1325,7 +1334,7 @@ router.get("/tasks/:taskId/logs/stream", async (req, res) => {
     : null;
   let polling = false;
   interval = setInterval(async () => {
-    if (closed || polling) return;
+    if (closed || res.writableEnded || res.destroyed || polling) return;
     polling = true;
     try {
       // Sequence is server-owned and never derived from model text. Legacy
@@ -1340,6 +1349,8 @@ router.get("/tasks/:taskId/logs/stream", async (req, res) => {
         // The Task-wide sequence is the replay cursor; worker timestamps may move backwards.
         .orderBy(asc(taskLogsTable.sequence), asc(taskLogsTable.timestamp), asc(taskLogsTable.id));
 
+      if (closed || res.writableEnded || res.destroyed) return;
+
       for (const log of newLogs) {
         send("log", publicTaskLog(log));
         if (log.sequence !== null) cursor = Math.max(cursor, log.sequence);
@@ -1353,6 +1364,8 @@ router.get("/tasks/:taskId/logs/stream", async (req, res) => {
         .from(tasksTable)
         .where(eq(tasksTable.id, taskId))
         .limit(1);
+
+      if (closed || res.writableEnded || res.destroyed) return;
 
       if (current?.status && terminalTaskStatuses.includes(current.status)) {
         terminalDeadline ??= Date.now() + 15_000;
@@ -1373,5 +1386,4 @@ router.get("/tasks/:taskId/logs/stream", async (req, res) => {
   }, 500);
   return;
 });
-
 export default router;
