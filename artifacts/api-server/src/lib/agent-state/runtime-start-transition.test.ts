@@ -3430,12 +3430,14 @@ describe("runtime.start transition retry scheduling", () => {
       && actualRuntimeChangedFactRefs.includes(fact.id)
     )).toBe(true);
 
+    // The finalizer now emits the immediate wake after its materialization
+    // commit. The explicit reconciliation call below must be an idempotent no-op.
     const woken = await wakeRuntimeTransitionMissionGoals();
     const [targetAfterWake] = await db.select({
       status: aiGoalsTable.status,
       blockedReason: aiGoalsTable.blockedReason,
     }).from(aiGoalsTable).where(eq(aiGoalsTable.id, mission.targetGoalId));
-    expect(woken).toBe(1);
+    expect(woken).toBe(0);
     expect(targetAfterWake).toMatchObject({
       status: "running",
       blockedReason: null,
@@ -3483,6 +3485,11 @@ describe("runtime.start transition retry scheduling", () => {
     const mission = fixture.missionHandoff;
     if (!mission) throw new Error("Mission handoff fixture was not created.");
     await insertValidRuntimeStartObservations(fixture);
+    // Inject the scope mismatch before finalization so the automatic post-commit
+    // wake observes the invalid binding instead of dispatching the successor first.
+    await db.update(aiWorldTransitionsTable)
+      .set({ taskScope: "project" })
+      .where(eq(aiWorldTransitionsTable.id, fixture.transitionId));
     const finalized = await finalizeRuntimeStartTransition({
       projectId: fixture.projectId,
       executionId: fixture.executionId,
@@ -3492,9 +3499,6 @@ describe("runtime.start transition retry scheduling", () => {
       effectBundleId: fixture.effectBundleId,
     });
     expect(finalized.status).toBe("materialized");
-    await db.update(aiWorldTransitionsTable)
-      .set({ taskScope: "project" })
-      .where(eq(aiWorldTransitionsTable.id, fixture.transitionId));
 
     expect(await wakeRuntimeTransitionMissionGoals()).toBe(0);
     const [target] = await db.select({
