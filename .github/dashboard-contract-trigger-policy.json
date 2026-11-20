@@ -67,6 +67,7 @@
     "artifacts/dashboard/src/pages/GeneralChat.tsx": "trigger",
     "artifacts/dashboard/src/pages/Missions.tsx": "trigger",
     "artifacts/dashboard/src/pages/SkillRegistry.tsx": "trigger",
-    "artifacts/dashboard/src/pages/project-workspace/ProjectWorkspaceSwitcher.tsx": "trigger"
+    "artifacts/dashboard/src/pages/project-workspace/ProjectWorkspaceSwitcher.tsx": "trigger",
+    "artifacts/dashboard/src/components/layout/QuickNavigation.tsx": "trigger"
   }
 }
