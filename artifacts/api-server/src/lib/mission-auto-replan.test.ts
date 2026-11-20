@@ -15,7 +15,12 @@ import {
 } from "@workspace/db";
 import { heavyJobQueue } from "./job-queue.js";
 import { autoReplanMission, buildReplanContext } from "./mission-auto-replan.js";
-import { runMissionGoal } from "./mission-runtime.js";
+import {
+  receiveMissionEvent,
+  replayPendingMissionEvents,
+  runMissionGoal,
+} from "./mission-runtime.js";
+import { createMissionEventEnvelope } from "./mission-events.js";
 import { taskScopeIdentity } from "./agent-state/observation-materializer.js";
 import { loadMissionWorldStatePlanningRead } from "./mission-world-state-planning-read.js";
 import { diagnoseRuntimeStartWorldStateFailure } from "./world-state-failure-diagnosis.js";
@@ -40,6 +45,51 @@ afterEach(async () => {
     await db.delete(projectsTable).where(eq(projectsTable.id, projectId)).catch(() => undefined);
   }
 });
+
+async function createEventDrivenReplanFixture(waiting: boolean) {
+  const projectId = randomUUID();
+  const missionId = randomUUID();
+  const goalId = randomUUID();
+  const now = new Date();
+  projectIds.push(projectId);
+
+  await db.insert(projectsTable).values({
+    id: projectId,
+    ownerId: "test-user",
+    name: `mission-event-replan-${projectId.slice(0, 8)}`,
+    rootPath: process.cwd(),
+    language: "typescript",
+    status: "active",
+    createdAt: now,
+    updatedAt: now,
+  });
+  await db.insert(aiMissionsTable).values({
+    id: missionId,
+    projectId,
+    userId: "test-user",
+    title: "Continue after the external signal",
+    intent: "Inspect the source, then fix the blocking issue.",
+    status: waiting ? "waiting" : "active",
+    scope: { kind: "project", projectId },
+    autonomyPolicy: { mode: "autonomous", maxAutoReplans: 3 },
+    createdAt: now,
+    updatedAt: now,
+  });
+  await db.insert(aiGoalsTable).values({
+    id: goalId,
+    missionId,
+    projectId,
+    title: "Wait for the external signal",
+    status: waiting ? "waiting_for_event" : "queued",
+    nextAction: { kind: "wait", reason: "event", wakeAt: null },
+    successCriteria: { kind: "mission_plan_step", stepId: "await-signal" },
+    outcomeContract: { planRevision: { hash: "event-plan-v1" } },
+    createdAt: now,
+    updatedAt: now,
+  });
+
+  return { projectId, missionId, goalId };
+}
 
 describe("automatic Mission replanning", () => {
   it("runs new plan roots through the production Goal gate and keeps old revisions stale", async () => {
@@ -778,4 +828,93 @@ describe("automatic Mission replanning", () => {
       .where(eq(aiMissionsTable.id, malformedMissionId));
     expect(malformedMission?.status).toBe("blocked");
   });
+  it("automatically replans after a matching event wakes an autonomous Mission", async () => {
+    const fixture = await createEventDrivenReplanFixture(true);
+    const event = createMissionEventEnvelope({
+      eventId: randomUUID(),
+      type: "dependency.ready",
+      projectId: fixture.projectId,
+      goalId: fixture.goalId,
+      planRevision: "event-plan-v1",
+      payload: { receiptId: "proof-receipt-1" },
+    });
+
+    await expect(receiveMissionEvent(event)).resolves.toMatchObject({
+      persisted: true,
+      woken: true,
+      duplicate: false,
+    });
+
+    const [mission] = await db.select({
+      status: aiMissionsTable.status,
+      autonomyPolicy: aiMissionsTable.autonomyPolicy,
+    }).from(aiMissionsTable).where(eq(aiMissionsTable.id, fixture.missionId));
+    expect(mission?.status).toBe("active");
+    expect(mission?.autonomyPolicy.activePlanRevision).toMatch(/^auto:/);
+    const replans = await db.select({ id: eventsTable.id })
+      .from(eventsTable)
+      .where(and(
+        eq(eventsTable.projectId, fixture.projectId),
+        eq(eventsTable.type, "AiMissionReplannedAutomatically"),
+      ));
+    expect(replans).toHaveLength(1);
+
+    await expect(receiveMissionEvent(event)).resolves.toMatchObject({
+      persisted: true,
+      woken: false,
+      duplicate: true,
+    });
+    expect(await db.select({ id: eventsTable.id }).from(eventsTable).where(and(
+      eq(eventsTable.projectId, fixture.projectId),
+      eq(eventsTable.type, "AiMissionReplannedAutomatically"),
+    ))).toHaveLength(1);
+  });
+
+  it("replans an early durable event when the Goal later enters its event-wait boundary", async () => {
+    const fixture = await createEventDrivenReplanFixture(false);
+    const event = createMissionEventEnvelope({
+      eventId: randomUUID(),
+      type: "dependency.ready",
+      projectId: fixture.projectId,
+      goalId: fixture.goalId,
+      planRevision: "event-plan-v1",
+      payload: { receiptId: "proof-receipt-2" },
+    });
+
+    await expect(receiveMissionEvent(event)).resolves.toMatchObject({
+      persisted: true,
+      woken: false,
+      duplicate: false,
+    });
+    const [beforeWait] = await db.select({ status: aiMissionsTable.status })
+      .from(aiMissionsTable).where(eq(aiMissionsTable.id, fixture.missionId));
+    expect(beforeWait?.status).toBe("active");
+
+    await db.update(aiGoalsTable).set({
+      status: "waiting_for_event",
+      updatedAt: new Date(),
+    }).where(eq(aiGoalsTable.id, fixture.goalId));
+    await db.update(aiMissionsTable).set({
+      status: "waiting",
+      updatedAt: new Date(),
+    }).where(eq(aiMissionsTable.id, fixture.missionId));
+
+    await expect(replayPendingMissionEvents(32, fixture.projectId)).resolves.toBe(1);
+    await expect(replayPendingMissionEvents(32, fixture.projectId)).resolves.toBe(0);
+
+    const [mission] = await db.select({
+      status: aiMissionsTable.status,
+      autonomyPolicy: aiMissionsTable.autonomyPolicy,
+    }).from(aiMissionsTable).where(eq(aiMissionsTable.id, fixture.missionId));
+    expect(mission?.status).toBe("active");
+    expect(mission?.autonomyPolicy.activePlanRevision).toMatch(/^auto:/);
+    const replans = await db.select({ id: eventsTable.id })
+      .from(eventsTable)
+      .where(and(
+        eq(eventsTable.projectId, fixture.projectId),
+        eq(eventsTable.type, "AiMissionReplannedAutomatically"),
+      ));
+    expect(replans).toHaveLength(1);
+  });
+
 });
