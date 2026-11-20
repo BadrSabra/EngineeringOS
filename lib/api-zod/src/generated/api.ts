@@ -1097,7 +1097,6 @@ export const ListTasksResponse = zod.array(ListTasksResponseItem)
 /**
  * @summary Create a new task
  */
-export const createTaskBodyPromptMin = 1;
 export const createTaskBodyPromptMax = 12000;
 
 export const createTaskBodyExecuteImmediatelyDefault = false;
@@ -1114,7 +1113,7 @@ export const CreateTaskBody = zod.object({
   "relatedFiles": zod.array(zod.string()).optional(),
   "dependsOn": zod.array(zod.string()).optional(),
   "phase": zod.string().optional(),
-  "prompt": zod.string().min(createTaskBodyPromptMin).max(createTaskBodyPromptMax).optional().describe('Optional Task prompt. Required when executeImmediately is true.'),
+  "prompt": zod.string().min(1).max(createTaskBodyPromptMax).optional().describe('Optional Task prompt. Required when executeImmediately is true.'),
   "executeImmediately": zod.boolean().default(createTaskBodyExecuteImmediatelyDefault).describe('Start AI execution as part of Task creation. Requires a non-empty prompt; the Task and durable dispatch intent are committed atomically.')
 })
 
