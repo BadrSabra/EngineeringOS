@@ -2736,6 +2736,55 @@ describe("runtime.start transition retry scheduling", () => {
       expect(status).toBe("materialized");
       expect(dispatchCount).toBe(1);
       expect(enqueue).toHaveBeenCalledTimes(1);
+
+      // Simulate a process crash after the transition committed but before
+      // its wake intent was durably acknowledged by the dispatcher.
+      clearInterval(dispatcher);
+      const [deliveredIntent] = await db.select().from(eventsTable).where(and(
+        eq(eventsTable.projectId, fixture.projectId),
+        eq(eventsTable.goalId, mission.sourceGoalId),
+        eq(eventsTable.type, "AiMissionWorldTransitionWakeRequested"),
+      )).limit(1);
+      expect(typeof deliveredIntent?.payload?.processedAt).toBe("string");
+
+      const pendingPayload = { ...(deliveredIntent?.payload ?? {}) };
+      delete pendingPayload.processedAt;
+      delete pendingPayload.dispatchOutcome;
+      delete pendingPayload.terminalReason;
+      delete pendingPayload.deadLetterAt;
+      delete pendingPayload.dispatchLease;
+      pendingPayload.nextAttemptAt = new Date(Date.now() - 1_000).toISOString();
+      await db.update(eventsTable).set({ payload: pendingPayload })
+        .where(eq(eventsTable.id, deliveredIntent!.id));
+
+      const recoveryDispatcher = startDurableJobDispatcher();
+      try {
+        let recovered = false;
+        const recoveryDeadline = Date.now() + 10_000;
+        while (Date.now() < recoveryDeadline) {
+          const [intent] = await db.select({ payload: eventsTable.payload })
+            .from(eventsTable)
+            .where(eq(eventsTable.id, deliveredIntent!.id))
+            .limit(1);
+          if (typeof intent?.payload?.processedAt === "string") {
+            recovered = true;
+            break;
+          }
+          await new Promise((resolve) => setTimeout(resolve, 100));
+        }
+        expect(recovered).toBe(true);
+
+        const recoveredDispatches = await db.select({ id: eventsTable.id })
+          .from(eventsTable).where(and(
+            eq(eventsTable.projectId, fixture.projectId),
+            eq(eventsTable.goalId, mission.targetGoalId),
+            eq(eventsTable.type, "AiGoalRecipeDispatchRequested"),
+          ));
+        expect(recoveredDispatches).toHaveLength(1);
+        expect(enqueue).toHaveBeenCalledTimes(1);
+      } finally {
+        clearInterval(recoveryDispatcher);
+      }
     } finally {
       clearInterval(dispatcher);
     }
