@@ -676,8 +676,8 @@ describe("Mission recipe dispatch", () => {
     );
     await seedMissionRecipeEpisode(proofParams, executionId, planRevision);
     const deliveryReceipt = {
-      kind: "recipe",
-      status: "completed",
+      kind: "recipe" as const,
+      status: "completed" as const,
       executionId,
       attempt: 0,
       operationId,
