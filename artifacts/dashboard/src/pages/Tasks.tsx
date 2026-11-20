@@ -898,16 +898,43 @@ function TaskLogsPanel({ task, taskStatus }: { task: TaskView; taskStatus: strin
       refetchInterval: currentExecutionId ? 5_000 : false,
     },
   });
+  const currentExecutionIdentityMatchesTask = Boolean(
+    currentCorrelationId
+    && currentExecutionId
+    && currentExecution?.id === currentExecutionId
+    && currentExecution?.correlationId === currentCorrelationId
+    && currentExecution?.linkedTaskId === taskId,
+  );
+  const currentExecutionIsBound = currentExecutionIdentityMatchesTask && !currentExecutionFetching;
   const currentExecutionAttempt = task.status === 'running' && currentExecutionFetching
     ? null
-    : currentExecution?.id === currentExecutionId
-      && currentExecution.correlationId === currentCorrelationId
-      && currentExecution.linkedTaskId === taskId
-      ? currentExecution.attempt
+    : currentExecutionIdentityMatchesTask
+      ? currentExecution?.attempt
       : null;
-  const operationId = logs
-    .map((log) => log.metadata?.operationId)
-    .find((value): value is string => typeof value === 'string');
+  const currentExecutionAttemptFromLogs = currentCorrelationId && currentExecutionId
+    ? [...logs].reverse().find((log) =>
+      log.correlationId === currentCorrelationId
+      && log.executionId === currentExecutionId
+      && typeof log.attempt === 'number')?.attempt
+    : undefined;
+  const operationAttempt = currentExecutionIsBound && typeof currentExecution?.attempt === 'number'
+    ? currentExecution.attempt
+    : currentExecutionAttemptFromLogs;
+  const currentExecutionOperationLog = currentCorrelationId && currentExecutionId && typeof operationAttempt === 'number'
+    ? [...logs].reverse().find((log) =>
+      log.correlationId === currentCorrelationId
+      && log.executionId === currentExecutionId
+      && log.attempt === operationAttempt
+      && typeof log.metadata?.operationId === 'string'
+      && log.metadata.operationId.trim())
+    : undefined;
+  const currentExecutionOperationId = currentExecutionIsBound
+    && typeof currentExecution?.operationId === 'string'
+    ? currentExecution.operationId.trim()
+    : '';
+  const logOperationId = currentExecutionOperationLog?.metadata?.operationId;
+  const operationId = currentExecutionOperationId
+    || (typeof logOperationId === 'string' ? logOperationId.trim() : undefined);
   const groupedActivity = useMemo(() => groupActivity(logs), [logs]);
   const activityItems = useMemo(() => visibleActivityItems(groupedActivity), [groupedActivity]);
   const plan = useMemo(

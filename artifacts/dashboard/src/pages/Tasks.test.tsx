@@ -1595,6 +1595,107 @@ describe('Tasks recovery rendering', () => {
     }
   });
 
+  it('shows only the current attempt operation id when live log reconnection is exhausted', () => {
+    vi.useFakeTimers();
+    const eventSources: Array<{ onerror: ((event: Event) => void) | null }> = [];
+    class MockEventSource {
+      onerror: ((event: Event) => void) | null = null;
+      addEventListener = vi.fn();
+      close = vi.fn();
+      constructor() {
+        eventSources.push(this);
+      }
+    }
+    vi.stubGlobal('EventSource', MockEventSource);
+
+    const previousAttemptLog = {
+      id: 'operation-log-previous',
+      taskId: 'task-live-current-attempt',
+      level: 'info' as const,
+      message: 'Previous attempt started.',
+      timestamp: '2026-08-25T10:01:00.000Z',
+      eventType: 'activity' as const,
+      executionId: 'execution-live',
+      correlationId: 'correlation-live',
+      attempt: 1,
+      sequence: 1,
+      metadata: { operationId: 'operation-previous' },
+    };
+    const currentAttemptLog = {
+      ...previousAttemptLog,
+      id: 'operation-log-current',
+      message: 'Current attempt started.',
+      timestamp: '2026-08-25T10:02:00.000Z',
+      attempt: 2,
+      sequence: 2,
+      metadata: { operationId: 'operation-current' },
+    };
+    vi.mocked(useListTasks).mockReturnValue({
+      data: [{
+        id: 'task-live-current-attempt',
+        projectId: 'project-1',
+        title: 'Scope current live-stream operation',
+        status: 'running',
+        correlationId: 'correlation-live',
+        priority: 'p1',
+        phase: 'execute',
+        createdAt: '2026-08-25T10:00:00.000Z',
+        updatedAt: '2026-08-25T10:02:00.000Z',
+      }],
+      isLoading: false,
+      isError: false,
+      error: null,
+      refetch: vi.fn(),
+      isRefetching: false,
+      dataUpdatedAt: 0,
+    } as ReturnType<typeof useListTasks>);
+    vi.mocked(useGetTaskLogs).mockReturnValue({
+      data: [previousAttemptLog, currentAttemptLog],
+      isLoading: false,
+      isError: false,
+      error: null,
+      refetch: vi.fn(),
+    } as ReturnType<typeof useGetTaskLogs>);
+    vi.mocked(useGetAiExecution).mockReturnValue({
+      data: {
+        id: 'execution-live',
+        correlationId: 'correlation-live',
+        linkedTaskId: 'task-live-current-attempt',
+        attempt: 1,
+        operationId: 'operation-cached-stale',
+      } as NonNullable<ReturnType<typeof useGetAiExecution>['data']>,
+      isLoading: false,
+      isFetching: true,
+      isError: false,
+      error: null,
+    } as ReturnType<typeof useGetAiExecution>);
+
+    try {
+      renderPage();
+      fireEvent.click(screen.getByRole('button', { name: 'عرض تفاصيل المهمة: Scope current live-stream operation' }));
+      fireEvent.click(screen.getByRole('button', { name: 'السجل' }));
+
+      expect(eventSources).toHaveLength(1);
+      for (let attempt = 0; attempt <= 5; attempt += 1) {
+        const eventSource = eventSources[attempt];
+        expect(eventSource).toBeDefined();
+        act(() => eventSource.onerror?.(new Event('error')));
+        if (attempt < 5) {
+          act(() => {
+            vi.advanceTimersByTime(Math.min(1000 * 2 ** attempt, 8000));
+          });
+        }
+      }
+
+      const reconnectAlert = document.querySelector('[data-operation-id]');
+      expect(reconnectAlert).toHaveAttribute('data-operation-id', 'operation-current');
+      expect(reconnectAlert).not.toHaveAttribute('data-operation-id', 'operation-previous');
+    } finally {
+      vi.useRealTimers();
+      vi.unstubAllGlobals();
+    }
+  });
+
   it('preserves cached activity logs and offers refresh when the log query errors', () => {
     const refetchLogs = vi.fn();
     const retainedLog = {
