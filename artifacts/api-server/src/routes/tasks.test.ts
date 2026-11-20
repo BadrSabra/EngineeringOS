@@ -127,7 +127,7 @@ describe("Task lifecycle", () => {
     );
   });
 
-  it("does not execute a task until every same-project prerequisite is completed", async () => {
+  it("durably defers requested task execution until every same-project prerequisite is completed", async () => {
     const prerequisite = await createTask();
     const dependent = await request(app).post("/api/tasks").send({
       projectId: prerequisite.projectId,
@@ -226,7 +226,7 @@ describe("Task lifecycle", () => {
     expect(executions).toHaveLength(0);
   });
 
-  it("blocks a task when a legacy-completed prerequisite has an incomplete ancestor", async () => {
+  it("defers a task when a legacy-completed prerequisite has an incomplete ancestor", async () => {
     const deepest = await createTask();
     const middle = await request(app).post("/api/tasks").send({
       projectId: deepest.projectId,
@@ -285,6 +285,9 @@ describe("Task lifecycle", () => {
     expect(response.body.blockedDependencies).toContainEqual(
       expect.objectContaining({ reason: "dependency_cycle" }),
     );
+    await expect(db.select().from(eventsTable)
+      .where(eq(eventsTable.id, taskExecutionWaitIntentId(first.taskId))))
+      .resolves.toHaveLength(0);
   });
 
   it("prevents deletion of a prerequisite that is still referenced by another task", async () => {
