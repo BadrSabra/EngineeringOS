@@ -85,6 +85,36 @@ describe("Events", () => {
     expect(screen.getByRole("button", { name: "الأقدم" })).toBeDisabled();
   });
 
+  it("opens a known project's workspace by name and keeps unavailable project ids readable", () => {
+    vi.mocked(useListEvents).mockReturnValue({
+      data: {
+        events: [
+          mockEvents[0],
+          { ...mockEvents[1], id: "event-orphan", projectId: "deleted-project" },
+        ],
+        total: 2,
+      },
+      isLoading: false,
+      isFetching: false,
+      isError: false,
+      error: null,
+      dataUpdatedAt: new Date("2026-08-22T12:01:00.000Z").getTime(),
+      refetch,
+    } as ReturnType<typeof useListEvents>);
+
+    render(<Events />);
+
+    expect(screen.getByTestId("link-event-project-event-1")).toHaveAttribute(
+      "href",
+      "/projects/project-alpha/workspace",
+    );
+    expect(screen.getByRole("link", { name: "فتح مساحة المشروع: Alpha" }))
+      .toHaveAttribute("title", "project-alpha");
+    expect(screen.getByTestId("text-event-project-event-orphan"))
+      .toHaveTextContent("deleted-project");
+    expect(screen.queryByRole("link", { name: /deleted-project/ })).not.toBeInTheDocument();
+  });
+
   it("labels an in-progress refresh and retains only the last successful read as a snapshot", () => {
     vi.mocked(useListEvents).mockReturnValue({
       data: { events: mockEvents, total: mockEvents.length },
