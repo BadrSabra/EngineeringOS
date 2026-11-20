@@ -9372,6 +9372,7 @@ describe("real durable task execution lifecycle", () => {
         status: "queued",
         successCriteria: { planRevision: { hash: planRevision } },
         outcomeContract: { planRevision: { hash: planRevision } },
+        nextAction: { kind: "task", taskId },
         createdAt: now,
         updatedAt: now,
       },
