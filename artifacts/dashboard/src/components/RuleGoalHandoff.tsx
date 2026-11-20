@@ -1,11 +1,19 @@
 import { useState } from 'react';
 import { useUser } from '@clerk/react';
-import type { Rule } from '@workspace/api-client-react';
 import { Sparkles } from 'lucide-react';
 import { useLocation } from 'wouter';
 import { storeHomeGoalDraft } from '@/lib/home-goal-handoff';
 
-function ruleGoalText(rule: Rule): string {
+type RuleHandoffDetails = {
+  id: string;
+  projectId?: string | null;
+  code: string;
+  title: string;
+  description?: string | null;
+  fixDescription?: string | null;
+};
+
+function ruleGoalText(rule: RuleHandoffDetails): string {
   const description = rule.description?.trim().slice(0, 500);
   const fixDescription = rule.fixDescription?.trim().slice(0, 500);
   return [
@@ -16,7 +24,7 @@ function ruleGoalText(rule: Rule): string {
   ].filter((part): part is string => Boolean(part)).join('\n\n');
 }
 
-export default function RuleGoalHandoff({ rule }: { rule: Rule }) {
+export default function RuleGoalHandoff({ rule }: { rule: RuleHandoffDetails }) {
   const { isLoaded, user } = useUser();
   const [, setLocation] = useLocation();
   const [saveError, setSaveError] = useState<string | null>(null);

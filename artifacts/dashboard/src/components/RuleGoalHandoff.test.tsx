@@ -1,6 +1,5 @@
 import { fireEvent, render, screen } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import type { Rule } from '@workspace/api-client-react';
 import { readGoalDrafts, storeHomeGoalDraft } from '@/lib/home-goal-handoff';
 import RuleGoalHandoff from './RuleGoalHandoff';
 
@@ -25,7 +24,7 @@ const projectRule = {
   title: 'منع الحقن',
   description: 'افحص بناء الاستعلامات.',
   fixDescription: 'استخدم معاملات آمنة.',
-} as unknown as Rule;
+};
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -55,7 +54,7 @@ describe('RuleGoalHandoff', () => {
   });
 
   it('does not offer a project handoff for a global rule or unloaded user', () => {
-    const globalRule = { ...projectRule, projectId: null } as Rule;
+    const globalRule = { ...projectRule, projectId: null };
     const { rerender } = render(<RuleGoalHandoff rule={globalRule} />);
 
     expect(screen.queryByTestId('button-rule-goal-handoff-rule-1')).not.toBeInTheDocument();
