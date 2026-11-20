@@ -32,10 +32,10 @@ describe("provider recovery projection", () => {
       "groq",
     );
 
-    expect(projection.availabilityState).toBe("quota_exhausted");
-    expect(projection.operatorAction).toMatch(/quota window/i);
-    expect(projection.operatorAction).not.toContain("OpenRouter");
-    expect(projection.operatorAction).not.toContain("raw provider quota detail");
+    expect(projection?.availabilityState).toBe("quota_exhausted");
+    expect(projection?.operatorAction).toMatch(/quota window/i);
+    expect(projection?.operatorAction).not.toContain("OpenRouter");
+    expect(projection?.operatorAction).not.toContain("raw provider quota detail");
   });
 });
 
