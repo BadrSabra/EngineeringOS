@@ -33,7 +33,6 @@ import {
   isBoundApplyChangeEffectBundle,
 } from "./apply-change-effect.js";
 import { logger } from "../logger.js";
-import { databaseLeaseUntil, databaseNow } from "../job-lease.js";
 import { establishProjectRoot } from "../project-root.js";
 import { hashDeliveryTree } from "../delivery-workspace.js";
 
@@ -1452,8 +1451,10 @@ async function claimMissionWorldTransitionWakeIntent(
       projectId: eventsTable.projectId,
       goalId: eventsTable.goalId,
       payload: eventsTable.payload,
-      now: databaseNow(),
-      leaseUntil: databaseLeaseUntil(MISSION_WORLD_TRANSITION_WAKE_LEASE_MS),
+      // Keep these as timestamptz values: timestamp-without-time-zone
+      // is parsed using the Node process timezone and can skew lease ownership.
+      now: sql<Date>`clock_timestamp()`,
+      leaseUntil: sql<Date>`clock_timestamp() + (${MISSION_WORLD_TRANSITION_WAKE_LEASE_MS} * interval '1 millisecond')`,
     }).from(eventsTable).where(and(
       eq(eventsTable.id, intentId),
       eq(eventsTable.type, MISSION_WORLD_TRANSITION_WAKE_EVENT),
@@ -1532,20 +1533,21 @@ async function heartbeatMissionWorldTransitionWakeIntent(
 
 async function markMissionWorldTransitionWakeProcessed(
   intentId: string,
-  payload: Record<string, unknown>,
   workerId: string,
   details: Record<string, unknown> = {},
 ): Promise<boolean> {
+  // Merge into the latest row payload in PostgreSQL. A heartbeat may have
+  // extended the lease after this worker read its initial claim snapshot.
+  const terminalPayload = {
+    ...details,
+    processedAt: new Date().toISOString(),
+    nextAttemptAt: null,
+    lastError: null,
+    wakeLeaseToken: null,
+    wakeLeaseUntil: null,
+  };
   const [updated] = await db.update(eventsTable).set({
-    payload: {
-      ...payload,
-      ...details,
-      processedAt: new Date().toISOString(),
-      nextAttemptAt: null,
-      lastError: null,
-      wakeLeaseToken: null,
-      wakeLeaseUntil: null,
-    },
+    payload: sql`${eventsTable.payload} || ${JSON.stringify(terminalPayload)}::jsonb`,
   }).where(and(
     eq(eventsTable.id, intentId),
     eq(eventsTable.type, MISSION_WORLD_TRANSITION_WAKE_EVENT),
@@ -1576,16 +1578,17 @@ async function deferMissionWorldTransitionWake(
     30_000 * (2 ** Math.min(attemptCount - 1, 5)),
   );
   const message = error instanceof Error ? error.message : "mission_world_transition_wake_failed";
+  const deferredPayload = {
+    attemptCount,
+    lastError: message.slice(0, 240),
+    nextAttemptAt: exhausted ? null : new Date(now + backoffMs).toISOString(),
+    ...(exhausted ? { deadLetterAt: new Date(now).toISOString() } : {}),
+    wakeLeaseToken: null,
+    wakeLeaseUntil: null,
+  };
+  // Preserve fields written since claim (notably a concurrent heartbeat).
   const [updated] = await db.update(eventsTable).set({
-    payload: {
-      ...payload,
-      attemptCount,
-      lastError: message.slice(0, 240),
-      nextAttemptAt: exhausted ? null : new Date(now + backoffMs).toISOString(),
-      ...(exhausted ? { deadLetterAt: new Date(now).toISOString() } : {}),
-      wakeLeaseToken: null,
-      wakeLeaseUntil: null,
-    },
+    payload: sql`${eventsTable.payload} || ${JSON.stringify(deferredPayload)}::jsonb`,
   }).where(and(
     eq(eventsTable.id, intentId),
     eq(eventsTable.type, MISSION_WORLD_TRANSITION_WAKE_EVENT),
@@ -1646,7 +1649,7 @@ export async function dispatchMissionWorldTransitionWakeIntent(
       || !isMissionWorldTransitionWakeKind(expectedKind)
     ) {
       if (leaseLost) return false;
-      return await markMissionWorldTransitionWakeProcessed(intentId, payload, claim.workerId, {
+      return await markMissionWorldTransitionWakeProcessed(intentId, claim.workerId, {
         terminalReason: "invalid_wake_intent",
       });
     }
@@ -1685,7 +1688,7 @@ export async function dispatchMissionWorldTransitionWakeIntent(
       || episode.goalId !== goalId
     ) {
       if (leaseLost) return false;
-      return await markMissionWorldTransitionWakeProcessed(intentId, payload, claim.workerId, {
+      return await markMissionWorldTransitionWakeProcessed(intentId, claim.workerId, {
         terminalReason: "transition_or_mission_binding_superseded",
       });
     }
@@ -1701,7 +1704,7 @@ export async function dispatchMissionWorldTransitionWakeIntent(
     }
 
     if (leaseLost) return false;
-    return await markMissionWorldTransitionWakeProcessed(intentId, payload, claim.workerId, {
+    return await markMissionWorldTransitionWakeProcessed(intentId, claim.workerId, {
       dispatchOutcome: "delivered",
     });
   } catch (error) {
