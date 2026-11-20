@@ -13,6 +13,11 @@ vi.mock('@clerk/react', () => ({
   useClerk: () => ({ signOut: mocks.signOut }),
 }));
 
+vi.mock('@workspace/api-client-react', () => ({
+  getListProjectsQueryKey: () => ['/api/projects'],
+  useListProjects: () => ({ data: [], isLoading: false, isError: false }),
+}));
+
 afterEach(() => {
   cleanup();
   vi.clearAllMocks();
