@@ -1665,7 +1665,7 @@ export function startStaleJobSweep(): NodeJS.Timeout {
     const [
       failed,
       requeued,
-      failedDiscoveries,
+      reconciledDiscoveries,
       recoveredTasks,
       reconciledAiExecutions,
       expiredUploads,
@@ -1689,8 +1689,8 @@ export function startStaleJobSweep(): NodeJS.Timeout {
     if (requeued > 0) {
       logger.warn({ requeued }, "stale-job sweep: stale pending scan jobs re-enqueued");
     }
-    if (failedDiscoveries > 0 || recoveredTasks > 0) {
-      logger.warn({ failedDiscoveries, recoveredTasks }, "stale-job sweep: abandoned work reconciled");
+    if (reconciledDiscoveries > 0 || recoveredTasks > 0) {
+      logger.warn({ reconciledDiscoveries, recoveredTasks }, "stale-job sweep: abandoned work reconciled");
     }
     if (reconciledAiExecutions > 0) {
       logger.warn(
