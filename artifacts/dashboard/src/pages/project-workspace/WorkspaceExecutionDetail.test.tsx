@@ -91,8 +91,27 @@ describe("WorkspaceExecutionDetail", () => {
     expect(screen.getByTestId("mission-capsule")).toBeInTheDocument();
     expect(screen.getByText("مراجعة تنفيذ مرتبطة بالمشروع")).toBeInTheDocument();
     expect(screen.getByTestId("toggle-proof")).toBeInTheDocument();
+    expect(screen.queryByTestId("link-workspace-execution-task")).not.toBeInTheDocument();
     expect(screen.queryByTestId("button-action-cancel")).not.toBeInTheDocument();
     expect(screen.queryByTestId("button-action-approve_changes")).not.toBeInTheDocument();
+  });
+
+  it("opens the exact linked task from the matched execution", () => {
+    mocks.query = {
+      data: { ...execution, linkedTaskId: "task-1" },
+      isLoading: false,
+      isError: false,
+      isFetching: false,
+      error: undefined,
+      refetch: vi.fn(),
+    };
+
+    renderWorkspaceExecutionDetail();
+
+    expect(screen.getByTestId("link-workspace-execution-task"))
+      .toHaveAttribute("href", "/tasks?projectId=project-1&taskId=task-1");
+    expect(screen.getByTestId("link-workspace-execution-task"))
+      .toHaveAccessibleName("فتح تفاصيل المهمة المرتبطة بهذا التنفيذ");
   });
 
   it("rejects an execution projection whose project identity does not match the Workspace", () => {
@@ -110,6 +129,7 @@ describe("WorkspaceExecutionDetail", () => {
     expect(screen.getByText(
       "تعذر مطابقة تفاصيل التنفيذ مع المشروع أو المحاولة أو المرشح الحالي؛ لن نخلط بين إسقاطات مختلفة.",
     )).toBeInTheDocument();
+    expect(screen.queryByTestId("link-workspace-execution-task")).not.toBeInTheDocument();
     expect(screen.queryByTestId("mission-capsule")).not.toBeInTheDocument();
   });
 

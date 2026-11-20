@@ -1,6 +1,7 @@
-import { AlertTriangle, Loader2, RefreshCw } from "lucide-react";
+import { AlertTriangle, ArrowRight, Loader2, RefreshCw } from "lucide-react";
 import { getGetAiExecutionQueryKey, useGetAiExecution } from "@workspace/api-client-react";
 import { ExecutionProjectionPanel } from "@/components/ExecutionProjectionPanel";
+import { Link } from "wouter";
 
 type WorkspaceExecutionDetailProps = {
   executionId: string;
@@ -82,19 +83,36 @@ export default function WorkspaceExecutionDetail({
     );
   }
 
+  const linkedTaskId = typeof execution.linkedTaskId === "string"
+    ? execution.linkedTaskId.trim()
+    : "";
+
   return (
-    <ExecutionProjectionPanel
-      projection={execution.projection}
-      executionId={execution.id}
-      executionStatus={execution.status}
-      flightState={execution.flightState}
-      evidenceVerdict={execution.evidenceVerdict}
-      resumable={execution.resumable}
-      proposalId={execution.proposalId}
-      operationId={execution.operationId}
-      compact
-      readOnly
-      hideRecoveryActions
-    />
+    <>
+      {linkedTaskId && (
+        <Link
+          href={`/tasks?projectId=${encodeURIComponent(projectId)}&taskId=${encodeURIComponent(linkedTaskId)}`}
+          className="mt-3 inline-flex items-center gap-1.5 text-xs font-medium text-cyan-300 underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-200"
+          aria-label="فتح تفاصيل المهمة المرتبطة بهذا التنفيذ"
+          data-testid="link-workspace-execution-task"
+        >
+          <ArrowRight className="h-3.5 w-3.5 rotate-180" aria-hidden="true" />
+          افتح المهمة المرتبطة
+        </Link>
+      )}
+      <ExecutionProjectionPanel
+        projection={execution.projection}
+        executionId={execution.id}
+        executionStatus={execution.status}
+        flightState={execution.flightState}
+        evidenceVerdict={execution.evidenceVerdict}
+        resumable={execution.resumable}
+        proposalId={execution.proposalId}
+        operationId={execution.operationId}
+        compact
+        readOnly
+        hideRecoveryActions
+      />
+    </>
   );
 }
