@@ -7,6 +7,7 @@ import { readGoalDrafts, storeHomeGoalDraft } from '../lib/home-goal-handoff';
 const mocks = vi.hoisted(() => ({
   setLocation: vi.fn(), mutate: vi.fn(),
   invalidateQueries: vi.fn(() => Promise.resolve()),
+  refetchProjects: vi.fn(),
   ownerId: 'user-1',
 }));
 vi.mock('@clerk/react', () => ({
@@ -79,7 +80,9 @@ beforeEach(() => {
     data: mockProjects,
     isLoading: false,
     isError: false,
+    isFetching: false,
     error: null,
+    refetch: mocks.refetchProjects,
   } as ReturnType<typeof useListProjects>);
 });
 
@@ -116,6 +119,44 @@ describe("Projects", () => {
     expect(screen.getByText('React + Vite')).toBeVisible();
     expect(screen.getByTestId('details-project-template')).toHaveAttribute('open');
     expect(mocks.mutate).not.toHaveBeenCalled();
+  });
+
+  it('retries the project list without reloading the page', () => {
+    vi.mocked(useListProjects).mockReturnValue({
+      data: undefined,
+      isLoading: false,
+      isError: true,
+      isFetching: false,
+      error: new Error('project service unavailable'),
+      refetch: mocks.refetchProjects,
+    } as ReturnType<typeof useListProjects>);
+
+    render(<Projects />);
+
+    fireEvent.click(screen.getByTestId('button-retry-project-list'));
+
+    expect(mocks.refetchProjects).toHaveBeenCalledOnce();
+    expect(screen.getByRole('alert')).toHaveTextContent('تعذر تحميل المشاريع');
+  });
+
+  it('prevents duplicate list retries while the refresh is running', () => {
+    vi.mocked(useListProjects).mockReturnValue({
+      data: undefined,
+      isLoading: false,
+      isError: true,
+      isFetching: true,
+      error: new Error('project service unavailable'),
+      refetch: mocks.refetchProjects,
+    } as ReturnType<typeof useListProjects>);
+
+    render(<Projects />);
+
+    const retryButton = screen.getByTestId('button-retry-project-list');
+    expect(retryButton).toBeDisabled();
+    expect(retryButton).toHaveAttribute('aria-busy', 'true');
+    expect(retryButton).toHaveTextContent('جارٍ تحديث المشاريع');
+    fireEvent.click(retryButton);
+    expect(mocks.refetchProjects).not.toHaveBeenCalled();
   });
 
   it('binds project creation to the newly routed goal draft when the route changes in-place', () => {
