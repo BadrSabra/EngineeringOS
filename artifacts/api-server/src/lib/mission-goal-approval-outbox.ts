@@ -1,10 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { and, asc, eq, inArray, sql } from "drizzle-orm";
 import {
-  aiChangeProposalsTable,
-  aiExecutionsTable,
-  aiGoalsTable,
-  aiMissionsTable,
   db,
   eventsTable,
 } from "@workspace/db";
@@ -331,122 +327,6 @@ async function deferIntent(intentId: string, token: string, error: unknown): Pro
   });
 }
 
-async function approvalStillCurrent(payload: MissionGoalApprovalPayload): Promise<boolean> {
-  return db.transaction(async (tx) => {
-    // Match the authoritative Mission -> Goal lock order used by approval and
-    // completion writers before checking the event's exact binding.
-    const [mission] = await tx.select().from(aiMissionsTable)
-      .where(and(
-        eq(aiMissionsTable.id, payload.missionId),
-        eq(aiMissionsTable.projectId, payload.projectId),
-        eq(aiMissionsTable.userId, payload.userId),
-      ))
-      .for("update")
-      .limit(1);
-    if (!mission || !["active", "waiting"].includes(mission.status)) return false;
-
-    const [goal] = await tx.select().from(aiGoalsTable)
-      .where(and(
-        eq(aiGoalsTable.id, payload.goalId),
-        eq(aiGoalsTable.missionId, payload.missionId),
-        eq(aiGoalsTable.projectId, payload.projectId),
-      ))
-      .for("update")
-      .limit(1);
-    if (!goal || goal.status !== "queued") return false;
-
-    const [approvalEvent] = await tx.select({
-      id: eventsTable.id,
-      type: eventsTable.type,
-      projectId: eventsTable.projectId,
-      goalId: eventsTable.goalId,
-      payload: eventsTable.payload,
-    }).from(eventsTable)
-      .where(eq(eventsTable.id, payload.approvalEventId))
-      .limit(1);
-    if (!approvalEvent
-      || approvalEvent.type !== "AiGoalApprovalGranted"
-      || approvalEvent.projectId !== payload.projectId
-      || approvalEvent.goalId !== payload.goalId
-    ) return false;
-
-    const eventPayload = record(approvalEvent.payload);
-    if (eventPayload.missionId !== payload.missionId) return false;
-
-    if (payload.approvalKind === "plan") {
-      const successCriteria = record(goal.successCriteria);
-      const outcome = record(goal.outcomeContract);
-      const plan = record(outcome.planRevision);
-      const successPlan = record(successCriteria.planRevision);
-      const planSteps = Array.isArray(plan.steps) ? plan.steps.map(record) : [];
-      const planStep = planSteps.find((step) => step.id === payload.stepId);
-      const approval = record(outcome.planApproval);
-      const policy = record(mission.autonomyPolicy);
-      const action = record(goal.nextAction);
-      return eventPayload.approvalKind === "mission_plan_step"
-        && eventPayload.planRevision === payload.planRevision
-        && eventPayload.stepId === payload.stepId
-        && successCriteria.stepId === payload.stepId
-        && (successCriteria.kind === "mission_plan_step" || successCriteria.kind === "mission_replan_step")
-        && plan.hash === payload.planRevision
-        && successPlan.hash === payload.planRevision
-        && planStep?.kind === "execute"
-        && planStep.approvalRequired === true
-        && planStep.readOnly === false
-        && !planStep.recipe
-        && Array.isArray(planStep.files)
-        && planStep.files.length > 0
-        && policy.activePlanRevision === payload.planRevision
-        && outcome.stepId === payload.stepId
-        && approval.kind === "mission_plan_step"
-        && approval.state === "APPROVED"
-        && approval.approvalEventId === payload.approvalEventId
-        && approval.planRevision === payload.planRevision
-        && approval.stepId === payload.stepId
-        && action.kind === "task";
-    }
-
-    if (eventPayload.approvalKind !== "proposal"
-      || eventPayload.executionId !== payload.executionId
-      || eventPayload.proposalId !== payload.proposalId
-      || eventPayload.revision !== payload.revision
-    ) return false;
-
-    const [execution] = await tx.select({
-      id: aiExecutionsTable.id,
-      proposalId: aiExecutionsTable.proposalId,
-      status: aiExecutionsTable.status,
-    }).from(aiExecutionsTable)
-      .where(and(
-        eq(aiExecutionsTable.id, payload.executionId ?? ""),
-        eq(aiExecutionsTable.goalId, payload.goalId),
-        eq(aiExecutionsTable.projectId, payload.projectId),
-        eq(aiExecutionsTable.userId, payload.userId),
-      ))
-      .limit(1);
-    if (!execution
-      || execution.proposalId !== payload.proposalId
-      || !["queued", "running", "paused", "failed"].includes(execution.status)
-    ) return false;
-
-    const [proposal] = await tx.select({
-      id: aiChangeProposalsTable.id,
-      status: aiChangeProposalsTable.status,
-      revision: aiChangeProposalsTable.revision,
-      approvalRequired: aiChangeProposalsTable.approvalRequired,
-    }).from(aiChangeProposalsTable)
-      .where(and(
-        eq(aiChangeProposalsTable.id, payload.proposalId ?? ""),
-        eq(aiChangeProposalsTable.projectId, payload.projectId),
-      ))
-      .limit(1);
-    return Boolean(proposal
-      && proposal.status === "pending"
-      && proposal.approvalRequired === false
-      && proposal.revision === payload.revision);
-  });
-}
-
 /** Dispatch one approved Goal, fenced by a durable cross-replica lease. */
 export async function dispatchMissionGoalApprovalIntent(
   intentId: string,
@@ -489,17 +369,26 @@ export async function dispatchMissionGoalApprovalIntent(
   }
 
   try {
-    if (!await approvalStillCurrent(payload)) {
-      await settleIntent(intentId, lease.token, MISSION_GOAL_APPROVAL_SUPERSEDED, {
-        reason: "approval_or_goal_state_changed",
-      });
-      return { dispatched: false, reason: "superseded" };
-    }
-
+    const expectedApprovalBinding = payload.approvalKind === "plan"
+      ? {
+        approvalKind: "plan" as const,
+        approvalEventId: payload.approvalEventId,
+        planRevision: payload.planRevision!,
+        stepId: payload.stepId!,
+        ...(payload.decisionTraceId ? { decisionTraceId: payload.decisionTraceId } : {}),
+      }
+      : {
+        approvalKind: "proposal" as const,
+        approvalEventId: payload.approvalEventId,
+        executionId: payload.executionId!,
+        proposalId: payload.proposalId!,
+        revision: payload.revision!,
+      };
     const run = await runMissionGoal({
       goalId: payload.goalId,
       userId: payload.userId,
       trigger: "resume",
+      expectedApprovalBinding,
     });
     if (run.status === "conflict") {
       await settleIntent(intentId, lease.token, MISSION_GOAL_APPROVAL_SUPERSEDED, {
