@@ -41,6 +41,56 @@ export const ContextManifestSchema = z.object({
 
 export type ContextManifest = z.infer<typeof ContextManifestSchema>;
 
+/**
+ * Small, database-readable identity used to decide whether a cached context
+ * still describes the latest persisted scan. It deliberately excludes the
+ * potentially large per-file manifest payload.
+ */
+export type ContextManifestCacheIdentity = Pick<
+  ContextManifest,
+  | "projectId"
+  | "projectRevision"
+  | "scanCompleteness"
+  | "sourceProvenance"
+  | "scanCorrelationId"
+  | "scannerVersion"
+> & {
+  repositoryManifest?: Pick<
+    RepositoryRevisionManifest,
+    "revision" | "sourceRoot" | "completeness"
+  >;
+};
+
+export function contextManifestCacheIdentityMatches(
+  expected: ContextManifest | undefined,
+  actual: ContextManifestCacheIdentity | undefined,
+): boolean {
+  if (!expected || !actual) return false;
+  if (
+    expected.projectId !== actual.projectId ||
+    expected.projectRevision !== actual.projectRevision ||
+    expected.scanCompleteness !== actual.scanCompleteness ||
+    expected.sourceProvenance !== actual.sourceProvenance ||
+    expected.scanCorrelationId !== actual.scanCorrelationId ||
+    expected.scannerVersion !== actual.scannerVersion
+  ) return false;
+
+  const expectedRepository = expected.repositoryManifest;
+  const actualRepository = actual.repositoryManifest;
+  if (Boolean(expectedRepository) !== Boolean(actualRepository)) return false;
+  if (
+    expectedRepository && actualRepository &&
+    (
+      expectedRepository.revision !== actualRepository.revision ||
+      expectedRepository.sourceRoot !== actualRepository.sourceRoot ||
+      expectedRepository.completeness !== actualRepository.completeness
+    )
+  ) return false;
+
+  return true;
+}
+
+
 export function contextManifestMatches(
   expected: ContextManifest | undefined,
   actual: ContextManifest | undefined,
