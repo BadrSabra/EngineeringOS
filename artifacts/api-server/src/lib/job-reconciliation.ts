@@ -20,10 +20,10 @@
  *   scan_jobs "running"         → retry if retryCount < maxRetries (reset to
  *                                  "queued"), else mark failed; this is bounded
  *                                  replay and not blind concurrent replay
- *   discovery_sessions "pending"    → re-enqueue via heavyJobQueue (never
- *                                  started; rootPath is in the DB row)
- *   discovery_sessions "discovering" → mark error (was in-flight when process
- *                                  died; intermediate state is gone)
+ *   discovery_sessions "pending"    → re-enqueue via heavyJobQueue
+ *   discovery_sessions "discovering" → restart durable local/workspace roots
+ *                                  from step zero within a bounded budget;
+ *                                  temporary roots fail closed
  *   tasks "running"             → reset to "verifying" if retryCount < maxRetries
  *                                  (a new execution must be explicitly
  *                                  triggered), else mark failed
@@ -76,7 +76,7 @@ import { heavyJobQueue } from "./job-queue.js";
 import { runScanJob, terminalizeFailedScanJob } from "./scan-runner.js";
 
 import { dispatchPendingPluginRuns } from "./plugin-runtime.js";
-import { runDiscovery } from "./discovery-runner.js";
+import { runDiscovery, STEPS } from "./discovery-runner.js";
 import { sweepExpiredUploads } from "./upload-store.js";
 import { reconcileAiExecutions } from "./ai-execution-state.js";
 import { reconcileInterruptedApplyChanges } from "./apply-change-reconciliation.js";
@@ -676,62 +676,113 @@ async function reconcileScanJobs(): Promise<number> {
 }
 
 /**
- * Handles discovery_sessions left in non-terminal states:
- *   "discovering" → mark error (was running when process died)
- *   "pending"     → re-enqueue (never started; rootPath is in the DB row)
- *
- * Returns total number of sessions handled (failed + re-enqueued).
+ * Discovery stores progress for visibility, but it does not persist partial
+ * analysis as project state. Re-running from step zero is safe for durable
+ * LOCAL_FOLDER and WORKSPACE_PROJECT roots. Git clones and archive extraction
+ * roots are adapter-owned temporary paths, so they fail closed after a worker
+ * loss instead of replaying a path that may no longer identify the same input.
  */
-async function reconcileDiscoverySessions(): Promise<number> {
+export const MAX_DISCOVERY_RESTART_RECOVERIES = 2;
+
+async function reconcileAbandonedDiscoverySessions(): Promise<{ requeued: number; failed: number }> {
   const now = databaseNow();
-  const abandonedDiscovery = or(
+  const abandonedLease = or(
     lt(discoverySessionsTable.leaseUntil, databaseNow()),
     isNull(discoverySessionsTable.leaseUntil),
-  );
-
-  // ── 1. Discovering → error ────────────────────────────────────────────────
-  // These sessions were actively running the discovery pipeline. Their
-  // intermediate state (in-memory steps, partial walk results) is gone.
-  const discovering = await db
-    .select({ id: discoverySessionsTable.id })
+  )!;
+  const stale = await db
+    .select({
+      id: discoverySessionsTable.id,
+      sourceType: discoverySessionsTable.sourceType,
+      recoveryAttempts: discoverySessionsTable.recoveryAttempts,
+    })
     .from(discoverySessionsTable)
-    .where(and(eq(discoverySessionsTable.status, "discovering"), abandonedDiscovery));
+    .where(and(
+      eq(discoverySessionsTable.status, "discovering"),
+      abandonedLease,
+    ));
 
-    for (const session of discovering) {
-      const [recovered] = await db
+  let requeued = 0;
+  let failed = 0;
+  for (const session of stale) {
+    const durableRoot = session.sourceType === "LOCAL_FOLDER"
+      || session.sourceType === "WORKSPACE_PROJECT";
+    const withinBudget = session.recoveryAttempts < MAX_DISCOVERY_RESTART_RECOVERIES;
+    const replay = durableRoot && withinBudget;
+    const terminalError = !durableRoot
+      ? "Discovery worker lease expired; the source uses a temporary or unsupported root and cannot be replayed safely. Restart discovery to retry."
+      : "Discovery worker lease expired and the automatic restart-recovery limit was reached. Restart discovery to retry.";
+
+    const nextState = replay
+      ? {
+          status: "pending" as const,
+          progress: 0,
+          currentStep: STEPS[0] ?? null,
+          steps: STEPS.map((name) => ({ name, status: "pending" as const })),
+          result: null,
+          error: null,
+          completedAt: null,
+          recoveryAttempts: session.recoveryAttempts + 1,
+          workerId: null,
+          leaseUntil: null,
+          lastHeartbeatAt: null,
+        }
+      : {
+          status: "error" as const,
+          error: terminalError,
+          completedAt: now,
+          workerId: null,
+          leaseUntil: null,
+          lastHeartbeatAt: null,
+        };
+
+    // This conditional write is the recovery ownership fence. If the former
+    // worker renewed its lease or another reconciler already changed the row,
+    // this pass cannot reset or terminalize the newer state.
+    const [updated] = await db
       .update(discoverySessionsTable)
-      .set({
-        status: "error",
-        error: ORPHANED_RUNNING_MESSAGE,
-        completedAt: now,
-        // PR-01: clear lease so the row no longer appears as "in-flight"
-        workerId: null,
-        leaseUntil: null,
-        lastHeartbeatAt: null,
-      })
-        .where(and(eq(discoverySessionsTable.id, session.id), eq(discoverySessionsTable.status, "discovering"), abandonedDiscovery))
-        .returning({ id: discoverySessionsTable.id });
-      if (!recovered) {
-        logger.debug({ sessionId: session.id }, "discovery recovery lost ownership race");
-        continue;
-      }
-  }
+      .set(nextState)
+      .where(and(
+        eq(discoverySessionsTable.id, session.id),
+        eq(discoverySessionsTable.status, "discovering"),
+        abandonedLease,
+      ))
+      .returning({ id: discoverySessionsTable.id });
+    if (!updated) continue;
 
-  if (discovering.length > 0) {
-    const discoveringIds = discovering.map((s) => s.id);
-    logger.warn(
-      { count: discovering.length, sessionIds: discoveringIds },
-      "marked interrupted discovery sessions as error (process restart)",
-    );
+    if (replay) {
+      requeued++;
+      logger.warn({
+        scope: "job-reconciliation",
+        code: "STALE_DISCOVERY_REPLAY_QUEUED",
+        sessionId: session.id,
+        sourceType: session.sourceType,
+        recoveryAttempt: session.recoveryAttempts + 1,
+        maxRecoveryAttempts: MAX_DISCOVERY_RESTART_RECOVERIES,
+      }, "recovered interrupted Discovery session for a bounded full-pipeline replay");
+    } else {
+      failed++;
+      logger.warn({
+        scope: "job-reconciliation",
+        code: "STALE_DISCOVERY_TERMINAL",
+        sessionId: session.id,
+        sourceType: session.sourceType,
+        recoveryAttempts: session.recoveryAttempts,
+        maxRecoveryAttempts: MAX_DISCOVERY_RESTART_RECOVERIES,
+      }, "Discovery session cannot be replayed safely and was marked as error");
+    }
   }
+  return { requeued, failed };
+}
 
-  // ── 2. Pending → re-enqueue ───────────────────────────────────────────────
-  // These sessions were created (DB row exists) but were waiting for a free
-  // slot in heavyJobQueue and never actually started. rootPath is persisted
-  // on the row. runDiscovery will transition the session to "discovering"
-  // as its first action, and will fail fast at "Finding repository" if the
-  // rootPath no longer exists (e.g. a git-clone temp dir that was cleaned up
-  // after a crash), giving the user a clear error message.
+/**
+ * Handles Discovery rows left behind by a process interruption, then dispatches
+ * every pending row. Resetting a replayable session clears all progress and
+ * result projections so the new attempt starts honestly at step zero.
+ */
+async function reconcileDiscoverySessions(): Promise<number> {
+  const abandoned = await reconcileAbandonedDiscoverySessions();
+
   const pending = await db
     .select({ id: discoverySessionsTable.id, rootPath: discoverySessionsTable.rootPath })
     .from(discoverySessionsTable)
@@ -739,15 +790,12 @@ async function reconcileDiscoverySessions(): Promise<number> {
 
   for (const session of pending) {
     const { id: sessionId, rootPath } = session;
-    // PR-D1: use enqueueWithId so a concurrent route handler or a second
-    // reconciliation pass cannot enqueue the same session twice.
+    // enqueueWithId is local deduplication only; the runner's database claim
+    // and worker lease remain the cross-instance ownership boundary.
     heavyJobQueue.enqueueWithId(sessionId, async () => {
       try {
         await runDiscovery(sessionId, rootPath);
       } catch (err) {
-        // runDiscovery is documented to never throw — reaching here means
-        // it broke that contract. Log with session context so on-call can
-        // tell whether this is an isolated failure or a queue degradation.
         logger.error(
           { err, sessionId },
           "discovery runner threw past its own error handling on re-queue",
@@ -757,14 +805,13 @@ async function reconcileDiscoverySessions(): Promise<number> {
   }
 
   if (pending.length > 0) {
-    const pendingIds = pending.map((s) => s.id);
     logger.info(
-      { count: pending.length, sessionIds: pendingIds },
-      "re-enqueued pending discovery sessions (process restart)",
+      { count: pending.length, sessionIds: pending.map((s) => s.id) },
+      "re-enqueued pending discovery sessions during startup reconciliation",
     );
   }
 
-  return discovering.length + pending.length;
+  return abandoned.requeued + abandoned.failed + pending.length;
 }
 
 // ── Stale running-job sweep (PR-02 / audit W-002) ────────────────────────────
@@ -899,52 +946,17 @@ export async function failStaleRunningJobs(): Promise<number> {
 }
 
 /**
- * Discovery has no safe checkpoint between pipeline steps. An abandoned
- * session therefore becomes an explicit error once its lease expires rather
- * than remaining "discovering" forever. The conditional update is the
- * ownership fence: a live worker that heartbeats or finishes concurrently
- * wins and is never clobbered by this sweep.
+ * Periodically recover expired Discovery leases using the same policy as
+ * startup reconciliation. The legacy export name is retained for callers.
  */
 export async function failStaleDiscoverySessions(): Promise<number> {
-  const now = databaseNow();
-  const abandonedLease = or(
-    isNull(discoverySessionsTable.leaseUntil),
-    lt(discoverySessionsTable.leaseUntil, databaseNow()),
-  )!;
-  let failed = 0;
   try {
-    const stale = await db
-      .select({ id: discoverySessionsTable.id, rootPath: discoverySessionsTable.rootPath })
-      .from(discoverySessionsTable)
-      .where(and(
-        eq(discoverySessionsTable.status, "discovering"),
-        abandonedLease,
-      ));
-    for (const session of stale) {
-      const [updated] = await db.update(discoverySessionsTable).set({
-        status: "error",
-        error: "Discovery worker lease expired; restart discovery to retry.",
-        completedAt: now,
-        workerId: null,
-        leaseUntil: null,
-        lastHeartbeatAt: null,
-      }).where(and(
-        eq(discoverySessionsTable.id, session.id),
-        eq(discoverySessionsTable.status, "discovering"),
-        abandonedLease,
-      )).returning({ id: discoverySessionsTable.id });
-      if (!updated) continue;
-      failed++;
-      logger.warn({
-        scope: "job-reconciliation",
-        code: "STALE_DISCOVERY_LEASE",
-        sessionId: session.id,
-      }, "discovery session lease expired — marked as error");
-    }
+    const result = await reconcileAbandonedDiscoverySessions();
+    return result.requeued + result.failed;
   } catch (err) {
     logger.error({ err, scope: "job-reconciliation" }, "failStaleDiscoverySessions failed");
+    return 0;
   }
-  return failed;
 }
 
 /**
