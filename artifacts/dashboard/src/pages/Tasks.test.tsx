@@ -2174,4 +2174,73 @@ describe('Task creation', () => {
       '/tasks?projectId=project-1&taskId=task-quota',
     );
   });
+
+  it('loads prerequisite context when a task filter hides it from the list', () => {
+    const filteredTasks = taskListFixture({
+      'task-auth': ['task-quota'],
+    });
+    vi.mocked(useListTasks).mockReturnValue({
+      ...filteredTasks,
+      data: filteredTasks.data?.filter((task) => task.id !== 'task-quota'),
+    } as ReturnType<typeof useListTasks>);
+    vi.mocked(useGetTask).mockImplementation((taskId: string) => ({
+      data: taskId === 'task-quota'
+        ? {
+            id: 'task-quota',
+            projectId: 'project-1',
+            title: 'Recover from provider quota',
+            status: 'completed',
+          }
+        : undefined,
+      isLoading: false,
+      isFetching: false,
+      isError: false,
+      error: null,
+    } as ReturnType<typeof useGetTask>));
+
+    renderPage();
+    fireEvent.click(screen.getByRole('button', { name: 'عرض تفاصيل المهمة: Repair provider authentication' }));
+
+    const dependencies = screen.getByTestId('section-task-dependencies-task-auth');
+    expect(within(dependencies).getByText('Recover from provider quota')).toBeInTheDocument();
+    expect(within(dependencies).getByTestId('status-task-dependency-task-auth-task-quota'))
+      .toHaveTextContent('انتهت بحسب السجل');
+    expect(within(dependencies).getByTestId('link-task-dependency-task-auth-task-quota')).toHaveAttribute(
+      'href',
+      '/tasks?projectId=project-1&taskId=task-quota',
+    );
+  });
+
+  it('does not expose prerequisite details from another project', () => {
+    const filteredTasks = taskListFixture({
+      'task-auth': ['task-quota'],
+    });
+    vi.mocked(useListTasks).mockReturnValue({
+      ...filteredTasks,
+      data: filteredTasks.data?.filter((task) => task.id !== 'task-quota'),
+    } as ReturnType<typeof useListTasks>);
+    vi.mocked(useGetTask).mockImplementation((taskId: string) => ({
+      data: taskId === 'task-quota'
+        ? {
+            id: 'task-quota',
+            projectId: 'project-foreign',
+            title: 'مهمة من مشروع آخر',
+            status: 'completed',
+          }
+        : undefined,
+      isLoading: false,
+      isFetching: false,
+      isError: false,
+      error: null,
+    } as ReturnType<typeof useGetTask>));
+
+    renderPage();
+    fireEvent.click(screen.getByRole('button', { name: 'عرض تفاصيل المهمة: Repair provider authentication' }));
+
+    const dependencies = screen.getByTestId('section-task-dependencies-task-auth');
+    expect(within(dependencies).queryByText('مهمة من مشروع آخر')).not.toBeInTheDocument();
+    expect(within(dependencies).getByText('المتطلب 1')).toBeInTheDocument();
+    expect(within(dependencies).getByTestId('status-task-dependency-task-auth-task-quota'))
+      .toHaveTextContent('تفاصيل المتطلب غير متاحة الآن');
+  });
 });

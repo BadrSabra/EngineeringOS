@@ -363,6 +363,63 @@ function taskStatusLabel(status: string): string {
   return labels[status] ?? status;
 }
 
+function TaskDependencyItem({
+  parentTask,
+  dependencyId,
+  listedTask,
+  fallbackTitle,
+}: {
+  parentTask: TaskView;
+  dependencyId: string;
+  listedTask?: TaskView;
+  fallbackTitle: string;
+}) {
+  const dependencyQuery = useGetTask(dependencyId, {
+    query: {
+      queryKey: getGetTaskQueryKey(dependencyId),
+      enabled: !listedTask,
+      staleTime: 0,
+    },
+  });
+  const queriedTask = dependencyQuery.data;
+  const queriedTaskMatches = Boolean(
+    !dependencyQuery.isFetching
+    && !dependencyQuery.isError
+    && queriedTask
+    && queriedTask.id === dependencyId
+    && queriedTask.projectId === parentTask.projectId,
+  );
+  const dependencyTask = listedTask ?? (queriedTaskMatches ? queriedTask : undefined);
+  const dependencyTitle = dependencyTask?.title.trim() ? dependencyTask.title : fallbackTitle;
+  const dependencyStatus = dependencyTask
+    ? taskStatusLabel(dependencyTask.status)
+    : dependencyQuery.isFetching || dependencyQuery.isLoading
+      ? 'جارٍ تحميل تفاصيل المتطلب'
+      : dependencyQuery.isError
+        ? 'تعذر تحميل تفاصيل المتطلب'
+        : 'تفاصيل المتطلب غير متاحة الآن';
+
+  return (
+    <li className="flex flex-wrap items-center gap-2">
+      <Link
+        href={`/tasks?projectId=${encodeURIComponent(parentTask.projectId)}&taskId=${encodeURIComponent(dependencyId)}`}
+        aria-label={`عرض المهمة المطلوبة قبل ${parentTask.title}: ${dependencyTitle}`}
+        data-testid={`link-task-dependency-${parentTask.id}-${dependencyId}`}
+        className="text-primary underline-offset-4 hover:underline"
+      >
+        <bdi dir="auto">{dependencyTitle}</bdi>
+      </Link>
+      <span
+        className="text-muted-foreground"
+        data-testid={`status-task-dependency-${parentTask.id}-${dependencyId}`}
+        aria-live="polite"
+      >
+        {dependencyStatus}
+      </span>
+    </li>
+  );
+}
+
 function timelineStatusLabel(status: TimelineStep['status']): string {
   const labels: Record<TimelineStep['status'], string> = {
     done: 'اكتملت',
@@ -2292,23 +2349,14 @@ function TasksSession({
                                 {[...new Set(task.dependsOn.filter((id) => typeof id === 'string' && id.trim()))].map((dependencyId, index) => {
                                   const dependencyTask = tasks.find((candidate) =>
                                     candidate.id === dependencyId && candidate.projectId === task.projectId);
-                                  const dependencyTitle = dependencyTask?.title ?? `المهمة السابقة ${index + 1}`;
                                   return (
-                                    <li key={dependencyId} className="flex flex-wrap items-center gap-2">
-                                      <Link
-                                        href={`/tasks?projectId=${encodeURIComponent(task.projectId)}&taskId=${encodeURIComponent(dependencyId)}`}
-                                        aria-label={`عرض المهمة المطلوبة قبل ${task.title}: ${dependencyTitle}`}
-                                        data-testid={`link-task-dependency-${task.id}-${dependencyId}`}
-                                        className="text-primary underline-offset-4 hover:underline"
-                                      >
-                                        <bdi dir="auto">{dependencyTitle}</bdi>
-                                      </Link>
-                                      <span className="text-muted-foreground">
-                                        {dependencyTask
-                                          ? taskStatusLabel(dependencyTask.status)
-                                          : 'تفاصيل المهمة غير ظاهرة ضمن القائمة الحالية'}
-                                      </span>
-                                    </li>
+                                    <TaskDependencyItem
+                                      key={dependencyId}
+                                      parentTask={task}
+                                      dependencyId={dependencyId}
+                                      listedTask={dependencyTask}
+                                      fallbackTitle={`المتطلب ${index + 1}`}
+                                    />
                                   );
                                 })}
                               </ul>
