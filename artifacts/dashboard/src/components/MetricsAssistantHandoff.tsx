@@ -2,10 +2,21 @@ import { useState } from 'react';
 import { useUser } from '@clerk/react';
 import { Sparkles } from 'lucide-react';
 import { useLocation } from 'wouter';
-import type { MetricRecord } from '@workspace/api-client-react';
 import { storeHomeGoalDraft } from '@/lib/home-goal-handoff';
 
 type DateRange = '7d' | '30d' | 'all';
+type MetricContextRecord = {
+  timestamp: string;
+  overallScore?: number | null;
+  architectureScore?: number | null;
+  securityScore?: number | null;
+  performanceScore?: number | null;
+  testCoverage?: number | null;
+  lintIssues?: number | null;
+  technicalDebt?: number | null;
+  buildStatus?: string | null;
+};
+
 type MetricValueKey =
   | 'overallScore'
   | 'architectureScore'
@@ -42,7 +53,7 @@ function safePromptValue(value: string, maxLength: number): string {
   return withoutControls.replace(/\s+/g, ' ').trim().slice(0, maxLength);
 }
 
-function sampleMetrics(metrics: MetricRecord[]): MetricRecord[] {
+function sampleMetrics(metrics: MetricContextRecord[]): MetricContextRecord[] {
   if (metrics.length <= MAX_SAMPLES) return metrics;
   return Array.from({ length: MAX_SAMPLES }, (_, index) => {
     const sampleIndex = Math.round((index * (metrics.length - 1)) / (MAX_SAMPLES - 1));
@@ -55,7 +66,7 @@ function metricDate(timestamp: string): string {
   return Number.isNaN(parsed.getTime()) ? 'تاريخ غير متاح' : parsed.toISOString().slice(0, 10);
 }
 
-function metricSampleText(metric: MetricRecord, index: number): string {
+function metricSampleText(metric: MetricContextRecord, index: number): string {
   const values = METRIC_FIELDS.flatMap(({ key, label }) => {
     const value = metric[key];
     return typeof value === 'number' && Number.isFinite(value)
@@ -77,7 +88,7 @@ function buildMetricsPrompt({
 }: {
   projectName: string;
   dateRange: DateRange;
-  metrics: MetricRecord[];
+  metrics: MetricContextRecord[];
 }): string {
   const rangeLabel = dateRange === '7d' ? 'آخر ٧ أيام' : dateRange === '30d' ? 'آخر ٣٠ يومًا' : 'كل الفترة المعروضة';
   const samples = sampleMetrics(metrics);
@@ -107,7 +118,7 @@ export default function MetricsAssistantHandoff({
   projectId: string;
   projectName: string;
   dateRange: DateRange;
-  metrics: MetricRecord[];
+  metrics: MetricContextRecord[];
 }) {
   const { isLoaded, user } = useUser();
   const [, setLocation] = useLocation();
