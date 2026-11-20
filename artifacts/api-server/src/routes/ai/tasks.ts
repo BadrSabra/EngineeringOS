@@ -569,7 +569,8 @@ async function markDeferredAiTaskExecution(
       && Number.isFinite(currentLeaseExpiry)
       && currentLeaseExpiry > databaseNow.getTime()
     ) return;
-    const { dispatchLease: _dispatchLease, ...payloadWithoutLease } = currentPayload;
+    const payloadWithoutLease = { ...currentPayload };
+    delete payloadWithoutLease.dispatchLease;
     const retryDelay = Math.max(1, delayMs ?? retryDelayMs(parsed.attemptCount));
     await tx.update(eventsTable)
       .set({

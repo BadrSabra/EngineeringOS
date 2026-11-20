@@ -314,7 +314,8 @@ export async function releaseTaskAutoExecutionDispatchLease(
     : undefined;
   if (!payload || lease?.token !== input.token) return false;
 
-  const { dispatchLease: _dispatchLease, ...nextPayload } = payload;
+  const nextPayload = { ...payload };
+  delete nextPayload.dispatchLease;
   await tx.update(eventsTable)
     .set({ payload: nextPayload })
     .where(eq(eventsTable.id, intentId));
