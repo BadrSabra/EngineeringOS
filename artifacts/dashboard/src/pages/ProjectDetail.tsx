@@ -17,6 +17,7 @@ import { useQueryClient } from '@tanstack/react-query';
 import {
   ArrowRight,
   Activity,
+  Plus,
   Settings,
   Play,
   ShieldAlert,
@@ -530,9 +531,19 @@ function ProjectDetailSession({ projectId }: { projectId: string }) {
 
         {/* Task breakdown */}
         <div className="bg-card border border-border rounded-xl p-5 shadow-sm">
-          <h2 className="font-semibold flex items-center gap-2 mb-4">
-            <Activity className="w-4 h-4 text-primary" /> ملخص المهام
-          </h2>
+          <div className="mb-4 flex items-center justify-between gap-2">
+            <h2 className="font-semibold flex items-center gap-2">
+              <Activity className="w-4 h-4 text-primary" /> ملخص المهام
+            </h2>
+            <Link
+              href={`/tasks?projectId=${encodeURIComponent(projectId)}&create=1`}
+              aria-label={`أضف مهمة إلى مشروع ${project.name}`}
+              data-testid="link-create-project-task"
+              className="flex shrink-0 items-center gap-1 rounded text-xs text-primary hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+            >
+              <Plus className="h-3 w-3" aria-hidden="true" /> مهمة جديدة
+            </Link>
+          </div>
           {summary ? (
             <div className="grid grid-cols-2 gap-3">
               <div className="bg-secondary/50 border border-border rounded-lg p-3 text-center">

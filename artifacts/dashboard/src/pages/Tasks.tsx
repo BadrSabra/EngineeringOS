@@ -1508,7 +1508,7 @@ function TaskCreateDialog({
             )}
             <div>
               <label htmlFor="create-task-title" className="mb-1.5 block text-xs font-semibold text-muted-foreground">عنوان المهمة</label>
-              <input id="create-task-title" data-testid="input-create-task-title" dir="auto" value={title} onChange={(event) => setTitle(event.target.value)} placeholder="ما الذي يجب إنجازه؟" className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm outline-none placeholder:text-muted-foreground/60 focus:border-primary" />
+              <input autoFocus id="create-task-title" data-testid="input-create-task-title" dir="auto" value={title} onChange={(event) => setTitle(event.target.value)} placeholder="ما الذي يجب إنجازه؟" className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm outline-none placeholder:text-muted-foreground/60 focus:border-primary" />
             </div>
             <div>
               <label htmlFor="create-task-description" className="mb-1.5 block text-xs font-semibold text-muted-foreground">
@@ -1675,6 +1675,7 @@ export default function Tasks() {
   const routeParams = new URLSearchParams(routeSearch);
   const requestedTaskId = routeParams.get('taskId') ?? '';
   const requestedProjectId = routeParams.get('projectId') ?? '';
+  const requestedCreate = routeParams.get('create') === '1';
   const initialFilters = readTaskListFilters(routeParams);
 
   // A task deep link can change while this route remains mounted. Keep project-owned
@@ -1684,6 +1685,7 @@ export default function Tasks() {
       key={JSON.stringify([requestedProjectId, requestedTaskId, initialFilters])}
       requestedTaskId={requestedTaskId}
       requestedProjectId={requestedProjectId}
+      requestedCreate={requestedCreate}
       initialFilters={initialFilters}
     />
   );
@@ -1692,10 +1694,12 @@ export default function Tasks() {
 function TasksSession({
   requestedTaskId,
   requestedProjectId,
+  requestedCreate,
   initialFilters,
 }: {
   requestedTaskId: string;
   requestedProjectId: string;
+  requestedCreate: boolean;
   initialFilters: TaskListFilters;
 }) {
   const queryClient = useQueryClient();
@@ -1708,6 +1712,7 @@ function TasksSession({
   const [expandedTask, setExpandedTask] = useState<string | null>(() => requestedTaskId || null);
   const [logsTab, setLogsTab] = useState<Record<string, 'details' | 'logs'>>({});
   const [createOpen, setCreateOpen] = useState(false);
+  const createIntentHandled = useRef(false);
   const [quickTaskTitle, setQuickTaskTitle] = useState('');
   const [editingTask, setEditingTask] = useState<{
     id: string;
@@ -1768,6 +1773,22 @@ function TasksSession({
   }
   const isLoading = projectsLoading || Boolean(requestedTaskId && requestedTaskLoading)
     || Boolean(projectId && tasksLoading);
+
+  useEffect(() => {
+    if (!requestedCreate || !projectId || createIntentHandled.current) return;
+    createIntentHandled.current = true;
+    setCreateOpen(true);
+
+    const url = new URL(window.location.href);
+    if (url.searchParams.get('create') === '1') {
+      url.searchParams.delete('create');
+      window.history.replaceState(
+        window.history.state,
+        '',
+        `${url.pathname}${url.search}${url.hash}`,
+      );
+    }
+  }, [projectId, requestedCreate]);
 
   useEffect(() => {
     if (requestedTaskId && tasks?.some((task) => task.id === requestedTaskId)) {
