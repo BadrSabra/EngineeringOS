@@ -234,6 +234,8 @@ describe("ProjectWorkspace live snapshot refresh", () => {
     expect(screen.getByText("أحدث 8 مهام من المصدر؛ هذه ليست قائمة شاملة.")).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "عرض جميع مهام المشروع" }))
       .toHaveAttribute("href", "/tasks?projectId=project-1");
+    expect(screen.getByRole("link", { name: "إنشاء مهمة جديدة في مشروع البث" }))
+      .toHaveAttribute("href", "/tasks?projectId=project-1&create=1");
     expect(screen.getByTestId("link-start-request-from-empty-work"))
       .toHaveAttribute("href", "#workspace-panel-agent");
     expect(screen.getByTestId("link-discuss-work-from-empty-candidate"))
