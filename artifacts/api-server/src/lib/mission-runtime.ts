@@ -93,6 +93,7 @@ import {
 import { resolveMissionLineage } from "./mission-lineage.js";
 import { getLifecycleWorkerScopeProjectId } from "./worker-scope.js";
 import { databaseNow } from "./job-lease.js";
+import { finalizeMissionPlanOutcomesAfterGoalCompletion } from "./mission-strategy-plan-outcome-store.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -1891,6 +1892,9 @@ async function syncRecipeObjectiveState(params: {
       },
     });
   });
+  if (params.status === "completed") {
+    await finalizeMissionPlanOutcomesAfterGoalCompletion(params.goalId);
+  }
 }
 
 async function findLiveMissionRecipeOwner(dispatch: RecipeDispatch) {
@@ -3569,6 +3573,7 @@ export async function runMissionGoal(params: {
   }
   if (decision.status === "completed" && decision.reason === "apply_changes_d2_proven") {
     await wakeReadyMissionGoals(32, getLifecycleWorkerScopeProjectId());
+    await finalizeMissionPlanOutcomesAfterGoalCompletion(decision.goalId);
   }
   return decision;
 }
