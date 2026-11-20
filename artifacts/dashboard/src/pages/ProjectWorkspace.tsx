@@ -611,6 +611,14 @@ export default function ProjectWorkspace() {
                 تفاصيل المشروع
               </Link>
               <Link
+                href={`/graph?projectId=${encodeURIComponent(project.id)}`}
+                aria-label={`عرض الرسم البياني للمشروع: ${project.name}`}
+                data-testid="link-project-graph-from-workspace"
+                className="inline-flex items-center rounded-md border border-slate-700 px-2.5 py-1.5 text-xs font-medium text-cyan-200 transition hover:border-cyan-300/40 hover:bg-cyan-300/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-200"
+              >
+                الرسم البياني
+              </Link>
+              <Link
                 href={`/metrics?projectId=${encodeURIComponent(project.id)}`}
                 aria-label={`عرض مؤشرات المشروع: ${project.name}`}
                 data-testid="link-project-metrics-from-workspace"
