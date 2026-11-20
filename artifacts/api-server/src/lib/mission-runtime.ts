@@ -4309,7 +4309,7 @@ export async function wakeMissionGoalsForEvent(
         .where(eq(eventsTable.id, dispatchContext.intentId))
         .for("update")
         .limit(1);
-      const wakePayload = wakeIntent?.payload
+      const wakePayload: Record<string, unknown> = wakeIntent?.payload
         && typeof wakeIntent.payload === "object"
         && !Array.isArray(wakeIntent.payload)
         ? wakeIntent.payload
