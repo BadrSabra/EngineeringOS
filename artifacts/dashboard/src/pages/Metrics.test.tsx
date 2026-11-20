@@ -11,6 +11,44 @@ vi.mock('@workspace/api-client-react', () => ({
   getListMetricsQueryKey: vi.fn((params) => ['/api/metrics', params]),
 }));
 
+vi.mock('recharts', () => {
+  const Chart = ({ children }: { children?: React.ReactNode }) => <div>{children}</div>;
+  return {
+    LineChart: Chart,
+    Line: () => null,
+    XAxis: () => null,
+    YAxis: () => null,
+    CartesianGrid: () => null,
+    Tooltip: () => null,
+    ResponsiveContainer: Chart,
+    BarChart: Chart,
+    Bar: () => null,
+    Legend: () => null,
+  };
+});
+
+vi.mock('@/components/MetricsAssistantHandoff', () => ({
+  default: ({
+    projectId,
+    projectName,
+    dateRange,
+    metrics,
+  }: {
+    projectId: string;
+    projectName: string;
+    dateRange: string;
+    metrics: unknown[];
+  }) => (
+    <div
+      data-testid="metrics-assistant-handoff-props"
+      data-project-id={projectId}
+      data-project-name={projectName}
+      data-date-range={dateRange}
+      data-metric-count={metrics.length}
+    />
+  ),
+}));
+
 import {
   getListMetricsQueryKey,
   useListMetrics,
@@ -98,6 +136,37 @@ describe('Metrics', () => {
       }),
     );
     expect(getListMetricsQueryKey).toHaveBeenCalledWith({ projectId: 'project-a' });
+  });
+
+  it('offers an assistant handoff with only the selected project and visible range', () => {
+    window.history.replaceState({}, '', '/metrics?projectId=project-a&range=all');
+    mockProjects([
+      { id: 'project-a', name: 'Alpha' },
+      { id: 'project-b', name: 'Beta' },
+    ]);
+    mockMetrics([
+      { id: 'metric-a', projectId: 'project-a', timestamp: '2026-11-12T12:00:00.000Z', overallScore: 74 },
+      { id: 'metric-b', projectId: 'project-b', timestamp: '2026-11-12T12:00:00.000Z', overallScore: 95 },
+    ]);
+
+    render(<Metrics />);
+
+    expect(screen.getByTestId('metrics-assistant-handoff-props')).toHaveAttribute(
+      'data-project-id',
+      'project-a',
+    );
+    expect(screen.getByTestId('metrics-assistant-handoff-props')).toHaveAttribute(
+      'data-project-name',
+      'Alpha',
+    );
+    expect(screen.getByTestId('metrics-assistant-handoff-props')).toHaveAttribute(
+      'data-date-range',
+      'all',
+    );
+    expect(screen.getByTestId('metrics-assistant-handoff-props')).toHaveAttribute(
+      'data-metric-count',
+      '1',
+    );
   });
 
   it('restores the project and date range from a metrics link', () => {
