@@ -168,6 +168,12 @@ describe("Mission Goal approval adapter", () => {
       goalId,
       userId: "test-user",
       trigger: "resume",
+      expectedApprovalBinding: {
+        approvalKind: "plan",
+        approvalEventId: expect.any(String),
+        planRevision,
+        stepId,
+      },
     });
   });
 
@@ -283,6 +289,13 @@ describe("Mission Goal approval adapter", () => {
       goalId,
       userId: "test-user",
       trigger: "resume",
+      expectedApprovalBinding: {
+        approvalKind: "proposal",
+        approvalEventId: expect.any(String),
+        executionId: created.execution.id,
+        proposalId,
+        revision: 4,
+      },
     });
 
     const [proposal] = await db
