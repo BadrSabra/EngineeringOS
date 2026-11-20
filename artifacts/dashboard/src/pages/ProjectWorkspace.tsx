@@ -104,6 +104,43 @@ function isRecordedAttempt(value: unknown): value is number {
   return typeof value === 'number' && Number.isSafeInteger(value) && value >= 0;
 }
 
+function WorkspaceDependencyLink({
+  projectId,
+  taskId,
+}: {
+  projectId: string;
+  taskId: string;
+}) {
+  const dependencyQuery = useGetTask(taskId, {
+    query: {
+      queryKey: getGetTaskQueryKey(taskId),
+      staleTime: 0,
+    },
+  });
+  const dependency = dependencyQuery.data;
+  const verifiedTitle = !dependencyQuery.isFetching
+    && !dependencyQuery.isError
+    && dependency?.id === taskId
+    && dependency.projectId === projectId
+    && typeof dependency.title === 'string'
+    && dependency.title.trim()
+    ? dependency.title.trim()
+    : null;
+
+  return (
+    <Link
+      href={`/tasks?projectId=${encodeURIComponent(projectId)}&taskId=${encodeURIComponent(taskId)}`}
+      className="text-cyan-300 underline-offset-4 hover:underline"
+      aria-label={`فتح المهمة المعتمَد عليها: ${verifiedTitle ?? taskId}`}
+      data-testid={`link-workspace-dependency-${taskId}`}
+    >
+      {verifiedTitle
+        ? <span dir="auto">{verifiedTitle}</span>
+        : <Identifier>{taskId}</Identifier>}
+    </Link>
+  );
+}
+
 function WorkspaceTaskCard({
   projectId,
   task,
@@ -265,13 +302,7 @@ function WorkspaceTaskCard({
                     : dependencyIds.map((dependencyId, index) => (
                       <span key={dependencyId}>
                         {index > 0 ? '، ' : null}
-                        <Link
-                          href={`/tasks?projectId=${encodeURIComponent(projectId)}&taskId=${encodeURIComponent(dependencyId)}`}
-                          className="text-cyan-300 underline-offset-4 hover:underline"
-                          aria-label={`فتح المهمة المعتمَد عليها: ${dependencyId}`}
-                        >
-                          <Identifier>{dependencyId}</Identifier>
-                        </Link>
+                        <WorkspaceDependencyLink projectId={projectId} taskId={dependencyId} />
                       </span>
                     ))}
               </dd>
