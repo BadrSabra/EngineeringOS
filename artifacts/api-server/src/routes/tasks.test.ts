@@ -1425,6 +1425,108 @@ describe("PR-C — AI auto-trigger on verifying", () => {
     return { projectId, taskId };
   }
 
+  it("creates and durably dispatches a prompted Task in one request when explicitly requested", async () => {
+    const projectId = await insertProject();
+    cleanup.push(projectId);
+    const prompt = "Inspect the failing tests and implement the smallest safe fix.";
+    const response = await request(app).post("/api/tasks").send({
+      projectId,
+      title: "one-step-execution",
+      priority: "p1",
+      prompt,
+      executeImmediately: true,
+    });
+
+    expect(response.status).toBe(201);
+    expect(response.body).toMatchObject({
+      projectId,
+      title: "one-step-execution",
+      status: "verifying",
+      prompt,
+    });
+    const [generation] = await db.select({
+      retryCount: tasksTable.retryCount,
+      correlationId: tasksTable.correlationId,
+    }).from(tasksTable).where(eq(tasksTable.id, response.body.id));
+    const [intent] = await db.select().from(eventsTable)
+      .where(eq(eventsTable.id, `task-auto-execution-deferred:${response.body.id}`));
+
+    expect(intent).toMatchObject({
+      type: "TaskAutoExecutionDispatchRequested",
+      projectId,
+      taskId: response.body.id,
+      payload: {
+        userId: "test-user",
+        taskRetryCount: generation!.retryCount,
+        taskCorrelationId: generation!.correlationId,
+      },
+    });
+    expect(mockScheduleAiTaskExecution).toHaveBeenCalledOnce();
+    expect(mockScheduleAiTaskExecution).toHaveBeenCalledWith(
+      response.body.id,
+      "test-user",
+      undefined,
+      generation!.retryCount,
+      generation!.correlationId,
+    );
+  });
+
+  it("keeps prompted Tasks pending unless immediate execution is explicitly requested", async () => {
+    const projectId = await insertProject();
+    cleanup.push(projectId);
+    const response = await request(app).post("/api/tasks").send({
+      projectId,
+      title: "prompted-draft",
+      priority: "p2",
+      prompt: "Keep this task as a draft.",
+    });
+
+    expect(response.status).toBe(201);
+    expect(response.body.status).toBe("pending");
+    expect(response.body.prompt).toBe("Keep this task as a draft.");
+    expect(mockScheduleAiTaskExecution).not.toHaveBeenCalled();
+    await expect(db.select().from(eventsTable)
+      .where(eq(eventsTable.id, `task-auto-execution-deferred:${response.body.id}`)))
+      .resolves.toHaveLength(0);
+  });
+
+  it("rejects immediate Task execution when no non-empty prompt is supplied", async () => {
+    const projectId = await insertProject();
+    cleanup.push(projectId);
+    const response = await request(app).post("/api/tasks").send({
+      projectId,
+      title: "missing-execution-prompt",
+      priority: "p2",
+      executeImmediately: true,
+    });
+
+    expect(response.status).toBe(400);
+    expect(mockScheduleAiTaskExecution).not.toHaveBeenCalled();
+    const created = await db.select({ id: tasksTable.id }).from(tasksTable)
+      .where(eq(tasksTable.projectId, projectId));
+    expect(created).toHaveLength(0);
+  });
+
+  it("keeps the successful Task create response when local queue wake-up fails", async () => {
+    const projectId = await insertProject();
+    cleanup.push(projectId);
+    mockScheduleAiTaskExecution.mockRejectedValueOnce(new Error("simulated queue wake failure"));
+
+    const response = await request(app).post("/api/tasks").send({
+      projectId,
+      title: "durable-create-after-wake-failure",
+      priority: "p2",
+      prompt: "Run after the durable dispatcher wakes the queue.",
+      executeImmediately: true,
+    });
+
+    expect(response.status).toBe(201);
+    expect(response.body.status).toBe("verifying");
+    const [intent] = await db.select().from(eventsTable)
+      .where(eq(eventsTable.id, `task-auto-execution-deferred:${response.body.id}`));
+    expect(intent?.type).toBe("TaskAutoExecutionDispatchRequested");
+  });
+
   it("execute route: schedules AI when task enters verifying with a prompt", async () => {
     const { taskId } = await createTaskWithPrompt("Fix the auth middleware");
 
