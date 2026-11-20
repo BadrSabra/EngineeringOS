@@ -468,9 +468,19 @@ function ProjectDetailSession({ projectId }: { projectId: string }) {
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Quality score */}
         <div className="bg-card border border-border rounded-xl p-5 shadow-sm">
-          <h2 className="font-semibold flex items-center gap-2 mb-4">
-            <ShieldAlert className="w-4 h-4 text-primary" /> جودة المشروع
-          </h2>
+          <div className="mb-4 flex items-center justify-between gap-2">
+            <h2 className="font-semibold flex items-center gap-2">
+              <ShieldAlert className="w-4 h-4 text-primary" /> جودة المشروع
+            </h2>
+            <Link
+              href={`/metrics?projectId=${encodeURIComponent(projectId)}`}
+              aria-label={`افتح قياسات مشروع ${project.name}`}
+              data-testid="link-project-metrics"
+              className="flex shrink-0 items-center gap-1 rounded text-xs text-primary hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+            >
+              المؤشرات والقياسات <ExternalLink className="h-3 w-3" aria-hidden="true" />
+            </Link>
+          </div>
           <div className="text-center mb-6">
              <div
               className={`text-6xl font-bold font-mono ${
