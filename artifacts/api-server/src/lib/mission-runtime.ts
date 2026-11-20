@@ -1894,15 +1894,6 @@ async function syncRecipeObjectiveState(params: {
   });
 }
 
-async function syncRecipeObjectiveStateAndFinalizeMissionOutcome(
-  params: Parameters<typeof syncRecipeObjectiveState>[0],
-): Promise<void> {
-  await syncRecipeObjectiveState(params);
-  if (params.status === "completed") {
-    await finalizeMissionPlanOutcomesAfterGoalCompletion(params.goalId);
-  }
-}
-
 async function findLiveMissionRecipeOwner(dispatch: RecipeDispatch) {
   const rows = await db
     .select({
@@ -2588,6 +2579,16 @@ export async function reconcileCompletedMissionRecipeAcceptances(
  * task work still enters scheduleAiTaskExecution(), and acceptance remains the
  * source of Goal/Mission terminal status.
  */
+/** Triggers outcome evaluation after the Recipe's committed Goal projection. */
+async function syncRecipeObjectiveStateAndFinalizeMissionOutcome(
+  params: Parameters<typeof syncRecipeObjectiveState>[0],
+): Promise<void> {
+  await syncRecipeObjectiveState(params);
+  if (params.status === "completed") {
+    await finalizeMissionPlanOutcomesAfterGoalCompletion(params.goalId);
+  }
+}
+
 export async function runMissionGoal(params: {
   goalId: string;
   userId: string;
