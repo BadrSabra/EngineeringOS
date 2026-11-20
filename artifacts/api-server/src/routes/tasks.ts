@@ -39,6 +39,10 @@ import { requireAuth } from "../middlewares/requireAuth.js";
 import { loadProjectByIdForUser } from "../middlewares/requireProjectAccess.js";
 import { scheduleAiTaskExecution } from "./ai.js";
 import { insertTaskAutoExecutionIntent, taskAutoExecutionIntentId } from "../lib/task-auto-execution-outbox.js";
+import {
+  wakeDeferredTaskDependencyIntents,
+  type TaskDependencyWakeTarget,
+} from "../lib/task-dependency-wake.js";
 import { parsePagination } from "../lib/pagination.js";
 import { taskTransitionConflict, type TaskStatus } from "../lib/task-state.js";
 import {
@@ -170,6 +174,36 @@ function startManualTaskLeaseHeartbeat(taskId: string, workerId: string) {
   };
 }
 
+/**
+ * Release only dependency-blocked automatic Task intents after their
+ * prerequisite is committed as completed. The durable Outbox update happens
+ * in the completion transaction; this bounded local enqueue is only a
+ * low-latency wake-up and may safely fail because reconciliation can recover it.
+ */
+async function scheduleDependentTaskWakeTargets(
+  completedTaskId: string,
+  targets: readonly TaskDependencyWakeTarget[],
+): Promise<void> {
+  for (let offset = 0; offset < targets.length; offset += 8) {
+    const batch = targets.slice(offset, offset + 8);
+    await Promise.all(batch.map(async (target) => {
+      try {
+        await scheduleAiTaskExecution(
+          target.taskId,
+          target.userId,
+          undefined,
+          target.retryCount,
+          target.correlationId,
+        );
+      } catch (error) {
+        logger.warn(
+          { completedTaskId, taskId: target.taskId, error, scope: "task-dependency-wake" },
+          "Immediate dependent Task scheduling failed; its durable Outbox intent remains available for dispatch.",
+        );
+      }
+    }));
+  }
+}
 const PUBLIC_TASK_LOG_METADATA = new Set([
   "trigger",
   "stage",
@@ -836,6 +870,7 @@ router.post("/tasks/:taskId/execute", async (req, res) => {
 
     // Keep the result, its log/event, and the ownership-fenced transition atomic.
     let updated: typeof tasksTable.$inferSelect | undefined;
+    let dependentTaskWakeTargets: TaskDependencyWakeTarget[] = [];
     try {
       [updated] = await db.transaction(async (tx) => {
         const [row] = await tx
@@ -915,6 +950,12 @@ router.post("/tasks/:taskId/execute", async (req, res) => {
             );
           }
         }
+        if (finalStatus === "completed") {
+          dependentTaskWakeTargets = await wakeDeferredTaskDependencyIntents(tx, {
+            completedTaskId: row.id,
+            projectId: taskToExecute.projectId,
+          });
+        }
 
         return [row];
       });
@@ -938,6 +979,7 @@ router.post("/tasks/:taskId/execute", async (req, res) => {
         updated.correlationId,
       );
     }
+    await scheduleDependentTaskWakeTargets(taskId, dependentTaskWakeTargets);
 
     return res.status(202).json(await projectCurrentTaskExecutionReceipt(updated));
   } finally {
@@ -981,6 +1023,7 @@ router.post("/tasks/:taskId/verification", async (req, res) => {
   }
 
   const correlationId = randomUUID();
+  let dependentTaskWakeTargets: TaskDependencyWakeTarget[] = [];
   let updated: typeof tasksTable.$inferSelect;
   try {
     [updated] = await db.transaction(async (tx) => {
@@ -1159,6 +1202,12 @@ router.post("/tasks/:taskId/verification", async (req, res) => {
         stateBefore: { status: lockedTask.status, verificationResult: lockedTask.verificationResult },
         stateAfter: { status: nextStatus, verificationResult },
       });
+      if (passed) {
+        dependentTaskWakeTargets = await wakeDeferredTaskDependencyIntents(tx, {
+          completedTaskId: row.id,
+          projectId: lockedTask.projectId,
+        });
+      }
       return [row];
     });
   } catch (error) {
@@ -1181,6 +1230,7 @@ router.post("/tasks/:taskId/verification", async (req, res) => {
   }
 
   invalidateContextCache(project.id);
+  await scheduleDependentTaskWakeTargets(taskId, dependentTaskWakeTargets);
   return res.json(await projectCurrentTaskExecutionReceipt(updated));
 });
 
