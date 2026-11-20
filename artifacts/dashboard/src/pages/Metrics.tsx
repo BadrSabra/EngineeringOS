@@ -14,6 +14,7 @@ import {
 } from 'recharts';
 import { BarChart3, AlertTriangle } from 'lucide-react';
 import { RefreshButton, RequestError } from '@/components/OperatorResilience';
+import MetricsAssistantHandoff from '@/components/MetricsAssistantHandoff';
 import { useSearch } from 'wouter';
 
 const CHART_COLORS = {
@@ -146,6 +147,8 @@ function MetricsSession({
     const cutoffMs = Date.now() - (dateRange === '7d' ? 7 : 30) * 24 * 60 * 60 * 1000;
     return allData.filter((m) => new Date(m.timestamp).getTime() >= cutoffMs);
   }, [allData, dateRange]);
+  const assistantMetrics = formatData.filter((metric) => metric.projectId === effectiveProjectId);
+  const selectedProjectName = projects?.find((project) => project.id === effectiveProjectId)?.name ?? '';
 
   return (
     <div dir="rtl" lang="ar" className="space-y-6">
@@ -216,6 +219,14 @@ function MetricsSession({
         </div>
       ) : (
         <div className="min-w-0 space-y-6">
+          {selectedProjectName && assistantMetrics.length > 0 && (
+            <MetricsAssistantHandoff
+              projectId={effectiveProjectId}
+              projectName={selectedProjectName}
+              dateRange={dateRange}
+              metrics={assistantMetrics}
+            />
+          )}
           <div className="min-w-0 bg-card border border-border rounded-xl p-6 shadow-sm">
             <h3 className="font-semibold mb-6">اتجاه الجودة الإجمالي</h3>
             <div data-testid="metrics-overall-chart" dir="ltr" className="h-80 w-full min-w-0">
