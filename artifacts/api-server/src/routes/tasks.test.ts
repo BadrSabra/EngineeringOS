@@ -985,6 +985,94 @@ describe("Task lifecycle", () => {
     expect(resumedExecutionLogs.map((log) => log.sequence)).toEqual([4]);
   });
 
+  it("keeps a retry stream open when only a previous attempt has a terminal row", async () => {
+    const { taskId } = await createTask();
+    const previousExecutionId = randomUUID();
+    const currentExecutionId = randomUUID();
+    const previousCorrelationId = randomUUID();
+    const currentCorrelationId = randomUUID();
+    const now = new Date();
+
+    await db.update(tasksTable)
+      .set({ status: "running", correlationId: currentCorrelationId, updatedAt: now })
+      .where(eq(tasksTable.id, taskId));
+    await db.insert(taskLogsTable).values([
+      {
+        id: randomUUID(),
+        taskId,
+        level: "error",
+        message: "Previous execution failed.",
+        timestamp: now,
+        correlationId: previousCorrelationId,
+        eventType: "terminal",
+        executionId: previousExecutionId,
+        attempt: 1,
+        sequence: 3,
+        progressStage: "result",
+        progressStatus: "failed",
+        terminalOutcome: "FAILED",
+      },
+      {
+        id: randomUUID(),
+        taskId,
+        level: "info",
+        message: "Retry execution acquired.",
+        timestamp: new Date(now.getTime() + 1),
+        correlationId: currentCorrelationId,
+        eventType: "progress",
+        executionId: currentExecutionId,
+        attempt: 2,
+        sequence: 4,
+        progressStage: "acquisition",
+        progressStatus: "active",
+        progressMessage: "Retry execution acquired.",
+      },
+    ]);
+
+    let streamSettled = false;
+    const streamPromise = request(app)
+      .get(`/api/tasks/${taskId}/logs/stream?after=3`)
+      .then((response) => {
+        streamSettled = true;
+        return response;
+      });
+    // The first poll runs at 500 ms. The old implementation closed here by
+    // mistaking attempt 1's terminal row for the active retry's terminal row.
+    await new Promise((resolve) => setTimeout(resolve, 700));
+    const closedBeforeCurrentTerminal = streamSettled;
+
+    const terminalAt = new Date();
+    await db.insert(taskLogsTable).values({
+      id: randomUUID(),
+      taskId,
+      level: "info",
+      message: "Retry execution completed.",
+      timestamp: terminalAt,
+      correlationId: currentCorrelationId,
+      eventType: "terminal",
+      executionId: currentExecutionId,
+      attempt: 2,
+      sequence: 5,
+      progressStage: "result",
+      progressStatus: "completed",
+      progressMessage: "Task completed successfully.",
+      progressPercent: 100,
+      terminalOutcome: "SUCCEEDED",
+    });
+    await db.update(tasksTable)
+      .set({ status: "completed", updatedAt: terminalAt, completedAt: terminalAt })
+      .where(eq(tasksTable.id, taskId));
+
+    const replay = await streamPromise;
+    const replayedSequences = [...replay.text.matchAll(/event: log\ndata: (\{.*\})\n/g)]
+      .map((match) => JSON.parse(match[1]) as { sequence: number });
+    expect(closedBeforeCurrentTerminal).toBe(false);
+    expect(replayedSequences.map((log) => log.sequence)).toEqual([4, 5]);
+    expect(replay.text).toContain("Retry execution acquired.");
+    expect(replay.text).toContain("Retry execution completed.");
+    expect(replay.text).toContain("event: done");
+  });
+
   it("redacts legacy log content and metadata at the public boundary", async () => {
     const { taskId } = await createTask();
     await db.insert(taskLogsTable).values({
