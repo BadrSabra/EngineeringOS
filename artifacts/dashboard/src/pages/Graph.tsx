@@ -263,6 +263,14 @@ export default function Graph() {
     () => entities.filter((e) => e.name.toLowerCase().includes(normalizedSearchTerm)),
     [entities, normalizedSearchTerm],
   );
+  const exactSearchMatches = normalizedSearchTerm
+    ? filteredEntities.filter((entity) => entity.name.trim().toLowerCase() === normalizedSearchTerm)
+    : [];
+  const keyboardSearchResult = exactSearchMatches.length === 1
+    ? exactSearchMatches[0]
+    : exactSearchMatches.length === 0 && filteredEntities.length === 1
+      ? filteredEntities[0]
+      : undefined;
   const searchMatchIds = useMemo(
     () => new Set(filteredEntities.map((entity) => entity.id)),
     [filteredEntities],
@@ -329,6 +337,12 @@ export default function Graph() {
               type="text"
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
+              onKeyDown={(event) => {
+                if (event.key !== 'Enter' || !keyboardSearchResult) return;
+                event.preventDefault();
+                selectEntity(keyboardSearchResult.id);
+                setDetailTab('relations');
+              }}
               placeholder="ابحث عن عنصر..."
               aria-label="البحث في عناصر الرسم البياني"
               className="w-full min-w-0 bg-card border border-border rounded-md pl-9 pr-4 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-primary sm:w-56"
@@ -346,6 +360,7 @@ export default function Graph() {
           {hasSearchMatches ? (
             <>
               أُبرزت <bdi dir="ltr">{filteredEntities.length}</bdi> نتيجة وروابطها على الخريطة؛ بقيت بقية العناصر ظاهرة.
+              {keyboardSearchResult && <span> اضغط Enter لتحديد النتيجة.</span>}
             </>
           ) : (
             'لا توجد نتائج مطابقة؛ بقيت الخريطة كاملة.'
