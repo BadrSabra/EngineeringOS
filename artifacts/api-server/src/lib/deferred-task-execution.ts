@@ -489,6 +489,54 @@ export async function runDeferredTaskVerification(taskId: string): Promise<boole
       steps: steps.map((step) => ({ ...step, kind: step.kind ?? ("automatic" as const) })),
     };
     const finalized = await db.transaction(async (tx) => {
+      // A prerequisite may be reopened while local verification is running.
+      // Re-check under the finalization transaction so the child cannot pass
+      // its gate using a stale dependency snapshot.
+      const latestBlockers = await getTaskDependencyBlockers(tx, claimed.task);
+      if (latestBlockers.length > 0) {
+        const [restored] = await tx.update(tasksTable).set({
+          status: claimed.originalStatus,
+          workerId: null,
+          leaseUntil: null,
+          lastHeartbeatAt: null,
+          updatedAt: databaseNow(),
+        }).where(and(
+          eq(tasksTable.id, taskId),
+          eq(tasksTable.status, "running"),
+          eq(tasksTable.workerId, workerId),
+          gt(tasksTable.leaseUntil, databaseNow()),
+        )).returning({ id: tasksTable.id });
+        if (!restored) return { updated: false, aiDispatch: false };
+        const [intent] = await tx.select({ payload: eventsTable.payload })
+          .from(eventsTable)
+          .where(eq(eventsTable.id, taskExecutionWaitIntentId(taskId)))
+          .for("update")
+          .limit(1);
+        const pendingPayload = parseDeferredTaskExecutionPayload(intent?.payload);
+        if (pendingPayload) {
+          const invalidGraph = latestBlockers.some(
+            (blocker) => blocker.reason !== "dependency_not_completed",
+          );
+          if (invalidGraph) {
+            await tx.update(eventsTable).set({
+              type: TASK_EXECUTION_DEFERRED_FAILED,
+              severity: "error",
+              message: "Deferred execution stopped because the prerequisite graph changed and is no longer valid.",
+              payload: { ...pendingPayload, lastFailureCode: "INVALID_DEPENDENCY_GRAPH" },
+            }).where(eq(eventsTable.id, taskExecutionWaitIntentId(taskId)));
+          } else {
+            await updateDeferredIntent(
+              tx,
+              taskExecutionWaitIntentId(taskId),
+              pendingPayload,
+              "DEPENDENCIES_PENDING",
+              30_000,
+            );
+          }
+        }
+        return { updated: false, aiDispatch: false };
+      }
+
       const [row] = await tx.update(tasksTable).set({
         status: finalStatus,
         verificationResult,
