@@ -530,10 +530,26 @@ function ProjectDetailSession({ projectId }: { projectId: string }) {
                 <div className="text-2xl font-bold font-mono text-emerald-500">{summary.taskCounts.completed}</div>
                 <div className="text-xs text-emerald-500/80 uppercase mt-1 tracking-wider">مكتملة</div>
               </div>
-              <div className="bg-destructive/10 border border-destructive/20 rounded-lg p-3 text-center">
-                <div className="text-2xl font-bold font-mono text-destructive">{summary.taskCounts.failed}</div>
-                <div className="text-xs text-destructive/80 uppercase mt-1 tracking-wider">فاشلة</div>
-              </div>
+              {summary.taskCounts.failed > 0 ? (
+                <Link
+                  href={`/tasks?projectId=${encodeURIComponent(projectId)}&status=failed`}
+                  aria-label={`اعرض ${summary.taskCounts.failed} مهمة متعثرة في مشروع ${project.name}`}
+                  data-testid="link-project-failed-tasks"
+                  className="rounded-lg border border-destructive/20 bg-destructive/10 p-3 text-center transition-colors hover:bg-destructive/15 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-destructive"
+                >
+                  <div className="text-2xl font-bold font-mono text-destructive" data-testid="summary-task-failed">
+                    {summary.taskCounts.failed}
+                  </div>
+                  <div className="mt-1 text-xs uppercase tracking-wider text-destructive/80">فاشلة</div>
+                </Link>
+              ) : (
+                <div className="rounded-lg border border-destructive/20 bg-destructive/10 p-3 text-center">
+                  <div className="text-2xl font-bold font-mono text-destructive" data-testid="summary-task-failed">
+                    {summary.taskCounts.failed}
+                  </div>
+                  <div className="mt-1 text-xs uppercase tracking-wider text-destructive/80">فاشلة</div>
+                </div>
+              )}
             </div>
           ) : (
             <p className="text-sm text-muted-foreground" data-testid="summary-task-counts-unavailable">
