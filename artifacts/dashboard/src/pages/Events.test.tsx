@@ -97,6 +97,26 @@ describe("Events", () => {
     expect(screen.getByRole("button", { name: "الأقدم" })).toBeDisabled();
   });
 
+  it("filters by a clicked event severity and returns to the newest page", () => {
+    window.history.replaceState({}, "", "/events?search=Task&page=3");
+    render(<Events />);
+
+    fireEvent.click(screen.getByTestId("button-event-severity-event-2"));
+
+    expect(screen.getByTestId("select-event-severity")).toHaveValue("error");
+    const latestCall = vi.mocked(useListEvents).mock.calls.at(-1);
+    expect(latestCall?.[0]).toEqual({
+      limit: 50,
+      page: 1,
+      severity: "error",
+      search: "Task",
+    });
+    const params = new URLSearchParams(window.location.search);
+    expect(params.get("severity")).toBe("error");
+    expect(params.get("page")).toBeNull();
+    expect(params.get("search")).toBe("Task");
+  });
+
   it("filters the whole event log by a clicked correlation id in one step", () => {
     window.history.replaceState(
       {},

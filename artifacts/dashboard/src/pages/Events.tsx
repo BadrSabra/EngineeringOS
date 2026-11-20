@@ -14,6 +14,14 @@ function formatEventTime(timestamp: Date | string | number): string {
   return date.toISOString().slice(11, 19);
 }
 
+function severityLabel(severity?: string): string {
+  if (severity === 'info') return 'معلومة';
+  if (severity === 'warning') return 'تحذير';
+  if (severity === 'error') return 'خطأ';
+  if (severity === 'success') return 'نجاح';
+  return severity || 'معلومة';
+}
+
 function formatEventReadAt(timestamp: number): string {
   return new Intl.DateTimeFormat('ar-EG', {
     dateStyle: 'medium',
@@ -158,6 +166,7 @@ export default function Events() {
           <div className="flex items-center gap-2">
             <span className="text-xs text-muted-foreground font-medium">مستوى الخطورة</span>
             <select
+              data-testid="select-event-severity"
               value={severity}
                onChange={(e) => {
                  setSeverity(e.target.value);
@@ -266,7 +275,22 @@ export default function Events() {
                           {formatEventTime(evt.timestamp)}
                         </div>
                         <div className="w-16 font-bold uppercase shrink-0">
-                          {evt.severity === 'info' ? 'معلومة' : evt.severity === 'warning' ? 'تحذير' : evt.severity === 'error' ? 'خطأ' : evt.severity === 'success' ? 'نجاح' : evt.severity || 'معلومة'}
+                          {SEVERITIES.includes(evt.severity as (typeof SEVERITIES)[number]) ? (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setSeverity(evt.severity as (typeof SEVERITIES)[number]);
+                                setPage(1);
+                                setShowFilters(true);
+                              }}
+                              aria-label={`اعرض أحداث مستوى الخطورة: ${severityLabel(evt.severity)}`}
+                              title="اعرض الأحداث من هذا المستوى"
+                              data-testid={`button-event-severity-${evt.id}`}
+                              className="rounded text-start hover:text-primary hover:underline focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary"
+                            >
+                              {severityLabel(evt.severity)}
+                            </button>
+                          ) : severityLabel(evt.severity)}
                         </div>
                         <div className="w-32 opacity-80 shrink-0 truncate"><bdi dir="ltr">{evt.type}</bdi></div>
                         <div className="w-48 opacity-60 shrink-0 truncate">
