@@ -6888,12 +6888,20 @@ describe("Concurrent chat ordering and ownership", () => {
     const history = await request(app)
       .get(`/api/ai/chat/${sessionId}/messages`)
       .expect(200);
-    expect(history.body.map((row: { role: string; content: string }) => [row.role, row.content])).toEqual([
-      ["user", turns[0].prompt],
-      ["assistant", turns[0].response],
-      ["user", turns[1].prompt],
-      ["assistant", turns[1].response],
-    ]);
+    const observedHistory = history.body.map(
+      (row: { role: string; content: string }) => [row.role, row.content],
+    );
+    const expectedAdmissionOrders = [
+      turns,
+      [...turns].reverse(),
+    ].map((orderedTurns) => orderedTurns.flatMap((turn) => [
+      ["user", turn.prompt],
+      ["assistant", turn.response],
+    ]));
+    // Concurrent requests reserve their order by acquiring the PostgreSQL
+    // session-row update lock. Either request may win admission; the invariant
+    // is that each user/assistant pair remains contiguous and correctly bound.
+    expect(expectedAdmissionOrders).toContainEqual(observedHistory);
   });
 
   it("keeps interleaved SSE deltas, evidence, executions, and done messages request-owned", async () => {
