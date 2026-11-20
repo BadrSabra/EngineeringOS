@@ -4173,7 +4173,25 @@ export async function wakeMissionGoalsForEvent(event: MissionEventEnvelope): Pro
     return true;
   });
 
-  return changed ? 1 : 0;
+  if (!changed) return 0;
+
+  // The durable event has crossed the locked Goal/Mission wait boundary.
+  // Attempt the existing autonomous replan coordinator after commit; its
+  // Mission lock, policy, evidence, and retry-budget gates remain authoritative.
+  // The periodic dispatcher remains the recovery path if this local wake fails.
+  try {
+    const { autoReplanMission } = await import("./mission-auto-replan.js");
+    await autoReplanMission(candidate.missionId);
+  } catch (error) {
+    logger.warn({
+      error,
+      missionId: candidate.missionId,
+      goalId: candidate.id,
+      eventId: event.eventId,
+    }, "Mission event wake could not start automatic replanning; durable reconciliation will retry");
+  }
+
+  return 1;
 }
 
 function normalizeMissionEventValue(value: unknown): unknown {
