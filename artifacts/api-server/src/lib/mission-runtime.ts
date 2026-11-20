@@ -1556,7 +1556,7 @@ async function loadRecipeCandidate(
   };
 }
 
-async function syncRecipeObjectiveState(params: {
+export async function syncRecipeObjectiveState(params: {
   goalId: string;
   missionId: string;
   projectId: string;
@@ -1587,6 +1587,7 @@ async function syncRecipeObjectiveState(params: {
     proposalId?: string | null;
   };
 }): Promise<void> {
+  let provenGoalCompleted = false;
   await db.transaction(async (tx) => {
     const [mission] = await tx
       .select()
@@ -1829,6 +1830,7 @@ async function syncRecipeObjectiveState(params: {
         },
       });
     }
+    provenGoalCompleted = nextGoalStatus === "completed";
     await tx.update(aiGoalsTable)
       .set({
         status: nextGoalStatus,
@@ -1891,6 +1893,11 @@ async function syncRecipeObjectiveState(params: {
       },
     });
   });
+  if (provenGoalCompleted) {
+    // Commit canonical completion before waking only this Goal's dependents.
+    // The periodic reconciler remains the recovery path if this wake is lost.
+    await wakeReadyMissionGoals(32, params.projectId, params.goalId);
+  }
 }
 
 async function findLiveMissionRecipeOwner(dispatch: RecipeDispatch) {
@@ -3582,6 +3589,7 @@ export async function runMissionGoal(params: {
 export async function wakeReadyMissionGoals(
   limit = 32,
   scopeProjectId?: string,
+  dependencyGoalId?: string,
 ): Promise<number> {
   // Sort Goals whose exact, current-plan dependencies are already terminal
   // ahead of Goals still waiting on known prerequisites. The bounded batch
@@ -3644,6 +3652,18 @@ export async function wakeReadyMissionGoals(
           ),
         ),
       ),
+      dependencyGoalId
+        ? inArray(
+            aiGoalsTable.id,
+            db.select({ goalId: aiGoalDependenciesTable.goalId })
+              .from(aiGoalDependenciesTable)
+              .where(and(
+                eq(aiGoalDependenciesTable.dependsOnGoalId, dependencyGoalId),
+                eq(aiGoalDependenciesTable.missionId, aiGoalsTable.missionId),
+                eq(aiGoalDependenciesTable.projectId, aiGoalsTable.projectId),
+              )),
+          )
+        : undefined,
       scopeProjectId ? eq(aiGoalsTable.projectId, scopeProjectId) : undefined,
     ))
     .orderBy(

@@ -63,6 +63,7 @@ import {
   dispatchPendingMissionRecipes,
   reconcileCompletedMissionRecipeAcceptances,
   runMissionGoal,
+  syncRecipeObjectiveState,
   wakeReadyMissionGoals,
 } from "./mission-runtime.js";
 
@@ -817,8 +818,8 @@ describe("Mission recipe dispatch", () => {
     );
     await seedMissionRecipeEpisode(proofParams, executionId, planRevision);
     const deliveryReceipt = {
-      kind: "recipe",
-      status: "completed",
+      kind: "recipe" as const,
+      status: "completed" as const,
       executionId,
       attempt: 0,
       operationId,
@@ -826,32 +827,38 @@ describe("Mission recipe dispatch", () => {
       candidateTreeHash: "a".repeat(64),
       treeHash: "b".repeat(64),
     };
-    await db.update(aiGoalsTable)
-      .set({
-        status: "completed",
-        completedAt: new Date(),
-        outcomeContract: {
-          deliveryRequired: true,
-          planRevision: { hash: planRevision },
-          acceptance: {
-            executionId,
-            outcome: "SUCCEEDED",
-            verdict: "PROVEN",
-            acceptedRefs: [executionId],
-            scope: {
-              projectId,
-              missionId,
-              goalId: deliveryGoalId,
-              operationId,
-              planRevision,
-            },
-            receipt: { kind: "recipe", executionId, status: "completed" },
-            deliveryReceipt,
-          },
-        },
-        updatedAt: new Date(),
+    await syncRecipeObjectiveState({
+      projectId,
+      missionId,
+      goalId: deliveryGoalId,
+      userId: "test-user",
+      operationId,
+      idempotencyKey: `delivery-proof:${operationId}`,
+      executionId,
+      expectedExecutionId: executionId,
+      expectedAttempt: 0,
+      attempt: 0,
+      sourceRevision,
+      candidateIdentity: null,
+      status: "completed",
+      deliveryReceipt,
+    });
+    expect(scheduleTaskExecution).toHaveBeenCalledOnce();
+    expect(scheduleTaskExecution).toHaveBeenCalledWith(
+      successorTaskId,
+      "test-user",
+      expect.any(Object),
+      0,
+      null,
+    );
+    [successor] = await db
+      .select({
+        status: aiGoalsTable.status,
+        blockedReason: aiGoalsTable.blockedReason,
       })
-      .where(eq(aiGoalsTable.id, deliveryGoalId));
+      .from(aiGoalsTable)
+      .where(eq(aiGoalsTable.id, successorGoalId));
+    expect(successor).toEqual({ status: "running", blockedReason: null });
 
     const foreignProjectId = randomUUID();
     const foreignMissionId = randomUUID();
@@ -921,7 +928,7 @@ describe("Mission recipe dispatch", () => {
       createdAt: now,
     });
 
-    expect(await wakeReadyMissionGoals(32, projectId)).toBe(1);
+    expect(await wakeReadyMissionGoals(32, projectId)).toBe(0);
     expect(scheduleTaskExecution).toHaveBeenCalledOnce();
     expect(scheduleTaskExecution).toHaveBeenCalledWith(
       successorTaskId,
