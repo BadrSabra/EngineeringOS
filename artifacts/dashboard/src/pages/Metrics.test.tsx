@@ -1,27 +1,41 @@
 import React from 'react';
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import axe from 'axe-core';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import Metrics from './Metrics';
 import { useLocation } from 'wouter';
 
+const scanProjectMutate = vi.hoisted(() => vi.fn());
+const invalidateQueries = vi.hoisted(() => vi.fn().mockResolvedValue(undefined));
+
+vi.mock('@tanstack/react-query', () => ({
+  useQueryClient: () => ({ invalidateQueries }),
+}));
+
 vi.mock('@workspace/api-client-react', () => ({
   useListMetrics: vi.fn(),
   useListProjects: vi.fn(),
+  useScanProject: vi.fn(),
+  useGetScanJob: vi.fn(),
   getListMetricsQueryKey: vi.fn((params) => ['/api/metrics', params]),
+  getListProjectsQueryKey: vi.fn(() => ['/api/projects']),
+  getGetScanJobQueryKey: vi.fn((projectId, jobId) => ['/api/projects', projectId, 'scan-jobs', jobId]),
 }));
 
 import {
   getListMetricsQueryKey,
+  getListProjectsQueryKey,
   useListMetrics,
   useListProjects,
+  useScanProject,
+  useGetScanJob,
 } from '@workspace/api-client-react';
 
 const refetchMetrics = vi.fn();
 const refetchProjects = vi.fn();
 
 function mockProjects(
-  data: Array<{ id: string; name: string }> = [],
+  data: Array<{ id: string; name: string; status?: string }> = [],
   overrides: Record<string, unknown> = {},
 ) {
   vi.mocked(useListProjects).mockReturnValue({
@@ -53,9 +67,23 @@ function mockMetrics(
 
 beforeEach(() => {
   vi.clearAllMocks();
+  invalidateQueries.mockResolvedValue(undefined);
   window.history.replaceState({}, '', '/metrics');
   mockProjects();
   mockMetrics();
+  vi.mocked(useScanProject).mockReturnValue({
+    mutate: scanProjectMutate,
+    isPending: false,
+    isError: false,
+    error: null,
+  } as unknown as ReturnType<typeof useScanProject>);
+  vi.mocked(useGetScanJob).mockReturnValue({
+    data: undefined,
+    isLoading: false,
+    isError: false,
+    isFetching: false,
+    refetch: vi.fn(),
+  } as unknown as ReturnType<typeof useGetScanJob>);
 });
 
 describe('Metrics', () => {
@@ -98,6 +126,87 @@ describe('Metrics', () => {
       }),
     );
     expect(getListMetricsQueryKey).toHaveBeenCalledWith({ projectId: 'project-a' });
+  });
+
+  it('starts a scan from the empty metrics state and tracks its background job', () => {
+    mockProjects([{ id: 'project-a', name: 'Alpha' }]);
+    mockMetrics([]);
+
+    render(<Metrics />);
+    fireEvent.click(screen.getByTestId('button-start-metrics-scan'));
+
+    expect(scanProjectMutate).toHaveBeenCalledWith(
+      { projectId: 'project-a' },
+      expect.objectContaining({ onSuccess: expect.any(Function) }),
+    );
+
+    const options = scanProjectMutate.mock.calls[0]?.[1] as {
+      onSuccess: (job: { id: string; projectId: string; status: string; createdAt: string }) => void;
+    };
+    act(() => options.onSuccess({
+      id: 'scan-job-a',
+      projectId: 'project-a',
+      status: 'queued',
+      createdAt: '2026-11-20T12:00:00.000Z',
+    }));
+
+    expect(useGetScanJob).toHaveBeenLastCalledWith(
+      'project-a',
+      'scan-job-a',
+      expect.objectContaining({
+        query: expect.objectContaining({ enabled: true, refetchInterval: expect.any(Function) }),
+      }),
+    );
+    expect(screen.getByTestId('button-start-metrics-scan')).toBeDisabled();
+    expect(screen.getByTestId('button-start-metrics-scan')).toHaveTextContent('جارٍ الفحص');
+  });
+
+  it('refreshes the selected metrics after the scan job completes', async () => {
+    mockProjects([{ id: 'project-a', name: 'Alpha' }]);
+    mockMetrics([]);
+    vi.mocked(useGetScanJob).mockReturnValue({
+      data: {
+        id: 'scan-job-a',
+        projectId: 'project-a',
+        status: 'completed',
+        createdAt: '2026-11-20T12:00:00.000Z',
+      },
+      isLoading: false,
+      isError: false,
+      isFetching: false,
+      refetch: vi.fn(),
+    } as unknown as ReturnType<typeof useGetScanJob>);
+
+    render(<Metrics />);
+    fireEvent.click(screen.getByTestId('button-start-metrics-scan'));
+    const options = scanProjectMutate.mock.calls[0]?.[1] as {
+      onSuccess: (job: { id: string; projectId: string; status: string; createdAt: string }) => void;
+    };
+    act(() => options.onSuccess({
+      id: 'scan-job-a',
+      projectId: 'project-a',
+      status: 'queued',
+      createdAt: '2026-11-20T12:00:00.000Z',
+    }));
+
+    await waitFor(() => {
+      expect(invalidateQueries).toHaveBeenCalledWith({
+        queryKey: ['/api/metrics', { projectId: 'project-a' }],
+      });
+    });
+    expect(screen.getByText('اكتمل الفحص، ولم تظهر مؤشرات لهذا المشروع بعد.')).toBeInTheDocument();
+    expect(getListProjectsQueryKey).toHaveBeenCalled();
+  });
+
+  it('does not start a duplicate scan when the project is already scanning', () => {
+    mockProjects([{ id: 'project-a', name: 'Alpha', status: 'scanning' }]);
+    mockMetrics([]);
+
+    render(<Metrics />);
+
+    expect(screen.getByTestId('button-start-metrics-scan')).toBeDisabled();
+    expect(screen.getByText('يجري فحص هذا المشروع بالفعل. لن نرسل طلب فحص مكررًا.')).toBeInTheDocument();
+    expect(scanProjectMutate).not.toHaveBeenCalled();
   });
 
   it('restores the project and date range from a metrics link', () => {
