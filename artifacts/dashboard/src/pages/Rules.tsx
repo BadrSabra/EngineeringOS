@@ -167,6 +167,12 @@ export default function Rules() {
               type="text"
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
+              onKeyDown={(event) => {
+                if (event.key !== 'Enter' || visibleRules.length !== 1) return;
+                event.preventDefault();
+                setExpandedRule(visibleRules[0].id);
+              }}
+              aria-label="ابحث في القواعد"
               placeholder="ابحث في القواعد..."
               className="bg-card border border-border rounded-md pl-9 pr-8 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-primary w-56"
             />
