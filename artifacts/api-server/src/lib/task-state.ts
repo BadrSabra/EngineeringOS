@@ -19,7 +19,12 @@ const transitions: Record<TaskTransitionActor, ReadonlySet<string>> = {
   manual: new Set(["pending->queued", "pending->verifying", "queued->verifying"]),
   execution: new Set(["pending->running", "queued->running", "verifying->running", "running->completed", "running->failed", "running->verifying"]),
   verification: new Set(["running->completed", "running->failed", "running->verifying", "verifying->completed"]),
-  retry: new Set(["failed->queued", "cancelled->queued"]),
+  retry: new Set([
+    "failed->queued",
+    "cancelled->queued",
+    "pending->verifying",
+    "queued->verifying",
+  ]),
   reconciliation: new Set(["running->verifying", "running->failed"]),
   cancellation: new Set(["pending->cancelled", "queued->cancelled", "verifying->cancelled", "failed->cancelled"]),
 };
