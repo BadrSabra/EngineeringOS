@@ -253,6 +253,37 @@ describe("Projects", () => {
     expect(screen.queryByText("gamma-lib")).not.toBeInTheDocument();
   });
 
+  it('opens the workspace on Enter only when search leaves one project', () => {
+    render(<Projects />);
+    const input = screen.getByTestId('input-project-search');
+
+    fireEvent.change(input, { target: { value: 'FastAPI' } });
+    expect(document.getElementById('project-search-keyboard-status'))
+      .toHaveTextContent('مشروع واحد مطابق. اضغط Enter لفتح مساحة العمل.');
+    fireEvent.keyDown(input, { key: 'Enter' });
+    expect(mocks.setLocation).toHaveBeenCalledWith('/projects/2/workspace');
+
+    mocks.setLocation.mockClear();
+    fireEvent.change(input, { target: { value: 'TypeScript' } });
+    expect(document.getElementById('project-search-keyboard-status'))
+      .toHaveTextContent('توجد عدة مشاريع مطابقة. اختر المشروع المطلوب من النتائج.');
+    fireEvent.keyDown(input, { key: 'Enter' });
+    expect(mocks.setLocation).not.toHaveBeenCalled();
+  });
+
+  it('does not open a project on Enter during IME composition or when no project matches', () => {
+    render(<Projects />);
+    const input = screen.getByTestId('input-project-search');
+
+    fireEvent.change(input, { target: { value: 'alpha-service' } });
+    fireEvent.keyDown(input, { key: 'Enter', isComposing: true });
+    expect(mocks.setLocation).not.toHaveBeenCalled();
+
+    fireEvent.change(input, { target: { value: 'zzz-no-match' } });
+    fireEvent.keyDown(input, { key: 'Enter' });
+    expect(mocks.setLocation).not.toHaveBeenCalled();
+  });
+
   it.each([
     ['CUSTOMER SUPPORT', 'alpha-service', ['beta-worker', 'gamma-lib']],
     ['python', 'beta-worker', ['alpha-service', 'gamma-lib']],
@@ -279,6 +310,32 @@ describe("Projects", () => {
     expect(screen.getByText('alpha-service')).toBeInTheDocument();
     expect(screen.getByText('beta-worker')).toBeInTheDocument();
     expect(screen.getByText('gamma-lib')).toBeInTheDocument();
+  });
+
+  it('restores the project search from the URL and preserves unrelated route context', async () => {
+    window.history.replaceState({}, '', '/projects?search=FastAPI&tab=recent#project-list');
+    render(<Projects />);
+    const input = screen.getByTestId('input-project-search');
+
+    expect(input).toHaveValue('FastAPI');
+    expect(screen.getByText('beta-worker')).toBeInTheDocument();
+    expect(screen.queryByText('alpha-service')).not.toBeInTheDocument();
+
+    fireEvent.change(input, { target: { value: 'TypeScript' } });
+    await waitFor(() => {
+      const url = new URL(window.location.href);
+      expect(url.searchParams.get('search')).toBe('TypeScript');
+      expect(url.searchParams.get('tab')).toBe('recent');
+      expect(url.hash).toBe('#project-list');
+    });
+
+    fireEvent.click(screen.getByTestId('button-clear-project-search'));
+    await waitFor(() => {
+      const url = new URL(window.location.href);
+      expect(url.searchParams.has('search')).toBe(false);
+      expect(url.searchParams.get('tab')).toBe('recent');
+      expect(url.hash).toBe('#project-list');
+    });
   });
 
   it("shows empty state when no projects match the search", () => {
