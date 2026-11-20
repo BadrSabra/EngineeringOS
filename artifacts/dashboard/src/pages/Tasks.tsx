@@ -48,6 +48,7 @@ import {
   MessageCircle,
   Pencil,
   Trash2,
+  Plus,
 } from 'lucide-react';
 import { ProviderRecoveryCard } from '@/components/ProviderRecoveryCard';
 import TaskAssistantHandoff from '@/components/TaskAssistantHandoff';
@@ -1657,6 +1658,7 @@ function TasksSession({
   const [expandedTask, setExpandedTask] = useState<string | null>(() => requestedTaskId || null);
   const [logsTab, setLogsTab] = useState<Record<string, 'details' | 'logs'>>({});
   const [createOpen, setCreateOpen] = useState(false);
+  const [quickTaskTitle, setQuickTaskTitle] = useState('');
   const [editingTask, setEditingTask] = useState<{
     id: string;
     title: string;
@@ -1752,6 +1754,10 @@ function TasksSession({
   ) ?? [];
   const hasActiveTaskFilters = Boolean(searchTerm || filterStatus || filterPriority || filterAcceptance || filterFollowUp);
   const showTaskProjectSelector = projects.length !== 1 || projectId !== projects[0]?.id;
+  const canQuickCreateTask = Boolean(projectId) && (
+    projects.length === 1
+    || Boolean(requestedProjectId || requestedTaskId || selectedProjectId)
+  );
 
   useEffect(() => {
     const url = new URL(window.location.href);
@@ -1802,15 +1808,17 @@ function TasksSession({
     url.searchParams.set('projectId', nextProjectId);
     url.searchParams.delete('taskId');
     window.history.replaceState(window.history.state, '', `${url.pathname}${url.search}${url.hash}`);
+    if (nextProjectId !== String(projectId ?? '')) setQuickTaskTitle('');
     setSelectedProjectId(nextProjectId);
   };
 
-  const handleCreateTask = (data: CreateTaskInput) => {
+  const handleCreateTask = (data: CreateTaskInput, source: 'dialog' | 'quick' = 'dialog') => {
     createTask.mutate(
       { data },
       {
         onSuccess: (created) => {
-          setCreateOpen(false);
+          if (source === 'quick') setQuickTaskTitle('');
+          else setCreateOpen(false);
           selectProject(created.projectId);
           void queryClient.invalidateQueries({ queryKey: getListTasksQueryKey() });
           toast({ title: 'أُنشئت المهمة', description: `أُضيفت «${created.title}» إلى قائمة مهام المشروع.` });
@@ -1824,6 +1832,17 @@ function TasksSession({
         },
       },
     );
+  };
+
+  const handleQuickCreateTask = (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    const title = quickTaskTitle.trim();
+    if (!projectId || !title || createTask.isPending) return;
+    handleCreateTask({
+      projectId: String(projectId),
+      title,
+      priority: 'p2',
+    }, 'quick');
   };
 
   const handleUpdateTask = (data: UpdateTaskInput) => {
@@ -2030,6 +2049,49 @@ function TasksSession({
           </div>
         </div>
       </div>
+
+      {canQuickCreateTask && (
+        <form
+          onSubmit={handleQuickCreateTask}
+          aria-label="إضافة مهمة بسرعة"
+          data-testid="form-quick-create-task"
+          dir="rtl"
+          className="flex flex-col gap-3 rounded-lg border border-primary/20 bg-primary/[0.04] p-3 sm:flex-row sm:items-end"
+        >
+          <div className="min-w-0 flex-1">
+            <label htmlFor="quick-create-task-title" className="mb-1 block text-xs font-semibold">
+              أضف مهمة بسرعة
+            </label>
+            <input
+              id="quick-create-task-title"
+              type="text"
+              required
+              value={quickTaskTitle}
+              onChange={(event) => setQuickTaskTitle(event.target.value)}
+              placeholder="اكتب خطوة قصيرة ثم اضغط Enter"
+              dir="auto"
+              aria-label="عنوان المهمة السريعة"
+              data-testid="input-quick-create-task-title"
+              disabled={createTask.isPending}
+              className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm outline-none placeholder:text-muted-foreground/60 focus:border-primary disabled:opacity-60"
+            />
+            <p className="mt-1 text-[11px] text-muted-foreground" data-testid="text-quick-create-task-project">
+              ستُضاف إلى <bdi dir="auto" className="font-medium text-foreground">
+                {projects.find((project) => project.id === projectId)?.name ?? 'المشروع المحدد'}
+              </bdi>
+            </p>
+          </div>
+          <button
+            type="submit"
+            disabled={createTask.isPending || !quickTaskTitle.trim()}
+            data-testid="button-quick-create-task"
+            className="inline-flex shrink-0 items-center justify-center gap-2 rounded-md bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground hover:bg-primary/90 disabled:cursor-wait disabled:opacity-60"
+          >
+            {createTask.isPending ? <RefreshCw className="h-4 w-4 animate-spin" aria-hidden="true" /> : <Plus className="h-4 w-4" aria-hidden="true" />}
+            {createTask.isPending ? 'جارٍ الإضافة…' : 'أضف المهمة'}
+          </button>
+        </form>
+      )}
 
       {/* Active filter badge */}
       {hasActiveTaskFilters && (

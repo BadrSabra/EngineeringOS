@@ -2138,6 +2138,64 @@ describe('Task live log identity', () => {
 });
 
 describe('Task creation', () => {
+  it('quick-adds a task to the explicit project without opening the full dialog', () => {
+    renderPage();
+
+    const quickCreateForm = screen.getByTestId('form-quick-create-task');
+    expect(screen.queryByRole('dialog', { name: 'إضافة مهمة' })).not.toBeInTheDocument();
+    expect(screen.getByTestId('text-quick-create-task-project')).toHaveTextContent('Test Project');
+    fireEvent.change(screen.getByTestId('input-quick-create-task-title'), {
+      target: { value: 'راجع صفحة النتائج' },
+    });
+    fireEvent.submit(quickCreateForm);
+
+    expect(createTaskMutate).toHaveBeenCalledWith(
+      {
+        data: {
+          projectId: 'project-1',
+          title: 'راجع صفحة النتائج',
+          priority: 'p2',
+        },
+      },
+      expect.objectContaining({
+        onSuccess: expect.any(Function),
+        onError: expect.any(Function),
+      }),
+    );
+    expect(screen.queryByRole('dialog', { name: 'إضافة مهمة' })).not.toBeInTheDocument();
+
+    const mutationOptions = createTaskMutate.mock.calls[0]?.[1] as {
+      onSuccess: (created: { projectId: string; title: string }) => void;
+    };
+    act(() => mutationOptions.onSuccess({
+      projectId: 'project-1',
+      title: 'راجع صفحة النتائج',
+    }));
+    expect(screen.getByTestId('input-quick-create-task-title')).toHaveValue('');
+  });
+
+  it('requires an explicit project before showing quick task creation', () => {
+    vi.mocked(useListProjects).mockReturnValue({
+      data: [
+        { id: 'project-1', name: 'First Project' },
+        { id: 'project-2', name: 'Second Project' },
+      ],
+      isLoading: false,
+      isError: false,
+      error: null,
+    } as ReturnType<typeof useListProjects>);
+
+    renderPage();
+    expect(screen.queryByTestId('form-quick-create-task')).not.toBeInTheDocument();
+
+    fireEvent.change(screen.getByTestId('select-task-project'), {
+      target: { value: 'project-2' },
+    });
+
+    expect(screen.getByTestId('form-quick-create-task')).toBeInTheDocument();
+    expect(screen.getByTestId('text-quick-create-task-project')).toHaveTextContent('Second Project');
+  });
+
   it('keeps the Arabic form local until submit and resets cancelled input on reopen', () => {
     renderPage();
     fireEvent.click(screen.getByRole('button', { name: 'مهمة جديدة' }));
