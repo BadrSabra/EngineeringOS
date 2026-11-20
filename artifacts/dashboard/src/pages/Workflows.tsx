@@ -489,7 +489,24 @@ function ExecutionHistory({
               const execution = exec as ExecutionWithRecovery;
               const recovery = execution.recovery ?? execution.recoverySummary
                 ?? (exec.errorMessage ? { availabilityState: 'unknown' } : null);
-              return <ProviderRecoveryCard recovery={recovery} className="mt-2" />;
+              const correlationId = typeof recovery?.correlationId === 'string'
+                ? recovery.correlationId.trim()
+                : '';
+              return (
+                <div className="mt-2">
+                  <ProviderRecoveryCard recovery={recovery} />
+                  {exec.status === 'failed' && projectId && correlationId && (
+                    <Link
+                      href={`/events?projectId=${encodeURIComponent(projectId)}&correlationId=${encodeURIComponent(correlationId)}`}
+                      data-testid={`link-workflow-execution-events-${exec.id}`}
+                      aria-label={`عرض الأحداث المرتبطة بتشغيل ${exec.id}`}
+                      className="mt-2 inline-flex items-center gap-1 text-[11px] font-medium text-primary hover:underline"
+                    >
+                      عرض الأحداث المرتبطة
+                    </Link>
+                  )}
+                </div>
+              );
             })()}
           </div>
           <div dir="ltr" className="text-[10px] text-muted-foreground font-mono shrink-0">

@@ -349,6 +349,12 @@ describe('Workflows recovery rendering', () => {
     expect(within(card).getByText('Retry in a moment. Check provider status if it persists; the product will not switch providers.')).toHaveAttribute('dir', 'auto');
     expect(within(card).getByText(/مرجع الدعم:/)).toHaveTextContent('workflow-support-42');
     expect(screen.getByText('فشل التشغيل · لم يُسجل اكتماله بنجاح')).toBeInTheDocument();
+    expect(screen.getByTestId('link-workflow-execution-events-execution-1')).toHaveAttribute(
+      'href',
+      '/events?projectId=project-1&correlationId=workflow-support-42',
+    );
+    expect(screen.getByRole('link', { name: 'عرض الأحداث المرتبطة بتشغيل execution-1' }))
+      .toBeInTheDocument();
     const completedPhase = screen.getAllByText('build').find(
       (node) => node.tagName === 'BDI' && node.parentElement?.textContent === 'مراحل مسجلة كمكتملة: build',
     );
@@ -364,6 +370,31 @@ describe('Workflows recovery rendering', () => {
     expect(screen.queryByText(/Internal provider diagnostic/i)).not.toBeInTheDocument();
     expect(screen.queryByText(/provider-secret-token/i)).not.toBeInTheDocument();
     expect(screen.queryByText(/raw upstream response/i)).not.toBeInTheDocument();
+  });
+
+  it('does not offer an event shortcut when a failed run has no correlation reference', () => {
+    vi.mocked(useListWorkflowExecutions).mockReturnValue({
+      data: [{
+        id: 'failed-without-correlation',
+        workflowId: 'workflow-1',
+        status: 'failed',
+        currentPhase: 'deploy',
+        startedAt: '2026-08-25T10:00:00.000Z',
+        completedPhases: ['build'],
+        recovery: { availabilityState: 'provider_outage' },
+      }],
+      isLoading: false,
+      isError: false,
+      error: null,
+      refetch: vi.fn(),
+    } as ReturnType<typeof useListWorkflowExecutions>);
+
+    renderPage();
+    fireEvent.click(screen.getByRole('button', { name: /سجل التشغيل/i }));
+
+    expect(screen.getByText('فشل التشغيل · لم يُسجل اكتماله بنجاح')).toBeInTheDocument();
+    expect(screen.queryByTestId('link-workflow-execution-events-failed-without-correlation'))
+      .not.toBeInTheDocument();
   });
 
   it('labels completed workflow runs as recorded status rather than proof', () => {
@@ -386,6 +417,8 @@ describe('Workflows recovery rendering', () => {
     fireEvent.click(screen.getByRole('button', { name: /سجل التشغيل/i }));
 
     expect(screen.getByText('انتهى التشغيل بحسب السجل')).toBeInTheDocument();
+    expect(screen.queryByTestId('link-workflow-execution-events-completed-execution'))
+      .not.toBeInTheDocument();
   });
 
   it('shows AI decisions as recommendations without advancing the workflow', () => {
