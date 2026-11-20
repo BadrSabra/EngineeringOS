@@ -101,8 +101,16 @@ function ProjectsForAccountSession({
   const projects = rawProjects;
   const [showDiscover, setShowDiscover] = useState(false);
   const [showCreate, setShowCreate] = useState(Boolean(incomingDraft));
-  const [search, setSearch] = useState('');
+  const [search, setSearch] = useState(
+    () => new URLSearchParams(window.location.search).get('search') ?? '',
+  );
   const searchInputRef = useRef<HTMLInputElement>(null);
+  useEffect(() => {
+    const url = new URL(window.location.href);
+    if (search.trim()) url.searchParams.set('search', search);
+    else url.searchParams.delete('search');
+    window.history.replaceState(null, '', `${url.pathname}${url.search}${url.hash}`);
+  }, [search]);
   const [projectName, setProjectName] = useState(incomingDraft?.bootstrap?.projectName ?? '');
   const [projectDescription, setProjectDescription] = useState(incomingDraft?.text ?? '');
   const [bootstrapId, setBootstrapId] = useState(incomingDraft?.bootstrap?.operationId ?? '');
@@ -363,7 +371,15 @@ function ProjectsForAccountSession({
                 ref={searchInputRef}
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
+                onKeyDown={(event) => {
+                  const isComposing = event.nativeEvent.isComposing || event.nativeEvent.keyCode === 229;
+                  const project = filtered?.length === 1 ? filtered[0] : undefined;
+                  if (event.key !== 'Enter' || isComposing || !project) return;
+                  event.preventDefault();
+                  setLocation(`/projects/${encodeURIComponent(project.id)}/workspace`);
+                }}
                 aria-label="ابحث عن مشروع بكلمات من الاسم أو الوصف أو التقنية"
+                aria-describedby="project-search-keyboard-status"
                 placeholder="ابحث بكلمة أو أكثر من الاسم أو الوصف أو التقنية..."
                 dir="auto"
                 data-testid="input-project-search"
@@ -371,6 +387,15 @@ function ProjectsForAccountSession({
                   normalizedSearch ? 'pl-9 pr-9' : 'pl-9 pr-4'
                 }`}
               />
+                <span id="project-search-keyboard-status" aria-live="polite" aria-atomic="true" className="sr-only">
+                  {normalizedSearch && filtered?.length === 1
+                    ? 'مشروع واحد مطابق. اضغط Enter لفتح مساحة العمل.'
+                    : normalizedSearch && filtered && filtered.length > 1
+                      ? 'توجد عدة مشاريع مطابقة. اختر المشروع المطلوب من النتائج.'
+                      : normalizedSearch && filtered?.length === 0
+                        ? 'لا توجد مشاريع مطابقة.'
+                        : ''}
+                </span>
               {normalizedSearch && (
                 <button
                   type="button"
