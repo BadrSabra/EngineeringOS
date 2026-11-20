@@ -89,7 +89,6 @@ import { databaseNow } from "./job-lease.js";
 import {
   dispatchPendingMissionRecipes,
   reconcileCompletedMissionRecipeAcceptances,
-  replayPendingMissionEvents,
   wakeDueMissionGoals,
   wakeReadyMissionGoals,
   wakeRuntimeTransitionMissionGoals,
@@ -111,6 +110,7 @@ import {
 import { dispatchDeferredAiTaskExecutions } from "../routes/ai/tasks.js";
 import { dispatchPendingTaskObservationOutbox } from "./task-observation-outbox.js";
 import { dispatchPendingMissionGoalWakes } from "./mission-goal-wake-outbox.js";
+import { dispatchPendingMissionEventWakes } from "./mission-event-wake-outbox.js";
 
 const githubDeliveryReceiptEvents = alias(eventsTable, "github_delivery_receipt");
 const githubDeliveryRecoveryEvents = alias(eventsTable, "github_delivery_recovery");
@@ -1290,7 +1290,7 @@ async function dispatchPersistedPendingJobsOnce(): Promise<number> {
       name: "mission-recipe-acceptance-recovery",
       run: () => reconcileCompletedMissionRecipeAcceptances(),
     },
-    { name: "mission-events", run: () => replayPendingMissionEvents() },
+    { name: "mission-event-wakes", run: () => dispatchPendingMissionEventWakes(pageLimit) },
     { name: "shadow-replays", run: () => dispatchPendingShadowReplays() },
     { name: "chat-handoffs", run: () => dispatchPendingMissionChatHandoffs() },
     { name: "project-bootstrap", run: () => dispatchProjectBootstrapJobs() },
@@ -1620,7 +1620,7 @@ export function startScopedMissionLifecycleDispatcher(
       await reconcileMissionDecisionShadowsIfDue(projectId);
       await dispatchPendingMissionRecipes(32, projectId);
       await reconcileCompletedMissionRecipeAcceptances(32, projectId);
-      await replayPendingMissionEvents(32, projectId);
+      await dispatchPendingMissionEventWakes(32, projectId);
       await dispatchPendingShadowReplays(32, projectId);
       await dispatchPendingMissionChatHandoffs(32, projectId);
       await dispatchPendingMaterializedMissionTransitionWakes(32, projectId);

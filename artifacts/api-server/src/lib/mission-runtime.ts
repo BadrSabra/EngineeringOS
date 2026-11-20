@@ -2665,7 +2665,7 @@ export async function runMissionGoal(params: {
   };
 }): Promise<MissionGoalRunResult> {
   let taskDispatchGeneration: { retryCount: number; correlationId: string | null } | undefined;
-  let eventWaitGoalId: string | undefined;
+  let eventWaitIntentId: string | undefined;
   const decision = await db.transaction(async (tx): Promise<MissionGoalRunResult> => {
     const recordActionEffect = async <T extends MissionGoalRunResult>(run: T): Promise<T> => {
       if (
@@ -3357,15 +3357,26 @@ export async function runMissionGoal(params: {
     const action = parsedAction.data;
 
     if (action.kind === "wait") {
+      const now = new Date();
       const nextStatus = action.reason === "approval" ? "waiting_for_approval" : "waiting_for_event";
+      const enteringEventWait = action.reason === "event"
+        && (goal.status !== "waiting_for_event" || goal.blockedReason !== null);
       await tx.update(aiGoalsTable)
         .set({
           status: nextStatus,
           nextWakeAt: action.wakeAt ? new Date(action.wakeAt) : null,
-          updatedAt: new Date(),
+          updatedAt: now,
         })
         .where(eq(aiGoalsTable.id, goal.id));
-      if (action.reason === "event") eventWaitGoalId = goal.id;
+      if (enteringEventWait) {
+        const { insertMissionEventWakeIntent } = await import("./mission-event-wake-outbox.js");
+        eventWaitIntentId = await insertMissionEventWakeIntent(tx, {
+          projectId: goal.projectId,
+          goalId: goal.id,
+          source: "goal_entered_event_wait",
+          generationAt: now,
+        });
+      }
       return { status: "waiting" as const, goalId: goal.id };
     }
 
@@ -3623,19 +3634,18 @@ export async function runMissionGoal(params: {
     return decision;
   });
 
-  if (eventWaitGoalId) {
+  if (eventWaitIntentId) {
     try {
-      // The wait transition is committed now. Replay only this Goal's durable
-      // inbox rows; wakeMissionGoalsForEvent rechecks the event and plan under
-      // the existing Mission/Goal locks before requesting a replan.
-      await replayPendingMissionEvents(32, undefined, eventWaitGoalId);
+      const { dispatchMissionEventWakeIntent } = await import("./mission-event-wake-outbox.js");
+      await dispatchMissionEventWakeIntent(eventWaitIntentId);
     } catch (error) {
-      // The inbox remains durable and the periodic reconciler is the recovery
-      // path when this best-effort, post-commit wake cannot run.
+      // The outbox row committed with the wait transition and remains
+      // recoverable by the bounded durable dispatcher.
       logger.warn({
         error,
-        goalId: eventWaitGoalId,
-      }, "Early Mission events could not be replayed after the Goal entered its event wait");
+        goalId: decision.goalId,
+        intentId: eventWaitIntentId,
+      }, "Mission event inbox wake did not run immediately; durable outbox recovery remains available");
     }
   }
 
@@ -4177,7 +4187,10 @@ export async function wakeDueMissionGoals(
  * match its active plan revision. The Goal is then re-evaluated by the normal
  * replan path, so duplicate/stale events are harmless.
  */
-export async function wakeMissionGoalsForEvent(event: MissionEventEnvelope): Promise<number> {
+export async function wakeMissionGoalsForEvent(
+  event: MissionEventEnvelope,
+  inboxEventId?: string,
+): Promise<number> {
   if (event.schemaVersion !== 1 || event.projectId.length === 0 || !event.goalId) return 0;
 
   const [candidate] = await db
@@ -4261,6 +4274,28 @@ export async function wakeMissionGoalsForEvent(event: MissionEventEnvelope): Pro
         planRevision: revision ?? null,
       },
     });
+    if (inboxEventId) {
+      const [inbox] = await tx.select({ payload: eventsTable.payload })
+        .from(eventsTable)
+        .where(and(
+          eq(eventsTable.id, inboxEventId),
+          eq(eventsTable.type, MISSION_EXTERNAL_EVENT_TYPE),
+          eq(eventsTable.projectId, goal.projectId),
+          eq(eventsTable.goalId, goal.id),
+        ))
+        .for("update")
+        .limit(1);
+      if (inbox) {
+        await tx.update(eventsTable)
+          .set({
+            payload: {
+              ...(inbox.payload ?? {}),
+              processedAt: now.toISOString(),
+            },
+          })
+          .where(eq(eventsTable.id, inboxEventId));
+      }
+    }
     return true;
   });
 
@@ -4331,10 +4366,11 @@ function storedMissionEvent(payload: Record<string, unknown> | null): StoredMiss
 }
 
 /**
- * Durable ingress for external Mission events. The existing events journal is
- * also the inbox: eventId is the primary key, so webhook retries are
- * idempotent. If the Goal is not waiting yet, the row remains unprocessed and
- * the dispatcher replays it after the Goal reaches its wait boundary.
+ * Durable ingress for external Mission events. The events journal is also
+ * the inbox: eventId is the primary key, so webhook retries are idempotent.
+ * Inbox persistence and its Goal-targeted wake intent commit together; when
+ * the Goal is not waiting, the intent is acknowledged without consuming the
+ * inbox row and the later wait-generation intent drains that exact Goal.
  */
 export async function receiveMissionEvent(event: MissionEventEnvelope): Promise<{
   eventId: string;
@@ -4346,128 +4382,111 @@ export async function receiveMissionEvent(event: MissionEventEnvelope): Promise<
     missionEvent: createMissionEventEnvelope(event),
     processedAt: null,
   } satisfies Record<string, unknown>;
-  const [inserted] = await db
-    .insert(eventsTable)
-    .values({
-      id: event.eventId,
-      type: MISSION_EXTERNAL_EVENT_TYPE,
-      projectId: event.projectId,
-      goalId: event.goalId,
-      correlationId: event.correlationId ?? event.eventId,
-      severity: "info",
-      message: `External Mission event "${event.type}" received`,
-      payload,
-    })
-    .onConflictDoNothing()
-    .returning({ id: eventsTable.id });
-
-  const existing = inserted
-    ? []
-    : await db
-      .select({
-        payload: eventsTable.payload,
-        projectId: eventsTable.projectId,
-        goalId: eventsTable.goalId,
-        correlationId: eventsTable.correlationId,
+  const persisted = await db.transaction(async (tx) => {
+    const [inserted] = await tx
+      .insert(eventsTable)
+      .values({
+        id: event.eventId,
+        type: MISSION_EXTERNAL_EVENT_TYPE,
+        projectId: event.projectId,
+        goalId: event.goalId,
+        correlationId: event.correlationId ?? event.eventId,
+        severity: "info",
+        message: "External Mission event " + event.type + " received",
+        payload,
       })
-      .from(eventsTable)
-      .where(and(
-        eq(eventsTable.id, event.eventId),
-        eq(eventsTable.type, MISSION_EXTERNAL_EVENT_TYPE),
-      ))
-      .limit(1);
-  const stored = inserted
-    ? undefined
-    : storedMissionEvent(existing[0]?.payload ?? null);
-  const storedRow = existing[0];
-  const duplicateMatchesOriginal = inserted || Boolean(
-    stored?.envelope
-    && sameMissionEventEnvelope(stored.envelope, event)
-    && storedRow?.projectId === event.projectId
-    && storedRow?.goalId === (event.goalId ?? null)
-    && storedRow?.correlationId === (event.correlationId ?? event.eventId),
-  );
-  if (!duplicateMatchesOriginal) {
-    return { eventId: event.eventId, persisted: false, woken: false, duplicate: true };
-  }
-  if (stored?.processedAt != null) {
-    return { eventId: event.eventId, persisted: true, woken: false, duplicate: true };
-  }
+      .onConflictDoNothing()
+      .returning({ id: eventsTable.id });
 
-  // A duplicate may only retry the exact durable event. Always wake from the
-  // stored envelope and preserve its payload; never let a reused eventId
-  // retarget or rewrite an already-persisted inbox item.
-  const eventToWake = stored?.envelope ?? event;
-  const payloadToMark = inserted ? payload : storedRow?.payload ?? payload;
-  const woken = await wakeMissionGoalsForEvent(eventToWake);
-  if (woken > 0) {
-    await db.update(eventsTable)
-      .set({
-        payload: {
-          ...payloadToMark,
-          processedAt: new Date().toISOString(),
-        },
-      })
-      .where(and(
-        eq(eventsTable.id, event.eventId),
-        eq(eventsTable.type, MISSION_EXTERNAL_EVENT_TYPE),
-      ));
-  }
-  return {
-    eventId: event.eventId,
-    persisted: true,
-    woken: woken > 0,
-    duplicate: !inserted,
-  };
-}
+    const existing = inserted
+      ? []
+      : await tx
+        .select({
+          payload: eventsTable.payload,
+          projectId: eventsTable.projectId,
+          goalId: eventsTable.goalId,
+          correlationId: eventsTable.correlationId,
+        })
+        .from(eventsTable)
+        .where(and(
+          eq(eventsTable.id, event.eventId),
+          eq(eventsTable.type, MISSION_EXTERNAL_EVENT_TYPE),
+        ))
+        .limit(1);
+    const stored = inserted
+      ? undefined
+      : storedMissionEvent(existing[0]?.payload ?? null);
+    const storedRow = existing[0];
+    const duplicateMatchesOriginal = inserted || Boolean(
+      stored?.envelope
+      && sameMissionEventEnvelope(stored.envelope, event)
+      && storedRow?.projectId === event.projectId
+      && storedRow?.goalId === (event.goalId ?? null)
+      && storedRow?.correlationId === (event.correlationId ?? event.eventId),
+    );
+    if (!duplicateMatchesOriginal) {
+      return {
+        eventId: event.eventId,
+        persisted: false,
+        woken: false,
+        duplicate: true,
+        intentId: undefined,
+      };
+    }
+    if (stored?.processedAt != null) {
+      return {
+        eventId: event.eventId,
+        persisted: true,
+        woken: false,
+        duplicate: true,
+        intentId: undefined,
+      };
+    }
 
-/**
- * Replays durable external events that arrived before their Goal entered the
- * event-wait state. Replay is bounded and safe because Goal wake is row-locked
- * and the inbox event remains idempotent by eventId.
- */
-export async function replayPendingMissionEvents(
-  limit = 32,
-  scopeProjectId?: string,
-  scopeGoalId?: string,
-): Promise<number> {
-  const rows = await db
-    .select({
-      id: eventsTable.id,
-      payload: eventsTable.payload,
-    })
-    .from(eventsTable)
-    .where(and(
-      eq(eventsTable.type, MISSION_EXTERNAL_EVENT_TYPE),
-      // Processed inbox rows must not consume the bounded replay window.
-      sql`${eventsTable.payload}->'missionEvent' IS NOT NULL`,
-      sql`${eventsTable.payload}->>'processedAt' IS NULL`,
-      scopeProjectId ? eq(eventsTable.projectId, scopeProjectId) : undefined,
-      scopeGoalId ? eq(eventsTable.goalId, scopeGoalId) : undefined,
-    ))
-    .orderBy(eventsTable.timestamp, eventsTable.id)
-    .limit(Math.max(1, Math.min(limit, 100)));
+    const eventToWake = stored?.envelope ?? event;
+    let intentId: string | undefined;
+    if (typeof eventToWake.goalId === "string") {
+      const { insertMissionEventWakeIntent } = await import("./mission-event-wake-outbox.js");
+      intentId = await insertMissionEventWakeIntent(tx, {
+        projectId: eventToWake.projectId,
+        goalId: eventToWake.goalId,
+        source: "event_received",
+        eventId: eventToWake.eventId,
+      });
+    }
+    return {
+      eventId: event.eventId,
+      persisted: true,
+      woken: false,
+      duplicate: !inserted,
+      intentId,
+    };
+  });
 
-  let replayed = 0;
-  for (const row of rows) {
-    const stored = storedMissionEvent(row.payload);
-    if (!stored?.envelope || stored.processedAt) continue;
-    if (scopeProjectId && stored.envelope.projectId !== scopeProjectId) continue;
-    if (scopeGoalId && stored.envelope.goalId !== scopeGoalId) continue;
-    const woken = await wakeMissionGoalsForEvent(stored.envelope);
-    if (woken === 0) continue;
-    await db.update(eventsTable)
-      .set({
-        payload: {
-          ...(row.payload ?? {}),
-          processedAt: new Date().toISOString(),
-        },
-      })
-      .where(and(
-        eq(eventsTable.id, row.id),
-        eq(eventsTable.type, MISSION_EXTERNAL_EVENT_TYPE),
-      ));
-    replayed += 1;
+  if (!persisted.persisted || !persisted.intentId) {
+    const { intentId: _intentId, ...result } = persisted;
+    return result;
   }
-  return replayed;
+  try {
+    const { dispatchMissionEventWakeIntent } = await import("./mission-event-wake-outbox.js");
+    const dispatched = await dispatchMissionEventWakeIntent(persisted.intentId);
+    return {
+      eventId: persisted.eventId,
+      persisted: true,
+      woken: dispatched.woken > 0,
+      duplicate: persisted.duplicate,
+    };
+  } catch (error) {
+    logger.warn({
+      error,
+      eventId: persisted.eventId,
+      intentId: persisted.intentId,
+    }, "Mission event was persisted but its immediate targeted wake was deferred");
+    return {
+      eventId: persisted.eventId,
+      persisted: true,
+      woken: false,
+      duplicate: persisted.duplicate,
+    };
+  }
 }
