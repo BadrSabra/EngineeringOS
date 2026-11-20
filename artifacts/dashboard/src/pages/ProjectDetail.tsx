@@ -34,6 +34,7 @@ import {
 } from 'lucide-react';
 import { Link } from 'wouter';
 import { RefreshButton, RequestError } from '@/components/OperatorResilience';
+import EventAssistantHandoff from '@/components/EventAssistantHandoff';
 import { useMonotonicData } from '@/lib/freshness';
 import WorkspaceRuntimePanel from '@/components/WorkspaceRuntimePanel';
 import ProjectAiBudgetPanel from '@/components/ProjectAiBudgetPanel';
@@ -580,8 +581,13 @@ function ProjectDetailSession({ projectId }: { projectId: string }) {
                         {evt.message || evt.type}
                       </div>
                     )}
-                    <div className="text-[10px] text-muted-foreground font-mono">
-                      {new Date(evt.timestamp).toLocaleTimeString()}
+                    <div className="mt-1 flex flex-wrap items-center justify-between gap-2">
+                      <div className="text-[10px] text-muted-foreground font-mono">
+                        {new Date(evt.timestamp).toLocaleTimeString()}
+                      </div>
+                      {(evt.severity === 'error' || evt.severity === 'warning') && (
+                        <EventAssistantHandoff event={evt} projectName={project.name} />
+                      )}
                     </div>
                   </div>
                 </div>
