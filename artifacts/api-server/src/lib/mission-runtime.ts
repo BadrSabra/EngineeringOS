@@ -2742,10 +2742,10 @@ async function missionGoalApprovalWasConsumed(
     && dispatchEvent.type === payload.downstreamDispatchType
     && dispatchEvent.projectId === mission.projectId
     && dispatchEvent.goalId === goal.id
-    && [
-      "AiGoalDispatchRequested",
-      "AiGoalRecipeDispatchRequested",
-    ].includes(dispatchEvent.type));
+    && (
+      dispatchEvent.type === "AiGoalDispatchRequested"
+      || dispatchEvent.type === "AiGoalRecipeDispatchRequested"
+    ));
 }
 
 async function insertMissionGoalApprovalConsumedReceipt(
