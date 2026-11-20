@@ -255,6 +255,8 @@ describe("expiry and retryable cleanup", () => {
 
     expect(sqlText(selectBuilder.where.mock.calls[0]?.[0])).toContain("CURRENT_TIMESTAMP");
     expect(sqlText(updateBuilder.where.mock.calls[0]?.[0])).toContain("CURRENT_TIMESTAMP");
+    expect(updateBuilder.returning).toHaveBeenCalledOnce();
+    expect(selectBuilder.limit).not.toHaveBeenCalled();
     expect(mockObjectDelete).not.toHaveBeenCalled();
     expect(mockDelete).not.toHaveBeenCalled();
   });
