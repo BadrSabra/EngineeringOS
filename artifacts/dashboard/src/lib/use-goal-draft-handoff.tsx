@@ -110,13 +110,14 @@ export function useGoalDraftHandoff({
   }
 
   function confirmProject() {
-    if (!ownerId || !activeDraft || !selectedProjectId) return;
+    if (!ownerId || !activeDraft || !selectedProjectId) return false;
     if (!updateGoalDraft(ownerId, activeDraft.id, { text: input, projectId: selectedProjectId })) {
       setError('تعذر حفظ نطاق المسودة. لم نؤكد المشروع ولم نرسل الطلب.');
-      return;
+      return false;
     }
     setConfirmedProjectId(selectedProjectId);
     refresh();
+    return true;
   }
 
   function dismiss(id: string) {

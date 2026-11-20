@@ -1007,6 +1007,7 @@ describe('workspace goal draft handoff', () => {
       fireEvent.change(screen.getByTestId('select-chat-project'), { target: { value: 'project-1' } });
       expect(screen.getByTestId('button-confirm-home-goal-project')).toBeEnabled();
       fireEvent.click(screen.getByTestId('button-confirm-home-goal-project'));
+      expect(composer).toHaveFocus();
       expect(readGoalDrafts('user-1').drafts[0].projectId).toBe('project-1');
       expect(mocks.sentParams).toBeUndefined();
       expect(mocks.taskSentParams).toBeUndefined();

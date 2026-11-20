@@ -4909,7 +4909,9 @@ export default function AiChat({
                   <p className="mt-1 text-xs text-amber-400">هذه المسودة مرتبطة بمشروع آخر؛ تأكيد الاختيار سينقل نطاقها إلى المشروع الظاهر.</p>
                 )}
                 <Button type="button" size="sm" className="mt-2" disabled={!selectedProjectId || !projectName || projectsLoading || Boolean(projectLoadFailure)}
-                  data-testid="button-confirm-home-goal-project" onClick={draftHandoff.confirmProject}>
+                  data-testid="button-confirm-home-goal-project" onClick={() => {
+                    if (draftHandoff.confirmProject()) textareaRef.current?.focus();
+                  }}>
                   استخدم هذا المشروع
                 </Button>
               </div>
