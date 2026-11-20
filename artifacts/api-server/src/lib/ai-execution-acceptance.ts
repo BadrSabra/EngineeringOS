@@ -53,6 +53,10 @@ import {
   wakeDeferredTaskDependencyIntents,
   type TaskDependencyWakeTarget,
 } from "./task-dependency-wake.js";
+import {
+  dispatchMissionReplanIntent,
+  insertMissionReplanIntent,
+} from "./mission-replan-outbox.js";
 
 const CURRENT_EVIDENCE_READ_METADATA_VERSION = 1;
 
@@ -629,7 +633,7 @@ async function syncLinkedObjectiveState(
     now: Date;
     acceptanceProjection?: GoalAcceptanceProjection;
   },
-): Promise<{ replanMissionId?: string; wakeIntentId?: string } | null> {
+): Promise<{ replanMissionId?: string; replanGoalId?: string; wakeIntentId?: string } | null> {
   let completedGoalWakeIntentId: string | null = null;
   if (!params.task.goalId) return null;
 
@@ -897,7 +901,7 @@ async function syncLinkedObjectiveState(
     && nextGoalStatus === "needs_replan"
     && nextMissionStatus === "needs_replan"
   ) {
-    return { replanMissionId: mission.id };
+    return { replanMissionId: mission.id, replanGoalId: goal.id };
   }
   if (completedGoalWakeIntentId) return { wakeIntentId: completedGoalWakeIntentId };
   return null;
@@ -2156,7 +2160,7 @@ async function lockFinalizationMissionRows(
 export async function finalizeExecutionAcceptance(
   params: FinalizeExecutionAcceptanceParams,
 ): Promise<FinalizeExecutionAcceptanceResult> {
-  const immediateReplanTarget: { value: { missionId: string; projectId: string; executionId: string } | null } = { value: null };
+  const immediateReplanTarget: { value: { intentId: string; missionId: string; projectId: string; goalId: string; executionId: string } | null } = { value: null };
   const immediateTaskGoalWakeTarget: { value: { projectId: string; wakeIntentId: string } | null } = { value: null };
   const immediateTaskDependencyWakeTargets: { value: TaskDependencyWakeTarget[] } = { value: [] };
   const result = await db.transaction(async (tx) => {
@@ -3127,10 +3131,21 @@ export async function finalizeExecutionAcceptance(
           updatedAt: now,
         },
       });
-      if (linkedGoalFollowUp?.replanMissionId) {
-        immediateReplanTarget.value = {
+      if (linkedGoalFollowUp?.replanMissionId && linkedGoalFollowUp.replanGoalId) {
+        const intentId = await insertMissionReplanIntent(tx, {
           missionId: linkedGoalFollowUp.replanMissionId,
           projectId: execution.projectId,
+          goalId: linkedGoalFollowUp.replanGoalId,
+          executionId: execution.id,
+          attempt: execution.attempt,
+          acceptanceId: acceptance.id,
+          requestedAt: now,
+        });
+        immediateReplanTarget.value = {
+          intentId,
+          missionId: linkedGoalFollowUp.replanMissionId,
+          projectId: execution.projectId,
+          goalId: linkedGoalFollowUp.replanGoalId,
           executionId: execution.id,
         };
       }
@@ -3268,14 +3283,13 @@ export async function finalizeExecutionAcceptance(
     return { accepted: true, duplicate: false, acceptance };
   });
 
-  // The acceptance and Goal/Mission projection are durable before replanning.
-  // This is a best-effort fast path; the persisted Mission reconciler remains
-  // the recovery path if this process cannot invoke the coordinator.
+  // The replan request commits atomically with its accepted Task failure.
+  // This immediate dispatch is only a latency optimization; the Outbox worker
+  // reclaims the same durable intent after a process interruption.
   const replanTarget = immediateReplanTarget.value;
   if (result.accepted && !result.duplicate && replanTarget) {
     try {
-      const { autoReplanMission } = await import("./mission-auto-replan.js");
-      await autoReplanMission(replanTarget.missionId);
+      await dispatchMissionReplanIntent(replanTarget.intentId);
     } catch (error) {
       logger.warn(
         {
@@ -3283,7 +3297,7 @@ export async function finalizeExecutionAcceptance(
           error,
           scope: "task-acceptance",
         },
-        "Immediate Mission replan failed after accepted retryable Task failure; durable reconciliation remains available.",
+        "Immediate Mission replan Outbox dispatch failed; durable recovery remains available.",
       );
     }
   }
