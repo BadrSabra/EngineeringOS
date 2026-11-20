@@ -1977,6 +1977,55 @@ describe("Mission goal runtime", () => {
     });
   });
 
+  it("uses PostgreSQL time for scheduled wakes across application clock skew", async () => {
+    const [databaseClock] = await db.select({
+      now: sql<Date>`clock_timestamp() AT TIME ZONE 'UTC'`,
+    });
+    if (!databaseClock?.now) throw new Error("mission_wake_database_clock_missing");
+
+    const due = await createMissionFixture({
+      kind: "wait",
+      reason: "event",
+      wakeAt: new Date(databaseClock.now.getTime() - 60_000).toISOString(),
+    });
+    const future = await createMissionFixture({
+      kind: "wait",
+      reason: "event",
+      wakeAt: new Date(databaseClock.now.getTime() + 60 * 60_000).toISOString(),
+    });
+    await runMissionGoal({
+      goalId: due.goalId,
+      userId: "test-user",
+      trigger: "resume",
+    });
+    await runMissionGoal({
+      goalId: future.goalId,
+      userId: "test-user",
+      trigger: "resume",
+    });
+
+    vi.useFakeTimers({ toFake: ["Date"] });
+    try {
+      // A slow API replica must still wake work that is due in PostgreSQL.
+      vi.setSystemTime(new Date("2000-01-01T00:00:00.000Z"));
+      expect(await wakeDueMissionGoals()).toBe(1);
+      const [dueGoal] = await db.select({ status: aiGoalsTable.status })
+        .from(aiGoalsTable)
+        .where(eq(aiGoalsTable.id, due.goalId));
+      expect(dueGoal?.status).toBe("needs_replan");
+
+      // A fast API replica must not wake a deadline that PostgreSQL has not reached.
+      vi.setSystemTime(new Date("2099-01-01T00:00:00.000Z"));
+      expect(await wakeDueMissionGoals()).toBe(0);
+      const [futureGoal] = await db.select({ status: aiGoalsTable.status })
+        .from(aiGoalsTable)
+        .where(eq(aiGoalsTable.id, future.goalId));
+      expect(futureGoal?.status).toBe("waiting_for_event");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("wakes only the targeted event wait and converts it into a revision-bound replan", async () => {
     const waiting = await createMissionFixture({
       kind: "wait",
