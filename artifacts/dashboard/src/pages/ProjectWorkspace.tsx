@@ -5,6 +5,7 @@ import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { Link, useRoute } from 'wouter';
 import { Activity, AlertTriangle, ArrowRight, Check, Clock3, Code2, GitBranch, Layers3, RefreshCw, ShieldCheck, Sparkles, Terminal } from 'lucide-react';
 import { useGetProjectWorkspaceSnapshot, getGetProjectWorkspaceSnapshotQueryKey, getGetAiExecutionQueryKey, useGetTask, getGetTaskQueryKey, useGetTaskLogs, getGetTaskLogsQueryKey, useGetAiExecution } from '@workspace/api-client-react';
+import { executionChatHref } from '@/lib/execution-chat-link';
 import AiChat from '@/pages/AiChat';
 import ProjectCanvasPanel from '@/pages/project-workspace/ProjectCanvasPanel';
 import WorkspaceExecutionDetail from '@/pages/project-workspace/WorkspaceExecutionDetail';
@@ -179,6 +180,9 @@ function WorkspaceTaskCard({
     && execution.correlationId === currentCorrelationId
     && execution.linkedTaskId === task.id,
   );
+  const executionConversationHref = executionMatchesTask && execution
+    ? executionChatHref(execution, executionId, projectId)
+    : null;
   const rawExecutionAttempt = execution?.attempt;
   const executionAttempt = executionMatchesTask && isRecordedAttempt(rawExecutionAttempt)
     ? rawExecutionAttempt
@@ -271,13 +275,25 @@ function WorkspaceTaskCard({
               </dd>
             </div>
           </dl>
-          <Link
-            href={`/tasks?projectId=${encodeURIComponent(projectId)}&taskId=${encodeURIComponent(task.id)}`}
-            className="mt-2 inline-flex text-xs font-medium text-cyan-300 underline-offset-4 hover:underline"
-            aria-label={`فتح تفاصيل المهمة: ${task.title}`}
-          >
-            فتح تفاصيل المهمة
-          </Link>
+          <div className="mt-2 flex flex-wrap items-center gap-3">
+            <Link
+              href={`/tasks?projectId=${encodeURIComponent(projectId)}&taskId=${encodeURIComponent(task.id)}`}
+              className="inline-flex text-xs font-medium text-cyan-300 underline-offset-4 hover:underline"
+              aria-label={`فتح تفاصيل المهمة: ${task.title}`}
+            >
+              فتح تفاصيل المهمة
+            </Link>
+            {executionConversationHref && (
+              <Link
+                href={executionConversationHref}
+                className="inline-flex text-xs font-medium text-cyan-300 underline-offset-4 hover:underline"
+                aria-label={`فتح محادثة التنفيذ المرتبطة بالمهمة: ${task.title}`}
+                data-testid={`link-workspace-task-chat-${task.id}`}
+              >
+                فتح محادثة التنفيذ
+              </Link>
+            )}
+          </div>
         </div>
       </div>
       <span className={`workspace-status status-${task.status}`}>{label(task.status)}</span>
