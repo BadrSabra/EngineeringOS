@@ -1657,6 +1657,69 @@ describe("AI missions and goals", () => {
     ))).toBe(true);
   });
 
+  it("auto-starts a manual root only when it is bound to the current active plan", async () => {
+    const projectId = await insertProject();
+    const missionId = randomUUID();
+    const planRevision = `manual-plan-${randomUUID()}`;
+    const now = new Date();
+    await db.insert(aiMissionsTable).values({
+      id: missionId,
+      projectId,
+      userId: "test-user",
+      title: "Manual root dispatch",
+      intent: "Run an explicitly plan-bound root without a separate start action",
+      status: "active",
+      scope: { kind: "project", projectId },
+      autonomyPolicy: { activePlanRevision: planRevision },
+      createdAt: now,
+      updatedAt: now,
+    });
+
+    const activeRoot = await request(app)
+      .post(`/api/ai/missions/${missionId}/goals`)
+      .send({
+        title: "Wait for the external prerequisite",
+        planRevision,
+        successCriteria: { validator: "manual-root" },
+        nextAction: { kind: "wait", reason: "event", wakeAt: null },
+      });
+    expect(activeRoot.status).toBe(201);
+    const [activeRootRow] = await db.select().from(aiGoalsTable)
+      .where(eq(aiGoalsTable.id, activeRoot.body.id));
+    expect(activeRootRow).toMatchObject({
+      status: "waiting_for_event",
+      successCriteria: { validator: "manual-root", kind: "mission_manual_step" },
+      outcomeContract: { planRevision: { hash: planRevision } },
+    });
+
+    const staleRoot = await request(app)
+      .post(`/api/ai/missions/${missionId}/goals`)
+      .send({
+        title: "Do not run a stale-plan Goal",
+        planRevision: `stale-${planRevision}`,
+        nextAction: { kind: "wait", reason: "event", wakeAt: null },
+      });
+    expect(staleRoot.status).toBe(201);
+    const [staleRootRow] = await db.select().from(aiGoalsTable)
+      .where(eq(aiGoalsTable.id, staleRoot.body.id));
+    expect(staleRootRow?.status).toBe("queued");
+    expect((staleRootRow?.successCriteria as Record<string, unknown>).kind)
+      .not.toBe("mission_manual_step");
+
+    const unconfiguredRoot = await request(app)
+      .post(`/api/ai/missions/${missionId}/goals`)
+      .send({
+        title: "Do not auto-dispatch an unconfigured Goal",
+        planRevision,
+      });
+    expect(unconfiguredRoot.status).toBe(201);
+    const [unconfiguredRootRow] = await db.select().from(aiGoalsTable)
+      .where(eq(aiGoalsTable.id, unconfiguredRoot.body.id));
+    expect(unconfiguredRootRow?.status).toBe("queued");
+    expect((unconfiguredRootRow?.successCriteria as Record<string, unknown>).kind)
+      .not.toBe("mission_manual_step");
+  });
+
   it("persists revision-bound goal dependencies and rejects cycles", async () => {
     const projectId = await insertProject();
     const mission = await request(app).post("/api/ai/missions").send({

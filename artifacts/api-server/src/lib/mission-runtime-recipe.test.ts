@@ -1549,6 +1549,121 @@ describe("Mission recipe dispatch", () => {
     expect(goal?.status).toBe("running");
   });
 
+  it("recovers active-plan activation and manual roots without dispatching stale revisions", async () => {
+    const projectId = randomUUID();
+    const missionId = randomUUID();
+    const planRevision = createHash("sha256").update(randomUUID()).digest("hex");
+    const activationGoalId = randomUUID();
+    const manualGoalId = randomUUID();
+    const staleGoalId = randomUUID();
+    const activationTaskId = randomUUID();
+    const manualTaskId = randomUUID();
+    const staleTaskId = randomUUID();
+    const now = new Date();
+    projectIds.push(projectId);
+
+    await db.insert(projectsTable).values({
+      id: projectId,
+      ownerId: "test-user",
+      name: `mission-plan-root-recovery-${projectId.slice(0, 8)}`,
+      rootPath: `/tmp/mission-plan-root-recovery-${projectId}`,
+      language: "typescript",
+      status: "active",
+      createdAt: now,
+      updatedAt: now,
+    });
+    await db.insert(aiMissionsTable).values({
+      id: missionId,
+      projectId,
+      userId: "test-user",
+      title: "Recover active-plan roots",
+      intent: "Continue queued root work after a lost process dispatch",
+      status: "active",
+      scope: { kind: "project", projectId },
+      autonomyPolicy: { activePlanRevision: planRevision },
+      createdAt: now,
+      updatedAt: now,
+    });
+    const roots = [
+      {
+        id: activationGoalId,
+        title: "Activation root",
+        kind: "mission_plan_step",
+        revision: planRevision,
+        taskId: activationTaskId,
+      },
+      {
+        id: manualGoalId,
+        title: "Manual root",
+        kind: "mission_manual_step",
+        revision: planRevision,
+        taskId: manualTaskId,
+      },
+      {
+        id: staleGoalId,
+        title: "Stale manual root",
+        kind: "mission_manual_step",
+        revision: `stale-${planRevision}`,
+        taskId: staleTaskId,
+      },
+    ] as const;
+    await db.insert(aiGoalsTable).values(roots.map((root) => ({
+      id: root.id,
+      missionId,
+      projectId,
+      title: root.title,
+      status: "queued" as const,
+      successCriteria: {
+        kind: root.kind,
+        stepId: root.id,
+        planRevision: { hash: root.revision },
+      },
+      outcomeContract: { planRevision: { hash: root.revision } },
+      nextAction: { kind: "task", taskId: root.taskId },
+      createdAt: now,
+      updatedAt: now,
+    })));
+    await db.insert(tasksTable).values(roots.map((root) => ({
+      id: root.taskId,
+      projectId,
+      goalId: root.id,
+      title: root.title,
+      prompt: `Execute ${root.title}`,
+      status: "verifying" as const,
+      createdAt: now,
+      updatedAt: now,
+    })));
+
+    expect(await wakeReadyMissionGoals(32, projectId)).toBe(2);
+    expect(scheduleTaskExecution).toHaveBeenCalledTimes(2);
+    expect(scheduleTaskExecution).toHaveBeenCalledWith(
+      activationTaskId,
+      "test-user",
+      expect.objectContaining({ parentExecutionId: null }),
+      0,
+      null,
+    );
+    expect(scheduleTaskExecution).toHaveBeenCalledWith(
+      manualTaskId,
+      "test-user",
+      expect.objectContaining({ parentExecutionId: null }),
+      0,
+      null,
+    );
+    const [activationGoal] = await db.select({ status: aiGoalsTable.status })
+      .from(aiGoalsTable).where(eq(aiGoalsTable.id, activationGoalId));
+    const [manualGoal] = await db.select({ status: aiGoalsTable.status })
+      .from(aiGoalsTable).where(eq(aiGoalsTable.id, manualGoalId));
+    const [staleGoal] = await db.select({ status: aiGoalsTable.status })
+      .from(aiGoalsTable).where(eq(aiGoalsTable.id, staleGoalId));
+    expect(activationGoal?.status).toBe("running");
+    expect(manualGoal?.status).toBe("running");
+    expect(staleGoal?.status).toBe("queued");
+
+    expect(await wakeReadyMissionGoals(32, projectId)).toBe(0);
+    expect(scheduleTaskExecution).toHaveBeenCalledTimes(2);
+  });
+
   it("reconstructs queued GitHub delivery after restart without duplicating execution", async () => {
     const rootPath = await createTestRoot("delivery-recovery");
     recipeRunner.mockImplementation(async (params: Record<string, unknown>) => {

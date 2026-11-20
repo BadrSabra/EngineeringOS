@@ -3605,7 +3605,9 @@ export async function wakeReadyMissionGoals(
         ),
         and(
           eq(aiGoalsTable.status, "queued"),
-          sql`${aiGoalsTable.successCriteria}->>'kind' = 'mission_replan_step'`,
+          sql`${aiGoalsTable.successCriteria}->>'kind' IN (
+            'mission_plan_step', 'mission_replan_step', 'mission_manual_step'
+          )`,
           notInArray(
             aiGoalsTable.id,
             db.select({ goalId: aiGoalDependenciesTable.goalId })
@@ -3645,16 +3647,38 @@ export async function wakeReadyMissionGoals(
         goal.status === "waiting_for_event"
         && goal.blockedReason === "dependencies_pending";
       const isQueuedDependent = goal.status === "queued" && goal.blockedReason === null;
-      const isQueuedActiveReplanRoot = goal.status === "queued"
+      const activePlanRootKind = jsonRecord(goal.successCriteria).kind;
+      const isQueuedActivePlanRoot = goal.status === "queued"
         && goal.blockedReason === null
-        && jsonRecord(goal.successCriteria).kind === "mission_replan_step"
+        && ["mission_plan_step", "mission_replan_step", "mission_manual_step"].includes(
+          typeof activePlanRootKind === "string" ? activePlanRootKind : "",
+        )
         && ["active", "waiting"].includes(mission.status)
         && typeof mission.autonomyPolicy.activePlanRevision === "string"
         && goalPlanRevision(goal) === mission.autonomyPolicy.activePlanRevision;
+      if (isQueuedActivePlanRoot) {
+        const action = GoalNextActionSchema.safeParse(goal.nextAction);
+        if (!action.success) return undefined;
+        if (action.data.kind === "task") {
+          const [task] = await tx.select({
+            id: tasksTable.id,
+            status: tasksTable.status,
+            prompt: tasksTable.prompt,
+          }).from(tasksTable).where(and(
+            eq(tasksTable.id, action.data.taskId),
+            eq(tasksTable.goalId, goal.id),
+            eq(tasksTable.projectId, goal.projectId),
+          )).limit(1);
+          // A manually-created Goal may be bound before its Task row exists.
+          // Leave it queued so the next durable pass can pick it up once the
+          // exact Goal-owned Task becomes eligible.
+          if (!task || task.status !== "verifying" || !task.prompt) return undefined;
+        }
+      }
       if (
         !isWaitingOnDependencies
         && !isQueuedDependent
-        && !isQueuedActiveReplanRoot
+        && !isQueuedActivePlanRoot
       ) return undefined;
       const dependencyState = await loadGoalDependencyState(tx, mission, goal);
       const unprovenDependency = dependencyState.unprovenDependencies[0];
@@ -3668,7 +3692,7 @@ export async function wakeReadyMissionGoals(
         return undefined;
       }
       const allDependenciesCompleted =
-        (isQueuedActiveReplanRoot && dependencyState.dependencies.length === 0)
+        (isQueuedActivePlanRoot && dependencyState.dependencies.length === 0)
         || (
           dependencyState.dependencies.length > 0
           && dependencyState.dependencies.length === dependencyState.dependencyGoals.length
