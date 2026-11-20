@@ -1443,7 +1443,20 @@ export default function Missions() {
     fetchMissionProjection(activeMissionId, controller.signal)
       .then((data) => {
         if (controller.signal.aborted) return;
-        setProjection(normalizeProjection(data));
+        const freshProjection = normalizeProjection(data);
+        // Keep the Mission list and selected projection on the same
+        // server-owned snapshot; terminal transitions then stop active polling.
+        if (
+          freshProjection.mission.id !== activeMissionId
+          || String(freshProjection.mission.projectId) !== projectId
+        ) return;
+        setProjection(freshProjection);
+        setMissions((current) => current.map((item) => (
+          item.id === activeMissionId
+          && String(item.projectId) === projectId
+            ? freshProjection.mission
+            : item
+        )));
       })
       .catch((error: unknown) => {
         if (controller.signal.aborted || (error as { name?: string }).name === 'AbortError') return;
