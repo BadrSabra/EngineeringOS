@@ -7226,6 +7226,16 @@ export interface CreateTaskInput {
   relatedFiles?: string[];
   dependsOn?: string[];
   phase?: string;
+  /**
+     * Optional Task prompt. Required when executeImmediately is true.
+     * @minLength 1
+     * @maxLength 12000
+     */
+  prompt?: string;
+  /**
+     * Start AI execution as part of Task creation. Requires a non-empty prompt; the Task and durable dispatch intent are committed atomically.
+     */
+  executeImmediately?: boolean;
 }
 
 export interface UpdateTaskInput {
