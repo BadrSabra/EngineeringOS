@@ -152,6 +152,8 @@ export type TaskRecoveryPlan =
 
 export type ChatRecoveryCandidate = {
   executionId: string;
+  acceptanceId: string;
+  acceptanceFinalizationKey: string;
   executionProjectId: string;
   executionStatus: string;
   executionAttempt: number;
@@ -227,6 +229,8 @@ function requiresManualProviderLimitAction(
     || retryAfterSource === "server_default";
   const hasProviderSpecificLimitFailure = failureKind !== "RATE_LIMIT"
     && PROVIDER_LIMIT_FAILURE_KINDS.has(failureKind);
+  const hasProviderUnavailableDeferral =
+    disposition.providerUnavailableDeferralSource === "provider_unavailable";
 
   // Provider/quota evidence and an unknown or upstream scope take precedence
   // over a local source that may have been written by a later project cooldown.
@@ -241,7 +245,7 @@ function requiresManualProviderLimitAction(
   if (
     retryAfterSource === "project_rate_limit"
     || retryAfterSource === "local_admission"
-    || retryAfterSource === "provider_unavailable"
+    || hasProviderUnavailableDeferral
     || rateLimitScope === "project"
     || rateLimitScope === "local_admission"
   ) {
@@ -396,6 +400,8 @@ async function deferRecoveryForRateLimit(params: {
 async function deferRecoveryForUnavailableProvider(params: {
   executionId: string;
   executionAttempt: number;
+  acceptanceId: string;
+  acceptanceFinalizationKey: string;
   action: string;
 }): Promise<number | undefined> {
   try {
@@ -403,6 +409,7 @@ async function deferRecoveryForUnavailableProvider(params: {
       const [acceptance] = await tx
         .select({
           id: aiExecutionAcceptancesTable.id,
+          finalizationKey: aiExecutionAcceptancesTable.finalizationKey,
           outcome: aiExecutionAcceptancesTable.outcome,
           nextActionCode: aiExecutionAcceptancesTable.nextActionCode,
           disposition: aiExecutionAcceptancesTable.disposition,
@@ -417,6 +424,8 @@ async function deferRecoveryForUnavailableProvider(params: {
       const disposition = asDisposition(acceptance?.disposition);
       if (
         !acceptance
+        || acceptance.id !== params.acceptanceId
+        || acceptance.finalizationKey !== params.acceptanceFinalizationKey
         || acceptance.outcome !== "FAILED"
         || acceptance.nextActionCode !== params.action
         || disposition.recoveryState !== "REQUIRED"
@@ -447,8 +456,8 @@ async function deferRecoveryForUnavailableProvider(params: {
           disposition: {
             ...asRecord(acceptance.disposition),
             retryAt: new Date(nowMs + retryAfterMs).toISOString(),
-            retryAfterMs,
-            retryAfterSource: "provider_unavailable",
+            providerUnavailableRetryAfterMs: retryAfterMs,
+            providerUnavailableDeferralSource: "provider_unavailable",
             providerUnavailableDeferralCount: previousDeferrals + 1,
             providerUnavailableDeferredAt: deferredAt,
           },
@@ -799,6 +808,8 @@ async function findChatRecoveryCandidates(scope: {
       action: aiExecutionAcceptancesTable.nextActionCode,
       reasonCode: aiExecutionAcceptancesTable.reasonCode,
       resumable: aiExecutionAcceptancesTable.resumable,
+      acceptanceId: aiExecutionAcceptancesTable.id,
+      acceptanceFinalizationKey: aiExecutionAcceptancesTable.finalizationKey,
       disposition: aiExecutionAcceptancesTable.disposition,
       sourceRevision: aiExecutionAcceptancesTable.sourceRevision,
       request: aiExecutionsTable.request,
@@ -992,6 +1003,8 @@ async function runRecovery(candidate: TaskRecoveryCandidate, plan: Extract<TaskR
     const retryAfterMs = await deferRecoveryForUnavailableProvider({
       executionId: candidate.executionId,
       executionAttempt: candidate.executionAttempt,
+      acceptanceId: candidate.acceptanceId,
+      acceptanceFinalizationKey: candidate.acceptanceFinalizationKey,
       action: candidate.action,
     });
     await writeRecoveryLog(
@@ -1070,6 +1083,8 @@ async function runChatRecovery(
     const retryAfterMs = await deferRecoveryForUnavailableProvider({
       executionId: candidate.executionId,
       executionAttempt: candidate.executionAttempt,
+      acceptanceId: candidate.acceptanceId,
+      acceptanceFinalizationKey: candidate.acceptanceFinalizationKey,
       action: candidate.action,
     });
     logger.warn(
