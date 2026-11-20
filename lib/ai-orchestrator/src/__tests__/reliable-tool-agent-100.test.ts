@@ -1793,12 +1793,13 @@ describe("Reliable Tool Agent T8 adversarial acceptance matrix", () => {
     await writeFile(gitExecutable, [
       "#!/usr/bin/env node",
       "const fs = require('node:fs');",
-      "fs.writeFileSync(process.env.RELIABLE_TOOL_GIT_STARTED, 'started');",
       "process.on('SIGTERM', () => {",
       "  fs.writeFileSync(process.env.RELIABLE_TOOL_GIT_STOPPED, 'stopped');",
       "  process.exit(0);",
       "});",
-      "setInterval(() => {}, 1000);",
+      // Publish readiness only after the child can observe cancellation.
+      "fs.writeFileSync(process.env.RELIABLE_TOOL_GIT_STARTED, 'started');",
+      "setInterval(() => {}, 1000);"
       "",
     ].join("\n"));
     await chmod(gitExecutable, 0o755);
