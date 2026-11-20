@@ -10,6 +10,7 @@ import {
 import {
   claimAiExecution,
   checkpointAiExecution,
+  createAiExecution,
   createAutonomousOperationContract,
   failAiExecution,
   heartbeatAiExecution,
@@ -182,6 +183,123 @@ async function createFailedOrientationFixture(label: string) {
 }
 
 describe("durable project-orientation retry chaos", () => {
+  it("admits exactly one competing first write for an immutable orientation manifest", async () => {
+    const projectId = randomUUID();
+    const userId = `orientation-manifest-cas-${projectId}`;
+    const now = new Date();
+    const workspaceRevision = now.toISOString();
+    const rootPath = `/tmp/orientation-manifest-cas-${projectId}`;
+    const workerId = `orientation-manifest-cas-worker-${projectId}`;
+    let executionId: string | undefined;
+
+    await db.insert(projectsTable).values({
+      id: projectId,
+      ownerId: userId,
+      name: `orientation-manifest-cas-${projectId.slice(0, 8)}`,
+      rootPath,
+      language: "typescript",
+      status: "active",
+      createdAt: now,
+      updatedAt: now,
+    });
+
+    try {
+      const request = {
+        projectId,
+        turnIntent: "PROJECT_QUERY" as const,
+        projectOrientation: true,
+        message: "Explain the project structure",
+        modelMessage: "Explain the project structure",
+        workspaceRevision,
+        workspaceRoot: rootPath,
+        validationTargetPaths: [],
+        proofRequired: true,
+        resumeContract: {
+          taskType: "tool_chat" as const,
+          outputContract: "GENERIC_RESPONSE" as const,
+          contextProfile: "project" as const,
+          sessionId: randomUUID(),
+          projectRevision: workspaceRevision,
+          requiresEvidence: false,
+          scope: { projectId, rootPath, linkedTaskId: null },
+        },
+      };
+      const created = await createAiExecution({
+        userId,
+        request,
+        idempotencyKey: `orientation-manifest-cas:${projectId}`,
+        projectId,
+        workspaceRoot: rootPath,
+      });
+      executionId = created.execution.id;
+
+      const claimed = await claimAiExecution({
+        executionId,
+        userId,
+        workerId,
+      });
+      expect(claimed).toMatchObject({
+        id: executionId,
+        status: "running",
+        attempt: 0,
+        workerId,
+      });
+
+      const candidates = Array.from({ length: 12 }, (_, index) => {
+        const base = orientationManifest(workspaceRevision, rootPath);
+        return {
+          ...base,
+          paths: {
+            ...base.paths,
+            uncertainty: [`docs/uncertainty-${index}.md`],
+          },
+        };
+      });
+      const results = await Promise.all(candidates.map((manifest) =>
+        persistAiExecutionOrientationManifest({
+          executionId: executionId!,
+          expectedAttempt: 0,
+          workerId,
+          manifest,
+        }),
+      ));
+      const winningIndexes = results
+        .map((accepted, index) => accepted ? index : -1)
+        .filter((index) => index >= 0);
+      expect(winningIndexes).toHaveLength(1);
+
+      const [stored] = await db
+        .select({ request: aiExecutionsTable.request })
+        .from(aiExecutionsTable)
+        .where(eq(aiExecutionsTable.id, executionId))
+        .limit(1);
+      const winningManifest = candidates[winningIndexes[0]!]!;
+      expect(JSON.parse(stored!.request).resumeContract.orientationManifest)
+        .toEqual(winningManifest);
+
+      // Replaying the exact immutable value is idempotent; a different value
+      // cannot replace it, even while the same worker still owns the lease.
+      await expect(persistAiExecutionOrientationManifest({
+        executionId,
+        expectedAttempt: 0,
+        workerId,
+        manifest: winningManifest,
+      })).resolves.toBe(true);
+      const conflictingManifest = candidates[(winningIndexes[0]! + 1) % candidates.length]!;
+      await expect(persistAiExecutionOrientationManifest({
+        executionId,
+        expectedAttempt: 0,
+        workerId,
+        manifest: conflictingManifest,
+      })).resolves.toBe(false);
+    } finally {
+      if (executionId) {
+        await db.delete(aiExecutionsTable).where(eq(aiExecutionsTable.id, executionId));
+      }
+      await db.delete(projectsTable).where(eq(projectsTable.id, projectId));
+    }
+  });
+
   it.each(CHAOS_SEEDS)(
     "preserves one execution identity and manifest under seeded failure schedule %s",
     async (seed) => {
