@@ -235,6 +235,10 @@ describe('ProjectDetail Arabic presentation', () => {
     render(<ProjectDetail />);
 
     expect(screen.getByRole('heading', { name: 'مشروع تجريبي' })).toBeInTheDocument();
+    expect(screen.getByTestId('link-project-event-log')).toHaveAttribute(
+      'href',
+      '/events?projectId=project-1',
+    );
     expect(screen.getByTestId('project-summary-status')).toHaveTextContent(
       'تظل بيانات المشروع الأساسية متاحة',
     );
