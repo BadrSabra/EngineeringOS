@@ -177,8 +177,10 @@ describe("Projects", () => {
     expect(card).toContainElement(workspaceLink);
     expect(workspaceLink).toHaveAttribute('href', '/projects/1/workspace');
     expect(workspaceLink).toHaveAccessibleName('افتح مساحة العمل لمشروع alpha-service');
+    expect(workspaceLink).toHaveTextContent('alpha-service');
     expect(detailsLink).toHaveAttribute('href', '/projects/1');
     expect(detailsLink).toHaveAccessibleName('تفاصيل مشروع alpha-service');
+    expect(detailsLink).toHaveTextContent('التفاصيل');
   });
 
   it("offers project creation directly from the empty state without starting it", () => {

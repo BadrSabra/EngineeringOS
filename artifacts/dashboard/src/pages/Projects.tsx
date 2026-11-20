@@ -484,9 +484,9 @@ function ProjectsForAccountSession({
                     <div className="min-w-0">
                       <div className="font-semibold truncate">
                         <Link
-                          to={`/projects/${encodeURIComponent(project.id)}`}
-                          data-testid={`link-project-details-${project.id}`}
-                          aria-label={`تفاصيل مشروع ${project.name}`}
+                          to={`/projects/${encodeURIComponent(project.id)}/workspace`}
+                          data-testid={`link-project-workspace-${project.id}`}
+                          aria-label={`افتح مساحة العمل لمشروع ${project.name}`}
                           className="rounded-sm outline-none transition-colors hover:text-primary focus-visible:ring-2 focus-visible:ring-primary"
                         >
                           {project.name}
@@ -564,12 +564,12 @@ function ProjectsForAccountSession({
                   </div>
                   <div className="flex w-full items-center justify-between gap-3 sm:w-auto sm:justify-end">
                     <Link
-                      to={`/projects/${encodeURIComponent(project.id)}/workspace`}
-                      data-testid={`link-project-workspace-${project.id}`}
-                      aria-label={`افتح مساحة العمل لمشروع ${project.name}`}
-                      className="inline-flex items-center gap-2 rounded-md bg-primary px-3 py-2 text-xs font-semibold text-primary-foreground transition-colors hover:bg-primary/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2"
+                      to={`/projects/${encodeURIComponent(project.id)}`}
+                      data-testid={`link-project-details-${project.id}`}
+                      aria-label={`تفاصيل مشروع ${project.name}`}
+                      className="inline-flex items-center gap-1 rounded-md px-3 py-2 text-xs font-medium text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2"
                     >
-                      مساحة العمل
+                      التفاصيل
                       <ArrowRight className="h-3.5 w-3.5 rotate-180" aria-hidden="true" />
                     </Link>
                   </div>
