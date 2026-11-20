@@ -25,6 +25,7 @@ import {
 import { useQueryClient } from '@tanstack/react-query';
 import { useToast } from '@/hooks/use-toast';
 import { RefreshButton, RequestError } from '@/components/OperatorResilience';
+import { TaskDependencySelector } from '@/components/TaskDependencySelector';
 import {
   Play,
   RotateCcw,
@@ -80,6 +81,7 @@ type TaskView = {
   title: string;
   description?: string;
   status: string;
+  dependsOn?: string[];
   phase?: string;
   relatedFiles?: string[];
   retryCount?: number;
@@ -1352,6 +1354,7 @@ function TaskCreateDialog({
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
   const [priority, setPriority] = useState<CreateTaskInput['priority']>('p2');
+  const [dependsOn, setDependsOn] = useState<string[]>([]);
   const [fieldError, setFieldError] = useState('');
 
   useEffect(() => {
@@ -1374,6 +1377,7 @@ function TaskCreateDialog({
       title: title.trim(),
       description: description.trim() || undefined,
       priority,
+      ...(dependsOn.length > 0 ? { dependsOn } : {}),
     });
   };
 
@@ -1398,7 +1402,10 @@ function TaskCreateDialog({
             ) : null}
             <div>
               <label htmlFor="create-task-project" className="mb-1.5 block text-xs font-semibold text-muted-foreground">المشروع</label>
-              <select id="create-task-project" data-testid="select-create-task-project" value={projectId} onChange={(event) => setProjectId(event.target.value)} className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm outline-none focus:border-primary">
+              <select id="create-task-project" data-testid="select-create-task-project" value={projectId} onChange={(event) => {
+                setProjectId(event.target.value);
+                setDependsOn([]);
+              }} className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm outline-none focus:border-primary">
                 <option value="">اختر مشروعًا</option>
                 {projects.map((project) => <option key={project.id} value={String(project.id)}>{project.name}</option>)}
               </select>
@@ -1411,6 +1418,12 @@ function TaskCreateDialog({
               <label htmlFor="create-task-description" className="mb-1.5 block text-xs font-semibold text-muted-foreground">الوصف <span className="font-normal text-muted-foreground/70">(اختياري)</span></label>
               <textarea id="create-task-description" data-testid="input-create-task-description" dir="auto" value={description} onChange={(event) => setDescription(event.target.value)} rows={3} placeholder="أضف سياقًا يساعد المتابع أو المساعد الذكي" className="w-full resize-y rounded-md border border-border bg-background px-3 py-2 text-sm outline-none placeholder:text-muted-foreground/60 focus:border-primary" />
             </div>
+            <TaskDependencySelector
+              key={projectId}
+              projectId={projectId}
+              selectedTaskIds={dependsOn}
+              onSelectionChange={setDependsOn}
+            />
             <div>
               <label htmlFor="create-task-priority" className="mb-1.5 block text-xs font-semibold text-muted-foreground">الأولوية</label>
               <select id="create-task-priority" data-testid="select-create-task-priority" value={priority} onChange={(event) => setPriority(event.target.value as CreateTaskInput['priority'])} className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm outline-none focus:border-primary">
@@ -2262,6 +2275,44 @@ function TasksSession({
                           )}
                           {task.description && (
                             <p dir="auto" className="text-muted-foreground mb-3">{task.description}</p>
+                          )}
+                          {Array.isArray(task.dependsOn) && task.dependsOn.length > 0 && (
+                            <section
+                              aria-labelledby={`task-dependencies-${task.id}`}
+                              className="mb-4 rounded-lg border border-border bg-background p-3"
+                              data-testid={`section-task-dependencies-${task.id}`}
+                            >
+                              <h5 id={`task-dependencies-${task.id}`} className="text-xs font-semibold">
+                                يبدأ التنفيذ بعد إكمال
+                              </h5>
+                              <p className="mt-1 text-[11px] text-muted-foreground">
+                                لن يبدأ النظام هذه المهمة حتى تكتمل المتطلبات المحددة.
+                              </p>
+                              <ul className="mt-2 space-y-1.5 text-xs">
+                                {[...new Set(task.dependsOn.filter((id) => typeof id === 'string' && id.trim()))].map((dependencyId, index) => {
+                                  const dependencyTask = tasks.find((candidate) =>
+                                    candidate.id === dependencyId && candidate.projectId === task.projectId);
+                                  const dependencyTitle = dependencyTask?.title ?? `المهمة السابقة ${index + 1}`;
+                                  return (
+                                    <li key={dependencyId} className="flex flex-wrap items-center gap-2">
+                                      <Link
+                                        href={`/tasks?projectId=${encodeURIComponent(task.projectId)}&taskId=${encodeURIComponent(dependencyId)}`}
+                                        aria-label={`عرض المهمة المطلوبة قبل ${task.title}: ${dependencyTitle}`}
+                                        data-testid={`link-task-dependency-${task.id}-${dependencyId}`}
+                                        className="text-primary underline-offset-4 hover:underline"
+                                      >
+                                        <bdi dir="auto">{dependencyTitle}</bdi>
+                                      </Link>
+                                      <span className="text-muted-foreground">
+                                        {dependencyTask
+                                          ? taskStatusLabel(dependencyTask.status)
+                                          : 'تفاصيل المهمة غير ظاهرة ضمن القائمة الحالية'}
+                                      </span>
+                                    </li>
+                                  );
+                                })}
+                              </ul>
+                            </section>
                           )}
                           {task.relatedFiles && task.relatedFiles.length > 0 && (
                             <div className="mb-4">

@@ -58,6 +58,7 @@
     "artifacts/dashboard/src/components/ProjectAiBudgetPanel.tsx": "trigger",
     "artifacts/dashboard/src/components/ProjectPluginsPanel.tsx": "trigger",
     "artifacts/dashboard/src/components/RuleDetailActions.tsx": "trigger",
+    "artifacts/dashboard/src/components/TaskDependencySelector.tsx": "no-trigger",
     "artifacts/dashboard/src/components/WorldTransitionTimeline.tsx": "trigger",
     "artifacts/dashboard/src/components/mission-state.ts": "trigger",
     "artifacts/dashboard/src/components/result-details.ts": "trigger",

@@ -123,16 +123,8 @@ function renderPage() {
   );
 }
 
-beforeEach(() => {
-  vi.clearAllMocks();
-  window.history.replaceState({}, '', '/tasks');
-  vi.mocked(useListProjects).mockReturnValue({
-    data: [{ id: 'project-1', name: 'Test Project' }],
-    isLoading: false,
-    isError: false,
-    error: null,
-  } as ReturnType<typeof useListProjects>);
-  vi.mocked(useListTasks).mockReturnValue({
+function taskListFixture(dependencies: Record<string, string[]> = {}) {
+  return {
     data: recoveryCases.map((item) => ({
       ...item,
       projectId: 'project-1',
@@ -144,6 +136,7 @@ beforeEach(() => {
       updatedAt: '2026-08-25T10:01:00.000Z',
       retryCount: 0,
       maxRetries: 3,
+      ...(dependencies[item.id] ? { dependsOn: dependencies[item.id] } : {}),
       agentResponse: JSON.stringify({
         kind: 'AI_TASK_EXECUTION_RECEIPT',
         terminalStatus: 'FAILED',
@@ -165,7 +158,19 @@ beforeEach(() => {
     refetch: vi.fn(),
     isRefetching: false,
     dataUpdatedAt: 0,
-  } as ReturnType<typeof useListTasks>);
+  } as ReturnType<typeof useListTasks>;
+}
+
+beforeEach(() => {
+  vi.clearAllMocks();
+  window.history.replaceState({}, '', '/tasks');
+  vi.mocked(useListProjects).mockReturnValue({
+    data: [{ id: 'project-1', name: 'Test Project' }],
+    isLoading: false,
+    isError: false,
+    error: null,
+  } as ReturnType<typeof useListProjects>);
+  vi.mocked(useListTasks).mockReturnValue(taskListFixture());
   vi.mocked(useGetTaskLogs).mockReturnValue({
     data: [],
     isLoading: false,
@@ -2089,6 +2094,84 @@ describe('Task creation', () => {
         onSuccess: expect.any(Function),
         onError: expect.any(Function),
       }),
+    );
+  });
+
+  it('sends selected same-project prerequisites with the new task', () => {
+    renderPage();
+    fireEvent.click(screen.getByRole('button', { name: 'مهمة جديدة' }));
+    fireEvent.click(screen.getByTestId('checkbox-task-dependency-task-auth'));
+    fireEvent.change(screen.getByTestId('input-create-task-title'), {
+      target: { value: 'Publish the verified release' },
+    });
+    fireEvent.click(screen.getByTestId('button-submit-create-task'));
+
+    expect(createTaskMutate).toHaveBeenCalledWith(
+      {
+        data: {
+          projectId: 'project-1',
+          title: 'Publish the verified release',
+          description: undefined,
+          priority: 'p2',
+          dependsOn: ['task-auth'],
+        },
+      },
+      expect.objectContaining({ onSuccess: expect.any(Function), onError: expect.any(Function) }),
+    );
+  });
+
+  it('clears prerequisite selections when the task moves to another project', () => {
+    vi.mocked(useListProjects).mockReturnValue({
+      data: [
+        { id: 'project-1', name: 'First Project' },
+        { id: 'project-2', name: 'Second Project' },
+      ],
+      isLoading: false,
+      isError: false,
+      error: null,
+    } as ReturnType<typeof useListProjects>);
+    const tasks = taskListFixture();
+    vi.mocked(useListTasks).mockReturnValue({
+      ...tasks,
+      data: [
+        ...tasks.data!,
+        {
+          id: 'task-project-2',
+          projectId: 'project-2',
+          title: 'Second project prerequisite',
+          status: 'pending',
+          priority: 'p2',
+          createdAt: '2026-08-25T10:00:00.000Z',
+          updatedAt: '2026-08-25T10:00:00.000Z',
+        },
+      ],
+    } as ReturnType<typeof useListTasks>);
+    renderPage();
+    fireEvent.click(screen.getByRole('button', { name: 'مهمة جديدة' }));
+    fireEvent.click(screen.getByTestId('checkbox-task-dependency-task-auth'));
+
+    fireEvent.change(screen.getByTestId('select-create-task-project'), {
+      target: { value: 'project-2' },
+    });
+
+    expect(screen.queryByTestId('status-selected-task-dependencies')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('checkbox-task-dependency-task-auth')).not.toBeInTheDocument();
+    expect(screen.getByTestId('checkbox-task-dependency-task-project-2')).toBeInTheDocument();
+  });
+
+  it('shows saved prerequisites and their status in task details', () => {
+    vi.mocked(useListTasks).mockReturnValue(taskListFixture({
+      'task-auth': ['task-quota'],
+    }));
+    renderPage();
+    fireEvent.click(screen.getByRole('button', { name: 'عرض تفاصيل المهمة: Repair provider authentication' }));
+
+    const dependencies = screen.getByTestId('section-task-dependencies-task-auth');
+    expect(within(dependencies).getByText('Recover from provider quota')).toBeInTheDocument();
+    expect(within(dependencies).getByText('فشل مسجل')).toBeInTheDocument();
+    expect(within(dependencies).getByTestId('link-task-dependency-task-auth-task-quota')).toHaveAttribute(
+      'href',
+      '/tasks?projectId=project-1&taskId=task-quota',
     );
   });
 });
