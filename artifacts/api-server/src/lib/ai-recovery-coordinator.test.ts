@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  calculateProviderUnavailableBackoffMs,
   calculateRecoveryRetryAt,
   chatRecoveryRetryAfterSeconds,
   planChatRecovery,
@@ -39,6 +40,8 @@ function candidate(overrides: Partial<TaskRecoveryCandidate> = {}): TaskRecovery
 function chatCandidate(overrides: Partial<ChatRecoveryCandidate> = {}): ChatRecoveryCandidate {
   return {
     executionId: "execution-chat-1",
+    acceptanceId: "acceptance-chat-1",
+    acceptanceFinalizationKey: "finalization-chat-1",
     executionProjectId: "project-1",
     executionStatus: "failed",
     executionAttempt: 0,
@@ -89,6 +92,15 @@ describe("automatic task recovery admission", () => {
       .toBeUndefined();
     expect(calculateRecoveryRetryAt(undefined, Date.parse("2026-09-19T16:00:00.000Z")))
       .toBeUndefined();
+  });
+
+  it("calculates bounded exponential backoff for unavailable providers", () => {
+    expect(calculateProviderUnavailableBackoffMs(0)).toBe(60_000);
+    expect(calculateProviderUnavailableBackoffMs(1)).toBe(120_000);
+    expect(calculateProviderUnavailableBackoffMs(2)).toBe(240_000);
+    expect(calculateProviderUnavailableBackoffMs(4)).toBe(15 * 60_000);
+    expect(calculateProviderUnavailableBackoffMs(100)).toBe(15 * 60_000);
+    expect(calculateProviderUnavailableBackoffMs(Number.NaN)).toBe(60_000);
   });
 
   it("uses only a positive retry window supplied with a handler 429", () => {
@@ -324,6 +336,108 @@ describe("automatic task recovery admission", () => {
     });
   });
 
+  it("honors provider-unavailable cooldowns for Task and Chat recovery", () => {
+    const retryAt = "2026-09-17T12:01:00.000Z";
+    const beforeDeadline = Date.parse("2026-09-17T12:00:59.999Z");
+    const atDeadline = Date.parse(retryAt);
+    const disposition = {
+      recoveryState: "REQUIRED",
+      retryAt,
+      providerUnavailableRetryAfterMs: 60_000,
+      providerUnavailableDeferralSource: "provider_unavailable",
+      providerUnavailableDeferralCount: 1,
+    };
+
+    expect(planTaskRecovery(candidate({
+      action: "RETRY_AFTER_TIMEOUT",
+      disposition,
+    }), beforeDeadline)).toEqual({
+      kind: "skip",
+      reason: "retry_not_due",
+    });
+    expect(planTaskRecovery(candidate({
+      action: "RETRY_AFTER_TIMEOUT",
+      disposition,
+    }), atDeadline)).toMatchObject({
+      kind: "retry",
+      action: "RETRY_AFTER_TIMEOUT",
+    });
+
+    const chat = chatCandidate({
+      action: "RETRY_AFTER_TIMEOUT",
+      reasonCode: "EXECUTION_PROVIDER_FAILURE",
+      resumable: 0,
+      disposition,
+    });
+    expect(planChatRecovery(chat, beforeDeadline)).toEqual({
+      kind: "skip",
+      reason: "retry_not_due",
+    });
+    expect(planChatRecovery(chat, atDeadline)).toMatchObject({
+      kind: "retry",
+      action: "RETRY_AFTER_TIMEOUT",
+    });
+  });
+
+  it("keeps local rate-limit recovery automatic after a provider-unavailable deferral", () => {
+    const retryAt = "2026-09-17T12:01:00.000Z";
+    const atDeadline = Date.parse(retryAt);
+    const disposition = {
+      recoveryState: "REQUIRED",
+      failureKind: "RATE_LIMIT",
+      retryAt,
+      providerUnavailableDeferralSource: "provider_unavailable",
+      rateLimitScope: "project",
+    };
+
+    expect(planTaskRecovery(candidate({
+      action: "RETRY_AFTER_RATE_LIMIT",
+      disposition,
+    }), atDeadline)).toMatchObject({
+      kind: "retry",
+      action: "RETRY_AFTER_RATE_LIMIT",
+    });
+    expect(planChatRecovery(chatCandidate({
+      action: "RETRY_AFTER_RATE_LIMIT",
+      reasonCode: "EXECUTION_PROVIDER_FAILURE",
+      resumable: 0,
+      disposition,
+    }), atDeadline)).toMatchObject({
+      kind: "retry",
+      action: "RETRY_AFTER_RATE_LIMIT",
+    });
+  });
+
+  it("preserves upstream provider retry evidence during a local provider-unavailable deferral", () => {
+    const retryAt = "2026-09-17T12:01:00.000Z";
+    const disposition = {
+      recoveryState: "REQUIRED",
+      failureKind: "RATE_LIMIT",
+      retryAt,
+      retryAfterSource: "provider",
+      providerUnavailableDeferralSource: "provider_unavailable",
+    };
+    const taskPlan = planTaskRecovery(candidate({
+      action: "RETRY_AFTER_TIMEOUT",
+      disposition,
+    }), Date.parse(retryAt));
+    const chatPlan = planChatRecovery(chatCandidate({
+      action: "RETRY_AFTER_TIMEOUT",
+      reasonCode: "EXECUTION_PROVIDER_FAILURE",
+      resumable: 0,
+      disposition,
+    }), Date.parse(retryAt));
+
+    expect(taskPlan).toEqual({
+      kind: "skip",
+      reason: "provider_rate_limit_requires_manual_action",
+    });
+    expect(chatPlan).toEqual({
+      kind: "skip",
+      reason: "provider_rate_limit_requires_manual_action",
+    });
+  });
+
   it("does not let local cooldown metadata mask an upstream or unknown quota signal", () => {
     const retryAt = "2026-09-17T12:00:10.000Z";
     const nowMs = Date.parse(retryAt);
@@ -467,6 +581,8 @@ describe("automatic task recovery admission", () => {
     };
     const base = {
       executionId: "execution-chat-1",
+      acceptanceId: "acceptance-chat-1",
+      acceptanceFinalizationKey: "finalization-chat-1",
       executionProjectId: "project-1",
       executionStatus: "failed",
       executionAttempt: 1,
