@@ -2649,6 +2649,7 @@ describe("runtime.start transition retry scheduling", () => {
     if (!mission) throw new Error("Mission handoff fixture was not created.");
     await insertValidRuntimeStartObservations(fixture);
     const materializer = vi.spyOn(worldStateModule, "materializeWorldStateForProject");
+    const enqueue = vi.spyOn(heavyJobQueue, "enqueueWithId").mockReturnValue(true);
     const finalizeInput = {
       projectId: fixture.projectId,
       executionId: fixture.executionId,
@@ -2674,12 +2675,14 @@ describe("runtime.start transition retry scheduling", () => {
       .where(eq(aiWorldTransitionsTable.id, fixture.transitionId));
     expect(transition?.status).toBe("materialized");
 
-    const enqueue = vi.spyOn(heavyJobQueue, "enqueueWithId").mockReturnValue(true);
+    // Both finalization callers may observe the materialized transition, but
+    // the immediate event wake plus subsequent reconciliation-style wakes
+    // must still admit the dependent Goal exactly once.
     const wakeCounts = await Promise.all([
-      wakeRuntimeTransitionMissionGoals(),
-      wakeRuntimeTransitionMissionGoals(),
+      wakeRuntimeTransitionMissionGoals(32, fixture.projectId),
+      wakeRuntimeTransitionMissionGoals(32, fixture.projectId),
     ]);
-    expect(wakeCounts.reduce((total, count) => total + count, 0)).toBe(1);
+    expect(wakeCounts.reduce((total, count) => total + count, 0)).toBe(0);
     expect(enqueue).toHaveBeenCalledTimes(1);
     const dispatches = await db.select({
       id: eventsTable.id,
