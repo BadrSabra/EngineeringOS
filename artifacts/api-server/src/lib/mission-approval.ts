@@ -349,8 +349,11 @@ export async function approveMissionGoal(params: {
           ...(decisionApprovalBinding ?? {}),
         },
       });
+      let decisionApprovalLifecycle: Awaited<
+        ReturnType<typeof appendMissionDecisionApprovalLifecycleEventsInTransaction>
+      > | undefined;
       if (decisionApprovalBinding) {
-        await appendMissionDecisionApprovalLifecycleEventsInTransaction(
+        decisionApprovalLifecycle = await appendMissionDecisionApprovalLifecycleEventsInTransaction(
           tx,
           decisionApprovalBinding.decisionTraceId,
           now,
@@ -375,6 +378,10 @@ export async function approveMissionGoal(params: {
         userId: mission.userId,
         planRevision: planHash,
         stepId,
+        ...(decisionApprovalBinding
+          && (decisionApprovalLifecycle === "appended" || decisionApprovalLifecycle === "already_recorded")
+          ? { decisionTraceId: decisionApprovalBinding.decisionTraceId }
+          : {}),
       };
     }
 
@@ -516,6 +523,23 @@ export async function approveMissionGoal(params: {
     userId: prepared.userId,
     trigger: "resume",
   });
+  if (prepared.approvalKind === "plan" && prepared.decisionTraceId) {
+    // The final required plan-step approval has committed APPROVED + PLAN_APPLIED.
+    // Reuse its exact Goal run and immediately dispatch the remaining plan roots.
+    // This is a scheduling attempt only; the decision dispatcher revalidates the
+    // approved receipt, active revision, root set, and exact Execution identities.
+    try {
+      const { dispatchApprovedMissionDecisionImmediately } = await import("./mission-auto-replan.js");
+      await dispatchApprovedMissionDecisionImmediately(prepared.decisionTraceId, [run]);
+    } catch (error) {
+      console.warn("Immediate approved Mission decision dispatch failed; durable reconciliation will retry", {
+        missionId: prepared.missionId,
+        goalId: prepared.goalId,
+        decisionId: prepared.decisionTraceId,
+        error,
+      });
+    }
+  }
   if (prepared.approvalKind === "plan") {
     return {
       status: "approved",
