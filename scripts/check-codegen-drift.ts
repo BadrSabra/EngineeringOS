@@ -180,6 +180,24 @@ try {
   process.exit(1);
 }
 
+// TEMPORARY task contract diagnostics; remove after generated output is committed.
+for (const relativePath of [
+  "lib/api-zod/src/generated/api.ts",
+  "lib/api-zod/src/generated/types/createTaskInput.ts",
+  "lib/api-client-react/src/generated/api.schemas.ts",
+]) {
+  const generatedPath = join(generatedRoot, relativePath);
+  const generated = readFileSync(generatedPath, "utf8");
+  const needle = relativePath.endsWith("/api.ts")
+    ? "export const CreateTaskBody"
+    : "export interface CreateTaskInput";
+  const at = generated.indexOf(needle);
+  const excerpt = relativePath.endsWith("/api.ts")
+    ? generated.slice(Math.max(0, at - 500), at + 1400)
+    : generated.slice(Math.max(0, at - 200), at + 1100);
+  console.error(`CODEGEN_DIAGNOSTIC ${relativePath}\n${excerpt}`);
+}
+
 try {
   verifyCustomFetchImport();
   console.log("✅  custom-fetch mutator imports are deterministic.");
