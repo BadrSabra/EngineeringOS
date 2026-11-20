@@ -392,8 +392,17 @@ function DashboardForUser({ ownerId }: { ownerId: string | null }) {
     && goalProjectMatch?.kind !== 'unique'
     ? suggestGoalProjects(goalDraft, projects)
     : [];
-  const directGoalProject = !showGoalDestinationPrompt && goalProjectMatch?.kind === 'unique'
-    ? goalProjectMatch.project
+  const onlyProjectWithoutSuggestions = !projectsQuery.isLoading
+    && !projectsQuery.isError
+    && projects.length === 1
+    && goalProjectMatch?.kind === 'none'
+    && goalProjectSuggestions.length === 0
+    ? projects[0]
+    : null;
+  const directGoalProject = !showGoalDestinationPrompt
+    ? goalProjectMatch?.kind === 'unique'
+      ? goalProjectMatch.project
+      : onlyProjectWithoutSuggestions
     : null;
   const dashboardQuery = useGetDashboard();
   const { data: rawDashboard, isLoading, error, refetch, isRefetching, dataUpdatedAt } = dashboardQuery;
@@ -492,8 +501,8 @@ function DashboardForUser({ ownerId }: { ownerId: string | null }) {
     const normalizedGoal = goalDraft.trim();
     if (!normalizedGoal) return;
     setGoalHandoffError('');
-    if (goalProjectMatch?.kind === 'unique') {
-      handoffGoal('project', goalProjectMatch.project.id);
+    if (directGoalProject) {
+      handoffGoal('project', directGoalProject.id);
       return;
     }
     setSelectedGoalProjectId('');
@@ -609,7 +618,7 @@ function DashboardForUser({ ownerId }: { ownerId: string | null }) {
           </p>
         )}
         <p className="mt-3 text-xs leading-5 text-muted-foreground">
-          إذا طابق الهدف مشروعًا واحدًا بوضوح، سيظهر اسمه على زر المتابعة. ينقل الزر النص كمسودة فقط؛ لا يُرسل الهدف ولا يوافق على تغييرات.
+          إذا طابق الهدف مشروعًا واحدًا بوضوح، أو كان لديك مشروع واحد بلا اقتراحات منافسة، سيظهر اسمه على زر المتابعة. ينقل الزر النص كمسودة فقط؛ لا يُرسل الهدف ولا يوافق على تغييرات.
         </p>
         {showGoalDestinationPrompt && (
           <div
