@@ -77,20 +77,26 @@ router.get("/metrics/latest", async (req, res) => {
   if (ownedProjects.length === 0) return res.json([]);
 
   const projectIds = ownedProjects.map((p: { id: string }) => p.id);
-  // Single query instead of N+1: fetch all metrics rows for owned projects ordered
-  // newest-first, then pick the first (most recent) row per project in JS.
-  const allRows = await db
-    .select()
+  // Let PostgreSQL discard historical rows before they cross the database
+  // boundary. DISTINCT ON keeps only the newest metric for each owned project;
+  // the id tie-breaker makes equal-timestamp snapshots deterministic.
+  const latestPerProject = await db
+    .selectDistinctOn([metricsTable.projectId])
     .from(metricsTable)
     .where(inArray(metricsTable.projectId, projectIds))
-    .orderBy(desc(metricsTable.timestamp));
+    .orderBy(
+      metricsTable.projectId,
+      desc(metricsTable.timestamp),
+      desc(metricsTable.id),
+    );
 
-  const seen = new Set<string>();
-  const latestPerProject = allRows.filter((row) => {
-    if (seen.has(row.projectId)) return false;
-    seen.add(row.projectId);
-    return true;
-  });
+  // DISTINCT ON requires projectId as the first ORDER BY expression. Restore
+  // the API's global newest-first presentation after the bounded result set
+  // (at most one row per owned project) has been selected.
+  latestPerProject.sort((left, right) =>
+    right.timestamp.getTime() - left.timestamp.getTime()
+    || right.id.localeCompare(left.id),
+  );
 
   return res.json(latestPerProject);
 });
