@@ -3920,6 +3920,94 @@ describe("Materialized Mission World Transition wake outbox", () => {
     expect(dispatches).toHaveLength(1);
     expect(enqueue).toHaveBeenCalledOnce();
   });
+
+  it("leases cross-replica dispatch and fences a worker whose lease expired", async () => {
+    const fixture = await transitionFixture({ missionHandoff: true });
+    const mission = fixture.missionHandoff;
+    if (!mission) throw new Error("Mission handoff fixture was not created.");
+    await insertValidRuntimeStartObservations(fixture);
+    const wake = vi.spyOn(missionRuntimeModule, "wakeRuntimeTransitionMissionGoals")
+      .mockRejectedValueOnce(new Error("synthetic_immediate_wake_loss"));
+
+    const finalized = await finalizeRuntimeStartTransition({
+      projectId: fixture.projectId,
+      executionId: fixture.executionId,
+      attempt: 0,
+      episodeId: fixture.episodeId,
+      actionId: fixture.transitionInput.actionId,
+      effectBundleId: fixture.effectBundleId,
+    });
+    expect(finalized.status).toBe("materialized");
+
+    const [intent] = await db.select().from(eventsTable).where(and(
+      eq(eventsTable.projectId, fixture.projectId),
+      eq(eventsTable.goalId, mission.sourceGoalId),
+      eq(eventsTable.type, "AiMissionWorldTransitionWakeRequested"),
+    )).limit(1);
+    expect(intent?.payload).toMatchObject({ attemptCount: 1 });
+    await db.update(eventsTable).set({
+      payload: {
+        ...(intent?.payload ?? {}),
+        nextAttemptAt: new Date(Date.now() - 1_000).toISOString(),
+      },
+    }).where(eq(eventsTable.id, intent!.id));
+
+    let releaseFirstWake!: () => void;
+    let signalFirstWake!: () => void;
+    const firstWakeStarted = new Promise<void>((resolve) => {
+      signalFirstWake = resolve;
+    });
+    const firstWakeBlocked = new Promise<void>((resolve) => {
+      releaseFirstWake = resolve;
+    });
+    let wakeCalls = 0;
+    wake.mockImplementation(async () => {
+      wakeCalls += 1;
+      if (wakeCalls === 1) {
+        signalFirstWake();
+        await firstWakeBlocked;
+      }
+    });
+
+    const firstDispatch = dispatchPendingMaterializedMissionTransitionWakes(32, fixture.projectId);
+    await firstWakeStarted;
+
+    // A second API replica must not poll an intent while its lease is active.
+    expect(await dispatchPendingMaterializedMissionTransitionWakes(32, fixture.projectId)).toBe(0);
+
+    const [leased] = await db.select({ payload: eventsTable.payload })
+      .from(eventsTable)
+      .where(eq(eventsTable.id, intent!.id))
+      .limit(1);
+    const currentPayload = leased?.payload ?? {};
+    const currentLease = currentPayload.dispatchLease as Record<string, unknown> | undefined;
+    expect(typeof currentLease?.token).toBe("string");
+
+    // Simulate process loss by expiring the lease while the former worker is
+    // still finishing. A replacement worker can reclaim and finalize it.
+    await db.update(eventsTable).set({
+      payload: {
+        ...currentPayload,
+        dispatchLease: {
+          ...currentLease,
+          expiresAt: new Date(Date.now() - 60_000).toISOString(),
+        },
+      },
+    }).where(eq(eventsTable.id, intent!.id));
+
+    expect(await dispatchPendingMaterializedMissionTransitionWakes(32, fixture.projectId)).toBe(1);
+    releaseFirstWake();
+    expect(await firstDispatch).toBe(0);
+    expect(wakeCalls).toBe(2);
+
+    const [delivered] = await db.select({ payload: eventsTable.payload })
+      .from(eventsTable)
+      .where(eq(eventsTable.id, intent!.id))
+      .limit(1);
+    expect(typeof delivered?.payload?.processedAt).toBe("string");
+    expect(delivered?.payload?.dispatchLease).toBeUndefined();
+  });
+
 });
 
 describe("Apply Changes snapshot-bound transition intent", () => {
