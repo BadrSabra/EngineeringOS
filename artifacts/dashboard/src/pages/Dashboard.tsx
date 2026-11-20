@@ -907,11 +907,11 @@ function DashboardForUser({ ownerId }: { ownerId: string | null }) {
         </div>
         <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
           <Link
-            href="/tasks"
+            href="/tasks?status=active"
             data-testid="card-active-work-home"
             className="rounded-xl border border-border bg-card p-4 transition-colors hover:border-primary/40"
           >
-            <p className="text-sm text-muted-foreground">عمل جارٍ</p>
+            <p className="text-sm text-muted-foreground">عمل جارٍ أو منتظر</p>
             <p className="mt-2 text-3xl font-semibold tabular-nums" data-testid="text-active-work-home">
               {dashboard.activeTaskCount}
             </p>
