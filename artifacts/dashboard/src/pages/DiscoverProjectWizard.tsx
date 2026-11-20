@@ -668,6 +668,55 @@ export function DiscoverProjectWizard({ onClose }: Props) {
     setOverrides((prev) => ({ ...prev, [key]: value }));
 
   // ── Step 1 ──────────────────────────────────────────────────────────────────
+  const renderSourceCard = (src: SourceDef) => {
+      const Icon = src.icon;
+      const selected = sourceType === src.type;
+      return (
+        <button
+          key={src.type}
+          data-testid={`source-card-${src.type}`}
+          type="button"
+          disabled={!src.available}
+          aria-pressed={selected}
+          onClick={() => { if (src.available) setSourceType(src.type); }}
+          className={`relative text-right rounded-xl border p-3.5 flex items-start gap-3 transition-all
+            ${src.available ? 'cursor-pointer' : 'cursor-not-allowed opacity-50'}
+            ${selected
+              ? 'border-primary bg-primary/5 ring-1 ring-primary/30'
+              : src.available
+                ? 'border-border hover:border-primary/40 bg-card'
+                : 'border-border/40 bg-card/50'
+            }`}
+        >
+          <div className={`w-8 h-8 rounded-lg flex items-center justify-center shrink-0 mt-0.5 ${selected ? 'bg-primary/15' : 'bg-secondary'}`}>
+            <Icon className={`w-4 h-4 ${selected ? 'text-primary' : 'text-muted-foreground'}`} />
+          </div>
+          <div className="min-w-0">
+            <div className={`text-sm font-semibold ${selected ? 'text-foreground' : 'text-foreground/80'}`}>{src.label}</div>
+            <div className="text-xs text-muted-foreground mt-0.5 leading-snug">{src.description}</div>
+            {!src.available && src.disabledReason && (
+              <div className="text-[10px] text-amber-400/70 mt-1.5 leading-snug flex items-start gap-1">
+                <AlertTriangle className="w-2.5 h-2.5 shrink-0 mt-px" />
+                <span>{src.disabledReason}</span>
+              </div>
+            )}
+          </div>
+          {src.badge && (
+            <span className={`absolute top-2 left-2 text-[9px] font-bold px-1.5 py-0.5 rounded-full border ${
+              src.badge === 'موصى به'
+                ? 'bg-primary/15 text-primary border-primary/30'
+                : 'bg-secondary text-muted-foreground/60 border-border/50'
+            }`}>{src.badge}</span>
+          )}
+          {selected && (
+            <div className="absolute top-2 right-2 w-4 h-4 rounded-full border-2 border-primary flex items-center justify-center">
+              <div className="w-2 h-2 rounded-full bg-primary" />
+            </div>
+          )}
+        </button>
+      );
+  };
+
   const renderStep1 = () => (
     <form onSubmit={handleStart} className="space-y-5">
       <div>
@@ -684,55 +733,32 @@ export function DiscoverProjectWizard({ onClose }: Props) {
         data-testid="group-project-source-options"
         className="grid grid-cols-1 gap-2.5 sm:grid-cols-2"
       >
-        {SOURCE_DEFS.map((src) => {
-          const Icon = src.icon;
-          const selected = sourceType === src.type;
-          return (
-            <button
-              key={src.type}
-              data-testid={`source-card-${src.type}`}
-              type="button"
-              disabled={!src.available}
-              aria-pressed={selected}
-              onClick={() => { if (src.available) setSourceType(src.type); }}
-              className={`relative text-right rounded-xl border p-3.5 flex items-start gap-3 transition-all
-                ${src.available ? 'cursor-pointer' : 'cursor-not-allowed opacity-50'}
-                ${selected
-                  ? 'border-primary bg-primary/5 ring-1 ring-primary/30'
-                  : src.available
-                    ? 'border-border hover:border-primary/40 bg-card'
-                    : 'border-border/40 bg-card/50'
-                }`}
-            >
-              <div className={`w-8 h-8 rounded-lg flex items-center justify-center shrink-0 mt-0.5 ${selected ? 'bg-primary/15' : 'bg-secondary'}`}>
-                <Icon className={`w-4 h-4 ${selected ? 'text-primary' : 'text-muted-foreground'}`} />
-              </div>
-              <div className="min-w-0">
-                <div className={`text-sm font-semibold ${selected ? 'text-foreground' : 'text-foreground/80'}`}>{src.label}</div>
-                <div className="text-xs text-muted-foreground mt-0.5 leading-snug">{src.description}</div>
-                {!src.available && src.disabledReason && (
-                  <div className="text-[10px] text-amber-400/70 mt-1.5 leading-snug flex items-start gap-1">
-                    <AlertTriangle className="w-2.5 h-2.5 shrink-0 mt-px" />
-                    <span>{src.disabledReason}</span>
-                  </div>
-                )}
-              </div>
-              {src.badge && (
-                <span className={`absolute top-2 left-2 text-[9px] font-bold px-1.5 py-0.5 rounded-full border ${
-                  src.badge === 'موصى به'
-                    ? 'bg-primary/15 text-primary border-primary/30'
-                    : 'bg-secondary text-muted-foreground/60 border-border/50'
-                }`}>{src.badge}</span>
-              )}
-              {selected && (
-                <div className="absolute top-2 right-2 w-4 h-4 rounded-full border-2 border-primary flex items-center justify-center">
-                  <div className="w-2 h-2 rounded-full bg-primary" />
-                </div>
-              )}
-            </button>
-          );
-        })}
+        {SOURCE_DEFS
+          .filter((src) => src.available && src.type !== 'LOCAL_FOLDER')
+          .map(renderSourceCard)}
       </div>
+
+      <details
+        data-testid="details-advanced-project-sources"
+        className="rounded-xl border border-border/50 bg-card/30 px-3.5"
+      >
+        <summary className="cursor-pointer py-3 text-sm font-medium text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary">
+          خيارات متقدمة
+        </summary>
+        <p className="pb-3 text-xs leading-relaxed text-muted-foreground/70">
+          لمجلد موجود على الخادم أو مصادر تتطلب إعدادًا تقنيًا إضافيًا.
+        </p>
+        <div
+          role="group"
+          aria-label="مصادر المشروع المتقدمة"
+          data-testid="group-advanced-project-source-options"
+          className="grid grid-cols-1 gap-2.5 pb-3 sm:grid-cols-2"
+        >
+          {SOURCE_DEFS
+            .filter((src) => src.type === 'LOCAL_FOLDER' || !src.available)
+            .map(renderSourceCard)}
+        </div>
+      </details>
 
       {/* Per-source config */}
       <div className="space-y-3">
