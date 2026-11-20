@@ -193,4 +193,42 @@ describe("Mission Chat handoff dispatch lease", () => {
     expect(settled?.dispatchStatus).toBe("dispatched");
     expect(settled?.dispatchLease).toBeNull();
   });
+
+  it("does not let an active early lease starve a later ready handoff", async () => {
+    const busy = await createHandoffFixture();
+    const ready = await createHandoffFixture();
+    const now = new Date();
+    await db.update(aiMissionHandoffsTable).set({
+      createdAt: new Date(now.getTime() - 60_000),
+      dispatchLease: {
+        token: randomUUID(),
+        expiresAt: new Date(now.getTime() + 10 * 60_000).toISOString(),
+      },
+    }).where(eq(aiMissionHandoffsTable.id, busy.handoffId));
+    await db.update(aiMissionHandoffsTable).set({
+      createdAt: now,
+    }).where(eq(aiMissionHandoffsTable.id, ready.handoffId));
+
+    const runGoal = vi.spyOn(missionRuntime, "runMissionGoal").mockImplementation(
+      async (params) => ({ status: "scheduled", goalId: params.goalId }),
+    );
+
+    await expect(
+      dispatchPendingMissionChatHandoffs(1),
+    ).resolves.toBe(1);
+    expect(runGoal).toHaveBeenCalledOnce();
+    expect(runGoal).toHaveBeenCalledWith(expect.objectContaining({
+      goalId: ready.goalId,
+    }));
+
+    const [busyRow] = await db.select().from(aiMissionHandoffsTable)
+      .where(eq(aiMissionHandoffsTable.id, busy.handoffId));
+    const [readyRow] = await db.select().from(aiMissionHandoffsTable)
+      .where(eq(aiMissionHandoffsTable.id, ready.handoffId));
+    expect(busyRow?.dispatchStatus).toBe("pending");
+    expect(busyRow?.dispatchLease?.token).toEqual(expect.any(String));
+    expect(readyRow?.dispatchStatus).toBe("dispatched");
+    expect(readyRow?.dispatchLease).toBeNull();
+  });
+
 });
