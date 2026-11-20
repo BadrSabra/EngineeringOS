@@ -377,6 +377,9 @@ async function approvalStillCurrent(payload: MissionGoalApprovalPayload): Promis
       const successCriteria = record(goal.successCriteria);
       const outcome = record(goal.outcomeContract);
       const plan = record(outcome.planRevision);
+      const successPlan = record(successCriteria.planRevision);
+      const planSteps = Array.isArray(plan.steps) ? plan.steps.map(record) : [];
+      const planStep = planSteps.find((step) => step.id === payload.stepId);
       const approval = record(outcome.planApproval);
       const policy = record(mission.autonomyPolicy);
       const action = record(goal.nextAction);
@@ -386,6 +389,13 @@ async function approvalStillCurrent(payload: MissionGoalApprovalPayload): Promis
         && successCriteria.stepId === payload.stepId
         && (successCriteria.kind === "mission_plan_step" || successCriteria.kind === "mission_replan_step")
         && plan.hash === payload.planRevision
+        && successPlan.hash === payload.planRevision
+        && planStep?.kind === "execute"
+        && planStep.approvalRequired === true
+        && planStep.readOnly === false
+        && !planStep.recipe
+        && Array.isArray(planStep.files)
+        && planStep.files.length > 0
         && policy.activePlanRevision === payload.planRevision
         && outcome.stepId === payload.stepId
         && approval.kind === "mission_plan_step"
@@ -405,6 +415,7 @@ async function approvalStillCurrent(payload: MissionGoalApprovalPayload): Promis
     const [execution] = await tx.select({
       id: aiExecutionsTable.id,
       proposalId: aiExecutionsTable.proposalId,
+      status: aiExecutionsTable.status,
     }).from(aiExecutionsTable)
       .where(and(
         eq(aiExecutionsTable.id, payload.executionId ?? ""),
@@ -413,7 +424,10 @@ async function approvalStillCurrent(payload: MissionGoalApprovalPayload): Promis
         eq(aiExecutionsTable.userId, payload.userId),
       ))
       .limit(1);
-    if (!execution || execution.proposalId !== payload.proposalId) return false;
+    if (!execution
+      || execution.proposalId !== payload.proposalId
+      || !["queued", "running", "paused", "failed"].includes(execution.status)
+    ) return false;
 
     const [proposal] = await tx.select({
       id: aiChangeProposalsTable.id,
