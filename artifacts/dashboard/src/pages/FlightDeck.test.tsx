@@ -618,4 +618,33 @@ describe('Flight Deck mission control', () => {
     const pushButton = screen.getByRole('button', { name: 'دفع العملية المُودعة' });
     expect(pushButton).toBeDisabled();
   });
+
+  it('keeps an explicit project when opening the assistant without an execution id', () => {
+    window.history.pushState({}, '', '/flight-deck?projectId=project-2');
+    mocks.execution = undefined;
+
+    renderDeck();
+
+    expect(screen.getByRole('link', { name: 'افتح مساعد الذكاء الاصطناعي' })).toHaveAttribute(
+      'href',
+      '/ai?projectId=project-2',
+    );
+  });
+
+  it('keeps the requested project in the assistant fallback when execution reading fails', () => {
+    window.history.pushState(
+      {},
+      '',
+      '/flight-deck?executionId=missing-execution&projectId=project-2',
+    );
+    mocks.execution = undefined;
+    mocks.executionQuery.isError = true;
+
+    renderDeck();
+
+    expect(screen.getByRole('link', { name: 'الرجوع إلى مساعد الذكاء الاصطناعي' })).toHaveAttribute(
+      'href',
+      '/ai?projectId=project-2',
+    );
+  });
 });
