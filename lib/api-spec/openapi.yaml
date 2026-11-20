@@ -11191,6 +11191,15 @@ components:
             type: string
         phase:
           type: string
+        prompt:
+          type: string
+          minLength: 1
+          maxLength: 12000
+          description: Optional Task prompt. Required when executeImmediately is true.
+        executeImmediately:
+          type: boolean
+          default: false
+          description: Start AI execution as part of Task creation. Requires a non-empty prompt; the Task and durable dispatch intent are committed atomically.
 
     UpdateTaskInput:
       type: object

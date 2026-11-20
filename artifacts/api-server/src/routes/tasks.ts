@@ -24,6 +24,7 @@ import {
 } from "@workspace/api-zod";
 import { eq, and, desc, gt, asc, inArray, isNull, sql } from "drizzle-orm";
 import { randomUUID } from "crypto";
+import { z } from "zod";
 import { recordAudit, recordAuditInTransaction } from "../lib/audit.js";
 import { invalidateContextCache } from "@workspace/ai-orchestrator";
 import { runTaskVerification } from "../services/task-service.js";
@@ -61,6 +62,16 @@ const router = Router();
 // Defense-in-depth: requireAuth is already applied globally in app.ts, but
 // adding it here too means this router is safe even if mounted without it.
 router.use(requireAuth);
+
+const CreateTaskRequest = CreateTaskBody.superRefine((body, context) => {
+  if (body.executeImmediately && !body.prompt?.trim()) {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["prompt"],
+      message: "A non-empty prompt is required when executeImmediately is true.",
+    });
+  }
+});
 
 async function projectCurrentTaskExecutionReceipts<
   T extends { id: string; agentResponse: string | null },
@@ -261,7 +272,7 @@ router.get("/tasks", async (req, res) => {
 
 // Create task
 router.post("/tasks", async (req, res) => {
-  const body = CreateTaskBody.parse(req.body);
+  const { executeImmediately, ...body } = CreateTaskRequest.parse(req.body);
   const project = await loadProjectByIdForUser(body.projectId, req.userId, res);
   if (!project) return;
 
@@ -303,7 +314,14 @@ router.post("/tasks", async (req, res) => {
       if (invalidIds.length > 0) throw new TaskDependencyReferenceError(invalidIds);
 
       const rows = await tx.insert(tasksTable)
-        .values({ id: taskId, ...body, correlationId, createdAt: now, updatedAt: now })
+.values({
+          id: taskId,
+          ...body,
+          ...(executeImmediately ? { status: "verifying" as const } : {}),
+          correlationId,
+          createdAt: now,
+          updatedAt: now,
+        })
         .returning();
       await tx.insert(eventsTable).values({
         id: randomUUID(), type: "TaskCreated", projectId: body.projectId,
@@ -315,6 +333,18 @@ router.post("/tasks", async (req, res) => {
         projectId: body.projectId, actor: req.userId, correlationId,
         stateAfter: rows[0],
       });
+      if (executeImmediately) {
+        const intentPersisted = await insertTaskAutoExecutionIntent(tx, {
+          taskId,
+          userId: req.userId,
+          retryCount: rows[0].retryCount,
+        });
+        if (!intentPersisted) {
+          throw new TaskStateConflictError(
+            "The new Task could not reserve its initial execution intent.",
+          );
+        }
+      }
       return rows;
     });
   } catch (error) {
@@ -324,7 +354,32 @@ router.post("/tasks", async (req, res) => {
         dependencyIds: error.dependencyIds,
       });
     }
+    if (error instanceof TaskStateConflictError) {
+      return res.status(409).json({
+        error: "task_dispatch_identity_conflict",
+        reason: error.message,
+      });
+    }
     throw error;
+  }
+
+  if (executeImmediately) {
+    try {
+      // The durable intent was committed with the Task. A failed local wake-up
+      // must not turn a successful create into an ambiguous client retry.
+      await scheduleAiTaskExecution(
+        taskId,
+        req.userId,
+        undefined,
+        task[0].retryCount,
+        task[0].correlationId,
+      );
+    } catch (error) {
+      logger.warn(
+        { error, taskId, projectId: project.id, correlationId },
+        "Task created with a durable execution intent; local queue wake-up failed",
+      );
+    }
   }
 
   invalidateContextCache(project.id);

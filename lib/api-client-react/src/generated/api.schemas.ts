@@ -7226,6 +7226,8 @@ export interface CreateTaskInput {
   relatedFiles?: string[];
   dependsOn?: string[];
   phase?: string;
+  prompt?: string;
+  executeImmediately?: boolean;
 }
 
 export interface UpdateTaskInput {
