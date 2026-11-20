@@ -8011,6 +8011,74 @@ describe("AI missions and goals", () => {
     });
   });
 
+  it("wakes only the dependent Mission Goals after proof-gated PATCH completion", async () => {
+    const projectId = await insertProject();
+    const mission = await request(app).post("/api/ai/missions").send({
+      projectId,
+      title: "Patch completion wake",
+      intent: "Wake the next Mission step without waiting for periodic reconciliation",
+    });
+    expect(mission.status).toBe(201);
+    const missionId = mission.body.id as string;
+    const planRevision = `patch-completion-wake-${randomUUID()}`;
+    await db.update(aiMissionsTable)
+      .set({
+        status: "active",
+        autonomyPolicy: { activePlanRevision: planRevision },
+      })
+      .where(eq(aiMissionsTable.id, missionId));
+
+    const prerequisite = await request(app)
+      .post(`/api/ai/missions/${missionId}/goals`)
+      .send({
+        title: "Proven prerequisite",
+        planRevision,
+        successCriteria: { objective: "Complete with Canonical Proof" },
+        nextAction: { kind: "wait", reason: "event", wakeAt: null },
+      });
+    expect(prerequisite.status).toBe(201);
+
+    const dependent = await request(app)
+      .post(`/api/ai/missions/${missionId}/goals`)
+      .send({
+        title: "Dependent successor",
+        planRevision,
+        dependsOnGoalIds: [prerequisite.body.id],
+        successCriteria: { objective: "Wait for the prerequisite proof" },
+        nextAction: { kind: "wait", reason: "event", wakeAt: null },
+      });
+    expect(dependent.status).toBe(201);
+    const [beforeWake] = await db.select({ status: aiGoalsTable.status })
+      .from(aiGoalsTable)
+      .where(eq(aiGoalsTable.id, dependent.body.id));
+    expect(beforeWake?.status).toBe("queued");
+
+    await seedCanonicalMissionGoalCompletion({
+      projectId,
+      missionId,
+      goalId: prerequisite.body.id,
+      planRevision,
+    });
+    // Preserve the canonical acceptance/evidence while making the HTTP PATCH
+    // perform the status transition that should emit the post-commit wake.
+    await db.update(aiGoalsTable)
+      .set({ status: "queued", completedAt: null })
+      .where(eq(aiGoalsTable.id, prerequisite.body.id));
+
+    const completed = await request(app)
+      .patch(`/api/ai/goals/${prerequisite.body.id}`)
+      .send({ status: "completed" });
+
+    expect(completed.status).toBe(200);
+    expect(completed.body.status).toBe("completed");
+    const [afterWake] = await db.select({ status: aiGoalsTable.status })
+      .from(aiGoalsTable)
+      .where(eq(aiGoalsTable.id, dependent.body.id));
+    // The successor's wait action is entered immediately; no provider or
+    // external effect is dispatched by this wake.
+    expect(afterWake?.status).toBe("waiting_for_event");
+  });
+
   it("rolls back Goal edits when the resulting completed Goal has no Canonical Proof", async () => {
     const projectId = await insertProject();
     const mission = await request(app).post("/api/ai/missions").send({
