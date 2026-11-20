@@ -183,6 +183,8 @@ export const discoverySessionsTable = pgTable("discovery_sessions", {
   lastHeartbeatAt: timestamp("last_heartbeat_at"),
   /** PR-01: Stable idempotency key (defaults to session ID) set at creation. */
   idempotencyKey: text("idempotency_key"),
+  /** Number of automatic full-pipeline replays after an expired worker lease. */
+  recoveryAttempts: integer("recovery_attempts").notNull().default(0),
 }, (t) => [
   // Covers: reconciliation sweeps — WHERE status IN ('discovering', 'pending')
   index("idx_discovery_sessions_status").on(t.status),
@@ -203,6 +205,10 @@ export const discoverySessionsTable = pgTable("discovery_sessions", {
   check(
     "chk_discovery_session_completed_at",
     sql`${t.completedAt} IS NULL OR ${t.completedAt} >= ${t.startedAt}`,
+  ),
+  check(
+    "chk_discovery_session_recovery_attempts_nonnegative",
+    sql`${t.recoveryAttempts} >= 0`,
   ),
 ]);
 
