@@ -152,8 +152,12 @@ async function deferWakeIntent(id: string, error: unknown): Promise<void> {
     if (!row || ![MISSION_GOAL_WAKE_REQUESTED, MISSION_GOAL_WAKE_DEFERRED].includes(row.type)) {
       return;
     }
-    const now = await readDatabaseNow();
-    if (!now) return;
+    // Read PostgreSQL time through the transaction's own connection. A
+    // nested global-pool query here could deadlock when the pool is saturated.
+    const clockResult = await tx.execute(sql`SELECT clock_timestamp() AS now`);
+    const rawNow = (clockResult.rows as Array<{ now: Date | string }>)[0]?.now;
+    const now = rawNow instanceof Date ? rawNow : new Date(String(rawNow ?? ""));
+    if (!rawNow || !Number.isFinite(now.getTime())) return;
     const parsed = parsePayload(row.payload);
     if (!parsed) {
       await tx.update(eventsTable)
@@ -198,72 +202,88 @@ async function deferWakeIntent(id: string, error: unknown): Promise<void> {
  * idempotent. The outbox row is acknowledged only after both finish.
  */
 export async function dispatchMissionGoalWakeIntent(id: string): Promise<boolean> {
-  const [intent] = await db.select({
-    id: eventsTable.id,
-    type: eventsTable.type,
-    projectId: eventsTable.projectId,
-    goalId: eventsTable.goalId,
-    payload: eventsTable.payload,
-  }).from(eventsTable)
-    .where(eq(eventsTable.id, id))
-    .limit(1);
+  let intent: {
+    id: string;
+    type: string;
+    projectId: string;
+    goalId: string | null;
+    payload: Record<string, unknown> | null;
+  } | undefined;
+  try {
+    [intent] = await db.select({
+      id: eventsTable.id,
+      type: eventsTable.type,
+      projectId: eventsTable.projectId,
+      goalId: eventsTable.goalId,
+      payload: eventsTable.payload,
+    }).from(eventsTable)
+      .where(eq(eventsTable.id, id))
+      .limit(1);
+  } catch (error) {
+    await deferWakeIntent(id, error);
+    logger.warn(
+      { intentId: id, failureCode: safeFailureCode(error) },
+      "Mission Goal wake intent could not be loaded; durable retry scheduled",
+    );
+    return false;
+  }
   if (
     !intent
     || ![MISSION_GOAL_WAKE_REQUESTED, MISSION_GOAL_WAKE_DEFERRED].includes(intent.type)
   ) return false;
 
-  const payload = parsePayload(intent.payload);
-  if (!payload || !intent.goalId || intent.goalId !== payload.goalId) {
-    await deferWakeIntent(id, new Error("INVALID_MISSION_GOAL_WAKE_PAYLOAD"));
-    return false;
-  }
-
-  const [goal] = await db.select({
-    id: aiGoalsTable.id,
-    missionId: aiGoalsTable.missionId,
-    projectId: aiGoalsTable.projectId,
-    status: aiGoalsTable.status,
-    completedAt: aiGoalsTable.completedAt,
-  }).from(aiGoalsTable)
-    .where(and(
-      eq(aiGoalsTable.id, payload.goalId),
-      eq(aiGoalsTable.missionId, payload.missionId),
-      eq(aiGoalsTable.projectId, intent.projectId),
-    ))
-    .limit(1);
-  const [mission] = goal
-    ? await db.select({ id: aiMissionsTable.id })
-      .from(aiMissionsTable)
-      .where(and(
-        eq(aiMissionsTable.id, payload.missionId),
-        eq(aiMissionsTable.projectId, intent.projectId),
-      ))
-      .limit(1)
-    : [];
-
-  const expectedCompletedAt = Date.parse(payload.completedAt);
-  if (
-    !goal
-    || !mission
-    || goal.status !== "completed"
-    || !goal.completedAt
-    || goal.completedAt.getTime() !== expectedCompletedAt
-  ) {
-    await markWakeIntent(
-      id,
-      [MISSION_GOAL_WAKE_REQUESTED, MISSION_GOAL_WAKE_DEFERRED],
-      MISSION_GOAL_WAKE_SUPERSEDED,
-      {
-        ...payload,
-        supersededAt: new Date().toISOString(),
-        reason: "goal_completion_generation_changed",
-      },
-      "Mission Goal wake intent was superseded by a later Goal state.",
-    );
-    return false;
-  }
-
   try {
+    const payload = parsePayload(intent.payload);
+    if (!payload || !intent.goalId || intent.goalId !== payload.goalId) {
+      await deferWakeIntent(id, new Error("INVALID_MISSION_GOAL_WAKE_PAYLOAD"));
+      return false;
+    }
+
+    const [goal] = await db.select({
+      id: aiGoalsTable.id,
+      missionId: aiGoalsTable.missionId,
+      projectId: aiGoalsTable.projectId,
+      status: aiGoalsTable.status,
+      completedAt: aiGoalsTable.completedAt,
+    }).from(aiGoalsTable)
+      .where(and(
+        eq(aiGoalsTable.id, payload.goalId),
+        eq(aiGoalsTable.missionId, payload.missionId),
+        eq(aiGoalsTable.projectId, intent.projectId),
+      ))
+      .limit(1);
+    const [mission] = goal
+      ? await db.select({ id: aiMissionsTable.id })
+        .from(aiMissionsTable)
+        .where(and(
+          eq(aiMissionsTable.id, payload.missionId),
+          eq(aiMissionsTable.projectId, intent.projectId),
+        ))
+        .limit(1)
+      : [];
+
+    const expectedCompletedAt = Date.parse(payload.completedAt);
+    if (
+      !goal
+      || !mission
+      || goal.status !== "completed"
+      || !goal.completedAt
+      || goal.completedAt.getTime() !== expectedCompletedAt
+    ) {
+      await markWakeIntent(
+        id,
+        [MISSION_GOAL_WAKE_REQUESTED, MISSION_GOAL_WAKE_DEFERRED],
+        MISSION_GOAL_WAKE_SUPERSEDED,
+        {
+          ...payload,
+          supersededAt: new Date().toISOString(),
+          reason: "goal_completion_generation_changed",
+        },
+        "Mission Goal wake intent was superseded by a later Goal state.",
+      );
+      return false;
+    }
+
     const wokenDependents = await wakeReadyMissionGoals(32, intent.projectId, payload.goalId);
     await finalizeMissionPlanOutcomesAfterGoalCompletion(payload.goalId);
     await markWakeIntent(
@@ -284,7 +304,7 @@ export async function dispatchMissionGoalWakeIntent(id: string): Promise<boolean
       {
         intentId: id,
         projectId: intent.projectId,
-        goalId: payload.goalId,
+        goalId: intent.goalId,
         failureCode: safeFailureCode(error),
       },
       "Mission Goal wake failed; durable intent retained for retry",
