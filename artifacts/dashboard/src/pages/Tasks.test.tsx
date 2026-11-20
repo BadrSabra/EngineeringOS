@@ -2233,6 +2233,64 @@ describe('Task creation', () => {
     );
   });
 
+  it('starts execution only after explicit opt-in and a non-empty prompt', () => {
+    renderPage();
+    fireEvent.click(screen.getByRole('button', { name: 'مهمة جديدة' }));
+    fireEvent.change(screen.getByTestId('input-create-task-title'), {
+      target: { value: 'أضف فحصًا للصفحة' },
+    });
+    fireEvent.change(screen.getByTestId('input-create-task-description'), {
+      target: { value: 'أضف فحصًا آليًا لصفحة النتائج وشغّل الاختبارات ذات الصلة.' },
+    });
+    fireEvent.click(screen.getByTestId('checkbox-create-task-execute-immediately'));
+    fireEvent.click(screen.getByTestId('button-submit-create-task'));
+
+    expect(createTaskMutate).toHaveBeenCalledWith(
+      {
+        data: {
+          projectId: 'project-1',
+          title: 'أضف فحصًا للصفحة',
+          description: 'أضف فحصًا آليًا لصفحة النتائج وشغّل الاختبارات ذات الصلة.',
+          priority: 'p2',
+          prompt: 'أضف فحصًا آليًا لصفحة النتائج وشغّل الاختبارات ذات الصلة.',
+          executeImmediately: true,
+        },
+      },
+      expect.objectContaining({ onSuccess: expect.any(Function), onError: expect.any(Function) }),
+    );
+  });
+
+  it('does not send immediate execution without a prompt', () => {
+    renderPage();
+    fireEvent.click(screen.getByRole('button', { name: 'مهمة جديدة' }));
+    fireEvent.change(screen.getByTestId('input-create-task-title'), {
+      target: { value: 'مهمة بلا طلب' },
+    });
+    fireEvent.click(screen.getByTestId('checkbox-create-task-execute-immediately'));
+    const dialog = screen.getByRole('dialog', { name: 'إضافة مهمة' });
+    fireEvent.submit(dialog.querySelector('form')!);
+
+    expect(screen.getByText('اكتب ما تريد من المساعد تنفيذه قبل بدء المهمة.')).toBeInTheDocument();
+    expect(createTaskMutate).not.toHaveBeenCalled();
+  });
+
+  it('keeps an overlong prompt out of the immediate execution request', () => {
+    renderPage();
+    fireEvent.click(screen.getByRole('button', { name: 'مهمة جديدة' }));
+    fireEvent.change(screen.getByTestId('input-create-task-title'), {
+      target: { value: 'مهمة ذات طلب طويل' },
+    });
+    fireEvent.change(screen.getByTestId('input-create-task-description'), {
+      target: { value: 'x'.repeat(12_001) },
+    });
+    fireEvent.click(screen.getByTestId('checkbox-create-task-execute-immediately'));
+    const dialog = screen.getByRole('dialog', { name: 'إضافة مهمة' });
+    fireEvent.submit(dialog.querySelector('form')!);
+
+    expect(screen.getByText('يجب ألا يتجاوز طلب التنفيذ ١٢٠٠٠ حرف.')).toBeInTheDocument();
+    expect(createTaskMutate).not.toHaveBeenCalled();
+  });
+
   it('clears prerequisite selections when the task moves to another project', () => {
     vi.mocked(useListProjects).mockReturnValue({
       data: [
