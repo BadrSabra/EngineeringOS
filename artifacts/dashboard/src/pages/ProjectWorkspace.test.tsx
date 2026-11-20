@@ -573,6 +573,7 @@ describe("Workspace task cards", () => {
       .toHaveAttribute("href", "/tasks?projectId=project-1&taskId=task-upstream");
     expect(screen.getByRole("link", { name: "فتح تفاصيل المهمة: مهمة مرتبطة بقبول" }))
       .toHaveAttribute("href", "/tasks?projectId=project-1&taskId=task-accepted");
+    expect(screen.queryByTestId("link-workspace-task-chat-task-accepted")).not.toBeInTheDocument();
   });
 
   it("uses the execution attempt only when the execution is linked to the same task and correlation", () => {
@@ -613,6 +614,7 @@ describe("Workspace task cards", () => {
       linkedTaskId: "task-running",
       correlationId: "correlation-running",
       attempt: 3,
+      sessionId: "session/running",
     };
 
     const queryClient = new QueryClient({
@@ -628,6 +630,8 @@ describe("Workspace task cards", () => {
     expect(screen.getByTestId("workspace-task-attempt-task-running")).toHaveTextContent("3");
     expect(screen.getByTestId("workspace-task-task-running"))
       .toHaveTextContent("محاولة مسجلة من التنفيذ المرتبط بالمهمة.");
+    expect(screen.getByTestId("link-workspace-task-chat-task-running"))
+      .toHaveAttribute("href", "/ai?projectId=project-1&sessionId=session%2Frunning");
   });
 
   it("does not expose an execution attempt when its project differs from the Workspace task project", () => {
@@ -668,6 +672,7 @@ describe("Workspace task cards", () => {
       linkedTaskId: "task-project-boundary",
       correlationId: "correlation-project-boundary",
       attempt: 9,
+      sessionId: "session-wrong-project",
     };
 
     const queryClient = new QueryClient({
@@ -683,6 +688,8 @@ describe("Workspace task cards", () => {
     const attempt = screen.getByTestId("workspace-task-attempt-task-project-boundary");
     expect(attempt).toHaveTextContent("غير متاحة");
     expect(attempt).not.toHaveTextContent("9");
+    expect(screen.queryByTestId("link-workspace-task-chat-task-project-boundary"))
+      .not.toBeInTheDocument();
   });
 
   it("does not expose a cached attempt when task identity or updated timestamp differs from the Workspace snapshot", () => {
