@@ -1425,6 +1425,7 @@ function TaskCreateDialog({
   const [priority, setPriority] = useState<CreateTaskInput['priority']>('p2');
   const [dependsOn, setDependsOn] = useState<string[]>([]);
   const [fieldError, setFieldError] = useState('');
+  const onlyProject = projects.length === 1 ? projects[0] : null;
 
   useEffect(() => {
     if (!projectId && projects[0]) setProjectId(String(projects[0].id));
@@ -1469,16 +1470,29 @@ function TaskCreateDialog({
                 <bdi dir="auto">{error instanceof Error ? error.message : 'تعذر إنشاء المهمة. حاول مرة أخرى.'}</bdi>
               </div>
             ) : null}
-            <div>
-              <label htmlFor="create-task-project" className="mb-1.5 block text-xs font-semibold text-muted-foreground">المشروع</label>
-              <select id="create-task-project" data-testid="select-create-task-project" value={projectId} onChange={(event) => {
-                setProjectId(event.target.value);
-                setDependsOn([]);
-              }} className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm outline-none focus:border-primary">
-                <option value="">اختر مشروعًا</option>
-                {projects.map((project) => <option key={project.id} value={String(project.id)}>{project.name}</option>)}
-              </select>
-            </div>
+            {onlyProject ? (
+              <div>
+                <p className="mb-1.5 text-xs font-semibold text-muted-foreground">المشروع</p>
+                <p
+                  dir="auto"
+                  data-testid="text-create-task-project"
+                  className="rounded-md border border-border bg-background px-3 py-2 text-sm"
+                >
+                  {onlyProject.name}
+                </p>
+              </div>
+            ) : (
+              <div>
+                <label htmlFor="create-task-project" className="mb-1.5 block text-xs font-semibold text-muted-foreground">المشروع</label>
+                <select id="create-task-project" data-testid="select-create-task-project" value={projectId} onChange={(event) => {
+                  setProjectId(event.target.value);
+                  setDependsOn([]);
+                }} className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm outline-none focus:border-primary">
+                  <option value="">اختر مشروعًا</option>
+                  {projects.map((project) => <option key={project.id} value={String(project.id)}>{project.name}</option>)}
+                </select>
+              </div>
+            )}
             <div>
               <label htmlFor="create-task-title" className="mb-1.5 block text-xs font-semibold text-muted-foreground">عنوان المهمة</label>
               <input id="create-task-title" data-testid="input-create-task-title" dir="auto" value={title} onChange={(event) => setTitle(event.target.value)} placeholder="ما الذي يجب إنجازه؟" className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm outline-none placeholder:text-muted-foreground/60 focus:border-primary" />
@@ -1737,6 +1751,7 @@ function TasksSession({
         && acceptanceFilterKey(t.acceptance) === filterAcceptance)),
   ) ?? [];
   const hasActiveTaskFilters = Boolean(searchTerm || filterStatus || filterPriority || filterAcceptance || filterFollowUp);
+  const showTaskProjectSelector = projects.length !== 1 || projectId !== projects[0]?.id;
 
   useEffect(() => {
     const url = new URL(window.location.href);
@@ -1899,22 +1914,32 @@ function TasksSession({
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-3">
-          <select
-            aria-label="مشروع المهام"
-            data-testid="select-task-project"
-            value={projectId ?? ''}
-            onChange={(event) => {
-              selectProject(event.target.value);
-              setExpandedTask(null);
-              setEditingTask(null);
-              setDeletingTask(null);
-              setCreateOpen(false);
-            }}
-            className="rounded-md border border-border bg-secondary px-3 py-2 text-sm"
-          >
-            {!projectId && <option value="">اختر مشروعًا</option>}
-            {projects.map((project) => <option key={project.id} value={project.id}>{project.name}</option>)}
-          </select>
+          {showTaskProjectSelector ? (
+            <select
+              aria-label="مشروع المهام"
+              data-testid="select-task-project"
+              value={projectId ?? ''}
+              onChange={(event) => {
+                selectProject(event.target.value);
+                setExpandedTask(null);
+                setEditingTask(null);
+                setDeletingTask(null);
+                setCreateOpen(false);
+              }}
+              className="rounded-md border border-border bg-secondary px-3 py-2 text-sm"
+            >
+              {!projectId && <option value="">اختر مشروعًا</option>}
+              {projects.map((project) => <option key={project.id} value={project.id}>{project.name}</option>)}
+            </select>
+          ) : (
+            <span
+              dir="auto"
+              data-testid="text-task-project-context"
+              className="rounded-md border border-border bg-secondary px-3 py-2 text-sm"
+            >
+              {projects[0].name}
+            </span>
+          )}
           <button type="button" onClick={() => setCreateOpen(true)} data-testid="button-open-create-task" aria-label="مهمة جديدة" className="inline-flex items-center gap-2 rounded-md bg-primary px-3 py-2 text-sm font-semibold text-primary-foreground hover:bg-primary/90">
             <span className="text-base leading-none">+</span>
             مهمة جديدة
