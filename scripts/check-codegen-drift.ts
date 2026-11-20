@@ -211,6 +211,17 @@ if (changed.length === 0) {
   );
   for (const f of changed) {
     console.error(`    • ${f}`);
+    const expected = join(WORKSPACE_ROOT, f);
+    const actual = join(generatedRoot, f);
+    try {
+      const preview = execSync(`diff -u "${expected}" "${actual}" || true`, {
+        cwd: WORKSPACE_ROOT,
+        encoding: "utf8",
+      });
+      if (preview.trim()) console.error(preview);
+    } catch (error) {
+      console.error(error instanceof Error ? error.message : String(error));
+    }
   }
   console.error(
     "\n    Fix: pnpm --filter @workspace/api-spec run codegen && git add lib/api-zod lib/api-client-react\n",
