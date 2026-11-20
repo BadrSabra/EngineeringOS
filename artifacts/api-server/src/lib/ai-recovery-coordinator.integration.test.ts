@@ -21,6 +21,7 @@ import {
   reconcileAiExecutions,
   recoverAiExecutionResumeToken,
 } from "./ai-execution-state.js";
+import { taskAutoExecutionIntentId } from "./task-auto-execution-outbox.js";
 
 const queuedJobs = vi.hoisted(() => [] as Array<{ id: string; run: () => Promise<void> }>);
 const queuedIds = vi.hoisted(() => new Set<string>());
@@ -104,7 +105,7 @@ vi.mock("./chat-recovery-runner.js", () => ({
 
 import { dispatchAutonomousTaskRecoveries } from "./ai-recovery-coordinator.js";
 
-async function insertFixture() {
+async function insertFixture(taskStatus: "pending" | "queued" | "verifying" = "verifying") {
   const projectId = randomUUID();
   const taskId = randomUUID();
   const executionId = randomUUID();
@@ -125,7 +126,7 @@ async function insertFixture() {
     projectId,
     title: "Recoverable task",
     prompt: "Run the bounded recovery",
-    status: "verifying",
+    status: taskStatus,
     correlationId: executionId,
     retryCount: 0,
     maxRetries: 2,
@@ -328,6 +329,8 @@ async function cleanupRecoveryFixtures() {
 
   await db.delete(aiExecutionAcceptancesTable)
     .where(inArray(aiExecutionAcceptancesTable.projectId, projectIds));
+  await db.delete(eventsTable)
+    .where(inArray(eventsTable.projectId, projectIds));
   await db.delete(aiChatMessagesTable)
     .where(inArray(aiChatMessagesTable.sessionId,
       db.select({ id: aiChatSessionsTable.id })
@@ -357,6 +360,56 @@ describe("durable automatic task recovery", () => {
     queuedJobs.length = 0;
     queuedIds.clear();
     await cleanupRecoveryFixtures();
+  });
+
+  it("persists a retry dispatch intent before a claimed generation can be lost", async () => {
+    // A queued Task is promoted to the durable auto-dispatch state. The
+    // lifecycle failure simulates a process exit after the retry claim commit
+    // but before executeTaskLifecycle can claim the new Task generation.
+    const fixture = await insertFixture("queued");
+    executeTaskLifecycle.mockRejectedValueOnce(new Error("simulated worker interruption before lifecycle claim"));
+    try {
+      expect(await dispatchAutonomousTaskRecoveries({ projectId: fixture.projectId })).toBe(1);
+      expect(queuedJobs).toHaveLength(1);
+
+      await queuedJobs[0]!.run();
+
+      const [task] = await db
+        .select({
+          status: tasksTable.status,
+          retryCount: tasksTable.retryCount,
+          correlationId: tasksTable.correlationId,
+        })
+        .from(tasksTable)
+        .where(eq(tasksTable.id, fixture.taskId));
+      expect(task).toMatchObject({
+        status: "verifying",
+        retryCount: 1,
+      });
+      expect(task?.correlationId).toEqual(expect.any(String));
+      expect(task?.correlationId).not.toBe(fixture.executionId);
+
+      const [intent] = await db.select().from(eventsTable)
+        .where(eq(eventsTable.id, taskAutoExecutionIntentId(fixture.taskId)));
+      expect(intent).toMatchObject({
+        type: "TaskAutoExecutionDispatchRequested",
+        projectId: fixture.projectId,
+        taskId: fixture.taskId,
+        payload: {
+          userId: "recovery-test-user",
+          taskRetryCount: 1,
+          taskCorrelationId: task?.correlationId,
+          attemptCount: 0,
+        },
+      });
+      expect(executeTaskLifecycle).toHaveBeenCalledOnce();
+    } finally {
+      await db.delete(aiExecutionAcceptancesTable).where(eq(aiExecutionAcceptancesTable.executionId, fixture.executionId));
+      await db.delete(aiExecutionsTable).where(eq(aiExecutionsTable.id, fixture.executionId));
+      await db.delete(tasksTable).where(eq(tasksTable.id, fixture.taskId));
+      await db.delete(eventsTable).where(eq(eventsTable.projectId, fixture.projectId));
+      await db.delete(projectsTable).where(eq(projectsTable.id, fixture.projectId));
+    }
   });
 
   it("deduplicates concurrent dispatch and atomically advances the retry budget", async () => {
@@ -395,6 +448,7 @@ describe("durable automatic task recovery", () => {
       await db.delete(aiExecutionAcceptancesTable).where(eq(aiExecutionAcceptancesTable.executionId, fixture.executionId));
       await db.delete(aiExecutionsTable).where(eq(aiExecutionsTable.id, fixture.executionId));
       await db.delete(tasksTable).where(eq(tasksTable.id, fixture.taskId));
+      await db.delete(eventsTable).where(eq(eventsTable.projectId, fixture.projectId));
       await db.delete(projectsTable).where(eq(projectsTable.id, fixture.projectId));
     }
   });
@@ -469,6 +523,7 @@ describe("durable automatic task recovery", () => {
       await db.delete(aiExecutionAcceptancesTable).where(eq(aiExecutionAcceptancesTable.executionId, fixture.executionId));
       await db.delete(aiExecutionsTable).where(eq(aiExecutionsTable.id, fixture.executionId));
       await db.delete(tasksTable).where(eq(tasksTable.id, fixture.taskId));
+      await db.delete(eventsTable).where(eq(eventsTable.projectId, fixture.projectId));
       await db.delete(projectsTable).where(eq(projectsTable.id, fixture.projectId));
     }
   });
@@ -582,6 +637,7 @@ describe("durable automatic task recovery", () => {
       await db.delete(aiExecutionAcceptancesTable).where(eq(aiExecutionAcceptancesTable.executionId, fixture.executionId));
       await db.delete(aiExecutionsTable).where(eq(aiExecutionsTable.id, fixture.executionId));
       await db.delete(tasksTable).where(eq(tasksTable.id, fixture.taskId));
+      await db.delete(eventsTable).where(eq(eventsTable.projectId, fixture.projectId));
       await db.delete(projectsTable).where(eq(projectsTable.id, fixture.projectId));
     }
   });
@@ -754,6 +810,7 @@ describe("durable automatic task recovery", () => {
       await db.delete(aiExecutionAcceptancesTable).where(eq(aiExecutionAcceptancesTable.executionId, fixture.executionId));
       await db.delete(aiExecutionsTable).where(eq(aiExecutionsTable.id, fixture.executionId));
       await db.delete(tasksTable).where(eq(tasksTable.id, fixture.taskId));
+      await db.delete(eventsTable).where(eq(eventsTable.projectId, fixture.projectId));
       await db.delete(projectsTable).where(eq(projectsTable.id, fixture.projectId));
     }
   });
@@ -795,6 +852,7 @@ describe("durable automatic task recovery", () => {
       await db.delete(aiExecutionAcceptancesTable).where(eq(aiExecutionAcceptancesTable.executionId, fixture.executionId));
       await db.delete(aiExecutionsTable).where(eq(aiExecutionsTable.id, fixture.executionId));
       await db.delete(tasksTable).where(eq(tasksTable.id, fixture.taskId));
+      await db.delete(eventsTable).where(eq(eventsTable.projectId, fixture.projectId));
       await db.delete(projectsTable).where(eq(projectsTable.id, fixture.projectId));
     }
   });
@@ -821,6 +879,7 @@ describe("durable automatic task recovery", () => {
       await db.delete(aiExecutionAcceptancesTable).where(eq(aiExecutionAcceptancesTable.executionId, fixture.executionId));
       await db.delete(aiExecutionsTable).where(eq(aiExecutionsTable.id, fixture.executionId));
       await db.delete(tasksTable).where(eq(tasksTable.id, fixture.taskId));
+      await db.delete(eventsTable).where(eq(eventsTable.projectId, fixture.projectId));
       await db.delete(projectsTable).where(eq(projectsTable.id, fixture.projectId));
     }
   });
@@ -877,6 +936,7 @@ describe("durable automatic task recovery", () => {
       await db.delete(aiExecutionAcceptancesTable).where(eq(aiExecutionAcceptancesTable.executionId, fixture.executionId));
       await db.delete(aiExecutionsTable).where(eq(aiExecutionsTable.id, fixture.executionId));
       await db.delete(tasksTable).where(eq(tasksTable.id, fixture.taskId));
+      await db.delete(eventsTable).where(eq(eventsTable.projectId, fixture.projectId));
       await db.delete(projectsTable).where(eq(projectsTable.id, fixture.projectId));
     }
   });
@@ -916,6 +976,7 @@ describe("durable automatic task recovery", () => {
       await db.delete(aiExecutionAcceptancesTable).where(eq(aiExecutionAcceptancesTable.executionId, fixture.executionId));
       await db.delete(aiExecutionsTable).where(eq(aiExecutionsTable.id, fixture.executionId));
       await db.delete(tasksTable).where(eq(tasksTable.id, fixture.taskId));
+      await db.delete(eventsTable).where(eq(eventsTable.projectId, fixture.projectId));
       await db.delete(projectsTable).where(eq(projectsTable.id, fixture.projectId));
     }
   });
@@ -959,6 +1020,7 @@ describe("durable automatic task recovery", () => {
       await db.delete(aiExecutionAcceptancesTable).where(eq(aiExecutionAcceptancesTable.executionId, fixture.executionId));
       await db.delete(aiExecutionsTable).where(eq(aiExecutionsTable.id, fixture.executionId));
       await db.delete(tasksTable).where(eq(tasksTable.id, fixture.taskId));
+      await db.delete(eventsTable).where(eq(eventsTable.projectId, fixture.projectId));
       await db.delete(projectsTable).where(eq(projectsTable.id, fixture.projectId));
     }
   });
@@ -1023,6 +1085,7 @@ describe("durable automatic task recovery", () => {
       await db.delete(aiExecutionsTable).where(eq(aiExecutionsTable.id, fixture.executionId));
       await db.delete(aiExecutionsTable).where(eq(aiExecutionsTable.id, supersededExecutionId));
       await db.delete(tasksTable).where(eq(tasksTable.id, fixture.taskId));
+      await db.delete(eventsTable).where(eq(eventsTable.projectId, fixture.projectId));
       await db.delete(projectsTable).where(eq(projectsTable.id, fixture.projectId));
     }
   });
@@ -1061,6 +1124,7 @@ describe("durable automatic conversational recovery", () => {
       await db.delete(aiExecutionAcceptancesTable).where(eq(aiExecutionAcceptancesTable.executionId, fixture.executionId));
       await db.delete(aiExecutionsTable).where(eq(aiExecutionsTable.id, fixture.executionId));
       await db.delete(aiChatSessionsTable).where(eq(aiChatSessionsTable.id, fixture.sessionId));
+      await db.delete(eventsTable).where(eq(eventsTable.projectId, fixture.projectId));
       await db.delete(projectsTable).where(eq(projectsTable.id, fixture.projectId));
     }
   });
@@ -1094,6 +1158,7 @@ describe("durable automatic conversational recovery", () => {
       await db.delete(aiExecutionAcceptancesTable).where(eq(aiExecutionAcceptancesTable.executionId, fixture.executionId));
       await db.delete(aiExecutionsTable).where(eq(aiExecutionsTable.id, fixture.executionId));
       await db.delete(aiChatSessionsTable).where(eq(aiChatSessionsTable.id, fixture.sessionId));
+      await db.delete(eventsTable).where(eq(eventsTable.projectId, fixture.projectId));
       await db.delete(projectsTable).where(eq(projectsTable.id, fixture.projectId));
     }
   });
@@ -1216,6 +1281,7 @@ describe("durable automatic conversational recovery", () => {
       await db.delete(aiExecutionAcceptancesTable).where(eq(aiExecutionAcceptancesTable.executionId, fixture.executionId));
       await db.delete(aiExecutionsTable).where(eq(aiExecutionsTable.id, fixture.executionId));
       await db.delete(aiChatSessionsTable).where(eq(aiChatSessionsTable.id, fixture.sessionId));
+      await db.delete(eventsTable).where(eq(eventsTable.projectId, fixture.projectId));
       await db.delete(projectsTable).where(eq(projectsTable.id, fixture.projectId));
     }
   });
@@ -1244,6 +1310,7 @@ describe("durable automatic conversational recovery", () => {
       await db.delete(aiExecutionAcceptancesTable).where(eq(aiExecutionAcceptancesTable.executionId, fixture.executionId));
       await db.delete(aiExecutionsTable).where(eq(aiExecutionsTable.id, fixture.executionId));
       await db.delete(aiChatSessionsTable).where(eq(aiChatSessionsTable.id, fixture.sessionId));
+      await db.delete(eventsTable).where(eq(eventsTable.projectId, fixture.projectId));
       await db.delete(projectsTable).where(eq(projectsTable.id, fixture.projectId));
     }
   });
@@ -1270,6 +1337,7 @@ describe("durable automatic conversational recovery", () => {
       await db.delete(aiExecutionAcceptancesTable).where(eq(aiExecutionAcceptancesTable.executionId, fixture.executionId));
       await db.delete(aiExecutionsTable).where(eq(aiExecutionsTable.id, fixture.executionId));
       await db.delete(aiChatSessionsTable).where(eq(aiChatSessionsTable.id, fixture.sessionId));
+      await db.delete(eventsTable).where(eq(eventsTable.projectId, fixture.projectId));
       await db.delete(projectsTable).where(eq(projectsTable.id, fixture.projectId));
     }
   });
@@ -1375,6 +1443,7 @@ describe("durable automatic conversational recovery", () => {
       await db.delete(aiExecutionAcceptancesTable).where(eq(aiExecutionAcceptancesTable.executionId, fixture.executionId));
       await db.delete(aiExecutionsTable).where(eq(aiExecutionsTable.id, fixture.executionId));
       await db.delete(aiChatSessionsTable).where(eq(aiChatSessionsTable.id, fixture.sessionId));
+      await db.delete(eventsTable).where(eq(eventsTable.projectId, fixture.projectId));
       await db.delete(projectsTable).where(eq(projectsTable.id, fixture.projectId));
     }
   });
@@ -1412,6 +1481,7 @@ describe("durable automatic conversational recovery", () => {
       await db.delete(aiExecutionAcceptancesTable).where(eq(aiExecutionAcceptancesTable.executionId, fixture.executionId));
       await db.delete(aiExecutionsTable).where(eq(aiExecutionsTable.id, fixture.executionId));
       await db.delete(aiChatSessionsTable).where(eq(aiChatSessionsTable.id, fixture.sessionId));
+      await db.delete(eventsTable).where(eq(eventsTable.projectId, fixture.projectId));
       await db.delete(projectsTable).where(eq(projectsTable.id, fixture.projectId));
     }
   });
@@ -1449,6 +1519,7 @@ describe("durable automatic conversational recovery", () => {
       await db.delete(aiExecutionAcceptancesTable).where(eq(aiExecutionAcceptancesTable.executionId, fixture.executionId));
       await db.delete(aiExecutionsTable).where(eq(aiExecutionsTable.id, fixture.executionId));
       await db.delete(aiChatSessionsTable).where(eq(aiChatSessionsTable.id, fixture.sessionId));
+      await db.delete(eventsTable).where(eq(eventsTable.projectId, fixture.projectId));
       await db.delete(projectsTable).where(eq(projectsTable.id, fixture.projectId));
     }
   });
@@ -1500,6 +1571,7 @@ describe("durable automatic conversational recovery", () => {
       await db.delete(aiExecutionAcceptancesTable).where(eq(aiExecutionAcceptancesTable.executionId, fixture.executionId));
       await db.delete(aiExecutionsTable).where(eq(aiExecutionsTable.id, fixture.executionId));
       await db.delete(tasksTable).where(eq(tasksTable.id, fixture.taskId));
+      await db.delete(eventsTable).where(eq(eventsTable.projectId, fixture.projectId));
       await db.delete(projectsTable).where(eq(projectsTable.id, fixture.projectId));
     }
   });
@@ -1538,6 +1610,7 @@ describe("durable automatic conversational recovery", () => {
       await db.delete(aiExecutionAcceptancesTable).where(eq(aiExecutionAcceptancesTable.executionId, fixture.executionId));
       await db.delete(aiExecutionsTable).where(eq(aiExecutionsTable.id, fixture.executionId));
       await db.delete(aiChatSessionsTable).where(eq(aiChatSessionsTable.id, fixture.sessionId));
+      await db.delete(eventsTable).where(eq(eventsTable.projectId, fixture.projectId));
       await db.delete(projectsTable).where(eq(projectsTable.id, fixture.projectId));
     }
   });
@@ -1572,6 +1645,7 @@ describe("durable automatic conversational recovery", () => {
       await db.delete(aiExecutionAcceptancesTable).where(eq(aiExecutionAcceptancesTable.executionId, fixture.executionId));
       await db.delete(aiExecutionsTable).where(eq(aiExecutionsTable.id, fixture.executionId));
       await db.delete(aiChatSessionsTable).where(eq(aiChatSessionsTable.id, fixture.sessionId));
+      await db.delete(eventsTable).where(eq(eventsTable.projectId, fixture.projectId));
       await db.delete(projectsTable).where(eq(projectsTable.id, fixture.projectId));
     }
   });
@@ -1620,6 +1694,7 @@ describe("durable automatic conversational recovery", () => {
       await db.delete(aiExecutionAcceptancesTable).where(eq(aiExecutionAcceptancesTable.executionId, fixture.executionId));
       await db.delete(aiExecutionsTable).where(eq(aiExecutionsTable.id, fixture.executionId));
       await db.delete(aiChatSessionsTable).where(eq(aiChatSessionsTable.id, fixture.sessionId));
+      await db.delete(eventsTable).where(eq(eventsTable.projectId, fixture.projectId));
       await db.delete(projectsTable).where(eq(projectsTable.id, fixture.projectId));
     }
   });
@@ -1653,6 +1728,7 @@ describe("durable automatic conversational recovery", () => {
       await db.delete(aiExecutionAcceptancesTable).where(eq(aiExecutionAcceptancesTable.executionId, fixture.executionId));
       await db.delete(aiExecutionsTable).where(eq(aiExecutionsTable.id, fixture.executionId));
       await db.delete(aiChatSessionsTable).where(eq(aiChatSessionsTable.id, fixture.sessionId));
+      await db.delete(eventsTable).where(eq(eventsTable.projectId, fixture.projectId));
       await db.delete(projectsTable).where(eq(projectsTable.id, fixture.projectId));
     }
   });
@@ -1765,6 +1841,7 @@ describe("durable automatic conversational recovery", () => {
       await db.delete(aiExecutionAcceptancesTable).where(eq(aiExecutionAcceptancesTable.executionId, fixture.executionId));
       await db.delete(aiExecutionsTable).where(eq(aiExecutionsTable.id, fixture.executionId));
       await db.delete(aiChatSessionsTable).where(eq(aiChatSessionsTable.id, fixture.sessionId));
+      await db.delete(eventsTable).where(eq(eventsTable.projectId, fixture.projectId));
       await db.delete(projectsTable).where(eq(projectsTable.id, fixture.projectId));
     }
   });
@@ -1844,6 +1921,7 @@ describe("durable automatic conversational recovery", () => {
       await db.delete(aiExecutionAcceptancesTable).where(eq(aiExecutionAcceptancesTable.executionId, fixture.executionId));
       await db.delete(aiExecutionsTable).where(eq(aiExecutionsTable.id, fixture.executionId));
       await db.delete(aiChatSessionsTable).where(eq(aiChatSessionsTable.id, fixture.sessionId));
+      await db.delete(eventsTable).where(eq(eventsTable.projectId, fixture.projectId));
       await db.delete(projectsTable).where(eq(projectsTable.id, fixture.projectId));
     }
   });
@@ -1940,6 +2018,7 @@ describe("durable automatic conversational recovery", () => {
       await db.delete(aiExecutionAcceptancesTable).where(eq(aiExecutionAcceptancesTable.executionId, fixture.executionId));
       await db.delete(aiExecutionsTable).where(eq(aiExecutionsTable.id, fixture.executionId));
       await db.delete(aiChatSessionsTable).where(eq(aiChatSessionsTable.id, fixture.sessionId));
+      await db.delete(eventsTable).where(eq(eventsTable.projectId, fixture.projectId));
       await db.delete(projectsTable).where(eq(projectsTable.id, fixture.projectId));
     }
   });

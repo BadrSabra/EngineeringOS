@@ -16,6 +16,7 @@ import {
 } from "./ai-execution-state.js";
 import { logger } from "./logger.js";
 import { heavyJobQueue } from "./job-queue.js";
+import { insertTaskAutoExecutionIntent } from "./task-auto-execution-outbox.js";
 import { executeTaskLifecycle } from "./task-execution-service.js";
 import {
   runChatRecoveryExhaustionFinalization,
@@ -815,6 +816,11 @@ async function claimTaskRetry(
     const [claimed] = await tx
       .update(tasksTable)
       .set({
+        // Move every accepted retry generation to the existing auto-dispatch
+        // state before publishing its durable request. The outbox dispatcher
+        // only replays Tasks in verifying, and the lifecycle still owns the
+        // dependency, execution, and proof gates.
+        status: "verifying",
         retryCount: candidate.retryCount + 1,
         correlationId: randomUUID(),
         updatedAt: new Date(),
@@ -831,7 +837,21 @@ async function claimTaskRetry(
         id: tasksTable.id,
         retryCount: tasksTable.retryCount,
       });
-    return claimed ? { retryCount: claimed.retryCount } : undefined;
+    if (!claimed) return undefined;
+
+    // The retry budget claim and its next dispatch intent must commit together.
+    // Otherwise a process exit between this transaction and
+    // executeTaskLifecycle would burn the retry generation with no runnable
+    // recovery candidate. Existing reconciliation replays this intent.
+    const intentPersisted = await insertTaskAutoExecutionIntent(tx, {
+      taskId: candidate.taskId,
+      userId: candidate.userId,
+      retryCount: claimed.retryCount,
+    });
+    if (!intentPersisted) {
+      throw new Error("automatic_task_retry_outbox_persist_failed");
+    }
+    return { retryCount: claimed.retryCount };
   });
 }
 
