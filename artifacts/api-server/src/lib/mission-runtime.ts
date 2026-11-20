@@ -3579,6 +3579,8 @@ export async function runMissionGoal(params: {
   }
   if (decision.status === "completed" && decision.reason === "apply_changes_d2_proven") {
     await wakeReadyMissionGoals(32, getLifecycleWorkerScopeProjectId());
+  }
+  if (decision.status === "completed") {
     await finalizeMissionPlanOutcomesAfterGoalCompletion(decision.goalId);
   }
   return decision;
