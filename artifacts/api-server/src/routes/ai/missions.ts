@@ -4103,7 +4103,7 @@ router.patch("/ai/goals/:goalId", async (req, res) => {
           eq(aiMissionsTable.projectId, owned.project.id),
         ))
         .for("update");
-      if (!lockedMission) return { updated: undefined };
+      if (!lockedMission) return { updated: undefined, shouldDispatchImmediately: false };
       const [currentGoal] = await tx.select()
         .from(aiGoalsTable)
         .where(and(
@@ -4112,7 +4112,7 @@ router.patch("/ai/goals/:goalId", async (req, res) => {
           eq(aiGoalsTable.projectId, owned.project.id),
         ))
         .for("update");
-      if (!currentGoal) return { updated: undefined };
+      if (!currentGoal) return { updated: undefined, shouldDispatchImmediately: false };
       const proofContractChanged = (
         body.successCriteria !== undefined
         && !isDeepStrictEqual(body.successCriteria, currentGoal.successCriteria)
@@ -4317,10 +4317,51 @@ router.patch("/ai/goals/:goalId", async (req, res) => {
           });
         }
       }
-      return { updated };
+      const parsedNextAction = GoalNextActionSchema.safeParse(updated.nextAction);
+      const missionPolicy = readRecord(lockedMission.autonomyPolicy);
+      const activePlanRevision = typeof missionPolicy?.activePlanRevision === "string"
+        ? missionPolicy.activePlanRevision
+        : undefined;
+      const goalPlanRevision = readRecord(
+        readRecord(updated.outcomeContract)?.planRevision,
+      )?.hash;
+      const actionChanged = body.nextAction !== undefined
+        && !isDeepStrictEqual(body.nextAction, currentGoal.nextAction);
+      const becameQueued = currentGoal.status !== "queued" && updated.status === "queued";
+      const shouldDispatchImmediately = (
+        lockedMission.status === "active"
+        || lockedMission.status === "waiting"
+      )
+        && typeof activePlanRevision === "string"
+        && goalPlanRevision === activePlanRevision
+        && updated.status === "queued"
+        && (becameQueued || actionChanged)
+        && parsedNextAction.success;
+      return { updated, shouldDispatchImmediately };
     });
     if (!result.updated) return res.status(404).json({ error: "Goal not found" });
-    return res.json(result.updated);
+    if (result.shouldDispatchImmediately) {
+      try {
+        await runMissionGoal({
+          goalId: result.updated.id,
+          userId: req.userId,
+          trigger: "resume",
+        });
+      } catch (error) {
+        // The Goal update committed before dispatch. The durable queued Goal
+        // remains visible to Mission reconciliation if this local wake fails.
+        logger.error(
+          { error, missionId: owned.mission.id, goalId: result.updated.id },
+          "patched Mission Goal dispatch failed; durable wake reconciliation will retry",
+        );
+      }
+    }
+    const [currentGoal] = result.shouldDispatchImmediately
+      ? await db.select().from(aiGoalsTable)
+        .where(eq(aiGoalsTable.id, result.updated.id))
+        .limit(1)
+      : [];
+    return res.json(currentGoal ?? result.updated);
   } catch (error) {
     if (error instanceof GoalCompletionProofRejected) {
       return res.status(409).json({
