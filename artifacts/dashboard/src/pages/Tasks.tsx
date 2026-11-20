@@ -353,6 +353,7 @@ function acceptanceStatus(acceptance: TaskAcceptance): {
 
 function taskStatusLabel(status: string): string {
   const labels: Record<string, string> = {
+    active: 'جارٍ أو في الانتظار',
     pending: 'بانتظار التنفيذ',
     queued: 'في قائمة الانتظار',
     running: 'قيد التنفيذ',
@@ -1349,13 +1350,13 @@ function TaskLogsPanel({ task, taskStatus }: { task: TaskView; taskStatus: strin
 }
 
 // ─── Filter type aliases ──────────────────────────────────────────────────────
-// Derived from the task_status and task_priority DB enums so the filter state
-// is statically checked against the real API values — no `as any` casts needed.
-type TaskStatusFilter = 'pending' | 'queued' | 'running' | 'verifying' | 'completed' | 'failed' | 'cancelled';
+// Concrete status filters follow the task API; "active" is a client-side
+// aggregate matching the dashboard's queued/running/verifying count.
+type TaskStatusFilter = 'active' | 'pending' | 'queued' | 'running' | 'verifying' | 'completed' | 'failed' | 'cancelled';
 type TaskPriorityFilter = 'p0' | 'p1' | 'p2' | 'p3';
 type TaskAcceptanceFilter = 'accepted' | 'interrupted' | 'failed' | 'recovery-required';
 
-const TASK_STATUS_FILTER_OPTIONS = ['pending', 'running', 'verifying', 'completed', 'failed'] as const;
+const TASK_STATUS_FILTER_OPTIONS = ['pending', 'running', 'verifying', 'completed', 'failed', 'active'] as const;
 const TASK_PRIORITY_FILTER_OPTIONS = ['p0', 'p1', 'p2', 'p3'] as const;
 const TASK_ACCEPTANCE_FILTER_OPTIONS = ['accepted', 'interrupted', 'failed', 'recovery-required'] as const;
 
@@ -1378,6 +1379,15 @@ function readTaskListFilters(params: URLSearchParams): TaskListFilters {
     followUp: params.get('followUp') === '1',
     search: params.get('search') ?? '',
   };
+}
+
+function isActiveTaskStatus(status: string): boolean {
+  return status === 'queued' || status === 'running' || status === 'verifying';
+}
+
+function matchesTaskStatusFilter(status: string, filter: TaskStatusFilter | ''): boolean {
+  if (!filter) return true;
+  return filter === 'active' ? isActiveTaskStatus(status) : status === filter;
 }
 
 function acceptanceFilterKey(acceptance: TaskAcceptance): TaskAcceptanceFilter {
@@ -1653,7 +1663,11 @@ function TasksSession({
   const targetProjectId = selectedProjectId || requestedProjectId
     || (requestedTaskId ? requestedTask?.projectId : projects[0]?.id) || '';
   const projectId = projects.find((project) => project.id === targetProjectId)?.id;
-  const listParams = { projectId, status: filterStatus || undefined, priority: filterPriority || undefined };
+  const listParams = {
+    projectId,
+    status: filterStatus && filterStatus !== 'active' ? filterStatus : undefined,
+    priority: filterPriority || undefined,
+  };
   const { data: rawTasks, isLoading: tasksLoading, isError, error, refetch, isRefetching, dataUpdatedAt } = useListTasks(
     listParams,
     {
@@ -1669,7 +1683,7 @@ function TasksSession({
   if (
     requestedTaskId && requestedTask?.id === requestedTaskId
     && requestedTask.projectId === projectId
-    && (!filterStatus || requestedTask.status === filterStatus)
+    && matchesTaskStatusFilter(requestedTask.status, filterStatus)
     && (!filterPriority || requestedTask.priority === filterPriority)
     && (!filterFollowUp || isTaskFollowUpCandidate(
       requestedTask.status,
@@ -1702,6 +1716,7 @@ function TasksSession({
   const taskResultProjectionIsCurrent = (task: (typeof tasks)[number]) =>
     !isRefetching && !resumeTask.isPending && task.status !== 'running';
   const visibleTasks = tasks?.filter((t) =>
+    matchesTaskStatusFilter(t.status, filterStatus) &&
     (!searchTerm ||
       t.title.toLowerCase().includes(searchTerm.toLowerCase()) ||
       (t.description ?? '').toLowerCase().includes(searchTerm.toLowerCase())) &&
@@ -1930,6 +1945,7 @@ function TasksSession({
               className="bg-transparent text-sm px-2 py-1 outline-none text-foreground border-r border-border min-w-[120px]"
             >
               <option value="">كل الحالات</option>
+              <option value="active">جارٍ أو في الانتظار</option>
               <option value="pending">بانتظار التنفيذ</option>
               <option value="running">قيد التنفيذ</option>
               <option value="verifying">قيد التحقق</option>

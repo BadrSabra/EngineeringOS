@@ -328,6 +328,49 @@ describe('project-scoped task list contracts', () => {
     );
   });
 
+  it('filters the active-work shortcut to queued, running, and verifying tasks', () => {
+    const baseTask = taskListFixture().data?.[0];
+    if (!baseTask) throw new Error('Expected a task fixture');
+    const task = (id: string, title: string, status: string) => ({
+      ...baseTask,
+      id,
+      title,
+      status,
+      agentResponse: undefined,
+    });
+    vi.mocked(useListTasks).mockReturnValue({
+      ...taskListFixture(),
+      data: [
+        task('queued-task', 'Queued work', 'queued'),
+        task('running-task', 'Running work', 'running'),
+        task('verifying-task', 'Verification work', 'verifying'),
+        task('pending-task', 'Pending work', 'pending'),
+        task('completed-task', 'Completed work', 'completed'),
+        task('failed-task', 'Failed work', 'failed'),
+        task('cancelled-task', 'Cancelled work', 'cancelled'),
+      ],
+    } as ReturnType<typeof useListTasks>);
+    window.history.replaceState({}, '', '/tasks?projectId=project-1&status=active');
+
+    renderPage();
+
+    expect(screen.getByRole('combobox', { name: 'تصفية المهام حسب الحالة' })).toHaveValue('active');
+    expect(screen.getByText('Queued work')).toBeInTheDocument();
+    expect(screen.getByText('Running work')).toBeInTheDocument();
+    expect(screen.getByText('Verification work')).toBeInTheDocument();
+    expect(screen.queryByText('Pending work')).not.toBeInTheDocument();
+    expect(screen.queryByText('Completed work')).not.toBeInTheDocument();
+    expect(screen.queryByText('Failed work')).not.toBeInTheDocument();
+    expect(screen.queryByText('Cancelled work')).not.toBeInTheDocument();
+    expect(screen.getByTestId('status-task-filter-summary'))
+      .toHaveTextContent('جارٍ أو في الانتظار');
+    expect(new URLSearchParams(window.location.search).get('status')).toBe('active');
+    expect(useListTasks).toHaveBeenLastCalledWith(
+      expect.objectContaining({ projectId: 'project-1', status: undefined }),
+      expect.anything(),
+    );
+  });
+
   it('filters the loaded project list to tasks that need a next step', () => {
     const baseTask = {
       ...recoveryCases[0],
