@@ -68,6 +68,7 @@ import {
 } from "./ai-route-helpers.js";
 import type { ProviderId } from "./ai-route-helpers.js";
 import { logger } from "./logger.js";
+import { finalizeMissionPlanOutcomesAfterGoalCompletion } from "./mission-strategy-plan-outcome-store.js";
 import { resolveTaskRecoveryDecision } from "./task-recovery-decision.js";
 import {
   getTaskDependencyBlockers,
@@ -1120,12 +1121,26 @@ async function finalizeTaskExecutionAcceptance(params: {
       .from(tasksTable)
       .where(eq(tasksTable.id, params.task.id))
       .limit(1);
-    return {
-      accepted: finalized.accepted
-        && projectedTask?.status === params.finalStatus
-        && projectedTask.workerId === null,
-      duplicate: true,
-    };
+    const accepted = finalized.accepted
+      && projectedTask?.status === params.finalStatus
+      && projectedTask.workerId === null;
+    if (
+      accepted
+      && params.outcome === "SUCCEEDED"
+      && params.finalStatus === "completed"
+      && params.task.goalId
+    ) {
+      await finalizeMissionPlanOutcomesAfterGoalCompletion(params.task.goalId);
+    }
+    return { accepted, duplicate: true };
+  }
+  if (
+    finalized.accepted
+    && params.outcome === "SUCCEEDED"
+    && params.finalStatus === "completed"
+    && params.task.goalId
+  ) {
+    await finalizeMissionPlanOutcomesAfterGoalCompletion(params.task.goalId);
   }
   return { accepted: finalized.accepted, duplicate: false };
 }

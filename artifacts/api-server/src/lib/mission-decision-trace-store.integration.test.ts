@@ -90,6 +90,7 @@ import { reconcileApprovedMissionDecisionDispatches } from "./mission-auto-repla
 import {
   evaluateAndPersistMissionPlanOutcome,
   finalizeMissionPlanOutcome,
+  finalizeMissionPlanOutcomesAfterGoalCompletion,
   reconcilePendingMissionPlanOutcomes,
 } from "./mission-strategy-plan-outcome-store.js";
 import {
@@ -2182,6 +2183,52 @@ describe("Mission decision trace persistence", () => {
     expect(await db.select().from(aiMissionDecisionOutcomeSnapshotsTable)
       .where(eq(aiMissionDecisionOutcomeSnapshotsTable.outcomeId, first.snapshotId)))
       .toHaveLength(0);
+  });
+
+  it("finalizes the active Mission plan immediately after its final Goal is proven", async () => {
+    const fixture = await createPersistedEffectOutcomeFixture("ACHIEVED");
+    missionRunner.mockClear();
+
+    expect(await finalizeMissionPlanOutcomesAfterGoalCompletion(fixture.goalId)).toBe(1);
+    expect((await getMissionDecisionTrace(fixture.decisionId))?.events
+      .map(({ stage }) => stage).slice(-4))
+      .toEqual(["EXECUTED", "ACCEPTED", "VERIFIED", "EVALUATED_AFTER_EXECUTION"]);
+    expect(await finalizeMissionPlanOutcomesAfterGoalCompletion(fixture.goalId)).toBe(0);
+    expect(missionRunner).not.toHaveBeenCalled();
+  });
+
+  it("does not evaluate a Mission plan before every active Goal has completed", async () => {
+    const fixture = await createDispatchedPendingOutcomeFixture();
+
+    expect(await finalizeMissionPlanOutcomesAfterGoalCompletion(fixture.goalId)).toBe(0);
+    expect((await getMissionDecisionTrace(fixture.decisionId))?.events
+      .map(({ stage }) => stage).slice(-2))
+      .toEqual(["PLAN_APPLIED", "DISPATCHED"]);
+    expect(await db.select().from(aiMissionDecisionOutcomeSnapshotsTable)
+      .where(eq(aiMissionDecisionOutcomeSnapshotsTable.decisionId, fixture.decisionId)))
+      .toHaveLength(0);
+  });
+
+  it("does not advance the Mission lifecycle when completed Goal status lacks achieved Canonical Proof", async () => {
+    const fixture = await createPersistedEffectOutcomeFixture("NOT_ACHIEVED");
+    const completedAt = new Date(now.getTime() + 300_000);
+    // Status alone is not accepted evidence. The finalizer must reload the
+    // failed acceptance and contradicted observations before it can advance.
+    await db.update(aiGoalsTable).set({
+      status: "completed",
+      completedAt,
+      updatedAt: completedAt,
+    }).where(eq(aiGoalsTable.id, fixture.goalId));
+
+    expect(await finalizeMissionPlanOutcomesAfterGoalCompletion(fixture.goalId)).toBe(0);
+    const snapshots = await db.select({
+      outcome: aiMissionDecisionOutcomeSnapshotsTable.outcome,
+    }).from(aiMissionDecisionOutcomeSnapshotsTable)
+      .where(eq(aiMissionDecisionOutcomeSnapshotsTable.decisionId, fixture.decisionId));
+    expect(snapshots.map(({ outcome }) => outcome)).toEqual(["NOT_ACHIEVED"]);
+    expect((await getMissionDecisionTrace(fixture.decisionId))?.events
+      .map(({ stage }) => stage).slice(-2))
+      .toEqual(["PLAN_APPLIED", "DISPATCHED"]);
   });
 
   it.each(["ACHIEVED", "NOT_ACHIEVED"] as const)(
