@@ -228,6 +228,26 @@ describe('Metrics', () => {
     );
   });
 
+  it('opens the selected project workspace and updates the destination with the project selector', () => {
+    window.history.replaceState({}, '', '/metrics?projectId=project-b');
+    mockProjects([
+      { id: 'project-a', name: 'Alpha' },
+      { id: 'project-b', name: 'Beta' },
+    ]);
+
+    render(<Metrics />);
+
+    const workspaceLink = screen.getByRole('link', { name: 'افتح مساحة العمل لمشروع Beta' });
+    expect(workspaceLink).toHaveAttribute('href', '/projects/project-b/workspace');
+
+    fireEvent.change(screen.getByRole('combobox', { name: 'اختر المشروع' }), {
+      target: { value: 'project-a' },
+    });
+
+    expect(screen.getByRole('link', { name: 'افتح مساحة العمل لمشروع Alpha' }))
+      .toHaveAttribute('href', '/projects/project-a/workspace');
+  });
+
   it('updates the metrics link while preserving other route context', () => {
     window.history.replaceState({}, '', '/metrics?projectId=project-a&panel=quality#trend');
     mockProjects([
