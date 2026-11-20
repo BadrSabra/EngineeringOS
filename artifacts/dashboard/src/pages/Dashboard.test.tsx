@@ -439,6 +439,52 @@ describe("Dashboard goal-first home", () => {
     expect(mockSetLocation).toHaveBeenCalledWith(`/projects/project-2/workspace?goalDraftId=${draft.id}`);
   });
 
+  it('offers an advisory from project context and requires an explicit choice', () => {
+    vi.mocked(useListProjects).mockReturnValue({
+      data: [
+        {
+          id: 'project-1',
+          name: 'متجر زهرة',
+          description: 'تسجيل دخول آمن وإدارة حسابات العملاء',
+          language: 'TypeScript',
+          framework: 'Next.js',
+          status: 'active',
+          ownerId: 'user-1',
+        },
+      ],
+      isLoading: false,
+      isError: false,
+      refetch: vi.fn(),
+    } as ReturnType<typeof useListProjects>);
+    render(<Dashboard />);
+
+    fireEvent.change(screen.getByTestId('input-home-goal'), {
+      target: { value: 'أريد تحسين تسجيل الدخول الآمن وحسابات العملاء' },
+    });
+    fireEvent.click(screen.getByTestId('button-start-goal'));
+
+    expect(screen.getByTestId('panel-goal-destination')).toHaveTextContent(
+      'لم يظهر اسم مشروع كامل؛ راجع أسباب هذه الاقتراحات.',
+    );
+    expect(screen.getByTestId('text-goal-project-candidate-reason-project-1')).toHaveTextContent(
+      'تطابقت كلمات',
+    );
+    expect(screen.getByTestId('text-goal-project-candidate-reason-project-1')).toHaveTextContent(
+      'وصف المشروع أو تقنياته المسجلة',
+    );
+    expect(mockSetLocation).not.toHaveBeenCalled();
+    expect(readGoalDrafts('user-1').drafts).toHaveLength(0);
+
+    fireEvent.click(screen.getByTestId('button-route-goal-candidate-project-1'));
+    const [draft] = readGoalDrafts('user-1').drafts;
+    expect(draft).toMatchObject({
+      text: 'أريد تحسين تسجيل الدخول الآمن وحسابات العملاء',
+      projectId: 'project-1',
+      sendAttemptedAt: null,
+    });
+    expect(mockSetLocation).toHaveBeenCalledWith(`/projects/project-1/workspace?goalDraftId=${draft.id}`);
+  });
+
   it('offers a partial-word suggestion without choosing or opening it automatically', () => {
     vi.mocked(useListProjects).mockReturnValue({
       data: [
@@ -456,7 +502,7 @@ describe("Dashboard goal-first home", () => {
     fireEvent.click(screen.getByTestId('button-start-goal'));
 
     expect(screen.getByTestId('panel-goal-destination')).toHaveTextContent(
-      'لم يظهر اسم مشروع كامل؛ قد تساعدك هذه الاقتراحات.',
+      'لم يظهر اسم مشروع كامل؛ راجع أسباب هذه الاقتراحات.',
     );
     expect(screen.getByTestId('text-goal-project-candidate-reason-project-1')).toHaveTextContent(
       '«بوابة»',

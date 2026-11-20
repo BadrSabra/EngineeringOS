@@ -92,6 +92,57 @@ describe('matchGoalToProject', () => {
     ]);
   });
 
+  it('suggests from project description terms without treating them as a route match', () => {
+    const projects = [
+      {
+        id: 'store',
+        name: 'متجر زهرة',
+        description: 'تسجيل دخول آمن وإدارة حسابات العملاء',
+        language: 'TypeScript',
+        framework: 'Next.js',
+      },
+      {
+        id: 'analytics',
+        name: 'لوحة بيانات',
+        description: 'تقارير الأداء ومخططات الاستخدام',
+        language: 'Python',
+        framework: 'FastAPI',
+      },
+    ];
+    const goal = 'أريد تحسين تسجيل الدخول الآمن وحسابات العملاء';
+
+    expect(matchGoalToProject(goal, projects)).toEqual({ kind: 'none' });
+    expect(suggestGoalProjects(goal, projects)).toEqual([
+      {
+        project: projects[0],
+        kind: 'context',
+        matchedTerms: ['تسجيل', 'دخول', 'امن', 'عملاء'],
+      },
+    ]);
+  });
+
+  it('accepts an exact technology mention but keeps it advisory', () => {
+    const projects = [
+      { id: 'store', name: 'متجر زهرة', framework: 'React' },
+      { id: 'portal', name: 'بوابة العملاء', framework: 'Vue' },
+    ];
+
+    expect(matchGoalToProject('حسّن واجهة React', projects)).toEqual({ kind: 'none' });
+    expect(suggestGoalProjects('حسّن واجهة React', projects)).toEqual([
+      {
+        project: projects[0],
+        kind: 'context',
+        matchedTerms: ['react'],
+      },
+    ]);
+  });
+
+  it('ignores one weak description overlap and limits contextual suggestions', () => {
+    expect(suggestGoalProjects('طوّر نظام', [
+      { id: 'one', name: 'متجر ألفا', description: 'نظام للتجارة' },
+    ])).toEqual([]);
+  });
+
   it('limits partial suggestions while retaining the strongest matches first', () => {
     expect(suggestGoalProjects('راجع بوابة إدارة العملاء', [
       { id: 'one', name: 'لوحة الإدارة' },
