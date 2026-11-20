@@ -13,6 +13,7 @@ import {
   redactUserFacingValue,
   applyOpenRouterFreeOnlyFallbackPolicy,
   providerAvailabilityProjection,
+  projectProviderRecoveryDetails,
   requestLooksToolBound,
   normalizeProviderFailure,
   providerAttemptModels,
@@ -23,6 +24,20 @@ import {
   createRetryableSingleFlightLoader,
 } from "./ai-route-helpers.js";
 import type { ExecutionLedgerSnapshot } from "@workspace/ai-orchestrator";
+
+describe("provider recovery projection", () => {
+  it("uses the failed provider's own quota guidance instead of OpenRouter guidance", () => {
+    const projection = projectProviderRecoveryDetails(
+      new GroqClientError("QUOTA", "raw provider quota detail"),
+      "groq",
+    );
+
+    expect(projection?.availabilityState).toBe("quota_exhausted");
+    expect(projection?.operatorAction).toMatch(/quota window/i);
+    expect(projection?.operatorAction).not.toContain("OpenRouter");
+    expect(projection?.operatorAction).not.toContain("raw provider quota detail");
+  });
+});
 
 describe("retryable single-flight history loader", () => {
   it("retries a failed initial read after backoff and stays loaded after recovery", async () => {

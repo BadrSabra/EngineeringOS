@@ -2112,26 +2112,28 @@ type ProviderAvailabilityState =
   | "rate_limited"
   | "provider_outage";
 
+export type ProviderRecoveryProjection = {
+  availabilityState: ProviderAvailabilityState;
+  operatorAction: string;
+};
+
 export function providerAvailabilityProjection(
   err: GroqClientError,
   providerId: ProviderId,
   providerConsole: string,
   providerStatus: string,
-): {
-  availabilityState: ProviderAvailabilityState;
-  operatorAction: string;
-  catalogStatus?: string;
-} {
+): ProviderRecoveryProjection & { catalogStatus?: string } {
+  const providerLabel = PROVIDER_REGISTRY[providerId]?.label ?? providerId;
   if (err.code === "AUTH_ERROR") {
     return {
       availabilityState: "authentication_failed",
-      operatorAction: `Replace the ${providerId} API key with a valid key from ${providerConsole}, then retry.`,
+      operatorAction: `Replace the ${providerLabel} API key with a valid key from ${providerConsole}, then retry.`,
     };
   }
   if (err.providerCode === "CIRCUIT_OPEN") {
     return {
       availabilityState: "provider_outage",
-      operatorAction: `Retry after the ${providerId} route recovers; no provider-wide cooldown is currently supported.`,
+      operatorAction: `Retry after the ${providerLabel} route recovers; no provider-wide cooldown is currently supported.`,
     };
   }
   if (
@@ -2142,19 +2144,25 @@ export function providerAvailabilityProjection(
   ) {
     return {
       availabilityState: "incompatible_model",
-      operatorAction: "Choose another currently compatible free OpenRouter model, if available, then retry.",
+      operatorAction: providerId === "openrouter"
+        ? "Choose another currently compatible free OpenRouter model, if available, then retry."
+        : `Choose a model currently supported by ${providerLabel}, then retry.`,
     };
   }
   if (err.code === "RATE_LIMITED") {
     return {
       availabilityState: "rate_limited",
-      operatorAction: "Honor OpenRouter's Retry-After or local cooldown; no automatic cross-provider retry is allowed.",
+      operatorAction: providerId === "openrouter"
+        ? "Honor OpenRouter's Retry-After or local cooldown; no automatic cross-provider retry is allowed."
+        : `Honor ${providerLabel}'s Retry-After or local cooldown before retrying; automatic provider switching is disabled.`,
     };
   }
   if (err.code === "QUOTA" || err.code === "PLAN_RESTRICTED") {
     return {
       availabilityState: "quota_exhausted",
-      operatorAction: "Wait for OpenRouter's free quota window to recover; the product will not buy credits or switch providers.",
+      operatorAction: providerId === "openrouter"
+        ? "Wait for OpenRouter's free quota window to recover; the product will not buy credits or switch providers."
+        : `Wait for ${providerLabel}'s quota window to recover; the product will not buy credits or switch providers.`,
     };
   }
   if (
@@ -2184,6 +2192,43 @@ export function providerAvailabilityProjection(
   return {
     availabilityState: "provider_outage",
     operatorAction: `Retry in a moment. Check ${providerStatus} if it persists; the product will not switch providers.`,
+  };
+}
+
+/** Resolve provider-accurate recovery guidance for durable Task receipts. */
+export function projectProviderRecoveryDetails(
+  err: GroqClientError,
+  providerId: ProviderId,
+): ProviderRecoveryProjection | undefined {
+  const hasKnownDiagnosis =
+    err.code === "AUTH_ERROR"
+    || err.providerCode === "CIRCUIT_OPEN"
+    || err.code === "MODEL_NOT_FOUND"
+    || err.code === "MODEL_UNAVAILABLE"
+    || err.providerCode === "MODEL_CAPABILITY_MISMATCH"
+    || err.providerCode === "STALE_CONFIGURED_MODEL"
+    || err.code === "RATE_LIMITED"
+    || err.code === "QUOTA"
+    || err.code === "PLAN_RESTRICTED"
+    || (
+      providerId === "openrouter"
+      && err.providerCode === "NO_COMPATIBLE_FREE_MODEL"
+    )
+    || err.code === "TIMEOUT"
+    || err.code === "NETWORK_ERROR"
+    || err.code === "SERVER_ERROR";
+  if (!hasKnownDiagnosis) return undefined;
+
+  const provider = PROVIDER_REGISTRY[providerId];
+  const projection = providerAvailabilityProjection(
+    err,
+    providerId,
+    provider?.consoleUrl ?? "your provider's dashboard",
+    provider?.statusUrl ?? "your provider's status page",
+  );
+  return {
+    availabilityState: projection.availabilityState,
+    operatorAction: projection.operatorAction,
   };
 }
 
