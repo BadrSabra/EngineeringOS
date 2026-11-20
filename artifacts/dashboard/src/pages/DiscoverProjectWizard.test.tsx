@@ -1,5 +1,6 @@
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { readGoalDrafts, storeHomeGoalDraft } from '@/lib/home-goal-handoff';
 import { DiscoverProjectWizard } from './DiscoverProjectWizard';
 
 const mocks = vi.hoisted(() => ({
@@ -13,6 +14,8 @@ const mocks = vi.hoisted(() => ({
   },
   invalidateQueries: vi.fn(() => Promise.resolve()),
   navigate: vi.fn(),
+  userLoaded: true,
+  user: { id: 'user-1' } as { id: string } | null,
   session: {
     id: 'discovery-1',
     status: 'ready',
@@ -116,6 +119,10 @@ const mocks = vi.hoisted(() => ({
   },
 }));
 
+vi.mock('@clerk/react', () => ({
+  useUser: () => ({ isLoaded: mocks.userLoaded, user: mocks.user }),
+}));
+
 vi.mock('@workspace/api-client-react', () => ({
   useStartDiscovery: () => ({
     mutateAsync: mocks.startDiscovery,
@@ -157,6 +164,9 @@ vi.mock('wouter', () => ({
 describe('DiscoverProjectWizard Arabic findings', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    window.sessionStorage.clear();
+    mocks.userLoaded = true;
+    mocks.user = { id: 'user-1' };
     mocks.session.status = 'ready';
     mocks.session.progress = 100;
     mocks.sessionWithoutCache = false;
@@ -424,6 +434,88 @@ describe('DiscoverProjectWizard Arabic findings', () => {
 
     expect(onClose).toHaveBeenCalledOnce();
     expect(mocks.navigate).toHaveBeenCalledWith('/projects/imported-project');
+  });
+
+  it('opens the imported project with a scoped, reviewable first-goal draft', async () => {
+    render(<DiscoverProjectWizard onClose={vi.fn()} />);
+
+    fireEvent.change(screen.getByPlaceholderText('https://github.com/owner/repo'), {
+      target: { value: 'https://github.com/example/sample-app' },
+    });
+    fireEvent.click(screen.getByTestId('start-discovery'));
+    await screen.findByRole('heading', { name: 'نتائج استكشاف المشروع' });
+    fireEvent.click(screen.getByRole('button', { name: 'تأكيد وإضافة المشروع' }));
+    await screen.findByRole('heading', { name: 'تمت إضافة المشروع' });
+
+    fireEvent.change(screen.getByTestId('textarea-discovery-first-goal'), {
+      target: { value: 'اشرح بنية المشروع واقترح خطوة أولى.' },
+    });
+    fireEvent.click(screen.getByTestId('button-open-imported-project-workspace'));
+
+    const draft = readGoalDrafts('user-1').drafts[0];
+    expect(draft).toMatchObject({
+      source: 'home',
+      projectId: 'imported-project',
+      text: 'اشرح بنية المشروع واقترح خطوة أولى.',
+    });
+    expect(mocks.navigate).toHaveBeenCalledWith(
+      `/projects/imported-project/workspace?goalDraftId=${draft.id}#workspace-panel-agent`,
+    );
+  });
+
+  it('keeps the success screen open when the first-goal draft cannot be saved', async () => {
+    for (let index = 0; index < 8; index += 1) {
+      expect(storeHomeGoalDraft(`هدف ${index}`, 'user-1')).not.toBeNull();
+    }
+    const onClose = vi.fn();
+    render(<DiscoverProjectWizard onClose={onClose} />);
+
+    fireEvent.change(screen.getByPlaceholderText('https://github.com/owner/repo'), {
+      target: { value: 'https://github.com/example/sample-app' },
+    });
+    fireEvent.click(screen.getByTestId('start-discovery'));
+    await screen.findByRole('heading', { name: 'نتائج استكشاف المشروع' });
+    fireEvent.click(screen.getByRole('button', { name: 'تأكيد وإضافة المشروع' }));
+    await screen.findByRole('heading', { name: 'تمت إضافة المشروع' });
+
+    fireEvent.change(screen.getByTestId('textarea-discovery-first-goal'), {
+      target: { value: 'اشرح بنية المشروع.' },
+    });
+    fireEvent.click(screen.getByTestId('button-open-imported-project-workspace'));
+
+    expect(screen.getByTestId('status-discovery-goal-handoff-error')).toHaveTextContent(
+      'تعذر حفظ الهدف.',
+    );
+    expect(screen.getByTestId('textarea-discovery-first-goal')).toHaveValue('اشرح بنية المشروع.');
+    expect(mocks.navigate).not.toHaveBeenCalled();
+    expect(onClose).not.toHaveBeenCalled();
+    expect(readGoalDrafts('user-1').drafts).toHaveLength(8);
+  });
+
+  it('preserves the first goal if the signed-in account is still loading', async () => {
+    const onClose = vi.fn();
+    render(<DiscoverProjectWizard onClose={onClose} />);
+
+    fireEvent.change(screen.getByPlaceholderText('https://github.com/owner/repo'), {
+      target: { value: 'https://github.com/example/sample-app' },
+    });
+    fireEvent.click(screen.getByTestId('start-discovery'));
+    await screen.findByRole('heading', { name: 'نتائج استكشاف المشروع' });
+    fireEvent.click(screen.getByRole('button', { name: 'تأكيد وإضافة المشروع' }));
+    await screen.findByRole('heading', { name: 'تمت إضافة المشروع' });
+
+    mocks.userLoaded = false;
+    fireEvent.change(screen.getByTestId('textarea-discovery-first-goal'), {
+      target: { value: 'اشرح بنية المشروع.' },
+    });
+    fireEvent.click(screen.getByTestId('button-open-imported-project-workspace'));
+
+    expect(screen.getByTestId('status-discovery-goal-handoff-error')).toHaveTextContent(
+      'انتظر تحميل الحساب',
+    );
+    expect(screen.getByTestId('textarea-discovery-first-goal')).toHaveValue('اشرح بنية المشروع.');
+    expect(mocks.navigate).not.toHaveBeenCalled();
+    expect(onClose).not.toHaveBeenCalled();
   });
 
   it('allows the user to start a scan before opening the imported project', async () => {
