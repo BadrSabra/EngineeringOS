@@ -10,11 +10,14 @@ This document records the server-owned Task dispatch contract. The database even
 |---|---|---|
 | Manual Task status transition | **artifacts/api-server/src/routes/tasks.ts**, PATCH **/tasks/:taskId** | Task transition, audit/event, and Task Outbox intent commit in one PostgreSQL transaction. |
 | Manual Task execute/verification | **artifacts/api-server/src/routes/tasks.ts**, POST **/tasks/:taskId/execute** | Verification result and eligible Task Outbox intent commit in one PostgreSQL transaction. |
+| Manual Task execute with incomplete prerequisites | **artifacts/api-server/src/routes/tasks.ts**, POST **/tasks/:taskId/execute** | An explicit request is persisted as **TaskExecutionWaitingForDependencies** under **task-execution-wait:<taskId>**. The durable dispatcher rechecks the complete dependency graph and runs the same local verifier only after every prerequisite is completed; it never starts prerequisite Tasks. |
 | Mission Goal Task handoff | **artifacts/api-server/src/lib/mission-runtime.ts**, **runMissionGoal** | Mission Task row is locked; Task Outbox intent and **AiGoalDispatchRequested** commit in the same Mission transaction. The post-commit scheduler call wakes the local queue with the exact committed Task generation. |
 | Scheduler repair / deferred redispatch | **artifacts/api-server/src/routes/ai/tasks.ts** | **scheduleAiTaskExecution** idempotently verifies/repairs an intent before local enqueue; **dispatchDeferredAiTaskExecutions** reads due durable intents after restart or queue backpressure. |
 | Task cancellation / deletion | **artifacts/api-server/src/routes/tasks.ts**, rollback and DELETE handlers | The reserved Outbox row is retired in the same transaction as the transition to cancelled or deletion; the ordinary Task lifecycle/audit events remain. |
 
 There is one logical Outbox identity per Task, keyed by **task-auto-execution-deferred:<taskId>**. The event key is stable; the generation and authorization identity are enforced by the payload and the Task row lock.
+
+Manual verification requests blocked only by unfinished prerequisites use a separate durable wait event, keyed by **task-execution-wait:<taskId>**. It is bound to the requesting user, Task retry count, correlation ID, and original pending/queued state. The dispatcher rechecks the dependency graph both before queueing and immediately before the worker claim. Local verification runs only after the graph is clear; a prerequisite reopening during verification restores the Task to its original state and keeps the request deferred. Invalid graphs are dead-lettered, verifier failures are bounded, and expired worker leases restore the original Task state so the persisted request can be retried.
 
 ## Outbox identity
 
