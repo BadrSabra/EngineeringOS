@@ -217,8 +217,8 @@ if (changed.length === 0) {
     const expectedFile = join(WORKSPACE_ROOT, f);
     const actualFile = join(generatedRoot, f);
     try {
-      const expectedLines = readFileSync(expectedFile, "utf8").split(/\\r?\\n/);
-      const actualLines = readFileSync(actualFile, "utf8").split(/\\r?\\n/);
+      const expectedLines = readFileSync(expectedFile, "utf8").split(/\r?\n/);
+      const actualLines = readFileSync(actualFile, "utf8").split(/\r?\n/);
       let firstDifference = 0;
       while (
         firstDifference < expectedLines.length
