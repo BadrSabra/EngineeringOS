@@ -9,7 +9,7 @@ import {
   projectsTable,
   scanJobsTable,
 } from "@workspace/db";
-import { and, eq, gt, lt, lte, sql } from "drizzle-orm";
+import { and, eq, gt, lt, lte } from "drizzle-orm";
 import type { ProjectBootstrapJob } from "@workspace/db";
 import { heavyJobQueue } from "./job-queue.js";
 import { runScanJob } from "./scan-runner.js";
