@@ -1108,8 +1108,8 @@ export const CreateTaskBody = zod.object({
   "relatedFiles": zod.array(zod.string()).optional(),
   "dependsOn": zod.array(zod.string()).optional(),
   "phase": zod.string().optional(),
-  "prompt": zod.string().min(1).max(12000).optional(),
-  "executeImmediately": zod.boolean().default(false)
+  "prompt": zod.string().min(1).max(12000).optional().describe('Optional Task prompt. Required when executeImmediately is true.'),
+  "executeImmediately": zod.boolean().default(false).describe('Start AI execution as part of Task creation. Requires a non-empty prompt; the Task and durable dispatch intent are committed atomically.')
 })
 
 export const createTaskResponseRemediationPlanOneOccurrenceCountMin = 0;
