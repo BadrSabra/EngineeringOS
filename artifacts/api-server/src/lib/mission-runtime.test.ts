@@ -2057,6 +2057,65 @@ describe("Mission goal runtime", () => {
     });
   });
 
+  it("does not let processed inbox rows consume the pending replay limit", async () => {
+    const alreadyProcessed = await createMissionFixture({
+      kind: "wait",
+      reason: "event",
+      wakeAt: null,
+    });
+    await runMissionGoal({
+      goalId: alreadyProcessed.goalId,
+      userId: "test-user",
+      trigger: "activation",
+    });
+    const processedEvent = createMissionEventEnvelope({
+      eventId: randomUUID(),
+      type: "ExternalValidationCompleted",
+      projectId: alreadyProcessed.projectId,
+      goalId: alreadyProcessed.goalId,
+      payload: { validationId: "already-processed" },
+    });
+    await expect(receiveMissionEvent(processedEvent)).resolves.toMatchObject({
+      persisted: true,
+      woken: true,
+      duplicate: false,
+    });
+    // Ensure this processed row sorts before the pending event regardless of
+    // test execution speed or timestamp precision.
+    await db.update(eventsTable)
+      .set({ timestamp: new Date("2000-01-01T00:00:00.000Z") })
+      .where(eq(eventsTable.id, processedEvent.eventId));
+
+    const pending = await createMissionFixture({
+      kind: "wait",
+      reason: "event",
+      wakeAt: null,
+    });
+    const pendingEvent = createMissionEventEnvelope({
+      eventId: randomUUID(),
+      type: "ExternalValidationCompleted",
+      projectId: pending.projectId,
+      goalId: pending.goalId,
+      payload: { validationId: "pending-replay" },
+    });
+    await expect(receiveMissionEvent(pendingEvent)).resolves.toMatchObject({
+      persisted: true,
+      woken: false,
+      duplicate: false,
+    });
+    await runMissionGoal({
+      goalId: pending.goalId,
+      userId: "test-user",
+      trigger: "activation",
+    });
+
+    expect(await replayPendingMissionEvents(1)).toBe(1);
+    const [pendingGoal] = await db
+      .select({ status: aiGoalsTable.status })
+      .from(aiGoalsTable)
+      .where(eq(aiGoalsTable.id, pending.goalId));
+    expect(pendingGoal?.status).toBe("needs_replan");
+  });
   it("rejects a reused event ID that targets a different Goal", async () => {
     const original = await createMissionFixture({
       kind: "wait",
