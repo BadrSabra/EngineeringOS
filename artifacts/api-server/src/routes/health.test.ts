@@ -3,9 +3,11 @@
  */
 import { afterEach, describe, expect, it, vi } from "vitest";
 import request from "supertest";
+import express from "express";
 import app from "../app.js";
 import { logger } from "../lib/logger.js";
 import { workspaceRuntime } from "../lib/workspace-runtime.js";
+import { createHealthHandler } from "./health.js";
 
 afterEach(() => {
   vi.restoreAllMocks();
@@ -23,6 +25,12 @@ describe("GET /healthz", () => {
     const res = await request(app).get("/api/healthz");
     expect(res.status).toBe(200);
     expect(res.body.status).toBe("ok");
+    expect(res.body.databasePool).toEqual({
+      activeClients: expect.any(Number),
+      idleClients: expect.any(Number),
+      waitingRequests: expect.any(Number),
+      maxClients: expect.any(Number),
+    });
     expect(res.body.unresolvedRuntimeStart).toMatchObject({
       status: expect.stringMatching(/^(clear|alert)$/),
       thresholdMs: expect.any(Number),
@@ -90,6 +98,27 @@ describe("GET /healthz", () => {
       thresholdMs: 60_000,
       unresolvedCount: 2,
       oldestAgeMs: 90_000,
+    });
+  });
+
+  it("reports pool waiters without failing the liveness check", async () => {
+    const healthApp = express();
+    healthApp.get("/api/healthz", createHealthHandler(() => ({
+      activeClients: 4,
+      idleClients: 0,
+      waitingRequests: 2,
+      maxClients: 4,
+    })));
+
+    const res = await request(healthApp).get("/api/healthz");
+
+    expect(res.status).toBe(200);
+    expect(res.body.status).toBe("ok");
+    expect(res.body.databasePool).toEqual({
+      activeClients: 4,
+      idleClients: 0,
+      waitingRequests: 2,
+      maxClients: 4,
     });
   });
 

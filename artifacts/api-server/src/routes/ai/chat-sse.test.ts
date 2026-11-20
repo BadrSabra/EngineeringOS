@@ -148,6 +148,12 @@ vi.mock("@workspace/db", () => {
   };
 
   return {
+    getDatabasePoolMetrics: () => ({
+      activeClients: 0,
+      idleClients: 0,
+      waitingRequests: 0,
+      maxClients: 10,
+    }),
     db: {
       select: (fields?: Record<string, unknown>) => ({
         from: (table: unknown) => ({

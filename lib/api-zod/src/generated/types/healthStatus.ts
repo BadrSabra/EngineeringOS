@@ -6,6 +6,7 @@
  * OpenAPI spec version: 1.0.0
  */
 import type { AiDiagnosticsRetentionHealth } from './aiDiagnosticsRetentionHealth';
+import type { DatabasePoolHealth } from './databasePoolHealth';
 import type { HealthStatusStatus } from './healthStatusStatus';
 import type { JobQueueStats } from './jobQueueStats';
 import type { JobRecoveryHealth } from './jobRecoveryHealth';
@@ -15,6 +16,7 @@ import type { UnresolvedRuntimeStartHealth } from './unresolvedRuntimeStartHealt
 
 export interface HealthStatus {
   status: HealthStatusStatus;
+  databasePool?: DatabasePoolHealth;
   jobQueue?: JobQueueStats;
   operationalCounters?: OperationalCounters;
   aiDiagnosticsRetention?: AiDiagnosticsRetentionHealth;
