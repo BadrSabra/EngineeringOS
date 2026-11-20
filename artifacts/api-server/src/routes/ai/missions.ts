@@ -49,12 +49,14 @@ import {
 import {
   receiveMissionEvent,
   runMissionGoal,
-  wakeReadyMissionGoals,
   authorizeMissionGoalContinuation,
   deriveProofGatedMissionStatus,
   type MissionGoalRunTrigger,
 } from "../../lib/mission-runtime.js";
-import { finalizeMissionPlanOutcomesAfterGoalCompletion } from "../../lib/mission-strategy-plan-outcome-store.js";
+import {
+  dispatchMissionGoalWakeIntent,
+  insertMissionGoalWakeIntent,
+} from "../../lib/mission-goal-wake-outbox.js";
 import {
   parseExecutionRequest,
   recoverAiExecutionResumeToken,
@@ -4105,7 +4107,7 @@ router.patch("/ai/goals/:goalId", async (req, res) => {
           eq(aiMissionsTable.projectId, owned.project.id),
         ))
         .for("update");
-      if (!lockedMission) return { updated: undefined, newlyCompleted: false };
+      if (!lockedMission) return { updated: undefined, wakeIntentId: undefined };
       const [currentGoal] = await tx.select()
         .from(aiGoalsTable)
         .where(and(
@@ -4114,7 +4116,7 @@ router.patch("/ai/goals/:goalId", async (req, res) => {
           eq(aiGoalsTable.projectId, owned.project.id),
         ))
         .for("update");
-      if (!currentGoal) return { updated: undefined, newlyCompleted: false };
+      if (!currentGoal) return { updated: undefined, wakeIntentId: undefined };
       const proofContractChanged = (
         body.successCriteria !== undefined
         && !isDeepStrictEqual(body.successCriteria, currentGoal.successCriteria)
@@ -4216,7 +4218,7 @@ router.patch("/ai/goals/:goalId", async (req, res) => {
         .set(updateValues)
         .where(eq(aiGoalsTable.id, currentGoal.id))
         .returning();
-      if (!updated) return { updated: undefined, newlyCompleted: false };
+      if (!updated) return { updated: undefined, wakeIntentId: undefined };
 
       if (Object.prototype.hasOwnProperty.call(body, "dependsOnGoalIds")) {
         await setGoalDependencies(tx, {
@@ -4319,30 +4321,28 @@ router.patch("/ai/goals/:goalId", async (req, res) => {
           });
         }
       }
-      return {
-        updated,
-        newlyCompleted: currentGoal.status !== "completed" && updated.status === "completed",
-      };
+      const newlyCompleted = currentGoal.status !== "completed" && updated.status === "completed";
+      const wakeIntentId = newlyCompleted && updated.completedAt
+        ? await insertMissionGoalWakeIntent(tx, {
+            missionId: goal.missionId,
+            projectId: goal.projectId,
+            goalId: goal.id,
+            completedAt: updated.completedAt,
+          })
+        : undefined;
+      return { updated, wakeIntentId };
     });
     if (!result.updated) return res.status(404).json({ error: "Goal not found" });
-    if (result.newlyCompleted) {
-      // PATCH is a direct Goal-completion ingress just like Task, Recipe, and
-      // Apply finalizers. Wake only this Goal's dependents after the proof-gated
-      // transaction commits; the existing runtime revalidates every successor.
+    if (result.wakeIntentId) {
+      // The durable wake is committed with the proof-gated Goal transition.
+      // This post-commit dispatch is only the low-latency path; the durable
+      // dispatcher retries the same intent after process interruption/failure.
       try {
-        await wakeReadyMissionGoals(32, goal.projectId, goal.id);
+        await dispatchMissionGoalWakeIntent(result.wakeIntentId);
       } catch (error) {
         logger.error(
-          { error, missionId: goal.missionId, goalId: goal.id },
-          "post-patch Mission Goal dependency wake failed; durable reconciliation will retry",
-        );
-      }
-      try {
-        await finalizeMissionPlanOutcomesAfterGoalCompletion(goal.id);
-      } catch (error) {
-        logger.error(
-          { error, missionId: goal.missionId, goalId: goal.id },
-          "post-patch Mission plan outcome finalization failed; durable reconciliation will retry",
+          { error, missionId: goal.missionId, goalId: goal.id, intentId: result.wakeIntentId },
+          "post-patch Mission Goal wake enqueue failed; durable intent remains pending",
         );
       }
     }
