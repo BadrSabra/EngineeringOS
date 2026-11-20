@@ -16,7 +16,8 @@ import { randomUUID } from "node:crypto";
 import type { AgentContext } from "./schemas/context.schema.js";
 import { parseAgentContext } from "./schemas/context.schema.js";
 import { buildContextCacheKey, getCachedContext, setCachedContext, hashExecutionPlan, type ContextCacheRuntime } from "./context-cache-manager.js";
-import { loadProjectContext, type BuildProjectContextOptions, type ContextLoadSection } from "./context-loader.js";
+import { loadCurrentContextManifestCacheIdentity, loadProjectContext, type BuildProjectContextOptions, type ContextLoadSection } from "./context-loader.js";
+import { contextManifestCacheIdentityMatches } from "./context-manifest.js";
 import { buildProjectContextFromLoadedContext } from "./context-serializer.js";
 import { resolveExecutionDecision } from "./model-selection/decision-engine.js";
 import type { ExecutionPlan } from "./model-selection/execution-plan.js";
@@ -297,7 +298,28 @@ export async function buildProjectContext(
   const now = Date.now();
   const cacheMode = effectivePlan.cacheMode;
   const cached = getCachedContext(cacheKey, cacheMode);
+  let cachedManifestIsCurrent = false;
   if (cached && cached.expiresAt > now) {
+    const cachedManifest = cached.runtime?.baseContext.contextManifest
+      ?? cached.data.contextManifest;
+    if (cachedManifest) {
+      try {
+        const currentIdentity = await loadCurrentContextManifestCacheIdentity(projectId, {
+          signal: options.signal,
+          deadlineMs: options.deadlineMs,
+        });
+        cachedManifestIsCurrent = contextManifestCacheIdentityMatches(
+          cachedManifest,
+          currentIdentity,
+        );
+      } catch {
+        // A failed identity read is not proof that cached context is current.
+        // Fall through to the ordinary bounded context load instead.
+        cachedManifestIsCurrent = false;
+      }
+    }
+  }
+  if (cached && cached.expiresAt > now && cachedManifestIsCurrent) {
     if (cached.runtime) {
       const cachedIdentity = cached.runtime.contextObject.plan.admissionIdentity;
       if (
