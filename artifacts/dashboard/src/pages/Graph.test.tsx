@@ -19,6 +19,7 @@ vi.mock('@workspace/api-client-react', () => ({
 
 const graphHandoffMocks = vi.hoisted(() => ({
   setLocation: vi.fn(),
+  search: '',
 }));
 
 vi.mock('@clerk/react', () => ({
@@ -27,6 +28,7 @@ vi.mock('@clerk/react', () => ({
 
 vi.mock('wouter', () => ({
   useLocation: () => ['/graph', graphHandoffMocks.setLocation],
+  useSearch: () => graphHandoffMocks.search,
 }));
 
 import {
@@ -73,6 +75,11 @@ const graphMeta = {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  graphHandoffMocks.search = '';
+  graphHandoffMocks.setLocation.mockImplementation((path: string) => {
+    const query = path.split('?')[1];
+    graphHandoffMocks.search = query ? `?${query}` : '';
+  });
   window.sessionStorage.clear();
   vi.stubGlobal('ResizeObserver', class {
     observe() {}
@@ -174,7 +181,11 @@ describe('Graph', () => {
     const projectSelect = screen.getByRole('combobox', { name: 'اختر مشروع الرسم البياني' });
 
     fireEvent.change(projectSelect, { target: { value: secondProject.id } });
+    rerender(<Graph />);
 
+    expect(graphHandoffMocks.setLocation).toHaveBeenLastCalledWith(
+      '/graph?projectId=project-2',
+    );
     expect(useListGraphEntities).toHaveBeenLastCalledWith(
       { projectId: secondProject.id },
       expect.objectContaining({
@@ -196,12 +207,69 @@ describe('Graph', () => {
     );
   });
 
-  it('does not keep an entity selection or detail query when switching projects', () => {
+  it('loads the selected project from a direct graph URL', () => {
+    graphHandoffMocks.search = '?projectId=project-2';
     vi.mocked(useListProjects).mockReturnValue({
       data: [project, secondProject],
     } as ReturnType<typeof useListProjects>);
 
     render(<Graph />);
+
+    expect(screen.getByRole('combobox', { name: 'اختر مشروع الرسم البياني' }))
+      .toHaveValue(secondProject.id);
+    expect(useListGraphEntities).toHaveBeenLastCalledWith(
+      { projectId: secondProject.id },
+      expect.objectContaining({
+        query: expect.objectContaining({ enabled: true }),
+      }),
+    );
+    expect(graphHandoffMocks.setLocation).not.toHaveBeenCalled();
+  });
+
+  it('follows project URL changes when navigating through browser history', () => {
+    graphHandoffMocks.search = '?projectId=project-2';
+    vi.mocked(useListProjects).mockReturnValue({
+      data: [project, secondProject],
+    } as ReturnType<typeof useListProjects>);
+
+    const graph = render(<Graph />);
+    graphHandoffMocks.search = '?projectId=project-1';
+    graph.rerender(<Graph />);
+
+    expect(screen.getByRole('combobox', { name: 'اختر مشروع الرسم البياني' }))
+      .toHaveValue(project.id);
+    expect(useListGraphEntities).toHaveBeenLastCalledWith(
+      { projectId: project.id },
+      expect.objectContaining({
+        query: expect.objectContaining({ enabled: true }),
+      }),
+    );
+  });
+
+  it('falls back to an owned project when the URL requests an unavailable project', () => {
+    graphHandoffMocks.search = '?projectId=not-owned';
+
+    render(<Graph />);
+
+    expect(screen.getByRole('combobox', { name: 'اختر مشروع الرسم البياني' }))
+      .toHaveValue(project.id);
+    expect(useListGraphEntities).toHaveBeenLastCalledWith(
+      { projectId: project.id },
+      expect.objectContaining({
+        query: expect.objectContaining({ enabled: true }),
+      }),
+    );
+    expect(graphHandoffMocks.setLocation).toHaveBeenLastCalledWith(
+      '/graph?projectId=project-1',
+    );
+  });
+
+  it('does not keep an entity selection or detail query when switching projects', () => {
+    vi.mocked(useListProjects).mockReturnValue({
+      data: [project, secondProject],
+    } as ReturnType<typeof useListProjects>);
+
+    const graph = render(<Graph />);
     fireEvent.click(screen.getByRole('button', { name: 'source.ts' }));
 
     expect(useGetGraphEntityNeighbors).toHaveBeenLastCalledWith(
@@ -214,7 +282,11 @@ describe('Graph', () => {
     fireEvent.change(screen.getByRole('combobox', { name: 'اختر مشروع الرسم البياني' }), {
       target: { value: secondProject.id },
     });
-
+    expect(graphHandoffMocks.setLocation).toHaveBeenLastCalledWith(
+      '/graph?projectId=project-2',
+    );
+    // The route mock mirrors Wouter's location update on the next render.
+    graph.rerender(<Graph />);
     expect(useGetGraphEntityNeighbors).toHaveBeenLastCalledWith(
       '',
       expect.objectContaining({
