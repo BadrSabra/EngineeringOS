@@ -44,6 +44,7 @@ const refetch = vi.fn();
 
 beforeEach(() => {
   vi.clearAllMocks();
+  window.history.replaceState({}, "", "/events");
   mocks.isLoaded = true;
   mocks.user = { id: "user-1" };
   vi.mocked(useListProjects).mockReturnValue({
@@ -94,6 +95,33 @@ describe("Events", () => {
     expect(screen.getByText("Beta task failed")).toBeInTheDocument();
     expect(screen.getByText("عرض 1–2 من 2")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "الأقدم" })).toBeDisabled();
+  });
+
+  it("filters the whole event log by a clicked correlation id in one step", () => {
+    window.history.replaceState(
+      {},
+      "",
+      "/events?projectId=project-beta&severity=error&search=Task&page=3",
+    );
+    render(<Events />);
+
+    fireEvent.click(screen.getByTestId("button-event-correlation-event-1"));
+
+    expect(screen.getByTestId("input-event-correlation")).toHaveValue(
+      "event-correlation-0123456789abcdef",
+    );
+    const latestCall = vi.mocked(useListEvents).mock.calls.at(-1);
+    expect(latestCall?.[0]).toEqual({
+      limit: 50,
+      page: 1,
+      correlationId: "event-correlation-0123456789abcdef",
+    });
+    const params = new URLSearchParams(window.location.search);
+    expect(params.get("correlationId")).toBe("event-correlation-0123456789abcdef");
+    expect(params.has("projectId")).toBe(false);
+    expect(params.has("severity")).toBe(false);
+    expect(params.has("search")).toBe(false);
+    expect(params.has("page")).toBe(false);
   });
 
   it("opens a known project's workspace by name and keeps unavailable project ids readable", () => {

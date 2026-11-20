@@ -177,6 +177,8 @@ export default function Events() {
             <span className="text-xs text-muted-foreground font-medium">العملية</span>
             <input
               value={correlationId}
+              aria-label="تصفية حسب معرّف الارتباط"
+              data-testid="input-event-correlation"
                onChange={(e) => {
                  setCorrelationId(e.target.value);
                  setPage(1);
@@ -285,7 +287,25 @@ export default function Events() {
                           )}
                         </div>
                         <div className="w-56 opacity-60 shrink-0 truncate" title={evt.correlationId || undefined}>
-                          {evt.correlationId ? <bdi dir="ltr">{evt.correlationId}</bdi> : 'غير مرتبط'}
+                          {evt.correlationId ? (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setProjectId('');
+                                setSeverity('');
+                                setSearchTerm('');
+                                setCorrelationId(evt.correlationId!);
+                                setPage(1);
+                                setShowFilters(true);
+                              }}
+                              aria-label={`اعرض أحداث العملية المرتبطة ${evt.correlationId}`}
+                              title="اعرض كل أحداث العملية المرتبطة"
+                              data-testid={`button-event-correlation-${evt.id}`}
+                              className="rounded text-start hover:text-primary hover:underline focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary"
+                            >
+                              <bdi dir="ltr">{evt.correlationId}</bdi>
+                            </button>
+                          ) : 'غير مرتبط'}
                         </div>
                         <div className="flex min-w-0 flex-1 flex-col gap-2 sm:flex-row sm:items-start">
                           <div
