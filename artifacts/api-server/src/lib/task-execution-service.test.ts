@@ -403,10 +403,25 @@ describe("AI task execution failure classification", () => {
       error: new GroqClientError("RATE_LIMITED", "provider detail"),
     });
 
+    const unknownProviderReceipt = buildAiTaskExecutionFailureReceipt({
+      executionId: "execution-4",
+      correlationId: "correlation-4",
+      provider: "openrouter",
+      attempt: 1,
+      durationMs: 20,
+      stages: ["provider_call"],
+      code: "provider_response_empty",
+      failureClass: "provider",
+      retryable: true,
+      error: new GroqClientError("EMPTY_RESPONSE", "empty model response"),
+    });
+
     expect(nonProviderReceipt.availabilityState).toBeUndefined();
     expect(nonProviderReceipt.operatorAction).toBeUndefined();
     expect(cancelledReceipt.availabilityState).toBeUndefined();
     expect(cancelledReceipt.operatorAction).toBeUndefined();
+    expect(unknownProviderReceipt.availabilityState).toBeUndefined();
+    expect(unknownProviderReceipt.operatorAction).toBeUndefined();
   });
 
   it("keeps provider failures recoverable and distinct from generic execution failures", () => {
