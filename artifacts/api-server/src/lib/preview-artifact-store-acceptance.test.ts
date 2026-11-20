@@ -201,7 +201,7 @@ async function createFixture(input: { jobId?: string } = {}) {
     sourceDigest: SOURCE_DIGEST,
     archiveDigest: ARCHIVE_DIGEST,
     inputArtifactKey: `preview-build-inputs/${jobId}.zip`,
-    inputArtifactProvider: "local",
+    inputArtifactProvider: "s3",
     inputArtifactStoreId: storeId,
     inputArtifactRefId,
     inputArtifactSizeBytes: 2048,
