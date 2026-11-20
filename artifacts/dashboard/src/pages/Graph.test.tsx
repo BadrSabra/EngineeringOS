@@ -17,6 +17,18 @@ vi.mock('@workspace/api-client-react', () => ({
   getGetGraphEntityImpactQueryKey: vi.fn(() => ['graph-impact']),
 }));
 
+const graphHandoffMocks = vi.hoisted(() => ({
+  setLocation: vi.fn(),
+}));
+
+vi.mock('@clerk/react', () => ({
+  useUser: () => ({ isLoaded: true, user: { id: 'user-1' } }),
+}));
+
+vi.mock('wouter', () => ({
+  useLocation: () => ['/graph', graphHandoffMocks.setLocation],
+}));
+
 import {
   useGetGraphEntityImpact,
   useGetGraphEntityNeighbors,
@@ -61,6 +73,7 @@ const graphMeta = {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  window.sessionStorage.clear();
   vi.stubGlobal('ResizeObserver', class {
     observe() {}
     disconnect() {}
@@ -216,6 +229,7 @@ describe('Graph', () => {
     fireEvent.click(screen.getByRole('button', { name: 'source.ts' }));
 
     expect(screen.getByRole('button', { name: 'العلاقات' })).toBeInTheDocument();
+    expect(screen.getByTestId('graph-assistant-handoff')).toBeInTheDocument();
     expect(screen.getByText('الصادرة (1)')).toBeInTheDocument();
     expect(screen.getByText('calls')).toBeInTheDocument();
     expect(screen.getAllByText('buildGraph').length).toBeGreaterThan(0);
