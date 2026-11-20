@@ -105,8 +105,10 @@ function payloadMatchesTask(
 
 type TaskExecutionTransaction = Parameters<Parameters<typeof db.transaction>[0]>[0];
 
-async function databaseClock(tx: TaskExecutionTransaction | typeof db): Promise<Date | null> {
-  const result = await tx.execute(sql`SELECT clock_timestamp() AS now`);
+async function databaseClock(tx?: TaskExecutionTransaction): Promise<Date | null> {
+  const result = tx
+    ? await tx.execute(sql`SELECT clock_timestamp() AS now`)
+    : await db.execute(sql`SELECT clock_timestamp() AS now`);
   const value = (result.rows as Array<{ now: Date | string }>)[0]?.now;
   const date = value instanceof Date ? value : new Date(String(value ?? ""));
   return value && Number.isFinite(date.getTime()) ? date : null;
@@ -661,7 +663,7 @@ async function recordDeferredVerificationFailure(
  * pass.
  */
 export async function dispatchDeferredTaskVerifications(limit = 100): Promise<number> {
-  const now = await databaseClock(db);
+  const now = await databaseClock();
   if (!now) return 0;
   const intents = await db.select({
     intentId: eventsTable.id,
