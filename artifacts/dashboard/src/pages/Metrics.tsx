@@ -84,6 +84,9 @@ export default function Metrics() {
             aria-label="اختر المشروع"
             className="w-full min-w-0 bg-card border border-border rounded-md px-3 py-2 text-sm focus:border-primary focus:outline-none font-medium sm:w-56"
           >
+            {projects?.length === 0 && (
+              <option value="">لا توجد مشاريع متاحة</option>
+            )}
             {projects?.map((p) => (
               <option key={p.id} value={p.id}>
                 {p.name}
