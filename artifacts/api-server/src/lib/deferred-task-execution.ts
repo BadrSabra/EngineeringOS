@@ -770,6 +770,7 @@ export async function dispatchDeferredTaskVerifications(limit = 100): Promise<nu
       await runDeferredTaskVerification(intent.taskId!);
     });
     if (result === "enqueued") enqueued++;
+    if (result === "full") break;
   }
   return enqueued;
 }
@@ -797,7 +798,7 @@ export async function recoverExpiredDeferredTaskVerifications(): Promise<number>
     ))
     .where(and(
       eq(tasksTable.status, "running"),
-      or(isNull(tasksTable.leaseUntil), lte(tasksTable.leaseUntil, now)),
+      or(isNull(tasksTable.leaseUntil), lte(tasksTable.leaseUntil, databaseNow())),
     ))
     .orderBy(asc(tasksTable.id))
     .limit(100);
@@ -837,7 +838,7 @@ export async function recoverExpiredDeferredTaskVerifications(): Promise<number>
       }).where(and(
         eq(tasksTable.id, item.taskId),
         eq(tasksTable.status, "running"),
-        eq(tasksTable.workerId, item.workerId!),
+        item.workerId ? eq(tasksTable.workerId, item.workerId) : isNull(tasksTable.workerId),
         or(isNull(tasksTable.leaseUntil), lte(tasksTable.leaseUntil, databaseNow())),
       )).returning({ id: tasksTable.id });
       if (!restored) return;
