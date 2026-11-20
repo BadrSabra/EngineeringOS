@@ -353,52 +353,115 @@ export function applyOpenRouterFreeOnlyFallbackPolicy<T extends { provider: Prov
   return candidates.filter((candidate) => candidate.provider === "openrouter");
 }
 
-let modelContractHistoryLoadPromise: Promise<void> | undefined;
+const MODEL_CONTRACT_HISTORY_RETRY_DELAY_MS = 30_000;
+
+type RetryableSingleFlightLoaderOptions = {
+  retryDelayMs: number;
+  now?: () => number;
+  onError?: (error: unknown) => void;
+};
+
+/**
+ * Coalesce concurrent initialization reads and allow transient failures to
+ * recover without restarting the API process. A failed read is retried only
+ * after the configured cooldown; successful initialization is process-local
+ * and runs once.
+ */
+export function createRetryableSingleFlightLoader(
+  load: () => Promise<void>,
+  options: RetryableSingleFlightLoaderOptions,
+): () => Promise<void> {
+  let loaded = false;
+  let inFlight: Promise<void> | undefined;
+  let retryAt = Number.NEGATIVE_INFINITY;
+  const now = options.now ?? Date.now;
+  const retryDelayMs = Number.isSafeInteger(options.retryDelayMs)
+    && options.retryDelayMs >= 0
+    ? options.retryDelayMs
+    : 30_000;
+
+  return async () => {
+    if (loaded) return;
+    if (inFlight) {
+      await inFlight;
+      return;
+    }
+    if (now() < retryAt) return;
+
+    const attempt = Promise.resolve()
+      .then(load)
+      .then(
+        () => {
+          loaded = true;
+          retryAt = Number.NEGATIVE_INFINITY;
+        },
+        (error: unknown) => {
+          retryAt = now() + retryDelayMs;
+          try {
+            options.onError?.(error);
+          } catch {
+            // Diagnostics must not turn an optional history read into a failure.
+          }
+        },
+      );
+    inFlight = attempt;
+    try {
+      await attempt;
+    } finally {
+      if (inFlight === attempt) inFlight = undefined;
+    }
+  };
+}
+
 let modelContractHistoryPersistenceReady = false;
 
+const loadModelContractHistory = createRetryableSingleFlightLoader(
+  async () => {
+    const now = new Date();
+    const cutoff = new Date(
+      now.getTime() - MODEL_CONTRACT_ACCEPTANCE_CONFIG.windowMs,
+    );
+    const rows = await db
+      .select({
+        model: aiUsageEventsTable.model,
+        contract: aiUsageEventsTable.modelTaskContract,
+        outcome: aiUsageEventsTable.modelTaskOutcome,
+        occurredAt: aiUsageEventsTable.occurredAt,
+      })
+      .from(aiUsageEventsTable)
+      .where(and(
+        eq(aiUsageEventsTable.provider, "openrouter"),
+        eq(
+          aiUsageEventsTable.modelTaskContract,
+          MODEL_TASK_CONTRACTS.PROJECT_QUERY_NO_TOOLS_SYNTHESIS,
+        ),
+        isNotNull(aiUsageEventsTable.model),
+        isNotNull(aiUsageEventsTable.modelTaskOutcome),
+        gte(aiUsageEventsTable.occurredAt, cutoff),
+        gte(aiUsageEventsTable.expiresAt, now),
+      ))
+      .orderBy(desc(aiUsageEventsTable.occurredAt))
+      .limit(MODEL_CONTRACT_ACCEPTANCE_CONFIG.maxSamplesPerModelContract * 32);
+    hydrateModelContractSamples(rows);
+    modelContractHistoryPersistenceReady = true;
+  },
+  {
+    retryDelayMs: MODEL_CONTRACT_HISTORY_RETRY_DELAY_MS,
+    onError: (error) => {
+      modelContractHistoryPersistenceReady = false;
+      logger.warn(
+        {
+          errorName: error instanceof Error ? error.name : "unknown",
+          retryDelayMs: MODEL_CONTRACT_HISTORY_RETRY_DELAY_MS,
+        },
+        "Durable model-contract history unavailable; will retry after backoff",
+      );
+    },
+  },
+);
+
 async function ensureModelContractHistoryLoaded(): Promise<void> {
-  if (!modelContractHistoryLoadPromise) {
-    modelContractHistoryLoadPromise = (async () => {
-      try {
-        const now = new Date();
-        const cutoff = new Date(
-          now.getTime() - MODEL_CONTRACT_ACCEPTANCE_CONFIG.windowMs,
-        );
-        const rows = await db
-          .select({
-            model: aiUsageEventsTable.model,
-            contract: aiUsageEventsTable.modelTaskContract,
-            outcome: aiUsageEventsTable.modelTaskOutcome,
-            occurredAt: aiUsageEventsTable.occurredAt,
-          })
-          .from(aiUsageEventsTable)
-          .where(and(
-            eq(aiUsageEventsTable.provider, "openrouter"),
-            eq(
-              aiUsageEventsTable.modelTaskContract,
-              MODEL_TASK_CONTRACTS.PROJECT_QUERY_NO_TOOLS_SYNTHESIS,
-            ),
-            isNotNull(aiUsageEventsTable.model),
-            isNotNull(aiUsageEventsTable.modelTaskOutcome),
-            gte(aiUsageEventsTable.occurredAt, cutoff),
-            gte(aiUsageEventsTable.expiresAt, now),
-          ))
-          .orderBy(desc(aiUsageEventsTable.occurredAt))
-          .limit(MODEL_CONTRACT_ACCEPTANCE_CONFIG.maxSamplesPerModelContract * 32);
-        hydrateModelContractSamples(rows);
-        modelContractHistoryPersistenceReady = true;
-      } catch (error) {
-        modelContractHistoryPersistenceReady = false;
-        logger.warn(
-          {
-            errorName: error instanceof Error ? error.name : "unknown",
-          },
-          "Durable model-contract history unavailable; using process-local scoring",
-        );
-      }
-    })();
-  }
-  await modelContractHistoryLoadPromise;
+  await loadModelContractHistory();
 }
 
 // ── Per-provider key resolution ───────────────────────────────────────────────
