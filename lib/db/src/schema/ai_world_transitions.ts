@@ -64,6 +64,11 @@ export const aiWorldTransitionsTable = pgTable("ai_world_transitions", {
   ),
   uniqueIndex("uq_ai_world_transitions_idempotency").on(t.projectId, t.idempotencyKey),
   index("idx_ai_world_transitions_recovery").on(t.projectId, t.status, t.nextRetryAt),
+  // The shared recovery worker scans due transitions across all projects in
+  // createdAt order; exclude completed history from this global candidate index.
+  index("idx_ai_world_transitions_global_recovery")
+    .on(t.createdAt, t.id)
+    .where(sql`${t.status} IN ('pending', 'retrying')`),
   check("ck_ai_world_transitions_attempt_nonnegative", sql`${t.attempt} >= 0`),
   check("ck_ai_world_transitions_retry_count_nonnegative", sql`${t.retryCount} >= 0`),
 ]);

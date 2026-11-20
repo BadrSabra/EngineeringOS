@@ -2711,6 +2711,7 @@ export async function retryPendingRuntimeStartTransitions(limit = 32): Promise<n
     episodeId: aiWorldTransitionsTable.episodeId,
     actionId: aiWorldTransitionsTable.actionId,
     effectBundleId: aiWorldTransitionsTable.effectBundleId,
+    idempotencyKey: aiWorldTransitionsTable.idempotencyKey,
   })
     .from(aiWorldTransitionsTable)
     .where(and(
@@ -2727,17 +2728,9 @@ export async function retryPendingRuntimeStartTransitions(limit = 32): Promise<n
   for (const candidate of candidates) {
     if (!candidate.effectBundleId) continue;
     try {
-      const [transition] = await db.select({ idempotencyKey: aiWorldTransitionsTable.idempotencyKey })
-        .from(aiWorldTransitionsTable).where(and(
-          eq(aiWorldTransitionsTable.projectId, candidate.projectId),
-          eq(aiWorldTransitionsTable.executionId, candidate.executionId),
-          eq(aiWorldTransitionsTable.attempt, candidate.attempt),
-          eq(aiWorldTransitionsTable.episodeId, candidate.episodeId),
-          eq(aiWorldTransitionsTable.actionId, candidate.actionId),
-        )).limit(1);
-      const finalize = transition?.idempotencyKey.startsWith("apply.changes:")
+      const finalize = candidate.idempotencyKey.startsWith("apply.changes:")
         ? finalizeApplyChangesTransition
-        : transition?.idempotencyKey.startsWith("github.delivery:")
+        : candidate.idempotencyKey.startsWith("github.delivery:")
           ? finalizeGitHubDeliveryTransition
           : finalizeRuntimeStartTransition;
       await finalize({
