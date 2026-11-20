@@ -430,7 +430,7 @@ async function deferRecoveryForUnavailableProvider(params: {
 
       const existingRetryAtMs = parseRetryAt(disposition.retryAt);
       if (existingRetryAtMs !== undefined && existingRetryAtMs > nowMs) {
-        return undefined;
+        return existingRetryAtMs - nowMs;
       }
 
       const previousDeferrals = typeof disposition.providerUnavailableDeferralCount === "number"
@@ -916,6 +916,9 @@ async function claimTaskRetry(
       .for("update")
       .limit(1);
     const disposition = asDisposition(acceptance?.disposition);
+    const [clock] = await tx.select({ now: databaseNow() });
+    const nowMs = databaseClockMilliseconds(clock?.now);
+    if (nowMs === undefined) return undefined;
     const retryAtMs = parseRetryAt(disposition.retryAt);
     if (
       !acceptance
@@ -926,7 +929,7 @@ async function claimTaskRetry(
       || acceptance.nextActionCode !== candidate.action
       || acceptance.resumable !== 0
       || disposition.recoveryState !== "REQUIRED"
-      || (retryAtMs !== undefined && retryAtMs > Date.now())
+      || (retryAtMs !== undefined && retryAtMs > nowMs)
       || plan.expectedRetryCount !== candidate.retryCount
       || candidate.retryCount >= candidate.maxRetries
     ) {
