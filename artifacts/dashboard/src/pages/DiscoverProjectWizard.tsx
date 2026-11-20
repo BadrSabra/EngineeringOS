@@ -1,4 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
+import { useUser } from '@clerk/react';
 import { useQueryClient } from '@tanstack/react-query';
 import {
   useStartDiscovery,
@@ -14,6 +15,7 @@ import {
 } from '@workspace/api-client-react';
 import type { ArchiveUploadOutput, Project } from '@workspace/api-client-react';
 import { useLocation } from 'wouter';
+import { HOME_GOAL_MAX_LENGTH, storeHomeGoalDraft } from '@/lib/home-goal-handoff';
 import {
   discoveryRiskLabel,
   discoveryViolationSummary,
@@ -454,6 +456,7 @@ function ReportRow({
 
 export function DiscoverProjectWizard({ onClose }: Props) {
   const [, navigate] = useLocation();
+  const { isLoaded: userLoaded, user } = useUser();
   const queryClient = useQueryClient();
 
   // Wizard state
@@ -477,6 +480,8 @@ export function DiscoverProjectWizard({ onClose }: Props) {
   const [startError, setStartError] = useState<string | null>(null);
   const [workspaceProjectId, setWorkspaceProjectId] = useState<string>('');
   const [importedProjectId, setImportedProjectId] = useState<string | null>(null);
+  const [firstGoal, setFirstGoal] = useState('');
+  const [goalHandoffError, setGoalHandoffError] = useState<string | null>(null);
   const [scanTriggered, setScanTriggered] = useState(false);
   const mountedRef = useRef(false);
 
@@ -662,6 +667,34 @@ export function DiscoverProjectWizard({ onClose }: Props) {
       // Keep the successfully imported project on screen and make the scan retryable.
       if (mountedRef.current) setScanTriggered(false);
     }
+  };
+
+  const handleOpenProjectWorkspace = () => {
+    if (!importedProjectId) return;
+
+    const goal = firstGoal.trim();
+    let goalDraftId: string | null = null;
+    if (goal) {
+      if (!userLoaded || !user?.id) {
+        setGoalHandoffError('تعذر حفظ الهدف قبل فتح مساحة المشروع. انتظر تحميل الحساب وحاول مرة أخرى.');
+        return;
+      }
+
+      const draft = storeHomeGoalDraft(goal, user.id, importedProjectId);
+      if (!draft) {
+        setGoalHandoffError('تعذر حفظ الهدف. بقيت في هذه الشاشة حتى لا يضيع النص.');
+        return;
+      }
+      goalDraftId = draft.id;
+    }
+
+    onClose();
+    const draftQuery = goalDraftId
+      ? `?goalDraftId=${encodeURIComponent(goalDraftId)}`
+      : '';
+    navigate(
+      `/projects/${encodeURIComponent(importedProjectId)}/workspace${draftQuery}#workspace-panel-agent`,
+    );
   };
 
   const setOverride = (key: string) => (value: string) =>
@@ -1546,17 +1579,52 @@ export function DiscoverProjectWizard({ onClose }: Props) {
 
       {importedProjectId && (
         <div className="flex flex-col items-center gap-2">
+          <div className="w-full space-y-2 rounded-xl border border-border/50 bg-card p-4">
+            <label
+              htmlFor="discovery-first-goal"
+              className="block text-sm font-semibold"
+            >
+              ما النتيجة التي تريدها أولًا؟ <span className="font-normal text-muted-foreground">(اختياري)</span>
+            </label>
+            <textarea
+              id="discovery-first-goal"
+              data-testid="textarea-discovery-first-goal"
+              value={firstGoal}
+              onChange={(event) => {
+                setFirstGoal(event.target.value);
+                setGoalHandoffError(null);
+              }}
+              maxLength={HOME_GOAL_MAX_LENGTH}
+              rows={3}
+              placeholder="مثال: اشرح لي بنية المشروع واقترح تحسينًا أولًا."
+              aria-describedby="discovery-first-goal-help"
+              className="w-full resize-y rounded-lg border border-border bg-background px-3 py-2 text-sm leading-relaxed placeholder:text-muted-foreground/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+            />
+            <p
+              id="discovery-first-goal-help"
+              data-testid="text-discovery-first-goal-help"
+              className="text-xs leading-relaxed text-muted-foreground"
+            >
+              عند فتح المساعد ستظهر كمسودة مرتبطة بهذا المشروع، لمراجعتها قبل الإرسال.
+            </p>
+            {goalHandoffError && (
+              <p
+                data-testid="status-discovery-goal-handoff-error"
+                role="alert"
+                className="text-xs text-destructive"
+              >
+                {goalHandoffError}
+              </p>
+            )}
+          </div>
           <button
             type="button"
-            onClick={() => {
-              onClose();
-              navigate(`/projects/${encodeURIComponent(importedProjectId)}/workspace#workspace-panel-agent`);
-            }}
+            onClick={handleOpenProjectWorkspace}
             data-testid="button-open-imported-project-workspace"
             className="inline-flex items-center gap-2 rounded-lg bg-primary px-5 py-2 text-sm font-semibold text-primary-foreground transition-colors hover:bg-primary/90"
           >
             <Layers className="h-4 w-4" aria-hidden="true" />
-            ابدأ العمل في مساحة المشروع
+            {firstGoal.trim() ? 'راجع الهدف في مساحة المشروع' : 'ابدأ العمل في مساحة المشروع'}
           </button>
           {!scanTriggered && (
             <button
