@@ -299,6 +299,91 @@ describe('project-scoped task list contracts', () => {
     );
   });
 
+  it('filters the loaded project list to tasks that need a next step', () => {
+    const baseTask = {
+      ...recoveryCases[0],
+      projectId: 'project-1',
+      priority: 'p1',
+      phase: 'execute',
+      createdAt: '2026-08-25T10:00:00.000Z',
+      updatedAt: '2026-08-25T10:01:00.000Z',
+      retryCount: 0,
+      maxRetries: 3,
+    };
+    vi.mocked(useListTasks).mockReturnValue({
+      data: [
+        { ...baseTask, id: 'pending-task', title: 'Pending task', status: 'pending' },
+        { ...baseTask, id: 'queued-task', title: 'Queued task', status: 'queued' },
+        { ...baseTask, id: 'failed-task', title: 'Failed task', status: 'failed' },
+        { ...baseTask, id: 'verifying-task', title: 'Verification task', status: 'verifying' },
+        { ...baseTask, id: 'completed-task', title: 'Completed task', status: 'completed' },
+        { ...baseTask, id: 'running-task', title: 'Running task', status: 'running' },
+      ],
+      isLoading: false,
+      isError: false,
+      error: null,
+      refetch: vi.fn(),
+      isRefetching: false,
+      dataUpdatedAt: 0,
+    } as ReturnType<typeof useListTasks>);
+
+    window.history.replaceState({}, '', '/tasks?projectId=project-1');
+    renderPage();
+
+    const followUpFilter = screen.getByTestId('button-filter-follow-up-tasks');
+    fireEvent.click(followUpFilter);
+
+    expect(followUpFilter).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.getByText('Pending task')).toBeInTheDocument();
+    expect(screen.getByText('Queued task')).toBeInTheDocument();
+    expect(screen.getByText('Failed task')).toBeInTheDocument();
+    expect(screen.getByText('Verification task')).toBeInTheDocument();
+    expect(screen.queryByText('Completed task')).not.toBeInTheDocument();
+    expect(screen.queryByText('Running task')).not.toBeInTheDocument();
+    expect(screen.getByTestId('status-task-filter-summary')).toHaveTextContent(
+      /4.*6 مهمة في القائمة المحمّلة/,
+    );
+    expect(new URLSearchParams(window.location.search).get('followUp')).toBe('1');
+
+    fireEvent.click(screen.getByTestId('button-filter-follow-up-tasks'));
+    expect(screen.getByTestId('button-filter-follow-up-tasks')).toHaveAttribute('aria-pressed', 'false');
+    expect(screen.getByText('Completed task')).toBeInTheDocument();
+    expect(screen.getByText('Running task')).toBeInTheDocument();
+    expect(new URLSearchParams(window.location.search).has('followUp')).toBe(false);
+  });
+
+  it('preserves useful search and priority filters when enabling follow-up mode', () => {
+    window.history.replaceState(
+      {},
+      '',
+      '/tasks?projectId=project-1&status=completed&priority=p1&acceptance=accepted&search=Repair',
+    );
+    renderPage();
+
+    fireEvent.click(screen.getByTestId('button-filter-follow-up-tasks'));
+
+    const url = new URL(window.location.href);
+    expect(url.searchParams.get('followUp')).toBe('1');
+    expect(url.searchParams.get('projectId')).toBe('project-1');
+    expect(url.searchParams.get('priority')).toBe('p1');
+    expect(url.searchParams.get('search')).toBe('Repair');
+    expect(url.searchParams.has('status')).toBe(false);
+    expect(url.searchParams.has('acceptance')).toBe(false);
+    expect(screen.getByRole('combobox', { name: 'تصفية المهام حسب الحالة' })).toHaveValue('');
+    expect(screen.getByRole('combobox', { name: 'تصفية المهام حسب القبول' })).toHaveValue('');
+    expect(screen.getByRole('combobox', { name: 'تصفية المهام حسب الأولوية' })).toHaveValue('p1');
+    expect(screen.getByRole('textbox', { name: 'ابحث عن مهمة' })).toHaveValue('Repair');
+  });
+
+  it('restores follow-up mode from a copied task-list link', () => {
+    window.history.replaceState({}, '', '/tasks?projectId=project-1&followUp=1');
+    renderPage();
+
+    expect(screen.getByTestId('button-filter-follow-up-tasks')).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.getByTestId('text-task-follow-up-filter')).toHaveTextContent('تحتاج إجراء');
+    expect(new URLSearchParams(window.location.search).get('followUp')).toBe('1');
+  });
+
   it('applies new filters when navigation changes only the task-list query', () => {
     function RouteNavigationProbe() {
       const [, navigate] = useLocation();

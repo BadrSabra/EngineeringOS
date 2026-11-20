@@ -50,6 +50,7 @@ import {
 import { ProviderRecoveryCard } from '@/components/ProviderRecoveryCard';
 import { MissionCapsule } from '@/components/MissionCapsule';
 import { resolveExecutionProofPresentation } from '@/lib/execution-proof-presentation';
+import { isTaskFollowUpCandidate } from '@/lib/task-follow-up-filter';
 
 // ─── Task logs sub-component ──────────────────────────────────────────────────
 // Separated so the hook always runs unconditionally within the mounted component.
@@ -1254,6 +1255,7 @@ type TaskListFilters = {
   status: TaskStatusFilter | '';
   priority: TaskPriorityFilter | '';
   acceptance: TaskAcceptanceFilter | '';
+  followUp: boolean;
   search: string;
 };
 
@@ -1265,6 +1267,7 @@ function readTaskListFilters(params: URLSearchParams): TaskListFilters {
     status: TASK_STATUS_FILTER_OPTIONS.find((value) => value === status) ?? '',
     priority: TASK_PRIORITY_FILTER_OPTIONS.find((value) => value === priority) ?? '',
     acceptance: TASK_ACCEPTANCE_FILTER_OPTIONS.find((value) => value === acceptance) ?? '',
+    followUp: params.get('followUp') === '1',
     search: params.get('search') ?? '',
   };
 }
@@ -1505,6 +1508,7 @@ function TasksSession({
   const [filterStatus, setFilterStatus] = useState<TaskStatusFilter | ''>(initialFilters.status);
   const [filterPriority, setFilterPriority] = useState<TaskPriorityFilter | ''>(initialFilters.priority);
   const [filterAcceptance, setFilterAcceptance] = useState<TaskAcceptanceFilter | ''>(initialFilters.acceptance);
+  const [filterFollowUp, setFilterFollowUp] = useState(initialFilters.followUp);
   const [searchTerm, setSearchTerm] = useState(initialFilters.search);
   const [expandedTask, setExpandedTask] = useState<string | null>(() => requestedTaskId || null);
   const [logsTab, setLogsTab] = useState<Record<string, 'details' | 'logs'>>({});
@@ -1548,6 +1552,12 @@ function TasksSession({
     && requestedTask.projectId === projectId
     && (!filterStatus || requestedTask.status === filterStatus)
     && (!filterPriority || requestedTask.priority === filterPriority)
+    && (!filterFollowUp || isTaskFollowUpCandidate(
+      requestedTask.status,
+      requestedTask.status === 'running' || !requestedTask.acceptance
+        ? null
+        : acceptanceFilterKey(requestedTask.acceptance),
+    ))
     && !tasks.some((task) => task.id === requestedTaskId)
   ) {
     tasks.push(requestedTask);
@@ -1576,12 +1586,18 @@ function TasksSession({
     (!searchTerm ||
       t.title.toLowerCase().includes(searchTerm.toLowerCase()) ||
       (t.description ?? '').toLowerCase().includes(searchTerm.toLowerCase())) &&
+    (!filterFollowUp || isTaskFollowUpCandidate(
+      t.status,
+      taskResultProjectionIsCurrent(t) && t.acceptance
+        ? acceptanceFilterKey(t.acceptance)
+        : null,
+    )) &&
     (!filterAcceptance ||
       (taskResultProjectionIsCurrent(t)
         && t.acceptance
         && acceptanceFilterKey(t.acceptance) === filterAcceptance)),
   ) ?? [];
-  const hasActiveTaskFilters = Boolean(searchTerm || filterStatus || filterPriority || filterAcceptance);
+  const hasActiveTaskFilters = Boolean(searchTerm || filterStatus || filterPriority || filterAcceptance || filterFollowUp);
 
   useEffect(() => {
     const url = new URL(window.location.href);
@@ -1589,6 +1605,7 @@ function TasksSession({
       ['status', filterStatus],
       ['priority', filterPriority],
       ['acceptance', filterAcceptance],
+      ['followUp', filterFollowUp ? '1' : ''],
       ['search', searchTerm],
     ];
     for (const [key, value] of filterParams) {
@@ -1601,7 +1618,7 @@ function TasksSession({
     if (nextUrl !== currentUrl) {
       window.history.replaceState(window.history.state, '', nextUrl);
     }
-  }, [filterStatus, filterPriority, filterAcceptance, searchTerm]);
+  }, [filterStatus, filterPriority, filterAcceptance, filterFollowUp, searchTerm]);
 
   const handleAction = (action: 'execute' | 'retry' | 'rollback' | 'resume', taskId: string) => {
     const label = { execute: 'التنفيذ', retry: 'إعادة المحاولة', rollback: 'التراجع', resume: 'الاستئناف' }[action];
@@ -1764,6 +1781,28 @@ function TasksSession({
             مهمة جديدة
           </button>
           {projectId && <RefreshButton onRefresh={refetch} isRefreshing={isRefetching} lastUpdated={dataUpdatedAt} label="تحديث المهام" refreshingLabel="جارٍ التحديث…" updatedLabel="آخر تحديث:" />}
+          <button
+            type="button"
+            aria-pressed={filterFollowUp}
+            aria-label="تصفية المهام التي تحتاج إجراء"
+            data-testid="button-filter-follow-up-tasks"
+            onClick={() => {
+              const next = !filterFollowUp;
+              setFilterFollowUp(next);
+              if (next) {
+                setFilterStatus('');
+                setFilterAcceptance('');
+              }
+            }}
+            className={`inline-flex items-center gap-2 rounded-md border px-3 py-2 text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary ${
+              filterFollowUp
+                ? 'border-primary bg-primary/10 text-primary'
+                : 'border-border bg-card text-muted-foreground hover:bg-secondary hover:text-foreground'
+            }`}
+          >
+            <AlertTriangle className="h-4 w-4" aria-hidden="true" />
+            تحتاج إجراء
+          </button>
           <div dir="rtl" lang="ar" className="flex flex-wrap items-center gap-2 bg-secondary p-1 rounded-md border border-border">
             <select
               aria-label="تصفية المهام حسب الحالة"
@@ -1858,6 +1897,11 @@ function TasksSession({
               {{ accepted: 'قبول مسجل', interrupted: 'تنفيذ منقطع', failed: 'فشل مسجل', 'recovery-required': 'يتطلب استردادًا' }[filterAcceptance]}
             </span>
           )}
+          {filterFollowUp && (
+            <span data-testid="text-task-follow-up-filter" className="bg-primary/10 border border-primary/30 text-primary px-2 py-0.5 rounded">
+              تحتاج إجراء
+            </span>
+          )}
           <button
             type="button"
             onClick={() => {
@@ -1865,6 +1909,7 @@ function TasksSession({
               setFilterStatus('');
               setFilterPriority('');
               setFilterAcceptance('');
+              setFilterFollowUp(false);
             }}
             aria-label="مسح فلاتر المهام"
             data-testid="button-clear-task-filters"
@@ -1909,10 +1954,12 @@ function TasksSession({
                     accepted: 'القبول المسجل', interrupted: 'التنفيذ المنقطع',
                     failed: 'الفشل المسجل', 'recovery-required': 'الاسترداد المطلوب',
                   }[filterAcceptance]}`
-                : searchTerm ? 'لا توجد مهام تطابق بحثك' : filterStatus || filterPriority ? 'لا توجد مهام تطابق الفلاتر' : 'لا توجد مهام في هذا العرض'}
+                : filterFollowUp
+                  ? 'لا توجد مهام تحتاج إجراء في القائمة المحمّلة'
+                  : searchTerm ? 'لا توجد مهام تطابق بحثك' : filterStatus || filterPriority ? 'لا توجد مهام تطابق الفلاتر' : 'لا توجد مهام في هذا العرض'}
             </h3>
             <p className="text-muted-foreground text-sm">
-              {filterAcceptance || searchTerm || filterStatus || filterPriority
+              {filterAcceptance || filterFollowUp || searchTerm || filterStatus || filterPriority
                 ? 'جرّب عبارة بحث أخرى أو أزل الفلاتر. هذه نتيجة العرض الحالي، لا حكم على كل مهام المشروع.'
                  : 'يمكنك إنشاء مهمة هنا، أو مراجعة المهام التي تنشأ عن مشكلات يكشفها فحص المشروع.'}
             </p>
