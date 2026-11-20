@@ -62,6 +62,7 @@ import {
 } from "./task-objective-contract.js";
 import {
   chatWithFallback,
+  projectProviderRecoveryDetails,
   redactUserFacingText,
   runAgentWithFallback,
 } from "./ai-route-helpers.js";
@@ -436,6 +437,8 @@ export type AiTaskExecutionReceipt = {
   stateProjection?: MissionStateProjection;
   failureClass?: AiTaskFailureClass;
   retryable?: boolean;
+  availabilityState?: string;
+  operatorAction?: string;
 };
 
 export type MissionStateProjection = {
@@ -605,6 +608,12 @@ function boundedReceipt(receiptValue: AiTaskExecutionReceipt): AiTaskExecutionRe
           : {}),
       },
     } : {}),
+    ...(receiptValue.availabilityState
+      ? { availabilityState: safeText(receiptValue.availabilityState, 80) }
+      : {}),
+    ...(receiptValue.operatorAction
+      ? { operatorAction: safeText(receiptValue.operatorAction, 240) }
+      : {}),
     terminalReason: safeText(receiptValue.terminalReason, 240),
   };
   // Keep this envelope bounded even if future fields are added to the contract.
@@ -744,7 +753,7 @@ export function buildAiTaskExecutionReceipt(params: {
   };
 }
 
-function failureReceipt(params: {
+export function buildAiTaskExecutionFailureReceipt(params: {
   executionId: string;
   correlationId: string;
   revision?: string;
@@ -757,8 +766,14 @@ function failureReceipt(params: {
   retryable: boolean;
   cancelled?: boolean;
   executionProfile?: MissionExecutionProfile;
+  error?: unknown;
 }): AiTaskExecutionReceipt {
   const cancelled = Boolean(params.cancelled);
+  const providerRecovery = !cancelled
+    && params.failureClass === "provider"
+    && params.error instanceof GroqClientError
+    ? projectProviderRecoveryDetails(params.error, params.provider)
+    : undefined;
   return boundedReceipt({
     kind: "AI_TASK_EXECUTION_RECEIPT",
     operationId: params.executionId,
@@ -776,6 +791,7 @@ function failureReceipt(params: {
     ...(params.executionProfile ? { executionProfile: params.executionProfile } : {}),
     failureClass: params.failureClass,
     retryable: params.retryable,
+    ...(providerRecovery ? providerRecovery : {}),
   });
 }
 
@@ -5015,7 +5031,7 @@ export async function executeTaskLifecycle(params: {
     },
   });
   if (!initialCheckpointed) {
-    const failure = failureReceipt({
+    const failure = buildAiTaskExecutionFailureReceipt({
       executionId,
       correlationId,
       revision: executionRevision,
@@ -5242,7 +5258,7 @@ export async function executeTaskLifecycle(params: {
       await progress.start("analysis", "Analyzing the model response.", 64, 5);
       await progress.finish("analysis", "failed", "The model response could not be accepted.", 68, 5);
       await progress.start("finalization", "Recording the failed execution.", 84, 7);
-      const parseReceipt = failureReceipt({
+      const parseReceipt = buildAiTaskExecutionFailureReceipt({
         executionId, correlationId, revision: executionRevision,
         provider: effectiveProvider, attempt: executionAttempt,
         durationMs: Date.now() - startedAt, stages, code: "model_output_invalid",
@@ -5297,7 +5313,7 @@ export async function executeTaskLifecycle(params: {
       await progress.finish("verification", "failed", "The result did not pass the quality gate.", 80, 6);
       await progress.start("finalization", "Recording the failed execution.", 84, 7);
       const quality = result._qualityError;
-      const qualityReceipt = failureReceipt({
+      const qualityReceipt = buildAiTaskExecutionFailureReceipt({
         executionId,
         correlationId,
         revision: executionRevision,
@@ -5540,7 +5556,7 @@ export async function executeTaskLifecycle(params: {
     const cancelled = executionAbortController.signal.aborted
       || (error instanceof Error && error.name === "AbortError");
     const classification = classifyTaskExecutionFailure({ stage, cancelled, error });
-    const failure = failureReceipt({
+    const failure = buildAiTaskExecutionFailureReceipt({
       executionId, correlationId, revision: executionRevision,
       provider: executionProvider, attempt: executionAttempt,
       durationMs: Date.now() - startedAt,
@@ -5549,6 +5565,7 @@ export async function executeTaskLifecycle(params: {
       failureClass: classification.failureClass,
       retryable: classification.retryable,
       cancelled,
+      error,
     });
     const message = safeText(classification.code, 120);
     await progress.finish(
