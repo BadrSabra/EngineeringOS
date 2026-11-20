@@ -85,6 +85,18 @@ export function resolveWorkspaceNextStep({
     };
   }
 
+  const blockedTask = recentTasks.find((task) => task.status === 'blocked');
+  if (blockedTask) {
+    return {
+      kind: 'link',
+      title: 'راجع المهمة المتوقفة',
+      description: 'هناك مهمة متوقفة ضمن أحدث المهام. افتح تفاصيلها لمعرفة ما يلزم لمتابعتها؛ لن نستأنفها تلقائيًا.',
+      actionLabel: 'افتح المهمة',
+      ariaLabel: `الخطوة المقترحة: مراجعة المهمة المتوقفة: ${blockedTask.title}`,
+      href: `/tasks?projectId=${encodeURIComponent(projectId)}&taskId=${encodeURIComponent(blockedTask.id)}`,
+    };
+  }
+
   const activeTask = recentTasks.find((task) => ACTIVE_TASK_STATUSES.has(task.status));
   if (activeTask) {
     return {
