@@ -174,6 +174,35 @@ describe("Events", () => {
     expect(screen.queryByRole("link", { name: /deleted-project/ })).not.toBeInTheDocument();
   });
 
+  it("opens the event's exact workflow history only when a workflow is linked", () => {
+    vi.mocked(useListEvents).mockReturnValue({
+      data: {
+        events: [
+          { ...mockEvents[0], workflowId: "workflow/alpha" },
+          mockEvents[1],
+        ],
+        total: 2,
+      },
+      isLoading: false,
+      isFetching: false,
+      isError: false,
+      error: null,
+      dataUpdatedAt: new Date("2026-08-22T12:01:00.000Z").getTime(),
+      refetch,
+    } as ReturnType<typeof useListEvents>);
+
+    render(<Events />);
+
+    expect(screen.getByTestId("link-event-workflow-event-1")).toHaveAttribute(
+      "href",
+      "/workflows?projectId=project-alpha&workflowId=workflow%2Falpha",
+    );
+    expect(screen.getByRole("link", {
+      name: "افتح سجل مسار العمل المرتبط بالحدث ScanCompleted",
+    })).toBeInTheDocument();
+    expect(screen.queryByTestId("link-event-workflow-event-2")).not.toBeInTheDocument();
+  });
+
   it("offers assistant context only for warning or error events in a known project", () => {
     vi.mocked(useListEvents).mockReturnValue({
       data: {

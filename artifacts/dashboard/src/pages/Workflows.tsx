@@ -578,18 +578,26 @@ function ExecutionHistory({
 export default function Workflows() {
   const routeParams = new URLSearchParams(useSearch());
   const requestedProjectId = routeParams.get('projectId') ?? '';
+  const requestedWorkflowId = routeParams.get('workflowId') ?? '';
 
   // Project-scoped local state (expanded workflow, modal, and AI suggestions)
   // must not survive a route transition to another project.
   return (
     <WorkflowsSession
-      key={requestedProjectId || 'default'}
+      key={`${requestedProjectId || 'default'}:${requestedWorkflowId || 'default'}`}
       requestedProjectId={requestedProjectId}
+      requestedWorkflowId={requestedWorkflowId}
     />
   );
 }
 
-function WorkflowsSession({ requestedProjectId }: { requestedProjectId: string }) {
+function WorkflowsSession({
+  requestedProjectId,
+  requestedWorkflowId,
+}: {
+  requestedProjectId: string;
+  requestedWorkflowId: string;
+}) {
   const queryClient = useQueryClient();
   const [, navigate] = useLocation();
   const projectsQuery = useListProjects();
@@ -628,7 +636,7 @@ function WorkflowsSession({ requestedProjectId }: { requestedProjectId: string }
   const isLoading = projectsQuery.isLoading || Boolean(projectId && workflowsLoading);
   const isError = workflowsError;
 
-  const [expandedId, setExpandedId] = useState<string>('');
+  const [expandedId, setExpandedId] = useState<string>(requestedWorkflowId);
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [orchestrationState, setOrchestrationState] = useState<
     | { workflowId: string; status: 'loading' }
@@ -1102,6 +1110,8 @@ function WorkflowsSession({ requestedProjectId }: { requestedProjectId: string }
 
               <button
                 onClick={() => setExpandedId(expandedId === workflow.id ? '' : workflow.id)}
+                aria-expanded={expandedId === workflow.id}
+                data-testid={`button-workflow-history-${workflow.id}`}
                 className="mt-4 w-full flex items-center justify-between text-xs font-semibold text-muted-foreground hover:text-foreground transition-colors border-t border-border pt-4"
               >
                 <span className="flex items-center gap-1.5">

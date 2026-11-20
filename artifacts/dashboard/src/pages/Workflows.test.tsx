@@ -140,6 +140,38 @@ describe('project-scoped Workflows view', () => {
     expect(screen.getByTestId('select-workflow-project')).toHaveValue('project-1');
   });
 
+  it('opens only the requested workflow history from a deep link', () => {
+    window.history.replaceState(
+      {},
+      '',
+      '/workflows?projectId=project-1&workflowId=workflow-1',
+    );
+
+    renderPage();
+
+    expect(screen.getByTestId('button-workflow-history-workflow-1'))
+      .toHaveAttribute('aria-expanded', 'true');
+    expect(screen.getByText(
+      'Retry in a moment. Check provider status if it persists; the product will not switch providers.',
+    )).toBeInTheDocument();
+  });
+
+  it('keeps workflow history closed when the requested workflow is not in the selected project list', () => {
+    window.history.replaceState(
+      {},
+      '',
+      '/workflows?projectId=project-1&workflowId=not-this-workflow',
+    );
+
+    renderPage();
+
+    expect(screen.getByTestId('button-workflow-history-workflow-1'))
+      .toHaveAttribute('aria-expanded', 'false');
+    expect(screen.queryByText(
+      'Retry in a moment. Check provider status if it persists; the product will not switch providers.',
+    )).not.toBeInTheDocument();
+  });
+
   it('invalidates the workflow history and only its owning project list after retry', () => {
     const queryClient = renderPage();
     const invalidateQueries = vi.spyOn(queryClient, 'invalidateQueries');
