@@ -1587,6 +1587,7 @@ async function syncRecipeObjectiveState(params: {
     proposalId?: string | null;
   };
 }): Promise<void> {
+  const immediateReplanMissionId: { value: string | null } = { value: null };
   await db.transaction(async (tx) => {
     const [mission] = await tx
       .select()
@@ -1890,9 +1891,39 @@ async function syncRecipeObjectiveState(params: {
         status: nextMissionStatus,
       },
     });
+    if (
+      goal.status !== nextGoalStatus
+      && mission.status !== nextMissionStatus
+      && nextGoalStatus === "needs_replan"
+      && nextMissionStatus === "needs_replan"
+    ) {
+      immediateReplanMissionId.value = mission.id;
+    }
   });
-}
 
+  // A recipe failure is a durable Mission transition. Re-enter the existing
+  // coordinator only after its Goal/Mission projection commits; all autonomy,
+  // diagnosis, evidence, and retry-budget gates remain owned by autoReplanMission.
+  const missionId = immediateReplanMissionId.value;
+  if (missionId) {
+    try {
+      const { autoReplanMission } = await import("./mission-auto-replan.js");
+      await autoReplanMission(missionId);
+    } catch (error) {
+      logger.warn(
+        {
+          error,
+          missionId,
+          projectId: params.projectId,
+          goalId: params.goalId,
+          operationId: params.operationId,
+          scope: "mission-recipe",
+        },
+        "Immediate Mission replan failed after recipe failure; durable reconciliation remains available.",
+      );
+    }
+  }
+}
 async function findLiveMissionRecipeOwner(dispatch: RecipeDispatch) {
   const rows = await db
     .select({

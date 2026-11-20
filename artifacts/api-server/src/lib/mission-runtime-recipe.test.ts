@@ -30,6 +30,7 @@ import { getProjectWorldState } from "./agent-state/world-state.js";
 import { taskScopeIdentity } from "./agent-state/observation-materializer.js";
 import { buildExecutionProofProjection } from "./execution-proof.js";
 import { dispatchMissionChatHandoff } from "./mission-chat-handoffs.js";
+import * as missionAutoReplanModule from "./mission-auto-replan.js";
 
 const { recipeRunner, githubDeliveryRunner } = vi.hoisted(() => ({
   recipeRunner: vi.fn(),
@@ -529,6 +530,61 @@ describe("Mission recipe dispatch", () => {
     });
   });
 
+
+  it("immediately replans an autonomous Mission after a committed recipe failure", async () => {
+    const fixture = await createQueuedMissionRecipeFixture("immediate-replan-after-failure");
+    const [missionBefore] = await db.select({
+      autonomyPolicy: aiMissionsTable.autonomyPolicy,
+    }).from(aiMissionsTable).where(eq(aiMissionsTable.id, fixture.missionId));
+    const priorPolicy = missionBefore?.autonomyPolicy
+      && typeof missionBefore.autonomyPolicy === "object"
+      && !Array.isArray(missionBefore.autonomyPolicy)
+      ? missionBefore.autonomyPolicy as Record<string, unknown>
+      : {};
+    await db.update(aiMissionsTable).set({
+      autonomyPolicy: {
+        ...priorPolicy,
+        mode: "autonomous",
+        maxAutoReplans: 2,
+      },
+    }).where(eq(aiMissionsTable.id, fixture.missionId));
+
+    const queuedJobs: Array<() => Promise<void>> = [];
+    vi.spyOn(heavyJobQueue, "enqueueWithId").mockImplementation((_id, job) => {
+      queuedJobs.push(job);
+      return true;
+    });
+    recipeRunner.mockRejectedValueOnce(new Error("synthetic_recipe_execution_failure"));
+
+    const committedStates: Array<{
+      missionStatus: string | undefined;
+      goalStatus: string | undefined;
+    }> = [];
+    const replanSpy = vi.spyOn(missionAutoReplanModule, "autoReplanMission")
+      .mockImplementation(async (missionId) => {
+        const [mission] = await db.select({ status: aiMissionsTable.status })
+          .from(aiMissionsTable).where(eq(aiMissionsTable.id, missionId));
+        const [goal] = await db.select({ status: aiGoalsTable.status })
+          .from(aiGoalsTable).where(eq(aiGoalsTable.id, fixture.goalId));
+        committedStates.push({
+          missionStatus: mission?.status,
+          goalStatus: goal?.status,
+        });
+        return { status: "skipped" as const, missionId, reason: "test_observed_committed_recipe_failure" };
+      });
+
+    expect(await dispatchPendingMissionRecipes(32, fixture.projectId)).toBe(1);
+    expect(queuedJobs).toHaveLength(1);
+    await queuedJobs[0]!();
+
+    expect(recipeRunner).toHaveBeenCalledOnce();
+    expect(replanSpy).toHaveBeenCalledOnce();
+    expect(replanSpy).toHaveBeenCalledWith(fixture.missionId);
+    expect(committedStates).toEqual([{
+      missionStatus: "needs_replan",
+      goalStatus: "needs_replan",
+    }]);
+  });
 
   it("prioritizes a ready Mission Goal over older dependents that are still waiting", async () => {
     const rootPath = await createTestRoot("ready-goal-fairness");
