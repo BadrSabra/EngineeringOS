@@ -1799,7 +1799,7 @@ describe("Reliable Tool Agent T8 adversarial acceptance matrix", () => {
       "});",
       // Publish readiness only after the child can observe cancellation.
       "fs.writeFileSync(process.env.RELIABLE_TOOL_GIT_STARTED, 'started');",
-      "setInterval(() => {}, 1000);"
+      "setInterval(() => {}, 1000);",
       "",
     ].join("\n"));
     await chmod(gitExecutable, 0o755);
