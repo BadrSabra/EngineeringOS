@@ -3904,7 +3904,7 @@ describe("Materialized Mission World Transition wake outbox", () => {
         ${eventsTable.payload},
         '{nextAttemptAt}',
         to_jsonb(to_char(
-          clock_timestamp() - interval '1 second',
+          (clock_timestamp() - interval '1 second') AT TIME ZONE 'UTC',
           'YYYY-MM-DD"T"HH24:MI:SS.US"Z"'
         )),
         true
@@ -3955,7 +3955,7 @@ describe("Materialized Mission World Transition wake outbox", () => {
         ${eventsTable.payload},
         '{nextAttemptAt}',
         to_jsonb(to_char(
-          clock_timestamp() - interval '1 second',
+          (clock_timestamp() - interval '1 second') AT TIME ZONE 'UTC',
           'YYYY-MM-DD"T"HH24:MI:SS.US"Z"'
         )),
         true
@@ -4017,7 +4017,7 @@ describe("Materialized Mission World Transition wake outbox", () => {
         ${eventsTable.payload},
         '{nextAttemptAt}',
         to_jsonb(to_char(
-          clock_timestamp() - interval '1 second',
+          (clock_timestamp() - interval '1 second') AT TIME ZONE 'UTC',
           'YYYY-MM-DD"T"HH24:MI:SS.US"Z"'
         )),
         true
@@ -4052,7 +4052,7 @@ describe("Materialized Mission World Transition wake outbox", () => {
         ${eventsTable.payload},
         '{wakeLeaseUntil}',
         to_jsonb(to_char(
-          clock_timestamp() - interval '1 second',
+          (clock_timestamp() - interval '1 second') AT TIME ZONE 'UTC',
           'YYYY-MM-DD"T"HH24:MI:SS.US"Z"'
         )),
         true
