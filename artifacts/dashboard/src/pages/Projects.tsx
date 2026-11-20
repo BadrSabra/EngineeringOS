@@ -83,7 +83,14 @@ function ProjectsForAccountSession({
     return () => { mounted.current = false; };
   }, []);
   const queryClient = useQueryClient();
-  const { data: rawProjects, isLoading, isError, error } = useListProjects(undefined, {
+  const {
+    data: rawProjects,
+    isLoading,
+    isError,
+    error,
+    isFetching: isProjectsFetching,
+    refetch: refetchProjects,
+  } = useListProjects(undefined, {
     query: {
       queryKey: getListProjectsQueryKey(),
       retry: (failureCount, err) => isRetryableProjectError(err, failureCount),
@@ -414,10 +421,19 @@ function ProjectsForAccountSession({
               {projectLoadFailure.message}
             </p>
             <button
-              onClick={() => window.location.reload()}
+              type="button"
+              onClick={() => void refetchProjects()}
+              disabled={isProjectsFetching}
+              aria-busy={isProjectsFetching}
+              data-testid="button-retry-project-list"
               className="bg-secondary hover:bg-secondary/80 text-foreground px-4 py-2 rounded-md text-sm font-medium transition-colors border border-border"
             >
-              تحديث الصفحة
+              {isProjectsFetching ? (
+                <span className="inline-flex items-center gap-2">
+                  <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
+                  جارٍ تحديث المشاريع…
+                </span>
+              ) : 'أعد محاولة تحميل المشاريع'}
             </button>
           </div>
         )}
