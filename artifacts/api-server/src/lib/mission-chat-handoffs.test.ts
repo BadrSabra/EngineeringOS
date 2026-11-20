@@ -154,7 +154,7 @@ describe("Mission Chat handoff dispatch lease", () => {
     const firstEntered = deferred<void>();
     const releaseFirst = deferred<void>();
     const tokens: string[] = [];
-    const runGoal = vi.spyOn(missionRuntime, "runMissionGoal")
+    vi.spyOn(missionRuntime, "runMissionGoal")
       .mockImplementationOnce(async (params) => {
         const token = params.expectedHandoffBinding?.dispatchLeaseToken;
         if (token) tokens.push(token);
