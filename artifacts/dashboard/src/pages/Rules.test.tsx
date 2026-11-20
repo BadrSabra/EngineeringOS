@@ -10,7 +10,7 @@ const mocks = vi.hoisted(() => {
     rules: [
       {
         id: 'rule-1',
-        projectId: undefined,
+        projectId: undefined as string | null | undefined,
         code: 'SEC-001',
         title: 'Avoid unsafe eval',
         description: 'Detect dynamic evaluation.',
@@ -25,6 +25,7 @@ const mocks = vi.hoisted(() => {
       },
     ],
     projects: [{ id: 'project-1', name: 'Owned Project' }],
+    clerkUser: { isLoaded: true, user: { id: 'user-1' } as { id: string } | null },
     mutations: {
       create: mutation(),
       update: mutation(),
@@ -33,6 +34,10 @@ const mocks = vi.hoisted(() => {
     },
   };
 });
+
+vi.mock('@clerk/react', () => ({
+  useUser: () => mocks.clerkUser,
+}));
 
 vi.mock('@workspace/api-client-react', () => ({
   getListRulesQueryKey: (params?: unknown) =>
@@ -82,6 +87,7 @@ beforeEach(() => {
   mocks.projects.splice(0, mocks.projects.length, { id: 'project-1', name: 'Owned Project' });
   mocks.rules[0] = {
     ...mocks.rules[0],
+    projectId: undefined,
     title: 'Avoid unsafe eval',
     severity: 'high',
     enabled: true,
@@ -94,6 +100,16 @@ beforeEach(() => {
 function expandRule() {
   fireEvent.click(screen.getByRole('button', { name: 'توسيع القاعدة Avoid unsafe eval' }));
 }
+
+describe('Rule goal handoff integration', () => {
+  it('offers the assistant handoff for a project-scoped rule', () => {
+    mocks.rules[0] = { ...mocks.rules[0], projectId: 'project-1' };
+    renderRulesPage();
+    expandRule();
+
+    expect(screen.getByTestId('button-rule-goal-handoff-rule-1')).toBeInTheDocument();
+  });
+});
 
 describe('Rules actions', () => {
   it('makes the read-only behavior clear when no rules have been added', () => {
