@@ -57,6 +57,7 @@ import { HOST_DISPOSABLE_TEMP_ROOT } from "./disposable-temp.js";
 import { heavyJobQueue } from "./job-queue.js";
 import { startWorkspaceRuntimeSupervisorTestFixture } from "./workspace-runtime-supervisor-test-fixture.js";
 import { runMissionGoal, wakeRuntimeTransitionMissionGoals } from "./mission-runtime.js";
+import * as missionRuntimeModule from "./mission-runtime.js";
 import {
   createRuntimeStartRunner,
   collectTrustedRecipeValidationEvidence,
@@ -4100,6 +4101,11 @@ describe("recipe operation preparation", () => {
     const fixture = await createGateCRecipeFixture("delivery.push.github", ["README.md"]);
     let executionId: string | undefined;
     const deliveryCalls: string[] = [];
+    const acceptanceReconciliationWake = vi.spyOn(
+      missionRuntimeModule,
+      "reconcileCompletedMissionRecipeAcceptances",
+    );
+    const dependentGoalWake = vi.spyOn(missionRuntimeModule, "wakeReadyMissionGoals");
     const params = {
       ...fixture.params,
       proofRequired: true,
@@ -4214,6 +4220,10 @@ describe("recipe operation preparation", () => {
         effectBundleId: bundleId,
       });
       expect(deliveryTransition?.attempt).toBe(0);
+      expect(acceptanceReconciliationWake).toHaveBeenCalledTimes(1);
+      expect(acceptanceReconciliationWake).toHaveBeenCalledWith(32, fixture.params.projectId);
+      expect(dependentGoalWake).toHaveBeenCalledTimes(1);
+      expect(dependentGoalWake).toHaveBeenCalledWith(32, fixture.params.projectId);
       const transitionObservationIds = [
         ...(deliveryTransition?.beforeObservationIds as string[] ?? []),
         ...(deliveryTransition?.afterObservationIds as string[] ?? []),
@@ -4249,6 +4259,8 @@ describe("recipe operation preparation", () => {
       expect(await assertSuccessfulGateCEffect(executionId, "github.push_verified_commit", 5)).toBe(bundleId);
       expect(deliveryCalls).toHaveLength(1);
     } finally {
+      acceptanceReconciliationWake.mockRestore();
+      dependentGoalWake.mockRestore();
       await fixture.cleanup(executionId);
     }
   });
