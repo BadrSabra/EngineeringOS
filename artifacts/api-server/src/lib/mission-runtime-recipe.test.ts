@@ -530,6 +530,148 @@ describe("Mission recipe dispatch", () => {
   });
 
 
+  it("prioritizes a ready Mission Goal over older dependents that are still waiting", async () => {
+    const rootPath = await createTestRoot("ready-goal-fairness");
+    const projectId = randomUUID();
+    const missionId = randomUUID();
+    const blockedGoalId = randomUUID();
+    const incompleteDependencyGoalId = randomUUID();
+    const readyGoalId = randomUUID();
+    const blockedTaskId = randomUUID();
+    const readyTaskId = randomUUID();
+    const planRevision = createHash("sha256").update(randomUUID()).digest("hex");
+    const now = new Date();
+    const older = new Date(now.getTime() - 60_000);
+    projectIds.push(projectId);
+
+    await db.insert(projectsTable).values({
+      id: projectId,
+      ownerId: "test-user",
+      name: `ready-goal-fairness-${projectId.slice(0, 8)}`,
+      rootPath,
+      language: "typescript",
+      status: "active",
+      createdAt: older,
+      updatedAt: now,
+    });
+    await db.insert(aiMissionsTable).values({
+      id: missionId,
+      projectId,
+      userId: "test-user",
+      title: "Fair Mission Goal scheduling",
+      intent: "Dispatch ready work without waiting behind blocked work",
+      status: "active",
+      scope: { kind: "project", projectId },
+      autonomyPolicy: { activePlanRevision: planRevision },
+      createdAt: older,
+      updatedAt: now,
+    });
+    await db.insert(aiGoalsTable).values([
+      {
+        id: incompleteDependencyGoalId,
+        missionId,
+        projectId,
+        title: "Prerequisite still running",
+        status: "running",
+        successCriteria: {
+          stepId: "unfinished-prerequisite",
+          planRevision: { hash: planRevision },
+        },
+        outcomeContract: { planRevision: { hash: planRevision } },
+        createdAt: older,
+        updatedAt: older,
+      },
+      {
+        id: blockedGoalId,
+        missionId,
+        projectId,
+        title: "Older dependent Goal",
+        status: "waiting_for_event",
+        blockedReason: "dependencies_pending",
+        successCriteria: {
+          stepId: "blocked-dependent",
+          planRevision: { hash: planRevision },
+        },
+        outcomeContract: { planRevision: { hash: planRevision } },
+        nextAction: { kind: "task", taskId: blockedTaskId },
+        createdAt: older,
+        updatedAt: older,
+      },
+      {
+        id: readyGoalId,
+        missionId,
+        projectId,
+        title: "Newly ready root Goal",
+        status: "queued",
+        blockedReason: null,
+        successCriteria: {
+          kind: "mission_plan_step",
+          stepId: "ready-root",
+          planRevision: { hash: planRevision },
+        },
+        outcomeContract: { planRevision: { hash: planRevision } },
+        nextAction: { kind: "task", taskId: readyTaskId },
+        createdAt: now,
+        updatedAt: now,
+      },
+    ]);
+    await db.insert(tasksTable).values([
+      {
+        id: blockedTaskId,
+        projectId,
+        goalId: blockedGoalId,
+        title: "Blocked Task",
+        status: "verifying",
+        prompt: "Wait until the prerequisite is proven.",
+        createdAt: older,
+        updatedAt: older,
+      },
+      {
+        id: readyTaskId,
+        projectId,
+        goalId: readyGoalId,
+        title: "Ready Task",
+        status: "verifying",
+        prompt: "Start the eligible root Task.",
+        createdAt: now,
+        updatedAt: now,
+      },
+    ]);
+    await db.insert(aiGoalDependenciesTable).values({
+      id: randomUUID(),
+      missionId,
+      projectId,
+      goalId: blockedGoalId,
+      dependsOnGoalId: incompleteDependencyGoalId,
+      planRevision,
+      createdAt: older,
+    });
+
+    expect(await wakeReadyMissionGoals(1, projectId)).toBe(1);
+    expect(scheduleTaskExecution).toHaveBeenCalledOnce();
+    expect(scheduleTaskExecution).toHaveBeenCalledWith(
+      readyTaskId,
+      "test-user",
+      expect.any(Object),
+      0,
+      null,
+    );
+
+    const [blockedGoal] = await db.select({
+      status: aiGoalsTable.status,
+      blockedReason: aiGoalsTable.blockedReason,
+    }).from(aiGoalsTable).where(eq(aiGoalsTable.id, blockedGoalId));
+    const [readyGoal] = await db.select({
+      status: aiGoalsTable.status,
+      blockedReason: aiGoalsTable.blockedReason,
+    }).from(aiGoalsTable).where(eq(aiGoalsTable.id, readyGoalId));
+    expect(blockedGoal).toEqual({
+      status: "waiting_for_event",
+      blockedReason: "dependencies_pending",
+    });
+    expect(readyGoal).toEqual({ status: "running", blockedReason: null });
+  });
+
   it("releases a dependent Goal only after the GitHub delivery proof is current", async () => {
     const rootPath = await createTestRoot("delivery-successor");
     const projectId = randomUUID();
