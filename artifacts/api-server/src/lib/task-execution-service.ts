@@ -26,6 +26,7 @@ import {
   db,
 } from "@workspace/db";
 import {
+  GoalNextActionSchema,
   buildProjectContext,
   executeTask,
   invalidateContextCache,
@@ -205,6 +206,7 @@ type MissionTaskAdmission =
       allowed: false;
       errorCode:
         | "mission_goal_not_found"
+        | "mission_goal_action_mismatch"
         | "mission_goal_not_executable"
         | "mission_plan_revision_stale"
         | "mission_dependencies_pending"
@@ -214,7 +216,7 @@ type MissionTaskAdmission =
 
 async function inspectMissionTaskAdmission(
   tx: TaskExecutionTransaction,
-  input: { goalId: string; projectId: string; userId: string },
+  input: { goalId: string; taskId: string; projectId: string; userId: string },
 ): Promise<MissionTaskAdmission> {
   const [goalIdentity] = await tx
     .select({ missionId: aiGoalsTable.missionId })
@@ -247,6 +249,17 @@ async function inspectMissionTaskAdmission(
     ))
     .for("update");
   if (!goal) return { allowed: false, errorCode: "mission_goal_not_found" };
+
+  // The Goal action is the server-owned dispatch contract. A Mission, plan,
+  // and dependency match cannot authorize a different Task or action family.
+  const declaredAction = GoalNextActionSchema.safeParse(goal.nextAction);
+  if (
+    !declaredAction.success
+    || declaredAction.data.kind !== "task"
+    || declaredAction.data.taskId !== input.taskId
+  ) {
+    return { allowed: false, errorCode: "mission_goal_action_mismatch" };
+  }
 
   if (
     mission.status === "blocked"
@@ -4457,6 +4470,7 @@ export async function executeTaskLifecycle(params: {
   if (missionGoal) {
     const admission = await db.transaction((tx) => inspectMissionTaskAdmission(tx, {
       goalId: missionGoal.id,
+      taskId: before.id,
       projectId: before.projectId,
       userId: params.userId,
     }));
@@ -4628,6 +4642,7 @@ export async function executeTaskLifecycle(params: {
       if (missionGoal) {
         const admission = await inspectMissionTaskAdmission(tx, {
           goalId: missionGoal.id,
+          taskId: before.id,
           projectId: before.projectId,
           userId: params.userId,
         });

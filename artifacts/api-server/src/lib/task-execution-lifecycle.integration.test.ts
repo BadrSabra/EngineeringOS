@@ -3109,6 +3109,55 @@ describe("real durable task execution lifecycle", () => {
     20_000,
   );
 
+  it("requires a Mission Task to match the Goal's exact declared Task action before execution", async () => {
+    const fixture = await createMissionToolLoopFixture({
+      phase: "execute",
+      approvalRequired: false,
+    });
+    const runCountBefore = runAgentWithFallback.mock.calls.length;
+    const chatCountBefore = chatWithFallback.mock.calls.length;
+    const mismatchedActions = [
+      { kind: "task", taskId: randomUUID() },
+      { kind: "workflow", workflowId: randomUUID() },
+    ];
+
+    try {
+      for (const nextAction of mismatchedActions) {
+        await db.update(aiGoalsTable)
+          .set({ nextAction })
+          .where(eq(aiGoalsTable.id, fixture.goalId));
+
+        const outcome = await executeTaskLifecycle({
+          taskId: fixture.taskId,
+          userId: "mission-effect-test-user",
+          provider: { provider: "groq", apiKey: "fixture-provider" },
+          trigger: "reconciliation",
+          expectedStatuses: ["verifying"],
+          workspaceRevision: fixture.now.toISOString(),
+        });
+
+        expect(outcome).toMatchObject({
+          ok: false,
+          status: "conflict",
+          errorCode: "mission_goal_action_mismatch",
+        });
+      }
+
+      expect(runAgentWithFallback).toHaveBeenCalledTimes(runCountBefore);
+      expect(chatWithFallback).toHaveBeenCalledTimes(chatCountBefore);
+      expect(await db.select({ id: aiExecutionsTable.id })
+        .from(aiExecutionsTable)
+        .where(eq(aiExecutionsTable.linkedTaskId, fixture.taskId))).toEqual([]);
+      const [task] = await db.select({
+        status: tasksTable.status,
+        workerId: tasksTable.workerId,
+      }).from(tasksTable).where(eq(tasksTable.id, fixture.taskId));
+      expect(task).toEqual({ status: "verifying", workerId: null });
+    } finally {
+      await fixture.cleanup();
+    }
+  });
+
   it("does not accept a Mission repair when its tool loop ends with EMPTY_RESPONSE", async () => {
     const fixture = await createMissionToolLoopFixture({
       phase: "execute",
