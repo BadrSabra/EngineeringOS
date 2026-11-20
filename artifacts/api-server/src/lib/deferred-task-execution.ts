@@ -7,7 +7,7 @@
  * verification pipeline.
  */
 import { randomUUID } from "node:crypto";
-import { and, asc, eq, gt, inArray, lte, or, sql } from "drizzle-orm";
+import { and, asc, eq, gt, inArray, isNull, lte, or, sql } from "drizzle-orm";
 import {
   db,
   eventsTable,
@@ -602,6 +602,9 @@ export async function runDeferredTaskVerification(taskId: string): Promise<boole
           userId: claimed.userId,
           retryCount: row.retryCount,
         });
+        if (!aiDispatch) {
+          throw new Error("deferred_task_ai_dispatch_intent_not_persisted");
+        }
       }
       await tx.delete(eventsTable)
         .where(and(
@@ -734,12 +737,12 @@ export async function dispatchDeferredTaskVerifications(limit = 100): Promise<nu
   let enqueued = 0;
   for (const intent of intents) {
     if (!intent.taskId || !intent.projectId) {
-      await retireDeferredIntent({
-        intentId: intent.intentId,
-        taskId: intent.taskId ?? "",
-        projectId: intent.projectId ?? "",
-        payload: intent.payload,
-      });
+      await db.delete(eventsTable).where(and(
+        eq(eventsTable.id, intent.intentId),
+        eq(eventsTable.type, TASK_EXECUTION_WAITING_FOR_DEPENDENCIES),
+        ...(intent.taskId ? [] : [isNull(eventsTable.taskId)]),
+        ...(intent.projectId ? [] : [isNull(eventsTable.projectId)]),
+      ));
       continue;
     }
     const payload = parseDeferredTaskExecutionPayload(intent.payload);
