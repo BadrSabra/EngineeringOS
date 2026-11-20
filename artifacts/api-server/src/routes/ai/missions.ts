@@ -49,10 +49,12 @@ import {
 import {
   receiveMissionEvent,
   runMissionGoal,
+  wakeReadyMissionGoals,
   authorizeMissionGoalContinuation,
   deriveProofGatedMissionStatus,
   type MissionGoalRunTrigger,
 } from "../../lib/mission-runtime.js";
+import { finalizeMissionPlanOutcomesAfterGoalCompletion } from "../../lib/mission-strategy-plan-outcome-store.js";
 import {
   parseExecutionRequest,
   recoverAiExecutionResumeToken,
@@ -4103,7 +4105,7 @@ router.patch("/ai/goals/:goalId", async (req, res) => {
           eq(aiMissionsTable.projectId, owned.project.id),
         ))
         .for("update");
-      if (!lockedMission) return { updated: undefined };
+      if (!lockedMission) return { updated: undefined, newlyCompleted: false };
       const [currentGoal] = await tx.select()
         .from(aiGoalsTable)
         .where(and(
@@ -4112,7 +4114,7 @@ router.patch("/ai/goals/:goalId", async (req, res) => {
           eq(aiGoalsTable.projectId, owned.project.id),
         ))
         .for("update");
-      if (!currentGoal) return { updated: undefined };
+      if (!currentGoal) return { updated: undefined, newlyCompleted: false };
       const proofContractChanged = (
         body.successCriteria !== undefined
         && !isDeepStrictEqual(body.successCriteria, currentGoal.successCriteria)
@@ -4214,7 +4216,7 @@ router.patch("/ai/goals/:goalId", async (req, res) => {
         .set(updateValues)
         .where(eq(aiGoalsTable.id, currentGoal.id))
         .returning();
-      if (!updated) return { updated: undefined };
+      if (!updated) return { updated: undefined, newlyCompleted: false };
 
       if (Object.prototype.hasOwnProperty.call(body, "dependsOnGoalIds")) {
         await setGoalDependencies(tx, {
@@ -4317,9 +4319,33 @@ router.patch("/ai/goals/:goalId", async (req, res) => {
           });
         }
       }
-      return { updated };
+      return {
+        updated,
+        newlyCompleted: currentGoal.status !== "completed" && updated.status === "completed",
+      };
     });
     if (!result.updated) return res.status(404).json({ error: "Goal not found" });
+    if (result.newlyCompleted) {
+      // PATCH is a direct Goal-completion ingress just like Task, Recipe, and
+      // Apply finalizers. Wake only this Goal's dependents after the proof-gated
+      // transaction commits; the existing runtime revalidates every successor.
+      try {
+        await wakeReadyMissionGoals(32, goal.projectId, goal.id);
+      } catch (error) {
+        logger.error(
+          { error, missionId: goal.missionId, goalId: goal.id },
+          "post-patch Mission Goal dependency wake failed; durable reconciliation will retry",
+        );
+      }
+      try {
+        await finalizeMissionPlanOutcomesAfterGoalCompletion(goal.id);
+      } catch (error) {
+        logger.error(
+          { error, missionId: goal.missionId, goalId: goal.id },
+          "post-patch Mission plan outcome finalization failed; durable reconciliation will retry",
+        );
+      }
+    }
     return res.json(result.updated);
   } catch (error) {
     if (error instanceof GoalCompletionProofRejected) {
