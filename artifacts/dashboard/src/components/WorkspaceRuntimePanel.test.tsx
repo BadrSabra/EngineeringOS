@@ -94,6 +94,12 @@ describe('WorkspaceRuntimePanel', () => {
     expect(screen.getByText(/VITE ready/)).toHaveAttribute('dir', 'ltr');
 
     fireEvent.click(screen.getByRole('button', { name: 'إيقاف التشغيل' }));
+    await waitFor(() => expect(pendingActions.has('project-1:stop')).toBe(true));
+
+    await act(async () => {
+      pendingActions.get('project-1:stop')!(runtimeSnapshot('stopped', 'project-1'));
+      await Promise.resolve();
+    });
 
     await waitFor(() => {
       expect(screen.getByText('متوقّف')).toBeInTheDocument();
