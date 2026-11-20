@@ -1333,6 +1333,12 @@ function missionWorldTransitionWakeKind(
   return undefined;
 }
 
+function isMissionWorldTransitionWakeKind(value: unknown): value is MissionWorldTransitionWakeKind {
+  return value === "runtime_start"
+    || value === "apply_changes"
+    || value === "github_delivery";
+}
+
 function missionWorldTransitionWakeIntentId(transitionId: string): string {
   return `mission-world-transition-wake:${transitionId}`;
 }
@@ -1493,7 +1499,7 @@ export async function dispatchMissionWorldTransitionWakeIntent(
       || !episodeId || !actionId
       || projectId !== intent.projectId
       || goalId !== intent.goalId
-      || !["runtime_start", "apply_changes", "github_delivery"].includes(String(expectedKind))
+      || !isMissionWorldTransitionWakeKind(expectedKind)
     ) {
       await markMissionWorldTransitionWakeProcessed(intent.id, payload, {
         terminalReason: "invalid_wake_intent",
@@ -1530,7 +1536,8 @@ export async function dispatchMissionWorldTransitionWakeIntent(
       || transition.episodeId !== episodeId
       || transition.actionId !== actionId
       || missionWorldTransitionWakeKind(transition.idempotencyKey) !== expectedKind
-      || episode?.missionId !== missionId
+      || !episode
+      || episode.missionId !== missionId
       || episode.goalId !== goalId
     ) {
       await markMissionWorldTransitionWakeProcessed(intent.id, payload, {
