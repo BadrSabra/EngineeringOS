@@ -1022,6 +1022,89 @@ describe("periodic stale scan recovery and durable health", () => {
     expect(health.retryExhaustedTasks).toBeGreaterThanOrEqual(1);
   });
 
+  it("classifies deferred dispatch due-times against PostgreSQL time, not the API host clock", async () => {
+    const baseline = await getDurableJobHealth();
+    const projectId = await insertProject("active");
+    projectCleanup.push(projectId);
+    const futureTaskId = randomUUID();
+    const dueTaskId = randomUUID();
+    await db.insert(tasksTable).values([
+      {
+        id: futureTaskId,
+        projectId,
+        title: "Future deferred dispatch",
+        prompt: "This retry is not due according to PostgreSQL",
+        status: "verifying",
+        retryCount: 0,
+      },
+      {
+        id: dueTaskId,
+        projectId,
+        title: "Due deferred dispatch",
+        prompt: "This retry is due according to PostgreSQL",
+        status: "verifying",
+        retryCount: 0,
+      },
+    ]);
+
+    const [databaseClockRow] = (await db.execute(sql`SELECT clock_timestamp() AS now`))
+      .rows as Array<{ now: Date | string }>;
+    const databaseClock = new Date(String(databaseClockRow?.now));
+    if (!databaseClockRow?.now || Number.isNaN(databaseClock.getTime())) {
+      throw new Error("Could not read PostgreSQL time");
+    }
+    const staleTimestamp = new Date(
+      databaseClock.getTime() - STALE_PENDING_TIMEOUT_MS - 10_000,
+    );
+    await db.insert(eventsTable).values([
+      {
+        id: `task-auto-execution-deferred:${futureTaskId}`,
+        type: "TaskAutoExecutionDeferred",
+        projectId,
+        taskId: futureTaskId,
+        severity: "warning",
+        message: "The automatic execution retry is scheduled for later.",
+        timestamp: staleTimestamp,
+        payload: {
+          userId: "test-user",
+          taskRetryCount: 0,
+          attemptCount: 1,
+          lastFailureCode: "PROVIDER_NOT_CONFIGURED",
+          nextAttemptAt: new Date(databaseClock.getTime() + 10 * 60_000).toISOString(),
+        },
+      },
+      {
+        id: `task-auto-execution-deferred:${dueTaskId}`,
+        type: "TaskAutoExecutionDeferred",
+        projectId,
+        taskId: dueTaskId,
+        severity: "warning",
+        message: "The automatic execution retry is due.",
+        timestamp: staleTimestamp,
+        payload: {
+          userId: "test-user",
+          taskRetryCount: 0,
+          attemptCount: 1,
+          lastFailureCode: "PROJECT_RATE_LIMITED",
+          nextAttemptAt: new Date(databaseClock.getTime() - 10 * 60_000).toISOString(),
+        },
+      },
+    ]);
+
+    try {
+      vi.useFakeTimers({ toFake: ["Date"] });
+      vi.setSystemTime(new Date(databaseClock.getTime() + 60 * 60_000));
+      const apiClockAhead = await getDurableJobHealth();
+      expect(apiClockAhead.staleAiTaskDispatches - baseline.staleAiTaskDispatches).toBe(1);
+
+      vi.setSystemTime(new Date(databaseClock.getTime() - 60 * 60_000));
+      const apiClockBehind = await getDurableJobHealth();
+      expect(apiClockBehind.staleAiTaskDispatches - baseline.staleAiTaskDispatches).toBe(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("reports stale AI dispatch intents and the durable last outcome per stage", async () => {
     const baseline = await getDurableJobHealth();
     const projectId = await insertProject("active");
@@ -1208,6 +1291,7 @@ describe("requeueStalePendingJobs", () => {
   const projectCleanup: string[] = [];
 
   afterEach(async () => {
+    vi.useRealTimers();
     vi.mocked(heavyJobQueue.enqueueWithId).mockClear();
     vi.mocked(heavyJobQueue.enqueueWithIdDetailed).mockClear();
     vi.mocked(heavyJobQueue.has).mockClear();
@@ -1319,6 +1403,48 @@ describe("requeueStalePendingJobs", () => {
     const requeued = await requeueStalePendingJobs();
     expect(requeued).toBe(0);
     expect(vi.mocked(heavyJobQueue.enqueueWithId)).not.toHaveBeenCalled();
+  });
+
+  it("does not re-enqueue a fresh Scan when the API clock is 24 hours ahead", async () => {
+    const projectId = await insertProject("scanning");
+    projectCleanup.push(projectId);
+    const freshJobId = randomUUID();
+    await db.insert(scanJobsTable).values({
+      id: freshJobId,
+      projectId,
+      status: "queued",
+      createdAt: sql<Date>`clock_timestamp() AT TIME ZONE 'UTC'`,
+    });
+
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date(Date.now() + 24 * 60 * 60_000));
+
+    const requeued = await requeueStalePendingJobs();
+    expect(requeued).toBe(0);
+    expect(vi.mocked(heavyJobQueue.enqueueWithId)).not.toHaveBeenCalled();
+  });
+
+  it("re-enqueues an expired Scan when the API clock is 24 hours behind", async () => {
+    const projectId = await insertProject("scanning");
+    projectCleanup.push(projectId);
+    const staleJobId = randomUUID();
+    await db.insert(scanJobsTable).values({
+      id: staleJobId,
+      projectId,
+      status: "queued",
+      createdAt: sql<Date>`(clock_timestamp() AT TIME ZONE 'UTC') - ((${STALE_PENDING_TIMEOUT_MS} + 60_000) * interval '1 millisecond')`,
+    });
+
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date(Date.now() - 24 * 60 * 60_000));
+
+    vi.mocked(heavyJobQueue.enqueueWithId).mockReturnValue(true);
+    const requeued = await requeueStalePendingJobs();
+    expect(requeued).toBeGreaterThanOrEqual(1);
+    expect(vi.mocked(heavyJobQueue.enqueueWithId)).toHaveBeenCalledWith(
+      staleJobId,
+      expect.any(Function),
+    );
   });
 
   it("returns 0 and does not throw when there are no stale jobs", async () => {
