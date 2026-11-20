@@ -404,6 +404,60 @@ class SessionAlreadyImportedError extends Error {
   }
 }
 
+/**
+ * Replay a successful import without repeating its project, scan, or audit
+ * side effects. The session and project lookups are both owner-scoped so a
+ * stored importedProjectId can never be used to disclose another user's row.
+ */
+async function respondWithImportedProjectReplay(
+  discoveryId: string,
+  userId: string,
+  res: Response,
+): Promise<boolean> {
+  const [currentSession] = await db
+    .select({
+      status: discoverySessionsTable.status,
+      importedProjectId: discoverySessionsTable.importedProjectId,
+    })
+    .from(discoverySessionsTable)
+    .where(and(
+      eq(discoverySessionsTable.id, discoveryId),
+      eq(discoverySessionsTable.ownerId, userId),
+    ))
+    .limit(1);
+
+  if (
+    currentSession?.status !== "imported"
+    || !currentSession.importedProjectId
+  ) {
+    return false;
+  }
+
+  const [project] = await db
+    .select()
+    .from(projectsTable)
+    .where(and(
+      eq(projectsTable.id, currentSession.importedProjectId),
+      eq(projectsTable.ownerId, userId),
+    ))
+    .limit(1);
+
+  if (!project) {
+    res.status(409).json({
+      error: "The project previously imported from this Discovery session is no longer available.",
+      status: "imported",
+      reason: "imported_project_unavailable",
+      hint: "Run Discovery again to create a new project.",
+    });
+    return true;
+  }
+
+  // Keep the original 201 Project response contract for existing generated
+  // clients. A replay is successful but does not enqueue or persist anything.
+  res.status(201).json(project);
+  return true;
+}
+
 // POST /projects/import
 router.post("/projects/import", async (req, res) => {
   const body = ImportProjectBody.parse(req.body);
@@ -415,6 +469,7 @@ router.post("/projects/import", async (req, res) => {
   const session = await loadOwnedSession(body.discoveryId, req.userId, res);
   if (!session) return;
   if (session.status === "imported") {
+    if (await respondWithImportedProjectReplay(body.discoveryId, req.userId, res)) return;
     return res.status(409).json({ error: "Session already imported", status: session.status, reason: "invalid_source" });
   }
   if (session.status !== "ready") {
@@ -652,9 +707,10 @@ router.post("/projects/import", async (req, res) => {
     });
   } catch (txErr) {
     if (txErr instanceof SessionAlreadyImportedError) {
-      // The transaction (including the project insert) rolled back cleanly;
-      // the session is untouched and still "ready" or was claimed by the
-      // concurrent winner — nothing to revert.
+      // The transaction (including the losing project insert) rolled back.
+      // If another replica won the import, return its committed Project rather
+      // than making the client recover a successful operation from a 409.
+      if (await respondWithImportedProjectReplay(body.discoveryId, req.userId, res)) return;
       return res.status(409).json({ error: txErr.message, reason: "invalid_source" });
     }
     // `projects.root_path` has a DB-level UNIQUE constraint (data-integrity
@@ -666,6 +722,11 @@ router.post("/projects/import", async (req, res) => {
     // same "already imported" conflict, just detected one step earlier, so
     // it gets the same 409 treatment rather than surfacing as a raw 500.
     if (isUniqueViolation(txErr, "projects_root_path_unique")) {
+      // A same-session concurrent import can lose at the root-path UNIQUE
+      // constraint before reaching the conditional session claim. Replay only
+      // when this exact Discovery session now points to an owner-owned Project;
+      // a different session claiming the same root remains a 409 conflict.
+      if (await respondWithImportedProjectReplay(body.discoveryId, req.userId, res)) return;
       return res.status(409).json({
         error: "A project for this root path already exists (or is being imported concurrently).",
         reason: "invalid_source",
