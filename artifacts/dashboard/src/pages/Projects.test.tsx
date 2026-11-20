@@ -287,9 +287,26 @@ describe("Projects", () => {
     fireEvent.change(input, { target: { value: "zzz-no-match" } });
     expect(screen.queryByText("alpha-service")).not.toBeInTheDocument();
     expect(screen.getByRole('status')).toHaveTextContent('لا توجد مشاريع تطابق بحثك');
-    expect(screen.queryByTestId('button-empty-create-project')).not.toBeInTheDocument();
+    const createFromSearch = screen.getByTestId('button-create-project-from-search');
+    expect(createFromSearch).toHaveAccessibleName('أنشئ مشروعًا باسم zzz-no-match');
     expect(screen.queryByTestId('link-empty-goal-first')).not.toBeInTheDocument();
     expect(mocks.mutate).not.toHaveBeenCalled();
+
+    fireEvent.click(createFromSearch);
+
+    expect(screen.getByRole('dialog', { name: 'ابدأ مشروعك من قالب ويب جاهز' })).toBeInTheDocument();
+    expect(screen.getByTestId('input-project-name')).toHaveValue('zzz-no-match');
+    expect(mocks.mutate).not.toHaveBeenCalled();
+  });
+
+  it('does not prefill a project name from a search longer than the form limit', () => {
+    render(<Projects />);
+    fireEvent.change(screen.getByTestId('input-project-search'), {
+      target: { value: 'x'.repeat(81) },
+    });
+
+    expect(screen.getByRole('status')).toHaveTextContent('لا توجد مشاريع تطابق بحثك');
+    expect(screen.queryByTestId('button-create-project-from-search')).not.toBeInTheDocument();
   });
 
   it("renders loading skeletons while fetching", () => {
