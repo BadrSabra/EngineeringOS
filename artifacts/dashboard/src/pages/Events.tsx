@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { getListEventsQueryKey, useListEvents, useListProjects } from '@workspace/api-client-react';
 import { Search, Filter, X } from 'lucide-react';
 import { RefreshButton } from '@/components/OperatorResilience';
+import EventAssistantHandoff from '@/components/EventAssistantHandoff';
 import { Link } from 'wouter';
 
 const SEVERITIES = ['info', 'warning', 'error', 'success'] as const;
@@ -286,7 +287,18 @@ export default function Events() {
                         <div className="w-56 opacity-60 shrink-0 truncate" title={evt.correlationId || undefined}>
                           {evt.correlationId ? <bdi dir="ltr">{evt.correlationId}</bdi> : 'غير مرتبط'}
                         </div>
-                        <div className="flex-1 whitespace-pre-wrap break-words"><bdi dir="auto">{evt.message}</bdi></div>
+                        <div className="flex min-w-0 flex-1 flex-col gap-2 sm:flex-row sm:items-start">
+                          <div
+                            className="min-w-0 flex-1 whitespace-pre-wrap break-words"
+                            data-testid={`text-event-message-${evt.id}`}
+                          >
+                            <bdi dir="auto">{evt.message}</bdi>
+                          </div>
+                          {eventProject
+                            && (evt.severity === 'error' || evt.severity === 'warning') && (
+                            <EventAssistantHandoff event={evt} projectName={eventProject.name} />
+                            )}
+                        </div>
                       </div>
                     );
                   })}

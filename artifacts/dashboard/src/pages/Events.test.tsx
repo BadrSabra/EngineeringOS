@@ -3,6 +3,15 @@ import { fireEvent, render, screen } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import Events from "./Events";
 
+const mocks = vi.hoisted(() => ({
+  isLoaded: true,
+  user: { id: "user-1" } as { id: string } | null,
+}));
+
+vi.mock("@clerk/react", () => ({
+  useUser: () => ({ isLoaded: mocks.isLoaded, user: mocks.user }),
+}));
+
 vi.mock("@workspace/api-client-react", () => ({
   getListEventsQueryKey: vi.fn((params: unknown) => ["/api/events", params]),
   useListEvents: vi.fn(),
@@ -35,6 +44,8 @@ const refetch = vi.fn();
 
 beforeEach(() => {
   vi.clearAllMocks();
+  mocks.isLoaded = true;
+  mocks.user = { id: "user-1" };
   vi.mocked(useListProjects).mockReturnValue({
     data: [
       { id: "project-alpha", name: "Alpha" },
@@ -113,6 +124,30 @@ describe("Events", () => {
     expect(screen.getByTestId("text-event-project-event-orphan"))
       .toHaveTextContent("deleted-project");
     expect(screen.queryByRole("link", { name: /deleted-project/ })).not.toBeInTheDocument();
+  });
+
+  it("offers assistant context only for warning or error events in a known project", () => {
+    vi.mocked(useListEvents).mockReturnValue({
+      data: {
+        events: [
+          ...mockEvents,
+          { ...mockEvents[1], id: "event-orphan", projectId: "deleted-project" },
+        ],
+        total: 3,
+      },
+      isLoading: false,
+      isFetching: false,
+      isError: false,
+      error: null,
+      dataUpdatedAt: new Date("2026-08-22T12:01:00.000Z").getTime(),
+      refetch,
+    } as ReturnType<typeof useListEvents>);
+
+    render(<Events />);
+
+    expect(screen.getByTestId("button-event-goal-handoff-event-2")).toBeInTheDocument();
+    expect(screen.queryByTestId("button-event-goal-handoff-event-1")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("button-event-goal-handoff-event-orphan")).not.toBeInTheDocument();
   });
 
   it("labels an in-progress refresh and retains only the last successful read as a snapshot", () => {
