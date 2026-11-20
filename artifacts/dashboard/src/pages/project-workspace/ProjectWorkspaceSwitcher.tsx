@@ -1,4 +1,5 @@
 import { ChevronDown, RefreshCw } from 'lucide-react';
+import { useId, useState } from 'react';
 import { Link } from 'wouter';
 import {
   getListProjectsQueryKey,
@@ -22,10 +23,23 @@ function CurrentProjectName({ children }: { children: string }) {
   );
 }
 
+function normalizeProjectSearch(value: string) {
+  return value
+    .normalize('NFKD')
+    .replace(/[\u064B-\u065F\u0670\u0640]/g, '')
+    .replace(/[أإآٱ]/g, 'ا')
+    .replace(/ى/g, 'ي')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .toLocaleLowerCase('ar');
+}
+
 export default function ProjectWorkspaceSwitcher({
   currentProjectId,
   currentProjectName,
 }: ProjectWorkspaceSwitcherProps) {
+  const searchId = useId();
+  const [projectSearch, setProjectSearch] = useState('');
   const projectsQuery = useListProjects(undefined, {
     query: { queryKey: getListProjectsQueryKey() },
   });
@@ -81,6 +95,12 @@ export default function ProjectWorkspaceSwitcher({
   if (otherProjects.length === 0) {
     return <CurrentProjectName>{currentProjectName}</CurrentProjectName>;
   }
+  const searchEnabled = otherProjects.length > 5;
+  const normalizedQuery = normalizeProjectSearch(projectSearch);
+  const visibleProjects = searchEnabled && normalizedQuery
+    ? otherProjects.filter((project) =>
+      normalizeProjectSearch(project.name).includes(normalizedQuery))
+    : otherProjects;
 
   return (
     <details
@@ -103,8 +123,24 @@ export default function ProjectWorkspaceSwitcher({
         <p className="px-2 py-1.5 text-[11px] text-muted-foreground">
           افتح مساحة مشروع آخر
         </p>
+        {searchEnabled && (
+          <div className="px-1 pb-2">
+            <label htmlFor={searchId} className="sr-only">ابحث عن مشروع</label>
+            <input
+              id={searchId}
+              type="search"
+              value={projectSearch}
+              onChange={(event) => setProjectSearch(event.target.value)}
+              placeholder="ابحث باسم المشروع"
+              dir="auto"
+              aria-label="ابحث عن مشروع"
+              data-testid="input-workspace-project-search"
+              className="h-9 w-full rounded-md border border-border bg-background px-2.5 text-sm text-foreground placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+            />
+          </div>
+        )}
         <ul aria-label="المشاريع الأخرى" className="space-y-1">
-          {otherProjects.map((project) => (
+          {visibleProjects.length > 0 ? visibleProjects.map((project) => (
             <li key={project.id}>
               <Link
                 href={`/projects/${encodeURIComponent(project.id)}/workspace`}
@@ -115,7 +151,13 @@ export default function ProjectWorkspaceSwitcher({
                 {project.name}
               </Link>
             </li>
-          ))}
+          )) : (
+            <li>
+              <p className="px-2 py-2 text-xs text-muted-foreground" role="status">
+                لا توجد مشاريع تطابق البحث.
+              </p>
+            </li>
+          )}
         </ul>
         <div className="mt-1 border-t border-border pt-1">
           <Link
