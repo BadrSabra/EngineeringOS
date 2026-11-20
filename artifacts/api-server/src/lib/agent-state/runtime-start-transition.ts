@@ -132,10 +132,8 @@ function unique(values: readonly string[]): string[] {
 }
 
 /**
- * Materializing a Runtime Start transition is a durable signal that a waiting
- * Mission Goal may now be eligible. The wake is deliberately post-commit and
- * remains a hint: the Mission runtime reloads the transition, plan, dependency
- * proofs, and execution authority under its existing locks before dispatch.
+ * Derives a stable identity for the same runtime.start action across retries.
+ * It prevents a repeated request from creating a second World Transition.
  */
 function transitionIdempotencyKey(input: RuntimeStartTransitionIntent): string {
   return `runtime.start:${input.executionId}:${input.attempt}:${input.episodeId}:${input.actionId}`;
