@@ -830,6 +830,39 @@ describe('Tasks recovery rendering', () => {
     expect(screen.getByTestId('mission-capsule')).toBeInTheDocument();
   });
 
+  it('opens the conversation for the current task and project execution', () => {
+    mockTaskExecutionProjection('correlation-current', 'correlation-current', {
+      executionOverride: { sessionId: 'session/current' },
+    });
+    renderPage();
+    fireEvent.click(screen.getByRole('button', { name: 'عرض تفاصيل المهمة: Repair provider authentication' }));
+
+    expect(screen.getByTestId('link-task-execution-chat-task-auth')).toHaveAttribute(
+      'href',
+      '/ai?projectId=project-1&sessionId=session%2Fcurrent',
+    );
+  });
+
+  it('does not link to an execution from a different project', () => {
+    mockTaskExecutionProjection('correlation-current', 'correlation-current', {
+      executionOverride: { projectId: 'project-other', sessionId: 'session/other' },
+    });
+    renderPage();
+    fireEvent.click(screen.getByRole('button', { name: 'عرض تفاصيل المهمة: Repair provider authentication' }));
+
+    expect(screen.queryByTestId('link-task-execution-chat-task-auth')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('mission-capsule')).not.toBeInTheDocument();
+  });
+
+  it('does not show an execution conversation link when the session is unavailable', () => {
+    mockTaskExecutionProjection('correlation-current', 'correlation-current');
+    renderPage();
+    fireEvent.click(screen.getByRole('button', { name: 'عرض تفاصيل المهمة: Repair provider authentication' }));
+
+    expect(screen.getByTestId('mission-capsule')).toBeInTheDocument();
+    expect(screen.queryByTestId('link-task-execution-chat-task-auth')).not.toBeInTheDocument();
+  });
+
   it('does not show a completed Task capsule from a stale PROVEN checkpoint', () => {
     mockTaskExecutionProjection('correlation-current', 'correlation-current', {
       taskStatus: 'completed',
