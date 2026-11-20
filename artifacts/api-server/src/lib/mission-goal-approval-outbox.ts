@@ -372,6 +372,7 @@ export async function dispatchMissionGoalApprovalIntent(
     const expectedApprovalBinding = payload.approvalKind === "plan"
       ? {
         approvalKind: "plan" as const,
+        dispatchIntentId: intentId,
         approvalEventId: payload.approvalEventId,
         planRevision: payload.planRevision!,
         stepId: payload.stepId!,
@@ -379,6 +380,7 @@ export async function dispatchMissionGoalApprovalIntent(
       }
       : {
         approvalKind: "proposal" as const,
+        dispatchIntentId: intentId,
         approvalEventId: payload.approvalEventId,
         executionId: payload.executionId!,
         proposalId: payload.proposalId!,
