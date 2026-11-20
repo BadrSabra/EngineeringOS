@@ -77,6 +77,16 @@ export function shouldApplyStructuredExecutionCooldown(params: {
   );
 }
 
+/**
+ * A persisted cooldown may block a new Structured run only while its
+ * acceptance still belongs to the execution's current attempt. Older
+ * acceptance rows are historical evidence, not active admission state.
+ * @internal
+ */
+export function structuredCooldownCurrentAttemptPredicate() {
+  return eq(aiExecutionAcceptancesTable.attempt, aiExecutionsTable.attempt);
+}
+
 async function findStructuredExecutionCooldown(params: {
   userId: string;
   projectId: string;
@@ -102,6 +112,7 @@ async function findStructuredExecutionCooldown(params: {
     .where(and(
       eq(aiExecutionsTable.userId, params.userId),
       eq(aiExecutionsTable.projectId, params.projectId),
+      structuredCooldownCurrentAttemptPredicate(),
       eq(aiExecutionAcceptancesTable.nextActionCode, "RETRY_AFTER_RATE_LIMIT"),
       eq(aiExecutionAcceptancesTable.outcome, "FAILED"),
     ))
