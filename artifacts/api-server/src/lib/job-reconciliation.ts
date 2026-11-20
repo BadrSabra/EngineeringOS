@@ -92,8 +92,6 @@ import {
   replayPendingMissionEvents,
   wakeDueMissionGoals,
   wakeReadyMissionGoals,
-  wakeRuntimeTransitionMissionGoals,
-  wakeApplyChangesMissionGoals,
 } from "./mission-runtime.js";
 import {
   reconcileApprovedMissionDecisionDispatches,
@@ -1591,15 +1589,15 @@ export function startDurableJobDispatcher(): NodeJS.Timeout {
   );
 
   void dispatchPersistedPendingJobs();
+  void dispatchPendingMaterializedMissionTransitionWakes();
   void wakeDueMissionGoals();
   void wakeReadyMissionGoals();
-  void wakeRuntimeTransitionMissionGoals();
   void retryTransitionsAndReconcileApplyGoals();
   return setInterval(() => {
     void dispatchPersistedPendingJobs();
+    void dispatchPendingMaterializedMissionTransitionWakes();
     void wakeDueMissionGoals();
     void wakeReadyMissionGoals();
-    void wakeRuntimeTransitionMissionGoals();
     void retryTransitionsAndReconcileApplyGoals();
   }, DURABLE_JOB_DISPATCH_INTERVAL_MS);
 }
@@ -1626,8 +1624,6 @@ export function startScopedMissionLifecycleDispatcher(
       await dispatchPendingMaterializedMissionTransitionWakes(32, projectId);
       await wakeDueMissionGoals(32, projectId);
       await wakeReadyMissionGoals(32, projectId);
-      await wakeRuntimeTransitionMissionGoals(32, projectId);
-      await wakeApplyChangesMissionGoals(32, projectId);
     } catch (err) {
       logger.error(
         { err, projectId },
@@ -1647,11 +1643,10 @@ export function startScopedMissionLifecycleDispatcher(
 async function retryTransitionsAndReconcileApplyGoals(): Promise<void> {
   try {
     await retryPendingRuntimeStartTransitions();
-    await wakeApplyChangesMissionGoals();
   } catch (error) {
     logger.warn(
       { error },
-      "apply Mission transition reconciliation failed",
+      "Mission World Transition retry failed",
     );
   }
 }
