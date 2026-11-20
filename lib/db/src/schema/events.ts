@@ -72,6 +72,12 @@ export const eventsTable = pgTable("events", {
   uniqueIndex("uq_events_github_delivery_recovery")
     .on(t.projectId, t.correlationId)
     .where(sql`${t.type} = 'GitPushRecoveryRequired' AND ${t.correlationId} IS NOT NULL`),
+  // Bounded lookup of durable Mission world-transition wake intents.
+  index("idx_events_mission_world_transition_wake_pending")
+    .on(t.timestamp, t.id)
+    .where(sql`${t.type} = 'AiMissionWorldTransitionWakeRequested'
+      AND ${t.payload}->>'processedAt' IS NULL
+      AND ${t.payload}->>'deadLetterAt' IS NULL`),
 ]);
 
 export type InsertEvent = typeof eventsTable.$inferInsert;
