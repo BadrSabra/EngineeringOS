@@ -4,11 +4,16 @@ import axe from 'axe-core';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { useLocation } from 'wouter';
 import type { AiExecutionProjection } from '@workspace/api-client-react';
+import { readGoalDrafts } from '@/lib/home-goal-handoff';
 import Tasks from './Tasks';
 
 const createTaskMutate = vi.hoisted(() => vi.fn());
 const updateTaskMutate = vi.hoisted(() => vi.fn());
 const deleteTaskMutate = vi.hoisted(() => vi.fn());
+
+vi.mock('@clerk/react', () => ({
+  useUser: () => ({ isLoaded: true, user: { id: 'owner-a' } }),
+}));
 
 vi.mock('@workspace/api-client-react', () => ({
   useListTasks: vi.fn(),
@@ -163,6 +168,7 @@ function taskListFixture(dependencies: Record<string, string[]> = {}) {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  window.sessionStorage.clear();
   window.history.replaceState({}, '', '/tasks');
   vi.mocked(useListProjects).mockReturnValue({
     data: [{ id: 'project-1', name: 'Test Project' }],
@@ -249,6 +255,24 @@ function renderTaskAcceptanceWithRetryAt(retryAt: string) {
 }
 
 describe('project-scoped task list contracts', () => {
+  it('offers the project assistant from a failed task detail', () => {
+    renderPage();
+    fireEvent.click(screen.getByRole('button', {
+      name: 'عرض تفاصيل المهمة: Repair provider authentication',
+    }));
+
+    const handoff = screen.getByTestId('button-task-assistant-handoff-task-auth');
+    expect(handoff).toBeInTheDocument();
+    expect(screen.getByText(/لن تُرسل أو تُنفذ تلقائيًا/)).toBeInTheDocument();
+    fireEvent.click(handoff);
+
+    const draft = readGoalDrafts('owner-a').drafts[0];
+    expect(draft.text).toContain('Repair provider authentication');
+    expect(draft.text).not.toContain('provider-secret-token');
+    expect(draft.text).not.toContain('sk-provider-secret');
+    expect(draft.text).not.toContain('raw provider diagnostic');
+  });
+
   it('has no axe violations in the task list and task creation dialog', async () => {
     const { container } = renderPage();
     const rules = { 'color-contrast': { enabled: false } };

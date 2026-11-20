@@ -50,6 +50,7 @@ import {
   Trash2,
 } from 'lucide-react';
 import { ProviderRecoveryCard } from '@/components/ProviderRecoveryCard';
+import TaskAssistantHandoff from '@/components/TaskAssistantHandoff';
 import { MissionCapsule } from '@/components/MissionCapsule';
 import { resolveExecutionProofPresentation } from '@/lib/execution-proof-presentation';
 import { executionChatHref } from '@/lib/execution-chat-link';
@@ -2401,6 +2402,22 @@ function TasksSession({
                             onResume={() => handleAction('resume', task.id)}
                             isResuming={resumeTask.isPending}
                           />
+                          {task.status === 'failed' && (() => {
+                            const taskProject = projects.find((project) => project.id === task.projectId);
+                            if (!taskProject) return null;
+                            return (
+                              <TaskAssistantHandoff
+                                task={{
+                                  id: task.id,
+                                  projectId: task.projectId,
+                                  title: task.title,
+                                  description: task.description,
+                                  status: task.status,
+                                }}
+                                projectName={taskProject.name}
+                              />
+                            );
+                          })()}
                           {taskResultProjectionIsCurrent(task) && (() => {
                             const receipt = parseExecutionReceipt(task.agentResponse);
                             if (!receipt) return null;
