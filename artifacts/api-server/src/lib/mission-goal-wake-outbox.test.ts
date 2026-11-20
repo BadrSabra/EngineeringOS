@@ -11,6 +11,7 @@ import {
 } from "@workspace/db";
 import { seedCanonicalMissionGoalCompletion } from "../__tests__/mission-dependency-proof-fixture.js";
 import {
+  claimMissionGoalWakeDispatchLease,
   dispatchPendingMissionGoalWakes,
   insertMissionGoalWakeIntent,
   MISSION_GOAL_WAKE_DISPATCHED,
@@ -159,6 +160,7 @@ describe("Mission Goal wake outbox", () => {
       completedAt: fixture.completedAt.toISOString(),
       attemptCount: 0,
     });
+    expect(intent?.payload).not.toHaveProperty("dispatchLease");
 
     // A later durable pass cannot repeat the completed wake.
     expect(await dispatchPendingMissionGoalWakes(10, fixture.projectId)).toBe(0);
@@ -168,6 +170,63 @@ describe("Mission Goal wake outbox", () => {
       .where(eq(aiGoalsTable.id, fixture.successorGoalId))
       .limit(1);
     expect(afterReplay?.status).toBe("waiting_for_event");
+  });
+
+
+  it("serializes cross-replica wake dispatch and reclaims an expired lease", async () => {
+    const fixture = await createPlanFixture();
+    const intentId = await db.transaction((tx) => insertMissionGoalWakeIntent(tx, {
+      missionId: fixture.missionId,
+      projectId: fixture.projectId,
+      goalId: fixture.prerequisiteGoalId,
+      completedAt: fixture.completedAt,
+    }));
+
+    const contenders = await Promise.all([
+      db.transaction((tx) => claimMissionGoalWakeDispatchLease(tx, { intentId })),
+      db.transaction((tx) => claimMissionGoalWakeDispatchLease(tx, { intentId })),
+    ]);
+    const winners = contenders.filter((result) => result.acquired);
+    expect(winners).toHaveLength(1);
+    const firstLease = winners[0]!;
+    if (!firstLease.acquired) throw new Error("Expected one Mission Goal wake lease owner.");
+
+    const [leasedIntent] = await db.select({
+      payload: eventsTable.payload,
+    }).from(eventsTable)
+      .where(eq(eventsTable.id, intentId))
+      .limit(1);
+    expect(leasedIntent?.payload?.dispatchLease).toMatchObject({
+      token: firstLease.token,
+      expiresAt: firstLease.expiresAt,
+    });
+
+    // Another replica's recovery scan must not enqueue work while this lease is active.
+    expect(await dispatchPendingMissionGoalWakes(10, fixture.projectId)).toBe(0);
+
+    // Simulate a process crash. A replacement process may reclaim the exact
+    // intent after the persisted lease expiry without operator intervention.
+    await db.update(eventsTable).set({
+      payload: {
+        ...(leasedIntent?.payload ?? {}),
+        dispatchLease: {
+          token: firstLease.token,
+          expiresAt: new Date(Date.now() - 60_000).toISOString(),
+        },
+      },
+    }).where(eq(eventsTable.id, intentId));
+
+    const recovered = await db.transaction((tx) =>
+      claimMissionGoalWakeDispatchLease(tx, { intentId }),
+    );
+    expect(recovered.acquired).toBe(true);
+    if (!recovered.acquired) throw new Error("Expected an expired wake lease to be recoverable.");
+    expect(recovered.token).not.toBe(firstLease.token);
+
+    const blocked = await db.transaction((tx) =>
+      claimMissionGoalWakeDispatchLease(tx, { intentId }),
+    );
+    expect(blocked).toEqual({ acquired: false, reason: "already_leased" });
   });
 
   it("retires a wake intent when a newer Goal state supersedes its completion generation", async () => {
