@@ -2212,6 +2212,10 @@ async function executeMissionRecipe(dispatch: RecipeDispatch): Promise<void> {
     }, "Mission recipe execution failed");
     await syncRecipeObjectiveState({
       ...dispatch,
+      ...(dispatch.expectedExecutionId ? { executionId: dispatch.expectedExecutionId } : {}),
+      ...(dispatch.expectedAttempt !== undefined
+        ? { attempt: dispatch.expectedAttempt }
+        : {}),
       status: "needs_replan",
       reason: "recipe_execution_failed",
     }).catch(() => undefined);
