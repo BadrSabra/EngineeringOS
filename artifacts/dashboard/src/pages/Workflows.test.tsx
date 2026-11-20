@@ -140,6 +140,65 @@ describe('project-scoped Workflows view', () => {
     expect(screen.getByTestId('select-workflow-project')).toHaveValue('project-1');
   });
 
+  it('searches workflows by name, description, or status and can clear an unmatched query', () => {
+    const baseWorkflow = {
+      id: 'workflow-release',
+      projectId: 'project-1',
+      name: 'Release pipeline',
+      description: 'A workflow with a failed execution.',
+      status: 'failed',
+      currentPhase: 'deploy',
+      executionCount: 1,
+      phases: [{ name: 'deploy', steps: ['Publish'] }],
+    };
+    vi.mocked(useListWorkflows).mockReturnValue({
+      data: [
+        baseWorkflow,
+        {
+          ...baseWorkflow,
+          id: 'workflow-docs',
+          name: 'Nightly docs',
+          description: 'Checks the database documentation.',
+          status: 'completed',
+        },
+        {
+          ...baseWorkflow,
+          id: 'workflow-smoke',
+          name: 'Staging smoke tests',
+          description: 'Checks the preview experience.',
+          status: 'running',
+        },
+      ],
+      isLoading: false,
+      isError: false,
+      error: null,
+      refetch: vi.fn(),
+      isRefetching: false,
+      dataUpdatedAt: 0,
+    } as ReturnType<typeof useListWorkflows>);
+    renderPage();
+
+    const search = screen.getByRole('searchbox', { name: 'ابحث في مسارات العمل' });
+    fireEvent.change(search, { target: { value: 'Nightly docs' } });
+    expect(screen.getByText('Nightly docs')).toBeInTheDocument();
+    expect(screen.queryByText('Release pipeline')).not.toBeInTheDocument();
+
+    fireEvent.change(search, { target: { value: 'database documentation' } });
+    expect(screen.getByText('Nightly docs')).toBeInTheDocument();
+    expect(screen.queryByText('Staging smoke tests')).not.toBeInTheDocument();
+
+    fireEvent.change(search, { target: { value: 'قيد التنفيذ' } });
+    expect(screen.getByText('Staging smoke tests')).toBeInTheDocument();
+    expect(screen.queryByText('Release pipeline')).not.toBeInTheDocument();
+
+    fireEvent.change(search, { target: { value: 'no matching workflow' } });
+    expect(screen.getByTestId('workflows-search-empty')).toBeInTheDocument();
+    fireEvent.click(screen.getByTestId('button-clear-workflow-search-empty'));
+    expect(screen.getByText('Release pipeline')).toBeInTheDocument();
+    expect(screen.getByText('Nightly docs')).toBeInTheDocument();
+    expect(screen.getByText('Staging smoke tests')).toBeInTheDocument();
+  });
+
   it('opens only the requested workflow history from a deep link', () => {
     window.history.replaceState(
       {},
