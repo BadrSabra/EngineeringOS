@@ -21,6 +21,8 @@ import {
   runChatRecoveryExhaustionFinalization,
   runChatExecutionRecovery,
 } from "./chat-recovery-runner.js";
+import { insertTaskAutoExecutionIntent } from "./task-auto-execution-outbox.js";
+import { taskTransitionConflict, type TaskStatus } from "./task-state.js";
 
 const SAFE_CHAT_RECOVERY_FAILURE_CODES = new Set([
   "EXECUTION_ACCEPTANCE_INCOMPLETE",
@@ -753,6 +755,9 @@ async function claimTaskRetry(
       .for("update")
       .limit(1);
     if (!task) return undefined;
+    if (taskTransitionConflict(candidate.taskStatus as TaskStatus, "verifying", "retry")) {
+      return undefined;
+    }
 
     // Keep the accepted retry decision current through the Task budget CAS.
     const [execution] = await tx
@@ -815,6 +820,7 @@ async function claimTaskRetry(
     const [claimed] = await tx
       .update(tasksTable)
       .set({
+        status: "verifying",
         retryCount: candidate.retryCount + 1,
         correlationId: randomUUID(),
         updatedAt: new Date(),
@@ -830,8 +836,25 @@ async function claimTaskRetry(
       .returning({
         id: tasksTable.id,
         retryCount: tasksTable.retryCount,
+        correlationId: tasksTable.correlationId,
       });
-    return claimed ? { retryCount: claimed.retryCount } : undefined;
+    if (!claimed) return undefined;
+
+    // The retry budget, new Task generation, and dispatch intent are one
+    // durable unit. A process crash after this transaction can be recovered
+    // by the existing Task outbox dispatcher without consuming another retry.
+    const intentPersisted = await insertTaskAutoExecutionIntent(tx, {
+      taskId: candidate.taskId,
+      userId: candidate.userId,
+      retryCount: claimed.retryCount,
+    });
+    if (!intentPersisted) {
+      throw new Error("task_recovery_dispatch_intent_not_persisted");
+    }
+    return {
+      retryCount: claimed.retryCount,
+      correlationId: claimed.correlationId,
+    };
   });
 }
 
@@ -916,9 +939,13 @@ async function runRecovery(candidate: TaskRecoveryCandidate, plan: Extract<TaskR
     taskId: candidate.taskId,
     userId: candidate.userId,
     provider: { provider: resolved.provider, apiKey: resolved.apiKey },
-    trigger: "reconciliation",
-    expectedStatuses: [...RECOVERY_TASK_STATUSES],
+    // Automatic execution is intentional here: the lifecycle validates and
+    // consumes the just-persisted outbox intent in the same claim transaction.
+    // If the worker dies before that claim, the scheduler can replay the intent.
+    trigger: "automatic",
+    expectedStatuses: ["verifying"],
     expectedRetryCount: claimed.retryCount,
+    expectedCorrelationId: claimed.correlationId,
   });
   if (!lifecycle.ok && lifecycle.status !== "conflict") {
     logger.warn({ taskId: candidate.taskId, executionId: lifecycle.executionId, code: lifecycle.errorCode }, "automatic AI retry did not complete");
