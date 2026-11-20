@@ -1442,7 +1442,7 @@ async function deferMissionWorldTransitionWake(
   const exhausted = attemptCount >= MISSION_WORLD_TRANSITION_WAKE_MAX_ATTEMPTS;
   const backoffMs = Math.min(
     MISSION_WORLD_TRANSITION_WAKE_MAX_BACKOFF_MS,
-    1_000 * (2 ** Math.min(attemptCount - 1, 10)),
+    30_000 * (2 ** Math.min(attemptCount - 1, 5)),
   );
   const message = error instanceof Error ? error.message : "mission_world_transition_wake_failed";
   await db.update(eventsTable).set({
