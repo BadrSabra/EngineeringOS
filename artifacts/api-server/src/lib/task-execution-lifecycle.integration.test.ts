@@ -387,6 +387,7 @@ import {
   scheduleAiTaskExecution,
   waitForScheduledAiTaskExecutions,
 } from "../routes/ai/tasks.js";
+import * as missionRuntime from "./mission-runtime.js";
 
 async function waitForEpisode(executionId: string) {
   for (let attempt = 0; attempt < 20; attempt += 1) {
@@ -9398,6 +9399,24 @@ describe("real durable task execution lifecycle", () => {
     const sourceRevision = "a".repeat(40);
     const now = new Date();
     const rootPath = await mkdtemp(join("/tmp", "mission-dependency-proof-admission-"));
+    let wakeObservedAfterCommit = false;
+    let wakeArguments: [number, string | undefined] | null = null;
+    const wakeSpy = vi.spyOn(missionRuntime, "wakeReadyMissionGoals")
+      .mockImplementation(async (limit, scopeProjectId) => {
+        wakeArguments = [limit, scopeProjectId];
+        const [committedGoal] = await db.select({ status: aiGoalsTable.status })
+          .from(aiGoalsTable).where(eq(aiGoalsTable.id, goalId));
+        const [committedTask] = await db.select({ status: tasksTable.status })
+          .from(tasksTable).where(eq(tasksTable.id, taskId));
+        const acceptedRows = await db.select({ outcome: aiExecutionAcceptancesTable.outcome })
+          .from(aiExecutionAcceptancesTable)
+          .innerJoin(aiExecutionsTable, eq(aiExecutionsTable.id, aiExecutionAcceptancesTable.executionId))
+          .where(eq(aiExecutionsTable.linkedTaskId, taskId));
+        wakeObservedAfterCommit = committedGoal?.status === "completed"
+          && committedTask?.status === "completed"
+          && acceptedRows.some((row) => row.outcome === "SUCCEEDED");
+        return 0;
+      });
 
     try {
       await db.insert(projectsTable).values({
@@ -9491,6 +9510,9 @@ describe("real durable task execution lifecycle", () => {
         status: "completed",
         executionId: expect.any(String),
       });
+      expect(wakeSpy).toHaveBeenCalledTimes(1);
+      expect(wakeArguments).toEqual([32, projectId]);
+      expect(wakeObservedAfterCommit).toBe(true);
       const linkedExecutions = await db.select({
         id: aiExecutionsTable.id,
         goalId: aiExecutionsTable.goalId,
@@ -9532,6 +9554,7 @@ describe("real durable task execution lifecycle", () => {
         .from(tasksTable).where(eq(tasksTable.id, taskId));
       expect(task?.status).toBe("completed");
     } finally {
+      wakeSpy.mockRestore();
       await cleanupProjectExecutionData(projectId);
       await db.delete(tasksTable).where(eq(tasksTable.id, taskId));
       await db.delete(aiGoalDependenciesTable).where(eq(aiGoalDependenciesTable.missionId, missionId));
