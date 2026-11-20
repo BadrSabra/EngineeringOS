@@ -89,7 +89,16 @@ describe("Mission Goal approval adapter", () => {
       },
       outcomeContract: {
         stepId,
-        planRevision: { hash: planRevision },
+        planRevision: {
+          hash: planRevision,
+          steps: [{
+            id: stepId,
+            kind: "execute",
+            approvalRequired: true,
+            readOnly: false,
+            files: ["README.md"],
+          }],
+        },
         planApproval: {
           kind: "mission_plan_step",
           state: "APPROVED",
