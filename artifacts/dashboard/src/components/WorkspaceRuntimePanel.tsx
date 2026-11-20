@@ -142,7 +142,6 @@ export default function WorkspaceRuntimePanel({ projectId }: { projectId: string
   }
 
   const busy = projectAction !== null || runtime.status === 'starting';
-  const action = projectAction?.action ?? null;
   const statusClass = runtime.status === 'running'
     ? 'border-emerald-500/30 bg-emerald-500/5 text-emerald-300'
     : runtime.status === 'failed'
