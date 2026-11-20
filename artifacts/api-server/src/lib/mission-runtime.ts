@@ -4252,6 +4252,9 @@ export async function replayPendingMissionEvents(
     .from(eventsTable)
     .where(and(
       eq(eventsTable.type, MISSION_EXTERNAL_EVENT_TYPE),
+      // Processed inbox rows must not consume the bounded replay window.
+      sql`${eventsTable.payload}->'missionEvent' IS NOT NULL`,
+      sql`${eventsTable.payload}->>'processedAt' IS NULL`,
       scopeProjectId ? eq(eventsTable.projectId, scopeProjectId) : undefined,
     ))
     .orderBy(eventsTable.timestamp, eventsTable.id)
