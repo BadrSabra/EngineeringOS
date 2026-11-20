@@ -246,6 +246,97 @@ test("UXW-01 goal handoff works on mobile when dashboard analytics fail", async 
   expect(apiRequests.filter((request) => !request.startsWith("GET "))).toEqual([]);
 });
 
+test("UXW-01 exact project match opens the named project with one click", async ({
+  page,
+}) => {
+  test.skip(
+    !localFixtureEnabled,
+    "This journey requires the isolated local-auth browser fixture.",
+  );
+  await page.setViewportSize({ width: 402, height: 874 });
+  const project = {
+    id: "uxw-project-1",
+    name: "بوابة العملاء",
+    status: "active",
+    ownerId: "test-user",
+  };
+  await installGoalApiFixtures(page, [project], workspaceSnapshot(project));
+  await page.goto(DASHBOARD_PATH, { waitUntil: "domcontentloaded" });
+
+  const goal = "راجع أداء مشروع بوابة العملاء";
+  await page.getByTestId("input-home-goal").fill(goal);
+  const continueButton = page.getByTestId("button-start-goal");
+  await expect(continueButton).toHaveAccessibleName("متابعة إلى مشروع بوابة العملاء");
+  await expect(page.getByTestId("panel-goal-destination")).toHaveCount(0);
+  await continueButton.click();
+
+  await expect(page).toHaveURL(/\/dashboard\/projects\/uxw-project-1\/workspace\?goalDraftId=/);
+  await expect(page.getByTestId("input-ai-chat-composer")).toHaveValue(goal);
+  const drafts = await page.evaluate((key) => {
+    const raw = window.sessionStorage.getItem(key);
+    return raw ? JSON.parse(raw) : [];
+  }, GOAL_DRAFT_KEY) as Array<Record<string, unknown>>;
+  expect(drafts).toHaveLength(1);
+  expect(drafts[0]).toMatchObject({
+    text: goal,
+    projectId: "uxw-project-1",
+    sendAttemptedAt: null,
+  });
+  expect(apiRequests.filter((request) => !request.startsWith("GET "))).toEqual([]);
+  expect(apiRequests).not.toContain("POST /api/ai/chat/stream");
+});
+
+test("UXW-01 ambiguous goal offers named projects and waits for explicit choice", async ({
+  page,
+}) => {
+  test.skip(
+    !localFixtureEnabled,
+    "This journey requires the isolated local-auth browser fixture.",
+  );
+  await page.setViewportSize({ width: 402, height: 874 });
+  const project = {
+    id: "uxw-project-1",
+    name: "بوابة العملاء",
+    status: "active",
+    ownerId: "test-user",
+  };
+  const secondProject = {
+    id: "uxw-project-2",
+    name: "لوحة الإدارة",
+    status: "active",
+    ownerId: "test-user",
+  };
+  await installGoalApiFixtures(page, [project, secondProject], workspaceSnapshot(project));
+  await page.goto(DASHBOARD_PATH, { waitUntil: "domcontentloaded" });
+
+  const goal = "قارن بوابة العملاء مع لوحة إدارة";
+  await page.getByTestId("input-home-goal").fill(goal);
+  await page.getByTestId("button-start-goal").click();
+  await expect(page.getByTestId("list-goal-project-suggestions")).toBeVisible();
+  await expect(page.getByTestId("text-goal-project-candidate-reason-uxw-project-1")).toContainText(
+    "ورد اسم المشروع في هدفك",
+  );
+  await expect(page).toHaveURL(/\/dashboard\/$/);
+  expect(apiRequests.filter((request) => !request.startsWith("GET "))).toEqual([]);
+  expect(await page.evaluate((key) => window.sessionStorage.getItem(key), GOAL_DRAFT_KEY)).toBeNull();
+
+  await page.getByTestId("button-route-goal-candidate-uxw-project-1").click();
+  await expect(page).toHaveURL(/\/dashboard\/projects\/uxw-project-1\/workspace\?goalDraftId=/);
+  await expect(page.getByTestId("input-ai-chat-composer")).toHaveValue(goal);
+  const drafts = await page.evaluate((key) => {
+    const raw = window.sessionStorage.getItem(key);
+    return raw ? JSON.parse(raw) : [];
+  }, GOAL_DRAFT_KEY) as Array<Record<string, unknown>>;
+  expect(drafts).toHaveLength(1);
+  expect(drafts[0]).toMatchObject({
+    text: goal,
+    projectId: "uxw-project-1",
+    sendAttemptedAt: null,
+  });
+  expect(apiRequests.filter((request) => !request.startsWith("GET "))).toEqual([]);
+  expect(apiRequests).not.toContain("POST /api/ai/chat/stream");
+});
+
 test("UXW-01 new-project handoff preserves the goal without starting work", async ({
   page,
 }) => {

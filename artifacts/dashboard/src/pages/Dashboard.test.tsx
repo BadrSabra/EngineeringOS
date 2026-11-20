@@ -142,7 +142,7 @@ describe("Dashboard goal-first home", () => {
     expect(mockSetLocation).not.toHaveBeenCalled();
   });
 
-  it("shows a unique project suggestion and requires an explicit scope choice before handoff", () => {
+  it("uses one clearly named action for a unique project match without sending the draft", () => {
     vi.mocked(useListOperatorAlerts).mockReturnValue({
       data: { alerts: [] },
       isLoading: false,
@@ -156,12 +156,12 @@ describe("Dashboard goal-first home", () => {
     fireEvent.change(screen.getByTestId("input-home-goal"), {
       target: { value: "ساعدني أفهم سبب بطء صفحة تسجيل الدخول في مشروع بوابة العملاء" },
     });
-    fireEvent.click(screen.getByTestId("button-start-goal"));
-
+    const continueButton = screen.getByTestId("button-start-goal");
+    expect(continueButton).toHaveAccessibleName("متابعة إلى مشروع بوابة العملاء");
+    expect(screen.queryByTestId("panel-goal-destination")).not.toBeInTheDocument();
     expect(mockSetLocation).not.toHaveBeenCalled();
-    expect(screen.getByTestId("text-goal-project-suggestion")).toHaveTextContent("بوابة العملاء");
     expect(readGoalDrafts("user-1").drafts).toHaveLength(0);
-    fireEvent.click(screen.getByTestId("button-route-goal-suggested-project"));
+    fireEvent.click(continueButton);
 
     const [draft] = readGoalDrafts('user-1').drafts;
     expect(draft.text).toBe("ساعدني أفهم سبب بطء صفحة تسجيل الدخول في مشروع بوابة العملاء");
@@ -170,6 +170,30 @@ describe("Dashboard goal-first home", () => {
     expect(mockSetLocation).toHaveBeenCalledWith(`/projects/project-1/workspace?goalDraftId=${draft.id}`);
     expect(screen.getByText(/لن يُرسل النص تلقائيًا/)).toBeInTheDocument();
     expect(screen.queryByTestId('panel-goal-destination')).not.toBeInTheDocument();
+  });
+
+  it("keeps an explicit general-chat choice available when a unique project is suggested", () => {
+    render(<Dashboard />);
+    fireEvent.change(screen.getByTestId("input-home-goal"), {
+      target: { value: "ساعدني أفهم سبب بطء صفحة تسجيل الدخول في مشروع بوابة العملاء" },
+    });
+
+    expect(screen.getByTestId("button-choose-goal-destination")).toHaveTextContent("اختيار وجهة أخرى");
+    fireEvent.click(screen.getByTestId("button-choose-goal-destination"));
+
+    expect(screen.getByTestId("panel-goal-destination")).toBeInTheDocument();
+    expect(screen.getByTestId("button-route-goal-general")).toBeInTheDocument();
+    expect(mockSetLocation).not.toHaveBeenCalled();
+    expect(readGoalDrafts("user-1").drafts).toHaveLength(0);
+
+    fireEvent.click(screen.getByTestId("button-route-goal-general"));
+    const [draft] = readGoalDrafts("user-1").drafts;
+    expect(draft).toMatchObject({
+      text: "ساعدني أفهم سبب بطء صفحة تسجيل الدخول في مشروع بوابة العملاء",
+      projectId: null,
+      sendAttemptedAt: null,
+    });
+    expect(mockSetLocation).toHaveBeenCalledWith(`/general-chat?goalDraftId=${draft.id}`);
   });
 
   it('waits for project names before showing a suggestion and never routes while they load', () => {
@@ -279,7 +303,7 @@ describe("Dashboard goal-first home", () => {
     expect(mockSetLocation).toHaveBeenCalledWith(`/projects/project-1/workspace?goalDraftId=${draft.id}`);
   });
 
-  it('keeps multiple project matches ambiguous until the user selects one exact project', () => {
+  it('shows exact and partial project choices when a goal has competing matches', () => {
     vi.mocked(useListProjects).mockReturnValue({
       data: [
         { id: 'project-1', name: 'بوابة العملاء', status: 'active', ownerId: 'user-1' },
@@ -291,18 +315,97 @@ describe("Dashboard goal-first home", () => {
     } as ReturnType<typeof useListProjects>);
     render(<Dashboard />);
     fireEvent.change(screen.getByTestId('input-home-goal'), {
-      target: { value: 'قارن بوابة العملاء مع لوحة الإدارة' },
+      target: { value: 'قارن بوابة العملاء مع لوحة إدارة' },
     });
     fireEvent.click(screen.getByTestId('button-start-goal'));
 
-    expect(screen.getByTestId('panel-goal-destination')).toHaveTextContent('اختر المشروع المقصود؛ ظهر أكثر من احتمال');
+    expect(screen.getByTestId('panel-goal-destination')).toHaveTextContent(
+      'قد يتعلق الهدف بأكثر من مشروع. راجع الاقتراحات واختر واحدًا.',
+    );
+    expect(screen.getByTestId('list-goal-project-suggestions')).toBeInTheDocument();
+    expect(screen.getByTestId('text-goal-project-candidate-reason-project-1')).toHaveTextContent(
+      'ورد اسم المشروع في هدفك',
+    );
+    expect(screen.getByTestId('text-goal-project-candidate-reason-project-2')).toHaveTextContent(
+      '«لوحة»',
+    );
+    expect(screen.getByTestId('button-route-goal-candidate-project-1')).toHaveAccessibleName(
+      'اختر مشروع بوابة العملاء',
+    );
+    expect(screen.getByTestId('button-route-goal-candidate-project-2')).toHaveAccessibleName(
+      'اختر مشروع لوحة الإدارة',
+    );
     expect(mockSetLocation).not.toHaveBeenCalled();
     expect(readGoalDrafts('user-1').drafts).toHaveLength(0);
 
-    fireEvent.change(screen.getByTestId('select-goal-project'), { target: { value: 'project-2' } });
-    fireEvent.click(screen.getByTestId('button-route-goal-project'));
+    fireEvent.click(screen.getByTestId('button-route-goal-candidate-project-2'));
     const [draft] = readGoalDrafts('user-1').drafts;
     expect(draft.projectId).toBe('project-2');
+    expect(draft.sendAttemptedAt).toBeNull();
+    expect(mockSetLocation).toHaveBeenCalledWith(`/projects/project-2/workspace?goalDraftId=${draft.id}`);
+  });
+
+  it('offers a partial-word suggestion without choosing or opening it automatically', () => {
+    vi.mocked(useListProjects).mockReturnValue({
+      data: [
+        { id: 'project-1', name: 'بوابة العملاء', status: 'active', ownerId: 'user-1' },
+      ],
+      isLoading: false,
+      isError: false,
+      refetch: vi.fn(),
+    } as ReturnType<typeof useListProjects>);
+    render(<Dashboard />);
+
+    fireEvent.change(screen.getByTestId('input-home-goal'), {
+      target: { value: 'راجع بوابة العميل' },
+    });
+    fireEvent.click(screen.getByTestId('button-start-goal'));
+
+    expect(screen.getByTestId('panel-goal-destination')).toHaveTextContent(
+      'لم يظهر اسم مشروع كامل؛ قد تساعدك هذه الاقتراحات.',
+    );
+    expect(screen.getByTestId('text-goal-project-candidate-reason-project-1')).toHaveTextContent(
+      '«بوابة»',
+    );
+    expect(screen.queryByTestId('card-goal-project-candidate-project-2')).not.toBeInTheDocument();
+    expect(mockSetLocation).not.toHaveBeenCalled();
+    expect(readGoalDrafts('user-1').drafts).toHaveLength(0);
+
+    fireEvent.click(screen.getByTestId('button-route-goal-candidate-project-1'));
+    const [draft] = readGoalDrafts('user-1').drafts;
+    expect(draft).toMatchObject({
+      text: 'راجع بوابة العميل',
+      projectId: 'project-1',
+      sendAttemptedAt: null,
+    });
+    expect(mockSetLocation).toHaveBeenCalledWith(`/projects/project-1/workspace?goalDraftId=${draft.id}`);
+  });
+
+  it('keeps every project available when a partial suggestion is not the intended choice', () => {
+    vi.mocked(useListProjects).mockReturnValue({
+      data: [
+        { id: 'project-1', name: 'بوابة العملاء', status: 'active', ownerId: 'user-1' },
+        { id: 'project-2', name: 'لوحة الإدارة', status: 'active', ownerId: 'user-1' },
+      ],
+      isLoading: false,
+      isError: false,
+      refetch: vi.fn(),
+    } as ReturnType<typeof useListProjects>);
+    render(<Dashboard />);
+
+    fireEvent.change(screen.getByTestId('input-home-goal'), {
+      target: { value: 'راجع بوابة العميل' },
+    });
+    fireEvent.click(screen.getByTestId('button-start-goal'));
+    fireEvent.click(screen.getByText('أريد اختيار مشروع آخر'));
+    fireEvent.change(screen.getByTestId('select-goal-project'), { target: { value: 'project-2' } });
+    fireEvent.click(screen.getByTestId('button-route-goal-project'));
+
+    const [draft] = readGoalDrafts('user-1').drafts;
+    expect(draft).toMatchObject({
+      projectId: 'project-2',
+      sendAttemptedAt: null,
+    });
     expect(mockSetLocation).toHaveBeenCalledWith(`/projects/project-2/workspace?goalDraftId=${draft.id}`);
   });
 
