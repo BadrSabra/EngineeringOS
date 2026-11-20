@@ -62,6 +62,10 @@ export const eventsTable = pgTable("events", {
   index("idx_events_mission_goal_wake_pending")
     .on(t.timestamp, t.id)
     .where(sql`${t.type} IN ('MissionGoalWakeRequested', 'MissionGoalWakeDeferred')`),
+  // Bounded recovery for approval-triggered Mission Goal dispatch.
+  index("idx_events_mission_goal_approval_pending")
+    .on(t.timestamp, t.id)
+    .where(sql`${t.type} IN ('MissionGoalApprovalDispatchRequested', 'MissionGoalApprovalDispatchDeferred')`),
   // The Mission event inbox is read by exact Goal/project scope, not by a
   // global scan of unprocessed event history.
   index("idx_events_mission_inbox_pending_goal")
