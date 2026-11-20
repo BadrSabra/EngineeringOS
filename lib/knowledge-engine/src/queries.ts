@@ -4,7 +4,7 @@
  * All functions are pure async — they take a db instance and return typed
  * results. No side effects, no writes. Safe to call from any context.
  */
-import { eq, inArray, and, gte, isNotNull, desc, sql, SQL, isNull, or } from "drizzle-orm";
+import { eq, inArray, and, gte, isNotNull, desc, asc, sql, SQL, isNull, or } from "drizzle-orm";
 import {
   db as DbType,
   graphEntitiesTable,
