@@ -1449,7 +1449,12 @@ export default function Missions() {
         if (
           freshProjection.mission.id !== activeMissionId
           || String(freshProjection.mission.projectId) !== projectId
-        ) return;
+        ) {
+          // Retain the mismatched snapshot only so the identity guard below
+          // can render an explicit error; never publish it to the Mission list.
+          setProjection(freshProjection);
+          return;
+        }
         setProjection(freshProjection);
         setMissions((current) => current.map((item) => (
           item.id === activeMissionId
