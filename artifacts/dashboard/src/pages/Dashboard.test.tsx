@@ -821,7 +821,7 @@ describe("Dashboard operator alerts", () => {
     expect(screen.getByTestId("home-shadow-queue-delay")).toHaveTextContent("عمر الأقدم: —");
   });
 
-  it("shows an unresolved Runtime startup alert with its session identity", () => {
+  it("keeps Runtime alerts without a project id on the general project list", () => {
     vi.mocked(useListOperatorAlerts).mockReturnValue({
       data: {
         alerts: [{
@@ -854,6 +854,8 @@ describe("Dashboard operator alerts", () => {
     expect(within(alerts).getByText("تعثر بدء Runtime")).toBeInTheDocument();
     expect(within(alerts).getByText("runtime-session-123")).toBeInTheDocument();
     expect(within(alerts).getByText(/بقي بدء Runtime للمشروع دون حسم/)).toBeInTheDocument();
+    expect(within(alerts).getByRole("link", { name: "إدارة المشاريع" }))
+      .toHaveAttribute("href", "/projects");
   });
 
   it("shows a Groq drift alert as historical because the route is disabled", () => {
@@ -1007,7 +1009,7 @@ describe("Dashboard operator alerts", () => {
     expect(within(alerts).queryByText(/نوع النموذج:/)).not.toBeInTheDocument();
   });
 
-  it("explains exhausted project usage limits in Arabic and links to projects", () => {
+  it("explains exhausted project usage limits and opens the affected project", () => {
     vi.mocked(useListOperatorAlerts).mockReturnValue({
       data: {
         alerts: [{
@@ -1045,7 +1047,8 @@ describe("Dashboard operator alerts", () => {
     expect(within(alerts).getByText(/انتظر إعادة الضبط اليومية/)).toBeInTheDocument();
     expect(within(alerts).getByText("النطاق: استخدام المساعد للمشروع")).toBeInTheDocument();
     expect(within(alerts).queryByText(/نوع النموذج:/)).not.toBeInTheDocument();
-    expect(within(alerts).getByRole("link", { name: "إدارة المشاريع" })).toHaveAttribute("href", "/projects");
+    expect(within(alerts).getByRole("link", { name: "افتح المشروع المتأثر" }))
+      .toHaveAttribute("href", "/projects/project-1");
   });
 
   it("shows an Arabic retry action when alert status cannot be loaded", () => {
