@@ -358,7 +358,7 @@ describe('DiscoverProjectWizard Arabic findings', () => {
     expect(onClose).not.toHaveBeenCalled();
   });
 
-  it('keeps the success screen open until the user opens the project', async () => {
+  it('keeps the success screen open until the user starts work in the project workspace', async () => {
     const onClose = vi.fn();
     render(<DiscoverProjectWizard onClose={onClose} />);
 
@@ -375,18 +375,39 @@ describe('DiscoverProjectWizard Arabic findings', () => {
         await Promise.resolve();
       });
       expect(screen.getByRole('heading', { name: 'تمت إضافة المشروع' })).toBeInTheDocument();
-      expect(screen.getByTestId('button-open-imported-project')).toBeInTheDocument();
+      expect(screen.getByTestId('button-open-imported-project-workspace')).toBeInTheDocument();
+      expect(screen.getByTestId('button-view-imported-project-details')).toBeInTheDocument();
 
       act(() => { vi.advanceTimersByTime(3_000); });
       expect(onClose).not.toHaveBeenCalled();
       expect(mocks.navigate).not.toHaveBeenCalled();
 
-      fireEvent.click(screen.getByTestId('button-open-imported-project'));
+      fireEvent.click(screen.getByTestId('button-open-imported-project-workspace'));
       expect(onClose).toHaveBeenCalledOnce();
-      expect(mocks.navigate).toHaveBeenCalledWith('/projects/imported-project');
+      expect(mocks.navigate).toHaveBeenCalledWith(
+        '/projects/imported-project/workspace#workspace-panel-agent',
+      );
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  it('keeps project details available as a secondary destination', async () => {
+    const onClose = vi.fn();
+    render(<DiscoverProjectWizard onClose={onClose} />);
+
+    fireEvent.change(screen.getByPlaceholderText('https://github.com/owner/repo'), {
+      target: { value: 'https://github.com/example/sample-app' },
+    });
+    fireEvent.click(screen.getByTestId('start-discovery'));
+    await screen.findByRole('heading', { name: 'نتائج استكشاف المشروع' });
+    fireEvent.click(screen.getByRole('button', { name: 'تأكيد وإضافة المشروع' }));
+    await screen.findByRole('heading', { name: 'تمت إضافة المشروع' });
+
+    fireEvent.click(screen.getByTestId('button-view-imported-project-details'));
+
+    expect(onClose).toHaveBeenCalledOnce();
+    expect(mocks.navigate).toHaveBeenCalledWith('/projects/imported-project');
   });
 
   it('allows the user to start a scan before opening the imported project', async () => {
@@ -403,7 +424,7 @@ describe('DiscoverProjectWizard Arabic findings', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'ابدأ الفحص' }));
     await waitFor(() => expect(mocks.scanProject).toHaveBeenCalledWith({ projectId: 'imported-project' }));
-    expect(screen.getByTestId('button-open-imported-project')).toBeInTheDocument();
+    expect(screen.getByTestId('button-open-imported-project-workspace')).toBeInTheDocument();
     expect(mocks.navigate).not.toHaveBeenCalled();
     expect(onClose).not.toHaveBeenCalled();
   });
@@ -441,7 +462,7 @@ describe('DiscoverProjectWizard Arabic findings', () => {
     expect(mocks.scanProject).toHaveBeenNthCalledWith(2, { projectId: 'imported-project' });
     expect(await screen.findByTestId('scan-project-success')).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'أعد محاولة الفحص' })).not.toBeInTheDocument();
-    expect(screen.getByTestId('button-open-imported-project')).toBeInTheDocument();
+    expect(screen.getByTestId('button-open-imported-project-workspace')).toBeInTheDocument();
   });
 
   it('warns when discovery results are partial', async () => {

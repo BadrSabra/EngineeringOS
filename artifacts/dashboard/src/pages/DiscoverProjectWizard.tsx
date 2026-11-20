@@ -1518,16 +1518,41 @@ export function DiscoverProjectWizard({ onClose }: Props) {
         ))}
       </div>
 
-      {importedProjectId && !scanTriggered && (
-        <div className="flex justify-center">
+      {importedProjectId && (
+        <div className="flex flex-col items-center gap-2">
           <button
             type="button"
-            onClick={() => void handleScan()}
-            disabled={scanProject.isPending}
-            className="px-5 py-2 bg-primary hover:bg-primary/90 text-primary-foreground text-sm font-semibold rounded-lg flex items-center gap-2 disabled:opacity-60 transition-colors"
+            onClick={() => {
+              onClose();
+              navigate(`/projects/${encodeURIComponent(importedProjectId)}/workspace#workspace-panel-agent`);
+            }}
+            data-testid="button-open-imported-project-workspace"
+            className="inline-flex items-center gap-2 rounded-lg bg-primary px-5 py-2 text-sm font-semibold text-primary-foreground transition-colors hover:bg-primary/90"
           >
-            {scanProject.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <GitBranch className="w-4 h-4" />}
-            {scanProject.isPending ? 'جارٍ بدء الفحص…' : scanProject.isError ? 'أعد محاولة الفحص' : 'ابدأ الفحص'}
+            <Layers className="h-4 w-4" aria-hidden="true" />
+            ابدأ العمل في مساحة المشروع
+          </button>
+          {!scanTriggered && (
+            <button
+              type="button"
+              onClick={() => void handleScan()}
+              disabled={scanProject.isPending}
+              className="inline-flex items-center gap-2 rounded-lg border border-border/60 px-4 py-2 text-sm text-muted-foreground transition-colors hover:border-primary/40 hover:text-foreground disabled:opacity-60"
+            >
+              {scanProject.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <GitBranch className="w-4 h-4" />}
+              {scanProject.isPending ? 'جارٍ بدء الفحص…' : scanProject.isError ? 'أعد محاولة الفحص' : 'ابدأ الفحص'}
+            </button>
+          )}
+          <button
+            type="button"
+            onClick={() => {
+              onClose();
+              navigate(`/projects/${encodeURIComponent(importedProjectId)}`);
+            }}
+            data-testid="button-view-imported-project-details"
+            className="rounded px-3 py-1.5 text-xs text-muted-foreground underline-offset-4 transition-colors hover:text-foreground hover:underline"
+          >
+            عرض تفاصيل المشروع
           </button>
         </div>
       )}
@@ -1542,23 +1567,8 @@ export function DiscoverProjectWizard({ onClose }: Props) {
         </p>
       )}
       <p dir="rtl" lang="ar" className="text-center text-xs text-muted-foreground">
-        المشروع جاهز. افتح لوحته الآن أو ابدأ فحصه أولًا.
+        تمت الإضافة. ابدأ بهدفك في مساحة المشروع؛ الفحص الإضافي اختياري.
       </p>
-      {importedProjectId && (
-        <div className="flex justify-center">
-          <button
-            type="button"
-            onClick={() => {
-              onClose();
-              navigate(`/projects/${importedProjectId}`);
-            }}
-            data-testid="button-open-imported-project"
-            className="inline-flex items-center gap-2 rounded-lg border border-primary/35 bg-primary/10 px-5 py-2 text-sm font-semibold text-primary transition-colors hover:bg-primary/15"
-          >
-            فتح لوحة المشروع
-          </button>
-        </div>
-      )}
     </div>
   );
 
