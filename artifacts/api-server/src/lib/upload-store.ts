@@ -466,29 +466,38 @@ export async function sweepExpiredUploads(): Promise<number> {
 
     let removed = 0;
     for (const row of expired) {
+      let current: Upload | undefined;
       if (row.state !== "retired") {
-        await db
+        // Use the row returned by the conditional transition itself. A stale
+        // expiry snapshot must never be followed by a second, broader read that
+        // can mistake a renewed claim for a retired cleanup receipt.
+        const [retired] = await db
           .update(uploadsTable)
           .set({ state: "retired" })
           .where(and(
             eq(uploadsTable.id, row.id),
+            eq(uploadsTable.ownerId, row.ownerId),
             lte(uploadsTable.expiresAt, sql`CURRENT_TIMESTAMP`),
             or(
               eq(uploadsTable.state, "storing"),
               eq(uploadsTable.state, "active"),
               eq(uploadsTable.state, "claimed"),
             ),
-          ));
+          ))
+          .returning();
+        current = retired;
+      } else {
+        const [retired] = await db
+          .select()
+          .from(uploadsTable)
+          .where(and(
+            eq(uploadsTable.id, row.id),
+            eq(uploadsTable.ownerId, row.ownerId),
+            eq(uploadsTable.state, "retired"),
+          ))
+          .limit(1);
+        current = retired;
       }
-      const [current] = await db
-        .select()
-        .from(uploadsTable)
-        .where(and(
-          eq(uploadsTable.id, row.id),
-          eq(uploadsTable.ownerId, row.ownerId),
-          eq(uploadsTable.state, "retired"),
-        ))
-        .limit(1);
       if (current && await cleanupRetiredRow(current)) removed += 1;
     }
     return removed;
