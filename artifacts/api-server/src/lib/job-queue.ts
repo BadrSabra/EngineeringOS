@@ -99,8 +99,8 @@ export class JobQueue {
    *
    * On restart, queued rows are redispatched from durable state. A row that
    * was already running is handled by job-reconciliation according to its job
-   * class: scans may retry within their bounded retry policy, discovery is
-   * made explicitly incomplete, and AI executions/tasks use their dedicated
+   * class: scans and durable-root Discovery sessions retry within bounded
+   * restart policies; temporary Discovery roots fail closed, while AI executions/tasks use their dedicated
    * reconciliation rules. There is no blanket "mark every in-flight job
    * failed" policy because unknown-midpoint side effects differ by class.
    *
