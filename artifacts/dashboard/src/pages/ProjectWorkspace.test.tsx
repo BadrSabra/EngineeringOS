@@ -48,6 +48,9 @@ const mocks = vi.hoisted(() => ({
   taskError: {} as Record<string, boolean>,
   taskLogsFetching: {} as Record<string, boolean>,
   executionFetching: {} as Record<string, boolean>,
+  user: { id: "owner-a" } as { id: string } | null,
+  isLoaded: true,
+  setLocation: vi.fn(),
 }));
 
 class FakeEventSource {
@@ -131,7 +134,12 @@ vi.mock("@workspace/api-client-react", () => ({
 
 vi.mock("wouter", () => ({
   useRoute: () => [true, { projectId: "project-1" }],
+  useLocation: () => ["/projects/project-1/workspace", mocks.setLocation],
   Link: "a",
+}));
+
+vi.mock("@clerk/react", () => ({
+  useUser: () => ({ user: mocks.user, isLoaded: mocks.isLoaded }),
 }));
 
 vi.mock("@/pages/AiChat", () => ({ default: () => null }));
@@ -160,6 +168,9 @@ beforeEach(() => {
   mocks.taskError = {};
   mocks.taskLogsFetching = {};
   mocks.executionFetching = {};
+  mocks.user = { id: "owner-a" };
+  mocks.isLoaded = true;
+  mocks.setLocation.mockReset();
   vi.mocked(useGetAiExecution).mockClear();
   eventSource = null;
   vi.stubGlobal("EventSource", class extends FakeEventSource {
@@ -634,6 +645,8 @@ describe("Workspace task cards", () => {
       .toHaveAttribute("href", "/tasks?projectId=project-1&taskId=task-upstream");
     expect(screen.getByRole("link", { name: "فتح تفاصيل المهمة: مهمة مرتبطة بقبول" }))
       .toHaveAttribute("href", "/tasks?projectId=project-1&taskId=task-accepted");
+    expect(screen.getByTestId("button-workspace-task-assistant-task-accepted"))
+      .toHaveAccessibleName("اسأل مساعد المشروع عن المهمة: مهمة مرتبطة بقبول");
     expect(screen.queryByTestId("link-workspace-task-chat-task-accepted")).not.toBeInTheDocument();
   });
 
