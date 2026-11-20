@@ -22,6 +22,7 @@ import {
   FormMessage,
 } from '@/components/ui/form';
 import { Input } from '@/components/ui/input';
+import ProjectBudgetAlertAssistantHandoff from '@/components/ProjectBudgetAlertAssistantHandoff';
 
 const budgetFormSchema = z.object({
   dailyAttemptLimit: z.number({ invalid_type_error: 'أدخل عددًا صحيحًا للمحاولات.' })
@@ -461,6 +462,14 @@ export default function ProjectAiBudgetPanel({ projectId }: { projectId: string 
                     </p>
                   </div>
                   <div className="flex shrink-0 flex-wrap gap-2">
+                    {(alert.kind === 'ai_budget_warning' || alert.kind === 'ai_budget_exhausted') && (
+                      <ProjectBudgetAlertAssistantHandoff
+                        projectId={projectId}
+                        alertId={alert.id}
+                        alertKind={alert.kind}
+                        alertStatus={alert.status}
+                      />
+                    )}
                     {alert.status === 'open' && (
                       <button
                         type="button"

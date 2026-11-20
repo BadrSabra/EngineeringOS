@@ -1,7 +1,20 @@
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { readGoalDrafts, storeHomeGoalDraft } from '@/lib/home-goal-handoff';
 import ProjectAiBudgetPanel from './ProjectAiBudgetPanel';
+
+const assistantMocks = vi.hoisted(() => ({
+  setLocation: vi.fn(),
+}));
+
+vi.mock('@clerk/react', () => ({
+  useUser: () => ({ isLoaded: true, user: { id: 'owner-a' } }),
+}));
+
+vi.mock('wouter', () => ({
+  useLocation: () => ['/projects/project-1', assistantMocks.setLocation],
+}));
 
 const mocks = vi.hoisted(() => {
   const mutation = () => ({
@@ -103,6 +116,8 @@ function renderPanel() {
 }
 
 beforeEach(() => {
+  vi.clearAllMocks();
+  window.sessionStorage.clear();
   mocks.budget = {
     ...mocks.budget,
     dailyAttemptLimit: 100,
@@ -121,6 +136,38 @@ beforeEach(() => {
 });
 
 describe('ProjectAiBudgetPanel', () => {
+  it('opens the project assistant with safe budget alert context without changing the alert', () => {
+    renderPanel();
+
+    fireEvent.click(screen.getByTestId('button-budget-alert-assistant-budget-alert-1'));
+
+    const draft = readGoalDrafts('owner-a').drafts[0];
+    expect(draft).toMatchObject({ projectId: 'project-1', source: 'home' });
+    expect(draft.text).toContain('اقتراب الاستخدام من الحد اليومي');
+    expect(draft.text).toContain('مفتوح');
+    expect(draft.text).not.toContain('Daily budget warning');
+    expect(draft.text).not.toContain('The project is approaching its daily budget.');
+    expect(draft.text).not.toContain('Review daily limits.');
+    expect(assistantMocks.setLocation).toHaveBeenCalledWith(
+      `/projects/project-1/workspace?goalDraftId=${draft.id}#workspace-panel-agent`,
+    );
+    expect(mocks.mutations.updateBudget.mutate).not.toHaveBeenCalled();
+    expect(mocks.mutations.updateAlert.mutate).not.toHaveBeenCalled();
+  });
+
+  it('does not leave the budget panel if the draft cannot be saved', () => {
+    for (let index = 0; index < 8; index += 1) {
+      expect(storeHomeGoalDraft(`هدف ${index}`, 'owner-a')).not.toBeNull();
+    }
+    renderPanel();
+
+    fireEvent.click(screen.getByTestId('button-budget-alert-assistant-budget-alert-1'));
+
+    expect(screen.getByRole('alert')).toHaveTextContent('تعذر حفظ سياق التنبيه.');
+    expect(assistantMocks.setLocation).not.toHaveBeenCalled();
+    expect(readGoalDrafts('owner-a').drafts).toHaveLength(8);
+  });
+
   it('shows project usage and submits the API budget contract', async () => {
     const { invalidateQueries } = renderPanel();
 
