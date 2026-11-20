@@ -553,7 +553,7 @@ export async function approveMissionGoal(params: {
   if (prepared.status !== "prepared") return prepared;
   const dispatch = await dispatchMissionGoalApprovalIntent(prepared.approvalIntentId);
   const run: MissionGoalRunResult = dispatch.run ?? {
-    status: "conflict",
+    status: "waiting",
     goalId: prepared.goalId,
     reason: dispatch.reason ?? "approval_dispatch_deferred",
   };
