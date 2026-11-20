@@ -3232,6 +3232,9 @@ export async function persistAiExecutionOrientationManifest(params: {
       eq(aiExecutionsTable.workerId, params.workerId),
       eq(aiExecutionsTable.status, "running"),
       gt(aiExecutionsTable.leaseUntil, databaseNow()),
+      // The exact request snapshot is the compare-and-swap fence for the
+      // immutable first write; worker ownership alone permits same-worker races.
+      eq(aiExecutionsTable.request, row.request),
     ))
     .returning({ id: aiExecutionsTable.id });
   return Boolean(updated);
