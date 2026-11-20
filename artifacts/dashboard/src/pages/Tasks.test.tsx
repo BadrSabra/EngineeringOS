@@ -309,6 +309,21 @@ describe('project-scoped task list contracts', () => {
     expect(dialogResults.violations.map(({ id }) => id)).toEqual([]);
   });
 
+  it('polls the list only while durable Task dispatch is in flight', () => {
+    renderPage();
+    const options = vi.mocked(useListTasks).mock.calls.at(-1)?.[1] as {
+      query?: {
+        refetchInterval?: (query: { state: { data: unknown } }) => number | false;
+      };
+    };
+    expect(options.query?.refetchInterval).toEqual(expect.any(Function));
+    const pollInterval = options.query?.refetchInterval;
+    expect(pollInterval?.({ state: { data: [{ status: 'queued' }] } })).toBe(5_000);
+    expect(pollInterval?.({ state: { data: [{ status: 'running' }] } })).toBe(5_000);
+    expect(pollInterval?.({ state: { data: [{ status: 'pending' }] } })).toBe(false);
+    expect(pollInterval?.({ state: { data: [{ status: 'completed' }] } })).toBe(false);
+  });
+
   it('sends the selected owned project in the list request', () => {
     renderPage();
     expect(useListTasks).toHaveBeenCalledWith(

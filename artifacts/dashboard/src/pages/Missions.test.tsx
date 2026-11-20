@@ -179,6 +179,26 @@ describe('Missions management', () => {
     });
   });
 
+  it('synchronizes the selected Mission card from the latest server projection', async () => {
+    const activeMission = { ...mission, status: 'active' as const };
+    const completedMission = {
+      ...activeMission,
+      status: 'completed' as const,
+      completedAt: '2026-11-20T13:00:00.000Z',
+    };
+    fetchMissionsMock.mockResolvedValue([activeMission]);
+    const currentProjection = await fetchMissionProjectionMock();
+    fetchMissionProjectionMock.mockResolvedValue({
+      ...currentProjection,
+      mission: completedMission,
+    });
+
+    renderPage();
+
+    expect(await screen.findByText('Mission complete')).toBeInTheDocument();
+    expect(screen.queryByText('Working on your objective')).not.toBeInTheDocument();
+  });
+
   it('does not infer START from draft status when the projection says NONE', async () => {
     fetchMissionsMock.mockResolvedValue([mission]);
     fetchMissionProjectionMock.mockResolvedValue({
