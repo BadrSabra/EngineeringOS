@@ -3688,6 +3688,36 @@ export async function runMissionGoal(params: {
         ))
         .limit(1);
       if (activeExecution) {
+        if (params.expectedApprovalBinding) {
+          const recipeDispatchEventId = randomUUID();
+          await tx.insert(eventsTable).values({
+            id: recipeDispatchEventId,
+            type: "AiGoalRecipeDispatchRequested",
+            projectId: goal.projectId,
+            goalId: goal.id,
+            severity: "info",
+            message: `AI goal "${goal.title}" approval adopted its active recipe execution`,
+            payload: {
+              missionId: mission.id,
+              operationId: identity.operationId,
+              recipeId: action.recipeId,
+              recipeVersion: action.recipeVersion,
+              candidateIdentity: action.candidateIdentity ?? null,
+              trigger: params.trigger,
+              delegation,
+              executionId: activeExecution.id,
+              alreadyActive: true,
+            },
+          });
+          await insertMissionGoalApprovalConsumedReceipt(
+            tx,
+            mission,
+            goal,
+            params.expectedApprovalBinding,
+            recipeDispatchEventId,
+            "AiGoalRecipeDispatchRequested",
+          );
+        }
         return recordActionEffect({
           status: "scheduled" as const,
           goalId: goal.id,
@@ -3818,6 +3848,37 @@ export async function runMissionGoal(params: {
       ))
       .limit(1);
     if (activeExecution) {
+      if (params.expectedApprovalBinding) {
+        const taskDispatchEventId = randomUUID();
+        await tx.insert(eventsTable).values({
+          id: taskDispatchEventId,
+          type: "AiGoalDispatchRequested",
+          projectId: goal.projectId,
+          goalId: goal.id,
+          taskId: task.id,
+          severity: "info",
+          message: `AI goal "${goal.title}" approval adopted its active Task execution`,
+          payload: {
+            missionId: mission.id,
+            trigger: params.trigger,
+            action: action.kind,
+            delegation: taskDelegation,
+            taskRetryCount: task.retryCount,
+            taskCorrelationId: task.correlationId,
+            executionId: activeExecution.id,
+            alreadyActive: true,
+          },
+        });
+        await insertMissionGoalApprovalConsumedReceipt(
+          tx,
+          mission,
+          goal,
+          params.expectedApprovalBinding,
+          taskDispatchEventId,
+          "AiGoalDispatchRequested",
+          task.id,
+        );
+      }
       return recordActionEffect({
         status: "scheduled" as const,
         goalId: goal.id,
