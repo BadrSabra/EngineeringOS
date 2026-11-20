@@ -172,8 +172,9 @@ function ProjectsForAccountSession({
     pollingStartedAt.current = null;
   };
 
-  const openCreate = () => {
+  const openCreate = (initialName?: string) => {
     idempotencyKey.current = '';
+    if (initialName !== undefined) setProjectName(initialName);
     setShowCreate(true);
   };
 
@@ -394,7 +395,7 @@ function ProjectsForAccountSession({
             </button>
             <button
               type="button"
-              onClick={openCreate}
+              onClick={() => openCreate()}
               data-testid="button-new-project"
               className="flex items-center gap-2 rounded-md border border-border bg-card px-4 py-2 text-sm font-medium transition-colors hover:border-primary/40 hover:bg-secondary"
             >
@@ -451,6 +452,18 @@ function ProjectsForAccountSession({
                 ? 'جرّب اسم المشروع أو وصفه أو إحدى تقنياته.'
                 : 'يمكنك تجهيز مشروع، أو استكشاف مشروع موجود، أو البدء بوصف النتيجة التي تريدها.'}
             </p>
+            {normalizedSearch && search.trim().length <= 80 && (
+              <button
+                type="button"
+                onClick={() => openCreate(search.trim())}
+                data-testid="button-create-project-from-search"
+                aria-label={`أنشئ مشروعًا باسم ${search.trim()}`}
+                className="mb-3 inline-flex max-w-full flex-wrap items-center justify-center gap-2 rounded-lg border border-primary/30 bg-primary/10 px-4 py-2.5 text-sm font-semibold text-primary transition-colors hover:bg-primary/15 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+              >
+                <Plus className="h-4 w-4 shrink-0" aria-hidden="true" />
+                أنشئ مشروعًا باسم <bdi dir="auto" className="max-w-full break-all">{search.trim()}</bdi>
+              </button>
+            )}
             {!normalizedSearch && (
               <div className="flex flex-wrap justify-center gap-3">
                 <Link
@@ -464,7 +477,7 @@ function ProjectsForAccountSession({
                 </Link>
                 <button
                   type="button"
-                  onClick={openCreate}
+                  onClick={() => openCreate()}
                   data-testid="button-empty-create-project"
                   className="bg-primary hover:bg-primary/90 text-primary-foreground px-5 py-2.5 rounded-lg font-semibold text-sm flex items-center gap-2 transition-colors"
                 >
