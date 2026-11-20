@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { getListEventsQueryKey, useListEvents, useListProjects } from '@workspace/api-client-react';
 import { Search, Filter, X } from 'lucide-react';
 import { RefreshButton } from '@/components/OperatorResilience';
@@ -49,6 +49,7 @@ export default function Events() {
   const [searchTerm, setSearchTerm] = useState(viewState.searchTerm);
   const [page, setPage] = useState(viewState.page);
   const [showFilters, setShowFilters] = useState(false);
+  const searchInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     const params = new URLSearchParams();
@@ -111,6 +112,7 @@ export default function Events() {
           <div data-testid="events-search" className="relative min-w-0 basis-full sm:basis-auto">
             <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
             <input
+              ref={searchInputRef}
               type="text"
               value={searchTerm}
                onChange={(e) => {
@@ -118,8 +120,24 @@ export default function Events() {
                  setPage(1);
                }}
               placeholder="ابحث في السجلات..."
-              className="w-full min-w-0 bg-card border border-border rounded-md pl-9 pr-4 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-primary sm:w-64"
+              aria-label="ابحث في سجل الأحداث"
+              className="w-full min-w-0 bg-card border border-border rounded-md pl-9 pr-9 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-primary sm:w-64"
             />
+            {searchTerm.trim() && (
+              <button
+                type="button"
+                aria-label="مسح البحث عن الأحداث"
+                data-testid="button-clear-event-search"
+                onClick={() => {
+                  setSearchTerm('');
+                  setPage(1);
+                  searchInputRef.current?.focus();
+                }}
+                className="absolute right-2 top-1/2 -translate-y-1/2 rounded p-1 text-muted-foreground hover:bg-secondary hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+              >
+                <X className="h-3.5 w-3.5" aria-hidden="true" />
+              </button>
+            )}
           </div>
           <div className="shrink-0">
             <RefreshButton onRefresh={refetch} isRefreshing={isFetching} label="تحديث الأحداث" />
