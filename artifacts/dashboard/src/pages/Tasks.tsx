@@ -1,5 +1,5 @@
 import React, { useMemo, useState, useEffect, useRef } from 'react';
-import { useSearch } from 'wouter';
+import { Link, useSearch } from 'wouter';
 import {
   useListTasks,
   useExecuteTask,
@@ -44,12 +44,14 @@ import {
   WifiOff,
   ShieldCheck,
   FileCheck2,
+  MessageCircle,
   Pencil,
   Trash2,
 } from 'lucide-react';
 import { ProviderRecoveryCard } from '@/components/ProviderRecoveryCard';
 import { MissionCapsule } from '@/components/MissionCapsule';
 import { resolveExecutionProofPresentation } from '@/lib/execution-proof-presentation';
+import { executionChatHref } from '@/lib/execution-chat-link';
 import { isTaskFollowUpCandidate } from '@/lib/task-follow-up-filter';
 
 // ─── Task logs sub-component ──────────────────────────────────────────────────
@@ -578,9 +580,15 @@ function TaskExecutionProjection({ taskId, isResuming }: { taskId: string; isRes
   const taskCorrelationId = task?.correlationId;
   const executionMatchesCurrentTask = Boolean(
     taskCorrelationId
-    && execution?.correlationId === taskCorrelationId
+    && task?.projectId?.trim()
+    && execution?.id === executionId
+    && execution.projectId === task.projectId
+    && execution.correlationId === taskCorrelationId
     && execution.linkedTaskId === taskId,
   );
+  const executionConversationHref = executionMatchesCurrentTask
+    ? executionChatHref(execution, executionId, task?.projectId)
+    : null;
   const activeExecutionIsRefreshing = Boolean(
     (task?.status === 'running' || execution?.status === 'running')
     && (taskIsFetching || executionIsFetching),
@@ -589,20 +597,33 @@ function TaskExecutionProjection({ taskId, isResuming }: { taskId: string; isRes
   if (!executionId || !execution?.projection || !executionMatchesCurrentTask) return null;
   const proofPresentation = resolveExecutionProofPresentation(execution);
   return (
-    <MissionCapsule
-      projection={execution.projection}
-      executionId={executionId}
-      operationId={execution.operationId}
-      proposalId={execution.proposalId}
-      taskId={taskId}
-      allowTaskRecovery={executionMatchesCurrentTask}
-      executionStatus={execution.status}
-      flightState={proofPresentation.flightState}
-      evidenceVerdict={proofPresentation.evidenceVerdict}
-      resumable={execution.resumable}
-      nextAction={execution.evidenceReason ?? execution.acceptance?.disposition?.operatorAction}
-      compact
-    />
+    <div className="mb-4">
+      <MissionCapsule
+        projection={execution.projection}
+        executionId={executionId}
+        operationId={execution.operationId}
+        proposalId={execution.proposalId}
+        taskId={taskId}
+        allowTaskRecovery={executionMatchesCurrentTask}
+        executionStatus={execution.status}
+        flightState={proofPresentation.flightState}
+        evidenceVerdict={proofPresentation.evidenceVerdict}
+        resumable={execution.resumable}
+        nextAction={execution.evidenceReason ?? execution.acceptance?.disposition?.operatorAction}
+        compact
+      />
+      {executionConversationHref && (
+        <Link
+          href={executionConversationHref}
+          aria-label="فتح محادثة التنفيذ المرتبطة بالمهمة"
+          data-testid={`link-task-execution-chat-${taskId}`}
+          className="mt-2 inline-flex items-center gap-2 rounded-md border border-primary/30 bg-primary/5 px-3 py-2 text-xs font-medium text-primary transition-colors hover:bg-primary/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+        >
+          <MessageCircle className="h-3.5 w-3.5" aria-hidden="true" />
+          فتح محادثة التنفيذ
+        </Link>
+      )}
+    </div>
   );
 }
 
