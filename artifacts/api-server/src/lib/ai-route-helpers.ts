@@ -2199,7 +2199,26 @@ export function providerAvailabilityProjection(
 export function projectProviderRecoveryDetails(
   err: GroqClientError,
   providerId: ProviderId,
-): ProviderRecoveryProjection {
+): ProviderRecoveryProjection | undefined {
+  const hasKnownDiagnosis =
+    err.code === "AUTH_ERROR"
+    || err.providerCode === "CIRCUIT_OPEN"
+    || err.code === "MODEL_NOT_FOUND"
+    || err.code === "MODEL_UNAVAILABLE"
+    || err.providerCode === "MODEL_CAPABILITY_MISMATCH"
+    || err.providerCode === "STALE_CONFIGURED_MODEL"
+    || err.code === "RATE_LIMITED"
+    || err.code === "QUOTA"
+    || err.code === "PLAN_RESTRICTED"
+    || (
+      providerId === "openrouter"
+      && err.providerCode === "NO_COMPATIBLE_FREE_MODEL"
+    )
+    || err.code === "TIMEOUT"
+    || err.code === "NETWORK_ERROR"
+    || err.code === "SERVER_ERROR";
+  if (!hasKnownDiagnosis) return undefined;
+
   const provider = PROVIDER_REGISTRY[providerId];
   const projection = providerAvailabilityProjection(
     err,
