@@ -42,7 +42,9 @@ describe("project bootstrap database-clock leases", () => {
     const workerId = randomUUID();
     const [before] = await db.select({
       now: sql<Date>`clock_timestamp() AT TIME ZONE 'UTC'`,
-    });
+    }).from(projectBootstrapJobsTable)
+      .where(eq(projectBootstrapJobsTable.id, jobId))
+      .limit(1);
 
     const RealDate = globalThis.Date;
     class FutureClockDate extends RealDate {
