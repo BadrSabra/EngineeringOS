@@ -321,5 +321,6 @@ describe('Rules actions', () => {
       'src/unsafe.ts:12',
     );
     expect(screen.getByTestId('rule-evaluation-result-rule-1')).toHaveTextContent('eval(input)');
+    expect(screen.getByTestId('button-rule-result-handoff-rule-1')).toBeInTheDocument();
   });
 });

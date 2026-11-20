@@ -22,6 +22,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
+import RuleEvaluationHandoff from '@/components/RuleEvaluationHandoff';
 
 type RuleDraft = {
   title: string;
@@ -418,6 +419,14 @@ export default function RuleDetailActions({ rule }: { rule: Rule }) {
                       </li>
                     ))}
                   </ul>
+                )}
+                {selectedProject && evaluationResult.matchCount > 0 && (
+                  <RuleEvaluationHandoff
+                    rule={{ id: rule.id, code: rule.code, title: rule.title }}
+                    projectId={selectedProject.id}
+                    projectName={selectedProject.name}
+                    evaluation={evaluationResult}
+                  />
                 )}
               </div>
             )}
