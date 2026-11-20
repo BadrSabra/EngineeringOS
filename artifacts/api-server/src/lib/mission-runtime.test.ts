@@ -815,6 +815,144 @@ async function contendWithMissionThenGoalLock(params: {
 }
 
 describe("Mission goal runtime", () => {
+  it("rejects a stale approval binding after the active plan changes while runtime waits for the Mission lock", async () => {
+    const planRevision = "a".repeat(64);
+    const rotatedPlanRevision = "b".repeat(64);
+    const stepId = "approved-step";
+    const taskId = randomUUID();
+    const approvalEventId = randomUUID();
+    const fixture = await createMissionFixture({
+      kind: "task",
+      taskId,
+      purpose: "activation",
+    });
+
+    await db.update(aiMissionsTable)
+      .set({ autonomyPolicy: { activePlanRevision: planRevision } })
+      .where(eq(aiMissionsTable.id, fixture.missionId));
+    await db.update(aiGoalsTable)
+      .set({
+        successCriteria: {
+          kind: "mission_plan_step",
+          stepId,
+          planRevision: { hash: planRevision },
+        },
+        outcomeContract: {
+          stepId,
+          planRevision: {
+            hash: planRevision,
+            steps: [{
+              id: stepId,
+              kind: "execute",
+              approvalRequired: true,
+              readOnly: false,
+              files: ["README.md"],
+            }],
+          },
+          planApproval: {
+            kind: "mission_plan_step",
+            state: "APPROVED",
+            approvalEventId,
+            planRevision,
+            stepId,
+          },
+        },
+        nextAction: { kind: "task", taskId, purpose: "activation" },
+        status: "queued",
+        updatedAt: fixture.now,
+      })
+      .where(eq(aiGoalsTable.id, fixture.goalId));
+    await db.insert(tasksTable).values({
+      id: taskId,
+      projectId: fixture.projectId,
+      goalId: fixture.goalId,
+      title: "Approved Mission task",
+      description: "Must not dispatch after its approval becomes stale.",
+      status: "verifying",
+      priority: "p1",
+      phase: "execute",
+      prompt: "Run the approved Mission task",
+      createdAt: fixture.now,
+      updatedAt: fixture.now,
+    });
+    await db.insert(eventsTable).values({
+      id: approvalEventId,
+      type: "AiGoalApprovalGranted",
+      projectId: fixture.projectId,
+      goalId: fixture.goalId,
+      severity: "success",
+      message: "Mission Goal plan step approved",
+      payload: {
+        missionId: fixture.missionId,
+        goalId: fixture.goalId,
+        approvalKind: "mission_plan_step",
+        planRevision,
+        stepId,
+      },
+      timestamp: fixture.now,
+    });
+
+    let releaseRevision!: () => void;
+    let acquiredMissionLock!: () => void;
+    const missionLocked = new Promise<void>((resolve) => {
+      acquiredMissionLock = resolve;
+    });
+    const allowRevisionCommit = new Promise<void>((resolve) => {
+      releaseRevision = resolve;
+    });
+    const revisionRotation = db.transaction(async (tx) => {
+      await tx.update(aiMissionsTable)
+        .set({
+          autonomyPolicy: { activePlanRevision: rotatedPlanRevision },
+          updatedAt: new Date(),
+        })
+        .where(eq(aiMissionsTable.id, fixture.missionId));
+      acquiredMissionLock();
+      await allowRevisionCommit;
+    });
+    await missionLocked;
+
+    const localWake = vi.spyOn(aiTaskRoutes, "scheduleAiTaskExecution")
+      .mockResolvedValueOnce(undefined);
+    const runPromise = runMissionGoal({
+      goalId: fixture.goalId,
+      userId: "test-user",
+      trigger: "resume",
+      expectedApprovalBinding: {
+        approvalKind: "plan",
+        approvalEventId,
+        planRevision,
+        stepId,
+      },
+    });
+    const waitedForRevision = await Promise.race([
+      runPromise.then(() => false),
+      new Promise<boolean>((resolve) => setTimeout(() => resolve(true), 100)),
+    ]);
+    releaseRevision();
+    await revisionRotation;
+
+    expect(waitedForRevision).toBe(true);
+    await expect(runPromise).resolves.toMatchObject({
+      status: "conflict",
+      goalId: fixture.goalId,
+      reason: "approval_binding_mismatch",
+    });
+    expect(localWake).not.toHaveBeenCalled();
+
+    const [goal] = await db.select({ status: aiGoalsTable.status })
+      .from(aiGoalsTable)
+      .where(eq(aiGoalsTable.id, fixture.goalId));
+    const dispatchEvents = await db.select({ id: eventsTable.id })
+      .from(eventsTable)
+      .where(and(
+        eq(eventsTable.goalId, fixture.goalId),
+        eq(eventsTable.type, "AiGoalDispatchRequested"),
+      ));
+    expect(goal?.status).toBe("queued");
+    expect(dispatchEvents).toHaveLength(0);
+  });
+
   it("releases a dependent Goal only from the matching current-attempt Canonical Proof", async () => {
     const fixture = await createDependencyProofFixture();
 
