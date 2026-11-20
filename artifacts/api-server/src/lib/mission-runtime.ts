@@ -3923,7 +3923,8 @@ export async function wakeDueMissionGoals(
   limit = 32,
   scopeProjectId?: string,
 ): Promise<number> {
-  const now = new Date();
+  // Scheduled wake deadlines are shared across API replicas; use PostgreSQL's UTC clock
+  // for discovery and the locked recheck rather than each process's local clock.
   const dueGoals = await db
     .select({
       id: aiGoalsTable.id,
@@ -3934,7 +3935,7 @@ export async function wakeDueMissionGoals(
     .where(and(
       eq(aiGoalsTable.status, "waiting_for_event"),
       isNotNull(aiGoalsTable.nextWakeAt),
-      lte(aiGoalsTable.nextWakeAt, now),
+      lte(aiGoalsTable.nextWakeAt, databaseNow()),
       scopeProjectId ? eq(aiGoalsTable.projectId, scopeProjectId) : undefined,
     ))
     .orderBy(aiGoalsTable.nextWakeAt, aiGoalsTable.id)
@@ -3960,7 +3961,7 @@ export async function wakeDueMissionGoals(
           eq(aiGoalsTable.projectId, candidate.projectId),
           eq(aiGoalsTable.status, "waiting_for_event"),
           isNotNull(aiGoalsTable.nextWakeAt),
-          lte(aiGoalsTable.nextWakeAt, now),
+          lte(aiGoalsTable.nextWakeAt, databaseNow()),
         ))
         .for("update");
       if (!goal) return false;
@@ -3977,12 +3978,12 @@ export async function wakeDueMissionGoals(
           },
           nextWakeAt: null,
           blockedReason: null,
-          updatedAt: now,
+          updatedAt: databaseNow(),
         })
         .where(eq(aiGoalsTable.id, goal.id));
       if (mission && mission.status !== "blocked" && mission.status !== "cancelled" && mission.status !== "completed") {
         await tx.update(aiMissionsTable)
-          .set({ status: "needs_replan", updatedAt: now })
+          .set({ status: "needs_replan", updatedAt: databaseNow() })
           .where(eq(aiMissionsTable.id, mission.id));
       }
       await tx.insert(eventsTable).values({
