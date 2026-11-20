@@ -18,7 +18,7 @@ import {
 } from "@workspace/db";
 import { eq, desc, asc, sql } from "drizzle-orm";
 import type { NodePgDatabase } from "drizzle-orm/node-postgres";
-import type { RepositoryRevisionManifest } from "./context-manifest.js";
+import type { ContextManifestCacheIdentity, RepositoryRevisionManifest } from "./context-manifest.js";
 import type { ContextCollection } from "./context-contract.js";
 
 // ─── Queryable ────────────────────────────────────────────────────────────────
@@ -460,6 +460,108 @@ export async function loadScanJobs(
     .orderBy(desc(scanJobsTable.createdAt))
     .limit(1);
   return rows[0];
+}
+
+/**
+ * Read only the current scan identity needed to validate a context-cache hit.
+ * JSONB projections avoid loading the potentially large repository file list.
+ * This is one bounded, repeatable-read transaction and performs no filesystem
+ * walk, scan, cache mutation, or dispatch.
+ */
+export async function loadCurrentContextManifestCacheIdentity(
+  projectId: string,
+  options: Pick<BuildProjectContextOptions, "signal" | "deadlineMs"> = {},
+): Promise<ContextManifestCacheIdentity> {
+  const deadlineAt = Date.now() + Math.max(1, options.deadlineMs ?? 5_000);
+
+  return db.transaction(async (tx) => {
+    const q = tx as unknown as Queryable;
+    await applyDatabaseDeadline(q, deadlineAt);
+
+    const projectRows = await guardedLoad(
+      () => q.select({
+        id: projectsTable.id,
+        updatedAt: projectsTable.updatedAt,
+      }).from(projectsTable)
+        .where(eq(projectsTable.id, projectId))
+        .limit(1),
+      options.signal,
+      deadlineAt,
+    );
+    const project = projectRows[0];
+    if (!project) throw new Error(`Project ${projectId} not found`);
+
+    const scanRows = await guardedLoad(
+      () => q.select({
+        status: scanJobsTable.status,
+        finishedAt: scanJobsTable.finishedAt,
+        projectRevision: sql<string | null>`${scanJobsTable.result}->>'projectRevision'`,
+        scanCompleteness: sql<string | null>`${scanJobsTable.result}->>'scanCompleteness'`,
+        sourceProvenance: sql<string | null>`${scanJobsTable.result}->>'sourceProvenance'`,
+        scanCorrelationId: sql<string | null>`${scanJobsTable.result}->>'scanCorrelationId'`,
+        scannerVersion: sql<string | null>`${scanJobsTable.result}->>'scannerVersion'`,
+        repositoryManifestRevision: sql<string | null>`${scanJobsTable.result}->'repositoryManifest'->>'revision'`,
+        repositoryManifestSourceRoot: sql<string | null>`${scanJobsTable.result}->'repositoryManifest'->>'sourceRoot'`,
+        repositoryManifestCompleteness: sql<string | null>`${scanJobsTable.result}->'repositoryManifest'->>'completeness'`,
+      }).from(scanJobsTable)
+        .where(eq(scanJobsTable.projectId, projectId))
+        .orderBy(desc(scanJobsTable.createdAt))
+        .limit(1),
+      options.signal,
+      deadlineAt,
+    );
+    const latest = scanRows[0];
+    const finishedAt = latest?.finishedAt instanceof Date
+      ? latest.finishedAt.toISOString()
+      : undefined;
+    const legacyRevision = finishedAt
+      ?? (project.updatedAt instanceof Date
+        ? project.updatedAt.toISOString()
+        : String(Date.now()));
+    const isCompleted = latest?.status === "completed";
+    const scanCompleteness = !isCompleted
+      ? "UNAVAILABLE" as const
+      : latest?.scanCompleteness === "PARTIAL"
+        ? "PARTIAL" as const
+        : latest?.scanCompleteness === "COMPLETE"
+          ? "COMPLETE" as const
+          : "UNAVAILABLE" as const;
+    const persistedRepositoryCompleteness = latest?.repositoryManifestCompleteness;
+    const repositoryCompleteness: RepositoryRevisionManifest["completeness"] | undefined =
+      persistedRepositoryCompleteness === "COMPLETE" ||
+      persistedRepositoryCompleteness === "PARTIAL" ||
+      persistedRepositoryCompleteness === "UNAVAILABLE"
+        ? persistedRepositoryCompleteness
+        : undefined;
+    const repositoryManifest =
+      typeof latest?.repositoryManifestRevision === "string" &&
+      typeof latest?.repositoryManifestSourceRoot === "string" &&
+      repositoryCompleteness
+        ? {
+            revision: latest.repositoryManifestRevision,
+            sourceRoot: latest.repositoryManifestSourceRoot,
+            completeness: repositoryCompleteness,
+          }
+        : undefined;
+
+    return {
+      projectId,
+      projectRevision: typeof latest?.projectRevision === "string"
+        ? latest.projectRevision
+        : isCompleted ? `legacy-scan:${legacyRevision}` : `unscanned:${legacyRevision}`,
+      scanCompleteness,
+      sourceProvenance: typeof latest?.sourceProvenance === "string"
+        ? latest.sourceProvenance
+        : isCompleted ? "filesystem-scan:legacy" : "project-record",
+      ...(typeof latest?.scanCorrelationId === "string"
+        ? { scanCorrelationId: latest.scanCorrelationId }
+        : {}),
+      ...(typeof latest?.scannerVersion === "string"
+        ? { scannerVersion: latest.scannerVersion }
+        : {}),
+      ...(repositoryManifest ? { repositoryManifest } : {}),
+    };
+  }, { isolationLevel: "repeatable read", accessMode: "read only" });
 }
 
 // ─── Orchestrator ─────────────────────────────────────────────────────────────
