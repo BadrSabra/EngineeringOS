@@ -112,6 +112,7 @@ export type MissionGoalRunResult = {
 const ACTIVE_EXECUTION_STATUSES = ["queued", "running", "paused", "cancelling"] as const;
 const RECIPE_EXECUTION_STATUSES = ["queued", "running", "paused", "cancelling"] as const;
 const MISSION_EXTERNAL_EVENT_TYPE = "AiMissionExternalEventReceived";
+const MISSION_GOAL_APPROVAL_CONSUMED_EVENT_TYPE = "MissionGoalApprovalDispatchConsumed";
 type RecipeGoalAction = Extract<GoalNextAction, { kind: "recipe" }>;
 type MissionTransaction = Parameters<Parameters<typeof db.transaction>[0]>[0];
 export type GoalDependencyState = {
@@ -2650,10 +2651,247 @@ async function syncRecipeObjectiveStateAndFinalizeMissionOutcome(
   }
 }
 
+
+export type MissionGoalApprovalBinding =
+  | {
+      approvalKind: "plan";
+      dispatchIntentId: string;
+      approvalEventId: string;
+      planRevision: string;
+      stepId: string;
+      decisionTraceId?: string;
+    }
+  | {
+      approvalKind: "proposal";
+      dispatchIntentId: string;
+      approvalEventId: string;
+      executionId: string;
+      proposalId: string;
+      revision: number;
+    };
+
+function missionApprovalRecord(value: unknown): Record<string, unknown> {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : {};
+}
+
+function missionGoalApprovalConsumedReceiptId(dispatchIntentId: string): string {
+  return `mission-goal-approval-consumed:${dispatchIntentId}`;
+}
+
+/**
+ * A runtime admission receipt closes the commit-to-Outbox-acknowledgement
+ * window. It is written in the same transaction as the downstream dispatch
+ * event, so a later delivery can distinguish an already-consumed approval
+ * from a genuinely superseded one.
+ */
+async function missionGoalApprovalWasConsumed(
+  tx: MissionTransaction,
+  mission: typeof aiMissionsTable.$inferSelect,
+  goal: typeof aiGoalsTable.$inferSelect,
+  binding: MissionGoalApprovalBinding,
+): Promise<boolean> {
+  const [receipt] = await tx.select({
+    type: eventsTable.type,
+    projectId: eventsTable.projectId,
+    goalId: eventsTable.goalId,
+    payload: eventsTable.payload,
+  }).from(eventsTable)
+    .where(eq(eventsTable.id, missionGoalApprovalConsumedReceiptId(binding.dispatchIntentId)))
+    .limit(1);
+  if (!receipt
+    || receipt.type !== MISSION_GOAL_APPROVAL_CONSUMED_EVENT_TYPE
+    || receipt.projectId !== mission.projectId
+    || receipt.goalId !== goal.id
+  ) return false;
+
+  const payload = missionApprovalRecord(receipt.payload);
+  const storedBinding = missionApprovalRecord(payload.approvalBinding);
+  const bindingMatches = payload.schemaVersion === 1
+    && payload.missionId === mission.id
+    && payload.approvalIntentId === binding.dispatchIntentId
+    && storedBinding.approvalKind === binding.approvalKind
+    && storedBinding.dispatchIntentId === binding.dispatchIntentId
+    && storedBinding.approvalEventId === binding.approvalEventId
+    && (binding.approvalKind !== "plan"
+      || (
+        storedBinding.planRevision === binding.planRevision
+        && storedBinding.stepId === binding.stepId
+        && storedBinding.decisionTraceId === binding.decisionTraceId
+      ))
+    && (binding.approvalKind !== "proposal"
+      || (
+        storedBinding.executionId === binding.executionId
+        && storedBinding.proposalId === binding.proposalId
+        && storedBinding.revision === binding.revision
+      ));
+  if (!bindingMatches
+    || typeof payload.downstreamDispatchEventId !== "string"
+    || typeof payload.downstreamDispatchType !== "string"
+  ) return false;
+
+  const [dispatchEvent] = await tx.select({
+    type: eventsTable.type,
+    projectId: eventsTable.projectId,
+    goalId: eventsTable.goalId,
+  }).from(eventsTable)
+    .where(eq(eventsTable.id, payload.downstreamDispatchEventId))
+    .limit(1);
+  return Boolean(dispatchEvent
+    && dispatchEvent.type === payload.downstreamDispatchType
+    && dispatchEvent.projectId === mission.projectId
+    && dispatchEvent.goalId === goal.id
+    && [
+      "AiGoalDispatchRequested",
+      "AiGoalRecipeDispatchRequested",
+    ].includes(dispatchEvent.type));
+}
+
+async function insertMissionGoalApprovalConsumedReceipt(
+  tx: MissionTransaction,
+  mission: typeof aiMissionsTable.$inferSelect,
+  goal: typeof aiGoalsTable.$inferSelect,
+  binding: MissionGoalApprovalBinding,
+  downstreamDispatchEventId: string,
+  downstreamDispatchType: "AiGoalDispatchRequested" | "AiGoalRecipeDispatchRequested",
+  taskId?: string,
+): Promise<void> {
+  await tx.insert(eventsTable).values({
+    id: missionGoalApprovalConsumedReceiptId(binding.dispatchIntentId),
+    type: MISSION_GOAL_APPROVAL_CONSUMED_EVENT_TYPE,
+    projectId: mission.projectId,
+    goalId: goal.id,
+    ...(taskId ? { taskId } : {}),
+    severity: "info",
+    message: "Mission Goal approval was admitted into its durable runtime dispatch.",
+    timestamp: new Date(),
+    payload: {
+      schemaVersion: 1,
+      missionId: mission.id,
+      approvalIntentId: binding.dispatchIntentId,
+      approvalBinding: binding,
+      downstreamDispatchEventId,
+      downstreamDispatchType,
+    },
+  }).onConflictDoNothing();
+}
+
+/**
+ * Revalidate the exact durable approval while runMissionGoal holds the
+ * Mission -> Goal locks. Outbox preflight alone is not an authorization
+ * boundary because the approval or plan can change before runtime admission.
+ */
+async function missionGoalApprovalBindingIsCurrent(
+  tx: MissionTransaction,
+  mission: typeof aiMissionsTable.$inferSelect,
+  goal: typeof aiGoalsTable.$inferSelect,
+  binding: MissionGoalApprovalBinding,
+): Promise<boolean> {
+  if (!["active", "waiting"].includes(mission.status) || goal.status !== "queued") {
+    return false;
+  }
+
+  const [approvalEvent] = await tx.select({
+    id: eventsTable.id,
+    type: eventsTable.type,
+    projectId: eventsTable.projectId,
+    goalId: eventsTable.goalId,
+    payload: eventsTable.payload,
+  }).from(eventsTable)
+    .where(eq(eventsTable.id, binding.approvalEventId))
+    .limit(1);
+  if (!approvalEvent
+    || approvalEvent.type !== "AiGoalApprovalGranted"
+    || approvalEvent.projectId !== mission.projectId
+    || approvalEvent.goalId !== goal.id
+  ) return false;
+
+  const eventPayload = missionApprovalRecord(approvalEvent.payload);
+  if (eventPayload.missionId !== mission.id) return false;
+
+  if (binding.approvalKind === "plan") {
+    const successCriteria = missionApprovalRecord(goal.successCriteria);
+    const outcome = missionApprovalRecord(goal.outcomeContract);
+    const plan = missionApprovalRecord(outcome.planRevision);
+    const successPlan = missionApprovalRecord(successCriteria.planRevision);
+    const planSteps = Array.isArray(plan.steps) ? plan.steps.map(missionApprovalRecord) : [];
+    const planStep = planSteps.find((step) => step.id === binding.stepId);
+    const approval = missionApprovalRecord(outcome.planApproval);
+    const policy = missionApprovalRecord(mission.autonomyPolicy);
+    const action = missionApprovalRecord(goal.nextAction);
+    return eventPayload.approvalKind === "mission_plan_step"
+      && eventPayload.planRevision === binding.planRevision
+      && eventPayload.stepId === binding.stepId
+      && (binding.decisionTraceId === undefined
+        || eventPayload.decisionTraceId === binding.decisionTraceId)
+      && successCriteria.stepId === binding.stepId
+      && (successCriteria.kind === "mission_plan_step" || successCriteria.kind === "mission_replan_step")
+      && plan.hash === binding.planRevision
+      && successPlan.hash === binding.planRevision
+      && planStep?.kind === "execute"
+      && planStep.approvalRequired === true
+      && planStep.readOnly === false
+      && !planStep.recipe
+      && Array.isArray(planStep.files)
+      && planStep.files.length > 0
+      && policy.activePlanRevision === binding.planRevision
+      && outcome.stepId === binding.stepId
+      && approval.kind === "mission_plan_step"
+      && approval.state === "APPROVED"
+      && approval.approvalEventId === binding.approvalEventId
+      && approval.planRevision === binding.planRevision
+      && approval.stepId === binding.stepId
+      && action.kind === "task";
+  }
+
+  if (eventPayload.approvalKind !== "proposal"
+    || eventPayload.executionId !== binding.executionId
+    || eventPayload.proposalId !== binding.proposalId
+    || eventPayload.revision !== binding.revision
+  ) return false;
+
+  const [execution] = await tx.select({
+    id: aiExecutionsTable.id,
+    proposalId: aiExecutionsTable.proposalId,
+    status: aiExecutionsTable.status,
+  }).from(aiExecutionsTable)
+    .where(and(
+      eq(aiExecutionsTable.id, binding.executionId),
+      eq(aiExecutionsTable.goalId, goal.id),
+      eq(aiExecutionsTable.projectId, mission.projectId),
+      eq(aiExecutionsTable.userId, mission.userId),
+    ))
+    .for("update")
+    .limit(1);
+  if (!execution
+    || execution.proposalId !== binding.proposalId
+    || !["queued", "running", "paused", "failed"].includes(execution.status)
+  ) return false;
+
+  const [proposal] = await tx.select({
+    id: aiChangeProposalsTable.id,
+    status: aiChangeProposalsTable.status,
+    revision: aiChangeProposalsTable.revision,
+    approvalRequired: aiChangeProposalsTable.approvalRequired,
+  }).from(aiChangeProposalsTable)
+    .where(and(
+      eq(aiChangeProposalsTable.id, binding.proposalId),
+      eq(aiChangeProposalsTable.projectId, mission.projectId),
+    ))
+    .for("update")
+    .limit(1);
+  return Boolean(proposal
+    && proposal.status === "pending"
+    && proposal.approvalRequired === false
+    && proposal.revision === binding.revision);
+}
+
 export async function runMissionGoal(params: {
   goalId: string;
   userId: string;
   trigger: MissionGoalRunTrigger;
+  expectedApprovalBinding?: MissionGoalApprovalBinding;
   actionReceipt?: MissionAgentActionReceiptIdentity;
   delegation?: MissionDelegationBinding;
   expectedHandoffBinding?: {
@@ -2735,6 +2973,28 @@ export async function runMissionGoal(params: {
       .for("update");
     if (!goal) {
       return { status: "conflict" as const, goalId: params.goalId, reason: "goal_not_found" };
+    }
+
+    if (params.expectedApprovalBinding) {
+      if (await missionGoalApprovalWasConsumed(
+        tx,
+        mission,
+        goal,
+        params.expectedApprovalBinding,
+      )) {
+        return {
+          status: "scheduled" as const,
+          goalId: goal.id,
+          reason: "approval_dispatch_already_consumed",
+        };
+      }
+      if (!await missionGoalApprovalBindingIsCurrent(tx, mission, goal, params.expectedApprovalBinding)) {
+        return {
+          status: "conflict" as const,
+          goalId: goal.id,
+          reason: "approval_binding_mismatch",
+        };
+      }
     }
 
     if (params.expectedHandoffBinding) {
@@ -3445,8 +3705,9 @@ export async function runMissionGoal(params: {
           updatedAt: now,
         })
         .where(eq(aiGoalsTable.id, goal.id));
+      const recipeDispatchEventId = randomUUID();
       await tx.insert(eventsTable).values({
-        id: randomUUID(),
+        id: recipeDispatchEventId,
         type: "AiGoalRecipeDispatchRequested",
         projectId: goal.projectId,
         goalId: goal.id,
@@ -3463,6 +3724,16 @@ export async function runMissionGoal(params: {
           ...(runtimeTransitionProof ? { transitionProof: runtimeTransitionProof } : {}),
         },
       });
+      if (params.expectedApprovalBinding) {
+        await insertMissionGoalApprovalConsumedReceipt(
+          tx,
+          mission,
+          goal,
+          params.expectedApprovalBinding,
+          recipeDispatchEventId,
+          "AiGoalRecipeDispatchRequested",
+        );
+      }
       if (params.actionReceipt) {
         await persistMissionAgentActionEffectReceipt(tx, params.actionReceipt, {
           outcome: "accepted",
@@ -3582,8 +3853,9 @@ export async function runMissionGoal(params: {
         .set({ status: "running", updatedAt: now })
         .where(eq(aiGoalsTable.id, goal.id));
     }
+    const taskDispatchEventId = randomUUID();
     await tx.insert(eventsTable).values({
-      id: randomUUID(),
+      id: taskDispatchEventId,
       type: "AiGoalDispatchRequested",
       projectId: goal.projectId,
       goalId: goal.id,
@@ -3599,6 +3871,17 @@ export async function runMissionGoal(params: {
         taskCorrelationId: task.correlationId,
       },
     });
+    if (params.expectedApprovalBinding) {
+      await insertMissionGoalApprovalConsumedReceipt(
+        tx,
+        mission,
+        goal,
+        params.expectedApprovalBinding,
+        taskDispatchEventId,
+        "AiGoalDispatchRequested",
+        task.id,
+      );
+    }
     return recordActionEffect({
       status: "scheduled" as const,
       goalId: goal.id,
