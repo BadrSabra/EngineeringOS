@@ -581,6 +581,8 @@ describe("automatic task recovery admission", () => {
     };
     const base = {
       executionId: "execution-chat-1",
+      acceptanceId: "acceptance-chat-1",
+      acceptanceFinalizationKey: "finalization-chat-1",
       executionProjectId: "project-1",
       executionStatus: "failed",
       executionAttempt: 1,
