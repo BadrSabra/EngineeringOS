@@ -1121,6 +1121,59 @@ describe("GET /api/projects/:projectId/summary", () => {
     }
   });
 
+  it("breaks equal event and metric timestamps by descending record ID", async () => {
+    const projectId = await insertProject("/tmp/summary-order-" + randomUUID());
+    cleanupQueue.push(projectId);
+    const timestamp = new Date("2026-11-21T12:00:00.000Z");
+    const suffix = randomUUID();
+    const earlierEventId = `summary-event-a-${suffix}`;
+    const laterEventId = `summary-event-z-${suffix}`;
+    const earlierMetricId = `summary-metric-a-${suffix}`;
+    const laterMetricId = `summary-metric-z-${suffix}`;
+
+    await db.insert(eventsTable).values([
+      {
+        id: earlierEventId,
+        projectId,
+        type: "SummaryOrderFixture",
+        severity: "info",
+        message: "Earlier tie-break event",
+        timestamp,
+      },
+      {
+        id: laterEventId,
+        projectId,
+        type: "SummaryOrderFixture",
+        severity: "info",
+        message: "Later tie-break event",
+        timestamp,
+      },
+    ]);
+    await db.insert(metricsTable).values([
+      {
+        id: earlierMetricId,
+        projectId,
+        timestamp,
+        overallScore: 41,
+      },
+      {
+        id: laterMetricId,
+        projectId,
+        timestamp,
+        overallScore: 83,
+      },
+    ]);
+
+    const response = await request(app).get(`/api/projects/${projectId}/summary`);
+
+    expect(response.status).toBe(200);
+    expect(response.body.recentEvents[0]?.id).toBe(laterEventId);
+    expect(response.body.latestMetrics).toMatchObject({
+      id: laterMetricId,
+      overallScore: 83,
+    });
+  });
+
   it("aggregates task counts in the requested project and 404s for unknown project", async () => {
     const projectId = await insertProject("/tmp/summary-test-" + randomUUID());
     const otherProjectId = await insertProject("/tmp/summary-other-" + randomUUID());
