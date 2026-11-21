@@ -74,8 +74,9 @@ describe("Metrics endpoints", () => {
   it("returns only the latest metric per owned project and orders ties deterministically", async () => {
     const firstProjectId = await insertProject();
     const secondProjectId = await insertProject();
+    const projectWithoutMetricsId = await insertProject();
     const otherProjectId = randomUUID();
-    cleanupQueue.push(firstProjectId, secondProjectId, otherProjectId);
+    cleanupQueue.push(firstProjectId, secondProjectId, projectWithoutMetricsId, otherProjectId);
 
     const now = Date.now();
     const oldTimestamp = new Date(now - 20_000);
