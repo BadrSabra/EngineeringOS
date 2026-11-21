@@ -1,4 +1,5 @@
 import React, { useMemo, useState, useEffect, useRef } from 'react';
+import { useUser } from '@clerk/react';
 import { Link, useLocation, useSearch } from 'wouter';
 import {
   useListTasks,
@@ -49,6 +50,7 @@ import {
   Pencil,
   Trash2,
   Plus,
+  Sparkles,
 } from 'lucide-react';
 import { ProviderRecoveryCard } from '@/components/ProviderRecoveryCard';
 import TaskAssistantHandoff from '@/components/TaskAssistantHandoff';
@@ -57,6 +59,7 @@ import { resolveExecutionProofPresentation } from '@/lib/execution-proof-present
 import { executionChatHref } from '@/lib/execution-chat-link';
 import { isTaskFollowUpCandidate } from '@/lib/task-follow-up-filter';
 import { shouldPollTaskDispatchList } from '@/lib/task-dispatch-polling';
+import { storeHomeGoalDraft } from '@/lib/home-goal-handoff';
 
 // ─── Task logs sub-component ──────────────────────────────────────────────────
 // Separated so the hook always runs unconditionally within the mounted component.
@@ -1703,6 +1706,7 @@ function TasksSession({
   initialFilters: TaskListFilters;
 }) {
   const queryClient = useQueryClient();
+  const { isLoaded, user } = useUser();
   const [, navigate] = useLocation();
   const [selectedProjectId, setSelectedProjectId] = useState('');
   const [filterStatus, setFilterStatus] = useState<TaskStatusFilter | ''>(initialFilters.status);
@@ -1723,6 +1727,7 @@ function TasksSession({
   } | null>(null);
   const [deletingTask, setDeletingTask] = useState<{ id: string; title: string } | null>(null);
   const [deleteError, setDeleteError] = useState('');
+  const [goalHandoffError, setGoalHandoffError] = useState('');
 
   const { data: projects = [], isLoading: projectsLoading, isError: projectsError, error: projectError, refetch: refetchProjects } = useListProjects(undefined, {
     query: { queryKey: getListProjectsQueryKey() },
@@ -1891,6 +1896,23 @@ function TasksSession({
     window.history.replaceState(window.history.state, '', `${url.pathname}${url.search}${url.hash}`);
     if (nextProjectId !== String(projectId ?? '')) setQuickTaskTitle('');
     setSelectedProjectId(nextProjectId);
+  };
+
+  const openTaskAssistant = () => {
+    if (!isLoaded || !user?.id || !projectId) return;
+    const draft = storeHomeGoalDraft(
+      'أريد متابعة العمل على هذا المشروع. اسألني عما أريد إنجازه، ثم اقترح خطوات واضحة للمراجعة. لا تنشئ مهامًا ولا تغيّر الملفات قبل موافقتي.',
+      user.id,
+      String(projectId),
+    );
+    if (!draft) {
+      setGoalHandoffError('تعذر حفظ مسودة طلب المساعدة. بقيت في قائمة المهام ولم نغيّرها.');
+      return;
+    }
+    setGoalHandoffError('');
+    navigate(
+      `/projects/${encodeURIComponent(String(projectId))}/workspace?goalDraftId=${encodeURIComponent(draft.id)}#workspace-panel-agent`,
+    );
   };
 
   const openTaskSearchResult = () => {
@@ -2302,8 +2324,27 @@ function TasksSession({
             <p className="text-muted-foreground text-sm">
               {filterAcceptance || filterFollowUp || searchTerm || filterStatus || filterPriority
                 ? 'جرّب عبارة بحث أخرى أو أزل الفلاتر. هذه نتيجة العرض الحالي، لا حكم على كل مهام المشروع.'
-                 : 'يمكنك إنشاء مهمة هنا، أو مراجعة المهام التي تنشأ عن مشكلات يكشفها فحص المشروع.'}
+                 : 'يمكنك إنشاء مهمة يدويًا، أو طلب اقتراح خطوة مناسبة للبدء.'}
             </p>
+            {!hasActiveTaskFilters && projectId && (
+              <>
+                <button
+                  type="button"
+                  onClick={openTaskAssistant}
+                  disabled={!isLoaded || !user?.id}
+                  data-testid="button-empty-task-assistant"
+                  className="mt-4 inline-flex items-center gap-2 rounded-md bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground transition-colors hover:bg-primary/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary disabled:cursor-wait disabled:opacity-50"
+                >
+                  <Sparkles className="h-4 w-4" aria-hidden="true" />
+                  اسأل المساعد عن الخطوة التالية
+                </button>
+                {goalHandoffError && (
+                  <p className="mt-3 text-xs text-destructive" role="alert" data-testid="text-empty-task-assistant-error">
+                    {goalHandoffError}
+                  </p>
+                )}
+              </>
+            )}
           </div>
         ) : (
           visibleTasks.map((task) => (
