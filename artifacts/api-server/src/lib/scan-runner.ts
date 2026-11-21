@@ -18,6 +18,7 @@ import {
 import { eq, and, or, isNull, inArray, gt, type SQL } from "drizzle-orm";
 import { randomUUID } from "crypto";
 import { walkProject, matchRules, extractGraph, computeMetrics, SCANNER_VERSION, type RuleInput } from "@workspace/scanner";
+import { planTransactionalGraphRefresh } from "./scan-graph-refresh-execution.js";
 import { invalidateContextCache } from "@workspace/ai-orchestrator";
 import { recordAudit } from "./audit.js";
 import {
@@ -29,6 +30,7 @@ import {
 import { logger } from "./logger.js";
 import { establishProjectRoot, type EstablishRootFailureReason } from "./project-root.js";
 import { tryAdvisoryLock, LockNamespace } from "./advisory-lock.js";
+import { persistGraphRelationshipRefresh } from "./scan-graph-persistence.js";
 import { acquireGlobalScanSlot } from "./scan-capacity.js";
 import { heavyJobQueue } from "./job-queue.js";
 import { provenanceFromEntity, provenanceFromRelationship, manualProvenance } from "./graph-provenance.js";
@@ -87,6 +89,13 @@ export interface ScanJobResult {
   sourceProvenance: string;
   scanCorrelationId: string;
   scannerVersion: string;
+  graphRefresh?: {
+    mode: "full" | "incremental";
+    fallbackReason?: string;
+    invalidatedRelationshipCount?: number;
+    retainedStaticRelationshipCount?: number;
+    preservedRuntimeRelationshipCount?: number;
+  };
   repositoryManifest: {
     revision: string;
     sourceRoot: string;
@@ -627,6 +636,35 @@ async function performScanCore(
     // ── 5. Persist knowledge graph ────────────────────────────────────────
     // `graph` was extracted outside the transaction (SR-003); here we only
     // do the DB work: dedup against existing entities and insert new rows.
+    const graphRefreshPlan = await planTransactionalGraphRefresh({
+      tx,
+      projectId,
+      // Only a lease-owned durable worker can publish a baseline that will
+      // be committed with these graph writes. Direct scans stay on Full Refresh.
+      scanJobId: ownership ? scanJobId : null,
+      currentManifest: walkResult.revisionManifest,
+      scannerVersion: SCANNER_VERSION,
+      graphRelationships: graph.relationships,
+      graphIncomplete,
+    });
+
+    if (graphRefreshPlan.mode === "full") {
+      logger.info(
+        { projectId, reason: graphRefreshPlan.reason },
+        "scan-runner: using full graph relationship refresh",
+      );
+    } else {
+      logger.info(
+        {
+          projectId,
+          invalidatedRelationshipCount: graphRefreshPlan.relationshipIdsToReplace.length,
+          retainedStaticRelationshipCount: graphRefreshPlan.untouchedStaticRelationshipIds.length,
+          preservedRuntimeRelationshipCount: graphRefreshPlan.preservedRuntimeRelationshipCount,
+        },
+        "scan-runner: using conservative incremental graph relationship refresh",
+      );
+    }
+
     const existingEntities = await tx
       .select({
         name: graphEntitiesTable.name,
@@ -687,12 +725,23 @@ async function performScanCore(
     }
   }
 
-  // Delete ALL existing relationships for this project before re-inserting.
-  // Relationships are fully recomputed each scan; clearing them prevents
-  // both duplicates on re-scan and stale edges from renamed/deleted nodes.
-  await tx.delete(graphRelationshipsTable).where(
-    eq(graphRelationshipsTable.projectId, projectId),
-  );
+  // Apply the validated decision before stale-entity pruning. Baseline reads,
+  // relationship reads, invalidation, and writes share this scan transaction.
+  if (graphRefreshPlan.mode === "incremental") {
+    if (!scanJobId) {
+      throw new Error("incremental graph refresh lost its durable scan job identity");
+    }
+    await persistGraphRelationshipRefresh(tx, projectId, {
+      mode: "incremental",
+      scanJobId,
+      scanCorrelationId: correlationId,
+      scannerVersion: SCANNER_VERSION,
+      relationshipIdsToReplace: graphRefreshPlan.relationshipIdsToReplace,
+      untouchedStaticRelationshipIds: graphRefreshPlan.untouchedStaticRelationshipIds,
+    });
+  } else {
+    await persistGraphRelationshipRefresh(tx, projectId, { mode: "full" });
+  }
 
   // Delete stale entities (those no longer present in source code).
   if (staleEntityIds.length > 0) {
@@ -773,7 +822,10 @@ async function performScanCore(
     return undefined;
   };
 
-  const relRows = graph.relationships
+  const relationshipsToPersist = graphRefreshPlan.mode === "incremental"
+    ? graphRefreshPlan.relationshipsToPersist
+    : graph.relationships;
+  const relRows = relationshipsToPersist
     .map((rel) => {
       const sourceId = findEntityId(rel.sourceName, rel.sourcePath);
       const targetId = findEntityId(rel.targetName, rel.targetPath);
@@ -878,6 +930,11 @@ async function performScanCore(
         rootExists: walkResult.rootExists,
         entitiesExtracted: entitiesToInsert.length,
         relationshipsExtracted: relRows.length,
+        graphRefreshMode: graphRefreshPlan.mode,
+        graphRefreshFallbackReason: graphRefreshPlan.mode === "full" ? graphRefreshPlan.reason : null,
+        graphRelationshipsInvalidated: graphRefreshPlan.mode === "incremental" ? graphRefreshPlan.relationshipIdsToReplace.length : null,
+        graphRelationshipsRetained: graphRefreshPlan.mode === "incremental" ? graphRefreshPlan.untouchedStaticRelationshipIds.length : null,
+        graphRuntimeRelationshipsPreserved: graphRefreshPlan.mode === "incremental" ? graphRefreshPlan.preservedRuntimeRelationshipCount : null,
         qualityScore: metrics.overallScore,
       },
       correlationId,
@@ -903,6 +960,17 @@ async function performScanCore(
       sourceProvenance: "filesystem-scan",
       scanCorrelationId: correlationId,
       scannerVersion: SCANNER_VERSION,
+      graphRefresh: graphRefreshPlan.mode === "incremental"
+        ? {
+            mode: "incremental" as const,
+            invalidatedRelationshipCount: graphRefreshPlan.relationshipIdsToReplace.length,
+            retainedStaticRelationshipCount: graphRefreshPlan.untouchedStaticRelationshipIds.length,
+            preservedRuntimeRelationshipCount: graphRefreshPlan.preservedRuntimeRelationshipCount,
+          }
+        : {
+            mode: "full" as const,
+            fallbackReason: graphRefreshPlan.reason,
+          },
       repositoryManifest: {
         ...walkResult.revisionManifest,
         derivedArtifacts: {
