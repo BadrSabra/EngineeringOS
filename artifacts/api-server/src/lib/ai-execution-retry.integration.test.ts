@@ -25,6 +25,7 @@ import {
   persistAiExecutionOrientationManifest,
   reconcileAiExecutions,
   recoverAiExecutionRetryToken,
+  recoverAiExecutionRetryTokenWithDatabaseDeadline,
   type AiOrientationRoleManifest,
 } from "./ai-execution-state.js";
 
@@ -549,6 +550,129 @@ describe("durable conversational retry authorization", () => {
     }
     },
   );
+
+  it("uses PostgreSQL time and reports a future retry deadline without rotating the token", async () => {
+    const projectId = randomUUID();
+    const executionId = randomUUID();
+    const userId = "retry-database-clock-test-user";
+    const sessionId = randomUUID();
+    const now = new Date();
+    await db.insert(projectsTable).values({
+      id: projectId,
+      ownerId: userId,
+      name: `retry-database-clock-${projectId.slice(0, 8)}`,
+      rootPath: `/tmp/retry-database-clock-${projectId}`,
+      language: "typescript",
+      status: "active",
+      createdAt: now,
+      updatedAt: now,
+    });
+    await db.insert(aiExecutionsTable).values({
+      id: executionId,
+      projectId,
+      sessionId,
+      operationId: executionId,
+      userId,
+      idempotencyKey: `${executionId}:retry-database-clock`,
+      attempt: 0,
+      resumeTokenHash: "unchanged-before-retry-window",
+      request: JSON.stringify({
+        projectId,
+        turnIntent: "CHAT",
+        sessionId,
+        message: "Retry when the backoff expires",
+        modelMessage: "Retry when the backoff expires",
+        validationTargetPaths: [],
+      }),
+      checkpoint: "{}",
+      status: "failed",
+      createdAt: now,
+      updatedAt: now,
+    });
+    await db.insert(aiExecutionAcceptancesTable).values({
+      id: randomUUID(),
+      executionId,
+      projectId,
+      attempt: 0,
+      finalizationKey: `${executionId}:attempt:0`,
+      operationId: executionId,
+      terminalStatus: "failed",
+      outcome: "FAILED",
+      reasonCode: "EXECUTION_PROVIDER_FAILURE",
+      nextActionCode: "RETRY_AFTER_TIMEOUT",
+      disposition: {
+        recoveryState: "REQUIRED",
+        nextActionCode: "RETRY_AFTER_TIMEOUT",
+        retryAt: new Date(Date.now() + 60_000).toISOString(),
+      },
+      evidenceRequired: 0,
+      evidenceComplete: 0,
+      resumable: 0,
+      sourceRevision: null,
+      createdAt: now,
+    });
+
+    try {
+      const early = await recoverAiExecutionRetryTokenWithDatabaseDeadline({
+        executionId,
+        userId,
+        expectedAttempt: 0,
+      });
+      expect(early).toEqual({ kind: "not_due" });
+
+      const [unchanged] = await db.select({
+        status: aiExecutionsTable.status,
+        attempt: aiExecutionsTable.attempt,
+        resumeTokenHash: aiExecutionsTable.resumeTokenHash,
+      }).from(aiExecutionsTable)
+        .where(eq(aiExecutionsTable.id, executionId));
+      expect(unchanged).toEqual({
+        status: "failed",
+        attempt: 0,
+        resumeTokenHash: "unchanged-before-retry-window",
+      });
+
+      await db.update(aiExecutionAcceptancesTable)
+        .set({
+          disposition: {
+            recoveryState: "REQUIRED",
+            nextActionCode: "RETRY_AFTER_TIMEOUT",
+            retryAt: "2020-01-01T00:00:00.000Z",
+          },
+        })
+        .where(and(
+          eq(aiExecutionAcceptancesTable.executionId, executionId),
+          eq(aiExecutionAcceptancesTable.attempt, 0),
+        ));
+
+      const due = await recoverAiExecutionRetryTokenWithDatabaseDeadline({
+        executionId,
+        userId,
+        expectedAttempt: 0,
+      });
+      expect(due.kind).toBe("recovered");
+      if (due.kind !== "recovered") throw new Error("Expected retry token recovery after the database deadline.");
+      expect(due.recovered.execution.attempt).toBe(0);
+      expect(due.recovered.resumeToken).toEqual(expect.any(String));
+
+      const claimed = await claimAiExecution({
+        executionId,
+        userId,
+        workerId: "retry-database-clock-worker",
+        resumeToken: due.recovered.resumeToken,
+      });
+      expect(claimed).toMatchObject({
+        id: executionId,
+        status: "running",
+        attempt: 1,
+      });
+    } finally {
+      await db.delete(aiExecutionAcceptancesTable)
+        .where(eq(aiExecutionAcceptancesTable.executionId, executionId));
+      await db.delete(aiExecutionsTable).where(eq(aiExecutionsTable.id, executionId));
+      await db.delete(projectsTable).where(eq(projectsTable.id, projectId));
+    }
+  });
 
   it("holds the current acceptance locked until retry-token recovery commits", async () => {
     const projectId = randomUUID();
