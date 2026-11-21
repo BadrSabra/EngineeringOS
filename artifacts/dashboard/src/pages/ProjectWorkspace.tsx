@@ -278,22 +278,19 @@ function WorkspaceTaskCard({
             <span aria-hidden="true">·</span>
             <span>التحقق: {label(task.verificationDecision)}</span>
           </div>
-          <dl className="mt-2 grid grid-cols-1 gap-1 text-[11px] text-slate-400">
-            <div className="flex flex-wrap items-center gap-1.5">
-              <dt>المصدر:</dt><dd data-testid={`workspace-task-source-${task.id}`}>ملخص مهام Workspace</dd>
-            </div>
-            <div className="flex flex-wrap items-center gap-1.5">
-              <dt>معرّف المهمة:</dt><dd data-testid={`workspace-task-id-${task.id}`}><Identifier>{task.id}</Identifier></dd>
-            </div>
-            <div className="flex flex-wrap items-center gap-1.5">
-              <dt>المحاولة:</dt>
+          <details className="workspace-details mt-2" data-testid={`workspace-task-technical-details-${task.id}`}>
+            <summary>تفاصيل تقنية</summary>
+            <dl className="workspace-detail-grid text-[11px]">
+              <dt>المصدر</dt>
+              <dd data-testid={`workspace-task-source-${task.id}`}>ملخص مهام Workspace</dd>
+              <dt>معرّف المهمة</dt>
+              <dd data-testid={`workspace-task-id-${task.id}`}><Identifier>{task.id}</Identifier></dd>
+              <dt>المحاولة</dt>
               <dd data-testid={`workspace-task-attempt-${task.id}`}>
                 {attempt === null ? 'غير متاحة' : <Identifier>{attempt}</Identifier>}
+                <span className="ms-1 text-slate-500">{attemptContext}</span>
               </dd>
-              <span className="text-slate-500">{attemptContext}</span>
-            </div>
-            <div className="flex flex-wrap items-center gap-1.5">
-              <dt>التبعيات:</dt>
+              <dt>التبعيات</dt>
               <dd data-testid={`workspace-task-dependencies-${task.id}`}>
                 {dependencyIds === null
                   ? 'غير متاحة في سجل المهمة'
@@ -306,8 +303,8 @@ function WorkspaceTaskCard({
                       </span>
                     ))}
               </dd>
-            </div>
-          </dl>
+            </dl>
+          </details>
           <div className="mt-2 flex flex-wrap items-center gap-3">
             <Link
               href={`/tasks?projectId=${encodeURIComponent(projectId)}&taskId=${encodeURIComponent(task.id)}`}
