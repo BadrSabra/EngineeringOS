@@ -60,7 +60,7 @@ async function insertRelationship(input: {
     sourceId: input.sourceId,
     targetId: input.targetId,
     relation: "calls",
-    isRuntimeObserved: input.isRuntimeObserved ?? false,
+    isRuntimeObserved: input.isRuntimeObserved === undefined ? false : input.isRuntimeObserved,
     createdAt: new Date(),
   });
   return id;
