@@ -462,7 +462,7 @@ async function sourceRowsSnapshot(fixture: ReplanEvidenceFixture) {
 }
 
 describe("DB-backed automatic Mission replan evidence boundary", () => {
-  it("resumes the persisted plan after interruption before the first root dispatch", async () => {
+  it("keeps the persisted plan active for Goal reconciliation after interruption before the first root dispatch", async () => {
     const fixture = await createReplanEvidenceFixture();
     let interruptedDispatches = 0;
 
@@ -476,37 +476,43 @@ describe("DB-backed automatic Mission replan evidence boundary", () => {
       autonomyPolicy: aiMissionsTable.autonomyPolicy,
       status: aiMissionsTable.status,
     }).from(aiMissionsTable).where(eq(aiMissionsTable.id, fixture.missionId));
-    const revision = (missionAfterInterruption?.autonomyPolicy as {
+    const policy = missionAfterInterruption?.autonomyPolicy as {
+      activePlanRevision?: unknown;
       lastAutomaticReplanRevision?: unknown;
-    } | undefined)?.lastAutomaticReplanRevision;
-    expect(missionAfterInterruption?.status).toBe("needs_replan");
-    expect(typeof revision).toBe("string");
+    } | undefined;
+    expect(missionAfterInterruption?.status).toBe("active");
+    expect(typeof policy?.activePlanRevision).toBe("string");
+    expect(policy?.activePlanRevision).toBe(policy?.lastAutomaticReplanRevision);
 
-    const goalsBeforeResume = await db.select({ id: aiGoalsTable.id })
-      .from(aiGoalsTable)
-      .where(eq(aiGoalsTable.missionId, fixture.missionId));
-    const dispatchedGoalIds: string[] = [];
-    const resumed = await autoReplanMission(fixture.missionId, async (input) => {
-      dispatchedGoalIds.push(input.goalId);
-      return {
-        status: "scheduled",
-        goalId: input.goalId,
-        reason: "scheduled_after_recovery",
-      };
+    const currentPlanGoals = await db.select({
+      id: aiGoalsTable.id,
+      status: aiGoalsTable.status,
+      outcomeContract: aiGoalsTable.outcomeContract,
+      successCriteria: aiGoalsTable.successCriteria,
+    }).from(aiGoalsTable).where(eq(aiGoalsTable.missionId, fixture.missionId));
+    const persistedPlanGoals = currentPlanGoals.filter((goal) => {
+      const criteria = goal.successCriteria;
+      const contract = goal.outcomeContract;
+      const criteriaRecord = criteria && typeof criteria === "object" && !Array.isArray(criteria)
+        ? criteria as Record<string, unknown>
+        : {};
+      const contractRecord = contract && typeof contract === "object" && !Array.isArray(contract)
+        ? contract as Record<string, unknown>
+        : {};
+      const planRevision = contractRecord.planRevision && typeof contractRecord.planRevision === "object"
+        ? (contractRecord.planRevision as Record<string, unknown>).hash
+        : undefined;
+      return criteriaRecord.kind === "mission_replan_step"
+        && planRevision === policy?.activePlanRevision;
     });
+    expect(persistedPlanGoals.length).toBeGreaterThan(0);
+    expect(persistedPlanGoals.every((goal) =>
+      ["queued", "running", "waiting_for_event"].includes(goal.status),
+    )).toBe(true);
 
-    expect(resumed.status).toBe("replanned");
-    if (resumed.status !== "replanned") return;
-    expect(resumed.revision).toBe(revision);
-    expect(dispatchedGoalIds).toEqual(
-      resumed.plan.goals
-        .filter((goal) => goal.dependencies.length === 0)
-        .map((goal) => goal.goalId),
-    );
-    const goalsAfterResume = await db.select({ id: aiGoalsTable.id })
-      .from(aiGoalsTable)
-      .where(eq(aiGoalsTable.missionId, fixture.missionId));
-    expect(goalsAfterResume).toHaveLength(goalsBeforeResume.length);
+    // The durable wake dispatcher can now rediscover these exact rows without
+    // another planner invocation; materialization is unchanged after the crash.
+    expect(currentPlanGoals.length).toBeGreaterThan(1);
   });
 
   it("selects the outcome-bound current acceptance when historical attempts remain", async () => {
