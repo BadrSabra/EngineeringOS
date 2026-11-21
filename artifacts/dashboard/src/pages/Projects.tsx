@@ -31,6 +31,7 @@ import { Link } from 'wouter';
 import { DiscoverProjectWizard } from './DiscoverProjectWizard';
 import { readGoalDrafts, storeGoalDraft, updateGoalDraft } from '@/lib/home-goal-handoff';
 import { matchesProjectSearch } from '@/lib/project-search';
+import { suggestProjectNameFromGoal } from '@/lib/project-name-suggestion';
 import { projectStatusLabel } from '@/lib/project-detail-copy';
 
 // Display-only labels; the server status values are never changed.
@@ -131,7 +132,12 @@ function ProjectsForAccountSession({
     else url.searchParams.delete('status');
     window.history.replaceState(null, '', `${url.pathname}${url.search}${url.hash}`);
   }, [search, statusFilter]);
-  const [projectName, setProjectName] = useState(incomingDraft?.bootstrap?.projectName ?? '');
+  const suggestedProjectName = incomingDraft && !incomingDraft.bootstrap?.projectName
+    ? suggestProjectNameFromGoal(incomingDraft.text)
+    : '';
+  const [projectName, setProjectName] = useState(
+    incomingDraft?.bootstrap?.projectName ?? suggestedProjectName,
+  );
   const [projectDescription, setProjectDescription] = useState(incomingDraft?.text ?? '');
   const [bootstrapId, setBootstrapId] = useState(incomingDraft?.bootstrap?.operationId ?? '');
   const [initialOperation, setInitialOperation] = useState<ProjectBootstrapOperation | null>(null);
@@ -325,6 +331,11 @@ function ProjectsForAccountSession({
                 <label className="block space-y-2">
                   <span className="text-sm font-medium">اسم المشروع</span>
                   <input autoFocus required maxLength={80} readOnly={Boolean(currentDraft?.bootstrap)} value={projectName} onChange={(event) => { setProjectName(event.target.value); idempotencyKey.current = ''; }} placeholder="مثال: دفتر ملاحظات الورشة" dir="auto" data-testid="input-project-name" className="w-full rounded-lg border border-input bg-background px-3 py-2.5 text-sm outline-none transition focus:border-primary/60 focus:ring-2 focus:ring-primary/15" />
+                  {suggestedProjectName && projectName === suggestedProjectName && (
+                    <span data-testid="text-project-name-suggestion" className="block text-xs text-muted-foreground">
+                      اقترحنا الاسم من هدفك؛ يمكنك تعديله قبل الإنشاء.
+                    </span>
+                  )}
                   <span dir="ltr" className="block text-left font-mono text-[10px] text-muted-foreground">{projectName.length}/80</span>
                 </label>
                 <label className="block space-y-2">

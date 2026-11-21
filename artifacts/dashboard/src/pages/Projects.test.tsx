@@ -192,7 +192,7 @@ describe("Projects", () => {
     window.history.pushState({}, '', `/projects?create=1&goalDraftId=${secondDraft.id}`);
     view.rerender(<Projects />);
 
-    expect(screen.getByTestId('input-project-name')).toHaveValue('');
+    expect(screen.getByTestId('input-project-name')).toHaveValue('الهدف الثاني: لوحة متابعة للفريق');
     expect(screen.getByTestId('input-project-description')).toHaveValue(secondDraft.text);
 
     fireEvent.change(screen.getByTestId('input-project-name'), {
@@ -218,6 +218,46 @@ describe("Projects", () => {
       operationId: null,
     });
   });
+
+  it('suggests an editable project name from the goal without sending the goal', () => {
+    const draft = storeHomeGoalDraft(
+      'أريد إنشاء لوحة متابعة للعملاء. أضف تقارير شهرية لاحقًا.',
+      'user-1',
+    )!;
+    window.history.replaceState({}, '', `/projects?create=1&goalDraftId=${draft.id}`);
+
+    render(<Projects />);
+
+    const nameInput = screen.getByTestId('input-project-name');
+    expect(nameInput).toHaveValue('إنشاء لوحة متابعة للعملاء');
+    expect(nameInput).not.toHaveAttribute('readonly');
+    expect(screen.getByTestId('text-project-name-suggestion'))
+      .toHaveTextContent('اقترحنا الاسم من هدفك؛ يمكنك تعديله قبل الإنشاء.');
+    expect(screen.getByTestId('input-project-description')).toHaveValue(draft.text);
+    expect(mocks.mutate).not.toHaveBeenCalled();
+
+    fireEvent.change(nameInput, { target: { value: 'لوحة العملاء' } });
+    fireEvent.click(screen.getByTestId('button-start-project-bootstrap'));
+
+    expect(mocks.mutate).toHaveBeenCalledWith(
+      {
+        data: expect.objectContaining({
+          name: 'لوحة العملاء',
+          description: draft.text,
+        }),
+      },
+      expect.anything(),
+    );
+    expect(readGoalDrafts('user-1').drafts[0]).toMatchObject({
+      text: draft.text,
+      sendAttemptedAt: null,
+      bootstrap: {
+        projectName: 'لوحة العملاء',
+        operationId: null,
+      },
+    });
+  });
+
 
   it("renders all projects when search is empty", () => {
     render(<Projects />);
