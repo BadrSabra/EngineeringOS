@@ -190,11 +190,21 @@ describe("autonomous Task recovery dependency wake", () => {
       .from(aiExecutionAcceptancesTable)
       .where(eq(aiExecutionAcceptancesTable.id, unrelatedAcceptanceId));
 
-    expect(Date.parse(String(ready?.disposition?.dependencyRetryAt)))
+    const readyDisposition = ready?.disposition && typeof ready.disposition === "object"
+      ? ready.disposition as Record<string, unknown>
+      : {};
+    const blockedDisposition = blocked?.disposition && typeof blocked.disposition === "object"
+      ? blocked.disposition as Record<string, unknown>
+      : {};
+    const unrelatedDisposition = unrelated?.disposition && typeof unrelated.disposition === "object"
+      ? unrelated.disposition as Record<string, unknown>
+      : {};
+
+    expect(Date.parse(String(readyDisposition.dependencyRetryAt)))
       .toBeLessThanOrEqual(Date.now() + 5_000);
-    expect(ready?.disposition?.dependencyBlockerReasons).toEqual(["dependency_not_completed"]);
-    expect(blocked?.disposition?.dependencyRetryAt).toBe(retryAt);
-    expect(unrelated?.disposition?.dependencyRetryAt).toBe(retryAt);
+    expect(readyDisposition.dependencyBlockerReasons).toEqual(["dependency_not_completed"]);
+    expect(blockedDisposition.dependencyRetryAt).toBe(retryAt);
+    expect(unrelatedDisposition.dependencyRetryAt).toBe(retryAt);
 
     await expect(db.transaction((tx) => wakeDeferredTaskRecoveryAcceptances(tx, {
       completedTaskId: completedPrerequisiteId,
