@@ -5,7 +5,7 @@ import type { ExecutionPlan } from "../model-selection/execution-plan.js";
 
 export type PromptContextSection = keyof Pick<
   ProjectContext,
-  "project" | "latestMetrics" | "latestScanEvidence" | "graphSummary" | "recentTasks" | "recentEvents" | "workflows"
+  "project" | "latestMetrics" | "latestScanEvidence" | "graphSummary" | "recentTasks" | "recentEvents" | "workflows" | "worldState"
 >;
 
 export type PromptContextProfile =
