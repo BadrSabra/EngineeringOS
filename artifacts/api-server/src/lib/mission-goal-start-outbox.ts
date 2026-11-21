@@ -404,6 +404,7 @@ export async function dispatchMissionGoalStartIntent(intentId: string): Promise<
           eq(aiGoalDependenciesTable.goalId, goal.id),
           eq(aiGoalDependenciesTable.missionId, mission.id),
           eq(aiGoalDependenciesTable.projectId, mission.projectId),
+          eq(aiGoalDependenciesTable.planRevision, payload.planRevision),
         ))
         .limit(1);
       const action = GoalNextActionSchema.safeParse(goal.nextAction);
