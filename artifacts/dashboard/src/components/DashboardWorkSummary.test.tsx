@@ -136,6 +136,82 @@ describe("DashboardWorkSummary", () => {
     expect(within(screen.getByTestId("section-work-active")).queryByText("إصلاح البحث")).toBeNull();
   });
 
+  it("filters the visible work by project and recalculates the featured next item", () => {
+    const workByProject = {
+      ...summary,
+      decisions: [
+        item({
+          id: "decision-p1",
+          projectId: "p1",
+          projectName: "مشروع ألف",
+          title: "راجع مشروع ألف",
+          status: "waiting",
+          href: "/tasks/decision-p1",
+        }),
+        item({
+          id: "decision-p2",
+          projectId: "p2",
+          projectName: "مشروع باء",
+          title: "راجع مشروع باء",
+          status: "waiting",
+          href: "/tasks/decision-p2",
+        }),
+      ],
+      active: [
+        item({ id: "active-p1", projectId: "p1", projectName: "مشروع ألف", title: "تابع مشروع ألف" }),
+        item({ id: "active-p2", projectId: "p2", projectName: "مشروع باء", title: "تابع مشروع باء" }),
+      ],
+      recent: [],
+    };
+    mockQuery({ data: workByProject });
+    render(<DashboardWorkSummary />);
+
+    const filter = screen.getByTestId("select-work-summary-project");
+    expect(filter).toHaveValue("");
+    expect(screen.getByTestId("section-featured-work")).toHaveTextContent("راجع مشروع ألف");
+
+    fireEvent.change(filter, { target: { value: "p2" } });
+
+    expect(filter).toHaveValue("p2");
+    expect(screen.getByTestId("section-featured-work")).toHaveTextContent("راجع مشروع باء");
+    expect(screen.queryByText("راجع مشروع ألف")).not.toBeInTheDocument();
+    expect(screen.getByText("تابع مشروع باء")).toBeInTheDocument();
+    expect(screen.queryByText("تابع مشروع ألف")).not.toBeInTheDocument();
+    expect(screen.getByTestId("text-work-summary-project-filter-scope")).toHaveTextContent(
+      "العناصر الظاهرة فقط",
+    );
+    expect(screen.getByTestId("text-work-coverage")).toHaveTextContent("ليس عددًا كليًا");
+  });
+
+  it("hides the project filter for one project and resets it if that project leaves the summary", () => {
+    const twoProjects = {
+      ...summary,
+      decisions: [
+        item({ id: "decision-p1", projectId: "p1", projectName: "مشروع ألف", title: "مراجعة ألف" }),
+        item({ id: "decision-p2", projectId: "p2", projectName: "مشروع باء", title: "مراجعة باء" }),
+      ],
+      active: [],
+      recent: [],
+    };
+    mockQuery({ data: twoProjects });
+    const { rerender } = render(<DashboardWorkSummary />);
+    fireEvent.change(screen.getByTestId("select-work-summary-project"), { target: { value: "p2" } });
+
+    mockQuery({
+      data: {
+        ...summary,
+        decisions: [item({ id: "only-p1", projectId: "p1", projectName: "مشروع ألف", title: "عمل ألف" })],
+        active: [],
+        recent: [],
+      },
+    });
+    rerender(<DashboardWorkSummary />);
+
+    expect(screen.queryByTestId("select-work-summary-project")).not.toBeInTheDocument();
+    expect(screen.getByText("عمل ألف")).toBeInTheDocument();
+    expect(screen.queryByText("مراجعة باء")).not.toBeInTheDocument();
+  });
+
   it("opens the project assistant from the featured task with bounded summary context", () => {
     mockQuery({ data: { ...summary, decisions: [] } });
     render(<DashboardWorkSummary />);
