@@ -149,7 +149,7 @@ export type MissionGoalContinuationAuthorization =
 async function findGoalDependencyGraphIssue(
   tx: MissionTransaction,
   mission: typeof aiMissionsTable.$inferSelect,
-  goal: Pick<typeof aiGoalsTable.$inferSelect, "id" | "title" | "outcomeContract">,
+  goal: Pick<typeof aiGoalsTable.$inferSelect, "id" | "title" | "outcomeContract" | "successCriteria">,
   path = new Set<string>(),
   visited = new Set<string>(),
 ): Promise<{ id: string; title: string } | undefined> {
@@ -180,6 +180,7 @@ async function findGoalDependencyGraphIssue(
       id: aiGoalsTable.id,
       title: aiGoalsTable.title,
       outcomeContract: aiGoalsTable.outcomeContract,
+      successCriteria: aiGoalsTable.successCriteria,
     })
     .from(aiGoalsTable)
     .where(and(
@@ -209,15 +210,15 @@ async function findGoalDependencyGraphIssue(
   return undefined;
 }
 
-function goalPlanRevision(goal: Pick<typeof aiGoalsTable.$inferSelect, "outcomeContract">): string | undefined {
-  const contract = goal.outcomeContract;
-  if (!contract || typeof contract !== "object" || Array.isArray(contract)) return undefined;
-  const revision = (contract as { planRevision?: unknown }).planRevision;
-  if (!revision || typeof revision !== "object" || Array.isArray(revision)) return undefined;
-  const hash = (revision as { hash?: unknown }).hash;
-  return typeof hash === "string" && hash.trim() ? hash : undefined;
+function goalPlanRevision(
+  goal: Pick<typeof aiGoalsTable.$inferSelect, "outcomeContract" | "successCriteria">,
+): string | undefined {
+  const outcome = jsonRecord(goal.outcomeContract);
+  const success = jsonRecord(goal.successCriteria);
+  const revision = jsonRecord(outcome.planRevision ?? success.planRevision);
+  const hash = revision.hash;
+  return typeof hash === "string" && hash.trim() ? hash.trim() : undefined;
 }
-
 function jsonRecord(value: unknown): Record<string, unknown> {
   return value && typeof value === "object" && !Array.isArray(value)
     ? value as Record<string, unknown>
@@ -768,20 +769,22 @@ export async function deriveProofGatedMissionStatus(
   return completion.allowed ? "completed" : "needs_replan";
 }
 
-export async function persistGoalDependencyProofBlocked(
+async function persistGoalDependencyReplan(
   tx: MissionTransaction,
   input: {
     goal: typeof aiGoalsTable.$inferSelect;
     mission: typeof aiMissionsTable.$inferSelect;
     planRevision?: string;
     dependency: { id: string; title: string };
+    reasonCode: "dependency_proof_unproven" | "dependency_failed";
   },
-): Promise<void> {
+): Promise<string> {
   const now = new Date();
+  const proofBlocked = input.reasonCode === "dependency_proof_unproven";
   await tx.update(aiGoalsTable)
     .set({
       status: "needs_replan",
-      blockedReason: "dependency_proof_unproven",
+      blockedReason: input.reasonCode,
       nextWakeAt: null,
       updatedAt: now,
     })
@@ -791,17 +794,62 @@ export async function persistGoalDependencyProofBlocked(
     .where(eq(aiMissionsTable.id, input.mission.id));
   await tx.insert(eventsTable).values({
     id: randomUUID(),
-    type: "AiGoalDependencyProofBlocked",
+    type: proofBlocked ? "AiGoalDependencyProofBlocked" : "AiGoalDependencyFailed",
     projectId: input.goal.projectId,
     goalId: input.goal.id,
     severity: "warning",
-    message: `AI goal "${input.goal.title}" requires a replan because a dependency proof is not current`,
+    message: proofBlocked
+      ? `AI goal "${input.goal.title}" requires a replan because a dependency proof is not current`
+      : `AI goal "${input.goal.title}" requires a replan because a dependency did not complete`,
     payload: {
       missionId: input.mission.id,
-      planRevision: input.planRevision,
+      planRevision: input.planRevision ?? null,
       dependencyGoalId: input.dependency.id,
-      reasonCode: "dependency_proof_unproven",
+      reasonCode: input.reasonCode,
     },
+  });
+
+  // The durable wake shares this transaction with the authoritative
+  // needs_replan projection. Its dispatcher rechecks both state and revision;
+  // it never grants permission to execute the dependent Goal.
+  const { insertMissionAdmissionReplanIntent } = await import("./mission-replan-outbox.js");
+  return insertMissionAdmissionReplanIntent(tx, {
+    missionId: input.mission.id,
+    projectId: input.goal.projectId,
+    goalId: input.goal.id,
+    reasonCode: input.reasonCode,
+    planRevision: input.planRevision ?? null,
+    requestedAt: now,
+  });
+}
+
+export async function persistGoalDependencyProofBlocked(
+  tx: MissionTransaction,
+  input: {
+    goal: typeof aiGoalsTable.$inferSelect;
+    mission: typeof aiMissionsTable.$inferSelect;
+    planRevision?: string;
+    dependency: { id: string; title: string };
+  },
+): Promise<string> {
+  return persistGoalDependencyReplan(tx, {
+    ...input,
+    reasonCode: "dependency_proof_unproven",
+  });
+}
+
+export async function persistGoalDependencyFailed(
+  tx: MissionTransaction,
+  input: {
+    goal: typeof aiGoalsTable.$inferSelect;
+    mission: typeof aiMissionsTable.$inferSelect;
+    planRevision?: string;
+    dependency: { id: string; title: string };
+  },
+): Promise<string> {
+  return persistGoalDependencyReplan(tx, {
+    ...input,
+    reasonCode: "dependency_failed",
   });
 }
 

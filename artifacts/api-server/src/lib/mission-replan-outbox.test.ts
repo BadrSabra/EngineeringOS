@@ -21,7 +21,9 @@ import {
   claimMissionReplanDispatchLease,
   dispatchMissionReplanIntent,
   dispatchPendingMissionReplans,
+  insertMissionAdmissionReplanIntent,
   insertMissionReplanIntent,
+  missionReplanAdmissionIntentId,
   MISSION_REPLAN_DEFERRED,
   MISSION_REPLAN_DISPATCHED,
   MISSION_REPLAN_SUPERSEDED,
@@ -86,6 +88,47 @@ async function createIntent(fixture: Awaited<ReturnType<typeof createFixture>>) 
   }));
 }
 
+async function createAdmissionIntent(
+  fixture: Awaited<ReturnType<typeof createFixture>>,
+  reasonCode: "dependency_proof_unproven" | "dependency_failed" = "dependency_proof_unproven",
+  revisionLocation: "successCriteria" | "outcomeContract" = "successCriteria",
+) {
+  const planRevision = "admission-plan-" + fixture.goalId;
+  await db.update(aiMissionsTable).set({
+    status: "needs_replan",
+    autonomyPolicy: {
+      mode: "autonomous",
+      maxAutoReplans: 3,
+      activePlanRevision: planRevision,
+    },
+  }).where(eq(aiMissionsTable.id, fixture.missionId));
+  await db.update(aiGoalsTable).set({
+    status: "needs_replan",
+    blockedReason: reasonCode,
+    ...(revisionLocation === "outcomeContract"
+      ? {
+          successCriteria: { kind: "mission_plan_step" },
+          outcomeContract: { retryable: true, planRevision: { hash: planRevision } },
+        }
+      : {
+          successCriteria: {
+            kind: "mission_plan_step",
+            planRevision: { hash: planRevision },
+          },
+        }),
+  }).where(eq(aiGoalsTable.id, fixture.goalId));
+
+  const intentId = await db.transaction((tx) => insertMissionAdmissionReplanIntent(tx, {
+    projectId: fixture.projectId,
+    missionId: fixture.missionId,
+    goalId: fixture.goalId,
+    reasonCode,
+    planRevision,
+    requestedAt: fixture.now,
+  }));
+  return { intentId, planRevision, reasonCode };
+}
+
 afterEach(async () => {
   autoReplanMission.mockReset();
   for (const projectId of projectIds.splice(0)) {
@@ -131,6 +174,165 @@ describe("Mission replan Outbox", () => {
     });
     expect(intent?.payload).not.toHaveProperty("dispatchLease");
     expect(await dispatchPendingMissionReplans(10, fixture.projectId)).toBe(0);
+  });
+
+  it("dispatches a Goal admission replan without inventing an execution acceptance", async () => {
+    const fixture = await createFixture();
+    const admission = await createAdmissionIntent(fixture, "dependency_proof_unproven");
+    expect(admission.intentId).toBe(missionReplanAdmissionIntentId({
+      missionId: fixture.missionId,
+      projectId: fixture.projectId,
+      goalId: fixture.goalId,
+      reasonCode: admission.reasonCode,
+      planRevision: admission.planRevision,
+    }));
+
+    autoReplanMission.mockResolvedValue({
+      status: "replanned",
+      missionId: fixture.missionId,
+      revision: "admission-replan-v1",
+      plan: {},
+      runs: [],
+    });
+
+    expect(await dispatchPendingMissionReplans(10, fixture.projectId)).toBe(1);
+    expect(autoReplanMission).toHaveBeenCalledOnceWith(fixture.missionId);
+
+    const [intent] = await db.select({
+      type: eventsTable.type,
+      payload: eventsTable.payload,
+    }).from(eventsTable)
+      .where(eq(eventsTable.id, admission.intentId))
+      .limit(1);
+    expect(intent?.type).toBe(MISSION_REPLAN_DISPATCHED);
+    expect(intent?.payload).toMatchObject({
+      source: "goal_admission",
+      missionId: fixture.missionId,
+      projectId: fixture.projectId,
+      goalId: fixture.goalId,
+      admissionKey: admission.intentId,
+      reasonCode: "dependency_proof_unproven",
+      sourcePlanRevision: admission.planRevision,
+      dispatchOutcome: "replanned",
+      planRevision: "admission-replan-v1",
+    });
+    expect(intent?.payload).not.toHaveProperty("executionId");
+    expect(intent?.payload).not.toHaveProperty("acceptanceId");
+    expect(intent?.payload).not.toHaveProperty("attempt");
+  });
+
+  it("revalidates against the plan revision stored in the Goal outcome contract", async () => {
+    const fixture = await createFixture();
+    const admission = await createAdmissionIntent(
+      fixture,
+      "dependency_proof_unproven",
+      "outcomeContract",
+    );
+    autoReplanMission.mockResolvedValue({
+      status: "replanned",
+      missionId: fixture.missionId,
+      revision: "outcome-contract-replan-v1",
+      plan: {},
+      runs: [],
+    });
+
+    expect(await dispatchPendingMissionReplans(10, fixture.projectId)).toBe(1);
+    expect(autoReplanMission).toHaveBeenCalledOnceWith(fixture.missionId);
+    const [intent] = await db.select({
+      type: eventsTable.type,
+      payload: eventsTable.payload,
+    }).from(eventsTable)
+      .where(eq(eventsTable.id, admission.intentId))
+      .limit(1);
+    expect(intent?.type).toBe(MISSION_REPLAN_DISPATCHED);
+    expect(intent?.payload).toMatchObject({
+      source: "goal_admission",
+      sourcePlanRevision: admission.planRevision,
+      dispatchOutcome: "replanned",
+    });
+  });
+
+  it("dispatches failed-dependency admission requests through the same planner", async () => {
+    const fixture = await createFixture();
+    const admission = await createAdmissionIntent(fixture, "dependency_failed");
+    autoReplanMission.mockResolvedValue({
+      status: "replanned",
+      missionId: fixture.missionId,
+      revision: "failed-dependency-replan-v1",
+      plan: {},
+      runs: [],
+    });
+
+    expect(await dispatchPendingMissionReplans(10, fixture.projectId)).toBe(1);
+    expect(autoReplanMission).toHaveBeenCalledOnceWith(fixture.missionId);
+    const [intent] = await db.select({
+      type: eventsTable.type,
+      payload: eventsTable.payload,
+    }).from(eventsTable)
+      .where(eq(eventsTable.id, admission.intentId))
+      .limit(1);
+    expect(intent?.type).toBe(MISSION_REPLAN_DISPATCHED);
+    expect(intent?.payload).toMatchObject({
+      source: "goal_admission",
+      reasonCode: "dependency_failed",
+      sourcePlanRevision: admission.planRevision,
+      dispatchOutcome: "replanned",
+    });
+  });
+
+  it("supersedes an admission wake when its blocked reason changes", async () => {
+    const fixture = await createFixture();
+    const admission = await createAdmissionIntent(fixture);
+    await db.update(aiGoalsTable)
+      .set({ blockedReason: "dependency_failed" })
+      .where(eq(aiGoalsTable.id, fixture.goalId));
+
+    expect(await dispatchPendingMissionReplans(10, fixture.projectId)).toBe(0);
+    expect(autoReplanMission).not.toHaveBeenCalled();
+    const [intent] = await db.select({
+      type: eventsTable.type,
+      payload: eventsTable.payload,
+    }).from(eventsTable)
+      .where(eq(eventsTable.id, admission.intentId))
+      .limit(1);
+    expect(intent?.type).toBe(MISSION_REPLAN_SUPERSEDED);
+    expect(intent?.payload).toMatchObject({
+      source: "goal_admission",
+      reason: "mission_or_goal_state_changed",
+    });
+  });
+
+  it("supersedes an admission wake from an older plan revision", async () => {
+    const fixture = await createFixture();
+    const admission = await createAdmissionIntent(fixture);
+    const newRevision = "new-plan-" + fixture.goalId;
+    await db.update(aiGoalsTable).set({
+      successCriteria: {
+        kind: "mission_plan_step",
+        planRevision: { hash: newRevision },
+      },
+    }).where(eq(aiGoalsTable.id, fixture.goalId));
+    await db.update(aiMissionsTable).set({
+      autonomyPolicy: {
+        mode: "autonomous",
+        maxAutoReplans: 3,
+        activePlanRevision: newRevision,
+      },
+    }).where(eq(aiMissionsTable.id, fixture.missionId));
+
+    expect(await dispatchPendingMissionReplans(10, fixture.projectId)).toBe(0);
+    expect(autoReplanMission).not.toHaveBeenCalled();
+    const [intent] = await db.select({
+      type: eventsTable.type,
+      payload: eventsTable.payload,
+    }).from(eventsTable)
+      .where(eq(eventsTable.id, admission.intentId))
+      .limit(1);
+    expect(intent?.type).toBe(MISSION_REPLAN_SUPERSEDED);
+    expect(intent?.payload).toMatchObject({
+      source: "goal_admission",
+      reason: "mission_or_goal_state_changed",
+    });
   });
 
   it("serializes cross-replica claims and reclaims an expired dispatch lease", async () => {
