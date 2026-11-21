@@ -122,7 +122,7 @@ export type OpenAICompatibleOptions = {
   timeoutMs?: number;
   /** Disable transient retry when the caller owns bounded model fallback. */
   retryTransient?: boolean;
-  /** Requested candidate count; a single request is always capped at two models. */
+  /** Normal candidate budget; strict model-unavailability may extend to this count. */
   maxFallbackModels?: number;
   /** Skip models that already produced an unusable structured result. */
   excludeModels?: string[];
@@ -737,6 +737,28 @@ function isModelUnavailableError(err: unknown): err is GroqClientError {
       err.code === "EMPTY_RESPONSE" ||
       err.code === "INVALID_TOOL_CALL" ||
       err.code === "INVALID_PROVIDER_RESPONSE")
+  );
+}
+
+/**
+ * A missing, removed, temporarily unavailable, or free-tier-restricted model
+ * is a candidate-specific failure. In that case only, allow a few more
+ * already-validated free candidates to be tried. Explicit limits remain hard
+ * limits; other failure classes keep the ordinary two-attempt budget.
+ */
+function modelAvailabilityAttemptLimit(requested?: number): number {
+  return Number.isInteger(requested) && requested! > 0
+    ? Math.min(requested!, MAX_OPENROUTER_MODEL_AVAILABILITY_ATTEMPTS_PER_REQUEST)
+    : MAX_OPENROUTER_MODEL_AVAILABILITY_ATTEMPTS_PER_REQUEST;
+}
+
+function isOpenRouterModelAvailabilityFailure(
+  error: unknown,
+): error is GroqClientError {
+  return error instanceof GroqClientError && (
+    error.code === "MODEL_NOT_FOUND" ||
+    error.code === "MODEL_UNAVAILABLE" ||
+    error.code === "PLAN_RESTRICTED"
   );
 }
 
@@ -1701,6 +1723,9 @@ export async function* oacCompleteStream(
 const OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1";
 const OPENROUTER_EXTRA_HEADERS = { "X-Title": "EngineeringOS" };
 const MAX_OPENROUTER_FREE_MODEL_ATTEMPTS_PER_REQUEST = 2;
+// Only model-specific availability failures may extend beyond the normal
+// per-request budget; quota, rate-limit, auth, and transport failures do not.
+const MAX_OPENROUTER_MODEL_AVAILABILITY_ATTEMPTS_PER_REQUEST = 4;
 
 export { assertOpenRouterFreeModel } from "./openrouter/free-model-policy.js";
 
@@ -2236,6 +2261,10 @@ export async function openrouterCompleteWithFallback(
       opts.modelLaneCursorPersistence,
     );
   }
+  const availabilityAttemptLimit = Math.min(
+    eligibleChain.length,
+    modelAvailabilityAttemptLimit(opts.maxFallbackModels),
+  );
   let chain = maxFallbackModels
     ? eligibleChain.slice(0, maxFallbackModels)
     : eligibleChain;
@@ -2449,6 +2478,24 @@ export async function openrouterCompleteWithFallback(
       const fallbackOnEmptyResponse =
         err instanceof GroqClientError && err.code === "EMPTY_RESPONSE";
       if (
+        isOpenRouterModelAvailabilityFailure(err) &&
+        i === chain.length - 1 &&
+        chain.length < availabilityAttemptLimit
+      ) {
+        const nextModel = eligibleChain[chain.length];
+        if (nextModel) {
+          chain.push(nextModel);
+          console.info(JSON.stringify({
+            scope: "openrouter-fallback",
+            code: "MODEL_AVAILABILITY_CHAIN_EXTENDED",
+            failedModel: model,
+            nextModel,
+            attempt: i + 1,
+            maxAttempts: availabilityAttemptLimit,
+          }));
+        }
+      }
+      if (
         (isModelUnavailableError(err) || fallbackOnTransient || fallbackOnEmptyResponse) &&
         i < chain.length - 1
       ) {
@@ -2601,14 +2648,19 @@ export async function* openrouterCompleteStream(
       opts.modelLaneCursorPersistence,
     );
   }
+  const availabilityAttemptLimit = Math.min(
+    eligibleModels.length,
+    modelAvailabilityAttemptLimit(opts.maxFallbackModels),
+  );
   const chain = maxFallbackModels
     ? eligibleModels.slice(0, maxFallbackModels)
     : eligibleModels;
+  const mutableChain = [...chain];
   const attemptedModels: string[] = [];
   let lastError: GroqClientError | undefined;
 
-  for (let index = 0; index < chain.length; index++) {
-    const model = chain[index]!;
+  for (let index = 0; index < mutableChain.length; index++) {
+    const model = mutableChain[index]!;
     let attemptPermit: OpenRouterAdmissionPermit;
     try {
       attemptPermit = await reserveOpenRouterInferencePermit(
@@ -2817,7 +2869,26 @@ export async function* openrouterCompleteStream(
             (opts.retryTransient === false || transientRetried);
           const canAdvance = !isRateLimitFailure(providerError) &&
             (isModelUnavailableError(providerError) || fallbackOnTransient);
-          if (!canAdvance || index >= chain.length - 1) {
+          if (
+            canAdvance &&
+            isOpenRouterModelAvailabilityFailure(providerError) &&
+            index === mutableChain.length - 1 &&
+            mutableChain.length < availabilityAttemptLimit
+          ) {
+            const nextModel = eligibleModels[mutableChain.length];
+            if (nextModel) {
+              mutableChain.push(nextModel);
+              console.info(JSON.stringify({
+                scope: "openrouter-fallback",
+                code: "STREAM_MODEL_AVAILABILITY_CHAIN_EXTENDED",
+                failedModel: model,
+                nextModel,
+                attempt: index + 1,
+                maxAttempts: availabilityAttemptLimit,
+              }));
+            }
+          }
+          if (!canAdvance || index >= mutableChain.length - 1) {
             const terminalError = rateLimitTerminalError ?? providerError;
             throw new GroqClientError(terminalError.code, terminalError.message, {
               cause: terminalError,
@@ -2834,7 +2905,7 @@ export async function* openrouterCompleteStream(
             code: "STREAM_MODEL_FALLBACK",
             reason: providerError.code,
             failedModel: model,
-            nextModel: chain[index + 1],
+            nextModel: mutableChain[index + 1],
             attempt: index + 1,
           }));
           break;
