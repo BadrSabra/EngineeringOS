@@ -1,5 +1,5 @@
 import { createHash, randomUUID } from "node:crypto";
-import { and, asc, eq, inArray, sql } from "drizzle-orm";
+import { and, asc, eq, inArray, isNotNull, lte, sql } from "drizzle-orm";
 import { aiGoalsTable, db, eventsTable } from "@workspace/db";
 import type { MissionEventEnvelope } from "./mission-events.js";
 import { logger } from "./logger.js";
@@ -721,6 +721,67 @@ async function backfillPendingMissionEventWaits(
 }
 
 /**
+ * Materialize due legacy scheduled waits into the same durable Outbox used by
+ * newly-created waits. New wait transitions already persist their timer intent
+ * atomically; this bounded, due-only backfill preserves timers created before
+ * that contract existed without repeatedly scanning or storing future timers.
+ * Deterministic intent IDs and ON CONFLICT make concurrent replica backfills safe.
+ */
+async function backfillPendingMissionScheduledWaits(
+  limit: number,
+  scopeProjectId?: string,
+): Promise<number> {
+  const now = await databaseNow();
+  if (!now) return 0;
+
+  const candidates = await db.select({
+    projectId: aiGoalsTable.projectId,
+    goalId: aiGoalsTable.id,
+    wakeAt: aiGoalsTable.nextWakeAt,
+    generationAt: aiGoalsTable.updatedAt,
+  }).from(aiGoalsTable)
+    .where(and(
+      eq(aiGoalsTable.status, "waiting_for_event"),
+      isNotNull(aiGoalsTable.nextWakeAt),
+      lte(aiGoalsTable.nextWakeAt, now),
+      sql.raw("\"ai_goals\".\"next_action\"->>'kind' = 'wait'"),
+      sql.raw("\"ai_goals\".\"next_action\"->>'reason' = 'event'"),
+      // A terminal, deferred, or already-dispatched marker all prove that this
+      // timer generation has entered the durable Outbox contract.
+      sql.raw(`NOT EXISTS (
+        SELECT 1
+        FROM "events" AS "mission_scheduled_wake_marker"
+        WHERE "mission_scheduled_wake_marker"."project_id" = "ai_goals"."project_id"
+          AND "mission_scheduled_wake_marker"."goal_id" = "ai_goals"."id"
+          AND "mission_scheduled_wake_marker"."type" IN (
+            'AiMissionEventWakeRequested',
+            'AiMissionEventWakeDeferred',
+            'AiMissionEventWakeDispatched',
+            'AiMissionEventWakeDeadLetter'
+          )
+          AND "mission_scheduled_wake_marker"."payload"->>'source' = 'scheduled_wake'
+      )`),
+      scopeProjectId ? eq(aiGoalsTable.projectId, scopeProjectId) : undefined,
+    ))
+    .orderBy(asc(aiGoalsTable.nextWakeAt), asc(aiGoalsTable.id))
+    .limit(Math.max(1, Math.min(Math.floor(limit), 100)));
+
+  let requested = 0;
+  for (const candidate of candidates) {
+    if (!candidate.wakeAt) continue;
+    await db.transaction((tx) => insertMissionEventWakeIntent(tx, {
+      projectId: candidate.projectId,
+      goalId: candidate.goalId,
+      source: "scheduled_wake",
+      wakeAt: candidate.wakeAt,
+      generationAt: candidate.generationAt,
+    }));
+    requested += 1;
+  }
+  return requested;
+}
+
+/**
  * Bounded dispatcher for wake requests only. It never scans the external event
  * inbox globally; each request selects one event or one exact Goal inbox.
  */
@@ -729,6 +790,7 @@ export async function dispatchPendingMissionEventWakes(
   scopeProjectId?: string,
 ): Promise<number> {
   await backfillPendingMissionEventWaits(limit, scopeProjectId);
+  await backfillPendingMissionScheduledWaits(limit, scopeProjectId);
   const now = await databaseNow();
   if (!now) return 0;
   const rows = await db.select({ id: eventsTable.id }).from(eventsTable)
