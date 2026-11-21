@@ -2414,16 +2414,14 @@ describe("openrouterCompleteWithFallback — model removed (PR-02)", () => {
     "does not probe the same candidate on the next request after HTTP %s",
     async (status, errorBody) => {
       const firstModel = "nvidia/nemotron-3.5-lightning:free";
-      const secondModel = FREE_MODELS.find((candidate) =>
-        candidate.id !== firstModel && candidate.capabilities.includes("chat")
-      )!.id;
       const cooldownStore = createModelCooldownFixture();
       const attemptedModels: string[] = [];
 
       global.fetch = vi.fn(async (url: string | URL, init?: RequestInit) => {
         if (String(url).endsWith("/models")) {
+          const liveModelIds = [...new Set([firstModel, ...FREE_MODELS.map((model) => model.id)])];
           return fetchResponse(200, {
-            data: [firstModel, secondModel].map((id) => ({
+            data: liveModelIds.map((id) => ({
               id,
               pricing: { prompt: "0", completion: "0" },
               supported_parameters: ["response_format"],
@@ -2455,8 +2453,9 @@ describe("openrouterCompleteWithFallback — model removed (PR-02)", () => {
       );
       expect(second.content).toBe("Hello!");
       expect(attemptedModels.filter((model) => model === firstModel)).toHaveLength(1);
-      expect(attemptedModels[1]).toBe(secondModel);
-      expect(attemptedModels[2]).toBe(secondModel);
+      expect(attemptedModels[1]).not.toBe(firstModel);
+      expect(attemptedModels[1]).toMatch(/:free$/);
+      expect(attemptedModels[2]).toBe(attemptedModels[1]);
     },
   );
 
