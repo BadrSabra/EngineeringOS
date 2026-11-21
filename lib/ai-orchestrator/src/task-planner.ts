@@ -229,15 +229,18 @@ function stepsForIntent(input: GeneralTaskPlanInput): GeneralTaskPlanStep[] {
     return [step("deliver", "Respond to the user", "deliver")];
   }
 
-  const inspect = turnIntent.requiresTools || turnIntent.requiresEvidence
+  const combinesInspectionAndAnalysis =
+    turnIntent.kind === "PROJECT_QUERY" || turnIntent.kind === "FORENSIC_AUDIT";
+  const inspect = (turnIntent.requiresTools || turnIntent.requiresEvidence)
+      && !combinesInspectionAndAnalysis
     ? step("inspect", "Inspect the relevant project context", "inspect", [], { files: explicitFiles })
     : undefined;
-  const analyze = turnIntent.kind === "PROJECT_QUERY" || turnIntent.kind === "FORENSIC_AUDIT"
+  const analyze = combinesInspectionAndAnalysis
     ? step(
         "analyze",
-        "Analyze the retained project evidence",
+        "Inspect and analyze the relevant project evidence",
         "analyze",
-        inspect ? ["inspect"] : [],
+        [],
         { files: explicitFiles },
       )
     : undefined;
@@ -330,12 +333,11 @@ function stepsForExistingProjectQuery(
   const files = uniquePaths(state.requiredEvidencePaths);
   const claims = state.requiredClaims?.length ?? 0;
   return [
-    step("inspect", "Read the existing project-query evidence scope", "inspect", [], { files }),
     step(
       "analyze",
-      `Close ${claims || "the"} server-owned project claims`,
+      `Inspect retained evidence and close ${claims || "the"} server-owned project claims`,
       "analyze",
-      ["inspect"],
+      [],
       { files },
     ),
     step("deliver", "Deliver the existing project-query result", "deliver", ["analyze"], { files }),
