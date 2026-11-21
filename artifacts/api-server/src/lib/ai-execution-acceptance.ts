@@ -470,7 +470,12 @@ export function deriveLinkedGoalStatus(params: {
 }): ObjectiveGoalStatus {
   if (params.outcome === "INTERRUPTED") return "needs_replan";
   if (params.outcome === "FAILED") {
-    if (params.samePlanRecoveryPending) return "verifying";
+    if (
+      params.samePlanRecoveryPending
+      && !params.siblingTaskStatuses.some((status) => status === "failed" || status === "cancelled")
+    ) {
+      return "verifying";
+    }
     return params.retryable ? "needs_replan" : "failed";
   }
   if (params.taskStatus === "verifying") return "verifying";
