@@ -2459,20 +2459,30 @@ export async function recoverAiExecutionResumeToken(params: {
  * second user turn. The retry action is accepted only from the current
  * server-owned acceptance row and the same immutable request contract.
  */
-export async function recoverAiExecutionRetryToken(params: {
-  executionId: string;
-  userId: string;
-  expectedAttempt?: number;
-  transaction?: AiExecutionTransaction;
-}): Promise<{ execution: AiExecution; resumeToken: string } | undefined> {
+export type AiExecutionRetryTokenRecoveryResult =
+  | {
+    kind: "recovered";
+    recovered: { execution: AiExecution; resumeToken: string };
+  }
+  | { kind: "not_due" }
+  | { kind: "conflict" };
+
+async function recoverAiExecutionRetryTokenInternal(
+  params: {
+    executionId: string;
+    userId: string;
+    expectedAttempt?: number;
+    transaction?: AiExecutionTransaction;
+  },
+  reportRetryWindow: boolean,
+): Promise<AiExecutionRetryTokenRecoveryResult> {
   if (!params.transaction) {
     return db.transaction((transaction) =>
-      recoverAiExecutionRetryToken({ ...params, transaction }),
+      recoverAiExecutionRetryTokenInternal({ ...params, transaction }, reportRetryWindow),
     );
   }
 
   const query = params.transaction;
-  const resumeToken = createResumeToken();
   const [candidate] = await query
     .select()
     .from(aiExecutionsTable)
@@ -2486,14 +2496,19 @@ export async function recoverAiExecutionRetryToken(params: {
     ))
     .for("update")
     .limit(1);
-  if (!candidate) return undefined;
+  if (!candidate) return { kind: "conflict" };
 
   const request = parseExecutionRequest(candidate.request);
-  if (!request) return undefined;
+  if (!request) return { kind: "conflict" };
   const ordinaryChat = request.turnIntent === "CHAT" && request.proofRequired !== true;
-  if (candidate.linkedTaskId || request?.linkedTaskId) return undefined;
-  if (!hasAiExecutionResumeContract(request) && !ordinaryChat) return undefined;
+  if (candidate.linkedTaskId || request?.linkedTaskId) return { kind: "conflict" };
+  if (!hasAiExecutionResumeContract(request) && !ordinaryChat) {
+    return { kind: "conflict" };
+  }
 
+  // Read and lock the current acceptance once, together with PostgreSQL's
+  // clock. All retry callers now evaluate the durable deadline against the
+  // database clock rather than relying on a potentially skewed API host.
   const [priorAcceptance] = await query
     .select({
       projectId: aiExecutionAcceptancesTable.projectId,
@@ -2503,6 +2518,7 @@ export async function recoverAiExecutionRetryToken(params: {
       resumable: aiExecutionAcceptancesTable.resumable,
       nextActionCode: aiExecutionAcceptancesTable.nextActionCode,
       disposition: aiExecutionAcceptancesTable.disposition,
+      databaseNowMs: sql<number>`(extract(epoch from clock_timestamp()) * 1000)::double precision`,
     })
     .from(aiExecutionAcceptancesTable)
     .where(and(
@@ -2511,15 +2527,32 @@ export async function recoverAiExecutionRetryToken(params: {
     ))
     .for("update")
     .limit(1);
+  const databaseNowMs = priorAcceptance?.databaseNowMs;
+  if (typeof databaseNowMs !== "number" || !Number.isFinite(databaseNowMs)) {
+    return { kind: "conflict" };
+  }
+
+  const retryAt = recoveryDispositionValue(priorAcceptance?.disposition, "retryAt");
+  if (retryAt !== undefined) {
+    if (typeof retryAt !== "string") return { kind: "conflict" };
+    const retryAtMs = Date.parse(retryAt);
+    if (!Number.isFinite(retryAtMs)) return { kind: "conflict" };
+    if (retryAtMs > databaseNowMs) {
+      return reportRetryWindow ? { kind: "not_due" } : { kind: "conflict" };
+    }
+  }
+
   if (!isAiExecutionRetryAcceptanceEligible({
     projectId: candidate.projectId,
     operationId: candidate.operationId,
     request,
     acceptance: priorAcceptance,
+    nowMs: databaseNowMs,
   })) {
-    return undefined;
+    return { kind: "conflict" };
   }
 
+  const resumeToken = createResumeToken();
   const [execution] = await query
     .update(aiExecutionsTable)
     .set({
@@ -2536,7 +2569,36 @@ export async function recoverAiExecutionRetryToken(params: {
         : []),
     ))
     .returning();
-  return execution ? { execution, resumeToken } : undefined;
+  return execution
+    ? { kind: "recovered", recovered: { execution, resumeToken } }
+    : { kind: "conflict" };
+}
+
+/**
+ * Retry a failed proof-backed conversational execution without creating a
+ * second user turn. The current execution and acceptance are locked once, and
+ * the persisted retry deadline is compared with the PostgreSQL clock.
+ */
+export async function recoverAiExecutionRetryToken(params: {
+  executionId: string;
+  userId: string;
+  expectedAttempt?: number;
+  transaction?: AiExecutionTransaction;
+}): Promise<{ execution: AiExecution; resumeToken: string } | undefined> {
+  const result = await recoverAiExecutionRetryTokenInternal(params, false);
+  return result.kind === "recovered" ? result.recovered : undefined;
+}
+
+/**
+ * Chat recovery needs to distinguish a future durable retry window from a
+ * stale or invalid acceptance so the coordinator can preserve its backoff.
+ */
+export async function recoverAiExecutionRetryTokenWithDatabaseDeadline(params: {
+  executionId: string;
+  userId: string;
+  expectedAttempt?: number;
+}): Promise<AiExecutionRetryTokenRecoveryResult> {
+  return recoverAiExecutionRetryTokenInternal(params, true);
 }
 
 export type AiExecutionRecoveryAction = "resume" | "abandon";
