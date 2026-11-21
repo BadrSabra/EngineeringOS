@@ -4,6 +4,16 @@ import axe from 'axe-core';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import Metrics from './Metrics';
 import { useLocation } from 'wouter';
+import { readGoalDrafts, storeHomeGoalDraft } from '@/lib/home-goal-handoff';
+
+const authMocks = vi.hoisted(() => ({
+  isLoaded: true,
+  user: { id: 'user-1' } as { id: string } | null,
+}));
+
+vi.mock('@clerk/react', () => ({
+  useUser: () => ({ isLoaded: authMocks.isLoaded, user: authMocks.user }),
+}));
 
 const scanProjectMutate = vi.hoisted(() => vi.fn());
 const invalidateQueries = vi.hoisted(() => vi.fn().mockResolvedValue(undefined));
@@ -72,9 +82,12 @@ function mockMetrics(
 beforeEach(() => {
   vi.clearAllMocks();
   invalidateQueries.mockResolvedValue(undefined);
+  window.sessionStorage.clear();
   window.history.replaceState({}, '', '/metrics');
   mockProjects();
   mockMetrics();
+  authMocks.isLoaded = true;
+  authMocks.user = { id: 'user-1' };
   vi.mocked(useScanProject).mockReturnValue({
     mutate: scanProjectMutate,
     isPending: false,
@@ -256,6 +269,98 @@ describe('Metrics', () => {
     });
     expect(screen.getByText('اكتمل الفحص، ولم تظهر مؤشرات لهذا المشروع بعد.')).toBeInTheDocument();
     expect(getListProjectsQueryKey).toHaveBeenCalled();
+  });
+
+  it('opens a project-scoped unsent assistant draft when a completed scan has no metrics', async () => {
+    mockProjects([{ id: 'project-a', name: 'Alpha' }]);
+    mockMetrics([]);
+    vi.mocked(useGetScanJob).mockReturnValue({
+      data: {
+        id: 'scan-job-a',
+        projectId: 'project-a',
+        status: 'completed',
+        createdAt: '2026-11-20T12:00:00.000Z',
+      },
+      isLoading: false,
+      isError: false,
+      isFetching: false,
+      refetch: vi.fn(),
+    } as unknown as ReturnType<typeof useGetScanJob>);
+
+    render(<Metrics />);
+    fireEvent.click(screen.getByTestId('button-start-metrics-scan'));
+    const options = scanProjectMutate.mock.calls[0]?.[1] as {
+      onSuccess: (job: { id: string; projectId: string; status: string; createdAt: string }) => void;
+    };
+    act(() => options.onSuccess({
+      id: 'scan-job-a',
+      projectId: 'project-a',
+      status: 'queued',
+      createdAt: '2026-11-20T12:00:00.000Z',
+    }));
+    await waitFor(() => {
+      expect(screen.getByTestId('button-metrics-scan-assistant')).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByTestId('button-metrics-scan-assistant'));
+
+    const draft = readGoalDrafts('user-1').drafts[0];
+    expect(draft).toMatchObject({
+      source: 'home',
+      projectId: 'project-a',
+      sendAttemptedAt: null,
+    });
+    expect(draft.text).toContain('اكتمل فحص المشروع لكن لم تظهر مؤشرات');
+    expect(draft.text).toContain('لا تغيّر الملفات أو تبدأ أي عمل');
+    await waitFor(() => {
+      expect(window.location.pathname).toBe('/projects/project-a/workspace');
+      expect(new URLSearchParams(window.location.search).get('goalDraftId')).toBe(draft.id);
+      expect(window.location.hash).toBe('#workspace-panel-agent');
+    });
+    expect(scanProjectMutate).toHaveBeenCalledTimes(1);
+  });
+
+  it('stays on metrics when there is no room to save the assistant draft', async () => {
+    for (let index = 0; index < 8; index += 1) {
+      expect(storeHomeGoalDraft(`مسودة ${index}`, 'user-1')).not.toBeNull();
+    }
+    mockProjects([{ id: 'project-a', name: 'Alpha' }]);
+    mockMetrics([]);
+    vi.mocked(useGetScanJob).mockReturnValue({
+      data: {
+        id: 'scan-job-a',
+        projectId: 'project-a',
+        status: 'completed',
+        createdAt: '2026-11-20T12:00:00.000Z',
+      },
+      isLoading: false,
+      isError: false,
+      isFetching: false,
+      refetch: vi.fn(),
+    } as unknown as ReturnType<typeof useGetScanJob>);
+
+    render(<Metrics />);
+    fireEvent.click(screen.getByTestId('button-start-metrics-scan'));
+    const options = scanProjectMutate.mock.calls[0]?.[1] as {
+      onSuccess: (job: { id: string; projectId: string; status: string; createdAt: string }) => void;
+    };
+    act(() => options.onSuccess({
+      id: 'scan-job-a',
+      projectId: 'project-a',
+      status: 'queued',
+      createdAt: '2026-11-20T12:00:00.000Z',
+    }));
+    await waitFor(() => {
+      expect(screen.getByTestId('button-metrics-scan-assistant')).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByTestId('button-metrics-scan-assistant'));
+
+    expect(screen.getByTestId('metrics-scan-assistant-error')).toHaveTextContent(
+      'تعذر حفظ مسودة طلب المساعدة.',
+    );
+    expect(window.location.pathname).toBe('/metrics');
+    expect(readGoalDrafts('user-1').drafts).toHaveLength(8);
   });
 
   it('does not start a duplicate scan when the project is already scanning', () => {

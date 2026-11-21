@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { useUser } from '@clerk/react';
 import { useQueryClient } from '@tanstack/react-query';
 import {
   useListMetrics,
@@ -23,7 +24,8 @@ import {
 } from 'recharts';
 import { BarChart3, AlertTriangle, Play, RefreshCw } from 'lucide-react';
 import { RefreshButton, RequestError } from '@/components/OperatorResilience';
-import { Link, useSearch } from 'wouter';
+import { Link, useLocation, useSearch } from 'wouter';
+import { storeHomeGoalDraft } from '@/lib/home-goal-handoff';
 
 const CHART_COLORS = {
   architecture: '#10b981',
@@ -59,6 +61,8 @@ function MetricsSession({
   initialDateRange: DateRange;
 }) {
   const queryClient = useQueryClient();
+  const { isLoaded, user } = useUser();
+  const [, setLocation] = useLocation();
   const {
     data: projects,
     isError: projectsError,
@@ -69,6 +73,7 @@ function MetricsSession({
   const [selectedProjectId, setSelectedProjectId] = useState<string>(initialProjectId);
   const [dateRange, setDateRange] = useState<DateRange>(initialDateRange);
   const [activeScan, setActiveScan] = useState<{ projectId: string; jobId: string } | null>(null);
+  const [assistantHandoffError, setAssistantHandoffError] = useState<string | null>(null);
   const terminalScanJobId = useRef<string | null>(null);
 
   // A saved selection is valid only while it belongs to the latest project list.
@@ -187,6 +192,24 @@ function MetricsSession({
           void queryClient.invalidateQueries({ queryKey: getListProjectsQueryKey() });
         },
       },
+    );
+  };
+
+  const askAssistantAboutMissingMetrics = () => {
+    const projectId = activeScan?.projectId;
+    if (!projectId || !isLoaded || !user?.id) return;
+    const draft = storeHomeGoalDraft(
+      'اكتمل فحص المشروع لكن لم تظهر مؤشرات. ساعدني على فهم السبب واقترح خطوة آمنة للتحقق. لا تغيّر الملفات أو تبدأ أي عمل قبل أن أراجع المقترح وأوافق.',
+      user.id,
+      projectId,
+    );
+    if (!draft) {
+      setAssistantHandoffError('تعذر حفظ مسودة طلب المساعدة. بقيت في صفحة المؤشرات ولم نغيّر شيئًا.');
+      return;
+    }
+    setAssistantHandoffError(null);
+    setLocation(
+      `/projects/${encodeURIComponent(projectId)}/workspace?goalDraftId=${encodeURIComponent(draft.id)}#workspace-panel-agent`,
     );
   };
 
@@ -397,9 +420,25 @@ function MetricsSession({
           {activeScan?.projectId === effectiveProjectId
             && activeScanStatus === 'completed'
             && (
-              <p role="status" className="max-w-md text-xs">
-                اكتمل الفحص، ولم تظهر مؤشرات لهذا المشروع بعد.
-              </p>
+              <div className="max-w-md space-y-2">
+                <p role="status" className="text-xs">
+                  اكتمل الفحص، ولم تظهر مؤشرات لهذا المشروع بعد.
+                </p>
+                <button
+                  type="button"
+                  onClick={askAssistantAboutMissingMetrics}
+                  disabled={!isLoaded || !user?.id}
+                  data-testid="button-metrics-scan-assistant"
+                  className="inline-flex items-center rounded-md border border-primary/40 bg-primary/10 px-3 py-2 text-xs font-medium text-primary transition-colors hover:bg-primary/15 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary disabled:cursor-wait disabled:opacity-50"
+                >
+                  اسأل المساعد عن غياب المؤشرات
+                </button>
+                {assistantHandoffError && (
+                  <p role="alert" data-testid="metrics-scan-assistant-error" className="text-xs text-destructive">
+                    {assistantHandoffError}
+                  </p>
+                )}
+              </div>
             )}
           {projectScanInProgress && !trackedScanInProgress && (
             <p role="status" className="max-w-md text-xs">
