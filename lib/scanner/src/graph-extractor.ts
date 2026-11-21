@@ -1401,6 +1401,7 @@ function goEntity(
     type: entity.type,
     name: entity.name,
     path: file.path,
+    ...(entity.isDocumented !== undefined ? { isDocumented: entity.isDocumented } : {}),
     metadata: {
       language: "go",
       extractionMethod: sourceType,

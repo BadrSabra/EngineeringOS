@@ -97,14 +97,16 @@ func parseFile(file inputFile) map[string]interface{} {
 				if !ok {
 					continue
 				}
+				documented := typeSpec.Doc != nil || (len(node.Specs) == 1 && node.Doc != nil)
 				entities = append(entities, entity(
 					"class",
 					typeSpec.Name.Name,
 					lineFor(fset, typeSpec.Name.Pos()),
 					map[string]interface{}{
-						"kind":     "go-type",
-						"typeKind": typeKind(typeSpec.Type),
-						"package":  tree.Name.Name,
+						"kind":         "go-type",
+						"typeKind":     typeKind(typeSpec.Type),
+						"package":      tree.Name.Name,
+						"isDocumented": documented,
 					},
 				))
 			}
@@ -120,7 +122,10 @@ func parseFile(file inputFile) map[string]interface{} {
 				"function",
 				name,
 				lineFor(fset, node.Name.Pos()),
-				map[string]interface{}{"package": tree.Name.Name},
+				map[string]interface{}{
+					"package":      tree.Name.Name,
+					"isDocumented": node.Doc != nil,
+				},
 			))
 		}
 	}

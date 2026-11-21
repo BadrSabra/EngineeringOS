@@ -16,6 +16,8 @@ export interface GoEntityInfo {
   line: number;
   kind?: string;
   typeKind?: string;
+  /** Whether the declaration has an attached Go doc comment. */
+  isDocumented?: boolean;
   package?: string;
 }
 
