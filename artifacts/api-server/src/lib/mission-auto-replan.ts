@@ -75,6 +75,7 @@ type AutoReplanResult =
 
 const TERMINAL_REPLAN_FAILURES = new Set([
   "objective_no_longer_mission_eligible",
+  "automatic_replan_not_enabled",
   "automatic_replan_budget_exhausted",
   "automatic_replan_already_attempted",
   "failure_diagnosis_invalid",
