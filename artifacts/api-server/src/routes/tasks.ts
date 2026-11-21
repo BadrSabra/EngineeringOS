@@ -1232,6 +1232,7 @@ router.post("/tasks/:taskId/retry", async (req, res) => {
         !lockedTask
         || !["failed", "cancelled"].includes(lockedTask.status)
         || lockedTask.retryCount !== retryCount
+        || lockedTask.retryCount >= (lockedTask.maxRetries ?? 3)
       ) {
         throw new TaskStateConflictError(
           `Cannot retry task with status "${lockedTask?.status ?? "missing"}"`,
