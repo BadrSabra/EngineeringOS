@@ -454,6 +454,52 @@ describe("buildProjectContext → AgentContextSchema", () => {
     expect(second.project).not.toContain("MutatedProject");
   });
 
+  it("shares one raw context load across concurrent identical cache misses", async () => {
+    const [first, second] = await Promise.all([
+      buildProjectContext(PROJECT_ID, {
+        sections: ["tasks", "metrics"],
+        operationId: "operation-a",
+      }),
+      buildProjectContext(PROJECT_ID, {
+        sections: ["tasks", "metrics"],
+        operationId: "operation-b",
+      }),
+    ]);
+
+    expect(_tableHits.get(projectsTable as object)).toBe(1);
+    expect(_tableHits.get(tasksTable as object)).toBe(1);
+    expect(_tableHits.get(metricsTable as object)).toBe(1);
+    expect(_tableHits.get(scanJobsTable as object)).toBe(1);
+    expect(_tableHits.get(graphEntitiesTable as object) ?? 0).toBe(0);
+    expect(_tableHits.get(graphRelationshipsTable as object) ?? 0).toBe(0);
+    expect(first.operationId).toBe("operation-a");
+    expect(second.operationId).toBe("operation-b");
+    expect(first.contextIdentity?.operationId).toBe("operation-a");
+    expect(second.contextIdentity?.operationId).toBe("operation-b");
+  });
+
+  it("does not coalesce loads with caller-specific cancellation signals", async () => {
+    const firstController = new AbortController();
+    const secondController = new AbortController();
+
+    await Promise.all([
+      buildProjectContext(PROJECT_ID, {
+        sections: ["metrics"],
+        signal: firstController.signal,
+        operationId: "operation-cancel-a",
+      }),
+      buildProjectContext(PROJECT_ID, {
+        sections: ["metrics"],
+        signal: secondController.signal,
+        operationId: "operation-cancel-b",
+      }),
+    ]);
+
+    expect(_tableHits.get(projectsTable as object)).toBe(2);
+    expect(_tableHits.get(metricsTable as object)).toBe(2);
+    expect(_tableHits.get(scanJobsTable as object)).toBe(2);
+  });
+
   it("rebuilds a cached context when the latest persisted scan revision changes", async () => {
     const first = await buildProjectContext(PROJECT_ID);
     const metricsReadsBefore = _tableHits.get(metricsTable as object) ?? 0;
