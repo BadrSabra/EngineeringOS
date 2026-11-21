@@ -30,6 +30,14 @@ const revisionPlan = {
   affectedPaths: ["src/a.ts"],
 };
 
+const defaultProvenance = {
+  sourceType: "typescript-ast",
+  method: "ts-compiler-api",
+  scanSessionId: "scan-session-2",
+  extractorVersion: "1.0.0",
+  evidence: [{ file: "src/b.ts", kind: "call-site" }],
+};
+
 type RelationshipFixture = {
   id: string;
   scanJobId: string | null;
@@ -74,7 +82,7 @@ describe("planGraphRelationshipRefresh", () => {
           sourcePath: "src/b.ts",
           targetPath: "src/c.ts",
           provenance: {
-            ...relationship().provenance,
+            ...defaultProvenance,
             evidence: [{ file: "src/a.ts", kind: "import-statement" }],
           },
         }),
@@ -150,18 +158,18 @@ describe("planGraphRelationshipRefresh", () => {
   it.each([
     ["relationship was not produced by the previous scan", relationship({ scanJobId: "scan-old" }), "relationship_not_owned_by_baseline"],
     ["scan session differs", relationship({
-      provenance: { ...relationship().provenance, scanSessionId: "old-session" },
+      provenance: { ...defaultProvenance, scanSessionId: "old-session" },
     }), "relationship_provenance_mismatch"],
     ["extractor version differs", relationship({
-      provenance: { ...relationship().provenance, extractorVersion: "0.9.0" },
+      provenance: { ...defaultProvenance, extractorVersion: "0.9.0" },
     }), "relationship_provenance_mismatch"],
     ["endpoint path is missing", relationship({ targetPath: null }), "relationship_endpoint_path_missing"],
     ["evidence is missing", relationship({
-      provenance: { ...relationship().provenance, evidence: [] },
+      provenance: { ...defaultProvenance, evidence: [] },
     }), "relationship_evidence_missing"],
     ["evidence references a path outside the baseline", relationship({
       provenance: {
-        ...relationship().provenance,
+        ...defaultProvenance,
         evidence: [{ file: "../outside.ts", kind: "call-site" }],
       },
     }), "relationship_evidence_path_invalid"],
