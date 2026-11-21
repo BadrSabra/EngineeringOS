@@ -685,8 +685,8 @@ export async function autoReplanMission(
     // A previous automatic replan may already be durably materialized even
     // though an older dispatcher restored the Mission's needs_replan status.
     // Resume that exact revision before considering another planner call.
-    // Event/dependency-waiting Goals are persisted work too; they must not
-    // trigger a new plan merely because they are not currently runnable.
+    // Event/dependency/approval-waiting Goals are persisted work too; they
+    // must not trigger a new plan merely because they are not currently runnable.
     // A failed Goal in the same revision remains a real replan request.
     const policy = jsonRecord(mission.autonomyPolicy);
     const activePlanRevision = typeof policy.activePlanRevision === "string"
@@ -718,7 +718,7 @@ export async function autoReplanMission(
         .where(and(
           eq(aiGoalsTable.missionId, mission.id),
           eq(aiGoalsTable.projectId, mission.projectId),
-          inArray(aiGoalsTable.status, ["queued", "running", "waiting_for_event"]),
+          inArray(aiGoalsTable.status, ["queued", "running", "waiting_for_event", "waiting_for_approval"]),
           sql`${aiGoalsTable.successCriteria}->>'kind' = 'mission_replan_step'`,
           sql`COALESCE(
             ${aiGoalsTable.outcomeContract}->'planRevision'->>'hash',
