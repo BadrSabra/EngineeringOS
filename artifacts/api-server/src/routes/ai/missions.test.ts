@@ -1768,6 +1768,17 @@ describe("AI missions and goals", () => {
       successCriteria: { validator: "manual-root", kind: "mission_manual_step" },
       outcomeContract: { planRevision: { hash: planRevision } },
     });
+    const activeRootStarts = await db.select().from(eventsTable).where(and(
+      eq(eventsTable.goalId, activeRoot.body.id),
+      eq(eventsTable.type, "MissionGoalStartDispatched"),
+    ));
+    expect(activeRootStarts).toHaveLength(1);
+    expect(activeRootStarts[0]?.payload).toMatchObject({
+      missionId,
+      goalId: activeRoot.body.id,
+      planRevision,
+      runStatus: "waiting",
+    });
 
     const staleRoot = await request(app)
       .post(`/api/ai/missions/${missionId}/goals`)
@@ -1782,6 +1793,11 @@ describe("AI missions and goals", () => {
     expect(staleRootRow?.status).toBe("queued");
     expect((staleRootRow?.successCriteria as Record<string, unknown>).kind)
       .not.toBe("mission_manual_step");
+    const staleRootStarts = await db.select({ id: eventsTable.id }).from(eventsTable).where(and(
+      eq(eventsTable.goalId, staleRoot.body.id),
+      eq(eventsTable.type, "MissionGoalStartDispatched"),
+    ));
+    expect(staleRootStarts).toHaveLength(0);
 
     const unconfiguredRoot = await request(app)
       .post(`/api/ai/missions/${missionId}/goals`)

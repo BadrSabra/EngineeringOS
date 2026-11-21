@@ -24,7 +24,15 @@ function safeContextValue(value: string | undefined, maxLength: number): string 
     .slice(0, maxLength);
 }
 
-function graphGoalText(entity: GraphEntityContext): string {
+function graphGoalText(entity?: GraphEntityContext): string {
+  if (!entity) {
+    return [
+      'لا تظهر بيانات موثوقة في خريطة المعرفة لهذا المشروع.',
+      'تحقق من المشروع والسياق المتاح لتحديد السبب، واشرح بلغة بسيطة كيف يمكن الحصول على رسم مفيد واقترح خطوة آمنة.',
+      'لا تبدأ فحصًا ولا تغيّر ملفات المشروع قبل مراجعتي وموافقتي.',
+    ].join('\n\n');
+  }
+
   const name = safeContextValue(entity.name, 200) || 'العنصر المحدد';
   const type = safeContextValue(entity.type, 80) || 'غير محدد';
   const path = safeContextValue(entity.path, 300);
@@ -41,20 +49,31 @@ function graphGoalText(entity: GraphEntityContext): string {
 export default function GraphAssistantHandoff({
   entity,
   projectId,
+  emptyState = false,
 }: {
-  entity: GraphEntityContext;
+  entity?: GraphEntityContext;
   projectId: string;
+  emptyState?: boolean;
 }) {
   const { isLoaded, user } = useUser();
   const [, setLocation] = useLocation();
   const [saveError, setSaveError] = useState<string | null>(null);
 
-  if (!projectId || entity.projectId !== projectId || !isLoaded || !user?.id) return null;
+  if (
+    !projectId
+    || (!emptyState && (!entity || entity.projectId !== projectId))
+    || !isLoaded
+    || !user?.id
+  ) return null;
 
   const openAssistant = () => {
     const draft = storeHomeGoalDraft(graphGoalText(entity), user.id, projectId);
     if (!draft) {
-      setSaveError('تعذر حفظ سياق العنصر. لم نفتح المساعد حتى لا يضيع النص.');
+      setSaveError(
+        emptyState
+          ? 'تعذر حفظ مسودة طلب التفسير. لم نفتح المساعد حتى لا يضيع النص.'
+          : 'تعذر حفظ سياق العنصر. لم نفتح المساعد حتى لا يضيع النص.',
+      );
       return;
     }
 
@@ -72,17 +91,23 @@ export default function GraphAssistantHandoff({
         data-testid="text-graph-handoff-description"
         className="mb-2 text-xs leading-relaxed text-muted-foreground"
       >
-        افتح مساعد المشروع بمسودة تشرح هذا العنصر؛ راجعها قبل إرسالها.
+        {emptyState
+          ? 'اطلب من مساعد المشروع تفسير غياب بيانات الخريطة واقتراح خطوة تالية؛ راجع المسودة قبل إرسالها.'
+          : 'افتح مساعد المشروع بمسودة تشرح هذا العنصر؛ راجعها قبل إرسالها.'}
       </p>
       <button
         type="button"
         onClick={openAssistant}
         className="inline-flex items-center gap-2 rounded-md border border-primary/35 bg-primary/10 px-3 py-2 text-xs font-medium text-primary transition-colors hover:bg-primary/15 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
-        aria-label={`اسأل مساعد المشروع عن ${safeContextValue(entity.name, 120) || 'العنصر المحدد'}`}
-        data-testid={`button-graph-assistant-handoff-${entity.id}`}
+        aria-label={emptyState
+          ? 'اسأل مساعد المشروع عن خريطة المعرفة'
+          : `اسأل مساعد المشروع عن ${safeContextValue(entity?.name, 120) || 'العنصر المحدد'}`}
+        data-testid={emptyState
+          ? 'button-graph-empty-assistant-handoff'
+          : `button-graph-assistant-handoff-${entity?.id}`}
       >
         <Sparkles className="h-3.5 w-3.5" aria-hidden="true" />
-        اسأل مساعد المشروع عن هذا العنصر
+        {emptyState ? 'اسأل المساعد عن خريطة المعرفة' : 'اسأل مساعد المشروع عن هذا العنصر'}
       </button>
       {saveError && (
         <p className="mt-2 text-xs text-destructive" role="alert" data-testid="status-graph-handoff-error">
