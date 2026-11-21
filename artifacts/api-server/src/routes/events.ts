@@ -55,24 +55,25 @@ router.get("/events", async (req, res) => {
 
   const projectId =
     typeof req.query.projectId === "string" ? req.query.projectId : undefined;
-  let projectIds: string[];
+  const conditions: ReturnType<typeof eq>[] = [];
   if (projectId) {
     // Explicit project requests retain the existing 404/403 ownership semantics.
     const project = await loadProjectByIdForUser(projectId, req.userId, res);
     if (!project) return; // response already sent
-    projectIds = [project.id];
+    conditions.push(eq(eventsTable.projectId, project.id));
   } else {
-    // Resolve ownership first, then constrain the event query to those IDs.
-    // This avoids exposing events from projects owned by another user.
-    const ownedProjects = await db
-      .select({ id: projectsTable.id })
-      .from(projectsTable)
-      .where(eq(projectsTable.ownerId, req.userId));
-    projectIds = ownedProjects.map(({ id }) => id);
-     if (projectIds.length === 0) return res.json({ events: [], total: 0 });
+    // Keep ownership resolution inside the event query. This avoids a separate
+    // project-ID round trip and an unbounded ID array in application memory.
+    conditions.push(
+      inArray(
+        eventsTable.projectId,
+        db
+          .select({ id: projectsTable.id })
+          .from(projectsTable)
+          .where(eq(projectsTable.ownerId, req.userId)),
+      ),
+    );
   }
-
-  const conditions: ReturnType<typeof eq>[] = [inArray(eventsTable.projectId, projectIds)];
   if (typeFilter) conditions.push(eq(eventsTable.type, typeFilter));
   if (correlationIdFilter)
     conditions.push(eq(eventsTable.correlationId, correlationIdFilter));
