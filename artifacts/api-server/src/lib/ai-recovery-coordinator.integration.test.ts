@@ -471,9 +471,13 @@ describe("durable automatic task recovery", () => {
         disposition: aiExecutionAcceptancesTable.disposition,
       }).from(aiExecutionAcceptancesTable)
         .where(eq(aiExecutionAcceptancesTable.executionId, fixture.executionId));
-      const dependencyRetryAt = Date.parse(String(acceptance?.disposition?.dependencyRetryAt ?? ""));
+      const acceptanceDisposition = acceptance?.disposition
+        && typeof acceptance.disposition === "object"
+        ? acceptance.disposition as Record<string, unknown>
+        : {};
+      const dependencyRetryAt = Date.parse(String(acceptanceDisposition.dependencyRetryAt ?? ""));
       expect(dependencyRetryAt).toBeGreaterThan(Date.now());
-      expect(acceptance?.disposition).toMatchObject({
+      expect(acceptanceDisposition).toMatchObject({
         recoveryState: "REQUIRED",
         dependencyBlockerReasons: ["dependency_not_completed"],
       });
@@ -493,7 +497,7 @@ describe("durable automatic task recovery", () => {
       await db.update(aiExecutionAcceptancesTable)
         .set({
           disposition: {
-            ...acceptance!.disposition,
+            ...acceptanceDisposition,
             dependencyRetryAt: new Date(Date.now() - 1_000).toISOString(),
           },
         })
