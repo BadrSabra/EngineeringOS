@@ -654,7 +654,7 @@ describe('Workflows recovery rendering', () => {
     expect(deleteWorkflowMutation.mutate).not.toHaveBeenCalled();
   });
 
-  it('keeps Arabic creation copy separate from phase names, shell commands, and conditions sent to the API', () => {
+  it('starts with the goal-first template while preserving editable phase names, commands, and conditions', () => {
     vi.mocked(useListProjects).mockReturnValue({
       data: [{ id: 'project-1', name: 'المشروع' }],
     } as ReturnType<typeof useListProjects>);
@@ -663,9 +663,11 @@ describe('Workflows recovery rendering', () => {
     fireEvent.click(screen.getByRole('button', { name: 'مسار عمل جديد' }));
     const dialog = screen.getByRole('dialog', { name: 'إنشاء مسار عمل' });
     expect(dialog).toHaveAttribute('dir', 'rtl');
-    expect(within(dialog).getByLabelText('اسم المرحلة 1')).toHaveValue('build');
-    expect(within(dialog).getByLabelText('اسم المرحلة 2')).toHaveValue('test');
-    expect(within(dialog).getByLabelText('اسم المرحلة 3')).toHaveValue('deploy');
+    expect(within(dialog).getByLabelText('قالب البداية')).toHaveValue('goal');
+    expect(within(dialog).getByLabelText('اسم المسار')).toHaveValue('من الهدف إلى نتيجة قابلة للتحقق');
+    expect(within(dialog).getByLabelText('اسم المرحلة 1')).toHaveValue('حدد النتيجة');
+    expect(within(dialog).getByLabelText('اسم المرحلة 2')).toHaveValue('نفّذ العمل');
+    expect(within(dialog).getByLabelText('اسم المرحلة 3')).toHaveValue('تحقق من النتيجة');
 
     fireEvent.change(within(dialog).getByLabelText('المشروع'), { target: { value: 'project-1' } });
     fireEvent.change(within(dialog).getByLabelText('اسم المسار'), { target: { value: 'Release pipeline' } });
@@ -686,9 +688,9 @@ describe('Workflows recovery rendering', () => {
           name: 'Release pipeline',
           description: 'A staged release.',
           phases: [
-            { name: 'build', steps: ['pnpm run build'], condition: 'qualityScore >= 80' },
-            { name: 'test', steps: [] },
-            { name: 'deploy', steps: [] },
+            { name: 'حدد النتيجة', steps: ['pnpm run build'], condition: 'qualityScore >= 80' },
+            { name: 'نفّذ العمل', steps: [] },
+            { name: 'تحقق من النتيجة', steps: [] },
           ],
         },
       },
@@ -696,14 +698,12 @@ describe('Workflows recovery rendering', () => {
     );
   });
 
-  it('fills an editable workflow starter without starting it', () => {
+  it('creates from the goal-first starter without choosing a template or starting it', () => {
     renderPage();
 
     fireEvent.click(screen.getByRole('button', { name: 'مسار عمل جديد' }));
     const dialog = screen.getByRole('dialog', { name: 'إنشاء مسار عمل' });
-    fireEvent.change(within(dialog).getByLabelText('قالب بداية (اختياري)'), {
-      target: { value: 'goal' },
-    });
+    expect(within(dialog).getByLabelText('قالب البداية')).toHaveValue('goal');
     expect(within(dialog).getByLabelText('اسم المسار')).toHaveValue('من الهدف إلى نتيجة قابلة للتحقق');
     expect(within(dialog).getByLabelText('اسم المرحلة 1')).toHaveValue('حدد النتيجة');
     expect(within(dialog).getByLabelText('اسم المرحلة 2')).toHaveValue('نفّذ العمل');

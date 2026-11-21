@@ -113,6 +113,8 @@ const WORKFLOW_STARTERS: WorkflowStarter[] = [
   },
 ];
 
+const DEFAULT_WORKFLOW_STARTER = WORKFLOW_STARTERS[0]!;
+
 function CreateWorkflowModal({
   onClose,
   initialProjectId,
@@ -129,20 +131,16 @@ function CreateWorkflowModal({
   const createWorkflow = useCreateWorkflow();
 
   const [projectId, setProjectId] = useState(initialWorkflow?.projectId ?? initialProjectId);
-  const [name, setName] = useState(initialWorkflow ? `نسخة من ${initialWorkflow.name}` : '');
-  const [description, setDescription] = useState(initialWorkflow?.description ?? '');
-  const [starterId, setStarterId] = useState('');
+  const [name, setName] = useState(initialWorkflow ? `نسخة من ${initialWorkflow.name}` : DEFAULT_WORKFLOW_STARTER.name);
+  const [description, setDescription] = useState(initialWorkflow?.description ?? DEFAULT_WORKFLOW_STARTER.description);
+  const [starterId, setStarterId] = useState(initialWorkflow ? '' : DEFAULT_WORKFLOW_STARTER.id);
   const [phases, setPhases] = useState<PhaseInput[]>(() => initialWorkflow
     ? (initialWorkflow.phases ?? []).map((phase) => ({
       name: phase.name,
       steps: [...phase.steps],
       ...(phase.condition ? { condition: phase.condition } : {}),
     }))
-    : [
-      { name: 'build', steps: [] },
-      { name: 'test', steps: [] },
-      { name: 'deploy', steps: [] },
-    ]);
+    : DEFAULT_WORKFLOW_STARTER.phases.map((phase) => ({ ...phase, steps: [...phase.steps] })));
 
   const chooseStarter = (id: string) => {
     setStarterId(id);
@@ -236,7 +234,7 @@ function CreateWorkflowModal({
         <div className="space-y-3">
           <div>
             <label htmlFor="workflow-starter" className="text-xs font-medium text-muted-foreground block mb-1">
-              قالب بداية (اختياري)
+              قالب البداية
             </label>
             <select
               id="workflow-starter"
