@@ -507,7 +507,7 @@ describe("DB-backed automatic Mission replan evidence boundary", () => {
     });
     expect(persistedPlanGoals.length).toBeGreaterThan(0);
     expect(persistedPlanGoals.every((goal) =>
-      ["queued", "running", "waiting_for_event"].includes(goal.status),
+      ["queued", "running", "waiting_for_event", "waiting_for_approval"].includes(goal.status),
     )).toBe(true);
 
     // The durable wake dispatcher can now rediscover these exact rows without
