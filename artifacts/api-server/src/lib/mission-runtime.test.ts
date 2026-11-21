@@ -42,6 +42,7 @@ import { taskScopeIdentity } from "./agent-state/observation-materializer.js";
 import { buildExecutionProofProjection } from "./execution-proof.js";
 import { heavyJobQueue } from "./job-queue.js";
 import * as missionRuntimeModule from "./mission-runtime.js";
+import * as missionReplanOutboxModule from "./mission-replan-outbox.js";
 import { dispatchPendingMissionEventWakes } from "./mission-event-wake-outbox.js";
 import {
   MISSION_REPLAN_REQUESTED,
@@ -1017,6 +1018,61 @@ describe("Mission goal runtime", () => {
       goalId: fixture.goalId,
       reasonCode: "dependency_failed",
       sourcePlanRevision: planRevision,
+    });
+    expect(intent?.payload).not.toHaveProperty("executionId");
+    expect(intent?.payload).not.toHaveProperty("acceptanceId");
+  });
+
+  it("routes runMissionGoal dependency failures through the durable Mission replan Outbox", async () => {
+    const fixture = await createDependencyProofFixture();
+    await db.update(aiGoalsTable)
+      .set({ status: "failed" })
+      .where(eq(aiGoalsTable.id, fixture.sourceGoalId));
+
+    const intentId = missionReplanAdmissionIntentId({
+      missionId: fixture.missionId,
+      projectId: fixture.projectId,
+      goalId: fixture.goalId,
+      reasonCode: "dependency_failed",
+      planRevision: fixture.planRevision,
+    });
+    const dispatch = vi.spyOn(missionReplanOutboxModule, "dispatchMissionReplanIntent")
+      .mockResolvedValue(false);
+
+    await expect(runMissionGoal({
+      goalId: fixture.goalId,
+      userId: "test-user",
+      trigger: "resume",
+    })).resolves.toMatchObject({
+      status: "blocked",
+      goalId: fixture.goalId,
+      reason: "dependency_failed",
+    });
+
+    expect(dispatch).toHaveBeenCalledWith(intentId);
+    const [goal] = await db.select({
+      status: aiGoalsTable.status,
+      blockedReason: aiGoalsTable.blockedReason,
+    }).from(aiGoalsTable).where(eq(aiGoalsTable.id, fixture.goalId));
+    const [mission] = await db.select({
+      status: aiMissionsTable.status,
+    }).from(aiMissionsTable).where(eq(aiMissionsTable.id, fixture.missionId));
+    const [intent] = await db.select({
+      type: eventsTable.type,
+      payload: eventsTable.payload,
+    }).from(eventsTable).where(eq(eventsTable.id, intentId));
+
+    expect(goal).toEqual({ status: "needs_replan", blockedReason: "dependency_failed" });
+    expect(mission?.status).toBe("needs_replan");
+    expect(intent?.type).toBe(MISSION_REPLAN_REQUESTED);
+    expect(intent?.payload).toMatchObject({
+      source: "goal_admission",
+      missionId: fixture.missionId,
+      projectId: fixture.projectId,
+      goalId: fixture.goalId,
+      reasonCode: "dependency_failed",
+      dependencyStatus: "failed",
+      sourcePlanRevision: fixture.planRevision,
     });
     expect(intent?.payload).not.toHaveProperty("executionId");
     expect(intent?.payload).not.toHaveProperty("acceptanceId");
