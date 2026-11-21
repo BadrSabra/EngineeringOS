@@ -21,6 +21,7 @@ export function isSamePlanTaskRecoveryPending(input: {
   recoveryState: unknown;
   nextActionCode: unknown;
   resumable: unknown;
+  retryAt: unknown;
   taskStatus: unknown;
   prompt: unknown;
   retryCount: unknown;
@@ -34,6 +35,10 @@ export function isSamePlanTaskRecoveryPending(input: {
     && typeof input.nextActionCode === "string"
     && (TASK_RECOVERY_ACTION_CODES as readonly string[]).includes(input.nextActionCode)
     && (input.nextActionCode === "RESUME_ALLOWED" ? input.resumable === 1 : input.resumable === 0)
+    && (
+      input.nextActionCode !== "RETRY_AFTER_RATE_LIMIT"
+      || (typeof input.retryAt === "string" && Number.isFinite(Date.parse(input.retryAt)))
+    )
     && typeof input.taskStatus === "string"
     && (TASK_RECOVERY_TASK_STATUSES as readonly string[]).includes(input.taskStatus)
     && typeof input.prompt === "string"
