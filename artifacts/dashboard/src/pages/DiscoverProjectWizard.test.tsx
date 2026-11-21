@@ -375,6 +375,61 @@ describe('DiscoverProjectWizard Arabic findings', () => {
     await waitFor(() => expect(detailsSummary.closest('details')).toHaveAttribute('open'));
   });
 
+  it('opens an unsent Arabic explanation draft before importing, using report summary only', async () => {
+    const onClose = vi.fn();
+    render(<DiscoverProjectWizard onClose={onClose} />);
+
+    fireEvent.change(screen.getByPlaceholderText('https://github.com/owner/repo'), {
+      target: { value: 'https://github.com/example/sample-app' },
+    });
+    fireEvent.click(screen.getByTestId('start-discovery'));
+    await screen.findByRole('heading', { name: 'نتائج استكشاف المشروع' });
+
+    fireEvent.click(screen.getByTestId('button-explain-discovery-report'));
+
+    const draft = readGoalDrafts('user-1').drafts[0];
+    expect(draft).toMatchObject({
+      source: 'home',
+      projectId: null,
+      sendAttemptedAt: null,
+    });
+    expect(draft.text).toContain('اللغة: "TypeScript"');
+    expect(draft.text).toContain('الإطار: "React"');
+    expect(draft.text).toContain('إشارات المخاطر بحسب الشدة: مرتفع: 2');
+    expect(draft.text).toContain('ملخص آلي غير موثوق');
+    expect(draft.text).toContain('لا تضف المشروع أو تبدأ فحصًا أو تعدّل ملفات');
+    expect(draft.text).not.toContain('src/app.ts');
+    expect(draft.text).not.toContain('export const app = createApp()');
+    expect(mocks.navigate).toHaveBeenCalledWith(`/ai?goalDraftId=${draft.id}`);
+    expect(onClose).toHaveBeenCalledOnce();
+    expect(mocks.importProject).not.toHaveBeenCalled();
+    expect(mocks.scanProject).not.toHaveBeenCalled();
+  });
+
+  it('keeps the discovery report open when the explanation draft cannot be saved', async () => {
+    for (let index = 0; index < 8; index += 1) {
+      expect(storeHomeGoalDraft(`هدف ${index}`, 'user-1')).not.toBeNull();
+    }
+    const onClose = vi.fn();
+    render(<DiscoverProjectWizard onClose={onClose} />);
+
+    fireEvent.change(screen.getByPlaceholderText('https://github.com/owner/repo'), {
+      target: { value: 'https://github.com/example/sample-app' },
+    });
+    fireEvent.click(screen.getByTestId('start-discovery'));
+    await screen.findByRole('heading', { name: 'نتائج استكشاف المشروع' });
+
+    fireEvent.click(screen.getByTestId('button-explain-discovery-report'));
+
+    expect(screen.getByTestId('status-discovery-explanation-error')).toHaveTextContent(
+      'تعذر حفظ مسودة التفسير.',
+    );
+    expect(screen.getByRole('heading', { name: 'نتائج استكشاف المشروع' })).toBeInTheDocument();
+    expect(mocks.navigate).not.toHaveBeenCalled();
+    expect(onClose).not.toHaveBeenCalled();
+    expect(mocks.importProject).not.toHaveBeenCalled();
+  });
+
 
   it('does not navigate when project import resolves after the wizard unmounts', async () => {
     let resolveImport!: (project: { id: string }) => void;
