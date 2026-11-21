@@ -733,13 +733,16 @@ router.get("/projects/:projectId/summary", requireProjectAccess, async (req, res
       .select()
       .from(eventsTable)
       .where(eq(eventsTable.projectId, projectId))
-      .orderBy(desc(eventsTable.timestamp))
+      // Timestamp collisions are valid; the ID makes the recent-event slice stable.
+      .orderBy(desc(eventsTable.timestamp), desc(eventsTable.id))
       .limit(10),
     db
       .select()
       .from(metricsTable)
       .where(eq(metricsTable.projectId, projectId))
-      .orderBy(desc(metricsTable.timestamp))
+      // Multiple scans may finish in the same millisecond; choose one
+      // deterministic latest snapshot when their timestamps are equal.
+      .orderBy(desc(metricsTable.timestamp), desc(metricsTable.id))
       .limit(1),
   ]);
 
