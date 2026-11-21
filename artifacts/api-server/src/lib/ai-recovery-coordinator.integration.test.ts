@@ -440,7 +440,7 @@ describe("durable automatic task recovery", () => {
         "ai-recovery:" + fixture.taskId + ":" + fixture.executionId + ":0:retry:0",
       );
     } finally {
-      // afterEach removes every fixture owned by this recovery test user.
+      await cleanupRecoveryFixtures();
     }
   });
 
@@ -526,7 +526,7 @@ describe("durable automatic task recovery", () => {
         "ai-recovery:chat:" + fixture.executionId + ":0:resume",
       );
     } finally {
-      // afterEach removes every fixture owned by this recovery test user.
+      await cleanupRecoveryFixtures();
     }
   });
 
