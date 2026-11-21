@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
-import { useRoute } from 'wouter';
+import { useUser } from '@clerk/react';
+import { useLocation, useRoute } from 'wouter';
 import GitPanel from '@/components/GitPanel';
 import {
   useGetProject,
@@ -32,6 +33,7 @@ import {
   GitMerge,
   X,
   ExternalLink,
+  Sparkles,
 } from 'lucide-react';
 import { Link } from 'wouter';
 import { RefreshButton, RequestError } from '@/components/OperatorResilience';
@@ -42,6 +44,7 @@ import ProjectAiBudgetPanel from '@/components/ProjectAiBudgetPanel';
 import ProjectPluginsPanel from '@/components/ProjectPluginsPanel';
 import BrowserValidationProfilesPanel from '@/components/BrowserValidationProfilesPanel';
 import { formatProjectTimestamp, projectStatusLabel } from '@/lib/project-detail-copy';
+import { storeHomeGoalDraft } from '@/lib/home-goal-handoff';
 
 export default function ProjectDetail() {
   const [, params] = useRoute('/projects/:id');
@@ -54,6 +57,8 @@ export default function ProjectDetail() {
 
 function ProjectDetailSession({ projectId }: { projectId: string }) {
   const queryClient = useQueryClient();
+  const { isLoaded, user } = useUser();
+  const [, setLocation] = useLocation();
 
   const projectQuery = useGetProject(projectId, {
     query: {
@@ -69,6 +74,24 @@ function ProjectDetailSession({ projectId }: { projectId: string }) {
   const project = useMonotonicData(rawProject, rawProject?.updatedAt);
   const updateProject = useUpdateProject();
   const [strategyReplayOptInError, setStrategyReplayOptInError] = useState<string | null>(null);
+  const [assistantHandoffError, setAssistantHandoffError] = useState<string | null>(null);
+
+  const openProjectAssistant = () => {
+    if (!isLoaded || !user?.id || !projectId) return;
+    const draft = storeHomeGoalDraft(
+      'أريد العمل على هذا المشروع. اسألني أولًا عما أريد إنجازه، ثم ساعدني على تحديد خطوة مناسبة. لا تغيّر الملفات أو تبدأ أي عمل قبل أن أراجع المقترح وأوافق.',
+      user.id,
+      projectId,
+    );
+    if (!draft) {
+      setAssistantHandoffError('تعذر حفظ مسودة طلب المساعدة. بقيت في صفحة المشروع ولم نغيّر شيئًا.');
+      return;
+    }
+    setAssistantHandoffError(null);
+    setLocation(
+      `/projects/${encodeURIComponent(projectId)}/workspace?goalDraftId=${encodeURIComponent(draft.id)}#workspace-panel-agent`,
+    );
+  };
 
   const setStrategyReplayOptIn = (nextValue: boolean) => {
     setStrategyReplayOptInError(null);
@@ -275,7 +298,7 @@ function ProjectDetailSession({ projectId }: { projectId: string }) {
             </span>
           </div>
         </div>
-        <div className="flex items-center gap-3">
+        <div className="flex flex-wrap items-center gap-2 sm:justify-end">
           <Link
             href={`/projects/${encodeURIComponent(projectId)}/workspace`}
             data-testid="link-project-workspace"
@@ -284,6 +307,18 @@ function ProjectDetailSession({ projectId }: { projectId: string }) {
             <Activity className="h-4 w-4" aria-hidden="true" />
             مساحة العمل
           </Link>
+          <button
+            type="button"
+            onClick={openProjectAssistant}
+            disabled={!isLoaded || !user?.id}
+            data-testid="button-project-assistant"
+            aria-label={`اسأل مساعد المشروع ${project.name}`}
+            title="ستراجع المسودة قبل إرسالها"
+            className="inline-flex items-center gap-2 rounded-md border border-primary/35 bg-primary/10 px-3 py-2 text-sm font-medium text-primary transition-colors hover:bg-primary/15 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary disabled:cursor-wait disabled:opacity-50"
+          >
+            <Sparkles className="h-4 w-4" aria-hidden="true" />
+            اسأل المساعد
+          </button>
           <RefreshButton onRefresh={async () => { await Promise.all([refetchProject(), refetchSummary()]); }} isRefreshing={projectRefreshing || summaryFetching} lastUpdated={compositeLastUpdatedAt} label="تحديث المشروع" />
           <button
             onClick={() => setShowProjectInfo((v) => !v)}
@@ -308,6 +343,11 @@ function ProjectDetailSession({ projectId }: { projectId: string }) {
               </>
             )}
           </button>
+          {assistantHandoffError && (
+            <p role="alert" data-testid="text-project-assistant-error" className="basis-full text-xs text-destructive">
+              {assistantHandoffError}
+            </p>
+          )}
         </div>
       </div>
 
