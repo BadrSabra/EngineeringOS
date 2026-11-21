@@ -90,6 +90,9 @@ export function isSamePlanTaskRecoveryPending(input: {
   nextActionCode: unknown;
   resumable: unknown;
   retryAt?: unknown;
+  failureKind?: unknown;
+  retryAfterSource?: unknown;
+  rateLimitScope?: unknown;
   taskStatus: unknown;
   prompt: unknown;
   retryCount: unknown;
@@ -212,7 +215,6 @@ export function decideTaskContinuation(input: {
     && typeof task.taskCorrelationId === "string"
     && task.taskCorrelationId.length > 0
     && input.execution.correlationId === task.taskCorrelationId
-    && ["pending", "queued", "verifying"].includes(task.taskStatus)
   ) {
     return { kind: "continue", via: "active_execution" };
   }

@@ -68,6 +68,26 @@ describe("shared Task continuation contract", () => {
     })).toBe(false);
   });
 
+  it("rejects provider-quota retries that require an operator action", () => {
+    expect(isSamePlanTaskRecoveryPending({
+      outcome: "FAILED",
+      recoveryState: "REQUIRED",
+      nextActionCode: "RETRY_AFTER_RATE_LIMIT",
+      resumable: 0,
+      retryAt: "2999-01-01T00:00:00.000Z",
+      failureKind: "QUOTA_EXHAUSTED",
+      retryAfterSource: "provider",
+      rateLimitScope: "provider",
+      taskStatus: baseTask.taskStatus,
+      prompt: baseTask.prompt,
+      retryCount: baseTask.retryCount,
+      maxRetries: baseTask.maxRetries,
+      executionStatus: "failed",
+      taskCorrelationId: baseTask.taskCorrelationId,
+      executionCorrelationId: baseTask.taskCorrelationId,
+    })).toBe(false);
+  });
+
   it("prioritizes a running Task, its active execution, or accepted recovery over replanning", () => {
     expect(decideTaskContinuation({
       task: { ...baseTask, taskStatus: "running" },
@@ -75,6 +95,11 @@ describe("shared Task continuation contract", () => {
 
     expect(decideTaskContinuation({
       task: baseTask,
+      execution: { status: "running", correlationId: "generation-1" },
+    })).toEqual({ kind: "continue", via: "active_execution" });
+
+    expect(decideTaskContinuation({
+      task: { ...baseTask, taskStatus: "failed" },
       execution: { status: "running", correlationId: "generation-1" },
     })).toEqual({ kind: "continue", via: "active_execution" });
 

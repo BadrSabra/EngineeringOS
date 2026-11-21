@@ -542,8 +542,21 @@ describe("server-owned execution acceptance", () => {
         nextActionCode,
         resumable: nextActionCode === "RESUME_ALLOWED" ? 1 : 0,
         retryAt: nextActionCode === "RETRY_AFTER_RATE_LIMIT" ? "2026-11-21T04:00:00.000Z" : undefined,
+        retryAfterSource: nextActionCode === "RETRY_AFTER_RATE_LIMIT" ? "project_rate_limit" : undefined,
+        rateLimitScope: nextActionCode === "RETRY_AFTER_RATE_LIMIT" ? "project" : undefined,
       })).toBe(true);
     }
+    expect(isSamePlanTaskRecoveryPending({
+      ...eligible,
+      outcome: "FAILED",
+      recoveryState: "REQUIRED",
+      nextActionCode: "RETRY_AFTER_RATE_LIMIT",
+      resumable: 0,
+      retryAt: "2026-11-21T04:00:00.000Z",
+      failureKind: "QUOTA_EXCEEDED",
+      retryAfterSource: "provider",
+      rateLimitScope: "provider",
+    })).toBe(false);
     expect(isSamePlanTaskRecoveryPending({
       ...eligible,
       outcome: "FAILED",

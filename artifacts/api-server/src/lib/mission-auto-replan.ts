@@ -681,6 +681,9 @@ async function hasPendingTaskContinuationForGoal(
             nextActionCode: row.acceptanceNextActionCode,
             resumable: row.acceptanceResumable,
             retryAt: jsonRecord(row.acceptanceDisposition).retryAt,
+            failureKind: jsonRecord(row.acceptanceDisposition).failureKind,
+            retryAfterSource: jsonRecord(row.acceptanceDisposition).retryAfterSource,
+            rateLimitScope: jsonRecord(row.acceptanceDisposition).rateLimitScope,
           },
         }
       : {}),
