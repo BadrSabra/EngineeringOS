@@ -40,7 +40,12 @@ const mocks = vi.hoisted(() => ({
     relationshipCount: 1,
     clusterCount: 1,
     isolatedCount: 0,
-    topConnected: [],
+    topConnected: [] as Array<{
+      entityId: string;
+      entityName: string;
+      entityType: string;
+      totalDegree: number;
+    }>,
   },
   mutate: vi.fn(),
   refetchProject: vi.fn(),
@@ -149,6 +154,7 @@ describe('ProjectDetail Arabic presentation', () => {
     mocks.summaryUpdatedAt = Date.parse('2026-10-13T12:00:00.000Z');
     mocks.summary.recentEvents = [];
     mocks.summary.taskCounts.failed = 0;
+    mocks.graphSummary.topConnected = [];
     mocks.failedTasks = [];
     mocks.projectIsRefetching = false;
     mocks.projectUpdatedAt = Date.parse('2026-10-14T12:00:00.000Z');
@@ -172,6 +178,23 @@ describe('ProjectDetail Arabic presentation', () => {
 
     expect(screen.getByRole('link', { name: 'استكشف خريطة المشروع: مشروع تجريبي' }))
       .toHaveAttribute('href', '/graph?projectId=project-1');
+  });
+
+  it('opens a connected entity in the graph with the project and search preserved', () => {
+    mocks.graphSummary.topConnected = [{
+      entityId: 'entity/auth',
+      entityName: 'src/auth.ts',
+      entityType: 'file',
+      totalDegree: 7,
+    }];
+
+    render(<ProjectDetail />);
+
+    expect(screen.getByRole('link', { name: 'ابحث عن src/auth.ts في خريطة المشروع' }))
+      .toHaveAttribute(
+        'href',
+        '/graph?projectId=project-1&search=src%2Fauth.ts',
+      );
   });
 
   it('keeps Strategy Replay opt-in off by default, explains its limits, and preserves the mutation value', () => {
