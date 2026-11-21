@@ -1876,6 +1876,61 @@ describe("openrouterCompleteWithFallback — transient free-model failover", () 
     expect(attemptedModels).toEqual([firstModel, firstModel, secondModel]);
     expect(attemptedModels.every((model) => model.endsWith(":free"))).toBe(true);
   });
+
+  it("extends the default free-model chain after consecutive model-availability failures", async () => {
+    const firstModel = FREE_MODELS.find((model) => model.capabilities.includes("chat"))!.id;
+    const expectedChain = buildFallbackChainFromId(firstModel, undefined, {
+      capability: "chat",
+    });
+    expect(expectedChain.length).toBeGreaterThan(2);
+    const attemptedModels: string[] = [];
+
+    global.fetch = vi.fn(async (_url: string | URL, init?: RequestInit) => {
+      const body = JSON.parse(String(init?.body ?? "{}")) as { model?: string };
+      const model = body.model ?? "";
+      attemptedModels.push(model);
+      if (attemptedModels.length === 1) {
+        return fetchResponse(404, { error: { code: "model_not_found" } });
+      }
+      if (attemptedModels.length === 2) {
+        return fetchResponse(422, { error: { code: "model_unavailable" } });
+      }
+      return fetchResponse(200, {
+        choices: [{ message: { content: "recovered on third free model" } }],
+        model,
+        usage: { prompt_tokens: 1, completion_tokens: 1 },
+      });
+    }) as typeof fetch;
+
+    const result = await openrouterCompleteWithFallback(
+      [{ role: "user", content: "hello" }],
+      { apiKey: "fixture-key", model: firstModel, capability: "chat" },
+    );
+
+    expect(result.content).toBe("recovered on third free model");
+    expect(attemptedModels).toEqual(expectedChain.slice(0, 3));
+    expect(attemptedModels.every((model) =>
+      FREE_MODELS.some((candidate) => candidate.id === model && candidate.free),
+    )).toBe(true);
+  });
+
+  it("does not extend the free-model chain after an account quota error", async () => {
+    const firstModel = FREE_MODELS.find((model) => model.capabilities.includes("chat"))!.id;
+    const attemptedModels: string[] = [];
+
+    global.fetch = vi.fn(async (_url: string | URL, init?: RequestInit) => {
+      const body = JSON.parse(String(init?.body ?? "{}")) as { model?: string };
+      attemptedModels.push(body.model ?? "");
+      return fetchResponse(429, { error: { message: "insufficient credits; account quota exhausted" } });
+    }) as typeof fetch;
+
+    await expect(openrouterCompleteWithFallback(
+      [{ role: "user", content: "hello" }],
+      { apiKey: "fixture-key", model: firstModel, capability: "chat" },
+    )).rejects.toMatchObject({ code: "QUOTA" });
+
+    expect(attemptedModels).toEqual([firstModel]);
+  });
 });
 
 // ── Server-directed backoff for OpenRouter 503 responses ──────────────────────
@@ -2278,6 +2333,44 @@ describe("openrouterCompleteStream — bounded retry and disconnect safety", () 
     );
     expect(attemptedModels[0]).not.toBe(attemptedModels[1]);
     expect(attemptedModels.every((model: string) => model.endsWith(":free"))).toBe(true);
+  });
+
+  it("extends streaming fallback after model-specific unavailability before emitting content", async () => {
+    const firstModel = FREE_MODELS.find((model) =>
+      model.capabilities.includes("chat") && model.supportsStreaming !== false,
+    )!.id;
+    const expectedChain = buildFallbackChainFromId(firstModel, undefined, {
+      capability: "chat",
+    });
+    expect(expectedChain.length).toBeGreaterThan(2);
+    const attemptedModels: string[] = [];
+
+    global.fetch = vi.fn(async (_url: string | URL, init?: RequestInit) => {
+      const body = JSON.parse(String(init?.body ?? "{}")) as { model?: string };
+      const model = body.model ?? "";
+      attemptedModels.push(model);
+      if (attemptedModels.length === 1) {
+        return fetchResponse(422, { error: { code: "model_unavailable" } });
+      }
+      if (attemptedModels.length === 2) {
+        return fetchResponse(404, { error: { code: "model_not_found" } });
+      }
+      return streamResponse([sseDelta("stream recovered"), "data: [DONE]\n\n"]);
+    }) as typeof fetch;
+
+    const chunks: string[] = [];
+    for await (const chunk of openrouterCompleteStream(
+      [{ role: "user", content: "hello" }],
+      { apiKey: "fixture-key", model: firstModel, capability: "chat" },
+    )) {
+      chunks.push(chunk);
+    }
+
+    expect(chunks.join("")).toBe("stream recovered");
+    expect(attemptedModels).toEqual(expectedChain.slice(0, 3));
+    expect(attemptedModels.every((model) =>
+      FREE_MODELS.some((candidate) => candidate.id === model && candidate.free),
+    )).toBe(true);
   });
 
   it("terminalizes a disconnect after the first chunk without retrying or duplicating text", async () => {
