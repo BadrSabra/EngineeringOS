@@ -253,6 +253,96 @@ describe("reconcileStuckJobs", () => {
     }
   });
 
+
+  it("keeps a cancelling AI execution with a live lease under its current worker", async () => {
+    const projectId = await insertProject("active");
+    projectCleanup.push(projectId);
+    const executionId = randomUUID();
+    const workerId = `cancelling-live-worker:${randomUUID()}`;
+    const now = new Date();
+    const liveLease = new Date(now.getTime() + 60_000);
+
+    await db.insert(aiExecutionsTable).values({
+      id: executionId,
+      projectId,
+      userId: "test-user",
+      idempotencyKey: `${executionId}:cancelling-live-lease`,
+      correlationId: executionId,
+      attempt: 0,
+      resumeTokenHash: "d".repeat(64),
+      request: JSON.stringify({
+        projectId,
+        message: "Do not finalize cancellation before the worker stops.",
+        modelMessage: "Do not finalize cancellation before the worker stops.",
+        validationTargetPaths: [],
+        proofRequired: false,
+      }),
+      checkpoint: "{}",
+      status: "cancelling",
+      workerId,
+      leaseUntil: liveLease,
+      lastHeartbeatAt: now,
+      cancelRequestedAt: now,
+      startedAt: now,
+      createdAt: now,
+      updatedAt: now,
+    });
+
+    try {
+      expect(await reconcileAiExecutions()).toBe(0);
+      const startup = await reconcileStuckJobs();
+      expect(startup.aiExecutions).toBe(0);
+
+      const [stillOwned] = await db.select({
+        status: aiExecutionsTable.status,
+        workerId: aiExecutionsTable.workerId,
+        leaseUntil: aiExecutionsTable.leaseUntil,
+        cancelRequestedAt: aiExecutionsTable.cancelRequestedAt,
+      }).from(aiExecutionsTable)
+        .where(eq(aiExecutionsTable.id, executionId))
+        .limit(1);
+      expect(stillOwned).toEqual({
+        status: "cancelling",
+        workerId,
+        leaseUntil: liveLease,
+        cancelRequestedAt: now,
+      });
+      const liveAcceptances = await db.select({ id: aiExecutionAcceptancesTable.id })
+        .from(aiExecutionAcceptancesTable)
+        .where(eq(aiExecutionAcceptancesTable.executionId, executionId));
+      expect(liveAcceptances).toHaveLength(0);
+
+      // Once the owner lease is actually gone, the durable reconciler may
+      // safely take over and persist the cancellation acceptance.
+      await db.update(aiExecutionsTable)
+        .set({ leaseUntil: new Date(Date.now() - 1_000) })
+        .where(eq(aiExecutionsTable.id, executionId));
+      expect(await reconcileAiExecutions()).toBe(1);
+
+      const [cancelled] = await db.select({
+        status: aiExecutionsTable.status,
+      }).from(aiExecutionsTable)
+        .where(eq(aiExecutionsTable.id, executionId))
+        .limit(1);
+      expect(cancelled?.status).toBe("cancelled");
+      const acceptances = await db.select({
+        terminalStatus: aiExecutionAcceptancesTable.terminalStatus,
+        outcome: aiExecutionAcceptancesTable.outcome,
+        reasonCode: aiExecutionAcceptancesTable.reasonCode,
+      }).from(aiExecutionAcceptancesTable)
+        .where(eq(aiExecutionAcceptancesTable.executionId, executionId));
+      expect(acceptances).toMatchObject([{
+        terminalStatus: "cancelled",
+        outcome: "INTERRUPTED",
+        reasonCode: "EXECUTION_CANCELLED",
+      }]);
+    } finally {
+      await db.delete(aiExecutionAcceptancesTable)
+        .where(eq(aiExecutionAcceptancesTable.executionId, executionId));
+      await db.delete(aiExecutionsTable).where(eq(aiExecutionsTable.id, executionId));
+    }
+  });
+
   // ── Scan jobs: running → failed ─────────────────────────────────────────────
 
   it("marks running scan jobs as failed and resets the project to active", async () => {
