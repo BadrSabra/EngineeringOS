@@ -10,10 +10,12 @@ import {
 } from "@workspace/db";
 import { createMissionEventEnvelope } from "./mission-events.js";
 import * as missionRuntimeModule from "./mission-runtime.js";
+import * as missionAutoReplanModule from "./mission-auto-replan.js";
 import {
   claimMissionEventWakeDispatchLease,
   dispatchMissionEventWakeIntent,
   dispatchPendingMissionEventWakes,
+  insertMissionEventWakeIntent,
   MISSION_EVENT_WAKE_DEFERRED,
   MISSION_EVENT_WAKE_DISPATCHED,
   MISSION_EVENT_WAKE_REQUESTED,
@@ -30,7 +32,7 @@ vi.mock("./mission-auto-replan.js", () => ({
 
 const projectIds: string[] = [];
 
-async function createWakeFixture() {
+async function createWakeFixture(options: { includeInbox?: boolean } = {}) {
   const projectId = "mission-event-wake-lease-" + randomUUID();
   const missionId = randomUUID();
   const goalId = randomUUID();
@@ -71,61 +73,67 @@ async function createWakeFixture() {
     updatedAt: now,
   });
 
-  const event = createMissionEventEnvelope({
-    eventId,
-    type: "ExternalValidationCompleted",
-    projectId,
-    goalId,
-    payload: { validationId: "lease-regression" },
-  });
-  await db.insert(eventsTable).values({
-    id: eventId,
-    type: MISSION_EXTERNAL_EVENT_TYPE,
-    projectId,
-    goalId,
-    severity: "info",
-    message: "External event received",
-    timestamp: now,
-    payload: { missionEvent: event, processedAt: null },
-  });
-  // Mark this Goal's wait generation as already backfilled so this fixture
-  // exercises only the event_received intent under test.
-  await db.insert(eventsTable).values({
-    id: "mission-event-wait-marker:" + randomUUID(),
-    type: MISSION_EVENT_WAKE_DISPATCHED,
-    projectId,
-    goalId,
-    severity: "info",
-    message: "Wait generation already backfilled",
-    timestamp: now,
-    payload: {
-      schemaVersion: 1,
-      source: "goal_entered_event_wait",
-      goalId,
-      attemptCount: 0,
-      nextAttemptAt: now.toISOString(),
-      requestedAt: now.toISOString(),
-      dispatchedAt: now.toISOString(),
-    },
-  });
-  await db.insert(eventsTable).values({
-    id: intentId,
-    type: MISSION_EVENT_WAKE_REQUESTED,
-    projectId,
-    goalId,
-    severity: "info",
-    message: "External event requested a Goal wake",
-    timestamp: now,
-    payload: {
-      schemaVersion: 1,
-      source: "event_received",
-      goalId,
-      eventId,
-      attemptCount: 0,
-      nextAttemptAt: now.toISOString(),
-      requestedAt: now.toISOString(),
-    },
-  });
+  if (options.includeInbox !== false) {
+    if (options.includeInbox !== false) {
+    const event = createMissionEventEnvelope({
+        eventId,
+        type: "ExternalValidationCompleted",
+        projectId,
+        goalId,
+        payload: { validationId: "lease-regression" },
+      });
+      await db.insert(eventsTable).values({
+        id: eventId,
+        type: MISSION_EXTERNAL_EVENT_TYPE,
+        projectId,
+        goalId,
+        severity: "info",
+        message: "External event received",
+        timestamp: now,
+        payload: { missionEvent: event, processedAt: null },
+      });
+      // Mark this Goal's wait generation as already backfilled so this fixture
+      // exercises only the event_received intent under test.
+      await db.insert(eventsTable).values({
+        id: "mission-event-wait-marker:" + randomUUID(),
+        type: MISSION_EVENT_WAKE_DISPATCHED,
+        projectId,
+        goalId,
+        severity: "info",
+        message: "Wait generation already backfilled",
+        timestamp: now,
+        payload: {
+          schemaVersion: 1,
+          source: "goal_entered_event_wait",
+          goalId,
+          attemptCount: 0,
+          nextAttemptAt: now.toISOString(),
+          requestedAt: now.toISOString(),
+          dispatchedAt: now.toISOString(),
+        },
+      });
+      await db.insert(eventsTable).values({
+        id: intentId,
+        type: MISSION_EVENT_WAKE_REQUESTED,
+        projectId,
+        goalId,
+        severity: "info",
+        message: "External event requested a Goal wake",
+        timestamp: now,
+        payload: {
+          schemaVersion: 1,
+          source: "event_received",
+          goalId,
+          eventId,
+          attemptCount: 0,
+          nextAttemptAt: now.toISOString(),
+          requestedAt: now.toISOString(),
+        },
+      });
+    }
+  
+  
+  }
 
   return { projectId, missionId, goalId, eventId, intentId };
 }
@@ -353,4 +361,148 @@ describe("Mission event wake dispatch lease", () => {
   it("fences a late failure from deferring the replacement owner's wake", async () => {
     await assertLateWorkerCannotOverwriteNewerOwner("failure");
   });
+
+  it("dispatches a due scheduled Goal wait through the existing Outbox and replan coordinator", async () => {
+    const fixture = await createWakeFixture({ includeInbox: false });
+    const wakeAt = new Date("2020-01-01T00:00:00.000Z");
+    const generationAt = new Date();
+    await db.update(aiGoalsTable).set({
+      nextWakeAt: wakeAt,
+      updatedAt: generationAt,
+      nextAction: { kind: "wait", reason: "event", wakeAt: wakeAt.toISOString() },
+    }).where(eq(aiGoalsTable.id, fixture.goalId));
+
+    const intentId = await db.transaction((tx) => insertMissionEventWakeIntent(tx, {
+      projectId: fixture.projectId,
+      goalId: fixture.goalId,
+      source: "scheduled_wake",
+      wakeAt,
+      generationAt,
+    }));
+    const replanSpy = vi.spyOn(missionAutoReplanModule, "autoReplanMission")
+      .mockResolvedValue({
+        status: "skipped",
+        missionId: fixture.missionId,
+        reason: "automatic_replan_not_enabled",
+      });
+
+    let dispatched = 0;
+    vi.useFakeTimers({ toFake: ["Date"] });
+    try {
+      // The app clock may lag; the database deadline remains authoritative.
+      vi.setSystemTime(new Date("2000-01-01T00:00:00.000Z"));
+      dispatched = await dispatchPendingMissionEventWakes(10, fixture.projectId);
+    } finally {
+      vi.useRealTimers();
+    }
+    expect(dispatched).toBe(1);
+    expect(replanSpy).toHaveBeenCalledOnce();
+    expect(replanSpy).toHaveBeenCalledWith(fixture.missionId);
+
+    const [goal] = await db.select({
+      status: aiGoalsTable.status,
+      nextWakeAt: aiGoalsTable.nextWakeAt,
+      nextAction: aiGoalsTable.nextAction,
+    }).from(aiGoalsTable).where(eq(aiGoalsTable.id, fixture.goalId)).limit(1);
+    expect(goal).toMatchObject({
+      status: "needs_replan",
+      nextWakeAt: null,
+      nextAction: {
+        kind: "replan",
+        reason: "Scheduled wake reached; replan from current project evidence.",
+      },
+    });
+
+    const [intent] = await db.select({
+      type: eventsTable.type,
+      payload: eventsTable.payload,
+    }).from(eventsTable).where(eq(eventsTable.id, intentId)).limit(1);
+    expect(intent?.type).toBe(MISSION_EVENT_WAKE_DISPATCHED);
+    expect(intent?.payload).toMatchObject({
+      source: "scheduled_wake",
+      goalId: fixture.goalId,
+      wakeAt: wakeAt.toISOString(),
+      generationAt: generationAt.toISOString(),
+      wokenEvents: 1,
+    });
+    expect(intent?.payload).not.toHaveProperty("dispatchLease");
+  });
+
+  it("does not dispatch a scheduled Goal wait before its database deadline", async () => {
+    const fixture = await createWakeFixture({ includeInbox: false });
+    const wakeAt = new Date(Date.now() + 60 * 60_000);
+    const generationAt = new Date();
+    await db.update(aiGoalsTable).set({
+      nextWakeAt: wakeAt,
+      updatedAt: generationAt,
+      nextAction: { kind: "wait", reason: "event", wakeAt: wakeAt.toISOString() },
+    }).where(eq(aiGoalsTable.id, fixture.goalId));
+    const intentId = await db.transaction((tx) => insertMissionEventWakeIntent(tx, {
+      projectId: fixture.projectId,
+      goalId: fixture.goalId,
+      source: "scheduled_wake",
+      wakeAt,
+      generationAt,
+    }));
+
+    const replanSpy = vi.spyOn(missionAutoReplanModule, "autoReplanMission");
+    vi.useFakeTimers({ toFake: ["Date"] });
+    try {
+      // A fast app clock must not dispatch a timer before PostgreSQL reaches it.
+      vi.setSystemTime(new Date("2099-01-01T00:00:00.000Z"));
+      expect(await dispatchPendingMissionEventWakes(10, fixture.projectId)).toBe(0);
+      expect(await dispatchMissionEventWakeIntent(intentId)).toEqual({
+        dispatched: false,
+        woken: 0,
+      });
+    } finally {
+      vi.useRealTimers();
+    }
+    expect(replanSpy).not.toHaveBeenCalled();
+
+    const [intent] = await db.select({
+      type: eventsTable.type,
+    }).from(eventsTable).where(eq(eventsTable.id, intentId)).limit(1);
+    expect(intent?.type).toBe(MISSION_EVENT_WAKE_REQUESTED);
+  });
+
+  it("supersedes a scheduled wake when the Goal has entered a newer wait generation", async () => {
+    const fixture = await createWakeFixture({ includeInbox: false });
+    const oldWakeAt = new Date("2020-01-01T00:00:00.000Z");
+    const oldGenerationAt = new Date(Date.now() - 60_000);
+    await db.update(aiGoalsTable).set({
+      nextWakeAt: oldWakeAt,
+      updatedAt: oldGenerationAt,
+      nextAction: { kind: "wait", reason: "event", wakeAt: oldWakeAt.toISOString() },
+    }).where(eq(aiGoalsTable.id, fixture.goalId));
+    const intentId = await db.transaction((tx) => insertMissionEventWakeIntent(tx, {
+      projectId: fixture.projectId,
+      goalId: fixture.goalId,
+      source: "scheduled_wake",
+      wakeAt: oldWakeAt,
+      generationAt: oldGenerationAt,
+    }));
+
+    const currentWakeAt = new Date("2020-02-01T00:00:00.000Z");
+    const currentGenerationAt = new Date();
+    await db.update(aiGoalsTable).set({
+      nextWakeAt: currentWakeAt,
+      updatedAt: currentGenerationAt,
+      nextAction: { kind: "wait", reason: "event", wakeAt: currentWakeAt.toISOString() },
+    }).where(eq(aiGoalsTable.id, fixture.goalId));
+
+    const replanSpy = vi.spyOn(missionAutoReplanModule, "autoReplanMission");
+    expect(await dispatchMissionEventWakeIntent(intentId)).toEqual({
+      dispatched: true,
+      woken: 0,
+    });
+    expect(replanSpy).not.toHaveBeenCalled();
+    const [goal] = await db.select({
+      status: aiGoalsTable.status,
+      nextWakeAt: aiGoalsTable.nextWakeAt,
+    }).from(aiGoalsTable).where(eq(aiGoalsTable.id, fixture.goalId)).limit(1);
+    expect(goal?.status).toBe("waiting_for_event");
+    expect(goal?.nextWakeAt?.toISOString()).toBe(currentWakeAt.toISOString());
+  });
 });
+
