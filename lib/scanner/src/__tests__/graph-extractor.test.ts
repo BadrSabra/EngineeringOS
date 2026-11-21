@@ -505,7 +505,6 @@ describe("extractGraph", () => {
 // User is a documented type.
 type User struct{}
 
-// HiddenType has no attached documentation.
 type HiddenType struct{}
 
 type (
@@ -517,13 +516,11 @@ type (
 // LookupUser returns a user by ID.
 func LookupUser() {}
 
-// hiddenFunction is intentionally undocumented.
 func hiddenFunction() {}
 
 // Load fetches data for a User.
 func (u *User) Load() {}
 
-// refresh is an unexported method without documentation.
 func (u *User) refresh() {}
 `,
       )];
