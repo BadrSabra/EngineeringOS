@@ -580,14 +580,38 @@ async function reconcileScanJobs(): Promise<number> {
   // PR-01: also select retryCount and maxRetries so we can decide whether to
   // retry or permanently fail each interrupted job.
   // ── 1. Running → queued / failed ──────────────────────────────────────────
+  // Retryable rows are transitioned in one conditional UPDATE. Do this
+  // before terminalizing exhausted siblings so each failed job observes any
+  // queued successor for the same project and cannot incorrectly reset it.
+  const retried = await db
+    .update(scanJobsTable)
+    .set({
+      status: "queued",
+      retryCount: sql`${scanJobsTable.retryCount} + 1`,
+      error: null,
+      startedAt: null,
+      finishedAt: null,
+      workerId: null,
+      leaseUntil: null,
+      lastHeartbeatAt: null,
+    })
+    .where(and(
+      eq(scanJobsTable.status, "running"),
+      abandonedScan,
+      sql`${scanJobsTable.retryCount} < ${scanJobsTable.maxRetries}`,
+    ))
+    .returning({
+      id: scanJobsTable.id,
+      projectId: scanJobsTable.projectId,
+    });
+
   // Exhausted rows need per-job terminal side effects (project reset + event).
-  // Select only those rows; retryable rows are transitioned directly in one
-  // conditional UPDATE below, avoiding one database round trip per stale scan.
+  // Recheck their status and lease after the batch update to preserve the
+  // existing conditional ownership fence across concurrent reconcilers.
   const exhausted = await db
     .select({
       id: scanJobsTable.id,
       projectId: scanJobsTable.projectId,
-      retryCount: scanJobsTable.retryCount,
       maxRetries: scanJobsTable.maxRetries,
     })
     .from(scanJobsTable)
@@ -614,36 +638,10 @@ async function reconcileScanJobs(): Promise<number> {
     failedCount++;
   }
 
-  // Retry every still-eligible stale scan in one set-based state transition.
-  // The status/lease/retry-budget predicates are rechecked by PostgreSQL at
-  // write time, so competing reconcilers cannot increment or dispatch a row
-  // after another worker has already reclaimed it.
-  const retried = await db
-    .update(scanJobsTable)
-    .set({
-      status: "queued",
-      retryCount: sql`${scanJobsTable.retryCount} + 1`,
-      error: null,
-      startedAt: null,
-      finishedAt: null,
-      workerId: null,
-      leaseUntil: null,
-      lastHeartbeatAt: null,
-    })
-    .where(and(
-      eq(scanJobsTable.status, "running"),
-      abandonedScan,
-      sql`${scanJobsTable.retryCount} < ${scanJobsTable.maxRetries}`,
-    ))
-    .returning({
-      id: scanJobsTable.id,
-      projectId: scanJobsTable.projectId,
-    });
-
+  // Enqueue only rows actually returned by the conditional database update.
+  // Local deduplication prevents duplicate closures in this process; the
+  // persisted status/lease transition is the cross-instance ownership fence.
   for (const job of retried) {
-    // The durable row is now queued; local deduplication only prevents
-    // duplicate closures in this process. The DB transition is the ownership
-    // boundary across API instances.
     heavyJobQueue.enqueueWithId(job.id, () => runScanJob(job.id, job.projectId));
   }
 
