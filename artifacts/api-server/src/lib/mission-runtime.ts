@@ -2375,6 +2375,23 @@ export async function dispatchPendingMissionRecipes(
       isNotNull(eventsTable.goalId),
       eq(aiGoalsTable.status, "running"),
       inArray(aiMissionsTable.status, ["active", "waiting"]),
+      // Keep stale or mismatched dispatch records out of the bounded page.
+      // Deeper operation identity, parent ownership, and authorization checks
+      // remain below as the final execution boundary.
+      sql`${aiGoalsTable.nextAction}->>'kind' = 'recipe'`,
+      sql`NULLIF(BTRIM(${eventsTable.payload}->>'operationId'), '') IS NOT NULL`,
+      sql`${eventsTable.payload}->>'missionId' = ${aiMissionsTable.id}`,
+      sql`${eventsTable.payload}->>'recipeId' = ${aiGoalsTable.nextAction}->>'recipeId'`,
+      sql`${eventsTable.payload}->>'recipeVersion' = ${aiGoalsTable.nextAction}->>'recipeVersion'`,
+      sql`(${eventsTable.payload}->>'candidateIdentity') IS NOT DISTINCT FROM (${aiGoalsTable.nextAction}->>'candidateIdentity')`,
+      sql`jsonb_typeof(${eventsTable.payload}->'delegation') = 'object'`,
+      sql`${eventsTable.payload}->'delegation'->>'contractVersion' = '1'`,
+      sql`${eventsTable.payload}->'delegation'->>'missionId' = ${aiMissionsTable.id}`,
+      sql`${eventsTable.payload}->'delegation'->>'goalId' = ${aiGoalsTable.id}`,
+      sql`${eventsTable.payload}->'delegation'->>'taskId' IS NULL`,
+      sql`${eventsTable.payload}->'delegation'->>'userId' = ${aiMissionsTable.userId}`,
+      sql`(${eventsTable.payload}->>'trigger') IS NOT DISTINCT FROM (${eventsTable.payload}->'delegation'->>'trigger')`,
+      sql`(${eventsTable.payload}->'delegation'->>'planRevision') IS NOT DISTINCT FROM (${aiGoalsTable.outcomeContract}->'planRevision'->>'hash')`,
       scopeProjectId ? eq(eventsTable.projectId, scopeProjectId) : undefined,
       notExists(db
         .select({ id: aiExecutionsTable.id })
