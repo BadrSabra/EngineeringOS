@@ -1381,4 +1381,22 @@ describe("Workspace project navigation", () => {
     expect(screen.getByRole("link", { name: "فتح تفاصيل المشروع: مشروع البث" }))
       .toBeInTheDocument();
   });
+  it("opens this project's workflows directly from its Workspace", () => {
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+    });
+
+    render(
+      <QueryClientProvider client={queryClient}>
+        <ProjectWorkspace />
+      </QueryClientProvider>,
+    );
+
+    const workflowsLink = screen.getByTestId("link-project-workflows");
+    expect(workflowsLink).toHaveAttribute(
+      "href",
+      "/workflows?projectId=project-1",
+    );
+    expect(workflowsLink).toHaveAccessibleName("فتح مسارات العمل لمشروع مشروع البث");
+  });
 });
