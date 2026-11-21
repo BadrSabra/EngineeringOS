@@ -540,6 +540,7 @@ describe("server-owned execution acceptance", () => {
       outcome: "FAILED",
       recoveryState: "INCOMPLETE",
       nextActionCode: "RESUME_ALLOWED",
+      resumable: 1,
     })).toBe(false);
     expect(isSamePlanTaskRecoveryPending({
       ...eligible,
