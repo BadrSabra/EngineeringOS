@@ -202,7 +202,7 @@ describe("loadGraphRelationshipSnapshot", () => {
       projectId,
       reason: "invalid_snapshot_limit",
     });
-    expect(await loadGraphRelationshipSnapshot(projectId)).toEqual({
+    expect(await db.transaction((tx) => loadGraphRelationshipSnapshot(tx, projectId))).toEqual({
       available: true,
       projectId,
       relationships: [],
