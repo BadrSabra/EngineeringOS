@@ -76,4 +76,17 @@ describe('GraphAssistantHandoff', () => {
     expect(mocks.setLocation).not.toHaveBeenCalled();
     expect(readGoalDrafts('user-1').drafts).toHaveLength(8);
   });
+
+  it('keeps the empty graph open if there is no room to save its assistant draft', () => {
+    for (let index = 0; index < 8; index += 1) {
+      expect(storeHomeGoalDraft(`هدف ${index}`, 'user-1')).not.toBeNull();
+    }
+    render(<GraphAssistantHandoff projectId="project/alpha" emptyState />);
+
+    fireEvent.click(screen.getByTestId('button-graph-empty-assistant-handoff'));
+
+    expect(screen.getByRole('alert')).toHaveTextContent('تعذر حفظ مسودة طلب التفسير.');
+    expect(mocks.setLocation).not.toHaveBeenCalled();
+    expect(readGoalDrafts('user-1').drafts).toHaveLength(8);
+  });
 });
