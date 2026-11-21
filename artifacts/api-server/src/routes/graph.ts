@@ -404,7 +404,7 @@ router.get("/graph/path", async (req, res) => {
 // counts by type, degree centrality, cluster count, and isolated node count.
 router.get("/graph/summary/:projectId", requireProjectAccess, async (req, res) => {
   const project = req.project!;
-  const { entities, relationships } = await fetchProjectGraph(db, project.id);
+  const { entities, relationships, truncated } = await fetchProjectGraph(db, project.id);
   const summary = computeGraphSummary(project.id, entities, relationships);
   const layered = computeLayeredGraphSummary(entities, relationships);
   return sendBoundedGraphResponse(res, {
@@ -414,6 +414,9 @@ router.get("/graph/summary/:projectId", requireProjectAccess, async (req, res) =
       entityLimit: GRAPH_LIMITS.maxEntities,
       relationshipLimit: GRAPH_LIMITS.maxRelationships,
       responseSizeLimit: GRAPH_LIMITS.maxResponseBytes,
+      truncated: truncated.entities || truncated.relationships,
+      truncatedEntities: truncated.entities,
+      truncatedRelationships: truncated.relationships,
     },
   });
 });

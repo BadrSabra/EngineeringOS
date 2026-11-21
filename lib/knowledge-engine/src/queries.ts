@@ -495,17 +495,32 @@ export async function findFileEntities(
 export async function fetchProjectGraph(
   db: Db,
   projectId: string,
-): Promise<{ entities: GraphEntity[]; relationships: GraphRelationship[] }> {
-  const entities = await db
+): Promise<{
+  entities: GraphEntity[];
+  relationships: GraphRelationship[];
+  truncated: { entities: boolean; relationships: boolean };
+}> {
+  // Fetch one extra row to distinguish a complete result at the limit from a
+  // graph that was clipped. Stable ordering makes repeated summaries predictable.
+  const entityRows = await db
     .select()
     .from(graphEntitiesTable)
     .where(eq(graphEntitiesTable.projectId, projectId))
-    .limit(GRAPH_LIMITS.maxEntities);
+    .orderBy(asc(graphEntitiesTable.id))
+    .limit(GRAPH_LIMITS.maxEntities + 1);
+  const entitiesTruncated = entityRows.length > GRAPH_LIMITS.maxEntities;
+  const entities = entityRows.slice(0, GRAPH_LIMITS.maxEntities);
 
-  if (entities.length === 0) return { entities: [], relationships: [] };
+  if (entities.length === 0) {
+    return {
+      entities: [],
+      relationships: [],
+      truncated: { entities: entitiesTruncated, relationships: false },
+    };
+  }
 
-  const entityIds = entities.map((e) => e.id);
-   const relationships = await db
+  const entityIds = entities.map((entity) => entity.id);
+  const relationshipRows = await db
     .select()
     .from(graphRelationshipsTable)
     .where(
@@ -514,9 +529,19 @@ export async function fetchProjectGraph(
         inArray(graphRelationshipsTable.sourceId, entityIds),
         inArray(graphRelationshipsTable.targetId, entityIds),
       ),
-    );
+    )
+    .orderBy(asc(graphRelationshipsTable.id))
+    .limit(GRAPH_LIMITS.maxRelationships + 1);
+  const relationshipsTruncated = relationshipRows.length > GRAPH_LIMITS.maxRelationships;
 
-  return { entities, relationships };
+  return {
+    entities,
+    relationships: relationshipRows.slice(0, GRAPH_LIMITS.maxRelationships),
+    truncated: {
+      entities: entitiesTruncated,
+      relationships: relationshipsTruncated,
+    },
+  };
 }
 
 // ─── Knowledge Graph 2.0 queries ─────────────────────────────────────────────

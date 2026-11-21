@@ -354,13 +354,51 @@ describe("fetchProjectGraph", () => {
     expect(relationships).toHaveLength(2);
   });
 
-  it("returns empty arrays for a project with no graph data", async () => {
+  it("returns empty arrays and a complete marker for a project with no graph data", async () => {
     const projectId = await insertProject();
     cleanupQueue.push(projectId);
 
-    const { entities, relationships } = await fetchProjectGraph(db, projectId);
+    const { entities, relationships, truncated } = await fetchProjectGraph(db, projectId);
     expect(entities).toEqual([]);
     expect(relationships).toEqual([]);
+    expect(truncated).toEqual({ entities: false, relationships: false });
+  });
+
+  it("bounds both graph reads and reports which dimensions were truncated", async () => {
+    const projectId = await insertProject();
+    cleanupQueue.push(projectId);
+    const now = new Date();
+    const prefix = "graph-summary-limit-" + projectId;
+    const entityIds = Array.from(
+      { length: GRAPH_LIMITS.maxEntities + 1 },
+      (_, index) => prefix + "-entity-" + String(index).padStart(3, "0"),
+    );
+
+    await db.insert(graphEntitiesTable).values(entityIds.map((id, index) => ({
+      id,
+      projectId,
+      type: "module" as const,
+      name: "module-" + index,
+      createdAt: now,
+    })));
+    await db.insert(graphRelationshipsTable).values(
+      Array.from({ length: GRAPH_LIMITS.maxRelationships + 1 }, (_, index) => ({
+        id: prefix + "-relationship-" + String(index).padStart(3, "0"),
+        projectId,
+        sourceId: entityIds[0]!,
+        targetId: entityIds[1]!,
+        relation: "imports",
+        createdAt: now,
+      })),
+    );
+
+    const result = await fetchProjectGraph(db, projectId);
+    expect(result.entities).toHaveLength(GRAPH_LIMITS.maxEntities);
+    expect(result.relationships).toHaveLength(GRAPH_LIMITS.maxRelationships);
+    expect(result.truncated).toEqual({ entities: true, relationships: true });
+    expect(result.entities.map((entity) => entity.id)).toEqual(
+      entityIds.slice(0, GRAPH_LIMITS.maxEntities),
+    );
   });
 });
 
