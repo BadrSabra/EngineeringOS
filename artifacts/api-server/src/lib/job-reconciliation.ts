@@ -119,6 +119,9 @@ const githubDeliveryRecoveryEvents = alias(eventsTable, "github_delivery_recover
 /** Maximum number of incomplete GitHub delivery attempts reconciled per pass. */
 export const GITHUB_DELIVERY_RECOVERY_BATCH_SIZE = 100;
 
+/** Maximum number of abandoned AI Tasks recovered by one reconciliation pass. */
+export const STALE_AI_TASK_RECOVERY_BATCH_SIZE = 100;
+
 const ORPHANED_RUNNING_MESSAGE =
   "Job was in progress when the server restarted and could not be resumed.";
 const MISSION_OUTCOME_RECONCILIATION_INTERVAL_MS = 60_000;
@@ -976,49 +979,85 @@ export async function reconcileStaleAiTasks(): Promise<number> {
     isNull(tasksTable.leaseUntil),
     lt(tasksTable.leaseUntil, databaseNow()),
   )!;
-  let recovered = 0;
   try {
-    const stale = await db.select({
-      id: tasksTable.id,
-      projectId: tasksTable.projectId,
-      retryCount: tasksTable.retryCount,
-      maxRetries: tasksTable.maxRetries,
-    }).from(tasksTable).where(and(
-      eq(tasksTable.status, "running"),
-      abandonedLease,
-    ));
-    for (const task of stale) {
-      const exhausted = task.retryCount >= task.maxRetries;
-      const [updated] = await db.update(tasksTable).set({
-        status: exhausted ? "failed" : "verifying",
-        retryCount: exhausted ? task.retryCount : task.retryCount + 1,
+    const recovered = await db.transaction(async (tx) => {
+      // Lock a bounded page so concurrent reconcilers can make progress on
+      // different rows without racing to write duplicate recovery logs.
+      const stale = await tx.select({
+        id: tasksTable.id,
+        projectId: tasksTable.projectId,
+      }).from(tasksTable).where(and(
+        eq(tasksTable.status, "running"),
+        abandonedLease,
+      )).orderBy(
+        asc(tasksTable.leaseUntil),
+        asc(tasksTable.id),
+      ).limit(STALE_AI_TASK_RECOVERY_BATCH_SIZE).for("update", { skipLocked: true });
+
+      if (stale.length === 0) return [];
+
+      // One conditional UPDATE replaces the former per-Task update loop.
+      // Retry state is derived from the locked, persisted row values.
+      const updated = await tx.update(tasksTable).set({
+        status: sql`CASE
+          WHEN ${tasksTable.retryCount} >= ${tasksTable.maxRetries}
+            THEN 'failed'::task_status
+          ELSE 'verifying'::task_status
+        END`,
+        retryCount: sql`CASE
+          WHEN ${tasksTable.retryCount} < ${tasksTable.maxRetries}
+            THEN ${tasksTable.retryCount} + 1
+          ELSE ${tasksTable.retryCount}
+        END`,
         updatedAt: now,
-        completedAt: exhausted ? now : null,
+        completedAt: sql`CASE
+          WHEN ${tasksTable.retryCount} >= ${tasksTable.maxRetries}
+            THEN ${now}
+          ELSE NULL
+        END`,
         workerId: null,
         leaseUntil: null,
         lastHeartbeatAt: null,
       }).where(and(
-        eq(tasksTable.id, task.id),
         eq(tasksTable.status, "running"),
+        inArray(tasksTable.id, stale.map((task) => task.id)),
         abandonedLease,
-      )).returning({ id: tasksTable.id });
-      if (!updated) continue;
-      await db.insert(taskLogsTable).values({
-        id: randomUUID(),
-        taskId: task.id,
-        level: exhausted ? "error" : "warn",
-        message: exhausted
-          ? "Task failed because its worker lease expired and retry limit was reached."
-          : "Task returned to verifying because its worker lease expired; re-trigger to execute.",
-        correlationId: randomUUID(),
+      )).returning({
+        id: tasksTable.id,
+        projectId: tasksTable.projectId,
+        status: tasksTable.status,
       });
-      invalidateContextCache(task.projectId);
-      recovered++;
+
+      if (updated.length > 0) {
+        // Keep the durable Task transition and its audit trail atomic while
+        // writing all recovery logs with one multi-row INSERT.
+        await tx.insert(taskLogsTable).values(updated.map((task) => {
+          const exhausted = task.status === "failed";
+          return {
+            id: randomUUID(),
+            taskId: task.id,
+            level: exhausted ? "error" as const : "warn" as const,
+            message: exhausted
+              ? "Task failed because its worker lease expired and retry limit was reached."
+              : "Task returned to verifying because its worker lease expired; re-trigger to execute.",
+            correlationId: randomUUID(),
+          };
+        }));
+      }
+
+      return updated;
+    });
+
+    // Invalidate each affected project's context once, and only after the
+    // transaction containing its Task updates and logs has committed.
+    for (const projectId of new Set(recovered.map((task) => task.projectId))) {
+      invalidateContextCache(projectId);
     }
+    return recovered.length;
   } catch (err) {
     logger.error({ err, scope: "job-reconciliation" }, "reconcileStaleAiTasks failed");
+    return 0;
   }
-  return recovered;
 }
 
 /**
