@@ -24,6 +24,7 @@ async function createFixture() {
   const goalId = randomUUID();
   const taskId = randomUUID();
   const executionId = randomUUID();
+  const correlationId = `mission-finalize-lock-correlation:${randomUUID()}`;
   const workerId = `lock-order-worker:${randomUUID()}`;
   const operationId = `mission-finalize-lock:${randomUUID()}`;
   const planRevision = "mission-finalize-lock-order-plan";
@@ -73,8 +74,12 @@ async function createFixture() {
     projectId,
     goalId,
     title: "Linked running task",
+    prompt: "Inspect the current Mission Task and complete its bounded objective.",
     status: "running",
     priority: "p2",
+    retryCount: 0,
+    maxRetries: 3,
+    correlationId,
     workerId,
     leaseUntil,
     idempotencyKey: `mission-finalize-lock:${taskId}`,
@@ -87,6 +92,7 @@ async function createFixture() {
     goalId,
     linkedTaskId: taskId,
     operationId,
+    correlationId,
     userId: "test-user",
     idempotencyKey: `mission-finalize-lock:${executionId}`,
     resumeTokenHash: "test-hash",
