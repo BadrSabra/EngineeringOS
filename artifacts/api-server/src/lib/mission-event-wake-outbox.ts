@@ -1,5 +1,5 @@
 import { createHash, randomUUID } from "node:crypto";
-import { and, asc, eq, inArray, or, sql } from "drizzle-orm";
+import { and, asc, eq, inArray, sql } from "drizzle-orm";
 import { aiGoalsTable, db, eventsTable } from "@workspace/db";
 import type { MissionEventEnvelope } from "./mission-events.js";
 import { logger } from "./logger.js";
@@ -20,9 +20,11 @@ type MissionEventWakeTransaction = Parameters<Parameters<typeof db.transaction>[
 
 type MissionEventWakePayload = {
   schemaVersion: 1;
-  source: "event_received" | "goal_entered_event_wait";
+  source: "event_received" | "goal_entered_event_wait" | "scheduled_wake";
   goalId: string;
   eventId?: string;
+  wakeAt?: string;
+  generationAt?: string;
   attemptCount: number;
   nextAttemptAt: string;
   requestedAt: string;
@@ -59,7 +61,11 @@ function parseWakePayload(value: unknown): MissionEventWakePayload | null {
   if (!isRecord(value)) return null;
   if (
     value.schemaVersion !== 1
-    || (value.source !== "event_received" && value.source !== "goal_entered_event_wait")
+    || (
+      value.source !== "event_received"
+      && value.source !== "goal_entered_event_wait"
+      && value.source !== "scheduled_wake"
+    )
     || typeof value.goalId !== "string"
     || value.goalId.length === 0
   ) return null;
@@ -76,6 +82,12 @@ function parseWakePayload(value: unknown): MissionEventWakePayload | null {
   if (value.source === "event_received" && (
     typeof value.eventId !== "string" || value.eventId.length === 0
   )) return null;
+  if (value.source === "scheduled_wake" && (
+    typeof value.wakeAt !== "string"
+    || !Number.isFinite(Date.parse(value.wakeAt))
+    || typeof value.generationAt !== "string"
+    || !Number.isFinite(Date.parse(value.generationAt))
+  )) return null;
   const replanPending = value.replanPending === true;
   const replanMissionId = typeof value.replanMissionId === "string"
     && value.replanMissionId.length > 0
@@ -90,6 +102,10 @@ function parseWakePayload(value: unknown): MissionEventWakePayload | null {
     source: value.source,
     goalId: value.goalId,
     ...(typeof value.eventId === "string" ? { eventId: value.eventId } : {}),
+    ...(value.source === "scheduled_wake" ? {
+      wakeAt: value.wakeAt as string,
+      generationAt: value.generationAt as string,
+    } : {}),
     attemptCount: Number(attemptCount),
     nextAttemptAt,
     requestedAt,
@@ -232,23 +248,43 @@ export async function insertMissionEventWakeIntent(
     goalId: string;
     source: MissionEventWakePayload["source"];
     eventId?: string;
+    wakeAt?: Date;
     generationAt?: Date;
   },
 ): Promise<string> {
-  const now = input.generationAt ?? new Date();
-  const id = input.eventId
-    ? "mission-event-wake:" + createHash("sha256").update(input.eventId).digest("hex")
-    : "mission-event-wait:" + createHash("sha256")
-      .update(input.goalId + ":" + now.toISOString())
-      .digest("hex");
+  const requestedAt = new Date();
+  const generationAt = input.generationAt ?? requestedAt;
+  if (input.source === "event_received" && !input.eventId) {
+    throw new Error("mission_event_wake_event_id_required");
+  }
+  if (
+    input.source === "scheduled_wake"
+    && (!input.wakeAt || !Number.isFinite(input.wakeAt.getTime()))
+  ) {
+    throw new Error("mission_event_wake_deadline_required");
+  }
+  const wakeAt = input.source === "scheduled_wake" ? input.wakeAt : undefined;
+  const id = input.source === "event_received"
+    ? "mission-event-wake:" + createHash("sha256").update(input.eventId!).digest("hex")
+    : input.source === "scheduled_wake"
+      ? "mission-event-timer-wake:" + createHash("sha256")
+        .update(input.goalId + ":" + wakeAt!.toISOString() + ":" + generationAt.toISOString())
+        .digest("hex")
+      : "mission-event-wait:" + createHash("sha256")
+        .update(input.goalId + ":" + generationAt.toISOString())
+        .digest("hex");
   const payload: MissionEventWakePayload = {
     schemaVersion: 1,
     source: input.source,
     goalId: input.goalId,
     ...(input.eventId ? { eventId: input.eventId } : {}),
+    ...(wakeAt ? {
+      wakeAt: wakeAt.toISOString(),
+      generationAt: generationAt.toISOString(),
+    } : {}),
     attemptCount: 0,
-    nextAttemptAt: now.toISOString(),
-    requestedAt: now.toISOString(),
+    nextAttemptAt: wakeAt?.toISOString() ?? requestedAt.toISOString(),
+    requestedAt: requestedAt.toISOString(),
   };
   await tx.insert(eventsTable).values({
     id,
@@ -260,7 +296,7 @@ export async function insertMissionEventWakeIntent(
     message: input.source === "event_received"
       ? "A durable Mission event requested a targeted Goal wake."
       : "A Goal entering event wait requested a targeted inbox replay.",
-    timestamp: now,
+    timestamp: generationAt,
     payload,
   }).onConflictDoNothing();
   return id;
@@ -453,6 +489,30 @@ async function processIntent(
   payload: MissionEventWakePayload,
   dispatchLeaseToken: string,
 ): Promise<MissionEventWakeProcessResult> {
+  if (payload.source === "scheduled_wake") {
+    const { wakeScheduledMissionGoal } = await import("./mission-runtime.js");
+    const missionId = await wakeScheduledMissionGoal({
+      intentId: intent.id,
+      projectId: intent.projectId,
+      goalId: payload.goalId,
+      wakeAt: payload.wakeAt!,
+      generationAt: payload.generationAt!,
+    });
+    if (!missionId) return { woken: 0 };
+    const { autoReplanMission } = await import("./mission-auto-replan.js");
+    const result = await autoReplanMission(missionId);
+    return {
+      woken: 1,
+      replan: {
+        missionId,
+        status: result.status,
+        ...(result.status === "replanned"
+          ? { revision: result.revision }
+          : { reason: result.reason }),
+      },
+    };
+  }
+
   // A previous worker may have committed the Goal/inbox transition and then
   // died before planning. Resume that exact pending handoff without trying to
   // consume the already-processed external event a second time.
@@ -678,13 +738,14 @@ export async function dispatchPendingMissionEventWakes(
         MISSION_EVENT_WAKE_DEFERRED,
       ]),
       scopeProjectId ? eq(eventsTable.projectId, scopeProjectId) : undefined,
-      or(
-        eq(eventsTable.type, MISSION_EVENT_WAKE_REQUESTED),
-        and(
-          eq(eventsTable.type, MISSION_EVENT_WAKE_DEFERRED),
-          sql`(${eventsTable.payload}->>'nextAttemptAt' IS NULL OR ${eventsTable.payload}->>'nextAttemptAt' <= ${now.toISOString()})`,
-        ),
-      ),
+      // New timer intents use nextAttemptAt as their deadline. Applying the
+      // same predicate to both states prevents future requests from occupying
+      // a bounded dispatch page before they are due.
+      sql`(
+        ${eventsTable.payload}->>'nextAttemptAt' IS NULL
+        OR ${eventsTable.payload}->>'nextAttemptAt' !~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}T'
+        OR ${eventsTable.payload}->>'nextAttemptAt' <= ${now.toISOString()}
+      )`,
       // Active leases stay out of poll batches; expired/malformed leases are recoverable.
       sql`(
         ${eventsTable.payload}->'dispatchLease' IS NULL
