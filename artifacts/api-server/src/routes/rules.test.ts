@@ -402,13 +402,14 @@ describe("POST /rules/:ruleId/evaluate", () => {
     const evalAudit = audits.find((a) => a.action === "evaluated");
     expect(evalAudit).toBeDefined();
   });
+
   it("keeps concurrent evaluation counters and evidence snapshots in sync", async () => {
     const id = await insertRule({ pattern: "console\\.log" });
     ruleCleanup.push(id);
 
     const projectId = await insertProject();
     projectCleanup.push(projectId);
-    await createProjectSource(projectId, "index.ts", 'console.log("one match");\\n');
+    await createProjectSource(projectId, "index.ts", 'console.log("one match");\n');
 
     const responses = await Promise.all([
       request(app).post(`/api/rules/${id}/evaluate`).send({ projectId }),
