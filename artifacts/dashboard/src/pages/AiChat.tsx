@@ -46,7 +46,7 @@ import { useLiveActivity } from './ai-chat/use-live-activity';
 import { DeepSeekKeyCard, GeminiKeyCard, GroqKeyCard, OpenRouterKeyCard } from './ai-chat/provider-key-cards';
 import { formatCodeReview, formatScanAnalysis, parseStructuredFailureMetadata, structuredTaskPrompt } from './ai-chat/structured-results';
 import { describeStreamError, safeStructuredFailure, structuredTaskStageLabel } from './ai-chat/stream-errors';
-import { ADDITIONAL_AI_ACTIONS, AI_ACTIONS, COMMON_AI_ACTIONS, LiveAgentActivity, type LiveAgentToolStep, liveToolLabel } from './ai-chat/live-activity';
+import { ADDITIONAL_AI_ACTIONS, AI_ACTIONS, COMMON_AI_ACTIONS, LiveAgentActivity, type LiveAgentToolStep, liveStageDisplayLabel, liveToolLabel } from './ai-chat/live-activity';
 import { createStreamObservationCallbacks, type LiveEvidenceIntegrity, type LiveVerdictScope } from './ai-chat/stream-observations';
 import { createStreamResetCallback } from './ai-chat/stream-recovery';
 import { createStreamIdentityCallbacks } from './ai-chat/stream-lifecycle';
@@ -586,19 +586,19 @@ export default function AiChat({
       onTaskStarted: (event) => {
         appendLiveActivityEvent({
           kind: 'stage',
-          label: `${event.task === 'analyze' ? 'Analysis' : 'Review'} task accepted`,
+          label: event.task === 'analyze' ? 'تم قبول مهمة التحليل' : 'تم قبول مهمة المراجعة',
           status: 'done',
         });
       },
       onStage: (stage) => {
         const label = structuredTaskStageLabel(stage);
         setAgentStage(label);
-        appendLiveActivityEvent({ kind: 'stage', label, status: stage === 'completed' ? 'done' : 'active' });
+        appendLiveActivityEvent({ kind: 'stage', label: liveStageDisplayLabel(label), status: stage === 'completed' ? 'done' : 'active' });
       },
       onTaskProgress: (event) => {
         appendLiveActivityEvent({
           kind: 'stage',
-          label: event.message,
+          label: liveStageDisplayLabel(event.message),
           status: 'info',
         });
       },
@@ -606,15 +606,15 @@ export default function AiChat({
         setAgentModel('AI model');
         appendLiveActivityEvent({
           kind: 'model',
-          label: 'Model response',
-          detail: 'Provider response received',
+          label: 'استجابة النموذج',
+          detail: 'تم استلام استجابة مزوّد الخدمة',
           status: 'info',
         });
       },
       onTaskDone: (event) => {
         appendLiveActivityEvent({
           kind: 'stage',
-          label: task === 'analyze' ? 'Analysis result received' : 'Review result received',
+          label: task === 'analyze' ? 'اكتملت نتيجة التحليل' : 'اكتملت نتيجة المراجعة',
           status: 'done',
         });
         const activityEvents = agentActivityEventsRef.current;
@@ -4646,7 +4646,7 @@ export default function AiChat({
                    id="group-assistant-response-progress"
                    tabIndex={-1}
                    role="group"
-                   aria-label="Assistant response in progress"
+                   aria-label="رد المساعد قيد التنفيذ"
                    className="chat-message flex min-w-0 max-w-full gap-3 mb-6"
                  >
                   <div className="w-8 h-8 rounded-full bg-secondary border border-border flex items-center justify-center shrink-0 mt-0.5">
@@ -4662,7 +4662,7 @@ export default function AiChat({
                            <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-primary/70" />
                            <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-primary" />
                          </span>
-                         In progress
+                         جارٍ التنفيذ
                        </span>
                      </div>
                       <LiveAgentActivity
@@ -4695,10 +4695,10 @@ export default function AiChat({
                            ? <ShieldCheck className="w-3 h-3 shrink-0 text-green-300" />
                            : <ShieldAlert className="w-3 h-3 shrink-0 text-red-300" />}
                          <span className="font-medium">
-                           {liveEvidenceIntegrity.consistent ? 'Telemetry consistent' : 'Telemetry inconsistent'}
+                           {liveEvidenceIntegrity.consistent ? 'بيانات التتبع متسقة' : 'بيانات التتبع غير متسقة'}
                          </span>
                          {liveEvidenceIntegrity.violations.length > 0 && (
-                           <span className="truncate text-muted-foreground">· {liveEvidenceIntegrity.violations.length} violation{liveEvidenceIntegrity.violations.length === 1 ? '' : 's'}</span>
+                           <span className="truncate text-muted-foreground">· {liveEvidenceIntegrity.violations.length} {liveEvidenceIntegrity.violations.length === 1 ? 'مخالفة' : 'مخالفات'}</span>
                          )}
                        </div>
                      )}
@@ -4706,7 +4706,7 @@ export default function AiChat({
                      {agentSteps.length > 0 && (
                         <div className="rounded-lg border border-border/60 bg-background/25 px-3 py-2">
                           <div aria-hidden="true" className="mb-1 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
-                            Recent activity
+                            أحدث النشاط
                           </div>
                           <div className="flex flex-col gap-1 text-xs font-mono">
                             {agentSteps.slice(-6).map((step, i) => (
@@ -4719,7 +4719,7 @@ export default function AiChat({
                                 <span className={step.done ? 'text-muted-foreground' : 'text-foreground'}>
                                   {liveToolLabel(step)}
                                 </span>
-                                {step.cached && <span className="text-[10px] text-muted-foreground/60">(cached)</span>}
+                                {step.cached && <span className="text-[10px] text-muted-foreground/60">(مخزّن مؤقتًا)</span>}
                               </div>
                             ))}
                           </div>

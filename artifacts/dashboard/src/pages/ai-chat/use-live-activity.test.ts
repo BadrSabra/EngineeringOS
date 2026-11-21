@@ -46,7 +46,7 @@ describe('useLiveActivity', () => {
     expect(result.current.activityEvents[0]).toMatchObject({ status: 'active' });
     expect(result.current.activityEvents[1]).toMatchObject({
       status: 'done',
-      detail: 'cached · src/b.ts',
+      detail: 'مخزّن مؤقتًا · src/b.ts',
     });
   });
 

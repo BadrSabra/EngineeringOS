@@ -108,8 +108,8 @@ describe('createStreamObservationCallbacks', () => {
     expect(result.current.activity.activityEvents).toMatchObject([
       {
         kind: 'stage',
-        label: 'Execution plan loaded',
-        detail: '1 node',
+        label: 'تم تحميل خطة التنفيذ',
+        detail: 'عدد العقد: 1',
       },
     ]);
   });
@@ -126,7 +126,7 @@ describe('createStreamObservationCallbacks', () => {
     act(() => result.current.callbacks.onStage?.('streaming'));
     expect(result.current.agentStage).toBe('Writing response…');
     expect(result.current.activity.activityEvents).toMatchObject([
-      { kind: 'stage', label: 'Stage', detail: 'Writing response…', status: 'info' },
+      { kind: 'stage', label: 'جارٍ كتابة الرد…', status: 'info' },
     ]);
   });
 
@@ -181,11 +181,11 @@ describe('createStreamObservationCallbacks', () => {
     ]);
     expect(result.current.activity.activityEvents).toMatchObject([
       { toolCallId: 'call-a', status: 'done', detail: 'src/a.ts' },
-      { toolCallId: 'call-b', status: 'done', detail: 'cached · src/b.ts' },
+      { toolCallId: 'call-b', status: 'done', detail: 'مخزّن مؤقتًا · src/b.ts' },
     ]);
     expect(result.current.activity.activityEvents[1]).toMatchObject({
       status: 'done',
-      detail: 'cached · src/b.ts',
+      detail: 'مخزّن مؤقتًا · src/b.ts',
     });
   });
 });

@@ -54,7 +54,7 @@ function flightRecorderLabel(entry: ToolTraceEntry): string {
   if (entry.kind === 'evidence_integrity') return 'Evidence reconciliation';
   if (entry.kind === 'execution_guard') return 'Execution guard';
   if (entry.kind === 'diagnostic' && entry.code === 'EXECUTION_PHASE_TOOL_REJECTED') {
-    return 'Phase policy blocked action';
+    return 'سياسة المرحلة منعت الإجراء';
   }
   if (entry.kind === 'diagnostic' && entry.code === 'READ_EVIDENCE_LINKED') {
     return 'Evidence linked';
