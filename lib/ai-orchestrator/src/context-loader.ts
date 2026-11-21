@@ -16,7 +16,7 @@ import {
   type Event,
   type Workflow,
 } from "@workspace/db";
-import { eq, desc, asc, sql } from "drizzle-orm";
+import { and, eq, desc, asc, inArray, sql } from "drizzle-orm";
 import type { NodePgDatabase } from "drizzle-orm/node-postgres";
 import type { ContextManifestCacheIdentity, RepositoryRevisionManifest } from "./context-manifest.js";
 import type { ContextCollection } from "./context-contract.js";
@@ -353,16 +353,23 @@ export async function loadGraph(
       : Promise.resolve<GraphRelationshipRow[]>([]),
   ]);
   // Relationships are not trusted solely because their denormalized
-  // projectId matches. Both endpoints must resolve to entities owned by this
-  // project; otherwise the edge is rejected without disclosing its endpoints.
+  // projectId matches. Resolve exactly the unique endpoints of the bounded
+  // relationship slice; loading an arbitrary first 80 project entities can
+  // silently discard valid edges in larger projects.
+  const relationshipEndpointIds = [...new Set(
+    candidateRelationships.flatMap(({ sourceId, targetId }) => [sourceId, targetId]),
+  )];
   const ownedEntities = wantsEntities
     ? candidateEntities
-    : candidateRelationships.length > 0
+    : relationshipEndpointIds.length > 0
       ? await tx
           .select()
           .from(graphEntitiesTable)
-          .where(eq(graphEntitiesTable.projectId, projectId))
-          .limit(80) as GraphEntityRow[]
+          .where(and(
+            eq(graphEntitiesTable.projectId, projectId),
+            inArray(graphEntitiesTable.id, relationshipEndpointIds),
+          ))
+          .limit(relationshipEndpointIds.length) as GraphEntityRow[]
       : [];
   const ownedIds = new Set(ownedEntities.map((entity) => entity.id));
   const knownEntityProjects = new Map(
