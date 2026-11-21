@@ -287,6 +287,7 @@ function safeSummaryValue(value: string, maxLength: number): string {
 export default function DashboardWorkSummary() {
   const { user, isLoaded } = useUser();
   const ownerId = isLoaded !== false ? user?.id ?? null : null;
+  const [projectFilter, setProjectFilter] = useState('');
   const query = useGetDashboardWorkSummary({
     query: {
       queryKey: [...getGetDashboardWorkSummaryQueryKey(), { owner: ownerId }],
@@ -341,11 +342,56 @@ export default function DashboardWorkSummary() {
       </div>
     );
   } else if (data) {
-    const allEmpty = !data.decisions.length && !data.active.length && !data.recent.length;
-    const featured = chooseFeaturedWork(data);
+    const projectNames = new Map<string, string>();
+    for (const item of [...data.decisions, ...data.active, ...data.recent]) {
+      if (typeof item.projectId === 'string' && item.projectId.trim() && !projectNames.has(item.projectId)) {
+        projectNames.set(item.projectId, item.projectName.trim() || 'مشروع بدون اسم');
+      }
+    }
+    const projectOptions = Array.from(projectNames, ([id, name]) => ({ id, name }))
+      .sort((first, second) => first.name.localeCompare(second.name, 'ar'));
+    const effectiveProjectFilter = projectOptions.some(({ id }) => id === projectFilter)
+      ? projectFilter
+      : '';
+    const visibleData = effectiveProjectFilter
+      ? {
+        ...data,
+        decisions: data.decisions.filter((item) => item.projectId === effectiveProjectFilter),
+        active: data.active.filter((item) => item.projectId === effectiveProjectFilter),
+        recent: data.recent.filter((item) => item.projectId === effectiveProjectFilter),
+      }
+      : data;
+    const allEmpty = !visibleData.decisions.length && !visibleData.active.length && !visibleData.recent.length;
+    const featured = chooseFeaturedWork(visibleData);
     const c = data.coverage;
     body = (
       <div className="space-y-3">
+        {projectOptions.length > 1 && (
+          <div className="flex flex-wrap items-center gap-2">
+            <label htmlFor="work-summary-project-filter" className="text-xs font-medium text-muted-foreground">
+              ركّز الملخص على مشروع
+            </label>
+            <select
+              id="work-summary-project-filter"
+              aria-label="ركّز ملخص العمل على مشروع"
+              data-testid="select-work-summary-project"
+              value={effectiveProjectFilter}
+              onChange={(event) => setProjectFilter(event.target.value)}
+              className="min-w-48 rounded-md border border-border bg-card px-3 py-2 text-sm text-foreground"
+            >
+              <option value="">كل المشاريع الظاهرة</option>
+              {projectOptions.map((project) => (
+                <option key={project.id} value={project.id}>{project.name}</option>
+              ))}
+            </select>
+            <p
+              data-testid="text-work-summary-project-filter-scope"
+              className="text-xs text-muted-foreground"
+            >
+              الاختيار يصفّي العناصر الظاهرة فقط، وليس كل أعمال المشروع.
+            </p>
+          </div>
+        )}
         {allEmpty ? (
           <div data-testid="status-work-overview-empty" className="rounded-xl border border-dashed border-border bg-card p-5 text-sm">
             {c.partial || c.goalsTruncated || c.excludedExecutionCount > 0 ? (
@@ -374,7 +420,7 @@ export default function DashboardWorkSummary() {
             {featured && <FeaturedWork item={featured.item} section={featured.section} ownerId={ownerId} />}
             <div className="grid gap-3 lg:grid-cols-3">
               {SECTIONS.map((s) => {
-                const items = data[s.key].filter((item) => (
+                const items = visibleData[s.key].filter((item) => (
                   !featured
                   || s.key !== featured.section
                   || item.id !== featured.item.id

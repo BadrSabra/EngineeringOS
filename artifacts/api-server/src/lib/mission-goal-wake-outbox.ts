@@ -203,22 +203,51 @@ async function markWakeIntent(
   message: string,
   dispatchLeaseToken: string,
 ): Promise<boolean> {
-  const payloadWithoutLease = { ...payload };
-  delete payloadWithoutLease.dispatchLease;
-  const [updated] = await db.update(eventsTable)
-    .set({
-      type,
-      payload: payloadWithoutLease,
-      message,
-      timestamp: await readDatabaseNow() ?? new Date(),
-    })
-    .where(and(
-      eq(eventsTable.id, id),
-      inArray(eventsTable.type, expectedTypes),
-      sql`${eventsTable.payload}->'dispatchLease'->>'token' = ${dispatchLeaseToken}`,
-    ))
-    .returning({ id: eventsTable.id });
-  return Boolean(updated);
+  return db.transaction(async (tx) => {
+    const [row] = await tx.select({
+      type: eventsTable.type,
+      payload: eventsTable.payload,
+    }).from(eventsTable)
+      .where(eq(eventsTable.id, id))
+      .for("update")
+      .limit(1);
+    if (!row || !expectedTypes.includes(row.type)) return false;
+
+    const clockResult = await tx.execute(sql`SELECT clock_timestamp() AS now`);
+    const rawNow = (clockResult.rows as Array<{ now: Date | string }>)[0]?.now;
+    const now = rawNow instanceof Date ? rawNow : new Date(String(rawNow ?? ""));
+    if (!rawNow || !Number.isFinite(now.getTime())) return false;
+
+    const currentPayload = isRecord(row.payload) ? row.payload : undefined;
+    const currentLease = currentPayload && isRecord(currentPayload.dispatchLease)
+      ? currentPayload.dispatchLease
+      : undefined;
+    const leaseExpiry = typeof currentLease?.expiresAt === "string"
+      ? Date.parse(currentLease.expiresAt)
+      : Number.NaN;
+    // A worker may commit only while it still owns an unexpired lease.
+    if (
+      currentLease?.token !== dispatchLeaseToken
+      || !Number.isFinite(leaseExpiry)
+      || leaseExpiry <= now.getTime()
+    ) return false;
+
+    const payloadWithoutLease = { ...payload };
+    delete payloadWithoutLease.dispatchLease;
+    const [updated] = await tx.update(eventsTable)
+      .set({
+        type,
+        payload: payloadWithoutLease,
+        message,
+        timestamp: now,
+      })
+      .where(and(
+        eq(eventsTable.id, id),
+        inArray(eventsTable.type, expectedTypes),
+      ))
+      .returning({ id: eventsTable.id });
+    return Boolean(updated);
+  });
 }
 
 async function deferWakeIntent(
@@ -241,14 +270,21 @@ async function deferWakeIntent(
     const currentLease = currentPayload && isRecord(currentPayload.dispatchLease)
       ? currentPayload.dispatchLease
       : undefined;
-    // An expired worker must never defer a newer dispatcher's intent.
-    if (currentLease?.token !== dispatchLeaseToken) return;
     // Read PostgreSQL time through the transaction's own connection. A
     // nested global-pool query here could deadlock when the pool is saturated.
     const clockResult = await tx.execute(sql`SELECT clock_timestamp() AS now`);
     const rawNow = (clockResult.rows as Array<{ now: Date | string }>)[0]?.now;
     const now = rawNow instanceof Date ? rawNow : new Date(String(rawNow ?? ""));
     if (!rawNow || !Number.isFinite(now.getTime())) return;
+    const leaseExpiry = typeof currentLease?.expiresAt === "string"
+      ? Date.parse(currentLease.expiresAt)
+      : Number.NaN;
+    // An expired or replaced worker cannot defer this durable intent.
+    if (
+      currentLease?.token !== dispatchLeaseToken
+      || !Number.isFinite(leaseExpiry)
+      || leaseExpiry <= now.getTime()
+    ) return;
     const parsed = parsePayload(row.payload);
     if (!parsed) {
       await tx.update(eventsTable)

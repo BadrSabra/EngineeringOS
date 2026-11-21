@@ -92,6 +92,19 @@ describe('quick navigation', () => {
     await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
   });
 
+  it('opens a project task list directly from quick navigation', async () => {
+    mocks.projects.data = [{ id: 'project-1', name: 'دفتر الورشة' }];
+    render(<QuickNavigation />);
+
+    fireEvent.click(screen.getByTestId('button-open-quick-navigation'));
+    const search = await screen.findByRole('combobox', { name: 'ابحث عن صفحة أو مشروع' });
+    fireEvent.change(search, { target: { value: 'الورشة' } });
+    fireEvent.click(await screen.findByTestId('quick-nav-project-tasks-project-1'));
+
+    expect(mocks.setLocation).toHaveBeenCalledWith('/tasks?projectId=project-1');
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
+  });
+
   it('opens from the keyboard shortcut while preserving text-field input', async () => {
     render(<><QuickNavigation /><input aria-label="حقل آخر" /></>);
     fireEvent.keyDown(document, { key: 'k', ctrlKey: true });

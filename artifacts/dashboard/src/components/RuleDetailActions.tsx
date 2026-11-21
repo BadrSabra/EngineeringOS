@@ -35,6 +35,13 @@ type RuleDraft = {
 type EvaluationView = RuleEvaluationResult & { note?: string };
 
 const severities: RuleSeverity[] = ['critical', 'high', 'medium', 'low', 'info'];
+const severityLabels: Record<RuleSeverity, string> = {
+  critical: 'حرج',
+  high: 'مرتفع',
+  medium: 'متوسط',
+  low: 'منخفض',
+  info: 'معلومة',
+};
 const fieldClass =
   'w-full rounded-md border border-border bg-background px-3 py-2 text-sm focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary disabled:opacity-50';
 
@@ -100,7 +107,7 @@ export default function RuleDetailActions({ rule }: { rule: Rule }) {
     if (!draft) return;
     const title = draft.title.trim();
     if (!title) {
-      setUpdateError('A rule title is required.');
+      setUpdateError('يجب إدخال عنوان للقاعدة.');
       return;
     }
 
@@ -123,10 +130,10 @@ export default function RuleDetailActions({ rule }: { rule: Rule }) {
           invalidateRules();
           setEditing(false);
           setDraft(null);
-          setActionStatus('Rule updated.');
+          setActionStatus('تم تحديث القاعدة.');
         },
         onError: () => {
-          setUpdateError('Could not update this rule. Try again.');
+          setUpdateError('تعذر تحديث القاعدة. حاول مرة أخرى.');
         },
       },
     );
@@ -141,10 +148,10 @@ export default function RuleDetailActions({ rule }: { rule: Rule }) {
         onSuccess: () => {
           invalidateRules();
           setDeleteOpen(false);
-          setActionStatus('Rule deleted.');
+          setActionStatus('تم حذف القاعدة.');
         },
         onError: () => {
-          setDeleteError('Could not delete this rule. Try again.');
+          setDeleteError('تعذر حذف القاعدة. حاول مرة أخرى.');
         },
       },
     );
@@ -172,7 +179,7 @@ export default function RuleDetailActions({ rule }: { rule: Rule }) {
         },
         onError: () => {
           if (requestVersion !== evaluationRequestVersion.current) return;
-          setEvaluationError('Could not evaluate this rule against the selected project.');
+          setEvaluationError('تعذر فحص القاعدة على المشروع المحدد.');
         },
       },
     );
@@ -184,19 +191,19 @@ export default function RuleDetailActions({ rule }: { rule: Rule }) {
   const showResult = evaluationResult?.projectId === effectiveEvaluationProjectId;
 
   return (
-    <div className="border-t border-border pt-4">
+    <div dir="rtl" lang="ar" className="border-t border-border pt-4">
       {editing && draft ? (
         <form
           className="space-y-4"
           onSubmit={saveRule}
-          aria-label={`Edit rule ${rule.title}`}
+          aria-label={`تعديل القاعدة ${rule.title}`}
           data-testid={`edit-rule-form-${rule.id}`}
         >
           <div className="flex items-start justify-between gap-3">
             <div>
-              <h4 className="font-semibold">Edit rule</h4>
+              <h4 className="font-semibold">تعديل القاعدة</h4>
               <p className="mt-1 text-xs text-muted-foreground">
-                Rule code and verification steps are read-only in the current API.
+                رمز القاعدة وخطوات التحقق للقراءة فقط حاليًا.
               </p>
             </div>
             <button
@@ -209,15 +216,16 @@ export default function RuleDetailActions({ rule }: { rule: Rule }) {
               className="rounded-md border border-border px-3 py-1.5 text-xs hover:bg-secondary"
               data-testid={`cancel-edit-rule-${rule.id}`}
             >
-              Cancel
+              إلغاء
             </button>
           </div>
 
           <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
             <label className="space-y-1.5 text-xs font-medium text-muted-foreground">
-              Rule title
+              عنوان القاعدة
               <input
                 required
+                dir="auto"
                 value={draft.title}
                 onChange={(event) => setDraft({ ...draft, title: event.target.value })}
                 className={fieldClass}
@@ -225,7 +233,7 @@ export default function RuleDetailActions({ rule }: { rule: Rule }) {
               />
             </label>
             <label className="space-y-1.5 text-xs font-medium text-muted-foreground">
-              Severity
+              مستوى الخطورة
               <select
                 value={draft.severity}
                 onChange={(event) => setDraft({ ...draft, severity: event.target.value as RuleSeverity })}
@@ -234,15 +242,16 @@ export default function RuleDetailActions({ rule }: { rule: Rule }) {
               >
                 {severities.map((severity) => (
                   <option key={severity} value={severity}>
-                    {severity.charAt(0).toUpperCase() + severity.slice(1)}
+                    {severityLabels[severity]}
                   </option>
                 ))}
               </select>
             </label>
             <label className="space-y-1.5 text-xs font-medium text-muted-foreground md:col-span-2">
-              Description
+              الوصف
               <textarea
                 rows={2}
+                dir="auto"
                 value={draft.description}
                 onChange={(event) => setDraft({ ...draft, description: event.target.value })}
                 className={fieldClass}
@@ -250,8 +259,9 @@ export default function RuleDetailActions({ rule }: { rule: Rule }) {
               />
             </label>
             <label className="space-y-1.5 text-xs font-medium text-muted-foreground">
-              Detection pattern
+              نمط الكشف
               <input
+                dir="ltr"
                 value={draft.pattern}
                 onChange={(event) => setDraft({ ...draft, pattern: event.target.value })}
                 className={`${fieldClass} font-mono`}
@@ -259,9 +269,10 @@ export default function RuleDetailActions({ rule }: { rule: Rule }) {
               />
             </label>
             <label className="space-y-1.5 text-xs font-medium text-muted-foreground">
-              Recommended fix
+              الإصلاح المقترح
               <textarea
                 rows={2}
+                dir="auto"
                 value={draft.fixDescription}
                 onChange={(event) => setDraft({ ...draft, fixDescription: event.target.value })}
                 className={fieldClass}
@@ -278,7 +289,7 @@ export default function RuleDetailActions({ rule }: { rule: Rule }) {
               className="h-4 w-4 accent-primary"
               data-testid={`toggle-rule-enabled-${rule.id}`}
             />
-            Rule is enabled
+            القاعدة مفعّلة
           </label>
 
           {updateError && (
@@ -293,7 +304,7 @@ export default function RuleDetailActions({ rule }: { rule: Rule }) {
             data-testid={`save-rule-${rule.id}`}
           >
             {updateRule.isPending ? <LoaderCircle className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />}
-            {updateRule.isPending ? 'Saving…' : 'Save changes'}
+            {updateRule.isPending ? 'جارٍ الحفظ…' : 'حفظ التغييرات'}
           </button>
         </form>
       ) : (
@@ -305,7 +316,7 @@ export default function RuleDetailActions({ rule }: { rule: Rule }) {
               className="inline-flex items-center gap-2 rounded-md border border-border px-3 py-2 text-xs font-medium hover:bg-secondary"
               data-testid={`edit-rule-${rule.id}`}
             >
-              <Pencil className="h-3.5 w-3.5" /> Edit rule
+              <Pencil className="h-3.5 w-3.5" /> تعديل القاعدة
             </button>
             <button
               type="button"
@@ -316,14 +327,14 @@ export default function RuleDetailActions({ rule }: { rule: Rule }) {
               className="inline-flex items-center gap-2 rounded-md border border-destructive/30 px-3 py-2 text-xs font-medium text-destructive hover:bg-destructive/10"
               data-testid={`delete-rule-${rule.id}`}
             >
-              <Trash2 className="h-3.5 w-3.5" /> Delete rule
+              <Trash2 className="h-3.5 w-3.5" /> حذف القاعدة
             </button>
           </div>
 
           <div className="rounded-md border border-border bg-background/50 p-3">
             <div className="flex flex-col gap-3 sm:flex-row sm:items-end">
               <label className="min-w-0 flex-1 space-y-1.5 text-xs font-medium text-muted-foreground">
-                Evaluate against project
+                مشروع الفحص
                 <select
                   value={effectiveEvaluationProjectId}
                   onChange={(event) => {
@@ -336,9 +347,9 @@ export default function RuleDetailActions({ rule }: { rule: Rule }) {
                   className={fieldClass}
                   data-testid={`select-rule-project-${rule.id}`}
                 >
-                  <option value="">Select an owned project</option>
+                  <option value="">اختر مشروعًا من مشاريعك</option>
                   {projects.map((project) => (
-                    <option key={project.id} value={project.id}>
+                    <option key={project.id} value={project.id} dir="auto">
                       {project.name}
                     </option>
                   ))}
@@ -361,28 +372,28 @@ export default function RuleDetailActions({ rule }: { rule: Rule }) {
                 {evaluateRule.isPending
                   ? <LoaderCircle className="h-3.5 w-3.5 animate-spin" />
                   : <Play className="h-3.5 w-3.5" />}
-                {evaluateRule.isPending ? 'Evaluating…' : 'Evaluate rule'}
+                {evaluateRule.isPending ? 'جارٍ الفحص…' : 'فحص القاعدة'}
               </button>
             </div>
             <p className="mt-2 text-[11px] leading-relaxed text-muted-foreground">
-              Evaluation reads the selected project’s files, updates this rule’s hit count, and records an audit event. It does not change project files.
+              يقرأ ملفات المشروع المحدد، ويحدّث عدد مرات رصد القاعدة ويسجل الإجراء للمراجعة. لا يغيّر ملفات المشروع.
             </p>
             {!rule.pattern && (
               <p className="mt-2 text-xs text-muted-foreground">
-                Add a detection pattern before evaluating this rule.
+                أضف نمط الكشف قبل فحص القاعدة.
               </p>
             )}
             {projectsQuery.isError && (
               <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-destructive" role="alert">
-                <span>Could not load your projects.</span>
+                <span>تعذر تحميل المشاريع.</span>
                 <button type="button" onClick={() => void projectsQuery.refetch()} className="underline">
-                  Retry
+                  أعد المحاولة
                 </button>
               </div>
             )}
             {!projectsQuery.isLoading && !projectsQuery.isError && projects.length === 0 && (
               <p className="mt-2 text-xs text-muted-foreground">
-                Add or import a project before evaluating rules.
+                أضف مشروعًا أو استورده قبل فحص القواعد.
               </p>
             )}
             {evaluationError && (
@@ -398,21 +409,21 @@ export default function RuleDetailActions({ rule }: { rule: Rule }) {
               >
                 <p className="text-sm font-medium">
                   {evaluationResult.matchCount === 0
-                    ? 'No matches found.'
-                    : `${evaluationResult.matchCount} match${evaluationResult.matchCount === 1 ? '' : 'es'} found`}
-                  {selectedProject ? ` in ${selectedProject.name}` : ''}
+                    ? 'لم تُعثر على مطابقات.'
+                    : `عدد المطابقات: ${new Intl.NumberFormat('ar-EG').format(evaluationResult.matchCount)}`}
+                  {selectedProject && <> في <bdi dir="auto">{selectedProject.name}</bdi></>}
                 </p>
                 {evaluationResult.note && (
-                  <p className="mt-1 text-xs text-muted-foreground">{evaluationResult.note}</p>
+                  <p dir="auto" className="mt-1 text-xs text-muted-foreground">{evaluationResult.note}</p>
                 )}
                 {evaluationResult.matches.length > 0 && (
                   <ul className="mt-3 space-y-2">
                     {evaluationResult.matches.map((match, index) => (
                       <li key={`${match.file}:${match.line}:${index}`} className="rounded border border-border/70 p-2">
-                        <div className="font-mono text-[11px] text-primary">
+                        <div dir="ltr" className="font-mono text-[11px] text-primary">
                           {match.file}:{match.line}
                         </div>
-                        <pre className="mt-1 overflow-x-auto whitespace-pre-wrap break-words text-xs text-muted-foreground">
+                        <pre dir="ltr" className="mt-1 overflow-x-auto whitespace-pre-wrap break-words text-xs text-muted-foreground">
                           {match.snippet}
                         </pre>
                       </li>
@@ -441,15 +452,16 @@ export default function RuleDetailActions({ rule }: { rule: Rule }) {
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle className="flex items-center gap-2">
-              <AlertTriangle className="h-5 w-5 text-destructive" /> Delete “{rule.title}”?
+              <AlertTriangle className="h-5 w-5 text-destructive" />
+              حذف القاعدة «<bdi dir="auto">{rule.title}</bdi>»؟
             </AlertDialogTitle>
             <AlertDialogDescription>
-              This permanently removes the rule from the Rules Engine. This action cannot be undone.
+              سيؤدي هذا إلى إزالة القاعدة نهائيًا من محرك القواعد. لا يمكن التراجع عن هذا الإجراء.
             </AlertDialogDescription>
           </AlertDialogHeader>
           {deleteError && <p role="alert" className="text-sm text-destructive">{deleteError}</p>}
           <AlertDialogFooter>
-            <AlertDialogCancel disabled={deleteRule.isPending}>Cancel</AlertDialogCancel>
+            <AlertDialogCancel disabled={deleteRule.isPending}>إلغاء</AlertDialogCancel>
             <AlertDialogAction
               disabled={deleteRule.isPending}
               onClick={(event) => {
@@ -459,7 +471,7 @@ export default function RuleDetailActions({ rule }: { rule: Rule }) {
               className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
               data-testid={`confirm-delete-rule-${rule.id}`}
             >
-              {deleteRule.isPending ? 'Deleting…' : 'Delete permanently'}
+              {deleteRule.isPending ? 'جارٍ الحذف…' : 'حذف نهائيًا'}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
