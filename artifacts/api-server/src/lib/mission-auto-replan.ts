@@ -49,7 +49,8 @@ import {
   type MissionStrategyDecision,
   type MissionFailureSourceBinding,
 } from "./mission-strategy-engine.js";
-import { runMissionGoal, type MissionGoalRunResult } from "./mission-runtime.js";
+import { runMissionGoal, wakeReadyMissionGoals, type MissionGoalRunResult } from "./mission-runtime.js";
+import { logger } from "./logger.js";
 import { buildMissionStrategyDecisionTraceInTransaction } from "./mission-strategy-decision-trace.js";
 import {
   appendMissionDecisionLifecycleEventInTransaction,
@@ -68,6 +69,12 @@ type AutoReplanResult =
       runs: Awaited<ReturnType<typeof runMissionGoal>>[];
     }
   | {
+      status: "continued";
+      missionId: string;
+      revision: string;
+      wokenGoals: number;
+    }
+  | {
       status: "skipped";
       missionId: string;
       reason: string;
@@ -77,6 +84,7 @@ const TERMINAL_REPLAN_FAILURES = new Set([
   "objective_no_longer_mission_eligible",
   "automatic_replan_budget_exhausted",
   "automatic_replan_already_attempted",
+  "automatic_replan_not_enabled",
   "failure_diagnosis_invalid",
   "failure_requires_owner_approval",
   "failure_not_automatically_retryable",
@@ -650,6 +658,7 @@ async function terminalizeAutomaticReplanFailure(
 export async function autoReplanMission(
   missionId: string,
   runGoal: typeof runMissionGoal = runMissionGoal,
+  wakeGoals: typeof wakeReadyMissionGoals = wakeReadyMissionGoals,
 ): Promise<AutoReplanResult> {
   const prepared = await db.transaction(async (tx) => {
     const [mission] = await tx
@@ -672,6 +681,87 @@ export async function autoReplanMission(
         reason: "automatic_replan_not_enabled",
       };
     }
+
+    // A previous automatic replan may already be durably materialized even
+    // though a dispatch exception restored the Mission's old needs_replan
+    // status. Resume that exact revision before considering another planner
+    // call. A failed Goal in the same revision remains a real replan request.
+    const policy = jsonRecord(mission.autonomyPolicy);
+    const activePlanRevision = typeof policy.activePlanRevision === "string"
+      ? policy.activePlanRevision
+      : undefined;
+    const lastAutomaticReplanRevision = typeof policy.lastAutomaticReplanRevision === "string"
+      ? policy.lastAutomaticReplanRevision
+      : undefined;
+    if (
+      activePlanRevision
+      && activePlanRevision === lastAutomaticReplanRevision
+    ) {
+      const [failedCurrentRevisionGoal] = await tx
+        .select({ id: aiGoalsTable.id })
+        .from(aiGoalsTable)
+        .where(and(
+          eq(aiGoalsTable.missionId, mission.id),
+          eq(aiGoalsTable.projectId, mission.projectId),
+          inArray(aiGoalsTable.status, ["needs_replan", "failed", "blocked"]),
+          sql`COALESCE(
+            ${aiGoalsTable.outcomeContract}->'planRevision'->>'hash',
+            ${aiGoalsTable.successCriteria}->'planRevision'->>'hash'
+          ) = ${activePlanRevision}`,
+        ))
+        .limit(1);
+      const pendingPlanWork = await tx
+        .select({ id: aiGoalsTable.id })
+        .from(aiGoalsTable)
+        .where(and(
+          eq(aiGoalsTable.missionId, mission.id),
+          eq(aiGoalsTable.projectId, mission.projectId),
+          inArray(aiGoalsTable.status, ["queued", "running"]),
+          sql`${aiGoalsTable.successCriteria}->>'kind' = 'mission_replan_step'`,
+          sql`COALESCE(
+            ${aiGoalsTable.outcomeContract}->'planRevision'->>'hash',
+            ${aiGoalsTable.successCriteria}->'planRevision'->>'hash'
+          ) = ${activePlanRevision}`,
+        ))
+        .orderBy(asc(aiGoalsTable.updatedAt), asc(aiGoalsTable.id))
+        .limit(1);
+
+      if (!failedCurrentRevisionGoal && pendingPlanWork.length > 0) {
+        const [resumed] = await tx.update(aiMissionsTable)
+          .set({ status: "active", updatedAt: new Date() })
+          .where(and(
+            eq(aiMissionsTable.id, mission.id),
+            eq(aiMissionsTable.status, "needs_replan"),
+            sql`${aiMissionsTable.autonomyPolicy}->>'activePlanRevision' = ${activePlanRevision}`,
+            sql`${aiMissionsTable.autonomyPolicy}->>'lastAutomaticReplanRevision' = ${activePlanRevision}`,
+          ))
+          .returning({ id: aiMissionsTable.id });
+        if (resumed) {
+          await tx.insert(eventsTable).values({
+            id: randomUUID(),
+            type: "AiMissionReplanContinuationResumed",
+            projectId: mission.projectId,
+            goalId: pendingPlanWork[0].id,
+            severity: "info",
+            message: "AI Mission resumed its persisted automatic plan after a dispatch interruption",
+            correlationId: pendingPlanWork[0].id,
+            payload: {
+              missionId: mission.id,
+              planRevision: activePlanRevision,
+              continuationGoalId: pendingPlanWork[0].id,
+              source: "persisted_plan_state",
+            },
+          });
+          return {
+            status: "continuation_ready" as const,
+            missionId,
+            projectId: mission.projectId,
+            revision: activePlanRevision,
+          };
+        }
+      }
+    }
+
     const [failedGoal] = await tx
       .select({
         id: aiGoalsTable.id,
@@ -947,6 +1037,24 @@ export async function autoReplanMission(
     };
   });
 
+  if (prepared.status === "continuation_ready") {
+    const wokenGoals = await wakeGoals(64, prepared.projectId, undefined, prepared.missionId);
+    logger.info(
+      {
+        missionId: prepared.missionId,
+        planRevision: prepared.revision,
+        wokenGoals,
+      },
+      "Resumed the persisted Mission plan without generating a new revision",
+    );
+    return {
+      status: "continued",
+      missionId: prepared.missionId,
+      revision: prepared.revision,
+      wokenGoals,
+    };
+  }
+
   if (prepared.status !== "prepared") {
     await terminalizeAutomaticReplanFailure(prepared.missionId, prepared.reason);
     return prepared;
@@ -963,25 +1071,19 @@ export async function autoReplanMission(
         trigger: "replan",
       });
     } catch (error) {
-      await db.transaction(async (tx) => {
-        const [current] = await tx.select({
-          status: aiMissionsTable.status,
-          autonomyPolicy: aiMissionsTable.autonomyPolicy,
-        }).from(aiMissionsTable)
-          .where(eq(aiMissionsTable.id, missionId))
-          .for("update");
-        if (
-          current?.status === "active"
-          && jsonRecord(current.autonomyPolicy).activePlanRevision === prepared.revision
-        ) {
-          await tx.update(aiMissionsTable)
-            .set({ status: "needs_replan", updatedAt: new Date() })
-            .where(and(
-              eq(aiMissionsTable.id, missionId),
-              eq(aiMissionsTable.status, "active"),
-            ));
-        }
-      });
+      // The plan and its Goal rows are already durable and active. Do not
+      // convert a dispatch interruption into a second planning request: the
+      // normal Mission Goal reconciler will rediscover this exact revision.
+      logger.warn(
+        {
+          missionId,
+          projectId: prepared.projectId,
+          goalId: planGoal.goalId,
+          planRevision: prepared.revision,
+          errorName: error instanceof Error ? error.name : "UnknownError",
+        },
+        "Mission replan root dispatch failed; persisted work remains eligible for continuation",
+      );
       throw error;
     }
     if (run.goalId !== planGoal.goalId) {
@@ -1093,6 +1195,7 @@ export async function autoReplanMission(
 export async function reconcileAutomaticMissionReplans(
   limit = 16,
   scopeProjectId?: string,
+  replanMission: typeof autoReplanMission = autoReplanMission,
 ): Promise<number> {
   const candidates = await db
     .select({ id: aiMissionsTable.id })
@@ -1103,12 +1206,22 @@ export async function reconcileAutomaticMissionReplans(
     ))
     .orderBy(asc(aiMissionsTable.updatedAt), asc(aiMissionsTable.id))
     .limit(Math.max(1, Math.min(limit, 64)));
-  let replanned = 0;
+  let reconciled = 0;
   for (const candidate of candidates) {
-    const result = await autoReplanMission(candidate.id);
-    if (result.status === "replanned") replanned++;
+    try {
+      const result = await replanMission(candidate.id);
+      if (result.status === "replanned" || result.status === "continued") reconciled++;
+    } catch (error) {
+      logger.warn(
+        {
+          missionId: candidate.id,
+          errorName: error instanceof Error ? error.name : "UnknownError",
+        },
+        "Automatic Mission reconciliation candidate failed; continuing with the remaining batch",
+      );
+    }
   }
-  return replanned;
+  return reconciled;
 }
 
 type ApprovedMissionDispatchRun = Pick<

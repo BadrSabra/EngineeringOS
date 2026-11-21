@@ -4047,6 +4047,7 @@ export async function wakeReadyMissionGoals(
   limit = 32,
   scopeProjectId?: string,
   dependencyGoalId?: string,
+  scopeMissionId?: string,
 ): Promise<number> {
   // Sort Goals whose exact, current-plan dependencies are already terminal
   // ahead of Goals still waiting on known prerequisites. The bounded batch
@@ -4122,6 +4123,7 @@ export async function wakeReadyMissionGoals(
           )
         : undefined,
       scopeProjectId ? eq(aiGoalsTable.projectId, scopeProjectId) : undefined,
+      scopeMissionId ? eq(aiGoalsTable.missionId, scopeMissionId) : undefined,
     ))
     .orderBy(
       sql`CASE WHEN EXISTS (${unresolvedDependencies}) THEN 1 ELSE 0 END`,
@@ -4231,12 +4233,24 @@ export async function wakeReadyMissionGoals(
       return { userId: mission.userId };
     });
     if (!ready) continue;
-    const result = await runMissionGoal({
-      goalId: candidate.id,
-      userId: ready.userId,
-      trigger: "wake",
-    });
-    if (result.status === "scheduled" || result.status === "completed") woken += 1;
+    try {
+      const result = await runMissionGoal({
+        goalId: candidate.id,
+        userId: ready.userId,
+        trigger: "wake",
+      });
+      if (result.status === "scheduled" || result.status === "completed") woken += 1;
+    } catch (error) {
+      logger.warn(
+        {
+          missionId: candidate.missionId,
+          projectId: candidate.projectId,
+          goalId: candidate.id,
+          errorName: error instanceof Error ? error.name : "UnknownError",
+        },
+        "Mission Goal continuation dispatch failed; persisted Goal remains eligible for a later pass",
+      );
+    }
   }
   return woken;
 }
