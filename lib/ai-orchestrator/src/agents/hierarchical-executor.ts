@@ -735,7 +735,7 @@ export async function executeHierarchical(
     };
   }
   // A synthesis request cannot recover information when every sub-task
-  // failed, was cancelled, or exhausted its budget without returning usable
+  // failed, exhausted its budget, or returned no usable
   // text or retained source evidence. Avoid spending a second provider call
   // merely to restate that deterministic failure.
   const hasUsableSubResult = subResults.some((result) =>
