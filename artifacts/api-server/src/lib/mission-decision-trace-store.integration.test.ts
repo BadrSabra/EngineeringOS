@@ -90,6 +90,7 @@ import { reconcileApprovedMissionDecisionDispatches } from "./mission-auto-repla
 import {
   evaluateAndPersistMissionPlanOutcome,
   finalizeMissionPlanOutcome,
+  finalizeMissionPlanOutcomesAfterGoalCompletion,
   reconcilePendingMissionPlanOutcomes,
 } from "./mission-strategy-plan-outcome-store.js";
 import {
@@ -1572,6 +1573,78 @@ afterEach(async () => {
 });
 
 describe("Mission decision trace persistence", () => {
+  it("dispatches approved strategy roots immediately after the final required plan-step approval", async () => {
+    const { fixture, planRevision, approvalTrace, goalIds } =
+      await createPendingPlanApprovalFixture(["step-one", "step-two"]);
+    const dispatched: Array<{ goalId: string; executionId: string }> = [];
+
+    missionRunner.mockImplementation(async ({ goalId, userId }: { goalId: string; userId: string }) => {
+      const currentTrace = await getMissionDecisionTrace(approvalTrace.decisionId);
+      if (!currentTrace?.events.some(({ stage }) => stage === "PLAN_APPLIED")) {
+        return { status: "blocked", goalId, reason: "other_plan_steps_require_approval" };
+      }
+      const executionId = randomUUID();
+      await db.insert(aiExecutionsTable).values({
+        id: executionId,
+        projectId: fixture.projectId,
+        goalId,
+        userId,
+        idempotencyKey: `immediate-approved-decision:${executionId}`,
+        resumeTokenHash: `resume:${executionId}`,
+        request: JSON.stringify({ intent: "approved decision immediate dispatch fixture" }),
+        checkpoint: "{}",
+        attempt: 1,
+        status: "queued",
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      });
+      dispatched.push({ goalId, executionId });
+      return { status: "scheduled", goalId, executionId };
+    });
+
+    const firstApproval = await approveMissionGoal({
+      missionId: fixture.missionId,
+      goalId: goalIds[0]!,
+      userId: "test-user",
+    });
+    expect(firstApproval.status).toBe("approved");
+    expect((await getMissionDecisionTrace(approvalTrace.decisionId))?.events.map(({ stage }) => stage))
+      .toEqual(["PROPOSED", "EVALUATED", "SELECTED"]);
+
+    const secondApproval = await approveMissionGoal({
+      missionId: fixture.missionId,
+      goalId: goalIds[1]!,
+      userId: "test-user",
+    });
+    expect(secondApproval.status).toBe("approved");
+
+    const trace = await getMissionDecisionTrace(approvalTrace.decisionId);
+    expect(trace?.events.map(({ stage }) => stage))
+      .toEqual(["PROPOSED", "EVALUATED", "SELECTED", "APPROVED", "PLAN_APPLIED", "DISPATCHED"]);
+    expect(missionRunner.mock.calls.map(([input]) => (input as { goalId: string }).goalId))
+      .toEqual([goalIds[0], goalIds[1], goalIds[0]]);
+    expect(dispatched.map(({ goalId }) => goalId).sort())
+      .toEqual([...goalIds].sort());
+
+    const dispatchEvent = trace?.events.find(({ stage }) => stage === "DISPATCHED");
+    expect(dispatchEvent?.referenceId).toBeTruthy();
+    const batch = await getMissionDecisionDispatchBatch(dispatchEvent!.referenceId!);
+    expect(batch?.batch).toMatchObject({
+      decisionId: approvalTrace.decisionId,
+      projectId: fixture.projectId,
+      missionId: fixture.missionId,
+      planRevision,
+      state: "dispatched",
+      rootCount: 2,
+    });
+    expect(batch?.items.map(({ goalId, executionId }) => ({ goalId, executionId })))
+      .toEqual(expect.arrayContaining(dispatched));
+
+    const callCount = missionRunner.mock.calls.length;
+    expect(await reconcileApprovedMissionDecisionDispatches()).toBe(0);
+    expect(missionRunner.mock.calls).toHaveLength(callCount);
+  });
+
   it("waits for every required plan-step approval before recording approval and application", async () => {
     const { fixture, planRevision, approvalTrace, goalIds } = await createPendingPlanApprovalFixture(["step-one", "step-two"]);
 
@@ -1597,7 +1670,7 @@ describe("Mission decision trace persistence", () => {
     expect(secondApproval.status).toBe("approved");
     expect((await getMissionDecisionTrace(approvalTrace.decisionId))?.events.map(({ stage }) => stage))
       .toEqual(["PROPOSED", "EVALUATED", "SELECTED", "APPROVED", "PLAN_APPLIED"]);
-    expect(missionRunner).toHaveBeenCalledTimes(2);
+    expect(missionRunner).toHaveBeenCalledTimes(3);
 
     const recoveryRuns: Array<{
       goalId: string;
@@ -2110,6 +2183,52 @@ describe("Mission decision trace persistence", () => {
     expect(await db.select().from(aiMissionDecisionOutcomeSnapshotsTable)
       .where(eq(aiMissionDecisionOutcomeSnapshotsTable.outcomeId, first.snapshotId)))
       .toHaveLength(0);
+  });
+
+  it("finalizes the active Mission plan immediately after its final Goal is proven", async () => {
+    const fixture = await createPersistedEffectOutcomeFixture("ACHIEVED");
+    missionRunner.mockClear();
+
+    expect(await finalizeMissionPlanOutcomesAfterGoalCompletion(fixture.goalId)).toBe(1);
+    expect((await getMissionDecisionTrace(fixture.decisionId))?.events
+      .map(({ stage }) => stage).slice(-4))
+      .toEqual(["EXECUTED", "ACCEPTED", "VERIFIED", "EVALUATED_AFTER_EXECUTION"]);
+    expect(await finalizeMissionPlanOutcomesAfterGoalCompletion(fixture.goalId)).toBe(0);
+    expect(missionRunner).not.toHaveBeenCalled();
+  });
+
+  it("does not evaluate a Mission plan before every active Goal has completed", async () => {
+    const fixture = await createDispatchedPendingOutcomeFixture();
+
+    expect(await finalizeMissionPlanOutcomesAfterGoalCompletion(fixture.goalId)).toBe(0);
+    expect((await getMissionDecisionTrace(fixture.decisionId))?.events
+      .map(({ stage }) => stage).slice(-2))
+      .toEqual(["PLAN_APPLIED", "DISPATCHED"]);
+    expect(await db.select().from(aiMissionDecisionOutcomeSnapshotsTable)
+      .where(eq(aiMissionDecisionOutcomeSnapshotsTable.decisionId, fixture.decisionId)))
+      .toHaveLength(0);
+  });
+
+  it("does not advance the Mission lifecycle when completed Goal status lacks achieved Canonical Proof", async () => {
+    const fixture = await createPersistedEffectOutcomeFixture("NOT_ACHIEVED");
+    const completedAt = new Date(now.getTime() + 300_000);
+    // Status alone is not accepted evidence. The finalizer must reload the
+    // failed acceptance and contradicted observations before it can advance.
+    await db.update(aiGoalsTable).set({
+      status: "completed",
+      completedAt,
+      updatedAt: completedAt,
+    }).where(eq(aiGoalsTable.id, fixture.goalId));
+
+    expect(await finalizeMissionPlanOutcomesAfterGoalCompletion(fixture.goalId)).toBe(0);
+    const snapshots = await db.select({
+      outcome: aiMissionDecisionOutcomeSnapshotsTable.outcome,
+    }).from(aiMissionDecisionOutcomeSnapshotsTable)
+      .where(eq(aiMissionDecisionOutcomeSnapshotsTable.decisionId, fixture.decisionId));
+    expect(snapshots.map(({ outcome }) => outcome)).toEqual(["NOT_ACHIEVED"]);
+    expect((await getMissionDecisionTrace(fixture.decisionId))?.events
+      .map(({ stage }) => stage).slice(-2))
+      .toEqual(["PLAN_APPLIED", "DISPATCHED"]);
   });
 
   it.each(["ACHIEVED", "NOT_ACHIEVED"] as const)(

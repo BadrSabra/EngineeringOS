@@ -226,11 +226,18 @@ describe("ProjectWorkspace live snapshot refresh", () => {
 
     expect(screen.getByRole("navigation", { name: "التنقل بين أقسام مساحة المشروع" })).toBeInTheDocument();
     expect(screen.getByRole("region", { name: "محادثة المشروع" })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "عرض مؤشرات المشروع: مشروع البث" }))
+      .toHaveAttribute("href", "/metrics?projectId=project-1");
+    expect(screen.getByTestId("workspace-next-step")).toHaveTextContent("ابدأ بطلب جديد");
+    expect(screen.getByTestId("workspace-next-step-action"))
+      .toHaveAttribute("href", "#workspace-panel-agent");
     expect(screen.getByRole("region", { name: "معاينة المشروع" })).toBeInTheDocument();
     expect(screen.getByRole("complementary", { name: "العمل والثقة" })).toBeInTheDocument();
     expect(screen.getByText("أحدث 8 مهام من المصدر؛ هذه ليست قائمة شاملة.")).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "عرض جميع مهام المشروع" }))
       .toHaveAttribute("href", "/tasks?projectId=project-1");
+    expect(screen.getByRole("link", { name: "إنشاء مهمة جديدة في مشروع البث" }))
+      .toHaveAttribute("href", "/tasks?projectId=project-1&create=1");
     expect(screen.getByTestId("link-start-request-from-empty-work"))
       .toHaveAttribute("href", "#workspace-panel-agent");
     expect(screen.getByTestId("link-discuss-work-from-empty-candidate"))
@@ -531,6 +538,92 @@ describe("ProjectWorkspace live snapshot refresh", () => {
     expect(screen.queryByText("runtime-revision-stale")).not.toBeInTheDocument();
   });
 
+  it("opens a failed task from the workspace next-step recommendation", () => {
+    mocks.snapshot = {
+      ...initialSnapshot,
+      work: {
+        ...initialSnapshot.work,
+        recentTasks: [
+          {
+            id: "task-running",
+            title: "مهمة جارية",
+            status: "running",
+            verificationDecision: null,
+            updatedAt: "2026-11-11T12:01:00.000Z",
+          },
+          {
+            id: "task-failed",
+            title: "تعذر تحميل البيانات",
+            status: "failed",
+            verificationDecision: "failed",
+            updatedAt: "2026-11-11T12:00:00.000Z",
+          },
+        ],
+      },
+    } as unknown as ProjectWorkspaceSnapshot;
+
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+    });
+
+    render(
+      <QueryClientProvider client={queryClient}>
+        <ProjectWorkspace />
+      </QueryClientProvider>,
+    );
+
+    expect(screen.getByTestId("workspace-next-step")).toHaveTextContent("راجع المهمة المتعثّرة");
+    expect(screen.getByTestId("workspace-next-step")).toHaveTextContent("لن نعيد تشغيلها تلقائيًا");
+    expect(screen.getByTestId("workspace-next-step-action"))
+      .toHaveAttribute("href", "/tasks?projectId=project-1&taskId=task-failed");
+  });
+
+  it("routes pending candidate review to its summary rather than the Preview gate", () => {
+    mocks.snapshot = {
+      ...initialSnapshot,
+      work: {
+        ...initialSnapshot.work,
+        candidate: {
+          proposalId: "proposal-review-1",
+          status: "pending",
+          lifecycle: "proposed",
+          revision: 1,
+          approvalRequired: true,
+          operationId: "operation-review-1",
+          baseRevision: "base-review-1",
+          candidateTreeHash: "tree-review-1",
+          changeSetHash: "changes-review-1",
+          createdAt: "2026-11-11T12:00:00.000Z",
+        },
+      },
+    } as unknown as ProjectWorkspaceSnapshot;
+
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+    });
+
+    render(
+      <QueryClientProvider client={queryClient}>
+        <ProjectWorkspace />
+      </QueryClientProvider>,
+    );
+
+    expect(screen.getByTestId("workspace-next-step")).toHaveTextContent(
+      "راجع ملخص النسخة المقترحة",
+    );
+    expect(screen.getByTestId("workspace-next-step-action")).toHaveAttribute(
+      "href",
+      "#workspace-candidate-summary",
+    );
+    expect(document.getElementById("workspace-candidate-summary")).toHaveTextContent(
+      "الموافقة مطلوبة",
+    );
+    expect(screen.getByTestId("workspace-next-step-action")).not.toHaveAttribute(
+      "href",
+      "#workspace-panel-canvas",
+    );
+  });
+
 });
 
 
@@ -560,6 +653,14 @@ describe("Workspace task cards", () => {
       dependsOn: ["task-upstream"],
       acceptance: { attempt: 2 },
     };
+    mocks.taskDetails["task-upstream"] = {
+      id: "task-upstream",
+      projectId: "project-1",
+      title: "تهيئة قاعدة البيانات",
+      status: "completed",
+      correlationId: null,
+      updatedAt,
+    };
     mocks.taskLogsFetching["task-accepted"] = true;
 
     const queryClient = new QueryClient({
@@ -577,12 +678,86 @@ describe("Workspace task cards", () => {
     expect(screen.getByTestId("workspace-task-attempt-task-accepted")).toHaveTextContent("2");
     expect(screen.getByTestId("workspace-task-task-accepted"))
       .toHaveTextContent("محاولة قبول مسجلة في سجل المهمة.");
-    expect(screen.getByTestId("workspace-task-dependencies-task-accepted")).toHaveTextContent("task-upstream");
-    expect(screen.getByRole("link", { name: "فتح المهمة المعتمَد عليها: task-upstream" }))
+    expect(screen.getByTestId("workspace-task-dependencies-task-accepted")).toHaveTextContent("تهيئة قاعدة البيانات");
+    expect(screen.getByTestId("workspace-task-dependencies-task-accepted")).not.toHaveTextContent("task-upstream");
+    expect(screen.getByRole("link", { name: "فتح المهمة المعتمَد عليها: تهيئة قاعدة البيانات" }))
       .toHaveAttribute("href", "/tasks?projectId=project-1&taskId=task-upstream");
     expect(screen.getByRole("link", { name: "فتح تفاصيل المهمة: مهمة مرتبطة بقبول" }))
       .toHaveAttribute("href", "/tasks?projectId=project-1&taskId=task-accepted");
     expect(screen.queryByTestId("link-workspace-task-chat-task-accepted")).not.toBeInTheDocument();
+  });
+
+  it.each([
+    {
+      state: "غير متاح",
+      title: "عنوان غير متاح",
+      details: undefined,
+    },
+    {
+      state: "من مشروع آخر",
+      title: "عنوان لا يخص هذا المشروع",
+      details: {
+        id: "task-upstream",
+        projectId: "project-other",
+        title: "عنوان لا يخص هذا المشروع",
+        status: "completed",
+        correlationId: null,
+        updatedAt: "2026-11-11T12:00:00.000Z",
+      },
+    },
+    {
+      state: "بمعرّف آخر",
+      title: "عنوان لمهمة أخرى",
+      details: {
+        id: "task-other",
+        projectId: "project-1",
+        title: "عنوان لمهمة أخرى",
+        status: "completed",
+        correlationId: null,
+        updatedAt: "2026-11-11T12:00:00.000Z",
+      },
+    },
+  ])("keeps a dependency ID when its details are $state", ({ title, details }) => {
+    const updatedAt = "2026-11-11T12:00:00.000Z";
+    mocks.snapshot = {
+      ...initialSnapshot,
+      work: {
+        ...initialSnapshot.work,
+        recentTasks: [{
+          id: "task-with-dependency",
+          title: "المهمة التابعة",
+          status: "completed",
+          verificationDecision: null,
+          updatedAt,
+        }],
+      },
+    } as unknown as ProjectWorkspaceSnapshot;
+    mocks.taskDetails["task-with-dependency"] = {
+      id: "task-with-dependency",
+      projectId: "project-1",
+      title: "المهمة التابعة",
+      status: "completed",
+      correlationId: null,
+      updatedAt,
+      dependsOn: ["task-upstream"],
+    };
+    if (details) mocks.taskDetails["task-upstream"] = details;
+
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+    });
+
+    render(
+      <QueryClientProvider client={queryClient}>
+        <ProjectWorkspace />
+      </QueryClientProvider>,
+    );
+
+    const dependencies = screen.getByTestId("workspace-task-dependencies-task-with-dependency");
+    expect(dependencies).toHaveTextContent("task-upstream");
+    expect(dependencies).not.toHaveTextContent(title);
+    expect(screen.getByRole("link", { name: "فتح المهمة المعتمَد عليها: task-upstream" }))
+      .toHaveAttribute("href", "/tasks?projectId=project-1&taskId=task-upstream");
   });
 
   it("uses the execution attempt only when the execution is linked to the same task and correlation", () => {
@@ -1184,5 +1359,44 @@ describe("Workspace execution detail identity", () => {
 
     expect(screen.getByText(/تعذر مطابقة تفاصيل التنفيذ/)).toBeInTheDocument();
     expect(screen.queryByTestId("workspace-execution-projection")).not.toBeInTheDocument();
+  });
+});
+
+describe("Workspace project navigation", () => {
+  it("opens the current project's details without returning to the project list", () => {
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+    });
+
+    render(
+      <QueryClientProvider client={queryClient}>
+        <ProjectWorkspace />
+      </QueryClientProvider>,
+    );
+
+    expect(screen.getByTestId("link-project-details-from-workspace")).toHaveAttribute(
+      "href",
+      "/projects/project-1",
+    );
+    expect(screen.getByRole("link", { name: "فتح تفاصيل المشروع: مشروع البث" }))
+      .toBeInTheDocument();
+  });
+  it("opens this project's workflows directly from its Workspace", () => {
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+    });
+
+    render(
+      <QueryClientProvider client={queryClient}>
+        <ProjectWorkspace />
+      </QueryClientProvider>,
+    );
+
+    const workflowsLink = screen.getByTestId("link-project-workflows");
+    expect(workflowsLink).toHaveAttribute(
+      "href",
+      "/workflows?projectId=project-1",
+    );
+    expect(workflowsLink).toHaveAccessibleName("فتح مسارات العمل لمشروع مشروع البث");
   });
 });

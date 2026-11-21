@@ -116,6 +116,81 @@ describe("GitHub connector push", () => {
     }
   });
 
+  it("uploads changed blobs with bounded concurrency and preserves tree order", async () => {
+    const rootPath = await mkdtemp(path.join(tmpdir(), "engineeringos-github-batch-"));
+    const filePaths = Array.from({ length: 8 }, (_value, index) => `file-${index}.ts`);
+    try {
+      await git(rootPath, ["init", "-q"]);
+      for (const filePath of filePaths) {
+        await writeFile(path.join(rootPath, filePath), `before ${filePath}\n`);
+      }
+      await git(rootPath, ["add", "."]);
+      await git(rootPath, [
+        "-c", "user.name=Fixture", "-c", "user.email=fixture@example.com",
+        "commit", "-qm", "initial",
+      ]);
+      const parentHash = (await git(rootPath, ["rev-parse", "HEAD"])).stdout.trim();
+      for (const filePath of filePaths) {
+        await writeFile(path.join(rootPath, filePath), `after ${filePath}\n`);
+      }
+      await git(rootPath, ["add", "."]);
+      await git(rootPath, [
+        "-c", "user.name=Fixture", "-c", "user.email=fixture@example.com",
+        "commit", "-qm", "verified multi-file change",
+      ]);
+      const commitHash = (await git(rootPath, ["rev-parse", "HEAD"])).stdout.trim();
+
+      let activeUploads = 0;
+      let maxActiveUploads = 0;
+      let blobCount = 0;
+      let treePaths: string[] = [];
+      const request = async (
+        requestPath: string,
+        init: { method?: string; body?: string } = {},
+      ): Promise<Record<string, unknown>> => {
+        const body = init.body ? JSON.parse(init.body) as Record<string, unknown> : undefined;
+        if (requestPath.endsWith("/git/ref/heads/main")) {
+          return { object: { sha: parentHash } };
+        }
+        if (requestPath.endsWith(`/git/commits/${parentHash}`)) {
+          return { tree: { sha: "base-tree" } };
+        }
+        if (requestPath.endsWith("/git/blobs")) {
+          activeUploads++;
+          maxActiveUploads = Math.max(maxActiveUploads, activeUploads);
+          await new Promise((resolve) => setTimeout(resolve, 10));
+          activeUploads--;
+          blobCount++;
+          return { sha: `blob-${blobCount}` };
+        }
+        if (requestPath.endsWith("/git/trees")) {
+          treePaths = ((body?.tree as Array<{ path: string }>) ?? []).map((entry) => entry.path);
+          return { sha: "new-tree" };
+        }
+        if (requestPath.endsWith("/git/commits")) return { sha: "remote-commit" };
+        if (requestPath.endsWith("/git/refs/heads/main")) return {};
+        throw new Error(`unexpected GitHub path: ${requestPath}`);
+      };
+
+      const result = await pushLocalCommitToGitHub({
+        rootPath,
+        remote: { owner: "acme", repo: "flight-deck" },
+        branch: "main",
+        commitHash,
+        message: "verified multi-file change",
+        request,
+      });
+
+      expect(result.remoteCommitHash).toBe("remote-commit");
+      expect(blobCount).toBe(filePaths.length);
+      expect(maxActiveUploads).toBeGreaterThan(1);
+      expect(maxActiveUploads).toBeLessThanOrEqual(4);
+      expect(treePaths).toEqual(filePaths);
+    } finally {
+      await rm(rootPath, { recursive: true, force: true });
+    }
+  });
+
   it("fails closed when the remote branch moved past the verified parent", async () => {
     const rootPath = await mkdtemp(path.join(tmpdir(), "engineeringos-github-drift-"));
     try {

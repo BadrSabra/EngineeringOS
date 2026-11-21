@@ -3,6 +3,7 @@ import { Sidebar } from './Sidebar';
 import { Menu } from 'lucide-react';
 import { useLocation } from 'wouter';
 import { getNavigationPageLabel } from './navigation';
+import { QuickNavigation } from './QuickNavigation';
 
 export function Shell({ children }: { children: React.ReactNode }) {
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
@@ -108,6 +109,7 @@ export function Shell({ children }: { children: React.ReactNode }) {
             >
               <Menu className="h-4 w-4" />
             </button>
+            <QuickNavigation />
             <nav aria-label="موقعك الحالي" className="min-w-0 truncate text-sm">
               <span dir="ltr" className="text-muted-foreground">EngineeringOS</span>
               <span aria-hidden="true" className="px-2 text-muted-foreground/60">/</span>

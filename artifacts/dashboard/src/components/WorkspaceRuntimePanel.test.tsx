@@ -1,7 +1,20 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { readGoalDrafts, storeHomeGoalDraft } from '@/lib/home-goal-handoff';
 import WorkspaceRuntimePanel from './WorkspaceRuntimePanel';
+
+const assistantMocks = vi.hoisted(() => ({
+  setLocation: vi.fn(),
+}));
+
+vi.mock('@clerk/react', () => ({
+  useUser: () => ({ isLoaded: true, user: { id: 'owner-a' } }),
+}));
+
+vi.mock('wouter', () => ({
+  useLocation: () => ['/projects/project-1', assistantMocks.setLocation],
+}));
 
 const projectId = 'project-1';
 type RuntimeStatus = 'running' | 'starting' | 'stopped' | 'failed';
@@ -57,6 +70,8 @@ function response(snapshot: unknown) {
 }
 
 beforeEach(() => {
+  vi.clearAllMocks();
+  window.sessionStorage.clear();
   runtimeByProject = {
     [projectId]: runtimeSnapshot('running', projectId),
     'project-2': runtimeSnapshot('running', 'project-2'),
@@ -88,6 +103,7 @@ describe('WorkspaceRuntimePanel', () => {
     renderPanel();
 
     expect(await screen.findByText('قيد التشغيل')).toBeInTheDocument();
+    expect(screen.queryByTestId('button-runtime-assistant-handoff')).not.toBeInTheDocument();
     expect(screen.getByRole('heading', { name: 'تشغيل المشروع' })).toBeInTheDocument();
     expect(screen.getByText('pnpm run dev')).toHaveAttribute('dir', 'ltr');
     expect(screen.getByText('revision-a1b2')).toHaveAttribute('dir', 'ltr');
@@ -185,5 +201,39 @@ describe('WorkspaceRuntimePanel', () => {
     expect(
       await screen.findByText('تعذّر تحميل حالة تشغيل المشروع. حدّث المشروع وحاول مرة أخرى.'),
     ).toBeInTheDocument();
+  });
+
+  it('opens the project assistant with status context but no raw error or runtime logs', async () => {
+    runtimeByProject[projectId] = {
+      ...runtimeSnapshot('failed'),
+      error: 'private provider-token diagnostic',
+      logs: ['secret=runtime-token-value'],
+    };
+
+    renderPanel();
+    fireEvent.click(await screen.findByTestId('button-runtime-assistant-handoff'));
+
+    const draft = readGoalDrafts('owner-a').drafts[0];
+    expect(draft).toMatchObject({ projectId, source: 'home' });
+    expect(draft.text).toContain('الحالة المسجلة «تعذّر التشغيل»');
+    expect(draft.text).not.toContain('private provider-token diagnostic');
+    expect(draft.text).not.toContain('runtime-token-value');
+    expect(assistantMocks.setLocation).toHaveBeenCalledWith(
+      `/projects/project-1/workspace?goalDraftId=${draft.id}#workspace-panel-agent`,
+    );
+  });
+
+  it('stays on the runtime panel when the assistant draft cannot be saved', async () => {
+    for (let index = 0; index < 8; index += 1) {
+      expect(storeHomeGoalDraft(`هدف ${index}`, 'owner-a')).not.toBeNull();
+    }
+    runtimeByProject[projectId] = runtimeSnapshot('failed');
+
+    renderPanel();
+    fireEvent.click(await screen.findByTestId('button-runtime-assistant-handoff'));
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('تعذر حفظ سياق المعاينة.');
+    expect(assistantMocks.setLocation).not.toHaveBeenCalled();
+    expect(readGoalDrafts('owner-a').drafts).toHaveLength(8);
   });
 });

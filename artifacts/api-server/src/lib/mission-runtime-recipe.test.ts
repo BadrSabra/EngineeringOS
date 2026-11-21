@@ -30,6 +30,7 @@ import { getProjectWorldState } from "./agent-state/world-state.js";
 import { taskScopeIdentity } from "./agent-state/observation-materializer.js";
 import { buildExecutionProofProjection } from "./execution-proof.js";
 import { dispatchMissionChatHandoff } from "./mission-chat-handoffs.js";
+import * as missionAutoReplanModule from "./mission-auto-replan.js";
 
 const { recipeRunner, githubDeliveryRunner } = vi.hoisted(() => ({
   recipeRunner: vi.fn(),
@@ -63,6 +64,7 @@ import {
   dispatchPendingMissionRecipes,
   reconcileCompletedMissionRecipeAcceptances,
   runMissionGoal,
+  syncRecipeObjectiveState,
   wakeReadyMissionGoals,
 } from "./mission-runtime.js";
 
@@ -454,6 +456,59 @@ async function createQueuedMissionRecipeFixture(label: string): Promise<QueuedMi
 
 
 describe("Mission recipe dispatch", () => {
+  it("filters queued non-recipe Goal executions before applying the recovery page limit", async () => {
+    const fixture = await createQueuedMissionRecipeFixture("recipe-page-filter");
+    const nonRecipeGoalId = randomUUID();
+    const nonRecipeExecutionId = randomUUID();
+    const earlierAt = new Date(Date.now() - 60_000);
+
+    await db.insert(aiGoalsTable).values({
+      id: nonRecipeGoalId,
+      missionId: fixture.missionId,
+      projectId: fixture.projectId,
+      title: "A Task Goal that is not a Recipe recovery candidate",
+      status: "running",
+      outcomeContract: { deliveryRequired: false },
+      nextAction: { kind: "task" },
+      createdAt: earlierAt,
+      updatedAt: earlierAt,
+    });
+    await db.insert(aiExecutionsTable).values({
+      id: nonRecipeExecutionId,
+      projectId: fixture.projectId,
+      goalId: nonRecipeGoalId,
+      userId: "test-user",
+      idempotencyKey: `non-recipe-task:${nonRecipeExecutionId}`,
+      resumeTokenHash: `non-recipe-task-token:${nonRecipeExecutionId}`,
+      request: JSON.stringify({
+        projectId: fixture.projectId,
+        missionId: fixture.missionId,
+        goalId: nonRecipeGoalId,
+        message: "Task execution; not a recipe operation",
+      }),
+      checkpoint: "{}",
+      status: "queued",
+      createdAt: earlierAt,
+      updatedAt: earlierAt,
+    });
+
+    const queuedExecutionIds: string[] = [];
+    const queueSpy = vi.spyOn(heavyJobQueue, "enqueueWithId")
+      .mockImplementation((executionId) => {
+        queuedExecutionIds.push(executionId);
+        return true;
+      });
+    try {
+      // A page of one must still contain the older valid Recipe execution.
+      expect(await dispatchPendingMissionRecipes(1, fixture.projectId)).toBe(1);
+    } finally {
+      queueSpy.mockRestore();
+    }
+
+    expect(queuedExecutionIds).toEqual([fixture.executionId]);
+    expect(queuedExecutionIds).not.toContain(nonRecipeExecutionId);
+  });
+
   it("does not cancel or block a queued replay when another worker claims it before preflight", async () => {
     const fixture = await createQueuedMissionRecipeFixture("preflight-owner-race");
     const queuedJobs: Array<() => Promise<void>> = [];
@@ -529,6 +584,230 @@ describe("Mission recipe dispatch", () => {
     });
   });
 
+
+  it("immediately replans an autonomous Mission after a committed Recipe failure", async () => {
+    const fixture = await createQueuedMissionRecipeFixture("immediate-replan-after-failure");
+    const [missionBefore] = await db.select({
+      autonomyPolicy: aiMissionsTable.autonomyPolicy,
+    }).from(aiMissionsTable).where(eq(aiMissionsTable.id, fixture.missionId));
+    const priorPolicy = missionBefore?.autonomyPolicy
+      && typeof missionBefore.autonomyPolicy === "object"
+      && !Array.isArray(missionBefore.autonomyPolicy)
+      ? missionBefore.autonomyPolicy as Record<string, unknown>
+      : {};
+    await db.update(aiMissionsTable).set({
+      autonomyPolicy: {
+        ...priorPolicy,
+        mode: "autonomous",
+        maxAutoReplans: 2,
+      },
+    }).where(eq(aiMissionsTable.id, fixture.missionId));
+
+    const queuedJobs: Array<() => Promise<void>> = [];
+    vi.spyOn(heavyJobQueue, "enqueueWithId").mockImplementation((_id, job) => {
+      queuedJobs.push(job);
+      return true;
+    });
+    recipeRunner.mockRejectedValueOnce(new Error("synthetic_recipe_execution_failure"));
+
+    const committedStates: Array<{
+      missionStatus: string | undefined;
+      goalStatus: string | undefined;
+    }> = [];
+    const replanSpy = vi.spyOn(missionAutoReplanModule, "autoReplanMission")
+      .mockImplementation(async (missionId) => {
+        const [mission] = await db.select({ status: aiMissionsTable.status })
+          .from(aiMissionsTable).where(eq(aiMissionsTable.id, missionId));
+        const [goal] = await db.select({ status: aiGoalsTable.status })
+          .from(aiGoalsTable).where(eq(aiGoalsTable.id, fixture.goalId));
+        committedStates.push({
+          missionStatus: mission?.status,
+          goalStatus: goal?.status,
+        });
+        return { status: "skipped" as const, missionId, reason: "test_observed_committed_recipe_failure" };
+      });
+
+    expect(await dispatchPendingMissionRecipes(32, fixture.projectId)).toBe(1);
+    expect(queuedJobs).toHaveLength(1);
+    await queuedJobs[0]!();
+
+    expect(recipeRunner).toHaveBeenCalledOnce();
+    expect(replanSpy).toHaveBeenCalledOnce();
+    expect(replanSpy).toHaveBeenCalledWith(fixture.missionId);
+    expect(committedStates).toEqual([{
+      missionStatus: "needs_replan",
+      goalStatus: "needs_replan",
+    }]);
+  });
+
+  it("prioritizes a ready Mission Goal and ignores historical dependency edges", async () => {
+    const rootPath = await createTestRoot("ready-goal-fairness");
+    const projectId = randomUUID();
+    const missionId = randomUUID();
+    const blockedGoalId = randomUUID();
+    const incompleteDependencyGoalId = randomUUID();
+    const readyGoalId = randomUUID();
+    const blockedTaskId = randomUUID();
+    const readyTaskId = randomUUID();
+    const historicalDependencyGoalId = randomUUID();
+    const planRevision = createHash("sha256").update(randomUUID()).digest("hex");
+    const historicalPlanRevision = `previous:${planRevision}`;
+    const now = new Date();
+    const older = new Date(now.getTime() - 60_000);
+    projectIds.push(projectId);
+
+    await db.insert(projectsTable).values({
+      id: projectId,
+      ownerId: "test-user",
+      name: `ready-goal-fairness-${projectId.slice(0, 8)}`,
+      rootPath,
+      language: "typescript",
+      status: "active",
+      createdAt: older,
+      updatedAt: now,
+    });
+    await db.insert(aiMissionsTable).values({
+      id: missionId,
+      projectId,
+      userId: "test-user",
+      title: "Fair Mission Goal scheduling",
+      intent: "Dispatch ready work without waiting behind blocked work",
+      status: "active",
+      scope: { kind: "project", projectId },
+      autonomyPolicy: { activePlanRevision: planRevision },
+      createdAt: older,
+      updatedAt: now,
+    });
+    await db.insert(aiGoalsTable).values([
+      {
+        id: historicalDependencyGoalId,
+        missionId,
+        projectId,
+        title: "Historical prerequisite from an older plan",
+        status: "completed",
+        successCriteria: {
+          stepId: "historical-prerequisite",
+          planRevision: { hash: historicalPlanRevision },
+        },
+        outcomeContract: { planRevision: { hash: historicalPlanRevision } },
+        createdAt: older,
+        updatedAt: older,
+      },
+      {
+        id: incompleteDependencyGoalId,
+        missionId,
+        projectId,
+        title: "Prerequisite still running",
+        status: "running",
+        successCriteria: {
+          stepId: "unfinished-prerequisite",
+          planRevision: { hash: planRevision },
+        },
+        outcomeContract: { planRevision: { hash: planRevision } },
+        createdAt: older,
+        updatedAt: older,
+      },
+      {
+        id: blockedGoalId,
+        missionId,
+        projectId,
+        title: "Older dependent Goal",
+        status: "waiting_for_event",
+        blockedReason: "dependencies_pending",
+        successCriteria: {
+          stepId: "blocked-dependent",
+          planRevision: { hash: planRevision },
+        },
+        outcomeContract: { planRevision: { hash: planRevision } },
+        nextAction: { kind: "task", taskId: blockedTaskId },
+        createdAt: older,
+        updatedAt: older,
+      },
+      {
+        id: readyGoalId,
+        missionId,
+        projectId,
+        title: "Newly ready root Goal",
+        status: "queued",
+        blockedReason: null,
+        successCriteria: {
+          kind: "mission_plan_step",
+          stepId: "ready-root",
+          planRevision: { hash: planRevision },
+        },
+        outcomeContract: { planRevision: { hash: planRevision } },
+        nextAction: { kind: "task", taskId: readyTaskId },
+        createdAt: now,
+        updatedAt: now,
+      },
+    ]);
+    await db.insert(tasksTable).values([
+      {
+        id: blockedTaskId,
+        projectId,
+        goalId: blockedGoalId,
+        title: "Blocked Task",
+        status: "verifying",
+        prompt: "Wait until the prerequisite is proven.",
+        createdAt: older,
+        updatedAt: older,
+      },
+      {
+        id: readyTaskId,
+        projectId,
+        goalId: readyGoalId,
+        title: "Ready Task",
+        status: "verifying",
+        prompt: "Start the eligible root Task.",
+        createdAt: now,
+        updatedAt: now,
+      },
+    ]);
+    await db.insert(aiGoalDependenciesTable).values([
+      {
+        id: randomUUID(),
+        missionId,
+        projectId,
+        goalId: blockedGoalId,
+        dependsOnGoalId: incompleteDependencyGoalId,
+        planRevision,
+        createdAt: older,
+      },
+      {
+        id: randomUUID(),
+        missionId,
+        projectId,
+        goalId: readyGoalId,
+        dependsOnGoalId: historicalDependencyGoalId,
+        planRevision: historicalPlanRevision,
+        createdAt: older,
+      },
+    ]);
+
+    expect(await wakeReadyMissionGoals(1, projectId)).toBe(1);
+    expect(scheduleTaskExecution).toHaveBeenCalledOnce();
+    expect(scheduleTaskExecution).toHaveBeenCalledWith(
+      readyTaskId,
+      "test-user",
+      expect.any(Object),
+      0,
+      null,
+    );
+
+    const [blockedGoal] = await db.select({
+      status: aiGoalsTable.status,
+      blockedReason: aiGoalsTable.blockedReason,
+    }).from(aiGoalsTable).where(eq(aiGoalsTable.id, blockedGoalId));
+    const [readyGoal] = await db.select({
+      status: aiGoalsTable.status,
+      blockedReason: aiGoalsTable.blockedReason,
+    }).from(aiGoalsTable).where(eq(aiGoalsTable.id, readyGoalId));
+    expect(blockedGoal).toEqual({
+      status: "waiting_for_event",
+      blockedReason: "dependencies_pending",
+    });
+    expect(readyGoal).toEqual({ status: "running", blockedReason: null });
+  });
 
   it("releases a dependent Goal only after the GitHub delivery proof is current", async () => {
     const rootPath = await createTestRoot("delivery-successor");
@@ -675,8 +954,8 @@ describe("Mission recipe dispatch", () => {
     );
     await seedMissionRecipeEpisode(proofParams, executionId, planRevision);
     const deliveryReceipt = {
-      kind: "recipe",
-      status: "completed",
+      kind: "recipe" as const,
+      status: "completed" as const,
       executionId,
       attempt: 0,
       operationId,
@@ -684,32 +963,38 @@ describe("Mission recipe dispatch", () => {
       candidateTreeHash: "a".repeat(64),
       treeHash: "b".repeat(64),
     };
-    await db.update(aiGoalsTable)
-      .set({
-        status: "completed",
-        completedAt: new Date(),
-        outcomeContract: {
-          deliveryRequired: true,
-          planRevision: { hash: planRevision },
-          acceptance: {
-            executionId,
-            outcome: "SUCCEEDED",
-            verdict: "PROVEN",
-            acceptedRefs: [executionId],
-            scope: {
-              projectId,
-              missionId,
-              goalId: deliveryGoalId,
-              operationId,
-              planRevision,
-            },
-            receipt: { kind: "recipe", executionId, status: "completed" },
-            deliveryReceipt,
-          },
-        },
-        updatedAt: new Date(),
+    await syncRecipeObjectiveState({
+      projectId,
+      missionId,
+      goalId: deliveryGoalId,
+      userId: "test-user",
+      operationId,
+      idempotencyKey: `delivery-proof:${operationId}`,
+      executionId,
+      expectedExecutionId: executionId,
+      expectedAttempt: 0,
+      attempt: 0,
+      sourceRevision,
+      candidateIdentity: null,
+      status: "completed",
+      deliveryReceipt,
+    });
+    expect(scheduleTaskExecution).toHaveBeenCalledOnce();
+    expect(scheduleTaskExecution).toHaveBeenCalledWith(
+      successorTaskId,
+      "test-user",
+      expect.any(Object),
+      0,
+      null,
+    );
+    [successor] = await db
+      .select({
+        status: aiGoalsTable.status,
+        blockedReason: aiGoalsTable.blockedReason,
       })
-      .where(eq(aiGoalsTable.id, deliveryGoalId));
+      .from(aiGoalsTable)
+      .where(eq(aiGoalsTable.id, successorGoalId));
+    expect(successor).toEqual({ status: "running", blockedReason: null });
 
     const foreignProjectId = randomUUID();
     const foreignMissionId = randomUUID();
@@ -779,7 +1064,7 @@ describe("Mission recipe dispatch", () => {
       createdAt: now,
     });
 
-    expect(await wakeReadyMissionGoals(32, projectId)).toBe(1);
+    expect(await wakeReadyMissionGoals(32, projectId)).toBe(0);
     expect(scheduleTaskExecution).toHaveBeenCalledOnce();
     expect(scheduleTaskExecution).toHaveBeenCalledWith(
       successorTaskId,
@@ -1547,6 +1832,121 @@ describe("Mission recipe dispatch", () => {
       .from(aiGoalsTable)
       .where(eq(aiGoalsTable.id, goalId));
     expect(goal?.status).toBe("running");
+  });
+
+  it("recovers active-plan activation and manual roots without dispatching stale revisions", async () => {
+    const projectId = randomUUID();
+    const missionId = randomUUID();
+    const planRevision = createHash("sha256").update(randomUUID()).digest("hex");
+    const activationGoalId = randomUUID();
+    const manualGoalId = randomUUID();
+    const staleGoalId = randomUUID();
+    const activationTaskId = randomUUID();
+    const manualTaskId = randomUUID();
+    const staleTaskId = randomUUID();
+    const now = new Date();
+    projectIds.push(projectId);
+
+    await db.insert(projectsTable).values({
+      id: projectId,
+      ownerId: "test-user",
+      name: `mission-plan-root-recovery-${projectId.slice(0, 8)}`,
+      rootPath: `/tmp/mission-plan-root-recovery-${projectId}`,
+      language: "typescript",
+      status: "active",
+      createdAt: now,
+      updatedAt: now,
+    });
+    await db.insert(aiMissionsTable).values({
+      id: missionId,
+      projectId,
+      userId: "test-user",
+      title: "Recover active-plan roots",
+      intent: "Continue queued root work after a lost process dispatch",
+      status: "active",
+      scope: { kind: "project", projectId },
+      autonomyPolicy: { activePlanRevision: planRevision },
+      createdAt: now,
+      updatedAt: now,
+    });
+    const roots = [
+      {
+        id: activationGoalId,
+        title: "Activation root",
+        kind: "mission_plan_step",
+        revision: planRevision,
+        taskId: activationTaskId,
+      },
+      {
+        id: manualGoalId,
+        title: "Manual root",
+        kind: "mission_manual_step",
+        revision: planRevision,
+        taskId: manualTaskId,
+      },
+      {
+        id: staleGoalId,
+        title: "Stale manual root",
+        kind: "mission_manual_step",
+        revision: `stale-${planRevision}`,
+        taskId: staleTaskId,
+      },
+    ] as const;
+    await db.insert(aiGoalsTable).values(roots.map((root) => ({
+      id: root.id,
+      missionId,
+      projectId,
+      title: root.title,
+      status: "queued" as const,
+      successCriteria: {
+        kind: root.kind,
+        stepId: root.id,
+        planRevision: { hash: root.revision },
+      },
+      outcomeContract: { planRevision: { hash: root.revision } },
+      nextAction: { kind: "task", taskId: root.taskId },
+      createdAt: now,
+      updatedAt: now,
+    })));
+    await db.insert(tasksTable).values(roots.map((root) => ({
+      id: root.taskId,
+      projectId,
+      goalId: root.id,
+      title: root.title,
+      prompt: `Execute ${root.title}`,
+      status: "verifying" as const,
+      createdAt: now,
+      updatedAt: now,
+    })));
+
+    expect(await wakeReadyMissionGoals(32, projectId)).toBe(2);
+    expect(scheduleTaskExecution).toHaveBeenCalledTimes(2);
+    expect(scheduleTaskExecution).toHaveBeenCalledWith(
+      activationTaskId,
+      "test-user",
+      expect.objectContaining({ parentExecutionId: null }),
+      0,
+      null,
+    );
+    expect(scheduleTaskExecution).toHaveBeenCalledWith(
+      manualTaskId,
+      "test-user",
+      expect.objectContaining({ parentExecutionId: null }),
+      0,
+      null,
+    );
+    const [activationGoal] = await db.select({ status: aiGoalsTable.status })
+      .from(aiGoalsTable).where(eq(aiGoalsTable.id, activationGoalId));
+    const [manualGoal] = await db.select({ status: aiGoalsTable.status })
+      .from(aiGoalsTable).where(eq(aiGoalsTable.id, manualGoalId));
+    const [staleGoal] = await db.select({ status: aiGoalsTable.status })
+      .from(aiGoalsTable).where(eq(aiGoalsTable.id, staleGoalId));
+    expect(activationGoal?.status).toBe("running");
+    expect(manualGoal?.status).toBe("running");
+    expect(staleGoal?.status).toBe("queued");
+
+    expect(await wakeReadyMissionGoals(32, projectId)).toBe(0);
+    expect(scheduleTaskExecution).toHaveBeenCalledTimes(2);
   });
 
   it("reconstructs queued GitHub delivery after restart without duplicating execution", async () => {

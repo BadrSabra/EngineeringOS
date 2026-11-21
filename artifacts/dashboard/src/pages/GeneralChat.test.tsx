@@ -311,7 +311,7 @@ describe('Arabic conversation feedback boundaries', () => {
     expect(mocks.create).not.toHaveBeenCalled();
   });
 
-  it('filters saved conversation titles and lets the user clear an empty result', () => {
+  it('clears matching and empty conversation searches without changing the active chat', () => {
     mocks.sessions.data = [
       mocks.session,
       { id: 'session-2', title: 'تحليل الخيار الأول', updatedAt: '2026-10-15T10:00:00Z' },
@@ -331,14 +331,27 @@ describe('Arabic conversation feedback boundaries', () => {
     expect(mocks.remove).not.toHaveBeenCalled();
     expect(mocks.create).not.toHaveBeenCalled();
 
+    fireEvent.click(screen.getByTestId('button-clear-general-session-search'));
+    expect(search).toHaveValue('');
+    expect(search).toHaveFocus();
+    expect(screen.getByTestId('button-select-general-session-session-1')).toBeInTheDocument();
+    expect(screen.getByTestId('button-select-general-session-session-2')).toBeInTheDocument();
+    expect(screen.getByTestId('button-select-general-session-session-3')).toBeInTheDocument();
+
     fireEvent.change(search, { target: { value: 'عنوان غير موجود' } });
     expect(screen.getByTestId('status-general-session-search-empty')).toHaveTextContent(
       'لا توجد عناوين تطابق البحث',
     );
     fireEvent.click(screen.getByTestId('button-clear-general-session-search'));
+    expect(search).toHaveValue('');
+    expect(search).toHaveFocus();
     expect(screen.getByTestId('button-select-general-session-session-1')).toBeInTheDocument();
     expect(screen.getByTestId('button-select-general-session-session-2')).toBeInTheDocument();
     expect(screen.getByTestId('button-select-general-session-session-3')).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'نقاش المشروع' })).toBeInTheDocument();
+    expect(mocks.remove).not.toHaveBeenCalled();
+    expect(mocks.create).not.toHaveBeenCalled();
+    expect(mocks.send).not.toHaveBeenCalled();
   });
 
   it('keeps a home handoff separate from the latest session until the user creates a new conversation', () => {

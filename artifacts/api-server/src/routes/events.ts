@@ -38,7 +38,19 @@ router.get("/events", async (req, res) => {
   // restrictive database predicates.
   const correlationIdFilter = typeof req.query.correlationId === "string" ? req.query.correlationId.trim() || undefined : undefined;
   const typeFilter = typeof req.query.type === "string" ? req.query.type.trim() || undefined : undefined;
-  const severityFilter = typeof req.query.severity === "string" ? req.query.severity : undefined;
+  const rawSeverityFilter = typeof req.query.severity === "string"
+    ? req.query.severity.trim() || undefined
+    : undefined;
+  const allowedSeverities = ["info", "warning", "error", "success"] as const;
+  if (
+    rawSeverityFilter
+    && !allowedSeverities.some((severity) => severity === rawSeverityFilter)
+  ) {
+    return res.status(400).json({
+      error: "severity must be one of: info, warning, error, success",
+    });
+  }
+  const severityFilter = rawSeverityFilter as typeof allowedSeverities[number] | undefined;
   const searchFilter = typeof req.query.search === "string" ? req.query.search.trim() || undefined : undefined;
 
   const projectId =
@@ -64,7 +76,7 @@ router.get("/events", async (req, res) => {
   if (typeFilter) conditions.push(eq(eventsTable.type, typeFilter));
   if (correlationIdFilter)
     conditions.push(eq(eventsTable.correlationId, correlationIdFilter));
-  if (severityFilter) conditions.push(eq(eventsTable.severity, severityFilter as "info" | "warning" | "error" | "success"));
+  if (severityFilter) conditions.push(eq(eventsTable.severity, severityFilter));
   if (searchFilter) {
     const pattern = `%${searchFilter}%`;
     conditions.push(

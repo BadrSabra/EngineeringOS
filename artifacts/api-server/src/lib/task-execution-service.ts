@@ -26,6 +26,7 @@ import {
   db,
 } from "@workspace/db";
 import {
+  GoalNextActionSchema,
   buildProjectContext,
   executeTask,
   invalidateContextCache,
@@ -62,11 +63,14 @@ import {
 } from "./task-objective-contract.js";
 import {
   chatWithFallback,
+  projectProviderRecoveryDetails,
   redactUserFacingText,
   runAgentWithFallback,
 } from "./ai-route-helpers.js";
 import type { ProviderId } from "./ai-route-helpers.js";
 import { logger } from "./logger.js";
+import { finalizeMissionPlanOutcomesAfterGoalCompletion } from "./mission-strategy-plan-outcome-store.js";
+import { resolveTaskRecoveryDecision } from "./task-recovery-decision.js";
 import {
   getTaskDependencyBlockers,
   type TaskDependencyBlocker,
@@ -203,6 +207,7 @@ type MissionTaskAdmission =
       allowed: false;
       errorCode:
         | "mission_goal_not_found"
+        | "mission_goal_action_mismatch"
         | "mission_goal_not_executable"
         | "mission_plan_revision_stale"
         | "mission_dependencies_pending"
@@ -212,7 +217,7 @@ type MissionTaskAdmission =
 
 async function inspectMissionTaskAdmission(
   tx: TaskExecutionTransaction,
-  input: { goalId: string; projectId: string; userId: string },
+  input: { goalId: string; taskId: string; projectId: string; userId: string },
 ): Promise<MissionTaskAdmission> {
   const [goalIdentity] = await tx
     .select({ missionId: aiGoalsTable.missionId })
@@ -245,6 +250,17 @@ async function inspectMissionTaskAdmission(
     ))
     .for("update");
   if (!goal) return { allowed: false, errorCode: "mission_goal_not_found" };
+
+  // The Goal action is the server-owned dispatch contract. A Mission, plan,
+  // and dependency match cannot authorize a different Task or action family.
+  const declaredAction = GoalNextActionSchema.safeParse(goal.nextAction);
+  if (
+    !declaredAction.success
+    || declaredAction.data.kind !== "task"
+    || declaredAction.data.taskId !== input.taskId
+  ) {
+    return { allowed: false, errorCode: "mission_goal_action_mismatch" };
+  }
 
   if (
     mission.status === "blocked"
@@ -436,6 +452,8 @@ export type AiTaskExecutionReceipt = {
   stateProjection?: MissionStateProjection;
   failureClass?: AiTaskFailureClass;
   retryable?: boolean;
+  availabilityState?: string;
+  operatorAction?: string;
 };
 
 export type MissionStateProjection = {
@@ -605,6 +623,12 @@ function boundedReceipt(receiptValue: AiTaskExecutionReceipt): AiTaskExecutionRe
           : {}),
       },
     } : {}),
+    ...(receiptValue.availabilityState
+      ? { availabilityState: safeText(receiptValue.availabilityState, 80) }
+      : {}),
+    ...(receiptValue.operatorAction
+      ? { operatorAction: safeText(receiptValue.operatorAction, 240) }
+      : {}),
     terminalReason: safeText(receiptValue.terminalReason, 240),
   };
   // Keep this envelope bounded even if future fields are added to the contract.
@@ -744,7 +768,7 @@ export function buildAiTaskExecutionReceipt(params: {
   };
 }
 
-function failureReceipt(params: {
+export function buildAiTaskExecutionFailureReceipt(params: {
   executionId: string;
   correlationId: string;
   revision?: string;
@@ -757,8 +781,14 @@ function failureReceipt(params: {
   retryable: boolean;
   cancelled?: boolean;
   executionProfile?: MissionExecutionProfile;
+  error?: unknown;
 }): AiTaskExecutionReceipt {
   const cancelled = Boolean(params.cancelled);
+  const providerRecovery = !cancelled
+    && params.failureClass === "provider"
+    && params.error instanceof GroqClientError
+    ? projectProviderRecoveryDetails(params.error, params.provider)
+    : undefined;
   return boundedReceipt({
     kind: "AI_TASK_EXECUTION_RECEIPT",
     operationId: params.executionId,
@@ -776,6 +806,7 @@ function failureReceipt(params: {
     ...(params.executionProfile ? { executionProfile: params.executionProfile } : {}),
     failureClass: params.failureClass,
     retryable: params.retryable,
+    ...(providerRecovery ? providerRecovery : {}),
   });
 }
 
@@ -975,11 +1006,26 @@ async function finalizeTaskExecutionAcceptance(params: {
   retryAfterSource?: "provider" | "local_adaptive" | "adaptive_default" | "local_admission";
   rateLimitScope?: "upstream_shared_pool" | "provider_credential" | "account_quota" | "unknown";
 }): Promise<{ accepted: boolean; duplicate: boolean }> {
+  const recoveryDecision = params.outcome === "SUCCEEDED"
+    ? undefined
+    : resolveTaskRecoveryDecision({
+        code: params.receipt.terminalReason,
+        reasonCode: params.reasonCode,
+        failureClass: params.receipt.failureClass,
+        retryable: params.retryable,
+        cancelled: params.outcome === "INTERRUPTED" || params.terminalStatus === "cancelled",
+      });
+  const receipt = recoveryDecision
+    ? { ...params.receipt, recoveryDecision }
+    : params.receipt;
+  const logMetadata = recoveryDecision
+    ? { ...(params.logMetadata ?? {}), recoveryDecision }
+    : params.logMetadata;
   const taskFinalization: TaskExecutionFinalization = {
     taskId: params.task.id,
     workerId: params.workerId,
     status: params.finalStatus,
-    agentResponse: JSON.stringify(params.receipt),
+    agentResponse: JSON.stringify(receipt),
     remediationPlan: markRemediationPlanVerified(
       params.task.remediationPlan,
       false,
@@ -993,7 +1039,7 @@ async function finalizeTaskExecutionAcceptance(params: {
     log: {
       level: params.logLevel,
       message: params.logMessage,
-      metadata: params.logMetadata,
+      metadata: logMetadata,
     },
     event: {
       type: params.outcome === "SUCCEEDED"
@@ -1018,6 +1064,7 @@ async function finalizeTaskExecutionAcceptance(params: {
         terminalReason: params.receipt.terminalReason,
         trigger: params.trigger,
         retryable: params.retryable,
+        ...(recoveryDecision ? { recoveryDecision } : {}),
       },
     },
     audit: {
@@ -1032,6 +1079,7 @@ async function finalizeTaskExecutionAcceptance(params: {
         revision: params.receipt.revision,
         terminalStatus: params.receipt.terminalStatus,
         terminalReason: params.receipt.terminalReason,
+        ...(recoveryDecision ? { recoveryDecision } : {}),
       },
     },
   };
@@ -1086,12 +1134,26 @@ async function finalizeTaskExecutionAcceptance(params: {
       .from(tasksTable)
       .where(eq(tasksTable.id, params.task.id))
       .limit(1);
-    return {
-      accepted: finalized.accepted
-        && projectedTask?.status === params.finalStatus
-        && projectedTask.workerId === null,
-      duplicate: true,
-    };
+    const accepted = finalized.accepted
+      && projectedTask?.status === params.finalStatus
+      && projectedTask.workerId === null;
+    if (
+      accepted
+      && params.outcome === "SUCCEEDED"
+      && params.finalStatus === "completed"
+      && params.task.goalId
+    ) {
+      await finalizeMissionPlanOutcomesAfterGoalCompletion(params.task.goalId);
+    }
+    return { accepted, duplicate: true };
+  }
+  if (
+    finalized.accepted
+    && params.outcome === "SUCCEEDED"
+    && params.finalStatus === "completed"
+    && params.task.goalId
+  ) {
+    await finalizeMissionPlanOutcomesAfterGoalCompletion(params.task.goalId);
   }
   return { accepted: finalized.accepted, duplicate: false };
 }
@@ -4423,6 +4485,7 @@ export async function executeTaskLifecycle(params: {
   if (missionGoal) {
     const admission = await db.transaction((tx) => inspectMissionTaskAdmission(tx, {
       goalId: missionGoal.id,
+      taskId: before.id,
       projectId: before.projectId,
       userId: params.userId,
     }));
@@ -4594,6 +4657,7 @@ export async function executeTaskLifecycle(params: {
       if (missionGoal) {
         const admission = await inspectMissionTaskAdmission(tx, {
           goalId: missionGoal.id,
+          taskId: before.id,
           projectId: before.projectId,
           userId: params.userId,
         });
@@ -4623,9 +4687,10 @@ export async function executeTaskLifecycle(params: {
         return { kind: "conflict" as const, errorCode: "task_state_changed" };
       }
 
-      // Revalidate dependencies at the final execution claim, not just when an
-      // outbox intent is written. This also fences already-enqueued closures
-      // and direct lifecycle callers from starting out of order.
+      // Revalidate dependencies at the final execution claim. A durable Outbox
+      // intent is only a request to retry, not authorization; this also fences
+      // already-enqueued closures and direct lifecycle callers from starting
+      // out of order.
       const dependencyBlockers = await getTaskDependencyBlockers(tx, lockedTask);
       if (dependencyBlockers.length > 0) {
         return {
@@ -5014,7 +5079,7 @@ export async function executeTaskLifecycle(params: {
     },
   });
   if (!initialCheckpointed) {
-    const failure = failureReceipt({
+    const failure = buildAiTaskExecutionFailureReceipt({
       executionId,
       correlationId,
       revision: executionRevision,
@@ -5241,7 +5306,7 @@ export async function executeTaskLifecycle(params: {
       await progress.start("analysis", "Analyzing the model response.", 64, 5);
       await progress.finish("analysis", "failed", "The model response could not be accepted.", 68, 5);
       await progress.start("finalization", "Recording the failed execution.", 84, 7);
-      const parseReceipt = failureReceipt({
+      const parseReceipt = buildAiTaskExecutionFailureReceipt({
         executionId, correlationId, revision: executionRevision,
         provider: effectiveProvider, attempt: executionAttempt,
         durationMs: Date.now() - startedAt, stages, code: "model_output_invalid",
@@ -5296,7 +5361,7 @@ export async function executeTaskLifecycle(params: {
       await progress.finish("verification", "failed", "The result did not pass the quality gate.", 80, 6);
       await progress.start("finalization", "Recording the failed execution.", 84, 7);
       const quality = result._qualityError;
-      const qualityReceipt = failureReceipt({
+      const qualityReceipt = buildAiTaskExecutionFailureReceipt({
         executionId,
         correlationId,
         revision: executionRevision,
@@ -5539,7 +5604,7 @@ export async function executeTaskLifecycle(params: {
     const cancelled = executionAbortController.signal.aborted
       || (error instanceof Error && error.name === "AbortError");
     const classification = classifyTaskExecutionFailure({ stage, cancelled, error });
-    const failure = failureReceipt({
+    const failure = buildAiTaskExecutionFailureReceipt({
       executionId, correlationId, revision: executionRevision,
       provider: executionProvider, attempt: executionAttempt,
       durationMs: Date.now() - startedAt,
@@ -5548,6 +5613,7 @@ export async function executeTaskLifecycle(params: {
       failureClass: classification.failureClass,
       retryable: classification.retryable,
       cancelled,
+      error,
     });
     const message = safeText(classification.code, 120);
     await progress.finish(

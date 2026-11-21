@@ -1,12 +1,20 @@
 import { fireEvent, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import Dashboard from "./Dashboard";
-import { readGoalDrafts } from "../lib/home-goal-handoff";
-vi.mock('@clerk/react', () => ({ useUser: () => ({ user: { id: 'user-1' } }) }));
+import { readGoalDrafts, storeHomeGoalDraft } from "../lib/home-goal-handoff";
+import { readHomeGoalComposer, saveHomeGoalComposer } from "../lib/home-goal-composer";
 
-const { mockSetLocation } = vi.hoisted(() => ({
+const { mockSetLocation, mockIdentity } = vi.hoisted(() => ({
   mockSetLocation: vi.fn(),
+  mockIdentity: { userId: 'user-1' },
+}));
+
+vi.mock('@clerk/react', () => ({
+  useUser: () => ({
+    isLoaded: true,
+    user: mockIdentity.userId ? { id: mockIdentity.userId } : null,
+  }),
 }));
 
 vi.mock("wouter", () => ({
@@ -75,6 +83,7 @@ const dashboard = {
 beforeEach(() => {
   vi.clearAllMocks();
   mockSetLocation.mockReset();
+  mockIdentity.userId = 'user-1';
   window.sessionStorage.clear();
   vi.mocked(useGetDashboard).mockReturnValue({
     data: dashboard,
@@ -119,6 +128,10 @@ beforeEach(() => {
   } as ReturnType<typeof useListProjects>);
 });
 
+afterEach(() => {
+  vi.restoreAllMocks();
+});
+
 describe("Dashboard goal-first home", () => {
   it("copies an editable goal example without submitting or choosing a project", () => {
     render(<Dashboard />);
@@ -137,8 +150,109 @@ describe("Dashboard goal-first home", () => {
     expect(screen.queryByTestId("panel-goal-destination")).not.toBeInTheDocument();
     expect(screen.queryByTestId("group-home-goal-examples")).not.toBeInTheDocument();
 
+    expect(mockSetLocation).not.toHaveBeenCalled();
+    expect(readGoalDrafts("user-1").drafts).toHaveLength(0);
+  });
+
+  it("restores an unfinished goal after revisiting without choosing scope or sending it", () => {
+    const text = "أريد فهم سبب بطء مشروعي قبل اقتراح أي تعديل";
+    saveHomeGoalComposer("user-1", text);
+
+    const firstView = render(<Dashboard />);
+    expect(screen.getByTestId("input-home-goal")).toHaveValue(text);
+    expect(screen.getByTestId("status-home-goal-saved")).toHaveTextContent("لن تُرسل تلقائيًا");
+    expect(readGoalDrafts("user-1").drafts).toHaveLength(0);
+    expect(mockSetLocation).not.toHaveBeenCalled();
+
+    firstView.unmount();
+    render(<Dashboard />);
+
+    expect(screen.getByTestId("input-home-goal")).toHaveValue(text);
+    expect(mockSetLocation).not.toHaveBeenCalled();
+  });
+
+  it("reloads the matching draft instead of exposing another account's text", () => {
+    saveHomeGoalComposer("user-1", "مسودة الحساب الأول");
+    saveHomeGoalComposer("user-2", "مسودة الحساب الثاني");
+    const view = render(<Dashboard />);
+
+    expect(screen.getByTestId("input-home-goal")).toHaveValue("مسودة الحساب الأول");
+
+    mockIdentity.userId = "user-2";
+    view.rerender(<Dashboard />);
+
+    expect(screen.getByTestId("input-home-goal")).toHaveValue("مسودة الحساب الثاني");
+  });
+
+  it("clears the temporary composer copy only after creating the explicit handoff", () => {
+    const text = "اشرح لي خيارات التخزين المؤقت";
+    saveHomeGoalComposer("user-1", text);
+    vi.mocked(useListProjects).mockReturnValue({
+      data: [
+        { id: 'project-1', name: 'بوابة العملاء', status: 'active', ownerId: 'user-1' },
+        { id: 'project-2', name: 'لوحة الإدارة', status: 'active', ownerId: 'user-1' },
+      ],
+      isLoading: false,
+      isError: false,
+      refetch: vi.fn(),
+    } as ReturnType<typeof useListProjects>);
+    render(<Dashboard />);
+
     fireEvent.click(screen.getByTestId("button-start-goal"));
-    expect(screen.getByTestId("panel-goal-destination")).toBeInTheDocument();
+    expect(mockSetLocation).not.toHaveBeenCalled();
+    expect(readHomeGoalComposer("user-1").text).toBe(text);
+
+    fireEvent.click(screen.getByTestId("button-route-goal-general"));
+
+    expect(readHomeGoalComposer("user-1")).toEqual({ text: "", status: null });
+    expect(readGoalDrafts("user-1").drafts).toMatchObject([
+      { text, projectId: null, sendAttemptedAt: null },
+    ]);
+    expect(mockSetLocation).toHaveBeenCalled();
+  });
+
+  it("keeps the composer draft when the handoff copy cannot be created", () => {
+    const storedDrafts = [];
+    for (let index = 0; index < 8; index += 1) {
+      storedDrafts.push(storeHomeGoalDraft(`هدف محفوظ ${index}`, "user-1"));
+    }
+    expect(storedDrafts.every(Boolean)).toBe(true);
+    expect(readGoalDrafts("user-1").drafts).toHaveLength(8);
+    const text = "احتفظ بهذا الهدف إذا تعذر نقله";
+    saveHomeGoalComposer("user-1", text);
+    expect(readHomeGoalComposer("user-1")).toEqual({ text, status: "saved" });
+    vi.mocked(useListProjects).mockReturnValue({
+      data: [
+        { id: 'project-1', name: 'بوابة العملاء', status: 'active', ownerId: 'user-1' },
+        { id: 'project-2', name: 'لوحة الإدارة', status: 'active', ownerId: 'user-1' },
+      ],
+      isLoading: false,
+      isError: false,
+      refetch: vi.fn(),
+    } as ReturnType<typeof useListProjects>);
+    render(<Dashboard />);
+
+    fireEvent.click(screen.getByTestId("button-start-goal"));
+    fireEvent.click(screen.getByTestId("button-route-goal-general"));
+
+    expect(readGoalDrafts("user-1").drafts).toHaveLength(8);
+    expect(readHomeGoalComposer("user-1")).toEqual({ text, status: "saved" });
+    expect(screen.getByTestId("status-home-goal-error")).toHaveTextContent("تعذر نقل المسودة");
+    expect(mockSetLocation).not.toHaveBeenCalled();
+  });
+
+  it("keeps the goal editable and warns when temporary storage is unavailable", () => {
+    vi.spyOn(Storage.prototype, "setItem").mockImplementation(() => {
+      throw new DOMException("Storage is unavailable", "QuotaExceededError");
+    });
+    render(<Dashboard />);
+
+    fireEvent.change(screen.getByTestId("input-home-goal"), {
+      target: { value: "هذا النص يظل قابلًا للتحرير" },
+    });
+
+    expect(screen.getByTestId("input-home-goal")).toHaveValue("هذا النص يظل قابلًا للتحرير");
+    expect(screen.getByTestId("status-home-goal-save-error")).toHaveTextContent("انسخ نصك");
     expect(mockSetLocation).not.toHaveBeenCalled();
   });
 
@@ -248,12 +362,15 @@ describe("Dashboard goal-first home", () => {
     expect(draft.projectId).toBeNull();
   });
 
-  it('asks for a destination when no project name is present, then routes an explicit general choice', () => {
+  it('keeps an explicit general-chat choice when the only project does not match the goal', () => {
     render(<Dashboard />);
     fireEvent.change(screen.getByTestId('input-home-goal'), { target: { value: 'اشرح لي خيارات التخزين المؤقت' } });
-    fireEvent.click(screen.getByTestId('button-start-goal'));
 
     expect(mockSetLocation).not.toHaveBeenCalled();
+    expect(screen.getByTestId('button-start-goal')).toHaveAccessibleName(
+      'متابعة إلى مشروع بوابة العملاء',
+    );
+    fireEvent.click(screen.getByTestId('button-choose-goal-destination'));
     expect(screen.getByTestId('panel-goal-destination')).toBeInTheDocument();
     fireEvent.click(screen.getByTestId('button-route-goal-general'));
 
@@ -281,18 +398,17 @@ describe("Dashboard goal-first home", () => {
     expect(mockSetLocation).toHaveBeenCalledWith(`/general-chat?goalDraftId=${draft.id}`);
   });
 
-  it('offers a one-click explicit handoff for the sole project without assuming scope', () => {
+  it('offers a one-click, clearly named handoff for the only project', () => {
     render(<Dashboard />);
     fireEvent.change(screen.getByTestId('input-home-goal'), { target: { value: 'ساعدني على فهم التخزين المؤقت' } });
-    fireEvent.click(screen.getByTestId('button-start-goal'));
 
     expect(mockSetLocation).not.toHaveBeenCalled();
-    expect(screen.getByTestId('panel-goal-destination')).toHaveTextContent('يمكنك اختيار مشروعك الوحيد للمتابعة');
-    expect(screen.getByTestId('text-only-goal-project')).toHaveTextContent('بوابة العملاء');
-    expect(screen.queryByTestId('select-goal-project')).not.toBeInTheDocument();
+    expect(screen.getByTestId('button-start-goal')).toHaveAccessibleName(
+      'متابعة إلى مشروع بوابة العملاء',
+    );
     expect(readGoalDrafts('user-1').drafts).toHaveLength(0);
 
-    fireEvent.click(screen.getByTestId('button-route-goal-only-project'));
+    fireEvent.click(screen.getByTestId('button-start-goal'));
 
     const [draft] = readGoalDrafts('user-1').drafts;
     expect(draft).toMatchObject({
@@ -345,6 +461,52 @@ describe("Dashboard goal-first home", () => {
     expect(mockSetLocation).toHaveBeenCalledWith(`/projects/project-2/workspace?goalDraftId=${draft.id}`);
   });
 
+  it('offers an advisory from project context and requires an explicit choice', () => {
+    vi.mocked(useListProjects).mockReturnValue({
+      data: [
+        {
+          id: 'project-1',
+          name: 'متجر زهرة',
+          description: 'تسجيل دخول آمن وإدارة حسابات العملاء',
+          language: 'TypeScript',
+          framework: 'Next.js',
+          status: 'active',
+          ownerId: 'user-1',
+        },
+      ],
+      isLoading: false,
+      isError: false,
+      refetch: vi.fn(),
+    } as ReturnType<typeof useListProjects>);
+    render(<Dashboard />);
+
+    fireEvent.change(screen.getByTestId('input-home-goal'), {
+      target: { value: 'أريد تحسين تسجيل الدخول الآمن وحسابات العملاء' },
+    });
+    fireEvent.click(screen.getByTestId('button-start-goal'));
+
+    expect(screen.getByTestId('panel-goal-destination')).toHaveTextContent(
+      'لم يظهر اسم مشروع كامل؛ راجع أسباب هذه الاقتراحات.',
+    );
+    expect(screen.getByTestId('text-goal-project-candidate-reason-project-1')).toHaveTextContent(
+      'تطابقت كلمات',
+    );
+    expect(screen.getByTestId('text-goal-project-candidate-reason-project-1')).toHaveTextContent(
+      'وصف المشروع أو تقنياته المسجلة',
+    );
+    expect(mockSetLocation).not.toHaveBeenCalled();
+    expect(readGoalDrafts('user-1').drafts).toHaveLength(0);
+
+    fireEvent.click(screen.getByTestId('button-route-goal-candidate-project-1'));
+    const [draft] = readGoalDrafts('user-1').drafts;
+    expect(draft).toMatchObject({
+      text: 'أريد تحسين تسجيل الدخول الآمن وحسابات العملاء',
+      projectId: 'project-1',
+      sendAttemptedAt: null,
+    });
+    expect(mockSetLocation).toHaveBeenCalledWith(`/projects/project-1/workspace?goalDraftId=${draft.id}`);
+  });
+
   it('offers a partial-word suggestion without choosing or opening it automatically', () => {
     vi.mocked(useListProjects).mockReturnValue({
       data: [
@@ -362,7 +524,7 @@ describe("Dashboard goal-first home", () => {
     fireEvent.click(screen.getByTestId('button-start-goal'));
 
     expect(screen.getByTestId('panel-goal-destination')).toHaveTextContent(
-      'لم يظهر اسم مشروع كامل؛ قد تساعدك هذه الاقتراحات.',
+      'لم يظهر اسم مشروع كامل؛ راجع أسباب هذه الاقتراحات.',
     );
     expect(screen.getByTestId('text-goal-project-candidate-reason-project-1')).toHaveTextContent(
       '«بوابة»',
@@ -421,6 +583,13 @@ describe("Dashboard goal-first home", () => {
     render(<Dashboard />);
 
     expect(screen.getByTestId("text-completed-work-home")).toHaveTextContent("1");
+    // Completed and failed counts are single-status filters; active remains an aggregate.
+    expect(screen.getByTestId("card-completed-work-home"))
+      .toHaveAttribute("href", "/tasks?status=completed");
+    expect(screen.getByTestId("card-failed-work-home"))
+      .toHaveAttribute("href", "/tasks?status=failed");
+    expect(screen.getByTestId("card-active-work-home"))
+      .toHaveAttribute("href", "/tasks?status=active");
     expect(screen.getByText(/تفاصيل القبول والإثبات تبقى ضمن المهمة/)).toBeInTheDocument();
   });
 
@@ -447,8 +616,15 @@ describe("Dashboard goal-first home", () => {
     });
     fireEvent.click(screen.getByTestId("button-start-goal"));
 
-    expect(screen.getByTestId("panel-goal-destination")).toBeInTheDocument();
-    expect(mockSetLocation).not.toHaveBeenCalled();
+    const [draft] = readGoalDrafts("user-1").drafts;
+    expect(draft).toMatchObject({
+      text: "اشرح لي طريقة تحسين تسجيل الدخول",
+      projectId: "project-1",
+      sendAttemptedAt: null,
+    });
+    expect(mockSetLocation).toHaveBeenCalledWith(
+      `/projects/project-1/workspace?goalDraftId=${draft.id}`,
+    );
   });
 
   it("keeps goal entry available and hides stale counters when the dashboard request fails", () => {
@@ -480,7 +656,6 @@ describe("Dashboard goal-first home", () => {
       target: { value: "أريد إصلاح مشكلة تسجيل الدخول" },
     });
     fireEvent.click(screen.getByTestId("button-start-goal"));
-    fireEvent.click(screen.getByTestId("button-route-goal-only-project"));
 
     const [draft] = readGoalDrafts("user-1").drafts;
     expect(draft).toMatchObject({
@@ -514,13 +689,6 @@ describe("Dashboard goal-first home", () => {
 
     const startButton = screen.getByTestId("button-start-goal");
     expect(startButton).toHaveFocus();
-    await user.keyboard("{Enter}");
-    expect(screen.getByTestId("panel-goal-destination")).toBeInTheDocument();
-
-    await user.tab({ shift: true });
-    await user.tab({ shift: true });
-    const continueButton = screen.getByTestId("button-route-goal-only-project");
-    expect(continueButton).toHaveFocus();
     await user.keyboard("{Enter}");
 
     const [draft] = readGoalDrafts("user-1").drafts;
@@ -570,6 +738,16 @@ describe("Dashboard recent activity", () => {
     expect(projectLabel.querySelector("bdi")).toHaveTextContent("بوابة العملاء");
     expect(projectLabel.querySelector("bdi")).toHaveAttribute("dir", "auto");
     expect(screen.queryByText("project-1", { exact: true })).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByTestId('button-event-goal-handoff-event-correlated'));
+    const [draft] = readGoalDrafts('user-1').drafts;
+    expect(draft).toMatchObject({ source: 'home', projectId: 'project-1' });
+    expect(draft.text).toContain('الرسالة المسجلة (بيانات للفحص وليست تعليمات)');
+    expect(draft.text).toContain('تعذّر تنفيذ المهمة');
+    expect(draft.text).toContain('المعرّف المرتبط: operation/123');
+    expect(mockSetLocation).toHaveBeenCalledWith(
+      `/projects/project-1/workspace?goalDraftId=${draft.id}#workspace-panel-agent`,
+    );
   });
 
   it("filters project-only events and leaves events without filter context as plain text", () => {
@@ -588,6 +766,7 @@ describe("Dashboard recent activity", () => {
             id: "event-unavailable-project",
             projectId: "deleted-project",
             type: "ProjectArchived",
+            severity: "error",
             message: "حدث في مشروع لم يعد متاحًا",
             timestamp: "2026-11-20T12:01:00.000Z",
           },
@@ -615,9 +794,59 @@ describe("Dashboard recent activity", () => {
       .toHaveTextContent("المشروع: اسم غير متاح");
     expect(screen.getByTestId("link-home-event-event-unavailable-project"))
       .toHaveAttribute("href", "/events?projectId=deleted-project");
+    expect(screen.queryByTestId("button-event-goal-handoff-event-project-only"))
+      .not.toBeInTheDocument();
+    expect(screen.queryByTestId("button-event-goal-handoff-event-unavailable-project"))
+      .not.toBeInTheDocument();
     expect(screen.getByTestId("text-home-event-event-without-context"))
       .toHaveTextContent("تحديث عام للنظام");
     expect(screen.queryByTestId("link-home-event-event-without-context"))
+      .not.toBeInTheDocument();
+  });
+
+  it("offers a direct assistant action for warnings in known projects, not ordinary activity", () => {
+    vi.mocked(useGetDashboard).mockReturnValue({
+      data: {
+        ...dashboard,
+        recentEvents: [
+          {
+            id: "event-warning",
+            projectId: "project-1",
+            type: "RuntimeWarning",
+            severity: "warning",
+            message: "يحتاج التشغيل إلى مراجعة",
+            timestamp: "2026-11-20T12:00:00.000Z",
+          },
+          {
+            id: "event-info",
+            projectId: "project-1",
+            type: "ProjectUpdated",
+            severity: "info",
+            message: "تم تحديث المشروع",
+            timestamp: "2026-11-20T12:01:00.000Z",
+          },
+          {
+            id: "event-orphaned-error",
+            projectId: "deleted-project",
+            type: "TaskFailed",
+            severity: "error",
+            message: "حدث خطأ في مشروع غير متاح",
+            timestamp: "2026-11-20T12:02:00.000Z",
+          },
+        ],
+      },
+      isLoading: false,
+      error: null,
+      refetch: vi.fn(),
+      isRefetching: false,
+      dataUpdatedAt: Date.now(),
+    } as ReturnType<typeof useGetDashboard>);
+
+    render(<Dashboard />);
+
+    expect(screen.getByTestId('button-event-goal-handoff-event-warning')).toBeInTheDocument();
+    expect(screen.queryByTestId('button-event-goal-handoff-event-info')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('button-event-goal-handoff-event-orphaned-error'))
       .not.toBeInTheDocument();
   });
 });
@@ -679,7 +908,7 @@ describe("Dashboard operator alerts", () => {
     expect(screen.getByTestId("home-shadow-queue-delay")).toHaveTextContent("عمر الأقدم: —");
   });
 
-  it("shows an unresolved Runtime startup alert with its session identity", () => {
+  it("keeps Runtime alerts without a project id on the general project list", () => {
     vi.mocked(useListOperatorAlerts).mockReturnValue({
       data: {
         alerts: [{
@@ -712,6 +941,8 @@ describe("Dashboard operator alerts", () => {
     expect(within(alerts).getByText("تعثر بدء Runtime")).toBeInTheDocument();
     expect(within(alerts).getByText("runtime-session-123")).toBeInTheDocument();
     expect(within(alerts).getByText(/بقي بدء Runtime للمشروع دون حسم/)).toBeInTheDocument();
+    expect(within(alerts).getByRole("link", { name: "إدارة المشاريع" }))
+      .toHaveAttribute("href", "/projects");
   });
 
   it("shows a Groq drift alert as historical because the route is disabled", () => {
@@ -865,7 +1096,7 @@ describe("Dashboard operator alerts", () => {
     expect(within(alerts).queryByText(/نوع النموذج:/)).not.toBeInTheDocument();
   });
 
-  it("explains exhausted project usage limits in Arabic and links to projects", () => {
+  it("explains exhausted project usage limits and opens the affected project", () => {
     vi.mocked(useListOperatorAlerts).mockReturnValue({
       data: {
         alerts: [{
@@ -903,7 +1134,8 @@ describe("Dashboard operator alerts", () => {
     expect(within(alerts).getByText(/انتظر إعادة الضبط اليومية/)).toBeInTheDocument();
     expect(within(alerts).getByText("النطاق: استخدام المساعد للمشروع")).toBeInTheDocument();
     expect(within(alerts).queryByText(/نوع النموذج:/)).not.toBeInTheDocument();
-    expect(within(alerts).getByRole("link", { name: "إدارة المشاريع" })).toHaveAttribute("href", "/projects");
+    expect(within(alerts).getByRole("link", { name: "افتح المشروع المتأثر" }))
+      .toHaveAttribute("href", "/projects/project-1");
   });
 
   it("shows an Arabic retry action when alert status cannot be loaded", () => {

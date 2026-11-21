@@ -1657,6 +1657,162 @@ describe("AI missions and goals", () => {
     ))).toBe(true);
   });
 
+  it("wakes a current-plan Goal after an explicit queued Task action is patched", async () => {
+    const projectId = await insertProject();
+    const missionId = randomUUID();
+    const planRevision = `manual-patch-plan-${randomUUID()}`;
+    const now = new Date();
+    await db.insert(aiMissionsTable).values({
+      id: missionId,
+      projectId,
+      userId: "test-user",
+      title: "Patched Goal dispatch",
+      intent: "Wake the Mission runtime after an explicit current-plan Task action is queued",
+      status: "active",
+      scope: { kind: "project", projectId },
+      autonomyPolicy: { activePlanRevision: planRevision },
+      createdAt: now,
+      updatedAt: now,
+    });
+
+    const created = await request(app)
+      .post(`/api/ai/missions/${missionId}/goals`)
+      .send({
+        title: "Wait for Task binding",
+        planRevision,
+        successCriteria: { validator: "manual-patch" },
+        nextAction: { kind: "wait", reason: "event", wakeAt: null },
+      });
+    expect(created.status).toBe(201);
+    expect(created.body.status).toBe("waiting_for_event");
+
+    const cosmeticUpdate = await request(app)
+      .patch(`/api/ai/goals/${created.body.id}`)
+      .send({ title: "Wait for the exact Task binding" });
+    expect(cosmeticUpdate.status).toBe(200);
+    expect(cosmeticUpdate.body.status).toBe("waiting_for_event");
+    const beforeDispatch = await db.select({ id: eventsTable.id })
+      .from(eventsTable)
+      .where(and(
+        eq(eventsTable.goalId, created.body.id),
+        eq(eventsTable.type, "AiGoalDispatchRequested"),
+      ));
+    expect(beforeDispatch).toHaveLength(0);
+
+    const taskId = randomUUID();
+    await db.insert(tasksTable).values({
+      id: taskId,
+      projectId,
+      goalId: created.body.id,
+      title: "Execute the patched Goal action",
+      prompt: "Inspect the current project and report the bounded result.",
+      status: "verifying",
+      retryCount: 0,
+      maxRetries: 2,
+      idempotencyKey: randomUUID(),
+      createdAt: now,
+      updatedAt: now,
+    });
+
+    const patched = await request(app)
+      .patch(`/api/ai/goals/${created.body.id}`)
+      .send({
+        status: "queued",
+        nextAction: { kind: "task", taskId, purpose: "execution" },
+      });
+    expect(patched.status).toBe(200);
+
+    const dispatches = await db.select().from(eventsTable)
+      .where(and(
+        eq(eventsTable.goalId, created.body.id),
+        eq(eventsTable.type, "AiGoalDispatchRequested"),
+      ));
+    expect(dispatches).toHaveLength(1);
+    expect(dispatches[0]).toMatchObject({
+      taskId,
+      payload: { trigger: "resume", action: "task" },
+    });
+  });
+
+  it("auto-starts a manual root only when it is bound to the current active plan", async () => {
+    const projectId = await insertProject();
+    const missionId = randomUUID();
+    const planRevision = `manual-plan-${randomUUID()}`;
+    const now = new Date();
+    await db.insert(aiMissionsTable).values({
+      id: missionId,
+      projectId,
+      userId: "test-user",
+      title: "Manual root dispatch",
+      intent: "Run an explicitly plan-bound root without a separate start action",
+      status: "active",
+      scope: { kind: "project", projectId },
+      autonomyPolicy: { activePlanRevision: planRevision },
+      createdAt: now,
+      updatedAt: now,
+    });
+
+    const activeRoot = await request(app)
+      .post(`/api/ai/missions/${missionId}/goals`)
+      .send({
+        title: "Wait for the external prerequisite",
+        planRevision,
+        successCriteria: { validator: "manual-root" },
+        nextAction: { kind: "wait", reason: "event", wakeAt: null },
+      });
+    expect(activeRoot.status).toBe(201);
+    const [activeRootRow] = await db.select().from(aiGoalsTable)
+      .where(eq(aiGoalsTable.id, activeRoot.body.id));
+    expect(activeRootRow).toMatchObject({
+      status: "waiting_for_event",
+      successCriteria: { validator: "manual-root", kind: "mission_manual_step" },
+      outcomeContract: { planRevision: { hash: planRevision } },
+    });
+    const activeRootStarts = await db.select().from(eventsTable).where(and(
+      eq(eventsTable.goalId, activeRoot.body.id),
+      eq(eventsTable.type, "MissionGoalStartDispatched"),
+    ));
+    expect(activeRootStarts).toHaveLength(1);
+    expect(activeRootStarts[0]?.payload).toMatchObject({
+      missionId,
+      goalId: activeRoot.body.id,
+      planRevision,
+      runStatus: "waiting",
+    });
+
+    const staleRoot = await request(app)
+      .post(`/api/ai/missions/${missionId}/goals`)
+      .send({
+        title: "Do not run a stale-plan Goal",
+        planRevision: `stale-${planRevision}`,
+        nextAction: { kind: "wait", reason: "event", wakeAt: null },
+      });
+    expect(staleRoot.status).toBe(201);
+    const [staleRootRow] = await db.select().from(aiGoalsTable)
+      .where(eq(aiGoalsTable.id, staleRoot.body.id));
+    expect(staleRootRow?.status).toBe("queued");
+    expect((staleRootRow?.successCriteria as Record<string, unknown>).kind)
+      .not.toBe("mission_manual_step");
+    const staleRootStarts = await db.select({ id: eventsTable.id }).from(eventsTable).where(and(
+      eq(eventsTable.goalId, staleRoot.body.id),
+      eq(eventsTable.type, "MissionGoalStartDispatched"),
+    ));
+    expect(staleRootStarts).toHaveLength(0);
+
+    const unconfiguredRoot = await request(app)
+      .post(`/api/ai/missions/${missionId}/goals`)
+      .send({
+        title: "Do not auto-dispatch an unconfigured Goal",
+        planRevision,
+      });
+    expect(unconfiguredRoot.status).toBe(201);
+    const [unconfiguredRootRow] = await db.select().from(aiGoalsTable)
+      .where(eq(aiGoalsTable.id, unconfiguredRoot.body.id));
+    expect(unconfiguredRootRow?.status).toBe("queued");
+    expect((unconfiguredRootRow?.successCriteria as Record<string, unknown>).kind)
+      .not.toBe("mission_manual_step");
+  });
+
   it("persists revision-bound goal dependencies and rejects cycles", async () => {
     const projectId = await insertProject();
     const mission = await request(app).post("/api/ai/missions").send({
@@ -7918,6 +8074,83 @@ describe("AI missions and goals", () => {
     expect(handoffEvents).toHaveLength(0);
   });
 
+  it("wakes a current-plan Goal after an explicit queued Task action is patched", async () => {
+    const projectId = await insertProject();
+    const missionId = randomUUID();
+    const planRevision = `manual-patch-plan-${randomUUID()}`;
+    const now = new Date();
+    await db.insert(aiMissionsTable).values({
+      id: missionId,
+      projectId,
+      userId: "test-user",
+      title: "Patched Goal dispatch",
+      intent: "Wake the Mission runtime after an explicit current-plan Task action is queued",
+      status: "active",
+      scope: { kind: "project", projectId },
+      autonomyPolicy: { activePlanRevision: planRevision },
+      createdAt: now,
+      updatedAt: now,
+    });
+
+    const created = await request(app)
+      .post(`/api/ai/missions/${missionId}/goals`)
+      .send({
+        title: "Wait for Task binding",
+        planRevision,
+        successCriteria: { validator: "manual-patch" },
+        nextAction: { kind: "wait", reason: "event", wakeAt: null },
+      });
+    expect(created.status).toBe(201);
+    expect(created.body.status).toBe("waiting_for_event");
+
+    const cosmeticUpdate = await request(app)
+      .patch(`/api/ai/goals/${created.body.id}`)
+      .send({ title: "Wait for the exact Task binding" });
+    expect(cosmeticUpdate.status).toBe(200);
+    expect(cosmeticUpdate.body.status).toBe("waiting_for_event");
+    const beforeDispatch = await db.select({ id: eventsTable.id })
+      .from(eventsTable)
+      .where(and(
+        eq(eventsTable.goalId, created.body.id),
+        eq(eventsTable.type, "AiGoalDispatchRequested"),
+      ));
+    expect(beforeDispatch).toHaveLength(0);
+
+    const taskId = randomUUID();
+    await db.insert(tasksTable).values({
+      id: taskId,
+      projectId,
+      goalId: created.body.id,
+      title: "Execute the patched Goal action",
+      prompt: "Inspect the current project and report the bounded result.",
+      status: "verifying",
+      retryCount: 0,
+      maxRetries: 2,
+      idempotencyKey: randomUUID(),
+      createdAt: now,
+      updatedAt: now,
+    });
+
+    const patched = await request(app)
+      .patch(`/api/ai/goals/${created.body.id}`)
+      .send({
+        status: "queued",
+        nextAction: { kind: "task", taskId, purpose: "execution" },
+      });
+    expect(patched.status).toBe(200);
+
+    const dispatches = await db.select().from(eventsTable)
+      .where(and(
+        eq(eventsTable.goalId, created.body.id),
+        eq(eventsTable.type, "AiGoalDispatchRequested"),
+      ));
+    expect(dispatches).toHaveLength(1);
+    expect(dispatches[0]).toMatchObject({
+      taskId,
+      payload: { trigger: "resume", action: "task" },
+    });
+  });
+
   it("keeps the server-owned active plan revision unchanged through Mission PATCH", async () => {
     const projectId = await insertProject();
     const created = await request(app).post("/api/ai/missions").send({
@@ -7946,6 +8179,74 @@ describe("AI missions and goals", () => {
     expect(mission?.autonomyPolicy).toMatchObject({
       activePlanRevision: "server-plan-v1",
     });
+  });
+
+  it("wakes only the dependent Mission Goals after proof-gated PATCH completion", async () => {
+    const projectId = await insertProject();
+    const mission = await request(app).post("/api/ai/missions").send({
+      projectId,
+      title: "Patch completion wake",
+      intent: "Wake the next Mission step without waiting for periodic reconciliation",
+    });
+    expect(mission.status).toBe(201);
+    const missionId = mission.body.id as string;
+    const planRevision = `patch-completion-wake-${randomUUID()}`;
+    await db.update(aiMissionsTable)
+      .set({
+        status: "active",
+        autonomyPolicy: { activePlanRevision: planRevision },
+      })
+      .where(eq(aiMissionsTable.id, missionId));
+
+    const prerequisite = await request(app)
+      .post(`/api/ai/missions/${missionId}/goals`)
+      .send({
+        title: "Proven prerequisite",
+        planRevision,
+        successCriteria: { objective: "Complete with Canonical Proof" },
+        nextAction: { kind: "wait", reason: "event", wakeAt: null },
+      });
+    expect(prerequisite.status).toBe(201);
+
+    const dependent = await request(app)
+      .post(`/api/ai/missions/${missionId}/goals`)
+      .send({
+        title: "Dependent successor",
+        planRevision,
+        dependsOnGoalIds: [prerequisite.body.id],
+        successCriteria: { objective: "Wait for the prerequisite proof" },
+        nextAction: { kind: "wait", reason: "event", wakeAt: null },
+      });
+    expect(dependent.status).toBe(201);
+    const [beforeWake] = await db.select({ status: aiGoalsTable.status })
+      .from(aiGoalsTable)
+      .where(eq(aiGoalsTable.id, dependent.body.id));
+    expect(beforeWake?.status).toBe("queued");
+
+    await seedCanonicalMissionGoalCompletion({
+      projectId,
+      missionId,
+      goalId: prerequisite.body.id,
+      planRevision,
+    });
+    // Preserve the canonical acceptance/evidence while making the HTTP PATCH
+    // perform the status transition that should emit the post-commit wake.
+    await db.update(aiGoalsTable)
+      .set({ status: "queued", completedAt: null })
+      .where(eq(aiGoalsTable.id, prerequisite.body.id));
+
+    const completed = await request(app)
+      .patch(`/api/ai/goals/${prerequisite.body.id}`)
+      .send({ status: "completed" });
+
+    expect(completed.status).toBe(200);
+    expect(completed.body.status).toBe("completed");
+    const [afterWake] = await db.select({ status: aiGoalsTable.status })
+      .from(aiGoalsTable)
+      .where(eq(aiGoalsTable.id, dependent.body.id));
+    // The successor's wait action is entered immediately; no provider or
+    // external effect is dispatched by this wake.
+    expect(afterWake?.status).toBe("waiting_for_event");
   });
 
   it("rolls back Goal edits when the resulting completed Goal has no Canonical Proof", async () => {

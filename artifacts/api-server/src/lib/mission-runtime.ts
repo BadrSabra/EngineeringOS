@@ -2,6 +2,7 @@ import { execFile } from "node:child_process";
 import { createHash, randomUUID } from "node:crypto";
 import { realpath } from "node:fs/promises";
 import { isDeepStrictEqual, promisify } from "node:util";
+import { alias } from "drizzle-orm/pg-core";
 import {
   and,
   desc,
@@ -92,6 +93,7 @@ import {
 import { resolveMissionLineage } from "./mission-lineage.js";
 import { getLifecycleWorkerScopeProjectId } from "./worker-scope.js";
 import { databaseNow } from "./job-lease.js";
+import { finalizeMissionPlanOutcomesAfterGoalCompletion } from "./mission-strategy-plan-outcome-store.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -110,6 +112,7 @@ export type MissionGoalRunResult = {
 const ACTIVE_EXECUTION_STATUSES = ["queued", "running", "paused", "cancelling"] as const;
 const RECIPE_EXECUTION_STATUSES = ["queued", "running", "paused", "cancelling"] as const;
 const MISSION_EXTERNAL_EVENT_TYPE = "AiMissionExternalEventReceived";
+const MISSION_GOAL_APPROVAL_CONSUMED_EVENT_TYPE = "MissionGoalApprovalDispatchConsumed";
 type RecipeGoalAction = Extract<GoalNextAction, { kind: "recipe" }>;
 type MissionTransaction = Parameters<Parameters<typeof db.transaction>[0]>[0];
 export type GoalDependencyState = {
@@ -1555,7 +1558,7 @@ async function loadRecipeCandidate(
   };
 }
 
-async function syncRecipeObjectiveState(params: {
+export async function syncRecipeObjectiveState(params: {
   goalId: string;
   missionId: string;
   projectId: string;
@@ -1586,6 +1589,8 @@ async function syncRecipeObjectiveState(params: {
     proposalId?: string | null;
   };
 }): Promise<void> {
+  let wakeIntentId: string | null = null;
+  let immediateReplanMissionId: string | null = null;
   await db.transaction(async (tx) => {
     const [mission] = await tx
       .select()
@@ -1828,17 +1833,27 @@ async function syncRecipeObjectiveState(params: {
         },
       });
     }
+    const completedAt = nextGoalStatus === "completed" ? goal.completedAt ?? new Date() : null;
     await tx.update(aiGoalsTable)
       .set({
         status: nextGoalStatus,
         blockedReason: nextGoalStatus === "completed" || nextGoalStatus === "verifying"
           ? null
           : (completionReason ?? "Recipe execution did not complete."),
-        completedAt: nextGoalStatus === "completed" ? goal.completedAt ?? new Date() : null,
+        completedAt,
         nextWakeAt: null,
         updatedAt: new Date(),
       })
       .where(eq(aiGoalsTable.id, goal.id));
+    if (goal.status !== "completed" && nextGoalStatus === "completed" && completedAt) {
+      const { insertMissionGoalWakeIntent } = await import("./mission-goal-wake-outbox.js");
+      wakeIntentId = await insertMissionGoalWakeIntent(tx, {
+        missionId: mission.id,
+        projectId: params.projectId,
+        goalId: goal.id,
+        completedAt,
+      });
+    }
     await tx.insert(eventsTable).values({
       id: randomUUID(),
       type: "AiGoalRecipeStatusSynced",
@@ -1868,6 +1883,14 @@ async function syncRecipeObjectiveState(params: {
       .for("update");
     if (["blocked", "cancelled", "completed", "failed"].includes(mission.status)) return;
     const nextMissionStatus = await deriveProofGatedMissionStatus(tx, mission, goals);
+    if (
+      goal.status !== nextGoalStatus
+      && mission.status !== nextMissionStatus
+      && nextGoalStatus === "needs_replan"
+      && nextMissionStatus === "needs_replan"
+    ) {
+      immediateReplanMissionId = mission.id;
+    }
     if (mission.status === nextMissionStatus) return;
     await tx.update(aiMissionsTable)
       .set({
@@ -1890,6 +1913,39 @@ async function syncRecipeObjectiveState(params: {
       },
     });
   });
+  if (wakeIntentId) {
+    try {
+      const { dispatchMissionGoalWakeIntent } = await import("./mission-goal-wake-outbox.js");
+      await dispatchMissionGoalWakeIntent(wakeIntentId);
+    } catch (error) {
+      logger.warn(
+        { error, missionId: params.missionId, goalId: params.goalId, projectId: params.projectId },
+        "Mission Goal wake dispatch failed after Recipe completion; durable outbox recovery remains available.",
+      );
+    }
+  }
+
+  // Recipe failure is a durable state transition. Re-enter the existing
+  // coordinator only after the Goal and Mission projections commit; it still
+  // owns autonomy, diagnosis, approval, evidence, and retry-budget gates.
+  if (immediateReplanMissionId) {
+    try {
+      const { autoReplanMission } = await import("./mission-auto-replan.js");
+      await autoReplanMission(immediateReplanMissionId);
+    } catch (error) {
+      logger.warn(
+        {
+          error,
+          missionId: immediateReplanMissionId,
+          projectId: params.projectId,
+          goalId: params.goalId,
+          operationId: params.operationId,
+          scope: "mission-recipe",
+        },
+        "Immediate Mission replan failed after Recipe failure; durable reconciliation remains available.",
+      );
+    }
+  }
 }
 
 async function findLiveMissionRecipeOwner(dispatch: RecipeDispatch) {
@@ -1950,7 +2006,7 @@ async function executeMissionRecipe(dispatch: RecipeDispatch): Promise<void> {
           userId: dispatch.userId,
         }).catch(() => undefined);
       }
-      await syncRecipeObjectiveState({
+      await syncRecipeObjectiveStateAndFinalizeMissionOutcome({
         ...dispatch,
         status: "blocked",
         reason: preflight.reason,
@@ -1966,7 +2022,7 @@ async function executeMissionRecipe(dispatch: RecipeDispatch): Promise<void> {
       ))
       .limit(1);
     if (!project) {
-      await syncRecipeObjectiveState({
+      await syncRecipeObjectiveStateAndFinalizeMissionOutcome({
         ...dispatch,
         status: "blocked",
         reason: "project_not_found",
@@ -1975,7 +2031,7 @@ async function executeMissionRecipe(dispatch: RecipeDispatch): Promise<void> {
     }
     const rootResult = await establishProjectRoot(project.rootPath);
     if (!rootResult.ok) {
-      await syncRecipeObjectiveState({
+      await syncRecipeObjectiveStateAndFinalizeMissionOutcome({
         ...dispatch,
         status: "blocked",
         reason: "project_root_unavailable",
@@ -1991,7 +2047,7 @@ async function executeMissionRecipe(dispatch: RecipeDispatch): Promise<void> {
         || project.status === "archived"
         || !project.gitRemoteUrl
       ) {
-        await syncRecipeObjectiveState({
+        await syncRecipeObjectiveStateAndFinalizeMissionOutcome({
           ...dispatch,
           status: "blocked",
           reason: !delivery
@@ -2007,7 +2063,7 @@ async function executeMissionRecipe(dispatch: RecipeDispatch): Promise<void> {
     }
     const candidate = await loadRecipeCandidate(dispatch.projectId, dispatch.action, sourceRevision);
     if (dispatch.action.candidateIdentity && !candidate) {
-      await syncRecipeObjectiveState({
+      await syncRecipeObjectiveStateAndFinalizeMissionOutcome({
         ...dispatch,
         status: "blocked",
         reason: "candidate_not_available_for_current_revision",
@@ -2026,7 +2082,7 @@ async function executeMissionRecipe(dispatch: RecipeDispatch): Promise<void> {
           candidateTreeHash: dispatch.action.candidateIdentity,
         });
       } catch (error) {
-        await syncRecipeObjectiveState({
+        await syncRecipeObjectiveStateAndFinalizeMissionOutcome({
           ...dispatch,
           sourceRevision,
           candidateIdentity: dispatch.action.candidateIdentity ?? null,
@@ -2125,7 +2181,7 @@ async function executeMissionRecipe(dispatch: RecipeDispatch): Promise<void> {
       && !Array.isArray(goalAfterExecution.outcomeContract)
       && (goalAfterExecution.outcomeContract as { deliveryRequired?: unknown }).deliveryRequired === true;
     const measurementContinuationRequiresReplan = Boolean(result.measurementContinuation);
-    await syncRecipeObjectiveState({
+    await syncRecipeObjectiveStateAndFinalizeMissionOutcome({
       ...dispatch,
       executionId: result.executionId,
       attempt: parsedReceipt?.attempt,
@@ -2178,8 +2234,14 @@ async function executeMissionRecipe(dispatch: RecipeDispatch): Promise<void> {
       operationId: dispatch.operationId,
       error: error instanceof Error ? error.message.slice(0, 240) : "recipe_execution_failed",
     }, "Mission recipe execution failed");
-    await syncRecipeObjectiveState({
+    await syncRecipeObjectiveStateAndFinalizeMissionOutcome({
       ...dispatch,
+      ...(dispatch.expectedExecutionId
+        ? { executionId: dispatch.expectedExecutionId }
+        : {}),
+      ...(dispatch.expectedAttempt !== undefined
+        ? { attempt: dispatch.expectedAttempt }
+        : {}),
       status: "needs_replan",
       reason: "recipe_execution_failed",
     }).catch(() => undefined);
@@ -2215,6 +2277,9 @@ export async function dispatchPendingMissionRecipes(
     .where(and(
       eq(aiExecutionsTable.status, "queued"),
       isNotNull(aiExecutionsTable.goalId),
+      // Filter before LIMIT so unrelated Goal executions cannot starve
+      // queued Mission recipes during bounded restart recovery.
+      sql`${aiGoalsTable.nextAction}->>'kind' = 'recipe'`,
       scopeProjectId ? eq(aiExecutionsTable.projectId, scopeProjectId) : undefined,
     ))
     .orderBy(aiExecutionsTable.createdAt, aiExecutionsTable.id)
@@ -2420,6 +2485,7 @@ export async function dispatchPendingMissionRecipes(
 export async function reconcileCompletedMissionRecipeAcceptances(
   limit = 32,
   scopeProjectId?: string,
+  executionId?: string,
 ): Promise<number> {
   const candidates = await db
     .select({
@@ -2462,6 +2528,7 @@ export async function reconcileCompletedMissionRecipeAcceptances(
       eq(aiGoalsTable.status, "running"),
       inArray(aiMissionsTable.status, ["active", "waiting"]),
       scopeProjectId ? eq(aiExecutionsTable.projectId, scopeProjectId) : undefined,
+      executionId ? eq(aiExecutionsTable.id, executionId) : undefined,
     ))
     .orderBy(aiExecutionsTable.updatedAt, aiExecutionsTable.id)
     .limit(Math.max(1, Math.min(Math.floor(limit), 100)));
@@ -2529,7 +2596,7 @@ export async function reconcileCompletedMissionRecipeAcceptances(
       }
 
       const deliveryRequired = jsonRecord(row.outcomeContract).deliveryRequired === true;
-      await syncRecipeObjectiveState({
+      await syncRecipeObjectiveStateAndFinalizeMissionOutcome({
         goalId: row.goalId!,
         missionId: row.missionId,
         projectId: row.projectId,
@@ -2577,10 +2644,257 @@ export async function reconcileCompletedMissionRecipeAcceptances(
  * task work still enters scheduleAiTaskExecution(), and acceptance remains the
  * source of Goal/Mission terminal status.
  */
+/** Triggers outcome evaluation after the Recipe's committed Goal projection. */
+async function syncRecipeObjectiveStateAndFinalizeMissionOutcome(
+  params: Parameters<typeof syncRecipeObjectiveState>[0],
+): Promise<void> {
+  await syncRecipeObjectiveState(params);
+  if (params.status === "completed") {
+    await finalizeMissionPlanOutcomesAfterGoalCompletion(params.goalId);
+  }
+}
+
+
+export type MissionGoalApprovalBinding =
+  | {
+      approvalKind: "plan";
+      dispatchIntentId: string;
+      approvalEventId: string;
+      planRevision: string;
+      stepId: string;
+      decisionTraceId?: string;
+    }
+  | {
+      approvalKind: "proposal";
+      dispatchIntentId: string;
+      approvalEventId: string;
+      executionId: string;
+      proposalId: string;
+      revision: number;
+    };
+
+function missionApprovalRecord(value: unknown): Record<string, unknown> {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : {};
+}
+
+function missionGoalApprovalConsumedReceiptId(dispatchIntentId: string): string {
+  return `mission-goal-approval-consumed:${dispatchIntentId}`;
+}
+
+/**
+ * A runtime admission receipt closes the commit-to-Outbox-acknowledgement
+ * window. It is written in the same transaction as the downstream dispatch
+ * event, so a later delivery can distinguish an already-consumed approval
+ * from a genuinely superseded one.
+ */
+async function missionGoalApprovalWasConsumed(
+  tx: MissionTransaction,
+  mission: typeof aiMissionsTable.$inferSelect,
+  goal: typeof aiGoalsTable.$inferSelect,
+  binding: MissionGoalApprovalBinding,
+): Promise<boolean> {
+  const [receipt] = await tx.select({
+    type: eventsTable.type,
+    projectId: eventsTable.projectId,
+    goalId: eventsTable.goalId,
+    payload: eventsTable.payload,
+  }).from(eventsTable)
+    .where(eq(eventsTable.id, missionGoalApprovalConsumedReceiptId(binding.dispatchIntentId)))
+    .limit(1);
+  if (!receipt
+    || receipt.type !== MISSION_GOAL_APPROVAL_CONSUMED_EVENT_TYPE
+    || receipt.projectId !== mission.projectId
+    || receipt.goalId !== goal.id
+  ) return false;
+
+  const payload = missionApprovalRecord(receipt.payload);
+  const storedBinding = missionApprovalRecord(payload.approvalBinding);
+  const bindingMatches = payload.schemaVersion === 1
+    && payload.missionId === mission.id
+    && payload.approvalIntentId === binding.dispatchIntentId
+    && storedBinding.approvalKind === binding.approvalKind
+    && storedBinding.dispatchIntentId === binding.dispatchIntentId
+    && storedBinding.approvalEventId === binding.approvalEventId
+    && (binding.approvalKind !== "plan"
+      || (
+        storedBinding.planRevision === binding.planRevision
+        && storedBinding.stepId === binding.stepId
+        && storedBinding.decisionTraceId === binding.decisionTraceId
+      ))
+    && (binding.approvalKind !== "proposal"
+      || (
+        storedBinding.executionId === binding.executionId
+        && storedBinding.proposalId === binding.proposalId
+        && storedBinding.revision === binding.revision
+      ));
+  if (!bindingMatches
+    || typeof payload.downstreamDispatchEventId !== "string"
+    || typeof payload.downstreamDispatchType !== "string"
+  ) return false;
+
+  const [dispatchEvent] = await tx.select({
+    type: eventsTable.type,
+    projectId: eventsTable.projectId,
+    goalId: eventsTable.goalId,
+  }).from(eventsTable)
+    .where(eq(eventsTable.id, payload.downstreamDispatchEventId))
+    .limit(1);
+  return Boolean(dispatchEvent
+    && dispatchEvent.type === payload.downstreamDispatchType
+    && dispatchEvent.projectId === mission.projectId
+    && dispatchEvent.goalId === goal.id
+    && (
+      dispatchEvent.type === "AiGoalDispatchRequested"
+      || dispatchEvent.type === "AiGoalRecipeDispatchRequested"
+    ));
+}
+
+async function insertMissionGoalApprovalConsumedReceipt(
+  tx: MissionTransaction,
+  mission: typeof aiMissionsTable.$inferSelect,
+  goal: typeof aiGoalsTable.$inferSelect,
+  binding: MissionGoalApprovalBinding,
+  downstreamDispatchEventId: string,
+  downstreamDispatchType: "AiGoalDispatchRequested" | "AiGoalRecipeDispatchRequested",
+  taskId?: string,
+): Promise<void> {
+  await tx.insert(eventsTable).values({
+    id: missionGoalApprovalConsumedReceiptId(binding.dispatchIntentId),
+    type: MISSION_GOAL_APPROVAL_CONSUMED_EVENT_TYPE,
+    projectId: mission.projectId,
+    goalId: goal.id,
+    ...(taskId ? { taskId } : {}),
+    severity: "info",
+    message: "Mission Goal approval was admitted into its durable runtime dispatch.",
+    timestamp: new Date(),
+    payload: {
+      schemaVersion: 1,
+      missionId: mission.id,
+      approvalIntentId: binding.dispatchIntentId,
+      approvalBinding: binding,
+      downstreamDispatchEventId,
+      downstreamDispatchType,
+    },
+  }).onConflictDoNothing();
+}
+
+/**
+ * Revalidate the exact durable approval while runMissionGoal holds the
+ * Mission -> Goal locks. Outbox preflight alone is not an authorization
+ * boundary because the approval or plan can change before runtime admission.
+ */
+async function missionGoalApprovalBindingIsCurrent(
+  tx: MissionTransaction,
+  mission: typeof aiMissionsTable.$inferSelect,
+  goal: typeof aiGoalsTable.$inferSelect,
+  binding: MissionGoalApprovalBinding,
+): Promise<boolean> {
+  if (!["active", "waiting"].includes(mission.status) || goal.status !== "queued") {
+    return false;
+  }
+
+  const [approvalEvent] = await tx.select({
+    id: eventsTable.id,
+    type: eventsTable.type,
+    projectId: eventsTable.projectId,
+    goalId: eventsTable.goalId,
+    payload: eventsTable.payload,
+  }).from(eventsTable)
+    .where(eq(eventsTable.id, binding.approvalEventId))
+    .limit(1);
+  if (!approvalEvent
+    || approvalEvent.type !== "AiGoalApprovalGranted"
+    || approvalEvent.projectId !== mission.projectId
+    || approvalEvent.goalId !== goal.id
+  ) return false;
+
+  const eventPayload = missionApprovalRecord(approvalEvent.payload);
+  if (eventPayload.missionId !== mission.id) return false;
+
+  if (binding.approvalKind === "plan") {
+    const successCriteria = missionApprovalRecord(goal.successCriteria);
+    const outcome = missionApprovalRecord(goal.outcomeContract);
+    const plan = missionApprovalRecord(outcome.planRevision);
+    const successPlan = missionApprovalRecord(successCriteria.planRevision);
+    const planSteps = Array.isArray(plan.steps) ? plan.steps.map(missionApprovalRecord) : [];
+    const planStep = planSteps.find((step) => step.id === binding.stepId);
+    const approval = missionApprovalRecord(outcome.planApproval);
+    const policy = missionApprovalRecord(mission.autonomyPolicy);
+    const action = missionApprovalRecord(goal.nextAction);
+    return eventPayload.approvalKind === "mission_plan_step"
+      && eventPayload.planRevision === binding.planRevision
+      && eventPayload.stepId === binding.stepId
+      && (binding.decisionTraceId === undefined
+        || eventPayload.decisionTraceId === binding.decisionTraceId)
+      && successCriteria.stepId === binding.stepId
+      && (successCriteria.kind === "mission_plan_step" || successCriteria.kind === "mission_replan_step")
+      && plan.hash === binding.planRevision
+      && successPlan.hash === binding.planRevision
+      && planStep?.kind === "execute"
+      && planStep.approvalRequired === true
+      && planStep.readOnly === false
+      && !planStep.recipe
+      && Array.isArray(planStep.files)
+      && planStep.files.length > 0
+      && policy.activePlanRevision === binding.planRevision
+      && outcome.stepId === binding.stepId
+      && approval.kind === "mission_plan_step"
+      && approval.state === "APPROVED"
+      && approval.approvalEventId === binding.approvalEventId
+      && approval.planRevision === binding.planRevision
+      && approval.stepId === binding.stepId
+      && action.kind === "task";
+  }
+
+  if (eventPayload.approvalKind !== "proposal"
+    || eventPayload.executionId !== binding.executionId
+    || eventPayload.proposalId !== binding.proposalId
+    || eventPayload.revision !== binding.revision
+  ) return false;
+
+  const [execution] = await tx.select({
+    id: aiExecutionsTable.id,
+    proposalId: aiExecutionsTable.proposalId,
+    status: aiExecutionsTable.status,
+  }).from(aiExecutionsTable)
+    .where(and(
+      eq(aiExecutionsTable.id, binding.executionId),
+      eq(aiExecutionsTable.goalId, goal.id),
+      eq(aiExecutionsTable.projectId, mission.projectId),
+      eq(aiExecutionsTable.userId, mission.userId),
+    ))
+    .for("update")
+    .limit(1);
+  if (!execution
+    || execution.proposalId !== binding.proposalId
+    || !["queued", "running", "paused", "failed"].includes(execution.status)
+  ) return false;
+
+  const [proposal] = await tx.select({
+    id: aiChangeProposalsTable.id,
+    status: aiChangeProposalsTable.status,
+    revision: aiChangeProposalsTable.revision,
+    approvalRequired: aiChangeProposalsTable.approvalRequired,
+  }).from(aiChangeProposalsTable)
+    .where(and(
+      eq(aiChangeProposalsTable.id, binding.proposalId),
+      eq(aiChangeProposalsTable.projectId, mission.projectId),
+    ))
+    .for("update")
+    .limit(1);
+  return Boolean(proposal
+    && proposal.status === "pending"
+    && proposal.approvalRequired === false
+    && proposal.revision === binding.revision);
+}
+
 export async function runMissionGoal(params: {
   goalId: string;
   userId: string;
   trigger: MissionGoalRunTrigger;
+  expectedApprovalBinding?: MissionGoalApprovalBinding;
   actionReceipt?: MissionAgentActionReceiptIdentity;
   delegation?: MissionDelegationBinding;
   expectedHandoffBinding?: {
@@ -2592,6 +2906,8 @@ export async function runMissionGoal(params: {
   };
 }): Promise<MissionGoalRunResult> {
   let taskDispatchGeneration: { retryCount: number; correlationId: string | null } | undefined;
+  let eventWaitIntentId: string | undefined;
+  let completedGoalWakeIntentId: string | undefined;
   const decision = await db.transaction(async (tx): Promise<MissionGoalRunResult> => {
     const recordActionEffect = async <T extends MissionGoalRunResult>(run: T): Promise<T> => {
       if (
@@ -2661,6 +2977,28 @@ export async function runMissionGoal(params: {
       .for("update");
     if (!goal) {
       return { status: "conflict" as const, goalId: params.goalId, reason: "goal_not_found" };
+    }
+
+    if (params.expectedApprovalBinding) {
+      if (await missionGoalApprovalWasConsumed(
+        tx,
+        mission,
+        goal,
+        params.expectedApprovalBinding,
+      )) {
+        return {
+          status: "scheduled" as const,
+          goalId: goal.id,
+          reason: "approval_dispatch_already_consumed",
+        };
+      }
+      if (!await missionGoalApprovalBindingIsCurrent(tx, mission, goal, params.expectedApprovalBinding)) {
+        return {
+          status: "conflict" as const,
+          goalId: goal.id,
+          reason: "approval_binding_mismatch",
+        };
+      }
     }
 
     if (params.expectedHandoffBinding) {
@@ -3202,15 +3540,23 @@ export async function runMissionGoal(params: {
       if (!projected) {
         return { status: "conflict" as const, goalId: goal.id, reason: "goal_acceptance_projection_failed" };
       }
+      const completedAt = completionGoal.completedAt ?? now;
       await tx.update(aiGoalsTable)
         .set({
           status: "completed",
           blockedReason: null,
-          completedAt: completionGoal.completedAt ?? now,
+          completedAt,
           nextWakeAt: null,
           updatedAt: now,
         })
         .where(eq(aiGoalsTable.id, goal.id));
+      const { insertMissionGoalWakeIntent } = await import("./mission-goal-wake-outbox.js");
+      completedGoalWakeIntentId = await insertMissionGoalWakeIntent(tx, {
+        missionId: mission.id,
+        projectId: goal.projectId,
+        goalId: goal.id,
+        completedAt,
+      });
       const missionGoals = await tx.select({
         id: aiGoalsTable.id,
         status: aiGoalsTable.status,
@@ -3283,14 +3629,49 @@ export async function runMissionGoal(params: {
     const action = parsedAction.data;
 
     if (action.kind === "wait") {
+      const now = new Date();
       const nextStatus = action.reason === "approval" ? "waiting_for_approval" : "waiting_for_event";
+      const wakeAt = action.reason === "event" && action.wakeAt
+        ? new Date(action.wakeAt)
+        : null;
+      const sameScheduledWait = Boolean(
+        wakeAt
+        && goal.status === "waiting_for_event"
+        && goal.blockedReason === null
+        && goal.nextWakeAt?.getTime() === wakeAt.getTime(),
+      );
+      // Keep the wait generation stable when an identical wait is resumed.
+      // The durable timer intent is bound to this exact updatedAt value.
+      const waitGenerationAt = sameScheduledWait ? goal.updatedAt : now;
+      const enteringEventWait = action.reason === "event"
+        && (goal.status !== "waiting_for_event" || goal.blockedReason !== null);
       await tx.update(aiGoalsTable)
         .set({
           status: nextStatus,
           nextWakeAt: action.wakeAt ? new Date(action.wakeAt) : null,
-          updatedAt: new Date(),
+          updatedAt: waitGenerationAt,
         })
         .where(eq(aiGoalsTable.id, goal.id));
+      if (enteringEventWait || (wakeAt && !sameScheduledWait)) {
+        const { insertMissionEventWakeIntent } = await import("./mission-event-wake-outbox.js");
+        if (enteringEventWait) {
+          eventWaitIntentId = await insertMissionEventWakeIntent(tx, {
+            projectId: goal.projectId,
+            goalId: goal.id,
+            source: "goal_entered_event_wait",
+            generationAt: waitGenerationAt,
+          });
+        }
+        if (wakeAt && !sameScheduledWait) {
+          await insertMissionEventWakeIntent(tx, {
+            projectId: goal.projectId,
+            goalId: goal.id,
+            source: "scheduled_wake",
+            wakeAt,
+            generationAt: waitGenerationAt,
+          });
+        }
+      }
       return { status: "waiting" as const, goalId: goal.id };
     }
 
@@ -3342,6 +3723,36 @@ export async function runMissionGoal(params: {
         ))
         .limit(1);
       if (activeExecution) {
+        if (params.expectedApprovalBinding) {
+          const recipeDispatchEventId = randomUUID();
+          await tx.insert(eventsTable).values({
+            id: recipeDispatchEventId,
+            type: "AiGoalRecipeDispatchRequested",
+            projectId: goal.projectId,
+            goalId: goal.id,
+            severity: "info",
+            message: `AI goal "${goal.title}" approval adopted its active recipe execution`,
+            payload: {
+              missionId: mission.id,
+              operationId: identity.operationId,
+              recipeId: action.recipeId,
+              recipeVersion: action.recipeVersion,
+              candidateIdentity: action.candidateIdentity ?? null,
+              trigger: params.trigger,
+              delegation,
+              executionId: activeExecution.id,
+              alreadyActive: true,
+            },
+          });
+          await insertMissionGoalApprovalConsumedReceipt(
+            tx,
+            mission,
+            goal,
+            params.expectedApprovalBinding,
+            recipeDispatchEventId,
+            "AiGoalRecipeDispatchRequested",
+          );
+        }
         return recordActionEffect({
           status: "scheduled" as const,
           goalId: goal.id,
@@ -3359,8 +3770,9 @@ export async function runMissionGoal(params: {
           updatedAt: now,
         })
         .where(eq(aiGoalsTable.id, goal.id));
+      const recipeDispatchEventId = randomUUID();
       await tx.insert(eventsTable).values({
-        id: randomUUID(),
+        id: recipeDispatchEventId,
         type: "AiGoalRecipeDispatchRequested",
         projectId: goal.projectId,
         goalId: goal.id,
@@ -3377,6 +3789,16 @@ export async function runMissionGoal(params: {
           ...(runtimeTransitionProof ? { transitionProof: runtimeTransitionProof } : {}),
         },
       });
+      if (params.expectedApprovalBinding) {
+        await insertMissionGoalApprovalConsumedReceipt(
+          tx,
+          mission,
+          goal,
+          params.expectedApprovalBinding,
+          recipeDispatchEventId,
+          "AiGoalRecipeDispatchRequested",
+        );
+      }
       if (params.actionReceipt) {
         await persistMissionAgentActionEffectReceipt(tx, params.actionReceipt, {
           outcome: "accepted",
@@ -3461,6 +3883,37 @@ export async function runMissionGoal(params: {
       ))
       .limit(1);
     if (activeExecution) {
+      if (params.expectedApprovalBinding) {
+        const taskDispatchEventId = randomUUID();
+        await tx.insert(eventsTable).values({
+          id: taskDispatchEventId,
+          type: "AiGoalDispatchRequested",
+          projectId: goal.projectId,
+          goalId: goal.id,
+          taskId: task.id,
+          severity: "info",
+          message: `AI goal "${goal.title}" approval adopted its active Task execution`,
+          payload: {
+            missionId: mission.id,
+            trigger: params.trigger,
+            action: action.kind,
+            delegation: taskDelegation,
+            taskRetryCount: task.retryCount,
+            taskCorrelationId: task.correlationId,
+            executionId: activeExecution.id,
+            alreadyActive: true,
+          },
+        });
+        await insertMissionGoalApprovalConsumedReceipt(
+          tx,
+          mission,
+          goal,
+          params.expectedApprovalBinding,
+          taskDispatchEventId,
+          "AiGoalDispatchRequested",
+          task.id,
+        );
+      }
       return recordActionEffect({
         status: "scheduled" as const,
         goalId: goal.id,
@@ -3496,8 +3949,9 @@ export async function runMissionGoal(params: {
         .set({ status: "running", updatedAt: now })
         .where(eq(aiGoalsTable.id, goal.id));
     }
+    const taskDispatchEventId = randomUUID();
     await tx.insert(eventsTable).values({
-      id: randomUUID(),
+      id: taskDispatchEventId,
       type: "AiGoalDispatchRequested",
       projectId: goal.projectId,
       goalId: goal.id,
@@ -3513,6 +3967,17 @@ export async function runMissionGoal(params: {
         taskCorrelationId: task.correlationId,
       },
     });
+    if (params.expectedApprovalBinding) {
+      await insertMissionGoalApprovalConsumedReceipt(
+        tx,
+        mission,
+        goal,
+        params.expectedApprovalBinding,
+        taskDispatchEventId,
+        "AiGoalDispatchRequested",
+        task.id,
+      );
+    }
     return recordActionEffect({
       status: "scheduled" as const,
       goalId: goal.id,
@@ -3548,6 +4013,36 @@ export async function runMissionGoal(params: {
     return decision;
   });
 
+  if (eventWaitIntentId) {
+    try {
+      const { dispatchMissionEventWakeIntent } = await import("./mission-event-wake-outbox.js");
+      await dispatchMissionEventWakeIntent(eventWaitIntentId);
+    } catch (error) {
+      // The outbox row committed with the wait transition and remains
+      // recoverable by the bounded durable dispatcher.
+      logger.warn({
+        error,
+        goalId: decision.goalId,
+        intentId: eventWaitIntentId,
+      }, "Mission event inbox wake did not run immediately; durable outbox recovery remains available");
+    }
+  }
+
+  if (completedGoalWakeIntentId) {
+    try {
+      const { dispatchMissionGoalWakeIntent } = await import("./mission-goal-wake-outbox.js");
+      await dispatchMissionGoalWakeIntent(completedGoalWakeIntentId);
+    } catch (error) {
+      // The intent committed with the proven Goal completion and remains
+      // recoverable by the durable, lease-protected Mission Goal dispatcher.
+      logger.warn({
+        error,
+        goalId: decision.goalId,
+        intentId: completedGoalWakeIntentId,
+      }, "Mission dependent Goal wake did not run immediately after Apply Changes proof; durable outbox recovery remains available");
+    }
+  }
+
   if (decision.recipeDispatch && decision.status === "scheduled" && !decision.executionId) {
     heavyJobQueue.enqueueWithId(decision.recipeDispatch.operationId, async () => {
       await executeMissionRecipe(decision.recipeDispatch!);
@@ -3558,16 +4053,33 @@ export async function runMissionGoal(params: {
     && decision.status === "scheduled"
     && taskDispatchGeneration
   ) {
-    await scheduleAiTaskExecution(
-      decision.taskId,
-      params.userId,
-      { parentExecutionId: decision.delegation?.parentExecutionId },
-      taskDispatchGeneration.retryCount,
-      taskDispatchGeneration.correlationId,
-    );
+    try {
+      await scheduleAiTaskExecution(
+        decision.taskId,
+        params.userId,
+        { parentExecutionId: decision.delegation?.parentExecutionId },
+        taskDispatchGeneration.retryCount,
+        taskDispatchGeneration.correlationId,
+      );
+    } catch (error) {
+      // The Mission/Task transition and its Outbox intent already committed.
+      // A process-local queue wake is only an optimization; the durable Task
+      // dispatcher will retry this exact generation without another operator
+      // request.
+      logger.warn(
+        {
+          error,
+          taskId: decision.taskId,
+          goalId: decision.goalId,
+          retryCount: taskDispatchGeneration.retryCount,
+          correlationId: taskDispatchGeneration.correlationId,
+        },
+        "Mission Task local wake failed after Outbox commit; durable dispatch recovery remains available",
+      );
+    }
   }
-  if (decision.status === "completed" && decision.reason === "apply_changes_d2_proven") {
-    await wakeReadyMissionGoals(32, getLifecycleWorkerScopeProjectId());
+  if (decision.status === "completed" && !completedGoalWakeIntentId) {
+    await finalizeMissionPlanOutcomesAfterGoalCompletion(decision.goalId);
   }
   return decision;
 }
@@ -3581,7 +4093,37 @@ export async function runMissionGoal(params: {
 export async function wakeReadyMissionGoals(
   limit = 32,
   scopeProjectId?: string,
+  dependencyGoalId?: string,
 ): Promise<number> {
+  // Sort Goals whose exact, current-plan dependencies are already terminal
+  // ahead of Goals still waiting on known prerequisites. The bounded batch
+  // must not let old blocked rows starve a newly-ready Goal on every pass.
+  // Missing/cross-scope dependency rows are deliberately not hidden here:
+  // loadGoalDependencyState() still selects and diagnoses them under locks.
+  const unresolvedDependencyGoal = alias(aiGoalsTable, "unresolved_dependency_goal");
+  const currentPlanDependency = sql`(
+    ${aiGoalsTable.outcomeContract}->'planRevision'->>'hash' IS NULL
+    OR BTRIM(${aiGoalsTable.outcomeContract}->'planRevision'->>'hash') = ''
+    OR ${aiGoalDependenciesTable.planRevision}
+      = ${aiGoalsTable.outcomeContract}->'planRevision'->>'hash'
+  )`;
+  const unresolvedDependencies = db
+    .select({ id: aiGoalDependenciesTable.id })
+    .from(aiGoalDependenciesTable)
+    .innerJoin(unresolvedDependencyGoal, and(
+      eq(unresolvedDependencyGoal.id, aiGoalDependenciesTable.dependsOnGoalId),
+      eq(unresolvedDependencyGoal.missionId, aiGoalsTable.missionId),
+      eq(unresolvedDependencyGoal.projectId, aiGoalsTable.projectId),
+    ))
+    .where(and(
+      eq(aiGoalDependenciesTable.goalId, aiGoalsTable.id),
+      eq(aiGoalDependenciesTable.missionId, aiGoalsTable.missionId),
+      eq(aiGoalDependenciesTable.projectId, aiGoalsTable.projectId),
+      currentPlanDependency,
+      notInArray(unresolvedDependencyGoal.status, ["completed"]),
+    ))
+    .limit(1);
+
   const candidates = await db
     .select({
       id: aiGoalsTable.id,
@@ -3600,22 +4142,54 @@ export async function wakeReadyMissionGoals(
           inArray(
             aiGoalsTable.id,
             db.select({ goalId: aiGoalDependenciesTable.goalId })
-              .from(aiGoalDependenciesTable),
+              .from(aiGoalDependenciesTable)
+              .where(and(
+                eq(aiGoalDependenciesTable.goalId, aiGoalsTable.id),
+                eq(aiGoalDependenciesTable.missionId, aiGoalsTable.missionId),
+                eq(aiGoalDependenciesTable.projectId, aiGoalsTable.projectId),
+                currentPlanDependency,
+              )),
           ),
         ),
         and(
           eq(aiGoalsTable.status, "queued"),
-          sql`${aiGoalsTable.successCriteria}->>'kind' = 'mission_replan_step'`,
+          sql`${aiGoalsTable.successCriteria}->>'kind' IN (
+            'mission_plan_step', 'mission_replan_step', 'mission_manual_step'
+          )`,
           notInArray(
             aiGoalsTable.id,
             db.select({ goalId: aiGoalDependenciesTable.goalId })
-              .from(aiGoalDependenciesTable),
+              .from(aiGoalDependenciesTable)
+              .where(and(
+                eq(aiGoalDependenciesTable.goalId, aiGoalsTable.id),
+                eq(aiGoalDependenciesTable.missionId, aiGoalsTable.missionId),
+                eq(aiGoalDependenciesTable.projectId, aiGoalsTable.projectId),
+                currentPlanDependency,
+              )),
           ),
         ),
       ),
+      dependencyGoalId
+        ? inArray(
+            aiGoalsTable.id,
+            db.select({ goalId: aiGoalDependenciesTable.goalId })
+              .from(aiGoalDependenciesTable)
+              .where(and(
+                eq(aiGoalDependenciesTable.dependsOnGoalId, dependencyGoalId),
+                eq(aiGoalDependenciesTable.goalId, aiGoalsTable.id),
+                eq(aiGoalDependenciesTable.missionId, aiGoalsTable.missionId),
+                eq(aiGoalDependenciesTable.projectId, aiGoalsTable.projectId),
+                currentPlanDependency,
+              )),
+          )
+        : undefined,
       scopeProjectId ? eq(aiGoalsTable.projectId, scopeProjectId) : undefined,
     ))
-    .orderBy(aiGoalsTable.updatedAt, aiGoalsTable.id)
+    .orderBy(
+      sql`CASE WHEN EXISTS (${unresolvedDependencies}) THEN 1 ELSE 0 END`,
+      aiGoalsTable.updatedAt,
+      aiGoalsTable.id,
+    )
     .limit(Math.max(1, Math.min(limit, 100)));
 
   let woken = 0;
@@ -3645,16 +4219,38 @@ export async function wakeReadyMissionGoals(
         goal.status === "waiting_for_event"
         && goal.blockedReason === "dependencies_pending";
       const isQueuedDependent = goal.status === "queued" && goal.blockedReason === null;
-      const isQueuedActiveReplanRoot = goal.status === "queued"
+      const activePlanRootKind = jsonRecord(goal.successCriteria).kind;
+      const isQueuedActivePlanRoot = goal.status === "queued"
         && goal.blockedReason === null
-        && jsonRecord(goal.successCriteria).kind === "mission_replan_step"
+        && ["mission_plan_step", "mission_replan_step", "mission_manual_step"].includes(
+          typeof activePlanRootKind === "string" ? activePlanRootKind : "",
+        )
         && ["active", "waiting"].includes(mission.status)
         && typeof mission.autonomyPolicy.activePlanRevision === "string"
         && goalPlanRevision(goal) === mission.autonomyPolicy.activePlanRevision;
+      if (isQueuedActivePlanRoot) {
+        const action = GoalNextActionSchema.safeParse(goal.nextAction);
+        if (!action.success) return undefined;
+        if (action.data.kind === "task") {
+          const [task] = await tx.select({
+            id: tasksTable.id,
+            status: tasksTable.status,
+            prompt: tasksTable.prompt,
+          }).from(tasksTable).where(and(
+            eq(tasksTable.id, action.data.taskId),
+            eq(tasksTable.goalId, goal.id),
+            eq(tasksTable.projectId, goal.projectId),
+          )).limit(1);
+          // A manually-created Goal may be bound before its Task row exists.
+          // Leave it queued so the next durable pass can pick it up once the
+          // exact Goal-owned Task becomes eligible.
+          if (!task || task.status !== "verifying" || !task.prompt) return undefined;
+        }
+      }
       if (
         !isWaitingOnDependencies
         && !isQueuedDependent
-        && !isQueuedActiveReplanRoot
+        && !isQueuedActivePlanRoot
       ) return undefined;
       const dependencyState = await loadGoalDependencyState(tx, mission, goal);
       const unprovenDependency = dependencyState.unprovenDependencies[0];
@@ -3668,7 +4264,7 @@ export async function wakeReadyMissionGoals(
         return undefined;
       }
       const allDependenciesCompleted =
-        (isQueuedActiveReplanRoot && dependencyState.dependencies.length === 0)
+        (isQueuedActivePlanRoot && dependencyState.dependencies.length === 0)
         || (
           dependencyState.dependencies.length > 0
           && dependencyState.dependencies.length === dependencyState.dependencyGoals.length
@@ -3715,6 +4311,7 @@ export async function wakeReadyMissionGoals(
 export async function wakeApplyChangesMissionGoals(
   limit = 32,
   scopeProjectId?: string,
+  goalId?: string,
 ): Promise<number> {
   const candidates = await db.select({
     goalId: aiGoalsTable.id,
@@ -3728,6 +4325,7 @@ export async function wakeApplyChangesMissionGoals(
       eq(aiGoalsTable.status, "waiting_for_event"),
       eq(aiGoalsTable.blockedReason, "apply_changes_pending"),
       scopeProjectId ? eq(aiGoalsTable.projectId, scopeProjectId) : undefined,
+      goalId ? eq(aiGoalsTable.id, goalId) : undefined,
     ))
     .orderBy(aiGoalsTable.updatedAt, aiGoalsTable.id)
     .limit(Math.max(1, Math.min(limit, 100)));
@@ -3756,6 +4354,7 @@ export async function wakeApplyChangesMissionGoals(
 export async function wakeRuntimeTransitionMissionGoals(
   limit = 32,
   scopeProjectId?: string,
+  missionId?: string,
 ): Promise<number> {
   const candidates = await db
     .select({
@@ -3768,6 +4367,7 @@ export async function wakeRuntimeTransitionMissionGoals(
       eq(aiGoalsTable.status, "waiting_for_event"),
       eq(aiGoalsTable.blockedReason, "runtime_transition_pending"),
       scopeProjectId ? eq(aiGoalsTable.projectId, scopeProjectId) : undefined,
+      missionId ? eq(aiGoalsTable.missionId, missionId) : undefined,
     ))
     .orderBy(aiGoalsTable.updatedAt, aiGoalsTable.id)
     .limit(Math.max(1, Math.min(limit, 100)));
@@ -3912,6 +4512,146 @@ export async function wakeRuntimeTransitionMissionGoals(
   return woken;
 }
 
+const SCHEDULED_MISSION_WAKE_REPLAN_REASON =
+  "Scheduled wake reached; replan from current project evidence.";
+
+/**
+ * Materialize one due timer against the exact Goal wait generation stored in
+ * the Mission event Outbox. The durable intent only wakes the normal replan
+ * coordinator; it does not grant execution or acceptance authority.
+ *
+ * If the legacy scheduled-wait sweeper wins the race, its deterministic
+ * replan projection is recognized so the Outbox can still start the planner
+ * immediately rather than waiting for another Mission-wide scan.
+ */
+export async function wakeScheduledMissionGoal(input: {
+  intentId: string;
+  projectId: string;
+  goalId: string;
+  wakeAt: string;
+  generationAt: string;
+}): Promise<string | undefined> {
+  const wakeAt = new Date(input.wakeAt);
+  const generationAt = new Date(input.generationAt);
+  if (
+    !input.intentId.trim()
+    || !input.projectId.trim()
+    || !input.goalId.trim()
+    || !Number.isFinite(wakeAt.getTime())
+    || !Number.isFinite(generationAt.getTime())
+  ) return undefined;
+
+  const [candidate] = await db
+    .select({
+      missionId: aiGoalsTable.missionId,
+      projectId: aiGoalsTable.projectId,
+    })
+    .from(aiGoalsTable)
+    .where(and(
+      eq(aiGoalsTable.id, input.goalId),
+      eq(aiGoalsTable.projectId, input.projectId),
+    ))
+    .limit(1);
+  if (!candidate) return undefined;
+
+  return db.transaction(async (tx) => {
+    // Maintain the shared Mission-before-Goal lock order.
+    const [mission] = await tx
+      .select()
+      .from(aiMissionsTable)
+      .where(and(
+        eq(aiMissionsTable.id, candidate.missionId),
+        eq(aiMissionsTable.projectId, candidate.projectId),
+      ))
+      .for("update");
+    if (!mission) return undefined;
+
+    const [goal] = await tx
+      .select()
+      .from(aiGoalsTable)
+      .where(and(
+        eq(aiGoalsTable.id, input.goalId),
+        eq(aiGoalsTable.missionId, mission.id),
+        eq(aiGoalsTable.projectId, input.projectId),
+      ))
+      .for("update");
+    if (!goal) return undefined;
+
+    const action = GoalNextActionSchema.safeParse(goal.nextAction);
+    const alreadyDue = goal.status === "needs_replan"
+      && action.success
+      && action.data.kind === "replan"
+      && action.data.reason === SCHEDULED_MISSION_WAKE_REPLAN_REASON
+      && mission.status === "needs_replan";
+    if (alreadyDue) return mission.id;
+
+    const currentWait = goal.status === "waiting_for_event"
+      && goal.nextWakeAt?.getTime() === wakeAt.getTime()
+      // updatedAt may advance for unrelated Goal metadata changes while the
+      // same wait remains active; it must not invalidate a persisted timer.
+      && goal.updatedAt.getTime() >= generationAt.getTime()
+      && action.success
+      && action.data.kind === "wait"
+      && action.data.reason === "event"
+      && Boolean(action.data.wakeAt)
+      && new Date(action.data.wakeAt!).getTime() === wakeAt.getTime();
+    if (!currentWait) return undefined;
+    // Terminal/operator-owned Mission states must not be revived by an old timer.
+    const missionCanReplan = !["blocked", "cancelled", "completed", "failed"].includes(mission.status);
+    if (!missionCanReplan) return undefined;
+
+    const clockResult = await tx.execute(
+      sql`SELECT clock_timestamp() AT TIME ZONE 'UTC' AS now`,
+    );
+    const clockValue = (clockResult.rows as Array<{ now: Date | string }>)[0]?.now;
+    const now = clockValue instanceof Date ? clockValue : new Date(String(clockValue ?? ""));
+    if (!clockValue || !Number.isFinite(now.getTime()) || wakeAt.getTime() > now.getTime()) {
+      return undefined;
+    }
+
+    await tx.update(aiGoalsTable)
+      .set({
+        status: "needs_replan",
+        nextAction: {
+          kind: "replan",
+          reason: SCHEDULED_MISSION_WAKE_REPLAN_REASON,
+        },
+        nextWakeAt: null,
+        blockedReason: null,
+        updatedAt: now,
+      })
+      .where(eq(aiGoalsTable.id, goal.id));
+
+    await tx.update(aiMissionsTable)
+      .set({ status: "needs_replan", updatedAt: now })
+      .where(and(
+        eq(aiMissionsTable.id, mission.id),
+        eq(aiMissionsTable.status, mission.status),
+      ));
+
+    const wakeEventId = "mission-goal-wake-due:" +
+      createHash("sha256").update(input.intentId).digest("hex");
+    await tx.insert(eventsTable).values({
+      id: wakeEventId,
+      type: "AiGoalWakeDue",
+      projectId: goal.projectId,
+      goalId: goal.id,
+      severity: "info",
+      message: `AI goal "${goal.title}" scheduled wake time reached`,
+      timestamp: now,
+      payload: {
+        missionId: mission.id,
+        previousStatus: goal.status,
+        intentId: input.intentId,
+        wakeAt: input.wakeAt,
+        generationAt: input.generationAt,
+      },
+    }).onConflictDoNothing();
+
+    return mission.id;
+  });
+}
+
 /**
  * Converts due scheduled waits into a durable replan request.
  *
@@ -3923,7 +4663,8 @@ export async function wakeDueMissionGoals(
   limit = 32,
   scopeProjectId?: string,
 ): Promise<number> {
-  const now = new Date();
+  // Scheduled wake deadlines are shared across API replicas; use PostgreSQL's UTC clock
+  // for discovery and the locked recheck rather than each process's local clock.
   const dueGoals = await db
     .select({
       id: aiGoalsTable.id,
@@ -3934,7 +4675,7 @@ export async function wakeDueMissionGoals(
     .where(and(
       eq(aiGoalsTable.status, "waiting_for_event"),
       isNotNull(aiGoalsTable.nextWakeAt),
-      lte(aiGoalsTable.nextWakeAt, now),
+      lte(aiGoalsTable.nextWakeAt, databaseNow()),
       scopeProjectId ? eq(aiGoalsTable.projectId, scopeProjectId) : undefined,
     ))
     .orderBy(aiGoalsTable.nextWakeAt, aiGoalsTable.id)
@@ -3960,7 +4701,7 @@ export async function wakeDueMissionGoals(
           eq(aiGoalsTable.projectId, candidate.projectId),
           eq(aiGoalsTable.status, "waiting_for_event"),
           isNotNull(aiGoalsTable.nextWakeAt),
-          lte(aiGoalsTable.nextWakeAt, now),
+          lte(aiGoalsTable.nextWakeAt, databaseNow()),
         ))
         .for("update");
       if (!goal) return false;
@@ -3977,12 +4718,12 @@ export async function wakeDueMissionGoals(
           },
           nextWakeAt: null,
           blockedReason: null,
-          updatedAt: now,
+          updatedAt: databaseNow(),
         })
         .where(eq(aiGoalsTable.id, goal.id));
       if (mission && mission.status !== "blocked" && mission.status !== "cancelled" && mission.status !== "completed") {
         await tx.update(aiMissionsTable)
-          .set({ status: "needs_replan", updatedAt: now })
+          .set({ status: "needs_replan", updatedAt: databaseNow() })
           .where(eq(aiMissionsTable.id, mission.id));
       }
       await tx.insert(eventsTable).values({
@@ -4009,7 +4750,11 @@ export async function wakeDueMissionGoals(
  * match its active plan revision. The Goal is then re-evaluated by the normal
  * replan path, so duplicate/stale events are harmless.
  */
-export async function wakeMissionGoalsForEvent(event: MissionEventEnvelope): Promise<number> {
+export async function wakeMissionGoalsForEvent(
+  event: MissionEventEnvelope,
+  inboxEventId?: string,
+  dispatchContext?: { intentId: string; dispatchLeaseToken: string },
+): Promise<number> {
   if (event.schemaVersion !== 1 || event.projectId.length === 0 || !event.goalId) return 0;
 
   const [candidate] = await db
@@ -4093,10 +4838,106 @@ export async function wakeMissionGoalsForEvent(event: MissionEventEnvelope): Pro
         planRevision: revision ?? null,
       },
     });
+    if (inboxEventId) {
+      const [inbox] = await tx.select({ payload: eventsTable.payload })
+        .from(eventsTable)
+        .where(and(
+          eq(eventsTable.id, inboxEventId),
+          eq(eventsTable.type, MISSION_EXTERNAL_EVENT_TYPE),
+          eq(eventsTable.projectId, goal.projectId),
+          eq(eventsTable.goalId, goal.id),
+        ))
+        .for("update")
+        .limit(1);
+      if (inbox) {
+        await tx.update(eventsTable)
+          .set({
+            payload: {
+              ...(inbox.payload ?? {}),
+              processedAt: now.toISOString(),
+            },
+          })
+          .where(eq(eventsTable.id, inboxEventId));
+      }
+    }
+
+    // The wake marker and the Goal/Mission/inbox transition commit atomically.
+    // If the process exits before replanning, the same leased Outbox intent
+    // retains the exact Mission to resume rather than acknowledging a lost wake.
+    if (dispatchContext) {
+      const [wakeIntent] = await tx.select({
+        type: eventsTable.type,
+        payload: eventsTable.payload,
+      }).from(eventsTable)
+        .where(eq(eventsTable.id, dispatchContext.intentId))
+        .for("update")
+        .limit(1);
+      const wakePayload: Record<string, unknown> = wakeIntent?.payload
+        && typeof wakeIntent.payload === "object"
+        && !Array.isArray(wakeIntent.payload)
+        ? wakeIntent.payload
+        : {};
+      const rawLease = wakePayload.dispatchLease;
+      const dispatchLease = rawLease
+        && typeof rawLease === "object"
+        && !Array.isArray(rawLease)
+        ? rawLease as Record<string, unknown>
+        : undefined;
+      const clockResult = await tx.execute(sql`SELECT clock_timestamp() AS now`);
+      const rawClock = (clockResult.rows as Array<{ now: Date | string }>)[0]?.now;
+      const databaseNow = rawClock instanceof Date
+        ? rawClock
+        : new Date(String(rawClock ?? ""));
+      const leaseExpiry = typeof dispatchLease?.expiresAt === "string"
+        ? Date.parse(dispatchLease.expiresAt)
+        : Number.NaN;
+      if (
+        !wakeIntent
+        || ![ "AiMissionEventWakeRequested", "AiMissionEventWakeDeferred" ].includes(wakeIntent.type)
+        || dispatchLease?.token !== dispatchContext.dispatchLeaseToken
+        || !rawClock
+        || !Number.isFinite(databaseNow.getTime())
+        || !Number.isFinite(leaseExpiry)
+        || leaseExpiry <= databaseNow.getTime()
+      ) {
+        throw new Error("MISSION_EVENT_WAKE_LEASE_LOST");
+      }
+      await tx.update(eventsTable)
+        .set({
+          payload: {
+            ...wakePayload,
+            replanPending: true,
+            replanMissionId: mission.id,
+            replanGoalId: goal.id,
+            replanEventId: event.eventId,
+            replanWakeCount: 1,
+          },
+        })
+        .where(eq(eventsTable.id, dispatchContext.intentId));
+    }
     return true;
   });
 
-  return changed ? 1 : 0;
+  if (!changed) return 0;
+
+  // Outbox dispatchers persist replanPending above and execute the planner as
+  // part of the same leased delivery. Keep the legacy direct-call fallback for
+  // callers that do not supply a dispatch lease context.
+  if (!dispatchContext) {
+    try {
+      const { autoReplanMission } = await import("./mission-auto-replan.js");
+      await autoReplanMission(candidate.missionId);
+    } catch (error) {
+      logger.warn({
+        error,
+        missionId: candidate.missionId,
+        goalId: candidate.id,
+        eventId: event.eventId,
+      }, "Legacy Mission event wake could not start automatic replanning.");
+    }
+  }
+
+  return 1;
 }
 
 function normalizeMissionEventValue(value: unknown): unknown {
@@ -4145,10 +4986,11 @@ function storedMissionEvent(payload: Record<string, unknown> | null): StoredMiss
 }
 
 /**
- * Durable ingress for external Mission events. The existing events journal is
- * also the inbox: eventId is the primary key, so webhook retries are
- * idempotent. If the Goal is not waiting yet, the row remains unprocessed and
- * the dispatcher replays it after the Goal reaches its wait boundary.
+ * Durable ingress for external Mission events. The events journal is also
+ * the inbox: eventId is the primary key, so webhook retries are idempotent.
+ * Inbox persistence and its Goal-targeted wake intent commit together; when
+ * the Goal is not waiting, the intent is acknowledged without consuming the
+ * inbox row and the later wait-generation intent drains that exact Goal.
  */
 export async function receiveMissionEvent(event: MissionEventEnvelope): Promise<{
   eventId: string;
@@ -4160,122 +5002,111 @@ export async function receiveMissionEvent(event: MissionEventEnvelope): Promise<
     missionEvent: createMissionEventEnvelope(event),
     processedAt: null,
   } satisfies Record<string, unknown>;
-  const [inserted] = await db
-    .insert(eventsTable)
-    .values({
-      id: event.eventId,
-      type: MISSION_EXTERNAL_EVENT_TYPE,
-      projectId: event.projectId,
-      goalId: event.goalId,
-      correlationId: event.correlationId ?? event.eventId,
-      severity: "info",
-      message: `External Mission event "${event.type}" received`,
-      payload,
-    })
-    .onConflictDoNothing()
-    .returning({ id: eventsTable.id });
-
-  const existing = inserted
-    ? []
-    : await db
-      .select({
-        payload: eventsTable.payload,
-        projectId: eventsTable.projectId,
-        goalId: eventsTable.goalId,
-        correlationId: eventsTable.correlationId,
+  const persisted = await db.transaction(async (tx) => {
+    const [inserted] = await tx
+      .insert(eventsTable)
+      .values({
+        id: event.eventId,
+        type: MISSION_EXTERNAL_EVENT_TYPE,
+        projectId: event.projectId,
+        goalId: event.goalId,
+        correlationId: event.correlationId ?? event.eventId,
+        severity: "info",
+        message: "External Mission event " + event.type + " received",
+        payload,
       })
-      .from(eventsTable)
-      .where(and(
-        eq(eventsTable.id, event.eventId),
-        eq(eventsTable.type, MISSION_EXTERNAL_EVENT_TYPE),
-      ))
-      .limit(1);
-  const stored = inserted
-    ? undefined
-    : storedMissionEvent(existing[0]?.payload ?? null);
-  const storedRow = existing[0];
-  const duplicateMatchesOriginal = inserted || Boolean(
-    stored?.envelope
-    && sameMissionEventEnvelope(stored.envelope, event)
-    && storedRow?.projectId === event.projectId
-    && storedRow?.goalId === (event.goalId ?? null)
-    && storedRow?.correlationId === (event.correlationId ?? event.eventId),
-  );
-  if (!duplicateMatchesOriginal) {
-    return { eventId: event.eventId, persisted: false, woken: false, duplicate: true };
-  }
-  if (stored?.processedAt != null) {
-    return { eventId: event.eventId, persisted: true, woken: false, duplicate: true };
-  }
+      .onConflictDoNothing()
+      .returning({ id: eventsTable.id });
 
-  // A duplicate may only retry the exact durable event. Always wake from the
-  // stored envelope and preserve its payload; never let a reused eventId
-  // retarget or rewrite an already-persisted inbox item.
-  const eventToWake = stored?.envelope ?? event;
-  const payloadToMark = inserted ? payload : storedRow?.payload ?? payload;
-  const woken = await wakeMissionGoalsForEvent(eventToWake);
-  if (woken > 0) {
-    await db.update(eventsTable)
-      .set({
-        payload: {
-          ...payloadToMark,
-          processedAt: new Date().toISOString(),
-        },
-      })
-      .where(and(
-        eq(eventsTable.id, event.eventId),
-        eq(eventsTable.type, MISSION_EXTERNAL_EVENT_TYPE),
-      ));
-  }
-  return {
-    eventId: event.eventId,
-    persisted: true,
-    woken: woken > 0,
-    duplicate: !inserted,
-  };
-}
+    const existing = inserted
+      ? []
+      : await tx
+        .select({
+          payload: eventsTable.payload,
+          projectId: eventsTable.projectId,
+          goalId: eventsTable.goalId,
+          correlationId: eventsTable.correlationId,
+        })
+        .from(eventsTable)
+        .where(and(
+          eq(eventsTable.id, event.eventId),
+          eq(eventsTable.type, MISSION_EXTERNAL_EVENT_TYPE),
+        ))
+        .limit(1);
+    const stored = inserted
+      ? undefined
+      : storedMissionEvent(existing[0]?.payload ?? null);
+    const storedRow = existing[0];
+    const duplicateMatchesOriginal = inserted || Boolean(
+      stored?.envelope
+      && sameMissionEventEnvelope(stored.envelope, event)
+      && storedRow?.projectId === event.projectId
+      && storedRow?.goalId === (event.goalId ?? null)
+      && storedRow?.correlationId === (event.correlationId ?? event.eventId),
+    );
+    if (!duplicateMatchesOriginal) {
+      return {
+        eventId: event.eventId,
+        persisted: false,
+        woken: false,
+        duplicate: true,
+        intentId: undefined,
+      };
+    }
+    if (stored?.processedAt != null) {
+      return {
+        eventId: event.eventId,
+        persisted: true,
+        woken: false,
+        duplicate: true,
+        intentId: undefined,
+      };
+    }
 
-/**
- * Replays durable external events that arrived before their Goal entered the
- * event-wait state. Replay is bounded and safe because Goal wake is row-locked
- * and the inbox event remains idempotent by eventId.
- */
-export async function replayPendingMissionEvents(
-  limit = 32,
-  scopeProjectId?: string,
-): Promise<number> {
-  const rows = await db
-    .select({
-      id: eventsTable.id,
-      payload: eventsTable.payload,
-    })
-    .from(eventsTable)
-    .where(and(
-      eq(eventsTable.type, MISSION_EXTERNAL_EVENT_TYPE),
-      scopeProjectId ? eq(eventsTable.projectId, scopeProjectId) : undefined,
-    ))
-    .orderBy(eventsTable.timestamp, eventsTable.id)
-    .limit(Math.max(1, Math.min(limit, 100)));
+    const eventToWake = stored?.envelope ?? event;
+    let intentId: string | undefined;
+    if (typeof eventToWake.goalId === "string") {
+      const { insertMissionEventWakeIntent } = await import("./mission-event-wake-outbox.js");
+      intentId = await insertMissionEventWakeIntent(tx, {
+        projectId: eventToWake.projectId,
+        goalId: eventToWake.goalId,
+        source: "event_received",
+        eventId: eventToWake.eventId,
+      });
+    }
+    return {
+      eventId: event.eventId,
+      persisted: true,
+      woken: false,
+      duplicate: !inserted,
+      intentId,
+    };
+  });
 
-  let replayed = 0;
-  for (const row of rows) {
-    const stored = storedMissionEvent(row.payload);
-    if (!stored?.envelope || stored.processedAt) continue;
-    if (scopeProjectId && stored.envelope.projectId !== scopeProjectId) continue;
-    const woken = await wakeMissionGoalsForEvent(stored.envelope);
-    if (woken === 0) continue;
-    await db.update(eventsTable)
-      .set({
-        payload: {
-          ...(row.payload ?? {}),
-          processedAt: new Date().toISOString(),
-        },
-      })
-      .where(and(
-        eq(eventsTable.id, row.id),
-        eq(eventsTable.type, MISSION_EXTERNAL_EVENT_TYPE),
-      ));
-    replayed += 1;
+  if (!persisted.persisted || !persisted.intentId) {
+    const { intentId: _intentId, ...result } = persisted;
+    return result;
   }
-  return replayed;
+  try {
+    const { dispatchMissionEventWakeIntent } = await import("./mission-event-wake-outbox.js");
+    const dispatched = await dispatchMissionEventWakeIntent(persisted.intentId);
+    return {
+      eventId: persisted.eventId,
+      persisted: true,
+      woken: dispatched.woken > 0,
+      duplicate: persisted.duplicate,
+    };
+  } catch (error) {
+    logger.warn({
+      error,
+      eventId: persisted.eventId,
+      intentId: persisted.intentId,
+    }, "Mission event was persisted but its immediate targeted wake was deferred");
+    return {
+      eventId: persisted.eventId,
+      persisted: true,
+      woken: false,
+      duplicate: persisted.duplicate,
+    };
+  }
 }

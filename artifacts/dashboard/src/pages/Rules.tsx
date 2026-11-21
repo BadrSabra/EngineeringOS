@@ -1,4 +1,6 @@
 import React, { useState, useMemo } from 'react';
+import { useUser } from '@clerk/react';
+import { useLocation } from 'wouter';
 import {
   useListRules,
   useCreateRule,
@@ -17,12 +19,26 @@ import {
   BarChart2,
   ChevronDown,
   ChevronRight,
+  Sparkles,
 } from 'lucide-react';
 import RuleGoalHandoff from '@/components/RuleGoalHandoff';
 import { RefreshButton, RequestError } from '@/components/OperatorResilience';
 import RuleDetailActions from '@/components/RuleDetailActions';
+import { storeHomeGoalDraft } from '@/lib/home-goal-handoff';
+import RulePatternInput, {
+  patternForRuleCreation,
+  type RulePatternMode,
+} from '@/components/RulePatternInput';
 
 type RuleSeverity = 'critical' | 'high' | 'medium' | 'low' | 'info';
+
+const SEVERITY_LABELS: Record<RuleSeverity, string> = {
+  critical: 'حرج',
+  high: 'مرتفع',
+  medium: 'متوسط',
+  low: 'منخفض',
+  info: 'معلومة',
+};
 
 const SEVERITY_ORDER: Record<string, number> = {
   critical: 0,
@@ -32,12 +48,20 @@ const SEVERITY_ORDER: Record<string, number> = {
   info: 4,
 };
 
+function createRuleCode(): string {
+  return `RULE-${globalThis.crypto.randomUUID().replace(/-/g, '').slice(0, 20).toUpperCase()}`;
+}
+
 export default function Rules() {
+  const { isLoaded, user } = useUser();
+  const [, setLocation] = useLocation();
   const queryClient = useQueryClient();
   const [filterSeverity, setFilterSeverity] = useState<RuleSeverity | ''>('');
   const [searchTerm, setSearchTerm] = useState('');
   const [showCreate, setShowCreate] = useState(false);
+  const [patternMode, setPatternMode] = useState<RulePatternMode>('regex');
   const [expandedRule, setExpandedRule] = useState<string | null>(null);
+  const [goalHandoffError, setGoalHandoffError] = useState('');
   const [newRule, setNewRule] = useState({
     title: '',
     code: '',
@@ -59,6 +83,29 @@ export default function Rules() {
   );
 
   const createRule = useCreateRule();
+
+  function openCreateForm() {
+    setGoalHandoffError('');
+    setNewRule((current) => ({
+      ...current,
+      code: current.code || createRuleCode(),
+    }));
+    setShowCreate(true);
+  }
+
+  function openRuleAssistant() {
+    if (!isLoaded || !user?.id) return;
+    const draft = storeHomeGoalDraft(
+      'أريد إعداد قاعدة فحص جديدة. ساعدني في تحديد النمط الذي أريد رصده، واشرح لي المعلومات اللازمة لصياغتها. لا تحفظ القاعدة ولا تعدّل ملفات المشروع قبل أن أراجع المقترح وأوافق.',
+      user.id,
+    );
+    if (!draft) {
+      setGoalHandoffError('تعذر حفظ مسودة طلب المساعدة. بقيت في صفحة القواعد ولم نغيّرها.');
+      return;
+    }
+    setGoalHandoffError('');
+    setLocation(`/ai?goalDraftId=${encodeURIComponent(draft.id)}`);
+  }
 
   const visibleRules = useMemo(() => {
     if (!rules) return [];
@@ -82,12 +129,19 @@ export default function Rules() {
   const handleCreate = (e: React.FormEvent) => {
     e.preventDefault();
     createRule.mutate(
-      { data: { ...newRule, verifySteps: newRule.verifySteps.map((s) => s.trim()).filter(Boolean) } },
+      {
+        data: {
+          ...newRule,
+          pattern: patternForRuleCreation(newRule.pattern, patternMode),
+          verifySteps: newRule.verifySteps.map((s) => s.trim()).filter(Boolean),
+        },
+      },
       {
         onSuccess: () => {
           setShowCreate(false);
           queryClient.invalidateQueries({ queryKey: getListRulesQueryKey() });
           setNewRule({ title: '', code: '', description: '', pattern: '', fixDescription: '', severity: 'high', verifySteps: [] });
+          setPatternMode('regex');
         },
       },
     );
@@ -143,6 +197,12 @@ export default function Rules() {
               type="text"
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
+              onKeyDown={(event) => {
+                if (event.key !== 'Enter' || visibleRules.length !== 1) return;
+                event.preventDefault();
+                setExpandedRule(visibleRules[0].id);
+              }}
+              aria-label="ابحث في القواعد"
               placeholder="ابحث في القواعد..."
               className="bg-card border border-border rounded-md pl-9 pr-8 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-primary w-56"
             />
@@ -157,7 +217,8 @@ export default function Rules() {
           </div>
           <RefreshButton onRefresh={refetch} isRefreshing={isRefetching} lastUpdated={dataUpdatedAt} label="تحديث القواعد" refreshingLabel="جارٍ التحديث…" updatedLabel="آخر تحديث:" />
           <button
-            onClick={() => setShowCreate(true)}
+            type="button"
+            onClick={openCreateForm}
             className="bg-primary hover:bg-primary/90 text-primary-foreground px-4 py-2 rounded-md font-medium text-sm flex items-center gap-2 shadow-sm transition-colors"
           >
             <Plus className="w-4 h-4" /> قاعدة جديدة
@@ -236,15 +297,21 @@ export default function Rules() {
                 />
               </div>
               <div className="space-y-1.5">
-              <label className="text-xs font-medium text-muted-foreground uppercase tracking-wider">رمز القاعدة</label>
+              <label htmlFor="new-rule-code" className="text-xs font-medium text-muted-foreground uppercase tracking-wider">رمز القاعدة</label>
                 <input
+                  id="new-rule-code"
+                  data-testid="input-new-rule-code"
+                  aria-describedby="new-rule-code-help"
                   required
                   value={newRule.code}
                   onChange={(e) => setNewRule({ ...newRule, code: e.target.value })}
                   className="w-full bg-secondary border border-border rounded-md px-3 py-2 text-sm font-mono focus:border-primary focus:outline-none"
-                placeholder="SEC-001"
+                placeholder="يُنشأ تلقائيًا"
                 dir="ltr"
                 />
+                <p id="new-rule-code-help" className="text-[11px] text-muted-foreground">
+                  أنشأنا رمزًا فريدًا لك؛ يمكنك تغييره إذا احتجت.
+                </p>
               </div>
             </div>
             <div className="space-y-1.5">
@@ -258,16 +325,12 @@ export default function Rules() {
               />
             </div>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div className="space-y-1.5">
-                <label className="text-xs font-medium text-muted-foreground uppercase tracking-wider">النمط (Regex)</label>
-                <input
-                  value={newRule.pattern}
-                  onChange={(e) => setNewRule({ ...newRule, pattern: e.target.value })}
-                  className="w-full bg-secondary border border-border rounded-md px-3 py-2 text-sm font-mono focus:border-primary focus:outline-none"
-                  placeholder={`e.g. execute\\s*\\(.*\\$\\{`}
-                  dir="ltr"
-                />
-              </div>
+              <RulePatternInput
+                value={newRule.pattern}
+                mode={patternMode}
+                onChange={(pattern) => setNewRule({ ...newRule, pattern })}
+                onModeChange={setPatternMode}
+              />
               <div className="space-y-1.5">
                 <label className="text-xs font-medium text-muted-foreground uppercase tracking-wider">مستوى الخطورة</label>
                 <select
@@ -372,12 +435,33 @@ export default function Rules() {
                 : 'أضف قاعدة لتحديد نمط تريد رصده في المشروع. فحص القاعدة يعرض النتائج للمراجعة فقط، ولا يغيّر ملفات المشروع.'}
             </p>
             {!(searchTerm || filterSeverity) && (
-              <button
-                onClick={() => setShowCreate(true)}
-                className="bg-primary text-primary-foreground px-4 py-2 rounded-md font-medium text-sm flex items-center gap-2"
-              >
-                <Plus className="w-4 h-4" /> أنشئ أول قاعدة
-              </button>
+              <>
+                <div className="flex flex-wrap items-center justify-center gap-2">
+                  {!showCreate && (
+                    <button
+                      type="button"
+                      onClick={openRuleAssistant}
+                      disabled={!isLoaded || !user?.id}
+                      data-testid="button-rule-empty-assistant"
+                      className="bg-primary text-primary-foreground px-4 py-2 rounded-md font-medium text-sm inline-flex items-center gap-2 transition-colors hover:bg-primary/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary disabled:cursor-wait disabled:opacity-50"
+                    >
+                      <Sparkles className="w-4 h-4" aria-hidden="true" /> اطلب المساعدة في إعداد قاعدة
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    onClick={openCreateForm}
+                    className="border border-border bg-secondary px-4 py-2 rounded-md font-medium text-sm inline-flex items-center gap-2 transition-colors hover:bg-secondary/80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+                  >
+                    <Plus className="w-4 h-4" aria-hidden="true" /> أنشئ أول قاعدة
+                  </button>
+                </div>
+                {goalHandoffError && (
+                  <p className="mt-3 text-xs text-destructive" role="alert" data-testid="text-rule-goal-handoff-error">
+                    {goalHandoffError}
+                  </p>
+                )}
+              </>
             )}
           </div>
         ) : (
@@ -386,52 +470,66 @@ export default function Rules() {
               key={rule.id}
               className="bg-card border border-border rounded-xl overflow-hidden hover:border-primary/30 transition-colors"
             >
-              <div
-                role="button"
-                tabIndex={0}
-                className="p-4 flex items-start gap-4 cursor-pointer"
-                onClick={() => setExpandedRule(expandedRule === rule.id ? null : rule.id)}
-                onKeyDown={(event) => {
-                  if (event.key === 'Enter' || event.key === ' ') {
-                    event.preventDefault();
-                    setExpandedRule(expandedRule === rule.id ? null : rule.id);
-                  }
-                }}
-                aria-expanded={expandedRule === rule.id}
-                aria-label={`${expandedRule === rule.id ? 'طيّ' : 'توسيع'} القاعدة ${rule.title}`}
-              >
-                <SeverityIcon severity={rule.severity} />
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-2 mb-1 flex-wrap">
-                    <span className="font-mono text-xs bg-secondary px-2 py-0.5 rounded border border-border">
-                      {rule.code}
-                    </span>
-                    <span className="font-semibold text-sm">{rule.title}</span>
-                    <span className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider border ${severityColors[rule.severity] ?? severityColors.info}`}>
-                      {({ critical: 'حرج', high: 'مرتفع', medium: 'متوسط', low: 'منخفض', info: 'معلومة' } as const)[rule.severity]}
-                    </span>
-                    {!rule.enabled && (
-                      <span className="px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider border border-border text-muted-foreground">
-                        معطّلة
+              <div className="p-4 flex items-start gap-4">
+                <div
+                  role="button"
+                  tabIndex={0}
+                  className="flex min-w-0 flex-1 items-start gap-4 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+                  onClick={() => setExpandedRule(expandedRule === rule.id ? null : rule.id)}
+                  onKeyDown={(event) => {
+                    if (event.key === 'Enter' || event.key === ' ') {
+                      event.preventDefault();
+                      setExpandedRule(expandedRule === rule.id ? null : rule.id);
+                    }
+                  }}
+                  aria-expanded={expandedRule === rule.id}
+                  aria-label={`${expandedRule === rule.id ? 'طيّ' : 'توسيع'} القاعدة ${rule.title}`}
+                >
+                  <SeverityIcon severity={rule.severity} />
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2 mb-1 flex-wrap">
+                      <span className="font-mono text-xs bg-secondary px-2 py-0.5 rounded border border-border">
+                        {rule.code}
                       </span>
+                      <span className="font-semibold text-sm">{rule.title}</span>
+                      {!rule.enabled && (
+                        <span className="px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider border border-border text-muted-foreground">
+                          معطّلة
+                        </span>
+                      )}
+                    </div>
+                    {rule.description && (
+                      <p className="text-sm text-muted-foreground line-clamp-1">{rule.description}</p>
                     )}
                   </div>
-                  {rule.description && (
-                    <p className="text-sm text-muted-foreground line-clamp-1">{rule.description}</p>
-                  )}
+                  <div className="flex items-center gap-3 shrink-0">
+                    {(rule.hitCount ?? 0) > 0 && (
+                      <span className="text-xs font-mono font-bold text-primary bg-primary/10 px-2 py-1 rounded">
+                        {rule.hitCount} مرات رصد
+                      </span>
+                    )}
+                    {expandedRule === rule.id ? (
+                      <ChevronDown className="w-4 h-4 text-muted-foreground" />
+                    ) : (
+                      <ChevronRight className="w-4 h-4 text-muted-foreground" />
+                    )}
+                  </div>
                 </div>
-                <div className="flex items-center gap-3 shrink-0">
-                  {(rule.hitCount ?? 0) > 0 && (
-                    <span className="text-xs font-mono font-bold text-primary bg-primary/10 px-2 py-1 rounded">
-                      {rule.hitCount} مرات رصد
-                    </span>
-                  )}
-                  {expandedRule === rule.id ? (
-                    <ChevronDown className="w-4 h-4 text-muted-foreground" />
-                  ) : (
-                    <ChevronRight className="w-4 h-4 text-muted-foreground" />
-                  )}
-                </div>
+                <button
+                  type="button"
+                  onClick={() => setFilterSeverity((current) => current === rule.severity ? '' : rule.severity as RuleSeverity)}
+                  aria-pressed={filterSeverity === rule.severity}
+                  aria-label={
+                    filterSeverity === rule.severity
+                      ? `أزل تصفية مستوى الخطورة: ${SEVERITY_LABELS[rule.severity]}`
+                      : `صفِّ القواعد حسب مستوى الخطورة: ${SEVERITY_LABELS[rule.severity]}`
+                  }
+                  title="اعرض القواعد من مستوى الخطورة هذا"
+                  data-testid={`button-rule-severity-filter-${rule.id}`}
+                  className={`shrink-0 rounded border px-2 py-1 text-[10px] font-bold uppercase tracking-wider transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary ${severityColors[rule.severity] ?? severityColors.info}`}
+                >
+                  {SEVERITY_LABELS[rule.severity]}
+                </button>
               </div>
 
               {expandedRule === rule.id && (

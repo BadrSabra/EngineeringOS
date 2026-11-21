@@ -1,17 +1,35 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { getListEventsQueryKey, useListEvents, useListProjects } from '@workspace/api-client-react';
 import { Search, Filter, X } from 'lucide-react';
 import { RefreshButton } from '@/components/OperatorResilience';
 import EventAssistantHandoff from '@/components/EventAssistantHandoff';
 import { Link } from 'wouter';
+import { eventTypeLabel } from '@/lib/event-copy';
 
 const SEVERITIES = ['info', 'warning', 'error', 'success'] as const;
 const PAGE_SIZE = 50;
 
-function formatEventTime(timestamp: Date | string | number): string {
+function eventDate(timestamp: Date | string | number): Date | null {
   const date = timestamp instanceof Date ? timestamp : new Date(timestamp);
-  if (!Number.isFinite(date.getTime())) return 'وقت غير صالح';
-  return date.toISOString().slice(11, 19);
+  return Number.isFinite(date.getTime()) ? date : null;
+}
+
+function formatEventTime(timestamp: Date | string | number): string {
+  const date = eventDate(timestamp);
+  if (!date) return 'وقت غير صالح';
+  return formatEventReadAt(date.getTime());
+}
+
+function eventDateTime(timestamp: Date | string | number): string | undefined {
+  return eventDate(timestamp)?.toISOString();
+}
+
+function severityLabel(severity?: string): string {
+  if (severity === 'info') return 'معلومة';
+  if (severity === 'warning') return 'تحذير';
+  if (severity === 'error') return 'خطأ';
+  if (severity === 'success') return 'نجاح';
+  return severity || 'معلومة';
 }
 
 function formatEventReadAt(timestamp: number): string {
@@ -26,6 +44,7 @@ function initialEventViewState() {
   return {
     projectId: params.get('projectId') ?? '',
     severity: params.get('severity') ?? '',
+    eventType: params.get('type') ?? '',
     correlationId: params.get('correlationId') ?? '',
     searchTerm: params.get('search') ?? '',
     page: Math.max(1, Number(params.get('page')) || 1),
@@ -37,26 +56,32 @@ export default function Events() {
   const [viewState] = useState(initialEventViewState);
   const [projectId, setProjectId] = useState(viewState.projectId);
   const [severity, setSeverity] = useState(viewState.severity);
+  const [eventType, setEventType] = useState(viewState.eventType);
   const [correlationId, setCorrelationId] = useState(viewState.correlationId);
   const [searchTerm, setSearchTerm] = useState(viewState.searchTerm);
   const [page, setPage] = useState(viewState.page);
-  const [showFilters, setShowFilters] = useState(false);
+  const [showFilters, setShowFilters] = useState(() => (
+    Boolean(viewState.projectId || viewState.severity || viewState.eventType.trim() || viewState.correlationId.trim())
+  ));
+  const searchInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     const params = new URLSearchParams();
     if (projectId) params.set('projectId', projectId);
     if (severity) params.set('severity', severity);
+    if (eventType.trim()) params.set('type', eventType.trim());
     if (correlationId.trim()) params.set('correlationId', correlationId.trim());
     if (searchTerm.trim()) params.set('search', searchTerm.trim());
     if (page > 1) params.set('page', String(page));
     const query = params.toString();
     window.history.replaceState(null, '', `${window.location.pathname}${query ? `?${query}` : ''}`);
-  }, [projectId, severity, correlationId, searchTerm, page]);
+  }, [projectId, severity, eventType, correlationId, searchTerm, page]);
 
   const eventQueryParams = {
     limit: PAGE_SIZE,
     page,
     ...(projectId ? { projectId } : {}),
+    ...(eventType.trim() ? { type: eventType.trim() } : {}),
     ...(correlationId.trim() ? { correlationId: correlationId.trim() } : {}),
     ...(severity ? { severity: severity as (typeof SEVERITIES)[number] } : {}),
     ...(searchTerm.trim() ? { search: searchTerm.trim() } : {}),
@@ -69,10 +94,18 @@ export default function Events() {
     },
   });
 
-  const activeFilterCount = [projectId, severity, correlationId.trim(), searchTerm.trim()].filter(Boolean).length;
+  const activeFilterCount = [projectId, severity, eventType.trim(), correlationId.trim(), searchTerm.trim()].filter(Boolean).length;
   const events = eventsPage?.events ?? [];
   const total = eventsPage?.total ?? 0;
   const hasNextPage = page * PAGE_SIZE < total;
+  const clearEventFilters = () => {
+    setProjectId('');
+    setSeverity('');
+    setEventType('');
+    setCorrelationId('');
+    setSearchTerm('');
+    setPage(1);
+  };
 
   return (
     <div dir="rtl" lang="ar" className="space-y-6 h-full flex flex-col">
@@ -103,6 +136,7 @@ export default function Events() {
           <div data-testid="events-search" className="relative min-w-0 basis-full sm:basis-auto">
             <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
             <input
+              ref={searchInputRef}
               type="text"
               value={searchTerm}
                onChange={(e) => {
@@ -110,8 +144,24 @@ export default function Events() {
                  setPage(1);
                }}
               placeholder="ابحث في السجلات..."
-              className="w-full min-w-0 bg-card border border-border rounded-md pl-9 pr-4 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-primary sm:w-64"
+              aria-label="ابحث في سجل الأحداث"
+              className="w-full min-w-0 bg-card border border-border rounded-md pl-9 pr-9 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-primary sm:w-64"
             />
+            {searchTerm.trim() && (
+              <button
+                type="button"
+                aria-label="مسح البحث عن الأحداث"
+                data-testid="button-clear-event-search"
+                onClick={() => {
+                  setSearchTerm('');
+                  setPage(1);
+                  searchInputRef.current?.focus();
+                }}
+                className="absolute right-2 top-1/2 -translate-y-1/2 rounded p-1 text-muted-foreground hover:bg-secondary hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+              >
+                <X className="h-3.5 w-3.5" aria-hidden="true" />
+              </button>
+            )}
           </div>
           <div className="shrink-0">
             <RefreshButton onRefresh={refetch} isRefreshing={isFetching} label="تحديث الأحداث" />
@@ -140,6 +190,8 @@ export default function Events() {
           <div className="flex items-center gap-2">
             <span className="text-xs text-muted-foreground font-medium">المشروع</span>
             <select
+              aria-label="تصفية حسب المشروع"
+              data-testid="select-event-project"
               value={projectId}
                onChange={(e) => {
                  setProjectId(e.target.value);
@@ -158,6 +210,7 @@ export default function Events() {
           <div className="flex items-center gap-2">
             <span className="text-xs text-muted-foreground font-medium">مستوى الخطورة</span>
             <select
+              data-testid="select-event-severity"
               value={severity}
                onChange={(e) => {
                  setSeverity(e.target.value);
@@ -173,10 +226,36 @@ export default function Events() {
               ))}
             </select>
           </div>
+          {eventType.trim() && (
+            <div className="flex items-center gap-2">
+              <span className="text-xs text-muted-foreground font-medium">نوع الحدث</span>
+              <span
+                data-testid="text-event-type-filter"
+                className="max-w-48 truncate rounded bg-secondary/50 px-2 py-1.5 text-xs"
+                title={eventType}
+              >
+                <bdi dir="auto">{eventTypeLabel(eventType.trim())}</bdi>
+              </span>
+              <button
+                type="button"
+                aria-label="مسح تصفية نوع الحدث"
+                data-testid="button-clear-event-type"
+                onClick={() => {
+                  setEventType('');
+                  setPage(1);
+                }}
+                className="rounded p-1 text-muted-foreground hover:bg-secondary hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+              >
+                <X className="h-3 w-3" aria-hidden="true" />
+              </button>
+            </div>
+          )}
           <div className="flex items-center gap-2">
             <span className="text-xs text-muted-foreground font-medium">العملية</span>
             <input
               value={correlationId}
+              aria-label="تصفية حسب معرّف الارتباط"
+              data-testid="input-event-correlation"
                onChange={(e) => {
                  setCorrelationId(e.target.value);
                  setPage(1);
@@ -188,13 +267,7 @@ export default function Events() {
           </div>
           {activeFilterCount > 0 && (
             <button
-              onClick={() => {
-                setProjectId('');
-                setSeverity('');
-                setCorrelationId('');
-                setSearchTerm('');
-                setPage(1);
-              }}
+              onClick={clearEventFilters}
               className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground"
             >
               <X className="w-3 h-3" /> مسح عوامل التصفية
@@ -214,9 +287,9 @@ export default function Events() {
         >
           <div className="min-w-[900px]">
             <div className="p-2 border-b border-border bg-card/50 flex gap-4 text-xs text-muted-foreground sticky top-0 z-10 shadow-sm backdrop-blur-md">
-              <div className="w-32">الوقت</div>
+              <div className="w-32">التاريخ والوقت المحلي</div>
               <div className="w-16">المستوى</div>
-              <div className="w-32">النوع</div>
+              <div className="w-40">ماذا حدث</div>
               <div className="w-48 truncate">المشروع</div>
               <div className="w-56 truncate">العملية</div>
               <div className="flex-1">الرسالة</div>
@@ -239,13 +312,28 @@ export default function Events() {
                   </button>
                 </div>
               ) : (events?.length ?? 0) === 0 ? (
-                <div className="p-8 text-muted-foreground opacity-50">
-                  {activeFilterCount > 0 ? 'لا توجد أحداث تطابق عوامل التصفية الحالية.' : 'لا توجد أحداث مسجلة.'}
+                <div className="flex flex-col items-center gap-3 p-8 text-center text-muted-foreground">
+                  <p>
+                    {activeFilterCount > 0 ? 'لا توجد أحداث تطابق عوامل التصفية الحالية.' : 'لا توجد أحداث مسجلة.'}
+                  </p>
+                  {activeFilterCount > 0 && !showFilters && (
+                    <button
+                      type="button"
+                      onClick={clearEventFilters}
+                      aria-label="مسح كل عوامل تصفية سجل الأحداث"
+                      data-testid="button-clear-event-filters-empty"
+                      className="inline-flex items-center gap-1 rounded-md border border-border px-3 py-1.5 text-xs font-medium text-foreground transition-colors hover:bg-secondary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+                    >
+                      <X className="h-3 w-3" aria-hidden="true" />
+                      مسح عوامل التصفية
+                    </button>
+                  )}
                 </div>
               ) : (
                 <div className="space-y-0.5">
                   {(events || []).map((evt) => {
                     const eventProject = projects?.find((project) => project.id === evt.projectId);
+                    const typeLabel = eventTypeLabel(evt.type);
                     const color =
                       evt.severity === 'error'
                         ? 'text-red-400 bg-red-950/20'
@@ -261,31 +349,140 @@ export default function Events() {
                         className={`flex gap-4 p-1.5 rounded hover:bg-white/5 transition-colors ${color}`}
                       >
                         <div className="w-32 opacity-70 shrink-0">
+                          <time
+                            data-testid={`event-time-${evt.id}`}
+                            dateTime={eventDateTime(evt.timestamp)}
+                          >
                           {formatEventTime(evt.timestamp)}
+                          </time>
                         </div>
                         <div className="w-16 font-bold uppercase shrink-0">
-                          {evt.severity === 'info' ? 'معلومة' : evt.severity === 'warning' ? 'تحذير' : evt.severity === 'error' ? 'خطأ' : evt.severity === 'success' ? 'نجاح' : evt.severity || 'معلومة'}
-                        </div>
-                        <div className="w-32 opacity-80 shrink-0 truncate"><bdi dir="ltr">{evt.type}</bdi></div>
-                        <div className="w-48 opacity-60 shrink-0 truncate">
-                          {eventProject ? (
-                            <Link
-                              href={`/projects/${encodeURIComponent(evt.projectId)}/workspace`}
-                              aria-label={`فتح مساحة المشروع: ${eventProject.name}`}
-                              data-testid={`link-event-project-${evt.id}`}
-                              title={evt.projectId}
-                              className="hover:text-primary hover:underline focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary rounded"
+                          {SEVERITIES.includes(evt.severity as (typeof SEVERITIES)[number]) ? (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setSeverity(evt.severity as (typeof SEVERITIES)[number]);
+                                setPage(1);
+                                setShowFilters(true);
+                              }}
+                              aria-label={`اعرض أحداث مستوى الخطورة: ${severityLabel(evt.severity)}`}
+                              title="اعرض الأحداث من هذا المستوى"
+                              data-testid={`button-event-severity-${evt.id}`}
+                              className="rounded text-start hover:text-primary hover:underline focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary"
                             >
-                              <bdi dir="auto">{eventProject.name}</bdi>
+                              {severityLabel(evt.severity)}
+                            </button>
+                          ) : severityLabel(evt.severity)}
+                        </div>
+                        <div className="w-40 shrink-0">
+                          <div
+                            className="truncate opacity-80"
+                            title={typeLabel === evt.type ? undefined : evt.type}
+                            data-testid={`text-event-type-${evt.id}`}
+                          >
+                            {evt.type.trim() ? (
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  const nextType = evt.type.trim() === eventType.trim() ? '' : evt.type.trim();
+                                  setEventType(nextType);
+                                  setPage(1);
+                                  setShowFilters(true);
+                                }}
+                                aria-pressed={evt.type.trim() === eventType.trim()}
+                                aria-label={
+                                  evt.type.trim() === eventType.trim()
+                                    ? `أزل تصفية نوع الحدث: ${typeLabel}`
+                                    : `اعرض أحداث النوع: ${typeLabel}`
+                                }
+                                title="تصفية سجل الأحداث حسب هذا النوع"
+                                data-testid={`button-event-type-filter-${evt.id}`}
+                                className="rounded text-start hover:text-primary hover:underline focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary"
+                              >
+                                <bdi dir="auto">{typeLabel}</bdi>
+                              </button>
+                            ) : <bdi dir="auto">{typeLabel}</bdi>}
+                            {typeLabel !== evt.type && (
+                              <span className="sr-only">
+                                {' '}الرمز التقني: <bdi dir="ltr">{evt.type}</bdi>
+                              </span>
+                            )}
+                          </div>
+                          {evt.workflowId && (
+                            <Link
+                              href={`/workflows?projectId=${encodeURIComponent(evt.projectId)}&workflowId=${encodeURIComponent(evt.workflowId)}`}
+                              aria-label={`افتح سجل مسار العمل المرتبط بالحدث ${evt.type}`}
+                              data-testid={`link-event-workflow-${evt.id}`}
+                              className="mt-1 block truncate text-[10px] font-medium text-primary hover:underline focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary"
+                            >
+                              افتح سجل التشغيل
                             </Link>
+                          )}
+                          {eventProject && evt.taskId && (
+                            <Link
+                              href={`/tasks?projectId=${encodeURIComponent(evt.projectId)}&taskId=${encodeURIComponent(evt.taskId)}`}
+                              aria-label={`افتح تفاصيل المهمة المرتبطة: ${typeLabel}`}
+                              data-testid={`link-event-task-${evt.id}`}
+                              className="mt-1 block truncate text-[10px] font-medium text-primary hover:underline focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary"
+                            >
+                              افتح تفاصيل المهمة
+                            </Link>
+                          )}
+                        </div>
+                        <div className="flex w-48 shrink-0 items-center gap-1">
+                          {eventProject ? (
+                            <>
+                              <Link
+                                href={`/projects/${encodeURIComponent(evt.projectId)}/workspace`}
+                                aria-label={`فتح مساحة المشروع: ${eventProject.name}`}
+                                data-testid={`link-event-project-${evt.id}`}
+                                title={evt.projectId}
+                                className="min-w-0 flex-1 truncate text-muted-foreground hover:text-primary hover:underline focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary rounded"
+                              >
+                                <bdi dir="auto">{eventProject.name}</bdi>
+                              </Link>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setProjectId(evt.projectId);
+                                  setCorrelationId('');
+                                  setPage(1);
+                                  setShowFilters(true);
+                                }}
+                                aria-label={`اعرض أحداث المشروع: ${eventProject.name}`}
+                                title="اعرض أحداث هذا المشروع"
+                                data-testid={`button-event-project-filter-${evt.id}`}
+                                className="shrink-0 rounded p-1 text-muted-foreground hover:bg-secondary hover:text-primary focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary"
+                              >
+                                <Filter className="h-3.5 w-3.5" aria-hidden="true" />
+                              </button>
+                            </>
                           ) : evt.projectId ? (
-                            <bdi dir="ltr" data-testid={`text-event-project-${evt.id}`}>{evt.projectId}</bdi>
+                            <bdi dir="ltr" className="truncate text-muted-foreground" data-testid={`text-event-project-${evt.id}`}>{evt.projectId}</bdi>
                           ) : (
                             <span data-testid={`text-event-project-${evt.id}`}>-</span>
                           )}
                         </div>
                         <div className="w-56 opacity-60 shrink-0 truncate" title={evt.correlationId || undefined}>
-                          {evt.correlationId ? <bdi dir="ltr">{evt.correlationId}</bdi> : 'غير مرتبط'}
+                          {evt.correlationId ? (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setProjectId('');
+                                setSeverity('');
+                                setSearchTerm('');
+                                setCorrelationId(evt.correlationId!);
+                                setPage(1);
+                                setShowFilters(true);
+                              }}
+                              aria-label={`اعرض أحداث العملية المرتبطة ${evt.correlationId}`}
+                              title="اعرض كل أحداث العملية المرتبطة"
+                              data-testid={`button-event-correlation-${evt.id}`}
+                              className="rounded text-start hover:text-primary hover:underline focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary"
+                            >
+                              <bdi dir="ltr">{evt.correlationId}</bdi>
+                            </button>
+                          ) : 'غير مرتبط'}
                         </div>
                         <div className="flex min-w-0 flex-1 flex-col gap-2 sm:flex-row sm:items-start">
                           <div

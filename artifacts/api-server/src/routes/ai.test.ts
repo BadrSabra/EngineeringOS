@@ -10529,6 +10529,123 @@ describe("POST /api/ai/tasks/:taskId/execute", () => {
     }
   });
 
+  it("automatically redispatches a dependency-blocked Task after its prerequisite completes", async () => {
+    const projectId = await insertProject();
+    projectIds.push(projectId);
+    const prerequisiteId = randomUUID();
+    await db.insert(tasksTable).values({
+      id: prerequisiteId,
+      projectId,
+      title: "automatic-dispatch-prerequisite",
+      status: "pending",
+    });
+    const taskId = await insertTask(projectId, "verifying");
+    await db.update(tasksTable)
+      .set({
+        prompt: "Run when its prerequisite is complete",
+        dependsOn: [prerequisiteId],
+      })
+      .where(eq(tasksTable.id, taskId));
+    const [generation] = await db.select({
+      retryCount: tasksTable.retryCount,
+      correlationId: tasksTable.correlationId,
+    }).from(tasksTable).where(eq(tasksTable.id, taskId));
+
+    const queuedJobs: Array<{ id: string; run: () => Promise<void> }> = [];
+    const enqueueSpy = vi.spyOn(heavyJobQueue, "enqueueWithIdDetailed")
+      .mockImplementation((id, run) => {
+        queuedJobs.push({ id, run });
+        return "enqueued";
+      });
+    const providerSpy = vi.spyOn(aiRouteHelpers, "resolveProvider")
+      .mockResolvedValue({
+        provider: "groq",
+        apiKey: "test-only-key",
+        source: "user",
+      });
+    const rateLimitSpy = vi.spyOn(aiRateLimiter, "checkProjectRateLimitDb")
+      .mockResolvedValue({ allowed: true });
+
+    try {
+      await scheduleAiTaskExecution(
+        taskId,
+        "test-user",
+        undefined,
+        generation!.retryCount,
+        generation!.correlationId,
+      );
+      const firstQueuedJob = queuedJobs.find((job) => job.id === taskId);
+      expect(firstQueuedJob).toBeDefined();
+      await firstQueuedJob!.run();
+      await waitForScheduledAiTaskExecutions();
+
+      const [deferred] = await db.select().from(eventsTable)
+        .where(eq(eventsTable.id, `task-auto-execution-deferred:${taskId}`));
+      expect(deferred).toMatchObject({
+        type: "TaskAutoExecutionDeferred",
+        payload: {
+          taskRetryCount: generation!.retryCount,
+          taskCorrelationId: generation!.correlationId,
+          lastFailureCode: "task_dependencies_not_completed",
+        },
+      });
+      const databaseClockResult = await db.execute(sql`SELECT clock_timestamp() AS now`);
+      const databaseClockValue = (databaseClockResult.rows as Array<{ now: Date | string }>)[0]?.now;
+      const databaseNow = databaseClockValue instanceof Date
+        ? databaseClockValue
+        : new Date(String(databaseClockValue ?? ""));
+      if (!databaseClockValue || !Number.isFinite(databaseNow.getTime())) {
+        throw new Error("Could not read PostgreSQL time");
+      }
+      const retryAt = Date.parse(String(deferred!.payload?.nextAttemptAt ?? ""));
+      expect(retryAt).toBeGreaterThanOrEqual(databaseNow.getTime() + 25_000);
+      expect(retryAt).toBeLessThanOrEqual(databaseNow.getTime() + 35_000);
+      await expect(db.select({ id: aiExecutionsTable.id })
+        .from(aiExecutionsTable)
+        .where(eq(aiExecutionsTable.linkedTaskId, taskId))).resolves.toHaveLength(0);
+
+      await db.update(tasksTable)
+        .set({ status: "completed", completedAt: new Date() })
+        .where(eq(tasksTable.id, prerequisiteId));
+      const dueClockResult = await db.execute(sql`SELECT clock_timestamp() AS now`);
+      const dueClockValue = (dueClockResult.rows as Array<{ now: Date | string }>)[0]?.now;
+      const dueClock = dueClockValue instanceof Date ? dueClockValue : new Date(String(dueClockValue ?? ""));
+      if (!dueClockValue || !Number.isFinite(dueClock.getTime())) {
+        throw new Error("Could not read PostgreSQL time");
+      }
+      await db.update(eventsTable)
+        .set({
+          payload: {
+            ...deferred!.payload!,
+            nextAttemptAt: new Date(dueClock.getTime() - 1_000).toISOString(),
+          },
+        })
+        .where(eq(eventsTable.id, `task-auto-execution-deferred:${taskId}`));
+
+      const redispatchedTaskIds: string[] = [];
+      enqueueSpy.mockImplementationOnce((id) => {
+        redispatchedTaskIds.push(id);
+        return "full";
+      });
+      await aiTaskRoutes.dispatchDeferredAiTaskExecutions();
+      expect(redispatchedTaskIds).toContain(taskId);
+      const [deferredAgain] = await db.select().from(eventsTable)
+        .where(eq(eventsTable.id, `task-auto-execution-deferred:${taskId}`));
+      expect(deferredAgain).toMatchObject({
+        type: "TaskAutoExecutionDeferred",
+        payload: {
+          lastFailureCode: "LOCAL_QUEUE_FULL",
+          taskRetryCount: generation!.retryCount,
+          taskCorrelationId: generation!.correlationId,
+        },
+      });
+    } finally {
+      enqueueSpy.mockRestore();
+      providerSpy.mockRestore();
+      rateLimitSpy.mockRestore();
+    }
+  });
+
   it("retries a queue-full automatic task after capacity returns without creating a second execution", async () => {
     const projectId = await insertProject();
     projectIds.push(projectId);

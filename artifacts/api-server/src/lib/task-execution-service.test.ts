@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import { describe, expect, it } from "vitest";
 import {
+  buildAiTaskExecutionFailureReceipt,
   buildAiTaskExecutionReceipt,
   classifyTaskExecutionFailure,
   evaluateTaskExecutionRetryGate,
@@ -348,6 +349,81 @@ describe("AI task execution receipts", () => {
 });
 
 describe("AI task execution failure classification", () => {
+  it("persists a provider-specific recovery diagnosis in the durable failure receipt", () => {
+    const rawProviderDetail = "upstream response contained private request data";
+    const receipt = buildAiTaskExecutionFailureReceipt({
+      executionId: "execution-1",
+      correlationId: "correlation-1",
+      provider: "openrouter",
+      attempt: 2,
+      durationMs: 125,
+      stages: ["provider_call"],
+      code: "provider_rate_limited",
+      failureClass: "provider",
+      retryable: true,
+      error: new GroqClientError("RATE_LIMITED", rawProviderDetail, {
+        context: {
+          providerCode: "HTTP_429",
+          retryAfterMs: 3_000,
+          rateLimitScope: "upstream_shared_pool",
+        },
+      }),
+    });
+
+    expect(receipt.availabilityState).toBe("rate_limited");
+    expect(receipt.operatorAction).toContain("OpenRouter");
+    expect(receipt.operatorAction).toMatch(/Retry-After|cooldown/i);
+    expect(JSON.stringify(receipt)).not.toContain(rawProviderDetail);
+  });
+
+  it("does not attach provider diagnosis to non-provider or cancelled failures", () => {
+    const nonProviderReceipt = buildAiTaskExecutionFailureReceipt({
+      executionId: "execution-2",
+      correlationId: "correlation-2",
+      provider: "openrouter",
+      attempt: 1,
+      durationMs: 20,
+      stages: ["context"],
+      code: "context_build_failed",
+      failureClass: "context",
+      retryable: true,
+      error: new GroqClientError("RATE_LIMITED", "provider detail"),
+    });
+    const cancelledReceipt = buildAiTaskExecutionFailureReceipt({
+      executionId: "execution-3",
+      correlationId: "correlation-3",
+      provider: "openrouter",
+      attempt: 1,
+      durationMs: 20,
+      stages: ["provider_call"],
+      code: "cancelled",
+      failureClass: "provider",
+      retryable: false,
+      cancelled: true,
+      error: new GroqClientError("RATE_LIMITED", "provider detail"),
+    });
+
+    const unknownProviderReceipt = buildAiTaskExecutionFailureReceipt({
+      executionId: "execution-4",
+      correlationId: "correlation-4",
+      provider: "openrouter",
+      attempt: 1,
+      durationMs: 20,
+      stages: ["provider_call"],
+      code: "provider_response_empty",
+      failureClass: "provider",
+      retryable: true,
+      error: new GroqClientError("EMPTY_RESPONSE", "empty model response"),
+    });
+
+    expect(nonProviderReceipt.availabilityState).toBeUndefined();
+    expect(nonProviderReceipt.operatorAction).toBeUndefined();
+    expect(cancelledReceipt.availabilityState).toBeUndefined();
+    expect(cancelledReceipt.operatorAction).toBeUndefined();
+    expect(unknownProviderReceipt.availabilityState).toBeUndefined();
+    expect(unknownProviderReceipt.operatorAction).toBeUndefined();
+  });
+
   it("keeps provider failures recoverable and distinct from generic execution failures", () => {
     expect(classifyTaskExecutionFailure({
       stage: "provider_call",

@@ -941,6 +941,135 @@ export async function finalizeMissionPlanOutcome(
 }
 
 /**
+ * Re-evaluates the active dispatched Mission plan immediately after one of its
+ * Goals becomes completed. This is only an event-driven trigger: the outcome
+ * finalizer reloads every Goal, Task, Execution, Acceptance, Canonical Proof,
+ * effect receipt, and World State row inside its serializable transaction.
+ *
+ * No tools or external effects are replayed here. The periodic reconciler
+ * remains the durable recovery path for missed triggers and transient failures.
+ */
+export async function finalizeMissionPlanOutcomesAfterGoalCompletion(
+  goalId: string,
+): Promise<number> {
+  try {
+    const [completedGoal] = await db.select({
+      id: aiGoalsTable.id,
+      missionId: aiGoalsTable.missionId,
+      projectId: aiGoalsTable.projectId,
+      status: aiGoalsTable.status,
+    }).from(aiGoalsTable)
+      .where(eq(aiGoalsTable.id, goalId))
+      .limit(1);
+    if (!completedGoal || completedGoal.status !== "completed") return 0;
+
+    const [mission] = await db.select().from(aiMissionsTable)
+      .where(and(
+        eq(aiMissionsTable.id, completedGoal.missionId),
+        eq(aiMissionsTable.projectId, completedGoal.projectId),
+      ))
+      .limit(1);
+    if (!mission) return 0;
+
+    const goals = await db.select().from(aiGoalsTable)
+      .where(and(
+        eq(aiGoalsTable.missionId, mission.id),
+        eq(aiGoalsTable.projectId, completedGoal.projectId),
+      ));
+    const activePlan = projectMissionActivePlan(mission, goals);
+    if (
+      activePlan.binding !== "active_revision"
+      || !activePlan.revision
+      || !activePlan.goalIds.includes(goalId)
+      || activePlan.goalIds.length === 0
+      || activePlan.goalIds.length > 64
+    ) {
+      return 0;
+    }
+
+    const activeGoalIds = new Set(activePlan.goalIds);
+    const activeGoals = goals.filter((goal) => activeGoalIds.has(goal.id));
+    // Evaluate only at the plan's completion boundary. Earlier Goal events
+    // remain durable and the final Goal event will re-enter this path.
+    if (
+      activeGoals.length !== activePlan.goalIds.length
+      || activeGoals.some((goal) => goal.status !== "completed")
+    ) {
+      return 0;
+    }
+
+    const rows = await db.execute(sql`
+      SELECT dispatched.decision_id AS "decisionId"
+      FROM public.ai_mission_decision_events AS dispatched
+      JOIN public.ai_mission_decision_traces AS trace
+        ON trace.decision_id = dispatched.decision_id
+      JOIN public.ai_mission_decision_events AS applied
+        ON applied.decision_id = trace.decision_id
+        AND applied.stage = 'PLAN_APPLIED'
+        AND applied.reference_id = ${activePlan.revision}
+      WHERE dispatched.stage = 'DISPATCHED'
+        AND trace.project_id = ${completedGoal.projectId}
+        AND trace.mission_id = ${mission.id}
+        AND trace.result_kind = 'SELECTED'
+        AND NOT EXISTS (
+          SELECT 1
+          FROM public.ai_mission_decision_events AS later
+          WHERE later.decision_id = dispatched.decision_id
+            AND later.sequence > dispatched.sequence
+        )
+      ORDER BY dispatched.occurred_at DESC, dispatched.decision_id ASC
+      LIMIT 8
+    `);
+    const decisionIds = rows.rows.flatMap((row) => {
+      const item = record(row);
+      return typeof item.decisionId === "string" && item.decisionId.length > 0
+        ? [item.decisionId]
+        : [];
+    });
+
+    let advanced = 0;
+    for (const decisionId of decisionIds) {
+      for (let attempt = 0; attempt < 2; attempt += 1) {
+        try {
+          const result = await finalizeMissionPlanOutcome(decisionId);
+          if (result.kind === "appended" || result.kind === "already_recorded") {
+            advanced += 1;
+          }
+          break;
+        } catch (error) {
+          if (attempt === 0 && isRetryableOutcomeTransactionConflict(error)) {
+            await new Promise((resolve) => setTimeout(resolve, 20));
+            continue;
+          }
+          logger.warn(
+            {
+              decisionId,
+              errorCode: outcomeTransactionErrorCode(error) ?? "unknown",
+              retryCount: attempt,
+              goalId,
+              scope: "mission-plan-outcome-event",
+            },
+            "Event-driven Mission outcome finalization failed; durable DISPATCHED evidence remains recoverable",
+          );
+          break;
+        }
+      }
+    }
+    return advanced;
+  } catch (error) {
+    logger.warn(
+      {
+        goalId,
+        errorCode: outcomeTransactionErrorCode(error) ?? "unknown",
+        scope: "mission-plan-outcome-event",
+      },
+      "Event-driven Mission outcome lookup failed; periodic reconciliation remains available",
+    );
+    return 0;
+  }
+}
+
+/**
  * Rebuilds pending plan-outcome work from the durable DISPATCHED event journal.
  * The journal remains the source of truth; the in-memory cursor only spreads
  * bounded polling across the ordered rows and may be discarded on restart.

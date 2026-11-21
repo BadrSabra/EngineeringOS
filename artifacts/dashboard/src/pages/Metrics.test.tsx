@@ -1,27 +1,55 @@
 import React from 'react';
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import axe from 'axe-core';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import Metrics from './Metrics';
 import { useLocation } from 'wouter';
+import { readGoalDrafts, storeHomeGoalDraft } from '@/lib/home-goal-handoff';
+
+const authMocks = vi.hoisted(() => ({
+  isLoaded: true,
+  user: { id: 'user-1' } as { id: string } | null,
+}));
+
+vi.mock('@clerk/react', () => ({
+  useUser: () => ({ isLoaded: authMocks.isLoaded, user: authMocks.user }),
+}));
+
+const scanProjectMutate = vi.hoisted(() => vi.fn());
+const invalidateQueries = vi.hoisted(() => vi.fn().mockResolvedValue(undefined));
+
+vi.mock('@tanstack/react-query', () => ({
+  useQueryClient: () => ({ invalidateQueries }),
+}));
 
 vi.mock('@workspace/api-client-react', () => ({
   useListMetrics: vi.fn(),
   useListProjects: vi.fn(),
+  useScanProject: vi.fn(),
+  useGetScanJob: vi.fn(),
   getListMetricsQueryKey: vi.fn((params) => ['/api/metrics', params]),
+  getListProjectsQueryKey: vi.fn(() => ['/api/projects']),
+  getGetScanJobQueryKey: vi.fn((projectId, jobId) => ['/api/projects', projectId, 'scan-jobs', jobId]),
 }));
 
 import {
   getListMetricsQueryKey,
+  getListProjectsQueryKey,
   useListMetrics,
   useListProjects,
+  useScanProject,
+  useGetScanJob,
 } from '@workspace/api-client-react';
 
 const refetchMetrics = vi.fn();
 const refetchProjects = vi.fn();
 
+afterEach(() => {
+  vi.unstubAllGlobals();
+});
+
 function mockProjects(
-  data: Array<{ id: string; name: string }> = [],
+  data: Array<{ id: string; name: string; status?: string }> = [],
   overrides: Record<string, unknown> = {},
 ) {
   vi.mocked(useListProjects).mockReturnValue({
@@ -53,9 +81,26 @@ function mockMetrics(
 
 beforeEach(() => {
   vi.clearAllMocks();
+  invalidateQueries.mockResolvedValue(undefined);
+  window.sessionStorage.clear();
   window.history.replaceState({}, '', '/metrics');
   mockProjects();
   mockMetrics();
+  authMocks.isLoaded = true;
+  authMocks.user = { id: 'user-1' };
+  vi.mocked(useScanProject).mockReturnValue({
+    mutate: scanProjectMutate,
+    isPending: false,
+    isError: false,
+    error: null,
+  } as unknown as ReturnType<typeof useScanProject>);
+  vi.mocked(useGetScanJob).mockReturnValue({
+    data: undefined,
+    isLoading: false,
+    isError: false,
+    isFetching: false,
+    refetch: vi.fn(),
+  } as unknown as ReturnType<typeof useGetScanJob>);
 });
 
 describe('Metrics', () => {
@@ -72,7 +117,29 @@ describe('Metrics', () => {
   it('does not request metrics until a project is available', () => {
     render(<Metrics />);
 
-    expect(screen.getByText('اختر مشروعًا لعرض مؤشراته.')).toBeInTheDocument();
+    expect(screen.getByTestId('metrics-no-project')).toHaveTextContent(
+      'لا يوجد مشروع لعرض مؤشراته بعد.',
+    );
+    expect(screen.getByTestId('link-metrics-empty-goal')).toHaveAttribute('href', '/');
+    expect(screen.getByTestId('link-metrics-empty-projects')).toHaveAttribute('href', '/projects');
+    expect(useListMetrics).toHaveBeenCalledWith(
+      { projectId: '' },
+      expect.objectContaining({
+        query: expect.objectContaining({ enabled: false }),
+      }),
+    );
+  });
+
+  it('shows project loading instead of the no-project actions before the project list arrives', () => {
+    mockProjects([], { data: undefined, isFetching: true });
+
+    render(<Metrics />);
+
+    expect(screen.getByTestId('metrics-projects-loading')).toHaveTextContent(
+      'جارٍ تحميل قائمة المشاريع',
+    );
+    expect(screen.queryByTestId('metrics-no-project')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('link-metrics-empty-goal')).not.toBeInTheDocument();
     expect(useListMetrics).toHaveBeenCalledWith(
       { projectId: '' },
       expect.objectContaining({
@@ -100,6 +167,250 @@ describe('Metrics', () => {
     expect(getListMetricsQueryKey).toHaveBeenCalledWith({ projectId: 'project-a' });
   });
 
+  it('summarizes the latest and previous readings even when the older one is outside the chart range', () => {
+    const now = Date.now();
+    mockProjects([{ id: 'project-a', name: 'Alpha' }]);
+    mockMetrics([
+      {
+        id: 'metric-latest',
+        projectId: 'project-a',
+        timestamp: new Date(now - 60 * 60 * 1000).toISOString(),
+        overallScore: 82,
+        securityScore: 68,
+        technicalDebt: 3,
+      },
+      {
+        id: 'metric-previous',
+        projectId: 'project-a',
+        timestamp: new Date(now - 10 * 24 * 60 * 60 * 1000).toISOString(),
+        overallScore: 77,
+        securityScore: 74,
+        technicalDebt: 5,
+      },
+    ]);
+    window.history.replaceState({}, '', '/metrics?projectId=project-a&range=7d');
+    vi.stubGlobal('ResizeObserver', class {
+      observe() {}
+      unobserve() {}
+      disconnect() {}
+    });
+
+    render(<Metrics />);
+
+    expect(screen.getByTestId('metrics-change-summary')).toBeInTheDocument();
+    expect(screen.getByTestId('metric-change-overallScore')).toHaveAttribute('data-delta', '5');
+    expect(screen.getByTestId('metric-change-securityScore')).toHaveAttribute('data-trend', 'declined');
+    expect(screen.getByTestId('metric-change-technicalDebt')).toHaveAttribute('data-trend', 'improved');
+    expect(screen.getByTestId('metrics-overall-chart')).toBeInTheDocument();
+  });
+
+  it('shows existing history instead of suggesting a new scan when the selected range is empty', async () => {
+    mockProjects([{ id: 'project-a', name: 'Alpha' }]);
+    mockMetrics([{
+      timestamp: '2020-01-01T12:00:00.000Z',
+      overallScore: 72,
+      architectureScore: 70,
+      securityScore: 74,
+      structuralTestEstimate: 55,
+      lintIssues: 2,
+      technicalDebt: 5,
+    }]);
+    window.history.replaceState({}, '', '/metrics?projectId=project-a&range=7d');
+    vi.stubGlobal('ResizeObserver', class {
+      observe() {}
+      unobserve() {}
+      disconnect() {}
+    });
+
+    render(<Metrics />);
+
+    expect(screen.getByTestId('metrics-range-empty')).toHaveTextContent(
+      'لا توجد قراءات خلال الفترة المحددة.',
+    );
+    expect(screen.queryByTestId('button-start-metrics-scan')).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByTestId('button-show-all-metrics'));
+
+    await waitFor(() => {
+      expect(window.location.search).toContain('range=all');
+      expect(screen.getByRole('button', { name: 'الكل' })).toHaveAttribute('aria-pressed', 'true');
+    });
+    expect(scanProjectMutate).not.toHaveBeenCalled();
+  });
+
+  it('starts a scan from the empty metrics state and tracks its background job', () => {
+    mockProjects([{ id: 'project-a', name: 'Alpha' }]);
+    mockMetrics([]);
+
+    render(<Metrics />);
+    fireEvent.click(screen.getByTestId('button-start-metrics-scan'));
+
+    expect(scanProjectMutate).toHaveBeenCalledWith(
+      { projectId: 'project-a' },
+      expect.objectContaining({ onSuccess: expect.any(Function) }),
+    );
+
+    const options = scanProjectMutate.mock.calls[0]?.[1] as {
+      onSuccess: (job: { id: string; projectId: string; status: string; createdAt: string }) => void;
+    };
+    act(() => options.onSuccess({
+      id: 'scan-job-a',
+      projectId: 'project-a',
+      status: 'queued',
+      createdAt: '2026-11-20T12:00:00.000Z',
+    }));
+
+    expect(useGetScanJob).toHaveBeenLastCalledWith(
+      'project-a',
+      'scan-job-a',
+      expect.objectContaining({
+        query: expect.objectContaining({ enabled: true, refetchInterval: expect.any(Function) }),
+      }),
+    );
+    expect(screen.getByTestId('button-start-metrics-scan')).toBeDisabled();
+    expect(screen.getByTestId('button-start-metrics-scan')).toHaveTextContent('جارٍ الفحص');
+  });
+
+  it('refreshes the selected metrics after the scan job completes', async () => {
+    mockProjects([{ id: 'project-a', name: 'Alpha' }]);
+    mockMetrics([]);
+    vi.mocked(useGetScanJob).mockReturnValue({
+      data: {
+        id: 'scan-job-a',
+        projectId: 'project-a',
+        status: 'completed',
+        createdAt: '2026-11-20T12:00:00.000Z',
+      },
+      isLoading: false,
+      isError: false,
+      isFetching: false,
+      refetch: vi.fn(),
+    } as unknown as ReturnType<typeof useGetScanJob>);
+
+    render(<Metrics />);
+    fireEvent.click(screen.getByTestId('button-start-metrics-scan'));
+    const options = scanProjectMutate.mock.calls[0]?.[1] as {
+      onSuccess: (job: { id: string; projectId: string; status: string; createdAt: string }) => void;
+    };
+    act(() => options.onSuccess({
+      id: 'scan-job-a',
+      projectId: 'project-a',
+      status: 'queued',
+      createdAt: '2026-11-20T12:00:00.000Z',
+    }));
+
+    await waitFor(() => {
+      expect(invalidateQueries).toHaveBeenCalledWith({
+        queryKey: ['/api/metrics', { projectId: 'project-a' }],
+      });
+    });
+    expect(screen.getByText('اكتمل الفحص، ولم تظهر مؤشرات لهذا المشروع بعد.')).toBeInTheDocument();
+    expect(getListProjectsQueryKey).toHaveBeenCalled();
+  });
+
+  it('opens a project-scoped unsent assistant draft when a completed scan has no metrics', async () => {
+    mockProjects([{ id: 'project-a', name: 'Alpha' }]);
+    mockMetrics([]);
+    vi.mocked(useGetScanJob).mockReturnValue({
+      data: {
+        id: 'scan-job-a',
+        projectId: 'project-a',
+        status: 'completed',
+        createdAt: '2026-11-20T12:00:00.000Z',
+      },
+      isLoading: false,
+      isError: false,
+      isFetching: false,
+      refetch: vi.fn(),
+    } as unknown as ReturnType<typeof useGetScanJob>);
+
+    render(<Metrics />);
+    fireEvent.click(screen.getByTestId('button-start-metrics-scan'));
+    const options = scanProjectMutate.mock.calls[0]?.[1] as {
+      onSuccess: (job: { id: string; projectId: string; status: string; createdAt: string }) => void;
+    };
+    act(() => options.onSuccess({
+      id: 'scan-job-a',
+      projectId: 'project-a',
+      status: 'queued',
+      createdAt: '2026-11-20T12:00:00.000Z',
+    }));
+    await waitFor(() => {
+      expect(screen.getByTestId('button-metrics-scan-assistant')).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByTestId('button-metrics-scan-assistant'));
+
+    const draft = readGoalDrafts('user-1').drafts[0];
+    expect(draft).toMatchObject({
+      source: 'home',
+      projectId: 'project-a',
+      sendAttemptedAt: null,
+    });
+    expect(draft.text).toContain('اكتمل فحص المشروع لكن لم تظهر مؤشرات');
+    expect(draft.text).toContain('لا تغيّر الملفات أو تبدأ أي عمل');
+    await waitFor(() => {
+      expect(window.location.pathname).toBe('/projects/project-a/workspace');
+      expect(new URLSearchParams(window.location.search).get('goalDraftId')).toBe(draft.id);
+      expect(window.location.hash).toBe('#workspace-panel-agent');
+    });
+    expect(scanProjectMutate).toHaveBeenCalledTimes(1);
+  });
+
+  it('stays on metrics when there is no room to save the assistant draft', async () => {
+    for (let index = 0; index < 8; index += 1) {
+      expect(storeHomeGoalDraft(`مسودة ${index}`, 'user-1')).not.toBeNull();
+    }
+    mockProjects([{ id: 'project-a', name: 'Alpha' }]);
+    mockMetrics([]);
+    vi.mocked(useGetScanJob).mockReturnValue({
+      data: {
+        id: 'scan-job-a',
+        projectId: 'project-a',
+        status: 'completed',
+        createdAt: '2026-11-20T12:00:00.000Z',
+      },
+      isLoading: false,
+      isError: false,
+      isFetching: false,
+      refetch: vi.fn(),
+    } as unknown as ReturnType<typeof useGetScanJob>);
+
+    render(<Metrics />);
+    fireEvent.click(screen.getByTestId('button-start-metrics-scan'));
+    const options = scanProjectMutate.mock.calls[0]?.[1] as {
+      onSuccess: (job: { id: string; projectId: string; status: string; createdAt: string }) => void;
+    };
+    act(() => options.onSuccess({
+      id: 'scan-job-a',
+      projectId: 'project-a',
+      status: 'queued',
+      createdAt: '2026-11-20T12:00:00.000Z',
+    }));
+    await waitFor(() => {
+      expect(screen.getByTestId('button-metrics-scan-assistant')).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByTestId('button-metrics-scan-assistant'));
+
+    expect(screen.getByTestId('metrics-scan-assistant-error')).toHaveTextContent(
+      'تعذر حفظ مسودة طلب المساعدة.',
+    );
+    expect(window.location.pathname).toBe('/metrics');
+    expect(readGoalDrafts('user-1').drafts).toHaveLength(8);
+  });
+
+  it('does not start a duplicate scan when the project is already scanning', () => {
+    mockProjects([{ id: 'project-a', name: 'Alpha', status: 'scanning' }]);
+    mockMetrics([]);
+
+    render(<Metrics />);
+
+    expect(screen.getByTestId('button-start-metrics-scan')).toBeDisabled();
+    expect(screen.getByText('يجري فحص هذا المشروع بالفعل. لن نرسل طلب فحص مكررًا.')).toBeInTheDocument();
+    expect(scanProjectMutate).not.toHaveBeenCalled();
+  });
+
   it('restores the project and date range from a metrics link', () => {
     window.history.replaceState({}, '', '/metrics?projectId=project-b&range=7d');
     mockProjects([
@@ -117,6 +428,26 @@ describe('Metrics', () => {
         query: expect.objectContaining({ enabled: true }),
       }),
     );
+  });
+
+  it('opens the selected project workspace and updates the destination with the project selector', () => {
+    window.history.replaceState({}, '', '/metrics?projectId=project-b');
+    mockProjects([
+      { id: 'project-a', name: 'Alpha' },
+      { id: 'project-b', name: 'Beta' },
+    ]);
+
+    render(<Metrics />);
+
+    const workspaceLink = screen.getByRole('link', { name: 'افتح مساحة العمل لمشروع Beta' });
+    expect(workspaceLink).toHaveAttribute('href', '/projects/project-b/workspace');
+
+    fireEvent.change(screen.getByRole('combobox', { name: 'اختر المشروع' }), {
+      target: { value: 'project-a' },
+    });
+
+    expect(screen.getByRole('link', { name: 'افتح مساحة العمل لمشروع Alpha' }))
+      .toHaveAttribute('href', '/projects/project-a/workspace');
   });
 
   it('updates the metrics link while preserving other route context', () => {

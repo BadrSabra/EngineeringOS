@@ -335,6 +335,13 @@ function FlightDeckSession({
   const projectId = execution?.projectId ?? requestedProjectId;
   const operationId = execution?.operationId ?? requestedOperationId;
   const conversationHref = executionChatHref(execution, executionId, requestedProjectId);
+  const assistantFallbackProjectId = requestedProjectId
+    && (!execution || execution.projectId === requestedProjectId)
+    ? requestedProjectId
+    : '';
+  const assistantFallbackHref = assistantFallbackProjectId
+    ? `/ai?projectId=${encodeURIComponent(assistantFallbackProjectId)}`
+    : '/ai';
   const gitStatus = useGetGitStatus(projectId, {
     query: {
       enabled: Boolean(projectId),
@@ -378,7 +385,7 @@ function FlightDeckSession({
         <p className="mt-2 text-sm text-muted-foreground">
           افتح هذه الصفحة من تنفيذ للذكاء الاصطناعي باستخدام <code dir="ltr">?executionId=…</code>.
         </p>
-        <Link href="/ai" className="mt-5 inline-flex items-center gap-2 rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground">
+        <Link href={assistantFallbackHref} className="mt-5 inline-flex items-center gap-2 rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground">
           افتح مساعد الذكاء الاصطناعي
           <ExternalLink className="h-4 w-4" />
         </Link>
@@ -409,7 +416,7 @@ function FlightDeckSession({
           <RefreshCw className={`h-3.5 w-3.5 ${isFetching ? 'animate-spin' : ''}`} />
           {isFetching ? 'جارٍ إعادة القراءة…' : 'إعادة تحميل سجل التنفيذ'}
         </button>
-        <Link href="/ai" className="mt-4 inline-flex items-center gap-2 text-sm text-primary hover:underline">
+        <Link href={assistantFallbackHref} className="mt-4 inline-flex items-center gap-2 text-sm text-primary hover:underline">
           <ArrowLeft className="h-4 w-4" /> الرجوع إلى مساعد الذكاء الاصطناعي
         </Link>
       </div>
@@ -465,7 +472,7 @@ function FlightDeckSession({
   return (
     <div dir="rtl" lang="ar" className="space-y-5">
       <div className="flex items-center gap-2 text-sm text-muted-foreground">
-        <Link href={conversationHref ?? '/ai'} data-testid="link-flight-deck-ai"
+        <Link href={conversationHref ?? assistantFallbackHref} data-testid="link-flight-deck-ai"
           className="inline-flex items-center gap-1 rounded p-1 hover:bg-secondary hover:text-foreground">
           <ArrowLeft className="h-4 w-4" aria-hidden="true" />
           {conversationHref ? 'الرجوع إلى محادثة الذكاء الاصطناعي' : 'مساعد الذكاء الاصطناعي'}

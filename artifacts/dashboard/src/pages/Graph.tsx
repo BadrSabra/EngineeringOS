@@ -22,8 +22,10 @@ import {
   X,
   AlertCircle,
 } from 'lucide-react';
+import { useLocation, useSearch } from 'wouter';
 import { RefreshButton, RequestError } from '@/components/OperatorResilience';
 import GraphAssistantHandoff from '@/components/GraphAssistantHandoff';
+import { graphEntityTypeLabel, graphRelationLabel } from '@/lib/graph-copy';
 
 // ─── Force layout ─────────────────────────────────────────────────────────────
 
@@ -46,7 +48,7 @@ function runForceLayout(
   const types = [...new Set(entities.map((e) => e.type))];
   const positions = new Map<string, Vec2>();
 
-  entities.forEach((e, i) => {
+  entities.forEach((e) => {
     const typeIdx = types.indexOf(e.type);
     const typeGroup = entities.filter((x) => x.type === e.type);
     const posInGroup = typeGroup.indexOf(e);
@@ -151,20 +153,22 @@ function nodeColor(type: string) { return TYPE_COLORS[type] ?? DEFAULT_COLOR; }
 // ─── Component ────────────────────────────────────────────────────────────────
 
 export default function Graph() {
+  const [, setLocation] = useLocation();
+  const requestedProjectId = new URLSearchParams(useSearch()).get('projectId') ?? '';
   const { data: projects, isLoading: projectsLoading, isError: projectsError, refetch: refetchProjects } = useListProjects();
-  const [selectedProjectId, setSelectedProjectId] = useState('');
   const [selectedEntity, setSelectedEntity] = useState<{ projectId: string; id: string } | null>(null);
   const [searchTerm, setSearchTerm] = useState('');
+  const normalizedSearchTerm = searchTerm.trim().toLowerCase();
   const [detailTab, setDetailTab] = useState<'relations' | 'impact'>('relations');
   const [impactExpanded, setImpactExpanded] = useState(false);
 
   const svgRef = useRef<SVGSVGElement>(null);
   const [svgSize, setSvgSize] = useState({ w: 600, h: 420 });
 
-  // A selected project is valid only while it remains in the latest owned-project list.
-  // Derive the fallback immediately so no graph query is sent for a removed project.
-  const effectiveProjectId = projects?.some((project) => project.id === selectedProjectId)
-    ? selectedProjectId
+  // The URL is the source of truth for project context. Only honor IDs that
+  // belong to the current owned-project list; otherwise use and record a safe fallback.
+  const effectiveProjectId = projects?.some((project) => project.id === requestedProjectId)
+    ? requestedProjectId
     : (projects?.[0]?.id ?? '');
 
   // Entity detail queries and visual selection must belong to the active project.
@@ -174,10 +178,10 @@ export default function Graph() {
     setSelectedEntity(entityId ? { projectId: effectiveProjectId, id: entityId } : null);
 
   useEffect(() => {
-    if (selectedProjectId !== effectiveProjectId) {
-      setSelectedProjectId(effectiveProjectId);
+    if (effectiveProjectId && requestedProjectId !== effectiveProjectId) {
+      setLocation(`/graph?projectId=${encodeURIComponent(effectiveProjectId)}`);
     }
-  }, [effectiveProjectId, selectedProjectId]);
+  }, [effectiveProjectId, requestedProjectId, setLocation]);
 
   const { data: entitiesResponse, isLoading: entitiesLoading, isStale: entitiesStale, isError: entitiesError, error: entitiesErrorValue, refetch: refetchEntities, isFetching: entitiesFetching, dataUpdatedAt: entitiesUpdatedAt } = useListGraphEntities(
     { projectId: effectiveProjectId },
@@ -258,9 +262,22 @@ export default function Graph() {
   }, [entities]);
 
   const filteredEntities = useMemo(
-    () => entities.filter((e) => e.name.toLowerCase().includes(searchTerm.toLowerCase())),
-    [entities, searchTerm],
+    () => entities.filter((e) => e.name.toLowerCase().includes(normalizedSearchTerm)),
+    [entities, normalizedSearchTerm],
   );
+  const exactSearchMatches = normalizedSearchTerm
+    ? filteredEntities.filter((entity) => entity.name.trim().toLowerCase() === normalizedSearchTerm)
+    : [];
+  const keyboardSearchResult = exactSearchMatches.length === 1
+    ? exactSearchMatches[0]
+    : exactSearchMatches.length === 0 && filteredEntities.length === 1
+      ? filteredEntities[0]
+      : undefined;
+  const searchMatchIds = useMemo(
+    () => new Set(filteredEntities.map((entity) => entity.id)),
+    [filteredEntities],
+  );
+  const hasSearchMatches = normalizedSearchTerm.length > 0 && searchMatchIds.size > 0;
 
   function nodeRadius(e: GraphEntity) {
     if (e.id === selectedEntityId) return 12;
@@ -269,13 +286,17 @@ export default function Graph() {
   }
 
   function nodeOpacity(e: GraphEntity) {
-    if (!selectedEntityId) return 1;
     if (e.id === selectedEntityId) return 1;
+    if (hasSearchMatches) return searchMatchIds.has(e.id) ? 1 : 0.12;
+    if (!selectedEntityId) return 1;
     if (neighborIds.has(e.id) || impactedIds.has(e.id)) return 0.9;
     return 0.18;
   }
 
   function edgeOpacity(r: GraphRelationship) {
+    if (hasSearchMatches) {
+      return searchMatchIds.has(r.sourceId) || searchMatchIds.has(r.targetId) ? 0.85 : 0.04;
+    }
     if (!selectedEntityId) return 0.25;
     if (connectedRelIds.has(r.id)) return 0.85;
     return 0.05;
@@ -304,7 +325,11 @@ export default function Graph() {
           />
           <select
             value={effectiveProjectId}
-            onChange={(e) => { setSelectedProjectId(e.target.value); selectEntity(''); }}
+            onChange={(e) => {
+              const nextProjectId = e.target.value;
+              selectEntity('');
+              setLocation(`/graph?projectId=${encodeURIComponent(nextProjectId)}`);
+            }}
             aria-label="اختر مشروع الرسم البياني"
             className="w-full min-w-0 bg-card border border-border rounded-md px-3 py-2 text-sm focus:border-primary focus:outline-none sm:w-48 font-medium"
           >
@@ -318,6 +343,12 @@ export default function Graph() {
               type="text"
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
+              onKeyDown={(event) => {
+                if (event.key !== 'Enter' || !keyboardSearchResult) return;
+                event.preventDefault();
+                selectEntity(keyboardSearchResult.id);
+                setDetailTab('relations');
+              }}
               placeholder="ابحث عن عنصر..."
               aria-label="البحث في عناصر الرسم البياني"
               className="w-full min-w-0 bg-card border border-border rounded-md pl-9 pr-4 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-primary sm:w-56"
@@ -325,6 +356,23 @@ export default function Graph() {
           </div>
         </div>
       </div>
+      {normalizedSearchTerm && (
+        <p
+          role="status"
+          aria-live="polite"
+          data-testid="graph-search-status"
+          className="shrink-0 text-xs text-muted-foreground"
+        >
+          {hasSearchMatches ? (
+            <>
+              أُبرزت <bdi dir="ltr">{filteredEntities.length}</bdi> نتيجة وروابطها على الخريطة؛ بقيت بقية العناصر ظاهرة.
+              {keyboardSearchResult && <span> اضغط Enter لتحديد النتيجة.</span>}
+            </>
+          ) : (
+            'لا توجد نتائج مطابقة؛ بقيت الخريطة كاملة.'
+          )}
+        </p>
+      )}
 
       {projectsLoading ? (
         <div className="rounded-xl border border-border bg-card p-8 text-center text-sm text-muted-foreground animate-pulse">
@@ -386,7 +434,9 @@ export default function Graph() {
             {Object.entries(TYPE_COLORS).map(([type, color]) => (
               <div key={type} className="flex items-center gap-1.5">
                 <div className="w-2.5 h-2.5 rounded-full shrink-0" style={{ backgroundColor: color }} />
-                <span className="capitalize text-muted-foreground">{type}</span>
+                <span className="text-muted-foreground" title={`النوع التقني: ${type}`}>
+                  {graphEntityTypeLabel(type)}
+                </span>
               </div>
             ))}
           </div>
@@ -397,29 +447,35 @@ export default function Graph() {
                ) : summary && (
             <div className="border-t border-border pt-3 mb-4 space-y-2">
               <h3 className="font-semibold text-xs uppercase tracking-wider text-muted-foreground mb-2 flex items-center gap-1.5">
-                <GitMerge className="w-3.5 h-3.5" /> إحصاءات الرسم البياني
+                <GitMerge className="w-3.5 h-3.5" /> ملخص الخريطة
               </h3>
               <div className="grid grid-cols-2 gap-2 text-xs">
                 <div className="bg-secondary/50 rounded-lg p-2 text-center">
                   <div className="font-mono font-bold text-lg text-primary">{summary.entityCount}</div>
-                  <div className="text-muted-foreground">الكيانات</div>
+                  <div className="text-muted-foreground">عناصر مكتشفة</div>
                 </div>
                 <div className="bg-secondary/50 rounded-lg p-2 text-center">
                   <div className="font-mono font-bold text-lg text-primary">{summary.relationshipCount}</div>
-                  <div className="text-muted-foreground">العلاقات</div>
+                  <div className="text-muted-foreground">روابط بين العناصر</div>
                 </div>
                 <div className="bg-secondary/50 rounded-lg p-2 text-center">
                   <div className="font-mono font-bold text-lg">{summary.clusterCount}</div>
-                  <div className="text-muted-foreground">المجموعات</div>
+                  <div className="text-muted-foreground">مجموعات مترابطة</div>
                 </div>
                 <div className="bg-secondary/50 rounded-lg p-2 text-center">
                   <div className="font-mono font-bold text-lg">{summary.avgDegree.toFixed(1)}</div>
-                  <div className="text-muted-foreground">متوسط الدرجة</div>
+                  <div className="text-muted-foreground">متوسط الروابط لكل عنصر</div>
                 </div>
               </div>
+              <p
+                data-testid="graph-summary-explanation"
+                className="text-[11px] leading-relaxed text-muted-foreground"
+              >
+                تلخص هذه الأرقام ما استخرجه الفحص من الملفات، ولا تمثل تقييمًا لجودة المشروع.
+              </p>
               {summary.isolatedCount > 0 && (
                 <div className="text-xs text-muted-foreground bg-secondary/30 rounded px-2 py-1">
-                  {summary.isolatedCount} عقدة معزولة
+                  عناصر بلا روابط ظاهرة: <bdi dir="ltr">{summary.isolatedCount}</bdi>
                 </div>
               )}
             </div>
@@ -470,6 +526,7 @@ export default function Graph() {
               <Network className="w-10 h-10 opacity-20" />
                <p>لا توجد بيانات رسم بياني موثوقة لهذا المشروع.</p>
                <p className="text-xs opacity-70">شغّل فحصًا ثم حدّث الصفحة بعد اكتماله لاستخراج رسم المعرفة.</p>
+                <GraphAssistantHandoff projectId={effectiveProjectId} emptyState />
             </div>
           ) : (
             <svg
@@ -500,6 +557,7 @@ export default function Graph() {
                   return (
                     <line
                       key={r.id}
+                      data-testid={`graph-edge-${r.id}`}
                       x1={src.x} y1={src.y}
                       x2={tgt.x} y2={tgt.y}
                       stroke={isImpact ? '#f59e0b' : isConnected ? '#6366f1' : '#94a3b8'}
@@ -524,6 +582,7 @@ export default function Graph() {
                   return (
                     <g
                       key={e.id}
+                      data-testid={`graph-node-${e.id}`}
                       transform={`translate(${pos.x},${pos.y})`}
                       onClick={(ev) => { ev.stopPropagation(); selectEntity(e.id === selectedEntityId ? '' : e.id); setDetailTab('relations'); }}
                       style={{ cursor: 'pointer', opacity: nodeOpacity(e) }}
@@ -601,7 +660,13 @@ export default function Graph() {
                 <div className="min-w-0">
                   <div className="flex items-center gap-1.5 mb-0.5">
                     <div className="w-2.5 h-2.5 rounded-full shrink-0" style={{ backgroundColor: nodeColor(neighborData.entity.type) }} />
-                    <bdi dir="ltr" className="text-xs uppercase font-mono text-muted-foreground">{neighborData.entity.type}</bdi>
+                    <bdi
+                      dir={graphEntityTypeLabel(neighborData.entity.type) === neighborData.entity.type ? 'ltr' : 'rtl'}
+                      className="text-xs text-muted-foreground"
+                      title={`النوع التقني: ${neighborData.entity.type}`}
+                    >
+                      {graphEntityTypeLabel(neighborData.entity.type)}
+                    </bdi>
                   </div>
                   <h3 dir="ltr" className="font-semibold text-sm truncate" title={neighborData.entity.name}>
                     {neighborData.entity.name}
@@ -654,6 +719,7 @@ export default function Graph() {
                         <div className="space-y-1">
                           {neighborData.outgoing.map((rel) => {
                             const target = entityById.get(rel.targetId);
+                            const relationLabel = graphRelationLabel(rel.relation);
                             return (
                               <button
                                 key={rel.id}
@@ -661,7 +727,14 @@ export default function Graph() {
                                 className="w-full text-left text-xs p-2 bg-secondary/50 rounded border border-border/50 hover:bg-secondary transition-colors"
                                 title={target?.name || rel.targetId}
                               >
-                                <div data-testid="graph-relation-value" dir="ltr" className="min-w-0 break-all font-mono text-muted-foreground text-[10px] mb-0.5">{rel.relation}</div>
+                                <div
+                                  data-testid="graph-relation-value"
+                                  dir={relationLabel === rel.relation ? 'ltr' : 'rtl'}
+                                  title={`العلاقة التقنية: ${rel.relation}`}
+                                  className="min-w-0 break-all text-muted-foreground text-[10px] mb-0.5"
+                                >
+                                  {relationLabel}
+                                </div>
                                 <div className="truncate flex items-center gap-1">
                                   <div className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: nodeColor(target?.type ?? '') }} />
                                   {target?.name || rel.targetId.slice(0, 12)}
@@ -682,6 +755,7 @@ export default function Graph() {
                         <div className="space-y-1">
                           {neighborData.incoming.map((rel) => {
                             const source = entityById.get(rel.sourceId);
+                            const relationLabel = graphRelationLabel(rel.relation);
                             return (
                               <button
                                 key={rel.id}
@@ -689,7 +763,14 @@ export default function Graph() {
                                 className="w-full text-left text-xs p-2 bg-secondary/50 rounded border border-border/50 hover:bg-secondary transition-colors"
                                 title={source?.name || rel.sourceId}
                               >
-                                <div data-testid="graph-relation-value" dir="ltr" className="min-w-0 break-all font-mono text-muted-foreground text-[10px] mb-0.5">{rel.relation}</div>
+                                <div
+                                  data-testid="graph-relation-value"
+                                  dir={relationLabel === rel.relation ? 'ltr' : 'rtl'}
+                                  title={`العلاقة التقنية: ${rel.relation}`}
+                                  className="min-w-0 break-all text-muted-foreground text-[10px] mb-0.5"
+                                >
+                                  {relationLabel}
+                                </div>
                                 <div className="truncate flex items-center gap-1">
                                   <div className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: nodeColor(source?.type ?? '') }} />
                                   {source?.name || rel.sourceId.slice(0, 12)}

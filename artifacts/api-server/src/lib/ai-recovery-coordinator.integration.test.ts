@@ -17,6 +17,12 @@ import {
 } from "@workspace/db";
 import { settleExhaustedExecutionRecovery } from "./ai-execution-acceptance.js";
 import * as aiExecutionState from "./ai-execution-state.js";
+import { resolveProvider } from "./ai-route-helpers.js";
+import { checkProjectRateLimitDb } from "./db-rate-limiter.js";
+import {
+  TASK_AUTO_EXECUTION_REQUESTED_EVENT_TYPE,
+  taskAutoExecutionIntentId,
+} from "./task-auto-execution-outbox.js";
 import {
   reconcileAiExecutions,
   recoverAiExecutionResumeToken,
@@ -373,25 +379,290 @@ describe("durable automatic task recovery", () => {
 
       const [task] = await db
         .select({
+          status: tasksTable.status,
           retryCount: tasksTable.retryCount,
           correlationId: tasksTable.correlationId,
         })
         .from(tasksTable)
         .where(eq(tasksTable.id, fixture.taskId));
-      expect(task?.retryCount).toBe(1);
+      expect(task).toMatchObject({
+        status: "verifying",
+        retryCount: 1,
+      });
       expect(task?.correlationId).toEqual(expect.any(String));
       expect(task?.correlationId).not.toBe(fixture.executionId);
+
+      const [intent] = await db
+        .select({
+          type: eventsTable.type,
+          projectId: eventsTable.projectId,
+          taskId: eventsTable.taskId,
+          payload: eventsTable.payload,
+        })
+        .from(eventsTable)
+        .where(eq(eventsTable.id, taskAutoExecutionIntentId(fixture.taskId)));
+      expect(intent).toMatchObject({
+        type: TASK_AUTO_EXECUTION_REQUESTED_EVENT_TYPE,
+        projectId: fixture.projectId,
+        taskId: fixture.taskId,
+        payload: {
+          userId: "recovery-test-user",
+          taskRetryCount: 1,
+          taskCorrelationId: task?.correlationId,
+        },
+      });
+
       expect(await dispatchAutonomousTaskRecoveries({ projectId: fixture.projectId })).toBe(0);
       expect(queuedJobs).toHaveLength(1);
       expect(executeTaskLifecycle).toHaveBeenCalledTimes(1);
       expect(executeTaskLifecycle).toHaveBeenCalledWith(expect.objectContaining({
         taskId: fixture.taskId,
         userId: "recovery-test-user",
-        trigger: "reconciliation",
-        expectedStatuses: ["pending", "queued", "verifying"],
+        trigger: "automatic",
+        expectedStatuses: ["verifying"],
         expectedRetryCount: 1,
+        expectedCorrelationId: task?.correlationId,
       }));
     } finally {
+      await db.delete(eventsTable).where(eq(eventsTable.id, taskAutoExecutionIntentId(fixture.taskId)));
+      await db.delete(aiExecutionAcceptancesTable).where(eq(aiExecutionAcceptancesTable.executionId, fixture.executionId));
+      await db.delete(aiExecutionsTable).where(eq(aiExecutionsTable.id, fixture.executionId));
+      await db.delete(tasksTable).where(eq(tasksTable.id, fixture.taskId));
+      await db.delete(projectsTable).where(eq(projectsTable.id, fixture.projectId));
+    }
+  });
+
+  it("defers dependency-blocked recovery before provider admission and resumes when prerequisites complete", async () => {
+    const fixture = await insertFixture();
+    const prerequisiteId = randomUUID();
+    try {
+      await db.insert(tasksTable).values({
+        id: prerequisiteId,
+        projectId: fixture.projectId,
+        title: "Incomplete prerequisite",
+        prompt: "Complete prerequisite work",
+        status: "pending",
+        retryCount: 0,
+        maxRetries: 2,
+      });
+      await db.update(tasksTable)
+        .set({ dependsOn: [prerequisiteId] })
+        .where(eq(tasksTable.id, fixture.taskId));
+
+      expect(await dispatchAutonomousTaskRecoveries({ projectId: fixture.projectId })).toBe(1);
+      const firstJob = queuedJobs.shift();
+      expect(firstJob).toBeDefined();
+      await firstJob!.run();
+      queuedIds.delete(firstJob!.id);
+
+      const [taskAfterDeferral] = await db.select({
+        status: tasksTable.status,
+        retryCount: tasksTable.retryCount,
+        correlationId: tasksTable.correlationId,
+      }).from(tasksTable).where(eq(tasksTable.id, fixture.taskId));
+      expect(taskAfterDeferral).toMatchObject({
+        status: "verifying",
+        retryCount: 0,
+        correlationId: fixture.executionId,
+      });
+
+      const [acceptance] = await db.select({
+        id: aiExecutionAcceptancesTable.id,
+        disposition: aiExecutionAcceptancesTable.disposition,
+      }).from(aiExecutionAcceptancesTable)
+        .where(eq(aiExecutionAcceptancesTable.executionId, fixture.executionId));
+      const acceptanceDisposition = acceptance?.disposition
+        && typeof acceptance.disposition === "object"
+        ? acceptance.disposition as Record<string, unknown>
+        : {};
+      const dependencyRetryAt = Date.parse(String(acceptanceDisposition.dependencyRetryAt ?? ""));
+      expect(dependencyRetryAt).toBeGreaterThan(Date.now());
+      expect(acceptanceDisposition).toMatchObject({
+        recoveryState: "REQUIRED",
+        dependencyBlockerReasons: ["dependency_not_completed"],
+      });
+      const [intentAfterDeferral] = await db.select({ id: eventsTable.id })
+        .from(eventsTable)
+        .where(eq(eventsTable.id, taskAutoExecutionIntentId(fixture.taskId)));
+      expect(intentAfterDeferral).toBeUndefined();
+
+      expect(resolveProvider).not.toHaveBeenCalled();
+      expect(checkProjectRateLimitDb).not.toHaveBeenCalled();
+      expect(executeTaskLifecycle).not.toHaveBeenCalled();
+
+      // A future dependency cooldown is filtered before it can occupy the
+      // bounded recovery candidate page.
+      expect(await dispatchAutonomousTaskRecoveries({ projectId: fixture.projectId })).toBe(0);
+      expect(queuedJobs).toHaveLength(0);
+
+      await db.update(tasksTable)
+        .set({ status: "completed" })
+        .where(eq(tasksTable.id, prerequisiteId));
+      await db.update(aiExecutionAcceptancesTable)
+        .set({
+          disposition: {
+            ...acceptanceDisposition,
+            dependencyRetryAt: new Date(Date.now() - 1_000).toISOString(),
+          },
+        })
+        .where(eq(aiExecutionAcceptancesTable.id, acceptance!.id));
+
+      expect(await dispatchAutonomousTaskRecoveries({ projectId: fixture.projectId })).toBe(1);
+      const resumedJob = queuedJobs.shift();
+      expect(resumedJob).toBeDefined();
+      await resumedJob!.run();
+
+      const [taskAfterResume] = await db.select({
+        status: tasksTable.status,
+        retryCount: tasksTable.retryCount,
+      }).from(tasksTable).where(eq(tasksTable.id, fixture.taskId));
+      expect(taskAfterResume).toMatchObject({
+        status: "verifying",
+        retryCount: 1,
+      });
+      expect(resolveProvider).toHaveBeenCalledOnce();
+      expect(checkProjectRateLimitDb).toHaveBeenCalledOnce();
+      expect(executeTaskLifecycle).toHaveBeenCalledOnce();
+    } finally {
+      await db.delete(eventsTable).where(eq(eventsTable.projectId, fixture.projectId));
+      await db.delete(aiExecutionAcceptancesTable)
+        .where(eq(aiExecutionAcceptancesTable.executionId, fixture.executionId));
+      await db.delete(aiExecutionsTable).where(eq(aiExecutionsTable.id, fixture.executionId));
+      await db.delete(tasksTable).where(eq(tasksTable.id, fixture.taskId));
+      await db.delete(tasksTable).where(eq(tasksTable.id, prerequisiteId));
+      await db.delete(projectsTable).where(eq(projectsTable.id, fixture.projectId));
+    }
+  });
+
+  it("persists the retry intent when a worker is interrupted before the lifecycle claim", async () => {
+    const fixture = await insertFixture();
+    try {
+      await db.update(tasksTable)
+        .set({ status: "queued" })
+        .where(eq(tasksTable.id, fixture.taskId));
+      executeTaskLifecycle.mockRejectedValueOnce(
+        new Error("simulated worker interruption before lifecycle claim"),
+      );
+
+      expect(await dispatchAutonomousTaskRecoveries({ projectId: fixture.projectId })).toBe(1);
+      expect(queuedJobs).toHaveLength(1);
+
+      await queuedJobs[0]!.run();
+
+      const [task] = await db.select({
+        status: tasksTable.status,
+        retryCount: tasksTable.retryCount,
+        correlationId: tasksTable.correlationId,
+      }).from(tasksTable).where(eq(tasksTable.id, fixture.taskId));
+      expect(task).toMatchObject({ status: "verifying", retryCount: 1 });
+      expect(task?.correlationId).toEqual(expect.any(String));
+      expect(task?.correlationId).not.toBe(fixture.executionId);
+
+      const [intent] = await db.select({
+        type: eventsTable.type,
+        projectId: eventsTable.projectId,
+        taskId: eventsTable.taskId,
+        payload: eventsTable.payload,
+      }).from(eventsTable)
+        .where(eq(eventsTable.id, taskAutoExecutionIntentId(fixture.taskId)));
+      expect(intent).toMatchObject({
+        type: TASK_AUTO_EXECUTION_REQUESTED_EVENT_TYPE,
+        projectId: fixture.projectId,
+        taskId: fixture.taskId,
+        payload: {
+          userId: "recovery-test-user",
+          taskRetryCount: 1,
+          taskCorrelationId: task?.correlationId,
+        },
+      });
+      expect(executeTaskLifecycle).toHaveBeenCalledOnce();
+    } finally {
+      await db.delete(eventsTable).where(eq(eventsTable.projectId, fixture.projectId));
+      await db.delete(aiExecutionAcceptancesTable)
+        .where(eq(aiExecutionAcceptancesTable.executionId, fixture.executionId));
+      await db.delete(aiExecutionsTable).where(eq(aiExecutionsTable.id, fixture.executionId));
+      await db.delete(tasksTable).where(eq(tasksTable.id, fixture.taskId));
+      await db.delete(projectsTable).where(eq(projectsTable.id, fixture.projectId));
+    }
+  });
+
+  it("moves queued Tasks into the durable retry dispatch lane", async () => {
+    const fixture = await insertFixture();
+    try {
+      await db.update(tasksTable)
+        .set({ status: "queued" })
+        .where(eq(tasksTable.id, fixture.taskId));
+
+      expect(await dispatchAutonomousTaskRecoveries({ projectId: fixture.projectId })).toBe(1);
+      expect(queuedJobs).toHaveLength(1);
+      await queuedJobs[0]!.run();
+
+      const [task] = await db.select({
+        status: tasksTable.status,
+        retryCount: tasksTable.retryCount,
+        correlationId: tasksTable.correlationId,
+      }).from(tasksTable).where(eq(tasksTable.id, fixture.taskId));
+      expect(task).toMatchObject({ status: "verifying", retryCount: 1 });
+      expect(task?.correlationId).not.toBe(fixture.executionId);
+
+      const [intent] = await db.select({
+        type: eventsTable.type,
+        payload: eventsTable.payload,
+      }).from(eventsTable)
+        .where(eq(eventsTable.id, taskAutoExecutionIntentId(fixture.taskId)));
+      expect(intent).toMatchObject({
+        type: TASK_AUTO_EXECUTION_REQUESTED_EVENT_TYPE,
+        payload: expect.objectContaining({
+          taskRetryCount: 1,
+          taskCorrelationId: task?.correlationId,
+        }),
+      });
+      expect(executeTaskLifecycle).toHaveBeenCalledWith(expect.objectContaining({
+        trigger: "automatic",
+        expectedStatuses: ["verifying"],
+        expectedRetryCount: 1,
+        expectedCorrelationId: task?.correlationId,
+      }));
+    } finally {
+      await db.delete(eventsTable).where(eq(eventsTable.projectId, fixture.projectId));
+      await db.delete(aiExecutionAcceptancesTable).where(eq(aiExecutionAcceptancesTable.executionId, fixture.executionId));
+      await db.delete(aiExecutionsTable).where(eq(aiExecutionsTable.id, fixture.executionId));
+      await db.delete(tasksTable).where(eq(tasksTable.id, fixture.taskId));
+      await db.delete(projectsTable).where(eq(projectsTable.id, fixture.projectId));
+    }
+  });
+
+  it("rolls back the retry claim when a durable dispatch intent cannot be written", async () => {
+    const fixture = await insertFixture();
+    try {
+      expect(await dispatchAutonomousTaskRecoveries({ projectId: fixture.projectId })).toBe(1);
+      expect(queuedJobs).toHaveLength(1);
+
+      // Simulate Task data changing after candidate selection but before the
+      // worker locks the Task and attempts to persist the Outbox intent.
+      await db.update(tasksTable)
+        .set({ prompt: null })
+        .where(eq(tasksTable.id, fixture.taskId));
+
+      await queuedJobs[0]!.run();
+
+      const [task] = await db.select({
+        status: tasksTable.status,
+        retryCount: tasksTable.retryCount,
+        correlationId: tasksTable.correlationId,
+      }).from(tasksTable).where(eq(tasksTable.id, fixture.taskId));
+      expect(task).toMatchObject({
+        status: "verifying",
+        retryCount: 0,
+        correlationId: fixture.executionId,
+      });
+      const [intent] = await db.select({ id: eventsTable.id })
+        .from(eventsTable)
+        .where(eq(eventsTable.id, taskAutoExecutionIntentId(fixture.taskId)));
+      expect(intent).toBeUndefined();
+      expect(executeTaskLifecycle).not.toHaveBeenCalled();
+    } finally {
+      await db.delete(eventsTable).where(eq(eventsTable.projectId, fixture.projectId));
       await db.delete(aiExecutionAcceptancesTable).where(eq(aiExecutionAcceptancesTable.executionId, fixture.executionId));
       await db.delete(aiExecutionsTable).where(eq(aiExecutionsTable.id, fixture.executionId));
       await db.delete(tasksTable).where(eq(tasksTable.id, fixture.taskId));
@@ -466,6 +737,7 @@ describe("durable automatic task recovery", () => {
       expect(task?.retryCount).toBe(1);
     } finally {
       allowExecutionLock();
+      await db.delete(eventsTable).where(eq(eventsTable.projectId, fixture.projectId));
       await db.delete(aiExecutionAcceptancesTable).where(eq(aiExecutionAcceptancesTable.executionId, fixture.executionId));
       await db.delete(aiExecutionsTable).where(eq(aiExecutionsTable.id, fixture.executionId));
       await db.delete(tasksTable).where(eq(tasksTable.id, fixture.taskId));

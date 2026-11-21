@@ -7,10 +7,12 @@ import {
   eventsTable,
   projectBootstrapJobsTable,
   projectsTable,
+  scanJobsTable,
 } from "@workspace/db";
-import { and, eq, gt, lt, lte, sql } from "drizzle-orm";
+import { and, eq, gt, lt, lte } from "drizzle-orm";
 import type { ProjectBootstrapJob } from "@workspace/db";
 import { heavyJobQueue } from "./job-queue.js";
+import { runScanJob } from "./scan-runner.js";
 import { logger } from "./logger.js";
 import { recordAuditInTransaction } from "./audit.js";
 import { establishProjectRoot } from "./project-root.js";
@@ -20,10 +22,18 @@ import {
   removeManagedProjectRoot,
 } from "./project-materialization.js";
 import { invalidateContextCache } from "@workspace/ai-orchestrator";
+import { databaseNow } from "./job-lease.js";
+import {
+  assertProjectBootstrapWorkerLease,
+  claimProjectBootstrapJob,
+  heartbeatProjectBootstrapJob,
+  ProjectBootstrapLeaseLost,
+  setProjectBootstrapWorkingRoot,
+} from "./project-bootstrap-lease.js";
+export { PROJECT_BOOTSTRAP_LEASE_MS } from "./project-bootstrap-lease.js";
 
 export const PROJECT_BOOTSTRAP_TEMPLATE_VERSION = "react-vite-v1";
 export const PROJECT_BOOTSTRAP_MAX_ATTEMPTS = 3;
-export const PROJECT_BOOTSTRAP_LEASE_MS = 120_000;
 export const PROJECT_BOOTSTRAP_HEARTBEAT_MS = 20_000;
 export const PROJECT_BOOTSTRAP_INSTALL_TIMEOUT_MS = 180_000;
 
@@ -51,13 +61,6 @@ class ProjectBootstrapFailure extends Error {
   }
 }
 
-class ProjectBootstrapLeaseLost extends Error {
-  constructor() {
-    super("Project bootstrap worker no longer owns the operation.");
-    this.name = "ProjectBootstrapLeaseLost";
-  }
-}
-
 export function toProjectBootstrapOperation(job: ProjectBootstrapJob) {
   return {
     id: job.id,
@@ -77,7 +80,6 @@ export async function createProjectBootstrapJob(params: {
   name: string;
   description: string;
 }): Promise<ProjectBootstrapJob> {
-  const now = new Date();
   const jobId = randomUUID();
   const [inserted] = await db
     .insert(projectBootstrapJobsTable)
@@ -91,8 +93,8 @@ export async function createProjectBootstrapJob(params: {
       status: "queued",
       attempt: 0,
       maxAttempts: PROJECT_BOOTSTRAP_MAX_ATTEMPTS,
-      createdAt: now,
-      updatedAt: now,
+      createdAt: databaseNow(),
+      updatedAt: databaseNow(),
     })
     .onConflictDoNothing({
       target: [
@@ -155,85 +157,6 @@ export function enqueueProjectBootstrapJob(id: string): boolean {
       );
     }
   });
-}
-
-function isOwnedByWorker(job: ProjectBootstrapJob | undefined, workerId: string): boolean {
-  return Boolean(
-    job?.status === "running"
-    && job.workerId === workerId
-    && job.leaseUntil
-    && job.leaseUntil.getTime() > Date.now(),
-  );
-}
-
-async function assertWorkerLease(jobId: string, workerId: string): Promise<void> {
-  const [job] = await db
-    .select()
-    .from(projectBootstrapJobsTable)
-    .where(
-      and(
-        eq(projectBootstrapJobsTable.id, jobId),
-        eq(projectBootstrapJobsTable.status, "running"),
-        eq(projectBootstrapJobsTable.workerId, workerId),
-        gt(projectBootstrapJobsTable.leaseUntil, new Date()),
-      ),
-    )
-    .limit(1);
-  if (!isOwnedByWorker(job, workerId)) throw new ProjectBootstrapLeaseLost();
-}
-
-async function claimProjectBootstrapJob(
-  jobId: string,
-  workerId: string,
-): Promise<ProjectBootstrapJob | undefined> {
-  const now = new Date();
-  const [job] = await db
-    .update(projectBootstrapJobsTable)
-    .set({
-      status: "running",
-      attempt: sql`${projectBootstrapJobsTable.attempt} + 1`,
-      workerId,
-      leaseUntil: new Date(now.getTime() + PROJECT_BOOTSTRAP_LEASE_MS),
-      lastHeartbeatAt: now,
-      startedAt: now,
-      updatedAt: now,
-      errorCode: null,
-      errorMessage: null,
-    })
-    .where(
-      and(
-        eq(projectBootstrapJobsTable.id, jobId),
-        eq(projectBootstrapJobsTable.status, "queued"),
-        lt(projectBootstrapJobsTable.attempt, projectBootstrapJobsTable.maxAttempts),
-      ),
-    )
-    .returning();
-  return job;
-}
-
-async function setWorkingRoot(
-  jobId: string,
-  workerId: string,
-  rootPath: string,
-): Promise<void> {
-  const [updated] = await db
-    .update(projectBootstrapJobsTable)
-    .set({
-      workingRootPath: rootPath,
-      leaseUntil: new Date(Date.now() + PROJECT_BOOTSTRAP_LEASE_MS),
-      lastHeartbeatAt: new Date(),
-      updatedAt: new Date(),
-    })
-    .where(
-      and(
-        eq(projectBootstrapJobsTable.id, jobId),
-        eq(projectBootstrapJobsTable.status, "running"),
-        eq(projectBootstrapJobsTable.workerId, workerId),
-        gt(projectBootstrapJobsTable.leaseUntil, new Date()),
-      ),
-    )
-    .returning({ id: projectBootstrapJobsTable.id });
-  if (!updated) throw new ProjectBootstrapLeaseLost();
 }
 
 function bootstrapCommandEnvironment(): NodeJS.ProcessEnv {
@@ -338,24 +261,8 @@ function startHeartbeat(
   return setInterval(() => {
     if (inFlight || controller.signal.aborted) return;
     inFlight = true;
-    const now = new Date();
-    void db
-      .update(projectBootstrapJobsTable)
-      .set({
-        leaseUntil: new Date(now.getTime() + PROJECT_BOOTSTRAP_LEASE_MS),
-        lastHeartbeatAt: now,
-        updatedAt: now,
-      })
-      .where(
-        and(
-          eq(projectBootstrapJobsTable.id, jobId),
-          eq(projectBootstrapJobsTable.status, "running"),
-          eq(projectBootstrapJobsTable.workerId, workerId),
-          gt(projectBootstrapJobsTable.leaseUntil, now),
-        ),
-      )
-      .returning({ id: projectBootstrapJobsTable.id })
-      .then(([owned]) => {
+    void heartbeatProjectBootstrapJob(jobId, workerId)
+      .then((owned) => {
         if (!owned) controller.abort();
       })
       .catch((error) => {
@@ -371,13 +278,13 @@ function startHeartbeat(
   }, PROJECT_BOOTSTRAP_HEARTBEAT_MS);
 }
 
-async function commitCreatedProject(params: {
+export async function commitCreatedProject(params: {
   job: ProjectBootstrapJob;
   workerId: string;
   canonicalRootPath: string;
-}): Promise<string> {
-  const now = new Date();
+}): Promise<{ projectId: string; scanJobId: string }> {
   const projectId = randomUUID();
+  const scanJobId = randomUUID();
   const correlationId = randomUUID();
   await db.transaction(async (tx) => {
     const [created] = await tx
@@ -390,9 +297,11 @@ async function commitCreatedProject(params: {
         rootPath: params.canonicalRootPath,
         language: "TypeScript",
         framework: "React/Vite",
-        status: "active",
-        createdAt: now,
-        updatedAt: now,
+        // A bootstrapped project is not ready for analysis until its first
+        // durable scan has been admitted in this same transaction.
+        status: "scanning",
+        createdAt: databaseNow(),
+        updatedAt: databaseNow(),
       })
       .returning();
 
@@ -413,6 +322,27 @@ async function commitCreatedProject(params: {
       stateAfter: created,
       correlationId,
     });
+
+    // Persist the first scan together with the project. The normal durable
+    // scan dispatcher can recover this row after a crash or when local queue
+    // capacity is temporarily exhausted; no second endpoint or client retry
+    // is required to make the new project analyzable.
+    await tx.insert(scanJobsTable).values({
+      id: scanJobId,
+      projectId,
+      status: "queued",
+      createdAt: databaseNow(),
+    });
+    await tx.insert(eventsTable).values({
+      id: randomUUID(),
+      type: "ProjectScanQueued",
+      projectId,
+      severity: "info",
+      message: "Initial scan queued after project bootstrap",
+      payload: { jobId: scanJobId, trigger: "project_bootstrap" },
+      correlationId: scanJobId,
+    });
+
     const [completed] = await tx
       .update(projectBootstrapJobsTable)
       .set({
@@ -423,22 +353,44 @@ async function commitCreatedProject(params: {
         workingRootPath: null,
         errorCode: null,
         errorMessage: null,
-        updatedAt: now,
-        finishedAt: now,
+        updatedAt: databaseNow(),
+        finishedAt: databaseNow(),
       })
       .where(
         and(
           eq(projectBootstrapJobsTable.id, params.job.id),
           eq(projectBootstrapJobsTable.status, "running"),
           eq(projectBootstrapJobsTable.workerId, params.workerId),
-          gt(projectBootstrapJobsTable.leaseUntil, now),
+          gt(projectBootstrapJobsTable.leaseUntil, databaseNow()),
         ),
       )
       .returning({ id: projectBootstrapJobsTable.id });
     if (!completed) throw new ProjectBootstrapLeaseLost();
   });
   invalidateContextCache(projectId);
-  return projectId;
+
+  // Fast path: dispatch immediately on this API instance. If the bounded
+  // queue declines the closure (for example, under load), the committed
+  // scan_jobs row remains queued and the durable dispatcher will pick it up.
+  try {
+    const enqueued = heavyJobQueue.enqueueWithId(
+      scanJobId,
+      () => runScanJob(scanJobId, projectId),
+    );
+    if (!enqueued) {
+      logger.info(
+        { bootstrapId: params.job.id, projectId, scanJobId },
+        "initial project scan remains queued for durable dispatch",
+      );
+    }
+  } catch (error) {
+    logger.warn(
+      { error, bootstrapId: params.job.id, projectId, scanJobId },
+      "initial project scan could not enter the local queue; durable dispatch will retry",
+    );
+  }
+
+  return { projectId, scanJobId };
 }
 
 async function finishFailedAttempt(params: {
@@ -446,7 +398,6 @@ async function finishFailedAttempt(params: {
   workerId: string;
   error: ProjectBootstrapFailure;
 }): Promise<void> {
-  const now = new Date();
   const retry = params.error.retryable && params.job.attempt < params.job.maxAttempts;
   await db
     .update(projectBootstrapJobsTable)
@@ -457,15 +408,15 @@ async function finishFailedAttempt(params: {
       workingRootPath: null,
       errorCode: retry ? null : params.error.code,
       errorMessage: retry ? null : params.error.safeMessage,
-      updatedAt: now,
-      finishedAt: retry ? null : now,
+      updatedAt: databaseNow(),
+      finishedAt: retry ? null : databaseNow(),
     })
     .where(
       and(
         eq(projectBootstrapJobsTable.id, params.job.id),
         eq(projectBootstrapJobsTable.status, "running"),
         eq(projectBootstrapJobsTable.workerId, params.workerId),
-        gt(projectBootstrapJobsTable.leaseUntil, now),
+        gt(projectBootstrapJobsTable.leaseUntil, databaseNow()),
       ),
     );
 }
@@ -482,16 +433,16 @@ export async function runProjectBootstrapJob(jobId: string): Promise<void> {
   let rootWasMaterialized = false;
 
   try {
-    await setWorkingRoot(job.id, workerId, rootPath);
+    await setProjectBootstrapWorkingRoot(job.id, workerId, rootPath);
     await access(TEMPLATE_DIRECTORY);
-    await assertWorkerLease(job.id, workerId);
+    await assertProjectBootstrapWorkerLease(job.id, workerId);
     await materializeProjectRoot(TEMPLATE_DIRECTORY, attemptRootKey, {
       excludeTopLevel: ["node_modules", "dist", "coverage"],
     });
     rootWasMaterialized = true;
-    await assertWorkerLease(job.id, workerId);
+    await assertProjectBootstrapWorkerLease(job.id, workerId);
     await installTemplateDependencies(rootPath, controller.signal);
-    await assertWorkerLease(job.id, workerId);
+    await assertProjectBootstrapWorkerLease(job.id, workerId);
 
     const rootResult = await establishProjectRoot(rootPath, { requireMarkers: true });
     if (!rootResult.ok) {
@@ -501,14 +452,14 @@ export async function runProjectBootstrapJob(jobId: string): Promise<void> {
         false,
       );
     }
-    const projectId = await commitCreatedProject({
+    const { projectId, scanJobId } = await commitCreatedProject({
       job,
       workerId,
       canonicalRootPath: rootResult.canonicalPath,
     });
     logger.info(
-      { bootstrapId: job.id, projectId, attempt: job.attempt },
-      "Project bootstrap completed",
+      { bootstrapId: job.id, projectId, scanJobId, attempt: job.attempt },
+      "Project bootstrap completed and initial scan queued",
     );
   } catch (error) {
     if (rootWasMaterialized || rootPath) {
@@ -545,14 +496,13 @@ export async function runProjectBootstrapJob(jobId: string): Promise<void> {
 }
 
 async function reclaimExpiredBootstrapLeases(): Promise<number> {
-  const now = new Date();
   const expired = await db
     .select()
     .from(projectBootstrapJobsTable)
     .where(
       and(
         eq(projectBootstrapJobsTable.status, "running"),
-        lte(projectBootstrapJobsTable.leaseUntil, now),
+        lte(projectBootstrapJobsTable.leaseUntil, databaseNow()),
       ),
     )
     .limit(100);
@@ -570,15 +520,15 @@ async function reclaimExpiredBootstrapLeases(): Promise<number> {
         errorMessage: retry
           ? null
           : "The project could not be created after several attempts. Please start again.",
-        updatedAt: now,
-        finishedAt: retry ? null : now,
+        updatedAt: databaseNow(),
+        finishedAt: retry ? null : databaseNow(),
       })
       .where(
         and(
           eq(projectBootstrapJobsTable.id, job.id),
           eq(projectBootstrapJobsTable.status, "running"),
           eq(projectBootstrapJobsTable.workerId, job.workerId!),
-          lte(projectBootstrapJobsTable.leaseUntil, now),
+          lte(projectBootstrapJobsTable.leaseUntil, databaseNow()),
         ),
       )
       .returning({ id: projectBootstrapJobsTable.id });

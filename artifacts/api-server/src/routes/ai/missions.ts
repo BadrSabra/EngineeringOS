@@ -40,6 +40,7 @@ import type { MissionStrategyDecision } from "../../lib/mission-strategy-engine.
 import { requireAuth } from "../../middlewares/requireAuth.js";
 import { loadProjectByIdForUser } from "../../middlewares/requireProjectAccess.js";
 import { parsePagination } from "../../lib/pagination.js";
+import { logger } from "../../lib/logger.js";
 import {
   APPLY_MISSION_CREATION_PAUSED_MESSAGE,
   isLiveWorkspaceWriteUncoordinated,
@@ -52,6 +53,14 @@ import {
   deriveProofGatedMissionStatus,
   type MissionGoalRunTrigger,
 } from "../../lib/mission-runtime.js";
+import {
+  dispatchMissionGoalWakeIntent,
+  insertMissionGoalWakeIntent,
+} from "../../lib/mission-goal-wake-outbox.js";
+import {
+  dispatchMissionGoalStartIntent,
+  insertMissionGoalStartIntent,
+} from "../../lib/mission-goal-start-outbox.js";
 import {
   parseExecutionRequest,
   recoverAiExecutionResumeToken,
@@ -4102,7 +4111,7 @@ router.patch("/ai/goals/:goalId", async (req, res) => {
           eq(aiMissionsTable.projectId, owned.project.id),
         ))
         .for("update");
-      if (!lockedMission) return { updated: undefined };
+      if (!lockedMission) return { updated: undefined, wakeIntentId: undefined, shouldDispatchImmediately: false };
       const [currentGoal] = await tx.select()
         .from(aiGoalsTable)
         .where(and(
@@ -4111,7 +4120,7 @@ router.patch("/ai/goals/:goalId", async (req, res) => {
           eq(aiGoalsTable.projectId, owned.project.id),
         ))
         .for("update");
-      if (!currentGoal) return { updated: undefined };
+      if (!currentGoal) return { updated: undefined, wakeIntentId: undefined, shouldDispatchImmediately: false };
       const proofContractChanged = (
         body.successCriteria !== undefined
         && !isDeepStrictEqual(body.successCriteria, currentGoal.successCriteria)
@@ -4213,7 +4222,7 @@ router.patch("/ai/goals/:goalId", async (req, res) => {
         .set(updateValues)
         .where(eq(aiGoalsTable.id, currentGoal.id))
         .returning();
-      if (!updated) return { updated: undefined };
+      if (!updated) return { updated: undefined, wakeIntentId: undefined, shouldDispatchImmediately: false };
 
       if (Object.prototype.hasOwnProperty.call(body, "dependsOnGoalIds")) {
         await setGoalDependencies(tx, {
@@ -4316,10 +4325,71 @@ router.patch("/ai/goals/:goalId", async (req, res) => {
           });
         }
       }
-      return { updated };
+      const newlyCompleted = currentGoal.status !== "completed" && updated.status === "completed";
+      const wakeIntentId = newlyCompleted && updated.completedAt
+        ? await insertMissionGoalWakeIntent(tx, {
+            missionId: goal.missionId,
+            projectId: goal.projectId,
+            goalId: goal.id,
+            completedAt: updated.completedAt,
+          })
+        : undefined;
+      const parsedNextAction = GoalNextActionSchema.safeParse(updated.nextAction);
+      const missionPolicy = readRecord(lockedMission.autonomyPolicy);
+      const activePlanRevision = typeof missionPolicy?.activePlanRevision === "string"
+        ? missionPolicy.activePlanRevision
+        : undefined;
+      const goalPlanRevision = readRecord(
+        readRecord(updated.outcomeContract)?.planRevision,
+      )?.hash;
+      const actionChanged = body.nextAction !== undefined
+        && !isDeepStrictEqual(body.nextAction, currentGoal.nextAction);
+      const becameQueued = currentGoal.status !== "queued" && updated.status === "queued";
+      const shouldDispatchImmediately = (
+        lockedMission.status === "active"
+        || lockedMission.status === "waiting"
+      )
+        && typeof activePlanRevision === "string"
+        && goalPlanRevision === activePlanRevision
+        && updated.status === "queued"
+        && (becameQueued || actionChanged)
+        && parsedNextAction.success;
+      return { updated, wakeIntentId, shouldDispatchImmediately };
     });
     if (!result.updated) return res.status(404).json({ error: "Goal not found" });
-    return res.json(result.updated);
+    if (result.wakeIntentId) {
+      // The durable wake is committed with the proof-gated Goal transition.
+      // This post-commit dispatch is only the low-latency path; the durable
+      // dispatcher retries the same intent after process interruption/failure.
+      try {
+        await dispatchMissionGoalWakeIntent(result.wakeIntentId);
+      } catch (error) {
+        logger.error(
+          { error, missionId: goal.missionId, goalId: goal.id, intentId: result.wakeIntentId },
+          "post-patch Mission Goal wake enqueue failed; durable intent remains pending",
+        );
+      }
+    }
+    if (result.shouldDispatchImmediately) {
+      try {
+        await runMissionGoal({
+          goalId: result.updated.id,
+          userId: req.userId,
+          trigger: "resume",
+        });
+      } catch (error) {
+        logger.error(
+          { error, missionId: owned.mission.id, goalId: result.updated.id },
+          "patched Mission Goal dispatch failed; durable wake reconciliation will retry",
+        );
+      }
+    }
+    const [currentGoal] = result.shouldDispatchImmediately
+      ? await db.select().from(aiGoalsTable)
+        .where(eq(aiGoalsTable.id, result.updated.id))
+        .limit(1)
+      : [];
+    return res.json(currentGoal ?? result.updated);
   } catch (error) {
     if (error instanceof GoalCompletionProofRejected) {
       return res.status(409).json({
@@ -4375,19 +4445,28 @@ router.post("/ai/missions/:missionId/goals", async (req, res) => {
     ...(body.planRevision ? { planRevision: { hash: body.planRevision } } : {}),
   };
   try {
-    const [goal] = await db.transaction(async (tx) => {
+    const result = await db.transaction(async (tx) => {
       const [lockedMission] = await tx
-        .select({ id: aiMissionsTable.id, status: aiMissionsTable.status })
+        .select()
         .from(aiMissionsTable)
         .where(and(
           eq(aiMissionsTable.id, owned.mission.id),
           eq(aiMissionsTable.projectId, owned.project.id),
         ))
         .for("update");
-      if (!lockedMission) return [];
+      if (!lockedMission) return { goal: undefined, shouldDispatchImmediately: false };
       if (lockedMission.status === "completed") {
         throw new MissionReactivationRequired();
       }
+      const activePlanRevision = typeof lockedMission.autonomyPolicy.activePlanRevision === "string"
+        ? lockedMission.autonomyPolicy.activePlanRevision
+        : undefined;
+      const action = GoalNextActionSchema.safeParse(body.nextAction);
+      const isCurrentPlanRoot = ["active", "waiting"].includes(lockedMission.status)
+        && Boolean(activePlanRevision)
+        && body.planRevision === activePlanRevision
+        && (body.dependsOnGoalIds ?? []).length === 0
+        && action.success;
       const created = await tx.insert(aiGoalsTable).values({
         id: goalId,
         missionId: owned.mission.id,
@@ -4396,7 +4475,10 @@ router.post("/ai/missions/:missionId/goals", async (req, res) => {
         title: body.title,
         description: body.description ?? null,
         priority: body.priority,
-        successCriteria: body.successCriteria ?? {},
+        successCriteria: {
+          ...(body.successCriteria ?? {}),
+          ...(isCurrentPlanRoot ? { kind: "mission_manual_step" } : {}),
+        },
         evidenceContract: body.evidenceContract ?? {},
         outcomeContract: nextOutcomeContract,
         nextAction: body.nextAction ?? {},
@@ -4420,12 +4502,51 @@ router.post("/ai/missions/:missionId/goals", async (req, res) => {
         payload: {
           missionId: owned.mission.id,
           dependencyRevision: body.planRevision ?? null,
+          autoDispatchEligible: isCurrentPlanRoot,
         },
       });
-      return created;
+      const shouldDispatchImmediately = isCurrentPlanRoot
+        && action.success
+        && action.data.kind !== "task";
+      const startIntentId = shouldDispatchImmediately
+        ? await insertMissionGoalStartIntent(tx, {
+            missionId: owned.mission.id,
+            projectId: owned.project.id,
+            goalId,
+            planRevision: activePlanRevision!,
+            createdAt: now,
+          })
+        : undefined;
+      return {
+        goal: created[0],
+        startIntentId,
+        shouldDispatchImmediately,
+      };
     });
-    if (!goal) return res.status(404).json({ error: "Mission not found" });
-    return res.status(201).json(goal);
+    if (!result.goal) return res.status(404).json({ error: "Mission not found" });
+    if (result.startIntentId) {
+      // The start intent commits with the Goal. This immediate dispatch only
+      // reduces latency; the durable worker recovers the same intent on loss.
+      try {
+        await dispatchMissionGoalStartIntent(result.startIntentId);
+      } catch (error) {
+        logger.error(
+          {
+            error,
+            missionId: owned.mission.id,
+            goalId: result.goal.id,
+            intentId: result.startIntentId,
+          },
+          "manual Mission Goal start dispatch failed; durable Outbox intent remains pending",
+        );
+      }
+    }
+    const [currentGoal] = result.shouldDispatchImmediately
+      ? await db.select().from(aiGoalsTable)
+        .where(eq(aiGoalsTable.id, result.goal.id))
+        .limit(1)
+      : [];
+    return res.status(201).json(currentGoal ?? result.goal);
   } catch (error) {
     if (error instanceof MissionReactivationRequired) {
       return res.status(409).json({

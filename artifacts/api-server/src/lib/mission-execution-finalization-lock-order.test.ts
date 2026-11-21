@@ -1,8 +1,10 @@
 import { randomUUID } from "node:crypto";
 import { eq, sql } from "drizzle-orm";
-import { afterEach, expect, it } from "vitest";
+import { afterEach, expect, it, vi } from "vitest";
 import {
+  aiExecutionAcceptancesTable,
   aiExecutionsTable,
+  aiGoalDependenciesTable,
   aiGoalsTable,
   aiMissionsTable,
   db,
@@ -11,6 +13,8 @@ import {
 } from "@workspace/db";
 import { evaluateMissionCompletion } from "./mission-completion-gate.js";
 import { finalizeExecutionAcceptance } from "./ai-execution-acceptance.js";
+import * as missionAutoReplanModule from "./mission-auto-replan.js";
+import * as missionRuntime from "./mission-runtime.js";
 
 const projectIds: string[] = [];
 
@@ -101,6 +105,7 @@ async function createFixture() {
   return {
     projectId,
     missionId,
+    goalId,
     taskId,
     executionId,
     workerId,
@@ -143,8 +148,234 @@ function errorCodes(value: unknown): string[] {
 }
 
 afterEach(async () => {
+  vi.restoreAllMocks();
   for (const projectId of projectIds.splice(0)) {
     await db.delete(projectsTable).where(eq(projectsTable.id, projectId)).catch(() => undefined);
+  }
+});
+
+it("attempts autonomous Mission replanning only after a retryable failure acceptance commits", async () => {
+  const fixture = await createFixture();
+  const planRevision = "mission-finalize-lock-order-plan";
+  await db.update(aiMissionsTable)
+    .set({
+      autonomyPolicy: {
+        mode: "autonomous",
+        maxAutoReplans: 2,
+        activePlanRevision: planRevision,
+      },
+    })
+    .where(eq(aiMissionsTable.id, fixture.missionId));
+  await db.update(aiGoalsTable)
+    .set({ status: "running", completedAt: null })
+    .where(eq(aiGoalsTable.missionId, fixture.missionId));
+
+  const committedSnapshots: Array<{
+    missionStatus: string | undefined;
+    goalStatus: string | undefined;
+    acceptanceOutcome: string | undefined;
+  }> = [];
+  const replanSpy = vi.spyOn(missionAutoReplanModule, "autoReplanMission")
+    .mockImplementation(async (missionId) => {
+      const [mission] = await db.select({ status: aiMissionsTable.status })
+        .from(aiMissionsTable).where(eq(aiMissionsTable.id, missionId));
+      const [goal] = await db.select({ status: aiGoalsTable.status })
+        .from(aiGoalsTable).where(eq(aiGoalsTable.missionId, missionId));
+      const [acceptance] = await db.select({ outcome: aiExecutionAcceptancesTable.outcome })
+        .from(aiExecutionAcceptancesTable)
+        .where(eq(aiExecutionAcceptancesTable.executionId, fixture.executionId));
+      committedSnapshots.push({
+        missionStatus: mission?.status,
+        goalStatus: goal?.status,
+        acceptanceOutcome: acceptance?.outcome,
+      });
+      return { status: "skipped" as const, missionId, reason: "test_observed_committed_acceptance" };
+    });
+
+  const finalized = await finalizeExecutionAcceptance({
+    executionId: fixture.executionId,
+    expectedAttempt: 0,
+    workerId: fixture.workerId,
+    finalizationKey: `mission-finalize-replan:${fixture.executionId}:0`,
+    outcome: "FAILED",
+    terminalStatus: "failed",
+    reasonCode: "EXECUTION_PROVIDER_FAILURE",
+    recoveryState: "NONE",
+    resumable: true,
+    error: "Synthetic retryable failure.",
+    taskFinalization: {
+      taskId: fixture.taskId,
+      workerId: fixture.workerId,
+      status: "failed",
+      agentResponse: "Synthetic retryable task failure.",
+    },
+  });
+
+  expect(finalized).toMatchObject({ accepted: true, duplicate: false });
+  expect(replanSpy).toHaveBeenCalledOnce();
+  expect(replanSpy).toHaveBeenCalledWith(fixture.missionId);
+  expect(committedSnapshots).toEqual([{
+    missionStatus: "needs_replan",
+    goalStatus: "needs_replan",
+    acceptanceOutcome: "FAILED",
+  }]);
+});
+
+it("does not immediately replan a non-retryable accepted Task failure", async () => {
+  const fixture = await createFixture();
+  await db.update(aiGoalsTable)
+    .set({ status: "running", completedAt: null })
+    .where(eq(aiGoalsTable.missionId, fixture.missionId));
+  const replanSpy = vi.spyOn(missionAutoReplanModule, "autoReplanMission");
+
+  const finalized = await finalizeExecutionAcceptance({
+    executionId: fixture.executionId,
+    expectedAttempt: 0,
+    workerId: fixture.workerId,
+    finalizationKey: `mission-finalize-no-replan:${fixture.executionId}:0`,
+    outcome: "FAILED",
+    terminalStatus: "failed",
+    reasonCode: "EXECUTION_PROVIDER_FAILURE",
+    recoveryState: "NONE",
+    resumable: false,
+    error: "Synthetic non-retryable failure.",
+    taskFinalization: {
+      taskId: fixture.taskId,
+      workerId: fixture.workerId,
+      status: "failed",
+      agentResponse: "Synthetic non-retryable task failure.",
+    },
+  });
+
+  expect(finalized).toMatchObject({ accepted: true, duplicate: false });
+  expect(replanSpy).not.toHaveBeenCalled();
+  const [mission] = await db.select({ status: aiMissionsTable.status })
+    .from(aiMissionsTable).where(eq(aiMissionsTable.id, fixture.missionId));
+  expect(mission?.status).toBe("failed");
+});
+
+it("wakes only dependents after Task acceptance commits a Canonical-Proof-backed Goal completion", async () => {
+  const fixture = await createFixture();
+  const planRevision = "mission-finalize-lock-order-plan";
+  const sourceRevision = "a".repeat(40);
+  const workspaceRoot = process.cwd();
+  const now = new Date();
+  const dependentGoalId = randomUUID();
+  const dependentTaskId = randomUUID();
+
+  await db.update(aiGoalsTable)
+    .set({
+      status: "running",
+      completedAt: null,
+      nextAction: { kind: "task", taskId: fixture.taskId },
+      outcomeContract: {
+        deliveryRequired: false,
+        planRevision: { hash: planRevision },
+      },
+    })
+    .where(eq(aiGoalsTable.id, fixture.goalId));
+  await db.update(aiExecutionsTable)
+    .set({
+      workspaceRoot,
+      request: JSON.stringify({
+        projectId: fixture.projectId,
+        operationId: fixture.operationId,
+        workspaceRevision: sourceRevision,
+        workspaceRoot,
+        proofRequired: true,
+      }),
+    })
+    .where(eq(aiExecutionsTable.id, fixture.executionId));
+  await db.insert(aiGoalsTable).values({
+    id: dependentGoalId,
+    missionId: fixture.missionId,
+    projectId: fixture.projectId,
+    title: "Dependent Goal",
+    status: "waiting_for_event",
+    blockedReason: "dependencies_pending",
+    nextAction: { kind: "task", taskId: dependentTaskId },
+    successCriteria: { planRevision: { hash: planRevision } },
+    outcomeContract: {
+      deliveryRequired: false,
+      planRevision: { hash: planRevision },
+    },
+    createdAt: now,
+    updatedAt: now,
+  });
+  await db.insert(aiGoalDependenciesTable).values({
+    id: randomUUID(),
+    missionId: fixture.missionId,
+    projectId: fixture.projectId,
+    goalId: dependentGoalId,
+    dependsOnGoalId: fixture.goalId,
+    planRevision,
+    createdAt: now,
+  });
+
+  const wakeCalls: Array<[number, string | undefined, string | undefined]> = [];
+  let wakeObservedAfterCommit = false;
+  const wakeSpy = vi.spyOn(missionRuntime, "wakeReadyMissionGoals")
+    .mockImplementation(async (limit, scopeProjectId, dependencyGoalId) => {
+      wakeCalls.push([limit ?? 32, scopeProjectId, dependencyGoalId]);
+      const [goal] = await db.select({ status: aiGoalsTable.status })
+        .from(aiGoalsTable).where(eq(aiGoalsTable.id, fixture.goalId));
+      const [task] = await db.select({ status: tasksTable.status })
+        .from(tasksTable).where(eq(tasksTable.id, fixture.taskId));
+      const [acceptance] = await db.select({
+        outcome: aiExecutionAcceptancesTable.outcome,
+        terminalStatus: aiExecutionAcceptancesTable.terminalStatus,
+        evidenceComplete: aiExecutionAcceptancesTable.evidenceComplete,
+      }).from(aiExecutionAcceptancesTable)
+        .where(eq(aiExecutionAcceptancesTable.executionId, fixture.executionId));
+      wakeObservedAfterCommit = goal?.status === "completed"
+        && task?.status === "completed"
+        && acceptance?.outcome === "SUCCEEDED"
+        && acceptance.terminalStatus === "completed"
+        && acceptance.evidenceComplete === 1;
+      return 0;
+    });
+
+  try {
+    const finalized = await finalizeExecutionAcceptance({
+      executionId: fixture.executionId,
+      expectedAttempt: 0,
+      workerId: fixture.workerId,
+      finalizationKey: `execution:${fixture.executionId}:attempt:0:completed`,
+      outcome: "SUCCEEDED",
+      terminalStatus: "completed",
+      reasonCode: "ACCEPTED",
+      recoveryState: "NONE",
+      resumable: false,
+      evidence: {
+        required: true,
+        sourceEvidenceRequired: true,
+        operationId: fixture.operationId,
+        workspaceRoot,
+        sourceRevision,
+        verdict: "PROVEN",
+        reads: [{
+          path: "src/task-proof.ts",
+          body: "export const taskProof = true;\\n",
+        }],
+      },
+      taskFinalization: {
+        taskId: fixture.taskId,
+        workerId: fixture.workerId,
+        status: "completed",
+        agentResponse: "Mission Task completed with accepted evidence.",
+        completedAt: now,
+      },
+    });
+
+    expect(finalized).toMatchObject({ accepted: true, duplicate: false });
+    expect(wakeSpy).toHaveBeenCalledOnce();
+    expect(wakeCalls).toEqual([[32, fixture.projectId, fixture.goalId]]);
+    expect(wakeObservedAfterCommit).toBe(true);
+    const [goal] = await db.select({ status: aiGoalsTable.status })
+      .from(aiGoalsTable).where(eq(aiGoalsTable.id, fixture.goalId));
+    expect(goal?.status).toBe("completed");
+  } finally {
+    wakeSpy.mockRestore();
   }
 });
 

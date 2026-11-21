@@ -3,13 +3,14 @@ import { useWorkspaceEventStream } from '@/pages/project-workspace/use-workspace
 import PreviewAgentPanel from '@/pages/project-workspace/PreviewAgentPanel';
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { Link, useRoute } from 'wouter';
-import { Activity, AlertTriangle, ArrowRight, Check, Clock3, Code2, GitBranch, Layers3, RefreshCw, ShieldCheck, Sparkles, Terminal } from 'lucide-react';
+import { Activity, AlertTriangle, ArrowRight, Check, Clock3, Code2, GitBranch, GitMerge, Layers3, Plus, RefreshCw, ShieldCheck, Sparkles, Terminal } from 'lucide-react';
 import { useGetProjectWorkspaceSnapshot, getGetProjectWorkspaceSnapshotQueryKey, getGetAiExecutionQueryKey, useGetTask, getGetTaskQueryKey, useGetTaskLogs, getGetTaskLogsQueryKey, useGetAiExecution } from '@workspace/api-client-react';
 import { executionChatHref } from '@/lib/execution-chat-link';
 import AiChat from '@/pages/AiChat';
 import ProjectCanvasPanel from '@/pages/project-workspace/ProjectCanvasPanel';
 import ProjectWorkspaceSwitcher from '@/pages/project-workspace/ProjectWorkspaceSwitcher';
 import WorkspaceExecutionDetail from '@/pages/project-workspace/WorkspaceExecutionDetail';
+import { resolveWorkspaceNextStep } from '@/pages/project-workspace/workspace-next-step';
 
 const statusLabels: Record<string, string> = {
   active: 'نشط',
@@ -101,6 +102,43 @@ type WorkspaceTaskSummaryItem = {
 
 function isRecordedAttempt(value: unknown): value is number {
   return typeof value === 'number' && Number.isSafeInteger(value) && value >= 0;
+}
+
+function WorkspaceDependencyLink({
+  projectId,
+  taskId,
+}: {
+  projectId: string;
+  taskId: string;
+}) {
+  const dependencyQuery = useGetTask(taskId, {
+    query: {
+      queryKey: getGetTaskQueryKey(taskId),
+      staleTime: 0,
+    },
+  });
+  const dependency = dependencyQuery.data;
+  const verifiedTitle = !dependencyQuery.isFetching
+    && !dependencyQuery.isError
+    && dependency?.id === taskId
+    && dependency.projectId === projectId
+    && typeof dependency.title === 'string'
+    && dependency.title.trim()
+    ? dependency.title.trim()
+    : null;
+
+  return (
+    <Link
+      href={`/tasks?projectId=${encodeURIComponent(projectId)}&taskId=${encodeURIComponent(taskId)}`}
+      className="text-cyan-300 underline-offset-4 hover:underline"
+      aria-label={`فتح المهمة المعتمَد عليها: ${verifiedTitle ?? taskId}`}
+      data-testid={`link-workspace-dependency-${taskId}`}
+    >
+      {verifiedTitle
+        ? <span dir="auto">{verifiedTitle}</span>
+        : <Identifier>{taskId}</Identifier>}
+    </Link>
+  );
 }
 
 function WorkspaceTaskCard({
@@ -264,13 +302,7 @@ function WorkspaceTaskCard({
                     : dependencyIds.map((dependencyId, index) => (
                       <span key={dependencyId}>
                         {index > 0 ? '، ' : null}
-                        <Link
-                          href={`/tasks?projectId=${encodeURIComponent(projectId)}&taskId=${encodeURIComponent(dependencyId)}`}
-                          className="text-cyan-300 underline-offset-4 hover:underline"
-                          aria-label={`فتح المهمة المعتمَد عليها: ${dependencyId}`}
-                        >
-                          <Identifier>{dependencyId}</Identifier>
-                        </Link>
+                        <WorkspaceDependencyLink projectId={projectId} taskId={dependencyId} />
                       </span>
                     ))}
               </dd>
@@ -521,6 +553,14 @@ export default function ProjectWorkspace() {
   // Source availability is authoritative: do not render retained payloads from an unavailable read.
   const candidate = work.candidateSource === 'available' ? work.candidate : null;
   const execution = work.executionSource === 'available' ? work.latestExecution : null;
+  const nextStep = resolveWorkspaceNextStep({
+    projectId: project.id,
+    freshnessPartial: freshness.partial,
+    tasksSource: work.tasksSource,
+    recentTasks: work.tasksSource === 'available' ? work.recentTasks : [],
+    candidateSource: work.candidateSource,
+    candidate,
+  });
 
   return (
     <div dir="rtl" lang="ar" className="project-workspace" data-testid="project-workspace">
@@ -561,6 +601,33 @@ export default function ProjectWorkspace() {
             <p dir="auto" className="mt-2 max-w-3xl text-sm leading-6 text-slate-400">
               {project.description || 'تحدث مع المساعد عن العمل المطلوب، وتابع الحالة المسجلة هنا.'}
             </p>
+            <div className="mt-3 flex flex-wrap gap-2">
+              <Link
+                href={`/projects/${encodeURIComponent(project.id)}`}
+                aria-label={`فتح تفاصيل المشروع: ${project.name}`}
+                data-testid="link-project-details-from-workspace"
+                className="inline-flex items-center rounded-md border border-slate-700 px-2.5 py-1.5 text-xs font-medium text-cyan-200 transition hover:border-cyan-300/40 hover:bg-cyan-300/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-200"
+              >
+                تفاصيل المشروع
+              </Link>
+              <Link
+                href={`/workflows?projectId=${encodeURIComponent(project.id)}`}
+                className="workspace-meta transition hover:border-cyan-300/40 hover:bg-cyan-300/10 hover:text-cyan-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-200"
+                aria-label={`فتح مسارات العمل لمشروع ${project.name}`}
+                data-testid="link-project-workflows"
+              >
+                <GitMerge className="h-3.5 w-3.5" />
+                مسارات العمل
+              </Link>
+              <Link
+                href={`/metrics?projectId=${encodeURIComponent(project.id)}`}
+                aria-label={`عرض مؤشرات المشروع: ${project.name}`}
+                data-testid="link-project-metrics-from-workspace"
+                className="inline-flex items-center rounded-md border border-slate-700 px-2.5 py-1.5 text-xs font-medium text-cyan-200 transition hover:border-cyan-300/40 hover:bg-cyan-300/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-200"
+              >
+                مؤشرات المشروع
+              </Link>
+            </div>
           </div>
           <div className="flex flex-wrap gap-2 text-xs">
             <span className="workspace-meta"><Code2 className="h-3.5 w-3.5" /><Identifier>{project.language}</Identifier></span>
@@ -583,6 +650,47 @@ export default function ProjectWorkspace() {
           </div>
         )}
       </header>
+
+      <section
+        className="mt-5 flex flex-col gap-3 rounded-xl border border-cyan-300/20 bg-cyan-300/[.04] p-4 sm:flex-row sm:items-center sm:justify-between"
+        aria-labelledby="workspace-next-step-title"
+        data-testid="workspace-next-step"
+      >
+        <div className="min-w-0">
+          <p className="text-[10px] font-semibold uppercase tracking-[.16em] text-cyan-200">
+            الخطوة التالية
+          </p>
+          <h2 id="workspace-next-step-title" className="mt-1 text-sm font-semibold text-slate-100">
+            {nextStep.title}
+          </h2>
+          <p data-testid="workspace-next-step-description" className="mt-1 text-xs leading-5 text-slate-400">
+            {nextStep.description}
+          </p>
+        </div>
+        {nextStep.kind === 'refresh' ? (
+          <button
+            type="button"
+            onClick={() => void refreshWorkspace()}
+            disabled={isFetching || isRefreshingWorkspace}
+            aria-label={nextStep.ariaLabel}
+            data-testid="workspace-next-step-action"
+            className="inline-flex shrink-0 items-center justify-center gap-2 rounded-md border border-cyan-300/25 px-3 py-2 text-xs font-medium text-cyan-100 transition hover:bg-cyan-300/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-200 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            <RefreshCw className={`h-3.5 w-3.5 ${isFetching || isRefreshingWorkspace ? 'animate-spin' : ''}`} />
+            {nextStep.actionLabel}
+          </button>
+        ) : (
+          <Link
+            href={nextStep.href}
+            aria-label={nextStep.ariaLabel}
+            data-testid="workspace-next-step-action"
+            className="inline-flex shrink-0 items-center justify-center gap-2 rounded-md border border-cyan-300/25 px-3 py-2 text-xs font-medium text-cyan-100 transition hover:bg-cyan-300/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-200"
+          >
+            {nextStep.actionLabel}
+            <ArrowRight className="h-3.5 w-3.5" aria-hidden="true" />
+          </Link>
+        )}
+      </section>
 
       <nav className="workspace-panel-nav" aria-label="التنقل بين أقسام مساحة المشروع">
         <a href="#workspace-panel-agent">المساعد</a>
@@ -627,7 +735,7 @@ export default function ProjectWorkspace() {
                 <h2>العمل الأخير</h2>
                 <p>أحدث 8 مهام من المصدر؛ هذه ليست قائمة شاملة.</p>
               </div>
-              <div className="flex shrink-0 items-center gap-2">
+              <div className="flex shrink-0 flex-wrap items-center gap-2">
                 <span className="workspace-readonly">للاطلاع</span>
                 <Link
                   href={`/tasks?projectId=${encodeURIComponent(project.id)}`}
@@ -635,6 +743,15 @@ export default function ProjectWorkspace() {
                   aria-label="عرض جميع مهام المشروع"
                 >
                   عرض الكل
+                </Link>
+                <Link
+                  href={`/tasks?projectId=${encodeURIComponent(project.id)}&create=1`}
+                  className="inline-flex items-center gap-1 rounded-md border border-cyan-300/30 bg-cyan-300/[.06] px-2 py-1 text-xs font-medium text-cyan-100 transition hover:bg-cyan-300/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-200"
+                  aria-label={`إنشاء مهمة جديدة في ${project.name}`}
+                  data-testid="link-create-task-from-workspace"
+                >
+                  <Plus className="h-3.5 w-3.5" aria-hidden="true" />
+                  مهمة جديدة
                 </Link>
               </div>
             </div>
@@ -682,11 +799,15 @@ export default function ProjectWorkspace() {
             )}
           </section>
 
-          <section className="workspace-card">
+          <section
+            id="workspace-candidate-summary"
+            className="workspace-card"
+            aria-labelledby="workspace-candidate-heading"
+          >
             <div className="workspace-card-heading">
               <div className="workspace-card-icon candidate"><GitBranch className="h-4 w-4" /></div>
               <div className="min-w-0 flex-1">
-                <h2>النسخة المرشحة</h2>
+                <h2 id="workspace-candidate-heading">النسخة المرشحة</h2>
                 <p>حالة المرشح المسجلة للمشروع</p>
               </div>
               {candidate && <span className={`workspace-status status-${candidate.status}`}>{label(candidate.status)}</span>}

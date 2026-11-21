@@ -4,8 +4,13 @@ import Landing from "./Landing";
 
 // wouter uses browser APIs — mock it to avoid jsdom limitations
 vi.mock("wouter", () => ({
-  Link: ({ href, children, className }: { href: string; children: React.ReactNode; className?: string }) => (
-    <a href={href} className={className}>{children}</a>
+  Link: ({ href, children, className, ...props }: {
+    href: string;
+    children: React.ReactNode;
+    className?: string;
+    [key: string]: unknown;
+  }) => (
+    <a href={href} className={className} {...props}>{children}</a>
   ),
 }));
 
@@ -17,12 +22,15 @@ describe("Landing", () => {
     ).toBeInTheDocument();
   });
 
-  it("renders Sign In and Create Account CTAs", () => {
+  it("makes the goal-first route primary and keeps sign in available", () => {
     render(<Landing />);
+    const startGoal = screen.getByRole("link", { name: 'ابدأ بهدفك' });
     const signIn = screen.getByRole("link", { name: 'تسجيل الدخول' });
-    const createAccount = screen.getByRole("link", { name: 'إنشاء حساب' });
+    expect(startGoal).toHaveAttribute("href", "/sign-up");
+    expect(startGoal).toHaveAttribute("data-testid", "link-start-goal");
     expect(signIn).toHaveAttribute("href", "/sign-in");
-    expect(createAccount).toHaveAttribute("href", "/sign-up");
+    expect(signIn).toHaveAttribute("data-testid", "link-sign-in");
+    expect(screen.queryByRole("link", { name: 'إنشاء حساب' })).not.toBeInTheDocument();
   });
 
   it("explains the goal-first journey in three clear steps", () => {

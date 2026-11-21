@@ -29,9 +29,15 @@ import { Link, useLocation } from 'wouter';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { RefreshButton, RequestError } from '@/components/OperatorResilience';
+import EventAssistantHandoff from '@/components/EventAssistantHandoff';
 import DashboardWorkSummary from '@/components/DashboardWorkSummary';
 import { useMonotonicData } from '@/lib/freshness';
 import { HOME_GOAL_MAX_LENGTH, storeHomeGoalDraft } from '@/lib/home-goal-handoff';
+import {
+  clearHomeGoalComposer,
+  readHomeGoalComposer,
+  saveHomeGoalComposer,
+} from '@/lib/home-goal-composer';
 import { matchGoalToProject, suggestGoalProjects } from '@/lib/goal-project-routing';
 
 function formatHealthTimestamp(value: Date | string | null | undefined): string {
@@ -270,6 +276,15 @@ function OperatorAlertsCard() {
               {alerts.map((alert) => {
                 const copy = getOperatorAlertCopy(alert);
                 const isCatalogUnavailable = alert.kind === 'groq_model_catalog_unavailable';
+                const projectId = alert.projectId?.trim();
+                const destinationHref = copy.destination === 'projects'
+                  ? projectId
+                    ? `/projects/${encodeURIComponent(projectId)}`
+                    : '/projects'
+                  : '/ai';
+                const destinationLabel = copy.destination === 'projects'
+                  ? projectId ? 'افتح المشروع المتأثر' : 'إدارة المشاريع'
+                  : 'إعدادات مزود المساعد';
                 return (
                   <div
                     key={alert.id}
@@ -320,10 +335,10 @@ function OperatorAlertsCard() {
                         <span>عدد مرات الرصد: {alert.occurrenceCount.toLocaleString('ar-EG')}</span>
                       )}
                       <Link
-                        href={copy.destination === 'projects' ? '/projects' : '/ai'}
+                        href={destinationHref}
                         className="text-primary hover:underline"
                       >
-                        {copy.destination === 'projects' ? 'إدارة المشاريع' : 'إعدادات مزود المساعد'}
+                        {destinationLabel}
                       </Link>
                     </div>
                   </div>
@@ -344,8 +359,13 @@ function OperatorAlertsCard() {
 
 export default function Dashboard() {
   const { user } = useUser();
+  return <DashboardForUser key={user?.id ?? 'signed-out'} ownerId={user?.id ?? null} />;
+}
+
+function DashboardForUser({ ownerId }: { ownerId: string | null }) {
   const [, setLocation] = useLocation();
-  const [goalDraft, setGoalDraft] = useState('');
+  const [goalComposer, setGoalComposer] = useState(() => readHomeGoalComposer(ownerId));
+  const goalDraft = goalComposer.text;
   const goalInputRef = useRef<HTMLTextAreaElement | null>(null);
   const focusGoalInputAfterUpdate = useRef(false);
   const [goalHandoffError, setGoalHandoffError] = useState('');
@@ -372,8 +392,17 @@ export default function Dashboard() {
     && goalProjectMatch?.kind !== 'unique'
     ? suggestGoalProjects(goalDraft, projects)
     : [];
-  const directGoalProject = !showGoalDestinationPrompt && goalProjectMatch?.kind === 'unique'
-    ? goalProjectMatch.project
+  const onlyProjectWithoutSuggestions = !projectsQuery.isLoading
+    && !projectsQuery.isError
+    && projects.length === 1
+    && goalProjectMatch?.kind === 'none'
+    && goalProjectSuggestions.length === 0
+    ? projects[0]
+    : null;
+  const directGoalProject = !showGoalDestinationPrompt
+    ? goalProjectMatch?.kind === 'unique'
+      ? goalProjectMatch.project
+      : onlyProjectWithoutSuggestions
     : null;
   const dashboardQuery = useGetDashboard();
   const { data: rawDashboard, isLoading, error, refetch, isRefetching, dataUpdatedAt } = dashboardQuery;
@@ -431,14 +460,16 @@ export default function Dashboard() {
       }
     }
 
-    const savedDraft = user?.id
-      ? storeHomeGoalDraft(normalizedGoal, user.id, destination === 'project' ? projectId : null)
+    const savedDraft = ownerId
+      ? storeHomeGoalDraft(normalizedGoal, ownerId, destination === 'project' ? projectId : null)
       : null;
     if (!savedDraft) {
       setGoalHandoffError('تعذر نقل المسودة إلى المساعد. احتفظ بنصك وحاول مرة أخرى.');
       return;
     }
 
+    const composerCleared = clearHomeGoalComposer(ownerId);
+    setGoalComposer({ text: '', status: composerCleared ? null : 'error' });
     setGoalHandoffError('');
     setShowGoalDestinationPrompt(false);
     if (destination === 'general') {
@@ -452,6 +483,13 @@ export default function Dashboard() {
     }
   }
 
+  function updateGoalDraft(text: string) {
+    setGoalComposer({ text, status: saveHomeGoalComposer(ownerId, text) });
+    setSelectedGoalProjectId('');
+    setShowGoalDestinationPrompt(false);
+    if (goalHandoffError) setGoalHandoffError('');
+  }
+
   function chooseGoalDestination() {
     if (!goalDraft.trim()) return;
     setGoalHandoffError('');
@@ -463,8 +501,8 @@ export default function Dashboard() {
     const normalizedGoal = goalDraft.trim();
     if (!normalizedGoal) return;
     setGoalHandoffError('');
-    if (goalProjectMatch?.kind === 'unique') {
-      handoffGoal('project', goalProjectMatch.project.id);
+    if (directGoalProject) {
+      handoffGoal('project', directGoalProject.id);
       return;
     }
     setSelectedGoalProjectId('');
@@ -544,10 +582,7 @@ export default function Dashboard() {
                   data-testid={`button-home-goal-example-${example.id}`}
                   onClick={() => {
                     focusGoalInputAfterUpdate.current = true;
-                    setGoalDraft(example.text);
-                    setSelectedGoalProjectId('');
-                    setShowGoalDestinationPrompt(false);
-                    if (goalHandoffError) setGoalHandoffError('');
+                    updateGoalDraft(example.text);
                   }}
                   className="h-auto min-h-9 whitespace-normal text-start"
                 >
@@ -568,17 +603,22 @@ export default function Dashboard() {
           dir="auto"
           maxLength={HOME_GOAL_MAX_LENGTH}
           value={goalDraft}
-          onChange={(event) => {
-            setGoalDraft(event.target.value);
-            setSelectedGoalProjectId('');
-            setShowGoalDestinationPrompt(false);
-            if (goalHandoffError) setGoalHandoffError('');
-          }}
+          onChange={(event) => updateGoalDraft(event.target.value)}
           placeholder="مثال: ساعدني أفهم سبب بطء صفحة تسجيل الدخول وأقترح حلًا آمنًا."
           className="mt-5 min-h-28 resize-y border-border/80 bg-background/80 text-sm leading-6"
         />
+        {goalComposer.status === 'saved' && (
+          <p role="status" data-testid="status-home-goal-saved" className="mt-2 text-xs text-muted-foreground">
+            حُفظت المسودة مؤقتًا في هذا التبويب، ولن تُرسل تلقائيًا.
+          </p>
+        )}
+        {goalComposer.status === 'error' && (
+          <p role="status" data-testid="status-home-goal-save-error" className="mt-2 text-xs text-destructive">
+            تعذر حفظ المسودة مؤقتًا. انسخ نصك قبل مغادرة الصفحة.
+          </p>
+        )}
         <p className="mt-3 text-xs leading-5 text-muted-foreground">
-          إذا طابق الهدف مشروعًا واحدًا بوضوح، سيظهر اسمه على زر المتابعة. ينقل الزر النص كمسودة فقط؛ لا يُرسل الهدف ولا يوافق على تغييرات.
+          إذا طابق الهدف مشروعًا واحدًا بوضوح، أو كان لديك مشروع واحد بلا اقتراحات منافسة، سيظهر اسمه على زر المتابعة. ينقل الزر النص كمسودة فقط؛ لا يُرسل الهدف ولا يوافق على تغييرات.
         </p>
         {showGoalDestinationPrompt && (
           <div
@@ -599,7 +639,7 @@ export default function Dashboard() {
                     : goalProjectMatch?.kind === 'ambiguous'
                       ? 'قد يتعلق الهدف بأكثر من مشروع. راجع الاقتراحات واختر واحدًا.'
                       : goalProjectSuggestions.length > 0
-                        ? 'لم يظهر اسم مشروع كامل؛ قد تساعدك هذه الاقتراحات.'
+                        ? 'لم يظهر اسم مشروع كامل؛ راجع أسباب هذه الاقتراحات.'
                       : projects.length === 1
                         ? 'يمكنك اختيار مشروعك الوحيد للمتابعة.'
                       : projects.length === 0
@@ -619,7 +659,7 @@ export default function Dashboard() {
                   : goalProjectMatch?.kind === 'ambiguous'
                     ? 'راجع سبب كل اقتراح واختر وجهة واحدة؛ لن نفتح أي مشروع حتى تختار.'
                     : goalProjectSuggestions.length > 0
-                      ? 'هذه اقتراحات من كلمات مشتركة فقط. اختر مشروعًا صراحةً أو افتح القائمة لاختيار غيره.'
+                      ? 'تعرض الاقتراحات سبب التشابه؛ اختر مشروعًا صراحةً أو افتح القائمة لاختيار غيره.'
                     : projects.length === 1 && goalProjectMatch?.kind === 'none'
                       ? 'لن نستخدم المشروع أو ننقل الهدف إليه حتى تختاره صراحةً.'
                 : projects.length === 0 && !projectsQuery.isLoading
@@ -681,7 +721,9 @@ export default function Dashboard() {
                               >
                                 {suggestion.kind === 'exact'
                                   ? 'ورد اسم المشروع في هدفك.'
-                                  : `تطابقت كلمة ${suggestion.matchedTerms.map((term) => `«${term}»`).join('، ')} من الاسم مع هدفك.`}
+                                  : suggestion.kind === 'partial'
+                                    ? `تطابقت كلمة ${suggestion.matchedTerms.map((term) => `«${term}»`).join('، ')} من الاسم مع هدفك.`
+                                    : `تطابقت كلمات ${suggestion.matchedTerms.map((term) => `«${term}»`).join('، ')} مع وصف المشروع أو تقنياته المسجلة.`}
                               </p>
                             </div>
                             <Button
@@ -886,17 +928,17 @@ export default function Dashboard() {
         </div>
         <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
           <Link
-            href="/tasks"
+            href="/tasks?status=active"
             data-testid="card-active-work-home"
             className="rounded-xl border border-border bg-card p-4 transition-colors hover:border-primary/40"
           >
-            <p className="text-sm text-muted-foreground">عمل جارٍ</p>
+            <p className="text-sm text-muted-foreground">عمل جارٍ أو منتظر</p>
             <p className="mt-2 text-3xl font-semibold tabular-nums" data-testid="text-active-work-home">
               {dashboard.activeTaskCount}
             </p>
           </Link>
           <Link
-            href="/tasks"
+            href="/tasks?status=completed"
             data-testid="card-completed-work-home"
             className="rounded-xl border border-border bg-card p-4 transition-colors hover:border-primary/40"
           >
@@ -906,7 +948,7 @@ export default function Dashboard() {
             </p>
           </Link>
           <Link
-            href="/tasks"
+            href="/tasks?status=failed"
             data-testid="card-failed-work-home"
             className="rounded-xl border border-border bg-card p-4 transition-colors hover:border-destructive/40"
           >
@@ -955,6 +997,7 @@ export default function Dashboard() {
               const href = homeEventLogHref(event);
               const eventLabel = event.message || event.type;
               const hasCorrelationId = Boolean(event.correlationId?.trim());
+              const projectName = event.projectId ? projectNameById.get(event.projectId) : undefined;
               return (
                 <div
                   key={event.id}
@@ -1003,6 +1046,13 @@ export default function Dashboard() {
                         </span>
                       )}
                     </p>
+                    {projectName
+                      && (event.severity === 'error' || event.severity === 'warning')
+                      && (
+                        <div className="mt-2">
+                          <EventAssistantHandoff event={event} projectName={projectName} />
+                        </div>
+                      )}
                   </div>
                 </div>
               );
