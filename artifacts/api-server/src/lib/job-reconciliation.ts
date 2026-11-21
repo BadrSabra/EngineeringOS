@@ -1736,8 +1736,7 @@ export function startStaleJobSweep(): NodeJS.Timeout {
 }
 
 /**
- * Runs all startup reconciliation passes. Never throws — a reconciliation
- * bug must not prevent the server from starting.
+ * Run one startup reconciliation pass without blocking independent peers.
  */
 async function runStartupReconciliationPass<T>(
   stage: string,
