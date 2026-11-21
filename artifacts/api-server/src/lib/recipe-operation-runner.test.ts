@@ -5561,7 +5561,7 @@ describe("recipe operation preparation", () => {
     }
   });
 
-  it("keeps a live cancellation lease for the worker finalizer before the worker fallback", async () => {
+  it("leaves a live cancellation to its worker instead of peer reconciliation", async () => {
     validationCalls.length = 0;
     const fixture = await createReclaimedRecipeFixture();
     const realComplete = aiExecutionState.completeAiExecutionWithResult;
