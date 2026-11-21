@@ -13,6 +13,7 @@ import {
   aiAgentEffectBundlesTable,
   aiAgentObservationsTable,
   aiGoalDependenciesTable,
+  aiMissionHandoffsTable,
   aiGoalsTable,
   aiMissionsTable,
   aiWorldTransitionsTable,
@@ -2885,4 +2886,75 @@ describe("Mission goal runtime", () => {
     expect(labels).toEqual(["fulfilled", "fulfilled"]);
     expect(outcomes[1]).toMatchObject({ status: "fulfilled", value: 1 });
   });
+
+  it("rejects a Chat handoff start when its dispatcher lease token is stale", async () => {
+    const fixture = await createMissionFixture({
+      kind: "wait",
+      reason: "event",
+      wakeAt: null,
+    });
+    const handoffId = randomUUID();
+    const planRevision = `chat-handoff-${randomUUID()}`;
+    const currentLeaseToken = randomUUID();
+    const now = new Date();
+    const planGoal = {
+      stepId: "root-step",
+      goalId: fixture.goalId,
+      taskId: null,
+      dependencies: [],
+    };
+
+    await db.update(aiMissionsTable).set({
+      autonomyPolicy: { activePlanRevision: planRevision },
+    }).where(eq(aiMissionsTable.id, fixture.missionId));
+    await db.insert(aiMissionHandoffsTable).values({
+      id: handoffId,
+      projectId: fixture.projectId,
+      userId: "test-user",
+      missionId: fixture.missionId,
+      sessionId: null,
+      messageId: null,
+      assistantMessageId: null,
+      idempotencyKey: `chat-handoff-${handoffId}`,
+      requestHash: "request-hash",
+      planHash: planRevision,
+      preview: {},
+      activationPlan: {
+        revision: planRevision,
+        goals: [planGoal],
+        primary: planGoal,
+      },
+      dispatchGoalIds: [fixture.goalId],
+      dispatchStatus: "pending",
+      dispatchLease: {
+        token: currentLeaseToken,
+        expiresAt: new Date(now.getTime() + 10 * 60_000).toISOString(),
+      },
+      createdAt: now,
+      updatedAt: now,
+    });
+
+    await expect(runMissionGoal({
+      goalId: fixture.goalId,
+      userId: "test-user",
+      trigger: "activation",
+      expectedHandoffBinding: {
+        handoffId,
+        missionId: fixture.missionId,
+        projectId: fixture.projectId,
+        planRevision,
+        dispatchGoalIds: [fixture.goalId],
+        dispatchLeaseToken: randomUUID(),
+      },
+    })).resolves.toEqual({
+      status: "conflict",
+      goalId: fixture.goalId,
+      reason: "handoff_dispatch_lease_lost",
+    });
+
+    const [unchangedGoal] = await db.select({ status: aiGoalsTable.status })
+      .from(aiGoalsTable).where(eq(aiGoalsTable.id, fixture.goalId));
+    expect(unchangedGoal?.status).toBe("queued");
+  });
+
 });

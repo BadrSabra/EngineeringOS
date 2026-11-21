@@ -2723,6 +2723,7 @@ export const APPLICATION_SCHEMA_CONTRACT = {
         nullable: false,
         defaultExpression: /'pending'::ai_mission_handoff_dispatch_status/,
       },
+      { name: "dispatch_lease", dataType: "jsonb", udtName: "jsonb", nullable: true },
       {
         name: "dispatched_at",
         dataType: "timestamp without time zone",
