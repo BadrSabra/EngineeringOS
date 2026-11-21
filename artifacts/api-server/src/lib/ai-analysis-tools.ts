@@ -351,19 +351,19 @@ export function createProjectAnalysisToolRunner(
       check(controller.signal);
       check(controller.signal, attemptDeadline);
       if (name === "discover_project_apis") {
+        const query = (args.query ?? "").trim();
+        const conditions = [
+          eq(graphEntitiesTable.projectId, projectsTable.id),
+          eq(graphEntitiesTable.type, "api" as never),
+        ];
+        if (query) conditions.push(ilike(graphEntitiesTable.name, `%${query}%`));
         const rows = await db
           .select({
             projectUpdatedAt: projectsTable.updatedAt,
             entity: graphEntitiesTable,
           })
           .from(projectsTable)
-          .leftJoin(
-            graphEntitiesTable,
-            and(
-              eq(graphEntitiesTable.projectId, projectsTable.id),
-              eq(graphEntitiesTable.type, "api" as never),
-            ),
-          )
+          .leftJoin(graphEntitiesTable, and(...conditions))
           .where(eq(projectsTable.id, projectId))
           .limit(100);
         check(controller.signal, attemptDeadline);
