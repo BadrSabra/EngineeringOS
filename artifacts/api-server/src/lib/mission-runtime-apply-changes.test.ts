@@ -1471,6 +1471,17 @@ describe("Apply Changes Mission D2 dispatch", () => {
     expect(events.filter((event) =>
       event.type === "AiGoalApplyChangesProofAccepted" && event.goalId === fixture.applyGoalId,
     )).toHaveLength(1);
+    const applyGoalWakeDispatches = events.filter((event) =>
+      event.type === "MissionGoalWakeDispatched" && event.goalId === fixture.applyGoalId,
+    );
+    expect(applyGoalWakeDispatches).toHaveLength(1);
+    expect(applyGoalWakeDispatches[0]).toMatchObject({
+      payload: {
+        missionId: fixture.missionId,
+        goalId: fixture.applyGoalId,
+        wokenDependents: 1,
+      },
+    });
     expect(scheduleTaskExecution).toHaveBeenCalledTimes(1);
     expect(scheduleTaskExecution).toHaveBeenCalledWith(
       fixture.reportTaskId,
@@ -1628,6 +1639,11 @@ describe("Apply Changes Mission D2 dispatch", () => {
       )).toBe(false);
       expect(events.some((event) =>
         event.type === "AiGoalApplyChangesProofAccepted" && event.goalId === fixture.applyGoalId,
+      )).toBe(false);
+      expect(events.some((event) =>
+        event.goalId === fixture.applyGoalId
+        && ["MissionGoalWakeRequested", "MissionGoalWakeDeferred", "MissionGoalWakeDispatched"]
+          .includes(event.type),
       )).toBe(false);
       expect(events.some((event) =>
         event.type === "AiGoalApplyChangesProofBlocked" && event.goalId === fixture.applyGoalId,

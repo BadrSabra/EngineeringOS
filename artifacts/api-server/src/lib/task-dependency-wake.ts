@@ -53,6 +53,18 @@ export async function wakeDeferredTaskDependencyIntents(
       AND dependent.prompt IS NOT NULL
       AND btrim(dependent.prompt) <> ''
       AND dependent.depends_on @> jsonb_build_array(completed.id)
+      -- Only release a child once every direct prerequisite is complete.
+      AND NOT EXISTS (
+        SELECT 1
+        FROM jsonb_array_elements_text(
+          COALESCE(dependent.depends_on, '[]'::jsonb)
+        ) AS prerequisite_ref(task_id)
+        LEFT JOIN tasks AS prerequisite
+          ON prerequisite.id = prerequisite_ref.task_id
+        WHERE prerequisite.id IS NULL
+          OR prerequisite.project_id <> dependent.project_id
+          OR prerequisite.status <> 'completed'
+      )
       AND intent.id = 'task-auto-execution-deferred:' || dependent.id
       AND intent.task_id = dependent.id
       AND intent.project_id = dependent.project_id

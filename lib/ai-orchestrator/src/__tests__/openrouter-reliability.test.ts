@@ -28,7 +28,10 @@ import {
   recordModelSuccess,
   _resetCircuitsForTest,
 } from "../openrouter/circuit-breaker.js";
-import { _setModelCooldownPersistenceForTest } from "../openrouter/model-cooldown-store.js";
+import {
+  _setModelCooldownPersistenceForTest,
+  type ModelCooldownPersistence,
+} from "../openrouter/model-cooldown-store.js";
 import {
   _resetOpenRouterCredentialCooldownsForTest,
   _setOpenRouterCredentialCooldownPersistenceForTest,
@@ -378,6 +381,43 @@ function fetchResponse(status: number, body: unknown): Response {
     status,
     headers: { "content-type": "application/json" },
   });
+}
+
+function createModelCooldownFixture(): ModelCooldownPersistence {
+  const entries = new Map<string, {
+    coolingUntil: number;
+    updatedAt: number;
+    cooldownMs: number;
+  }>();
+  const key = (provider: string, model: string) => provider + "\u0000" + model;
+
+  return {
+    async readActive(provider, models) {
+      const now = Date.now();
+      return models.flatMap((model) => {
+        const entry = entries.get(key(provider, model));
+        return entry && entry.coolingUntil > now
+          ? [{ model, remainingMs: entry.coolingUntil - now }]
+          : [];
+      });
+    },
+    async write(provider, model, cooldownMs) {
+      const now = Date.now();
+      entries.set(key(provider, model), {
+        coolingUntil: now + cooldownMs,
+        updatedAt: now,
+        cooldownMs,
+      });
+    },
+    async clear(provider, model) {
+      entries.delete(key(provider, model));
+    },
+    async readRecentCooldownMs(provider, model, maxAgeMs) {
+      const entry = entries.get(key(provider, model));
+      if (!entry || Date.now() - entry.updatedAt > maxAgeMs) return undefined;
+      return entry.cooldownMs;
+    },
+  };
 }
 
 function createSharedCatalogFixture(
@@ -1876,6 +1916,61 @@ describe("openrouterCompleteWithFallback — transient free-model failover", () 
     expect(attemptedModels).toEqual([firstModel, firstModel, secondModel]);
     expect(attemptedModels.every((model) => model.endsWith(":free"))).toBe(true);
   });
+
+  it("extends the default free-model chain after consecutive model-availability failures", async () => {
+    const firstModel = FREE_MODELS.find((model) => model.capabilities.includes("chat"))!.id;
+    const expectedChain = buildFallbackChainFromId(firstModel, undefined, {
+      capability: "chat",
+    });
+    expect(expectedChain.length).toBeGreaterThan(2);
+    const attemptedModels: string[] = [];
+
+    global.fetch = vi.fn(async (_url: string | URL, init?: RequestInit) => {
+      const body = JSON.parse(String(init?.body ?? "{}")) as { model?: string };
+      const model = body.model ?? "";
+      attemptedModels.push(model);
+      if (attemptedModels.length === 1) {
+        return fetchResponse(404, { error: { code: "model_not_found" } });
+      }
+      if (attemptedModels.length === 2) {
+        return fetchResponse(422, { error: { code: "model_unavailable" } });
+      }
+      return fetchResponse(200, {
+        choices: [{ message: { content: "recovered on third free model" } }],
+        model,
+        usage: { prompt_tokens: 1, completion_tokens: 1 },
+      });
+    }) as typeof fetch;
+
+    const result = await openrouterCompleteWithFallback(
+      [{ role: "user", content: "hello" }],
+      { apiKey: "fixture-key", model: firstModel, capability: "chat" },
+    );
+
+    expect(result.content).toBe("recovered on third free model");
+    expect(attemptedModels).toEqual(expectedChain.slice(0, 3));
+    expect(attemptedModels.every((model) =>
+      FREE_MODELS.some((candidate) => candidate.id === model && candidate.free),
+    )).toBe(true);
+  });
+
+  it("does not extend the free-model chain after an account quota error", async () => {
+    const firstModel = FREE_MODELS.find((model) => model.capabilities.includes("chat"))!.id;
+    const attemptedModels: string[] = [];
+
+    global.fetch = vi.fn(async (_url: string | URL, init?: RequestInit) => {
+      const body = JSON.parse(String(init?.body ?? "{}")) as { model?: string };
+      attemptedModels.push(body.model ?? "");
+      return fetchResponse(429, { error: { message: "insufficient credits; account quota exhausted" } });
+    }) as typeof fetch;
+
+    await expect(openrouterCompleteWithFallback(
+      [{ role: "user", content: "hello" }],
+      { apiKey: "fixture-key", model: firstModel, capability: "chat" },
+    )).rejects.toMatchObject({ code: "QUOTA" });
+
+    expect(attemptedModels).toEqual([firstModel]);
+  });
 });
 
 // ── Server-directed backoff for OpenRouter 503 responses ──────────────────────
@@ -2020,6 +2115,52 @@ describe("openrouterCompleteStream — bounded retry and disconnect safety", () 
     global.fetch = globalFetch;
     vi.useRealTimers();
     vi.restoreAllMocks();
+  });
+
+  it("skips a model rejected by a previous stream request", async () => {
+    const firstModel = FREE_MODELS.find((model) =>
+      model.capabilities.includes("chat") && model.supportsStreaming !== false,
+    )!.id;
+    const cooldownStore = createModelCooldownFixture();
+    const attemptedModels: string[] = [];
+    const fetchMock = vi.fn(async (_url: string | URL, init?: RequestInit) => {
+      const body = JSON.parse(String(init?.body ?? "{}")) as { model?: string };
+      const model = body.model ?? "";
+      attemptedModels.push(model);
+      if (model === firstModel) {
+        return fetchResponse(422, {
+          error: { code: "model_unavailable", message: "fixture model unavailable" },
+        });
+      }
+      return streamResponse([sseDelta("stream recovered"), "data: [DONE]\n\n"]);
+    });
+    global.fetch = fetchMock as typeof fetch;
+
+    const options = {
+      apiKey: "candidate-stream-cooldown-fixture",
+      model: firstModel,
+      capability: "chat" as const,
+      maxFallbackModels: 2,
+      modelCooldownPersistence: cooldownStore,
+    };
+    const readStream = async (message: string) => {
+      const chunks: string[] = [];
+      for await (const chunk of openrouterCompleteStream(
+        [{ role: "user", content: message }],
+        options,
+      )) {
+        chunks.push(chunk);
+      }
+      return chunks.join("");
+    };
+
+    expect(await readStream("first stream request")).toBe("stream recovered");
+    expect(await readStream("second stream request")).toBe("stream recovered");
+    expect(attemptedModels).toHaveLength(3);
+    expect(attemptedModels[0]).toBe(firstModel);
+    expect(attemptedModels[1]).not.toBe(firstModel);
+    expect(attemptedModels[1]).toMatch(/:free$/);
+    expect(attemptedModels[2]).toBe(attemptedModels[1]);
   });
 
   it.each([
@@ -2280,6 +2421,44 @@ describe("openrouterCompleteStream — bounded retry and disconnect safety", () 
     expect(attemptedModels.every((model: string) => model.endsWith(":free"))).toBe(true);
   });
 
+  it("extends streaming fallback after model-specific unavailability before emitting content", async () => {
+    const firstModel = FREE_MODELS.find((model) =>
+      model.capabilities.includes("chat") && model.supportsStreaming !== false,
+    )!.id;
+    const expectedChain = buildFallbackChainFromId(firstModel, undefined, {
+      capability: "chat",
+    });
+    expect(expectedChain.length).toBeGreaterThan(2);
+    const attemptedModels: string[] = [];
+
+    global.fetch = vi.fn(async (_url: string | URL, init?: RequestInit) => {
+      const body = JSON.parse(String(init?.body ?? "{}")) as { model?: string };
+      const model = body.model ?? "";
+      attemptedModels.push(model);
+      if (attemptedModels.length === 1) {
+        return fetchResponse(422, { error: { code: "model_unavailable" } });
+      }
+      if (attemptedModels.length === 2) {
+        return fetchResponse(404, { error: { code: "model_not_found" } });
+      }
+      return streamResponse([sseDelta("stream recovered"), "data: [DONE]\n\n"]);
+    }) as typeof fetch;
+
+    const chunks: string[] = [];
+    for await (const chunk of openrouterCompleteStream(
+      [{ role: "user", content: "hello" }],
+      { apiKey: "fixture-key", model: firstModel, capability: "chat" },
+    )) {
+      chunks.push(chunk);
+    }
+
+    expect(chunks.join("")).toBe("stream recovered");
+    expect(attemptedModels).toEqual(expectedChain.slice(0, 3));
+    expect(attemptedModels.every((model) =>
+      FREE_MODELS.some((candidate) => candidate.id === model && candidate.free),
+    )).toBe(true);
+  });
+
   it("terminalizes a disconnect after the first chunk without retrying or duplicating text", async () => {
     const fetchMock = vi.fn().mockResolvedValue(
       streamResponse([sseDelta("first "), sseDelta("answer"), "data: [DONE]\n\n"], { disconnect: true }),
@@ -2320,6 +2499,60 @@ describe("openrouterCompleteWithFallback — model removed (PR-02)", () => {
     global.fetch = globalFetch;
     vi.restoreAllMocks();
   });
+
+  it.each([
+    [404, { error: { code: "model_not_found" } }],
+    [402, { error: { message: "requires payment" } }],
+    [410, { error: { message: "model retired" } }],
+    [422, { error: { message: "model temporarily unavailable" } }],
+  ] as const)(
+    "does not probe the same candidate on the next request after HTTP %s",
+    async (status, errorBody) => {
+      const firstModel = FREE_MODELS.find((model) => model.capabilities.includes("chat"))!.id;
+      const cooldownStore = createModelCooldownFixture();
+      const attemptedModels: string[] = [];
+
+      global.fetch = vi.fn(async (url: string | URL, init?: RequestInit) => {
+        if (String(url).endsWith("/models")) {
+          const liveModelIds = [...new Set(FREE_MODELS.map((model) => model.id))];
+          return fetchResponse(200, {
+            data: liveModelIds.map((id) => ({
+              id,
+              pricing: { prompt: "0", completion: "0" },
+              supported_parameters: ["response_format"],
+            })),
+          });
+        }
+        const body = JSON.parse(String(init?.body ?? "{}")) as { model?: string };
+        const model = body.model ?? "";
+        attemptedModels.push(model);
+        if (model === firstModel) return fetchResponse(status, errorBody);
+        return fetchResponse(200, okResponse(model));
+      }) as typeof fetch;
+
+      const options = {
+        apiKey: "candidate-cooldown-fixture",
+        model: firstModel,
+        maxFallbackModels: 2,
+        modelCooldownPersistence: cooldownStore,
+      };
+      const first = await openrouterCompleteWithFallback(
+        [{ role: "user", content: "hello" }],
+        options,
+      );
+      expect(first.content).toBe("Hello!");
+
+      const second = await openrouterCompleteWithFallback(
+        [{ role: "user", content: "hello again" }],
+        options,
+      );
+      expect(second.content).toBe("Hello!");
+      expect(attemptedModels.filter((model) => model === firstModel)).toHaveLength(1);
+      expect(attemptedModels[1]).not.toBe(firstModel);
+      expect(attemptedModels[1]).toMatch(/:free$/);
+      expect(attemptedModels[2]).toBe(attemptedModels[1]);
+    },
+  );
 
   it("advances to next model on 404 and succeeds", async () => {
     const { openrouterCompleteWithFallback } = await import(

@@ -4,6 +4,11 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import Workflows from './Workflows';
 import type { AiOrchestrationDecision } from '@workspace/api-client-react';
 import { useLocation } from 'wouter';
+import { readGoalDrafts } from '@/lib/home-goal-handoff';
+
+vi.mock('@clerk/react', () => ({
+  useUser: () => ({ isLoaded: true, user: { id: 'user-1' } }),
+}));
 
 vi.mock('@workspace/api-client-react', () => ({
   useListWorkflows: vi.fn(),
@@ -55,6 +60,7 @@ function renderPage() {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  window.sessionStorage.clear();
   window.history.replaceState({}, '', '/workflows');
   vi.mocked(useListWorkflows).mockReturnValue({
     data: [{
@@ -66,7 +72,7 @@ beforeEach(() => {
       currentPhase: 'deploy',
       executionCount: 1,
       phases: [
-        { name: 'build', steps: ['Compile'] },
+        { name: 'build', steps: ['Compile'], condition: 'qualityScore >= 80' },
         { name: 'deploy', steps: ['Publish'] },
       ],
     }],
@@ -140,6 +146,46 @@ describe('project-scoped Workflows view', () => {
     expect(screen.getByTestId('select-workflow-project')).toHaveValue('project-1');
   });
 
+  it('opens only the requested workflow history from a deep link', () => {
+    window.history.replaceState(
+      {},
+      '',
+      '/workflows?projectId=project-1&workflowId=workflow-1',
+    );
+
+    renderPage();
+
+    expect(screen.getByTestId('button-workflow-history-workflow-1'))
+      .toHaveAttribute('aria-expanded', 'true');
+    expect(screen.getByText(
+      'Retry in a moment. Check provider status if it persists; the product will not switch providers.',
+    )).toBeInTheDocument();
+    expect(screen.getByTestId('button-workflow-assistant-handoff-execution-1')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByTestId('button-workflow-assistant-handoff-execution-1'));
+    const draft = readGoalDrafts('user-1').drafts[0];
+    expect(draft.text).toContain('معرّف التشغيل: execution-1');
+    expect(draft.text).toContain('المرحلة المسجلة: «deploy»');
+    expect(draft.text).not.toContain('Internal provider diagnostic');
+    expect(draft.text).not.toContain('provider-secret-token');
+  });
+
+  it('keeps workflow history closed when the requested workflow is not in the selected project list', () => {
+    window.history.replaceState(
+      {},
+      '',
+      '/workflows?projectId=project-1&workflowId=not-this-workflow',
+    );
+
+    renderPage();
+
+    expect(screen.getByTestId('button-workflow-history-workflow-1'))
+      .toHaveAttribute('aria-expanded', 'false');
+    expect(screen.queryByText(
+      'Retry in a moment. Check provider status if it persists; the product will not switch providers.',
+    )).not.toBeInTheDocument();
+  });
+
   it('invalidates the workflow history and only its owning project list after retry', () => {
     const queryClient = renderPage();
     const invalidateQueries = vi.spyOn(queryClient, 'invalidateQueries');
@@ -179,11 +225,38 @@ describe('project-scoped Workflows view', () => {
       }),
     );
     expect(screen.getByText('لا توجد مشاريع متاحة')).toBeInTheDocument();
+    expect(screen.getByTestId('link-workflows-empty-goal-first'))
+      .toHaveAttribute('href', '/');
+    expect(screen.getByRole('link', { name: 'ابدأ بوصف هدفك في مساحة العمل' }))
+      .toBeInTheDocument();
     expect(screen.queryByText('Release pipeline')).not.toBeInTheDocument();
+    expect(screen.queryByRole('dialog', { name: 'إنشاء مسار عمل' })).not.toBeInTheDocument();
+    expect(createWorkflowMutation.mutate).not.toHaveBeenCalled();
+  });
+
+  it('offers the project assistant as the simple path while retaining manual workflow setup', () => {
+    vi.mocked(useListWorkflows).mockReturnValue({
+      data: [],
+      isLoading: false,
+      isError: false,
+      error: null,
+      refetch: vi.fn(),
+      isRefetching: false,
+      dataUpdatedAt: 0,
+    } as ReturnType<typeof useListWorkflows>);
+
+    renderPage();
+
+    expect(screen.getByText('لا توجد مسارات عمل بعد')).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'صف هدفك للمساعد في مشروع Test Project' }))
+      .toHaveAttribute('href', '/projects/project-1/workspace#workspace-panel-agent');
+
+    fireEvent.click(screen.getByTestId('button-create-workflow-empty'));
+    expect(screen.getByRole('dialog', { name: 'إنشاء مسار عمل' })).toBeInTheDocument();
   });
 
   it('fails closed when an explicit project target is not in the owned project list', () => {
-    window.history.replaceState({}, '', '/workflows?projectId=not-owned');
+    window.history.replaceState({}, '', '/workflows?projectId=not-owned&create=1');
     renderPage();
 
     expect(useListWorkflows).toHaveBeenCalledWith(
@@ -196,6 +269,45 @@ describe('project-scoped Workflows view', () => {
     expect(screen.queryByText('Release pipeline')).not.toBeInTheDocument();
   });
 
+  it('opens the project-scoped creation form from a deep link without creating or starting a workflow', async () => {
+    window.history.replaceState(
+      {},
+      '',
+      '/workflows?projectId=project-2&create=1&source=project-detail#new-workflow',
+    );
+    vi.mocked(useListProjects).mockReturnValue({
+      data: [
+        { id: 'project-1', name: 'Test Project' },
+        { id: 'project-2', name: 'Second Project' },
+      ],
+      isLoading: false,
+      isError: false,
+      error: null,
+      refetch: vi.fn(),
+    } as ReturnType<typeof useListProjects>);
+
+    renderPage();
+
+    const dialog = await screen.findByRole('dialog', { name: 'إنشاء مسار عمل' });
+    expect(within(dialog).getByLabelText('المشروع')).toHaveValue('project-2');
+    expect(window.location.search).toContain('projectId=project-2');
+    expect(window.location.search).toContain('source=project-detail');
+    expect(window.location.search).toContain('create=1');
+    expect(window.location.hash).toBe('#new-workflow');
+    expect(createWorkflowMutation.mutate).not.toHaveBeenCalled();
+
+    const startMutation = vi.mocked(useStartWorkflow).mock.results[0]?.value as {
+      mutate: ReturnType<typeof vi.fn>;
+    };
+    expect(startMutation.mutate).not.toHaveBeenCalled();
+
+    fireEvent.click(within(dialog).getByRole('button', { name: 'إغلاق نافذة إنشاء مسار العمل' }));
+    expect(screen.queryByRole('dialog', { name: 'إنشاء مسار عمل' })).not.toBeInTheDocument();
+    expect(window.location.search).toContain('projectId=project-2');
+    expect(window.location.search).toContain('source=project-detail');
+    expect(window.location.search).not.toContain('create=1');
+    expect(window.location.hash).toBe('#new-workflow');
+  });
   it('filters any workflow rows that do not belong to the active project', () => {
     vi.mocked(useListWorkflows).mockReturnValue({
       data: [{
@@ -313,6 +425,12 @@ describe('Workflows recovery rendering', () => {
     expect(within(card).getByText('Retry in a moment. Check provider status if it persists; the product will not switch providers.')).toHaveAttribute('dir', 'auto');
     expect(within(card).getByText(/مرجع الدعم:/)).toHaveTextContent('workflow-support-42');
     expect(screen.getByText('فشل التشغيل · لم يُسجل اكتماله بنجاح')).toBeInTheDocument();
+    expect(screen.getByTestId('link-workflow-execution-events-execution-1')).toHaveAttribute(
+      'href',
+      '/events?projectId=project-1&correlationId=workflow-support-42',
+    );
+    expect(screen.getByRole('link', { name: 'عرض الأحداث المرتبطة بتشغيل execution-1' }))
+      .toBeInTheDocument();
     const completedPhase = screen.getAllByText('build').find(
       (node) => node.tagName === 'BDI' && node.parentElement?.textContent === 'مراحل مسجلة كمكتملة: build',
     );
@@ -328,6 +446,31 @@ describe('Workflows recovery rendering', () => {
     expect(screen.queryByText(/Internal provider diagnostic/i)).not.toBeInTheDocument();
     expect(screen.queryByText(/provider-secret-token/i)).not.toBeInTheDocument();
     expect(screen.queryByText(/raw upstream response/i)).not.toBeInTheDocument();
+  });
+
+  it('does not offer an event shortcut when a failed run has no correlation reference', () => {
+    vi.mocked(useListWorkflowExecutions).mockReturnValue({
+      data: [{
+        id: 'failed-without-correlation',
+        workflowId: 'workflow-1',
+        status: 'failed',
+        currentPhase: 'deploy',
+        startedAt: '2026-08-25T10:00:00.000Z',
+        completedPhases: ['build'],
+        recovery: { availabilityState: 'provider_outage' },
+      }],
+      isLoading: false,
+      isError: false,
+      error: null,
+      refetch: vi.fn(),
+    } as ReturnType<typeof useListWorkflowExecutions>);
+
+    renderPage();
+    fireEvent.click(screen.getByRole('button', { name: /سجل التشغيل/i }));
+
+    expect(screen.getByText('فشل التشغيل · لم يُسجل اكتماله بنجاح')).toBeInTheDocument();
+    expect(screen.queryByTestId('link-workflow-execution-events-failed-without-correlation'))
+      .not.toBeInTheDocument();
   });
 
   it('labels completed workflow runs as recorded status rather than proof', () => {
@@ -350,6 +493,10 @@ describe('Workflows recovery rendering', () => {
     fireEvent.click(screen.getByRole('button', { name: /سجل التشغيل/i }));
 
     expect(screen.getByText('انتهى التشغيل بحسب السجل')).toBeInTheDocument();
+    expect(screen.queryByTestId('link-workflow-execution-events-completed-execution'))
+      .not.toBeInTheDocument();
+    expect(screen.queryByTestId('button-workflow-assistant-handoff-completed-execution'))
+      .not.toBeInTheDocument();
   });
 
   it('shows AI decisions as recommendations without advancing the workflow', () => {
@@ -585,7 +732,7 @@ describe('Workflows recovery rendering', () => {
     expect(deleteWorkflowMutation.mutate).not.toHaveBeenCalled();
   });
 
-  it('keeps Arabic creation copy separate from phase names, shell commands, and conditions sent to the API', () => {
+  it('starts with the goal-first template while preserving editable phase names, commands, and conditions', () => {
     vi.mocked(useListProjects).mockReturnValue({
       data: [{ id: 'project-1', name: 'المشروع' }],
     } as ReturnType<typeof useListProjects>);
@@ -594,9 +741,11 @@ describe('Workflows recovery rendering', () => {
     fireEvent.click(screen.getByRole('button', { name: 'مسار عمل جديد' }));
     const dialog = screen.getByRole('dialog', { name: 'إنشاء مسار عمل' });
     expect(dialog).toHaveAttribute('dir', 'rtl');
-    expect(within(dialog).getByLabelText('اسم المرحلة 1')).toHaveValue('build');
-    expect(within(dialog).getByLabelText('اسم المرحلة 2')).toHaveValue('test');
-    expect(within(dialog).getByLabelText('اسم المرحلة 3')).toHaveValue('deploy');
+    expect(within(dialog).getByLabelText('قالب البداية')).toHaveValue('goal');
+    expect(within(dialog).getByLabelText('اسم المسار')).toHaveValue('من الهدف إلى نتيجة قابلة للتحقق');
+    expect(within(dialog).getByLabelText('اسم المرحلة 1')).toHaveValue('حدد النتيجة');
+    expect(within(dialog).getByLabelText('اسم المرحلة 2')).toHaveValue('نفّذ العمل');
+    expect(within(dialog).getByLabelText('اسم المرحلة 3')).toHaveValue('تحقق من النتيجة');
 
     fireEvent.change(within(dialog).getByLabelText('المشروع'), { target: { value: 'project-1' } });
     fireEvent.change(within(dialog).getByLabelText('اسم المسار'), { target: { value: 'Release pipeline' } });
@@ -617,9 +766,9 @@ describe('Workflows recovery rendering', () => {
           name: 'Release pipeline',
           description: 'A staged release.',
           phases: [
-            { name: 'build', steps: ['pnpm run build'], condition: 'qualityScore >= 80' },
-            { name: 'test', steps: [] },
-            { name: 'deploy', steps: [] },
+            { name: 'حدد النتيجة', steps: ['pnpm run build'], condition: 'qualityScore >= 80' },
+            { name: 'نفّذ العمل', steps: [] },
+            { name: 'تحقق من النتيجة', steps: [] },
           ],
         },
       },
@@ -627,14 +776,12 @@ describe('Workflows recovery rendering', () => {
     );
   });
 
-  it('fills an editable workflow starter without starting it', () => {
+  it('creates from the goal-first starter without choosing a template or starting it', () => {
     renderPage();
 
     fireEvent.click(screen.getByRole('button', { name: 'مسار عمل جديد' }));
     const dialog = screen.getByRole('dialog', { name: 'إنشاء مسار عمل' });
-    fireEvent.change(within(dialog).getByLabelText('قالب بداية (اختياري)'), {
-      target: { value: 'goal' },
-    });
+    expect(within(dialog).getByLabelText('قالب البداية')).toHaveValue('goal');
     expect(within(dialog).getByLabelText('اسم المسار')).toHaveValue('من الهدف إلى نتيجة قابلة للتحقق');
     expect(within(dialog).getByLabelText('اسم المرحلة 1')).toHaveValue('حدد النتيجة');
     expect(within(dialog).getByLabelText('اسم المرحلة 2')).toHaveValue('نفّذ العمل');
@@ -664,6 +811,51 @@ describe('Workflows recovery rendering', () => {
       expect.objectContaining({ onSuccess: expect.any(Function) }),
     );
     const startMutation = vi.mocked(useStartWorkflow).mock.results[0]?.value as { mutate: ReturnType<typeof vi.fn> };
+    expect(startMutation.mutate).not.toHaveBeenCalled();
+  });
+
+  it('copies workflow settings into an editable draft without copying runs or starting it', () => {
+    renderPage();
+
+    fireEvent.click(screen.getByTestId('button-copy-workflow-workflow-1'));
+    const dialog = screen.getByRole('dialog', { name: 'نسخ مسار العمل' });
+
+    expect(within(dialog).getByLabelText('اسم المسار')).toHaveValue('نسخة من Release pipeline');
+    expect(within(dialog).getByLabelText('الوصف (اختياري)')).toHaveValue(
+      'A workflow with a failed execution.',
+    );
+    expect(within(dialog).getByLabelText('اسم المرحلة 1')).toHaveValue('build');
+    expect(within(dialog).getByLabelText('وصف الخطوة 1 من المرحلة 1')).toHaveValue('Compile');
+    expect(within(dialog).getByLabelText('شرط الانتقال للمرحلة 1')).toHaveValue(
+      'qualityScore >= 80',
+    );
+    expect(within(dialog).getByTestId('text-workflow-copy-guidance')).toHaveTextContent(
+      'لن يُنسخ سجل التشغيل ولن يبدأ المسار تلقائيًا.',
+    );
+    expect(createWorkflowMutation.mutate).not.toHaveBeenCalled();
+
+    fireEvent.change(within(dialog).getByLabelText('اسم المسار'), {
+      target: { value: 'نسخة مخصصة' },
+    });
+    fireEvent.click(within(dialog).getByRole('button', { name: 'إنشاء النسخة' }));
+
+    expect(createWorkflowMutation.mutate).toHaveBeenCalledWith(
+      {
+        data: {
+          projectId: 'project-1',
+          name: 'نسخة مخصصة',
+          description: 'A workflow with a failed execution.',
+          phases: [
+            { name: 'build', steps: ['Compile'], condition: 'qualityScore >= 80' },
+            { name: 'deploy', steps: ['Publish'] },
+          ],
+        },
+      },
+      expect.objectContaining({ onSuccess: expect.any(Function) }),
+    );
+    const startMutation = vi.mocked(useStartWorkflow).mock.results[0]?.value as {
+      mutate: ReturnType<typeof vi.fn>;
+    };
     expect(startMutation.mutate).not.toHaveBeenCalled();
   });
 });

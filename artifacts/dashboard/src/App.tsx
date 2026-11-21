@@ -31,6 +31,7 @@ import {
   clerkAppearance,
   resolveClerkPublishableKey,
 } from '@/lib/clerk';
+import { clerkLocalization } from '@/lib/clerk-localization';
 import { SessionRecoveryBanner } from '@/components/OperatorResilience';
 import { ApiError } from '@workspace/api-client-react';
 
@@ -217,20 +218,7 @@ function ClerkProviderWithRoutes() {
       appearance={clerkAppearance}
       signInUrl={`${basePath}/sign-in`}
       signUpUrl={`${basePath}/sign-up`}
-      localization={{
-        signIn: {
-          start: {
-            title: 'Welcome back',
-            subtitle: 'Sign in to access the EngineeringOS console',
-          },
-        },
-        signUp: {
-          start: {
-            title: 'Create your account',
-            subtitle: 'Get operational visibility across your projects',
-          },
-        },
-      }}
+      localization={clerkLocalization}
       routerPush={(to) => setLocation(stripBase(to))}
       routerReplace={(to) => setLocation(stripBase(to), { replace: true })}
     >
