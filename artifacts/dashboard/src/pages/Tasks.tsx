@@ -1718,6 +1718,7 @@ function TasksSession({
   const [filterAcceptance, setFilterAcceptance] = useState<TaskAcceptanceFilter | ''>(initialFilters.acceptance);
   const [filterFollowUp, setFilterFollowUp] = useState(initialFilters.followUp);
   const [searchTerm, setSearchTerm] = useState(initialFilters.search);
+  const quickTaskTitleRef = useRef<HTMLInputElement>(null);
   const [expandedTask, setExpandedTask] = useState<string | null>(() => requestedTaskId || null);
   const [logsTab, setLogsTab] = useState<Record<string, 'details' | 'logs'>>({});
   const [createOpen, setCreateOpen] = useState(false);
@@ -1848,6 +1849,15 @@ function TasksSession({
     projects.length === 1
     || Boolean(requestedProjectId || requestedTaskId || selectedProjectId)
   );
+  const canCreateTaskFromSearch = Boolean(
+    normalizedTaskSearch
+    && visibleTasks.length === 0
+    && canQuickCreateTask
+    && !filterStatus
+    && !filterPriority
+    && !filterAcceptance
+    && !filterFollowUp,
+  );
 
   useEffect(() => {
     const url = new URL(window.location.href);
@@ -1963,6 +1973,12 @@ function TasksSession({
       title,
       priority: 'p2',
     }, 'quick');
+  };
+
+  const useSearchAsQuickTaskTitle = () => {
+    if (!canCreateTaskFromSearch) return;
+    setQuickTaskTitle(searchTerm.trim().slice(0, 200));
+    quickTaskTitleRef.current?.focus();
   };
 
   const handleUpdateTask = (data: UpdateTaskInput) => {
@@ -2188,6 +2204,7 @@ function TasksSession({
               أضف مهمة بسرعة
             </label>
             <input
+              ref={quickTaskTitleRef}
               id="quick-create-task-title"
               type="text"
               required
@@ -2330,6 +2347,23 @@ function TasksSession({
                 ? 'جرّب عبارة بحث أخرى أو أزل الفلاتر. هذه نتيجة العرض الحالي، لا حكم على كل مهام المشروع.'
                  : 'يمكنك إنشاء مهمة يدويًا، أو طلب اقتراح خطوة مناسبة للبدء.'}
             </p>
+            {canCreateTaskFromSearch && (
+              <div className="mt-4 flex flex-col items-center gap-2">
+                <button
+                  type="button"
+                  onClick={useSearchAsQuickTaskTitle}
+                  aria-label="استخدم عبارة البحث عنوانًا للمهمة الجديدة"
+                  data-testid="button-create-task-from-search"
+                  className="inline-flex items-center gap-2 rounded-md border border-primary/35 bg-primary/10 px-4 py-2 text-sm font-semibold text-primary transition-colors hover:bg-primary/15 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+                >
+                  <Plus className="h-4 w-4" aria-hidden="true" />
+                  استخدم «<bdi dir="auto">{searchTerm.trim().slice(0, 80)}</bdi>» عنوانًا لمهمة جديدة
+                </button>
+                <span className="text-xs text-muted-foreground">
+                  ستظهر في حقل الإضافة السريعة لتعديلها قبل الإضافة.
+                </span>
+              </div>
+            )}
             {!hasActiveTaskFilters && projectId && (
               <>
                 <button
