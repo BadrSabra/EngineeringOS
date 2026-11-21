@@ -312,6 +312,74 @@ describe("Task dependency wake", () => {
     }
   });
 
+  it("wakes multiple eligible child intents in one bounded completion batch", async () => {
+    const projectId = await createProject();
+    const completedTaskId = randomUUID();
+    const children = [
+      { id: randomUUID(), correlationId: "first-child-correlation" },
+      { id: randomUUID(), correlationId: "second-child-correlation" },
+      { id: randomUUID(), correlationId: "third-child-correlation" },
+    ];
+    const oldNextAttemptAt = new Date(Date.now() + 120_000).toISOString();
+
+    await db.insert(tasksTable).values([
+      {
+        id: completedTaskId,
+        projectId,
+        title: "Completed prerequisite",
+        status: "completed",
+        prompt: "produce accepted output",
+        dependsOn: [],
+      },
+      ...children.map((child) => ({
+        id: child.id,
+        projectId,
+        title: "Eligible dependent",
+        status: "verifying" as const,
+        prompt: "continue after prerequisite",
+        retryCount: 2,
+        correlationId: child.correlationId,
+        dependsOn: [completedTaskId],
+      })),
+    ]);
+
+    await db.insert(eventsTable).values(children.map((child) => ({
+      id: taskAutoExecutionIntentId(child.id),
+      type: TASK_AUTO_EXECUTION_DEFERRED_EVENT_TYPE,
+      projectId,
+      taskId: child.id,
+      message: "Waiting for a prerequisite",
+      payload: deferredPayload({
+        retryCount: 2,
+        correlationId: child.correlationId,
+        nextAttemptAt: oldNextAttemptAt,
+      }),
+      timestamp: new Date(),
+    })));
+
+    const targets = await db.transaction((tx) => wakeDeferredTaskDependencyIntents(tx, {
+      completedTaskId,
+      projectId,
+    }));
+
+    expect(targets).toEqual([...children]
+      .sort((left, right) => left.id.localeCompare(right.id))
+      .map((child) => ({
+        taskId: child.id,
+        userId: "task-dependency-wake-test",
+        retryCount: 2,
+        correlationId: child.correlationId,
+      })));
+
+    for (const child of children) {
+      const [intent] = await db.select({ payload: eventsTable.payload })
+        .from(eventsTable)
+        .where(eq(eventsTable.id, taskAutoExecutionIntentId(child.id)));
+      expect(Date.parse(String(intent?.payload?.nextAttemptAt)))
+        .toBeLessThan(Date.parse(oldNextAttemptAt));
+    }
+  });
+
   it("does not wake dependents until the prerequisite Task is completed", async () => {
     const fixture = await createFixture();
     await db.update(tasksTable)
