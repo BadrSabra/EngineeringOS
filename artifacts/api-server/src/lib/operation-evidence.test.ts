@@ -75,7 +75,85 @@ function input(overrides: Partial<EvidenceInput> = {}): EvidenceInput {
   };
 }
 
+function provenCanonicalProof(
+  overrides: Partial<PublicCanonicalProofProjection> = {},
+): PublicCanonicalProofProjection {
+  return {
+    contractVersion: 1,
+    verdict: "PROVEN",
+    accepted: true,
+    failureReasons: [],
+    executionId: "execution-1",
+    acceptanceId: "acceptance-1",
+    attempt: 1,
+    operationId: "operation-1",
+    evidenceSnapshotId: "snapshot-1",
+    sourceRevision: "revision-1",
+    candidateIdentity: "candidate-identity-1",
+    candidateTreeHash: "candidate-identity-1",
+    treeHash: null,
+    ...overrides,
+  };
+}
+
+function completeReadinessInput(proof?: PublicCanonicalProofProjection): EvidenceInput {
+  const defaults = input();
+  return {
+    ...defaults,
+    execution: {
+      ...defaults.execution,
+      checkpoint: JSON.stringify({
+        stage: "completed",
+        evidenceVerdict: "PROVEN",
+        operation: {
+          nodes: [{ id: "validate", status: "passed", evidenceRefs: ["validation-node:1"] }],
+        },
+      }),
+      request: JSON.stringify({
+        workspaceRevision: "revision-1",
+        objective: { type: "delivery" },
+        validationTargetPaths: ["src/a.ts"],
+      }),
+    },
+    proposal: {
+      revision: 1,
+      baseRevision: "revision-1",
+      candidateTreeHash: "candidate-identity-1",
+      changeSetHash: "change-set-1",
+      committedHash: null,
+    },
+    ...(proof ? { proof } : {}),
+  };
+}
+
 describe("operation evidence projection", () => {
+  it("requires an accepted Canonical Proof bound to the current execution attempt and revision", () => {
+    const missingProof = buildOperationEvidenceProjection(completeReadinessInput());
+    expect(missingProof.readiness?.status).toBe("incomplete");
+    expect(missingProof.readiness?.releaseRecommendation).toBe("not-ready");
+    expect(missingProof.readiness?.blockers).toContain("canonical-proof-binding");
+
+    const acceptedProof = buildOperationEvidenceProjection(
+      completeReadinessInput(provenCanonicalProof()),
+    );
+    expect(acceptedProof.readiness?.status).toBe("proven");
+    expect(acceptedProof.readiness?.checks).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: "canonical-proof-binding", status: "passed" }),
+    ]));
+
+    const staleAttempt = buildOperationEvidenceProjection(
+      completeReadinessInput(provenCanonicalProof({ attempt: 0 })),
+    );
+    expect(staleAttempt.readiness?.status).toBe("blocked");
+    expect(staleAttempt.readiness?.blockers).toContain("canonical-proof-binding");
+
+    const staleRevision = buildOperationEvidenceProjection(
+      completeReadinessInput(provenCanonicalProof({ sourceRevision: "revision-old" })),
+    );
+    expect(staleRevision.readiness?.status).toBe("blocked");
+    expect(staleRevision.readiness?.blockers).toContain("canonical-proof-binding");
+  });
+
   it("correlates bounded receipts and reports a complete history", () => {
     const projection = buildOperationEvidenceProjection(input());
     expect(projection).toMatchObject({
