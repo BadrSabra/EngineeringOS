@@ -58,7 +58,14 @@ vi.mock("@workspace/db", () => ({
   eventsTable: { _t: "events" },
   workflowsTable: { _t: "workflows" },
   scanJobsTable: { _t: "scanJobs" },
-  aiWorldFactsTable: { _t: "aiWorldFacts" },
+  aiWorldFactsTable: {
+    _t: "aiWorldFacts",
+    id: { _column: "ai_world_facts.id" },
+    projectId: { _column: "ai_world_facts.project_id" },
+    taskScope: { _column: "ai_world_facts.task_scope" },
+    environmentRevision: { _column: "ai_world_facts.environment_revision" },
+    environmentFreshness: { _column: "ai_world_facts.environment_freshness" },
+  },
   eq: vi.fn(),
   desc: vi.fn((c: unknown) => c),
   asc: vi.fn((c: unknown) => c),
@@ -232,12 +239,18 @@ describe("loadWorldState", () => {
       status: "believed",
       projectRevision: "revision-1",
       supersedesFactId: null,
+      taskScope: "build",
+      environmentRevision: "environment-a",
+      environmentFreshness: "fresh",
     }]);
     await expect(loadWorldState(q, PROJECT_ID)).resolves.toEqual([
       expect.objectContaining({
         id: "fact-001",
         status: "believed",
         projectRevision: "revision-1",
+        taskScope: "build",
+        environmentRevision: "environment-a",
+        environmentFreshness: "fresh",
       }),
     ]);
   });
