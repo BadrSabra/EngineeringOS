@@ -21,7 +21,7 @@ export function isSamePlanTaskRecoveryPending(input: {
   recoveryState: unknown;
   nextActionCode: unknown;
   resumable: unknown;
-  retryAt: unknown;
+  retryAt?: unknown;
   taskStatus: unknown;
   prompt: unknown;
   retryCount: unknown;
