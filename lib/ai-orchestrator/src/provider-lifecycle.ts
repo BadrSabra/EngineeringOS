@@ -528,7 +528,7 @@ export function recordProviderLifecycleOutcome(input: {
   const candidateStillSelectable = isCandidateFailure
     ? snapshot.selectable && !allKnownRolesMissing
     : reason === "runtime_transient_failure"
-      ? true
+      ? snapshot.selectable
       : false;
   const selectable = reason === "runtime_request_rejected" || reason === "runtime_auth_failed"
     ? false
