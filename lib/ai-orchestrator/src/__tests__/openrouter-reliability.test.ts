@@ -389,7 +389,7 @@ function createModelCooldownFixture(): ModelCooldownPersistence {
     updatedAt: number;
     cooldownMs: number;
   }>();
-  const key = (provider: string, model: string) => provider + "\\u0000" + model;
+  const key = (provider: string, model: string) => provider + "\u0000" + model;
 
   return {
     async readActive(provider, models) {
@@ -2132,7 +2132,7 @@ describe("openrouterCompleteStream — bounded retry and disconnect safety", () 
           error: { code: "model_unavailable", message: "fixture model unavailable" },
         });
       }
-      return streamResponse([sseDelta("stream recovered"), "data: [DONE]\\n\\n"]);
+      return streamResponse([sseDelta("stream recovered"), "data: [DONE]\n\n"]);
     });
     global.fetch = fetchMock as typeof fetch;
 
