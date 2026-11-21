@@ -704,6 +704,16 @@ function WorkflowsSession({
   const workflows = projectId
     ? (rawWorkflows ?? []).filter((workflow) => workflow.projectId === projectId)
     : [];
+  const [workflowSearch, setWorkflowSearch] = useState('');
+  const normalizedWorkflowSearch = workflowSearch.trim().toLocaleLowerCase();
+  const visibleWorkflows = normalizedWorkflowSearch
+    ? workflows.filter((workflow) => [
+      workflow.name,
+      workflow.description ?? '',
+      workflow.status,
+      workflowStatusLabel(workflow.status),
+    ].some((value) => value.toLocaleLowerCase().includes(normalizedWorkflowSearch)))
+    : workflows;
   const isLoading = projectsQuery.isLoading || Boolean(projectId && workflowsLoading);
   const isError = workflowsError;
 
@@ -900,6 +910,30 @@ function WorkflowsSession({
               <option key={project.id} value={project.id}>{project.name}</option>
             ))}
           </select>
+          {projectId && workflows.length > 0 && (
+            <div className="flex items-center gap-1.5">
+              <input
+                type="search"
+                aria-label="ابحث في مسارات العمل"
+                data-testid="input-search-workflows"
+                value={workflowSearch}
+                onChange={(event) => setWorkflowSearch(event.target.value)}
+                placeholder="ابحث في المسارات"
+                className="w-40 rounded-md border border-border bg-background px-3 py-2 text-sm sm:w-52"
+              />
+              {workflowSearch && (
+                <button
+                  type="button"
+                  aria-label="مسح البحث عن مسارات العمل"
+                  data-testid="button-clear-workflow-search"
+                  onClick={() => setWorkflowSearch('')}
+                  className="rounded-md border border-border p-2 text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
+                >
+                  <X className="h-4 w-4" aria-hidden="true" />
+                </button>
+              )}
+            </div>
+          )}
           <button
             onClick={openCreateModal}
             type="button"
@@ -987,8 +1021,25 @@ function WorkflowsSession({
               </button>
             </div>
           </div>
+        ) : visibleWorkflows.length === 0 ? (
+          <div
+            role="status"
+            data-testid="workflows-search-empty"
+            className="rounded-xl border border-dashed border-border p-10 text-center"
+          >
+            <p className="font-medium">لا توجد مسارات تطابق البحث</p>
+            <p className="mt-1 text-sm text-muted-foreground">جرّب اسمًا أو وصفًا أو حالة مختلفة.</p>
+            <button
+              type="button"
+              data-testid="button-clear-workflow-search-empty"
+              onClick={() => setWorkflowSearch('')}
+              className="mt-4 rounded-md border border-border px-3 py-2 text-sm font-medium transition-colors hover:bg-secondary"
+            >
+              مسح البحث
+            </button>
+          </div>
         ) : (
-          workflows.map((workflow) => (
+          visibleWorkflows.map((workflow) => (
             <div
               key={workflow.id}
               className="bg-card border border-border rounded-xl p-6 shadow-sm"
