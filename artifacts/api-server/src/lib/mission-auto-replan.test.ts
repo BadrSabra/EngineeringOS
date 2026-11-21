@@ -828,6 +828,64 @@ describe("automatic Mission replanning", () => {
       .where(eq(aiMissionsTable.id, malformedMissionId));
     expect(malformedMission?.status).toBe("blocked");
   });
+  it("terminalizes Missions that do not authorize automatic replanning", async () => {
+    const projectId = randomUUID();
+    const missionId = randomUUID();
+    const now = new Date();
+    projectIds.push(projectId);
+
+    await db.insert(projectsTable).values({
+      id: projectId,
+      ownerId: "test-user",
+      name: `mission-assisted-replan-${projectId.slice(0, 8)}`,
+      rootPath: process.cwd(),
+      language: "typescript",
+      status: "active",
+      createdAt: now,
+      updatedAt: now,
+    });
+    await db.insert(aiMissionsTable).values({
+      id: missionId,
+      projectId,
+      userId: "test-user",
+      title: "Assisted recovery",
+      intent: "Inspect the source, then resolve the blocking issue.",
+      status: "needs_replan",
+      scope: { kind: "project", projectId },
+      autonomyPolicy: { mode: "assisted", maxAutoReplans: 3 },
+      createdAt: now,
+      updatedAt: now,
+    });
+
+    expect(await autoReplanMission(missionId)).toEqual({
+      status: "skipped",
+      missionId,
+      reason: "automatic_replan_not_enabled",
+    });
+
+    const [mission] = await db
+      .select({ status: aiMissionsTable.status })
+      .from(aiMissionsTable)
+      .where(eq(aiMissionsTable.id, missionId));
+    expect(mission?.status).toBe("blocked");
+
+    const [blockedEvent] = await db
+      .select({ payload: eventsTable.payload })
+      .from(eventsTable)
+      .where(and(
+        eq(eventsTable.projectId, projectId),
+        eq(eventsTable.type, "AiMissionReplanBlocked"),
+        eq(eventsTable.correlationId, missionId),
+      ))
+      .limit(1);
+    expect(blockedEvent?.payload).toMatchObject({
+      missionId,
+      reason: "automatic_replan_not_enabled",
+      previousStatus: "needs_replan",
+      nextStatus: "blocked",
+    });
+  });
+
   it("automatically replans after a matching event wakes an autonomous Mission", async () => {
     const fixture = await createEventDrivenReplanFixture(true);
     const event = createMissionEventEnvelope({
