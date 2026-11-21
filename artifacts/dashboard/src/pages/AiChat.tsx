@@ -4919,6 +4919,7 @@ export default function AiChat({
             <div className="flex items-end gap-2 rounded-2xl border border-border/80 bg-card/70 p-2 shadow-sm transition-colors focus-within:border-primary/45 focus-within:ring-2 focus-within:ring-primary/15">
             <Textarea
               ref={textareaRef}
+              id={workspaceMode ? 'workspace-goal-input' : undefined}
               data-testid="input-ai-chat-composer"
               value={input}
               onChange={(e) => {

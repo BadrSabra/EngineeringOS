@@ -976,6 +976,16 @@ describe('task-linked chat route context', () => {
 });
 
 describe('workspace goal draft handoff', () => {
+  it('provides a focus target only for the workspace composer', () => {
+    const workspace = renderAiChat(true, 'project-1');
+    expect(screen.getByTestId('input-ai-chat-composer'))
+      .toHaveAttribute('id', 'workspace-goal-input');
+    workspace.unmount();
+
+    renderAiChat();
+    expect(screen.getByTestId('input-ai-chat-composer')).not.toHaveAttribute('id');
+  });
+
   it('persists the composer, waits for an explicit send, and retains a non-replayed attempted copy', async () => {
     const goal = 'ساعدني أفهم سبب بطء صفحة تسجيل الدخول';
     const draft = storeHomeGoalDraft(goal, 'user-1');

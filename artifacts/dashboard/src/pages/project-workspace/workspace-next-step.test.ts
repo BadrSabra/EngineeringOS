@@ -15,7 +15,7 @@ describe('resolveWorkspaceNextStep', () => {
     expect(resolveWorkspaceNextStep(baseInput)).toMatchObject({
       kind: 'link',
       title: 'ابدأ بطلب جديد',
-      href: '#workspace-panel-agent',
+      href: '#workspace-goal-input',
     });
   });
 

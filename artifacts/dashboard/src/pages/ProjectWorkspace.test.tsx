@@ -134,7 +134,9 @@ vi.mock("wouter", () => ({
   Link: "a",
 }));
 
-vi.mock("@/pages/AiChat", () => ({ default: () => null }));
+vi.mock("@/pages/AiChat", () => ({
+  default: () => <textarea id="workspace-goal-input" data-testid="workspace-goal-composer" />,
+}));
 
 vi.mock("@/components/ExecutionProjectionPanel", () => ({
   ExecutionProjectionPanel: (props: Record<string, unknown>) => (
@@ -230,7 +232,7 @@ describe("ProjectWorkspace live snapshot refresh", () => {
       .toHaveAttribute("href", "/metrics?projectId=project-1");
     expect(screen.getByTestId("workspace-next-step")).toHaveTextContent("ابدأ بطلب جديد");
     expect(screen.getByTestId("workspace-next-step-action"))
-      .toHaveAttribute("href", "#workspace-panel-agent");
+      .toHaveAttribute("href", "#workspace-goal-input");
     expect(screen.getByRole("region", { name: "معاينة المشروع" })).toBeInTheDocument();
     expect(screen.getByRole("complementary", { name: "العمل والثقة" })).toBeInTheDocument();
     expect(screen.getByText("أحدث 8 مهام من المصدر؛ هذه ليست قائمة شاملة.")).toBeInTheDocument();
@@ -239,9 +241,9 @@ describe("ProjectWorkspace live snapshot refresh", () => {
     expect(screen.getByRole("link", { name: "إنشاء مهمة جديدة في مشروع البث" }))
       .toHaveAttribute("href", "/tasks?projectId=project-1&create=1");
     expect(screen.getByTestId("link-start-request-from-empty-work"))
-      .toHaveAttribute("href", "#workspace-panel-agent");
+      .toHaveAttribute("href", "#workspace-goal-input");
     expect(screen.getByTestId("link-discuss-work-from-empty-candidate"))
-      .toHaveAttribute("href", "#workspace-panel-agent");
+      .toHaveAttribute("href", "#workspace-goal-input");
 
     const previewGate = screen.getByTestId("workspace-preview-gate");
     expect(previewGate).toHaveTextContent("لا توجد معاينة تفاعلية مؤهلة بعد");
@@ -253,6 +255,25 @@ describe("ProjectWorkspace live snapshot refresh", () => {
     expect(document.getElementById("workspace-preview-agents"))
       .toHaveAttribute("aria-labelledby", "preview-agent-heading");
     expect(screen.getByText("حالة التشغيل")).toBeInTheDocument();
+  });
+
+  it("focuses the goal composer from the next-step and empty-work actions", () => {
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+    });
+
+    render(
+      <QueryClientProvider client={queryClient}>
+        <ProjectWorkspace />
+      </QueryClientProvider>,
+    );
+
+    const composer = screen.getByTestId("workspace-goal-composer");
+    fireEvent.click(screen.getByTestId("workspace-next-step-action"));
+    expect(document.activeElement).toBe(composer);
+
+    fireEvent.click(screen.getByTestId("link-start-request-from-empty-work"));
+    expect(document.activeElement).toBe(composer);
   });
 
   it("does not render retained task, execution, or candidate data when their sources are unavailable", async () => {
