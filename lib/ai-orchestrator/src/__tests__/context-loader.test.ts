@@ -9,15 +9,20 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
 // ── vi.hoisted: shared mock state ─────────────────────────────────────────────
-const { _tableData, _tableDelays, _mockDb } = vi.hoisted(() => {
+const { _tableData, _tableDelays, _mockDb, _inArrayCalls, _queryLimits } = vi.hoisted(() => {
   const _tableData = new Map<object, unknown[]>();
   const _tableDelays = new Map<object, number>();
+  const _inArrayCalls: Array<{ column: unknown; values: unknown[] }> = [];
+  const _queryLimits = new Map<object, number[]>();
 
   function makeChain(table: object, rows: unknown[]): Record<string, unknown> {
     const c: Record<string, unknown> = {};
     c.where = () => c;
     c.orderBy = () => c;
-    c.limit = () => {
+    c.limit = (limit?: number) => {
+      const limits = _queryLimits.get(table) ?? [];
+      limits.push(limit ?? -1);
+      _queryLimits.set(table, limits);
       const delay = _tableDelays.get(table) ?? 0;
       return delay > 0
         ? new Promise<unknown[]>((resolve) => setTimeout(() => resolve(rows), delay))
@@ -36,7 +41,7 @@ const { _tableData, _tableDelays, _mockDb } = vi.hoisted(() => {
     }),
   };
 
-  return { _tableData, _tableDelays, _mockDb };
+  return { _tableData, _tableDelays, _mockDb, _inArrayCalls, _queryLimits };
 });
 
 vi.mock("drizzle-orm", () => ({
@@ -44,6 +49,10 @@ vi.mock("drizzle-orm", () => ({
   desc: vi.fn((c: unknown) => c),
   asc: vi.fn((c: unknown) => c),
   and: vi.fn(() => Symbol("and")),
+  inArray: vi.fn((column: unknown, values: readonly unknown[]) => {
+    _inArrayCalls.push({ column, values: [...values] });
+    return Symbol("inArray");
+  }),
 }));
 
 vi.mock("@workspace/db", () => ({
@@ -53,7 +62,11 @@ vi.mock("@workspace/db", () => ({
   projectsTable: { _t: "projects" },
   tasksTable: { _t: "tasks" },
   metricsTable: { _t: "metrics" },
-  graphEntitiesTable: { _t: "graphEntities" },
+  graphEntitiesTable: {
+    _t: "graphEntities",
+    id: { _column: "graph_entities.id" },
+    projectId: { _column: "graph_entities.project_id" },
+  },
   graphRelationshipsTable: { _t: "graphRelationships" },
   eventsTable: { _t: "events" },
   workflowsTable: { _t: "workflows" },
@@ -329,6 +342,8 @@ describe("loadGraph", () => {
       makeEntity({ id: "entity-002", name: "ApiClient", path: "client.ts" }),
     ]);
     _tableData.set(graphRelationshipsTable as object, [makeRelationship()]);
+    _inArrayCalls.length = 0;
+    _queryLimits.clear();
   });
 
   it("returns entities and relationships when both are wanted", async () => {
@@ -374,6 +389,29 @@ describe("loadGraph", () => {
     expect(r).toHaveProperty("relationType");
     expect(r).toHaveProperty("confidence");
     expect(r).toHaveProperty("isHeuristic");
+  });
+
+  it("loads only unique endpoints for the bounded relationship slice", async () => {
+    _tableData.set(graphEntitiesTable as object, [
+      makeEntity(),
+      makeEntity({ id: "entity-002", name: "ApiClient", path: "client.ts" }),
+      makeEntity({ id: "entity-003", name: "AuditStore", path: "audit.ts" }),
+    ]);
+    _tableData.set(graphRelationshipsTable as object, [
+      makeRelationship(),
+      makeRelationship({ sourceId: "entity-001", targetId: "entity-003" }),
+    ]);
+
+    const { relationships } = await loadGraph(q, PROJECT_ID, false, true);
+
+    expect(relationships).toHaveLength(2);
+    expect(_inArrayCalls).toEqual([{
+      column: graphEntitiesTable.id,
+      values: ["entity-001", "entity-002", "entity-003"],
+    }]);
+    // Two edges have only three unique endpoints, rather than a fixed
+    // first-80 entity projection or a project-wide graph read.
+    expect(_queryLimits.get(graphEntitiesTable)).toEqual([3]);
   });
 
   it("rejects relationships whose endpoint is absent or owned by another project", async () => {
