@@ -19,6 +19,7 @@ const mocks = vi.hoisted(() => ({
     isError: false,
     refetch: vi.fn(),
   },
+  gitStatusCalls: [] as Array<{ projectId: string; enabled: boolean }>,
   gitLogQuery: {
     data: { commits: [] as Array<{ hash: string; shortHash: string; subject: string }> } as { commits: Array<{ hash: string; shortHash: string; subject: string }> } | undefined,
     isLoading: false,
@@ -26,6 +27,7 @@ const mocks = vi.hoisted(() => ({
     isError: false,
     refetch: vi.fn(),
   },
+  gitLogCalls: [] as Array<{ projectId: string; enabled: boolean }>,
 }));
 
 vi.mock('wouter', () => ({
@@ -43,8 +45,14 @@ vi.mock('@workspace/api-client-react', () => ({
     data: mocks.execution,
     ...mocks.executionQuery,
   })),
-  useGetGitStatus: vi.fn(() => ({ ...mocks.gitStatusQuery })),
-  useGetGitLog: vi.fn(() => ({ ...mocks.gitLogQuery })),
+  useGetGitStatus: vi.fn((projectId: string, options: { query?: { enabled?: boolean } }) => {
+    mocks.gitStatusCalls.push({ projectId, enabled: options.query?.enabled === true });
+    return { ...mocks.gitStatusQuery };
+  }),
+  useGetGitLog: vi.fn((projectId: string, options: { query?: { enabled?: boolean } }) => {
+    mocks.gitLogCalls.push({ projectId, enabled: options.query?.enabled === true });
+    return { ...mocks.gitLogQuery };
+  }),
   useGitCommit: vi.fn(() => ({ mutate: vi.fn(), isPending: false })),
   useGitPush: vi.fn(() => ({ mutate: vi.fn(), isPending: false })),
 }));
@@ -120,11 +128,13 @@ beforeEach(() => {
   mocks.gitStatusQuery.isFetching = false;
   mocks.gitStatusQuery.isError = false;
   mocks.gitStatusQuery.refetch.mockClear();
+  mocks.gitStatusCalls.splice(0);
   mocks.gitLogQuery.data = { commits: [] };
   mocks.gitLogQuery.isLoading = false;
   mocks.gitLogQuery.isFetching = false;
   mocks.gitLogQuery.isError = false;
   mocks.gitLogQuery.refetch.mockClear();
+  mocks.gitLogCalls.splice(0);
 });
 
 describe('Flight Deck mission control', () => {
@@ -171,22 +181,39 @@ describe('Flight Deck mission control', () => {
     expect(screen.getByText('الرجوع إلى محادثة الذكاء الاصطناعي')).toBeInTheDocument();
   });
 
-  it('does not claim a conversation when the server session is absent or the requested project differs', () => {
+  it('does not claim a conversation when the server session is absent', () => {
     mocks.execution = { ...baseExecution('REPAIRING'), sessionId: undefined };
-    const first = renderDeck();
-    expect(screen.getByTestId('link-flight-deck-ai')).toHaveAttribute('href', '/ai');
-    first.unmount();
 
-    mocks.execution = baseExecution('REPAIRING');
-    window.history.pushState({}, '', '/flight-deck?executionId=execution-1&projectId=other-project');
-    const second = renderDeck();
+    renderDeck();
+
     expect(screen.getByTestId('link-flight-deck-ai')).toHaveAttribute('href', '/ai');
     expect(screen.queryByText('الرجوع إلى محادثة الذكاء الاصطناعي')).not.toBeInTheDocument();
-    second.unmount();
+  });
 
-    window.history.pushState({}, '', '/flight-deck?executionId=another-execution');
+  it.each([
+    {
+      label: 'a different execution ID',
+      response: { ...baseExecution('APPLIED'), id: 'execution-foreign' },
+    },
+    {
+      label: 'a different project ID',
+      response: { ...baseExecution('APPLIED'), projectId: 'project-foreign' },
+    },
+  ])('withholds proof and Git reads when the response has $label', ({ response }) => {
+    window.history.pushState({}, '', '/flight-deck?executionId=execution-1&projectId=project-1');
+    mocks.execution = response;
+
     renderDeck();
-    expect(screen.getByTestId('link-flight-deck-ai')).toHaveAttribute('href', '/ai');
+
+    const mismatch = screen.getByTestId('flight-deck-identity-mismatch');
+    expect(mismatch).toHaveTextContent('تعذر مطابقة تفاصيل التنفيذ');
+    expect(mismatch).toHaveTextContent('حُجبت التفاصيل وإجراءات Git');
+    expect(screen.queryByTestId('mission-capsule-task-id')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('flight-deck-lifecycle')).not.toBeInTheDocument();
+    expect(mocks.gitStatusCalls.at(-1)).toEqual({ projectId: '', enabled: false });
+    expect(mocks.gitLogCalls.at(-1)).toEqual({ projectId: '', enabled: false });
+    expect(screen.queryByRole('button', { name: 'إيداع التغيير المتحقق منه' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'دفع العملية المُودعة' })).not.toBeInTheDocument();
   });
 
   it.each([
