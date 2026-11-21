@@ -24,6 +24,7 @@ import {
 } from 'recharts';
 import { BarChart3, AlertTriangle, Play, RefreshCw } from 'lucide-react';
 import { RefreshButton, RequestError } from '@/components/OperatorResilience';
+import MetricsChangeSummary from '@/components/MetricsChangeSummary';
 import { Link, useLocation, useSearch } from 'wouter';
 import { storeHomeGoalDraft } from '@/lib/home-goal-handoff';
 
@@ -453,6 +454,7 @@ function MetricsSession({
         </div>
       ) : (
         <div className="min-w-0 space-y-6">
+          <MetricsChangeSummary metrics={metrics ?? []} />
           <div className="min-w-0 bg-card border border-border rounded-xl p-6 shadow-sm">
             <h3 className="font-semibold mb-6">اتجاه الجودة الإجمالي</h3>
             <div data-testid="metrics-overall-chart" dir="ltr" className="h-80 w-full min-w-0">

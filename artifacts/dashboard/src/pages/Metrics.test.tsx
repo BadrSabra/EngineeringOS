@@ -167,6 +167,43 @@ describe('Metrics', () => {
     expect(getListMetricsQueryKey).toHaveBeenCalledWith({ projectId: 'project-a' });
   });
 
+  it('summarizes the latest and previous readings even when the older one is outside the chart range', () => {
+    const now = Date.now();
+    mockProjects([{ id: 'project-a', name: 'Alpha' }]);
+    mockMetrics([
+      {
+        id: 'metric-latest',
+        projectId: 'project-a',
+        timestamp: new Date(now - 60 * 60 * 1000).toISOString(),
+        overallScore: 82,
+        securityScore: 68,
+        technicalDebt: 3,
+      },
+      {
+        id: 'metric-previous',
+        projectId: 'project-a',
+        timestamp: new Date(now - 10 * 24 * 60 * 60 * 1000).toISOString(),
+        overallScore: 77,
+        securityScore: 74,
+        technicalDebt: 5,
+      },
+    ]);
+    window.history.replaceState({}, '', '/metrics?projectId=project-a&range=7d');
+    vi.stubGlobal('ResizeObserver', class {
+      observe() {}
+      unobserve() {}
+      disconnect() {}
+    });
+
+    render(<Metrics />);
+
+    expect(screen.getByTestId('metrics-change-summary')).toBeInTheDocument();
+    expect(screen.getByTestId('metric-change-overallScore')).toHaveAttribute('data-delta', '5');
+    expect(screen.getByTestId('metric-change-securityScore')).toHaveAttribute('data-trend', 'declined');
+    expect(screen.getByTestId('metric-change-technicalDebt')).toHaveAttribute('data-trend', 'improved');
+    expect(screen.getByTestId('metrics-overall-chart')).toBeInTheDocument();
+  });
+
   it('shows existing history instead of suggesting a new scan when the selected range is empty', async () => {
     mockProjects([{ id: 'project-a', name: 'Alpha' }]);
     mockMetrics([{
