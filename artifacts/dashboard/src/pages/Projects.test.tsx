@@ -121,6 +121,24 @@ describe("Projects", () => {
     expect(mocks.mutate).not.toHaveBeenCalled();
   });
 
+  it('opens project creation from its deep link and clears only the create flag when dismissed', () => {
+    window.history.replaceState({}, '', '/projects?create=1&tab=recent#project-list');
+
+    render(<Projects />);
+
+    expect(screen.getByRole('dialog', { name: 'ابدأ مشروعك من قالب ويب جاهز' }))
+      .toBeInTheDocument();
+    expect(mocks.mutate).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole('button', { name: 'إلغاء' }));
+
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    const url = new URL(window.location.href);
+    expect(url.searchParams.has('create')).toBe(false);
+    expect(url.searchParams.get('tab')).toBe('recent');
+    expect(url.hash).toBe('#project-list');
+    expect(mocks.mutate).not.toHaveBeenCalled();
+  });
   it('retries the project list without reloading the page', () => {
     vi.mocked(useListProjects).mockReturnValue({
       data: undefined,
