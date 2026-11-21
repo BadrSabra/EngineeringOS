@@ -1426,6 +1426,7 @@ function TaskCreateDialog({
   const [executeImmediately, setExecuteImmediately] = useState(false);
   const [priority, setPriority] = useState<CreateTaskInput['priority']>('p2');
   const [dependsOn, setDependsOn] = useState<string[]>([]);
+  const [showAdvancedOptions, setShowAdvancedOptions] = useState(false);
   const [fieldError, setFieldError] = useState('');
   const onlyProject = projects.length === 1 ? projects[0] : null;
 
@@ -1550,20 +1551,47 @@ function TaskCreateDialog({
                 </span>
               </span>
             </label>
-            <TaskDependencySelector
-              key={projectId}
-              projectId={projectId}
-              selectedTaskIds={dependsOn}
-              onSelectionChange={setDependsOn}
-            />
             <div>
-              <label htmlFor="create-task-priority" className="mb-1.5 block text-xs font-semibold text-muted-foreground">الأولوية</label>
-              <select id="create-task-priority" data-testid="select-create-task-priority" value={priority} onChange={(event) => setPriority(event.target.value as CreateTaskInput['priority'])} className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm outline-none focus:border-primary">
-                <option value="p0">P0 — حرجة</option>
-                <option value="p1">P1 — عالية</option>
-                <option value="p2">P2 — متوسطة</option>
-                <option value="p3">P3 — منخفضة</option>
-              </select>
+              <button
+                type="button"
+                aria-expanded={showAdvancedOptions}
+                aria-controls="create-task-advanced-options"
+                data-testid="button-toggle-create-task-advanced"
+                onClick={() => setShowAdvancedOptions((isOpen) => !isOpen)}
+                className="flex w-full items-center justify-between rounded-md border border-border px-3 py-2 text-start text-xs font-semibold text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+              >
+                <span>
+                  خيارات إضافية
+                  <span className="ms-1 font-normal text-muted-foreground/70">الأولوية والاعتماديات</span>
+                </span>
+                <ChevronDown
+                  aria-hidden="true"
+                  className={`h-4 w-4 transition-transform ${showAdvancedOptions ? 'rotate-180' : ''}`}
+                />
+              </button>
+              {showAdvancedOptions && (
+                <div
+                  id="create-task-advanced-options"
+                  data-testid="section-create-task-advanced-options"
+                  className="mt-3 space-y-4 rounded-md border border-border/70 bg-background/50 p-3"
+                >
+                  <TaskDependencySelector
+                    key={projectId}
+                    projectId={projectId}
+                    selectedTaskIds={dependsOn}
+                    onSelectionChange={setDependsOn}
+                  />
+                  <div>
+                    <label htmlFor="create-task-priority" className="mb-1.5 block text-xs font-semibold text-muted-foreground">الأولوية</label>
+                    <select id="create-task-priority" data-testid="select-create-task-priority" value={priority} onChange={(event) => setPriority(event.target.value as CreateTaskInput['priority'])} className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm outline-none focus:border-primary">
+                      <option value="p0">P0 — حرجة</option>
+                      <option value="p1">P1 — عالية</option>
+                      <option value="p2">P2 — متوسطة</option>
+                      <option value="p3">P3 — منخفضة</option>
+                    </select>
+                  </div>
+                </div>
+              )}
             </div>
             {fieldError ? <p className="text-xs text-destructive">{fieldError}</p> : null}
           </div>
