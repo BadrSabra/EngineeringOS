@@ -305,6 +305,41 @@ describe("Projects", () => {
     expect(detailsLink).toHaveAccessibleName('تفاصيل مشروع alpha-service');
   });
 
+  it('opens the project assistant from a card with a scoped draft for the user to review', () => {
+    render(<Projects />);
+
+    fireEvent.click(screen.getByTestId('button-project-assistant-1'));
+
+    const draft = readGoalDrafts('user-1').drafts[0];
+    expect(draft).toMatchObject({
+      ownerId: 'user-1',
+      source: 'home',
+      projectId: '1',
+      sendAttemptedAt: null,
+      text: 'أريد العمل على هذا المشروع. اسألني أولًا عما أريد إنجازه، ثم ساعدني على تحديد خطوة مناسبة. لا تغيّر الملفات أو تبدأ أي عمل قبل أن أراجع المقترح وأوافق.',
+    });
+    expect(mocks.setLocation).toHaveBeenCalledWith(
+      `/projects/1/workspace?goalDraftId=${draft.id}#workspace-panel-agent`,
+    );
+    expect(mocks.mutate).not.toHaveBeenCalled();
+  });
+
+  it('stays on the project list and explains when the assistant draft cannot be saved', () => {
+    const setItem = vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => {
+      throw new Error('storage blocked');
+    });
+    render(<Projects />);
+
+    fireEvent.click(screen.getByTestId('button-project-assistant-1'));
+
+    expect(mocks.setLocation).not.toHaveBeenCalled();
+    expect(screen.getByTestId('text-project-assistant-handoff-error-1'))
+      .toHaveTextContent('تعذر حفظ مسودة طلب المساعدة');
+    setItem.mockRestore();
+  });
+
+
+
   it("offers project creation directly from the empty state without starting it", () => {
     vi.mocked(useListProjects).mockReturnValue({
       data: [],
