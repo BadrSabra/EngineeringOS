@@ -306,7 +306,7 @@ describe("reconcileStuckJobs", () => {
     projectCleanup.push(projectId);
 
     const now = new Date();
-    const jobIds = Array.from({ length: 3 }, () => randomUUID());
+    const jobIds: string[] = Array.from({ length: 3 }, () => randomUUID());
     const exhaustedJobId = randomUUID();
     await db.insert(scanJobsTable).values([
       ...jobIds.map((id) => ({
