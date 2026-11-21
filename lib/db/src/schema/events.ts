@@ -62,6 +62,10 @@ export const eventsTable = pgTable("events", {
   index("idx_events_mission_goal_wake_pending")
     .on(t.timestamp, t.id)
     .where(sql`${t.type} IN ('MissionGoalWakeRequested', 'MissionGoalWakeDeferred')`),
+  // Current-plan manual Goal starts are consumed by the durable lifecycle worker.
+  index("idx_events_mission_goal_start_pending")
+    .on(t.timestamp, t.id)
+    .where(sql`${t.type} IN ('MissionGoalStartRequested', 'MissionGoalStartDeferred')`),
   // Bounded recovery for approval-triggered Mission Goal dispatch.
   index("idx_events_mission_goal_approval_pending")
     .on(t.timestamp, t.id)
