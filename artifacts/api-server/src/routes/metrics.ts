@@ -2,7 +2,7 @@ import { Router } from "express";
 import { db } from "@workspace/db";
 import { metricsTable, projectsTable } from "@workspace/db";
 import { ListMetricsQueryParams } from "@workspace/api-zod";
-import { eq, and, gte, lte, desc, inArray } from "drizzle-orm";
+import { eq, and, gte, lte, desc, getTableColumns } from "drizzle-orm";
 import { requireAuth } from "../middlewares/requireAuth.js";
 import { loadProjectByIdForUser } from "../middlewares/requireProjectAccess.js";
 import { parsePagination } from "../lib/pagination.js";
@@ -68,22 +68,21 @@ router.get("/metrics/latest", async (req, res) => {
     return res.json(latest[0] ? [latest[0]] : []);
   }
 
-  // No filter — scope to ALL projects the caller owns
-  const ownedProjects = await db
-    .select({ id: projectsTable.id })
-    .from(projectsTable)
-    .where(eq(projectsTable.ownerId, req.userId));
-
-  if (ownedProjects.length === 0) return res.json([]);
-
-  const projectIds = ownedProjects.map((p: { id: string }) => p.id);
-  // Let PostgreSQL discard historical rows before they cross the database
-  // boundary. DISTINCT ON keeps only the newest metric for each owned project;
-  // the id tie-breaker makes equal-timestamp snapshots deterministic.
+  // Join ownership into the same statement as the metric lookup. The inner
+  // join preserves the previous behavior: only owned projects with metrics
+  // appear, while projects without a snapshot contribute no row.
+  // DISTINCT ON keeps the newest metric per project; the id tie-breaker makes
+  // equal-timestamp snapshots deterministic.
   const latestPerProject = await db
-    .selectDistinctOn([metricsTable.projectId])
+    .selectDistinctOn([metricsTable.projectId], getTableColumns(metricsTable))
     .from(metricsTable)
-    .where(inArray(metricsTable.projectId, projectIds))
+    .innerJoin(
+      projectsTable,
+      and(
+        eq(metricsTable.projectId, projectsTable.id),
+        eq(projectsTable.ownerId, req.userId),
+      ),
+    )
     .orderBy(
       metricsTable.projectId,
       desc(metricsTable.timestamp),
