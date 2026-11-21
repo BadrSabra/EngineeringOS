@@ -456,6 +456,59 @@ async function createQueuedMissionRecipeFixture(label: string): Promise<QueuedMi
 
 
 describe("Mission recipe dispatch", () => {
+  it("filters queued non-recipe Goal executions before applying the recovery page limit", async () => {
+    const fixture = await createQueuedMissionRecipeFixture("recipe-page-filter");
+    const nonRecipeGoalId = randomUUID();
+    const nonRecipeExecutionId = randomUUID();
+    const earlierAt = new Date(Date.now() - 60_000);
+
+    await db.insert(aiGoalsTable).values({
+      id: nonRecipeGoalId,
+      missionId: fixture.missionId,
+      projectId: fixture.projectId,
+      title: "A Task Goal that is not a Recipe recovery candidate",
+      status: "running",
+      outcomeContract: { deliveryRequired: false },
+      nextAction: { kind: "task" },
+      createdAt: earlierAt,
+      updatedAt: earlierAt,
+    });
+    await db.insert(aiExecutionsTable).values({
+      id: nonRecipeExecutionId,
+      projectId: fixture.projectId,
+      goalId: nonRecipeGoalId,
+      userId: "test-user",
+      idempotencyKey: `non-recipe-task:${nonRecipeExecutionId}`,
+      resumeTokenHash: `non-recipe-task-token:${nonRecipeExecutionId}`,
+      request: JSON.stringify({
+        projectId: fixture.projectId,
+        missionId: fixture.missionId,
+        goalId: nonRecipeGoalId,
+        message: "Task execution; not a recipe operation",
+      }),
+      checkpoint: "{}",
+      status: "queued",
+      createdAt: earlierAt,
+      updatedAt: earlierAt,
+    });
+
+    const queuedExecutionIds: string[] = [];
+    const queueSpy = vi.spyOn(heavyJobQueue, "enqueueWithId")
+      .mockImplementation((executionId) => {
+        queuedExecutionIds.push(executionId);
+        return true;
+      });
+    try {
+      // A page of one must still contain the older valid Recipe execution.
+      expect(await dispatchPendingMissionRecipes(1, fixture.projectId)).toBe(1);
+    } finally {
+      queueSpy.mockRestore();
+    }
+
+    expect(queuedExecutionIds).toEqual([fixture.executionId]);
+    expect(queuedExecutionIds).not.toContain(nonRecipeExecutionId);
+  });
+
   it("does not cancel or block a queued replay when another worker claims it before preflight", async () => {
     const fixture = await createQueuedMissionRecipeFixture("preflight-owner-race");
     const queuedJobs: Array<() => Promise<void>> = [];
@@ -587,7 +640,7 @@ describe("Mission recipe dispatch", () => {
     }]);
   });
 
-  it("prioritizes a ready Mission Goal over older dependents that are still waiting", async () => {
+  it("prioritizes a ready Mission Goal and ignores historical dependency edges", async () => {
     const rootPath = await createTestRoot("ready-goal-fairness");
     const projectId = randomUUID();
     const missionId = randomUUID();
@@ -596,7 +649,9 @@ describe("Mission recipe dispatch", () => {
     const readyGoalId = randomUUID();
     const blockedTaskId = randomUUID();
     const readyTaskId = randomUUID();
+    const historicalDependencyGoalId = randomUUID();
     const planRevision = createHash("sha256").update(randomUUID()).digest("hex");
+    const historicalPlanRevision = `previous:${planRevision}`;
     const now = new Date();
     const older = new Date(now.getTime() - 60_000);
     projectIds.push(projectId);
@@ -624,6 +679,20 @@ describe("Mission recipe dispatch", () => {
       updatedAt: now,
     });
     await db.insert(aiGoalsTable).values([
+      {
+        id: historicalDependencyGoalId,
+        missionId,
+        projectId,
+        title: "Historical prerequisite from an older plan",
+        status: "completed",
+        successCriteria: {
+          stepId: "historical-prerequisite",
+          planRevision: { hash: historicalPlanRevision },
+        },
+        outcomeContract: { planRevision: { hash: historicalPlanRevision } },
+        createdAt: older,
+        updatedAt: older,
+      },
       {
         id: incompleteDependencyGoalId,
         missionId,
@@ -694,15 +763,26 @@ describe("Mission recipe dispatch", () => {
         updatedAt: now,
       },
     ]);
-    await db.insert(aiGoalDependenciesTable).values({
-      id: randomUUID(),
-      missionId,
-      projectId,
-      goalId: blockedGoalId,
-      dependsOnGoalId: incompleteDependencyGoalId,
-      planRevision,
-      createdAt: older,
-    });
+    await db.insert(aiGoalDependenciesTable).values([
+      {
+        id: randomUUID(),
+        missionId,
+        projectId,
+        goalId: blockedGoalId,
+        dependsOnGoalId: incompleteDependencyGoalId,
+        planRevision,
+        createdAt: older,
+      },
+      {
+        id: randomUUID(),
+        missionId,
+        projectId,
+        goalId: readyGoalId,
+        dependsOnGoalId: historicalDependencyGoalId,
+        planRevision: historicalPlanRevision,
+        createdAt: older,
+      },
+    ]);
 
     expect(await wakeReadyMissionGoals(1, projectId)).toBe(1);
     expect(scheduleTaskExecution).toHaveBeenCalledOnce();

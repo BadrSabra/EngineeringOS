@@ -1,4 +1,4 @@
-import { MonitorPlay, ShieldAlert } from 'lucide-react';
+import { MonitorPlay, ShieldAlert, Sparkles } from 'lucide-react';
 
 type ProjectCanvasPanelProps = {
   candidateSourceAvailable: boolean;
@@ -63,11 +63,20 @@ export default function ProjectCanvasPanel({
         </div>
         <div className="mt-3 flex flex-col items-start gap-2 border-t border-slate-700/60 pt-3">
           <a
-            href="#workspace-preview-agents"
+            href="#workspace-panel-agent"
             className="workspace-retry"
+            aria-label="الانتقال إلى محادثة المشروع لوصف الهدف"
+            data-testid="link-preview-gate-to-assistant"
+          >
+            <Sparkles className="h-4 w-4" aria-hidden="true" />
+            ابدأ بوصف هدفك للمساعد
+          </a>
+          <a
+            href="#workspace-preview-agents"
+            className="text-xs text-cyan-300 underline-offset-4 hover:underline"
             aria-label="الانتقال إلى إعداد جهاز Linux للمعاينة"
           >
-            الانتقال إلى إعداد جهاز Linux
+            إعداد جهاز Linux للمعاينة
           </a>
           <p className="text-[11px] leading-5 text-slate-500">
             الاقتران خطوة تجهيز للهوية فقط؛ لا يفتح المعاينة ولا يشغّل النسخة المرشحة.

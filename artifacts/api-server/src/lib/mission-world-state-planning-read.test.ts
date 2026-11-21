@@ -1,8 +1,9 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { buildMissionPlanPreview } from "@workspace/ai-orchestrator";
 import {
   buildMissionWorldStatePlanningRead,
   loadMissionWorldStatePlanningRead,
+  loadMissionWorldStateSourceIdentity,
 } from "./mission-world-state-planning-read.js";
 import { taskScopeIdentity } from "./agent-state/observation-materializer.js";
 import type {
@@ -283,4 +284,101 @@ describe("Mission World State planning read", () => {
 
     expect(result).toBeUndefined();
   });
+
+  it("loads Acceptance, Execution, and Episode identity in one joined query", async () => {
+    const { episode } = fixture();
+    const acceptance = {
+      id: "acceptance-1",
+      projectId: episode.projectId,
+      executionId: episode.executionId,
+      outcome: "FAILED",
+      attempt: episode.attempt,
+      candidateIdentity: null,
+      sourceRevision: episode.projectRevision,
+    };
+    const execution = {
+      id: episode.executionId,
+      projectId: episode.projectId,
+      goalId: episode.goalId,
+      attempt: episode.attempt,
+      status: "failed",
+    };
+    const expected = { acceptance, execution, episode };
+    const query = {
+      from: vi.fn().mockReturnThis(),
+      innerJoin: vi.fn().mockReturnThis(),
+      where: vi.fn().mockReturnThis(),
+      limit: vi.fn().mockResolvedValue([expected]),
+    };
+    const select = vi.fn(() => query);
+    const tx = { select } as never;
+
+    await expect(loadMissionWorldStateSourceIdentity(tx, {
+      missionId: "mission-1",
+      projectId: "project-1",
+      goalId: "goal-1",
+      executionId: "execution-1",
+      acceptanceId: "acceptance-1",
+      acceptanceOutcome: "FAILED",
+    })).resolves.toEqual(expected);
+
+    expect(select).toHaveBeenCalledTimes(1);
+    expect(query.innerJoin).toHaveBeenCalledTimes(2);
+    expect(query.limit).toHaveBeenCalledWith(2);
+  });
+
+  it("fails closed for ambiguous or mismatched joined source identity", async () => {
+    const { episode } = fixture();
+    const acceptance = {
+      id: "acceptance-1",
+      projectId: episode.projectId,
+      executionId: episode.executionId,
+      outcome: "FAILED",
+      attempt: episode.attempt,
+      candidateIdentity: null,
+      sourceRevision: episode.projectRevision,
+    };
+    const execution = {
+      id: episode.executionId,
+      projectId: episode.projectId,
+      goalId: episode.goalId,
+      attempt: episode.attempt,
+      status: "failed",
+    };
+    const row = { acceptance, execution, episode };
+    const invalidRows = [
+      [],
+      [row, row],
+      [{ ...row, acceptance: { ...acceptance, outcome: "INTERRUPTED" } }],
+      [{ ...row, acceptance: { ...acceptance, candidateIdentity: "candidate-1" } }],
+      [{ ...row, execution: { ...execution, attempt: execution.attempt + 1 } }],
+      [{ ...row, execution: { ...execution, status: "running" } }],
+      [{ ...row, episode: { ...episode, missionId: "another-mission" } }],
+      [{ ...row, episode: { ...episode, goalId: "another-goal" } }],
+      [{ ...row, episode: { ...episode, projectRevision: "another-revision" } }],
+      [{ ...row, episode: { ...episode, closedAt: null } }],
+      [{ ...row, episode: { ...episode, state: "running" } }],
+      [{ ...row, episode: { ...episode, verdict: "succeeded" } }],
+      [{ ...row, episode: { ...episode, scope: { source: "candidate-overlay" } } }],
+    ];
+
+    for (const rows of invalidRows) {
+      const query = {
+        from: vi.fn().mockReturnThis(),
+        innerJoin: vi.fn().mockReturnThis(),
+        where: vi.fn().mockReturnThis(),
+        limit: vi.fn().mockResolvedValue(rows),
+      };
+      const tx = { select: vi.fn(() => query) } as never;
+      await expect(loadMissionWorldStateSourceIdentity(tx, {
+        missionId: "mission-1",
+        projectId: "project-1",
+        goalId: "goal-1",
+        executionId: "execution-1",
+        acceptanceId: "acceptance-1",
+        acceptanceOutcome: "FAILED",
+      })).resolves.toBeUndefined();
+    }
+  });
+
 });

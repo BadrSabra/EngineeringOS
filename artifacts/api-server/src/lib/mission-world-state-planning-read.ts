@@ -81,6 +81,82 @@ const FAILED_EPISODE_VERDICTS = new Set([
   "world_changed",
 ]);
 
+/**
+ * Resolve a Mission replan's Acceptance → Execution → Episode identity in one
+ * bounded SQL statement. LIMIT 2 preserves fail-closed ambiguity handling.
+ */
+export async function loadMissionWorldStateSourceIdentity(
+  tx: MissionWorldStateReplanTransaction,
+  input: {
+    missionId: string;
+    projectId: string;
+    goalId: string;
+    executionId: string;
+    acceptanceId: string;
+    acceptanceOutcome: unknown;
+  },
+): Promise<{
+  acceptance: typeof aiExecutionAcceptancesTable.$inferSelect;
+  execution: typeof aiExecutionsTable.$inferSelect;
+  episode: typeof aiAgentEpisodesTable.$inferSelect;
+} | undefined> {
+  const rows = await tx
+    .select({
+      acceptance: aiExecutionAcceptancesTable,
+      execution: aiExecutionsTable,
+      episode: aiAgentEpisodesTable,
+    })
+    .from(aiExecutionAcceptancesTable)
+    .innerJoin(aiExecutionsTable, and(
+      eq(aiExecutionsTable.id, aiExecutionAcceptancesTable.executionId),
+      eq(aiExecutionsTable.projectId, aiExecutionAcceptancesTable.projectId),
+      eq(aiExecutionsTable.projectId, input.projectId),
+      eq(aiExecutionsTable.goalId, input.goalId),
+    ))
+    .innerJoin(aiAgentEpisodesTable, and(
+      eq(aiAgentEpisodesTable.projectId, aiExecutionsTable.projectId),
+      eq(aiAgentEpisodesTable.executionId, aiExecutionsTable.id),
+      eq(aiAgentEpisodesTable.attempt, aiExecutionAcceptancesTable.attempt),
+    ))
+    .where(and(
+      eq(aiExecutionAcceptancesTable.projectId, input.projectId),
+      eq(aiExecutionAcceptancesTable.executionId, input.executionId),
+      eq(aiExecutionAcceptancesTable.id, input.acceptanceId),
+    ))
+    .limit(2);
+  if (rows.length !== 1) return undefined;
+
+  const row = rows[0];
+  const acceptance = row?.acceptance;
+  const execution = row?.execution;
+  const episode = row?.episode;
+  if (
+    !acceptance
+    || acceptance.id !== input.acceptanceId
+    || acceptance.outcome !== input.acceptanceOutcome
+    || (acceptance.outcome !== "FAILED" && acceptance.outcome !== "INTERRUPTED")
+    || acceptance.candidateIdentity != null
+    || !execution
+    || execution.attempt !== acceptance.attempt
+    || (execution.status !== "failed" && execution.status !== "completed")
+    || !episode
+    || episode.missionId !== input.missionId
+    || episode.goalId !== input.goalId
+    || episode.projectId !== input.projectId
+    || (acceptance.sourceRevision != null
+      && episode.projectRevision !== acceptance.sourceRevision)
+    || !episode.closedAt
+    || !["completed", "blocked", "failed"].includes(episode.state)
+    || !episode.verdict
+    || !FAILED_EPISODE_VERDICTS.has(episode.verdict)
+    || containsCandidateMarker(episode.scope)
+  ) {
+    return undefined;
+  }
+
+  return { acceptance, execution, episode };
+}
+
 function jsonRecord(value: unknown): Record<string, unknown> {
   return value && typeof value === "object" && !Array.isArray(value)
     ? value as Record<string, unknown>
@@ -286,69 +362,16 @@ export async function loadMissionWorldStatePlanningRead(
     return undefined;
   }
 
-  const acceptanceRows = await tx
-    .select()
-    .from(aiExecutionAcceptancesTable)
-    .where(and(
-      eq(aiExecutionAcceptancesTable.projectId, input.projectId),
-      eq(aiExecutionAcceptancesTable.executionId, executionId),
-      eq(aiExecutionAcceptancesTable.id, acceptanceId),
-    ))
-    .limit(2);
-  if (acceptanceRows.length !== 1) return undefined;
-  const acceptance = acceptanceRows[0];
-  if (
-    !acceptance
-    || acceptance.id !== acceptanceId
-    || acceptance.outcome !== acceptanceProjection.outcome
-    || (acceptance.outcome !== "FAILED" && acceptance.outcome !== "INTERRUPTED")
-    || acceptance.candidateIdentity != null
-  ) {
-    return undefined;
-  }
-
-  const [execution] = await tx
-    .select()
-    .from(aiExecutionsTable)
-    .where(and(
-      eq(aiExecutionsTable.id, executionId),
-      eq(aiExecutionsTable.projectId, input.projectId),
-      eq(aiExecutionsTable.goalId, input.goalId),
-    ));
-  if (
-    !execution
-    || execution.attempt !== acceptance.attempt
-    || (execution.status !== "failed" && execution.status !== "completed")
-  ) {
-    return undefined;
-  }
-
-  const episodes = await tx
-    .select()
-    .from(aiAgentEpisodesTable)
-    .where(and(
-      eq(aiAgentEpisodesTable.projectId, input.projectId),
-      eq(aiAgentEpisodesTable.executionId, executionId),
-      eq(aiAgentEpisodesTable.attempt, acceptance.attempt),
-    ))
-    .limit(2);
-  if (episodes.length !== 1) return undefined;
-  const episode = episodes[0];
-  if (
-    !episode
-    || episode.missionId !== input.missionId
-    || episode.goalId !== input.goalId
-    || episode.projectId !== input.projectId
-    || (acceptance.sourceRevision != null
-      && episode.projectRevision !== acceptance.sourceRevision)
-    || !episode.closedAt
-    || !["completed", "blocked", "failed"].includes(episode.state)
-    || !episode.verdict
-    || !FAILED_EPISODE_VERDICTS.has(episode.verdict)
-    || containsCandidateMarker(episode.scope)
-  ) {
-    return undefined;
-  }
+  const sourceIdentity = await loadMissionWorldStateSourceIdentity(tx, {
+    missionId: input.missionId,
+    projectId: input.projectId,
+    goalId: input.goalId,
+    executionId,
+    acceptanceId,
+    acceptanceOutcome: acceptanceProjection.outcome,
+  });
+  if (!sourceIdentity) return undefined;
+  const { episode } = sourceIdentity;
   if (
     !episode.environmentRevision
     || !CONCRETE_ENVIRONMENT_REVISION.test(episode.environmentRevision)

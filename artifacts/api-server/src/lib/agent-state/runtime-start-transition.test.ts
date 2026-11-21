@@ -44,6 +44,7 @@ import {
   recoverAcceptedApplyChangesTransition,
   finalizeApplyChangesTransition,
   finalizeRuntimeStartTransition,
+  dispatchMissionWorldTransitionWakeIntent,
   dispatchPendingMaterializedMissionTransitionWakes,
   retryPendingRuntimeStartTransitions,
 } from "./runtime-start-transition.js";
@@ -3968,6 +3969,60 @@ describe("Materialized Mission World Transition wake outbox", () => {
       ));
     expect(dispatches).toHaveLength(1);
     expect(enqueue).toHaveBeenCalledOnce();
+  });
+
+  it("uses the durable Goal outbox as the only Recipe continuation wake path", async () => {
+    const fixture = await transitionFixture({ missionHandoff: true });
+    const mission = fixture.missionHandoff;
+    if (!mission) throw new Error("Mission handoff fixture was not created.");
+
+    await db.update(aiWorldTransitionsTable).set({
+      status: "materialized",
+      idempotencyKey: `github.delivery:${fixture.operationId}`,
+    }).where(eq(aiWorldTransitionsTable.id, fixture.transitionId));
+
+    const intentId = `mission-world-transition-wake:${fixture.transitionId}`;
+    await db.insert(eventsTable).values({
+      id: intentId,
+      type: "AiMissionWorldTransitionWakeRequested",
+      projectId: fixture.projectId,
+      goalId: mission.sourceGoalId,
+      correlationId: fixture.executionId,
+      severity: "info",
+      message: "A materialized GitHub delivery transition requested a Mission wake",
+      payload: {
+        schemaVersion: 1,
+        transitionId: fixture.transitionId,
+        transitionKind: "github_delivery",
+        projectId: fixture.projectId,
+        missionId: mission.missionId,
+        goalId: mission.sourceGoalId,
+        executionId: fixture.executionId,
+        attempt: 0,
+        episodeId: fixture.episodeId,
+        actionId: fixture.transitionInput.actionId,
+        attemptCount: 0,
+      },
+    });
+
+    const reconcileRecipe = vi.spyOn(
+      missionRuntimeModule,
+      "reconcileCompletedMissionRecipeAcceptances",
+    ).mockResolvedValue(0);
+    const directDependencyWake = vi.spyOn(missionRuntimeModule, "wakeReadyMissionGoals");
+
+    await expect(dispatchMissionWorldTransitionWakeIntent(intentId)).resolves.toBe(true);
+
+    expect(reconcileRecipe).toHaveBeenCalledWith(1, fixture.projectId, fixture.executionId);
+    expect(directDependencyWake).not.toHaveBeenCalled();
+    const [processedIntent] = await db.select({ payload: eventsTable.payload })
+      .from(eventsTable)
+      .where(eq(eventsTable.id, intentId))
+      .limit(1);
+    expect(processedIntent?.payload).toMatchObject({
+      dispatchOutcome: "delivered",
+      processedAt: expect.any(String),
+    });
   });
 });
 

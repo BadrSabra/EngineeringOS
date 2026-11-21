@@ -18,6 +18,12 @@ describe("ProjectCanvasPanel", () => {
     );
     expect(screen.getByText("مصدر المرشح غير متاح الآن؛ لا يمكن تأكيد وجود نسخة مرشحة.")).toBeInTheDocument();
     expect(screen.getByText("غير متاحة؛ لا يمكن تأكيد حالة التشغيل")).toBeInTheDocument();
+    expect(screen.getByTestId("link-preview-gate-to-assistant"))
+      .toHaveAttribute("href", "#workspace-panel-agent");
+    expect(screen.getByTestId("link-preview-gate-to-assistant"))
+      .toHaveAccessibleName("الانتقال إلى محادثة المشروع لوصف الهدف");
+    expect(screen.getByRole("link", { name: "الانتقال إلى إعداد جهاز Linux للمعاينة" }))
+      .toHaveAttribute("href", "#workspace-preview-agents");
   });
 
   it("keeps registered candidate and Runtime status separate from Preview qualification", () => {

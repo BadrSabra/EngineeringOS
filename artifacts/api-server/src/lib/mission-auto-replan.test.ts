@@ -25,8 +25,12 @@ import { dispatchPendingMissionEventWakes } from "./mission-event-wake-outbox.js
 import { loadMissionWorldStatePlanningRead } from "./mission-world-state-planning-read.js";
 import { diagnoseRuntimeStartWorldStateFailure } from "./world-state-failure-diagnosis.js";
 
-const { scheduleTaskExecution } = vi.hoisted(() => ({
+const {
+  scheduleTaskExecution,
+  loadRuntimeStartHypothesisReplanEvidenceSpy,
+} = vi.hoisted(() => ({
   scheduleTaskExecution: vi.fn(),
+  loadRuntimeStartHypothesisReplanEvidenceSpy: vi.fn(),
 }));
 
 vi.mock("../routes/ai/tasks.js", async () => {
@@ -36,11 +40,27 @@ vi.mock("../routes/ai/tasks.js", async () => {
   return { ...actual, scheduleAiTaskExecution: scheduleTaskExecution };
 });
 
+vi.mock("./agent-state/runtime-start-hypothesis-replan-context.js", async () => {
+  const actual = await vi.importActual<
+    typeof import("./agent-state/runtime-start-hypothesis-replan-context.js")
+  >("./agent-state/runtime-start-hypothesis-replan-context.js");
+  return {
+    ...actual,
+    loadRuntimeStartHypothesisReplanEvidence: (...args: Parameters<
+      typeof actual.loadRuntimeStartHypothesisReplanEvidence
+    >) => {
+      loadRuntimeStartHypothesisReplanEvidenceSpy(...args);
+      return actual.loadRuntimeStartHypothesisReplanEvidence(...args);
+    },
+  };
+});
+
 const projectIds: string[] = [];
 
 afterEach(async () => {
   vi.restoreAllMocks();
   scheduleTaskExecution.mockReset();
+  loadRuntimeStartHypothesisReplanEvidenceSpy.mockReset();
   for (const projectId of projectIds.splice(0)) {
     await db.delete(projectsTable).where(eq(projectsTable.id, projectId)).catch(() => undefined);
   }
@@ -141,6 +161,8 @@ describe("automatic Mission replanning", () => {
             requiresApproval: false,
           },
         },
+        // A prior revision alone must not trigger runtime-start episode lookup.
+        planRevision: { hash: "previous-non-runtime-revision" },
       },
       nextAction: { kind: "replan", reason: "retry from current evidence" },
       createdAt: now,
@@ -167,6 +189,7 @@ describe("automatic Mission replanning", () => {
       autoReplanMission(missionId),
       autoReplanMission(missionId),
     ]);
+    expect(loadRuntimeStartHypothesisReplanEvidenceSpy).not.toHaveBeenCalled();
     const result = concurrentResults.find((entry) => entry.status === "replanned");
     expect(result?.status).toBe("replanned");
     if (result?.status !== "replanned") return;
