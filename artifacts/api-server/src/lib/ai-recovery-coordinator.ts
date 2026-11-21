@@ -657,14 +657,15 @@ async function findRecoveryCandidates(scope: {
       eq(aiExecutionAcceptancesTable.attempt, aiExecutionsTable.attempt),
       inArray(aiExecutionAcceptancesTable.nextActionCode, [...RECOVERY_ACTIONS]),
       eq(aiExecutionAcceptancesTable.outcome, "FAILED"),
-      sql`(
-        ${aiExecutionAcceptancesTable.disposition}->>'dependencyRetryAt' IS NULL
-        OR NOT pg_input_is_valid(
+      sql`CASE
+        WHEN ${aiExecutionAcceptancesTable.disposition}->>'dependencyRetryAt' IS NULL THEN TRUE
+        WHEN pg_input_is_valid(
           ${aiExecutionAcceptancesTable.disposition}->>'dependencyRetryAt',
           'timestamp with time zone'
         )
-        OR (${aiExecutionAcceptancesTable.disposition}->>'dependencyRetryAt')::timestamptz <= clock_timestamp()
-      )`,
+        THEN (${aiExecutionAcceptancesTable.disposition}->>'dependencyRetryAt')::timestamptz <= clock_timestamp()
+        ELSE TRUE
+      END`,
       inArray(aiExecutionsTable.status, [...RECOVERY_EXECUTION_STATUSES]),
       inArray(tasksTable.status, [...RECOVERY_TASK_STATUSES]),
       isNotNull(aiExecutionsTable.correlationId),
