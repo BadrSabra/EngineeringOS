@@ -497,52 +497,32 @@ export function recordProviderLifecycleOutcome(input: {
             ? "runtime_capability_mismatch"
             : "runtime_transient_failure";
 
-  // A runtime model failure is evidence about the exact candidate, not about
-  // every model reachable through this provider credential. Preserve the
-  // other healthy role(s) and keep the provider selectable while at least one
-  // known role remains usable. The live free-model resolver independently
-  // skips per-model cooldowns and remains the authority for the next request.
-  const modelNotFound = input.code === "MODEL_NOT_FOUND";
-  const matchedRole = Boolean(
-    modelNotFound && input.model && snapshot.roles.some((role) => role.modelId === input.model),
-  );
-  const roles = matchedRole
-    ? snapshot.roles.map((role) =>
-        role.modelId === input.model ? { ...role, status: "missing" as const } : role,
-      )
-    : snapshot.roles;
-  const allKnownRolesMissing = matchedRole
-    && roles.length > 0
-    && roles.every((role) => role.status === "missing");
-  const modelStatus = modelNotFound && matchedRole
-    ? allKnownRolesMissing
-      ? "model_missing" as const
-      : "model_partial" as const
-    : snapshot.modelStatus;
-
+  // Runtime model/tool failures describe an attempted candidate or request,
+  // not the provider's whole free catalog. The fast/powerful roles are
+  // representative resolver choices, not an exhaustive inventory; only a
+  // fresh catalog/capability check may decide that no eligible model remains.
+  // Keep the exact failure reason for diagnostics without poisoning cached
+  // provider-wide readiness. Per-model cooldowns are enforced by the resolver.
+  const preservesEligibility =
+    reason === "runtime_model_not_found"
+    || reason === "runtime_capability_mismatch"
+    || reason === "runtime_transient_failure";
   const credentialStatus = input.code === "AUTH_ERROR"
     ? "credentials_invalid" as const
     : snapshot.credentialStatus;
-  const isCandidateFailure =
-    reason === "runtime_model_not_found" || reason === "runtime_capability_mismatch";
-  const candidateStillSelectable = isCandidateFailure
-    ? snapshot.selectable && !allKnownRolesMissing
-    : reason === "runtime_transient_failure"
-      ? snapshot.selectable
-      : false;
-  const selectable = reason === "runtime_request_rejected" || reason === "runtime_auth_failed"
-    ? false
-    : candidateStillSelectable;
+  const selectable = preservesEligibility
+    ? snapshot.selectable
+    : false;
 
   cache.set(key, {
     ...entry,
     snapshot: completedSnapshot(snapshot, {
       revision: nextRevision(key),
-      roles,
-      modelStatus,
+      roles: snapshot.roles,
+      modelStatus: snapshot.modelStatus,
       credentialStatus,
-      // A single rejected model/tool attempt degrades diagnostics but does not
-      // poison the provider credential or unrelated free-model candidates.
+      // A late candidate failure cannot override a catalog/credential failure,
+      // while a healthy cached catalog remains eligible for other candidates.
       overallStatus: selectable ? "degraded" : "unavailable",
       selectable,
       reasonCodes: [...new Set([...snapshot.reasonCodes, reason])],
