@@ -1113,10 +1113,21 @@ export async function dispatchDeferredAiTaskExecutions(limit = 100): Promise<num
 
 /** Test/process-shutdown barrier for already scheduled task jobs. */
 export async function waitForScheduledAiTaskExecutions(): Promise<void> {
+  // A queue callback can resolve its completion immediately before this
+  // barrier resumes. Await the captured generation promises and remove only
+  // the exact settled entries we waited for, so a later retry of the same
+  // Task generation is not suppressed by a stale local completion marker.
+  const scheduling = [...schedulingAiTaskExecutions.entries()];
+  const completions = [...scheduledAiTaskCompletions.entries()];
   await Promise.allSettled([
-    ...schedulingAiTaskExecutions.values(),
-    ...scheduledAiTaskCompletions.values(),
+    ...scheduling.map(([, promise]) => promise),
+    ...completions.map(([, promise]) => promise),
   ]);
+  for (const [scheduleKey, completion] of completions) {
+    if (scheduledAiTaskCompletions.get(scheduleKey) === completion) {
+      scheduledAiTaskCompletions.delete(scheduleKey);
+    }
+  }
 }
 
 export default router;
