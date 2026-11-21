@@ -728,6 +728,34 @@ export function classifyOpenRouterFailure(
  * MODEL_UNAVAILABLE (temporarily offline — 422/410), and EMPTY_RESPONSE
  * (a model-specific silent completion).
  */
+async function recordUnavailableOpenRouterModelCooldown(
+  error: unknown,
+  model: string,
+  persistence?: ModelCooldownPersistence,
+): Promise<void> {
+  if (!(error instanceof GroqClientError)) return;
+  const candidateUnavailable =
+    error.code === "MODEL_NOT_FOUND"
+    || error.code === "MODEL_UNAVAILABLE"
+    || error.code === "PLAN_RESTRICTED"
+    || error.code === "EMPTY_RESPONSE";
+  if (!candidateUnavailable) return;
+
+  const cooldown = await recordLocalAdaptiveModelCooldown(
+    "openrouter",
+    model,
+    persistence,
+  );
+  console.info(JSON.stringify({
+    scope: "openrouter-fallback",
+    code: "MODEL_CANDIDATE_COOLDOWN",
+    model,
+    reason: error.code,
+    cooldownMs: cooldown.cooldownMs,
+    persistence: cooldown.persistence,
+  }));
+}
+
 function isModelUnavailableError(err: unknown): err is GroqClientError {
   return (
     err instanceof GroqClientError &&
@@ -2442,33 +2470,13 @@ export async function openrouterCompleteWithFallback(
       // retry in openrouterCompleteRaw. If that retry is exhausted, advance to
       // the next compatible free candidate. Preserve Retry-After as a wait
       // signal and never rotate around a provider/account rate limit.
-      // Model availability/eligibility failures are properties of this exact
-      // candidate, not of the user's request. Persist a bounded adaptive
-      // cooldown so later requests prefer another eligible free model instead
-      // of repeatedly probing a model already rejected by the provider.
-      // Tool/request-shape errors are excluded because they do not establish
-      // that the model is unavailable for other requests.
-      const candidateUnavailable = err instanceof GroqClientError && (
-        err.code === "MODEL_NOT_FOUND"
-        || err.code === "MODEL_UNAVAILABLE"
-        || err.code === "PLAN_RESTRICTED"
-        || err.code === "EMPTY_RESPONSE"
+      // Persist only candidate-wide failures; request/tool-shape errors remain
+      // local to this invocation and must not poison later requests.
+      await recordUnavailableOpenRouterModelCooldown(
+        err,
+        model,
+        opts.modelCooldownPersistence,
       );
-      if (candidateUnavailable) {
-        const cooldown = await recordLocalAdaptiveModelCooldown(
-          "openrouter",
-          model,
-          opts.modelCooldownPersistence,
-        );
-        console.info(JSON.stringify({
-          scope: "openrouter-fallback",
-          code: "MODEL_CANDIDATE_COOLDOWN",
-          model,
-          reason: err.code,
-          cooldownMs: cooldown.cooldownMs,
-          persistence: cooldown.persistence,
-        }));
-      }
       const fallbackOnTransient =
         isTransientError(err) &&
         !isRateLimitFailure(err) &&
@@ -2837,6 +2845,14 @@ export async function* openrouterCompleteStream(
             transientRetried = true;
             continue;
           }
+          // Streaming completions use the same cross-request candidate health
+          // memory as non-streaming completions. This runs only before content
+          // is emitted (the branch above terminalizes partial streams).
+          await recordUnavailableOpenRouterModelCooldown(
+            providerError,
+            model,
+            fullOpts.modelCooldownPersistence,
+          );
           const fallbackOnTransient =
             isTransientError(providerError) &&
             !isRateLimitFailure(providerError) &&
