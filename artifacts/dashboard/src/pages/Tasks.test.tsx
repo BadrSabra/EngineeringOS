@@ -4,7 +4,7 @@ import axe from 'axe-core';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { useLocation } from 'wouter';
 import type { AiExecutionProjection } from '@workspace/api-client-react';
-import { readGoalDrafts } from '@/lib/home-goal-handoff';
+import { readGoalDrafts, storeHomeGoalDraft } from '@/lib/home-goal-handoff';
 import Tasks from './Tasks';
 
 const createTaskMutate = vi.hoisted(() => vi.fn());
@@ -770,6 +770,47 @@ describe('project-scoped task list contracts', () => {
     expect(screen.getByRole('status')).toHaveTextContent('لا توجد مهام في هذا العرض');
   });
 
+  it('opens the scoped project assistant from an empty task list without creating a task', () => {
+    window.history.replaceState({}, '', '/tasks?projectId=project-1');
+    vi.mocked(useListTasks).mockReturnValue({
+      ...taskListFixture(),
+      data: [],
+    } as ReturnType<typeof useListTasks>);
+    renderPage();
+
+    fireEvent.click(screen.getByTestId('button-empty-task-assistant'));
+
+    const draft = readGoalDrafts('owner-a').drafts[0];
+    expect(draft).toMatchObject({ projectId: 'project-1', sendAttemptedAt: null });
+    expect(draft.text).toContain('اسألني عما أريد إنجازه');
+    expect(draft.text).toContain('لا تنشئ مهامًا ولا تغيّر الملفات');
+    expect(window.location.pathname).toBe('/projects/project-1/workspace');
+    expect(new URLSearchParams(window.location.search).get('goalDraftId')).toBe(draft.id);
+    expect(window.location.hash).toBe('#workspace-panel-agent');
+    expect(createTaskMutate).not.toHaveBeenCalled();
+  });
+
+  it('stays on the task list if the assistant draft cannot be saved', () => {
+    window.history.replaceState({}, '', '/tasks?projectId=project-1');
+    vi.mocked(useListTasks).mockReturnValue({
+      ...taskListFixture(),
+      data: [],
+    } as ReturnType<typeof useListTasks>);
+    for (let index = 0; index < 8; index += 1) {
+      expect(storeHomeGoalDraft(`مسودة ${index}`, 'owner-a', 'project-1')).not.toBeNull();
+    }
+    renderPage();
+
+    fireEvent.click(screen.getByTestId('button-empty-task-assistant'));
+
+    expect(screen.getByTestId('text-empty-task-assistant-error')).toHaveTextContent(
+      'تعذر حفظ مسودة طلب المساعدة.',
+    );
+    expect(window.location.pathname).toBe('/tasks');
+    expect(createTaskMutate).not.toHaveBeenCalled();
+    expect(readGoalDrafts('owner-a').drafts).toHaveLength(8);
+  });
+
   it('retries a failed list read without replacing the error with an empty result or executing a task', () => {
     const refetch = vi.fn();
     vi.mocked(useListTasks).mockReturnValue({
@@ -794,6 +835,7 @@ describe('project-scoped task list contracts', () => {
     fireEvent.change(screen.getByRole('combobox', { name: 'تصفية المهام حسب الحالة' }), { target: { value: 'running' } });
     expect(screen.getByRole('status')).toHaveTextContent('لا توجد مهام تطابق الفلاتر');
     expect(screen.getByRole('status')).toHaveTextContent('لا حكم على كل مهام المشروع');
+    expect(screen.queryByTestId('button-empty-task-assistant')).not.toBeInTheDocument();
     expect(useListTasks).toHaveBeenLastCalledWith(
       expect.objectContaining({ projectId: 'project-1', status: 'running' }), expect.anything(),
     );
