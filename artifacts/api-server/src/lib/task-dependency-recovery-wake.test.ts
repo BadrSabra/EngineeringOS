@@ -31,6 +31,7 @@ async function insertRecoveryCandidate(input: {
   taskId: string;
   correlationId: string;
   retryAt: string;
+  providerRetryAt: string;
 }) {
   const executionId = randomUUID();
   await db.insert(aiExecutionsTable).values({
@@ -69,6 +70,7 @@ async function insertRecoveryCandidate(input: {
     disposition: {
       recoveryState: "REQUIRED",
       nextActionCode: "RETRY_AFTER_TIMEOUT",
+      retryAt: input.providerRetryAt,
       dependencyRetryAt: input.retryAt,
       dependencyBlockerReasons: ["dependency_not_completed"],
     },
@@ -103,6 +105,7 @@ describe("autonomous Task recovery dependency wake", () => {
     const blockedChildId = randomUUID();
     const unrelatedChildId = randomUUID();
     const retryAt = new Date(Date.now() + 60_000).toISOString();
+    const providerRetryAt = new Date(Date.now() + 120_000).toISOString();
 
     await db.insert(tasksTable).values([
       {
@@ -161,18 +164,21 @@ describe("autonomous Task recovery dependency wake", () => {
       taskId: readyChildId,
       correlationId: "ready-child-correlation",
       retryAt,
+      providerRetryAt,
     });
     const blockedAcceptanceId = await insertRecoveryCandidate({
       projectId,
       taskId: blockedChildId,
       correlationId: "blocked-child-correlation",
       retryAt,
+      providerRetryAt,
     });
     const unrelatedAcceptanceId = await insertRecoveryCandidate({
       projectId,
       taskId: unrelatedChildId,
       correlationId: "unrelated-child-correlation",
       retryAt,
+      providerRetryAt,
     });
 
     await expect(db.transaction((tx) => wakeDeferredTaskRecoveryAcceptances(tx, {
@@ -203,6 +209,7 @@ describe("autonomous Task recovery dependency wake", () => {
     expect(Date.parse(String(readyDisposition.dependencyRetryAt)))
       .toBeLessThanOrEqual(Date.now() + 5_000);
     expect(readyDisposition.dependencyBlockerReasons).toEqual(["dependency_not_completed"]);
+    expect(readyDisposition.retryAt).toBe(providerRetryAt);
     expect(blockedDisposition.dependencyRetryAt).toBe(retryAt);
     expect(unrelatedDisposition.dependencyRetryAt).toBe(retryAt);
 
