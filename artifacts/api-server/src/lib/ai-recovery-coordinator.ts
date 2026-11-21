@@ -666,6 +666,18 @@ async function findRecoveryCandidates(scope: {
         THEN (${aiExecutionAcceptancesTable.disposition}->>'dependencyRetryAt')::timestamptz <= clock_timestamp()
         ELSE TRUE
       END`,
+      // Keep future retry windows out of the bounded candidate page. Invalid
+      // values remain visible to the planner, which preserves the existing
+      // fail-closed handling for malformed rate-limit deadlines.
+      sql`CASE
+        WHEN ${aiExecutionAcceptancesTable.disposition}->>'retryAt' IS NULL THEN TRUE
+        WHEN pg_input_is_valid(
+          ${aiExecutionAcceptancesTable.disposition}->>'retryAt',
+          'timestamp with time zone'
+        )
+        THEN (${aiExecutionAcceptancesTable.disposition}->>'retryAt')::timestamptz <= clock_timestamp()
+        ELSE TRUE
+      END`,
       inArray(aiExecutionsTable.status, [...RECOVERY_EXECUTION_STATUSES]),
       inArray(tasksTable.status, [...RECOVERY_TASK_STATUSES]),
       isNotNull(aiExecutionsTable.correlationId),
@@ -718,6 +730,17 @@ async function findChatRecoveryCandidates(scope: {
         "RETRY_AFTER_RATE_LIMIT",
       ]),
       eq(aiExecutionAcceptancesTable.outcome, "FAILED"),
+      // Match Task candidate paging: exclude only valid future retry windows
+      // before LIMIT, leaving malformed values to the recovery planner.
+      sql`CASE
+        WHEN ${aiExecutionAcceptancesTable.disposition}->>'retryAt' IS NULL THEN TRUE
+        WHEN pg_input_is_valid(
+          ${aiExecutionAcceptancesTable.disposition}->>'retryAt',
+          'timestamp with time zone'
+        )
+        THEN (${aiExecutionAcceptancesTable.disposition}->>'retryAt')::timestamptz <= clock_timestamp()
+        ELSE TRUE
+      END`,
       isNull(aiExecutionsTable.linkedTaskId),
       inArray(aiExecutionsTable.status, [...RECOVERY_EXECUTION_STATUSES]),
       scope.projectId ? eq(projectsTable.id, scope.projectId) : undefined,
