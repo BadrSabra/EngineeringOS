@@ -10,6 +10,7 @@ export type ScanBaselineUnavailableReason =
   | "scan_not_complete"
   | "non_filesystem_scan"
   | "scanner_version_missing"
+  | "scan_correlation_id_missing"
   | "manifest_missing"
   | "manifest_incomplete"
   | "manifest_invalid"
@@ -17,6 +18,7 @@ export type ScanBaselineUnavailableReason =
 
 export interface PersistedScanBaseline {
   scanJobId: string;
+  scanCorrelationId: string;
   scannerVersion: string;
   manifest: RevisionManifest;
 }
@@ -123,6 +125,12 @@ export function readPersistedScanBaseline(input: {
   if (typeof result.scannerVersion !== "string" || result.scannerVersion.length === 0) {
     return { available: false, reason: "scanner_version_missing" };
   }
+  if (
+    typeof result.scanCorrelationId !== "string" ||
+    result.scanCorrelationId.length === 0
+  ) {
+    return { available: false, reason: "scan_correlation_id_missing" };
+  }
   if (!isRecord(result.repositoryManifest)) {
     return { available: false, reason: "manifest_missing" };
   }
@@ -148,6 +156,7 @@ export function readPersistedScanBaseline(input: {
     available: true,
     baseline: {
       scanJobId: input.scanJobId,
+      scanCorrelationId: result.scanCorrelationId,
       scannerVersion: result.scannerVersion,
       manifest,
     },

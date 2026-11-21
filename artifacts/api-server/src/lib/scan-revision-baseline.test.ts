@@ -35,6 +35,7 @@ function completeResult(overrides: Record<string, unknown> = {}) {
     scanCompleteness: "COMPLETE",
     sourceProvenance: "filesystem-scan",
     scannerVersion: "1.0.0",
+    scanCorrelationId: "scan-session-1",
     repositoryManifest: {
       revision: "revision-1",
       sourceRoot: "/workspace/project",
@@ -92,6 +93,7 @@ describe("persisted scan revision baseline", () => {
       available: true,
       baseline: {
         scanJobId: "scan-complete",
+        scanCorrelationId: "scan-session-1",
         scannerVersion: "1.0.0",
         manifest: {
           revision: "revision-1",
@@ -107,6 +109,7 @@ describe("persisted scan revision baseline", () => {
     ["partial scan", { scanCompleteness: "PARTIAL" }, "scan_not_complete"],
     ["non-filesystem source", { sourceProvenance: "discovery-import" }, "non_filesystem_scan"],
     ["missing scanner version", { scannerVersion: null }, "scanner_version_missing"],
+    ["missing scan correlation id", { scanCorrelationId: null }, "scan_correlation_id_missing"],
     ["partial file manifest", {
       repositoryManifest: {
         ...completeResult().repositoryManifest,
