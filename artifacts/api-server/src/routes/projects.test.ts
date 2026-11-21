@@ -1195,7 +1195,22 @@ describe("GET /api/projects/:projectId/workspace", () => {
       verificationResult: {
         passed: true,
         decision: "verified",
-        steps: [],
+        steps: [{
+          id: "long-check",
+          name: "Retained verification evidence",
+          passed: true,
+          evidence: "evidence-".repeat(2_000),
+          output: "output-".repeat(2_000),
+        }],
+        history: [{
+          id: randomUUID(),
+          checkId: "long-check",
+          name: "Retained verification evidence",
+          passed: true,
+          evidence: "history-evidence-".repeat(2_000),
+          actor: "test-user",
+          recordedAt: now.toISOString(),
+        }],
       },
     });
     await db.insert(aiChatSessionsTable).values({
@@ -1261,6 +1276,8 @@ describe("GET /api/projects/:projectId/workspace", () => {
         verificationDecision: "verified",
       }),
     ]);
+    expect(response.body.work.recentTasks[0]).not.toHaveProperty("verificationResult");
+    expect(JSON.stringify(response.body.work.recentTasks)).not.toContain("history-evidence-");
     expect(response.body.work.latestExecution).toMatchObject({
       id: executionId,
       status: "completed",

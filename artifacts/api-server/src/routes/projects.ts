@@ -25,7 +25,7 @@ import {
   ScanProjectParams,
   GetScanJobParams,
 } from "@workspace/api-zod";
-import { eq, desc, and, inArray, count } from "drizzle-orm";
+import { eq, desc, and, inArray, count, sql } from "drizzle-orm";
 import { randomUUID } from "crypto";
 import { logger } from "../lib/logger.js";
 import { recordAuditInTransaction } from "../lib/audit.js";
@@ -783,7 +783,10 @@ router.get(
             id: tasksTable.id,
             title: tasksTable.title,
             status: tasksTable.status,
-            verificationResult: tasksTable.verificationResult,
+            // The workspace snapshot only needs the current decision label.
+            // Do not materialize the full retained verification payload (steps,
+            // outputs, evidence, and history) for this lightweight projection.
+            verificationDecision: sql<string | null>`${tasksTable.verificationResult}->>'decision'`,
             updatedAt: tasksTable.updatedAt,
           })
           .from(tasksTable)
@@ -871,7 +874,7 @@ router.get(
           status: task.status,
           verificationDecision: getWorkspaceTaskVerificationDecision(
             task.status,
-            task.verificationResult?.decision,
+            task.verificationDecision,
           ),
           updatedAt: task.updatedAt,
         })),
